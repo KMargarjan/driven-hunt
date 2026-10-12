@@ -15,6 +15,28 @@
 -- task.delay, no task.wait and no second timer in this system: a hitch cannot skip a phase, and a
 -- spec can run ten minutes in a few milliseconds of simulated dt.
 --
+-- THE END OF A DRIVE IS `Scoring`, AND TASK 159 ADDED NO PHASE EITHER (Karen: *"Timer or when all
+-- beaters cross line of hunters. And yes could be that all they standing around the animals there is
+-- light on 4 corners and then showing image transperent with results table"*). A drive now ends on
+-- EITHER of two conditions and they both enter the one `Scoring` phase, whose deadline is still
+-- `SCORE_SECONDS` and still the only clock:
+--   * the drive clock, exactly as before -- `now >= phaseEndsAt`;
+--   * every REAL beater is through the hunters' line, which this machine asks as one pure question
+--     (`Phase.beatersThrough`) of two numbers the owner measures (`event.beaters`,
+--     `event.beatersAcross`). With no real beater on the map it is false by construction, so a solo
+--     hunter's drive still ends on the clock and nothing else.
+-- What is new is `endedEarly` (which of the two it was, for the feed line) and two effects, `scene`
+-- and `clearScene`, plus the `hold` that keeps everybody at the results scene -- the SAME hold task
+-- 158 built, applied to everybody instead of to the beaters.
+--
+-- ONE RULE ABOUT THE ORDER OF THESE EFFECTS, AND IT WAS PAID FOR TWICE: **a `hold` or a `free` is
+-- emitted BEFORE the `placePlayers` it goes with.** `placePlayers` is the only effect here whose
+-- owner YIELDS (`Player:LoadCharacter`), the drive is already in its new phase while it yields, and
+-- anything that looks at the drive in that window -- a client, a broadcast, a spec -- would
+-- otherwise see a started drive whose beaters are not yet held. Measured by the two-player run of
+-- task 159 (`[harness2] FAIL 33/35 @ 7ea945f`); invisible with one player, because a solo player is
+-- never a beater.
+--
 -- THE START OF A DRIVE IS `Assigning`, AND TASK 158 ADDED NO PHASE (Karen: *"timer when start,
 -- timer like 10s to find position to stand"*, *"Beater start in line with others and countdown when
 -- drive starts"*). The countdown IS this machine's existing intermission: one phase, one deadline,
@@ -56,6 +78,10 @@ export type State = {
 	holdbacks: number,
 	nextReleaseAt: number,
 	boarsAccounted: number, -- killed + escaped this drive
+	-- WHICH OF THE TWO ENDINGS ENDED THE LAST DRIVE (task 159): true when every real beater was
+	-- through the hunters' line before the clock ran out. It is the feed line's own word and nothing
+	-- else reads it -- the results scene is the same scene either way.
+	endedEarly: boolean,
 	seed: number,
 }
 
@@ -77,6 +103,12 @@ export type Event = {
 	missing: { string }?,
 	boarSpawns: { Vector3 }?,
 	quickSpawn: Vector3?,
+	-- THE END OF A DRIVE, MEASURED BY THE OWNER AND DECIDED HERE (task 159): how many REAL beaters
+	-- are in this drive, and how many of them are through the hunters' line. Two numbers, because
+	-- "all of them" is a comparison and not a boolean somebody else already took -- and because with
+	-- `beaters = 0` the question answers itself.
+	beaters: number?,
+	beatersAcross: number?,
 }
 
 export type Effect = {
@@ -87,8 +119,12 @@ export type Effect = {
 	force: boolean?, -- "broadcast": a phase change, which no client may miss behind the throttle
 	assignment: { [number]: TeamName }?,
 	userId: number?, -- "freeze": the one player to tie to a tree
-	-- "refreshArming" / "placePlayers": whom. "hold": whom to hold at the start line. "free": whom
-	-- to let go, and NIL MEANS EVERYBODY HELD -- which is what the start of a drive means (task 158).
+	-- "refreshArming" / "placePlayers": whom. "hold": whom to hold -- at the start line (task 158),
+	-- or the whole roster at the results scene (task 159). "free": whom to let go, and NIL MEANS
+	-- EVERYBODY HELD -- which is what the start of a drive means (task 158), and what the end of the
+	-- results scene means (task 159).
+	-- "scene" and "clearScene" carry nothing: the scene is built from the drive's own kills and the
+	-- world's own geometry, which are the owner's to read, and taken down whole.
 	userIds: { number }?,
 	position: Vector3?,
 	size: number?, -- "spawnSounder": how many animals this release is
@@ -130,6 +166,7 @@ function Phase.initial(config): State
 		holdbacks = 0,
 		nextReleaseAt = math.huge,
 		boarsAccounted = 0,
+		endedEarly = false,
 		seed = config.SEED or 1,
 	})
 end
@@ -197,6 +234,40 @@ function Phase.heldUserIds(assignment: { [number]: TeamName }, config): { number
 	end
 	table.sort(ids)
 	return ids
+end
+
+-- EVERYBODY IN THE DRIVE, sorted -- the list the results scene is held by and laid out in (task
+-- 159). `participants` is the roster of the drive, so a player who joined mid-drive is in the scene
+-- and a player who left is not, with no second list to keep in step.
+function Phase.participantIds(state: State): { number }
+	local ids = {}
+	for userId in pairs(state.participants) do
+		table.insert(ids, userId)
+	end
+	table.sort(ids)
+	return ids
+end
+
+-- IS THE DRIVE OVER BECAUSE THE BEATERS ARE THROUGH? (task 159). Karen: *"Timer or when all beaters
+-- cross line of hunters"*.
+--
+-- THREE CLAUSES, AND THE MIDDLE ONE IS THE ONE THAT MATTERS: with NO real beater in the drive this
+-- is false, so a solo hunter -- which is every DEV harness session and every session Karen plays
+-- alone -- still gets the full drive and ends on the clock. "All of nobody is through" is true in
+-- arithmetic and would end the drive on its first tick.
+--
+-- The GEOMETRY is not here: the owner measures how many beaters there are and how many have crossed
+-- (`Match.crossedLine`, which reads the world's own stands and line), and this machine compares two
+-- numbers -- so a spec drives both endings with a table and no world.
+function Phase.beatersThrough(event: Event, config): boolean
+	if config.END_ON_BEATERS_CROSS ~= true then
+		return false
+	end
+	local beaters = event.beaters or 0
+	if beaters <= 0 then
+		return false
+	end
+	return (event.beatersAcross or 0) >= beaters
 end
 
 -- ONE HASH IN THIS MODULE, and everything drawn is drawn from it: the jitter on the rhythm and the
@@ -310,6 +381,14 @@ end
 -- drive-start push vanish (the clients were still being told it was the previous drive).
 local function enterAssigning(state: State, effects: { Effect }, now: number, config)
 	state.phase = "Assigning"
+	-- THE RESULTS SCENE GOES FIRST, AND THE HOLD IT PUT ON EVERYBODY GOES WITH IT (task 159). Before
+	-- the teams, before the placement and before the new hold: `clearScene` takes down the lights and
+	-- the animals, and `free` -- `userIds = nil`, everybody -- hands back the WalkSpeed the scene
+	-- took, so the hunters can walk to their stands while the beaters are held at the line again.
+	-- A tied player cannot be caught by this: `enterScoring` releases every tie before it holds
+	-- anybody.
+	table.insert(effects, { kind = "clearScene" })
+	table.insert(effects, { kind = "free" })
 	state.phaseEndsAt = now + Phase.intermissionSeconds(config)
 	state.driveNumber += 1
 	state.boarsReleased = 0
@@ -327,15 +406,31 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	state.assignment = Roster.assign(userIds, state.previousAssignment, config)
 	table.insert(effects, { kind = "assignTeams", assignment = state.assignment })
 	table.insert(effects, { kind = "clearBoars" })
-	table.insert(effects, { kind = "placePlayers" })
-	-- AND THE BEATERS ARE HELD AT THE LINE for the length of this phase (task 158). AFTER
-	-- `placePlayers`, in the order the owner applies them, because the hold is a hold ON THE
-	-- CHARACTER the placement is about to respawn -- the owner's `hold` remembers the userId and the
-	-- character watch re-applies it to whatever character arrives, exactly as a tie survives a Reset.
+	-- AND THE BEATERS ARE HELD AT THE LINE for the length of this phase (task 158) -- **BEFORE**
+	-- `placePlayers`, AND THE ORDER IS A MEASUREMENT, NOT A PREFERENCE (task 159, the Director's
+	-- two-player run at `7ea945f`: `[harness2] FAIL 33/35`, zz_drive_boundary "took the scene down
+	-- before the next drive, and let everybody go", for the ONE player the roster had just made a
+	-- beater).
+	--
+	-- WHY THE OLD ORDER WAS WRONG: `placePlayers` is the one effect in this list that YIELDS -- the
+	-- owner's `applyPlace` calls `Player:LoadCharacter()`, once per player. The drive is already in
+	-- `Assigning` with its new number while that yields, so the Heartbeat's next step broadcasts the
+	-- new drive to every client (and to anything watching) BEFORE the `hold` at the end of this list
+	-- has been applied. For the seconds that takes, a beater the machine has decided to hold is not
+	-- held: he can walk off his line, and nothing reading the drive can see that he is supposed to
+	-- be held. With one player it is invisible, because a solo player is never a beater
+	-- (`ODD_PLAYER_TEAM`), which is why only the two-player run caught it.
+	--
+	-- HOLDING FIRST COSTS NOTHING AND CLOSES IT: the hold is remembered as a userId
+	-- (`Match`'s `heldStill`) before anything can yield, and the character watch puts the freeze on
+	-- whatever character the respawn then produces -- which is the mechanism task 158 already wrote
+	-- down and relied on ("IT REMEMBERS BEFORE IT WRITES"). Freezing the character that is about to
+	-- be replaced is wasted work for one frame and nothing else.
 	local heldIds = Phase.heldUserIds(state.assignment, config)
 	if #heldIds > 0 then
 		table.insert(effects, { kind = "hold", userIds = heldIds })
 	end
+	table.insert(effects, { kind = "placePlayers" })
 	table.insert(effects, { kind = "refreshArming", userIds = userIds })
 	feed(effects, { kind = "phase", text = "Drive " .. tostring(state.driveNumber), at = now })
 	table.insert(effects, { kind = "broadcast", force = true })
@@ -358,15 +453,38 @@ local function enterRunning(state: State, effects: { Effect }, now: number, conf
 	table.insert(effects, { kind = "broadcast", force = true })
 end
 
-local function enterScoring(state: State, effects: { Effect }, now: number, config)
+-- THE END OF A DRIVE, AND SINCE TASK 159 IT IS ALSO THE RESULTS SCENE (Karen: *"all they standing
+-- around the animals there is light on 4 corners and then showing image transperent with results
+-- table"*). `reason` is "clock" or "beaters" and changes exactly one thing, the feed line: the scene
+-- is the same scene either way.
+--
+-- THE ORDER IS THE DESIGN. The ties are released first (a rope hanging on a man standing at the
+-- gathering spot would be two freezes on one character), the drive's animals are cleared, then
+-- EVERYBODY is held and the scene is built around them -- `hold` before `scene` because the scene
+-- MOVES each character and `Body.stand` holds and pivots the one character it is given, so a hold
+-- applied afterwards would save a WalkSpeed the hold itself had already zeroed.
+local function enterScoring(state: State, effects: { Effect }, now: number, config, reason: string?)
 	state.phase = "Scoring"
 	state.phaseEndsAt = now + config.SCORE_SECONDS
 	state.previousAssignment = state.assignment
 	state.nextReleaseAt = math.huge
+	state.endedEarly = reason == "beaters"
 	-- Everyone tied to a tree is freed, and whatever is still standing in the drive is removed.
 	table.insert(effects, { kind = "release" })
 	table.insert(effects, { kind = "clearBoars" })
-	feed(effects, { kind = "phase", text = "Drive over", at = now })
+	-- NOBODY WANDERS OFF WHILE THE RESULTS ARE UP (task 159, the dispatch's item 3). The same hold as
+	-- the start line, applied to the whole roster rather than to one team -- and released by
+	-- `enterAssigning`'s `free`, which is the next drive's own flow.
+	local ids = Phase.participantIds(state)
+	if #ids > 0 then
+		table.insert(effects, { kind = "hold", userIds = ids })
+	end
+	table.insert(effects, { kind = "scene" })
+	feed(effects, {
+		kind = "phase",
+		text = if state.endedEarly then "Drive over - the beaters are through" else "Drive over",
+		at = now,
+	})
 	table.insert(effects, { kind = "broadcast", force = true })
 end
 
@@ -375,6 +493,11 @@ local function enterWaiting(state: State, effects: { Effect }, now: number)
 	state.phaseEndsAt = math.huge
 	state.nextReleaseAt = math.huge
 	state.assignment = {}
+	-- THE OTHER WAY OUT OF `Scoring` (task 159), and it must take the scene down too: a server that
+	-- empties out after a drive would otherwise sit there lit, with the last drive's animals laid out
+	-- in front of whoever joins next -- and whoever was still in it would stay frozen for ever.
+	table.insert(effects, { kind = "clearScene" })
+	table.insert(effects, { kind = "free" })
 	feed(effects, { kind = "phase", text = "Waiting for players", at = now })
 	table.insert(effects, { kind = "broadcast", force = true })
 end
@@ -463,12 +586,14 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			local team = Roster.smallerTeam(Roster.counts(next_.assignment), config)
 			next_.assignment[event.userId] = team
 			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = team } })
-			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
 			-- A BEATER WHO ARRIVES INSIDE THE COUNTDOWN IS HELD LIKE THE REST (task 158), and only
 			-- inside it: in `Running` the line is long behind the drive and nobody is held at all.
+			-- BEFORE `placePlayers`, for `enterAssigning`'s reason above (task 159): the placement
+			-- yields, and a hold decided before a yield must be recorded before it.
 			if next_.phase == "Assigning" and team == config.START_HOLD_TEAM then
 				table.insert(effects, { kind = "hold", userIds = { event.userId } })
 			end
+			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
 			table.insert(effects, { kind = "refreshArming", userIds = { event.userId } })
 		end
 		table.insert(effects, { kind = "broadcast" })
@@ -489,15 +614,16 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		then
 			next_.assignment[event.userId] = event.team
 			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = event.team } })
-			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
 			-- ...AND THE HOLD FOLLOWS THE SIDE HE IS NOW ON, inside the countdown only (task 158):
 			-- made a beater, he is held at the line; made a hunter, he is let go, because the rest
 			-- of the countdown is his to walk to a stand with. `free` with one userId frees that one
 			-- and nobody else, so a role flip cannot release the whole line.
+			-- BEFORE `placePlayers`, for `enterAssigning`'s reason above (task 159).
 			if next_.phase == "Assigning" then
 				local kind_ = if event.team == config.START_HOLD_TEAM then "hold" else "free"
 				table.insert(effects, { kind = kind_, userIds = { event.userId } })
 			end
+			table.insert(effects, { kind = "placePlayers", userIds = { event.userId } })
 			table.insert(effects, { kind = "refreshArming", userIds = { event.userId } })
 			-- NO FEED LINE, deliberately: the feed's kinds are a contract with the Hud's own
 			-- renderer (`join`, `leave`, `kill`, `escape`, `violation`, `phase`), and a dev command
@@ -548,8 +674,13 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			enterRunning(next_, effects, now, config)
 		end
 	elseif next_.phase == "Running" then
+		-- TWO ENDINGS, THE CLOCK FIRST (task 159). The clock is checked first because it is the rule
+		-- that has always held and the one a drive cannot run past; the beaters' crossing can only
+		-- ever end a drive EARLIER, never extend one.
 		if now >= next_.phaseEndsAt then
-			enterScoring(next_, effects, now, config)
+			enterScoring(next_, effects, now, config, "clock")
+		elseif Phase.beatersThrough(event, config) then
+			enterScoring(next_, effects, now, config, "beaters")
 		else
 			maybeRelease(next_, effects, now, event, config)
 		end

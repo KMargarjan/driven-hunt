@@ -209,12 +209,14 @@ return function()
 
 		-- Whatever this describe did, put the real snapshot back: another spec may read the Hud after
 		-- it, and the Heartbeat would fix it within 0.25 s anyway -- but "would" is not a test.
-		-- THE SCORE BOARD IS HIDDEN WHILE THE REPORT PANEL IS OPEN, and the report panel OPENS BY
-		-- ITSELF when a drive closes (`Hud.ReportPanel.onDriveChanged`, "auto-opens ONCE"). This
-		-- describe renders scripted snapshots and says nothing about the report, so that was an
-		-- unstated precondition -- and the gate found it: a live drive closed part-way through a
-		-- one-player run and all three cases below failed with an empty board
-		-- (`match_client.spec` "Expected 2, got 0", `report_panel.spec` "Expected false, got true").
+		-- THE SCORE BOARD IS HIDDEN WHILE THE REPORT PANEL IS OPEN. Until task 159 the report also
+		-- OPENED BY ITSELF when a drive closed, and this describe -- which renders scripted snapshots
+		-- and says nothing about the report -- had that as an unstated precondition; the gate found
+		-- it, when a live drive closed part-way through a one-player run and all three cases below
+		-- failed with an empty board (`match_client.spec` "Expected 2, got 0", `report_panel.spec`
+		-- "Expected false, got true"). The auto-open is off now (the end of a drive is the results
+		-- scene), so the only way the panel is open here is another spec leaving it open -- and this
+		-- stays, because a precondition that is cheap to state should not depend on a default.
 		--
 		-- STATING IT IS NOT WEAKENING ANYTHING: `Hud.scorePanelVisible(snapshot, reportOpen)` already
 		-- takes the report's state as an argument, and its own case still drives both values. This
@@ -224,7 +226,7 @@ return function()
 		beforeAll(function()
 			reportWasOpen = Hud.Report.isOpen()
 			if reportWasOpen then
-				TestKit.note("match_client: a drive report had auto-opened; closed for the score cases")
+				TestKit.note("match_client: a drive report was open; closed for the score cases")
 				Hud.Report.setOpen(false)
 			end
 		end)
@@ -267,6 +269,59 @@ return function()
 			expect(panel.BackgroundTransparency < 1).to.equal(true)
 		end)
 
+		it("draws its text IN FRONT of its own panel, in white, with an outline (task 159)", function()
+			-- THE DEFECT THIS CASE EXISTS FOR, and it shipped twice before anybody looked: task 141
+			-- raised this panel to `Report.CONFIG.PANEL_Z_INDEX` (15) so it would not be cut off at
+			-- the scope's glass, and left every label at the default ZIndex 1 -- so the translucent
+			-- dark panel was drawn OVER its own words. `Hud.scoreRowText()` read them back perfectly
+			-- the whole time; the screen showed a grey rectangle
+			-- (.screenshots/20261011T230908Z-task159-results-scene.png). `ReportPanel` had already
+			-- paid for exactly this on 2026-10-05 ("an EMPTY BLACK RECTANGLE ... drawn BEHIND its own
+			-- background"), which is why the rule is now one helper and this is asserted.
+			Hud.renderScore(scoring(), 12)
+			local panel = Hud.scorePanel()
+			expect(panel).to.be.ok()
+			local checked = 0
+			for _, child in ipairs(panel:GetChildren()) do
+				if child:IsA("TextLabel") then
+					checked += 1
+					-- IN FRONT OF ITS OWN PANEL.
+					expect(child.ZIndex > panel.ZIndex).to.equal(true)
+					-- WHITE. The header is dimmer by TRANSPARENCY, not by a grey colour, and the
+					-- highlighted row is Karen's own gold.
+					local white = child.TextColor3 == Drive.CONFIG.TEXT_COLOR
+					local mine = child.TextColor3 == Drive.CONFIG.SCORE_HIGHLIGHT_COLOR
+					expect(white or mine).to.equal(true)
+					-- ...and not faded out of existence by its own transparency.
+					expect(child.TextTransparency < 0.5).to.equal(true)
+					-- THE OUTLINE every other label in this Hud wears: a thin Code glyph over sunlit
+					-- grass is the half of the text that disappears first.
+					local stroke = child:FindFirstChildOfClass("UIStroke")
+					expect(stroke).to.be.ok()
+					expect(stroke.Thickness).to.equal(Drive.CONFIG.SCORE_TEXT_STROKE)
+				end
+			end
+			-- Title, header, footer and every row slot.
+			expect(checked).to.equal(3 + Drive.CONFIG.SCORE_ROWS_MAX)
+			-- The title is the line that says what the panel is: bigger than a row, and BOLD.
+			local title = panel:FindFirstChild("Title")
+			expect(title.TextSize > Drive.CONFIG.SCORE_TEXT_SIZE).to.equal(true)
+			expect(title.TextSize).to.equal(Drive.CONFIG.SCORE_TITLE_SIZE)
+			expect(title.FontFace.Weight).to.equal(Enum.FontWeight.Bold)
+			-- ...and the panel is still see-through, which is what Karen asked for.
+			expect(Drive.CONFIG.SCORE_PANEL_TRANSPARENCY > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"match_client: results table -- panel z=%d labels z=%d title %d bold, stroke %d, panel alpha %.2f",
+					panel.ZIndex,
+					title.ZIndex,
+					title.TextSize,
+					Drive.CONFIG.SCORE_TEXT_STROKE,
+					panel.BackgroundTransparency
+				)
+			)
+		end)
+
 		it("shows this drive's points, one row per player, mine highlighted", function()
 			Hud.renderScore(scoring(), 12)
 			local rows = Hud.scoreRowText()
@@ -286,6 +341,14 @@ return function()
 			expect(theirs.TextColor3).to.equal(Drive.CONFIG.TEXT_COLOR)
 
 			expect(string.find(Hud.scoreTitleText(), "DRIVE 3", 1, true) ~= nil).to.equal(true)
+			-- THE RESULTS TABLE (task 159). Karen: *"showing image transperent with results table"* --
+			-- this panel IS that table, and it says so. The WORDING is the contract's, so the
+			-- assertion is against `Drive.CONFIG` and not against a string typed twice.
+			expect(Hud.scoreTitleText()).to.equal(string.format(Drive.CONFIG.SCORE_TITLE_FORMAT, 3))
+			expect(string.find(Hud.scoreTitleText(), "RESULTS", 1, true) ~= nil).to.equal(true)
+			-- ...and it is see-through, which is the other half of what she asked for.
+			expect(Drive.CONFIG.SCORE_PANEL_TRANSPARENCY > 0).to.equal(true)
+			expect(Hud.scorePanel().BackgroundTransparency).to.equal(Drive.CONFIG.SCORE_PANEL_TRANSPARENCY)
 			expect(Hud.scoreFooterText()).to.equal("NEXT DRIVE IN 12")
 		end)
 
@@ -335,11 +398,11 @@ return function()
 		local reportWasOpen = false
 
 		beforeAll(function()
-			-- The same precondition the score cases state: the report auto-opens when a drive closes,
+			-- The same precondition the score cases state: a report left open hides this card too,
 			-- and both panels hide behind it on purpose.
 			reportWasOpen = Hud.Report.isOpen()
 			if reportWasOpen then
-				TestKit.note("match_client: a drive report had auto-opened; closed for the start-card cases")
+				TestKit.note("match_client: a drive report was open; closed for the start-card cases")
 				Hud.Report.setOpen(false)
 			end
 		end)
@@ -379,6 +442,25 @@ return function()
 			end
 			expect(node).to.equal(game)
 			expect(card.BackgroundTransparency < 1).to.equal(true)
+		end)
+
+		it("draws the card's text IN FRONT of the card, with an outline (task 159)", function()
+			-- THE SAME DEFECT AS THE RESULTS TABLE, in the other frame task 141 raised: Karen reads
+			-- this card for ten seconds at the start of every drive, through its own panel.
+			Hud.renderStartCard(starting(), "Shooters", 7)
+			local card = Hud.startCard()
+			expect(card).to.be.ok()
+			local checked = 0
+			for _, child in ipairs(card:GetChildren()) do
+				if child:IsA("TextLabel") then
+					checked += 1
+					expect(child.ZIndex > card.ZIndex).to.equal(true)
+					expect(child.TextTransparency < 0.5).to.equal(true)
+					local stroke = child:FindFirstChildOfClass("UIStroke")
+					expect(stroke).to.be.ok()
+				end
+			end
+			expect(checked).to.equal(2 + Drive.CONFIG.START_CARD_LINES_MAX)
 		end)
 
 		it("tells a HUNTER his role, what he may shoot, and how long he has to reach his stand", function()

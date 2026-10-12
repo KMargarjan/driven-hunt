@@ -269,6 +269,21 @@ Report.CONFIG = {
 	-- The stack, bottom to top: feed 1, drive bar 1, compass 6-10, scope 11-13, this and the score
 	-- board.
 	PANEL_Z_INDEX = 15,
+	-- WHETHER THE REPORT OPENS ITSELF WHEN A DRIVE CLOSES. **FALSE since task 159**, and it is a
+	-- deviation from `docs/design/drive-report.md` section 1 item 6 ("auto-open once when a drive
+	-- closes") that is named rather than buried: the end of a drive is now Karen's RESULTS SCENE --
+	-- the animals laid out, four lamps, everybody standing round them and the semi-transparent
+	-- results table over it. A near-opaque full-screen report in front of all of that is the thing
+	-- she asked to see, hidden. MEASURED, not reasoned: .screenshots/20261011T230613Z-task159-
+	-- results-scene.png is the forest's own drive ending with the report covering the whole scene,
+	-- and `Hud.scorePanelVisible` returning false because the report was open -- so the table did
+	-- not show either.
+	--
+	-- NOTHING IS DELETED. `Tab` still opens the report, it is still the one place a player sees
+	-- where every shot landed on every animal, and the auto-open is still implemented and still
+	-- tested: `ReportPanel.onDriveChanged` takes the config, so a spec drives BOTH states while
+	-- this sits at one of them.
+	AUTO_OPEN_AT_DRIVE_END = false,
 	TITLE_HEIGHT = 28,
 	HEADER_HEIGHT = 22,
 	FOOTER_HEIGHT = 24,

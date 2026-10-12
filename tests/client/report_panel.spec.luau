@@ -318,14 +318,41 @@ return function()
 	end)
 
 	describe("the drive boundary", function()
-		it("auto-opens once when a drive closes, and not again for the same drive", function()
+		it("does NOT open itself when a drive closes: the results scene is what shows (task 159)", function()
+			-- THE SHIPPED BEHAVIOUR, AND IT CHANGED, with a picture for the reason: the end of a
+			-- drive is now Karen's results scene (the animals, four lamps, everybody standing round
+			-- them and the semi-transparent results table), and a near-opaque full-screen report in
+			-- front of it hides exactly what she asked to see -- and suppresses the table as well,
+			-- because `Hud.scorePanelVisible` refuses to draw two centred panels at once.
+			-- `.screenshots/20261011T230613Z-task159-results-scene.png` is that, measured in the
+			-- Forest Test. Named as a deviation from `docs/design/drive-report.md` section 1 item 6.
 			Panel.setOpen(false)
 			local before = Panel.stats().autoOpens
 			Panel.onDriveChanged({ kind = "driveClosed", drive = 41 })
+			expect(Panel.isOpen()).to.equal(false)
+			expect(Panel.stats().autoOpens).to.equal(before)
+			expect(Report.CONFIG.AUTO_OPEN_AT_DRIVE_END).to.equal(false)
+			expect(Panel.autoOpensAtDriveEnd()).to.equal(false)
+			-- ...and Tab still opens it, which is the whole of what a player lost.
+			Panel.setOpen(true)
+			expect(Panel.isOpen()).to.equal(true)
+			Panel.setOpen(false)
+		end)
+
+		it("still auto-opens ONCE per drive when a config says it may", function()
+			-- THE OTHER BRANCH IS STILL REACHABLE AND STILL TESTED, which is what "merged dark" means
+			-- for a behaviour that is off: the once-per-drive rule (`autoOpenedFor`) is the thing that
+			-- made Karen closing it stick, and deleting its test with its default would mean nobody
+			-- would know if it broke.
+			local on = { AUTO_OPEN_AT_DRIVE_END = true }
+			expect(Panel.autoOpensAtDriveEnd(on)).to.equal(true)
+			Panel.setOpen(false)
+			local before = Panel.stats().autoOpens
+			Panel.onDriveChanged({ kind = "driveClosed", drive = 43 }, on)
 			expect(Panel.isOpen()).to.equal(true)
 			expect(Panel.stats().autoOpens).to.equal(before + 1)
 			Panel.setOpen(false)
-			Panel.onDriveChanged({ kind = "driveClosed", drive = 41 })
+			Panel.onDriveChanged({ kind = "driveClosed", drive = 43 }, on)
 			expect(Panel.isOpen()).to.equal(false)
 			expect(Panel.stats().autoOpens).to.equal(before + 1)
 		end)

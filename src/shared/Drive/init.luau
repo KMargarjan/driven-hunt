@@ -100,9 +100,28 @@ Drive.CONFIG = {
 	-- panel renders whatever rows arrive in the snapshot.
 	SCORE_PANEL_WIDTH = 480,
 	SCORE_ROW_HEIGHT = 22,
-	SCORE_TITLE_SIZE = 22,
+	-- 22 -> 26 AND BOLD (task 159, the Director on the scene frame: *"the table is UNREADABLE ...
+	-- make the table text WHITE (title larger and bold ...)"*). The title is the one line that says
+	-- what the panel IS, and at the end of a drive it is read over a bright wood.
+	SCORE_TITLE_SIZE = 26,
 	SCORE_TEXT_SIZE = 16,
+	-- THE HEADER IS DIMMER WHITE, not grey: a column heading should recede, and a GREY glyph over a
+	-- sunlit field recedes all the way out of sight. 0.4 -> 0.25.
+	SCORE_HEADER_TRANSPARENCY = 0.25,
+	-- THE BLACK OUTLINE EVERY OTHER LABEL IN THIS HUD WEARS (the feed's lines, the drive report's).
+	-- One pixel: enough to hold a thin Code glyph against grass, not enough to thicken it.
+	SCORE_TEXT_STROKE = 1,
 	SCORE_ROWS_MAX = 16, -- Match.CONFIG.MAX_PLAYERS; more rows than players can exist is harmless
+	-- THE RESULTS TABLE'S TITLE (task 159). Karen: *"showing image transperent with results table"*,
+	-- and the panel she is describing IS this one -- a semi-transparent centred panel, one row per
+	-- player with name, role, kills and points, up for the whole of `Scoring`. What this task
+	-- changed is the WORD: the panel now says what she calls it. `%d` is the drive number.
+	--
+	-- THE ROLE WORDS ON THE ROWS ARE DELIBERATELY NOT TOUCHED. The board says SHOOTER / DRIVER (the
+	-- team names) while Karen says hunter / beater, and which vocabulary the whole Hud should speak
+	-- is her decision, still open from task 158 (TASKS.md row 158a). Renaming half the screen to
+	-- settle it quietly is exactly what that row exists to prevent.
+	SCORE_TITLE_FORMAT = "DRIVE %d RESULTS",
 	SCORE_PANEL_COLOR = Color3.fromRGB(16, 18, 20),
 	SCORE_PANEL_TRANSPARENCY = 0.25,
 	SCORE_HIGHLIGHT_COLOR = Color3.fromRGB(255, 232, 150), -- your own row

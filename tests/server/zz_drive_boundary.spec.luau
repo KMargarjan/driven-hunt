@@ -71,6 +71,26 @@ local function ropes(): number
 	return if folder then #folder:GetChildren() else 0
 end
 
+-- THE RESULTS SCENE, COUNTED OFF THE WORLD (task 159): how many lamps and how many animals are
+-- standing in `Workspace.DriveScene` right now. It reads the folder the drive actually built rather
+-- than `Scene.stats()`, because a counter that says "I built four" is not the same claim as four
+-- lamps being in the world.
+local function sceneCounts(): (number, number)
+	local folder = Match.Scene.folder()
+	if not folder then
+		return 0, 0
+	end
+	local lamps, bodies = 0, 0
+	for _, child in ipairs(folder:GetChildren()) do
+		if string.find(child.Name, Match.Scene.LIGHT_PREFIX, 1, true) == 1 then
+			lamps += 1
+		elseif string.find(child.Name, Match.Scene.ANIMAL_PREFIX, 1, true) == 1 then
+			bodies += 1
+		end
+	end
+	return lamps, bodies
+end
+
 local function totalPoints(snapshot): number
 	local sum = 0
 	for _, row in ipairs(snapshot.rows) do
@@ -221,6 +241,72 @@ return function()
 			expect(#Match.snapshot().rows).to.equal(#before.rows)
 		end)
 
+		it("built the results scene: four lamps, this drive's animals, everybody held round them", function()
+			-- THE SCENE KAREN ASKED FOR, in the world, at the real boundary (task 159): *"all they
+			-- standing around the animals there is light on 4 corners"*. Nothing here is a pure
+			-- layout -- match_scene.spec owns the arithmetic; this is the claim that the drive
+			-- actually built it and actually moved the players who were standing in it.
+			expect(Match.phase()).to.equal("Scoring")
+			local lamps, bodies = sceneCounts()
+			local kills = Match.driveKills()
+			local spot = Match.gatherSpotFor(Match.Markers.read(), Match.CONFIG)
+			TestKit.note(
+				string.format(
+					"zz_drive_boundary: scene lamps=%d animals=%d kills=%d spot=%s | scenes=%d moved=%d nowhere=%d",
+					lamps,
+					bodies,
+					#kills,
+					tostring(spot),
+					Match.stats().scenes,
+					Match.stats().sceneMoved,
+					Match.stats().scenesNowhere
+				)
+			)
+			-- THE DEV MAP HAS STANDS, so there is somewhere to gather and the scene must exist. A
+			-- world with no stands is the `scenesNowhere` branch, and forest_markers.spec is where
+			-- that case lives.
+			expect(spot).to.be.ok()
+			expect(Match.stats().scenesNowhere).to.equal(0)
+			expect(Match.stats().scenes >= 1).to.equal(true)
+			expect(Match.Scene.folder()).to.be.ok()
+			expect(lamps).to.equal(4)
+			-- THE ROW IS THIS DRIVE'S OWN KILLS, capped -- not a number of its own. With one player
+			-- and no staged kill that is zero animals and four lamps, which is still the scene.
+			expect(bodies).to.equal(math.min(#kills, Match.CONFIG.SCENE.MAX_ANIMALS))
+
+			-- EVERYBODY IS HELD AND STANDING ROUND THE ANIMALS, which is the dispatch's item 3: the
+			-- hold is the SAME freeze task 158 built, so `isHeld` is the fact and the ring is where.
+			local radius = Match.CONFIG.SCENE.RING_RADIUS_STUDS
+			for _, player in ipairs(Players:GetPlayers()) do
+				expect(Match.isHeld(player.UserId)).to.equal(true)
+				local character = player.Character
+				local root = character and character.PrimaryPart
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				if humanoid then
+					expect(humanoid.WalkSpeed).to.equal(0)
+				end
+				if root then
+					expect(root.Anchored).to.equal(true)
+					-- ON THE RING, measured flat: the y is the drive's own stand height above the
+					-- gathering spot and the character's own root height on top of it, so the
+					-- horizontal distance is the honest assertion.
+					local flat = Vector3.new(root.Position.X - spot.X, 0, root.Position.Z - spot.Z)
+					TestKit.note(
+						string.format(
+							"zz_drive_boundary: %s stands %.1f studs from the gathering spot (ring %d)",
+							player.Name,
+							flat.Magnitude,
+							radius
+						)
+					)
+					-- A stud of tolerance either side: the character is anchored at the CFrame
+					-- `Scene.ringLayout` chose, and `Body.standCharacter` pivots the model's pivot.
+					expect(math.abs(flat.Magnitude - radius) <= 2).to.equal(true)
+				end
+			end
+			expect(Match.Body.stood() >= #Players:GetPlayers()).to.equal(true)
+		end)
+
 		it("starts the next drive, and TELLS the clients the new drive's rows", function()
 			expect(Match.advanceForTests(Match.CONFIG.SCORE_SECONDS + 1)).to.equal(true)
 			-- WAIT FOR THE PUSH, not just for the phase. `Phase.step` sets the phase and the owner
@@ -273,6 +359,152 @@ return function()
 			for _, player in ipairs(Players:GetPlayers()) do
 				expect(named[player.UserId]).to.equal(true)
 			end
+		end)
+
+		it("took the scene down before the next drive, and let everybody go", function()
+			-- The other half of the scene (task 159): `Phase.enterAssigning` emits `clearScene` and
+			-- `free` BEFORE anybody is placed, so the next drive does not start in last drive's
+			-- lamplight and nobody walks to a stand frozen.
+			--
+			-- MEASURED BEFORE IT IS ASSERTED, and the reason is in this case's own history: the
+			-- Director's two-player run failed here (`[harness2] FAIL 33/35 @ 7ea945f`) and the
+			-- failure said only "false, expected true" for one of two players. A drive has TWO
+			-- representations of a side -- `Player.Team`, which the engine replicates, and the
+			-- drive's own `state.assignment` -- and three freezes that could be involved, so the row
+			-- below prints all of them for every player first. A failure now names which.
+			expect(Match.phase()).to.equal("Assigning")
+			expect(Match.Scene.folder()).to.equal(nil)
+			local lamps, bodies = sceneCounts()
+			expect(lamps).to.equal(0)
+			expect(bodies).to.equal(0)
+			expect(Match.stats().scenesCleared >= 1).to.equal(true)
+			local rows = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				local character = player.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				table.insert(
+					rows,
+					string.format(
+						"%s team=%s drive=%s held=%s holding=%s tied=%s ws=%s",
+						player.Name,
+						tostring(Match.Body.teamOf(player)),
+						tostring(Match.assignmentOf(player.UserId)),
+						tostring(Match.isHeld(player.UserId)),
+						tostring(Match.Body.isHolding(player.UserId)),
+						tostring(Match.isTied(player.UserId)),
+						tostring(humanoid and humanoid.WalkSpeed)
+					)
+				)
+			end
+			TestKit.note(
+				string.format(
+					"zz_drive_boundary: at drive %d's countdown -- %s | holds=%d reapplied=%d",
+					Match.snapshot().driveNumber,
+					table.concat(rows, " | "),
+					Match.stats().holds,
+					Match.stats().holdsReapplied
+				)
+			)
+			for _, player in ipairs(Players:GetPlayers()) do
+				-- A BEATER IS HELD AGAIN -- at the START LINE, which is task 158's hold and lasts the
+				-- countdown; a hunter is free to walk to his stand. So the claim is not "nobody is
+				-- held", it is "nobody is held who should not be".
+				local team = Match.Body.teamOf(player)
+				-- THE TWO REPRESENTATIONS AGREE, which is the other half of the diagnosis: if they
+				-- ever disagree, the line below would be asserting against the wrong one.
+				expect(Match.assignmentOf(player.UserId)).to.equal(team)
+				expect(Match.isHeld(player.UserId)).to.equal(team == Match.CONFIG.START_HOLD_TEAM)
+			end
+		end)
+
+		it("never shows a beater who is not yet held, mid-respawn (the two-player failure)", function()
+			-- THE ONE-PLAYER REPRODUCTION OF WHAT THE TWO-PLAYER RUN CAUGHT (task 159). The `hold`
+			-- effect used to be emitted AFTER `placePlayers`, whose owner YIELDS in
+			-- `Player:LoadCharacter` -- so for the length of a respawn the drive said "this player is
+			-- a beater" while `Match.isHeld` said no, and the Heartbeat broadcast that drive to every
+			-- client inside that window. The Director's run found it
+			-- (`[harness2] FAIL 33/35 @ 7ea945f`) because with TWO players the roster makes one of
+			-- them a beater at every boundary; the case above cannot see it, because it reads the
+			-- drive only once, after the window has closed.
+			--
+			-- `Match.requestTeam` is the existing seam (task 157) and goes through the SAME branch of
+			-- the same machine, with the same `placePlayers`. Run from its own coroutine it yields
+			-- exactly where the drive does, so this samples the live owner from the outside and states
+			-- the invariant the fix buys:
+			--
+			--   WHILE THE COUNTDOWN RUNS, THE DRIVE NEVER CALLS SOMEBODY A BEATER WITHOUT HOLDING HIM.
+			--
+			-- With the old order this fails by several hundred milliseconds of samples; with the hold
+			-- emitted first there is no yield between the two facts and nothing can land between them.
+			local player = Players:GetPlayers()[1]
+			if not player or Match.phase() ~= "Assigning" then
+				TestKit.note("zz_drive_boundary: no player or not in the countdown; the hold window was not sampled")
+				return
+			end
+			local beaters = Match.CONFIG.START_HOLD_TEAM
+			local hunters = if beaters == "Drivers" then "Shooters" else "Drivers"
+			local was = Match.assignmentOf(player.UserId)
+
+			-- HE HAS TO START ON THE OTHER SIDE, or the request is a no-op and samples nothing: the
+			-- machine's `team` branch only acts when the side actually changes. With one player the
+			-- roster's swap makes him a beater at drive 2, which is exactly the case that was being
+			-- missed -- so this moves him off it first, and waits for that respawn to finish.
+			if was == beaters then
+				Match.requestTeam(player, hunters)
+				expect(waitUntil(PHASE_TIMEOUT, function()
+					return Match.assignmentOf(player.UserId) == hunters and not Match.isHeld(player.UserId)
+				end)).to.equal(true)
+			end
+			expect(Match.assignmentOf(player.UserId)).to.equal(hunters)
+
+			local done, samples, gaps = false, 0, {}
+			task.spawn(function()
+				Match.requestTeam(player, beaters)
+				done = true
+			end)
+			local started = os.clock()
+			-- `done` IS CHECKED AFTER A SAMPLE, not before: the spawned coroutine runs until its first
+			-- yield before this loop starts, so testing it first would skip the whole window.
+			repeat
+				samples += 1
+				-- ONLY INSIDE THE COUNTDOWN: in `Running` nobody is held at all, which is the rule and
+				-- not a gap (`Phase`'s `team` branch holds only in `Assigning`).
+				if
+					Match.phase() == "Assigning"
+					and Match.assignmentOf(player.UserId) == beaters
+					and not Match.isHeld(player.UserId)
+				then
+					table.insert(gaps, string.format("%.3fs", os.clock() - started))
+				end
+				task.wait()
+			until done or os.clock() - started > 10
+			TestKit.note(
+				string.format(
+					"zz_drive_boundary: sampled the hold window %d time(s) over %.2fs -- %d gap(s)%s",
+					samples,
+					os.clock() - started,
+					#gaps,
+					if #gaps > 0 then " at " .. table.concat(gaps, ", ") else ""
+				)
+			)
+			expect(done).to.equal(true)
+			-- IT REALLY SAMPLED ACROSS THE YIELD: a respawn takes frames, so a sampler that saw one
+			-- frame saw nothing and this case would be vacuous.
+			expect(samples > 1).to.equal(true)
+			expect(#gaps).to.equal(0)
+			-- ...and the request was honoured, so this was the real branch and not a no-op.
+			expect(Match.assignmentOf(player.UserId)).to.equal(beaters)
+			expect(Match.isHeld(player.UserId)).to.equal(true)
+
+			-- THE OTHER DIRECTION, AND THE TIDY-UP IN ONE: put back on the side the drive had given
+			-- him, he is RELEASED (or held) to match, and the cases after this see the player they
+			-- expect.
+			Match.requestTeam(player, was)
+			expect(Match.assignmentOf(player.UserId)).to.equal(was)
+			expect(Match.isHeld(player.UserId)).to.equal(was == beaters)
+			expect(waitUntil(PHASE_TIMEOUT, function()
+				return Match.Body.teamOf(player) == was
+			end)).to.equal(true)
 		end)
 
 		it("gives the guns back, because the tie went with the drive", function()

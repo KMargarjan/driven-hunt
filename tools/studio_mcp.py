@@ -748,6 +748,9 @@ SCOPE_SPECS = {
               "tests/server/forest_stand.spec.luau", "tests/server/forest_line.spec.luau",
               "tests/server/match_live.spec.luau", "tests/server/match_outfit.spec.luau",
               "tests/server/match_phase.spec.luau", "tests/server/match_roster.spec.luau",
+              # Task 159: the end of a drive and the results scene -- the crossing predicate, the
+              # gathering spot and the scene's layout, all of it `src/server/Match/`'s.
+              "tests/server/match_scene.spec.luau",
               "tests/server/match_safety.spec.luau", "tests/server/match_score.spec.luau",
               "tests/server/match_teams.spec.luau", "tests/server/zz_drive_boundary.spec.luau",
               "tests/client/match_client.spec.luau", "tests/client/outfit_client.spec.luau",

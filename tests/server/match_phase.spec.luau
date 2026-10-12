@@ -312,6 +312,180 @@ return function()
 		end)
 	end)
 
+	describe("the end of a drive (task 159)", function()
+		-- Karen, 2026-10-10: *"Timer or when all beaters cross line of hunters"*. Two endings, one
+		-- `Scoring` phase. The GEOMETRY is the owner's (`Match.crossedLine`, driven by
+		-- match_scene.spec); what this machine does is compare the two numbers it is handed.
+		local function toRunning(cfg)
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "hunter" }, 0, cfg))
+			state = (Phase.step(state, { kind = "join", userId = 2, name = "beater" }, 0, cfg))
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			expect(state.phase).to.equal("Running")
+			return state
+		end
+
+		local function indexOf(order, kind)
+			for index, name in ipairs(order) do
+				if name == kind then
+					return index
+				end
+			end
+			return -1
+		end
+
+		it("ends on the clock, as it always has, and says so", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = true })
+			local state = toRunning(cfg)
+			local endOfDrive = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			local effects
+			state, effects = Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 0 }, endOfDrive, cfg)
+			expect(state.phase).to.equal("Scoring")
+			expect(state.endedEarly).to.equal(false)
+			-- The feed line is the plain one: nothing happened except the clock.
+			for _, effect in ipairs(effects) do
+				if effect.kind == "feed" then
+					expect(effect.entry.text).to.equal("Drive over")
+				end
+			end
+		end)
+
+		it("ends EARLY when every beater is through the line, and names that in the feed", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = true })
+			local state = toRunning(cfg)
+			local at = cfg.INTERMISSION_SECONDS + 5
+			-- One of two through is not all of them.
+			state = (Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 1 }, at, cfg))
+			expect(state.phase).to.equal("Running")
+			local effects
+			state, effects = Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at + 1, cfg)
+			expect(state.phase).to.equal("Scoring")
+			expect(state.endedEarly).to.equal(true)
+			-- ...and the scene still gets the whole of SCORE_SECONDS, from the moment it ended.
+			expect(state.phaseEndsAt).to.equal(at + 1 + cfg.SCORE_SECONDS)
+			local said = false
+			for _, effect in ipairs(effects) do
+				if effect.kind == "feed" then
+					said = string.find(effect.entry.text, "beaters", 1, true) ~= nil
+				end
+			end
+			expect(said).to.equal(true)
+		end)
+
+		it("needs a REAL beater: with none in the drive only the clock ends it", function()
+			-- THE CLAUSE THAT MATTERS. "All of nobody is through" is true in arithmetic, and a solo
+			-- hunter -- every DEV harness session, and every session Karen plays alone -- would have
+			-- her ten-minute drive end on its first tick.
+			local cfg = config({ END_ON_BEATERS_CROSS = true })
+			local state = toRunning(cfg)
+			local collected
+			state, collected = run(state, cfg, cfg.INTERMISSION_SECONDS, cfg.DRIVE_SECONDS - 1, 1)
+			expect(state.phase).to.equal("Running")
+			expect(countKind(collected, "scene")).to.equal(0)
+			expect(Phase.beatersThrough({ kind = "tick", beaters = 0, beatersAcross = 0 }, cfg)).to.equal(false)
+		end)
+
+		it("does not end early at all with the rule off", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = false })
+			local state = toRunning(cfg)
+			state = (
+				Phase.step(state, {
+					kind = "tick",
+					beaters = 2,
+					beatersAcross = 2,
+				}, cfg.INTERMISSION_SECONDS + 5, cfg)
+			)
+			expect(state.phase).to.equal("Running")
+			expect(state.endedEarly).to.equal(false)
+		end)
+
+		it("holds the WHOLE ROSTER at the scene, and builds it after the ties are freed", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = true })
+			local state = toRunning(cfg)
+			local endOfDrive = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			local effects
+			state, effects = Phase.step(state, { kind = "tick" }, endOfDrive, cfg)
+			local order = kinds(effects)
+			-- THE ORDER IS THE DESIGN: the ties go first (a rope on a man standing at the gathering
+			-- spot is two freezes on one character), then the animals are cleared, then everybody is
+			-- held, and only then is the scene built -- because the scene MOVES each character and
+			-- `Body.stand` holds the one it is given.
+			expect(indexOf(order, "release") > 0).to.equal(true)
+			expect(indexOf(order, "release") < indexOf(order, "hold")).to.equal(true)
+			expect(indexOf(order, "hold") < indexOf(order, "scene")).to.equal(true)
+			expect(countKind(effects, "scene")).to.equal(1)
+			-- EVERYBODY, not one team: the hunter who shot and the beater who pushed both stand there.
+			for _, effect in ipairs(effects) do
+				if effect.kind == "hold" then
+					expect(#effect.userIds).to.equal(2)
+					expect(effect.userIds[1]).to.equal(1)
+					expect(effect.userIds[2]).to.equal(2)
+				end
+			end
+			expect(Phase.participantIds(state)[1]).to.equal(1)
+			expect(#Phase.participantIds(state)).to.equal(2)
+		end)
+
+		it("takes the scene down and frees everybody when the next drive starts", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = true })
+			local state = toRunning(cfg)
+			local endOfDrive = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			state = (Phase.step(state, { kind = "tick" }, endOfDrive, cfg))
+			local effects
+			state, effects = Phase.step(state, { kind = "tick" }, endOfDrive + cfg.SCORE_SECONDS, cfg)
+			expect(state.phase).to.equal("Assigning")
+			local order = kinds(effects)
+			-- FIRST, both of them: the lights come down and the scene's hold is handed back BEFORE
+			-- anybody is placed, or a hunter would be respawned on his stand unable to walk.
+			expect(order[1]).to.equal("clearScene")
+			expect(order[2]).to.equal("free")
+			expect(indexOf(order, "free") < indexOf(order, "placePlayers")).to.equal(true)
+			expect(indexOf(order, "free") < indexOf(order, "hold")).to.equal(true)
+			-- ...AND THE NEW HOLD IS APPLIED BEFORE THE RESPAWN (task 159, the two-player failure):
+			-- free everybody, assign the new teams, hold the new beaters, and only then place.
+			expect(indexOf(order, "hold") < indexOf(order, "placePlayers")).to.equal(true)
+			-- ...and the new hold is the START LINE's again: the beaters only.
+			for _, effect in ipairs(effects) do
+				if effect.kind == "hold" then
+					expect(#effect.userIds).to.equal(1)
+					expect(state.assignment[effect.userIds[1]]).to.equal(cfg.START_HOLD_TEAM)
+				end
+			end
+		end)
+
+		it("takes the scene down when the server empties out instead", function()
+			-- The other way out of Scoring: nobody left to start a drive with. The lights must not
+			-- stay standing over the last drive's animals for whoever joins next, and whoever is
+			-- still held must not stay frozen.
+			local cfg = config({ END_ON_BEATERS_CROSS = true })
+			local state = toRunning(cfg)
+			local endOfDrive = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			state = (Phase.step(state, { kind = "tick" }, endOfDrive, cfg))
+			state = (Phase.step(state, { kind = "leave", userId = 1 }, endOfDrive + 1, cfg))
+			state = (Phase.step(state, { kind = "leave", userId = 2 }, endOfDrive + 1, cfg))
+			local effects
+			state, effects = Phase.step(state, { kind = "tick" }, endOfDrive + cfg.SCORE_SECONDS, cfg)
+			expect(state.phase).to.equal("Waiting")
+			expect(countKind(effects, "clearScene")).to.equal(1)
+			expect(countKind(effects, "free")).to.equal(1)
+		end)
+
+		it("ends a drive once: a crossing already through cannot re-enter Scoring", function()
+			-- The beaters stay across the line for the whole of the scene, so the predicate is still
+			-- true on every tick of it -- and `Phase.step` only asks it in `Running`.
+			local cfg = config({ END_ON_BEATERS_CROSS = true })
+			local state = toRunning(cfg)
+			local at = cfg.INTERMISSION_SECONDS + 5
+			state = (Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at, cfg))
+			expect(state.phase).to.equal("Scoring")
+			local collected
+			state, collected = run(state, cfg, at, cfg.SCORE_SECONDS - 1, 1)
+			expect(state.phase).to.equal("Scoring")
+			expect(countKind(collected, "scene")).to.equal(0)
+			expect(countKind(collected, "clearScene")).to.equal(0)
+		end)
+	end)
+
 	describe("the broadcast a client may not miss", function()
 		it("forces the push on every phase entry, and only there", function()
 			-- STATE_MIN_INTERVAL is the floor between pushes for a busy drive; a PHASE CHANGE behind
@@ -1209,14 +1383,24 @@ return function()
 			expect(state.phase).to.equal("Running")
 		end)
 
-		it("holds exactly the beaters at the line, and AFTER they have been placed", function()
+		it("holds exactly the beaters at the line, and BEFORE they are placed (task 159)", function()
 			local cfg = config(FOUR)
 			local _, effects = assigning(cfg)
 			expect(table.concat(heldIn(effects), ",")).to.equal("1,2")
-			-- AFTER `placePlayers` in the order the owner applies them, because the hold is a hold on
-			-- the character the placement is about to respawn.
+			-- **BEFORE** `placePlayers`, AND THE ORDER IS A MEASUREMENT (task 159). It was the other
+			-- way round until the Director's two-player run failed on it
+			-- (`[harness2] FAIL 33/35 @ 7ea945f`, zz_drive_boundary "took the scene down before the
+			-- next drive, and let everybody go", for the one player the roster had just made a
+			-- beater): `placePlayers` is the only effect in this list whose owner YIELDS
+			-- (`Player:LoadCharacter`), the drive is already in `Assigning` with its new number while
+			-- it yields, and the Heartbeat broadcasts that drive to every client before a `hold` at
+			-- the end of the list has been applied -- so for the length of a respawn a beater the
+			-- machine had decided to hold was not held, and nothing reading the drive could tell.
+			-- Holding first costs one frame of freezing a character that is about to be replaced, and
+			-- the character watch puts the freeze on the one that arrives, exactly as task 158
+			-- already relied on.
 			local list = kinds(effects)
-			expect(table.find(list, "hold") > table.find(list, "placePlayers")).to.equal(true)
+			expect(table.find(list, "hold") < table.find(list, "placePlayers")).to.equal(true)
 			expect(countKind(effects, "hold")).to.equal(1)
 		end)
 
@@ -1271,6 +1455,10 @@ return function()
 			expect(state.assignment[6]).to.equal("Drivers")
 			expect(table.concat(heldIn(effects), ",")).to.equal("6")
 			expect(state.phase).to.equal("Assigning")
+			-- ...and his hold comes BEFORE his placement too (task 159): one rule for every hold in
+			-- this machine, so the yielding respawn can never be the thing that defines it.
+			local joinOrder = kinds(effects)
+			expect(table.find(joinOrder, "hold") < table.find(joinOrder, "placePlayers")).to.equal(true)
 		end)
 
 		it("holds nobody who joins INSIDE the drive: the line is behind them by then", function()
@@ -1283,6 +1471,25 @@ return function()
 			state, effects = Phase.step(state, { kind = "join", userId = 7, name = "g" }, at, cfg)
 			expect(countKind(effects, "placePlayers")).to.equal(1)
 			expect(countKind(effects, "hold")).to.equal(0)
+		end)
+
+		it("puts a side-changer's hold or release before his placement too (task 159)", function()
+			-- THE THIRD PLACE THE SAME RULE APPLIES. `Match.requestTeam` is honoured inside the
+			-- countdown, and the effects it emits yield in the same way.
+			local cfg = config(FOUR)
+			local state = assigning(cfg)
+			-- userId 3 is a hunter in this roster; made a beater, he is held, and the hold is first.
+			local effects
+			state, effects = Phase.step(state, { kind = "team", userId = 3, team = "Drivers" }, 2, cfg)
+			local order = kinds(effects)
+			expect(table.find(order, "hold")).to.be.ok()
+			expect(table.find(order, "hold") < table.find(order, "placePlayers")).to.equal(true)
+			-- ...and made a hunter again, his release is first.
+			state, effects = Phase.step(state, { kind = "team", userId = 3, team = "Shooters" }, 3, cfg)
+			order = kinds(effects)
+			expect(table.find(order, "free")).to.be.ok()
+			expect(table.find(order, "free") < table.find(order, "placePlayers")).to.equal(true)
+			expect(state.assignment[3]).to.equal("Shooters")
 		end)
 
 		it("moves the hold with a player who changes sides inside the countdown", function()
