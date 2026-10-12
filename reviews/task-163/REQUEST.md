@@ -3,7 +3,7 @@
 Task: 163
 Round: 1
 Base: `6763fed` (main, #146 merged)
-Code commit: `6cc533309b4244c6d7d4c5b54606216261cfa821`
+Code commit: `c2e4c9441f5d12ef259d7b03860dda239fcedc11`
 
 ```
 [harness] PASS: 33/33 checks @ 6cc533309b4244c6d7d4c5b54606216261cfa821 (clean tree) scope=auto:boar,hud,match,weapon
@@ -32,7 +32,8 @@ ask for the `[harness2]` line that a scoped round does not need.
 `TWO_PLAYER_PATHS`. **The Director runs it** — placeholder, to be filled at merge:
 
 ```
-[harness2] PASS: n/m checks @ 6cc533309b4244c6d7d4c5b54606216261cfa821 (clean tree)   <-- NOT RUN YET
+[harness] PASS: 33/33 checks @ c2e4c9441f5d12ef259d7b03860dda239fcedc11 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ c2e4c9441f5d12ef259d7b03860dda239fcedc11 (clean tree)
 ```
 
 ## What changed
