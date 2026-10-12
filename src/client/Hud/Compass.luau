@@ -32,15 +32,17 @@ Compass.CONFIG = {
 	WIDTH = 360,
 	HEIGHT = 26,
 	-- BELOW THE DRIVE BAR, NOT ON TOP OF IT (task 125 round 2, the Reviewer's blocking finding). The
-	-- bar is 26 px tall at `Drive.CONFIG.BAR_TOP_OFFSET` = 8, so it owns y 8..34, and the tied banner
-	-- sits at `TIED_TOP_OFFSET` = 44 and is 24 tall, so it owns 44..68. The strip was at 10 and
-	-- covered 360 of the bar's 520 px -- the clock, the boars left and the team badge -- in every
-	-- world that HAS a drive. It was not seen because the frames were taken in the Forest Test, where
-	-- `MatchBoot` stands aside and there is no bar at all.
+	-- strip was at 10 and covered 360 of the bar's 520 px -- the clock, the boars left and the team
+	-- badge -- in every world that HAS a drive. It was not seen because the frames were taken in the
+	-- Forest Test, where `MatchBoot` stood aside and there was no bar at all.
 	--
-	-- 76 puts the strip under both, 8 px clear of the banner, and it is still the top of the screen:
-	-- a compass belongs up there, and nothing else in the Hud draws between 76 and 102.
-	TOP = 76,
+	-- 76 -> 108 (task 165). THE WHOLE TOP BAND MOVED DOWN ONE BAND so the objective line could take
+	-- the top line (`docs/design/hud-clarity.md` section 3): objective 8..40, drive bar 44..70, tied
+	-- banner 74..104, this strip 108..134, the map at 140. **AND THE BANNER IS 30 PX TALL, NOT THE 24
+	-- THIS COMMENT USED TO CLAIM** -- `Hud.build` creates it `UDim2.fromOffset(620, 30)`, so it owns
+	-- 74..104 and this strip clears it by 4. The old numbers happened to work (76 clears 68 either
+	-- way); the new band has 4 px of gap and a stale 24 would have eaten it (design correction C2).
+	TOP = 108,
 	SPAN_DEG = 120, -- degrees of bearing visible across the whole strip
 	-- Over the feed and the drive bar (1), under the scope's mask (11-13), and under the drive
 	-- report and the score board, which share `Report.CONFIG.PANEL_Z_INDEX` (15). Task 141 restacked

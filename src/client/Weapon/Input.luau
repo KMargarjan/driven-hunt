@@ -115,19 +115,51 @@ local function onFire(_name: string, state: Enum.UserInputState)
 	return Enum.ContextActionResult.Pass
 end
 
+-- RELOAD AND THE AMMO SWITCH AS PUBLIC FUNCTIONS, SO A BUTTON AND A KEY RUN ONE IMPLEMENTATION
+-- (task 165). Karen, 2026-10-12: *"could be buttons on the side for M - map ect"*, and mobile is in
+-- v1 -- a thumb has no R and no X. `Hud.Rail` calls these; `onReload` and `onSelectAmmo` below are
+-- now two lines each and call the same thing.
+--
+-- THE HOLD IS CHECKED HERE AND NOT IN THE CALLER, which is the point of moving it: a player must not
+-- be able to reload by tapping a button through an open report panel, and `Input.requestHold`'s own
+-- header says that is what the hold is for. One site for the rule, two doors onto it.
+--
+-- `Input` IS STILL THE ONLY FIRER OF `ActionRequest` in the client. The Hud READS `Weapon.Input` --
+-- it already does, for `ReportPanel`'s `requestHold` -- and `Input` has no reference to the Hud.
+--
+-- Returns whether the request actually went, so a caller can tell "refused, something is holding
+-- input" from "sent". The key path ignores it, exactly as it ignored the old `if`.
+function Input.reload(): boolean
+	if Input.isHeld() then
+		return false
+	end
+	remotes().ActionRequest:FireServer("Reload")
+	return true
+end
+
+-- THE OTHER SHELL, whichever it is. The CHOICE is the client's and the RULE is the server's: it
+-- answers "NO BUCK" through the weapon's own notice when the pocket is empty.
+function Input.selectAmmo(): boolean
+	if Input.isHeld() then
+		return false
+	end
+	local Weapon = require(script.Parent)
+	local current = Weapon.get()
+	local other = if current and current.ammo == "Slug" then "Buck" else "Slug"
+	remotes().ActionRequest:FireServer("SelectAmmo", other)
+	return true
+end
+
 local function onReload(_name: string, state: Enum.UserInputState)
-	if state == Enum.UserInputState.Begin and not Input.isHeld() then
-		remotes().ActionRequest:FireServer("Reload")
+	if state == Enum.UserInputState.Begin then
+		Input.reload()
 	end
 	return Enum.ContextActionResult.Pass
 end
 
 local function onSelectAmmo(_name: string, state: Enum.UserInputState)
-	if state == Enum.UserInputState.Begin and not Input.isHeld() then
-		local Weapon = require(script.Parent)
-		local current = Weapon.get()
-		local other = if current and current.ammo == "Slug" then "Buck" else "Slug"
-		remotes().ActionRequest:FireServer("SelectAmmo", other)
+	if state == Enum.UserInputState.Begin then
+		Input.selectAmmo()
 	end
 	return Enum.ContextActionResult.Pass
 end

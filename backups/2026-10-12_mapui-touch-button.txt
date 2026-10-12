@@ -1,0 +1,59 @@
+ARCHIVED 2026-10-12, task 165 (rule 7: never delete).
+
+WHAT THIS IS: the standalone touch button `Hud.build` used to create under the minimap, plus the
+`MapUi` members that went with it -- `CONFIG.BUTTON_ENABLED`, `CONFIG.BUTTON_PX`,
+`CONFIG.BUTTON_GAP`, `MapUi.buttonVisible`, the `button` field of `MapUi.start` and its `Activated`
+connection, the button's lines in `layoutFor`, and `Hud.mapButton()`.
+
+WHY IT WENT: it became the FIRST BUTTON OF `Hud.Rail` (src/client/Hud/Rail.luau), which calls the
+same `MapUi.toggle()` the M key calls. Roblox's own UI-design curriculum is the argument --
+"group UI elements from the same category together" -- and Karen, 2026-10-12, asked for
+"buttons on the side for M - map ect", which is a request for a button that already existed:
+`MapUi.buttonVisible` was `touchEnabled and BUTTON_ENABLED`, so it had never once appeared in a
+session of hers, because she plays on a PC. `Rail.CONFIG.SHOW_ON_DESKTOP` ships true for exactly
+that reason.
+
+Leaving `buttonVisible` behind with no caller was refused by the design
+(docs/design/hud-clarity.md section 7.2 item 1): dead code pretending to be an owner is worse than
+a removal with a note.
+
+Design: docs/design/hud-clarity.md section 7.2 - note: docs/research/2026-10-12-hud-clarity.md
+Live again by: git show 9d73341:src/client/Hud/init.luau and 9d73341:src/client/Hud/MapUi.luau
+
+---- the removed block, verbatim from src/client/Hud/init.luau at 9d73341 ----
+
+	-- ...AND THE THUMB'S WAY IN, because Karen wants mobile in v1 and a phone has no M. Shown only
+	-- on a touch device (`MapUi.buttonVisible`), and it calls the SAME `MapUi.toggle` the key does.
+	local mapButton = Instance.new("TextButton")
+	mapButton.Name = "MapButton"
+	mapButton.BackgroundColor3 = MapUi.CONFIG.BACKGROUND
+	mapButton.BackgroundTransparency = MapUi.CONFIG.MINIMAP_TRANSPARENCY
+	mapButton.BorderSizePixel = 0
+	mapButton.AnchorPoint = Vector2.new(1, 0)
+	mapButton.Position = UDim2.new(
+		1,
+		-MapUi.CONFIG.MINIMAP_MARGIN,
+		0,
+		MapUi.CONFIG.MINIMAP_TOP + MapUi.CONFIG.MINIMAP_DIAMETER_PX + MapUi.CONFIG.BUTTON_GAP
+	)
+	mapButton.Size = UDim2.fromOffset(MapUi.CONFIG.BUTTON_PX, MapUi.CONFIG.BUTTON_PX)
+	mapButton.ZIndex = MapUi.CONFIG.Z_INDEX
+	mapButton.Font = Enum.Font.Code
+	mapButton.TextSize = MapUi.CONFIG.LABEL_SIZE
+	mapButton.TextColor3 = MapUi.CONFIG.TEXT_COLOR
+	mapButton.Text = "MAP"
+	mapButton.AutoButtonColor = true
+	mapButton.Visible = false
+	local buttonCorner = Instance.new("UICorner")
+	buttonCorner.CornerRadius = UDim.new(0.5, 0)
+	buttonCorner.Parent = mapButton
+	-- `Border` AND NOT THE DEFAULT. `UIStroke.ApplyStrokeMode` defaults to `Contextual`, which on a
+	-- TextButton outlines the TEXT; this stroke is the button's rim, so it says so. One stroke per
+	-- object, because a second would be a second writer of the same outline.
+	local buttonRim = Instance.new("UIStroke")
+	buttonRim.Thickness = 1
+	buttonRim.Color = MapUi.CONFIG.RIM_COLOR
+	buttonRim.Transparency = 0.25
+	buttonRim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	buttonRim.Parent = mapButton
+	mapButton.Parent = screen

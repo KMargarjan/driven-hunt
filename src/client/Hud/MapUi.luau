@@ -47,7 +47,6 @@ local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
@@ -71,7 +70,9 @@ MapUi.CONFIG = {
 	-- for two on shipping un-flagged, and an `expires` date in the past fails the harness -- a real
 	-- cost for no OFF-state question.
 	MINIMAP_ENABLED = true,
-	BUTTON_ENABLED = true,
+	-- `BUTTON_ENABLED` IS GONE (task 165). It gated a touch-only button under the disc, and that
+	-- button is now the first of `Hud.Rail`'s column -- which calls this module's own `MapUi.toggle`.
+	-- Archived with its reason in `backups/2026-10-12_mapui-touch-button.txt` (rule 7).
 
 	-- ---------------- the minimap: a small round map, always on, top right
 	--
@@ -85,10 +86,14 @@ MapUi.CONFIG = {
 	-- because the frames were taken in the Forest Test, where there is no bar at all"*. The drive
 	-- bar is a 520 px CENTRED frame and the compass a 360 px centred one, so at a ~400 px phone
 	-- width those two span the WHOLE width: a disc at y 8 would sit on the clock in every world that
-	-- has a drive, and at 1080p it would not -- which is exactly how that bug hid. The HUD's top
-	-- band is 8..102 (bar 8..34, tied banner 44..74, compass 76..102) and 108 clears all of it at
-	-- every width.
-	MINIMAP_TOP = 108,
+	-- has a drive, and at 1080p it would not -- which is exactly how that bug hid.
+	--
+	-- 108 -> 140 (task 165): the objective line took the top line and the whole band moved down one
+	-- band -- objective 8..40, bar 44..70, tied banner 74..104, compass 108..134 -- so 140 is what
+	-- now clears all of it at every width (`docs/design/hud-clarity.md` section 3). The BUTTON RAIL
+	-- hangs below this disc and its top is computed from the RENDERED diameter (`Rail.topFor`), so
+	-- this one number moves both.
+	MINIMAP_TOP = 140,
 	MINIMAP_MARGIN = 12,
 	-- HOW FAR IT SEES, as a radius. 300 studs is 84 m at 0.28 m/stud and TWO stand spacings
 	-- (`ForestTest.STAND_SPACING` 150), so a beater walking in sees the road and at least two stands
@@ -101,7 +106,7 @@ MapUi.CONFIG = {
 	-- `UIScale` fits it to the screen. 1080p leaves 108 above and 272 below.
 	FULL_MAX_WIDTH_PX = 1100,
 	FULL_MAX_HEIGHT_PX = 700,
-	FULL_TOP = 108, -- the same top line as the minimap
+	FULL_TOP = 140, -- the same top line as the minimap (108 -> 140 with the band, task 165)
 	FULL_SIDE_INSET = 24,
 	FULL_BOTTOM_INSET = 48, -- clears the ammo readout's own 40
 	-- BELOW THIS THERE IS NO ROOM FOR A MAP AT ALL and it is said out loud once, rather than drawn as
@@ -135,8 +140,15 @@ MapUi.CONFIG = {
 	-- Backspace, Return, the four arrows). ESCAPE IS NOT BOUND and cannot be -- it belongs to the
 	-- Roblox menu, which `ReportPanel.bind` says in its own comment -- so M closes the map too.
 	TOGGLE_KEY = Enum.KeyCode.M,
-	BUTTON_PX = 48, -- over the ~44 px thumb target
-	BUTTON_GAP = 8,
+	-- HOW WIDE A COLUMN THE BUTTON RAIL OWNS on the right edge, and why the full map has to know:
+	-- the panel is CENTRED, so at 400 px wide its own room (`viewportX - 2 * FULL_SIDE_INSET` = 352,
+	-- spanning x 24..376) crosses the rail at x 340..388. The minimap never had this problem because
+	-- `minimapVisible` hides it while the map is open; THE RAIL CANNOT HIDE, because on a phone it is
+	-- the only way to CLOSE the map. So `layoutFor` reserves this much and shifts the panel left by
+	-- half of it (`docs/design/hud-clarity.md` section 3). 48 + 12 + 8 = the button, its margin and a
+	-- gap -- read off `Rail.CONFIG` would be a require cycle, so it is stated here and
+	-- `hud_clarity.spec` asserts the two agree.
+	RAIL_COLUMN_PX = 68,
 
 	-- ---------------- what things look like
 	--
@@ -182,6 +194,23 @@ MapUi.CONFIG = {
 	-- bar fits this fraction of the canvas.
 	SCALE_BAR_CHOICES_M = { 25, 50, 100, 200, 500 },
 	SCALE_BAR_FRACTION = 0.4,
+
+	-- THE LEGEND (task 165). Karen asked for the full map to be clearer; a map with six kinds of mark
+	-- and no key is a diagram you have to be told about.
+	--
+	-- IT IS INSIDE THE PANEL'S FIXED PIXEL SPACE, so it scales with the panel -- and that is exactly
+	-- why it has a floor: at a 400 px width the panel's `UIScale` is about a third and no font
+	-- survives it. `MapUi.legendVisible` hides the whole block below `LEGEND_MIN_TEXT_PX /
+	-- LEGEND_TEXT_PX`, and when it is hidden the map labels itself instead -- the `YOU` tag on your
+	-- own marker and the word on the target mark, both of which exist at every size. What a phone
+	-- loses is the colour key for the OTHER players' teams. Stated, not hidden: the real fix is a
+	-- phone layout for the Hud's fixed-width panels, which is its own task.
+	LEGEND_WIDTH_PX = 150,
+	LEGEND_HEIGHT_PX = 96,
+	LEGEND_ROW_HEIGHT = 15,
+	LEGEND_SWATCH_PX = 9,
+	LEGEND_TEXT_PX = 12,
+	LEGEND_MIN_TEXT_PX = 8,
 
 	-- THE STACK, against the one task 141 set: the feed and the drive bar at 1, the compass at 6-10,
 	-- the scope's mask at 11-13, the drive report and the score board at 15. The whole map lives in
@@ -326,6 +355,55 @@ end
 -- width without eating a quarter of it"* and 150/400 is 37.5 %, which is not under a quarter -- so
 -- the on-screen diameter is a clamped fraction of the viewport rather than a constant, and the
 -- promise is true at the width the note names. 1080p resolves to the full 150.
+-- THE MINIMAP'S AND THE FULL MAP'S RECTANGLES AT A GIVEN VIEWPORT: x, y, width, height (task 165).
+-- PURE AND EXPORTED, for the reason `Objective.lineRect` and `Rail.rect` are: the overlap case
+-- further down this module's spec measures `AbsolutePosition` at whatever size the Studio window
+-- happens to be, so it cannot answer for 400 x 800 -- and 400 x 800 is the claim Karen is being
+-- asked to believe. Arithmetic answers for any viewport.
+function MapUi.minimapRect(viewport: Vector2): (number, number, number, number)
+	local config = MapUi.CONFIG
+	local diameter = MapUi.diameterFor(viewport.X, viewport.Y)
+	return viewport.X - config.MINIMAP_MARGIN - diameter, config.MINIMAP_TOP, diameter, diameter
+end
+
+-- THE PANEL'S RENDERED rectangle: built at a fixed size, fitted with one `UIScale`, centred in the
+-- room left after the rail's column -- the same three lines `layoutFor` performs, so a change to one
+-- shows up in the other's spec.
+function MapUi.fullMapRect(viewport: Vector2): (number, number, number, number)
+	local config = MapUi.CONFIG
+	local roomX = viewport.X - config.FULL_SIDE_INSET - config.RAIL_COLUMN_PX
+	local roomY = viewport.Y - config.FULL_TOP - config.FULL_BOTTOM_INSET
+	local scale = math.max(0.1, math.min(1, roomX / config.FULL_MAX_WIDTH_PX, roomY / config.FULL_MAX_HEIGHT_PX))
+	local width = config.FULL_MAX_WIDTH_PX * scale
+	local height = config.FULL_MAX_HEIGHT_PX * scale
+	return viewport.X / 2 - math.round(config.RAIL_COLUMN_PX / 2) - width / 2, config.FULL_TOP, width, height
+end
+
+-- WHAT THE LEGEND SAYS, as data. Six rows, in the order they are drawn. `shape` is "line" for the
+-- road (a thin bar), "square" for a stand and "dot" for a body, which is exactly how each of those
+-- is drawn on the map -- a key whose swatch is a different shape from the thing it keys is a key that
+-- has to be explained.
+function MapUi.legendRows(): { { word: string, color: Color3, shape: string } }
+	local colors = MapUi.COLORS
+	return {
+		{ word = "ROAD", color = MapUi.CONFIG.ROAD_COLOR, shape = "line" },
+		{ word = "STAND", color = colors.stand, shape = "square" },
+		{ word = "GO HERE", color = colors.arrow, shape = "square" },
+		{ word = "YOU", color = colors.own, shape = "dot" },
+		{ word = "HUNTER", color = colors.Shooters, shape = "dot" },
+		{ word = "BEATER", color = colors.Drivers, shape = "dot" },
+	}
+end
+
+-- IS THERE ROOM TO READ IT? The legend lives in the panel's fixed pixel space and is scaled with it,
+-- so below a scale where `LEGEND_TEXT_PX` would render under `LEGEND_MIN_TEXT_PX` the whole block is
+-- hidden rather than drawn illegibly. 8 px is the floor for `Enum.Font.Code`; 12 / 8 makes the
+-- threshold 0.67, which a 400 px phone (scale ~0.3) is well under and 1080p (scale 1) is over.
+function MapUi.legendVisible(scale: number): boolean
+	local config = MapUi.CONFIG
+	return scale * config.LEGEND_TEXT_PX >= config.LEGEND_MIN_TEXT_PX
+end
+
 function MapUi.diameterFor(viewportX: number, viewportY: number): number
 	local config = MapUi.CONFIG
 	local smaller = math.min(viewportX, viewportY)
@@ -419,10 +497,6 @@ function MapUi.minimapVisible(open: boolean, suppressed: boolean, reportOpen: bo
 end
 
 -- PURE, because a Studio Play on a PC has `TouchEnabled` false and a spec cannot change that.
-function MapUi.buttonVisible(touchEnabled: boolean): boolean
-	return touchEnabled and MapUi.CONFIG.BUTTON_ENABLED
-end
-
 -- ---------------------------------------------------------------- what a world tells the map
 
 -- ONE SHAPE, TWO PROVIDERS (rule 3). `MapUi` draws a `MapGeometry` and does not know which world
@@ -543,7 +617,12 @@ end
 
 local miniFrame: Frame? = nil
 local fullFrame: Frame? = nil
-local mapButton: TextButton? = nil
+-- THE LEGEND AND THE RAIL (task 165). The legend is this module's to fill; the RAIL is not -- only
+-- its POSITION is, because the rail hangs under the minimap and this is the one function that knows
+-- the minimap's rendered diameter (`layoutFor`). `Hud.Rail` is the one writer of everything inside
+-- it, and this module never reads it.
+local legendFrame: Frame? = nil
+local railFrame: Frame? = nil
 local miniScale: UIScale? = nil
 local fullScale: UIScale? = nil
 
@@ -552,6 +631,11 @@ local suppressed = false
 local geometry: MapGeometry? = nil
 local pushBearing: number? = nil
 local pushLabel: string? = nil
+-- WHERE THE PLAYER MUST GO, told by the Hud (task 165) -- flat, because this module draws in x/z.
+-- `nil` is "nowhere right now" and then no target mark is drawn at all, which is `setPush`'s own rule
+-- and `Objective.targetFor`'s: a world that has stated nothing gets no mark rather than a guess.
+local targetPoint: Vector2? = nil
+local targetWord: string? = nil
 local started = false
 local built = false
 local tooSmallWarned = false
@@ -580,6 +664,11 @@ type Drawer = {
 	wedge: Frame,
 	arrow: Frame,
 	arrowWord: TextLabel,
+	-- WHERE YOU MUST GO (task 165): one mark per drawer, and exactly one drawer is live per tick, so
+	-- there is one target on screen. Karen: *"where will be hunter position where they stand and what
+	-- direction to move"* -- this is the "where they stand" half, for HER stand rather than all nine.
+	target: Frame,
+	targetWord: TextLabel,
 }
 local drawers: { Drawer } = {}
 
@@ -847,6 +936,31 @@ local function buildDrawer(
 	word.Size = UDim2.fromOffset(60, config.LABEL_SIZE + 2)
 	word.Visible = false
 
+	-- THE TARGET MARK (task 165): the ONE place on this map that is yours. A rotated square in the
+	-- orange-red the push arrow and the compass's DRIVE marker already share, so the full map carries
+	-- exactly one mark of that colour and it is where you are going. The other stands keep
+	-- `COLORS.stand` and their index labels, so "mine" and "a stand" are two pictures.
+	local goal = Instance.new("Frame")
+	goal.Name = "Target"
+	goal.AnchorPoint = Vector2.new(0.5, 0.5)
+	goal.Size = UDim2.fromOffset(config.STAND_PX + 4, config.STAND_PX + 4)
+	goal.Position = UDim2.fromScale(0.5, 0.5)
+	goal.BackgroundColor3 = MapUi.COLORS.arrow
+	goal.BorderSizePixel = 0
+	goal.Rotation = 45
+	goal.ZIndex = config.Z_INDEX + 2
+	goal.Visible = false
+	stroked(goal)
+	goal.Parent = frame
+
+	-- A SIBLING AND NOT A CHILD, for the reason the waypoint's word is one in `Hud.build`: a child
+	-- would inherit the 45-degree `Rotation` and read at an angle.
+	local goalWord = label(frame, "TargetWord", config.LABEL_SIZE, "")
+	goalWord.TextColor3 = MapUi.COLORS.arrow
+	goalWord.AnchorPoint = Vector2.new(0.5, 0)
+	goalWord.Size = UDim2.fromOffset(70, config.LABEL_SIZE + 2)
+	goalWord.Visible = false
+
 	return {
 		name = name,
 		frame = frame,
@@ -859,6 +973,8 @@ local function buildDrawer(
 		wedge = wedge,
 		arrow = arrow,
 		arrowWord = word,
+		target = goal,
+		targetWord = goalWord,
 	}
 end
 
@@ -900,12 +1016,16 @@ local function layoutFor(viewport: Vector2)
 		miniUiScale.Scale = diameter / config.MINIMAP_DIAMETER_PX
 	end
 
-	local button = mapButton
-	if button ~= nil then
-		-- FROM THE RENDERED DIAMETER, which is what `diameter` is now that the `UIScale` is the one
-		-- writer of it: the button sits under the disc at every viewport, not only at this one.
-		button.Size = UDim2.fromOffset(config.BUTTON_PX, config.BUTTON_PX)
-		button.Position = UDim2.new(1, -config.MINIMAP_MARGIN, 0, config.MINIMAP_TOP + diameter + config.BUTTON_GAP)
+	-- THE BUTTON RAIL HANGS UNDER THE DISC, AND ITS TOP COMES FROM THE RENDERED DIAMETER (task 165)
+	-- -- which is what `diameter` is now that the `UIScale` is the one writer of it. 150 on a screen
+	-- and 96 on a phone, so a FIXED top would either sit on the disc or leave a hole. This writes the
+	-- rail's POSITION only; `Hud.Rail` is the one writer of everything inside it, including its size.
+	--
+	-- (This is where the old touch button's two lines were. Same arithmetic, one node further down
+	-- the screen -- see `backups/2026-10-12_mapui-touch-button.txt`.)
+	local rail = railFrame
+	if rail ~= nil then
+		rail.Position = UDim2.new(1, -config.MINIMAP_MARGIN, 0, config.MINIMAP_TOP + diameter + 8)
 	end
 
 	-- THE PANEL IS BUILT AT A FIXED SIZE AND SCALED TO FIT, so one number handles a phone and
@@ -913,7 +1033,10 @@ local function layoutFor(viewport: Vector2)
 	local wanted = full.Size
 	local panelWidth = wanted.X.Offset
 	local panelHeight = wanted.Y.Offset
-	local roomX = viewport.X - 2 * config.FULL_SIDE_INSET
+	-- THE RAIL'S COLUMN IS RESERVED (task 165). The panel is CENTRED, so without this it runs under
+	-- the rail at a phone's width -- measured in `CONFIG.RAIL_COLUMN_PX`'s own comment. One number,
+	-- in the one function that already writes both `UIScale`s.
+	local roomX = viewport.X - config.FULL_SIDE_INSET - config.RAIL_COLUMN_PX
 	local roomY = viewport.Y - config.FULL_TOP - config.FULL_BOTTOM_INSET
 	local scale = 1
 	if panelWidth > 0 and panelHeight > 0 then
@@ -922,6 +1045,16 @@ local function layoutFor(viewport: Vector2)
 	local fullUiScale = fullScale
 	if fullUiScale ~= nil then
 		fullUiScale.Scale = math.max(0.1, scale)
+	end
+	-- SHIFTED LEFT BY HALF THE COLUMN, so the panel stays centred in the room it actually has.
+	full.Position = UDim2.new(0.5, -math.round(config.RAIL_COLUMN_PX / 2), 0, config.FULL_TOP)
+
+	-- THE LEGEND GOES WITH THE PANEL'S SCALE, so it is hidden when no font inside the panel could be
+	-- read (`legendVisible`). It is positioned once here rather than per tick: it says nothing that
+	-- changes.
+	local legend = legendFrame
+	if legend ~= nil then
+		legend.Visible = MapUi.legendVisible(math.max(0.1, scale))
 	end
 
 	-- A VIEWPORT TOO SMALL FOR A MAP AT ALL is a decision, said once, rather than a squashed
@@ -975,10 +1108,6 @@ function MapUi.applyVisibility()
 	local hasGeometry = geometry ~= nil
 	full.Visible = hasGeometry and MapUi.fullMapVisible(open, suppressed, reportOpen)
 	mini.Visible = MapUi.minimapVisible(open, suppressed, reportOpen, hasGeometry)
-	local button = mapButton
-	if button ~= nil then
-		button.Visible = hasGeometry and MapUi.buttonVisible(UserInputService.TouchEnabled)
-	end
 end
 
 -- ---------------------------------------------------------------- drawing
@@ -1044,6 +1173,31 @@ local function renderDrawer(drawer: Drawer, sources: { MarkerSource }, me: Vecto
 	end
 	for spare = index + 1, #drawer.markers do
 		drawer.markers[spare].Visible = false
+	end
+
+	-- WHERE YOU MUST GO, drawn from the MAP's own projection and not from the player's (task 165):
+	-- it is a place in the world, so it is projected like the road and pinned like a marker. Done
+	-- BEFORE the `mine == nil` return below, because a target exists whether or not this client has a
+	-- character yet -- and a map that forgot to draw the one place you are going because you were
+	-- mid-respawn is the kind of hole `docs/PROJECT_CONTEXT.md` records being certified twice.
+	local goal, goalWord = drawer.target, drawer.targetWord
+	if targetPoint == nil then
+		goal.Visible = false
+		goalWord.Visible = false
+	else
+		local at = targetPoint :: Vector2
+		local gu, gv, inView = MapUi.project(at.X, at.Y, view)
+		local transparency = if inView then 0 else config.PINNED_TRANSPARENCY
+		goal.Position = UDim2.new(0.5, math.round(gu), 0.5, math.round(gv))
+		goal.BackgroundTransparency = transparency
+		goal.Visible = true
+		goalWord.Position = UDim2.new(0.5, math.round(gu), 0.5, math.round(gv) + config.STAND_PX)
+		local text = targetWord or "GO"
+		if goalWord.Text ~= text then
+			goalWord.Text = text
+		end
+		goalWord.TextTransparency = transparency
+		goalWord.Visible = true
 	end
 
 	-- YOUR OWN MARKER, ITS WEDGE AND THE PUSH ARROW, all hung off the one point.
@@ -1182,6 +1336,22 @@ function MapUi.setPush(bearingDeg: number?, labelText: string?)
 	pushLabel = if bearingDeg == nil then nil else (labelText or "DRIVE")
 end
 
+-- WHERE THE PLAYER MUST GO, handed in BY THE HUD and never derived here (task 165) -- the
+-- `setPush` shape, and for the same reason: `Hud.renderObjective` is the ONE evaluation of the
+-- objective and `MapUi.luau` is a sibling of `init.luau`, so requiring it would be a cycle.
+--
+-- `nil` IS "NOWHERE RIGHT NOW" and then no mark is drawn. A hunter standing on his own stand has
+-- arrived, so there is nothing to point at -- which is the same answer `Objective.arrived` gives the
+-- chevron and the compass, from one evaluation.
+function MapUi.setTarget(point: Vector2?, word: string?)
+	targetPoint = point
+	targetWord = if point == nil then nil else (word or "GO")
+end
+
+function MapUi.target(): (Vector2?, string?)
+	return targetPoint, targetWord
+end
+
 -- ---------------------------------------------------------------- the world arrives
 
 local function on(fn: () -> ())
@@ -1306,6 +1476,43 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	barLabel.Size = UDim2.fromOffset(80, config.LABEL_SIZE + 2)
 	barLabel.TextXAlignment = Enum.TextXAlignment.Left
 
+	-- THE LEGEND'S ROWS (task 165), built once with the rest of the picture into the frame
+	-- `Hud.build` created. `layoutFor` decides whether the block is `Visible` (`legendVisible`); this
+	-- is the only thing that writes what is inside it.
+	local legend = legendFrame
+	if legend ~= nil then
+		local holder = legend :: Frame
+		holder.Position = UDim2.new(1, -config.FULL_PADDING, 1, -(config.FULL_FOOTER_HEIGHT - 4))
+		for index, row in ipairs(MapUi.legendRows()) do
+			local y = (index - 1) * config.LEGEND_ROW_HEIGHT
+			local swatch = Instance.new("Frame")
+			swatch.Name = string.format("Swatch%d", index)
+			swatch.BackgroundColor3 = row.color
+			swatch.BorderSizePixel = 0
+			swatch.AnchorPoint = Vector2.new(0, 0.5)
+			swatch.Position = UDim2.fromOffset(0, y + config.LEGEND_ROW_HEIGHT / 2)
+			swatch.ZIndex = config.Z_INDEX + 3
+			if row.shape == "line" then
+				swatch.Size = UDim2.fromOffset(config.LEGEND_SWATCH_PX + 3, config.ROAD_PX)
+			else
+				swatch.Size = UDim2.fromOffset(config.LEGEND_SWATCH_PX, config.LEGEND_SWATCH_PX)
+			end
+			if row.shape == "dot" then
+				local round = Instance.new("UICorner")
+				round.CornerRadius = UDim.new(0.5, 0)
+				round.Parent = swatch
+			end
+			stroked(swatch)
+			swatch.Parent = holder
+			local word = label(holder, string.format("Word%d", index), config.LEGEND_TEXT_PX, row.word)
+			word.AnchorPoint = Vector2.new(0, 0.5)
+			word.Position = UDim2.fromOffset(config.LEGEND_SWATCH_PX + 8, y + config.LEGEND_ROW_HEIGHT / 2)
+			word.Size =
+				UDim2.fromOffset(config.LEGEND_WIDTH_PX - config.LEGEND_SWATCH_PX - 8, config.LEGEND_TEXT_PX + 2)
+			word.TextXAlignment = Enum.TextXAlignment.Left
+		end
+	end
+
 	table.clear(drawers)
 	-- `buildDrawer` is handed the view table itself, so the minimap's centre is this one object and
 	-- `renderDrawer` moves it in place -- no second copy to get out of step. The minimap's own frame
@@ -1332,23 +1539,21 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	MapUi.render()
 end
 
-function MapUi.start(frames: { miniMap: Frame, fullMap: Frame, button: TextButton? }, collaborators: any)
+function MapUi.start(frames: { miniMap: Frame, fullMap: Frame, legend: Frame?, rail: Frame? }, collaborators: any)
 	if started then
 		return
 	end
 	started = true
 	miniFrame = frames.miniMap
 	fullFrame = frames.fullMap
-	mapButton = frames.button
+	legendFrame = frames.legend
+	-- THE RAIL'S FRAME, FOR ITS POSITION ONLY (task 165). This module knows the minimap's rendered
+	-- diameter and the rail hangs under it, so `layoutFor` writes where the column starts -- and
+	-- nothing else about it. `Hud.Rail` is the one writer of its buttons.
+	railFrame = frames.rail
 	CameraSystem = collaborators and collaborators.Camera
 	ReportSystem = collaborators and collaborators.Report
 	localUserId = (collaborators and collaborators.userId) or 0
-
-	local button = mapButton
-	if button ~= nil then
-		-- THE SAME ENTRY POINT M USES, so there is one toggle and not two.
-		button.Activated:Connect(MapUi.toggle)
-	end
 
 	MapUi.setGeometry(collaborators and collaborators.geometry)
 

@@ -29,6 +29,8 @@
 -- Note:   docs/research/2026-09-24-shotgun.md
 local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
+-- WHETHER THIS DEVICE HAS A TOUCHSCREEN, which only `Hud.Rail` asks (task 165).
+local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -58,6 +60,15 @@ local Compass = require(script.Compass)
 -- IT IS CALLED `MapUi` AND NOT `Map` because `Map` above is the WORLD contract
 -- (`ReplicatedStorage.Map`), and this file needs both at once. The world, and the picture of it.
 local MapUi = require(script.MapUi)
+-- ...AND THE TWO THINGS TASK 165 ADDED, in the same shape as the three above: the Hud builds the
+-- nodes and each module is the one writer of everything inside its own.
+--
+-- `Objective` owns the objective LINE and the WAYPOINT chevron, which are one answer rendered twice
+-- ("what must I do" and "where"); `Rail` owns the right-edge button column. Karen, 2026-10-12:
+-- *"we need to have better map or direction that people has to walk we need to improve design that
+-- it will be clear to understand what happening / could be buttons on the side for M - map ect"*.
+local Objective = require(script.Objective)
+local Rail = require(script.Rail)
 
 local Hud = {}
 
@@ -100,7 +111,26 @@ local compassHiddenByScope = false
 -- `ZIndex`; `MapUi` writes everything inside them and their `Visible`.
 local miniMapFrame: Frame? = nil
 local fullMapFrame: Frame? = nil
-local mapButtonNode: TextButton? = nil
+-- THE MAP'S LEGEND (task 165): a fourth node of the map's, created here and filled by `MapUi`.
+local mapLegendFrame: Frame? = nil
+-- THE MAP'S OWN TOUCH BUTTON IS GONE (task 165, design 7.2 item 1). It was `touchEnabled and
+-- BUTTON_ENABLED`, so it never appeared in a single one of Karen's PC sessions -- which is why she
+-- asked for *"buttons on the side for M - map ect"* for a button that was already written. It is the
+-- first button of `Hud.Rail` now, which calls the same `MapUi.toggle` the M key calls. The removed
+-- block is archived with its reason in `backups/2026-10-12_mapui-touch-button.txt` (rule 7).
+-- TASK 165'S OWN NODES: the objective line, the waypoint chevron and its word, and the rail.
+local objectiveLine: TextLabel? = nil
+local waypointMark: Frame? = nil
+local waypointWord: TextLabel? = nil
+local railFrame: Frame? = nil
+-- WHERE THE WORLD SAYS THE DRIVE IS, resolved once by the closure in `Hud.start` and read every
+-- frame by `Hud.renderObjective`. Module-level because the per-frame pass is now the ONE writer of
+-- the compass's bearing and the map's push arrow -- see `Hud.renderObjective`.
+local worldBearing: number? = nil
+local worldBearingLabel: string? = nil
+-- Has this player reached the place the objective sends them? Latched, so the chevron cannot
+-- flicker: `Objective.arrived` holds the hysteresis and this is the state it is applied to.
+local arrivedAtTarget = false
 local scoreTitle: TextLabel? = nil
 local scoreLines: { TextLabel } = {}
 local scoreFooter: TextLabel? = nil
@@ -175,11 +205,32 @@ function Hud.fullMap(): Frame?
 	return fullMapFrame
 end
 
-function Hud.mapButton(): TextButton?
-	return mapButtonNode
+function Hud.mapLegend(): Frame?
+	return mapLegendFrame
 end
 
 Hud.MapUi = MapUi
+
+-- TASK 165's THREE NODES AND TWO MODULES, read off the Hud for the reason every accessor above is:
+-- a spec must never walk `PlayerGui` by name.
+function Hud.objectiveLine(): TextLabel?
+	return objectiveLine
+end
+
+function Hud.waypoint(): Frame?
+	return waypointMark
+end
+
+function Hud.waypointWord(): TextLabel?
+	return waypointWord
+end
+
+function Hud.rail(): Frame?
+	return railFrame
+end
+
+Hud.Objective = Objective
+Hud.Rail = Rail
 
 function Hud.isScorePanelVisible(): boolean
 	return scorePanel ~= nil and scorePanel.Visible
@@ -779,41 +830,106 @@ local function build(): ScreenGui
 	fullRim.Parent = fullMap
 	fullMap.Parent = screen
 
-	-- ...AND THE THUMB'S WAY IN, because Karen wants mobile in v1 and a phone has no M. Shown only
-	-- on a touch device (`MapUi.buttonVisible`), and it calls the SAME `MapUi.toggle` the key does.
-	local mapButton = Instance.new("TextButton")
-	mapButton.Name = "MapButton"
-	mapButton.BackgroundColor3 = MapUi.CONFIG.BACKGROUND
-	mapButton.BackgroundTransparency = MapUi.CONFIG.MINIMAP_TRANSPARENCY
-	mapButton.BorderSizePixel = 0
-	mapButton.AnchorPoint = Vector2.new(1, 0)
-	mapButton.Position = UDim2.new(
-		1,
-		-MapUi.CONFIG.MINIMAP_MARGIN,
-		0,
-		MapUi.CONFIG.MINIMAP_TOP + MapUi.CONFIG.MINIMAP_DIAMETER_PX + MapUi.CONFIG.BUTTON_GAP
-	)
-	mapButton.Size = UDim2.fromOffset(MapUi.CONFIG.BUTTON_PX, MapUi.CONFIG.BUTTON_PX)
-	mapButton.ZIndex = MapUi.CONFIG.Z_INDEX
-	mapButton.Font = Enum.Font.Code
-	mapButton.TextSize = MapUi.CONFIG.LABEL_SIZE
-	mapButton.TextColor3 = MapUi.CONFIG.TEXT_COLOR
-	mapButton.Text = "MAP"
-	mapButton.AutoButtonColor = true
-	mapButton.Visible = false
-	local buttonCorner = Instance.new("UICorner")
-	buttonCorner.CornerRadius = UDim.new(0.5, 0)
-	buttonCorner.Parent = mapButton
-	-- `Border` AND NOT THE DEFAULT. `UIStroke.ApplyStrokeMode` defaults to `Contextual`, which on a
-	-- TextButton outlines the TEXT; this stroke is the button's rim, so it says so. One stroke per
-	-- object, because a second would be a second writer of the same outline.
-	local buttonRim = Instance.new("UIStroke")
-	buttonRim.Thickness = 1
-	buttonRim.Color = MapUi.CONFIG.RIM_COLOR
-	buttonRim.Transparency = 0.25
-	buttonRim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	buttonRim.Parent = mapButton
-	mapButton.Parent = screen
+	-- THE MAP'S LEGEND (task 165), a frame of the map's inside the map's own panel: created here
+	-- with everything else and filled by `MapUi.legendRows` -- the division the two map frames, the
+	-- compass strip and the report panel all already have.
+	local legend = Instance.new("Frame")
+	legend.Name = "MapLegend"
+	legend.BackgroundTransparency = 1
+	legend.AnchorPoint = Vector2.new(1, 1)
+	legend.Size = UDim2.fromOffset(MapUi.CONFIG.LEGEND_WIDTH_PX, MapUi.CONFIG.LEGEND_HEIGHT_PX)
+	legend.ZIndex = MapUi.CONFIG.Z_INDEX + 1
+	legend.Visible = false
+	legend.Parent = fullMap
+
+	-- ---------------------------------------------------------------- task 165: the objective line
+	--
+	-- THE TOP LINE OF THE SCREEN, AND THE FIRST THING READ. Karen, 2026-10-12: *"we need to improve
+	-- design that it will be clear to understand what happening"*. Everything else in this Hud is a
+	-- FACT; this is the only INSTRUCTION, so it is the biggest text in the band and it is at the top
+	-- of it (`docs/design/hud-clarity.md` section 3).
+	--
+	-- Created empty. `Objective` is the one writer of its text, its size and its `Visible`.
+	local objective = Instance.new("TextLabel")
+	objective.Name = "ObjectiveLine"
+	objective.BackgroundTransparency = 1
+	objective.Font = Enum.Font.Code
+	objective.TextSize = Objective.CONFIG.TEXT_SIZE
+	objective.TextColor3 = Objective.CONFIG.TEXT_COLOR
+	objective.TextXAlignment = Enum.TextXAlignment.Center
+	-- FULL WIDTH LESS A MARGIN, IN SCALE, so a 400 px phone gets 368 px of sentence and a 1080p
+	-- screen gets 1888 -- the one thing a fixed `fromOffset` width could not do, and the reason
+	-- `Objective.lineRect` is pure and asserted at three viewports.
+	objective.AnchorPoint = Vector2.new(0.5, 0)
+	objective.Position = UDim2.new(0.5, 0, 0, Objective.CONFIG.TOP)
+	objective.Size = UDim2.new(1, -2 * Objective.CONFIG.SIDE_MARGIN, 0, Objective.CONFIG.HEIGHT)
+	objective.ZIndex = Objective.CONFIG.Z_INDEX
+	objective.Text = ""
+	objective.Visible = false
+	local objectiveStroke = Instance.new("UIStroke")
+	objectiveStroke.Thickness = Objective.CONFIG.TEXT_STROKE
+	objectiveStroke.Color = Color3.new(0, 0, 0)
+	objectiveStroke.Parent = objective
+	objective.Parent = screen
+
+	-- ...AND THE WAYPOINT: a chevron over the world, and its word with the distance under it.
+	--
+	-- A ROTATED SQUARE, WHICH IS A CHEVRON WITH NO ASSET -- the hit marker's own technique. Small on
+	-- purpose: theHunter: Call of the Wild's players ask for theirs to be smaller (*"massive and
+	-- orange"*), and this one has a whole screen to cross.
+	--
+	-- UNDER THE FURNITURE AND OVER THE WORLD (`MARK_Z_INDEX` 5): a mark that travels the screen must
+	-- pass BEHIND the compass and the map rather than scribble on them.
+	local waypoint = Instance.new("Frame")
+	waypoint.Name = "Waypoint"
+	waypoint.AnchorPoint = Vector2.new(0.5, 0.5)
+	waypoint.Size = UDim2.fromOffset(Objective.CONFIG.MARK_PX, Objective.CONFIG.MARK_PX)
+	waypoint.Position = UDim2.fromScale(0.5, 0.5)
+	waypoint.BackgroundColor3 = Objective.CONFIG.MARK_COLOR
+	waypoint.BorderSizePixel = 0
+	waypoint.Rotation = 45
+	waypoint.ZIndex = Objective.CONFIG.MARK_Z_INDEX
+	waypoint.Visible = false
+	local waypointStroke = Instance.new("UIStroke")
+	waypointStroke.Thickness = 1
+	waypointStroke.Color = Color3.new(0, 0, 0)
+	waypointStroke.Parent = waypoint
+	waypoint.Parent = screen
+
+	-- THE WORD AND THE DISTANCE, A SIBLING AND NOT A CHILD. A child would inherit the chevron's
+	-- 45-degree `Rotation` and read at an angle, which is the kind of thing only a screenshot finds.
+	local waypointLabel = Instance.new("TextLabel")
+	waypointLabel.Name = "WaypointWord"
+	waypointLabel.BackgroundTransparency = 1
+	waypointLabel.Font = Enum.Font.Code
+	waypointLabel.TextSize = Objective.CONFIG.MARK_LABEL_SIZE
+	waypointLabel.TextColor3 = Objective.CONFIG.MARK_COLOR
+	waypointLabel.AnchorPoint = Vector2.new(0.5, 0)
+	waypointLabel.Position = UDim2.fromScale(0.5, 0.5)
+	waypointLabel.Size = UDim2.fromOffset(140, Objective.CONFIG.MARK_LABEL_SIZE + 4)
+	waypointLabel.ZIndex = Objective.CONFIG.MARK_Z_INDEX
+	waypointLabel.Text = ""
+	waypointLabel.Visible = false
+	local waypointWordStroke = Instance.new("UIStroke")
+	waypointWordStroke.Thickness = 1
+	waypointWordStroke.Color = Color3.new(0, 0, 0)
+	waypointWordStroke.Parent = waypointLabel
+	waypointLabel.Parent = screen
+
+	-- ...AND THE BUTTON RAIL, right edge, under the minimap. Karen: *"could be buttons on the side
+	-- for M - map ect"*. Created empty: `Rail` builds the buttons inside it and is the one writer of
+	-- every one of them. Its `Position` is rewritten by `MapUi.applyLayout`, because the rail hangs
+	-- below the minimap and the minimap's RENDERED diameter is 150 on a screen and 96 on a phone.
+	local rail = Instance.new("Frame")
+	rail.Name = "Rail"
+	rail.BackgroundTransparency = 1
+	rail.AnchorPoint = Vector2.new(1, 0)
+	rail.Position =
+		UDim2.new(1, -Rail.CONFIG.MARGIN, 0, Rail.topFor(MapUi.CONFIG.MINIMAP_DIAMETER_PX, MapUi.CONFIG.MINIMAP_TOP))
+	rail.Size = UDim2.fromOffset(Rail.CONFIG.BUTTON_PX, Rail.heightFor(#Rail.BUTTONS))
+	rail.ZIndex = Rail.CONFIG.Z_INDEX
+	rail.Visible = false
+	rail.Parent = screen
 
 	local label = Instance.new("TextLabel")
 	label.Name = "Readout"
@@ -848,7 +964,11 @@ local function build(): ScreenGui
 	startCardTimer = cardTimer
 	miniMapFrame = miniMap
 	fullMapFrame = fullMap
-	mapButtonNode = mapButton
+	mapLegendFrame = legend
+	objectiveLine = objective
+	waypointMark = waypoint
+	waypointWord = waypointLabel
+	railFrame = rail
 	return screen
 end
 
@@ -1475,6 +1595,16 @@ function Hud.renderScope(CameraSystem)
 		-- corner blacked out is worse than no minimap, and "is it outside the circle" is not
 		-- provable at every viewport.
 		MapUi.setSuppressed(scoped)
+		-- ...AND THE OBJECTIVE LINE, THE WAYPOINT AND THE RAIL, on the same line and by the same
+		-- mechanism (task 165). All three STATE A NEED and each module performs its own single write,
+		-- so none of them needs the compass's `compassHiddenByScope` remember-what-I-hid arrangement.
+		--
+		-- WHY THE RAIL HIDES AT ALL, when it is at the right edge and the eyepiece is in the middle:
+		-- the same measurement that put the map behind the mask -- at 400 x 800 the eyepiece spans
+		-- y 200..600 and the rail runs 244..460, so it is INSIDE the glass on a phone. A sight picture
+		-- with four buttons floating in it is the picture task 141 exists to prevent.
+		Objective.setSuppressed(scoped)
+		Rail.setSuppressed(scoped)
 	end
 	if reticle ~= nil then
 		local visible = Hud.reticleVisible(mode, optics, blend)
@@ -1654,6 +1784,10 @@ local function render(Weapon, CameraSystem)
 		-- stayed on screen, which is what the Task 35 screenshot shows.
 		readout.Text = if state and state.equipped then textFor(state) else ""
 	end
+	-- ...AND THE RAIL LEARNS WHETHER THERE IS A GUN FROM THE SAME READ (task 165). One reader of the
+	-- weapon state in this file; the rail is told and reads nothing. A button whose action cannot run
+	-- is not drawn, which is the dispatch's "no dead buttons".
+	Rail.setWeapon(state ~= nil and state.equipped == true)
 end
 -- ONE KILL, ONE LINE. The replica hears the server and fires `Killed`; this draws it. A NAMED
 -- handler rather than a closure, exactly as `Hud.onHitMarker` is, so the client half of the kill log
@@ -1685,6 +1819,118 @@ function Hud.driveBearing(data, team: string?): (number?, string?)
 		return data.PUSH_BEARING_DEG, data.PUSH_LABEL
 	end
 	return data.DRIVE_BEARING_DEG, nil
+end
+
+-- WHERE THE LOCAL PLAYER IS, flat, read off the engine and never cached (task 165). `MapUi`'s own
+-- private `roster` reads the same state for its markers: two readers of the engine, no writer of
+-- anything, and neither derives state from the other. nil means "no character yet" -- joining or
+-- respawning -- and then there is no target at all, which is `MapUi.pointsFor`'s rule: *"a stale dot
+-- is a lie about where somebody is"*.
+function Hud.localPosition(): Vector3?
+	local character = Players.LocalPlayer.Character
+	local root = character and character.PrimaryPart
+	return if root then (root :: BasePart).Position else nil
+end
+
+-- WHAT THE COMPASS MARKER AND THE MAP ARROW POINT AT, WHICH IS THE SAME PLACE THE CHEVRON DOES
+-- (task 165). PURE: the live target and the player's position in, a bearing and a word out.
+--
+-- THIS IS WHAT MAKES THE THREE PICTURES AGREE -- the dispatch's *"a marker that shows distance, plus
+-- the minimap/compass agreeing with it"* -- while keeping EXACTLY ONE MARKER on a 360 px strip. A
+-- second marker is clutter, and the dispatch forbids clutter in the same breath.
+--
+-- NO TARGET MEANS THE WORLD'S OWN ANSWER, UNCHANGED, which is `Hud.driveBearing`'s (where the drive
+-- comes from, or the way a beater pushes). That is not a fallback, it is the right answer: a hunter
+-- standing ON his stand has arrived, so the strip goes back to saying where the drive is coming
+-- from, which is the thing he is actually watching.
+--
+-- NORTH IS +Z AND BEARINGS RUN CLOCKWISE THROUGH EAST (+X) -- `Compass.headingDeg`'s convention,
+-- which was settled against a PHOTOGRAPH of four neon posts in task 129 and is written `atan2(x, z)`
+-- in exactly one other place. This is the second, and `hud_clarity.spec` compares it against
+-- `Compass.headingDeg` of the same vector rather than copying the expression into its own case.
+function Hud.markerFor(target: any?, me: Vector3?, worldDeg: number?, worldLabel: string?): (number?, string?)
+	if target == nil or me == nil then
+		return worldDeg, worldLabel
+	end
+	local to = target.point
+	local here = me :: Vector3
+	local dx, dz = to.X - here.X, to.Z - here.Z
+	if math.abs(dx) < 1e-6 and math.abs(dz) < 1e-6 then
+		-- Standing exactly on it: a bearing to where you are is noise, so the world's answer stands.
+		return worldDeg, worldLabel
+	end
+	return (math.deg(math.atan2(dx, dz)) + 360) % 360, target.word
+end
+
+-- THE ONE EVALUATION OF "WHAT MUST I DO, AND WHERE", AND THE ONE CALL TO EACH DRAWER (task 165).
+--
+-- Called once a frame from its OWN `RenderStepped` connection -- not the compass's, for the reason
+-- task 141 wrote down about the scope: *"a scope that only worked in a world with a compass strip is
+-- a bug waiting for the next place"*.
+--
+-- ONE RULE, ONE EVALUATION, THREE DRAWERS. The chevron, the compass marker and the map's target mark
+-- are all written from the ONE `target` resolved here; two readers of one fact that could be handed
+-- different teams is how task 153 round 2's finding (*"a marker that moved without its label told a
+-- beater the drive was south"*) comes back. This function is now the only caller of
+-- `Compass.setBearing` and `MapUi.setPush` after boot -- the `whenReady` closure in `Hud.start` used
+-- to call both directly, and no longer does, so this REMOVES a two-writer arrangement.
+--
+-- `Hud.startCardVisible` IS THE ONE WRITER OF "IS A CARD UP", and it is called here with the same
+-- snapshot and the same `ReportPanel.isOpen()` that `Hud.renderStartCard` calls it with. One
+-- function, two callers, no second rule -- so the card and the objective line can never disagree
+-- about whether a card is up, which is what lets the LINE stand down while the card says
+-- `GET TO YOUR STAND` and the CHEVRON carry on (design section 5.4).
+function Hud.renderObjective(CameraSystem)
+	local snapshot = if matchSystem then matchSystem.get() else nil
+	local phase = if snapshot then snapshot.phase else nil
+	-- `Player.Team` IS THE ONE REPRESENTATION OF THE TEAM (`Match.myTeam`'s own header says so), and
+	-- it is read directly when there is no match replica at all -- the Hud works with no drive,
+	-- exactly as it works with no camera.
+	local team = if matchSystem
+		then matchSystem.myTeam()
+		else (if Players.LocalPlayer.Team then Players.LocalPlayer.Team.Name else nil)
+	local me = Hud.localPosition()
+	local target = Objective.targetFor(team, phase, MapUi.geometry(), me)
+	local far = Objective.distanceStuds(target, me)
+	arrivedAtTarget = Objective.arrived(far, arrivedAtTarget)
+	if arrivedAtTarget then
+		target = nil
+	end
+
+	local camera = Workspace.CurrentCamera
+	local viewport = if camera then camera.ViewportSize else Vector2.new(1280, 720)
+	-- THE ORIENTATION FROM THE CAMERA SYSTEM AND THE ANGLE FROM THE PROPERTY, and the asymmetry is
+	-- deliberate: `Rig.apply` counts FOREIGN WRITES to `CurrentCamera.CFrame` and has warned about one
+	-- since task 123, so the engine's CFrame is not reliably ours and `Camera.viewCFrame()`
+	-- (`Rig.appliedCFrame`) is. There is no `appliedFov` accessor and adding one is a camera change;
+	-- the field of view is read off the property, which is exactly what `Hud.renderScope` already
+	-- does for the mask, and whose one writer is `Rig.apply`.
+	local view = if CameraSystem ~= nil and CameraSystem.viewCFrame then CameraSystem.viewCFrame() else nil
+	local fov = if camera then camera.FieldOfView else 70
+	local reportOpen = ReportPanel.isOpen()
+	local mapOpen = MapUi.isOpen()
+	local scoped = Objective.isSuppressed()
+	local cardUp = Hud.startCardVisible(snapshot, reportOpen)
+	Objective.render({
+		text = Objective.text(phase, team),
+		target = target,
+		distanceStuds = far,
+		view = view,
+		fovDeg = fov,
+		viewport = viewport,
+		lineVisible = Objective.lineVisible(phase, team, reportOpen, mapOpen, scoped, cardUp),
+		markVisible = Objective.markVisible(target, reportOpen, mapOpen, scoped, view ~= nil),
+	})
+	-- THE MAP GETS THE POINT, FLAT: it draws in x/z and has no use for the height.
+	MapUi.setTarget(
+		if target then Vector2.new(target.point.X, target.point.Z) else nil,
+		if target then target.word else nil
+	)
+	local deg, word = Hud.markerFor(target, me, worldBearing, worldBearingLabel)
+	if compassFrame then
+		Compass.setBearing(deg, word)
+	end
+	MapUi.setPush(deg, word)
 end
 
 -- "NOT THERE YET" IS NOT "NOT THERE AT ALL", AND THAT WAS THE BUG (task 134).
@@ -1875,7 +2121,12 @@ function Hud.start()
 		MapUi.start({
 			miniMap = miniMapFrame :: Frame,
 			fullMap = fullMapFrame :: Frame,
-			button = mapButtonNode,
+			-- THE LEGEND IS THE MAP'S (task 165), handed over with its two frames: the Hud created it
+			-- and `MapUi` is the one writer of everything inside it. The standalone touch button that
+			-- used to be this field is gone -- it is `Hud.Rail`'s first button now
+			-- (`backups/2026-10-12_mapui-touch-button.txt`).
+			legend = mapLegendFrame,
+			rail = railFrame,
 		}, {
 			-- FOR `viewHeadingDeg` ONLY, and it may be nil: then there is no facing wedge and the
 			-- rest of the map is unchanged. One-way, like every other thing the Hud reads.
@@ -1927,16 +2178,53 @@ function Hud.start()
 			-- THE MAP'S GEOMETRY COMES OFF THE SAME MODULE, through the same door. `setGeometry` is
 			-- idempotent and builds once.
 			MapUi.setGeometry(MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map))
+			-- IT WRITES THE TWO LOCALS AND NOTHING DRAWN (task 165). It used to call
+			-- `Compass.setBearing` and `MapUi.setPush` itself, which made two writers of each of
+			-- those -- this closure and the per-frame pass. `Hud.renderObjective` is the one writer
+			-- now and this is the one place the WORLD's answer is resolved, so a `/beater` mid-session
+			-- still moves the marker: the next frame reads these.
 			local function apply()
 				local team = player.Team
 				bearing, bearingLabel = Hud.driveBearing(data, if team then team.Name else nil)
-				Compass.setBearing(bearing, bearingLabel)
-				MapUi.setPush(bearing, bearingLabel)
+				worldBearing, worldBearingLabel = bearing, bearingLabel
 			end
 			apply()
 			player:GetPropertyChangedSignal("Team"):Connect(apply)
 		end)
 	end
+
+	-- TASK 165: THE OBJECTIVE AND THE RAIL, started after the map because the per-frame pass below
+	-- hands the map its target and the rail is laid out under the minimap.
+	if objectiveLine ~= nil and waypointMark ~= nil and waypointWord ~= nil then
+		Objective.start({
+			line = objectiveLine :: TextLabel,
+			mark = waypointMark :: Frame,
+			markLabel = waypointWord :: TextLabel,
+		})
+	end
+	if railFrame ~= nil then
+		Rail.start(railFrame :: Frame, {
+			-- EVERY ONE OF THESE IS READ, NEVER CALLED BACK. A missing collaborator means that button
+			-- is not built at all, which is the same rule as `needsWeapon`: no dead buttons.
+			Map = MapUi,
+			Report = ReportPanel,
+			Input = Weapon.Input,
+			touchEnabled = UserInputService.TouchEnabled,
+		})
+		-- IS THERE A GUN IN HAND? The Hud already reads `Weapon.get().equipped` for the ammo readout,
+		-- so there is ONE reader of the weapon state here and the rail is TOLD. `render` below sets
+		-- it every time the weapon changes; this is the first answer.
+		local state = Weapon.get()
+		Rail.setWeapon(state ~= nil and state.equipped == true)
+	end
+
+	-- ONE CONNECTION, OUTSIDE EVERY `if`, for the reason task 141 gives for the scope's own: a thing
+	-- that only worked in a world with a compass strip is a bug waiting for the next place. The
+	-- objective line and the waypoint exist in every world; what the WORLD has stated decides whether
+	-- there is a target, and `Objective.targetFor` answers nil rather than guessing.
+	RunService.RenderStepped:Connect(function()
+		Hud.renderObjective(CameraSystem)
+	end)
 
 	if compassFrame then
 		-- BOTH, OR `start` UNDOES THE WORD. In the common case the closure above has already run and
