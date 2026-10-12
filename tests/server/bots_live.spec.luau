@@ -285,6 +285,52 @@ return function()
 			expect(Bots.stats().walking).to.equal(2)
 		end)
 
+		it("is held through the START FANFARE too, and goes on the same dispatch as the players", function()
+			-- ROUND 1, FINDING 1, AND IT IS KAREN'S OWN ITEM: *"a beater (player AND bot) cannot move
+			-- until the START FANFARE has sounded"*. Task 168 deferred the PLAYERS' release by
+			-- `Phase.goHoldSeconds` (2.18 s) and left `syncBots` calling `bots.go()` on the phase --
+			-- so for the whole fanfare a player beater stood anchored at the line while the bot line
+			-- beside her walked off and blew.
+			--
+			-- THE RULE IS `Match.botsMayGo` AND IT IS THE PLAYERS' OWN (`Phase.lineHeld`), so the two
+			-- cannot drift: this case fails on the old code because the rule did not exist.
+			expect(Match.botsMayGo({ phase = "Running", goFreed = true })).to.equal(true)
+			-- ...and NOT while the line is still held, which is the whole fix.
+			expect(Match.botsMayGo({ phase = "Running", goFreed = false })).to.equal(false)
+			expect(Match.botsMayGo({ phase = "Assigning", goFreed = true })).to.equal(false)
+			expect(Match.botsMayGo({ phase = "Scoring", goFreed = true })).to.equal(false)
+			expect(Match.botsMayGo({ phase = "Waiting", goFreed = true })).to.equal(false)
+			expect(Match.botsMayGo(nil)).to.equal(false)
+
+			-- AND THE CONSEQUENCE, WITH REAL RIGS: held, a bot neither walks nor blows.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(slotsFor(0, 2))
+			stepUntilBuilt(2)
+			expect(Bots.released()).to.equal(false)
+			local blastsBefore = Bots.stats().blasts
+			-- Ten seconds of steps -- four times the fanfare, and well past `HORN.EVERY_SECONDS.min`.
+			for _ = 1, 50 do
+				Bots.step(0.2)
+			end
+			expect(Bots.stats().walking).to.equal(0)
+			expect(Bots.stats().blasts).to.equal(blastsBefore)
+
+			-- ...and the moment the drive says go -- which is the dispatch the players are freed on --
+			-- the same two things start.
+			expect(Bots.go()).to.equal(2)
+			Bots.step(0.2)
+			expect(Bots.stats().walking).to.equal(2)
+			TestKit.note(
+				string.format(
+					"bots: held through the fanfare -- %d walking and %d blast(s) in 10 s of steps,"
+						.. " then %d walking on GO",
+					0,
+					Bots.stats().blasts - blastsBefore,
+					Bots.stats().walking
+				)
+			)
+		end)
+
 		it("counts a bot that reaches its goal, and stops walking it", function()
 			Bots.setRigSource(fakeRig)
 			-- A slot whose start IS its goal: it has arrived the first time it is looked at.

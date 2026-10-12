@@ -5,9 +5,13 @@
 -- absolute (the 0.5 s reaction, the arena rectangle); where the assertion is a relationship, it
 -- reads CONFIG, because the relationship is the thing under test.
 -- Design: docs/design/boar-ai.md (section 10)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+-- REQUIRED FOR ONE LINE (task 168): `TestKit.note` is what puts a measurement into the harness's own
+-- report, and a `print` from a spec does not reach it -- measured, on this task's first run.
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Brain = Boar.Brain
 local CONFIG = Boar.CONFIG
 
@@ -662,6 +666,194 @@ return function()
 				expect(tostring(leading.facing)).to.equal(tostring(alone.facing))
 			end
 			expect(lone:state()).to.equal(leader:state())
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ the beaters' line (task 168)
+	--
+	-- KAREN, 2026-10-12 ~21:50, verbatim: *"animals can't come behind beaters"*, and ~21:55: *"so
+	-- animals in map already and once beater push they go or turn around but not after beaters ahead
+	-- and they come from backs"*.
+	--
+	-- EVERY CASE BELOW IS ARITHMETIC over the two pure functions plus one over a whole `step`, which
+	-- is what proves the constraint is really the last word on the heading rather than one more vote.
+	describe("the beaters' line is a wall", function()
+		-- The spec's own numbers, so a retune of the shipped ones cannot quietly weaken a case.
+		local WALL = {
+			BEATER_WALL = { ENABLED = true, MARGIN_STUDS = 10, LEVEL_SLACK_STUDS = 4 },
+		}
+		-- The exit is at z = -190, so "forward" is -z and "behind the line" is +z.
+		local SIGN = -1
+
+		local function beater(x: number, z: number, extra)
+			local row = { id = "b", position = Vector3.new(x, 0, z), kind = "driver" }
+			for key, value in pairs(extra or {}) do
+				row[key] = value
+			end
+			return row
+		end
+
+		it("knows which way the exit is, from the field's own plane", function()
+			expect(Brain.exitSign(0, FIELD.exitZ)).to.equal(-1)
+			expect(Brain.exitSign(-300, FIELD.exitZ)).to.equal(1) -- past the exit: it is behind him
+			expect(Brain.exitSign(FIELD.exitZ, FIELD.exitZ)).to.equal(1)
+		end)
+
+		it("takes the wall from the nearest beater ACROSS the drive, and only from one behind", function()
+			local me = Vector3.new(0, 0, 0)
+			-- A line of three, 150 studs apart, each at a different depth: the one in my lane wins.
+			local line = {
+				beater(-150, 60, nil),
+				beater(10, 40, nil),
+				beater(150, 20, nil),
+			}
+			expect(Brain.beaterWallZ(line, me, SIGN, WALL)).to.equal(40)
+			-- Stand 200 studs west and the western man is the wall instead.
+			expect(Brain.beaterWallZ(line, Vector3.new(-200, 0, 0), SIGN, WALL)).to.equal(60)
+
+			-- A BEATER WHO IS THROUGH -- in front of the animal, on the road -- IS NOT A WALL: his
+			-- drive is over and an animal still has to be able to cross past him.
+			expect(Brain.beaterWallZ({ beater(0, -50, nil) }, me, SIGN, WALL)).to.equal(nil)
+			-- ...but one LEVEL with the animal is, within a stride of slack, so nothing can swing
+			-- round a man it is exactly abreast of.
+			expect(Brain.beaterWallZ({ beater(0, 0, nil) }, me, SIGN, WALL)).to.equal(0)
+			expect(Brain.beaterWallZ({ beater(0, -4, nil) }, me, SIGN, WALL)).to.equal(-4)
+			expect(Brain.beaterWallZ({ beater(0, -4.1, nil) }, me, SIGN, WALL)).to.equal(nil)
+
+			-- A HUNTER IS NOT A WALL. He stands on the line the animals are being pushed AT.
+			expect(
+				Brain.beaterWallZ({ { id = "h", position = Vector3.new(0, 0, 60), kind = "shooter" } }, me, SIGN, WALL)
+			).to.equal(nil)
+			-- A PHANTOM IS NOT A WALL EITHER, and this is the case that matters most: the Forest Test
+			-- invents a "driver" 11 studs behind every wave, and a wall there would pin every animal
+			-- in the wood to the spot it was standing on.
+			expect(Brain.beaterWallZ({ beater(0, 11, { phantom = true }) }, me, SIGN, WALL)).to.equal(nil)
+			-- With the rule off there is no wall at all, which is this file before task 168.
+			expect(Brain.beaterWallZ(line, me, SIGN, { BEATER_WALL = { ENABLED = false } })).to.equal(nil)
+			expect(Brain.beaterWallZ(line, me, SIGN, {})).to.equal(nil)
+		end)
+
+		it("leaves a heading alone until the animal is at the wall, and then takes the back out of it", function()
+			local back = Vector3.new(0, 0, 1) -- away from the exit, in this field
+			local forward = Vector3.new(0, 0, -1)
+			local across = Vector3.new(1, 0, 0)
+
+			-- 1. COMFORTABLY IN FRONT: nothing is touched, whatever it wanted.
+			expect(Brain.forwardOfWall(back, 40, SIGN, WALL, 1)).to.equal(back)
+			expect(Brain.forwardOfWall(forward, 40, SIGN, WALL, 1)).to.equal(forward)
+			-- 2. AT THE WALL BUT NOT HEADING BACK: still untouched, so the push is never slowed.
+			expect(Brain.forwardOfWall(forward, 2, SIGN, WALL, 1)).to.equal(forward)
+			expect(Brain.forwardOfWall(across, 2, SIGN, WALL, 1)).to.equal(across)
+			-- 3. AT THE WALL AND HEADING BACK: it SLIDES along the line -- the sideways half of what
+			-- it wanted survives and the backward half is gone. 45 degrees back-and-across becomes
+			-- straight across.
+			local diagonal = (back + across).Unit
+			local clipped = Brain.forwardOfWall(diagonal, 2, SIGN, WALL, 1)
+			expect(math.abs(clipped.Z) < EPSILON).to.equal(true)
+			expect(clipped.X > 0.99).to.equal(true)
+			-- STRAIGHT BACK has no sideways half, so the animal breaks on its OWN side -- which is
+			-- Karen's *"they go or turn around"* and not a boar running at a man.
+			local pinned = Brain.forwardOfWall(back, 2, SIGN, WALL, 1)
+			expect(math.abs(pinned.Z) < EPSILON).to.equal(true)
+			expect(math.abs(math.abs(pinned.X) - 1) < EPSILON).to.equal(true)
+			local other = Brain.forwardOfWall(back, 2, SIGN, WALL, -1)
+			expect(other.X).to.equal(-pinned.X) -- its own side, and the two sides are opposite
+			-- 4. ALREADY BEHIND THE LINE: it comes back out through it, not along behind it.
+			local recovering = Brain.forwardOfWall(back, -20, SIGN, WALL, 1)
+			expect(recovering.Z < -0.5).to.equal(true) -- toward the exit
+			expect(recovering.X > 0.5).to.equal(true) -- and still breaking to its own side
+			-- WITH THE RULE OFF, EVERY ONE OF THEM IS UNTOUCHED.
+			local off = { BEATER_WALL = { ENABLED = false } }
+			expect(Brain.forwardOfWall(back, 2, SIGN, off, 1)).to.equal(back)
+			expect(Brain.forwardOfWall(back, -20, SIGN, off, 1)).to.equal(back)
+			-- ...and it never answers a zero vector or a NaN, whatever it is handed.
+			local zero = Brain.forwardOfWall(Vector3.zero, 2, SIGN, WALL, 1)
+			expect(zero).to.equal(Vector3.zero)
+			for _, dir in ipairs({ back, forward, across, diagonal }) do
+				local out = Brain.forwardOfWall(dir, 0, SIGN, WALL, 1)
+				expect(out.Magnitude > 0.5).to.equal(true)
+				expect(out.X == out.X).to.equal(true) -- not NaN
+			end
+		end)
+
+		it("never faces a live boar behind the line, over a whole minute of steps", function()
+			-- THE WHOLE RULE, THROUGH `step` -- which is the only way to prove the constraint
+			-- survives the route, the whiskers, the sidesteps and the slew, because every one of
+			-- those runs between the decision and this.
+			--
+			-- The boar starts 20 studs in FRONT of a beater who is walking at it, which is the
+			-- geometry of a drive, and it is spooked from the SIDE -- the case Karen described
+			-- ("they come from backs"): a flush from the flank used to turn it straight past the man.
+			local brain = Brain.new(CONFIG, FIELD, Vector3.new(0, 0, 0), Random.new(9))
+			local beaterZ = 20
+			local worst = -math.huge
+			local position = Vector3.new(0, 0, 0)
+			local facedBack = 0
+			-- HOW MANY TICKS THE CONSTRAINT ACTUALLY RAN ON, so "it never moved backward" is a claim
+			-- about ticks that were constrained rather than about an empty set.
+			local constrained = 0
+			-- HOW FAR THE ANIMAL ITSELF EVER MOVED BACKWARD while the line was within reach of it.
+			-- This is the measurement and not "where is it relative to the man", because the LINE
+			-- ADVANCES: a beater walking at 5 studs/s overtakes an animal that has stopped, and an
+			-- animal the line has walked past has not gone anywhere -- which is the drive working,
+			-- not the rule failing.
+			local backward = 0
+			for tick = 1, 60 * 60 do
+				local line = { beater(0, beaterZ, nil), beater(150, beaterZ - 5, nil), beater(-150, beaterZ + 5, nil) }
+				-- Spooked from the side, repeatedly, which is what a beater walking past does.
+				if tick % 600 == 1 then
+					brain:spook(Vector3.new(60, 0, position.Z), 4, false)
+				end
+				local intent = brain:step(DT, obs(position, line, { blockedAhead = tick % 120 == 0 }))
+				local velocity = intent.targetVelocity or Vector3.zero
+				local before = position
+				position += Vector3.new(velocity.X, 0, velocity.Z) * DT
+				-- Backward is +z in this field, because the exit is at -190.
+				-- MEASURED ONLY ON A TICK THE RULE REALLY RAN ON, which is round 1's note and it was
+				-- right: once the line has walked PAST the animal there is no beater behind it,
+				-- `Brain.beaterWallZ` answers nil, nothing is constrained at all -- and a `backward`
+				-- of 0 over those ticks would be the seed's luck rather than the rule. So the gate is
+				-- the rule's own two questions, asked of the state the Brain was handed (`before`):
+				-- is a beater behind me, and am I inside the margin.
+				local wallZ = Brain.beaterWallZ(line, before, SIGN, CONFIG)
+				if wallZ ~= nil and (before.Z - (wallZ :: number)) * SIGN <= CONFIG.BEATER_WALL.MARGIN_STUDS then
+					constrained += 1
+					backward = math.max(backward, position.Z - before.Z)
+				end
+				-- THE MEASUREMENT: how far past the wall the animal ever gets, and whether it ever
+				-- FACES back past it. `beaterZ` walks forward at a beater's own pace (5 studs/s).
+				local ahead = (position.Z - beaterZ) * SIGN
+				worst = math.max(worst, -ahead)
+				if (intent.facing or Vector3.zero).Z > 0.01 and ahead <= CONFIG.BEATER_WALL.MARGIN_STUDS then
+					facedBack += 1
+				end
+				beaterZ -= 5 * DT -- the line walks toward the exit (-z) at a beater's own 5 studs/s
+			end
+			-- IT NEVER FACED BACK AT THE LINE, which is the dispatch's own test.
+			expect(facedBack).to.equal(0)
+			-- ...AND IT NEVER TOOK A SINGLE STEP TOWARD THE BEATERS' SIDE while it was at the wall,
+			-- which is the dispatch's measurement stated against the thing the animal controls: *"an
+			-- animal never moves to the beaters' side of the line"*. Not one tick of one frame.
+			expect(backward <= 0).to.equal(true)
+			-- ...OVER A REAL NUMBER OF TICKS. Without this the case above could pass by measuring
+			-- nothing at all, which is what round 1's note is about.
+			expect(constrained > 100).to.equal(true)
+			-- `worst` is REPORTED and not asserted, and the reason is in the comment above: the line
+			-- WALKS, so an animal the beaters have overtaken reads as "behind" one without ever
+			-- having moved. It is in the note so the number is visible either way.
+			-- THE MEASUREMENT IS THE EVIDENCE, so it goes into the harness's report rather than into
+			-- a console nobody keeps.
+			TestKit.note(
+				string.format(
+					"task 168: 3600 ticks against a walking line -- %d of them constrained, faced back %d"
+						.. " times, worst backward step %.4f studs, deepest %.1f past the man (margin %d)",
+					constrained,
+					facedBack,
+					backward,
+					worst,
+					CONFIG.BEATER_WALL.MARGIN_STUDS
+				)
+			)
 		end)
 	end)
 end

@@ -474,6 +474,117 @@ function Brain.insideField(point: Vector3, config, field): Vector3
 	)
 end
 
+-- ------------------------------------------------------------------ the beaters' line (task 168)
+--
+-- KAREN, 2026-10-12 ~21:50: *"animals can't come behind beaters"*, and ~21:55: *"once beater push
+-- they go or turn around but not after beaters ahead and they come from backs"*.
+--
+-- TWO PURE FUNCTIONS AND ONE APPLICATION, at the very end of `Brain:step`. The whole of WHY it is a
+-- constraint on the finished heading rather than another steering term is written where its numbers
+-- are (`Boar.CONFIG.BEATER_WALL`); this is the arithmetic, and it is pure so that
+-- `tests/server/boar_brain.spec.luau` can state the rule with hand-written tables and no world.
+
+-- WHICH WAY THE EXIT IS, as a sign along z: +1 when the way out is at a greater z than the animal,
+-- -1 when it is at a smaller one. The drive's axis is z in both worlds (`field.exitZ` is a plane),
+-- which is the same assumption `_routeTarget` and `_latchFlight` have always made.
+function Brain.exitSign(positionZ: number, exitZ: number): number
+	return if exitZ >= positionZ then 1 else -1
+end
+
+-- WHERE THE WALL IS FOR THIS ANIMAL: the z of the beater nearest it ACROSS the drive, or nil for
+-- "no beater is behind this animal". PURE.
+--
+-- THE NEAREST ONE LATERALLY, which is the same question `Match.lineReferenceFor` asks of a stand and
+-- answers the same way, and for the same reason: a line of beaters 600 studs wide has a nearest man
+-- in the animal's own lane, and he is the one whose progress says how far the line has come HERE.
+-- The wall is still a line across the whole front -- every animal gets one -- so there is no gap
+-- between two beaters to slip through.
+--
+-- ONLY A BEATER BEHIND THE ANIMAL IS A WALL (`LEVEL_SLACK_STUDS` of tolerance so one exactly abreast
+-- counts). A beater who is THROUGH, standing on the road in front of the animals, must not pin the
+-- wood behind him -- his drive is over (`Match.mayBlowHorn`), and an animal still has to be able to
+-- cross the road past him.
+--
+-- A PHANTOM IS NOT A WALL, and that is the one exclusion here. The Forest Test invents a "driver" 11
+-- studs behind each wave to make it run (`ForestTest.boarThreats`), and a wall 11 studs behind every
+-- herd would pin every animal in the wood to the spot it was standing on. A wall has to be somebody
+-- a player could walk up to -- which is exactly what the `phantom` mark means (`Bots.threats`:
+-- *"NO `phantom` MARK, because somebody IS standing here"*).
+function Brain.beaterWallZ(threats, position: Vector3, exitSign: number, config): number?
+	local wall = config.BEATER_WALL
+	if wall == nil or wall.ENABLED ~= true then
+		return nil
+	end
+	local slack = wall.LEVEL_SLACK_STUDS or 0
+	local best: number? = nil
+	local nearest = math.huge
+	for _, threat in ipairs(threats or {}) do
+		if threat.kind == "driver" and threat.phantom ~= true and typeof(threat.position) == "Vector3" then
+			local at = threat.position :: Vector3
+			-- How far toward the exit this beater is from the animal: negative means behind it.
+			local along = (at.Z - position.Z) * exitSign
+			if along <= slack then
+				local lateral = math.abs(at.X - position.X)
+				if lateral < nearest then
+					nearest, best = lateral, at.Z
+				end
+			end
+		end
+	end
+	return best
+end
+
+-- THE CONSTRAINT. `direction` in, a direction that does not point behind the wall out. PURE, flat,
+-- and it never returns a zero vector or a NaN.
+--
+--   `ahead`   how far in front of the wall the animal is, in studs, along the exit direction.
+--   `exitSign` which way the exit is (`Brain.exitSign`).
+--   `side`     which way this animal breaks when the geometry does not choose -- its own
+--              `_whiskerSide`, drawn once when it was born, so two animals abreast break the same
+--              way every frame and the herd does not split and re-split (`_latchFlight`'s rule).
+--
+-- THREE CASES AND NOTHING ELSE:
+--   1. COMFORTABLY IN FRONT, or not heading back at all -- the direction is returned untouched, so
+--      an animal with the wood to itself behaves exactly as it did before this task. This is the
+--      case almost every tick is.
+--   2. AT THE WALL AND HEADING BACK -- the part of the heading that points away from the exit is
+--      removed and the rest is kept: it SLIDES along the line (`PM_ClipVelocity`), which is Karen's
+--      *"they go or turn around"* -- the break to the side is still there, the way past the beaters
+--      is not. A heading pointing straight back has no sideways part left, so the animal takes its
+--      own side and breaks across instead.
+--   3. ALREADY BEHIND IT (a beater walked past it, it was pushed through, the line caught up) --
+--      the slide plus a full step toward the exit, so it comes back out through the line at about 45
+--      degrees rather than running along behind it for ever.
+function Brain.forwardOfWall(direction: Vector3, ahead: number, exitSign: number, config, side: number): Vector3
+	local wall = config.BEATER_WALL
+	if wall == nil or wall.ENABLED ~= true then
+		return direction
+	end
+	local flatDir = flat(direction)
+	if flatDir.Magnitude < 1e-6 then
+		return direction
+	end
+	if ahead > (wall.MARGIN_STUDS or 0) then
+		return direction
+	end
+	-- Away from the exit: the one direction an animal in front of the line may not take.
+	local back = Vector3.new(0, 0, -exitSign)
+	local into = flatDir:Dot(back)
+	if into <= 0 and ahead >= 0 then
+		return direction -- going forward or straight across, and in front of the wall: nothing to do
+	end
+	local lateral = flatDir - back * math.max(into, 0)
+	if lateral.Magnitude < 1e-3 then
+		-- Straight back at the line, so there is no sideways part to keep: break on its own side.
+		lateral = Vector3.new(0, 1, 0):Cross(back) * (if side < 0 then -1 else 1)
+	end
+	lateral = lateral.Unit
+	if ahead >= 0 then
+		return lateral
+	end
+	return unit(lateral + Vector3.new(0, 0, exitSign), lateral)
+end
+
 function Brain.new(config, field, start: Vector3, rng: Random)
 	local self = setmetatable({}, Brain)
 	self._config = config
@@ -2279,6 +2390,28 @@ function Brain:step(dt: number, obs)
 	end
 	local maxStep = config.ACCEL * dt
 	self._speed += math.clamp(desiredSpeed - self._speed, -maxStep, maxStep)
+
+	-- ...AND THE BEATERS' LINE IS A WALL, WHICH IS THE LAST WORD ON THE HEADING (task 168). KAREN:
+	-- *"animals can't come behind beaters"*.
+	--
+	-- HERE, AND IN EXACTLY ONE PLACE, because every branch above has now had its say: the route, the
+	-- sounder, the latched flight, the whiskers, the two sidesteps and the slew. A constraint applied
+	-- before any of them would be argued with by all of them -- which is what a steering term would
+	-- have been -- and one applied after them cannot be outvoted. `_desired` is both the heading and
+	-- what the animal FACES, so a boar never even turns to look for a way back through the line.
+	--
+	-- IT COSTS ONE PASS OVER THE THREAT LIST it was already handed, and nothing at all when the
+	-- animal is more than `MARGIN_STUDS` in front of the nearest beater -- which is almost every tick
+	-- of almost every drive.
+	local wallCfg = config.BEATER_WALL
+	if wallCfg ~= nil and wallCfg.ENABLED == true then
+		local exitSign = Brain.exitSign(position.Z, self._field.exitZ)
+		local wallZ = Brain.beaterWallZ(obs.threats, position, exitSign, config)
+		if wallZ ~= nil then
+			local ahead = (position.Z - (wallZ :: number)) * exitSign
+			self._desired = Brain.forwardOfWall(self._desired, ahead, exitSign, config, self._whiskerSide)
+		end
+	end
 
 	intent.state = self._state
 	-- WHAT A CALM BOAR IS DOING (task 117), published only while IDLE so every other state draws

@@ -290,6 +290,13 @@ local hornOn = true
 Weapon.Horn.setCarryPolicy(function(player)
 	return HornData.carriesFor(hornOn, Body.teamOf(player))
 end)
+-- ...AND WHO MAY STILL SOUND IT (task 168). KAREN, 2026-10-12 ~21:45: *"when beater cross the line of
+-- hunter it's done for him cant use sound anymore"*. The DRIVE owns the answer, because "has he
+-- crossed the hunters' line" is a fact about the drive's own geometry -- `Match.mayBlowHorn` reads
+-- the record `Match.beaterCrossing` already takes once a tick, against the same `Match.crossedLine`
+-- predicate that ends the drive. Injected, exactly as `setCarryPolicy` above and
+-- `Weapon.setArmingPolicy(Match.mayCarryWeapon)` are: neither owner requires the other.
+Weapon.Horn.setBlowPolicy(Match.mayBlowHorn)
 Weapon.Horn.start()
 
 -- WHERE EACH ROLE STANDS, AND WHICH WAY SHE LOOKS -- as an ANSWER, not as a write (task 157).

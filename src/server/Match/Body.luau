@@ -1305,6 +1305,43 @@ function Body.isHolding(userId: number): boolean
 	return held[userId] ~= nil
 end
 
+-- HOLD IT AS SOON AS IT HAS ARRIVED, however late that is (task 168).
+--
+-- THIS IS THE TASK-157 RACE, IN THE HOLD PATH, AND IT WAS MEASURED TWICE. `Body.place`'s own `pivot`
+-- already carries the finding: in the place "Driven Hunt Forest Test" `CharacterAdded` fires with
+-- `character.Parent == nil`, and the DEV place parents it first -- which is why a hundred DEV drives
+-- never showed it. `Body.holdCharacter` refuses an unparented character (rightly: a character that
+-- has GONE must not be written), so the drive's own re-apply after a placement respawn silently did
+-- nothing, and the beater it had just decided to hold could walk.
+--
+-- MEASURED in a live Play session of the Forest Test, 2026-10-12, as a player beater at the start
+-- line: `t=7.7s walkSpeed=0 anchored=true` on the character the hold was applied to, then
+-- `t=7.9s walkSpeed=16 anchored=false` on the one `LoadCharacter` replaced it with. With this wait:
+-- `walkSpeed=0 anchored=true` all the way to GO.
+--
+-- "HAS IT GONE?" AND "HAS IT ARRIVED YET?" ARE NOT THE SAME QUESTION, which is the sentence
+-- `Body.place` already answers with a bounded wait -- and the bound is its own
+-- `PARENT_WAIT_SECONDS`, so there is one number for how long a character may take to arrive.
+-- `stillWanted` is the caller's own re-check, asked again after the wait: a hold the drive has let
+-- go of in the meantime must not be applied to the character that finally turned up.
+function Body.holdWhenLoaded(character: Model, userId: number, stillWanted: (() -> boolean)?): boolean
+	if character == nil then
+		return false
+	end
+	if not character.PrimaryPart then
+		character:GetPropertyChangedSignal("PrimaryPart"):Wait()
+	end
+	local waited = 0
+	while character.Parent == nil and waited < PARENT_WAIT_SECONDS do
+		parentWaits += 1
+		waited += task.wait()
+	end
+	if stillWanted ~= nil and stillWanted() ~= true then
+		return false
+	end
+	return Body.holdCharacter(character, userId) ~= nil
+end
+
 -- HELD WHERE THE DRIVE SAYS, NOT WHERE HE IS: the hold plus a move, with no rope and no respawn
 -- (task 159, the results scene). It is `tieCharacter` without the tree -- the same `holdCharacter`
 -- freeze and the same `PivotTo` -- so this module stays the one writer of where a character stands

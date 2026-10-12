@@ -133,6 +133,24 @@ Objective.CONFIG = {
 			Running = "walk to the road, push the boars",
 			Scoring = "drive over",
 		},
+		-- THE BEATER'S FOUR TASK-168 LINES, and every one of them is a sentence Karen asked for in
+		-- her own words (2026-10-12 ~21:45). They are rows here rather than branches in `text`
+		-- because they are WORDS -- hers to rewrite, like every other row in this table.
+		--
+		-- `%d` IS THE COUNTDOWN and the only format in this table: *"there should be countdown"*.
+		-- It counts the `Assigning` phase down, which is the same deadline the start card's timer and
+		-- the hunter's stand timer count (task 158's one number), so the three cannot disagree.
+		DriverCountdown = "drive starts in %d",
+		-- THE FANFARE IS SOUNDING AND THE LINE IS STILL HELD: *"you can't move as a beater before
+		-- horn made signal"*. GO is the END of the phrase, so there are two seconds of drive in which
+		-- a beater is free to wonder why he cannot walk, and this is the answer to that.
+		DriverHorn = "hold the line - horn sounding",
+		-- ...AND THEN GO, for `GO_FLASH_SECONDS` (the Director's *"GO -- push toward the road"*),
+		-- after which the standing instruction above takes the line back.
+		DriverGo = "GO - push to the road",
+		-- HIS DRIVE IS OVER: *"when beater cross the line of hunter it's done for him cant use sound
+		-- anymore"*. The horn is refused by the server; this is the only thing that says why.
+		DriverThrough = "you are through - wait",
 		-- WITH A TEAM AND NO DRIVE YET it says so, in one short sentence with NO REASON attached: the
 		-- drive bar already carries the reason (`WAITING players`), and two renderings of one reason
 		-- is the duplication this task exists to remove.
@@ -146,6 +164,12 @@ Objective.CONFIG = {
 	WORD_STAND = "STAND",
 	WORD_LINE = "LINE",
 	WORD_ROAD = "ROAD",
+
+	-- HOW LONG `GO` IS ON SCREEN (task 168). Long enough to read and to connect to the fanfare that
+	-- has just finished, short enough that a ten-minute drive is not spent being told to start: after
+	-- it the line goes back to the standing instruction. It is a WORDS number, not a rule, so it
+	-- lives with the words.
+	GO_FLASH_SECONDS = 5,
 }
 
 -- ---------------------------------------------------------------- the arithmetic, pure
@@ -160,16 +184,48 @@ Objective.CONFIG = {
 --
 -- IT NEVER CARRIES THE DISTANCE. That belongs to the chevron, which is where the eye already is when
 -- it asks "how far".
-function Objective.text(phase: string?, team: string?): string
+-- `drive` IS WHAT THE DRIVE IS DOING RIGHT NOW, and every field of it is optional (task 168): two
+-- arguments still answer exactly what they answered before this task, which is what keeps the eight
+-- role-by-phase rows one table lookup. Nothing here reads a clock -- the caller subtracts the server
+-- timestamps (`Match.holdSecondsLeft`, `Match.goAgeSeconds`), so this function stays pure and
+-- `hud_clarity.spec` drives every branch with numbers.
+export type DriveNow = {
+	secondsLeft: number?, -- until THIS phase ends (the countdown, in `Assigning`)
+	holdLeft: number?, -- until the beaters may walk; > 0 means the fanfare is still sounding
+	goAge: number?, -- since they were let go, or nil for "they have not been"
+	through: boolean?, -- this player is past the hunters' line and his drive is over
+}
+
+function Objective.text(phase: string?, team: string?, drive: DriveNow?): string
 	if team ~= "Shooters" and team ~= "Drivers" then
 		return ""
 	end
+	local words = Objective.CONFIG.TEXT
 	if phase == "Waiting" then
-		return Objective.CONFIG.TEXT.Waiting
+		return words.Waiting
 	end
-	local byPhase = Objective.CONFIG.TEXT[team]
+	local byPhase = words[team]
 	if byPhase == nil or phase == nil then
 		return ""
+	end
+	-- THE BEATER'S OWN FOUR MOMENTS (task 168), in the order they can be true: through the line beats
+	-- everything, then the countdown, then the fanfare, then GO. A hunter reaches none of them, and a
+	-- beater in a world that tells the screen nothing (`drive == nil`) falls through to the row.
+	if team == "Drivers" and drive ~= nil then
+		if drive.through == true and phase == "Running" then
+			return words.DriverThrough
+		end
+		if phase == "Assigning" and drive.secondsLeft ~= nil then
+			return string.format(words.DriverCountdown, math.max(0, math.ceil(drive.secondsLeft)))
+		end
+		if phase == "Running" then
+			if (drive.holdLeft or 0) > 0 then
+				return words.DriverHorn
+			end
+			if drive.goAge ~= nil and drive.goAge <= Objective.CONFIG.GO_FLASH_SECONDS then
+				return words.DriverGo
+			end
+		end
 	end
 	return byPhase[phase] or ""
 end

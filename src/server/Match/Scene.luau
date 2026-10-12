@@ -1,10 +1,23 @@
 --!strict
--- Match.Scene: the results scene at the end of a drive -- the animals laid out in a row, the four
--- lights on the four corners, and where every player stands to look at them. It is the ONLY writer
+-- Match.Scene: the results scene at the end of a drive -- the animals laid out in ROWS, the four
+-- TORCHES on the four corners, and where every player stands to look at them. It is the ONLY writer
 -- of `Workspace.DriveScene` and writes nothing else anywhere (CLAUDE.md rule 3).
 --
 -- Karen, 2026-10-10, verbatim: *"could be that all they standing around the animals there is light
 -- on 4 corners and then showing image transperent with results table"*.
+--
+-- ...AND TASK 168 IS HER SECOND LOOK AT IT, 2026-10-12 ~21:45, verbatim: *"and on the end we need to
+-- gather all animals in one place everyone around and torches 4 in corners / animals layed down in
+-- front in several lines if more"*. Three changes, and each one is a number and a loop here:
+--   1. SEVERAL ROWS. One row of twelve at `SPACING_STUDS` 6 is 66 studs wide, which is a hedge and
+--      not a bag: `PER_ROW` animals to a row and then a new row `ROW_SPACING_STUDS` behind it, the
+--      whole block centred on the spot (`Scene.rowLayout`, still the one layout function).
+--   2. THE RING AND THE CORNERS NOW CONTAIN THE BLOCK. They were two fixed radii, so with more than
+--      four animals the people stood INSIDE the row and the lamps stood among the bodies -- measured
+--      as arithmetic, not guessed: `RING_RADIUS_STUDS` 14 against a 33-stud half-width.
+--      `Scene.layoutExtent` is the one measurement of how big the block is and both read it.
+--   3. A TORCH IS A FIRE, NOT A LAMP. `Fire` is an engine particle that animates itself, which is
+--      what buys Karen's *"warm flicker"* with no per-frame writer anywhere -- see `Scene.build`.
 --
 -- WHAT IT DOES NOT DO, and each one has an owner that does:
 --   * it keeps NO score. The results table is the drive's own board, drawn by `src/client/Hud` from
@@ -52,14 +65,18 @@ local Scene = {}
 Scene.FOLDER_NAME = "DriveScene"
 Scene.LIGHT_PREFIX = "Light"
 Scene.ANIMAL_PREFIX = "Animal"
+-- The one child of a torch post that is not the post: the burning end, which carries the `Fire` and
+-- the `PointLight` (task 168). Named here so a spec and a live probe look for one string.
+Scene.FLAME_NAME = "Flame"
 
 local built = 0
 local cleared = 0
 local lights = 0
 local animals = 0
+local rowsBuilt = 0
 
 function Scene.stats()
-	return { built = built, cleared = cleared, lights = lights, animals = animals }
+	return { built = built, cleared = cleared, lights = lights, animals = animals, rows = rowsBuilt }
 end
 
 function Scene.folder(): Folder?
@@ -106,10 +123,59 @@ function Scene.animalSize(kind: string?, cfg): Vector3
 	return scene.ANIMAL_SIZE * scale
 end
 
--- THE ROW. `count` animals laid side by side on the ground at `spot`, centred on it, `SPACING_STUDS`
--- apart, every one of them lying the same way round -- which is how a day's bag is actually laid out.
--- Index 1 is the first animal shot (the owner keeps the kills in order), so the row reads left to
--- right as the drive happened.
+-- HOW MANY TO A ROW, never less than one. A `PER_ROW` of 0 in a world's config would divide the
+-- layout by zero and lay every animal on top of its neighbour, so the floor is here and not at three
+-- call sites.
+--
+-- ...AND THE MISSING-VALUE CASE IS 1 AND NOT `math.huge` (round 1's note, which was right): a nil
+-- `PER_ROW` made this `inf`, so `rowCount` was `ceil(count/inf)` = 0 and `rowLayout`'s `inRow -
+-- middle` was `inf - inf` -- a row of NaN positions. Unreachable today, because every `SCENE` table
+-- in the repo sets `PER_ROW`; what was wrong was the CLAIM above it, and now both are true.
+function Scene.perRow(cfg): number
+	return math.max(1, math.floor((cfg.SCENE.PER_ROW or 1) :: number))
+end
+
+-- HOW MANY ROWS `count` ANIMALS MAKE. PURE, and the one answer: the row layout, the extent and the
+-- spec all read it, so "how deep is the block" cannot be worked out twice differently.
+function Scene.rowCount(count: number, cfg): number
+	if count <= 0 then
+		return 0
+	end
+	return math.ceil(count / Scene.perRow(cfg))
+end
+
+-- HOW BIG THE WHOLE BLOCK IS, from the spot's own centre: half its width across the rows and half
+-- its depth along them, in studs. PURE and exported, because it is what makes the ring and the
+-- corners CONTAIN the animals instead of standing among them (task 168) -- one measurement, two
+-- readers.
+--
+-- THE WIDTH IS MEASURED OFF THE FULLEST ROW, which is the first one whenever there is more than one:
+-- `PER_ROW` animals `SPACING_STUDS` apart span `(PER_ROW - 1) * SPACING`, so the half-width is half
+-- of that. Zero animals is a block of nothing, and 0, 0 is the honest answer to that.
+function Scene.layoutExtent(count: number, cfg): (number, number)
+	if count <= 0 then
+		return 0, 0
+	end
+	local scene = cfg.SCENE
+	local rows = Scene.rowCount(count, cfg)
+	local widest = math.min(count, Scene.perRow(cfg))
+	local halfWidth = (widest - 1) * scene.SPACING_STUDS / 2
+	local halfDepth = (rows - 1) * (scene.ROW_SPACING_STUDS or scene.SPACING_STUDS) / 2
+	return halfWidth, halfDepth
+end
+
+-- THE ROWS. `count` animals laid side by side on the ground at `spot`, `SPACING_STUDS` apart, every
+-- one of them lying the same way round -- which is how a day's bag is actually laid out. Index 1 is
+-- the first animal shot (the owner keeps the kills in order), so the first row reads left to right as
+-- the drive happened.
+--
+-- SEVERAL ROWS SINCE TASK 168 (Karen: *"animals layed down in front in several lines if more"*):
+-- `PER_ROW` to a row, the next row `ROW_SPACING_STUDS` further BACK -- away from the drive, behind
+-- the first -- and the whole block centred on the spot in both axes. So the front row is the one
+-- nearest the people and the row she sees first is the first animals that were shot.
+--
+-- A SHORT LAST ROW IS CENTRED ON ITS OWN WIDTH and not on the full one, which is what makes a bag of
+-- seven read as 6 + 1 in the middle rather than as 6 + 1 hanging off the left end.
 function Scene.rowLayout(spot: Vector3, facing: Vector3, count: number, cfg): { CFrame }
 	local out = {}
 	if count <= 0 then
@@ -119,9 +185,16 @@ function Scene.rowLayout(spot: Vector3, facing: Vector3, count: number, cfg): { 
 	local side = Scene.sideAxis(facing)
 	local flat = Vector3.new(facing.X, 0, facing.Z)
 	local look = if flat.Magnitude < 1e-4 then Vector3.zAxis else flat.Unit
-	local middle = (count + 1) / 2
+	local perRow = Scene.perRow(cfg)
+	local rows = Scene.rowCount(count, cfg)
+	local depth = scene.ROW_SPACING_STUDS or scene.SPACING_STUDS
+	local middleRow = (rows + 1) / 2
 	for index = 1, count do
-		local at = spot + side * ((index - middle) * scene.SPACING_STUDS)
+		local row = math.ceil(index / perRow)
+		local inRow = index - (row - 1) * perRow -- 1..perRow within this row
+		local thisRow = math.min(perRow, count - (row - 1) * perRow)
+		local middle = (thisRow + 1) / 2
+		local at = spot + side * ((inRow - middle) * scene.SPACING_STUDS) - look * ((row - middleRow) * depth)
 		out[index] = CFrame.lookAt(at, at + look)
 	end
 	return out
@@ -133,16 +206,30 @@ end
 --
 -- `STAND_HEIGHT_STUDS` is the drive's own number for how far above the ground a character is put
 -- down, so a player at the scene is as high off the floor as a hunter on a stand.
-function Scene.ringLayout(spot: Vector3, count: number, cfg): { CFrame }
+-- HOW FAR OUT THE PEOPLE STAND, and since task 168 it is the BLOCK's size and not one number:
+-- `RING_RADIUS_STUDS` as before, or far enough to clear the animals plus `RING_MARGIN_STUDS`,
+-- whichever is bigger. PURE and exported so the spec can state the containment as arithmetic.
+--
+-- THE BLOCK'S CORNER IS WHAT MUST BE CLEARED, not its half-width: the ring is a circle and the block
+-- is a rectangle, so the distance to beat is the diagonal `sqrt(w^2 + d^2)`. With 12 animals at
+-- `PER_ROW` 6, spacing 6 and row spacing 8 that is sqrt(15^2 + 4^2) = 15.5, plus the margin.
+function Scene.ringRadiusFor(animalCount: number?, cfg): number
+	local scene = cfg.SCENE
+	local halfWidth, halfDepth = Scene.layoutExtent(animalCount or 0, cfg)
+	local corner = math.sqrt(halfWidth * halfWidth + halfDepth * halfDepth)
+	return math.max(scene.RING_RADIUS_STUDS, corner + (scene.RING_MARGIN_STUDS or 0))
+end
+
+function Scene.ringLayout(spot: Vector3, count: number, cfg, animalCount: number?): { CFrame }
 	local out = {}
 	if count <= 0 then
 		return out
 	end
-	local scene = cfg.SCENE
 	local centre = spot + Vector3.new(0, cfg.STAND_HEIGHT_STUDS, 0)
+	local radius = Scene.ringRadiusFor(animalCount, cfg)
 	for index = 1, count do
 		local angle = (index - 1) * (2 * math.pi / count)
-		local offset = Vector3.new(math.sin(angle), 0, math.cos(angle)) * scene.RING_RADIUS_STUDS
+		local offset = Vector3.new(math.sin(angle), 0, math.cos(angle)) * radius
 		local at = centre + offset
 		out[index] = CFrame.lookAt(at, centre)
 	end
@@ -152,12 +239,24 @@ end
 -- THE FOUR CORNERS, and the number is Karen's: *"there is light on 4 corners"*. A square round the
 -- row, at `CORNER_STUDS` on both axes, returned in a fixed order so the lamp named `Light1` is the
 -- same corner every drive.
-function Scene.cornerPositions(spot: Vector3, facing: Vector3, cfg): { Vector3 }
+-- ...AND THE SQUARE HOLDS THE PEOPLE AS WELL AS THE ANIMALS (task 168). It was one fixed number, so
+-- a bag of twelve put all four torches INSIDE the row of bodies.
+--
+-- `CORNER_STUDS` IS NOW A FLOOR AND NOT THE ANSWER, which is what keeps the scene Karen has already
+-- looked at byte for byte: with the shipped numbers a small bag's ring is `RING_RADIUS_STUDS` 14,
+-- plus `CORNER_MARGIN_STUDS` 2 is 16, which IS `CORNER_STUDS` -- so nothing moves until the ring
+-- itself has to grow. The margin is what *"just outside the ring"* meant all along, written down.
+function Scene.cornerReachFor(animalCount: number?, cfg): number
 	local scene = cfg.SCENE
+	local ring = Scene.ringRadiusFor(animalCount, cfg)
+	return math.max(scene.CORNER_STUDS, ring + (scene.CORNER_MARGIN_STUDS or 0))
+end
+
+function Scene.cornerPositions(spot: Vector3, facing: Vector3, cfg, animalCount: number?): { Vector3 }
 	local side = Scene.sideAxis(facing)
 	local flat = Vector3.new(facing.X, 0, facing.Z)
 	local look = if flat.Magnitude < 1e-4 then Vector3.zAxis else flat.Unit
-	local reach = scene.CORNER_STUDS
+	local reach = Scene.cornerReachFor(animalCount, cfg)
 	return {
 		spot + side * reach + look * reach,
 		spot - side * reach + look * reach,
@@ -202,6 +301,10 @@ function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg): numbe
 
 	local count = math.min(#kills, scene.MAX_ANIMALS)
 	local row = Scene.rowLayout(spot, facing, count, cfg)
+	-- The rows the block was laid out in, for the console line the owner prints: "how many rows" is
+	-- the one thing about this scene that a report cannot work out from the animal count alone
+	-- without re-deriving `PER_ROW`.
+	rowsBuilt = Scene.rowCount(count, cfg)
 	for index = 1, count do
 		local kill = kills[index]
 		local kind = if type(kill) == "table" then kill.kind else nil
@@ -214,7 +317,22 @@ function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg): numbe
 		animals += 1
 	end
 
-	for index, corner in ipairs(Scene.cornerPositions(spot, facing, cfg)) do
+	-- THE FOUR TORCHES (task 168). Karen: *"torches 4 in corners"* -- *"real torches: a post with a
+	-- FIRE"*. One post, one `Flame` part at the top of it, and on the flame the two things that make
+	-- a fire: a `Fire` and the `PointLight` that was the whole lamp before this task.
+	--
+	-- `Fire` IS WHY THERE IS NO FLICKER LOOP ANYWHERE. It is an engine particle emitter whose flame
+	-- animates itself -- the two numbers it has are `Size` and `Heat`, and nothing has to be written
+	-- per frame to make it move. A flickering `PointLight.Brightness` would need a second writer of
+	-- this folder running at render rate for a 25-second scene, which is a per-frame cost and a
+	-- second owner for an effect the particle already gives.
+	--   Fire       https://create.roblox.com/docs/reference/engine/classes/Fire
+	--   PointLight https://create.roblox.com/docs/reference/engine/classes/PointLight
+	--
+	-- THE LIGHT HANGS ON THE FLAME AND NOT ON THE POST, which is a change of one stud-and-a-half of
+	-- meaning: a `PointLight` emits from its parent part's own position, so on a 10-stud post it was
+	-- lighting the bodies from knee height at the post's middle. It now shines from the fire.
+	for index, corner in ipairs(Scene.cornerPositions(spot, facing, cfg, count)) do
 		local post = newPart(
 			string.format("%s%d", Scene.LIGHT_PREFIX, index),
 			scene.POST_SIZE,
@@ -222,6 +340,21 @@ function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg): numbe
 			scene.POST_COLOR,
 			folder
 		)
+		local flame = newPart(
+			Scene.FLAME_NAME,
+			scene.FLAME_SIZE,
+			CFrame.new(corner + Vector3.new(0, scene.POST_SIZE.Y, 0)),
+			scene.FLAME_COLOR,
+			post
+		)
+		flame.Material = Enum.Material.Neon
+		local fire = Instance.new("Fire")
+		fire.Name = "Flames"
+		fire.Color = scene.FIRE_COLOR
+		fire.SecondaryColor = scene.FIRE_SECONDARY_COLOR
+		fire.Size = scene.FIRE_SIZE
+		fire.Heat = scene.FIRE_HEAT
+		fire.Parent = flame
 		local light = Instance.new("PointLight")
 		light.Name = "Lamp"
 		light.Color = scene.LIGHT_COLOR
@@ -230,7 +363,7 @@ function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg): numbe
 		-- SHADOWS OFF: four shadow-casting lights over a row of bodies is four shadow maps for a
 		-- 25-second scene, and this is the one number in here that is about cost rather than look.
 		light.Shadows = false
-		light.Parent = post
+		light.Parent = flame
 		lights += 1
 	end
 

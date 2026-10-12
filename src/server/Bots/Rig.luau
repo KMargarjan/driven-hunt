@@ -19,9 +19,15 @@
 --
 -- Design: docs/design/bots.md (sections 3.2, 11)
 -- Note:   docs/research/2026-10-12-bots.md (sections 2.2, 2.5)
-local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+
+-- THE HORN'S OWN DATA, for the bugler's pose a bot plays while it blows (task 168: the numbers and
+-- the sequence moved there, so a player and a bot raise the same arm). It is a pure shared data
+-- module -- no Instance, no state, no service of its own but the one that registers the sequence --
+-- so this require adds no owner and no second writer of anything.
+local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
 
 local Rig = {}
 
@@ -281,129 +287,20 @@ Rig.GAIT = table.freeze({
 -- -- but a tilt at the end of an arm hanging by the hip is a horn held at the hip, which is what she
 -- was looking at.
 --
--- WHY AN ANIMATION AND NOT A JOINT WRITE, AND IT IS MEASURED (2026-10-12, in a Play session of the
--- Forest Test, against a live bot beater). THREE mechanisms were tried on the rig's own shoulder:
---   1. `AnimationConstraint.Transform`, written once -- the hand moved 0.01 studs. The animator
---      re-solves the joint every frame from the playing tracks, so the write is gone before it is
---      drawn.
---   2. The same write, repeated EVERY Heartbeat for 40 frames -- the hand moved 0.12 studs. Same
---      reason: the animator steps after this and wins.
---   3. The arm-side rig ATTACHMENT's CFrame (the composition trick that works on a Motor6D's C0)
---      -- 0.3 studs for a 60-degree turn. These rigs are joined by `AnimationConstraint` plus a
---      `BallSocketConstraint`, not by `Motor6D`, so there is no C0/C1 to compose with and the
---      solver pulls the limb back to the animation's target.
--- With every track STOPPED, a single `Transform` write did stick (the hand moved 1.6 studs) -- so
--- the only thing that poses one of these arms while a gait is playing is another ANIMATION, at a
--- priority that outranks it.
+-- THE POSE ITSELF MOVED TO `src/shared/Horn` IN TASK 168, and these three lines are what is left of
+-- it here. Karen asked for the same raise when SHE plays a beater; a player's character is
+-- `Weapon.Horn`'s to animate and not this module's (every function in `Match.Body` that touches a
+-- person takes a `Player`, and this module never does); and two copies of one bugler's pose is the
+-- drift this project is a document about. So the numbers, the sequence and the ONE registered id are
+-- the HORN's now, and this module still owns every clip on a RIG's own `Animator` -- which is what
+-- `Rig.loadClips` loads and `Rig.blow` plays. Everything task 166 MEASURED about why it is a
+-- registered `KeyframeSequence` and not a joint write is written down where the sequence now lives.
 --
--- WHY A SEQUENCE BUILT IN CODE AND NOT AN UPLOADED CLIP. An animation asset id can only be made by
--- hand in Studio's Animation Editor (`tools/boar_prep.py`'s own header says so, and it is why that
--- tool writes one FBX per clip for Karen to import). `KeyframeSequenceProvider` is the engine's
--- documented way to turn a `KeyframeSequence` into a usable content id without one, and it was
--- MEASURED to work here: registered on the server in a live session, loaded onto a bot's `Animator`,
--- and ten candidate poses each moved the hand 1-3 studs to a different, repeatable place.
---   https://create.roblox.com/docs/reference/engine/classes/KeyframeSequenceProvider
--- Its one documented limit is that the id is temporary and local to the session, which is exactly
--- what this needs: the pose is rebuilt from the numbers below every time the place runs, so those
--- numbers ARE the animation and there is no asset to keep in step with them.
---
--- ONLY THE SHOULDER AND THE ELBOW ARE OURS. Every other pose in the sequence carries `Weight = 0`,
--- so the clip says nothing about the torso, the legs or the wrist: the gait keeps the walk, the tool
--- clip keeps the grip, and `Action` priority buys exactly two joints. A sequence that wrote identity
--- over the torso at `Action` would freeze a walking beater's lean for the length of every blast.
-Rig.BLOW = table.freeze({
-	-- THE POSE, IN DEGREES, AND THESE TWO ARE THE ONES KAREN LOOKS AT. The arm swings forward and
-	-- in at the shoulder and folds hard at the elbow, which is what brings the hand up in front of
-	-- the face -- a bugler's pose. Chosen off the measured sweep above (ten candidates; this pair
-	-- put the horn's own mouthpiece nearest the head of all of them) and then LOOKED AT in a
-	-- screenshot, which is the only thing that settles a pose (rule 5).
-	SHOULDER_DEG = { x = -120, y = 0, z = 15 },
-	ELBOW_DEG = { x = -150, y = 0, z = 0 },
-	-- UP QUICKLY, DOWN A LITTLE SLOWER, because that is what a person does with an instrument. They
-	-- are `AnimationTrack:Play`/`Stop` FADE times and not a hand-rolled ramp: the engine blends the
-	-- pose in and out, so "a short raise, a hold, a lower" costs two calls and no per-frame work.
-	RAISE_SECONDS = 0.2,
-	LOWER_SECONDS = 0.35,
-})
-
--- THE SEQUENCE, BUILT FROM THE NUMBERS. Pure in the sense that matters -- it reads no rig, no
--- service and no state, so a spec can assert the whole pose tree, the weights and the two angles
--- without a bot, an Animator or a Play session.
---
--- TWO IDENTICAL KEYFRAMES AND `Loop = true`: a one-keyframe sequence has no length, and a held pose
--- is a loop of one pose. The second keyframe's time is what gives the clip a duration at all.
-function Rig.blowSequence(config): KeyframeSequence
-	local blow = config or Rig.BLOW
-	local sequence = Instance.new("KeyframeSequence")
-	sequence.Loop = true
-	sequence.Priority = Enum.AnimationPriority.Action
-	local shoulder = blow.SHOULDER_DEG
-	local elbow = blow.ELBOW_DEG
-	for _, at in ipairs({ 0, 0.5 }) do
-		local keyframe = Instance.new("Keyframe")
-		keyframe.Time = at
-		-- THE CHAIN FROM THE ROOT, because a `Pose` is found by its place in the rig's hierarchy and
-		-- not by name alone. Everything above the shoulder carries no weight (see the header).
-		local parent: Instance = keyframe
-		for _, name in ipairs({ "HumanoidRootPart", "LowerTorso", "UpperTorso" }) do
-			local pose = Instance.new("Pose")
-			pose.Name = name
-			pose.CFrame = CFrame.identity
-			pose.Weight = 0
-			pose.Parent = parent
-			parent = pose
-		end
-		local upperArm = Instance.new("Pose")
-		upperArm.Name = "RightUpperArm"
-		upperArm.CFrame = CFrame.Angles(math.rad(shoulder.x), math.rad(shoulder.y), math.rad(shoulder.z))
-		upperArm.Weight = 1
-		upperArm.Parent = parent
-		local lowerArm = Instance.new("Pose")
-		lowerArm.Name = "RightLowerArm"
-		lowerArm.CFrame = CFrame.Angles(math.rad(elbow.x), math.rad(elbow.y), math.rad(elbow.z))
-		lowerArm.Weight = 1
-		lowerArm.Parent = upperArm
-		-- THE WRIST IS THE TOOL CLIP'S, so this pose exists only to close the chain and says
-		-- nothing about the hand.
-		local hand = Instance.new("Pose")
-		hand.Name = "RightHand"
-		hand.CFrame = CFrame.identity
-		hand.Weight = 0
-		hand.Parent = lowerArm
-		keyframe.Parent = sequence
-	end
-	return sequence
-end
-
--- THE REGISTERED ID, MADE ONCE PER SESSION AND SHARED BY EVERY RIG. Registering is a service call,
--- the sequence is the same for every bot, and the id is a string -- so one registration is one call
--- and eight bots cost nothing more.
---
--- A FAILURE IS REMEMBERED, NOT RETRIED. `RegisterKeyframeSequence` is not documented to fail here,
--- but if it ever does -- a future security-context change is the obvious way -- a retry per bot per
--- drive would be a service call per bot for ever. One attempt, and the bots keep their arms down.
-local blowAnimationId: string? = nil
-local blowRegisterTried = false
-
-function Rig.blowAnimationId(config): string?
-	if blowAnimationId ~= nil then
-		return blowAnimationId
-	end
-	if blowRegisterTried then
-		return nil
-	end
-	blowRegisterTried = true
-	local sequence = Rig.blowSequence(config)
-	local ok, id = pcall(function()
-		return KeyframeSequenceProvider:RegisterKeyframeSequence(sequence)
-	end)
-	sequence:Destroy()
-	if not ok or type(id) ~= "string" then
-		return nil
-	end
-	blowAnimationId = id :: string
-	return blowAnimationId
-end
+-- THE THREE NAMES ARE KEPT AS ALIASES rather than removed, because they are what `Rig.loadClips`,
+-- `Rig.blow` and `tests/server/bots_lane.spec.luau` already call: one definition, the same callers.
+Rig.BLOW = HornData.BLOW_POSE
+Rig.blowSequence = HornData.blowSequence
+Rig.blowAnimationId = HornData.blowAnimationId
 
 export type Clips = {
 	walk: AnimationTrack?,

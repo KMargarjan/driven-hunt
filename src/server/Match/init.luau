@@ -66,6 +66,12 @@ local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
+-- THE HORN'S OWN DATA, FOR EXACTLY ONE NUMBER: how long the start fanfare sounds, which is how long
+-- the beaters are held past GO (task 168, `GO_HOLD_SECONDS`). It is a require of a pure shared data
+-- module and not of an owner -- `src/shared/Horn` creates no Instance, reads no service and holds no
+-- state -- so this adds no second writer of anything. The alternative was a second copy of 2.18
+-- seconds in this file, which is the drift this project is a document about.
+local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
 
 local Body = require(script.Body)
 local Markers = require(script.Markers)
@@ -151,6 +157,21 @@ Match.CONFIG = {
 	-- ServerStorage, which no client sees).
 	SIGNAL_ENABLED = true, -- K
 
+	-- HOW LONG THE BEATERS STAND STILL AFTER THE DRIVE'S CLOCK STARTS (task 168). KAREN, 2026-10-12
+	-- ~21:45, verbatim: *"you can't move as a beater before horn made signal and there should be
+	-- countdown"*.
+	--
+	-- GO IS THE END OF THE FANFARE, AND THIS IS THE FANFARE -- not a feel number, a measurement of
+	-- the asset: `Horn.CONFIG.SIGNAL.PHRASES.start` is cut 0.42 -> 2.60 out of "Bugle Call (a)", so
+	-- `Horn.signalSeconds("start")` is 2.18 s. Reading it here rather than typing 2.18 is the whole
+	-- point: the day Karen picks a different phrase, the hold follows it with no second edit.
+	--
+	-- IT IS NOT ON `Match.WORLD_OVERRIDABLE`. "When may a beater move" is a RULE of the drive, like
+	-- the safety numbers, and a world answering it differently would be two answers to one rule in
+	-- the world Karen plays. A spec reaches both states by parameter (`Phase.goHoldSeconds`), which
+	-- is what the flag discipline is actually for.
+	GO_HOLD_SECONDS = HornData.signalSeconds("start", HornData.CONFIG),
+
 	-- THE RESULTS SCENE (task 159). Karen: *"all they standing around the animals there is light on 4
 	-- corners and then showing image transperent with results table"*. `Match.Scene` is the only
 	-- writer of the Instances; these are its numbers, and every one of them is handed in as a
@@ -167,8 +188,25 @@ Match.CONFIG = {
 		GATHER_BEHIND_STUDS = 24, -- K
 		SPACING_STUDS = 6, -- K, a boar's own width plus room to walk between them
 		MAX_ANIMALS = 12, -- a cap, so a long drive's row cannot run off into the wood
+		-- SEVERAL ROWS (task 168). KAREN, 2026-10-12 ~21:45: *"animals layed down in front in
+		-- several lines if more"*. Six to a row is 30 studs of front at `SPACING_STUDS` -- about
+		-- what the ring can stand round and see at once -- and the cap of 12 is then two full rows.
+		PER_ROW = 6, -- K's "several lines"
+		-- DEEPER THAN THE SIDEWAYS SPACING, because an animal is 4 studs LONG and 1.6 wide
+		-- (`ANIMAL_SIZE`) and lies across the row: 6 studs side to side is a gap you can walk
+		-- through, and 6 studs nose to tail would be two studs of gap.
+		ROW_SPACING_STUDS = 8,
 		RING_RADIUS_STUDS = 14, -- K, close enough to see the animals, far enough not to stand on them
+		-- HOW FAR OUTSIDE THE ANIMALS THE PEOPLE STAND once the block is bigger than the ring (task
+		-- 168): the ring grows to the block's corner plus this, so a bag of twelve is stood AROUND
+		-- rather than stood on. Below that it is `RING_RADIUS_STUDS` exactly, so the scene Karen has
+		-- already seen does not move.
+		RING_MARGIN_STUDS = 6,
 		CORNER_STUDS = 16, -- K, the four lamps stand just outside the ring
+		-- ...AND WHAT "JUST OUTSIDE THE RING" MEANS, now that the ring can grow (task 168). 14 + 2 is
+		-- 16, which is `CORNER_STUDS`: with a small bag the four torches stand exactly where they
+		-- stood before this task, and the floor is what makes that true rather than a coincidence.
+		CORNER_MARGIN_STUDS = 2,
 		-- The display animal: a boar-sized box, scaled per kind. The SCALES are data here rather than
 		-- a require of `Boar.CONFIG.KINDS`, because the scene must not learn what a boar is -- and
 		-- they are the same three numbers that config holds (male 1.0, female 0.85, cub 0.45).
@@ -178,8 +216,29 @@ Match.CONFIG = {
 		POST_SIZE = Vector3.new(0.6, 10, 0.6),
 		POST_COLOR = Color3.fromRGB(70, 60, 50),
 		LIGHT_COLOR = Color3.fromRGB(255, 190, 120), -- K's "light on 4 corners", warm: it is dusk
-		LIGHT_BRIGHTNESS = 4,
+		-- 4 -> 2.5 (task 168), and it is the LAMP MOVING that asks for it, not taste: the light used
+		-- to hang on the post, which put it at the post's own middle with five studs of post above
+		-- it; it hangs on the FLAME now, in the open at the top. The same number therefore reads
+		-- brighter, and the first photograph of the new scene came back washed out (rule 5 -- the
+		-- screenshot is why this line moved). Karen's to retune, and it is one number.
+		-- backups/ has no entry for this: the old value is right here in the comment.
+		LIGHT_BRIGHTNESS = 2.5,
 		LIGHT_RANGE_STUDS = 60,
+		-- THE BURNING END OF A TORCH (task 168). KAREN, 2026-10-12 ~21:45: *"torches 4 in corners"*,
+		-- and the Director: *"real torches: a post with a FIRE"*. The flame is a small NEON box so
+		-- the source reads bright even where `Fire`'s own particles are thin, and `Fire` is the
+		-- flicker -- it animates itself, so nothing in this repo writes a light per frame.
+		--
+		-- `Fire.Size` IS IN THE ENGINE'S OWN UNITS AND NOT IN STUDS: the property page documents the
+		-- default as 5 with no conversion, so these are the default flame scaled down to something a
+		-- 10-stud post can carry, and what it looks like is a screenshot (rule 5) rather than an
+		-- estimate. `Heat` is how fast it rises.
+		FLAME_SIZE = Vector3.new(0.9, 0.9, 0.9),
+		FLAME_COLOR = Color3.fromRGB(255, 200, 130),
+		FIRE_SIZE = 4,
+		FIRE_HEAT = 9,
+		FIRE_COLOR = Color3.fromRGB(255, 160, 60), -- the body of the flame
+		FIRE_SECONDARY_COLOR = Color3.fromRGB(120, 40, 10), -- its smoky tips
 	},
 	-- ------------------------------------------------------------ the bots (task 161)
 	--
@@ -567,9 +626,21 @@ local tied: { [number]: { tree: BasePart, at: number } } = {}
 -- of the countdown (task 158), and EVERYBODY at the results scene for the length of Scoring (task
 -- 159). The same shape as `tied` above and for the same reason: the pure machine SAYS who must be
 -- held and this is the one table that remembers it, so the character watch can put the hold back on
--- the character `placePlayers` is about to respawn. Emptied by `free`, which `Phase.enterRunning`,
--- `Phase.enterAssigning` and `Phase.enterWaiting` all emit -- so a hold cannot outlive its phase.
+-- the character `placePlayers` is about to respawn. Emptied by `free`, which `Phase.enterAssigning`
+-- and `Phase.enterWaiting` emit, and which the time section emits once `goFreeAt` has passed -- so a
+-- hold cannot outlive its phase. SINCE TASK 168 `enterRunning` EMITS IT ONLY WHEN `goHoldSeconds` IS
+-- ZERO, because GO is the end of the start fanfare and the line stands still for the length of it.
 local heldStill: { [number]: boolean } = {}
+-- WHO IS THROUGH THE HUNTERS' LINE, keyed the way a horn's cooldown is keyed -- `tostring(userId)`
+-- for a player, the slot id for a bot (task 168). KAREN, 2026-10-12 ~21:45: *"when beater cross the
+-- line of hunter it's done for him cant use sound anymore"*.
+--
+-- ONE MEASUREMENT, NOT TWO. `Match.beaterCrossing` already walks every beater in the line against
+-- `Match.crossedLine` once per tick to decide whether the drive is over (task 159); this is the
+-- per-beater half of that same walk, written down. Asking the geometry a second time at the instant
+-- of a blast would be a second answer to "has this man crossed", which is this project's named
+-- failure mode -- and the staleness it buys is at most one match tick.
+local throughLine: { [string]: boolean } = {}
 -- WHAT THIS DRIVE SHOT, in the order it was shot, for the results scene to lay out (task 159). It is
 -- NOT a second score: it carries the kind and the hit zone and no points at all, and the board
 -- (`Score`) is still the one answer to how the drive went. Cleared when a drive starts.
@@ -781,6 +852,19 @@ local function serverTimeFor(deadline: number): number
 	return clock + remaining
 end
 
+-- THE SAME CONVERSION WITHOUT THE CLAMP, for a deadline that is allowed to be in the PAST (task
+-- 168). `serverTimeFor` floors the remaining time at zero, which is right for a countdown -- a phase
+-- that has ended reads 0 and not a negative number -- and wrong for exactly one field: `holdUntil`
+-- stays on the wire for the whole drive so a beater's screen can work out how long ago GO was
+-- (`Match.goAgeSeconds`), and a clamped one would read "GO was now" for ten minutes.
+local function serverTimeAt(deadline: number): number
+	if deadline == math.huge then
+		return 0
+	end
+	local clock = if world and world.serverTime then world.serverTime() else Workspace:GetServerTimeNow()
+	return clock + (deadline - now())
+end
+
 local function boarsAlive(): number
 	if not (world and world.boars) then
 		return 0
@@ -834,6 +918,11 @@ function Match.snapshot()
 		quarry = Match.quarryLines(config),
 		rows = rows,
 		tied = tiedList,
+		-- THE TWO TASK-168 FACTS, both of them things a beater's own screen says and neither of them
+		-- a rule a client gets to decide: WHEN the line may walk (the server holds it) and WHO is
+		-- finished (the server refuses the blast).
+		holdUntil = serverTimeAt(state.goFreeAt or math.huge),
+		through = Match.throughUserIds(),
 	})
 	return snapshotCache
 end
@@ -1154,7 +1243,8 @@ local function applyScene()
 		return
 	end
 	stats.scenes += 1
-	stats.sceneAnimals += Scene.build(spot, facing, driveKills, config)
+	local laid = Scene.build(spot, facing, driveKills, config)
+	stats.sceneAnimals += laid
 
 	-- EVERYBODY STANDING ROUND THEM, in roster order so the ring is the same ring every drive.
 	--
@@ -1165,7 +1255,9 @@ local function applyScene()
 	-- is one argument and one call, and `Body.stand` is still the only thing that moves a PLAYER.
 	local ids = Phase.participantIds(state)
 	local botCount = Match.botCount()
-	local ring = Scene.ringLayout(spot, #ids + botCount, config)
+	-- ...AND THE RING IS WIDE ENOUGH TO HOLD THE ANIMALS (task 168): `laid` is how many were really
+	-- laid out (the cap applied), so the people stand round the block rather than in it.
+	local ring = Scene.ringLayout(spot, #ids + botCount, config, laid)
 	for index, userId in ipairs(ids) do
 		local player = playersService():GetPlayerByUserId(userId)
 		if player and ring[index] and Body.stand(player, ring[index]) then
@@ -1322,7 +1414,10 @@ local function syncBots()
 		local made = bots.fill(slots, nil)
 		stats.botsFilled = made.hunters + made.beaters
 	end
-	if phase == "Running" then
+	-- ...AND THE BOT LINE GOES WHEN THE PLAYERS DO, AND NOT 2.18 SECONDS EARLIER (task 168, round 1
+	-- finding 1). `Match.botsMayGo` is the one rule and `syncBots` runs on every dispatch, so the
+	-- bots are released on the SAME dispatch as the `free` that lets the people walk.
+	if Match.botsMayGo(state) then
 		bots.go()
 	end
 end
@@ -1357,6 +1452,11 @@ local function dispatch(event)
 	-- to measure, and a crossing counted in `Assigning` would be a beater standing at his own start.
 	if filled.beaters == nil and state.phase == "Running" then
 		filled.beaters, filled.beatersAcross = Match.beaterCrossing()
+	elseif state.phase ~= "Running" then
+		-- NOBODY IS THROUGH OUTSIDE A RUNNING DRIVE (task 168): the measurement above is the only
+		-- thing that fills `throughLine`, so without this a beater who finished drive 1 would still
+		-- be refused his horn at the start of drive 2.
+		table.clear(throughLine)
 	end
 	local endedEarlyBefore = state.endedEarly
 	local holdbacksBefore = state.holdbacks
@@ -1698,6 +1798,10 @@ end
 -- has no userId and `Match.playerDrivers` filters it out by exactly that. This function asks a
 -- different question ("how long is the beater line and how much of it is through"), so it asks the
 -- bots directly and measures them with the SAME `Match.crossedLine` predicate.
+--
+-- ...AND SINCE TASK 168 IT ALSO RECORDS WHICH OF THEM ARE THROUGH, in `throughLine`, because the
+-- horn needs the per-man answer and this is the walk that already has it. One measurement, one
+-- place: `Match.mayBlowHorn` reads the record and `Match.throughUserIds` reports it.
 function Match.beaterCrossing(): (number, number)
 	local beaters = driverPositions()
 	if world and world.bots then
@@ -1708,12 +1812,75 @@ function Match.beaterCrossing(): (number, number)
 	local line = if markerSet then markerSet.line else nil
 	local posts = if markerSet then markerSet.posts else nil
 	local across = 0
+	table.clear(throughLine)
 	for _, beater in ipairs(beaters) do
 		if Match.crossedLine(beater.position, line, posts, config.BEATER_CROSS_MARGIN_STUDS) then
 			across += 1
+			-- A PLAYER IS KEYED BY HIS userId AS A STRING AND A BOT BY ITS SLOT ID, which is exactly
+			-- how `Weapon.Horn` keys its one cooldown table (`Horn.keyFor`) -- so the horn's policy
+			-- looks this up with the key it already holds and no translation exists twice.
+			local key = if beater.userId ~= nil then tostring(beater.userId) else tostring(beater.id)
+			throughLine[key] = true
 		end
 	end
 	return #beaters, across
+end
+
+-- HAS THIS BEATER FINISHED HIS DRIVE? (task 168). `key` is the horn's own key. False for anybody the
+-- last measurement did not find past the line, which includes every hunter, every spectator and
+-- everybody at all when no drive is running.
+function Match.beaterThrough(key: string?): boolean
+	return key ~= nil and throughLine[key] == true
+end
+
+-- MAY THIS HORN STILL SOUND? (task 168). Karen: *"when beater cross the line of hunter it's done for
+-- him cant use sound anymore"*.
+--
+-- THE TOOL STAYS IN HIS HAND AND THE BLAST IS REFUSED, which is the Director's choice of the two he
+-- offered, and the reason is what the player sees: taking the horn away mid-drive would be a Tool
+-- vanishing out of a hand with nothing on screen to say why, and `Horn.refreshCarry` is
+-- level-triggered off `carriesFor` -- so a revoke would also have to teach the CARRY rule about the
+-- line, and a man who walked back north would be handed a new horn. One predicate, one door: he
+-- keeps the horn, the click does nothing, and his objective line says *"you are through"*.
+--
+-- INJECTED, NEVER REQUIRED: the composition root hands this to `Weapon.Horn.setBlowPolicy`, exactly
+-- as it hands `Match.mayCarryWeapon` to `Weapon.setArmingPolicy`. Neither owner requires the other.
+function Match.mayBlowHorn(key: string?): boolean
+	return not Match.beaterThrough(key)
+end
+
+-- THE THROUGH LIST AS userIds, for the snapshot -- the shape `tied` has, and sorted for the same
+-- reason: the payload is the same payload every tick unless the fact changed. A bot's key is not a
+-- number, so `tonumber` is what leaves the bots out of a list of people's screens.
+function Match.throughUserIds(): { number }
+	local out = {}
+	for key in pairs(throughLine) do
+		local userId = tonumber(key)
+		if userId then
+			table.insert(out, userId)
+		end
+	end
+	table.sort(out)
+	return out
+end
+
+-- MAY THE BOT LINE WALK YET? (task 168, round 1 finding 1.) PURE in the state, and exported so
+-- `bots_live.spec` states the rule this owner acts on rather than restating it.
+--
+-- KAREN'S RULE IS ONE GO FOR EVERYBODY -- the dispatch's own words, *"a beater (player AND bot)
+-- cannot move until the START FANFARE has sounded"*. The task deferred the PLAYERS' release by
+-- `Phase.goHoldSeconds` and left this call on the phase, so for 2.18 s a player beater stood
+-- anchored at the line while the bot line beside her walked off and blew -- which is the visible
+-- half of the thing Karen complained about, in the world she actually plays (`DRIVE_BOTS` on).
+--
+-- `Phase.lineHeld` IS THE SAME PREDICATE THE PLAYERS' HOLD USES, so there is one answer to "has the
+-- line been let go" and the two cannot drift: the dispatch that emits `free` is the dispatch on
+-- which this first answers true, because `Phase.step` clears `goFreed` in the same step.
+function Match.botsMayGo(driveState): boolean
+	if driveState == nil or driveState.phase ~= "Running" then
+		return false
+	end
+	return not Phase.lineHeld(driveState)
 end
 
 -- HOW MANY BOT RIGS EXIST, read-only, for the report and for a spec. 0 with no bots injected, which
@@ -2139,10 +2306,17 @@ local function watchCharacter(player: Player)
 		-- character rather than `player.Character`, which may be a newer one by then.
 		if heldStill[player.UserId] then
 			task.spawn(function()
-				if not character.PrimaryPart then
-					character:GetPropertyChangedSignal("PrimaryPart"):Wait()
-				end
-				if heldStill[player.UserId] and character.Parent and Body.holdCharacter(character, player.UserId) then
+				-- THROUGH `Body.holdWhenLoaded` SINCE TASK 168, and the difference is one bounded
+				-- wait for the character to be PARENTED. This code waited for the root and then
+				-- asked `character.Parent` once -- and in the Forest Test `CharacterAdded` fires
+				-- before the parent is set (the task-157 finding, measured again here), so the
+				-- re-apply did nothing and a placed beater could walk through the whole countdown.
+				-- The wait, the bound and the reason now live in `Body`, which owns the question.
+				if
+					Body.holdWhenLoaded(character, player.UserId, function()
+						return heldStill[player.UserId] == true
+					end)
+				then
 					stats.holdsReapplied += 1
 				end
 			end)

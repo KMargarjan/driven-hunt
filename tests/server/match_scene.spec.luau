@@ -27,8 +27,16 @@ local CONFIG = {
 		GATHER_BEHIND_STUDS = 24,
 		SPACING_STUDS = 6,
 		MAX_ANIMALS = 4,
+		-- TASK 168: several rows. FOUR to a row here, which is this spec's own `MAX_ANIMALS`, so every
+		-- case written before task 168 is still asking about ONE row and did not have to change.
+		-- The several-rows cases use the SHIPPED numbers (`LIVE` below) instead, because what they are
+		-- about is Karen's own bag sizes.
+		PER_ROW = 4,
+		ROW_SPACING_STUDS = 8,
 		RING_RADIUS_STUDS = 14,
+		RING_MARGIN_STUDS = 6,
 		CORNER_STUDS = 16,
+		CORNER_MARGIN_STUDS = 2,
 		ANIMAL_SIZE = Vector3.new(1.6, 1.4, 4.0),
 		ANIMAL_SCALES = { male = 1.0, female = 0.85, cub = 0.45 },
 		ANIMAL_COLOR = Color3.fromRGB(58, 48, 42),
@@ -37,8 +45,19 @@ local CONFIG = {
 		LIGHT_COLOR = Color3.fromRGB(255, 190, 120),
 		LIGHT_BRIGHTNESS = 4,
 		LIGHT_RANGE_STUDS = 60,
+		FLAME_SIZE = Vector3.new(0.9, 0.9, 0.9),
+		FLAME_COLOR = Color3.fromRGB(255, 200, 130),
+		FIRE_SIZE = 4,
+		FIRE_HEAT = 9,
+		FIRE_COLOR = Color3.fromRGB(255, 160, 60),
+		FIRE_SECONDARY_COLOR = Color3.fromRGB(120, 40, 10),
 	},
 }
+
+-- THE SHIPPED NUMBERS, for the three cases that are about Karen's own bag sizes (1, 5 and 12) rather
+-- than about the arithmetic: `MAX_ANIMALS` 4 above would cap a twelve-animal drive at four and the
+-- case would prove nothing.
+local LIVE = Match.CONFIG
 
 -- THE DEV ARENA'S GEOMETRY, as plain tables: the drive consumes a post as a thing with a `Position`
 -- and a `Size`, which is what lets this spec state the whole rule without building anything.
@@ -212,6 +231,119 @@ return function()
 		end)
 	end)
 
+	describe("the animals in several rows (task 168)", function()
+		local spot = Vector3.new(0, 10, -24)
+		local facing = Vector3.new(0, 0, 1)
+
+		-- KAREN, 2026-10-12 ~21:45: *"animals layed down in front in several lines if more"*.
+
+		it("lays 1, 5 and 12 animals out in 1, 1 and 2 rows with the shipped numbers", function()
+			expect(Scene.perRow(LIVE)).to.equal(6)
+			expect(Scene.rowCount(0, LIVE)).to.equal(0)
+			expect(Scene.rowCount(1, LIVE)).to.equal(1)
+			expect(Scene.rowCount(5, LIVE)).to.equal(1)
+			expect(Scene.rowCount(6, LIVE)).to.equal(1)
+			expect(Scene.rowCount(7, LIVE)).to.equal(2)
+			expect(Scene.rowCount(12, LIVE)).to.equal(2)
+			-- ...and the cap is a whole number of rows, so the block is never a row of one.
+			expect(LIVE.SCENE.MAX_ANIMALS % Scene.perRow(LIVE)).to.equal(0)
+		end)
+
+		it("keeps one row exactly where it was, and centres every row on the spot", function()
+			-- ONE ROW IS THE SCENE KAREN HAS ALREADY SEEN: five animals, 6 studs apart, centred.
+			local row = Scene.rowLayout(spot, facing, 5, LIVE)
+			expect(#row).to.equal(5)
+			local side = Scene.sideAxis(facing)
+			for index = 1, 5 do
+				local offset = row[index].Position - spot
+				-- Still on the spot's own depth: one row has no depth to spread into.
+				expect(math.abs(offset:Dot(Vector3.new(facing.X, 0, facing.Z).Unit)) < 1e-3).to.equal(true)
+				expect(math.abs(offset:Dot(side) - (index - 3) * LIVE.SCENE.SPACING_STUDS) < 1e-3).to.equal(true)
+			end
+			-- ...AND THE MIDDLE OF AN EVEN ROW STRADDLES THE SPOT, which is what "centred" means.
+			local four = Scene.rowLayout(spot, facing, 4, LIVE)
+			local middle = (four[2].Position + four[3].Position) / 2
+			expect((middle - spot).Magnitude < 1e-3).to.equal(true)
+		end)
+
+		it("splits a bag of twelve into two rows, the second one behind the first", function()
+			local row = Scene.rowLayout(spot, facing, 12, LIVE)
+			expect(#row).to.equal(12)
+			local look = Vector3.new(facing.X, 0, facing.Z).Unit
+			local side = Scene.sideAxis(facing)
+			local depth = LIVE.SCENE.ROW_SPACING_STUDS
+			-- The first six are one row and the last six another, exactly `ROW_SPACING_STUDS` apart.
+			local frontDepth = (row[1].Position - spot):Dot(look)
+			local backDepth = (row[7].Position - spot):Dot(look)
+			expect(math.abs(frontDepth - depth / 2) < 1e-3).to.equal(true)
+			expect(math.abs(backDepth + depth / 2) < 1e-3).to.equal(true)
+			for index = 1, 6 do
+				expect(math.abs((row[index].Position - spot):Dot(look) - frontDepth) < 1e-3).to.equal(true)
+				expect(math.abs((row[index + 6].Position - spot):Dot(look) - backDepth) < 1e-3).to.equal(true)
+			end
+			-- THE ROW IN FRONT IS THE ONE SHE SEES FIRST and it holds the first animals shot: index 1
+			-- is further along the facing than index 7.
+			expect(frontDepth > backDepth).to.equal(true)
+			-- Nobody is laid on top of anybody: the nearest pair in the whole block is a spacing
+			-- apart, which is what makes a bag of twelve walkable rather than a heap.
+			local nearest = math.huge
+			for a = 1, 12 do
+				for b = a + 1, 12 do
+					nearest = math.min(nearest, (row[a].Position - row[b].Position).Magnitude)
+				end
+			end
+			expect(nearest > math.min(LIVE.SCENE.SPACING_STUDS, depth) - 1e-3).to.equal(true)
+			-- A SHORT LAST ROW IS CENTRED ON ITS OWN WIDTH: seven animals is 6 + 1, and the 1 sits on
+			-- the middle rather than hanging off the end.
+			local seven = Scene.rowLayout(spot, facing, 7, LIVE)
+			expect(math.abs((seven[7].Position - spot):Dot(side)) < 1e-3).to.equal(true)
+		end)
+
+		it("stands the people AROUND the animals, however big the bag is", function()
+			-- A SMALL BAG DOES NOT MOVE THE RING: this is the scene Karen has already looked at.
+			expect(Scene.ringRadiusFor(0, LIVE)).to.equal(LIVE.SCENE.RING_RADIUS_STUDS)
+			expect(Scene.ringRadiusFor(3, LIVE)).to.equal(LIVE.SCENE.RING_RADIUS_STUDS)
+			expect(Scene.cornerReachFor(3, LIVE)).to.equal(LIVE.SCENE.CORNER_STUDS)
+			-- A BIG ONE DOES. Twelve animals reach 15 studs sideways and 4 deep, so a 14-stud ring
+			-- would have put the people inside the row -- which is what this task found.
+			local halfWidth, halfDepth = Scene.layoutExtent(12, LIVE)
+			expect(math.abs(halfWidth - 15) < 1e-9).to.equal(true)
+			expect(math.abs(halfDepth - 4) < 1e-9).to.equal(true)
+			local radius = Scene.ringRadiusFor(12, LIVE)
+			expect(radius > LIVE.SCENE.RING_RADIUS_STUDS).to.equal(true)
+			-- EVERY ANIMAL IS INSIDE THE RING, and that is the claim, asserted animal by animal.
+			local row = Scene.rowLayout(spot, facing, 12, LIVE)
+			local ring = Scene.ringLayout(spot, 8, LIVE, 12)
+			expect(#ring).to.equal(8)
+			for _, at in ipairs(row) do
+				local flat = Vector3.new(at.Position.X - spot.X, 0, at.Position.Z - spot.Z)
+				expect(flat.Magnitude < radius).to.equal(true)
+			end
+			-- ...AND SO IS EVERY PERSON OUTSIDE IT, facing the middle, at the stand height.
+			local centre = spot + Vector3.new(0, LIVE.STAND_HEIGHT_STUDS, 0)
+			for _, at in ipairs(ring) do
+				local flat = Vector3.new(at.Position.X - centre.X, 0, at.Position.Z - centre.Z)
+				expect(math.abs(flat.Magnitude - radius) < 1e-3).to.equal(true)
+				expect(at.LookVector:Dot((centre - at.Position).Unit) > 0.999).to.equal(true)
+			end
+			-- AND THE FOUR TORCHES ARE OUTSIDE THE PEOPLE.
+			for _, corner in ipairs(Scene.cornerPositions(spot, facing, LIVE, 12)) do
+				expect((corner - spot).Magnitude > radius).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"match_scene: 12 animals -> %d rows, half %.1f x %.1f, ring %.1f (was %.1f), corners %.1f",
+					Scene.rowCount(12, LIVE),
+					halfWidth,
+					halfDepth,
+					radius,
+					LIVE.SCENE.RING_RADIUS_STUDS,
+					Scene.cornerReachFor(12, LIVE)
+				)
+			)
+		end)
+	end)
+
 	describe("the scene as Instances", function()
 		local spot = Vector3.new(0, 10, -24)
 		local facing = Vector3.new(0, 0, 1)
@@ -239,8 +371,15 @@ return function()
 			for _, child in ipairs(folder:GetChildren()) do
 				if string.find(child.Name, Scene.LIGHT_PREFIX, 1, true) == 1 then
 					lamps += 1
-					expect(child:FindFirstChildOfClass("PointLight")).to.be.ok()
-					expect(child:FindFirstChildOfClass("PointLight").Brightness).to.equal(CONFIG.SCENE.LIGHT_BRIGHTNESS)
+					-- A TORCH SINCE TASK 168: the post carries a `Flame` and the flame carries the
+					-- fire and the light. The lamp moved off the post deliberately -- a `PointLight`
+					-- shines from its own parent's position, so on a 10-stud post it was lighting
+					-- the bodies from the post's middle.
+					local flame = child:FindFirstChild(Scene.FLAME_NAME)
+					expect(flame).to.be.ok()
+					expect(flame:FindFirstChildOfClass("PointLight")).to.be.ok()
+					expect(flame:FindFirstChildOfClass("PointLight").Brightness).to.equal(CONFIG.SCENE.LIGHT_BRIGHTNESS)
+					expect(flame:FindFirstChildOfClass("Fire")).to.be.ok()
 				elseif string.find(child.Name, Scene.ANIMAL_PREFIX, 1, true) == 1 then
 					bodies += 1
 					-- IT CANNOT STOP A PELLET, which is the one property here that is not tidiness:
@@ -285,6 +424,47 @@ return function()
 			expect(laid).to.equal(CONFIG.SCENE.MAX_ANIMALS)
 			expect(first.Parent).to.equal(nil) -- the first folder really went
 			expect(#Scene.folder():GetChildren()).to.equal(CONFIG.SCENE.MAX_ANIMALS + 4)
+		end)
+
+		it("burns a real fire on each of the four corners, at the top of the post", function()
+			-- KAREN, 2026-10-12 ~21:45: *"torches 4 in corners"*, and the Director: *"real torches: a
+			-- post with a FIRE ... warm flicker"*. The FLICKER is `Fire`'s own -- it is a particle
+			-- that animates itself -- which is why nothing in this repo writes a light per frame.
+			Scene.build(spot, facing, { { kind = "male" } }, CONFIG)
+			local folder = Scene.folder()
+			local fires = 0
+			for index = 1, 4 do
+				local post = folder:FindFirstChild(string.format("%s%d", Scene.LIGHT_PREFIX, index))
+				expect(post).to.be.ok()
+				local flame = post:FindFirstChild(Scene.FLAME_NAME)
+				expect(flame).to.be.ok()
+				-- AT THE TOP OF THE POST, to the stud: the post is centred at half its height, so
+				-- its top face is one half-height above that and the flame sits on it.
+				expect(math.abs(flame.Position.Y - (post.Position.Y + CONFIG.SCENE.POST_SIZE.Y / 2)) < 1e-3).to.equal(
+					true
+				)
+				-- IT CANNOT STOP A PELLET either, which is the one property in this folder that is
+				-- not tidiness.
+				expect(flame.CanQuery).to.equal(false)
+				expect(flame.CanCollide).to.equal(false)
+				local fire = flame:FindFirstChildOfClass("Fire")
+				expect(fire).to.be.ok()
+				expect(fire.Size).to.equal(CONFIG.SCENE.FIRE_SIZE)
+				expect(fire.Heat).to.equal(CONFIG.SCENE.FIRE_HEAT)
+				expect(fire.Enabled).to.equal(true)
+				local light = flame:FindFirstChildOfClass("PointLight")
+				expect(light.Range).to.equal(CONFIG.SCENE.LIGHT_RANGE_STUDS)
+				-- SHADOWS STAY OFF: four shadow maps for a 25-second scene is the one cost number
+				-- in this module.
+				expect(light.Shadows).to.equal(false)
+				fires += 1
+			end
+			expect(fires).to.equal(4)
+			-- THE LIGHT REACHES THE ANIMALS from where it now hangs, which is the point of moving it:
+			-- the corner's distance plus the post's height is inside the lamp's range.
+			local corner = Scene.cornerPositions(spot, facing, CONFIG, 1)[1]
+			local reach = (Vector3.new(corner.X, corner.Y + CONFIG.SCENE.POST_SIZE.Y, corner.Z) - spot).Magnitude
+			expect(reach < CONFIG.SCENE.LIGHT_RANGE_STUDS).to.equal(true)
 		end)
 
 		it("builds an empty scene for a drive that shot nothing: the lights still go up", function()

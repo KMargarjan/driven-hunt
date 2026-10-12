@@ -234,7 +234,120 @@ ForestTest.SPOOK = {
 	METRES_PER_STUD = 0.28, -- the same number `Horn.CONFIG`, `Report.CONFIG` and `Boar.CONFIG.SENSE` publish
 	BEATER_M = 25,
 	BEATER_STUDS = 89, -- 25 m / 0.28
+
+	-- THE LINE SWEEPS WHAT IT PASSES (task 168, the Director's second pass). KAREN, 2026-10-12
+	-- ~21:50: *"animals can't come behind beaters"*, and ~21:55: *"once beater push they go or turn
+	-- around but not after beaters ahead and they come from backs"*.
+	--
+	-- WHAT THE CIRCLE LEFT BEHIND, MEASURED: a live drive left **13 of 27 animals behind the line
+	-- without their ever having moved**. `BEATER_STUDS` is a RADIUS round each body, so the depth it
+	-- covers TAPERS to nothing sideways -- midway between two lanes 150 studs apart it is
+	-- `sqrt(89^2 - 75^2)` = 47.9 studs, and the two lanes' circles leave the ground between them
+	-- thinly covered rather than swept. The animals Karen watched come out behind the beaters were
+	-- never pushed at all: the line walked past them.
+	--
+	-- SO THE FRONT IS A LINE AND NOT A ROW OF CIRCLES. `ForestTest.lineFrontAt` interpolates the
+	-- beaters' own z ACROSS the front, so every x on it has a front -- there is no gap between two
+	-- lanes to derive, because there is no gap. What IS derived from the lane spacing is the DEPTH,
+	-- below.
+	SWEEP = {
+		ENABLED = true,
+		-- A FLOOR under the derived depth, so a world that put its lanes `2 * BEATER_STUDS` apart
+		-- (where the formula answers 0) still sweeps something. 30 studs is 8.4 m -- about three
+		-- strides of a walking man, which is one tick of the line at any pace it will ever walk.
+		MIN_AHEAD_STUDS = 30,
+		-- ...AND EVERYTHING BEHIND THE FRONT IS SWEPT, WITH NO LIMIT, which is the whole rule: an
+		-- animal the line has passed is exactly the animal Karen is complaining about. It is written
+		-- as a number rather than as `math.huge` so a spec can state it, and it is this world's own
+		-- depth: nothing is ever further behind the line than the walk itself.
+		BEHIND_STUDS = 1200,
+	},
 }
+
+-- HOW DEEP THE SWEEP REACHES IN FRONT OF THE LINE, derived from the lane spacing (task 168).
+-- PURE, and the derivation is the whole point: it is the depth the OLD per-beater circle really had
+-- at the worst place on the front -- midway between two lanes -- promoted to the whole front.
+--
+--     sqrt(BEATER_STUDS^2 - (laneSpacing / 2)^2)
+--
+-- So the band is NO WEAKER than the circles anywhere (it is exactly their worst case) and strictly
+-- stronger between two lanes, where the circle tapered. With the shipped numbers -- reach 89, lanes
+-- 150 -- it is **47.9 studs**, and the line covers that in ten seconds of its own walk.
+--
+-- THE FLOOR IS `MIN_AHEAD_STUDS`, for a lane spacing at or past `2 * BEATER_STUDS`, where the
+-- formula answers zero or is imaginary: a line of men that far apart is not a line, and the honest
+-- answer is "a man's own few strides" rather than an error.
+function ForestTest.sweepAheadStuds(spook, beater): number
+	local reach = ForestTest.beaterSpookStuds(spook)
+	local half = ((beater or ForestTest.BEATER).laneSpacingStuds or 0) / 2
+	local floor = ((spook or ForestTest.SPOOK).SWEEP or {}).MIN_AHEAD_STUDS or 0
+	local inside = reach * reach - half * half
+	if inside <= 0 then
+		return floor
+	end
+	return math.max(floor, math.sqrt(inside))
+end
+
+-- WHERE THE LINE'S FRONT IS AT THIS x. PURE: a list of beater positions in, the z of the line at
+-- `x` out, or nil when nobody is pushing.
+--
+-- LINEAR INTERPOLATION BETWEEN THE TWO NEAREST LANES, and CLAMPED to the outermost beater past
+-- either end -- which is what makes the front continuous and the coverage gapless by construction
+-- rather than by a number somebody tuned. A front of one man is that man's own z everywhere, which
+-- is right: a solo beater IS the line.
+--
+-- THE SORT IS DONE HERE AND NOT ASSUMED, because the caller's list is built from
+-- `Players:GetPlayers()` plus the bot rigs in creation order, and neither is sorted by x.
+function ForestTest.lineFrontAt(beaters, x: number): number?
+	local points = {}
+	for _, beater in ipairs(beaters or {}) do
+		if typeof(beater.position) == "Vector3" then
+			table.insert(points, beater.position)
+		end
+	end
+	if #points == 0 then
+		return nil
+	end
+	table.sort(points, function(a, b)
+		return a.X < b.X
+	end)
+	if x <= points[1].X then
+		return points[1].Z
+	end
+	local last = points[#points]
+	if x >= last.X then
+		return last.Z
+	end
+	for index = 1, #points - 1 do
+		local a, b = points[index], points[index + 1]
+		if x >= a.X and x <= b.X then
+			local span = b.X - a.X
+			if math.abs(span) < 1e-9 then
+				return a.Z
+			end
+			return a.Z + (b.Z - a.Z) * ((x - a.X) / span)
+		end
+	end
+	return last.Z
+end
+
+-- IS THIS ANIMAL INSIDE THE SWEEP? PURE, in the two numbers that matter: how far IN FRONT of the
+-- front it is (`aheadStuds`, positive toward the road, negative for an animal the line has passed)
+-- and how deep the band reaches.
+--
+-- EVERYTHING BEHIND THE FRONT IS CAUGHT, which is the rule Karen asked for -- *"not after beaters
+-- ahead"*. An animal can therefore be behind the line for one tick of the push and no longer: the
+-- band moves with the front, so the moment the front reaches it, it goes.
+function ForestTest.sweepCatches(aheadStuds: number, depthStuds: number, spook): boolean
+	local sweep = (spook or ForestTest.SPOOK).SWEEP
+	if sweep == nil or sweep.ENABLED ~= true then
+		return false
+	end
+	if aheadStuds > depthStuds then
+		return false -- still comfortably in front of the line: its turn has not come
+	end
+	return aheadStuds >= -(sweep.BEHIND_STUDS or 0)
+end
 
 -- THE REACH IN STUDS, from whichever unit the table carries. PURE, and the ONE place the conversion
 -- happens -- `Horn.spookStuds`'s rule, for the same reason: no caller multiplies by

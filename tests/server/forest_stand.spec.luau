@@ -710,6 +710,209 @@ return function()
 			)
 		end)
 
+		it("has a FRONT between the lanes, not a row of circles, and it is continuous", function()
+			-- KAREN, 2026-10-12 ~21:55: *"once beater push they go or turn around but not after
+			-- beaters ahead and they come from backs"*. The gap the circles left was MEASURED live --
+			-- 13 of 27 animals behind the line, none of which had moved -- and the fix is that the
+			-- front is a LINE: every x on it has a z, so there is no gap between two lanes to tune.
+			local line = {
+				{ position = Vector3.new(-150, 0, 500) },
+				{ position = Vector3.new(0, 0, 480) },
+				{ position = Vector3.new(150, 0, 440) },
+			}
+			-- ON a lane, the lane's own z.
+			expect(Data.lineFrontAt(line, -150)).to.equal(500)
+			expect(Data.lineFrontAt(line, 0)).to.equal(480)
+			expect(Data.lineFrontAt(line, 150)).to.equal(440)
+			-- BETWEEN two lanes, the straight line between them -- which is the whole of the fix.
+			expect(math.abs((Data.lineFrontAt(line, -75) :: number) - 490) < 1e-6).to.equal(true)
+			expect(math.abs((Data.lineFrontAt(line, 75) :: number) - 460) < 1e-6).to.equal(true)
+			-- PAST EITHER END it is clamped to the outermost man, so a boar at the edge of the world
+			-- is measured against the line and not against nothing.
+			expect(Data.lineFrontAt(line, -10000)).to.equal(500)
+			expect(Data.lineFrontAt(line, 10000)).to.equal(440)
+			-- A SOLO BEATER IS THE LINE, everywhere.
+			expect(Data.lineFrontAt({ { position = Vector3.new(7, 0, 300) } }, -900)).to.equal(300)
+			-- NOBODY PUSHING: there is no front, and the caller must handle that rather than get a 0.
+			expect(Data.lineFrontAt({}, 0)).to.equal(nil)
+			expect(Data.lineFrontAt(nil, 0)).to.equal(nil)
+			-- THE LIST IS SORTED HERE, because the live one is players-then-bots in creation order.
+			local shuffled = { line[3], line[1], line[2] }
+			expect(math.abs((Data.lineFrontAt(shuffled, -75) :: number) - 490) < 1e-6).to.equal(true)
+		end)
+
+		it("sweeps as deep as the circle's own worst case, derived from the lane spacing", function()
+			-- THE DEPTH IS NOT A NEW FEEL NUMBER: it is `sqrt(reach^2 - (spacing/2)^2)`, which is the
+			-- depth the per-beater circle REALLY had midway between two lanes. So the band is no
+			-- weaker than the circles anywhere and strictly stronger between them.
+			local reach = Data.beaterSpookStuds(Data.SPOOK)
+			local half = Data.BEATER.laneSpacingStuds / 2
+			local want = math.sqrt(reach * reach - half * half)
+			expect(math.abs(Data.sweepAheadStuds(Data.SPOOK, Data.BEATER) - want) < 1e-6).to.equal(true)
+			-- ...and with the shipped numbers that is about 48 studs, which the line walks in ten
+			-- seconds of its own pace.
+			expect(Data.sweepAheadStuds(Data.SPOOK, Data.BEATER) > 40).to.equal(true)
+			expect(Data.sweepAheadStuds(Data.SPOOK, Data.BEATER) < reach).to.equal(true)
+			-- LANES TWO REACHES APART make the formula answer zero or worse, and the floor is what
+			-- stops a line that wide sweeping nothing at all.
+			local wide = { laneSpacingStuds = 2 * reach + 10 }
+			expect(Data.sweepAheadStuds(Data.SPOOK, wide)).to.equal(Data.SPOOK.SWEEP.MIN_AHEAD_STUDS)
+			-- ONE LANE -- a solo beater -- is the full circle's reach, because there is no spacing to
+			-- taper it.
+			expect(math.abs(Data.sweepAheadStuds(Data.SPOOK, { laneSpacingStuds = 0 }) - reach) < 1e-6).to.equal(true)
+		end)
+
+		it("catches everything the line reaches AND everything it has passed", function()
+			local depth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
+			-- IN FRONT AND INSIDE THE BAND: caught.
+			expect(Data.sweepCatches(0, depth, Data.SPOOK)).to.equal(true)
+			expect(Data.sweepCatches(depth, depth, Data.SPOOK)).to.equal(true)
+			expect(Data.sweepCatches(depth - 1, depth, Data.SPOOK)).to.equal(true)
+			-- IN FRONT AND BEYOND IT: not yet -- its turn comes as the line walks on.
+			expect(Data.sweepCatches(depth + 0.1, depth, Data.SPOOK)).to.equal(false)
+			expect(Data.sweepCatches(400, depth, Data.SPOOK)).to.equal(false)
+			-- BEHIND THE LINE: ALWAYS caught, which is the rule Karen asked for. An animal can be
+			-- behind the front for one tick of the push and no longer.
+			expect(Data.sweepCatches(-1, depth, Data.SPOOK)).to.equal(true)
+			expect(Data.sweepCatches(-200, depth, Data.SPOOK)).to.equal(true)
+			expect(Data.sweepCatches(-Data.SPOOK.SWEEP.BEHIND_STUDS, depth, Data.SPOOK)).to.equal(true)
+			-- WITH THE SWEEP OFF, nothing is caught at all: this world before the Director's second
+			-- pass, reachable by parameter.
+			local off = { SWEEP = { ENABLED = false } }
+			expect(Data.sweepCatches(0, depth, off)).to.equal(false)
+			expect(Data.sweepCatches(-50, depth, off)).to.equal(false)
+		end)
+
+		it("leaves NOTHING behind as the line walks the whole wood down", function()
+			-- THE CLAIM, AS ARITHMETIC: walk the front from where a beater starts to the road, a tick
+			-- at a time at a beater's own pace, and every one of this world's resting groups is caught
+			-- BEFORE the front passes it. This is the simulation half of the live count the Director
+			-- asked for; the live one is in the request.
+			local depth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
+			local lanes = {}
+			for index = 1, 4 do
+				local x = standX + Data.beaterLaneOffset(index)
+				table.insert(lanes, x)
+			end
+			local animals = {}
+			for _, spec in ipairs(Data.REST.groups) do
+				local at = Data.restPoint(standX, spec)
+				table.insert(animals, { x = at.X, z = at.Z, caught = false, passed = false })
+			end
+			-- The front starts where the beaters are put down and walks south at WALK_SPEED.
+			local start = Data.beaterStart(standX, 0)
+			local northNow = start.Z - Data.roadZ(start.X)
+			local step = 5 * 0.2 -- `Bots.CONFIG.WALK_SPEED` 5 studs/s, five ticks a second
+			local passedUncaught = 0
+			while northNow > -40 do
+				local line = {}
+				for _, x in ipairs(lanes) do
+					table.insert(line, { position = Vector3.new(x, 0, Data.roadZ(x) + northNow) })
+				end
+				for _, animal in ipairs(animals) do
+					local frontZ = Data.lineFrontAt(line, animal.x) :: number
+					local ahead = frontZ - animal.z
+					local caughtBefore = animal.caught
+					if not animal.caught and Data.sweepCatches(ahead, depth, Data.SPOOK) then
+						animal.caught = true
+					end
+					-- `passedUncaught` IS A GUARD ON THE GUARD, and round 1's note was right that it
+					-- cannot fire while `sweepCatches` catches everything behind the front: it is
+					-- checked BEFORE this tick's catch instead, so it would count an animal the band
+					-- had let past on the PREVIOUS tick. `missed` is the assertion doing the work.
+					if ahead < 0 and not caughtBefore then
+						passedUncaught += 1
+					end
+				end
+				northNow -= step
+			end
+			local missed = 0
+			for _, animal in ipairs(animals) do
+				if not animal.caught then
+					missed += 1
+				end
+			end
+			-- NOT ONE of them, and not one tick of being behind the line uncaught either.
+			expect(missed).to.equal(0)
+			expect(passedUncaught).to.equal(0)
+			TestKit.note(
+				string.format(
+					"task 168 sweep: %d resting groups, front depth %.1f studs (lanes %d apart, reach %.0f)"
+						.. " -- missed %d, ticks behind the line uncaught %d",
+					#animals,
+					depth,
+					Data.BEATER.laneSpacingStuds,
+					Data.beaterSpookStuds(Data.SPOOK),
+					missed,
+					passedUncaught
+				)
+			)
+		end)
+
+		it("refuses a RE-STOCK spot the line has reached or passed, and falls back rather than stall", function()
+			-- MEASURED LIVE (task 168, the Director's second pass): 7 animals of 25 appeared up to 31
+			-- studs BEHIND the front, because the resting band is measured from the ROAD and the line
+			-- is deep in the wood by the time the wood is re-stocked. The sweep caught them on the
+			-- next tick -- but a group that has to be swept the instant it exists is a group Karen saw
+			-- come from behind.
+			--
+			-- `restSpot` ITSELF RAYCASTS, so what is driven here is the RULE it asks, which is the
+			-- same pure pair the flush asks: nothing can answer "behind the line" twice differently.
+			local depth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
+			local line = {
+				{ position = Vector3.new(standX - 150, 0, Data.roadZ(standX - 150) + 200) },
+				{ position = Vector3.new(standX, 0, Data.roadZ(standX) + 200) },
+				{ position = Vector3.new(standX + 150, 0, Data.roadZ(standX) + 200) },
+			}
+			-- A candidate 300 studs from the road is 100 studs BEHIND a front at 200: refused.
+			local behind = Data.restPoint(standX, { offsetX = 0, northStuds = 300 })
+			local frontBehind = Data.lineFrontAt(line, behind.X) :: number
+			expect(Data.sweepCatches(frontBehind - behind.Z, depth, Data.SPOOK)).to.equal(true)
+			-- One 100 studs from the road is 100 studs in FRONT of it, and outside the band: allowed.
+			local ahead = Data.restPoint(standX, { offsetX = 0, northStuds = 100 })
+			local frontAhead = Data.lineFrontAt(line, ahead.X) :: number
+			expect(Data.sweepCatches(frontAhead - ahead.Z, depth, Data.SPOOK)).to.equal(false)
+			-- ...and one just inside the band is refused too, because the line is about to reach it.
+			local nearly = Data.restPoint(standX, { offsetX = 0, northStuds = 200 - depth / 2 })
+			expect(Data.sweepCatches((Data.lineFrontAt(line, nearly.X) :: number) - nearly.Z, depth, Data.SPOOK)).to.equal(
+				true
+			)
+			-- WITH NOBODY PUSHING there is no front and nothing is refused -- which is the FIRST
+			-- stock, before anybody has a body, and is this world before the Director's second pass.
+			expect(Data.lineFrontAt({}, behind.X)).to.equal(nil)
+		end)
+
+		it("spawns NOTHING behind the beaters' line, which is the other half of task 168's rule", function()
+			-- KAREN, 2026-10-12 ~21:55: *"so animals in map already and once beater push they go or
+			-- turn around but not after beaters ahead and they come from backs"*.
+			--
+			-- `Boar.CONFIG.BEATER_WALL` stops an animal MOVING behind the line. This is the claim that
+			-- none is ever PUT there, and it is a property of the two tables rather than a new rule:
+			-- the resting band's far edge is `farRoadStuds` from the road and a beater is put down at
+			-- `beaterStart`, which is further. Stated as a case because it is load-bearing for the
+			-- wall -- an animal spawned behind the line would be walled on the wrong side of it.
+			local start = Data.beaterStart(standX, 0)
+			local startNorth = start.Z - Data.roadZ(start.X)
+			expect(Data.REST.farRoadStuds < startNorth).to.equal(true)
+			for _, spec in ipairs(Data.REST.groups) do
+				local at = Data.restPoint(standX, spec)
+				expect(at.Z - Data.roadZ(at.X) < startNorth).to.equal(true)
+			end
+			-- ...AND THE AMBIENT WAVES ARE IN FRONT OF HER TOO: they cross her front, so a wave
+			-- released behind her would walk the wrong way through the line.
+			for _, wave in ipairs(Data.SCHEDULE.cycle) do
+				local at = Data.wavePoint(standX, wave)
+				expect(at.Z - Data.roadZ(at.X) < startNorth).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"task 168: a beater starts %.0f studs north of the road; the deepest spawn of any kind is %.0f",
+					startNorth,
+					Data.REST.farRoadStuds
+				)
+			)
+		end)
+
 		it("takes the band as deep as the keep-away allows, so none of the walk is empty", function()
 			-- TASK 162. The walk is 580 studs now (`BEATER.behindLineStuds` 400 +
 			-- `LINE.spawnNorthStuds` 180), and the band this table may put a group in is the ONLY

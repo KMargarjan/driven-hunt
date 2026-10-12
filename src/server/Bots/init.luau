@@ -527,9 +527,15 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 	return counts
 end
 
--- GO. The drive's countdown is over, so a walker may walk. A bot is NOT in `Body`'s `held` table and
--- gets no `Body.hold` -- that table is keyed by userId -- so "held through the countdown exactly as
--- a player is" is this one boolean: until the drive says go, a walker stands on its lane start.
+-- GO. A bot is NOT in `Body`'s `held` table and gets no `Body.hold` -- that table is keyed by userId
+-- -- so "held exactly as a player is" is this one boolean: until the drive says go, a walker stands
+-- on its lane start and blows nothing (`Bots.step` gates both on `released`).
+--
+-- WHEN THE DRIVE SAYS GO IS NOT THIS MODULE'S QUESTION, and since task 168 the answer is not the
+-- phase either: GO is the END of the start fanfare, so the drive holds the whole line -- people and
+-- bots -- for `Phase.goHoldSeconds` after `Running` begins and releases both on one dispatch
+-- (`Match.botsMayGo`). Before that fix this was called on the first `Running` tick, 2.18 s before
+-- the players were freed, and a player beater watched the bot line walk off without her.
 function Bots.go(): number
 	released = true
 	local n = 0

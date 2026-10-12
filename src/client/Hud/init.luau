@@ -1911,8 +1911,19 @@ function Hud.renderObjective(CameraSystem)
 	local mapOpen = MapUi.isOpen()
 	local scoped = Objective.isSuppressed()
 	local cardUp = Hud.startCardVisible(snapshot, reportOpen)
+	-- WHAT THE DRIVE IS DOING RIGHT NOW, read from the one replica and handed to the one pure rule
+	-- (task 168). All three are local subtractions off server timestamps the snapshot already
+	-- carries, so a beater's countdown ticks at render rate and costs no push.
+	local drive = if matchSystem
+		then {
+			secondsLeft = matchSystem.secondsLeft(),
+			holdLeft = matchSystem.holdSecondsLeft(),
+			goAge = matchSystem.goAgeSeconds(),
+			through = matchSystem.isThrough(),
+		}
+		else nil
 	Objective.render({
-		text = Objective.text(phase, team),
+		text = Objective.text(phase, team, drive),
 		target = target,
 		distanceStuds = far,
 		view = view,

@@ -135,6 +135,21 @@ return function()
 				end
 			end
 			expect(seen).to.equal(6)
+			-- ...AND THE FOUR TASK-168 SENTENCES, which are drawn in the same label by the same
+			-- renderer and are therefore held to the same rule. The countdown is formatted with a
+			-- real number so what is checked is the sentence a player sees.
+			local extra = {
+				Objective.text("Assigning", "Drivers", { secondsLeft = 10 }),
+				Objective.text("Running", "Drivers", { holdLeft = 2 }),
+				Objective.text("Running", "Drivers", { holdLeft = 0, goAge = 0 }),
+				Objective.text("Running", "Drivers", { through = true }),
+			}
+			for _, line in ipairs(extra) do
+				expect(#line > 0).to.equal(true)
+				for index = 1, #line do
+					expect(string.byte(line, index) < 128).to.equal(true)
+				end
+			end
 		end)
 
 		it("FITS a phone's screen, measured by the engine and not by a font guess", function()
@@ -170,6 +185,24 @@ return function()
 					end
 				end
 			end
+			-- THE BEATER'S FOUR TASK-168 SENTENCES ARE MEASURED THE SAME WAY, at the same 400 px: a
+			-- countdown that does not fit a phone is a countdown nobody can read.
+			local cases = {
+				{ name = "countdown", drive = { secondsLeft = 10 } },
+				{ name = "fanfare", drive = { holdLeft = 2 } },
+				{ name = "go", drive = { holdLeft = 0, goAge = 0 } },
+				{ name = "through", drive = { through = true } },
+			}
+			for _, case in ipairs(cases) do
+				local phase = if case.drive.secondsLeft ~= nil then "Assigning" else "Running"
+				local line = Objective.text(phase, "Drivers", case.drive)
+				longest = math.max(longest, #line)
+				node.Text = line
+				task.wait()
+				if not node.TextFits then
+					table.insert(tooLong, string.format("Drivers/%s (%d chars)", case.name, #line))
+				end
+			end
 			node:Destroy()
 			expect(table.concat(tooLong, ", ")).to.equal("")
 			-- The design's numeric target, so a rewrite that breaks it says so here.
@@ -182,6 +215,72 @@ return function()
 					Objective.textSizeFor(400)
 				)
 			)
+		end)
+
+		-- ---------------------------------------------------------------- task 168: the beater's drive
+		--
+		-- KAREN, 2026-10-12 ~21:45: *"you can't move as a beater before horn made signal and there
+		-- should be countdown"*, and *"when beater cross the line of hunter it's done for him cant use
+		-- sound anymore"*. The line is the only thing on screen that says either, and it is still PURE
+		-- -- the clock is subtracted by the caller (`Match.holdSecondsLeft`, `Match.goAgeSeconds`), so
+		-- every one of these is a number in and a sentence out.
+		it("counts the countdown down for a beater, and for nobody else", function()
+			local text = CONFIG.TEXT
+			expect(Objective.text("Assigning", "Drivers", { secondsLeft = 10 })).to.equal("drive starts in 10")
+			-- CEILING, so the last second reads "1" and not "0": the same rule the start card's own
+			-- timer uses (`Hud.startCardTimerFor`), because they are the same deadline.
+			expect(Objective.text("Assigning", "Drivers", { secondsLeft = 2.4 })).to.equal("drive starts in 3")
+			expect(Objective.text("Assigning", "Drivers", { secondsLeft = 0.2 })).to.equal("drive starts in 1")
+			expect(Objective.text("Assigning", "Drivers", { secondsLeft = 0 })).to.equal("drive starts in 0")
+			-- A HUNTER'S COUNTDOWN IS HIS STAND TIMER AND IT IS ON THE CARD: his line is unchanged.
+			expect(Objective.text("Assigning", "Shooters", { secondsLeft = 10 })).to.equal(text.Shooters.Assigning)
+			-- AND WITH NOTHING KNOWN ABOUT THE DRIVE, the row stands -- which is what every caller
+			-- before this task passed and is why the eight role-by-phase cases above did not change.
+			expect(Objective.text("Assigning", "Drivers")).to.equal(text.Drivers.Assigning)
+			expect(Objective.text("Assigning", "Drivers", {})).to.equal(text.Drivers.Assigning)
+		end)
+
+		it("holds the line while the fanfare sounds, then says GO, then the standing instruction", function()
+			local text = CONFIG.TEXT
+			-- THE DRIVE HAS STARTED AND THE HORN IS SOUNDING: he may not walk yet, and this is the
+			-- only thing that tells him why.
+			expect(Objective.text("Running", "Drivers", { holdLeft = 2.18 })).to.equal(text.DriverHorn)
+			expect(Objective.text("Running", "Drivers", { holdLeft = 0.1 })).to.equal(text.DriverHorn)
+			-- THEN GO, for the flash, counted from the moment the line was let go.
+			expect(Objective.text("Running", "Drivers", { holdLeft = 0, goAge = 0 })).to.equal(text.DriverGo)
+			expect(Objective.text("Running", "Drivers", { holdLeft = 0, goAge = CONFIG.GO_FLASH_SECONDS })).to.equal(
+				text.DriverGo
+			)
+			-- ...AND THEN THE STANDING INSTRUCTION TAKES IT BACK, so a ten-minute drive is not spent
+			-- being told to start.
+			expect(Objective.text("Running", "Drivers", { holdLeft = 0, goAge = CONFIG.GO_FLASH_SECONDS + 0.1 })).to.equal(
+				text.Drivers.Running
+			)
+			expect(Objective.text("Running", "Drivers", { holdLeft = 0, goAge = 400 })).to.equal(text.Drivers.Running)
+			-- A HUNTER NEVER SEES ANY OF IT: he is not held and he has no GO.
+			expect(Objective.text("Running", "Shooters", { holdLeft = 2, goAge = 0 })).to.equal(text.Shooters.Running)
+			-- NOR DOES THE HOLD LEAK INTO ANOTHER PHASE: the results scene holds everybody, and
+			-- "drive over" is the only thing worth saying there.
+			expect(Objective.text("Scoring", "Drivers", { holdLeft = 2 })).to.equal(text.Drivers.Scoring)
+		end)
+
+		it("tells a beater who is through that his drive is over, and that beats everything else", function()
+			local text = CONFIG.TEXT
+			expect(Objective.text("Running", "Drivers", { through = true })).to.equal(text.DriverThrough)
+			-- IT BEATS THE GO FLASH AND THE HOLD, because it is the newest true thing about him: he
+			-- cannot be both pushing and finished.
+			expect(Objective.text("Running", "Drivers", { through = true, goAge = 0, holdLeft = 2 })).to.equal(
+				text.DriverThrough
+			)
+			-- ONLY WHILE THE DRIVE IS RUNNING. In the countdown of the NEXT drive he is not through
+			-- anything -- the server clears the record at the phase boundary, and this says so even if
+			-- a stale snapshot arrives first.
+			expect(Objective.text("Assigning", "Drivers", { through = true, secondsLeft = 9 })).to.equal(
+				"drive starts in 9"
+			)
+			expect(Objective.text("Scoring", "Drivers", { through = true })).to.equal(text.Drivers.Scoring)
+			-- A HUNTER IS NEVER "THROUGH": the list only ever holds beaters, and his line is his.
+			expect(Objective.text("Running", "Shooters", { through = true })).to.equal(text.Shooters.Running)
 		end)
 
 		it("has one text size break point", function()
