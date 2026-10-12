@@ -21,6 +21,13 @@ jobs:
       # Installs the exact tool versions pinned in rokit.toml.
       - uses: CompeyDev/setup-rokit@v0.2.1
 
+      # The pinned wally packages (wally.lock). ProfileStore is a RUNTIME dependency since task 170
+      # (ServerPackages/, mapped into ServerStorage), so the build below now covers it; TestEZ is a
+      # dev dependency and comes down in the same call. Both trees are git-ignored and each is pinned
+      # for the harness by its own .sha256 manifest (tools/studio_mcp.py).
+      - name: Wally install (pinned: ProfileStore, TestEZ)
+        run: wally install
+
       - name: Rojo build
         # rojo build does not create missing output directories.
         run: mkdir -p build && rojo build default.project.json --output build/place.rbxl

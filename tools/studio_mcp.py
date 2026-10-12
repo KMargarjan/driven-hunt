@@ -50,7 +50,7 @@ Usage:
   python tools/studio_mcp.py stop           # stop a playtest (recovery)
   python tools/studio_mcp.py studios        # list the Studio instances StudioMCP can see (read-only)
   python tools/studio_mcp.py flags [...]    # the feature-flag switch; `tools/flags.py` is the wrapper
-  python tools/studio_mcp.py manifest       # after `wally install`: rewrite devpackages.sha256 (commit it)
+  python tools/studio_mcp.py manifest       # after `wally install`: rewrite the package .sha256 pins (commit)
   python tools/studio_mcp.py capture <name> [x,y,z] [x,y,z]   # save a screenshot as rule-5 evidence
 
 Exit codes of `test` and `test2`: 0 PASS on a clean tree · 1 FAIL · 2 REFUSED (Studio not in Edit
@@ -182,8 +182,10 @@ What `test` checks, in order (each is one "ok"/"FAIL" line)
      No synced file may be git-ignored or outside the repo (it would be tested but could never make the
      tree dirty). Studio's answers are fetched in batches and a batch whose reply StudioMCP truncated
      (~100 KB) is split and retried, down to a single instance, which then fails loudly.
-     DevPackages/ (git-ignored TestEZ, which counts the passes) must match the committed
-     devpackages.sha256 (which also pins the wally.lock hash).
+     The wally trees are git-ignored by design and each must match its own committed manifest, which
+     also pins the wally.lock hash: DevPackages/ (TestEZ, which counts the passes) against
+     devpackages.sha256, and ServerPackages/ (ProfileStore, which saves a player's coins) against
+     serverpackages.sha256.
   5. No script (LuaSourceContainer) exists anywhere in the DataModel outside the sourcemap: nothing
      script-like may be created in Studio. Every service must be readable by that scan.
   6. Every *.spec.* file in the repo (git ls-files: tracked + untracked, non-ignored) is synced into
@@ -2033,7 +2035,7 @@ def ignored_synced_files(nodes):
     """Synced files outside git's view: git-ignored, or outside the repo. Either would be tested but could
     never make the tree dirty (and would escape lint), so each one fails the run."""
     files = sorted({f for _, _, fs in nodes for f in fs
-                    if f != "tests/sync-token.txt" and not f.startswith("DevPackages/")})
+                    if f != "tests/sync-token.txt" and not f.startswith(WALLY_TREES)})
     root = os.path.realpath(REPO) + os.sep
     outside = [f for f in files if os.path.isabs(f) or not os.path.realpath(os.path.join(REPO, f)).startswith(root)]
     inside = [f for f in files if f not in outside]
@@ -2045,7 +2047,14 @@ def ignored_synced_files(nodes):
     return [f + " (outside the repo)" for f in outside] + [p for p in r.stdout.decode("utf-8").split("\0") if p]
 
 
-DEVPACKAGES_MANIFEST = os.path.join(REPO, "devpackages.sha256")
+# THE WALLY TREES, which are git-ignored by design and are therefore each pinned by their own
+# manifest. `DevPackages/` is TestEZ, which counts the passes; `ServerPackages/` is ProfileStore,
+# which saves a player's coins (task 170, docs/design/economy.md). ONE MANIFEST PER TREE, not one
+# shared file: each name then says exactly what it covers, and a change to one tree does not rewrite
+# the other's pin.
+WALLY_TREES = ("DevPackages/", "ServerPackages/")
+PACKAGE_MANIFESTS = (("DevPackages", os.path.join(REPO, "devpackages.sha256")),
+                     ("ServerPackages", os.path.join(REPO, "serverpackages.sha256")))
 
 
 def sha256(path):
@@ -2053,10 +2062,10 @@ def sha256(path):
         return hashlib.sha256(f.read()).hexdigest()
 
 
-def devpackages_manifest():
-    """Lines: 'wally.lock <sha>' then '<sha>  <path>' for every file under DevPackages/, sorted."""
+def package_manifest(tree):
+    """Lines: 'wally.lock <sha>' then '<sha>  <path>' for every file under <tree>/, sorted."""
     lines = [f"wally.lock {sha256(os.path.join(REPO, 'wally.lock'))}"]
-    root = os.path.join(REPO, "DevPackages")
+    root = os.path.join(REPO, tree)
     for dirpath, _, filenames in os.walk(root):
         for fn in filenames:
             full = os.path.join(dirpath, fn)
@@ -2064,17 +2073,24 @@ def devpackages_manifest():
     return [lines[0]] + sorted(lines[1:])
 
 
-def devpackages_problems():
-    """DevPackages (TestEZ, which counts passes) is git-ignored; tie it to the commit via devpackages.sha256."""
-    if not os.path.exists(DEVPACKAGES_MANIFEST):
-        return ["devpackages.sha256 missing (run `python tools/studio_mcp.py manifest` after `wally install`)"]
-    with open(DEVPACKAGES_MANIFEST, encoding="utf-8") as f:
-        committed = [l for l in f.read().splitlines() if l.strip()]
-    current = devpackages_manifest()
-    if committed[:1] != current[:1]:
-        return ["wally.lock changed since devpackages.sha256 was written (run `wally install`, then `manifest`)"]
-    diff = sorted(set(committed) ^ set(current))
-    return [f"DevPackages differ from devpackages.sha256: {len(diff)} line(s), e.g. {diff[0][-80:]}"] if diff else []
+def package_problems():
+    """The wally trees are git-ignored; each is tied to the commit by its own .sha256 manifest."""
+    out = []
+    for tree, manifest in PACKAGE_MANIFESTS:
+        name = os.path.basename(manifest)
+        if not os.path.exists(manifest):
+            out.append(f"{name} missing (run `python tools/studio_mcp.py manifest` after `wally install`)")
+            continue
+        with open(manifest, encoding="utf-8") as f:
+            committed = [l for l in f.read().splitlines() if l.strip()]
+        current = package_manifest(tree)
+        if committed[:1] != current[:1]:
+            out.append(f"wally.lock changed since {name} was written (run `wally install`, then `manifest`)")
+            continue
+        diff = sorted(set(committed) ^ set(current))
+        if diff:
+            out.append(f"{tree} differs from {name}: {len(diff)} line(s), e.g. {diff[0][-80:]}")
+    return out
 
 
 def read_disk(rel):
@@ -2317,8 +2333,8 @@ def expectations_for(path, files, problems):
         if low.endswith((".rbxm", ".rbxmx")):
             problems.append(f"{name}: {rel} is BANNED (binary model; use .model.json)")
         elif low.endswith(".project.json"):
-            if rel.startswith("DevPackages/"):
-                pass  # third-party package project; DevPackages are checked against devpackages.sha256
+            if rel.startswith(WALLY_TREES):
+                pass  # third-party package project; a wally tree is checked against its own .sha256 manifest
             elif rel != "default.project.json":
                 problems.append(f"{name}: nested project file {rel} is not supported (not compared)")
         elif low.endswith((".luau", ".lua")):
@@ -3043,8 +3059,9 @@ def run_test(studio, scope=None):
         ignored = ignored_synced_files(nodes)
         check("No synced file is git-ignored or outside the repo (all tested code is in the commit or shows as dirty)", not ignored,
               ", ".join(ignored[:8]))
-        problems = devpackages_problems()
-        check("DevPackages (TestEZ) match the committed devpackages.sha256", not problems, "; ".join(problems))
+        problems = package_problems()
+        check("The wally trees (DevPackages, ServerPackages) match their committed .sha256 manifests",
+              not problems, "; ".join(problems))
 
         extra, unreadable = unmanaged_scripts(studio, nodes)
         check("No script exists outside Rojo-managed paths", not extra, ", ".join(extra[:8]))
@@ -4814,9 +4831,10 @@ def main(argv):
         # against a scripted Studio. See the docstring's `selftest` paragraph.
         return selftest()
     if argv[1] == "manifest":
-        with open(DEVPACKAGES_MANIFEST, "w", encoding="utf-8", newline="\n") as f:
-            f.write("\n".join(devpackages_manifest()) + "\n")
-        print(f"wrote {DEVPACKAGES_MANIFEST}")
+        for tree, manifest in PACKAGE_MANIFESTS:
+            with open(manifest, "w", encoding="utf-8", newline="\n") as f:
+                f.write("\n".join(package_manifest(tree)) + "\n")
+            print(f"wrote {manifest}")
         return 0
     studio = Studio()
     try:

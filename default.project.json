@@ -46,6 +46,9 @@
     },
     "ServerStorage": {
       "$path": "src/serverstorage",
+      "ServerPackages": {
+        "$path": { "optional": "ServerPackages" }
+      },
       "Tests": {
         "$path": "tests/server"
       }
