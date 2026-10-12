@@ -395,9 +395,9 @@ return function()
 			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
 			local body = folder:FindFirstChild("bot-beater-1") :: Model
 			expect(body).to.be.ok()
-			-- AT THE LANE'S OWN GOAL, not at the base's: `Bots.fill` spreads the slot through
-			-- `Bots.Lane`, so lane 1's goal is 18 studs to the side of the one the drive handed over.
-			local goal = Bots.Lane.goalFor(Vector3.new(0, 10, -20), CFrame.new(0, 10, 240), 1, Bots.CONFIG)
+			-- AT THE LANE'S OWN GOAL, which since task 167 is the one the DRIVE stated: the slot
+			-- carries this lane's own start and its own goal, and `Bots.laneOf` is the identity.
+			local goal = walkerSlot()[1].to :: Vector3
 			Rig.place(body, CFrame.new(goal), false)
 			Bots.step(0.2, 2030)
 			local walked = Bots.stats().walkSeconds

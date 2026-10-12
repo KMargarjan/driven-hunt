@@ -179,6 +179,28 @@ ForestTest.BEATER = {
 	-- alternating east and west, so the first answer is always the nearest one to the push line.
 	sideStepStuds = 10,
 	sideTries = 8,
+	-- HOW FAR APART THE LANES OF THE LINE ARE, AND IT IS ONE STAND (task 167).
+	--
+	-- KAREN, 2026-10-12 ~16:10, having played a drive as a hunter with the bots on: *"and seem like
+	-- all bots came to me"*. She was right, and the geometry says why: every beater -- real or bot --
+	-- was put down at ONE measured point, the push line through the stand she had locked, and the
+	-- bot lanes were +-18 and +-36 studs about it. Four bodies inside 72 studs of her stand is not a
+	-- drive line, it is a queue at her feet.
+	--
+	-- A LINE SPANS THE FRONT. `index` is the beater's place in it (the drive asks `placement` for
+	-- index 1, 2, 3 ... exactly as it asks for a hunter's stand), and `beaterLaneOffset` deals those
+	-- indices out across the hunters' line: 0, +150, -150, +300, -300 ... So four bot beaters cover
+	-- 600 studs of front -- stands 3 to 7 with her in the middle of them -- and each walks its own
+	-- lane down to its own stretch of road.
+	--
+	-- 150 IS `STAND_SPACING`, AND THAT IS THE WHOLE REASON FOR THE NUMBER. A lane laid out on the
+	-- stand grid lands square in front of a stand, so `Match.beaterGoalFor` (which takes the post
+	-- NEAREST the lane's own start) and `Match.crossedLine` (which takes the same one) pick that same
+	-- post -- the goal is straight ahead of the lane and arriving at it IS crossing. Any other
+	-- spacing puts the goal in front of a stand the lane is not walking at, on a road that is a sine
+	-- 30 studs deep. It is also a real beater interval: 150 studs is 42 m at
+	-- `ForestTest.SPOOK.METRES_PER_STUD`.
+	laneSpacingStuds = ForestTest.STAND_SPACING,
 	-- How far above the ground she is put, so she drops onto it rather than into it. It used to be
 	-- *"the same 4 studs `ForestTest.spawnPosition` uses for a hunter"*, and task 157 archived that
 	-- function: a hunter is now put down by the drive, on the marker part `ForestTest.Markers` builds
@@ -254,6 +276,28 @@ ForestTest.PUSH_TEAM = "Drivers"
 -- copies the Edit DataModel. It is NOT a `DHFlag_*` name, so the harness's override guard -- which
 -- refuses to run while a flag override is set -- cannot see it and cannot be defeated by it.
 ForestTest.START_ROLE_ATTRIBUTE = "DHForestStartRole"
+
+-- WHICH LANE OF THE LINE THIS BEATER WALKS, as an offset along the road from the push line (task
+-- 167). PURE, and the one answer to *"all bots came to me"*.
+--
+-- INDEX 1 IS THE PUSH LINE ITSELF and gets 0, so a REAL beater -- she is always index 1, because the
+-- drive numbers its own players first -- starts exactly where task 153 put her and nothing about
+-- Karen's own walk changes. The bots take 2, 3, 4, 5 and therefore +-1 and +-2 stand spacings, so
+-- when she walks as a beater the middle of the line is hers and the bots flank her. That is the
+-- property `Bots.Lane`'s archived `offsetFor` was written for (*"lane 0 is never issued, so the
+-- middle stays the PEOPLE's"*), kept, and moved to the world that knows how wide a front is.
+--
+-- ALTERNATING, NEAREST FIRST, which is the same shape `beaterStartPosition` searches for a clear
+-- spot with and the same shape the archived lane offsets had: one idiom in this repo for "deal these
+-- out either side of a line".
+function ForestTest.beaterLaneOffset(index: number?): number
+	local which = (index or 1) - 1
+	if which <= 0 then
+		return 0
+	end
+	local step = math.ceil(which / 2) * ForestTest.BEATER.laneSpacingStuds
+	return if which % 2 == 1 then step else -step
+end
 
 -- WHERE A BEATER STARTS, as flat geometry: north of the line's own spawn, on the push line through
 -- `standX`. PURE -- the ground and the trunks are the server's to measure (`beaterStartPosition`).

@@ -10,16 +10,24 @@
 -- `PathfindingService` is rejected for this (docs/research/2026-10-12-bots.md section 3): a lane
 -- per bot, from its own point on the start line to its own point on the road, IS the line.
 --
--- THREE PROPERTIES, and they are why it is written this way rather than as "spread them out":
---   * LANE 0 IS NEVER ISSUED, so the middle stays the PEOPLE's. The forest puts every real beater on
---     one measured point (`ForestTest.beaterStartPosition` ignores its index) and that point is on
---     the push line through the stand the drive aims at; the arena spreads real drivers about the
---     pad centre. Bots start at +-LANE_SPACING_STUDS and outward, so they flank.
---   * THE SPREAD IS ALONG THE BASE'S OWN RightVector, not along world X. The forest's road is a sine
---     whose tangent swings +-23 degrees (`docs/design/forest-drive.md`), so a line laid out on world
---     X would not be square to the push it is walking down.
---   * THE GOAL IS OFFSET BY THE SAME AMOUNT as the start, so a line that sets off abreast ARRIVES
---     abreast instead of converging on one point in front of one stand.
+-- WHERE THE LANE IS IS NOT THIS MODULE'S ANSWER ANY MORE (task 167), AND THAT IS THE FIX FOR KAREN'S
+-- *"and seem like all bots came to me"* (2026-10-12 ~16:10, playing as a hunter with the bots on).
+-- It used to take the drive's one BASE and a lane number and deal the line out at
+-- +-LANE_SPACING_STUDS (18) about it, with every goal translated sideways off the one base goal.
+-- Two things were wrong with that and neither is fixable from in here:
+--   * HOW WIDE a drive line is is a fact about the HUNTERS' FRONT, and this module reads no marker,
+--     no post and no player -- so 72 studs of total front was a constant, centred on whatever base
+--     the drive had measured. In the Forest Test that base is the stand the drive aims at, which is
+--     the stand SHE WAS STANDING ON.
+--   * A GOAL TRANSLATED SIDEWAYS IS NOT ON THE ROAD. The forest's road is a sine 30 studs deep and
+--     `GOAL_PAST_LINE_STUDS` is 20, so at any real width a lane's goal lands north of the tarmac,
+--     the bot stops short of the line and `Match.crossedLine` never counts it through.
+-- So the drive states each lane's own start and its own goal (`Match.botSlotsFor` asks the world for
+-- lane `n` by index, exactly as it asks for a hunter's stand), and what is left here is the WALK:
+-- how far down the lane to aim, how to step round a trunk, and whether it has arrived. The three
+-- offset functions are archived in `backups/2026-10-12-bots-lane-offsets.md` (rule 7), with the
+-- property they existed to protect -- the middle of the line stays the people's -- kept and re-stated
+-- in `ForestTest.beaterLaneOffset`, where the front can actually be seen.
 --
 -- Pattern: the per-waypoint `Humanoid:MoveTo` loop of Roblox's own character-pathfinding guide, with
 -- the pathfinder taken out and a lane put in -- and the re-issue interval set by the engine's
@@ -35,46 +43,6 @@ local Lane = {}
 
 local function flat(v: Vector3): Vector3
 	return Vector3.new(v.X, 0, v.Z)
-end
-
--- LANE 1 IS +spacing, LANE 2 IS -spacing, LANE 3 IS +2x, LANE 4 IS -2x. The same alternating
--- nearest-first shape `ForestTest.beaterStartPosition` uses for its side tries, so four bots span
--- 4 * LANE_SPACING_STUDS with nobody in the middle.
---
--- LANE 0 RETURNS 0, and that is not a lane: a stander carries `lane = 0` and never asks this. It
--- answers rather than erroring because a nil here would be a crash in the one place a spec cannot
--- see, and `bots_lane.spec` asserts the owner never issues it.
-function Lane.offsetFor(lane: number, config): number
-	if lane <= 0 then
-		return 0
-	end
-	local step = math.ceil(lane / 2) * config.LANE_SPACING_STUDS
-	return if lane % 2 == 1 then step else -step
-end
-
--- WHERE THIS LANE STARTS: the base the drive chose, moved sideways along the base's own right.
--- The facing is the base's, unchanged -- every bot of a line looks the same way, down the push.
-function Lane.startFor(base: CFrame, lane: number, config): CFrame
-	local offset = Lane.offsetFor(lane, config)
-	if offset == 0 then
-		return base
-	end
-	return base + base.RightVector * offset
-end
-
--- WHERE THIS LANE ENDS: the base's goal, moved sideways by the SAME offset and along the SAME axis.
--- Flat: the Y is the goal's, because the ground under the goal is the drive's measurement and not
--- this module's.
-function Lane.goalFor(baseGoal: Vector3, base: CFrame, lane: number, config): Vector3
-	local offset = Lane.offsetFor(lane, config)
-	if offset == 0 then
-		return baseGoal
-	end
-	local side = flat(base.RightVector)
-	if side.Magnitude < 1e-4 then
-		return baseGoal
-	end
-	return baseGoal + side.Unit * offset
 end
 
 -- IS IT THERE? Flat, because a bot standing 3 studs below its goal on a hill has arrived.

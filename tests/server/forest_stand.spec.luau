@@ -508,6 +508,26 @@ return function()
 			expect(at.Y == at.Y).to.equal(true) -- not a NaN: the y comes from a measurement or a default
 		end)
 
+		it("puts each lane of the line on its own x, across the hunters' front (task 167)", function()
+			-- KAREN, 2026-10-12: *"and seem like all bots came to me"*. Every beater used to be put
+			-- on the push line itself whatever its index, so the bot line arrived at her stand.
+			local push = ForestTest.beaterStartPosition(1)
+			local xs = { [1] = push.X }
+			for index = 2, 5 do
+				local lane = ForestTest.beaterStartPosition(index)
+				xs[index] = lane.X
+				-- ITS OWN x, on the stand grid, measured to the clear-spot search's tolerance: the
+				-- search may step up to `sideTries * sideStepStuds` sideways to miss a trunk.
+				local wanted = push.X + Data.beaterLaneOffset(index)
+				expect(math.abs(lane.X - wanted) <= Data.BEATER.sideTries * Data.BEATER.sideStepStuds).to.equal(true)
+				-- ...and still the same depth north of the road at its own x.
+				local north = lane.Z - Data.roadZ(lane.X)
+				expect(north).to.be.near(Data.LINE.spawnNorthStuds + Data.BEATER.behindLineStuds, 1e-2)
+			end
+			-- FOUR BOT LANES SPAN THE FRONT, not 72 studs of it.
+			expect(math.abs(xs[4] - xs[5]) >= 500).to.equal(true)
+		end)
+
 		it("finds the nearest beater, flat, and says so when there is none", function()
 			-- WHAT `stepLines` ASKS BEFORE IT FLUSHES AN ANIMAL. Flat, because the hill between a
 			-- beater's start and the road climbs 94 studs in 580 (MEASURED in the place, task 162;

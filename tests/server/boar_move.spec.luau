@@ -459,6 +459,148 @@ return function()
 		end)
 	end)
 
+	describe("avoidance BEFORE the contact (task 167)", function()
+		-- KAREN, 2026-10-12 ~16:10: *"also when boars running sometimes hit the tree"*. The third
+		-- playtest running. What was there was two RECOVERIES (task 150's wedge detector, task 139's
+		-- honest clip) and one reflex: three 9-stud rays answered with a fixed 55-degree turn. A
+		-- speed-scaled reach alone was measured at 24 contacts against 24 and left off. So the turn
+		-- is the thing that changed: `Brain.clearTurnDeg` sweeps candidate headings and takes the
+		-- SMALLEST one with room for the body.
+
+		it("takes the smallest clear turn, and its own side breaks the tie", function()
+			-- Everything inside 30 degrees is blocked; both 35s are clear.
+			local tried = {}
+			local function blocked(degrees: number)
+				table.insert(tried, degrees)
+				return math.abs(degrees) < 30
+			end
+			local turn, casts = Brain.clearTurnDeg({ 12, 22, 35, 50 }, 1, blocked, 10)
+			expect(turn).to.equal(35) -- +35 before -35: its own side first
+			expect(casts).to.equal(5) -- 12, -12, 22, -22, 35
+			-- SMALLEST FIRST, which is what makes it an avoidance and not a swerve.
+			expect(tried[1]).to.equal(12)
+			expect(tried[2]).to.equal(-12)
+
+			-- ...and the mirror: the same readings, the other side, turns the other way.
+			local mirrored = Brain.clearTurnDeg({ 12, 22, 35, 50 }, -1, blocked, 10)
+			expect(mirrored).to.equal(-35)
+		end)
+
+		it("picks the side that actually has room, whichever side the animal prefers", function()
+			-- A trunk to the LEFT: every negative heading is blocked, so it goes right even though
+			-- the animal's own side is left. Committing to a blocked side is how it hits the tree.
+			local function blocked(degrees: number)
+				return degrees <= 0
+			end
+			expect(Brain.clearTurnDeg({ 12, 22, 35 }, -1, blocked, 10)).to.equal(12)
+			expect(Brain.clearTurnDeg({ 12, 22, 35 }, 1, blocked, 10)).to.equal(12)
+		end)
+
+		it("answers nil when it is boxed in, and leaves the dead end to the wedge detector", function()
+			local function blocked()
+				return true
+			end
+			local turn, casts = Brain.clearTurnDeg({ 12, 22, 35 }, 1, blocked, 10)
+			expect(turn).to.equal(nil)
+			expect(casts).to.equal(6) -- three magnitudes, both sides
+		end)
+
+		it("spends no more casts than the budget, whatever the fan is asked for", function()
+			local spent = 0
+			local function blocked()
+				spent += 1
+				return true
+			end
+			local turn, casts = Brain.clearTurnDeg({ 12, 22, 35, 50, 70, 85 }, 1, blocked, 3)
+			expect(turn).to.equal(nil)
+			expect(casts).to.equal(3)
+			expect(spent).to.equal(3)
+		end)
+
+		it("deflects by the MEASURED turn and not by the fixed 55, and fires with the rays all clear", function()
+			local on = moveConfig(true)
+			local NORTH = Vector3.new(0, 0, 1)
+			-- THE WHOLE POINT OF THE LOOKAHEAD: the swept fan reaches up to `AVOID_MAX_STUDS` and the
+			-- three rays reach 9, so a trunk 20 studs ahead is seen by one and not the other. Before
+			-- this task `steerAroundTrunk` returned early on exactly this reading.
+			local far = { ahead = false, left = false, right = false, clearDeg = 12 }
+			local steered = Brain.steerAroundTrunk(NORTH, far, on, 1, false)
+			expect(steered.X < 0).to.equal(true) -- turned, from a reading that used to turn nothing
+			-- 12 DEGREES AND NOT 55: a gentle early turn is the difference between threading the
+			-- trees and swerving across the drive.
+			local angle = math.deg(math.acos(math.clamp(steered:Dot(NORTH), -1, 1)))
+			expect(angle).to.be.near(12, 0.01)
+			expect(on.PACE.WHISKER_TURN_DEG).to.equal(55) -- the walk's number, unchanged
+
+			-- ...AND IT WINS OVER THE RAYS when both are reading, because it is a measurement of
+			-- where the BODY fits and they are three lines from its centre.
+			local both = { ahead = true, left = true, right = false, clearDeg = -22 }
+			local overridden = Brain.steerAroundTrunk(NORTH, both, on, 1, false)
+			local overriddenAngle = math.deg(math.acos(math.clamp(overridden:Dot(NORTH), -1, 1)))
+			expect(overriddenAngle).to.be.near(22, 0.01)
+			expect(overridden.X > 0).to.equal(true) -- the fan's side, not the rays'
+
+			-- WITH NO FAN ANSWER the old behaviour is byte for byte what it was.
+			local rays = { ahead = true, left = true, right = false }
+			local old = Brain.steerAroundTrunk(NORTH, rays, on, 1, false)
+			local oldAngle = math.deg(math.acos(math.clamp(old:Dot(NORTH), -1, 1)))
+			expect(oldAngle).to.be.near(55, 0.01)
+		end)
+
+		it("commits to the side the fan found, so the deflection does not flip frame to frame", function()
+			-- `Brain:avoidSide()` is what the Runtime hands the fan as its first guess, and task 126
+			-- measured the alternative at 1,385 degrees of turning in ten seconds.
+			local on = moveConfig(true)
+			local brain = Brain.new(on, FIELD, START, Random.new(7))
+			local before = brain:avoidSide()
+			expect(before == 1 or before == -1).to.equal(true)
+			local reading = obs(START, {})
+			reading.whisker = { ahead = false, left = false, right = false, clearDeg = -35 }
+			brain:step(DT, reading)
+			expect(brain:avoidSide()).to.equal(-1) -- the side the fan found room on
+			-- ...and it is HELD: the next tick's reading cannot swap it inside
+			-- `WHISKER_HOLD_SECONDS`.
+			local flipped = obs(START, {})
+			flipped.whisker = { ahead = true, left = false, right = true, clearDeg = nil }
+			brain:step(DT, flipped)
+			expect(brain:avoidSide()).to.equal(-1)
+		end)
+
+		it("names the numbers the fan ships with, and the relations between them", function()
+			local move = CONFIG.MOVE
+			expect(move.AVOID_ENABLED).to.equal(true)
+			-- FROM A TROT UP: the walk keeps the 9-stud whiskers Karen has already accepted.
+			expect(move.AVOID_FROM_SPEED).to.equal(CONFIG.PACE.TROT_SPEED)
+			expect(move.AVOID_FROM_SPEED < CONFIG.PACE.RUN_SPEED).to.equal(true)
+			-- THE LOOKAHEAD HAS TO BEAT THE OLD ONE AT A RUN, or nothing has changed: at
+			-- `RUN_SPEED` the reach is longer than the 9 studs three rays give.
+			local atRun =
+				math.clamp(CONFIG.PACE.RUN_SPEED * move.AVOID_SECONDS, move.AVOID_MIN_STUDS, move.AVOID_MAX_STUDS)
+			expect(atRun > CONFIG.MOVE.WHISKER_MIN_STUDS).to.equal(true)
+			expect(atRun > CONFIG.BODY_SIZE.Z * 2).to.equal(true) -- more than two body lengths
+			-- THE SWEEP IS AT LEAST THE BODY'S OWN HALF-WIDTH, or it is answering for a ray again.
+			expect(move.AVOID_RADIUS_STUDS >= CONFIG.BODY_SIZE.X / 2).to.equal(true)
+			-- SMALLEST FIRST, ascending, and never a full reversal.
+			local angles = move.AVOID_ANGLES_DEG
+			expect(#angles > 0).to.equal(true)
+			for index = 2, #angles do
+				expect(angles[index] > angles[index - 1]).to.equal(true)
+			end
+			expect(angles[#angles] < 90).to.equal(true)
+			-- THE BUDGET IS A CEILING ON CASTS PER ANIMAL PER SECOND, and it is the Director's own
+			-- condition: `AVOID_HZ` evaluations, each one forward sweep plus at most `AVOID_CASTS`.
+			expect(move.AVOID_HZ > 0).to.equal(true)
+			expect(move.AVOID_CASTS > 0).to.equal(true)
+			-- One forward sweep plus up to `AVOID_CASTS` at the far horizon and `AVOID_CASTS` at the
+			-- nearer one: 104 swept casts a second for an animal running at a wall of trunks, against
+			-- the 180 rays a second the three 9-stud whiskers beside it already cost at 60 Hz.
+			expect(move.AVOID_NEAR_SCALE > 0 and move.AVOID_NEAR_SCALE < 1).to.equal(true)
+			expect(move.AVOID_HZ * (2 * move.AVOID_CASTS + 1) <= 120).to.equal(true)
+			-- ...and the measurement that says whether any of it worked is on.
+			expect(move.COUNT_CONTACTS).to.equal(true)
+		end)
+	end)
+
 	describe("the voice the game actually ships", function()
 		it("is silent except for the approach grunt and the hooves", function()
 			-- THE SHIPPED CONFIG, asserted for the first time (task 129 round 2: the ration cases

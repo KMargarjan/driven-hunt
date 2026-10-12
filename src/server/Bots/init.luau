@@ -122,9 +122,13 @@ Bots.CONFIG = {
 	AHEAD_STUDS = 12,
 	-- A CHARACTER'S OWN WIDTH: "it is standing on the goal", not "its root is on the point".
 	ARRIVE_STUDS = 4,
-	-- WIDE ENOUGH TO READ AS A LINE from a stand 200 studs away, tight enough that four of them
-	-- cover one crossing. Four bots span 4 x this, with the middle left for the real beaters.
-	LANE_SPACING_STUDS = 18, -- K
+	-- `LANE_SPACING_STUDS` IS GONE (task 167), with the three functions that read it, and it is
+	-- archived in `backups/2026-10-12-bots-lane-offsets.md`. It was 18 studs, so four bots covered 72
+	-- studs of front about one base -- and the base is the stand the drive aims at, which is what
+	-- Karen saw as *"all bots came to me"*. How wide a drive line is depends on the hunters' front
+	-- and where its goals land depends on the shape of the road, and this system can see neither, so
+	-- the number does not belong here: `ForestTest.BEATER.laneSpacingStuds` holds it now and
+	-- `Match.botSlotsFor` asks the world for each lane by index.
 	-- `ForestTest.BEATER.clearStuds`: a Roblox character is 2 studs across, so 6 is a body's width
 	-- of clearance on every side. The same question answered by the same number.
 	LANE_CLEAR_STUDS = 6,
@@ -190,6 +194,9 @@ type Bot = {
 	-- one.
 	gaitFrom: Vector3?,
 	gaitAt: number?,
+	-- WHERE IT WAS WHEN IT ARRIVED (task 167), stamped on the arriving step: the results scene moves
+	-- every rig into a ring before the report prints, so the position at report time is the ring's.
+	arrivedX: number?,
 }
 
 local started = false
@@ -393,16 +400,25 @@ end
 
 -- ------------------------------------------------------------------ the drive's four questions
 
--- THIS BOT'S OWN START AND GOAL, out of the drive's base and its lane number. PURE, exported so
--- `bots_lane.spec` can state the whole line from one base without building anything.
+-- THIS BOT'S OWN START AND GOAL. PURE, exported so `bots_lane.spec` can state a whole line without
+-- building anything.
 --
--- A STANDER (lane 0, `to == nil`) IS THE IDENTITY: it stands exactly where the drive put it, which
--- for a bot hunter is the post `Body.placementFor` chose.
-function Bots.laneOf(slot: Slot, config: any?): (CFrame, Vector3?)
-	local cfg = config or Bots.CONFIG
-	local from = Lane.startFor(slot.from, slot.lane, cfg)
-	local to = if slot.to ~= nil then Lane.goalFor(slot.to :: Vector3, slot.from, slot.lane, cfg) else nil
-	return from, to
+-- IT IS THE IDENTITY SINCE TASK 167, and that is the change rather than an oversight. The drive used
+-- to hand one BASE plus a lane number and this turned the pair into a point, `+-LANE_SPACING_STUDS`
+-- about the base -- but the spread has to be measured against the hunters' front and the goal has to
+-- land on a road that is a sine, and this system can see neither (it reads no marker, no tag and no
+-- player, which is the whole of why it is a separate owner). Karen's *"all bots came to me"* was
+-- that blindness: 72 studs of front, centred on the one stand she was standing on.
+--
+-- So the drive states the lane's own start and its own goal -- `Match.botSlotsFor` asks the world for
+-- each lane by index, exactly as it asks for a hunter's stand -- and this function is the seam that
+-- says so out loud rather than a line of arithmetic nobody can find. The offsets it used to compute
+-- are archived in `backups/2026-10-12-bots-lane-offsets.md` (rule 7).
+--
+-- A STANDER (`to == nil`) stands exactly where the drive put it, which for a bot hunter is the post
+-- `Body.placementFor` chose: the same answer this gave before.
+function Bots.laneOf(slot: Slot, _config: any?): (CFrame, Vector3?)
+	return slot.from, slot.to
 end
 
 -- PURE, and the drive's own entry to the arithmetic: `Bots.Fill.counts` by another name, exported
@@ -453,11 +469,9 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 	order = keep
 
 	for _, slot in ipairs(slots) do
-		-- THE LANE IS APPLIED HERE, and this is the one place it is. The drive hands the measured
-		-- BASE and a lane number -- it must not require this system to know the spacing (no owner
-		-- requires another owner) -- so `Bots.Lane` turns the two into this bot's own start and its
-		-- own goal, both offset by the SAME amount along the base's own right, which is what makes a
-		-- line that sets off abreast arrive abreast.
+		-- THE LANE'S OWN POINTS, THROUGH THE ONE SEAM THAT NAMES THEM (task 167). The drive measured
+		-- them -- it is the only owner that can see the hunters' front and the road -- and this
+		-- system walks between them.
 		local from, to = Bots.laneOf(slot, cfg)
 		local bot = bots[slot.id]
 		if bot == nil then
@@ -483,6 +497,7 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 				walkStartedAt = nil,
 				gaitFrom = nil,
 				gaitAt = nil,
+				arrivedX = nil,
 				gathered = false,
 				index = madeIndex,
 			}
@@ -497,6 +512,7 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 			bot.to = to
 			if moved and bot.model ~= nil then
 				bot.arrived = false
+				bot.arrivedX = nil
 				bot.walkStartedAt = nil -- a bot put somewhere else starts its walk again
 				-- ...AND ITS GAIT SAMPLE GOES WITH IT (round 1 note). `Rig.place` below teleports
 				-- the body, so a sample taken before the move would be differenced across the
@@ -795,6 +811,12 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand)
 	if Lane.arrived(here, goal, config.ARRIVE_STUDS) then
 		bot.arrived = true
 		bot.arrivedAt = at
+		-- WHERE IT ARRIVED, STAMPED NOW AND NOT READ LATER (task 167). The first run of this task
+		-- read the body's position at REPORT time and printed three bots at x 3020 against goals of
+		-- 3030, 2880 and 3330 -- because the report prints at `Scoring`, by which time `applyScene`
+		-- has gathered every rig into the results RING behind the middle stand. The lane's arrival
+		-- and the ring are two different facts and the measurement needs the first one.
+		bot.arrivedX = here.X
 		stats.arrived += 1
 		stats.walkSeconds = math.max(stats.walkSeconds, at - (bot.walkStartedAt :: number))
 		Rig.playClip(bot.clips, "idle") -- it is standing at the line now, not walking at it
@@ -1009,6 +1031,54 @@ function Bots.report(driveNumber: number): string
 		s.stepMsAvg,
 		s.stepMsMax
 	)
+end
+
+-- WHERE EVERY LANE OF THE LINE ACTUALLY IS, one line for the whole line (task 167). The Director's
+-- own condition for the fix: *"print each bot's start x, goal x and arrival x"* -- because *"all bots
+-- came to me"* is a claim about three numbers per bot and nothing printed any of them.
+--
+-- `x` AND NOT A VECTOR: the front is the axis the line spreads along, and the question is whether
+-- four beaters cover it or queue on one point of it. The z is the depth of the walk, which
+-- `walkSeconds` above already measures.
+--
+-- EMPTY STRING WHEN THERE ARE NO WALKERS, so the caller can print it or not with one test, which is
+-- the shape `Bots.report` is already used with.
+function Bots.laneReport(driveNumber: number): string
+	local rows = {}
+	for _, id in ipairs(order) do
+		local bot = bots[id]
+		if bot ~= nil and bot.to ~= nil then
+			-- THE ARRIVAL IS THE STAMP, not a late read of the body: by the time this prints, the
+			-- results scene has GATHERED every rig into its ring, so the body's position then is the
+			-- ring's and not the lane's. The first run of this task printed three bots at x 3020
+			-- against goals of 3030, 2880 and 3330 for exactly that reason.
+			--
+			-- A BOT THAT NEVER ARRIVED REPORTS WHERE IT IS, and `nil` once it has been gathered --
+			-- because there is no honest answer then and a number that looks like one is this
+			-- project's named failure mode.
+			local at: number? = bot.arrivedX
+			if at == nil and not bot.gathered then
+				at = if bot.model ~= nil and bot.model.PrimaryPart ~= nil
+					then bot.model.PrimaryPart.Position.X
+					else bot.from.Position.X
+			end
+			table.insert(
+				rows,
+				string.format(
+					"%d: %.0f -> %.0f, at %s%s",
+					bot.lane,
+					bot.from.Position.X,
+					(bot.to :: Vector3).X,
+					if at ~= nil then string.format("%.0f", at) else "?",
+					if bot.arrived then " (arrived)" elseif bot.gathered then " (gathered first)" else " (still walking)"
+				)
+			)
+		end
+	end
+	if #rows == 0 then
+		return ""
+	end
+	return string.format("[lanes] drive %d, start x -> goal x: %s", driveNumber, table.concat(rows, " | "))
 end
 
 return Bots
