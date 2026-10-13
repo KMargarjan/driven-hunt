@@ -99,7 +99,7 @@ export type State = {
 }
 
 export type Event = {
-	kind: string, -- "tick" | "join" | "leave" | "kill" | "gone" | "violation" | "markers" | "team"
+	kind: string, -- "tick" | "join" | "leave" | "dismiss" | "kill" | "gone" | "violation" | "markers" | "team"
 	userId: number?,
 	name: string?,
 	-- "team": the side a world has asked this player to be on (task 157). Read by that branch only.
@@ -132,7 +132,9 @@ export type Effect = {
 	force: boolean?, -- "broadcast": a phase change, which no client may miss behind the throttle
 	assignment: { [number]: TeamName }?,
 	userId: number?, -- "freeze": the one player to tie to a tree
-	-- "refreshArming" / "placePlayers": whom. "hold": whom to hold -- at the start line (task 158),
+	-- "refreshArming" / "placePlayers" / "unassign": whom -- and "unassign" is the one that hands a
+	-- team BACK (task 177): the ids that had one and are not in the next drive. "hold": whom to hold
+	-- -- at the start line (task 158),
 	-- or the whole roster at the results scene (task 159). "free": whom to let go, and NIL MEANS
 	-- EVERYBODY HELD -- which is what the start of a drive means (task 158), and what the end of the
 	-- results scene means (task 159).
@@ -509,6 +511,24 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	table.sort(userIds)
 
 	state.assignment = Roster.assign(userIds, state.previousAssignment, config)
+	-- ANYBODY WHO WAS IN THE LAST DRIVE AND IS NOT IN THIS ONE (task 177, design section 4.4). The
+	-- OTHER door out of `Scoring` is straight into `Assigning` -- a lobby player can enrol during the
+	-- results scene -- and that path never reaches `enterWaiting`, so without this a dismissed player
+	-- would keep the last drive's team, its vest and its horn through the whole of the next drive.
+	--
+	-- EMITTED BEFORE `assignTeams`, so a player who is in BOTH drives is unassigned and then assigned
+	-- rather than the other way round -- except that he is not in this list at all, which is the
+	-- point of the `== nil` test: nobody's team is written twice in one phase entry.
+	local dropped = {}
+	for userId in pairs(state.previousAssignment or {}) do
+		if state.assignment[userId] == nil then
+			table.insert(dropped, userId)
+		end
+	end
+	table.sort(dropped)
+	if #dropped > 0 then
+		table.insert(effects, { kind = "unassign", userIds = dropped })
+	end
 	table.insert(effects, { kind = "assignTeams", assignment = state.assignment })
 	table.insert(effects, { kind = "clearBoars" })
 	-- AND THE BEATERS ARE HELD AT THE LINE for the length of this phase (task 158) -- **BEFORE**
@@ -626,6 +646,25 @@ local function enterWaiting(state: State, effects: { Effect }, now: number)
 	state.nextReleaseAt = math.huge
 	state.goFreeAt = math.huge
 	state.goFreed = true
+	-- EVERY TEAM IS HANDED BACK, and it is emitted BEFORE `state.assignment` is emptied because the
+	-- assignment is where the list comes from (task 177, docs/design/lobby.md section 4.4).
+	--
+	-- NOTHING IN THIS REPO EVER SET A TEAM BACK TO NIL before this line: `Body.setTeam` is the one
+	-- writer of `Player.Team` and its only caller was the `assignTeams` effect, which this door does
+	-- not emit. It was invisible because `MIN_PLAYERS` is 1, so with anybody on the server this phase
+	-- was unreachable. With a lobby it is the normal end of every drive, and a player back at the
+	-- lodge still on the Drivers team keeps the horn, the vest and the wrong line on his screen.
+	--
+	-- SORTED, like every other id list this machine emits, so the effect is deterministic and a spec
+	-- can assert it by value.
+	local dropped = {}
+	for userId in pairs(state.assignment) do
+		table.insert(dropped, userId)
+	end
+	table.sort(dropped)
+	if #dropped > 0 then
+		table.insert(effects, { kind = "unassign", userIds = dropped })
+	end
 	state.assignment = {}
 	-- THE OTHER WAY OUT OF `Scoring` (task 159), and it must take the scene down too: a server that
 	-- empties out after a drive would otherwise sit there lit, with the last drive's animals laid out
@@ -769,6 +808,28 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			-- new team on this player's own row.
 			table.insert(effects, { kind = "broadcast" })
 		end
+	elseif kind == "dismiss" then
+		-- THE ROSTER, CLEARED, WITH NO FEED LINE -- which is the whole difference from `leave`
+		-- (task 177, docs/design/lobby.md section 4.3). A player standing in the results scene has
+		-- not LEFT; he is simply not in the next drive, and printing *"X left"* about a man standing
+		-- in front of Karen would be a lie in the shape of a fact.
+		--
+		-- IT CHANGES NO PHASE BY ITSELF. `enoughPlayers` is read at the `Waiting` and `Scoring` exits
+		-- below, so a dismissal during `Scoring` makes the drive fall back to `Waiting` through
+		-- `enterWaiting` -- the door task 159 already built, which takes the scene down and frees
+		-- everybody -- and the clock is untouched.
+		--
+		-- WHAT IT DELIBERATELY DOES NOT TOUCH, and every one of these matters:
+		--   * the owner's `board` (`Score`), so Karen's results table still shows the drive's points
+		--     while the roster behind it is empty: `Match.snapshot`'s rows come from the board;
+		--   * the owner's `names`, so `enterAssigning` can rebuild the board for whoever enrols next;
+		--   * the owner's `heldStill`, so everybody stays frozen in the ring for the rest of the
+		--     scene -- `applyFree(nil)` iterates that table and not `participants`;
+		--   * `Player.Team`, so the badges and the team colours in the results scene do not blink
+		--     off. The team is handed back one phase later, by the `unassign` effect.
+		table.clear(next_.participants)
+		table.clear(next_.assignment)
+		table.insert(effects, { kind = "broadcast" })
 	elseif kind == "leave" and event.userId then
 		next_.participants[event.userId] = nil
 		next_.assignment[event.userId] = nil

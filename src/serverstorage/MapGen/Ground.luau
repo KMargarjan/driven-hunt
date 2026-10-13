@@ -1,5 +1,14 @@
 --!strict
--- MapGen.Ground: THE ONLY WRITER OF `Terrain` IN THE REPO (design section 2.2). One tile per call.
+-- MapGen.Ground: THE ONLY WRITER OF **THE DEV PLACE'S** `Terrain`, at EDIT time, driven step by step
+-- by `tools/mapgen.py` (design section 2.2). One tile per call.
+--
+-- THE QUALIFIER ARRIVED WITH TASK 177 and it is written out rather than left to be rediscovered.
+-- `ServerScriptService.Lobby.Field` writes terrain too, and the two cannot meet, by three
+-- independent facts: a different WORLD (`forest-test`, and `Lobby.anchorFor` has no `map:v1` row),
+-- a different MODE (a running session, never Edit -- and a Play-session terrain write does not
+-- persist), and a bounded RECTANGLE it may not write outside of (`Lobby.CONFIG.FIELD`, asserted
+-- corner by corner in `tests/server/lobby.spec.luau`). `tools/mapgen.py` stays the only thing that
+-- writes DEV's terrain. See `docs/design/lobby.md` section 3.1.
 -- It reads no Instance and writes none; it asks `Height` where the ground is and `Layout` what is on
 -- it, so nothing here can disagree with the props or the markers about the shape of the world.
 --

@@ -120,6 +120,81 @@ return function()
 			expect(Objective.text(nil, nil)).to.equal("")
 		end)
 
+		-- ---------------------------------------------------------------- task 177: the lobby
+		--
+		-- THE DEV ANSWER IS UNCHANGED, and that is the first case: a teamless player in a world with
+		-- no lobby reads exactly what he read before this task. `lobby.spot ~= nil` is the gate, and
+		-- it is the repo's own rule -- *the screen never claims to know more than the world said*.
+		it("still says nothing with no team when the world has no lobby", function()
+			for _, phase in ipairs({ "Waiting", "Assigning", "Running", "Scoring" }) do
+				expect(Objective.text(phase, nil, nil, nil)).to.equal("")
+				-- A lobby module with no spot built yet is the same answer: absent is not a place.
+				expect(Objective.text(phase, nil, nil, {})).to.equal("")
+			end
+		end)
+
+		it("tells a player in the lobby to walk to the truck", function()
+			local text = CONFIG.TEXT
+			local lobby = { spot = Vector3.new(2850, 153, -2950) }
+			expect(Objective.text("Waiting", nil, nil, lobby)).to.equal(text.Lobby)
+			-- ONLY IN `Waiting`: once a drive exists he is in it, and the drive's own rows take over.
+			for _, phase in ipairs({ "Assigning", "Running", "Scoring" }) do
+				expect(Objective.text(phase, nil, nil, lobby)).to.equal("")
+			end
+			-- ...and never to a player who is IN the drive, whatever the lobby says.
+			expect(Objective.text("Waiting", "Shooters", nil, lobby)).to.equal(text.Waiting)
+			expect(Objective.text("Waiting", "Drivers", nil, lobby)).to.equal(text.Waiting)
+		end)
+
+		it("counts him down with ceil, so the last whole second reads 1 and never 0", function()
+			local text = CONFIG.TEXT
+			local spot = Vector3.new(2850, 153, -2950)
+			expect(Objective.text("Waiting", nil, nil, { spot = spot, secondsLeft = 5 })).to.equal(
+				string.format(text.LobbyLeaving, 5)
+			)
+			-- `ceil`, exactly as the beater's own countdown does.
+			expect(Objective.text("Waiting", nil, nil, { spot = spot, secondsLeft = 3.2 })).to.equal(
+				string.format(text.LobbyLeaving, 4)
+			)
+			expect(Objective.text("Waiting", nil, nil, { spot = spot, secondsLeft = 0.1 })).to.equal(
+				string.format(text.LobbyLeaving, 1)
+			)
+			expect(Objective.text("Waiting", nil, nil, { spot = spot, secondsLeft = 0 })).to.equal(
+				string.format(text.LobbyLeaving, 0)
+			)
+		end)
+
+		it("points the chevron at the truck, and at nothing else", function()
+			local spot = Vector3.new(2850, 153, -2950)
+			local lobby = { spot = spot }
+			local target = Objective.targetFor(nil, "Waiting", nil, Vector3.new(0, 0, 0), lobby)
+			expect(target).to.be.ok()
+			expect((target :: any).point).to.equal(spot)
+			expect((target :: any).word).to.equal(Objective.CONFIG.WORD_TRUCK)
+			expect((target :: any).kind).to.equal("truck")
+			-- NO GEOMETRY NEEDED: the point is the world's own statement of where the truck is, not
+			-- something derived from the map's road or its stands.
+			expect(Objective.targetFor(nil, "Waiting", nil, nil, lobby)).to.be.ok()
+			-- Not in any other phase, not with no spot, and not for a player who has a team.
+			for _, phase in ipairs({ "Assigning", "Running", "Scoring" }) do
+				expect(Objective.targetFor(nil, phase, nil, Vector3.new(), lobby)).to.equal(nil)
+			end
+			expect(Objective.targetFor(nil, "Waiting", nil, Vector3.new(), {})).to.equal(nil)
+			expect(Objective.targetFor(nil, "Waiting", nil, Vector3.new(), nil)).to.equal(nil)
+		end)
+
+		it("shows the line in the lobby, because lineVisible forwards it", function()
+			local lobby = { spot = Vector3.new(2850, 153, -2950) }
+			-- Without the forward, the sentence would be computed and then hidden.
+			expect(Objective.lineVisible("Waiting", nil, false, false, false, false, lobby)).to.equal(true)
+			expect(Objective.lineVisible("Waiting", nil, false, false, false, false, nil)).to.equal(false)
+			-- Every suppressor still wins, exactly as it does for a player with a team.
+			expect(Objective.lineVisible("Waiting", nil, true, false, false, false, lobby)).to.equal(false)
+			expect(Objective.lineVisible("Waiting", nil, false, true, false, false, lobby)).to.equal(false)
+			expect(Objective.lineVisible("Waiting", nil, false, false, true, false, lobby)).to.equal(false)
+			expect(Objective.lineVisible("Waiting", nil, false, false, false, true, lobby)).to.equal(false)
+		end)
+
 		it("is ASCII, and never an em dash", function()
 			-- Everything drawn in this repo is ASCII (`Drive.CONFIG.TIED_TEXT`'s own rule). An em dash
 			-- is the one character a rewrite is likely to introduce, so it is named.
@@ -201,6 +276,22 @@ return function()
 				task.wait()
 				if not node.TextFits then
 					table.insert(tooLong, string.format("Drivers/%s (%d chars)", case.name, #line))
+				end
+			end
+			-- ...AND THE LOBBY'S TWO (task 177), measured at the same 400 px. *"walk to the truck to
+			-- start a hunt"* is the longest sentence on screen anywhere, so if any of them is going to
+			-- miss a phone it is this one.
+			local SPOT = { spot = Vector3.new(0, 0, 0) }
+			for _, case in ipairs({
+				{ name = "lobby", lobby = SPOT },
+				{ name = "leaving", lobby = { spot = SPOT.spot, secondsLeft = 5 } },
+			}) do
+				local line = Objective.text("Waiting", nil, nil, case.lobby)
+				longest = math.max(longest, #line)
+				node.Text = line
+				task.wait()
+				if not node.TextFits then
+					table.insert(tooLong, string.format("lobby/%s (%d chars)", case.name, #line))
 				end
 			end
 			node:Destroy()

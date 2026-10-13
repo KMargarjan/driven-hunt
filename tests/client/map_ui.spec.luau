@@ -418,6 +418,53 @@ return function()
 			expect(MapUi.minimapVisible(true, false, false, true)).to.equal(false)
 			expect(MapUi.minimapVisible(false, true, false, true)).to.equal(false)
 			expect(MapUi.minimapVisible(false, false, true, true)).to.equal(false)
+			-- TASK 177: THE FIFTH ARGUMENT DEFAULTS TO FALSE, so every combination above is
+			-- bit-identical when it is nil. That is the identity claim, asserted rather than assumed.
+			expect(MapUi.minimapVisible(false, false, false, true, nil)).to.equal(CONFIG.MINIMAP_ENABLED)
+			expect(MapUi.minimapVisible(false, false, false, true, false)).to.equal(CONFIG.MINIMAP_ENABLED)
+		end)
+
+		-- ---------------------------------------------------------------- task 177: outside the map
+		--
+		-- THE RULE NAMES NO LOBBY, and that is deliberate: *"you are outside the map's own frame"* is
+		-- a fact about the world's STATED geometry. It stays true if the lobby moves and it needs no
+		-- lobby concept in the Hud at all.
+		it("hides the minimap for a player outside the world the map states", function()
+			-- The minimap is centred on the player with a 300-stud range, so from 500 studs outside
+			-- the stated bounds it would draw a dark disc, a scale bar and your own wedge and nothing
+			-- else. That is a half-drawn drive, which is what this is not allowed to be.
+			expect(MapUi.minimapVisible(false, false, false, true, true)).to.equal(false)
+			-- ...and the FULL map is untouched: it holds the whole stated world and PINS an
+			-- out-of-range marker to its border, which is its own documented rule. M keeps working.
+			expect(MapUi.fullMapVisible(true, false, false)).to.equal(true)
+		end)
+
+		it("answers withinBounds inside, outside and exactly on the boundary", function()
+			local bounds = { minX = -100, maxX = 100, minZ = -200, maxZ = 50 }
+			expect(MapUi.withinBounds(bounds, Vector3.new(0, 999, 0))).to.equal(true)
+			-- ON the edge is IN, so a player standing on the map's own border is not off the map.
+			expect(MapUi.withinBounds(bounds, Vector3.new(100, 0, 50))).to.equal(true)
+			expect(MapUi.withinBounds(bounds, Vector3.new(-100, 0, -200))).to.equal(true)
+			expect(MapUi.withinBounds(bounds, Vector3.new(100.1, 0, 0))).to.equal(false)
+			expect(MapUi.withinBounds(bounds, Vector3.new(0, 0, -200.1))).to.equal(false)
+			-- Height is not bounded: the map is a footprint.
+			expect(MapUi.withinBounds(bounds, Vector3.new(0, -5000, 0))).to.equal(true)
+		end)
+
+		it("puts the lobby outside this world's stated bounds, which is why the minimap hides there", function()
+			-- The one case that ties the two systems together, and it reads both numbers rather than
+			-- copying either: `Lobby.anchorFor` is the lobby's own statement of where it is, and the
+			-- geometry is the map's own statement of what it covers.
+			if Map.EXPECTED_WORLD ~= "forest-test" then
+				return
+			end
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			local geometry = MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map)
+			expect(geometry).to.be.ok()
+			local anchor = require(ReplicatedStorage:WaitForChild("Lobby")).anchorFor("forest-test")
+			expect(anchor).to.be.ok()
+			local at = Vector3.new((anchor :: any).x, 0, (anchor :: any).z)
+			expect(MapUi.withinBounds((geometry :: any).bounds, at)).to.equal(false)
 		end)
 
 		-- THE MOBILE-BUTTON CASE IS GONE WITH THE BUTTON (task 165). `MapUi.buttonVisible` was

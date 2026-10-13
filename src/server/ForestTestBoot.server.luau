@@ -12,6 +12,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
+-- THE LOBBY'S TERRAIN IS AN ARGUMENT AND NEVER A GLOBAL REACH (task 177): this root hands
+-- `Workspace.Terrain` to `Lobby.start`, so no spec can write a place's terrain by accident.
+local Workspace = game:GetService("Workspace")
 -- THE START SWITCH LIVES HERE (task 153): an attribute on `ServerStorage`, read once per join. See
 -- `ForestTest.START_ROLE_ATTRIBUTE` for why it is an attribute and not a file.
 local ServerStorage = game:GetService("ServerStorage")
@@ -49,6 +52,11 @@ local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
 -- no `stop`, no store and no setter -- so the drive cannot open a ProfileStore session, cannot write
 -- a balance and cannot see the library.
 local Economy = require(ServerScriptService:WaitForChild("Economy"))
+-- THE LOBBY (task 177). KAREN, 2026-10-13: *"I think after this fixes we need to focus on lobby /
+-- Hunting house where inside can shop things / outside is fields and forrest so house is in fields
+-- next to forrest"*. The sixth owner, wired here exactly as the boar runtime, the weapon, the bots,
+-- the hit record and the coins are: `Lobby` requires no owner and no owner requires it.
+local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
 local Data = ForestTest.Data
 
 print(
@@ -432,7 +440,60 @@ ForestTest.setBotThreats(Bots.threats)
 -- run can write a live DataStore key even with *Enable Studio Access to API Services* on.
 Economy.start()
 
+-- ---------------------------------------------------------------- the lobby (task 177)
+--
+-- THE LOBBY GOES FIRST, AND THE ORDER IS THE WHOLE SAFETY OF IT: the drive's enrolment switch
+-- depends on whether the lobby actually built itself, so this file ASKS and only then takes the
+-- drive's enrolment away. No lobby -- a world with no anchor row, the flag off, a seam missing, or
+-- ground that cannot be read -- means `Lobby.start` returns false, and `Match` is started with no
+-- `enrol` field at all, which is today's game: joining the server joins the drive.
+--
+-- THE FLAG IS TURNED ON HERE, THROUGH THE WORLD'S OWN CONFIG, the way this file already turns
+-- `BOAR_MODEL`, `CALM`, `PACE`, `MOVE` and `LINE` on -- not through a live `DHFlag_` attribute,
+-- which is not in git and is lost when somebody reopens the place. The cost is the same cost those
+-- five already carry and it is stated rather than discovered: in THIS world the lobby cannot be
+-- switched off with `tools/flags.py`, and the rollback is this one line.
+--
+-- EVERY SEAM IS INJECTED, so neither owner requires the other (design section 12.4):
+--   enrol/dismissAll  the drive's two doors. `Lobby` never writes a roster.
+--   inDrive/isHeld    the drive's two readers. `isHeld` is what stops the lobby respawning a man
+--                     out of Karen's results scene.
+--   place             `Match.Body.place` -- THE ONE WRITER of where a character stands, in this
+--                     world as in the DEV one. `Lobby` chooses the CFrame and writes nothing, which
+--                     is exactly what `world.placement` already does for the drive.
+--   groundAt          this world's own single ground reader, the same one `Markers.setReaders`, the
+--                     boar world and `Bots.start` are given. A third copy of "where is the ground"
+--                     would be two definitions of one fact.
+--   terrain           an argument, so no spec can write a place's terrain by accident.
+local lobbyOn = Lobby.start({
+	enabled = true,
+	world = Map.EXPECTED_WORLD,
+	enrol = Match.enrol,
+	dismissAll = Match.dismissAll,
+	inDrive = Match.isParticipant,
+	isHeld = Match.isHeld,
+	place = function(player, cframe)
+		Body.place(player, cframe, Match.CONFIG)
+	end,
+	groundAt = Data.groundAt,
+	terrain = Workspace.Terrain,
+	now = function()
+		return os.clock()
+	end,
+})
+print(
+	string.format(
+		"[lobby] %s",
+		if lobbyOn
+			then "on: the drive is entered from the marked circle beside the truck"
+			else "off: joining the server joins the drive, as before task 177"
+	)
+)
+
 Match.start({
+	-- WHETHER JOINING THE SERVER IS JOINING THE DRIVE (task 177). `false` only when the lobby really
+	-- built itself; `nil` otherwise, which `Match.start` reads as today's behaviour.
+	enrol = if lobbyOn then false else nil,
 	-- A PLAYER'S COINS (task 170): a read-only view. The drive calls it at exactly one moment -- the
 	-- `Scoring` edge, before its own effects -- and reads two tables when it builds a snapshot. It
 	-- owns no balance and no session.
@@ -866,7 +927,8 @@ RunService.Heartbeat:Connect(function()
 			print("[rest] " .. report)
 		end
 	end
-	for _, player in ipairs(Players:GetPlayers()) do
+	local players = Players:GetPlayers()
+	for _, player in ipairs(players) do
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		if root then
@@ -875,6 +937,11 @@ RunService.Heartbeat:Connect(function()
 			ForestTest.boundary(player.UserId, root :: BasePart, ForestTest.roleOfPlayer(player))
 		end
 	end
+	-- ...AND THE LOBBY'S PRESENCE SCAN (task 177), ONE MORE CALL IN THIS HEARTBEAT AND NOT A SECOND
+	-- CLOCK. This loop already walks every player's root every frame, and `Lobby.step` throttles
+	-- itself to `SCAN_HZ` inside the module -- so a second `RunService.Heartbeat` would be a second
+	-- answer to "what time is it" in the file whose own header above says ONE HEARTBEAT FOR BOTH JOBS.
+	Lobby.step(now, players)
 end)
 
 HitLog.start()
@@ -888,6 +955,10 @@ Match.PhaseChanged:Connect(function(_before, phase)
 	if phase == "Assigning" then
 		Economy.onDriveStart()
 	end
+	-- ...AND THE LOBBY RECORDS THE PHASE AND ACTS ON THE NEXT SCAN (task 177). It must not act HERE:
+	-- `Match` fires this signal at the end of `dispatch`, and a dispatch inside a dispatch would
+	-- apply effects out of order -- `Match:step`'s own rule.
+	Lobby.onPhase(phase)
 end)
 
 -- THE ONE `BindToClose` IN THE REPOSITORY: every open session is ended, which is what saves it.

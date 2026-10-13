@@ -697,4 +697,59 @@ return function()
 			)
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- task 177: the lobby's seam
+	--
+	-- WHAT IS ASSERTED HERE IS THE IDENTITY CLAIM, and it is the important one: a world that injects
+	-- no `enrol` -- which is `MatchBoot`, which is the DEV place, which is where the harness runs --
+	-- behaves exactly as it did before task 177. The enrol-FALSE branch belongs to the other place:
+	-- `lobby_live.spec` drives the lobby against fake doors, and the live `enrol = false` path is
+	-- evidenced in the Forest Test session itself, because this singleton cannot be restarted under a
+	-- running client suite (the first paragraph of this file says why).
+	describe("the drive's own doors (task 177)", function()
+		it("still enrols everybody who joins, because this world injects no switch", function()
+			local player = Players:GetPlayers()[1]
+			expect(player).to.be.ok()
+			-- He is a participant, which is the whole of "joining the server joins the drive".
+			expect(Match.isParticipant((player :: Player).UserId)).to.equal(true)
+			-- ...and the read half answers for somebody this owner has never seen.
+			expect(Match.isParticipant(-12345)).to.equal(false)
+		end)
+
+		it("is idempotent: enrolling a man who is already in the drive moves nobody", function()
+			local player = Players:GetPlayers()[1] :: Player
+			local before = Match.assignmentOf(player.UserId)
+			local tracked = Match.trackedPlayers()
+			-- `Phase.step`'s `join` branch re-assigns to the SMALLER team and re-places inside a live
+			-- drive, so a second enrol of a participant would move him mid-drive. The guard is what
+			-- makes the lobby's 10 Hz scan safe.
+			expect(Match.enrol(player)).to.equal(true)
+			expect(Match.assignmentOf(player.UserId)).to.equal(before)
+			expect(Match.trackedPlayers()).to.equal(tracked)
+		end)
+
+		it("refuses to enrol somebody it has never registered", function()
+			-- Not a `Player`: the door reads `UserId` and `Name`, and refuses rather than half-doing
+			-- it -- there would be no board row to put a team on and no character watch to hold.
+			local stranger = { UserId = -999, Name = "nobody" } :: any
+			expect(Match.enrol(stranger)).to.equal(false)
+			expect(Match.isParticipant(-999)).to.equal(false)
+		end)
+
+		it("refuses dismissAll in a world that enrols automatically, and empties nothing", function()
+			-- In such a world nothing would ever refill the roster and the drive would sit in
+			-- `Waiting` for ever. This IS the DEV place, so the refusal is what the harness must see.
+			local player = Players:GetPlayers()[1] :: Player
+			expect(Match.dismissAll()).to.equal(0)
+			expect(Match.isParticipant(player.UserId)).to.equal(true)
+			expect(Match.stats().dismissals).to.equal(0)
+		end)
+
+		it("counts the seam's three numbers", function()
+			local stats = Match.stats()
+			expect(type(stats.enrolments)).to.equal("number")
+			expect(type(stats.dismissals)).to.equal("number")
+			expect(type(stats.unassigned)).to.equal("number")
+		end)
+	end)
 end

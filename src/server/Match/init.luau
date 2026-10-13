@@ -632,6 +632,11 @@ type TeamName = Roster.TeamName
 
 local world: any = nil
 local started = false
+-- WHETHER JOINING THE SERVER IS JOINING THE DRIVE (task 177). True in every world that injects
+-- nothing, so the DEV place and every spec written before this task behave exactly as they did; a
+-- world with a lobby passes `enrol = false` and then decides for itself who is in the hunt.
+-- `Match.stop` puts it back, so a spec that started a lobby world cannot leave the next one gated.
+local autoEnrol = true
 local state = Phase.initial(config)
 local board = Score.new()
 local markerSet: any = nil
@@ -745,6 +750,14 @@ local stats = {
 	-- same job as placing them in a 400-stud arena. That difference is a number now instead of a
 	-- guess, and it is the number Karen would feel at 10:00.
 	firstReleaseAfterSeconds = -1,
+	-- THE LOBBY'S SEAM (task 177), as three numbers rather than a belief: how many players the lobby
+	-- put into the drive, how many times it emptied the roster at the end of one, and how many teams
+	-- were handed back to nil. A lobby session where `enrolments` stayed 0 is a lobby nobody could
+	-- leave, and one where `unassigned` stayed 0 is a player standing by the lodge still wearing an
+	-- orange vest.
+	enrolments = 0,
+	dismissals = 0,
+	unassigned = 0,
 }
 
 -- When this module loaded, which on a live server is server start: the only clock a "how long did
@@ -1056,6 +1069,38 @@ local function applyAssignTeams(assignment)
 			Body.setTeam(player, team, config)
 		end
 		board = Score.setTeam(board, userId, team)
+	end
+end
+
+-- A TEAM HANDED BACK, and it closes a hole that was invisible until the lobby existed (task 177,
+-- design section 4.4).
+--
+-- THE HOLE, WITH ITS EVIDENCE. `Body.setTeam` is the only writer of `Player.Team`, and its only
+-- caller was `applyAssignTeams`, which is only reached from an `assignTeams` effect.
+-- `Phase.enterWaiting` emits `clearScene`, `free`, a feed line and a `broadcast` -- no `assignTeams`
+-- -- so NOTHING in this repo ever set a team back to nil. Today that is invisible, because
+-- `MIN_PLAYERS` is 1 and every tracked player is a participant, so `enterWaiting` is unreachable in
+-- a session with anybody in it. With a lobby it is the normal end of every drive, and without this a
+-- player standing by the lodge would still be `Player.Team = Drivers`: he would keep the horn
+-- (`Horn.setCarryPolicy` reads `Body.teamOf`), keep the orange vest, wear a DRIVER badge and read
+-- *"waiting for the drive to start"* instead of the lobby's own line.
+--
+-- THROUGH `Body`, so `Body` stays the one writer of a team and of what a character wears:
+-- `setTeam(player, nil, config)` sets `Neutral` and re-dresses, and `Body.dress` with a nil team
+-- destroys the outfit folder and this module's own tagged accessories -- so the vest and the cap come
+-- off through the same door that put them on.
+--
+-- THE HORN AND THE GUN THEN GO ON THEIR OWN, with no new code in either system: `Weapon.Horn`'s
+-- carry sweep revokes a tool `Horn.carriesFor(on, nil)` says false for, and the gun's arming sweep
+-- does the same through `Match.mayCarryWeapon`, which returns false for a userId with no assignment.
+local function applyUnassign(userIds: { number }?)
+	for _, userId in ipairs(userIds or {}) do
+		local player = playersService():GetPlayerByUserId(userId)
+		if player then
+			Body.setTeam(player, nil, config)
+			stats.unassigned += 1
+		end
+		board = Score.setTeam(board, userId, nil)
 	end
 end
 
@@ -1397,6 +1442,8 @@ local function applyEffects(effects)
 		local kind = effect.kind
 		if kind == "assignTeams" then
 			applyAssignTeams(effect.assignment)
+		elseif kind == "unassign" then
+			applyUnassign(effect.userIds)
 		elseif kind == "placePlayers" then
 			applyPlace(effect.userIds)
 		elseif kind == "refreshArming" then
@@ -2587,7 +2634,75 @@ local function watchPlayer(player: Player)
 	names[player.UserId] = player.Name
 	board = Score.join(board, player.UserId, player.Name, state.assignment[player.UserId])
 	watchCharacter(player)
-	dispatch({ kind = "join", userId = player.UserId, name = player.Name })
+	if autoEnrol then
+		dispatch({ kind = "join", userId = player.UserId, name = player.Name })
+	else
+		-- REGISTERED, NOT A PARTICIPANT (task 177). A world with a lobby decides who is in the drive,
+		-- and joining the server is not joining the hunt: he is in `names`, he has a board row and
+		-- the character watch is on him, and `state.participants` has never heard of him -- so
+		-- `Phase.participantCount` does not see him and `enoughPlayers` is false.
+		--
+		-- ONE BROADCAST, because nothing else will send one: no event was dispatched, so the clients
+		-- would otherwise not learn that a player exists until the next heartbeat push.
+		--
+		-- THE `join` FEED LINE MOVES WITH THE ENROLMENT, and that is an improvement rather than a
+		-- loss: *"X joined"* is now printed when he steps into the circle beside the truck, which is
+		-- when he actually joined the hunt.
+		broadcast(false)
+	end
+end
+
+-- ---------------------------------------------------- the lobby's seam (task 177)
+--
+-- TWO DOORS AND ONE READER, and they are the whole of what the lobby may do to the drive. The shape
+-- is the one this owner already has five times over -- *the world provides; the owner decides*
+-- (`world.markers`, `world.placement`, `world.boars`, `world.bots`, `world.economy`): the lobby
+-- calls in, this module decides, and nothing under `src/server/Match/` knows a lobby exists.
+-- Design: docs/design/lobby.md section 4.2
+
+-- IS HE IN THE DRIVE'S ROSTER? The read half of the seam, beside `isTied` / `isHeld` / `assignmentOf`.
+function Match.isParticipant(userId: number): boolean
+	return state.participants[userId] ~= nil
+end
+
+-- ONE PLAYER, INTO THE DRIVE. Everything after the dispatch is today's code: `Waiting` ->
+-- `Assigning` once `MIN_PLAYERS` is met and the markers are complete.
+--
+-- IDEMPOTENT, AND THE GUARD IS NOT DEFENSIVE. `Phase.step`'s `join` branch re-assigns a player to the
+-- SMALLER TEAM and re-places him when the phase is `Assigning` or `Running`, so a second enrol of a
+-- man who is already in the drive would move him mid-drive. The lobby scans at 10 Hz.
+function Match.enrol(player: Player): boolean
+	local userId = player.UserId
+	if state.participants[userId] ~= nil then
+		return true
+	end
+	if names[userId] == nil then
+		-- NOT REGISTERED: this owner has never seen him, so there is no board row to put a team on
+		-- and no character watch to hang a hold off. Refused rather than half-done.
+		return false
+	end
+	stats.enrolments += 1
+	dispatch({ kind = "join", userId = userId, name = player.Name })
+	return state.participants[userId] ~= nil
+end
+
+-- THE ROSTER, EMPTIED, WITH NOTHING ANNOUNCED -- which is the whole difference from a `leave`: a
+-- player standing in the results scene has not left, he is simply not in the next drive.
+--
+-- REFUSED IN A WORLD THAT ENROLS AUTOMATICALLY, because there nothing would ever refill the roster
+-- and the drive would sit in `Waiting` for ever.
+function Match.dismissAll(): number
+	if autoEnrol then
+		warn("[match] dismissAll in a world that enrols automatically: refused")
+		return 0
+	end
+	local count = Phase.participantCount(state)
+	if count == 0 then
+		return 0
+	end
+	stats.dismissals += 1
+	dispatch({ kind = "dismiss" })
+	return count
 end
 
 -- After this, NO table in this system is keyed by that player.
@@ -2622,6 +2737,9 @@ function Match.start(injected)
 	-- `Phase.initial` seeds `seed` from the config, so merging after it would seed the state from the
 	-- wrong table. With no `config` field this is `Match.CONFIG` itself, by identity.
 	config = Match.mergeConfig(Match.CONFIG, world.config)
+	-- `~= false` IS THE IDIOM THIS FUNCTION ALREADY USES for `world.remotes` and `world.heartbeat`:
+	-- a world that injects nothing is unchanged (task 177).
+	autoEnrol = world.enrol ~= false
 	state = Phase.initial(config)
 	board = Score.new()
 	table.clear(names)
@@ -2698,6 +2816,9 @@ function Match.stop()
 	-- ...AND THE WORLD'S NUMBERS GO WITH THE WORLD. A spec that started a 300-second drive must not
 	-- leave the next require of this singleton reading 300.
 	config = Match.CONFIG
+	-- ...AND NOR DOES ITS ENROLMENT SWITCH (task 177): a spec that started a lobby world must not
+	-- leave the next require of this singleton refusing to enrol anybody who joins.
+	autoEnrol = true
 	if heartbeat then
 		heartbeat:Disconnect()
 		heartbeat = nil

@@ -131,6 +131,14 @@ local worldBearingLabel: string? = nil
 -- Has this player reached the place the objective sends them? Latched, so the chevron cannot
 -- flicker: `Objective.arrived` holds the hysteresis and this is the state it is applied to.
 local arrivedAtTarget = false
+-- THE LOBBY'S DATA MODULE (task 177), reached through the door this file already uses for a
+-- world-specific module (`Hud.whenReady`, the same call that waits for `ForestTest`). nil in a world
+-- that has no such module, and then every lobby branch of `Objective` is simply never taken.
+--
+-- IT IS THE PRESENCE OF THE **PART** AND NOT OF THE MODULE that says a world has a lobby: the module
+-- replicates to every client in every place, and `Lobby.spotPosition()` answers nil until the server
+-- has actually built one. So the Hud learns nothing about worlds and reads no flag.
+local lobbyData: any = nil
 local scoreTitle: TextLabel? = nil
 local scoreLines: { TextLabel } = {}
 local scoreFooter: TextLabel? = nil
@@ -1981,7 +1989,19 @@ function Hud.renderObjective(CameraSystem)
 		then matchSystem.myTeam()
 		else (if Players.LocalPlayer.Team then Players.LocalPlayer.Team.Name else nil)
 	local me = Hud.localPosition()
-	local target = Objective.targetFor(team, phase, MapUi.geometry(), me)
+	-- WHAT THE LOBBY IS DOING RIGHT NOW (task 177): where the truck spot is, and how long until this
+	-- player leaves for the hunt. One table per frame, built from the one definition of each -- the
+	-- PART the server built, and the deadline the server wrote on this player.
+	local lobby = if lobbyData
+		then {
+			spot = lobbyData.spotPosition(),
+			secondsLeft = lobbyData.secondsLeft(
+				Players.LocalPlayer:GetAttribute(lobbyData.LEAVE_AT_ATTRIBUTE),
+				Workspace:GetServerTimeNow()
+			),
+		}
+		else nil
+	local target = Objective.targetFor(team, phase, MapUi.geometry(), me, lobby)
 	local far = Objective.distanceStuds(target, me)
 	arrivedAtTarget = Objective.arrived(far, arrivedAtTarget)
 	if arrivedAtTarget then
@@ -2014,13 +2034,13 @@ function Hud.renderObjective(CameraSystem)
 		}
 		else nil
 	Objective.render({
-		text = Objective.text(phase, team, drive),
+		text = Objective.text(phase, team, drive, lobby),
 		target = target,
 		distanceStuds = far,
 		view = view,
 		fovDeg = fov,
 		viewport = viewport,
-		lineVisible = Objective.lineVisible(phase, team, reportOpen, mapOpen, scoped, cardUp),
+		lineVisible = Objective.lineVisible(phase, team, reportOpen, mapOpen, scoped, cardUp, lobby),
 		markVisible = Objective.markVisible(target, reportOpen, mapOpen, scoped, view ~= nil),
 	})
 	-- THE MAP GETS THE POINT, FLAT: it draws in x/z and has no use for the height.
@@ -2294,6 +2314,14 @@ function Hud.start()
 			player:GetPropertyChangedSignal("Team"):Connect(apply)
 		end)
 	end
+
+	-- THE LOBBY (task 177), through the same `whenReady` door as `ForestTest` above and for the same
+	-- reason: it is a world-specific module that may not have replicated yet, and the Hud is designed
+	-- to work without it. It is read and never written -- the only thing the Hud asks it is where the
+	-- truck spot is and how long this player has left.
+	Hud.whenReady(ReplicatedStorage, "Lobby", function(module)
+		lobbyData = require(module)
+	end)
 
 	-- TASK 165: THE OBJECTIVE AND THE RAIL, started after the map because the per-frame pass below
 	-- hands the map its target and the rail is laid out under the minimap.
