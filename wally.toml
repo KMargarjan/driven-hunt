@@ -4,5 +4,10 @@ version = "0.1.0"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 
+[server-dependencies]
+# ProfileStore 1.0.3 (lm-loleris/profilestore, Apache-2.0): periodic DataStore saving with
+# session locking. Task 170. Note: docs/research/2026-10-13-coins-persistence.md
+ProfileStore = "lm-loleris/profilestore@1.0.3"
+
 [dev-dependencies]
 TestEZ = "roblox/testez@0.4.1"

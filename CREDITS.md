@@ -130,6 +130,45 @@ What was changed, and nothing else was:
   so the animal is 5.5 studs long — the length of the physics box it is welded to.
 - No vertex was added, moved relative to its neighbours, or removed, and no animation was edited.
 
+## Code and libraries
+
+### ProfileStore 1.0.3 — MadStudioRoblox (Apache-2.0)
+
+The save layer behind a player's coins since task 170 (2026-10-13): it loads a profile once per
+server, keeps a local copy, auto-saves it, and holds a **session lock** so two servers cannot write
+one player's data. Nothing of ours is written around it — no retry loop, no backoff, no
+`UpdateAsync`, no auto-save of our own.
+
+> ["ProfileStore"](https://github.com/MadStudioRoblox/ProfileStore) by
+> [MadStudioRoblox](https://github.com/MadStudioRoblox), licensed under
+> [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0). Its own description: *"Periodic
+> DataStore saving solution with session locking"*.
+
+- **How it arrives:** Wally, pinned exactly — `lm-loleris/profilestore@1.0.3` under
+  `[server-dependencies]` in `wally.toml`, resolved into the git-ignored `ServerPackages/` and
+  pinned to the commit by `serverpackages.sha256`. Not vendored, not copied, not edited.
+- **Where it is in the place:** `ServerStorage.ServerPackages.ProfileStore`, required by exactly one
+  function in the repository — `Economy.Store.live` — lazily, and never in Studio.
+- **What is NOT modified:** nothing. No fork, no patch, no `ProfileStore.SetConstant`: the auto-save
+  period and the session-steal timings are the author's tested defaults.
+- **The licence obligation, stated plainly:** Apache-2.0 section 4(a) asks that a copy of the licence
+  travel with a distribution. The package's own project file syncs only `ProfileStore.luau`, so the
+  published place carries the code and not the notice. This entry is the attribution; shipping the
+  licence text with the place is a before-release item, filed with the publish step that already has
+  to strip the test code (`TASKS.md` row 2).
+
+Note: `docs/research/2026-10-13-coins-persistence.md`. Design: `docs/design/economy.md`.
+
+### TestEZ 0.4.1 — Roblox (Apache-2.0)
+
+The test framework every spec in `tests/` is written against, and the thing that counts the passes
+in every harness report. A **dev** dependency: `roblox/testez@0.4.1` under `[dev-dependencies]`,
+resolved into the git-ignored `DevPackages/` and pinned to the commit by `devpackages.sha256`.
+Upstream is archived; the version is pinned exactly for that reason.
+
+> ["TestEZ"](https://github.com/Roblox/testez) by [Roblox](https://github.com/Roblox), licensed under
+> [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0).
+
 ## Everything else
 
 The rest of the art in this game is Karen's own — generated in her own paid Meshy account or built

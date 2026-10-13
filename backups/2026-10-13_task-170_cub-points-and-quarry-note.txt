@@ -1,0 +1,44 @@
+Archived 2026-10-13, task 170 (rule 7: never delete).
+
+WHAT THIS IS
+Two lines of `Match.CONFIG` in `src/server/Match/init.luau` as they stood before task 170: what a
+cub was worth, and the sentence the start card printed about the cub rule.
+
+WHY IT CHANGED
+Karen, 2026-10-12: shooting a piglet is a penalty.
+
+Task 160 set `POINTS.KIND.cub = 2` and left a written promise beside it, verbatim:
+
+    -- SMALL, AND NEVER ZERO, because today's rule is `QUARRY_NOTE` two screens up: *"every
+    -- one of them counts - no cub rule yet"*. The day Karen protects cubs (her doc says
+    -- *"NOT piglets/cubs"*) this row goes to 0 or negative and that sentence changes in the
+    -- same commit -- which is exactly what that comment promises.
+
+That day came, and this is that commit: the row went negative and the sentence changed with it.
+
+`-10` and not `0`: one whole male, the same figure `POINTS.SAFETY_PENALTY` already uses for the
+other thing you must not shoot. A cub was `+2`, so this is a 12-point swing -- which is what makes
+shooting one a MISTAKE rather than a smaller prize. At `Economy.CONFIG.COINS_PER_POINT = 2` it costs
+him 20 coins as well.
+
+WHAT IS STILL NOT IN THE CODE
+The shot is not REFUSED. Karen's doc says *"NOT piglets/cubs"*, which could instead mean the weapon
+should not fire at one at all. That is a weapon-side rule with its own owner and its own task
+(TASKS.md row 158a); the price is this one.
+
+THE OLD VALUES, VERBATIM
+----------------------------------------------------------------------
+	QUARRY_NOTE = "every one of them counts - no cub rule yet",
+----------------------------------------------------------------------
+			cub = 2, -- K
+----------------------------------------------------------------------
+
+THE ROLLBACK
+Two lines, and nothing else moves:
+  1. `src/server/Match/init.luau`, `Match.CONFIG.POINTS.KIND.cub`: `-10` -> `2`.
+  2. `src/server/Match/init.luau`, `Match.CONFIG.QUARRY_NOTE`: back to the sentence above.
+Then `tests/server/match_score.spec.luau` fails on both (it asserts the penalty and the note), which
+is the point: the two are one decision and a spec holds them together.
+
+Nothing in `src/server/Economy/` has to change for the rollback. Coins are `points *
+COINS_PER_POINT`, so a cub simply pays `+4` again instead of costing `-20`.

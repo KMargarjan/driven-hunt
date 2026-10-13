@@ -262,6 +262,38 @@ Flags.DEFAULTS = {
 			.. "standing on the stands. OFF is exactly the game before task 161: nobody is built, the "
 			.. "Forest Test's phantom beaters push as they do today, and only real beaters can end a drive.",
 	} :: FlagRow,
+	COINS = {
+		-- BORN OFF on 2026-10-13 (task 170). Karen, 2026-10-11: *"Scoring - yes get money when shoot
+		-- boar not much but get money and first place ofc more legendary more ect"*. ON, every real
+		-- player earns coins at the end of a drive out of the points he already scored, the balance
+		-- is loaded and saved through ProfileStore, and the results table is two rankings -- hunters
+		-- and beaters -- with a coins column.
+		--
+		-- IT IS BORN OFF FOR A REASON NO OTHER FLAG IN THIS TABLE HAS: this is the FIRST thing in the
+		-- project that can write to a player's permanent record. With the row at `false` a live
+		-- server opens no ProfileStore session and writes no DataStore key at all, so this flag is
+		-- also the kill switch and the rollback. The three rates (`COINS_PER_POINT`, `PARTICIPATION`,
+		-- `FIRST_PLACE`) are feel numbers and are Karen's after one drive, which is the ordinary
+		-- reason as well.
+		default = false,
+		-- The owner is the module that READS it at its boundary (`Economy.CONFIG.ENABLED`) and passes
+		-- it inward through `Economy.start`'s `world.enabled` -- the only permitted shape, and what
+		-- keeps both branches reachable by parameter while the flag sits at one of them. `Match`
+		-- never reads this flag: it is handed a view whose `payDrive` is a no-op when it is off.
+		owner = "ServerScriptService.Economy",
+		born = "2026-10-13 task 170",
+		expires = "2026-11-03", -- 21 days: the ceiling in feature-flags.md section 12
+		-- WHAT OFF REALLY LEAVES, corrected in round 2 of the gate. The old sentence claimed *"the
+		-- score panel is task 159's one-table board"*, and that was never true: the SPLIT into hunters
+		-- and beaters is Karen's own decision (2026-10-12) and is not about money, so it is there in
+		-- both states and only the coins column reads `--`. What the flag really switches is the MONEY.
+		why = "A drive pays coins off the points it already scored, and the balance survives the "
+			.. "session through ProfileStore. OFF switches the MONEY off and nothing else: no session is "
+			.. "opened, no DataStore key is written, no coin is awarded, the snapshot carries no `coinsOn` "
+			.. "and its rows carry neither `coins` nor `earned`, and the drive bar is byte-identical to "
+			.. "before task 170. The results table still shows the two rankings Karen asked for, with its "
+			.. "coins column reading `--` because there is no money in the build.",
+	} :: FlagRow,
 }
 
 -- deepFreeze, REQUIRED and not copied: table.freeze is shallow, and this repo has already paid for

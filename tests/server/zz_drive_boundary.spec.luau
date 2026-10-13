@@ -25,6 +25,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
+-- A PLAYER'S COINS (task 170), read here for one claim: the drive paid, on this edge, exactly once.
+local Economy = require(ServerScriptService:WaitForChild("Economy"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
@@ -292,6 +294,8 @@ return function()
 			expect(Match.phase()).to.equal("Running")
 			before = Match.snapshot()
 			local tiedBefore = #before.tied
+			-- BEFORE the clock moves, so "it rose by exactly one" is a measurement and not a guess.
+			local paidBefore = Economy.stats().drivesPaid
 			TestKit.note(
 				string.format(
 					"zz_drive_boundary: drive %d had %d row(s), %d tied, %d point-unit(s), %d rope(s)",
@@ -322,6 +326,41 @@ return function()
 			-- The score screen still shows what the drive did: Scoring is where the board is READ.
 			expect(Match.snapshot().driveNumber).to.equal(before.driveNumber)
 			expect(#Match.snapshot().rows).to.equal(#before.rows)
+
+			-- ...AND THE DRIVE PAID, ON THIS EDGE, EXACTLY ONCE (task 170). This is the only place in the
+			-- suite where the pay-out is driven by the REAL production path -- `Match`'s own dispatch, on
+			-- the `Scoring` edge, with whatever `Economy` the composition root wired. `economy.spec` owns
+			-- the arithmetic; what this owns is "it happened, here, and not twice".
+			--
+			-- IT IS CONDITIONAL ON THE FLAG, and the condition is read rather than assumed: `COINS` is
+			-- born OFF (task 170), so on a default build the honest assertion is that NOTHING was paid
+			-- and no row carries a coin -- which is "off is the game before this task" measured at the
+			-- one boundary that could break it.
+			local paidAfter = Economy.stats().drivesPaid
+			if Economy.isEnabled() then
+				expect(paidAfter).to.equal(paidBefore + 1)
+				expect(Economy.stats().duplicatePayouts).to.equal(0)
+				expect(Economy.lastPaidDrive()).to.equal(before.driveNumber)
+				-- THE FORCED SNAPSHOT OF THE RESULTS SCENE ALREADY CARRIES IT, which is why the pay-out
+				-- is on the edge BEFORE `applyEffects` (TASKS.md 32a(c) in a new place): a pay-out after
+				-- the effects would leave Karen reading `--` for up to STATE_HEARTBEAT seconds.
+				local sent = Match.lastSent()
+				expect(sent).to.be.ok()
+				for _, scoreRow in ipairs(sent.rows) do
+					expect(type(scoreRow.earned)).to.equal("number")
+					expect(type(scoreRow.coins)).to.equal("number")
+				end
+				TestKit.note(
+					string.format("zz_drive_boundary: drive %d paid %d row(s)", before.driveNumber, #sent.rows)
+				)
+			else
+				expect(paidAfter).to.equal(0)
+				for _, scoreRow in ipairs(Match.snapshot().rows) do
+					expect(scoreRow.earned).to.equal(nil)
+					expect(scoreRow.coins).to.equal(nil)
+				end
+				TestKit.note("zz_drive_boundary: COINS is off, so the boundary paid nothing and no row carries one")
+			end
 		end)
 
 		it("built the results scene: four lamps, this drive's animals, everybody held round them", function()

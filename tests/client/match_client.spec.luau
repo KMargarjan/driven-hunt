@@ -69,8 +69,24 @@ return function()
 				"TIE_SECONDS",
 				"DRIVE_SECONDS",
 				"POINTS",
+				-- ...AND NO COIN RATE EITHER (task 170). `Economy.CONFIG` is server-only for the same
+				-- reason `POINTS` is: the SCREEN is told two results (`row.coins`, `row.earned`) and
+				-- never the arithmetic that produced them.
+				"COINS_PER_POINT",
+				"PARTICIPATION",
+				"FIRST_PLACE",
+				"FLOOR",
+				"STORE_NAME",
 			}) do
 				expect((Drive.CONFIG :: any)[field]).to.equal(nil)
+			end
+			-- BY PATTERN AS WELL AS BY NAME, so a rate added later under a name nobody listed here
+			-- still fails: nothing in the client's contract may be called COIN-anything except the
+			-- words the panel draws (`SCORE_COINS_LABEL`, `SCORE_COINS_UNKNOWN`), which are strings.
+			for key, value in pairs(Drive.CONFIG) do
+				if string.find(key, "COIN", 1, true) ~= nil then
+					expect(type(value)).to.equal("string")
+				end
 			end
 		end)
 	end)
@@ -176,7 +192,7 @@ return function()
 			boarsReleased = 2,
 			boarsLeft = 4,
 			waitingFor = {},
-			quarry = { "WILD BOAR: male, female, cub", "every one of them counts - no cub rule yet" },
+			quarry = { "WILD BOAR: male, female, cub", "a piglet COSTS you - leave them" },
 			rows = {},
 			tied = {},
 		}
@@ -184,6 +200,9 @@ return function()
 		local function scoring()
 			local snapshot = table.clone(LIVE)
 			snapshot.phase = "Scoring"
+			-- THIS FIXTURE IS A BUILD WITH MONEY IN IT (round 2 of the gate): `coinsOn` is the one fact on
+			-- the snapshot that says so, and without it the Hud draws no balance at all.
+			snapshot.coinsOn = true
 			snapshot.rows = {
 				{
 					userId = player.UserId,
@@ -199,6 +218,11 @@ return function()
 					pushes = 0,
 					violations = 0,
 					left = false,
+					-- WHAT THE ECONOMY PUT ON THE WIRE (task 170): the balance after this drive, and what
+					-- this drive paid him. 16 points x 2 + 10 participation + 25 for first place in his own
+					-- ranking = 67, on a balance that was 1173 before it.
+					coins = 1240,
+					earned = 67,
 				},
 				{
 					userId = player.UserId + 1,
@@ -210,6 +234,9 @@ return function()
 					pushes = 1,
 					violations = 0,
 					left = false,
+					-- 3 x 2 + 10 + 25 (she is first of the BEATERS, which is her own ranking) = 41.
+					coins = 141,
+					earned = 41,
 				},
 			}
 			return Drive.deepFreeze(snapshot)
@@ -334,19 +361,38 @@ return function()
 			Hud.renderScore(scoring(), 12)
 			local rows = Hud.scoreRowText()
 			print("[match_client] score row 1: " .. (rows[1] or "<none>"))
-			expect(#rows).to.equal(2)
-			expect(string.find(rows[1], player.Name, 1, true) ~= nil).to.equal(true)
-			expect(string.find(rows[1], "16", 1, true) ~= nil).to.equal(true)
-			expect(string.find(rows[1], "SHOOTER", 1, true) ~= nil).to.equal(true)
-			expect(string.find(rows[2], "Mila", 1, true) ~= nil).to.equal(true)
-			expect(string.find(rows[2], "DRIVER", 1, true) ~= nil).to.equal(true)
-			expect(string.find(rows[1], "nil", 1, true) == nil).to.equal(true)
+			-- FOUR LINES SINCE TASK 170: a heading over each ranking, and one row under each.
+			expect(#rows).to.equal(4)
+			expect(rows[1]).to.equal(Drive.CONFIG.SCORE_HUNTERS_HEADING)
+			expect(rows[3]).to.equal(Drive.CONFIG.SCORE_BEATERS_HEADING)
+			expect(string.find(rows[2], player.Name, 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[2], "16", 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[4], "Mila", 1, true) ~= nil).to.equal(true)
+			-- THE TEAM COLUMN IS GONE AND THE HEADING CARRIES THE SIDE (task 170): a `-- HUNTERS --`
+			-- heading with SHOOTER on every row under it printed one fact twice, and the width it freed
+			-- is the coins column. Asserted as GONE, not merely absent from a name check.
+			expect(string.find(rows[2], "SHOOTER", 1, true)).to.equal(nil)
+			expect(string.find(rows[4], "DRIVER", 1, true)).to.equal(nil)
+			expect(string.find(rows[2], "nil", 1, true) == nil).to.equal(true)
+			-- WHAT THE DRIVE PAID, with its sign, which is the "+N coins" the task asked for.
+			expect(string.find(rows[2], "+67", 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[4], "+41", 1, true) ~= nil).to.equal(true)
+			-- EVERY ROW FITS THE PANEL. The glyph width is an estimate and the screenshot settles the
+			-- pixels; what a spec can hold is the CHARACTER COUNT, which is what the layout was built
+			-- against: 48 at the worst case (41 + badge + leaver's star) inside 56 (448 px / 8).
+			for _, line in ipairs(rows) do
+				expect(#line <= 56).to.equal(true)
+			end
 
 			local panel = Hud.scorePanel()
-			local mine = panel:FindFirstChild("Row1")
-			local theirs = panel:FindFirstChild("Row2")
+			-- Row1 is the HUNTERS heading, Row2 is my row, Row3 the BEATERS heading, Row4 hers.
+			local mine = panel:FindFirstChild("Row2")
+			local theirs = panel:FindFirstChild("Row4")
 			expect(mine.TextColor3).to.equal(Drive.CONFIG.SCORE_HIGHLIGHT_COLOR)
 			expect(theirs.TextColor3).to.equal(Drive.CONFIG.TEXT_COLOR)
+			-- A HEADING RECEDES, exactly as the column header does.
+			expect(panel:FindFirstChild("Row1").TextTransparency).to.equal(Drive.CONFIG.SCORE_HEADER_TRANSPARENCY)
+			expect(mine.TextTransparency).to.equal(0)
 
 			expect(string.find(Hud.scoreTitleText(), "DRIVE 3", 1, true) ~= nil).to.equal(true)
 			-- THE RESULTS TABLE (task 159). Karen: *"showing image transperent with results table"* --
@@ -360,10 +406,14 @@ return function()
 			expect(Hud.scoreFooterText()).to.equal("NEXT DRIVE IN 12")
 		end)
 
-		-- THE FIRST-PLACE BADGE (task 160). Karen, 2026-10-11: *"first place ofc more"*. The rule
-		-- itself is `Hud.firstPlaceRank` and is pure, so every case below is a table rather than a
-		-- rendered frame -- and the two cases that matter are the ones where the badge must NOT
+		-- THE FIRST-PLACE BADGE (task 160, and since task 170 the rule lives in `Drive.Rank`). Karen,
+		-- 2026-10-11: *"first place ofc more"*. The rule is pure, so every case below is a table rather
+		-- than a rendered frame -- and the two cases that matter are the ones where the badge must NOT
 		-- appear, because a wrong badge names a winner who did not win.
+		--
+		-- IT IS ASSERTED THROUGH `Drive.Rank` ON PURPOSE (task 170): the SERVER pays the bonus off this
+		-- same function (`Economy.Coins.forDrive`), so a badge and a bonus cannot land on different
+		-- rows. `Hud.firstPlaceRank` is gone, and the last case here says so.
 		it("marks the leader 1st, and marks nobody when the top two are level", function()
 			local function board(first: number, second: number?)
 				local rows = { { userId = 1, name = "one", team = "Shooters", points = first, kills = 1 } }
@@ -372,45 +422,240 @@ return function()
 				end
 				return rows
 			end
-			expect(Hud.firstPlaceRank(board(16, 3))).to.equal(1)
-			expect(Hud.firstPlaceRank(board(16))).to.equal(1) -- alone, but he shot something
+			local Rank = Drive.Rank
+			expect(Rank.firstPlaceRank(board(16, 3))).to.equal(1)
+			expect(Rank.firstPlaceRank(board(16))).to.equal(1) -- alone, but he shot something
 			-- A TIE AT THE TOP IS NOT A FIRST PLACE, it is a tie: ioquake3's `RANK_TIED_FLAG`
 			-- (docs/research/2026-10-12-scoring.md section 2.1).
-			expect(Hud.firstPlaceRank(board(16, 16))).to.equal(nil)
+			expect(Rank.firstPlaceRank(board(16, 16))).to.equal(nil)
 			-- NOBODY HAS SCORED YET, which is every board for the first minute of every drive. The
 			-- order there is `Score.leaderboard`'s last tiebreak -- userId -- so a badge would crown
 			-- whoever joined the server first.
-			expect(Hud.firstPlaceRank(board(0, 0))).to.equal(nil)
-			expect(Hud.firstPlaceRank(board(0))).to.equal(nil)
-			expect(Hud.firstPlaceRank({})).to.equal(nil)
-			expect(Hud.firstPlaceRank(nil)).to.equal(nil)
+			expect(Rank.firstPlaceRank(board(0, 0))).to.equal(nil)
+			expect(Rank.firstPlaceRank(board(0))).to.equal(nil)
+			expect(Rank.firstPlaceRank({})).to.equal(nil)
+			expect(Rank.firstPlaceRank(nil)).to.equal(nil)
 			-- ...and a board everybody is penalised on still has a leader: -10 beats -20.
-			expect(Hud.firstPlaceRank(board(-10, -20))).to.equal(1)
+			expect(Rank.firstPlaceRank(board(-10, -20))).to.equal(1)
 			-- AND SO DOES A LEADER ON 0 OVER A SECOND ON -10 (round 1, note 2). The zero test used
 			-- to be asked of the leader's own points, so these two boards -- a man clear at the top
 			-- of each -- disagreed with each other. It is now asked only of the row with nobody
 			-- behind it, which is the board it was always for: the one where nothing has happened.
-			expect(Hud.firstPlaceRank(board(0, -10))).to.equal(1)
+			expect(Rank.firstPlaceRank(board(0, -10))).to.equal(1)
+			-- THE OLD NAME IS GONE, not kept as an alias: an alias is two names for one rule, which is
+			-- the thing task 170 removed (backups/2026-10-13_task-170_hud-firstplacerank.txt).
+			expect((Hud :: any).firstPlaceRank).to.equal(nil)
+		end)
+
+		-- TWO RANKINGS, TWO FIRST PLACES (task 170). Karen, 2026-10-12: separate rankings for hunters
+		-- and beaters. `Hud.scorePanelLines` is pure, so the whole body of the panel is a table here.
+		it("splits the board into hunters and beaters, each with its own 1st", function()
+			local rows = {
+				{ userId = 1, name = "h-top", team = "Shooters", points = 20, kills = 2, earned = 75 },
+				{ userId = 2, name = "b-top", team = "Drivers", points = 9, kills = 0, earned = 53 },
+				{ userId = 3, name = "h-two", team = "Shooters", points = 6, kills = 1, earned = 22 },
+				{ userId = 4, name = "b-two", team = "Drivers", points = 3, kills = 0, earned = 16 },
+			}
+			local lines = Hud.scorePanelLines({ rows = rows }, 3)
+			expect(#lines).to.equal(6)
+			expect(lines[1].text).to.equal(Drive.CONFIG.SCORE_HUNTERS_HEADING)
+			expect(lines[1].heading).to.equal(true)
+			expect(lines[4].text).to.equal(Drive.CONFIG.SCORE_BEATERS_HEADING)
+			-- THE RANK RESTARTS AT 1 INSIDE EACH RANKING, which is what "two first places" means.
+			expect(string.sub(lines[2].text, 1, 1)).to.equal("1")
+			expect(string.sub(lines[3].text, 1, 1)).to.equal("2")
+			expect(string.sub(lines[5].text, 1, 1)).to.equal("1")
+			expect(string.sub(lines[6].text, 1, 1)).to.equal("2")
+			-- A BADGE ON THE TOP OF EACH, and on nobody else -- so the beater on 9 wears one even though
+			-- three hunters-and-beaters scored more than him on the single board this replaced.
+			local badge = Drive.CONFIG.SCORE_FIRST_BADGE
+			expect(string.find(lines[2].text, badge, 1, true) ~= nil).to.equal(true)
+			expect(string.find(lines[5].text, badge, 1, true) ~= nil).to.equal(true)
+			expect(string.find(lines[3].text, badge, 1, true)).to.equal(nil)
+			expect(string.find(lines[6].text, badge, 1, true)).to.equal(nil)
+			-- MY ROW IS MINE, whichever ranking it is in.
+			expect(lines[3].mine).to.equal(true)
+			expect(lines[2].mine).to.equal(false)
+			TestKit.note("match_client: two rankings -- " .. lines[2].text .. " | " .. lines[5].text)
+		end)
+
+		it("gives a ranking with a tie at the top no 1st at all, and leaves the other one alone", function()
+			local rows = {
+				{ userId = 1, name = "h-one", team = "Shooters", points = 12, kills = 1, earned = 34 },
+				{ userId = 2, name = "h-two", team = "Shooters", points = 12, kills = 1, earned = 34 },
+				{ userId = 3, name = "b-one", team = "Drivers", points = 6, kills = 0, earned = 47 },
+			}
+			local lines = Hud.scorePanelLines({ rows = rows }, nil)
+			local badge = Drive.CONFIG.SCORE_FIRST_BADGE
+			expect(string.find(lines[2].text, badge, 1, true)).to.equal(nil)
+			expect(string.find(lines[3].text, badge, 1, true)).to.equal(nil)
+			-- The beaters are alone and one of them has scored, so he IS first of his ranking.
+			expect(string.find(lines[5].text, badge, 1, true) ~= nil).to.equal(true)
+		end)
+
+		-- A HEADING IS DRAWN ONLY WHEN THERE IS A ROW UNDER IT, which is `Match.quarryLines`' own rule
+		-- for its POINTS label. A player who joined outside `Assigning`/`Running` has no team yet, and
+		-- that is a real state: he goes under OTHERS, and OTHERS has no first place because it is not a
+		-- ranking.
+		it("names only the rankings that have somebody in them, and never ranks OTHERS", function()
+			expect(#Hud.scorePanelLines({ rows = {} }, nil)).to.equal(0)
+			expect(#Hud.scorePanelLines(nil, nil)).to.equal(0)
+			local beatersOnly = Hud.scorePanelLines({
+				rows = { { userId = 1, name = "b", team = "Drivers", points = 3, kills = 0, earned = 16 } },
+			}, nil)
+			expect(#beatersOnly).to.equal(2)
+			expect(beatersOnly[1].text).to.equal(Drive.CONFIG.SCORE_BEATERS_HEADING)
+			local noTeam = Hud.scorePanelLines({
+				rows = { { userId = 1, name = "x", points = 12, kills = 1, earned = 34 } },
+			}, nil)
+			expect(#noTeam).to.equal(2)
+			expect(noTeam[1].text).to.equal(Drive.CONFIG.SCORE_OTHERS_HEADING)
+			expect(string.find(noTeam[2].text, Drive.CONFIG.SCORE_FIRST_BADGE, 1, true)).to.equal(nil)
+		end)
+
+		-- EVERY LINE FITS, AND NO HEADING IS EVER DROPPED (task 170). Three headings plus
+		-- `MAX_PLAYERS` rows is 19, and `SCORE_ROWS_MAX` is 20 -- but the budget has to hold even when
+		-- the wire sends more rows than it should, and the thing that must survive the cut is the
+		-- heading: a list cut short still reads, a list whose heading went tells the reader the wrong
+		-- ranking.
+		it("truncates by dropping trailing rows and never a heading", function()
+			local rows = {}
+			for userId = 1, 40 do
+				table.insert(rows, {
+					userId = userId,
+					name = "p" .. userId,
+					team = if userId % 2 == 0 then "Drivers" else "Shooters",
+					points = 40 - userId,
+					kills = 0,
+					earned = 10,
+				})
+			end
+			local lines = Hud.scorePanelLines({ rows = rows }, nil)
+			expect(#lines).to.equal(Drive.CONFIG.SCORE_ROWS_MAX)
+			expect(lines[1].text).to.equal(Drive.CONFIG.SCORE_HUNTERS_HEADING)
+			-- ...and the panel really has that many slots to put them in.
+			expect(#Hud.scoreRowText() <= Drive.CONFIG.SCORE_ROWS_MAX).to.equal(true)
+		end)
+
+		-- THE BALANCE, ON THE BAR, IN EVERY PHASE (task 170). Karen, 2026-10-11: *"get money"*.
+		it("puts the local player's balance on the drive bar, and `--` when it is unknown", function()
+			local label = Drive.CONFIG.SCORE_COINS_LABEL
+			expect(Hud.coinsText(scoring(), player.UserId)).to.equal(label .. " 1240")
+			-- SOMEBODY ELSE'S ROW IS NOT MINE.
+			expect(Hud.coinsText(scoring(), player.UserId + 1)).to.equal(label .. " 141")
+			-- A ROW WITH NO BALANCE IN A BUILD THAT HAS MONEY READS `--`, NEVER `0`: his profile did not
+			-- open, and 0 would be the screen asserting he has no coins.
+			local unknown = {
+				coinsOn = true,
+				rows = { { userId = 7, name = "x", team = "Shooters", points = 0, kills = 0 } },
+			}
+			expect(Hud.coinsText(unknown, 7)).to.equal(label .. " " .. Drive.CONFIG.SCORE_COINS_UNKNOWN)
+			-- ...and a row that is not his draws nothing even then.
+			expect(Hud.coinsText(unknown, 9)).to.equal("")
+			expect(Hud.coinsText({ coinsOn = true, rows = {} }, 7)).to.equal("")
+			expect(Hud.coinsText(nil, 7)).to.equal("")
+			expect(Hud.coinsText(scoring(), nil)).to.equal("")
+		end)
+
+		-- THE FLAG-OFF STATE, WHICH ROUND 1 OF THE GATE FOUND WAS NOT THE GAME BEFORE TASK 170 AT ALL.
+		-- The claim was that `Hud.coinsText` answered `""` with the flag off because the player "has no
+		-- row"; he always has one (`Match.snapshot` builds one per `Score.leaderboard` entry), so every
+		-- bar in the game gained a dead `COINS --`. These two cases FAIL on that code.
+		--
+		-- THE TWO ABSENCES ARE DIFFERENT QUESTIONS and the rows cannot tell them apart -- `coins` is
+		-- missing both when there is no money and when a profile did not open -- so the answer rides on
+		-- the snapshot as `coinsOn`, from the server, and this side reads no flag of its own.
+		it("draws NO balance at all when the build has no money in it", function()
+			local offBoard = {
+				rows = {
+					{ userId = player.UserId, name = player.Name, team = "Shooters", points = 16, kills = 2 },
+				},
+			}
+			expect(Hud.coinsText(offBoard, player.UserId)).to.equal("")
+			-- EXPLICITLY false, not merely absent: a server that says "no" is the same as one that has
+			-- never heard of the field, which is every build before task 170.
+			local said = table.clone(offBoard)
+			said.coinsOn = false
+			expect(Hud.coinsText(said, player.UserId)).to.equal("")
+			-- ...and a row that DOES carry a balance is still not drawn without `coinsOn`, because the
+			-- server is the one source for whether money exists.
+			local stray = {
+				rows = {
+					{
+						userId = player.UserId,
+						name = player.Name,
+						team = "Shooters",
+						points = 0,
+						kills = 0,
+						coins = 99,
+					},
+				},
+			}
+			expect(Hud.coinsText(stray, player.UserId)).to.equal("")
+		end)
+
+		-- ...AND ON THE REAL BAR, FROM THE REAL WIRE. `COINS` is born off, so the live snapshot in this
+		-- run is the flag-off state itself -- this player HAS a row on it, which is exactly the
+		-- condition that produced the dead `COINS --`. It is the one assertion here that needs no
+		-- fixture at all, and it fails on the code round 1 reviewed.
+		it("leaves no coins piece on the live drive bar while the economy is off", function()
+			local snapshot = Match.get()
+			expect(snapshot).to.be.ok()
+			local mine = nil
+			for _, scoreRow in ipairs(snapshot.rows) do
+				if scoreRow.userId == player.UserId then
+					mine = scoreRow
+				end
+			end
+			-- The precondition is stated rather than assumed: without a row for me the case would pass
+			-- for the wrong reason, which is how the claim it replaces came to be believed.
+			expect(mine).to.be.ok()
+			expect(snapshot.coinsOn).to.equal(nil)
+			expect(mine.coins).to.equal(nil)
+			local bar = Hud.driveBarText()
+			print("[match_client] flag-off drive bar: " .. bar)
+			expect(string.find(bar, Drive.CONFIG.SCORE_COINS_LABEL, 1, true)).to.equal(nil)
+			expect(string.find(bar, Drive.CONFIG.SCORE_COINS_UNKNOWN, 1, true)).to.equal(nil)
+			TestKit.note("match_client: COINS off -> the bar reads '" .. bar .. "'")
+		end)
+
+		-- A LEAVER IS NOT PAID (`Economy.Coins.forDrive` skips `row.left`), so his row carries no
+		-- `earned` and the column says so with the same `--` an unknown balance uses. His row still
+		-- SHOWS, which is `Score.leave`'s own decision.
+		it("reads `--` for a row the drive did not pay", function()
+			local rows = {
+				{ userId = 1, name = "gone", team = "Shooters", points = 16, kills = 2, left = true },
+			}
+			local lines = Hud.scorePanelLines({ rows = rows }, nil)
+			expect(#lines).to.equal(2)
+			expect(string.find(lines[2].text, Drive.CONFIG.SCORE_COINS_UNKNOWN, 1, true) ~= nil).to.equal(true)
+			expect(string.find(lines[2].text, "*", 1, true) ~= nil).to.equal(true)
 		end)
 
 		it("puts the badge on the drawn row, on the leader's row only", function()
 			Hud.renderScore(scoring(), 12)
 			local rows = Hud.scoreRowText()
-			print("[match_client] badged row 1: " .. (rows[1] or "<none>"))
+			print("[match_client] badged row: " .. (rows[2] or "<none>"))
 			local badge = Drive.CONFIG.SCORE_FIRST_BADGE
-			expect(string.find(rows[1], badge, 1, true) ~= nil).to.equal(true)
-			expect(string.find(rows[2], badge, 1, true) == nil).to.equal(true)
-			-- AFTER THE POINTS, not before them: the badge belongs against the number it was earned
-			-- with, and a reader scanning the POINTS column must not find a word in it.
-			expect(string.find(rows[1], badge, 1, true) > (string.find(rows[1], "16", 1, true) :: number)).to.equal(
+			-- EACH RANKING'S TOP ROW WEARS IT (task 170): row 2 under the hunters' heading, row 4 under
+			-- the beaters'. The headings themselves never do.
+			expect(string.find(rows[2], badge, 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[4], badge, 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[1], badge, 1, true) == nil).to.equal(true)
+			-- AFTER THE POINTS AND THE COINS, not before them: the badge belongs against the numbers it
+			-- was earned with, and a reader scanning those columns must not find a word in one.
+			expect(string.find(rows[2], badge, 1, true) > (string.find(rows[2], "16", 1, true) :: number)).to.equal(
 				true
 			)
-			TestKit.note("match_client: first place -> " .. rows[1])
+			expect(string.find(rows[2], badge, 1, true) > (string.find(rows[2], "+67", 1, true) :: number)).to.equal(
+				true
+			)
+			TestKit.note("match_client: first place -> " .. rows[2])
 		end)
 
 		it("clears the board when the next drive starts, so nothing stale flashes", function()
 			Hud.renderScore(scoring(), 12)
-			expect(#Hud.scoreRowText()).to.equal(2)
+			expect(#Hud.scoreRowText()).to.equal(4)
 			Hud.renderScore(LIVE, 500)
 			expect(#Hud.scoreRowText()).to.equal(0)
 			expect(Hud.isScorePanelVisible()).to.equal(false)
@@ -428,8 +673,9 @@ return function()
 		-- THE SERVER'S WORDS, AS THE SERVER NOW SAYS THEM (task 160): each kind with what it is
 		-- worth, off `Match.CONFIG.POINTS.KIND`. The Hud passes this through and decides nothing
 		-- about it, which is the whole point of the last case in this describe.
-		local CARD_QUARRY =
-			{ "WILD BOAR, POINTS: male 10, female 6, cub 2", "every one of them counts - no cub rule yet" }
+		-- ...AND SINCE TASK 170 A PIGLET IS A PENALTY, which the card says in the server's own words:
+		-- `cub -10`, and a note that tells the player to leave them.
+		local CARD_QUARRY = { "WILD BOAR, POINTS: male 10, female 6, cub -10", "a piglet COSTS you - leave them" }
 
 		local function snapshotIn(phase: string)
 			local snapshot = {
