@@ -209,8 +209,32 @@ return function()
 			expect(CFG.FIELD.CLEAR_STUDS > CFG.LODGE.RIDGE_STUDS).to.equal(true)
 		end)
 
+		it("lays a pad of a material with no grass blades under the buildings", function()
+			-- A LOOK FIX THAT WAS PHOTOGRAPHED: the first build's inside shot came back with terrain
+			-- grass growing through the lodge's floorboards.
+			local at, size = Field.padBlock(anchor, shelf, CFG)
+			expect(at.Position.Y + size.Y / 2).to.equal(shelf)
+			expect(CFG.FIELD.PAD.MATERIAL).never.to.equal(CFG.FIELD.MATERIAL)
+			-- It covers the lodge's whole footprint, its porch and the circle beside the truck.
+			local half = Vector3.new(size.X / 2, 0, size.Z / 2)
+			local centre = at.Position
+			for _, point in ipairs({
+				anchor + CFG.LODGE.OFFSET,
+				anchor + CFG.LODGE.OFFSET - Vector3.new(0, 0, CFG.LODGE.SIZE.Z / 2 + CFG.LODGE.PORCH_DEPTH),
+				anchor + CFG.SPOT.OFFSET,
+				anchor + CFG.SPAWN.OFFSET,
+			}) do
+				expect(math.abs(point.X - centre.X) <= half.X).to.equal(true)
+				expect(math.abs(point.Z - centre.Z) <= half.Z).to.equal(true)
+			end
+		end)
+
 		it("writes nothing outside the field's own rectangle", function()
-			for _, block in ipairs({ { Field.grassBlock(anchor, shelf, CFG) }, { Field.airBlock(anchor, shelf, CFG) } }) do
+			for _, block in ipairs({
+				{ Field.grassBlock(anchor, shelf, CFG) },
+				{ Field.airBlock(anchor, shelf, CFG) },
+				{ Field.padBlock(anchor, shelf, CFG) },
+			}) do
 				local at, size = block[1] :: CFrame, block[2] :: Vector3
 				expect(Field.insideField(anchor, at, size, CFG)).to.equal(true)
 				for _, point in ipairs(corners(at, size)) do
@@ -245,13 +269,26 @@ return function()
 			expect(calls).to.equal(#fake.calls)
 			expect(grassCalls > 0).to.equal(true)
 			expect(calls > grassCalls).to.equal(true)
-			-- Grass first: the other order would fill the hole the air had just made.
+			-- Grass first: the other order would fill the hole the air had just made. Then the pad
+			-- under the buildings, then the air that cuts the hill off.
 			expect(fake.calls[1].material).to.equal(CFG.FIELD.MATERIAL)
 			expect(fake.calls[#fake.calls].material).to.equal(Enum.Material.Air)
-			for index, call in ipairs(fake.calls) do
-				local wanted = if index <= grassCalls then CFG.FIELD.MATERIAL else Enum.Material.Air
-				expect(call.material).to.equal(wanted)
+			local seen = { grass = 0, pad = 0, air = 0 }
+			for _, call in ipairs(fake.calls) do
+				if call.material == CFG.FIELD.MATERIAL then
+					seen.grass += 1
+					expect(seen.pad + seen.air).to.equal(0) -- all the grass goes down first
+				elseif call.material == CFG.FIELD.PAD.MATERIAL then
+					seen.pad += 1
+					expect(seen.air).to.equal(0) -- ...and the pad before the air
+				else
+					expect(call.material).to.equal(Enum.Material.Air)
+					seen.air += 1
+				end
 			end
+			expect(seen.grass).to.equal(grassCalls)
+			expect(seen.pad > 0).to.equal(true)
+			expect(seen.air > 0).to.equal(true)
 		end)
 	end)
 

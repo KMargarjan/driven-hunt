@@ -46,6 +46,17 @@ function Field.airBlock(anchor: Vector3, shelfY: number, cfg): (CFrame, Vector3)
 	return CFrame.new(anchor.X, shelfY + clear / 2, anchor.Z), Vector3.new(span, clear, span)
 end
 
+-- PURE. The YARD'S PAD: a block of a material with no grass blades, under the buildings, whose TOP
+-- IS ALSO THE SHELF. It is a LOOK fix and it was photographed rather than guessed -- the first
+-- build's inside shot came back with terrain grass growing through the lodge's floorboards, because
+-- a grass material draws its blades on the terrain surface and a part laid over them does not hide
+-- them.
+function Field.padBlock(anchor: Vector3, shelfY: number, cfg): (CFrame, Vector3)
+	local pad = cfg.FIELD.PAD
+	local centre = anchor + pad.OFFSET
+	return CFrame.new(centre.X, shelfY - pad.SIZE.Y / 2, centre.Z), pad.SIZE
+end
+
 -- IS EVERY CORNER OF THIS BOX INSIDE THE FIELD'S OWN RECTANGLE? PURE, and it is the rule
 -- *"it writes nothing outside `FIELD`"* made checkable rather than promised. The y is not bounded:
 -- the rectangle is a footprint.
@@ -98,6 +109,13 @@ function Field.fill(terrain: any, anchor: Vector3, shelfY: number, cfg): (number
 		terrain:FillBlock(piece.at, piece.size, cfg.FIELD.MATERIAL)
 		calls += 1
 		grassCalls += 1
+	end
+	-- THE PAD AFTER THE GRASS AND BEFORE THE AIR: it replaces the top of the grass shelf under the
+	-- buildings, and the air block above it then cuts the hill off exactly as before.
+	local padAt, padSize = Field.padBlock(anchor, shelfY, cfg)
+	for _, piece in ipairs(Field.chunks(padAt, padSize, chunk)) do
+		terrain:FillBlock(piece.at, piece.size, cfg.FIELD.PAD.MATERIAL)
+		calls += 1
 	end
 	local airAt, airSize = Field.airBlock(anchor, shelfY, cfg)
 	for _, piece in ipairs(Field.chunks(airAt, airSize, chunk)) do

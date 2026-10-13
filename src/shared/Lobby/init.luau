@@ -99,6 +99,21 @@ Lobby.CONFIG = {
 		-- and well above the lodge's 18-stud ridge.
 		CLEAR_STUDS = 96,
 		MATERIAL = Enum.Material.Grass,
+		-- THE YARD'S PAD: THE GROUND UNDER THE BUILDINGS, AND IT IS A LOOK FIX THAT WAS PHOTOGRAPHED
+		-- RATHER THAN GUESSED (task 177). The first build laid the lodge on the grass shelf and the
+		-- inside shot came back with TERRAIN GRASS GROWING THROUGH THE FLOORBOARDS: Roblox draws a
+		-- grass material's blades on the terrain surface, and a part laid over them does not hide
+		-- them. `Enum.Material.Ground` has no blades, so one more block of it under the footprint of
+		-- the lodge, the porch, the yard and the truck is the whole fix -- and it keeps the FIELD
+		-- grass, which is what makes the field read as a field from outside.
+		--
+		-- It is inside `FIELD` like everything else this module writes, and `lobby.spec` asserts that
+		-- with the same corner check as the other two blocks.
+		PAD = {
+			OFFSET = Vector3.new(6, 0, 38), -- between the lodge (z +32..+60) and the truck (z +10..+26)
+			SIZE = Vector3.new(80, 6, 60),
+			MATERIAL = Enum.Material.Ground,
+		},
 		-- HOW WIDE A CHUNK EACH `FillBlock` MAY BE, in studs along x. `MapGen.Ground`'s header
 		-- records a MEASURED `WriteVoxels` ceiling of 24,576 voxels per region in this Studio
 		-- version; `FillBlock` is a different API and its own ceiling is not measured here, so the
