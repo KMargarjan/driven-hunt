@@ -1,7 +1,7 @@
 # Task 170 — coins per drive, saved between sessions, and two rankings
 
 Task: 170
-Round: 2
+Round: 1
 Base: `8128ed0` (main, #153 merged)
 Code commit: `5e152f1da657236fd014a9d6c6ee11cac78f0a79`
 
