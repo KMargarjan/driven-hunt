@@ -972,6 +972,15 @@ return function()
 		end)
 
 		it("never puts two resting groups inside one spook reach of each other", function()
+			-- WHY THE BOUND IS THE **FLUSH** REACH AND NOT THE NOTICE ONE (round 2's note asked, and
+			-- this is the answer). Two groups inside one flush reach both BOLT on one approach, and a
+			-- walk down a deep wood is only a walk if the wood gives them up one at a time -- that is
+			-- the thing this rule exists to prevent. Two groups inside one NOTICE reach both STAND,
+			-- which is not a defect at all: it is more of exactly what Karen asked to see
+			-- (*"I want to see them more"*), and each still breaks on its own clock from its own
+			-- distance. The closest nominal pair is 101.3 studs: outside the 71-stud flush reach with
+			-- 30 studs to spare, inside the 125-stud notice reach on purpose.
+			--
 			-- WHY THE DEPTHS ARE SPACED THE WAY THEY ARE (task 162, re-measured in 172). The FLUSH
 			-- reach is `SPOOK.BEATER_STUDS` (71 since task 172), and
 			-- the fright LATCHES -- `ForestTest.SPOOK`'s own header: *"the animal keeps the line it
@@ -1305,6 +1314,32 @@ return function()
 				local gap = Vector3.new(look.X - at.X, 0, look.Z - at.Z).Magnitude
 				expect(gap < Data.noticeStuds(Data.SPOOK)).to.equal(true)
 			end
+		end)
+
+		it("stocks the wood once per DRIVE, and the boundary is a function the boot calls", function()
+			-- ROUND 2, FINDING 1, WHICH WAS RIGHT: the latch was written false in exactly one place,
+			-- `ForestTest.start`'s reset, and the boot calls `start` once per SERVER -- so "once per
+			-- drive" was once per session and a beater's second drive was 580 studs of empty wood.
+			-- `ForestTest.newDrive()` is the reset, and `ForestTestBoot` calls it on the `Assigning`
+			-- edge it already opens a report window on.
+			expect(type(ForestTest.newDrive)).to.equal("function")
+			ForestTest.newDrive()
+			expect(ForestTest.stats().restStocked).to.equal(false)
+			-- ...AND A FAILED STOCK DOES NOT LATCH (round 2's note). With no runtime there is nothing
+			-- to stock, nothing is claimed, and the latch is still down -- which is the property that
+			-- stops a drive whose first heartbeat finds the previous line still at the road from
+			-- losing its whole wood.
+			expect(ForestTest.stepRest(0, nil)).to.equal(nil)
+			expect(ForestTest.stats().restStocked).to.equal(false)
+			-- The retry interval is data, like every other number in this encounter.
+			expect(type(Data.REST.stockRetrySeconds)).to.equal("number")
+			expect(Data.REST.stockRetrySeconds > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 172: one stock per drive, re-tried every %.0f s until it takes",
+					Data.REST.stockRetrySeconds
+				)
+			)
 		end)
 
 		it("never re-stocks the wood, which is the last way an animal could appear behind the line", function()

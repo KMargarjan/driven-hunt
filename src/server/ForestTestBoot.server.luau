@@ -460,6 +460,12 @@ Match.start({
 Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
 	if phase == "Assigning" then
 		HitLog.openDrive(driveNumber or 1, os.clock())
+		-- ...AND THE WOOD IS A NEW WOOD (task 172 round 2). `ForestTest.stepRest` stocks it once per
+		-- DRIVE and never re-stocks inside one -- Karen, 2026-10-13: *"and again no boar behing
+		-- comming after beater walk"* -- so something has to say when a drive began, and this is the
+		-- edge this file already opens a report window on. Without it the latch is per SESSION and a
+		-- beater's second drive is an empty wood.
+		ForestTest.newDrive()
 		print(string.format("[report] drive %d opened (%ds windows)", driveNumber or 1, Data.DRIVE.seconds))
 	elseif phase == "Scoring" then
 		HitLog.closeDrive(os.clock())

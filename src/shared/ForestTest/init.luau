@@ -886,6 +886,21 @@ ForestTest.REST = {
 	-- never again, and `state.restStocked` is the latch that says so. The old row and the branch it
 	-- timed are archived in `backups/2026-10-13_task-172_rest-restock.md`, with the reason, as rule 7
 	-- asks.
+	--
+	-- ONCE PER **DRIVE**, NOT ONCE PER SESSION (round 2, finding 1, which was right). The latch lives
+	-- in `ForestTest`'s state and is cleared by `ForestTest.newDrive()`, which the boot calls on the
+	-- `Assigning` edge -- the same edge it already opens a report window on. Without that the wood was
+	-- stocked once per SERVER: a beater who cleared it in drive 1 walked 580 studs of empty wood in
+	-- every drive after it, which is task 154's founding defect in a new form, and the behaviour that
+	-- used to cover the boundary (the 15-second re-stock) is the one this task archived.
+
+	-- HOW OFTEN THE STOCK MAY BE RE-TRIED while it has not succeeded. The attempt is level-triggered,
+	-- and at the instant a drive begins the PREVIOUS drive's beaters can still be standing at the
+	-- ROAD -- so every candidate is behind the front, nothing is placed, and a latch set on the
+	-- ATTEMPT would lose that whole drive's wood. The latch is set when something is actually PLACED;
+	-- until then it is tried again, at most this often, so a wood that cannot be stocked costs one
+	-- search every two seconds instead of one per heartbeat.
+	stockRetrySeconds = 2,
 
 	-- THE GROUPS, SPREAD ALONG THE LANES (task 172). `composition` indexes
 	-- `Boar.CONFIG.SOUNDER.COMPOSITIONS` for the same reason the schedule does: who is in a flock is
