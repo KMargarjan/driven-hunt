@@ -1594,6 +1594,11 @@ return function()
 			end)
 			local ok, err = pcall(function()
 				Camera.Viewmodel.clear()
+				-- THE SOURCE IS ASKED FOUR TIMES A SECOND, NOT EVERY FRAME (task 133's throttle), and
+				-- `clear()` does not drop the cached Handle -- so an update called the instant after
+				-- `setSource` still draws whatever was in the hand before. The hands case above waits
+				-- for the same reason; without it this case measures the live gun.
+				task.wait(0.3)
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				local made = Camera.Viewmodel.current()
 				expect(made).to.be.ok()
@@ -1660,6 +1665,7 @@ return function()
 				Camera.Viewmodel.setSource(function()
 					return gunHandle
 				end)
+				task.wait(0.3) -- the source throttle again: see the top of this case
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				local swapped = Camera.Viewmodel.current()
 				expect(swapped).to.be.ok()
@@ -1669,6 +1675,7 @@ return function()
 				Camera.Viewmodel.setSource(function()
 					return handle
 				end)
+				task.wait(0.3)
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				expect((Camera.Viewmodel.current() :: Model).Name).to.equal("DrivenHuntHornViewmodel")
 
@@ -1708,6 +1715,7 @@ return function()
 			end)
 			local ok, err = pcall(function()
 				Camera.Viewmodel.clear()
+				task.wait(0.3) -- the source throttle: see the case above
 				local cam = CFrame.new(0, 12, 0)
 				local function drawnOffset(): CFrame
 					Camera.Viewmodel.update(cam, stateAtBlend(0), firstPersonConfig)
@@ -1800,6 +1808,7 @@ return function()
 			end)
 			local ok, err = pcall(function()
 				Camera.Viewmodel.clear()
+				task.wait(0.3) -- the source throttle: see the case above
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				-- The whole of task 152's fix: a non-weapon Tool that is not the horn draws no
 				-- viewmodel, and `Camera.Rig` leaves the real one visible instead.
