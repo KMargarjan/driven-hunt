@@ -41,6 +41,11 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Store = {}
 
+-- HOW LONG `Store.live` WAITS FOR THE PACKAGE TREE before it says so out loud. The tree is an
+-- OPTIONAL Rojo path, so "it is not there" is a real state a build can be in, and an unbounded wait
+-- inside `Economy.start` would hang the whole server boot rather than report it (round 1 note 2).
+local WAIT_FOR_LIBRARY_SECONDS = 10
+
 export type Store = {
 	kind: string, -- "memory" | "live"
 	-- YIELDS. The balance, or nil for NO SESSION plus the REASON -- "refused" (another server holds
@@ -195,7 +200,22 @@ end
 -- the reason in the header (item 2: the require itself writes a key). Nothing in Studio calls this,
 -- so no harness run performs it.
 function Store.live(storeName: string): Store
-	local module = ServerStorage:WaitForChild("ServerPackages"):WaitForChild("ProfileStore")
+	-- BOUNDED, AND LOUD WHEN IT RUNS OUT (round 1 note 2). `default.project.json` maps the package
+	-- tree as `{ "optional": "ServerPackages" }`, so a place built without `wally install` simply has
+	-- no tree -- and a bare `WaitForChild` here would yield FOR EVER inside `Economy.start`, which
+	-- both composition roots call BEFORE `Match.start`. The whole server boot would stop, silently,
+	-- the day the flag's default flips. A timeout turns that into a sentence in the console and a
+	-- server that still runs its drive, with the money off.
+	local packages = ServerStorage:WaitForChild("ServerPackages", WAIT_FOR_LIBRARY_SECONDS)
+	local module = packages and packages:WaitForChild("ProfileStore", WAIT_FOR_LIBRARY_SECONDS)
+	if not module then
+		error(
+			"[economy] ServerStorage.ServerPackages.ProfileStore is not in this place after "
+				.. tostring(WAIT_FOR_LIBRARY_SECONDS)
+				.. " s: run `wally install` and rebuild. Nothing is saved.",
+			0
+		)
+	end
 	local ProfileStore = require(module) :: any
 	local profileStore = ProfileStore.New(storeName, Store.TEMPLATE)
 

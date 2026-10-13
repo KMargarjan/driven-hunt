@@ -899,8 +899,15 @@ function Match.snapshot()
 	-- ABSENT IS NOT ZERO. A row carries no `coins` when the flag is off or when that player has no
 	-- open profile, and the Hud draws an absent one as `--`: zero would be the server asserting he
 	-- has no coins.
-	local balances = if world and world.economy then world.economy.balances() else nil
-	local earned = if world and world.economy then world.economy.earned() else nil
+	local economy = if world then world.economy else nil
+	-- IS THERE MONEY IN THIS BUILD (round 2, finding 1)? `true` only when the economy is actually
+	-- running, and the field is ABSENT otherwise -- which is what lets the Hud draw NOTHING with the
+	-- flag off instead of a dead `COINS --` on every bar. It is one fact for the whole board, not a
+	-- row field: whether money exists is a property of the SERVER, and a per-row copy of it would be
+	-- sixteen answers to one question.
+	local coinsOn = if economy and economy.enabled() then true else nil
+	local balances = if economy then economy.balances() else nil
+	local earned = if economy then economy.earned() else nil
 	local rows = {}
 	for _, row in ipairs(Score.leaderboard(board)) do
 		table.insert(rows, {
@@ -936,6 +943,10 @@ function Match.snapshot()
 		-- quarry lines. The same shape as `waitingFor` right above it, and for the same reason --
 		-- the rule is the server's and the Hud only draws it.
 		quarry = Match.quarryLines(config),
+		-- WHETHER THIS BUILD HAS MONEY IN IT AT ALL (task 170, round 2). Absent means no, and absent is
+		-- what the game before task 170 sends -- so a client reading this field is byte-identical to one
+		-- that never heard of it.
+		coinsOn = coinsOn,
 		rows = rows,
 		tied = tiedList,
 		-- THE TWO TASK-168 FACTS, both of them things a beater's own screen says and neither of them

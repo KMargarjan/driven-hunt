@@ -138,6 +138,9 @@ local stats = {
 	skippedLeft = 0,
 	skippedNotAPlayer = 0,
 	closeTimeouts = 0,
+	-- The live store refused to be built and the memory one was taken instead, so this server saves
+	-- nothing. It is never non-zero in Studio, which never asks for the live store at all.
+	storeFellBack = 0,
 }
 
 function Economy.stats()
@@ -416,6 +419,12 @@ export type View = {
 	payDrive: (driveNumber: number, rows: any) -> (),
 	balances: () -> { [number]: number },
 	earned: () -> { [number]: number },
+	-- IS THERE MONEY IN THIS BUILD AT ALL (round 2, finding 1)? The drive has to be able to ask,
+	-- because the SCREEN has to tell "the economy is off" from "this player has no profile open" --
+	-- and both of those look identical from the rows alone: no `coins` field either way. It answers
+	-- the FLAG's resolved value and nothing about any player, so it is still not a setter and still
+	-- not a rule number: a client that learns coins are on learns what it can already see.
+	enabled: () -> boolean,
 }
 
 -- WHAT THE DRIVE IS HANDED: three functions, no `start`, no `stop`, no store and no setter -- the
@@ -428,6 +437,7 @@ function Economy.view(): View
 		end,
 		balances = Economy.balances,
 		earned = Economy.earned,
+		enabled = Economy.isEnabled,
 	}
 end
 
@@ -469,7 +479,30 @@ function Economy.start(injected: World?)
 		-- THE ONE DECISION THAT KEEPS STUDIO OFF THE LIVE KEYS, and it is a pure predicate so it can
 		-- be asserted from inside Studio (`Economy.storeKindFor`).
 		local kind = Economy.storeKindFor(RunService:IsStudio())
-		store = if kind == "live" then StoreModule.live(Economy.CONFIG.STORE_NAME) else StoreModule.memory()
+		if kind == "memory" then
+			store = StoreModule.memory()
+		else
+			-- A LIVE STORE THAT CANNOT BE BUILT MUST NOT TAKE THE SERVER DOWN WITH IT (round 1
+			-- note 2). `Store.live` refuses loudly when the package tree is missing -- it is an
+			-- OPTIONAL Rojo path, so a build without `wally install` really has none -- and this runs
+			-- INSIDE `Economy.start`, which both composition roots call BEFORE `Match.start`. Letting
+			-- that error through would cost the whole drive in order to save nothing; falling back
+			-- costs only the money, says so in the console, and leaves the game running.
+			local ok, built = pcall(StoreModule.live, Economy.CONFIG.STORE_NAME)
+			if ok then
+				store = built
+			else
+				stats.storeFellBack += 1
+				warn(
+					string.format(
+						"[economy] the live store could not be built (%s): falling back to memory, so NOTHING IS"
+							.. " SAVED on this server. The drive runs; the coins do not persist.",
+						tostring(built)
+					)
+				)
+				store = StoreModule.memory()
+			end
+		end
 	end
 	local current = store :: Store
 	-- *"after the `Profile.OnSessionEnd` signal is fired, no further changes to `Profile.Data` should

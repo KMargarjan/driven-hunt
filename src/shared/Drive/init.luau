@@ -28,7 +28,9 @@ local Drive = {}
 -- WHO IS FIRST, AND OF WHICH RANKING (task 170). Re-exported here so there is ONE require site for
 -- it: the server reads `Drive.Rank` to pay a first-place bonus per ranking and the client reads the
 -- same table to draw a badge per ranking. It holds no number, so the header's rule is intact.
-Drive.Rank = require(script.Rank)
+Drive.Rank = table.freeze(require(script.Rank))
+-- FROZEN, because it is the ONE implementation of "who is first" and the server pays a bonus
+-- off it: an unfrozen export is a rule any requirer could replace (round 1 note).
 
 export type TeamName = "Drivers" | "Shooters"
 export type PhaseName = "Waiting" | "Assigning" | "Running" | "Scoring"
@@ -67,6 +69,13 @@ export type MatchSnapshot = {
 	-- client holds no second copy of what is legal. Same shape as `waitingFor` above.
 	quarry: { string },
 	rows: { ScoreRow },
+	-- WHETHER THIS BUILD HAS MONEY IN IT (task 170, round 2 of the gate). ONE fact for the whole
+	-- board, not a row field, because whether money exists is a property of the server. ABSENT means
+	-- no -- which is exactly what every build before task 170 sends -- and the Hud then draws no
+	-- balance at all, rather than a `COINS --` that says "unknown" about a thing that does not exist.
+	-- It is what lets the screen tell THE ECONOMY IS OFF from THIS PLAYER HAS NO PROFILE OPEN, which
+	-- the rows alone cannot: `coins` is absent in both.
+	coinsOn: boolean?,
 	tied: { number },
 	-- WHEN THE BEATERS ARE LET GO, IN SERVER TIME, or 0 for "nobody is waiting" (task 168). KAREN,
 	-- 2026-10-12: *"you can't move as a beater before horn made signal and there should be

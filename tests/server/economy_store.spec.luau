@@ -117,7 +117,10 @@ return function()
 			expect(store.load(1)).to.equal(320)
 		end)
 
-		it("tracks lifetime earnings and the drive count beside the balance", function()
+		-- RENAMED IN ROUND 2 (note 4): the old name said this case asserted `coinsEarnedTotal` and
+		-- `drivesPaid`, and it never did -- the memory store exposes no accessor for either, and the
+		-- body only ever proved that two stores do not share a table. The name now says what it does.
+		it("keeps its table to itself: a second store sees none of the first one's saves", function()
 			local store = Store.memory()
 			store.load(1)
 			store.save(1, 30)

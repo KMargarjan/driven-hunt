@@ -200,6 +200,9 @@ return function()
 		local function scoring()
 			local snapshot = table.clone(LIVE)
 			snapshot.phase = "Scoring"
+			-- THIS FIXTURE IS A BUILD WITH MONEY IN IT (round 2 of the gate): `coinsOn` is the one fact on
+			-- the snapshot that says so, and without it the Hud draws no balance at all.
+			snapshot.coinsOn = true
 			snapshot.rows = {
 				{
 					userId = player.UserId,
@@ -540,16 +543,80 @@ return function()
 			expect(Hud.coinsText(scoring(), player.UserId)).to.equal(label .. " 1240")
 			-- SOMEBODY ELSE'S ROW IS NOT MINE.
 			expect(Hud.coinsText(scoring(), player.UserId + 1)).to.equal(label .. " 141")
-			-- A ROW WITH NO BALANCE READS `--`, NEVER `0`: his profile did not open, and 0 would be the
-			-- screen asserting he has no coins.
-			local noBalance = { rows = { { userId = 7, name = "x", team = "Shooters", points = 0, kills = 0 } } }
-			expect(Hud.coinsText(noBalance, 7)).to.equal(label .. " " .. Drive.CONFIG.SCORE_COINS_UNKNOWN)
-			-- NO ROW AT ALL IS THE WHOLE OF TODAY'S GAME WITH THE FLAG OFF, and it draws NOTHING -- so
-			-- the bar is byte-identical to before task 170 in that state.
-			expect(Hud.coinsText(noBalance, 9)).to.equal("")
-			expect(Hud.coinsText({ rows = {} }, 7)).to.equal("")
+			-- A ROW WITH NO BALANCE IN A BUILD THAT HAS MONEY READS `--`, NEVER `0`: his profile did not
+			-- open, and 0 would be the screen asserting he has no coins.
+			local unknown = {
+				coinsOn = true,
+				rows = { { userId = 7, name = "x", team = "Shooters", points = 0, kills = 0 } },
+			}
+			expect(Hud.coinsText(unknown, 7)).to.equal(label .. " " .. Drive.CONFIG.SCORE_COINS_UNKNOWN)
+			-- ...and a row that is not his draws nothing even then.
+			expect(Hud.coinsText(unknown, 9)).to.equal("")
+			expect(Hud.coinsText({ coinsOn = true, rows = {} }, 7)).to.equal("")
 			expect(Hud.coinsText(nil, 7)).to.equal("")
 			expect(Hud.coinsText(scoring(), nil)).to.equal("")
+		end)
+
+		-- THE FLAG-OFF STATE, WHICH ROUND 1 OF THE GATE FOUND WAS NOT THE GAME BEFORE TASK 170 AT ALL.
+		-- The claim was that `Hud.coinsText` answered `""` with the flag off because the player "has no
+		-- row"; he always has one (`Match.snapshot` builds one per `Score.leaderboard` entry), so every
+		-- bar in the game gained a dead `COINS --`. These two cases FAIL on that code.
+		--
+		-- THE TWO ABSENCES ARE DIFFERENT QUESTIONS and the rows cannot tell them apart -- `coins` is
+		-- missing both when there is no money and when a profile did not open -- so the answer rides on
+		-- the snapshot as `coinsOn`, from the server, and this side reads no flag of its own.
+		it("draws NO balance at all when the build has no money in it", function()
+			local offBoard = {
+				rows = {
+					{ userId = player.UserId, name = player.Name, team = "Shooters", points = 16, kills = 2 },
+				},
+			}
+			expect(Hud.coinsText(offBoard, player.UserId)).to.equal("")
+			-- EXPLICITLY false, not merely absent: a server that says "no" is the same as one that has
+			-- never heard of the field, which is every build before task 170.
+			local said = table.clone(offBoard)
+			said.coinsOn = false
+			expect(Hud.coinsText(said, player.UserId)).to.equal("")
+			-- ...and a row that DOES carry a balance is still not drawn without `coinsOn`, because the
+			-- server is the one source for whether money exists.
+			local stray = {
+				rows = {
+					{
+						userId = player.UserId,
+						name = player.Name,
+						team = "Shooters",
+						points = 0,
+						kills = 0,
+						coins = 99,
+					},
+				},
+			}
+			expect(Hud.coinsText(stray, player.UserId)).to.equal("")
+		end)
+
+		-- ...AND ON THE REAL BAR, FROM THE REAL WIRE. `COINS` is born off, so the live snapshot in this
+		-- run is the flag-off state itself -- this player HAS a row on it, which is exactly the
+		-- condition that produced the dead `COINS --`. It is the one assertion here that needs no
+		-- fixture at all, and it fails on the code round 1 reviewed.
+		it("leaves no coins piece on the live drive bar while the economy is off", function()
+			local snapshot = Match.get()
+			expect(snapshot).to.be.ok()
+			local mine = nil
+			for _, scoreRow in ipairs(snapshot.rows) do
+				if scoreRow.userId == player.UserId then
+					mine = scoreRow
+				end
+			end
+			-- The precondition is stated rather than assumed: without a row for me the case would pass
+			-- for the wrong reason, which is how the claim it replaces came to be believed.
+			expect(mine).to.be.ok()
+			expect(snapshot.coinsOn).to.equal(nil)
+			expect(mine.coins).to.equal(nil)
+			local bar = Hud.driveBarText()
+			print("[match_client] flag-off drive bar: " .. bar)
+			expect(string.find(bar, Drive.CONFIG.SCORE_COINS_LABEL, 1, true)).to.equal(nil)
+			expect(string.find(bar, Drive.CONFIG.SCORE_COINS_UNKNOWN, 1, true)).to.equal(nil)
+			TestKit.note("match_client: COINS off -> the bar reads '" .. bar .. "'")
 		end)
 
 		-- A LEAVER IS NOT PAID (`Economy.Coins.forDrive` skips `row.left`), so his row carries no

@@ -1165,13 +1165,26 @@ end
 -- THE LOCAL PLAYER'S BALANCE, for the drive bar, in every phase (the dispatch: the balance on the
 -- HUD). PURE and exported for the same reason as everything else on this screen.
 --
--- `""` WHEN HE HAS NO ROW AT ALL, which is the whole of today's game with the `COINS` flag off -- so
--- `Hud.driveBarText()` is byte-identical to before task 170 in that state, and the flag needs no
--- second renderer. `COINS --` when he has a row but no balance (no profile opened): an unknown
--- balance is not zero.
+-- `""` WHENEVER THIS BUILD HAS NO MONEY IN IT, and `snapshot.coinsOn` is the one fact that says so.
+-- ROUND 1 OF THE GATE FOUND THIS THE HARD WAY and the old comment here was simply wrong: it said
+-- `""` happened when the player "has no row at all", *"which is the whole of today's game with the
+-- `COINS` flag off"*. He always has a row -- `Match.snapshot` builds one per `Score.leaderboard`
+-- entry and `watchPlayer` joins every player to the board -- so with the flag off every bar in the
+-- game gained a dead `COINS --`, and OFF was not the game before task 170 at all.
+--
+-- THE TWO ABSENCES ARE DIFFERENT QUESTIONS AND THE ROWS CANNOT TELL THEM APART, which is why the
+-- answer is on the snapshot and not inferred here: `row.coins` is absent both when there IS no money
+-- and when this player's profile did not open. `coinsOn` separates them --
+--   no `coinsOn`            -> `""`. There is no money in this build; draw nothing.
+--   `coinsOn`, no `coins`   -> `COINS --`. There IS money and his balance is UNKNOWN, which is a
+--                              real thing to tell him and is not zero.
+--   `coinsOn` and a number  -> `COINS 1240`.
 function Hud.coinsText(snapshot, userId: number?): string
 	local rows = if snapshot then snapshot.rows else nil
-	if rows == nil or userId == nil then
+	-- ONE SOURCE, AND IT IS THE SERVER'S: this reads no flag of its own. A Hud that read `Flags` would
+	-- be a second answer to "is there money", and the client's copy of a server rule is the thing
+	-- `ReplicatedStorage.Drive`'s header exists to prevent.
+	if rows == nil or userId == nil or snapshot.coinsOn ~= true then
 		return ""
 	end
 	for _, row in ipairs(rows) do

@@ -283,10 +283,16 @@ Flags.DEFAULTS = {
 		owner = "ServerScriptService.Economy",
 		born = "2026-10-13 task 170",
 		expires = "2026-11-03", -- 21 days: the ceiling in feature-flags.md section 12
+		-- WHAT OFF REALLY LEAVES, corrected in round 2 of the gate. The old sentence claimed *"the
+		-- score panel is task 159's one-table board"*, and that was never true: the SPLIT into hunters
+		-- and beaters is Karen's own decision (2026-10-12) and is not about money, so it is there in
+		-- both states and only the coins column reads `--`. What the flag really switches is the MONEY.
 		why = "A drive pays coins off the points it already scored, and the balance survives the "
-			.. "session through ProfileStore. OFF is exactly the game before task 170: no session is "
-			.. "opened, no DataStore key is written, no coin is awarded, the snapshot's rows carry "
-			.. "neither `coins` nor `earned`, and the score panel is task 159's one-table board.",
+			.. "session through ProfileStore. OFF switches the MONEY off and nothing else: no session is "
+			.. "opened, no DataStore key is written, no coin is awarded, the snapshot carries no `coinsOn` "
+			.. "and its rows carry neither `coins` nor `earned`, and the drive bar is byte-identical to "
+			.. "before task 170. The results table still shows the two rankings Karen asked for, with its "
+			.. "coins column reading `--` because there is no money in the build.",
 	} :: FlagRow,
 }
 
