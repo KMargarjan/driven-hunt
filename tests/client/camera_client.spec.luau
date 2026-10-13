@@ -1658,6 +1658,35 @@ return function()
 				-- and says nothing about what was MADE out of it, so without `builtKind` the next
 				-- frame would pose a horn's clone with a gun's numbers -- or keep drawing the horn for
 				-- a player who has just been handed a shotgun.
+				--
+				-- THIS CASE STATES ITS OWN PRECONDITION SINCE TASK 177, AND THE OLD ONE WAS LUCK.
+				-- It used to swap the source, `task.wait(0.3)` and assert on the very next `update`,
+				-- on the reasoning that 0.3 s clears the module's 0.25 s source throttle. It does not:
+				-- `lastSourceCheck` is shared with the LIVE camera loop, which calls `update` every
+				-- frame and resets it, so the wait guarantees nothing. The two-player run of task 177
+				-- is where that came due -- `[harness2] FAIL 31/35 @ 4b3da2c`, BOTH clients, still
+				-- drawing `DrivenHuntHornViewmodel` here -- and one player had been winning the race
+				-- for eleven tasks. `Viewmodel.setSource` now drops the cached handle, so the next
+				-- `update` from anybody re-asks; `drawnAfterSwap` asserts that rather than assuming it,
+				-- and REPORTS how many updates it took, so a regression says so instead of flaking.
+				--
+				-- NOTHING HERE IS WEAKENED: `Viewmodel.clear()` is deliberately NOT called across the
+				-- swap, so `builtKind` remains the ONLY thing that can turn the horn's model into the
+				-- gun's -- which is exactly what this half of the case exists to prove.
+				local function drawnAfterSwap(wanted: string): number
+					for attempt = 1, 30 do
+						Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+						local drawnNow = Camera.Viewmodel.current()
+						if drawnNow ~= nil and (drawnNow :: Model).Name == wanted then
+							return attempt
+						end
+						task.wait(0.05)
+					end
+					local got = Camera.Viewmodel.current()
+					expect(if got then (got :: Model).Name else "<nothing>").to.equal(wanted)
+					return -1
+				end
+
 				local gunHandle = Instance.new("MeshPart")
 				gunHandle.Name = "Handle"
 				gunHandle.Size = Shotgun.CONFIG.HANDLE_SIZE
@@ -1665,8 +1694,7 @@ return function()
 				Camera.Viewmodel.setSource(function()
 					return gunHandle
 				end)
-				task.wait(0.3) -- the source throttle again: see the top of this case
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				local toGun = drawnAfterSwap("DrivenHuntViewmodel")
 				local swapped = Camera.Viewmodel.current()
 				expect(swapped).to.be.ok()
 				expect((swapped :: Model).Name).to.equal("DrivenHuntViewmodel")
@@ -1675,9 +1703,19 @@ return function()
 				Camera.Viewmodel.setSource(function()
 					return handle
 				end)
-				task.wait(0.3)
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				local toHorn = drawnAfterSwap("DrivenHuntHornViewmodel")
 				expect((Camera.Viewmodel.current() :: Model).Name).to.equal("DrivenHuntHornViewmodel")
+				-- ONE UPDATE EACH is what the dropped cache buys, and it is asserted rather than hoped
+				-- for: anything more means the swap is back to waiting on the throttle.
+				expect(toGun).to.equal(1)
+				expect(toHorn).to.equal(1)
+				TestKit.note(
+					string.format(
+						"camera_client: a source swap is drawn on update %d (to the gun) and %d (back to the horn)",
+						toGun,
+						toHorn
+					)
+				)
 
 				-- THE RIGHT GLOVE IS ON IT, when the templates are there at all. The real ones are
 				-- loaded on the server, so this is a note rather than a demand -- `handsMissing`

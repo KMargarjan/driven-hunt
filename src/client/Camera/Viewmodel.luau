@@ -55,6 +55,12 @@ local source: (() -> BasePart?)? = nil
 local model: Model? = nil
 local builtFrom: BasePart? = nil
 
+-- THE HANDLE THE SOURCE LAST HANDED OVER, and when it was last asked. DECLARED HERE, with the rest
+-- of this module's state, because `Viewmodel.setSource` has to be able to drop the cache -- see its
+-- own comment, and task 177's two-player run for what happens when it cannot.
+local cachedHandle: BasePart? = nil
+local lastSourceCheck = 0
+
 -- ---------------------------------------------------------------- the horn's own state (task 176)
 --
 -- DECLARED HERE, BESIDE THE MODEL IT BELONGS TO, because `Viewmodel.clear()` resets all of it and a
@@ -380,8 +386,24 @@ function Viewmodel.reloadState()
 	return { open = reload.open, spent = reload.spent, loaded = table.clone(reload.loaded), openedAt = openedAt }
 end
 
+-- A NEW SOURCE MEANS A NEW HANDLE, AND THE CACHE GOES WITH IT (task 177). `update` only re-asks the
+-- source every quarter second once it has a handle whose `Parent` is still there -- the throttle task
+-- 133 measured -- so without this line a source swapped at runtime kept drawing the OLD source's
+-- handle for up to 250 ms, and which side of that window a caller landed on was decided by the frame
+-- cadence.
+--
+-- MEASURED, AND IT COST A TWO-PLAYER RUN (task 177, `[harness2] FAIL 31/35 @ 4b3da2c`):
+-- `camera_client.spec`'s horn case swaps its injected source from a horn's Handle to a gun's, waits
+-- 0.3 s and asserts the drawn model is the gun's. `lastSourceCheck` is shared with the LIVE camera
+-- loop, which calls `update` every frame and resets it -- so the spec's own 0.3 s wait guarantees
+-- nothing at all, and with two clients on one machine BOTH of them came back still drawing
+-- `DrivenHuntHornViewmodel`. One player had been winning that race for eleven tasks.
+--
+-- IT IS NOT A TEST-ONLY FIX. `setSource` is the seam a runtime swap goes through; a cache that
+-- outlives the source it came from is a stale answer whoever asks.
 function Viewmodel.setSource(fn: (() -> BasePart?)?)
 	source = fn
+	cachedHandle = nil
 	if not fn then
 		Viewmodel.clear()
 	end
@@ -1298,9 +1320,6 @@ end
 -- IT TAKES THE WHOLE STATE since task 89, not a blend: sway, bob, recoil and the break-open tilt all
 -- live in the state and all land in one offset (`Mode.viewmodelOffset`), so no second module holds a
 -- piece of the pose. In this task every one of them is exactly identity.
-local cachedHandle: BasePart? = nil
-local lastSourceCheck = 0
-
 -- WHICH WEAPON IS ON SCREEN, read off the TOOL the source handed us (task 140). The attribute is
 -- written by `Weapon.Hardware.build`, so the drawn gun follows the INSTANCE: a state replica that
 -- arrives a frame later can never make this draw the wrong gun.
