@@ -25,7 +25,17 @@ jobs:
       # (ServerPackages/, mapped into ServerStorage), so the build below now covers it; TestEZ is a
       # dev dependency and comes down in the same call. Both trees are git-ignored and each is pinned
       # for the harness by its own .sha256 manifest (tools/studio_mcp.py).
-      - name: Wally install (pinned: ProfileStore, TestEZ)
+      #
+      # NO ": " IN A STEP NAME. A plain (unquoted) YAML scalar may not contain a colon followed by a
+      # space -- the parser reads it as a nested mapping key -- and GitHub then fails the whole run in
+      # 0 s with "This run likely failed because of a workflow file issue", which is a RED CROSS WITH
+      # NO LOG and not a test failure. This step shipped as "Wally install (pinned: ProfileStore,
+      # TestEZ)" in task 170 and broke every push of the branch. Either quote the name or leave the
+      # colon out; every other name in this file is a plain scalar, so this one is too.
+      # https://yaml.org/spec/1.2.2/#733-plain-style
+      - name: Wally install (ProfileStore and TestEZ, pinned by wally.lock)
+        # No authentication: both packages are public, and the rokit-pinned wally (0.3.2) is on PATH
+        # after setup-rokit above.
         run: wally install
 
       - name: Rojo build
