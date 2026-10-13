@@ -1999,10 +1999,45 @@ return function()
 				end
 			end
 			expect(ids).to.be.ok()
+			-- EVERY ONE OF THE THREE, ONCE. The list is the union of the live roster and the last
+			-- drive's, because a `dismiss` has already emptied the first one while the players still
+			-- carry their teams -- and a man in both tables must still appear once.
 			expect(#(ids :: any)).to.equal(3)
 			-- Sorted, like every other id list this machine emits, so a spec can assert it by value.
 			expect((ids :: any)[1]).to.equal(1)
+			expect((ids :: any)[2]).to.equal(2)
 			expect((ids :: any)[3]).to.equal(3)
+		end)
+
+		it("hands a team back even when nobody was dismissed, and still only once each", function()
+			-- THE OTHER WAY INTO `Waiting`: the roster emptied itself (everybody left), so
+			-- `state.assignment` is where the teams are and `previousAssignment` holds the same two.
+			-- The union must not report either of them twice.
+			local cfg = config()
+			local state = ready(cfg)
+			for userId = 1, 2 do
+				state = (Phase.step(state, { kind = "join", userId = userId, name = "p" }, 0, cfg))
+			end
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			local atEnd = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			state = (Phase.step(state, { kind = "tick" }, atEnd, cfg))
+			expect(state.phase).to.equal("Scoring")
+			for userId = 1, 2 do
+				state = (Phase.step(state, { kind = "leave", userId = userId, name = "p" }, atEnd + 1, cfg))
+			end
+			local effects
+			state, effects = Phase.step(state, { kind = "tick" }, atEnd + cfg.SCORE_SECONDS, cfg)
+			expect(state.phase).to.equal("Waiting")
+			local ids
+			for _, effect in ipairs(effects) do
+				if effect.kind == "unassign" then
+					ids = effect.userIds
+				end
+			end
+			expect(ids).to.be.ok()
+			expect(#(ids :: any)).to.equal(2)
+			expect((ids :: any)[1]).to.equal(1)
+			expect((ids :: any)[2]).to.equal(2)
 		end)
 
 		it("emits no unassign when nobody had a team", function()

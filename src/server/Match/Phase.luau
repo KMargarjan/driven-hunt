@@ -655,11 +655,27 @@ local function enterWaiting(state: State, effects: { Effect }, now: number)
 	-- was unreachable. With a lobby it is the normal end of every drive, and a player back at the
 	-- lodge still on the Drivers team keeps the horn, the vest and the wrong line on his screen.
 	--
+	-- IT READS BOTH TABLES, AND THAT IS A CORRECTION THE GATE FOUND rather than a choice (the
+	-- design's section 4.4 snippet reads `state.assignment` alone, and `match_phase.spec` came back
+	-- `unassign 0` for it). A `dismiss` has already EMPTIED `state.assignment` by the time this door
+	-- is reached -- that is what makes `enoughPlayers` false and this door the one taken -- while the
+	-- PLAYERS still carry `Player.Team`, because `dismiss` deliberately leaves the badges and the
+	-- team colours standing in the results scene. So the list of men who have a team to hand back is
+	-- the union of the two, and reading only the live roster would hand nothing back at all: the
+	-- exact failure this effect exists to prevent, one table along.
+	--
 	-- SORTED, like every other id list this machine emits, so the effect is deterministic and a spec
-	-- can assert it by value.
+	-- can assert it by value. `applyUnassign` is keyed by userId and a duplicate is impossible,
+	-- because `seen` is what decides membership rather than either table's order.
 	local dropped = {}
-	for userId in pairs(state.assignment) do
-		table.insert(dropped, userId)
+	local seen = {}
+	for _, table_ in ipairs({ state.assignment, state.previousAssignment or {} }) do
+		for userId in pairs(table_) do
+			if not seen[userId] then
+				seen[userId] = true
+				table.insert(dropped, userId)
+			end
+		end
 	end
 	table.sort(dropped)
 	if #dropped > 0 then
