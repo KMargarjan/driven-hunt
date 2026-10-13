@@ -813,8 +813,20 @@ function ForestTest.pickOf(userId: number)
 end
 
 -- Opens the 10-second window. Nothing is locked yet: where he walks IS the choice.
-function ForestTest.openPick(userId: number, now: number)
-	state.picks[userId] = { index = Data.PICK.defaultIndex, lockedAt = nil, openedAt = now } :: any
+--
+-- `standIndex` IS WHICH STAND THE OPEN PICK POINTS AT (task 175), and it is optional so every caller
+-- written before it keeps the default stand it always got. KAREN, 2026-10-13 ~19:05: *"for shooter -
+-- get in your stand (we need to show where is his stand this circle has to remain all a time"*. The
+-- ring task 166 draws is drawn round `standIndexOf` below, so an open pick has to point at the stand
+-- the drive actually PLACED him on rather than at stand 5 -- which is the right answer for a solo
+-- hunter (`standIndexFor(1)` is 5) and the wrong one for everybody else in a full drive.
+--
+-- IT IS STILL AN OPEN PICK AND CHANGES NO RULE. `standArea`, `boundary` and `hunterStandX` all test
+-- `lockedAt` and ignore an open pick on purpose -- "no rule during the pick window" -- so what this
+-- argument moves is the thing that is DRAWN and nothing that is enforced.
+function ForestTest.openPick(userId: number, now: number, standIndex: number?)
+	local index = standIndex or Data.PICK.defaultIndex
+	state.picks[userId] = { index = index, lockedAt = nil, openedAt = now } :: any
 end
 
 -- Locks whatever he is nearest to. Called by the timer, or early when he confirms.
@@ -833,6 +845,22 @@ end
 
 function ForestTest.clearPick(userId: number)
 	state.picks[userId] = nil
+end
+
+-- WHICH STAND IS THIS HUNTER'S, SHOWN OR ENFORCED -- the locked pick, or the open one he was placed
+-- on, or nil when he has no pick at all (task 175). PURE given the state; no role, no `Player`.
+--
+-- IT IS THE ONE QUESTION THE RING ASKS, and that is the whole reason it exists rather than the
+-- caller reading `pickOf(...).index` itself. "Where is his circle drawn" and "where may he shoot"
+-- are DIFFERENT questions with different answers during the pick window -- this one answers for a
+-- hunter still choosing and `standArea` deliberately does not -- so a reader that wanted the first
+-- and reached for the second would start enforcing a boundary that is not yet his.
+function ForestTest.standIndexOf(userId: number): number?
+	local pick = state.picks[userId]
+	if pick == nil then
+		return nil
+	end
+	return pick.index
 end
 
 -- THIS HUNTER'S STAND AS AN AREA, for the weapon's fire gate (task 171): the circle he LOCKED, or

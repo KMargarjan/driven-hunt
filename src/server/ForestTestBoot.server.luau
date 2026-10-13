@@ -520,6 +520,76 @@ Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
 	end
 end)
 
+-- HOW LONG ANYTHING THAT READS A JUST-PLACED CHARACTER WAITS FOR THE RESPAWN TO SETTLE.
+-- `Body.place` pivots on `CharacterAdded` and `Body.settle` pivots again when that resumption cycle
+-- ends (`task.defer`), so anything over a frame is enough; one second is long enough to be obviously
+-- enough and short enough to read as "at the start".
+--
+-- IT SITS HERE, ABOVE BOTH ITS READERS, SINCE TASK 175: the start line below is one of them and the
+-- intermission's ring is the other, and a `local` declared after a closure that names it is a GLOBAL
+-- read inside that closure -- nil, and `task.delay(nil, ...)` throws.
+local PLACEMENT_SETTLE_SECONDS = 1
+
+-- ---------------------------------------------------------------- the ring a hunter can always see
+--
+-- KAREN, 2026-10-13 ~19:05, after playing 172-174: *"for shooter - get in your stand (we need to
+-- show where is his stand this circle has to remain all a time"*.
+--
+-- WHAT SHE WAS LOOKING AT, AND IT IS WHY THIS IS ONE FUNCTION NOW. Task 166 drew the ring at exactly
+-- one moment -- the instant the pick LOCKED -- and `Markers.clearRings()` took every ring down at the
+-- next `Assigning`. So the screen said *get to your stand* through the whole intermission and the
+-- first ten seconds of the drive with NO CIRCLE ANYWHERE, which is the one stretch in which a hunter
+-- is actually walking to a stand and needs to know which one. The ring then stood for the rest of the
+-- drive, the scoring and the results, which is the half that was already right.
+--
+-- SO THE RING FOLLOWS `ForestTest.standIndexOf` AND NOTHING ELSE: it is drawn whenever that answer
+-- changes and cleared when it goes nil, and every caller below is one call to this. One rule, one
+-- writer, three moments (the intermission's placement, the drive's pick window, the lock) instead of
+-- three rules.
+--
+-- `shownRing` IS WHAT IT LAST DREW FOR WHOM, and it is needed for one case only: a hunter whose index
+-- CHANGES (he walks to another stand in the pick window and locks that one). `Markers.ring` replaces
+-- the ring of the index it is given, so without this the stand he left would keep its ring for the
+-- rest of the drive -- a circle round a stand nobody is held to, which is the thing the `Assigning`
+-- clear exists to prevent.
+local shownRing: { [number]: number } = {}
+
+-- Is this stand still somebody's? Two hunters CAN resolve to one index -- `standIndexFor` wraps at
+-- nine stands -- and one of them leaving must not take the other's circle with it.
+local function standIsClaimed(standIndex: number, exceptUserId: number): boolean
+	for userId, index in pairs(shownRing) do
+		if userId ~= exceptUserId and index == standIndex then
+			return true
+		end
+	end
+	return false
+end
+
+-- DRAWS THIS PLAYER'S OWN RING, or takes it down when he has no stand. Returns the index it drew and
+-- how many segments went down, so a caller that wants to print a line has both without asking twice.
+--
+-- THE RING IS A WORLD PART AND SO EVERYBODY SEES EVERYBODY'S (`Workspace.ForestMarkers`, replicated).
+-- That is kept rather than made local: the drive's own hunters standing in a line of lit circles is
+-- the picture `Markers` was built for, and a per-player ring would need a second, client-side drawer
+-- of the same geometry -- a second writer of the thing rule 3 gives this module.
+local function showRing(player: Player): (number?, number?)
+	local userId = player.UserId
+	local index = ForestTest.standIndexOf(userId)
+	local before = shownRing[userId]
+	if index == nil then
+		shownRing[userId] = nil
+		if before ~= nil and not standIsClaimed(before, userId) then
+			ForestTest.Markers.clearRing(before)
+		end
+		return nil, nil
+	end
+	shownRing[userId] = index
+	if before ~= nil and before ~= index and not standIsClaimed(before, userId) then
+		ForestTest.Markers.clearRing(before)
+	end
+	return index, ForestTest.Markers.ring(index, Data.PICK.standRadiusStuds)
+end
+
 -- THE STAND PICK IS THE HUNTER'S TEN SECONDS, and it opens when the DRIVE starts (task 157).
 --
 -- It used to open on `CharacterAdded`, which is now the drive's own respawn -- and opening it there
@@ -530,11 +600,28 @@ local function openPickFor(player: Player)
 	if ForestTest.roleOfPlayer(player) ~= "hunter" then
 		return -- a beater has no stand, and no boundary (`ForestTest.boundary` refuses her for the same reason)
 	end
-	ForestTest.openPick(player.UserId, os.clock())
+	-- THE OPEN PICK POINTS AT THE STAND HE IS STANDING ON (task 175), which is `nearestStand` of the
+	-- position `Body.place` has just put him at -- the same function `lockPick` uses ten seconds
+	-- later, so the ring that goes up now is round the stand he would get by not moving. Without a
+	-- position it stays `PICK.defaultIndex`, which is what every call before this task got.
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local standing = if root then ForestTest.nearestStand((root :: BasePart).Position) else nil
+	ForestTest.openPick(player.UserId, os.clock(), standing)
+	-- HIS EDGE, DRAWN FROM THE FIRST FRAME OF THE DRIVE and not from the tenth second (task 175).
+	local open = showRing(player)
+	print(
+		string.format(
+			"[ForestTest] %s has the pick window open on stand %s (edge ring %d studs, shown now)",
+			player.Name,
+			tostring(open),
+			Data.PICK.standRadiusStuds
+		)
+	)
 	task.delay(Data.PICK.seconds, function()
-		local character = player.Character
-		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if player.Parent == nil or root == nil then
+		local now = player.Character
+		local nowRoot = now and now:FindFirstChild("HumanoidRootPart")
+		if player.Parent == nil or nowRoot == nil then
 			return
 		end
 		-- ...UNLESS THE DRIVE HAS MOVED HER SINCE. Locking a stand for a beater would put a hunter in
@@ -542,17 +629,17 @@ local function openPickFor(player: Player)
 		if ForestTest.roleOfPlayer(player) ~= "hunter" then
 			return
 		end
-		local index = ForestTest.lockPick(player.UserId, (root :: BasePart).Position, os.clock())
-		-- HIS EDGE, DRAWN (task 166). The boundary opens the moment the pick locks, so the ring that
-		-- shows where it is goes up in the same breath -- and `Markers` is the one writer of it.
-		local segments = ForestTest.Markers.ring(index, Data.PICK.standRadiusStuds)
+		local index = ForestTest.lockPick(player.UserId, (nowRoot :: BasePart).Position, os.clock())
+		-- HIS EDGE, REDRAWN (task 166, one writer since 175). The boundary opens the moment the pick
+		-- locks; if he walked to another stand in the window, `showRing` takes the old circle down.
+		local _, segments = showRing(player)
 		print(
 			string.format(
-				"[ForestTest] %s took stand %d (edge ring %d studs, %d segments)",
+				"[ForestTest] %s took stand %d (edge ring %d studs, %s segments)",
 				player.Name,
 				index,
 				Data.PICK.standRadiusStuds,
-				segments
+				tostring(segments)
 			)
 		)
 	end)
@@ -572,6 +659,11 @@ local function honour(player: Player)
 	if Match.requestTeam(player, Body.teamForWord(word)) then
 		ForestTest.takeRequest(player.UserId)
 		ForestTest.clearPick(player.UserId)
+		-- ...AND HIS CIRCLE GOES WITH IT (task 175). A hunter who types `/beater` mid-drive leaves a
+		-- stand; `showRing` follows `standIndexOf` to nil and takes the ring down. The reverse --
+		-- `/hunter` mid-drive -- still gets NO ring until the next drive opens a pick window for
+		-- him, which is unchanged and is the honest picture: he has no stand and no boundary either.
+		showRing(player)
 		print(string.format("[ForestTest] %s is now a %s (team=%s)", player.Name, word, tostring(Body.teamOf(player))))
 	end
 end
@@ -588,6 +680,43 @@ Match.PhaseChanged:Connect(function(_before, phase)
 		-- ...AND THE RINGS GO WITH THE PICKS (task 166): an edge drawn round a stand nobody is held
 		-- to is a line that means nothing, and the next lock draws its own.
 		ForestTest.Markers.clearRings()
+		table.clear(shownRing)
+		-- ...AND THE NEW DRIVE'S RINGS GO UP AS SOON AS THE PLACEMENT HAS LANDED (task 175). KAREN:
+		-- *"we need to show where is his stand this circle has to remain all a time"* -- and the
+		-- stretch that had no circle at all was exactly this one, the intermission in which the
+		-- objective line says *get to your stand*. `enterAssigning` emits `assignTeams` before
+		-- `placePlayers`, so the TEAM is already right here; the POSITION is not, because
+		-- `Body.place` pivots on `CharacterAdded`. So it waits the same `PLACEMENT_SETTLE_SECONDS`
+		-- the start line waits -- the one moment in this file that already knows the character has
+		-- actually landed -- and reads `nearestStand` of where he ended up.
+		--
+		-- IT OPENS AN UNLOCKED PICK AND THAT ENFORCES NOTHING. `standArea`, `boundary` and
+		-- `hunterStandX` all ignore a pick with no `lockedAt`, deliberately ("no rule during the
+		-- pick window"), so the stated reason for the clear above survives intact: nobody is held to
+		-- a stand during the intermission and no wave is aimed at one. What changes is only what is
+		-- DRAWN, and the drive's own `openPickFor` re-opens the window on top of it.
+		task.delay(PLACEMENT_SETTLE_SECONDS, function()
+			if Match.phase() ~= "Assigning" then
+				return -- the intermission is over; `openPickFor` owns the ring from here
+			end
+			for _, player in ipairs(Players:GetPlayers()) do
+				local character = player.Character
+				local root = character and character:FindFirstChild("HumanoidRootPart")
+				if root ~= nil and ForestTest.roleOfPlayer(player) == "hunter" then
+					ForestTest.openPick(player.UserId, os.clock(), ForestTest.nearestStand((root :: BasePart).Position))
+					local index, segments = showRing(player)
+					print(
+						string.format(
+							"[ForestTest] %s is walking to stand %s this intermission (edge ring %d studs, %s segments)",
+							player.Name,
+							tostring(index),
+							Data.PICK.standRadiusStuds,
+							tostring(segments)
+						)
+					)
+				end
+			end
+		end)
 		return
 	end
 	if phase ~= "Running" then
@@ -618,12 +747,6 @@ Match.PhaseChanged:Connect(function(_before, phase)
 		)
 	)
 end)
-
--- HOW LONG THE START LINE BELOW WAITS FOR THE RESPAWN TO SETTLE. `Body.place` pivots on
--- `CharacterAdded` and `Body.settle` pivots again when that resumption cycle ends (`task.defer`),
--- so anything over a frame is enough; one second is long enough to be obviously enough and short
--- enough to read as "at the start".
-local PLACEMENT_SETTLE_SECONDS = 1
 
 -- ONE LINE PER START, AND IT IS PRINTED WHEN THE CHARACTER HAS ACTUALLY LANDED (task 157).
 --
@@ -698,12 +821,15 @@ end)
 Players.PlayerRemoving:Connect(function(player)
 	-- HIS RING GOES WITH HIS PICK (round 1's note). An edge drawn round a stand nobody is held to is
 	-- a line that means nothing, and without this it stayed until the next intermission cleared all
-	-- of them. The index has to be read BEFORE the pick is dropped.
-	local pick = ForestTest.pickOf(player.UserId)
-	if pick ~= nil then
-		ForestTest.Markers.clearRing(pick.index)
-	end
+	-- of them.
+	--
+	-- THROUGH `showRing` SINCE TASK 175, which is the one writer of it: the pick is dropped FIRST and
+	-- the ring then follows `standIndexOf` to nil, instead of this file reading `pickOf(...).index`
+	-- and clearing by hand. That also fixes a case the hand-written version could not see -- two
+	-- hunters wrapped onto one stand (`standIndexFor` wraps at nine), where one leaving used to take
+	-- the other's circle with him (`standIsClaimed`).
 	ForestTest.clearPick(player.UserId)
+	showRing(player)
 	-- THE REQUEST GOES WITH THE PLAYER. `Body.forget` is no longer called here: `Match.forget` runs
 	-- in this world now and calls it, so one caller instead of two.
 	ForestTest.clearRequest(player.UserId)

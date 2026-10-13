@@ -571,6 +571,49 @@ return function()
 			part:Destroy()
 		end)
 
+		it("names the stand an OPEN pick points at, and enforces nothing with it (task 175)", function()
+			-- KAREN, 2026-10-13 ~19:05: *"for shooter - get in your stand (we need to show where is
+			-- his stand this circle has to remain all a time"*. The ring is drawn round
+			-- `standIndexOf`, so an open pick has to NAME a stand -- the one the drive placed him on
+			-- -- while still holding him to nothing.
+			local userId = -175
+			expect(ForestTest.standIndexOf(userId)).to.equal(nil) -- no pick, no stand, no ring
+			-- READ BEFORE, COMPARED AFTER. `hunterStandX` scans every pick in the world, so the only
+			-- honest claim a spec can make about it is that THIS pick changed nothing -- another
+			-- case's locked pick would otherwise decide the answer and the assertion.
+			local aimedAt = ForestTest.hunterStandX()
+
+			-- THE DEFAULT IS UNCHANGED for every caller written before the argument existed.
+			ForestTest.openPick(userId, 0)
+			expect(ForestTest.standIndexOf(userId)).to.equal(Data.PICK.defaultIndex)
+
+			-- ...AND THE ARGUMENT NAMES ANOTHER ONE, which is what a full drive needs: eight hunters
+			-- are placed on eight stands and only one of them is stand 5.
+			ForestTest.openPick(userId, 0, 2)
+			expect(ForestTest.standIndexOf(userId)).to.equal(2)
+
+			-- NOTHING IS ENFORCED WHILE IT IS OPEN, and that is the claim the ring rests on: the
+			-- `Assigning` clear exists so that nobody is held to a stand between drives and no wave
+			-- is aimed at one, and drawing a circle must not undo it.
+			local part = Instance.new("Part")
+			part.CFrame = CFrame.new(Data.standPosition(2) + Vector3.new(60, 0, 0))
+			expect(ForestTest.standArea(userId)).to.equal(nil) -- no fire gate
+			expect(ForestTest.boundary(userId, part, "hunter")).to.equal(nil) -- no wall
+			expect(part.Position.X).to.be.near(Data.standPosition(2).X + 60, 1e-3) -- and no write
+			-- ...and no wave is aimed at it either: `hunterStandX` ignores an open pick on purpose.
+			expect(ForestTest.hunterStandX()).to.be.near(aimedAt, 1e-6)
+
+			-- THE LOCK STILL WINS, and it is the position that decides -- not the open index.
+			local locked = ForestTest.lockPick(userId, Data.standPosition(7), 0)
+			expect(locked).to.equal(7)
+			expect(ForestTest.standIndexOf(userId)).to.equal(7)
+			expect(ForestTest.standArea(userId)).to.be.ok()
+
+			ForestTest.clearPick(userId)
+			expect(ForestTest.standIndexOf(userId)).to.equal(nil)
+			part:Destroy()
+		end)
+
 		-- TASK 166, THE LIVE HALF: what the wall does to a character that walks into it. The pure
 		-- half above says WHERE; these say that the two writes happen, that they happen only to a
 		-- locked hunter, and that a player inside his circle is not written at all.

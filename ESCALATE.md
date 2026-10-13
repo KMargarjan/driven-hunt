@@ -1,5 +1,122 @@
 # Escalations
 
+## 2026-10-13 - Task 175 item 1: THE HORN *IS* WELDED TO THE HAND. What Karen sees is that the BODY DOES NOT FACE THE LOOK in first person -- `docs/design/camera.md` section 6.4, Director item A
+
+**This is the "a finding is factually wrong" stop rule, with the evidence, and it is the ONE item the
+dispatch called "the one item to get RIGHT".** Items 2 (the horn 2.5x bigger) and 3 (the stand ring
+always visible) are built, gated and in the PR; nothing is blocked on this entry but item 1.
+
+### What the dispatch expected, and what is actually there
+
+The dispatch named five candidate breaks: "anchored Handle, a missing/broken RightGrip weld, a model
+part not welded to the Handle, the 169/172 mesh as a separate unwelded part, or a display copy
+instead of the Tool's own part". **MEASURED in the Forest Test (place 130094961655666) on
+2026-10-13, in a real Play session, on a real player beater reached by typing `/beater` through the
+chat -- not a bot, not a spec stub -- NONE of the five is the case:**
+
+```
+SERVER, player beater, carry pose
+  MeshPart 'RightHand'  anch=false
+    Weld 'RightGrip'  P0=RightHand  P1=Handle
+  Tool 'Horn'
+    Part 'Handle'       anch=false  sz=(0.50,1.10,1.10)  tr=1.00
+      MeshPart 'Model'  anch=false  sz=(1.25,0.43,0.24)  tr=0.00   <- the 169 upload
+      Weld 'ModelWeld'  P0=Handle   P1=Model
+      Sound 'Blast'
+CLIENT, the same character, same frame: the identical tree, and
+  REL mesh in RightHand space = (0.000, -0.408, 0.000)   dist=0.408
+```
+
+**And it holds while she turns.** Sampled on the CLIENT every 0.2 s while the camera was swept
+through its own owner (`LocalPlayer:SetAttribute("DHLookAt", ...)` -- the seam the harness's own
+input stage uses, so the turn went through `Camera.Rig` and nothing wrote `CurrentCamera`):
+
+```
+t=0.00  camYaw=  -0.0  rootYaw=0.0  relHand=(0.000,-0.407,0.000) d=0.407  relCam=( 0.93,-0.70,-1.95)
+t=13.56 camYaw= -45.0  rootYaw=0.0  relHand=(0.000,-0.407,0.000) d=0.407  relCam=(-0.93,-0.97,-1.88)
+t=17.87 camYaw= -90.0  rootYaw=0.0  relHand=(0.000,-0.407,0.000) d=0.407  relCam=(-2.24,-0.99,-0.56)
+   (100 samples; relHand was 0.407 or 0.408 in every one, grip=true, mweld=true, anch=false/false)
+```
+
+A second run of the same sampler caught the drive's next intermission, so it measured the SHOTGUN
+through a **full 360** of the look -- and says the same thing more loudly:
+
+```
+camYaw -180 -> -45 -> -90 -> -135 -> -180 -> +135 -> +90 -> +45 -> 0     (a complete turn)
+rootYaw 180.0 in every single sample
+relHand 1.557 in every single sample
+relCam.Z  -3.10 (in front)  ...  +3.76 (BEHIND the camera)
+```
+
+Three bot beaters measure the same as the player, to three decimals
+(`handle-hand=0.408 mouth-hand=0.217 anch=false/false grip=true`), so "all beaters has to have same
+horn" (her 2026-10-13 ~09:20 line) is still true.
+
+### So what IS she seeing
+
+**`rootYaw` never moves while `camYaw` sweeps 360 degrees.** The horn is rigidly welded to a hand on
+a body that does not turn with the look, and in first person that body is **invisible**
+(`LocalTransparencyModifier = 1` on RightHand, UpperTorso and Head -- measured). Both halves of her
+sentence are that one fact:
+
+* *"horn still hanging somewhere"* -- she cannot see the hand it is welded to, so a horn 0.4 studs
+  from an invisible fist reads as a horn floating in space;
+* *"I can turn around and horn stand in place somewhere behind"* -- the body stays, so the horn
+  stays, and at 90 degrees of look it is already 2.24 studs off to the side and 0.56 in front; past
+  about 120 it is behind the camera.
+
+**The gun does not show this because it is REPLACED in first person.** `Camera.Rig.trackHiddenPart`
+hides every local body part and every WEAPON Tool part and `Camera.Viewmodel` draws a clone in
+CAMERA space; the horn is deliberately exempted (task 152: *"the beater's horn has no viewmodel, so
+hiding it would leave a beater in first person holding nothing at all"*). So the horn is the only
+thing in the game that is both carried and drawn in WORLD space, which is why it is the only thing
+that shows the body's yaw.
+
+**Task 172 was not wrong.** It moved the grip point onto the horn and measured the Handle from 1.224
+studs down to 0.407 from the hand; that is exactly what is still there today (0.407). It fixed what
+it claimed to fix.
+
+### Why I did not fix it, and who owns it
+
+`docs/design/camera.md` already has this, twice, as a **Director-level open decision**:
+
+> **6.4 The character -- not this system's** ... "The camera never rotates the character ... Fixing
+> it means writing `Humanoid.AutoRotate` and the root CFrame, which needs a **character/movement
+> owner** that does not exist. Section 12 Director item A, and first person raises its priority."
+
+> **Director item A. Character rotation while aiming (6.4).** Default: **not in this work.** First
+> person raises its priority ... "It needs a character/movement owner, which is a new
+> `GAME_DESIGN.md` row and its own small design."
+
+Nothing in the repo writes `Humanoid.AutoRotate` or a character's yaw (grepped: the only hits are
+those two design lines and one research note saying the engine's is left alone). Creating that writer
+is a new owner and a `GAME_DESIGN.md` row -- rule 3 -- so it is the Architect's design and the
+Director's dispatch, not a line I may add inside a 2 h horn task.
+
+### The two fixes, with what each costs
+
+| | What it is | Owner | Cost | What else it changes |
+|---|---|---|---|---|
+| **A** | The character faces the camera in first person (`AutoRotate` off + root yaw written from the applied view) | a NEW character/movement owner; `GAME_DESIGN.md` row + `docs/design/` | the design, then a small task | **everything** first-person: her own shadow, what other players see her facing, the drive's own geometry reads. It is the standard first-person behaviour and it fixes the horn, the hands and every future carried object at once |
+| **B** | The horn gets a first-person view like the gun's: `Rig` hides it and `Viewmodel` draws it in camera space | `Camera.Viewmodel` + `Camera.Rig` | one task, plus a pose row (content lane) | `Viewmodel` currently REFUSES a non-weapon Tool on purpose (task 152, after it drew a shotgun out of a horn's Handle). Opening that boundary is a design change, and it fixes only the horn |
+
+**My recommendation: A**, and soon. B is a special case for one object and leaves the body facing the
+wrong way for everything else; A is what every first-person game does and is already written down as
+the next thing first person needs. Karen will notice A immediately in third person too (her body
+will track her look), so it wants her eye in the same session.
+
+**What item 2 buys her in the meantime, stated so it is not oversold:** the horn is now 2.5x bigger
+(3.125 studs), so it stays readable much further off-axis than the 1.25-stud one did -- but at a full
+turn it still leaves the view, because that is the body's yaw and not the horn's size.
+
+### How to reproduce the measurement
+
+Forest Test in Play, `DHFlag_HORN=true`, `/beater` typed in the chat (or
+`TextChannels.RBXGeneral:SendAsync("/beater")` from the Client DataModel). Then, in the CLIENT
+DataModel, read `RightHand.CFrame:ToObjectSpace(Horn.Handle.Model.CFrame)` and the two yaws while
+setting `LocalPlayer:SetAttribute("DHLookAt", <a point 60 studs round a circle>)`. The probe is a
+throwaway script in the Builder's scratchpad; the numbers above are its output verbatim.
+
 ## 2026-10-13 - Task 174: NEEDS TEST2, one click. Everything else is done, gated and smoked
 
 **The work is finished and measured.** Two clean-tree full runs at the code commit, **both with DEV
