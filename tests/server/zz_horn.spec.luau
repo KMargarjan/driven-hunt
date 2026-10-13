@@ -43,12 +43,25 @@ local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+local Match = require(ServerScriptService:WaitForChild("Match"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local HornTool = Weapon.Horn
 local Hardware = Weapon.Hardware
 local CONFIG = Horn.CONFIG
+
+-- THE DRIVE SAYS YES, FOR A CASE THAT IS NOT ABOUT THE DRIVE (task 174). Since this task the blast
+-- policy the composition root wires (`Match.mayBlowHorn`) answers NO unless the drive is open -- the
+-- countdown, the start fanfare, the results scene, a server still in `Waiting` -- so a case about the
+-- COOLDOWN, the `Blown` payload or the arm raise has to say which drive it is standing in rather than
+-- inherit whichever phase this session happens to be in when the suite reaches it. The cases that are
+-- about the GATE install their own policy and always did; this is for the ones that are not.
+local function driveIsOpen(): ((string) -> boolean)?
+	return HornTool.setBlowPolicy(function(): boolean
+		return true
+	end)
+end
 
 local GROUND_Y = 1040 -- its own plate, clear of boar_body (500), boar_model (620), boar_shot (760)
 local PLATE_SPAN = 1400 -- wide enough to hold the 286-stud spook radius AND a boar outside it
@@ -284,7 +297,7 @@ return function()
 			-- The start signal begins as `Assigning` ends and the end signal as `Scoring` begins, so
 			-- a signal longer than a drive's intermission or its results scene would still be
 			-- sounding when the next thing happens. 2.18 s and 1.68 s against 15 s and 25 s.
-			local Match = require(ServerScriptService:WaitForChild("Match"))
+			-- (`Match` is this file's own require since task 174; it used to be made here.)
 			for _, word in ipairs(Horn.signalWords()) do
 				expect(Horn.signalSeconds(word, CONFIG) < Match.CONFIG.INTERMISSION_SECONDS).to.equal(true)
 				expect(Horn.signalSeconds(word, CONFIG) < Match.CONFIG.SCORE_SECONDS).to.equal(true)
@@ -1069,6 +1082,92 @@ return function()
 			)
 		end)
 
+		-- ---------------------------------------------------------------- task 174: before GO
+		--
+		-- KAREN, 2026-10-13 ~09:35: *"we can't walk or make a horn sound before horn anounce hunting
+		-- started for beater"*. WHEN a drive is open is `Match.Phase.driveOpen`'s answer and is stated
+		-- once, in `match_phase.spec`; what this file owns is that the "no" really stops a blast --
+		-- a player's click AND a bot's rhythm, through the one door both come through.
+		it("refuses a blast before GO, for a player and for a bot, and takes nothing (task 174)", function()
+			local backpack = newBackpack()
+			local player = stubPlayer(backpack, nil, 152014)
+			local restoreCarry = HornTool.setCarryPolicy(function()
+				return true
+			end)
+			local tool = HornTool.grant(player) :: Tool
+			local handle = tool:FindFirstChild("Handle") :: BasePart
+			handle.CFrame = CFrame.new(41, GROUND_Y, -51)
+
+			local heard = {}
+			local wire = HornTool.Blown:Connect(function(blast)
+				table.insert(heard, blast)
+			end)
+
+			-- THE DRIVE IS NOT OPEN YET -- the start fanfare is still sounding. ONE boolean for
+			-- everybody, which is what makes this a different rule from task 168's: that one is per
+			-- man (`Match.beaterThrough`), this one is the drive's own window.
+			local open = false
+			local restoreBlow = HornTool.setBlowPolicy(function(): boolean
+				return open
+			end)
+			local key = HornTool.keyFor(152014)
+			local t0 = 7000
+			local before = HornTool.stats().refusedThrough
+
+			expect(HornTool.mayBlow(key)).to.equal(false)
+			expect(HornTool.blow(player, t0)).to.equal(false)
+			-- A BOT IS THE SAME DOOR AND THE SAME ANSWER: `Bots.blowFor` calls `blowTool`, so a line
+			-- of bots cannot announce a drive that has not started either.
+			expect(HornTool.blowTool(tool, "bot-beater-2", nil, t0)).to.equal(false)
+			task.wait()
+			expect(#heard).to.equal(0)
+			expect(HornTool.stats().refusedThrough).to.equal(before + 2)
+			-- NOTHING WAS TAKEN. The horn is still in his hand, it is not at his mouth, and no
+			-- cooldown was started -- so the click he makes the instant the fanfare ends is not also
+			-- serving a penalty for the one he made during it.
+			expect(HornTool.held(player)).to.equal(tool)
+			expect(tool.Grip).to.equal(CONFIG.GRIP)
+
+			-- GO. The same click, the same instant, and now it sounds -- for the man and for the bot.
+			open = true
+			expect(HornTool.blow(player, t0)).to.equal(true)
+			expect(HornTool.blowTool(tool, "bot-beater-2", nil, t0)).to.equal(true)
+			task.wait()
+			expect(#heard).to.equal(2)
+
+			wire:Disconnect()
+			HornTool.setBlowPolicy(restoreBlow)
+			HornTool.setCarryPolicy(restoreCarry)
+			HornTool.revoke(player)
+			backpack:Destroy()
+		end)
+
+		it("asks the DRIVE whether a horn may sound at all, and it is two facts (task 174)", function()
+			-- `Match.mayBlowHorn` IS WHAT BOTH COMPOSITION ROOTS WIRE, and since this task it is the
+			-- AND of two facts that are not the same question: the DRIVE is open
+			-- (`Match.driveOpen` -> `Phase.driveOpen`) and the MAN is not through the hunters' line
+			-- (task 168). This reads the LIVE drive rather than a stub -- the phase is this session's
+			-- and no spec may move it -- so what it asserts is the composition: a key nobody has seen
+			-- cross may blow exactly when the drive is open, and not otherwise.
+			local key = HornTool.keyFor(152015)
+			local open = Match.driveOpen()
+			expect(type(open)).to.equal("boolean")
+			expect(Match.beaterThrough(key)).to.equal(false)
+			expect(Match.mayBlowHorn(key)).to.equal(open)
+			-- ...and nobody at all is nobody: a nil key is not through anything, so it too is held by
+			-- the drive's own window and by nothing else.
+			expect(Match.beaterThrough(nil)).to.equal(false)
+			expect(Match.mayBlowHorn(nil)).to.equal(open)
+			TestKit.note(
+				string.format(
+					"zz_horn: the live drive is %s, so mayBlowHorn(%s)=%s (task 174)",
+					if open then "OPEN" else "shut",
+					key,
+					tostring(Match.mayBlowHorn(key))
+				)
+			)
+		end)
+
 		it("raises a PLAYER's arm to the mouth on an accepted blast, and only on an accepted one", function()
 			-- KAREN, 2026-10-12 ~21:45: *"we need when I am playing beater to make animation when
 			-- raising horn to face and blow"*. Task 166 did it for bots; the pose is one definition
@@ -1086,6 +1185,7 @@ return function()
 			local restoreCarry = HornTool.setCarryPolicy(function()
 				return true
 			end)
+			local openDrive = driveIsOpen()
 			local tool = HornTool.grant(player) :: Tool
 			local handle = tool:FindFirstChild("Handle") :: BasePart
 			handle.CFrame = CFrame.new(51, GROUND_Y, -61)
@@ -1101,7 +1201,7 @@ return function()
 
 			-- A REFUSED BLAST RAISES NOTHING AT ALL -- not even an attempt, because the raise is
 			-- asked for only after the blast is accepted.
-			local restoreBlow = HornTool.setBlowPolicy(function(): boolean
+			HornTool.setBlowPolicy(function(): boolean
 				return false
 			end)
 			missed = HornTool.stats().raisesMissed
@@ -1110,7 +1210,7 @@ return function()
 			expect(HornTool.stats().raisesMissed).to.equal(missed)
 			expect(HornTool.stats().raised).to.equal(raised)
 
-			HornTool.setBlowPolicy(restoreBlow)
+			HornTool.setBlowPolicy(openDrive)
 			HornTool.setCarryPolicy(restoreCarry)
 			HornTool.revoke(player)
 			body:Destroy()
@@ -1123,6 +1223,7 @@ return function()
 			local restore = HornTool.setCarryPolicy(function()
 				return true
 			end)
+			local openDrive = driveIsOpen()
 			local tool = HornTool.grant(player) :: Tool
 			local handle = tool:FindFirstChild("Handle") :: BasePart
 			-- Somewhere recognisable, so "it published the horn's own position" is a real assertion
@@ -1160,6 +1261,7 @@ return function()
 
 			wire:Disconnect()
 			HornTool.setCarryPolicy(restore)
+			HornTool.setBlowPolicy(openDrive)
 
 			-- ...AND THE HORN IS LEFT RAISED, ON PURPOSE. Whether it comes back DOWN is the last case
 			-- in this file, because the restore is a `task.delay(BLOW_SECONDS)` -- three seconds of
@@ -1503,6 +1605,7 @@ return function()
 			local connection = HornTool.Blown:Connect(function(blast)
 				table.insert(blasts, blast)
 			end)
+			local openDrive = driveIsOpen()
 			local at = os.clock()
 			expect(HornTool.blowTool(tool, "bot-beater-1", nil, at)).to.equal(true)
 			-- INSIDE the cooldown: refused, by the same table and the same number that holds a player.
@@ -1526,6 +1629,7 @@ return function()
 			end
 			-- ...and it is published from the HORN's own handle, never from an approximate position.
 			expect((blasts[1].at - handle.Position).Magnitude < 1e-3).to.equal(true)
+			HornTool.setBlowPolicy(openDrive)
 		end)
 
 		it("refuses a blast with no tool at all, rather than publishing from nowhere", function()

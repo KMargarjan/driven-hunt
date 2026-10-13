@@ -308,9 +308,13 @@ return function()
 			stepUntilBuilt(2)
 			expect(Bots.released()).to.equal(false)
 			local blastsBefore = Bots.stats().blasts
-			-- Ten seconds of steps -- four times the fanfare, and well past `HORN.EVERY_SECONDS.min`.
-			for _ = 1, 50 do
-				Bots.step(0.2)
+			-- EIGHTY SECONDS OF HELD TIME, with the clock handed in (`Bots.step`'s own test seam)
+			-- rather than fifty steps of the real one -- so "every bot's horn was due and none of them
+			-- blew" is a measurement and not a hope. It is past `HORN.EVERY_SECONDS.max`, which task
+			-- 174 raised to 60 s, so the loop still outlasts the window it is about.
+			local heldFrom = os.clock()
+			for index = 1, 50 do
+				Bots.step(0.2, heldFrom + index * 1.6)
 			end
 			expect(Bots.stats().walking).to.equal(0)
 			expect(Bots.stats().blasts).to.equal(blastsBefore)
@@ -732,6 +736,13 @@ return function()
 			-- exact thing that cooldown exists to prevent.
 			expect(Bots.CONFIG.HORN.EVERY_SECONDS.min > HornData.CONFIG.COOLDOWN).to.equal(true)
 			expect(Bots.CONFIG.HORN.EVERY_SECONDS.max >= Bots.CONFIG.HORN.EVERY_SECONDS.min).to.equal(true)
+			-- ...AND SINCE TASK 174 IT IS A LOT LESS OFTEN. KAREN, 2026-10-13 ~13:40, choosing between
+			-- three answers to task 172's measurement -- the bot horns reach 100 m, so every sounder
+			-- in the wood was already running before she could walk up on one: *"Bots blow less
+			-- often"*. FOUR beaters share this window, so the quiet between blasts is about a quarter
+			-- of `min`, and a walk-up takes the time it takes to cross 100 m. 45 s is ~11 s of quiet;
+			-- the 18 s this was before was ~4.5 s, which is less than nothing at that reach.
+			expect(Bots.CONFIG.HORN.EVERY_SECONDS.min >= 45).to.equal(true)
 		end)
 
 		it("is jittered, deterministic and inside its own window", function()

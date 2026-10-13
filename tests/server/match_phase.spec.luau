@@ -1692,6 +1692,67 @@ return function()
 			expect(Phase.lineHeld({ phase = "Waiting", goFreed = false } :: any)).to.equal(false)
 		end)
 
+		-- TASK 174: THE SIGNALS ARE THE RULES. KAREN, 2026-10-13 ~09:35: *"we can't walk or make a
+		-- horn sound before horn anounce hunting started for beater / for hunter once hunt over
+		-- (drive) horn anounce then I can; shoot anymore"*.
+		--
+		-- `Phase.driveOpen` IS THE ONE SOURCE the horn gate (`Match.mayBlowHorn`), the fire gate
+		-- (`Weapon.Rules.driveClosed`, through `Match.driveOpen`) and the bot line's walk
+		-- (`Match.botsMayGo`) all read, so this case states the WINDOW once, against the real machine
+		-- and both of its endings, instead of three gates each stating it in its own words.
+		it("opens the drive at GO and shuts it at the end, by the clock and by the line (task 174)", function()
+			local cfg = config({ MIN_PLAYERS = 4, BOARS_PER_DRIVE = 0, GO_HOLD_SECONDS = 2 })
+			local state = assigning(cfg)
+			-- THE COUNTDOWN. The start signal has not sounded, so nothing is open -- and this is the
+			-- half of Karen's rule the horn needed: a beater is already held still here (task 158).
+			expect(state.phase).to.equal("Assigning")
+			expect(Phase.driveOpen(state)).to.equal(false)
+
+			-- `Running` BEGINS AND THE FANFARE IS STILL SOUNDING: still shut. GO is the END of the
+			-- phrase (`Phase.goHoldSeconds`), which is the whole of task 168's correction.
+			state = (Phase.step(state, { kind = "tick", aliveBoars = 0 }, cfg.INTERMISSION_SECONDS, cfg))
+			expect(state.phase).to.equal("Running")
+			expect(Phase.lineHeld(state)).to.equal(true)
+			expect(Phase.driveOpen(state)).to.equal(false)
+
+			-- GO. The one `free` has been emitted and the drive is open.
+			local at
+			state, _, at = run(state, cfg, cfg.INTERMISSION_SECONDS, 2.5, 0.25)
+			expect(state.phase).to.equal("Running")
+			expect(Phase.lineHeld(state)).to.equal(false)
+			expect(Phase.driveOpen(state)).to.equal(true)
+
+			-- ENDING 1, THE CLOCK (Karen's *"Timer"*).
+			local byClock = (run(state, cfg, at, cfg.DRIVE_SECONDS, 0.25))
+			expect(byClock.phase).to.equal("Scoring")
+			expect(Phase.driveOpen(byClock)).to.equal(false)
+
+			-- ENDING 2, THE LINE (*"or when all beaters cross line of hunters"*, task 159). The SAME
+			-- answer, which is what makes "from the end signal" one rule and not two.
+			local byLine = (Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at + 1, cfg))
+			expect(byLine.phase).to.equal("Scoring")
+			expect(Phase.driveOpen(byLine)).to.equal(false)
+
+			-- ...AND IT STAYS SHUT THROUGH THE RESULTS SCENE AND THE NEXT COUNTDOWN -- *"until the
+			-- next drive's GO"* -- which is the span a hunter's trigger does nothing in.
+			local nextDrive = (run(byLine, cfg, at + 1, cfg.SCORE_SECONDS + 1, 0.25))
+			expect(nextDrive.phase).to.equal("Assigning")
+			expect(Phase.driveOpen(nextDrive)).to.equal(false)
+
+			-- THE HAND-WRITTEN STATES, which is the shape the three gates are driven with in their own
+			-- files, and `nil` for a world with no drive at all.
+			expect(Phase.driveOpen({ phase = "Running", goFreed = true } :: any)).to.equal(true)
+			expect(Phase.driveOpen({ phase = "Running", goFreed = false } :: any)).to.equal(false)
+			expect(Phase.driveOpen({ phase = "Assigning", goFreed = true } :: any)).to.equal(false)
+			expect(Phase.driveOpen({ phase = "Scoring", goFreed = true } :: any)).to.equal(false)
+			expect(Phase.driveOpen({ phase = "Waiting", goFreed = true } :: any)).to.equal(false)
+			expect(Phase.driveOpen(nil)).to.equal(false)
+			-- AND THE BOT LINE'S RULE IS THIS PREDICATE ITSELF since task 174, not a copy of it.
+			expect(Match.botsMayGo({ phase = "Running", goFreed = true })).to.equal(true)
+			expect(Match.botsMayGo({ phase = "Running", goFreed = false })).to.equal(false)
+			expect(Match.botsMayGo(nil)).to.equal(false)
+		end)
+
 		it("asks the config who is held, so a spec can point it at either side", function()
 			local assignment = { [1] = "Drivers" :: any, [2] = "Shooters" :: any, [3] = "Drivers" :: any }
 			expect(table.concat(Phase.heldUserIds(assignment, { START_HOLD_TEAM = "Drivers" }), ",")).to.equal("1,3")

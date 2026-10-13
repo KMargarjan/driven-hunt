@@ -147,7 +147,17 @@ Bots.CONFIG = {
 	-- this, so a bot can never be the thing that tests the cooldown -- `bots_live.spec` asserts that
 	-- relation rather than trusting it. Jittered off a deterministic hash, never a Random: a Random
 	-- here would make a bug report unreproducible, which is why `Phase` has none either.
-	HORN = { EVERY_SECONDS = { min = 18, max = 35 } }, -- K
+	--
+	-- 45 TO 60 SECONDS SINCE TASK 174, UP FROM 18 TO 35. KAREN, 2026-10-13 ~13:40, choosing between
+	-- three answers to a measurement from task 172: *"Bots blow less often"*. The measurement is the
+	-- reason -- in both of that task's drives the four bot beaters' horns reach 100 m
+	-- (`Horn.spookStuds`), so every sounder in the wood was running before the player could walk up
+	-- on one, and the notice -> alert -> bolt she asked to SEE did not fire once. Four beaters at
+	-- 18-35 s is a blast every ~6.6 s somewhere in the wood, which is less than the time it takes to
+	-- walk 100 m; at 45-60 s it is one every ~13 s, so there is quiet between the blasts for a
+	-- walk-up to happen in. It is DATA and it is the whole of this item: nothing about the rhythm,
+	-- the jitter or the reach changed.
+	HORN = { EVERY_SECONDS = { min = 45, max = 60 } }, -- K
 	-- EIGHT RIGS OVER FOUR STEPS (0.8 s) instead of one hitch. The build can yield, so it is spawned
 	-- off the step loop and rationed -- the declared floor SimplePath's own `TIME_VARIANCE` argues
 	-- for, applied to the expensive call this system has.

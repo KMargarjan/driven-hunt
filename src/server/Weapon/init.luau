@@ -155,7 +155,7 @@ local driveLineProvider: Shotgun.DriveLineProvider? = nil
 -- uses, so every tests/server/weapon_*.spec.luau is untouched.
 local armingPolicy: ((Player) -> boolean)? = nil
 
--- THE THREE FACTS THE RULES NEED (task 171), injected at the composition root exactly as the two
+-- THE FACTS THE RULES NEED (three in task 171, a fourth in 174), injected at the composition root exactly as the two
 -- above are: the drive answers them and the weapon still decides and still writes
 -- (docs/research/2026-10-13-the-rules.md, the pattern adopted, item 3).
 --
@@ -166,6 +166,10 @@ local armingPolicy: ((Player) -> boolean)? = nil
 local targetProvider: ((Instance?) -> Rules.Target?)? = nil
 local standProvider: ((Player) -> Rules.StandArea?)? = nil
 local licenceProvider: ((Player) -> { [string]: boolean }?)? = nil
+-- IS THE DRIVE OPEN? (task 174, the fourth fact.) It takes no `Player` and no `Instance`, because it
+-- is not about either: the drive is on or it is not, for everybody at once. `Match.driveOpen` is
+-- what the composition roots hand over.
+local driveOpenProvider: (() -> boolean?)? = nil
 
 function Weapon.setCast(cast: Shotgun.CastFn?)
 	castFn = cast or Cast.world
@@ -193,6 +197,17 @@ function Weapon.setLicenceProvider(provider: ((Player) -> { [string]: boolean }?
 	licenceProvider = provider
 end
 
+-- WHETHER THE DRIVE IS BETWEEN ITS TWO SIGNALS (task 174). KAREN, 2026-10-13 ~09:35: *"for hunter
+-- once hunt over (drive) horn anounce then I can; shoot anymore"*. `Match.driveOpen` answers it off
+-- the drive's own phase and GO time, which is the same predicate the beater's horn is gated on
+-- (`Match.mayBlowHorn`) and the bot line's walk (`Match.botsMayGo`) -- one source, no second clock.
+--
+-- Unwired means "no restriction", the default every provider above takes: `Rules.driveClosed` refuses
+-- only on an explicit `false`.
+function Weapon.setDriveOpenProvider(provider: (() -> boolean?)?)
+	driveOpenProvider = provider
+end
+
 -- EVERY PROVIDER IS CALLED THROUGH `pcall`, the rule `mayArm` already states: a provider that errors
 -- must not leave a player permanently unable to shoot AND must not silently remove the rule. It
 -- falls back to "no restriction", which is the weapon's own default and what a server with no Match
@@ -211,6 +226,17 @@ local function askStand(player: Player): Rules.StandArea?
 	end
 	local ok, area = pcall(standProvider :: any, player)
 	return if ok and type(area) == "table" then area else nil
+end
+
+local function askDriveOpen(): boolean?
+	if driveOpenProvider == nil then
+		return nil
+	end
+	local ok, open = pcall(driveOpenProvider :: any)
+	-- A PROVIDER THAT THREW SAYS NOTHING, not "closed": the same call `askStand` and `askTarget`
+	-- make, and the stronger one here -- a drive whose predicate errored must not leave every hunter
+	-- in the wood clicking a dead trigger with one line on screen blaming the drive.
+	return if ok and type(open) == "boolean" then open else nil
 end
 
 local function askLicences(player: Player): { [string]: boolean }?
@@ -938,6 +964,8 @@ local function onFireRequest(player: Player, req: any): string?
 		stand = askStand(player),
 		target = askTarget(if aimImpact then aimImpact.instance else nil),
 		licences = askLicences(player),
+		-- ...AND WHETHER THE DRIVE IS ON AT ALL (task 174), which `Rules.ORDER` asks FIRST.
+		driveOpen = askDriveOpen(),
 	})
 	if refused ~= nil then
 		stats.refused += 1

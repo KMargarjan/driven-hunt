@@ -1868,7 +1868,7 @@ function Match.mayCarryWeapon(player: Player): boolean
 	return team == "Drivers" and config.DRIVERS_MAY_SHOOT
 end
 
--- ------------------------------------------------------- the three answers the fire gate needs (171)
+-- -------------------------------------------------- the answers the fire gate needs (171, and 174)
 --
 -- THE DRIVE ANSWERS, THE WEAPON DECIDES AND WRITES -- exactly as `mayCarryWeapon` and `driveLine`
 -- above do, and these are handed to `Weapon.setTargetProvider` / `Weapon.setStandProvider` at the
@@ -2065,8 +2065,34 @@ end
 --
 -- INJECTED, NEVER REQUIRED: the composition root hands this to `Weapon.Horn.setBlowPolicy`, exactly
 -- as it hands `Match.mayCarryWeapon` to `Weapon.setArmingPolicy`. Neither owner requires the other.
+-- ...AND SINCE TASK 174 THE DRIVE HAS TO BE OPEN AS WELL. KAREN, 2026-10-13 ~09:35: *"we can't
+-- walk or make a horn sound before horn anounce hunting started for beater"*. The walk was task
+-- 168's (`Body.hold` for a player, `Match.botsMayGo` for the line); the HORN was not, so a beater
+-- stood anchored at his line through the start fanfare and could sound the signal that had not
+-- finished announcing itself -- and a bot's blast, which the step already held behind `released`,
+-- was refused by that one boolean and by nothing a spec could state.
+--
+-- TWO QUESTIONS, ONE DOOR, AND THEY ARE NOT THE SAME QUESTION: `Phase.driveOpen` is about the DRIVE
+-- (before GO, and after the end signal through the results scene) and `beaterThrough` is about the
+-- MAN (he has walked out the far side, task 168). Both of them answer "no" through
+-- `Weapon.Horn.mayBlow`, which is the one door every blast comes through -- a player's click, a
+-- bot's rhythm and a spec's call -- so a player and a bot are held by one rule and not by two.
 function Match.mayBlowHorn(key: string?): boolean
-	return not Match.beaterThrough(key)
+	return Match.driveOpen() and not Match.beaterThrough(key)
+end
+
+-- IS THE DRIVE OPEN? (task 174.) The owner's one read of `Phase.driveOpen` against the live state,
+-- and the fact the WEAPON's fire gate is handed at the composition root
+-- (`Weapon.setDriveOpenProvider`) -- exactly as `mayCarryWeapon`, `standAreaFor` and
+-- `classifyTarget` are handed over: the drive answers, the weapon decides and writes.
+--
+-- WHAT IT MEANS FOR A HUNTER: from the moment the drive ends -- the clock or the last beater
+-- crossing the line, whichever comes first, which is the moment the END SIGNAL sounds -- the trigger
+-- does nothing, through the results scene, until the next drive's GO. Karen: *"for hunter once hunt
+-- over (drive) horn anounce then I can; shoot anymore"*. It is refused from the signal's START (the
+-- drive's end), not from its end: the signal announces a drive that is already over.
+function Match.driveOpen(): boolean
+	return Phase.driveOpen(state)
 end
 
 -- THE THROUGH LIST AS userIds, for the snapshot -- the shape `tied` has, and sorted for the same
@@ -2097,10 +2123,10 @@ end
 -- line been let go" and the two cannot drift: the dispatch that emits `free` is the dispatch on
 -- which this first answers true, because `Phase.step` clears `goFreed` in the same step.
 function Match.botsMayGo(driveState): boolean
-	if driveState == nil or driveState.phase ~= "Running" then
-		return false
-	end
-	return not Phase.lineHeld(driveState)
+	-- ...AND SINCE TASK 174 IT IS `Phase.driveOpen`, WHICH IS THE SAME TWO CONDITIONS IT USED TO
+	-- STATE HERE IN ITS OWN WORDS. The horn gate and the fire gate ask the same predicate, so "is the
+	-- drive on" has one answer for the line that walks, the horn that sounds and the gun that fires.
+	return Phase.driveOpen(driveState)
 end
 
 -- HOW MANY BOT RIGS EXIST, read-only, for the report and for a spec. 0 with no bots injected, which
