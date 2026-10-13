@@ -1,9 +1,9 @@
 # Task 172 review request: the horn in the hand, one horn for all, and a beater who sees the animals
 
 Task: 172
-Round: 2
+Round: 3
 Base: main (`db6bfe2`, #155 merged)
-Code commit: `d1bb54cc92c0535bf30f6be7049270a6e73ce5be`
+Code commit: `28c20eb6a0836df9060ae8d917853c9d508d5013`
 
 Branch `task-172-horn-hand-see-animals`. Karen, 2026-10-13 ~09:20: *"horn is hanging somehwere it has
 to be in hand / all beaters has to have same horn / beaters has to see more animals when walking I
@@ -12,12 +12,12 @@ want to see how they stand and then start to run or run but I want to see them m
 
 ## Harness
 
-Run TWICE at the code commit, both PASS, with the same counts: server **1225 passed / 0 failed** (50
+Run TWICE at the code commit, both PASS, with the same counts: server **1226 passed / 0 failed** (50
 spec files), client **302 / 0** (17).
 
 ```
-[harness] PASS: 33/33 checks @ d1bb54cc92c0535bf30f6be7049270a6e73ce5be (clean tree) scope=all
-[harness] PASS: 33/33 checks @ d1bb54cc92c0535bf30f6be7049270a6e73ce5be (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 28c20eb6a0836df9060ae8d917853c9d508d5013 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 28c20eb6a0836df9060ae8d917853c9d508d5013 (clean tree) scope=all
 ```
 
 **`test2` is N/A, and the list is why**: nothing this task touches is in `TWO_PLAYER_PATHS`
@@ -105,16 +105,22 @@ spec files), client **302 / 0** (17).
    `10 groups, 4 of them on her own lane; the furthest is 24 studs off its lane (ceiling 40)` and
    `the resting band is 40-425 studs of a 580-stud walk (66% of it); keep-away 155`.
 
-8. **NOTHING BEHIND THE LINE: the re-stock is gone, and the "place it anyway" fallback with it.**
-   Task 168 measured its own remaining source -- 7 animals of 25 appearing up to 31 studs behind the
-   front -- and the reason is geometric: the band is measured from the ROAD and the line is deep
-   inside it fifteen seconds later. The wood is stocked ONCE (`state.restStocked`, set whether or not
-   a group went down, so a failed search is not retried every heartbeat) and never again; both passes
-   of `restSpot` enforce the sweep rule and neither places anyway. `REST.restockSeconds` and the
-   branch it timed are archived in `backups/2026-10-13_task-172_rest-restock.md` (rule 7), logged in
+8. **NOTHING BEHIND THE LINE: the re-stock is gone, and the "place it anyway" fallback with it --
+   ONCE PER DRIVE, not once per session.** Task 168 measured its own remaining source (7 animals of
+   25 appearing up to 31 studs behind the front) and the reason is geometric: the band is measured
+   from the ROAD and the line is deep inside it fifteen seconds later. So the wood is stocked once
+   per DRIVE and never re-stocked inside one; both passes of `restSpot` enforce the sweep rule and
+   neither places anyway. `ForestTest.newDrive()` is the boundary reset -- the stock latch, what was
+   stocked, the flight latches and the notice clocks, and nothing that counts across a session -- and
+   `ForestTestBoot` calls it on the `Assigning` edge it already opens a report window on;
+   `ForestTest.start` calls the same function, so a server start and a drive boundary cannot drift
+   apart. The latch is set when something was actually PLACED, and until it takes the search is
+   re-tried every `REST.stockRetrySeconds` (2). `REST.restockSeconds` and the branch it timed are
+   archived in `backups/2026-10-13_task-172_rest-restock.md` (rule 7), logged in
    `backups/README.md`, with how to put them back.
-   *Verify:* `ForestTest.stepRest` and `ForestTest.restSpot`; the end of `ForestTest.REST`; the case
-   `never re-stocks the wood, which is the last way an animal could appear behind the line`.
+   *Verify:* `ForestTest.stepRest`, `ForestTest.newDrive` and `ForestTest.restSpot`; the
+   `Assigning` branch of `ForestTestBoot`; the cases `never re-stocks the wood...` and `stocks the
+   wood once per DRIVE, and the boundary is a function the boot calls`.
 
 9. **MEASURED LIVE, TWICE, OVER A WHOLE DRIVE EACH TIME, AND THE COUNT IS 0.** Beater drives in the
    Forest Test with the bot line (`DHForestStartRole=beater` for the measurement, restored to
@@ -129,6 +135,26 @@ spec files), client **302 / 0** (17).
     encounter exactly -- its own case, not an argument. No flag was added: this is a correction to
     numbers plus one new stage inside the beater path, and (round 1's note, which was right) that
     path is behind NO flag -- `spookNearBeaters`, `Brain:spook` and `Brain:notice` read none.
+
+## Round 2's one finding, fixed
+
+**THE LATCH WAS PER SESSION, NOT PER DRIVE, and the Reviewer was right that it was the one that
+mattered.** `state.restStocked` was written false in exactly one place -- `ForestTest.start`'s reset
+-- and the boot calls `start` once per SERVER. So a beater who cleared the wood in drive 1 walked 580
+studs of empty wood in every drive after it: task 154's founding defect in a new form, and the
+15-second re-stock this task archived is exactly what used to cover that boundary. The live proof
+could not reach it -- both measured drives were the first of their session. `ForestTest.newDrive()`
+and the `Assigning` call are claim 8.
+
+Four of its eight notes are fixed with it: the notice CLOCK now starts only when `Brain:notice`
+accepted the look (starting it either way made the stage an invisible 2 s delay for every walking
+file, which is a change to the hunter's drive nobody asked for); the sightline ray no longer excludes
+the terrain (this wood rolls, and a ray through a hill answers "seen" over it); the stock latch is
+set only when something was PLACED, with the search re-tried every 2 s until it takes; and the
+pair-spacing case now says why its bound is the FLUSH reach and not the notice one -- two groups that
+both BOLT on one approach is the defect this rule exists for, two that both STAND is more of what
+Karen asked to see. The other four are queued as 172a(f2), (g), (h) and (i), and `PLAYTEST.md` now
+says in Karen's own row that the staged stand did not fire once in either measured drive.
 
 ## Round 1's two findings, both fixed
 
