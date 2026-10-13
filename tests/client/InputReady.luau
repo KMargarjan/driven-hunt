@@ -51,6 +51,16 @@ InputReady.EXPECTED = { "input_driving", "weapon_client", "camera_client", "shoo
 -- fields the server publishes and the Hud already reads (`Match.phase`, `Match.holdSecondsLeft`) --
 -- and it decides exactly one thing: WHEN THE TEST FIRES. It allows nothing and refuses nothing.
 InputReady.OPEN_DRIVE_TIMEOUT = 45
+-- ...AND THE CHARACTER THE DRIVE JUST RESPAWNED HAS TO HAVE SETTLED (task 174, the Director's `test2`
+-- at `454d58a`). GO is exactly when `placePlayers` respawns everybody to put them on their posts, so
+-- "the drive is open" is also the moment a client's character is being replaced -- and a spec that
+-- parks itself then is parking a body the server is about to swap. `zz_tie`'s probe measured the
+-- consequence: the client read itself 0.0 studs from its own stand centre while the SERVER's
+-- `off-stand` rule still refused the shot, five refusals running.
+--
+-- SO READY MEANS: the drive is open, AND this client has had the same character, with a root, for a
+-- second. It is not a guess about the network -- it is waiting for the one event that was in flight.
+InputReady.CHARACTER_SETTLED_SECONDS = 1
 
 -- The client's own drive module, resolved lazily and tolerantly -- the shape `weapon_client`'s
 -- `cameraView` already uses, and for the same reason: a place with no drive in it must still replay.
@@ -63,6 +73,23 @@ local function driveModule(): any?
 	end
 	local ok, match = pcall(require, module)
 	return if ok and type(match) == "table" then match else nil
+end
+
+-- HAS THIS CLIENT HAD THE SAME CHARACTER, WITH A ROOT, FOR `CHARACTER_SETTLED_SECONDS`? Polled, so
+-- the clock starts at the first call and restarts whenever `Player.Character` is replaced -- which is
+-- what a respawn does.
+local lastCharacter: Instance? = nil
+local lastCharacterAt = 0
+
+function InputReady.characterSettled(): boolean
+	local player = Players.LocalPlayer
+	local character = if player then player.Character else nil
+	if character ~= lastCharacter then
+		lastCharacter = character
+		lastCharacterAt = os.clock()
+	end
+	local root = if character then character:FindFirstChild("HumanoidRootPart") else nil
+	return character ~= nil and root ~= nil and (os.clock() - lastCharacterAt) >= InputReady.CHARACTER_SETTLED_SECONDS
 end
 
 -- IS THE DRIVE OPEN, as this client's snapshot says? `Running`, and the start fanfare finished --
@@ -88,16 +115,17 @@ function InputReady.drivePrint(): string
 	end
 	local ok, text = pcall(function()
 		return string.format(
-			"phase=%s hold=%.1f open=%s",
+			"phase=%s hold=%.1f open=%s character=%s",
 			tostring(match.phase()),
 			match.holdSecondsLeft(),
-			tostring(InputReady.driveOpen())
+			tostring(InputReady.driveOpen()),
+			if InputReady.characterSettled() then "settled" else "in flight"
 		)
 	end)
 	return if ok then text else "drive unreadable"
 end
 
--- Waits for the drive to open, up to `seconds`. Returns whether it is open and one line about it.
+-- Waits for an open drive AND a settled character, up to `seconds`. Returns whether it is open and one line about it.
 -- IT GIVES UP RATHER THAN HANGING: a drive that never opens would otherwise hold the ready attribute
 -- for ever, and the harness's own "the client bound its listeners" check would fail after 60 s with
 -- nothing in the log about why. Replaying into a shut drive fails the firing specs instead, loudly,
@@ -106,7 +134,7 @@ function InputReady.waitForOpenDrive(seconds: number?): (boolean, string)
 	local began = os.clock()
 	local deadline = began + (seconds or InputReady.OPEN_DRIVE_TIMEOUT)
 	repeat
-		if InputReady.driveOpen() then
+		if InputReady.driveOpen() and InputReady.characterSettled() then
 			return true,
 				string.format("the drive was open after %.1f s (%s)", os.clock() - began, InputReady.drivePrint())
 		end
