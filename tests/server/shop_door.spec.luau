@@ -66,7 +66,16 @@ local function fakeRemotes()
 	local sent = {}
 	return sent,
 		{
-			ShopRequest = { OnServerEvent = { Connect = function() end } },
+			ShopRequest = {
+				OnServerEvent = {
+					-- A REAL `Connect` ANSWERS A CONNECTION, so the double answers one too: the
+					-- owner keeps it to disconnect on `stop`, and a double that answered nil used to
+					-- crash `start` (round 1 of this task).
+					Connect = function()
+						return { Disconnect = function() end }
+					end,
+				},
+			},
 			ShopState = {
 				FireClient = function(_, player: any, payload: any)
 					table.insert(sent, { userId = player.UserId, payload = payload })

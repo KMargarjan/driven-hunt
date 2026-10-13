@@ -34,8 +34,11 @@ local Panel = Hud.Shop
 -- `Economy.shopStateFor` calls, so this spec cannot disagree with the server about what a row says.
 local function statePayload(options)
 	local opts = options or {}
-	local owned = opts.owned or { [Shop.ITEM.SLUG] = true }
-	local coins = if opts.coins ~= nil then opts.coins else 300
+	-- `noProfile` IS ITS OWN OPTION because nil cannot be passed through a table literal as "say
+	-- nothing": `opts.coins == nil` is also what "the default" looks like. A player with no open
+	-- profile has NO balance and NO set, and the panel must draw `--` rather than a nought.
+	local owned = if opts.noProfile then nil else (opts.owned or { [Shop.ITEM.SLUG] = true })
+	local coins = if opts.noProfile then nil else (if opts.coins ~= nil then opts.coins else 300)
 	local hunts = if opts.hunts ~= nil then opts.hunts else 30
 	return {
 		coinsOn = if opts.coinsOn ~= nil then opts.coinsOn else true,
@@ -131,7 +134,7 @@ return function()
 		end)
 
 		it("prints one line when there is no money in this build at all", function()
-			Panel.onState(statePayload({ coinsOn = false, coins = nil }))
+			Panel.onState(statePayload({ coinsOn = false, noProfile = true }))
 			Panel.setOpen(true)
 			expect(Panel.balanceText()).to.equal(Shop.CONFIG.TEXT.CLOSED)
 			for _, line in ipairs(Panel.rowText()) do
@@ -140,7 +143,7 @@ return function()
 		end)
 
 		it("draws `--` and not a nought for a player whose profile is not loaded", function()
-			Panel.onState(statePayload({ coins = nil, owned = nil }))
+			Panel.onState(statePayload({ noProfile = true }))
 			Panel.setOpen(true)
 			-- `nil` IS NOT ZERO: `Economy.balanceOf`'s own rule, drawn.
 			expect(string.find(Panel.balanceText(), "--", 1, true) ~= nil).to.equal(true)

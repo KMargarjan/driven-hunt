@@ -484,18 +484,24 @@ return function()
 		end)
 
 		it("refuses a poor player, a locked item and a forged id, and writes nothing for any of them", function()
-			local _, store = started({ ids = { 203 }, seed = { [203] = { coins = 100, drivesPaid = 2 } } })
+			-- TWO PLAYERS, because LOCKED is asked BEFORE POOR and one man cannot be both at once on
+			-- the same row: 203 has walked thirty drives and has no money, 213 has money and has
+			-- walked two. (Round 1 of this task got exactly this wrong, which is the order working.)
+			local _, store = started({
+				ids = { 203, 213 },
+				seed = { [203] = { coins = 100, drivesPaid = 30 }, [213] = { coins = 300, drivesPaid = 2 } },
+			})
 			expect(waitUntil(2, function()
-				return Economy.balanceOf(203) ~= nil
+				return Economy.balanceOf(203) ~= nil and Economy.balanceOf(213) ~= nil
 			end)).to.equal(true)
-			expect(Economy.huntsOf(203)).to.equal(2)
-			-- POOR: the rifle is 1500.
-			local poor, short = Economy.purchase(203, Shop.ITEM.RIFLE, { atCounter = true }), nil
+			expect(Economy.huntsOf(203)).to.equal(30)
+			-- POOR: the rifle is 1500 and he has 100, with the hunts behind him.
+			local poor = Economy.purchase(203, Shop.ITEM.RIFLE, { atCounter = true })
 			expect(poor.refused).to.equal(Shop.REASON.POOR)
 			expect(poor.refusedNumber).to.equal(1500 - 100)
-			short = Economy.purchase(203, Shop.ITEM.BEATER_LICENCE, { atCounter = true })
-			-- LOCKED before POOR: no amount of coins buys past a hunt gate, so that is the line he is
-			-- shown even though he is also short of the 250.
+			-- LOCKED before POOR: no amount of coins buys past a hunt gate, so THAT is the line he is
+			-- shown -- and 213 can afford the licence's 250 and has walked one drive too few.
+			local short = Economy.purchase(213, Shop.ITEM.BEATER_LICENCE, { atCounter = true })
 			expect(short.refused).to.equal(Shop.REASON.LOCKED)
 			expect(short.refusedNumber).to.equal(1)
 			-- A FORGED ID, and the open-sight rifle, which is in the catalogue and not for sale.

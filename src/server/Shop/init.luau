@@ -229,12 +229,17 @@ function Shop.start(injected: World?): boolean
 	started = true
 	world.players = world.players or Players
 	if world.remotes ~= nil then
-		table.insert(
-			connections,
-			world.remotes.ShopRequest.OnServerEvent:Connect(function(player: Player, payload: any)
-				Shop.onRequest(player, payload)
-			end)
-		)
+		-- GUARDED, because a seam that answers nothing must not take the boot down with it: a
+		-- `RemoteEvent` double whose `Connect` returns nil is a legal stand-in (a spec drives
+		-- `Shop.onRequest` by parameter, which is the whole point of that function being public),
+		-- and `table.insert(t, nil)` throws. MEASURED in round 1 of this task: nine cases of
+		-- `shop_door.spec` died inside `start` rather than failing an assertion.
+		local connection = world.remotes.ShopRequest.OnServerEvent:Connect(function(player: Player, payload: any)
+			Shop.onRequest(player, payload)
+		end)
+		if connection ~= nil then
+			table.insert(connections, connection)
+		end
 	end
 	print(string.format("[shop] on: the counter in the lodge lists %d item(s)", #Data.ORDER))
 	return true
