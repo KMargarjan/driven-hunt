@@ -28,6 +28,24 @@
 -- client may only move its own character and a shot has to be able to reach him (`Buck` carries 100
 -- studs).
 --
+-- AND BOTH CHARACTERS ARE PARKED WHILE THE WINDOW IS OPEN, AND THE GEOMETRY IS RECORDED AT THE SHOT.
+-- The Director's third two-player run (`cd30764`) is why, and what it does NOT say is as important as
+-- what it does:
+--   * the DRIVER's pivot provably took -- he read `-560, 5.15, -675`, which is the stand centre
+--     (`-700`) plus exactly `STAND_BEHIND`;
+--   * the SHOOTER read `-560, 3.5, -741`, **41 studs** off the centre -- but that reading was taken
+--     ~25 seconds after the probe, at the end of the case, and the replay holds movement keys the
+--     whole time. So WHEN he left his stand is simply not in the data, and a spec that reads a
+--     position back later cannot tell "the pivot failed" from "he walked off afterwards";
+--   * and the probe's own answer was `refused=nil` with the barrels UNCHANGED and `busy=0.60` --
+--     the scenario presses R 1.2 s after the cue, and a `busy` rejection is the REDUCER's: it
+--     commits no state and carries no `refused` field, so it reads exactly like "no rule spoke".
+-- Both are fixed at the source rather than guessed at: the characters are HELD (see `park`), every
+-- pre-condition the rule needs is MEASURED before each attempt, the numbers are recorded AT the shot
+-- the gate judged, and the probe RETRIES -- because a mechanical rejection costs nothing, so trying
+-- again inside the window is free and is the only way to be sure the shot did not land in a gun
+-- whose hands were full.
+--
 -- AND THERE ARE TWO RULES ABOUT A SHOT NEAR A BEATER, SO IT STAGES BOTH -- which is the other half
 -- of what this file carries and the reason the aim is five studs off his body:
 --   1. THE RAY WOULD HIT HIM -> THE SHOT IS REFUSED. `Weapon.Rules.beaterInLine`, Karen 2026-10-11:
@@ -98,9 +116,22 @@ local DOWN_THE_DRIVE = 200 -- studs up +Z, for the one-player shot at nobody
 -- `STAND_BEHIND` = 25 studs it is 11.3 degrees off the drive, deep inside the 45-degree half-arc
 -- (`Shotgun.CONFIG.SAFETY_ARC_HALF_DEG`), so the arc still publishes it.
 local BESIDE_STUDS = 5
--- Seconds to wait for the server's answer to the probe shot. It is one round trip; the gun publishes
+-- Seconds to wait for the server's answer to one probe shot. It is one round trip; the gun publishes
 -- on the refusal with `force`, so this is slack and not a guess.
 local PROBE_TIMEOUT = 3
+-- How long the probe keeps TRYING, and it is a window rather than a moment because the scenario does
+-- other things to the gun inside it: R lands 1.2 s after the cue and a 2.0 s reload makes every shot
+-- a `busy` rejection, which commits no state and carries no `refused`. A rejected attempt costs
+-- nothing, so the honest shape is "try while the staging holds until the server answers with a RULE".
+-- The first replayed click lands 3.8 s after the cue, so this window brackets it.
+local PROBE_WINDOW = 10
+-- Between attempts. Six requests a second is `Shotgun.CONFIG.FIRE_RATE_LIMIT`, so four a second
+-- cannot be rate-limited into looking like a refusal.
+local PROBE_EVERY = 0.25
+-- How far the driver may be when the probe goes. `Buck` carries 100 studs and the aim ray is cast to
+-- the ammo's range, so a beater beyond it is not in the ray at all and the rule correctly says
+-- nothing -- which is why the driver is brought to the stand and not aimed at across the arena.
+local PROBE_REACH = 40
 
 local cuedAt: number? = nil
 local stagedFrom: Vector3? = nil
@@ -118,6 +149,16 @@ local probeReason: string? = nil
 local probeBefore: string? = nil
 local probeAfter: string? = nil
 local probeFired = false
+-- WHAT WAS TRUE WHEN THE PROBE WENT, recorded at that instant rather than read back afterwards: the
+-- replay keeps playing and the gate judged the shot against THESE numbers. `blocked` is the last
+-- thing that stopped an attempt, so a probe that never fired says why in one word.
+local probeShots = 0
+local probeBlocked: string? = nil
+local probeFromCentre: number? = nil
+local probeToDriver: number? = nil
+local probeRayHit: string? = nil
+-- WHERE THIS CHARACTER IS HELD WHILE THE WINDOW IS OPEN (task 171). nil until the cue stages it.
+local parkAt: Vector3? = nil
 -- EVERY REFUSAL THIS CLIENT WAS TOLD ABOUT, recorded as it arrives. `refused` belongs to ONE
 -- published snapshot, and the arming sweep publishes again every two seconds with the field empty --
 -- so reading `Weapon.get().refused` later is a race, and this is not.
@@ -164,6 +205,19 @@ local function rootOf(subject: Player): BasePart?
 	local character = subject.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	return if root and root:IsA("BasePart") then root else nil
+end
+
+-- HOLDS THIS CHARACTER AT ONE POINT, every frame, for as long as the cue window is open. The
+-- `root.CFrame` + zeroed `AssemblyLinearVelocity` pair is `ForestTest.boundary`'s own idiom (task
+-- 166) and for the same reason: a position written once is undone by the next step of a held key,
+-- and the replay holds keys. The ROTATION is untouched -- the camera owner aims, not this.
+--
+-- MEASURED NEED: in the Director's run at `cd30764` the shooter read 41 studs off the stand centre
+-- by the end of the case -- after a pivot that had put him on it -- because the replay was still
+-- holding his movement keys.
+local function park(root: BasePart, at: Vector3)
+	root.CFrame = CFrame.new(at) * (root.CFrame - root.CFrame.Position)
+	root.AssemblyLinearVelocity = Vector3.zero
 end
 
 -- THIS PLAYER'S OWN STAND CIRCLE, AS THE DRIVE PUBLISHED IT (task 171). `snapshot.stands` is keyed
@@ -249,6 +303,10 @@ local function onCue(_name: string, state: Enum.UserInputState)
 			-- up, and a driver dropped at that height simply falls to the ground.
 			local at = (stand.centre :: Vector3) + Vector3.new(0, 0, STAND_BEHIND)
 			character:PivotTo(CFrame.lookAt(at, stand.centre))
+			-- AND HELD THERE. At the stand's own height, so the shot runs level and the distance to
+			-- him is exactly `STAND_BEHIND` -- a driver left to fall would be five studs lower and
+			-- the geometry would depend on where the ground happens to be.
+			parkAt = at
 		end
 		cuedAt = os.clock()
 		return Enum.ContextActionResult.Pass
@@ -267,6 +325,7 @@ local function onCue(_name: string, state: Enum.UserInputState)
 		-- is a walk back to his post and not a new place to stand.
 		local at = stand.centre :: Vector3
 		character:PivotTo(CFrame.lookAt(at, at + Vector3.new(0, 0, 1)))
+		parkAt = at
 		stagedFrom = at
 		stagedDistance = STAND_BEHIND
 		stagedTheirs = theirs.Position
@@ -279,36 +338,96 @@ local function onCue(_name: string, state: Enum.UserInputState)
 		-- the input it is bound to is the cue, and the harness's own click is seconds behind it (the
 		-- fire limiter is `FIRE_RATE_LIMIT` = 6 a second, so the two cannot collide).
 		task.spawn(function()
-			-- WAIT FOR HIM TO ARRIVE. The cue reaches both clients at once and his pivot happens on
-			-- HIS machine, so "he is within a shot's reach of my stand" is the only honest signal
-			-- that the staging is done -- and it is measured rather than slept through.
-			local arrived = waitUntil(PROBE_TIMEOUT * 2, function()
+			-- EVERY PRE-CONDITION THE RULE NEEDS, MEASURED, and the one that fails is the word the
+			-- note carries. A probe fired without these proves nothing: the Director's three
+			-- two-player runs failed on exactly this, once per missing condition (off his stand, out
+			-- of the ray, into a busy gun).
+			local function staging(): (boolean, string, number, number, string)
+				local mine = rootOf(player)
 				local root = rootOf(target :: Player)
-				return root ~= nil and (root.Position - at).Magnitude <= STAND_BEHIND * 2
-			end)
-			local root = rootOf(target :: Player)
-			if not arrived or root == nil then
-				return -- the case says so: `probeFired` stays false and the note carries the distance
+				local gun = Weapon.get()
+				if mine == nil or root == nil then
+					return false, "no-character", -1, -1, "?"
+				end
+				local fromCentre = (mine.Position - at).Magnitude
+				local toDriver = (root.Position - mine.Position).Magnitude
+				-- HE MUST BE IN HIS OWN CIRCLE, by the drive's own published radius, or the FIRST
+				-- rule in `Weapon.Rules.ORDER` answers instead of the one being tested.
+				if fromCentre > (stand :: any).radius then
+					return false, "off-stand", fromCentre, toDriver, "?"
+				end
+				if toDriver > PROBE_REACH then
+					return false, "driver-far", fromCentre, toDriver, "?"
+				end
+				-- THE GUN MUST BE ABLE TO FIRE AT ALL. A `busy` or `barrel-empty` rejection is the
+				-- reducer's and carries no `refused` field, so it reads exactly like "the rule said
+				-- nothing" -- which is what `cd30764` measured (`busy=0.60`, the scenario's own R).
+				if gun == nil or not gun.equipped or gun.busyFor > 0 or gun.barrels[gun.selected] ~= "Live" then
+					return false, "gun-not-ready", fromCentre, toDriver, "?"
+				end
+				-- AND THE AIM RAY MUST REALLY REACH HIS BODY. The server refuses on what the ray
+				-- HITS, so this client casts the same ray first and names what is in the way --
+				-- which in `cd30764` would have said "the post he had walked behind".
+				local camera = workspace.CurrentCamera
+				local eye = if camera then camera.CFrame.Position else mine.Position
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { player.Character :: Instance }
+				params.IgnoreWater = true
+				local result = workspace:Raycast(eye, root.Position - eye, params)
+				local hit = if result then result.Instance else nil
+				local onHim = hit ~= nil
+					and (target :: Player).Character ~= nil
+					and hit:IsDescendantOf((target :: Player).Character :: Instance)
+				local name = if hit then hit:GetFullName() else "<nothing>"
+				if not onHim then
+					return false, "ray-blocked", fromCentre, toDriver, name
+				end
+				return true, "", fromCentre, toDriver, name
 			end
-			stagedTheirs = root.Position
-			local camera = workspace.CurrentCamera
-			local eye = if camera then camera.CFrame.Position else at
-			local toward = root.Position - eye
-			if toward.Magnitude < 1e-3 then
-				return
+
+			-- IT RETRIES WHILE THE STAGING HOLDS. A rejected attempt commits no state and costs no
+			-- shell, so trying again is free -- and it is the only way to be sure the shot lands in a
+			-- gun that is not mid-reload, which the scenario guarantees for 2 of the first 3 seconds.
+			local deadline = os.clock() + PROBE_WINDOW
+			while os.clock() < deadline and probeReason == nil do
+				local ok, why, fromCentre, toDriver, hitName = staging()
+				if not ok then
+					probeBlocked =
+						string.format("%s (centre %.1f, driver %.1f, ray %s)", why, fromCentre, toDriver, hitName)
+					task.wait(PROBE_EVERY)
+					continue
+				end
+				local mine = rootOf(player)
+				local root = rootOf(target :: Player)
+				local camera = workspace.CurrentCamera
+				local eye = if camera then camera.CFrame.Position else (mine :: BasePart).Position
+				local toward = (root :: BasePart).Position - eye
+				if toward.Magnitude < 1e-3 then
+					break
+				end
+				if probeBefore == nil then
+					probeBefore = gunPrint()
+				end
+				probeBlocked = nil
+				probeFromCentre, probeToDriver, probeRayHit = fromCentre, toDriver, hitName
+				stagedTheirs = (root :: BasePart).Position
+				local before = #refusals
+				-- The payload the client's own `Input.onFire` sends, and nothing else: an origin and
+				-- a unit direction (design section 5.7).
+				Shotgun.remotes().FireRequest:FireServer({ origin = eye, direction = toward.Unit })
+				probeFired = true
+				probeShots += 1
+				local answer = os.clock() + math.min(PROBE_TIMEOUT, PROBE_EVERY * 4)
+				while os.clock() < answer and #refusals == before do
+					task.wait(0.05)
+				end
+				probeReason = refusals[before + 1]
+				probeAfter = gunPrint()
 			end
-			probeBefore = gunPrint()
-			local before = #refusals
-			-- The payload the client's own `Input.onFire` sends, and nothing else: an origin and a
-			-- unit direction (design section 5.7).
-			Shotgun.remotes().FireRequest:FireServer({ origin = eye, direction = toward.Unit })
-			probeFired = true
-			local deadline = os.clock() + PROBE_TIMEOUT
-			while os.clock() < deadline and #refusals == before do
-				task.wait(0.05)
+			if probeAfter == nil then
+				probeAfter = gunPrint()
 			end
-			probeReason = refusals[before + 1]
-			probeAfter = gunPrint()
 		end)
 	end
 	return Enum.ContextActionResult.Pass
@@ -322,6 +441,11 @@ ContextActionService:BindAction(CUE_ACTION, onCue, false, Enum.KeyCode.T)
 local aiming = RunService.RenderStepped:Connect(function()
 	if not cuedAt or os.clock() - cuedAt > TIE_TIMEOUT then
 		return
+	end
+	-- HELD WHERE THE CUE PUT HIM, every frame, for both roles (task 171). See `park`.
+	local mine = rootOf(player)
+	if parkAt ~= nil and mine ~= nil then
+		park(mine, parkAt :: Vector3)
 	end
 	local target = driver()
 	local theirs = if target then rootOf(target) else nil
@@ -422,39 +546,42 @@ return function()
 				return probeAfter ~= nil
 			end)).to.equal(true)
 			local stand = standOf(player)
-			local here = rootOf(player)
-			local theirs = rootOf(driver() :: Player)
 			TestKit.note(
 				string.format(
-					"zz_tie: probe aimed AT the driver -> refused=%s; gun before [%s] after [%s]; refusals seen [%s]",
+					"zz_tie: probe aimed AT the driver -> refused=%s after %d attempt(s); blocked=%s; "
+						.. "gun before [%s] after [%s]; refusals seen [%s]",
 					tostring(probeReason),
+					probeShots,
+					tostring(probeBlocked),
 					tostring(probeBefore),
 					tostring(probeAfter),
 					table.concat(refusals, ", ")
 				)
 			)
-			-- WHERE EVERYBODY WAS WHEN IT WENT, because `off-stand` instead of `beater-in-line` means
-			-- the staging missed its own stand and not that the rule is wrong (`Weapon.Rules.ORDER`).
+			-- THE GEOMETRY AS IT WAS WHEN THE SHOT WENT, not read back afterwards: the gate judged
+			-- THESE numbers, and the replay keeps playing. `off-stand` instead of `beater-in-line`
+			-- means the staging missed its own stand rather than the rule being wrong
+			-- (`Weapon.Rules.ORDER`), and `ray` names what was in the way when nothing was refused.
 			TestKit.note(
 				string.format(
-					"zz_tie: stand=%s r=%s; me %s (%.1f from the centre); driver %s (%.1f from me)",
+					"zz_tie: at the probe: stand=%s r=%s; me %.1f from the centre; driver %.1f away; ray hit %s",
 					tostring(stand and stand.centre),
 					tostring(stand and stand.radius),
-					tostring(here and here.Position),
-					if stand and here then (here.Position - (stand.centre :: Vector3)).Magnitude else -1,
-					tostring(theirs and theirs.Position),
-					if theirs and here then (theirs.Position - here.Position).Magnitude else -1
+					probeFromCentre or -1,
+					probeToDriver or -1,
+					tostring(probeRayHit)
 				)
 			)
-			-- THE STAGING'S OWN CLAIM, asserted before the rule's: he is standing in his circle, from
-			-- the drive's own published geometry. Without this the case cannot tell "the beater rule
-			-- is broken" from "this spec put him in the wrong place".
+			-- THE STAGING'S OWN CLAIMS, asserted before the rule's and against the recorded numbers.
+			-- Without them the case cannot tell "the beater rule is broken" from "this spec fired
+			-- from the wrong place, at the wrong distance, through a post, or into a busy gun" --
+			-- which is one defect per two-player run so far.
 			expect(stand).to.be.ok()
-			expect(here).to.be.ok()
-			expect(
-				((here :: BasePart).Position - ((stand :: any).centre :: Vector3)).Magnitude <= (stand :: any).radius
-			).to.equal(true)
-			expect(probeFired).to.equal(true)
+			expect(probeBlocked).to.equal(nil)
+			expect(probeFromCentre).to.be.ok()
+			expect((probeFromCentre :: number) <= (stand :: any).radius).to.equal(true)
+			expect((probeToDriver :: number) <= PROBE_REACH).to.equal(true)
+			expect(probeRayHit).to.be.ok()
 			-- THE SERVER'S OWN WORD FOR IT, off the wire: `Weapon.Rules.REASON.BEATER`.
 			expect(probeReason).to.equal("beater-in-line")
 			-- NOTHING WAS SPENT. The gun print carries the barrels and the pocket, so an unchanged
