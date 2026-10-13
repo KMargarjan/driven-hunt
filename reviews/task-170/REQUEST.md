@@ -25,11 +25,13 @@ that commit.
 
 **That second line is a PLACEHOLDER and the Director asked for it in those words** (dispatch: *"TWO_PLAYER_PATHS
 will be touched: stop 'NEEDS TEST2 170 <sha>' with a placeholder (I run test2 + the review)"*). Five
-entries on `TWO_PLAYER_PATHS` are touched — `src/server/Match/init.luau`, `src/shared/Drive/`,
-`tests/server/match_*.spec.luau`, `tests/server/zz_drive_boundary.spec.luau` and
-`tests/client/match_client.spec.luau` — so the real `[harness2]` line is the Director's to produce at
-this same commit, and `tools/agents.py` will refuse this request until it is pasted. The FULL
-one-player run above was made TWICE on a clean tree, as the dispatch asked.
+SEVEN files on `TWO_PLAYER_PATHS` are touched, which `tools/agents.py`'s own `needs_two_player` lists
+as `src/server/Match/init.luau`, `src/server/MatchBoot.server.luau`, `src/shared/Drive/init.luau`,
+`src/shared/Drive/Rank.luau`, `tests/server/match_score.spec.luau`,
+`tests/server/zz_drive_boundary.spec.luau` and `tests/client/match_client.spec.luau` — so the real
+`[harness2]` line is the Director's to produce at this same commit, and `tools/agents.py` will refuse
+this request until it replaces the placeholder. The FULL one-player run above was made TWICE on a
+clean tree, as the dispatch asked.
 
 ## What changed
 
