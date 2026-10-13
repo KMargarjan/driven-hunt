@@ -3,14 +3,18 @@
 Task: 177
 Round: 1
 Base: 102fbe9 (`main`, #160 merged -- task 176)
-Code commit: dbad7225158e8abb09b7301fe8f0a00ea9260680
+Code commit: a5a212e5283ff60d0ee1ca0bad992addcd68bdac
 
 Harness, the clean tree, TWICE at the code commit:
 
 ```
 [harness] PASS: 33/33 checks @ dbad7225158e8abb09b7301fe8f0a00ea9260680 (clean tree) scope=all
 [harness] PASS: 33/33 checks @ dbad7225158e8abb09b7301fe8f0a00ea9260680 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ a5a212e5283ff60d0ee1ca0bad992addcd68bdac (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ a5a212e5283ff60d0ee1ca0bad992addcd68bdac (clean tree)
 ```
+
+DIRECTOR NOTE: the last two lines are the Director's at the head `a5a212e` (only paperwork after `dbad722`); the two-player run below was repeated and PASSES.
 
 The Director's own two-player run at `4b3da2c` came back **`[harness2] FAIL 31/35`**
 (`<runs-dir>/test2-t177.log`). Claim 11 below is what it was, what it was not, and what was done
