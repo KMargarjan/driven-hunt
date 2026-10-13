@@ -88,6 +88,18 @@ export type MatchSnapshot = {
 	-- (`Match.mayBlowHorn`); this list is so the man's own screen can say why, and it is the same
 	-- shape as `tied` right above it, for the same reason.
 	through: { number },
+	-- WHERE EACH SHOOTER'S STAND CIRCLE IS (task 171), keyed by `tostring(userId)` -- the keying
+	-- `Horn.keyFor` already uses, because a JSON-ish table on the wire has string keys. Absent for a
+	-- beater and for anybody the drive has nowhere to put, which means NO CIRCLE and therefore no
+	-- rule (`Weapon.Rules.outsideStand`).
+	--
+	-- IT IS THE SERVER'S OWN ANSWER, THE SAME ONE THE FIRE GATE READS (`Match.standAreaOf`), and that
+	-- is the point of publishing it: before this the client had no way to know where a hunter's stand
+	-- was in the DEV world at all (`Hud.Objective`'s own note: *"doing better needs the drive to
+	-- publish the assigned stand index"*), so `zz_tie_to_a_tree.spec` staged its shot 525 studs from
+	-- the shooter's post and the off-stand rule correctly refused it. A client that wants to DRAW the
+	-- ring -- task 166 draws one in the Forest Test only -- now has the circle to draw.
+	stands: { [string]: { centre: Vector3, radius: number } }?,
 }
 
 export type FeedEntry = {

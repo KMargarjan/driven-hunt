@@ -19,7 +19,7 @@ local Debris = game:GetService("Debris")
 
 local Sound = {}
 
-local played = { shot = 0, open = 0, close = 0, bolt = 0, magazine = 0 }
+local played = { shot = 0, open = 0, close = 0, bolt = 0, magazine = 0, dry = 0 }
 
 -- So a spec can hear what was asked for without a speaker.
 function Sound.stats()
@@ -27,7 +27,7 @@ function Sound.stats()
 end
 
 function Sound.resetStats()
-	played = { shot = 0, open = 0, close = 0, bolt = 0, magazine = 0 }
+	played = { shot = 0, open = 0, close = 0, bolt = 0, magazine = 0, dry = 0 }
 end
 
 -- WHICH SOUND THIS WEAPON MAKES FOR THIS EVENT, and nil when it has nothing of its own (task 142).
@@ -122,6 +122,18 @@ function Sound.magazine(config, row: any?): boolean
 	local volume = config ~= nil and config.FIRE ~= nil and config.FIRE.volume or nil
 	local voice = Sound.voiceFor(row, "magazine")
 	return play("magazine", config, voice and voice.id, volume and volume.close, voice)
+end
+
+-- THE TRIGGER THAT DID NOTHING (task 171). The gun is loaded, closed and not busy, and the server
+-- refused the shot -- a beater in the line, a hunter off his stand, a species with no licence -- so
+-- what the player hears is the one sound that says "nothing happened": a dry click. The volume is
+-- the OPEN click's, because it is the same class of noise and `fire.volume` has three entries, not
+-- four; a fourth volume in `poses.json` would be a number nobody has balanced.
+--
+-- No `row` and no voice: this is not the gun speaking, it is the mechanism not speaking.
+function Sound.dry(config): boolean
+	local volume = config ~= nil and config.FIRE ~= nil and config.FIRE.volume or nil
+	return play("dry", config, config and config.SOUND_DRY_ID, volume and volume.open)
 end
 
 function Sound.open(config): boolean

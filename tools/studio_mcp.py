@@ -716,6 +716,10 @@ BLAST_RADIUS = (
     ("src/serverstorage/MapGen/", "map"),
     ("src/serverstorage/Assets/", "assets"),
     ("src/shared/Flags/", "flags"),
+    # The rules that refuse a shot (task 171). The licence TABLE is the fire gate's data and the
+    # gate lives in `src/server/Weapon/`, which already resolves to `weapon` above -- so the one new
+    # prefix is the shared table.
+    ("src/shared/Licences/", "weapon"),
 )
 
 # Scope name -> the spec files it names. EVERY spec file in the repo belongs to at least one scope,
@@ -734,6 +738,10 @@ SCOPE_SPECS = {
                "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
                "tests/client/rifle_client.spec.luau",
                "tests/client/shoot_boar.spec.luau",
+               # The three fire rules and the drive's shells (task 171). It is in `match` as well --
+               # the dual membership `zz_horn`, `boar_hit` and `shoot_boar` already use -- because
+               # the drive is what answers "is this a beater" and "where is his stand".
+               "tests/server/weapon_rules.spec.luau",
                "tests/server/zz_horn.spec.luau"),
     "boar": ("tests/server/boar_behaviour.spec.luau", "tests/server/boar_behaviour_live.spec.luau",
              "tests/server/boar_body.spec.luau", "tests/server/boar_brain.spec.luau",
@@ -770,6 +778,10 @@ SCOPE_SPECS = {
               "tests/server/match_safety.spec.luau", "tests/server/match_score.spec.luau",
               "tests/server/match_teams.spec.luau", "tests/server/zz_drive_boundary.spec.luau",
               "tests/client/match_client.spec.luau", "tests/client/outfit_client.spec.luau",
+              # Task 171: `Match.classifyTarget` and `Match.standAreaFor` are the drive's two answers
+              # to the weapon's fire gate, and the per-drive refill goes out through
+              # `refreshArmingFor` -- all three in `src/server/Match/`.
+              "tests/server/weapon_rules.spec.luau",
               "tests/client/zz_tie_to_a_tree.spec.luau"),
     # The bots (task 161): the fill arithmetic, the lane geometry, and the rigs themselves.
     "bots": ("tests/server/bots_fill.spec.luau", "tests/server/bots_lane.spec.luau",

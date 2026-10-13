@@ -829,6 +829,24 @@ function ForestTest.clearPick(userId: number)
 	state.picks[userId] = nil
 end
 
+-- THIS HUNTER'S STAND AS AN AREA, for the weapon's fire gate (task 171): the circle he LOCKED, or
+-- nil when he has not locked one. The same `Data.standPosition` and the same
+-- `Data.PICK.standRadiusStuds` the wall below is built from, so "where he may shoot" and "where he
+-- may walk" cannot drift apart -- they are one circle, asked two ways.
+--
+-- NIL IS "NO RULE" AND THAT IS THE HONEST ANSWER DURING THE PICK WINDOW: for the 15 s in which
+-- walking to a stand IS the choice, there is no circle to be outside of (`Weapon.Rules.outsideStand`
+-- says why the default is permissive). The role is NOT asked here: `Match.standAreaFor` has already
+-- refused anybody who is not a hunter, which is the same split as `ForestTest.boundary`'s `role`
+-- parameter -- the caller holds the `Player`, this module keys by `userId`.
+function ForestTest.standArea(userId: number)
+	local pick = state.picks[userId]
+	if pick == nil or (pick :: any).lockedAt == nil then
+		return nil
+	end
+	return { centre = Data.standPosition(pick.index), radius = Data.PICK.standRadiusStuds }
+end
+
 -- ---------------------------------------------------------------- which role, in this world only
 --
 -- THE FOREST TEST HAS NO BEATERS OF ITS OWN: its drive's beaters are phantom positions with nobody

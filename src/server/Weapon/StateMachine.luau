@@ -109,7 +109,11 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number, row
 	local config = row
 	local kind = action.kind
 
-	if kind ~= "SelectAmmo" and now < state.busyUntil then
+	-- `Refill` IS EXEMPT FROM THE BUSY WINDOW, like `SelectAmmo` (task 171): it is the DRIVE putting
+	-- shells in his pocket at its own start, not something the player's hands are doing, and a refill
+	-- refused because he happened to be closing the action is a refill that is simply lost -- the
+	-- owner has already recorded the drive as refilled by the time the reducer answers.
+	if kind ~= "SelectAmmo" and kind ~= "Refill" and now < state.busyUntil then
 		return state, "busy"
 	end
 
@@ -240,6 +244,19 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number, row
 		-- staying on whatever was fired last.
 		next.selected = nextLive(next.barrels, #next.barrels)
 		next.busyUntil = now + waitFor(row, "Magazine")
+		return Shotgun.deepFreeze(next), nil
+	elseif kind == "Refill" then
+		-- THE DRIVE'S SHELLS, PUT BACK (task 171). KAREN, 2026-10-10: *"limited ammon per round"* --
+		-- so the pocket is `START_RESERVE` again at the start of each drive and not before, and this
+		-- is the one place that is written. It is a SERVER-SIDE primitive: `Validator.checkRequest`
+		-- accepts only "Reload" and "SelectAmmo" over the wire, so no client can ask for it.
+		--
+		-- WHAT IS IN THE GUN IS NOT TOUCHED. Only the pocket: a hunter who starts a drive with a
+		-- live shell in the right barrel keeps it, which is what carrying a loaded gun means.
+		local next = draft(state)
+		-- A copy, for the reason `initial` gives: CONFIG.START_RESERVE is deep-frozen and this one is
+		-- about to be spent.
+		next.reserve = table.clone(config.START_RESERVE)
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "SelectAmmo" then
 		local ammo = action.ammo

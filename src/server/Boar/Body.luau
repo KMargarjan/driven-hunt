@@ -49,7 +49,16 @@
 --         docs/research/2026-10-03-boar-skinned-model.md
 local ContentProvider = game:GetService("ContentProvider")
 local PhysicsService = game:GetService("PhysicsService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+
+-- THIS MODULE'S FIRST AND ONLY REQUIRE, and it buys one string plus one word: the name of the
+-- attribute that says which species an animal is, and this animal's own species (task 171). Pure
+-- shared DATA -- `src/shared/Licences` creates no Instance, reads no service and holds no state --
+-- so it adds no dependency on an owner and nothing here can be written by it. The alternative was
+-- the literal "Species" in this file and again in `Match.classifyTarget`, which is the drift this
+-- project is a document about (docs/PROJECT_CONTEXT.md).
+local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
 
 local Body = {}
 
@@ -261,6 +270,13 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	if kind ~= nil then
 		part:SetAttribute("Kind", kind)
 	end
+	-- WHICH SPECIES THIS IS (task 171), beside the kind and for the same reason: the weapon's licence
+	-- rule asks "may this player shoot one of these" and nothing in the weapon knows what a boar is.
+	-- `Licences.ROWS.boar` needs no licence, so a boar is shootable by everybody and always has
+	-- been -- what this line buys is that the rule is LIVE on every real shot rather than only in a
+	-- spec. Boar-owned data the boar publishes about itself; the weapon only reads
+	-- (shotgun design section 6.4, the idiom `Damageable` and `HitZone` already follow).
+	part:SetAttribute(Licences.SPECIES_ATTRIBUTE, Licences.ROWS.boar.species)
 	part.Anchored = false
 	part.CanCollide = true
 	-- ...AND IT DOES NOT SHOVE ITS OWN KIND (task 127 round 3). See `Boar.CONFIG.BOAR_COLLISION`:

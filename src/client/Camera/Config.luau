@@ -61,6 +61,13 @@ local Config = {
 	-- coming from the library, so they are the two I can be sure exist.
 	SOUND_OPEN_ID = "rbxasset://sounds/switch3.wav",
 	SOUND_CLOSE_ID = "rbxasset://sounds/switch.wav",
+	-- THE DRY CLICK OF A TRIGGER THAT DID NOTHING (task 171): the sound of a shot the rules refused
+	-- (`Weapon.Rules.REASON`). An ENGINE asset for the same reason the two above are -- it ships
+	-- inside Roblox, so it cannot 404 and cannot be moderated away -- and it is MEASURED rather than
+	-- hoped for: `clickfast.wav` read `loaded=true 0.29 s` in this place on 2026-10-05 in the sweep
+	-- recorded in `Shotgun.CONFIG` beside `HIT_MARK_SOUND_ID`. It is the shortest of the five and the
+	-- only one that is a click rather than a switch, which is what a dead trigger sounds like.
+	SOUND_DRY_ID = "rbxasset://sounds/clickfast.wav",
 	FOV_AIM_DEG = 50, -- feel (Karen): 1.4x magnification, a bead sight and not a scope
 	AIM_BLEND_SECONDS = 0.20, -- feel; the research note says plainly this is not derived
 	-- FIRST PERSON RAISES FASTER THAN IT LOWERS (task 95). The reference clip Karen chose does the

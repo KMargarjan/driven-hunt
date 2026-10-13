@@ -11,10 +11,75 @@
 -- WHAT IT ASSERTS DEPENDS ON WHO IS IN THE SESSION, which is what makes it run in both harness modes
 -- (`test` and `test2`), and neither branch is a skip -- each one asserts a real rule:
 --   * TWO PLAYERS (test2): this client is the SHOOTER, the other is the DRIVER standing on the driver
---     pad. This spec walks up behind him, keeps the camera on him, the harness replays a click, and
---     the server ties this player to a tree. Click -> ContextActionService -> client weapon ->
+--     pad. This spec walks up behind him, keeps the camera BESIDE him, the harness replays a click,
+--     and the server ties this player to a tree. Click -> ContextActionService -> client weapon ->
 --     FireRequest -> validator -> cast -> Weapon.SafetyArc's 45-degree filter -> Match.Penalty.judge
 --     -> Match.Body.tie -> the snapshot's `tied` list -> this client's Hud banner. Nothing is stubbed.
+--
+-- SINCE TASK 171 THIS SPEC STAGES ITS SHOOTER ON HIS OWN STAND, FROM THE DRIVE'S OWN ANSWER, AND
+-- BRINGS THE DRIVER TO HIM -- which is the opposite of what it used to do. It used to walk the
+-- shooter to the driver: in the DEV arena the posts are at z = -150 and the driver pad at z = +170,
+-- so that walk was 525 studs, and from there the OFF-STAND rule refused every shot he took
+-- (measured in the Director's two-player run at `8b2bb40`: `probe aimed AT the driver ->
+-- refused=off-stand`, and seven more `off-stand` refusals from the earlier scenarios' shots). The
+-- stand circle now arrives on the match snapshot (`snapshot.stands`, keyed by userId) from the same
+-- `Match.standAreaOf` the fire gate reads, so this spec stages against the server's own geometry
+-- instead of a guess -- and the DRIVER's client walks itself in front of that stand, because a
+-- client may only move its own character and a shot has to be able to reach him (`Buck` carries 100
+-- studs).
+--
+-- AND BOTH CHARACTERS ARE PARKED WHILE THE WINDOW IS OPEN, AND THE GEOMETRY IS RECORDED AT THE SHOT.
+-- The Director's third two-player run (`cd30764`) is why, and what it does NOT say is as important as
+-- what it does:
+--   * the DRIVER's pivot provably took -- he read `-560, 5.15, -675`, which is the stand centre
+--     (`-700`) plus exactly `STAND_BEHIND`;
+--   * the SHOOTER read `-560, 3.5, -741`, **41 studs** off the centre -- but that reading was taken
+--     ~25 seconds after the probe, at the end of the case, and the replay holds movement keys the
+--     whole time. So WHEN he left his stand is simply not in the data, and a spec that reads a
+--     position back later cannot tell "the pivot failed" from "he walked off afterwards";
+--   * and the probe's own answer was `refused=nil` with the barrels UNCHANGED and `busy=0.60` --
+--     the scenario presses R 1.2 s after the cue, and a `busy` rejection is the REDUCER's: it
+--     commits no state and carries no `refused` field, so it reads exactly like "no rule spoke".
+-- Both are fixed at the source rather than guessed at: the characters are HELD (see `park`), every
+-- pre-condition the rule needs is MEASURED before each attempt, the numbers are recorded AT the shot
+-- the gate judged, and the probe RETRIES -- because a mechanical rejection costs nothing, so trying
+-- again inside the window is free and is the only way to be sure the shot did not land in a gun
+-- whose hands were full.
+--
+-- AND THE TWO SHOTS ARE ORDERED, which is what the Director's fourth two-player run (`bac93d6`)
+-- measured the need for. In it the staging and the rule both worked -- `me 0.5 from the centre;
+-- driver 25.0 away; ray hit Workspace.Player2.UpperTorso`, `refused=beater-in-line after 2
+-- attempt(s)`, the gun unchanged -- and the only failure was this spec asserting `Match.isTied()`
+-- afterwards: by then the REPLAYED CLICK had legitimately tied him. The probe's pre-conditions push
+-- it into the gap after the scenario's own reload (R lands at 1.2 s, the reload runs 2.0 s, the
+-- first click lands at 3.8 s), so "after the probe" and "after the tie shot" were the same moment.
+-- Two fixes, both of them about WHEN rather than what:
+--   * the refusal case asserts the tie state RECORDED AROUND ITS OWN SHOT -- untied before it,
+--     untied after it, no new violation -- which is the claim "a refused shot ties nobody" exactly.
+--     Reading `Match.isTied()` later asks a different question, and the answer to that one is
+--     rightly yes;
+--   * and the aim stays ON the driver until the probe has answered, so a click that lands early is
+--     REFUSED rather than tying him. The scenario fires twice (3.8 s and 5.0 s), so the tie shot is
+--     whichever click comes after the probe is done -- the tie can no longer precede it.
+--
+-- AND THERE ARE TWO RULES ABOUT A SHOT NEAR A BEATER, SO IT STAGES BOTH -- which is the other half
+-- of what this file carries and the reason the aim is five studs off his body:
+--   1. THE RAY WOULD HIT HIM -> THE SHOT IS REFUSED. `Weapon.Rules.beaterInLine`, Karen 2026-10-11:
+--      *"thye just can't shoot them"*. Nothing fires, nothing is spent, NOBODY IS TIED -- there is no
+--      shot to judge. Staged by the probe in `onCue` below, aimed dead at him.
+--   2. THE RAY MISSES HIM BUT PASSES WITHIN `SAFETY_MISS_STUDS` -> THE SHOT FIRES AND TIES HIM.
+--      That is what the arc is FOR: shooting dangerously close to the line of men
+--      (`Match.Penalty.judge`). Staged by the real replayed click, aimed `BESIDE_STUDS` to his side.
+-- THE TWO CANNOT BOTH HAPPEN TO ONE SHOT, and that is the whole of "no double handling": a refused
+-- shot returns before `Weapon.SafetyViolated` is published, so the penalty is only ever reached by a
+-- shot that was fired. The three rules are asked in `Weapon.Rules.ORDER` -- off-stand, then the
+-- beater in the ray, then the licence -- so a shooter who is BOTH off his stand and aiming at a man
+-- is told to get back on his stand, and this spec has to put him there before it can prove anything
+-- about his aim. UNTIL TASK 171 IT STAGED CASE 1 AND EXPECTED CASE 2's OUTCOME: it
+-- aimed dead at the driver (`miss 0.0 of 12`, measured in the Director's `test2` at `5e0ee90`) and
+-- the new rule correctly refused the shot, so nothing was tied and this spec failed at the tie.
+-- **The tie proof is not weakened and was not deleted** -- it is staged on the shot the arc exists
+-- to punish, and the refusal it used to stage by accident is now asserted on purpose.
 --   * ONE PLAYER (test): there is no driver, so this fires the same shot straight INTO the drive and
 --     asserts that nothing happens. That is not a weaker test -- it is the case the design rejected
 --     an earlier rule for: a shooter on a post faces the drive, so if "inside the 45-degree cone"
@@ -32,6 +97,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
+-- THE WIRE ITSELF (task 171), for the refusal probe: one `FireRequest` with a legal payload, aimed
+-- at the driver. `src/client/Weapon/Input.luau` is still the only firer of it in CLIENT CODE -- this
+-- is a spec driving the player's own path at the wire, exactly as `weapon_client.spec` already fires
+-- payloads through `Shotgun.remotes().FireRequest` -- and it is the only way to stage two different
+-- shots inside one replayed scenario, which carries one click.
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- One fact, for one question: is the Tool in this player's hands a GUN? (task 152)
@@ -49,8 +120,34 @@ local CUE_ACTION = "DrivenHunt.Test.TieCue"
 -- replay takes about twice as long there as the ~60 s it takes with one.
 local CUE_TIMEOUT = 240
 local TIE_TIMEOUT = 25 -- from the cue to the snapshot saying so
-local STAND_BEHIND = 25 -- studs behind the driver, so the shot cannot stop in something else
+-- HOW FAR IN FRONT OF THE SHOOTER'S STAND THE DRIVER IS PUT (task 171; before it, how far behind
+-- the driver the shooter walked). It has to be inside the ammo's range -- `Buck` carries 100 studs
+-- and the gun may be holding either kind -- and far enough that the shot does not start inside him.
+local STAND_BEHIND = 25
 local DOWN_THE_DRIVE = 200 -- studs up +Z, for the one-player shot at nobody
+-- HOW FAR BESIDE HIM THE TIE SHOT IS AIMED (task 171). It has to clear his BODY -- an R15 character
+-- is about two studs across, so five studs from the root centre passes him by a clear margin and the
+-- aim ray hits the ground or nothing instead of a man -- and it has to stay well inside
+-- `Match.CONFIG.SAFETY_MISS_STUDS` (12), which is what makes the shot a violation. At
+-- `STAND_BEHIND` = 25 studs it is 11.3 degrees off the drive, deep inside the 45-degree half-arc
+-- (`Shotgun.CONFIG.SAFETY_ARC_HALF_DEG`), so the arc still publishes it.
+local BESIDE_STUDS = 5
+-- Seconds to wait for the server's answer to one probe shot. It is one round trip; the gun publishes
+-- on the refusal with `force`, so this is slack and not a guess.
+local PROBE_TIMEOUT = 3
+-- How long the probe keeps TRYING, and it is a window rather than a moment because the scenario does
+-- other things to the gun inside it: R lands 1.2 s after the cue and a 2.0 s reload makes every shot
+-- a `busy` rejection, which commits no state and carries no `refused`. A rejected attempt costs
+-- nothing, so the honest shape is "try while the staging holds until the server answers with a RULE".
+-- The first replayed click lands 3.8 s after the cue, so this window brackets it.
+local PROBE_WINDOW = 10
+-- Between attempts. Six requests a second is `Shotgun.CONFIG.FIRE_RATE_LIMIT`, so four a second
+-- cannot be rate-limited into looking like a refusal.
+local PROBE_EVERY = 0.25
+-- How far the driver may be when the probe goes. `Buck` carries 100 studs and the aim ray is cast to
+-- the ammo's range, so a beater beyond it is not in the ray at all and the rule correctly says
+-- nothing -- which is why the driver is brought to the stand and not aimed at across the arena.
+local PROBE_REACH = 40
 
 local cuedAt: number? = nil
 local stagedFrom: Vector3? = nil
@@ -62,6 +159,49 @@ local violations = {}
 -- barrels and the reserve change on a shot and on nothing else, so the pair splits it.
 local stagedGun: string? = nil
 local stagedTheirs: Vector3? = nil
+-- WHAT THE PROBE SHOT MEASURED (task 171): the reason the server gave for refusing it, and the gun
+-- before and after -- which is what "no shell spent" means on this side of the wire.
+local probeReason: string? = nil
+local probeBefore: string? = nil
+local probeAfter: string? = nil
+local probeFired = false
+-- WHAT WAS TRUE WHEN THE PROBE WENT, recorded at that instant rather than read back afterwards: the
+-- replay keeps playing and the gate judged the shot against THESE numbers. `blocked` is the last
+-- thing that stopped an attempt, so a probe that never fired says why in one word.
+local probeShots = 0
+local probeBlocked: string? = nil
+local probeFromCentre: number? = nil
+local probeToDriver: number? = nil
+local probeRayHit: string? = nil
+-- WAS HE TIED, AND HOW MANY VIOLATIONS HAD BEEN ANNOUNCED, ON EITHER SIDE OF THE PROBE'S OWN SHOT.
+-- The pair IS the claim: a refused shot ties nobody. Read later, the question becomes "is he tied
+-- NOW", and after the replayed click the honest answer to that is yes.
+local probeTiedBefore: boolean? = nil
+local probeTiedAfter: boolean? = nil
+local probeViolationsBefore: number? = nil
+local probeViolationsAfter: number? = nil
+-- DID THE GUN CLICK? (the Reviewer's round-1 note on the dry click.) `CameraBoot` plays one dry
+-- click when a snapshot arrives carrying `refused`, and this is the one place in the suite where a
+-- real refusal reaches a real client -- so the counter is read on either side of the probe's own
+-- shot. `Weapon.Sound.stats()` is the seam that exists for exactly this: no speaker required.
+local probeDryBefore: number? = nil
+local probeDryAfter: number? = nil
+-- One line per attempt, for the note: what stopped it, or what the server answered.
+local probeLog: { string } = {}
+-- TRUE once the probe has answered or its window has closed. Until then the aim stays ON the driver,
+-- so a replayed click cannot tie him before the refusal has been measured.
+local probeDone = false
+-- WHERE THIS CHARACTER IS HELD WHILE THE WINDOW IS OPEN (task 171). nil until the cue stages it.
+local parkAt: Vector3? = nil
+-- EVERY REFUSAL THIS CLIENT WAS TOLD ABOUT, recorded as it arrives. `refused` belongs to ONE
+-- published snapshot, and the arming sweep publishes again every two seconds with the field empty --
+-- so reading `Weapon.get().refused` later is a race, and this is not.
+local refusals: { string } = {}
+Weapon.Changed:Connect(function(snapshot)
+	if snapshot ~= nil and type(snapshot.refused) == "string" then
+		table.insert(refusals, snapshot.refused)
+	end
+end)
 
 local function gunPrint(): string
 	local snap = Weapon.get()
@@ -90,10 +230,53 @@ Match.Feed:Connect(function(entry)
 	end
 end)
 
+-- FORWARD: the probe inside `onCue` waits for the driver to arrive, and `onCue` is defined above
+-- the helper. `local` here and a plain assignment below means the definition lands on THIS local
+-- rather than creating a global (the idiom `Weapon.runCycle` already uses).
+local waitUntil
+
 local function rootOf(subject: Player): BasePart?
 	local character = subject.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	return if root and root:IsA("BasePart") then root else nil
+end
+
+-- HOLDS THIS CHARACTER AT ONE POINT, every frame, for as long as the cue window is open. The
+-- `root.CFrame` + zeroed `AssemblyLinearVelocity` pair is `ForestTest.boundary`'s own idiom (task
+-- 166) and for the same reason: a position written once is undone by the next step of a held key,
+-- and the replay holds keys. The ROTATION is untouched -- the camera owner aims, not this.
+--
+-- MEASURED NEED: in the Director's run at `cd30764` the shooter read 41 studs off the stand centre
+-- by the end of the case -- after a pivot that had put him on it -- because the replay was still
+-- holding his movement keys.
+local function park(root: BasePart, at: Vector3)
+	root.CFrame = CFrame.new(at) * (root.CFrame - root.CFrame.Position)
+	root.AssemblyLinearVelocity = Vector3.zero
+end
+
+-- THIS PLAYER'S OWN STAND CIRCLE, AS THE DRIVE PUBLISHED IT (task 171). `snapshot.stands` is keyed
+-- by `tostring(userId)` and is the server's own `Match.standAreaOf` -- the same answer the off-stand
+-- fire gate reads, so staging against it cannot disagree with the rule being tested. nil means the
+-- drive gave this player no circle (a beater, or nowhere to put him), and then there is no rule.
+local function standOf(subject: Player)
+	local snapshot = Match.get()
+	local stands = if snapshot ~= nil then (snapshot :: any).stands else nil
+	local area = if stands ~= nil then stands[tostring(subject.UserId)] else nil
+	if type(area) ~= "table" or typeof(area.centre) ~= "Vector3" then
+		return nil
+	end
+	return area
+end
+
+-- The SHOOTER of this session, which the driver's client needs: it stages itself in front of HIS
+-- stand, and `standOf` works for any player because the snapshot carries the whole roster's circles.
+local function theShooter(): Player?
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other.Team and other.Team.Name == "Shooters" then
+			return other
+		end
+	end
+	return nil
 end
 
 -- The other player, if this session has one and the drive made them a driver.
@@ -129,10 +312,37 @@ end
 -- StudioMCP refuses a click with no established mouse position: "Either x and y, instance_path, or a
 -- prior action that establishes mouse position is required", measured 2026-09-25.)
 local function onCue(_name: string, state: Enum.UserInputState)
-	if state ~= Enum.UserInputState.Begin or cuedAt or Role.isDriver() then
-		-- Since Task 36 the replay reaches BOTH clients, so this key arrives on the driver's too --
-		-- and there it must do nothing at all: this spec has no claim to a driver's camera, and
-		-- camera_client.spec is asserting about that camera at the same moment.
+	if state ~= Enum.UserInputState.Begin or cuedAt then
+		return Enum.ContextActionResult.Pass
+	end
+	-- THE DRIVER HAS A STAGING JOB OF HIS OWN SINCE TASK 171, and it is the only thing he does here.
+	-- The shot has to be able to REACH him -- in the DEV arena his pad is 320 studs from the posts
+	-- and `Buck` carries 100 -- and the shooter may no longer walk to him, because off his own stand
+	-- he cannot fire at all. So the driver walks to the shooter: a client may move its own character
+	-- and nothing else, which is the same rule the shooter's own pivot has always followed (and the
+	-- harness's own `stage` step, tools/studio_mcp.py).
+	--
+	-- IT STILL DOES NOT TOUCH A DRIVER'S CAMERA. That was the reason `onCue` ignored him outright,
+	-- and the reason stands: `camera_client.spec` is asserting about that camera at this moment. A
+	-- character pivot is `Match.Body`'s own idiom and writes no camera.
+	if Role.isDriver() then
+		local me = rootOf(player)
+		local target = theShooter()
+		local stand = if target then standOf(target) else nil
+		local character = player.Character
+		if me and stand and character then
+			-- IN FRONT OF HIS STAND, up +Z -- the direction the arena's DriveLine marker points and
+			-- the direction the drive comes from, so the shot that follows runs up the drive exactly
+			-- as it always did. At the stand's own height: the shooter stands on a post a few studs
+			-- up, and a driver dropped at that height simply falls to the ground.
+			local at = (stand.centre :: Vector3) + Vector3.new(0, 0, STAND_BEHIND)
+			character:PivotTo(CFrame.lookAt(at, stand.centre))
+			-- AND HELD THERE. At the stand's own height, so the shot runs level and the distance to
+			-- him is exactly `STAND_BEHIND` -- a driver left to fall would be five studs lower and
+			-- the geometry would depend on where the ground happens to be.
+			parkAt = at
+		end
+		cuedAt = os.clock()
 		return Enum.ContextActionResult.Pass
 	end
 	cuedAt = os.clock()
@@ -140,17 +350,152 @@ local function onCue(_name: string, state: Enum.UserInputState)
 	local target = driver()
 	local theirs = if target then rootOf(target) else nil
 	local character = player.Character
-	if me and theirs and character then
-		-- Behind him and IN FRONT of the line, so the shot runs up +Z -- the direction the arena's
-		-- DriveLine marker points, and the direction the drive comes from. Walking up to somebody and
-		-- shooting at them is the player's path; the client owns its own character, which is the same
-		-- reason the harness's own `stage` step pivots it (tools/studio_mcp.py).
-		local at = theirs.Position - Vector3.new(0, 0, STAND_BEHIND)
-		character:PivotTo(CFrame.lookAt(at, theirs.Position))
+	local stand = standOf(player)
+	if me and theirs and character and stand then
+		-- ON HIS OWN STAND, FROM THE DRIVE'S OWN ANSWER (task 171). The replay has been walking him
+		-- around for five scenarios, so by now he is somewhere else entirely -- and off his stand he
+		-- may not fire (`Weapon.Rules.outsideStand`), which is what refused every shot in the
+		-- Director's run at `8b2bb40`. The centre of the circle is where the drive put him, so this
+		-- is a walk back to his post and not a new place to stand.
+		local at = stand.centre :: Vector3
+		character:PivotTo(CFrame.lookAt(at, at + Vector3.new(0, 0, 1)))
+		parkAt = at
 		stagedFrom = at
 		stagedDistance = STAND_BEHIND
 		stagedTheirs = theirs.Position
 		stagedGun = gunPrint()
+		-- RULE 1, STAGED ON PURPOSE (task 171): one shot aimed DEAD AT HIM, which the server must
+		-- refuse. It goes first, before the replayed click, because a tie takes the gun away and a
+		-- refusal has to be measured while there is still a gun to refuse with.
+		--
+		-- IN A SPAWNED THREAD, because this is a `ContextActionService` callback and must not yield;
+		-- the input it is bound to is the cue, and the harness's own click is seconds behind it (the
+		-- fire limiter is `FIRE_RATE_LIMIT` = 6 a second, so the two cannot collide).
+		task.spawn(function()
+			-- EVERY PRE-CONDITION THE RULE NEEDS, MEASURED, and the one that fails is the word the
+			-- note carries. A probe fired without these proves nothing: the Director's three
+			-- two-player runs failed on exactly this, once per missing condition (off his stand, out
+			-- of the ray, into a busy gun).
+			local function staging(): (boolean, string, number, number, string)
+				local mine = rootOf(player)
+				local root = rootOf(target :: Player)
+				local gun = Weapon.get()
+				if mine == nil or root == nil then
+					return false, "no-character", -1, -1, "?"
+				end
+				local fromCentre = (mine.Position - at).Magnitude
+				local toDriver = (root.Position - mine.Position).Magnitude
+				-- HE MUST BE IN HIS OWN CIRCLE, by the drive's own published radius, or the FIRST
+				-- rule in `Weapon.Rules.ORDER` answers instead of the one being tested.
+				if fromCentre > (stand :: any).radius then
+					return false, "off-stand", fromCentre, toDriver, "?"
+				end
+				if toDriver > PROBE_REACH then
+					return false, "driver-far", fromCentre, toDriver, "?"
+				end
+				-- THE GUN MUST BE ABLE TO FIRE AT ALL. A `busy` or `barrel-empty` rejection is the
+				-- reducer's and carries no `refused` field, so it reads exactly like "the rule said
+				-- nothing" -- which is what `cd30764` measured (`busy=0.60`, the scenario's own R).
+				if gun == nil or not gun.equipped or gun.busyFor > 0 or gun.barrels[gun.selected] ~= "Live" then
+					return false, "gun-not-ready", fromCentre, toDriver, "?"
+				end
+				-- AND THE AIM RAY MUST REALLY REACH HIS BODY. The server refuses on what the ray
+				-- HITS, so this client casts the same ray first and names what is in the way --
+				-- which in `cd30764` would have said "the post he had walked behind".
+				local camera = workspace.CurrentCamera
+				local eye = if camera then camera.CFrame.Position else mine.Position
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				params.FilterDescendantsInstances = { player.Character :: Instance }
+				params.IgnoreWater = true
+				local result = workspace:Raycast(eye, root.Position - eye, params)
+				local hit = if result then result.Instance else nil
+				local onHim = hit ~= nil
+					and (target :: Player).Character ~= nil
+					and hit:IsDescendantOf((target :: Player).Character :: Instance)
+				local name = if hit then hit:GetFullName() else "<nothing>"
+				if not onHim then
+					return false, "ray-blocked", fromCentre, toDriver, name
+				end
+				return true, "", fromCentre, toDriver, name
+			end
+
+			-- IT RETRIES WHILE THE STAGING HOLDS. A rejected attempt commits no state and costs no
+			-- shell, so trying again is free -- and it is the only way to be sure the shot lands in a
+			-- gun that is not mid-reload, which the scenario guarantees for 2 of the first 3 seconds.
+			-- WHERE THIS CASE STARTS FROM, recorded before the first attempt: it must start UNTIED.
+			-- A session that arrives here already tied is a real finding and not something to work
+			-- around -- the gun would be gone, the probe could not fire at all, and the case says so
+			-- (TASKS.md 166a(b) records the same race for `weapon_client` and `rifle_client`).
+			probeTiedBefore = Match.isTied()
+			probeViolationsBefore = #violations
+			probeDryBefore = Weapon.Sound.stats().dry
+			local deadline = os.clock() + PROBE_WINDOW
+			while os.clock() < deadline and probeReason == nil do
+				local ok, why, fromCentre, toDriver, hitName = staging()
+				if not ok then
+					probeBlocked =
+						string.format("%s (centre %.1f, driver %.1f, ray %s)", why, fromCentre, toDriver, hitName)
+					if #probeLog < 8 then
+						table.insert(
+							probeLog,
+							string.format("blocked=%s tied=%s", probeBlocked :: string, tostring(Match.isTied()))
+						)
+					end
+					task.wait(PROBE_EVERY)
+					continue
+				end
+				local mine = rootOf(player)
+				local root = rootOf(target :: Player)
+				local camera = workspace.CurrentCamera
+				local eye = if camera then camera.CFrame.Position else (mine :: BasePart).Position
+				local toward = (root :: BasePart).Position - eye
+				if toward.Magnitude < 1e-3 then
+					break
+				end
+				if probeBefore == nil then
+					probeBefore = gunPrint()
+				end
+				probeBlocked = nil
+				probeFromCentre, probeToDriver, probeRayHit = fromCentre, toDriver, hitName
+				stagedTheirs = (root :: BasePart).Position
+				local before = #refusals
+				-- The payload the client's own `Input.onFire` sends, and nothing else: an origin and
+				-- a unit direction (design section 5.7).
+				Shotgun.remotes().FireRequest:FireServer({ origin = eye, direction = toward.Unit })
+				probeFired = true
+				probeShots += 1
+				local answer = os.clock() + math.min(PROBE_TIMEOUT, PROBE_EVERY * 4)
+				while os.clock() < answer and #refusals == before do
+					task.wait(0.05)
+				end
+				probeReason = refusals[before + 1]
+				probeAfter = gunPrint()
+				-- THE OTHER HALF OF THE CLAIM, read the instant the server has answered: a refused
+				-- shot must have tied nobody and announced nothing.
+				probeTiedAfter = Match.isTied()
+				probeViolationsAfter = #violations
+				probeDryAfter = Weapon.Sound.stats().dry
+				table.insert(
+					probeLog,
+					string.format(
+						"#%d answered=%s tied %s->%s violations %d->%d",
+						probeShots,
+						tostring(probeReason),
+						tostring(probeTiedBefore),
+						tostring(probeTiedAfter),
+						probeViolationsBefore or -1,
+						probeViolationsAfter or -1
+					)
+				)
+			end
+			if probeAfter == nil then
+				probeAfter = gunPrint()
+			end
+			-- THE AIM MAY MOVE OFF HIS BODY NOW. Until this line a replayed click is refused by the
+			-- very rule being measured, which is why the tie can no longer land first.
+			probeDone = true
+		end)
 	end
 	return Enum.ContextActionResult.Pass
 end
@@ -164,10 +509,36 @@ local aiming = RunService.RenderStepped:Connect(function()
 	if not cuedAt or os.clock() - cuedAt > TIE_TIMEOUT then
 		return
 	end
+	-- HELD WHERE THE CUE PUT HIM, every frame, for both roles (task 171). See `park`.
+	local mine = rootOf(player)
+	if parkAt ~= nil and mine ~= nil then
+		park(mine, parkAt :: Vector3)
+	end
 	local target = driver()
 	local theirs = if target then rootOf(target) else nil
-	if theirs then
-		Camera.lookAt(theirs.Position)
+	if theirs and not Role.isDriver() then
+		-- BESIDE HIM, NOT AT HIM (task 171) -- BUT ONLY ONCE THE PROBE HAS ANSWERED. Aimed at him the
+		-- shot is REFUSED before it exists (`Weapon.Rules.beaterInLine`) and there is nothing for the
+		-- safety rule to judge; aimed five studs to his side it is fired, it passes within
+		-- `SAFETY_MISS_STUDS` of him, and the arc and `Match.Penalty` do what this spec is named for.
+		--
+		-- THE ORDER IS THE POINT OF THE `probeDone` GUARD (`bac93d6`): the scenario clicks at 3.8 s
+		-- and 5.0 s after the cue and the probe cannot fire until the scenario's own reload has
+		-- finished, so an early click used to tie him BEFORE the refusal had been measured. While the
+		-- aim is still on his body such a click is refused -- harmless, and more evidence -- and the
+		-- tie is taken by whichever click comes after this flips.
+		local aimAt = if probeDone then theirs.Position + Vector3.new(BESIDE_STUDS, 0, 0) else theirs.Position
+		Camera.lookAt(aimAt)
+		return
+	end
+	-- AND A DRIVER'S CAMERA IS NOT THIS SPEC'S, which is the Reviewer's round-1 finding 1 and was a
+	-- real regression: the driver's branch of `onCue` sets `cuedAt` (it has staging of its own since
+	-- task 171, where before it returned without setting anything), `driver()` skips self, so on HIS
+	-- client `theirs` is nil and this fall-through steered his camera every frame for the whole
+	-- `TIE_TIMEOUT` -- while `camera_client.spec` is asserting about that camera, and while this
+	-- file's own comment and the review request both said it never happens. The parking above is his
+	-- half of the window; the AIM is the shooter's alone.
+	if Role.isDriver() then
 		return
 	end
 	local me = rootOf(player)
@@ -178,7 +549,7 @@ end)
 
 InputReady.ready("zz_tie_to_a_tree")
 
-local function waitUntil(seconds: number, predicate: () -> boolean): boolean
+function waitUntil(seconds: number, predicate: () -> boolean): boolean
 	local deadline = os.clock() + seconds
 	while os.clock() < deadline do
 		if predicate() then
@@ -230,6 +601,103 @@ return function()
 			expect(shooter).to.equal(Match.myTeam() == "Shooters")
 		end)
 
+		-- RULE 1 OF TASK 171, AND IT RUNS BEFORE THE TIE CASE ON PURPOSE: the tie takes the gun away,
+		-- so a refusal can only be measured while the player still has one. The probe fired at the
+		-- cue, which is seconds before the replayed click the next case depends on.
+		it("refuses a shot aimed straight at a beater, and spends nothing doing it", function()
+			expect(cued()).to.equal(Match.myTeam() == "Shooters")
+
+			if Role.isDriver() then
+				-- A driver carries no gun, so he cannot stage this at all.
+				expect(holdsGun()).to.equal(false)
+				return
+			end
+
+			if driver() == nil then
+				-- ONE PLAYER: there is nobody to refuse a shot at, so the probe never fired -- and
+				-- that is the honest assertion rather than a skip. The shot this session fires goes
+				-- down an empty drive and is judged by the next case.
+				expect(#Players:GetPlayers()).to.equal(1)
+				expect(probeFired).to.equal(false)
+				expect(probeReason).to.equal(nil)
+				TestKit.note("zz_tie: one player, so no beater to refuse a shot at; probe not fired")
+				return
+			end
+
+			-- TWO PLAYERS: the probe was fired dead at him.
+			expect(waitUntil(PROBE_TIMEOUT * 3, function()
+				return probeAfter ~= nil
+			end)).to.equal(true)
+			local stand = standOf(player)
+			TestKit.note(
+				string.format(
+					"zz_tie: probe aimed AT the driver -> refused=%s after %d attempt(s); blocked=%s; "
+						.. "gun before [%s] after [%s]; refusals seen [%s]",
+					tostring(probeReason),
+					probeShots,
+					tostring(probeBlocked),
+					tostring(probeBefore),
+					tostring(probeAfter),
+					table.concat(refusals, ", ")
+				)
+			)
+			-- THE GEOMETRY AS IT WAS WHEN THE SHOT WENT, not read back afterwards: the gate judged
+			-- THESE numbers, and the replay keeps playing. `off-stand` instead of `beater-in-line`
+			-- means the staging missed its own stand rather than the rule being wrong
+			-- (`Weapon.Rules.ORDER`), and `ray` names what was in the way when nothing was refused.
+			TestKit.note(
+				string.format(
+					"zz_tie: at the probe: stand=%s r=%s; me %.1f from the centre; driver %.1f away; ray hit %s",
+					tostring(stand and stand.centre),
+					tostring(stand and stand.radius),
+					probeFromCentre or -1,
+					probeToDriver or -1,
+					tostring(probeRayHit)
+				)
+			)
+			-- EVERY ATTEMPT, with the tie state at each one: the Director's question of `bac93d6`
+			-- ("what was the first attempt?") answered in the log rather than inferred from a
+			-- counter.
+			TestKit.note("zz_tie: probe attempts: " .. table.concat(probeLog, " | "))
+			-- THE STAGING'S OWN CLAIMS, asserted before the rule's and against the recorded numbers.
+			-- Without them the case cannot tell "the beater rule is broken" from "this spec fired
+			-- from the wrong place, at the wrong distance, through a post, or into a busy gun" --
+			-- which is one defect per two-player run so far.
+			expect(stand).to.be.ok()
+			expect(probeBlocked).to.equal(nil)
+			expect(probeFromCentre).to.be.ok()
+			expect((probeFromCentre :: number) <= (stand :: any).radius).to.equal(true)
+			expect((probeToDriver :: number) <= PROBE_REACH).to.equal(true)
+			expect(probeRayHit).to.be.ok()
+			-- THE SERVER'S OWN WORD FOR IT, off the wire: `Weapon.Rules.REASON.BEATER`.
+			expect(probeReason).to.equal("beater-in-line")
+			-- NOTHING WAS SPENT. The gun print carries the barrels and the pocket, so an unchanged
+			-- string is "no shell, no barrel, no reload" in one comparison.
+			expect(probeAfter).to.equal(probeBefore)
+			-- AND NOBODY WAS TIED BY IT: there was no shot to judge. MEASURED AROUND THE PROBE'S OWN
+			-- SHOT and not afterwards, which is the correction `bac93d6` forced: by the time this case
+			-- reached its assertions the replayed click had legitimately tied him, so
+			-- `Match.isTied()` here asks "is he tied NOW" and the honest answer to that is yes. The
+			-- pair below is the claim itself -- untied before the refused shot, untied after it, and
+			-- no violation announced in between -- and it is STRICTER than the old line, because the
+			-- old one could have been satisfied by a probe that never fired.
+			--
+			-- `probeTiedBefore` IS ALSO THE CASE'S STARTING CONDITION: a session that arrives here
+			-- already tied fails on this line, and that is the right outcome -- the gun would be
+			-- gone, and TASKS.md 166a(b) records the same race biting two other client specs.
+			expect(probeTiedBefore).to.equal(false)
+			expect(probeTiedAfter).to.equal(false)
+			expect(probeViolationsAfter).to.equal(probeViolationsBefore)
+			-- AND THE GUN CLICKED. The server's refusal is the client's cue to play one dry click
+			-- (`CameraBoot` -> `Weapon.Sound.dry`), and this is the only refusal in the suite that
+			-- travels the real wire to a real client, so it is the only place that wiring can be
+			-- asserted. The sound itself is Karen's to judge; that it was ASKED FOR is this line.
+			TestKit.note(
+				string.format("zz_tie: dry clicks %s -> %s", tostring(probeDryBefore), tostring(probeDryAfter))
+			)
+			expect((probeDryAfter or 0) > (probeDryBefore or 0)).to.equal(true)
+		end)
+
 		it("ties the shooter to a tree when a driver was in its path, or nobody when none was", function()
 			expect(cued()).to.equal(Match.myTeam() == "Shooters")
 
@@ -257,7 +725,9 @@ return function()
 				return
 			end
 
-			-- TWO PLAYERS: the shot really did go at a person.
+			-- TWO PLAYERS: the shot really did go dangerously close to a person -- `BESIDE_STUDS` off
+			-- his body and inside `SAFETY_MISS_STUDS`, which is the shot the arc exists to punish
+			-- (task 171; before it this aim was dead at him, which the new rule refuses outright).
 			expect(stagedDistance).to.equal(STAND_BEHIND)
 			local tied = waitUntil(TIE_TIMEOUT, function()
 				return Match.isTied()
@@ -278,23 +748,30 @@ return function()
 					else -1
 				-- How far the driver is off the line this shot was staged on: `miss` in Penalty's own
 				-- terms, against `SAFETY_MISS_STUDS` (12).
+				-- AGAINST THE POINT THE SHOT WAS AIMED AT, which since task 171 is `BESIDE_STUDS` to
+				-- his side -- not his root. Measured off his root this number was 0.0 by
+				-- construction and said nothing; measured off the aim line it is the quantity
+				-- `Penalty.judge` actually compares with `SAFETY_MISS_STUDS`, so a drift that
+				-- carried him out of the 12 studs would be visible here.
 				local miss = -1
 				if theirsNow and meNow then
-					local aim = theirsNow.Position - meNow.Position
+					local aim = (theirsNow.Position + Vector3.new(BESIDE_STUDS, 0, 0)) - meNow.Position
 					if aim.Magnitude > 1e-6 then
-						local toward = (theirsNow.Position - meNow.Position)
+						local toward = theirsNow.Position - meNow.Position
 						miss = (toward - aim.Unit * toward:Dot(aim.Unit)).Magnitude
 					end
 				end
-				TestKit.note(
-					string.format(
-						"zz_tie: NOT tied. phase=%s holdsGun=%s from=%s violations=%d",
-						tostring(snapshot and snapshot.phase),
-						tostring(holdsGun()),
-						tostring(stagedFrom),
-						#violations
-					)
-				)
+				TestKit.note(string.format(
+					"zz_tie: NOT tied. phase=%s holdsGun=%s from=%s violations=%d refusals=[%s]",
+					tostring(snapshot and snapshot.phase),
+					tostring(holdsGun()),
+					tostring(stagedFrom),
+					#violations,
+					-- SINCE TASK 171 THIS IS THE FIRST THING TO READ: a refusal here means the
+					-- shot was never fired, so the Match was never asked -- the aim is back on
+					-- his body instead of `BESIDE_STUDS` off it.
+					table.concat(refusals, ", ")
+				))
 				TestKit.note(
 					string.format(
 						"zz_tie: driver staged at %s, now %s (drift %.1f); me staged %s, now %s (drift %.1f); miss %.1f of %d",
@@ -314,6 +791,17 @@ return function()
 				TestKit.note(string.format("zz_tie: gun at cue [%s] -> now [%s]", tostring(stagedGun), gunPrint()))
 			end
 			expect(tied).to.equal(true)
+			-- ...AND IT WAS A SHOT, NOT A REFUSAL. One line, because the pair of them IS the task 171
+			-- rule: the probe aimed at him was refused and tied nobody, and this shot aimed five
+			-- studs off him was fired and tied him.
+			TestKit.note(
+				string.format(
+					"zz_tie: TIED by a shot aimed %d studs beside the driver at %d studs; probe aimed at him was refused=%s",
+					BESIDE_STUDS,
+					STAND_BEHIND,
+					tostring(probeReason)
+				)
+			)
 
 			-- The snapshot is what everyone sees, and it names him.
 			local snapshot = Match.get()

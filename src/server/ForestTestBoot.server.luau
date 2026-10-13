@@ -268,6 +268,19 @@ Weapon.setArmingPolicy(Match.mayCarryWeapon)
 -- Design: docs/design/forest-drive.md section 6.2
 Weapon.setDriveLineProvider(Match.driveLine)
 
+-- ...AND THE THREE THE RULES NEED (task 171). The drive answers, the WEAPON refuses -- one gate, on
+-- the server, in the one place a shot can come from (docs/research/2026-10-13-the-rules.md).
+--   * what the aim ray hit: a beater (player on the push team, or a bot) or an animal's species
+--   * where this player's stand circle is, or nil for "he has none"
+-- KAREN, 2026-10-11: *"No penalty now we need simplify scope, thye just can't shoot them"*;
+-- 2026-10-12: a hunter outside his circle *"CAN'T SHOOT until he steps in"*. Neither is a penalty.
+--
+-- THE LICENCE PROVIDER IS DELIBERATELY NOT WIRED. No deer exists, and a boar needs no licence
+-- (`Licences.ROWS`), so with nothing wired the rule is reachable and inert -- which is exactly what
+-- *"a per-species licence table, data-only for now"* asks for. The shop task wires it to the profile.
+Weapon.setTargetProvider(Match.classifyTarget)
+Weapon.setStandProvider(Match.standAreaFor)
+
 -- ---------------------------------------------------------------- the role, and the outfit
 --
 -- KAREN ASKS FOR A ROLE AND THE DRIVE GIVES IT (task 157). She types `/beater` (and `/hunter` back),
@@ -424,6 +437,13 @@ Match.start({
 		return ForestTest.Markers.build(ForestTest.hunterStandX())
 	end,
 	placement = placement,
+	-- WHERE A HUNTER'S STAND IS IN THIS WORLD (task 171), and it is NOT where `placement` put him:
+	-- here he picks his own by walking to it in the 15 s window (`ForestTest.lockPick`), so the
+	-- circle the fire gate measures is centred on the PICK. `ForestTest.standArea` is the same
+	-- `standPosition` and the same `PICK.standRadiusStuds` the soft wall of task 166 is built from,
+	-- so where he may SHOOT and where he may WALK are one circle asked twice, and nil until his pick
+	-- locks -- which is the whole of "no rule during the pick window".
+	standArea = ForestTest.standArea,
 	config = {
 		DRIVE_SECONDS = Data.DRIVE.seconds,
 		BOARS_PER_DRIVE = 0,

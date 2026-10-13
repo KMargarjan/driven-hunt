@@ -788,7 +788,7 @@ return function()
 						and state.barrels[1] == "Live"
 						and state.barrels[2] == "Live"
 						and state.loaded[1] == "Slug"
-						and state.reserve.Slug == 24
+						and state.reserve.Slug == Shotgun.CONFIG.DRIVE_SHELLS
 						and state.selected == 1
 					then
 						sawFull = true
@@ -1119,7 +1119,7 @@ return function()
 					loaded = { "Slug", "None" },
 					selected = 1,
 					ammo = "Slug",
-					reserve = { Slug = 24, Buck = 22 },
+					reserve = { Slug = 24, Buck = 22 }, -- a hand-written state: any numbers, not the drive's
 					open = false,
 					busyFor = 0,
 				}

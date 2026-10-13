@@ -127,6 +127,20 @@ if weaponModule then
 		-- gun.
 		Weapon.Sound.shot(Camera.poseConfig(), Weapons.row(Camera.Viewmodel.weaponId()))
 	end)
+	-- ...AND THE SHOT THAT DID NOT HAPPEN (task 171). The server refused it -- a beater in the line,
+	-- a hunter off his stand, a species with no licence -- and said so in `snapshot.refused`. The
+	-- client is a MIRROR and not a second decider: it does not know the rules, it plays one dry
+	-- click, and the Hud prints the server's own `notice` on the readout.
+	--
+	-- ON THE SIGNAL AND NOT IN THE PER-FRAME POLL BELOW: `refused` is a fact about ONE publish, so an
+	-- edge detector reading it every frame would either miss it or repeat it. `Weapon.Changed` fires
+	-- exactly once per arriving snapshot, and the server sets the field on exactly the refusal
+	-- publish -- so one refused trigger pull is one click.
+	Weapon.Changed:Connect(function(snapshot)
+		if type(snapshot) == "table" and type(snapshot.refused) == "string" then
+			Weapon.Sound.dry(Camera.poseConfig())
+		end
+	end)
 	-- THE SHOT'S LIGHT, AND WHO DRAWS IT (task 112, round 2). `Weapon.Effects` asks BEFORE drawing
 	-- its own flash and smoke, so the two cannot land on top of each other -- which is what round 1
 	-- shipped and Karen saw ("remove those smokes (white from previous)"). `Camera.fire` answers
