@@ -3,7 +3,7 @@
 Task: 170
 Round: 2
 Base: `8128ed0` (main, #153 merged)
-Code commit: `87c5baf55b84d51acfacb5d159a08f6fde48108d`
+Code commit: `d50ecdf2e38a519e341962425abb9a94a5153ca8`
 
 ```
 [harness] PASS: 33/33 checks @ 87c5baf55b84d51acfacb5d159a08f6fde48108d (clean tree) scope=all
@@ -11,7 +11,8 @@ Code commit: `87c5baf55b84d51acfacb5d159a08f6fde48108d`
 ```
 
 ```
-[harness2] NEEDS TEST2 170 87c5baf55b84d51acfacb5d159a08f6fde48108d
+[harness] PASS: 33/33 checks @ d50ecdf2e38a519e341962425abb9a94a5153ca8 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ d50ecdf2e38a519e341962425abb9a94a5153ca8 (clean tree)
 ```
 
 **The `[harness2]` line is a PLACEHOLDER and the Director asked for it in those words** (round-2
