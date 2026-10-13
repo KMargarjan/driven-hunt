@@ -4124,6 +4124,22 @@ function Runtime:spook(id: string, from: Vector3?, untilExit: boolean?): boolean
 	return false
 end
 
+-- THIS ONE ANIMAL HAS NOTICED SOMEBODY, and that is all (task 172). The world hands in where he is
+-- standing and how long the look should hold; the animal stops, lifts its head and faces him.
+--
+-- IT IS `Runtime:spook`'S EXACT SHAPE, one door down, because it is the same kind of fact: the WORLD
+-- knows a man has walked inside the notice band, and what that does to an animal is the Brain's.
+-- Returns false for an animal that is already running, already looking, dead or gone -- `Brain:notice`
+-- is the one place that decides which, so this cannot answer it a second way.
+function Runtime:notice(id: string, from: Vector3?, seconds: number?): boolean
+	for _, entry in ipairs(self._boars) do
+		if entry.id == id then
+			return entry.brain:notice(from, seconds) == true
+		end
+	end
+	return false
+end
+
 -- A HORN WAS BLOWN AT `at`, AND EVERYTHING WITHIN `radiusStuds` OF IT RUNS AWAY (task 152). Karen,
 -- 2026-10-10: *"something that they can walk and make sound for spook"*.
 --

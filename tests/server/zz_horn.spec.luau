@@ -765,6 +765,125 @@ return function()
 			template:Destroy()
 		end)
 
+		it("closes the hand on the horn's own body, carried and raised (task 172)", function()
+			-- KAREN, 2026-10-13 ~09:20: *"horn is hanging somewhere it has to be in hand"*.
+			--
+			-- WHAT `Tool.Grip` IS: the engine welds the Handle to the right hand with
+			-- `Part0.CFrame * C0 == Part1.CFrame * C1`, where C1 is `Grip` -- so `Grip.Position` is the
+			-- POINT OF THE HANDLE THE HAND HOLDS, in the Handle's own coordinates. The assertion is
+			-- therefore not about taste: the point has to be INSIDE the horn.
+			--
+			-- WHERE THE HORN IS, in the Handle's frame: the mesh is centred (`MESH.OFFSET_STUDS` is
+			-- zero) and `MESH.ROTATION_DEG` is a quarter turn about Y, which lays its long axis along
+			-- the Handle's Z. So the half-extents are (thickness, curve height, length) / 2 -- the
+			-- size's own components, swapped by that turn.
+			local size = Horn.MESH.SIZE_STUDS
+			expect(math.abs(Horn.MESH.ROTATION_DEG.Y)).to.equal(90)
+			expect(Horn.MESH.OFFSET_STUDS).to.equal(Vector3.zero)
+			local half = Vector3.new(size.Z, size.Y, size.X) / 2
+			local hold = CONFIG.GRIP.Position
+			expect(math.abs(hold.X) <= half.X).to.equal(true)
+			expect(math.abs(hold.Y) <= half.Y).to.equal(true)
+			expect(math.abs(hold.Z) <= half.Z).to.equal(true)
+			-- ...AND THE OLD ONE WAS NOT, which is the measurement this case records: 1.17 studs from
+			-- the Handle's centre, on a Handle 0.5 x 1.1 x 1.1. MEASURED live before the change, on a
+			-- player beater AND on all four bot beaters: the Handle sat 1.224 studs from the hand.
+			local old = Vector3.new(-0.8, 0.7, 0.45)
+			expect(math.abs(old.X) <= half.X).to.equal(false)
+			-- THE FIST IS NEARER THE MOUTHPIECE than the bell, which is how a horn is held: the
+			-- mouthpiece is the Handle's +Z end (`MESH.ROTATION_DEG`'s own header), so a positive
+			-- hold is on the mouthpiece side of the middle.
+			expect(hold.Z > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"grip (%.2f, %.2f, %.2f) inside the horn's half-extents (%.2f, %.2f, %.2f); it was %.2f studs out",
+					hold.X,
+					hold.Y,
+					hold.Z,
+					half.X,
+					half.Y,
+					half.Z,
+					old.Magnitude
+				)
+			)
+			-- THE RAISE IS A DIFFERENT POSE OF THE SAME OBJECT: a turn, not a different horn. It
+			-- keeps task 169's own offset, which is what actually brings the mouthpiece to the mouth
+			-- (the raise clip only lifts the hand to about chest height) -- re-based onto the carry
+			-- point the Handle stopped 2.66 studs from the head instead of 1.77, MEASURED live. So
+			-- what is asserted here is that it TURNS: the two poses are not the same CFrame, and the
+			-- blow is pitched up.
+			expect(CONFIG.GRIP_BLOW).never.to.equal(CONFIG.GRIP)
+			local _, pitch = CONFIG.GRIP_BLOW:ToEulerAnglesXYZ()
+			local blowPitch = select(1, CONFIG.GRIP_BLOW:ToEulerAnglesXYZ())
+			expect(blowPitch < 0).to.equal(true)
+			expect(math.abs(pitch) < 1e-6).to.equal(true)
+		end)
+
+		it("gives a bot beater the SAME horn, and the look sweep reaches it (task 172)", function()
+			-- KAREN, 2026-10-13 ~09:20: *"all beaters has to have same horn"*.
+			--
+			-- THE BUILDER WAS ALREADY SHARED -- `Horn.giveTo` calls `Horn.build`, which is what a
+			-- player's grant calls -- so what this case covers is the half that was NOT: the look
+			-- sweep walked `Players:GetPlayers()`, and a bot is not a player, so a bot handed its horn
+			-- before the asset preloaded would carry the parts horn for the whole session.
+			local character = Instance.new("Model")
+			character.Name = "spec-bot-beater"
+			local root = Instance.new("Part")
+			root.Name = "HumanoidRootPart"
+			root.Size = Vector3.new(2, 2, 1)
+			root.Parent = character
+			character.PrimaryPart = root
+			local humanoid = Instance.new("Humanoid")
+			humanoid.Parent = character
+			character.Parent = toolRoot
+
+			local tool
+			withProvider(nil, function()
+				tool = HornTool.giveTo(character)
+			end)
+			expect(tool).to.be.ok()
+			local handle = (tool :: Tool):FindFirstChild("Handle") :: BasePart
+			-- Built out of the parts, because there was nothing to wear yet.
+			expect(handle:FindFirstChild(HornTool.MESH_NAME)).to.equal(nil)
+			expect(handle:FindFirstChild("Bell")).to.be.ok()
+			-- ...and the SAME grip a player's horn gets, out of the one data file.
+			expect((tool :: Tool).Grip).to.equal(CONFIG.GRIP)
+			-- THE REGISTRY HOLDS IT while it is in a character's hand.
+			local held = HornTool.bodyTools()
+			local found = false
+			for _, one in ipairs(held) do
+				if one == tool then
+					found = true
+				end
+			end
+			expect(found).to.equal(true)
+
+			-- THE MESH LANDS LATE, and the sweep reaches the bot exactly as it reaches a player.
+			local template, row = fakeTemplate()
+			local upgraded = 0
+			withProvider(function()
+				return template, { row = row }
+			end, function()
+				upgraded = HornTool.upgradeLook()
+			end)
+			expect(upgraded >= 1).to.equal(true)
+			local worn = handle:FindFirstChild(HornTool.MESH_NAME) :: BasePart
+			expect(worn).to.be.ok()
+			expect(worn.Size).to.equal(Horn.MESH.SIZE_STUDS)
+			for _, piece in ipairs(Horn.pieces(CONFIG)) do
+				expect(handle:FindFirstChild(piece.name)).to.equal(nil)
+			end
+
+			-- ...AND A RIG THAT IS GONE DROPS OUT OF THE REGISTRY on the next read, so it does not
+			-- grow with every drive's worth of retired bots.
+			character:Destroy()
+			local after = HornTool.bodyTools()
+			for _, one in ipairs(after) do
+				expect(one).never.to.equal(tool)
+			end
+			template:Destroy()
+		end)
+
 		it("hangs its voice on the Handle, so the blast is 3D", function()
 			local tool = HornTool.build()
 			local handle = tool:FindFirstChild("Handle") :: BasePart

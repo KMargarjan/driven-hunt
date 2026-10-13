@@ -847,6 +847,59 @@ return function()
 			TestKit.note(string.format("boar-behaviour: head up %.2f s, then %.2f s of grazing", held, waited + again))
 		end)
 
+		it("can be ASKED to look up, by the world, for as long as the world says (task 172)", function()
+			-- KAREN, 2026-10-13 ~09:20: *"I want to see how they stand and then start to run"*. The
+			-- drive knows a beater has walked inside its notice band; what that does to an animal is
+			-- this file's, and `Brain:notice` is the door -- `_enterAlert` with the cause handed in,
+			-- exactly as `Brain:spook` is `_flush` with the cause handed in.
+			local brain = Brain.new(on, FIELD, START, Random.new(31))
+			expect(brain:state()).to.equal("IDLE")
+			local man = Vector3.new(START.X + 120, 0, START.Z)
+			expect(brain:notice(man, 1.5)).to.equal(true)
+			expect(brain:state()).to.equal("ALERT")
+			-- IT STANDS STILL AND FACES HIM, which is what ALERT already is: no route is asked for
+			-- and the setpoint is zero.
+			local fastest = 0
+			local held = 0
+			while brain:state() == "ALERT" and held < 3 do
+				local intent = brain:step(DT, obs(START, {}))
+				expect(intent.pathRequest).to.equal(nil)
+				if held > 0.2 then
+					fastest = math.max(fastest, intent.targetVelocity.Magnitude)
+				end
+				held += DT
+			end
+			expect(fastest < EPSILON).to.equal(true)
+			-- THE WORLD'S CLOCK, NOT THE ANIMAL'S: 1.5 s was asked for and `SENSE.ALERT_SECONDS` is
+			-- 2.5, so the hold has to be the shorter one or the drive cannot stage its own encounter.
+			expect(held < SENSE.ALERT_SECONDS).to.equal(true)
+			expect(held >= 1.5 - DT * 2).to.equal(true)
+			TestKit.note(string.format("task 172: asked for a 1.5 s stand, held %.2f s", held))
+		end)
+
+		it("refuses to be re-pointed once it is looking, running or gone (task 172)", function()
+			-- A HERD THAT RE-ALERTED EVERY TICK OF AN APPROACH would face the beater and stand there
+			-- for ever, which is the opposite of the staged reaction. So only a SETTLED animal looks
+			-- up, and `IDLE` is the one state this accepts -- `Brain.CLASS` is not the test, because
+			-- ALERT is also "calm".
+			local brain = Brain.new(on, FIELD, START, Random.new(32))
+			expect(brain:notice(Vector3.new(60, 0, 0), 1)).to.equal(true)
+			expect(brain:notice(Vector3.new(-60, 0, 0), 1)).to.equal(false)
+			-- ...nor one that is already running: a fright outranks a look.
+			local fleeing = Brain.new(on, FIELD, START, Random.new(33))
+			fleeing:spook(Vector3.new(0, 0, 60), nil, true)
+			expect(fleeing:state()).to.equal("FLEE")
+			expect(fleeing:notice(Vector3.new(0, 0, 60), 1)).to.equal(false)
+			-- ...and a nil cause is nothing to look at, which is not an error.
+			local idle = Brain.new(on, FIELD, START, Random.new(34))
+			expect(idle:notice(nil, 1)).to.equal(false)
+			expect(idle:state()).to.equal("IDLE")
+			-- WITH NO SECONDS ASKED FOR it is the animal's own `SENSE.ALERT_SECONDS`, so a caller
+			-- that asks for nothing gets task 118.
+			expect(idle:notice(Vector3.new(0, 0, 60))).to.equal(true)
+			expect(math.abs(idle:debug().alertFor - SENSE.ALERT_SECONDS) < EPSILON).to.equal(true)
+		end)
+
 		it("runs instead when the man closes to 14 studs", function()
 			local brain = Brain.new(on, FIELD, START, Random.new(6))
 			while brain:state() ~= "ALERT" do
