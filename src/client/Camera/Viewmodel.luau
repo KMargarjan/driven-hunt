@@ -40,12 +40,47 @@ local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 -- hinge axis, the two chambers and the bead. This module still knows nothing about weapon STATE.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+-- SHARED, AND ONLY FOR THE BEATER'S HORN (task 176): the blast window (`Horn.blowWeight`, off task
+-- 168's three timings), the attribute the server stamps on an accepted blast, and where the
+-- mouthpiece is. No state, no Instances, no sound -- `Weapon.Horn` owns the Tool and the blast.
+local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
+-- ...AND THE ONE FACT THAT SAYS WHAT THIS MODULE DRAWS AT ALL (task 176). `Camera.Rig` asks the same
+-- function, because the two are exact complements: what is in the hand is on screen once, as this
+-- clone or as the real Tool.
+local HeldTool = require(ReplicatedStorage:WaitForChild("HeldTool"))
 
 local Viewmodel = {}
 
 local source: (() -> BasePart?)? = nil
 local model: Model? = nil
 local builtFrom: BasePart? = nil
+
+-- ---------------------------------------------------------------- the horn's own state (task 176)
+--
+-- DECLARED HERE, BESIDE THE MODEL IT BELONGS TO, because `Viewmodel.clear()` resets all of it and a
+-- local declared further down the file would silently become a global there. What each one is for is
+-- written where the horn is drawn.
+-- WHICH KIND OF THING THE CURRENT `model` IS, so a switch between a gun and a horn rebuilds. Without
+-- it, `builtFrom ~= handle` is the only trigger -- and that is a Handle identity, which says nothing
+-- about what was built out of it.
+local builtKind: string? = nil
+-- WHAT THE CLONE WAS BUILT FROM, as a signature of the Handle's drawable children: the horn is worn
+-- by the server in two stages (`Weapon.Horn.upgradeLook` swaps the parts coil for the uploaded mesh
+-- when the template lands, measured at ~2 s into a session for the gun), so the first-person copy has
+-- to go stale exactly when the real one changes. The same idea as the gun's `builtMeshes`/`builtReady`
+-- pair, against a Handle instead of a published folder.
+local hornSignature: string? = nil
+-- THE LAST BLAST THIS CLIENT HAS SEEN, and when it noticed. `Horn.BLOW_ATTRIBUTE` is an increasing
+-- number the server stamps on the Tool inside `Weapon.Horn.blowTool` -- the one door every accepted
+-- blast comes through -- so a CHANGE is the signal and no clock has to be shared between the
+-- machines. The clock that times the gesture is this module's own injected one, which every spec
+-- already drives (`Viewmodel.setClock`).
+local hornBlowSeen: number? = nil
+local hornBlowAt: number? = nil
+-- HAS A BUILD PRIMED `hornBlowSeen` YET? A separate flag and not `hornBlowSeen ~= nil`, because nil
+-- is a real value of it -- a horn that has never been blown carries no attribute at all -- and
+-- overloading the two would have swallowed the FIRST blast of every session.
+local hornBlowPrimed = false
 
 -- THE GUN GOES STALE WHEN ITS MESHES ARRIVE (task 99), and since task 114 that is the ONLY way it
 -- can. While the gun was a clone of the Tool's Handle it also went stale when that Handle's children
@@ -207,6 +242,14 @@ local stats = {
 	-- boxes because the mesh has not arrived" is a NUMBER and not only a picture. Per build, like
 	-- `meshesDrawn`.
 	meshesWaiting = 0,
+	-- THE HORN (task 176). How many frames the drawn thing under the camera was the beater's horn
+	-- rather than a gun, how many of those were inside a blast's raise, and how many times the
+	-- block of pose numbers was missing -- which is the one way this can draw nothing while a horn
+	-- is in the hand, and so must be a number rather than an empty screen.
+	hornFrames = 0,
+	hornBlowFrames = 0,
+	hornBlasts = 0,
+	hornPosesMissing = 0,
 }
 
 -- THE HANDS (task 93). `handsOn` is not a cache of what is on screen -- the Instances are that -- it
@@ -384,6 +427,14 @@ function Viewmodel.clear()
 	builtMeshes = -1 -- the next build counts its own wood (task 99)
 	builtReady = -1
 	stale = false
+	-- THE HORN'S OWN STATE GOES WITH THE MODEL (task 176), all four together: what kind of thing was
+	-- built, what it was wearing, and the blast it was last told about. A kind left behind would make
+	-- the next frame pose a gun's clone with a horn's numbers.
+	builtKind = nil
+	hornSignature = nil
+	hornBlowSeen = nil
+	hornBlowPrimed = false
+	hornBlowAt = nil
 end
 
 -- WHERE THE GUN SAYS ITS BEAD IS, in the model's own frame, or nil when it carries no `Sight`.
@@ -1270,6 +1321,251 @@ local function geometryNow(): any
 end
 Viewmodel.geometryNow = geometryNow
 
+-- ---------------------------------------------------------------- the beater's horn (task 176)
+--
+-- KAREN, 2026-10-13 ~19:05: *"horn still hangign somewhere it has to be in hand now I can turn
+-- around and horn stand in place somehwere behind"*, and 2026-10-12 ~21:45: *"we need when I am
+-- playing beater to make animation when raising horn to face and blow"*.
+--
+-- WHY IT IS DRAWN HERE AT ALL, when task 152 wrote the opposite. The horn is welded to the
+-- character's right hand and the character does not turn with the look -- the camera does -- so in
+-- first person the real horn sits wherever the BODY last faced, which is Karen's *"somewhere
+-- behind"*. The Director's decision on task 175's escalation (option B, 2026-10-13) is that the horn
+-- gets a first-person view like the gun's; making the BODY face the camera is a different owner and
+-- is queued as its own task.
+--
+-- THE PATTERN IS LUANTI'S `WieldMeshSceneNode` -- *"displays wielded tools in front of the
+-- first-person camera"*, whose entry point `setItem(ItemStack, Client)` takes ANY item and not a
+-- weapon class (LGPL-2.1+, maintained):
+--   https://doxy.minetest.net/classWieldMeshSceneNode.html
+-- placed per frame from the camera's own CFrame as in ioquake3's `CG_AddViewWeapon`
+-- (`code/cgame/cg_weapons.c`, GPL-2.0, maintained). Note:
+-- docs/research/2026-10-13-horn-in-the-first-person-view.md
+--
+-- IT IS A CLONE OF THE TOOL'S OWN HANDLE, which is the one route that cannot draw a different horn
+-- from the one everybody else sees: the Handle the server dressed IS the horn -- the uploaded mesh
+-- with its `SurfaceAppearance`, or task 152's coil of parts when the upload has not landed -- so
+-- there is no second geometry, no second asset key and no load order of its own. It is also the path
+-- this repo shipped for the GUN from task 71 to task 114; `buildNewGun`'s header records why the GUN
+-- stopped using it (it needed pieces it could hinge), and a horn has nothing that moves.
+local HORN_NAME = "DrivenHuntHornViewmodel"
+
+-- WHAT THE HANDLE IS WEARING, as a string, and it is the staleness signature as well: every drawable
+-- descendant's name and class. A horn that swaps its coil for the mesh changes it; a frame that
+-- changes nothing costs one walk of a Handle with two or ten children, on the quarter-second cadence
+-- the gun's own staleness check already runs on.
+local function hornSignatureOf(handle: BasePart): string
+	local parts = {}
+	for _, descendant in ipairs(handle:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			-- READY, NOT ONLY PRESENT (task 133's lesson): a `MeshPart` whose mesh this client has
+			-- not downloaded renders as NOTHING, and when it lands the clone must be rebuilt --
+			-- otherwise the first-person horn is an empty space for the rest of the session while
+			-- the world one is fine.
+			table.insert(
+				parts,
+				descendant.Name .. ":" .. descendant.ClassName .. ":" .. tostring(Viewmodel.meshReady(descendant))
+			)
+		end
+	end
+	table.sort(parts) -- the engine does not promise a child order
+	return table.concat(parts, "|")
+end
+
+-- THE DRAWN HORN. A clone of the Handle with everything that may not live under a camera taken out.
+--
+-- WHAT IS DESTROYED AND WHY: the `Blast` `Sound` (the blast is the REAL Tool's, 3D, from the
+-- beater's own position -- a second copy an inch from the ear would be a second voice), every joint
+-- (the clone is anchored, so a weld to a part that is not here is either nothing or a drag), and any
+-- script, which is the rule for everything this module builds.
+--
+-- `CanQuery = false` IS NOT COSMETIC: `workspace.CurrentCamera` is a child of `Workspace`, so this
+-- system's own occlusion cast can hit a part an inch from the eye (see the module header).
+--
+-- `LocalTransparencyModifier = 0` ON EVERY PART, and it is the one line that is easy to miss: the
+-- SOURCE parts are the ones `Camera.Rig` is holding at 1 for the local player -- that is the whole
+-- point of the complement -- and `Clone()` copies the property. Without this the first-person horn
+-- would be invisible exactly when it is supposed to be the only one on screen.
+local function buildHorn(handle: BasePart, config): Model
+	local made = Instance.new("Model")
+	made.Name = HORN_NAME
+
+	local clone = handle:Clone()
+	clone.Name = "Handle"
+	for _, descendant in ipairs(clone:GetDescendants()) do
+		if descendant:IsA("Sound") or descendant:IsA("JointInstance") or descendant:IsA("LuaSourceContainer") then
+			descendant:Destroy()
+		end
+	end
+	for _, part in ipairs(clone:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+			part.CanCollide = false
+			part.CanQuery = false
+			part.CanTouch = false
+			part.Massless = true
+			part.CastShadow = false
+			part.LocalTransparencyModifier = 0
+		end
+	end
+	clone.Anchored = true
+	clone.CanCollide = false
+	clone.CanQuery = false
+	clone.CanTouch = false
+	clone.Massless = true
+	clone.CastShadow = false
+	clone.LocalTransparencyModifier = 0
+	clone.Parent = made
+	made.PrimaryPart = clone
+
+	-- THE SAME FILL LIGHT THE GUN GETS (task 102), for the same measured reason: an unlit face an
+	-- inch from the lens gets `Lighting.Ambient` alone (~0.275 here), and polished brass reads
+	-- near-black under it -- which is what `Horn.CONFIG.LOOK`'s own header says the colours were
+	-- raised for. First person only, exactly as `buildNewGun` adds it.
+	if config.FIRST_PERSON then
+		addFillLight(clone, config)
+	end
+
+	hornSignature = hornSignatureOf(handle)
+	stats.rebuilds += 1
+	local parts = 0
+	for _, descendant in ipairs(made:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			parts += 1
+		end
+	end
+	stats.parts = parts
+	return made
+end
+
+-- HOW FAR THROUGH A BLAST THE DRAWN HORN IS, 0 at the carry and 1 at the mouth, EASED.
+--
+-- THE WINDOW IS `Horn.blowWeight`, which is pure and is driven instant by instant in
+-- `zz_horn.spec`; the easing is `Mode.ease`, the one easing in this repo. The two are deliberately
+-- not one function: a second copy of a curve is how two curves start disagreeing.
+--
+-- IT READS THE ATTRIBUTE OFF THE TOOL EVERY FRAME, which is one `GetAttribute` -- the same cost
+-- `Viewmodel.weaponId` already pays for the gun -- and starts the local clock on the frame the value
+-- is not the one it last saw. `since` is then this client's own seconds, so nothing depends on the
+-- two machines agreeing about a clock.
+function Viewmodel.hornBlow(tool: Instance?): (number, string)
+	local stamped = if tool ~= nil then (tool :: any):GetAttribute(Horn.BLOW_ATTRIBUTE) else nil
+	local value = if type(stamped) == "number" then stamped :: number else nil
+	if value ~= hornBlowSeen then
+		-- ...EXCEPT THE FIRST SIGHTING, which is not a blast (round-zero guard): a horn that comes
+		-- back into the hand carries the attribute of its last blast, and a rebuild would otherwise
+		-- read "changed" and raise the horn for a blast that happened minutes ago. `hornBlowSeen` is
+		-- primed at the build, so only a change AFTER it is a blast. Before any build there is no
+		-- horn on screen and nothing to raise.
+		if hornBlowPrimed and value ~= nil then
+			hornBlowAt = clock()
+			stats.hornBlasts += 1
+		end
+		hornBlowSeen = value
+	end
+	if hornBlowAt == nil then
+		return 0, "carry"
+	end
+	local weight, phase = Horn.blowWeight(clock() - (hornBlowAt :: number), Horn.CONFIG, Horn.BLOW_POSE)
+	if phase == "carry" then
+		hornBlowAt = nil -- the gesture is over; stop asking the clock for it
+	end
+	return Mode.ease(weight), phase
+end
+
+-- WHERE THE DRAWN HORN'S MOUTHPIECE IS, in world space, or nil when no horn is on screen. The point
+-- the raise is aimed at and the one a measurement is taken against (the research note's section 4):
+-- `Horn.mouthpieceOffset` is the one source for where it is on the object, and which build is worn
+-- is read off the clone rather than assumed -- the parts coil puts it somewhere else entirely.
+function Viewmodel.hornMouthpiece(): CFrame?
+	if builtKind ~= HeldTool.HORN then
+		return nil
+	end
+	local made = model
+	local clone = made and made.PrimaryPart
+	if clone == nil or (made :: Model).Parent == nil then
+		return nil
+	end
+	-- WHICH BUILD IS ON SCREEN, READ OFF THE CLONE AND NOT BY NAME. The uploaded horn is worn as a
+	-- `MeshPart` (one piece) and task 152's fallback as plain `Part` cylinders, so the CLASS is the
+	-- measurement -- and the name the server wears it under (`Hardware.MODEL_NAME`) is a
+	-- ServerScriptService constant this module may not require.
+	local worn = "parts"
+	for _, descendant in ipairs((clone :: BasePart):GetDescendants()) do
+		if descendant:IsA("MeshPart") then
+			worn = "mesh"
+			break
+		end
+	end
+	return (clone :: BasePart).CFrame * CFrame.new(Horn.mouthpieceOffset(Horn.MESH, worn))
+end
+
+-- THE HORN, DRAWN AND POSED FOR THIS FRAME. Answers true when it drew one, so `Viewmodel.update`
+-- can stop: nothing below it in that function is about a horn -- no sight, no hinge, no shells, no
+-- magazine, no scope -- and a horn that fell through into the gun path is the task-152 defect with
+-- the sides swapped.
+local function updateHorn(camCFrame: CFrame, handle: BasePart, cam: Camera?, config): boolean
+	local poses = config.HORN
+	if poses == nil then
+		-- NO NUMBERS, NO HORN. `Viewmodel.validate` refuses a `poses.json` without the block, so this
+		-- is unreachable with the shipped file; it is counted rather than guessed at because the
+		-- alternative is a horn drawn from numbers nobody chose.
+		stats.hornPosesMissing += 1
+		if model and builtKind == HeldTool.HORN then
+			Viewmodel.clear()
+		end
+		return true
+	end
+	if not model or builtFrom ~= handle or builtKind ~= HeldTool.HORN or hornSignatureOf(handle) ~= hornSignature then
+		Viewmodel.clear()
+		model = buildHorn(handle, config)
+		builtFrom = handle
+		builtKind = HeldTool.HORN
+		-- PRIMED, NOT RAISED: see `Viewmodel.hornBlow`.
+		local stamped = (handle.Parent :: any) and (handle.Parent :: any):GetAttribute(Horn.BLOW_ATTRIBUTE)
+		hornBlowSeen = if type(stamped) == "number" then stamped :: number else nil
+		hornBlowPrimed = true
+		hornBlowAt = nil
+	end
+	local made = model :: Model
+	if made.Parent ~= cam then
+		made.Parent = cam
+	end
+	stats.hornFrames += 1
+
+	-- THE POSE: the carry, the mouth, and the eased blend between them -- ONE `Lerp`, because a
+	-- CFrame lerp is a position and a rotation at once and the gesture is both.
+	local weight, phase = Viewmodel.hornBlow(handle.Parent)
+	if phase ~= "carry" then
+		stats.hornBlowFrames += 1
+	end
+	local pose = poses.carry.item:Lerp(poses.blow.item, weight)
+	local horn = camCFrame * pose
+	made:PivotTo(horn)
+
+	-- THE RIGHT HAND ONLY, and it is held in the HORN's own frame so it travels with the gesture
+	-- rather than being animated beside it on a second timeline (the rule `Viewmodel.poseHands`
+	-- already follows for both gloves). A signal horn is blown one-handed: a second glove holding
+	-- nothing is what the alternative draws.
+	local clone = made.PrimaryPart
+	if clone == nil or config.FIRST_PERSON ~= true then
+		return true
+	end
+	if clone:FindFirstChild(HandAssets.RIGHT) == nil then
+		if not addHand(clone, clone, HandAssets.RIGHT) and not handsMissingCounted then
+			handsMissingCounted = true
+			stats.handsMissing += 1
+		end
+	end
+	local hand = clone:FindFirstChild(HandAssets.RIGHT)
+	if hand and hand:IsA("BasePart") then
+		(hand :: BasePart).CFrame = horn
+			* poses.carry.right:Lerp(poses.blow.right, weight)
+			* Viewmodel.align(HandAssets.RIGHT)
+	end
+	return true
+end
+
 -- `optics` IS THE FOURTH ARGUMENT AND IT IS OPTIONAL (task 141): every caller that does not have a
 -- scope passes three, exactly as they did, and nil optics can never hide a gun.
 function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: any?)
@@ -1315,28 +1611,31 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 	end
 	local handle = cachedHandle
 
-	-- ...AND IT HAS TO BE A GUN (task 152). THE BEATER'S HORN IS A TOOL AND IS NOT A WEAPON, and
-	-- this module's source is "the Handle of the Tool in the local character" -- so a beater holding
-	-- a horn got the horn's Handle, `weaponId()` answered nil, `Weapons.row(nil) or Shotgun.CONFIG`
-	-- answered the shotgun, and the viewmodel drew A SHOTGUN out of the horn's Handle. MEASURED in
-	-- the Forest Test, 2026-10-11: the server said the character held the `Horn` and the Backpack
-	-- held the gun, and the first-person frame was a side-by-side shotgun. Karen plays in first
-	-- person, so that frame is the whole of what she would have seen.
+	-- ...AND THE VIEW HAS TO DRAW IT (task 152, widened in task 176). THIS MODULE'S SOURCE IS "the
+	-- Handle of the Tool in the local character" -- so a beater holding a horn got the horn's Handle,
+	-- `weaponId()` answered nil, `Weapons.row(nil) or Shotgun.CONFIG` answered the shotgun, and the
+	-- viewmodel drew A SHOTGUN out of the horn's Handle. MEASURED in the Forest Test, 2026-10-11: the
+	-- server said the character held the `Horn` and the Backpack held the gun, and the first-person
+	-- frame was a side-by-side shotgun. Karen plays in first person, so that frame is the whole of
+	-- what she would have seen.
 	--
-	-- A NON-WEAPON TOOL DRAWS NOTHING HERE, and `Camera.Rig` leaves the REAL one visible instead
-	-- (see its `trackHiddenPart`). The two conditions are exact complements -- this module draws it
-	-- or `Rig` shows it, never both and never neither -- which is what stops the "two shotguns on
-	-- screen at once" that Rig's own header records from happening with a horn.
+	-- THE QUESTION IS ONE SHARED FACT, `HeldTool.kindOf`, AND `Camera.Rig` ASKS THE SAME ONE (see its
+	-- `trackHiddenPart`). The two are exact complements -- this module draws the thing in the hand or
+	-- `Rig` leaves the real one visible, never both and never neither -- which is what stops the "two
+	-- shotguns on screen at once" that Rig's own header records. Task 176 moved the fact into its own
+	-- shared module precisely because it grew a second member: adding "or it is a horn" to both files
+	-- is how two correct pieces of code start disagreeing.
 	--
-	-- IT REFUSES A NON-WEAPON TOOL, NOT "ANYTHING THAT IS NOT A GUN", and the gate taught the
-	-- difference: the first version asked `isWeaponTool(handle.Parent)` and so refused a Handle with
+	-- A TOOL IT DOES NOT NAME DRAWS NOTHING, which is task 152's refusal unchanged for every
+	-- non-weapon Tool that is not the horn. And it is still asked of a TOOL, not of "anything that is
+	-- not a gun": the gate taught that difference once, when the first version refused a Handle with
 	-- no Tool above it at all -- which is every Handle a SPEC injects through `setSource`, and three
-	-- `camera_client.spec` cases went from a posed viewmodel to nil. A Handle outside a Tool keeps
-	-- the behaviour it has always had (`weaponId()` answers nil and the shotgun is the fallback:
-	-- "the shotgun's when there is nothing to go on"). Only an actual Tool that is NOT a weapon is
-	-- refused, which is exactly the horn.
+	-- `camera_client.spec` cases went from a posed viewmodel to nil. A Handle outside a Tool keeps the
+	-- behaviour it has always had (`weaponId()` answers nil and the shotgun is the fallback: "the
+	-- shotgun's when there is nothing to go on").
 	local tool = handle and handle.Parent
-	if tool ~= nil and tool:IsA("Tool") and not Weapons.isWeaponTool(tool) then
+	local kind = if tool ~= nil and tool:IsA("Tool") then HeldTool.kindOf(tool) else HeldTool.WEAPON
+	if kind == nil then
 		handle = nil
 		cachedHandle = nil
 	end
@@ -1348,7 +1647,16 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 		return
 	end
 
-	if not model or builtFrom ~= handle or stale then
+	-- THE HORN IS A WHOLE OTHER THING AND IT ENDS HERE (task 176). Nothing below this line is about
+	-- a horn -- no sight, no hinge, no shells, no magazine, no scope -- and a horn that fell through
+	-- into the gun path is the task-152 defect with the sides swapped. `updateHorn` builds it, parents
+	-- it, poses it and puts the right glove on it, which is the whole of what a horn needs.
+	if kind == HeldTool.HORN then
+		updateHorn(camCFrame, handle :: BasePart, cam, config)
+		return
+	end
+
+	if not model or builtFrom ~= handle or builtKind ~= HeldTool.WEAPON or stale then
 		-- clear() resets `stale`, so a folder count taken before this rebuild cannot mark the new
 		-- build stale.
 		Viewmodel.clear()
@@ -1359,6 +1667,9 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 		-- different Handle, so a rebuild happens on exactly the frame the player's hands change.
 		model = buildNewGun(config, geometryNow(), Weapons.row(Viewmodel.weaponId()) or Shotgun.CONFIG)
 		builtFrom = handle
+		-- WHAT WAS BUILT, so a switch from a horn to a gun rebuilds (task 176): a Handle identity
+		-- alone says nothing about what was made out of it.
+		builtKind = HeldTool.WEAPON
 	end
 
 	local made = model :: Model

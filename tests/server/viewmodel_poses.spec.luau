@@ -136,6 +136,96 @@ return function()
 			expect(#shotgunBoth).to.equal(1)
 		end)
 
+		-- THE HORN'S BLOCK (task 176). KAREN, 2026-10-13: *"horn still hangign somewhere it has to be
+		-- in hand"*, so the beater's horn is drawn in first person and its two poses are DATA in the
+		-- content lane like every other pose in this file. It sits at the TOP LEVEL beside `look`,
+		-- because a horn is not a weapon: it has no aim, no action and no shot, and every
+		-- `weapons.<id>` is required to carry exactly one action by the case above.
+		it("names a missing horn pose, and every half of one", function()
+			local gone = broken(function(data)
+				data.horn = nil
+			end)
+			expect(#gone).to.equal(1)
+			expect(string.find(gone[1], "horn is missing") ~= nil).to.equal(true)
+			local noBlow = broken(function(data)
+				data.horn.blow = nil
+			end)
+			expect(#noBlow).to.equal(1)
+			expect(string.find(noBlow[1], "horn.blow is missing") ~= nil).to.equal(true)
+			-- HALF A POSE IS THE FAILURE THE CHECK EXISTS FOR: a missing number is a
+			-- `CFrame.new(nil)`, which is a horn in a place nobody chose rather than an error
+			-- anybody can trace.
+			expect(#broken(function(data)
+				data.horn.carry.item.pos.z = nil
+			end)).to.equal(1)
+			expect(#broken(function(data)
+				data.horn.carry.item.rot.y = nil
+			end)).to.equal(1)
+			expect(#broken(function(data)
+				data.horn.blow.right.rot.twist = nil
+			end)).to.equal(1)
+			expect(#broken(function(data)
+				data.horn.blow.right = nil
+			end)).to.equal(1)
+		end)
+
+		-- ...AND WHAT THE CAMERA IS HANDED IS TWO POSES AND NO TIMINGS (task 176). How long the raise,
+		-- the hold and the lower take is `Horn.BLOW_POSE` and `Horn.CONFIG.BLOW_SECONDS` -- the same
+		-- three numbers the SERVER plays the third-person arm with -- so a timing in this file would be
+		-- a second source for a gesture that has to be one.
+		it("publishes the horn's two poses as CFrames, and nothing about time", function()
+			local view = Data.view(Data.DATA)
+			expect(view.HORN).to.be.ok()
+			expect(typeof(view.HORN.carry.item)).to.equal("CFrame")
+			expect(typeof(view.HORN.carry.right)).to.equal("CFrame")
+			expect(typeof(view.HORN.blow.item)).to.equal("CFrame")
+			expect(typeof(view.HORN.blow.right)).to.equal("CFrame")
+			-- THE TWO POSES ARE DIFFERENT PLACES, or the raise draws nothing at all.
+			expect((view.HORN.carry.item.Position - view.HORN.blow.item.Position).Magnitude > 0.5).to.equal(true)
+			-- THE POSITION IS THE FILE'S, read through the one conversion site rather than repeated
+			-- here: `view` is the only thing in the repo that turns these three numbers into a Vector3.
+			local pos = Data.DATA.horn.carry.item.pos
+			expect((view.HORN.carry.item.Position - Vector3.new(pos.x, pos.y, pos.z)).Magnitude < 1e-6).to.equal(true)
+			-- NO TIMING FIELD, under any name a tuner might reach for.
+			for _, name in ipairs({ "raiseSeconds", "lowerSeconds", "seconds", "holdSeconds" }) do
+				expect(Data.DATA.horn[name]).to.equal(nil)
+				expect(Data.DATA.horn.carry[name]).to.equal(nil)
+				expect(Data.DATA.horn.blow[name]).to.equal(nil)
+			end
+			-- A FILE WITHOUT THE BLOCK PUBLISHES NO HORN RATHER THAN A HORN FROM NOWHERE. `validate`
+			-- is what refuses such a file (the case above); this is what the drawing side sees if one
+			-- ever got past it -- nil, which it counts and draws nothing for.
+			local without = Data.copy(Data.DATA)
+			without.horn = nil
+			expect(Data.view(without).HORN).to.equal(nil)
+			local half = Data.copy(Data.DATA)
+			half.horn.blow.item = nil
+			expect(Data.view(half).HORN).to.equal(nil)
+		end)
+
+		-- ...AND THE DIRECTOR CAN TUNE IT LIVE, which is the whole point of a pose being data
+		-- (CLAUDE.md, the content lane): `tools/pose.py set` validates a path against
+		-- `Viewmodel.paths`, so a horn number that is not in it cannot be moved without a commit.
+		it("lists the horn's numbers as tunable paths", function()
+			local paths = Data.paths(Data.DATA)
+			for _, path in ipairs({
+				"horn.carry.item.pos.x",
+				"horn.carry.item.rot.y",
+				"horn.carry.right.pos.z",
+				"horn.carry.right.rot.twist",
+				"horn.blow.item.pos.y",
+				"horn.blow.item.rot.x",
+				"horn.blow.right.rot.pitch",
+			}) do
+				expect(paths[path]).to.be.a("number")
+			end
+			-- AND AN OVERRIDE OF ONE REACHES THE CAMERA'S CONFIG, through the same `merge` plus
+			-- `view` the live attribute takes -- so "the Director moves a number and the horn moves"
+			-- is asserted rather than hoped for.
+			local merged = select(1, Data.merge(Data.DATA, { ["horn.blow.item.pos.y"] = 2.5 }))
+			expect(Data.view(merged).HORN.blow.item.Position.Y).to.equal(2.5)
+		end)
+
 		-- ...AND THE VIEW ANSWERS FOR EITHER WEAPON, with the same flat names (task 140). A reader
 		-- that got a nil for one gun and a number for the other is the shape version 3 existed to
 		-- remove, and this is what stops it coming back.

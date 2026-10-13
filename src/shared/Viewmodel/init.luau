@@ -351,6 +351,10 @@ function Viewmodel.validate(data: any): { string }
 	data = {
 		version = data.version,
 		look = data.look,
+		-- THE HORN'S BLOCK COMES THROUGH THIS REDUCTION (task 176) for the same reason `look` does:
+		-- it is the whole FILE's, not one weapon's -- one horn, whichever gun is in the backpack --
+		-- and the checks below read the table this line builds.
+		horn = data.horn,
 		carry = default.carry,
 		aim = default.aim,
 		reload = default.reload,
@@ -407,6 +411,37 @@ function Viewmodel.validate(data: any): { string }
 				if isNumber(value) and (value < 0 or value > 255) then
 					table.insert(problems, "look.fill.color." .. channel .. " is outside 0-255")
 				end
+			end
+		end
+	end
+	-- THE HORN'S TWO POSES (task 176). It sits beside `look` at the TOP LEVEL and not under
+	-- `weapons`, because a horn is not a weapon: it has no aim, no action, no shot, and
+	-- `Viewmodel.validate` above requires every `weapons.<id>` to carry exactly one of `reload` and
+	-- `cycle`. One block, two poses, and NO TIMINGS -- how long the raise, the hold and the lower take
+	-- is task 168's `Horn.BLOW_POSE`/`Horn.CONFIG.BLOW_SECONDS`, which is also what the SERVER plays
+	-- the third-person arm with, so the two gestures cannot fall out of step (`Horn.blowWeight`).
+	--
+	-- THE VERSION IS STILL 4, AND THAT IS A DECISION. The number marks a change to how the EXISTING
+	-- numbers are read -- version 2 carried two pose sets, 3 one, 4 one per weapon, and a file read at
+	-- the wrong one of those is a gun silently drawn from the wrong poses. This block changes the
+	-- meaning of no existing path; it is a new sibling, exactly as `look` is. What a v4 file WITHOUT
+	-- it gets is not a silent wrong draw but "horn.carry is missing" out of this function, which fails
+	-- `tests/server/viewmodel_poses.spec.luau`, the harness and therefore the merge gate.
+	local horn = data.horn
+	if type(horn) ~= "table" then
+		table.insert(problems, "horn is missing")
+	else
+		for _, name in ipairs({ "carry", "blow" }) do
+			local pose = horn[name]
+			if type(pose) ~= "table" then
+				table.insert(problems, "horn." .. name .. " is missing")
+			else
+				-- `item` IS THE HORN ITSELF, in the camera's frame, and it is the gun's own shape --
+				-- a position and three Euler degrees -- so it is checked by the same function. The
+				-- hand is in the HORN's frame, which is the frame every hand pose in this file is
+				-- measured in (task 108).
+				gunProblems("horn." .. name .. ".item", pose.item, problems)
+				handProblems("horn." .. name .. ".right", pose.right, problems)
 			end
 		end
 	end
@@ -577,6 +612,55 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 			),
 		})
 	end
+	-- THE HORN'S TWO POSES, AS ENGINE VALUES (task 176). Off `whole` and not off a weapon's set: one
+	-- horn, whichever gun is in the backpack, exactly as `look` is. The CFrames are built HERE, at the
+	-- one conversion site this module already is -- the rule the Task 19 cone-unit defect bought --
+	-- so `Camera.Viewmodel` reads a pose and never three numbers and a `math.rad`.
+	--
+	-- `item` IS IN THE CAMERA'S FRAME and `right` is in the HORN's, which is exactly the split every
+	-- gun pose here already has (`VIEWMODEL_CARRY_POS_STUDS` against the camera, `HAND_RIGHT_*`
+	-- against the gun). The hand's three angles are applied in the same order and the same places as
+	-- `MAGAZINE_SWAP`'s and `BOLT_HAND`'s: pitch, yaw, twist.
+	--
+	-- NO TIMINGS: how long the gesture takes is `Horn.blowWeight`, off task 168's numbers, which the
+	-- server plays the third-person arm with as well.
+	local function hornPose(node)
+		-- HALF A POSE IS A `CFrame.new(nil)`, which is the failure every optional block in this file
+		-- is guarded against (`actionExtras`'s own header). nil here, and the caller drops the whole
+		-- block: a horn drawn from half a pose is a horn in a place nobody chose.
+		if
+			type(node) ~= "table"
+			or type(node.item) ~= "table"
+			or type(node.item.pos) ~= "table"
+			or type(node.item.rot) ~= "table"
+			or type(node.right) ~= "table"
+			or type(node.right.pos) ~= "table"
+			or type(node.right.rot) ~= "table"
+		then
+			return nil
+		end
+		return table.freeze({
+			item = CFrame.new(vec(node.item.pos))
+				* CFrame.Angles(math.rad(node.item.rot.x), math.rad(node.item.rot.y), math.rad(node.item.rot.z)),
+			right = CFrame.new(vec(node.right.pos)) * CFrame.Angles(
+				math.rad(node.right.rot.pitch),
+				math.rad(node.right.rot.yaw),
+				math.rad(node.right.rot.twist)
+			),
+		})
+	end
+	-- nil WHEN THE FILE CARRIES NO BLOCK, rather than an error: `Viewmodel.validate` is what REFUSES
+	-- such a file (and so fails the harness), and this function is also called by specs on fabricated
+	-- tables and by nothing at all on a version-3 file. A nil `HORN` draws no horn and counts itself
+	-- (`Camera.Viewmodel`'s `hornPosesMissing`); it never draws one from numbers nobody chose.
+	local horn = nil
+	if type(whole.horn) == "table" then
+		local carry = hornPose(whole.horn.carry)
+		local blow = hornPose(whole.horn.blow)
+		if carry ~= nil and blow ~= nil then
+			horn = table.freeze({ carry = carry, blow = blow })
+		end
+	end
 	local boltHand = nil
 	if action.hand ~= nil then
 		local hand = action.hand
@@ -619,6 +703,10 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 		VIEWMODEL_FILL_RANGE_STUDS = whole.look.fill.rangeStuds,
 		VIEWMODEL_FILL_COLOR = col(whole.look.fill.color),
 		VIEWMODEL_FILL_OFFSET_STUDS = vec(whole.look.fill.offset),
+		-- THE HORN THE BEATER CARRIES (task 176): the two poses, as CFrames. It is not a weapon and
+		-- has no flat names -- a pose is a shape, like `SHELL_LOAD` and `FIRE` -- and
+		-- `Camera.Viewmodel` is the only reader.
+		HORN = horn,
 		-- the aimed pose, solved from the gun's own sight
 		EYE_RELIEF_STUDS = data.aim.eyeReliefStuds,
 		ADS_CHEEK_DEG = data.aim.cheekDeg,

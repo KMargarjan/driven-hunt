@@ -22,10 +22,12 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
--- THE WEAPON TABLE, for one question and nothing else: is the Tool in the hand a GUN? (task 152).
--- This module decides what the local player can see of their own character, and "a Tool" stopped
--- meaning "a gun" the day the beater got a horn. It reads no weapon state and no weapon number.
-local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+-- ONE SHARED FACT, for one question and nothing else: does the first-person VIEW draw the Tool in
+-- this hand? (task 152, moved into its own module in task 176.) This module decides what the local
+-- player can see of their own character, and "a Tool" stopped meaning "a gun" the day the beater got
+-- a horn. It reads no weapon state, no weapon number and no horn number -- only the question
+-- `Camera.Viewmodel` asks before it draws, so the two cannot disagree.
+local HeldTool = require(ReplicatedStorage:WaitForChild("HeldTool"))
 
 local Rig = {}
 
@@ -264,14 +266,20 @@ local function trackHiddenPart(part: Instance)
 	if not (part:IsA("BasePart") or part:IsA("Decal")) then
 		return
 	end
-	-- ...EXCEPT WHAT IS IN THE HAND AND IS NOT A GUN (task 152). "In first person the viewmodel IS
-	-- the gun" is true of a gun and of nothing else: the beater's horn has no viewmodel, so hiding
-	-- it would leave a beater in first person holding nothing at all. `Camera.Viewmodel` refuses to
-	-- draw for a non-weapon Tool and this is its exact complement -- the thing in the hand is on
-	-- screen once, either as the viewmodel clone or as the real Tool, never twice and never not at
-	-- all.
+	-- ...EXCEPT WHAT IS IN THE HAND AND THE VIEW DOES NOT DRAW (task 152, widened in task 176). "In
+	-- first person the viewmodel IS the gun" is true of whatever the view DRAWS and of nothing else:
+	-- a Tool with no viewmodel, hidden here, would leave a beater in first person holding nothing at
+	-- all. `Camera.Viewmodel` asks `HeldTool.kindOf` and draws what it names; this is its exact
+	-- complement -- the thing in the hand is on screen once, either as the viewmodel clone or as the
+	-- real Tool, never twice and never not at all.
+	--
+	-- THE HORN CHANGED SIDES, WHICH IS WHY THE FACT IS NOW ITS OWN MODULE. Task 152 left the horn
+	-- visible because it had no viewmodel; task 176 gives it one (Karen, 2026-10-13: *"horn still
+	-- hangign somewhere it has to be in hand now I can turn around and horn stand in place somehwere
+	-- behind"* -- the horn is welded to a body that does not turn with the look), so the real one must
+	-- now be hidden exactly as a gun's is. Neither module decides that on its own.
 	local tool = Rig.toolAbove(part)
-	if tool ~= nil and not Weapons.isWeaponTool(tool) then
+	if tool ~= nil and not HeldTool.drawsFirstPerson(tool) then
 		return
 	end
 	table.insert(hiddenParts, part)
