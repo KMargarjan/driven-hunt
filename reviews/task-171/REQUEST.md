@@ -3,7 +3,7 @@
 Task: 171
 Round: 1
 Base: main (`a52f4d2`, #154 merged)
-Code commit: `e001111b7a70c28d0e1bbff26c7b3c1961771abd`
+Code commit: `a767230da8692efee2c373a12b6b0be1778eb8a4`
 
 Branch `task-171-rules`. Karen's three new rules (a beater cannot be shot at, a hunter outside his
 stand circle cannot fire, a species you have no licence for cannot be shot) plus the drive's limited
@@ -13,23 +13,33 @@ shells, all refused BEFORE the shot exists and with **no punishment**. Note:
 ## Harness
 
 ```
-[harness] PASS: 33/33 checks @ e001111b7a70c28d0e1bbff26c7b3c1961771abd (clean tree) scope=all
+[harness] PASS: 33/33 checks @ a767230da8692efee2c373a12b6b0be1778eb8a4 (clean tree) scope=all
 ```
 
-Run twice at that commit, both PASS 33/33 (server 1213 passed / 0 failed, client **302** / 0 -- one
-more than the previous code commit, which is the new refusal case).
+Run twice at that commit, both PASS 33/33 (server **1214** passed / 0 failed, client **302** / 0;
+the two new cases are the declared refusal order and the client-side refusal).
 
 ```
 [harness2] NEEDS KAREN -- placeholder. `test2` costs one human click;
            the Director runs it at the branch head and pastes the line here.
 ```
 
-**The Director's `test2` at `5e0ee90` FAILED 33/35** on `[shooter] zz_tie_to_a_tree.spec:316`, and
-it was this task's rule working: that spec staged its driver 25 studs out and **dead on the shot
-line** (its own note, `miss 0.0 of 12`), so the aim ray hit a beater, the new rule refused the shot,
-and there was nothing for the safety rule to judge -- `violations=0`, nobody tied. Claim 11 below is
-the fix. The one-player run was green at that same commit, which is exactly what a two-player-only
-defect looks like.
+**TWO OF THE DIRECTOR'S `test2` RUNS FAILED ON `zz_tie_to_a_tree.spec`, and both failures were this
+task's rules working on a spec that staged the wrong thing.** The one-player run was green at both
+commits, which is exactly what a two-player-only defect looks like.
+
+* **At `5e0ee90`, 33/35, at the tie.** That spec staged its driver 25 studs out and **dead on the
+  shot line** (its own note: `miss 0.0 of 12`), so the aim ray hit a beater, the shot was refused and
+  there was nothing for the safety rule to judge -- `violations=0`, nobody tied.
+* **At `8b2bb40`, 33/35, at the refusal AND the tie.** The probe reached the gate but came back
+  `off-stand`, not `beater-in-line`: to reach the driver the spec had walked its shooter **525
+  studs** from his post (the DEV arena's posts are at z = -150, the driver pad at z = +170), and off
+  his own stand he may not fire at all. Its note also shows **seven earlier `off-stand` refusals** in
+  the same session -- the replay walks the player about for five scenarios, so by the tie scenario he
+  was nowhere near his post. Both answers were true, and nothing in the repo said which should win.
+
+Claim 2 is the fix for both, and it is the same two-part answer: **the game's rules got a declared
+ORDER, and the spec got the drive's own geometry to stage from.**
 
 **This change touches `TWO_PLAYER_PATHS`** (`src/server/Match/init.luau`,
 `src/server/MatchBoot.server.luau`), so the two-player line is required and is the Director's.
@@ -45,7 +55,29 @@ defect looks like.
    at a beater and spends no shell, then fires the same shot once the rule is gone"*. Its live note
    from the gate run: `Alhamdulilah824 refused=beater-in-line fired=nil; shots +0/+1, refused
    +1/+1; barrels Live/Live -> Live/Live -> Spent/Live`.
-2. **THE BOUNDARY BETWEEN THE TWO RULES IS HIS BODY, and it is not double handling** -- the answer
+2. **THE ORDER IS DECLARED (`Rules.ORDER`), AND THE BOUNDARY BETWEEN THE TWO BEATER RULES IS HIS
+   BODY -- there is no double handling.**
+   **The order: off-stand, then the beater in the ray, then the licence.** Off-stand is a fact about
+   the SHOOTER, true of every shot he takes from where he is standing, so it is the one thing he must
+   fix before any other answer helps him; the beater question is about his AIM and must come before
+   the licence, because a man is not quarry and `Licences` has no row for him; the licence is the
+   narrowest and needs a target that published a species. `Rules.refuse` is a **pure sequencer** over
+   the three predicates -- it adds no condition of its own, each question still lives in its own
+   function -- and `onFireRequest` calls it once, so the order is a rule a spec can trip rather than
+   an `if` chain's habit. Verify: `Rules.ORDER` and `Rules.refuse` in
+   `src/server/Weapon/Rules.luau`, and `tests/server/weapon_rules.spec.luau`, case *"asks the three
+   rules in one declared order, and names the winner"* -- it trips all three at once and asserts
+   `off-stand`, then clears them one at a time down to a legal shot.
+   **The stand circle is on the wire** (`snapshot.stands`, keyed by `tostring(userId)`, built from
+   the same `Match.standAreaOf` the fire gate reads). Before this the client had no way to know
+   where a hunter's stand was in the DEV world at all -- `Hud.Objective`'s own note says *"doing
+   better needs the drive to publish the assigned stand index"* -- which is why the spec could only
+   guess, and guessed 525 studs wrong. ONE answer, two readers; absent means no circle and therefore
+   no rule, which is byte-identical to every build before this task. Verify: `Match.standAreaOf` and
+   the `stands` block in `Match.snapshot`, the `stands` field in `src/shared/Drive/init.luau`, and
+   the wire assertion at the end of the *"gives a stand circle to a shooter"* case (it compares the
+   published circle with `Match.standAreaOf`'s own answer for every player in the session).
+   **THE BOUNDARY BETWEEN THE TWO RULES IS HIS BODY** -- the answer
    to the dispatch's *"say how the two rules relate"*, which round 1 answered in prose and the
    two-player run then tested. The game's rule: the aim ray **would hit him** -> refused (no fire, no
    shell, no tie, no punishment); the ray **misses him** but the shot passes within
@@ -56,7 +88,15 @@ defect looks like.
    (`git diff main -- src/server/Match/Penalty.luau` is empty).
    **No production code changed for this** -- both halves were already true; what changed is the
    STAGING, so the spec proves both instead of asserting one and staging the other:
-   * the real replayed click now aims `BESIDE_STUDS` = **5 studs** off the driver's body (11.3
+   * **the shooter is put back ON HIS OWN STAND**, at the centre of the circle the drive published
+     for him, and the case asserts he is inside it (from that same published geometry) BEFORE it
+     asserts anything about his aim -- so "the beater rule is broken" can never again be confused
+     with "the spec put him in the wrong place";
+   * **the DRIVER's client walks itself** 25 studs in front of that stand, up +Z, and the shooter's
+     probe waits until he has arrived. A client may move only its own character, and the shot has to
+     be able to reach him: `Buck` carries 100 studs of the 320 between the posts and the pad. The
+     driver's client still never touches its camera, which was the reason `onCue` ignored it;
+   * the real replayed click aims `BESIDE_STUDS` = **5 studs** off the driver's body (11.3
      degrees at 25 studs, deep inside the 45-degree half-arc, miss 5 of 12) -> fires and ties. **The
      tie proof is not deleted and not weakened** -- same chain, same click, same assertions, pointed
      at the shot the arc exists to punish;
@@ -127,7 +167,12 @@ defect looks like.
 
 ## What could not be verified
 
-* **The two-player line.** `test2` needs one human click; Karen is asleep. The Director runs it.
+* **The two-player line.** `test2` needs one human click; the Director runs it. **Everything in
+  claim 2's staging is proved only there:** in a one-player run there is no driver, so neither the
+  probe nor the stand pivot happens at all (note: `one player, so no beater to refuse a shot at;
+  probe not fired`). What the one-player run does prove is the order (pure case), the published
+  circle against `Match.standAreaOf` (live case), and the whole refusal path through
+  `Weapon.onFireRequest` (handler case).
 * **The refusal in a live Forest Test session**, because proving it needs somebody to pull a trigger
   at a bot. What WAS measured there (Play, ~95 s + a second ~60 s session): the Director's smoke
   check PASS -- gun in the character at 15 s and at 95 s, **0 "Stack Begin", 0 error lines**, 6 waves
