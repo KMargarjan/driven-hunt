@@ -28,6 +28,15 @@ fast, so the gun is loaded when the spec expects it empty"*, a wall-clock claim 
 **This task changes no client file at all** -- the six changed `src/` files are all server or shared
 -- so it cannot reach that suite.
 
+**A THIRD RUN, clean, at the paperwork commit this request sits on, is the second PASS:**
+
+```
+[harness] PASS: 33/33 checks @ 48002417f9e9f42c28448227ee28762108e39745 (clean tree) scope=all
+```
+
+Server 1225 / 0 and client 302 / 0 again. Nothing but `reviews/task-172/REQUEST.md` separates it
+from the code commit.
+
 **`test2` is N/A, and the list is why**: nothing this task touches is in `TWO_PLAYER_PATHS`
 (`tools/agents.py`). The changed `src/` files are `src/server/Boar/Brain.luau`,
 `src/server/Boar/init.luau`, `src/server/ForestTest/init.luau`, `src/server/Weapon/Horn.luau`,
