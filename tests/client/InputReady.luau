@@ -58,8 +58,15 @@ InputReady.OPEN_DRIVE_TIMEOUT = 45
 -- consequence: the client read itself 0.0 studs from its own stand centre while the SERVER's
 -- `off-stand` rule still refused the shot, five refusals running.
 --
--- SO READY MEANS: the drive is open, AND this client has had the same character, with a root, for a
--- second. It is not a guess about the network -- it is waiting for the one event that was in flight.
+-- IT IS REPORTED AND IT IS **NOT** WAITED FOR, AND THAT WAS MEASURED BOTH WAYS. Waiting a second for
+-- the character to settle was tried first (`477d4d5`) and it moved the whole replay ~1 s later -- the
+-- cue from `+19.4 s` to `+20.4 s` -- which slid the `aim-hold` scenario's own right-mouse INTO
+-- `camera_client`'s hand-pose case, whose clone the live camera then re-drew under it:
+-- `camera_client.spec:1488` failed on a sub-thousandth-stud comparison, twice, reproducibly, having
+-- passed twice at the commit before. The suite RUNS WHILE THE REPLAY PLAYS, so every second added
+-- here lands somewhere, and the honest place for the server's lag is where the Director put it: the
+-- probe in `zz_tie` retries until the SERVER's own rule agrees. So this is a READING, printed beside
+-- the drive, and the condition stays the one thing that is actually about the gate.
 InputReady.CHARACTER_SETTLED_SECONDS = 1
 
 -- The client's own drive module, resolved lazily and tolerantly -- the shape `weapon_client`'s
@@ -125,7 +132,7 @@ function InputReady.drivePrint(): string
 	return if ok then text else "drive unreadable"
 end
 
--- Waits for an open drive AND a settled character, up to `seconds`. Returns whether it is open and one line about it.
+-- Waits for an open drive, up to `seconds`. The character reading goes in the line it prints. Returns whether it is open and one line about it.
 -- IT GIVES UP RATHER THAN HANGING: a drive that never opens would otherwise hold the ready attribute
 -- for ever, and the harness's own "the client bound its listeners" check would fail after 60 s with
 -- nothing in the log about why. Replaying into a shut drive fails the firing specs instead, loudly,
@@ -134,7 +141,7 @@ function InputReady.waitForOpenDrive(seconds: number?): (boolean, string)
 	local began = os.clock()
 	local deadline = began + (seconds or InputReady.OPEN_DRIVE_TIMEOUT)
 	repeat
-		if InputReady.driveOpen() and InputReady.characterSettled() then
+		if InputReady.driveOpen() then
 			return true,
 				string.format("the drive was open after %.1f s (%s)", os.clock() - began, InputReady.drivePrint())
 		end
