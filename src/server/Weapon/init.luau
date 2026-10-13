@@ -39,9 +39,10 @@ local Hits = require(script.Hits)
 local Limits = require(script.Limits)
 local Pattern = require(script.Pattern)
 local Registry = require(script.Registry)
--- THE THREE RULES OF TASK 171 (can't shoot a beater, can't shoot off your stand, can't shoot a
+-- THE THREE RULES OF TASK 171 (can't shoot off your stand, can't shoot a beater, can't shoot a
 -- species you have no licence for). Pure, like every other module in this folder, and asked in
--- the order this file chooses -- see `onFireRequest`.
+-- `Rules.ORDER`'s declared order by `Rules.refuse` -- which this file calls once and does not
+-- second-guess, so the order is a rule a spec can assert rather than this file's private habit.
 local Rules = require(script.Rules)
 local SafetyArc = require(script.SafetyArc)
 local Shapes = require(script.Shapes)
@@ -917,15 +918,16 @@ local function onFireRequest(player: Player, req: any): string?
 	-- WHAT THE PLAYER GETS INSTEAD OF A SHOT: the reason on the wire, which the client turns into one
 	-- dry click and one short line on the readout (`Rules.NOTICE`). No punishment -- Karen asked for
 	-- none, twice.
-	local target = askTarget(if aimImpact then aimImpact.instance else nil)
-	local refused: string? = nil
-	if Rules.beaterInLine(target) then
-		refused = Rules.REASON.BEATER
-	elseif Rules.outsideStand(rootPositionOf(player), askStand(player)) then
-		refused = Rules.REASON.OFF_STAND
-	elseif Rules.unlicensed(target, askLicences(player)) then
-		refused = Rules.REASON.LICENCE
-	end
+	-- ONE CALL, AND THE ORDER IS `Rules.ORDER`'s (task 171, after the Director's two-player run):
+	-- off-stand, then the beater in the ray, then the licence. It used to be an `if` chain here,
+	-- which made the order this owner's private habit instead of a rule anybody could assert;
+	-- `weapon_rules.spec` now trips all three at once and names the winner.
+	local refused = Rules.refuse({
+		position = rootPositionOf(player),
+		stand = askStand(player),
+		target = askTarget(if aimImpact then aimImpact.instance else nil),
+		licences = askLicences(player),
+	})
 	if refused ~= nil then
 		stats.refused += 1
 		stats.refusedBy[refused] = (stats.refusedBy[refused] or 0) + 1

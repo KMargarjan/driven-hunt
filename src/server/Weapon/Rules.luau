@@ -32,6 +32,11 @@
 -- `zz_tie_to_a_tree.spec` stages both: the probe aimed at him (refused, ties nobody) and the real
 -- replayed click aimed `BESIDE_STUDS` = 5 studs off his body (fired, ties the shooter).
 --
+-- THE THREE ARE ASKED IN ONE DECLARED ORDER -- `Rules.ORDER`, off-stand first -- and that too was
+-- forced by a measurement rather than chosen on paper: in the Director's run at `8b2bb40` the probe
+-- aimed straight at a beater answered `off-stand`, because the shooter had walked 525 studs from his
+-- post to reach him. Both answers were correct; nothing said which should win. See `Rules.ORDER`.
+--
 -- THE EDGE IS SHARP AND THAT IS DELIBERATE: a man who aims AT a beater is stopped and not punished
 -- (Karen: *"No penalty now"*), and a man who aims a yard past him is punished. Softening it would
 -- mean punishing the refused shot, which is the thing she asked not to happen, or refusing the near
@@ -130,6 +135,25 @@ function Rules.outsideStand(position: Vector3?, area: StandArea?): boolean
 	return flat.Magnitude > area.radius
 end
 
+-- THE ORDER THE THREE ARE ASKED IN, DECLARED AND TESTABLE (task 171, after the Director's
+-- two-player run at `8b2bb40`: the probe aimed at a beater came back `off-stand`, because the
+-- shooter had walked out of his own circle, and nothing in the repo said which answer was meant to
+-- win). It is here rather than in the owner because an ORDER is a rule, and a rule nobody can assert
+-- is a rule that drifts -- `weapon_rules.spec`'s case *"asks the three rules in one declared order"*
+-- trips all three at once and names the winner.
+--
+-- WHY THIS ORDER, and it is a decision and not an accident:
+--   1. `OFF_STAND` first. It is a fact about the SHOOTER, true of every shot he takes from where he
+--      is standing, whatever he points at -- so it is the one thing he must fix before any other
+--      answer is even useful. "NOT IN YOUR STAND" tells him to move; "NOT AT A BEATER" would tell
+--      him to aim somewhere else, and aiming somewhere else would not let him shoot either.
+--   2. `BEATER` next. A fact about the AIM, and it must come before the licence question because a
+--      man is not quarry: `Licences` has no row for him and never should.
+--   3. `LICENCE` last, the narrowest -- it needs a target that published a species.
+-- `Rules.ORDER` is the list, `Rules.refuse` walks it, and the owner calls `Rules.refuse` and nothing
+-- else, so there is ONE place the order lives.
+Rules.ORDER = table.freeze({ Rules.REASON.OFF_STAND, Rules.REASON.BEATER, Rules.REASON.LICENCE })
+
 -- RULE 3. IS HE SHOOTING AT SOMETHING HE HAS NO LICENCE FOR? The table is `Licences.ROWS` and this
 -- is only the question; `rows` is a parameter so a spec can drive a species the game does not ship.
 function Rules.unlicensed(target: Target?, held: { [string]: boolean }?, rows: any?): boolean
@@ -137,6 +161,41 @@ function Rules.unlicensed(target: Target?, held: { [string]: boolean }?, rows: a
 		return false -- nothing identifiable was in the way: a miss is not an offence
 	end
 	return not Licences.allows(target.species, held, rows)
+end
+
+-- WHAT THE OWNER ASKS: the three questions in `Rules.ORDER`, and the FIRST one that answers yes.
+-- PURE -- every fact is a field of `context` -- so the order is drivable with hand-written numbers
+-- and no world, which is the whole reason it is a function instead of an `if` chain in the owner.
+--
+-- IT IS A SEQUENCER AND NOT A FOURTH PREDICATE. Each question still lives in its own function above
+-- and is still tested on its own; this adds no condition of its own and answers exactly one thing:
+-- which rule refuses this shot first. `Match.Penalty`'s warning is about a predicate that answers
+-- two unrelated questions -- this one answers "which of the three", which is one question.
+export type Context = {
+	position: Vector3?, -- where the shooter is standing
+	stand: StandArea?, -- his stand's circle, or nil for "he has none"
+	target: Target?, -- what the aim ray hit
+	licences: { [string]: boolean }?, -- what he holds
+	rows: any?, -- the licence table, for a spec that wants its own
+}
+
+function Rules.refuse(context: Context): string?
+	for _, reason in ipairs(Rules.ORDER) do
+		if reason == Rules.REASON.OFF_STAND then
+			if Rules.outsideStand(context.position, context.stand) then
+				return reason
+			end
+		elseif reason == Rules.REASON.BEATER then
+			if Rules.beaterInLine(context.target) then
+				return reason
+			end
+		elseif reason == Rules.REASON.LICENCE then
+			if Rules.unlicensed(context.target, context.licences, context.rows) then
+				return reason
+			end
+		end
+	end
+	return nil
 end
 
 return Rules

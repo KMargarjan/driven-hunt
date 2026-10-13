@@ -942,6 +942,18 @@ function Match.snapshot()
 		table.insert(tiedList, userId)
 	end
 	table.sort(tiedList)
+	-- EVERY SHOOTER'S STAND CIRCLE (task 171), from the SAME `Match.standAreaOf` the weapon's fire
+	-- gate reads -- one answer, two readers, which is the whole reason it is on the wire. A beater
+	-- gets no entry, because he has no stand; a shooter the world has nowhere to put gets none
+	-- either, and that absence means "no rule" at both ends.
+	local stands: { [string]: any }? = nil
+	for userId in pairs(state.assignment) do
+		local area = Match.standAreaOf(userId)
+		if area ~= nil then
+			stands = stands or {}
+			(stands :: any)[tostring(userId)] = { centre = area.centre, radius = area.radius }
+		end
+	end
 
 	snapshotCache = Drive.deepFreeze({
 		phase = state.phase,
@@ -960,6 +972,10 @@ function Match.snapshot()
 		-- what the game before task 170 sends -- so a client reading this field is byte-identical to one
 		-- that never heard of it.
 		coinsOn = coinsOn,
+		-- WHERE EACH SHOOTER MAY STAND AND STILL SHOOT (task 171). Absent when nobody has a circle,
+		-- which is every build before this task -- so a client that never heard of the field reads
+		-- exactly what it always did.
+		stands = stands,
 		rows = rows,
 		tied = tiedList,
 		-- THE TWO TASK-168 FACTS, both of them things a beater's own screen says and neither of them
@@ -1861,23 +1877,29 @@ end
 -- and not on the post the drive placed him at. With no injection the centre is the post this drive
 -- put him on -- `Body.placementFor` with the same `indexWithinTeam`, so it is the drive's own
 -- placement answered a second time rather than a second piece of geometry.
-function Match.standAreaFor(player: Player): any?
-	local team = state.assignment[player.UserId]
+function Match.standAreaOf(userId: number): any?
+	local team = state.assignment[userId]
 	if team ~= "Shooters" then
 		return nil -- a beater is not held to a stand (`ForestTest.boundary`'s own first rule)
 	end
 	if world and world.standArea then
-		return world.standArea(player.UserId)
+		return world.standArea(userId)
 	end
 	if not markerSet then
 		return nil
 	end
 	local place = if world and world.placement then world.placement else Body.placementFor
-	local cframe = place(markerSet, team, indexWithinTeam(player.UserId, team), config)
+	local cframe = place(markerSet, team, indexWithinTeam(userId, team), config)
 	if cframe == nil then
 		return nil -- nowhere to put him means nowhere to hold him
 	end
 	return { centre = cframe.Position, radius = config.STAND_RADIUS_STUDS }
+end
+
+-- BY `Player`, for the weapon's provider, which holds one. One implementation, two doors -- the
+-- division `Match.mayBlowHorn` (a key) and `Match.mayCarryWeapon` (a Player) already follow.
+function Match.standAreaFor(player: Player): any?
+	return Match.standAreaOf(player.UserId)
 end
 
 -- A WORLD ASKS FOR ONE PLAYER TO CHANGE SIDES, AND THIS OWNER STILL DECIDES (task 157, design

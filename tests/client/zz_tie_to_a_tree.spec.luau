@@ -16,8 +16,20 @@
 --     FireRequest -> validator -> cast -> Weapon.SafetyArc's 45-degree filter -> Match.Penalty.judge
 --     -> Match.Body.tie -> the snapshot's `tied` list -> this client's Hud banner. Nothing is stubbed.
 --
--- SINCE TASK 171 THERE ARE TWO RULES ABOUT A SHOT NEAR A BEATER, AND THIS SPEC STAGES BOTH -- which
--- is the change this file carries and the reason the aim moved five studs:
+-- SINCE TASK 171 THIS SPEC STAGES ITS SHOOTER ON HIS OWN STAND, FROM THE DRIVE'S OWN ANSWER, AND
+-- BRINGS THE DRIVER TO HIM -- which is the opposite of what it used to do. It used to walk the
+-- shooter to the driver: in the DEV arena the posts are at z = -150 and the driver pad at z = +170,
+-- so that walk was 525 studs, and from there the OFF-STAND rule refused every shot he took
+-- (measured in the Director's two-player run at `8b2bb40`: `probe aimed AT the driver ->
+-- refused=off-stand`, and seven more `off-stand` refusals from the earlier scenarios' shots). The
+-- stand circle now arrives on the match snapshot (`snapshot.stands`, keyed by userId) from the same
+-- `Match.standAreaOf` the fire gate reads, so this spec stages against the server's own geometry
+-- instead of a guess -- and the DRIVER's client walks itself in front of that stand, because a
+-- client may only move its own character and a shot has to be able to reach him (`Buck` carries 100
+-- studs).
+--
+-- AND THERE ARE TWO RULES ABOUT A SHOT NEAR A BEATER, SO IT STAGES BOTH -- which is the other half
+-- of what this file carries and the reason the aim is five studs off his body:
 --   1. THE RAY WOULD HIT HIM -> THE SHOT IS REFUSED. `Weapon.Rules.beaterInLine`, Karen 2026-10-11:
 --      *"thye just can't shoot them"*. Nothing fires, nothing is spent, NOBODY IS TIED -- there is no
 --      shot to judge. Staged by the probe in `onCue` below, aimed dead at him.
@@ -26,7 +38,10 @@
 --      (`Match.Penalty.judge`). Staged by the real replayed click, aimed `BESIDE_STUDS` to his side.
 -- THE TWO CANNOT BOTH HAPPEN TO ONE SHOT, and that is the whole of "no double handling": a refused
 -- shot returns before `Weapon.SafetyViolated` is published, so the penalty is only ever reached by a
--- shot that was fired. UNTIL TASK 171 THIS SPEC STAGED CASE 1 AND EXPECTED CASE 2's OUTCOME: it
+-- shot that was fired. The three rules are asked in `Weapon.Rules.ORDER` -- off-stand, then the
+-- beater in the ray, then the licence -- so a shooter who is BOTH off his stand and aiming at a man
+-- is told to get back on his stand, and this spec has to put him there before it can prove anything
+-- about his aim. UNTIL TASK 171 IT STAGED CASE 1 AND EXPECTED CASE 2's OUTCOME: it
 -- aimed dead at the driver (`miss 0.0 of 12`, measured in the Director's `test2` at `5e0ee90`) and
 -- the new rule correctly refused the shot, so nothing was tied and this spec failed at the tie.
 -- **The tie proof is not weakened and was not deleted** -- it is staged on the shot the arc exists
@@ -71,7 +86,10 @@ local CUE_ACTION = "DrivenHunt.Test.TieCue"
 -- replay takes about twice as long there as the ~60 s it takes with one.
 local CUE_TIMEOUT = 240
 local TIE_TIMEOUT = 25 -- from the cue to the snapshot saying so
-local STAND_BEHIND = 25 -- studs behind the driver, so the shot cannot stop in something else
+-- HOW FAR IN FRONT OF THE SHOOTER'S STAND THE DRIVER IS PUT (task 171; before it, how far behind
+-- the driver the shooter walked). It has to be inside the ammo's range -- `Buck` carries 100 studs
+-- and the gun may be holding either kind -- and far enough that the shot does not start inside him.
+local STAND_BEHIND = 25
 local DOWN_THE_DRIVE = 200 -- studs up +Z, for the one-player shot at nobody
 -- HOW FAR BESIDE HIM THE TIE SHOT IS AIMED (task 171). It has to clear his BODY -- an R15 character
 -- is about two studs across, so five studs from the root centre passes him by a clear margin and the
@@ -137,10 +155,40 @@ Match.Feed:Connect(function(entry)
 	end
 end)
 
+-- FORWARD: the probe inside `onCue` waits for the driver to arrive, and `onCue` is defined above
+-- the helper. `local` here and a plain assignment below means the definition lands on THIS local
+-- rather than creating a global (the idiom `Weapon.runCycle` already uses).
+local waitUntil
+
 local function rootOf(subject: Player): BasePart?
 	local character = subject.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	return if root and root:IsA("BasePart") then root else nil
+end
+
+-- THIS PLAYER'S OWN STAND CIRCLE, AS THE DRIVE PUBLISHED IT (task 171). `snapshot.stands` is keyed
+-- by `tostring(userId)` and is the server's own `Match.standAreaOf` -- the same answer the off-stand
+-- fire gate reads, so staging against it cannot disagree with the rule being tested. nil means the
+-- drive gave this player no circle (a beater, or nowhere to put him), and then there is no rule.
+local function standOf(subject: Player)
+	local snapshot = Match.get()
+	local stands = if snapshot ~= nil then (snapshot :: any).stands else nil
+	local area = if stands ~= nil then stands[tostring(subject.UserId)] else nil
+	if type(area) ~= "table" or typeof(area.centre) ~= "Vector3" then
+		return nil
+	end
+	return area
+end
+
+-- The SHOOTER of this session, which the driver's client needs: it stages itself in front of HIS
+-- stand, and `standOf` works for any player because the snapshot carries the whole roster's circles.
+local function theShooter(): Player?
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other.Team and other.Team.Name == "Shooters" then
+			return other
+		end
+	end
+	return nil
 end
 
 -- The other player, if this session has one and the drive made them a driver.
@@ -176,10 +224,33 @@ end
 -- StudioMCP refuses a click with no established mouse position: "Either x and y, instance_path, or a
 -- prior action that establishes mouse position is required", measured 2026-09-25.)
 local function onCue(_name: string, state: Enum.UserInputState)
-	if state ~= Enum.UserInputState.Begin or cuedAt or Role.isDriver() then
-		-- Since Task 36 the replay reaches BOTH clients, so this key arrives on the driver's too --
-		-- and there it must do nothing at all: this spec has no claim to a driver's camera, and
-		-- camera_client.spec is asserting about that camera at the same moment.
+	if state ~= Enum.UserInputState.Begin or cuedAt then
+		return Enum.ContextActionResult.Pass
+	end
+	-- THE DRIVER HAS A STAGING JOB OF HIS OWN SINCE TASK 171, and it is the only thing he does here.
+	-- The shot has to be able to REACH him -- in the DEV arena his pad is 320 studs from the posts
+	-- and `Buck` carries 100 -- and the shooter may no longer walk to him, because off his own stand
+	-- he cannot fire at all. So the driver walks to the shooter: a client may move its own character
+	-- and nothing else, which is the same rule the shooter's own pivot has always followed (and the
+	-- harness's own `stage` step, tools/studio_mcp.py).
+	--
+	-- IT STILL DOES NOT TOUCH A DRIVER'S CAMERA. That was the reason `onCue` ignored him outright,
+	-- and the reason stands: `camera_client.spec` is asserting about that camera at this moment. A
+	-- character pivot is `Match.Body`'s own idiom and writes no camera.
+	if Role.isDriver() then
+		local me = rootOf(player)
+		local target = theShooter()
+		local stand = if target then standOf(target) else nil
+		local character = player.Character
+		if me and stand and character then
+			-- IN FRONT OF HIS STAND, up +Z -- the direction the arena's DriveLine marker points and
+			-- the direction the drive comes from, so the shot that follows runs up the drive exactly
+			-- as it always did. At the stand's own height: the shooter stands on a post a few studs
+			-- up, and a driver dropped at that height simply falls to the ground.
+			local at = (stand.centre :: Vector3) + Vector3.new(0, 0, STAND_BEHIND)
+			character:PivotTo(CFrame.lookAt(at, stand.centre))
+		end
+		cuedAt = os.clock()
 		return Enum.ContextActionResult.Pass
 	end
 	cuedAt = os.clock()
@@ -187,13 +258,15 @@ local function onCue(_name: string, state: Enum.UserInputState)
 	local target = driver()
 	local theirs = if target then rootOf(target) else nil
 	local character = player.Character
-	if me and theirs and character then
-		-- Behind him and IN FRONT of the line, so the shot runs up +Z -- the direction the arena's
-		-- DriveLine marker points, and the direction the drive comes from. Walking up to somebody and
-		-- shooting at them is the player's path; the client owns its own character, which is the same
-		-- reason the harness's own `stage` step pivots it (tools/studio_mcp.py).
-		local at = theirs.Position - Vector3.new(0, 0, STAND_BEHIND)
-		character:PivotTo(CFrame.lookAt(at, theirs.Position))
+	local stand = standOf(player)
+	if me and theirs and character and stand then
+		-- ON HIS OWN STAND, FROM THE DRIVE'S OWN ANSWER (task 171). The replay has been walking him
+		-- around for five scenarios, so by now he is somewhere else entirely -- and off his stand he
+		-- may not fire (`Weapon.Rules.outsideStand`), which is what refused every shot in the
+		-- Director's run at `8b2bb40`. The centre of the circle is where the drive put him, so this
+		-- is a walk back to his post and not a new place to stand.
+		local at = stand.centre :: Vector3
+		character:PivotTo(CFrame.lookAt(at, at + Vector3.new(0, 0, 1)))
 		stagedFrom = at
 		stagedDistance = STAND_BEHIND
 		stagedTheirs = theirs.Position
@@ -206,9 +279,21 @@ local function onCue(_name: string, state: Enum.UserInputState)
 		-- the input it is bound to is the cue, and the harness's own click is seconds behind it (the
 		-- fire limiter is `FIRE_RATE_LIMIT` = 6 a second, so the two cannot collide).
 		task.spawn(function()
+			-- WAIT FOR HIM TO ARRIVE. The cue reaches both clients at once and his pivot happens on
+			-- HIS machine, so "he is within a shot's reach of my stand" is the only honest signal
+			-- that the staging is done -- and it is measured rather than slept through.
+			local arrived = waitUntil(PROBE_TIMEOUT * 2, function()
+				local root = rootOf(target :: Player)
+				return root ~= nil and (root.Position - at).Magnitude <= STAND_BEHIND * 2
+			end)
+			local root = rootOf(target :: Player)
+			if not arrived or root == nil then
+				return -- the case says so: `probeFired` stays false and the note carries the distance
+			end
+			stagedTheirs = root.Position
 			local camera = workspace.CurrentCamera
 			local eye = if camera then camera.CFrame.Position else at
-			local toward = theirs.Position - eye
+			local toward = root.Position - eye
 			if toward.Magnitude < 1e-3 then
 				return
 			end
@@ -240,7 +325,7 @@ local aiming = RunService.RenderStepped:Connect(function()
 	end
 	local target = driver()
 	local theirs = if target then rootOf(target) else nil
-	if theirs then
+	if theirs and not Role.isDriver() then
 		-- BESIDE HIM, NOT AT HIM (task 171). Aimed at him the shot is REFUSED before it exists
 		-- (`Weapon.Rules.beaterInLine`) and there is nothing for the safety rule to judge; aimed five
 		-- studs to his side it is fired, it passes within `SAFETY_MISS_STUDS` of him, and the arc and
@@ -257,7 +342,7 @@ end)
 
 InputReady.ready("zz_tie_to_a_tree")
 
-local function waitUntil(seconds: number, predicate: () -> boolean): boolean
+function waitUntil(seconds: number, predicate: () -> boolean): boolean
 	local deadline = os.clock() + seconds
 	while os.clock() < deadline do
 		if predicate() then
@@ -333,9 +418,12 @@ return function()
 			end
 
 			-- TWO PLAYERS: the probe was fired dead at him.
-			expect(waitUntil(PROBE_TIMEOUT + 2, function()
+			expect(waitUntil(PROBE_TIMEOUT * 3, function()
 				return probeAfter ~= nil
 			end)).to.equal(true)
+			local stand = standOf(player)
+			local here = rootOf(player)
+			local theirs = rootOf(driver() :: Player)
 			TestKit.note(
 				string.format(
 					"zz_tie: probe aimed AT the driver -> refused=%s; gun before [%s] after [%s]; refusals seen [%s]",
@@ -345,6 +433,27 @@ return function()
 					table.concat(refusals, ", ")
 				)
 			)
+			-- WHERE EVERYBODY WAS WHEN IT WENT, because `off-stand` instead of `beater-in-line` means
+			-- the staging missed its own stand and not that the rule is wrong (`Weapon.Rules.ORDER`).
+			TestKit.note(
+				string.format(
+					"zz_tie: stand=%s r=%s; me %s (%.1f from the centre); driver %s (%.1f from me)",
+					tostring(stand and stand.centre),
+					tostring(stand and stand.radius),
+					tostring(here and here.Position),
+					if stand and here then (here.Position - (stand.centre :: Vector3)).Magnitude else -1,
+					tostring(theirs and theirs.Position),
+					if theirs and here then (theirs.Position - here.Position).Magnitude else -1
+				)
+			)
+			-- THE STAGING'S OWN CLAIM, asserted before the rule's: he is standing in his circle, from
+			-- the drive's own published geometry. Without this the case cannot tell "the beater rule
+			-- is broken" from "this spec put him in the wrong place".
+			expect(stand).to.be.ok()
+			expect(here).to.be.ok()
+			expect(
+				((here :: BasePart).Position - ((stand :: any).centre :: Vector3)).Magnitude <= (stand :: any).radius
+			).to.equal(true)
 			expect(probeFired).to.equal(true)
 			-- THE SERVER'S OWN WORD FOR IT, off the wire: `Weapon.Rules.REASON.BEATER`.
 			expect(probeReason).to.equal("beater-in-line")

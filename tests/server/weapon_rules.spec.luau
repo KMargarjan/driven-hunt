@@ -130,6 +130,54 @@ return function()
 			expect(Rules.unlicensed({ species = "reddeer" }, nil)).to.equal(true)
 		end)
 
+		-- THE ORDER, ASSERTED (task 171, after the Director's two-player run at `8b2bb40`: a probe aimed
+		-- straight at a beater came back `off-stand`, because the shooter had walked 525 studs from
+		-- his post to reach him. Both answers were true and nothing said which should win).
+		it("asks the three rules in one declared order, and names the winner", function()
+			expect(Rules.ORDER[1]).to.equal(Rules.REASON.OFF_STAND)
+			expect(Rules.ORDER[2]).to.equal(Rules.REASON.BEATER)
+			expect(Rules.ORDER[3]).to.equal(Rules.REASON.LICENCE)
+			expect(#Rules.ORDER).to.equal(3)
+			expect(table.isfrozen(Rules.ORDER)).to.equal(true)
+
+			local area = { centre = Vector3.new(0, 0, 0), radius = 12 }
+			local inside, outside = Vector3.new(3, 0, 0), Vector3.new(40, 0, 0)
+			local beater = { beater = true, species = "reddeer" }
+
+			-- ALL THREE TRUE AT ONCE: he is off his stand, aiming at a beater, who is somehow also a
+			-- licensed species. The first rule in the order wins, and the reason is the one thing he
+			-- can act on -- get back on your stand.
+			expect(Rules.refuse({ position = outside, stand = area, target = beater, licences = nil, rows = SPECIES })).to.equal(
+				Rules.REASON.OFF_STAND
+			)
+			-- BACK ON HIS STAND, still aiming at the man: the aim is the next question.
+			expect(Rules.refuse({ position = inside, stand = area, target = beater, licences = nil, rows = SPECIES })).to.equal(
+				Rules.REASON.BEATER
+			)
+			-- A MAN IS NOT QUARRY, which is why the beater question comes before the licence one: the
+			-- same target with `beater` cleared is an animal, and now the licence answers.
+			expect(Rules.refuse({
+				position = inside,
+				stand = area,
+				target = { species = "reddeer" },
+				licences = nil,
+				rows = SPECIES,
+			})).to.equal(Rules.REASON.LICENCE)
+			-- ...and with the licence in his pocket, nothing refuses it at all.
+			expect(Rules.refuse({
+				position = inside,
+				stand = area,
+				target = { species = "reddeer" },
+				licences = { reddeer = true },
+				rows = SPECIES,
+			})).to.equal(nil)
+			-- A LEGAL SHOT AT A BOAR FROM YOUR OWN STAND IS THE WHOLE GAME, and it must survive every
+			-- gate -- including with no stand and no target at all, which is what a world that wires
+			-- no provider answers (and every weapon spec).
+			expect(Rules.refuse({ position = inside, stand = area, target = { species = "boar" } })).to.equal(nil)
+			expect(Rules.refuse({})).to.equal(nil)
+		end)
+
 		it("has one short line for every reason and no reason without one", function()
 			local seen = 0
 			for _, reason in pairs(Rules.REASON) do
@@ -293,6 +341,23 @@ return function()
 				end
 			end
 			expect(Match.config().STAND_RADIUS_STUDS).to.equal(12)
+			-- ...AND THE WIRE CARRIES THE SAME CIRCLE (task 171). The client had no way to know where
+			-- a hunter's stand was in this world -- which is why `zz_tie_to_a_tree.spec` staged its
+			-- shot 525 studs from the post and the off-stand rule refused it -- so the snapshot now
+			-- publishes `Match.standAreaOf`'s own answer, keyed by `tostring(userId)`. ONE answer,
+			-- two readers: the fire gate and the screen.
+			local published = (Match.snapshot() :: any).stands
+			for _, player in ipairs(Players:GetPlayers()) do
+				local area = Match.standAreaOf(player.UserId)
+				local onWire = if published ~= nil then published[tostring(player.UserId)] else nil
+				if area == nil then
+					expect(onWire).to.equal(nil)
+				else
+					expect(onWire).to.be.ok()
+					expect((onWire :: any).radius).to.equal(area.radius)
+					expect(((onWire :: any).centre - area.centre).Magnitude < 1e-4).to.equal(true)
+				end
+			end
 			TestKit.note(
 				string.format(
 					"weapon_rules: stand areas by player [%s] (%d shooter(s), %d other(s))",
