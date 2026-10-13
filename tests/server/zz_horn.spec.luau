@@ -735,6 +735,70 @@ return function()
 			template:Destroy()
 		end)
 
+		it("anchors nothing and welds every piece to the Handle, in BOTH builds (task 175)", function()
+			-- KAREN, 2026-10-13 ~19:05: *"horn still hanging somewhere it has to be in hand now I
+			-- can turn around and horn stand in place somewhere behind"*.
+			--
+			-- WHAT A PLAYER SEES IF THIS BREAKS, which is why the case is here and not a note: an
+			-- ANCHORED part keeps its world CFrame whatever the weld says, so an anchored piece of
+			-- the horn stays exactly where it was built while the beater walks away from it -- the
+			-- picture she describes. The same is true of a piece with no weld at all: it is a free
+			-- body, and the first physics step drops it.
+			--
+			-- MEASURED LIVE IN THE FOREST TEST ON 2026-10-13 BEFORE THIS CASE WAS WRITTEN, on a
+			-- player beater and on three bot beaters: nothing was anchored, `RightGrip` was there
+			-- (RightHand -> Handle), `ModelWeld` was there (Handle -> Model), and the mesh held
+			-- 0.407 studs from the hand to three decimals across a 90-degree sweep of the camera.
+			-- So the horn IS attached and what she is seeing is something else (`ESCALATE.md`,
+			-- task 175). This case is what keeps the half that IS the horn's true.
+			--
+			-- BOTH BUILDS, because they are different trees: the uploaded mesh is one welded
+			-- MeshPart and the fallback is nine welded cylinders, and a task that touches one has no
+			-- reason to have looked at the other.
+			local template, row = fakeTemplate()
+			local builds = {}
+			withProvider(nil, function()
+				builds.parts = HornTool.build()
+			end)
+			withProvider(function()
+				return template, { row = row }
+			end, function()
+				builds.mesh = HornTool.build()
+			end)
+			for name, tool in pairs(builds) do
+				local handle = tool:FindFirstChild("Handle") :: BasePart
+				expect(handle).to.be.ok()
+				expect(handle.Anchored).to.equal(false)
+				local welds: { [Instance]: boolean } = {}
+				for _, child in ipairs(handle:GetChildren()) do
+					if child:IsA("Weld") then
+						-- THE HANDLE IS PART0 EVERY TIME. A weld between two pieces that skipped the
+						-- Handle would hold the horn together and leave the whole of it loose in the
+						-- hand, which measures as "welded" and looks like nothing in the fist.
+						expect(child.Part0).to.equal(handle)
+						expect(child.Part1).to.be.ok()
+						welds[child.Part1 :: Instance] = true
+					end
+				end
+				local pieces = 0
+				for _, part in ipairs(tool:GetDescendants()) do
+					if part:IsA("BasePart") and part ~= handle then
+						pieces += 1
+						expect(part.Anchored).to.equal(false)
+						expect(welds[part]).to.equal(true)
+					end
+				end
+				-- ...AND THERE REALLY WERE PIECES TO CHECK: a build that put nothing on the Handle
+				-- would pass every assertion above by having nothing to fail them.
+				expect(pieces > 0).to.equal(true)
+				TestKit.note(
+					string.format("horn build %s: %d piece(s), all welded to the Handle, none anchored", name, pieces)
+				)
+				tool:Destroy()
+			end
+			template:Destroy()
+		end)
+
 		it("upgrades a parts horn into the mesh when the template lands later", function()
 			-- A HORN BUILT BEFORE THE PRELOAD LANDED, which is not a corner case: `WeaponBoot` starts
 			-- the systems BEFORE it preloads, on purpose, so a player who joins in that window is
@@ -829,6 +893,47 @@ return function()
 			local blowPitch, blowYaw = CONFIG.GRIP_BLOW:ToEulerAnglesXYZ()
 			expect(blowPitch < 0).to.equal(true) -- turned up toward the mouth
 			expect(math.abs(blowYaw) < 1e-6).to.equal(true) -- and not twisted away from the face
+		end)
+
+		it("keeps the MOUTHPIECE at the mouth whatever the horn is scaled to (task 175)", function()
+			-- KAREN, 2026-10-13 ~19:05: *"for beater horn has to be doubble or tripple size now is
+			-- to small"*. Task 175 scaled `MESH.SIZE_STUDS` by 2.5, and the thing a scale breaks is
+			-- not the size -- it is the RAISE: the mouthpiece is an end of the mesh, so it moves
+			-- half the added length away from the grip point and the horn comes up to the chest
+			-- instead of the lips. That is the exact failure task 172 measured when it moved the
+			-- other number (2.66 studs from the head instead of 1.77).
+			--
+			-- SO THE INVARIANT IS ASSERTED, NOT THE NUMBER. The engine welds the Handle to the hand
+			-- with `Handle.CFrame * Grip == RightHand.CFrame * C0`, so a Handle point `p` lands at
+			-- `C0 * Grip:Inverse() * p` in hand coordinates -- and with `Grip = T * R` that is
+			-- `C0 * R:Inverse() * (p - T.Position)`. The rotation is untouched, so the mouthpiece is
+			-- unmoved exactly when `p - T.Position` is unchanged. `MOUTH_IN_HAND` is task 169's own
+			-- value of it, which Karen's playtests of 169-174 are the evidence for; this case says
+			-- any future rescale has to keep it.
+			local size = Horn.MESH.SIZE_STUDS
+			-- The mouthpiece is the mesh's +Z end in the Handle's frame (`MESH.ROTATION_DEG` lays
+			-- the long axis along Z and `GRIP`'s header fixes the mouthpiece at +Z).
+			local mouthpiece = Vector3.new(0, 0, size.X / 2)
+			local MOUTH_IN_HAND = Vector3.new(0.42, 0.22, 0.325)
+			local offset = mouthpiece - CONFIG.GRIP_BLOW.Position
+			expect((offset - MOUTH_IN_HAND).Magnitude < 1e-6).to.equal(true)
+			-- ...AND THE GRIP POINT IS STILL ON THE TUBE AT THIS SCALE, which is the other half of
+			-- "it has to be in hand": `GRIP` deliberately did NOT follow the scale (its header says
+			-- why), so the case that could break is the one where the horn SHRANK past it.
+			expect(math.abs(CONFIG.GRIP.Position.Z) <= size.X / 2).to.equal(true)
+			TestKit.note(
+				string.format(
+					"horn %.3f studs long (%.2f m); mouthpiece at (%.2f, %.2f, %.2f) of the hand, grip %.2f"
+						.. " from the middle of a %.2f half-length",
+					size.X,
+					size.X * CONFIG.METRES_PER_STUD,
+					offset.X,
+					offset.Y,
+					offset.Z,
+					CONFIG.GRIP.Position.Z,
+					size.X / 2
+				)
+			)
 		end)
 
 		it("gives a bot beater the SAME horn, and the look sweep reaches it (task 172)", function()

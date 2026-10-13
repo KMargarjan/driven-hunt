@@ -67,12 +67,25 @@ Horn.ASSET_KEY = "horn.body"
 -- and where in the hand it sits. A screenshot is what decides them (rule 5) and changing one is a
 -- line here, with no re-upload.
 Horn.MESH = table.freeze({
-	-- 1.25 STUDS LONG, which is 0.35 m at this game's `METRES_PER_STUD` -- a real natural signal
-	-- horn, and the top of the Director's "~25-35 cm across". The two other numbers are not a
-	-- choice at all: they are 1.25 times the model's OWN aspect (0.34696 and 0.19174, measured off
-	-- the prepared mesh's bounding box, below), so the horn is scaled UNIFORMLY. A non-uniform fit
-	-- is a squashed horn that measures perfectly -- `Weapon.Hardware.addMesh`'s own warning.
-	SIZE_STUDS = Vector3.new(1.25, 0.4337, 0.2397),
+	-- 3.125 STUDS LONG, WHICH IS 2.5x TASK 169's 1.25 (task 175). KAREN, 2026-10-13 ~19:05, after
+	-- playing 172-174: *"for beater horn has to be doubble or tripple size now is to small"*. The
+	-- Director's dispatch reads her "double or triple" as ~2.5x, and 1.25 x 2.5 = 3.125 -- so the
+	-- horn is 0.875 m at this game's `METRES_PER_STUD`, which is bigger than any real signal horn
+	-- and is meant to be: what she is judging is whether the object READS at arm's length on a
+	-- screen, not whether a museum would take it. The task-169 number (a true 0.35 m natural horn,
+	-- the top of the Director's "~25-35 cm across") is the one she called too small.
+	--
+	-- THE TWO OTHER NUMBERS ARE STILL NOT A CHOICE: they are 3.125 times the model's OWN aspect
+	-- (0.34696 and 0.19174, measured off the prepared mesh's bounding box, below), so the horn is
+	-- scaled UNIFORMLY. A non-uniform fit is a squashed horn that measures perfectly --
+	-- `Weapon.Hardware.addMesh`'s own warning -- and `zz_horn.spec` compares the three ratios
+	-- against the natural box's at 0.01 % rather than trusting the arithmetic here.
+	--
+	-- WHAT FOLLOWED IT, because a scale that moves only this line is a horn that has left the hand:
+	-- `CONFIG.GRIP_BLOW`'s Z, which is re-fitted below so the MOUTHPIECE stays at exactly the same
+	-- point of the hand it reached at 1.25. `CONFIG.GRIP` did NOT follow it, and that is written out
+	-- there too.
+	SIZE_STUDS = Vector3.new(3.125, 1.084244, 0.599201),
 	-- WHAT IT MEASURES BEFORE ANYTHING RESIZES IT, so `Assets.Loader`'s aspect check has something
 	-- to compare the arriving template against rather than a hope. Measured off the prepared
 	-- model's own bounding box (11.6478 x 4.0413 x 2.2334 Blender units), which Roblox's FBX import
@@ -369,6 +382,13 @@ Horn.CONFIG = {
 	-- THE HANDLE IS THE ENVELOPE, NOT THE HORN, and it is invisible for the same reason the gun's is
 	-- (Task 71): the horn is the welded pieces below, so the Handle's own box would be a slab
 	-- through the middle of it. Set HANDLE_TRANSPARENCY to 0 to see the box they are laid out in.
+	--
+	-- IT IS THE PARTS HORN'S ENVELOPE AND NOT THE MESH'S, AND SINCE TASK 175 IT DOES NOT PRETEND
+	-- OTHERWISE. The coil below is 0.76 studs across and fits this box; the uploaded mesh is now
+	-- 3.125 studs long (`MESH.SIZE_STUDS`, 2.5x) and overflows it, which costs nothing and is why
+	-- the number did not follow the scale: the Handle is invisible, `CanCollide`, `CanQuery` and
+	-- `CanTouch` are all false and it is `Massless`, so nothing in the game reads its extent. What
+	-- is read is its FRAME -- `GRIP` and `GRIP_BLOW` are points in it -- and a frame has no size.
 	HANDLE_SIZE = Vector3.new(0.5, 1.1, 1.1),
 	HANDLE_TRANSPARENCY = 1,
 	HANDLE_COLOR = Color3.fromRGB(205, 160, 60),
@@ -415,6 +435,20 @@ Horn.CONFIG = {
 	-- `.screenshots/20261013T094638Z-t172-grip-front.png`, a bot beater from the front and right.
 	-- (`.screenshots/` is git-ignored, so the file is on the Builder's machine and the request is
 	-- where its contents are described.)
+	--
+	-- IT DID NOT FOLLOW THE 2.5x SCALE (task 175), AND THAT IS A DECISION AND NOT AN OVERSIGHT. The
+	-- obvious move was to scale this with the horn -- 0.25 x 2.5 = 0.625 -- which holds the horn at
+	-- the same FRACTION along its own length. That fraction is not what matters: a hand does not
+	-- scale, and `Grip.Position` measures from the Handle's centre in STUDS. At 0.625 the bell would
+	-- sit 2.19 studs behind the fist -- further back than a whole R15 arm is long (~1.4) -- so a
+	-- third-person beater would wear the bell through his own ribs. At 0.25 the fist is near the
+	-- MIDDLE of a long object, with 1.31 studs of horn each side of it, which is how a person
+	-- carries something a metre long and keeps the bell clear of the body.
+	--
+	-- IT IS STILL A POINT ON THE HORN, which is the whole rule this block establishes: the half-
+	-- extents are now (0.30, 0.54, 1.5625) and `(0, 0, 0.25)` is well inside them, on the
+	-- MOUTHPIECE side of the middle. `zz_horn.spec` asserts exactly that against `MESH.SIZE_STUDS`
+	-- rather than against a copy of these numbers, so the two cannot drift.
 	GRIP = CFrame.new(0, 0, 0.25),
 	-- ...AND THE RAISE IS EXACTLY TASK 169's, NOT RE-BASED ONTO THE NEW POINT -- which was tried
 	-- first, measured, and rejected (task 172).
@@ -439,7 +473,31 @@ Horn.CONFIG = {
 	-- the character's own Animator (one writer, server-side, replicated), and this is the object in
 	-- the hand turning with it. `Tool.Grip` is the Tool's own property, the engine rebuilds the weld
 	-- when it changes, and `Weapon.Horn` is the only thing that ever writes it.
-	GRIP_BLOW = CFrame.new(-0.42, -0.22, 0.3) * CFrame.Angles(math.rad(-55), 0, math.rad(25)),
+	--
+	-- ...AND THE Z FOLLOWED THE 2.5x SCALE EXACTLY, BY ARITHMETIC AND NOT BY EYE (task 175). The
+	-- thing that has to be preserved is WHERE THE MOUTHPIECE ENDS UP, because that is what reaches
+	-- the mouth, and the engine's weld makes that computable rather than a matter of looking:
+	-- `Handle.CFrame * Grip == RightHand.CFrame * C0`, so for a point `p` of the Handle its place in
+	-- hand coordinates is `C0 * Grip:Inverse() * p`. With `Grip = T * R` that is
+	-- `C0 * R:Inverse() * (p - T.Position)` -- so the mouthpiece stays put exactly when
+	-- `p - T.Position` is unchanged, and `R` is untouched.
+	--
+	-- The mouthpiece is the Handle's `+Z` end of the mesh (`MESH.ROTATION_DEG`'s own header), i.e.
+	-- `p = (0, 0, SIZE_STUDS.X / 2)`. At 1.25 that was `(0, 0, 0.625)` against `T = (-0.42, -0.22,
+	-- 0.3)`, so `p - T = (0.42, 0.22, 0.325)`. At 3.125 it is `(0, 0, 1.5625)`, so T's Z becomes
+	-- `0.3 + (3.125 - 1.25) / 2 = 1.2375` and `p - T = (0.42, 0.22, 0.325)` again -- the same
+	-- vector, to the digit. X and Y are task 169's and are deliberately NOT touched: they are what
+	-- draws the horn up and inboard through the fist while a modest arm raise brings the hand to
+	-- chest height, which is the measurement task 172 recorded when it tried re-basing them and got
+	-- the horn at the chest (2.66 studs from the head instead of 1.77).
+	--
+	-- WHAT THIS DOES NOT PRETEND. Keeping the mouthpiece still means the BELL swings 2.5x further
+	-- out: a 3.125-stud horn at the lips reaches up and forward past the head, and the slide of the
+	-- horn through the hand between the carry and the blast (task 172 disclosed half a stud) is now
+	-- about 0.94 of one, because the grip point stayed at 0.25 while the blow's Z grew. Both are
+	-- Karen's eye to judge and both are one line each; `zz_horn.spec` asserts the mouthpiece
+	-- invariant so neither can be changed by accident.
+	GRIP_BLOW = CFrame.new(-0.42, -0.22, 1.2375) * CFrame.Angles(math.rad(-55), 0, math.rad(25)),
 
 	-- THE HORN'S COLOURS. Director's pick and Karen's to change (her rule, 2026-09-26: styling never
 	-- blocks). Polished brass, raised well above a photographic albedo for the reason Task 22 and

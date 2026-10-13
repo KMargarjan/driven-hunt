@@ -100,16 +100,34 @@ Objective.CONFIG = {
 
 	-- ---------------- arrival
 	--
-	-- IN AT 24 STUDS, OUT AT 30, AND THE DEAD BAND IS THE POINT. `ForestTest.PICK.standRadiusStuds`
-	-- is 12 since task 166 -- a hunter may legally walk anywhere within 12 studs of his stand -- so
-	-- 24 is twice that, and a 6-stud band means walking about ON the stand cannot flicker the chevron
-	-- on and off. BOTH NUMBERS FOLLOWED THE RADIUS when it went from 6 to 12 (they were 12 and 18):
-	-- an "arrived" ring INSIDE the circle a hunter may legally walk in would flicker at exactly the
-	-- place he is meant to be standing. Arrived means no chevron and no compass takeover: the strip
-	-- goes back to saying where the drive comes FROM, which is what a hunter standing on his stand is
-	-- actually watching.
-	ARRIVED_IN_STUDS = 24,
-	ARRIVED_OUT_STUDS = 30,
+	-- IN AT 12 STUDS, OUT AT 16: ARRIVED IS NOW *INSIDE THE CIRCLE*, AND NOTHING ELSE (task 175).
+	--
+	-- KAREN, 2026-10-13 ~19:05: *"for shooter - get in your stand"*. The instruction has to stand
+	-- until he is IN, and until this task it did not: 24 and 30 put "arrived" at TWICE the radius, so
+	-- a hunter between 12 and 24 studs from his stand was OUTSIDE the circle the drive holds him to
+	-- (`ForestTest.PICK.standRadiusStuds` is 12, and `Weapon.Rules.outsideStand` gates his gun on it)
+	-- and yet had no chevron, no compass takeover and no line telling him to move. Twelve studs is
+	-- 3.4 m: far enough to be the wrong side of a wall he cannot see.
+	--
+	-- 12 IS THE RADIUS AND 16 IS THE RADIUS PLUS FOUR, and `hud_clarity.spec` asserts both against
+	-- `ForestTest.PICK.standRadiusStuds` itself rather than against a copy -- the Hud cannot require
+	-- a playtest world's module (it would depend on one world), so the spec is where the two numbers
+	-- are tied together.
+	--
+	-- WHY THE BAND IS ABOVE THE RADIUS AND NOT BELOW IT, which is the whole of the retune and is a
+	-- measurement rather than a taste: `ForestTest.boundaryPoint` returns a point at EXACTLY the
+	-- radius, so a hunter leaning on the soft wall sits at 12.000. With the band under the radius
+	-- (in at 10, out at 12) that player would land on the threshold from both sides and the chevron
+	-- would flicker at the one place the rule actually puts him. Above it he reads ARRIVED from both
+	-- directions at 12.000 -- `far <= 12` entering, `far < 16` leaving -- which is also exactly what
+	-- `ForestTest.withinStand` says (`<=` the radius), so the screen and the rule agree on the edge.
+	-- The old comment's own reasoning ("a 6-stud dead band so walking about ON the stand cannot
+	-- flicker") survives intact; what changes is which side of the radius the band sits on.
+	--
+	-- Arrived still means no chevron and no compass takeover: the strip goes back to saying where the
+	-- drive comes FROM, which is what a hunter standing on his stand is actually watching.
+	ARRIVED_IN_STUDS = 12,
+	ARRIVED_OUT_STUDS = 16,
 
 	-- ---------------- the words
 	--

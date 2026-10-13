@@ -375,9 +375,10 @@ return function()
 		end)
 
 		it("latches ARRIVED with a dead band, so the chevron cannot flicker", function()
-			-- IN at 24, and not back OUT until 30 -- both directions, which is what proves the
-			-- hysteresis exists rather than one threshold written twice. Driven off the config, so
-			-- the next time the band follows the stand's radius this case follows it too.
+			-- IN at the radius, and not back OUT until four studs past it -- both directions, which
+			-- is what proves the hysteresis exists rather than one threshold written twice. Driven
+			-- off the config, so the next time the band follows the stand's radius this case follows
+			-- it too.
 			local inAt = CONFIG.ARRIVED_IN_STUDS
 			local outAt = CONFIG.ARRIVED_OUT_STUDS
 			expect(Objective.arrived(inAt + 1, false)).to.equal(false)
@@ -387,11 +388,31 @@ return function()
 			expect(Objective.arrived(outAt, true)).to.equal(false)
 			expect(Objective.arrived(nil, true)).to.equal(false)
 			expect(outAt > inAt).to.equal(true)
-			-- TASK 166: THE BAND IS OUTSIDE THE CIRCLE A HUNTER MAY LEGALLY WALK IN. The stand's
-			-- radius went 6 -> 12, and an "arrived" ring inside 12 would flicker at exactly the
-			-- place he is meant to be standing. 24 is twice the radius, with the same 6-stud band.
-			expect(inAt).to.equal(24)
-			expect(outAt).to.equal(30)
+			-- TASK 175: ARRIVED IS *INSIDE THE CIRCLE*, AND THE NUMBER IS THE STAND'S OWN RADIUS.
+			--
+			-- KAREN, 2026-10-13 ~19:05: *"for shooter - get in your stand"*. Task 166 put the band
+			-- OUTSIDE the circle instead -- 24 and 30, twice the radius -- so a hunter between 12
+			-- and 24 studs out was on the wrong side of the rule that holds him (`withinStand`) and
+			-- of the gate on his gun (`Weapon.Rules.outsideStand`) with nothing on screen saying so.
+			--
+			-- TIED TO `ForestTest.PICK.standRadiusStuds` HERE AND NOT IN THE HUD, deliberately: the
+			-- Hud must not require a playtest world's module -- it would make every world's objective
+			-- line depend on this one -- so the Hud keeps a literal and this case is what stops the
+			-- two drifting. The shared half of the forest world is in ReplicatedStorage, so a client
+			-- spec can read it.
+			local radius = require(ReplicatedStorage:WaitForChild("ForestTest")).PICK.standRadiusStuds
+			expect(inAt).to.equal(radius)
+			expect(outAt).to.equal(radius + 4)
+			-- AND THE BAND IS ABOVE THE RADIUS, NOT BELOW IT, which is the one thing that could not
+			-- be left to the two numbers: `ForestTest.boundaryPoint` puts a player who walks out at
+			-- EXACTLY the radius, so `far == radius` has to read ARRIVED from both directions or the
+			-- chevron flickers at the soft wall. It also has to agree with `withinStand`, which is
+			-- `<=` the radius.
+			expect(Objective.arrived(radius, false)).to.equal(true)
+			expect(Objective.arrived(radius, true)).to.equal(true)
+			TestKit.note(
+				string.format("objective arrives at %d studs, leaves at %d (stand radius %d)", inAt, outAt, radius)
+			)
 		end)
 
 		it("writes the distance in METRES, through the one conversion", function()
