@@ -1,6 +1,6 @@
 # Escalations
 
-## 2026-10-14 - Task 177: NEEDS KAREN / NEEDS TEST2 177 dbad722 -- the two-player run, which nothing but a human click can start
+## 2026-10-14 - Task 177: NEEDS KAREN / NEEDS TEST2 177 09b6932 -- the two-player run, which nothing but a human click can start
 
 **The lobby is built, gated TWICE on the one-player harness, smoke-checked and photographed. The one
 thing missing is the two-player line, and `run_test2` says so itself: *"NEEDS KAREN, once, in Studio
@@ -22,14 +22,21 @@ exists**, so this blocks the review round as well as the merge.
 3. When the harness says so, **Test tab -> Cleanup** (or End Session) to close them.
 
 The command to run beside it is `python tools/studio_mcp.py test2`, at
-**dbad7225158e8abb09b7301fe8f0a00ea9260680** on branch `task-177-lobby`. The line to paste into
+**09b693281bd0c42e7f0a78976ba80487b89ee959** on branch `task-177-lobby`. The line to paste into
 `reviews/task-177/REQUEST.md` is
 
 ```
-[harness2] PASS: n/m checks @ dbad7225158e8abb09b7301fe8f0a00ea9260680 (clean tree)
+[harness2] PASS: n/m checks @ 09b693281bd0c42e7f0a78976ba80487b89ee959 (clean tree)
 ```
 
 and then `powershell -ExecutionPolicy Bypass -File tools/review.ps1 177` runs.
+
+### It passed once already, and this entry is the RE-ask
+
+`[harness2] PASS: 35/35 checks @ a5a212e5283ff60d0ee1ca0bad992addcd68bdac (clean tree)` -- your own
+run. Review round 1 then returned three findings, all fixed at their owners, so `src/server/Match/`
+and `src/server/Lobby/` changed after that line and it no longer covers the head. Nothing claims the
+two-player run still passes.
 
 ### The Director's run at `4b3da2c` found two real things, and both are fixed
 
@@ -53,8 +60,8 @@ in both directions** and notes it, so a regression says so instead of flaking.
 
 ### What is already evidenced, so nothing else waits on this
 
-* `[harness] PASS: 33/33 checks @ dbad7225158e8abb09b7301fe8f0a00ea9260680 (clean tree) scope=all`,
-  **twice**, on a clean tree, each logged (`.agent-logs/task177-r2-test1.log`, `-r2-test2.log`), both
+* `[harness] PASS: 33/33 checks @ 09b693281bd0c42e7f0a78976ba80487b89ee959 (clean tree) scope=all`,
+  **twice**, on a clean tree, each logged (`.agent-logs/task177-r3-test1.log`, `-r3-test2.log`), both
   carrying `camera_client: a source swap is drawn on update 1 (to the gun) and 1 (back to the horn)`.
 * The whole lobby cycle, measured live in the Forest Test: joined at the lodge with no team and no
   gun; stood in the circle; `Team = Shooters` and placed on stand 5 at `ForestTest.CENTRE`;

@@ -1,32 +1,79 @@
 # Task 177 review request
 
 Task: 177
-Round: 1
+Round: 2
 Base: 102fbe9 (`main`, #160 merged -- task 176)
-Code commit: a5a212e5283ff60d0ee1ca0bad992addcd68bdac
+Code commit: 09b693281bd0c42e7f0a78976ba80487b89ee959
 
-Harness, the clean tree, TWICE at the code commit:
+Harness, the clean tree, TWICE at the code commit, each logged
+(`.agent-logs/task177-r3-test1.log`, `-r3-test2.log`):
 
 ```
-[harness] PASS: 33/33 checks @ dbad7225158e8abb09b7301fe8f0a00ea9260680 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ dbad7225158e8abb09b7301fe8f0a00ea9260680 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ a5a212e5283ff60d0ee1ca0bad992addcd68bdac (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ a5a212e5283ff60d0ee1ca0bad992addcd68bdac (clean tree)
+[harness] PASS: 33/33 checks @ 09b693281bd0c42e7f0a78976ba80487b89ee959 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 09b693281bd0c42e7f0a78976ba80487b89ee959 (clean tree) scope=all
 ```
 
-DIRECTOR NOTE: the last two lines are the Director's at the head `a5a212e` (only paperwork after `dbad722`); the two-player run below was repeated and PASSES.
+**The `[harness2]` line is the Director's and is not here yet.** `src/server/Match/` and two of its
+specs are in `TWO_PLAYER_PATHS`, and `tools/studio_mcp.py` is in the diff, so a `--scope auto` run
+resolves to `scope=all` -- full evidence, which asks for the two-player line; `run_test2` cannot
+start that test itself. **It PASSED at the previous head** -- `[harness2] PASS: 35/35 checks @
+a5a212e5283ff60d0ee1ca0bad992addcd68bdac (clean tree)`, the Director's own run -- and this round
+changed code after it, so it is asked for again rather than carried over. `ESCALATE.md` carries
+**`NEEDS TEST2 177 09b6932`** with the exact clicks.
 
-The Director's own two-player run at `4b3da2c` came back **`[harness2] FAIL 31/35`**
-(`<runs-dir>/test2-t177.log`). Claim 11 below is what it was, what it was not, and what was done
-about it. The run has not been repeated, so the `[harness2]` line is still missing and
-`ESCALATE.md` still carries **`NEEDS TEST2 177 dbad722`**.
+## Round 1's three findings, each fixed at its owner
 
-**The `[harness2]` line is NOT here and the review cannot start without it.** `src/server/Match/`,
-`tests/server/match_phase.spec.luau` and `tests/server/match_live.spec.luau` are all in
-`TWO_PLAYER_PATHS`, and `tools/studio_mcp.py` is in the diff so a `--scope auto` run resolves to
-`scope=all` -- full evidence, which asks for the two-player line. `run_test2` cannot start the test
-itself (*"StudioMCP CANNOT start this test itself"*). `ESCALATE.md` carries the entry, headed
-**`NEEDS KAREN` / `NEEDS TEST2 177 dbad722`**, with the exact clicks.
+**1. `applyUnassign` resurrected a departed player as a ghost board row.** `Score.setTeam` goes
+through `mutable`, which for a userId with no row returns `blankRow(userId, name or
+tostring(userId))` -- so clearing the team of somebody the board has never seen CREATES him. The
+effect's list outlives the player: `Phase.enterAssigning` builds it from `previousAssignment`, and
+the `leave` branch clears `participants` and `assignment` and not that. **Fix:**
+`Match.unassignTargets(userIds, known)` -- pure and exported, the `Match.botSlotsFor` /
+`Match.quickSpawnFor` shape -- filters the list to the ids this owner still knows (`names`, which
+`Match.forget` clears BEFORE the `leave` it dispatches), and `applyUnassign` iterates that.
+**Verify:** `Match.unassignTargets` and `applyUnassign` in `src/server/Match/init.luau`; the new
+`match_live.spec` case *"never resurrects a departed player as a ghost row on the board"*, which
+asserts BOTH halves -- that `Score.setTeam(Score.new(), -4242, nil)` really does put a row named
+`"-4242"` with 0 points and no `left` mark on `Score.leaderboard` (the hazard, unchanged), and that
+the filter drops exactly the unknown id and keeps the order (the guard).
+**What is NOT claimed:** the end-to-end path needs two players and a disconnect inside `Scoring`, and
+no one-player DEV spec can reach it. The guard is asserted; the journey is the two-player run's.
+
+**2. `map_ui.spec`'s lobby-vs-bounds case asserted nothing where it ran.** It opened
+`if Map.EXPECTED_WORLD ~= "forest-test" then return end`, and that is `"map:v1"` in the DEV place --
+the only place the harness runs -- so claim 10 below rested on an assertion nothing executed.
+**Fix:** the gate is gone and the world is named (`MapUi.geometryFor("forest-test", data, Map)`),
+which is what the sibling case two `describe`s up already does; `geometryFor` branches on its `world`
+ARGUMENT and `ReplicatedStorage.ForestTest` is in every place. **Verify:** the case now runs in DEV
+and can fail there -- it is inside the 1308 the server/client suites report.
+
+**3. The porch index was unbounded and the per-player tables were never reclaimed.**
+`indexFor` only ever counted up, one per player who had ever joined, and `Lobby.spawnCFrame` offset
+by `floor((index + 1) / 2) * SPREAD_STUDS` with no bound: slot 37 is 114 studs off the middle,
+outside `FIELD.SPAN_STUDS`'s half-span of 110 -- so `Join.insideField` answers FALSE for the man
+standing exactly where `world.place` put him, `needsReturn` answers true, and the lobby re-places him
+at the same off-shelf point every cooldown for ever. **Fix:** `SPAWN.SLOTS = 7` and the index WRAPS
+(worst case 3 x 6 = 18 studs, inside the lodge's own 40-stud front), and `Lobby.forget` is wired to
+`PlayerRemoving` in `ForestTestBoot` beside `ForestTest.clearPick` / `clearRequest`, so `entries`,
+`returnedAt`, `spawnIndex` and `touched` are reclaimed and `touched` stops holding a departed
+`Player` instance. **Verify:** `Lobby.spawnCFrame` and `SPAWN.SLOTS`; the new `lobby.spec` case
+*"can never put a player off the lobby's own field, however high the index climbs"*, which walks
+indices 0..200 asserting `Join.insideField` and the porch half-width, and asserts the wrap --
+**it fails on the old code**; and the `PlayerRemoving` handler in `ForestTestBoot`.
+
+## Round 1's notes
+
+Fixed: **note 1** (this file's stale `[harness2]` paragraphs are gone), **note 3** (the leave
+deadline is written once on the `nil -> COUNTING` edge instead of ~50 times per walk-in, asserted in
+`lobby_live.spec`), **note 4** (the boot prints the lobby's own numbers -- `shelfY`, `parts`,
+`fillCalls`, `grassCalls`, `buildMs` -- which `docs/design/lobby.md` section 18 item 2 asks for),
+**note 5** (`MapGen.Ground`'s palette paragraph carries the qualifier its header already gained),
+**note 6** (`isHeld` is a REQUIRED door, in `Lobby.start`'s list and in `lobby_live.spec`'s
+missing-door loop).
+Queued, not fixed: **note 2** -- the collision set is wider than `docs/design/lobby.md` 9.2 and 16.1
+state (`Bed`, `Cab`, `Bonnet`, `Fireplace`, `Counter`, `TableLeg*`, `DoorPost*`, `SignPost`, `Gable*`
+are solid). The Reviewer calls it defensible and says the DESIGN should be amended, which is the
+Architect's lane: `TASKS.md` 177a(e).
 
 ## What changed
 
@@ -154,10 +201,12 @@ floor, the table and the shop sign).
 
 ## What I could not verify
 
-* **The two-player run AT THIS COMMIT.** The Director ran it at `4b3da2c` and it came back
-  `FAIL 31/35`; the two spec failures it found are fixed above and both logged one-player runs at
-  `dbad722` are clean, but **the two-player run has not been repeated** and nothing here claims it
-  passes. It needs a human click; `ESCALATE.md`.
+* **The two-player run AT THIS COMMIT.** It PASSED at the previous head (`[harness2] PASS: 35/35 @
+  a5a212e`, the Director's run), and this round changed code after it, so nothing here claims it
+  still passes. It needs a human click; `ESCALATE.md`, `NEEDS TEST2 177 09b6932`.
+* **The ghost row end to end.** Finding 1's guard is asserted; the journey that produced it -- two
+  players, one disconnecting inside `Scoring`, the other holding the server in `Assigning` -- is not
+  reachable from a one-player DEV spec and is the two-player run's to see.
 * **The `enrol = false` branch of `watchPlayer` has no DEV spec.** `Match` is a started singleton
   that `MatchBoot` owns and a spec cannot restart it under a running client suite
   (`match_live.spec`'s own first paragraph). It is evidenced LIVE in the Forest Test instead, by the
