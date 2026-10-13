@@ -19,6 +19,10 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+-- THE CLIENT'S LAYOUT CONTRACT, read here for one claim only (task 170): the results panel's row
+-- budget is the one number that has to be compared against `Match.CONFIG.MAX_PLAYERS`, and this is
+-- the only side that can see both.
+local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
@@ -121,6 +125,26 @@ return function()
 			-- ...and the two the forest actually uses ARE on it.
 			expect(list.DRIVE_SECONDS).to.equal(true)
 			expect(list.BOARS_PER_DRIVE).to.equal(true)
+			-- NO ECONOMY KEY IS ON IT EITHER (task 170): the coin rates are `Economy.CONFIG`'s and a
+			-- world may not give any rule a second value. They are not in `Match.CONFIG` at all, which is
+			-- the stronger half of the claim.
+			for _, key in ipairs({ "COINS_PER_POINT", "PARTICIPATION", "FIRST_PLACE", "FLOOR", "STORE_NAME" }) do
+				expect(list[key]).to.equal(nil)
+				expect((Match.CONFIG :: any)[key]).to.equal(nil)
+			end
+		end)
+	end)
+
+	-- THE RESULTS PANEL'S ROW BUDGET (task 170), asserted HERE because this is the one side that can
+	-- see both numbers: `Drive.CONFIG.SCORE_ROWS_MAX` is the client's layout and
+	-- `Match.CONFIG.MAX_PLAYERS` is the server's rule. Three headings (hunters, beaters, others) plus
+	-- a full server is 19 lines, so a panel with fewer slots would silently drop real rows off the
+	-- bottom of Karen's results table.
+	describe("the results panel's budget", function()
+		it("has room for every player plus the three headings", function()
+			expect(Drive.CONFIG.SCORE_ROWS_MAX >= Match.CONFIG.MAX_PLAYERS + 3).to.equal(true)
+			expect(Drive.CONFIG.SCORE_ROWS_MAX).to.equal(20)
+			expect(Match.CONFIG.MAX_PLAYERS).to.equal(16)
 		end)
 	end)
 
@@ -182,29 +206,35 @@ return function()
 			expect(#Match.quarryLines({})).to.equal(0)
 		end)
 
-		it("SAYS WHAT THE RULE REALLY IS: a cub is legal, because nothing in the code refuses one", function()
-			-- Karen's words were "wild boar -- male, female; NOT piglets/cubs", and THE CODE DOES NOT
-			-- HAVE THAT RULE: `Boar.CONFIG.KINDS` distinguishes the three kinds and the drive spawns
-			-- all of them, and since task 160 `POINTS.KIND` NAMES a cub as worth less than a male --
-			-- but there is still no refusal and still no deduction. A card that claimed otherwise
-			-- would be the card lying to the player, so it says today's rule and the cub rule is a
-			-- decision waiting for Karen (TASKS.md row 158a). THE DAY IT ARRIVES, THIS CASE FAILS --
-			-- which is what makes it the reminder rather than a comment nobody reads.
+		it("SAYS WHAT THE RULE REALLY IS: a piglet is legal and it COSTS you", function()
+			-- Karen's words were "wild boar -- male, female; NOT piglets/cubs", and on 2026-10-12 she
+			-- settled the half of it the code can hold: shooting a piglet is a PENALTY. So since task 170
+			-- `POINTS.KIND.cub` is -10 and the card says so.
+			--
+			-- WHAT THE CODE STILL DOES NOT HAVE is a REFUSAL -- `Boar.CONFIG.KINDS` still distinguishes
+			-- the three kinds, the drive still spawns all of them, and the weapon still fires at a cub.
+			-- A card that claimed otherwise would be the card lying to the player, so it states the
+			-- price. A refusal is a weapon-side rule with its own owner and its own task (TASKS.md row
+			-- 158a), AND THE DAY IT ARRIVES THIS CASE FAILS -- which is what makes it the reminder rather
+			-- than a comment nobody reads. (Until task 170 the reminder it carried was the opposite one:
+			-- "a cub is legal, because nothing in the code refuses one", with `cub > 0`.)
 			local lines = Match.quarryLines(Match.CONFIG)
 			local joined = table.concat(lines, " | ")
 			expect(string.find(joined, "WILD BOAR", 1, true) ~= nil).to.equal(true)
 			expect(string.find(joined, "male", 1, true) ~= nil).to.equal(true)
 			expect(string.find(joined, "female", 1, true) ~= nil).to.equal(true)
-			expect(string.find(joined, "cub", 1, true) ~= nil).to.equal(true)
-			expect(string.find(joined, "no cub rule yet", 1, true) ~= nil).to.equal(true)
-			-- ...and the points table is the evidence for the claim: every KIND the drive spawns has
-			-- a price, the cub's is the lowest of the three and it is not zero -- which is "it
-			-- counts, and it counts for less" and is not "it is refused".
+			expect(string.find(joined, "cub -10", 1, true) ~= nil).to.equal(true)
+			-- THE OLD SENTENCE IS GONE, asserted as gone: it said the opposite of today's rule.
+			expect(string.find(joined, "no cub rule yet", 1, true)).to.equal(nil)
+			expect(string.find(joined, "piglet", 1, true) ~= nil).to.equal(true)
+			-- ...and the points table is the evidence for the claim: every KIND the drive spawns has a
+			-- price, and the cub's is NEGATIVE -- which is "it counts against you" and is still not "it
+			-- is refused".
 			local kinds = Match.CONFIG.POINTS.KIND
 			for _, kind in ipairs({ "male", "female", "cub" }) do
 				expect(type(kinds[kind])).to.equal("number")
 			end
-			expect(kinds.cub > 0).to.equal(true)
+			expect(kinds.cub < 0).to.equal(true)
 			expect(kinds.cub < kinds.female).to.equal(true)
 			expect(kinds.female < kinds.male).to.equal(true)
 			TestKit.note("match-config: the start card's quarry lines -> " .. joined)

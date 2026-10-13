@@ -5,6 +5,9 @@
 -- The points are written out rather than imported, so a config that drifts is a finding and not a
 -- tautology; the last describe closes the loop the other way.
 --
+-- SINCE TASK 170 A PIGLET IS A PENALTY: `KIND.cub` is -10, one whole male, and the start card says
+-- so. The number and the sentence are one decision and the last describe asserts them together.
+--
 -- SINCE TASK 160 A KILL IS PRICED BY THE ANIMAL AND NOT BY THE HIT ZONE. Karen, 2026-10-10: *"How
 -- many shoot and male is more worth then famale"*. The zone is still on the record and this spec
 -- hands one in on purpose, so "the zone changes nothing about the price" is an assertion rather
@@ -19,7 +22,8 @@ local Score = Match.Score
 
 local CONFIG = {
 	POINTS = {
-		KIND = { male = 10, female = 6, cub = 2, legendary = 25, unknown = 6 },
+		-- `cub = -10` SINCE TASK 170: Karen, 2026-10-12, shooting a piglet is a penalty.
+		KIND = { male = 10, female = 6, cub = -10, legendary = 25, unknown = 6 },
 		ASSIST = 3,
 		ASSIST_MIN_DAMAGE = 25,
 		BEATER_PUSH = 3,
@@ -53,7 +57,7 @@ end
 return function()
 	describe("the kill", function()
 		it("pays what the ANIMAL is worth, exactly", function()
-			for kind, points in pairs({ male = 10, female = 6, cub = 2, legendary = 25 }) do
+			for kind, points in pairs({ male = 10, female = 6, cub = -10, legendary = 25 }) do
 				local board = (Score.kill(Score.new(), killRecord(kind, 1), nil, CONFIG))
 				expect(pointsOf(board, 1)).to.equal(points)
 				expect(board.rows[1].kills).to.equal(1)
@@ -64,8 +68,34 @@ return function()
 			local kind = CONFIG.POINTS.KIND
 			expect(kind.male > kind.female).to.equal(true)
 			expect(kind.female > kind.cub).to.equal(true)
-			expect(kind.cub > 0).to.equal(true) -- "every one of them counts - no cub rule yet"
 			expect(kind.legendary > kind.male).to.equal(true) -- "more legendary more"
+		end)
+
+		-- A PIGLET IS A PENALTY (task 170). Karen, 2026-10-12. Task 160 shipped `cub = 2` with a
+		-- promise beside it -- *"The day Karen protects cubs this row goes to 0 or negative"* -- and
+		-- this is that day. The OLD rule is asserted as retired, not merely changed: `cub > 0` was the
+		-- assertion that used to stand here.
+		it("COSTS the shooter for a piglet, and costs him a whole male", function()
+			local board = (Score.kill(Score.new(), killRecord("cub", 1), nil, CONFIG))
+			expect(pointsOf(board, 1)).to.equal(-10)
+			-- It is still a KILL on his row: he shot an animal, the number is just against him.
+			expect(board.rows[1].kills).to.equal(1)
+			local kind = CONFIG.POINTS.KIND
+			expect(kind.cub < 0).to.equal(true)
+			-- ONE WHOLE MALE, which is the figure the other thing you must not shoot already costs.
+			expect(kind.cub).to.equal(-kind.male)
+			expect(kind.cub).to.equal(CONFIG.POINTS.SAFETY_PENALTY)
+		end)
+
+		-- A BAD DRIVE CAN END BELOW ZERO, and that is the drive's line and not a balance. Two piglets
+		-- and a safety violation is -30, which `Economy.Coins` turns into -50 coins and
+		-- `Economy.Coins.credit` then floors at the BALANCE. Here, the board simply says -30.
+		it("lets a drive go negative on piglets and a violation", function()
+			local board = Score.join(Score.new(), 1, "one", "Shooters")
+			board = (Score.kill(board, killRecord("cub", 1, nil, 10), nil, CONFIG))
+			board = (Score.kill(board, killRecord("cub", 1, nil, 20), nil, CONFIG))
+			board = (Score.violation(board, 1, CONFIG))
+			expect(pointsOf(board, 1)).to.equal(-30)
 		end)
 
 		it("pays an unknown kind as a female -- never free", function()
@@ -235,19 +265,22 @@ return function()
 			board = Score.join(board, 2, "two", "Shooters")
 			board = Score.join(board, 3, "three", "Drivers")
 			board = Score.join(board, 4, "four", "Drivers")
-			-- All three of 1, 2 and 3 reach 12. 3 got there on six cubs, which beats the other two on
-			-- the kill count; 1 and 2 each shot two females, and 2 shot first.
+			-- All three of 1, 2 and 3 reach 12. 3 got there on two females, a male and a piglet
+			-- (6 + 6 + 10 - 10 = 12) -- FOUR kills, which beats the other two on the kill count; 1 and 2
+			-- each shot two females, and 2 shot first. (Before task 170 this case was six cubs at +2
+			-- each; a cub now COSTS 10, so the same claim needs different animals.)
 			board = (Score.kill(board, killRecord("female", 1, nil, 20), nil, CONFIG))
 			board = (Score.kill(board, killRecord("female", 1, nil, 21), nil, CONFIG))
 			board = (Score.kill(board, killRecord("female", 2, nil, 10), nil, CONFIG))
 			board = (Score.kill(board, killRecord("female", 2, nil, 11), nil, CONFIG))
-			for index = 1, 6 do
-				board = (Score.kill(board, killRecord("cub", 3, nil, 30 + index), nil, CONFIG))
-			end
+			board = (Score.kill(board, killRecord("female", 3, nil, 31), nil, CONFIG))
+			board = (Score.kill(board, killRecord("female", 3, nil, 32), nil, CONFIG))
+			board = (Score.kill(board, killRecord("male", 3, nil, 33), nil, CONFIG))
+			board = (Score.kill(board, killRecord("cub", 3, nil, 34), nil, CONFIG))
 
 			local rows = Score.leaderboard(board)
 			expect(rows[1].points).to.equal(12)
-			expect(rows[1].userId).to.equal(3) -- 12 points, 6 kills
+			expect(rows[1].userId).to.equal(3) -- 12 points, 4 kills
 			expect(rows[2].userId).to.equal(2) -- 12 points, 2 kills, killed at 10
 			expect(rows[3].userId).to.equal(1) -- 12 points, 2 kills, killed at 20
 			expect(rows[4].userId).to.equal(4) -- 0
@@ -302,6 +335,23 @@ return function()
 			-- two prices for one kill waiting for somebody to pick the wrong one.
 			expect(live.KILL).to.equal(nil)
 			expect(live.PUSH).to.equal(nil)
+		end)
+
+		-- THE NUMBER AND THE SENTENCE ARE ONE DECISION (task 170), so one assertion holds them
+		-- together: `Match.CONFIG`'s own comment promised that the day a cub went negative,
+		-- `QUARRY_NOTE` would change in the same commit. This is what makes that promise keepable --
+		-- a rollback of either one alone fails here.
+		it("states the piglet rule on the start card, in the same commit as the price", function()
+			expect(Match.CONFIG.POINTS.KIND.cub).to.equal(-10)
+			local note = Match.CONFIG.QUARRY_NOTE
+			expect(type(note)).to.equal("string")
+			-- The OLD sentence is asserted as gone. It said the opposite of today's rule.
+			expect(string.find(note, "no cub rule yet", 1, true)).to.equal(nil)
+			expect(string.find(note, "piglet", 1, true) ~= nil).to.equal(true)
+			-- ...and the card really prints the negative price, off `POINTS.KIND` and no second copy.
+			local lines = Match.quarryLines(Match.CONFIG)
+			expect(string.find(table.concat(lines, "\n"), "cub -10", 1, true) ~= nil).to.equal(true)
+			expect(lines[#lines]).to.equal(note)
 		end)
 	end)
 end

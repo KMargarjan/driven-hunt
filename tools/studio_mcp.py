@@ -706,6 +706,10 @@ BLAST_RADIUS = (
     # its own clock -- and the three specs below are in the `match` tuple as well, because
     # `src/server/Match/` is what calls the view and is what can break it.
     ("src/server/Bots/", "bots"),
+    # A player's coins and his saved profile (task 170). Its own owner with its own store, so its own
+    # scope -- and `src/shared/Drive/` already resolves to `match`, which is what covers `Rank.luau`
+    # (the one implementation of "who is first", read by this scope's pay-out and by the Hud's badge).
+    ("src/server/Economy/", "economy"),
     ("src/server/Boar/", "boar"),
     ("src/server/BoarAssetsBoot.server.luau", "boar"),
     ("src/shared/Map/", "map"),
@@ -770,6 +774,10 @@ SCOPE_SPECS = {
     # The bots (task 161): the fill arithmetic, the lane geometry, and the rigs themselves.
     "bots": ("tests/server/bots_fill.spec.luau", "tests/server/bots_lane.spec.luau",
              "tests/server/bots_live.spec.luau"),
+    # The coins (task 170): the pure conversion, the owner against an in-memory store, the store's
+    # own contract. `match`'s own tuple is what covers the drive boundary that triggers a pay-out --
+    # `zz_drive_boundary.spec` is named there and is where `drivesPaid == drives` is asserted.
+    "economy": ("tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau"),
     "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau"),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).
@@ -799,7 +807,8 @@ SCOPE_SPECS = {
 # NARROW a path it names.
 # WHAT IT DOES NOT COVER, said exactly (review round 2, note): the ROOT build and toolchain files --
 # `default.project.json` (what Rojo syncs into the DataModel), `testez.yml`, `wally.toml`,
-# `rokit.toml`, `devpackages.sha256`. They resolve to no scope and skip Play. No regression --
+# `rokit.toml`, `devpackages.sha256`, `serverpackages.sha256`. They resolve to no scope and skip
+# Play. No regression --
 # `CODE_PATHS` in tools/agents.py already asks for no harness line for them, and check 4 still
 # compares the whole synced tree -- but whether `default.project.json` should mean `all` is queued
 # as TASKS.md 113a(e).

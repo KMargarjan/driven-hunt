@@ -299,17 +299,19 @@ Match.CONFIG = {
 	-- WHAT YOU MAY SHOOT, AS THE RULE REALLY IS IN THE CODE (task 158). The start card asks "what
 	-- they can shoot", and Karen's words were *"wild boar -- male, female; NOT piglets/cubs"*.
 	--
-	-- THE CODE STILL DOES NOT HAVE THAT RULE AND THIS CARD STILL WILL NOT PRETEND IT DOES. What
-	-- changed in task 160 is that a cub is now NAMED as different -- `POINTS.KIND.cub` is 2 against
-	-- a male's 10, so shooting one is a poor trade instead of an identical one -- but it is still not
-	-- REFUSED and there is still no deduction. So the card states today's rule: `QUARRY_NOTE` below,
-	-- and each kind's price beside it (`Match.quarryLines`). The rule Karen described, *"NOT
-	-- piglets/cubs"*, is still a decision waiting for her (TASKS.md row 158a), and the day a cub is
-	-- protected this row, that note and `POINTS.KIND.cub` change together.
+	-- SINCE TASK 170 A PIGLET IS A PENALTY, which is the half of her rule the code can hold.
+	-- Karen, 2026-10-12: shooting a piglet is a penalty. `POINTS.KIND.cub` is `-10` -- one whole
+	-- male, the figure `SAFETY_PENALTY` already uses for the other thing you must not shoot -- so
+	-- the card reads `cub -10` and a player is told the price before the drive rather than
+	-- discovering it on the board. The note below changed in the SAME commit as that number, which
+	-- is exactly what the comment that used to stand here promised.
+	--
+	-- WHAT IS STILL NOT IN THE CODE: the shot is not REFUSED. A refusal is a weapon-side rule with
+	-- its own owner and its own task (TASKS.md row 158a); the price is this one.
 	QUARRY = {
 		{ species = "WILD BOAR", kinds = { "male", "female", "cub" } },
 	},
-	QUARRY_NOTE = "every one of them counts - no cub rule yet",
+	QUARRY_NOTE = "a piglet COSTS you - leave them",
 	PLACE_TIMEOUT = 5,
 	STAND_HEIGHT_STUDS = 3.5, -- how far above a post's top face a character is put down
 
@@ -412,11 +414,18 @@ Match.CONFIG = {
 		KIND = {
 			male = 10, -- K, the unit of this game's currency: every other number is read against it
 			female = 6, -- K, *"male is more worth then famale"* -- and a sow is still worth shooting
-			-- SMALL, AND NEVER ZERO, because today's rule is `QUARRY_NOTE` two screens up: *"every
-			-- one of them counts - no cub rule yet"*. The day Karen protects cubs (her doc says
-			-- *"NOT piglets/cubs"*) this row goes to 0 or negative and that sentence changes in the
-			-- same commit -- which is exactly what that comment promises.
-			cub = 2, -- K
+			-- NEGATIVE SINCE TASK 170, AND THAT DAY HAS COME: Karen, 2026-10-12, shooting a piglet
+			-- is a penalty. Task 160 left this row at `+2` with a promise -- *"The day Karen
+			-- protects cubs (her doc says 'NOT piglets/cubs') this row goes to 0 or negative and
+			-- that sentence changes in the same commit"* -- and `QUARRY_NOTE` two screens up changed
+			-- in this one.
+			--
+			-- `-10` AND NOT `0`: one whole male, the same figure `SAFETY_PENALTY` uses for the other
+			-- thing you must not shoot. A cub was `+2`, so this is a 12-point swing, which is what
+			-- makes shooting one a MISTAKE rather than a smaller prize -- and at
+			-- `Economy.CONFIG.COINS_PER_POINT = 2` it costs him 20 coins as well. The old value and
+			-- its rollback are in backups/2026-10-13_task-170_cub-points-and-quarry-note.txt.
+			cub = -10, -- K
 			-- A DATA ROW WITH NO ANIMAL BEHIND IT (task 160, Karen: *"more legendary more"*).
 			-- `Boar.CONFIG.KINDS` has no "legendary", nothing spawns one and no spec asks for one in
 			-- the world: this is the price waiting for the animal, so that the day one exists the
@@ -539,8 +548,8 @@ Match.WORLD_OVERRIDABLE = table.freeze({
 -- ...AND SINCE TASK 160 EACH KIND CARRIES WHAT IT IS WORTH, off `POINTS.KIND` and no second copy of
 -- it. Karen asked *"How many shoot and male is more worth then famale"*, and the one screen that
 -- answers "what may I shoot" is the one place that answer belongs -- so the card reads
--- `WILD BOAR: male 10, female 6, cub 2` and a player learns the price before the drive starts
--- instead of inferring it from the board afterwards.
+-- `WILD BOAR, POINTS: male 10, female 6, cub -10` (task 170: a piglet is a penalty) and a player
+-- learns the price before the drive starts instead of inferring it from the board afterwards.
 --
 -- `QUARRY` STILL SAYS WHICH ANIMALS ARE IN THE DRIVE AND `POINTS.KIND` SAYS WHAT EACH IS WORTH, and
 -- the two tables are not merged: `POINTS.KIND` carries a `legendary` row with no animal behind it
@@ -883,6 +892,15 @@ function Match.snapshot()
 	if snapshotCache then
 		return snapshotCache
 	end
+	-- THE ECONOMY'S TWO NUMBERS, READ ONCE FOR THE WHOLE BOARD (task 170) and not per row: both are
+	-- a table lookup out of the read-only view the drive was handed, and `nil` all the way down when
+	-- there is no economy at all -- which is this file before task 170, by every branch.
+	--
+	-- ABSENT IS NOT ZERO. A row carries no `coins` when the flag is off or when that player has no
+	-- open profile, and the Hud draws an absent one as `--`: zero would be the server asserting he
+	-- has no coins.
+	local balances = if world and world.economy then world.economy.balances() else nil
+	local earned = if world and world.economy then world.economy.earned() else nil
 	local rows = {}
 	for _, row in ipairs(Score.leaderboard(board)) do
 		table.insert(rows, {
@@ -895,6 +913,8 @@ function Match.snapshot()
 			pushes = row.pushes,
 			violations = row.violations,
 			left = row.left,
+			coins = balances and balances[row.userId],
+			earned = earned and earned[row.userId],
 		})
 	end
 	local tiedList = {}
@@ -1504,6 +1524,26 @@ local function dispatch(event)
 		if counts.Drivers == 0 or counts.Shooters == 0 then
 			stats.emptyTeamDrives += 1
 		end
+		snapshotCache = nil
+	end
+
+	-- THE DRIVE PAYS, ON THE `Scoring` EDGE AND BEFORE `applyEffects` (task 170), which is the
+	-- mirror image of the `Assigning` block above and rests on the identical measured reason.
+	-- `enterScoring` emits `{ kind = "broadcast", force = true }`, and `broadcast` builds the
+	-- snapshot from `board` plus the economy's two tables -- so a pay-out AFTER the effects would
+	-- make the first, forced snapshot of the results scene carry an empty coins column, and nothing
+	-- forces another until the next drive's `enterAssigning`: Karen would read `--` for up to
+	-- `STATE_HEARTBEAT` seconds of the scene. That is TASKS.md 32a(c) exactly, in a new place, and
+	-- the position is the fix.
+	--
+	-- IT IS ALSO WHAT MAKES ONE PAY-OUT PER DRIVE STRUCTURAL: this edge can fire at most once per
+	-- `Scoring`, and `enterScoring` is the only door into `Scoring`. The owner refuses a repeated
+	-- drive number as well (`Economy.payDrive`), which is a belt over this brace.
+	--
+	-- `Score.leaderboard(board)` AND NOT `Match.snapshot()`: building the snapshot here would cache a
+	-- copy from before the pay-out, and the pure board is what the pure conversion wants.
+	if state.phase ~= before and state.phase == "Scoring" and world and world.economy then
+		world.economy.payDrive(state.driveNumber, Score.leaderboard(board))
 		snapshotCache = nil
 	end
 

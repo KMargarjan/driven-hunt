@@ -1,0 +1,112 @@
+Archived 2026-10-13, task 170 (rule 7: never delete).
+
+WHAT THIS IS
+`Hud.firstPlaceRank` and the one-list `scoreRowText` from `src/client/Hud/init.luau`, as they stood
+before task 170.
+
+WHY THEY CHANGED
+1. `firstPlaceRank` MOVED, it was not rewritten. From task 170 the SERVER pays a first-place bonus
+   off the same question the client draws a badge off (`Economy.Coins.forDrive`), and two
+   implementations of one rule is this project's named failure mode -- docs/PROJECT_CONTEXT.md:
+   *"Most of the worst bugs were two correct pieces of code disagreeing"*. So it lives in
+   `src/shared/Drive/Rank.luau`, the module both sides already require, and its body and its
+   comment -- the ioquake3 citation and the round-1 "ahead of the second row, not above zero"
+   finding -- went across verbatim. It is NOT kept here as an alias: an alias is two names for one
+   rule, which is the thing being removed.
+2. `scoreRowText` lost its TEAM column and gained a COINS column. With a `-- HUNTERS --` heading
+   over each list, printing SHOOTER / DRIVER on every row under it says one fact twice -- and the
+   panel had no spare width (`SCORE_PANEL_WIDTH` is already 480 against the 400-px screen
+   `tests/client/hud_clarity.spec.luau` measures), so the column had to pay for itself.
+
+THE OLD CODE, VERBATIM
+----------------------------------------------------------------------
+-- WHICH ROW IS FIRST PLACE, AS A RULE AND NOT AS "ROW 1" (task 160). Karen, 2026-10-11: *"first
+-- place ofc more"*. Pure and exported, like every other string this panel draws, because no harness
+-- run ever reaches the `Scoring` phase.
+--
+-- `nil` MEANS NOBODY IS FIRST, and both cases that return it are the point of the function:
+--   * the top two are LEVEL. A tie at the top is not a first place -- it is a tie. This is
+--     ioquake3's `CalculateRanks` read the other way round: *"we are tied with the previous client"*
+--     sets `rank | RANK_TIED_FLAG` on both rows (code/game/g_main.c, GPL-2.0;
+--     docs/research/2026-10-12-scoring.md section 2.1).
+--   * NOBODY HAS SCORED AT ALL. On an all-noughts board -- which is every board for the first
+--     minute of every drive -- `Score.leaderboard`'s last tiebreak is `userId`, so a badge on row 1
+--     would crown whoever joined the server first. ioquake3 flags a lone playing client as tied for
+--     the same reason: being the only one there is not winning.
+--
+-- THE SECOND TEST IS "AHEAD OF THE SECOND ROW", NOT "ABOVE ZERO" (round 1, note 2). It was the
+-- leader's own points against 0, which made the function disagree with itself: a leader on 0 ahead
+-- of a second on -10 got no badge while a leader on -10 ahead of -20 got one, though both are a man
+-- clear at the top of a board where something has happened. Being ahead of the field IS first
+-- place, whatever the sign; the zero test is now only what it was always for -- the board where
+-- nothing has happened yet -- and so it is asked ONLY of the row that has nobody behind it.
+function Hud.firstPlaceRank(rows): number?
+	local first = rows and rows[1]
+	if first == nil then
+		return nil
+	end
+	local second = rows[2]
+	if second == nil then
+		return if (first.points or 0) == 0 then nil else 1
+	end
+	if (second.points or 0) >= (first.points or 0) then
+		return nil
+	end
+	return 1
+end
+
+local function scoreRowText(rank: number, row, first: boolean?): string
+	local team = if row.team == "Drivers" then "DRIVER" elseif row.team == "Shooters" then "SHOOTER" else "-"
+	-- `left` is a fact the board carries; a leaver's row stays on this drive's screen (drive design
+	-- section 4.4), and a trailing "*" is how the reader knows why they are not in the next drive.
+	local gone = if row.left then " *" else ""
+	-- AFTER THE POINTS AND BEFORE THE LEAVER'S STAR, so the badge sits against the number it was
+	-- earned with and a first-placed leaver still reads as one.
+	local badge = if first then "  " .. Drive.CONFIG.SCORE_FIRST_BADGE else ""
+	return string.format(
+		"%-2d %-16s %-8s %5d %7d%s%s",
+		rank,
+		string.sub(tostring(row.name or "?"), 1, 16),
+		team,
+		row.kills,
+		row.points,
+		badge,
+		gone
+	)
+end
+----------------------------------------------------------------------
+
+AND THE HEADER IT WENT WITH
+----------------------------------------------------------------------
+	header.Text = "#  NAME             TEAM     KILLS  POINTS"
+----------------------------------------------------------------------
+
+AND THE LOOP IN `Hud.renderScore` THAT DREW ONE LIST
+----------------------------------------------------------------------
+	local me = Players.LocalPlayer.UserId
+	-- ONE READ FOR THE WHOLE BOARD, outside the loop: the badge is a property of the BOARD (is the
+	-- top row clear of the second?), not of a row, and asking it per row would be the same question
+	-- answered sixteen times.
+	local firstRank = Hud.firstPlaceRank(snapshot.rows)
+	for index, line in ipairs(scoreLines) do
+		local row = snapshot.rows[index]
+		if row then
+			line.Text = scoreRowText(index, row, index == firstRank)
+			line.TextColor3 = if row.userId == me then Drive.CONFIG.SCORE_HIGHLIGHT_COLOR else Drive.CONFIG.TEXT_COLOR
+			line.Visible = true
+		else
+			line.Text = ""
+			line.Visible = false
+		end
+	end
+----------------------------------------------------------------------
+
+THE ROLLBACK
+Turning the `COINS` flag off is NOT this rollback: with the flag off the rows carry no `coins` and no
+`earned`, so the coins column reads `--` and the balance disappears from the bar, but the panel is
+still TWO RANKINGS with two headings. Going back to one table means putting the three blocks above
+back, deleting `Hud.scorePanelLines`, `Hud.coinsText` and the `SCORE_*_HEADING` / `SCORE_COINS_*` /
+`SCORE_EARNED_FORMAT` words in `Drive.CONFIG`, and returning `SCORE_ROWS_MAX` to 16.
+
+`src/shared/Drive/Rank.luau` STAYS either way: `Economy.Coins.forDrive` reads it to decide who gets a
+first-place bonus, so removing it is a change to the pay-out and not to the panel.

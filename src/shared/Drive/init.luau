@@ -25,6 +25,11 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Drive = {}
 
+-- WHO IS FIRST, AND OF WHICH RANKING (task 170). Re-exported here so there is ONE require site for
+-- it: the server reads `Drive.Rank` to pay a first-place bonus per ranking and the client reads the
+-- same table to draw a badge per ranking. It holds no number, so the header's rule is intact.
+Drive.Rank = require(script.Rank)
+
 export type TeamName = "Drivers" | "Shooters"
 export type PhaseName = "Waiting" | "Assigning" | "Running" | "Scoring"
 
@@ -40,6 +45,14 @@ export type ScoreRow = {
 	pushes: number,
 	violations: number,
 	left: boolean,
+	-- TASK 170, THE ECONOMY. Both are ABSENT -- not 0 -- when the `COINS` flag is off or when this
+	-- player has no open profile, because absent is "unknown" and 0 is the statement that he has no
+	-- coins. The Hud draws an absent one as `SCORE_COINS_UNKNOWN`.
+	--
+	-- THE RATES ARE NOT HERE, exactly as the points table is not (see the header): these are two
+	-- RESULTS, already computed on the server out of `Economy.CONFIG`, which is never replicated.
+	coins: number?, -- the BALANCE after this drive's pay-out. On screen in every phase
+	earned: number?, -- what THIS drive paid him. MAY BE NEGATIVE (a piglet costs points)
 }
 
 export type MatchSnapshot = {
@@ -134,7 +147,11 @@ Drive.CONFIG = {
 	-- THE BLACK OUTLINE EVERY OTHER LABEL IN THIS HUD WEARS (the feed's lines, the drive report's).
 	-- One pixel: enough to hold a thin Code glyph against grass, not enough to thicken it.
 	SCORE_TEXT_STROKE = 1,
-	SCORE_ROWS_MAX = 16, -- Match.CONFIG.MAX_PLAYERS; more rows than players can exist is harmless
+	-- 16 -> 20 (task 170): the panel now draws up to THREE HEADINGS over the rows, so
+	-- `MAX_PLAYERS` rows no longer fit in `MAX_PLAYERS` lines. 16 + 3 = 19, and 20 leaves one spare.
+	-- `tests/server/match_config.spec.luau` asserts `SCORE_ROWS_MAX >= MAX_PLAYERS + 3` on the
+	-- server, where both numbers are visible -- so the budget cannot silently stop fitting.
+	SCORE_ROWS_MAX = 20,
 	-- THE RESULTS TABLE'S TITLE (task 159). Karen: *"showing image transperent with results table"*,
 	-- and the panel she is describing IS this one -- a semi-transparent centred panel, one row per
 	-- player with name, role, kills and points, up for the whole of `Scoring`. What this task
@@ -151,9 +168,34 @@ Drive.CONFIG = {
 	-- THE FIRST-PLACE BADGE (task 160). Karen, 2026-10-11: *"first place ofc more"*. Here rather
 	-- than in the renderer for the stated reason the whole of this block is here: every word the Hud
 	-- draws is written down in one file. ASCII, like `TIED_TEXT` and every other string in this
-	-- repo, and it is worn by at most one row -- `Hud.firstPlaceRank` decides which, and answers
-	-- "nobody" for a tie at the top.
+	-- repo, and since task 170 it is worn by at most one row PER RANKING -- `Drive.Rank.firstPlaceRank`
+	-- decides which, and answers "nobody" for a tie at the top of one.
 	SCORE_FIRST_BADGE = "1st",
+
+	-- THE TWO RANKINGS (task 170). Karen, 2026-10-12: separate rankings for hunters and beaters, each
+	-- with its own first place. LAYOUT AND WORDING ONLY -- the partition and "who is first" are
+	-- `Drive.Rank`'s, one implementation read by both sides, and the coins arrive on the rows.
+	--
+	-- THE HEADINGS SPEAK KAREN'S WORDS, hunters and beaters, and they can: the row's TEAM column --
+	-- the only place this panel ever said SHOOTER / DRIVER -- is GONE, because a `-- HUNTERS --`
+	-- heading with SHOOTER on every row under it prints one fact twice. That column is what pays for
+	-- the coins column, so `SCORE_PANEL_WIDTH` does not move. Which vocabulary the WHOLE Hud speaks
+	-- is still Karen's open question (TASKS.md row 158a) and this settles only this panel.
+	SCORE_HUNTERS_HEADING = "-- HUNTERS --",
+	SCORE_BEATERS_HEADING = "-- BEATERS --",
+	-- Drawn ONLY when that list has a row in it -- the rule `Match.quarryLines` already applies to
+	-- its own POINTS label: *"THE WORD ONLY WHEN THERE IS A NUMBER UNDER IT"*. A row has no team
+	-- when a player joined outside `Assigning`/`Running`, which is a real state and not an error.
+	SCORE_OTHERS_HEADING = "-- OTHERS --",
+	-- WHAT AN ABSENT NUMBER LOOKS LIKE. `--`, never `0`: a player whose profile did not open has an
+	-- UNKNOWN balance, and printing 0 would be this Hud asserting he has no coins.
+	SCORE_COINS_UNKNOWN = "--",
+	-- `%+d`: the sign is always drawn, because this drive could have COST him (a piglet is -10
+	-- points, so -20 coins). "+34" and "-20" read as a change; "34" and "-20" read as two kinds of
+	-- thing.
+	SCORE_EARNED_FORMAT = "%+d",
+	-- The balance on the drive bar, in every phase (the dispatch: the balance on the HUD).
+	SCORE_COINS_LABEL = "COINS",
 
 	-- The tied banner (design section 9.3 item 4), for the local player only. ASCII, like everything
 	-- else drawn in this repo, and it says WHY -- the penalty is also the teaching mechanism.

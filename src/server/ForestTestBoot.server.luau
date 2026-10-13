@@ -43,6 +43,12 @@ local Body = Match.Body
 -- THE HIT RECORD (task 124). It is wired here, at the composition root, exactly as the boar runtime
 -- and the weapon are: `HitLog` requires neither of them and neither requires it.
 local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
+-- A PLAYER'S COINS AND HIS SAVED PROFILE (task 170). The fifth owner, wired here exactly as the
+-- boar runtime, the weapon, the bots and the hit record are: `Economy` requires no owner and no owner
+-- requires it. The drive is handed a narrow VIEW (`Economy.view()`) -- three functions, no `start`,
+-- no `stop`, no store and no setter -- so the drive cannot open a ProfileStore session, cannot write
+-- a balance and cannot see the library.
+local Economy = require(ServerScriptService:WaitForChild("Economy"))
 local Data = ForestTest.Data
 
 print(
@@ -397,7 +403,19 @@ Bots.start({
 -- phantoms are retired only by the file that invented them.
 ForestTest.setBotThreats(Bots.threats)
 
+-- THE COINS (task 170), started BEFORE the drive: a player already on the server must have his
+-- profile session open before the first dispatch, because a drive that ends with no session pays him
+-- nothing and says so.
+--
+-- IT PRINTS WHICH STORE IT TOOK -- in Studio always the in-memory one, so no playtest and no harness
+-- run can write a live DataStore key even with *Enable Studio Access to API Services* on.
+Economy.start()
+
 Match.start({
+	-- A PLAYER'S COINS (task 170): a read-only view. The drive calls it at exactly one moment -- the
+	-- `Scoring` edge, before its own effects -- and reads two tables when it builds a snapshot. It
+	-- owns no balance and no session.
+	economy = Economy.view(),
 	boars = ForestTest.readOnlyBoars(runtime),
 	-- THE BOTS THAT FILL THIS DRIVE (task 161): a read-only view, the same one `MatchBoot` hands over.
 	bots = Bots.view(),
@@ -701,3 +719,22 @@ end)
 
 HitLog.start()
 ForestTest.start(runtime, os.clock())
+
+-- THE LEVEL-TRIGGERED RETRY FOR A PROFILE THAT DID NOT LOAD (task 170), on the phase this file
+-- already listens to. The `Weapon.refreshArming` / `syncBots` discipline and its stated reason:
+-- *"every edge-triggered grant in this repo has been measured missing one"*. A transient Roblox
+-- outage then costs one drive's coins instead of the whole session's.
+Match.PhaseChanged:Connect(function(_before, phase)
+	if phase == "Assigning" then
+		Economy.onDriveStart()
+	end
+end)
+
+-- THE ONE `BindToClose` IN THE REPOSITORY: every open session is ended, which is what saves it.
+--
+-- REGISTERED BY THE ROOT AND NEVER BY `Economy.start`, because `BindToClose` cannot be disconnected
+-- (https://create.roblox.com/docs/reference/engine/classes/DataModel#BindToClose) and every spec
+-- starts and stops that owner -- a registration inside `start` would leave one callback per spec run
+-- bound for the rest of the session. `Economy.closeAll()` on an owner that was never started is a
+-- no-op, which is what makes this unconditional line correct.
+game:BindToClose(Economy.closeAll)

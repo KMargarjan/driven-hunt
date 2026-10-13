@@ -675,7 +675,8 @@ local function build(): ScreenGui
 	header.TextTransparency = Drive.CONFIG.SCORE_HEADER_TRANSPARENCY
 	header.Position = UDim2.fromOffset(16, 42)
 	header.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, rowHeight)
-	header.Text = "#  NAME             TEAM     KILLS  POINTS"
+	-- The TEAM column is gone and COINS took its place (task 170): see `scoreRowText`.
+	header.Text = "#  NAME             KILLS  POINTS   COINS"
 
 	table.clear(scoreLines)
 	for index = 1, rows do
@@ -1064,59 +1065,121 @@ local function clockText(seconds: number): string
 	return string.format("%d:%02d", math.floor(whole / 60), whole % 60)
 end
 
--- WHICH ROW IS FIRST PLACE, AS A RULE AND NOT AS "ROW 1" (task 160). Karen, 2026-10-11: *"first
--- place ofc more"*. Pure and exported, like every other string this panel draws, because no harness
--- run ever reaches the `Scoring` phase.
---
--- `nil` MEANS NOBODY IS FIRST, and both cases that return it are the point of the function:
---   * the top two are LEVEL. A tie at the top is not a first place -- it is a tie. This is
---     ioquake3's `CalculateRanks` read the other way round: *"we are tied with the previous client"*
---     sets `rank | RANK_TIED_FLAG` on both rows (code/game/g_main.c, GPL-2.0;
---     docs/research/2026-10-12-scoring.md section 2.1).
---   * NOBODY HAS SCORED AT ALL. On an all-noughts board -- which is every board for the first
---     minute of every drive -- `Score.leaderboard`'s last tiebreak is `userId`, so a badge on row 1
---     would crown whoever joined the server first. ioquake3 flags a lone playing client as tied for
---     the same reason: being the only one there is not winning.
---
--- THE SECOND TEST IS "AHEAD OF THE SECOND ROW", NOT "ABOVE ZERO" (round 1, note 2). It was the
--- leader's own points against 0, which made the function disagree with itself: a leader on 0 ahead
--- of a second on -10 got no badge while a leader on -10 ahead of -20 got one, though both are a man
--- clear at the top of a board where something has happened. Being ahead of the field IS first
--- place, whatever the sign; the zero test is now only what it was always for -- the board where
--- nothing has happened yet -- and so it is asked ONLY of the row that has nobody behind it.
-function Hud.firstPlaceRank(rows): number?
-	local first = rows and rows[1]
-	if first == nil then
-		return nil
-	end
-	local second = rows[2]
-	if second == nil then
-		return if (first.points or 0) == 0 then nil else 1
-	end
-	if (second.points or 0) >= (first.points or 0) then
-		return nil
-	end
-	return 1
-end
+-- WHICH ROW IS FIRST PLACE IS NO LONGER DECIDED HERE (task 170). `Hud.firstPlaceRank` was this
+-- Hud's own implementation of *"a tie at the top is not a first place"* (task 160, after ioquake3's
+-- `RANK_TIED_FLAG`); from task 170 the SERVER pays a first-place bonus off the same question, so the
+-- rule moved to `Drive.Rank` -- ONE implementation, two readers -- and the old function is archived
+-- in backups/2026-10-13_task-170_hud-firstplacerank.txt (rule 7). Two correct pieces of code
+-- disagreeing is this project's named failure mode (docs/PROJECT_CONTEXT.md).
+local Rank = Drive.Rank
 
+-- ONE ROW OF THE RESULTS TABLE.
+--
+-- THE `TEAM` COLUMN IS GONE AND THE COINS COLUMN IS WHAT IT PAID FOR (task 170). With a
+-- `-- HUNTERS --` heading over the list, printing SHOOTER / DRIVER on every row under it says one
+-- fact twice -- and the panel had no spare width: `SCORE_PANEL_WIDTH` is already 480 against the
+-- 400-px screen `tests/client/hud_clarity.spec.luau` measures, so widening it would make an existing
+-- problem worse. 41 characters plus badge and star, against today's 42.
+--
+-- `rank` RESTARTS AT 1 INSIDE EACH RANKING, because that is what "two first places" means.
 local function scoreRowText(rank: number, row, first: boolean?): string
-	local team = if row.team == "Drivers" then "DRIVER" elseif row.team == "Shooters" then "SHOOTER" else "-"
 	-- `left` is a fact the board carries; a leaver's row stays on this drive's screen (drive design
 	-- section 4.4), and a trailing "*" is how the reader knows why they are not in the next drive.
+	-- A leaver is also NOT PAID (`Economy.Coins.forDrive`), so his coins column reads `--`, which is
+	-- the same symbol an unknown balance uses and means the same thing here: no number for him.
 	local gone = if row.left then " *" else ""
-	-- AFTER THE POINTS AND BEFORE THE LEAVER'S STAR, so the badge sits against the number it was
+	-- AFTER THE COINS AND BEFORE THE LEAVER'S STAR, so the badge sits against the numbers it was
 	-- earned with and a first-placed leaver still reads as one.
 	local badge = if first then "  " .. Drive.CONFIG.SCORE_FIRST_BADGE else ""
+	-- WHAT THIS DRIVE PAID HIM, not his balance: the balance is on the bar, in every phase, and the
+	-- results table is about THIS drive. Absent (the flag off, or no profile) reads `--` and never
+	-- `0` -- `0` would be an assertion that the drive paid him nothing.
+	local coins = if type(row.earned) == "number"
+		then string.format(Drive.CONFIG.SCORE_EARNED_FORMAT, row.earned)
+		else Drive.CONFIG.SCORE_COINS_UNKNOWN
 	return string.format(
-		"%-2d %-16s %-8s %5d %7d%s%s",
+		"%-2d %-16s %5d %7d %7s%s%s",
 		rank,
 		string.sub(tostring(row.name or "?"), 1, 16),
-		team,
 		row.kills,
 		row.points,
+		coins,
 		badge,
 		gone
 	)
+end
+
+export type ScoreLine = { text: string, heading: boolean, mine: boolean }
+
+-- THE WHOLE BODY OF THE RESULTS TABLE, AS DATA (task 170). Karen, 2026-10-12: separate rankings for
+-- hunters and beaters. PURE and exported for the reason every other string on this panel is -- a
+-- drive is 600 seconds long, so no CLIENT suite ever reaches the `Scoring` phase, and the only way
+-- to assert what the panel says is to hand this the snapshot the wire would.
+--
+-- TWO RANKINGS, TWO FIRST PLACES, ONE RULE. `Drive.Rank.splitByTeam` cuts the board's own TOTAL
+-- order into hunters, beaters and the rows that are in neither, and `Rank.firstPlaceRank` is asked
+-- ONCE PER RANKING -- the same function the server asked to pay the two bonuses, so a badge and a
+-- bonus can never land on different rows.
+--
+-- THE `OTHERS` HEADING IS DRAWN ONLY WHEN THAT LIST HAS A ROW IN IT, which is the rule
+-- `Match.quarryLines` already applies to its own POINTS label: *"THE WORD ONLY WHEN THERE IS A
+-- NUMBER UNDER IT"*. `others` gets no first place either, because it is not a ranking -- it is the
+-- people who were not in one (a player who joined outside `Assigning`/`Running` has no team yet).
+--
+-- IT TRUNCATES BY DROPPING TRAILING ROWS AND NEVER A HEADING: a list cut short is still readable,
+-- a list whose heading was dropped tells the reader the wrong ranking.
+function Hud.scorePanelLines(snapshot, myUserId: number?): { ScoreLine }
+	local out: { ScoreLine } = {}
+	local rows = if snapshot then snapshot.rows else nil
+	local hunters, beaters, others = Rank.splitByTeam(rows)
+	local budget = Drive.CONFIG.SCORE_ROWS_MAX
+
+	local function section(heading: string, list)
+		if #list == 0 or #out >= budget then
+			return
+		end
+		table.insert(out, { text = heading, heading = true, mine = false })
+		local firstRank = Rank.firstPlaceRank(list)
+		for index, row in ipairs(list) do
+			if #out >= budget then
+				return
+			end
+			table.insert(out, {
+				text = scoreRowText(index, row, index == firstRank),
+				heading = false,
+				mine = myUserId ~= nil and (row :: any).userId == myUserId,
+			})
+		end
+	end
+
+	section(Drive.CONFIG.SCORE_HUNTERS_HEADING, hunters)
+	section(Drive.CONFIG.SCORE_BEATERS_HEADING, beaters)
+	section(Drive.CONFIG.SCORE_OTHERS_HEADING, others)
+	return out
+end
+
+-- THE LOCAL PLAYER'S BALANCE, for the drive bar, in every phase (the dispatch: the balance on the
+-- HUD). PURE and exported for the same reason as everything else on this screen.
+--
+-- `""` WHEN HE HAS NO ROW AT ALL, which is the whole of today's game with the `COINS` flag off -- so
+-- `Hud.driveBarText()` is byte-identical to before task 170 in that state, and the flag needs no
+-- second renderer. `COINS --` when he has a row but no balance (no profile opened): an unknown
+-- balance is not zero.
+function Hud.coinsText(snapshot, userId: number?): string
+	local rows = if snapshot then snapshot.rows else nil
+	if rows == nil or userId == nil then
+		return ""
+	end
+	for _, row in ipairs(rows) do
+		if row.userId == userId then
+			local value = row.coins
+			if type(value) == "number" then
+				return string.format("%s %d", Drive.CONFIG.SCORE_COINS_LABEL, value)
+			end
+			return string.format("%s %s", Drive.CONFIG.SCORE_COINS_LABEL, Drive.CONFIG.SCORE_COINS_UNKNOWN)
+		end
+	end
+	return ""
 end
 
 -- WHETHER THE SCORE PANEL SHOWS -- which since task 159 is KAREN'S RESULTS TABLE, up for the whole of
@@ -1156,19 +1219,23 @@ function Hud.renderScore(snapshot, secondsLeft: number?)
 		scoreTitle.Text = string.format(Drive.CONFIG.SCORE_TITLE_FORMAT, snapshot.driveNumber)
 	end
 	local me = Players.LocalPlayer.UserId
-	-- ONE READ FOR THE WHOLE BOARD, outside the loop: the badge is a property of the BOARD (is the
-	-- top row clear of the second?), not of a row, and asking it per row would be the same question
-	-- answered sixteen times.
-	local firstRank = Hud.firstPlaceRank(snapshot.rows)
-	for index, line in ipairs(scoreLines) do
-		local row = snapshot.rows[index]
-		if row then
-			line.Text = scoreRowText(index, row, index == firstRank)
-			line.TextColor3 = if row.userId == me then Drive.CONFIG.SCORE_HIGHLIGHT_COLOR else Drive.CONFIG.TEXT_COLOR
-			line.Visible = true
+	-- THE BODY IS DECIDED BY ONE PURE CALL AND THIS LOOP DECIDES NOTHING (task 170): it writes
+	-- `.Text`, `.TextColor3`, `.TextTransparency` and `.Visible`, and the rankings, the ranks, the
+	-- badges and the headings are all `Hud.scorePanelLines`'s -- which is also the only way a spec can
+	-- assert them, since no client suite reaches `Scoring`.
+	local lines = Hud.scorePanelLines(snapshot, me)
+	for index, label in ipairs(scoreLines) do
+		local entry = lines[index]
+		if entry then
+			label.Text = entry.text
+			-- A HEADING RECEDES exactly as the column header does, and for the same reason: it is a
+			-- label for the rows under it, not one of them.
+			label.TextTransparency = if entry.heading then Drive.CONFIG.SCORE_HEADER_TRANSPARENCY else 0
+			label.TextColor3 = if entry.mine then Drive.CONFIG.SCORE_HIGHLIGHT_COLOR else Drive.CONFIG.TEXT_COLOR
+			label.Visible = true
 		else
-			line.Text = ""
-			line.Visible = false
+			label.Text = ""
+			label.Visible = false
 		end
 	end
 	if scoreFooter then
@@ -1318,6 +1385,13 @@ local function renderDrive(MatchSystem)
 	end
 	if badge ~= "" then
 		table.insert(pieces, badge)
+	end
+	-- THE BALANCE, IN EVERY PHASE (task 170). Karen, 2026-10-11: *"get money"* -- and a currency you
+	-- cannot see between drives is one a player cannot count. `""` with the flag off, so this bar is
+	-- byte-identical to before task 170 in that state.
+	local coins = Hud.coinsText(snapshot, Players.LocalPlayer.UserId)
+	if coins ~= "" then
+		table.insert(pieces, coins)
 	end
 	bar.Text = table.concat(pieces, "   ")
 	bar.Visible = true
