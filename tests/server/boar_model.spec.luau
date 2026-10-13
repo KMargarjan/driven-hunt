@@ -1388,4 +1388,269 @@ return function()
 			bare:destroy()
 		end)
 	end)
+	describe("the display animal at the gathering lies dead on its side (task 173)", function()
+		-- KAREN, 2026-10-13 ~09:30, verbatim: *"and after hunt over we need to see boars shooted not
+		-- boxes when we stand around"*.
+		--
+		-- THE BAND IS TASK 150'S OWN MEASUREMENT, not a number this task chose: over eight kills on
+		-- the client that draws them, seven carcasses on a flank measured their spine's up vector
+		-- 86-102 degrees off world up, and the one that was standing measured 4.9. So a display that
+		-- lands inside 86-104 is lying down by the same test the live carcass is judged by.
+		local LYING_MIN_DEG = 86
+		local LYING_MAX_DEG = 104
+		-- HOW FAR THIS SPEC'S FAKE SPINE BONE IS TILTED AGAINST THE MESH IT HANGS ON. Negative, so
+		-- the bone reads 90 + 8 = 98 degrees off world up where the mesh reads 90: inside the band,
+		-- and far enough from the mesh's own figure that the two cannot be the same measurement
+		-- (round 1, note). A real rig's spine is tilted against the body in exactly this way.
+		local BONE_TILT_DEG = -8
+
+		-- The three kinds' MEASURED mesh sizes, from `Assets.ROWS` (`boar.male` v3, `boar.female`,
+		-- `boar.cub`, each read in Studio off the loaded asset). Written out here rather than
+		-- required, so the expectations below are an INDEPENDENT expression of the arithmetic and not
+		-- the code under test restated.
+		local KIND_SIZE = {
+			male = Vector3.new(1.4011, 3.2573, 5.5),
+			female = Vector3.new(1.202, 2.647, 4.675),
+			cub = Vector3.new(0.618, 1.439, 2.475),
+		}
+		-- ...and half of each one's X, which is the vertical half-extent once it has been rolled a
+		-- quarter turn: that is the whole of "resting ON the ground".
+		local KIND_LIFT = { male = 0.70055, female = 0.601, cub = 0.309 }
+
+		-- A template per kind, each at that kind's own measured size, so "size by kind" is provable
+		-- without the network. The shape is `makeTemplate`'s -- the nesting and the asset's own
+		-- AnimationController included, because the display has to strip that.
+		local function kindTemplate(kind: string): Model
+			local model = Instance.new("Model")
+			model.Name = "FakeBoar_" .. kind
+			local inner = Instance.new("Model")
+			inner.Name = "Boar " .. kind .. " RedDeer"
+			local mesh = Instance.new("MeshPart")
+			mesh.Name = "Boar_" .. kind
+			mesh.Size = KIND_SIZE[kind]
+			mesh.Anchored = false
+			mesh.CanQuery = true
+			mesh.CanCollide = true
+			mesh.CanTouch = true
+			mesh.Massless = false
+			-- THE RIG'S OWN BONE, which is what the lying check is measured off: `Bone` is an
+			-- `Attachment`, so its `WorldCFrame` follows the part it hangs on, and its up vector IS
+			-- the spine's up vector for a rig in its bind pose.
+			--
+			-- AND IT IS NOT THE MESH'S OWN FRAME (round 1, note, which was right): with the default
+			-- identity `CFrame` the bone's `WorldCFrame` IS the mesh's, so the bone assertion could
+			-- only fail where the mesh assertion already had. A real spine bone sits inside the
+			-- animal and is tilted against it, so this one is: moved up and forward, and rolled
+			-- `BONE_TILT_DEG` about the mesh's own forward axis -- which is the one axis that changes
+			-- how far off world up the bone points once the animal is on its side. The lying band is
+			-- then a statement about the BONE's angle, and it is a different number from the mesh's.
+			local bone = Instance.new("Bone")
+			bone.Name = "spine_01"
+			bone.CFrame = CFrame.new(0, 0.35, -0.6) * CFrame.Angles(0, 0, math.rad(BONE_TILT_DEG))
+			bone.Parent = mesh
+			mesh.Parent = inner
+			local theirs = Instance.new("AnimationController")
+			theirs.Parent = inner
+			inner.PrimaryPart = mesh
+			inner.Parent = model
+			model.PrimaryPart = mesh
+			model.Parent = testRoot
+			return model
+		end
+
+		local function runtimeWithKinds()
+			local runtime = Boar.newRuntime(buildWorld(true))
+			local templates = {}
+			for kind in pairs(KIND_SIZE) do
+				templates[kind] = kindTemplate(kind)
+			end
+			runtime:setModelSource(function(kind: string)
+				return templates[kind]
+			end, nil)
+			return runtime, templates
+		end
+
+		-- The angle between a CFrame's own up vector and world up, in degrees. One expression, used
+		-- for the mesh and for the bone, so the two cannot be measured differently.
+		local function degOffUp(cframe: CFrame): number
+			return math.deg(math.acos(math.clamp(cframe.UpVector:Dot(Vector3.yAxis), -1, 1)))
+		end
+
+		it("rolls the real model onto its RIGHT side, on the ground, facing the way it was told", function()
+			local runtime = runtimeWithKinds()
+			-- The scene hands in a GROUND frame: a point on the floor and the direction the row
+			-- faces. This is `Scene.rowLayout`'s own output shape.
+			local at = Vector3.new(12, GROUND_Y, -30)
+			local look = Vector3.new(0, 0, 1)
+			local ground = CFrame.lookAt(at, at + look)
+			local display = runtime:displayCarcass("male", ground)
+			expect(display).to.be.ok()
+			-- UNPARENTED: the scene is the one thing that decides where this lives, and it destroys
+			-- it with its own folder.
+			expect(display.Parent).to.equal(nil)
+			local mesh = display.PrimaryPart
+			expect(mesh).to.be.ok()
+			expect(mesh:IsA("MeshPart")).to.equal(true)
+			-- THE NAME THE BOAR GIVES IT, which is what it is called for as long as the scene has not
+			-- renamed it into its row (round 1, note: nothing asserted this key at all).
+			expect(display.Name).to.equal(CONFIG.MODEL.DISPLAY_NAME)
+
+			-- LYING, by task 150's own band, measured off the MESH and off the rig's own BONE.
+			local meshDeg = degOffUp(mesh.CFrame)
+			local bone = mesh:FindFirstChildWhichIsA("Bone")
+			expect(bone).to.be.ok()
+			local boneDeg = degOffUp(bone.WorldCFrame)
+			expect(meshDeg >= LYING_MIN_DEG and meshDeg <= LYING_MAX_DEG).to.equal(true)
+			expect(boneDeg >= LYING_MIN_DEG and boneDeg <= LYING_MAX_DEG).to.equal(true)
+			-- ...AND THE BONE IS ITS OWN MEASUREMENT (round 1, note): it is tilted against the mesh,
+			-- so a bone assertion that merely restated the mesh's would show up here as zero.
+			expect(math.abs(boneDeg - meshDeg) > 1).to.equal(true)
+			expect(math.abs(boneDeg - (meshDeg - BONE_TILT_DEG)) < 1e-3).to.equal(true)
+
+			-- ON ITS RIGHT SIDE, which is the tradition's own rule (jagdjuenger.de: *"Jedes Stueck
+			-- Wild ist stets auf die rechte Koerperseite zu legen"*): the animal's up vector ends up
+			-- pointing along the row frame's RIGHT, so the right flank is the one on the floor.
+			expect(mesh.CFrame.UpVector:Dot(ground.RightVector) > 0.99).to.equal(true)
+
+			-- STILL FACING THE WAY THE ROW FACES: a roll about the forward axis cannot change where
+			-- the nose points, and that is what makes a row read as a row.
+			expect((mesh.CFrame.LookVector - ground.LookVector).Magnitude < 1e-3).to.equal(true)
+
+			-- ON the ground, not in it and not hovering. Rolled a quarter turn the mesh's X is its
+			-- vertical extent, so its lowest point is half of that below its centre.
+			local bottom = mesh.Position.Y - KIND_LIFT.male
+			expect(math.abs(bottom - at.Y) < 1e-3).to.equal(true)
+			-- ...and it is where it was put, sideways.
+			expect(math.abs(mesh.Position.X - at.X) < 1e-3).to.equal(true)
+			expect(math.abs(mesh.Position.Z - at.Z) < 1e-3).to.equal(true)
+
+			TestKit.note(
+				string.format(
+					"boar-model: display mesh %.1f deg off up, bone %.1f deg, bottom %.4f of the ground",
+					meshDeg,
+					boneDeg,
+					bottom - at.Y
+				)
+			)
+			runtime:destroy()
+		end)
+
+		it("cannot be shot, shoved or stepped: it is scenery", function()
+			local runtime = runtimeWithKinds()
+			local display = runtime:displayCarcass("female", CFrame.new(0, GROUND_Y, 0))
+			expect(display).to.be.ok()
+			local parts = 0
+			for _, descendant in ipairs(display:GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					parts += 1
+					-- A RAY MUST NEVER MEET IT: what a shot hit is what the safety rule and the hit
+					-- record read, which is the one property in this folder that is not tidiness.
+					expect(descendant.CanQuery).to.equal(false)
+					expect(descendant.CanCollide).to.equal(false)
+					expect(descendant.CanTouch).to.equal(false)
+					-- ANCHORED, so nothing can shove the bag out of its row -- the same complaint
+					-- Karen made about live carcasses ("it has to stay in same place without move").
+					expect(descendant.Anchored).to.equal(true)
+					expect(descendant.Massless).to.equal(true)
+				end
+			end
+			expect(parts >= 1).to.equal(true)
+			-- NOTHING TO ANIMATE IT, and the ASSET BRINGS ONE: Roblox's importer writes an
+			-- AnimationController into these models, and a rig nothing ever steps must not keep one
+			-- -- the pose has exactly one author (task 150's rule, applied to a thing that is never
+			-- stepped).
+			expect(display:FindFirstChildWhichIsA("AnimationController", true)).to.equal(nil)
+			expect(display:FindFirstChildWhichIsA("Animator", true)).to.equal(nil)
+			runtime:destroy()
+		end)
+
+		it("draws each kind from its OWN asset, at its own size", function()
+			-- Karen's bag is male, female and cub, and a cub in the row has to be a cub. There is one
+			-- route from a kind to an asset in the server (`Runtime:_modelTemplate` ->
+			-- `BoarAssetsBoot`'s MODEL_KEYS -> `Assets.KEYS`), and this is that route with the
+			-- network replaced.
+			local runtime = runtimeWithKinds()
+			for _, kind in ipairs({ "male", "female", "cub" }) do
+				local ground = CFrame.new(0, GROUND_Y, 0)
+				local display = runtime:displayCarcass(kind, ground)
+				expect(display).to.be.ok()
+				local mesh = display.PrimaryPart
+				expect((mesh.Size - KIND_SIZE[kind]).Magnitude < 1e-3).to.equal(true)
+				-- ...and each one rests on the ground at ITS own half-width, which is why no per-kind
+				-- number is written down anywhere: it is read off the mesh.
+				expect(math.abs((mesh.Position.Y - KIND_LIFT[kind]) - GROUND_Y) < 1e-3).to.equal(true)
+			end
+			-- NO KIND AT ALL GETS THE DEFAULT, which is the male: a kill record from a world with
+			-- `KINDS` off carries no kind, and that is the state every animal was in before task 119.
+			local noKind = runtime:displayCarcass(nil, CFrame.new(0, GROUND_Y, 0))
+			expect(noKind).to.be.ok()
+			expect((noKind.PrimaryPart.Size - KIND_SIZE.male).Magnitude < 1e-3).to.equal(true)
+			-- ...AND AN UNKNOWN KIND IS THE SOURCE'S BUSINESS AND NOT THE RUNTIME'S, which is where
+			-- that rule has always lived: `BoarAssetsBoot` maps a kind through `MODEL_KEYS[kind] or
+			-- Assets.KEYS.boarMale`, so the live server answers the male for anything it does not
+			-- know. A source with no row for it -- this spec's -- answers nothing, and nothing means
+			-- the grey box. The runtime does not invent a kind in either case, which is what keeps
+			-- ONE route from a kind to an asset id.
+			expect(runtime:displayCarcass("red deer", CFrame.new(0, GROUND_Y, 0))).to.equal(nil)
+			runtime:destroy()
+		end)
+
+		it("answers nil for every world that cannot draw one, so the caller keeps its grey box", function()
+			-- NO MODEL SOURCE AT ALL -- the flag off, the asset not published, the loader still
+			-- fetching. This is the state the scene's grey box exists for, and it is a state and not
+			-- a fault.
+			local bare = newRuntime(true, nil, nil)
+			expect(bare:displayCarcass("male", CFrame.new(0, GROUND_Y, 0))).to.equal(nil)
+			bare:destroy()
+
+			-- `BOAR_MODEL` OFF, asked of THIS function rather than left to the fact that a flag-off
+			-- world never wires a source (round 1, note). Three comments in this repository state it
+			-- as a property of `displayCarcass`; this is the case that makes them true.
+			local off = newRuntime(false, makeTemplate(), nil)
+			expect(off:displayCarcass("male", CFrame.new(0, GROUND_Y, 0))).to.equal(nil)
+			off:destroy()
+
+			-- A TEMPLATE THAT IS NOT ONE MESH: two MeshParts is a different asset than the row
+			-- describes, and `Body.attachVisual` already refuses it for the same reason.
+			local twoMeshes = Instance.new("Model")
+			local first = Instance.new("MeshPart")
+			first.Size = KIND_SIZE.male
+			first.Parent = twoMeshes
+			local second = Instance.new("MeshPart")
+			second.Size = KIND_SIZE.male
+			second.Parent = twoMeshes
+			twoMeshes.Parent = testRoot
+			local twoRuntime = newRuntime(true, twoMeshes, nil)
+			expect(twoRuntime:displayCarcass("male", CFrame.new(0, GROUND_Y, 0))).to.equal(nil)
+			twoRuntime:destroy()
+
+			-- ...AND A TEMPLATE WITH NO MESH IN IT AT ALL.
+			local empty = Instance.new("Model")
+			empty.Parent = testRoot
+			local emptyRuntime = newRuntime(true, empty, nil)
+			expect(emptyRuntime:displayCarcass("male", CFrame.new(0, GROUND_Y, 0))).to.equal(nil)
+			emptyRuntime:destroy()
+		end)
+
+		it("works out the lying height as arithmetic, for any angle and any asset", function()
+			-- PURE, so the one number standing between an animal on the grass and one sunk into it is
+			-- a test case rather than a screenshot. `lyingHalfHeight` is half the VERTICAL extent of
+			-- a box rolled by `rollDeg`, which at a quarter turn is half its width.
+			local roll = CONFIG.MODEL.DISPLAY_ROLL_DEG
+			expect(math.abs(roll)).to.equal(90)
+			for kind, size in pairs(KIND_SIZE) do
+				expect(math.abs(Boar.lyingHalfHeight(size, roll) - KIND_LIFT[kind]) < 1e-3).to.equal(true)
+				-- NOT ROLLED AT ALL is half its HEIGHT, which is the standing animal: the function is
+				-- the general one, so the roll can be tuned to prop an animal up without a second
+				-- expression of this arithmetic appearing anywhere.
+				expect(math.abs(Boar.lyingHalfHeight(size, 0) - size.Y / 2) < 1e-6).to.equal(true)
+			end
+			-- AND THE WHOLE CFRAME: the ground frame, lifted, then rolled -- in that order, so the
+			-- lift is vertical in the WORLD and not along the animal's own side.
+			local ground = CFrame.lookAt(Vector3.new(5, GROUND_Y, 5), Vector3.new(5, GROUND_Y, 6))
+			local placed = Boar.lyingCFrame(ground, KIND_SIZE.cub, roll)
+			expect(math.abs(placed.Position.Y - (GROUND_Y + KIND_LIFT.cub)) < 1e-3).to.equal(true)
+			expect(degOffUp(placed) > LYING_MIN_DEG).to.equal(true)
+		end)
+	end)
 end

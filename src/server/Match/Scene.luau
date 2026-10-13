@@ -40,9 +40,21 @@
 --      hands `Match` a view with no `spawn` and no `clear`, so moving one would be the drive writing
 --      another owner's world.
 -- So the scene is built from `Match`'s own record of what was shot this drive (kind by kind), and
--- each animal is one anchored, non-colliding, `CanQuery = false` box of that kind's size. It is a
--- GREY BOX on purpose, like every other first cut in this repo: Karen judges the look and the next
--- step is one injected template function, not a rewrite (TASKS.md row 159a).
+-- each animal is one anchored, non-colliding, `CanQuery = false` display of that kind.
+--
+-- ...AND SINCE TASK 173 THE DISPLAY IS THE REAL ANIMAL. Karen, 2026-10-13 ~09:30, verbatim: *"and
+-- after hunt over we need to see boars shooted not boxes when we stand around"*. It is the one
+-- injected template function TASKS.md row 159a(a) said it would be, and nothing else about the scene
+-- moved: `displayFor(kind, groundCFrame)` is handed to `Scene.build` by the owner, answers a finished
+-- model lying dead on its side, and answers nil when there is no asset -- in which case this module
+-- builds the same grey box it always did, for that animal. The torches, the ring, the rows, the
+-- spacing and the cap of twelve are untouched.
+--   * WHAT STAYS HERE: the folder, and the LAYOUT -- where each animal is and which way it faces.
+--   * WHAT DOES NOT: what a boar looks like and how a dead one lies. `Boar.Body.displayCarcass`
+--     builds it, from the same template a live boar of that kind is dressed from, and this module
+--     never writes a CFrame on a display (it hands the ground frame in and parents what comes back).
+--   * WHICH SIDE IT LIES ON is the tradition's answer and is the asset owner's number, not one of
+--     this module's: see `Boar.CONFIG.MODEL.DISPLAY_ROLL_DEG`.
 --
 -- Pattern: the intermission of an arena shooter -- every client is moved to one point and frozen
 -- while the scoreboard is up (ioquake3 `BeginIntermission` / `MoveClientToIntermission`,
@@ -54,6 +66,7 @@
 --
 -- Design: docs/design/drive.md (section 4.3 is the placement seam this reuses)
 -- Note:   docs/research/2026-10-12-drive-end-and-results-scene.md
+--         docs/research/2026-10-13-real-animals-at-the-gathering.md (task 173: the real animals)
 local Workspace = game:GetService("Workspace")
 
 local Scene = {}
@@ -69,14 +82,40 @@ Scene.ANIMAL_PREFIX = "Animal"
 -- the `PointLight` (task 168). Named here so a spec and a live probe look for one string.
 Scene.FLAME_NAME = "Flame"
 
+-- WHAT THE OWNER HANDS IN FOR THE REAL ANIMALS (task 173): a kind, the ground frame this module laid
+-- the animal on, and a finished model back -- or nil, which means "keep the grey box". Named here so
+-- the one seam this module has is one line long and is read before `Scene.build`.
+export type DisplayFor = (string?, CFrame) -> Instance?
+
 local built = 0
 local cleared = 0
 local lights = 0
 local animals = 0
 local rowsBuilt = 0
+-- HOW MANY OF THIS SCENE'S ANIMALS WERE THE REAL MODEL AND HOW MANY FELL BACK TO THE BOX (task 173).
+-- Two counters rather than one, because "3 animals" cannot tell a drive whose assets never loaded
+-- from one whose assets are fine -- and that is the first question to ask of a screenshot of grey
+-- boxes.
+--
+-- PER BUILD, NOT PER SESSION, and that is round 1's finding 1: they are `rowsBuilt`'s neighbours and
+-- they are reset where it is assigned, because the owner prints all three in ONE sentence beside the
+-- per-drive `laid` ("gathered 2 animal(s) in 1 row(s): 4 real model(s)" is not a sentence about
+-- anything). It also restores the breakdown's whole purpose -- `models = 0` means the asset never
+-- arrived -- which a session total makes unreachable after the first model of the session.
+-- `built` and `cleared` stay session counters: they are not part of that sentence.
+local models = 0
+local boxes = 0
 
 function Scene.stats()
-	return { built = built, cleared = cleared, lights = lights, animals = animals, rows = rowsBuilt }
+	return {
+		built = built,
+		cleared = cleared,
+		lights = lights,
+		animals = animals,
+		rows = rowsBuilt,
+		models = models,
+		boxes = boxes,
+	}
 end
 
 function Scene.folder(): Folder?
@@ -292,7 +331,23 @@ end
 -- in the order the animals were shot: `{ { kind = "male" }, ... }`. Returns how many animals were
 -- laid out, which is `#kills` capped at `MAX_ANIMALS` -- a cap, because a long drive's row must not
 -- run off into the wood.
-function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg): number
+--
+-- `displayFor` IS THE REAL ANIMAL, AND IT IS THE SEAM TASK 159a(a) NAMED (task 173). Karen,
+-- 2026-10-13: *"and after hunt over we need to see boars shooted not boxes when we stand around"*.
+-- It is `function(kind: string?, ground: CFrame) -> Instance?`, handed in by the owner -- the shape
+-- `Boar.setModelSource`, `Bots.setRigSource` and `world.placement` already have -- and it answers a
+-- FINISHED, UNPARENTED model lying dead on its side at the CFrame this module laid out.
+--
+-- SO THIS MODULE STILL DOES NOT KNOW WHAT A BOAR IS. It owns the folder and the LAYOUT -- where each
+-- animal is and which way it faces -- and the asset's owner owns the animal and its pose
+-- (`Boar.Body.displayCarcass`). Nothing here writes a CFrame on a display: the ground frame goes in,
+-- the model comes back, and it is parented as it is.
+--
+-- NIL IS THE FALLBACK, PER ANIMAL. No `displayFor` at all (a pure spec, the DEV quick test), no
+-- template yet, the asset unpublished, `BOAR_MODEL` off, or a template that is not one mesh: that
+-- animal is the grey box of task 159, in the same place and at the same size. A mixed row is an
+-- honest row.
+function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg, displayFor: DisplayFor?): number
 	Scene.clear()
 	local scene = cfg.SCENE
 	local folder = Instance.new("Folder")
@@ -305,18 +360,40 @@ function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg): numbe
 	-- the one thing about this scene that a report cannot work out from the animal count alone
 	-- without re-deriving `PER_ROW`.
 	rowsBuilt = Scene.rowCount(count, cfg)
+	-- ...AND THE BREAKDOWN IS THIS SCENE'S (round 1, finding 1): assigned here, with `rowsBuilt`, so
+	-- `models + boxes == laid` for the scene that was just built and the owner's one-sentence line
+	-- adds up. A drive that lays nothing out reports 0 and 0, which is also true.
+	models = 0
+	boxes = 0
 	for index = 1, count do
 		local kill = kills[index]
 		local kind = if type(kill) == "table" then kill.kind else nil
-		local size = Scene.animalSize(kind, cfg)
-		local at = row[index] * CFrame.new(0, size.Y / 2, 0)
-		local part = newPart(string.format("%s%d", Scene.ANIMAL_PREFIX, index), size, at, scene.ANIMAL_COLOR, folder)
-		-- WHAT IT WAS, on the part itself: a console line, a Studio Explorer and a spec all read the
-		-- same fact, and the next step (a real model per kind) has the kind already here.
-		part:SetAttribute("Kind", kind or "unknown")
+		local name = string.format("%s%d", Scene.ANIMAL_PREFIX, index)
+		-- THE REAL ANIMAL FIRST, THE BOX IF THERE IS NONE (task 173). One ask per animal, with the
+		-- ground frame the row put it on: `row[index]` is on the ground facing the drive, which is
+		-- exactly what a thing lying on the ground needs to be told.
+		local display = if displayFor then displayFor(kind, row[index]) else nil
+		local laid: Instance
+		if display ~= nil then
+			display.Name = name
+			display.Parent = folder
+			laid = display
+			models += 1
+		else
+			local size = Scene.animalSize(kind, cfg)
+			local at = row[index] * CFrame.new(0, size.Y / 2, 0)
+			laid = newPart(name, size, at, scene.ANIMAL_COLOR, folder)
+			boxes += 1
+		end
+		-- WHAT IT WAS, on the thing itself: a console line, a Studio Explorer and a spec all read the
+		-- same fact, and it is written the same way whether this animal is a model or a box.
+		laid:SetAttribute("Kind", kind or "unknown")
+		-- ...AND WHETHER IT IS THE REAL ANIMAL. One attribute is the difference between "the asset
+		-- did not load" and "the scene is wrong", and a live probe can count it without knowing what
+		-- a boar model looks like.
+		laid:SetAttribute("Model", display ~= nil)
 		animals += 1
 	end
-
 	-- THE FOUR TORCHES (task 168). Karen: *"torches 4 in corners"* -- *"real torches: a post with a
 	-- FIRE"*. One post, one `Flame` part at the top of it, and on the flame the two things that make
 	-- a fire: a `Fire` and the `PointLight` that was the whole lamp before this task.

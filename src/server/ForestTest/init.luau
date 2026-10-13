@@ -2574,6 +2574,24 @@ function ForestTest.readOnlyBoars(runtime)
 		capacity = function(_self)
 			return runtime:capacity()
 		end,
+		-- THE REAL ANIMALS AT THE GATHERING (task 173), and it belongs in a READ-ONLY view because it
+		-- CREATES NO BOAR AND MOVES NONE: it builds a fresh, unparented display model out of this
+		-- runtime's own template for that kind, registers nothing with the runtime, holds no slot and
+		-- touches no live animal. The drive parents it into its own `Workspace.DriveScene` and
+		-- destroys it with that folder.
+		--
+		-- IT IS NOT "WRITES NOTHING", AND THAT WORD WAS WRONG (round 1, note): a FIRST ask for a kind
+		-- fills the runtime's own template cache (`_heldTemplate`, `_askedModelAt`, and the animation
+		-- ids). That is the same cache the live draw path fills, for the same kind, from the same
+		-- source -- so it changes what this world DRAWS by nothing at all. What the read-only view
+		-- exists to refuse is `spawn` and `clear`, and it still refuses both.
+		--
+		-- So the Forest Test's rule is unchanged -- the drive may not spawn, clear or move an animal
+		-- in a world it does not own -- while the row of boxes at the end of a drive becomes the real
+		-- animals here too, which is the place Karen plays.
+		displayCarcass = function(_self, kind: string?, cframe: CFrame)
+			return runtime:displayCarcass(kind, cframe)
+		end,
 	}
 end
 

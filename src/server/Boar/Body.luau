@@ -661,6 +661,152 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 	return true
 end
 
+-- The DISPLAY carcass (task 173) ---------------------------------------------------------------
+--
+-- KAREN, 2026-10-13 ~09:30, verbatim: *"and after hunt over we need to see boars shooted not boxes
+-- when we stand around"*. The results scene lays a row of grey boxes out at the end of a drive
+-- (`Match.Scene`, tasks 159 and 168); this is what makes each one the REAL animal of that kind.
+--
+-- IT IS NOT A BOAR AND IT IS NOT A CARCASS. It is a lump of scenery shaped like one: no handle, no
+-- trunk, no zone parts, no mover, no sounds, no Animator, no step. Nothing in this module will ever
+-- be asked about it again, which is exactly why it may be handed to another owner to parent -- and
+-- `Match.Scene` destroys it with its own folder.
+--
+-- WHY IT IS BUILT HERE AND NOT THERE. `Boar.Body` owns what a boar looks like and how a dead one
+-- lies; the scene owns WHERE things are and which way they face. So the scene hands in the ground
+-- CFrame it laid out and gets a finished model back, and neither module learns the other's job
+-- (CLAUDE.md rule 3). It is also the only module that already knows how to unwrap one of these
+-- templates -- see `Body.attachVisual`, whose dressing list this follows minus the weld (there is no
+-- box to weld to) and minus the Animator (see below).
+--
+-- WHY THE POSE IS A ROLL AND NOT THE DEATH CLIP'S LAST FRAME, which is task 150's rule -- exactly
+-- one thing may lay an animal down -- applied to a thing that is never stepped:
+--   * a clip here would be a second animation writer, per animal, in the module that today makes
+--     four lamps and some boxes: `AnimationController` + `Animator` + `LoadAnimation` + `Play` + a
+--     wait for `AnimationTrack.Length` to stop being 0 + `AdjustSpeed(0)`;
+--   * `Length` "is 0 until the asset has loaded from the network, and no spec in this repository can
+--     load one" (`Body.shouldFreeze`'s own comment), so a clip-posed display is a thing NO SPEC
+--     COULD CHECK -- and the lying pose is the one property this task must prove;
+--   * all three kinds play the MALE's clips, so a cub posed by the male's death clip lands 1.009
+--     studs under the floor and needs `deathLiftStuds` applied by hand (task 120). A roll reads the
+--     height off the mesh and needs no per-kind number at all;
+--   * and the roll is what the live game already does in this exact case: with no death track
+--     `Body.boxFalls` is true, the BOX rolls and the welded mesh goes with it.
+-- The cost is written down in the note: a rolled bind-pose animal has straight legs where a
+-- clip-posed carcass settles. Karen judges that from the screenshot.
+--
+-- ON ITS RIGHT SIDE, AND THAT IS THE TRADITION'S OWN ANSWER rather than a coin toss.
+-- jagdjuenger.de, verbatim: *"Jedes Stueck Wild ist stets auf die rechte Koerperseite zu legen."*
+-- A NEGATIVE roll about the animal's own forward axis tips its up vector toward +X -- its right --
+-- so the right side goes down, which is the opposite of the live carcass's +45
+-- (`COLLAPSE_ROLL_DEG`, whose sign `DEATH_TO_THE_LEFT` is derived from). Two different numbers for
+-- two different things, each with its reason beside it.
+--
+-- Note: docs/research/2026-10-13-real-animals-at-the-gathering.md
+
+-- HOW HIGH THE MESH'S CENTRE SITS ONCE IT HAS BEEN ROLLED, so the animal rests ON the ground.
+-- PURE and exported: it is the one number standing between a display lying on the grass and one
+-- sunk into it (task 120's cub, drawn 1.009 studs under the floor, is what that looks like).
+--
+-- A `BasePart`'s `CFrame` is its BOUNDING BOX'S CENTRE, so half the vertical extent is exactly
+-- "resting on the ground" for any kind and any asset that arrives later -- nothing here is a
+-- literal. Rolled a quarter turn the mesh's WIDTH is vertical, which for the male's 1.4011 x 3.2573
+-- x 5.5 is 0.70 studs; the general angle is carried because the roll is config, not a constant.
+function Body.lyingHalfHeight(meshSize: Vector3, rollDeg: number): number
+	local angle = math.rad(rollDeg)
+	return (math.abs(math.sin(angle)) * meshSize.X + math.abs(math.cos(angle)) * meshSize.Y) / 2
+end
+
+-- WHERE A DISPLAY'S MESH GOES: the ground CFrame the scene laid out, lifted by the half-height above
+-- and rolled onto its side. PURE and exported, so "is it lying, and is it on the ground" is
+-- arithmetic a spec states without building anything.
+function Body.lyingCFrame(ground: CFrame, meshSize: Vector3, rollDeg: number): CFrame
+	local lift = Body.lyingHalfHeight(meshSize, rollDeg)
+	return ground * CFrame.new(0, lift, 0) * CFrame.Angles(0, 0, math.rad(rollDeg))
+end
+
+-- Builds one display animal from a kind's own template and returns it UNPARENTED, or nil.
+--
+-- nil means "the caller keeps its grey box", and it is the same refusal `Body.attachVisual` makes
+-- for the same reason: a template that is not one mesh is a different asset than the row describes,
+-- and the honest answer to that is the box (`soleMesh`).
+function Body.displayCarcass(template: Instance?, ground: CFrame, config): Model?
+	if template == nil then
+		return nil
+	end
+	if soleMesh(template) == nil then
+		return nil
+	end
+
+	local model = Instance.new("Model")
+	model.Name = config.MODEL.DISPLAY_NAME
+	local clone = template:Clone()
+	local cloneMesh = soleMesh(clone) :: BasePart
+	-- The template may BE the MeshPart, in which case the clone is the mesh and there is nothing to
+	-- unwrap; when it is a Model its children move across and the wrapper goes. `Body.attachVisual`'s
+	-- own two branches, because the templates are the same templates.
+	if clone == cloneMesh then
+		clone.Parent = model
+	else
+		for _, child in ipairs(clone:GetChildren()) do
+			child.Parent = model
+		end
+		clone:Destroy()
+	end
+
+	-- EVERY BasePart THE TEMPLATE BRINGS, not just the mesh -- `attachVisual`'s round-1 note, and the
+	-- same reason here: `soleMesh` only refuses a SECOND MeshPart, so any other part an asset carried
+	-- would otherwise be left queryable and loose in the scene.
+	local parts: { BasePart } = {}
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			table.insert(parts, descendant)
+		end
+	end
+	for _, drawn in ipairs(parts) do
+		-- ANCHORED, because this is scenery: nothing may shove it, nothing may drop it, and there is
+		-- no assembly for it to anchor by accident (the hazard `attachVisual` guards against is a
+		-- part welded INTO the live boar's assembly; there is no boar here).
+		drawn.Anchored = true
+		drawn.CanCollide = false
+		-- A RAY MUST NEVER MEET IT. The rule the scene's boxes, the outfit's plates and the forest's
+		-- markers already follow: what a shot hit is what the safety rule and the hit record read.
+		drawn.CanQuery = false
+		drawn.CanTouch = false
+		drawn.Massless = true
+	end
+
+	-- NO ANIMATOR AND NO CONTROLLER, and the asset brings one of its own (`attachVisual`'s measured
+	-- note: Roblox's importer writes an `AnimationController` into the model). It is removed rather
+	-- than left, because a controller on a rig nothing ever steps is a thing that could one day be
+	-- handed a clip by accident -- and this pose must have exactly one author.
+	for _, existing in ipairs(model:GetDescendants()) do
+		if existing:IsA("AnimationController") or existing:IsA("Animator") then
+			existing:Destroy()
+		end
+	end
+
+	cloneMesh.CastShadow = true
+	-- EVERY OTHER PART THE TEMPLATE BROUGHT TRAVELS WITH THE MESH (round 1, note). `soleMesh` refuses
+	-- only a SECOND MeshPart, so an asset carrying any other part had it anchored where the CLONE put
+	-- it -- at the asset's own baked position, loose in `Workspace.DriveScene`, while the animal lay
+	-- somewhere else. `attachVisual` cannot have that bug because there every part is welded to the
+	-- trunk; here there is no trunk, so the offsets are taken off the mesh BEFORE it is moved and put
+	-- back after. RedDeer's three models carry none today; the next asset may.
+	local offsets: { [BasePart]: CFrame } = {}
+	for _, drawn in ipairs(parts) do
+		if drawn ~= cloneMesh then
+			offsets[drawn] = cloneMesh.CFrame:ToObjectSpace(drawn.CFrame)
+		end
+	end
+	cloneMesh.CFrame = Body.lyingCFrame(ground, cloneMesh.Size, config.MODEL.DISPLAY_ROLL_DEG)
+	for drawn, offset in pairs(offsets) do
+		drawn.CFrame = cloneMesh.CFrame * offset
+	end
+	model.PrimaryPart = cloneMesh
+	return model
+end
+
 -- HOW MUCH OF THE FLINCH IS SHOWN AT THIS SPEED. Pure, so the "one motion" claim is assertable with
 -- no boar in the world: below `HIT_FULL_BELOW` the animal is not going anywhere and gets the whole
 -- clip; above it, only the first `HIT_MOVING_SECONDS` -- the head-and-shoulder jerk -- and then the
