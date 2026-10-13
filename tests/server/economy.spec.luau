@@ -80,6 +80,21 @@ local function waitUntil(seconds: number, predicate: () -> boolean): boolean
 end
 
 return function()
+	-- THE PRODUCTION OWNER IS PUT BACK, and this is not tidiness: the cases below drive the LIVE
+	-- singleton -- `Economy.start{ store = ..., enabled = ... }` is the design's seam and there is one
+	-- module -- so a spec that walked away would leave `ServerScriptService.Economy` stopped, with the
+	-- drive still holding a view of it. `zz_drive_boundary.spec` reads that owner at the real drive
+	-- boundary, and a spec that broke a later one is this suite's own named failure
+	-- (tests/client/weapon_client.spec.luau, task 34: *"a spec that revoked this gun mid-session broke
+	-- exactly this window, and was withdrawn"*).
+	--
+	-- `Economy.start()` WITH NO ARGUMENT IS EXACTLY WHAT THE COMPOSITION ROOT CALLS: the real
+	-- `Players` service and the real flag. So this restores the boot, it does not imitate it.
+	afterAll(function()
+		Economy.stop()
+		Economy.start()
+	end)
+
 	describe("what a drive is worth", function()
 		it("pays points at the rate, plus participation", function()
 			-- A male boar is 10 points: 20 coins, plus 10 for turning up and finishing = 30.
@@ -295,12 +310,15 @@ return function()
 			expect(waitUntil(2, function()
 				return Economy.balanceOf(51) ~= nil
 			end)).to.equal(true)
-			-- -30 points is -50 coins against a balance of 20.
+			-- -30 points is -60 coins, plus 10 participation, plus 25 because he is the only hunter and
+			-- something DID happen on his row: -25. Against a balance of 20 that is -5, floored to 0.
+			-- (The bonus is not charity -- `Rank.firstPlaceRank` answers 1 for a lone row whose points
+			-- are not zero, which is the same rule that gives a lone man on -10 a badge over a -20.)
 			local receipt = Economy.payDrive(1, { row(51, "Shooters", -30) })
 			expect(receipt.clamped).to.equal(1)
 			expect(Economy.balanceOf(51)).to.equal(0)
 			-- THE DRIVE'S OWN LINE IS STILL NEGATIVE, because that is what the results table prints.
-			expect(Economy.earnedOf(51)).to.equal(-50)
+			expect(Economy.earnedOf(51)).to.equal(-25)
 		end)
 
 		-- A PREVIOUS DRIVE'S FIGURE MUST NOT LINGER NEXT TO A NEW DRIVE'S.
@@ -403,9 +421,10 @@ return function()
 			for _, name in ipairs({ "start", "stop", "load", "release", "closeAll", "Store", "CONFIG" }) do
 				expect((view :: any)[name]).to.equal(nil)
 			end
+			-- 10 points x 2 + 10 participation + 25 (he is the only hunter and he scored) = 55.
 			view.payDrive(1, { row(111, "Shooters", 10) })
-			expect(view.balances()[111]).to.equal(7 + 30)
-			expect(view.earned()[111]).to.equal(30)
+			expect(view.balances()[111]).to.equal(7 + 55)
+			expect(view.earned()[111]).to.equal(55)
 			-- FROZEN COPIES, so the drive cannot write the owner's tables through them.
 			expect(table.isfrozen(view.balances())).to.equal(true)
 			expect(table.isfrozen(view.earned())).to.equal(true)

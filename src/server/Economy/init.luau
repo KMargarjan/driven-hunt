@@ -144,6 +144,15 @@ function Economy.stats()
 	return table.clone(stats)
 end
 
+-- EVERY COUNTER BACK TO ZERO, called by `start`. They describe THIS owner's session and `start` is
+-- where one begins -- and a module-level table that outlived `stop()` made every spec that ran
+-- second read the one before it (round 1: `drivesPaid` was 2 where the case had paid once).
+local function resetStats()
+	for key in pairs(stats) do
+		stats[key] = 0
+	end
+end
+
 -- ------------------------------------------------------------------------------- pure, exported
 
 -- WHICH STORE A RUN TAKES, as a pure function of one boolean. Exported for exactly
@@ -439,6 +448,7 @@ function Economy.start(injected: World?)
 	enabled = if world.enabled ~= nil then world.enabled else Economy.CONFIG.ENABLED
 	players = world.players or Players
 	paidUpTo = 0
+	resetStats()
 	table.clear(balances)
 	table.clear(sessions)
 	table.clear(inFlight)

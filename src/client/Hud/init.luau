@@ -1134,12 +1134,16 @@ function Hud.scorePanelLines(snapshot, myUserId: number?): { ScoreLine }
 	local hunters, beaters, others = Rank.splitByTeam(rows)
 	local budget = Drive.CONFIG.SCORE_ROWS_MAX
 
-	local function section(heading: string, list)
+	-- `ranked` IS FALSE FOR `others` AND THAT IS NOT A DETAIL: the server pays a first-place bonus to
+	-- the top HUNTER and the top BEATER only (`Economy.Coins.forDrive` asks `Rank.firstPlaceUserId` of
+	-- those two lists and of no third), so a badge over `others` would be a winner the game never
+	-- paid. Asking the rule of every list is exactly how the two sides came to disagree.
+	local function section(heading: string, list, ranked: boolean)
 		if #list == 0 or #out >= budget then
 			return
 		end
 		table.insert(out, { text = heading, heading = true, mine = false })
-		local firstRank = Rank.firstPlaceRank(list)
+		local firstRank = if ranked then Rank.firstPlaceRank(list) else nil
 		for index, row in ipairs(list) do
 			if #out >= budget then
 				return
@@ -1152,9 +1156,9 @@ function Hud.scorePanelLines(snapshot, myUserId: number?): { ScoreLine }
 		end
 	end
 
-	section(Drive.CONFIG.SCORE_HUNTERS_HEADING, hunters)
-	section(Drive.CONFIG.SCORE_BEATERS_HEADING, beaters)
-	section(Drive.CONFIG.SCORE_OTHERS_HEADING, others)
+	section(Drive.CONFIG.SCORE_HUNTERS_HEADING, hunters, true)
+	section(Drive.CONFIG.SCORE_BEATERS_HEADING, beaters, true)
+	section(Drive.CONFIG.SCORE_OTHERS_HEADING, others, false)
 	return out
 end
 

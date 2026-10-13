@@ -20,6 +20,14 @@ local Economy = require(ServerScriptService:WaitForChild("Economy"))
 local Store = Economy.Store
 
 return function()
+	-- THE PRODUCTION OWNER IS PUT BACK, for the reason `economy.spec` states at the same place: the
+	-- shutdown cases below stop and start the LIVE singleton, and `Economy.start()` with no argument
+	-- is exactly what the composition root calls.
+	afterAll(function()
+		Economy.stop()
+		Economy.start()
+	end)
+
 	describe("the key and the template", function()
 		it("names a key the way Roblox's cap allows", function()
 			expect(Store.keyFor(1)).to.equal("player_1")
