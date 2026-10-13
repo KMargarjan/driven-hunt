@@ -988,6 +988,35 @@ ForestTest.REST = {
 	},
 }
 
+-- WHAT THE WOOD'S ONE STOCK SHOULD DO ON THIS TICK (task 172 round 3). PURE, in the three facts it
+-- depends on -- has this drive been stocked, when was it last tried, and what time is it -- so the
+-- whole rule can be asserted from hand-written numbers instead of needing a live runtime.
+--
+-- IT EXISTS BECAUSE THE RULE WAS UNREACHABLE (round 3's finding, which was right). `stepRest`'s first
+-- line is `if state.runtime == nil then return nil end`, and no spec starts the Forest Test's
+-- runtime -- so a case that called `stepRest` returned before any of this and could not fail. The
+-- same division `wavesToPush` was given for the same reason: the decision here, the effect there.
+--
+-- THREE ANSWERS:
+--   "done"   the wood has been stocked for this drive. It is NOT re-stocked inside one (Karen,
+--            2026-10-13: *"and again no boar behing comming after beater walk"*); the latch is
+--            cleared by `ForestTest.newDrive()` at the drive boundary and nowhere else.
+--   "wait"   a stock was tried this recently and did not take. At the instant a drive begins the
+--            PREVIOUS drive's beaters can still be standing at the road, so every candidate is
+--            behind the front and nothing can be placed; the search is 41 candidates' worth of
+--            raycasts per group, so it is re-tried on a clock rather than every heartbeat.
+--   "stock"  try now.
+function ForestTest.stockStep(stocked: boolean, triedAt: number?, now: number, rest): string
+	if stocked then
+		return "done"
+	end
+	local resolved = rest or ForestTest.REST
+	if triedAt ~= nil and now - triedAt < (resolved.stockRetrySeconds or 0) then
+		return "wait"
+	end
+	return "stock"
+end
+
 -- WHERE A RESTING GROUP IS NOMINALLY PUT, before the ground and the trunks are measured. PURE, the
 -- same division `wavePoint` has: the arithmetic here, the world's own answer in
 -- `ForestTest.restSpot`.

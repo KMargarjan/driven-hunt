@@ -1555,20 +1555,18 @@ function ForestTest.stepRest(now: number, spooked: string?): string?
 	if state.runtime == nil then
 		return nil
 	end
-	if state.restStocked ~= true then
+	-- WHAT TO DO ABOUT THE STOCK THIS TICK is `Data.stockStep`'s, pure, so the rule can be asserted
+	-- without a runtime (round 3's finding: `stepRest` returns on its first line in the spec place,
+	-- so a case that called it could not fail). This function takes the measurements and obeys.
+	local decision = Data.stockStep(state.restStocked == true, state.restTriedAt, now, Data.REST)
+	if decision == "stock" then
 		-- NOTHING HAS BEEN PUT DOWN FOR THIS DRIVE: fill it now, on the first heartbeat after she
 		-- becomes a beater. Level-triggered rather than called from the boot, so a role set before the
 		-- runtime existed, a `/beater` typed mid-session and a respawn all end in the same place.
 		--
-		-- THE LATCH IS SET WHEN SOMETHING WAS ACTUALLY PLACED (round 2's note, which was right), and
-		-- the attempt is throttled rather than latched: at the instant a drive begins the PREVIOUS
-		-- drive's beaters can still be standing at the road, so every candidate is behind the front
-		-- and nothing can be placed -- and a latch set on the attempt would lose that drive's whole
-		-- wood. Retried at most every `REST.stockRetrySeconds`, because the search is 41 candidates'
-		-- worth of raycasts and overlap queries per group and must not run per heartbeat.
-		if state.restTriedAt ~= nil and now - state.restTriedAt < Data.REST.stockRetrySeconds then
-			return spooked
-		end
+		-- THE LATCH IS SET WHEN SOMETHING WAS ACTUALLY PLACED (round 2's note, which was right), not
+		-- when the attempt was made -- `stockStep` answers "wait" until the retry clock is up, and
+		-- the latch below is the only thing that ever makes it answer "done".
 		state.restTriedAt = now
 		local stocked = ForestTest.stockWood(now)
 		if stocked ~= nil then

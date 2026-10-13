@@ -1280,7 +1280,7 @@ return function()
 			end
 			-- INDEX 1 IS ALWAYS THE REAL BEATER'S LANE (`beaterLaneOffset` gives it 0), so the lane
 			-- Karen walks has to be the one with the most groups on it -- she is the one testing this.
-			expect(onHerLane >= 3).to.equal(true)
+			expect(onHerLane).to.equal(4)
 			TestKit.note(
 				string.format(
 					"%d groups, %d of them on her own lane; the furthest is %.0f studs off its lane (ceiling %d)",
@@ -1316,24 +1316,45 @@ return function()
 			end
 		end)
 
-		it("stocks the wood once per DRIVE, and the boundary is a function the boot calls", function()
-			-- ROUND 2, FINDING 1, WHICH WAS RIGHT: the latch was written false in exactly one place,
+		it("stocks the wood once per DRIVE, and the decision is pure (round 3)", function()
+			-- ROUND 2, FINDING 1: the latch was written false in exactly one place,
 			-- `ForestTest.start`'s reset, and the boot calls `start` once per SERVER -- so "once per
 			-- drive" was once per session and a beater's second drive was 580 studs of empty wood.
-			-- `ForestTest.newDrive()` is the reset, and `ForestTestBoot` calls it on the `Assigning`
-			-- edge it already opens a report window on.
+			-- ROUND 3, FINDING 1: the case that was supposed to prove the fix could not fail, because
+			-- `stepRest` returns on its first line without a runtime and no spec starts one. So the
+			-- DECISION is a pure function now and this drives it from hand-written numbers.
+			local rest = { stockRetrySeconds = 2 }
+			-- NOT STOCKED, never tried: try now.
+			expect(Data.stockStep(false, nil, 100, rest)).to.equal("stock")
+			-- ...tried a moment ago and it did not take: wait, rather than 41 candidates' worth of
+			-- raycasts per group per heartbeat. This is the case a drive boundary really hits -- the
+			-- previous drive's beaters can still be standing at the road, so every candidate is
+			-- behind the front and nothing can be placed.
+			expect(Data.stockStep(false, 100, 100, rest)).to.equal("wait")
+			expect(Data.stockStep(false, 100, 101.9, rest)).to.equal("wait")
+			-- ...and when the clock is up, try again: a failed stock must not latch, or that drive
+			-- loses its whole wood.
+			expect(Data.stockStep(false, 100, 102, rest)).to.equal("stock")
+			expect(Data.stockStep(false, 100, 400, rest)).to.equal("stock")
+			-- STOCKED: never again inside this drive, whatever the clock says. Karen, 2026-10-13:
+			-- *"and again no boar behing comming after beater walk"*.
+			expect(Data.stockStep(true, nil, 100, rest)).to.equal("done")
+			expect(Data.stockStep(true, 100, 1e9, rest)).to.equal("done")
+			-- The shipped number is data, like every other number in this encounter.
+			expect(type(Data.REST.stockRetrySeconds)).to.equal("number")
+			expect(Data.REST.stockRetrySeconds > 0).to.equal(true)
+			expect(Data.stockStep(false, 0, Data.REST.stockRetrySeconds - 0.01, Data.REST)).to.equal("wait")
+			expect(Data.stockStep(false, 0, Data.REST.stockRetrySeconds, Data.REST)).to.equal("stock")
+
+			-- AND THE BOUNDARY IS A FUNCTION, which is what makes "per drive" true: `ForestTestBoot`
+			-- calls it on the `Assigning` edge it already opens a report window on.
 			expect(type(ForestTest.newDrive)).to.equal("function")
 			ForestTest.newDrive()
 			expect(ForestTest.stats().restStocked).to.equal(false)
-			-- ...AND A FAILED STOCK DOES NOT LATCH (round 2's note). With no runtime there is nothing
-			-- to stock, nothing is claimed, and the latch is still down -- which is the property that
-			-- stops a drive whose first heartbeat finds the previous line still at the road from
-			-- losing its whole wood.
-			expect(ForestTest.stepRest(0, nil)).to.equal(nil)
-			expect(ForestTest.stats().restStocked).to.equal(false)
-			-- The retry interval is data, like every other number in this encounter.
-			expect(type(Data.REST.stockRetrySeconds)).to.equal("number")
-			expect(Data.REST.stockRetrySeconds > 0).to.equal(true)
+			-- WHAT THIS CASE STILL DOES NOT COVER, said plainly: that `stepRest` obeys the answer, and
+			-- that the boot really calls `newDrive` on `Assigning`. Both need a live runtime, which no
+			-- spec in this place starts; the evidence for them is the two functions and the live
+			-- drives in the request.
 			TestKit.note(
 				string.format(
 					"task 172: one stock per drive, re-tried every %.0f s until it takes",
