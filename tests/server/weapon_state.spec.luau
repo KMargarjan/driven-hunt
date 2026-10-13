@@ -114,9 +114,10 @@ return function()
 			expect(two.barrels[1]).to.equal("Live")
 			expect(two.barrels[2]).to.equal("Live")
 			expect(two.loaded[1]).to.equal("Slug")
-			-- 24, minus the two loaded here, plus the ONE unfired shell Break returned (the other
-			-- barrel was spent by the Fire above): 23. Karen, 2026-09-25.
-			expect(two.reserve.Slug).to.equal(23)
+			-- THE DRIVE'S ALLOWANCE, minus the two loaded here, plus the ONE unfired shell Break
+			-- returned (the other barrel was spent by the Fire above). Karen, 2026-09-25 for the
+			-- returned shell; task 171 for the allowance, which is 12 and was 24.
+			expect(two.reserve.Slug).to.equal(Shotgun.CONFIG.DRIVE_SHELLS - 1)
 
 			local full, closeReason = StateMachine.apply(two, { kind = "Load" }, 4, ROW)
 			expect(closeReason).to.equal("barrel-full")
@@ -197,8 +198,9 @@ return function()
 			expect(closed.loaded[1]).to.equal("Buck")
 			expect(closed.loaded[2]).to.equal("Buck")
 			expect(closed.barrels[1]).to.equal("Live")
-			expect(closed.reserve.Slug).to.equal(26) -- two slugs back in the pocket
-			expect(closed.reserve.Buck).to.equal(22) -- two buckshot out of it
+			local shells = Shotgun.CONFIG.DRIVE_SHELLS
+			expect(closed.reserve.Slug).to.equal(shells + 2) -- two slugs back in the pocket
+			expect(closed.reserve.Buck).to.equal(shells - 2) -- two buckshot out of it
 			expect(closed.open).to.equal(false)
 		end)
 
