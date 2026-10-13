@@ -141,16 +141,40 @@ return function()
 		-- THE ORDER, ASSERTED (task 171, after the Director's two-player run at `8b2bb40`: a probe aimed
 		-- straight at a beater came back `off-stand`, because the shooter had walked 525 studs from
 		-- his post to reach him. Both answers were true and nothing said which should win).
-		it("asks the three rules in one declared order, and names the winner", function()
-			expect(Rules.ORDER[1]).to.equal(Rules.REASON.OFF_STAND)
-			expect(Rules.ORDER[2]).to.equal(Rules.REASON.BEATER)
-			expect(Rules.ORDER[3]).to.equal(Rules.REASON.LICENCE)
-			expect(#Rules.ORDER).to.equal(3)
+		it("asks the four rules in one declared order, and names the winner", function()
+			-- ...AND `DRIVE_OVER` IS FIRST SINCE TASK 174: a fact about the DRIVE outranks every fact
+			-- about the shooter, because it is the one thing he cannot fix by moving or by aiming
+			-- somewhere else.
+			expect(Rules.ORDER[1]).to.equal(Rules.REASON.DRIVE_OVER)
+			expect(Rules.ORDER[2]).to.equal(Rules.REASON.OFF_STAND)
+			expect(Rules.ORDER[3]).to.equal(Rules.REASON.BEATER)
+			expect(Rules.ORDER[4]).to.equal(Rules.REASON.LICENCE)
+			expect(#Rules.ORDER).to.equal(4)
 			expect(table.isfrozen(Rules.ORDER)).to.equal(true)
 
 			local area = { centre = Vector3.new(0, 0, 0), radius = 12 }
 			local inside, outside = Vector3.new(3, 0, 0), Vector3.new(40, 0, 0)
 			local beater = { beater = true, species = "reddeer" }
+
+			-- ALL FOUR TRUE AT ONCE: the drive is over as well, and that is the answer.
+			expect(Rules.refuse({
+				position = outside,
+				stand = area,
+				target = beater,
+				licences = nil,
+				rows = SPECIES,
+				driveOpen = false,
+			})).to.equal(Rules.REASON.DRIVE_OVER)
+			-- ...and with the drive OPEN the other three answer exactly as they did before it, which
+			-- is what makes the new rule an addition and not a reordering of the old three.
+			expect(Rules.refuse({
+				position = outside,
+				stand = area,
+				target = beater,
+				licences = nil,
+				rows = SPECIES,
+				driveOpen = true,
+			})).to.equal(Rules.REASON.OFF_STAND)
 
 			-- ALL THREE TRUE AT ONCE: he is off his stand, aiming at a beater, who is somehow also a
 			-- licensed species. The first rule in the order wins, and the reason is the one thing he
@@ -184,6 +208,36 @@ return function()
 			-- no provider answers (and every weapon spec).
 			expect(Rules.refuse({ position = inside, stand = area, target = { species = "boar" } })).to.equal(nil)
 			expect(Rules.refuse({})).to.equal(nil)
+			-- ...AND THE SAME SHOT INSIDE AN OPEN DRIVE, which is the shot the game is made of.
+			expect(Rules.refuse({ position = inside, stand = area, target = { species = "boar" }, driveOpen = true })).to.equal(
+				nil
+			)
+		end)
+
+		-- RULE 4 (task 174). KAREN, 2026-10-13 ~09:35: *"for hunter once hunt over (drive) horn
+		-- anounce then I can; shoot anymore"*. The window is `Match.Phase.driveOpen`'s -- stated once,
+		-- in `match_phase.spec` -- and this is the other half: what the gate does with the answer.
+		it("refuses every shot while the drive is shut, and says nothing when nothing said (task 174)", function()
+			expect(Rules.driveClosed(false)).to.equal(true)
+			expect(Rules.driveClosed(true)).to.equal(false)
+			-- ONLY AN EXPLICIT `false` REFUSES. `nil` is a world that wired no drive -- every
+			-- `weapon_*.spec` and a bare DEV place -- and a provider that threw, which the owner turns
+			-- into `nil` on purpose: a drive whose predicate errored must not leave every hunter in
+			-- the wood clicking a dead trigger.
+			expect(Rules.driveClosed(nil)).to.equal(false)
+
+			-- IT IS ABOUT THE DRIVE AND NOT ABOUT THE SHOT, so it refuses a shot with nothing else
+			-- wrong with it at all: on his own stand, aimed at a licensed animal.
+			local area = { centre = Vector3.new(0, 0, 0), radius = 12 }
+			expect(Rules.refuse({
+				position = Vector3.new(1, 0, 1),
+				stand = area,
+				target = { species = "boar" },
+				driveOpen = false,
+			})).to.equal(Rules.REASON.DRIVE_OVER)
+			-- ...and a shot at nothing at all, from nowhere in particular: there is no shooting.
+			expect(Rules.refuse({ driveOpen = false })).to.equal(Rules.REASON.DRIVE_OVER)
+			expect(Rules.noticeFor(Rules.REASON.DRIVE_OVER)).to.equal("THE DRIVE IS OVER")
 		end)
 
 		it("has one short line for every reason and no reason without one", function()
@@ -197,13 +251,14 @@ return function()
 				expect(#(line :: string) <= 20).to.equal(true)
 				seen += 1
 			end
-			expect(seen).to.equal(3)
+			expect(seen).to.equal(4)
 			expect(Rules.noticeFor("not-a-reason")).to.equal(nil)
 			expect(Rules.noticeFor(nil)).to.equal(nil)
 			-- The reasons are wire values the client and the Hud key on, so they are pinned here.
 			expect(Rules.REASON.BEATER).to.equal("beater-in-line")
 			expect(Rules.REASON.OFF_STAND).to.equal("off-stand")
 			expect(Rules.REASON.LICENCE).to.equal("no-licence")
+			expect(Rules.REASON.DRIVE_OVER).to.equal("drive-over")
 		end)
 	end)
 
@@ -428,6 +483,15 @@ return function()
 			end)
 			Weapon.setStandProvider(nil)
 			Weapon.setLicenceProvider(nil)
+			-- THE DRIVE IS OPEN FOR THIS CASE, SAID OUT LOUD (task 174). It is the fifth seam and it
+			-- has to be one: `Rules.ORDER` asks `DRIVE_OVER` first, so with the live `Match.driveOpen`
+			-- left wired this case's control shot would answer `drive-over` whenever the harness's own
+			-- session happened to be in its countdown or its results scene -- a case that passes or
+			-- fails on when it ran. The drive's OWN window is stated in `match_phase.spec` and the
+			-- live wiring is read back at the end of this file's own last lines.
+			Weapon.setDriveOpenProvider(function(): boolean
+				return true
+			end)
 
 			local before = Weapon.stats()
 			local function ask(): string?
@@ -443,10 +507,24 @@ return function()
 			local afterRefusal = Weapon.getSnapshot(subject)
 			local midStats = Weapon.stats()
 
-			-- ...AND NOW THE SAME SHOT WITH NO RULE IN FRONT OF IT, which is what proves the refusal
-			-- came from the rule and not from the gun, the state or the harness.
+			-- ...AND THE SAME TRIGGER WITH THE DRIVE SHUT (task 174), which is a DIFFERENT refusal from
+			-- a different fact: nothing is in the ray, he is on nobody's stand, he holds the licence
+			-- for nothing -- and the gate still refuses, because the drive is not on. KAREN: *"for
+			-- hunter once hunt over (drive) horn anounce then I can; shoot anymore"*.
 			Weapon.setTargetProvider(nil)
-			task.wait(1.1) -- the fire limiter is per second and this case fires twice
+			Weapon.setDriveOpenProvider(function(): boolean
+				return false
+			end)
+			task.wait(1.1)
+			local overWhy = ask()
+			local afterOver = Weapon.getSnapshot(subject)
+			Weapon.setDriveOpenProvider(function(): boolean
+				return true
+			end)
+
+			-- ...AND NOW THE SAME SHOT WITH NO RULE IN FRONT OF IT, which is what proves the refusals
+			-- came from the rules and not from the gun, the state or the harness.
+			task.wait(1.1) -- the fire limiter is per second and this case fires three times
 			local firedWhy = Weapon.onFireRequest(subject, request)
 			local afterShot = Weapon.getSnapshot(subject)
 			local endStats = Weapon.stats()
@@ -454,13 +532,17 @@ return function()
 			Weapon.setCast(nil)
 			Weapon.setTargetProvider(Match.classifyTarget)
 			Weapon.setStandProvider(Match.standAreaFor)
+			-- PUT BACK WHAT `MatchBoot` WIRED (task 174), not nil: the drive answers this one.
+			Weapon.setDriveOpenProvider(Match.driveOpen)
 			stub:Destroy()
 
 			TestKit.note(
 				string.format(
-					"weapon_rules: %s refused=%s fired=%s; shots +%d/+%d, refused +%d/+%d; " .. "barrels %s -> %s -> %s",
+					"weapon_rules: %s refused=%s driveShut=%s fired=%s; shots +%d/+%d, refused +%d/+%d; "
+						.. "barrels %s -> %s -> %s",
 					subject.Name,
 					tostring(refusedWhy),
+					tostring(overWhy),
 					tostring(firedWhy),
 					midStats.shots - before.shots,
 					endStats.shots - before.shots,
@@ -474,6 +556,15 @@ return function()
 
 			-- THE REFUSAL, and what it did NOT do.
 			expect(refusedWhy).to.equal(Rules.REASON.BEATER)
+			-- ...AND THE DRIVE'S OWN REFUSAL (task 174), with the same gun and the same request: no
+			-- shell spent, no barrel moved.
+			expect(overWhy).to.equal(Rules.REASON.DRIVE_OVER)
+			expect((afterOver :: any).barrels[1]).to.equal(snapshot.barrels[1])
+			expect((afterOver :: any).barrels[2]).to.equal(snapshot.barrels[2])
+			expect((afterOver :: any).reserve.Slug).to.equal(snapshot.reserve.Slug)
+			-- AND THE LIVE WIRING IS A READ, not an assumption: this server's drive answers the gate,
+			-- and it answers the same thing `Match.driveOpen` says right now.
+			expect(type(Match.driveOpen())).to.equal("boolean")
 			-- THE COUNTERS ARE ASSERTED AS MONOTONIC, NOT AS EXACT DELTAS (the Reviewer's round-1
 			-- note). `stats` is ONE module-level table for the whole server, so in a two-player run
 			-- another shooter's legitimate click lands in it -- which is the race `onFireRequest`'s

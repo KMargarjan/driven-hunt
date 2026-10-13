@@ -256,6 +256,32 @@ function Phase.lineHeld(state: State): boolean
 	return state.phase == "Running" and state.goFreed ~= true
 end
 
+-- IS THE DRIVE OPEN? (task 174.) KAREN, 2026-10-13 ~09:35: *"we can't walk or make a horn sound
+-- before horn anounce hunting started for beater / for hunter once hunt over (drive) horn anounce
+-- then I can; shoot anymore"*. THE SIGNALS ARE THE RULES: the start horn opens the drive, the end
+-- horn closes it, and this is that one window as a predicate.
+--
+-- IT IS THE ONE SOURCE, AND THAT IS THE WHOLE POINT OF PUTTING IT HERE. Three rules read it and none
+-- of them owns a clock of its own:
+--   * the bot line walks (`Match.botsMayGo`, which before this task said these same two things in
+--     its own words),
+--   * a horn may sound (`Match.mayBlowHorn`, and a beater who is through the line is refused on top
+--     of this -- task 168's rule, which is about the MAN and not about the drive),
+--   * a gun may fire (`Weapon.Rules.driveClosed`, through `Match.driveOpen`).
+-- A second answer to "is the drive on" is this project's named failure mode, and it would be two
+-- clocks: `phaseEndsAt` is the only one (this file's own header).
+--
+-- SO IT IS FALSE FOR EVERY PHASE BUT `Running`, AND FOR THE FANFARE INSIDE IT. `Waiting` and
+-- `Assigning` are before GO, `Scoring` is the results scene the end signal opens -- "through the
+-- results scene until the next drive's GO" -- and `lineHeld` is the start fanfare, which is the gap
+-- between `Running` beginning and GO (`Phase.goHoldSeconds`).
+function Phase.driveOpen(state: State?): boolean
+	if state == nil or state.phase ~= "Running" then
+		return false
+	end
+	return not Phase.lineHeld(state)
+end
+
 -- HOW LONG AFTER THE DRIVE'S CLOCK STARTS THE BEATERS ARE STILL HELD (task 168). KAREN, 2026-10-12
 -- ~21:45: *"you can't move as a beater before horn made signal and there should be countdown"*.
 --

@@ -80,6 +80,7 @@ local ownLogEntries: number? = nil
 -- WHEN THIS SPEC TOOK THE GUN, and what the gun held then: the near end of its own window (Task 80).
 -- Declared here because `ownLog` below reads it.
 local equippedAt = nil
+local driveAtCue: string? = nil
 local baseline = nil
 player:GetAttributeChangedSignal("StagedTarget"):Connect(function()
 	ownLogEntries = ownLogEntries or #log
@@ -242,6 +243,13 @@ local function onCue(_name: string, state: Enum.UserInputState)
 		elseif character and character:FindFirstChild("Shotgun") then
 			equippedAt = os.clock()
 		end
+		-- WHICH DRIVE THIS SPEC'S SHOTS STOOD IN (task 174), read at the cue and printed in the note
+		-- below. Since task 174 a shot is refused unless the drive is open, so "two clicks, two
+		-- shots" is a claim about a drive as much as about a gun -- and when this case failed at
+		-- `b355b37` with 0 shots, nothing in the log said what the drive had been doing.
+		-- `InputReady` holds the whole replay until the drive is open, so this is the READ of what
+		-- it waited for, not a second rule.
+		driveAtCue = InputReady.drivePrint()
 	end
 	return Enum.ContextActionResult.Pass
 end
@@ -912,11 +920,12 @@ return function()
 				TestKit.note(
 					string.format(
 						"weapon_client: shots seen: %d over %d snapshots (%d in the session); cue at "
-							.. "+%.1fs; %d gun(s) handed over [%s]; rises [%s]",
+							.. "+%.1fs with the drive %s; %d gun(s) handed over [%s]; rises [%s]",
 						rises,
 						#entries,
 						#log,
 						if equippedAt then equippedAt - suiteStart else -1,
+						driveAtCue or "unread",
 						#guns,
 						table.concat(handed, ", "),
 						table.concat(when, ", ")

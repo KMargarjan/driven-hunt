@@ -169,6 +169,11 @@ local probeFired = false
 -- replay keeps playing and the gate judged the shot against THESE numbers. `blocked` is the last
 -- thing that stopped an attempt, so a probe that never fired says why in one word.
 local probeShots = 0
+-- HOW MANY TIMES THE SERVER ITSELF ANSWERED `off-stand`, AND FOR HOW LONG (task 174, the Director's
+-- `test2` at `454d58a`). See the retry in the probe loop: these two are the measurement of the lag
+-- between this client parking itself and the SERVER seeing it there.
+local probeOffStand = 0
+local probeAgreedAfter: number? = nil
 local probeBlocked: string? = nil
 local probeFromCentre: number? = nil
 local probeToDriver: number? = nil
@@ -469,7 +474,7 @@ local function onCue(_name: string, state: Enum.UserInputState)
 				while os.clock() < answer and #refusals == before do
 					task.wait(0.05)
 				end
-				probeReason = refusals[before + 1]
+				local answered = refusals[before + 1]
 				probeAfter = gunPrint()
 				-- THE OTHER HALF OF THE CLAIM, read the instant the server has answered: a refused
 				-- shot must have tied nobody and announced nothing.
@@ -481,13 +486,39 @@ local function onCue(_name: string, state: Enum.UserInputState)
 					string.format(
 						"#%d answered=%s tied %s->%s violations %d->%d",
 						probeShots,
-						tostring(probeReason),
+						tostring(answered),
 						tostring(probeTiedBefore),
 						tostring(probeTiedAfter),
 						probeViolationsBefore or -1,
 						probeViolationsAfter or -1
 					)
 				)
+				-- `off-stand` IS NOT AN ANSWER TO THIS CASE'S QUESTION -- IT IS THE SERVER SAYING IT
+				-- HAS NOT GOT HIM THERE YET (task 174, the Director's `test2` at `454d58a`: this
+				-- client read itself **0.0 studs** from its own stand centre and the server's first
+				-- rule still refused the shot, five refusals running, because GO had just respawned
+				-- him onto his post and the park had not reached the server).
+				--
+				-- SO THE WAIT IS ON THE SERVER'S OWN VERDICT, which is what the Director asked for and
+				-- is the only read that cannot drift from the rule: `Rules.outsideStand` is computed
+				-- from the SERVER's view of his root, and that view is not published to this client at
+				-- all -- the snapshot carries the stand CIRCLE (`snapshot.stands`) and no positions.
+				-- Asking the gate is asking the gate. A probe aimed at his body can only ever be
+				-- REFUSED (`off-stand` or `beater-in-line`), never accepted, and a refused attempt
+				-- commits no state and costs no shell -- which is why asking again is free and why
+				-- this is a retry rather than a sleep.
+				--
+				-- BOUNDED BY `PROBE_WINDOW`, unchanged: if the server never agrees inside it the case
+				-- FAILS, with every attempt and its answer in the note. Nothing is weakened -- the
+				-- assertion is still `beater-in-line`, and it is now asserted of the server's answer
+				-- to a shot taken from where the server could see him.
+				if answered == "off-stand" then
+					probeOffStand += 1
+					task.wait(PROBE_EVERY)
+					continue
+				end
+				probeAgreedAfter = os.clock() - (cuedAt or os.clock())
+				probeReason = answered
 			end
 			if probeAfter == nil then
 				probeAfter = gunPrint()
@@ -527,6 +558,11 @@ local aiming = RunService.RenderStepped:Connect(function()
 		-- finished, so an early click used to tie him BEFORE the refusal had been measured. While the
 		-- aim is still on his body such a click is refused -- harmless, and more evidence -- and the
 		-- tie is taken by whichever click comes after this flips.
+		-- ...AND SINCE TASK 174 `probeDone` ALSO MEANS THE SERVER HAS HIM IN HIS STAND, so the arc shot
+		-- inherits the probe's wait and cannot be refused `off-stand` either: the probe retries until
+		-- the server's own rule stops saying it (the loop above), and only then does the aim move
+		-- beside him for the click that ties him. One wait, placed before both shots, because this
+		-- case runs before the tie case and he stays parked in between.
 		local aimAt = if probeDone then theirs.Position + Vector3.new(BESIDE_STUDS, 0, 0) else theirs.Position
 		Camera.lookAt(aimAt)
 		return
@@ -625,8 +661,12 @@ return function()
 			end
 
 			-- TWO PLAYERS: the probe was fired dead at him.
-			expect(waitUntil(PROBE_TIMEOUT * 3, function()
-				return probeAfter ~= nil
+			-- WAIT FOR THE PROBE TO BE FINISHED, not merely to have fired once (task 174). Since the
+			-- retry above, a first answer of `off-stand` is not the end of it: `probeDone` is the
+			-- loop's own last line, so this waits for the whole `PROBE_WINDOW` at most and then
+			-- asserts whatever the server's last word was.
+			expect(waitUntil(PROBE_WINDOW + PROBE_TIMEOUT * 2, function()
+				return probeDone and probeAfter ~= nil
 			end)).to.equal(true)
 			local stand = standOf(player)
 			TestKit.note(
@@ -659,6 +699,23 @@ return function()
 			-- ("what was the first attempt?") answered in the log rather than inferred from a
 			-- counter.
 			TestKit.note("zz_tie: probe attempts: " .. table.concat(probeLog, " | "))
+			-- WHAT THE SERVER'S OWN ANSWER DID, AND HOW LONG IT TOOK (task 174). The number that was
+			-- missing when this case failed at `454d58a`: the client's distance said one thing and the
+			-- server's rule another, and nothing in the log said how long that lasted. The server's
+			-- VIEW of his root is not published to any client -- the snapshot carries the stand circle
+			-- and no positions -- so its VERDICT is the read, and this is it, counted.
+			TestKit.note(
+				string.format(
+					"zz_tie: the SERVER's own rule took %d off-stand refusal(s)%s to agree he was in "
+						.. "his stand; this client read %.1f studs from the centre (stand r=%s)",
+					probeOffStand,
+					if probeAgreedAfter ~= nil
+						then string.format(" and agreed %.1f s after the cue", probeAgreedAfter)
+						else " and never agreed",
+					probeFromCentre or -1,
+					tostring(stand and stand.radius)
+				)
+			)
 			-- THE STAGING'S OWN CLAIMS, asserted before the rule's and against the recorded numbers.
 			-- Without them the case cannot tell "the beater rule is broken" from "this spec fired
 			-- from the wrong place, at the wrong distance, through a post, or into a busy gun" --

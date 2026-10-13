@@ -280,6 +280,14 @@ Weapon.setDriveLineProvider(Match.driveLine)
 -- *"a per-species licence table, data-only for now"* asks for. The shop task wires it to the profile.
 Weapon.setTargetProvider(Match.classifyTarget)
 Weapon.setStandProvider(Match.standAreaFor)
+-- ...AND THE FOURTH (task 174): IS THE DRIVE OPEN AT ALL. KAREN, 2026-10-13 ~09:35: *"for hunter
+-- once hunt over (drive) horn anounce then I can; shoot anymore"*. The start horn opens the drive and
+-- the end horn closes it, so the gun fires between the two signals and nowhere else -- through the
+-- results scene and the next countdown the trigger does nothing, and what the player gets is the dry
+-- click and `THE DRIVE IS OVER` on his readout. It is `Match.driveOpen`, the SAME predicate the
+-- beater's horn is gated on below and the bot line's walk (`Match.botsMayGo`): one source, no second
+-- clock.
+Weapon.setDriveOpenProvider(Match.driveOpen)
 
 -- ---------------------------------------------------------------- the role, and the outfit
 --

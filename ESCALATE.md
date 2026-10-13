@@ -1,5 +1,80 @@
 # Escalations
 
+## 2026-10-13 - Task 174: NEEDS TEST2, one click. Everything else is done, gated and smoked
+
+**The work is finished and measured.** Two clean-tree full runs at the code commit, **both with DEV
+alone, one Studio connected** (the Director's own condition -- the Forest Test closed -- after his
+gates at `b355b37` failed where two runs of mine had passed),
+`[harness] PASS: 33/33 checks @ 2ad0cc587bbe179aa71ee4eb85d097ad580e270b (clean tree) scope=all`
+(twice; server 1241/0, client 302/0), and `SMOKE PASS` in the Forest Test over 90 s (gun in hand at 15 s and at 90 s,
+`stacks=0 errorLines=0`, 5 waves, 22 boars, worst 1 boar sound at once). Everything else is in
+`reviews/task-174/REQUEST.md`.
+
+### NEEDS TEST2 174 `2ad0cc587bbe179aa71ee4eb85d097ad580e270b`
+
+`src/server/Match/Phase.luau`, `src/server/Match/init.luau`, `src/server/MatchBoot.server.luau` and
+`tests/server/match_phase.spec.luau` are all in `TWO_PLAYER_PATHS`, so `tools/review.ps1 174`
+refuses to start without a `[harness2]` line for that commit, and the PR to `main` needs one too.
+StudioMCP cannot start a two-player session: `start_stop_play` takes no player count.
+
+**`--scope auto` CANNOT GET ROUND IT, and that was checked rather than assumed.** `scope_for` on
+this branch's eleven changed paths answers `['all']` -- `src/server/Bots/` and
+`src/server/ForestTestBoot.server.luau` are unmapped in `BLAST_RADIUS`, and an unmapped code path can
+only mean the whole suite -- which the harness tags `scope=all`. That is FULL evidence, so
+`tools/agents.py` still asks for `[harness2]` (its `scoped = "full" not in kinds`).
+
+**THE CLICKS, IN ORDER.** In the **DEV** Studio, in Edit: **Test tab -> Clients and Servers ->
+Players: 2 -> Start**, then leave the windows alone until the harness says to press **Cleanup**.
+`python tools/studio_mcp.py test2` drives the rest. Then paste the `[harness2] PASS: n/m checks @
+2ad0cc587bbe179aa71ee4eb85d097ad580e270b (clean tree)` line over the placeholder in
+`reviews/task-174/REQUEST.md` (line 11) and run `powershell -ExecutionPolicy Bypass -File
+tools/review.ps1 174`.
+
+**WHAT A SECOND PLAYER ACTUALLY ANSWERS HERE, so the run is worth its click.** The new fire gate
+refuses a shot while the drive is shut, and `tests/client/zz_tie_to_a_tree.spec.luau` is the one
+spec that fires a REAL shot and expects a TIE -- which can only happen while the drive is open. In
+the one-player run of this branch the replayed clicks fired (`weapon_client: shots seen: 2 ... cue at
++49.3s`), so the drive was open at ~+50 s and the gate did not swallow them; the two-player run is
+what says the same for the driver-and-shooter pair, and that the tie still happens.
+
+### WHAT HIS TWO FAILING GATES WERE (both fixed at the commit above, both this task's)
+
+* `test` [client] `weapon_client.spec:874`/`:925`: **the cue landed at `+4.1 s`** (mine: `+49.3 s`),
+  inside `Assigning`, where this task's new gate refuses a shot -- so 0 shots and a pocket of 14.
+  Fixed in ONE place, `tests/client/InputReady.luau`: the harness replays only behind that module's
+  ready attribute, which is now held until the client's own snapshot says the drive is open. The cue
+  is now `+19.4 s` / `+19.3 s` with `phase=Running hold=0.0 open=true`, printed in the spec's note.
+* `test2` [server] `zz_horn.spec:1616`: **one shared `lastBlast` table and a stamp in the future.**
+  My new case blew `bot-beater-2` at `t0 = 7000`; the bot cooldown case blows the same key at
+  `os.clock()`, which is past 7001.5 in a Studio open for hours and a few hundred in a fresh one.
+  Unique key and an `os.clock()` base.
+
+No assertion was weakened and no `src/` file changed for either.
+
+### AND HIS `test2` AT `454d58a` (fixed at the commit above)
+
+`zz_tie_to_a_tree.spec:673` expected `beater-in-line` and got `off-stand`: the client read itself
+**0.0 studs** from its own stand centre while the SERVER's first rule still refused the shot, and the
+probe took its ONE attempt there. GO is also when `placePlayers` respawns everybody onto their posts,
+so the park and the respawn were in flight together. The probe now RETRIES while the server's own
+rule says `off-stand`, inside the unchanged window, and prints how many refusals it took and when the
+server agreed; the arc shot inherits the wait, because the aim only moves beside the driver once the
+probe has its answer. `:673` is untouched. The server's view of a client's root is published to no
+client, so its VERDICT is the read -- which is the gate's own predicate.
+
+One thing was tried and measured as wrong on the way: waiting a second for the respawned character to
+settle moved the cue +1 s, slid the `aim-hold` right-mouse into `camera_client`'s hand-pose case, and
+failed `camera_client.spec:1488` twice at `477d4d5`. Reverted; the reading is kept and printed.
+
+### NOT A BLOCKER, FOR THE DIRECTOR TO NOTE
+
+`"THE DRIVE IS OVER"` on the readout was **not seen on a screen**. It is task 171's own notice path
+(server-computed `Rules.noticeFor`, one row at the bottom of the screen) with a new string in it, and
+no client file changed. Seeing it live needs a drive to END first -- 300 s in the Forest Test, 600 s
+in DEV -- and then a trigger pull, which did not fit the 1.5 h box. The refusal itself IS measured
+live on a real loaded gun (`weapon_rules: ... driveShut=drive-over`, request claim 8).
+
+
 ## 2026-10-13 — Task 172: ROUND 3 WAS THE LAST ROUND, its finding is fixed, and the fix is UNREVIEWED
 
 **The work is finished, gated and measured.** Two clean-tree full runs at the current head,

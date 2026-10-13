@@ -3,7 +3,7 @@
 -- `Player`, no `Random`; every fact is a parameter. The owner (`Weapon.onFireRequest`) asks these
 -- questions in its own order and is the only thing that writes.
 --
--- THREE RULES OF ONE NEW SHAPE (task 171): the trigger does nothing and NOTHING IS TAKEN AWAY.
+-- FOUR RULES OF ONE SHAPE (three in task 171, the fourth in 174): the trigger does nothing and NOTHING IS TAKEN AWAY.
 -- Karen, 2026-10-11, about beaters: *"No penalty now we need simplify scope, thye just can't shoot
 -- them"*; 2026-10-12, about a hunter who is not in his stand circle: he *"CAN'T SHOOT until he steps
 -- in"*, with no punishment; 2026-10-10, about a red deer with no licence: *"they can aim but no
@@ -84,6 +84,9 @@ Rules.REASON = table.freeze({
 	BEATER = "beater-in-line",
 	OFF_STAND = "off-stand",
 	LICENCE = "no-licence",
+	-- THE DRIVE IS NOT ON (task 174). KAREN, 2026-10-13 ~09:35: *"for hunter once hunt over (drive)
+	-- horn anounce then I can; shoot anymore"*.
+	DRIVE_OVER = "drive-over",
 })
 
 -- ONE SHORT LINE EACH, in the Hud's own voice ("NO BUCK" is the line this sits beside). Short
@@ -92,6 +95,7 @@ Rules.NOTICE = table.freeze({
 	[Rules.REASON.BEATER] = "NOT AT A BEATER",
 	[Rules.REASON.OFF_STAND] = "NOT IN YOUR STAND",
 	[Rules.REASON.LICENCE] = "NO LICENCE",
+	[Rules.REASON.DRIVE_OVER] = "THE DRIVE IS OVER",
 })
 
 function Rules.noticeFor(reason: string?): string?
@@ -138,7 +142,24 @@ function Rules.outsideStand(position: Vector3?, area: StandArea?): boolean
 	return flat.Magnitude > area.radius
 end
 
--- THE ORDER THE THREE ARE ASKED IN, DECLARED AND TESTABLE (task 171, after the Director's
+-- RULE 4. IS THE DRIVE OVER -- OR NOT YET BEGUN? (task 174.) KAREN, 2026-10-13 ~09:35: *"for hunter
+-- once hunt over (drive) horn anounce then I can; shoot anymore"*. THE SIGNALS ARE THE RULES: the
+-- start horn opens the drive and the end horn closes it, so the window in which a gun may fire is
+-- exactly the window the two signals bracket (`Match.Phase.driveOpen`, the one answer the bot line's
+-- walk and the beater's horn read too).
+--
+-- `nil` IS "NO RESTRICTION" AND ONLY AN EXPLICIT `false` REFUSES, which is the same call every other
+-- fact on this gate makes (`Rules.outsideStand`'s nil area, `Rules.beaterInLine`'s nil target): a
+-- server with no drive wired -- every `tests/server/weapon_*.spec.luau` and a bare DEV place -- fires
+-- exactly as it did before this task, and a provider that throws (the owner pcalls it) falls back to
+-- the same "no restriction" rather than silencing every gun in the wood. A gate that refused on an
+-- unwired world would make a mis-wiring look exactly like Karen's rule working, which is the silent
+-- failure this repo measures instead of assuming.
+function Rules.driveClosed(driveOpen: boolean?): boolean
+	return driveOpen == false
+end
+
+-- THE ORDER THE FOUR ARE ASKED IN, DECLARED AND TESTABLE (task 171, after the Director's
 -- two-player run at `8b2bb40`: the probe aimed at a beater came back `off-stand`, because the
 -- shooter had walked out of his own circle, and nothing in the repo said which answer was meant to
 -- win). It is here rather than in the owner because an ORDER is a rule, and a rule nobody can assert
@@ -155,7 +176,18 @@ end
 --   3. `LICENCE` last, the narrowest -- it needs a target that published a species.
 -- `Rules.ORDER` is the list, `Rules.refuse` walks it, and the owner calls `Rules.refuse` and nothing
 -- else, so there is ONE place the order lives.
-Rules.ORDER = table.freeze({ Rules.REASON.OFF_STAND, Rules.REASON.BEATER, Rules.REASON.LICENCE })
+--
+-- ...AND `DRIVE_OVER` IS FIRST SINCE TASK 174, which follows that same rule one step further out: it
+-- is a fact about the DRIVE, true of every shot every player takes wherever he stands and whatever
+-- he points at, so it is the one thing he cannot fix by moving or by aiming somewhere else. "NOT IN
+-- YOUR STAND" to a man whose drive is over would send him walking back to a circle that will not let
+-- him shoot either.
+Rules.ORDER = table.freeze({
+	Rules.REASON.DRIVE_OVER,
+	Rules.REASON.OFF_STAND,
+	Rules.REASON.BEATER,
+	Rules.REASON.LICENCE,
+})
 
 -- RULE 3. IS HE SHOOTING AT SOMETHING HE HAS NO LICENCE FOR? The table is `Licences.ROWS` and this
 -- is only the question; `rows` is a parameter so a spec can drive a species the game does not ship.
@@ -180,6 +212,7 @@ export type Context = {
 	target: Target?, -- what the aim ray hit
 	licences: { [string]: boolean }?, -- what he holds
 	rows: any?, -- the licence table, for a spec that wants its own
+	driveOpen: boolean?, -- is the drive between its two signals? nil means "nothing said", task 174
 }
 
 function Rules.refuse(context: Context): string?
@@ -194,6 +227,10 @@ function Rules.refuse(context: Context): string?
 			end
 		elseif reason == Rules.REASON.LICENCE then
 			if Rules.unlicensed(context.target, context.licences, context.rows) then
+				return reason
+			end
+		elseif reason == Rules.REASON.DRIVE_OVER then
+			if Rules.driveClosed(context.driveOpen) then
 				return reason
 			end
 		end
