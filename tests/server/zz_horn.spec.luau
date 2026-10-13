@@ -826,16 +826,25 @@ return function()
 			-- player's grant calls -- so what this case covers is the half that was NOT: the look
 			-- sweep walked `Players:GetPlayers()`, and a bot is not a player, so a bot handed its horn
 			-- before the asset preloaded would carry the parts horn for the whole session.
+			--
+			-- THE RIG GOES IN `Workspace`, exactly as the existing `giveTo` case builds one:
+			-- `Humanoid:EquipTool` parents the Tool to the character, and a Humanoid that is not in
+			-- the world does not equip. The horn's Sound is created silent and is only ever played by
+			-- a blast, so nothing here makes a noise another spec counts.
+			local folder = Instance.new("Folder")
+			folder.Name = "HornSpecBot"
+			folder.Parent = workspace
 			local character = Instance.new("Model")
 			character.Name = "spec-bot-beater"
 			local root = Instance.new("Part")
 			root.Name = "HumanoidRootPart"
 			root.Size = Vector3.new(2, 2, 1)
+			root.Anchored = true
 			root.Parent = character
 			character.PrimaryPart = root
 			local humanoid = Instance.new("Humanoid")
 			humanoid.Parent = character
-			character.Parent = toolRoot
+			character.Parent = folder
 
 			local tool
 			withProvider(nil, function()
@@ -881,6 +890,7 @@ return function()
 			for _, one in ipairs(after) do
 				expect(one).never.to.equal(tool)
 			end
+			folder:Destroy()
 			template:Destroy()
 		end)
 

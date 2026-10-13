@@ -1288,8 +1288,10 @@ return function()
 			for _, spec in ipairs(Data.REST.groups) do
 				local at = Data.restPoint(standX, spec)
 				local look = Data.laneLookPoint(standX, spec, at, Data.REST)
-				-- ON THE LANE, exactly.
-				expect(math.abs(look.X - (standX + spec.laneOffset))).to.equal(0)
+				-- ON THE LANE. Within a float32's worth of the arithmetic: the point comes back out
+				-- of a `Vector3`, which stores float32, and this world sits at x = 3030 -- the same
+				-- ~1e-4 the stands' own case measures.
+				expect(math.abs(look.X - (standX + spec.laneOffset)) < 1e-3).to.equal(true)
 				-- ...AND NORTH OF THE GROUP by the stated distance, measured from the road as every
 				-- depth in this world is.
 				local lookNorth = look.Z - Data.roadZ(look.X)
