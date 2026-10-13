@@ -173,6 +173,12 @@ Objective.CONFIG = {
 		-- drive bar already carries the reason (`WAITING players`), and two renderings of one reason
 		-- is the duplication this task exists to remove.
 		Waiting = "waiting for the drive to start",
+		-- THE LOBBY'S TWO LINES (task 177). KAREN, 2026-10-13: a hunt starts by *"Walk to a car"* --
+		-- a hunting truck parked by the lodge -- and this is the only thing on screen that says so.
+		-- They are rows here for the reason every other row is: they are WORDS, and words are hers
+		-- to rewrite. 32 characters, which `hud_clarity.spec` measures with `TextFits`.
+		Lobby = "walk to the truck to start a hunt",
+		LobbyLeaving = "leaving for the hunt in %d",
 	},
 
 	-- THE THREE WORDS A TARGET CAN WEAR. `STAND` is a post the world has actually stated; `LINE` is
@@ -182,6 +188,9 @@ Objective.CONFIG = {
 	WORD_STAND = "STAND",
 	WORD_LINE = "LINE",
 	WORD_ROAD = "ROAD",
+	-- THE FOURTH (task 177): the marked circle beside the truck, which is the one place in the lobby
+	-- a player has to walk to.
+	WORD_TRUCK = "TRUCK",
 
 	-- HOW LONG `GO` IS ON SCREEN (task 168). Long enough to read and to connect to the fanfare that
 	-- has just finished, short enough that a ten-minute drive is not spent being told to start: after
@@ -214,11 +223,37 @@ export type DriveNow = {
 	through: boolean?, -- this player is past the hunters' line and his drive is over
 }
 
-function Objective.text(phase: string?, team: string?, drive: DriveNow?): string
+-- WHAT THE LOBBY IS DOING RIGHT NOW (task 177), and both fields are optional for the same reason
+-- every field of `DriveNow` is: two arguments still answer exactly what they answered before, which
+-- is what keeps the eight role-by-phase rows one table lookup.
+--
+-- `spot` IS THE GATE AND IT IS THE REPO'S OWN RULE -- *the screen never claims to know more than the
+-- world said*. The lobby's own module answers it from the PART the server built, so a world with no
+-- lobby has no spot, and a teamless player there reads exactly what he read before this task: "".
+export type LobbyNow = {
+	spot: Vector3?, -- where the truck spot is, or nil for "this world has no lobby"
+	secondsLeft: number?, -- the countdown, or nil for "he is not standing in the circle"
+}
+
+function Objective.text(phase: string?, team: string?, drive: DriveNow?, lobby: LobbyNow?): string
+	local words = Objective.CONFIG.TEXT
+	-- THE LOBBY, FIRST, AND IT IS THE ONE ROW FOR A PLAYER WITH NO TEAM (task 177). A man standing by
+	-- the lodge is not in a drive, so he has no team -- which is what "not being in the drive" already
+	-- means everywhere else in this repo -- and until this task that meant the screen told him
+	-- nothing at all. He gets the countdown when he is standing in the circle and the instruction
+	-- otherwise.
 	if team ~= "Shooters" and team ~= "Drivers" then
+		if phase == "Waiting" and lobby ~= nil and lobby.spot ~= nil then
+			local left = lobby.secondsLeft
+			if type(left) == "number" then
+				-- `ceil`, exactly as the beater's own countdown does, so "1" is the last whole second
+				-- and the line never reads 0 while he is still standing there.
+				return string.format(words.LobbyLeaving, math.max(0, math.ceil(left :: number)))
+			end
+			return words.Lobby
+		end
 		return ""
 	end
-	local words = Objective.CONFIG.TEXT
 	if phase == "Waiting" then
 		return words.Waiting
 	end
@@ -347,7 +382,17 @@ end
 -- THE BEATER'S POINT IS THE ROAD AT HER OWN x -- straight down the push, so she walks FORWARD into the
 -- line instead of diagonally at the mathematically nearest point. On a sine of amplitude 30 over
 -- 1,600 studs the two differ by under a stud, and "walk straight ahead" is the instruction.
-function Objective.targetFor(team: string?, phase: string?, geometry: any?, me: Vector3?): Target?
+function Objective.targetFor(team: string?, phase: string?, geometry: any?, me: Vector3?, lobby: LobbyNow?): Target?
+	-- THE TRUCK, FOR A PLAYER WITH NO TEAM IN A WORLD THAT HAS A LOBBY (task 177). It is BEFORE the
+	-- phase guard because `Waiting` is not one of the two phases below, and it needs no `geometry`:
+	-- the point is the world's own statement of where the truck is, not something derived from the
+	-- map's road or stands.
+	if team ~= "Shooters" and team ~= "Drivers" then
+		if phase == "Waiting" and lobby ~= nil and lobby.spot ~= nil then
+			return { point = lobby.spot :: Vector3, word = Objective.CONFIG.WORD_TRUCK, kind = "truck" }
+		end
+		return nil
+	end
 	if phase ~= "Assigning" and phase ~= "Running" then
 		return nil
 	end
@@ -457,12 +502,15 @@ function Objective.lineVisible(
 	reportOpen: boolean,
 	mapOpen: boolean,
 	scoped: boolean,
-	startCardUp: boolean
+	startCardUp: boolean,
+	-- FORWARDED (task 177), because this predicate calls `Objective.text` itself: without it the
+	-- lobby's line would be computed and then hidden.
+	lobby: LobbyNow?
 ): boolean
 	if reportOpen or mapOpen or scoped or startCardUp then
 		return false
 	end
-	return Objective.text(phase, team) ~= ""
+	return Objective.text(phase, team, nil, lobby) ~= ""
 end
 
 function Objective.markVisible(

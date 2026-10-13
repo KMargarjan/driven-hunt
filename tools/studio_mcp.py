@@ -710,6 +710,11 @@ BLAST_RADIUS = (
     # scope -- and `src/shared/Drive/` already resolves to `match`, which is what covers `Rank.luau`
     # (the one implementation of "who is first", read by this scope's pay-out and by the Hud's badge).
     ("src/server/Economy/", "economy"),
+    # The lobby (task 177): its own owner with its own world, its own terrain rectangle and its own
+    # pure rule -- so its own scope. `src/server/Match/` already resolves to `match`, which is what
+    # covers the two doors the lobby calls (`enrol` / `dismissAll`) and the `unassign` effect.
+    ("src/server/Lobby/", "lobby"),
+    ("src/shared/Lobby/", "lobby"),
     ("src/server/Boar/", "boar"),
     ("src/server/BoarAssetsBoot.server.luau", "boar"),
     ("src/shared/Map/", "map"),
@@ -782,7 +787,17 @@ SCOPE_SPECS = {
               # to the weapon's fire gate, and the per-drive refill goes out through
               # `refreshArmingFor` -- all three in `src/server/Match/`.
               "tests/server/weapon_rules.spec.luau",
+              # Task 177: the drive gained one event (`dismiss`), one effect (`unassign`) and the
+              # enrolment switch, and the lobby's two specs are what drive the seam from the other
+              # side -- so a `src/server/Match/` edit plays them too.
+              "tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
               "tests/client/zz_tie_to_a_tree.spec.luau"),
+    # The lobby (task 177): the pure rule and the geometry, and the owner against fakes.
+    "lobby": ("tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
+              # DUAL MEMBERSHIP, the idiom `zz_horn`, `boar_hit` and `shoot_boar` already use: the
+              # lobby enrols through `Match.enrol` and empties the roster through `Match.dismissAll`,
+              # so a lobby change plays the drive's own phase and live specs.
+              "tests/server/match_phase.spec.luau", "tests/server/match_live.spec.luau"),
     # The bots (task 161): the fill arithmetic, the lane geometry, and the rigs themselves.
     "bots": ("tests/server/bots_fill.spec.luau", "tests/server/bots_lane.spec.luau",
              "tests/server/bots_live.spec.luau"),

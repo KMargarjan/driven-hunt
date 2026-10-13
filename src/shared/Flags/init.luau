@@ -294,6 +294,34 @@ Flags.DEFAULTS = {
 			.. "before task 170. The results table still shows the two rankings Karen asked for, with its "
 			.. "coins column reading `--` because there is no money in the build.",
 	} :: FlagRow,
+	LOBBY = {
+		-- BORN OFF on 2026-10-13 (task 177). Karen, that evening: *"I think after this fixes we need
+		-- to focus on lobby / Hunting house where inside can shop things / outside is fields and
+		-- forrest so house is in fields next to forrest"*, and her two choices asked one by one: a
+		-- *"Wooden log lodge"* and *"Walk to a car"*. ON, a player who joins the server stands in
+		-- open fields by the forest with a log lodge and a hunting truck, and he starts a hunt by
+		-- standing in the marked circle beside the truck for five seconds.
+		--
+		-- IT IS BORN OFF BECAUSE IT CHANGES WHAT JOINING THE SERVER MEANS, which is the loudest
+		-- thing it does: today `Match`'s `watchPlayer` dispatches a `join` on `PlayerAdded`, and
+		-- with `MIN_PLAYERS = 1` that one dispatch starts a drive. OFF is exactly that game --
+		-- nothing is built, no terrain is written, `Match` is started with no `enrol` field and
+		-- `watchPlayer` takes the line it has always taken. The DEV place, where the harness runs,
+		-- keeps this default, so no harness check can change its answer.
+		default = false,
+		-- The owner is the module that READS it at its boundary (`Lobby.ENABLED`) and passes it
+		-- inward through `Lobby.start`'s `world.enabled` -- the only permitted shape, and what keeps
+		-- both branches reachable by parameter while the row sits at `false`. `Match` never reads
+		-- this flag: it is handed `enrol = false` by the composition root, and only when the lobby
+		-- said it had actually built itself.
+		owner = "ServerScriptService.Lobby",
+		born = "2026-10-13 task 177",
+		expires = "2026-11-03", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "The player starts at a hunting lodge in the fields beside the forest and starts a hunt "
+			.. "by standing in the marked circle beside the truck; at the end of a drive he is back "
+			.. "at the lodge. OFF is the game before task 177: joining the server joins the drive, "
+			.. "nothing is built and no terrain is written.",
+	} :: FlagRow,
 }
 
 -- deepFreeze, REQUIRED and not copied: table.freeze is shallow, and this repo has already paid for

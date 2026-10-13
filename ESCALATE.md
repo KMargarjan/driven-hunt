@@ -1,5 +1,90 @@
 # Escalations
 
+## 2026-10-14 - Task 177: NEEDS KAREN / NEEDS TEST2 177 09b6932 -- the two-player run, which nothing but a human click can start
+
+**The lobby is built, gated TWICE on the one-player harness, smoke-checked and photographed. The one
+thing missing is the two-player line, and `run_test2` says so itself: *"NEEDS KAREN, once, in Studio
+-- StudioMCP CANNOT start this test itself"*.**
+
+**Why this task needs it.** The lobby's seam is on the drive, so `src/server/Match/init.luau`,
+`src/server/Match/Phase.luau`, `tests/server/match_phase.spec.luau` and
+`tests/server/match_live.spec.luau` all changed, and all four are in `TWO_PLAYER_PATHS`
+(`tools/agents.py`). A `--scope auto` run would waive it, but `tools/studio_mcp.py` is in the diff
+and an unmapped tool path resolves to the whole suite, so the scoped run is tagged `scope=all` --
+full evidence, which asks for the two-player line. **`tools/review.sh 177` is refused until that line
+exists**, so this blocks the review round as well as the merge.
+
+### The exact clicks, in order
+
+1. In the **DEV** Studio (`Driven Hunt DEV`, place 136410205938347), Edit mode, Rojo connected:
+   **Test tab -> Clients and Servers -> Players: 2 -> Start.**
+2. Leave the three windows alone while they run.
+3. When the harness says so, **Test tab -> Cleanup** (or End Session) to close them.
+
+The command to run beside it is `python tools/studio_mcp.py test2`, at
+**09b693281bd0c42e7f0a78976ba80487b89ee959** on branch `task-177-lobby`. The line to paste into
+`reviews/task-177/REQUEST.md` is
+
+```
+[harness2] PASS: n/m checks @ 09b693281bd0c42e7f0a78976ba80487b89ee959 (clean tree)
+```
+
+and then `powershell -ExecutionPolicy Bypass -File tools/review.ps1 177` runs.
+
+### It passed once already, and this entry is the RE-ask
+
+`[harness2] PASS: 35/35 checks @ a5a212e5283ff60d0ee1ca0bad992addcd68bdac (clean tree)` -- your own
+run. Review round 1 then returned three findings, all fixed at their owners, so `src/server/Match/`
+and `src/server/Lobby/` changed after that line and it no longer covers the head. Nothing claims the
+two-player run still passes.
+
+### The Director's run at `4b3da2c` found two real things, and both are fixed
+
+`[harness2] FAIL 31/35` (`<runs-dir>/test2-t177.log`). The four failing CHECKS are two spec
+failures, one per client, both `camera_client.spec:1697`.
+
+**It is not a game bug and a shooter did not hold a horn.** That case injects BOTH handles itself
+through `Viewmodel.setSource` and never reads the player's real Tool; the log's own
+`client teams: Drivers / Shooters`, the clean server suite and the shooter's `[*]x SLUG 24` readout
+all say the drive was correct. What failed is that the DRAWN model never swapped: `update` re-asks
+the source only every quarter second once it holds a parented handle, and `lastSourceCheck` is a
+module local **shared with the live camera loop**, so the case's `task.wait(0.3)` guaranteed nothing
+and the frame cadence decided it. **This is the first `test2` since task 176 added a second kind of
+viewmodel** -- 175 and 176 were both `test2` N/A -- so one player had been winning that race ever
+since.
+
+Fixed at the owner: `Viewmodel.setSource` now drops `cachedHandle`. The assertion is NOT weakened --
+`Viewmodel.clear()` is still not called across the swap, so `builtKind` is still the only thing that
+can turn the horn's model into the gun's -- and the case now asserts the swap is drawn on **update 1
+in both directions** and notes it, so a regression says so instead of flaking.
+
+### What is already evidenced, so nothing else waits on this
+
+* `[harness] PASS: 33/33 checks @ 09b693281bd0c42e7f0a78976ba80487b89ee959 (clean tree) scope=all`,
+  **twice**, on a clean tree, each logged (`.agent-logs/task177-r3-test1.log`, `-r3-test2.log`), both
+  carrying `camera_client: a source swap is drawn on update 1 (to the gun) and 1 (back to the horn)`.
+* The whole lobby cycle, measured live in the Forest Test: joined at the lodge with no team and no
+  gun; stood in the circle; `Team = Shooters` and placed on stand 5 at `ForestTest.CENTRE`;
+  `[report] drive 1 opened`; at the end of the drive `Team = none` and back at the lodge.
+* `smoke.sh 90`: `stacks=0 errorLines=0 waves=5`, worst concurrent boar sounds 1.
+
+### ...and `smoke.sh` needs one change, which is the DIRECTOR'S to make (it is his file)
+
+`smoke.sh` now reports `FAIL: gun not in hand`, **and that is the lobby working as designed**: a
+player standing by the lodge is not in a drive, so `Match.mayCarryWeapon` refuses him a gun. The
+check it should make instead, in the Forest Test with the lobby on:
+
+1. **At 15 s: NO gun, and `Workspace.Lobby` exists** -- `game.Workspace:FindFirstChild("Lobby")` and
+   a part named `TruckSpot` under it. That is the lobby built and the player in it.
+2. **Then put him in the circle** -- one `execute_luau` line,
+   `p.Character:PivotTo(CFrame.new(spot.Position + Vector3.new(0, 4, 0)))` -- **wait 8 s, and THEN
+   require the gun in hand** plus `player.Team ~= nil`. That is the existing check, moved behind the
+   thing that now grants the gun.
+3. Everything else is unchanged: zero `Stack Begin`, zero error lines, waves released, boar sounds
+   within the cap.
+
+Without step 2 the smoke check measures the lobby and calls it a missing gun.
+
 ## 2026-10-13 - Task 175 item 1: THE HORN *IS* WELDED TO THE HAND. What Karen sees is that the BODY DOES NOT FACE THE LOOK in first person -- `docs/design/camera.md` section 6.4, Director item A
 
 **This is the "a finding is factually wrong" stop rule, with the evidence, and it is the ONE item the

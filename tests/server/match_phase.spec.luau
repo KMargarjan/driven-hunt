@@ -1931,4 +1931,157 @@ return function()
 			expect(countFeed(effects, "signal")).to.equal(0)
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- task 177: the lobby's seam
+	--
+	-- THE WHOLE DELTA TO THE PURE MACHINE IS ONE EVENT AND ONE EFFECT, and both are here. No phase
+	-- moved, no number changed and no deadline shifted: `dismiss` empties the roster and `unassign`
+	-- hands a team back, and the drive falls out of a drive through the door task 159 already built.
+	describe("the lobby's two additions", function()
+		it("empties the roster with NO feed line, which is the whole difference from a leave", function()
+			local cfg = config()
+			local state = ready(cfg)
+			local effects
+			state, effects = Phase.step(state, { kind = "join", userId = 1, name = "hunter" }, 0, cfg)
+			state, effects = Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg)
+			expect(state.phase).to.equal("Running")
+			expect(Phase.participantCount(state)).to.equal(1)
+
+			state, effects = Phase.step(state, { kind = "dismiss" }, cfg.INTERMISSION_SECONDS + 1, cfg)
+			expect(Phase.participantCount(state)).to.equal(0)
+			expect(next(state.assignment)).to.equal(nil)
+			-- A player standing in the results scene has not LEFT. Printing *"X left"* about a man
+			-- standing in front of Karen would be a lie in the shape of a fact.
+			expect(countKind(effects, "feed")).to.equal(0)
+			expect(countKind(effects, "broadcast")).to.equal(1)
+			-- IT CHANGES NO PHASE BY ITSELF and does not touch the clock.
+			expect(state.phase).to.equal("Running")
+		end)
+
+		it("makes the Scoring exit take enterWaiting instead of the next drive", function()
+			local cfg = config()
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "hunter" }, 0, cfg))
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			local atEnd = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			state = (Phase.step(state, { kind = "tick" }, atEnd, cfg))
+			expect(state.phase).to.equal("Scoring")
+
+			-- The lobby dismisses on the scan after the scene goes up.
+			state = (Phase.step(state, { kind = "dismiss" }, atEnd + 1, cfg))
+			local effects
+			state, effects = Phase.step(state, { kind = "tick" }, atEnd + cfg.SCORE_SECONDS, cfg)
+			-- BACK TO THE LOBBY: one drive per trip. Without the dismissal this is `Assigning`.
+			expect(state.phase).to.equal("Waiting")
+			expect(state.driveNumber).to.equal(1)
+			-- The door task 159 built already does the two things that matter, and `unassign` is new.
+			expect(countKind(effects, "clearScene")).to.equal(1)
+			expect(countKind(effects, "free")).to.equal(1)
+			expect(countKind(effects, "unassign")).to.equal(1)
+		end)
+
+		it("hands every team back on the way into Waiting, sorted", function()
+			local cfg = config()
+			local state = ready(cfg)
+			for userId = 1, 3 do
+				state = (Phase.step(state, { kind = "join", userId = userId, name = "p" }, 0, cfg))
+			end
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			local atEnd = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			state = (Phase.step(state, { kind = "tick" }, atEnd, cfg))
+			state = (Phase.step(state, { kind = "dismiss" }, atEnd + 1, cfg))
+			local effects
+			state, effects = Phase.step(state, { kind = "tick" }, atEnd + cfg.SCORE_SECONDS, cfg)
+			local ids
+			for _, effect in ipairs(effects) do
+				if effect.kind == "unassign" then
+					ids = effect.userIds
+				end
+			end
+			expect(ids).to.be.ok()
+			-- EVERY ONE OF THE THREE, ONCE. The list is the union of the live roster and the last
+			-- drive's, because a `dismiss` has already emptied the first one while the players still
+			-- carry their teams -- and a man in both tables must still appear once.
+			expect(#(ids :: any)).to.equal(3)
+			-- Sorted, like every other id list this machine emits, so a spec can assert it by value.
+			expect((ids :: any)[1]).to.equal(1)
+			expect((ids :: any)[2]).to.equal(2)
+			expect((ids :: any)[3]).to.equal(3)
+		end)
+
+		it("hands a team back even when nobody was dismissed, and still only once each", function()
+			-- THE OTHER WAY INTO `Waiting`: the roster emptied itself (everybody left), so
+			-- `state.assignment` is where the teams are and `previousAssignment` holds the same two.
+			-- The union must not report either of them twice.
+			local cfg = config()
+			local state = ready(cfg)
+			for userId = 1, 2 do
+				state = (Phase.step(state, { kind = "join", userId = userId, name = "p" }, 0, cfg))
+			end
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			local atEnd = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			state = (Phase.step(state, { kind = "tick" }, atEnd, cfg))
+			expect(state.phase).to.equal("Scoring")
+			for userId = 1, 2 do
+				state = (Phase.step(state, { kind = "leave", userId = userId, name = "p" }, atEnd + 1, cfg))
+			end
+			local effects
+			state, effects = Phase.step(state, { kind = "tick" }, atEnd + cfg.SCORE_SECONDS, cfg)
+			expect(state.phase).to.equal("Waiting")
+			local ids
+			for _, effect in ipairs(effects) do
+				if effect.kind == "unassign" then
+					ids = effect.userIds
+				end
+			end
+			expect(ids).to.be.ok()
+			expect(#(ids :: any)).to.equal(2)
+			expect((ids :: any)[1]).to.equal(1)
+			expect((ids :: any)[2]).to.equal(2)
+		end)
+
+		it("emits no unassign when nobody had a team", function()
+			local cfg = config()
+			local state = ready(cfg)
+			-- `Waiting` with nobody in it: the drive never assigned anybody, so there is nothing to
+			-- hand back and no effect to emit.
+			local effects
+			state, effects = Phase.step(state, { kind = "tick" }, 1, cfg)
+			expect(state.phase).to.equal("Waiting")
+			expect(countKind(effects, "unassign")).to.equal(0)
+		end)
+
+		it("unassigns the dropped players on the OTHER door out of Scoring, straight into Assigning", function()
+			-- A lobby player can enrol DURING the results scene, so `Scoring` goes to `Assigning` and
+			-- never reaches `enterWaiting`. Without this the dismissed players would keep the last
+			-- drive's team, its vest and its horn through the whole of the next drive.
+			local cfg = config()
+			local state = ready(cfg)
+			for userId = 1, 2 do
+				state = (Phase.step(state, { kind = "join", userId = userId, name = "p" }, 0, cfg))
+			end
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			local atEnd = cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS
+			state = (Phase.step(state, { kind = "tick" }, atEnd, cfg))
+			expect(state.phase).to.equal("Scoring")
+			state = (Phase.step(state, { kind = "dismiss" }, atEnd + 1, cfg))
+			-- One NEW player enrols while the results are up: player 9, and not 1 or 2.
+			state = (Phase.step(state, { kind = "join", userId = 9, name = "late" }, atEnd + 2, cfg))
+			local effects
+			state, effects = Phase.step(state, { kind = "tick" }, atEnd + cfg.SCORE_SECONDS, cfg)
+			expect(state.phase).to.equal("Assigning")
+			local ids
+			for _, effect in ipairs(effects) do
+				if effect.kind == "unassign" then
+					ids = effect.userIds
+				end
+			end
+			expect(ids).to.be.ok()
+			expect(#(ids :: any)).to.equal(2)
+			expect((ids :: any)[1]).to.equal(1)
+			expect((ids :: any)[2]).to.equal(2)
+			-- ...and the one who IS in the new drive is not in that list and has a team.
+			expect(state.assignment[9]).to.be.ok()
+		end)
+	end)
 end

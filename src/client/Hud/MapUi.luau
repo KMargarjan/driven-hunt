@@ -492,7 +492,35 @@ function MapUi.fullMapVisible(open: boolean, suppressed: boolean, reportOpen: bo
 	return open and not suppressed and not reportOpen
 end
 
-function MapUi.minimapVisible(open: boolean, suppressed: boolean, reportOpen: boolean, hasGeometry: boolean): boolean
+-- IS THIS POINT INSIDE THE WORLD THE MAP STATES? PURE (task 177).
+--
+-- IT NAMES NO LOBBY, and that is the whole point of writing it this way: *"you are outside the map's
+-- own frame"* is a fact about the world's stated geometry. It stays true if the lobby moves, it needs
+-- no lobby concept in the Hud, and it answers for any world.
+function MapUi.withinBounds(bounds: Bounds, me: Vector3): boolean
+	return me.X >= bounds.minX and me.X <= bounds.maxX and me.Z >= bounds.minZ and me.Z <= bounds.maxZ
+end
+
+-- `outsideBounds` DEFAULTS TO FALSE (nil = false), so every existing caller and every existing spec
+-- case is bit-identical (task 177).
+--
+-- WHY THE MINIMAP HIDES AND THE FULL MAP DOES NOT. The minimap is centred on the PLAYER with a
+-- 300-stud range, so from the lobby -- 513 studs outside the Forest Test's stated bounds -- it would
+-- draw a dark disc, a scale bar and your own wedge and nothing else. That is a half-drawn drive,
+-- which is exactly what this is not allowed to be. The FULL map holds the whole stated world and
+-- PINS an out-of-range marker to its border, which is its own documented rule -- so a player at the
+-- lodge sees the road, the nine stands and himself pinned to the south edge. That is true, it is the
+-- map's own language, and M and the rail button keep working, so there is no dead button.
+function MapUi.minimapVisible(
+	open: boolean,
+	suppressed: boolean,
+	reportOpen: boolean,
+	hasGeometry: boolean,
+	outsideBounds: boolean?
+): boolean
+	if outsideBounds == true then
+		return false
+	end
 	return hasGeometry and MapUi.CONFIG.MINIMAP_ENABLED and not open and not suppressed and not reportOpen
 end
 
@@ -628,6 +656,10 @@ local fullScale: UIScale? = nil
 
 local open = false
 local suppressed = false
+-- IS THIS PLAYER OUTSIDE THE WORLD THE MAP STATES? Written once per tick by `render`, which already
+-- finds his position, and read by `applyVisibility`, which stays the one writer of both frames'
+-- `Visible` (task 177). False until a tick has found a position: absent is not outside.
+local outside = false
 local geometry: MapGeometry? = nil
 local pushBearing: number? = nil
 local pushLabel: string? = nil
@@ -1107,7 +1139,11 @@ function MapUi.applyVisibility()
 	local reportOpen = ReportSystem ~= nil and ReportSystem.isOpen() == true
 	local hasGeometry = geometry ~= nil
 	full.Visible = hasGeometry and MapUi.fullMapVisible(open, suppressed, reportOpen)
-	mini.Visible = MapUi.minimapVisible(open, suppressed, reportOpen, hasGeometry)
+	-- `outside` IS WRITTEN BY `render`, WHICH ALREADY FINDS `me` (task 177): this stays the ONE writer
+	-- of both frames' `Visible` and the Hud gains no plumbing at all. It is false until a tick has
+	-- found a position, because ABSENT IS NOT OUTSIDE -- a map that hid itself while a player was
+	-- respawning would flicker once per death.
+	mini.Visible = MapUi.minimapVisible(open, suppressed, reportOpen, hasGeometry, outside)
 end
 
 -- ---------------------------------------------------------------- drawing
@@ -1271,8 +1307,10 @@ function MapUi.render()
 		layoutFor(viewport)
 	end
 
-	MapUi.applyVisibility()
-
+	-- THE ROSTER AND `me` ARE READ BEFORE THE VISIBILITY PASS (task 177), because whether the minimap
+	-- is on screen now depends on where this player is standing -- and `applyVisibility` must stay the
+	-- ONE writer of both frames' `Visible`. Nothing else about the order changed: `roster()` is still
+	-- called once per tick and `Players:GetPlayers()` still once inside it.
 	local sources = roster()
 	stats.overflow = MapUi.overflowFor(sources)
 	local me: Vector3? = nil
@@ -1281,6 +1319,9 @@ function MapUi.render()
 			me = source.position
 		end
 	end
+	outside = me ~= nil and not MapUi.withinBounds((geometry :: MapGeometry).bounds, me :: Vector3)
+
+	MapUi.applyVisibility()
 	local headingDeg: number? = nil
 	if CameraSystem ~= nil and type(CameraSystem.viewHeadingDeg) == "function" then
 		headingDeg = CameraSystem.viewHeadingDeg()

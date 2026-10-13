@@ -1,0 +1,10 @@
+PASS
+
+## Notes (non-blocking)
+- `reviews/task-177/REQUEST.md` — stale prose again, the same shape as round 1's note 1. The body says "**The `[harness2]` line is the Director's and is not here yet**" and "What I could not verify ... **The two-player run AT THIS COMMIT** ... nothing here claims it still passes", while the evidence block above now carries `[harness2] PASS: 35/35 checks @ 43786a31516109d4ee5d25dc5075e776c96fdf43 (clean tree)` and the `DIRECTOR NOTE` saying the last two lines are the Director's at the head. It under-claims rather than over-claims and the evidence the rules require is present and consistent, so it changes nothing; delete the paragraph and the `NEEDS TEST2` bullet when the request is next touched.
+- `src/client/Hud/Objective.luau` / `CONFIG.TEXT.Lobby` — the comment above the row says "32 characters, which `hud_clarity.spec` measures with `TextFits`", but `"walk to the truck to start a hunt"` is 33, which is what the spec actually asserts (`expect(longest <= 33)`) and what REQUEST.md claim 9 says. One wrong number in a comment.
+- `tests/server/match_phase.spec.luau` / "emits no unassign when nobody had a team" — this case would pass with the feature deleted: `ready(cfg)` is already `Waiting`, so a `tick` with no participants never re-enters `enterWaiting` and no `unassign` could be emitted either way. The other five cases in "the lobby's two additions" carry the claim (the union, the sorting, both doors out of `Scoring`), so nothing is unmeasured — but this one is not a guard and reads like one.
+- `src/server/Lobby/Build.luau` — round 1's note 2 still stands and is correctly queued as `TASKS.md` 177a(e): `Bed`, `Cab`, `Bonnet`, `Fireplace`, `Counter`, `TableLeg*`, `DoorPost*`, `SignPost` and the `Gable*` wedges are built solid, which is wider than `docs/design/lobby.md` 9.2 ("the walls, the floor and the porch ... are the only things that do") and 16.1 case 7. The code is the defensible half; the design is what should be amended.
+
+---
+REVIEWER verdict on commit `b316bfa832c71f58a3cfe767924933ee954e07d9` (round 2) · 2026-10-13 22:40 UTC · session cost $4.93, 55 turns · written by tools/agents.py

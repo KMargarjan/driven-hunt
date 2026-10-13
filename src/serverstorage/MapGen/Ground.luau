@@ -1,5 +1,14 @@
 --!strict
--- MapGen.Ground: THE ONLY WRITER OF `Terrain` IN THE REPO (design section 2.2). One tile per call.
+-- MapGen.Ground: THE ONLY WRITER OF **THE DEV PLACE'S** `Terrain`, at EDIT time, driven step by step
+-- by `tools/mapgen.py` (design section 2.2). One tile per call.
+--
+-- THE QUALIFIER ARRIVED WITH TASK 177 and it is written out rather than left to be rediscovered.
+-- `ServerScriptService.Lobby.Field` writes terrain too, and the two cannot meet, by three
+-- independent facts: a different WORLD (`forest-test`, and `Lobby.anchorFor` has no `map:v1` row),
+-- a different MODE (a running session, never Edit -- and a Play-session terrain write does not
+-- persist), and a bounded RECTANGLE it may not write outside of (`Lobby.CONFIG.FIELD`, asserted
+-- corner by corner in `tests/server/lobby.spec.luau`). `tools/mapgen.py` stays the only thing that
+-- writes DEV's terrain. See `docs/design/lobby.md` section 3.1.
 -- It reads no Instance and writes none; it asks `Height` where the ground is and `Layout` what is on
 -- it, so nothing here can disagree with the props or the markers about the shape of the world.
 --
@@ -210,8 +219,10 @@ end
 -- ---------------------------------------------------------------- the palette
 --
 -- Terrain material colour is GLOBAL STATE WITH NO CONTAINER, exactly like the voxels -- so it belongs
--- to the module that is already the only writer of Terrain in this repo (design section 8.2). No
--- second writer, anywhere, ever.
+-- to the module that is already the only writer of the DEV place's Terrain (design section 8.2). No
+-- second writer of the PALETTE, anywhere, ever -- and that is still exactly true after task 177:
+-- `ServerScriptService.Lobby.Field` writes VOXELS in another world at run time and calls no colour
+-- API at all (see this file's own header for the three facts that keep the two apart).
 --
 -- MEASURED 2026-09-26 (measurement N1): Get/SetMaterialColor are callable through execute_luau in
 -- Edit, the values read back exactly, they SURVIVE Terrain:Clear(), and they replicate to a client.
