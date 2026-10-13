@@ -45,10 +45,32 @@ defect looks like.
    at a beater and spends no shell, then fires the same shot once the rule is gone"*. Its live note
    from the gate run: `Alhamdulilah824 refused=beater-in-line fired=nil; shots +0/+1, refused
    +1/+1; barrels Live/Live -> Live/Live -> Spent/Live`.
-2. **It is not double handling with `Match.Penalty`, and nothing there changed.** The refusal
-   returns before `safetySignal:Fire`, so the tie can only ever be reached by a shot that was not
-   aimed at anybody. Verify: the header of `src/server/Weapon/Rules.luau` ("HOW THIS RELATES TO
-   `Match.Penalty`"), and `git diff main -- src/server/Match/Penalty.luau` (empty).
+2. **THE BOUNDARY BETWEEN THE TWO RULES IS HIS BODY, and it is not double handling** -- the answer
+   to the dispatch's *"say how the two rules relate"*, which round 1 answered in prose and the
+   two-player run then tested. The game's rule: the aim ray **would hit him** -> refused (no fire, no
+   shell, no tie, no punishment); the ray **misses him** but the shot passes within
+   `SAFETY_MISS_STUDS` (12) of him inside the arc -> **fired, and he is tied**, which is what the arc
+   is for. No shot can be both: a refused shot returns before `safetySignal:Fire`. The sharp edge is
+   deliberate and the reason is written down -- softening it means either punishing the refused shot
+   (which Karen asked not to happen) or retiring the safety rule. `Match/Penalty.luau` is untouched
+   (`git diff main -- src/server/Match/Penalty.luau` is empty).
+   **No production code changed for this** -- both halves were already true; what changed is the
+   STAGING, so the spec proves both instead of asserting one and staging the other:
+   * the real replayed click now aims `BESIDE_STUDS` = **5 studs** off the driver's body (11.3
+     degrees at 25 studs, deep inside the 45-degree half-arc, miss 5 of 12) -> fires and ties. **The
+     tie proof is not deleted and not weakened** -- same chain, same click, same assertions, pointed
+     at the shot the arc exists to punish;
+   * a **probe at the cue**, before the click and while the gun still exists, fires one
+     `FireRequest` dead at him -> refused. The client reads the server's own word for it off the
+     snapshot's new `refused` field (`beater-in-line`), with the gun print before and after proving
+     **no shell was spent**, and asserts nobody was tied by it. This is the only place the `refused`
+     wire field is proved reaching a client (claim 8 can only assert the wire carries it).
+   Verify: the header of `src/server/Weapon/Rules.luau` ("HOW THIS RELATES TO `Match.Penalty`"), and
+   `tests/client/zz_tie_to_a_tree.spec.luau` -- its header, `onCue`'s probe, the aim loop's
+   `BESIDE_STUDS`, the new case *"refuses a shot aimed straight at a beater, and spends nothing doing
+   it"*, and the unchanged tie case after it. **Needs `test2`:** in the one-player run both cases
+   take their no-driver branch (note: `one player, so no beater to refuse a shot at; probe not
+   fired`).
 3. **A beater is a player on the push team OR a bot.** `Match.classifyTarget` walks the hit
    instance's ancestors, asks `Players:GetPlayerFromCharacter` and reads `state.assignment` (never
    `Player.Team`), then falls back to `world.bots.isBeaterPart` -- which answers with the same
@@ -102,31 +124,6 @@ defect looks like.
     corrected instead of left lying, because a cub is deliberately NOT in the gate (Karen settled it
     the other way: a penalty). Verify: `Match.CONFIG.QUARRY_NOTE`/`POINTS.KIND.cub` and
     `tests/server/match_config.spec.luau`, case *"SAYS WHAT THE RULE REALLY IS"*.
-
-11. **THE TWO RULES NOW HAVE A DECIDED BOUNDARY, AND IT IS HIS BODY** -- the answer to the
-    dispatch's *"say how the two rules relate (no double handling)"*, which round 1 answered in
-    prose and the two-player run then tested. The game's rule: the aim ray **would hit him** ->
-    refused (no fire, no shell, no tie, no punishment); the ray **misses him** but the shot passes
-    within `SAFETY_MISS_STUDS` (12) of him inside the arc -> **fired, and he is tied**, which is what
-    the arc is for. No shot can be both: a refused shot returns before `Weapon.SafetyViolated`. The
-    sharp edge is deliberate and the reason is written down (softening it means either punishing the
-    refused shot, which Karen asked not to happen, or retiring the safety rule).
-    **No production code changed for this** -- both halves were already true; what changed is the
-    staging, so that the spec proves both instead of asserting one and staging the other:
-    * the real replayed click now aims `BESIDE_STUDS` = **5 studs** off the driver's body (11.3
-      degrees at 25 studs, deep inside the 45-degree half-arc, miss 5 of 12) -> fires and ties. **The
-      tie proof is not deleted and not weakened** -- same chain, same click, same assertions, pointed
-      at the shot the arc exists to punish;
-    * a **probe at the cue**, before the click and while the gun still exists, fires one
-      `FireRequest` dead at him -> refused. The client reads the server's own word for it off the
-      snapshot's new `refused` field (`beater-in-line`), with the gun print before and after proving
-      **no shell was spent**, and asserts that nobody was tied by it.
-    Verify: `tests/client/zz_tie_to_a_tree.spec.luau` -- its header, `onCue`'s probe, the aim loop's
-    `BESIDE_STUDS`, the new case *"refuses a shot aimed straight at a beater, and spends nothing
-    doing it"*, and the unchanged tie case after it. The `refused` field reaching a client is proved
-    here and only here (the server spec can only assert that the wire carries it, which is what
-    claim 8 says). **Needs `test2`:** in the one-player run both cases take their no-driver branch
-    (note: `one player, so no beater to refuse a shot at; probe not fired`).
 
 ## What could not be verified
 
