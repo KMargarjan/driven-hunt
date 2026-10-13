@@ -3,7 +3,7 @@
 Task: 170
 Round: 1
 Base: `8128ed0` (main, #153 merged)
-Code commit: `46607bf87a317996fc0e643aabe511b09c9dae5d`
+Code commit: `9f4c2eaddd73f5598ad604f42e693d62b9cb4704`
 
 ```
 [harness] PASS: 33/33 checks @ 46607bf87a317996fc0e643aabe511b09c9dae5d (clean tree) scope=all
@@ -11,7 +11,8 @@ Code commit: `46607bf87a317996fc0e643aabe511b09c9dae5d`
 ```
 
 ```
-[harness2] NEEDS TEST2 170 46607bf87a317996fc0e643aabe511b09c9dae5d
+[harness] PASS: 33/33 checks @ 9f4c2eaddd73f5598ad604f42e693d62b9cb4704 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 9f4c2eaddd73f5598ad604f42e693d62b9cb4704 (clean tree)
 ```
 
 **On the commit the lines name.** It is `46607bf`, the paperwork commit that carries this request and
