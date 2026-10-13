@@ -3,12 +3,13 @@
 Task: 173
 Round: 1
 Base: db6bfe2 (main; task 172 is NOT merged, by Karen's decision, and this does not build on it)
-Code commit: 2c52e246833ee826a98a398fb0a8f89687f00e92
+Code commit: 1806e4f6b4af625cdb693fa1d59f653c46315573
 
 ```
 [harness] PASS: 33/33 checks @ 2c52e246833ee826a98a398fb0a8f89687f00e92 (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 2c52e246833ee826a98a398fb0a8f89687f00e92 (clean tree) scope=all
-[harness2] <<< NEEDS TEST2 173 2c52e246833ee826a98a398fb0a8f89687f00e92 — the Director's click >>>
+[harness] PASS: 33/33 checks @ 1806e4f6b4af625cdb693fa1d59f653c46315573 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 1806e4f6b4af625cdb693fa1d59f653c46315573 (clean tree)
 ```
 
 **`src/server/Match/` is a `TWO_PLAYER_PATH`,** so this review cannot start until the `[harness2]`
