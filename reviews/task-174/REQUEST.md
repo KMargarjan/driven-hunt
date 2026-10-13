@@ -3,12 +3,13 @@
 Task: 174
 Round: 1
 Base: `e7b4904` (`main`, #157 merged -- tasks 172 and 173)
-Code commit: `2ad0cc587bbe179aa71ee4eb85d097ad580e270b`
+Code commit: `74ade18aaa96772cc6ece4bbc1578cd6588c9135`
 
 ```
 [harness] PASS: 33/33 checks @ 2ad0cc587bbe179aa71ee4eb85d097ad580e270b (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 2ad0cc587bbe179aa71ee4eb85d097ad580e270b (clean tree) scope=all
-[harness2] <<< THE DIRECTOR'S TWO-PLAYER LINE GOES HERE, for the same commit >>>
+[harness] PASS: 33/33 checks @ 74ade18aaa96772cc6ece4bbc1578cd6588c9135 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 74ade18aaa96772cc6ece4bbc1578cd6588c9135 (clean tree)
 ```
 
 **`[harness2]` IS NOT RUN AND CANNOT BE BY THIS BUILDER.** `src/server/Match/` and
