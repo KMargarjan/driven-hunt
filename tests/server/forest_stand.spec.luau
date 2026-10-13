@@ -871,7 +871,7 @@ return function()
 			)
 		end)
 
-		it("refuses a spot the line has reached or passed, and since task 172 does NOT fall back", function()
+		it("answers 'the line has reached it' for a re-stock spot, which is what refuses it", function()
 			-- MEASURED LIVE (task 168, the Director's second pass): 7 animals of 25 appeared up to 31
 			-- studs BEHIND the front, because the resting band is measured from the ROAD and the line
 			-- is deep in the wood by the time the wood is re-stocked. The sweep caught them on the
@@ -880,6 +880,10 @@ return function()
 			--
 			-- `restSpot` ITSELF RAYCASTS, so what is driven here is the RULE it asks, which is the
 			-- same pure pair the flush asks: nothing can answer "behind the line" twice differently.
+			-- WHAT THIS CASE DOES NOT COVER, said plainly (round 1's note, which was right): that
+			-- `restSpot` now REFUSES rather than falling back is a property of the function's own two
+			-- passes, and the only evidence for it is the code and the live drive in the request. The
+			-- name used to promise it; it does not any more.
 			local depth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
 			local line = {
 				{ position = Vector3.new(standX - 150, 0, Data.roadZ(standX - 150) + 200) },

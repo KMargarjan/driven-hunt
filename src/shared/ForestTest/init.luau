@@ -797,20 +797,15 @@ ForestTest.LINE = {
 -- (task 117). This file adds no behaviour; it only says where to put them.
 ForestTest.REST = {
 	-- WHERE A GROUP MAY BE PUT, as the band between her and the road. She starts at
-	-- `LINE.spawnNorthStuds + BEATER.behindLineStuds` = 580 studs north of it, so a group at 55-440
-	-- is in front of her and short of the road -- which is both "between her and the road" and far
-	-- enough from the verge that a hunter at a stand is not looking at a boar standing still.
+	-- `LINE.spawnNorthStuds + BEATER.behindLineStuds` = 580 studs north of it, so a group inside this
+	-- band is in front of her and short of the road -- which is both "between her and the road" and
+	-- far enough from the verge that a hunter at a stand is not looking at a boar standing still.
 	--
-	-- `farRoadStuds` 160 -> 460 IS DERIVED, NOT CHOSEN (task 162). The band's far edge is as deep as
-	-- the keep-away below allows, and that is the whole of it:
-	--
-	--   behindLineStuds 400 + spawnNorthStuds 180 - (SPOOK.BEATER_STUDS 89 + clearOfStartStuds 30)
-	--     = 461, taken down to 460
-	--
-	-- so the deepest spot the search may answer is still one spook radius plus 30 studs from where
-	-- she is put down. A band that stopped at 160 would have left her walking 420 studs of empty
-	-- wood before she met anything, which is the defect this whole section exists to prevent -- in a
-	-- new form. `forest_stand.spec` asserts the relation.
+	-- (TASK 162's VERSION OF THIS PARAGRAPH IS HISTORY NOW, and it is kept as history rather than
+	-- deleted: the band was 40-460 then, derived the same way from the one reach there was --
+	-- `behindLineStuds 400 + spawnNorthStuds 180 - (SPOOK.BEATER_STUDS 89 + clearOfStartStuds 30)` =
+	-- 461, taken down to 460. Task 172 split the reach in two and the derivation follows the NOTICE
+	-- one, below.)
 	nearRoadStuds = 40,
 	-- 425, AND IT IS STILL DERIVED (task 172 moved it from 460). The band's far edge is as deep as
 	-- the keep-away below allows, and the keep-away is now the NOTICE reach rather than the flush
@@ -889,7 +884,8 @@ ForestTest.REST = {
 	-- drive"*) and is also what a drive IS: a wood is beaten once. `restockSeconds` is gone with the
 	-- behaviour it timed; `ForestTest.stepRest` now stocks on the first heartbeat of beater mode and
 	-- never again, and `state.restStocked` is the latch that says so. The old row and the branch it
-	-- timed are archived under `backups/` with the note rule 7 asks for.
+	-- timed are archived in `backups/2026-10-13_task-172_rest-restock.md`, with the reason, as rule 7
+	-- asks.
 
 	-- THE GROUPS, SPREAD ALONG THE LANES (task 172). `composition` indexes
 	-- `Boar.CONFIG.SOUNDER.COMPOSITIONS` for the same reason the schedule does: who is in a flock is

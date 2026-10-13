@@ -1114,7 +1114,8 @@ end
 --                ring of the search that walked a group onto the road is not the group she asked
 --                for. Karen: *"animals already there ... close to trees"*, on her side of the road.
 --   `fromStart`  NOT ALREADY INSIDE HER REACH. MEASURED, this task's own first build: a group 71
---                studs from where a beater is put down is inside `SPOOK.BEATER_STUDS` (89), so it
+--                studs from where a beater is put down was inside the one reach there was then (89
+--                studs; since task 172 the guard is `SPOOK.NOTICE_STUDS`, 125), so it
 --                was latched and gone on the first heartbeat before she had taken a step.
 --   `terrainY`/`groundY`  ON THE GROUND AND NOT ON A CANOPY. `Runtime:spawn` places every member at
 --                `world.groundAt`, which rays past `OurForest`/`Foliage` but NOT past the two
@@ -1201,7 +1202,8 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- (240 when this was written, task 162 deepened it); 15 s after she has emptied the wood she is
 	-- at or past the road, that whole distance from the point -- and `REST.groups`'s last row
 	-- (today `offsetX 35, northStuds 55`) is then only ~60-70 studs from her, inside
-	-- `SPOOK.BEATER_STUDS` (89). So `spookNearBeaters` latched the group the heartbeat it spawned:
+	-- the reach of the day (89 studs then; the guard is `SPOOK.NOTICE_STUDS`, 125, since task 172).
+	-- So `spookNearBeaters` latched the group the heartbeat it spawned:
 	-- *"a wood she has already emptied by standing in it is not a wood"*, which is the defect task
 	-- 154 exists to fix, in a milder form.
 	--
@@ -1217,7 +1219,13 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- test and the ground does not change it, while the measured version raycasts and would be asked
 	-- once per candidate.
 	local start = Data.beaterStart(standX, 0)
-	local keepAway = Data.beaterSpookStuds(Data.SPOOK) + rest.clearOfStartStuds
+	-- THE KEEP-AWAY IS THE **NOTICE** REACH (round 1, finding 1, which was right). The question this
+	-- guard asks is "could this group already be reacting to her before she has taken a step", and
+	-- since task 172 the FIRST thing that happens to a group is that it notices -- at 125 studs, not
+	-- at the 71 it flushes from. It was left on the flush reach while `REST.farRoadStuds`, the
+	-- header above and all three spec sites had moved to the notice reach, so the only live
+	-- enforcement was the weaker of the two: a ring of the search could legally answer 101 studs.
+	local keepAway = Data.noticeStuds(Data.SPOOK) + rest.clearOfStartStuds
 	-- ...AND NOT BEHIND THE LINE EITHER (task 168, the Director's second pass). KAREN: *"animals
 	-- can't come behind beaters"*, and the dispatch: *"Nothing ever spawns or rests behind the
 	-- line"*.
@@ -1389,8 +1397,9 @@ end
 --
 -- ONE PASS OVER EVERY LIVE ANIMAL IN THE WORLD, resting or in a file, because "how close is too
 -- close" must have ONE answer (rule 3) -- task 153 put a copy of this inside `stepLines` when the
--- lines were the only animals there were. An animal inside `SPOOK.BEATER_STUDS` of any real beater
--- is spooked AWAY FROM HER: `Brain:_latchFlight` takes its heading from the point handed in, so one
+-- lines were the only animals there were. SINCE TASK 172 THE TEST IS `Data.encounterStage` -- the
+-- band, the circle and the stand's own clock, in one pure place -- and what was a single reach is
+-- its `flush` answer. An animal that reaches that stage is spooked AWAY FROM HER: `Brain:_latchFlight` takes its heading from the point handed in, so one
 -- standing north of it runs SOUTH, ahead of the push and over the road, which is Karen's *"so from
 -- me direction they looking they run away"*. And the fright is LATCHED -- *"it's not like they cool
 -- down they spooked and run away"* -- which is the one-way rule task 150 built for a heard shot and
@@ -1507,18 +1516,22 @@ function ForestTest.spookNearBeaters(now: number): string?
 			)
 		end
 	end
+	-- THE STAND IS REPORTED WHETHER OR NOT SOMETHING ELSE WENT ON THE SAME TICK (round 1's note,
+	-- which was right): one group bolting while another stands is exactly the tick the proof wants
+	-- to see, and the stand used to be printed only when nothing had bolted.
+	local stand = if stood > 0
+		then string.format(
+			"%d animal(s) stood and looked (%.0f s before they go) -- %d so far",
+			stood,
+			alertFor,
+			state.noticed
+		)
+		else nil
 	if #parts == 0 then
-		if stood > 0 then
-			return string.format(
-				"a beater was noticed: %d animal(s) stood and looked (%.0f s before they go) -- %d so far",
-				stood,
-				alertFor,
-				state.noticed
-			)
-		end
-		return nil
+		return if stand ~= nil then "a beater was noticed: " .. stand else nil
 	end
-	return string.format("a beater spooked %s -- %d latched so far", table.concat(parts, "; "), state.flushed)
+	local line = string.format("a beater spooked %s -- %d latched so far", table.concat(parts, "; "), state.flushed)
+	return if stand ~= nil then line .. "; and " .. stand else line
 end
 
 -- ONE TICK OF BEATER MODE: whether the wood needs filling. `spooked` is what
@@ -2190,7 +2203,8 @@ function ForestTest.stepLines(now: number)
 		-- `boarThreats` changes nothing for an animal walking a trail -- MEASURED in this place: she
 		-- walked to within 8.9 studs of a file and every member kept its ordered walk at 4.5
 		-- studs/s. Only a flight takes an animal out of a file, and the pass asks for one. It now
-		-- asks at `SPOOK.BEATER_STUDS` (25 m) instead of `PACE.DRIVER_RUN_STUDS` (25 studs, 7 m),
+		-- asks at `SPOOK.BEATER_STUDS` (20 m since task 172) instead of `PACE.DRIVER_RUN_STUDS`
+		-- (25 studs, 7 m),
 		-- and it asks for the LATCH -- Karen: *"it's not like they cool down they spooked and run
 		-- away"*. `Line.stillInFile` then drops the flying animal out of the file below, as it
 		-- always has.

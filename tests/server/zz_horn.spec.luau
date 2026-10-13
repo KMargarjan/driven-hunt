@@ -813,10 +813,9 @@ return function()
 			-- what is asserted here is that it TURNS: the two poses are not the same CFrame, and the
 			-- blow is pitched up.
 			expect(CONFIG.GRIP_BLOW).never.to.equal(CONFIG.GRIP)
-			local _, pitch = CONFIG.GRIP_BLOW:ToEulerAnglesXYZ()
-			local blowPitch = select(1, CONFIG.GRIP_BLOW:ToEulerAnglesXYZ())
-			expect(blowPitch < 0).to.equal(true)
-			expect(math.abs(pitch) < 1e-6).to.equal(true)
+			local blowPitch, blowYaw = CONFIG.GRIP_BLOW:ToEulerAnglesXYZ()
+			expect(blowPitch < 0).to.equal(true) -- turned up toward the mouth
+			expect(math.abs(blowYaw) < 1e-6).to.equal(true) -- and not twisted away from the face
 		end)
 
 		it("gives a bot beater the SAME horn, and the look sweep reaches it (task 172)", function()

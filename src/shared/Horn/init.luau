@@ -412,7 +412,9 @@ Horn.CONFIG = {
 	-- out, hanging below it when the arm is down, which is how a carried horn sits either way. The
 	-- old 25-degree roll was part of the screen-corner framing and has nothing to hold up now.
 	-- Photographed in third person before it was written down (rule 5):
-	-- `.screenshots/...-t172-horn-hand-tp.png`.
+	-- `.screenshots/20261013T094638Z-t172-grip-front.png`, a bot beater from the front and right.
+	-- (`.screenshots/` is git-ignored, so the file is on the Builder's machine and the request is
+	-- where its contents are described.)
 	GRIP = CFrame.new(0, 0, 0.25),
 	-- ...AND THE RAISE IS EXACTLY TASK 169's, NOT RE-BASED ONTO THE NEW POINT -- which was tried
 	-- first, measured, and rejected (task 172).
