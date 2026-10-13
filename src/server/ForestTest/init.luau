@@ -2412,6 +2412,17 @@ function ForestTest.readOnlyBoars(runtime)
 		capacity = function(_self)
 			return runtime:capacity()
 		end,
+		-- THE REAL ANIMALS AT THE GATHERING (task 173), and it belongs in a READ-ONLY view because it
+		-- writes nothing: it builds a fresh, unparented display model out of this runtime's own
+		-- template for that kind, registers nothing with the runtime and touches no live boar. The
+		-- drive parents it into its own `Workspace.DriveScene` and destroys it with that folder.
+		--
+		-- So the Forest Test's rule is unchanged -- the drive may not spawn, clear or move an animal
+		-- in a world it does not own -- while the row of boxes at the end of a drive becomes the real
+		-- animals here too, which is the place Karen plays.
+		displayCarcass = function(_self, kind: string?, cframe: CFrame)
+			return runtime:displayCarcass(kind, cframe)
+		end,
 	}
 end
 

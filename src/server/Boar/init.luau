@@ -41,6 +41,13 @@ Boar.Wound = Wound
 -- same reason `Brain` and `Wound` are exported whole.
 Boar.clipFor = Body.clipFor
 Boar.visualOffset = Body.visualOffset
+-- ...and the two the DISPLAY animal at the gathering rests on (task 173): how high a rolled mesh's
+-- centre sits, and the whole CFrame that puts it there. Pure -- studs and an angle in, a CFrame out
+-- -- so "is it lying on its side, and is it ON the ground" is arithmetic a spec states for all three
+-- kinds' measured sizes with nothing in the world. `Body.displayCarcass` itself stays private,
+-- because it writes Instances, and the runtime's own `displayCarcass` is what a spec drives.
+Boar.lyingHalfHeight = Body.lyingHalfHeight
+Boar.lyingCFrame = Body.lyingCFrame
 Boar.shouldFreeze = Body.shouldFreeze
 -- ...and the two the carcass anchor rests on, for the same reason: a spec cannot make a physics
 -- body topple on command, so the DECISION is testable even where the motion is not.
@@ -2044,6 +2051,22 @@ Boar.CONFIG.MODEL = {
 	-- branches stay reachable while the flag sits at one of them.
 	ENABLED = Flags.isOn("BOAR_MODEL"),
 	NAME = "Visual", -- the one child `Body.attachVisual` adds, and the only one
+	-- THE DISPLAY ANIMAL AT THE GATHERING (task 173). Karen, 2026-10-13: *"and after hunt over we
+	-- need to see boars shooted not boxes when we stand around"*. `Match.Scene` asks for one of these
+	-- per animal its drive shot and parents it into its own folder; `Body.displayCarcass` builds it.
+	DISPLAY_NAME = "DisplayCarcass",
+	-- WHICH WAY IT LIES, and the number is the TRADITION's, not a preference. jagdjuenger.de on
+	-- Streckelegen, verbatim: *"Jedes Stueck Wild ist stets auf die rechte Koerperseite zu legen."*
+	-- A NEGATIVE roll about the animal's own forward axis tips its up vector toward +X, which is its
+	-- RIGHT (`DEATH_TO_THE_LEFT` derives the live carcass's side from the opposite sign), so the
+	-- right side goes down.
+	--
+	-- A QUARTER TURN EXACTLY, where the live carcass rolls `WOUND.COLLAPSE_ROLL_DEG` = 45 and lets
+	-- GRAVITY finish the fall. A display is anchored scenery and nothing will ever finish anything
+	-- for it, so the pose has to be the finished one -- and 90 degrees is what "lying on its side"
+	-- measures as (`Body.lyingHalfHeight` carries the general angle, so this stays one number to
+	-- turn if Karen wants the animal propped).
+	DISPLAY_ROLL_DEG = -90,
 	CLIPS = BOAR_CLIPS,
 	ANIMATION_IDS = {}, -- filled per runtime by `setModelSource`; see above
 	-- The grey box is not deleted, it is made invisible -- and only once the model is really there.
@@ -3721,6 +3744,28 @@ end
 
 function Runtime:count(): number
 	return #self._boars -- carcasses included: they hold a slot for CARCASS_SECONDS
+end
+
+-- ONE DISPLAY ANIMAL OF THIS KIND, lying dead on its side at `cframe`, or nil (task 173).
+--
+-- THE ONE ROUTE FROM A KIND TO AN ASSET STAYS THE ONE ROUTE. `_modelTemplate` is the same lookup a
+-- live boar of that kind is dressed from -- this runtime's own `setModelSource`, which in the live
+-- server is `BoarAssetsBoot`'s `MODEL_KEYS` over `Assets.KEYS` -- so nothing anywhere else has to
+-- learn that a cub is `boar.cub`. An unknown kind gets what a live boar of that kind would get.
+--
+-- IT CREATES NOTHING IN THIS RUNTIME AND REGISTERS NOTHING: the model is unparented, this runtime
+-- never sees it again, and it does not count against `maxBoars`. That is what makes it safe to call
+-- while a drive is ending -- and why the Forest Test's read-only boar view may expose it (nothing is
+-- written) while still refusing `spawn` and `clear`.
+--
+-- NIL IS A STATE, NOT A FAULT, and the caller's answer to it is its own grey box: no template yet,
+-- the asset not published, `BOAR_MODEL` off, or a template that is not one mesh.
+function Runtime:displayCarcass(kind: string?, cframe: CFrame): Model?
+	-- `os.clock()` and not the step's own `now`: this is asked once per animal at the end of a drive,
+	-- off the step loop, and `_modelTemplate`'s once-a-second gate only ever delays a FIRST ask --
+	-- a template already held (which is the case for any kind this drive drew) comes back at once.
+	local template = self:_modelTemplate(kind or self._config.KINDS.DEFAULT, os.clock())
+	return Body.displayCarcass(template, cframe, self._config)
 end
 
 -- ALL OR NOTHING: it creates the whole sounder or nothing at all, so a half sounder cannot exist

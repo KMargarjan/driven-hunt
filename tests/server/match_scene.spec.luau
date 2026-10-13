@@ -474,4 +474,177 @@ return function()
 			expect(#Scene.folder():GetChildren()).to.equal(4)
 		end)
 	end)
+	describe("the REAL animals in the rows (task 173)", function()
+		-- KAREN, 2026-10-13 ~09:30, verbatim: *"and after hunt over we need to see boars shooted not
+		-- boxes when we stand around"*.
+		--
+		-- THE SEAM IS ALL THIS SPEC NEEDS, and that is the point of it being a seam: `displayFor` is
+		-- `function(kind, groundCFrame) -> Instance?`, so what `Match.Scene` does with a real animal
+		-- is provable with a Model this file makes out of one Part -- no asset, no boar, no network.
+		-- What the ANIMAL looks like and how it lies is `boar_model.spec`'s ("the display animal at
+		-- the gathering lies dead on its side"), because `Boar.Body` owns it.
+		local spot = Vector3.new(0, 10, -24)
+		local facing = Vector3.new(0, 0, 1)
+
+		afterEach(function()
+			Scene.clear()
+		end)
+
+		-- A display source that records every ask, and refuses the kinds it is told to refuse -- which
+		-- is how the per-animal fallback is driven.
+		local function recorder(refuse: { [string]: boolean }?)
+			local asks = {}
+			local function displayFor(kind: string?, ground: CFrame): Instance?
+				table.insert(asks, { kind = kind, ground = ground })
+				if refuse and refuse[kind or ""] then
+					return nil
+				end
+				local model = Instance.new("Model")
+				local part = Instance.new("Part")
+				part.Name = "FakeAnimal"
+				part.Size = Vector3.new(1, 1, 4)
+				part.Anchored = true
+				part.CFrame = ground
+				part.Parent = model
+				model.PrimaryPart = part
+				return model
+			end
+			return displayFor, asks
+		end
+
+		it("lays one real animal per shot animal, with its kind, where the row put it", function()
+			local kills = { { kind = "male" }, { kind = "female" }, { kind = "cub" } }
+			local displayFor, asks = recorder()
+			local laid = Scene.build(spot, facing, kills, CONFIG, displayFor)
+			expect(laid).to.equal(3)
+			local folder = Scene.folder()
+
+			-- ONE ASK PER ANIMAL, in the order they were shot, and with the kind the drive recorded.
+			expect(#asks).to.equal(3)
+			expect(asks[1].kind).to.equal("male")
+			expect(asks[3].kind).to.equal("cub")
+
+			-- ...AND THE CFRAME IS THE ROW'S OWN, to the stud: the scene decides where an animal lies
+			-- and hands that in, so a display can never be laid out by two different rules.
+			local row = Scene.rowLayout(spot, facing, 3, CONFIG)
+			for index = 1, 3 do
+				expect((asks[index].ground.Position - row[index].Position).Magnitude < 1e-3).to.equal(true)
+				-- ON THE GROUND, which is what a thing that lies down needs to be told: the frame's
+				-- own y is the spot's, with no half-height in it (that is the animal's business).
+				expect(math.abs(asks[index].ground.Position.Y - spot.Y) < 1e-3).to.equal(true)
+			end
+
+			-- EVERY ONE OF THEM IS IN THE FOLDER, named as the box was, with the same two facts on it.
+			local models = 0
+			for index = 1, 3 do
+				local child = folder:FindFirstChild(string.format("%s%d", Scene.ANIMAL_PREFIX, index))
+				expect(child).to.be.ok()
+				expect(child:IsA("Model")).to.equal(true)
+				expect(child:GetAttribute("Kind")).to.equal(kills[index].kind)
+				-- WHETHER IT IS THE REAL ANIMAL, on the thing itself: one attribute is the difference
+				-- between "the asset did not load" and "the scene is wrong", and a live probe can
+				-- count it without knowing what a boar model looks like.
+				expect(child:GetAttribute("Model")).to.equal(true)
+				models += 1
+			end
+			expect(models).to.equal(3)
+			-- ...and the four torches are still four torches. Nothing else about the scene moved.
+			expect(#folder:GetChildren()).to.equal(7)
+			expect(Scene.stats().models >= 3).to.equal(true)
+		end)
+
+		it("faces every animal in the row the same way, which is the scene's own facing", function()
+			-- A row reads as a row because they all lie the same way round (the tradition's rule as
+			-- well: one species to a row, every animal on the same side).
+			local kills = {}
+			for _ = 1, 4 do
+				table.insert(kills, { kind = "male" })
+			end
+			local displayFor, asks = recorder()
+			Scene.build(spot, facing, kills, CONFIG, displayFor)
+			expect(#asks).to.equal(4)
+			local first = asks[1].ground.LookVector
+			for index = 2, 4 do
+				expect((asks[index].ground.LookVector - first).Magnitude < 1e-4).to.equal(true)
+			end
+			-- ...AND IT IS THE FACING THE SCENE WAS GIVEN, flat: the drive line's normal, which points
+			-- up the drive at the beaters.
+			expect((first - facing.Unit).Magnitude < 1e-4).to.equal(true)
+		end)
+
+		it("keeps the grey box for an animal it cannot draw, one animal at a time", function()
+			-- THE FALLBACK IS PER ANIMAL AND NOT PER SCENE: a drive that shot a male and a cub, with
+			-- only the male's asset published, lays out one model and one box. A mixed row is the
+			-- honest row, and this is the state every world is in before its assets load.
+			local kills = { { kind = "male" }, { kind = "cub" } }
+			local displayFor = recorder({ cub = true })
+			Scene.build(spot, facing, kills, CONFIG, displayFor)
+			local folder = Scene.folder()
+			local male = folder:FindFirstChild("Animal1")
+			local cub = folder:FindFirstChild("Animal2")
+			expect(male:IsA("Model")).to.equal(true)
+			expect(male:GetAttribute("Model")).to.equal(true)
+			-- THE BOX, UNCHANGED FROM TASK 159: a Part, at the kind's own size, on the ground, and
+			-- unable to stop a pellet.
+			expect(cub:IsA("Part")).to.equal(true)
+			expect(cub:GetAttribute("Model")).to.equal(false)
+			expect(cub:GetAttribute("Kind")).to.equal("cub")
+			expect((cub.Size - Scene.animalSize("cub", CONFIG)).Magnitude < 1e-3).to.equal(true)
+			expect(math.abs((cub.Position.Y - cub.Size.Y / 2) - spot.Y) < 1e-3).to.equal(true)
+			expect(cub.CanQuery).to.equal(false)
+			expect(cub.Anchored).to.equal(true)
+
+			-- NO SOURCE AT ALL is the same answer for every animal, which is what every case above
+			-- this describe has been asserting since task 159 -- and the DEV quick test's own state.
+			Scene.build(spot, facing, kills, CONFIG, nil)
+			expect(Scene.folder():FindFirstChild("Animal1"):IsA("Part")).to.equal(true)
+			expect(Scene.folder():FindFirstChild("Animal1"):GetAttribute("Model")).to.equal(false)
+		end)
+
+		it("takes the real animals down with the scene, and rebuilds rather than adds", function()
+			-- A DISPLAY IS THE SCENE'S OWN OBJECT: it arrives unparented, the scene parents it, and
+			-- the scene destroys it with its folder. Nothing of one drive's bag may be standing when
+			-- the next drive is counted in.
+			local displayFor = recorder()
+			Scene.build(spot, facing, { { kind = "male" }, { kind = "female" } }, CONFIG, displayFor)
+			local first = Scene.folder()
+			local kept = first:FindFirstChild("Animal1")
+			expect(kept).to.be.ok()
+			expect(#first:GetChildren()).to.equal(6) -- two animals, four torches
+
+			-- A SECOND DRIVE REPLACES THE FIRST, whole.
+			Scene.build(spot, facing, { { kind = "cub" } }, CONFIG, displayFor)
+			expect(first.Parent).to.equal(nil)
+			expect(kept.Parent).to.equal(nil) -- the real animal went with the folder
+			expect(#Scene.folder():GetChildren()).to.equal(5)
+
+			-- ...and taking the scene down takes them all.
+			local second = Scene.folder():FindFirstChild("Animal1")
+			expect(Scene.clear()).to.equal(true)
+			expect(second.Parent).to.equal(nil)
+			expect(Scene.folder()).to.equal(nil)
+			TestKit.note(
+				string.format(
+					"match_scene: models=%d boxes=%d animals=%d",
+					Scene.stats().models,
+					Scene.stats().boxes,
+					Scene.stats().animals
+				)
+			)
+		end)
+
+		it("still caps a long drive's bag, and asks for no more animals than it lays out", function()
+			-- The cap is task 159's and is untouched: a long drive lays out `MAX_ANIMALS` and no
+			-- display is built for the ones it does not lay out -- which is also the one thing that
+			-- bounds the cost of this task (an ask is a Clone of a skinned mesh).
+			local many = {}
+			for _ = 1, CONFIG.SCENE.MAX_ANIMALS + 5 do
+				table.insert(many, { kind = "male" })
+			end
+			local displayFor, asks = recorder()
+			local laid = Scene.build(spot, facing, many, CONFIG, displayFor)
+			expect(laid).to.equal(CONFIG.SCENE.MAX_ANIMALS)
+			expect(#asks).to.equal(CONFIG.SCENE.MAX_ANIMALS)
+		end)
+	end)
 end
