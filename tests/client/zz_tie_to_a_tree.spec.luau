@@ -11,10 +11,26 @@
 -- WHAT IT ASSERTS DEPENDS ON WHO IS IN THE SESSION, which is what makes it run in both harness modes
 -- (`test` and `test2`), and neither branch is a skip -- each one asserts a real rule:
 --   * TWO PLAYERS (test2): this client is the SHOOTER, the other is the DRIVER standing on the driver
---     pad. This spec walks up behind him, keeps the camera on him, the harness replays a click, and
---     the server ties this player to a tree. Click -> ContextActionService -> client weapon ->
+--     pad. This spec walks up behind him, keeps the camera BESIDE him, the harness replays a click,
+--     and the server ties this player to a tree. Click -> ContextActionService -> client weapon ->
 --     FireRequest -> validator -> cast -> Weapon.SafetyArc's 45-degree filter -> Match.Penalty.judge
 --     -> Match.Body.tie -> the snapshot's `tied` list -> this client's Hud banner. Nothing is stubbed.
+--
+-- SINCE TASK 171 THERE ARE TWO RULES ABOUT A SHOT NEAR A BEATER, AND THIS SPEC STAGES BOTH -- which
+-- is the change this file carries and the reason the aim moved five studs:
+--   1. THE RAY WOULD HIT HIM -> THE SHOT IS REFUSED. `Weapon.Rules.beaterInLine`, Karen 2026-10-11:
+--      *"thye just can't shoot them"*. Nothing fires, nothing is spent, NOBODY IS TIED -- there is no
+--      shot to judge. Staged by the probe in `onCue` below, aimed dead at him.
+--   2. THE RAY MISSES HIM BUT PASSES WITHIN `SAFETY_MISS_STUDS` -> THE SHOT FIRES AND TIES HIM.
+--      That is what the arc is FOR: shooting dangerously close to the line of men
+--      (`Match.Penalty.judge`). Staged by the real replayed click, aimed `BESIDE_STUDS` to his side.
+-- THE TWO CANNOT BOTH HAPPEN TO ONE SHOT, and that is the whole of "no double handling": a refused
+-- shot returns before `Weapon.SafetyViolated` is published, so the penalty is only ever reached by a
+-- shot that was fired. UNTIL TASK 171 THIS SPEC STAGED CASE 1 AND EXPECTED CASE 2's OUTCOME: it
+-- aimed dead at the driver (`miss 0.0 of 12`, measured in the Director's `test2` at `5e0ee90`) and
+-- the new rule correctly refused the shot, so nothing was tied and this spec failed at the tie.
+-- **The tie proof is not weakened and was not deleted** -- it is staged on the shot the arc exists
+-- to punish, and the refusal it used to stage by accident is now asserted on purpose.
 --   * ONE PLAYER (test): there is no driver, so this fires the same shot straight INTO the drive and
 --     asserts that nothing happens. That is not a weaker test -- it is the case the design rejected
 --     an earlier rule for: a shooter on a post faces the drive, so if "inside the 45-degree cone"
@@ -32,6 +48,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
+-- THE WIRE ITSELF (task 171), for the refusal probe: one `FireRequest` with a legal payload, aimed
+-- at the driver. `src/client/Weapon/Input.luau` is still the only firer of it in CLIENT CODE -- this
+-- is a spec driving the player's own path at the wire, exactly as `weapon_client.spec` already fires
+-- payloads through `Shotgun.remotes().FireRequest` -- and it is the only way to stage two different
+-- shots inside one replayed scenario, which carries one click.
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- One fact, for one question: is the Tool in this player's hands a GUN? (task 152)
@@ -51,6 +73,16 @@ local CUE_TIMEOUT = 240
 local TIE_TIMEOUT = 25 -- from the cue to the snapshot saying so
 local STAND_BEHIND = 25 -- studs behind the driver, so the shot cannot stop in something else
 local DOWN_THE_DRIVE = 200 -- studs up +Z, for the one-player shot at nobody
+-- HOW FAR BESIDE HIM THE TIE SHOT IS AIMED (task 171). It has to clear his BODY -- an R15 character
+-- is about two studs across, so five studs from the root centre passes him by a clear margin and the
+-- aim ray hits the ground or nothing instead of a man -- and it has to stay well inside
+-- `Match.CONFIG.SAFETY_MISS_STUDS` (12), which is what makes the shot a violation. At
+-- `STAND_BEHIND` = 25 studs it is 11.3 degrees off the drive, deep inside the 45-degree half-arc
+-- (`Shotgun.CONFIG.SAFETY_ARC_HALF_DEG`), so the arc still publishes it.
+local BESIDE_STUDS = 5
+-- Seconds to wait for the server's answer to the probe shot. It is one round trip; the gun publishes
+-- on the refusal with `force`, so this is slack and not a guess.
+local PROBE_TIMEOUT = 3
 
 local cuedAt: number? = nil
 local stagedFrom: Vector3? = nil
@@ -62,6 +94,21 @@ local violations = {}
 -- barrels and the reserve change on a shot and on nothing else, so the pair splits it.
 local stagedGun: string? = nil
 local stagedTheirs: Vector3? = nil
+-- WHAT THE PROBE SHOT MEASURED (task 171): the reason the server gave for refusing it, and the gun
+-- before and after -- which is what "no shell spent" means on this side of the wire.
+local probeReason: string? = nil
+local probeBefore: string? = nil
+local probeAfter: string? = nil
+local probeFired = false
+-- EVERY REFUSAL THIS CLIENT WAS TOLD ABOUT, recorded as it arrives. `refused` belongs to ONE
+-- published snapshot, and the arming sweep publishes again every two seconds with the field empty --
+-- so reading `Weapon.get().refused` later is a race, and this is not.
+local refusals: { string } = {}
+Weapon.Changed:Connect(function(snapshot)
+	if snapshot ~= nil and type(snapshot.refused) == "string" then
+		table.insert(refusals, snapshot.refused)
+	end
+end)
 
 local function gunPrint(): string
 	local snap = Weapon.get()
@@ -151,6 +198,33 @@ local function onCue(_name: string, state: Enum.UserInputState)
 		stagedDistance = STAND_BEHIND
 		stagedTheirs = theirs.Position
 		stagedGun = gunPrint()
+		-- RULE 1, STAGED ON PURPOSE (task 171): one shot aimed DEAD AT HIM, which the server must
+		-- refuse. It goes first, before the replayed click, because a tie takes the gun away and a
+		-- refusal has to be measured while there is still a gun to refuse with.
+		--
+		-- IN A SPAWNED THREAD, because this is a `ContextActionService` callback and must not yield;
+		-- the input it is bound to is the cue, and the harness's own click is seconds behind it (the
+		-- fire limiter is `FIRE_RATE_LIMIT` = 6 a second, so the two cannot collide).
+		task.spawn(function()
+			local camera = workspace.CurrentCamera
+			local eye = if camera then camera.CFrame.Position else at
+			local toward = theirs.Position - eye
+			if toward.Magnitude < 1e-3 then
+				return
+			end
+			probeBefore = gunPrint()
+			local before = #refusals
+			-- The payload the client's own `Input.onFire` sends, and nothing else: an origin and a
+			-- unit direction (design section 5.7).
+			Shotgun.remotes().FireRequest:FireServer({ origin = eye, direction = toward.Unit })
+			probeFired = true
+			local deadline = os.clock() + PROBE_TIMEOUT
+			while os.clock() < deadline and #refusals == before do
+				task.wait(0.05)
+			end
+			probeReason = refusals[before + 1]
+			probeAfter = gunPrint()
+		end)
 	end
 	return Enum.ContextActionResult.Pass
 end
@@ -167,7 +241,12 @@ local aiming = RunService.RenderStepped:Connect(function()
 	local target = driver()
 	local theirs = if target then rootOf(target) else nil
 	if theirs then
-		Camera.lookAt(theirs.Position)
+		-- BESIDE HIM, NOT AT HIM (task 171). Aimed at him the shot is REFUSED before it exists
+		-- (`Weapon.Rules.beaterInLine`) and there is nothing for the safety rule to judge; aimed five
+		-- studs to his side it is fired, it passes within `SAFETY_MISS_STUDS` of him, and the arc and
+		-- `Match.Penalty` do what this spec is named for. The refusal is staged by the probe in
+		-- `onCue` and asserted in its own case.
+		Camera.lookAt(theirs.Position + Vector3.new(BESIDE_STUDS, 0, 0))
 		return
 	end
 	local me = rootOf(player)
@@ -230,6 +309,54 @@ return function()
 			expect(shooter).to.equal(Match.myTeam() == "Shooters")
 		end)
 
+		-- RULE 1 OF TASK 171, AND IT RUNS BEFORE THE TIE CASE ON PURPOSE: the tie takes the gun away,
+		-- so a refusal can only be measured while the player still has one. The probe fired at the
+		-- cue, which is seconds before the replayed click the next case depends on.
+		it("refuses a shot aimed straight at a beater, and spends nothing doing it", function()
+			expect(cued()).to.equal(Match.myTeam() == "Shooters")
+
+			if Role.isDriver() then
+				-- A driver carries no gun, so he cannot stage this at all.
+				expect(holdsGun()).to.equal(false)
+				return
+			end
+
+			if driver() == nil then
+				-- ONE PLAYER: there is nobody to refuse a shot at, so the probe never fired -- and
+				-- that is the honest assertion rather than a skip. The shot this session fires goes
+				-- down an empty drive and is judged by the next case.
+				expect(#Players:GetPlayers()).to.equal(1)
+				expect(probeFired).to.equal(false)
+				expect(probeReason).to.equal(nil)
+				TestKit.note("zz_tie: one player, so no beater to refuse a shot at; probe not fired")
+				return
+			end
+
+			-- TWO PLAYERS: the probe was fired dead at him.
+			expect(waitUntil(PROBE_TIMEOUT + 2, function()
+				return probeAfter ~= nil
+			end)).to.equal(true)
+			TestKit.note(
+				string.format(
+					"zz_tie: probe aimed AT the driver -> refused=%s; gun before [%s] after [%s]; refusals seen [%s]",
+					tostring(probeReason),
+					tostring(probeBefore),
+					tostring(probeAfter),
+					table.concat(refusals, ", ")
+				)
+			)
+			expect(probeFired).to.equal(true)
+			-- THE SERVER'S OWN WORD FOR IT, off the wire: `Weapon.Rules.REASON.BEATER`.
+			expect(probeReason).to.equal("beater-in-line")
+			-- NOTHING WAS SPENT. The gun print carries the barrels and the pocket, so an unchanged
+			-- string is "no shell, no barrel, no reload" in one comparison.
+			expect(probeAfter).to.equal(probeBefore)
+			-- AND NOBODY WAS TIED BY IT: there was no shot to judge. The next case is what ties him,
+			-- with a shot that was really fired.
+			expect(Match.isTied()).to.equal(false)
+			expect(#violations).to.equal(0)
+		end)
+
 		it("ties the shooter to a tree when a driver was in its path, or nobody when none was", function()
 			expect(cued()).to.equal(Match.myTeam() == "Shooters")
 
@@ -257,7 +384,9 @@ return function()
 				return
 			end
 
-			-- TWO PLAYERS: the shot really did go at a person.
+			-- TWO PLAYERS: the shot really did go dangerously close to a person -- `BESIDE_STUDS` off
+			-- his body and inside `SAFETY_MISS_STUDS`, which is the shot the arc exists to punish
+			-- (task 171; before it this aim was dead at him, which the new rule refuses outright).
 			expect(stagedDistance).to.equal(STAND_BEHIND)
 			local tied = waitUntil(TIE_TIMEOUT, function()
 				return Match.isTied()
@@ -278,23 +407,30 @@ return function()
 					else -1
 				-- How far the driver is off the line this shot was staged on: `miss` in Penalty's own
 				-- terms, against `SAFETY_MISS_STUDS` (12).
+				-- AGAINST THE POINT THE SHOT WAS AIMED AT, which since task 171 is `BESIDE_STUDS` to
+				-- his side -- not his root. Measured off his root this number was 0.0 by
+				-- construction and said nothing; measured off the aim line it is the quantity
+				-- `Penalty.judge` actually compares with `SAFETY_MISS_STUDS`, so a drift that
+				-- carried him out of the 12 studs would be visible here.
 				local miss = -1
 				if theirsNow and meNow then
-					local aim = theirsNow.Position - meNow.Position
+					local aim = (theirsNow.Position + Vector3.new(BESIDE_STUDS, 0, 0)) - meNow.Position
 					if aim.Magnitude > 1e-6 then
-						local toward = (theirsNow.Position - meNow.Position)
+						local toward = theirsNow.Position - meNow.Position
 						miss = (toward - aim.Unit * toward:Dot(aim.Unit)).Magnitude
 					end
 				end
-				TestKit.note(
-					string.format(
-						"zz_tie: NOT tied. phase=%s holdsGun=%s from=%s violations=%d",
-						tostring(snapshot and snapshot.phase),
-						tostring(holdsGun()),
-						tostring(stagedFrom),
-						#violations
-					)
-				)
+				TestKit.note(string.format(
+					"zz_tie: NOT tied. phase=%s holdsGun=%s from=%s violations=%d refusals=[%s]",
+					tostring(snapshot and snapshot.phase),
+					tostring(holdsGun()),
+					tostring(stagedFrom),
+					#violations,
+					-- SINCE TASK 171 THIS IS THE FIRST THING TO READ: a refusal here means the
+					-- shot was never fired, so the Match was never asked -- the aim is back on
+					-- his body instead of `BESIDE_STUDS` off it.
+					table.concat(refusals, ", ")
+				))
 				TestKit.note(
 					string.format(
 						"zz_tie: driver staged at %s, now %s (drift %.1f); me staged %s, now %s (drift %.1f); miss %.1f of %d",
@@ -314,6 +450,17 @@ return function()
 				TestKit.note(string.format("zz_tie: gun at cue [%s] -> now [%s]", tostring(stagedGun), gunPrint()))
 			end
 			expect(tied).to.equal(true)
+			-- ...AND IT WAS A SHOT, NOT A REFUSAL. One line, because the pair of them IS the task 171
+			-- rule: the probe aimed at him was refused and tied nobody, and this shot aimed five
+			-- studs off him was fired and tied him.
+			TestKit.note(
+				string.format(
+					"zz_tie: TIED by a shot aimed %d studs beside the driver at %d studs; probe aimed at him was refused=%s",
+					BESIDE_STUDS,
+					STAND_BEHIND,
+					tostring(probeReason)
+				)
+			)
 
 			-- The snapshot is what everyone sees, and it names him.
 			local snapshot = Match.get()

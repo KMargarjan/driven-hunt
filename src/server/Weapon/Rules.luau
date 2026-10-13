@@ -21,6 +21,22 @@
 -- A shot cannot be both, because a refused shot never fires `Weapon.SafetyViolated` at all -- the
 -- owner returns before it.
 --
+-- SO THE BOUNDARY BETWEEN THE TWO IS HIS BODY, and it was MEASURED rather than reasoned about: the
+-- Director's two-player run at `5e0ee90` staged a driver 25 studs out and DEAD ON the shot line
+-- (`miss 0.0 of 12`, `zz_tie_to_a_tree.spec`'s own note), the new rule refused that shot, and
+-- nothing was tied -- the tie proof had been staging a refusal all along. The two rules in one
+-- sentence each, which is what the game does now:
+--   * the aim ray WOULD HIT HIM -> refused. No fire, no shell, no tie, no punishment.
+--   * the aim ray MISSES HIM but the shot passes within `Match.CONFIG.SAFETY_MISS_STUDS` (12) of him
+--     inside the arc -> FIRED, and he is tied to a tree. That is what the arc is for.
+-- `zz_tie_to_a_tree.spec` stages both: the probe aimed at him (refused, ties nobody) and the real
+-- replayed click aimed `BESIDE_STUDS` = 5 studs off his body (fired, ties the shooter).
+--
+-- THE EDGE IS SHARP AND THAT IS DELIBERATE: a man who aims AT a beater is stopped and not punished
+-- (Karen: *"No penalty now"*), and a man who aims a yard past him is punished. Softening it would
+-- mean punishing the refused shot, which is the thing she asked not to happen, or refusing the near
+-- miss, which would retire the safety rule she asked for in the first place.
+--
 -- Pattern: one pure predicate per question, over an injected provider per fact -- Luanti's
 -- `core.is_protected` ("Mods should use core.is_protected when testing whether a player owns a
 -- specific position, and protection mods simply override this function"), committed only after
