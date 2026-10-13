@@ -1649,10 +1649,36 @@ return function()
 				local want = (firstPersonConfig :: any).HORN.carry.item
 				expect((offsets[1].Position - want.Position).Magnitude < 1e-3).to.equal(true)
 
+				-- ...AND A SWITCH BACK TO A GUN REBUILDS IT AS A GUN. `builtFrom` is a Handle identity
+				-- and says nothing about what was MADE out of it, so without `builtKind` the next
+				-- frame would pose a horn's clone with a gun's numbers -- or keep drawing the horn for
+				-- a player who has just been handed a shotgun.
+				local gunHandle = Instance.new("MeshPart")
+				gunHandle.Name = "Handle"
+				gunHandle.Size = Shotgun.CONFIG.HANDLE_SIZE
+				gunHandle.Transparency = 1
+				Camera.Viewmodel.setSource(function()
+					return gunHandle
+				end)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				local swapped = Camera.Viewmodel.current()
+				expect(swapped).to.be.ok()
+				expect((swapped :: Model).Name).to.equal("DrivenHuntViewmodel")
+				expect(Camera.Viewmodel.hornMouthpiece()).to.equal(nil)
+				gunHandle:Destroy()
+				Camera.Viewmodel.setSource(function()
+					return handle
+				end)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				expect((Camera.Viewmodel.current() :: Model).Name).to.equal("DrivenHuntHornViewmodel")
+
 				-- THE RIGHT GLOVE IS ON IT, when the templates are there at all. The real ones are
 				-- loaded on the server, so this is a note rather than a demand -- `handsMissing`
 				-- counts the other case, and the gun's own case drives the injected templates.
-				local hand = clone:FindFirstChild("HandRight")
+				-- READ OFF THE MODEL THAT IS ON SCREEN NOW, not off `clone`: the swap above destroyed
+				-- the first clone and built a third one, so the old reference is a destroyed part.
+				local rebuilt = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local hand = rebuilt:FindFirstChild("HandRight")
 				TestKit.note(
 					string.format("camera_client: the drawn horn has %s right glove", if hand then "its" else "NO")
 				)
@@ -1697,19 +1723,26 @@ return function()
 				-- a REFUSED one (the cooldown, or a beater through the line) never moves this and the
 				-- horn never goes to a mouth that makes no sound.
 				tool:SetAttribute(Horn.BLOW_ATTRIBUTE, 1)
+				-- THE FRAME THAT NOTICES IS THE START OF THE GESTURE, NOT A FRAME INTO IT, and this
+				-- is where that is asserted rather than assumed: the attribute replicates whenever it
+				-- replicates, so the clock starts on the frame this client first sees it and the horn
+				-- is still at the carry for that one frame. (Round zero of this case had the raise a
+				-- frame early, measured here.)
+				local startedAt = now
+				expect((drawnOffset().Position - poses.carry.item.Position).Magnitude < 1e-3).to.equal(true)
 				-- Half way up the raise: between the two poses and at neither of them.
-				now += Horn.BLOW_POSE.RAISE_SECONDS / 2
+				now = startedAt + Horn.BLOW_POSE.RAISE_SECONDS / 2
 				local half = drawnOffset()
 				expect((half.Position - poses.carry.item.Position).Magnitude > 0.05).to.equal(true)
 				expect((half.Position - poses.blow.item.Position).Magnitude > 0.05).to.equal(true)
 				-- AT THE MOUTH, and it stays there for the whole blast.
-				now = Horn.BLOW_POSE.RAISE_SECONDS
+				now = startedAt + Horn.BLOW_POSE.RAISE_SECONDS
 				expect((drawnOffset().Position - poses.blow.item.Position).Magnitude < 1e-3).to.equal(true)
-				now = Horn.CONFIG.BLOW_SECONDS - 0.01
+				now = startedAt + Horn.CONFIG.BLOW_SECONDS - 0.01
 				expect((drawnOffset().Position - poses.blow.item.Position).Magnitude < 1e-3).to.equal(true)
 				-- ...AND IT COMES BACK DOWN. The gesture ends exactly `LOWER_SECONDS` after the blast
 				-- does, which is task 168's own number and the server's own fade.
-				now = Horn.CONFIG.BLOW_SECONDS + Horn.BLOW_POSE.LOWER_SECONDS
+				now = startedAt + Horn.CONFIG.BLOW_SECONDS + Horn.BLOW_POSE.LOWER_SECONDS
 				expect((drawnOffset().Position - poses.carry.item.Position).Magnitude < 1e-3).to.equal(true)
 				-- A SECOND BLAST IS A SECOND NUMBER, and nothing else: the same attribute value
 				-- written again is not a blast, which is what stops a replicated re-send raising the
@@ -1718,7 +1751,9 @@ return function()
 				now += 10
 				expect((drawnOffset().Position - poses.carry.item.Position).Magnitude < 1e-3).to.equal(true)
 				tool:SetAttribute(Horn.BLOW_ATTRIBUTE, 2)
-				now += Horn.BLOW_POSE.RAISE_SECONDS
+				startedAt = now
+				expect((drawnOffset().Position - poses.carry.item.Position).Magnitude < 1e-3).to.equal(true)
+				now = startedAt + Horn.BLOW_POSE.RAISE_SECONDS
 				expect((drawnOffset().Position - poses.blow.item.Position).Magnitude < 1e-3).to.equal(true)
 				-- THE MOUTHPIECE IS WHAT REACHES THE MOUTH, and where it is on the object comes from
 				-- `Horn.mouthpieceOffset` rather than from a number here. In the camera's frame it is
