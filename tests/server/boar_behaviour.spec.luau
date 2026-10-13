@@ -859,10 +859,19 @@ return function()
 			expect(brain:state()).to.equal("ALERT")
 			-- IT STANDS STILL AND FACES HIM, which is what ALERT already is: no route is asked for
 			-- and the setpoint is zero.
+			--
+			-- THE STEP THAT ENDS THE STAND IS NOT PART OF IT, and that is what the first gate run
+			-- caught: `_settle` fires INSIDE `step`, so the call that takes the animal out of ALERT
+			-- comes back with an IDLE intent and the calm repertoire's own wander speed in it. Reading
+			-- the state off the brain BEFORE the step therefore counted one grazing tick as an alert
+			-- one. The INTENT says which state the tick belongs to, so that is what is read.
 			local fastest = 0
 			local held = 0
-			while brain:state() == "ALERT" and held < 3 do
+			while held < 3 do
 				local intent = brain:step(DT, obs(START, {}))
+				if intent.state ~= "ALERT" then
+					break
+				end
 				expect(intent.pathRequest).to.equal(nil)
 				if held > 0.2 then
 					fastest = math.max(fastest, intent.targetVelocity.Magnitude)
