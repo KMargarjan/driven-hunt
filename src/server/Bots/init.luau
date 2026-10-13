@@ -695,6 +695,28 @@ function Bots.beaters(): { { id: string, position: Vector3 } }
 	return out
 end
 
+-- IS THIS INSTANCE ONE OF THE BEATERS? (task 171) The weapon's fire gate refuses a shot whose aim
+-- ray would hit a beater, and a bot beater is a man walking the drive exactly as a player one is --
+-- Karen: *"thye just can't shoot them"*, and she tests this world alone with a line of bots.
+--
+-- `bot.to ~= nil` IS THE SAME QUESTION `teamWalks` ASKS and that is deliberate: a bot that walks is
+-- a beater, which is the one definition this module has, used by `Bots.beaters` above and by the
+-- gait `Rig.prepare` gives it. A second rule here would be a second answer to "is he a beater".
+--
+-- It takes an INSTANCE and walks up: a ray hits a limb, not a Model.
+function Bots.isBeaterPart(instance: Instance?): boolean
+	local node = instance
+	while node ~= nil do
+		for _, bot in pairs(bots) do
+			if bot.model == node then
+				return teamWalks(bot)
+			end
+		end
+		node = node.Parent
+	end
+	return false
+end
+
 -- EVERYTHING A BOAR CAN PERCEIVE ABOUT THE BOTS, each carrying its kind -- `Body.boarStimuli`'s own
 -- shape and the same two words. **NO `phantom` MARK**, because somebody IS standing here: that mark
 -- exists to tell `Boar.CONFIG.PACE` that a "driver" this close is nobody, and the whole point of a
@@ -730,6 +752,9 @@ function Bots.view()
 		count = Bots.count,
 		desired = Bots.desired,
 		beaters = Bots.beaters,
+		-- ...AND WHETHER A PARTICULAR BODY IS ONE OF THEM (task 171), which is the question the
+		-- weapon's fire gate asks through `Match.classifyTarget`.
+		isBeaterPart = Bots.isBeaterPart,
 		threats = Bots.threats,
 	}
 end

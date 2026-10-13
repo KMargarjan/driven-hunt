@@ -39,6 +39,10 @@ local Hits = require(script.Hits)
 local Limits = require(script.Limits)
 local Pattern = require(script.Pattern)
 local Registry = require(script.Registry)
+-- THE THREE RULES OF TASK 171 (can't shoot a beater, can't shoot off your stand, can't shoot a
+-- species you have no licence for). Pure, like every other module in this folder, and asked in
+-- the order this file chooses -- see `onFireRequest`.
+local Rules = require(script.Rules)
 local SafetyArc = require(script.SafetyArc)
 local Shapes = require(script.Shapes)
 local StateMachine = require(script.StateMachine)
@@ -61,6 +65,9 @@ Weapon.Hits = Hits
 Weapon.Weapons = Weapons
 Weapon.Shapes = Shapes
 Weapon.SafetyArc = SafetyArc
+-- The three fire rules (task 171), exported for the same reason every pure module above is: a spec
+-- drives them with hand-written numbers, no world and no drive.
+Weapon.Rules = Rules
 Weapon.Cast = Cast
 Weapon.Hardware = Hardware
 Weapon.Shape = Shapes.BY_ID.shotgun
@@ -98,6 +105,14 @@ local stats = {
 	meshUpgradeFails = 0, -- passes of that upgrade that ERRORED, so a silent one cannot look like a no-op
 	emptySwaps = 0,
 	markers = 0,
+	-- HOW MANY SHOTS THE RULES REFUSED (task 171), and which rule refused them. Separate from
+	-- `badRequests` on purpose: a refused shot is a LEGAL request that the game said no to, and
+	-- counting it as a bad request would hide a mis-wired provider inside the forgery counter.
+	refused = 0,
+	refusedBy = {} :: { [string]: number },
+	-- Passes of `Weapon.refillForDrive` that actually refilled a drive's shells (task 171): 0 in a
+	-- running drive means the drive is not calling it.
+	refills = 0,
 }
 
 -- Seconds between arming sweeps. EDGE-TRIGGERED ARMING MISSES, and a miss is permanent: the drive
@@ -139,12 +154,70 @@ local driveLineProvider: Shotgun.DriveLineProvider? = nil
 -- uses, so every tests/server/weapon_*.spec.luau is untouched.
 local armingPolicy: ((Player) -> boolean)? = nil
 
+-- THE THREE FACTS THE RULES NEED (task 171), injected at the composition root exactly as the two
+-- above are: the drive answers them and the weapon still decides and still writes
+-- (docs/research/2026-10-13-the-rules.md, the pattern adopted, item 3).
+--
+-- WITH NO PROVIDER WIRED EVERY ANSWER IS "NO RESTRICTION", so a server with no Match -- which is
+-- every tests/server/weapon_*.spec.luau and the bare DEV place -- fires exactly as it did before
+-- this task. A gate that defaulted to "refuse" would make an unwired world look like Karen's rule
+-- working, which is the silent failure this repo measures instead of assuming.
+local targetProvider: ((Instance?) -> Rules.Target?)? = nil
+local standProvider: ((Player) -> Rules.StandArea?)? = nil
+local licenceProvider: ((Player) -> { [string]: boolean }?)? = nil
+
 function Weapon.setCast(cast: Shotgun.CastFn?)
 	castFn = cast or Cast.world
 end
 
 function Weapon.setDriveLineProvider(provider: Shotgun.DriveLineProvider?)
 	driveLineProvider = provider
+end
+
+-- WHAT THE AIM RAY HIT, as the thing's own owner describes it: `{ beater = true }` for a man walking
+-- the drive, `{ species = "boar" }` for an animal. The weapon knows what neither of those IS.
+function Weapon.setTargetProvider(provider: ((Instance?) -> Rules.Target?)?)
+	targetProvider = provider
+end
+
+-- THIS PLAYER'S STAND CIRCLE, or nil for "he has none" -- a beater, a player between drives, a
+-- hunter whose 15 s pick has not locked.
+function Weapon.setStandProvider(provider: ((Player) -> Rules.StandArea?)?)
+	standProvider = provider
+end
+
+-- WHICH SPECIES HE IS LICENSED FOR. Unwired today, and deliberately: no deer exists, and a boar
+-- needs no licence (`Licences.ROWS`), so the rule is reachable and inert. The shop task wires it.
+function Weapon.setLicenceProvider(provider: ((Player) -> { [string]: boolean }?)?)
+	licenceProvider = provider
+end
+
+-- EVERY PROVIDER IS CALLED THROUGH `pcall`, the rule `mayArm` already states: a provider that errors
+-- must not leave a player permanently unable to shoot AND must not silently remove the rule. It
+-- falls back to "no restriction", which is the weapon's own default and what a server with no Match
+-- uses anyway.
+local function askTarget(instance: Instance?): Rules.Target?
+	if targetProvider == nil then
+		return nil
+	end
+	local ok, target = pcall(targetProvider :: any, instance)
+	return if ok and type(target) == "table" then target else nil
+end
+
+local function askStand(player: Player): Rules.StandArea?
+	if standProvider == nil then
+		return nil
+	end
+	local ok, area = pcall(standProvider :: any, player)
+	return if ok and type(area) == "table" then area else nil
+end
+
+local function askLicences(player: Player): { [string]: boolean }?
+	if licenceProvider == nil then
+		return nil
+	end
+	local ok, held = pcall(licenceProvider :: any, player)
+	return if ok and type(held) == "table" then held else nil
 end
 
 -- ...AND IT HANDS BACK THE ONE IT IS REPLACING (task 150), so a caller that needs the policy for the
@@ -372,6 +445,10 @@ end
 
 function Weapon.stats()
 	local out = table.clone(stats)
+	-- `table.clone` is SHALLOW, so the per-rule tally has to be copied by hand or a caller holds a
+	-- reference to the live table and can edit the server's own counters (the rule `StateMachine`'s
+	-- `draft` already states for `barrels` and `reserve`).
+	out.refusedBy = table.clone(stats.refusedBy)
 	-- ...AND HOW THE EQUIPS ENDED, which is Hardware's own tally (task 129).
 	out.equipNow = Hardware.equipStats.now
 	out.equipNoCharacter = Hardware.equipStats.noCharacter
@@ -415,12 +492,17 @@ end
 type PlayerWeapons = {
 	held: string?,
 	states: { [string]: WeaponState },
+	-- WHICH DRIVE'S SHELLS HE IS CARRYING (task 171). nil means "none yet". It is a drive NUMBER and
+	-- not a boolean so that a refill which was missed cannot look done, and so that dying in the
+	-- middle of a drive is not a resupply: `Weapon.refillForDrive` is level-triggered on this field,
+	-- the discipline `botsRebuiltForDrive` in `Match` already follows.
+	refilledForDrive: number?,
 }
 
 local function entryOf(player: Player): PlayerWeapons
 	local entry = registry:get(player) :: PlayerWeapons?
 	if entry == nil then
-		entry = { held = nil, states = {} }
+		entry = { held = nil, states = {}, refilledForDrive = nil }
 		registry:set(player, entry)
 	end
 	return entry :: PlayerWeapons
@@ -470,7 +552,12 @@ local function publish(
 	bucket: string?,
 	-- The sequence step being run right now (task 142), so the client draws the server's action
 	-- instead of inferring it from a state that looks the same for two different steps.
-	action: string?
+	action: string?,
+	-- WHY THE LAST TRIGGER PULL DID NOTHING (task 171), one of `Rules.REASON`. It is on the wire
+	-- because the client cannot infer it: a refused shot leaves the state EXACTLY as it was, so the
+	-- replica sees a loaded, closed, un-busy gun -- which is also what it sees when nobody pulled
+	-- the trigger at all. `CameraBoot` turns it into one dry click; the Hud prints `notice`.
+	refused: string?
 )
 	local now = os.clock()
 	if not force or bucket ~= nil then
@@ -483,11 +570,57 @@ local function publish(
 		end
 	end
 	local channel = remotes or Shotgun.remotes()
-	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice, id, action))
+	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice, id, action, refused))
 end
 
 local function setState(player: Player, id: string, state: WeaponState)
 	entryOf(player).states[id] = state
+end
+
+-- IS THIS PLAYER STILL CARRYING AN EARLIER DRIVE'S SHELLS? PURE, so the whole rule is drivable with
+-- two numbers and no drive (task 171).
+--
+-- A NON-NUMBER DRIVE MEANS NO REFILL, which is the honest answer for a world that has no drive at
+-- all: the DEV place with no `Match`, and every weapon spec. Those start full from
+-- `StateMachine.initial` and are untouched by this task.
+function Weapon.needsRefill(refilledForDrive: number?, driveNumber: any): boolean
+	if type(driveNumber) ~= "number" then
+		return false
+	end
+	return refilledForDrive ~= driveNumber
+end
+
+-- THE DRIVE'S SHELLS, ONCE PER DRIVE (task 171). KAREN, 2026-10-10: *"default is double barrel
+-- shotgun with limited ammon per round"* -- so `START_RESERVE` is a per-DRIVE allowance now
+-- (`Shotgun.CONFIG.DRIVE_SHELLS`, 12 of each kind) and something has to put it back.
+--
+-- LEVEL-TRIGGERED ON THE DRIVE NUMBER, not edge-triggered on a phase: the drive calls this through
+-- `world.weapon.refillForDrive` from the same place it refreshes arming, which runs on a transition,
+-- on a join, on a tie and on a respawn -- and the number is what makes all of those idempotent. So
+-- DYING IN THE MIDDLE OF A DRIVE IS NOT A RESUPPLY, and a player who joins mid-drive still gets his
+-- allowance. The discipline `Match`'s own `botsRebuiltForDrive` already follows, for the same reason.
+--
+-- It returns how many weapons were refilled, so a caller can tell "nothing to do" from "done".
+function Weapon.refillForDrive(player: Player, driveNumber: number?): number
+	local entry = entryOf(player)
+	if not Weapon.needsRefill(entry.refilledForDrive, driveNumber) then
+		return 0
+	end
+	entry.refilledForDrive = driveNumber
+	local filled = 0
+	-- EVERY WEAPON HE IS TRACKED FOR, each from ITS OWN row: the shotgun's 12 shells and the rifle's
+	-- own `START_RESERVE` are different numbers and neither is written here.
+	for id, state in pairs(entry.states) do
+		local row = Weapons.row(id) or Weapons.ROWS[Weapons.PRIMARY]
+		local refilled, reason = StateMachine.apply(state, { kind = "Refill" }, os.clock(), row)
+		if reason == nil then
+			setState(player, id, refilled)
+			publish(player, id, refilled, true)
+			filled += 1
+		end
+	end
+	stats.refills += 1
+	return filled
 end
 
 -- `equipped` is derived from the Tool's Parent, never from a client claim and never from
@@ -747,12 +880,11 @@ local function onFireRequest(player: Player, req: any): string?
 		return reason
 	end
 	local ammo = state.loaded[state.selected]
-	setState(player, id, fired)
 
 	local tool = toolsOfPlayer(player)[id]
 	local muzzle = tool and Hardware.muzzlePosition(tool)
 	if not muzzle then
-		publish(player, id, fired)
+		publish(player, id, state)
 		return "no-muzzle"
 	end
 
@@ -763,6 +895,48 @@ local function onFireRequest(player: Player, req: any): string?
 
 	local toAim = aimPoint - muzzle
 	local aim = if toAim.Magnitude < CONFIG.MIN_AIM_DISTANCE then req.direction else toAim.Unit
+
+	-- -------------------------------------------------------------- THE RULES (task 171)
+	--
+	-- EVERY GATE IS ASKED BEFORE ANYTHING IS COMMITTED, and the order is this owner's -- the same
+	-- division `Limits`, `Validator` and `StateMachine` above already follow: each of them answers
+	-- one question and this function decides when to ask it (docs/research/2026-10-13-the-rules.md).
+	--
+	-- `fired` IS NOT KEPT WHEN A GATE REFUSES, and that is the whole mechanism. `StateMachine.apply`
+	-- is pure and hands back a NEW state, so declining to call `setState` is what makes a refused
+	-- shot cost nothing: no shell spent, no barrel moved, no bolt started, no `ShotFired`, no pellet
+	-- cast, no `SafetyViolated`, no hit. That is OpenTTD's test-then-execute (`CommandCost`), and it
+	-- is the opposite of ioquake3's `g_friendlyFire`, which lets the shot fly and drops the damage --
+	-- the shape Karen refused: *"thye just can't shoot them"*.
+	--
+	-- WHY THE GATES ARE HERE AND NOT BEFORE `StateMachine.apply`: the aim ray needs the ammo's range,
+	-- and the ammo is `state.loaded[state.selected]`, which is only meaningful once the reducer has
+	-- agreed that this gun can fire at all. An empty, open or busy gun is refused for a MECHANICAL
+	-- reason first, which is what the player already sees today.
+	--
+	-- WHAT THE PLAYER GETS INSTEAD OF A SHOT: the reason on the wire, which the client turns into one
+	-- dry click and one short line on the readout (`Rules.NOTICE`). No punishment -- Karen asked for
+	-- none, twice.
+	local target = askTarget(if aimImpact then aimImpact.instance else nil)
+	local refused: string? = nil
+	if Rules.beaterInLine(target) then
+		refused = Rules.REASON.BEATER
+	elseif Rules.outsideStand(rootPositionOf(player), askStand(player)) then
+		refused = Rules.REASON.OFF_STAND
+	elseif Rules.unlicensed(target, askLicences(player)) then
+		refused = Rules.REASON.LICENCE
+	end
+	if refused ~= nil then
+		stats.refused += 1
+		stats.refusedBy[refused] = (stats.refusedBy[refused] or 0) + 1
+		-- THE STATE THAT IS PUBLISHED IS `state`, NOT `fired`: the gun the player is still holding,
+		-- with its shell still in it. Forced past the publish limiter because a refusal the client
+		-- never hears is a trigger that did nothing for no visible reason.
+		publish(player, id, state, true, Rules.noticeFor(refused), nil, nil, refused)
+		return refused
+	end
+
+	setState(player, id, fired)
 
 	local impacts = Hits.resolve(muzzle, Pattern.directions(ammo, aim, rng, row), range, castFn, ignore)
 	local reports = Hits.group(player, impacts, ammo, now, id)

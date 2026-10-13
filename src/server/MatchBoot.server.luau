@@ -184,6 +184,19 @@ end)
 Weapon.setArmingPolicy(Match.mayCarryWeapon)
 Weapon.setDriveLineProvider(Match.driveLine)
 
+-- ...AND THE THREE THE RULES NEED (task 171). The drive answers, the WEAPON refuses -- one gate, on
+-- the server, in the one place a shot can come from (docs/research/2026-10-13-the-rules.md).
+--   * what the aim ray hit: a beater (player on the push team, or a bot) or an animal's species
+--   * where this player's stand circle is, or nil for "he has none"
+-- KAREN, 2026-10-11: *"No penalty now we need simplify scope, thye just can't shoot them"*;
+-- 2026-10-12: a hunter outside his circle *"CAN'T SHOOT until he steps in"*. Neither is a penalty.
+--
+-- THE LICENCE PROVIDER IS DELIBERATELY NOT WIRED. No deer exists, and a boar needs no licence
+-- (`Licences.ROWS`), so with nothing wired the rule is reachable and inert -- which is exactly what
+-- *"a per-species licence table, data-only for now"* asks for. The shop task wires it to the profile.
+Weapon.setTargetProvider(Match.classifyTarget)
+Weapon.setStandProvider(Match.standAreaFor)
+
 -- ...AND A THIRD, FOR THE HORN: who is a beater. `Match.Body.teamOf` reads `Player.Team` -- the same
 -- fact the outfit is chosen from -- so a beater's horn and a beater's vest can never disagree about
 -- whether he is one. The horn still decides and still writes; this root only answers the question.

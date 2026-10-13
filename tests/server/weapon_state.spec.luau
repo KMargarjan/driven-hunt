@@ -30,8 +30,13 @@ return function()
 			expect(state.barrels[2]).to.equal("Live")
 			expect(state.loaded[1]).to.equal("Slug")
 			expect(state.selected).to.equal(1)
-			expect(state.reserve.Slug).to.equal(24)
-			expect(state.reserve.Buck).to.equal(24) -- one pocket per type (Karen, 2026-09-25)
+			-- THE DRIVE'S OWN ALLOWANCE, FROM THE CONFIG AND NOT FROM A LITERAL (task 171). It was 24
+			-- of each from task 24 until Karen asked for *"limited ammon per round"*; reading
+			-- `DRIVE_SHELLS` means the number can move again without this case saying something
+			-- false, and one pocket per type (Karen, 2026-09-25) is still the shape being asserted.
+			expect(Shotgun.CONFIG.DRIVE_SHELLS).to.equal(12)
+			expect(state.reserve.Slug).to.equal(Shotgun.CONFIG.DRIVE_SHELLS)
+			expect(state.reserve.Buck).to.equal(Shotgun.CONFIG.DRIVE_SHELLS)
 			expect(state.busyUntil).to.equal(0)
 			-- Defect (b): a shallow freeze left the arrays writable.
 			expect(function()
@@ -169,12 +174,14 @@ return function()
 			-- Karen, 2026-09-25: "the unfired shells of the old type go back to the reserve".
 			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
 			local open = StateMachine.apply(state, { kind = "Break" }, 0, ROW)
-			expect(open.reserve.Slug).to.equal(26) -- the two live slugs came back
-			expect(open.reserve.Buck).to.equal(24)
+			local shells = Shotgun.CONFIG.DRIVE_SHELLS
+			expect(open.reserve.Slug).to.equal(shells + 2) -- the two live slugs came back
+			expect(open.reserve.Buck).to.equal(shells)
 
 			local fired = StateMachine.apply(state, { kind = "Fire" }, 0, ROW)
 			local half = StateMachine.apply(fired, { kind = "Break" }, 1, ROW)
-			expect(half.reserve.Slug).to.equal(25) -- one spent case is gone, one live shell returned
+			-- one spent case is gone, one live shell returned
+			expect(half.reserve.Slug).to.equal(shells + 1)
 		end)
 
 		it("swaps the gun to the other type, pocket by pocket", function()
@@ -198,7 +205,7 @@ return function()
 		it("cannot load a type the player has none of", function()
 			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
 			local drained = table.clone(state) :: any
-			drained.reserve = { Slug = 24, Buck = 0 }
+			drained.reserve = { Slug = Shotgun.CONFIG.DRIVE_SHELLS, Buck = 0 }
 			drained.ammo = "Buck"
 			drained.open = true
 			drained.barrels = { "Empty", "Empty" }

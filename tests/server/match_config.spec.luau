@@ -211,13 +211,16 @@ return function()
 			-- settled the half of it the code can hold: shooting a piglet is a PENALTY. So since task 170
 			-- `POINTS.KIND.cub` is -10 and the card says so.
 			--
-			-- WHAT THE CODE STILL DOES NOT HAVE is a REFUSAL -- `Boar.CONFIG.KINDS` still distinguishes
-			-- the three kinds, the drive still spawns all of them, and the weapon still fires at a cub.
-			-- A card that claimed otherwise would be the card lying to the player, so it states the
-			-- price. A refusal is a weapon-side rule with its own owner and its own task (TASKS.md row
-			-- 158a), AND THE DAY IT ARRIVES THIS CASE FAILS -- which is what makes it the reminder rather
-			-- than a comment nobody reads. (Until task 170 the reminder it carried was the opposite one:
-			-- "a cub is legal, because nothing in the code refuses one", with `cub > 0`.)
+			-- THE WEAPON-SIDE REFUSAL NOW EXISTS AND A CUB IS DELIBERATELY NOT IN IT (task 171). The
+			-- gate this comment used to wait for is `Weapon.Rules`, and what it refuses is a shot at a
+			-- BEATER, a shot from off your stand and a shot at a species you have no licence for --
+			-- Karen's three rules of 2026-10-11 and 2026-10-12. A piglet is the one she settled the
+			-- other way, the same week: *a piglet is a PENALTY*. So `Boar.CONFIG.KINDS` still
+			-- distinguishes the three kinds, the drive still spawns all of them, the weapon still
+			-- fires at a cub, and the card states the PRICE -- which is why this case still passes and
+			-- what it now guards is that the price has not quietly gone. (Until task 170 the reminder
+			-- it carried was the opposite one: "a cub is legal, because nothing in the code refuses
+			-- one", with `cub > 0`.)
 			local lines = Match.quarryLines(Match.CONFIG)
 			local joined = table.concat(lines, " | ")
 			expect(string.find(joined, "WILD BOAR", 1, true) ~= nil).to.equal(true)

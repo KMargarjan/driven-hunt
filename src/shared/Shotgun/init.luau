@@ -49,6 +49,11 @@ export type WeaponSnapshot = {
 	-- "Load", or nil when nothing is. The client draws from this instead of guessing it.
 	action: string?,
 	notice: string?, -- one short line for the Hud ("NO BUCK"); nil most of the time
+	-- WHY THE LAST TRIGGER PULL DID NOTHING (task 171): one of `Weapon.Rules.REASON`, or nil, which
+	-- is almost always. It is on the wire because the client cannot infer it -- a refused shot leaves
+	-- the state exactly as it was, which is also what the replica sees when nobody pulled the trigger
+	-- at all. The client turns it into one dry click; `notice` is the line on the readout.
+	refused: string?,
 	-- WHICH WEAPON THIS STATE BELONGS TO (task 140). The readout follows the STATE, and the drawn
 	-- gun follows the Instance -- the two routes and the boundary between them are design 5.2.
 	weapon: string?,
@@ -57,7 +62,10 @@ export type WeaponSnapshot = {
 -- `Magazine` IS TASK 142'S ONE NEW PRIMITIVE, and it is one because a magazine change is ONE
 -- movement: the left hand takes the empty box out from under the action and puts a full one in.
 -- Feeding three rounds through `Load` would be a stripper clip, which is a different gun.
-export type ActionKind = "Fire" | "Break" | "Load" | "Close" | "SelectAmmo" | "Magazine"
+-- `Refill` IS TASK 171'S: the drive putting `START_RESERVE` back in the pocket at the start of a
+-- drive. Server-side only -- `Validator.checkRequest` accepts "Reload" and "SelectAmmo" and nothing
+-- else over the wire -- and it touches the pocket, never what is in the gun.
+export type ActionKind = "Fire" | "Break" | "Load" | "Close" | "SelectAmmo" | "Magazine" | "Refill"
 export type Action = { kind: ActionKind, ammo: AmmoKind? }
 export type RequestKind = "Reload" | "SelectAmmo"
 export type ShotRequest = { origin: Vector3, direction: Vector3 }
@@ -124,10 +132,12 @@ function Shotgun.snapshot(
 	now: number,
 	notice: string?,
 	weapon: string?,
-	action: string?
+	action: string?,
+	refused: string?
 ): WeaponSnapshot
 	return Shotgun.deepFreeze({
 		action = action,
+		refused = refused,
 		equipped = state.equipped,
 		open = state.open,
 		barrels = table.clone(state.barrels),
@@ -171,6 +181,12 @@ function Shotgun.remotes()
 	}
 end
 
+-- ONE SOURCE FOR THE DRIVE'S SHELLS (task 171), because a table literal cannot read its own
+-- field: `DRIVE_SHELLS` below and both pockets of `START_RESERVE` are this local, so the number
+-- cannot be changed in one place and left in the other. The idiom `Boar.CONFIG`'s `WALK_MAX_RATE`
+-- already uses.
+local DRIVE_SHELLS = 12
+
 -- Every number the system has (design section 11). Derived at 1 stud = 0.28 m.
 Shotgun.CONFIG = {
 	BARRELS = 2,
@@ -189,9 +205,19 @@ Shotgun.CONFIG = {
 	RELOAD_CLOSE = 0.6,
 	RELOAD_TOTAL = 2.0, -- BREAK + 2 * SHELL + CLOSE; weapon_state.spec asserts the sum
 
-	-- Per ammo type, and 24 of each is ~12 reloads of that type in a 10-minute drive. One pocket
-	-- per type is what makes X ("switch and reload to it") refusable when that pocket is empty.
-	START_RESERVE = { Slug = 24, Buck = 24 },
+	-- HOW MANY SHELLS A DRIVE GIVES YOU (task 171). KAREN, 2026-10-10: *"Rifle they has to purchase
+	-- default is double barrel shotgun with limited ammon per round"*. 12 is her number, read off the
+	-- dispatch, and it is **per ammo type**: the reducer carries one pocket per type (which is what
+	-- makes X -- "switch and reload to it" -- refusable when that pocket is empty), so a pool of 12
+	-- shared between Slug and Buck would change what `state.reserve` MEANS to the Hud's readout, to
+	-- the rifle's row and to the reducer's three reserve sites. A hunter shoots one kind at a time;
+	-- 12 is six double loads, and the drive refills it once (`Weapon.refillForDrive`, keyed by the
+	-- drive number so dying is not a resupply). A single pool is Karen's to ask for.
+	--
+	-- It was 24 of each from task 24 until today: the number that made ammunition effectively
+	-- unlimited (~12 reloads of a type in a 10-minute drive), which is what she has now asked to end.
+	DRIVE_SHELLS = DRIVE_SHELLS,
+	START_RESERVE = { Slug = DRIVE_SHELLS, Buck = DRIVE_SHELLS },
 	INITIAL_AMMO = "Slug" :: AmmoKind,
 	AUTO_EQUIP = true, -- a grey-box playtest should not start by hunting for the hotbar
 	-- ...AND NOT IN THE SAME FRAME AS THE GRANT (task 141). THE HOTBAR'S ORDER IS NOT OURS: the

@@ -72,6 +72,10 @@ local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 -- state -- so this adds no second writer of anything. The alternative was a second copy of 2.18
 -- seconds in this file, which is the drift this project is a document about.
 local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
+-- THE LICENCE TABLE, FOR EXACTLY ONE STRING: the name of the attribute a target publishes to say
+-- which species it is (task 171). Pure shared data, like `HornData` above -- no Instance, no
+-- service, no state -- and the alternative was the literal "Species" written in two files.
+local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
 
 local Body = require(script.Body)
 local Markers = require(script.Markers)
@@ -288,14 +292,17 @@ Match.CONFIG = {
 	-- walks to his stand with. A team name and not a boolean, because `Phase.heldUserIds` then
 	-- answers "who is held" from one value a spec can point at either side.
 	START_HOLD_TEAM = "Drivers" :: any, -- K, Karen's beaters
-	-- WHAT HAPPENS AT 0 TO A HUNTER WHO IS NOT AT HIS STAND: NOTHING NEW, AND THAT IS DELIBERATE
-	-- (task 158). The drive has no rule for a hunter off his post and never has -- the only penalty
-	-- in this system is the safety one (firing toward the drive, `SAFETY_*` above). The stand boundary
-	-- Karen has felt is `ForestTest.boundary`, which belongs to the Forest Test world, applies only to
-	-- a hunter who LOCKED a stand there, and opens on `Running` -- so it is untouched by this task
-	-- and still runs in that world. So at 0 the drive simply starts: a hunter still walking loses
-	-- shots and nothing else. Inventing a punishment for a ten-second timer is a Karen decision, not
-	-- a Builder one (TASKS.md row 158a).
+	-- WHAT HAPPENS AT 0 TO A HUNTER WHO IS NOT AT HIS STAND: HE CANNOT SHOOT UNTIL HE STEPS IN, and
+	-- THAT IS STILL NOT A PUNISHMENT (task 171; until it, task 158's answer here was "nothing", and
+	-- it said so). KAREN, 2026-10-12: a hunter not inside his stand circle when the 15 s end *"CAN'T
+	-- SHOOT until he steps in"*, with no punishment -- so the drive answers WHERE his circle is
+	-- (`Match.standAreaFor`, radius `STAND_RADIUS_STUDS`) and the WEAPON refuses the shot
+	-- (`Weapon.Rules.outsideStand`). Nothing is taken away: no points, no coins, no tie, no shell.
+	-- The only PENALTY in this system is still the safety one (firing toward the drive, `SAFETY_*`
+	-- above) plus the piglet's negative points. The soft wall Karen has felt is
+	-- `ForestTest.boundary`, which belongs to the Forest Test world and still runs there; it keeps a
+	-- locked hunter inside the same circle this rule measures, so in that world the refusal is what
+	-- answers for the window BEFORE his pick locks.
 	-- WHAT YOU MAY SHOOT, AS THE RULE REALLY IS IN THE CODE (task 158). The start card asks "what
 	-- they can shoot", and Karen's words were *"wild boar -- male, female; NOT piglets/cubs"*.
 	--
@@ -314,6 +321,12 @@ Match.CONFIG = {
 	QUARRY_NOTE = "a piglet COSTS you - leave them",
 	PLACE_TIMEOUT = 5,
 	STAND_HEIGHT_STUDS = 3.5, -- how far above a post's top face a character is put down
+	-- HOW BIG THE STAND IS, AS AN AREA (task 171). 12 studs (~3.4 m) is the radius task 166
+	-- measured, drew as a neon ring and Karen accepted as `ForestTest.PICK.standRadiusStuds`; this
+	-- is the DRIVE's copy of that number, for the world whose stands are posts rather than picks.
+	-- Karen, 2026-10-12: a hunter not inside his circle when the 15 s end *"CAN'T SHOOT until he
+	-- steps in"*, and there is still NO PUNISHMENT -- see `Weapon.Rules.outsideStand`.
+	STAND_RADIUS_STUDS = 12,
 
 	-- boars (design section 6.3)
 	BOARS_PER_DRIVE = 6, -- K
@@ -1001,6 +1014,14 @@ end
 local function refreshArmingFor(player: Player)
 	if world and world.weapon and world.weapon.refreshArming then
 		world.weapon.refreshArming(player)
+	end
+	-- ...AND THIS DRIVE'S SHELLS (task 171). KAREN, 2026-10-10: *"limited ammon per round"*. The
+	-- WEAPON decides what a refill is and writes it; the drive only says WHICH drive this is, and
+	-- `Weapon.refillForDrive` is level-triggered on that number -- so being called here, on a
+	-- transition, a join, a tie and a respawn alike, refills once per drive and dying is not a
+	-- resupply. The `Horn.refreshCarry` / `Weapon.refreshArming` discipline, for the same reason.
+	if world and world.weapon and world.weapon.refillForDrive then
+		world.weapon.refillForDrive(player, state.driveNumber)
 	end
 end
 
@@ -1780,6 +1801,83 @@ function Match.mayCarryWeapon(player: Player): boolean
 		return true
 	end
 	return team == "Drivers" and config.DRIVERS_MAY_SHOOT
+end
+
+-- ------------------------------------------------------- the three answers the fire gate needs (171)
+--
+-- THE DRIVE ANSWERS, THE WEAPON DECIDES AND WRITES -- exactly as `mayCarryWeapon` and `driveLine`
+-- above do, and these are handed to `Weapon.setTargetProvider` / `Weapon.setStandProvider` at the
+-- composition root so neither owner requires the other (docs/research/2026-10-13-the-rules.md).
+
+-- WHAT THE AIM RAY HIT, in the words the weapon's rules understand: `beater` for a man walking the
+-- drive, `species` for an animal. The weapon knows what neither of those is, which is the whole
+-- point of answering here.
+--
+-- A BEATER IS A PLAYER ON THE PUSH TEAM **OR** A BOT (task 171). Karen tests this world alone with a
+-- line of bots, so a rule that only protected players would be a rule she could never see working.
+-- `state.assignment` IS THE READ for a player -- the same table `mayCarryWeapon` and the safety rule
+-- read, never `Player.Team`, which `Match.requestTeam`'s own header explains -- and the bots are
+-- asked through `world.bots.isBeaterPart`, their owner's one definition of who walks.
+--
+-- THE SPECIES COMES OFF THE TARGET'S OWN ATTRIBUTE and nothing here knows a boar from a deer:
+-- `Licences.SPECIES_ATTRIBUTE` is published by `Boar.Body.create`, the idiom `Damageable` and
+-- `HitZone` already use (shotgun design section 6.4).
+function Match.classifyTarget(instance: Instance?): any?
+	if instance == nil then
+		return nil
+	end
+	-- THE CHARACTER FIRST, because a man is not quarry. `GetPlayerFromCharacter` wants the Model, so
+	-- walk up: a ray hits a limb.
+	local node: Instance? = instance
+	local species: string? = nil
+	while node ~= nil do
+		if species == nil then
+			local value = node:GetAttribute(Licences.SPECIES_ATTRIBUTE)
+			if type(value) == "string" then
+				species = value
+			end
+		end
+		local player = playersService():GetPlayerFromCharacter(node)
+		if player ~= nil then
+			return { beater = state.assignment[player.UserId] == "Drivers", species = species }
+		end
+		node = node.Parent
+	end
+	if world and world.bots and world.bots.isBeaterPart and world.bots.isBeaterPart(instance) then
+		return { beater = true, species = species }
+	end
+	if species == nil then
+		return nil
+	end
+	return { beater = false, species = species }
+end
+
+-- WHERE THIS PLAYER MAY STAND AND STILL SHOOT, or nil for "he has no stand" -- which is a beater, a
+-- player between drives, and a hunter whose stand has not been decided yet. nil means NO RULE, and
+-- `Weapon.Rules.outsideStand` says why that is the safe default.
+--
+-- THE WORLD MAY OWN THE ANSWER, the seam `world.placement` already is: the Forest Test's hunter
+-- picks his own stand by walking to it (`ForestTest.lockPick`), so his circle is centred on the PICK
+-- and not on the post the drive placed him at. With no injection the centre is the post this drive
+-- put him on -- `Body.placementFor` with the same `indexWithinTeam`, so it is the drive's own
+-- placement answered a second time rather than a second piece of geometry.
+function Match.standAreaFor(player: Player): any?
+	local team = state.assignment[player.UserId]
+	if team ~= "Shooters" then
+		return nil -- a beater is not held to a stand (`ForestTest.boundary`'s own first rule)
+	end
+	if world and world.standArea then
+		return world.standArea(player.UserId)
+	end
+	if not markerSet then
+		return nil
+	end
+	local place = if world and world.placement then world.placement else Body.placementFor
+	local cframe = place(markerSet, team, indexWithinTeam(player.UserId, team), config)
+	if cframe == nil then
+		return nil -- nowhere to put him means nowhere to hold him
+	end
+	return { centre = cframe.Position, radius = config.STAND_RADIUS_STUDS }
 end
 
 -- A WORLD ASKS FOR ONE PLAYER TO CHANGE SIDES, AND THIS OWNER STILL DECIDES (task 157, design
