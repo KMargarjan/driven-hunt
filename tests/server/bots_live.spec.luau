@@ -326,7 +326,7 @@ return function()
 			expect(Bots.stats().walking).to.equal(2)
 			TestKit.note(
 				string.format(
-					"bots: held through the fanfare -- %d walking and %d blast(s) in 10 s of steps,"
+					"bots: held through the fanfare -- %d walking and %d blast(s) in 80 s of held time,"
 						.. " then %d walking on GO",
 					0,
 					Bots.stats().blasts - blastsBefore,
