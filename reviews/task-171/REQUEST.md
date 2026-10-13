@@ -1,9 +1,9 @@
 # Task 171 review request: the rules -- a shot refused before it is taken
 
 Task: 171
-Round: 1
+Round: 2
 Base: main (`a52f4d2`, #154 merged)
-Code commit: `8cb968307f3ee8281f61c1c26642915f257530de`
+Code commit: `067048b24dd48ee022f8d0d8e11b3506d5c62f06`
 
 Branch `task-171-rules`. Karen's three new rules (a beater cannot be shot at, a hunter outside his
 stand circle cannot fire, a species you have no licence for cannot be shot) plus the drive's limited
@@ -13,15 +13,71 @@ shells, all refused BEFORE the shot exists and with **no punishment**. Note:
 ## Harness
 
 ```
-[harness] PASS: 33/33 checks @ 3c768c87af2b6d0f9ab43f0d427fc7b8d446c9e9 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 067048b24dd48ee022f8d0d8e11b3506d5c62f06 (clean tree) scope=all
 ```
 
-Run twice at that commit, both PASS 33/33 (server **1214** passed / 0 failed, client **302** / 0).
+Run twice at the round-2 code commit, both PASS 33/33 (server 1214 passed / 0 failed, client 302 /
+0).
+
+```
+[harness2] NEEDS KAREN -- placeholder for the round-2 commit. `test2` costs one human click;
+           the Director runs it at the branch head and pastes the line here.
+```
+
+**The Director's round-1 lines, at `8cb9683`, for the record -- both PASS, including the two-player
+run this task had failed five times:**
 
 ```
 [harness] PASS: 33/33 checks @ 8cb968307f3ee8281f61c1c26642915f257530de (clean tree) scope=all
 [harness2] PASS: 35/35 checks @ 8cb968307f3ee8281f61c1c26642915f257530de (clean tree)
 ```
+
+## Round 2: what the Reviewer found, and what changed
+
+**Finding 1 is fixed, and it was a real regression this task introduced** -- not a doc error.
+`onCue`'s driver branch sets `cuedAt` (it has staging of its own since task 171, where before it
+returned without setting anything), and `driver()` skips self, so on the DRIVER's client `theirs` is
+nil and the aiming loop's fall-through steered his camera every frame for the whole `TIE_TIMEOUT`,
+while `camera_client.spec` asserts about that camera -- and while this file's own comment and claim 2
+both said it never happens. The fall-through now returns for a driver, exactly as required; his
+PARKING still runs, because that is his half of the window. Verify: the `if Role.isDriver() then
+return end` guard above the `DOWN_THE_DRIVE` branch in `tests/client/zz_tie_to_a_tree.spec.luau`.
+
+**Four notes fixed** (each with the Reviewer's own reason written beside it):
+
+* `Rules.outsideStand` now type-checks `area.centre` as well as `area.radius`, and two spec lines pin
+  it. The reason is the stronger one the note gave: `Rules.refuse` is called straight from
+  `onFireRequest` and only the PROVIDER is `pcall`-ed, so an area of `{ radius = 12 }` would throw
+  inside the fire handler and **nobody could shoot at all**.
+* `stats.refills` counts only a pass that actually refilled something, which is what its comment
+  claims.
+* the `no-muzzle` path's changed behaviour is now written down where it happens, and claimed here: a
+  shell is **no longer spent on a gun whose `Muzzle` attachment is missing**. It is a consequence of
+  moving the gates above `setState` rather than a goal, and it is an improvement -- no muzzle is a
+  hardware fault and the player should not pay for one.
+* the handler case's counter assertions are **monotonic** rather than exact deltas (`stats` is one
+  module-level table and a second player's click lands in it -- the race `onFireRequest`'s own header
+  records); what belongs to the call is the returned reason and this player's own gun state, both
+  still asserted exactly. The dead `expect(afterShot.refused).to.equal(nil)` is gone rather than left
+  looking like a check.
+* **and the dry click now has the only assertion it can honestly have**: `zz_tie` reads
+  `Weapon.Sound.stats().dry` on either side of the probe's refusal -- the one place in the suite
+  where a real refusal travels the real wire to a real client. Two-player only, like the rest of that
+  case. The SOUND is still Karen's to judge; that it was asked for is now asserted.
+
+**Two notes are queued as `TASKS.md` row 171a rather than fixed**, both with a reason:
+
+* **no feature flag.** The three rules are not a tuning of feel -- they are three rules Karen asked
+  for in plain words, with no second branch to compare against ("they just can't shoot them" has no
+  dial), and the flag design's own purpose is to let a *feel-critical path* merge dark and be
+  switched on for a playtest. What this path has instead is **three providers, every one of which
+  defaults to "no restriction"**: a world that wires none fires exactly as the game did before this
+  task, which is the property a flag would have bought. Adding a row would also mean adding the
+  `expires` date and the retirement commit for a rule nobody intends to retire. Queued so the
+  Director can overrule it in one line.
+* **no spec pins the `no-muzzle` behaviour.** Reaching it needs a Tool whose `Muzzle` attachment has
+  been removed, which is `Weapon.Hardware`'s to build; it is a `weapon_equip`-shaped case, not a
+  rules one.
 
 **TWO OF THE DIRECTOR'S `test2` RUNS FAILED ON `zz_tie_to_a_tree.spec`, and both failures were this
 task's rules working on a spec that staged the wrong thing.** The one-player run was green at both
@@ -113,8 +169,11 @@ instant.
      with "the spec put him in the wrong place";
    * **the DRIVER's client walks itself** 25 studs in front of that stand, up +Z, at the stand's own
      height. A client may move only its own character, and the shot has to be able to reach him:
-     `Buck` carries 100 studs of the 320 between the posts and the pad. The driver's client still
-     never touches its camera, which was the reason `onCue` ignored it;
+     `Buck` carries 100 studs of the 320 between the posts and the pad. **It touches his CHARACTER and
+     not his CAMERA** -- the invariant `onCue` used to keep by ignoring him outright, which round 1's
+     finding 1 showed this task had broken through the aiming loop's fall-through and which round 2
+     restores with a `not Role.isDriver()` guard there (see "Round 2" above). `camera_client.spec` is
+     asserting about that camera at this moment, which is why the invariant exists;
    * **both characters are HELD at their staged points every frame** -- the `root.CFrame` plus zeroed
      `AssemblyLinearVelocity` pair `ForestTest.boundary` uses -- because the replay holds movement
      keys and a position written once is undone by the next step of one;
