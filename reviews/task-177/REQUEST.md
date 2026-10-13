@@ -3,21 +3,26 @@
 Task: 177
 Round: 1
 Base: 102fbe9 (`main`, #160 merged -- task 176)
-Code commit: f625098c9c73947c55bd939d4a9a1232b80261e3
+Code commit: dbad7225158e8abb09b7301fe8f0a00ea9260680
 
 Harness, the clean tree, TWICE at the code commit:
 
 ```
-[harness] PASS: 33/33 checks @ f625098c9c73947c55bd939d4a9a1232b80261e3 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ f625098c9c73947c55bd939d4a9a1232b80261e3 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ dbad7225158e8abb09b7301fe8f0a00ea9260680 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ dbad7225158e8abb09b7301fe8f0a00ea9260680 (clean tree) scope=all
 ```
+
+The Director's own two-player run at `4b3da2c` came back **`[harness2] FAIL 31/35`**
+(`<runs-dir>/test2-t177.log`). Claim 11 below is what it was, what it was not, and what was done
+about it. The run has not been repeated, so the `[harness2]` line is still missing and
+`ESCALATE.md` still carries **`NEEDS TEST2 177 dbad722`**.
 
 **The `[harness2]` line is NOT here and the review cannot start without it.** `src/server/Match/`,
 `tests/server/match_phase.spec.luau` and `tests/server/match_live.spec.luau` are all in
 `TWO_PLAYER_PATHS`, and `tools/studio_mcp.py` is in the diff so a `--scope auto` run resolves to
 `scope=all` -- full evidence, which asks for the two-player line. `run_test2` cannot start the test
 itself (*"StudioMCP CANNOT start this test itself"*). `ESCALATE.md` carries the entry, headed
-**`NEEDS KAREN` / `NEEDS TEST2 177 f625098`**, with the exact clicks.
+**`NEEDS KAREN` / `NEEDS TEST2 177 dbad722`**, with the exact clicks.
 
 ## What changed
 
@@ -118,9 +123,37 @@ line *"walk to the truck to start a hunt"*, the drive bar `DRIVE 0 WAITING playe
 minimap**) and `.screenshots/177-lodge-inside.png` (the fireplace lit, the log walls warm, the plank
 floor, the table and the shop sign).
 
+11. **The two-player run's two spec failures were NOT about teams, roles or who holds what, and
+    there is no game bug: a shooter did not hold a horn.** Both failing clients failed the SAME case,
+    `camera_client.spec`'s horn case, which **injects both handles itself** through
+    `Viewmodel.setSource` -- a horn's Handle from its own `hornTool()`, then a gun's `MeshPart` it
+    creates on the spot -- and **never reads the player's real Tool**. The drawn model simply never
+    swapped. **Verify:** read the case; `Viewmodel.update`'s own dispatch is
+    `local tool = handle and handle.Parent` / `if tool ~= nil and tool:IsA("Tool") then
+    HeldTool.kindOf(tool) else HeldTool.WEAPON`, so the spec's parentless gun Handle takes the WEAPON
+    branch by construction. The log agrees on the game: `[harness2] client teams: 5b779e64=Drivers,
+    ebc9caf4=Shooters`, the server suite `1306 passed, 0 failed`, the shooter's readout
+    `[*]x SLUG 24`, and the driver is the one with the horn.
+    **The cause** is `Viewmodel.update`'s source throttle: it re-asks the source every quarter second
+    once it holds a handle whose `Parent` is still there (task 133), and `lastSourceCheck` is a module
+    local **shared with the live camera loop**, which calls `update` every frame and resets it. So the
+    case's `task.wait(0.3)` guaranteed nothing and the frame cadence decided the outcome. **It is the
+    first `test2` since task 176 added a second kind of viewmodel** -- 175 and 176 were both
+    `test2` N/A -- so one player had been winning that race ever since.
+    **The fix is at the owner:** `Viewmodel.setSource` drops `cachedHandle`, so a source swapped at
+    runtime cannot leave the previous source's handle on screen for up to 250 ms. **The assertion is
+    not weakened:** `Viewmodel.clear()` is still deliberately NOT called across the swap, so
+    `builtKind` remains the only thing that can turn the horn's model into the gun's. The case now
+    asserts the swap is drawn on **update 1 in both directions** and notes it, so a regression says so
+    instead of flaking: `camera_client: a source swap is drawn on update 1 (to the gun) and 1 (back to
+    the horn)`, in both logged runs.
+
 ## What I could not verify
 
-* **The two-player run.** It needs a human click; see the top of this file and `ESCALATE.md`.
+* **The two-player run AT THIS COMMIT.** The Director ran it at `4b3da2c` and it came back
+  `FAIL 31/35`; the two spec failures it found are fixed above and both logged one-player runs at
+  `dbad722` are clean, but **the two-player run has not been repeated** and nothing here claims it
+  passes. It needs a human click; `ESCALATE.md`.
 * **The `enrol = false` branch of `watchPlayer` has no DEV spec.** `Match` is a started singleton
   that `MatchBoot` owns and a spec cannot restart it under a running client suite
   (`match_live.spec`'s own first paragraph). It is evidenced LIVE in the Forest Test instead, by the

@@ -1,6 +1,6 @@
 # Escalations
 
-## 2026-10-14 - Task 177: NEEDS KAREN / NEEDS TEST2 177 f625098 -- the two-player run, which nothing but a human click can start
+## 2026-10-14 - Task 177: NEEDS KAREN / NEEDS TEST2 177 dbad722 -- the two-player run, which nothing but a human click can start
 
 **The lobby is built, gated TWICE on the one-player harness, smoke-checked and photographed. The one
 thing missing is the two-player line, and `run_test2` says so itself: *"NEEDS KAREN, once, in Studio
@@ -22,19 +22,40 @@ exists**, so this blocks the review round as well as the merge.
 3. When the harness says so, **Test tab -> Cleanup** (or End Session) to close them.
 
 The command to run beside it is `python tools/studio_mcp.py test2`, at
-**f625098c9c73947c55bd939d4a9a1232b80261e3** on branch `task-177-lobby`. The line to paste into
+**dbad7225158e8abb09b7301fe8f0a00ea9260680** on branch `task-177-lobby`. The line to paste into
 `reviews/task-177/REQUEST.md` is
 
 ```
-[harness2] PASS: n/m checks @ f625098c9c73947c55bd939d4a9a1232b80261e3 (clean tree)
+[harness2] PASS: n/m checks @ dbad7225158e8abb09b7301fe8f0a00ea9260680 (clean tree)
 ```
 
 and then `powershell -ExecutionPolicy Bypass -File tools/review.ps1 177` runs.
 
+### The Director's run at `4b3da2c` found two real things, and both are fixed
+
+`[harness2] FAIL 31/35` (`<runs-dir>/test2-t177.log`). The four failing CHECKS are two spec
+failures, one per client, both `camera_client.spec:1697`.
+
+**It is not a game bug and a shooter did not hold a horn.** That case injects BOTH handles itself
+through `Viewmodel.setSource` and never reads the player's real Tool; the log's own
+`client teams: Drivers / Shooters`, the clean server suite and the shooter's `[*]x SLUG 24` readout
+all say the drive was correct. What failed is that the DRAWN model never swapped: `update` re-asks
+the source only every quarter second once it holds a parented handle, and `lastSourceCheck` is a
+module local **shared with the live camera loop**, so the case's `task.wait(0.3)` guaranteed nothing
+and the frame cadence decided it. **This is the first `test2` since task 176 added a second kind of
+viewmodel** -- 175 and 176 were both `test2` N/A -- so one player had been winning that race ever
+since.
+
+Fixed at the owner: `Viewmodel.setSource` now drops `cachedHandle`. The assertion is NOT weakened --
+`Viewmodel.clear()` is still not called across the swap, so `builtKind` is still the only thing that
+can turn the horn's model into the gun's -- and the case now asserts the swap is drawn on **update 1
+in both directions** and notes it, so a regression says so instead of flaking.
+
 ### What is already evidenced, so nothing else waits on this
 
-* `[harness] PASS: 33/33 checks @ f625098c9c73947c55bd939d4a9a1232b80261e3 (clean tree) scope=all`,
-  **twice**, on a clean tree.
+* `[harness] PASS: 33/33 checks @ dbad7225158e8abb09b7301fe8f0a00ea9260680 (clean tree) scope=all`,
+  **twice**, on a clean tree, each logged (`.agent-logs/task177-r2-test1.log`, `-r2-test2.log`), both
+  carrying `camera_client: a source swap is drawn on update 1 (to the gun) and 1 (back to the horn)`.
 * The whole lobby cycle, measured live in the Forest Test: joined at the lodge with no team and no
   gun; stood in the circle; `Team = Shooters` and placed on stand 5 at `ForestTest.CENTRE`;
   `[report] drive 1 opened`; at the end of the drive `Team = none` and back at the lodge.
