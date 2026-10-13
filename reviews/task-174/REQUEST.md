@@ -3,11 +3,11 @@
 Task: 174
 Round: 1
 Base: `e7b4904` (`main`, #157 merged -- tasks 172 and 173)
-Code commit: `bfca4fb7689bb449dc3dbb06e785e36153b80c8c`
+Code commit: `9c722c504fe0d77fcc06b25584de88526f45505e`
 
 ```
-[harness] PASS: 33/33 checks @ bfca4fb7689bb449dc3dbb06e785e36153b80c8c (clean tree) scope=all
-[harness] PASS: 33/33 checks @ bfca4fb7689bb449dc3dbb06e785e36153b80c8c (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 9c722c504fe0d77fcc06b25584de88526f45505e (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 9c722c504fe0d77fcc06b25584de88526f45505e (clean tree) scope=all
 [harness2] <<< THE DIRECTOR'S TWO-PLAYER LINE GOES HERE, for the same commit >>>
 ```
 
@@ -24,14 +24,39 @@ hunting started for beater / for hunter once hunt over (drive) horn anounce then
 / so implemt thease"*. And ~13:40, choosing between three answers to task 172's measurement: *"Bots
 blow less often"*.
 
+## What the Director's two FAILING gates were, and what fixed them (both measured off his own logs)
+
+His `test` and `test2` at `b355b37` failed where my two runs of the same commit passed, and both
+were THIS TASK'S hazards -- one in the game's new gate meeting a spec that assumed a drive, one a
+bug in my own new spec case. No assertion was weakened and no `src/` file changed.
+
+* **`test` [client] `weapon_client.spec:874` (12 vs 14) and `:925` (2 vs 0): THE CUE LANDED AT
+  `+4.1 s`.** His log says `cue at +4.1s`; mine said `cue at +49.3s` for the same commit -- how fast
+  a Play client comes up is not this suite's to decide. The DEV drive reaches `Running` ~15 s after
+  the player joins and GO 2.18 s later, so the early run replayed both clicks inside `Assigning`,
+  which this task's gate refuses. Hence 0 shots, and a pocket of 14 instead of 12: the two slugs went
+  back in having never been spent. **The game did what Karen asked for; the spec assumed a drive.**
+  **FIXED IN ONE PLACE -- `tests/client/InputReady.luau`**, the single writer of the ready attribute
+  the harness replays behind. It now holds that attribute until this client's own snapshot says the
+  drive is open, so EVERY replayed click of EVERY spec lands inside one, deterministically. A client
+  cannot state the drive for itself (the gate is the SERVER's), which is why this is one place and not
+  five specs.
+* **`test2` [server] `zz_horn.spec:1616`: A SHARED COOLDOWN TABLE AND A STAMP IN THE FUTURE.**
+  `Weapon.Horn` keeps ONE module-level `lastBlast` for the server. My new case blew `bot-beater-2` at
+  a hand-picked `t0 = 7000`, and the bot cooldown case further down blows that same key at
+  `os.clock()`: in a Studio open for hours `os.clock()` is past 7001.5 and the blast is allowed, in a
+  fresh one it is a few hundred, so the REAL cooldown refused it. **Unique key (`bot-beater-174`) and
+  an `os.clock()` base**, so the pollution is impossible and a leaked stamp would be harmless anyway.
+
 ## What changed
 
 `src/server/Match/Phase.luau` (`Phase.driveOpen`), `src/server/Match/init.luau` (`Match.driveOpen`,
 `mayBlowHorn`, `botsMayGo`), `src/server/Weapon/Rules.luau` (rule 4), `src/server/Weapon/init.luau`
 (`setDriveOpenProvider`), both composition roots (`MatchBoot.server.luau`,
 `ForestTestBoot.server.luau`), `src/server/Bots/init.luau` (one data number), and four specs
-(`match_phase`, `weapon_rules`, `zz_horn`, `bots_live`). No client file: the refusal reason and its
-one-line notice already travel on the wire (task 171).
+(`match_phase`, `weapon_rules`, `zz_horn`, `bots_live`), plus `tests/client/InputReady.luau` and
+`tests/client/weapon_client.spec.luau` for the round above. **No client `src/` file at all:** the
+refusal reason and its one-line notice already travel on the wire (task 171).
 
 ## Claims
 
@@ -89,6 +114,17 @@ one-line notice already travel on the wire (task 171).
     logged **6** bot blasts (`[ForestTest] horn blown at ...`), where four beaters at 18-35 s would
     have been ~13.
 
+11. **NO REPLAYED CLICK DEPENDS ON THE AMBIENT PHASE ANY MORE, and it is measured in the note.**
+    `InputReady` waits (up to 45 s), prints the drive it waited for, and gives up loudly rather than
+    hanging the attribute -- replaying into a shut drive would then fail the firing specs with that
+    line beside them, which is the honest failure of the two. **Verify:** `InputReady.driveOpen` /
+    `waitForOpenDrive` / `drivePrint` in `tests/client/InputReady.luau`, and `weapon_client`'s note
+    from the two runs below -- `cue at +19.4s with the drive phase=Running hold=0.0 open=true` and
+    `cue at +19.3s with the drive phase=Running hold=0.0 open=true`, where the same spec cued at
+    `+4.1 s` and `+49.3 s` before it. It reads `Match.phase` and `Match.holdSecondsLeft`, the two
+    fields the Hud already reads, and it decides exactly one thing: WHEN THE TEST FIRES. It allows
+    nothing and refuses nothing.
+
 ## What this Builder could NOT verify
 
 * **The two-player run.** See the top of this file and `ESCALATE.md`.
@@ -102,9 +138,12 @@ one-line notice already travel on the wire (task 171).
 
 ## Gate
 
-* `[harness] PASS: 33/33 ... @ bfca4fb (clean tree) scope=all` -- **twice** (logs in the scratchpad).
-  An earlier run FAILED 31/33 at `c9a6a3c` on exactly one case, this task's own
-  (`END_ON_BEATERS_CROSS` is off by default, so the line's ending did not fire); fixed in `9cd2b10`.
+* `[harness] PASS: 33/33 ... @ 9c722c5 (clean tree) scope=all` -- **twice**, both with **DEV alone,
+  one Studio connected** (the Director's own condition, the Forest Test closed), logs kept. Server
+  1241 passed / 0 failed, client 302 / 0.
+* The failures this round fixed are above. Two earlier FAILs are on the record and both were this
+  task's: 31/33 at `c9a6a3c` (`END_ON_BEATERS_CROSS` is off by default, so the line's ending did not
+  fire -- fixed in `9cd2b10`), and the Director's pair at `b355b37`.
 * `SMOKE PASS` in the Forest Test, 90 s: gun in hand at 15 s and at 90 s, `stacks=0 errorLines=0`,
   5 waves, worst 1 boar sound at once, 22 boars.
 * No research note and no Architect run: no new system and no new owner. This is a fourth rule in

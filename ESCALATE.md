@@ -2,13 +2,15 @@
 
 ## 2026-10-13 - Task 174: NEEDS TEST2, one click. Everything else is done, gated and smoked
 
-**The work is finished and measured.** Two clean-tree full runs at the code commit,
-`[harness] PASS: 33/33 checks @ bfca4fb7689bb449dc3dbb06e785e36153b80c8c (clean tree) scope=all`
-(twice), and `SMOKE PASS` in the Forest Test over 90 s (gun in hand at 15 s and at 90 s,
+**The work is finished and measured.** Two clean-tree full runs at the code commit, **both with DEV
+alone, one Studio connected** (the Director's own condition -- the Forest Test closed -- after his
+gates at `b355b37` failed where two runs of mine had passed),
+`[harness] PASS: 33/33 checks @ 9c722c504fe0d77fcc06b25584de88526f45505e (clean tree) scope=all`
+(twice; server 1241/0, client 302/0), and `SMOKE PASS` in the Forest Test over 90 s (gun in hand at 15 s and at 90 s,
 `stacks=0 errorLines=0`, 5 waves, 22 boars, worst 1 boar sound at once). Everything else is in
 `reviews/task-174/REQUEST.md`.
 
-### NEEDS TEST2 174 `bfca4fb7689bb449dc3dbb06e785e36153b80c8c`
+### NEEDS TEST2 174 `9c722c504fe0d77fcc06b25584de88526f45505e`
 
 `src/server/Match/Phase.luau`, `src/server/Match/init.luau`, `src/server/MatchBoot.server.luau` and
 `tests/server/match_phase.spec.luau` are all in `TWO_PLAYER_PATHS`, so `tools/review.ps1 174`
@@ -24,7 +26,7 @@ only mean the whole suite -- which the harness tags `scope=all`. That is FULL ev
 **THE CLICKS, IN ORDER.** In the **DEV** Studio, in Edit: **Test tab -> Clients and Servers ->
 Players: 2 -> Start**, then leave the windows alone until the harness says to press **Cleanup**.
 `python tools/studio_mcp.py test2` drives the rest. Then paste the `[harness2] PASS: n/m checks @
-bfca4fb7689bb449dc3dbb06e785e36153b80c8c (clean tree)` line over the placeholder in
+9c722c504fe0d77fcc06b25584de88526f45505e (clean tree)` line over the placeholder in
 `reviews/task-174/REQUEST.md` (line 11) and run `powershell -ExecutionPolicy Bypass -File
 tools/review.ps1 174`.
 
@@ -34,6 +36,20 @@ spec that fires a REAL shot and expects a TIE -- which can only happen while the
 the one-player run of this branch the replayed clicks fired (`weapon_client: shots seen: 2 ... cue at
 +49.3s`), so the drive was open at ~+50 s and the gate did not swallow them; the two-player run is
 what says the same for the driver-and-shooter pair, and that the tie still happens.
+
+### WHAT HIS TWO FAILING GATES WERE (both fixed at the commit above, both this task's)
+
+* `test` [client] `weapon_client.spec:874`/`:925`: **the cue landed at `+4.1 s`** (mine: `+49.3 s`),
+  inside `Assigning`, where this task's new gate refuses a shot -- so 0 shots and a pocket of 14.
+  Fixed in ONE place, `tests/client/InputReady.luau`: the harness replays only behind that module's
+  ready attribute, which is now held until the client's own snapshot says the drive is open. The cue
+  is now `+19.4 s` / `+19.3 s` with `phase=Running hold=0.0 open=true`, printed in the spec's note.
+* `test2` [server] `zz_horn.spec:1616`: **one shared `lastBlast` table and a stamp in the future.**
+  My new case blew `bot-beater-2` at `t0 = 7000`; the bot cooldown case blows the same key at
+  `os.clock()`, which is past 7001.5 in a Studio open for hours and a few hundred in a fresh one.
+  Unique key and an `os.clock()` base.
+
+No assertion was weakened and no `src/` file changed for either.
 
 ### NOT A BLOCKER, FOR THE DIRECTOR TO NOTE
 
