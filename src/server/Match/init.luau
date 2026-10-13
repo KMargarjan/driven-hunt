@@ -76,6 +76,11 @@ local HornData = require(ReplicatedStorage:WaitForChild("Horn"))
 -- which species it is (task 171). Pure shared data, like `HornData` above -- no Instance, no
 -- service, no state -- and the alternative was the literal "Species" written in two files.
 local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
+-- THE SHOP'S PURE DATA (task 178), for ONE question: may a licensed BEATER carry a gun in the drive
+-- (`Shop.grantsDriveGun`). Frozen shared data with no writer, required exactly as `Licences` above
+-- is and for the same reason -- a rule about what a player may do lives in one table, and this owner
+-- reads it rather than keeping a second copy. `ServerScriptService.Shop` is NOT required here.
+local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 
 local Body = require(script.Body)
 local Markers = require(script.Markers)
@@ -1942,7 +1947,32 @@ function Match.mayCarryWeapon(player: Player): boolean
 	if team == "Shooters" then
 		return true
 	end
-	return team == "Drivers" and config.DRIVERS_MAY_SHOOT
+	if team ~= "Drivers" then
+		return false
+	end
+	if config.DRIVERS_MAY_SHOOT then
+		return true
+	end
+	-- THE BEATER'S LICENCE (task 178). KAREN, 2026-10-10: a beater *"can purchase license to shoot in
+	-- drive"*. One fact in -- what he owns, off the economy's read-only view -- and one PURE question
+	-- about it; the same branch `DRIVERS_MAY_SHOOT` opens, so nothing new about the drive is decided
+	-- here.
+	--
+	-- A WORLD WITH NO ECONOMY WIRED ANSWERS EXACTLY WHAT THIS FUNCTION ANSWERED BEFORE TASK 178:
+	-- `Shop.grantsDriveGun(nil)` is FALSE, which is the one reader whose default is "refused",
+	-- because today a beater carries no gun (docs/design/shop.md section 7.1). Every
+	-- `tests/server/match_*.spec.luau` that injects no economy is untouched.
+	--
+	-- IT BUYS HIM A GUN AND NOT AN EXEMPTION: `Rules.beaterInLine` still refuses him a shot AT a
+	-- beater (`classifyTarget` reads the roster and knows nothing about entitlements) and
+	-- `Match.Penalty.judge` still ties him for an unsafe one -- which that file already anticipated
+	-- (*"the design says there is no exception to write then"*).
+	local owned = nil
+	if world and world.economy and world.economy.ownedOf then
+		local ok, set = pcall(world.economy.ownedOf, player.UserId)
+		owned = if ok then set else nil
+	end
+	return Shop.grantsDriveGun(owned)
 end
 
 -- -------------------------------------------------- the answers the fire gate needs (171, and 174)

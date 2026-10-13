@@ -383,6 +383,58 @@ Body.VEST_GAP = VEST_GAP
 Body.VEST_THICKNESS = VEST_THICKNESS
 Body.VEST_HEIGHT_FRACTION = VEST_HEIGHT_FRACTION
 
+-- ------------------------------------------------------------------- the bought look (task 178)
+
+-- WHAT ONE PLAYER'S OUTFIT LOOKS LIKE, as far as this module is concerned: a colour, and nothing
+-- else. `Match.Body` IS HANDED A COLOUR AND NEVER AN OWNERSHIP SET -- the module that dresses people
+-- must not learn what a shop is, which is exactly the seam `Body.setAccessorySource` already is in
+-- its own words (*"`Match.Body` must not learn what `ServerStorage.Assets` calls anything. The
+-- composition root translates"*).
+export type Look = { hatColor: Color3? }
+
+-- INJECTED AT THE COMPOSITION ROOT, the `setAccessorySource` shape. nil -- no provider, or a player
+-- who has bought nothing -- is TODAY'S GAME: hunter orange, `OUTFIT_COLOR`.
+--
+-- IT IS A PROVIDER AND NOT ONLY A PARAMETER, and the reason is measured rather than stylistic: this
+-- module re-dresses a character from THREE of its own paths (the appearance window's close, the
+-- respawn watch, and the tie/untie), and a `look` threaded through only the outside callers would
+-- put the orange hat back on a man who had bought a red one the first time he respawned. The
+-- explicit parameter stays for the specs and for a caller that knows better; the provider is the
+-- default every internal path reads.
+local lookProvider: ((Player) -> Look?)? = nil
+
+function Body.setLookProvider(fn: ((Player) -> Look?)?)
+	lookProvider = fn
+end
+
+function Body.lookProvider(): ((Player) -> Look?)?
+	return lookProvider
+end
+
+-- THROUGH A pcall, the rule every provider in this repo follows: a provider that errors must not
+-- leave a player undressed, and must not silently change what everybody wears. It falls back to
+-- nil, which is today's outfit.
+local function askLook(player: Player): Look?
+	if lookProvider == nil then
+		return nil
+	end
+	local ok, look = pcall(lookProvider :: any, player)
+	return if ok and type(look) == "table" then look else nil
+end
+
+-- PURE. WHICH COLOUR A SLOT IS WORN IN: the bought one for the hat, and nil -- "the row's own" --
+-- for everything else.
+--
+-- THE VEST IS NOT RECOLOURED, and that is a rule rather than an omission: it is safety orange on
+-- both roles for the reason `OUTFIT_COLOR`'s comment gives (*"In the field both sides wear safety
+-- orange"*). One cosmetic, one slot, this task.
+function Body.tintFor(slot: string?, look: Look?): Color3?
+	if look == nil or slot ~= Body.SLOTS.hat then
+		return nil
+	end
+	return look.hatColor
+end
+
 -- PURE, and the whole of the fix. (size, offset) for one row on a limb of THIS size:
 --   size   = limbSize * row.scale + row.pad
 --   offset = limbSize/2 * row.anchor + row.offset
@@ -415,7 +467,7 @@ end
 -- The switch is READ FROM THE CONFIG, not from `Flags` directly: `Match.CONFIG.OUTFITS_ENABLED` is
 -- the one boundary read (CLAUDE.md, "Feature flags"), and passing it inward as a parameter is what
 -- makes the ON branch reachable while the flag sits OFF.
-function Body.dressFor(team: TeamName?, config): { any }
+function Body.dressFor(team: TeamName?, config, look: Look?): { any }
 	local outfit = Body.outfitFor(team, config)
 	if not outfit then
 		return {}
@@ -425,8 +477,18 @@ function Body.dressFor(team: TeamName?, config): { any }
 	-- `Body.dress` and every existing spec case are unchanged in shape.
 	local rows = {}
 	for _, group in ipairs(outfit.parts) do
+		local tint = Body.tintFor((group :: any).slot, look)
 		for _, row in ipairs(group.rows) do
-			table.insert(rows, row)
+			if tint ~= nil then
+				-- A COPY, because the declared rows are this module's own frozen vocabulary and a
+				-- bought colour belongs to ONE player. Editing the row would be one purchase changing
+				-- what everybody on the server wears.
+				local tinted = table.clone(row)
+				tinted.color = tint
+				table.insert(rows, tinted)
+			else
+				table.insert(rows, row)
+			end
 		end
 	end
 	return rows
@@ -708,7 +770,7 @@ local function clearAttachments(character: Model, attachments: { string }): numb
 	return removed
 end
 
-local function wearAccessory(character: Model, group: Group): boolean
+local function wearAccessory(character: Model, group: Group, tint: Color3?): boolean
 	local slot = group.slot
 	local source = accessorySource
 	if not source then
@@ -740,6 +802,13 @@ local function wearAccessory(character: Model, group: Group): boolean
 	-- hit, and what the shot hit is what `Match.Penalty.judge` reads through the weapon's report.
 	for _, d in ipairs(accessory:GetDescendants()) do
 		if d:IsA("BasePart") then
+			-- THE BOUGHT COLOUR REACHES THE REAL ACCESSORY TOO (task 178), written in the same loop
+			-- that already writes the five properties below. A cosmetic that only showed on the
+			-- fallback plates would be a purchase Karen cannot see the moment the catalogue cap loads
+			-- -- and this repo has a whole page about things that measure correct and look wrong.
+			if tint ~= nil then
+				d.Color = tint
+			end
 			d.CanQuery = false
 			d.CanTouch = false
 			d.CanCollide = false
@@ -762,7 +831,7 @@ local function wearAccessory(character: Model, group: Group): boolean
 	return true
 end
 
-function Body.dress(character: Model?, team: TeamName?, config): boolean
+function Body.dress(character: Model?, team: TeamName?, config, look: Look?): boolean
 	if not character or not character.Parent then
 		return false
 	end
@@ -794,12 +863,19 @@ function Body.dress(character: Model?, team: TeamName?, config): boolean
 	-- thing a spec can assert.
 	local rows = {}
 	for _, group in ipairs(outfit.parts) do
-		if wearAccessory(character, group) then
+		local tint = Body.tintFor((group :: any).slot, look)
+		if wearAccessory(character, group, tint) then
 			continue
 		end
 		slotsFellBack += 1
 		for _, row in ipairs(group.rows) do
-			table.insert(rows, row)
+			if tint ~= nil then
+				local tinted = table.clone(row)
+				tinted.color = tint
+				table.insert(rows, tinted)
+			else
+				table.insert(rows, row)
+			end
 		end
 	end
 	if #rows == 0 then
@@ -874,8 +950,12 @@ end
 -- IT IS KEYED BY userId AND REPLACES ITSELF, so a player can never hold two windows, and every
 -- handler re-checks that this is still the player's current character: a window belonging to a dead
 -- character is inert as well as short-lived.
-function Body.dressWhenLoaded(player: Player, character: Model, config)
-	Body.dress(character, Body.teamOf(player), config)
+function Body.dressWhenLoaded(player: Player, character: Model, config, look: Look?)
+	-- RESOLVED ONCE, HERE, and used by both the immediate dress and the re-dress at the window's
+	-- close: two reads could answer differently if a purchase landed in between, and then the hat
+	-- would change colour five seconds after he spawned.
+	local resolved = look or askLook(player)
+	Body.dress(character, Body.teamOf(player), config, resolved)
 
 	local userId = player.UserId
 	stopWatching(userId)
@@ -935,7 +1015,7 @@ function Body.dressWhenLoaded(player: Player, character: Model, config)
 			-- `dress` is idempotent by construction -- it destroys the folder and this module's own
 			-- tagged accessories first -- so this is "whatever is missing, put it back" and not a
 			-- second hat. It subsumes the repaint, because `dress` paints.
-			Body.dress(character, Body.teamOf(player), config)
+			Body.dress(character, Body.teamOf(player), config, resolved)
 		end
 		stopWatching(userId)
 	end)

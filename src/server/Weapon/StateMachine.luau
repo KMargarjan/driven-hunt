@@ -23,21 +23,26 @@ local StateMachine = {}
 -- THE ROW IS THE CONFIG (task 140). `initial` always read `BARRELS`, `INITIAL_AMMO` and
 -- `START_RESERVE` off whatever it was handed, and a weapon row carries all three -- so a two-barrel
 -- shotgun and a one-chamber rifle start from the same function with no branch in it.
-function StateMachine.initial(config): WeaponState
+-- `start` IS WHAT ONE PLAYER MAY BE ISSUED (task 178), and `nil` is the weapon's own row -- which
+-- is what every caller written before the shop passes, so no weapon spec and no number moves.
+-- `Shop.startFor(row, owned)` is what produces it, and nothing about the ROW is edited: the pocket
+-- sizes are still `START_RESERVE`'s (docs/design/shop.md section 7.3).
+function StateMachine.initial(config, start: { ammo: string?, reserve: { [string]: number }? }?): WeaponState
+	local ammo = (start and start.ammo) or config.INITIAL_AMMO
 	local barrels, loaded = {}, {}
 	for index = 1, config.BARRELS do
 		barrels[index] = "Live"
-		loaded[index] = config.INITIAL_AMMO
+		loaded[index] = ammo
 	end
 	-- A copy: CONFIG.START_RESERVE is deep-frozen, and this one is about to be spent.
-	local reserve = table.clone(config.START_RESERVE)
+	local reserve = if start and start.reserve then table.clone(start.reserve) else table.clone(config.START_RESERVE)
 	return Shotgun.deepFreeze({
 		equipped = false,
 		open = false,
 		barrels = barrels,
 		loaded = loaded,
 		selected = 1,
-		ammo = config.INITIAL_AMMO,
+		ammo = ammo,
 		reserve = reserve,
 		busyUntil = 0,
 		epoch = 0,
@@ -256,7 +261,12 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number, row
 		local next = draft(state)
 		-- A copy, for the reason `initial` gives: CONFIG.START_RESERVE is deep-frozen and this one is
 		-- about to be spent.
-		next.reserve = table.clone(config.START_RESERVE)
+		--
+		-- `action.reserve` IS THIS PLAYER'S OWN ALLOWANCE (task 178), and it is carried on the ACTION
+		-- rather than as a fifth parameter because this primitive is SERVER-SIDE BY CONSTRUCTION:
+		-- `Validator.checkRequest` accepts only "Reload" and "SelectAmmo" over the wire, so no client
+		-- can send a `Refill` at all, let alone one carrying a reserve. nil is the weapon's own row.
+		next.reserve = if action.reserve then table.clone(action.reserve) else table.clone(config.START_RESERVE)
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "SelectAmmo" then
 		local ammo = action.ammo

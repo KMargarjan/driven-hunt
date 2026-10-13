@@ -710,6 +710,12 @@ BLAST_RADIUS = (
     # scope -- and `src/shared/Drive/` already resolves to `match`, which is what covers `Rank.luau`
     # (the one implementation of "who is first", read by this scope's pay-out and by the Hud's badge).
     ("src/server/Economy/", "economy"),
+    # The shop (task 178): its own owner with its own door, its own catalogue and its own pure
+    # refusal -- so its own scope. `src/server/Economy/` keeps its own scope below and the two name
+    # each other's specs (the dual membership this table already uses): a purchase is written by the
+    # ECONOMY and decided by the SHOP, so either side can break it.
+    ("src/shared/Shop/", "shop"),
+    ("src/server/Shop/", "shop"),
     # The lobby (task 177): its own owner with its own world, its own terrain rectangle and its own
     # pure rule -- so its own scope. `src/server/Match/` already resolves to `match`, which is what
     # covers the two doors the lobby calls (`enrol` / `dismissAll`) and the `unassign` effect.
@@ -731,6 +737,11 @@ BLAST_RADIUS = (
 # and `selftest` fails if one does not: a new spec nobody mapped would otherwise quietly shrink what
 # `--scope auto` considers covered.
 SCOPE_SPECS = {
+    # The shop (task 178): the catalogue and the pure rules, the door against fakes, the panel, and
+    # the ECONOMY's own spec -- because `Economy.purchase` is the only thing that writes a purchase.
+    "shop": ("tests/server/shop.spec.luau", "tests/server/shop_door.spec.luau",
+             "tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau",
+             "tests/client/shop_panel.spec.luau"),
     "gun": ("tests/server/gun.spec.luau", "tests/client/gun_client.spec.luau"),
     "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau"),
     "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau"),
@@ -804,7 +815,8 @@ SCOPE_SPECS = {
     # The coins (task 170): the pure conversion, the owner against an in-memory store, the store's
     # own contract. `match`'s own tuple is what covers the drive boundary that triggers a pay-out --
     # `zz_drive_boundary.spec` is named there and is where `drivesPaid == drives` is asserted.
-    "economy": ("tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau"),
+    "economy": ("tests/server/shop.spec.luau", "tests/server/shop_door.spec.luau",
+                "tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau"),
     "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau"),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).
@@ -820,7 +832,10 @@ SCOPE_SPECS = {
             # Task 165: the objective line, the waypoint and the button rail. It asserts the WHOLE
             # top band's rectangles -- the bar's and the banner's offsets (`src/shared/Drive/`), the
             # compass's TOP, the minimap's and the rail's -- so a band that moves anywhere plays it.
-            "tests/client/hud_clarity.spec.luau"),
+            "tests/client/hud_clarity.spec.luau",
+            # Task 178: the shop panel. `src/client/Hud/` already resolves to this scope, so only the
+            # spec is named here -- the dual membership `shoot_boar` and `zz_horn` already use.
+            "tests/client/shop_panel.spec.luau"),
     # The report's geometry is asserted against `Boar.CONFIG`, so a boar zone box that moves reaches
     # this spec too -- which is why it is in the `boar` scope as well.
     "report": ("tests/server/report_silhouette.spec.luau", "tests/client/report_panel.spec.luau"),
