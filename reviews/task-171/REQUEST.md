@@ -3,7 +3,7 @@
 Task: 171
 Round: 1
 Base: main (`a52f4d2`, #154 merged)
-Code commit: `a767230da8692efee2c373a12b6b0be1778eb8a4`
+Code commit: `0baae87221d0ed1acd4e2e5df5f04282e11e4998`
 
 Branch `task-171-rules`. Karen's three new rules (a beater cannot be shot at, a hunter outside his
 stand circle cannot fire, a species you have no licence for cannot be shot) plus the drive's limited
@@ -13,11 +13,10 @@ shells, all refused BEFORE the shot exists and with **no punishment**. Note:
 ## Harness
 
 ```
-[harness] PASS: 33/33 checks @ a767230da8692efee2c373a12b6b0be1778eb8a4 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 0baae87221d0ed1acd4e2e5df5f04282e11e4998 (clean tree) scope=all
 ```
 
-Run twice at that commit, both PASS 33/33 (server **1214** passed / 0 failed, client **302** / 0;
-the two new cases are the declared refusal order and the client-side refusal).
+Run twice at that commit, both PASS 33/33 (server **1214** passed / 0 failed, client **302** / 0).
 
 ```
 [harness2] NEEDS KAREN -- placeholder. `test2` costs one human click;
@@ -38,8 +37,19 @@ commits, which is exactly what a two-player-only defect looks like.
   the same session -- the replay walks the player about for five scenarios, so by the tie scenario he
   was nowhere near his post. Both answers were true, and nothing in the repo said which should win.
 
-Claim 2 is the fix for both, and it is the same two-part answer: **the game's rules got a declared
-ORDER, and the spec got the drive's own geometry to stage from.**
+* **At `cd30764`, 33/35, at the refusal case's own staging claim -- and the TIE half came out
+  GREEN** (`TIED by a shot aimed 5 studs beside the driver at 25 studs`). Three facts, and what the
+  log does NOT say mattered as much as what it does: the DRIVER's pivot provably took (he read
+  `z = -675`, the stand centre `-700` plus exactly `STAND_BEHIND`); the SHOOTER read **41 studs** off
+  the centre, but that reading was taken ~25 s after the probe, at the end of the case, with the
+  replay still holding his movement keys -- so WHEN he left his stand is not in the data at all; and
+  the probe answered `refused=nil` with the barrels **unchanged** and `busy=0.60`, because the
+  scenario presses **R** 1.2 s after the cue and a `busy` rejection is the REDUCER's: it commits no
+  state, carries no `refused`, and reads exactly like "no rule spoke".
+
+Claim 2 is the fix for all three, and the production rules did not change for any of them: **the
+game's rules got a declared ORDER, the spec got the drive's own geometry to stage from, and the
+staging is now held, measured before each shot and recorded at the shot.**
 
 **This change touches `TWO_PLAYER_PATHS`** (`src/server/Match/init.luau`,
 `src/server/MatchBoot.server.luau`), so the two-player line is required and is the Director's.
@@ -92,10 +102,22 @@ ORDER, and the spec got the drive's own geometry to stage from.**
      for him, and the case asserts he is inside it (from that same published geometry) BEFORE it
      asserts anything about his aim -- so "the beater rule is broken" can never again be confused
      with "the spec put him in the wrong place";
-   * **the DRIVER's client walks itself** 25 studs in front of that stand, up +Z, and the shooter's
-     probe waits until he has arrived. A client may move only its own character, and the shot has to
-     be able to reach him: `Buck` carries 100 studs of the 320 between the posts and the pad. The
-     driver's client still never touches its camera, which was the reason `onCue` ignored it;
+   * **the DRIVER's client walks itself** 25 studs in front of that stand, up +Z, at the stand's own
+     height. A client may move only its own character, and the shot has to be able to reach him:
+     `Buck` carries 100 studs of the 320 between the posts and the pad. The driver's client still
+     never touches its camera, which was the reason `onCue` ignored it;
+   * **both characters are HELD at their staged points every frame** -- the `root.CFrame` plus zeroed
+     `AssemblyLinearVelocity` pair `ForestTest.boundary` uses -- because the replay holds movement
+     keys and a position written once is undone by the next step of one;
+   * **every pre-condition the rule needs is measured before each attempt**, and the one that fails
+     is the word the note carries: inside his own circle by the published radius, the driver within
+     `PROBE_REACH` (40 studs), the gun equipped, loaded and **not busy**, and a client-side raycast
+     that really lands on the driver's body -- it names what is in the way otherwise, which is the
+     one thing `cd30764` could not say. The numbers are recorded **at the shot** the gate judged,
+     never read back afterwards;
+   * **and the probe retries** at 4 a second (the limiter is 6) inside a 10-second window, because a
+     mechanical rejection commits no state and costs no shell, so trying again is free -- and it is
+     the only way to be sure the shot did not land in a gun whose hands were full;
    * the real replayed click aims `BESIDE_STUDS` = **5 studs** off the driver's body (11.3
      degrees at 25 studs, deep inside the 45-degree half-arc, miss 5 of 12) -> fires and ties. **The
      tie proof is not deleted and not weakened** -- same chain, same click, same assertions, pointed
