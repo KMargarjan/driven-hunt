@@ -3,7 +3,7 @@
 Task: 171
 Round: 2
 Base: main (`a52f4d2`, #154 merged)
-Code commit: `067048b24dd48ee022f8d0d8e11b3506d5c62f06`
+Code commit: `0ca5039c39f874c1c9b8e1ccb7987bd40189216e`
 
 Branch `task-171-rules`. Karen's three new rules (a beater cannot be shot at, a hunter outside his
 stand circle cannot fire, a species you have no licence for cannot be shot) plus the drive's limited
@@ -20,8 +20,8 @@ Run twice at the round-2 code commit, both PASS 33/33 (server 1214 passed / 0 fa
 0).
 
 ```
-[harness2] NEEDS KAREN -- placeholder for the round-2 commit. `test2` costs one human click;
-           the Director runs it at the branch head and pastes the line here.
+[harness] PASS: 33/33 checks @ 0ca5039c39f874c1c9b8e1ccb7987bd40189216e (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 0ca5039c39f874c1c9b8e1ccb7987bd40189216e (clean tree)
 ```
 
 **The Director's round-1 lines, at `8cb9683`, for the record -- both PASS, including the two-player
