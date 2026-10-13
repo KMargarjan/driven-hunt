@@ -745,6 +745,47 @@ return function()
 			expect(Match.stats().dismissals).to.equal(0)
 		end)
 
+		it("never resurrects a departed player as a ghost row on the board", function()
+			-- REVIEW ROUND 1, FINDING 1, and the two halves of it are asserted together because one
+			-- is the hazard and the other is the guard.
+			--
+			-- THE HAZARD, in `Score`'s own words: `setTeam` goes through `mutable`, which for a userId
+			-- with no row returns `blankRow(userId, name or tostring(userId))`. So asking it to clear
+			-- the team of somebody the board has never seen CREATES him -- named by his raw userId,
+			-- 0 points, not marked `left` -- and `Score.leaderboard` then puts him on the wire for the
+			-- whole of the next drive.
+			local Score = Match.Score
+			local board = Score.setTeam(Score.new(), -4242, nil)
+			local resurrected = false
+			for _, row in ipairs(Score.leaderboard(board)) do
+				if row.userId == -4242 then
+					resurrected = true
+					expect(row.name).to.equal("-4242")
+					expect(row.points).to.equal(0)
+					expect(row.left).never.to.equal(true)
+				end
+			end
+			expect(resurrected).to.equal(true)
+
+			-- THE GUARD: the effect's list outlives the player, because `Phase.enterAssigning` builds
+			-- it from `previousAssignment` and the `leave` branch clears `participants` and
+			-- `assignment` and not that. `Match.unassignTargets` filters it to the ids this owner
+			-- still knows -- `names`, which `Match.forget` clears BEFORE the `leave` it dispatches.
+			local known = { [11] = "here", [13] = "also here" }
+			local targets = Match.unassignTargets({ 11, 12, 13 }, known)
+			expect(#targets).to.equal(2)
+			expect(targets[1]).to.equal(11)
+			expect(targets[2]).to.equal(13)
+			-- The order the effect gave is kept, so the owner's loop is still deterministic.
+			expect(#Match.unassignTargets({ 12 }, known)).to.equal(0)
+			expect(#Match.unassignTargets(nil, known)).to.equal(0)
+			expect(#Match.unassignTargets({}, known)).to.equal(0)
+
+			-- ...and the live player IS known, so an unassign that names him really does reach him.
+			local player = Players:GetPlayers()[1] :: Player
+			expect(#Match.unassignTargets({ player.UserId }, { [player.UserId] = player.Name })).to.equal(1)
+		end)
+
 		it("counts the seam's three numbers", function()
 			local stats = Match.stats()
 			expect(type(stats.enrolments)).to.equal("number")

@@ -219,8 +219,10 @@ end
 -- ---------------------------------------------------------------- the palette
 --
 -- Terrain material colour is GLOBAL STATE WITH NO CONTAINER, exactly like the voxels -- so it belongs
--- to the module that is already the only writer of Terrain in this repo (design section 8.2). No
--- second writer, anywhere, ever.
+-- to the module that is already the only writer of the DEV place's Terrain (design section 8.2). No
+-- second writer of the PALETTE, anywhere, ever -- and that is still exactly true after task 177:
+-- `ServerScriptService.Lobby.Field` writes VOXELS in another world at run time and calls no colour
+-- API at all (see this file's own header for the three facts that keep the two apart).
 --
 -- MEASURED 2026-09-26 (measurement N1): Get/SetMaterialColor are callable through execute_luau in
 -- Edit, the values read back exactly, they SURVIVE Terrain:Clear(), and they replicate to a client.

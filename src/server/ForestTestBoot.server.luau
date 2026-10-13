@@ -490,6 +490,34 @@ print(
 	)
 )
 
+-- THE LOBBY'S OWN NUMBERS, ONCE, ON THE CONSOLE (review round 1, note 4). `docs/design/lobby.md`
+-- section 18 item 2 asks for exactly this -- *"`Lobby.stats().shelfY` must be printed so it is a
+-- number in the console and not a belief"* -- and the module never prints: a tool that `require`s it
+-- over StudioMCP gets a sandboxed copy with empty state (measured, task 122), so the console is the
+-- only honest channel for what the running server actually built.
+--
+-- ONE LINE, ON THE BUILD EDGE, from the loop this file already runs: the build is lazy (the ground
+-- cannot be read until the place has loaded), so there is nothing to print at boot.
+local lobbyReported = false
+local function reportLobby()
+	if lobbyReported or not lobbyOn or not Lobby.isBuilt() then
+		return
+	end
+	lobbyReported = true
+	local st = Lobby.stats()
+	print(
+		string.format(
+			"[lobby] built in %d ms: shelf y=%.1f, %d part(s), %d terrain fill(s) (%d grass), spot %s",
+			st.buildMs,
+			st.shelfY,
+			st.parts,
+			st.fillCalls,
+			st.grassCalls,
+			tostring(Lobby.Data.spotPosition())
+		)
+	)
+end
+
 Match.start({
 	-- WHETHER JOINING THE SERVER IS JOINING THE DRIVE (task 177). `false` only when the lobby really
 	-- built itself; `nil` otherwise, which `Match.start` reads as today's behaviour.
@@ -894,6 +922,12 @@ Players.PlayerRemoving:Connect(function(player)
 	-- THE REQUEST GOES WITH THE PLAYER. `Body.forget` is no longer called here: `Match.forget` runs
 	-- in this world now and calls it, so one caller instead of two.
 	ForestTest.clearRequest(player.UserId)
+	-- ...AND SO DOES EVERY ROW THE LOBBY KEYS BY HIM (task 177, review round 1 finding 3).
+	-- `Lobby.forget`'s own header carries `Match.forget`'s rule -- *"After this, no table in this
+	-- system is keyed by that player"* -- and until this line the only caller in the repo was a spec:
+	-- `entries`, `returnedAt`, `spawnIndex` and `touched` kept a row for every player who had ever
+	-- joined, and `touched` held the departed `Player` INSTANCE itself.
+	Lobby.forget(player.UserId)
 end)
 
 -- ---------------------------------------------------------------- the loop
@@ -955,6 +989,7 @@ RunService.Heartbeat:Connect(function()
 	-- itself to `SCAN_HZ` inside the module -- so a second `RunService.Heartbeat` would be a second
 	-- answer to "what time is it" in the file whose own header above says ONE HEARTBEAT FOR BOTH JOBS.
 	Lobby.step(now, players)
+	reportLobby()
 end)
 
 HitLog.start()

@@ -449,6 +449,28 @@ return function()
 	describe("where he stands when he arrives", function()
 		local anchor = Vector3.new(0, 100, 0)
 
+		it("can never put a player off the lobby's own field, however high the index climbs", function()
+			-- REVIEW ROUND 1, FINDING 3, AND IT IS THE CASE THAT FAILS ON THE OLD CODE. The caller's
+			-- index is a counter that only ever goes up -- one per player who has ever joined -- and
+			-- unwrapped it is `floor((index + 1) / 2) * SPREAD_STUDS` studs off the middle with no
+			-- bound at all: index 37 is 114 studs, outside `FIELD.SPAN_STUDS`'s half-span of 110. The
+			-- man then stands exactly where `world.place` put him, `Join.insideField` answers FALSE,
+			-- `Join.needsReturn` answers true, and the lobby re-places him at the same off-shelf point
+			-- every `RETURN_COOLDOWN_SECONDS` for ever.
+			local half = CFG.LODGE.SIZE.X / 2
+			for index = 0, 200 do
+				local at = Lobby.spawnCFrame(anchor, index, CFG).Position
+				-- Inside the field, which is the rule that closes the respawn loop...
+				expect(Join.insideField(at, anchor, CFG)).to.equal(true)
+				-- ...and inside the lodge's own front, which is the porch the design names.
+				expect(math.abs(at.X - (anchor.X + CFG.SPAWN.OFFSET.X)) < half).to.equal(true)
+			end
+			-- The slots WRAP rather than widen: index 0 and index SLOTS are the same place.
+			local first = Lobby.spawnCFrame(anchor, 0, CFG).Position
+			local wrapped = Lobby.spawnCFrame(anchor, CFG.SPAWN.SLOTS, CFG).Position
+			expect((first - wrapped).Magnitude < 1e-4).to.equal(true)
+		end)
+
 		it("spreads two players more than a body apart, and faces them north", function()
 			local first = Lobby.spawnCFrame(anchor, 0, CFG)
 			local second = Lobby.spawnCFrame(anchor, 1, CFG)

@@ -455,11 +455,16 @@ return function()
 			-- The one case that ties the two systems together, and it reads both numbers rather than
 			-- copying either: `Lobby.anchorFor` is the lobby's own statement of where it is, and the
 			-- geometry is the map's own statement of what it covers.
-			if Map.EXPECTED_WORLD ~= "forest-test" then
-				return
-			end
+			--
+			-- THE WORLD IS NAMED, NOT ASKED FOR (review round 1, finding 2). This case used to open
+			-- `if Map.EXPECTED_WORLD ~= "forest-test" then return end` -- and `Map.EXPECTED_WORLD` is
+			-- `"map:v1"` in the DEV place, which is the ONLY place the harness runs, so it asserted
+			-- nothing anywhere and the claim that rested on it was never measured. `geometryFor`
+			-- branches on its `world` ARGUMENT and `ReplicatedStorage.ForestTest` is in every place,
+			-- so the literal runs here and can fail here -- which is what the sibling case two
+			-- describes up already does.
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local geometry = MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map)
+			local geometry = MapUi.geometryFor("forest-test", data, Map)
 			expect(geometry).to.be.ok()
 			local anchor = require(ReplicatedStorage:WaitForChild("Lobby")).anchorFor("forest-test")
 			expect(anchor).to.be.ok()

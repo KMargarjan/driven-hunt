@@ -110,8 +110,14 @@ end
 -- PURE, so the spread and the facing are a spec and not a screenshot.
 function Lobby.spawnCFrame(at: Vector3, index: number, config): CFrame
 	local spread = config.SPAWN.SPREAD_STUDS
+	-- WRAPPED INTO THE PORCH'S OWN SLOTS, AND THE BOUND IS WHAT MAKES THIS SAFE (review round 1,
+	-- finding 3): the caller's index is a counter that only ever goes up, and an unwrapped slot 37
+	-- lands 114 studs off the middle -- outside the field itself, where `Join.needsReturn` answers
+	-- true for a man standing exactly where this put him and the lobby re-places him for ever.
+	-- `SPAWN.SLOTS` is where the number and its arithmetic are written down.
+	local slot = index % math.max(1, config.SPAWN.SLOTS)
 	-- Centre-out: 0, +1, -1, +2, -2 ... so a solo player gets the middle of the porch.
-	local step = math.floor((index + 1) / 2) * (if index % 2 == 0 then -1 else 1)
+	local step = math.floor((slot + 1) / 2) * (if slot % 2 == 0 then -1 else 1)
 	local here = at + config.SPAWN.OFFSET + Vector3.new(step * spread, 0, 0)
 	return CFrame.lookAt(here, here + Vector3.new(0, 0, 10), Vector3.yAxis)
 end
@@ -214,8 +220,17 @@ local function stepPlayer(player: any, now: number)
 		-- down locally, which is the one conversion `Match.snapshot`'s `phaseEndsAt` already
 		-- establishes: a client-side countdown invented from a client-side position would read 0
 		-- while the server had not enrolled him.
-		local leaveAt = Workspace:GetServerTimeNow() + math.max(0, (entry :: any).leaveAt - now)
-		player:SetAttribute(Data.LEAVE_AT_ATTRIBUTE, leaveAt)
+		--
+		-- WRITTEN ONCE, ON THE `nil -> COUNTING` EDGE (review round 1, note 3), which is the same
+		-- discipline `setRespawn` above already follows. It used to be written on every scan: ~50
+		-- replicated attribute writes per walk-in, each one recomputing the SAME deadline from
+		-- `GetServerTimeNow`. The client counts a fixed deadline down itself and has no use for a
+		-- second copy of it.
+		if player:GetAttribute(Data.LEAVE_AT_ATTRIBUTE) == nil then
+			local leaveAt = Workspace:GetServerTimeNow() + math.max(0, (entry :: any).leaveAt - now)
+			player:SetAttribute(Data.LEAVE_AT_ATTRIBUTE, leaveAt)
+			touched[player.UserId] = player
+		end
 	elseif verdict == Join.CANCELLED then
 		stats.cancels += 1
 		clearLeaveAt(player)
@@ -336,7 +351,10 @@ function Lobby.start(injected: any?): boolean
 	if not enabled then
 		return false
 	end
-	for _, name in ipairs({ "enrol", "dismissAll", "inDrive", "place", "groundAt" }) do
+	-- `isHeld` IS REQUIRED AND NOT OPTIONAL (review round 1, note 6). It is the one thing stopping
+	-- this module respawning a man out of Karen's results scene, and a boot that forgot it would get
+	-- `held = false` in silence -- which is a lobby that works until the first drive ends.
+	for _, name in ipairs({ "enrol", "dismissAll", "inDrive", "isHeld", "place", "groundAt" }) do
 		if type(world[name]) ~= "function" then
 			warn(string.format("[lobby] start: no %s was injected, so nothing is built", name))
 			return false

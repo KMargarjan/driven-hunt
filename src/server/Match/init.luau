@@ -1093,8 +1093,38 @@ end
 -- THE HORN AND THE GUN THEN GO ON THEIR OWN, with no new code in either system: `Weapon.Horn`'s
 -- carry sweep revokes a tool `Horn.carriesFor(on, nil)` says false for, and the gun's arming sweep
 -- does the same through `Match.mayCarryWeapon`, which returns false for a userId with no assignment.
-local function applyUnassign(userIds: { number }?)
+-- WHOM AN `unassign` MAY TOUCH: the ids the effect named, filtered to the ones this owner STILL
+-- KNOWS. PURE and exported, the shape `Match.botSlotsFor`, `Match.quickSpawnFor` and
+-- `Match.pushCreditWithin` already have, so the rule is a table of cases in a spec rather than a
+-- branch nobody can reach.
+--
+-- IT EXISTS BECAUSE THE EFFECT'S LIST OUTLIVES THE PLAYER (review round 1, finding 1), and the cost
+-- was a GHOST on Karen's score board. `Phase.enterAssigning` builds the list from
+-- `previousAssignment`, and `Phase`'s `leave` branch clears `participants` and `assignment` and not
+-- that -- so a player who disconnects during the results scene is still in it. The owner rebuilds
+-- the board from `names` at the same edge, which correctly drops his row; `applyUnassign` then ran
+-- `Score.setTeam(board, userId, nil)` unconditionally, and `Score.setTeam` -> `mutable` ->
+-- `blankRow(userId, name or tostring(userId))` CREATES a row for a userId it has never seen. The
+-- next whole drive showed a player named by his raw userId, with 0 points, not on the server and not
+-- even dimmed as `left`.
+--
+-- `names` IS THE READ, and it is the right one: it is this owner's own register of who is on the
+-- server, written by `watchPlayer` and cleared by `Match.forget` BEFORE the `leave` it dispatches --
+-- so by the time any later phase edge emits an `unassign`, a departed player is already absent from
+-- it. `Body.setTeam` was never the hazard (`GetPlayerByUserId` answers nil and the branch is
+-- skipped); the board was.
+function Match.unassignTargets(userIds: { number }?, known: { [number]: any }): { number }
+	local out = {}
 	for _, userId in ipairs(userIds or {}) do
+		if known[userId] ~= nil then
+			table.insert(out, userId)
+		end
+	end
+	return out
+end
+
+local function applyUnassign(userIds: { number }?)
+	for _, userId in ipairs(Match.unassignTargets(userIds, names)) do
 		local player = playersService():GetPlayerByUserId(userId)
 		if player then
 			Body.setTeam(player, nil, config)

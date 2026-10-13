@@ -175,7 +175,24 @@ Lobby.CONFIG = {
 	-- WHERE HE ARRIVES: in front of the porch, looking +Z (north) at the lodge with the forest
 	-- behind it, the truck and the ring to his right. Karen's *"house is in fields next to forrest"*
 	-- read as a camera angle.
-	SPAWN = { OFFSET = Vector3.new(0, 0, 16), SIZE = Vector3.new(12, 1, 6), SPREAD_STUDS = 6 },
+	SPAWN = {
+		OFFSET = Vector3.new(0, 0, 16),
+		SIZE = Vector3.new(12, 1, 6),
+		SPREAD_STUDS = 6,
+		-- HOW MANY PLACES THERE ARE ON THE PORCH, AND IT IS A BOUND AND NOT A PREFERENCE (review
+		-- round 1, finding 3). `Lobby.spawnCFrame` lays its slots centre-out -- 0, +1, -1, +2, -2 --
+		-- so slot n is `floor((n + 1) / 2) * SPREAD_STUDS` studs off the middle. SEVEN slots is a
+		-- worst case of 3 * 6 = 18 studs, inside the lodge's own 40-stud front (half-width 20) that
+		-- `docs/design/lobby.md` section 8.3 names.
+		--
+		-- UNBOUNDED, IT ENDED IN A RESPAWN LOOP. The index was a counter that only ever went up, one
+		-- per player who had ever joined, so slot 37 is 114 studs off the middle -- outside
+		-- `FIELD.SPAN_STUDS`'s half-span of 110. `Join.insideField` then answers FALSE for the man
+		-- standing exactly where `world.place` put him, `needsReturn` answers true, and the lobby
+		-- re-places him at the same off-shelf point every `RETURN_COOLDOWN_SECONDS` for ever -- the
+		-- loop `Join.needsReturn`'s own comment says it exists to prevent.
+		SLOTS = 7,
+	},
 	-- ---------------- the rule
 	COUNTDOWN_SECONDS = 5,
 	SCAN_HZ = 10,

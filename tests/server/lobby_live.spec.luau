@@ -154,7 +154,10 @@ return function()
 		it("refuses a start with a door missing, rather than half-building", function()
 			-- `ForestTestBoot` asks the lobby whether it exists and only THEN takes the drive's own
 			-- enrolment away -- so this combination cannot ship silently.
-			for _, name in ipairs({ "enrol", "dismissAll", "inDrive", "place", "groundAt" }) do
+			-- `isHeld` JOINED THE LIST IN ROUND 2 (review note 6): it is the one thing stopping the
+			-- lobby respawning a man out of Karen's results scene, so a boot that forgets it must be
+			-- refused rather than silently answering "nobody is held".
+			for _, name in ipairs({ "enrol", "dismissAll", "inDrive", "isHeld", "place", "groundAt" }) do
 				local _seen, on = fresh(bin, function(world)
 					world[name] = nil
 				end)
@@ -231,8 +234,14 @@ return function()
 			local player = occupant(22, spot, bin)
 			Lobby.step(1001, { player })
 			-- ONE ATTRIBUTE, written by the server, counted down by his own client. No new wire.
-			expect(type(player.attributes[Data.LEAVE_AT_ATTRIBUTE])).to.equal("number")
+			local deadline = player.attributes[Data.LEAVE_AT_ATTRIBUTE]
+			expect(type(deadline)).to.equal("number")
 			expect(#seen.enrolled).to.equal(0)
+			-- ...AND WRITTEN ONCE, ON THE EDGE (review round 1, note 3). It used to be rewritten on
+			-- every scan -- ~50 replicated writes per walk-in, each recomputing the same deadline.
+			Lobby.step(1001.5, { player })
+			Lobby.step(1001.8, { player })
+			expect(player.attributes[Data.LEAVE_AT_ATTRIBUTE]).to.equal(deadline)
 
 			player.root.Position = spot + Vector3.new(40, 0, 0)
 			Lobby.step(1002, { player })
