@@ -714,6 +714,12 @@ local stats = {
 	scenesCleared = 0,
 	scenesNowhere = 0,
 	sceneAnimals = 0,
+	-- ...AND HOW MANY OF THEM WERE THE REAL ANIMAL AND HOW MANY THE GREY BOX (task 173). Summed from
+	-- `Scene.stats()` after each build, which is the module that knows: these are totals across the
+	-- session, exactly like every other counter here -- and `Scene`'s own pair is PER BUILD, which is
+	-- what the console line beside them prints (round 1, finding 1).
+	sceneModels = 0,
+	sceneBoxes = 0,
 	sceneMoved = 0,
 	-- THE BOTS (task 161), and these two are the gap that makes a failure visible: how many rigs the
 	-- drive asked for at this boundary, and how many of them the results scene actually stood in the
@@ -1288,6 +1294,28 @@ local function applyFree(userIds: { number }?)
 	end
 end
 
+-- THE REAL ANIMAL FOR ONE OF THE SCENE'S ROWS, or nil (task 173). KAREN, 2026-10-13 ~09:30:
+-- *"and after hunt over we need to see boars shooted not boxes when we stand around"*.
+--
+-- THIS OWNER IS THE WIRE AND NOTHING ELSE. `Match.Scene` owns where each animal lies and which way
+-- it faces; the BOAR owns what a boar looks like and how a dead one lies; and this function is the
+-- one line that joins them -- the shape `world.placement`, `world.bots` and `world.weapon` already
+-- have. It decides nothing, holds nothing and creates nothing.
+--
+-- NIL IS THE ANSWER FOR EVERY WORLD THAT CANNOT DRAW ONE, and the scene's own grey box is what that
+-- means: the DEV quick test (no boar world at all), an older or narrower boar view without the
+-- method, `BOAR_MODEL` off, and an asset that has not loaded -- the runtime answers nil for the last
+-- two, exactly as a live boar stays a grey box in the same states.
+--
+-- Note: docs/research/2026-10-13-real-animals-at-the-gathering.md
+function Match.displayAnimal(kind: string?, ground: CFrame): Instance?
+	local boars = if world then world.boars else nil
+	if boars == nil or boars.displayCarcass == nil then
+		return nil
+	end
+	return boars:displayCarcass(kind, ground)
+end
+
 -- ------------------------------------------------------------------ the results scene (task 159)
 --
 -- THE SCENE IS `Match.Scene`'S INSTANCES AND `Body`'S CHARACTERS, and this is the one place either is
@@ -1311,8 +1339,29 @@ local function applyScene()
 		return
 	end
 	stats.scenes += 1
-	local laid = Scene.build(spot, facing, driveKills, config)
+	local laid = Scene.build(spot, facing, driveKills, config, Match.displayAnimal)
 	stats.sceneAnimals += laid
+	-- HOW MANY WERE THE REAL ANIMAL (task 173). `Scene` counts both FOR THE SCENE IT JUST BUILT, and
+	-- the difference between them is the whole of "did the asset load": a row of grey boxes with
+	-- `models = 0` is an asset that never arrived, and the same row with `models = 3` would be a bug
+	-- in the scene.
+	--
+	-- `+=` AND NOT `=` (round 1, finding 1): `Scene.stats()` is now this drive's pair, and every
+	-- counter in THIS table is a session total -- `sceneAnimals += laid` on the line above it is the
+	-- same sum of the same scenes. So the two sides keep the meaning each of them already had, and
+	-- `stats.sceneModels + stats.sceneBoxes == stats.sceneAnimals` across a session.
+	local sceneStats = Scene.stats()
+	stats.sceneModels += sceneStats.models
+	stats.sceneBoxes += sceneStats.boxes
+	print(
+		string.format(
+			"[match] gathered %d animal(s) in %d row(s): %d real model(s), %d box(es)",
+			laid,
+			sceneStats.rows,
+			sceneStats.models,
+			sceneStats.boxes
+		)
+	)
 
 	-- EVERYBODY STANDING ROUND THEM, in roster order so the ring is the same ring every drive.
 	--
