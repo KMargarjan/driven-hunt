@@ -1,5 +1,49 @@
 # Escalations
 
+## 2026-10-13 - Task 174: NEEDS TEST2, one click. Everything else is done, gated and smoked
+
+**The work is finished and measured.** Two clean-tree full runs at the code commit,
+`[harness] PASS: 33/33 checks @ bfca4fb7689bb449dc3dbb06e785e36153b80c8c (clean tree) scope=all`
+(twice), and `SMOKE PASS` in the Forest Test over 90 s (gun in hand at 15 s and at 90 s,
+`stacks=0 errorLines=0`, 5 waves, 22 boars, worst 1 boar sound at once). Everything else is in
+`reviews/task-174/REQUEST.md`.
+
+### NEEDS TEST2 174 `bfca4fb7689bb449dc3dbb06e785e36153b80c8c`
+
+`src/server/Match/Phase.luau`, `src/server/Match/init.luau`, `src/server/MatchBoot.server.luau` and
+`tests/server/match_phase.spec.luau` are all in `TWO_PLAYER_PATHS`, so `tools/review.ps1 174`
+refuses to start without a `[harness2]` line for that commit, and the PR to `main` needs one too.
+StudioMCP cannot start a two-player session: `start_stop_play` takes no player count.
+
+**`--scope auto` CANNOT GET ROUND IT, and that was checked rather than assumed.** `scope_for` on
+this branch's eleven changed paths answers `['all']` -- `src/server/Bots/` and
+`src/server/ForestTestBoot.server.luau` are unmapped in `BLAST_RADIUS`, and an unmapped code path can
+only mean the whole suite -- which the harness tags `scope=all`. That is FULL evidence, so
+`tools/agents.py` still asks for `[harness2]` (its `scoped = "full" not in kinds`).
+
+**THE CLICKS, IN ORDER.** In the **DEV** Studio, in Edit: **Test tab -> Clients and Servers ->
+Players: 2 -> Start**, then leave the windows alone until the harness says to press **Cleanup**.
+`python tools/studio_mcp.py test2` drives the rest. Then paste the `[harness2] PASS: n/m checks @
+bfca4fb7689bb449dc3dbb06e785e36153b80c8c (clean tree)` line over the placeholder in
+`reviews/task-174/REQUEST.md` (line 11) and run `powershell -ExecutionPolicy Bypass -File
+tools/review.ps1 174`.
+
+**WHAT A SECOND PLAYER ACTUALLY ANSWERS HERE, so the run is worth its click.** The new fire gate
+refuses a shot while the drive is shut, and `tests/client/zz_tie_to_a_tree.spec.luau` is the one
+spec that fires a REAL shot and expects a TIE -- which can only happen while the drive is open. In
+the one-player run of this branch the replayed clicks fired (`weapon_client: shots seen: 2 ... cue at
++49.3s`), so the drive was open at ~+50 s and the gate did not swallow them; the two-player run is
+what says the same for the driver-and-shooter pair, and that the tie still happens.
+
+### NOT A BLOCKER, FOR THE DIRECTOR TO NOTE
+
+`"THE DRIVE IS OVER"` on the readout was **not seen on a screen**. It is task 171's own notice path
+(server-computed `Rules.noticeFor`, one row at the bottom of the screen) with a new string in it, and
+no client file changed. Seeing it live needs a drive to END first -- 300 s in the Forest Test, 600 s
+in DEV -- and then a trigger pull, which did not fit the 1.5 h box. The refusal itself IS measured
+live on a real loaded gun (`weapon_rules: ... driveShut=drive-over`, request claim 8).
+
+
 ## 2026-10-13 — Task 172: ROUND 3 WAS THE LAST ROUND, its finding is fixed, and the fix is UNREVIEWED
 
 **The work is finished, gated and measured.** Two clean-tree full runs at the current head,
