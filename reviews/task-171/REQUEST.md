@@ -3,7 +3,7 @@
 Task: 171
 Round: 1
 Base: main (`a52f4d2`, #154 merged)
-Code commit: `0baae87221d0ed1acd4e2e5df5f04282e11e4998`
+Code commit: `3c768c87af2b6d0f9ab43f0d427fc7b8d446c9e9`
 
 Branch `task-171-rules`. Karen's three new rules (a beater cannot be shot at, a hunter outside his
 stand circle cannot fire, a species you have no licence for cannot be shot) plus the drive's limited
@@ -13,7 +13,7 @@ shells, all refused BEFORE the shot exists and with **no punishment**. Note:
 ## Harness
 
 ```
-[harness] PASS: 33/33 checks @ 0baae87221d0ed1acd4e2e5df5f04282e11e4998 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 3c768c87af2b6d0f9ab43f0d427fc7b8d446c9e9 (clean tree) scope=all
 ```
 
 Run twice at that commit, both PASS 33/33 (server **1214** passed / 0 failed, client **302** / 0).
@@ -47,9 +47,18 @@ commits, which is exactly what a two-player-only defect looks like.
   scenario presses **R** 1.2 s after the cue and a `busy` rejection is the REDUCER's: it commits no
   state, carries no `refused`, and reads exactly like "no rule spoke".
 
-Claim 2 is the fix for all three, and the production rules did not change for any of them: **the
-game's rules got a declared ORDER, the spec got the drive's own geometry to stage from, and the
-staging is now held, measured before each shot and recorded at the shot.**
+* **At `bac93d6`, 33/35 -- and everything but one assertion came out green.** The staging worked and
+  the rule worked: `me 0.5 from the centre; driver 25.0 away; ray hit Workspace.Player2.UpperTorso`,
+  `refused=beater-in-line after 2 attempt(s)`, the gun print **identical** before and after, and the
+  tie case passed on the beside-aim click. The one failure was the refusal case reading
+  `Match.isTied()` at the END of itself: the probe can only fire in the gap after the scenario's own
+  reload (R lands 1.2 s after the cue, the reload runs 2.0 s, the first click lands at 3.8 s), so
+  "after the probe" and "after the tie shot" were the same moment -- and he was, correctly, tied.
+
+Claim 2 is the fix for all four, and **the production rules did not change for any of them**: the
+game's rules got a declared ORDER, the spec got the drive's own geometry to stage from, the staging
+is held and measured before each shot, and the two shots are now ORDERED and measured at their own
+instant.
 
 **This change touches `TWO_PLAYER_PATHS`** (`src/server/Match/init.luau`,
 `src/server/MatchBoot.server.luau`), so the two-player line is required and is the Director's.
@@ -122,10 +131,21 @@ staging is now held, measured before each shot and recorded at the shot.**
      degrees at 25 studs, deep inside the 45-degree half-arc, miss 5 of 12) -> fires and ties. **The
      tie proof is not deleted and not weakened** -- same chain, same click, same assertions, pointed
      at the shot the arc exists to punish;
-   * a **probe at the cue**, before the click and while the gun still exists, fires one
+   * **the tie state is measured AROUND THE PROBE'S OWN SHOT** -- untied before it, untied after it,
+     no new violation announced in between -- which is the claim *"a refused shot ties nobody"*
+     exactly, and is **stricter** than the old `Match.isTied()` line it replaces: that one could
+     also be satisfied by a probe that never fired. `probeTiedBefore` doubles as the case's starting
+     condition, so a session that arrives here already tied fails on it rather than being worked
+     around (`TASKS.md` 166a(b) records the same race biting `weapon_client` and `rifle_client`);
+   * **and the two shots are ordered**: the aim stays ON the driver until the probe has answered, so
+     a replayed click that lands early is REFUSED by the very rule being measured instead of tying
+     him. The scenario clicks twice (3.8 s and 5.0 s after the cue), so the tie shot is whichever
+     click follows the probe -- the tie can no longer precede it. Every attempt is logged with the
+     tie state at it, so "what was the first attempt" is answered by the note and not by a counter;
+   * a **probe at the cue**, before the tie shot and while the gun still exists, fires one
      `FireRequest` dead at him -> refused. The client reads the server's own word for it off the
      snapshot's new `refused` field (`beater-in-line`), with the gun print before and after proving
-     **no shell was spent**, and asserts nobody was tied by it. This is the only place the `refused`
+     **no shell was spent**. This is the only place the `refused`
      wire field is proved reaching a client (claim 8 can only assert the wire carries it).
    Verify: the header of `src/server/Weapon/Rules.luau` ("HOW THIS RELATES TO `Match.Penalty`"), and
    `tests/client/zz_tie_to_a_tree.spec.luau` -- its header, `onCue`'s probe, the aim loop's
