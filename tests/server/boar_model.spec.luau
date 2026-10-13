@@ -1559,11 +1559,18 @@ return function()
 				-- number is written down anywhere: it is read off the mesh.
 				expect(math.abs((mesh.Position.Y - KIND_LIFT[kind]) - GROUND_Y) < 1e-3).to.equal(true)
 			end
-			-- AN UNKNOWN KIND GETS WHAT A LIVE BOAR OF THAT KIND WOULD GET: the default, which is the
-			-- male -- the state every animal was in before task 119.
-			local unknown = runtime:displayCarcass("red deer", CFrame.new(0, GROUND_Y, 0))
-			expect(unknown).to.be.ok()
-			expect((unknown.PrimaryPart.Size - KIND_SIZE.male).Magnitude < 1e-3).to.equal(true)
+			-- NO KIND AT ALL GETS THE DEFAULT, which is the male: a kill record from a world with
+			-- `KINDS` off carries no kind, and that is the state every animal was in before task 119.
+			local noKind = runtime:displayCarcass(nil, CFrame.new(0, GROUND_Y, 0))
+			expect(noKind).to.be.ok()
+			expect((noKind.PrimaryPart.Size - KIND_SIZE.male).Magnitude < 1e-3).to.equal(true)
+			-- ...AND AN UNKNOWN KIND IS THE SOURCE'S BUSINESS AND NOT THE RUNTIME'S, which is where
+			-- that rule has always lived: `BoarAssetsBoot` maps a kind through `MODEL_KEYS[kind] or
+			-- Assets.KEYS.boarMale`, so the live server answers the male for anything it does not
+			-- know. A source with no row for it -- this spec's -- answers nothing, and nothing means
+			-- the grey box. The runtime does not invent a kind in either case, which is what keeps
+			-- ONE route from a kind to an asset id.
+			expect(runtime:displayCarcass("red deer", CFrame.new(0, GROUND_Y, 0))).to.equal(nil)
 			runtime:destroy()
 		end)
 
