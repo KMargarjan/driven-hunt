@@ -787,7 +787,22 @@ function Body.displayCarcass(template: Instance?, ground: CFrame, config): Model
 	end
 
 	cloneMesh.CastShadow = true
+	-- EVERY OTHER PART THE TEMPLATE BROUGHT TRAVELS WITH THE MESH (round 1, note). `soleMesh` refuses
+	-- only a SECOND MeshPart, so an asset carrying any other part had it anchored where the CLONE put
+	-- it -- at the asset's own baked position, loose in `Workspace.DriveScene`, while the animal lay
+	-- somewhere else. `attachVisual` cannot have that bug because there every part is welded to the
+	-- trunk; here there is no trunk, so the offsets are taken off the mesh BEFORE it is moved and put
+	-- back after. RedDeer's three models carry none today; the next asset may.
+	local offsets: { [BasePart]: CFrame } = {}
+	for _, drawn in ipairs(parts) do
+		if drawn ~= cloneMesh then
+			offsets[drawn] = cloneMesh.CFrame:ToObjectSpace(drawn.CFrame)
+		end
+	end
 	cloneMesh.CFrame = Body.lyingCFrame(ground, cloneMesh.Size, config.MODEL.DISPLAY_ROLL_DEG)
+	for drawn, offset in pairs(offsets) do
+		drawn.CFrame = cloneMesh.CFrame * offset
+	end
 	model.PrimaryPart = cloneMesh
 	return model
 end

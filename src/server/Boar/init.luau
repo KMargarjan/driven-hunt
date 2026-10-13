@@ -3761,6 +3761,15 @@ end
 -- NIL IS A STATE, NOT A FAULT, and the caller's answer to it is its own grey box: no template yet,
 -- the asset not published, `BOAR_MODEL` off, or a template that is not one mesh.
 function Runtime:displayCarcass(kind: string?, cframe: CFrame): Model?
+	-- THE FLAG, ASKED HERE AS THE LIVE DRAW PATH ASKS IT (round 1, note): `Runtime:step` only reaches
+	-- `_modelTemplate` inside `if config.MODEL.ENABLED`, and three comments elsewhere -- `Scene.build`,
+	-- `Match.displayAnimal` and the note's section 4.3 -- state "BOAR_MODEL off means the grey box" as
+	-- a property of this function. It was true of every world that can be reached (a flag-off world
+	-- never wires a source, so the ask answered nil anyway); one `if` makes it true by construction
+	-- instead of by composition, which is what those comments claim.
+	if not self._config.MODEL.ENABLED then
+		return nil
+	end
 	-- `os.clock()` and not the step's own `now`: this is asked once per animal at the end of a drive,
 	-- off the step loop, and `_modelTemplate`'s once-a-second gate only ever delays a FIRST ask --
 	-- a template already held (which is the case for any kind this drive drew) comes back at once.

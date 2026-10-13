@@ -550,7 +550,47 @@ return function()
 			expect(models).to.equal(3)
 			-- ...and the four torches are still four torches. Nothing else about the scene moved.
 			expect(#folder:GetChildren()).to.equal(7)
-			expect(Scene.stats().models >= 3).to.equal(true)
+			-- THE BREAKDOWN IS THIS SCENE'S AND IT ADDS UP (round 1, finding 1).
+			expect(Scene.stats().models).to.equal(3)
+			expect(Scene.stats().boxes).to.equal(0)
+			expect(Scene.stats().models + Scene.stats().boxes).to.equal(laid)
+		end)
+
+		it("counts the models and the boxes of THIS scene, not of every scene since the server started", function()
+			-- ROUND 1, FINDING 1, and it is the line Karen's own console prints: the owner says
+			-- "gathered N animal(s) in R row(s): M real model(s), B box(es)" in ONE sentence, with
+			-- `laid` from this build. Module-scope counters that were never reset made the second
+			-- drive of a session print "gathered 2 animal(s) ... 4 real model(s)", and killed the
+			-- breakdown's whole purpose with it: `models = 0` means the asset never arrived, and a
+			-- session total can never go back to 0 once anything has loaded.
+			--
+			-- TWO BUILDS, WHICH IS WHAT A SECOND DRIVE IS. The old code fails the second block.
+			local displayFor = recorder()
+			local first = Scene.build(spot, facing, { { kind = "male" }, { kind = "female" } }, CONFIG, displayFor)
+			expect(first).to.equal(2)
+			expect(Scene.stats().models).to.equal(2)
+			expect(Scene.stats().boxes).to.equal(0)
+
+			-- A SECOND DRIVE: one real animal and one that could not be drawn.
+			local mixed = recorder({ cub = true })
+			local second = Scene.build(spot, facing, { { kind = "male" }, { kind = "cub" } }, CONFIG, mixed)
+			expect(second).to.equal(2)
+			expect(Scene.stats().models).to.equal(1) -- 3 before this fix
+			expect(Scene.stats().boxes).to.equal(1)
+			expect(Scene.stats().models + Scene.stats().boxes).to.equal(second)
+
+			-- ...AND A THIRD THAT CAN DRAW NOTHING READS AS NOTHING DRAWN, which is the state the
+			-- breakdown exists to report: the asset never arrived.
+			local third = Scene.build(spot, facing, { { kind = "male" } }, CONFIG, nil)
+			expect(Scene.stats().models).to.equal(0)
+			expect(Scene.stats().boxes).to.equal(third)
+
+			-- A DRIVE THAT SHOT NOTHING IS 0 AND 0, which is also true.
+			Scene.build(spot, facing, {}, CONFIG, displayFor)
+			expect(Scene.stats().models).to.equal(0)
+			expect(Scene.stats().boxes).to.equal(0)
+			-- `built` and `cleared` are NOT in that sentence and stay session counters.
+			expect(Scene.stats().built >= 4).to.equal(true)
 		end)
 
 		it("faces every animal in the row the same way, which is the scene's own facing", function()
@@ -625,7 +665,7 @@ return function()
 			expect(Scene.folder()).to.equal(nil)
 			TestKit.note(
 				string.format(
-					"match_scene: models=%d boxes=%d animals=%d",
+					"match_scene: last build models=%d boxes=%d; session animals=%d",
 					Scene.stats().models,
 					Scene.stats().boxes,
 					Scene.stats().animals

@@ -1398,6 +1398,11 @@ return function()
 		-- lands inside 86-104 is lying down by the same test the live carcass is judged by.
 		local LYING_MIN_DEG = 86
 		local LYING_MAX_DEG = 104
+		-- HOW FAR THIS SPEC'S FAKE SPINE BONE IS TILTED AGAINST THE MESH IT HANGS ON. Negative, so
+		-- the bone reads 90 + 8 = 98 degrees off world up where the mesh reads 90: inside the band,
+		-- and far enough from the mesh's own figure that the two cannot be the same measurement
+		-- (round 1, note). A real rig's spine is tilted against the body in exactly this way.
+		local BONE_TILT_DEG = -8
 
 		-- The three kinds' MEASURED mesh sizes, from `Assets.ROWS` (`boar.male` v3, `boar.female`,
 		-- `boar.cub`, each read in Studio off the loaded asset). Written out here rather than
@@ -1431,8 +1436,17 @@ return function()
 			-- THE RIG'S OWN BONE, which is what the lying check is measured off: `Bone` is an
 			-- `Attachment`, so its `WorldCFrame` follows the part it hangs on, and its up vector IS
 			-- the spine's up vector for a rig in its bind pose.
+			--
+			-- AND IT IS NOT THE MESH'S OWN FRAME (round 1, note, which was right): with the default
+			-- identity `CFrame` the bone's `WorldCFrame` IS the mesh's, so the bone assertion could
+			-- only fail where the mesh assertion already had. A real spine bone sits inside the
+			-- animal and is tilted against it, so this one is: moved up and forward, and rolled
+			-- `BONE_TILT_DEG` about the mesh's own forward axis -- which is the one axis that changes
+			-- how far off world up the bone points once the animal is on its side. The lying band is
+			-- then a statement about the BONE's angle, and it is a different number from the mesh's.
 			local bone = Instance.new("Bone")
 			bone.Name = "spine_01"
+			bone.CFrame = CFrame.new(0, 0.35, -0.6) * CFrame.Angles(0, 0, math.rad(BONE_TILT_DEG))
 			bone.Parent = mesh
 			mesh.Parent = inner
 			local theirs = Instance.new("AnimationController")
@@ -1477,6 +1491,9 @@ return function()
 			local mesh = display.PrimaryPart
 			expect(mesh).to.be.ok()
 			expect(mesh:IsA("MeshPart")).to.equal(true)
+			-- THE NAME THE BOAR GIVES IT, which is what it is called for as long as the scene has not
+			-- renamed it into its row (round 1, note: nothing asserted this key at all).
+			expect(display.Name).to.equal(CONFIG.MODEL.DISPLAY_NAME)
 
 			-- LYING, by task 150's own band, measured off the MESH and off the rig's own BONE.
 			local meshDeg = degOffUp(mesh.CFrame)
@@ -1485,6 +1502,10 @@ return function()
 			local boneDeg = degOffUp(bone.WorldCFrame)
 			expect(meshDeg >= LYING_MIN_DEG and meshDeg <= LYING_MAX_DEG).to.equal(true)
 			expect(boneDeg >= LYING_MIN_DEG and boneDeg <= LYING_MAX_DEG).to.equal(true)
+			-- ...AND THE BONE IS ITS OWN MEASUREMENT (round 1, note): it is tilted against the mesh,
+			-- so a bone assertion that merely restated the mesh's would show up here as zero.
+			expect(math.abs(boneDeg - meshDeg) > 1).to.equal(true)
+			expect(math.abs(boneDeg - (meshDeg - BONE_TILT_DEG)) < 1e-3).to.equal(true)
 
 			-- ON ITS RIGHT SIDE, which is the tradition's own rule (jagdjuenger.de: *"Jedes Stueck
 			-- Wild ist stets auf die rechte Koerperseite zu legen"*): the animal's up vector ends up
@@ -1581,6 +1602,13 @@ return function()
 			local bare = newRuntime(true, nil, nil)
 			expect(bare:displayCarcass("male", CFrame.new(0, GROUND_Y, 0))).to.equal(nil)
 			bare:destroy()
+
+			-- `BOAR_MODEL` OFF, asked of THIS function rather than left to the fact that a flag-off
+			-- world never wires a source (round 1, note). Three comments in this repository state it
+			-- as a property of `displayCarcass`; this is the case that makes them true.
+			local off = newRuntime(false, makeTemplate(), nil)
+			expect(off:displayCarcass("male", CFrame.new(0, GROUND_Y, 0))).to.equal(nil)
+			off:destroy()
 
 			-- A TEMPLATE THAT IS NOT ONE MESH: two MeshParts is a different asset than the row
 			-- describes, and `Body.attachVisual` already refuses it for the same reason.

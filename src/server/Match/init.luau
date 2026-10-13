@@ -714,9 +714,10 @@ local stats = {
 	scenesCleared = 0,
 	scenesNowhere = 0,
 	sceneAnimals = 0,
-	-- ...AND HOW MANY OF THEM WERE THE REAL ANIMAL AND HOW MANY THE GREY BOX (task 173). Taken from
+	-- ...AND HOW MANY OF THEM WERE THE REAL ANIMAL AND HOW MANY THE GREY BOX (task 173). Summed from
 	-- `Scene.stats()` after each build, which is the module that knows: these are totals across the
-	-- session, exactly like every other counter here.
+	-- session, exactly like every other counter here -- and `Scene`'s own pair is PER BUILD, which is
+	-- what the console line beside them prints (round 1, finding 1).
 	sceneModels = 0,
 	sceneBoxes = 0,
 	sceneMoved = 0,
@@ -1293,16 +1294,6 @@ local function applyFree(userIds: { number }?)
 	end
 end
 
--- ------------------------------------------------------------------ the results scene (task 159)
---
--- THE SCENE IS `Match.Scene`'S INSTANCES AND `Body`'S CHARACTERS, and this is the one place either is
--- asked for: the spot and the facing are this owner's reading of the world's own geometry
--- (`Match.gatherSpotFor` over the marker set), the animals are this drive's own kill record, and
--- WHERE A PLAYER STANDS is still written by `Body` alone.
---
--- A WORLD THAT ANSWERS NOWHERE GETS NO SCENE AND ONE LINE SAYING SO, which is the same shape
--- `applyPlace` already has: a drive whose markers have no stands has nothing to gather the animals
--- behind, and that is a fact about the world, not an error.
 -- THE REAL ANIMAL FOR ONE OF THE SCENE'S ROWS, or nil (task 173). KAREN, 2026-10-13 ~09:30:
 -- *"and after hunt over we need to see boars shooted not boxes when we stand around"*.
 --
@@ -1325,6 +1316,16 @@ function Match.displayAnimal(kind: string?, ground: CFrame): Instance?
 	return boars:displayCarcass(kind, ground)
 end
 
+-- ------------------------------------------------------------------ the results scene (task 159)
+--
+-- THE SCENE IS `Match.Scene`'S INSTANCES AND `Body`'S CHARACTERS, and this is the one place either is
+-- asked for: the spot and the facing are this owner's reading of the world's own geometry
+-- (`Match.gatherSpotFor` over the marker set), the animals are this drive's own kill record, and
+-- WHERE A PLAYER STANDS is still written by `Body` alone.
+--
+-- A WORLD THAT ANSWERS NOWHERE GETS NO SCENE AND ONE LINE SAYING SO, which is the same shape
+-- `applyPlace` already has: a drive whose markers have no stands has nothing to gather the animals
+-- behind, and that is a fact about the world, not an error.
 local function applyScene()
 	if not config.SCENE.ENABLED then
 		return
@@ -1340,12 +1341,18 @@ local function applyScene()
 	stats.scenes += 1
 	local laid = Scene.build(spot, facing, driveKills, config, Match.displayAnimal)
 	stats.sceneAnimals += laid
-	-- HOW MANY WERE THE REAL ANIMAL (task 173). `Scene` counts both, and the difference between them
-	-- is the whole of "did the asset load": a row of grey boxes with `models=0` is an asset that never
-	-- arrived, and the same row with `models=3` would be a bug in the scene.
+	-- HOW MANY WERE THE REAL ANIMAL (task 173). `Scene` counts both FOR THE SCENE IT JUST BUILT, and
+	-- the difference between them is the whole of "did the asset load": a row of grey boxes with
+	-- `models = 0` is an asset that never arrived, and the same row with `models = 3` would be a bug
+	-- in the scene.
+	--
+	-- `+=` AND NOT `=` (round 1, finding 1): `Scene.stats()` is now this drive's pair, and every
+	-- counter in THIS table is a session total -- `sceneAnimals += laid` on the line above it is the
+	-- same sum of the same scenes. So the two sides keep the meaning each of them already had, and
+	-- `stats.sceneModels + stats.sceneBoxes == stats.sceneAnimals` across a session.
 	local sceneStats = Scene.stats()
-	stats.sceneModels = sceneStats.models
-	stats.sceneBoxes = sceneStats.boxes
+	stats.sceneModels += sceneStats.models
+	stats.sceneBoxes += sceneStats.boxes
 	print(
 		string.format(
 			"[match] gathered %d animal(s) in %d row(s): %d real model(s), %d box(es)",

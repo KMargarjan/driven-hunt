@@ -92,9 +92,17 @@ local cleared = 0
 local lights = 0
 local animals = 0
 local rowsBuilt = 0
--- HOW MANY OF THE ANIMALS WERE THE REAL MODEL AND HOW MANY FELL BACK TO THE BOX (task 173). Two
--- counters rather than one, because "3 animals" cannot tell a drive whose assets never loaded from
--- one whose assets are fine -- and that is the first question to ask of a screenshot of grey boxes.
+-- HOW MANY OF THIS SCENE'S ANIMALS WERE THE REAL MODEL AND HOW MANY FELL BACK TO THE BOX (task 173).
+-- Two counters rather than one, because "3 animals" cannot tell a drive whose assets never loaded
+-- from one whose assets are fine -- and that is the first question to ask of a screenshot of grey
+-- boxes.
+--
+-- PER BUILD, NOT PER SESSION, and that is round 1's finding 1: they are `rowsBuilt`'s neighbours and
+-- they are reset where it is assigned, because the owner prints all three in ONE sentence beside the
+-- per-drive `laid` ("gathered 2 animal(s) in 1 row(s): 4 real model(s)" is not a sentence about
+-- anything). It also restores the breakdown's whole purpose -- `models = 0` means the asset never
+-- arrived -- which a session total makes unreachable after the first model of the session.
+-- `built` and `cleared` stay session counters: they are not part of that sentence.
 local models = 0
 local boxes = 0
 
@@ -352,6 +360,11 @@ function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg, displa
 	-- the one thing about this scene that a report cannot work out from the animal count alone
 	-- without re-deriving `PER_ROW`.
 	rowsBuilt = Scene.rowCount(count, cfg)
+	-- ...AND THE BREAKDOWN IS THIS SCENE'S (round 1, finding 1): assigned here, with `rowsBuilt`, so
+	-- `models + boxes == laid` for the scene that was just built and the owner's one-sentence line
+	-- adds up. A drive that lays nothing out reports 0 and 0, which is also true.
+	models = 0
+	boxes = 0
 	for index = 1, count do
 		local kill = kills[index]
 		local kind = if type(kill) == "table" then kill.kind else nil
