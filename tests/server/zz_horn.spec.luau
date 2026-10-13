@@ -524,11 +524,17 @@ return function()
 			local scale = size.X / natural.X
 			expect(math.abs(size.Y / natural.Y / scale - 1) < 1e-4).to.equal(true)
 			expect(math.abs(size.Z / natural.Z / scale - 1) < 1e-4).to.equal(true)
-			-- ...AND IT IS A REAL HORN. The Director asked for ~25-35 cm across; `METRES_PER_STUD` is
-			-- the conversion this game publishes, so the check is in metres rather than in studs.
+			-- ...AND IT IS A HORN AND NOT A PIECE OF SCENERY. This used to hold it to the Director's
+			-- "~25-35 cm across" (0.2 m to 0.4 m); KAREN OVERRULED THE UPPER BOUND on 2026-10-13:
+			-- *"for beater horn has to be doubble or tripple size now is to small"*, and task 175
+			-- took it to 3.125 studs = 0.875 m. So the bound that is left is the one she did not
+			-- overrule -- it must still be a thing a person carries in one hand -- and the ceiling
+			-- is her own word: TRIPLE the 0.35 m she called too small, which is 1.05 m. A horn past
+			-- that is not a retune, it is a different object, and a reader meeting this line should
+			-- go and ask her rather than find out in a screenshot.
 			local metres = size.X * CONFIG.METRES_PER_STUD
 			expect(metres >= 0.2).to.equal(true)
-			expect(metres <= 0.4).to.equal(true)
+			expect(metres <= 1.05).to.equal(true)
 			TestKit.note(
 				string.format(
 					"horn mesh: %.2f studs (%.2f m), natural %s, uniform x%.5f",
