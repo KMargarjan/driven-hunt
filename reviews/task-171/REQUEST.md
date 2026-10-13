@@ -3,7 +3,7 @@
 Task: 171
 Round: 1
 Base: main (`a52f4d2`, #154 merged)
-Code commit: `3c768c87af2b6d0f9ab43f0d427fc7b8d446c9e9`
+Code commit: `8cb968307f3ee8281f61c1c26642915f257530de`
 
 Branch `task-171-rules`. Karen's three new rules (a beater cannot be shot at, a hunter outside his
 stand circle cannot fire, a species you have no licence for cannot be shot) plus the drive's limited
@@ -19,8 +19,8 @@ shells, all refused BEFORE the shot exists and with **no punishment**. Note:
 Run twice at that commit, both PASS 33/33 (server **1214** passed / 0 failed, client **302** / 0).
 
 ```
-[harness2] NEEDS KAREN -- placeholder. `test2` costs one human click;
-           the Director runs it at the branch head and pastes the line here.
+[harness] PASS: 33/33 checks @ 8cb968307f3ee8281f61c1c26642915f257530de (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 8cb968307f3ee8281f61c1c26642915f257530de (clean tree)
 ```
 
 **TWO OF THE DIRECTOR'S `test2` RUNS FAILED ON `zz_tie_to_a_tree.spec`, and both failures were this
