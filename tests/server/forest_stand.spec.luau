@@ -681,7 +681,7 @@ return function()
 			-- layout put a group 71 studs from where she is put down, inside `BEATER_STUDS` (89), so
 			-- it was latched and gone on the first heartbeat before she had taken a step.
 			local start = Data.beaterStart(standX, 0)
-			local keepAway = Data.beaterSpookStuds(Data.SPOOK) + Data.REST.clearOfStartStuds
+			local keepAway = Data.noticeStuds(Data.SPOOK) + Data.REST.clearOfStartStuds
 			local closest, nearestRoad, farthestRoad = math.huge, math.huge, 0
 			for _, spec in ipairs(Data.REST.groups) do
 				local at = Data.restPoint(standX, spec)
@@ -704,7 +704,7 @@ return function()
 					nearestRoad,
 					farthestRoad,
 					closest,
-					Data.beaterSpookStuds(Data.SPOOK),
+					Data.noticeStuds(Data.SPOOK),
 					Data.REST.clearOfStartStuds
 				)
 			)
@@ -747,12 +747,34 @@ return function()
 			-- weaker than the circles anywhere and strictly stronger between them.
 			local reach = Data.beaterSpookStuds(Data.SPOOK)
 			local half = Data.BEATER.laneSpacingStuds / 2
-			local want = math.sqrt(reach * reach - half * half)
+			local want = if reach * reach > half * half
+				then math.max(Data.SPOOK.SWEEP.MIN_AHEAD_STUDS, math.sqrt(reach * reach - half * half))
+				else Data.SPOOK.SWEEP.MIN_AHEAD_STUDS
 			expect(math.abs(Data.sweepAheadStuds(Data.SPOOK, Data.BEATER) - want) < 1e-6).to.equal(true)
-			-- ...and with the shipped numbers that is about 48 studs, which the line walks in ten
-			-- seconds of its own pace.
-			expect(Data.sweepAheadStuds(Data.SPOOK, Data.BEATER) > 40).to.equal(true)
+			-- ...AND WITH TASK 172'S NUMBERS THE FLUSH BAND IS THE FLOOR (30 studs): a flush circle of
+			-- 71 studs does not reach halfway across a 150-stud lane gap at all, so the formula is
+			-- imaginary there and the floor is the honest answer. What covers the ground between the
+			-- lanes is the NOTICE band below, which is 100 studs deep -- so a group between two lanes
+			-- is stood up long before anything decides to run.
+			expect(Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)).to.equal(Data.SPOOK.SWEEP.MIN_AHEAD_STUDS)
 			expect(Data.sweepAheadStuds(Data.SPOOK, Data.BEATER) < reach).to.equal(true)
+			-- THE NOTICE BAND IS THE DEEPER OF THE TWO, and that ORDER is the whole staged encounter:
+			-- a notice band narrower than the flush band would mean animals that bolt without ever
+			-- having been seen to stand.
+			local noticeDepth = Data.noticeAheadStuds(Data.SPOOK, Data.BEATER)
+			local noticeReach = Data.noticeStuds(Data.SPOOK)
+			expect(math.abs(noticeDepth - math.sqrt(noticeReach * noticeReach - half * half)) < 1e-6).to.equal(true)
+			expect(noticeDepth > Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)).to.equal(true)
+			TestKit.note(
+				string.format(
+					"notice %.0f studs deep (reach %.0f), flush %.0f studs deep (reach %.0f), lanes %d apart",
+					noticeDepth,
+					noticeReach,
+					Data.sweepAheadStuds(Data.SPOOK, Data.BEATER),
+					reach,
+					Data.BEATER.laneSpacingStuds
+				)
+			)
 			-- LANES TWO REACHES APART make the formula answer zero or worse, and the floor is what
 			-- stops a line that wide sweeping nothing at all.
 			local wide = { laneSpacingStuds = 2 * reach + 10 }
@@ -849,7 +871,7 @@ return function()
 			)
 		end)
 
-		it("refuses a RE-STOCK spot the line has reached or passed, and falls back rather than stall", function()
+		it("answers 'the line has reached it' for a re-stock spot, which is what refuses it", function()
 			-- MEASURED LIVE (task 168, the Director's second pass): 7 animals of 25 appeared up to 31
 			-- studs BEHIND the front, because the resting band is measured from the ROAD and the line
 			-- is deep in the wood by the time the wood is re-stocked. The sweep caught them on the
@@ -858,6 +880,10 @@ return function()
 			--
 			-- `restSpot` ITSELF RAYCASTS, so what is driven here is the RULE it asks, which is the
 			-- same pure pair the flush asks: nothing can answer "behind the line" twice differently.
+			-- WHAT THIS CASE DOES NOT COVER, said plainly (round 1's note, which was right): that
+			-- `restSpot` now REFUSES rather than falling back is a property of the function's own two
+			-- passes, and the only evidence for it is the code and the live drive in the request. The
+			-- name used to promise it; it does not any more.
 			local depth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
 			local line = {
 				{ position = Vector3.new(standX - 150, 0, Data.roadZ(standX - 150) + 200) },
@@ -924,7 +950,7 @@ return function()
 			-- keep-away is one spook reach plus `clearOfStartStuds`, so a group at the far edge is
 			-- still outside her reach when she is put down.
 			local start = Data.LINE.spawnNorthStuds + Data.BEATER.behindLineStuds
-			local keepAway = Data.beaterSpookStuds(Data.SPOOK) + Data.REST.clearOfStartStuds
+			local keepAway = Data.noticeStuds(Data.SPOOK) + Data.REST.clearOfStartStuds
 			expect(Data.REST.farRoadStuds + keepAway <= start).to.equal(true)
 			-- ...AND NO SHALLOWER THAN THAT EITHER, within a stud of rounding: a band that stopped
 			-- short would be empty wood nobody chose. This is the half that would have failed before
@@ -946,7 +972,17 @@ return function()
 		end)
 
 		it("never puts two resting groups inside one spook reach of each other", function()
-			-- WHY THE DEPTHS ARE SPACED THE WAY THEY ARE (task 162). `SPOOK.BEATER_STUDS` is 89, and
+			-- WHY THE BOUND IS THE **FLUSH** REACH AND NOT THE NOTICE ONE (round 2's note asked, and
+			-- this is the answer). Two groups inside one flush reach both BOLT on one approach, and a
+			-- walk down a deep wood is only a walk if the wood gives them up one at a time -- that is
+			-- the thing this rule exists to prevent. Two groups inside one NOTICE reach both STAND,
+			-- which is not a defect at all: it is more of exactly what Karen asked to see
+			-- (*"I want to see them more"*), and each still breaks on its own clock from its own
+			-- distance. The closest nominal pair is 101.3 studs: outside the 71-stud flush reach with
+			-- 30 studs to spare, inside the 125-stud notice reach on purpose.
+			--
+			-- WHY THE DEPTHS ARE SPACED THE WAY THEY ARE (task 162, re-measured in 172). The FLUSH
+			-- reach is `SPOOK.BEATER_STUDS` (71 since task 172), and
 			-- the fright LATCHES -- `ForestTest.SPOOK`'s own header: *"the animal keeps the line it
 			-- set off on, it never settles"*. So two groups inside 89 studs of each other both bolt
 			-- on one approach and six groups become three events. A walk down a deep wood is only a
@@ -1029,7 +1065,7 @@ return function()
 			-- `restSpot` takes the measurements and this decides. Hand-written numbers here, so the
 			-- rule is asserted in the DEV place where this world's terrain does not exist.
 			local rest = Data.REST
-			local keepAway = Data.beaterSpookStuds(Data.SPOOK) + rest.clearOfStartStuds
+			local keepAway = Data.noticeStuds(Data.SPOOK) + rest.clearOfStartStuds
 			-- A spot that is right in every way: in the band, clear of her start, on terrain the
 			-- spawn ray agrees with, and a trunk's width away from a trunk.
 			local dz = (rest.nearRoadStuds + rest.farRoadStuds) / 2
@@ -1125,6 +1161,226 @@ return function()
 					tostring(ForestTest.beaterMode())
 				)
 			)
+		end)
+	end)
+
+	---------------------------------------------------------------- the staged encounter (task 172)
+
+	describe("she sees them stand before they run (task 172)", function()
+		local standX = Data.standX(Data.PICK.defaultIndex)
+
+		it("has TWO reaches and a clock, each written in metres AND in studs where it has both", function()
+			-- KAREN, 2026-10-13 ~09:20: *"beaters has to see more animals when walking I want to see
+			-- how they stand and then start to run or run but I want to see them more"*.
+			--
+			-- TASK 150'S LESSON applies to the new reach exactly as it does to the old one: a radius
+			-- written in studs was compared against distances in metres for two tasks.
+			local derived = Data.SPOOK.NOTICE_M / Data.SPOOK.METRES_PER_STUD
+			expect(math.abs(Data.SPOOK.NOTICE_STUDS - derived) <= 1).to.equal(true)
+			-- NOTICING HAPPENS FURTHER OFF THAN FLEEING, which is the whole staged encounter: one
+			-- reach is a disappearance, two reaches are an animal.
+			expect(Data.noticeStuds(Data.SPOOK) > Data.beaterSpookStuds(Data.SPOOK)).to.equal(true)
+			-- ...and the horn still reaches further than either of them (it skips the stand entirely).
+			expect(Horn.spookStuds(Horn.CONFIG) > Data.noticeStuds(Data.SPOOK)).to.equal(true)
+			-- THE STAND IS A SECOND OR TWO, which is the dispatch's own figure.
+			expect(Data.alertSeconds(Data.SPOOK) >= 1).to.equal(true)
+			expect(Data.alertSeconds(Data.SPOOK) <= 3).to.equal(true)
+			TestKit.note(
+				string.format(
+					"notice %d m (%d studs) -> stand %.1f s -> flush %d m (%d studs); the horn %d m",
+					Data.SPOOK.NOTICE_M,
+					Data.SPOOK.NOTICE_STUDS,
+					Data.alertSeconds(Data.SPOOK),
+					Data.SPOOK.BEATER_M,
+					Data.SPOOK.BEATER_STUDS,
+					Horn.CONFIG.SPOOK_M
+				)
+			)
+		end)
+
+		it("resolves the notice reach from either unit, and falls back to the flush reach", function()
+			expect(Data.noticeStuds(Data.SPOOK)).to.equal(Data.SPOOK.NOTICE_STUDS)
+			expect(Data.noticeStuds({ NOTICE_STUDS = 40, NOTICE_M = 999, METRES_PER_STUD = 0.28 })).to.equal(40)
+			expect(math.abs(Data.noticeStuds({ NOTICE_M = 28, METRES_PER_STUD = 0.28 }) - 100) < 1e-6).to.equal(true)
+			-- A WORLD THAT NAMES NO NOTICE REACH gets the flush reach, which is the game before this
+			-- task: noticing and fleeing at one distance is exactly what task 154 built.
+			local old = { BEATER_STUDS = 89, METRES_PER_STUD = 0.28 }
+			expect(Data.noticeStuds(old)).to.equal(89)
+			expect(Data.alertSeconds(old)).to.equal(0)
+		end)
+
+		it("walks one animal through none -> notice -> flush as the line closes", function()
+			-- THE WHOLE STATE MACHINE, in the three numbers it is a function of. Far out in front:
+			-- nothing. Inside the notice reach: it stands and looks. Inside the flush reach, OR after
+			-- the stand has run its time: it goes.
+			local spook, beater = Data.SPOOK, Data.BEATER
+			local notice = Data.noticeStuds(spook)
+			local flush = Data.beaterSpookStuds(spook)
+			local hold = Data.alertSeconds(spook)
+			-- 400 studs in front of the front and 400 from the nearest body: nothing at all.
+			expect(Data.encounterStage(400, 400, nil, spook, beater)).to.equal("none")
+			-- Inside the notice reach of a body, still well in front of the front: it looks up.
+			expect(Data.encounterStage(400, notice - 1, nil, spook, beater)).to.equal("notice")
+			-- ...and the clock has not run out yet, so it is still looking.
+			expect(Data.encounterStage(400, notice - 1, hold - 0.1, spook, beater)).to.equal("notice")
+			-- THE CLOCK ENDS THE STAND even if he has come no closer.
+			expect(Data.encounterStage(400, notice - 1, hold, spook, beater)).to.equal("flush")
+			-- ...AND SO DOES THE NEAR REACH, before the clock.
+			expect(Data.encounterStage(400, flush, 0, spook, beater)).to.equal("flush")
+			expect(Data.encounterStage(400, flush - 1, 0, spook, beater)).to.equal("flush")
+			-- AN ANIMAL THE LINE HAS PASSED GOES, whatever the circle says: this is task 168's rule,
+			-- unchanged, and it is what keeps "nothing is left behind the line" true.
+			expect(Data.encounterStage(-1, 1000, nil, spook, beater)).to.equal("flush")
+			expect(Data.encounterStage(-500, 1000, nil, spook, beater)).to.equal("flush")
+			-- IN THE NOTICE BAND BETWEEN TWO LANES, where no single body is within its own reach:
+			-- stood up by the band, which is the gap the circle alone used to leave.
+			local noticeDepth = Data.noticeAheadStuds(spook, beater)
+			expect(Data.encounterStage(noticeDepth - 1, 1000, nil, spook, beater)).to.equal("notice")
+			expect(Data.encounterStage(noticeDepth + 1, 1000, nil, spook, beater)).to.equal("none")
+			-- ...and the flush band is the shallower one, so the stand always comes first there.
+			expect(Data.encounterStage(Data.sweepAheadStuds(spook, beater), 1000, nil, spook, beater)).to.equal("flush")
+		end)
+
+		it("is the game before task 172 when a world names one reach and no clock", function()
+			-- BOTH WORLDS REACHABLE BY PARAMETER, the shape every flagged and tunable path in this
+			-- repo has. With no notice reach and no clock, an animal is either flushed or untouched --
+			-- which is task 154's one-reach encounter exactly.
+			local old = {
+				METRES_PER_STUD = 0.28,
+				BEATER_STUDS = 89,
+				SWEEP = { ENABLED = true, MIN_AHEAD_STUDS = 30, BEHIND_STUDS = 1200 },
+			}
+			expect(Data.encounterStage(400, 88, nil, old, Data.BEATER)).to.equal("flush")
+			expect(Data.encounterStage(400, 90, nil, old, Data.BEATER)).to.equal("none")
+			-- The clock cannot fire either, because `alertSeconds` answers 0 and nothing is ever
+			-- noticed to start it.
+			expect(Data.alertSeconds(old)).to.equal(0)
+		end)
+
+		it("lays every resting group beside the lane that will walk at it", function()
+			-- KAREN: *"I want to see them more"*. A group 200 studs off the lane it belongs to is not
+			-- that lane's group whatever the trunks do, so the layout is checked against the lanes
+			-- `ForestTest.beaterLaneOffset` actually deals out.
+			local lanes = {}
+			for index = 1, 5 do
+				lanes[Data.beaterLaneOffset(index)] = true
+			end
+			local worst, onHerLane = 0, 0
+			for _, spec in ipairs(Data.REST.groups) do
+				-- EVERY ROW NAMES A LANE, and it is a lane the line really has.
+				expect(spec.laneOffset).to.be.ok()
+				expect(lanes[spec.laneOffset]).to.equal(true)
+				local at = Data.restPoint(standX, spec)
+				local off = Data.offLaneStuds(standX, spec, at)
+				expect(off <= Data.REST.laneSideStuds).to.equal(true)
+				worst = math.max(worst, off)
+				if spec.laneOffset == 0 then
+					onHerLane += 1
+				end
+			end
+			-- INDEX 1 IS ALWAYS THE REAL BEATER'S LANE (`beaterLaneOffset` gives it 0), so the lane
+			-- Karen walks has to be the one with the most groups on it -- she is the one testing this.
+			expect(onHerLane).to.equal(4)
+			TestKit.note(
+				string.format(
+					"%d groups, %d of them on her own lane; the furthest is %.0f studs off its lane (ceiling %d)",
+					#Data.REST.groups,
+					onHerLane,
+					worst,
+					Data.REST.laneSideStuds
+				)
+			)
+		end)
+
+		it("takes the look from inside the notice band, on the group's own lane", function()
+			-- THE SIGHTLINE IS ASKED FROM WHERE HE WILL BE STANDING WHEN IT PUTS ITS HEAD UP, not
+			-- from anywhere: `sightFromStuds` short of the group, on its lane. Inside the notice band
+			-- or it is a question about a different moment.
+			expect(Data.REST.sightFromStuds < Data.noticeStuds(Data.SPOOK)).to.equal(true)
+			expect(Data.REST.sightEyeStuds > Data.REST.sightTargetStuds).to.equal(true)
+			for _, spec in ipairs(Data.REST.groups) do
+				local at = Data.restPoint(standX, spec)
+				local look = Data.laneLookPoint(standX, spec, at, Data.REST)
+				-- ON THE LANE. Within a float32's worth of the arithmetic: the point comes back out
+				-- of a `Vector3`, which stores float32, and this world sits at x = 3030 -- the same
+				-- ~1e-4 the stands' own case measures.
+				expect(math.abs(look.X - (standX + spec.laneOffset)) < 1e-3).to.equal(true)
+				-- ...AND NORTH OF THE GROUP by the stated distance, measured from the road as every
+				-- depth in this world is.
+				local lookNorth = look.Z - Data.roadZ(look.X)
+				local groupNorth = at.Z - Data.roadZ(at.X)
+				expect(math.abs(lookNorth - groupNorth - Data.REST.sightFromStuds) < 1e-3).to.equal(true)
+				-- ...and the whole look is inside the notice reach, so the stand is what he sees.
+				local gap = Vector3.new(look.X - at.X, 0, look.Z - at.Z).Magnitude
+				expect(gap < Data.noticeStuds(Data.SPOOK)).to.equal(true)
+			end
+		end)
+
+		it("stocks the wood once per DRIVE, and the decision is pure (round 3)", function()
+			-- ROUND 2, FINDING 1: the latch was written false in exactly one place,
+			-- `ForestTest.start`'s reset, and the boot calls `start` once per SERVER -- so "once per
+			-- drive" was once per session and a beater's second drive was 580 studs of empty wood.
+			-- ROUND 3, FINDING 1: the case that was supposed to prove the fix could not fail, because
+			-- `stepRest` returns on its first line without a runtime and no spec starts one. So the
+			-- DECISION is a pure function now and this drives it from hand-written numbers.
+			local rest = { stockRetrySeconds = 2 }
+			-- NOT STOCKED, never tried: try now.
+			expect(Data.stockStep(false, nil, 100, rest)).to.equal("stock")
+			-- ...tried a moment ago and it did not take: wait, rather than 41 candidates' worth of
+			-- raycasts per group per heartbeat. This is the case a drive boundary really hits -- the
+			-- previous drive's beaters can still be standing at the road, so every candidate is
+			-- behind the front and nothing can be placed.
+			expect(Data.stockStep(false, 100, 100, rest)).to.equal("wait")
+			expect(Data.stockStep(false, 100, 101.9, rest)).to.equal("wait")
+			-- ...and when the clock is up, try again: a failed stock must not latch, or that drive
+			-- loses its whole wood.
+			expect(Data.stockStep(false, 100, 102, rest)).to.equal("stock")
+			expect(Data.stockStep(false, 100, 400, rest)).to.equal("stock")
+			-- STOCKED: never again inside this drive, whatever the clock says. Karen, 2026-10-13:
+			-- *"and again no boar behing comming after beater walk"*.
+			expect(Data.stockStep(true, nil, 100, rest)).to.equal("done")
+			expect(Data.stockStep(true, 100, 1e9, rest)).to.equal("done")
+			-- The shipped number is data, like every other number in this encounter.
+			expect(type(Data.REST.stockRetrySeconds)).to.equal("number")
+			expect(Data.REST.stockRetrySeconds > 0).to.equal(true)
+			expect(Data.stockStep(false, 0, Data.REST.stockRetrySeconds - 0.01, Data.REST)).to.equal("wait")
+			expect(Data.stockStep(false, 0, Data.REST.stockRetrySeconds, Data.REST)).to.equal("stock")
+
+			-- AND THE BOUNDARY IS A FUNCTION, which is what makes "per drive" true: `ForestTestBoot`
+			-- calls it on the `Assigning` edge it already opens a report window on.
+			expect(type(ForestTest.newDrive)).to.equal("function")
+			ForestTest.newDrive()
+			expect(ForestTest.stats().restStocked).to.equal(false)
+			-- WHAT THIS CASE STILL DOES NOT COVER, said plainly: that `stepRest` obeys the answer, and
+			-- that the boot really calls `newDrive` on `Assigning`. Both need a live runtime, which no
+			-- spec in this place starts; the evidence for them is the two functions and the live
+			-- drives in the request.
+			TestKit.note(
+				string.format(
+					"task 172: one stock per drive, re-tried every %.0f s until it takes",
+					Data.REST.stockRetrySeconds
+				)
+			)
+		end)
+
+		it("never re-stocks the wood, which is the last way an animal could appear behind the line", function()
+			-- KAREN, 2026-10-13 ~09:25: *"and again no boar behing comming after beater walk"* --
+			-- after task 168 had already made the line sweep what it passes. The re-stock measured its
+			-- groups from the ROAD while the line was deep in the wood, so the deep rows had nowhere
+			-- to go that was in front of anybody: 168 itself measured 7 of 25 appearing behind.
+			--
+			-- THE TIMER IS GONE WITH THE BEHAVIOUR IT TIMED. A wood is beaten once.
+			expect(Data.REST.restockSeconds).to.equal(nil)
+			-- ...AND THE FIRST STOCK IS STILL ENTIRELY IN FRONT OF HER, which is what makes the one
+			-- stock safe: every group is north of the road and south of where she is put down.
+			local start = Data.beaterStart(standX, 0)
+			local startNorth = start.Z - Data.roadZ(start.X)
+			for _, spec in ipairs(Data.REST.groups) do
+				local at = Data.restPoint(standX, spec)
+				local north = at.Z - Data.roadZ(at.X)
+				expect(north < startNorth).to.equal(true)
+				expect(north > Data.ROAD.halfWidthStuds).to.equal(true)
+			end
 		end)
 	end)
 

@@ -1,5 +1,75 @@
 # Escalations
 
+## 2026-10-13 — Task 172: ROUND 3 WAS THE LAST ROUND, its finding is fixed, and the fix is UNREVIEWED
+
+**The work is finished, gated and measured.** Two clean-tree full runs at the current head,
+`[harness] PASS: 33/33 checks @ bbee0d425638c50707d1ae267532cf2299be01a5 (clean tree) scope=all`
+(twice; server 1226 passed / 0 failed, client 302 / 0). `test2` is N/A: nothing this task touches is
+in `TWO_PLAYER_PATHS` (`tools/agents.py`), and `tools/review.ps1` agreed in all three rounds ("0
+needing two players"). Everything else is in `reviews/task-172/REQUEST.md`.
+
+### 1. THE DECISION: a fourth round, or a merge with the disclosure
+
+`tools/review.ps1` refuses `Round: 4`. Round 3's finding is fixed at
+`bbee0d425638c50707d1ae267532cf2299be01a5` and **nobody has reviewed that commit**.
+
+**What round 3 found, in full:** the spec case offered as the proof of round 2's fix *could not
+fail*. It asserted `ForestTest.stats().restStocked == false`, which is true in the DEV spec place
+whatever the fix does -- `state.restStocked` can only become true inside `stepRest`, `stepRest`
+returns on its first line without a runtime, and no spec starts the Forest Test's. The Reviewer was
+right and the diagnosis is exact. **It found nothing wrong with the game**: no owner boundary, no
+security, no behaviour. It is a test that proved less than its name.
+
+**What the fix is:** the decision is a pure function now -- `ForestTest.stockStep(stocked, triedAt,
+now, rest)` answers `done` / `wait` / `stock` from three facts, `stepRest` takes the measurements and
+obeys (the division `wavesToPush` was given for exactly this reason), and the case drives all three
+answers from hand-written numbers, including the two the round-2 finding and its note are about: a
+failed stock does NOT latch, and a stocked drive is never re-stocked however long it has been. What
+the case still cannot reach -- that `stepRest` obeys the answer, and that `ForestTestBoot` calls
+`newDrive` on `Assigning` -- is written INTO the case rather than implied by its name. One other
+note went with it (`onHerLane >= 3` was a floor under a number the data states exactly; it is `== 4`).
+
+**The two ways out, and both are the Director's:**
+* **Authorise one extra round.** CLAUDE.md allows it when the last round's findings were
+  documentation-only; a spec that cannot fail is not a defect in the game, which is the spirit of
+  that rule, but it is not literally "documentation" either -- so it is the Director's call, not the
+  Builder's. The line to run is
+  `DIRECTOR_MAX_ROUNDS=4 powershell -ExecutionPolicy Bypass -File tools/review.ps1 172`, after this
+  file records the authorisation for THIS task and THIS round, and the request's `Round:` goes to 4
+  with `Code commit:` at `bbee0d4`.
+* **Merge on round 3's verdict with the disclosure**, i.e. accept that the last commit is
+  unreviewed. The three rounds' findings were all fixed; what is unreviewed is the fix to a test.
+
+### 2. FOR KAREN, AND IT IS THE ONE THING THIS TASK COULD NOT DELIVER: the bot horns eat the stand
+
+Karen asked to SEE the animals -- *"I want to see how they stand and then start to run"*. The staged
+encounter is built, asserted and measured (NOTICE 35 m, a 2 s stand, FLUSH 20 m), and **it did not
+fire once in either live drive**: no animal was ever in `ALERT`. The reason is measured, not guessed:
+three bot beaters blow their horns on their own rhythm, a blast pushes every boar within **100 m**
+with the one-way latch, and a horn skips the stand **by the dispatch's own instruction** (*"the horn
+still flushes at 100 m (no alert)"*). So the wood is emptied by horns before anybody's walk-up can
+stage anything, and what she will see is close to what she saw.
+
+Three dials, one decision, none of them this task's to take:
+* **the bot horn rhythm** (`Bots.hornDue`, floored by the horn's own 1.5 s cooldown) -- a line of
+  beaters blowing every few seconds is what makes the horn the only stimulus in the wood;
+* **a staged horn** -- the blast could notice-then-flush like a walk-up, which contradicts the
+  dispatch as written;
+* **the horn's reach** -- 100 m is a quarter of the whole walk.
+
+The Reviewer reached the same conclusion independently in rounds 2 and 3 and agreed it is filed in
+the right place (`TASKS.md` 172a(a)).
+
+### 3. Two smaller things for Karen's eye, both one number
+
+* **THE CARRY POSE OVERLAPS THE HIP.** The horn is held at its middle and the fist is at the hip, so
+  its mouthpiece half is inside the torso. `GRIP.Z` 0.4-0.5 puts the fist on the narrow end and hangs
+  the whole horn below the hand. Photographed: `.screenshots/20261013T094638Z-t172-grip-front.png`.
+* **THE HORN SLIDES ABOUT HALF A STUD THROUGH THE HAND between the carry and the blast**, because
+  `GRIP_BLOW` keeps task 169's own offset -- re-based onto the carry point the mouthpiece stopped
+  2.66 studs from the head instead of 1.77 (measured). The real fix is a raise clip that brings the
+  hand to the chin; then the two poses share one point.
+
 ## 2026-10-12 — Task 161: NEEDS TEST2, and one picture only a person can frame
 
 **The work is finished and measured.** Two clean-tree full runs at the code commit,
@@ -1753,3 +1823,8 @@ measured off the real Instance the client created:
 
 Then the Director's own `test2` for **NEEDS TEST2 163 `d3791cb21fc6482878c1e5d6b50bca9f04626a9e`**,
 which costs a human click of its own and which this Builder does not run.
+
+
+## 2026-10-13 -- DIRECTOR: one extra review round for task 172 (round 4), with Karen's OK
+
+Task 172 reached the 3-round cap; round 3's one finding (a spec that could not fail) was fixed in `bbee0d4`. The finding was test-only, not documentation-only, so the standing rule does not cover it; Karen was asked and answered "yes please" (2026-10-13 ~13:50) to "OK Task 172 now?". The Director authorises ONE extra round for **task 172, round 4**, run with `DIRECTOR_MAX_ROUNDS=4` in the environment (never committed). A failing round 4 is an escalation, not a request for a fifth.

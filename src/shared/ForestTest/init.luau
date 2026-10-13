@@ -230,10 +230,40 @@ ForestTest.BEATER = {
 -- 25 STUDS (7 m) this world used before today -- `PACE.DRIVER_RUN_STUDS`, which is "a driver this
 -- close makes it run" and was the whole of the beater's reach in task 153. At 7 m she was on top of
 -- them before anything moved, which is not what walking a wood is like.
+--
+-- ...AND SINCE TASK 172 THERE ARE TWO REACHES AND A CLOCK, because one reach is a disappearance.
+-- KAREN, 2026-10-13 ~09:20, after playing 168-171: *"beaters has to see more animals when walking I
+-- want to see how they stand and then start to run or run but I want to see them more"*.
+--
+-- WHAT SHE WAS LOOKING AT, AND IT IS ARITHMETIC RATHER THAN TASTE: the one reach was 25 m and the
+-- fright LATCHED, so the first thing a walking beater ever did to a group was make it bolt -- at 25 m,
+-- through a wood whose trunks close the view long before that. By the time she could see where the
+-- noise came from, the animals were running away at `PACE.RUN_SPEED`. She never saw an animal; she
+-- saw a wood with something leaving it.
+--
+-- SO THE ENCOUNTER HAS THREE STAGES NOW, and every one of them is a number in this table:
+--   NOTICE   35 m -- the group STOPS, puts its head up and faces him (`Brain:notice`, which is task
+--            118's own ALERT state asked for from outside). Nothing runs; nothing latches.
+--   ALERT    2 s  -- how long that look holds before the group breaks. The Director's start value,
+--            inside the dispatch's "~1-2 s".
+--   FLUSH    20 m -- ...or closer than this, whichever comes first, and THEN they bolt and never
+--            stop, which is task 154's latch unchanged.
+-- `ForestTest.encounterStage` is the whole machine, pure, and `forest_stand.spec` asserts each stage.
 ForestTest.SPOOK = {
 	METRES_PER_STUD = 0.28, -- the same number `Horn.CONFIG`, `Report.CONFIG` and `Boar.CONFIG.SENSE` publish
-	BEATER_M = 25,
-	BEATER_STUDS = 89, -- 25 m / 0.28
+	-- HOW FAR OFF A GROUP NOTICES HIM. 35 m is the Director's start value and it is a real number for
+	-- this animal as well: the flight-initiation distance of wild boar to a person on foot is tens of
+	-- metres, and the whole band between noticing and fleeing is what a stalker calls the stand.
+	NOTICE_M = 35,
+	NOTICE_STUDS = 125, -- 35 m / 0.28
+	-- HOW LONG THEY STARE BEFORE THEY GO. It is the WORLD's number and not the animal's -- the Brain
+	-- has `SENSE.ALERT_SECONDS` (2.5) for a hunter who happens to be standing about, and a drive is a
+	-- man walking at them, so the drive says how long its own stage lasts and hands it in.
+	ALERT_SECONDS = 2,
+	-- ...AND HOW CLOSE HE MAY GET BEFORE THEY GO WHATEVER THE CLOCK SAYS. 20 m, down from 25: the
+	-- stage above is what she asked to see, so the bolt belongs at the near edge of it.
+	BEATER_M = 20,
+	BEATER_STUDS = 71, -- 20 m / 0.28
 
 	-- THE LINE SWEEPS WHAT IT PASSES (task 168, the Director's second pass). KAREN, 2026-10-12
 	-- ~21:50: *"animals can't come behind beaters"*, and ~21:55: *"once beater push they go or turn
@@ -277,8 +307,7 @@ ForestTest.SPOOK = {
 -- THE FLOOR IS `MIN_AHEAD_STUDS`, for a lane spacing at or past `2 * BEATER_STUDS`, where the
 -- formula answers zero or is imaginary: a line of men that far apart is not a line, and the honest
 -- answer is "a man's own few strides" rather than an error.
-function ForestTest.sweepAheadStuds(spook, beater): number
-	local reach = ForestTest.beaterSpookStuds(spook)
+local function bandDepth(reach: number, beater, spook): number
 	local half = ((beater or ForestTest.BEATER).laneSpacingStuds or 0) / 2
 	local floor = ((spook or ForestTest.SPOOK).SWEEP or {}).MIN_AHEAD_STUDS or 0
 	local inside = reach * reach - half * half
@@ -286,6 +315,22 @@ function ForestTest.sweepAheadStuds(spook, beater): number
 		return floor
 	end
 	return math.max(floor, math.sqrt(inside))
+end
+
+function ForestTest.sweepAheadStuds(spook, beater): number
+	return bandDepth(ForestTest.beaterSpookStuds(spook), beater, spook)
+end
+
+-- ...AND THE SAME DERIVATION FOR THE NOTICE BAND (task 172), because it is the same geometry asked
+-- of the bigger reach: midway between two lanes a circle of radius `NOTICE_STUDS` reaches
+-- `sqrt(125^2 - 75^2)` = 100 studs in front of the front, and that is the depth promoted to the
+-- whole of it. With the shipped numbers the two bands are 100 studs (notice) and 30 studs (flush,
+-- the floor -- a flush circle of 71 studs does not reach halfway across a 150-stud lane gap at all),
+-- so a group is looked at a long way before anything decides to run. That ORDER is not an accident
+-- and `forest_stand.spec` asserts it: a notice band narrower than the flush band would mean animals
+-- that bolt without ever having been seen to stand, which is the whole defect this task fixes.
+function ForestTest.noticeAheadStuds(spook, beater): number
+	return bandDepth(ForestTest.noticeStuds(spook), beater, spook)
 end
 
 -- WHERE THE LINE'S FRONT IS AT THIS x. PURE: a list of beater positions in, the z of the line at
@@ -349,10 +394,75 @@ function ForestTest.sweepCatches(aheadStuds: number, depthStuds: number, spook):
 	return aheadStuds >= -(sweep.BEHIND_STUDS or 0)
 end
 
+-- WHAT THIS ANIMAL'S ENCOUNTER WITH THE LINE HAS REACHED (task 172). PURE, in the four numbers that
+-- decide it, and it is the WHOLE state machine -- `ForestTest.spookNearBeaters` does nothing but
+-- take the measurements and obey the answer.
+--
+--   `aheadStuds`   how far IN FRONT of the line's interpolated front it is (`lineFrontAt`), negative
+--                  for an animal the line has passed. The 168 band, which is gapless across x.
+--   `gapStuds`     how far the NEAREST beater's body is, flat. The 154 circle.
+--   `alertedFor`   how long it has been holding a look, or nil for an animal that has not noticed.
+--
+-- THREE ANSWERS: "none", "notice" (stand and look) and "flush" (bolt, and never stop).
+--
+-- THE BAND AND THE CIRCLE ARE A UNION, AND THAT IS DELIBERATE. Task 154 used the circle alone and
+-- its coverage TAPERED sideways, so a group midway between two lanes was never touched (168 measured
+-- 13 animals of 27 standing where they were while the line walked past them). Task 168 replaced it
+-- with the band, which is gapless but shallow. Either one alone is weaker than both: the band is
+-- what makes "nothing is left behind the line" true at any x, and the circle is what makes a beater
+-- walking straight at a group matter at his own reach rather than at the band's depth. They are both
+-- "how close is too close", asked of one geometry, and the nearer trigger wins.
+--
+-- ...AND THE CLOCK IS WHAT ENDS THE STAND. A group that has looked for `ALERT_SECONDS` breaks
+-- whether or not he has closed any further, which is what a real group does and what stops an
+-- approach that stalls from freezing a herd in a stare for ever.
+function ForestTest.encounterStage(aheadStuds: number, gapStuds: number, alertedFor: number?, spook, beater): string
+	local resolved = spook or ForestTest.SPOOK
+	local flush = ForestTest.beaterSpookStuds(resolved)
+	if
+		ForestTest.sweepCatches(aheadStuds, ForestTest.sweepAheadStuds(resolved, beater), resolved)
+		or gapStuds <= flush
+		or (alertedFor ~= nil and alertedFor >= ForestTest.alertSeconds(resolved))
+	then
+		return "flush"
+	end
+	if
+		ForestTest.sweepCatches(aheadStuds, ForestTest.noticeAheadStuds(resolved, beater), resolved)
+		or gapStuds <= ForestTest.noticeStuds(resolved)
+	then
+		return "notice"
+	end
+	return "none"
+end
+
 -- THE REACH IN STUDS, from whichever unit the table carries. PURE, and the ONE place the conversion
 -- happens -- `Horn.spookStuds`'s rule, for the same reason: no caller multiplies by
 -- `METRES_PER_STUD` itself. The studs win when they are there, because a world that overrides the
 -- studs means the studs.
+-- HOW FAR OFF A GROUP NOTICES A BEATER, in studs, from whichever unit the table carries (task 172).
+-- `beaterSpookStuds`'s own rule, one reach up: the studs win when they are there.
+function ForestTest.noticeStuds(spook): number
+	local resolved = spook or ForestTest.SPOOK
+	if type(resolved.NOTICE_STUDS) == "number" then
+		return resolved.NOTICE_STUDS
+	end
+	if type(resolved.NOTICE_M) == "number" then
+		return resolved.NOTICE_M / resolved.METRES_PER_STUD
+	end
+	-- A WORLD THAT NAMES NO NOTICE REACH gets the flush reach, which is the game before this task:
+	-- noticing and fleeing at one distance is exactly what 154 built.
+	return ForestTest.beaterSpookStuds(resolved)
+end
+
+-- HOW LONG A NOTICED GROUP HOLDS ITS LOOK, in seconds, with a world's override honoured the same way.
+function ForestTest.alertSeconds(spook): number
+	local resolved = spook or ForestTest.SPOOK
+	if type(resolved.ALERT_SECONDS) == "number" then
+		return resolved.ALERT_SECONDS
+	end
+	return 0
+end
+
 function ForestTest.beaterSpookStuds(spook): number
 	local resolved = spook or ForestTest.SPOOK
 	if type(resolved.BEATER_STUDS) == "number" then
@@ -678,36 +788,41 @@ ForestTest.LINE = {
 -- sooner". A hunter stands still and the drive comes to him, so a schedule is exactly right for
 -- him; a beater WALKS AT animals that are already lying up, and what she is testing is the moment
 -- she finds them. So in beater mode there is no schedule at all: the wood is STOCKED when she
--- starts, and re-stocked `restockSeconds` after the last of them has left. `ForestTest.stepRest`
--- is the whole of it.
+-- starts, and -- since task 172 -- never re-stocked: a wood is beaten once, and the re-stock was the
+-- last way an animal could appear behind the line (see the end of `REST`). `ForestTest.stepRest` is
+-- the whole of it.
 --
 -- THEY ARE RESTING, AND THAT IS NOTHING NEW EITHER. A sounder spawned and not ordered is an IDLE
 -- sounder, and `CALM.ENABLED` -- on in this world -- is already the graze/stand/lie repertoire
 -- (task 117). This file adds no behaviour; it only says where to put them.
 ForestTest.REST = {
 	-- WHERE A GROUP MAY BE PUT, as the band between her and the road. She starts at
-	-- `LINE.spawnNorthStuds + BEATER.behindLineStuds` = 580 studs north of it, so a group at 55-440
-	-- is in front of her and short of the road -- which is both "between her and the road" and far
-	-- enough from the verge that a hunter at a stand is not looking at a boar standing still.
+	-- `LINE.spawnNorthStuds + BEATER.behindLineStuds` = 580 studs north of it, so a group inside this
+	-- band is in front of her and short of the road -- which is both "between her and the road" and
+	-- far enough from the verge that a hunter at a stand is not looking at a boar standing still.
 	--
-	-- `farRoadStuds` 160 -> 460 IS DERIVED, NOT CHOSEN (task 162). The band's far edge is as deep as
-	-- the keep-away below allows, and that is the whole of it:
-	--
-	--   behindLineStuds 400 + spawnNorthStuds 180 - (SPOOK.BEATER_STUDS 89 + clearOfStartStuds 30)
-	--     = 461, taken down to 460
-	--
-	-- so the deepest spot the search may answer is still one spook radius plus 30 studs from where
-	-- she is put down. A band that stopped at 160 would have left her walking 420 studs of empty
-	-- wood before she met anything, which is the defect this whole section exists to prevent -- in a
-	-- new form. `forest_stand.spec` asserts the relation.
+	-- (TASK 162's VERSION OF THIS PARAGRAPH IS HISTORY NOW, and it is kept as history rather than
+	-- deleted: the band was 40-460 then, derived the same way from the one reach there was --
+	-- `behindLineStuds 400 + spawnNorthStuds 180 - (SPOOK.BEATER_STUDS 89 + clearOfStartStuds 30)` =
+	-- 461, taken down to 460. Task 172 split the reach in two and the derivation follows the NOTICE
+	-- one, below.)
 	nearRoadStuds = 40,
-	farRoadStuds = 460,
+	-- 425, AND IT IS STILL DERIVED (task 172 moved it from 460). The band's far edge is as deep as
+	-- the keep-away below allows, and the keep-away is now the NOTICE reach rather than the flush
+	-- reach, because noticing is the first thing that happens to a group and a group that notices her
+	-- before she has taken a step is the same defect task 162 measured in its flush form:
+	--
+	--   behindLineStuds 400 + spawnNorthStuds 180 - (SPOOK.NOTICE_STUDS 125 + clearOfStartStuds 30)
+	--     = 425
+	--
+	-- `forest_stand.spec` asserts the relation, so the number cannot drift away from the reach.
+	farRoadStuds = 425,
 
-	-- ...AND NOT ALREADY INSIDE HER REACH. MEASURED, first run of this task: the group nominally at
+	-- ...AND NOT ALREADY INSIDE HER REACH. MEASURED, task 154's first run: the group nominally at
 	-- `offsetX +45, northStuds 185` is sqrt(45^2 + 55^2) = 71 studs from where a beater is put down,
-	-- which is INSIDE `SPOOK.BEATER_STUDS` (89) -- so it was latched and gone on the first heartbeat,
-	-- before she had taken a step. A wood she has already emptied by standing in it is not a wood.
-	-- One spook radius plus 30 studs is far enough that the nearest group is a walk away.
+	-- which was inside the one reach there was then -- so it was latched and gone on the first
+	-- heartbeat, before she had taken a step. A wood she has already emptied by standing in it is not
+	-- a wood. One reach plus 30 studs is far enough that the nearest group is a walk away.
 	clearOfStartStuds = 30,
 
 	-- CLOSE TO A TRUNK, AND NOT INSIDE ONE. Karen: *"somewhere in bushes close to trees ect"*. A
@@ -723,7 +838,27 @@ ForestTest.REST = {
 	-- refused when the terrain's own answer and that one disagree by more than this.
 	canopySlackStuds = 6,
 
-	-- HOW A SPOT IS LOOKED FOR: the nominal point first, then rings of eight around it. Deterministic
+	-- ---------------------------------------------------------------- SEEN FROM THE LANE (task 172)
+	--
+	-- KAREN, 2026-10-13 ~09:20: *"beaters has to see more animals when walking ... I want to see them
+	-- more"*. Two of the three answers to that are in this block; the third is the staged reaction in
+	-- `SPOOK` above.
+	--
+	-- A SPOT IS PREFERRED WHEN THE LANE CAN SEE IT. `ForestTest.restSeenFromLane` casts one ray from
+	-- the walking line -- the group's own lane, `sightFromStuds` short of it, at a walking man's eye
+	-- height -- to the spot, and a spot with a trunk in the way is tried later than one without. It
+	-- is a PREFERENCE and not a rule: the search's second pass drops it, because a wood where every
+	-- legal spot happens to be screened is a wood with no animals in it, which is worse than a wood
+	-- with one animal behind a tree.
+	sightEyeStuds = 3.5, -- a standing man's eyes above the ground he is on
+	sightTargetStuds = 2, -- ...and the animal's shoulder, not its feet
+	sightFromStuds = 45, -- how far short of the group the look is taken from: inside the notice band
+	-- ...AND HOW FAR OFF HIS LANE A GROUP MAY BE AT ALL. Every row below is within 24 studs of its
+	-- own lane, and this is the ceiling that keeps it that way -- 40 studs is 11 m, about three
+	-- lengths of the animal, so a group is beside the lane rather than somewhere in the wood.
+	laneSideStuds = 40,
+
+	-- How a spot is looked for: the nominal point first, then rings of eight around it. Deterministic
 	-- on purpose -- the same wood gives the same answer twice, so a trace can be repeated.
 	searchRings = 4,
 	searchStepStuds = 16,
@@ -732,51 +867,155 @@ ForestTest.REST = {
 	-- same reason (a sounder of 9 needs room not to spawn inside itself).
 	spreadStuds = 90,
 
-	-- ...AND HOW LONG AFTER THE WOOD IS EMPTY before it fills again. Long enough that she SEES it
-	-- emptied -- a wood that refills the instant the last animal crosses is a wood she can never
-	-- clear, which is the opposite of a drive.
-	restockSeconds = 15,
+	-- ---------------------------------------------------------------- AND IT IS NEVER RE-STOCKED
+	--
+	-- KAREN, 2026-10-13 ~09:25, verbatim: *"and again no boar behing comming after beater walk"* --
+	-- after task 168 had already made the line sweep what it passes.
+	--
+	-- THE RE-STOCK WAS THE ONE SOURCE 168 LEFT, AND 168 MEASURED IT ITSELF: *"7 animals of 25
+	-- appeared up to 31 studs behind the front; the sweep caught them on the next tick and they ran
+	-- out, but a group that has to be swept the instant it exists is a group Karen saw come from
+	-- behind"*. The reason is geometric and no search can fix it: this band is measured from the
+	-- ROAD, and fifteen seconds after the wood is empty the line is deep inside the band -- so the
+	-- deep rows have nowhere left to go that is in front of anybody.
+	--
+	-- SO THE WOOD IS STOCKED ONCE AND STAYS AS SHE LEAVES IT, which is the dispatch's own words
+	-- (*"no re-stock or spawn behind the line at all -- if the wood empties, it stays empty for this
+	-- drive"*) and is also what a drive IS: a wood is beaten once. `restockSeconds` is gone with the
+	-- behaviour it timed; `ForestTest.stepRest` now stocks on the first heartbeat of beater mode and
+	-- never again, and `state.restStocked` is the latch that says so. The old row and the branch it
+	-- timed are archived in `backups/2026-10-13_task-172_rest-restock.md`, with the reason, as rule 7
+	-- asks.
+	--
+	-- ONCE PER **DRIVE**, NOT ONCE PER SESSION (round 2, finding 1, which was right). The latch lives
+	-- in `ForestTest`'s state and is cleared by `ForestTest.newDrive()`, which the boot calls on the
+	-- `Assigning` edge -- the same edge it already opens a report window on. Without that the wood was
+	-- stocked once per SERVER: a beater who cleared it in drive 1 walked 580 studs of empty wood in
+	-- every drive after it, which is task 154's founding defect in a new form, and the behaviour that
+	-- used to cover the boundary (the 15-second re-stock) is the one this task archived.
 
-	-- THE GROUPS, spread across her front. `composition` indexes `Boar.CONFIG.SOUNDER.COMPOSITIONS`
-	-- for the same reason the schedule does: who is in a flock is the boar system's fact and where
-	-- they are lying up is this world's. `offsetX` is relative to the stand the drive aims at --
-	-- which is the x she is standing behind -- so "110 studs west of me" means that wherever she is.
+	-- HOW OFTEN THE STOCK MAY BE RE-TRIED while it has not succeeded. The attempt is level-triggered,
+	-- and at the instant a drive begins the PREVIOUS drive's beaters can still be standing at the
+	-- ROAD -- so every candidate is behind the front, nothing is placed, and a latch set on the
+	-- ATTEMPT would lose that whole drive's wood. The latch is set when something is actually PLACED;
+	-- until then it is tried again, at most this often, so a wood that cannot be stocked costs one
+	-- search every two seconds instead of one per heartbeat.
+	stockRetrySeconds = 2,
+
+	-- THE GROUPS, SPREAD ALONG THE LANES (task 172). `composition` indexes
+	-- `Boar.CONFIG.SOUNDER.COMPOSITIONS` for the same reason the schedule does: who is in a flock is
+	-- the boar system's fact and where they are lying up is this world's. `offsetX` is relative to the
+	-- stand the drive aims at -- which is the x the line is walking at -- and `laneOffset` says WHICH
+	-- lane of the line this group belongs to (`ForestTest.beaterLaneOffset` deals out 0, +150, -150,
+	-- +300, -300), so a spot can be judged by what that lane will see of it.
 	--
-	-- 28 ANIMALS IN SIX GROUPS. Karen: *"make them a lot not too much to break but enough to test"*,
-	-- and `MAX_BOARS` is 60; a measured session has carried 32 at once in this place.
+	-- 36 ANIMALS IN TEN GROUPS, up from 28 in six. Karen: *"make them a lot not too much to break
+	-- but enough to test"* and now *"I want to see them more"*. `MAX_BOARS` is 60 and a measured
+	-- session has carried 32 at once in this place, so 36 is more wood than she has played and inside
+	-- what the place has shown it can hold.
 	--
-	-- SPREAD DOWN THE WHOLE DEPTH OF THE WALK (task 162), not across one band at the end of it. The
-	-- walk is 580 studs now, so five groups between 55 and 150 studs out would all have been in the
-	-- last quarter of it: the deepest row is the first thing she meets and the shallowest is at the
-	-- verge. The band is listed deepest-first for exactly that reason -- the order is the order she
-	-- walks into them.
+	-- FOUR OF THE TEN ARE ON HER OWN LANE (`laneOffset = 0`, which is always the real beater's --
+	-- `beaterLaneOffset` gives index 1 the middle), 110 studs apart down the whole 355-stud depth of
+	-- the walk, so she meets a group about every twenty-five seconds at a beater's pace. The other
+	-- six are on the two lanes either side of her, within 24 studs of them, so the bot beaters' walks
+	-- produce encounters she can see across the front instead of an empty wood on both sides.
 	--
-	-- AND NEVER TWO AT ONCE, which is what the depths AND the offsets are spaced for:
-	-- `SPOOK.BEATER_STUDS` is 89 and the fright LATCHES, so two groups inside 89 studs of each other
-	-- both bolt on one approach and six groups give her three events. MEASURED over all fifteen
-	-- pairs in the world frame -- which is not the same as the depth difference, because the road is
-	-- a sine and `restPoint` adds `roadZ(x)`: the closest pair is 121.7 studs (the last two). The
-	-- first layout of this table had them 94.7 apart, 5.7 studs clear of the reach, which the ring
-	-- search could have closed on its own; the two offsets were widened for that and nothing else.
-	-- `forest_stand.spec` asserts no pair is inside the reach.
-	--
-	-- ONE GROUP MORE AND ONE ANIMAL MORE than task 154's five -- not a fuller wood, a longer one.
-	-- Six rows over 385 studs of depth is an encounter about every 80 studs she walks; making the
-	-- wood denser is adding rows to this table and nothing else, if Karen asks for it.
-	--
-	-- EVERY ROW WAS MEASURED AGAINST THE LIVE WOOD (2026-10-12, this place, Edit): each nominal
-	-- point finds a legal spot within search ring 0 or 1 of four -- on the terrain, off a canopy, and
-	-- 9.6 to 18.7 studs from the nearest trunk, which is `clearStuds` 8 to `nearTrunkStuds` 22. So
-	-- none of the six is a group the wood cannot hold.
+	-- AND NEVER TWO AT ONCE, which is what the depths and the offsets are spaced for: the flush reach
+	-- is `SPOOK.BEATER_STUDS` (71) and the fright LATCHES, so two groups inside 71 studs of each other
+	-- both bolt on one approach. MEASURED over all 45 pairs in the world frame -- which is not the
+	-- same as the depth difference, because the road is a sine and `restPoint` adds `roadZ(x)`: the
+	-- closest pair is 101.3 studs (rows 1 and 2, both on her lane), which clears the reach by 30.
+	-- `forest_stand.spec` asserts no pair is inside the reach with the ring search's own margin.
 	groups = {
-		{ offsetX = -25, northStuds = 440, composition = 6, note = "a lone big male, the first thing she meets" },
-		{ offsetX = 95, northStuds = 355, composition = 2, note = "two males, east and deep" },
-		{ offsetX = -110, northStuds = 280, composition = 1, note = "a mixed flock, west, half way down" },
-		{ offsetX = 60, northStuds = 200, composition = 4, note = "sows and piglets, east" },
-		{ offsetX = -70, northStuds = 120, composition = 5, note = "a sow and her young, west" },
-		{ offsetX = 50, northStuds = 55, composition = 6, note = "one big lone male, close to the road" },
+		{
+			offsetX = -18,
+			laneOffset = 0,
+			northStuds = 415,
+			composition = 6,
+			note = "a lone big male, the first thing she meets",
+		},
+		{
+			offsetX = 22,
+			laneOffset = 0,
+			northStuds = 305,
+			composition = 5,
+			note = "a sow and her young, deep on her lane",
+		},
+		{
+			offsetX = -20,
+			laneOffset = 0,
+			northStuds = 195,
+			composition = 2,
+			note = "two males, half way down her lane",
+		},
+		{
+			offsetX = 24,
+			laneOffset = 0,
+			northStuds = 85,
+			composition = 1,
+			note = "a mixed flock on her lane, close to the road",
+		},
+		{
+			offsetX = 132,
+			laneOffset = 150,
+			northStuds = 370,
+			composition = 2,
+			note = "two males, deep on the east lane",
+		},
+		{ offsetX = 168, laneOffset = 150, northStuds = 230, composition = 5, note = "a sow and her young, east" },
+		{
+			offsetX = 140,
+			laneOffset = 150,
+			northStuds = 90,
+			composition = 6,
+			note = "a lone male, east and close to the road",
+		},
+		{
+			offsetX = -168,
+			laneOffset = -150,
+			northStuds = 340,
+			composition = 6,
+			note = "a lone male, deep on the west lane",
+		},
+		{ offsetX = -132, laneOffset = -150, northStuds = 200, composition = 2, note = "two males, west" },
+		{
+			offsetX = -162,
+			laneOffset = -150,
+			northStuds = 60,
+			composition = 5,
+			note = "a sow and her young, west and close to the road",
+		},
 	},
 }
+
+-- WHAT THE WOOD'S ONE STOCK SHOULD DO ON THIS TICK (task 172 round 3). PURE, in the three facts it
+-- depends on -- has this drive been stocked, when was it last tried, and what time is it -- so the
+-- whole rule can be asserted from hand-written numbers instead of needing a live runtime.
+--
+-- IT EXISTS BECAUSE THE RULE WAS UNREACHABLE (round 3's finding, which was right). `stepRest`'s first
+-- line is `if state.runtime == nil then return nil end`, and no spec starts the Forest Test's
+-- runtime -- so a case that called `stepRest` returned before any of this and could not fail. The
+-- same division `wavesToPush` was given for the same reason: the decision here, the effect there.
+--
+-- THREE ANSWERS:
+--   "done"   the wood has been stocked for this drive. It is NOT re-stocked inside one (Karen,
+--            2026-10-13: *"and again no boar behing comming after beater walk"*); the latch is
+--            cleared by `ForestTest.newDrive()` at the drive boundary and nowhere else.
+--   "wait"   a stock was tried this recently and did not take. At the instant a drive begins the
+--            PREVIOUS drive's beaters can still be standing at the road, so every candidate is
+--            behind the front and nothing can be placed; the search is 41 candidates' worth of
+--            raycasts per group, so it is re-tried on a clock rather than every heartbeat.
+--   "stock"  try now.
+function ForestTest.stockStep(stocked: boolean, triedAt: number?, now: number, rest): string
+	if stocked then
+		return "done"
+	end
+	local resolved = rest or ForestTest.REST
+	if triedAt ~= nil and now - triedAt < (resolved.stockRetrySeconds or 0) then
+		return "wait"
+	end
+	return "stock"
+end
 
 -- WHERE A RESTING GROUP IS NOMINALLY PUT, before the ground and the trunks are measured. PURE, the
 -- same division `wavePoint` has: the arithmetic here, the world's own answer in
@@ -785,6 +1024,27 @@ function ForestTest.restPoint(standX: number, spec, sideOffset: number?, outOffs
 	local x = standX + (spec.offsetX or 0) + (sideOffset or 0)
 	local north = (spec.northStuds or 120) + (outOffset or 0)
 	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x) + north)
+end
+
+-- WHERE A BEATER IS STANDING WHEN HE OUGHT TO SEE THIS GROUP (task 172). PURE: the point on the
+-- group's own lane, `sightFromStuds` short of it along the walk, at the ground's z for that x -- the
+-- same division `restPoint` has, arithmetic here and the raycast in `ForestTest.restSeenFromLane`.
+--
+-- `sightFromStuds` IS INSIDE THE NOTICE BAND ON PURPOSE (45 studs against 125): the question this
+-- point asks is not "can he see it from anywhere" but "can he see it from where he will be standing
+-- when it puts its head up", and the answer has to be taken from inside the band or it is about a
+-- different moment.
+function ForestTest.laneLookPoint(standX: number, spec, spot: Vector3, rest): Vector3
+	local laneX = standX + (spec.laneOffset or 0)
+	local resolved = rest or ForestTest.REST
+	local north = spot.Z - ForestTest.roadZ(spot.X) + (resolved.sightFromStuds or 0)
+	return Vector3.new(laneX, ForestTest.CENTRE.Y, ForestTest.roadZ(laneX) + north)
+end
+
+-- HOW FAR OFF ITS OWN LANE A GROUP'S SPOT IS. PURE, flat, and the one thing `laneSideStuds` is
+-- compared against -- so "beside the lane" is measured in one place.
+function ForestTest.offLaneStuds(standX: number, spec, spot: Vector3): number
+	return math.abs(spot.X - (standX + (spec.laneOffset or 0)))
 end
 
 ForestTest.SCHEDULE = {

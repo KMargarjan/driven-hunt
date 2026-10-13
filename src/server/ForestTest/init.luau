@@ -445,6 +445,12 @@ function ForestTest.stats()
 		stuck = state.stuck or 0,
 		-- TASK 153: how many animals a real beater has walked up to and flushed out of a file.
 		flushed = state.flushed or 0,
+		-- TASK 172: ...and how many first STOOD AND LOOKED at him before they went, plus how many of
+		-- the stocked wood are still on their feet -- the two numbers the staged encounter is proved
+		-- with, and the second is why the wood is never re-stocked.
+		noticed = state.noticed or 0,
+		restStocked = state.restStocked == true,
+		restAlive = ForestTest.restAlive(),
 		active = #state.active,
 		boars = if state.runtime then state.runtime:count() else 0,
 	}
@@ -1108,7 +1114,8 @@ end
 --                ring of the search that walked a group onto the road is not the group she asked
 --                for. Karen: *"animals already there ... close to trees"*, on her side of the road.
 --   `fromStart`  NOT ALREADY INSIDE HER REACH. MEASURED, this task's own first build: a group 71
---                studs from where a beater is put down is inside `SPOOK.BEATER_STUDS` (89), so it
+--                studs from where a beater is put down was inside the one reach there was then (89
+--                studs; since task 172 the guard is `SPOOK.NOTICE_STUDS`, 125), so it
 --                was latched and gone on the first heartbeat before she had taken a step.
 --   `terrainY`/`groundY`  ON THE GROUND AND NOT ON A CANOPY. `Runtime:spawn` places every member at
 --                `world.groundAt`, which rays past `OurForest`/`Foliage` but NOT past the two
@@ -1143,6 +1150,54 @@ function ForestTest.restSpotOk(
 	return trunkGap >= rest.clearStuds and trunkGap <= rest.nearTrunkStuds
 end
 
+-- CAN A BEATER WALKING THIS GROUP'S LANE SEE THIS SPOT? (task 172). KAREN, 2026-10-13 ~09:20:
+-- *"beaters has to see more animals when walking ... I want to see them more"*.
+--
+-- ONE RAY, FROM WHERE HE WILL BE STANDING WHEN IT PUTS ITS HEAD UP: `Data.laneLookPoint` is the
+-- point on his own lane `REST.sightFromStuds` short of the group (45 studs, inside the 125-stud
+-- notice band), at `sightEyeStuds` above the ground there; the target is the animal's shoulder.
+-- Anything SOLID in between -- the same `RespectCanCollide` test `nearestSolid` and `roomToStand`
+-- use, for the same measured reason (this forest is mostly ferns and leaf cards that a man sees
+-- straight through) -- means the lane cannot see it.
+--
+-- IT IS A PREFERENCE AND NOT A RULE, and `restSpot`'s two passes are where that is decided: a wood
+-- in which every legal spot happens to be screened is a wood with no animals in it, which is worse
+-- than one animal behind a trunk.
+--
+-- THE GROUND IS ASKED AT BOTH ENDS, because the terrain here rolls: a ray from a fixed height over a
+-- rise would hit the hill rather than a trunk, and that is not what is being measured. Either
+-- answer missing is "cannot see it", never "close enough".
+function ForestTest.restSeenFromLane(standX: number, spec, spot: Vector3, rest): boolean
+	local resolved = rest or Data.REST
+	local look = Data.laneLookPoint(standX, spec, spot, resolved)
+	local lookGround = ForestTest.terrainYAt(look.X, look.Z)
+	local spotGround = ForestTest.terrainYAt(spot.X, spot.Z)
+	if lookGround == nil or spotGround == nil then
+		return false
+	end
+	local from = Vector3.new(look.X, (lookGround :: number) + (resolved.sightEyeStuds or 0), look.Z)
+	local to = Vector3.new(spot.X, (spotGround :: number) + (resolved.sightTargetStuds or 0), spot.Z)
+	-- THE GROUND IS A SCREEN AND THE TERRAIN IS NOT EXCLUDED (round 2's note, which was right).
+	-- `nearestSolid` excludes it because "how far is the nearest trunk" is not a question about the
+	-- hill; "can he see it from there" is. This wood rolls -- the two ends of this ray measured 20
+	-- studs apart in height in the live place -- so a rise between the lane and the group hides the
+	-- group, and a ray that flew through it would answer "seen" over a hill.
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore = {}
+	local boars = Workspace:FindFirstChild("Boars")
+	if boars then
+		table.insert(ignore, boars)
+	end
+	params.FilterDescendantsInstances = ignore
+	params.RespectCanCollide = true
+	params.IgnoreWater = true
+	local hit = Workspace:Raycast(from, to - from, params)
+	-- A CHARACTER IS NOT A SCREEN, the one rule `nearestSolid` states and this borrows: a bot
+	-- standing on the lane is not a reason to move a group.
+	return hit == nil or Data.characterOf(hit.Instance) ~= nil
+end
+
 function ForestTest.restSpot(standX: number, spec): Vector3?
 	local rest = Data.REST
 	-- WHERE SHE ACTUALLY IS, NOT WHERE SHE SPAWNED (task 155, from task 154's review).
@@ -1152,7 +1207,8 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- (240 when this was written, task 162 deepened it); 15 s after she has emptied the wood she is
 	-- at or past the road, that whole distance from the point -- and `REST.groups`'s last row
 	-- (today `offsetX 35, northStuds 55`) is then only ~60-70 studs from her, inside
-	-- `SPOOK.BEATER_STUDS` (89). So `spookNearBeaters` latched the group the heartbeat it spawned:
+	-- the reach of the day (89 studs then; the guard is `SPOOK.NOTICE_STUDS`, 125, since task 172).
+	-- So `spookNearBeaters` latched the group the heartbeat it spawned:
 	-- *"a wood she has already emptied by standing in it is not a wood"*, which is the defect task
 	-- 154 exists to fix, in a milder form.
 	--
@@ -1168,7 +1224,13 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- test and the ground does not change it, while the measured version raycasts and would be asked
 	-- once per candidate.
 	local start = Data.beaterStart(standX, 0)
-	local keepAway = Data.beaterSpookStuds(Data.SPOOK) + rest.clearOfStartStuds
+	-- THE KEEP-AWAY IS THE **NOTICE** REACH (round 1, finding 1, which was right). The question this
+	-- guard asks is "could this group already be reacting to her before she has taken a step", and
+	-- since task 172 the FIRST thing that happens to a group is that it notices -- at 125 studs, not
+	-- at the 71 it flushes from. It was left on the flush reach while `REST.farRoadStuds`, the
+	-- header above and all three spec sites had moved to the notice reach, so the only live
+	-- enforcement was the weaker of the two: a ring of the search could legally answer 101 studs.
+	local keepAway = Data.noticeStuds(Data.SPOOK) + rest.clearOfStartStuds
 	-- ...AND NOT BEHIND THE LINE EITHER (task 168, the Director's second pass). KAREN: *"animals
 	-- can't come behind beaters"*, and the dispatch: *"Nothing ever spawns or rests behind the
 	-- line"*.
@@ -1185,17 +1247,25 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- it -- is refused on the first pass. `Data.sweepCatches` is the same pure function
 	-- `spookNearBeaters` asks, so "behind the line" cannot be answered twice differently.
 	--
-	-- TWO PASSES, AND THE SECOND ONE IS TODAY'S SEARCH. Once the line is at the road the whole wood
-	-- is behind it, and a refusal with no fallback would leave the wood empty until the next drive --
-	-- which is a feel decision nobody has made. So: prefer a spot the line has not reached; if the
-	-- whole search finds none, place it anyway and let the sweep do its job, exactly as before this
-	-- task.
+	-- ...AND THE REFUSAL HAS NO FALLBACK ANY MORE (task 172). Task 168 preferred a spot in front of
+	-- the line and, finding none, PLACED IT ANYWAY and let the sweep catch it -- which is exactly the
+	-- animal Karen then saw come out behind the beaters a second time (*"and again no boar behing
+	-- comming after beater walk"*). A group that cannot go in front of the line is simply not placed,
+	-- which is the same answer `releaseLine` gives a line whose route cannot be computed.
+	--
+	-- WHAT THAT COSTS, SAID PLAINLY (round 2's note, which was right). On the role-at-GO path the
+	-- refusal never fires: the wood is stocked on the first heartbeat of beater mode, before anybody
+	-- has a body, so there is no front to be behind. On the `/beater`-typed-mid-session path, with the
+	-- line already deep in the wood, groups ARE refused -- and `stepRest` re-tries every
+	-- `REST.stockRetrySeconds` until the next drive puts the line back behind her and the wood in
+	-- front of it. The old answer was to place them behind her anyway, which is what she saw twice.
 	local sweepDepth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
-	-- ONE PASS WHEN THERE IS NOBODY PUSHING (round 1's note): with no beaters there is no front, so
-	-- the first pass refuses nothing and the second would repeat all 41 candidates' raycasts and
-	-- overlap queries for the same answer. That is the FIRST stock, every time.
-	for pass = 1, (if #beaters > 0 then 2 else 1) do
-		local avoidSweep = pass == 1 and #beaters > 0
+	-- TWO PASSES, AND WHAT THEY DIFFER BY IS THE SIGHTLINE (task 172): the first takes only a spot
+	-- the group's own lane can SEE, the second takes any legal spot. Never the sweep rule -- that one
+	-- holds in both, because "behind the line" is not a preference.
+	for pass = 1, 2 do
+		local wantSeen = pass == 1
+		local avoidSweep = #beaters > 0
 		for ring = 0, rest.searchRings do
 			local tries = if ring == 0 then 1 else 8
 			for step = 1, tries do
@@ -1232,7 +1302,16 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 					end
 				end
 				if not swept and ForestTest.restSpotOk(dz, fromStart, gap, terrain, ground, rest, keepAway) then
-					return Vector3.new(at.X, terrain :: number, at.Z)
+					-- BESIDE ITS OWN LANE, AND SEEN FROM IT (task 172). The lateral test is cheap and
+					-- is checked in BOTH passes -- a group 200 studs off the lane it belongs to is not
+					-- that lane's group whatever the trunks do -- and the ray is only cast for the
+					-- spots that have already passed everything else.
+					local spot = Vector3.new(at.X, terrain :: number, at.Z)
+					if Data.offLaneStuds(standX, spec, spot) <= (rest.laneSideStuds or math.huge) then
+						if not wantSeen or ForestTest.restSeenFromLane(standX, spec, spot, rest) then
+							return spot
+						end
+					end
 				end
 			end
 		end
@@ -1297,7 +1376,6 @@ function ForestTest.stockWood(now: number): string?
 		return nil
 	end
 	state.released += placed
-	state.restEmptyAt = nil
 	return string.format(
 		"the wood is stocked: %d animal(s) in %d group(s) -- %s",
 		placed,
@@ -1329,8 +1407,9 @@ end
 --
 -- ONE PASS OVER EVERY LIVE ANIMAL IN THE WORLD, resting or in a file, because "how close is too
 -- close" must have ONE answer (rule 3) -- task 153 put a copy of this inside `stepLines` when the
--- lines were the only animals there were. An animal inside `SPOOK.BEATER_STUDS` of any real beater
--- is spooked AWAY FROM HER: `Brain:_latchFlight` takes its heading from the point handed in, so one
+-- lines were the only animals there were. SINCE TASK 172 THE TEST IS `Data.encounterStage` -- the
+-- band, the circle and the stand's own clock, in one pure place -- and what was a single reach is
+-- its `flush` answer. An animal that reaches that stage is spooked AWAY FROM HER: `Brain:_latchFlight` takes its heading from the point handed in, so one
 -- standing north of it runs SOUTH, ahead of the push and over the road, which is Karen's *"so from
 -- me direction they looking they run away"*. And the fright is LATCHED -- *"it's not like they cool
 -- down they spooked and run away"* -- which is the one-way rule task 150 built for a heard shot and
@@ -1343,7 +1422,7 @@ end
 -- ONCE PER ANIMAL, which is what `state.latched` is for: re-spooking every heartbeat would re-enter
 -- `_latchFlight` sixty times a second to be refused by its own re-latch window, which is not a rule
 -- anybody can read.
-function ForestTest.spookNearBeaters(_now: number): string?
+function ForestTest.spookNearBeaters(now: number): string?
 	local runtime = state.runtime
 	if runtime == nil then
 		return nil
@@ -1362,9 +1441,10 @@ function ForestTest.spookNearBeaters(_now: number): string?
 	-- front: `Brain:_latchFlight` takes the animal's heading away from the point it is handed, and the
 	-- note's one requirement for this stimulus is that it be somewhere somebody is standing. The
 	-- front decides WHO is flushed; a man decides WHICH WAY.
-	local depth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
 	state.latched = state.latched or {}
+	state.noticedAt = state.noticedAt or {}
 	local sent = {}
+	local looked = {}
 	for _, handle in ipairs(runtime:boars()) do
 		if state.latched[handle.id] ~= true then
 			local at = handle.position()
@@ -1372,13 +1452,51 @@ function ForestTest.spookNearBeaters(_now: number): string?
 			-- SOUTH IS THE ROAD AND IS A SMALLER z (`Data.beaterStart` is `roadZ + north`), so an
 			-- animal IN FRONT of the line has the smaller z and `ahead` is positive.
 			local ahead = if frontZ ~= nil then (frontZ :: number) - at.Z else math.huge
-			if frontZ ~= nil and Data.sweepCatches(ahead, depth, Data.SPOOK) then
-				local from, gap = ForestTest.nearestBeater(at, beaters)
-				if from ~= nil then
-					table.insert(sent, { id = handle.id, from = from, gap = gap, ahead = ahead })
+			local from, gap = ForestTest.nearestBeater(at, beaters)
+			-- WHICH STAGE THIS ANIMAL HAS REACHED, decided in ONE pure place (task 172): the band,
+			-- the circle and the clock are all `Data.encounterStage`'s, so this loop measures and
+			-- obeys and decides nothing.
+			local since = if state.noticedAt[handle.id] ~= nil then now - state.noticedAt[handle.id] else nil
+			local stage = Data.encounterStage(ahead, gap, since, Data.SPOOK, Data.BEATER)
+			if from ~= nil and stage == "flush" then
+				table.insert(sent, { id = handle.id, from = from, gap = gap, ahead = ahead })
+			elseif from ~= nil and stage == "notice" and state.noticedAt[handle.id] == nil then
+				table.insert(looked, { id = handle.id, from = from, gap = gap })
+			end
+		end
+	end
+
+	-- THE STAND, BEFORE ANY OF THEM RUN (task 172). KAREN, 2026-10-13 ~09:20: *"I want to see how
+	-- they stand and then start to run"*.
+	--
+	-- THE WHOLE SOUNDER LOOKS UP, exactly as the whole sounder leaves: a group is one decision, which
+	-- is this function's own rule for the flush and the reason it is written once here. The clock
+	-- starts for every member the tick the first of them notices, so the group breaks together.
+	local alertFor = Data.alertSeconds(Data.SPOOK)
+	local stood = 0
+	for _, row in ipairs(looked) do
+		local ids = { row.id }
+		local sounder = runtime:sounderOf(row.id)
+		if sounder ~= nil then
+			ids = sounder.memberIds
+		end
+		for _, id in ipairs(ids) do
+			-- THE CLOCK STARTS ONLY WHEN THE LOOK WAS ACCEPTED (round 2's note, which was right).
+			-- `Brain:notice` refuses anything that is not IDLE, and a walking file is never IDLE --
+			-- so starting the clock either way turned the stage into an invisible two-second DELAY
+			-- for every animal already on the move, which is a change to the hunter's drive that
+			-- nobody asked for. An animal that cannot stand is simply not in the stage: it reaches
+			-- `flush` through the band or the circle, exactly as it did before this task.
+			if state.noticedAt[id] == nil and state.latched[id] ~= true then
+				if runtime:notice(id, row.from, alertFor) then
+					state.noticedAt[id] = now
+					stood += 1
 				end
 			end
 		end
+	end
+	if stood > 0 then
+		state.noticed = (state.noticed or 0) + stood
 	end
 	local parts = {}
 	for _, row in ipairs(sent) do
@@ -1411,10 +1529,22 @@ function ForestTest.spookNearBeaters(_now: number): string?
 			)
 		end
 	end
+	-- THE STAND IS REPORTED WHETHER OR NOT SOMETHING ELSE WENT ON THE SAME TICK (round 1's note,
+	-- which was right): one group bolting while another stands is exactly the tick the proof wants
+	-- to see, and the stand used to be printed only when nothing had bolted.
+	local stand = if stood > 0
+		then string.format(
+			"%d animal(s) stood and looked (%.0f s before they go) -- %d so far",
+			stood,
+			alertFor,
+			state.noticed
+		)
+		else nil
 	if #parts == 0 then
-		return nil
+		return if stand ~= nil then "a beater was noticed: " .. stand else nil
 	end
-	return string.format("a beater spooked %s -- %d latched so far", table.concat(parts, "; "), state.flushed)
+	local line = string.format("a beater spooked %s -- %d latched so far", table.concat(parts, "; "), state.flushed)
+	return if stand ~= nil then line .. "; and " .. stand else line
 end
 
 -- ONE TICK OF BEATER MODE: whether the wood needs filling. `spooked` is what
@@ -1425,28 +1555,55 @@ function ForestTest.stepRest(now: number, spooked: string?): string?
 	if state.runtime == nil then
 		return nil
 	end
-	if #(state.rest or {}) == 0 then
-		-- NOTHING HAS EVER BEEN PUT DOWN: fill it now, on the first heartbeat after she becomes a
-		-- beater. Level-triggered rather than called from the boot, so a role set before the runtime
-		-- existed, a `/beater` typed mid-session and a respawn all end in the same place.
-		return ForestTest.stockWood(now) or spooked
-	end
-	if ForestTest.restAlive() > 0 then
-		state.restEmptyAt = nil
+	-- WHAT TO DO ABOUT THE STOCK THIS TICK is `Data.stockStep`'s, pure, so the rule can be asserted
+	-- without a runtime (round 3's finding: `stepRest` returns on its first line in the spec place,
+	-- so a case that called it could not fail). This function takes the measurements and obeys.
+	local decision = Data.stockStep(state.restStocked == true, state.restTriedAt, now, Data.REST)
+	if decision == "stock" then
+		-- NOTHING HAS BEEN PUT DOWN FOR THIS DRIVE: fill it now, on the first heartbeat after she
+		-- becomes a beater. Level-triggered rather than called from the boot, so a role set before the
+		-- runtime existed, a `/beater` typed mid-session and a respawn all end in the same place.
+		--
+		-- THE LATCH IS SET WHEN SOMETHING WAS ACTUALLY PLACED (round 2's note, which was right), not
+		-- when the attempt was made -- `stockStep` answers "wait" until the retry clock is up, and
+		-- the latch below is the only thing that ever makes it answer "done".
+		state.restTriedAt = now
+		local stocked = ForestTest.stockWood(now)
+		if stocked ~= nil then
+			state.restStocked = true
+			return stocked
+		end
 		return spooked
 	end
-	-- EMPTY. She has pushed or shot the lot, so the wood fills again -- after a pause, so that she
-	-- sees it emptied (`REST.restockSeconds`).
-	if state.restEmptyAt == nil then
-		state.restEmptyAt = now
-		return spooked
-	end
-	if now - state.restEmptyAt < Data.REST.restockSeconds then
-		return spooked
-	end
+	-- ...AND IT IS NEVER RE-STOCKED (task 172). KAREN, 2026-10-13 ~09:25: *"and again no boar behing
+	-- comming after beater walk"*. The re-stock measured its groups from the ROAD while the line was
+	-- already deep in the wood, so the deep rows had nowhere to go that was in front of anybody --
+	-- `REST`'s own header has the measurement. A wood is beaten once; when it is empty it stays empty
+	-- for this drive.
+	return spooked
+end
+
+-- A NEW DRIVE, AND THE WOOD IS A NEW WOOD (round 2, finding 1, which was right).
+--
+-- *"If the wood empties, it stays empty for this drive"* is the dispatch's own sentence, and until
+-- this function existed the code said DRIVE and meant SESSION: `state.restStocked` was written false
+-- in exactly one place, `ForestTest.start`'s reset, and the boot calls `start` once per server. So a
+-- beater who cleared the wood in drive 1 walked 580 studs of empty wood in every drive after it --
+-- task 154's founding defect in a new form, and the behaviour that used to cover the boundary (the
+-- 15-second re-stock) is the one this task archived.
+--
+-- IT IS CALLED ON THE `Assigning` EDGE, which is the boundary the boot already listens to for the
+-- report window, and it resets exactly the four things that are ABOUT ONE DRIVE'S WOOD: what was
+-- stocked, whether it has been, which animals have been latched, and which have been noticed. The
+-- COUNTERS (`flushed`, `noticed`, `released`) are the session's and are not touched -- they are what
+-- `stats()` publishes and what the `[rest]` lines count up.
+function ForestTest.newDrive()
 	state.rest = {}
-	state.restEmptyAt = nil
-	return ForestTest.stockWood(now) or spooked
+	state.restStocked = false
+	state.restTriedAt = nil
+	state.latched = {}
+	state.noticedAt = {}
+	state.restTrace = {}
 end
 
 -- WHAT EVERY STOCKED GROUP IS DOING, as one line each. The proof reads this: how far the nearest
@@ -1545,10 +1702,14 @@ function ForestTest.start(runtime, now: number)
 	-- TASK 154: the resting groups this world was stocked with, and when the wood last went empty.
 	-- `rest` holds one row per group that was actually placed; `latched` remembers which animals
 	-- have already been sent, so one walk past a sounder is one spook and not one per heartbeat.
-	state.rest = {}
-	state.restEmptyAt = nil
-	state.latched = {}
-	state.restTrace = {}
+	-- TASK 172: the wood is stocked ONCE PER DRIVE and never re-stocked inside one, so what is
+	-- remembered is not "when did it go empty" but "has it been stocked for this drive" -- plus which
+	-- animals have been latched and which have been noticed (`SPOOK.ALERT_SECONDS` runs from there).
+	-- Karen, 2026-10-13: *"and again no boar behing comming after beater walk"* -- the re-stock was
+	-- the one source task 168 left open. ONE function resets all of it, and the boot calls the same
+	-- one on every drive boundary, so a server start and a new drive cannot drift apart.
+	ForestTest.newDrive()
+	state.noticed = 0
 end
 
 -- ONE TICK. Returns a line when something happened and nil otherwise, so the boot script can print
@@ -2083,7 +2244,8 @@ function ForestTest.stepLines(now: number)
 		-- `boarThreats` changes nothing for an animal walking a trail -- MEASURED in this place: she
 		-- walked to within 8.9 studs of a file and every member kept its ordered walk at 4.5
 		-- studs/s. Only a flight takes an animal out of a file, and the pass asks for one. It now
-		-- asks at `SPOOK.BEATER_STUDS` (25 m) instead of `PACE.DRIVER_RUN_STUDS` (25 studs, 7 m),
+		-- asks at `SPOOK.BEATER_STUDS` (20 m since task 172) instead of `PACE.DRIVER_RUN_STUDS`
+		-- (25 studs, 7 m),
 		-- and it asks for the LATCH -- Karen: *"it's not like they cool down they spooked and run
 		-- away"*. `Line.stillInFile` then drops the flying animal out of the file below, as it
 		-- always has.

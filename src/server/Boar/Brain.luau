@@ -1413,6 +1413,43 @@ end
 -- because it is still ONE switch for the one latch -- a world that turns it off gets the old
 -- run-then-settle for every fright, which is exactly the second state a flagged path must have.
 -- The drive's ordinary push (`Runtime:spook` with no latch asked for) behaves exactly as it did.
+-- HEAD UP AND LOOKING AT HIM, AND NOTHING ELSE (task 172). KAREN, 2026-10-13 ~09:20: *"beaters has
+-- to see more animals when walking I want to see how they stand and then start to run or run but I
+-- want to see them more"*.
+--
+-- IT IS A SECOND DOOR AND NOT A SECOND MECHANISM, and that is the whole care taken here. `ALERT` is
+-- this file's own state since task 118 -- head up, stopped, turned to the cause, on its own timer --
+-- and the only thing a world could not do before today was ASK for it. So this adds no state, no
+-- timer and no number: it is `_enterAlert` with the cause handed in from outside, exactly as
+-- `Brain:spook` is `_flush` with the cause handed in from outside.
+--
+-- ONLY A SETTLED ANIMAL LOOKS UP. An animal already running, turning away or holding a look is NOT
+-- re-pointed: a herd that re-alerted every tick of an approach would face the beater and stand there
+-- for ever, which is the opposite of the staged reaction Karen asked for. `IDLE` is therefore the
+-- one state this accepts, and `Brain.CLASS` is not the test because `ALERT` is also "calm".
+--
+-- THE REFRACTORY IS DELIBERATELY IGNORED. `ALERT_REFRACTORY_SECONDS` exists so that a MOTIONLESS
+-- hunter does not flip an animal IDLE->ALERT->IDLE every 2.5 s for ever (task 118). A beater who has
+-- walked inside the notice band is the opposite case: he is closing, the world flushes the group
+-- seconds later, and a refused look would simply delete the stage Karen wants to see.
+--
+-- `seconds` IS THE WORLD'S, for the same reason `untilExit` is: how long a group stares before it
+-- breaks is a property of the DRIVE (`ForestTest.SPOOK.ALERT_SECONDS`), not of the animal. Left nil
+-- it is the animal's own `SENSE.ALERT_SECONDS`, so a caller that asks for nothing gets task 118.
+function Brain:notice(from: Vector3?, seconds: number?): boolean
+	if from == nil then
+		return false
+	end
+	if self._state ~= "IDLE" then
+		return false
+	end
+	self:_enterAlert({ position = from })
+	if type(seconds) == "number" and seconds > 0 then
+		self._alertFor = seconds
+	end
+	return true
+end
+
 function Brain:spook(from: Vector3?, seconds: number?, untilExit: boolean?)
 	local config = self._config
 	local state = self._state

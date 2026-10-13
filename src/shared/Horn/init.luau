@@ -372,40 +372,73 @@ Horn.CONFIG = {
 	HANDLE_SIZE = Vector3.new(0.5, 1.1, 1.1),
 	HANDLE_TRANSPARENCY = 1,
 	HANDLE_COLOR = Color3.fromRGB(205, 160, 60),
-	-- LOWER AND TO THE RIGHT, which is the first of the two answers the Director offered for the
-	-- first-person view (*"hold it lower and to the right, as a hand would, or hide it in first
-	-- person until a blast"*). **This task picks HOLD IT**, and the reason is ownership rather than
-	-- taste: hiding it until a blast would make `Camera.Rig`'s rule depend on the horn's per-player
-	-- blast TIMING, so the camera would have to read weapon state every frame and the horn would pop
-	-- in and out of the hand. The rule stays static -- a non-weapon Tool in the hand is visible --
-	-- and the horn is simply carried where a carried thing hangs: below the hand and outboard of it,
-	-- so it sits in the bottom-right of a right-handed first-person view instead of across it.
+	-- ---------------------------------------------------------------- WHERE THE HAND HOLDS IT
 	--
-	-- THE NUMBERS WERE LOOKED AT, NOT REASONED ABOUT (rule 5). Four candidates were set on a live
-	-- horn through `Tool.Grip` and photographed: (-0.12, 0.42, 0.10) filled the bottom-right corner
-	-- and cut the bell off; (-0.18, -0.55, 0.10) and (-0.30, -1.00, 0.45) went UP the frame, which
-	-- is how the sign of Grip's Y was settled -- POSITIVE Y lowers it; (-0.35, 0.95, 0.45) dropped it
-	-- almost entirely below the edge. This one shows about a fifth of the coil in the bottom-right
-	-- with the view clear, which is a thing carried at the side.
-	GRIP = CFrame.new(-0.8, 0.7, 0.45) * CFrame.Angles(0, 0, math.rad(25)),
-	-- ...AND THE SAME GRIP, TILTED UP, IS THE WHOLE "RAISE TO MOUTH" (the dispatch allows a tilt).
-	-- IT IS A GRIP AND NOT AN ANIMATION ON PURPOSE: raising the ARM means writing the character's
-	-- Motor6Ds or playing a track on its Animator, and the character already has exactly one writer
-	-- per concern (`Match.Body` dresses it, `Camera.Rig` hides it in first person) -- a horn that
-	-- animated an arm would be a second one, which CLAUDE.md rule 3 forbids. `Tool.Grip` is the
-	-- Tool's own property, the engine rebuilds the grip weld when it changes, and `Weapon.Horn` is
-	-- the only thing that ever writes it.
-	-- ...and the raised pose brings it up and inboard with the mouthpiece turned toward the face.
-	-- Photographed the same way, on the same horn, in the same session.
-	-- ...AND Y COMES UP FROM 0.05 TO -0.22 FOR THE UPLOADED HORN (task 169). The coil was 0.76 studs
-	-- across and the new horn is 1.25 long, so the same Grip holds a mouthpiece that is now a third
-	-- of a stud further down the object: photographed raised at 0.05, it sat at the CHEST with the
-	-- bell across the face. POSITIVE Y LOWERS IT (the `GRIP` note above measured that), so -0.22
-	-- lifts the whole horn by 0.27 and puts the mouthpiece at the chin with the bell up and forward
-	-- past the head -- photographed, `.screenshots/...-t169-grip-a.png`. Z comes in with it, 0.4 to
-	-- 0.3, because that is the pose that was photographed and a number nobody looked at is not a
-	-- measurement. Whether the mouthpiece is at her lips or an inch under them is Karen's eye, and
-	-- it is one number here.
+	-- KAREN, 2026-10-13 ~09:20, after playing 168-171: *"horn is hanging somewhere it has to be in
+	-- hand"*. She is right, and it is not a matter of taste: it was MEASURED on her own live beater
+	-- before a number here was touched.
+	--
+	-- WHAT `Tool.Grip` ACTUALLY IS, because every wrong number in this block came from not knowing
+	-- it. The engine welds the Handle to the right hand with `Part0.CFrame * C0 == Part1.CFrame * C1`,
+	-- where C1 is this property -- so `Grip.Position` is THE POINT OF THE HANDLE THAT THE HAND HOLDS,
+	-- in the Handle's own coordinates. `Shotgun.CONFIG.GRIP` is `CFrame.new(0, 0, 1.4)` on a Handle
+	-- 4.4 studs long: a point ON the gun, 1.4 studs back from its middle, which is the wrist of the
+	-- stock. Every gun in this repo is held that way.
+	--
+	-- THE HORN WAS NOT. `CFrame.new(-0.8, 0.7, 0.45)` is 1.17 studs from the Handle's centre, and the
+	-- Handle is 0.5 x 1.1 x 1.1 -- so the hand was closing on a point OUTSIDE the object it was
+	-- holding, and the horn floated beside it. MEASURED in the Forest Test, 2026-10-13, on a player
+	-- beater and on all four bot beaters: the Handle's centre sat **1.224 studs** from the RightHand's
+	-- centre, at hand-local (0.43, -0.61, 0.97). A horn 1.25 studs long hanging a stud away from the
+	-- fist is exactly what she saw.
+	--
+	-- IT WAS NOT A MISTAKE IN TASK 152 EITHER, AND THAT IS WHY IT SURVIVED TWO TASKS: the number was
+	-- chosen by photographing the FIRST-PERSON frame and asking "where in the corner of the screen do
+	-- I want this?", which is a question about the camera and not about the hand. The answer filled
+	-- the bottom-right of the view nicely and had the object nowhere near the fist. Task 169 then
+	-- re-scaled the horn from a 0.76-stud coil to a 1.25-stud mesh and moved it further still.
+	--
+	-- SO THE RULE IS THE GUN'S RULE NOW: the grip point is a point ON THE HORN. The mesh is centred
+	-- in the Handle (`MESH.OFFSET_STUDS` is zero) and `MESH.ROTATION_DEG` lays its long axis along
+	-- the Handle's Z, so the horn's body occupies |x| <= 0.12, |y| <= 0.22, |z| <= 0.625 -- and
+	-- `(0, 0, 0.25)` is inside that box, a quarter of a stud from the middle toward the MOUTHPIECE
+	-- end. That is where a person holds a signal horn: on the tube, with the bell away from the fist
+	-- and the mouthpiece the short end. MEASURED after the change, the same way: the Handle's centre
+	-- is **0.407 studs** from the hand -- which is the grip attachment's own offset plus a quarter
+	-- stud of horn, i.e. the fist is closed on the tube.
+	--
+	-- NO ROTATION, AND THAT IS A MEASUREMENT TOO. The grip attachment's Z runs up the arm, so with no
+	-- rotation the horn's long axis lies along the forearm: bell forward of the fist when the arm is
+	-- out, hanging below it when the arm is down, which is how a carried horn sits either way. The
+	-- old 25-degree roll was part of the screen-corner framing and has nothing to hold up now.
+	-- Photographed in third person before it was written down (rule 5):
+	-- `.screenshots/20261013T094638Z-t172-grip-front.png`, a bot beater from the front and right.
+	-- (`.screenshots/` is git-ignored, so the file is on the Builder's machine and the request is
+	-- where its contents are described.)
+	GRIP = CFrame.new(0, 0, 0.25),
+	-- ...AND THE RAISE IS EXACTLY TASK 169's, NOT RE-BASED ONTO THE NEW POINT -- which was tried
+	-- first, measured, and rejected (task 172).
+	--
+	-- A HAND DOES NOT SLIDE ALONG AN OBJECT WHEN IT LIFTS IT, so the obvious thing was to give the
+	-- raise `GRIP`'s own translation and change only the rotation. MEASURED in the Forest Test,
+	-- 2026-10-13, on a bot beater blowing: the Handle stopped **2.66 studs** from the head instead of
+	-- task 169's recorded **1.77**, which is the horn at the CHEST and not at the mouth -- the very
+	-- thing 169 photographed its way out of. The reason is that the ARM RAISE IS MODEST (the clip
+	-- task 168 plays brings the hand to about chest height, not to the chin), so what actually puts
+	-- the mouthpiece at the mouth is this pose's own lateral offset: the horn is drawn up and inboard
+	-- through the fist while the arm comes up.
+	--
+	-- SO IT IS LEFT ALONE, AND THE COST IS DISCLOSED RATHER THAN HIDDEN: between the carry and the
+	-- blast the horn slides about half a stud through the hand. Nobody could see that before, because
+	-- the horn was not in the hand in either pose; it is visible now, and whether it matters is
+	-- Karen's eye. Both the fix (a bigger raise clip, so the hand reaches the mouth and the two poses
+	-- can share one point) and the dial (this line) are one change each, and the task's notes row
+	-- carries it.
+	--
+	-- IT IS A GRIP AND NOT AN ANIMATION ON PURPOSE: the ARM is raised by the clip task 168 added on
+	-- the character's own Animator (one writer, server-side, replicated), and this is the object in
+	-- the hand turning with it. `Tool.Grip` is the Tool's own property, the engine rebuilds the weld
+	-- when it changes, and `Weapon.Horn` is the only thing that ever writes it.
 	GRIP_BLOW = CFrame.new(-0.42, -0.22, 0.3) * CFrame.Angles(math.rad(-55), 0, math.rad(25)),
 
 	-- THE HORN'S COLOURS. Director's pick and Karen's to change (her rule, 2026-09-26: styling never

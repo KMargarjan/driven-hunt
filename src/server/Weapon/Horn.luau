@@ -98,7 +98,25 @@ local stats = {
 	wearsMesh = 0, -- horns built wearing the uploaded model (task 169)
 	wearsParts = 0, -- ...and horns built out of `Data.pieces` because it was not there yet
 	upgraded = 0, -- ...and parts horns the mesh reached later, in the hand they were already in
+	bodyHorns = 0, -- horns handed to a character that is NOT a player's (a bot beater), task 172
 }
+
+-- EVERY HORN THIS MODULE HAS PUT IN A HAND THAT IS NOT A PLAYER'S (task 172). KAREN, 2026-10-13
+-- ~09:20: *"all beaters has to have same horn"*.
+--
+-- THE BUILDER WAS ALREADY ONE (`Horn.build`, through `Horn.giveTo`), SO THE MODEL WAS NEVER THE
+-- DIFFERENCE -- measured in Karen's own live session before a line of this task was written: all
+-- four bot beaters' Handles carried `MeshPart:Model`, the uploaded horn of task 169, at the same
+-- `Grip`. WHAT WAS NOT SHARED IS THE UPGRADE: `Horn.upgradeLook` walks `Players:GetPlayers()`, and
+-- a bot is not a player, so a bot handed its horn in the window before the asset preloaded -- which
+-- is exactly the window `WeaponBoot` leaves open on purpose, and the window that cost the gun its
+-- own `upgradeLook` -- would carry the parts horn for the whole session with nothing able to notice.
+--
+-- SO THE HORNS THEMSELVES ARE THE REGISTRY, and it lives here because `Horn.giveTo` is the one door
+-- a bot's horn comes through. A plain list, swept on the same beat as the players': an entry whose
+-- Tool has been destroyed or re-parented out of a character is dropped, so a bot that dies, a drive
+-- that ends and a rig that is deleted all clean up without this module watching anything.
+local bodyTools: { Tool } = {}
 
 -- Seconds between carry sweeps. THE SAME NUMBER AND THE SAME MEASURED REASON AS THE GUN'S
 -- `ARMING_SWEEP_SECONDS`: edge-triggered granting misses, and a miss is permanent -- a beater stands
@@ -297,18 +315,51 @@ end
 -- IT NEVER TOUCHES THE `Tool`, ONLY ITS HANDLE'S CHILDREN, so a horn in the hand stays in the hand
 -- and a horn in the Backpack stays there -- which is the bug `Weapon.upgradeLook` was written to
 -- stop being (task 123 round 9, *"There is no weapon something is broken"*).
+local function upgradeOne(tool: Tool): boolean
+	local handle = tool:FindFirstChild("Handle")
+	if handle == nil or not handle:IsA("BasePart") then
+		return false
+	end
+	if handle:FindFirstChild(Horn.MESH_NAME) ~= nil then
+		return false -- already wearing it
+	end
+	if not Horn.addMesh(handle) then
+		return false
+	end
+	Horn.removeParts(handle)
+	stats.upgraded += 1
+	return true
+end
+
+-- EVERY HORN THIS MODULE HAS GIVEN TO A CHARACTER THAT IS NOT A PLAYER'S, still in a hand. Dropped
+-- entries are pruned in the same pass, which is what keeps the registry from growing with every
+-- drive's worth of retired bots.
+function Horn.bodyTools(): { Tool }
+	local live = {}
+	for _, tool in ipairs(bodyTools) do
+		local parent = tool.Parent
+		if parent ~= nil and parent:FindFirstChildOfClass("Humanoid") ~= nil then
+			table.insert(live, tool)
+		end
+	end
+	bodyTools = live
+	return live
+end
+
 function Horn.upgradeLook(): number
 	local upgraded = 0
 	for _, player in ipairs(Players:GetPlayers()) do
 		for _, tool in ipairs(Horn.toolsOf(player)) do
-			local handle = tool:FindFirstChild("Handle")
-			if handle and handle:IsA("BasePart") and handle:FindFirstChild(Horn.MESH_NAME) == nil then
-				if Horn.addMesh(handle) then
-					Horn.removeParts(handle)
-					stats.upgraded += 1
-					upgraded += 1
-				end
+			if upgradeOne(tool) then
+				upgraded += 1
 			end
+		end
+	end
+	-- ...AND THE BOTS' (task 172), so "all beaters has to have same horn" is true of the LATE case
+	-- too and not only of the one where the mesh was already there when the horn was built.
+	for _, tool in ipairs(Horn.bodyTools()) do
+		if upgradeOne(tool) then
+			upgraded += 1
 		end
 	end
 	return upgraded
@@ -757,6 +808,10 @@ function Horn.giveTo(character: Model?): Tool?
 		return nil
 	end
 	stats.granted += 1
+	-- REMEMBERED, so the look sweep can reach it (task 172). The registry is pruned on read, so a
+	-- horn whose rig is destroyed costs one dead reference until the next sweep and nothing after it.
+	table.insert(bodyTools, tool)
+	stats.bodyHorns += 1
 	return tool
 end
 
