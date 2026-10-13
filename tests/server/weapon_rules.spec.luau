@@ -115,6 +115,14 @@ return function()
 			expect(Rules.outsideStand(Vector3.new(0, 0, 0), nil)).to.equal(false)
 			expect(Rules.outsideStand(nil, area)).to.equal(false)
 			expect(Rules.outsideStand(Vector3.new(999, 0, 999), { centre = area.centre, radius = 0 })).to.equal(false)
+			-- AND A MALFORMED AREA IS NO RULE EITHER, not an error (the Reviewer's round-1 note):
+			-- `Rules.refuse` is called straight from `onFireRequest` and only the PROVIDER is
+			-- pcall-ed, so an area with no centre would have thrown inside the fire handler and
+			-- nobody could have shot at all.
+			expect(Rules.outsideStand(Vector3.new(999, 0, 999), { radius = 12 } :: any)).to.equal(false)
+			expect(Rules.outsideStand(Vector3.new(999, 0, 999), { centre = "nope", radius = 12 } :: any)).to.equal(
+				false
+			)
 		end)
 
 		it("refuses a species the player has no licence for, and lets him aim at anything", function()
@@ -466,11 +474,17 @@ return function()
 
 			-- THE REFUSAL, and what it did NOT do.
 			expect(refusedWhy).to.equal(Rules.REASON.BEATER)
-			expect(midStats.shots).to.equal(before.shots) -- no shot was taken
-			expect(midStats.refused).to.equal(before.refused + 1)
-			expect((midStats.refusedBy[Rules.REASON.BEATER] or 0)).to.equal(
-				(before.refusedBy[Rules.REASON.BEATER] or 0) + 1
+			-- THE COUNTERS ARE ASSERTED AS MONOTONIC, NOT AS EXACT DELTAS (the Reviewer's round-1
+			-- note). `stats` is ONE module-level table for the whole server, so in a two-player run
+			-- another shooter's legitimate click lands in it -- which is the race `onFireRequest`'s
+			-- own header records as having cost a two-player run. What belongs to THIS call is the
+			-- returned reason above and the gun state below; the counters only have to show that the
+			-- refusal was counted as a refusal and not as a forgery.
+			expect(midStats.refused >= before.refused + 1).to.equal(true)
+			expect((midStats.refusedBy[Rules.REASON.BEATER] or 0) >= (before.refusedBy[Rules.REASON.BEATER] or 0) + 1).to.equal(
+				true
 			)
+			expect(midStats.badRequests).to.equal(before.badRequests)
 			-- NO SHELL SPENT, NO BARREL MOVED, NO POCKET TOUCHED: the gun is exactly as it was.
 			expect((afterRefusal :: any).barrels[1]).to.equal(snapshot.barrels[1])
 			expect((afterRefusal :: any).barrels[2]).to.equal(snapshot.barrels[2])
@@ -494,9 +508,13 @@ return function()
 
 			-- THE CONTROL: the same request, the same gun, no beater in the ray.
 			expect(firedWhy).to.equal(nil)
-			expect(endStats.shots).to.equal(before.shots + 1)
+			expect(endStats.shots >= before.shots + 1).to.equal(true)
+			-- THE SPENT BARREL IS THE DETERMINISTIC HALF: it belongs to this player's own state, and
+			-- nothing else in the session can move it. (A `refused` field on `afterShot` could never
+			-- fail -- `Weapon.getSnapshot` builds a fresh snapshot and never passes one -- so that
+			-- line is gone rather than left looking like a check; the wire assertion above is what
+			-- proves the field travels.)
 			expect((afterShot :: any).barrels[snapshot.selected]).to.equal("Spent")
-			expect((afterShot :: any).refused).to.equal(nil)
 		end)
 	end)
 end

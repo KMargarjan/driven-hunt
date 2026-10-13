@@ -180,6 +180,12 @@ local probeTiedBefore: boolean? = nil
 local probeTiedAfter: boolean? = nil
 local probeViolationsBefore: number? = nil
 local probeViolationsAfter: number? = nil
+-- DID THE GUN CLICK? (the Reviewer's round-1 note on the dry click.) `CameraBoot` plays one dry
+-- click when a snapshot arrives carrying `refused`, and this is the one place in the suite where a
+-- real refusal reaches a real client -- so the counter is read on either side of the probe's own
+-- shot. `Weapon.Sound.stats()` is the seam that exists for exactly this: no speaker required.
+local probeDryBefore: number? = nil
+local probeDryAfter: number? = nil
 -- One line per attempt, for the note: what stopped it, or what the server answered.
 local probeLog: { string } = {}
 -- TRUE once the probe has answered or its window has closed. Until then the aim stays ON the driver,
@@ -423,6 +429,7 @@ local function onCue(_name: string, state: Enum.UserInputState)
 			-- (TASKS.md 166a(b) records the same race for `weapon_client` and `rifle_client`).
 			probeTiedBefore = Match.isTied()
 			probeViolationsBefore = #violations
+			probeDryBefore = Weapon.Sound.stats().dry
 			local deadline = os.clock() + PROBE_WINDOW
 			while os.clock() < deadline and probeReason == nil do
 				local ok, why, fromCentre, toDriver, hitName = staging()
@@ -468,6 +475,7 @@ local function onCue(_name: string, state: Enum.UserInputState)
 				-- shot must have tied nobody and announced nothing.
 				probeTiedAfter = Match.isTied()
 				probeViolationsAfter = #violations
+				probeDryAfter = Weapon.Sound.stats().dry
 				table.insert(
 					probeLog,
 					string.format(
@@ -521,6 +529,16 @@ local aiming = RunService.RenderStepped:Connect(function()
 		-- tie is taken by whichever click comes after this flips.
 		local aimAt = if probeDone then theirs.Position + Vector3.new(BESIDE_STUDS, 0, 0) else theirs.Position
 		Camera.lookAt(aimAt)
+		return
+	end
+	-- AND A DRIVER'S CAMERA IS NOT THIS SPEC'S, which is the Reviewer's round-1 finding 1 and was a
+	-- real regression: the driver's branch of `onCue` sets `cuedAt` (it has staging of its own since
+	-- task 171, where before it returned without setting anything), `driver()` skips self, so on HIS
+	-- client `theirs` is nil and this fall-through steered his camera every frame for the whole
+	-- `TIE_TIMEOUT` -- while `camera_client.spec` is asserting about that camera, and while this
+	-- file's own comment and the review request both said it never happens. The parking above is his
+	-- half of the window; the AIM is the shooter's alone.
+	if Role.isDriver() then
 		return
 	end
 	local me = rootOf(player)
@@ -670,6 +688,14 @@ return function()
 			expect(probeTiedBefore).to.equal(false)
 			expect(probeTiedAfter).to.equal(false)
 			expect(probeViolationsAfter).to.equal(probeViolationsBefore)
+			-- AND THE GUN CLICKED. The server's refusal is the client's cue to play one dry click
+			-- (`CameraBoot` -> `Weapon.Sound.dry`), and this is the only refusal in the suite that
+			-- travels the real wire to a real client, so it is the only place that wiring can be
+			-- asserted. The sound itself is Karen's to judge; that it was ASKED FOR is this line.
+			TestKit.note(
+				string.format("zz_tie: dry clicks %s -> %s", tostring(probeDryBefore), tostring(probeDryAfter))
+			)
+			expect((probeDryAfter or 0) > (probeDryBefore or 0)).to.equal(true)
 		end)
 
 		it("ties the shooter to a tree when a driver was in its path, or nobody when none was", function()

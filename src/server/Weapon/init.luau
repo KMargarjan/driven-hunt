@@ -620,7 +620,12 @@ function Weapon.refillForDrive(player: Player, driveNumber: number?): number
 			filled += 1
 		end
 	end
-	stats.refills += 1
+	-- ONLY WHEN SOMETHING WAS REFILLED (the Reviewer's round-1 note). A pass that got past
+	-- `needsRefill` but found no tracked weapon -- or whose reducer refused -- is not a refill, and
+	-- this counter's own comment says it counts refills.
+	if filled > 0 then
+		stats.refills += 1
+	end
 	return filled
 end
 
@@ -885,6 +890,12 @@ local function onFireRequest(player: Player, req: any): string?
 	local tool = toolsOfPlayer(player)[id]
 	local muzzle = tool and Hardware.muzzlePosition(tool)
 	if not muzzle then
+		-- A SHELL IS NO LONGER SPENT ON A GUN WITH NO MUZZLE (task 171; the Reviewer's round-1 note
+		-- asked for it to be stated). Before the gates moved above `setState` this path had already
+		-- committed the fired state, so a Tool whose `Muzzle` attachment was missing cost the player
+		-- a round for a shot that never happened. `state` is published, not `fired`, so the gun stays
+		-- as it is. It is a consequence of the reorder rather than a goal of it, and it is an
+		-- improvement: no muzzle is a HARDWARE fault, and the player should not pay for one.
 		publish(player, id, state)
 		return "no-muzzle"
 	end

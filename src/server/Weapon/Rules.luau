@@ -125,10 +125,13 @@ function Rules.outsideStand(position: Vector3?, area: StandArea?): boolean
 	if area == nil or position == nil then
 		return false
 	end
-	if type(area.radius) ~= "number" or area.radius <= 0 then
-		-- A circle with no radius is not a boundary. Refusing every shot on one would make a
-		-- mis-wired provider look exactly like Karen's rule working, which is the kind of silent
-		-- failure this repo measures rather than assumes.
+	if typeof(area.centre) ~= "Vector3" or type(area.radius) ~= "number" or area.radius <= 0 then
+		-- A circle with no centre or no radius is not a boundary. Refusing every shot on one would
+		-- make a mis-wired provider look exactly like Karen's rule working, which is the kind of
+		-- silent failure this repo measures rather than assumes -- and THE CENTRE IS CHECKED FOR THE
+		-- STRONGER REASON (the Reviewer's round-1 note): `Rules.refuse` is called straight from
+		-- `onFireRequest` and only the PROVIDER is pcall-ed, so an area of `{ radius = 12 }` would
+		-- throw inside the fire handler and nobody could shoot at all.
 		return false
 	end
 	local flat = Vector3.new(position.X - area.centre.X, 0, position.Z - area.centre.Z)
