@@ -3,7 +3,7 @@
 Task: 177
 Round: 2
 Base: 102fbe9 (`main`, #160 merged -- task 176)
-Code commit: 09b693281bd0c42e7f0a78976ba80487b89ee959
+Code commit: 43786a31516109d4ee5d25dc5075e776c96fdf43
 
 Harness, the clean tree, TWICE at the code commit, each logged
 (`.agent-logs/task177-r3-test1.log`, `-r3-test2.log`):
@@ -11,7 +11,11 @@ Harness, the clean tree, TWICE at the code commit, each logged
 ```
 [harness] PASS: 33/33 checks @ 09b693281bd0c42e7f0a78976ba80487b89ee959 (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 09b693281bd0c42e7f0a78976ba80487b89ee959 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 43786a31516109d4ee5d25dc5075e776c96fdf43 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 43786a31516109d4ee5d25dc5075e776c96fdf43 (clean tree)
 ```
+
+DIRECTOR NOTE: the last two lines are the Director's at the head `43786a3` (only paperwork after `09b6932`).
 
 **The `[harness2]` line is the Director's and is not here yet.** `src/server/Match/` and two of its
 specs are in `TWO_PLAYER_PATHS`, and `tools/studio_mcp.py` is in the diff, so a `--scope auto` run
