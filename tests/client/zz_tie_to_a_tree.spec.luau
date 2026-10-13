@@ -46,6 +46,22 @@
 -- again inside the window is free and is the only way to be sure the shot did not land in a gun
 -- whose hands were full.
 --
+-- AND THE TWO SHOTS ARE ORDERED, which is what the Director's fourth two-player run (`bac93d6`)
+-- measured the need for. In it the staging and the rule both worked -- `me 0.5 from the centre;
+-- driver 25.0 away; ray hit Workspace.Player2.UpperTorso`, `refused=beater-in-line after 2
+-- attempt(s)`, the gun unchanged -- and the only failure was this spec asserting `Match.isTied()`
+-- afterwards: by then the REPLAYED CLICK had legitimately tied him. The probe's pre-conditions push
+-- it into the gap after the scenario's own reload (R lands at 1.2 s, the reload runs 2.0 s, the
+-- first click lands at 3.8 s), so "after the probe" and "after the tie shot" were the same moment.
+-- Two fixes, both of them about WHEN rather than what:
+--   * the refusal case asserts the tie state RECORDED AROUND ITS OWN SHOT -- untied before it,
+--     untied after it, no new violation -- which is the claim "a refused shot ties nobody" exactly.
+--     Reading `Match.isTied()` later asks a different question, and the answer to that one is
+--     rightly yes;
+--   * and the aim stays ON the driver until the probe has answered, so a click that lands early is
+--     REFUSED rather than tying him. The scenario fires twice (3.8 s and 5.0 s), so the tie shot is
+--     whichever click comes after the probe is done -- the tie can no longer precede it.
+--
 -- AND THERE ARE TWO RULES ABOUT A SHOT NEAR A BEATER, SO IT STAGES BOTH -- which is the other half
 -- of what this file carries and the reason the aim is five studs off his body:
 --   1. THE RAY WOULD HIT HIM -> THE SHOT IS REFUSED. `Weapon.Rules.beaterInLine`, Karen 2026-10-11:
@@ -157,6 +173,18 @@ local probeBlocked: string? = nil
 local probeFromCentre: number? = nil
 local probeToDriver: number? = nil
 local probeRayHit: string? = nil
+-- WAS HE TIED, AND HOW MANY VIOLATIONS HAD BEEN ANNOUNCED, ON EITHER SIDE OF THE PROBE'S OWN SHOT.
+-- The pair IS the claim: a refused shot ties nobody. Read later, the question becomes "is he tied
+-- NOW", and after the replayed click the honest answer to that is yes.
+local probeTiedBefore: boolean? = nil
+local probeTiedAfter: boolean? = nil
+local probeViolationsBefore: number? = nil
+local probeViolationsAfter: number? = nil
+-- One line per attempt, for the note: what stopped it, or what the server answered.
+local probeLog: { string } = {}
+-- TRUE once the probe has answered or its window has closed. Until then the aim stays ON the driver,
+-- so a replayed click cannot tie him before the refusal has been measured.
+local probeDone = false
 -- WHERE THIS CHARACTER IS HELD WHILE THE WINDOW IS OPEN (task 171). nil until the cue stages it.
 local parkAt: Vector3? = nil
 -- EVERY REFUSAL THIS CLIENT WAS TOLD ABOUT, recorded as it arrives. `refused` belongs to ONE
@@ -389,12 +417,24 @@ local function onCue(_name: string, state: Enum.UserInputState)
 			-- IT RETRIES WHILE THE STAGING HOLDS. A rejected attempt commits no state and costs no
 			-- shell, so trying again is free -- and it is the only way to be sure the shot lands in a
 			-- gun that is not mid-reload, which the scenario guarantees for 2 of the first 3 seconds.
+			-- WHERE THIS CASE STARTS FROM, recorded before the first attempt: it must start UNTIED.
+			-- A session that arrives here already tied is a real finding and not something to work
+			-- around -- the gun would be gone, the probe could not fire at all, and the case says so
+			-- (TASKS.md 166a(b) records the same race for `weapon_client` and `rifle_client`).
+			probeTiedBefore = Match.isTied()
+			probeViolationsBefore = #violations
 			local deadline = os.clock() + PROBE_WINDOW
 			while os.clock() < deadline and probeReason == nil do
 				local ok, why, fromCentre, toDriver, hitName = staging()
 				if not ok then
 					probeBlocked =
 						string.format("%s (centre %.1f, driver %.1f, ray %s)", why, fromCentre, toDriver, hitName)
+					if #probeLog < 8 then
+						table.insert(
+							probeLog,
+							string.format("blocked=%s tied=%s", probeBlocked :: string, tostring(Match.isTied()))
+						)
+					end
 					task.wait(PROBE_EVERY)
 					continue
 				end
@@ -424,10 +464,29 @@ local function onCue(_name: string, state: Enum.UserInputState)
 				end
 				probeReason = refusals[before + 1]
 				probeAfter = gunPrint()
+				-- THE OTHER HALF OF THE CLAIM, read the instant the server has answered: a refused
+				-- shot must have tied nobody and announced nothing.
+				probeTiedAfter = Match.isTied()
+				probeViolationsAfter = #violations
+				table.insert(
+					probeLog,
+					string.format(
+						"#%d answered=%s tied %s->%s violations %d->%d",
+						probeShots,
+						tostring(probeReason),
+						tostring(probeTiedBefore),
+						tostring(probeTiedAfter),
+						probeViolationsBefore or -1,
+						probeViolationsAfter or -1
+					)
+				)
 			end
 			if probeAfter == nil then
 				probeAfter = gunPrint()
 			end
+			-- THE AIM MAY MOVE OFF HIS BODY NOW. Until this line a replayed click is refused by the
+			-- very rule being measured, which is why the tie can no longer land first.
+			probeDone = true
 		end)
 	end
 	return Enum.ContextActionResult.Pass
@@ -450,12 +509,18 @@ local aiming = RunService.RenderStepped:Connect(function()
 	local target = driver()
 	local theirs = if target then rootOf(target) else nil
 	if theirs and not Role.isDriver() then
-		-- BESIDE HIM, NOT AT HIM (task 171). Aimed at him the shot is REFUSED before it exists
-		-- (`Weapon.Rules.beaterInLine`) and there is nothing for the safety rule to judge; aimed five
-		-- studs to his side it is fired, it passes within `SAFETY_MISS_STUDS` of him, and the arc and
-		-- `Match.Penalty` do what this spec is named for. The refusal is staged by the probe in
-		-- `onCue` and asserted in its own case.
-		Camera.lookAt(theirs.Position + Vector3.new(BESIDE_STUDS, 0, 0))
+		-- BESIDE HIM, NOT AT HIM (task 171) -- BUT ONLY ONCE THE PROBE HAS ANSWERED. Aimed at him the
+		-- shot is REFUSED before it exists (`Weapon.Rules.beaterInLine`) and there is nothing for the
+		-- safety rule to judge; aimed five studs to his side it is fired, it passes within
+		-- `SAFETY_MISS_STUDS` of him, and the arc and `Match.Penalty` do what this spec is named for.
+		--
+		-- THE ORDER IS THE POINT OF THE `probeDone` GUARD (`bac93d6`): the scenario clicks at 3.8 s
+		-- and 5.0 s after the cue and the probe cannot fire until the scenario's own reload has
+		-- finished, so an early click used to tie him BEFORE the refusal had been measured. While the
+		-- aim is still on his body such a click is refused -- harmless, and more evidence -- and the
+		-- tie is taken by whichever click comes after this flips.
+		local aimAt = if probeDone then theirs.Position + Vector3.new(BESIDE_STUDS, 0, 0) else theirs.Position
+		Camera.lookAt(aimAt)
 		return
 	end
 	local me = rootOf(player)
@@ -572,6 +637,10 @@ return function()
 					tostring(probeRayHit)
 				)
 			)
+			-- EVERY ATTEMPT, with the tie state at each one: the Director's question of `bac93d6`
+			-- ("what was the first attempt?") answered in the log rather than inferred from a
+			-- counter.
+			TestKit.note("zz_tie: probe attempts: " .. table.concat(probeLog, " | "))
 			-- THE STAGING'S OWN CLAIMS, asserted before the rule's and against the recorded numbers.
 			-- Without them the case cannot tell "the beater rule is broken" from "this spec fired
 			-- from the wrong place, at the wrong distance, through a post, or into a busy gun" --
@@ -587,10 +656,20 @@ return function()
 			-- NOTHING WAS SPENT. The gun print carries the barrels and the pocket, so an unchanged
 			-- string is "no shell, no barrel, no reload" in one comparison.
 			expect(probeAfter).to.equal(probeBefore)
-			-- AND NOBODY WAS TIED BY IT: there was no shot to judge. The next case is what ties him,
-			-- with a shot that was really fired.
-			expect(Match.isTied()).to.equal(false)
-			expect(#violations).to.equal(0)
+			-- AND NOBODY WAS TIED BY IT: there was no shot to judge. MEASURED AROUND THE PROBE'S OWN
+			-- SHOT and not afterwards, which is the correction `bac93d6` forced: by the time this case
+			-- reached its assertions the replayed click had legitimately tied him, so
+			-- `Match.isTied()` here asks "is he tied NOW" and the honest answer to that is yes. The
+			-- pair below is the claim itself -- untied before the refused shot, untied after it, and
+			-- no violation announced in between -- and it is STRICTER than the old line, because the
+			-- old one could have been satisfied by a probe that never fired.
+			--
+			-- `probeTiedBefore` IS ALSO THE CASE'S STARTING CONDITION: a session that arrives here
+			-- already tied fails on this line, and that is the right outcome -- the gun would be
+			-- gone, and TASKS.md 166a(b) records the same race biting two other client specs.
+			expect(probeTiedBefore).to.equal(false)
+			expect(probeTiedAfter).to.equal(false)
+			expect(probeViolationsAfter).to.equal(probeViolationsBefore)
 		end)
 
 		it("ties the shooter to a tree when a driver was in its path, or nobody when none was", function()
