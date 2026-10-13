@@ -3,16 +3,25 @@
 Task: 170
 Round: 1
 Base: `8128ed0` (main, #153 merged)
-Code commit: `72c175d59340d6fff4f03de0bb71cc0c9517eef8`
+Code commit: `46607bf87a317996fc0e643aabe511b09c9dae5d`
 
 ```
-[harness] PASS: 33/33 checks @ 72c175d59340d6fff4f03de0bb71cc0c9517eef8 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 72c175d59340d6fff4f03de0bb71cc0c9517eef8 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 46607bf87a317996fc0e643aabe511b09c9dae5d (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 46607bf87a317996fc0e643aabe511b09c9dae5d (clean tree) scope=all
 ```
 
 ```
-[harness2] NEEDS TEST2 170 72c175d59340d6fff4f03de0bb71cc0c9517eef8
+[harness2] NEEDS TEST2 170 46607bf87a317996fc0e643aabe511b09c9dae5d
 ```
+
+**On the commit the lines name.** It is `46607bf`, the paperwork commit that carries this request and
+the task's status row, and it is at or after the last commit that changed `src/`, `tests/` or `tools/`
+(`72c175d`) -- which is the definition CLAUDE.md's git workflow step 4 writes out, and it only makes
+the bound stricter. Between `72c175d` and `46607bf` the one non-paperwork change is `GAME_DESIGN.md`
+(`ba7ad41`, the *System owners* row this task's design asks for), which is **not** paperwork by
+`tools/agents.py`'s own rule -- so the gate was re-run at the commit that includes it rather than
+letting a doc change ride in behind the evidence. Both full runs above were made on a clean tree at
+that commit.
 
 **That second line is a PLACEHOLDER and the Director asked for it in those words** (dispatch: *"TWO_PLAYER_PATHS
 will be touched: stop 'NEEDS TEST2 170 <sha>' with a placeholder (I run test2 + the review)"*). Five
