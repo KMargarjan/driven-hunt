@@ -931,7 +931,20 @@ RunService.Heartbeat:Connect(function()
 	for _, player in ipairs(players) do
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if root then
+		-- THE STAND'S WALL IS THE DRIVE'S, AND IT IS NOT THE LOBBY'S (task 177). This guard was not in
+		-- the design and it is a MEASURED fix, not a precaution: at the end of the first live drive the
+		-- player was out of the drive (`Player.Team` nil, `RespawnLocation` back at the lodge) and
+		-- STILL PINNED at (3027, -2109) on the road, with his y bouncing 143 / 145 / 149 as two writers
+		-- fought over him every frame. `ForestTest.boundary`'s own first line reads
+		-- `(role or ForestTest.ROLE_DEFAULT) ~= "hunter"`, and `ROLE_DEFAULT` is `"hunter"` -- so a man
+		-- with NO team was walled to the stand he had locked ten minutes earlier, and the lobby's
+		-- return put him at the lodge only for the wall to drag him back on the next Heartbeat.
+		--
+		-- THAT STATE DID NOT EXIST BEFORE THIS TASK, which is why nothing had to say this: in this
+		-- world everybody was always in the drive. The question *"is this man in the hunt"* has one
+		-- owner and one answer -- `Match.isParticipant` -- and this composition root is where it is
+		-- asked, exactly as it asks `ForestTest.roleOfPlayer` on the next line.
+		if root and Match.isParticipant(player.UserId) then
 			-- THE ROLE IS PASSED IN SINCE TASK 157: the truth of it is `Player.Team`, and this loop is
 			-- what holds the `Player` -- `ForestTest` keys by `userId` and never holds one.
 			ForestTest.boundary(player.UserId, root :: BasePart, ForestTest.roleOfPlayer(player))
