@@ -3,7 +3,7 @@
 Task: 170
 Round: 2
 Base: `8128ed0` (main, #153 merged)
-Code commit: `8af4f6ef8f98404cca5b3c4e055b38fe4bcd70e5`
+Code commit: `5e152f1da657236fd014a9d6c6ee11cac78f0a79`
 
 ```
 [harness] PASS: 33/33 checks @ 8af4f6ef8f98404cca5b3c4e055b38fe4bcd70e5 (clean tree) scope=all
@@ -11,7 +11,8 @@ Code commit: `8af4f6ef8f98404cca5b3c4e055b38fe4bcd70e5`
 ```
 
 ```
-[harness2] NEEDS TEST2 170 8af4f6ef8f98404cca5b3c4e055b38fe4bcd70e5
+[harness] PASS: 33/33 checks @ 5e152f1da657236fd014a9d6c6ee11cac78f0a79 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 5e152f1da657236fd014a9d6c6ee11cac78f0a79 (clean tree)
 ```
 
 ## STILL ROUND 2. THE REVIEW ALREADY PASSED; THIS IS A CI-ONLY CHANGE AFTER IT
