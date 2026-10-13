@@ -3,12 +3,13 @@
 Task: 173
 Round: 2
 Base: db6bfe2 (main; task 172 is NOT merged, by Karen's decision, and this does not build on it)
-Code commit: 4a93fb7680dd9205913db3296ae8136df87b7ea1
+Code commit: d69555a2701a1a9717f97d0c96113c521651fe84
 
 ```
 [harness] PASS: 33/33 checks @ 4a93fb7680dd9205913db3296ae8136df87b7ea1 (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 4a93fb7680dd9205913db3296ae8136df87b7ea1 (clean tree) scope=all
-[harness2] <<< NEEDS TEST2 173 4a93fb7680dd9205913db3296ae8136df87b7ea1 — the Director's click >>>
+[harness] PASS: 33/33 checks @ d69555a2701a1a9717f97d0c96113c521651fe84 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ d69555a2701a1a9717f97d0c96113c521651fe84 (clean tree)
 ```
 
 Both one-player lines are the FULL run on a clean tree, DEV alone (the Forest Test Studio was
