@@ -1823,3 +1823,8 @@ measured off the real Instance the client created:
 
 Then the Director's own `test2` for **NEEDS TEST2 163 `d3791cb21fc6482878c1e5d6b50bca9f04626a9e`**,
 which costs a human click of its own and which this Builder does not run.
+
+
+## 2026-10-13 -- DIRECTOR: one extra review round for task 172 (round 4), with Karen's OK
+
+Task 172 reached the 3-round cap; round 3's one finding (a spec that could not fail) was fixed in `bbee0d4`. The finding was test-only, not documentation-only, so the standing rule does not cover it; Karen was asked and answered "yes please" (2026-10-13 ~13:50) to "OK Task 172 now?". The Director authorises ONE extra round for **task 172, round 4**, run with `DIRECTOR_MAX_ROUNDS=4` in the environment (never committed). A failing round 4 is an escalation, not a request for a fifth.

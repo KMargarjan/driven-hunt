@@ -1,9 +1,9 @@
 # Task 172 review request: the horn in the hand, one horn for all, and a beater who sees the animals
 
 Task: 172
-Round: 3
+Round: 4
 Base: main (`db6bfe2`, #155 merged)
-Code commit: `28c20eb6a0836df9060ae8d917853c9d508d5013`
+Code commit: `2805ded24755327a7e4f462d78b5951743046d4b`
 
 Branch `task-172-horn-hand-see-animals`. Karen, 2026-10-13 ~09:20: *"horn is hanging somehwere it has
 to be in hand / all beaters has to have same horn / beaters has to see more animals when walking I
@@ -16,9 +16,10 @@ Run TWICE at the code commit, both PASS, with the same counts: server **1226 pas
 spec files), client **302 / 0** (17).
 
 ```
-[harness] PASS: 33/33 checks @ 28c20eb6a0836df9060ae8d917853c9d508d5013 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 28c20eb6a0836df9060ae8d917853c9d508d5013 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 2805ded24755327a7e4f462d78b5951743046d4b (clean tree) scope=all
 ```
+
+DIRECTOR NOTE (round 4): the gate line is the Director's, at the merge of `main` (task 173) into this branch -- that merge brings main's code, so it IS the code commit. Round 4 is authorised in ESCALATE.md (Karen's OK, 2026-10-13). Round 3's finding (a spec that could not fail) was fixed in `bbee0d4`, unreviewed until now.
 
 **`test2` is N/A, and the list is why**: nothing this task touches is in `TWO_PLAYER_PATHS`
 (`tools/agents.py`). The changed `src/` files are `src/server/Boar/Brain.luau`,
