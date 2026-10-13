@@ -3,26 +3,81 @@
 Task: 170
 Round: 2
 Base: `8128ed0` (main, #153 merged)
-Code commit: `d50ecdf2e38a519e341962425abb9a94a5153ca8`
+Code commit: `8af4f6ef8f98404cca5b3c4e055b38fe4bcd70e5`
 
 ```
-[harness] PASS: 33/33 checks @ 87c5baf55b84d51acfacb5d159a08f6fde48108d (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 87c5baf55b84d51acfacb5d159a08f6fde48108d (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 8af4f6ef8f98404cca5b3c4e055b38fe4bcd70e5 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 8af4f6ef8f98404cca5b3c4e055b38fe4bcd70e5 (clean tree) scope=all
 ```
 
 ```
-[harness] PASS: 33/33 checks @ d50ecdf2e38a519e341962425abb9a94a5153ca8 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ d50ecdf2e38a519e341962425abb9a94a5153ca8 (clean tree)
+[harness2] NEEDS TEST2 170 8af4f6ef8f98404cca5b3c4e055b38fe4bcd70e5
 ```
 
-**The `[harness2]` line is a PLACEHOLDER and the Director asked for it in those words** (round-2
-dispatch: *"[harness2] placeholder. Stop 'NEEDS TEST2 170 <sha>'"*). Seven files on
-`TWO_PLAYER_PATHS` are touched, which `tools/agents.py`'s own `needs_two_player` lists as
+## STILL ROUND 2. THE REVIEW ALREADY PASSED; THIS IS A CI-ONLY CHANGE AFTER IT
+
+**The Reviewer's round-2 PASS stands on the code it reviewed, and that code has not moved.** Nothing
+under `src/`, `tests/` or `tools/` has changed since the reviewed commit — the whole range is the
+loop's own paperwork plus one workflow file:
+
+```
+git diff --name-only 87c5baf..8af4f6e
+  .github/workflows/ci.yml          <- this commit, 8af4f6e
+  TASKS.md                          <- paperwork (d50ecdf, 20e8f83)
+  reviews/task-170/REQUEST.md       <- paperwork (d50ecdf, b7eb447)
+  reviews/task-170/RESULT.md        <- the Reviewer's own verdict (20e8f83)
+```
+
+`.github/workflows/ci.yml` is **not** paperwork by `tools/agents.py`'s rule, which is why it becomes
+the code commit and why the gate is re-run here rather than letting it ride in behind the evidence.
+
+**What it fixes, and it was my defect.** Every push of this branch failed in 0 s with *"This run
+likely failed because of a workflow file issue"* — a red cross with no log, which is not a test
+failure, so PR #154 had no green check and could not merge. The step I added in round 1 read
+
+```yaml
+- name: Wally install (pinned: ProfileStore, TestEZ)
+```
+
+and a plain (unquoted) YAML scalar **may not contain a colon followed by a space**: the parser reads
+it as a nested mapping key. `yaml.safe_load` refuses the file at **line 28, column 36** — *"mapping
+values are not allowed here"*. Every other step name in this file is a plain scalar, so the colon is
+gone rather than the name quoted, and the comment above the step now says why so the next person
+does not rediscover it.
+
+**Proved before pushing, not after:**
+
+* the file parses and all **16** steps are present (`yaml.safe_load`, each name printed);
+* `wally install` needs no authentication (two public packages) and the rokit-pinned wally 0.3.2 is
+  on PATH after `setup-rokit`;
+* and a **clean** `wally install` with `DevPackages/` and `ServerPackages/` deleted reproduces both
+  trees **byte for byte** — `python tools/studio_mcp.py manifest` rewrote `devpackages.sha256` and
+  `serverpackages.sha256` and git saw no change — so the committed pins are what a fresh runner
+  produces.
+
+**CI is GREEN at this commit**, watched to completion through the public GitHub REST API (no `gh`
+auth on this machine, so the runs were polled rather than streamed):
+
+```
+CI 8af4f6ef8f98 completed success
+https://github.com/KMargarjan/driven-hunt/actions/runs/38335422802
+```
+
+The two runs before it, on the two previous heads, are `completed failure` in the same listing — the
+0-second workflow-file failures this commit ends.
+
+**The `[harness2]` line is a PLACEHOLDER and the Director asked for it in those words** (dispatch:
+*"[harness2] placeholder. Stop 'NEEDS TEST2 170 <sha>'"*). Seven files on `TWO_PLAYER_PATHS` are
+touched across the task, which `tools/agents.py`'s own `needs_two_player` lists as
 `src/server/Match/init.luau`, `src/server/MatchBoot.server.luau`, `src/shared/Drive/init.luau`,
 `src/shared/Drive/Rank.luau`, `tests/server/match_score.spec.luau`,
-`tests/server/zz_drive_boundary.spec.luau` and `tests/client/match_client.spec.luau`. Both full
-one-player runs above were made on a clean tree at that commit, **in the DEV place alone** — the
-Forest Test Studio is closed, as the dispatch said it would be.
+`tests/server/zz_drive_boundary.spec.luau` and `tests/client/match_client.spec.luau` — **none of them
+in this commit**. Both full one-player runs above were made on a clean tree at `8af4f6e`, in the DEV
+place alone; the Forest Test Studio is still closed.
+
+**One thing the runs cost that is worth recording:** `rojo serve` had been restarted (04:07), so the
+Studio plugin was disconnected and the first attempt failed its sync check, 8/9. Reconnected from
+this session — Plugins ribbon → Rojo → Connect — and both runs above are after that.
 
 ## What changed
 
