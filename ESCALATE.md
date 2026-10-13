@@ -109,6 +109,31 @@ will track her look), so it wants her eye in the same session.
 (3.125 studs), so it stays readable much further off-axis than the 1.25-stud one did -- but at a full
 turn it still leaves the view, because that is the body's yaw and not the horn's size.
 
+### THE DIRECTOR'S DECISION, 2026-10-13: **OPTION B NOW; OPTION A IS ITS OWN LATER TASK**
+
+Recorded by the Builder, transcribed from the task 176 dispatch and marked as the Director's:
+
+> DIRECTOR DECISION on 175's ESCALATE (item 1, "the body does not face the look"): option B NOW --
+> the horn gets a first-person view like the gun's (Rig hides the third-person horn for the local
+> player; Camera.Viewmodel draws it in camera space with the viewmodel ARMS holding it). Option A
+> (the character faces the camera: AutoRotate off + root yaw from the view, a new character/movement
+> owner via an Architect design) is QUEUED as its own later task -- do not do it here.
+
+So the Builder's recommendation above (A) was **overruled on the sequencing, not on the substance**:
+A is still what first person wants in the end, and it is now a queued task of its own rather than a
+thing this escalation is waiting on.
+
+**B is BUILT: task 176**, branch `task-176-fp-horn`. The boundary task 152 closed is opened for
+exactly one named Tool through one shared fact (`ReplicatedStorage.HeldTool.kindOf`), which both
+camera modules read, so "the viewmodel draws it" and "`Rig` hides the real one" stay exact
+complements; every other non-weapon Tool still draws nothing and stays visible. MEASURED on a real
+player beater in the Forest Test, 2026-10-13: the drawn horn's camera-space offset is
+`(0.950, -1.050, -2.300)` at camera yaws 0, 45, 90, 180, 270 and 315 -- worst delta **0.000244
+studs** over a full 360 -- and the real horn's three parts are hidden locally (0 drawn), so there is
+one horn on screen and not two. What A would still fix, and B does not: the BODY is still facing
+wherever it was facing, so a hunter watching her sees a beater whose horn arm points away from where
+she is looking.
+
 ### How to reproduce the measurement
 
 Forest Test in Play, `DHFlag_HORN=true`, `/beater` typed in the chat (or

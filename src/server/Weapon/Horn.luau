@@ -748,6 +748,17 @@ function Horn.blowTool(tool: Tool?, key: string, blowerUserId: number?, now: num
 	-- cooldown is longer than the blow, so in practice nothing can, and the guard is there so that a
 	-- shorter cooldown one day cannot leave the horn stuck at the player's chin.
 	local config = Data.CONFIG
+	-- ...AND THE BLOWER'S OWN CAMERA IS TOLD, HERE AND NOWHERE ELSE (task 176). The first-person horn
+	-- is drawn by `Camera.Viewmodel` in camera space, so it cannot see the `Grip` tilt below: what it
+	-- needs is "a blast was ACCEPTED, now", and this is the one line in the game where that is true
+	-- for a player and for a bot alike. An increasing number, never a time -- the reader starts its
+	-- own clock on the change, so no clock has to be shared (`Horn.BLOW_ATTRIBUTE`'s own header).
+	--
+	-- ON THE `Tool`, NOT ON THE HANDLE OR THE PLAYER: the camera already holds the Tool (it walks up
+	-- from the Handle its source hands it), the attribute replicates with it, and a Tool that goes
+	-- back to the Backpack takes its own last blast with it.
+	local stamped = tool:GetAttribute(Data.BLOW_ATTRIBUTE)
+	tool:SetAttribute(Data.BLOW_ATTRIBUTE, (if type(stamped) == "number" then stamped else 0) + 1)
 	tool.Grip = config.GRIP_BLOW
 	task.delay(config.BLOW_SECONDS, function()
 		if tool.Parent ~= nil and tool.Grip == config.GRIP_BLOW then

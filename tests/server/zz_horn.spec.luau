@@ -40,6 +40,7 @@ local Workspace = game:GetService("Workspace")
 local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
+local HeldTool = require(ReplicatedStorage:WaitForChild("HeldTool"))
 local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -186,6 +187,121 @@ return function()
 					CONFIG.SOUND_CUT,
 					Horn.playSeconds(CONFIG),
 					CONFIG.COOLDOWN
+				)
+			)
+		end)
+	end)
+
+	---------------------------------------------------------------- pure: the horn in the FIRST person
+
+	-- TASK 176. KAREN, 2026-10-13 ~19:05: *"horn still hangign somewhere it has to be in hand now I
+	-- can turn around and horn stand in place somehwere behind"*. The horn is welded to a body that
+	-- does not turn with the look, so it gets a first-person view of its own -- drawn by
+	-- `Camera.Viewmodel` in camera space. These cases are the SHARED facts that view rests on: when
+	-- the gesture is, and where the mouthpiece is. Every one is pure: no Tool, no camera, no client.
+	describe("the blast as the first-person view sees it", function()
+		local POSE = Horn.BLOW_POSE
+
+		it("raises, holds and lowers on TASK 168's three numbers and no fourth", function()
+			-- ONE SOURCE FOR THE WINDOW. The server fades the arm clip in over `RAISE_SECONDS`, holds
+			-- `GRIP_BLOW` for `BLOW_SECONDS` and fades out over `LOWER_SECONDS`; the drawn horn is
+			-- blended by the SAME three, so the first-person gesture and the third-person one cannot
+			-- fall out of step. If a number moves, both move.
+			local up, held, down = POSE.RAISE_SECONDS, CONFIG.BLOW_SECONDS, POSE.LOWER_SECONDS
+			expect(up > 0).to.equal(true)
+			expect(down > 0).to.equal(true)
+			expect(up < held).to.equal(true) -- the hand is AT the mouth before the blast is over
+
+			-- Nothing has happened: the horn is carried.
+			local weight, phase = Horn.blowWeight(nil, CONFIG, POSE)
+			expect(weight).to.equal(0)
+			expect(phase).to.equal("carry")
+			-- Before the blast, which is what a negative `since` is.
+			weight, phase = Horn.blowWeight(-0.5, CONFIG, POSE)
+			expect(weight).to.equal(0)
+			expect(phase).to.equal("carry")
+			-- The first frame of the raise is still at the carry, and half way up is half way.
+			weight, phase = Horn.blowWeight(0, CONFIG, POSE)
+			expect(weight).to.equal(0)
+			expect(phase).to.equal("raise")
+			weight, phase = Horn.blowWeight(up / 2, CONFIG, POSE)
+			expect(math.abs(weight - 0.5) < 1e-9).to.equal(true)
+			expect(phase).to.equal("raise")
+			-- At the mouth, and it STAYS there for the whole blast.
+			weight, phase = Horn.blowWeight(up, CONFIG, POSE)
+			expect(weight).to.equal(1)
+			expect(phase).to.equal("blow")
+			weight, phase = Horn.blowWeight((up + held) / 2, CONFIG, POSE)
+			expect(weight).to.equal(1)
+			expect(phase).to.equal("blow")
+			-- The lower starts the instant the blast ends, from the mouth...
+			weight, phase = Horn.blowWeight(held, CONFIG, POSE)
+			expect(weight).to.equal(1)
+			expect(phase).to.equal("lower")
+			weight, phase = Horn.blowWeight(held + down / 2, CONFIG, POSE)
+			expect(math.abs(weight - 0.5) < 1e-9).to.equal(true)
+			expect(phase).to.equal("lower")
+			-- ...and it ENDS, back at the carry, which is what stops a gesture lasting for ever.
+			weight, phase = Horn.blowWeight(held + down, CONFIG, POSE)
+			expect(weight).to.equal(0)
+			expect(phase).to.equal("carry")
+			weight, phase = Horn.blowWeight(held + down + 10, CONFIG, POSE)
+			expect(weight).to.equal(0)
+			expect(phase).to.equal("carry")
+			TestKit.note(
+				string.format(
+					"horn: the blast gesture is %.2f s up, %.2f s at the mouth, %.2f s down",
+					up,
+					held,
+					held + down
+				)
+			)
+		end)
+
+		it("is monotonic, so the horn never jumps on its way up or down", function()
+			-- A weight that went backwards mid-raise is a horn that stutters at the mouth. Walked at
+			-- a tenth of the raise, which is finer than any frame.
+			local last = -1
+			for step = 0, 20 do
+				local weight = Horn.blowWeight(POSE.RAISE_SECONDS * step / 20, CONFIG, POSE)
+				expect(weight >= last).to.equal(true)
+				last = weight
+			end
+			last = 2
+			local lowerFrom = CONFIG.BLOW_SECONDS
+			for step = 0, 20 do
+				local weight = Horn.blowWeight(lowerFrom + POSE.LOWER_SECONDS * step / 20, CONFIG, POSE)
+				expect(weight <= last).to.equal(true)
+				last = weight
+			end
+		end)
+
+		it("puts the MOUTHPIECE where task 175's invariant says it is, for the horn that is worn", function()
+			-- THE POINT THE RAISE IS AIMED AT, and it is derived from the mesh's own three numbers
+			-- rather than written down a second time. The literal here is task 175's invariant -- the
+			-- `+Z` end of the mesh in the Handle's frame -- asserted against the function the camera
+			-- reads, so the two cannot drift.
+			local mesh = Horn.mouthpieceOffset(Horn.MESH)
+			local want = Vector3.new(0, 0, Horn.MESH.SIZE_STUDS.X / 2)
+			expect((mesh - want).Magnitude < 1e-4).to.equal(true)
+			-- ...AND THE FALLBACK COIL PUTS IT SOMEWHERE ELSE ENTIRELY, which is why the caller has to
+			-- say which build is on screen instead of assuming the mesh. `arc.from` is where `pieces`
+			-- welds the mouthpiece, off the same parametrisation.
+			local parts = Horn.mouthpieceOffset(Horn.MESH, "parts")
+			expect((parts - Horn.arc().from).Magnitude < 1e-9).to.equal(true)
+			expect((parts - mesh).Magnitude > 1).to.equal(true)
+			-- The bell is the other end: the two must not answer the same point, or a raise would
+			-- put the wrong end of the horn at the lips.
+			expect((Horn.bellOffset(CONFIG) - parts).Magnitude > 0.5).to.equal(true)
+			TestKit.note(
+				string.format(
+					"horn: mouthpiece at (%.3f, %.3f, %.3f) worn as the mesh, (%.3f, %.3f, %.3f) as the parts coil",
+					mesh.X,
+					mesh.Y,
+					mesh.Z,
+					parts.X,
+					parts.Y,
+					parts.Z
 				)
 			)
 		end)
@@ -1369,16 +1485,28 @@ return function()
 			expect((heard[1].at - handle.Position).Magnitude < 1e-3).to.equal(true)
 			-- Raised to the mouth for the length of the blow...
 			expect(tool.Grip).to.equal(CONFIG.GRIP_BLOW)
+			-- ...AND THE BLOWER'S OWN CAMERA IS TOLD (task 176). The first-person horn is drawn in
+			-- CAMERA space and so cannot see the grip tilt above; what it watches is this attribute,
+			-- stamped on the one door every accepted blast comes through. An increasing number and
+			-- never a time, so no clock is shared between the two machines.
+			expect(tool:GetAttribute(Horn.BLOW_ATTRIBUTE)).to.equal(1)
 
 			-- A click inside the cooldown publishes NOTHING: the server holds the rate, because the
 			-- click is whatever the client sends.
 			expect(HornTool.blow(player, t0 + CONFIG.COOLDOWN - 0.1)).to.equal(false)
 			task.wait()
 			expect(#heard).to.equal(1)
+			-- ...AND IT DOES NOT MOVE THE ATTRIBUTE EITHER, which is the whole reason the camera
+			-- watches this and not the player's click: a refused blast must not raise the horn to a
+			-- mouth that makes no sound.
+			expect(tool:GetAttribute(Horn.BLOW_ATTRIBUTE)).to.equal(1)
 			-- ...and the next one, on time, does.
 			expect(HornTool.blow(player, t0 + CONFIG.COOLDOWN)).to.equal(true)
 			task.wait()
 			expect(#heard).to.equal(2)
+			-- One more blast, one more number: a CHANGE is what the camera reads as "now", so the
+			-- second blast has to differ from the first.
+			expect(tool:GetAttribute(Horn.BLOW_ATTRIBUTE)).to.equal(2)
 
 			wire:Disconnect()
 			HornTool.setCarryPolicy(restore)
@@ -1402,16 +1530,38 @@ return function()
 			-- object out of the right Handle. Karen plays in first person, so that frame was the
 			-- whole of what she would have seen.
 			--
-			-- `Weapons.isWeaponTool` is the one fact both camera modules now ask, and this is it
-			-- asked of a REAL horn and a REAL gun rather than of two hand-made stubs.
+			-- `Weapons.isWeaponTool` is the one fact both camera modules asked, and this is it asked
+			-- of a REAL horn and a REAL gun rather than of two hand-made stubs.
+			--
+			-- ...AND SINCE TASK 176 THE SHARED FACT IS `HeldTool.kindOf`, which is a wider question --
+			-- *what does the first-person view DRAW for this Tool?* -- with the same answer about
+			-- weapons. The horn is still not a weapon (nothing about the gun's own gate moved); it is
+			-- now a thing the view draws, with its own branch and its own poses, which is Karen's
+			-- *"it has to be in hand"*. Both facts are asserted here, because the defect this case
+			-- exists for -- a SHOTGUN drawn out of a horn's Handle -- comes back the moment the first
+			-- one answers true.
 			local horn = HornTool.build()
 			expect(Weapons.isWeaponTool(horn)).to.equal(false)
 			expect(Weapons.isToolName(horn.Name)).to.equal(false)
+			expect(HeldTool.kindOf(horn)).to.equal(HeldTool.HORN)
 			horn:Destroy()
 
 			local gun = Hardware.build(Weapons.ROWS.shotgun)
 			expect(Weapons.isWeaponTool(gun)).to.equal(true)
+			expect(HeldTool.kindOf(gun)).to.equal(HeldTool.WEAPON)
 			gun:Destroy()
+
+			-- AND NOTHING ELSE IS DRAWN, which is task 152's refusal kept rather than widened: a
+			-- non-weapon Tool that is not the horn draws no viewmodel and `Camera.Rig` leaves the real
+			-- one visible. The horn is an explicit, named member of that list and not a default.
+			local other = Instance.new("Tool")
+			other.Name = "Lantern"
+			expect(HeldTool.kindOf(other)).to.equal(nil)
+			expect(HeldTool.drawsFirstPerson(other)).to.equal(false)
+			other:Destroy()
+			expect(HeldTool.kindOf(nil)).to.equal(nil)
+			expect(HeldTool.kindOf(Instance.new("Part"))).to.equal(nil)
+			expect(HeldTool.drawsFirstPerson(Instance.new("Part"))).to.equal(false)
 			-- A Tool from a server older than task 140 carries no attribute and must still be a gun.
 			local legacy = Instance.new("Tool")
 			legacy.Name = Weapons.ROWS.shotgun.toolName

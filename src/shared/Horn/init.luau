@@ -643,6 +643,39 @@ function Horn.bellOffset(_config): Vector3
 	return arc.to + arc.bellDir * Horn.BELL_REACH
 end
 
+-- THE MOUTHPIECE, in the Handle's own frame: the end a player puts to his lips, and the point the
+-- first-person raise is aimed at (task 176). `bellOffset` above is its opposite end, and the two are
+-- here for the same reason: a screenshot is checked against a POINT, and the point must be derived
+-- from the geometry rather than written down a second time.
+--
+-- TWO BUILDS, TWO ANSWERS, AND THAT IS NOT A CHOICE: the beater wears the uploaded MESH (task 169,
+-- scaled 2.5x in task 175) and falls back to the coil of parts when the upload has not landed, and
+-- the two put their mouthpiece in different places in the Handle.
+--   * "mesh"  -- `MESH.ROTATION_DEG` lays the mesh's long axis along the Handle's Z with the
+--     MOUTHPIECE at +Z (its own header records why it is minus 90 and not plus: the Blender export
+--     plus the Roblox import reverse the model along that axis, photographed in task 169). So the
+--     point is the pose applied to `(SIZE_STUDS.X / 2, 0, 0)`, which is the mesh's own near end --
+--     exactly the `p = (0, 0, SIZE_STUDS.X / 2)` that `CONFIG.GRIP_BLOW`'s arithmetic keeps still
+--     and `zz_horn.spec` asserts against literally.
+--   * "parts" -- the coil's arc starts AT the mouthpiece (`pieces` adds it tangent at `arc.from`),
+--     so the point is `Horn.arc().from`, derived from the same parametrisation the pieces are.
+-- The DEFAULT is the mesh, because that is what a beater is wearing in every session where the
+-- upload loads; a caller that has drawn the parts says so.
+--
+-- IT TAKES `MESH` AND NOT `CONFIG`, because the numbers it reads are the MESH's three (the size, the
+-- rotation and the offset) and a function that took the whole config would be reaching past what it
+-- depends on. The parts answer takes nothing at all: the arc is this file's own constants.
+function Horn.mouthpieceOffset(mesh, worn: string?): Vector3
+	if worn == "parts" then
+		return Horn.arc().from
+	end
+	mesh = mesh or Horn.MESH
+	local rotation = mesh.ROTATION_DEG
+	local pose = CFrame.new(mesh.OFFSET_STUDS)
+		* CFrame.Angles(math.rad(rotation.X), math.rad(rotation.Y), math.rad(rotation.Z))
+	return pose * Vector3.new(mesh.SIZE_STUDS.X / 2, 0, 0)
+end
+
 -- THE SPOOK RADIUS IN STUDS, from whichever unit the config carries. PURE, and the ONE place the
 -- conversion happens: no caller multiplies by METRES_PER_STUD itself. `SPOOK_STUDS` wins when it is
 -- there, because a world that overrides the studs means the studs.
@@ -775,6 +808,58 @@ Horn.BLOW_POSE = table.freeze({
 	RAISE_SECONDS = 0.2,
 	LOWER_SECONDS = 0.35,
 })
+
+-- ---------------------------------------------------------------- the blast, as the CLIENT sees it
+--
+-- THE ONE SIGNAL THAT SAYS "A BLAST WAS ACCEPTED" (task 176). `Weapon.Horn.blowTool` stamps this
+-- attribute on the Tool with an increasing number, on the one door every blast comes through -- a
+-- player's click, a bot's rhythm and a spec's call -- and the blower's own camera watches it so the
+-- FIRST-PERSON horn goes to the mouth exactly when the third-person arm does.
+--
+-- A COUNTER AND NOT A TIME, and the note records the three routes that were refused. A client-side
+-- `Tool.Activated` would raise the horn for a blast the SERVER refuses (the cooldown, or a beater
+-- who is through the line) -- the gesture with no sound. Comparing the replicated `Tool.Grip` with
+-- `GRIP_BLOW` is a float comparison across replication that nobody can promise. A server TIME
+-- (`Workspace:GetServerTimeNow`) would be the obvious shape, but the engine reference for that
+-- method carries no description at all (fetched 2026-10-13), and "the two machines agree about this
+-- number" is not an assumption worth making for a gesture. A number that merely CHANGED needs no
+-- clock to be shared: the reader starts its own.
+Horn.BLOW_ATTRIBUTE = "DrivenHunt.HornBlow"
+
+-- HOW FAR THROUGH THE GESTURE A BLAST IS, `since` seconds after it was accepted -> (weight, phase).
+-- PURE, so a spec drives every instant of it with no Tool, no character and no Studio.
+--
+-- WEIGHT IS 0 AT THE CARRY AND 1 AT THE MOUTH, LINEARLY. The easing is the drawing side's -- there is
+-- exactly one easing in this repo (`Mode.ease`, quadOut, and `Viewmodel.EASING` asserts the pose data
+-- asks for no other) and a second implementation of it here is how two curves start disagreeing.
+--
+-- THE THREE NUMBERS ARE TASK 168'S AND THERE IS NO FOURTH. `RAISE_SECONDS` and `LOWER_SECONDS` are
+-- the arm clip's own fade times and `BLOW_SECONDS` is how long the server holds `GRIP_BLOW` and the
+-- clip -- so the drawn horn rises, holds and falls with the body that is holding it, and
+-- `poses.json` carries the two POSES and not one timing. A `since` before 0 is a blast that has not
+-- happened and a `since` past the end is one that is over; both are the carry, which is also what a
+-- nil `since` means.
+--   phase: "carry" -> "raise" -> "blow" -> "lower" -> "carry"
+function Horn.blowWeight(since: number?, config, pose): (number, string)
+	if since == nil or since ~= since then
+		return 0, "carry"
+	end
+	local held = (config or Horn.CONFIG).BLOW_SECONDS
+	local blow = pose or Horn.BLOW_POSE
+	local up = blow.RAISE_SECONDS
+	local down = blow.LOWER_SECONDS
+	if since < 0 or since >= held + down then
+		return 0, "carry"
+	end
+	if since < up then
+		-- `up` is positive by the data (and by `zz_horn.spec`), so this cannot divide by zero.
+		return math.clamp(since / up, 0, 1), "raise"
+	end
+	if since < held then
+		return 1, "blow"
+	end
+	return math.clamp(1 - (since - held) / down, 0, 1), "lower"
+end
 
 -- THE SEQUENCE, BUILT FROM THE NUMBERS. Pure in the sense that matters -- it reads no rig, no
 -- service and no state, so a spec can assert the whole pose tree, the weights and the two angles

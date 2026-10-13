@@ -24,10 +24,17 @@ local Config = Camera.Config
 local Hud = require(scripts:WaitForChild("Hud"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
--- One fact, for one question: is the Tool in the hand a GUN? (task 152) The owner asks it in
--- `Camera.Viewmodel` and in `Camera.Rig`, and every case below that excludes a carried
--- non-weapon Tool asks the SAME one -- never a looser test of its own.
+-- One fact, for one question: is the Tool in the hand a GUN? (task 152)
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+-- ...AND THE WIDER ONE THE TWO CAMERA MODULES ACTUALLY ASK (task 176): does the first-person view
+-- DRAW the Tool in this hand? The owner asks it in `Camera.Viewmodel` and in `Camera.Rig`, and every
+-- case below that excludes -- or requires -- a carried Tool asks the SAME one, never a looser test of
+-- its own. Since task 176 the beater's HORN is drawn and therefore hidden; anything else in a hand is
+-- not drawn and stays visible.
+local HeldTool = require(ReplicatedStorage:WaitForChild("HeldTool"))
+-- THE HORN'S OWN DATA, for the pose the drawn horn is asserted against and the attribute a blast is
+-- stamped with -- never numbers this file repeats.
+local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 -- THE GUN THE VIEWMODEL BUILDS (task 114): its piece list, its sight and its bead colour, so this
 -- file asserts against the one definition rather than against numbers it repeats.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
@@ -711,12 +718,13 @@ return function()
 				local handle = if source then source() else nil
 				-- ...AND A HANDLE IS NOT ENOUGH, SINCE TASK 152: the beater's HORN is a Tool in the
 				-- character, so the source hands one back for a driver who is carrying no gun at all.
-				-- A horn has no viewmodel -- `Camera.Viewmodel` refuses to draw for a non-weapon Tool,
-				-- which is the whole of the fix for "a beater saw a SHOTGUN in first person" -- so the
-				-- claim that applies to it is the EMPTY-HANDED one. The same shared fact the owner
-				-- asks, asked here, rather than a looser test of what is in the hand.
+				-- What the view does with it is one shared fact -- `HeldTool.kindOf` -- and the claim
+				-- follows it: a Tool it names draws a viewmodel (since task 176 the horn is one of
+				-- those, with its own branch and its own poses), and a Tool it does not name draws
+				-- nothing, which is the EMPTY-HANDED claim. The same question the owner asks, asked
+				-- here, rather than a looser test of what is in the hand.
 				local tool = handle and handle.Parent
-				if tool ~= nil and tool:IsA("Tool") and not Weapons.isWeaponTool(tool) then
+				if tool ~= nil and tool:IsA("Tool") and not HeldTool.drawsFirstPerson(tool) then
 					TestKit.note(
 						string.format(
 							"camera_client: this driver carries %s, which is not a weapon; no viewmodel is the claim",
@@ -1540,6 +1548,282 @@ return function()
 		end)
 	end)
 
+	-- THE BEATER'S HORN, DRAWN IN THE FIRST PERSON (task 176). KAREN, 2026-10-13 ~19:05: *"horn
+	-- still hangign somewhere it has to be in hand now I can turn around and horn stand in place
+	-- somehwere behind"*. The horn is welded to the character's hand and the character does not turn
+	-- with the look, so the only fix that holds is the gun's: draw it in CAMERA space.
+	--
+	-- DRIVEN THROUGH THE PUBLIC `Viewmodel.update` WITH AN INJECTED SOURCE, exactly as the hands case
+	-- above is, so this runs on every client of every run -- a hunter's as well as a beater's -- and
+	-- asserts the real path rather than a parallel one. The Tool is this spec's own: named what
+	-- `Weapon.Horn` names its Tool, because the NAME is what the shared fact reads.
+	describe("the horn in the hand", function()
+		-- A horn-shaped Handle with one visible piece on it, which is what the server's own Handle is
+		-- (an invisible envelope wearing the uploaded mesh, or task 152's coil of parts).
+		local function hornTool(): (Tool, BasePart)
+			local tool = Instance.new("Tool")
+			tool.Name = Horn.TOOL_NAME
+			tool.RequiresHandle = true
+			local handle = Instance.new("Part")
+			handle.Name = "Handle"
+			handle.Size = Horn.CONFIG.HANDLE_SIZE
+			handle.Transparency = 1
+			-- A `MeshPart`, WHICH IS WHAT THE SERVER WELDS ON (task 169): the uploaded horn, sized by
+			-- the manifest row to `Horn.MESH.SIZE_STUDS`. It matters to this case because
+			-- `Viewmodel.hornMouthpiece` reads which BUILD is on screen off the clone -- a mesh horn
+			-- and task 152's coil of parts put their mouthpiece in different places -- so a probe made
+			-- of plain parts would measure the fallback's geometry and not the one Karen is holding.
+			local body = Instance.new("MeshPart")
+			body.Name = "Body"
+			body.Size = Horn.MESH.SIZE_STUDS
+			body.Parent = handle
+			-- THE VOICE, WHICH MUST NOT BE CLONED UNDER THE CAMERA: the blast is the real Tool's, 3D,
+			-- from the beater's own position. A second copy an inch from the ear is a second voice.
+			local sound = Instance.new("Sound")
+			sound.Name = "Blast"
+			sound.Parent = handle
+			handle.Parent = tool
+			return tool, handle
+		end
+
+		it("draws the horn in CAMERA space, so a 360 turn cannot leave it behind", function()
+			local tool, handle = hornTool()
+			local live = Camera.Viewmodel.getSource()
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local ok, err = pcall(function()
+				Camera.Viewmodel.clear()
+				-- THE SOURCE IS ASKED FOUR TIMES A SECOND, NOT EVERY FRAME (task 133's throttle), and
+				-- `clear()` does not drop the cached Handle -- so an update called the instant after
+				-- `setSource` still draws whatever was in the hand before. The hands case above waits
+				-- for the same reason; without it this case measures the live gun.
+				task.wait(0.3)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				local made = Camera.Viewmodel.current()
+				expect(made).to.be.ok()
+				expect((made :: Model).Parent).to.equal(Workspace.CurrentCamera)
+				-- IT IS A CLONE OF THE HANDLE AND ITS CHILDREN -- the same object the world shows --
+				-- and it carries no `Sound`, no joint and no script.
+				local clone = (made :: Model).PrimaryPart :: BasePart
+				expect(clone).to.be.ok()
+				expect(clone:FindFirstChild("Body")).to.be.ok()
+				expect(clone:FindFirstChildOfClass("Sound")).to.equal(nil)
+				for _, inside in ipairs((made :: Model):GetDescendants()) do
+					expect(inside:IsA("LuaSourceContainer")).to.equal(false)
+					expect(inside:IsA("JointInstance")).to.equal(false)
+					if inside:IsA("BasePart") then
+						expect(inside.Anchored).to.equal(true)
+						-- The occlusion cast must not hit our own horn (the module header).
+						expect(inside.CanQuery).to.equal(false)
+						expect(inside.CanCollide).to.equal(false)
+						-- `Camera.Rig` holds the SOURCE parts at 1 for the local player and `Clone()`
+						-- copies the property: without this line the first-person horn is invisible
+						-- exactly when it is the only one on screen.
+						expect(inside.LocalTransparencyModifier).to.equal(0)
+					end
+				end
+
+				-- THE CLAIM KAREN'S WORDS ASK FOR, AS A MEASUREMENT: the drawn horn's offset from the
+				-- camera is the SAME CFrame whichever way the camera faces. Four very different
+				-- cameras, including one upside down and one a thousand studs away.
+				local offsets = {}
+				for _, cam in ipairs({
+					CFrame.new(0, 12, 0),
+					CFrame.new(0, 12, 0) * CFrame.Angles(0, math.rad(90), 0),
+					CFrame.new(0, 12, 0) * CFrame.Angles(0, math.rad(180), math.rad(35)),
+					CFrame.new(900, 40, -1200) * CFrame.Angles(math.rad(-25), math.rad(270), 0),
+				}) do
+					Camera.Viewmodel.update(cam, stateAtBlend(0), firstPersonConfig)
+					local drawn = (Camera.Viewmodel.current() :: Model):GetPivot()
+					table.insert(offsets, cam:ToObjectSpace(drawn))
+				end
+				for index = 2, #offsets do
+					local delta = (offsets[index].Position - offsets[1].Position).Magnitude
+					expect(delta < 1e-3).to.equal(true)
+					-- The rotation too: a horn that kept its place and turned in the hand would pass
+					-- a position-only check.
+					local turn = (offsets[index]:Inverse() * offsets[1])
+					local axis, angle = turn:ToAxisAngle()
+					expect(axis).to.be.ok()
+					expect(math.abs(angle) < 1e-3).to.equal(true)
+				end
+				-- ...AND IT IS WHERE `poses.json` PUTS IT, through the one conversion site. The pose
+				-- is read off the config the camera was handed, so a tuned number moves this claim
+				-- with the horn rather than against it.
+				local want = (firstPersonConfig :: any).HORN.carry.item
+				expect((offsets[1].Position - want.Position).Magnitude < 1e-3).to.equal(true)
+
+				-- ...AND A SWITCH BACK TO A GUN REBUILDS IT AS A GUN. `builtFrom` is a Handle identity
+				-- and says nothing about what was MADE out of it, so without `builtKind` the next
+				-- frame would pose a horn's clone with a gun's numbers -- or keep drawing the horn for
+				-- a player who has just been handed a shotgun.
+				local gunHandle = Instance.new("MeshPart")
+				gunHandle.Name = "Handle"
+				gunHandle.Size = Shotgun.CONFIG.HANDLE_SIZE
+				gunHandle.Transparency = 1
+				Camera.Viewmodel.setSource(function()
+					return gunHandle
+				end)
+				task.wait(0.3) -- the source throttle again: see the top of this case
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				local swapped = Camera.Viewmodel.current()
+				expect(swapped).to.be.ok()
+				expect((swapped :: Model).Name).to.equal("DrivenHuntViewmodel")
+				expect(Camera.Viewmodel.hornMouthpiece()).to.equal(nil)
+				gunHandle:Destroy()
+				Camera.Viewmodel.setSource(function()
+					return handle
+				end)
+				task.wait(0.3)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				expect((Camera.Viewmodel.current() :: Model).Name).to.equal("DrivenHuntHornViewmodel")
+
+				-- THE RIGHT GLOVE IS ON IT, when the templates are there at all. The real ones are
+				-- loaded on the server, so this is a note rather than a demand -- `handsMissing`
+				-- counts the other case, and the gun's own case drives the injected templates.
+				-- READ OFF THE MODEL THAT IS ON SCREEN NOW, not off `clone`: the swap above destroyed
+				-- the first clone and built a third one, so the old reference is a destroyed part.
+				local rebuilt = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local hand = rebuilt:FindFirstChild("HandRight")
+				TestKit.note(
+					string.format("camera_client: the drawn horn has %s right glove", if hand then "its" else "NO")
+				)
+			end)
+			Camera.Viewmodel.setSource(live)
+			Camera.Viewmodel.clear()
+			tool:Destroy()
+			if not ok then
+				error(err, 0)
+			end
+			expect(Camera.Viewmodel.getSource()).to.equal(live)
+		end)
+
+		it("goes to the mouth on an accepted blast, and comes back down", function()
+			local tool, handle = hornTool()
+			local live = Camera.Viewmodel.getSource()
+			local liveClock = Camera.Viewmodel.getClock()
+			-- THE VIEWMODEL'S OWN CLOCK, DRIVEN BY HAND (the seam task 111 added for exactly this):
+			-- the gesture is 1.25 s of wall time, and a spec that waited for it would spend the
+			-- suite's budget and still be racing the live camera's own frames.
+			local now = 0
+			Camera.Viewmodel.setClock(function()
+				return now
+			end)
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local ok, err = pcall(function()
+				Camera.Viewmodel.clear()
+				task.wait(0.3) -- the source throttle: see the case above
+				local cam = CFrame.new(0, 12, 0)
+				local function drawnOffset(): CFrame
+					Camera.Viewmodel.update(cam, stateAtBlend(0), firstPersonConfig)
+					return cam:ToObjectSpace((Camera.Viewmodel.current() :: Model):GetPivot())
+				end
+				local poses = (firstPersonConfig :: any).HORN
+				-- CARRIED. The Tool carries no blast attribute at all, which is every horn that has
+				-- never been blown.
+				expect((drawnOffset().Position - poses.carry.item.Position).Magnitude < 1e-3).to.equal(true)
+
+				-- A BLAST, AS THE SERVER PUBLISHES ONE: an increasing number on the Tool, stamped
+				-- inside `Weapon.Horn.blowTool` -- the one door every accepted blast comes through, so
+				-- a REFUSED one (the cooldown, or a beater through the line) never moves this and the
+				-- horn never goes to a mouth that makes no sound.
+				tool:SetAttribute(Horn.BLOW_ATTRIBUTE, 1)
+				-- THE FRAME THAT NOTICES IS THE START OF THE GESTURE, NOT A FRAME INTO IT, and this
+				-- is where that is asserted rather than assumed: the attribute replicates whenever it
+				-- replicates, so the clock starts on the frame this client first sees it and the horn
+				-- is still at the carry for that one frame. (Round zero of this case had the raise a
+				-- frame early, measured here.)
+				local startedAt = now
+				expect((drawnOffset().Position - poses.carry.item.Position).Magnitude < 1e-3).to.equal(true)
+				-- Half way up the raise: between the two poses and at neither of them.
+				now = startedAt + Horn.BLOW_POSE.RAISE_SECONDS / 2
+				local half = drawnOffset()
+				expect((half.Position - poses.carry.item.Position).Magnitude > 0.05).to.equal(true)
+				expect((half.Position - poses.blow.item.Position).Magnitude > 0.05).to.equal(true)
+				-- AT THE MOUTH, and it stays there for the whole blast.
+				now = startedAt + Horn.BLOW_POSE.RAISE_SECONDS
+				expect((drawnOffset().Position - poses.blow.item.Position).Magnitude < 1e-3).to.equal(true)
+				now = startedAt + Horn.CONFIG.BLOW_SECONDS - 0.01
+				expect((drawnOffset().Position - poses.blow.item.Position).Magnitude < 1e-3).to.equal(true)
+				-- ...AND IT COMES BACK DOWN. The gesture ends exactly `LOWER_SECONDS` after the blast
+				-- does, which is task 168's own number and the server's own fade.
+				now = startedAt + Horn.CONFIG.BLOW_SECONDS + Horn.BLOW_POSE.LOWER_SECONDS
+				expect((drawnOffset().Position - poses.carry.item.Position).Magnitude < 1e-3).to.equal(true)
+				-- A SECOND BLAST IS A SECOND NUMBER, and nothing else: the same attribute value
+				-- written again is not a blast, which is what stops a replicated re-send raising the
+				-- horn twice.
+				tool:SetAttribute(Horn.BLOW_ATTRIBUTE, 1)
+				now += 10
+				expect((drawnOffset().Position - poses.carry.item.Position).Magnitude < 1e-3).to.equal(true)
+				tool:SetAttribute(Horn.BLOW_ATTRIBUTE, 2)
+				startedAt = now
+				expect((drawnOffset().Position - poses.carry.item.Position).Magnitude < 1e-3).to.equal(true)
+				now = startedAt + Horn.BLOW_POSE.RAISE_SECONDS
+				expect((drawnOffset().Position - poses.blow.item.Position).Magnitude < 1e-3).to.equal(true)
+				-- THE MOUTHPIECE IS WHAT REACHES THE MOUTH, and where it is on the object comes from
+				-- `Horn.mouthpieceOffset` rather than from a number here. In the camera's frame it is
+				-- below the eye and near the view's own vertical axis -- the bottom-centre of the
+				-- frame, which is where a mouth is.
+				local mouthpiece = Camera.Viewmodel.hornMouthpiece()
+				expect(mouthpiece).to.be.ok()
+				local local_ = cam:ToObjectSpace(mouthpiece :: CFrame)
+				TestKit.note(
+					string.format(
+						"camera_client: the raised mouthpiece sits at (%.3f, %.3f, %.3f) in the camera's frame",
+						local_.Position.X,
+						local_.Position.Y,
+						local_.Position.Z
+					)
+				)
+				expect(local_.Position.Y < 0).to.equal(true)
+				-- THE TARGET IS THE NOTE'S (section 4): within 0.15 studs of the view's own vertical
+				-- axis -- the bottom-CENTRE of the frame, which is where a mouth is -- and below the
+				-- eye. Both are properties of the pose data, so a tuning session that moved the horn
+				-- off the mouth would fail here rather than ship a gesture nobody can read.
+				expect(math.abs(local_.Position.X) <= 0.15).to.equal(true)
+			end)
+			Camera.Viewmodel.setSource(live)
+			Camera.Viewmodel.setClock(liveClock)
+			Camera.Viewmodel.clear()
+			tool:Destroy()
+			if not ok then
+				error(err, 0)
+			end
+			expect(Camera.Viewmodel.getClock()).to.equal(liveClock)
+		end)
+
+		it("draws NOTHING for a Tool it does not name, which is task 152 kept", function()
+			local tool = Instance.new("Tool")
+			tool.Name = "CameraSpecProbeLantern"
+			local handle = Instance.new("Part")
+			handle.Name = "Handle"
+			handle.Transparency = 1
+			handle.Parent = tool
+			local live = Camera.Viewmodel.getSource()
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local ok, err = pcall(function()
+				Camera.Viewmodel.clear()
+				task.wait(0.3) -- the source throttle: see the case above
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				-- The whole of task 152's fix: a non-weapon Tool that is not the horn draws no
+				-- viewmodel, and `Camera.Rig` leaves the real one visible instead.
+				expect(Camera.Viewmodel.current()).to.equal(nil)
+				expect(HeldTool.kindOf(tool)).to.equal(nil)
+			end)
+			Camera.Viewmodel.setSource(live)
+			Camera.Viewmodel.clear()
+			tool:Destroy()
+			if not ok then
+				error(err, 0)
+			end
+		end)
+	end)
+
 	describe("what the reload should draw", function()
 		it("counts the spent barrels from BEFORE the break, and the fresh from the chambers", function()
 			-- ROUND 1'S DEFECT, AS A MEASUREMENT: the server's `Break` opens the gun AND empties both
@@ -1684,28 +1968,37 @@ return function()
 			-- a weapon the server grants: `Weapons.isWeaponTool` reads the ATTRIBUTE first, so the
 			-- camera's question is asked exactly as before while `Weapons.isToolName` stays false.
 			local horn, hornPart = probeTool("CameraSpecProbeHorn", nil)
-			local gun, gunPart = probeTool("CameraSpecProbeGun", "shotgun")
+			local gun, gunPart = probeTool("CameraSpecProbeGun", Weapons.PRIMARY)
+			-- ...AND THE REAL HORN, WHICH CHANGED SIDES IN TASK 176. `CameraSpecProbeHorn` above is a
+			-- Tool this camera draws nothing for and never will (task 152's refusal, kept); a Tool
+			-- named exactly what `Weapon.Horn` builds is one it DOES draw now, so the real one must be
+			-- hidden exactly as the gun's is. Both arms of the complement, in one case, against the
+			-- one shared fact.
+			local realHorn, realHornPart = probeTool(Horn.TOOL_NAME, nil)
 
 			-- `DescendantAdded` is DEFERRED (the case above measured that), so the arrivals are given
 			-- the same bounded wait and the flag is re-asserted on every pass for the same reason.
-			local hornHidden, gunHidden = false, false
+			local hornHidden, gunHidden, realHornHidden = false, false, false
 			local deadline = os.clock() + 3
 			while os.clock() < deadline do
 				Camera.Rig.setLocalBodyHidden(true)
 				hornHidden = hornPart.LocalTransparencyModifier == 1
 				gunHidden = gunPart.LocalTransparencyModifier == 1
-				if gunHidden then
+				realHornHidden = realHornPart.LocalTransparencyModifier == 1
+				if gunHidden and realHornHidden then
 					break
 				end
 				task.wait()
 			end
-			-- Read once more AFTER the gun is in the list: if the horn were being tracked it would
-			-- have been written on the same pass.
+			-- Read once more AFTER the gun is in the list: if the undrawn probe were being tracked it
+			-- would have been written on the same pass.
 			Camera.Rig.setLocalBodyHidden(true)
 			hornHidden = hornPart.LocalTransparencyModifier == 1
+			realHornHidden = realHornPart.LocalTransparencyModifier == 1
 			local toolAbove = Camera.Rig.toolAbove(hornPart)
 			horn:Destroy()
 			gun:Destroy()
+			realHorn:Destroy()
 			Camera.Rig.setLocalBodyHidden(false)
 
 			expect(toolAbove).to.be.ok()
@@ -1714,6 +2007,13 @@ return function()
 			expect(Camera.Rig.toolAbove(character:FindFirstChild("HumanoidRootPart"))).to.equal(nil)
 			expect(gunHidden).to.equal(true)
 			expect(hornHidden).to.equal(false)
+			-- THE HORN IS HIDDEN NOW, which is the whole of task 176's change to this module: the
+			-- viewmodel draws it in camera space, so the welded one on the body must not be on screen
+			-- as well. The two probes differ by NAME alone, which is what makes this a test of the
+			-- shared fact and not of two different shapes.
+			expect(realHornHidden).to.equal(true)
+			expect(HeldTool.drawsFirstPerson(realHorn)).to.equal(true)
+			expect(HeldTool.drawsFirstPerson(horn)).to.equal(false)
 		end)
 
 		-- THE STOCK TransparencyController IS A SECOND WRITER AND IT CANNOT BE REMOVED (task 151
@@ -1754,14 +2054,15 @@ return function()
 			local stillHidden, total = 0, 0
 			local visible = {}
 			for _, part in ipairs((character :: Model):GetDescendants()) do
-				-- EVERY PART OF THE BODY, AND NOT WHAT IS IN THE HAND AND IS NOT A GUN (task 152).
-				-- `Camera.Rig` leaves a non-weapon Tool visible ON PURPOSE -- the beater's horn has
-				-- no viewmodel, so hiding it would leave a beater holding nothing at all -- and the
-				-- exclusion here is the SAME shared fact the owner asks, naming exactly that Tool.
-				-- The body check itself is untouched: every other part must still be hidden.
+				-- EVERY PART OF THE BODY, AND NOT WHAT IS IN THE HAND THAT THE VIEW DOES NOT DRAW
+				-- (task 152, widened in task 176). `Camera.Rig` leaves such a Tool visible ON
+				-- PURPOSE -- it has no viewmodel, so hiding it would leave the player holding nothing
+				-- at all -- and the exclusion here is the SAME shared fact the owner asks. A Tool the
+				-- view DOES draw (a gun, and since task 176 the horn) must be hidden like the body,
+				-- so it is counted with it rather than excluded.
 				local tool = if part:IsA("BasePart") then Camera.Rig.toolAbove(part) else nil
-				local carriedNonWeapon = tool ~= nil and not Weapons.isWeaponTool(tool)
-				if part:IsA("BasePart") and not carriedNonWeapon then
+				local carriedUndrawn = tool ~= nil and not HeldTool.drawsFirstPerson(tool)
+				if part:IsA("BasePart") and not carriedUndrawn then
 					total += 1
 					if part.LocalTransparencyModifier == 1 then
 						stillHidden += 1
@@ -1813,11 +2114,11 @@ return function()
 			local visible, total, carried = {}, 0, 0
 			for _, part in ipairs(character:GetDescendants()) do
 				if part:IsA("BasePart") then
-					-- ...EXCEPT WHAT IS IN THE HAND AND IS NOT A GUN (task 152): see the case above.
-					-- Counted rather than silently skipped, so "the horn is the only thing on screen"
-					-- is a number in the note and not an omission.
+					-- ...EXCEPT WHAT IS IN THE HAND THAT THE VIEW DOES NOT DRAW (task 152, widened in
+					-- task 176): see the case above. Counted rather than silently skipped, so what
+					-- stays on screen by design is a number in the note and not an omission.
 					local tool = Camera.Rig.toolAbove(part)
-					if tool ~= nil and not Weapons.isWeaponTool(tool) then
+					if tool ~= nil and not HeldTool.drawsFirstPerson(tool) then
 						carried += 1
 					else
 						total += 1
