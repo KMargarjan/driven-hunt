@@ -3,7 +3,7 @@
 Task: 171
 Round: 1
 Base: main (`a52f4d2`, #154 merged)
-Code commit: `b62dc4235431da7f1a6628859c941f7d85397bf3`
+Code commit: `e001111b7a70c28d0e1bbff26c7b3c1961771abd`
 
 Branch `task-171-rules`. Karen's three new rules (a beater cannot be shot at, a hunter outside his
 stand circle cannot fire, a species you have no licence for cannot be shot) plus the drive's limited
@@ -13,15 +13,23 @@ shells, all refused BEFORE the shot exists and with **no punishment**. Note:
 ## Harness
 
 ```
-[harness] PASS: 33/33 checks @ b62dc4235431da7f1a6628859c941f7d85397bf3 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ e001111b7a70c28d0e1bbff26c7b3c1961771abd (clean tree) scope=all
 ```
 
-Run twice at that commit, both PASS 33/33 (server 1213 passed / 0 failed, client 301 / 0).
+Run twice at that commit, both PASS 33/33 (server 1213 passed / 0 failed, client **302** / 0 -- one
+more than the previous code commit, which is the new refusal case).
 
 ```
-[harness2] NEEDS KAREN -- placeholder. `test2` costs one human click and Karen is asleep;
+[harness2] NEEDS KAREN -- placeholder. `test2` costs one human click;
            the Director runs it at the branch head and pastes the line here.
 ```
+
+**The Director's `test2` at `5e0ee90` FAILED 33/35** on `[shooter] zz_tie_to_a_tree.spec:316`, and
+it was this task's rule working: that spec staged its driver 25 studs out and **dead on the shot
+line** (its own note, `miss 0.0 of 12`), so the aim ray hit a beater, the new rule refused the shot,
+and there was nothing for the safety rule to judge -- `violations=0`, nobody tied. Claim 11 below is
+the fix. The one-player run was green at that same commit, which is exactly what a two-player-only
+defect looks like.
 
 **This change touches `TWO_PLAYER_PATHS`** (`src/server/Match/init.luau`,
 `src/server/MatchBoot.server.luau`), so the two-player line is required and is the Director's.
@@ -94,6 +102,31 @@ Run twice at that commit, both PASS 33/33 (server 1213 passed / 0 failed, client
     corrected instead of left lying, because a cub is deliberately NOT in the gate (Karen settled it
     the other way: a penalty). Verify: `Match.CONFIG.QUARRY_NOTE`/`POINTS.KIND.cub` and
     `tests/server/match_config.spec.luau`, case *"SAYS WHAT THE RULE REALLY IS"*.
+
+11. **THE TWO RULES NOW HAVE A DECIDED BOUNDARY, AND IT IS HIS BODY** -- the answer to the
+    dispatch's *"say how the two rules relate (no double handling)"*, which round 1 answered in
+    prose and the two-player run then tested. The game's rule: the aim ray **would hit him** ->
+    refused (no fire, no shell, no tie, no punishment); the ray **misses him** but the shot passes
+    within `SAFETY_MISS_STUDS` (12) of him inside the arc -> **fired, and he is tied**, which is what
+    the arc is for. No shot can be both: a refused shot returns before `Weapon.SafetyViolated`. The
+    sharp edge is deliberate and the reason is written down (softening it means either punishing the
+    refused shot, which Karen asked not to happen, or retiring the safety rule).
+    **No production code changed for this** -- both halves were already true; what changed is the
+    staging, so that the spec proves both instead of asserting one and staging the other:
+    * the real replayed click now aims `BESIDE_STUDS` = **5 studs** off the driver's body (11.3
+      degrees at 25 studs, deep inside the 45-degree half-arc, miss 5 of 12) -> fires and ties. **The
+      tie proof is not deleted and not weakened** -- same chain, same click, same assertions, pointed
+      at the shot the arc exists to punish;
+    * a **probe at the cue**, before the click and while the gun still exists, fires one
+      `FireRequest` dead at him -> refused. The client reads the server's own word for it off the
+      snapshot's new `refused` field (`beater-in-line`), with the gun print before and after proving
+      **no shell was spent**, and asserts that nobody was tied by it.
+    Verify: `tests/client/zz_tie_to_a_tree.spec.luau` -- its header, `onCue`'s probe, the aim loop's
+    `BESIDE_STUDS`, the new case *"refuses a shot aimed straight at a beater, and spends nothing
+    doing it"*, and the unchanged tie case after it. The `refused` field reaching a client is proved
+    here and only here (the server spec can only assert that the wire carries it, which is what
+    claim 8 says). **Needs `test2`:** in the one-player run both cases take their no-driver branch
+    (note: `one player, so no beater to refuse a shot at; probe not fired`).
 
 ## What could not be verified
 
