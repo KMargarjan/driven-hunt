@@ -5,12 +5,12 @@
 **The work is finished and measured.** Two clean-tree full runs at the code commit, **both with DEV
 alone, one Studio connected** (the Director's own condition -- the Forest Test closed -- after his
 gates at `b355b37` failed where two runs of mine had passed),
-`[harness] PASS: 33/33 checks @ 9c722c504fe0d77fcc06b25584de88526f45505e (clean tree) scope=all`
+`[harness] PASS: 33/33 checks @ 2ad0cc587bbe179aa71ee4eb85d097ad580e270b (clean tree) scope=all`
 (twice; server 1241/0, client 302/0), and `SMOKE PASS` in the Forest Test over 90 s (gun in hand at 15 s and at 90 s,
 `stacks=0 errorLines=0`, 5 waves, 22 boars, worst 1 boar sound at once). Everything else is in
 `reviews/task-174/REQUEST.md`.
 
-### NEEDS TEST2 174 `9c722c504fe0d77fcc06b25584de88526f45505e`
+### NEEDS TEST2 174 `2ad0cc587bbe179aa71ee4eb85d097ad580e270b`
 
 `src/server/Match/Phase.luau`, `src/server/Match/init.luau`, `src/server/MatchBoot.server.luau` and
 `tests/server/match_phase.spec.luau` are all in `TWO_PLAYER_PATHS`, so `tools/review.ps1 174`
@@ -26,7 +26,7 @@ only mean the whole suite -- which the harness tags `scope=all`. That is FULL ev
 **THE CLICKS, IN ORDER.** In the **DEV** Studio, in Edit: **Test tab -> Clients and Servers ->
 Players: 2 -> Start**, then leave the windows alone until the harness says to press **Cleanup**.
 `python tools/studio_mcp.py test2` drives the rest. Then paste the `[harness2] PASS: n/m checks @
-9c722c504fe0d77fcc06b25584de88526f45505e (clean tree)` line over the placeholder in
+2ad0cc587bbe179aa71ee4eb85d097ad580e270b (clean tree)` line over the placeholder in
 `reviews/task-174/REQUEST.md` (line 11) and run `powershell -ExecutionPolicy Bypass -File
 tools/review.ps1 174`.
 
@@ -50,6 +50,21 @@ what says the same for the driver-and-shooter pair, and that the tie still happe
   Unique key and an `os.clock()` base.
 
 No assertion was weakened and no `src/` file changed for either.
+
+### AND HIS `test2` AT `454d58a` (fixed at the commit above)
+
+`zz_tie_to_a_tree.spec:673` expected `beater-in-line` and got `off-stand`: the client read itself
+**0.0 studs** from its own stand centre while the SERVER's first rule still refused the shot, and the
+probe took its ONE attempt there. GO is also when `placePlayers` respawns everybody onto their posts,
+so the park and the respawn were in flight together. The probe now RETRIES while the server's own
+rule says `off-stand`, inside the unchanged window, and prints how many refusals it took and when the
+server agreed; the arc shot inherits the wait, because the aim only moves beside the driver once the
+probe has its answer. `:673` is untouched. The server's view of a client's root is published to no
+client, so its VERDICT is the read -- which is the gate's own predicate.
+
+One thing was tried and measured as wrong on the way: waiting a second for the respawned character to
+settle moved the cue +1 s, slid the `aim-hold` right-mouse into `camera_client`'s hand-pose case, and
+failed `camera_client.spec:1488` twice at `477d4d5`. Reverted; the reading is kept and printed.
 
 ### NOT A BLOCKER, FOR THE DIRECTOR TO NOTE
 

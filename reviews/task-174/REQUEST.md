@@ -3,11 +3,11 @@
 Task: 174
 Round: 1
 Base: `e7b4904` (`main`, #157 merged -- tasks 172 and 173)
-Code commit: `9c722c504fe0d77fcc06b25584de88526f45505e`
+Code commit: `2ad0cc587bbe179aa71ee4eb85d097ad580e270b`
 
 ```
-[harness] PASS: 33/33 checks @ 9c722c504fe0d77fcc06b25584de88526f45505e (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 9c722c504fe0d77fcc06b25584de88526f45505e (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 2ad0cc587bbe179aa71ee4eb85d097ad580e270b (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 2ad0cc587bbe179aa71ee4eb85d097ad580e270b (clean tree) scope=all
 [harness2] <<< THE DIRECTOR'S TWO-PLAYER LINE GOES HERE, for the same commit >>>
 ```
 
@@ -48,14 +48,45 @@ bug in my own new spec case. No assertion was weakened and no `src/` file change
   fresh one it is a few hundred, so the REAL cooldown refused it. **Unique key (`bot-beater-174`) and
   an `os.clock()` base**, so the pollution is impossible and a leaked stamp would be harmless anyway.
 
+## ...AND HIS `test2` AT `454d58a`: `zz_tie_to_a_tree.spec:673`, the SERVER's own stand rule
+
+His notes carry the whole thing: *"me 0.0 from the centre"* (the CLIENT) against *"refusals seen
+[off-stand x5]"* (the SERVER), and *"probe attempts: #1 answered=off-stand"* -- ONE attempt, taken
+while the server had not yet seen him parked. GO is also when `placePlayers` respawns everybody onto
+their posts, so the park and the respawn were in flight together.
+
+* **THE PROBE NOW RETRIES WHILE THE SERVER SAYS `off-stand`**, inside the unchanged `PROBE_WINDOW`.
+  `off-stand` is not an answer to this case's question -- it is the server saying it has not got him
+  there yet. **The wait is on the server's OWN VERDICT**, which is what you asked for and the only
+  read that cannot drift from the rule: `Rules.outsideStand` is computed from the SERVER's view of
+  his root, and that view is published to no client (the snapshot carries the stand CIRCLE and no
+  positions), so asking the gate is asking the gate. A probe aimed at his body can only ever be
+  REFUSED, and a refused attempt commits no state and costs no shell -- which is why asking again is
+  free. **`:673` is untouched**; it is now asserted of a shot taken from where the server could see
+  him, and if the server never agrees inside the window the case FAILS with every attempt in the
+  note. The case waits for `probeDone` (the loop's own last line) instead of for the first answer.
+* **THE ARC SHOT INHERITS THAT WAIT.** The aim only moves beside the driver on `probeDone`, so the
+  click that ties him is taken after the server agreed as well -- one wait, before both shots.
+* **THE MISSING NUMBER IS NOW PRINTED:** how many `off-stand` refusals the server's own rule took,
+  when it agreed (seconds after the cue), the client's own distance and the stand radius.
+* **ONE THING I TRIED AND MEASURED AS WRONG, AND IT IS WHY `477d4d5` IS NOT THE CODE COMMIT.** Making
+  `InputReady` also wait a second for the respawned character to settle moved the cue from `+19.4 s`
+  to `+20.4 s`; the client suite RUNS WHILE THE REPLAY PLAYS, so that second slid the `aim-hold`
+  scenario's right-mouse into `camera_client`'s hand-pose case, whose viewmodel clone the live camera
+  re-drew under it -- `camera_client.spec:1488` failed on a `< 1e-3` stud comparison in **both** runs
+  at `477d4d5` having passed in both at `9c722c5`. Reverted to waiting on the drive alone; the
+  character reading is KEPT and printed (`character=settled` in every note since), which is also the
+  evidence that the wait was never what fixed anything.
+
 ## What changed
 
 `src/server/Match/Phase.luau` (`Phase.driveOpen`), `src/server/Match/init.luau` (`Match.driveOpen`,
 `mayBlowHorn`, `botsMayGo`), `src/server/Weapon/Rules.luau` (rule 4), `src/server/Weapon/init.luau`
 (`setDriveOpenProvider`), both composition roots (`MatchBoot.server.luau`,
 `ForestTestBoot.server.luau`), `src/server/Bots/init.luau` (one data number), and four specs
-(`match_phase`, `weapon_rules`, `zz_horn`, `bots_live`), plus `tests/client/InputReady.luau` and
-`tests/client/weapon_client.spec.luau` for the round above. **No client `src/` file at all:** the
+(`match_phase`, `weapon_rules`, `zz_horn`, `bots_live`), plus `tests/client/InputReady.luau`,
+`tests/client/weapon_client.spec.luau` and `tests/client/zz_tie_to_a_tree.spec.luau` for the two
+rounds above. **No client `src/` file at all:** the
 refusal reason and its one-line notice already travel on the wire (task 171).
 
 ## Claims
@@ -125,6 +156,12 @@ refusal reason and its one-line notice already travel on the wire (task 171).
     fields the Hud already reads, and it decides exactly one thing: WHEN THE TEST FIRES. It allows
     nothing and refuses nothing.
 
+12. **THE PROBE'S WAIT IS THE SERVER'S OWN ANSWER, BOUNDED, AND MEASURED.** **Verify:** the retry
+    and its comment in `tests/client/zz_tie_to_a_tree.spec.luau` (the `answered == "off-stand"`
+    branch), the `probeDone` wait in the same case, and its two new notes. **It is a two-player
+    claim** -- with one player the probe is not fired at all (`driver() == nil`), which both of this
+    round's runs say in the log -- so the `[harness2]` line is what proves it.
+
 ## What this Builder could NOT verify
 
 * **The two-player run.** See the top of this file and `ESCALATE.md`.
@@ -138,8 +175,8 @@ refusal reason and its one-line notice already travel on the wire (task 171).
 
 ## Gate
 
-* `[harness] PASS: 33/33 ... @ 9c722c5 (clean tree) scope=all` -- **twice**, both with **DEV alone,
-  one Studio connected** (the Director's own condition, the Forest Test closed), logs kept. Server
+* `[harness] PASS: 33/33 ... @ 2ad0cc5 (clean tree) scope=all` -- **twice**, both with **DEV alone,
+  one Studio connected** (cue `+19.3 s` / `+19.4 s`, `open=true character=settled`) (the Director's own condition, the Forest Test closed), logs kept. Server
   1241 passed / 0 failed, client 302 / 0.
 * The failures this round fixed are above. Two earlier FAILs are on the record and both were this
   task's: 31/33 at `c9a6a3c` (`END_ON_BEATERS_CROSS` is off by default, so the line's ending did not
