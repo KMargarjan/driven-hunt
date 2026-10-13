@@ -1111,14 +1111,24 @@ return function()
 				return open
 			end)
 			local key = HornTool.keyFor(152014)
-			local t0 = 7000
+			-- TWO KEYS NOBODY ELSE IN THIS FILE USES, AND A CLOCK THAT IS NOT IN THE FUTURE -- which
+			-- is the Director's `test2` failure at `b355b37`, found and fixed here. `Weapon.Horn`
+			-- keeps ONE module-level cooldown table for the whole server, so a case that blows a key
+			-- at a hand-picked `t0` leaves that stamp behind for every later case: this case blew
+			-- `bot-beater-2` at 7000, and the bot cooldown case further down blows the same key at
+			-- `os.clock()`. In a Studio that had been open for hours `os.clock()` is past 7001.5 and
+			-- the blast is allowed; in a fresh one it is a few hundred, so `readyAt` refused it and
+			-- `zz_horn.spec:1616` failed with nothing wrong in the game. Unique keys make the
+			-- pollution impossible, and an `os.clock()` base makes a leaked stamp harmless anyway.
+			local botKey = "bot-beater-174"
+			local t0 = os.clock()
 			local before = HornTool.stats().refusedThrough
 
 			expect(HornTool.mayBlow(key)).to.equal(false)
 			expect(HornTool.blow(player, t0)).to.equal(false)
 			-- A BOT IS THE SAME DOOR AND THE SAME ANSWER: `Bots.blowFor` calls `blowTool`, so a line
 			-- of bots cannot announce a drive that has not started either.
-			expect(HornTool.blowTool(tool, "bot-beater-2", nil, t0)).to.equal(false)
+			expect(HornTool.blowTool(tool, botKey, nil, t0)).to.equal(false)
 			task.wait()
 			expect(#heard).to.equal(0)
 			expect(HornTool.stats().refusedThrough).to.equal(before + 2)
@@ -1131,7 +1141,7 @@ return function()
 			-- GO. The same click, the same instant, and now it sounds -- for the man and for the bot.
 			open = true
 			expect(HornTool.blow(player, t0)).to.equal(true)
-			expect(HornTool.blowTool(tool, "bot-beater-2", nil, t0)).to.equal(true)
+			expect(HornTool.blowTool(tool, botKey, nil, t0)).to.equal(true)
 			task.wait()
 			expect(#heard).to.equal(2)
 
