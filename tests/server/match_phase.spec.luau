@@ -1701,7 +1701,15 @@ return function()
 		-- (`Match.botsMayGo`) all read, so this case states the WINDOW once, against the real machine
 		-- and both of its endings, instead of three gates each stating it in its own words.
 		it("opens the drive at GO and shuts it at the end, by the clock and by the line (task 174)", function()
-			local cfg = config({ MIN_PLAYERS = 4, BOARS_PER_DRIVE = 0, GO_HOLD_SECONDS = 2 })
+			-- `END_ON_BEATERS_CROSS` IS ON HERE because this case asserts BOTH endings, and the
+			-- line's own ending is behind that switch (task 159: *"all of nobody is through"* is true
+			-- in arithmetic, so a drive with no beater in it must end on the clock).
+			local cfg = config({
+				MIN_PLAYERS = 4,
+				BOARS_PER_DRIVE = 0,
+				GO_HOLD_SECONDS = 2,
+				END_ON_BEATERS_CROSS = true,
+			})
 			local state = assigning(cfg)
 			-- THE COUNTDOWN. The start signal has not sounded, so nothing is open -- and this is the
 			-- half of Karen's rule the horn needed: a beater is already held still here (task 158).
