@@ -481,8 +481,13 @@ local lobbyOn = Lobby.start({
 	--   dress        `Match.Body.dress` -- the ONE owner of what anybody in this game wears, and the
 	--                shopkeeper (task 181) is dressed by the same call the bots and the players are.
 	--                `Lobby` never learns what an outfit is; it hands over a Model and a team.
+	--   shopOn       the `SHOP` flag, read ONCE here and passed inward (CLAUDE.md, feature flags).
+	--                It decides one thing: whether the keeper's prompt is live. With the shop off
+	--                his panel is dead, and a "Press E" over a man who answers nothing is worse
+	--                than no prompt at all. `Shop.start` below reads the same flag for the door.
 	dress = Body.dress,
 	dressConfig = Match.CONFIG,
+	shopOn = ShopData.isOn(),
 	groundAt = Data.groundAt,
 	terrain = Workspace.Terrain,
 	now = function()

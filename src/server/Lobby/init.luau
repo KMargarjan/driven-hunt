@@ -184,6 +184,7 @@ local function tryBuild(): boolean
 		rig = world.rig or Build.defaultRigSource,
 		dress = world.dress,
 		dressConfig = world.dressConfig,
+		shopOn = world.shopOn,
 	})
 	local built = Build.stats()
 	stats.models = built.models

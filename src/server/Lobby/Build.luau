@@ -67,6 +67,12 @@ export type Seams = {
 	rig: ((HumanoidDescription, Enum.HumanoidRigType) -> Model?)?,
 	dress: ((Model, string, any, any) -> boolean)?,
 	dressConfig: any?,
+	-- IS THE SHOP IN THIS BUILD AT ALL? The `SHOP` flag's value, read ONCE at the composition root
+	-- and passed inward (CLAUDE.md, feature flags), because this module must not learn what a shop
+	-- is. It decides one thing: whether the keeper's prompt is `Enabled`. With the shop off the
+	-- panel is dead, and a live "Press E" over a man who answers nothing is worse than no prompt.
+	-- nil is "nobody said", which is a prompt that works -- the state a spec builds in.
+	shopOn: boolean?,
 }
 
 -- WHAT THE LAST BUILD MADE. The module never prints: a tool that `require`s it over StudioMCP gets a
@@ -662,7 +668,7 @@ local function shopkeeper(shop: Instance, counterAt: Vector3, floorY: number, cf
 	prompt.HoldDuration = keep.PROMPT.HOLD_SECONDS
 	prompt.MaxActivationDistance = keep.PROMPT.MAX_DISTANCE
 	prompt.RequiresLineOfSight = keep.PROMPT.REQUIRES_LINE_OF_SIGHT
-	prompt.Enabled = true
+	prompt.Enabled = if seams ~= nil and seams.shopOn ~= nil then seams.shopOn == true else true
 	prompt.Parent = at
 
 	-- THE CLOTHES, THROUGH THE ONE DRESSING PATH IN THIS REPOSITORY (`Match.Body.dress`, handed in

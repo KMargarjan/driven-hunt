@@ -1033,6 +1033,23 @@ return function()
 			bare:Destroy()
 		end)
 
+		-- THE FLAG, READ AT THE ROOT AND PASSED INWARD, decides one thing here: whether the prompt is
+		-- live. With `SHOP` off the panel is dead, and a "Press E" over a man who answers nothing is
+		-- worse than no prompt.
+		it("hangs a DEAD prompt on him when the shop is not in this build", function()
+			local off = Instance.new("Folder")
+			off.Name = "LobbyShopOffSpecWorld"
+			off.Parent = Workspace
+			local made = Build.build(off, Vector3.new(0, 100, 0), CFG, nil, { rig = fakeRig, shopOn = false })
+			local prompt = made:FindFirstChild(Data.PROMPT_NAME, true) :: ProximityPrompt
+			expect(prompt).to.be.ok()
+			expect(prompt.Enabled).to.equal(false)
+			-- ...and the MAN is still there. He is scenery as well as a door, and a lodge that
+			-- empties itself when a flag goes off is a second thing for Karen to notice.
+			expect(made:FindFirstChild(Data.KEEPER_NAME, true)).to.be.ok()
+			off:Destroy()
+		end)
+
 		it("holds no script anywhere in his body", function()
 			local body = folder:FindFirstChild(Data.KEEPER_NAME, true) :: Model
 			for _, descendant in ipairs(body:GetDescendants()) do
