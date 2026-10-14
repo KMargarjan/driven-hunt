@@ -395,9 +395,19 @@ return function()
 			expect(Shop.grantsDriveGun(nil)).to.equal(false)
 			expect(Shop.grantsDriveGun({})).to.equal(false)
 			expect(Shop.grantsDriveGun({ [Shop.ITEM.BEATER_LICENCE] = true })).to.equal(true)
-			-- AND THE DRIVE ASKS EXACTLY THAT QUESTION. `Match.mayCarryWeapon` with no economy wired
-			-- is this function with nil -- which is the game before task 178.
-			expect(Match.mayCarryWeapon).to.be.a("function")
+			-- AND THE DRIVE ASKS EXACTLY THAT QUESTION, through its own pure `Match.mayCarryFor` --
+			-- which is where the four cases that can FAIL live (`match_teams.spec`, "a beater may
+			-- carry a gun only with the licence"), because the Reviewer's round-1 finding was that
+			-- this line proved nothing: it would pass with the whole feature deleted.
+			expect(
+				Match.mayCarryFor({ phase = "Running", team = "Drivers", owned = nil }, { DRIVERS_MAY_SHOOT = false })
+			).to.equal(false)
+			expect(
+				Match.mayCarryFor(
+					{ phase = "Running", team = "Drivers", owned = { [Shop.ITEM.BEATER_LICENCE] = true } },
+					{ DRIVERS_MAY_SHOOT = false }
+				)
+			).to.equal(true)
 		end)
 
 		it("colours the hat only when a hat is bought", function()

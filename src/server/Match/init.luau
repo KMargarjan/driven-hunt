@@ -1935,44 +1935,90 @@ function Match.driveLine()
 	return if markerSet then markerSet.line else nil
 end
 
+-- WHAT A PLAYER HAS BOUGHT, for the one question this owner asks about it (task 178). Set by
+-- `Match.start` from `world.economy.ownedOf`, and OVERRIDABLE -- `Weapon.setArmingPolicy`'s exact
+-- shape, including handing back the one it replaces, *"so a caller that needs the policy for the
+-- length of one test can put the real one back without knowing who installed it or what it was"*
+-- (task 150).
+--
+-- IT EXISTS AS A SEAM BECAUSE THE RULE COULD NOT OTHERWISE BE TESTED AT ALL, and the Reviewer's
+-- round-1 finding is the record of that: `Match` is a SINGLETON that `MatchBoot` has already
+-- started and `Match.start` asserts *"called twice"*, so no spec in this repository can start a
+-- second drive with its own economy injected -- which is what `docs/design/shop.md` section 12.2
+-- asked for. This is the seam that makes the live `mayCarryWeapon` drivable instead.
+local ownedProvider: ((userId: number) -> { [string]: boolean }?)? = nil
+
+function Match.setOwnedProvider(provider: ((userId: number) -> { [string]: boolean }?)?)
+	local previous = ownedProvider
+	ownedProvider = provider
+	return previous
+end
+
+-- THROUGH A pcall, the rule every provider in this repo follows: a provider that errors must not
+-- leave a man permanently unarmed and must not silently arm everybody. It falls back to nil, which
+-- is "nobody answered" -- and for THIS reader nil means REFUSED, because today a beater carries no
+-- gun (docs/design/shop.md section 7.1).
+local function askOwned(userId: number): { [string]: boolean }?
+	if ownedProvider == nil then
+		return nil
+	end
+	local ok, owned = pcall(ownedProvider :: any, userId)
+	return if ok and type(owned) == "table" then owned else nil
+end
+
+-- PURE, and the whole of the decision. The shape `Match.unassignTargets`, `Match.botSlotsFor`,
+-- `Match.quickSpawnFor` and `Match.pushCreditWithin` already have, for the reason the first of them
+-- states: *"so the rule is a table of cases in a spec rather than a branch nobody can reach"*.
+--
+-- THE BEATER'S LICENCE IS THE LAST LINE (task 178). KAREN, 2026-10-10: a beater *"can purchase
+-- license to shoot in drive"*. It is the same branch `DRIVERS_MAY_SHOOT` opens, so nothing new about
+-- the drive is decided here -- and `Shop.grantsDriveGun(nil)` is FALSE, so a world that wired no
+-- economy answers exactly what this function answered before task 178.
+--
+-- IT BUYS HIM A GUN AND NOT AN EXEMPTION: `Rules.beaterInLine` still refuses him a shot AT a beater
+-- (`classifyTarget` reads the roster and knows nothing about entitlements) and `Match.Penalty.judge`
+-- still ties him for an unsafe one -- which that file already anticipated (*"the design says there
+-- is no exception to write then"*).
+export type CarryFacts = {
+	phase: string?,
+	tied: boolean?,
+	team: string?,
+	owned: { [string]: boolean }?,
+}
+
+function Match.mayCarryFor(facts: CarryFacts, cfg): boolean
+	if facts.phase == "Waiting" then
+		return false
+	end
+	if facts.tied == true then
+		return false
+	end
+	if facts.team == "Shooters" then
+		return true
+	end
+	if facts.team ~= "Drivers" then
+		return false
+	end
+	if cfg.DRIVERS_MAY_SHOOT then
+		return true
+	end
+	return Shop.grantsDriveGun(facts.owned)
+end
+
 -- The weapon still decides and still writes; this only answers the question.
+--
+-- IT GATHERS THE FOUR FACTS AND DECIDES NOTHING, which is `Weapon.Rules.refuse`'s own division and
+-- is what makes the rule assertable. The ownership read is OUTSIDE the team branch on purpose: a
+-- spec can then prove that this function really asks (a tripwire provider, `match_teams.spec`),
+-- which the round-1 shape made impossible -- the read sat behind a Driver assignment no spec can
+-- produce in the live drive. The cost is one table read per armable player per sweep.
 function Match.mayCarryWeapon(player: Player): boolean
-	if state.phase == "Waiting" then
-		return false
-	end
-	if tied[player.UserId] then
-		return false
-	end
-	local team = state.assignment[player.UserId]
-	if team == "Shooters" then
-		return true
-	end
-	if team ~= "Drivers" then
-		return false
-	end
-	if config.DRIVERS_MAY_SHOOT then
-		return true
-	end
-	-- THE BEATER'S LICENCE (task 178). KAREN, 2026-10-10: a beater *"can purchase license to shoot in
-	-- drive"*. One fact in -- what he owns, off the economy's read-only view -- and one PURE question
-	-- about it; the same branch `DRIVERS_MAY_SHOOT` opens, so nothing new about the drive is decided
-	-- here.
-	--
-	-- A WORLD WITH NO ECONOMY WIRED ANSWERS EXACTLY WHAT THIS FUNCTION ANSWERED BEFORE TASK 178:
-	-- `Shop.grantsDriveGun(nil)` is FALSE, which is the one reader whose default is "refused",
-	-- because today a beater carries no gun (docs/design/shop.md section 7.1). Every
-	-- `tests/server/match_*.spec.luau` that injects no economy is untouched.
-	--
-	-- IT BUYS HIM A GUN AND NOT AN EXEMPTION: `Rules.beaterInLine` still refuses him a shot AT a
-	-- beater (`classifyTarget` reads the roster and knows nothing about entitlements) and
-	-- `Match.Penalty.judge` still ties him for an unsafe one -- which that file already anticipated
-	-- (*"the design says there is no exception to write then"*).
-	local owned = nil
-	if world and world.economy and world.economy.ownedOf then
-		local ok, set = pcall(world.economy.ownedOf, player.UserId)
-		owned = if ok then set else nil
-	end
-	return Shop.grantsDriveGun(owned)
+	return Match.mayCarryFor({
+		phase = state.phase,
+		tied = tied[player.UserId] ~= nil,
+		team = state.assignment[player.UserId],
+		owned = askOwned(player.UserId),
+	}, config)
 end
 
 -- -------------------------------------------------- the answers the fire gate needs (171, and 174)
@@ -2797,6 +2843,9 @@ function Match.start(injected)
 	-- `Phase.initial` seeds `seed` from the config, so merging after it would seed the state from the
 	-- wrong table. With no `config` field this is `Match.CONFIG` itself, by identity.
 	config = Match.mergeConfig(Match.CONFIG, world.config)
+	-- WHAT A PLAYER HAS BOUGHT, from the economy's read-only view (task 178). nil when no economy
+	-- was injected, which is every spec that starts no money and is the game before this task.
+	ownedProvider = if world.economy and world.economy.ownedOf then world.economy.ownedOf else nil
 	-- `~= false` IS THE IDIOM THIS FUNCTION ALREADY USES for `world.remotes` and `world.heartbeat`:
 	-- a world that injects nothing is unchanged (task 177).
 	autoEnrol = world.enrol ~= false
@@ -2879,6 +2928,9 @@ function Match.stop()
 	-- ...AND NOR DOES ITS ENROLMENT SWITCH (task 177): a spec that started a lobby world must not
 	-- leave the next require of this singleton refusing to enrol anybody who joins.
 	autoEnrol = true
+	-- ...NOR THE OWNERSHIP READ (task 178): a stopped drive must not keep asking a dead economy what
+	-- a player has bought, and nil is the answer that leaves a beater exactly as he was.
+	ownedProvider = nil
 	if heartbeat then
 		heartbeat:Disconnect()
 		heartbeat = nil

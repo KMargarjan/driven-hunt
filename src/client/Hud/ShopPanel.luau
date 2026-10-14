@@ -232,7 +232,11 @@ local function build(frame: Frame)
 	(balance :: TextLabel).TextColor3 = ShopPanel.LOOK.COIN_COLOR
 
 	table.clear(rows)
-	for index = 1, CONFIG.MAX_ITEMS do
+	-- ONE NUMBER DECIDES BOTH THE ROWS AND THE RECTANGLE (the Reviewer's round-1 note). It built
+	-- `MAX_ITEMS` (8) rows into a frame sized `heightFor(#Shop.ORDER)` (5), so a sixth catalogue row
+	-- would have been drawn over the footer and a seventh outside the frame, silently. The cap is
+	-- still the catalogue's own invariant (`Shop.rowsOk` refuses more than `MAX_ITEMS`).
+	for index = 1, #ShopData.ORDER do
 		local row = Instance.new("Frame")
 		row.Name = string.format("Row%d", index)
 		row.BackgroundColor3 = ShopPanel.LOOK.ROW_COLOR

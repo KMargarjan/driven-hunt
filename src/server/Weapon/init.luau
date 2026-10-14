@@ -1319,7 +1319,11 @@ function Weapon.start()
 					-- instrument this repo has for "a player who should be holding a gun and is
 					-- not" (`reviews/task-34/REQUEST.md`: *"armingRepairs has been 0 in every run
 					-- since"*).
-					for _, id in ipairs(Weapons.loadout()) do
+					-- HIS OWN LIST (task 178, the Reviewer's round-1 note), not the flag's whole one: with the
+					-- shop on, a player who has not bought the rifle is CORRECTLY not holding one, and asking the
+					-- unnarrowed list counted him as a repair on every sweep -- destroying the one instrument
+					-- this counter exists to be ("a player who should be holding a gun and was not").
+					for _, id in ipairs(Weapons.loadout(askOwned(player))) do
 						if not holdsTool(player, id) then
 							stats.armingRepairs += 1
 						end

@@ -227,7 +227,15 @@ return function()
 			local players = fakePlayers(opts.ids or { 1, 2 })
 			local store = Store.memory({ seed = opts.seed, refuse = opts.refuse })
 			Economy.stop() -- never inherit another case's state
-			Economy.start({ store = store, players = players, enabled = opts.enabled ~= false })
+			Economy.start({
+				store = store,
+				players = players,
+				enabled = opts.enabled ~= false,
+				-- `false` BY DEFAULT, NOT nil: nil would ask the two production facts, and one of
+				-- them is `RunService:IsStudio()`, which is ALWAYS true in a harness run. A case that
+				-- wants the grant says so (task 178).
+				testGrant = if opts.testGrant ~= nil then opts.testGrant else false,
+			})
 			return players, store
 		end
 
@@ -632,6 +640,86 @@ return function()
 			expect(Economy.ownedOf(209)).to.equal(nil)
 			expect(Economy.huntsOf(209)).to.equal(nil)
 			expect(Economy.balanceOf(209)).to.equal(nil)
+		end)
+
+		-- ------------------------------------------------------- the Studio test grant (task 178)
+		--
+		-- THE DIRECTOR, 2026-10-14: in Studio the store is the in-memory one and every session starts
+		-- a player at nought, so with `SHOP` on Karen can walk up to the counter and afford nothing
+		-- she is meant to try. This is the staging fixture for that, and the cases below are the
+		-- evidence that it cannot reach a live server.
+		it("is impossible on a live server, whatever the attribute says", function()
+			-- THE ONE ASSERTION THAT MATTERS. Inside Studio `IsStudio()` is always true, so this
+			-- pure predicate is the only shape in which the live branch is provable at all --
+			-- `Economy.storeKindFor`'s own argument, and the same fact gates both: where a grant is
+			-- possible nothing is saved, and where something is saved no grant is possible.
+			expect(Economy.testGrantFor(false, true)).to.equal(nil)
+			expect(Economy.testGrantFor(false, false)).to.equal(nil)
+			-- ...and in Studio it needs the attribute to be the BOOLEAN true: a stale `false`, a
+			-- string, a number or nothing at all grants nobody anything.
+			expect(Economy.testGrantFor(true, nil)).to.equal(nil)
+			expect(Economy.testGrantFor(true, false)).to.equal(nil)
+			expect(Economy.testGrantFor(true, "true")).to.equal(nil)
+			expect(Economy.testGrantFor(true, 1)).to.equal(nil)
+			local grant = Economy.testGrantFor(true, true)
+			expect(grant).to.be.ok()
+			expect((grant :: any).coins).to.equal(Economy.CONFIG.TEST_GRANT.coins)
+			expect((grant :: any).hunts).to.equal(Economy.CONFIG.TEST_GRANT.hunts)
+			-- IT IS NOT A `DHFlag_`, and that is deliberate: it is a test fixture, the shape
+			-- `DHForestStartRole` has, not a feature switch that `tools/flags.py` clears and the
+			-- harness refuses to run against.
+			expect(Economy.TEST_GRANT_ATTRIBUTE).to.equal("DHShopTestGrant")
+			expect(string.find(Economy.TEST_GRANT_ATTRIBUTE, "DHFlag_", 1, true)).to.equal(nil)
+			-- ...AND IT UNLOCKS THE WHOLE CATALOGUE WITHOUT BUYING ANY OF IT: 2000 coins covers
+			-- every row that is for sale and 25 hunts is the highest gate.
+			local total, highest = 0, 0
+			for _, id in ipairs(Shop.ORDER) do
+				local item = Shop.ROWS[id]
+				if item.sale then
+					total += item.price
+				end
+				highest = math.max(highest, item.hunts)
+			end
+			expect(Economy.CONFIG.TEST_GRANT.coins >= total).to.equal(true)
+			expect(Economy.CONFIG.TEST_GRANT.hunts >= highest).to.equal(true)
+		end)
+
+		it("tops a Studio session up without buying anything or saving anything", function()
+			local _, store = started({
+				ids = { 301, 302 },
+				-- 302 has already earned more than the grant and walked more drives than it gives.
+				seed = { [301] = { coins = 5 }, [302] = { coins = 9000, drivesPaid = 40 } },
+				testGrant = { coins = 2000, hunts = 25 },
+			})
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(301) ~= nil and Economy.balanceOf(302) ~= nil
+			end)).to.equal(true)
+			-- RAISED, not set: the poor man is topped up...
+			expect(Economy.balanceOf(301)).to.equal(2000)
+			expect(Economy.huntsOf(301)).to.equal(25)
+			-- ...and the rich one keeps everything he earned.
+			expect(Economy.balanceOf(302)).to.equal(9000)
+			expect(Economy.huntsOf(302)).to.equal(40)
+			expect(Economy.stats().testGrants).to.equal(2)
+			-- NOTHING IS BOUGHT FOR HIM: every item is still a button he has to press.
+			expect(next(Economy.ownedOf(301))).to.equal(nil)
+			-- ...AND NOTHING IS SAVED. The grant touches the in-memory copy only, so the key still
+			-- holds what he really earned.
+			expect(store.calls().save).to.equal(0)
+			expect(store.peek(301).coins).to.equal(5)
+			-- ...and he can now buy what the shop sells, which is the whole point of the fixture.
+			expect(Economy.purchase(301, Shop.ITEM.RIFLE, { atCounter = true }).ok).to.equal(true)
+			expect(Economy.balanceOf(301)).to.equal(500)
+		end)
+
+		it("grants nothing when it is not asked for, which is every harness run", function()
+			started({ ids = { 303 }, seed = { [303] = { coins = 5 } } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(303) ~= nil
+			end)).to.equal(true)
+			expect(Economy.balanceOf(303)).to.equal(5)
+			expect(Economy.huntsOf(303)).to.equal(0)
+			expect(Economy.stats().testGrants).to.equal(0)
 		end)
 
 		it("refuses to start twice", function()

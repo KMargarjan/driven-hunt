@@ -34,6 +34,10 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+-- For ONE read, once, in `Economy.start`: the Studio-only test grant's attribute (task 178, the
+-- Director). `ServerStorage` is server-only and never replicates, which is the same door
+-- `DHFlag_*` and `DHForestStartRole` already come through.
+local ServerStorage = game:GetService("ServerStorage")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
@@ -94,6 +98,18 @@ Economy.CONFIG = {
 	-- The bound on `closeAll`, inside `BindToClose`'s own window. A shutdown that cannot end every
 	-- session says how many it could not, rather than hanging.
 	CLOSE_TIMEOUT_SECONDS = 20,
+
+	-- ------------------------------------------------------------------ the Studio test grant (178)
+	--
+	-- WHY IT EXISTS (the Director, 2026-10-14): in Studio the store is the IN-MEMORY one, always, so
+	-- every session starts a player at nought -- and with `SHOP` on Karen can walk up to the counter
+	-- and afford nothing she is meant to try. A drive is 300 seconds and pays ~20-60 coins, so
+	-- earning the 1500-coin rifle in a playtest is forty drives.
+	--
+	-- 2000 COINS buys the whole catalogue that is for sale (80 + 120 + 250 + 1500 = 1950) with fifty
+	-- to spare, and 25 HUNTS is exactly the highest gate (the scoped rifle's), so every rung is
+	-- unlocked and nothing is bought FOR her -- she still presses every button and sees every state.
+	TEST_GRANT = { coins = 2000, hunts = 25 },
 }
 Drive.deepFreeze(Economy.CONFIG)
 
@@ -128,6 +144,10 @@ local paidUpTo = 0
 
 local store: Store? = nil
 local players: any = nil
+-- THE STUDIO TEST GRANT for this session, resolved ONCE at `Economy.start`'s boundary and passed
+-- inward -- the shape a flag read has, and what keeps both branches reachable by parameter. nil is
+-- every live server and every harness run.
+local testGrant: { coins: number, hunts: number }? = nil
 local enabled = false
 local started = false
 local connections: { RBXScriptConnection } = {}
@@ -158,6 +178,9 @@ local stats = {
 	closeTimeouts = 0,
 	-- THE SHOP (task 178). A granted purchase, a refused one, what was spent, and which rule said
 	-- no -- the split `Weapon.stats` makes between a refusal and a forgery, on this side of the door.
+	-- How many players this session's Studio test grant topped up. 0 in every live server and in
+	-- every harness run, by construction.
+	testGrants = 0,
 	purchases = 0,
 	purchasesRefused = 0,
 	coinsSpent = 0,
@@ -198,6 +221,41 @@ end
 -- write a live DataStore key even with *Enable Studio Access to API Services* on.
 function Economy.storeKindFor(isStudio: boolean): string
 	return if isStudio then "memory" else "live"
+end
+
+-- THE STUDIO TEST GRANT'S ATTRIBUTE, on `ServerStorage` (task 178, the Director).
+--
+-- IT IS DELIBERATELY NOT A `DHFlag_`, and the difference is the point: a `DHFlag_` is a FEATURE
+-- SWITCH -- `tools/flags.py` writes and clears them, both harness modes REFUSE to start while one
+-- is set, and the publish step strips them (TASKS.md task 2) -- and this is not a feature. It is a
+-- TEST FIXTURE, the shape `DHForestStartRole` already has: a thing the Director sets in one Studio
+-- to stage a playtest.
+--
+-- WHY IT CANNOT LEAK INTO A LIVE SERVER, in two halves, and only one of them has to hold:
+--   1. `RunService:IsStudio()` IS FALSE ON EVERY LIVE SERVER. It is the SAME predicate that already
+--      decides which store a run takes (`Economy.storeKindFor`), so the grant and the in-memory
+--      store are gated on one fact: where a grant is possible, nothing is saved, and where
+--      something is saved, no grant is possible. `Economy.testGrantFor(false, true)` is nil, and
+--      `economy.spec` asserts exactly that -- which is the only shape in which the live branch is
+--      provable at all from inside Studio (`Match.quickTestEnabled`'s own argument).
+--   2. The attribute lives on `ServerStorage`, which never replicates, so no client can set it and
+--      no client can read it.
+-- THE COST IS STATED RATHER THAN DISCOVERED: because it is not a `DHFlag_`, the harness does NOT
+-- refuse to run while it is set, so a DEV place carrying it would run the suite with granted coins.
+-- That is why the grant is also INJECTED (`world.testGrant`) and every spec drives it by parameter,
+-- and why the one place it is ever set is the Forest Test Studio.
+Economy.TEST_GRANT_ATTRIBUTE = "DHShopTestGrant"
+
+-- PURE, and exported for `storeKindFor`'s reason: inside Studio `IsStudio()` is always true, so this
+-- is the only way to assert that a live server can never grant anything, however the attribute got
+-- there. BOTH halves are required and the attribute must be the boolean `true` -- a string "true",
+-- a 1 or a stale `false` grants nothing.
+function Economy.testGrantFor(isStudio: boolean, attribute: any, config): { coins: number, hunts: number }?
+	if not isStudio or attribute ~= true then
+		return nil
+	end
+	local grant = (config or Economy.CONFIG).TEST_GRANT
+	return { coins = grant.coins, hunts = grant.hunts }
 end
 
 -- ------------------------------------------------------------------------------- reads
@@ -357,7 +415,10 @@ end
 
 -- ------------------------------------------------------------------------------- the purchase
 
-export type Receipt = {
+-- NOT `Receipt`, which this module already exports for a PAY-OUT (the Reviewer's round-1 note):
+-- two type declarations of one name in one file make `payDrive`'s annotated return ambiguous to a
+-- reader, even though types are erased at run time.
+export type PurchaseReceipt = {
 	ok: boolean,
 	item: string?,
 	price: number?,
@@ -384,7 +445,7 @@ export type Receipt = {
 -- `facts.atCounter` IS THE DOOR'S MEASUREMENT, passed in because this owner reads no Instance at
 -- all (its own header). nil means "nobody measured", which does not refuse -- the rule `Weapon`'s
 -- gate applies to every injected fact.
-function Economy.purchase(userId: number, itemId: any, facts: { atCounter: boolean? }?): Receipt
+function Economy.purchase(userId: number, itemId: any, facts: { atCounter: boolean? }?): PurchaseReceipt
 	local reason, number = ShopData.refuse({
 		itemId = itemId,
 		coinsOn = enabled,
@@ -433,7 +494,7 @@ end
 --
 -- `atCounter` IS DELIBERATELY NOT PASSED. The reach is the DOOR's rule, measured per request; a
 -- panel that greyed every button the moment he stepped back would be a second reader of it.
-function Economy.shopStateFor(userId: number, receipt: Receipt?): ShopData.State
+function Economy.shopStateFor(userId: number, receipt: PurchaseReceipt?): ShopData.State
 	local balance = balances[userId]
 	local hunts = huntsCache[userId] or 0
 	return {
@@ -507,6 +568,16 @@ function Economy.load(player: Player)
 		ownedSets[userId] = if type(data.owned) == "table" then table.clone(data.owned) else {}
 		huntsCache[userId] = if type(data.drivesPaid) == "number" then data.drivesPaid else 0
 		earnedTotals[userId] = if type(data.coinsEarnedTotal) == "number" then data.coinsEarnedTotal else 0
+		-- THE STUDIO TEST GRANT (task 178), applied to the IN-MEMORY copy and never saved: in Studio
+		-- the store is the memory one anyway, so there is nothing to persist and nothing to undo.
+		-- It RAISES rather than sets, so a player who has already earned more keeps what he earned,
+		-- and it buys nothing for him -- every item is still a button he has to press.
+		local grant = testGrant
+		if grant ~= nil then
+			balances[userId] = math.max(balances[userId], grant.coins)
+			huntsCache[userId] = math.max(huntsCache[userId], grant.hunts)
+			stats.testGrants += 1
+		end
 	end)
 end
 
@@ -623,6 +694,10 @@ export type World = {
 	store: Store?,
 	players: any?,
 	enabled: boolean?,
+	-- THE STUDIO TEST GRANT (task 178): a table to grant it, `false` to refuse it whatever the
+	-- attribute says, nil to ask the two production facts. Every spec passes one of the first two,
+	-- which is what keeps both branches reachable while the attribute is set in one Studio only.
+	testGrant: any?,
 }
 
 -- NOTHING HAPPENS ON REQUIRE. `injected.enabled` is what makes both branches of the flag reachable
@@ -633,6 +708,18 @@ function Economy.start(injected: World?)
 	local world = injected or {}
 	enabled = if world.enabled ~= nil then world.enabled else Economy.CONFIG.ENABLED
 	players = world.players or Players
+	-- THE ONE READ OF THE TEST GRANT, at this owner's boundary, passed inward exactly as the flag
+	-- is: a spec says `testGrant = { coins = ..., hunts = ... }` or `false`, and production asks the
+	-- two facts that have to be true together (see `Economy.testGrantFor`).
+	if world.testGrant ~= nil then
+		testGrant = if world.testGrant == false then nil else world.testGrant
+	else
+		testGrant = Economy.testGrantFor(
+			RunService:IsStudio(),
+			ServerStorage:GetAttribute(Economy.TEST_GRANT_ATTRIBUTE),
+			Economy.CONFIG
+		)
+	end
 	paidUpTo = 0
 	resetStats()
 	table.clear(balances)
@@ -712,6 +799,19 @@ function Economy.start(injected: World?)
 			if current.kind == "memory" then " (Studio: nothing is written to a live DataStore key)" else ""
 		)
 	)
+	-- SAID OUT LOUD, ONCE, because a session where everybody is rich must never be a surprise: this
+	-- is the one line that tells a reader of the console why a playtest could afford a rifle.
+	if testGrant ~= nil then
+		print(
+			string.format(
+				"[economy] %s=true in Studio: every profile this session is topped up to %d coins and %d hunt(s)."
+					.. " Nothing is saved (the store is the in-memory one) and no item is bought for anybody.",
+				Economy.TEST_GRANT_ATTRIBUTE,
+				testGrant.coins,
+				testGrant.hunts
+			)
+		)
+	end
 
 	-- The sweep plus the signal, exactly as `Match.start` does it: a player already on the server
 	-- must have a session open before the first dispatch.
@@ -740,6 +840,7 @@ function Economy.stop()
 	end
 	store = nil
 	players = nil
+	testGrant = nil
 	enabled = false
 	started = false
 	paidUpTo = 0

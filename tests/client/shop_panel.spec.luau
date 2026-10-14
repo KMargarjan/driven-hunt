@@ -44,7 +44,10 @@ local function statePayload(options)
 		coinsOn = if opts.coinsOn ~= nil then opts.coinsOn else true,
 		balance = coins,
 		hunts = hunts,
-		rows = Shop.rowsFor(owned, coins, hunts, true),
+		-- `coinsOn` GOES INTO THE ROWS TOO (the Reviewer's round-1 note): hardcoding `true` here made
+		-- the closed-shop case prove its row assertion through `balance == nil` instead of through
+		-- the closed shop.
+		rows = Shop.rowsFor(owned, coins, hunts, if opts.coinsOn ~= nil then opts.coinsOn else true),
 		refused = opts.refused,
 		refusedNumber = opts.refusedNumber,
 		bought = opts.bought,
@@ -94,8 +97,10 @@ return function()
 					expect(child.Size.Y.Offset >= Shop.CONFIG.BUTTON_PX).to.equal(true)
 				end
 			end
-			-- One per catalogue slot, plus CLOSE.
-			expect(buttons).to.equal(Shop.CONFIG.MAX_ITEMS + 1)
+			-- One per catalogue ROW, plus CLOSE -- and the frame is sized from the same number, so a
+			-- sixth row cannot be drawn over the footer.
+			expect(buttons).to.equal(#Shop.ORDER + 1)
+			expect(#Shop.ORDER <= Shop.CONFIG.MAX_ITEMS).to.equal(true)
 		end)
 
 		it("draws the server's own rows, its own words and the player's balance", function()

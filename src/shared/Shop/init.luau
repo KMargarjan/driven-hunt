@@ -686,13 +686,11 @@ end
 --
 -- `buyable` IS `Shop.refuse(...) == nil` FOR THE SAME FACTS, which `shop.spec` asserts over a table
 -- of cases: one rule, and the window and the till cannot disagree.
-function Shop.rowsFor(
-	owned: { [string]: boolean }?,
-	balance: number?,
-	hunts: number?,
-	coinsOn: boolean?,
-	atCounter: boolean?
-): { WireRow }
+-- FOUR PARAMETERS, AND THE REACH IS NOT ONE OF THEM (the Reviewer's round-1 note): it is the
+-- DOOR's rule, measured per request, and a panel that greyed every button the moment he stepped
+-- back would be a second reader of it. An argument nobody passes is what `Shop.checkRequest`'s own
+-- whitelist refuses in the other direction.
+function Shop.rowsFor(owned: { [string]: boolean }?, balance: number?, hunts: number?, coinsOn: boolean?): { WireRow }
 	local out: { WireRow } = {}
 	for _, id in ipairs(Shop.ORDER) do
 		local row = (Shop.ROWS :: any)[id] :: Row
@@ -700,7 +698,6 @@ function Shop.rowsFor(
 			itemId = id,
 			coinsOn = coinsOn,
 			hasProfile = balance ~= nil,
-			atCounter = atCounter,
 			owned = owned,
 			balance = balance,
 			hunts = hunts,

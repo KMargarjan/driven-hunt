@@ -228,6 +228,19 @@ function Shop.start(injected: World?): boolean
 	end
 	started = true
 	world.players = world.players or Players
+	-- ...AND THE ONE TABLE KEYED BY A PLAYER IS PRUNED WHEN HE LEAVES (the Reviewer's round-1 note).
+	-- `Shop.forget` had no production caller at all, so `lastRequestAt` grew for the life of the
+	-- server -- one number per player who ever opened the panel -- and the spec that calls `forget`
+	-- was certifying a cleanup nothing ran. `Match.forget`'s own rule, on the owner that holds the
+	-- table.
+	if world.players ~= nil and world.players.PlayerRemoving ~= nil then
+		table.insert(
+			connections,
+			world.players.PlayerRemoving:Connect(function(player: Player)
+				Shop.forget(player.UserId)
+			end)
+		)
+	end
 	if world.remotes ~= nil then
 		-- GUARDED, because a seam that answers nothing must not take the boot down with it: a
 		-- `RemoteEvent` double whose `Connect` returns nil is a legal stand-in (a spec drives
