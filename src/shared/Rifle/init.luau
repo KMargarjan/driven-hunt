@@ -165,20 +165,33 @@ Rifle.CONFIG = {
 	-- the magazine already holds the rounds, which is the whole difference between a magazine rifle
 	-- and the shotgun.
 	--
-	-- 0.62 s TOTAL, AND THE NOTE'S SOURCE 3 IS WHY: a shooter who learned on an SMLE Mk III, against
-	-- a request for a slower animation -- *"Can cycle that bolt every bit has fast. Hard and fast."*
-	-- A bolt that takes a second reads as a jam.
+	-- 1.62 s TOTAL, AND KAREN IS WHY (task 184). 2026-10-14: *"I think it reloads to fast has to be
+	-- 1 s slower"* -- and, asked which of the rifle's two sequences she meant, *"Bolt after each
+	-- shot"*. So it is this list that grows by a second and `RELOAD` below that does not.
+	-- THE SPLIT DOES NOT MOVE: both steps are the old 0.26 / 0.36 scaled by the same 1.62/0.62, so
+	-- back is still the shorter half of the stroke and only the pace changed.
+	-- HISTORY IN ONE LINE, because the old number was argued for and this overrules it: the first cut
+	-- was 0.62 s on the note's source 3 (an SMLE Mk III shooter, *"Can cycle that bolt every bit has
+	-- fast. Hard and fast."*) and the belief that a bolt taking a second reads as a jam; on screen it
+	-- read as too fast instead, which is Karen's call to make and she made it.
 	CYCLE = {
-		{ kind = "Break" :: Shotgun.ActionKind, wait = 0.26 },
-		{ kind = "Close" :: Shotgun.ActionKind, wait = 0.36 },
+		{ kind = "Break" :: Shotgun.ActionKind, wait = 0.68 },
+		{ kind = "Close" :: Shotgun.ActionKind, wait = 0.94 },
 	} :: { CycleStep },
-	CYCLE_TOTAL = 0.62, -- the sum; `rifle.spec` asserts it against the list
+	CYCLE_TOTAL = 1.62, -- the sum; `rifle.spec` asserts it against the list
 	-- WHAT OPENING THE ACTION THROWS AWAY: the fired case, and nothing else. See
 	-- `StateMachine.apply`'s `Break` -- the shotgun's `"all"` would dump two live rounds every shot.
 	CYCLE_EJECTS = "spent",
 	-- THE MAGAZINE CHANGE, AND THEN A BOLT CYCLE TO CHAMBER. Karen: *"then the right hand cycles the
-	-- bolt to chamber"*. 1.35 s for the swap is slower than the bolt on purpose: it is two hands and
-	-- a part that leaves the gun.
+	-- bolt to chamber"*. 1.35 s for the swap is slower than the bolt's own first step on purpose: it
+	-- is two hands and a part that leaves the gun.
+	-- ITS `Break`/`Close` ARE DELIBERATELY NOT THE BOLT'S SINCE TASK 184, and that is Karen's to
+	-- settle rather than mine: she asked for the bolt AFTER EACH SHOT to be a second slower and said
+	-- nothing about the magazine change, so this sequence keeps the 1.97 s it was playtested at.
+	-- The cost is that the two lists no longer share one pair of numbers, which `StateMachine`'s
+	-- `waitFor` used to rely on -- it searches THIS list when this list is the one being run (task
+	-- 184). If the chambering stroke should match the new bolt pace, these two become 0.68 / 0.94
+	-- and `RELOAD_TOTAL` becomes 2.97.
 	RELOAD = {
 		{ kind = "Magazine" :: Shotgun.ActionKind, wait = 1.35 },
 		{ kind = "Break" :: Shotgun.ActionKind, wait = 0.26 },

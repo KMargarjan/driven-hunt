@@ -1139,7 +1139,10 @@ function runCycle(player: Player, id: string, epoch: number, steps: { any }?)
 		if not state or state.epoch ~= epoch then
 			return -- the player respawned, was revoked, or left: abandon the sequence
 		end
-		local next, reason = StateMachine.apply(state, { kind = step.kind }, os.clock(), row)
+		-- THE SEQUENCE GOES WITH THE STEP (task 184). `Break` and `Close` are in both of the rifle's
+		-- lists and no longer with the same waits, so the reducer is told which list this step came
+		-- from rather than left to guess from a fixed search order.
+		local next, reason = StateMachine.apply(state, { kind = step.kind }, os.clock(), row, sequence)
 		-- An empty pocket is the ONE rejection this sequence walks past: closing a gun with one
 		-- shell, or none, is correct. Any other reason means the world moved under it (round 1
 		-- note), so it stops and republishes rather than closing a gun the player did not ask for.
@@ -1158,7 +1161,7 @@ function runCycle(player: Player, id: string, epoch: number, steps: { any }?)
 				if remaining > 0 then
 					task.wait(remaining)
 				end
-				local closed, refused = StateMachine.apply(state, { kind = "Close" }, os.clock(), row)
+				local closed, refused = StateMachine.apply(state, { kind = "Close" }, os.clock(), row, sequence)
 				if not refused then
 					setState(player, id, closed)
 				end

@@ -88,19 +88,44 @@ end
 -- two -- the bolt (`CYCLE`) and the magazine change (`RELOAD`) -- and `Magazine` appears only in the
 -- second, so a lookup that read `CYCLE` alone answered 0 for it: MEASURED in the Forest Test, the
 -- step published `action=Magazine busy=0.00` and the whole 1.35 s window did not exist, which is
--- why the drawn box never moved. `Break` and `Close` are in both lists with the same waits, so the
--- order between them decides nothing.
-local function waitFor(row, kind: string): number
-	for _, list in ipairs({ row.CYCLE, row.RELOAD }) do
-		if list ~= nil then
-			for _, step in ipairs(list) do
-				if step.kind == kind then
-					return step.wait
-				end
-			end
+-- why the drawn box never moved. `Break` and `Close` are in both lists -- they USED to carry the
+-- same waits in each, so the order between them decided nothing, and then task 184 made the bolt a
+-- second slower and left the magazine change alone.
+-- `steps` IS THE SEQUENCE ACTUALLY BEING RUN, AND IT WINS (task 184). Until Karen made the bolt a
+-- second slower, `Break` and `Close` carried the same waits in both of the rifle's lists, so
+-- searching them in a fixed order decided nothing and this comment said as much. It decides
+-- everything now: the bolt's `Break` is 0.68 s and the magazine change's is still 0.26 s, and a
+-- first-match search would have charged the magazine change the bolt's window -- `runCycle` would
+-- then `task.wait(0.26)`, ask for `Close`, be refused "busy", and finish the reload down its
+-- error-recovery path. `runCycle` knows which list it is walking, so it says.
+-- nil keeps the old behaviour exactly, for every caller that is not walking a sequence -- and the
+-- three lists are searched by NAME rather than by `ipairs` over a table holding them, because
+-- `ipairs({ nil, CYCLE, RELOAD })` iterates nothing at all. Round 1 of task 184 wrote exactly that
+-- and every window became 0: the gun was never busy after any step. `rifle.spec`'s three timing
+-- cases caught it.
+-- nil, NOT 0, is "this list does not have that kind": a step may legitimately wait 0 s, and `or`
+-- would walk past it.
+local function waitIn(list: { any }?, kind: string): number?
+	if list == nil then
+		return nil
+	end
+	for _, step in ipairs(list) do
+		if step.kind == kind then
+			return step.wait
 		end
 	end
-	return 0
+	return nil
+end
+
+local function waitFor(row, kind: string, steps: { any }?): number
+	local wait = waitIn(steps, kind)
+	if wait == nil then
+		wait = waitIn(row.CYCLE, kind)
+	end
+	if wait == nil then
+		wait = waitIn(row.RELOAD, kind)
+	end
+	return wait or 0
 end
 
 -- Returns (newState, nil) or (the SAME state, reason). Rejection reasons are a closed set, so the
@@ -110,7 +135,16 @@ end
 -- `row` IS REQUIRED AND HAS NO DEFAULT (task 140). This function used to read `Shotgun.CONFIG` at
 -- its top, which with two weapons is a rifle timed like a shotgun, silently. No default means every
 -- caller has to say which weapon it means.
-function StateMachine.apply(state: WeaponState, action: Action, now: number, row): (WeaponState, string?)
+-- `steps` IS OPTIONAL AND ADDITIVE (task 184): the sequence the caller is walking, so a weapon whose
+-- two sequences no longer share their `Break`/`Close` waits is charged the window of the step it
+-- actually took. Every caller that passes nothing behaves exactly as it did.
+function StateMachine.apply(
+	state: WeaponState,
+	action: Action,
+	now: number,
+	row,
+	steps: { any }?
+): (WeaponState, string?)
 	local config = row
 	local kind = action.kind
 
@@ -171,7 +205,7 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number, row
 			next.barrels[index] = "Empty"
 			next.loaded[index] = "None"
 		end
-		next.busyUntil = now + waitFor(row, "Break")
+		next.busyUntil = now + waitFor(row, "Break", steps)
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "Load" then
 		if not state.open then
@@ -194,7 +228,7 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number, row
 		next.barrels[target] = "Live"
 		next.loaded[target] = state.ammo
 		next.reserve[state.ammo] = next.reserve[state.ammo] - 1
-		next.busyUntil = now + waitFor(row, "Load")
+		next.busyUntil = now + waitFor(row, "Load", steps)
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "Close" then
 		if not state.open then
@@ -203,7 +237,7 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number, row
 		local next = draft(state)
 		next.open = false
 		next.selected = nextLive(next.barrels, #next.barrels)
-		next.busyUntil = now + waitFor(row, "Close")
+		next.busyUntil = now + waitFor(row, "Close", steps)
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "Magazine" then
 		-- THE MAGAZINE CHANGE, IN ONE STEP. Karen: *"in magazine 3 shells then it changes with left
@@ -248,7 +282,7 @@ function StateMachine.apply(state: WeaponState, action: Action, now: number, row
 		-- The first live chamber is what the bolt will feed, so the selection follows it rather than
 		-- staying on whatever was fired last.
 		next.selected = nextLive(next.barrels, #next.barrels)
-		next.busyUntil = now + waitFor(row, "Magazine")
+		next.busyUntil = now + waitFor(row, "Magazine", steps)
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "Refill" then
 		-- THE DRIVE'S SHELLS, PUT BACK (task 171). KAREN, 2026-10-10: *"limited ammon per round"* --

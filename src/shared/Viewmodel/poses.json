@@ -139,7 +139,7 @@
         }
       },
       "cycle": {
-        "closeSeconds": 0.14,
+        "closeSeconds": 0.88,
         "drawStuds": 0.42,
         "gun": {
           "pos": {
@@ -253,7 +253,7 @@
           "seconds": 1.35
         },
         "openDeg": 0.0,
-        "openSeconds": 0.18,
+        "openSeconds": 0.62,
         "right": {
           "pos": {
             "x": 0.0,

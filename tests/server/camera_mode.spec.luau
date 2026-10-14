@@ -23,6 +23,11 @@ local Shape = require(ServerScriptService:WaitForChild("Weapon"):WaitForChild("S
 -- Handle's own axis -- the tubes sit 0.12 studs above it -- so a claim about a hand being "under the
 -- barrels" has to be measured against that rather than against zero. Pure data, no Instances.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+-- THE RIFLE'S OWN DRAWN TIMINGS (task 184). `Config` publishes the DEFAULT weapon's -- the
+-- shotgun's -- and the bolt case below is about the other one, so it overlays
+-- `Viewmodel.view(DATA, "rifle")` the same way the live camera does when the rifle comes up.
+local Viewmodel = require(ReplicatedStorage:WaitForChild("Viewmodel"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local cameraFolder = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera")
 local Mode = require(cameraFolder:WaitForChild("Mode"))
@@ -46,6 +51,14 @@ table.freeze(firstPerson)
 local thirdPerson = table.clone(Config) :: any
 thirdPerson.FIRST_PERSON = false
 table.freeze(thirdPerson)
+
+-- THE SAME FIRST-PERSON CAMERA WITH THE RIFLE IN IT, built the way `Camera.Config` builds the
+-- shotgun's: every flat name `Viewmodel.view` publishes, overlaid on the config.
+local rifleFirstPerson = table.clone(firstPerson) :: any
+for key, value in pairs(Viewmodel.view(Viewmodel.DATA, "rifle")) do
+	rifleFirstPerson[key] = value
+end
+table.freeze(rifleFirstPerson)
 
 local NONE = { aiming = false, alive = true, hasCharacter = true, lookDelta = Vector2.zero }
 
@@ -480,6 +493,54 @@ return function()
 				expect(firstPerson.BREAK_CLOSE_SECONDS < Shotgun.CONFIG.RELOAD_CLOSE).to.equal(true)
 				-- ...and it is a crisp break rather than a crack: 30 to 40 degrees.
 				expect(firstPerson.BREAK_OPEN_DEG >= 30 and firstPerson.BREAK_OPEN_DEG <= 40).to.equal(true)
+			end)
+
+			-- KAREN, 2026-10-14: *"I think it reloads to fast has to be 1 s slower"*, of *"Bolt after
+			-- each shot"* (task 184). The SERVER's window grew from 0.62 s to 1.62 s; the DRAWN bolt
+			-- is a separate pair of numbers in `poses.json` (`cycle.openSeconds`/`closeSeconds`) and
+			-- nothing ties the two together, so this case is the tie. What it measures is the IDLE
+			-- GAP: how much of the cycle the bolt spends sitting still at one end of its travel,
+			-- because that -- not the total -- is what reads as a hitch rather than a slower bolt.
+			it("draws the rifle's bolt across the WHOLE of the server's new window", function()
+				local row = Weapons.ROWS.rifle
+				local dt = 1 / 60
+				-- BACK: the server holds `open` true for `CYCLE[1].wait`, and the drawn stroke runs
+				-- for `BREAK_OPEN_SECONDS` of it.
+				local state = Mode.step(Mode.initial(rifleFirstPerson), input(), dt, rifleFirstPerson)
+				local back = 0
+				while state.openTilt < 1 and back < row.CYCLE[1].wait * 2 do
+					state = Mode.step(state, input({ breaking = true }), dt, rifleFirstPerson)
+					back += dt
+				end
+				expect(state.openTilt).to.equal(1)
+				-- FORWARD: `open` goes false at `Close` and the bolt comes home over
+				-- `BREAK_CLOSE_SECONDS` of that step.
+				local forward = 0
+				while state.openTilt > 0 and forward < row.CYCLE[2].wait * 2 do
+					state = Mode.step(state, input({ breaking = false }), dt, rifleFirstPerson)
+					forward += dt
+				end
+				expect(state.openTilt).to.equal(0)
+				-- THE GAP IS WHAT IS ASSERTED, and a tenth of a second is the budget: at 0.68 / 0.94
+				-- against a stroke of 0.62 / 0.88 it is 0.06 s at each end, which is a bolt coming to
+				-- a stop. Scale the windows and leave the stroke at the 0.18 / 0.14 that fitted the
+				-- old 0.26 / 0.36 and it is 0.50 s and 0.80 s -- a bolt that snaps and then waits.
+				local idle = (row.CYCLE[1].wait - back) + (row.CYCLE[2].wait - forward)
+				TestKit.note(
+					string.format(
+						"rifle bolt: drawn %.2f s back + %.2f s forward in a %.2f s cycle, %.2f s idle",
+						back,
+						forward,
+						row.CYCLE_TOTAL,
+						idle
+					)
+				)
+				expect(idle < 0.1 + 2 * dt).to.equal(true)
+				-- ...AND IT NEVER OVERRUNS THE STEP THAT STARTED IT, which is the half `rifle.spec`
+				-- asserts on the data. A stroke longer than its window is a bolt still moving when
+				-- the next shot is allowed.
+				expect(back <= row.CYCLE[1].wait + dt).to.equal(true)
+				expect(forward <= row.CYCLE[2].wait + dt).to.equal(true)
 			end)
 
 			it("brings the gun down and toward the centre while it is open, and not before", function()
