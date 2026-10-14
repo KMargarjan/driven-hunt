@@ -2856,7 +2856,13 @@ end
 function ForestTest.standIndexFor(index: number): number
 	local count = chosen.layout.standCount
 	local zero = (math.max(1, math.floor(index)) - 1) % count -- 0, 1, 2, ...
-	local middle = math.ceil(count / 2) -- 5 of 9
+	-- THE MIDDLE, AND IT IS `floor + 1` SO THE WALK CLOSES ON AN EVEN COUNT TOO (round 3's note).
+	-- `ceil` is 5 of 9 and 3 of 6 -- and from 3 the alternating walk over six stands deals
+	-- 3, 2, 4, 1, 5, 0: stand 6 is never dealt at all and hunter 6 falls off the line (the clamp
+	-- round 3 added bounds him onto stand 1, which is a doubling rather than a hole, but it is still
+	-- not the line). From `floor(6/2) + 1` = 4 it deals 4, 3, 5, 2, 6, 1 -- every stand exactly once.
+	-- ODD COUNTS ARE UNCHANGED: `floor(9/2) + 1` is 5, which is `ceil(9/2)` and `PICK.defaultIndex`.
+	local middle = math.floor(count / 2) + 1 -- 5 of 9, 4 of 6
 	local step = math.ceil(zero / 2) -- 0, 1, 1, 2, 2, 3, 3, ...
 	local side = if zero % 2 == 1 then -1 else 1 -- 5, 4, 6, 3, 7, ...
 	-- CLAMPED INTO THE LINE (round 2, note). The centre-out walk only closes on an ODD count: with

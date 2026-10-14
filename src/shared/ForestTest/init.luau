@@ -426,34 +426,6 @@ ForestTest.BEATER = {
 	-- alternating east and west, so the first answer is always the nearest one to the push line.
 	sideStepStuds = 10,
 	sideTries = 8,
-	-- HOW FAR APART THE LANES OF THE LINE ARE, AND IT IS ONE STAND (task 167).
-	--
-	-- KAREN, 2026-10-12 ~16:10, having played a drive as a hunter with the bots on: *"and seem like
-	-- all bots came to me"*. She was right, and the geometry says why: every beater -- real or bot --
-	-- was put down at ONE measured point, the push line through the stand she had locked, and the
-	-- bot lanes were +-18 and +-36 studs about it. Four bodies inside 72 studs of her stand is not a
-	-- drive line, it is a queue at her feet.
-	--
-	-- A LINE SPANS THE FRONT. `index` is the beater's place in it (the drive asks `placement` for
-	-- index 1, 2, 3 ... exactly as it asks for a hunter's stand), and `beaterLaneOffset` deals those
-	-- indices out across the hunters' line: 0, +150, -150, +300, -300 ... So four bot beaters cover
-	-- 600 studs of front -- stands 3 to 7 with her in the middle of them -- and each walks its own
-	-- lane down to its own stretch of road.
-	--
-	-- 150 IS `STAND_SPACING`, AND THAT IS THE WHOLE REASON FOR THE NUMBER. A lane laid out on the
-	-- stand grid lands square in front of a stand, so `Match.beaterGoalFor` (which takes the post
-	-- NEAREST the lane's own start) and `Match.crossedLine` (which takes the same one) pick that same
-	-- post -- the goal is straight ahead of the lane and arriving at it IS crossing. Any other
-	-- spacing puts the goal in front of a stand the lane is not walking at, on a road that is a sine
-	-- 30 studs deep. It is also a real beater interval: 150 studs is 42 m at
-	-- `ForestTest.SPOOK.METRES_PER_STUD`.
-	--
-	-- ...AND SINCE TASK 179 IT IS NOT A NUMBER IN THIS TABLE AT ALL. `laneSpacingStuds` used to read
-	-- `ForestTest.STAND_SPACING`, and with three layouts the spacing is 150, 150 and 130 -- so a
-	-- single constant here would be a SECOND answer to "how far apart is a lane", disagreeing with
-	-- the live layout on a ride. The reason above is unchanged and is now stated as a function of the
-	-- layout: `ForestTest.laneSpacing(layout)` IS `layout.standSpacing`, by definition, and
-	-- `forest_stand.spec` asserts it for every layout instead of for one constant.
 	-- How far above the ground she is put, so she drops onto it rather than into it. It used to be
 	-- *"the same 4 studs `ForestTest.spawnPosition` uses for a hunter"*, and task 157 archived that
 	-- function: a hunter is now put down by the drive, on the marker part `ForestTest.Markers` builds
@@ -548,9 +520,21 @@ ForestTest.SPOOK = {
 }
 
 -- HOW FAR APART THE LANES OF THE LINE ARE, AND IT IS ONE STAND (task 167, made per layout by 179).
--- PURE, and the ONE definition: a lane laid out on the stand grid lands square in front of a stand,
--- so `Match.beaterGoalFor` and `Match.crossedLine` pick that same post and arriving at the goal IS
--- crossing. The reason is in `BEATER` above, where the number used to live.
+-- PURE, and the ONE definition.
+--
+-- THE SPACING IS THE STAND GRID, AND THAT IS THE WHOLE REASON FOR THE NUMBER. A lane laid out on the
+-- stand grid lands square in front of a stand, so `Match.beaterGoalFor` (which takes the post
+-- NEAREST the lane's own start) and `Match.crossedLine` (which takes the same one) pick that same
+-- post -- the goal is straight ahead of the lane and arriving at it IS crossing. Any other spacing
+-- puts the goal in front of a stand the lane is not walking at, on a road that is a sine 30 studs
+-- deep. It is also a real beater interval: 150 studs is 42 m at `ForestTest.SPOOK.METRES_PER_STUD`.
+--
+-- IT USED TO BE A CONSTANT IN `BEATER` (`laneSpacingStuds`, reading `STAND_SPACING`), and task 179
+-- took it out: with three layouts the spacing is 150, 150 and 130, so one number there would be a
+-- SECOND answer disagreeing with the live layout on a ride. This paragraph came with it -- round 3
+-- of that task left it sitting above `BEATER.dropStuds`, so a reader met a lane-spacing essay as the
+-- drop height's header. `forest_stand.spec` asserts the identity for every layout rather than for
+-- one constant.
 --
 -- ONE ANSWER, AND IT IS THE LAYOUT'S (round 2's note). This used to honour a `laneSpacingStuds` on
 -- the `beater` table first, so a spec could drive the band arithmetic with a spacing no layout has --
@@ -578,8 +562,10 @@ end
 -- answer is "a man's own few strides" rather than an error.
 --
 -- THE SPACING IS NOW PASSED IN rather than read off `beater` (task 179): the lane spacing is the
--- LAYOUT's stand spacing, so there is no number in `BEATER` to read. A `beater` table that still
--- carries one is honoured, because a spec may hand in either.
+-- LAYOUT's stand spacing, so there is no number in `BEATER` to read and no table reaches this
+-- parameter at all -- it is a plain number, which is what makes "how far apart is a lane" ONE
+-- answer. (Round 2 of that task left this sentence saying a `beater` table was still honoured, which
+-- was the second answer it had just removed.)
 local function bandDepth(reach: number, laneSpacing: number, spook): number
 	local half = (laneSpacing or 0) / 2
 	local floor = ((spook or ForestTest.SPOOK).SWEEP or {}).MIN_AHEAD_STUDS or 0
@@ -788,6 +774,21 @@ ForestTest.START_ROLE_ATTRIBUTE = "DHForestStartRole"
 -- when she walks as a beater the middle of the line is hers and the bots flank her. That is the
 -- property `Bots.Lane`'s archived `offsetFor` was written for (*"lane 0 is never issued, so the
 -- middle stays the PEOPLE's"*), kept, and moved to the world that knows how wide a front is.
+--
+-- HOW FAR APART THE LANES OF THE LINE ARE, AND IT IS ONE STAND (task 167).
+--
+-- KAREN, 2026-10-12 ~16:10, having played a drive as a hunter with the bots on: *"and seem like
+-- all bots came to me"*. She was right, and the geometry says why: every beater -- real or bot --
+-- was put down at ONE measured point, the push line through the stand she had locked, and the
+-- bot lanes were +-18 and +-36 studs about it. Four bodies inside 72 studs of her stand is not a
+-- drive line, it is a queue at her feet.
+--
+-- A LINE SPANS THE FRONT. `index` is the beater's place in it (the drive asks `placement` for
+-- index 1, 2, 3 ... exactly as it asks for a hunter's stand), and `beaterLaneOffset` deals those
+-- indices out across the hunters' line: 0, +150, -150, +300, -300 ... So four bot beaters cover
+-- 600 studs of front -- stands 3 to 7 with her in the middle of them -- and each walks its own
+-- lane down to its own stretch of road.
+--
 --
 -- ALTERNATING, NEAREST FIRST, which is the same shape `beaterStartPosition` searches for a clear
 -- spot with and the same shape the archived lane offsets had: one idiom in this repo for "deal these

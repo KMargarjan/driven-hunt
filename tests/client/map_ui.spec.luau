@@ -714,6 +714,79 @@ return function()
 			)
 		end)
 
+		it("leaves EXACTLY ONE of each drawer node on the minimap after a redraw", function()
+			-- ROUND 3, FINDING 1, AND IT IS THE THIRD TIME THIS CLASS HAS BEEN MISSED. The minimap
+			-- drawer's frame IS the Hud's own `MiniMap` -- unlike the full map's, whose frame is the
+			-- claimed `canvas` -- so every instance `buildDrawer` parents there has to be claimed or
+			-- the rebuild leaks it. Round 3 claimed six of the seven and left `TargetWord`: from the
+			-- first layout change the minimap carried two orange target words, the stale one frozen
+			-- at the previous layout's pinned position, still `Visible`, never updated again.
+			--
+			-- SO THIS CASE COUNTS rather than naming what it expects to find. A comment saying the
+			-- claim list is complete got the count wrong twice; a count cannot. The next instance
+			-- added to `buildDrawer` and not claimed fails here.
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			local mini = Hud.minimap() :: Frame
+
+			local function tally(): { [string]: number }
+				local counts: { [string]: number } = {}
+				for _, child in ipairs(mini:GetChildren()) do
+					local name = child.Name
+					-- The per-player markers are pooled at `MAX_MARKERS`, so they are counted as one
+					-- family rather than by index.
+					if string.match(name, "^Player%d+$") then
+						name = "Player*"
+					end
+					counts[name] = (counts[name] or 0) + 1
+				end
+				return counts
+			end
+
+			local restore = MapUi.geometry()
+			local before = tally()
+			-- The drawer's own nodes, every one of which `buildDrawer` parents into THIS frame.
+			local singles = { "Own", "Wedge", "PushArrow", "PushWord", "Target", "TargetWord", "Geometry" }
+			for _, name in ipairs(singles) do
+				expect(before[name]).to.equal(1, string.format("%s is not drawn once before the redraw", name))
+			end
+			local playersBefore = before["Player*"]
+			expect(playersBefore).to.equal(CONFIG.MAX_MARKERS)
+
+			for _, name in ipairs(data.LAYOUT_ORDER) do
+				MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, name))
+			end
+			MapUi.setGeometry(restore)
+
+			local after = tally()
+			for _, name in ipairs(singles) do
+				expect(after[name]).to.equal(
+					1,
+					string.format("%d x %s on the minimap after %d redraws", after[name] or 0, name, #data.LAYOUT_ORDER)
+				)
+			end
+			expect(after["Player*"]).to.equal(playersBefore)
+			-- ...AND NOTHING ELSE APPEARED EITHER: the same set of names, with the same counts. That
+			-- is the half a list of names cannot give you -- it is what makes a NEW unclaimed
+			-- instance fail this case instead of slipping past it.
+			for name, count in pairs(after) do
+				expect(before[name]).to.equal(
+					count,
+					string.format("%s: %d before the redraws, %d after", name, before[name] or 0, count)
+				)
+			end
+			for name in pairs(before) do
+				expect(after[name]).to.be.ok(string.format("%s went missing in the redraws", name))
+			end
+			TestKit.note(
+				string.format(
+					"map: after %d redraws the minimap holds one each of %s, and %d player markers",
+					#data.LAYOUT_ORDER,
+					table.concat(singles, "/"),
+					after["Player*"]
+				)
+			)
+		end)
+
 		it("binds M, and only once there is a map to open", function()
 			local actions = MapUi.boundActions()
 			expect(#actions).to.equal(1)

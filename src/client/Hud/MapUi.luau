@@ -1032,7 +1032,7 @@ local function buildDrawer(
 
 	-- A SIBLING AND NOT A CHILD, for the reason the waypoint's word is one in `Hud.build`: a child
 	-- would inherit the 45-degree `Rotation` and read at an angle.
-	local goalWord = label(frame, "TargetWord", config.LABEL_SIZE, "")
+	local goalWord = claim(label(frame, "TargetWord", config.LABEL_SIZE, ""))
 	goalWord.TextColor3 = MapUi.COLORS.arrow
 	goalWord.AnchorPoint = Vector2.new(0.5, 0)
 	goalWord.Size = UDim2.fromOffset(70, config.LABEL_SIZE + 2)
@@ -1508,15 +1508,26 @@ end
 --
 -- A LIST AND NOT A RULE, because the rule is what was wrong. Every instance this module parents into
 -- a frame it does not own goes through `claim`, and `teardown` destroys that list -- children go with
--- their parents, so nine `claim`s cover the whole picture. An instance nobody claimed cannot be
--- destroyed by a rebuild, which is the property `Hud`'s four decorations needed.
+-- their parents. An instance nobody claimed cannot be destroyed by a rebuild, and an instance this
+-- module parents is always claimed: the two halves of one rule, in one place.
+--
+-- THE COUNT IS NOT WRITTEN DOWN ANY MORE, and that is the third lesson rather than a shrug. It said
+-- "nine" while there were fifteen, which is a comment whose job is to say the list is COMPLETE
+-- getting the one number it carries wrong. What makes the list complete is checkable instead:
+-- `map_ui.spec` counts the drawer's own children on the minimap after a redraw per layout, so the
+-- next instance added to `buildDrawer` and not claimed fails a case rather than passing a comment.
+-- Round 3 missed `TargetWord` exactly that way, one instance after missing six.
 local function teardown()
 	for index = #claimed, 1, -1 do
 		claimed[index]:Destroy()
 	end
 	table.clear(claimed)
 	table.clear(drawers)
-	miniScale = nil
+	-- BOTH, not one: the two `UIScale`s were just destroyed with everything else, and leaving
+	-- `fullScale` pointing at a destroyed instance was an asymmetry that read as an oversight. The
+	-- rebuild assigns both again on its next statements, so this is about what is TRUE between the
+	-- two halves rather than about a bug anybody could reach.
+	miniScale, fullScale = nil, nil
 	built = false
 	stats.rebuilds += 1
 end

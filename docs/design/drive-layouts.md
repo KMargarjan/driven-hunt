@@ -943,8 +943,14 @@ Licence: **GPL-2.0-or-later**; nothing copied. **Maintained** (the live fork of 
 
 * **Well:** the map places a flat list of spawn entities and the *mode* picks among them by a rule of
   its own. That is the division this task keeps: the layout places its stands, and
-  `ForestTest.standIndexFor` is the rule that says which one the first hunter gets — unchanged, and
-  it now wraps on the live layout's `standCount` rather than on 9.
+  `ForestTest.standIndexFor` is the rule that says which one the first hunter gets. It wraps on the
+  live layout's `standCount` rather than on 9 — **and the build changed it twice more than this
+  section first said**: round 3 CLAMPED the answer into `1..standCount`, because the centre-out walk
+  only closed on an odd count (with the 6-stand `edge` layout live, hunter 6 was dealt stand 0 and
+  hunter 8 stand −1), and round 4 moved the middle from `ceil(count/2)` to `floor(count/2) + 1`, which
+  makes the walk a real permutation on an even count too — 6 stands deal 4, 3, 5, 2, 6, 1 instead of
+  3, 2, 4, 1, 5, *0*. Odd counts are untouched: `floor(9/2) + 1` is 5, which is both `ceil(9/2)` and
+  `PICK.defaultIndex`.
 * **Badly:** the selection is scattered across near-duplicate functions with per-gametype special
   cases, and it breaks ties randomly, so a report cannot be reproduced.
 * **Adopted:** one pure selector, and the randomness confined to **one** place with an injected

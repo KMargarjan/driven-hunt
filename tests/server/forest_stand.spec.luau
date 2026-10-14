@@ -799,6 +799,22 @@ return function()
 				if layout.standCount % 2 == 0 then
 					even += 1
 				end
+				-- ...AND THE WALK CLOSES: the first `standCount` hunters get every stand exactly once,
+				-- which is what the middle moving from `ceil(count/2)` to `floor(count/2) + 1` buys
+				-- on an even count (round 3's note). With `ceil`, six stands dealt 3, 2, 4, 1, 5, 0 --
+				-- stand 6 never, and hunter 6 clamped onto stand 1.
+				local dealt = {}
+				for index = 1, layout.standCount do
+					local stand = ForestTest.standIndexFor(index)
+					expect(dealt[stand]).to.equal(
+						nil,
+						string.format("layout %s: stand %d dealt twice in the first %d", name, stand, layout.standCount)
+					)
+					dealt[stand] = index
+				end
+				for stand = 1, layout.standCount do
+					expect(dealt[stand]).to.be.ok(string.format("layout %s: stand %d never dealt", name, stand))
+				end
 				-- TWICE the count, so the wrap is asked as well as the walk.
 				for index = 1, 2 * layout.standCount do
 					local stand = ForestTest.standIndexFor(index)

@@ -2353,7 +2353,18 @@ function Hud.start()
 			--
 			-- `MapUi.setGeometry` IS STILL THE ONE WRITER of the map's geometry (task 165's rule);
 			-- this is a second CALLER of a public door, not a second drawer.
-			local live = module:FindFirstChild(data.LIVE_NAME)
+			-- WAITED FOR, NOT ASKED FOR ONCE (round 3's note). `whenReady` fires when the MODULE
+			-- has replicated, and its Rojo-owned `Live` child is a separate instance that may not
+			-- have arrived in the same frame -- in which case a `FindFirstChild` answers nil for the
+			-- session, the warn fires and the hunter has no map for the whole drive. That is round
+			-- 1's finding 4 in another shape, and the fix is the door Roblox already provides.
+			-- `Flags` is the cited precedent for the HOST's shape, not for how it is found: it waits
+			-- on the attribute, which is a different question.
+			--
+			-- BOUNDED, because an unbounded `WaitForChild` in a closure would hang this branch of the
+			-- Hud for ever in a world that really has no `Live` child, and the honest answer there is
+			-- the warn below.
+			local live = module:WaitForChild(data.LIVE_NAME, 10)
 			local function drawMap()
 				MapUi.setGeometry(
 					MapUi.geometryFor(
