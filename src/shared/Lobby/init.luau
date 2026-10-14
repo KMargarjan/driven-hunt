@@ -380,6 +380,86 @@ Lobby.CONFIG = {
 		-- WHERE TASK 182'S PAD WILL GO, said once, here, so that task moves nothing: 12 studs behind
 		-- the tailgate, which is where a man loading into the back would stand.
 		PAD_BEHIND_STUDS = 12,
+		-- ---------------- THE TYRES ON THE GROUND (task 186)
+		--
+		-- KAREN, 2026-10-14 ~17:00: *"car tyers are inside earth"*.
+		--
+		-- MEASURED IN THE LIVE FOREST TEST THE SAME DAY, before a line of this was written: every
+		-- tyre of all four trucks sat **0.752 studs UNDER the terrain**, and the east bay's worst
+		-- wheel was **2.017** under. `Build.trucks` stood each truck on `anchor.Y` -- the NOMINAL
+		-- shelf -- and `Field.fill`'s terrain surface is not that number: Roblox terrain is
+		-- voxelised, so the surface the engine produces is rounded to its own grid (150.000 against
+		-- a shelf at 149.248), and at the shelf's eastern edge the old hill leaves up to 1.27 studs
+		-- of it standing. It is task 182's pad defect exactly, against the same surface: *"THEY ARE
+		-- LAID ON THE GROUND THAT IS MEASURED, NOT ON THE SHELF THE ARITHMETIC PREDICTS"*.
+		--
+		-- A CONSTANT LIFT CANNOT FIX IT, which is why there is no "+0.75" row here: the rounding is
+		-- a property of where the fill landed, and the 1.27-stud spread ACROSS one truck's own four
+		-- wheels is a property of the hill. So the truck is settled on what a ray answers under each
+		-- WHEEL, and where those four answers are not level it is tilted onto the plane through
+		-- them -- a parked truck on uneven ground, which is what the yard is.
+		SETTLE = {
+			-- HOW FAR THE TILT MAY GO. The measured worst case is ~4 degrees across bay 4; six is
+			-- room over it, and it is a CLAMP and not a target: a truck lying over at 30 degrees is
+			-- a bad raycast, never a slope, and the clamp is what stops one answering ray from
+			-- turning a lobby into a crash site.
+			MAX_TILT_DEGREES = 6,
+			-- ...AND HOW SMALL A TILT IS NOT WORTH APPLYING. Under this the four answers are level
+			-- enough that a tilt is noise, and a truck that is level should BE level.
+			MIN_TILT_DEGREES = 0.25,
+		},
+		-- ---------------- CAMOUFLAGE, MILITARY STYLE (task 186)
+		--
+		-- KAREN, 2026-10-14 ~21:15: *"make cars comoflash like military like hunting cars"*, after
+		-- *"trucks has to be comoflash"*.
+		--
+		-- IT IS A REPAINT OF THE FREE MODEL AND NOT A SECOND MODEL (option A, the Director's
+		-- preferred): the body panels of "PickUp Truck (Prop)" are eight MeshParts named `Color`,
+		-- plain `SmoothPlastic` at RGB 163,162,165 with **no `TextureID` and no `SurfaceAppearance`**
+		-- -- measured, 2026-10-14, in the live place -- so a `Color3` on them is the paint itself and
+		-- not a tint over somebody's photograph. The windows (`Glass`) and every lamp (`Neon`) are
+		-- left exactly as they shipped.
+		--
+		-- THERE IS NO CAMO **TEXTURE**, AND THAT IS A DECISION RATHER THAN AN OVERSIGHT. A library
+		-- image would have to be PROVED to load before it could be trusted, and the only way to ask
+		-- a running Studio that is an asset call -- which `tools/studio_mcp.py` forbids in capitals:
+		-- a single `LoadAsset` through `execute_luau` poisoned the thread for a whole night's gate
+		-- on 2026-10-02. An id that silently fails leaves four UNTEXTURED trucks and nobody told.
+		-- Blotches therefore wait for an uploaded texture and Karen's OK (she OKs every upload).
+		--
+		-- FOUR PALETTES, ONE FAMILY. Every truck is olive drab first, so the row reads as one fleet
+		-- and the four PADS keep their own colours as the thing that tells the bays apart; the
+		-- second and third tone shift bay by bay, which is the Director's *"optionally slightly
+		-- different camo tones"*.
+		CAMO = {
+			-- MATTE, AND IT IS `SmoothPlastic` BECAUSE THE OTHER ONE WAS PHOTOGRAPHED (rule 5).
+			-- `Fabric` is what the rest of this model is built out of and it was the first choice
+			-- here; the shot came back with four BLACK trucks, and a side-by-side -- the same three
+			-- tones on two trucks, one material each, one picture -- showed `Fabric`'s own weave is
+			-- dark enough to swallow an olive at this scale. `SmoothPlastic` has no reflectance to
+			-- take a sheen off the sun, which is the half of "military" that is not colour.
+			BODY_MATERIAL = Enum.Material.SmoothPlastic,
+			-- ONE PALETTE PER BAY, WRAPPED like `PADS.COLOURS`, so a fifth bay cannot index past the
+			-- end. Tone 1 is the shell, and the panels after it alternate through the rest -- which
+			-- is what makes a repaint read as a camouflage scheme rather than as one flat colour.
+			--
+			-- THE VALUES ARE THE ONES THAT WERE LOOKED AT, and that is why they are not the darker
+			-- olives this row started with: those measured as a correct olive drab and PHOTOGRAPHED
+			-- as black, under the yard's own tree shade and this place's lighting. Four trucks, four
+			-- brightnesses, one picture, 2026-10-14 -- and these are the two in the middle of it plus
+			-- a lighter and a browner neighbour.
+			TONES = {
+				{ Color3.fromRGB(118, 124, 84), Color3.fromRGB(88, 94, 64), Color3.fromRGB(150, 142, 102) },
+				{ Color3.fromRGB(96, 104, 70), Color3.fromRGB(72, 78, 54), Color3.fromRGB(124, 118, 84) },
+				{ Color3.fromRGB(136, 142, 100), Color3.fromRGB(102, 106, 74), Color3.fromRGB(168, 158, 116) },
+				{ Color3.fromRGB(120, 110, 80), Color3.fromRGB(90, 80, 58), Color3.fromRGB(148, 134, 100) },
+			},
+			-- THE WHEELS. The tyres ship near-black already; the RIMS ship at the body's own
+			-- 163,162,165, and bright rims under a camouflaged truck are the one thing in the shot
+			-- that would still say "road car".
+			TYRE = Color3.fromRGB(24, 24, 24),
+			RIM = Color3.fromRGB(54, 56, 48),
+		},
 	},
 	TRACK = { WIDTH_STUDS = 14, TO_Z = 110, MATERIAL = Enum.Material.Ground },
 	-- ---------------- the road, the fences and the tree line: "a bit more nicer" (Karen)

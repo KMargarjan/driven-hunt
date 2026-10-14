@@ -562,6 +562,21 @@ local function reportLobby()
 		)
 	)
 
+	-- THE TRUCKS, ON THEIR OWN LINE (task 186). Karen, 2026-10-14: *"car tyers are inside earth"* --
+	-- and the count that was already printed said four trucks built, because they WERE built: they
+	-- were built 0.75 studs under the terrain. So the number that goes on the console is the WORST
+	-- WHEEL's clearance above its own ground, which is the one number in which that defect is
+	-- visible, and the repaint's part count beside it.
+	print(
+		string.format(
+			"[lobby] trucks: %d/%d settled on the measured ground, worst wheel %+.3f studs, %d part(s) in camouflage",
+			st.trucksSettled,
+			Lobby.Data.CONFIG.TRUCK.COUNT,
+			st.truckGroundStuds,
+			st.truckPainted
+		)
+	)
+
 	-- THE SHOPKEEPER, ON HIS OWN LINE (task 181), because he is the only way into the shop since
 	-- this task took task 178's auto-open away: "no keeper" means "no shop", and that has to be a
 	-- line in the console rather than something Karen discovers by walking up to an empty counter.

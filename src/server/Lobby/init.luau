@@ -167,6 +167,14 @@ local stats = {
 	-- away, a lodge with no keeper is a shop nobody on the server can open.
 	keepers = 0,
 	keeperDressed = 0,
+	-- THE TRUCKS' OWN TWO NUMBERS (task 186), reported for `models`' stated reason and because the
+	-- defect they close was invisible to every count there was: four trucks built, four trucks
+	-- parked, every tyre 0.75 studs inside the terrain. `truckGroundStuds` is the worst wheel of the
+	-- worst truck in studs ABOVE its ground, and `truckPainted` how many parts the camouflage
+	-- actually repainted -- a repaint that matched nothing would otherwise be a silent zero.
+	trucksSettled = 0,
+	truckGroundStuds = 0,
+	truckPainted = 0,
 	-- How many times his head was actually turned. One write per change and never one per scan, so
 	-- a number that climbs with the scan count is the bug this counter exists to show.
 	keeperTurns = 0,
@@ -300,6 +308,9 @@ local function tryBuild(): boolean
 	stats.strippedScripts = built.strippedScripts
 	stats.keepers = built.keepers
 	stats.keeperDressed = built.keeperDressed
+	stats.trucksSettled = built.trucksSettled
+	stats.truckGroundStuds = built.truckGroundStuds
+	stats.truckPainted = built.truckPainted
 	folder = made
 	spawnPart = spawn
 	-- WHERE THE FOUR PADS ARE, COMPUTED ONCE, through the ONE function that knows (task 182).
