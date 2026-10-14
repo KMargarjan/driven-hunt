@@ -174,7 +174,17 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
 		subs = math.min(math.ceil(dt / config.FLIGHT_STEP_MAX_SECONDS), config.FLIGHT_MAX_SUBSTEPS)
 		subs = math.max(subs, 1)
 	end
-	local step = if dt > 0 then dt / subs else 0
+	-- NO SUB-STEP IS EVER LONGER THAN THE CAP, and that `math.min` is the whole of "the remainder is
+	-- discarded". `dt / subs` is the equal division, and while `subs` is not capped it is already at
+	-- or under `FLIGHT_STEP_MAX_SECONDS`, so the simulated clock and the real one agree. Once `subs`
+	-- hits `FLIGHT_MAX_SUBSTEPS`, `dt / subs` would be LONGER than the cap -- and taking it would
+	-- throw away the two guarantees the cap exists for (0.019 studs of chord sag, 1.27 studs of
+	-- resolution against a sprinting boar) exactly on the frame that is already in trouble. So the
+	-- step stays at the cap and the rest of that `dt` is dropped: on a hitch past 0.267 s a
+	-- projectile arrives a little late, which is a stated degradation and cannot leak it.
+	-- (Caught by `weapon_hits.spec`'s "discards the rest past the cap" case: before this `min`, a
+	-- 0.5 s `dt` took eight 62.5 ms steps and advanced the full half-second.)
+	local step = if dt > 0 then math.min(dt / subs, config.FLIGHT_STEP_MAX_SECONDS) else 0
 
 	local finished: { Resolution } = {}
 	local keep: { Live } = {}

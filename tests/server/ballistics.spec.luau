@@ -254,27 +254,41 @@ return function()
 		end)
 
 		it("KEEPS TASK 183: a still target at the zero is hit within 0.05 studs of dead centre", function()
-			-- The case that would catch an elevation with the wrong sign. Step the real stepper from
-			-- a muzzle along the real launch direction, and measure the closest approach to the point
-			-- the sight line says the shot is going to -- for three aims, so it is not a flat-ground
-			-- accident.
+			-- The case that would catch an elevation with the wrong sign.
+			--
+			-- IT MEASURES THE SIDEWAYS MISS AT THE ZERO, NOT THE CLOSEST SAMPLE. The first version of
+			-- this case took the nearest stepped position to the target point, which measures the
+			-- STEP LENGTH (10.9 studs for the rifle at dt = 1/240) and not the shot: it failed at
+			-- 5 studs with the maths perfectly right. What a player feels is how far from the reticle
+			-- the hole is, so this finds the step where the path crosses the zero's RANGE, lands on
+			-- the crossing by linear interpolation, and measures what is left -- which at that range
+			-- is purely transverse.
+			--
+			-- Three aims, so it is not a flat-ground accident: the elevation is applied in world up,
+			-- which is the standard approximation, and an uphill or downhill shot is where that shows.
 			for _, shot in ipairs({ rifleShot, slugShot, buckShot }) do
 				for _, pitchDeg in ipairs({ 0, 20, -20 }) do
 					local pitch = math.rad(pitchDeg)
 					local aim = Vector3.new(0, math.sin(pitch), -math.cos(pitch)).Unit
-					local target = aim * (shot :: any).zeroStuds
+					local zeroStuds = (shot :: any).zeroStuds
+					local target = aim * zeroStuds
 					local position, velocity =
 						Vector3.zero, Ballistics.launchDirection(aim, shot :: any) * (shot :: any).v0
-					local best = math.huge
-					local dt = 1 / 240
-					for _ = 1, 2000 do
-						position, velocity = Ballistics.advance(position, velocity, dt, shot :: any)
-						best = math.min(best, (position - target).Magnitude)
-						if position.Magnitude > (shot :: any).zeroStuds * 1.3 then
+					local dt = 1 / 2000
+					local miss: number? = nil
+					for _ = 1, 40000 do
+						local nextPosition, nextVelocity = Ballistics.advance(position, velocity, dt, shot :: any)
+						local along, alongNext = position:Dot(aim), nextPosition:Dot(aim)
+						if alongNext >= zeroStuds then
+							local span = alongNext - along
+							local fraction = if span > 1e-9 then (zeroStuds - along) / span else 0
+							miss = ((position + (nextPosition - position) * fraction) - target).Magnitude
 							break
 						end
+						position, velocity = nextPosition, nextVelocity
 					end
-					expect(best < 0.05).to.equal(true)
+					expect(miss).to.be.ok()
+					expect((miss :: number) < 0.05).to.equal(true)
 				end
 			end
 		end)
@@ -292,13 +306,25 @@ return function()
 				local aim = Vector3.new(0, 0, -1)
 				local position, velocity = Vector3.zero, Ballistics.launchDirection(aim, shot) * shot.v0
 				local travelled, elapsed = 0, 0
-				local dt = 1 / 240
-				while travelled < case.range and elapsed < 5 do
+				local dt = 1 / 2000
+				-- INTERPOLATED, not overshot. Stopping on the first step PAST the range adds up to a
+				-- whole step of time -- 1.14% of the rifle's 0.365 s at the dt the first version of
+				-- this case used, which failed a 1% bound on the quantisation alone and said nothing
+				-- about the integrator. The remainder is credited at this step's own speed.
+				for _ = 1, 40000 do
 					local nextPosition, nextVelocity = Ballistics.advance(position, velocity, dt, shot)
-					travelled += (nextPosition - position).Magnitude
+					local length = (nextPosition - position).Magnitude
+					if travelled + length >= case.range then
+						local fraction = if length > 1e-9 then (case.range - travelled) / length else 0
+						elapsed += dt * fraction
+						travelled = case.range
+						break
+					end
+					travelled += length
 					elapsed += dt
 					position, velocity = nextPosition, nextVelocity
 				end
+				expect(travelled).to.equal(case.range)
 				local closed = Ballistics.timeToRange(shot, case.range)
 				expect(math.abs(elapsed - closed) / closed < 0.01).to.equal(true)
 			end

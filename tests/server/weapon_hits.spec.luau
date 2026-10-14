@@ -257,12 +257,18 @@ return function()
 			end, 1 / 60)
 			expect(#resolved).to.equal(1)
 			expect(#resolved[1].impacts).to.equal(1)
-			-- The raw cast said a couple of studs; the delivered impact says the whole path.
+			-- THE RAW CAST SAID A COUPLE OF STUDS; THE DELIVERED IMPACT SAYS THE WHOLE PATH. That is
+			-- the claim, and the two bounds are what make it one: the cast's own number is under 5
+			-- studs, the delivered one is past 300. The window above 300 is ONE STEP WIDE, because the
+			-- stub starts answering at the first segment whose origin is past 300 and a rifle step at
+			-- dt = 1/60 is 43.5 studs -- a tighter bound would be measuring the step rate.
 			expect(rawDistances[1] < 5).to.equal(true)
-			expect(math.abs(resolved[1].impacts[1].distance - 300) < 10).to.equal(true)
+			local delivered = resolved[1].impacts[1].distance
+			expect(delivered >= 300).to.equal(true)
+			expect(delivered < 300 + 60).to.equal(true)
 			local reports = Hits.group(nil :: any, resolved[1].impacts, "Slug", 0, "rifle")
 			expect(#reports).to.equal(1)
-			expect(math.abs(reports[1].nearest - 300) < 10).to.equal(true)
+			expect(reports[1].nearest).to.equal(delivered)
 			boar:Destroy()
 		end)
 
@@ -379,8 +385,11 @@ return function()
 
 			-- 0.5 s would be 15 sub-steps; the cap is 8 and the remainder is DISCARDED, so the
 			-- projectile advances 8/30 s of flight and not 0.5 s.
+			-- ...AND THE RANGE MUST NOT BE WHAT ENDS IT, or the case counts the range cap instead of
+			-- the sub-step cap: eight sub-steps of a rifle bullet is 600+ studs, which is most of its
+			-- real 800. (The first version of this case used the default 800 and measured 6 casts.)
 			local capped = Flight.new(CONFIG)
-			capped:launch(record({}), { Vector3.new(0, 0, -1) }, shot)
+			capped:launch(record({ rangeStuds = 1e6 }), { Vector3.new(0, 0, -1) }, shot)
 			local castsBefore = capped.casts
 			local travelled = 0
 			capped:advance(0.5, function(_origin: Vector3, direction: Vector3)
@@ -388,19 +397,31 @@ return function()
 				return nil
 			end)
 			expect(capped.casts - castsBefore).to.equal(CONFIG.FLIGHT_MAX_SUBSTEPS)
-			-- 8/30 s at ~2600 studs/s is about 690 studs, not the ~1300 of a full 0.5 s.
-			expect(travelled > 600 and travelled < 760).to.equal(true)
+			-- EIGHT STEPS OF 1/30 s, NOT EIGHT OF 1/16. The remainder of a `dt` past the cap is
+			-- discarded, so the projectile advances 8/30 = 0.267 s of flight -- 610 studs by the
+			-- closed form -- and not the 1300 studs a full half-second would carry it. This is the
+			-- case that caught `step = dt / subs` taking 62.5 ms sub-steps past a 33 ms cap.
+			expect(travelled > 550 and travelled < 700).to.equal(true)
 		end)
 
-		it("sags under 0.02 studs inside one capped step", function()
-			-- The chord-instead-of-arc error the cap is sized against (design section 5).
+		it("sags under 0.02 studs off the chord inside one capped step", function()
+			-- THE CHORD-INSTEAD-OF-ARC ERROR THE CAP IS SIZED AGAINST (design section 5), and it is
+			-- the PERPENDICULAR distance from the chord -- which is what "could this segment pass
+			-- through something the arc would have hit" actually asks.
+			--
+			-- NOT the distance to the chord's midpoint: that is dominated by the drag ALONG the path
+			-- (2927 studs/s^2 at the muzzle against gravity's 35), so the first version of this case
+			-- measured 0.4 studs of deceleration and called it sag.
 			local shot = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
 			local dt = CONFIG.FLIGHT_STEP_MAX_SECONDS
 			local position, velocity = Vector3.zero, Vector3.new(0, 0, -1) * shot.v0
 			local wholeStep = select(1, Ballistics.advance(position, velocity, dt, shot))
 			local halfStep = select(1, Ballistics.advance(position, velocity, dt / 2, shot))
-			local onTheChord = position + (wholeStep - position) * 0.5
-			expect((halfStep - onTheChord).Magnitude < 0.02).to.equal(true)
+			local chord = wholeStep - position
+			local alongChord = chord.Unit * (halfStep - position):Dot(chord.Unit)
+			local sag = ((halfStep - position) - alongChord).Magnitude
+			TestKit.note(string.format("[flight] chord sag at a %.1f ms step: %.4f studs", dt * 1000, sag))
+			expect(sag < 0.02).to.equal(true)
 		end)
 
 		it("retires a projectile exactly at its range cap, with no impact and nothing left over", function()
