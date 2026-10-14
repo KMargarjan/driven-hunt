@@ -1381,7 +1381,7 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- line already deep in the wood, groups ARE refused -- and `stepRest` re-tries every
 	-- `REST.stockRetrySeconds` until the next drive puts the line back behind her and the wood in
 	-- front of it. The old answer was to place them behind her anyway, which is what she saw twice.
-	local sweepDepth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER, chosen.layout)
+	local sweepDepth = Data.sweepAheadStuds(Data.SPOOK, chosen.layout)
 	-- TWO PASSES, AND WHAT THEY DIFFER BY IS THE SIGHTLINE (task 172): the first takes only a spot
 	-- the group's own lane can SEE, the second takes any legal spot. Never the sweep rule -- that one
 	-- holds in both, because "behind the line" is not a preference.
@@ -1580,7 +1580,7 @@ function ForestTest.spookNearBeaters(now: number): string?
 			-- the circle and the clock are all `Data.encounterStage`'s, so this loop measures and
 			-- obeys and decides nothing.
 			local since = if state.noticedAt[handle.id] ~= nil then now - state.noticedAt[handle.id] else nil
-			local stage = Data.encounterStage(ahead, gap, since, Data.SPOOK, Data.BEATER, chosen.layout)
+			local stage = Data.encounterStage(ahead, gap, since, Data.SPOOK, chosen.layout)
 			if from ~= nil and stage == "flush" then
 				table.insert(sent, { id = handle.id, from = from, gap = gap, ahead = ahead })
 			elseif from ~= nil and stage == "notice" and state.noticedAt[handle.id] == nil then
@@ -2859,7 +2859,13 @@ function ForestTest.standIndexFor(index: number): number
 	local middle = math.ceil(count / 2) -- 5 of 9
 	local step = math.ceil(zero / 2) -- 0, 1, 1, 2, 2, 3, 3, ...
 	local side = if zero % 2 == 1 then -1 else 1 -- 5, 4, 6, 3, 7, ...
-	return middle + step * side
+	-- CLAMPED INTO THE LINE (round 2, note). The centre-out walk only closes on an ODD count: with
+	-- the 6-stand `edge` layout live, index 6 answers stand 0 and index 8 answers -1 -- and
+	-- `postIndexFor` then finds no `Stand0`, falls back to the raw index, and `Body.placementFor`'s
+	-- modulo lands the hunter on whichever post happens to be last. Unreachable with bots
+	-- (`Match.CONFIG.BOTS.TARGET.hunters` is 4), reachable with six real hunters. A clamp is the
+	-- honest answer: the outside of the walk is the end of the line, and there is no stand past it.
+	return math.clamp(middle + step * side, 1, count)
 end
 
 -- WHICH ENTRY OF `markers.posts` IS STAND `index`. PURE.

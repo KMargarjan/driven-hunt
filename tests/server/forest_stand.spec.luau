@@ -144,8 +144,8 @@ return function()
 			-- would mean animals that bolt without ever having been seen to stand.
 			for _, name in ipairs(Data.LAYOUT_ORDER) do
 				local layout = Data.layoutNamed(name) :: any
-				local notice = Data.noticeAheadStuds(nil, nil, layout)
-				local flush = Data.sweepAheadStuds(nil, nil, layout)
+				local notice = Data.noticeAheadStuds(nil, layout)
+				local flush = Data.sweepAheadStuds(nil, layout)
 				expect(notice > flush).to.equal(true)
 				expect(Data.laneSpacing(layout)).to.equal(layout.standSpacing)
 				TestKit.note(
@@ -781,6 +781,42 @@ return function()
 			expect(ForestTest.standIndexFor(Data.ROAD_LAYOUT.standCount + 1)).to.equal(ForestTest.standIndexFor(1))
 		end)
 
+		it("stays inside the line on EVERY layout, including an even-count one", function()
+			-- ROUND 2'S NOTE, AND IT IS A REAL HOLE: the centre-out walk only closes on an ODD count.
+			-- With the 6-stand `edge` layout live, index 6 answered stand 0 and index 8 answered -1 --
+			-- `postIndexFor` then found no `Stand0`, fell back to the raw index, and
+			-- `Body.placementFor`'s modulo put the hunter on whichever post happened to be last.
+			-- Unreachable with bots, reachable with six real hunters. This case asks every layout,
+			-- which the old one -- looping the road's count only -- could not.
+			local even = 0
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				local layout = Data.layoutNamed(name) :: any
+				ForestTest.layoutForDrive(800 + even, name)
+				expect(ForestTest.layout().standCount).to.equal(layout.standCount)
+				if layout.standCount % 2 == 0 then
+					even += 1
+				end
+				-- TWICE the count, so the wrap is asked as well as the walk.
+				for index = 1, 2 * layout.standCount do
+					local stand = ForestTest.standIndexFor(index)
+					expect(stand >= 1 and stand <= layout.standCount).to.equal(
+						true,
+						string.format("layout %s: hunter %d got stand %d", name, index, stand)
+					)
+					-- ...and the post it resolves to is a real one on a complete line.
+					local posts = {}
+					for at = 1, layout.standCount do
+						table.insert(posts, { Name = string.format("Stand%d", at) })
+					end
+					local post = ForestTest.postIndexFor(posts, stand)
+					expect(post >= 1 and post <= layout.standCount).to.equal(true)
+					expect((posts[post] :: any).Name).to.equal(string.format("Stand%d", stand))
+				end
+			end
+			expect(even > 0).to.equal(true) -- the case would prove nothing without one
+			ForestTest.layoutForDrive(899, Data.DEFAULT_LAYOUT)
+		end)
+
 		it("finds a stand by NAME, because a refused stand shortens the list (task 157)", function()
 			-- MEASURED in the Forest Test: `8/9 stands (1 refused), max ground delta 6.99`. With
 			-- eight posts in the list the fifth entry is not stand 5, and stand 5's x is where the
@@ -1274,42 +1310,45 @@ return function()
 			local want = if reach * reach > half * half
 				then math.max(Data.SPOOK.SWEEP.MIN_AHEAD_STUDS, math.sqrt(reach * reach - half * half))
 				else Data.SPOOK.SWEEP.MIN_AHEAD_STUDS
-			expect(math.abs(Data.sweepAheadStuds(Data.SPOOK, Data.BEATER) - want) < 1e-6).to.equal(true)
+			expect(math.abs(Data.sweepAheadStuds(Data.SPOOK) - want) < 1e-6).to.equal(true)
 			-- ...AND WITH TASK 172'S NUMBERS THE FLUSH BAND IS THE FLOOR (30 studs): a flush circle of
 			-- 71 studs does not reach halfway across a 150-stud lane gap at all, so the formula is
 			-- imaginary there and the floor is the honest answer. What covers the ground between the
 			-- lanes is the NOTICE band below, which is 100 studs deep -- so a group between two lanes
 			-- is stood up long before anything decides to run.
-			expect(Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)).to.equal(Data.SPOOK.SWEEP.MIN_AHEAD_STUDS)
-			expect(Data.sweepAheadStuds(Data.SPOOK, Data.BEATER) < reach).to.equal(true)
+			expect(Data.sweepAheadStuds(Data.SPOOK)).to.equal(Data.SPOOK.SWEEP.MIN_AHEAD_STUDS)
+			expect(Data.sweepAheadStuds(Data.SPOOK) < reach).to.equal(true)
 			-- THE NOTICE BAND IS THE DEEPER OF THE TWO, and that ORDER is the whole staged encounter:
 			-- a notice band narrower than the flush band would mean animals that bolt without ever
 			-- having been seen to stand.
-			local noticeDepth = Data.noticeAheadStuds(Data.SPOOK, Data.BEATER)
+			local noticeDepth = Data.noticeAheadStuds(Data.SPOOK)
 			local noticeReach = Data.noticeStuds(Data.SPOOK)
 			expect(math.abs(noticeDepth - math.sqrt(noticeReach * noticeReach - half * half)) < 1e-6).to.equal(true)
-			expect(noticeDepth > Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)).to.equal(true)
+			expect(noticeDepth > Data.sweepAheadStuds(Data.SPOOK)).to.equal(true)
 			TestKit.note(
 				string.format(
 					"notice %.0f studs deep (reach %.0f), flush %.0f studs deep (reach %.0f), lanes %d apart",
 					noticeDepth,
 					noticeReach,
-					Data.sweepAheadStuds(Data.SPOOK, Data.BEATER),
+					Data.sweepAheadStuds(Data.SPOOK),
 					reach,
 					Data.laneSpacing()
 				)
 			)
 			-- LANES TWO REACHES APART make the formula answer zero or worse, and the floor is what
 			-- stops a line that wide sweeping nothing at all.
-			local wide = { laneSpacingStuds = 2 * reach + 10 }
+			-- A MADE-UP LAYOUT AND NOT A MADE-UP BEATER (round 2's note): the lane spacing is the
+			-- LAYOUT's stand spacing and there is one answer to it, so a spec that wants a spacing no
+			-- shipped layout has says so in the layout.
+			local wide = { standSpacing = 2 * reach + 10 }
 			expect(Data.sweepAheadStuds(Data.SPOOK, wide)).to.equal(Data.SPOOK.SWEEP.MIN_AHEAD_STUDS)
 			-- ONE LANE -- a solo beater -- is the full circle's reach, because there is no spacing to
 			-- taper it.
-			expect(math.abs(Data.sweepAheadStuds(Data.SPOOK, { laneSpacingStuds = 0 }) - reach) < 1e-6).to.equal(true)
+			expect(math.abs(Data.sweepAheadStuds(Data.SPOOK, { standSpacing = 0 }) - reach) < 1e-6).to.equal(true)
 		end)
 
 		it("catches everything the line reaches AND everything it has passed", function()
-			local depth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
+			local depth = Data.sweepAheadStuds(Data.SPOOK)
 			-- IN FRONT AND INSIDE THE BAND: caught.
 			expect(Data.sweepCatches(0, depth, Data.SPOOK)).to.equal(true)
 			expect(Data.sweepCatches(depth, depth, Data.SPOOK)).to.equal(true)
@@ -1334,7 +1373,7 @@ return function()
 			-- at a time at a beater's own pace, and every one of this world's resting groups is caught
 			-- BEFORE the front passes it. This is the simulation half of the live count the Director
 			-- asked for; the live one is in the request.
-			local depth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
+			local depth = Data.sweepAheadStuds(Data.SPOOK)
 			local lanes = {}
 			for index = 1, 4 do
 				local x = standX + Data.beaterLaneOffset(index)
@@ -1408,7 +1447,7 @@ return function()
 			-- `restSpot` now REFUSES rather than falling back is a property of the function's own two
 			-- passes, and the only evidence for it is the code and the live drive in the request. The
 			-- name used to promise it; it does not any more.
-			local depth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
+			local depth = Data.sweepAheadStuds(Data.SPOOK)
 			local line = {
 				{ position = Vector3.new(standX - 150, 0, Data.roadZ(standX - 150) + 200) },
 				{ position = Vector3.new(standX, 0, Data.roadZ(standX) + 200) },
@@ -1737,32 +1776,32 @@ return function()
 			-- THE WHOLE STATE MACHINE, in the three numbers it is a function of. Far out in front:
 			-- nothing. Inside the notice reach: it stands and looks. Inside the flush reach, OR after
 			-- the stand has run its time: it goes.
-			local spook, beater = Data.SPOOK, Data.BEATER
+			local spook = Data.SPOOK
 			local notice = Data.noticeStuds(spook)
 			local flush = Data.beaterSpookStuds(spook)
 			local hold = Data.alertSeconds(spook)
 			-- 400 studs in front of the front and 400 from the nearest body: nothing at all.
-			expect(Data.encounterStage(400, 400, nil, spook, beater)).to.equal("none")
+			expect(Data.encounterStage(400, 400, nil, spook)).to.equal("none")
 			-- Inside the notice reach of a body, still well in front of the front: it looks up.
-			expect(Data.encounterStage(400, notice - 1, nil, spook, beater)).to.equal("notice")
+			expect(Data.encounterStage(400, notice - 1, nil, spook)).to.equal("notice")
 			-- ...and the clock has not run out yet, so it is still looking.
-			expect(Data.encounterStage(400, notice - 1, hold - 0.1, spook, beater)).to.equal("notice")
+			expect(Data.encounterStage(400, notice - 1, hold - 0.1, spook)).to.equal("notice")
 			-- THE CLOCK ENDS THE STAND even if he has come no closer.
-			expect(Data.encounterStage(400, notice - 1, hold, spook, beater)).to.equal("flush")
+			expect(Data.encounterStage(400, notice - 1, hold, spook)).to.equal("flush")
 			-- ...AND SO DOES THE NEAR REACH, before the clock.
-			expect(Data.encounterStage(400, flush, 0, spook, beater)).to.equal("flush")
-			expect(Data.encounterStage(400, flush - 1, 0, spook, beater)).to.equal("flush")
+			expect(Data.encounterStage(400, flush, 0, spook)).to.equal("flush")
+			expect(Data.encounterStage(400, flush - 1, 0, spook)).to.equal("flush")
 			-- AN ANIMAL THE LINE HAS PASSED GOES, whatever the circle says: this is task 168's rule,
 			-- unchanged, and it is what keeps "nothing is left behind the line" true.
-			expect(Data.encounterStage(-1, 1000, nil, spook, beater)).to.equal("flush")
-			expect(Data.encounterStage(-500, 1000, nil, spook, beater)).to.equal("flush")
+			expect(Data.encounterStage(-1, 1000, nil, spook)).to.equal("flush")
+			expect(Data.encounterStage(-500, 1000, nil, spook)).to.equal("flush")
 			-- IN THE NOTICE BAND BETWEEN TWO LANES, where no single body is within its own reach:
 			-- stood up by the band, which is the gap the circle alone used to leave.
-			local noticeDepth = Data.noticeAheadStuds(spook, beater)
-			expect(Data.encounterStage(noticeDepth - 1, 1000, nil, spook, beater)).to.equal("notice")
-			expect(Data.encounterStage(noticeDepth + 1, 1000, nil, spook, beater)).to.equal("none")
+			local noticeDepth = Data.noticeAheadStuds(spook)
+			expect(Data.encounterStage(noticeDepth - 1, 1000, nil, spook)).to.equal("notice")
+			expect(Data.encounterStage(noticeDepth + 1, 1000, nil, spook)).to.equal("none")
 			-- ...and the flush band is the shallower one, so the stand always comes first there.
-			expect(Data.encounterStage(Data.sweepAheadStuds(spook, beater), 1000, nil, spook, beater)).to.equal("flush")
+			expect(Data.encounterStage(Data.sweepAheadStuds(spook), 1000, nil, spook)).to.equal("flush")
 		end)
 
 		it("is the game before task 172 when a world names one reach and no clock", function()
@@ -1774,8 +1813,8 @@ return function()
 				BEATER_STUDS = 89,
 				SWEEP = { ENABLED = true, MIN_AHEAD_STUDS = 30, BEHIND_STUDS = 1200 },
 			}
-			expect(Data.encounterStage(400, 88, nil, old, Data.BEATER)).to.equal("flush")
-			expect(Data.encounterStage(400, 90, nil, old, Data.BEATER)).to.equal("none")
+			expect(Data.encounterStage(400, 88, nil, old)).to.equal("flush")
+			expect(Data.encounterStage(400, 90, nil, old)).to.equal("none")
 			-- The clock cannot fire either, because `alertSeconds` answers 0 and nothing is ever
 			-- noticed to start it.
 			expect(Data.alertSeconds(old)).to.equal(0)

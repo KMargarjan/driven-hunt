@@ -1445,10 +1445,8 @@ end
 -- attribute change, and an attribute that is written again with the same name must not tear a
 -- drawn map down and build it back. Only a geometry that is really different is rebuilt.
 --
--- THE TEAR-DOWN IS BY OWNERSHIP, not by a list of names. `MapUi` is the one writer of everything
--- inside the two frames `Hud.build` created and inside the legend holder (task 165's rule), so
--- clearing their children is exactly "undo what the build did" and cannot reach anything another
--- owner drew.
+-- THE TEAR-DOWN IS BY A LIST OF WHAT THIS MODULE MADE (`claim`, below), not by clearing the frames:
+-- `Hud.build` has four instances of its own in them and round 2 destroyed all four.
 local function sameGeometry(a: MapGeometry?, b: MapGeometry?): boolean
 	if a == nil or b == nil then
 		return a == b
@@ -1474,14 +1472,34 @@ local function sameGeometry(a: MapGeometry?, b: MapGeometry?): boolean
 	return true
 end
 
+-- WHAT THIS MODULE PUT INSIDE THE HUD'S FRAMES, so a rebuild can take back exactly that and nothing
+-- else (round 2, finding 1).
+--
+-- ROUND 2 CLEARED THE FRAMES' CHILDREN BY OWNERSHIP and the ownership claim was simply WRONG:
+-- `Hud.build` parents four things of its own into them -- the minimap's `UICorner` (which is HOW a
+-- circle is drawn in Roblox GUI without an uploaded image, and Karen asked for *"small map in left
+-- or right corner circle like is on another games"*), a `UIStroke` rim on each frame, and the
+-- `MapLegend` frame itself, which is a CHILD of the full map and is the very instance handed back as
+-- `frames.legend`. So the first layout change turned the minimap into a square with the road in its
+-- corners, took both rims, and left `legendFrame` pointing at a destroyed instance that the rebuild
+-- then wrote every swatch into. `Hud.build` runs once, so nothing ever put them back.
+--
+-- A LIST AND NOT A RULE, because the rule is what was wrong. Every instance this module parents into
+-- a frame it does not own goes through `claim`, and `teardown` destroys that list -- children go with
+-- their parents, so nine `claim`s cover the whole picture. An instance nobody claimed cannot be
+-- destroyed by a rebuild, which is the property `Hud`'s four decorations needed.
+local claimed: { Instance } = {}
+
+local function claim<T>(instance: T & Instance): T
+	table.insert(claimed, instance)
+	return instance
+end
+
 local function teardown()
-	for _, frame in ipairs({ miniFrame, fullFrame, legendFrame }) do
-		if frame ~= nil then
-			for _, child in ipairs((frame :: Frame):GetChildren()) do
-				child:Destroy()
-			end
-		end
+	for index = #claimed, 1, -1 do
+		claimed[index]:Destroy()
 	end
+	table.clear(claimed)
 	table.clear(drawers)
 	miniScale = nil
 	built = false
@@ -1509,7 +1527,7 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	local full = fullFrame :: Frame
 
 	-- ---------------- the minimap: a sliding geometry layer inside the round, clipped frame
-	local miniShrink = Instance.new("UIScale")
+	local miniShrink = claim(Instance.new("UIScale"))
 	miniShrink.Parent = mini
 	miniScale = miniShrink
 
@@ -1537,7 +1555,7 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	inner.Size = UDim2.fromOffset(0, 0)
 	inner.Position = UDim2.fromScale(0.5, 0.5)
 	inner.ZIndex = config.Z_INDEX + 1
-	inner.Parent = mini
+	claim(inner).Parent = mini
 	drawGeometry(inner, model, layerView, false)
 
 	-- ---------------- the full map: a fixed-size panel, scaled to fit
@@ -1558,11 +1576,11 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	)
 	full.Position = UDim2.new(0.5, 0, 0, config.FULL_TOP)
 
-	local fullShrink = Instance.new("UIScale")
+	local fullShrink = claim(Instance.new("UIScale"))
 	fullShrink.Parent = full
 	fullScale = fullShrink
 
-	local title = label(full, "Title", config.TITLE_SIZE, string.format("MAP   %s", model.world))
+	local title = claim(label(full, "Title", config.TITLE_SIZE, string.format("MAP   %s", model.world)))
 	title.AnchorPoint = Vector2.new(0.5, 0)
 	title.Position = UDim2.new(0.5, 0, 0, 3)
 	title.Size = UDim2.new(1, -2 * config.FULL_PADDING, 0, config.FULL_TITLE_HEIGHT)
@@ -1575,7 +1593,7 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	canvas.Position = UDim2.fromOffset(config.FULL_PADDING, config.FULL_TITLE_HEIGHT + config.FULL_PADDING)
 	canvas.ClipsDescendants = true
 	canvas.ZIndex = config.Z_INDEX + 1
-	canvas.Parent = full
+	claim(canvas).Parent = full
 	drawGeometry(canvas, model, fullView, true)
 
 	-- NORTH UP, SAID ON THE PICTURE. A map with no north is a map you have to be told about.
@@ -1594,9 +1612,9 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	bar.BorderSizePixel = 0
 	bar.ZIndex = config.Z_INDEX + 3
 	stroked(bar)
-	bar.Parent = full
+	claim(bar).Parent = full
 
-	local barLabel = label(full, "ScaleLabel", config.LABEL_SIZE, string.format("%d m", metres))
+	local barLabel = claim(label(full, "ScaleLabel", config.LABEL_SIZE, string.format("%d m", metres)))
 	barLabel.AnchorPoint = Vector2.new(0, 1)
 	barLabel.Position = UDim2.new(0, config.FULL_PADDING, 1, -3)
 	barLabel.Size = UDim2.fromOffset(80, config.LABEL_SIZE + 2)
@@ -1629,8 +1647,8 @@ function MapUi.setGeometry(next_: MapGeometry?)
 				round.Parent = swatch
 			end
 			stroked(swatch)
-			swatch.Parent = holder
-			local word = label(holder, string.format("Word%d", index), config.LEGEND_TEXT_PX, row.word)
+			claim(swatch).Parent = holder
+			local word = claim(label(holder, string.format("Word%d", index), config.LEGEND_TEXT_PX, row.word))
 			word.AnchorPoint = Vector2.new(0, 0.5)
 			word.Position = UDim2.fromOffset(config.LEGEND_SWATCH_PX + 8, y + config.LEGEND_ROW_HEIGHT / 2)
 			word.Size =

@@ -661,6 +661,59 @@ return function()
 			expect(MapUi.geometry()).to.equal(restore)
 		end)
 
+		it("leaves the Hud's OWN decorations alone when it redraws", function()
+			-- ROUND 2, FINDING 1. The rebuild cleared the frames' children "by ownership", and the
+			-- ownership claim was wrong: `Hud.build` parents four things of its own into them -- the
+			-- minimap's `UICorner`, which is HOW a circle is drawn in Roblox GUI without an uploaded
+			-- image (Karen: *"small map in left or right corner circle like is on another games"*), a
+			-- `UIStroke` rim on each frame, and the `MapLegend` frame, which IS the instance handed
+			-- back as `frames.legend`. So one layout change turned the minimap into a square with the
+			-- road in its corners, took both rims, and left the module's `legendFrame` pointing at a
+			-- destroyed instance. `Hud.build` runs once, so nothing ever put them back.
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			local mini, full = Hud.minimap() :: Frame, Hud.fullMap() :: Frame
+			local corner = mini:FindFirstChildOfClass("UICorner")
+			local miniRim = mini:FindFirstChildOfClass("UIStroke")
+			local fullRim = full:FindFirstChildOfClass("UIStroke")
+			local legend = full:FindFirstChild("MapLegend") :: Frame
+			expect(corner).to.be.ok()
+			expect(miniRim).to.be.ok()
+			expect(fullRim).to.be.ok()
+			expect(legend).to.be.ok()
+			local rows = #legend:GetChildren()
+			expect(rows > 0).to.equal(true)
+
+			local restore = MapUi.geometry()
+			local rebuilds = MapUi.stats().rebuilds
+			for _, name in ipairs(data.LAYOUT_ORDER) do
+				MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, name))
+			end
+			MapUi.setGeometry(restore)
+			expect(MapUi.stats().rebuilds > rebuilds).to.equal(true)
+
+			-- THE SAME INSTANCES, not replacements: `Hud.build` cannot make them again.
+			expect(corner.Parent).to.equal(mini)
+			expect(miniRim.Parent).to.equal(mini)
+			expect(fullRim.Parent).to.equal(full)
+			expect(legend.Parent).to.equal(full)
+			expect(mini:FindFirstChildOfClass("UICorner")).to.equal(corner)
+			-- ...and the legend is still drawn into THAT frame, with its rows, rather than into a
+			-- destroyed one.
+			expect(#legend:GetChildren()).to.equal(rows)
+			expect(full:FindFirstChild("MapLegend")).to.equal(legend)
+			-- The circle is still a circle: half the frame's side, which is what `ClipsDescendants`
+			-- keeps the road inside.
+			expect((corner :: UICorner).CornerRadius).to.equal(UDim.new(0.5, 0))
+			expect(mini.ClipsDescendants).to.equal(true)
+			TestKit.note(
+				string.format(
+					"map: %d redraw(s) and the Hud's UICorner, 2 UIStrokes and MapLegend (%d rows) all survived",
+					MapUi.stats().rebuilds - rebuilds,
+					rows
+				)
+			)
+		end)
+
 		it("binds M, and only once there is a map to open", function()
 			local actions = MapUi.boundActions()
 			expect(#actions).to.equal(1)

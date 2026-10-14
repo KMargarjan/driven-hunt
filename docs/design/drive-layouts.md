@@ -247,8 +247,16 @@ time box is four hours.
 `bandDepth` (the file-local behind `sweepAheadStuds` / `noticeAheadStuds`) changes from reading
 `beater.laneSpacingStuds` to taking the spacing: `bandDepth(reach, laneSpacing, spook)`. With the
 shipped numbers the bands come out notice **100** / flush **30** (spacing 150) and notice **107** /
-flush **61** (spacing 130) — notice is wider than flush in both, which is the order
+flush **30** (spacing 130) — notice is wider than flush in both, which is the order
 `forest_stand.spec` already asserts and the whole point of task 172.
+
+> **Corrected during the build (round 2's review).** This said flush **61** at spacing 130, which is
+> `sqrt(89² − 65²)` — the reach *before* task 172 split it in two. With the shipped
+> `SPOOK.BEATER_STUDS` of **71** the formula is `sqrt(71² − 65²)` = 28.6, i.e. imaginary against half
+> a 150-lane and below the floor against half a 130 one, so the answer is `MIN_AHEAD_STUDS` = **30**
+> at both spacings. `bandDepth`'s own header in `src/shared/ForestTest/init.luau` carried the same
+> stale 89/47.9 and was corrected with it. Nothing computed from it: `forest_stand.spec` asserts the
+> ORDER of the two bands, not their values.
 
 ### 4.2 REMOVED, and archived with a note (rule 7)
 

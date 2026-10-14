@@ -552,13 +552,12 @@ ForestTest.SPOOK = {
 -- so `Match.beaterGoalFor` and `Match.crossedLine` pick that same post and arriving at the goal IS
 -- crossing. The reason is in `BEATER` above, where the number used to live.
 --
--- `beater` IS HONOURED WHEN IT CARRIES ONE, because a spec may hand in a made-up `beater` table to
--- drive the band arithmetic with a spacing no layout has -- which `forest_stand.spec` does. The
--- LAYOUT wins otherwise, and `nil, nil` is the road's 150.
-function ForestTest.laneSpacing(layout: Layout?, beater: any?): number
-	if beater ~= nil and type(beater.laneSpacingStuds) == "number" then
-		return beater.laneSpacingStuds
-	end
+-- ONE ANSWER, AND IT IS THE LAYOUT'S (round 2's note). This used to honour a `laneSpacingStuds` on
+-- the `beater` table first, so a spec could drive the band arithmetic with a spacing no layout has --
+-- which made it a SECOND answer to "how far apart is a lane", reachable by any caller that passed a
+-- table. A spec that wants a made-up spacing hands in a made-up LAYOUT instead, which is the same
+-- thing said once.
+function ForestTest.laneSpacing(layout: Layout?): number
 	return (layout or ForestTest.ROAD_LAYOUT).standSpacing
 end
 
@@ -569,8 +568,10 @@ end
 --     sqrt(BEATER_STUDS^2 - (laneSpacing / 2)^2)
 --
 -- So the band is NO WEAKER than the circles anywhere (it is exactly their worst case) and strictly
--- stronger between two lanes, where the circle tapered. With the shipped numbers -- reach 89, lanes
--- 150 -- it is **47.9 studs**, and the line covers that in ten seconds of its own walk.
+-- stronger between two lanes, where the circle tapered. WITH TASK 172'S NUMBERS the flush reach is
+-- 71 and the lanes are 150, so `sqrt(71^2 - 75^2)` is imaginary and the answer is the floor, 30
+-- studs. (It was 47.9 at the pre-172 reach of 89, and that number stood here until round 2 of
+-- task 179 caught it; `noticeAheadStuds` below has always stated the current 100/30 correctly.)
 --
 -- THE FLOOR IS `MIN_AHEAD_STUDS`, for a lane spacing at or past `2 * BEATER_STUDS`, where the
 -- formula answers zero or is imaginary: a line of men that far apart is not a line, and the honest
@@ -589,8 +590,8 @@ local function bandDepth(reach: number, laneSpacing: number, spook): number
 	return math.max(floor, math.sqrt(inside))
 end
 
-function ForestTest.sweepAheadStuds(spook, beater, layout: Layout?): number
-	return bandDepth(ForestTest.beaterSpookStuds(spook), ForestTest.laneSpacing(layout, beater), spook)
+function ForestTest.sweepAheadStuds(spook, layout: Layout?): number
+	return bandDepth(ForestTest.beaterSpookStuds(spook), ForestTest.laneSpacing(layout), spook)
 end
 
 -- ...AND THE SAME DERIVATION FOR THE NOTICE BAND (task 172), because it is the same geometry asked
@@ -601,8 +602,8 @@ end
 -- so a group is looked at a long way before anything decides to run. That ORDER is not an accident
 -- and `forest_stand.spec` asserts it: a notice band narrower than the flush band would mean animals
 -- that bolt without ever having been seen to stand, which is the whole defect this task fixes.
-function ForestTest.noticeAheadStuds(spook, beater, layout: Layout?): number
-	return bandDepth(ForestTest.noticeStuds(spook), ForestTest.laneSpacing(layout, beater), spook)
+function ForestTest.noticeAheadStuds(spook, layout: Layout?): number
+	return bandDepth(ForestTest.noticeStuds(spook), ForestTest.laneSpacing(layout), spook)
 end
 
 -- WHERE THE LINE'S FRONT IS AT THIS x. PURE: a list of beater positions in, the z of the line at
@@ -693,20 +694,19 @@ function ForestTest.encounterStage(
 	gapStuds: number,
 	alertedFor: number?,
 	spook,
-	beater,
 	layout: Layout?
 ): string
 	local resolved = spook or ForestTest.SPOOK
 	local flush = ForestTest.beaterSpookStuds(resolved)
 	if
-		ForestTest.sweepCatches(aheadStuds, ForestTest.sweepAheadStuds(resolved, beater, layout), resolved)
+		ForestTest.sweepCatches(aheadStuds, ForestTest.sweepAheadStuds(resolved, layout), resolved)
 		or gapStuds <= flush
 		or (alertedFor ~= nil and alertedFor >= ForestTest.alertSeconds(resolved))
 	then
 		return "flush"
 	end
 	if
-		ForestTest.sweepCatches(aheadStuds, ForestTest.noticeAheadStuds(resolved, beater, layout), resolved)
+		ForestTest.sweepCatches(aheadStuds, ForestTest.noticeAheadStuds(resolved, layout), resolved)
 		or gapStuds <= ForestTest.noticeStuds(resolved)
 	then
 		return "notice"
