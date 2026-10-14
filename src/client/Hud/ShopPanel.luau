@@ -95,7 +95,7 @@ local messageAt = -math.huge
 
 local started = false
 local prompt: any = nil
-local promptConnection: RBXScriptConnection? = nil
+local promptConnection: any = nil
 local panel: Frame? = nil
 local title: TextLabel? = nil
 local balance: TextLabel? = nil
@@ -469,7 +469,9 @@ function ShopPanel.setPrompt(next_: any)
 		return
 	end
 	if promptConnection ~= nil then
-		(promptConnection :: RBXScriptConnection):Disconnect()
+		pcall(function()
+			(promptConnection :: any):Disconnect()
+		end)
 		promptConnection = nil
 	end
 	prompt = next_
@@ -481,7 +483,12 @@ function ShopPanel.setPrompt(next_: any)
 			ShopPanel.onPromptTriggered()
 		end)
 	end)
-	if ok and typeof(connection) == "RBXScriptConnection" then
+	-- ANY CONNECTION OBJECT, not only an `RBXScriptConnection`, and that is the same decision as
+	-- taking anything with a `Triggered` signal: a `BindableEvent` fires DEFERRED (Roblox's signal
+	-- behaviour since 2022), so a spec driving one could never read the result in the same frame --
+	-- measured on this task's first harness run. The fake the spec hands in is therefore a plain
+	-- synchronous signal, and what it drives is this exact line.
+	if ok and connection ~= nil then
 		promptConnection = connection
 		stats.prompts += 1
 	else

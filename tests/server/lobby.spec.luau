@@ -992,7 +992,10 @@ return function()
 			local at = p.Parent
 			expect(at).to.be.ok()
 			expect((at :: Instance):IsA("Attachment")).to.equal(true)
-			expect((at :: Attachment).Position.Y).to.equal(CFG.LODGE.KEEPER.PROMPT_HEIGHT)
+			-- A TOLERANCE AND NOT AN EQUALITY: `Attachment.Position` is three float32s, so 2.2 comes
+			-- back out of the engine as 2.200000047683716 (measured, this spec's first run).
+			local lift = (at :: Attachment).Position.Y
+			expect(math.abs(lift - CFG.LODGE.KEEPER.PROMPT_HEIGHT) < 1e-5).to.equal(true)
 			local body = folder:FindFirstChild(Data.KEEPER_NAME, true) :: Model
 			local root = body.PrimaryPart :: BasePart
 			local promptY = root.Position.Y + (at :: Attachment).Position.Y
