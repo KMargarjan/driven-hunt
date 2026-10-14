@@ -164,10 +164,12 @@ return function()
 		end)
 
 		it("has NO random cone: the one bullet comes out exactly along the aim", function()
-			-- THE SECOND HALF OF *"precist"* (task 183). The rifle's spread is DATA, and this case
-			-- asserts the pattern against that datum rather than against a literal -- so a Director
-			-- who dials in 1.2 MOA tomorrow does not have to edit a test, and a cone that appears
-			-- when the data says zero still fails.
+			-- THE SECOND HALF OF *"precist"* (task 183). TWO CLAIMS, AND ONLY ONE OF THEM IS A
+			-- LITERAL. The pattern is bounded by the ROW's own half-cone, so a cone that appears
+			-- when the data says zero fails whatever the data says; and the datum itself is pinned
+			-- at zero here, in ONE place, because that is Karen's *"precist"* and a dial nobody
+			-- should move by accident. A Director who decides on 1.2 MOA changes `Rifle.CONFIG` and
+			-- this one line -- not three (the Reviewer's note, round 1, which counted three).
 			local row = Weapons.ROWS.rifle
 			expect(row.SPREAD_FULL_DEG.Slug).to.equal(0)
 			local aim = Vector3.new(0.3, 0.1, -1).Unit

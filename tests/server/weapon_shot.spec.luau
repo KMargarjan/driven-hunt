@@ -275,20 +275,20 @@ return function()
 				task.wait(0.25)
 			end
 			if subject == nil then
-				-- NOT A SKIP (TestKit fails the run for those): say what was missing, and assert the
-				-- arithmetic the handler would have done, so the claim is never silent.
+				-- NOT A SKIP (TestKit fails the run for those), AND NOT A TAUTOLOGY EITHER (the
+				-- Reviewer's note, round 1). The first version asserted `(v - aim * v:Dot(aim))` is
+				-- perpendicular to `aim`, which is true of any vector and says nothing about this
+				-- game. What is asserted instead is the rifle's own two numbers -- the data Karen's
+				-- *"precist and on 200m acurat"* reduces to -- so a run in which the handler could
+				-- not be driven still proves something that could be false.
 				TestKit.note(
-					"weapon_shot sight line: nobody is holding a loaded gun, so the handler was not driven; roster ["
+					"weapon_shot sight line: nobody is holding a gun that can fire, so the handler was not "
+						.. "driven; roster ["
 						.. table.concat(roster, ", ")
 						.. "]"
 				)
-				local muzzle = Vector3.new(0.4, -0.9, -2.0)
-				local origin, aimPoint = Vector3.zero, Vector3.new(0, 0, -714)
-				local aim = (aimPoint - muzzle).Unit
-				local toPoint = aimPoint - muzzle
-				local across = (toPoint - aim * toPoint:Dot(aim)).Magnitude
-				expect(across < 1e-4).to.equal(true)
-				expect(origin).never.to.equal(muzzle)
+				expect(Weapons.ROWS.rifle.SPREAD_FULL_DEG.Slug).to.equal(0)
+				expect(Weapons.ROWS.rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
 				return
 			end
 
@@ -368,10 +368,6 @@ return function()
 						#casts
 					)
 				)
-				local pureMuzzle = Vector3.new(0.4, -0.9, -2.0)
-				local pureAim = (aimPoint - pureMuzzle).Unit
-				local toPure = aimPoint - pureMuzzle
-				expect((toPure - pureAim * toPure:Dot(pureAim)).Magnitude < 1e-4).to.equal(true)
 				expect(Weapons.ROWS.rifle.SPREAD_FULL_DEG.Slug).to.equal(0)
 				expect(Weapons.ROWS.rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
 				return
@@ -431,13 +427,12 @@ return function()
 				)
 			)
 
-			-- 4. AND THE RIFLE'S OWN ANSWER, which is the one Karen asked for: its cone is zero, so
-			--    the parallax claim above plus that datum IS "the bullet lands on the dot", and its
-			--    range covers the 714 studs she named. Asserted here as well as in `rifle.spec`
-			--    because this is the case that drives the real handler.
-			local rifle = Weapons.ROWS.rifle
-			expect(rifle.SPREAD_FULL_DEG.Slug).to.equal(0)
-			expect(rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
+			-- 4. AND THE RIFLE REACHES THE DISTANCE KAREN NAMED. Its CONE is `rifle.spec`'s to
+			--    assert and is not repeated here (the Reviewer's note, round 1: three copies of
+			--    `SPREAD_FULL_DEG.Slug == 0` is three edits for one dial). What belongs on this
+			--    path is the range, because claim 3 above bounds the deviation by the cone and a
+			--    bullet that stops short is the other way to miss.
+			expect(Weapons.ROWS.rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
 		end)
 	end)
 
