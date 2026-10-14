@@ -315,7 +315,11 @@ Lobby.CONFIG = {
 		WINDOWS = {
 			{ wall = "south", along = -11 },
 			{ wall = "south", along = 11 },
-			{ wall = "north", along = -13 },
+			-- -11 AND NOT -13: a run shorter than `LOG_DIAMETER * 0.6` is dropped as a sliver, and at
+			-- -13 the 0.7 studs between the opening and the wall's own end were exactly that -- a
+			-- 0.2-stud slit through the corner on the courses the stub does not cross (review round
+			-- 2, note).
+			{ wall = "north", along = -11 },
 			{ wall = "east", along = 0 },
 		},
 		-- THE PORCH. Karen's word, and it is where she arrives.
@@ -539,8 +543,8 @@ Lobby.CONFIG = {
 			{ kind = "roe", wall = "east", along = -8, height = 8.2 },
 			{ kind = "roe", wall = "east", along = 8, height = 8.2 },
 			-- THE NORTH WALL'S WEST HALF, clear of the counter and of its window.
-			{ kind = "roe", wall = "north", along = -8 },
-			{ kind = "boar", wall = "north", along = -4, height = 5 },
+			{ kind = "roe", wall = "north", along = -7 },
+			{ kind = "boar", wall = "north", along = -3.5, height = 5 },
 			{ kind = "roe", wall = "north", along = 0 },
 			-- EITHER SIDE OF THE DOOR, between it and the front windows: the two a player sees
 			-- first when he turns round inside.

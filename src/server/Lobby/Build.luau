@@ -551,8 +551,13 @@ end
 
 -- ONE WINDOW, IN A HOLE THE WALL ALREADY LEFT: frame, glass, muntins, a sill and a pair of shutters
 -- with the cut-out a Central-European shutter carries (a fir tree here; a heart is the other
--- classic). `face` sits on the wall plane with its LookVector pointing OUTWARD, so every offset
--- below is read in one direction and the same function hangs a window on any of the four walls.
+-- classic).
+--
+-- `face` SITS ON THE WALL PLANE WITH ITS LOOKVECTOR POINTING OUT OF THE BUILDING, so **-Z is
+-- outdoors** for every offset below and the same function hangs a window on any of the four walls.
+-- That sentence was in this comment for a round while two of the four yaws pointed the other way and
+-- the shutters swung against the other half of their own window; it is the caller's four numbers and
+-- the sign of the hinge angle that make it true, and both now say so where they are written.
 --
 -- THE GLASS IS SOLID AND THE REST IS NOT. A hole in a log wall that nothing closes is a hole a
 -- player walks out of; the pane is what makes the window a window. It keeps `CanQuery`, because the
@@ -626,11 +631,16 @@ local function windowUnit(folder: Instance, name: string, face: CFrame, height: 
 	)
 	-- THE SHUTTERS, HELD OPEN AGAINST THE WALL, each turned out by `SHUTTER_OPEN_RADIANS` so they
 	-- catch the light differently from the logs behind them.
+	-- THE SWING IS OUTWARD, LIKE EVERYTHING ELSE ON THIS WINDOW. With the turn the other way the
+	-- leaf's own offset came back as +0.94 in local Z -- BEHIND the face -- so the shutters were
+	-- inside the room while the sill was outside it, and no yaw could put both on the same side of
+	-- the wall (round 2, finding 1). `R_y(t) * (a, 0, 0) = (a cos t, 0, -a sin t)`, so the sign of
+	-- `t` is the sign of the leaf's local Z, and -Z is out.
 	for _, side in ipairs({ -1, 1 }) do
 		local tag = if side < 0 then "W" else "E"
 		local hinge = face
 			* CFrame.new(side * (w / 2 + f), 0, -0.45)
-			* CFrame.Angles(0, -side * spec.SHUTTER_OPEN_RADIANS, 0)
+			* CFrame.Angles(0, side * spec.SHUTTER_OPEN_RADIANS, 0)
 		local leaf = hinge * CFrame.new(side * w / 4, 0, 0)
 		part(
 			string.format("Shutter%s%s", name, tag),
@@ -1995,11 +2005,16 @@ local function lodge(container: Instance, anchor: Vector3, cfg, seams: Seams?): 
 	-- outward normal and the one `trophies` uses is its opposite.
 	for index, row in ipairs(cfg.LODGE.WINDOWS) do
 		local y = (winBottom + winTop) / 2
+		-- OUTWARD, ON ALL FOUR WALLS, and the four numbers below are the only place that is decided.
+		-- A CFrame's LookVector is its own -Z, so `R_y(theta) * (0, 0, -1) = (-sin, 0, -cos)`: 0 looks
+		-- SOUTH, pi NORTH, pi/2 WEST and -pi/2 EAST. Round 2, finding 1: south and north were the
+		-- other way round, so a sill that is 1.35 studs along the LookVector stood INSIDE the room on
+		-- the front elevation -- no sill and no shadow line on the wall Karen walks out of.
 		local at, yaw
 		if row.wall == "south" then
-			at, yaw = Vector3.new(origin.X + row.along, y, origin.Z - halfZ + d / 2), math.pi
+			at, yaw = Vector3.new(origin.X + row.along, y, origin.Z - halfZ + d / 2), 0
 		elseif row.wall == "north" then
-			at, yaw = Vector3.new(origin.X + row.along, y, origin.Z + halfZ - d / 2), 0
+			at, yaw = Vector3.new(origin.X + row.along, y, origin.Z + halfZ - d / 2), math.pi
 		elseif row.wall == "west" then
 			at, yaw = Vector3.new(origin.X - halfX + d / 2, y, origin.Z + row.along), math.pi / 2
 		else
@@ -2026,8 +2041,7 @@ local function lodge(container: Instance, anchor: Vector3, cfg, seams: Seams?): 
 	antlerMount(
 		over,
 		"DoorStag",
-		CFrame.new(origin.X, floorY + cfg.LODGE.DOOR.HEIGHT + 5.2, origin.Z - halfZ - 0.4)
-			* CFrame.Angles(0, math.pi, 0),
+		CFrame.new(origin.X, doorTop + 5.2, origin.Z - halfZ - 0.4) * CFrame.Angles(0, math.pi, 0),
 		cfg.TROPHIES.GABLE,
 		cfg
 	)

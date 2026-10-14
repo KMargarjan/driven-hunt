@@ -1072,17 +1072,34 @@ return function()
 		it("leaves the doorway a GAP: nothing stands in it", function()
 			-- Karen asked for a *"door you walk through"*, so the door is the absence of parts. The
 			-- leaf, the lintel and the two jambs are all BESIDE or ABOVE the hole, never in it.
+			--
+			-- THE VOLUME, SAMPLED, AND NOT THE CENTRES. Round 2's note: a centre test passes any part
+			-- whose BOX reaches into the opening while its middle sits outside it -- which is most of
+			-- the ways a doorway gets blocked, a lintel that hangs too low being the obvious one.
 			local room = Build.roomFor(anchor, CFG)
 			local origin = anchor + CFG.LODGE.OFFSET
 			local frontZ = origin.Z - CFG.LODGE.SIZE.Z / 2
-			for _, descendant in ipairs(folder:GetDescendants()) do
-				if descendant:IsA("BasePart") and descendant.CanCollide then
-					local at = descendant.Position
-					local inDoorX = math.abs(at.X - origin.X) < CFG.LODGE.DOOR.WIDTH / 2
-					local inDoorZ = math.abs(at.Z - frontZ) < 2.5
-					local inDoorY = at.Y > room.centre.Y + 0.4 and at.Y < room.centre.Y + CFG.LODGE.DOOR.HEIGHT
-					if inDoorX and inDoorZ and inDoorY then
-						error(string.format("%s stands in the doorway", descendant.Name), 0)
+			for stepX = -2, 2 do
+				for stepY = 0, 8 do
+					for stepZ = -1, 1 do
+						local at = Vector3.new(
+							origin.X + stepX * (CFG.LODGE.DOOR.WIDTH / 2 - 0.4) / 2,
+							room.centre.Y + 0.3 + stepY * (CFG.LODGE.DOOR.HEIGHT - 0.6) / 8,
+							frontZ + stepZ * CFG.LODGE.LOG_DIAMETER / 2
+						)
+						for _, descendant in ipairs(folder:GetDescendants()) do
+							if descendant:IsA("BasePart") and descendant.CanCollide then
+								local piece = descendant :: BasePart
+								local near = piece.CFrame:PointToObjectSpace(at)
+								if
+									math.abs(near.X) < piece.Size.X / 2
+									and math.abs(near.Y) < piece.Size.Y / 2
+									and math.abs(near.Z) < piece.Size.Z / 2
+								then
+									error(string.format("%s stands in the doorway", piece.Name), 0)
+								end
+							end
+						end
 					end
 				end
 			end
@@ -1131,6 +1148,7 @@ return function()
 				table.insert(holes, { at = at, fills = string.format("WindowGlass%d", index), door = false })
 			end
 			local filled = nil
+			local problem = nil
 			for _, hole in ipairs(holes) do
 				for _, descendant in ipairs(built:GetDescendants()) do
 					if descendant:IsA("BasePart") and string.match(descendant.Name, "^Wall%u") then
@@ -1185,31 +1203,39 @@ return function()
 					end
 					y += step
 				end
-				expect(lowest).to.be.ok()
-				-- WHAT FILLS IT: the pane for a window, and for the door the floor below and the
-				-- lintel above -- both measured off the parts that were really built.
-				local fills = built:FindFirstChild(hole.fills, true) :: BasePart
-				expect(fills).to.be.ok()
-				local wantLow = if hole.door then room.centre.Y else fills.Position.Y - fills.Size.Y / 2
-				local wantHigh = if hole.door
-					then fills.Position.Y - fills.Size.Y / 2
-					else fills.Position.Y + fills.Size.Y / 2
-				if
-					math.abs((lowest :: number) - wantLow) > step * 2
-					or math.abs((highest :: number) - wantHigh) > step * 2
-				then
-					other:Destroy()
-					error(
-						string.format(
-							"the wall is open from %.2f to %.2f but %s covers %.2f to %.2f",
-							lowest :: number,
-							highest :: number,
-							hole.fills,
-							wantLow,
-							wantHigh
-						),
-						0
-					)
+				-- NOT ONE THROW BEFORE THE `Destroy` BELOW, AND `expect` THROWS. Round 2, finding 2:
+				-- `expect(lowest).to.be.ok()` right here is the "the wall was never cut at all"
+				-- failure this case exists to catch, so the first time it did its job it leaked a
+				-- live lobby spawn into `Workspace` and poisoned the rest of the run -- the very
+				-- defect the round before it had claimed to fix. Every failure is a STRING now, and
+				-- nothing is asserted until the folder is gone.
+				local fills = built:FindFirstChild(hole.fills, true)
+				if lowest == nil then
+					problem = problem or string.format("%s: the wall was never cut at all", hole.fills)
+				elseif fills == nil or not fills:IsA("BasePart") then
+					problem = problem or string.format("%s: nothing was built to fill the hole", hole.fills)
+				else
+					-- WHAT FILLS IT: the pane for a window, and for the door the floor below and the
+					-- lintel above -- both measured off the parts that were really built.
+					local board = fills :: BasePart
+					local wantLow = if hole.door then room.centre.Y else board.Position.Y - board.Size.Y / 2
+					local wantHigh = if hole.door
+						then board.Position.Y - board.Size.Y / 2
+						else board.Position.Y + board.Size.Y / 2
+					if
+						math.abs((lowest :: number) - wantLow) > step * 2
+						or math.abs((highest :: number) - wantHigh) > step * 2
+					then
+						problem = problem
+							or string.format(
+								"the wall is open from %.2f to %.2f but %s covers %.2f to %.2f",
+								lowest :: number,
+								highest :: number,
+								hole.fills,
+								wantLow,
+								wantHigh
+							)
+					end
 				end
 			end
 			-- ...AND THE FRAME IS REALLY THERE, so "cut" cannot be satisfied by building no wall.
@@ -1224,6 +1250,9 @@ return function()
 			other:Destroy()
 			if filled ~= nil then
 				error(string.format("%s fills an opening that should be a hole", filled), 0)
+			end
+			if problem ~= nil then
+				error(problem, 0)
 			end
 			expect(sill).to.equal(true)
 			expect(shutter).to.equal(true)
