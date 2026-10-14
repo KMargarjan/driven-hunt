@@ -2344,7 +2344,37 @@ function Hud.start()
 			local data = require(module)
 			-- THE MAP'S GEOMETRY COMES OFF THE SAME MODULE, through the same door. `setGeometry` is
 			-- idempotent and builds once.
-			MapUi.setGeometry(MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map))
+			--
+			-- ...AND IT IS REDRAWN WHEN THE DRIVE LAYOUT CHANGES (task 179). This world deals one of
+			-- several layouts per drive, so the geometry is a function of a string the SERVER
+			-- publishes on the module's own Rojo-owned `Live` child -- the client never chooses and
+			-- never derives, because a map drawn on a layout the hunter is not standing on is wrong
+			-- in a way no screenshot shows.
+			--
+			-- `MapUi.setGeometry` IS STILL THE ONE WRITER of the map's geometry (task 165's rule);
+			-- this is a second CALLER of a public door, not a second drawer.
+			local live = module:FindFirstChild(data.LIVE_NAME)
+			local function drawMap()
+				MapUi.setGeometry(
+					MapUi.geometryFor(
+						Map.EXPECTED_WORLD,
+						data,
+						Map,
+						if live then live:GetAttribute(data.LAYOUT_ATTRIBUTE) else nil
+					)
+				)
+			end
+			drawMap()
+			if live then
+				live:GetAttributeChangedSignal(data.LAYOUT_ATTRIBUTE):Connect(drawMap)
+			else
+				warn(
+					string.format(
+						"[Hud] ReplicatedStorage.ForestTest.%s is missing: no map in this world",
+						tostring(data.LIVE_NAME)
+					)
+				)
+			end
 			-- IT WRITES THE TWO LOCALS AND NOTHING DRAWN (task 165). It used to call
 			-- `Compass.setBearing` and `MapUi.setPush` itself, which made two writers of each of
 			-- those -- this closure and the per-frame pass. `Hud.renderObjective` is the one writer

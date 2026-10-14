@@ -536,10 +536,17 @@ end
 -- a second curve that disagrees with the first the next time the Director bends the road.
 --
 -- `data` IS PASSED IN rather than required, so this stays pure and a spec can hand it a table.
-function MapUi.geometryFromForestTest(data: any): MapGeometry
+--
+-- ...AND SO IS THE LAYOUT (task 179). This world deals one of several drive layouts per drive, and
+-- the LAYOUT is what says where the line is, how long it is, how many stands it has and whether it
+-- bends at all. The client does not choose it and does not derive it: the server publishes the name
+-- and `geometryFor` below resolves it, because a client that guessed would draw a different road
+-- from the one the hunter's feet are on -- invisible in a screenshot, and this project's named
+-- killer.
+function MapUi.geometryFromForestTest(data: any, layout: any): MapGeometry
 	local config = MapUi.CONFIG
-	local centre = data.CENTRE
-	local halfSpan = data.HALF_SPAN
+	local centre = layout.centre
+	local halfSpan = layout.halfSpanStuds
 	local margin = config.GEOMETRY_MARGIN_STUDS
 
 	local road = {}
@@ -547,12 +554,15 @@ function MapUi.geometryFromForestTest(data: any): MapGeometry
 	for index = 1, samples do
 		local t = (index - 1) / (samples - 1)
 		local x = centre.X - halfSpan + t * (2 * halfSpan)
-		table.insert(road, Vector2.new(x, data.roadZ(x)))
+		-- A STRAIGHT LAYOUT SAMPLES TO A STRAIGHT POLYLINE, with no second code path: `roadZ`
+		-- answers `centre.Z` at every x when the amplitude is 0, which is the same shape
+		-- `geometryFromMap` already draws DEV's two-point road with.
+		table.insert(road, Vector2.new(x, data.roadZ(x, layout)))
 	end
 
 	local stands = {}
-	for index = 1, data.STAND_COUNT do
-		local at = data.standPosition(index)
+	for index = 1, layout.standCount do
+		local at = data.standPosition(index, layout)
 		table.insert(stands, Vector2.new(at.X, at.Z))
 	end
 
@@ -562,15 +572,14 @@ function MapUi.geometryFromForestTest(data: any): MapGeometry
 	-- task 162; 700 is still the larger, so these bounds are unchanged by it) --
 	-- because a driver walking in from 700 studs is one of the *"other players moving"* Karen asked
 	-- to see, and a map that cuts him off has lost him.
-	local beaterNorth = data.LINE.spawnNorthStuds + data.BEATER.behindLineStuds
-	local north = math.max(data.DRIVERS.startNorthStuds, beaterNorth)
+	local north = math.max(data.DRIVERS.startNorthStuds, data.beaterNorthStuds())
 	return {
 		world = data.WORLD,
 		bounds = {
 			minX = centre.X - halfSpan - margin,
 			maxX = centre.X + halfSpan + margin,
-			minZ = data.EXIT_Z - margin,
-			maxZ = centre.Z + data.ROAD.amplitudeStuds + north + margin,
+			minZ = data.exitZOf(layout) - margin,
+			maxZ = centre.Z + layout.amplitudeStuds + north + margin,
 		},
 		road = road,
 		stands = stands,
@@ -616,12 +625,23 @@ end
 -- WHICH WORLD'S GEOMETRY, or `nil`. A world that has stated nothing gets NO MAP AT ALL and says so
 -- out loud -- never a blank panel, because `docs/PROJECT_CONTEXT.md` records a visibility audit that
 -- *"certified a blank screen twice"* and an empty map frame is exactly that picture.
-function MapUi.geometryFor(world: string, forestTest: any?, map: any?): MapGeometry?
+--
+-- `layoutName` IS THE STRING THE SERVER PUBLISHED (task 179), and an unknown or absent one gets NO
+-- MAP rather than the road's: *"a world that has stated nothing gets no map at all"* is the rule
+-- above, and "this drive is on a layout I have never heard of" is exactly a world that has stated
+-- nothing. The attribute signal in `Hud` redraws the instant a name arrives, so the no-name case is
+-- a frame at worst -- the server publishes inside `Match.start`'s first marker read, before any
+-- player's Hud runs.
+function MapUi.geometryFor(world: string, forestTest: any?, map: any?, layoutName: string?): MapGeometry?
 	if world == "forest-test" then
 		if forestTest == nil then
 			return nil
 		end
-		return MapUi.geometryFromForestTest(forestTest)
+		local layout = forestTest.layoutNamed(layoutName)
+		if layout == nil then
+			return nil
+		end
+		return MapUi.geometryFromForestTest(forestTest, layout)
 	end
 	-- THE WORLD MUST BE THE ONE THE MAP MODULE IS ABOUT (task 155 round 1, the Reviewer's note).
 	-- Without this compare, ANY unrecognised world fell through to the DEV geometry and would have

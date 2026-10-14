@@ -25,44 +25,285 @@ local ForestTest = {}
 ForestTest.PLACE_ID = 130094961655666
 ForestTest.WORLD = "forest-test"
 
--- THE CENTRE the Director built around, and the curve of the road through it.
-ForestTest.CENTRE = Vector3.new(3030, 138, -2097)
-ForestTest.HALF_SPAN = 800 -- the road runs CENTRE.X +- this
-
--- THE ROAD IS A SINE, NOT A LINE. Karen: *"hunter position one long road not straight as we have
--- now"*. Amplitude 30 studs over a 440-stud wavelength is a road that bends enough that a shooter
--- cannot see his neighbour down the whole length -- which is the point of it -- without ever
--- doubling back on itself.
-ForestTest.ROAD = {
-	amplitudeStuds = 30,
-	wavelengthDivisor = 70, -- z = C.Z + amplitude * sin((x - C.X) / this)
-	halfWidthStuds = 20, -- the cut lane is about 40 studs across
+-- ---------------------------------------------------------------- THE DRIVE LAYOUTS (task 179)
+--
+-- KAREN, 2026-10-13 ~13:55, verbatim: *"we will improve terrain that not all a time same place
+-- hunters standing and not the same terrain for beaters / we will make view for hunter from
+-- different places and diffretent tree lines road ect like in real life"*.
+--
+-- SO A DRIVE IS A LAYOUT, AND A LAYOUT IS DATA. Until today this world had exactly one place to
+-- stand -- the curved road at z -2097 with nine stands -- and every drive Karen played was the same
+-- ground seen from the same nine spots. The table below is the whole of the difference between one
+-- drive and the next: where the line is, what shape it is, how many stands it has and how far
+-- apart. Everything else in this file is SHARED, because no shipped layout varies it (design 3.3).
+--
+-- Pattern: THE WORLD PLACES THE ENTITIES THE GAME MODE QUERIES -- Valve's `info_player_terrorist`,
+-- Unreal's `AGameModeBase::ChoosePlayerStart` -- with one level added: the world holds SEVERAL sets
+-- of them and names which set is live. The same two sources `ForestTest.Markers`' header cites.
+--   https://developer.valvesoftware.com/wiki/De/Info_player_counterterrorist
+--   https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/GameFramework/AGameModeBase
+-- Design: docs/design/drive-layouts.md (sections 3 and 4)
+-- Note:   docs/research/2026-10-14-drive-layouts.md
+--
+-- EVERY NUMBER HERE WAS MEASURED IN THIS PLACE before it was written (note section 5, read in Edit
+-- on 2026-10-14, read-only). A stand is only taken where the two ground readings agree to within
+-- `Markers.GROUND_TOLERANCE_STUDS` AND nothing colliding stands within 8 studs of it -- today's
+-- road is 9 of 9 on both counts, which is the bar, and candidate lines at 6 of 9 were REJECTED
+-- rather than nudged.
+export type Layout = {
+	name: string,
+	-- What a HUD may print. Nothing draws it yet; it is here so the name a player sees is the
+	-- world's to state rather than a client's to invent.
+	label: string,
+	-- The middle of the stand line. Y IS A FALLBACK GROUND ONLY: every production reader of a
+	-- layout point re-measures the ground (`Markers.groundFor`, `terrainYAt`, `groundAt`), so this
+	-- value is reached only in a column with no terrain in it at all. It is the mean of the
+	-- layout's own measured stand terrain.
+	centre: Vector3,
+	-- The sine's amplitude, and **0 IS A STRAIGHT LINE**: one shape, not two, so a straight layout
+	-- needs no second code path anywhere.
+	amplitudeStuds: number,
+	standCount: number,
+	standSpacing: number,
+	-- How far the line's ground runs either side of `centre.X`: half the stand span plus a run-out,
+	-- so a boar fleeing past the end stand has ground to do it on.
+	halfSpanStuds: number,
 }
 
--- WHERE THE ROAD IS AT A GIVEN x. The one definition; every other reader calls this.
-function ForestTest.roadZ(x: number): number
-	return ForestTest.CENTRE.Z
-		+ ForestTest.ROAD.amplitudeStuds * math.sin((x - ForestTest.CENTRE.X) / ForestTest.ROAD.wavelengthDivisor)
+-- THE SHAPE EVERY LAYOUT SHARES. The wavelength and the lane width are the same in all three, so
+-- they live here and not in the record: three copies of 70 are a constant written three times
+-- (design 3.3, a named deviation from the brief, which listed them per layout).
+ForestTest.SHAPE = table.freeze({
+	wavelengthDivisor = 70, -- z = centre.Z + amplitude * sin((x - centre.X) / this)
+	halfWidthStuds = 20, -- the cut lane is about 40 studs across
+})
+
+-- HOW FAR SOUTH OF THE LINE A BOAR IS GONE. The curve's lowest z is `centre.Z - amplitude`, so this
+-- much past that is clear of the whole length. `Brain:_outcome` despawns at `position.Z <= exitZ`.
+ForestTest.EXIT_SOUTH_STUDS = 250
+
+-- THE ONE GROUND HEIGHT THE BOAR FIELD CARRIES, and it stays 138 for every layout on purpose.
+-- `Brain:_outcome` despawns at `position.Y < field.groundY - FALL_LIMIT` (50), so a per-layout 185
+-- would put the floor at 135 on an edge drive -- and the terrain inside this wood was measured as
+-- low as 99. A number that cannot be bounded must not be allowed to despawn animals; 138 - 50 = 88
+-- is below every value measured anywhere in this place (design 3.4).
+ForestTest.GROUND_Y = 138
+
+ForestTest.LAYOUTS = table.freeze({
+	-- TODAY'S DRIVE, FROZEN NUMBER FOR NUMBER (the Director's decision 2 in
+	-- `reviews/task-179/BRIEF.md`; `forest_stand.spec` asserts every one of them).
+	--
+	-- THE ROAD IS A SINE, NOT A LINE. Karen: *"hunter position one long road not straight as we have
+	-- now"*. Amplitude 30 studs over a 440-stud wavelength is a road that bends enough that a
+	-- shooter cannot see his neighbour down the whole length -- which is the point of it -- without
+	-- ever doubling back on itself.
+	--
+	-- 9 SPOTS OVER 1,200 STUDS is 150 studs apart, which is a real driven-hunt spacing: far enough
+	-- that two hunters never share a target, close enough that a boar crossing anywhere is
+	-- somebody's shot. 150 studs is 42 m at `ForestTest.SPOOK.METRES_PER_STUD`.
+	road = table.freeze({
+		name = "road",
+		label = "Road",
+		centre = Vector3.new(3030, 138, -2097),
+		amplitudeStuds = 30,
+		standCount = 9,
+		standSpacing = 150,
+		halfSpanStuds = 800,
+	}),
+
+	-- THE SOUTH FOREST EDGE: the hunters stand OUT IN THE OPEN and the drive comes out of the trees
+	-- at them. Measured: the wood's south tree line is at z -2900 at seven of the nine road columns,
+	-- so a line at z -3000 is 100 studs clear of it -- a hunter sees the animals break cover and has
+	-- the whole crossing in front of him instead of a 40-stud lane.
+	--
+	-- IT IS THE MOST CLASSICAL OF THE THREE, and that is a borrowed judgement rather than a taste:
+	-- WILD UND HUND's "Drueckjagdstaende -- Sicher ist sicher?" says a stand does NOT belong on a
+	-- path or a narrow clearing between two thickets (panicked game runs down those light bridges)
+	-- but where the passages converge and the bullet catch is safe -- and it names hillsides and
+	-- natural terrain edges as the two places that are. This is both.
+	--   https://wildundhund.de/drueckjagdstaende-sicher-ist-sicher/
+	--
+	-- SIX STANDS CENTRED x 3480 AND NOT NINE CENTRED 3030, AND THE LODGE IS WHY.
+	-- `Lobby.anchorFor("forest-test")` is (2850, -2950) -- 50 studs off the ideal nine-stand line --
+	-- so the line is moved east and shortened until the nearest stand is 255 studs from it. Measured
+	-- per stand at x 3105..3855: ground delta 0.0 and trunk-free at all six, terrain y 148, 148,
+	-- 172, 192, 223, 228 -- an 80-stud climb west to east, which is the hillside above.
+	--
+	-- `centre.Y` 185 is the mean of those six. `halfSpanStuds` 435 is 375 (half the stand span) + 60
+	-- of run-out, and the run-out is 60 rather than the road's 200 BECAUSE OF THE LODGE: at 200 the
+	-- west bound would be x 2905 and the lobby's own field is x 2740..2960, which would put a boar
+	-- on the lodge lawn.
+	edge = table.freeze({
+		name = "edge",
+		label = "Forest edge",
+		centre = Vector3.new(3480, 185, -3000),
+		amplitudeStuds = 0,
+		standCount = 6,
+		standSpacing = 150,
+		halfSpanStuds = 435,
+	}),
+
+	-- A STRAIGHT RIDE INSIDE THE EAST WOOD: five stands 130 apart, trunks on both sides, short sight
+	-- lines. A different kind of drive on purpose -- 520 studs of front instead of 1,200.
+	--
+	-- A REAL RIDE IS CUT, AND THIS ONE IS FOUND. Deutsche Jagdzeitung's "Saubere
+	-- Ansitz-Drueckjagden!" describes the preparation of a drive as the clearing of its stands -- a
+	-- broad shooting lane and a narrow sight line cut before the season -- and this place's wood is
+	-- bought Studio content this repo did not write, so cutting one means deleting it (rule 7, and
+	-- Karen's call). So the line is placed where the wood ALREADY leaves the ground clear, and that
+	-- was measured rather than hoped for: sweeping centres x 3250..3400 against z -2680..-2420,
+	-- seven candidate lines come out 5/5 trunk-free and this is one of them. x 3090..3610, terrain
+	-- y 141..163, 240 studs clear of the lodge in x.
+	--   https://djz.de/saubere-ansitz-drueckjagden-858/
+	--
+	-- `centre.Y` 152 is the midpoint of that measured range; `halfSpanStuds` 320 is 260 + the same
+	-- 60-stud run-out as the edge, for the same lodge reason.
+	ride = table.freeze({
+		name = "ride",
+		label = "Ride",
+		centre = Vector3.new(3350, 152, -2600),
+		amplitudeStuds = 0,
+		standCount = 5,
+		standSpacing = 130,
+		halfSpanStuds = 320,
+	}),
+})
+
+-- THE BAG'S CONTENTS, IN ONE PLACE, and the one-line commit that puts this world back to exactly
+-- today's game: `{ "road" }`. `forest_stand.spec` proves `road` is unchanged number for number, so
+-- that commit is a real rollback and not a hope (design 15).
+ForestTest.LAYOUT_ORDER = table.freeze({ "road", "edge", "ride" })
+
+-- THE DEFAULT PARAMETER, NAMED FOR WHAT IT IS. A default meaning "the live layout" cannot exist in
+-- a replicated module: on a client this module has no live anything, so it would answer `road` for
+-- ever and draw the wrong road -- which is the one defect this whole design exists to prevent. A
+-- default called `ROAD_LAYOUT` means the road layout, so a reader who omits the argument has said
+-- what they got (design 4).
+ForestTest.ROAD_LAYOUT = ForestTest.LAYOUTS.road
+ForestTest.DEFAULT_LAYOUT = "road"
+
+-- WHERE THE LIVE NAME IS PUBLISHED. A Rojo-owned `Configuration` that is a CHILD OF THIS MODULE
+-- (`src/shared/ForestTest/Live.model.json`), which is exactly the shape `Flags` uses for its own
+-- mirror and for the reason that file writes down: it is found through `script` and never by
+-- searching `ReplicatedStorage`, so one file means one instance and Rojo owns both. An attribute on
+-- `ReplicatedStorage` itself would be a global name with no owner.
+--
+-- The attribute is written only in a Play session by the server's forest owner, so it can never
+-- dirty a harness run -- the same property `Flags.publish` has.
+ForestTest.LIVE_NAME = "Live"
+ForestTest.LAYOUT_ATTRIBUTE = "Layout"
+
+-- THE DIRECTOR'S OVERRIDE: an attribute on `ServerStorage`, set in Edit, that forces one layout for
+-- a test. Exactly `START_ROLE_ATTRIBUTE`'s idiom -- it survives into Play because Play copies the
+-- Edit DataModel, it never shows up in the git tree, and it is NOT a `DHFlag_*` name, so the
+-- harness's override guard neither sees it nor can be defeated by it. The other half of that is a
+-- cost and it is logged: `test` does NOT refuse to start while this is set, so the chooser prints
+-- which source it used (design 11, D3).
+ForestTest.LAYOUT_OVERRIDE_ATTRIBUTE = "DHForestLayout"
+
+-- THE LAYOUT BY NAME, OR NIL. PURE. Nil for a name the table does not know, which is what makes
+-- "a typo gets no map rather than the wrong map" possible all the way out to the client.
+function ForestTest.layoutNamed(name: string?): Layout?
+	if type(name) ~= "string" then
+		return nil
+	end
+	return (ForestTest.LAYOUTS :: any)[name]
+end
+
+-- A FRESH COPY of the order, so a caller that shuffles its own bag cannot shuffle the table.
+function ForestTest.layoutNames(): { string }
+	return table.clone(ForestTest.LAYOUT_ORDER)
+end
+
+-- WHICH LAYOUT COMES NEXT: A SHUFFLED BAG, NOT A RE-ROLL (task 179). PURE -- a spec drives it with
+-- a fixed roll and no world.
+--
+-- Pattern: the Tetris Guideline's **Random Generator**, the 7-bag -- *"take a bag of all seven
+-- tetrominoes, shuffle, deal them one at a time, refill when empty"*. It exists because the naive
+-- `math.random(n)` really does deal the same thing several times running and players read that as
+-- broken, which is exactly the complaint a repeated drive layout would earn.
+--   https://tetris.wiki/Random_Generator
+-- The same shape is what this platform's own community arrived at for map rotation:
+--   https://devforum.roblox.com/t/an-efficient-way-to-randomize-a-list-of-maps-or-items/223583
+-- A bag is taken over "remember the previous and re-roll" (the other DevForum answer) for two
+-- reasons: re-rolling is unbounded, and a bag guarantees every layout is SEEN -- which matters here,
+-- because Karen is judging the look of each one and a layout she is never dealt is a layout she
+-- cannot judge.
+--
+-- `roll(n)` must answer an integer in 1..n; the live caller passes `Random:NextInteger(1, n)`.
+function ForestTest.nextLayout(previous: string?, bag: { string }, roll: (number) -> number): (string, { string })
+	-- NEVER MUTATES THE CALLER'S LIST: the bag is state somebody else owns, and a pure function that
+	-- edits its argument is the kind of second writer rule 3 is about.
+	local next_ = table.clone(bag or {})
+	if #next_ == 0 then
+		next_ = ForestTest.layoutNames()
+		-- Fisher-Yates, the one shuffle. `math.clamp` is not tidiness: a stub roll that answers 0 or
+		-- n+1 would index nil, and a spec is allowed to hand this function anything.
+		for index = #next_, 2, -1 do
+			local other = math.clamp(roll(index), 1, index)
+			next_[index], next_[other] = next_[other], next_[index]
+		end
+		-- THE BOUNDARY CASE, which is the one thing "never twice running" has to mean. A fresh bag
+		-- whose first name is the one just played deals `... C | C ...`; swap it with the second.
+		-- With ONE layout in the table there is no second and the answer is the same name again --
+		-- honest, and not a loop that cannot terminate.
+		if #next_ >= 2 and next_[1] == previous then
+			next_[1], next_[2] = next_[2], next_[1]
+		end
+	end
+	local name = table.remove(next_, 1) :: string
+	return name, next_
+end
+
+-- WHERE THE LINE IS AT A GIVEN x. The one definition; every other reader calls this.
+--
+-- THE LAYOUT IS A TRAILING OPTIONAL PARAMETER, which is the idiom this file already uses for
+-- `spook`, `beater` and `rest`: the arithmetic is pure in a table handed in, and a spec can ask any
+-- layout anything with no world running.
+function ForestTest.roadZ(x: number, layout: Layout?): number
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	if resolved.amplitudeStuds == 0 then
+		-- A STRAIGHT LINE IS THE SINE AT AMPLITUDE 0, so this branch changes no answer. It is here
+		-- because `roadZ` is called from every ground read and a straight layout's z is then exact
+		-- arithmetic rather than a sine evaluated to be multiplied by zero.
+		return resolved.centre.Z
+	end
+	return resolved.centre.Z
+		+ resolved.amplitudeStuds * math.sin((x - resolved.centre.X) / ForestTest.SHAPE.wavelengthDivisor)
+end
+
+-- WHERE A BOAR IS GONE, for this layout. It was a constant (`EXIT_Z` = -2377) and it cannot be one:
+-- -2377 is 223 studs NORTH of the ride's line, so a boar on the ride would be despawned before it
+-- ever reached the hunters.
+function ForestTest.exitZOf(layout: Layout?): number
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	return resolved.centre.Z - resolved.amplitudeStuds - ForestTest.EXIT_SOUTH_STUDS
 end
 
 -- THE HUNTER LINE. Karen: *"hunter line just a hunter no treestand anything"* -- so a stand here is
 -- a SPOT, not a structure. These are the x values a hunter may choose between; the z comes from the
--- curve, so every one of them is on the road.
---
--- 9 SPOTS OVER 1,200 STUDS is 150 studs apart, which is a real driven-hunt spacing: far enough that
--- two hunters never share a target, close enough that a boar crossing anywhere is somebody's shot.
-ForestTest.STAND_COUNT = 9
-ForestTest.STAND_SPACING = 150
-
-function ForestTest.standX(index: number): number
-	local middle = (ForestTest.STAND_COUNT + 1) / 2
-	return ForestTest.CENTRE.X + (index - middle) * ForestTest.STAND_SPACING
+-- line, so every one of them is on it.
+function ForestTest.standX(index: number, layout: Layout?): number
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	local middle = (resolved.standCount + 1) / 2
+	return resolved.centre.X + (index - middle) * resolved.standSpacing
 end
 
--- WHERE A HUNTER STANDS, as a world position on the road.
-function ForestTest.standPosition(index: number): Vector3
-	local x = ForestTest.standX(index)
-	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x))
+-- WHERE A HUNTER STANDS, as a world position on the line.
+function ForestTest.standPosition(index: number, layout: Layout?): Vector3
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	local x = ForestTest.standX(index, resolved)
+	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved))
+end
+
+-- THE GROUND THE STANDS THEMSELVES OCCUPY, as minX and maxX. The one answer to "how wide is this
+-- line", so no caller re-derives it from the count and the spacing.
+function ForestTest.standSpan(layout: Layout?): { minX: number, maxX: number }
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	return {
+		minX = ForestTest.standX(1, resolved),
+		maxX = ForestTest.standX(resolved.standCount, resolved),
+	}
 end
 
 -- THE PICK. Karen: *"hunter has square where can select stand within 10s and save then he can move
@@ -121,11 +362,17 @@ ForestTest.DRIVERS = {
 	walkSpeed = 16,
 }
 
-function ForestTest.driverStart(index: number, count: number): Vector3
-	local spread = ForestTest.HALF_SPAN * 1.2
+-- NOTHING IN PRODUCTION CALLS THIS any more -- task 157 gave the drive the beaters' own start line
+-- (`beaterStart`) and its only reader left in the repo is `tests/client/map_ui.spec.luau`. It takes
+-- the layout parameter for consistency and is a candidate for archiving with a note (rule 7), the
+-- same treatment `forest-drive.md` 7.2 gave `ForestTest.drive`: a function nothing reads is the next
+-- reader's trap. Not archived here, because that is its own commit (design 11, D6).
+function ForestTest.driverStart(index: number, count: number, layout: Layout?): Vector3
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	local spread = resolved.halfSpanStuds * 1.2
 	local t = if count <= 1 then 0.5 else (index - 1) / (count - 1)
-	local x = ForestTest.CENTRE.X - spread / 2 + spread * t
-	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x) + ForestTest.DRIVERS.startNorthStuds)
+	local x = resolved.centre.X - spread / 2 + spread * t
+	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved) + ForestTest.DRIVERS.startNorthStuds)
 end
 
 -- ---------------------------------------------------------------- starting AS a beater (task 153)
@@ -200,7 +447,13 @@ ForestTest.BEATER = {
 	-- spacing puts the goal in front of a stand the lane is not walking at, on a road that is a sine
 	-- 30 studs deep. It is also a real beater interval: 150 studs is 42 m at
 	-- `ForestTest.SPOOK.METRES_PER_STUD`.
-	laneSpacingStuds = ForestTest.STAND_SPACING,
+	--
+	-- ...AND SINCE TASK 179 IT IS NOT A NUMBER IN THIS TABLE AT ALL. `laneSpacingStuds` used to read
+	-- `ForestTest.STAND_SPACING`, and with three layouts the spacing is 150, 150 and 130 -- so a
+	-- single constant here would be a SECOND answer to "how far apart is a lane", disagreeing with
+	-- the live layout on a ride. The reason above is unchanged and is now stated as a function of the
+	-- layout: `ForestTest.laneSpacing(layout)` IS `layout.standSpacing`, by definition, and
+	-- `forest_stand.spec` asserts it for every layout instead of for one constant.
 	-- How far above the ground she is put, so she drops onto it rather than into it. It used to be
 	-- *"the same 4 studs `ForestTest.spawnPosition` uses for a hunter"*, and task 157 archived that
 	-- function: a hunter is now put down by the drive, on the marker part `ForestTest.Markers` builds
@@ -294,6 +547,21 @@ ForestTest.SPOOK = {
 	},
 }
 
+-- HOW FAR APART THE LANES OF THE LINE ARE, AND IT IS ONE STAND (task 167, made per layout by 179).
+-- PURE, and the ONE definition: a lane laid out on the stand grid lands square in front of a stand,
+-- so `Match.beaterGoalFor` and `Match.crossedLine` pick that same post and arriving at the goal IS
+-- crossing. The reason is in `BEATER` above, where the number used to live.
+--
+-- `beater` IS HONOURED WHEN IT CARRIES ONE, because a spec may hand in a made-up `beater` table to
+-- drive the band arithmetic with a spacing no layout has -- which `forest_stand.spec` does. The
+-- LAYOUT wins otherwise, and `nil, nil` is the road's 150.
+function ForestTest.laneSpacing(layout: Layout?, beater: any?): number
+	if beater ~= nil and type(beater.laneSpacingStuds) == "number" then
+		return beater.laneSpacingStuds
+	end
+	return (layout or ForestTest.ROAD_LAYOUT).standSpacing
+end
+
 -- HOW DEEP THE SWEEP REACHES IN FRONT OF THE LINE, derived from the lane spacing (task 168).
 -- PURE, and the derivation is the whole point: it is the depth the OLD per-beater circle really had
 -- at the worst place on the front -- midway between two lanes -- promoted to the whole front.
@@ -307,8 +575,12 @@ ForestTest.SPOOK = {
 -- THE FLOOR IS `MIN_AHEAD_STUDS`, for a lane spacing at or past `2 * BEATER_STUDS`, where the
 -- formula answers zero or is imaginary: a line of men that far apart is not a line, and the honest
 -- answer is "a man's own few strides" rather than an error.
-local function bandDepth(reach: number, beater, spook): number
-	local half = ((beater or ForestTest.BEATER).laneSpacingStuds or 0) / 2
+--
+-- THE SPACING IS NOW PASSED IN rather than read off `beater` (task 179): the lane spacing is the
+-- LAYOUT's stand spacing, so there is no number in `BEATER` to read. A `beater` table that still
+-- carries one is honoured, because a spec may hand in either.
+local function bandDepth(reach: number, laneSpacing: number, spook): number
+	local half = (laneSpacing or 0) / 2
 	local floor = ((spook or ForestTest.SPOOK).SWEEP or {}).MIN_AHEAD_STUDS or 0
 	local inside = reach * reach - half * half
 	if inside <= 0 then
@@ -317,8 +589,8 @@ local function bandDepth(reach: number, beater, spook): number
 	return math.max(floor, math.sqrt(inside))
 end
 
-function ForestTest.sweepAheadStuds(spook, beater): number
-	return bandDepth(ForestTest.beaterSpookStuds(spook), beater, spook)
+function ForestTest.sweepAheadStuds(spook, beater, layout: Layout?): number
+	return bandDepth(ForestTest.beaterSpookStuds(spook), ForestTest.laneSpacing(layout, beater), spook)
 end
 
 -- ...AND THE SAME DERIVATION FOR THE NOTICE BAND (task 172), because it is the same geometry asked
@@ -329,8 +601,8 @@ end
 -- so a group is looked at a long way before anything decides to run. That ORDER is not an accident
 -- and `forest_stand.spec` asserts it: a notice band narrower than the flush band would mean animals
 -- that bolt without ever having been seen to stand, which is the whole defect this task fixes.
-function ForestTest.noticeAheadStuds(spook, beater): number
-	return bandDepth(ForestTest.noticeStuds(spook), beater, spook)
+function ForestTest.noticeAheadStuds(spook, beater, layout: Layout?): number
+	return bandDepth(ForestTest.noticeStuds(spook), ForestTest.laneSpacing(layout, beater), spook)
 end
 
 -- WHERE THE LINE'S FRONT IS AT THIS x. PURE: a list of beater positions in, the z of the line at
@@ -416,18 +688,25 @@ end
 -- ...AND THE CLOCK IS WHAT ENDS THE STAND. A group that has looked for `ALERT_SECONDS` breaks
 -- whether or not he has closed any further, which is what a real group does and what stops an
 -- approach that stalls from freezing a herd in a stare for ever.
-function ForestTest.encounterStage(aheadStuds: number, gapStuds: number, alertedFor: number?, spook, beater): string
+function ForestTest.encounterStage(
+	aheadStuds: number,
+	gapStuds: number,
+	alertedFor: number?,
+	spook,
+	beater,
+	layout: Layout?
+): string
 	local resolved = spook or ForestTest.SPOOK
 	local flush = ForestTest.beaterSpookStuds(resolved)
 	if
-		ForestTest.sweepCatches(aheadStuds, ForestTest.sweepAheadStuds(resolved, beater), resolved)
+		ForestTest.sweepCatches(aheadStuds, ForestTest.sweepAheadStuds(resolved, beater, layout), resolved)
 		or gapStuds <= flush
 		or (alertedFor ~= nil and alertedFor >= ForestTest.alertSeconds(resolved))
 	then
 		return "flush"
 	end
 	if
-		ForestTest.sweepCatches(aheadStuds, ForestTest.noticeAheadStuds(resolved, beater), resolved)
+		ForestTest.sweepCatches(aheadStuds, ForestTest.noticeAheadStuds(resolved, beater, layout), resolved)
 		or gapStuds <= ForestTest.noticeStuds(resolved)
 	then
 		return "notice"
@@ -513,32 +792,90 @@ ForestTest.START_ROLE_ATTRIBUTE = "DHForestStartRole"
 -- ALTERNATING, NEAREST FIRST, which is the same shape `beaterStartPosition` searches for a clear
 -- spot with and the same shape the archived lane offsets had: one idiom in this repo for "deal these
 -- out either side of a line".
-function ForestTest.beaterLaneOffset(index: number?): number
+function ForestTest.beaterLaneOffset(index: number?, layout: Layout?): number
 	local which = (index or 1) - 1
 	if which <= 0 then
 		return 0
 	end
-	local step = math.ceil(which / 2) * ForestTest.BEATER.laneSpacingStuds
+	local step = math.ceil(which / 2) * ForestTest.laneSpacing(layout)
 	return if which % 2 == 1 then step else -step
 end
 
 -- WHERE A BEATER STARTS, as flat geometry: north of the line's own spawn, on the push line through
 -- `standX`. PURE -- the ground and the trunks are the server's to measure (`beaterStartPosition`).
-function ForestTest.beaterStart(standX: number, sideOffset: number?): Vector3
+function ForestTest.beaterStart(standX: number, sideOffset: number?, layout: Layout?): Vector3
+	local resolved = layout or ForestTest.ROAD_LAYOUT
 	local x = standX + (sideOffset or 0)
-	local north = ForestTest.LINE.spawnNorthStuds + ForestTest.BEATER.behindLineStuds
-	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x) + north)
+	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved) + ForestTest.beaterNorthStuds())
 end
 
--- WHICH WAY SHE LOOKS: at the road, straight down the push. The point on the curve at her own x,
--- which is also where the line she is behind is heading.
-function ForestTest.roadPointAt(x: number): Vector3
-	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x))
+-- HOW FAR NORTH OF THE LINE A BEATER STARTS, AND IT IS THE SAME IN EVERY LAYOUT (task 179). That is
+-- deliberate: a bot line is what ends a drive here (`Match.beaterCrossing` counts bots into the
+-- line), so this distance IS the length of a drive --
+--
+--   (LINE.spawnNorthStuds 180 + BEATER.behindLineStuds 400 + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS
+--     20) / Bots.CONFIG.WALK_SPEED 5  =  120.0 s
+--
+-- -- and task 162 measured that pair against the wood's own depth. A per-layout distance would make
+-- a drive's LENGTH a property of which layout was dealt, which is a thing nobody asked for and
+-- which Karen would feel as a drive that is sometimes short. `forest_stand.spec` asserts the 120 s
+-- for every layout, which holds by construction because no layout carries the number.
+function ForestTest.beaterNorthStuds(): number
+	return ForestTest.LINE.spawnNorthStuds + ForestTest.BEATER.behindLineStuds
 end
 
--- WHERE A BOAR IS GONE. South of every point of the road: the curve's lowest z is CENTRE.Z - 30, so
--- 250 past that is clear of the whole length. `Brain:_outcome` despawns at `position.Z <= exitZ`.
-ForestTest.EXIT_Z = ForestTest.CENTRE.Z - ForestTest.ROAD.amplitudeStuds - 250
+-- WHICH WAY SHE LOOKS: at the line, straight down the push. The point on the line at her own x,
+-- which is also where the animals she is behind are heading.
+function ForestTest.roadPointAt(x: number, layout: Layout?): Vector3
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved))
+end
+
+-- THE GROUND A DRIVE USES, as a rectangle: the stands' own span, from the exit in the south to the
+-- beaters' start in the north. The one answer to "where does this drive happen", so the lodge can be
+-- asserted clear of every layout's without either module knowing about the other
+-- (`tests/server/lobby.spec.luau`; design 9.4).
+function ForestTest.corridorOf(layout: Layout?): { minX: number, maxX: number, minZ: number, maxZ: number }
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	local span = ForestTest.standSpan(resolved)
+	return {
+		minX = span.minX,
+		maxX = span.maxX,
+		minZ = ForestTest.exitZOf(resolved),
+		maxZ = resolved.centre.Z + ForestTest.beaterNorthStuds(),
+	}
+end
+
+-- THE BOAR FIELD'S BOUNDS FOR THIS LAYOUT. It is `ForestTestBoot`'s own formula, moved here and
+-- given the layout's numbers, because with three layouts the boot cannot compute it once at load
+-- time: a drive on the ride has to swap the field when the layout is promoted, or `Brain.insideField`
+-- clamps every animal to the road's rectangle 500 studs away.
+--
+-- `fieldFor(ROAD_LAYOUT)` IS BIT-FOR-BIT THE TABLE THE BOOT USED TO BUILD, and that is asserted
+-- rather than claimed (`forest_stand.spec`): bounds 2230..3830 by -2477..-1197, exit -2377, ground
+-- 138. That identity is how "the road layout is unchanged" is checked (design 10.1).
+function ForestTest.boundsOf(layout: Layout?): { minX: number, maxX: number, minZ: number, maxZ: number }
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	return {
+		minX = resolved.centre.X - resolved.halfSpanStuds,
+		maxX = resolved.centre.X + resolved.halfSpanStuds,
+		minZ = ForestTest.exitZOf(resolved) - 100,
+		maxZ = resolved.centre.Z + ForestTest.DRIVERS.startNorthStuds + 200,
+	}
+end
+
+-- ...AND THE WHOLE FIELD, which is what `Boar.defaultWorld` and `Runtime:setField` take.
+function ForestTest.fieldFor(layout: Layout?)
+	local resolved = layout or ForestTest.ROAD_LAYOUT
+	return {
+		bounds = ForestTest.boundsOf(resolved),
+		exitZ = ForestTest.exitZOf(resolved),
+		-- ONE GROUND HEIGHT FOR EVERY LAYOUT, and `GROUND_Y`'s own comment is why: a per-layout 185
+		-- would put `Brain:_outcome`'s fall floor at 135 on an edge drive, and this wood goes down to
+		-- 99.
+		groundY = ForestTest.GROUND_Y,
+	}
+end
 
 -- WHERE THE BOARS WAIT. Karen: *"so wildboars will be located in different places"*. Each is a
 -- point north of the road with a sounder size; the schedule below decides when each one moves.
@@ -557,9 +894,10 @@ ForestTest.EXIT_Z = ForestTest.CENTRE.Z - ForestTest.ROAD.amplitudeStuds - 250
 -- inside a few seconds' walk of her and well within sight down a 40-stud lane.
 -- WHERE A WAVE IS RELEASED, relative to the stand the hunter actually locked (task 123 round 8).
 -- With nobody playing, `standX` is the default stand's, which is what the drive used before.
-function ForestTest.wavePoint(standX: number, spec): Vector3
+function ForestTest.wavePoint(standX: number, spec, layout: Layout?): Vector3
+	local resolved = layout or ForestTest.ROAD_LAYOUT
 	local x = standX + (spec.offsetX or 0)
-	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x) + (spec.northStuds or 100))
+	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved) + (spec.northStuds or 100))
 end
 
 -- THE NAMED HOLDINGS ARE GONE (task 123 round 8), and what replaced them is above:
@@ -1020,10 +1358,11 @@ end
 -- WHERE A RESTING GROUP IS NOMINALLY PUT, before the ground and the trunks are measured. PURE, the
 -- same division `wavePoint` has: the arithmetic here, the world's own answer in
 -- `ForestTest.restSpot`.
-function ForestTest.restPoint(standX: number, spec, sideOffset: number?, outOffset: number?): Vector3
+function ForestTest.restPoint(standX: number, spec, sideOffset: number?, outOffset: number?, layout: Layout?): Vector3
+	local resolved = layout or ForestTest.ROAD_LAYOUT
 	local x = standX + (spec.offsetX or 0) + (sideOffset or 0)
 	local north = (spec.northStuds or 120) + (outOffset or 0)
-	return Vector3.new(x, ForestTest.CENTRE.Y, ForestTest.roadZ(x) + north)
+	return Vector3.new(x, resolved.centre.Y, ForestTest.roadZ(x, resolved) + north)
 end
 
 -- WHERE A BEATER IS STANDING WHEN HE OUGHT TO SEE THIS GROUP (task 172). PURE: the point on the
@@ -1034,11 +1373,12 @@ end
 -- point asks is not "can he see it from anywhere" but "can he see it from where he will be standing
 -- when it puts its head up", and the answer has to be taken from inside the band or it is about a
 -- different moment.
-function ForestTest.laneLookPoint(standX: number, spec, spot: Vector3, rest): Vector3
+function ForestTest.laneLookPoint(standX: number, spec, spot: Vector3, rest, layout: Layout?): Vector3
 	local laneX = standX + (spec.laneOffset or 0)
 	local resolved = rest or ForestTest.REST
-	local north = spot.Z - ForestTest.roadZ(spot.X) + (resolved.sightFromStuds or 0)
-	return Vector3.new(laneX, ForestTest.CENTRE.Y, ForestTest.roadZ(laneX) + north)
+	local where = layout or ForestTest.ROAD_LAYOUT
+	local north = spot.Z - ForestTest.roadZ(spot.X, where) + (resolved.sightFromStuds or 0)
+	return Vector3.new(laneX, where.centre.Y, ForestTest.roadZ(laneX, where) + north)
 end
 
 -- HOW FAR OFF ITS OWN LANE A GROUP'S SPOT IS. PURE, flat, and the one thing `laneSideStuds` is

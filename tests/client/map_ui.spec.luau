@@ -250,7 +250,7 @@ return function()
 			-- THERE IS NO SECOND CURVE. A map that re-typed the sine would disagree with the world
 			-- the next time the Director bends the road.
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local model = MapUi.geometryFromForestTest(data)
+			local model = MapUi.geometryFromForestTest(data, data.ROAD_LAYOUT)
 			expect(#model.road).to.equal(CONFIG.ROAD_SAMPLES)
 			for _, point in ipairs(model.road) do
 				-- 1e-3 STUDS AND NOT 1e-9, and the reason is the container and not the arithmetic:
@@ -264,8 +264,8 @@ return function()
 
 		it("draws the stands from `ForestTest.standPosition`, all nine, in order", function()
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local model = MapUi.geometryFromForestTest(data)
-			expect(#model.stands).to.equal(data.STAND_COUNT)
+			local model = MapUi.geometryFromForestTest(data, data.ROAD_LAYOUT)
+			expect(#model.stands).to.equal(data.ROAD_LAYOUT.standCount)
 			for index, point in ipairs(model.stands) do
 				local at = data.standPosition(index)
 				-- 1e-3, for the float32 reason the road's case above measures.
@@ -278,15 +278,15 @@ return function()
 
 		it("holds everything that world states inside its bounds", function()
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local model = MapUi.geometryFromForestTest(data)
+			local model = MapUi.geometryFromForestTest(data, data.ROAD_LAYOUT)
 			local bounds = model.bounds
 			-- the exit, the drivers' start, the beater's start, and both ends of the stand line
-			expect(data.EXIT_Z > bounds.minZ).to.equal(true)
+			expect(data.exitZOf() > bounds.minZ).to.equal(true)
 			local driver = data.driverStart(1, 2)
 			expect(driver.Z < bounds.maxZ).to.equal(true)
 			local beater = data.beaterStart(data.standX(5), 0)
 			expect(beater.Z < bounds.maxZ).to.equal(true)
-			for index = 1, data.STAND_COUNT do
+			for index = 1, data.ROAD_LAYOUT.standCount do
 				local at = data.standPosition(index)
 				expect(at.X > bounds.minX and at.X < bounds.maxX).to.equal(true)
 				expect(at.Z > bounds.minZ and at.Z < bounds.maxZ).to.equal(true)
@@ -295,16 +295,20 @@ return function()
 
 		it("puts the road's own centre at the centre of the full map", function()
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local model = MapUi.geometryFromForestTest(data)
+			local model = MapUi.geometryFromForestTest(data, data.ROAD_LAYOUT)
 			local view = MapUi.fullView(model.bounds, 1000, 600)
-			local u = MapUi.project(data.CENTRE.X, (model.bounds.minZ + model.bounds.maxZ) / 2, view)
+			local u = MapUi.project(data.ROAD_LAYOUT.centre.X, (model.bounds.minZ + model.bounds.maxZ) / 2, view)
 			expect(u).to.be.near(0, 1e-6)
 			-- ...and stand 1 and stand 9 either side of it, their real spacing apart.
 			local first = MapUi.project(data.standX(1), data.roadZ(data.standX(1)), view)
-			local last = MapUi.project(data.standX(data.STAND_COUNT), data.roadZ(data.standX(data.STAND_COUNT)), view)
+			local last = MapUi.project(
+				data.standX(data.ROAD_LAYOUT.standCount),
+				data.roadZ(data.standX(data.ROAD_LAYOUT.standCount)),
+				view
+			)
 			expect(first < 0).to.equal(true)
 			expect(last > 0).to.equal(true)
-			local spacing = (data.STAND_COUNT - 1) * data.STAND_SPACING * view.pxPerStud
+			local spacing = (data.ROAD_LAYOUT.standCount - 1) * data.ROAD_LAYOUT.standSpacing * view.pxPerStud
 			expect(last - first).to.be.near(spacing, 1e-3)
 			TestKit.note(
 				string.format(
@@ -312,10 +316,67 @@ return function()
 					model.bounds.maxX - model.bounds.minX,
 					model.bounds.maxZ - model.bounds.minZ,
 					view.pxPerStud,
-					data.STAND_COUNT,
+					data.ROAD_LAYOUT.standCount,
 					last - first
 				)
 			)
+		end)
+
+		-- ---------------------------------------------------------------- one map per layout (179)
+
+		it("draws EVERY drive layout, each on its own line and its own stand count", function()
+			-- KAREN, 2026-10-13: *"view for hunter from different places and diffretent tree
+			-- lines"*. The map is the one place a hunter can SEE which drive he is on, so a layout
+			-- the map cannot draw is a layout he cannot read.
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			expect(#data.LAYOUT_ORDER >= 1).to.equal(true)
+			for _, name in ipairs(data.LAYOUT_ORDER) do
+				local layout = data.layoutNamed(name)
+				local model = MapUi.geometryFor("forest-test", data, Map, name)
+				expect(model).to.be.ok()
+				local shown = model :: any
+				expect(#shown.stands).to.equal(layout.standCount)
+				expect(#shown.road).to.equal(CONFIG.ROAD_SAMPLES)
+				-- A STRAIGHT LAYOUT IS A STRAIGHT POLYLINE and a curved one is not, with no second
+				-- code path either way: `roadZ` answers `centre.Z` at every x at amplitude 0.
+				local flat = true
+				for _, point in ipairs(shown.road) do
+					expect(point.Y).to.be.near(data.roadZ(point.X, layout), 1e-3)
+					if math.abs(point.Y - layout.centre.Z) > 1e-3 then
+						flat = false
+					end
+				end
+				expect(flat).to.equal(layout.amplitudeStuds == 0)
+				-- Every stand and the exit are inside the bounds that layout states.
+				expect(data.exitZOf(layout) > shown.bounds.minZ).to.equal(true)
+				for index = 1, layout.standCount do
+					local at = data.standPosition(index, layout)
+					expect(at.X > shown.bounds.minX and at.X < shown.bounds.maxX).to.equal(true)
+					expect(at.Z > shown.bounds.minZ and at.Z < shown.bounds.maxZ).to.equal(true)
+				end
+				TestKit.note(
+					string.format(
+						"map: layout %s draws %d stands over %.0f studs, bounds %.0f x %.0f",
+						name,
+						layout.standCount,
+						(layout.standCount - 1) * layout.standSpacing,
+						shown.bounds.maxX - shown.bounds.minX,
+						shown.bounds.maxZ - shown.bounds.minZ
+					)
+				)
+			end
+		end)
+
+		it("gives a layout nobody has heard of NO MAP, never the road's", function()
+			-- THE ONE THING A CLIENT MUST NOT DO is draw a different drive from the one the hunter's
+			-- feet are on, and that is invisible in a screenshot. A nil or unknown published name is
+			-- therefore the same answer as a world that has stated nothing: no map, and the Hud's
+			-- attribute signal redraws the instant a real name arrives.
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			expect(MapUi.geometryFor("forest-test", data, Map, nil)).to.equal(nil)
+			expect(MapUi.geometryFor("forest-test", data, Map, "clearing")).to.equal(nil)
+			expect(MapUi.geometryFor("forest-test", data, Map, "")).to.equal(nil)
+			expect(MapUi.geometryFor("forest-test", data, Map, "road")).to.be.ok()
 		end)
 
 		it("gives the DEV world a straight road, widened bounds and NO stands", function()
@@ -336,7 +397,7 @@ return function()
 		it("gives a world that states nothing NO MAP AT ALL", function()
 			-- *Visibly no map, never a blank panel* -- the audit that "certified a blank screen
 			-- twice" is what that sentence is made of.
-			expect(MapUi.geometryFor("forest-test", nil, nil)).to.equal(nil)
+			expect(MapUi.geometryFor("forest-test", nil, nil, "road")).to.equal(nil)
 			expect(MapUi.geometryFor("something-else", nil, nil)).to.equal(nil)
 			expect(MapUi.geometryFor("something-else", nil, {})).to.equal(nil)
 			-- ...AND A REAL `Map` DOES NOT ANSWER FOR A WORLD IT IS NOT ABOUT (task 155 round 1, the
@@ -348,14 +409,14 @@ return function()
 
 		it("picks the Forest Test's geometry in that world and the Map's elsewhere", function()
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local forest = MapUi.geometryFor("forest-test", data, Map)
+			local forest = MapUi.geometryFor("forest-test", data, Map, "road")
 			expect(forest).to.be.ok()
 			expect((forest :: any).world).to.equal(data.WORLD)
-			expect(#(forest :: any).stands).to.equal(data.STAND_COUNT)
+			expect(#(forest :: any).stands).to.equal(data.ROAD_LAYOUT.standCount)
 			-- `Map.EXPECTED_WORLD` AND NOT `DEFAULT_WORLD`: since the fall-through was closed, a `Map`
 			-- only answers for the world it is about, and in the Forest Test place those two differ.
 			if Map.EXPECTED_WORLD ~= "forest-test" then
-				local dev = MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map)
+				local dev = MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map, "road")
 				expect(dev).to.be.ok()
 				expect(#(dev :: any).stands).to.equal(0)
 			end
@@ -464,7 +525,7 @@ return function()
 			-- so the literal runs here and can fail here -- which is what the sibling case two
 			-- describes up already does.
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local geometry = MapUi.geometryFor("forest-test", data, Map)
+			local geometry = MapUi.geometryFor("forest-test", data, Map, "road")
 			expect(geometry).to.be.ok()
 			local anchor = require(ReplicatedStorage:WaitForChild("Lobby")).anchorFor("forest-test")
 			expect(anchor).to.be.ok()

@@ -82,7 +82,16 @@ return function()
 			-- ...AND THE SPACING IS THE STAND GRID, which is why a lane's goal is straight ahead of
 			-- it: `Match.beaterGoalFor` and `Match.crossedLine` both take the post NEAREST the
 			-- lane, so a lane on a stand's own x makes them pick the same post.
-			expect(Forest.BEATER.laneSpacingStuds).to.equal(Forest.STAND_SPACING)
+			-- ...AND IT IS THE LAYOUT'S STAND GRID, FOR EVERY LAYOUT (task 179). `laneSpacingStuds`
+			-- used to be one number in `BEATER` reading `STAND_SPACING`; with three layouts at 150,
+			-- 150 and 130 a single constant would be a second answer that disagrees with the live
+			-- one on a ride. The property task 167 needs is asserted of each of them instead.
+			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+				local layout = Forest.layoutNamed(name)
+				expect(Forest.laneSpacing(layout)).to.equal(layout.standSpacing)
+				expect(Forest.beaterLaneOffset(2, layout)).to.equal(layout.standSpacing)
+				expect(Forest.beaterLaneOffset(3, layout)).to.equal(-layout.standSpacing)
+			end
 		end)
 
 		it("spans 600 studs of front with four bots, not 72", function()
@@ -90,7 +99,7 @@ return function()
 			expect(span).to.equal(600)
 			-- Four lanes on the stand grid cover four stand spacings, so the line is as wide as the
 			-- stands it is pushing at rather than as wide as one of them.
-			expect(span / Forest.STAND_SPACING).to.equal(4)
+			expect(span / Forest.ROAD_LAYOUT.standSpacing).to.equal(4)
 		end)
 
 		it("gives every bot beater its OWN start and its OWN goal, from the world, by index", function()

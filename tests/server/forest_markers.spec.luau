@@ -177,13 +177,13 @@ return function()
 		it("refuses every stand where there is no ground, and builds nothing", function()
 			Markers.clear()
 			-- THE REAL READERS, in the DEV place: no terrain under the forest's coordinates.
-			local set = Markers.build(Data.standX(Data.PICK.defaultIndex))
+			local set = Markers.build(Data.standX(Data.PICK.defaultIndex), Data.ROAD_LAYOUT)
 			expect(#set.posts).to.equal(0)
 			expect(set.complete).to.equal(false)
 			expect(hasMissing(set, "forest:stands")).to.equal(true)
-			expect(hasMissing(set, string.format("0 of %d", Data.STAND_COUNT))).to.equal(true)
+			expect(hasMissing(set, string.format("0 of %d", Data.ROAD_LAYOUT.standCount))).to.equal(true)
 			expect(Markers.folder()).to.equal(nil) -- not one Instance created
-			expect(Markers.stats().refused).to.equal(Data.STAND_COUNT)
+			expect(Markers.stats().refused).to.equal(Data.ROAD_LAYOUT.standCount)
 			TestKit.note(string.format("forest-markers: %s", table.concat(set.missing, ", ")))
 		end)
 
@@ -191,7 +191,7 @@ return function()
 			-- The drive stays in `Waiting` while `complete` is false, and `Phase.waitingFor` passes
 			-- these strings to the snapshot the drive bar prints. No client change: the Hud already
 			-- renders `waitingFor`.
-			local set = Markers.build(0, nothing, nothing)
+			local set = Markers.build(0, Data.ROAD_LAYOUT, nothing, nothing)
 			local state = Match.Phase.initial(Match.CONFIG)
 			state = Match.Phase.step(state, {
 				kind = "markers",
@@ -207,8 +207,8 @@ return function()
 
 	describe("the set it builds on real ground", function()
 		it("puts one part per stand, on the road, sorted west to east", function()
-			local set = Markers.build(Data.standX(5), flat, flat)
-			expect(#set.posts).to.equal(Data.STAND_COUNT)
+			local set = Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
+			expect(#set.posts).to.equal(Data.ROAD_LAYOUT.standCount)
 			local worst = 0
 			for index, post in ipairs(set.posts) do
 				local stand = Data.standPosition(index)
@@ -229,7 +229,7 @@ return function()
 		end)
 
 		it("is complete with no boar spawns and no trees, and both are decisions", function()
-			local set = Markers.build(Data.standX(5), flat, flat)
+			local set = Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
 			expect(#set.boarSpawns).to.equal(0) -- the drive releases nothing here
 			expect(#set.trees).to.equal(0) -- the forest tags no trunks; anchorFor falls back to posts
 			expect(set.complete).to.equal(true)
@@ -238,17 +238,17 @@ return function()
 		end)
 
 		it("hands over ONE drive line, pointing at the drive side", function()
-			local set = Markers.build(Data.standX(5), flat, flat)
+			local set = Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
 			expect(set.lineParts).to.equal(1)
 			expect(set.line).to.be.ok()
 			local line = set.line :: any
 			expect(line.normal).to.equal(Vector3.zAxis) -- +Z: north, where the beaters are
-			expect(math.abs(line.position.Z - Data.CENTRE.Z) < 1e-3).to.equal(true)
-			expect(math.abs(line.position.X - Data.CENTRE.X) < 1e-3).to.equal(true)
+			expect(math.abs(line.position.Z - Data.ROAD_LAYOUT.centre.Z) < 1e-3).to.equal(true)
+			expect(math.abs(line.position.X - Data.ROAD_LAYOUT.centre.X) < 1e-3).to.equal(true)
 		end)
 
 		it("puts a hunter on her stand at the height the DEV world uses", function()
-			local set = Markers.build(Data.standX(5), flat, flat)
+			local set = Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
 			-- Through `Body.placementFor`, which is the one rule in both worlds, and
 			-- `standIndexFor(1)` -- the solo hunter's stand.
 			local cframe = Match.Body.placementFor(set, "Shooters", ForestTest.standIndexFor(1), Match.CONFIG)
@@ -264,11 +264,83 @@ return function()
 		end)
 
 		it("ties a punished hunter to the nearest stand, because there are no tagged trunks", function()
-			local set = Markers.build(Data.standX(5), flat, flat)
+			local set = Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
 			local stand = Data.standPosition(7)
 			local anchor = Match.Body.anchorFor(set, Vector3.new(stand.X, FLAT_Y, stand.Z + 5))
 			expect(anchor).to.be.ok()
 			expect((anchor :: BasePart).Name).to.equal("Stand7")
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- one set per layout (task 179)
+	describe("the set it builds for EVERY drive layout", function()
+		it("builds that layout's own stands, and says which layout it measured", function()
+			-- KAREN, 2026-10-13: *"not all a time same place hunters standing"*. The marker set is
+			-- what the drive stands on, so a layout the markers cannot build is a layout nobody can
+			-- play. These cases run the real `build` over every layout in the table with hand-written
+			-- ground readers, so a fourth layout added later is built here before it is played.
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				local layout = Data.layoutNamed(name) :: any
+				local set = Markers.build(Data.standX(1, layout), layout, flat, flat)
+				expect(set.layout).to.equal(name)
+				expect(#set.posts).to.equal(layout.standCount)
+				expect(set.complete).to.equal(true)
+				expect(set.lineParts).to.equal(1)
+				expect(set.driverStart).to.be.ok()
+				-- One part per stand, named for its index, sorted west to east, on that layout's line.
+				local previousX = -math.huge
+				for index, post in ipairs(set.posts) do
+					local stand = Data.standPosition(index, layout)
+					expect(post.Name).to.equal(string.format("Stand%d", index))
+					expect(math.abs(post.Position.X - stand.X) < 1e-3).to.equal(true)
+					expect(math.abs(post.Position.Z - stand.Z) < 1e-3).to.equal(true)
+					expect(post.Position.X > previousX).to.equal(true)
+					previousX = post.Position.X
+				end
+				-- The drive line sits ON the line at the layout's own centre, where the sine is 0 --
+				-- and for a straight layout that is exact by construction rather than by arithmetic.
+				local line = set.line :: any
+				expect(math.abs(line.position.X - layout.centre.X) < 1e-3).to.equal(true)
+				expect(math.abs(line.position.Z - Data.roadZ(layout.centre.X, layout)) < 1e-3).to.equal(true)
+				-- THE FOLDER HOLDS ONE LAYOUT'S WORTH AND NEVER TWO: `build` destroys and rebuilds,
+				-- so switching layouts cannot leave the previous one's posts in the world.
+				expect(partsInFolder()).to.equal(layout.standCount + 1)
+				TestKit.note(
+					string.format("forest-markers: layout %s built %d stands + the beater pad", name, #set.posts)
+				)
+			end
+		end)
+
+		it("counts a refusal against the layout's own stand count", function()
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				local layout = Data.layoutNamed(name) :: any
+				local set = Markers.build(Data.standX(1, layout), layout, nothing, nothing)
+				expect(#set.posts).to.equal(0)
+				expect(set.complete).to.equal(false)
+				expect(set.layout).to.equal(name)
+				expect(hasMissing(set, string.format("0 of %d", layout.standCount))).to.equal(true)
+				expect(Markers.stats().refused).to.equal(layout.standCount)
+			end
+		end)
+
+		it("draws a ring on the stand of the layout it is given", function()
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				local layout = Data.layoutNamed(name) :: any
+				Markers.build(Data.standX(1, layout), layout, flat, flat)
+				local radius = Data.PICK.standRadiusStuds
+				local placed = Markers.ring(layout.standCount, radius, layout, flat, flat)
+				expect(placed).to.equal(Markers.RING.SEGMENTS)
+				local home = Data.standPosition(layout.standCount, layout)
+				local folder = (Markers.folder() :: Folder):FindFirstChild(Markers.ringName(layout.standCount))
+				expect(folder).to.be.ok()
+				for _, segment in ipairs((folder :: Instance):GetChildren()) do
+					local at = (segment :: BasePart).Position
+					local flatOff = Vector2.new(at.X - home.X, at.Z - home.Z).Magnitude
+					-- Every segment's middle is within its own chord error of the true circle.
+					expect(math.abs(flatOff - radius) < 1).to.equal(true)
+				end
+				Markers.clearRings()
+			end
 		end)
 	end)
 
@@ -277,10 +349,10 @@ return function()
 			local function canopy(_x: number, _z: number): number?
 				return FLAT_Y + Markers.GROUND_TOLERANCE_STUDS + 5 -- a ray that stopped on a branch
 			end
-			local set = Markers.build(Data.standX(5), flat, canopy)
+			local set = Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, canopy)
 			expect(#set.posts).to.equal(0)
 			expect(set.complete).to.equal(false)
-			expect(Markers.stats().refused).to.equal(Data.STAND_COUNT)
+			expect(Markers.stats().refused).to.equal(Data.ROAD_LAYOUT.standCount)
 			expect(Markers.stats().lastMaxDelta > Markers.GROUND_TOLERANCE_STUDS).to.equal(true)
 		end)
 
@@ -288,8 +360,8 @@ return function()
 			local function canopy(_x: number, _z: number): number?
 				return FLAT_Y + Markers.GROUND_TOLERANCE_STUDS / 2
 			end
-			local set = Markers.build(Data.standX(5), flat, canopy)
-			expect(#set.posts).to.equal(Data.STAND_COUNT)
+			local set = Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, canopy)
+			expect(#set.posts).to.equal(Data.ROAD_LAYOUT.standCount)
 			expect(set.complete).to.equal(true)
 		end)
 	end)
@@ -305,9 +377,9 @@ return function()
 		end
 
 		it("lays its segments ON the circle, at the radius the boundary clamps to", function()
-			Markers.build(Data.standX(5), flat, flat)
+			Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
 			local radius = Data.PICK.standRadiusStuds
-			local placed = Markers.ring(4, radius, flat, flat)
+			local placed = Markers.ring(4, radius, Data.ROAD_LAYOUT, flat, flat)
 			expect(placed).to.equal(Markers.RING.SEGMENTS)
 
 			local ring = ringOf(4)
@@ -348,32 +420,32 @@ return function()
 		end)
 
 		it("is replaced and not stacked, and goes when it is cleared", function()
-			Markers.build(Data.standX(5), flat, flat)
-			Markers.ring(2, Data.PICK.standRadiusStuds, flat, flat)
+			Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
+			Markers.ring(2, Data.PICK.standRadiusStuds, Data.ROAD_LAYOUT, flat, flat)
 			local first = #((ringOf(2) :: Instance):GetChildren())
 			-- A RE-LOCK DRAWS AGAIN: one ring per stand, however many times it is asked for.
-			Markers.ring(2, Data.PICK.standRadiusStuds, flat, flat)
+			Markers.ring(2, Data.PICK.standRadiusStuds, Data.ROAD_LAYOUT, flat, flat)
 			expect(#((ringOf(2) :: Instance):GetChildren())).to.equal(first)
 
 			-- A SECOND STAND IS A SECOND RING, so two hunters each see their own edge.
-			Markers.ring(7, Data.PICK.standRadiusStuds, flat, flat)
+			Markers.ring(7, Data.PICK.standRadiusStuds, Data.ROAD_LAYOUT, flat, flat)
 			expect(ringOf(7)).to.be.ok()
 			expect(Markers.clearRings()).to.equal(2)
 			expect(ringOf(2)).to.equal(nil)
 			expect(ringOf(7)).to.equal(nil)
 			-- ...AND THE STANDS THEMSELVES ARE UNTOUCHED BY ALL OF IT: the ring is a child folder,
 			-- so the folder still holds exactly the nine posts and the pad.
-			expect(partsInFolder()).to.equal(Data.STAND_COUNT + 1)
+			expect(partsInFolder()).to.equal(Data.ROAD_LAYOUT.standCount + 1)
 			expect(Markers.clearRings()).to.equal(0)
 		end)
 
 		it("refuses the ground it cannot read, and draws nothing at all for a radius of zero", function()
-			Markers.build(Data.standX(5), flat, flat)
+			Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
 			-- THE SAME REFUSAL `build` MAKES: where the two readings disagree there is no segment,
 			-- counted rather than guessed at. Nothing readable anywhere means no ring and no folder.
-			expect(Markers.ring(3, Data.PICK.standRadiusStuds, nothing, nothing)).to.equal(0)
+			expect(Markers.ring(3, Data.PICK.standRadiusStuds, Data.ROAD_LAYOUT, nothing, nothing)).to.equal(0)
 			expect(ringOf(3)).to.equal(nil)
-			expect(Markers.ring(3, 0, flat, flat)).to.equal(0)
+			expect(Markers.ring(3, 0, Data.ROAD_LAYOUT, flat, flat)).to.equal(0)
 			expect(ringOf(3)).to.equal(nil)
 			Markers.clearRings()
 		end)
@@ -381,10 +453,10 @@ return function()
 
 	describe("the folder", function()
 		it("is rebuilt and never grows, and `clear` leaves nothing behind", function()
-			Markers.build(Data.standX(5), flat, flat)
+			Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
 			local first = partsInFolder()
-			expect(first).to.equal(Data.STAND_COUNT + 1) -- nine stands plus the beater pad
-			Markers.build(Data.standX(5), flat, flat)
+			expect(first).to.equal(Data.ROAD_LAYOUT.standCount + 1) -- nine stands plus the beater pad
+			Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
 			expect(partsInFolder()).to.equal(first)
 			Markers.clear()
 			expect(Markers.folder()).to.equal(nil)

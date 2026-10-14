@@ -25,7 +25,11 @@ local Workspace = game:GetService("Workspace")
 local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
-local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+-- THE INSTANCE AS WELL AS THE TABLE: `publishLayout` writes an attribute on the module's own
+-- Rojo-owned child (`Live`), which is found through this handle and never by searching
+-- `ReplicatedStorage` -- `Flags.state`'s rule, for the reason that file writes down.
+local DataModule = ReplicatedStorage:WaitForChild("ForestTest")
+local Data = require(DataModule)
 -- READ, NEVER WIRED: this module asks `Boar` for ONE number -- how far a boar notices a moving
 -- stimulus -- so "was a driver already pushing here" uses the animal's own radius rather than a
 -- second copy of it. `Boar` does not require this module, so there is no cycle.
@@ -327,6 +331,50 @@ function ForestTest.beaterPosition(
 end
 
 -- WHICH REPORTING PERIOD WE ARE IN (task 124). Pure: when the world started and what time it is now,
+-- ---------------------------------------------------------------- THE LIVE LAYOUT (task 179)
+--
+-- WHICH OF `Data.LAYOUTS` THIS DRIVE IS STANDING ON. This module is the ONE writer of that fact
+-- (design 5.1): it chooses, it publishes the name for the clients, and everything else in this file
+-- -- the stands, the picks, the waves, the resting wood, the beater starts -- reads it from here.
+-- The client never chooses and never derives; it reads one string.
+--
+-- DECLARED HERE AND NOT INSIDE `state` BELOW, and the reason is Lua rather than taste: a local is
+-- only an upvalue of functions defined AFTER it, and `withinStand`, `boundaryPoint` and
+-- `nearestStand` all sit above `state`. Declared down there they would read a nil global.
+--
+-- `layout` IS NEVER NIL. It starts as the road -- which is what this world was before task 179 --
+-- so a module nobody has started, or a harness query that gets a fresh copy, answers today's
+-- geometry instead of indexing nil.
+--
+-- NAMED `chosen` AND NOT `live`, because a local called `live` already exists inside `stepLines`
+-- (the animals of a file still in play) and two `live`s in one file is a reader's trap.
+local chosen = {
+	layout = Data.ROAD_LAYOUT :: any,
+	name = Data.DEFAULT_LAYOUT,
+	-- The drive number this choice belongs to, so promoting is idempotent: `Match` reads the markers
+	-- once a second while `Waiting`, and only the first of those reads may deal a layout.
+	drive = nil :: number?,
+	-- The bag. Empty means "refill and shuffle on the next deal" (`Data.nextLayout`).
+	bag = {} :: { string },
+	-- "default" | "bag" | "override" -- printed and in `stats()`, the `Flags` discipline. It is the
+	-- only thing that stops a forced playtest being reported as a random rotation, because
+	-- `DHForestLayout` is not a `DHFlag_*` name and the harness does not refuse a run while it is
+	-- set (design 11, D3).
+	source = "default",
+	-- THE BAG'S OWN RANDOMNESS. `state.rng` would do the same job, but `state` is declared
+	-- below this block (see above) and an upvalue has to exist first.
+	rng = Random.new(),
+}
+
+-- THE LIVE LAYOUT, for every reader inside this process.
+function ForestTest.layout()
+	return chosen.layout
+end
+
+function ForestTest.layoutName(): string
+	return chosen.name
+end
+
 -- in; the drive's number (counting from 1) and how many seconds are left in it, out.
 --
 -- It is a WINDOW OVER A CLOCK and not a state machine, which is why it needs no state: at any instant
@@ -378,10 +426,11 @@ end
 -- THE NEAREST STAND to a position, which is how a hunter picks one: he walks to it. Karen asked for
 -- a square to select and save; standing on it IS the selection, and the save is the timer running
 -- out or the player confirming -- neither of which this function needs to know about.
-function ForestTest.nearestStand(position: Vector3): number
+function ForestTest.nearestStand(position: Vector3, layout: any?): number
+	local where = layout or chosen.layout
 	local best, bestDistance = 1, math.huge
-	for index = 1, Data.STAND_COUNT do
-		local stand = Data.standPosition(index)
+	for index = 1, where.standCount do
+		local stand = Data.standPosition(index, where)
 		local flat = Vector3.new(position.X - stand.X, 0, position.Z - stand.Z)
 		if flat.Magnitude < bestDistance then
 			best, bestDistance = index, flat.Magnitude
@@ -453,6 +502,14 @@ function ForestTest.stats()
 		restAlive = ForestTest.restAlive(),
 		active = #state.active,
 		boars = if state.runtime then state.runtime:count() else 0,
+		-- TASK 179: which of the drive layouts this drive is standing on, where the choice came from
+		-- ("default" | "bag" | "override") and what is left in the bag. The SOURCE is the only thing
+		-- that stops a forced playtest being reported as a random rotation, because
+		-- `DHForestLayout` is not a `DHFlag_*` name and the harness does not refuse a run while it
+		-- is set (design 11, D3).
+		layout = chosen.name,
+		layoutSource = chosen.source,
+		layoutBag = table.concat(chosen.bag, ","),
 	}
 end
 
@@ -604,7 +661,7 @@ function ForestTest.boarThreats(now: number)
 	for _, wave in ipairs(ForestTest.wavesToPush(state.active, bots)) do
 		local centre = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
-			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
+			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X, chosen.layout)
 			local at = ForestTest.beaterPosition(
 				centre :: Vector3,
 				now - wave.at,
@@ -649,11 +706,17 @@ function ForestTest.hunterStandX(): number
 	-- The LOCKED pick wins: an OPEN one is a hunter still choosing, and aiming a wave at a stand he
 	-- is about to walk away from is worse than aiming at the default.
 	for _, pick in pairs(state.picks) do
-		if pick.lockedAt ~= nil then
-			return Data.standX(pick.index)
+		-- THE LIVE LAYOUT HAS TO HAVE THE STAND (task 179), the same guard `pickOf` makes: a pick of
+		-- 7 left over from a nine-stand road would aim every wave of a five-stand ride at a point
+		-- past the end of the line.
+		if pick.lockedAt ~= nil and pick.index <= chosen.layout.standCount then
+			return Data.standX(pick.index, chosen.layout)
 		end
 	end
-	return Data.standX(Data.PICK.defaultIndex)
+	-- CLAMPED INTO THE LIVE LAYOUT (task 179): `defaultIndex` is 5 and every shipped layout has
+	-- at least five stands, so this changes no answer today -- it is here so adding a shorter
+	-- layout cannot aim every wave past the end of its line.
+	return Data.standX(math.min(Data.PICK.defaultIndex, chosen.layout.standCount), chosen.layout)
 end
 
 -- RELEASES ONE WAVE. Returns how many animals it actually put on the ground, which is never assumed
@@ -698,7 +761,7 @@ function ForestTest.release(now: number): (number, string)
 	-- *"also they has to cross close to me also"*. Stands are 150 studs apart, so a wave released at
 	-- a fixed x could be 300 studs from the one she picked -- which is why "close" was luck before.
 	local standX = ForestTest.hunterStandX()
-	local centre = Data.wavePoint(standX, spec)
+	local centre = Data.wavePoint(standX, spec, chosen.layout)
 	-- WHAT THESE TWO ACTUALLY RETURN, read off `Boar` rather than assumed -- the first version of
 	-- this line assumed both gave a count and crashed the whole schedule on the first wave with
 	-- "attempt to compare number < table", so NO wave ever ran:
@@ -792,7 +855,7 @@ function ForestTest.retire(now: number)
 	for index = #state.active, 1, -1 do
 		local wave = state.active[index]
 		local centre = ForestTest.herdCentre(wave.handles)
-		local dz = if centre then centre.Z - Data.roadZ(centre.X) else nil
+		local dz = if centre then centre.Z - Data.roadZ(centre.X, chosen.layout) else nil
 		local gone = ForestTest.wavePhase(
 			now - wave.at,
 			wave.turnsBack,
@@ -808,8 +871,23 @@ end
 
 -- ---------------------------------------------------------------- the hunter's stand
 
+-- A PICK IS A STAND INDEX AND A LAYOUT MAY NOT HAVE IT (task 179). The ride has 5 stands and the
+-- road has 9, so stand 7 exists in one and not the other -- and `Data.standX(7)` on the ride answers
+-- a point 260 studs past the end of the line that is NOT a stand, which `standArea`, `boundary` and
+-- `hunterStandX` would all believe.
+--
+-- IT IS BELT OVER THE BRACE, and that is deliberate rather than defensive. The drive boundary
+-- already drops every pick (`ForestTestBoot`'s `Assigning` handler calls `clearPick` for every
+-- player and `Markers.clearRings()`), and `Match.Body.place` already puts him on a post the new
+-- layout actually has. This guard is what happens if either of those ever stops being true: the
+-- answer becomes "no pick", which is a state this game already has and tests -- *no rule during the
+-- pick window* -- rather than a hunter held to a point in a wood.
 function ForestTest.pickOf(userId: number)
-	return state.picks[userId]
+	local pick = state.picks[userId]
+	if pick == nil or pick.index > chosen.layout.standCount then
+		return nil
+	end
+	return pick
 end
 
 -- Opens the 10-second window. Nothing is locked yet: where he walks IS the choice.
@@ -825,7 +903,7 @@ end
 -- `lockedAt` and ignore an open pick on purpose -- "no rule during the pick window" -- so what this
 -- argument moves is the thing that is DRAWN and nothing that is enforced.
 function ForestTest.openPick(userId: number, now: number, standIndex: number?)
-	local index = standIndex or Data.PICK.defaultIndex
+	local index = math.min(standIndex or Data.PICK.defaultIndex, chosen.layout.standCount)
 	state.picks[userId] = { index = index, lockedAt = nil, openedAt = now } :: any
 end
 
@@ -856,7 +934,7 @@ end
 -- hunter still choosing and `standArea` deliberately does not -- so a reader that wanted the first
 -- and reached for the second would start enforcing a boundary that is not yet his.
 function ForestTest.standIndexOf(userId: number): number?
-	local pick = state.picks[userId]
+	local pick = ForestTest.pickOf(userId)
 	if pick == nil then
 		return nil
 	end
@@ -874,11 +952,11 @@ end
 -- refused anybody who is not a hunter, which is the same split as `ForestTest.boundary`'s `role`
 -- parameter -- the caller holds the `Player`, this module keys by `userId`.
 function ForestTest.standArea(userId: number)
-	local pick = state.picks[userId]
+	local pick = ForestTest.pickOf(userId)
 	if pick == nil or (pick :: any).lockedAt == nil then
 		return nil
 	end
-	return { centre = Data.standPosition(pick.index), radius = Data.PICK.standRadiusStuds }
+	return { centre = Data.standPosition(pick.index, chosen.layout), radius = Data.PICK.standRadiusStuds }
 end
 
 -- ---------------------------------------------------------------- which role, in this world only
@@ -1021,7 +1099,7 @@ function ForestTest.boundary(userId: number, root: BasePart, role: RoleWord?): V
 	if (role or ForestTest.ROLE_DEFAULT) ~= "hunter" then
 		return nil
 	end
-	local pick = state.picks[userId]
+	local pick = ForestTest.pickOf(userId)
 	if pick == nil or (pick :: any).lockedAt == nil then
 		return nil
 	end
@@ -1035,7 +1113,7 @@ function ForestTest.boundary(userId: number, root: BasePart, role: RoleWord?): V
 	-- one part's, which is what a walking Humanoid has (the engine welds the rig into one assembly).
 	--   https://create.roblox.com/docs/reference/engine/classes/BasePart#AssemblyLinearVelocity
 	-- `outward` is flat, so this subtraction never touches the fall.
-	local home = Data.standPosition(pick.index)
+	local home = Data.standPosition(pick.index, chosen.layout)
 	local outward = Vector3.new(at.X - home.X, 0, at.Z - home.Z)
 	if outward.Magnitude > 0 then
 		local away = outward.Unit
@@ -1197,7 +1275,7 @@ end
 -- answer missing is "cannot see it", never "close enough".
 function ForestTest.restSeenFromLane(standX: number, spec, spot: Vector3, rest): boolean
 	local resolved = rest or Data.REST
-	local look = Data.laneLookPoint(standX, spec, spot, resolved)
+	local look = Data.laneLookPoint(standX, spec, spot, resolved, chosen.layout)
 	local lookGround = ForestTest.terrainYAt(look.X, look.Z)
 	local spotGround = ForestTest.terrainYAt(spot.X, spot.Z)
 	if lookGround == nil or spotGround == nil then
@@ -1251,7 +1329,7 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- Flat and pure (`Data.beaterStart`, not the measured `beaterStartPosition`): this is a distance
 	-- test and the ground does not change it, while the measured version raycasts and would be asked
 	-- once per candidate.
-	local start = Data.beaterStart(standX, 0)
+	local start = Data.beaterStart(standX, 0, chosen.layout)
 	-- THE KEEP-AWAY IS THE **NOTICE** REACH (round 1, finding 1, which was right). The question this
 	-- guard asks is "could this group already be reacting to her before she has taken a step", and
 	-- since task 172 the FIRST thing that happens to a group is that it notices -- at 125 studs, not
@@ -1287,7 +1365,7 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 	-- line already deep in the wood, groups ARE refused -- and `stepRest` re-tries every
 	-- `REST.stockRetrySeconds` until the next drive puts the line back behind her and the wood in
 	-- front of it. The old answer was to place them behind her anyway, which is what she saw twice.
-	local sweepDepth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER)
+	local sweepDepth = Data.sweepAheadStuds(Data.SPOOK, Data.BEATER, chosen.layout)
 	-- TWO PASSES, AND WHAT THEY DIFFER BY IS THE SIGHTLINE (task 172): the first takes only a spot
 	-- the group's own lane can SEE, the second takes any legal spot. Never the sweep rule -- that one
 	-- holds in both, because "behind the line" is not a preference.
@@ -1299,8 +1377,9 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 			for step = 1, tries do
 				local angle = (step - 1) * (math.pi * 2 / tries)
 				local radius = ring * rest.searchStepStuds
-				local at = Data.restPoint(standX, spec, math.cos(angle) * radius, math.sin(angle) * radius)
-				local dz = at.Z - Data.roadZ(at.X)
+				local at =
+					Data.restPoint(standX, spec, math.cos(angle) * radius, math.sin(angle) * radius, chosen.layout)
+				local dz = at.Z - Data.roadZ(at.X, chosen.layout)
 				local frontZ = if avoidSweep then Data.lineFrontAt(beaters, at.X) else nil
 				local swept = frontZ ~= nil and Data.sweepCatches((frontZ :: number) - at.Z, sweepDepth, Data.SPOOK)
 				-- THE NEAREST REAL BEATER, or the spawn point when nobody has a body yet. `nearestBeater`
@@ -1335,7 +1414,7 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 					-- that lane's group whatever the trunks do -- and the ray is only cast for the
 					-- spots that have already passed everything else.
 					local spot = Vector3.new(at.X, terrain :: number, at.Z)
-					if Data.offLaneStuds(standX, spec, spot) <= (rest.laneSideStuds or math.huge) then
+					if Data.offLaneStuds(standX, spec, spot, chosen.layout) <= (rest.laneSideStuds or math.huge) then
 						if not wantSeen or ForestTest.restSeenFromLane(standX, spec, spot, rest) then
 							return spot
 						end
@@ -1393,7 +1472,7 @@ function ForestTest.stockWood(now: number): string?
 						spec.note,
 						made,
 						at.X - standX,
-						at.Z - Data.roadZ(at.X),
+						at.Z - Data.roadZ(at.X, chosen.layout),
 						ForestTest.nearestSolid(at + Vector3.new(0, 2, 0), rest.nearTrunkStuds)
 					)
 				)
@@ -1485,7 +1564,7 @@ function ForestTest.spookNearBeaters(now: number): string?
 			-- the circle and the clock are all `Data.encounterStage`'s, so this loop measures and
 			-- obeys and decides nothing.
 			local since = if state.noticedAt[handle.id] ~= nil then now - state.noticedAt[handle.id] else nil
-			local stage = Data.encounterStage(ahead, gap, since, Data.SPOOK, Data.BEATER)
+			local stage = Data.encounterStage(ahead, gap, since, Data.SPOOK, Data.BEATER, chosen.layout)
 			if from ~= nil and stage == "flush" then
 				table.insert(sent, { id = handle.id, from = from, gap = gap, ahead = ahead })
 			elseif from ~= nil and stage == "notice" and state.noticedAt[handle.id] == nil then
@@ -1634,6 +1713,155 @@ function ForestTest.newDrive()
 	state.restTrace = {}
 end
 
+-- ---------------------------------------------------------------- CHOOSING A LAYOUT (task 179)
+--
+-- KAREN, 2026-10-13: *"not all a time same place hunters standing and not the same terrain for
+-- beaters"*. One layout per drive, dealt from a bag, never the same one twice running.
+--
+-- THIS MODULE IS THE ONE WRITER OF THAT CHOICE (design 5.1). It deals, it publishes the name for
+-- the clients, and it swaps the boar field that goes with it. `ForestTestBoot` says WHEN -- it owns
+-- nothing and decides nothing -- and the client reads one string and never derives.
+
+-- THE DIRECTOR'S OVERRIDE, PARSED. PURE, and `startRole`'s shape exactly: a leading slash, any
+-- spacing and any case are all accepted, because the thing on the other end is a human typing into
+-- a Studio property field. A name the table does not know answers nil, which the caller turns into
+-- one console line and a normal deal -- never a crash and never a layout-less drive.
+function ForestTest.forcedLayout(value: any): string?
+	if typeof(value) ~= "string" then
+		return nil
+	end
+	local word = string.lower((string.gsub(value :: string, "%s", "")))
+	if string.sub(word, 1, 1) == "/" then
+		word = string.sub(word, 2)
+	end
+	return if Data.layoutNamed(word) ~= nil then word else nil
+end
+
+-- PUBLISHES THE LIVE NAME FOR THE CLIENTS. The ONE writer of that attribute.
+--
+-- The host is a Rojo-owned `Configuration` that is a CHILD of the shared module
+-- (`src/shared/ForestTest/Live.model.json`), which is `Flags.state`'s own shape and for the reason
+-- that file writes down: it is found through the module instance and never by searching
+-- `ReplicatedStorage`, so one file means one instance and Rojo owns both.
+--
+-- A MISSING HOST IS A CONSOLE LINE, NOT AN ERROR. `Flags.publish` errors on its missing host because
+-- a server with no flags is a broken build; here the only consequence is that the hunter's MAP does
+-- not draw -- which `MapUi.geometryFor` already handles by drawing nothing and saying so. A drive
+-- that refuses to start over a map panel would be worse than a drive with no map.
+function ForestTest.publishLayout(name: string)
+	local host = DataModule:FindFirstChild(Data.LIVE_NAME)
+	if host == nil then
+		warn(
+			string.format(
+				"[ForestTest] cannot publish layout=%s: ReplicatedStorage.ForestTest.%s is missing "
+					.. "(src/shared/ForestTest/Live.model.json). The hunter's map will not draw.",
+				name,
+				Data.LIVE_NAME
+			)
+		)
+		return
+	end
+	host:SetAttribute(Data.LAYOUT_ATTRIBUTE, name)
+end
+
+-- EVERYTHING THAT HAS TO HAPPEN WHEN THE GROUND MOVES, in one place and in this order (design 6.5
+-- steps 1 and 2). Steps 3 to 8 are already per-drive and are listed there; nothing here repeats
+-- them.
+local function promote(name: string, source: string)
+	local layout = Data.layoutNamed(name)
+	if layout == nil then
+		return
+	end
+	chosen.layout, chosen.name, chosen.source = layout, name, source
+	ForestTest.publishLayout(name)
+	-- THE PREVIOUS LAYOUT'S ANIMALS GO, AND THEY GO BEFORE THE FIELD IS SWAPPED. `retire` ends this
+	-- module's own waves and files; `runtime:clear()` takes every body. A boar left standing would
+	-- keep the field it was born with (`Runtime:setField`'s own header) AND would be standing 500
+	-- studs from the drive that is about to start.
+	ForestTest.retire(os.clock())
+	local runtime = state.runtime
+	if runtime ~= nil then
+		runtime:clear("layoutChanged")
+		if runtime.setField then
+			runtime:setField(Data.fieldFor(layout))
+		end
+	end
+	-- THE WOOD IS A NEW WOOD. `newDrive` clears this latch on the `Assigning` edge anyway; doing it
+	-- here as well is what makes a FORCED mid-session layout change (the Director setting
+	-- `DHForestLayout` and restarting) stock the new layout's lanes rather than sit on the old
+	-- drive's latch.
+	state.restStocked = false
+	state.restTriedAt = nil
+	print(
+		string.format(
+			"[ForestTest] layout=%s (%s): %d stands %d apart, centre (%d, %d), exit %d",
+			name,
+			source,
+			layout.standCount,
+			layout.standSpacing,
+			layout.centre.X,
+			layout.centre.Z,
+			Data.exitZOf(layout)
+		)
+	)
+end
+
+-- WHICH LAYOUT THIS DRIVE IS ON, dealing one if this drive has not been dealt yet. THE ONE
+-- PROMOTER.
+--
+-- IDEMPOTENT PER DRIVE NUMBER, and that is load-bearing rather than tidy: `Match` reads the markers
+-- once a second while it is `Waiting`, so a promoter that dealt on every call would change the
+-- ground under a hunter who is standing on it. `chosen.drive` is the key and nothing else advances
+-- it.
+--
+-- DRIVE 0 AND DRIVE 1 ARE ONE KEY. `Match.driveNumber()` is 0 while `Waiting`, so without the
+-- `max(1, ...)` the first layout would be dealt for the waiting room and a SECOND one dealt the
+-- instant the first real drive began -- two layouts before anybody had played one.
+--
+-- THE OVERRIDE DOES NOT TOUCH THE BAG. A forced drive is dealt from nothing, so clearing
+-- `DHForestLayout` returns the rotation to exactly where it left off.
+function ForestTest.layoutForDrive(driveNumber: number?, override: any): string
+	local key = math.max(1, driveNumber or 0)
+	if chosen.drive == key then
+		return chosen.name
+	end
+	local forced = ForestTest.forcedLayout(override)
+	local name, source
+	if forced ~= nil then
+		name, source = forced, "override"
+	elseif override ~= nil and typeof(override) == "string" then
+		-- A NAME NOBODY KNOWS IS ONE LINE AND A NORMAL DEAL, never a crash: the Director typing
+		-- "clearing" into a Studio field must not be able to stop a playtest.
+		warn(
+			string.format(
+				"[ForestTest] %s=%s is not a layout (have: %s); dealing normally",
+				Data.LAYOUT_OVERRIDE_ATTRIBUTE,
+				tostring(override),
+				table.concat(Data.layoutNames(), ", ")
+			)
+		)
+		name, chosen.bag = Data.nextLayout(chosen.name, chosen.bag, function(n)
+			return chosen.rng:NextInteger(1, n)
+		end)
+		source = "bag"
+	else
+		name, chosen.bag = Data.nextLayout(chosen.name, chosen.bag, function(n)
+			return chosen.rng:NextInteger(1, n)
+		end)
+		source = "bag"
+	end
+	chosen.drive = key
+	if name ~= chosen.name then
+		promote(name, source)
+	else
+		-- THE SAME LAYOUT AGAIN (an override repeated, or a one-name table). Nothing is torn down --
+		-- the ground has not moved -- but the SOURCE is still recorded, because "this drive was
+		-- forced" is exactly the fact a report must not lose.
+		chosen.source = source
+	end
+	return chosen.name
+end
+
 -- WHAT EVERY STOCKED GROUP IS DOING, as one line each. The proof reads this: how far the nearest
 -- beater is, how fast they are moving, and whether they are moving AWAY from her.
 --
@@ -1665,7 +1893,7 @@ function ForestTest.restReport(_now: number): { string }
 				alive += 1
 				states[status.state] = (states[status.state] or 0) + 1
 				speedSum += status.speed
-				dzSum += status.position.Z - Data.roadZ(status.position.X)
+				dzSum += status.position.Z - Data.roadZ(status.position.X, chosen.layout)
 				if state.latched[id] == true then
 					walked += 1
 				end
@@ -1751,7 +1979,7 @@ function ForestTest.waveReport(now: number): { string }
 		local centre = ForestTest.herdShape(wave.handles)
 		if centre ~= nil then
 			local elapsed = now - wave.at
-			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X)
+			local dz = (centre :: Vector3).Z - Data.roadZ((centre :: Vector3).X, chosen.layout)
 			local at = ForestTest.beaterPosition(
 				centre :: Vector3,
 				elapsed,
@@ -1776,7 +2004,11 @@ function ForestTest.waveReport(now: number): { string }
 					alive,
 					dz,
 					if at
-						then string.format("dz=%.0f gap=%.1f", at.Z - Data.roadZ(at.X), (at - centre).Magnitude)
+						then string.format(
+							"dz=%.0f gap=%.1f",
+							at.Z - Data.roadZ(at.X, chosen.layout),
+							(at - centre).Magnitude
+						)
 						else "none"
 				)
 			)
@@ -1850,7 +2082,7 @@ function ForestTest.urgeAcrossRoad()
 	-- it replaced: no wave, no centroid, no empty-handle case.
 	for _, handle in ipairs(runtime:boars()) do
 		local at = handle.position()
-		local dz = at.Z - Data.roadZ(at.X)
+		local dz = at.Z - Data.roadZ(at.X, chosen.layout)
 		if dz <= wave.crossTrotDz and dz >= -wave.crossTrotPastDz then
 			runtime:urge(handle.id, 1)
 		end
@@ -1878,7 +2110,7 @@ function ForestTest.checkAtTheEdge()
 	-- The band is OUTSIDE the road and north of it: from the road's near verge out to `edgeDz`.
 	for _, handle in ipairs(runtime:boars()) do
 		local at = handle.position()
-		local dz = at.Z - Data.roadZ(at.X)
+		local dz = at.Z - Data.roadZ(at.X, chosen.layout)
 		if dz > wave.edgeNearDz and dz <= wave.edgeFarDz and runtime:leads(handle.id) then
 			runtime:check(handle.id)
 		end
@@ -2044,16 +2276,16 @@ function ForestTest.releaseLine(now: number): string?
 	-- 150 studs apart, so a fixed x would be luck.
 	local offset = lineData.crossOffsets[rng:NextInteger(1, #lineData.crossOffsets)]
 	local crossX = standX + offset
-	local crossing = Vector3.new(crossX, Data.CENTRE.Y, Data.roadZ(crossX))
+	local crossing = Vector3.new(crossX, chosen.layout.centre.Y, Data.roadZ(crossX, chosen.layout))
 	local startZ = crossing.Z + lineData.spawnNorthStuds
-	local start = Vector3.new(crossX, Data.groundAt(crossX, startZ) or Data.CENTRE.Y, startZ)
+	local start = Vector3.new(crossX, Data.groundAt(crossX, startZ) or chosen.layout.centre.Y, startZ)
 	-- PAST THE DESPAWN LINE, NOT UP TO IT, and that was a measured bug: the route ended at
 	-- `EXIT_Z + 20`, which is twenty studs NORTH of the line `Brain:_outcome` despawns at -- so every
 	-- line walked its whole route, arrived, and then stood on the last waypoint for ever. The stuck
 	-- counter showed it as a cluster of animals all going still at 134-152 s, which is exactly how
 	-- long a 600-stud route takes. Ending ten studs PAST the line means the last thing they do is
 	-- cross it, which is Karen's *"once they in another side of road they run away"*.
-	local exitPoint = Vector3.new(crossX, Data.CENTRE.Y, Data.EXIT_Z - 10)
+	local exitPoint = Vector3.new(crossX, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
 
 	local count = rng:NextInteger(4, 9)
 	local lines = if rng:NextNumber() < lineData.twoLineChance then 2 else 1
@@ -2138,7 +2370,7 @@ function ForestTest.releaseLine(now: number): string?
 		for rank, member in ipairs(plan) do
 			local at = start - toward * ((rank - 1) * lineData.spacingStuds) + Vector3.new(lateral, 0, 0)
 			local ground = Data.groundAt(at.X, at.Z)
-			local handle = runtime:spawn(Vector3.new(at.X, (ground or Data.CENTRE.Y) + 2, at.Z), member.kind)
+			local handle = runtime:spawn(Vector3.new(at.X, (ground or chosen.layout.centre.Y) + 2, at.Z), member.kind)
 			if handle ~= nil then
 				local row = { id = handle.id, kind = member.kind }
 				table.insert(groups[which], row)
@@ -2284,7 +2516,8 @@ function ForestTest.stepLines(now: number)
 				local already = line.gone[member.id] == true
 				local flying = runtime:flying(member.id)
 				local hurt = wound ~= nil and wound.severity ~= nil and wound.severity ~= "healthy"
-				local dz = status.position.Z - (Data.roadZ(status.position.X) - Data.ROAD.halfWidthStuds)
+				local dz = status.position.Z
+					- (Data.roadZ(status.position.X, chosen.layout) - Data.SHAPE.halfWidthStuds)
 				local stays = Line.stillInFile(already, flying, hurt, dz)
 				if stays then
 					table.insert(live, { id = member.id, kind = member.kind, status = status })
@@ -2361,7 +2594,7 @@ function ForestTest.stepLines(now: number)
 		-- north of the road; the Brain decides whether she takes it, for how long, and refuses
 		-- outright if she is already frightened. The file stacks up behind her for free: every
 		-- follower's station is a point on her trail, and she has stopped moving along it.
-		if not line.checked and at.Z - Data.roadZ(at.X) <= lineData.checkWithinStuds then
+		if not line.checked and at.Z - Data.roadZ(at.X, chosen.layout) <= lineData.checkWithinStuds then
 			line.checked = true
 			runtime:check(leader.id)
 		end
@@ -2500,7 +2733,7 @@ function ForestTest.stepLines(now: number)
 						local route = ForestTest.computeRoute(
 							member.status.position,
 							line.crossing,
-							Vector3.new(line.crossing.X, Data.CENTRE.Y, Data.EXIT_Z - 10)
+							Vector3.new(line.crossing.X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
 						)
 						if route ~= nil then
 							line.route = route
@@ -2553,7 +2786,7 @@ end
 -- Pattern: Quake III's `SelectSpawnPoint` family -- the mode chooses AMONG the points the world
 -- placed (docs/design/forest-drive.md section 11.5).
 function ForestTest.standIndexFor(index: number): number
-	local count = Data.STAND_COUNT
+	local count = chosen.layout.standCount
 	local zero = (math.max(1, math.floor(index)) - 1) % count -- 0, 1, 2, ...
 	local middle = math.ceil(count / 2) -- 5 of 9
 	local step = math.ceil(zero / 2) -- 0, 1, 1, 2, 2, 3, 3, ...
@@ -2691,12 +2924,12 @@ end
 -- before this task meant.
 function ForestTest.beaterStartPosition(index: number?): Vector3
 	local beater = Data.BEATER
-	local standX = ForestTest.hunterStandX() + Data.beaterLaneOffset(index)
+	local standX = ForestTest.hunterStandX() + Data.beaterLaneOffset(index, chosen.layout)
 	-- 0, +10, -10, +20, -20 ... : straight behind the crossing first, then the nearest clear spot
 	-- either side of it.
 	for try = 0, beater.sideTries do
 		local side = math.ceil(try / 2) * beater.sideStepStuds * (if try % 2 == 1 then 1 else -1)
-		local flat = Data.beaterStart(standX, side)
+		local flat = Data.beaterStart(standX, side, chosen.layout)
 		local ground = ForestTest.terrainYAt(flat.X, flat.Z)
 		if ground ~= nil then
 			local point = Vector3.new(flat.X, ground + beater.dropStuds, flat.Z)
@@ -2708,8 +2941,8 @@ function ForestTest.beaterStartPosition(index: number?): Vector3
 	-- NOTHING CLEAR WAS FOUND, SO SHE GOES BEHIND THE CROSSING ANYWAY, on the ground. A playtest
 	-- that refuses to start is a playtest nobody runs (`Data.PICK.defaultIndex` is the same
 	-- reasoning); a beater beside a trunk can walk two steps and be free of it.
-	local flat = Data.beaterStart(standX, 0)
-	local ground = ForestTest.terrainYAt(flat.X, flat.Z) or Data.CENTRE.Y
+	local flat = Data.beaterStart(standX, 0, chosen.layout)
+	local ground = ForestTest.terrainYAt(flat.X, flat.Z) or chosen.layout.centre.Y
 	return Vector3.new(flat.X, ground + beater.dropStuds, flat.Z)
 end
 

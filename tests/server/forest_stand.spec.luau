@@ -26,10 +26,339 @@ local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 return function()
+	-- ---------------------------------------------------------------- THE DRIVE LAYOUTS (task 179)
+	--
+	-- KAREN, 2026-10-13 ~13:55: *"not all a time same place hunters standing and not the same terrain
+	-- for beaters / we will make view for hunter from different places and diffretent tree lines road
+	-- ect like in real life"*.
+	--
+	-- EVERY CASE IN HERE LOOPS `LAYOUT_ORDER`, which is the point of it: the thing that must not
+	-- happen is somebody adding a fourth layout whose stands are inside a hill or whose exit is north
+	-- of its own line. These assertions fail on a bad layout rather than shipping it.
+	-- Design: docs/design/drive-layouts.md (section 9.1)
+	-- Note:   docs/research/2026-10-14-drive-layouts.md
+	describe("the drive layouts", function()
+		it("ships more than one place to stand, and names them once", function()
+			expect(#Data.LAYOUT_ORDER >= 1).to.equal(true)
+			local seen = {}
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				expect(seen[name]).to.equal(nil)
+				seen[name] = true
+				local layout = Data.layoutNamed(name)
+				expect(layout).to.be.ok()
+				-- The key and the record agree, so a published string can never name a layout whose
+				-- own `name` is a different one.
+				expect((layout :: any).name).to.equal(name)
+				expect(type((layout :: any).label)).to.equal("string")
+			end
+			-- ...AND EVERY LAYOUT IN THE TABLE IS IN THE ORDER. A layout the bag never deals is a
+			-- layout Karen cannot judge, which is the whole reason the choice is a bag.
+			for name in pairs(Data.LAYOUTS) do
+				expect(seen[name]).to.equal(true)
+			end
+			expect(Data.layoutNamed("clearing")).to.equal(nil)
+			expect(Data.layoutNamed(nil)).to.equal(nil)
+			expect(Data.layoutNamed(42 :: any)).to.equal(nil)
+			TestKit.note(string.format("layouts: %s", table.concat(Data.LAYOUT_ORDER, ", ")))
+		end)
+
+		it("puts every layout's stands on its own line, sorted, at its own spacing", function()
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				local layout = Data.layoutNamed(name) :: any
+				local span = Data.standSpan(layout)
+				local previous = nil
+				for index = 1, layout.standCount do
+					local x = Data.standX(index, layout)
+					local at = Data.standPosition(index, layout)
+					-- ON THE LINE: the z is read off `roadZ` and nowhere else. 1e-3 for the float32
+					-- reason the road's own case above measures.
+					expect(math.abs(at.Z - Data.roadZ(x, layout)) < 1e-3).to.equal(true)
+					expect(at.X >= span.minX - 1e-6 and at.X <= span.maxX + 1e-6).to.equal(true)
+					if previous ~= nil then
+						expect(math.abs((x - previous) - layout.standSpacing) < 1e-6).to.equal(true)
+					end
+					previous = x
+				end
+				-- The middle index sits exactly on the layout's centre.
+				expect(math.abs(Data.standX((layout.standCount + 1) / 2, layout) - layout.centre.X) < 1e-6).to.equal(
+					true
+				)
+				-- A STRAIGHT LAYOUT IS FLAT AT EVERY x and a curved one is not, which is what makes
+				-- "amplitude 0 is a straight line, one shape and not two" a checked claim.
+				local flat = true
+				for x = span.minX, span.maxX, 25 do
+					if math.abs(Data.roadZ(x, layout) - layout.centre.Z) > 1e-6 then
+						flat = false
+					end
+				end
+				expect(flat).to.equal(layout.amplitudeStuds == 0)
+			end
+		end)
+
+		it("starts the beaters behind the animals and north of every stand, in every layout", function()
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				local layout = Data.layoutNamed(name) :: any
+				local span = Data.standSpan(layout)
+				for index = 1, layout.standCount do
+					local x = Data.standX(index, layout)
+					local start = Data.beaterStart(x, 0, layout)
+					-- NORTH OF THE LINE BY THE SAME 580 IN EVERY LAYOUT, which is what keeps a drive
+					-- the ~120 s task 162 measured whichever layout is dealt.
+					expect(math.abs((start.Z - Data.roadZ(x, layout)) - Data.beaterNorthStuds()) < 1e-3).to.equal(true)
+					expect(start.Z > Data.roadZ(x, layout)).to.equal(true)
+				end
+				-- ...AND BEHIND THE ANIMALS THE DRIVE RELEASES, which is the reason task 153 gave
+				-- the number and is now a checked CONSEQUENCE rather than the reason.
+				expect(Data.beaterNorthStuds() > Data.LINE.spawnNorthStuds).to.equal(true)
+				-- THE EXIT IS SOUTH OF EVERY POINT OF THE LINE, by the margin the world states. The
+				-- old `EXIT_Z` constant was -2377, which is NORTH of the ride's line at -2600: a
+				-- boar there would have been despawned before it reached the hunters.
+				local exit = Data.exitZOf(layout)
+				for x = span.minX, span.maxX, 25 do
+					expect(Data.roadZ(x, layout) - exit >= Data.EXIT_SOUTH_STUDS - 1e-6).to.equal(true)
+				end
+			end
+		end)
+
+		it("gives every layout the same ~120 s walk, because no layout carries that number", function()
+			local Bots = require(ServerScriptService:WaitForChild("Bots"))
+			local Match = require(ServerScriptService:WaitForChild("Match"))
+			local past = Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS
+			local seconds = (Data.beaterNorthStuds() + past) / Bots.CONFIG.WALK_SPEED
+			expect(math.abs(seconds - 120) < 0.1).to.equal(true)
+			expect(seconds < Data.DRIVE.seconds).to.equal(true)
+			TestKit.note(
+				string.format(
+					"layouts: the bot line walks %d + %d studs at %.1f studs/s = %.1f s in every layout",
+					Data.beaterNorthStuds(),
+					past,
+					Bots.CONFIG.WALK_SPEED,
+					seconds
+				)
+			)
+		end)
+
+		it("keeps the two sweep bands in their order in every layout", function()
+			-- TASK 172's property, asked per layout because the band depth is derived from the LANE
+			-- SPACING and the spacing is now the layout's: a notice band narrower than the flush band
+			-- would mean animals that bolt without ever having been seen to stand.
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				local layout = Data.layoutNamed(name) :: any
+				local notice = Data.noticeAheadStuds(nil, nil, layout)
+				local flush = Data.sweepAheadStuds(nil, nil, layout)
+				expect(notice > flush).to.equal(true)
+				expect(Data.laneSpacing(layout)).to.equal(layout.standSpacing)
+				TestKit.note(
+					string.format(
+						"layout %s: lanes %d apart, notice band %.1f, flush band %.1f",
+						name,
+						layout.standSpacing,
+						notice,
+						flush
+					)
+				)
+			end
+		end)
+
+		it("leaves the ROAD layout exactly as it was before task 179", function()
+			-- THE ROLLBACK IS A ONE-LINE COMMIT (`LAYOUT_ORDER = { "road" }`), and this is what makes
+			-- that a real rollback rather than a hope: every number of today's drive, asserted.
+			local road = Data.ROAD_LAYOUT
+			expect(road.centre).to.equal(Vector3.new(3030, 138, -2097))
+			expect(road.amplitudeStuds).to.equal(30)
+			expect(road.standCount).to.equal(9)
+			expect(road.standSpacing).to.equal(150)
+			expect(road.halfSpanStuds).to.equal(800)
+			expect(Data.SHAPE.wavelengthDivisor).to.equal(70)
+			expect(Data.SHAPE.halfWidthStuds).to.equal(20)
+			-- The constant that was `ForestTest.EXIT_Z`.
+			expect(Data.exitZOf(road)).to.equal(-2377)
+			-- ...and the boar field `ForestTestBoot` used to build at boot, field by field.
+			local field = Data.fieldFor(road)
+			expect(field.exitZ).to.equal(-2377)
+			expect(field.groundY).to.equal(138)
+			expect(field.bounds.minX).to.equal(2230)
+			expect(field.bounds.maxX).to.equal(3830)
+			expect(field.bounds.minZ).to.equal(-2477)
+			expect(field.bounds.maxZ).to.equal(-1197)
+			expect(Data.DEFAULT_LAYOUT).to.equal("road")
+			expect(Data.LAYOUT_ORDER[1]).to.equal("road")
+		end)
+
+		it("freezes the table, so nothing can rewrite a layout at run time", function()
+			expect(function()
+				(Data.LAYOUTS :: any).road = nil
+			end).to.throw()
+			expect(function()
+				(Data.ROAD_LAYOUT :: any).standCount = 2
+			end).to.throw()
+			expect(function()
+				table.insert(Data.LAYOUT_ORDER :: any, "clearing")
+			end).to.throw()
+			-- ...but `layoutNames()` hands out a COPY, so a caller shuffling its own bag cannot
+			-- shuffle the order.
+			local names = Data.layoutNames()
+			table.remove(names, 1)
+			expect(#names).to.equal(#Data.LAYOUT_ORDER - 1)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- WHICH LAYOUT COMES NEXT (179)
+	describe("the bag that deals the layouts", function()
+		-- A FIXED ROLL, so there is no randomness in any case below. `roll(n) = 1` leaves
+		-- Fisher-Yates' order alone, which makes the expected sequence writable.
+		local function roll(_n: number): number
+			return 1
+		end
+
+		it("deals every layout exactly once per bag, then refills", function()
+			local bag = {}
+			local dealt, previous = {}, nil
+			for _ = 1, #Data.LAYOUT_ORDER do
+				local name
+				name, bag = Data.nextLayout(previous, bag, roll)
+				table.insert(dealt, name)
+				previous = name
+			end
+			expect(#bag).to.equal(0)
+			local seen = {}
+			for _, name in ipairs(dealt) do
+				expect(seen[name]).to.equal(nil)
+				seen[name] = true
+			end
+			expect(#dealt).to.equal(#Data.LAYOUT_ORDER)
+			-- The next deal refills.
+			local after
+			after, bag = Data.nextLayout(previous, bag, roll)
+			expect(Data.layoutNamed(after)).to.be.ok()
+			expect(#bag).to.equal(#Data.LAYOUT_ORDER - 1)
+		end)
+
+		it("never deals the same layout twice running, INCLUDING across a refill", function()
+			-- THE BOUNDARY CASE IS THE WHOLE REASON THERE IS A SWAP (TetrisWiki, Random Generator):
+			-- a bag of three can otherwise deal `... C | C ...`, and "never twice running" is the one
+			-- thing it has to mean.
+			local bag = {}
+			local previous = nil
+			for _ = 1, 4 * #Data.LAYOUT_ORDER do
+				local name
+				name, bag = Data.nextLayout(previous, bag, roll)
+				expect(name).never.to.equal(previous)
+				previous = name
+			end
+			-- ...and explicitly: a fresh bag whose head is the name just played swaps it.
+			if #Data.LAYOUT_ORDER >= 2 then
+				local first = Data.nextLayout(nil, {}, roll)
+				local again = Data.nextLayout(first, {}, roll)
+				expect(again).never.to.equal(first)
+			end
+		end)
+
+		it("never mutates the caller's bag, and survives a roll that answers nonsense", function()
+			local bag = { "road" }
+			local name, out = Data.nextLayout(nil, bag, roll)
+			expect(name).to.equal("road")
+			expect(#bag).to.equal(1) -- the caller's list is untouched
+			expect(#out).to.equal(0)
+			-- A STUB THAT ANSWERS OUT OF RANGE MUST NOT INDEX NIL. A spec is allowed to hand this
+			-- function anything, and `math.clamp` is what makes that true rather than lucky.
+			for _, bad in ipairs({ 0, -5, 99 }) do
+				local got = Data.nextLayout(nil, {}, function()
+					return bad
+				end)
+				expect(Data.layoutNamed(got)).to.be.ok()
+			end
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- the Director's override (179)
+	describe("the forced layout", function()
+		it("accepts a name however it is typed, and refuses one that is not a layout", function()
+			expect(ForestTest.forcedLayout("road")).to.equal("road")
+			expect(ForestTest.forcedLayout(" ROAD ")).to.equal("road")
+			expect(ForestTest.forcedLayout("/road")).to.equal("road")
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				expect(ForestTest.forcedLayout(name)).to.equal(name)
+			end
+			-- A NAME NOBODY KNOWS IS NIL, which the caller turns into one console line and a normal
+			-- deal -- never a crash and never a layout-less drive.
+			expect(ForestTest.forcedLayout("clearing")).to.equal(nil)
+			expect(ForestTest.forcedLayout("")).to.equal(nil)
+			expect(ForestTest.forcedLayout(nil)).to.equal(nil)
+			expect(ForestTest.forcedLayout(42)).to.equal(nil)
+			expect(ForestTest.forcedLayout(true)).to.equal(nil)
+			-- The attribute name is the world's to state, and it is NOT a `DHFlag_*` name -- so the
+			-- harness's override guard neither sees it nor can be defeated by it.
+			expect(Data.LAYOUT_OVERRIDE_ATTRIBUTE).to.equal("DHForestLayout")
+			expect(string.sub(Data.LAYOUT_OVERRIDE_ATTRIBUTE, 1, 7)).never.to.equal("DHFlag_")
+		end)
+
+		it("deals a layout once per drive and keeps it for that drive", function()
+			-- IDEMPOTENT PER DRIVE NUMBER, and that is load-bearing: `Match` reads the markers once a
+			-- second while `Waiting`, so a promoter that dealt on every call would move the ground
+			-- under a hunter standing on it.
+			local first = ForestTest.layoutForDrive(1, nil)
+			expect(Data.layoutNamed(first)).to.be.ok()
+			for _ = 1, 5 do
+				expect(ForestTest.layoutForDrive(1, nil)).to.equal(first)
+			end
+			expect(ForestTest.layoutName()).to.equal(first)
+			expect(ForestTest.layout().name).to.equal(first)
+			-- DRIVE 0 AND DRIVE 1 ARE ONE KEY: `Match.driveNumber()` is 0 while `Waiting`, and
+			-- without that the waiting room would burn a layout nobody played.
+			expect(ForestTest.layoutForDrive(0, nil)).to.equal(first)
+			-- A forced name wins, and `stats()` says so -- the only thing that stops a forced
+			-- playtest being reported as a random rotation.
+			expect(ForestTest.layoutForDrive(2, "road")).to.equal("road")
+			expect(ForestTest.stats().layout).to.equal("road")
+			expect(ForestTest.stats().layoutSource).to.equal("override")
+			-- A name nobody knows does not stop the drive: it deals normally and says so.
+			local dealt = ForestTest.layoutForDrive(3, "clearing")
+			expect(Data.layoutNamed(dealt)).to.be.ok()
+			expect(ForestTest.stats().layoutSource).to.equal("bag")
+			TestKit.note(
+				string.format("layouts: drive 1 dealt %s, drive 3 dealt %s after a bad override", first, dealt)
+			)
+		end)
+
+		it("refuses a pick the live layout does not have", function()
+			-- THE RIDE HAS 5 STANDS AND THE ROAD HAS 9, so stand 7 exists in one and not the other --
+			-- and `standX(7)` on a five-stand line answers a point past the end of it that
+			-- `standArea`, `boundary` and `hunterStandX` would all believe.
+			local shortest = Data.LAYOUT_ORDER[1]
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				if (Data.layoutNamed(name) :: any).standCount < (Data.layoutNamed(shortest) :: any).standCount then
+					shortest = name
+				end
+			end
+			local small = Data.layoutNamed(shortest) :: any
+			ForestTest.layoutForDrive(90, shortest)
+			expect(ForestTest.layoutName()).to.equal(shortest)
+
+			local userId = -179
+			ForestTest.clearPick(userId)
+			ForestTest.openPick(userId, 0, small.standCount)
+			expect(ForestTest.standIndexOf(userId)).to.equal(small.standCount)
+			-- ...and one past the end is NO PICK, which is a state this game already has and tests
+			-- (*no rule during the pick window*), rather than a hunter held to a point in a wood.
+			ForestTest.lockPick(userId, Data.standPosition(small.standCount, small), 1)
+			local pick = ForestTest.pickOf(userId)
+			expect(pick).to.be.ok();
+			(pick :: any).index = small.standCount + 1
+			expect(ForestTest.pickOf(userId)).to.equal(nil)
+			expect(ForestTest.standIndexOf(userId)).to.equal(nil)
+			expect(ForestTest.standArea(userId)).to.equal(nil)
+			ForestTest.clearPick(userId)
+			-- Put the world back where the rest of this spec expects it.
+			ForestTest.layoutForDrive(91, Data.DEFAULT_LAYOUT)
+			expect(ForestTest.layoutName()).to.equal(Data.DEFAULT_LAYOUT)
+		end)
+	end)
+
 	describe("the road and the stands", function()
 		it("puts every stand ON the road, at the spacing the world claims", function()
 			local worst = 0
-			for index = 1, Data.STAND_COUNT do
+			for index = 1, Data.ROAD_LAYOUT.standCount do
 				local stand = Data.standPosition(index)
 				worst = math.max(worst, math.abs(stand.Z - Data.roadZ(stand.X)))
 			end
@@ -41,30 +370,30 @@ return function()
 			-- second definition of the road would not. The bound is a thousandth of a stud: tight
 			-- enough to catch a real disagreement, loose enough not to assert float32 away.
 			expect(worst < 1e-3).to.equal(true)
-			for index = 2, Data.STAND_COUNT do
+			for index = 2, Data.ROAD_LAYOUT.standCount do
 				local gap = Data.standX(index) - Data.standX(index - 1)
-				expect(math.abs(gap - Data.STAND_SPACING) < 1e-6).to.equal(true)
+				expect(math.abs(gap - Data.ROAD_LAYOUT.standSpacing) < 1e-6).to.equal(true)
 			end
 			TestKit.note(
 				string.format(
 					"forest-stand: %d stands %d studs apart, worst %.6f studs off the road curve",
-					Data.STAND_COUNT,
-					Data.STAND_SPACING,
+					Data.ROAD_LAYOUT.standCount,
+					Data.ROAD_LAYOUT.standSpacing,
 					worst
 				)
 			)
 		end)
 
 		it("centres the line on the world's centre", function()
-			local middle = (Data.STAND_COUNT + 1) / 2
-			expect(math.abs(Data.standX(middle) - Data.CENTRE.X) < 1e-6).to.equal(true)
+			local middle = (Data.ROAD_LAYOUT.standCount + 1) / 2
+			expect(math.abs(Data.standX(middle) - Data.ROAD_LAYOUT.centre.X) < 1e-6).to.equal(true)
 		end)
 
 		it("curves: the road is not a straight line across the stands", function()
 			-- If it were, `roadZ` could be deleted and every stand would sit at CENTRE.Z -- which is
 			-- what a reader checking only the first claim above might conclude.
 			local lowest, highest = math.huge, -math.huge
-			for index = 1, Data.STAND_COUNT do
+			for index = 1, Data.ROAD_LAYOUT.standCount do
 				local z = Data.roadZ(Data.standX(index))
 				lowest, highest = math.min(lowest, z), math.max(highest, z)
 			end
@@ -144,7 +473,7 @@ return function()
 		end)
 
 		it("picks the stand a hunter is standing on, and his neighbour's when he walks there", function()
-			for index = 1, Data.STAND_COUNT do
+			for index = 1, Data.ROAD_LAYOUT.standCount do
 				expect(ForestTest.nearestStand(Data.standPosition(index))).to.equal(index)
 			end
 			-- Just past the midpoint between two stands, the far one wins -- which is what makes
@@ -286,9 +615,9 @@ return function()
 			expect(ForestTest.standIndexFor(1)).to.equal(Data.PICK.defaultIndex)
 			expect(ForestTest.standIndexFor(1)).to.equal(5)
 			local order = {}
-			for index = 1, Data.STAND_COUNT do
+			for index = 1, Data.ROAD_LAYOUT.standCount do
 				local stand = ForestTest.standIndexFor(index)
-				expect(stand >= 1 and stand <= Data.STAND_COUNT).to.equal(true)
+				expect(stand >= 1 and stand <= Data.ROAD_LAYOUT.standCount).to.equal(true)
 				expect(order[stand]).to.equal(nil) -- every stand once: nine hunters, nine stands
 				order[stand] = index
 			end
@@ -297,7 +626,7 @@ return function()
 			-- ...and a tenth hunter wraps onto the middle stand rather than onto nothing. With
 			-- `MAX_PLAYERS` 16 and a balanced split there are at most 8 shooters, so this is
 			-- unreachable in production -- which is a claim, so it is asserted.
-			expect(ForestTest.standIndexFor(Data.STAND_COUNT + 1)).to.equal(ForestTest.standIndexFor(1))
+			expect(ForestTest.standIndexFor(Data.ROAD_LAYOUT.standCount + 1)).to.equal(ForestTest.standIndexFor(1))
 		end)
 
 		it("finds a stand by NAME, because a refused stand shortens the list (task 157)", function()
@@ -305,13 +634,13 @@ return function()
 			-- eight posts in the list the fifth entry is not stand 5, and stand 5's x is where the
 			-- drive aims every wave -- so the post is found by the name the marker builder gave it.
 			local full = {}
-			for index = 1, Data.STAND_COUNT do
+			for index = 1, Data.ROAD_LAYOUT.standCount do
 				table.insert(full, { Name = string.format("Stand%d", index) })
 			end
 			expect(ForestTest.postIndexFor(full, 5)).to.equal(5)
 			-- stand 3 refused: stand 5 is now the FOURTH entry
 			local short = {}
-			for index = 1, Data.STAND_COUNT do
+			for index = 1, Data.ROAD_LAYOUT.standCount do
 				if index ~= 3 then
 					table.insert(short, { Name = string.format("Stand%d", index) })
 				end
@@ -739,7 +1068,7 @@ return function()
 			end
 			-- ...and the band itself has to be north of the road, or "between her and the road" is
 			-- a group standing on it.
-			expect(Data.REST.nearRoadStuds > Data.ROAD.halfWidthStuds).to.equal(true)
+			expect(Data.REST.nearRoadStuds > Data.SHAPE.halfWidthStuds).to.equal(true)
 			TestKit.note(
 				string.format(
 					"%d resting groups at %.0f-%.0f studs from the road; the nearest is %.0f studs from her start (reach %d + %d)",
@@ -789,7 +1118,7 @@ return function()
 			-- depth the per-beater circle REALLY had midway between two lanes. So the band is no
 			-- weaker than the circles anywhere and strictly stronger between them.
 			local reach = Data.beaterSpookStuds(Data.SPOOK)
-			local half = Data.BEATER.laneSpacingStuds / 2
+			local half = Data.laneSpacing() / 2
 			local want = if reach * reach > half * half
 				then math.max(Data.SPOOK.SWEEP.MIN_AHEAD_STUDS, math.sqrt(reach * reach - half * half))
 				else Data.SPOOK.SWEEP.MIN_AHEAD_STUDS
@@ -815,7 +1144,7 @@ return function()
 					noticeReach,
 					Data.sweepAheadStuds(Data.SPOOK, Data.BEATER),
 					reach,
-					Data.BEATER.laneSpacingStuds
+					Data.laneSpacing()
 				)
 			)
 			-- LANES TWO REACHES APART make the formula answer zero or worse, and the floor is what
@@ -906,7 +1235,7 @@ return function()
 						.. " -- missed %d, ticks behind the line uncaught %d",
 					#animals,
 					depth,
-					Data.BEATER.laneSpacingStuds,
+					Data.laneSpacing(),
 					Data.beaterSpookStuds(Data.SPOOK),
 					missed,
 					passedUncaught
@@ -1422,7 +1751,7 @@ return function()
 				local at = Data.restPoint(standX, spec)
 				local north = at.Z - Data.roadZ(at.X)
 				expect(north < startNorth).to.equal(true)
-				expect(north > Data.ROAD.halfWidthStuds).to.equal(true)
+				expect(north > Data.SHAPE.halfWidthStuds).to.equal(true)
 			end
 		end)
 	end)

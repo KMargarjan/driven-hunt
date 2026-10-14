@@ -58,6 +58,10 @@ Markers.START_SIZE = Vector3.new(60, 1, 20)
 Markers.GROUND_TOLERANCE_STUDS = 1
 
 export type Set = {
+	-- WHICH DRIVE LAYOUT THIS SET WAS MEASURED ON (task 179). A console line, the boot's `markers:`
+	-- report and any later reader can then SAY which world the drive is standing on instead of
+	-- assuming there is only one.
+	layout: string,
 	posts: { BasePart },
 	line: { position: Vector3, normal: Vector3 }?,
 	lineParts: number,
@@ -211,6 +215,7 @@ end
 function Markers.ring(
 	standIndex: number,
 	radiusStuds: number,
+	layout: any,
 	ground: ((number, number) -> number?)?,
 	canopy: ((number, number) -> number?)?
 ): number
@@ -220,7 +225,7 @@ function Markers.ring(
 	if radiusStuds <= 0 then
 		return 0
 	end
-	local home = Data.standPosition(standIndex)
+	local home = Data.standPosition(standIndex, layout)
 	local config = Markers.RING
 	local step = 2 * math.pi / config.SEGMENTS
 	-- The chord between two adjacent points ON the circle, so consecutive segments share an endpoint
@@ -293,8 +298,12 @@ end
 --
 -- `standX` is where the drive is aiming its waves (`ForestTest.hunterStandX()`), and it is passed in
 -- rather than read here because the beater start is derived from it and this module decides nothing.
+-- `layout` IS THE SECOND, REQUIRED PARAMETER (task 179), and required on purpose: an un-updated
+-- caller then errors on `layout.centre` instead of silently measuring the road's nine stands into a
+-- drive that is being held on a five-stand ride 500 studs away.
 function Markers.build(
 	standX: number,
+	layout: any,
 	ground: ((number, number) -> number?)?,
 	canopy: ((number, number) -> number?)?
 ): Set
@@ -311,8 +320,8 @@ function Markers.build(
 
 	-- SORTED BY X ASCENDING, which `Match.Markers.read` guarantees too (`byX`): post n is stand n,
 	-- always, so `ForestTest.standIndexFor` can name a stand by its index.
-	for index = 1, Data.STAND_COUNT do
-		local stand = Data.standPosition(index)
+	for index = 1, layout.standCount do
+		local stand = Data.standPosition(index, layout)
 		local y, delta = Markers.groundFor(stand.X, stand.Z, groundReader, canopyReader)
 		if delta ~= nil then
 			stats.lastMaxDelta = math.max(stats.lastMaxDelta, delta)
@@ -342,26 +351,28 @@ function Markers.build(
 	-- `line.normal`), and the only reader of `line.position` is the Studio-only quick test, which is
 	-- off and releases nothing here.
 	--
-	-- x = CENTRE.X is where the road's sine is exactly 0, so this position is ON the road, and the
-	-- normal is +Z -- the meaning `Match.Markers.read` gives the field: *"the part's -Z faces the
+	-- x = `layout.centre.X` is where the sine is exactly 0 -- and a straight layout (amplitude 0) has
+	-- no sine at all, so for the edge and the ride it is exactly on the line by construction rather
+	-- than by arithmetic. The normal is +Z -- the meaning `Match.Markers.read` gives the field: *"the part's -Z faces the
 	-- drivers"*, i.e. its LookVector points at them. The beaters are north of every point of this
 	-- road (the curve's tangent swings only +-23 degrees), so one plane is the right answer here and
 	-- the design measures why (section 6.1).
 	-- THE LINE'S OWN READING COUNTS TOWARD `lastMaxDelta` TOO (round 1 note): a disagreement over
 	-- the line or over the beater pad can make `complete` false on its own, and a console number that
 	-- folded in only the nine posts would be silent about exactly that.
-	local lineY, lineDelta = Markers.groundFor(Data.CENTRE.X, Data.roadZ(Data.CENTRE.X), groundReader, canopyReader)
+	local lineY, lineDelta =
+		Markers.groundFor(layout.centre.X, Data.roadZ(layout.centre.X, layout), groundReader, canopyReader)
 	if lineDelta ~= nil then
 		stats.lastMaxDelta = math.max(stats.lastMaxDelta, lineDelta)
 	end
 	local line = if lineY ~= nil
 		then table.freeze({
-			position = Vector3.new(Data.CENTRE.X, lineY, Data.roadZ(Data.CENTRE.X)),
+			position = Vector3.new(layout.centre.X, lineY, Data.roadZ(layout.centre.X, layout)),
 			normal = Vector3.zAxis,
 		})
 		else nil
 
-	local flatStart = Data.beaterStart(standX, 0)
+	local flatStart = Data.beaterStart(standX, 0, layout)
 	local startY, startDelta = Markers.groundFor(flatStart.X, flatStart.Z, groundReader, canopyReader)
 	if startDelta ~= nil then
 		stats.lastMaxDelta = math.max(stats.lastMaxDelta, startDelta)
@@ -375,7 +386,7 @@ function Markers.build(
 
 	local missing = {}
 	if #posts == 0 then
-		table.insert(missing, string.format("forest:stands (0 of %d)", Data.STAND_COUNT))
+		table.insert(missing, string.format("forest:stands (0 of %d)", layout.standCount))
 	end
 	if line == nil then
 		table.insert(missing, "forest:line")
@@ -385,6 +396,7 @@ function Markers.build(
 	end
 
 	return table.freeze({
+		layout = layout.name,
 		posts = table.freeze(posts),
 		line = line,
 		lineParts = if line ~= nil then 1 else 0,
