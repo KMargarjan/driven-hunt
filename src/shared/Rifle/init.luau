@@ -154,10 +154,10 @@ Rifle.CONFIG = {
 	-- and this is what keeps that measured result -- the trajectory crosses the sight line exactly
 	-- here, so a STILL target at 200 m is still hit dead centre (`Ballistics.launchDirection`).
 	--
-	-- THE PRICE IS THE MID-RANGE RISE: +0.51 studs (14 cm) HIGH at 100 m, which is real -- a real
+	-- THE PRICE IS THE MID-RANGE RISE: +0.45 studs (12.5 cm) HIGH at 100 m, which is real -- a real
 	-- rifle zeroed at 200 m shoots high at 100 -- but bigger than a real .416's ~7 cm, because this
 	-- model carries no scope-height offset. It is ONE LINE, and a 150 m zero would put the whole
-	-- band inside +/-16 cm from 0 to 200 m. Karen's dial (design section 16 item 1).
+	-- band inside +/-15 cm from 0 to 200 m. Karen's dial (design section 16 item 1).
 	ZERO_STUDS = { Slug = 714 },
 	AMMO_KINDS = { "Slug" },
 	-- The word the Hud prints for the kind. ".416" is the Rigby's own cartridge; the WIRE still says

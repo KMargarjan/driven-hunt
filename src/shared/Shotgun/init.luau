@@ -227,9 +227,10 @@ Shotgun.CONFIG = {
 	DRAG_PER_STUD = { Slug = 1.059e-3, Buck = 2.631e-3 },
 	-- WHERE THE TRAJECTORY CROSSES THE SIGHT LINE, so a STILL target at that distance is hit dead
 	-- centre. 180 studs is 50 m -- the standard rifled-slug zero -- and 70 studs is 20 m, inside
-	-- buckshot's 30 yd MPR. The slug then prints 13.4 cm low at 92 m against Federal's published
-	-- 14.5 cm at 100 yd, which is the whole model validated against a number it was not fitted to.
-	-- Buckshot's drop over its 100-stud reach is 1 cm: it needs no holdover, and it never did.
+	-- buckshot's 30 yd MPR. The slug then prints 11.4 cm low at 92 m against Federal's published
+	-- 14.5 cm at 100 yd for one specific load quoted from a sight line 1.5 in above the bore, which
+	-- this model does not have: the same shot to about 3 cm, against a number nothing here was
+	-- fitted to. Buckshot's drop over its whole 100-stud reach is 1 cm -- it needs no holdover.
 	ZERO_STUDS = { Slug = 180, Buck = 70 },
 
 	-- timings, all feel numbers

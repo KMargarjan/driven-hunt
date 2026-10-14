@@ -428,8 +428,8 @@ return function()
 			local idealAim = (aimPoint - muzzle).Unit
 			-- THE BOUND IS THE CONE PLUS THE LAUNCH ELEVATION (task 185). The bore sits a little
 			-- above the sight line so the falling bullet crosses it again at the zero distance, and
-			-- that elevation is a real, declared deviation from the muzzle-to-aim-point line -- 0.071
-			-- degrees for the shotgun's slug, 0.144 for the rifle. It is read from `Ballistics` and
+			-- that elevation is a real, declared deviation from the muzzle-to-aim-point line -- 0.067
+			-- degrees for the shotgun's slug, 0.130 for the rifle. It is read from `Ballistics` and
 			-- not typed here, so a change to the zero moves this bound with it.
 			local ballistic = Ballistics.shotFor(row, ammo)
 			expect(ballistic).to.be.ok()

@@ -121,12 +121,39 @@ end
 
 -- HOW FAR THE PROJECTILE FALLS BELOW ITS OWN LAUNCH LINE over `studs` of path. Always >= 0.
 --
--- Vacuum drop: gravity does not care how fast the thing is going, and the drag along the path does
--- not change the vertical acceleration to any accuracy a player can see in 0.3 s of flight.
+-- NOT `0.5*g*t^2`, AND THAT WAS MEASURED. The vacuum formula ignores that drag resists the FALL as
+-- well as the flight: the drag force is along the whole velocity, so its vertical component pushes
+-- UP on a dropping bullet. At the muzzle that component is `k*v*vy`, and for the rifle it reaches
+-- 27% of gravity -- so the vacuum drop is 9% too large at 200 m, which put the shot 0.169 studs
+-- (4.7 cm) BELOW the reticle at its own zero. `ballistics.spec`'s task-183 case is what caught it.
+--
+-- The vertical equation with the horizontal speed held at its path average V is linear,
+-- `dvy/dt = -g - (k*V)*vy`, whose solution integrates to
+--
+--     drop(t) = (g/b) * (t - (1 - exp(-b*t))/b),   b = k * (studs / t)
+--
+-- `studs / t` is the PATH-AVERAGED speed, which is exactly the right V to hold: it is what the
+-- closed form above already knows. MEASURED against the real stepper, the miss at the zero fell
+-- from 0.169 studs to 0.0011 for the rifle, 0.00013 for the slug and 0.00006 for buckshot -- under a
+-- millimetre at 200 m, for a horizontal shot and for 20 degrees up and down.
+--
+-- `k <= 0` IS STILL THE VACUUM, and so is the limit of this formula as `b` goes to 0: expanding
+-- `(1 - exp(-b*t))/b = t - b*t^2/2 + ...` leaves `0.5*g*t^2`, so the two branches meet rather than
+-- stepping.
 function Ballistics.dropAt(shot: Shot, studs: number, g: number?): number
 	local gravity = g or G
 	local t = Ballistics.timeToRange(shot, studs)
-	return 0.5 * gravity * t * t
+	if t <= 0 then
+		return 0
+	end
+	if shot.k <= 0 then
+		return 0.5 * gravity * t * t
+	end
+	local beta = shot.k * (studs / t)
+	if beta < 1e-9 then
+		return 0.5 * gravity * t * t
+	end
+	return (gravity / beta) * (t - (1 - math.exp(-beta * t)) / beta)
 end
 
 -- THE TANGENT OF THE LAUNCH ELEVATION: the drop at the zero, over the zero. One definition, so no

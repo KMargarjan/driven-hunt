@@ -127,6 +127,20 @@ Two cartridges, because the game has two guns and Karen asked for both.
   the acceleration is `-g*up - k*|v|*v`.
 - What it does badly: it ignores transonic behaviour and it is not a G1/G7 drag function. It
   would be wrong for a 1000 m shot. Our longest shot is 800 studs (224 m).
+- **The same coefficient also has to be applied to the FALL, and that was measured.** The first
+  build of this used the vacuum drop `0.5*g*t^2`, which ignores that the drag force is along the
+  WHOLE velocity -- so its vertical component pushes **up** on a dropping bullet. For the rifle that
+  component reaches 27% of gravity, the vacuum drop is 9% too large at 200 m, and a still target at
+  the rifle's own zero landed **0.169 studs (4.7 cm) low**. Holding the horizontal speed at its
+  path average `V = s/t` makes the vertical equation linear, `dvy/dt = -g - (k*V)*vy`, which
+  integrates to
+
+      drop(t) = (g/b) * (t - (1 - exp(-b*t))/b),   b = k * (s/t)
+
+  and its `b -> 0` limit is the vacuum formula, so the two meet rather than stepping. Measured
+  against the real stepper, the miss at the zero fell to **0.0011 studs for the rifle**, 0.00013 for
+  the slug and 0.00006 for buckshot -- under a millimetre at 200 m, horizontal and at 20 degrees up
+  and down. This is what `ballistics.spec`'s task-183 case asserts.
 
 ### E. Borrowed from inside this repo (rule 2 applies to internal patterns too)
 - **The injected cast seam.** `Weapon.Hits` already takes `cast` as a parameter and
@@ -201,25 +215,27 @@ A boar is about 1.5 m long. So: half a body at buckshot range, one body with the
 **more than two bodies with the rifle at 200 m**, and the slug needs ~60% more lead than the rifle
 at the same distance. That is the feeling, and it is the answer to "same with s/s".
 
-**Drop, relative to the sight line** (zero as above, computed from the same model):
+**Drop, relative to the sight line** (zero as above, drag-corrected per section 2D):
 
 | | 100 m | 200 m | the ammo's cap |
 |---|---|---|---|
-| rifle (zero 200 m) | +0.51 studs (**14 cm high**) | **0 cm** | -0.33 studs (9 cm low at 224 m) |
-| shotgun slug (zero 50 m) | -- | -- | -0.48 studs (**13 cm low at 92 m**) |
-| buck (zero 20 m) | -- | -- | -0.04 studs (1 cm low at 28 m) |
+| rifle (zero 200 m) | +0.45 studs (**12.5 cm high**) | **0 cm** | -0.28 studs (7.7 cm low at 224 m) |
+| shotgun slug (zero 50 m) | -- | -- | -0.41 studs (**11.4 cm low at 92 m**) |
+| buck (zero 20 m) | -- | -- | -0.03 studs (1 cm low at 28 m) |
 
 The slug figure is the sanity check on the whole model: Federal publishes **-5.7 in (-14.5 cm) at
-100 yd** for a 50 yd zero, and the model says **-13.4 cm at 92 m**. The model was not fitted to
-that number.
+100 yd** for a 50 yd zero, and the model says **-11.4 cm at 92 m** -- the same shot to about 3 cm,
+against a number nothing here was fitted to. The gap is left rather than tuned away, and it has two
+named causes: that table is one specific load's ballistic coefficient, and it is quoted from a sight
+line **1.5 in above the bore**, which this model does not have.
 
 **The rifle's zero is 200 m, and that is a decision with a trade-off.** Karen asked for
 *"precist and on 200m acurat"* (Task 183) and the Director's dispatch asks for "0 cm at 200 m with
 the zero". A 200 m zero gives exactly that and keeps 183's measured result at the distance she
-named. The price is the mid-range rise: **14 cm high at 100 m**, which is real (a real rifle zeroed
+named. The price is the mid-range rise: **12.5 cm high at 100 m**, which is real (a real rifle zeroed
 at 200 m shoots high at 100) but larger than a real .416's ~7 cm, because this model has no
 scope-height offset. It is ONE number (`ZERO_STUDS`), and if Karen wants the rise gone, a 150 m
-zero puts the whole band inside +/-16 cm from 0 to 200 m. Flagged for her, not decided for her.
+zero puts the whole band inside +/-15 cm from 0 to 200 m. Flagged for her, not decided for her.
 
 **Cost.** Longest flight 0.37 s (rifle at its 800-stud cap) = ~22 steps at 60 Hz, 1 cast each.
 A nine-pellet buckshot shot is ~5 steps x 9 = 45 casts spread over 0.08 s. Target: **under 0.5 ms
@@ -236,7 +252,7 @@ table per projectile per frame.
 
 `Weapon.SafetyArc` asks one question: *is this shot pointing into the drive line?* It is given the
 direction the shot takes, and the launch direction differs from today's `aim` by the elevation
-angle alone -- **0.144 degrees for the rifle at its 200 m zero**, against a cone of
+angle alone -- **0.130 degrees for the rifle at its 200 m zero**, against a cone of
 `SAFETY_ARC_HALF_DEG = 45`. So the arc's verdict is identical, and judging the launch direction IS
 judging the real path.
 
