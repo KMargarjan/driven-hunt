@@ -1,15 +1,15 @@
 # Task 180: the lobby looks like a real place — free-model lodge, four trucks, trophies, a road, fences and a tree line
 
 Task: 180
-Round: 1
+Round: 2
 Base: main (`253d21f`, #162 merged — task 178's shop)
-Code commit: `c3e4f701b4c8bc3c3d5e24a0827a69ce3a0d15e7`
+Code commit: `6a0b3f41d156bcbe15ef46259eaf97643a22b945`
 
 Harness, FULL `test`, TWICE on a clean tree at the code commit:
 
 ```
-[harness] PASS: 33/33 checks @ c3e4f701b4c8bc3c3d5e24a0827a69ce3a0d15e7 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ c3e4f701b4c8bc3c3d5e24a0827a69ce3a0d15e7 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 6a0b3f41d156bcbe15ef46259eaf97643a22b945 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 6a0b3f41d156bcbe15ef46259eaf97643a22b945 (clean tree) scope=all
 ```
 
 **`test2` is N/A and the reason is the explicit list.** The change touches
@@ -77,17 +77,29 @@ would float.
 *Verify:* `Lobby.CONFIG.ROAD` / `FENCE` / `TREELINE` and their comments; `lobby.spec`, *"keeps the
 road, the fences and the trees inside the field's own rectangle"*.
 
-**8. Two look bugs were found by LOOKING and are fixed, and the spec that missed each one now
-catches it.** (a) The road was laid flush on the grass shelf and the first shot came back showing a
-field with the player standing on the invisible lane — the grass material draws its blades over a
-part laid on it. `FIELD.PAD` became `FIELD.PADS` (the yard pad widened for four bays, plus a road
-corridor pad) and `Build.road` lifts the slab onto the shelf. (b) All four trophy yaws were inverted,
-so every plaque sat past its wall plane and every head a stud beyond, outside the building; and the
-back wall was already taken by the fireplace and the shop counter's sign.
-*Verify:* commits `c865e19` and `b160d79`; `lobby.spec`, *"lays pads of a material with no grass
-blades under the buildings AND the road"* and the footprint bound added to *"hangs every trophy on a
-wall of the room it is in, in BOTH builds"* — the old case only looked at the height, which is
-exactly why (b) got through.
+**8. Four look bugs found by LOOKING, each fixed, and each now has a spec case that fails without
+the fix.** (a) The road was laid flush on the grass shelf: the first shot showed a field with the
+player standing on the invisible lane, because a grass material draws its blades over a part laid on
+it. `FIELD.PAD` became `FIELD.PADS` (yard pad widened for four bays, plus a road corridor pad) and
+`Build.road` lifts the slab onto the shelf. (b) All four trophy yaws were inverted, so every plaque
+sat past its wall plane and every head a stud beyond, in the open air outside the lodge. (c) **Round
+1, finding 1:** the heads were then SEATED on the floor by `clone`'s unconditional `sitOnShelf`, so a
+head's bottom landed at the mount height — the deer's 5.4 studs went 2.4 studs through a 7.4-stud
+ceiling. `clone` takes a `seat` argument now and the head is clamped under the room's own ceiling,
+measured off its bounding box. (d) **Round 1, finding 2:** (a)'s own fix then buried the marked
+circle — the yard slab sits 0.5 studs proud and the ring was lifted 0.08 studs off the SHELF, so
+*"STAND HERE TO HUNT"* pointed at nothing. The ring is lifted off the ROAD surface now.
+*Verify:* commits `c865e19`, `b160d79`, `9de261e`; `lobby.spec` — *"lays pads of a material with no
+grass blades under the buildings AND the road"*, *"hangs every trophy INSIDE the room it is in, under
+its ceiling, in BOTH builds"*, and *"leaves the marked circle standing CLEAR of the road surface it is
+drawn on"*.
+
+**8b. The round-1 guard was useless and now is not (round 1, finding 3).** It bounded a plaque
+against `LODGE.SIZE / 2`, ten studs outside the wall, while an inverted yaw moves it 0.25. `roomFor`
+is a pure exported function, so the spec bounds every plaque AND every head against the rectangle the
+mount itself used, with floor and ceiling. The round-1 request's claim that the spec caught (b) was
+**false**, and this is what makes it true.
+*Verify:* `Build.roomFor`; `lobby.spec`, the trophy case.
 
 **9. `Room` exists because there are now two rooms.** The free model's is 19.6 × 19.6 × 7.4 (raycast)
 and task 177's is 38 × 26 × 9, so `interior` places against a measured rectangle and a trophy names a
@@ -114,6 +126,31 @@ trophies: Plaque1 2840.3 / Plaque2 2859.4 / Plaque3 2859.4   (walls at 2840.1 an
 circle → `DHLobbyLeaveAt` set → enrolled → placed at the stand (3030, −2097), team Shooters,
 **Shotgun in the character**. Whole-session console: no "Stack Begin", no "attempt to", no "invalid
 argument", no error line.
+
+## Round 2: what changed
+
+Three blocking findings, all three correct, all three fixed — plus four of the nine notes: the tree
+line now goes through `cloneInstance` (its hand-rolled walk used `GetDescendants`, which never visits
+the clone itself, so a Part template came out unanchored and queryable — the one thing that function's
+own comment forbids); the shop counter is clamped so a 12-stud till cannot come through a 9.8-stud
+half-room; the owner's `stats` carries `strippedScripts`; and the room is 19.6 × 19.6 in every file
+instead of 19.6 in one and 19.8 in two. The `TREELINE` comment now says what the numbers do (a ±34°
+gap due north, not "south-east round to south-west").
+
+Measured in the running place after the fixes, which is how (c) and (d) are known to be gone:
+
+```
+ringClearOfYard = 0.02 studs   (it was -0.42: inside the slab)
+Plaque1/2/3 y = 156.9    BoarHead2 / DeerHead1 / DeerHead3 y = 156.9    ceiling y = 160.9
+```
+
+— the heads were at 158.0 and 159.6 before, their bases on the mount instead of their centres.
+
+**Notes NOT taken, queued for the Director:** the `corners()` coverage on the road/fence case (the
+geometry is inside today, so it is coverage and not a defect); a `north` or `south` mount would now
+pass correctly since the bound is the room; `docs/design/lobby.md`'s `MAX_PARTS = 400` and track row
+(Architect's lane); `CONFIG.TRACK` dead until task 182; and the road lying 0.5 studs proud of the
+walkable terrain with `CanCollide = false`.
 
 ## What I could not verify, and what is wrong that I did not fix
 
