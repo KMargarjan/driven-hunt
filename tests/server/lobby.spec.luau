@@ -671,12 +671,15 @@ return function()
 				local room = Build.roomFor(anchor, CFG, withModels)
 				local heads = folder:FindFirstChild("Trophies", true)
 				expect(heads).to.be.ok()
-				local plaques, mounted = 0, 0
+				local plaques, mounted, tines = 0, 0, 0
 				for _, descendant in ipairs((heads :: Instance):GetChildren()) do
 					local isPlaque = string.sub(descendant.Name, 1, 6) == "Plaque"
-					local isHead = string.sub(descendant.Name, 1, 4) == "Deer"
-						or string.sub(descendant.Name, 1, 4) == "Boar"
-					if isPlaque or isHead then
+					-- A HEAD IS A MODEL WITH THE TEMPLATES AND A PAIR OF TINE CYLINDERS WITHOUT THEM.
+					-- Both are bounded, because both are the thing hanging on the wall.
+					local isHead = descendant:IsA("Model")
+						and (string.sub(descendant.Name, 1, 4) == "Deer" or string.sub(descendant.Name, 1, 4) == "Boar")
+					local isTine = string.sub(descendant.Name, 1, 4) == "Tine"
+					if isPlaque or isHead or isTine then
 						-- THE HEADS ARE CHECKED TOO, and in round 1 they were not: they land a
 						-- stud further out than the plaque, so they are the louder half of the bug.
 						local middle, size
@@ -684,11 +687,15 @@ return function()
 							plaques += 1
 							middle = (descendant :: BasePart).Position
 							size = (descendant :: BasePart).Size
-						else
+						elseif isHead then
 							mounted += 1
 							local box, extent = (descendant :: Model):GetBoundingBox()
 							middle = box.Position
 							size = extent
+						else
+							tines += 1
+							middle = (descendant :: BasePart).Position
+							size = (descendant :: BasePart).Size
 						end
 						local at = middle
 						expect(at.X <= room.centre.X + room.halfX).to.equal(true)
@@ -703,7 +710,16 @@ return function()
 					end
 				end
 				expect(plaques).to.equal(#CFG.TROPHIES.MOUNTS)
-				expect(mounted).to.equal(#CFG.TROPHIES.MOUNTS)
+				-- WITH the templates every mount is a head model and nothing falls back; WITHOUT
+				-- them every mount is the pair of tines task 177's antlers are made of. The wall is
+				-- never bare either way, which is the point of the fallback.
+				if withModels then
+					expect(mounted).to.equal(#CFG.TROPHIES.MOUNTS)
+					expect(tines).to.equal(0)
+				else
+					expect(mounted).to.equal(0)
+					expect(tines).to.equal(#CFG.TROPHIES.MOUNTS * 2)
+				end
 				if templates then
 					(templates :: Instance):Destroy()
 				end
