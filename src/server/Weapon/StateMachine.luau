@@ -98,18 +98,34 @@ end
 -- first-match search would have charged the magazine change the bolt's window -- `runCycle` would
 -- then `task.wait(0.26)`, ask for `Close`, be refused "busy", and finish the reload down its
 -- error-recovery path. `runCycle` knows which list it is walking, so it says.
--- nil keeps the old behaviour exactly, for every caller that is not walking a sequence.
-local function waitFor(row, kind: string, steps: { any }?): number
-	for _, list in ipairs({ steps, row.CYCLE, row.RELOAD }) do
-		if list ~= nil then
-			for _, step in ipairs(list) do
-				if step.kind == kind then
-					return step.wait
-				end
-			end
+-- nil keeps the old behaviour exactly, for every caller that is not walking a sequence -- and the
+-- three lists are searched by NAME rather than by `ipairs` over a table holding them, because
+-- `ipairs({ nil, CYCLE, RELOAD })` iterates nothing at all. Round 1 of task 184 wrote exactly that
+-- and every window became 0: the gun was never busy after any step. `rifle.spec`'s three timing
+-- cases caught it.
+-- nil, NOT 0, is "this list does not have that kind": a step may legitimately wait 0 s, and `or`
+-- would walk past it.
+local function waitIn(list: { any }?, kind: string): number?
+	if list == nil then
+		return nil
+	end
+	for _, step in ipairs(list) do
+		if step.kind == kind then
+			return step.wait
 		end
 	end
-	return 0
+	return nil
+end
+
+local function waitFor(row, kind: string, steps: { any }?): number
+	local wait = waitIn(steps, kind)
+	if wait == nil then
+		wait = waitIn(row.CYCLE, kind)
+	end
+	if wait == nil then
+		wait = waitIn(row.RELOAD, kind)
+	end
+	return wait or 0
 end
 
 -- Returns (newState, nil) or (the SAME state, reason). Rejection reasons are a closed set, so the
