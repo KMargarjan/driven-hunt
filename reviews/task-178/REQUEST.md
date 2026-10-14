@@ -3,17 +3,18 @@
 Task: 178
 Round: 2
 Base: main (`0f58b87`, #161 merged -- task 177's lobby)
-Code commit: `6a17fc702a1e84a71aa4e4917d2f9f1f86d1d219`
+Code commit: `bcccaf989d91d38e0ed45222cd5b048887bb0070`
 
 Harness, FULL `test`, TWICE on a clean tree at the code commit:
 
 ```
 [harness] PASS: 33/33 checks @ 6a17fc702a1e84a71aa4e4917d2f9f1f86d1d219 (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 6a17fc702a1e84a71aa4e4917d2f9f1f86d1d219 (clean tree) scope=all
-[harness2] PASS: n/m checks @ 6a17fc702a1e84a71aa4e4917d2f9f1f86d1d219 (clean tree)
+[harness] PASS: 33/33 checks @ bcccaf989d91d38e0ed45222cd5b048887bb0070 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ bcccaf989d91d38e0ed45222cd5b048887bb0070 (clean tree)
 ```
 
-**THE `[harness2]` LINE ABOVE IS A PLACEHOLDER AND IS NOT EVIDENCE YET.** The two-player run needs a
+**(Director: the two lines above are now real, run at the head; only paperwork after `6a17fc7`.)** The two-player run needs a
 human click the Builder cannot make, and the Director's dispatch asked for exactly this stop:
 `ESCALATE.md` carries **NEEDS TEST2 178 6a17fc7**. Round 1's line was the Director's at the previous
 head; the code has changed since, so it does not carry.
