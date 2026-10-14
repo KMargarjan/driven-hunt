@@ -274,8 +274,8 @@
         }
       },
       "fire": {
-        "camPitchDeg": 3.15,
-        "dampingRatio": 0.78,
+        "camPitchDeg": 5.6,
+        "dampingRatio": 0.9,
         "flash": {
           "colorEnd": {
             "b": 40.0,
@@ -293,12 +293,12 @@
           "seconds": 0.035,
           "sizeStuds": 0.35
         },
-        "frequencyHz": 2.8,
-        "gunBackStuds": 0.42,
-        "gunPitchDeg": 12.0,
-        "maxCamPitchDeg": 3.5,
-        "maxGunBackStuds": 0.45,
-        "maxGunPitchDeg": 12.5,
+        "frequencyHz": 2.0,
+        "gunBackStuds": 0.68,
+        "gunPitchDeg": 19.0,
+        "maxCamPitchDeg": 6.5,
+        "maxGunBackStuds": 0.8,
+        "maxGunPitchDeg": 22.0,
         "smoke": {
           "burstSeconds": 0.07,
           "color": {
@@ -316,7 +316,7 @@
         "volume": {
           "close": 0.6,
           "open": 0.35,
-          "shot": 0.95
+          "shot": 1.5
         }
       },
       "raise": {

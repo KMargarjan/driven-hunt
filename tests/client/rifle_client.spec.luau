@@ -10,6 +10,7 @@
 -- Design: docs/design/rifle.md (section 13.2)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
@@ -19,6 +20,9 @@ local Camera = require(scripts:WaitForChild("Camera"))
 local Hud = require(scripts:WaitForChild("Hud"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
+-- ...and for ONE table: the poses file as DATA, so the kick below is checked against the rifle's
+-- own `fire` block rather than against whatever `Camera.Config` was built from (task 183).
+local Viewmodel = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 -- ...for ONE name: the shell template, which is never worn (see the case below).
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -639,6 +643,209 @@ return function()
 					viewportY
 				)
 			)
+		end)
+	end)
+
+	-- ------------------------------------------------------ the kick is the DRAWN gun's (task 183)
+	--
+	-- THE CASE THAT WOULD HAVE CAUGHT IT. `Camera.kick` read `Poses.config(Config)` with no weapon
+	-- id, which answers for `Viewmodel.DEFAULT_WEAPON` -- the SHOTGUN -- and `Mode.kick` is the only
+	-- reader of the six RECOIL_* numbers in the repo. So `poses.json`'s `weapons.rifle.fire` block
+	-- reached nothing: task 183 raised the rifle's kick to 19 degrees and the player still got the
+	-- shotgun's 8, clamped by the shotgun's own ceiling. `rifle.spec`'s "kicks harder than the
+	-- shotgun" could not see it, because it asserts DATA RELATIONS and the data was always right.
+	--
+	-- SO THIS ONE EQUIPS THE RIFLE AND READS THE STATE THE PLAYER WOULD BE LOOKING THROUGH. It is
+	-- the only place the wiring is observable: with the shotgun in hand the buggy and the correct
+	-- code return the same table, so a case driven by whatever the harness happens to hold is
+	-- vacuous exactly when it matters.
+	describe("the kick belongs to the gun on screen", function()
+		it("applies the rifle's own recoil when the rifle is the drawn weapon", function()
+			local character = player.Character
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			local backpack = player:FindFirstChildOfClass("Backpack")
+			local held = character and character:FindFirstChildOfClass("Tool")
+			local rifle = nil
+			for _, where in ipairs({ backpack, character }) do
+				if where ~= nil and rifle == nil then
+					local found = where:FindFirstChild("Rifle")
+					if found ~= nil and found:IsA("Tool") then
+						rifle = found
+					end
+				end
+			end
+
+			local rifleView = Viewmodel.view(Viewmodel.DATA, "rifle")
+			local shotgunView = Viewmodel.view(Viewmodel.DATA, "shotgun")
+			-- The two really are different numbers, or nothing below can tell them apart.
+			expect(rifleView.RECOIL_CAM_PITCH_DEG).never.to.equal(shotgunView.RECOIL_CAM_PITCH_DEG)
+
+			if humanoid == nil or rifle == nil then
+				TestKit.note(
+					"rifle kick: no rifle Tool to equip ("
+						.. (if humanoid == nil then "no humanoid" else "not in the backpack")
+						.. "), so the wiring was asserted through Camera.fireConfig instead"
+				)
+				-- THE WEAKER CLAIM, NEVER SILENCE: whatever weapon is drawn, the shot's config is
+				-- the SAME one the poses resolve to. That is the omission, stated without a rifle.
+				expect(Camera.fireConfig()).to.equal(Camera.poseConfig())
+				return
+			end
+
+			humanoid:EquipTool(rifle)
+			local drawn = nil
+			for _ = 1, 60 do
+				drawn = Camera.Viewmodel.weaponId()
+				if drawn == "rifle" then
+					break
+				end
+				frames(2)
+			end
+
+			local applied, settled = nil, false
+			if drawn == "rifle" then
+				-- FROM REST, so the number read back is the kick itself and not a clamped sum.
+				for _ = 1, 240 do
+					if not Mode.recoiling(Camera.getState()) then
+						settled = true
+						break
+					end
+					frames(1)
+				end
+				if settled then
+					Camera.kick()
+					applied = Camera.getState()
+				end
+			end
+
+			-- PUT THE GUN BACK BEFORE ASSERTING ANYTHING, so a failure here cannot leave the session
+			-- holding a weapon the specs that run after this file do not expect.
+			if held ~= nil and held ~= rifle then
+				humanoid:EquipTool(held)
+			else
+				humanoid:UnequipTools()
+			end
+			for _ = 1, 60 do
+				if Camera.Viewmodel.weaponId() ~= "rifle" then
+					break
+				end
+				frames(2)
+			end
+
+			expect(drawn).to.equal("rifle")
+			expect(settled).to.equal(true)
+			expect(applied).to.be.ok()
+			local state = applied :: any
+			-- THE THREE NUMBERS `Mode.kick` WRITES, against the RIFLE's row and not the default's.
+			expect(math.abs(state.recoilCamPitchDeg - rifleView.RECOIL_CAM_PITCH_DEG) < 1e-6).to.equal(true)
+			expect(math.abs(state.recoilGunPitchDeg - rifleView.RECOIL_GUN_PITCH_DEG) < 1e-6).to.equal(true)
+			expect(math.abs(state.recoilGunBackStuds - rifleView.RECOIL_GUN_BACK_STUDS) < 1e-6).to.equal(true)
+			-- ...and explicitly NOT the shotgun's, which is the bug written out.
+			expect(math.abs(state.recoilCamPitchDeg - shotgunView.RECOIL_CAM_PITCH_DEG) > 1e-6).to.equal(true)
+			TestKit.note(
+				string.format(
+					"rifle kick: drawn=%s applied view %.2f deg / gun %.2f deg / back %.3f studs "
+						.. "(rifle wants %.2f / %.2f / %.3f, shotgun %.2f / %.2f / %.3f)",
+					tostring(drawn),
+					state.recoilCamPitchDeg,
+					state.recoilGunPitchDeg,
+					state.recoilGunBackStuds,
+					rifleView.RECOIL_CAM_PITCH_DEG,
+					rifleView.RECOIL_GUN_PITCH_DEG,
+					rifleView.RECOIL_GUN_BACK_STUDS,
+					shotgunView.RECOIL_CAM_PITCH_DEG,
+					shotgunView.RECOIL_GUN_PITCH_DEG,
+					shotgunView.RECOIL_GUN_BACK_STUDS
+				)
+			)
+		end)
+	end)
+
+	-- ------------------------------------------------------ the reticle IS the camera centre (183)
+	--
+	-- KAREN, 2026-10-14: *"hit it has to be precist and on 200m acurat"*. The server shoots along
+	-- `camera.CFrame.LookVector` -- that is the whole of the wire message (`Weapon.Input.onFire`) --
+	-- and the LookVector passes through the centre of the VIEWPORT. So the mark the player holds on
+	-- the animal is only honest if it is drawn at that pixel, and there is one classic way for it
+	-- not to be: a ScreenGui that respects the topbar inset puts its own (0, 0) 36 px down the
+	-- screen, which at this scope's 19.87 degrees over a 1080-high viewport is 0.33 degrees -- over
+	-- FOUR STUDS, more than a metre, low at 200 m.
+	--
+	-- SO IT IS MEASURED AGAINST THE RAY, not against a number: a world point placed ON the look
+	-- vector is projected back to the screen, and that pixel has to be the dot's own centre.
+	describe("the reticle centre is the camera centre", function()
+		it("draws the dot on the pixel the shot ray goes through", function()
+			local camera = Workspace.CurrentCamera
+			expect(camera).to.be.ok()
+			local gui = Hud.gui()
+			expect(gui).to.be.ok()
+			-- THE INSET, FIRST AND BY NAME: with this false every mark in the Hud sits half the
+			-- topbar lower than the ray, and nothing else in this case would notice.
+			expect((gui :: ScreenGui).IgnoreGuiInset).to.equal(true)
+
+			local scope = Rifle.CONFIG.scope
+			local reticle = Hud.reticle() :: Frame
+			Hud.layoutReticle(reticle, scope, scope.aimFovDeg)
+			frames(2)
+
+			-- WHERE THE SHOT REALLY GOES, projected back to the screen. 500 studs out so the
+			-- projection is well clear of the near plane; the answer is the same at any distance
+			-- along the ray, which is the point.
+			--
+			-- `WorldToScreenPoint` AND NOT `WorldToViewportPoint`, AND THAT COST A ROUND. The two
+			-- differ by exactly the topbar inset, and MEASURED in the DEV place on 2026-10-14 the
+			-- inset is (0, 58): the ray through the centre of a 969 x 784 viewport projects to
+			-- (484.5, 392.0) in VIEWPORT coordinates and (484.5, 334.0) in SCREEN ones. A
+			-- GuiObject's `AbsolutePosition` is in the SCREEN space -- the ScreenGui itself reports
+			-- `AbsolutePosition = (0, -58)` with `IgnoreGuiInset` true, which is what "ignores the
+			-- inset" means: it covers the whole viewport, and its origin is still quoted relative
+			-- to the inset-adjusted one. So the screen projection is the one that can be compared
+			-- with a frame, and the first version of this case failed by precisely those 58 px
+			-- while the dot was exactly where it belonged.
+			local onTheRay = camera.CFrame.Position + camera.CFrame.LookVector * 500
+			local projected, onScreen = camera:WorldToScreenPoint(onTheRay)
+			expect(onScreen).to.equal(true)
+			expect(projected.Z > 0).to.equal(true)
+
+			local core = reticle:FindFirstChild("Dot") :: Frame
+			expect(core).to.be.ok()
+			local drawn = (core :: Frame).AbsolutePosition + (core :: Frame).AbsoluteSize / 2
+			local offPx = (Vector2.new(projected.X, projected.Y) - drawn).Magnitude
+			-- TWO PIXELS, AND THE REASON IS ROUNDING, not tolerance for an error: an odd-sized
+			-- frame centred on an even pixel lands half a pixel off, and Roblox rounds
+			-- `AbsolutePosition` to integers. Two pixels at this scope on a 1080-high viewport is
+			-- 0.037 degrees, which is 0.46 studs -- 13 cm -- at 200 m, and it is a DRAWING error of
+			-- the mark rather than of the ray.
+			TestKit.note(
+				string.format(
+					"reticle centre: ray lands at (%.1f, %.1f), dot at (%.1f, %.1f) -> %.2f px off; "
+						.. "viewport %d x %d, inset %d px, gui origin %.0f, inset ignored",
+					projected.X,
+					projected.Y,
+					drawn.X,
+					drawn.Y,
+					offPx,
+					camera.ViewportSize.X,
+					camera.ViewportSize.Y,
+					GuiService:GetGuiInset().Y,
+					(gui :: ScreenGui).AbsolutePosition.Y
+				)
+			)
+			expect(offPx <= 2).to.equal(true)
+
+			-- ...AND THE CROSS AGREES WITH THE DOT, because two marks at two centres is the bug
+			-- that would survive the assertion above: `spanLens` runs the hairs edge to edge, so
+			-- their crossing is where the vertical bar's X meets the horizontal bar's Y.
+			local vertical = reticle:FindFirstChild("CrossTop") :: Frame
+			local horizontal = reticle:FindFirstChild("CrossLeft") :: Frame
+			expect(vertical).to.be.ok()
+			expect(horizontal).to.be.ok()
+			local crossX = (vertical :: Frame).AbsolutePosition.X + (vertical :: Frame).AbsoluteSize.X / 2
+			local crossY = (horizontal :: Frame).AbsolutePosition.Y + (horizontal :: Frame).AbsoluteSize.Y / 2
+			expect(math.abs(crossX - projected.X) <= 2).to.equal(true)
+			expect(math.abs(crossY - projected.Y) <= 2).to.equal(true)
+
+			TestKit.note(string.format("reticle centre: cross crosses at (%.1f, %.1f)", crossX, crossY))
 		end)
 	end)
 

@@ -12,6 +12,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Viewmodel = require(ReplicatedStorage:WaitForChild("Viewmodel"))
@@ -134,13 +135,134 @@ return function()
 			local row = Weapons.ROWS.rifle
 			expect(row.PELLETS.Slug).to.equal(1)
 			expect(row.RANGE_STUDS.Slug > CONFIG.RANGE_STUDS.Slug).to.equal(true)
-			expect(row.RANGE_STUDS.Slug).to.equal(450)
+			expect(row.RANGE_STUDS.Slug).to.equal(800)
 			-- FLATTER IS A SPREAD HERE AND NOT A DROP CURVE: nothing in this game models bullet
 			-- drop, which the research note records as considered and rejected (FastCast2).
 			expect(row.SPREAD_FULL_DEG.Slug < CONFIG.SPREAD_FULL_DEG.Slug).to.equal(true)
 			-- THREE CHAMBERS SINCE TASK 142, because the magazine holds three (Karen).
 			expect(row.BARRELS).to.equal(3)
 			expect(row.MAGAZINE).to.equal(3)
+		end)
+
+		it("reaches 200 m, which is the distance Karen named", function()
+			-- KAREN, 2026-10-14: *"hit it has to be precist and on 200m acurat"*. 200 m is 714.29
+			-- studs at this game's 0.28 m/stud, and `Hits.resolve` casts `RANGE_STUDS[ammo]` studs
+			-- from the MUZZLE -- so a range under that is a shot that cannot arrive however well it
+			-- is aimed. THE OLD 450 WAS EXACTLY THAT, measured in Play before the change: 440 studs
+			-- hit the plate, 455 and 470 produced no impact at all.
+			local row = Weapons.ROWS.rifle
+			local wanted = 200 / 0.28
+			expect(row.RANGE_STUDS.Slug >= wanted).to.equal(true)
+			TestKit.note(
+				string.format(
+					"rifle: range %d studs = %.0f m at 0.28 m/stud; 200 m needs %.0f",
+					row.RANGE_STUDS.Slug,
+					row.RANGE_STUDS.Slug * 0.28,
+					wanted
+				)
+			)
+		end)
+
+		it("has NO random cone: the one bullet comes out exactly along the aim", function()
+			-- THE SECOND HALF OF *"precist"* (task 183). TWO CLAIMS, AND ONLY ONE OF THEM IS A
+			-- LITERAL. The pattern is bounded by the ROW's own half-cone, so a cone that appears
+			-- when the data says zero fails whatever the data says; and the datum itself is pinned
+			-- at zero here, in ONE place, because that is Karen's *"precist"* and a dial nobody
+			-- should move by accident. A Director who decides on 1.2 MOA changes `Rifle.CONFIG` and
+			-- this one line -- not three (the Reviewer's note, round 1, which counted three).
+			local row = Weapons.ROWS.rifle
+			expect(row.SPREAD_FULL_DEG.Slug).to.equal(0)
+			local aim = Vector3.new(0.3, 0.1, -1).Unit
+			local worst = 0
+			for seed = 1, 50 do
+				local directions = Weapon.Pattern.directions("Slug", aim, Random.new(seed), row)
+				expect(#directions).to.equal(1)
+				local cosine = math.clamp(directions[1]:Dot(aim), -1, 1)
+				worst = math.max(worst, math.deg(math.acos(cosine)))
+			end
+			-- The whole half-cone the data allows, and nothing beyond it. At zero that is a
+			-- floating-point hair, which is what "on the dot" means in a ray cast.
+			expect(worst <= row.SPREAD_FULL_DEG.Slug / 2 + 1e-6).to.equal(true)
+			TestKit.note(
+				string.format(
+					"rifle: spread %.3f deg FULL -> worst %.2e deg over 50 seeds = %.3f cm at 714 studs",
+					row.SPREAD_FULL_DEG.Slug,
+					worst,
+					math.tan(math.rad(worst)) * 714.29 * 0.28 * 100
+				)
+			)
+		end)
+
+		it("kicks harder than the shotgun, and comes home inside half a second", function()
+			-- KAREN, 2026-10-14: *"so recoil has to be more"*. The numbers are DATA
+			-- (`weapons.rifle.fire` in src/shared/Viewmodel/poses.json), so this case asserts the
+			-- RELATION she asked for -- more than the shotgun -- rather than nine literals.
+			local rifleView = Viewmodel.view(Viewmodel.DATA, "rifle")
+			local shotgunView = Viewmodel.view(Viewmodel.DATA, "shotgun")
+			for _, field in ipairs({ "RECOIL_GUN_PITCH_DEG", "RECOIL_GUN_BACK_STUDS", "RECOIL_CAM_PITCH_DEG" }) do
+				expect((rifleView :: any)[field] > (shotgunView :: any)[field]).to.equal(true)
+			end
+			-- A CEILING IS A CEILING ON SOMETHING: one kick has to fit under it, or the clamp eats
+			-- the very shot it is there to bound. This is the case that would have caught shipping
+			-- `gunPitchDeg` 19 against the old `maxGunPitchDeg` 12.5.
+			expect(rifleView.RECOIL_GUN_PITCH_DEG < rifleView.RECOIL_MAX_GUN_PITCH_DEG).to.equal(true)
+			expect(rifleView.RECOIL_GUN_BACK_STUDS < rifleView.RECOIL_MAX_GUN_BACK_STUDS).to.equal(true)
+			expect(rifleView.RECOIL_CAM_PITCH_DEG < rifleView.RECOIL_MAX_CAM_PITCH_DEG).to.equal(true)
+			-- AND IT RECOVERS, in the band the Director asked for (0.3 to 0.5 s): the spring's
+			-- envelope is `exp(-zeta * omega * t)`, so the time to fall to a hundredth of the kick
+			-- is `ln(100) / (zeta * omega)`. Asserted off the data, not off a stopwatch --
+			-- `camera_mode.spec` is what drives the integrator itself.
+			local omega = 2 * math.pi * rifleView.RECOIL_FREQUENCY_HZ
+			local toOnePercent = math.log(100) / (rifleView.RECOIL_DAMPING_RATIO * omega)
+			expect(toOnePercent > 0.25 and toOnePercent < 0.6).to.equal(true)
+			-- ...and it does not go PAST the aim point on the way back, which is what keeps the
+			-- reticle honest: under-damped below 1, but not so far that the view dips.
+			expect(rifleView.RECOIL_DAMPING_RATIO >= 0.8).to.equal(true)
+			TestKit.note(
+				string.format(
+					"rifle recoil: gun %.1f deg / %.2f studs, view %.1f deg (shotgun %.1f / %.2f / %.1f); "
+						.. "%.2f Hz zeta %.2f -> 1%% in %.2f s",
+					rifleView.RECOIL_GUN_PITCH_DEG,
+					rifleView.RECOIL_GUN_BACK_STUDS,
+					rifleView.RECOIL_CAM_PITCH_DEG,
+					shotgunView.RECOIL_GUN_PITCH_DEG,
+					shotgunView.RECOIL_GUN_BACK_STUDS,
+					shotgunView.RECOIL_CAM_PITCH_DEG,
+					rifleView.RECOIL_FREQUENCY_HZ,
+					rifleView.RECOIL_DAMPING_RATIO,
+					toOnePercent
+				)
+			)
+		end)
+
+		it("speaks with its own heavy-calibre voice, louder than the shotgun", function()
+			-- KAREN, 2026-10-14: *"sound has to be harder like strong caliber"*. What a spec can
+			-- assert about a sound is its SHAPE -- an id, a cut, a fade and a pitch -- plus the two
+			-- comparisons her sentence actually makes: lower than the sample was recorded at, and
+			-- louder than the other gun. NOBODY HERE HAS HEARD IT; her ears decide.
+			local voice = Rifle.CONFIG.SOUND.shot
+			expect(typeof(voice.id)).to.equal("string")
+			expect(string.match(voice.id, "^rbxassetid://%d+$")).to.be.ok()
+			-- EVERY SAMPLE IS CUT, and that is not optional: a clip from a gunfire library is a
+			-- TAKE and may hold more than one bang (`Rifle.CONFIG.SOUND`'s own comment).
+			expect(voice.cut > 0).to.equal(true)
+			expect(voice.fade > 0 and voice.fade <= voice.cut).to.equal(true)
+			-- A BIGGER BORE IS A LOWER BANG: the pitch is what turns a sample into a calibre.
+			expect(voice.pitch < 1).to.equal(true)
+			local rifleView = Viewmodel.view(Viewmodel.DATA, "rifle")
+			local shotgunView = Viewmodel.view(Viewmodel.DATA, "shotgun")
+			expect(rifleView.FIRE.volume.shot > shotgunView.FIRE.volume.shot).to.equal(true)
+			TestKit.note(
+				string.format(
+					"rifle voice: %s cut %.2f fade %.2f pitch %.2f, volume %.2f (shotgun %.2f)",
+					voice.id,
+					voice.cut,
+					voice.fade,
+					voice.pitch,
+					rifleView.FIRE.volume.shot,
+					shotgunView.FIRE.volume.shot
+				)
+			)
 		end)
 
 		it("carries ONE ammo kind, and that kind is Slug on the wire", function()

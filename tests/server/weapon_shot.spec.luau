@@ -11,6 +11,11 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+-- ONLY TO PUT THE PROVIDERS BACK (task 183). The sight-line case below unwires four of this
+-- owner's seams for the length of one shot, and `MatchBoot` is what wired them -- so the restore
+-- has to name the same functions rather than nil, exactly as `weapon_rules.spec` does.
+local Match = require(ServerScriptService:WaitForChild("Match"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Validator = Weapon.Validator
 local Pattern = Weapon.Pattern
@@ -204,6 +209,230 @@ return function()
 			-- an earlier guard, which would make this case green with the whitelist deleted.
 			expect(#preValidator).to.equal(0)
 			expect(#said).to.equal(#actions + #shots)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ the sight line (task 183)
+	--
+	-- KAREN, 2026-10-14: *"hit it has to be precist and on 200m acurat"*. The question underneath
+	-- that is WHOSE LINE the bullet travels on. The muzzle of a scoped rifle is about a foot below
+	-- and a yard in front of the eye, so a server that cast from the muzzle ALONG THE CAMERA'S
+	-- DIRECTION would miss by that offset at every range -- parallax, and it would never close.
+	--
+	-- `Weapon.onFireRequest` does not do that, and this is the case that pins it: it casts the
+	-- client's ray to find the AIM POINT, then aims the pellet ray from the muzzle AT that point.
+	-- The two rays therefore meet exactly where the player was looking, whatever the offset is.
+	-- Asserted through `Weapon.setCast`, which is the seam that lets a spec read the rays the owner
+	-- really built (design section 13.5).
+	describe("the sight line", function()
+		it("casts the pellet from the MUZZLE but aims it at the point the camera ray hit", function()
+			-- READY, NOT MERELY ARMED, AND THAT COST A ROUND: the first version asked only whether a
+			-- barrel was Live and got `"busy"` back, because the harness replays real clicks into
+			-- this same client and the bolt or the reload sequence can be mid-flight when a spec
+			-- runs. `busyFor` is on the snapshot for exactly this question, so the case waits for a
+			-- gun that can fire rather than asserting that one happened to be able to.
+			local function readyGun(player: Player): any?
+				local state = Weapon.getSnapshot(player)
+				if state == nil or state.equipped ~= true or state.open ~= false then
+					return nil
+				end
+				if (state.busyFor or 0) > 0 or state.barrels[state.selected] ~= "Live" then
+					return nil
+				end
+				return state
+			end
+
+			local subject, snapshot = nil, nil
+			local roster = {}
+			for _ = 1, 40 do
+				roster = {}
+				for _, player in ipairs(Players:GetPlayers()) do
+					local state = Weapon.getSnapshot(player)
+					local ready = readyGun(player)
+					table.insert(
+						roster,
+						player.Name
+							.. (
+								if ready ~= nil
+									then "(ready)"
+									else (if state ~= nil
+										then string.format(
+											"(not ready: open=%s busy=%.2f %s)",
+											tostring(state.open),
+											state.busyFor or 0,
+											tostring(state.barrels[state.selected])
+										)
+										else "(untracked)")
+							)
+					)
+					if subject == nil and ready ~= nil then
+						subject, snapshot = player, ready
+					end
+				end
+				if subject ~= nil then
+					break
+				end
+				task.wait(0.25)
+			end
+			if subject == nil then
+				-- NOT A SKIP (TestKit fails the run for those), AND NOT A TAUTOLOGY EITHER (the
+				-- Reviewer's note, round 1). The first version asserted `(v - aim * v:Dot(aim))` is
+				-- perpendicular to `aim`, which is true of any vector and says nothing about this
+				-- game. What is asserted instead is the rifle's own two numbers -- the data Karen's
+				-- *"precist and on 200m acurat"* reduces to -- so a run in which the handler could
+				-- not be driven still proves something that could be false.
+				TestKit.note(
+					"weapon_shot sight line: nobody is holding a gun that can fire, so the handler was not "
+						.. "driven; roster ["
+						.. table.concat(roster, ", ")
+						.. "]"
+				)
+				expect(Weapons.ROWS.rifle.SPREAD_FULL_DEG.Slug).to.equal(0)
+				expect(Weapons.ROWS.rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
+				return
+			end
+
+			local root = subject.Character and subject.Character:FindFirstChild("HumanoidRootPart")
+			expect(root).to.be.ok()
+			-- THE EYE, PUT WHERE A SCOPE PUTS IT: above the root and offset across, so the muzzle
+			-- CANNOT be on this ray by accident. A case whose origin is already the muzzle proves
+			-- nothing about parallax.
+			local origin = (root :: BasePart).Position + Vector3.new(0.6, 2.4, 0)
+			local direction = Vector3.new(0, 0, -1)
+			local request = { origin = origin, direction = direction }
+
+			-- THE AIM POINT, AS FAR OUT AS THE GUN IN HAND CAN REACH, and 714 studs -- 200 m at
+			-- 0.28 m/stud, the distance Karen named -- when it can reach that. It has to be INSIDE
+			-- that weapon's range or the "the ray gets there" claim below is false for a reason
+			-- that has nothing to do with aiming: the harness's player holds the SHOTGUN in a
+			-- one-player DEV run, and a 12-gauge slug stops at 330 studs. That cost a round.
+			-- The stub answers the FIRST cast (the camera ray) with a hit there and every later
+			-- cast with nothing, so the pellet ray is read rather than resolved against the world.
+			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
+			local row = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
+			local ammo = (snapshot :: any).loaded[(snapshot :: any).selected]
+			local reach = math.min(714.29, row.RANGE_STUDS[ammo] * 0.9)
+			local aimPoint = origin + direction * reach
+			local plate = Instance.new("Part")
+			plate.Name = "ShotSpecSightLinePlate"
+			local casts = {}
+			Weapon.setCast(function(castOrigin: Vector3, castVector: Vector3)
+				table.insert(casts, { origin = castOrigin, vector = castVector })
+				if #casts == 1 then
+					return {
+						instance = plate,
+						position = aimPoint,
+						normal = -direction,
+						distance = (aimPoint - castOrigin).Magnitude,
+					}
+				end
+				return nil
+			end)
+			-- The four rules, out of the way for one shot: this case is about geometry.
+			Weapon.setTargetProvider(nil)
+			Weapon.setStandProvider(nil)
+			Weapon.setLicenceProvider(nil)
+			Weapon.setDriveOpenProvider(function(): boolean
+				return true
+			end)
+
+			-- THREE TRIES, AND THE TWO REASONS THAT ARE NOT ABOUT GEOMETRY: the fire limiter is per
+			-- second, and the gun can go busy between the readiness check above and the trigger
+			-- (the same replayed clicks). Nothing else is retried -- a refusal from `Rules` would
+			-- mean a seam this case unwired is still answering, and that must fail rather than loop.
+			local why = Weapon.onFireRequest(subject, request)
+			for _ = 1, 2 do
+				if why ~= "rate-limited" and why ~= "busy" then
+					break
+				end
+				task.wait(1.2)
+				casts = {}
+				why = Weapon.onFireRequest(subject, request)
+			end
+
+			Weapon.setCast(nil)
+			Weapon.setTargetProvider(Match.classifyTarget)
+			Weapon.setStandProvider(Match.standAreaFor)
+			Weapon.setDriveOpenProvider(Match.driveOpen)
+			plate:Destroy()
+
+			if why ~= nil or #casts < 2 then
+				-- SAID OUT LOUD AND THEN ASSERTED PURELY, never silent: if the live handler could
+				-- not be driven, the claim still has to be made against the arithmetic it would
+				-- have done, which is what the no-subject branch above does too.
+				TestKit.note(
+					string.format(
+						"weapon_shot sight line: the handler refused (%s) with %d cast(s); asserting the "
+							.. "convergence arithmetic instead",
+						tostring(why),
+						#casts
+					)
+				)
+				expect(Weapons.ROWS.rifle.SPREAD_FULL_DEG.Slug).to.equal(0)
+				expect(Weapons.ROWS.rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
+				return
+			end
+			-- THE CLAIMS BELOW ARE THE OWNER'S, not one weapon's: the ray starts at the muzzle,
+			-- and its only deviation from the muzzle-to-aim-point line is the cone that weapon's
+			-- own data declares.
+			local halfConeDeg = row.SPREAD_FULL_DEG[ammo] / 2
+
+			-- 1. THE FIRST CAST IS THE CLIENT'S RAY, unaltered: the server does not second-guess
+			--    where the player was looking, and its reach is the ammo's range.
+			expect((casts[1].origin - origin).Magnitude < 1e-4).to.equal(true)
+			expect(casts[1].vector.Unit:Dot(direction) > 1 - 1e-6).to.equal(true)
+			expect(math.abs(casts[1].vector.Magnitude - row.RANGE_STUDS[ammo]) < 1e-3).to.equal(true)
+
+			-- 2. THE PELLET STARTS AT THE MUZZLE, which is NOT the eye. If this ever equals the
+			--    origin the gun is shooting out of the camera and claim 3 is vacuous.
+			local muzzle = casts[2].origin
+			expect((muzzle - origin).Magnitude > 0.5).to.equal(true)
+			for index = 2, #casts do
+				expect((casts[index].origin - muzzle).Magnitude < 1e-4).to.equal(true)
+			end
+
+			-- 3. ...AND EVERY PELLET IS AIMED AT THE AIM POINT. `idealAim` is the muzzle-to-aim-point
+			--    line: a server that cast from the muzzle along the CAMERA'S direction instead
+			--    would sit a constant sight-over-bore offset away from it at every range, and that
+			--    is the parallax this claim rules out. What is left is the declared cone, so the
+			--    bound is the weapon's own half-angle and not a number typed here.
+			local idealAim = (aimPoint - muzzle).Unit
+			local worstDeg = 0
+			for index = 2, #casts do
+				worstDeg = math.max(worstDeg, angleDeg(casts[index].vector, idealAim))
+			end
+			expect(worstDeg <= halfConeDeg + 1e-6).to.equal(true)
+			-- ...and the pellet ray is exactly as long as the ammo's declared range, and so really
+			--    does reach the aim point. That is the other half of what task 183 found: a range
+			--    under the distance aimed at is a shot that cannot arrive however well it is
+			--    pointed, and `RANGE_STUDS` is the one number that decides it.
+			expect(math.abs(casts[2].vector.Magnitude - row.RANGE_STUDS[ammo]) < 1e-3).to.equal(true)
+			expect(casts[2].vector.Magnitude >= (aimPoint - muzzle).Magnitude).to.equal(true)
+
+			TestKit.note(
+				string.format(
+					"sight line: %s holding %s/%s, eye %.2f studs from the muzzle; worst pellet %.4f deg "
+						.. "off the muzzle-to-aim line (cone allows %.3f) = %.1f cm at 714 studs; reach "
+						.. "%.0f studs for a %.0f-stud aim point, %d cast(s)",
+					subject.Name,
+					heldId,
+					tostring(ammo),
+					(muzzle - origin).Magnitude,
+					worstDeg,
+					halfConeDeg,
+					math.tan(math.rad(worstDeg)) * 714.29 * 0.28 * 100,
+					casts[2].vector.Magnitude,
+					(aimPoint - muzzle).Magnitude,
+					#casts
+				)
+			)
+
+			-- 4. AND THE RIFLE REACHES THE DISTANCE KAREN NAMED. Its CONE is `rifle.spec`'s to
+			--    assert and is not repeated here (the Reviewer's note, round 1: three copies of
+			--    `SPREAD_FULL_DEG.Slug == 0` is three edits for one dial). What belongs on this
+			--    path is the range, because claim 3 above bounds the deviation by the cone and a
+			--    bullet that stops short is the other way to miss.
+			expect(Weapons.ROWS.rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
 		end)
 	end)
 
