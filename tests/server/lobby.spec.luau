@@ -264,7 +264,12 @@ return function()
 				-- THE SLAB IS SUNK: its TOP is above the yard's own road-thick surface and its BOTTOM
 				-- is below the shelf, so nothing floats and nothing can hide inside a slab (task
 				-- 177's round-1 finding, closed in advance).
-				expect(centre.Y + SIZE.Y / 2).to.equal(anchor.Y + CFG.ROAD.THICK_STUDS + CFG.PADS.LIFT_STUDS)
+				-- A TOLERANCE AND NOT AN EQUALITY, because a `Vector3`'s components are 32-bit: the
+				-- measured answer is 100.58000335097313 for an arithmetic 100.58, which is the same
+				-- surface and a different number (`viewmodel_poses.spec`'s own rule for a value that
+				-- makes a round trip).
+				local top = centre.Y + SIZE.Y / 2
+				expect(math.abs(top - (anchor.Y + CFG.ROAD.THICK_STUDS + CFG.PADS.LIFT_STUDS)) < 1e-3).to.equal(true)
 				expect(centre.Y - SIZE.Y / 2 < anchor.Y).to.equal(true)
 			end
 			-- PAD 1 CLEARS THE PARTS LODGE'S EAST WALL, whose outer face is `LODGE.SIZE.X / 2 +
@@ -786,7 +791,9 @@ return function()
 				expect(pad.CanCollide).to.equal(false)
 				-- IT IS VISIBLE, which the circle's marker was not: this one is the coloured
 				-- rectangle Karen asked for.
-				expect(pad.Transparency).to.equal(CFG.PADS.TRANSPARENCY)
+				-- A TOLERANCE: `Transparency` is a 32-bit property, so 0.45 comes back as
+				-- 0.44999998807907104.
+				expect(math.abs(pad.Transparency - CFG.PADS.TRANSPARENCY) < 1e-4).to.equal(true)
 				-- FOUR DISTINCT COLOURS.
 				local key = tostring(pad.Color)
 				expect(seen[key]).to.equal(nil)
@@ -812,8 +819,63 @@ return function()
 			-- is actually gone from the world rather than drawn under the pads.
 			expect(folder:FindFirstChild("Spot", true)).to.equal(nil)
 			expect(folder:FindFirstChild("SpotSign", true)).to.equal(nil)
+			-- ...AND IT NAMES WHAT IT FOUND, rather than asserting `false` and leaving the next
+			-- Builder to guess which instance it was.
+			local rings = {}
 			for _, descendant in ipairs(folder:GetDescendants()) do
-				expect(string.sub(descendant.Name, 1, 3) == "Seg").to.equal(false)
+				if string.sub(descendant.Name, 1, 3) == "Seg" then
+					table.insert(rings, descendant:GetFullName())
+				end
+			end
+			expect(table.concat(rings, ", ")).to.equal("")
+		end)
+
+		it("is found by the FOUR READERS the client has, on a lobby that is really in Workspace", function()
+			-- THE ONE CASE THAT CANNOT USE A FOLDER OF ITS OWN. `Lobby.padPart`, `padPositions`,
+			-- `padStateOf` and `padAsking` all look for `Workspace.Lobby` by name -- that is what
+			-- makes them the CLIENT's readers, and a client has no `container` to be handed. So this
+			-- builds the real thing in the real place and destroys it again, which is also the only
+			-- way `Data.padAsking` -- the dialog's whole visibility rule -- is provable at all.
+			--
+			-- IT CREATES NO SCRIPT, so the harness's own "no script outside a Rojo path" check is
+			-- untouched, and the folder is gone before the case returns.
+			local made = Build.build(Workspace, anchor, CFG, fakeTemplates())
+			local ok, err = pcall(function()
+				expect(#Data.padPositions()).to.equal(CFG.TRUCK.COUNT)
+				for index = 1, CFG.TRUCK.COUNT do
+					local deck = Data.padPart(index)
+					expect(deck).to.be.ok()
+					expect((deck :: BasePart).Name).to.equal(Data.padPartName(index))
+					local state, first = Data.padStateOf(index)
+					expect(state).to.equal(Data.PAD_STATE.EMPTY)
+					expect(first).to.equal(nil)
+					-- THE POSITION THE CHEVRON IS POINTED AT IS THE PART'S, not a second computation.
+					expect((Data.padPositions()[index] - (deck :: BasePart).Position).Magnitude).to.equal(0)
+				end
+				-- PAD 1 IS WHAT `Lobby.spotPart` STILL ANSWERS, which is what the Director's
+				-- `smoke.sh` pivots a player into and what the chevron falls back to.
+				expect(Data.spotPart()).to.equal(Data.padPart(1))
+				-- NOBODY IS BEING ASKED ANYTHING ON A LOBBY NOBODY IS STANDING IN.
+				expect(Data.padAsking(4242)).to.equal(nil)
+				-- ...AND WHEN THE SERVER SAYS SO, EXACTLY ONE PAD ASKS EXACTLY ONE MAN.
+				expect(Build.setPad(3, Data.PAD_STATE.SIZING, 4242, 1, nil)).to.equal(true)
+				expect(Data.padAsking(4242)).to.equal(3)
+				expect(Data.padAsking(4243)).to.equal(nil)
+				-- A PAD THAT HAS MOVED ON ASKS NOBODY, even though it still remembers who picked --
+				-- which is what stops the dialog re-opening after the party is sized.
+				expect(Build.setPad(3, Data.PAD_STATE.FILLING, 4242, 1, 4)).to.equal(true)
+				expect(select(2, Data.padStateOf(3))).to.equal(4242)
+				expect(Data.padAsking(4242)).to.equal(nil)
+			end)
+			made:Destroy()
+			-- THE MEMOISED READERS DROP A DESTROYED PART rather than answering a stale position,
+			-- which is `MapUi.pointsFor`'s rule and the reason every one of them re-checks
+			-- `IsDescendantOf(game)`.
+			expect(Data.padPart(1)).to.equal(nil)
+			expect(#Data.padPositions()).to.equal(0)
+			expect(Data.padAsking(4242)).to.equal(nil)
+			if not ok then
+				error(err, 0)
 			end
 		end)
 

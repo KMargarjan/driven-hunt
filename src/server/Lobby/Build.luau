@@ -1280,14 +1280,14 @@ local function pad(container: Instance, anchor: Vector3, index: number, cfg): Ba
 	board.LightInfluence = 0
 	board.Parent = deck
 
-	local function boardLabel(name: string, textSize: number, y: number, tint: Color3)
+	local function boardLabel(name: string, textSize: number, y: number, tint: Color3, line: string)
 		local text = Instance.new("TextLabel")
 		text.Name = name
 		text.BackgroundTransparency = 1
 		text.Font = Enum.Font.Code
 		text.TextSize = textSize
 		text.TextColor3 = tint
-		text.Text = ""
+		text.Text = line
 		text.Position = UDim2.fromOffset(0, y)
 		text.Size = UDim2.new(1, 0, 0, textSize + 6)
 		-- THE SAME BLACK OUTLINE every label in this game wears: over a sunlit field a thin `Code`
@@ -1298,8 +1298,20 @@ local function pad(container: Instance, anchor: Vector3, index: number, cfg): Ba
 		stroke.Parent = text
 		text.Parent = board
 	end
-	boardLabel("Truck", config.BILLBOARD.TRUCK_PX, 0, colour)
-	boardLabel("Count", config.BILLBOARD.COUNT_PX, config.BILLBOARD.TRUCK_PX + 6, Color3.fromRGB(246, 240, 230))
+	-- THE BOARD SAYS SOMETHING FROM THE FIRST FRAME, AND THE ATTRIBUTES ARE SET AT BUILD. Written
+	-- here rather than left to the owner's first scan, for two reasons: an empty billboard over a
+	-- coloured rectangle reads as broken rather than as empty, and a pad that is BUILT is a pad whose
+	-- state a client can already read -- so `Build.build` into a spec's own folder is a complete pad
+	-- and not a half-built one waiting for a scan that spec never runs.
+	boardLabel("Truck", config.BILLBOARD.TRUCK_PX, 0, colour, string.format(config.BILLBOARD.TRUCK, index))
+	boardLabel(
+		"Count",
+		config.BILLBOARD.COUNT_PX,
+		config.BILLBOARD.TRUCK_PX + 6,
+		Color3.fromRGB(246, 240, 230),
+		string.format(config.BILLBOARD.COUNT_UNSET, 0)
+	)
+	deck:SetAttribute(Data.PAD_STATE_ATTRIBUTE, Data.PAD_STATE.EMPTY)
 
 	folder.Parent = container
 	padParts[index] = deck

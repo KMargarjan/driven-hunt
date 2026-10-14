@@ -306,10 +306,6 @@ local function tryBuild(): boolean
 	for index = 1, cfg.TRUCK.COUNT do
 		padAt[index] = Pads.centreFor(seat, index, cfg)
 		pads[index] = Pads.empty(index)
-		-- THE BOARD SAYS SOMETHING FROM THE FIRST FRAME. Without this a pad stands with two empty
-		-- labels until somebody walks onto it, and an empty billboard over a coloured rectangle
-		-- reads as broken rather than as empty.
-		Build.setPad(index, Pads.EMPTY, nil, 0, nil)
 	end
 	stats.parts = parts
 	stats.buildMs = math.floor((os.clock() - began) * 1000 + 0.5)
@@ -355,7 +351,7 @@ end
 -- belongs back at the lodge. `padIndex` is which pad he is standing on, measured once for everybody
 -- by `occupancy` below and handed in -- a second measurement here would be a second answer to "where
 -- is he".
-local function stepPlayer(player: any, now: number, padIndex: number?)
+local function stepPlayer(player: any, now: number, padIndex: number?, serverNow: number)
 	local userId = player.UserId
 	local inDrive = world.inDrive(userId) == true
 	if inDrive then
@@ -386,7 +382,12 @@ local function stepPlayer(player: any, now: number, padIndex: number?)
 		-- down locally, which is the one conversion `Match.snapshot`'s `phaseEndsAt` already
 		-- establishes: a client-side countdown invented from a client-side position would read 0
 		-- while the server had not sent anybody anywhere.
-		player:SetAttribute(Data.LEAVE_AT_ATTRIBUTE, Workspace:GetServerTimeNow() + math.max(0, leaveAt - now))
+		-- `serverNow` IS READ ONCE PER SCAN BY THE CALLER, not once per member, and the spec is what
+		-- found that: two men on one pad got deadlines four microseconds apart, because each
+		-- conversion called `GetServerTimeNow()` again. A party of four watching four different
+		-- numbers would be four answers to "how long until I go", which is the exact duplication the
+		-- pad's single clock exists to remove.
+		player:SetAttribute(Data.LEAVE_AT_ATTRIBUTE, serverNow + math.max(0, leaveAt - now))
 		touched[userId] = player
 	end
 
@@ -742,8 +743,11 @@ function Lobby.step(now: number, players: { any }?)
 	-- of a second.
 	stepPads(lists, occupants, now)
 
+	-- ONE READING OF THE SERVER CLOCK FOR THE WHOLE SCAN, so every member of one party is handed
+	-- the same deadline to count down.
+	local serverNow = Workspace:GetServerTimeNow()
 	for _, player in ipairs(occupants) do
-		stepPlayer(player, now, padOf[player.UserId])
+		stepPlayer(player, now, padOf[player.UserId], serverNow)
 	end
 
 	-- WHO THE SHOPKEEPER LOOKS AT (task 181): the nearest man to him, decided HERE and written by

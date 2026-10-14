@@ -91,8 +91,15 @@ local function fakes(bin: Instance)
 			enabled = true,
 			world = "forest-test",
 			root = bin,
+			-- IT MAKES HIM A PARTICIPANT, which is what `Match.enrol` does inside the same call:
+			-- `dispatch({ kind = "join" })` is synchronous, so `Match.isParticipant` answers true the
+			-- instant `enrol` returns. A fake that recorded the call and left `inDrive` false made
+			-- the lobby hand a man it had just enrolled a lodge respawn again on the SAME scan --
+			-- which is not what production does, so it was a defect in the FAKE and not in the owner
+			-- (task 182, found by the case below).
 			enrol = function(player: any): boolean
 				table.insert(seen.enrolled, player.UserId)
+				seen.inDrive[player.UserId] = true
 				return true
 			end,
 			dismissAll = function(): number
@@ -354,8 +361,10 @@ return function()
 			local deck = Lobby.Build.padPart(2) :: BasePart
 			expect(deck:GetAttribute(Data.PAD_STATE_ATTRIBUTE)).to.equal(Pads.SIZING)
 			expect(deck:GetAttribute(Data.PAD_FIRST_ATTRIBUTE)).to.equal(22)
-			expect(Data.padAsking(22)).to.equal(2)
-			expect(Data.padAsking(999)).to.equal(nil)
+			-- `Data.padAsking` IS NOT ASKED HERE, and the reason is this spec's own foundation: the
+			-- lobby is built into `bin` and that reader looks for `Workspace.Lobby` by name. The two
+			-- attributes above ARE what it reads, and `lobby.spec` drives the reader itself against a
+			-- lobby that really is in `Workspace`.
 			-- AND NO COUNTDOWN YET: `DHLobbyLeaveAt` belongs to the `filling -> countdown` edge.
 			expect(player.attributes[Data.LEAVE_AT_ATTRIBUTE]).to.equal(nil)
 			-- ...THE BILLBOARD SAYS `1 / -`, because nobody has picked and that is not a party of nought.
@@ -366,7 +375,6 @@ return function()
 			Lobby.step(1002, { player })
 			expect(Lobby.padOf(2).state).to.equal(Pads.EMPTY)
 			expect(deck:GetAttribute(Data.PAD_FIRST_ATTRIBUTE)).to.equal(nil)
-			expect(Data.padAsking(22)).to.equal(nil)
 			expect(#seen.enrolled).to.equal(0)
 			expect(Lobby.stats().cancels).to.equal(1)
 		end)
@@ -399,8 +407,6 @@ return function()
 			-- BOTH GO, ONE `enrol` EACH, AND NO FIFTH CALL ON THE NEXT SCAN.
 			Lobby.step(1001.2 + CFG.COUNTDOWN_SECONDS, { a, b })
 			expect(#seen.enrolled).to.equal(2)
-			seen.inDrive[31] = true
-			seen.inDrive[32] = true
 			Lobby.step(1001.4 + CFG.COUNTDOWN_SECONDS, { a, b })
 			Lobby.step(1001.6 + CFG.COUNTDOWN_SECONDS, { a, b })
 			expect(#seen.enrolled).to.equal(2)
@@ -535,13 +541,11 @@ return function()
 			expect(pad.state).to.equal(Pads.SIZING)
 			-- A FRESH CLOCK, not an inherited one.
 			expect(pad.deadline).to.equal(1002 + CFG.PADS.PICK_TIMEOUT_SECONDS)
-			expect(Data.padAsking(82)).to.equal(2)
 			b.root.Position = padAt(2) + Vector3.new(0, 0, 60)
 			Lobby.step(1003, { a, b })
 			local deck = Lobby.Build.padPart(2) :: BasePart
 			expect(deck:GetAttribute(Data.PAD_STATE_ATTRIBUTE)).to.equal(Pads.EMPTY)
 			expect(deck:GetAttribute(Data.PAD_FIRST_ATTRIBUTE)).to.equal(nil)
-			expect(Data.padAsking(82)).to.equal(nil)
 		end)
 
 		it("still enrols a party while a drive is running: the mid-drive join stays", function()
