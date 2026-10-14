@@ -972,13 +972,21 @@ return function()
 				expect(Data.spotPart()).to.equal(Data.padPart(1))
 				-- NOBODY IS BEING ASKED ANYTHING ON A LOBBY NOBODY IS STANDING IN.
 				expect(Data.padAsking(4242)).to.equal(nil)
-				-- ...AND WHEN THE SERVER SAYS SO, EXACTLY ONE PAD ASKS EXACTLY ONE MAN.
-				expect(Build.setPad(3, Data.PAD_STATE.SIZING, 4242, 1, nil)).to.equal(true)
+				-- ...AND WHEN THE SERVER SAYS SO, EXACTLY ONE PAD ASKS EXACTLY ONE MAN. The two lines
+				-- come from `Pads.labelFor`, which is the one formatter of what a board says.
+				local asking = Pads.empty(3)
+				asking.state = Data.PAD_STATE.SIZING
+				table.insert(asking.members, 4242)
+				expect(Build.setPad(3, Data.PAD_STATE.SIZING, 4242, Pads.labelFor(asking, CFG))).to.equal(true)
 				expect(Data.padAsking(4242)).to.equal(3)
 				expect(Data.padAsking(4243)).to.equal(nil)
 				-- A PAD THAT HAS MOVED ON ASKS NOBODY, even though it still remembers who picked --
 				-- which is what stops the dialog re-opening after the party is sized.
-				expect(Build.setPad(3, Data.PAD_STATE.FILLING, 4242, 1, 4)).to.equal(true)
+				local sized = Pads.empty(3)
+				sized.state = Data.PAD_STATE.FILLING
+				sized.size = 4
+				table.insert(sized.members, 4242)
+				expect(Build.setPad(3, Data.PAD_STATE.FILLING, 4242, Pads.labelFor(sized, CFG))).to.equal(true)
 				expect(select(2, Data.padStateOf(3))).to.equal(4242)
 				expect(Data.padAsking(4242)).to.equal(nil)
 			end)
