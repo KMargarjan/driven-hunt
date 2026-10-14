@@ -11,12 +11,15 @@
 -- and the body and the clothes are both handed in (`Seams`), so this module reaches neither the
 -- avatar service nor the outfit owner by itself.
 --
--- SINCE TASK 180 IT IS TWO BUILDS, AND WHICH ONE RAN IS A COUNTED FACT. Karen, 2026-10-14: *"we need
--- better house we can use free models / we need car truck model or hunting bus also use free model"*.
--- So the LODGE, the four TRUCKS, the two kinds of TROPHY HEAD and the TREE LINE are clones of
--- script-free free Creator Store models parked in `Workspace.LobbyAssets` (Studio content, which Rojo
--- does not manage and Connect does not delete), and task 177's PARTS BUILD is what happens when a
--- template is not there -- per piece, so a missing truck does not cost you the lodge.
+-- SINCE TASK 180 SOME OF IT IS CLONED, AND WHICH PIECES RAN IS A COUNTED FACT. Karen, 2026-10-14:
+-- *"we need car truck model or hunting bus also use free model"*. So the four TRUCKS and the TREE
+-- LINE are clones of script-free free Creator Store models parked in `Workspace.LobbyAssets` (Studio
+-- content, which Rojo does not manage and Connect does not delete), and a parts build is what
+-- happens when a template is not there -- per piece, so a missing truck costs you nothing else.
+--
+-- THE LODGE IS NOT ONE OF THEM ANY MORE (task 187): the house, everything inside it and every antler
+-- on its walls are built here, from parts, because Karen judged the free cabins *"garbadge"*. There
+-- is exactly one lodge and no template can bring another back.
 --
 -- WHY A CLONE AND NOT AN ASSET ID, so it is not re-litigated (research note sections 2 and 6):
 -- `InsertService:LoadAsset` refuses a free Creator Store model whose creator did not tick share
@@ -453,7 +456,12 @@ local function logWall(
 		local y = baseY + d / 2 + (course - 1) * d
 		local cuts: { { number } } = {}
 		for _, hole in ipairs(openings) do
-			if y + d / 2 > hole.bottom and y - d / 2 < hole.top then
+			-- A FUZZ, because both sides of this comparison are sums of the same floats arrived at
+			-- two different ways: an opening snapped to a course boundary lands on 3.6000000000000005
+			-- against a course top of 3.5999999999999996, and the course below the window was dropped
+			-- too -- a two-stud slot under every sill, which is round 1's finding coming back through
+			-- the arithmetic rather than through the design.
+			if y + d / 2 > hole.bottom + 1e-4 and y - d / 2 < hole.top - 1e-4 then
 				table.insert(cuts, { hole.along - hole.width / 2, hole.along + hole.width / 2 })
 			end
 		end
@@ -484,6 +492,28 @@ local function logWall(
 		end
 	end
 	return placed
+end
+
+-- WHERE A HOLE REALLY STARTS AND STOPS. A log is a whole cylinder: a course that overlaps an
+-- opening at all is DROPPED, so the hole in the wall is always a whole number of courses -- and a
+-- frame sized to the nominal opening therefore leaves daylight above and below it. Measured by the
+-- Reviewer on round 1: with a 1.8-stud log, a sill at 3.4 and a 4.4-stud window, the wall was open
+-- from 1.8 to 9.0 while the glass covered 3.4 to 7.8, which is two open slots per window and eight
+-- in the house.
+--
+-- So the opening is SNAPPED to the course grid here, once, and the same two numbers then cut the
+-- wall AND size the frame. Returning them rather than hiding them inside the wall builder is the
+-- whole point: the dressing cannot drift from the hole if both read the same answer.
+--
+-- Course k occupies `[baseY + (k-1)d, baseY + kd]`, and the cut test is strict (`y + d/2 > bottom`),
+-- so a hole that starts exactly on a boundary drops exactly the courses above it.
+local function snapOpening(baseY: number, bottom: number, top: number, d: number): (number, number)
+	local lower = math.floor((bottom - baseY) / d + 0.5) * d + baseY
+	local upper = math.floor((top - baseY) / d + 0.5) * d + baseY
+	if upper - lower < d then
+		upper = lower + d
+	end
+	return lower, upper
 end
 
 -- THE CORNERS, AND THEY ARE THE WHOLE REASON THIS READS AS A LOG BUILDING AND NOT AS FOUR FENCES.
@@ -528,9 +558,12 @@ end
 -- player walks out of; the pane is what makes the window a window. It keeps `CanQuery`, because the
 -- rule the rest of this file follows -- *a slab that stops a pellet changes what the shot hit* -- is
 -- about DECORATION, and a wall is not decoration.
-local function windowUnit(folder: Instance, name: string, face: CFrame, cfg)
+local function windowUnit(folder: Instance, name: string, face: CFrame, height: number, cfg)
 	local spec = cfg.LODGE.WINDOW
-	local w, h, f = spec.WIDTH, spec.HEIGHT, spec.FRAME
+	-- `height` IS THE HOLE'S OWN HEIGHT, not the config's: the wall is cut by whole log courses, so
+	-- what `WINDOW.HEIGHT` asks for and what the wall gives are two different numbers and the frame
+	-- has to be built to the second one (round 1, finding 1).
+	local w, h, f = spec.WIDTH, height, spec.FRAME
 	local pane = part(
 		string.format("WindowGlass%s", name),
 		Vector3.new(w, h, 0.25),
@@ -638,7 +671,7 @@ end
 -- THE DOORWAY'S FRAME: two squared jambs, a heavy lintel, a threshold board, and the leaf standing
 -- OPEN against the wall. Nothing of it is ever IN the opening -- the spec asserts exactly that, and
 -- it is the one thing about this building that could stop Karen getting into her own shop.
-local function doorway(folder: Instance, origin: Vector3, floorY: number, cfg)
+local function doorway(folder: Instance, origin: Vector3, floorY: number, height: number, cfg)
 	local spec = cfg.LODGE.DOOR
 	local halfZ = cfg.LODGE.SIZE.Z / 2
 	local d = cfg.LODGE.LOG_DIAMETER
@@ -646,8 +679,8 @@ local function doorway(folder: Instance, origin: Vector3, floorY: number, cfg)
 	for _, side in ipairs({ -1, 1 }) do
 		part(
 			string.format("DoorPost%s", if side < 0 then "W" else "E"),
-			Vector3.new(1.1, spec.HEIGHT + 0.8, d + 0.9),
-			CFrame.new(origin.X + side * (spec.WIDTH + 1.1) / 2, floorY + (spec.HEIGHT + 0.8) / 2, faceZ),
+			Vector3.new(1.1, height + 0.8, d + 0.9),
+			CFrame.new(origin.X + side * (spec.WIDTH + 1.1) / 2, floorY + (height + 0.8) / 2, faceZ),
 			cfg.LODGE.TIMBER_COLOR,
 			Enum.Material.Wood,
 			true,
@@ -657,7 +690,7 @@ local function doorway(folder: Instance, origin: Vector3, floorY: number, cfg)
 	part(
 		"DoorLintel",
 		Vector3.new(spec.WIDTH + 3.4, 1.4, d + 1.4),
-		CFrame.new(origin.X, floorY + spec.HEIGHT + 0.7, faceZ),
+		CFrame.new(origin.X, floorY + height + 0.7, faceZ),
 		cfg.LODGE.TIMBER_COLOR,
 		Enum.Material.Wood,
 		true,
@@ -674,19 +707,19 @@ local function doorway(folder: Instance, origin: Vector3, floorY: number, cfg)
 	)
 	-- THE LEAF, OPEN, hinged on the east jamb and swung flat against the outside wall. Cosmetic, and
 	-- it stands beside the opening rather than in it.
-	local hinge = CFrame.new(origin.X + (spec.WIDTH + 1.1) / 2, floorY + spec.HEIGHT / 2, faceZ - d / 2 - 0.3)
+	local hinge = CFrame.new(origin.X + (spec.WIDTH + 1.1) / 2, floorY + height / 2, faceZ - d / 2 - 0.3)
 		* CFrame.Angles(0, -spec.LEAF_OPEN_RADIANS, 0)
 	local leaf = hinge * CFrame.new(spec.WIDTH / 2, 0, 0)
 	part(
 		"DoorLeaf",
-		Vector3.new(spec.WIDTH, spec.HEIGHT - 0.4, 0.45),
+		Vector3.new(spec.WIDTH, height - 0.4, 0.45),
 		leaf,
 		cfg.LODGE.DOOR_COLOR,
 		Enum.Material.WoodPlanks,
 		false,
 		folder
 	)
-	for index, dy in ipairs({ -spec.HEIGHT / 4, spec.HEIGHT / 4 }) do
+	for index, dy in ipairs({ -height / 4, height / 4 }) do
 		part(
 			string.format("DoorBand%d", index),
 			Vector3.new(spec.WIDTH - 0.3, 0.4, 0.2),
@@ -1162,10 +1195,20 @@ local function shopkeeper(shop: Instance, counterAt: Vector3, floorY: number, cf
 	-- no appearance of his own, so the lodge gives him one: a skin tone on every `BodyColors` the
 	-- character carries (`Body.paint`'s own all-of-them rule, for its stated reason) and Roblox's
 	-- built-in face texture, which is an engine asset and not an upload.
+	local painted = 0
 	for _, child in ipairs(body:GetChildren()) do
 		if child:IsA("BodyColors") then
 			(child :: any).HeadColor3 = keep.SKIN_COLOR
+			painted += 1
 		end
+	end
+	-- FOUND OR CREATED, which is `Body.paint`'s own rule and not a flourish: a rig that arrived
+	-- without a `BodyColors` has nowhere to put a head colour, and the one place that is true is a
+	-- hand-built fake -- which is exactly where a silent miss would never be noticed.
+	if painted == 0 then
+		local colours = Instance.new("BodyColors");
+		(colours :: any).HeadColor3 = keep.SKIN_COLOR
+		colours.Parent = body
 	end
 	local face = body:FindFirstChild("Head")
 	if face ~= nil and (face :: Instance):IsA("BasePart") then
@@ -1353,7 +1396,7 @@ end
 local function antlerMount(folder: Instance, name: string, face: CFrame, spec, cfg)
 	local front = shield(folder, name, face, spec.PLAQUE, cfg)
 	local bone = cfg.TROPHIES.BONE_COLOR
-	local skull = part(
+	part(
 		string.format("%sSkull", name),
 		Vector3.new(spec.PLAQUE.X * 0.42, spec.PLAQUE.Y * 0.3, spec.PLAQUE.Z * 1.1),
 		front * CFrame.new(0, spec.PLAQUE.Y * 0.14, -spec.PLAQUE.Z * 0.55),
@@ -1362,7 +1405,6 @@ local function antlerMount(folder: Instance, name: string, face: CFrame, spec, c
 		false,
 		folder
 	)
-	skull.Name = skull.Name
 	local root = Vector3.new(0, spec.PLAQUE.Y * 0.26, -spec.PLAQUE.Z * 0.6)
 	for _, side in ipairs({ -1, 1 }) do
 		antlerBeam(
@@ -1919,13 +1961,15 @@ local function lodge(container: Instance, anchor: Vector3, cfg, seams: Seams?): 
 	-- twice -- once to cut the logs and once to dress the hole -- so a window can never be fitted to
 	-- a wall that was not cut for it.
 	local holes: { [string]: { Opening } } = { south = {}, north = {}, west = {}, east = {} }
+	local doorBottom, doorTop = snapOpening(floorY, floorY, floorY + cfg.LODGE.DOOR.HEIGHT, d)
 	table.insert(holes.south, {
 		along = origin.X,
 		width = cfg.LODGE.DOOR.WIDTH,
-		bottom = floorY,
-		top = floorY + cfg.LODGE.DOOR.HEIGHT,
+		bottom = doorBottom,
+		top = doorTop,
 	})
 	local win = cfg.LODGE.WINDOW
+	local winBottom, winTop = snapOpening(floorY, floorY + win.SILL_STUDS, floorY + win.SILL_STUDS + win.HEIGHT, d)
 	for _, row in ipairs(cfg.LODGE.WINDOWS) do
 		-- INTO THE WORLD, HERE, ONCE: a north or south wall runs along x and an east or west wall
 		-- along z, so which of the lodge's two centres the row is measured from is decided by its
@@ -1936,8 +1980,8 @@ local function lodge(container: Instance, anchor: Vector3, cfg, seams: Seams?): 
 		table.insert(holes[row.wall], {
 			along = alongWorld,
 			width = win.WIDTH,
-			bottom = floorY + win.SILL_STUDS,
-			top = floorY + win.SILL_STUDS + win.HEIGHT,
+			bottom = winBottom,
+			top = winTop,
 		})
 	end
 
@@ -1950,7 +1994,7 @@ local function lodge(container: Instance, anchor: Vector3, cfg, seams: Seams?): 
 	-- THE WINDOWS, each in the hole its own row cut. `face` looks OUTWARD, so the yaw is the wall's
 	-- outward normal and the one `trophies` uses is its opposite.
 	for index, row in ipairs(cfg.LODGE.WINDOWS) do
-		local y = floorY + win.SILL_STUDS + win.HEIGHT / 2
+		local y = (winBottom + winTop) / 2
 		local at, yaw
 		if row.wall == "south" then
 			at, yaw = Vector3.new(origin.X + row.along, y, origin.Z - halfZ + d / 2), math.pi
@@ -1961,10 +2005,16 @@ local function lodge(container: Instance, anchor: Vector3, cfg, seams: Seams?): 
 		else
 			at, yaw = Vector3.new(origin.X + halfX - d / 2, y, origin.Z + row.along), -math.pi / 2
 		end
-		windowUnit(folder, string.format("%d", index), CFrame.new(at) * CFrame.Angles(0, yaw, 0), cfg)
+		windowUnit(
+			folder,
+			string.format("%d", index),
+			CFrame.new(at) * CFrame.Angles(0, yaw, 0),
+			winTop - winBottom,
+			cfg
+		)
 	end
 
-	doorway(folder, origin, floorY, cfg)
+	doorway(folder, origin, floorY, doorTop - doorBottom, cfg)
 	roof(folder, origin, wallTop, cfg)
 	chimney(folder, origin, cfg)
 

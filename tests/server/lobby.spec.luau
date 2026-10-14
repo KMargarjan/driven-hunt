@@ -1112,9 +1112,11 @@ return function()
 						room.centre.Y + CFG.LODGE.DOOR.HEIGHT / 2,
 						origin.Z - room.halfZ - d / 2
 					),
+					fills = "DoorLintel",
+					door = true,
 				},
 			}
-			for _, row in ipairs(CFG.LODGE.WINDOWS) do
+			for index, row in ipairs(CFG.LODGE.WINDOWS) do
 				local y = room.centre.Y + CFG.LODGE.WINDOW.SILL_STUDS + CFG.LODGE.WINDOW.HEIGHT / 2
 				local at
 				if row.wall == "south" then
@@ -1126,7 +1128,7 @@ return function()
 				else
 					at = Vector3.new(origin.X + room.halfX + d / 2, y, origin.Z + row.along)
 				end
-				table.insert(holes, { at = at })
+				table.insert(holes, { at = at, fills = string.format("WindowGlass%d", index), door = false })
 			end
 			local filled = nil
 			for _, hole in ipairs(holes) do
@@ -1144,6 +1146,70 @@ return function()
 							filled = piece.Name
 						end
 					end
+				end
+			end
+			-- ...AND THE HOLE IS EXACTLY AS TALL AS THE THING THAT FILLS IT. ROUND 1'S BLOCKING
+			-- FINDING, as the case that fails without the fix: a log is a whole cylinder, so a course
+			-- that overlaps an opening at all is DROPPED and the hole in the wall is always a whole
+			-- number of courses -- 1.8 to 9.0 studs, while a frame built to `SILL_STUDS` 3.4 and
+			-- `HEIGHT` 4.4 covered 3.4 to 7.8. Two open slots per window, eight in the house, at knee
+			-- height and over the head.
+			--
+			-- SAMPLED RATHER THAN COMPUTED: walk a line up the wall plane at the opening's own
+			-- `along` and ask what is open, which is what an eye inside the room does.
+			local step = 0.15
+			for _, hole in ipairs(holes) do
+				local lowest, highest = nil, nil
+				local wallTop = room.centre.Y + room.height
+				local y = room.centre.Y + 0.05
+				while y < wallTop do
+					local at = Vector3.new(hole.at.X, y, hole.at.Z)
+					local blocked = false
+					for _, descendant in ipairs(built:GetDescendants()) do
+						if descendant:IsA("BasePart") and string.match(descendant.Name, "^Wall%u") then
+							local piece = descendant :: BasePart
+							local near = piece.CFrame:PointToObjectSpace(at)
+							if
+								math.abs(near.X) < piece.Size.X / 2
+								and math.abs(near.Y) < piece.Size.Y / 2
+								and math.abs(near.Z) < piece.Size.Z / 2
+							then
+								blocked = true
+								break
+							end
+						end
+					end
+					if not blocked then
+						lowest = lowest or y
+						highest = y
+					end
+					y += step
+				end
+				expect(lowest).to.be.ok()
+				-- WHAT FILLS IT: the pane for a window, and for the door the floor below and the
+				-- lintel above -- both measured off the parts that were really built.
+				local fills = built:FindFirstChild(hole.fills, true) :: BasePart
+				expect(fills).to.be.ok()
+				local wantLow = if hole.door then room.centre.Y else fills.Position.Y - fills.Size.Y / 2
+				local wantHigh = if hole.door
+					then fills.Position.Y - fills.Size.Y / 2
+					else fills.Position.Y + fills.Size.Y / 2
+				if
+					math.abs((lowest :: number) - wantLow) > step * 2
+					or math.abs((highest :: number) - wantHigh) > step * 2
+				then
+					other:Destroy()
+					error(
+						string.format(
+							"the wall is open from %.2f to %.2f but %s covers %.2f to %.2f",
+							lowest :: number,
+							highest :: number,
+							hole.fills,
+							wantLow,
+							wantHigh
+						),
+						0
+					)
 				end
 			end
 			-- ...AND THE FRAME IS REALLY THERE, so "cut" cannot be satisfied by building no wall.
@@ -1288,8 +1354,13 @@ return function()
 			local folder, _marker, _spawn, count = Build.build(container, anchor, CFG, templates)
 			local stats = Build.stats()
 			-- NO CLONED HOUSE, EVER AGAIN (task 187). `House` was the free cabin Karen called
-			-- *"garbadge"*; what stands here now is this repository own wall, and the template
-			-- folder cannot bring the old one back.
+			-- *"garbadge"*. The load-bearing half of this is the CONFIG -- there is no lodge template
+			-- name left to look for, so no folder anybody parks in `Workspace` can bring one back --
+			-- and the wall below is what says our own was built instead. (Review round 1, note: the
+			-- `House` line alone cannot fail, because `fakeTemplates` no longer makes one.)
+			expect((CFG :: any).LODGE.MODEL).to.never.be.ok()
+			expect((Data.TEMPLATE :: any).LODGE).to.never.be.ok()
+			expect((Data.TEMPLATE :: any).DEER).to.never.be.ok()
 			expect(folder:FindFirstChild("House", true)).to.never.be.ok()
 			expect(folder:FindFirstChild("WallN1_1", true)).to.be.ok() -- the back wall lowest log
 			for index = 1, CFG.TRUCK.COUNT do
@@ -1669,17 +1740,26 @@ return function()
 					-- ...and off the floor, and NOT THROUGH THE CEILING, which is the other half of
 					-- that round: a 5.4-stud deer seated at its mount height stood 2.4 studs through
 					-- a 7.4-stud room roof.
-					expect(at.Y > room.centre.Y).to.equal(true)
-					expect(at.Y <= room.centre.Y + room.height).to.equal(true)
+					--
+					-- THE PART'S WHOLE EXTENT AND NOT ITS CENTRE (review round 1, note): an antler
+					-- beam is a rotated cylinder whose top is a stud and a half above its middle, so
+					-- a centre inside the room says nothing about the tine. This is the same box
+					-- projection `Build.trophies` clamps with, which is what makes the clamp tested
+					-- rather than asserted.
+					local _, _, _, _, _, _, m10, m11, m12 = piece.CFrame:GetComponents()
+					local reach = 0.5
+						* (math.abs(m10) * piece.Size.X + math.abs(m11) * piece.Size.Y + math.abs(m12) * piece.Size.Z)
+					expect(at.Y - reach > room.centre.Y).to.equal(true)
+					expect(at.Y + reach <= room.centre.Y + room.height).to.equal(true)
 				end
 			end
-			-- ONE SHIELD PER MOUNT, and a mount is never a bare shield: fifteen rows come to well
-			-- over a hundred parts, which is what a trophy wall is.
+			-- ONE SHIELD PER MOUNT, and a mount is never a bare shield: twelve rows come to well over
+			-- a hundred parts, which is what a trophy wall is.
 			expect(plaques).to.equal(#CFG.TROPHIES.MOUNTS)
 			expect(pieces > #CFG.TROPHIES.MOUNTS * 4).to.equal(true)
 		end)
 
-		it("hangs nothing on a wall in front of a window, the counter or the fireplace", function()
+		it("hangs nothing on a wall in front of a window or the shop counter", function()
 			-- A TROPHY ROW IS DATA, so the way it goes wrong is a row that names a wall something
 			-- else already owns -- which is exactly what task 180 shipped: two heads on the back
 			-- wall, one half inside the chimney and one behind the SHOP sign.
@@ -1753,16 +1833,32 @@ return function()
 				end
 			end
 			expect(#boxes > 200).to.equal(true)
-			-- TOUCHING, measured as overlapping bounding spheres with three quarters of a stud of
-			-- slack -- which is loose enough for a rotated roof slab and tight enough that a piece
-			-- left in mid-air by a bad offset has nothing within reach of it.
-			for _, piece in ipairs(boxes) do
-				local radius = piece.Size.Magnitude / 2
+			-- TOUCHING, measured as OVERLAPPING BOXES on all three axes with three quarters of a stud
+			-- of slack -- loose enough for a rotated roof slab and tight enough to mean something.
+			-- Round 1 used bounding SPHERES, and the plinth's sphere alone has a 22-stud radius, so
+			-- nearly anything inside the envelope passed (review note). A box projected onto the
+			-- world axes is still generous for a rotated part and is no longer generous about WHERE.
+			local function extent(piece: BasePart): Vector3
+				local cf = piece.CFrame
+				local x, y, z = cf.RightVector, cf.UpVector, cf.LookVector
+				local half = piece.Size / 2
+				return Vector3.new(
+					math.abs(x.X) * half.X + math.abs(y.X) * half.Y + math.abs(z.X) * half.Z,
+					math.abs(x.Y) * half.X + math.abs(y.Y) * half.Y + math.abs(z.Y) * half.Z,
+					math.abs(x.Z) * half.X + math.abs(y.Z) * half.Y + math.abs(z.Z) * half.Z
+				)
+			end
+			local spans = {}
+			for index, piece in ipairs(boxes) do
+				spans[index] = extent(piece)
+			end
+			for index, piece in ipairs(boxes) do
 				local touched = false
-				for _, other in ipairs(boxes) do
-					if other ~= piece then
-						local gap = (other.Position - piece.Position).Magnitude
-						if gap <= radius + other.Size.Magnitude / 2 + 0.75 then
+				for other, another in ipairs(boxes) do
+					if another ~= piece then
+						local gap = another.Position - piece.Position
+						local reach = spans[index] + spans[other] + Vector3.new(0.75, 0.75, 0.75)
+						if math.abs(gap.X) <= reach.X and math.abs(gap.Y) <= reach.Y and math.abs(gap.Z) <= reach.Z then
 							touched = true
 							break
 						end
@@ -2068,6 +2164,34 @@ return function()
 			-- empties itself when a flag goes off is a second thing for Karen to notice.
 			expect(made:FindFirstChild(Data.KEEPER_NAME, true)).to.be.ok()
 			off:Destroy()
+		end)
+
+		it("has a face, and a head that is not solid black", function()
+			-- KAREN, 2026-10-14: *"person inside broken"*, and the probe said why: RGB 0,0,0 and no
+			-- features. `Match.Body.paint` deliberately never writes `HeadColor3` -- *"the head is
+			-- the player's own"* (design M5) -- which is right for a player and leaves a man built
+			-- from an EMPTY `HumanoidDescription` with the head that description ships. He is not a
+			-- player, so the LODGE gives him one, and it writes EVERY `BodyColors` on him for the
+			-- reason `Body.paint` writes every one of them.
+			local body = Build.keeper() :: Model
+			expect(body).to.be.ok()
+			local head = body:FindFirstChild("Head") :: BasePart
+			expect(head).to.be.ok()
+			expect(head.Color).to.equal(CFG.LODGE.KEEPER.SKIN_COLOR)
+			local painted = 0
+			for _, child in ipairs(body:GetChildren()) do
+				if child:IsA("BodyColors") then
+					painted += 1
+					expect((child :: BodyColors).HeadColor3).to.equal(CFG.LODGE.KEEPER.SKIN_COLOR)
+				end
+			end
+			expect(painted > 0).to.equal(true)
+			local look = head:FindFirstChildOfClass("Decal")
+			expect(look).to.be.ok()
+			expect((look :: Decal).Texture).to.equal(CFG.LODGE.KEEPER.FACE_TEXTURE)
+			-- AN ENGINE ASSET, NOT AN UPLOAD AND NOT A FETCH: `rbxasset://` is a file that ships
+			-- with Studio, which is the whole reason this is allowed to be a texture at all.
+			expect(string.sub((look :: Decal).Texture, 1, 11)).to.equal("rbxasset://")
 		end)
 
 		it("holds no script anywhere in his body", function()

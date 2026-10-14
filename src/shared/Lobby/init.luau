@@ -753,8 +753,9 @@ Lobby.CONFIG = {
 	PADS = {
 		-- 9 WIDE, 12 DEEP, AND EVERY NUMBER HERE IS A CLEARANCE RATHER THAN A TASTE (design section
 		-- 4.1). The brief's first value was ~14 x 10 and 14 DOES NOT FIT: pad 1's west face has to
-		-- clear the parts lodge's east wall, whose outer face is x +21 (`logWall "WallE"` with
-		-- `LOG_DIAMETER` 2), which bounds the half-width at 5; and the far edge has to stay south of
+		-- clear the lodge's east wall, whose outer face is x +18 (`SIZE.X / 2`, task 187; it was +21
+		-- with task 177's wider lodge and 2-stud logs, so the clearance only grew), which bounds the
+		-- half-width at 5; and the far edge has to stay south of
 		-- `Build.treeLine`'s own yard exclusion (z < +44) or a tree can stand on a pad. 108 square
 		-- studs holds eight bodies two across and four deep, and `BAY_GAP_STUDS` 17 leaves 8 studs
 		-- between pads, so four parties read as four places and not as one stripe.
@@ -901,9 +902,10 @@ Lobby.CONFIG = {
 	-- and not a shrug: OUR lodge -- plinth, seven courses of log, the corner ends, four windows with
 	-- their shutters, the door, the roof with its rafter ends, the chimney, the porch with its
 	-- woodpile, the beamed ceiling, the fireplace, the furniture, the gun rack and twelve trophy
-	-- mounts -- is about 500 parts, four trucks 304, thirty trees about 150, and the road, verges,
-	-- fences, four pads, yard and spawn about 190: roughly 1,165, with headroom for a sixth window or
-	-- another row of antlers. The Director's own ceiling for this task was 1,500.
+	-- mounts -- is **418 parts, counted in the live place**, four trucks 304, thirty trees about 150,
+	-- and the road, verges, fences, four pads, yard and spawn the rest: **885 for the whole lobby,
+	-- also counted**, with headroom for a fifth window or another row of antlers. The Director's own
+	-- ceiling for this task was 1,500.
 	MAX_PARTS = 1500,
 }
 
