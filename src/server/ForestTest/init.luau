@@ -361,6 +361,10 @@ local chosen = {
 	-- `DHForestLayout` is not a `DHFlag_*` name and the harness does not refuse a run while it is
 	-- set (design 11, D3).
 	source = "default",
+	-- WHETHER THE CLIENTS HAVE BEEN TOLD. The attribute is written once per CHOICE and not once per
+	-- call, and this is what distinguishes "the name has not moved" from "the name has never been
+	-- said" -- round 1 could not tell them apart and shipped a session with no map (finding 4).
+	published = false,
 	-- THE BAG'S OWN RANDOMNESS. `state.rng` would do the same job, but `state` is declared
 	-- below this block (see above) and an upvalue has to exist first.
 	rng = Random.new(),
@@ -395,8 +399,17 @@ end
 -- IS THIS POSITION INSIDE THE STAND'S CIRCLE? Pure, so the boundary is one rule and not one rule
 -- per caller. FLAT: the Y is ignored, because a hunter standing on his post is a stud above the
 -- ground he picked it from and that is not leaving the stand.
-function ForestTest.withinStand(position: Vector3, standIndex: number): boolean
-	local home = Data.standPosition(standIndex)
+--
+-- IT READS THE LIVE LAYOUT, and round 1 of task 179 shipped it reading the ROAD. That was not a
+-- cosmetic miss: `ForestTest.boundary` runs this every Heartbeat for every participant, so on a
+-- `ride` drive a hunter standing on HIS stand (x 3350, z -2600) was measured against the ROAD's
+-- stand 3 (x 2730, z -2070) -- 815 studs, far outside the 12-stud circle -- and `root.CFrame` was
+-- rewritten onto the road's circle every tick. He could not stand on his own stand at all.
+--
+-- `layout` IS OPTIONAL so a spec can ask any layout's circle without a drive; omitted, it is the one
+-- this drive is actually standing on, which is the only answer production may have.
+function ForestTest.withinStand(position: Vector3, standIndex: number, layout: any?): boolean
+	local home = Data.standPosition(standIndex, layout or chosen.layout)
 	local flat = Vector3.new(position.X - home.X, 0, position.Z - home.Z)
 	return flat.Magnitude <= Data.PICK.standRadiusStuds
 end
@@ -411,11 +424,14 @@ end
 -- a player 200 studs away, which is the one claim a clamp has to keep.
 --
 -- PURE, so the whole rule is drivable with hand-written numbers: no character, no physics, no drive.
-function ForestTest.boundaryPoint(position: Vector3, standIndex: number): Vector3?
-	if ForestTest.withinStand(position, standIndex) then
+function ForestTest.boundaryPoint(position: Vector3, standIndex: number, layout: any?): Vector3?
+	-- THE SAME LAYOUT FOR BOTH READS. Asking `withinStand` about one circle and then clamping onto
+	-- another is two answers to "where is his stand", which is how round 1 put a hunter on the road.
+	local where = layout or chosen.layout
+	if ForestTest.withinStand(position, standIndex, where) then
 		return nil
 	end
-	local home = Data.standPosition(standIndex)
+	local home = Data.standPosition(standIndex, where)
 	local flat = Vector3.new(position.X - home.X, 0, position.Z - home.Z)
 	-- `withinStand` was false, so the flat distance is strictly greater than the radius and the
 	-- radius is positive: `Unit` cannot be asked of a zero vector here.
@@ -1414,7 +1430,7 @@ function ForestTest.restSpot(standX: number, spec): Vector3?
 					-- that lane's group whatever the trunks do -- and the ray is only cast for the
 					-- spots that have already passed everything else.
 					local spot = Vector3.new(at.X, terrain :: number, at.Z)
-					if Data.offLaneStuds(standX, spec, spot, chosen.layout) <= (rest.laneSideStuds or math.huge) then
+					if Data.offLaneStuds(standX, spec, spot) <= (rest.laneSideStuds or math.huge) then
 						if not wantSeen or ForestTest.restSeenFromLane(standX, spec, spot, rest) then
 							return spot
 						end
@@ -1764,6 +1780,17 @@ function ForestTest.publishLayout(name: string)
 	host:SetAttribute(Data.LAYOUT_ATTRIBUTE, name)
 end
 
+-- PUTS THE LIVE LAYOUT'S FIELD ON A RUNTIME -- the bounds, the exit line and the ground height. The
+-- ONE place that writes a runtime's field, so "which field is this world on" cannot be answered twice
+-- differently (round 1, finding 2). Returns whether it wrote one, so a spec and the console can say.
+function ForestTest.applyField(runtime): boolean
+	if runtime == nil or runtime.setField == nil then
+		return false
+	end
+	runtime:setField(Data.fieldFor(chosen.layout))
+	return true
+end
+
 -- EVERYTHING THAT HAS TO HAPPEN WHEN THE GROUND MOVES, in one place and in this order (design 6.5
 -- steps 1 and 2). Steps 3 to 8 are already per-drive and are listed there; nothing here repeats
 -- them.
@@ -1774,6 +1801,7 @@ local function promote(name: string, source: string)
 	end
 	chosen.layout, chosen.name, chosen.source = layout, name, source
 	ForestTest.publishLayout(name)
+	chosen.published = true
 	-- THE PREVIOUS LAYOUT'S ANIMALS GO, AND THEY GO BEFORE THE FIELD IS SWAPPED. `retire` ends this
 	-- module's own waves and files; `runtime:clear()` takes every body. A boar left standing would
 	-- keep the field it was born with (`Runtime:setField`'s own header) AND would be standing 500
@@ -1782,10 +1810,12 @@ local function promote(name: string, source: string)
 	local runtime = state.runtime
 	if runtime ~= nil then
 		runtime:clear("layoutChanged")
-		if runtime.setField then
-			runtime:setField(Data.fieldFor(layout))
-		end
+		ForestTest.applyField(runtime)
 	end
+	-- THE LIVE FILES GO WITH THE BODIES (round 1, note 2). `retire` drops rows from `state.active`;
+	-- `state.lines` is `newDrive`'s to clear, and `promote` does not call it -- so after
+	-- `runtime:clear` the files held ids of destroyed bodies.
+	state.lines = {}
 	-- THE WOOD IS A NEW WOOD. `newDrive` clears this latch on the `Assigning` edge anyway; doing it
 	-- here as well is what makes a FORCED mid-session layout change (the Director setting
 	-- `DHForestLayout` and restarting) stock the new layout's lanes rather than sit on the old
@@ -1853,6 +1883,27 @@ function ForestTest.layoutForDrive(driveNumber: number?, override: any): string
 	chosen.drive = key
 	if name ~= chosen.name then
 		promote(name, source)
+	elseif not chosen.published then
+		-- THE NAME IS PUBLISHED ON EVERY DEAL, NOT ONLY ON A CHANGE (round 1, finding 4). `promote`
+		-- is the only other publisher, and it runs only when the layout MOVES -- so a session whose
+		-- first deal happened to equal the starting name (`DHForestLayout = road`, or a bag that
+		-- deals the default first) wrote no attribute at all, and `MapUi.geometryFor` answers nil for
+		-- a nil name: the hunter got NO MAP for the whole session.
+		ForestTest.publishLayout(name)
+		chosen.published = true
+		print(
+			string.format(
+				"[ForestTest] layout=%s (%s): %d stands %d apart, centre (%d, %d), exit %d",
+				name,
+				source,
+				chosen.layout.standCount,
+				chosen.layout.standSpacing,
+				chosen.layout.centre.X,
+				chosen.layout.centre.Z,
+				Data.exitZOf(chosen.layout)
+			)
+		)
+		chosen.source = source
 	else
 		-- THE SAME LAYOUT AGAIN (an override repeated, or a one-name table). Nothing is torn down --
 		-- the ground has not moved -- but the SOURCE is still recorded, because "this drive was
@@ -1942,6 +1993,15 @@ end
 
 function ForestTest.start(runtime, now: number)
 	state.runtime = runtime
+	-- THE FIELD THE CHOSEN LAYOUT NEEDS, AND THIS IS THE FIRST DRIVE'S ONLY CHANCE AT IT (round 1,
+	-- finding 2). `promote` swaps the field on the runtime, but the FIRST deal happens inside
+	-- `Match.start`'s own first marker read -- which the boot runs BEFORE this function, so
+	-- `state.runtime` was still nil and the swap was skipped. The first drive of every session then
+	-- ran a non-road layout against the ROAD's field: on the ride that is an exit line 223 studs
+	-- NORTH of the hunters, and on the edge the spawns are out of bounds outright. The first deal can
+	-- never be the road either (`nextLayout` swaps a fresh bag's head when it equals `previous`, and
+	-- `previous` starts at the default), so it was every session, not an edge case.
+	ForestTest.applyField(runtime)
 	state.started = true
 	state.startedAt = now
 	state.nextWaveAt = now + Data.SCHEDULE.intervalSeconds

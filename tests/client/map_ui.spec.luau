@@ -568,6 +568,99 @@ return function()
 			expect(roads >= 1).to.equal(true)
 		end)
 
+		it("REDRAWS the picture when the world hands it a different layout", function()
+			-- ROUND 1, FINDING 3: `setGeometry` latched `built` for the life of the client, so the
+			-- attribute signal replaced only the `geometry` table `withinBounds` reads -- the DRAWN
+			-- road, stands and views stayed on the first layout. From drive 2 on, the hunter's map
+			-- showed the PREVIOUS drive's ground.
+			--
+			-- IT IS ASSERTED ON THE DRAWN NODES, not on `MapUi.geometry()`, which is what made the
+			-- round-1 claim pass while the picture was wrong.
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			expect((Hud.minimap() :: Frame):FindFirstChild("Geometry")).to.be.ok()
+
+			-- THE LAYER IS RE-FOUND EVERY TIME, and that is the point rather than caution: a rebuild
+			-- DESTROYS the frame the picture was drawn into and makes a new one, so a spec holding
+			-- the old one would read a destroyed Instance with no children and "the map changed"
+			-- would pass for the wrong reason.
+			local function drawn(): (number, number, UDim2?)
+				local layer = (Hud.minimap() :: Frame):FindFirstChild("Geometry")
+				if layer == nil then
+					return 0, 0, nil
+				end
+				local stands, roads, first = 0, 0, nil
+				for _, child in ipairs((layer :: Frame):GetChildren()) do
+					if string.match(child.Name, "^Stand%d+$") then
+						stands += 1
+						if child.Name == "Stand1" then
+							first = (child :: Frame).Position
+						end
+					elseif child.Name == "Road" then
+						roads += 1
+					end
+				end
+				return stands, roads, first
+			end
+
+			local restore = MapUi.geometry()
+			local before = MapUi.stats()
+			local standsBefore, roadsBefore = drawn()
+
+			-- Two layouts with DIFFERENT stand counts, so "the picture moved" is countable.
+			local wide, narrow = nil, nil
+			for _, name in ipairs(data.LAYOUT_ORDER) do
+				local layout = data.layoutNamed(name)
+				if wide == nil or layout.standCount > data.layoutNamed(wide).standCount then
+					wide = name
+				end
+				if narrow == nil or layout.standCount < data.layoutNamed(narrow).standCount then
+					narrow = name
+				end
+			end
+			expect(wide).never.to.equal(narrow)
+
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, wide))
+			local standsWide, roadsWide, firstWide = drawn()
+			expect(standsWide).to.equal(data.layoutNamed(wide).standCount)
+			expect(roadsWide >= 1).to.equal(true)
+
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, narrow))
+			local standsNarrow, _roadsNarrow, firstNarrow = drawn()
+			-- THE DRAWN STANDS REALLY CHANGED, in number and in place.
+			expect(standsNarrow).to.equal(data.layoutNamed(narrow).standCount)
+			expect(standsNarrow).never.to.equal(standsWide)
+			expect(firstWide).to.be.ok()
+			expect(firstNarrow).to.be.ok()
+			expect(firstNarrow).never.to.equal(firstWide)
+			-- ...and the road was drawn again rather than stacked on top of itself.
+			local _s, roadsNarrow2 = drawn()
+			expect(roadsNarrow2).to.equal(roadsWide)
+			expect(MapUi.stats().rebuilds > before.rebuilds).to.equal(true)
+
+			-- IDEMPOTENT: the same geometry again rebuilds nothing, because `Hud` calls this on every
+			-- attribute write and a map that tore itself down per write would flicker.
+			local steady = MapUi.stats().rebuilds
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, narrow))
+			expect(MapUi.stats().rebuilds).to.equal(steady)
+
+			TestKit.note(
+				string.format(
+					"map: redraw %s(%d stands) -> %s(%d stands); before this task the picture stayed at %d",
+					wide,
+					standsWide,
+					narrow,
+					standsNarrow,
+					standsBefore
+				)
+			)
+			-- Put the client's own map back, and prove it came back.
+			MapUi.setGeometry(restore)
+			local standsAfter, roadsAfter = drawn()
+			expect(standsAfter).to.equal(standsBefore)
+			expect(roadsAfter).to.equal(roadsBefore)
+			expect(MapUi.geometry()).to.equal(restore)
+		end)
+
 		it("binds M, and only once there is a map to open", function()
 			local actions = MapUi.boundActions()
 			expect(#actions).to.equal(1)

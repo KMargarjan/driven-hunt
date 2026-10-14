@@ -96,7 +96,7 @@ MapUi.CONFIG = {
 	MINIMAP_TOP = 140,
 	MINIMAP_MARGIN = 12,
 	-- HOW FAR IT SEES, as a radius. 300 studs is 84 m at 0.28 m/stud and TWO stand spacings
-	-- (`ForestTest.STAND_SPACING` 150), so a beater walking in sees the road and at least two stands
+	-- (`ForestTest.LAYOUTS.road.standSpacing` 150), so a beater walking in sees the road and at least two stands
 	-- before she reaches them.
 	MINIMAP_RANGE_STUDS = 300,
 
@@ -532,7 +532,7 @@ end
 
 -- THE FOREST TEST'S MAP, out of the world's own data module. EVERY NUMBER IS ASKED FOR, NOT COPIED:
 -- `ForestTest.roadZ(x)` is that module's own words *"the one definition; every other reader calls
--- this"*, and `standPosition(index)` is where a hunter stands. A map that re-typed the sine would be
+-- this"*, and `standPosition(index, layout)` is where a hunter stands. A map that re-typed the sine would be
 -- a second curve that disagrees with the first the next time the Director bends the road.
 --
 -- `data` IS PASSED IN rather than required, so this stays pure and a spec can hand it a table.
@@ -739,6 +739,9 @@ local viewportOverride: Vector2? = nil
 -- `pinned` IS PER TICK, like `overflow` beside it, and is reset at the top of `render`: one name
 -- must not answer "now" for one field and "since boot" for another.
 local stats = {
+	-- HOW MANY TIMES THE PICTURE WAS DRAWN AGAIN because the world's geometry changed under it
+	-- (task 179): one per drive layout change. 0 in a world with one layout, which is DEV.
+	rebuilds = 0,
 	ticks = 0,
 	toggles = 0,
 	keyToggles = 0,
@@ -1430,8 +1433,70 @@ end
 -- Forest Test's data over a quarter of a second after `Hud.start` ran, and *"no `ForestTest` yet"*
 -- must not mean no map for the session. Idempotent: a second call builds nothing twice -- the shape
 -- `ReportPanel.setMatch` and `Compass.setBearing` both have.
+-- ...AND IT REBUILDS WHEN THE GEOMETRY IS A DIFFERENT WORLD (task 179 round 2, finding 3).
+--
+-- `built` USED TO LATCH FOR THE LIFE OF THE CLIENT, which was right while a world had exactly one
+-- geometry and wrong the moment it had three: the Forest Test deals a drive layout per drive, and a
+-- latched build left the hunter's minimap and full map drawn on the PREVIOUS layout's road and
+-- stands from drive 2 on -- the attribute signal replaced only the `geometry` table that
+-- `withinBounds` reads, so the picture itself never moved.
+--
+-- IT IS STILL IDEMPOTENT, and that is what the `sameGeometry` test is for: `Hud` calls this on every
+-- attribute change, and an attribute that is written again with the same name must not tear a
+-- drawn map down and build it back. Only a geometry that is really different is rebuilt.
+--
+-- THE TEAR-DOWN IS BY OWNERSHIP, not by a list of names. `MapUi` is the one writer of everything
+-- inside the two frames `Hud.build` created and inside the legend holder (task 165's rule), so
+-- clearing their children is exactly "undo what the build did" and cannot reach anything another
+-- owner drew.
+local function sameGeometry(a: MapGeometry?, b: MapGeometry?): boolean
+	if a == nil or b == nil then
+		return a == b
+	end
+	if a.world ~= b.world or #a.road ~= #b.road or #a.stands ~= #b.stands then
+		return false
+	end
+	for key, value in pairs(a.bounds) do
+		if math.abs(value - (b.bounds :: any)[key]) > 1e-6 then
+			return false
+		end
+	end
+	for index, point in ipairs(a.stands) do
+		if (point - b.stands[index]).Magnitude > 1e-3 then
+			return false
+		end
+	end
+	for index, point in ipairs(a.road) do
+		if (point - b.road[index]).Magnitude > 1e-3 then
+			return false
+		end
+	end
+	return true
+end
+
+local function teardown()
+	for _, frame in ipairs({ miniFrame, fullFrame, legendFrame }) do
+		if frame ~= nil then
+			for _, child in ipairs((frame :: Frame):GetChildren()) do
+				child:Destroy()
+			end
+		end
+	end
+	table.clear(drawers)
+	miniScale = nil
+	built = false
+	stats.rebuilds += 1
+end
+
 function MapUi.setGeometry(next_: MapGeometry?)
+	local before = geometry
 	geometry = next_
+	if next_ ~= nil and built and not sameGeometry(before, next_) then
+		-- A DIFFERENT WORLD, SO THE PICTURE IS DRAWN AGAIN. `ContextActionService:BindAction` at the
+		-- end of the build re-binds the same name to the same key, which the engine treats as a
+		-- replacement rather than a second binding, so M stays one action.
+		teardown()
+	end
 	if next_ == nil or built or miniFrame == nil or fullFrame == nil then
 		MapUi.applyVisibility()
 		return

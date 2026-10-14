@@ -321,6 +321,150 @@ return function()
 			)
 		end)
 
+		-- ------------------------------------------------ the four round-1 findings, each as a case
+		--
+		-- EVERY ONE OF THESE FAILS ON THE ROUND-1 CODE. They are written against the behaviour the
+		-- Reviewer measured, not against the fix, so they stay useful after it.
+
+		it("keeps a hunter on HIS OWN stand on a non-road layout, never on the road's", function()
+			-- ROUND 1, FINDING 1, AND IT WAS GAME-BREAKING: `withinStand` and `boundaryPoint` read
+			-- the DEFAULT layout, so on a `ride` drive a hunter standing on his own stand was
+			-- measured against the ROAD's stand of the same index -- 815 studs away, far outside the
+			-- 12-stud circle -- and `ForestTest.boundary` rewrote his `CFrame` onto the road's circle
+			-- every Heartbeat. He could not stand where he was placed.
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				local layout = Data.layoutNamed(name) :: any
+				local index = math.min(3, layout.standCount)
+				local home = Data.standPosition(index, layout)
+				-- ON his stand: inside the circle, and no wall.
+				expect(ForestTest.withinStand(home, index, layout)).to.equal(true)
+				expect(ForestTest.boundaryPoint(home, index, layout)).to.equal(nil)
+				-- A STEP INSIDE THE RADIUS is still inside it.
+				local step = home + Vector3.new(Data.PICK.standRadiusStuds - 1, 0, 0)
+				expect(ForestTest.withinStand(step, index, layout)).to.equal(true)
+				-- WELL OUTSIDE: the wall is on THIS layout's circle, at this layout's stand.
+				local out = home + Vector3.new(60, 0, 0)
+				local to = ForestTest.boundaryPoint(out, index, layout)
+				expect(to).to.be.ok()
+				local at = to :: Vector3
+				local off = Vector3.new(at.X - home.X, 0, at.Z - home.Z).Magnitude
+				expect(math.abs(off - Data.PICK.standRadiusStuds) < 1e-3).to.equal(true)
+			end
+		end)
+
+		it("measures the stand circle against the LIVE layout when nobody passes one", function()
+			-- The half of finding 1 that `ForestTest.boundary` actually runs: it passes no layout, so
+			-- the default has to BE the live one. On the round-1 code this came out as the road's
+			-- stand whatever the drive was standing on.
+			local alternatives = {}
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				if name ~= Data.DEFAULT_LAYOUT then
+					table.insert(alternatives, name)
+				end
+			end
+			if #alternatives == 0 then
+				TestKit.note("forest-layout: only one layout, so there is no second circle to confuse")
+				return
+			end
+			local name = alternatives[1]
+			local layout = Data.layoutNamed(name) :: any
+			ForestTest.layoutForDrive(400, name)
+			expect(ForestTest.layoutName()).to.equal(name)
+			local index = math.min(3, layout.standCount)
+			local home = Data.standPosition(index, layout)
+			local road = Data.standPosition(index, Data.ROAD_LAYOUT)
+			-- The two stands really are far apart, so this case can tell them apart at all.
+			expect((home - road).Magnitude > 10 * Data.PICK.standRadiusStuds).to.equal(true)
+			-- Standing on his own stand with NO layout argument: inside, and no wall.
+			expect(ForestTest.withinStand(home, index)).to.equal(true)
+			expect(ForestTest.boundaryPoint(home, index)).to.equal(nil)
+			-- ...and standing on the ROAD's stand of the same index is OUTSIDE, which is the
+			-- statement round 1 had backwards.
+			expect(ForestTest.withinStand(road, index)).to.equal(false)
+			local pushed = ForestTest.boundaryPoint(road, index) :: Vector3
+			expect((Vector3.new(pushed.X - home.X, 0, pushed.Z - home.Z)).Magnitude).to.be.near(
+				Data.PICK.standRadiusStuds,
+				1e-3
+			)
+			TestKit.note(
+				string.format(
+					"forest-layout: %s stand %d is %.0f studs from the road's stand %d; the wall is on %s's",
+					name,
+					index,
+					(home - road).Magnitude,
+					index,
+					name
+				)
+			)
+			ForestTest.layoutForDrive(401, Data.DEFAULT_LAYOUT)
+		end)
+
+		it("gives the boar runtime the LIVE layout's field, on the first drive of the session", function()
+			-- ROUND 1, FINDING 2: `promote` swapped the field only when a runtime already existed,
+			-- and the FIRST deal happens inside `Match.start`'s first marker read -- which the boot
+			-- runs BEFORE `ForestTest.start`. So the first drive of every session ran a non-road
+			-- layout against the ROAD's field: on the ride an exit line 223 studs NORTH of the
+			-- hunters, on the edge spawns out of bounds outright. And the first deal can never be the
+			-- road, because `nextLayout` swaps a fresh bag's head when it equals `previous`.
+			local given = {}
+			local fake = {
+				setField = function(_self, field)
+					table.insert(given, field)
+				end,
+				clear = function() end,
+				count = function()
+					return 0
+				end,
+				capacity = function()
+					return 0
+				end,
+				boars = function()
+					return {}
+				end,
+			}
+			for at, name in ipairs(Data.LAYOUT_ORDER) do
+				table.clear(given)
+				ForestTest.layoutForDrive(500 + at, name)
+				expect(ForestTest.layoutName()).to.equal(name)
+				ForestTest.start(fake, 0)
+				expect(#given >= 1).to.equal(true)
+				local field = given[#given]
+				local layout = Data.layoutNamed(name)
+				expect(field.exitZ).to.equal(Data.exitZOf(layout))
+				expect(field.bounds.minX).to.equal(Data.boundsOf(layout).minX)
+				expect(field.bounds.maxZ).to.equal(Data.boundsOf(layout).maxZ)
+				-- THE SPAWN LINE HAS TO BE INSIDE THE FIELD IT IS SPAWNED INTO, which is the thing
+				-- the round-1 code broke: a ride line spawns at -2420 and the road's exit is -2377,
+				-- i.e. already past it.
+				local spawnZ = layout.centre.Z + Data.LINE.spawnNorthStuds
+				expect(spawnZ > field.exitZ).to.equal(true)
+				expect(spawnZ < field.bounds.maxZ).to.equal(true)
+			end
+			-- Put the module back: no runtime, the default layout.
+			ForestTest.start(nil :: any, 0)
+			ForestTest.layoutForDrive(599, Data.DEFAULT_LAYOUT)
+			expect(ForestTest.layoutName()).to.equal(Data.DEFAULT_LAYOUT)
+		end)
+
+		it("publishes the name on the FIRST deal, even when it is the one it started on", function()
+			-- ROUND 1, FINDING 4: the name was published only from `promote`, which runs only when
+			-- the layout MOVES -- so `DHForestLayout = road` (or a bag that dealt the default first)
+			-- wrote no attribute at all, `MapUi.geometryFor` got a nil name and answered nil by its
+			-- own rule, and the hunter had NO MAP for the whole session.
+			local module = ReplicatedStorage:WaitForChild("ForestTest")
+			local host = module:FindFirstChild(Data.LIVE_NAME)
+			expect(host).to.be.ok()
+			local live = host :: Instance
+			live:SetAttribute(Data.LAYOUT_ATTRIBUTE, nil)
+			expect(live:GetAttribute(Data.LAYOUT_ATTRIBUTE)).to.equal(nil)
+			-- Force the layout the module already starts on -- the exact case that published nothing.
+			ForestTest.layoutForDrive(700, Data.DEFAULT_LAYOUT)
+			expect(live:GetAttribute(Data.LAYOUT_ATTRIBUTE)).to.equal(Data.DEFAULT_LAYOUT)
+			-- ...and the published name is always one the client can resolve, which is what stops the
+			-- "no map rather than a wrong map" rule from meaning "no map, ever".
+			expect(Data.layoutNamed(live:GetAttribute(Data.LAYOUT_ATTRIBUTE))).to.be.ok()
+		end)
+
 		it("refuses a pick the live layout does not have", function()
 			-- THE RIDE HAS 5 STANDS AND THE ROAD HAS 9, so stand 7 exists in one and not the other --
 			-- and `standX(7)` on a five-stand line answers a point past the end of it that
