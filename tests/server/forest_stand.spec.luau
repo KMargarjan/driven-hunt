@@ -789,9 +789,12 @@ return function()
 			-- Unreachable with bots, reachable with six real hunters. This case asks every layout,
 			-- which the old one -- looping the road's count only -- could not.
 			local even = 0
-			for _, name in ipairs(Data.LAYOUT_ORDER) do
+			for at, name in ipairs(Data.LAYOUT_ORDER) do
 				local layout = Data.layoutNamed(name) :: any
-				ForestTest.layoutForDrive(800 + even, name)
+				-- A NEW DRIVE KEY EVERY TIME, because the deal is idempotent per drive number: the
+				-- first version of this case keyed on the even-count counter, so two layouts shared
+				-- a key and the second was never promoted. The gate caught it.
+				ForestTest.layoutForDrive(800 + at, name)
 				expect(ForestTest.layout().standCount).to.equal(layout.standCount)
 				if layout.standCount % 2 == 0 then
 					even += 1
@@ -805,8 +808,8 @@ return function()
 					)
 					-- ...and the post it resolves to is a real one on a complete line.
 					local posts = {}
-					for at = 1, layout.standCount do
-						table.insert(posts, { Name = string.format("Stand%d", at) })
+					for slot = 1, layout.standCount do
+						table.insert(posts, { Name = string.format("Stand%d", slot) })
 					end
 					local post = ForestTest.postIndexFor(posts, stand)
 					expect(post >= 1 and post <= layout.standCount).to.equal(true)

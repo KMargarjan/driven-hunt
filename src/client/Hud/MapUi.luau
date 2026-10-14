@@ -724,6 +724,28 @@ type Drawer = {
 }
 local drawers: { Drawer } = {}
 
+-- ---------------------------------------------------------------- what this module put on screen
+--
+-- EVERY INSTANCE `setGeometry` PARENTS INTO A FRAME IT DOES NOT OWN goes through `claim`, and
+-- `teardown` destroys exactly that list when the world hands the map a different layout (task 179,
+-- round 2's finding 1 and round 3's gate run).
+--
+-- IT IS A LIST AND NOT A RULE, because the rule is what was wrong twice over. Round 2 cleared the
+-- frames' CHILDREN "by ownership" and took `Hud.build`'s own `UICorner` (which is HOW a circle is
+-- drawn in Roblox GUI without an uploaded image), both `UIStroke` rims and the `MapLegend` frame --
+-- none of which `Hud.build` can make again, because it runs once. Round 3's first list then missed
+-- the other direction: `buildDrawer` parents its markers, the player's own dot, the view wedge, the
+-- push arrow and its word and the goal mark DIRECTLY into the minimap frame, so a rebuild left the
+-- old set behind and the map carried two push arrows -- the stale one still `Visible` -- which the
+-- gate caught in `map_ui.spec`. An instance nobody claimed is never destroyed by a rebuild, and an
+-- instance this module parents is always claimed: the two halves of one rule, in one place.
+local claimed: { Instance } = {}
+
+local function claim<T>(instance: T & Instance): T
+	table.insert(claimed, instance)
+	return instance
+end
+
 local lastViewport = Vector2.new(0, 0)
 -- A VIEWPORT A CALLER HAS PINNED, for as long as it holds it. A spec cannot resize a Studio window,
 -- and without this the 20 Hz tick reads the real `ViewportSize` within 50 ms and undoes whatever was
@@ -930,7 +952,7 @@ local function buildDrawer(
 		corner.CornerRadius = UDim.new(0.5, 0)
 		corner.Parent = node
 		stroked(node)
-		node.Parent = frame
+		claim(node).Parent = frame
 		table.insert(markers, node)
 	end
 
@@ -947,7 +969,7 @@ local function buildDrawer(
 	ownCorner.CornerRadius = UDim.new(0.5, 0)
 	ownCorner.Parent = own
 	stroked(own)
-	own.Parent = frame
+	claim(own).Parent = frame
 
 	-- WHICH WAY YOU ARE LOOKING. A short bar offset along the view bearing from your own dot, in the
 	-- cream the compass's centre hairline uses -- so "me" and "my view" read as one mark.
@@ -961,7 +983,7 @@ local function buildDrawer(
 	wedge.ZIndex = config.Z_INDEX + 3
 	wedge.Visible = false
 	stroked(wedge)
-	wedge.Parent = frame
+	claim(wedge).Parent = frame
 
 	-- WHICH WAY TO GO. Karen: *"what direction to move"*. A bar from your own marker with the word at
 	-- its tip -- and the WORD TRAVELS WITH THE BEARING, which is task 153 round 2's blocking finding:
@@ -983,9 +1005,9 @@ local function buildDrawer(
 	arrow.ZIndex = config.Z_INDEX + 2
 	arrow.Visible = false
 	stroked(arrow)
-	arrow.Parent = frame
+	claim(arrow).Parent = frame
 
-	local word = label(frame, "PushWord", config.LABEL_SIZE, "")
+	local word = claim(label(frame, "PushWord", config.LABEL_SIZE, ""))
 	word.TextColor3 = MapUi.COLORS.arrow
 	word.AnchorPoint = Vector2.new(0.5, 0.5)
 	word.Size = UDim2.fromOffset(60, config.LABEL_SIZE + 2)
@@ -1006,7 +1028,7 @@ local function buildDrawer(
 	goal.ZIndex = config.Z_INDEX + 2
 	goal.Visible = false
 	stroked(goal)
-	goal.Parent = frame
+	claim(goal).Parent = frame
 
 	-- A SIBLING AND NOT A CHILD, for the reason the waypoint's word is one in `Hud.build`: a child
 	-- would inherit the 45-degree `Rotation` and read at an angle.
@@ -1488,13 +1510,6 @@ end
 -- a frame it does not own goes through `claim`, and `teardown` destroys that list -- children go with
 -- their parents, so nine `claim`s cover the whole picture. An instance nobody claimed cannot be
 -- destroyed by a rebuild, which is the property `Hud`'s four decorations needed.
-local claimed: { Instance } = {}
-
-local function claim<T>(instance: T & Instance): T
-	table.insert(claimed, instance)
-	return instance
-end
-
 local function teardown()
 	for index = #claimed, 1, -1 do
 		claimed[index]:Destroy()
