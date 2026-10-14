@@ -97,6 +97,9 @@ local stats = {
 	-- line in the console and not an inspection.
 	models = 0,
 	fallbacks = 0,
+	-- ...and how many script instances a template carried in, which the owner must be able to report
+	-- too: `Build.stats()` is not reachable from the boot's log line (review round 1, note).
+	strippedScripts = 0,
 }
 
 function Lobby.stats()
@@ -165,8 +168,10 @@ local function tryBuild(): boolean
 		templates = (world.root or Workspace):FindFirstChild(Data.TEMPLATES_NAME)
 	end
 	local made, _marker, spawn, parts = Build.build(world.root or Workspace, seat, cfg, templates)
-	stats.models = Build.stats().models
-	stats.fallbacks = Build.stats().fallbacks
+	local built = Build.stats()
+	stats.models = built.models
+	stats.fallbacks = built.fallbacks
+	stats.strippedScripts = built.strippedScripts
 	folder = made
 	spawnPart = spawn
 	spotAt = seat + cfg.SPOT.OFFSET

@@ -237,7 +237,7 @@ Lobby.CONFIG = {
 	-- module builds it one -- a plank, which is what the parts build is for.
 	--
 	-- A MOUNT NAMES A WALL AND HOW FAR ALONG IT, never an absolute offset, so the same three rows
-	-- hang the same three heads on the free model's 19.8 x 19.8 room AND on task 177's 38 x 26 one.
+	-- hang the same three heads on the free model's 19.6 x 19.6 room AND on task 177's 38 x 26 one.
 	-- An offset in studs would be right for exactly one of the two builds and silently wrong -- a
 	-- trophy half inside a wall -- for the other.
 	TROPHIES = {
@@ -332,11 +332,13 @@ Lobby.CONFIG = {
 		-- THE ARC THEY STAND ON: south-east round to south-west, so the trees frame the road and the
 		-- yard without ever standing between the porch and the forest that is really there to the
 		-- north.
-		-- THE ARC EXCLUDES THE NORTH, and that was a bug before it was a decision: written as
-		-- -2.6 .. +2.6 it swept THROUGH angle 0, which is north -- so the tree line stood between
-		-- the lodge and `OurForest`, the real wood 54 studs behind it, and left the road's approach
-		-- open. It runs east -> south -> west instead, which frames the road and the yard and
-		-- leaves the northern view to the forest that is actually there. 0 is north, pi is south.
+		-- THE ARC LEAVES A GAP DUE NORTH, and that was a bug before it was a decision: written as
+		-- -2.6 .. +2.6 it swept THROUGH angle 0, which IS north -- so the tree line stood between the
+		-- lodge and `OurForest`, the real wood 54 studs behind it, and left the road's approach open.
+		-- It runs east -> south -> west instead. The gap is +-34 degrees of north and no more, so
+		-- there ARE trees north-east and north-west of the lodge; what the gap protects is the view
+		-- straight out of the back of the lodge into the forest that is really there. 0 is north, pi
+		-- is south.
 		FROM_RADIANS = 0.6,
 		TO_RADIANS = 5.68,
 		JITTER_STUDS = 9,

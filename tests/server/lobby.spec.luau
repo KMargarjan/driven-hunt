@@ -658,37 +658,78 @@ return function()
 			templates:Destroy()
 		end)
 
-		it("hangs every trophy on a wall of the room it is in, in BOTH builds", function()
-			-- THE ROOM IS A DIFFERENT RECTANGLE IN THE TWO BUILDS (19.6 x 19.6 against 38 x 26),
-			-- which is exactly why a mount names a WALL and not an offset. Both runs must put every
-			-- head above its own floor and below its own ceiling.
+		it("hangs every trophy INSIDE the room it is in, under its ceiling, in BOTH builds", function()
+			-- THE ROOM IS A DIFFERENT RECTANGLE IN THE TWO BUILDS (19.6 x 19.6 x 7.4 against
+			-- 38 x 26 x 9), which is exactly why a mount names a WALL and not an offset -- and why
+			-- the bound here is the ROOM and not the lodge's footprint. Round 1 bounded these against
+			-- `LODGE.SIZE`, ten studs outside the wall, and so could not see the bug it was written
+			-- for: an inverted yaw puts a plaque only `PLAQUE.Z / 2` = 0.25 studs past its wall.
+			-- `Build.roomFor` is the same rectangle the mount itself used.
 			for _, withModels in ipairs({ true, false }) do
 				local templates = if withModels then fakeTemplates() else nil
 				local folder = Build.build(container, anchor, CFG, templates)
+				local room = Build.roomFor(anchor, CFG, withModels)
 				local heads = folder:FindFirstChild("Trophies", true)
 				expect(heads).to.be.ok()
-				local plaques = 0
+				local plaques, mounted = 0, 0
 				for _, descendant in ipairs((heads :: Instance):GetChildren()) do
-					if string.sub(descendant.Name, 1, 6) == "Plaque" then
-						plaques += 1
-						local at = (descendant :: BasePart).Position
-						expect(at.Y > anchor.Y + 1).to.equal(true)
-						expect(at.Y < anchor.Y + CFG.LODGE.RIDGE_STUDS).to.equal(true)
-						-- INSIDE THE LODGE, which is the claim the first build broke. The yaws were
-						-- inverted, so every plaque sat a fraction PAST its wall and every head a
-						-- stud past that, hung on the outside of the building in the open air --
-						-- and nothing in this spec noticed, because it only looked at the height.
-						-- The lodge's own footprint is the loosest bound that still catches it.
-						local lodgeAt = anchor + CFG.LODGE.OFFSET
-						expect(math.abs(at.X - lodgeAt.X) < CFG.LODGE.SIZE.X / 2).to.equal(true)
-						expect(math.abs(at.Z - lodgeAt.Z) < CFG.LODGE.SIZE.Z / 2).to.equal(true)
+					local isPlaque = string.sub(descendant.Name, 1, 6) == "Plaque"
+					local isHead = string.sub(descendant.Name, 1, 4) == "Deer"
+						or string.sub(descendant.Name, 1, 4) == "Boar"
+					if isPlaque or isHead then
+						-- THE HEADS ARE CHECKED TOO, and in round 1 they were not: they land a
+						-- stud further out than the plaque, so they are the louder half of the bug.
+						local middle, size
+						if isPlaque then
+							plaques += 1
+							middle = (descendant :: BasePart).Position
+							size = (descendant :: BasePart).Size
+						else
+							mounted += 1
+							local box, extent = (descendant :: Model):GetBoundingBox()
+							middle = box.Position
+							size = extent
+						end
+						local at = middle
+						expect(at.X <= room.centre.X + room.halfX).to.equal(true)
+						expect(at.X >= room.centre.X - room.halfX).to.equal(true)
+						expect(at.Z <= room.centre.Z + room.halfZ).to.equal(true)
+						expect(at.Z >= room.centre.Z - room.halfZ).to.equal(true)
+						-- ...and off the floor, and NOT THROUGH THE CEILING, which is the other half
+						-- of round 1: a 5.4-stud deer seated at its mount height stood 2.4 studs
+						-- through a 7.4-stud room's roof.
+						expect(middle.Y - size.Y / 2 > room.centre.Y).to.equal(true)
+						expect(middle.Y + size.Y / 2 <= room.centre.Y + room.height).to.equal(true)
 					end
 				end
 				expect(plaques).to.equal(#CFG.TROPHIES.MOUNTS)
+				expect(mounted).to.equal(#CFG.TROPHIES.MOUNTS)
 				if templates then
 					(templates :: Instance):Destroy()
 				end
 			end
+		end)
+
+		it("leaves the marked circle standing CLEAR of the road surface it is drawn on", function()
+			-- ROUND 1 BURIED IT. `road` lays its slabs on the shelf and the yard covers the whole
+			-- circle, so a ring lifted 0.08 studs off the SHELF sat 0.42 studs inside an opaque
+			-- slab: a sign reading "STAND HERE TO HUNT" with nothing to stand in. The ring's floor
+			-- is the ROAD surface, so that is what this measures against.
+			local folder = Build.build(container, anchor, CFG, fakeTemplates())
+			local yard = folder:FindFirstChild("Yard", true) :: BasePart
+			local ring = folder:FindFirstChild("Spot") :: Instance
+			expect(yard).to.be.ok()
+			expect(ring).to.be.ok()
+			local surface = yard.Position.Y + yard.Size.Y / 2
+			local segments = 0
+			for _, descendant in ipairs(ring:GetChildren()) do
+				if string.sub(descendant.Name, 1, 3) == "Seg" then
+					segments += 1
+					local piece = descendant :: BasePart
+					expect(piece.Position.Y - piece.Size.Y / 2 >= surface).to.equal(true)
+				end
+			end
+			expect(segments).to.equal(CFG.SPOT.RING.SEGMENTS)
 		end)
 	end)
 

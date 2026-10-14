@@ -191,24 +191,22 @@ local function sitOnShelf(model: Model, shelfY: number)
 	model:PivotTo(model:GetPivot() + Vector3.new(0, shelfY - lowest, 0))
 end
 
-local function clone(
-	templates: Instance?,
-	key: string,
+--
+-- `seat` IS THE WHOLE DIFFERENCE BETWEEN A BUILDING AND A WALL MOUNT, and getting it wrong is not a
+-- small error: a lodge must stand ON the ground, so its BOTTOM goes to `at.Y`, while a stag's head
+-- hangs AT a height, so its CENTRE does. Seating a trophy put the head's base at the mount height --
+-- its whole 5.4 studs ABOVE the plank it belongs on and, in a room 7.4 studs high, two and a half
+-- studs through the ceiling (review round 1, finding 1).
+local function cloneInstance(
+	template: Instance,
 	name: string,
 	scale: number,
 	at: Vector3,
 	yaw: number,
 	parent: Instance,
-	cosmetic: boolean
-): Instance?
-	if templates == nil then
-		return nil
-	end
-	local template = (templates :: Instance):FindFirstChild(key)
-	if template == nil then
-		stats.fallbacks += 1
-		return nil
-	end
+	cosmetic: boolean,
+	seat: boolean
+): Instance
 	local made = template:Clone()
 	made.Name = name
 	stats.strippedScripts += scriptsIn(made)
@@ -217,7 +215,16 @@ local function clone(
 			made:ScaleTo(scale)
 		end
 		made:PivotTo(CFrame.new(at) * CFrame.Angles(0, yaw, 0))
-		sitOnShelf(made :: Model, at.Y)
+		if seat then
+			sitOnShelf(made :: Model, at.Y)
+		else
+			-- CENTRED ON THE MOUNT, measured rather than assumed: a Model's pivot is its
+			-- bounding-box centre only while nobody has set a PrimaryPart, and a free model may
+			-- have one.
+			local model = made :: Model
+			local box = model:GetBoundingBox()
+			model:PivotTo(model:GetPivot() + Vector3.new(0, at.Y - box.Position.Y, 0))
+		end
 	elseif made:IsA("BasePart") then
 		made.CFrame = CFrame.new(at) * CFrame.Angles(0, yaw, 0)
 	end
@@ -254,13 +261,65 @@ local function clone(
 	return made
 end
 
+-- THE SAME THING, BY TEMPLATE NAME. A missing template is not an error: it answers nil and the caller
+-- builds task 177's version.
+local function clone(
+	templates: Instance?,
+	key: string,
+	name: string,
+	scale: number,
+	at: Vector3,
+	yaw: number,
+	parent: Instance,
+	cosmetic: boolean,
+	seat: boolean?
+): Instance?
+	if templates == nil then
+		return nil
+	end
+	local template = (templates :: Instance):FindFirstChild(key)
+	if template == nil then
+		stats.fallbacks += 1
+		return nil
+	end
+	return cloneInstance(template, name, scale, at, yaw, parent, cosmetic, seat ~= false)
+end
+
 -- ---------------------------------------------------------------- the lodge
 
 -- THE ROOM INSIDE THE LODGE, whichever lodge got built. Everything that hangs on a wall or stands on
 -- the floor is placed against THIS and never against `cfg.LODGE.SIZE`, because the free model's room
--- (19.8 x 19.8 x 7.4) and task 177's (38 x 26 x 9) are different rectangles and a constant offset
+-- (19.6 x 19.6 x 7.4) and task 177's (38 x 26 x 9) are different rectangles and a constant offset
 -- can only be right for one of them.
 export type Room = { centre: Vector3, halfX: number, halfZ: number, height: number }
+
+-- PURE, AND EXPORTED, so `lobby.spec` can bound a trophy against the rectangle the mount actually
+-- used instead of against the lodge's whole footprint. Review round 1, finding 3: a footprint bound
+-- is ten studs away from the wall and cannot see a plaque a quarter of a stud past it, which is
+-- exactly the inverted-yaw bug it was written to catch.
+function Build.roomFor(anchor: Vector3, cfg, fromModel: boolean): Room
+	local origin = anchor + cfg.LODGE.OFFSET
+	if fromModel then
+		local model = cfg.LODGE.MODEL
+		local scale = model.SCALE
+		return {
+			centre = Vector3.new(
+				origin.X + model.ROOM.CENTRE.X * scale,
+				origin.Y + model.ROOM.CENTRE.Y * scale,
+				origin.Z + model.ROOM.CENTRE.Z * scale
+			),
+			halfX = model.ROOM.HALF.X * scale,
+			halfZ = model.ROOM.HALF.Y * scale,
+			height = (model.ROOM.CEILING_Y - model.ROOM.CENTRE.Y) * scale,
+		}
+	end
+	return {
+		centre = Vector3.new(origin.X, origin.Y + 1, origin.Z),
+		halfX = cfg.LODGE.SIZE.X / 2 - 1,
+		halfZ = cfg.LODGE.SIZE.Z / 2 - 1,
+		height = cfg.LODGE.SIZE.Y,
+	}
+end
 
 -- THE TROPHY HEADS ON THE WALL. Karen, 2026-10-14: *"and then on walls we can make trophys like head
 -- of deer head of boar"*.
@@ -312,8 +371,21 @@ local function trophies(inside: Instance, room: Room, cfg, templates: Instance?)
 			(facing * CFrame.new(0, 0, -spec.PLAQUE.Z - spec.CLEAR_STUDS)).Position,
 			yaw,
 			folder,
-			true
+			true,
+			false -- a wall mount hangs AT a height; it does not stand on the floor
 		)
+		if head ~= nil and head:IsA("Model") then
+			-- UNDER THE CEILING, MEASURED OFF THE HEAD ITSELF. The deer model is 5.4 studs tall and
+			-- the free lodge's room is 7.4, so a head centred at 4.4 would put its antlers through
+			-- the roof -- the same thing `stackHeight` clamps the chimney for, three functions up.
+			local antlers = head :: Model
+			local box, size = antlers:GetBoundingBox()
+			local ceiling = room.centre.Y + room.height - 0.3
+			local wanted = math.min(box.Position.Y, ceiling - size.Y / 2)
+			if wanted < box.Position.Y then
+				antlers:PivotTo(antlers:GetPivot() + Vector3.new(0, wanted - box.Position.Y, 0))
+			end
+		end
 		if head == nil then
 			-- NO MODEL, STILL A TROPHY: a pair of cylinders on the plank, which is what task 177's
 			-- antlers over the door already are. The lobby never comes up empty-walled.
@@ -513,7 +585,11 @@ local function interior(folder: Instance, room: Room, cfg, templates: Instance?)
 	local shop = Instance.new("Folder")
 	shop.Name = "Shop"
 	shop.Parent = inside
-	local counterAt = Vector3.new(origin.X + room.halfX / 2, origin.Y + cfg.LODGE.COUNTER.Y / 2, backZ - 1)
+	-- CLAMPED SO IT CANNOT COME THROUGH THE WALL (review round 1, note). `halfX / 2` plus half a
+	-- 12-stud counter is 10.9 studs in the free model's 9.8-stud half-room, so the till's east end
+	-- stood a stud outside the lodge.
+	local counterX = math.min(room.halfX / 2, math.max(0, room.halfX - cfg.LODGE.COUNTER.X / 2 - 0.3))
+	local counterAt = Vector3.new(origin.X + counterX, origin.Y + cfg.LODGE.COUNTER.Y / 2, backZ - 1)
 	part(
 		"Counter",
 		cfg.LODGE.COUNTER,
@@ -551,18 +627,7 @@ local function lodge(container: Instance, anchor: Vector3, cfg, templates: Insta
 	local model = cfg.LODGE.MODEL
 	local built = clone(templates, Data.TEMPLATE.LODGE, "House", model.SCALE, origin, model.YAW_RADIANS, folder, false)
 	if built ~= nil then
-		local scale = model.SCALE
-		local room: Room = {
-			centre = Vector3.new(
-				origin.X + model.ROOM.CENTRE.X * scale,
-				origin.Y + model.ROOM.CENTRE.Y * scale,
-				origin.Z + model.ROOM.CENTRE.Z * scale
-			),
-			halfX = model.ROOM.HALF.X * scale,
-			halfZ = model.ROOM.HALF.Y * scale,
-			height = (model.ROOM.CEILING_Y - model.ROOM.CENTRE.Y) * scale,
-		}
-		interior(folder, room, cfg, templates)
+		interior(folder, Build.roomFor(anchor, cfg, true), cfg, templates)
 		folder.Parent = container
 		return folder
 	end
@@ -703,12 +768,7 @@ local function lodge(container: Instance, anchor: Vector3, cfg, templates: Insta
 		porch
 	)
 
-	interior(folder, {
-		centre = Vector3.new(origin.X, origin.Y + 1, origin.Z),
-		halfX = halfX - 1,
-		halfZ = halfZ - 1,
-		height = cfg.LODGE.SIZE.Y,
-	}, cfg, templates)
+	interior(folder, Build.roomFor(anchor, cfg, false), cfg, templates)
 	folder.Parent = container
 	return folder
 end
@@ -837,7 +897,13 @@ end
 local function spot(container: Instance, anchor: Vector3, cfg): BasePart
 	local folder = Instance.new("Folder")
 	folder.Name = "Spot"
-	local centre = anchor + cfg.SPOT.OFFSET
+	-- ON TOP OF THE YARD, NOT INSIDE IT (review round 1, finding 2). `road` lays its slabs ON the
+	-- shelf now, and the yard covers the whole circle -- so a ring lifted 0.08 studs off the SHELF
+	-- sat 0.42 studs inside an opaque slab, and the lobby had a sign reading "STAND HERE TO HUNT"
+	-- with nothing to stand in. The circle's floor is the road surface, so that is what it is lifted
+	-- from. Task 177 got away with the old number because the grass blades hid the slab; the road
+	-- pad removes the blades, which is what made this visible rather than what caused it.
+	local centre = anchor + cfg.SPOT.OFFSET + Vector3.new(0, cfg.ROAD.THICK_STUDS, 0)
 	local ring = cfg.SPOT.RING
 	local radius = cfg.SPOT.RADIUS_STUDS
 	local step = 2 * math.pi / ring.SEGMENTS
@@ -880,14 +946,14 @@ local function spot(container: Instance, anchor: Vector3, cfg): BasePart
 		"SignPost",
 		1,
 		9,
-		Vector3.new(centre.X, centre.Y + 4.5, centre.Z - radius - 1),
+		Vector3.new(centre.X, anchor.Y + 4.5, centre.Z - radius - 1),
 		Color3.fromRGB(96, 72, 48),
 		folder
 	)
 	sign(
 		"SpotSign",
 		Vector3.new(11, 3.2, 0.4),
-		CFrame.new(centre.X, centre.Y + 9.6, centre.Z - radius - 1),
+		CFrame.new(centre.X, anchor.Y + 9.6, centre.Z - radius - 1),
 		cfg.SPOT.SIGN_TEXT,
 		folder
 	)
@@ -1052,26 +1118,21 @@ local function treeLine(container: Instance, anchor: Vector3, cfg, templates: In
 		if offRoad < cfg.ROAD.WIDTH_STUDS / 2 + cfg.ROAD.VERGE_STUDS + 4 and at.Z < anchor.Z + cfg.ROAD.FROM_Z then
 			continue
 		end
+		-- THROUGH `cloneInstance` AND NOT BY HAND (review round 1, note). The hand-rolled walk here
+		-- used `GetDescendants`, which never visits the instance itself, so a `Trees` child that was
+		-- a Part rather than a Model came out UNANCHORED AND QUERYABLE -- the one thing this
+		-- function's own comment says must not happen.
 		local kind = kinds[rng:NextInteger(1, #kinds)]
-		local made = kind:Clone()
-		made.Name = string.format("Tree%02d", index)
-		stats.strippedScripts += scriptsIn(made)
-		if made:IsA("Model") then
-			made:ScaleTo(rng:NextNumber(spec.SCALE[1], spec.SCALE[2]))
-			made:PivotTo(CFrame.new(at) * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0))
-			sitOnShelf(made :: Model, anchor.Y)
-		end
-		for _, descendant in ipairs(made:GetDescendants()) do
-			if descendant:IsA("BasePart") then
-				descendant.Anchored = true
-				descendant.CanCollide = false
-				descendant.CanQuery = false
-				descendant.CanTouch = false
-				stats.parts += 1
-			end
-		end
-		made.Parent = folder
-		stats.models += 1
+		cloneInstance(
+			kind,
+			string.format("Tree%02d", index),
+			rng:NextNumber(spec.SCALE[1], spec.SCALE[2]),
+			Vector3.new(at.X, anchor.Y, at.Z),
+			rng:NextNumber(0, math.pi * 2),
+			folder,
+			true,
+			true
+		)
 	end
 	folder.Parent = container
 end
