@@ -198,4 +198,40 @@ function Effects.play(payload: any)
 	end
 end
 
+-- WHERE THE DUST GOES, WHEN THE BULLET ARRIVES (task 185). `ShotLanded`'s payload, and nothing
+-- else: one "Impact" Part per position, through the same `part()` helper, the same
+-- `EFFECT_MAX_PER_SHOT` budget and the same `IMPACT_LIFETIME` as `play` has always used.
+--
+-- NO FLASH, NO SMOKE, NO TRACER, EVER. The bang was at the trigger and `Effects.play` drew it
+-- there; this is the bullet landing, up to 0.365 s later, and it is the one thing on screen that
+-- tells a player a shot takes time -- with no tracer and no number (design section 7). A tracer
+-- would be a bar drawn between two points the bullet never occupied at the same moment; if Karen
+-- ever asks for one, its honest home is a drawn path from the same `Ballistics` arithmetic, and
+-- that is a separate task.
+--
+-- IT MUST NOT FIRE `Weapon.Fired`: that signal is the recoil and the sound, and the kick belongs to
+-- the trigger. Nothing here touches it -- the connection in `PlayerScripts.Weapon` keeps
+-- `firedSignal:Fire` inside its `ShotFired` handler alone.
+function Effects.playLanded(payload: any)
+	if type(payload) ~= "table" or type(payload.impacts) ~= "table" then
+		return
+	end
+	local budget = Shotgun.CONFIG.EFFECT_MAX_PER_SHOT
+	for _, position in ipairs(payload.impacts) do
+		if budget <= 0 then
+			break
+		end
+		if typeof(position) == "Vector3" then
+			part(
+				"Impact",
+				Vector3.new(0.3, 0.3, 0.3),
+				CFrame.new(position),
+				Color3.fromRGB(255, 170, 90),
+				Shotgun.CONFIG.IMPACT_LIFETIME
+			)
+			budget -= 1
+		end
+	end
+end
+
 return Effects

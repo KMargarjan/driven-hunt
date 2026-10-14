@@ -21,6 +21,28 @@ local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local ROW = Weapons.ROWS.shotgun
 
 return function()
+	-- NOTHING IS LEFT IN THE AIR WHEN THIS SPEC IS DONE (task 185). `Weapon.forget`'s own leak
+	-- claim is about tables KEYED BY a player (`Registry:count()`); the flight is keyed by SHOT and
+	-- drains on its own, so this is the second, separate statement: a server at rest carries no
+	-- projectiles. Every range cap in the game is reached inside 0.37 s, so by the time TestEZ gets
+	-- here anything this suite fired has landed.
+	describe("the shots in the air", function()
+		it("has drained: a server at rest carries no projectiles", function()
+			local deadline = os.clock() + 1
+			while Weapon.flightCount() > 0 and os.clock() < deadline do
+				task.wait()
+			end
+			expect(Weapon.flightCount()).to.equal(0)
+			expect(Weapon.flightShots()).to.equal(0)
+			-- NOTHING EVER REACHED THE CEILING: it is 5.5x the longest legitimate flight, so a
+			-- non-zero count here is a bug and not a slow shot.
+			expect(Weapon.stats().flightTimeouts).to.equal(0)
+			expect(Weapon.stats().flightRefused).to.equal(0)
+			-- ...AND NO WEAPON ROW IS MISSING ITS BALLISTICS, which would have refused every shot.
+			expect(Weapon.stats().noBallistics).to.equal(0)
+		end)
+	end)
+
 	describe("weapon state machine", function()
 		it("starts closed, loaded and unequipped, and is frozen all the way down", function()
 			local state = StateMachine.initial(ROW)

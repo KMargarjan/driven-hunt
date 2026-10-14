@@ -114,6 +114,13 @@ function Weapon.start()
 			firedSignal:Fire(payload)
 		end
 	end)
+	-- THE BULLET ARRIVED (task 185). `ShotFired` above is the TRIGGER -- the flash, the smoke, the
+	-- sound and, through `firedSignal`, the recoil; this is up to 0.365 s later and draws the dust
+	-- where the shot actually landed, and nothing else. `firedSignal:Fire` is deliberately NOT here:
+	-- the kick belongs to the trigger, and a grep for it in this file must find the one site above.
+	remotes.ShotLanded.OnClientEvent:Connect(function(payload)
+		Effects.playLanded(payload)
+	end)
 
 	Input.start()
 end

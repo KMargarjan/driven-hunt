@@ -1,7 +1,8 @@
 --!strict
 -- Weapon: the owner of every player's authoritative weapon state, of every granted Tool, and of the
--- five RemoteEvents (CLAUDE.md rule 3; the fifth, HitMarker, arrived with Milestone 1.5's hit
--- marker: one way, server -> the shooter, and the Hud is what draws it). It writes no boar state -- it publishes HitReported and the
+-- six RemoteEvents (CLAUDE.md rule 3; the fifth, HitMarker, arrived with Milestone 1.5's hit
+-- marker, and the sixth, ShotLanded, with Task 185's flight -- both one way, server -> client, and
+-- the Hud and Effects are what draw them). It writes no boar state -- it publishes HitReported and the
 -- boar's own owner decides what a hit means (docs/design/shotgun.md section 6) -- and it writes no
 -- camera: the client reads workspace.CurrentCamera.CFrame for the aim ray and nothing more.
 --
@@ -18,16 +19,26 @@
 -- Nothing happens on require: only WeaponBoot calls start(), so a spec can require this module and
 -- drive the pure core with no game running.
 --
--- Design: docs/design/shotgun.md (sections 3.1, 5.4, 5.5)
--- Note:   docs/research/2026-09-24-shotgun.md
+-- Design: docs/design/shotgun.md (sections 3.1, 5.4, 5.5), docs/design/ballistics.md (sections 2, 6)
+-- Note:   docs/research/2026-09-24-shotgun.md, docs/research/2026-10-14-ballistics-lead.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- THE ONE CLOCK THAT ADVANCES A FLIGHT (task 185). One `Heartbeat`, connected in `Weapon.start`,
+-- and the only caller of `flight:advance` in the repo -- a grep must find one site.
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
+-- THE PURE MATHS OF A SHOT THAT TAKES TIME TO ARRIVE (task 185). Frozen numbers plus functions of
+-- their arguments, no writer at all -- the shape `Gun`, `Horn` and `Shop` already have.
+local Ballistics = require(ReplicatedStorage:WaitForChild("Ballistics"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Cast = require(script.Cast)
+-- THE SHOTS STILL IN THE AIR (task 185). It holds the list and steps it; it casts nothing itself
+-- (the cast is a parameter), builds no report and fires no signal -- this file does all of that,
+-- exactly as it did before, one frame or more later (docs/design/ballistics.md section 2).
+local Flight = require(script.Flight)
 local Hardware = require(script.Hardware)
 -- THE BEATER'S HORN (task 152). It is in this system because the design puts it here -- *"worn is
 -- Body's; carried is Weapon's"* (docs/design/beater-kit.md section 16 item 1) -- and it is its own
@@ -66,6 +77,11 @@ Weapon.Limits = Limits
 Weapon.Registry = Registry
 Weapon.Pattern = Pattern
 Weapon.Hits = Hits
+-- The flight MODULE and the ballistics maths, exported for specs exactly as every pure module above
+-- is: a pure spec makes its own `Flight.new()` with its own config and its own cast, and never
+-- touches the live one (design 4.3).
+Weapon.Flight = Flight
+Weapon.Ballistics = Ballistics
 -- The weapon table and the world shape map, exported for the specs: the same reason every module
 -- above is here, and the reason `rifle.spec` can drive two weapons with no Studio.
 Weapon.Weapons = Weapons
@@ -116,6 +132,16 @@ local stats = {
 	-- counting it as a bad request would hide a mis-wired provider inside the forgery counter.
 	refused = 0,
 	refusedBy = {} :: { [string]: number },
+	-- THE FLIGHT'S OWN NUMBERS (task 185). `shots` keeps its meaning -- accepted trigger pulls --
+	-- so it now LEADS `shotsResolved` by up to 0.365 s, and that gap is the instrument for "a shot
+	-- that never landed". `flightTimeouts` must stay 0: nothing legitimate reaches
+	-- `FLIGHT_MAX_SECONDS` (5.5x the longest real flight), so a non-zero value is a bug.
+	-- `noBallistics` must stay 0 too: both shipped rows carry all three numbers and `rifle.spec`
+	-- asserts it field by field, so a non-zero value is a data fault in a weapon row.
+	shotsResolved = 0,
+	flightTimeouts = 0,
+	flightRefused = 0,
+	noBallistics = 0,
 	-- Passes of `Weapon.refillForDrive` that actually refilled a drive's shells (task 171): 0 in a
 	-- running drive means the drive is not calling it.
 	refills = 0,
@@ -153,6 +179,10 @@ local started = false
 local remotes = nil -- resolved once in start(); Shotgun.remotes() is five WaitForChild calls
 local rng = Random.new()
 local castFn: Shotgun.CastFn = Cast.world
+-- THE ONE LIVE FLIGHT (task 185). One instance for the server, stepped by the one `Heartbeat` in
+-- `Weapon.start`. `Shotgun.CONFIG` is its config: the step cap, the sub-step cap, the ceiling and
+-- the live cap are properties of the SERVER, not of a gun (design 3.2).
+local flight = Flight.new(CONFIG)
 local driveLineProvider: Shotgun.DriveLineProvider? = nil
 -- Injected by the drive at the composition root (docs/design/drive.md section 8.5). The THIRD
 -- injected provider on this owner, beside setCast and setDriveLineProvider -- the established idiom,
@@ -536,7 +566,25 @@ function Weapon.stats()
 	out.equipDeferred = Hardware.equipStats.deferred
 	out.equipLate = Hardware.equipStats.late
 	out.equipGaveUp = Hardware.equipStats.gaveUp
+	-- ...AND HOW MUCH IS IN THE AIR RIGHT NOW (task 185), which is the leak instrument: a server at
+	-- rest must read 0. `casts` is the cost claim's own counter.
+	out.inFlight = flight:count()
+	out.flightShots = flight:shots()
+	out.flightCasts = flight.casts
 	return out
+end
+
+-- HOW MANY PROJECTILES ARE IN THE AIR, and in how many shots. READ ONLY, and there is deliberately
+-- no way to STEP the live flight from outside: the one caller of `flight:advance` is the `Heartbeat`
+-- in `Weapon.start` (design 4.3). A second driver would let a spec and the Heartbeat step the same
+-- list in the same frame, which is a second writer bought for nothing -- a pure spec makes its own
+-- `Flight.new()`, and a live spec waits on this.
+function Weapon.flightCount(): number
+	return flight:count()
+end
+
+function Weapon.flightShots(): number
+	return flight:shots()
 end
 
 -- Tells ONE player that something of theirs landed. One way, server -> that client only, and it
@@ -550,6 +598,14 @@ end
 function Weapon.markHit(player: Player, kind: string?, zone: string?)
 	if typeof(player) ~= "Instance" or not player:IsA("Player") then
 		return -- a spec's stand-in shooter, or a player who left mid-shot
+	end
+	-- ...AND A PLAYER WHO HAS GONE GETS NOTHING (task 185). A shot now lands up to 0.365 s after the
+	-- trigger, so a shooter can leave between the two: the bullet still flies and still hits (it has
+	-- left the gun -- design 6.4), but a `FireClient` to a Player no longer in `Players` is
+	-- meaningless. `Parent == nil` is how a departed Player reads, and the guard lives here because
+	-- this is already the function that guards "a player who left mid-shot".
+	if player.Parent == nil then
+		return
 	end
 	local channel = remotes or Shotgun.remotes()
 	stats.markers += 1
@@ -945,6 +1001,41 @@ end
 -- local rather than creating a global.
 local runCycle
 
+-- WHEN A SHOT ARRIVES (task 185). One `Resolution` per shot whose LAST projectile has resolved, so
+-- today's contract is preserved exactly: nine buckshot pellets on one boar is ONE `HitReport` with
+-- `pellets = 9`, never nine reports as they land. `HitLog`, `Match`, `ForestTest` and the hit marker
+-- all depend on that and none of them changes.
+--
+-- `Hits.group` IS STILL THE ONE CONSTRUCTOR OF A `HitReport`, and it is given the SHOT's time
+-- (`firedAt`), not the arrival's -- see the comment on `firedAt` at the launch.
+--
+-- THE MARKER ARRIVES WHEN THE BULLET DOES, which is correct: the tick is the confirmation that
+-- something was hit, and it was not hit yet.
+local function onShotLanded(res: Flight.Resolution)
+	local shot = res.shot
+	stats.shotsResolved += 1
+	local reports = Hits.group(shot.shooter, res.impacts, shot.ammo, shot.firedAt, shot.weapon)
+	stats.reports += #reports
+	for _, report in ipairs(reports) do
+		hitSignal:Fire(report)
+		-- One marker per (shot, target), not one per pellet: nine pellets on one boar is one hit.
+		Weapon.markHit(shot.shooter, "hit", report.zone)
+	end
+
+	-- WHERE THE DUST GOES (design section 7). The bang was at the trigger; this is the bullet
+	-- arriving, and it is the one thing on screen that tells a player a shot takes time -- with no
+	-- tracer and no number. It carries nothing but the shooter and the points: no target, no zone,
+	-- no damage, no state. A shot that hit nothing sends nothing.
+	if #res.impacts > 0 then
+		local points = {}
+		for _, impact in ipairs(res.impacts) do
+			table.insert(points, impact.position)
+		end
+		local channel = remotes or Shotgun.remotes()
+		channel.ShotLanded:FireAllClients({ shooterUserId = shot.shooterUserId, impacts = points })
+	end
+end
+
 local function onFireRequest(player: Player, req: any): string?
 	local now = os.clock()
 	local allowed, bucket = Limits.allow(registry:bucket(player, "fire"), now, CONFIG.FIRE_RATE_LIMIT)
@@ -1044,15 +1135,61 @@ local function onFireRequest(player: Player, req: any): string?
 
 	setState(player, id, fired)
 
-	local impacts = Hits.resolve(muzzle, Pattern.directions(ammo, aim, rng, row), range, castFn, ignore)
-	local reports = Hits.group(player, impacts, ammo, now, id)
-	stats.shots += 1
-	stats.reports += #reports
-	for _, report in ipairs(reports) do
-		hitSignal:Fire(report)
-		-- One marker per (shot, target), not one per pellet: nine pellets on one boar is one hit.
-		Weapon.markHit(player, "hit", report.zone)
+	-- -------------------------------------------------------- THE SHOT LEAVES THE GUN (task 185)
+	--
+	-- IT IS NO LONGER RESOLVED HERE. Until this task the next two lines were `Hits.resolve` and
+	-- `Hits.group`: one cast per pellet, the whole range, in THIS frame -- so a boar sprinting at
+	-- `Boar.CONFIG.SPRINT_SPEED` (38 studs/s) was hit wherever the reticle sat and aiming ahead
+	-- could only miss. Karen, 2026-10-14: *"when I shoot in running animal I need to aim a bit in
+	-- front based on speed distance ect I wan to have that feeling"*, and *"same with s/s"*.
+	--
+	-- `onShotLanded` below is where the hit now happens, one or more Heartbeats later, with the
+	-- target judged WHERE IT IS when the bullet gets there. Everything after this block is exactly
+	-- what it was and happens in exactly this frame: the safety arc, the publish, the bolt, the
+	-- bang the boar hears, and the flash on every client.
+	local ballistic = Ballistics.shotFor(row, ammo)
+	if ballistic == nil then
+		-- A DATA FAULT, NOT A SHOT, and the player does not pay for it. The same rule this function
+		-- already applies to a gun with no muzzle: *"no muzzle is a HARDWARE fault, and the player
+		-- should not pay for one."* `state` is published rather than `fired`, so the shell is NOT
+		-- spent. It does NOT fall back to a straight line: a fallback would be a second answer to
+		-- "where did the bullet go", reachable by a typo in a data table (design 6.5). Unreachable
+		-- in the shipped build -- both rows carry all three numbers and `rifle.spec` asserts it
+		-- field by field -- which is the point.
+		stats.noBallistics += 1
+		if stats.noBallistics == 1 then
+			warn(string.format("[Weapon] %s has no ballistics for %s: the shot cannot fly", id, tostring(ammo)))
+		end
+		publish(player, id, state)
+		return "no-ballistics"
 	end
+
+	-- THE ELEVATION IS APPLIED ONCE, TO `aim`, BEFORE THE PATTERN. The bore sits a little above the
+	-- sight line so the falling bullet crosses it again at the ZERO distance, and the cone then
+	-- spreads about the ELEVATED bore -- which is what a real elevated barrel does. Patterning first
+	-- and elevating nine directions afterwards would be nine elevations and a second place for the
+	-- sign to be wrong. `Pattern.directions` is untouched.
+	local bore = Ballistics.launchDirection(aim, ballistic)
+	local launched = flight:launch({
+		shooter = player,
+		-- TAKEN AT THE TRIGGER, so a shooter who leaves before the bullet lands is still
+		-- identifiable: `HitLog` and `Score` key by this (design 6.4).
+		shooterUserId = player.UserId,
+		weapon = id,
+		ammo = ammo,
+		muzzle = muzzle,
+		ignore = ignore,
+		rangeStuds = range,
+		-- THE TIME OF THE SHOT, which becomes `HitReport.at`. Not the arrival's: `HitLog.recordHit`
+		-- asks "when in this drive was this shot taken", and a report with two clocks in it is worse
+		-- than one that is 0.3 s early (design 6.3).
+		firedAt = now,
+		epoch = fired.epoch,
+	}, Pattern.directions(ammo, bore, rng, row), ballistic)
+	if launched == 0 then
+		stats.flightRefused += 1
+	end
+	stats.shots += 1
 
 	if driveLineProvider then
 		local line = driveLineProvider()
@@ -1097,10 +1234,6 @@ local function onFireRequest(player: Player, req: any): string?
 	-- them another group walk"* -- the group beside the animal she hit is at `at`, not at `muzzle`.
 	shotSignal:Fire({ shooterUserId = player.UserId, muzzle = muzzle, at = aimPoint, ammo = ammo })
 
-	local points = {}
-	for _, impact in ipairs(impacts) do
-		table.insert(points, impact.position)
-	end
 	local channel = remotes or Shotgun.remotes()
 	-- WHICH PIPE FIRED, AND THE FRAME TO DRAW IT IN (task 92). `state.selected` is the barrel this
 	-- shot came out of -- `fired.selected` has already moved to the other one -- and `muzzleCFrame` is
@@ -1110,7 +1243,13 @@ local function onFireRequest(player: Player, req: any): string?
 	channel.ShotFired:FireAllClients({
 		shooterUserId = player.UserId,
 		muzzle = muzzle,
-		impacts = points,
+		-- ALWAYS EMPTY SINCE TASK 185, and the field stays so the wire shape and the payload type
+		-- are unchanged. The impact points do not exist in this frame any more -- the bullet has not
+		-- arrived. They go out on `ShotLanded` when it does, and `Effects.play` already reads
+		-- `payload.impacts or {}`, so it draws the flash and the smoke and never enters its tracer
+		-- branch. The FLASH, the SMOKE, the SOUND and the RECOIL all stay here, at the trigger
+		-- (design section 7).
+		impacts = {},
 		ammo = ammo,
 		barrel = state.selected,
 		muzzleCFrame = Hardware.muzzleCFrame(tool, state.selected),
@@ -1300,6 +1439,22 @@ function Weapon.start()
 	remotes = Shotgun.remotes()
 	remotes.FireRequest.OnServerEvent:Connect(onFireRequest)
 	remotes.ActionRequest.OnServerEvent:Connect(onActionRequest)
+
+	-- THE ONE CLOCK THAT ADVANCES EVERY SHOT IN THE AIR (task 185). One connection for the whole
+	-- server, made here and nowhere else: a grep for `flight:advance` under `src/` must find this
+	-- site alone (design 4.3, 6.2).
+	--
+	-- `castFn` IS READ PER FRAME, not captured once, so the seam `Weapon.setCast` writes is the one
+	-- the flight uses too -- which is what lets a spec's injected cast answer the pellets.
+	RunService.Heartbeat:Connect(function(dt)
+		local resolved = flight:advance(dt, castFn)
+		for _, res in ipairs(resolved) do
+			onShotLanded(res)
+		end
+		-- The flight's own timeouts and refusals, mirrored into this owner's tally so one `stats()`
+		-- answers everything. Both must stay 0 in every run.
+		stats.flightTimeouts = flight.timedOut
+	end)
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		watchPlayer(player)

@@ -179,6 +179,13 @@ function Shotgun.remotes()
 		ActionRequest = folder:WaitForChild("ActionRequest") :: RemoteEvent,
 		StateChanged = folder:WaitForChild("StateChanged") :: RemoteEvent,
 		ShotFired = folder:WaitForChild("ShotFired") :: RemoteEvent,
+		-- WHERE THE SHOT LANDED, once the bullet got there (task 185). One way, server -> all
+		-- clients, fired by `ServerScriptService.Weapon` alone, and it carries nothing but the
+		-- shooter and the impact points: no target, no zone, no damage, no state. It is where the
+		-- DUST goes. The flash, the smoke, the sound and the recoil stay on `ShotFired`, at the
+		-- trigger -- the bang is now and the dust is when the bullet arrives, which is the one thing
+		-- on screen that says a shot takes time (design section 7).
+		ShotLanded = folder:WaitForChild("ShotLanded") :: RemoteEvent,
 		-- One way, server -> the shooter alone: "your pellets landed on something", and "it died".
 		-- The client never fires it (hit-zones design section 14, Director item C).
 		HitMarker = folder:WaitForChild("HitMarker") :: RemoteEvent,
@@ -201,6 +208,30 @@ Shotgun.CONFIG = {
 	-- DEGREES, FULL cone, both of them. Halved exactly once, in Pattern.directions.
 	SPREAD_FULL_DEG = { Slug = 0.16, Buck = 1.6 },
 	SLUG_CAST_RADIUS = 0, -- a pure raycast; Spherecast forgiveness is Karen's dial if she misses
+
+	-- HOW FAST THE SHOT LEAVES, HOW FAST IT SLOWS, AND WHERE IT IS ZEROED (task 185). Karen,
+	-- 2026-10-14: *"when I shoot in running animal I need to aim a bit in front based on speed
+	-- distance ect"*, and then *"same with s/s"* -- so the side-by-side flies too. Keyed by
+	-- `AmmoKind` like every other ballistic number here, and the unit is in the name.
+	--
+	-- REAL CARTRIDGES (research note section 2C): the 12 ga rifled slug leaves at 1610 fps =
+	-- 490.7 m/s = 1752 studs/s, and 00 buckshot at 1325 fps = 403.9 m/s = 1442 studs/s. The slug
+	-- leaves at two thirds of the rifle's speed and loses it four times as fast, which is WHY a
+	-- crossing boar needs ~60% more lead with the shotgun than with the rifle -- the content of
+	-- Karen's second sentence.
+	MUZZLE_STUDS_PER_S = { Slug = 1752, Buck = 1442 },
+	-- QUADRATIC DRAG AS ONE COEFFICIENT PER AMMO: `v(s) = v0*exp(-k*s)`, per STUD. Fitted to the
+	-- published remaining velocities (slug 1610 -> 1139 fps over 100 yd; 00 buck 1325 -> ~940 fps
+	-- over 40 yd). A lead sphere sheds speed fast, which is why buckshot's coefficient is six times
+	-- the rifle's. `Ballistics` is the one place this is integrated.
+	DRAG_PER_STUD = { Slug = 1.059e-3, Buck = 2.631e-3 },
+	-- WHERE THE TRAJECTORY CROSSES THE SIGHT LINE, so a STILL target at that distance is hit dead
+	-- centre. 180 studs is 50 m -- the standard rifled-slug zero -- and 70 studs is 20 m, inside
+	-- buckshot's 30 yd MPR. The slug then prints 11.4 cm low at 92 m against Federal's published
+	-- 14.5 cm at 100 yd for one specific load quoted from a sight line 1.5 in above the bore, which
+	-- this model does not have: the same shot to about 3 cm, against a number nothing here was
+	-- fitted to. Buckshot's drop over its whole 100-stud reach is 1 cm -- it needs no holdover.
+	ZERO_STUDS = { Slug = 180, Buck = 70 },
 
 	-- timings, all feel numbers
 	BARREL_DELAY = 0.25,
@@ -247,6 +278,33 @@ Shotgun.CONFIG = {
 	MIN_AIM_DISTANCE = 4, -- below this the muzzle->aim vector is degenerate
 	DIR_UNIT_TOLERANCE = 1e-3,
 	SAFETY_ARC_HALF_DEG = 45, -- DEGREES, HALF angle: a different quantity from a spread cone
+
+	-- HOW THE SERVER INTEGRATES A FLIGHT (task 185). These four are the SYSTEM's, not a gun's, and
+	-- they are here for the reason `src/shared/Weapons/init.luau`'s header already states: the
+	-- safety arc, the origin tolerance and the rate limits are rules of the DRIVE and of the
+	-- PROTOCOL, not properties of a weapon. How finely the server steps, and how many projectiles
+	-- it will carry at once, are properties of the SERVER -- a per-weapon step cap would let a new
+	-- gun buy itself more server time, the same way a per-weapon arc would widen its own licence.
+	--
+	-- 1/30 IS HALF A FRAME OF A 60 Hz SERVER'S WORST NORMAL FRAME, and it is sized against two
+	-- things: the chord-instead-of-arc error inside one step (0.019 studs at this cap) and the time
+	-- resolution against a moving animal (a boar at `SPRINT_SPEED` 38 studs/s moves 1.27 studs,
+	-- which is a third of its own trunk). A longer step cannot tunnel through a wall -- the cast is
+	-- of the SEGMENT -- it just meets the animal a little late.
+	FLIGHT_STEP_MAX_SECONDS = 1 / 30,
+	-- HOW MUCH CATCH-UP ONE HEARTBEAT MAY BUY: 8 sub-steps, 0.267 s. Past that the remainder is
+	-- DISCARDED, so a hitch makes a projectile arrive slightly late rather than making the server
+	-- cast hundreds of rays in one frame. A stated degradation, and it cannot leak a projectile
+	-- because `travelled` still rises on every sub-step.
+	FLIGHT_MAX_SUBSTEPS = 8,
+	-- THE HARD CEILING, so nothing can leak. The longest legitimate flight is 0.365 s (the rifle at
+	-- its 800-stud cap), so this is 5.5x the real worst case: nothing in the game reaches it, and a
+	-- non-zero `flightTimeouts` is therefore a bug said out loud rather than a flight swallowed.
+	FLIGHT_MAX_SECONDS = 2.0,
+	-- THE GLOBAL CAP ON LIVE PROJECTILES. The absolute burst the game can produce is 16 shooters
+	-- firing both barrels of buckshot inside one flight time: 16 * 9 * 2 = 288. 512 is above that
+	-- and can never be reached by play -- it is the guard against a loop, not a budget.
+	FLIGHT_MAX_LIVE_PELLETS = 512,
 
 	-- rates, per player
 	FIRE_RATE_LIMIT = 6, -- received requests/s

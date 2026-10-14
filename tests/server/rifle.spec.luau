@@ -91,6 +91,32 @@ return function()
 			expect(row.HANDLE_SIZE).to.equal(CONFIG.HANDLE_SIZE)
 			expect(row.GRIP).to.equal(CONFIG.GRIP)
 			expect(row.MUZZLE_OFFSET).to.equal(CONFIG.MUZZLE_OFFSET)
+			-- THE THREE BALLISTIC NUMBERS OF TASK 185, out of this gun's own CONFIG like every
+			-- field above: the muzzle velocity, the drag coefficient and the zero.
+			expect(row.MUZZLE_STUDS_PER_S.Slug).to.equal(CONFIG.MUZZLE_STUDS_PER_S.Slug)
+			expect(row.MUZZLE_STUDS_PER_S.Buck).to.equal(CONFIG.MUZZLE_STUDS_PER_S.Buck)
+			expect(row.DRAG_PER_STUD.Slug).to.equal(CONFIG.DRAG_PER_STUD.Slug)
+			expect(row.DRAG_PER_STUD.Buck).to.equal(CONFIG.DRAG_PER_STUD.Buck)
+			expect(row.ZERO_STUDS.Slug).to.equal(CONFIG.ZERO_STUDS.Slug)
+			expect(row.ZERO_STUDS.Buck).to.equal(CONFIG.ZERO_STUDS.Buck)
+		end)
+
+		it("EVERY ammo of EVERY row flies, and is zeroed inside its own range (task 185)", function()
+			-- The data fault `Ballistics.shotFor` refuses the shot for, asserted as unreachable in
+			-- the shipped build. A zero beyond the range cap would mean a trajectory that never
+			-- reaches the distance it is zeroed at, so a still target could be dead centre nowhere.
+			for _, id in ipairs(Weapons.ids()) do
+				local row = Weapons.ROWS[id]
+				for _, ammo in ipairs(row.AMMO_KINDS) do
+					expect(type(row.MUZZLE_STUDS_PER_S[ammo])).to.equal("number")
+					expect(row.MUZZLE_STUDS_PER_S[ammo] > 0).to.equal(true)
+					expect(type(row.DRAG_PER_STUD[ammo])).to.equal("number")
+					expect(row.DRAG_PER_STUD[ammo] >= 0).to.equal(true)
+					expect(type(row.ZERO_STUDS[ammo])).to.equal("number")
+					expect(row.ZERO_STUDS[ammo] > 0).to.equal(true)
+					expect(row.ZERO_STUDS[ammo] <= row.RANGE_STUDS[ammo]).to.equal(true)
+				end
+			end
 		end)
 
 		it("rebuilds the reload as data, with the four numbers it always had", function()
@@ -126,6 +152,15 @@ return function()
 				expect(row.STATE_RATE_LIMIT).to.equal(nil)
 				expect(row.AUTO_EQUIP).to.equal(nil)
 				expect(row.shouldArm).to.equal(nil)
+				-- ...AND NO ROW CARRIES A FLIGHT NUMBER OR A GRAVITY (task 185). How finely the
+				-- SERVER integrates, and how many projectiles it will carry at once, are properties
+				-- of the server: a per-weapon step cap would let a new gun buy itself more server
+				-- time, exactly as a per-weapon arc would widen its own licence.
+				expect(row.FLIGHT_STEP_MAX_SECONDS).to.equal(nil)
+				expect(row.FLIGHT_MAX_SUBSTEPS).to.equal(nil)
+				expect(row.FLIGHT_MAX_SECONDS).to.equal(nil)
+				expect(row.FLIGHT_MAX_LIVE_PELLETS).to.equal(nil)
+				expect(row.GRAVITY_STUDS_PER_S2).to.equal(nil)
 			end
 		end)
 	end)
@@ -146,7 +181,7 @@ return function()
 
 		it("reaches 200 m, which is the distance Karen named", function()
 			-- KAREN, 2026-10-14: *"hit it has to be precist and on 200m acurat"*. 200 m is 714.29
-			-- studs at this game's 0.28 m/stud, and `Hits.resolve` casts `RANGE_STUDS[ammo]` studs
+			-- studs at this game's 0.28 m/stud, and the shot flies `RANGE_STUDS[ammo]` studs
 			-- from the MUZZLE -- so a range under that is a shot that cannot arrive however well it
 			-- is aimed. THE OLD 450 WAS EXACTLY THAT, measured in Play before the change: 440 studs
 			-- hit the plate, 455 and 470 produced no impact at all.

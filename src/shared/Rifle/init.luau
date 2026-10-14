@@ -111,8 +111,10 @@ Rifle.CONFIG = {
 	-- at the distance she named never arrived at all. MEASURED in Play before the change, with the
 	-- real rifle on a plate placed on the reticle centre: 440 studs hit, 455 studs and 470 studs
 	-- produced NO IMPACT, which is the range cap and nothing else. 800 is 224 m -- 200 m plus the
-	-- margin a shot taken slightly uphill needs -- and `Hits.resolve` casts exactly this far from
-	-- the muzzle, so it is the one number that decides whether a long shot exists.
+	-- margin a shot taken slightly uphill needs -- and the shot flies exactly this far from the
+	-- muzzle, so it is the one number that decides whether a long shot exists. (Until task 185 that
+	-- was `Hits.resolve` casting this far in one frame; it is now `Weapon.Flight` retiring the
+	-- projectile when `travelled` reaches it, which is the same distance measured along the path.)
 	--
 	-- WHAT IT DOES NOT MOVE: `Match.CONFIG.SAFETY_RANGE_STUDS` is still 330, so the safety penalty's
 	-- reach down the drive line is unchanged by this. That is queued (TASKS.md 183a) rather than
@@ -134,6 +136,29 @@ Rifle.CONFIG = {
 	-- (The old comment claimed 0.05 full was "about 1.5 MOA". 1 MOA is 0.0167 degrees, so 0.05 full
 	-- is 3 MOA -- the 1.5 was the half-angle. Corrected here rather than carried.)
 	SPREAD_FULL_DEG = { Slug = 0 },
+	-- HOW FAST THE BULLET LEAVES, HOW FAST IT SLOWS, AND WHERE IT IS ZEROED (task 185). Karen,
+	-- 2026-10-14: *"it has to be real like in a life when I shoot in running animal I need to aim a
+	-- bit in front based on speed distance ect I wan to have that feeling"*. Until this task the
+	-- shot was hitscan, so a boar at `SPRINT_SPEED` 38 studs/s was hit wherever the reticle sat and
+	-- aiming ahead could only miss.
+	--
+	-- THE CARTRIDGE WAS ALREADY CHOSEN: `AMMO_LABEL` says ".416", so these are a .416 Rigby's own
+	-- numbers -- a 400 gr bullet at 2400 fps = 731.5 m/s = 2612 studs/s (research note 2C).
+	MUZZLE_STUDS_PER_S = { Slug = 2612 },
+	-- QUADRATIC DRAG AS ONE COEFFICIENT, per STUD: `v(s) = v0*exp(-k*s)`. FITTED to the published
+	-- 2400 -> 2086 fps over 100 yd, it then PREDICTS 1813 fps at 200 yd against the published 1797
+	-- -- 0.9% high, with nothing fitted to that second point. That is the whole justification for
+	-- one number instead of a G1 drag table (research note 2D).
+	DRAG_PER_STUD = { Slug = 4.29e-4 },
+	-- 714 STUDS IS 200 m, AND THE DISTANCE IS KAREN'S OWN. Task 183: *"precist and on 200m acurat"*,
+	-- and this is what keeps that measured result -- the trajectory crosses the sight line exactly
+	-- here, so a STILL target at 200 m is still hit dead centre (`Ballistics.launchDirection`).
+	--
+	-- THE PRICE IS THE MID-RANGE RISE: +0.45 studs (12.5 cm) HIGH at 100 m, which is real -- a real
+	-- rifle zeroed at 200 m shoots high at 100 -- but bigger than a real .416's ~7 cm, because this
+	-- model carries no scope-height offset. It is ONE LINE, and a 150 m zero would put the whole
+	-- band inside +/-15 cm from 0 to 200 m. Karen's dial (design section 16 item 1).
+	ZERO_STUDS = { Slug = 714 },
 	AMMO_KINDS = { "Slug" },
 	-- The word the Hud prints for the kind. ".416" is the Rigby's own cartridge; the WIRE still says
 	-- Slug, and these two facts meet in exactly one place (`Hud.readoutFor`).

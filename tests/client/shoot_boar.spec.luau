@@ -21,19 +21,43 @@
 -- first one, about FIRST_RELEASE_SECONDS into a drive, so the stage may find Workspace.Boars empty
 -- and the harness waits for a target rather than failing on the first look.
 --
--- Design: docs/design/hit-zones.md (section 14 item D), docs/design/camera.md (section 9.3)
+-- SINCE TASK 185 IT MUST LEAD THE ANIMAL, AND THAT IS THE POINT. A shot is no longer hitscan: the
+-- server steps a projectile and judges the hit where the boar IS when the bullet gets there. Karen,
+-- 2026-10-14: *"when I shoot in running animal I need to aim a bit in front based on speed distance
+-- ect I wan to have that feeling"*. So an aim held ON a boar running at 28+ studs/s now misses it by
+-- `v*t`, and this spec aims at `boarPosition + boarVelocity * timeToRange(distance)` instead -- the
+-- same arithmetic the server flies the bullet with, read from `ReplicatedStorage.Ballistics`.
+--
+-- WHICH MAKES THIS THE END-TO-END PROOF ON THE PLAYER'S PATH: a real replayed click, LED by the real
+-- arithmetic, through the real server, onto a real boar, home as a real hit marker. The matching
+-- NEGATIVE -- that aiming at the animal misses -- is asserted purely in `weapon_hits.spec` and
+-- deliberately not here: buckshot's 1.6-degree cone at close range can still clip a boar that moved
+-- two studs, so a live negative would be flaky and would prove nothing.
+--
+-- THE VELOCITY IS MEASURED HERE, by finite difference across `RenderStepped`, so this spec needs no
+-- replicated velocity field and reads nothing of the boar's own state.
+--
+-- Design: docs/design/hit-zones.md (section 14 item D), docs/design/camera.md (section 9.3),
+--         docs/design/ballistics.md (section 11.4)
+-- Note:   docs/research/2026-10-14-ballistics-lead.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local Ballistics = require(ReplicatedStorage:WaitForChild("Ballistics"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("InputReady"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Camera = require(scripts:WaitForChild("Camera"))
+-- WHICH GUN IS IN THE HAND AND WHAT IS IN IT (task 185), so the lead is this weapon's lead and
+-- not an assumption: a one-player DEV run holds the SHOTGUN, whose slug flies at two thirds of
+-- the rifle's speed.
+local Weapon = require(scripts:WaitForChild("Weapon"))
 
 -- Set by the harness's stage step, and by nothing else. Tracking starts when it appears, so this
 -- spec never fights another spec for the camera: before the stage it does not touch it at all.
@@ -56,6 +80,8 @@ local AIM_HEIGHT = 0.4 -- studs above the trunk's centre: the chest band, not th
 local markers = {}
 local latchedAt: number? = nil
 local stagedDistance: number? = nil
+-- HOW FAR AHEAD THE LAST AIM WAS TAKEN, in studs, for the report (task 185).
+local lastLeadStuds: number? = nil
 
 -- ONLY the markers that arrive after the stage. A stray pellet from an earlier scenario hitting a
 -- wandering boar would otherwise satisfy this spec without the staged shot doing anything -- and it
@@ -78,9 +104,35 @@ local function rootPart(): BasePart?
 	return if root and root:IsA("BasePart") then root else nil
 end
 
--- Keeps the camera on the boar through the OWNER's API. It never writes workspace.CurrentCamera --
--- the camera's own foreign-write detector would count it if it did, and weapon_client.spec asserts
--- that counter does not move.
+-- WHAT THE PLAYER IS HOLDING, AND HOW ITS SHOT FLIES (task 185). The weapon the harness's player
+-- carries is whatever the drive armed him with, so the row and the loaded ammo are read live rather
+-- than assumed -- a one-player DEV run holds the SHOTGUN, and a slug and a rifle bullet need very
+-- different leads. nil anywhere (no gun yet, a kind this row does not carry) means no lead this
+-- frame, which is exactly the old behaviour and never an error.
+local function flightFor(): any?
+	local snapshot = Weapon.get()
+	local id = snapshot and snapshot.weapon
+	local row = if type(id) == "string" then Weapons.row(id) else nil
+	if row == nil or snapshot == nil then
+		return nil
+	end
+	local ammo = (snapshot :: any).loaded and (snapshot :: any).loaded[(snapshot :: any).selected]
+	if type(ammo) ~= "string" then
+		ammo = row.INITIAL_AMMO
+	end
+	return Ballistics.shotFor(row, ammo)
+end
+
+-- HOW FAST THE BOAR IS GOING, measured here by finite difference: this spec reads no boar state and
+-- needs no replicated velocity. Smoothed a little, because one frame of a skinned mesh's root is
+-- noisy and a jittery lead is worse than a slightly late one.
+local lastBoarAt: Vector3? = nil
+local lastBoarClock: number? = nil
+local boarVelocity = Vector3.zero
+
+-- Keeps the camera on the boar -- LED BY `v*t` since task 185 -- through the OWNER's API. It never
+-- writes workspace.CurrentCamera: the camera's own foreign-write detector would count it if it did,
+-- and weapon_client.spec asserts that counter does not move.
 local tracking = RunService.RenderStepped:Connect(function()
 	if not latchedAt then
 		local staged = player:GetAttribute(STAGE_ATTRIBUTE)
@@ -95,9 +147,35 @@ local tracking = RunService.RenderStepped:Connect(function()
 		return -- the shot landed, or the window closed: give the camera back
 	end
 	local boar = boarPart()
-	if boar then
-		Camera.lookAt(boar.Position + Vector3.new(0, AIM_HEIGHT, 0))
+	if not boar then
+		return
 	end
+
+	-- MEASURE ITS SPEED...
+	local now = os.clock()
+	if lastBoarAt and lastBoarClock and now > lastBoarClock then
+		local measured = (boar.Position - lastBoarAt) / (now - lastBoarClock)
+		-- One pole of smoothing. A boar at a sprint is 38 studs/s; anything far above that is a
+		-- respawn or a teleport, and following it would throw the aim off the animal entirely.
+		if measured.Magnitude < 80 then
+			boarVelocity = boarVelocity * 0.6 + measured * 0.4
+		end
+	end
+	lastBoarAt, lastBoarClock = boar.Position, now
+
+	-- ...AND AIM WHERE IT WILL BE WHEN THE BULLET GETS THERE (task 185). The time of flight comes
+	-- from the same module the server flies the shot with, so this is the feature being used and not
+	-- a second copy of it. No gun and no ballistics means no lead, which is what this did before.
+	local chest = boar.Position + Vector3.new(0, AIM_HEIGHT, 0)
+	local root = rootPart()
+	local shot = flightFor()
+	local lead = Vector3.zero
+	if shot and root then
+		local distance = (chest - root.Position).Magnitude
+		lead = boarVelocity * Ballistics.timeToRange(shot, distance)
+		lastLeadStuds = lead.Magnitude
+	end
+	Camera.lookAt(chest + lead)
 end)
 
 InputReady.ready("shoot_boar")
@@ -252,9 +330,10 @@ return function()
 			-- The zone is whatever the pellets found; that it is one of the boar's is the point.
 			print(
 				string.format(
-					"[shoot_boar] marker: kind=%s zone=%s",
+					"[shoot_boar] marker: kind=%s zone=%s, led the boar by %.2f studs",
 					tostring(markers[1].kind),
-					tostring(markers[1].zone)
+					tostring(markers[1].zone),
+					lastLeadStuds or 0
 				)
 			)
 			expect(markers[1].kind == "hit" or markers[1].kind == "kill").to.equal(true)

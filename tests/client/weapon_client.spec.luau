@@ -320,12 +320,97 @@ end
 
 return function()
 	describe("the weapon's shared data", function()
-		it("has the four remotes on disk, with the right classes", function()
+		it("has the five one-way remotes on disk, with the right classes", function()
 			local remotes = Shotgun.remotes()
 			expect(remotes.FireRequest:IsA("RemoteEvent")).to.equal(true)
 			expect(remotes.ActionRequest:IsA("RemoteEvent")).to.equal(true)
 			expect(remotes.StateChanged:IsA("RemoteEvent")).to.equal(true)
 			expect(remotes.ShotFired:IsA("RemoteEvent")).to.equal(true)
+			-- THE SIXTH, AND IT ARRIVED WITH THE FLIGHT (task 185): where the shot LANDED, fired
+			-- when the bullet gets there rather than when the trigger was pulled.
+			expect(remotes.ShotLanded:IsA("RemoteEvent")).to.equal(true)
+			expect(remotes.HitMarker:IsA("RemoteEvent")).to.equal(true)
+		end)
+
+		-- ------------------------------------------- the dust arrives with the bullet (task 185)
+		--
+		-- Karen, 2026-10-14: *"it has to be real like in a life when I shoot in running animal I
+		-- need to aim a bit in front based on speed distance ect I wan to have that feeling"*. The
+		-- bang is at the trigger and the dust is when the bullet arrives, which is the one thing on
+		-- screen that says a shot takes time -- with no tracer and no number.
+		it("draws ONE impact per landing point from ShotLanded, and nothing else", function()
+			local Effects = Weapon.Effects
+			local folder = Effects.folder()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+			local where = Vector3.new(12, 3, -40)
+			Effects.playLanded({ shooterUserId = 1, impacts = { where, where + Vector3.new(2, 0, 0) } })
+			local impacts, others = {}, {}
+			for _, child in ipairs(folder:GetChildren()) do
+				if child.Name == "Impact" then
+					table.insert(impacts, child)
+				else
+					table.insert(others, child.Name)
+				end
+			end
+			expect(#impacts).to.equal(2)
+			-- NO FLASH, NO SMOKE, NO TRACER, EVER: a tracer would be a bar between two points the
+			-- bullet never occupied at the same moment, and the flash already happened.
+			expect(#others).to.equal(0)
+			expect(((impacts[1] :: BasePart).Position - where).Magnitude < 1e-3).to.equal(true)
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+		end)
+
+		it("refuses a malformed ShotLanded payload and caps what one shot can draw", function()
+			local Effects = Weapon.Effects
+			local folder = Effects.folder()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+			Effects.playLanded(nil)
+			Effects.playLanded("not a table")
+			Effects.playLanded({})
+			Effects.playLanded({ impacts = "not a list" })
+			Effects.playLanded({ impacts = { "not a Vector3", 7 } })
+			expect(#folder:GetChildren()).to.equal(0)
+			-- EFFECT_MAX_PER_SHOT is a hard cap, so a bug cannot flood Workspace.
+			local many = {}
+			for index = 1, Shotgun.CONFIG.EFFECT_MAX_PER_SHOT + 20 do
+				many[index] = Vector3.new(index, 0, 0)
+			end
+			Effects.playLanded({ shooterUserId = 1, impacts = many })
+			expect(#folder:GetChildren()).to.equal(Shotgun.CONFIG.EFFECT_MAX_PER_SHOT)
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+		end)
+
+		it("still draws the flash and the smoke from a ShotFired that carries no impacts", function()
+			-- WHICH IS EVERY ShotFired SINCE TASK 185: the server sends `impacts = {}` because the
+			-- points do not exist in the trigger's frame. `Effects.play` reads `payload.impacts or
+			-- {}`, so the tracer branch is simply never entered -- the code is dead, not wrong.
+			local Effects = Weapon.Effects
+			local folder = Effects.folder()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+			Effects.play({
+				shooterUserId = -1, -- not me: this must take the world path, not the viewmodel's
+				muzzle = Vector3.new(0, 5, -20),
+				impacts = {},
+				ammo = "Buck",
+				barrel = 1,
+			})
+			expect(folder:FindFirstChild("Flash")).to.be.ok()
+			expect(folder:FindFirstChild("Smoke")).to.be.ok()
+			expect(folder:FindFirstChild("Tracer")).to.equal(nil)
+			expect(folder:FindFirstChild("Impact")).to.equal(nil)
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
 		end)
 
 		-- --------------------------------------------------- the flash comes from the pipes (task 92)
