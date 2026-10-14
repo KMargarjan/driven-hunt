@@ -192,7 +192,11 @@ Shop.CONFIG = {
 		WIDTH = 360,
 		ROW_PX = 48,
 		GAP = 8,
-		HEADER_PX = 40,
+		-- 64 AND NOT 40, AND THE FIRST FRAME IS WHY (rule 5). The header is a title at y=8 and the
+		-- balance line under it at y=34, and at 40 the first row was drawn straight through
+		-- "COINS 0     HUNTS 0" -- measured in `.screenshots/20261014-task178-shop-panel.png`, the
+		-- first picture this panel ever took. 64 clears the balance's own 20 px with ten to spare.
+		HEADER_PX = 64,
 		FOOTER_PX = 56,
 		-- `Report.CONFIG.PANEL_Z_INDEX` is 15 and `Rail.CONFIG.Z_INDEX` is 16, so the rail stays
 		-- pressable over this panel -- which is what lets a thumb reach the map while it is open.
