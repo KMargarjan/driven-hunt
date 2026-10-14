@@ -250,7 +250,7 @@ return function()
 			-- THERE IS NO SECOND CURVE. A map that re-typed the sine would disagree with the world
 			-- the next time the Director bends the road.
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local model = MapUi.geometryFromForestTest(data)
+			local model = MapUi.geometryFromForestTest(data, data.ROAD_LAYOUT)
 			expect(#model.road).to.equal(CONFIG.ROAD_SAMPLES)
 			for _, point in ipairs(model.road) do
 				-- 1e-3 STUDS AND NOT 1e-9, and the reason is the container and not the arithmetic:
@@ -264,8 +264,8 @@ return function()
 
 		it("draws the stands from `ForestTest.standPosition`, all nine, in order", function()
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local model = MapUi.geometryFromForestTest(data)
-			expect(#model.stands).to.equal(data.STAND_COUNT)
+			local model = MapUi.geometryFromForestTest(data, data.ROAD_LAYOUT)
+			expect(#model.stands).to.equal(data.ROAD_LAYOUT.standCount)
 			for index, point in ipairs(model.stands) do
 				local at = data.standPosition(index)
 				-- 1e-3, for the float32 reason the road's case above measures.
@@ -278,15 +278,15 @@ return function()
 
 		it("holds everything that world states inside its bounds", function()
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local model = MapUi.geometryFromForestTest(data)
+			local model = MapUi.geometryFromForestTest(data, data.ROAD_LAYOUT)
 			local bounds = model.bounds
 			-- the exit, the drivers' start, the beater's start, and both ends of the stand line
-			expect(data.EXIT_Z > bounds.minZ).to.equal(true)
+			expect(data.exitZOf() > bounds.minZ).to.equal(true)
 			local driver = data.driverStart(1, 2)
 			expect(driver.Z < bounds.maxZ).to.equal(true)
 			local beater = data.beaterStart(data.standX(5), 0)
 			expect(beater.Z < bounds.maxZ).to.equal(true)
-			for index = 1, data.STAND_COUNT do
+			for index = 1, data.ROAD_LAYOUT.standCount do
 				local at = data.standPosition(index)
 				expect(at.X > bounds.minX and at.X < bounds.maxX).to.equal(true)
 				expect(at.Z > bounds.minZ and at.Z < bounds.maxZ).to.equal(true)
@@ -295,16 +295,20 @@ return function()
 
 		it("puts the road's own centre at the centre of the full map", function()
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local model = MapUi.geometryFromForestTest(data)
+			local model = MapUi.geometryFromForestTest(data, data.ROAD_LAYOUT)
 			local view = MapUi.fullView(model.bounds, 1000, 600)
-			local u = MapUi.project(data.CENTRE.X, (model.bounds.minZ + model.bounds.maxZ) / 2, view)
+			local u = MapUi.project(data.ROAD_LAYOUT.centre.X, (model.bounds.minZ + model.bounds.maxZ) / 2, view)
 			expect(u).to.be.near(0, 1e-6)
 			-- ...and stand 1 and stand 9 either side of it, their real spacing apart.
 			local first = MapUi.project(data.standX(1), data.roadZ(data.standX(1)), view)
-			local last = MapUi.project(data.standX(data.STAND_COUNT), data.roadZ(data.standX(data.STAND_COUNT)), view)
+			local last = MapUi.project(
+				data.standX(data.ROAD_LAYOUT.standCount),
+				data.roadZ(data.standX(data.ROAD_LAYOUT.standCount)),
+				view
+			)
 			expect(first < 0).to.equal(true)
 			expect(last > 0).to.equal(true)
-			local spacing = (data.STAND_COUNT - 1) * data.STAND_SPACING * view.pxPerStud
+			local spacing = (data.ROAD_LAYOUT.standCount - 1) * data.ROAD_LAYOUT.standSpacing * view.pxPerStud
 			expect(last - first).to.be.near(spacing, 1e-3)
 			TestKit.note(
 				string.format(
@@ -312,10 +316,67 @@ return function()
 					model.bounds.maxX - model.bounds.minX,
 					model.bounds.maxZ - model.bounds.minZ,
 					view.pxPerStud,
-					data.STAND_COUNT,
+					data.ROAD_LAYOUT.standCount,
 					last - first
 				)
 			)
+		end)
+
+		-- ---------------------------------------------------------------- one map per layout (179)
+
+		it("draws EVERY drive layout, each on its own line and its own stand count", function()
+			-- KAREN, 2026-10-13: *"view for hunter from different places and diffretent tree
+			-- lines"*. The map is the one place a hunter can SEE which drive he is on, so a layout
+			-- the map cannot draw is a layout he cannot read.
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			expect(#data.LAYOUT_ORDER >= 1).to.equal(true)
+			for _, name in ipairs(data.LAYOUT_ORDER) do
+				local layout = data.layoutNamed(name)
+				local model = MapUi.geometryFor("forest-test", data, Map, name)
+				expect(model).to.be.ok()
+				local shown = model :: any
+				expect(#shown.stands).to.equal(layout.standCount)
+				expect(#shown.road).to.equal(CONFIG.ROAD_SAMPLES)
+				-- A STRAIGHT LAYOUT IS A STRAIGHT POLYLINE and a curved one is not, with no second
+				-- code path either way: `roadZ` answers `centre.Z` at every x at amplitude 0.
+				local flat = true
+				for _, point in ipairs(shown.road) do
+					expect(point.Y).to.be.near(data.roadZ(point.X, layout), 1e-3)
+					if math.abs(point.Y - layout.centre.Z) > 1e-3 then
+						flat = false
+					end
+				end
+				expect(flat).to.equal(layout.amplitudeStuds == 0)
+				-- Every stand and the exit are inside the bounds that layout states.
+				expect(data.exitZOf(layout) > shown.bounds.minZ).to.equal(true)
+				for index = 1, layout.standCount do
+					local at = data.standPosition(index, layout)
+					expect(at.X > shown.bounds.minX and at.X < shown.bounds.maxX).to.equal(true)
+					expect(at.Z > shown.bounds.minZ and at.Z < shown.bounds.maxZ).to.equal(true)
+				end
+				TestKit.note(
+					string.format(
+						"map: layout %s draws %d stands over %.0f studs, bounds %.0f x %.0f",
+						name,
+						layout.standCount,
+						(layout.standCount - 1) * layout.standSpacing,
+						shown.bounds.maxX - shown.bounds.minX,
+						shown.bounds.maxZ - shown.bounds.minZ
+					)
+				)
+			end
+		end)
+
+		it("gives a layout nobody has heard of NO MAP, never the road's", function()
+			-- THE ONE THING A CLIENT MUST NOT DO is draw a different drive from the one the hunter's
+			-- feet are on, and that is invisible in a screenshot. A nil or unknown published name is
+			-- therefore the same answer as a world that has stated nothing: no map, and the Hud's
+			-- attribute signal redraws the instant a real name arrives.
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			expect(MapUi.geometryFor("forest-test", data, Map, nil)).to.equal(nil)
+			expect(MapUi.geometryFor("forest-test", data, Map, "clearing")).to.equal(nil)
+			expect(MapUi.geometryFor("forest-test", data, Map, "")).to.equal(nil)
+			expect(MapUi.geometryFor("forest-test", data, Map, "road")).to.be.ok()
 		end)
 
 		it("gives the DEV world a straight road, widened bounds and NO stands", function()
@@ -336,7 +397,7 @@ return function()
 		it("gives a world that states nothing NO MAP AT ALL", function()
 			-- *Visibly no map, never a blank panel* -- the audit that "certified a blank screen
 			-- twice" is what that sentence is made of.
-			expect(MapUi.geometryFor("forest-test", nil, nil)).to.equal(nil)
+			expect(MapUi.geometryFor("forest-test", nil, nil, "road")).to.equal(nil)
 			expect(MapUi.geometryFor("something-else", nil, nil)).to.equal(nil)
 			expect(MapUi.geometryFor("something-else", nil, {})).to.equal(nil)
 			-- ...AND A REAL `Map` DOES NOT ANSWER FOR A WORLD IT IS NOT ABOUT (task 155 round 1, the
@@ -348,14 +409,14 @@ return function()
 
 		it("picks the Forest Test's geometry in that world and the Map's elsewhere", function()
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local forest = MapUi.geometryFor("forest-test", data, Map)
+			local forest = MapUi.geometryFor("forest-test", data, Map, "road")
 			expect(forest).to.be.ok()
 			expect((forest :: any).world).to.equal(data.WORLD)
-			expect(#(forest :: any).stands).to.equal(data.STAND_COUNT)
+			expect(#(forest :: any).stands).to.equal(data.ROAD_LAYOUT.standCount)
 			-- `Map.EXPECTED_WORLD` AND NOT `DEFAULT_WORLD`: since the fall-through was closed, a `Map`
 			-- only answers for the world it is about, and in the Forest Test place those two differ.
 			if Map.EXPECTED_WORLD ~= "forest-test" then
-				local dev = MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map)
+				local dev = MapUi.geometryFor(Map.EXPECTED_WORLD, data, Map, "road")
 				expect(dev).to.be.ok()
 				expect(#(dev :: any).stands).to.equal(0)
 			end
@@ -464,7 +525,7 @@ return function()
 			-- so the literal runs here and can fail here -- which is what the sibling case two
 			-- describes up already does.
 			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			local geometry = MapUi.geometryFor("forest-test", data, Map)
+			local geometry = MapUi.geometryFor("forest-test", data, Map, "road")
 			expect(geometry).to.be.ok()
 			local anchor = require(ReplicatedStorage:WaitForChild("Lobby")).anchorFor("forest-test")
 			expect(anchor).to.be.ok()
@@ -505,6 +566,225 @@ return function()
 				end
 			end
 			expect(roads >= 1).to.equal(true)
+		end)
+
+		it("REDRAWS the picture when the world hands it a different layout", function()
+			-- ROUND 1, FINDING 3: `setGeometry` latched `built` for the life of the client, so the
+			-- attribute signal replaced only the `geometry` table `withinBounds` reads -- the DRAWN
+			-- road, stands and views stayed on the first layout. From drive 2 on, the hunter's map
+			-- showed the PREVIOUS drive's ground.
+			--
+			-- IT IS ASSERTED ON THE DRAWN NODES, not on `MapUi.geometry()`, which is what made the
+			-- round-1 claim pass while the picture was wrong.
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			expect((Hud.minimap() :: Frame):FindFirstChild("Geometry")).to.be.ok()
+
+			-- THE LAYER IS RE-FOUND EVERY TIME, and that is the point rather than caution: a rebuild
+			-- DESTROYS the frame the picture was drawn into and makes a new one, so a spec holding
+			-- the old one would read a destroyed Instance with no children and "the map changed"
+			-- would pass for the wrong reason.
+			local function drawn(): (number, number, UDim2?)
+				local layer = (Hud.minimap() :: Frame):FindFirstChild("Geometry")
+				if layer == nil then
+					return 0, 0, nil
+				end
+				local stands, roads, first = 0, 0, nil
+				for _, child in ipairs((layer :: Frame):GetChildren()) do
+					if string.match(child.Name, "^Stand%d+$") then
+						stands += 1
+						if child.Name == "Stand1" then
+							first = (child :: Frame).Position
+						end
+					elseif child.Name == "Road" then
+						roads += 1
+					end
+				end
+				return stands, roads, first
+			end
+
+			local restore = MapUi.geometry()
+			local before = MapUi.stats()
+			local standsBefore, roadsBefore = drawn()
+
+			-- Two layouts with DIFFERENT stand counts, so "the picture moved" is countable.
+			local wide, narrow = nil, nil
+			for _, name in ipairs(data.LAYOUT_ORDER) do
+				local layout = data.layoutNamed(name)
+				if wide == nil or layout.standCount > data.layoutNamed(wide).standCount then
+					wide = name
+				end
+				if narrow == nil or layout.standCount < data.layoutNamed(narrow).standCount then
+					narrow = name
+				end
+			end
+			expect(wide).never.to.equal(narrow)
+
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, wide))
+			local standsWide, roadsWide, firstWide = drawn()
+			expect(standsWide).to.equal(data.layoutNamed(wide).standCount)
+			expect(roadsWide >= 1).to.equal(true)
+
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, narrow))
+			local standsNarrow, _roadsNarrow, firstNarrow = drawn()
+			-- THE DRAWN STANDS REALLY CHANGED, in number and in place.
+			expect(standsNarrow).to.equal(data.layoutNamed(narrow).standCount)
+			expect(standsNarrow).never.to.equal(standsWide)
+			expect(firstWide).to.be.ok()
+			expect(firstNarrow).to.be.ok()
+			expect(firstNarrow).never.to.equal(firstWide)
+			-- ...and the road was drawn again rather than stacked on top of itself.
+			local _s, roadsNarrow2 = drawn()
+			expect(roadsNarrow2).to.equal(roadsWide)
+			expect(MapUi.stats().rebuilds > before.rebuilds).to.equal(true)
+
+			-- IDEMPOTENT: the same geometry again rebuilds nothing, because `Hud` calls this on every
+			-- attribute write and a map that tore itself down per write would flicker.
+			local steady = MapUi.stats().rebuilds
+			MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, narrow))
+			expect(MapUi.stats().rebuilds).to.equal(steady)
+
+			TestKit.note(
+				string.format(
+					"map: redraw %s(%d stands) -> %s(%d stands); before this task the picture stayed at %d",
+					wide,
+					standsWide,
+					narrow,
+					standsNarrow,
+					standsBefore
+				)
+			)
+			-- Put the client's own map back, and prove it came back.
+			MapUi.setGeometry(restore)
+			local standsAfter, roadsAfter = drawn()
+			expect(standsAfter).to.equal(standsBefore)
+			expect(roadsAfter).to.equal(roadsBefore)
+			expect(MapUi.geometry()).to.equal(restore)
+		end)
+
+		it("leaves the Hud's OWN decorations alone when it redraws", function()
+			-- ROUND 2, FINDING 1. The rebuild cleared the frames' children "by ownership", and the
+			-- ownership claim was wrong: `Hud.build` parents four things of its own into them -- the
+			-- minimap's `UICorner`, which is HOW a circle is drawn in Roblox GUI without an uploaded
+			-- image (Karen: *"small map in left or right corner circle like is on another games"*), a
+			-- `UIStroke` rim on each frame, and the `MapLegend` frame, which IS the instance handed
+			-- back as `frames.legend`. So one layout change turned the minimap into a square with the
+			-- road in its corners, took both rims, and left the module's `legendFrame` pointing at a
+			-- destroyed instance. `Hud.build` runs once, so nothing ever put them back.
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			local mini, full = Hud.minimap() :: Frame, Hud.fullMap() :: Frame
+			local corner = mini:FindFirstChildOfClass("UICorner")
+			local miniRim = mini:FindFirstChildOfClass("UIStroke")
+			local fullRim = full:FindFirstChildOfClass("UIStroke")
+			local legend = full:FindFirstChild("MapLegend") :: Frame
+			expect(corner).to.be.ok()
+			expect(miniRim).to.be.ok()
+			expect(fullRim).to.be.ok()
+			expect(legend).to.be.ok()
+			local rows = #legend:GetChildren()
+			expect(rows > 0).to.equal(true)
+
+			local restore = MapUi.geometry()
+			local rebuilds = MapUi.stats().rebuilds
+			for _, name in ipairs(data.LAYOUT_ORDER) do
+				MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, name))
+			end
+			MapUi.setGeometry(restore)
+			expect(MapUi.stats().rebuilds > rebuilds).to.equal(true)
+
+			-- THE SAME INSTANCES, not replacements: `Hud.build` cannot make them again.
+			expect(corner.Parent).to.equal(mini)
+			expect(miniRim.Parent).to.equal(mini)
+			expect(fullRim.Parent).to.equal(full)
+			expect(legend.Parent).to.equal(full)
+			expect(mini:FindFirstChildOfClass("UICorner")).to.equal(corner)
+			-- ...and the legend is still drawn into THAT frame, with its rows, rather than into a
+			-- destroyed one.
+			expect(#legend:GetChildren()).to.equal(rows)
+			expect(full:FindFirstChild("MapLegend")).to.equal(legend)
+			-- The circle is still a circle: half the frame's side, which is what `ClipsDescendants`
+			-- keeps the road inside.
+			expect((corner :: UICorner).CornerRadius).to.equal(UDim.new(0.5, 0))
+			expect(mini.ClipsDescendants).to.equal(true)
+			TestKit.note(
+				string.format(
+					"map: %d redraw(s) and the Hud's UICorner, 2 UIStrokes and MapLegend (%d rows) all survived",
+					MapUi.stats().rebuilds - rebuilds,
+					rows
+				)
+			)
+		end)
+
+		it("leaves EXACTLY ONE of each drawer node on the minimap after a redraw", function()
+			-- ROUND 3, FINDING 1, AND IT IS THE THIRD TIME THIS CLASS HAS BEEN MISSED. The minimap
+			-- drawer's frame IS the Hud's own `MiniMap` -- unlike the full map's, whose frame is the
+			-- claimed `canvas` -- so every instance `buildDrawer` parents there has to be claimed or
+			-- the rebuild leaks it. Round 3 claimed six of the seven and left `TargetWord`: from the
+			-- first layout change the minimap carried two orange target words, the stale one frozen
+			-- at the previous layout's pinned position, still `Visible`, never updated again.
+			--
+			-- SO THIS CASE COUNTS rather than naming what it expects to find. A comment saying the
+			-- claim list is complete got the count wrong twice; a count cannot. The next instance
+			-- added to `buildDrawer` and not claimed fails here.
+			local data = require(ReplicatedStorage:WaitForChild("ForestTest"))
+			local mini = Hud.minimap() :: Frame
+
+			local function tally(): { [string]: number }
+				local counts: { [string]: number } = {}
+				for _, child in ipairs(mini:GetChildren()) do
+					local name = child.Name
+					-- The per-player markers are pooled at `MAX_MARKERS`, so they are counted as one
+					-- family rather than by index.
+					if string.match(name, "^Player%d+$") then
+						name = "Player*"
+					end
+					counts[name] = (counts[name] or 0) + 1
+				end
+				return counts
+			end
+
+			local restore = MapUi.geometry()
+			local before = tally()
+			-- The drawer's own nodes, every one of which `buildDrawer` parents into THIS frame.
+			local singles = { "Own", "Wedge", "PushArrow", "PushWord", "Target", "TargetWord", "Geometry" }
+			for _, name in ipairs(singles) do
+				expect(before[name]).to.equal(1, string.format("%s is not drawn once before the redraw", name))
+			end
+			local playersBefore = before["Player*"]
+			expect(playersBefore).to.equal(CONFIG.MAX_MARKERS)
+
+			for _, name in ipairs(data.LAYOUT_ORDER) do
+				MapUi.setGeometry(MapUi.geometryFor("forest-test", data, Map, name))
+			end
+			MapUi.setGeometry(restore)
+
+			local after = tally()
+			for _, name in ipairs(singles) do
+				expect(after[name]).to.equal(
+					1,
+					string.format("%d x %s on the minimap after %d redraws", after[name] or 0, name, #data.LAYOUT_ORDER)
+				)
+			end
+			expect(after["Player*"]).to.equal(playersBefore)
+			-- ...AND NOTHING ELSE APPEARED EITHER: the same set of names, with the same counts. That
+			-- is the half a list of names cannot give you -- it is what makes a NEW unclaimed
+			-- instance fail this case instead of slipping past it.
+			for name, count in pairs(after) do
+				expect(before[name]).to.equal(
+					count,
+					string.format("%s: %d before the redraws, %d after", name, before[name] or 0, count)
+				)
+			end
+			for name in pairs(before) do
+				expect(after[name]).to.be.ok(string.format("%s went missing in the redraws", name))
+			end
+			TestKit.note(
+				string.format(
+					"map: after %d redraws the minimap holds one each of %s, and %d player markers",
+					#data.LAYOUT_ORDER,
+					table.concat(singles, "/"),
+					after["Player*"]
+				)
+			)
 		end)
 
 		it("binds M, and only once there is a map to open", function()

@@ -127,7 +127,7 @@ Bots.CONFIG = {
 	-- studs of front about one base -- and the base is the stand the drive aims at, which is what
 	-- Karen saw as *"all bots came to me"*. How wide a drive line is depends on the hunters' front
 	-- and where its goals land depends on the shape of the road, and this system can see neither, so
-	-- the number does not belong here: `ForestTest.BEATER.laneSpacingStuds` holds it now and
+	-- the number does not belong here: `ForestTest.laneSpacing(layout)` holds it now and
 	-- `Match.botSlotsFor` asks the world for each lane by index.
 	-- `ForestTest.BEATER.clearStuds`: a Roblox character is 2 studs across, so 6 is a body's width
 	-- of clearance on every side. The same question answered by the same number.

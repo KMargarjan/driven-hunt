@@ -236,13 +236,13 @@ return function()
 		it("is invariant to where the plane SITS, because the arc reads the normal only", function()
 			local north = Vector3.new(0, 0, 1)
 			local away = Vector3.new(0, 0, -1)
-			local base = { position = Data.CENTRE, normal = Vector3.zAxis }
+			local base = { position = Data.ROAD_LAYOUT.centre, normal = Vector3.zAxis }
 			local moved = {
-				position = Data.CENTRE + Vector3.new(600, 0, Data.ROAD.amplitudeStuds),
+				position = Data.ROAD_LAYOUT.centre + Vector3.new(600, 0, Data.ROAD_LAYOUT.amplitudeStuds),
 				normal = Vector3.zAxis,
 			}
 			local far = {
-				position = Data.CENTRE - Vector3.new(600, 0, Data.ROAD.amplitudeStuds),
+				position = Data.ROAD_LAYOUT.centre - Vector3.new(600, 0, Data.ROAD_LAYOUT.amplitudeStuds),
 				normal = Vector3.zAxis,
 			}
 			for _, line in ipairs({ base, moved, far }) do
@@ -259,7 +259,7 @@ return function()
 			-- What WOULD matter is north ceasing to be the drive side. The road's tangent swings only
 			-- atan(30/70) = 23 degrees, so every stand has the push line to its north -- which is why
 			-- one plane with a +Z normal is the right answer here.
-			for index = 1, Data.STAND_COUNT do
+			for index = 1, Data.ROAD_LAYOUT.standCount do
 				local x = Data.standX(index)
 				local road = Data.roadZ(x)
 				local start = Data.beaterStart(x, 0)
@@ -268,7 +268,7 @@ return function()
 			-- ...and the spawn the waves come from is north of the road too, said ONCE rather than
 			-- nine times inside the loop above.
 			expect(Data.LINE.spawnNorthStuds > 0).to.equal(true)
-			local swing = math.deg(math.atan(Data.ROAD.amplitudeStuds / Data.ROAD.wavelengthDivisor))
+			local swing = math.deg(math.atan(Data.ROAD_LAYOUT.amplitudeStuds / Data.SHAPE.wavelengthDivisor))
 			expect(swing < HALF).to.equal(true)
 			TestKit.note(string.format("forest-line: the road's tangent swings %.1f degrees", swing))
 		end)

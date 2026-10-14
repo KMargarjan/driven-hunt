@@ -77,13 +77,54 @@ return function()
 			expect(forest.y).to.equal(nil)
 		end)
 
-		it("is 570 studs clear of the drive, so it cannot interact with it", function()
+		-- IT IS A DISTANCE BETWEEN TWO RECTANGLES NOW, AND NOT A z COMPARISON (task 179).
+		--
+		-- This case used to read `forest.z < ForestTest.EXIT_Z` and `CENTRE.Z - forest.z > 500`, and
+		-- BOTH became false: `EXIT_Z` is gone, and the `edge` layout's exit is z -3250 -- which is
+		-- SOUTH of the lodge at -2950. A z comparison was only ever a proxy for *"the lodge is not
+		-- in the way"*, and with three layouts in three different parts of the wood it is the wrong
+		-- question: the edge drive is 255 studs EAST of the lodge, not north of it.
+		--
+		-- EACH OWNER STATES ITS OWN RECTANGLE and this spec is the only place the two meet --
+		-- `ForestTest.corridorOf` is the forest's, `Lobby.anchorFor` plus `Lobby.CONFIG.FIELD` is
+		-- the lobby's. Making either module require the other for one assertion would be new
+		-- coupling for nothing.
+		local function gapStuds(a, b): number
+			local dx = math.max(a.minX - b.maxX, b.minX - a.maxX, 0)
+			local dz = math.max(a.minZ - b.maxZ, b.minZ - a.maxZ, 0)
+			-- 0 on either axis with the other positive is a side-on gap; both positive is a corner.
+			return if dx > 0 and dz > 0 then math.sqrt(dx * dx + dz * dz) else math.max(dx, dz)
+		end
+
+		it("is clear of EVERY drive layout's ground, so it cannot interact with the drive", function()
 			local forest = Data.anchorFor("forest-test") :: any
 			local ForestTest = require(ReplicatedStorage:WaitForChild("ForestTest"))
-			-- South of the road, south of where the boars leave the world, and outside the field the
-			-- drive releases animals into.
-			expect(forest.z < ForestTest.EXIT_Z).to.equal(true)
-			expect(ForestTest.CENTRE.Z - forest.z > 500).to.equal(true)
+			local Boar = require(ServerScriptService:WaitForChild("Boar"))
+			local half = Data.CONFIG.FIELD.SPAN_STUDS / 2
+			local lodge = {
+				minX = forest.x - half,
+				maxX = forest.x + half,
+				minZ = forest.z - half,
+				maxZ = forest.z + half,
+			}
+			expect(#ForestTest.LAYOUT_ORDER > 0).to.equal(true)
+			for _, name in ipairs(ForestTest.LAYOUT_ORDER) do
+				local layout = ForestTest.layoutNamed(name)
+				-- The ground a drive happens on: the stands' span, from the exit to the beaters'
+				-- start. Nobody stands, walks or is placed outside it.
+				local corridor = ForestTest.corridorOf(layout)
+				local corridorGap = gapStuds(corridor, lodge)
+				expect(corridorGap >= 100).to.equal(
+					true,
+					string.format("layout %s: corridor is only %.0f studs from the lodge", name, corridorGap)
+				)
+				-- ...and the rectangle a boar may be clamped into, which is wider than the corridor.
+				local boundsGap = gapStuds(ForestTest.boundsOf(layout), lodge)
+				expect(boundsGap >= Boar.CONFIG.BOUNDS_SLACK + 40).to.equal(
+					true,
+					string.format("layout %s: boar bounds are only %.0f studs from the lodge", name, boundsGap)
+				)
+			end
 		end)
 	end)
 

@@ -1,5 +1,138 @@
 # Escalations
 
+## 2026-10-14 - Task 179: READY FOR ROUND 4 179 f13ad7d -- the cap is reached; this needs Karen's OK
+
+**`MAX_ROUNDS` IS 3 AND ROUND 3 CAME BACK WITH FINDINGS.** `tools/review.sh` will refuse `Round: 4`,
+and it may only be raised for ONE run with `DIRECTOR_MAX_ROUNDS=4` once this file records Karen's
+authorisation **for this task and this round** (CLAUDE.md, *"One extra round, by Director
+authorisation only"*). **The Builder has not run the review**, and will not until that line is here.
+
+**The work is done and ready**, so the authorisation is the only thing between here and a verdict:
+
+* code commit **f13ad7de1aa354d0b3c98a63d4ea67245661408b**, FULL `test` twice, both
+  `PASS: 33/33 ... (clean tree) scope=all` (1372 server + 328 client assertions);
+* round 3's one finding fixed -- `buildDrawer`'s `TargetWord` was the single instance this module
+  parents into the Hud's own minimap frame without claiming it, so every layout change leaked a
+  stale, still-`Visible` target word;
+* **the sweep the dispatch asked for**: all twenty-three `.Parent =` / `label(...)` sites in
+  `MapUi.luau` checked against *is the parent a frame this module does not own*. Twenty-two were
+  already covered; `TargetWord` was the one miss; nothing of that class is left;
+* **and a COUNT rather than a comment**, so a round 5 could not find this a fourth time:
+  `map_ui.spec` counts the minimap's children by name before and after a redraw per layout and
+  requires exactly one of each drawer node, with no name whose count changed, appeared or vanished;
+* round 3's six other notes all fixed (the `fullScale` asymmetry, the `Live` child now waited for,
+  `standIndexFor`'s even-count walk made a real permutation, and three stale comments).
+
+**THE HONEST CASE FOR AND AGAINST A FOURTH ROUND, for Karen:**
+
+* **For:** every round has found something real, and three of the four rounds' findings were in code
+  written to fix the previous round's finding. The one defect left after round 3 is in the client's
+  map and is cosmetic (a duplicated word on the minimap), but the class is one this task has been
+  wrong about three times, so an independent read is worth having.
+* **Against:** it costs another paid Reviewer session (~$6-10) and the Director's `test2` click, and
+  the thing Karen actually wants to judge -- whether three different places to stand is better than
+  one -- is not what the review is about. Merging after round 3's fix plus the Director's own read
+  would also be defensible.
+
+**IF SHE SAYS YES**, the sequence is: `python tools/studio_mcp.py test2` at `f13ad7d` (the round-3
+`[harness2]` line names `c659c6d` and does NOT carry -- a two-player line is evidence only for the
+commit it names), paste it over the placeholder in `reviews/task-179/REQUEST.md`, commit, then
+`DIRECTOR_MAX_ROUNDS=4 powershell -ExecutionPolicy Bypass -File tools/review.ps1 179`. The clicks for
+`test2` are in the round-1 entry below. `DIRECTOR_MAX_ROUNDS` is never committed.
+
+**IF SHE SAYS NO**, this is where it stops and the Director decides on merge or shelve; the branch is
+pushed and green either way.
+
+
+## 2026-10-14 - Task 179 ROUND 3: NEEDS TEST2 179 7a6acf7 -- the same click, at the final head
+
+Round 3 fixed round 2's blocking finding (the rebuild was destroying four instances `Hud` owns, so
+one layout change left the minimap a square with no rim and no legend) plus three true notes, and the
+gate caught two halves of my own fixes being half-done -- both are in the commits. The code commit is
+now **7a6acf74f10f58f856add16e7d9ce7b0acc5b38c**, FULL `test` twice, both
+`PASS: 33/33 ... (clean tree) scope=all`.
+
+**The round-2 `[harness2] PASS: 35/35 checks @ 08ddde7` does not carry.** A two-player line is
+evidence only for the commit it names, and this one has moved twice since. That is round 2's own
+note about the request and `TASKS.md` disagreeing with each other, taken seriously.
+
+**The command:** `python tools/studio_mcp.py test2` at `7a6acf7`, with the clicks in the round-1
+entry below. The line then replaces the placeholder in `reviews/task-179/REQUEST.md`, and
+`powershell -ExecutionPolicy Bypass -File tools/review.ps1 179` runs round 3 -- **the last round
+`MAX_ROUNDS` allows**.
+
+**What a second player answers, unchanged since round 2:** nothing about the layouts, which are
+proved one-player in specs and in two 60-second live runs. It answers the one change outside the
+forest -- `Match` measuring the marker set on the `Assigning` edge, so a drive places its hunters on
+the set belonging to the drive they are in. With one player that is one hunter; with two it is a
+roster.
+
+
+## 2026-10-14 - Task 179 ROUND 2: NEEDS TEST2 179 9e880f5 -- the same click, at the new head
+
+Round 2 fixed all four of round 1's findings, so the code commit moved:
+**9e880f57c157bb9d72f5e33f0fcc46c76d0fef6d**, FULL `test` twice, both
+`PASS: 33/33 ... (clean tree) scope=all`. The round-1 entry below is at the OLD head and does not
+carry.
+
+**The command:** `python tools/studio_mcp.py test2` at `9e880f5`, with the clicks in the round-1
+entry below. The line then replaces the placeholder in `reviews/task-179/REQUEST.md`, and
+`powershell -ExecutionPolicy Bypass -File tools/review.ps1 179` runs round 2.
+
+**What a second player answers for this task, restated because round 2 narrowed it:** nothing about
+the layouts -- those are proved one-player, in specs and in two 60-second live runs on the ride and
+the edge. It answers the ONE change outside the forest: `Match` now measures the marker set on the
+`Assigning` edge instead of on the next step, so a drive places its hunters on the set belonging to
+the drive they are in. With one player that is one hunter; with two it is a roster.
+
+
+## 2026-10-14 - Task 179: NEEDS TEST2 179 598e119 -- the two-player run, which nothing but a human click can start
+
+**Three drive layouts are built, gated TWICE on the one-player harness at the code commit
+(`[harness] PASS: 33/33 checks @ 598e1192e61073da6d69cb6128f258b83031517c (clean tree) scope=all`),
+smoke-checked twice in the Forest Test and photographed. The one thing missing is the two-player
+line**, and the Director's dispatch asked for exactly this stop: *"TWO_PLAYER_PATHS likely touched:
+stop 'NEEDS TEST2 179 <sha>' with a placeholder."*
+
+**Why this task needs it.** `src/server/Match/init.luau` is in `TWO_PLAYER_PATHS`, and the change
+there is not incidental: the design found that `Match` sets `markersStale` on the `Assigning` edge
+but reads the set on the NEXT step, so **every drive's hunters are placed on the marker set measured
+during the previous drive** (`docs/design/drive-layouts.md` 6.1). `measureMarkers()` is split out of
+`readMarkers()` and called on the edge; only the measurement moves, the event still goes out on the
+next step. In DEV the measurement is five idempotent `GetTagged` calls, so nothing there should
+change -- and *should* is the word the two-player run replaces. `tools/review.sh 179` is refused
+until that line is in the request, so this blocks the review round as well as the merge.
+
+**A scoped run does not waive it.** `src/shared/ForestTest/` is not in `BLAST_RADIUS`, so an unmapped
+`src/` path resolves to the whole suite and a `--scope auto` run is tagged `scope=all` -- full
+evidence, which asks for the two-player line.
+
+**`run-test2.sh` ALSO refuses right now, and the reason is Karen's own setup:** it begins
+`[ "$n0" -eq 1 ] || { echo "REFUSED: $n0 studios open before the run"; exit 5; }` and two Studios are
+open -- DEV, and Karen's Forest Test carrying `DHFlag_COINS`, `DHFlag_DRIVE_BOTS`, `DHFlag_SHOP`,
+`DHShopTestGrant` and `DHForestStartRole`. Closing it would lose that setup, which is not the
+Builder's to spend.
+
+### The exact clicks, in order
+
+1. In the **Forest Test** Studio window: nothing. Leave it exactly as it is. (If the Director would
+   rather use `run-test2.sh`, this window has to be CLOSED first -- *Don't Save* -- and Karen's five
+   attributes set again afterwards. The manual route below does not need that.)
+2. Focus the **Driven Hunt DEV** Studio window, in **Edit** mode.
+3. Run, from the repo: `python tools/studio_mcp.py test2`
+4. When it prints that the gate is shut and asks for the click: **Test -> Clients and Servers,
+   2 players, Start** (or press **F7** once, which is the same command).
+5. Let it run. It ends the session itself; if three extra Studio processes are left over, use
+   **Cleanup** in the Test tab.
+6. Paste the `[harness2] PASS: n/n checks @ 598e1192e61073da6d69cb6128f258b83031517c (clean tree)`
+   line over the placeholder block in `reviews/task-179/REQUEST.md`, commit it, then run
+   `powershell -ExecutionPolicy Bypass -File tools/review.ps1 179`.
+
+**If it FAILS**, the first thing to read is whether a hunter was placed on a post of the layout the
+drive had just dealt -- that is the one behaviour this task moved in `Match`, and the forest's own
+console says which layout it was: `[ForestTestBoot] markers: layout=<name> n/n stands`.
+
+
 ## 2026-10-14 - Task 178 ROUND 2: NEEDS TEST2 178 6a17fc7 -- the same click, at the new head
 
 Round 2 answered the Reviewer's finding 1 (the licensed beater now has a test that can fail) and
@@ -2206,3 +2339,8 @@ which costs a human click of its own and which this Builder does not run.
 ## 2026-10-13 -- DIRECTOR: one extra review round for task 172 (round 4), with Karen's OK
 
 Task 172 reached the 3-round cap; round 3's one finding (a spec that could not fail) was fixed in `bbee0d4`. The finding was test-only, not documentation-only, so the standing rule does not cover it; Karen was asked and answered "yes please" (2026-10-13 ~13:50) to "OK Task 172 now?". The Director authorises ONE extra round for **task 172, round 4**, run with `DIRECTOR_MAX_ROUNDS=4` in the environment (never committed). A failing round 4 is an escalation, not a request for a fifth.
+
+
+## 2026-10-14 -- DIRECTOR: one extra review round for task 179 (round 4), with Karen's OK
+
+Task 179 reached the 3-round cap (round 3: an unclaimed TargetWord label in MapUi; fixed in `f13ad7d` with a count that prevents the class). Karen was asked "Allow one extra review round so it can merge?" and answered "Yes, allow it" (2026-10-14 ~09:40). The Director authorises ONE extra round for **task 179, round 4**, run with `DIRECTOR_MAX_ROUNDS=4` in the environment (never committed). A failing round 4 is an escalation, not a request for a fifth.

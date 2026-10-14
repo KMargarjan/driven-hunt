@@ -96,7 +96,7 @@ MapUi.CONFIG = {
 	MINIMAP_TOP = 140,
 	MINIMAP_MARGIN = 12,
 	-- HOW FAR IT SEES, as a radius. 300 studs is 84 m at 0.28 m/stud and TWO stand spacings
-	-- (`ForestTest.STAND_SPACING` 150), so a beater walking in sees the road and at least two stands
+	-- (`ForestTest.LAYOUTS.road.standSpacing` 150), so a beater walking in sees the road and at least two stands
 	-- before she reaches them.
 	MINIMAP_RANGE_STUDS = 300,
 
@@ -532,14 +532,21 @@ end
 
 -- THE FOREST TEST'S MAP, out of the world's own data module. EVERY NUMBER IS ASKED FOR, NOT COPIED:
 -- `ForestTest.roadZ(x)` is that module's own words *"the one definition; every other reader calls
--- this"*, and `standPosition(index)` is where a hunter stands. A map that re-typed the sine would be
+-- this"*, and `standPosition(index, layout)` is where a hunter stands. A map that re-typed the sine would be
 -- a second curve that disagrees with the first the next time the Director bends the road.
 --
 -- `data` IS PASSED IN rather than required, so this stays pure and a spec can hand it a table.
-function MapUi.geometryFromForestTest(data: any): MapGeometry
+--
+-- ...AND SO IS THE LAYOUT (task 179). This world deals one of several drive layouts per drive, and
+-- the LAYOUT is what says where the line is, how long it is, how many stands it has and whether it
+-- bends at all. The client does not choose it and does not derive it: the server publishes the name
+-- and `geometryFor` below resolves it, because a client that guessed would draw a different road
+-- from the one the hunter's feet are on -- invisible in a screenshot, and this project's named
+-- killer.
+function MapUi.geometryFromForestTest(data: any, layout: any): MapGeometry
 	local config = MapUi.CONFIG
-	local centre = data.CENTRE
-	local halfSpan = data.HALF_SPAN
+	local centre = layout.centre
+	local halfSpan = layout.halfSpanStuds
 	local margin = config.GEOMETRY_MARGIN_STUDS
 
 	local road = {}
@@ -547,12 +554,15 @@ function MapUi.geometryFromForestTest(data: any): MapGeometry
 	for index = 1, samples do
 		local t = (index - 1) / (samples - 1)
 		local x = centre.X - halfSpan + t * (2 * halfSpan)
-		table.insert(road, Vector2.new(x, data.roadZ(x)))
+		-- A STRAIGHT LAYOUT SAMPLES TO A STRAIGHT POLYLINE, with no second code path: `roadZ`
+		-- answers `centre.Z` at every x when the amplitude is 0, which is the same shape
+		-- `geometryFromMap` already draws DEV's two-point road with.
+		table.insert(road, Vector2.new(x, data.roadZ(x, layout)))
 	end
 
 	local stands = {}
-	for index = 1, data.STAND_COUNT do
-		local at = data.standPosition(index)
+	for index = 1, layout.standCount do
+		local at = data.standPosition(index, layout)
 		table.insert(stands, Vector2.new(at.X, at.Z))
 	end
 
@@ -562,15 +572,14 @@ function MapUi.geometryFromForestTest(data: any): MapGeometry
 	-- task 162; 700 is still the larger, so these bounds are unchanged by it) --
 	-- because a driver walking in from 700 studs is one of the *"other players moving"* Karen asked
 	-- to see, and a map that cuts him off has lost him.
-	local beaterNorth = data.LINE.spawnNorthStuds + data.BEATER.behindLineStuds
-	local north = math.max(data.DRIVERS.startNorthStuds, beaterNorth)
+	local north = math.max(data.DRIVERS.startNorthStuds, data.beaterNorthStuds())
 	return {
 		world = data.WORLD,
 		bounds = {
 			minX = centre.X - halfSpan - margin,
 			maxX = centre.X + halfSpan + margin,
-			minZ = data.EXIT_Z - margin,
-			maxZ = centre.Z + data.ROAD.amplitudeStuds + north + margin,
+			minZ = data.exitZOf(layout) - margin,
+			maxZ = centre.Z + layout.amplitudeStuds + north + margin,
 		},
 		road = road,
 		stands = stands,
@@ -616,12 +625,23 @@ end
 -- WHICH WORLD'S GEOMETRY, or `nil`. A world that has stated nothing gets NO MAP AT ALL and says so
 -- out loud -- never a blank panel, because `docs/PROJECT_CONTEXT.md` records a visibility audit that
 -- *"certified a blank screen twice"* and an empty map frame is exactly that picture.
-function MapUi.geometryFor(world: string, forestTest: any?, map: any?): MapGeometry?
+--
+-- `layoutName` IS THE STRING THE SERVER PUBLISHED (task 179), and an unknown or absent one gets NO
+-- MAP rather than the road's: *"a world that has stated nothing gets no map at all"* is the rule
+-- above, and "this drive is on a layout I have never heard of" is exactly a world that has stated
+-- nothing. The attribute signal in `Hud` redraws the instant a name arrives, so the no-name case is
+-- a frame at worst -- the server publishes inside `Match.start`'s first marker read, before any
+-- player's Hud runs.
+function MapUi.geometryFor(world: string, forestTest: any?, map: any?, layoutName: string?): MapGeometry?
 	if world == "forest-test" then
 		if forestTest == nil then
 			return nil
 		end
-		return MapUi.geometryFromForestTest(forestTest)
+		local layout = forestTest.layoutNamed(layoutName)
+		if layout == nil then
+			return nil
+		end
+		return MapUi.geometryFromForestTest(forestTest, layout)
 	end
 	-- THE WORLD MUST BE THE ONE THE MAP MODULE IS ABOUT (task 155 round 1, the Reviewer's note).
 	-- Without this compare, ANY unrecognised world fell through to the DEV geometry and would have
@@ -704,6 +724,28 @@ type Drawer = {
 }
 local drawers: { Drawer } = {}
 
+-- ---------------------------------------------------------------- what this module put on screen
+--
+-- EVERY INSTANCE `setGeometry` PARENTS INTO A FRAME IT DOES NOT OWN goes through `claim`, and
+-- `teardown` destroys exactly that list when the world hands the map a different layout (task 179,
+-- round 2's finding 1 and round 3's gate run).
+--
+-- IT IS A LIST AND NOT A RULE, because the rule is what was wrong twice over. Round 2 cleared the
+-- frames' CHILDREN "by ownership" and took `Hud.build`'s own `UICorner` (which is HOW a circle is
+-- drawn in Roblox GUI without an uploaded image), both `UIStroke` rims and the `MapLegend` frame --
+-- none of which `Hud.build` can make again, because it runs once. Round 3's first list then missed
+-- the other direction: `buildDrawer` parents its markers, the player's own dot, the view wedge, the
+-- push arrow and its word and the goal mark DIRECTLY into the minimap frame, so a rebuild left the
+-- old set behind and the map carried two push arrows -- the stale one still `Visible` -- which the
+-- gate caught in `map_ui.spec`. An instance nobody claimed is never destroyed by a rebuild, and an
+-- instance this module parents is always claimed: the two halves of one rule, in one place.
+local claimed: { Instance } = {}
+
+local function claim<T>(instance: T & Instance): T
+	table.insert(claimed, instance)
+	return instance
+end
+
 local lastViewport = Vector2.new(0, 0)
 -- A VIEWPORT A CALLER HAS PINNED, for as long as it holds it. A spec cannot resize a Studio window,
 -- and without this the 20 Hz tick reads the real `ViewportSize` within 50 ms and undoes whatever was
@@ -719,6 +761,9 @@ local viewportOverride: Vector2? = nil
 -- `pinned` IS PER TICK, like `overflow` beside it, and is reset at the top of `render`: one name
 -- must not answer "now" for one field and "since boot" for another.
 local stats = {
+	-- HOW MANY TIMES THE PICTURE WAS DRAWN AGAIN because the world's geometry changed under it
+	-- (task 179): one per drive layout change. 0 in a world with one layout, which is DEV.
+	rebuilds = 0,
 	ticks = 0,
 	toggles = 0,
 	keyToggles = 0,
@@ -907,7 +952,7 @@ local function buildDrawer(
 		corner.CornerRadius = UDim.new(0.5, 0)
 		corner.Parent = node
 		stroked(node)
-		node.Parent = frame
+		claim(node).Parent = frame
 		table.insert(markers, node)
 	end
 
@@ -924,7 +969,7 @@ local function buildDrawer(
 	ownCorner.CornerRadius = UDim.new(0.5, 0)
 	ownCorner.Parent = own
 	stroked(own)
-	own.Parent = frame
+	claim(own).Parent = frame
 
 	-- WHICH WAY YOU ARE LOOKING. A short bar offset along the view bearing from your own dot, in the
 	-- cream the compass's centre hairline uses -- so "me" and "my view" read as one mark.
@@ -938,7 +983,7 @@ local function buildDrawer(
 	wedge.ZIndex = config.Z_INDEX + 3
 	wedge.Visible = false
 	stroked(wedge)
-	wedge.Parent = frame
+	claim(wedge).Parent = frame
 
 	-- WHICH WAY TO GO. Karen: *"what direction to move"*. A bar from your own marker with the word at
 	-- its tip -- and the WORD TRAVELS WITH THE BEARING, which is task 153 round 2's blocking finding:
@@ -960,9 +1005,9 @@ local function buildDrawer(
 	arrow.ZIndex = config.Z_INDEX + 2
 	arrow.Visible = false
 	stroked(arrow)
-	arrow.Parent = frame
+	claim(arrow).Parent = frame
 
-	local word = label(frame, "PushWord", config.LABEL_SIZE, "")
+	local word = claim(label(frame, "PushWord", config.LABEL_SIZE, ""))
 	word.TextColor3 = MapUi.COLORS.arrow
 	word.AnchorPoint = Vector2.new(0.5, 0.5)
 	word.Size = UDim2.fromOffset(60, config.LABEL_SIZE + 2)
@@ -983,11 +1028,11 @@ local function buildDrawer(
 	goal.ZIndex = config.Z_INDEX + 2
 	goal.Visible = false
 	stroked(goal)
-	goal.Parent = frame
+	claim(goal).Parent = frame
 
 	-- A SIBLING AND NOT A CHILD, for the reason the waypoint's word is one in `Hud.build`: a child
 	-- would inherit the 45-degree `Rotation` and read at an angle.
-	local goalWord = label(frame, "TargetWord", config.LABEL_SIZE, "")
+	local goalWord = claim(label(frame, "TargetWord", config.LABEL_SIZE, ""))
 	goalWord.TextColor3 = MapUi.COLORS.arrow
 	goalWord.AnchorPoint = Vector2.new(0.5, 0)
 	goalWord.Size = UDim2.fromOffset(70, config.LABEL_SIZE + 2)
@@ -1410,8 +1455,92 @@ end
 -- Forest Test's data over a quarter of a second after `Hud.start` ran, and *"no `ForestTest` yet"*
 -- must not mean no map for the session. Idempotent: a second call builds nothing twice -- the shape
 -- `ReportPanel.setMatch` and `Compass.setBearing` both have.
+-- ...AND IT REBUILDS WHEN THE GEOMETRY IS A DIFFERENT WORLD (task 179 round 2, finding 3).
+--
+-- `built` USED TO LATCH FOR THE LIFE OF THE CLIENT, which was right while a world had exactly one
+-- geometry and wrong the moment it had three: the Forest Test deals a drive layout per drive, and a
+-- latched build left the hunter's minimap and full map drawn on the PREVIOUS layout's road and
+-- stands from drive 2 on -- the attribute signal replaced only the `geometry` table that
+-- `withinBounds` reads, so the picture itself never moved.
+--
+-- IT IS STILL IDEMPOTENT, and that is what the `sameGeometry` test is for: `Hud` calls this on every
+-- attribute change, and an attribute that is written again with the same name must not tear a
+-- drawn map down and build it back. Only a geometry that is really different is rebuilt.
+--
+-- THE TEAR-DOWN IS BY A LIST OF WHAT THIS MODULE MADE (`claim`, below), not by clearing the frames:
+-- `Hud.build` has four instances of its own in them and round 2 destroyed all four.
+local function sameGeometry(a: MapGeometry?, b: MapGeometry?): boolean
+	if a == nil or b == nil then
+		return a == b
+	end
+	if a.world ~= b.world or #a.road ~= #b.road or #a.stands ~= #b.stands then
+		return false
+	end
+	for key, value in pairs(a.bounds) do
+		if math.abs(value - (b.bounds :: any)[key]) > 1e-6 then
+			return false
+		end
+	end
+	for index, point in ipairs(a.stands) do
+		if (point - b.stands[index]).Magnitude > 1e-3 then
+			return false
+		end
+	end
+	for index, point in ipairs(a.road) do
+		if (point - b.road[index]).Magnitude > 1e-3 then
+			return false
+		end
+	end
+	return true
+end
+
+-- WHAT THIS MODULE PUT INSIDE THE HUD'S FRAMES, so a rebuild can take back exactly that and nothing
+-- else (round 2, finding 1).
+--
+-- ROUND 2 CLEARED THE FRAMES' CHILDREN BY OWNERSHIP and the ownership claim was simply WRONG:
+-- `Hud.build` parents four things of its own into them -- the minimap's `UICorner` (which is HOW a
+-- circle is drawn in Roblox GUI without an uploaded image, and Karen asked for *"small map in left
+-- or right corner circle like is on another games"*), a `UIStroke` rim on each frame, and the
+-- `MapLegend` frame itself, which is a CHILD of the full map and is the very instance handed back as
+-- `frames.legend`. So the first layout change turned the minimap into a square with the road in its
+-- corners, took both rims, and left `legendFrame` pointing at a destroyed instance that the rebuild
+-- then wrote every swatch into. `Hud.build` runs once, so nothing ever put them back.
+--
+-- A LIST AND NOT A RULE, because the rule is what was wrong. Every instance this module parents into
+-- a frame it does not own goes through `claim`, and `teardown` destroys that list -- children go with
+-- their parents. An instance nobody claimed cannot be destroyed by a rebuild, and an instance this
+-- module parents is always claimed: the two halves of one rule, in one place.
+--
+-- THE COUNT IS NOT WRITTEN DOWN ANY MORE, and that is the third lesson rather than a shrug. It said
+-- "nine" while there were fifteen, which is a comment whose job is to say the list is COMPLETE
+-- getting the one number it carries wrong. What makes the list complete is checkable instead:
+-- `map_ui.spec` counts the drawer's own children on the minimap after a redraw per layout, so the
+-- next instance added to `buildDrawer` and not claimed fails a case rather than passing a comment.
+-- Round 3 missed `TargetWord` exactly that way, one instance after missing six.
+local function teardown()
+	for index = #claimed, 1, -1 do
+		claimed[index]:Destroy()
+	end
+	table.clear(claimed)
+	table.clear(drawers)
+	-- BOTH, not one: the two `UIScale`s were just destroyed with everything else, and leaving
+	-- `fullScale` pointing at a destroyed instance was an asymmetry that read as an oversight. The
+	-- rebuild assigns both again on its next statements, so this is about what is TRUE between the
+	-- two halves rather than about a bug anybody could reach.
+	miniScale, fullScale = nil, nil
+	built = false
+	stats.rebuilds += 1
+end
+
 function MapUi.setGeometry(next_: MapGeometry?)
+	local before = geometry
 	geometry = next_
+	if next_ ~= nil and built and not sameGeometry(before, next_) then
+		-- A DIFFERENT WORLD, SO THE PICTURE IS DRAWN AGAIN. `ContextActionService:BindAction` at the
+		-- end of the build re-binds the same name to the same key, which the engine treats as a
+		-- replacement rather than a second binding, so M stays one action.
+		teardown()
+	end
 	if next_ == nil or built or miniFrame == nil or fullFrame == nil then
 		MapUi.applyVisibility()
 		return
@@ -1424,7 +1553,7 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	local full = fullFrame :: Frame
 
 	-- ---------------- the minimap: a sliding geometry layer inside the round, clipped frame
-	local miniShrink = Instance.new("UIScale")
+	local miniShrink = claim(Instance.new("UIScale"))
 	miniShrink.Parent = mini
 	miniScale = miniShrink
 
@@ -1452,7 +1581,7 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	inner.Size = UDim2.fromOffset(0, 0)
 	inner.Position = UDim2.fromScale(0.5, 0.5)
 	inner.ZIndex = config.Z_INDEX + 1
-	inner.Parent = mini
+	claim(inner).Parent = mini
 	drawGeometry(inner, model, layerView, false)
 
 	-- ---------------- the full map: a fixed-size panel, scaled to fit
@@ -1473,11 +1602,11 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	)
 	full.Position = UDim2.new(0.5, 0, 0, config.FULL_TOP)
 
-	local fullShrink = Instance.new("UIScale")
+	local fullShrink = claim(Instance.new("UIScale"))
 	fullShrink.Parent = full
 	fullScale = fullShrink
 
-	local title = label(full, "Title", config.TITLE_SIZE, string.format("MAP   %s", model.world))
+	local title = claim(label(full, "Title", config.TITLE_SIZE, string.format("MAP   %s", model.world)))
 	title.AnchorPoint = Vector2.new(0.5, 0)
 	title.Position = UDim2.new(0.5, 0, 0, 3)
 	title.Size = UDim2.new(1, -2 * config.FULL_PADDING, 0, config.FULL_TITLE_HEIGHT)
@@ -1490,7 +1619,7 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	canvas.Position = UDim2.fromOffset(config.FULL_PADDING, config.FULL_TITLE_HEIGHT + config.FULL_PADDING)
 	canvas.ClipsDescendants = true
 	canvas.ZIndex = config.Z_INDEX + 1
-	canvas.Parent = full
+	claim(canvas).Parent = full
 	drawGeometry(canvas, model, fullView, true)
 
 	-- NORTH UP, SAID ON THE PICTURE. A map with no north is a map you have to be told about.
@@ -1509,9 +1638,9 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	bar.BorderSizePixel = 0
 	bar.ZIndex = config.Z_INDEX + 3
 	stroked(bar)
-	bar.Parent = full
+	claim(bar).Parent = full
 
-	local barLabel = label(full, "ScaleLabel", config.LABEL_SIZE, string.format("%d m", metres))
+	local barLabel = claim(label(full, "ScaleLabel", config.LABEL_SIZE, string.format("%d m", metres)))
 	barLabel.AnchorPoint = Vector2.new(0, 1)
 	barLabel.Position = UDim2.new(0, config.FULL_PADDING, 1, -3)
 	barLabel.Size = UDim2.fromOffset(80, config.LABEL_SIZE + 2)
@@ -1544,8 +1673,8 @@ function MapUi.setGeometry(next_: MapGeometry?)
 				round.Parent = swatch
 			end
 			stroked(swatch)
-			swatch.Parent = holder
-			local word = label(holder, string.format("Word%d", index), config.LEGEND_TEXT_PX, row.word)
+			claim(swatch).Parent = holder
+			local word = claim(label(holder, string.format("Word%d", index), config.LEGEND_TEXT_PX, row.word))
 			word.AnchorPoint = Vector2.new(0, 0.5)
 			word.Position = UDim2.fromOffset(config.LEGEND_SWATCH_PX + 8, y + config.LEGEND_ROW_HEIGHT / 2)
 			word.Size =
