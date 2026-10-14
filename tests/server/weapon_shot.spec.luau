@@ -16,6 +16,9 @@ local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 -- has to name the same functions rather than nil, exactly as `weapon_rules.spec` does.
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+-- THE LAUNCH ELEVATION (task 185): the bore sits above the sight line so the bullet crosses it
+-- again at the zero, and that is a real deviation the convergence claim below has to allow for.
+local Ballistics = require(ReplicatedStorage:WaitForChild("Ballistics"))
 
 local Validator = Weapon.Validator
 local Pattern = Weapon.Pattern
@@ -289,6 +292,11 @@ return function()
 				)
 				expect(Weapons.ROWS.rifle.SPREAD_FULL_DEG.Slug).to.equal(0)
 				expect(Weapons.ROWS.rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
+				-- ...AND THE ZERO IS AT THE DISTANCE SHE NAMED (task 185), which is the other half
+				-- of "dead centre at 200 m": a still target at the zero is on the sight line by
+				-- construction (`Ballistics.sightOffsetAt` is 0 there, asserted purely in
+				-- ballistics.spec).
+				expect(Weapons.ROWS.rifle.ZERO_STUDS.Slug).to.equal(714)
 				return
 			end
 
@@ -350,6 +358,17 @@ return function()
 				why = Weapon.onFireRequest(subject, request)
 			end
 
+			-- WAIT FOR THE BULLET (task 185). The pellet casts no longer happen in the trigger's own
+			-- frame: `Weapon.Flight` steps the shot on the server's Heartbeat, so its segments arrive
+			-- over the next 0.1 to 0.37 s. Restoring the cast immediately -- which is what this case
+			-- did until task 185 -- would record the camera ray and NOTHING else, and the spec would
+			-- go red for a reason that has nothing to do with aiming. One second covers the rifle at
+			-- its 800-stud cap (0.365 s) with room to spare.
+			local drainBy = os.clock() + 1
+			while Weapon.flightCount() > 0 and os.clock() < drainBy do
+				task.wait()
+			end
+
 			Weapon.setCast(nil)
 			Weapon.setTargetProvider(Match.classifyTarget)
 			Weapon.setStandProvider(Match.standAreaFor)
@@ -370,6 +389,11 @@ return function()
 				)
 				expect(Weapons.ROWS.rifle.SPREAD_FULL_DEG.Slug).to.equal(0)
 				expect(Weapons.ROWS.rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
+				-- ...AND THE ZERO IS AT THE DISTANCE SHE NAMED (task 185), which is the other half
+				-- of "dead centre at 200 m": a still target at the zero is on the sight line by
+				-- construction (`Ballistics.sightOffsetAt` is 0 there, asserted purely in
+				-- ballistics.spec).
+				expect(Weapons.ROWS.rifle.ZERO_STUDS.Slug).to.equal(714)
 				return
 			end
 			-- THE CLAIMS BELOW ARE THE OWNER'S, not one weapon's: the ray starts at the muzzle,
@@ -387,8 +411,13 @@ return function()
 			--    origin the gun is shooting out of the camera and claim 3 is vacuous.
 			local muzzle = casts[2].origin
 			expect((muzzle - origin).Magnitude > 0.5).to.equal(true)
-			for index = 2, #casts do
-				expect((casts[index].origin - muzzle).Magnitude < 1e-4).to.equal(true)
+			-- ...AND EVERY LATER CAST WALKS THE PATH FROM THERE (task 185): the projectile is stepped,
+			-- and each segment starts where the previous one ended. Until task 185 every pellet cast
+			-- started at the muzzle, because every pellet was resolved in one cast; now the muzzle is
+			-- where the FIRST segment starts and the rest are the flight.
+			for index = 3, #casts do
+				local previousEnd = casts[index - 1].origin + casts[index - 1].vector
+				expect((casts[index].origin - previousEnd).Magnitude < 1e-3).to.equal(true)
 			end
 
 			-- 3. ...AND EVERY PELLET IS AIMED AT THE AIM POINT. `idealAim` is the muzzle-to-aim-point
@@ -397,17 +426,28 @@ return function()
 			--    is the parallax this claim rules out. What is left is the declared cone, so the
 			--    bound is the weapon's own half-angle and not a number typed here.
 			local idealAim = (aimPoint - muzzle).Unit
-			local worstDeg = 0
+			-- THE BOUND IS THE CONE PLUS THE LAUNCH ELEVATION (task 185). The bore sits a little
+			-- above the sight line so the falling bullet crosses it again at the zero distance, and
+			-- that elevation is a real, declared deviation from the muzzle-to-aim-point line -- 0.071
+			-- degrees for the shotgun's slug, 0.144 for the rifle. It is read from `Ballistics` and
+			-- not typed here, so a change to the zero moves this bound with it.
+			local ballistic = Ballistics.shotFor(row, ammo)
+			expect(ballistic).to.be.ok()
+			local elevationDeg = math.deg(math.atan(Ballistics.elevationTangent(ballistic :: any)))
+			local worstDeg = angleDeg(casts[2].vector, idealAim)
+			expect(worstDeg <= halfConeDeg + elevationDeg + 1e-6).to.equal(true)
+			-- ...and the shot really does FLY as far as the ammo's declared range, so it really does
+			--    reach the aim point. That is the other half of what task 183 found: a range under
+			--    the distance aimed at is a shot that cannot arrive however well it is pointed, and
+			--    `RANGE_STUDS` is the one number that decides it. Under hitscan this was one cast of
+			--    exactly that length; it is now the sum of the segments, because the stub answers
+			--    every cast after the first with nothing and the projectile flies to its cap.
+			local path = 0
 			for index = 2, #casts do
-				worstDeg = math.max(worstDeg, angleDeg(casts[index].vector, idealAim))
+				path += casts[index].vector.Magnitude
 			end
-			expect(worstDeg <= halfConeDeg + 1e-6).to.equal(true)
-			-- ...and the pellet ray is exactly as long as the ammo's declared range, and so really
-			--    does reach the aim point. That is the other half of what task 183 found: a range
-			--    under the distance aimed at is a shot that cannot arrive however well it is
-			--    pointed, and `RANGE_STUDS` is the one number that decides it.
-			expect(math.abs(casts[2].vector.Magnitude - row.RANGE_STUDS[ammo]) < 1e-3).to.equal(true)
-			expect(casts[2].vector.Magnitude >= (aimPoint - muzzle).Magnitude).to.equal(true)
+			expect(math.abs(path - row.RANGE_STUDS[ammo]) < 1e-2).to.equal(true)
+			expect(path >= (aimPoint - muzzle).Magnitude).to.equal(true)
 
 			TestKit.note(
 				string.format(
@@ -419,9 +459,9 @@ return function()
 					tostring(ammo),
 					(muzzle - origin).Magnitude,
 					worstDeg,
-					halfConeDeg,
+					halfConeDeg + elevationDeg,
 					math.tan(math.rad(worstDeg)) * 714.29 * 0.28 * 100,
-					casts[2].vector.Magnitude,
+					path,
 					(aimPoint - muzzle).Magnitude,
 					#casts
 				)

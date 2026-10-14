@@ -1,25 +1,27 @@
 --!strict
--- Weapon.Hits: turns pellet directions into hit reports, over an INJECTED cast function. It never
--- calls Workspace:Raycast itself -- Weapon.Cast is the only module that does -- which is what lets
--- weapon_hits.spec count the casts and inspect the ignore list they were given.
+-- Weapon.Hits: turns the impacts a shot made into hit reports. PURE -- it takes impacts and gives
+-- back reports, with no cast, no clock and no world, which is what lets weapon_hits.spec drive it
+-- with hand-written impacts.
 --
--- The cast seam takes an ignore list: `(origin, direction, ignore) -> Impact?`. That is defect (a)
--- of the Task 23 review: without it the shooter's own character cannot be filtered out, and the
--- camera ray, which starts behind the character in third person, resolves onto the shooter's back.
+-- SINCE TASK 185 IT NO LONGER CASTS ANYTHING. `Hits.resolve` was the hitscan resolver and it is
+-- archived (see the note above `group` below); the casting is `Weapon.Flight`'s, over the same
+-- injected seam `(origin, direction, ignore) -> Impact?` -- which is still what lets a spec count
+-- the casts and inspect the ignore list, and the ignore list is still defect (a) of the Task 23
+-- review: without it the camera ray, which starts behind the character in third person, resolves
+-- onto the shooter's own back.
 --
 -- targetOf reads two ATTRIBUTES published by the target's own owner -- `Damageable` and `HitZone`
 -- (design section 6.4) -- so the weapon never knows what a boar is, and ROADMAP 1.5 can split the
 -- body into zones without touching this file.
 --   Roblox attributes  https://create.roblox.com/docs/reference/engine/classes/Instance#GetAttribute
 --
--- Design: docs/design/shotgun.md (sections 5.3, 5.5, 6.4)
--- Note:   docs/research/2026-09-24-shotgun.md
+-- Design: docs/design/shotgun.md (sections 5.3, 5.5, 6.4), docs/design/ballistics.md (section 2.1)
+-- Note:   docs/research/2026-09-24-shotgun.md, docs/research/2026-10-14-ballistics-lead.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 type Impact = Shotgun.Impact
-type CastFn = Shotgun.CastFn
 type HitReport = Shotgun.HitReport
 
 local Hits = {}
@@ -41,23 +43,20 @@ function Hits.targetOf(instance: Instance?): (Instance?, string)
 	return nil, ""
 end
 
--- One cast per direction, every one of them given the same ignore list, unmodified.
-function Hits.resolve(
-	muzzle: Vector3,
-	directions: { Vector3 },
-	range: number,
-	cast: CastFn,
-	ignore: { Instance }
-): { Impact }
-	local impacts = {}
-	for _, direction in ipairs(directions) do
-		local impact = cast(muzzle, direction * range, ignore)
-		if impact then
-			impacts[#impacts + 1] = impact
-		end
-	end
-	return impacts
-end
+-- `Hits.resolve` IS GONE, AND THAT IS TASK 185 (archived: `backups/2026-10-14_task-185_hitscan-Hits-resolve.md`,
+-- rule 7). It was the HITSCAN resolver: one cast per pellet, the whole range, in the trigger's own
+-- frame -- so a boar at `Boar.CONFIG.SPRINT_SPEED` (38 studs/s) was hit wherever the reticle sat
+-- and aiming ahead could only miss. Karen, 2026-10-14: *"when I shoot in running animal I need to
+-- aim a bit in front based on speed distance ect I wan to have that feeling"*.
+--
+-- `ServerScriptService.Weapon.Flight` replaces it: the shot is a projectile the server steps, and
+-- each step casts only the SEGMENT just travelled, so the hit is judged where the target is when
+-- the bullet gets there. It is REMOVED rather than left callable beside the stepper, because two
+-- functions in one folder answering "where did the bullet go" is the exact failure
+-- `docs/PROJECT_CONTEXT.md` records (docs/design/ballistics.md section 2.1).
+--
+-- `targetOf` above and `group` below are UNTOUCHED: `group` is still the one constructor of a
+-- `HitReport`, still makes one per (shot, target), and still counts `pellets`.
 
 -- ONE report per (shot, target): nine pellets on one boar are one report with pellets = 9, never
 -- nine reports. The dominant zone wins; a tie is broken by the nearest impact, so a tie is decided

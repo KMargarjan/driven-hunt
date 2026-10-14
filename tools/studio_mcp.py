@@ -673,6 +673,10 @@ BLAST_RADIUS = (
     # holds BOTH weapons' rows is the weapon system's.
     ("src/shared/Rifle/", "gun"),
     ("src/shared/Weapons/", "weapon"),
+    # The flight (task 185): the pure ballistics maths. It resolves to `weapon`, not `gun` -- `gun`
+    # is the DRAWN gun's geometry (`gun.spec`, `gun_client.spec`) and has nothing to do with
+    # flight, while the flight is stepped by `src/server/Weapon/`, which is already `weapon`.
+    ("src/shared/Ballistics/", "weapon"),
     # The beater's horn (task 152): its numbers are the weapon system's, because the thing that
     # builds and grants the Tool is `ServerScriptService.Weapon.Horn` (docs/design/beater-kit.md
     # section 16 item 1: worn is Body's, carried is Weapon's). `src/server/Weapon/` already
@@ -742,10 +746,18 @@ SCOPE_SPECS = {
     "shop": ("tests/server/shop.spec.luau", "tests/server/shop_door.spec.luau",
              "tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau",
              "tests/client/shop_panel.spec.luau"),
-    "gun": ("tests/server/gun.spec.luau", "tests/client/gun_client.spec.luau"),
+    # ...AND `rifle.spec` AND `ballistics.spec` BELONG HERE TOO (task 185). `src/shared/Rifle/` and
+    # `src/shared/Shotgun/` both resolve to `gun`, and both of those files are where every
+    # ballistic number lives -- so a scoped run over a change to `Rifle.CONFIG` has to play the
+    # spec that asserts that row. It did not: this tuple was the two drawn-gun specs alone, and
+    # task 183 changed exactly that file. The dual membership is the idiom `zz_horn`, `boar_hit`,
+    # `boar_shot` and `shoot_boar` already use.
+    "gun": ("tests/server/gun.spec.luau", "tests/client/gun_client.spec.luau",
+            "tests/server/rifle.spec.luau", "tests/server/ballistics.spec.luau"),
     "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau"),
     "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau"),
-    "weapon": ("tests/server/weapon_hits.spec.luau", "tests/server/weapon_look.spec.luau",
+    "weapon": ("tests/server/ballistics.spec.luau",
+               "tests/server/weapon_hits.spec.luau", "tests/server/weapon_look.spec.luau",
                "tests/server/weapon_rearm.spec.luau", "tests/server/weapon_shot.spec.luau",
                "tests/server/weapon_state.spec.luau", "tests/server/weapon_equip.spec.luau",
                "tests/server/boar_hit.spec.luau",

@@ -47,6 +47,14 @@ export type Row = {
 	RANGE_STUDS: { [string]: number },
 	PELLETS: { [string]: number },
 	SPREAD_FULL_DEG: { [string]: number },
+	-- HOW THE SHOT FLIES (task 185): the muzzle velocity in studs/s, the drag coefficient per stud
+	-- and the distance the trajectory crosses the sight line at. Keyed by ammo like the three above,
+	-- read off this row by `Ballistics.shotFor`, and REQUIRED -- a row missing any one of them
+	-- refuses the shot rather than firing it in a straight line, because a fallback would be a
+	-- second answer to "where did the bullet go" (design section 6.5).
+	MUZZLE_STUDS_PER_S: { [string]: number },
+	DRAG_PER_STUD: { [string]: number },
+	ZERO_STUDS: { [string]: number },
 	AMMO_KINDS: { string },
 	AMMO_LABEL: { [string]: string },
 	INITIAL_AMMO: string,
@@ -105,6 +113,9 @@ Weapons.ROWS = {
 		RANGE_STUDS = C.RANGE_STUDS,
 		PELLETS = C.PELLETS,
 		SPREAD_FULL_DEG = C.SPREAD_FULL_DEG,
+		MUZZLE_STUDS_PER_S = C.MUZZLE_STUDS_PER_S,
+		DRAG_PER_STUD = C.DRAG_PER_STUD,
+		ZERO_STUDS = C.ZERO_STUDS,
 		AMMO_KINDS = { "Slug", "Buck" },
 		AMMO_LABEL = { Slug = "SLUG", Buck = "BUCK" },
 		INITIAL_AMMO = C.INITIAL_AMMO,
@@ -143,6 +154,9 @@ Weapons.ROWS = {
 		RANGE_STUDS = Rifle.CONFIG.RANGE_STUDS,
 		PELLETS = Rifle.CONFIG.PELLETS,
 		SPREAD_FULL_DEG = Rifle.CONFIG.SPREAD_FULL_DEG,
+		MUZZLE_STUDS_PER_S = Rifle.CONFIG.MUZZLE_STUDS_PER_S,
+		DRAG_PER_STUD = Rifle.CONFIG.DRAG_PER_STUD,
+		ZERO_STUDS = Rifle.CONFIG.ZERO_STUDS,
 		AMMO_KINDS = Rifle.CONFIG.AMMO_KINDS,
 		AMMO_LABEL = Rifle.CONFIG.AMMO_LABEL,
 		INITIAL_AMMO = Rifle.CONFIG.INITIAL_AMMO,
