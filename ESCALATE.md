@@ -1,5 +1,52 @@
 # Escalations
 
+## 2026-10-14 - Task 179: NEEDS TEST2 179 598e119 -- the two-player run, which nothing but a human click can start
+
+**Three drive layouts are built, gated TWICE on the one-player harness at the code commit
+(`[harness] PASS: 33/33 checks @ 598e1192e61073da6d69cb6128f258b83031517c (clean tree) scope=all`),
+smoke-checked twice in the Forest Test and photographed. The one thing missing is the two-player
+line**, and the Director's dispatch asked for exactly this stop: *"TWO_PLAYER_PATHS likely touched:
+stop 'NEEDS TEST2 179 <sha>' with a placeholder."*
+
+**Why this task needs it.** `src/server/Match/init.luau` is in `TWO_PLAYER_PATHS`, and the change
+there is not incidental: the design found that `Match` sets `markersStale` on the `Assigning` edge
+but reads the set on the NEXT step, so **every drive's hunters are placed on the marker set measured
+during the previous drive** (`docs/design/drive-layouts.md` 6.1). `measureMarkers()` is split out of
+`readMarkers()` and called on the edge; only the measurement moves, the event still goes out on the
+next step. In DEV the measurement is five idempotent `GetTagged` calls, so nothing there should
+change -- and *should* is the word the two-player run replaces. `tools/review.sh 179` is refused
+until that line is in the request, so this blocks the review round as well as the merge.
+
+**A scoped run does not waive it.** `src/shared/ForestTest/` is not in `BLAST_RADIUS`, so an unmapped
+`src/` path resolves to the whole suite and a `--scope auto` run is tagged `scope=all` -- full
+evidence, which asks for the two-player line.
+
+**`run-test2.sh` ALSO refuses right now, and the reason is Karen's own setup:** it begins
+`[ "$n0" -eq 1 ] || { echo "REFUSED: $n0 studios open before the run"; exit 5; }` and two Studios are
+open -- DEV, and Karen's Forest Test carrying `DHFlag_COINS`, `DHFlag_DRIVE_BOTS`, `DHFlag_SHOP`,
+`DHShopTestGrant` and `DHForestStartRole`. Closing it would lose that setup, which is not the
+Builder's to spend.
+
+### The exact clicks, in order
+
+1. In the **Forest Test** Studio window: nothing. Leave it exactly as it is. (If the Director would
+   rather use `run-test2.sh`, this window has to be CLOSED first -- *Don't Save* -- and Karen's five
+   attributes set again afterwards. The manual route below does not need that.)
+2. Focus the **Driven Hunt DEV** Studio window, in **Edit** mode.
+3. Run, from the repo: `python tools/studio_mcp.py test2`
+4. When it prints that the gate is shut and asks for the click: **Test -> Clients and Servers,
+   2 players, Start** (or press **F7** once, which is the same command).
+5. Let it run. It ends the session itself; if three extra Studio processes are left over, use
+   **Cleanup** in the Test tab.
+6. Paste the `[harness2] PASS: n/n checks @ 598e1192e61073da6d69cb6128f258b83031517c (clean tree)`
+   line over the placeholder block in `reviews/task-179/REQUEST.md`, commit it, then run
+   `powershell -ExecutionPolicy Bypass -File tools/review.ps1 179`.
+
+**If it FAILS**, the first thing to read is whether a hunter was placed on a post of the layout the
+drive had just dealt -- that is the one behaviour this task moved in `Match`, and the forest's own
+console says which layout it was: `[ForestTestBoot] markers: layout=<name> n/n stands`.
+
+
 ## 2026-10-14 - Task 178 ROUND 2: NEEDS TEST2 178 6a17fc7 -- the same click, at the new head
 
 Round 2 answered the Reviewer's finding 1 (the licensed beater now has a test that can fail) and
