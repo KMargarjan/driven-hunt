@@ -41,6 +41,41 @@ local function fakeTerrain()
 	}
 end
 
+-- A FOLDER OF FAKE FREE MODELS (task 180). Plain parts in a Model, one per template name, so the
+-- free-model branch is reachable WITHOUT a Creator Store round trip and without the Forest Test
+-- place -- which is the whole point of `templates` being an argument. `withScript` plants a Script
+-- inside the lodge, because "a free model is the classic place to hide one" is only a checked claim
+-- if a spec actually hides one.
+local function fakeTemplates(withScript: boolean?): Instance
+	local folder = Instance.new("Folder")
+	folder.Name = Data.TEMPLATES_NAME
+	local function model(name: string, size: Vector3): Model
+		local made = Instance.new("Model")
+		made.Name = name
+		local body = Instance.new("Part")
+		body.Name = "Body"
+		body.Size = size
+		body.Anchored = false -- the clone must anchor it: a free model ships with whatever it ships
+		body.Parent = made
+		made.Parent = folder
+		return made
+	end
+	local house = model(Data.TEMPLATE.LODGE, Vector3.new(23, 16, 31))
+	model(Data.TEMPLATE.TRUCK, Vector3.new(18, 7, 9))
+	model(Data.TEMPLATE.DEER, Vector3.new(5, 5, 3))
+	model(Data.TEMPLATE.BOAR, Vector3.new(3, 2, 3))
+	local trees = Instance.new("Folder")
+	trees.Name = Data.TEMPLATE.TREES
+	trees.Parent = folder
+	model("Spruce", Vector3.new(6, 30, 6)).Parent = trees
+	if withScript then
+		local hidden = Instance.new("Script")
+		hidden.Name = "Fire_Effect"
+		hidden.Parent = house
+	end
+	return folder
+end
+
 local function corners(at: CFrame, size: Vector3): { Vector3 }
 	local out = {}
 	for _, sx in ipairs({ -1, 1 }) do
@@ -443,6 +478,178 @@ return function()
 				end
 			end
 			expect(found).to.equal(1)
+		end)
+	end)
+
+	-- ------------------------------------------------ the free models, and the fallback (task 180)
+	--
+	-- KAREN, 2026-10-14 ~09:30: *"we need better house we can use free models / we need car truck
+	-- model or hunting bus also use free model / ... and then on walls we can make trophys like head
+	-- of deer head of boar"*.
+	--
+	-- THE CLAIM THAT MATTERS MOST HERE IS THE FALLBACK. The models live in `Workspace.LobbyAssets`,
+	-- which is Studio content in ONE place; the lobby still has to build in the other one, and in a
+	-- place where somebody renamed the folder, and in this spec. So the model build and the parts
+	-- build are both driven here, and they must agree about everything except which lodge it is.
+	describe("the free models, and what happens without them", function()
+		local anchor = Vector3.new(0, 100, 0)
+		local container
+
+		beforeEach(function()
+			container = Instance.new("Folder")
+			container.Name = "LobbyModelSpecWorld"
+			container.Parent = Workspace
+		end)
+
+		afterEach(function()
+			container:Destroy()
+		end)
+
+		it("builds the lodge, the four trucks and the three trophies out of the templates", function()
+			local templates = fakeTemplates()
+			local folder, _marker, _spawn, count = Build.build(container, anchor, CFG, templates)
+			local stats = Build.stats()
+			expect(folder:FindFirstChild("House", true)).to.be.ok()
+			-- the parts lodge's own log wall is NOT there: one lodge, never two
+			expect(folder:FindFirstChild("WallS1", true)).to.never.be.ok()
+			for index = 1, CFG.TRUCK.COUNT do
+				expect(folder:FindFirstChild(string.format("Truck%d", index), true)).to.be.ok()
+			end
+			expect(folder:FindFirstChild("DeerHead1", true)).to.be.ok()
+			expect(folder:FindFirstChild("BoarHead2", true)).to.be.ok()
+			expect(folder:FindFirstChild("TreeLine")).to.be.ok()
+			-- one lodge, four trucks, three heads, and the tree line
+			expect(stats.models).to.equal(8 + CFG.TREELINE.COUNT)
+			expect(stats.fallbacks).to.equal(0)
+			expect(count <= CFG.MAX_PARTS).to.equal(true)
+			templates:Destroy()
+		end)
+
+		it("falls back to task 177's parts build when the folder is not there at all", function()
+			local folder, _marker, _spawn, count = Build.build(container, anchor, CFG, nil)
+			local stats = Build.stats()
+			expect(folder:FindFirstChild("House", true)).to.never.be.ok()
+			expect(folder:FindFirstChild("WallS1", true)).to.be.ok() -- the log wall
+			expect(folder:FindFirstChild("Floor", true)).to.be.ok()
+			for index = 1, CFG.TRUCK.COUNT do
+				local made = folder:FindFirstChild(string.format("Truck%d", index), true)
+				expect(made).to.be.ok()
+				expect((made :: Instance):FindFirstChild("Cab")).to.be.ok() -- the parts truck
+			end
+			expect(folder:FindFirstChild("TreeLine")).to.never.be.ok()
+			expect(stats.models).to.equal(0)
+			expect(count <= CFG.MAX_PARTS).to.equal(true)
+			expect(count > 50).to.equal(true)
+		end)
+
+		it("falls back one piece at a time when only some of the templates are there", function()
+			local templates = fakeTemplates()
+			local truckTemplate = templates:FindFirstChild(Data.TEMPLATE.TRUCK) :: Instance
+			truckTemplate:Destroy()
+			local folder = Build.build(container, anchor, CFG, templates)
+			expect(folder:FindFirstChild("House", true)).to.be.ok() -- the model lodge still
+			local first = folder:FindFirstChild("Truck1", true)
+			expect(first).to.be.ok()
+			expect((first :: Instance):FindFirstChild("Cab")).to.be.ok() -- ...and parts trucks
+			expect(Build.stats().fallbacks >= CFG.TRUCK.COUNT).to.equal(true)
+			templates:Destroy()
+		end)
+
+		it("strips a script a free model smuggled in, and says how many", function()
+			local templates = fakeTemplates(true)
+			local folder = Build.build(container, anchor, CFG, templates)
+			expect(Build.stats().strippedScripts).to.equal(1)
+			for _, descendant in ipairs(folder:GetDescendants()) do
+				expect(descendant:IsA("LuaSourceContainer")).to.equal(false)
+			end
+			-- and the TEMPLATE is untouched: the clone was stripped, never the original
+			expect(templates:FindFirstChild("Fire_Effect", true)).to.be.ok()
+			templates:Destroy()
+		end)
+
+		it("anchors every cloned part, however the free model shipped it", function()
+			local templates = fakeTemplates()
+			local folder = Build.build(container, anchor, CFG, templates)
+			for _, descendant in ipairs(folder:GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					expect(descendant.Anchored).to.equal(true)
+				end
+			end
+			templates:Destroy()
+		end)
+
+		it("parks the trucks in a row, a bay apart, starting where 177's one truck stood", function()
+			local templates = fakeTemplates()
+			local folder = Build.build(container, anchor, CFG, templates)
+			local previous = 0
+			for index = 1, CFG.TRUCK.COUNT do
+				local made = folder:FindFirstChild(string.format("Truck%d", index), true) :: Model
+				local x = made:GetPivot().Position.X
+				if index == 1 then
+					expect(math.abs(x - (anchor.X + CFG.TRUCK.OFFSET.X)) < 0.01).to.equal(true)
+				else
+					expect(math.abs((x - previous) - CFG.TRUCK.BAY_GAP_STUDS) < 0.01).to.equal(true)
+				end
+				previous = x
+			end
+			templates:Destroy()
+		end)
+
+		it("stands every free model ON the shelf, not in it and not over it", function()
+			local templates = fakeTemplates()
+			local folder = Build.build(container, anchor, CFG, templates)
+			for _, name in ipairs({ "House", "Truck1", "Truck4" }) do
+				local made = folder:FindFirstChild(name, true) :: Model
+				local box, size = made:GetBoundingBox()
+				expect(math.abs((box.Position.Y - size.Y / 2) - anchor.Y) < 0.05).to.equal(true)
+			end
+			templates:Destroy()
+		end)
+
+		it("keeps the road, the fences and the trees inside the field's own rectangle", function()
+			-- THE SAME BOUND `Field.fill` IS HELD TO. The shelf is 220 x 220 and nothing else is
+			-- flat: a verge or a fence post laid past its edge would float over the fall the raycast
+			-- grid measured, which is the failure this project is named after.
+			local templates = fakeTemplates()
+			local folder = Build.build(container, anchor, CFG, templates)
+			local half = CFG.FIELD.SPAN_STUDS / 2
+			for _, group in ipairs({ "Road", "Fences", "TreeLine" }) do
+				local made = folder:FindFirstChild(group)
+				expect(made).to.be.ok()
+				for _, descendant in ipairs((made :: Instance):GetDescendants()) do
+					if descendant:IsA("BasePart") then
+						local at = descendant.Position
+						expect(math.abs(at.X - anchor.X) <= half).to.equal(true)
+						expect(math.abs(at.Z - anchor.Z) <= half).to.equal(true)
+					end
+				end
+			end
+			templates:Destroy()
+		end)
+
+		it("hangs every trophy on a wall of the room it is in, in BOTH builds", function()
+			-- THE ROOM IS A DIFFERENT RECTANGLE IN THE TWO BUILDS (19.6 x 19.6 against 38 x 26),
+			-- which is exactly why a mount names a WALL and not an offset. Both runs must put every
+			-- head above its own floor and below its own ceiling.
+			for _, withModels in ipairs({ true, false }) do
+				local templates = if withModels then fakeTemplates() else nil
+				local folder = Build.build(container, anchor, CFG, templates)
+				local heads = folder:FindFirstChild("Trophies", true)
+				expect(heads).to.be.ok()
+				local plaques = 0
+				for _, descendant in ipairs((heads :: Instance):GetChildren()) do
+					if string.sub(descendant.Name, 1, 6) == "Plaque" then
+						plaques += 1
+						local at = (descendant :: BasePart).Position
+						expect(at.Y > anchor.Y + 1).to.equal(true)
+						expect(at.Y < anchor.Y + CFG.LODGE.RIDGE_STUDS).to.equal(true)
+					end
+				end
+				expect(plaques).to.equal(#CFG.TROPHIES.MOUNTS)
+				if templates then
+					(templates :: Instance):Destroy()
+				end
+			end
 		end)
 	end)
 
