@@ -457,8 +457,16 @@ return function()
 			local live = host :: Instance
 			live:SetAttribute(Data.LAYOUT_ATTRIBUTE, nil)
 			expect(live:GetAttribute(Data.LAYOUT_ATTRIBUTE)).to.equal(nil)
-			-- Force the layout the module already starts on -- the exact case that published nothing.
+			-- Force the layout the module is already on -- the exact case that published nothing.
+			-- The drive key has to be a NEW one, because the deal is idempotent per drive.
 			ForestTest.layoutForDrive(700, Data.DEFAULT_LAYOUT)
+			expect(ForestTest.layoutName()).to.equal(Data.DEFAULT_LAYOUT)
+			expect(live:GetAttribute(Data.LAYOUT_ATTRIBUTE)).to.equal(Data.DEFAULT_LAYOUT)
+			-- ...AND AGAIN, because the publish is unconditional rather than latched: whatever
+			-- cleared the attribute, the next deal says what is true. A latch would answer "this
+			-- process already said it once" to a question about the attribute's own value.
+			live:SetAttribute(Data.LAYOUT_ATTRIBUTE, nil)
+			ForestTest.layoutForDrive(701, Data.DEFAULT_LAYOUT)
 			expect(live:GetAttribute(Data.LAYOUT_ATTRIBUTE)).to.equal(Data.DEFAULT_LAYOUT)
 			-- ...and the published name is always one the client can resolve, which is what stops the
 			-- "no map rather than a wrong map" rule from meaning "no map, ever".

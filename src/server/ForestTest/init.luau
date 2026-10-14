@@ -1883,31 +1883,39 @@ function ForestTest.layoutForDrive(driveNumber: number?, override: any): string
 	chosen.drive = key
 	if name ~= chosen.name then
 		promote(name, source)
-	elseif not chosen.published then
-		-- THE NAME IS PUBLISHED ON EVERY DEAL, NOT ONLY ON A CHANGE (round 1, finding 4). `promote`
-		-- is the only other publisher, and it runs only when the layout MOVES -- so a session whose
-		-- first deal happened to equal the starting name (`DHForestLayout = road`, or a bag that
-		-- deals the default first) wrote no attribute at all, and `MapUi.geometryFor` answers nil for
-		-- a nil name: the hunter got NO MAP for the whole session.
-		ForestTest.publishLayout(name)
-		chosen.published = true
-		print(
-			string.format(
-				"[ForestTest] layout=%s (%s): %d stands %d apart, centre (%d, %d), exit %d",
-				name,
-				source,
-				chosen.layout.standCount,
-				chosen.layout.standSpacing,
-				chosen.layout.centre.X,
-				chosen.layout.centre.Z,
-				Data.exitZOf(chosen.layout)
-			)
-		)
-		chosen.source = source
 	else
 		-- THE SAME LAYOUT AGAIN (an override repeated, or a one-name table). Nothing is torn down --
-		-- the ground has not moved -- but the SOURCE is still recorded, because "this drive was
-		-- forced" is exactly the fact a report must not lose.
+		-- the ground has not moved -- but the NAME IS STILL PUBLISHED, unconditionally, and that is
+		-- round 1's finding 4: `promote` was the only publisher and it runs only when the layout
+		-- MOVES, so a session whose first deal happened to equal the starting name
+		-- (`DHForestLayout = road`, or a bag that deals the default first) wrote no attribute at
+		-- all -- and `MapUi.geometryFor` answers nil for a nil name, so the hunter had NO MAP for
+		-- the whole session.
+		--
+		-- UNCONDITIONAL AND NOT LATCHED, because a latch answers "has this process ever said it"
+		-- when the question is "does the attribute say what is true". Writing the same string again
+		-- fires no `AttributeChanged` on the engine's side, so this costs the clients nothing and
+		-- the published name cannot drift from the live one however it was cleared.
+		ForestTest.publishLayout(name)
+		-- The LINE is still once per choice: a print every drive that said nothing had changed would
+		-- bury the one that did.
+		if not chosen.published then
+			chosen.published = true
+			print(
+				string.format(
+					"[ForestTest] layout=%s (%s): %d stands %d apart, centre (%d, %d), exit %d",
+					name,
+					source,
+					chosen.layout.standCount,
+					chosen.layout.standSpacing,
+					chosen.layout.centre.X,
+					chosen.layout.centre.Z,
+					Data.exitZOf(chosen.layout)
+				)
+			)
+		end
+		-- ...and the SOURCE is always recorded, because "this drive was forced" is exactly the fact
+		-- a report must not lose.
 		chosen.source = source
 	end
 	return chosen.name
