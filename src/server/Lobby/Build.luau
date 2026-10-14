@@ -532,7 +532,7 @@ local function windowUnit(folder: Instance, name: string, face: CFrame, cfg)
 	local spec = cfg.LODGE.WINDOW
 	local w, h, f = spec.WIDTH, spec.HEIGHT, spec.FRAME
 	local pane = part(
-		string.format("WallPane%s", name),
+		string.format("WindowGlass%s", name),
 		Vector3.new(w, h, 0.25),
 		face,
 		spec.GLASS_COLOR,

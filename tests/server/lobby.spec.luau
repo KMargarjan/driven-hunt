@@ -789,6 +789,7 @@ return function()
 					or string.match(name, "^Roof")
 					or string.match(name, "^Gable")
 					or string.match(name, "^Floor")
+					or string.match(name, "^WindowGlass")
 					or string.match(name, "^Plinth")
 					or string.match(name, "^Chimney")
 					or string.match(name, "^Deck")
@@ -1127,9 +1128,10 @@ return function()
 				end
 				table.insert(holes, { at = at })
 			end
+			local filled = nil
 			for _, hole in ipairs(holes) do
 				for _, descendant in ipairs(built:GetDescendants()) do
-					if descendant:IsA("BasePart") and string.sub(descendant.Name, 1, 4) == "Wall" then
+					if descendant:IsA("BasePart") and string.match(descendant.Name, "^Wall%u") then
 						local piece = descendant :: BasePart
 						-- A LOG IS A CYLINDER whose length is its X, so its box in its own frame is
 						-- the test: a wall log containing the middle of an opening is an opening
@@ -1138,17 +1140,28 @@ return function()
 						local inside = math.abs(near.X) < piece.Size.X / 2
 							and math.abs(near.Y) < piece.Size.Y / 2
 							and math.abs(near.Z) < piece.Size.Z / 2
-						if inside then
-							error(string.format("%s fills an opening that should be a hole", piece.Name), 0)
+						if inside and filled == nil then
+							filled = piece.Name
 						end
 					end
 				end
 			end
 			-- ...AND THE FRAME IS REALLY THERE, so "cut" cannot be satisfied by building no wall.
-			expect(built:FindFirstChild("WindowSill1", true)).to.be.ok()
-			expect(built:FindFirstChild("Shutter1W", true)).to.be.ok()
-			expect(built:FindFirstChild("WallPane1", true)).to.be.ok()
+			local sill = built:FindFirstChild("WindowSill1", true) ~= nil
+			local shutter = built:FindFirstChild("Shutter1W", true) ~= nil
+			local glass = built:FindFirstChild("WindowGlass1", true) ~= nil
+			-- DESTROYED BEFORE ANYTHING IS ASSERTED, AND THAT IS NOT TIDINESS. A lobby carries an
+			-- ENABLED `SpawnLocation`; an `error` raised inside the loop above skipped this line
+			-- once, the folder stayed in `Workspace` for the rest of the run, and three drive cases
+			-- in `zz_drive_boundary` respawned their player three thousand studs from the drive. One
+			-- spec bug, four failures.
 			other:Destroy()
+			if filled ~= nil then
+				error(string.format("%s fills an opening that should be a hole", filled), 0)
+			end
+			expect(sill).to.equal(true)
+			expect(shutter).to.equal(true)
+			expect(glass).to.equal(true)
 		end)
 
 		it("is WALKABLE from the doorway to the counter, and the room is big enough to be one", function()
