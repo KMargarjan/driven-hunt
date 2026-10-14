@@ -76,8 +76,10 @@ and the research note records the reversal with its reason. Flagged for the Dire
 2. **He cannot be pushed, walked into, shot or hit.** Root anchored, limbs not (so the idle clip can
    move them, which is `Bots.Rig.place(.., anchored = true)`'s own arrangement); every part
    `CanCollide = false`, `CanQuery = false`, `CanTouch = false` — the rule this file already states
-   twice. Spec: *"cannot be pushed, cannot be walked into, and cannot stop a pellet"*, which also
-   asserts the fake rig arrives COLLIDING, so the builder is proved to do the work.
+   twice. Spec: *"cannot be pushed, cannot be walked into, and cannot stop a pellet"*. The fake rig
+   is BUILT colliding and anchored-nowhere, so the spec is reading the builder's work and not the
+   fake's — though no `expect` asserts the fake's own starting state, so that is a property of the
+   fixture rather than a checked claim.
 
 3. **The prompt carries Karen's key and Valve's two numbers.** `ActionText = "Shop"`,
    `ObjectText = "Press E"`, `KeyboardKeyCode = E`, `GamepadKeyCode = ButtonX`,
@@ -156,8 +158,9 @@ and the research note records the reversal with its reason. Flagged for the Dire
 
 ## Harness and console
 
-* `python tools/studio_mcp.py test` → **PASS 33/33, twice**, both at `bce2cf5`, clean tree,
-  `scope=all` (pasted above).
+* `python tools/studio_mcp.py test` → **PASS 33/33, twice**, both at `6041ac8` — the `Code commit:`
+  above, which contains round 2's fixes — clean tree, `scope=all` (pasted above). (Round 1's two
+  runs were at `bce2cf5`; this sentence named that sha until the round-2 PASS caught it.)
 * Smoke in the Forest Test (`driven-hunt-runs/smoke.sh`, 80 s), re-run **after** the round-2 fixes:
   `lobby=[lobby gunBefore=false] gun in hand @15s=1 @80s=1 | stacks=0 errorLines=0 | waves=6` →
   **SMOKE PASS**, with `[lobby] shopkeeper: standing, dressed=true, prompt=true` in the console.
