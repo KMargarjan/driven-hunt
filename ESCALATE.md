@@ -2339,3 +2339,8 @@ which costs a human click of its own and which this Builder does not run.
 ## 2026-10-13 -- DIRECTOR: one extra review round for task 172 (round 4), with Karen's OK
 
 Task 172 reached the 3-round cap; round 3's one finding (a spec that could not fail) was fixed in `bbee0d4`. The finding was test-only, not documentation-only, so the standing rule does not cover it; Karen was asked and answered "yes please" (2026-10-13 ~13:50) to "OK Task 172 now?". The Director authorises ONE extra round for **task 172, round 4**, run with `DIRECTOR_MAX_ROUNDS=4` in the environment (never committed). A failing round 4 is an escalation, not a request for a fifth.
+
+
+## 2026-10-14 -- DIRECTOR: one extra review round for task 179 (round 4), with Karen's OK
+
+Task 179 reached the 3-round cap (round 3: an unclaimed TargetWord label in MapUi; fixed in `f13ad7d` with a count that prevents the class). Karen was asked "Allow one extra review round so it can merge?" and answered "Yes, allow it" (2026-10-14 ~09:40). The Director authorises ONE extra round for **task 179, round 4**, run with `DIRECTOR_MAX_ROUNDS=4` in the environment (never committed). A failing round 4 is an escalation, not a request for a fifth.

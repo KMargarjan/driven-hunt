@@ -3,7 +3,7 @@
 Task: 179
 Round: 4
 Base: 253d21f (main, #162 merged)
-Code commit: f13ad7de1aa354d0b3c98a63d4ea67245661408b
+Code commit: 52439510775fa6e5cc9eed5ab8c0d6e740dd2710
 
 ```
 [harness] PASS: 33/33 checks @ f13ad7de1aa354d0b3c98a63d4ea67245661408b (clean tree) scope=all
@@ -11,12 +11,13 @@ Code commit: f13ad7de1aa354d0b3c98a63d4ea67245661408b
 ```
 
 ```
-[harness2] PLACEHOLDER -- NEEDS TEST2 179 f13ad7d (ESCALATE.md). The round-3 line
-(`[harness2] PASS: 35/35 checks @ c659c6d`) is the Director's at the OLD head and does not carry:
-`src/server/Match/init.luau` is in TWO_PLAYER_PATHS and the code commit has moved again.
+[harness] PASS: 33/33 checks @ 52439510775fa6e5cc9eed5ab8c0d6e740dd2710 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 52439510775fa6e5cc9eed5ab8c0d6e740dd2710 (clean tree)
 ```
 
-> **ROUND 4 IS NOT AUTHORISED YET.** `MAX_ROUNDS` is 3 and round 3 came back with findings, so this
+DIRECTOR NOTE: both lines are the Director's at `5243951` (only paperwork after `f13ad7d`).
+
+> **ROUND 4 IS AUTHORISED** (Karen 2026-10-14 ~09:40, ESCALATE.md). Previously: **ROUND 4 IS NOT AUTHORISED YET.** `MAX_ROUNDS` is 3 and round 3 came back with findings, so this
 > round needs **Karen's OK**, recorded in `ESCALATE.md` for this task and this round, before
 > `DIRECTOR_MAX_ROUNDS=4` may be set for the one run (CLAUDE.md, *"One extra round, by Director
 > authorisation only"*). The Director is asking her when she wakes (~09:00). **The Builder has not
