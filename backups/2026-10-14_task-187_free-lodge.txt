@@ -1,0 +1,78 @@
+ARCHIVED 2026-10-14, task 187: the free-model lodge, the two free trophy heads, and the parts
+lodge of task 177 that stood behind them.
+
+WHY (rule 7: never delete, archive with a note)
+-----------------------------------------------
+Karen, 2026-10-14 ~21:30-21:35, verbatim, on the free Creator Store cabins she was shown:
+
+    "all of then garbadge"
+    "you build then one proper europen standart"
+    "I need hunting house where will be fireplace table on walls animal antlers ect like
+     hunting cabin"
+
+and, ~17:00 the same day, on what task 180 shipped:
+
+    "house is broken person inside broken"
+
+So there is ONE lodge now and it is ours, built from parts by `Lobby.Build`
+(docs/research/2026-10-14-european-hunting-lodge.md). Nothing about the free-model ROUTE was wrong --
+task 180's measurements all still hold and the truck and the trees still use it. What was wrong is
+the house it brought in.
+
+WHAT CAME OUT OF THE CODE
+-------------------------
+1. `Lobby.TEMPLATE.LODGE = "Lodge"`, `TEMPLATE.DEER = "DeerHead"`, `TEMPLATE.BOAR = "BoarHead"`
+   (src/shared/Lobby/init.luau). `TRUCK` and `TREES` stay.
+
+2. `Lobby.CONFIG.LODGE.MODEL`, the free cabin's measured room, raycast in task 180 and quoted here
+   so the measurement is not lost:
+
+       MODEL = {
+           SCALE = 1,
+           YAW_RADIANS = 0,          -- delivered with its porch facing -Z
+           ROOM = {                  -- relative to the model's bounding-box centre in x/z,
+               CENTRE = Vector3.new(-0.1, 3.3, 5.0),   -- and to its BASE in y, before SCALE
+               HALF_X = 9.8,
+               HALF_Z = 9.8,
+               CEILING_Y = 10.7,
+           },
+       }
+       -- east wall x = +9.76, west x = -10.01, back z = +14.85, front z = -4.90,
+       -- floor y = 3.31, ceiling y = 10.72.  10.6 studs of the model's 30.9-stud depth is porch,
+       -- which is why the room's centre sits 5 studs north of the box's.
+
+3. The `lodge()` branch that cloned it, and the `Build.roomFor(anchor, cfg, fromModel)` third
+   argument that chose between the two rooms. `roomFor` now takes two arguments and has one branch.
+
+4. Task 177's PARTS lodge, which was the fallback: a 40 x 28 x 10 footprint, 5 courses of 2-stud
+   logs, a ridge at 18, 4 flat glass panes stuck on the side walls, a 4-post porch with a flat roof,
+   and a skull plate with two beams over the door. Everything it did, the new lodge does with
+   measurements instead of constants: the windows are cut OUT of the wall, the corners interlock,
+   the plinth is stone, the roof has a real overhang and the antlers over the door are the same
+   mount the trophy wall uses.
+
+5. `Build.post(name, diameter, height, centre, color, parent)` -- a standing cylinder helper. Its
+   last caller was 177's porch; the new porch uses squared timber. Kept here because the quarter-turn
+   it documents is a correction this repository makes in four places:
+
+       -- A cylinder's own length is its X, so a standing post is the lying one turned a quarter
+       -- turn -- the same correction `Horn.pieces` and `Markers.ring` make.
+       made.CFrame = CFrame.new(centre) * CFrame.Angles(0, 0, math.pi / 2)
+
+6. `CONFIG.TROPHIES.MOUNTS` of task 180: three rows (deer west -3, boar east -3, deer east +3)
+   carrying the two free head models with a plank behind each. Twelve rows of our own replace them.
+
+WHAT IS STILL IN THE PLACE
+--------------------------
+The three models are still parked in `Workspace.LobbyAssets` in the Forest Test place (Studio
+content, which Rojo does not manage). NOTHING READS THEM any more. They are left there rather than
+deleted because removing Studio content is Karen's click and not a Builder's, and because the folder
+is also where the truck and the trees live. Their creators stay credited in `CREDITS.md`, with the
+rows marked "no longer used".
+
+    Log Cabin                                 uhhhh17    4746497269
+    Deer Head Wall Mount Trophy Decor Home    bell4hd    101243188132816
+    Boar Head                                 Atejime    15282258007
+
+The full code of all of it is in git: it is the state of `src/server/Lobby/Build.luau` and
+`src/shared/Lobby/init.luau` at commit f28fcd9 (the merge of PR #170, task 186).

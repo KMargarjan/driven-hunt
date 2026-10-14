@@ -50,8 +50,13 @@ end
 -- A FOLDER OF FAKE FREE MODELS (task 180). Plain parts in a Model, one per template name, so the
 -- free-model branch is reachable WITHOUT a Creator Store round trip and without the Forest Test
 -- place -- which is the whole point of `templates` being an argument. `withScript` plants a Script
--- inside the lodge, because "a free model is the classic place to hide one" is only a checked claim
+-- inside the truck, because "a free model is the classic place to hide one" is only a checked claim
 -- if a spec actually hides one.
+--
+-- SINCE TASK 187 THERE IS NO LODGE AND NO TROPHY HEAD HERE, because there is no template for either
+-- any more: Karen judged the free cabins *"garbadge"* and the house, its windows, its fire and every
+-- antler on its walls are built from parts by this repository. What is still a free model is the
+-- truck and the trees.
 local function fakeTemplates(withScript: boolean?): Instance
 	local folder = Instance.new("Folder")
 	folder.Name = Data.TEMPLATES_NAME
@@ -66,10 +71,7 @@ local function fakeTemplates(withScript: boolean?): Instance
 		made.Parent = folder
 		return made
 	end
-	local house = model(Data.TEMPLATE.LODGE, Vector3.new(23, 16, 31))
-	model(Data.TEMPLATE.TRUCK, Vector3.new(18, 7, 9))
-	model(Data.TEMPLATE.DEER, Vector3.new(5, 5, 3))
-	model(Data.TEMPLATE.BOAR, Vector3.new(3, 2, 3))
+	local lorry = model(Data.TEMPLATE.TRUCK, Vector3.new(18, 7, 9))
 	local trees = Instance.new("Folder")
 	trees.Name = Data.TEMPLATE.TREES
 	trees.Parent = folder
@@ -77,7 +79,7 @@ local function fakeTemplates(withScript: boolean?): Instance
 	if withScript then
 		local hidden = Instance.new("Script")
 		hidden.Name = "Fire_Effect"
-		hidden.Parent = house
+		hidden.Parent = lorry
 	end
 	return folder
 end
@@ -641,7 +643,7 @@ return function()
 			-- hide them.
 			local covered = {
 				anchor + CFG.LODGE.OFFSET,
-				anchor + CFG.LODGE.OFFSET - Vector3.new(0, 0, CFG.LODGE.SIZE.Z / 2 + CFG.LODGE.PORCH_DEPTH),
+				anchor + CFG.LODGE.OFFSET - Vector3.new(0, 0, CFG.LODGE.SIZE.Z / 2 + CFG.LODGE.PORCH.DEPTH),
 				-- TASK 182: all four truck pads, which is what the yard has had to cover since the
 				-- circle became four rectangles behind the bays.
 				Pads.centreFor(anchor, 1, CFG),
@@ -787,12 +789,16 @@ return function()
 					or string.match(name, "^Roof")
 					or string.match(name, "^Gable")
 					or string.match(name, "^Floor")
+					or string.match(name, "^Plinth")
+					or string.match(name, "^Chimney")
 					or string.match(name, "^Deck")
 					or string.match(name, "^Porch")
 					or string.match(name, "^DoorPost")
+					or string.match(name, "^DoorLintel")
 					or string.match(name, "^Fireplace")
 					or string.match(name, "^Counter")
-					or string.match(name, "^TableLeg")
+					or string.match(name, "^Table")
+					or string.match(name, "^Bench")
 					or string.match(name, "^SignPost")
 					or string.match(name, "^Bed")
 					or string.match(name, "^Cab")
@@ -1063,15 +1069,17 @@ return function()
 		end)
 
 		it("leaves the doorway a GAP: nothing stands in it", function()
-			-- Karen asked for a *"door you walk through"*, so the door is the absence of parts.
+			-- Karen asked for a *"door you walk through"*, so the door is the absence of parts. The
+			-- leaf, the lintel and the two jambs are all BESIDE or ABOVE the hole, never in it.
+			local room = Build.roomFor(anchor, CFG)
 			local origin = anchor + CFG.LODGE.OFFSET
 			local frontZ = origin.Z - CFG.LODGE.SIZE.Z / 2
 			for _, descendant in ipairs(folder:GetDescendants()) do
 				if descendant:IsA("BasePart") and descendant.CanCollide then
 					local at = descendant.Position
-					local inDoorX = math.abs(at.X - origin.X) < CFG.LODGE.DOOR.X / 2
-					local inDoorZ = math.abs(at.Z - frontZ) < 1.5
-					local inDoorY = at.Y > origin.Y + 1 and at.Y < origin.Y + CFG.LODGE.DOOR.Y
+					local inDoorX = math.abs(at.X - origin.X) < CFG.LODGE.DOOR.WIDTH / 2
+					local inDoorZ = math.abs(at.Z - frontZ) < 2.5
+					local inDoorY = at.Y > room.centre.Y + 0.4 and at.Y < room.centre.Y + CFG.LODGE.DOOR.HEIGHT
 					if inDoorX and inDoorZ and inDoorY then
 						error(string.format("%s stands in the doorway", descendant.Name), 0)
 					end
@@ -1079,7 +1087,106 @@ return function()
 			end
 		end)
 
-		it("has a warm inside: one light, and the shop counter task 178 fills", function()
+		it("really CUTS the door and every window out of the log wall, away from the origin too", function()
+			-- THE CASE THAT FAILS ON THE BUG THIS LODGE SHIPPED WITH FOR ONE PHOTOGRAPH. An opening
+			-- is written in the config as studs from the lodge's own middle; a wall run is built in
+			-- WORLD coordinates. Comparing the two cut nothing, and every course was built whole --
+			-- a hunting house with no door and no windows at all.
+			--
+			-- AND IT IS BUILT AT x = 2850, NOT AT THE ORIGIN. The rest of this file anchors at
+			-- (0, 100, 0), where the two frames of reference are the same number and the bug cannot
+			-- be seen. Karen's lobby is at x 2850, z -2950.
+			local far = Vector3.new(2850, 100, -2950)
+			local other = Instance.new("Folder")
+			other.Name = "LobbyFarSpecWorld"
+			other.Parent = Workspace
+			local built = Build.build(other, far, CFG, nil)
+			local origin = far + CFG.LODGE.OFFSET
+			local room = Build.roomFor(far, CFG)
+			local d = CFG.LODGE.LOG_DIAMETER
+			local holes = {
+				{
+					at = Vector3.new(
+						origin.X,
+						room.centre.Y + CFG.LODGE.DOOR.HEIGHT / 2,
+						origin.Z - room.halfZ - d / 2
+					),
+				},
+			}
+			for _, row in ipairs(CFG.LODGE.WINDOWS) do
+				local y = room.centre.Y + CFG.LODGE.WINDOW.SILL_STUDS + CFG.LODGE.WINDOW.HEIGHT / 2
+				local at
+				if row.wall == "south" then
+					at = Vector3.new(origin.X + row.along, y, origin.Z - room.halfZ - d / 2)
+				elseif row.wall == "north" then
+					at = Vector3.new(origin.X + row.along, y, origin.Z + room.halfZ + d / 2)
+				elseif row.wall == "west" then
+					at = Vector3.new(origin.X - room.halfX - d / 2, y, origin.Z + row.along)
+				else
+					at = Vector3.new(origin.X + room.halfX + d / 2, y, origin.Z + row.along)
+				end
+				table.insert(holes, { at = at })
+			end
+			for _, hole in ipairs(holes) do
+				for _, descendant in ipairs(built:GetDescendants()) do
+					if descendant:IsA("BasePart") and string.sub(descendant.Name, 1, 4) == "Wall" then
+						local piece = descendant :: BasePart
+						-- A LOG IS A CYLINDER whose length is its X, so its box in its own frame is
+						-- the test: a wall log containing the middle of an opening is an opening
+						-- that was never cut.
+						local near = piece.CFrame:PointToObjectSpace(hole.at)
+						local inside = math.abs(near.X) < piece.Size.X / 2
+							and math.abs(near.Y) < piece.Size.Y / 2
+							and math.abs(near.Z) < piece.Size.Z / 2
+						if inside then
+							error(string.format("%s fills an opening that should be a hole", piece.Name), 0)
+						end
+					end
+				end
+			end
+			-- ...AND THE FRAME IS REALLY THERE, so "cut" cannot be satisfied by building no wall.
+			expect(built:FindFirstChild("WindowSill1", true)).to.be.ok()
+			expect(built:FindFirstChild("Shutter1W", true)).to.be.ok()
+			expect(built:FindFirstChild("WallPane1", true)).to.be.ok()
+			other:Destroy()
+		end)
+
+		it("is WALKABLE from the doorway to the counter, and the room is big enough to be one", function()
+			-- THE TASK OWN NUMBER: *"interior at least 14x10 studs walkable"*. This is both halves of
+			-- it -- the rectangle, and the line a player actually walks along it.
+			local room = Build.roomFor(anchor, CFG)
+			expect(room.halfX * 2 >= 14).to.equal(true)
+			expect(room.halfZ * 2 >= 10).to.equal(true)
+			-- A CHARACTER IS ABOUT 5 STUDS TALL AND 2 WIDE. Walk from a stud inside the doorway to
+			-- the front of the counter, a step at a time, and let nothing solid stand in the
+			-- corridor: the fireplace is on the far side of the room and the table is clamped to its
+			-- own offset, but a bench that drifted into the line would be found here rather than by
+			-- Karen.
+			local counter = folder:FindFirstChild(Data.COUNTER_NAME, true) :: BasePart
+			expect(counter).to.be.ok()
+			local from = Vector3.new(room.centre.X, room.centre.Y + 2.6, room.centre.Z - room.halfZ + 1.5)
+			local to = Vector3.new(counter.Position.X, room.centre.Y + 2.6, counter.Position.Z - counter.Size.Z / 2 - 2)
+			local steps = 24
+			for step = 0, steps do
+				local at = from:Lerp(to, step / steps)
+				for _, descendant in ipairs(folder:GetDescendants()) do
+					if descendant:IsA("BasePart") and descendant.CanCollide then
+						local piece = descendant :: BasePart
+						local near = piece.CFrame:PointToObjectSpace(at)
+						-- HALF A BODY WIDTH of clearance either side, and the body own height: a
+						-- part whose box reaches into that box is a part a player walks into.
+						local hitX = math.abs(near.X) < piece.Size.X / 2 + 1
+						local hitZ = math.abs(near.Z) < piece.Size.Z / 2 + 1
+						local hitY = math.abs(near.Y) < piece.Size.Y / 2 + 2.4
+						if hitX and hitY and hitZ then
+							error(string.format("%s blocks the walk from the door to the counter", piece.Name), 0)
+						end
+					end
+				end
+			end
+		end)
+
+		it("has a warm inside: a real fire, the lanterns, and the shop counter task 178 fills", function()
 			local inside = folder:FindFirstChild("Inside", true)
 			expect(inside).to.be.ok()
 			local lights = 0
@@ -1088,8 +1195,20 @@ return function()
 					lights += 1
 				end
 			end
-			-- ONE light and nothing animated: a fire that flickers would be a second writer of it.
-			expect(lights).to.equal(1)
+			-- THE FIRE, THREE LANTERNS INSIDE AND TWO ON THE PORCH, and every one of them is a
+			-- `PointLight` written ONCE: nothing in this lodge is animated by a script, so there is
+			-- no second writer of anything. The count is read off the config, so a fourth lantern is
+			-- a row and not a failing test.
+			expect(lights).to.equal(1 + #CFG.LODGE.LANTERN.ALONG + 2)
+			-- KAREN ASKED FOR A FIREPLACE WITH A FIRE IN IT: the `Fire`, the embers and the light
+			-- all hang on the one part, which is what makes "the fire is present" checkable.
+			local fire = folder:FindFirstChild("Fire", true)
+			expect(fire).to.be.ok()
+			expect((fire :: Instance):FindFirstChildOfClass("Fire")).to.be.ok()
+			expect((fire :: Instance):FindFirstChildOfClass("ParticleEmitter")).to.be.ok()
+			expect((fire :: Instance):FindFirstChildOfClass("PointLight")).to.be.ok()
+			expect(folder:FindFirstChild("FireplaceMantel", true)).to.be.ok()
+			expect(folder:FindFirstChild("FireplaceHearth", true)).to.be.ok()
 			expect(folder:FindFirstChild("Counter", true)).to.be.ok()
 			local shopSign = folder:FindFirstChild("ShopSign", true)
 			expect(shopSign).to.be.ok()
@@ -1126,14 +1245,17 @@ return function()
 
 	-- ------------------------------------------------ the free models, and the fallback (task 180)
 	--
-	-- KAREN, 2026-10-14 ~09:30: *"we need better house we can use free models / we need car truck
-	-- model or hunting bus also use free model / ... and then on walls we can make trophys like head
-	-- of deer head of boar"*.
+	-- KAREN, 2026-10-14 ~09:30: *"we need car truck model or hunting bus also use free model"*, and
+	-- ~21:30, on the free cabins: *"all of then garbadge ... you build then one proper europen
+	-- standart"*.
 	--
-	-- THE CLAIM THAT MATTERS MOST HERE IS THE FALLBACK. The models live in `Workspace.LobbyAssets`,
-	-- which is Studio content in ONE place; the lobby still has to build in the other one, and in a
-	-- place where somebody renamed the folder, and in this spec. So the model build and the parts
-	-- build are both driven here, and they must agree about everything except which lodge it is.
+	-- SO SINCE TASK 187 THE FREE MODELS ARE THE TRUCK AND THE TREES, AND NOTHING ELSE. The lodge and
+	-- every trophy on its walls are ours, which is what the first two cases below are for: the house
+	-- is the SAME house whether or not the template folder exists at all.
+	--
+	-- THE CLAIM THAT MATTERS MOST HERE IS STILL THE FALLBACK. The models live in
+	-- `Workspace.LobbyAssets`, which is Studio content in ONE place; the lobby still has to build in
+	-- the other one, in a place where somebody renamed the folder, and in this spec.
 	describe("the free models, and what happens without them", function()
 		local anchor = Vector3.new(0, 100, 0)
 		local container
@@ -1148,28 +1270,24 @@ return function()
 			container:Destroy()
 		end)
 
-		it("builds the lodge, the four trucks and the three trophies out of the templates", function()
+		it("builds OUR lodge and the four trucks out of the templates", function()
 			local templates = fakeTemplates()
 			local folder, _marker, _spawn, count = Build.build(container, anchor, CFG, templates)
 			local stats = Build.stats()
-			expect(folder:FindFirstChild("House", true)).to.be.ok()
-			-- the parts lodge's own log wall is NOT there: one lodge, never two.
-			-- `WallN` AND NOT `WallS`: the front wall's lower courses are split round the doorway and
-			-- are named `WallS1W`/`WallS1E`, so "WallS1" is absent from the parts build too and would
-			-- pass this line for the wrong reason. The back wall has no door and no such trap.
-			expect(folder:FindFirstChild("WallN1", true)).to.never.be.ok()
+			-- NO CLONED HOUSE, EVER AGAIN (task 187). `House` was the free cabin Karen called
+			-- *"garbadge"*; what stands here now is this repository own wall, and the template
+			-- folder cannot bring the old one back.
+			expect(folder:FindFirstChild("House", true)).to.never.be.ok()
+			expect(folder:FindFirstChild("WallN1_1", true)).to.be.ok() -- the back wall lowest log
 			for index = 1, CFG.TRUCK.COUNT do
 				expect(folder:FindFirstChild(string.format("Truck%d", index), true)).to.be.ok()
 			end
-			expect(folder:FindFirstChild("DeerHead1", true)).to.be.ok()
-			expect(folder:FindFirstChild("BoarHead2", true)).to.be.ok()
 			expect(folder:FindFirstChild("TreeLine")).to.be.ok()
-			-- ONE LODGE, FOUR TRUCKS, THREE HEADS -- exactly eight -- AND MOST OF THE TREE LINE.
-			-- It is a BOUND and not an equality on purpose: the arc crosses the road's corridor and
-			-- a tree that would stand in the road is skipped, so `TREELINE.COUNT` is how many are
-			-- ATTEMPTED and never how many are placed. Pinning the exact number would make moving
-			-- the road by a stud a failing test about trees.
-			local trees = stats.models - 8
+			-- FOUR TRUCKS AND MOST OF THE TREE LINE, and nothing else is a clone any more.
+			-- It is a BOUND and not an equality on purpose: the arc crosses the road corridor and a
+			-- tree that would stand in the road is skipped, so `TREELINE.COUNT` is how many are
+			-- ATTEMPTED and never how many are placed.
+			local trees = stats.models - CFG.TRUCK.COUNT
 			expect(trees > 0).to.equal(true)
 			expect(trees <= CFG.TREELINE.COUNT).to.equal(true)
 			expect(trees >= CFG.TREELINE.COUNT - 6).to.equal(true)
@@ -1178,12 +1296,17 @@ return function()
 			templates:Destroy()
 		end)
 
-		it("falls back to task 177's parts build when the folder is not there at all", function()
+		it("builds the SAME lodge when the template folder is not there at all", function()
 			local folder, _marker, _spawn, count = Build.build(container, anchor, CFG, nil)
 			local stats = Build.stats()
-			expect(folder:FindFirstChild("House", true)).to.never.be.ok()
-			expect(folder:FindFirstChild("WallN1", true)).to.be.ok() -- the back wall's lowest log
+			-- THE DEV PLACE HAS NEVER HAD THE TEMPLATES, and the harness runs there: the house, its
+			-- fire and its antlers must not depend on Studio content that exists in one place.
+			expect(folder:FindFirstChild("WallN1_1", true)).to.be.ok()
 			expect(folder:FindFirstChild("Floor", true)).to.be.ok()
+			expect(folder:FindFirstChild("Plinth", true)).to.be.ok()
+			expect(folder:FindFirstChild("ChimneyStack", true)).to.be.ok()
+			expect(folder:FindFirstChild("Fire", true)).to.be.ok()
+			expect(folder:FindFirstChild("Trophies", true)).to.be.ok()
 			for index = 1, CFG.TRUCK.COUNT do
 				local made = folder:FindFirstChild(string.format("Truck%d", index), true)
 				expect(made).to.be.ok()
@@ -1200,7 +1323,7 @@ return function()
 			local truckTemplate = templates:FindFirstChild(Data.TEMPLATE.TRUCK) :: Instance
 			truckTemplate:Destroy()
 			local folder = Build.build(container, anchor, CFG, templates)
-			expect(folder:FindFirstChild("House", true)).to.be.ok() -- the model lodge still
+			expect(folder:FindFirstChild("TreeLine")).to.be.ok() -- the trees are still clones
 			local first = folder:FindFirstChild("Truck1", true)
 			expect(first).to.be.ok()
 			expect((first :: Instance):FindFirstChild("Cab")).to.be.ok() -- ...and parts trucks
@@ -1211,7 +1334,9 @@ return function()
 		it("strips a script a free model smuggled in, and says how many", function()
 			local templates = fakeTemplates(true)
 			local folder = Build.build(container, anchor, CFG, templates)
-			expect(Build.stats().strippedScripts).to.equal(1)
+			-- ONE SCRIPT IN THE TEMPLATE, ONE PER CLONE OF IT: the truck is parked in four bays, so
+			-- four is the right answer and `1` would mean three of them got through.
+			expect(Build.stats().strippedScripts).to.equal(CFG.TRUCK.COUNT)
 			for _, descendant in ipairs(folder:GetDescendants()) do
 				expect(descendant:IsA("LuaSourceContainer")).to.equal(false)
 			end
@@ -1251,7 +1376,7 @@ return function()
 		it("stands every free model ON the shelf, not in it and not over it", function()
 			local templates = fakeTemplates()
 			local folder = Build.build(container, anchor, CFG, templates)
-			for _, name in ipairs({ "House", "Truck1", "Truck4" }) do
+			for _, name in ipairs({ "Truck1", "Truck4" }) do
 				local made = folder:FindFirstChild(name, true) :: Model
 				local box, size = made:GetBoundingBox()
 				expect(math.abs((box.Position.Y - size.Y / 2) - anchor.Y) < 0.05).to.equal(true)
@@ -1500,70 +1625,138 @@ return function()
 			templates:Destroy()
 		end)
 
-		it("hangs every trophy INSIDE the room it is in, under its ceiling, in BOTH builds", function()
-			-- THE ROOM IS A DIFFERENT RECTANGLE IN THE TWO BUILDS (19.6 x 19.6 x 7.4 against
-			-- 38 x 26 x 9), which is exactly why a mount names a WALL and not an offset -- and why
-			-- the bound here is the ROOM and not the lodge's footprint. Round 1 bounded these against
-			-- `LODGE.SIZE`, ten studs outside the wall, and so could not see the bug it was written
-			-- for: an inverted yaw puts a plaque only `PLAQUE.Z / 2` = 0.25 studs past its wall.
-			-- `Build.roomFor` is the same rectangle the mount itself used.
-			for _, withModels in ipairs({ true, false }) do
-				local templates = if withModels then fakeTemplates() else nil
-				local folder = Build.build(container, anchor, CFG, templates)
-				local room = Build.roomFor(anchor, CFG, withModels)
-				local heads = folder:FindFirstChild("Trophies", true)
-				expect(heads).to.be.ok()
-				local plaques, mounted, tines = 0, 0, 0
-				for _, descendant in ipairs((heads :: Instance):GetChildren()) do
-					local isPlaque = string.sub(descendant.Name, 1, 6) == "Plaque"
-					-- A HEAD IS A MODEL WITH THE TEMPLATES AND A PAIR OF TINE CYLINDERS WITHOUT THEM.
-					-- Both are bounded, because both are the thing hanging on the wall.
-					local isHead = descendant:IsA("Model")
-						and (string.sub(descendant.Name, 1, 4) == "Deer" or string.sub(descendant.Name, 1, 4) == "Boar")
-					local isTine = string.sub(descendant.Name, 1, 4) == "Tine"
-					if isPlaque or isHead or isTine then
-						-- THE HEADS ARE CHECKED TOO, and in round 1 they were not: they land a
-						-- stud further out than the plaque, so they are the louder half of the bug.
-						local middle, size
-						if isPlaque then
-							plaques += 1
-							middle = (descendant :: BasePart).Position
-							size = (descendant :: BasePart).Size
-						elseif isHead then
-							mounted += 1
-							local box, extent = (descendant :: Model):GetBoundingBox()
-							middle = box.Position
-							size = extent
-						else
-							tines += 1
-							middle = (descendant :: BasePart).Position
-							size = (descendant :: BasePart).Size
+		it("hangs every trophy INSIDE the room, under its ceiling, and off the wall it names", function()
+			-- THE BOUND IS THE ROOM AND NOT THE LODGE FOOTPRINT, which is task 180 round 1 finding 3:
+			-- a footprint bound is a stud and a half outside the wall and cannot see the bug it was
+			-- written for -- an inverted yaw puts a plaque a quarter of a stud past its own wall, in
+			-- the open air. `Build.roomFor` is the same rectangle the mount itself used.
+			--
+			-- EVERY PART OF EVERY MOUNT is checked and not just the shield: the antler beams reach a
+			-- stud and a half further out than the plaque and three higher, so they are the half of a
+			-- mistake that goes through the wall or the boards first.
+			local folder = Build.build(container, anchor, CFG, fakeTemplates())
+			local room = Build.roomFor(anchor, CFG)
+			local heads = folder:FindFirstChild("Trophies", true)
+			expect(heads).to.be.ok()
+			local plaques, pieces = 0, 0
+			-- DESCENDANTS: a mount is a Folder of its own since task 187, which is what lets the
+			-- builder measure one and move the whole thing if it does not fit.
+			for _, descendant in ipairs((heads :: Instance):GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					local piece = descendant :: BasePart
+					pieces += 1
+					if string.find(piece.Name, "Plaque", 1, true) then
+						plaques += 1
+					end
+					local at = piece.Position
+					expect(at.X <= room.centre.X + room.halfX).to.equal(true)
+					expect(at.X >= room.centre.X - room.halfX).to.equal(true)
+					expect(at.Z <= room.centre.Z + room.halfZ).to.equal(true)
+					expect(at.Z >= room.centre.Z - room.halfZ).to.equal(true)
+					-- ...and off the floor, and NOT THROUGH THE CEILING, which is the other half of
+					-- that round: a 5.4-stud deer seated at its mount height stood 2.4 studs through
+					-- a 7.4-stud room roof.
+					expect(at.Y > room.centre.Y).to.equal(true)
+					expect(at.Y <= room.centre.Y + room.height).to.equal(true)
+				end
+			end
+			-- ONE SHIELD PER MOUNT, and a mount is never a bare shield: fifteen rows come to well
+			-- over a hundred parts, which is what a trophy wall is.
+			expect(plaques).to.equal(#CFG.TROPHIES.MOUNTS)
+			expect(pieces > #CFG.TROPHIES.MOUNTS * 4).to.equal(true)
+		end)
+
+		it("hangs nothing on a wall in front of a window, the counter or the fireplace", function()
+			-- A TROPHY ROW IS DATA, so the way it goes wrong is a row that names a wall something
+			-- else already owns -- which is exactly what task 180 shipped: two heads on the back
+			-- wall, one half inside the chimney and one behind the SHOP sign.
+			local folder = Build.build(container, anchor, CFG, nil)
+			local room = Build.roomFor(anchor, CFG)
+			local heads = folder:FindFirstChild("Trophies", true) :: Instance
+			local counter = folder:FindFirstChild(Data.COUNTER_NAME, true) :: BasePart
+			for _, descendant in ipairs(heads:GetDescendants()) do
+				if descendant:IsA("BasePart") and string.find(descendant.Name, "Plaque", 1, true) then
+					local at = (descendant :: BasePart).Position
+					-- NOT OVER THE COUNTER: the shield would be behind the SHOP sign.
+					local overCounter = math.abs(at.X - counter.Position.X) < counter.Size.X / 2
+						and math.abs(at.Z - counter.Position.Z) < 3
+					expect(overCounter).to.equal(false)
+					-- NOT IN A WINDOW, and a window is a RECTANGLE: a shield clashes only when it
+					-- overlaps the opening BOTH along the wall and in height. A row above a window is
+					-- a thing a lodge actually has.
+					for _, row in ipairs(CFG.LODGE.WINDOWS) do
+						local sameWall = (row.wall == "north" and at.Z > room.centre.Z + room.halfZ - 1)
+							or (row.wall == "south" and at.Z < room.centre.Z - room.halfZ + 1)
+							or (row.wall == "east" and at.X > room.centre.X + room.halfX - 1)
+							or (row.wall == "west" and at.X < room.centre.X - room.halfX + 1)
+						if sameWall then
+							local along = if row.wall == "north" or row.wall == "south"
+								then at.X - room.centre.X
+								else at.Z - room.centre.Z
+							local across = math.abs(along - row.along)
+								< CFG.LODGE.WINDOW.WIDTH / 2 + CFG.TROPHIES.ROE.PLAQUE.X / 2
+							local high = at.Y - room.centre.Y
+							local overlaps = high > CFG.LODGE.WINDOW.SILL_STUDS - CFG.TROPHIES.ROE.PLAQUE.Y / 2
+								and high < CFG.LODGE.WINDOW.SILL_STUDS + CFG.LODGE.WINDOW.HEIGHT
+							expect(across and overlaps).to.equal(false)
 						end
-						local at = middle
-						expect(at.X <= room.centre.X + room.halfX).to.equal(true)
-						expect(at.X >= room.centre.X - room.halfX).to.equal(true)
-						expect(at.Z <= room.centre.Z + room.halfZ).to.equal(true)
-						expect(at.Z >= room.centre.Z - room.halfZ).to.equal(true)
-						-- ...and off the floor, and NOT THROUGH THE CEILING, which is the other half
-						-- of round 1: a 5.4-stud deer seated at its mount height stood 2.4 studs
-						-- through a 7.4-stud room's roof.
-						expect(middle.Y - size.Y / 2 > room.centre.Y).to.equal(true)
-						expect(middle.Y + size.Y / 2 <= room.centre.Y + room.height).to.equal(true)
 					end
 				end
-				expect(plaques).to.equal(#CFG.TROPHIES.MOUNTS)
-				-- WITH the templates every mount is a head model and nothing falls back; WITHOUT
-				-- them every mount is the pair of tines task 177's antlers are made of. The wall is
-				-- never bare either way, which is the point of the fallback.
-				if withModels then
-					expect(mounted).to.equal(#CFG.TROPHIES.MOUNTS)
-					expect(tines).to.equal(0)
-				else
-					expect(mounted).to.equal(0)
-					expect(tines).to.equal(#CFG.TROPHIES.MOUNTS * 2)
+			end
+		end)
+
+		it("leaves no part of the lodge floating: every one of them touches another", function()
+			-- THE TASK OWN WORDS: *"no floating parts (every part within the lodge bounds and
+			-- supported)"*. A plaque hangs on a wall and a rafter hangs off a roof, so "supported"
+			-- cannot mean "has ground under it"; what it can mean, and what this measures, is that
+			-- every part of the building TOUCHES another part of the building -- and that all of them
+			-- are inside the envelope the lodge is allowed to occupy.
+			local folder = Build.build(container, anchor, CFG, nil)
+			local lodge = folder:FindFirstChild("Lodge") :: Instance
+			expect(lodge).to.be.ok()
+			local origin = anchor + CFG.LODGE.OFFSET
+			local boxes = {}
+			for _, descendant in ipairs(lodge:GetDescendants()) do
+				-- THE KEEPER IS A BODY AND NOT MASONRY: his limbs hang off his own joints.
+				if descendant:IsA("BasePart") and descendant:FindFirstAncestorOfClass("Model") == nil then
+					local piece = descendant :: BasePart
+					-- THE ENVELOPE: the footprint plus the roof overhang and the chimney one side,
+					-- the porch to the south, the ground below and the chimney pots above.
+					local west = origin.X - CFG.LODGE.SIZE.X / 2 - CFG.LODGE.CHIMNEY.WIDTH - 2
+					local east = origin.X + CFG.LODGE.SIZE.X / 2 + CFG.LODGE.ROOF.GABLE_STUDS + 2
+					local south = origin.Z
+						- CFG.LODGE.SIZE.Z / 2
+						- CFG.LODGE.PORCH.DEPTH
+						- CFG.LODGE.PORCH.STEPS * CFG.LODGE.PORCH.STEP_DEPTH
+						- 2
+					local north = origin.Z + CFG.LODGE.SIZE.Z / 2 + CFG.LODGE.ROOF.EAVE_STUDS + 2
+					expect(piece.Position.X >= west and piece.Position.X <= east).to.equal(true)
+					expect(piece.Position.Z >= south and piece.Position.Z <= north).to.equal(true)
+					expect(piece.Position.Y >= origin.Y - 3).to.equal(true)
+					expect(
+						piece.Position.Y <= origin.Y + CFG.LODGE.RIDGE_STUDS + CFG.LODGE.CHIMNEY.ABOVE_RIDGE_STUDS + 4
+					).to.equal(true)
+					table.insert(boxes, piece)
 				end
-				if templates then
-					(templates :: Instance):Destroy()
+			end
+			expect(#boxes > 200).to.equal(true)
+			-- TOUCHING, measured as overlapping bounding spheres with three quarters of a stud of
+			-- slack -- which is loose enough for a rotated roof slab and tight enough that a piece
+			-- left in mid-air by a bad offset has nothing within reach of it.
+			for _, piece in ipairs(boxes) do
+				local radius = piece.Size.Magnitude / 2
+				local touched = false
+				for _, other in ipairs(boxes) do
+					if other ~= piece then
+						local gap = (other.Position - piece.Position).Magnitude
+						if gap <= radius + other.Size.Magnitude / 2 + 0.75 then
+							touched = true
+							break
+						end
+					end
+				end
+				if not touched then
+					error(string.format("%s floats: nothing of the lodge is within reach of it", piece.Name), 0)
 				end
 			end
 		end)
@@ -1580,7 +1773,7 @@ return function()
 			for _, withModels in ipairs({ true, false }) do
 				local templates = if withModels then fakeTemplates() else nil
 				local folder = Build.build(container, anchor, CFG, templates)
-				local room = Build.roomFor(anchor, CFG, withModels)
+				local room = Build.roomFor(anchor, CFG)
 				local yardSouth = anchor.Z + CFG.TRUCK.OFFSET.Z - 22
 				local fences = folder:FindFirstChild("Fences")
 				expect(fences).to.be.ok()
@@ -1650,7 +1843,10 @@ return function()
 			-- man then stands exactly where `world.place` put him, `Join.insideField` answers FALSE,
 			-- `Join.needsReturn` answers true, and the lobby re-places him at the same off-shelf point
 			-- every `RETURN_COOLDOWN_SECONDS` for ever.
-			local half = CFG.LODGE.SIZE.X / 2
+			-- THE BOUND IS THE PORCH HE LANDS ON, not the lodge behind it (task 187): the deck is
+			-- the footprint less `PORCH.INSET_STUDS` either side, and a slot outside that is a man
+			-- standing on the corner of his own steps.
+			local half = CFG.LODGE.SIZE.X / 2 - CFG.LODGE.PORCH.INSET_STUDS
 			for index = 0, 200 do
 				local at = Lobby.spawnCFrame(anchor, index, CFG).Position
 				-- Inside the field, which is the rule that closes the respawn loop...

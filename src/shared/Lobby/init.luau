@@ -57,13 +57,16 @@ Lobby.SPAWN_NAME = "LodgeSpawn"
 -- (CLAUDE.md). What is left, and what StudioMCP's `insert_asset` can do with no human click, is to
 -- insert the model into the place ONCE, in Edit, and have the run-time owner clone it.
 Lobby.TEMPLATES_NAME = "LobbyAssets"
--- The four children `Build` looks for inside it. A missing one is not an error: the lodge, the truck
--- and the trophies each fall back to task 177's parts build, one at a time.
+-- The two children `Build` still looks for inside it. A missing one is not an error: the piece is
+-- simply not built, and `stats.fallbacks` counts it.
+--
+-- THE LODGE AND THE TWO TROPHY HEADS CAME OFF THIS LIST IN TASK 187. Karen, on the free cabins:
+-- *"all of then garbadge ... you build then one proper europen standart"*. The house and everything
+-- on its walls is ours now (`Build.lodge`), so the only free models left are the TRUCK and the
+-- TREES -- both of which Karen has looked at and kept. The removed rows and their asset ids are in
+-- `backups/2026-10-14_task-187_free-lodge.txt` (rule 7).
 Lobby.TEMPLATE = {
-	LODGE = "Lodge",
 	TRUCK = "Truck",
-	DEER = "DeerHead",
-	BOAR = "BoarHead",
 	TREES = "Trees", -- a folder of tree models copied out of `Workspace.OurForest`
 }
 -- THE SHOP COUNTER (task 178). `Build.interior` builds it under `Lodge.Inside.Shop`, and this is the
@@ -212,41 +215,204 @@ Lobby.CONFIG = {
 		-- `Lobby.stats()` so which path ran is a number and not a belief.
 		CHUNK_STUDS = 64,
 	},
-	-- ---------------- the lodge: "Wooden log lodge", logs, porch, antlers over the door, warm inside
+	-- ---------------- the lodge: OURS, from parts, a Central-European hunting house (task 187)
+	--
+	-- KAREN, 2026-10-14 ~21:30, on the free Creator Store cabins she was shown: *"all of then
+	-- garbadge"*, and then the decision this table is: *"you build then one proper europen
+	-- standart"* -- *"I need hunting house where will be fireplace table on walls animal antlers ect
+	-- like hunting cabin"*.
+	--
+	-- EVERY DIMENSION OF THE BUILDING IS HERE AND `Build` INVENTS NONE OF THEM (design section 9),
+	-- which is what makes the room's rectangle, the doorway's gap and the roof's pitch things a spec
+	-- can assert.
+	--
+	-- Note: docs/research/2026-10-14-european-hunting-lodge.md
 	LODGE = {
-		SIZE = Vector3.new(40, 10, 28), -- a 40 x 28 footprint with 10-stud walls
-		RIDGE_STUDS = 18, -- the ridge, above the shelf
-		LOG_DIAMETER = 2, -- 5 courses of cylinders per wall
-		DOOR = Vector2.new(6, 9), -- WALK-THROUGH: a gap in the front wall, never a door part
-		PORCH_DEPTH = 8,
-		PORCH_POSTS = 4,
-		WINDOWS = 4,
-		-- THE LODGE SITS TOWARD THE NORTH EDGE OF THE FIELD, facing south, so a player walking out
-		-- of the porch has the truck in front of him and the forest behind the roof.
+		-- 36 x 26 OUTSIDE, SEVEN COURSES OF LOG. The room inside is 32.4 x 22.4 and 12.6 studs to the
+		-- boards -- a character is about 5 -- against the 14 x 10 the task asked for as a minimum.
+		-- It is SMALLER than task 177's 40 x 28 on purpose: every clearance the pads, the fences and
+		-- the yard are held to was computed against that footprint, so shrinking it can only widen
+		-- them.
+		--
+		-- THE HEIGHT IS WHAT A TROPHY WALL COSTS, and it was arithmetic rather than taste: a red
+		-- stag's mount is 3.2 studs of shield and four of antler, it hangs OVER a mantel that is
+		-- itself five studs up, and in an eleven-stud room the two could not both be true -- the
+		-- clamp pushed the stag down into the firebox. A hall is tall.
+		SIZE = Vector3.new(36, 13, 26),
+		-- THE LODGE SITS TOWARD THE NORTH EDGE OF THE FIELD, facing south, so a player walking out of
+		-- the porch has the trucks in front of him and the forest behind the roof.
 		OFFSET = Vector3.new(0, 0, 46),
+		-- THE STONE PLINTH. Rubble stone under the logs is the first thing a Central-European lodge
+		-- has and the reason its sills do not rot; here it is also what hides the voxel edge of the
+		-- terrain, which task 186 measured at up to a stud below the nominal shelf.
+		PLINTH = {
+			HEIGHT = 2.2,
+			OVERHANG = 1.0,
+			MATERIAL = Enum.Material.Cobblestone,
+			COLOR = Color3.fromRGB(124, 120, 112),
+			CAP_COLOR = Color3.fromRGB(96, 94, 90),
+		},
+		FLOOR_THICK = 0.6,
+		-- THE LOGS. 1.8 studs is about 50 cm, which is a big but buildable hand-hewn log, and
+		-- `LOG_END_STUDS` is the PROJECTION past the corner ("around 15 to 20 cm from the end of the
+		-- block" -- Glentleiten, via Google Arts & Culture; 0.9 studs is 25 cm at Roblox's 0.28 m).
+		LOG_DIAMETER = 1.8,
+		LOG_END_STUDS = 0.9,
+		-- WALK-THROUGH: a gap in the front wall, never a door part (Karen, task 177). The leaf stands
+		-- OPEN against the wall beside it, turned out by `LEAF_OPEN_RADIANS` (100 degrees).
+		DOOR = { WIDTH = 7, HEIGHT = 9, LEAF_OPEN_RADIANS = 1.75 },
+		-- THE ROOF. 28 studs to the ridge is 12.6 of rise over a 13-stud half-depth: a 44-degree
+		-- pitch, which is the steep Alpine gable rather than an American cabin's shallow one. The
+		-- eaves reach 3.4 studs past the wall and the gables 2.2, because the DEEP OVERHANG is most
+		-- of what makes the silhouette read as European.
+		RIDGE_STUDS = 28,
+		ROOF = {
+			THICK = 0.8,
+			EAVE_STUDS = 3.4,
+			GABLE_STUDS = 2.2,
+			RAFTERS = 7,
+			MATERIAL = Enum.Material.Slate,
+			COLOR = Color3.fromRGB(58, 54, 52),
+			RIDGE_COLOR = Color3.fromRGB(44, 41, 40),
+			GABLE_COLOR = Color3.fromRGB(82, 58, 40),
+		},
+		-- THE CHIMNEY, up the OUTSIDE of the west gable: no hole in the roof, and the fireplace
+		-- inside stands against the same wall at the same `ALONG_STUDS`.
+		CHIMNEY = {
+			WIDTH = 4.4,
+			DEPTH = 6.5,
+			INSET_STUDS = 1.4, -- how far it bites into the wall, so it is not a slab stuck on
+			ALONG_STUDS = 4,
+			ABOVE_RIDGE_STUDS = 3,
+			MATERIAL = Enum.Material.Cobblestone,
+			COLOR = Color3.fromRGB(118, 113, 106),
+			CAP_COLOR = Color3.fromRGB(78, 76, 74),
+		},
+		-- THE WINDOWS, AS HOLES IN THE WALL. Each row names a wall and how far along it; the wall
+		-- builder cuts the logs and the window builder dresses the hole, both from this list, so one
+		-- can never happen without the other. The WEST wall has none: the fireplace and the chimney
+		-- are there.
+		WINDOW = {
+			WIDTH = 5,
+			HEIGHT = 4.4,
+			SILL_STUDS = 3.4, -- above the floorboards: chest height, which is where a small window goes
+			FRAME = 0.5,
+			-- OPEN BY HALF A RIGHT ANGLE: at 0.38 rad they lay nearly flat on the logs and read as
+			-- green smudges rather than as shutters.
+			SHUTTER_OPEN_RADIANS = 0.85,
+			GLASS_COLOR = Color3.fromRGB(150, 176, 186),
+			GLASS_TRANSPARENCY = 0.55,
+			FRAME_COLOR = Color3.fromRGB(74, 52, 36),
+			SILL_COLOR = Color3.fromRGB(96, 72, 48),
+			SHUTTER_COLOR = Color3.fromRGB(58, 74, 54),
+			CUTOUT_COLOR = Color3.fromRGB(32, 42, 30),
+		},
+		-- WHICH WALL CARRIES WHAT, decided once and here, because the four walls cannot all carry
+		-- everything: the SOUTH front has the door and two windows either side of it, the NORTH has
+		-- the shop counter in its east half and one window in its west, the EAST gable is the trophy
+		-- wall with a single window in the middle of it, and the WEST gable has the fireplace, the
+		-- chimney and the gun rack and therefore no window at all.
+		WINDOWS = {
+			{ wall = "south", along = -11 },
+			{ wall = "south", along = 11 },
+			{ wall = "north", along = -13 },
+			{ wall = "east", along = 0 },
+		},
+		-- THE PORCH. Karen's word, and it is where she arrives.
+		PORCH = {
+			DEPTH = 8,
+			INSET_STUDS = 3, -- narrower than the house, so the gable reads above it
+			OVERHANG_STUDS = 2.4,
+			-- HOW TALL THE POSTS ARE, from the deck, and it has to be LESS than the main eave they
+			-- hang from or the lean-to runs uphill -- which is what the first photograph showed at
+			-- 8.5, with the main roof's outer edge 8.9 studs over the boards.
+			POST_STUDS = 6.5,
+			STEPS = 3,
+			STEP_DEPTH = 1.6,
+			WOOD_ROWS = 4,
+			WOOD_PER_ROW = 5,
+		},
+		-- THE COLOURS AND THE TIMBER. One palette, read by every piece.
 		MATERIAL = Enum.Material.Wood,
-		ROOF_MATERIAL = Enum.Material.WoodPlanks,
-		LOG_COLOR = Color3.fromRGB(104, 76, 50),
-		ROOF_COLOR = Color3.fromRGB(74, 54, 38),
-		FLOOR_COLOR = Color3.fromRGB(129, 101, 71),
-		-- THE WARM INSIDE: one `PointLight` at the fireplace and nothing animated, nothing written
-		-- per frame. Karen asked for *"warm inside"*, which is a light and not a system.
-		FIRE_LIGHT = { brightness = 2, rangeStuds = 34, color = Color3.fromRGB(255, 180, 110) },
-		ANTLERS = { tines = 2 }, -- a skull plate and two beams over the door
+		-- DARKER THAN THE FIRST BUILD, which photographed almost pink: Roblox's `Wood` is a bright
+		-- material and two lanterns on the front wall lift it further. A Central-European lodge is
+		-- oiled, weathered brown.
+		LOG_COLOR = Color3.fromRGB(99, 71, 47),
+		TIMBER_COLOR = Color3.fromRGB(78, 55, 37),
+		FLOOR_COLOR = Color3.fromRGB(112, 86, 60),
+		DECK_COLOR = Color3.fromRGB(98, 75, 53),
+		CEILING_COLOR = Color3.fromRGB(88, 65, 45),
+		FURNITURE_COLOR = Color3.fromRGB(106, 78, 52),
+		DOOR_COLOR = Color3.fromRGB(70, 48, 32),
+		FIREWOOD_COLOR = Color3.fromRGB(148, 120, 92),
+		-- THE FIREPLACE, against the west wall, at the chimney's own `ALONG_STUDS`.
+		FIREPLACE = {
+			ALONG_STUDS = 4,
+			WIDTH = 11,
+			DEPTH = 3.2, -- how far the breast stands proud of the wall
+			OPENING_WIDTH = 5.4,
+			OPENING_HEIGHT = 4.2,
+			HEARTH_STUDS = 2.6, -- how far the hearth stone reaches out onto the floorboards
+			STONE_COLOR = Color3.fromRGB(122, 118, 110),
+			HEARTH_COLOR = Color3.fromRGB(86, 84, 80),
+		},
+		-- THE FIRE ITSELF: a `Fire`, a `ParticleEmitter` of embers and ONE `PointLight`. Karen asked
+		-- for *"a fireplace"*, which is a fire and a light and not a system -- nothing here is
+		-- written per frame.
+		FIRE = {
+			SIZE = 4.5,
+			HEAT = 9,
+			EMBER_RATE = 9,
+			COLOR = Color3.fromRGB(255, 160, 60),
+			SECONDARY_COLOR = Color3.fromRGB(216, 72, 24),
+		},
+		FIRE_LIGHT = { brightness = 2.4, rangeStuds = 42, color = Color3.fromRGB(255, 176, 104) },
+		-- THE LANTERNS: three inside hung off the beams, two outside beside the door.
+		-- DIM, AND WARM. At brightness 1.1 over 20 studs the two on the porch washed the whole front
+		-- wall white in the first photograph; a lantern is a thing you see, not a floodlight.
+		LANTERN = {
+			ALONG = { -8, 2, 12 },
+			ACROSS = -2,
+			DROP_STUDS = 3.2,
+			brightness = 0.75,
+			rangeStuds = 15,
+			color = Color3.fromRGB(255, 186, 116),
+			GLASS_COLOR = Color3.fromRGB(240, 186, 118),
+		},
+		CEILING_BEAMS = 6,
+		-- THE TABLE AND ITS BENCHES, in the middle of the room. `OFFSET` is x and z from the room's
+		-- own centre.
+		-- WEST OF THE MIDDLE, AND THAT IS A MEASURED CLEARANCE AND NOT AN ARRANGEMENT: the walk from
+		-- the doorway to the counter runs diagonally across the room, and a bench centred on the room
+		-- stood in it (the spec caught it, with the bench named).
+		TABLE = {
+			OFFSET = Vector2.new(-4.5, -2),
+			SIZE = Vector2.new(10, 4),
+			HEIGHT = 3,
+			BENCH_HEIGHT = 1.8,
+			BENCH_STUDS = 3.4,
+		},
+		-- THE GUN RACK on the WEST wall, south of the fireplace -- the one stretch of wall with no
+		-- window, no chimney and no counter on it. Scenery: it holds nothing, and `Weapon.Hardware`
+		-- stays the only thing in this game that builds a gun.
+		RACK = { ALONG_STUDS = -7, WIDTH = 6, HEIGHT_STUDS = 5.4 },
 		-- THE SHOP'S COUNTER, and `Shop.CONFIG.REACH_STUDS` (14) is measured against its 12-stud
-		-- width: a man at either end of it can reach the till.
-		COUNTER = Vector3.new(12, 3.5, 2),
+		-- width: a man at either end of it can reach the till. `COUNTER_ALONG` is how far east of the
+		-- room's centre it stands and `COUNTER_BACK` how far in from the north wall, which leaves the
+		-- keeper room to stand behind it.
+		COUNTER = Vector3.new(12, 3.2, 1.8),
+		COUNTER_ALONG = 7,
+		COUNTER_BACK = 4.6,
 		-- TASK 178 REPLACED THE PLACEHOLDER, which said "SHOP - coming soon" and is archived with its
 		-- reason in `backups/2026-10-14_task-178_lodge-sign.txt` (rule 7).
 		SIGN_TEXT = "SHOP",
 		-- THE MAN BEHIND THE COUNTER (task 181), and every number here is in
 		-- `docs/research/2026-10-14-the-shopkeeper.md` section 4 with where it came from.
 		KEEPER = {
-			-- WHERE HE STANDS, from the counter's own centre: 1.4 studs further from the room
-			-- (toward the back wall) so he is BEHIND the till and not standing in it. The counter is
-			-- 2 studs deep, so 1.4 clears its face by 0.4 -- and the back wall is 2 studs beyond,
-			-- which is why this is not 2.
-			BEHIND_STUDS = 1.4,
+			-- WHERE HE STANDS, from the counter's own centre: 1.6 studs further from the room (toward
+			-- the back wall) so he is BEHIND the till and not standing in it. The counter is 1.8
+			-- studs deep, so 1.6 clears its face by 0.7 -- and the north wall is three studs beyond.
+			BEHIND_STUDS = 1.6,
 			-- HOW HIGH HIS FEET GO ABOVE THE FLOOR, the figure `Rig.place` pivots to: an R15 rig's
 			-- origin is its root, about 3 studs over the ground it stands on.
 			ROOT_HEIGHT = 3,
@@ -255,15 +421,19 @@ Lobby.CONFIG = {
 			-- a lodge keeper's brown felt is exactly one field and the apron is not modelled.
 			--
 			-- `"Shooters"` AND NOT `"Hunter"`, AND IT IS THE OUTFIT OWNER'S VOCABULARY AND NOT A
-			-- SYNONYM (review round 1, finding 1). `Match.Body.OUTFITS` is keyed `Shooters` /
-			-- `Drivers` and `Body.outfitFor` is a bare table lookup, so `"Hunter"` matched no row,
+			-- SYNONYM (task 181 review round 1, finding 1). `Match.Body.OUTFITS` is keyed `Shooters`
+			-- / `Drivers` and `Body.outfitFor` is a bare table lookup, so `"Hunter"` matched no row,
 			-- `Body.dress` returned early at *"nothing to wear"*, and the man at the counter stood
-			-- there in the default grey of an empty `HumanoidDescription`. `Body.ROLE_WORDS` is the
-			-- repo's own translator (`hunter -> Shooters`) and `Bots` passes the translated word
-			-- too. `tests/server/lobby.spec.luau` now pins this against `Body.outfitFor` itself
-			-- rather than against this constant.
+			-- there in the default grey of an empty `HumanoidDescription`.
 			TEAM = "Shooters",
 			HAT_COLOR = Color3.fromRGB(96, 66, 42),
+			-- HIS FACE. The outfit owner paints the five limb stems and never the head, which is
+			-- right for a player -- and left this man with the solid black head and no features that
+			-- an empty `HumanoidDescription` ships, which is what Karen saw and called broken.
+			-- `rbxasset://` is an engine asset shipped with Studio: nothing is uploaded and nothing
+			-- is fetched.
+			SKIN_COLOR = Color3.fromRGB(205, 162, 125),
+			FACE_TEXTURE = "rbxasset://textures/face.png",
 			-- `Bots.Rig.CLIPS.idle` -- THE SAME ASSET THE DRIVE BOTS ALREADY STAND IN, written here
 			-- rather than required out of `Bots` so the lobby does not depend on the drive's owner.
 			-- Played ONCE, at build: nothing in this system is written per frame.
@@ -275,9 +445,9 @@ Lobby.CONFIG = {
 			FACE_STUDS = 16,
 			FACE_EPSILON_DEGREES = 3,
 			-- HOW HIGH THE PROMPT HANGS ABOVE HIS ROOT, and it is geometry rather than taste: the
-			-- counter is 3.5 studs tall and queryable, so a line-of-sight ray aimed at a root 3
-			-- studs up is stopped by the till itself and the prompt never appears for the one
-			-- person standing where he is meant to stand. 2.2 puts it at head height.
+			-- counter is queryable, so a line-of-sight ray aimed at a root 3 studs up is stopped by
+			-- the till itself and the prompt never appears for the one person standing where he is
+			-- meant to stand. 2.2 puts it at head height.
 			PROMPT_HEIGHT = 2.2,
 			-- THE PROMPT ITSELF. `HOLD_SECONDS = 0` is a tap and not a hold; line of sight is
 			-- Valve's `+use` rule (note section 2c); 8 studs is the Director's number and reaches a
@@ -292,66 +462,92 @@ Lobby.CONFIG = {
 				GAMEPAD_KEY = Enum.KeyCode.ButtonX,
 			},
 		},
-		-- THE FREE MODEL, AND THE MEASUREMENTS THAT POSITION WHAT GOES INSIDE IT (task 180).
-		-- "Log Cabin" by **uhhhh17**, Creator Store 4746497269, free: 266 parts, **no script of any
-		-- kind**, 23.1 x 15.9 x 30.9 studs as delivered, with a porch, steps, railings and windows.
-		-- Measured by raycast inside it: an interior FLOOR 3.3 studs above its own base and a CEILING
-		-- at 10.7, so a 7.4-stud room -- a character is about 5. Credited in `CREDITS.md`.
-		--
-		-- `SCALE` is applied with `Model:ScaleTo`, which scales a MeshPart's own geometry too (none
-		-- of these four models is skinned, so there is no `boar_prep.py` problem here). The two
-		-- heights below are the model's OWN numbers and this module multiplies them by `SCALE`:
-		-- writing the products instead would be two numbers that silently disagree the first time
-		-- the scale moves.
-		MODEL = {
-			SCALE = 1,
-			-- The model is delivered with its porch facing -Z, which is the way task 177's parts
-			-- lodge already faces, so there is no yaw to apply. Kept as a number so a replacement
-			-- model that faces another way is one edit here.
-			YAW_RADIANS = 0,
-			-- THE ROOM INSIDE IT, RAYCAST RATHER THAN READ OFF THE LISTING (task 180), relative to
-			-- the model's own bounding-box CENTRE in x and z and to its BASE in y, before `SCALE`.
-			-- The bounding box is not the room: 10.6 studs of the model's 30.9-stud depth is the
-			-- porch, which is why the room's centre sits 5 studs north of the box's.
-			--   east wall  x = +9.76   west wall  x = -10.01
-			--   back wall  z = +14.85  front wall z = -4.90
-			--   floor      y =  3.31   ceiling    y =  10.72
-			-- HALF_X AND HALF_Z BY NAME, not a `Vector2` whose `Y` secretly means z (review round 2,
-			-- note): both happen to be 9.8, so a swapped pair would be invisible.
-			ROOM = {
-				CENTRE = Vector3.new(-0.1, 3.3, 5.0),
-				HALF_X = 9.8,
-				HALF_Z = 9.8,
-				CEILING_Y = 10.7,
-			},
-		},
 	},
-	-- ---------------- the trophies on the wall
+	-- ---------------- the trophies on the wall (task 187: ours, from parts)
 	--
-	-- KAREN, 2026-10-14: *"and then on walls we can make trophys like head of deer head of boar"*.
-	-- Two free Creator Store models, both script-free: "Deer Head Wall Mount Trophy Decor Home" by
-	-- **bell4hd** (101243188132816, 26 parts, 5.0 x 5.4 x 2.9) and "Boar Head" by **Atejime**
-	-- (15282258007, 3 parts, 3.3 x 2.1 x 2.8). The boar head has no plaque of its own, so this
-	-- module builds it one -- a plank, which is what the parts build is for.
+	-- KAREN, 2026-10-14: *"on walls animal antlers ect like hunting cabin"*, and in task 180:
+	-- *"trophys like head of deer head of boar"*. The free Creator Store heads are gone with the free
+	-- cabin -- one of them was a 5.4-stud tan deer head that read as a toy next to anything else in
+	-- the room -- and what hangs here now is the thing a German or Austrian lodge actually has: ROWS
+	-- of small dark `Trophaeenschilde`, each with a roe buck's antlers on it, one red stag over the
+	-- fireplace, and a boar's tusk plate.
 	--
-	-- A MOUNT NAMES A WALL AND HOW FAR ALONG IT, never an absolute offset, so the same three rows
-	-- hang the same three heads on the free model's 19.6 x 19.6 room AND on task 177's 38 x 26 one.
-	-- An offset in studs would be right for exactly one of the two builds and silently wrong -- a
-	-- trophy half inside a wall -- for the other.
+	-- A MOUNT NAMES A WALL, HOW FAR ALONG IT AND HOW HIGH -- never an absolute offset -- so the rows
+	-- follow the room if the room ever changes. `standoff` is how far the hanging face is from the
+	-- wall, which is what puts the stag on the CHIMNEY BREAST (3.2 studs proud) instead of inside it.
+	--
+	-- MEASURED PROPORTION, not a guess: a real roe shield is 22 cm by 10 cm carrying 10.5 cm of
+	-- antler, so the plaque is 2.2 times as tall as it is wide and the antlers rise about half the
+	-- plaque's height again.
 	TROPHIES = {
-		HEIGHT_STUDS = 4.4, -- above the interior floor: above a standing player's head
-		PLAQUE = Vector3.new(3.4, 3.8, 0.5),
-		PLAQUE_COLOR = Color3.fromRGB(78, 56, 38),
-		CLEAR_STUDS = 0.7, -- how far the mount's face stands off the wall
-		-- THE SIDE WALLS, AND THE BACK WALL IS DELIBERATELY EMPTY. The first build hung two of the
-		-- three on the back wall and the inside shot showed why that is wrong: the fireplace stands
-		-- at `centre.X - halfX/2` on that wall and the shop counter at `+ halfX/2`, with the SHOP
-		-- sign above it -- so a head at -5.5 was half inside the chimney and one at +5.5 was behind
-		-- the sign. The back wall of this room is already fully spoken for.
+		HEIGHT_STUDS = 4.8, -- above the floorboards: above a standing player's head
+		-- THE SHIELD IS LIGHTER THAN THE WALL BEHIND IT and the antlers are not white: at RGB
+		-- 228,219,198 on a 72,50,34 plaque the first photograph showed white twigs floating on a dark
+		-- wall. Weathered antler is a warm grey-bone, and a `Trophaeenschild` is polished linden.
+		PLAQUE_COLOR = Color3.fromRGB(104, 72, 44),
+		BONE_COLOR = Color3.fromRGB(186, 173, 146),
+		ROE = {
+			PLAQUE = Vector3.new(1.8, 2.4, 0.35),
+			SEGMENTS = 3,
+			SEGMENT_STUDS = 0.9,
+			TINE_STUDS = 0.7,
+			TINES = 2,
+			THICK = 0.34,
+			SPREAD = 0.45,
+			CURVE = -0.16,
+		},
+		-- THE ONE OVER THE DOOR IS BIGGER THAN THE ONE OVER THE FIRE, and that is deliberate: it
+		-- hangs on the gable, eight studs above a man's head and read from the road, where the indoor
+		-- stag is read from four studs away across a table.
+		GABLE = {
+			PLAQUE = Vector3.new(4.2, 4.6, 0.6),
+			SEGMENTS = 4,
+			SEGMENT_STUDS = 1.6,
+			TINE_STUDS = 1.3,
+			TINES = 3,
+			THICK = 0.6,
+			SPREAD = 0.5,
+			CURVE = -0.16,
+		},
+		STAG = {
+			PLAQUE = Vector3.new(2.8, 3.2, 0.5),
+			SEGMENTS = 3,
+			SEGMENT_STUDS = 1.15,
+			TINE_STUDS = 0.9,
+			TINES = 3,
+			THICK = 0.42,
+			SPREAD = 0.5,
+			CURVE = -0.18,
+		},
+		BOAR = {
+			PLAQUE = Vector3.new(2.2, 2.6, 0.4),
+			TUSK_STUDS = 1.15,
+			THICK = 0.32,
+			SEGMENTS = 2,
+			SEGMENT_STUDS = 1.15,
+		},
+		-- THE ROWS. The east wall carries the classic grid, the north wall's west half the rest, and
+		-- the two beside the door are what a player sees first from inside. Nothing hangs on the
+		-- south wall's windows, the counter's half of the north wall, or the west wall except the
+		-- stag over the fire -- those are spoken for.
 		MOUNTS = {
-			{ kind = "deer", wall = "west", along = -3 },
-			{ kind = "boar", wall = "east", along = -3 },
-			{ kind = "deer", wall = "east", along = 3 },
+			-- THE EAST GABLE: three each side of its one window, and two more above them.
+			{ kind = "roe", wall = "east", along = -9.4 },
+			{ kind = "roe", wall = "east", along = -6.6 },
+			{ kind = "roe", wall = "east", along = 6.6 },
+			{ kind = "roe", wall = "east", along = 9.4 },
+			{ kind = "roe", wall = "east", along = -8, height = 8.2 },
+			{ kind = "roe", wall = "east", along = 8, height = 8.2 },
+			-- THE NORTH WALL'S WEST HALF, clear of the counter and of its window.
+			{ kind = "roe", wall = "north", along = -8 },
+			{ kind = "boar", wall = "north", along = -4, height = 5 },
+			{ kind = "roe", wall = "north", along = 0 },
+			-- EITHER SIDE OF THE DOOR, between it and the front windows: the two a player sees
+			-- first when he turns round inside.
+			{ kind = "roe", wall = "south", along = -6 },
+			{ kind = "roe", wall = "south", along = 6 },
+			-- AND THE RED STAG OVER THE FIRE, on the chimney breast rather than inside it.
+			{ kind = "stag", wall = "west", along = 4, height = 8.2, standoff = 3.2 },
 		},
 	},
 	-- ---------------- the truck, the track, the spot
@@ -677,11 +873,15 @@ Lobby.CONFIG = {
 	SPAWN = {
 		OFFSET = Vector3.new(0, 0, 16),
 		SIZE = Vector3.new(12, 1, 6),
-		SPREAD_STUDS = 6,
+		-- 4.5 STUDS APART, AND THE BOUND IS THE PORCH (task 187). Seven slots is a worst case of
+		-- `3 * SPREAD_STUDS` off the middle, which has to stay inside the porch's own half-width --
+		-- 15 studs, the 36-stud lodge less the porch's 3-stud inset either side. At 6 it was 18,
+		-- exactly the lodge's new half-width, and a man spawned on the corner of his own deck.
+		SPREAD_STUDS = 4.5,
 		-- HOW MANY PLACES THERE ARE ON THE PORCH, AND IT IS A BOUND AND NOT A PREFERENCE (review
 		-- round 1, finding 3). `Lobby.spawnCFrame` lays its slots centre-out -- 0, +1, -1, +2, -2 --
 		-- so slot n is `floor((n + 1) / 2) * SPREAD_STUDS` studs off the middle. SEVEN slots is a
-		-- worst case of 3 * 6 = 18 studs, inside the lodge's own 40-stud front (half-width 20) that
+		-- worst case of 3 * 4.5 = 13.5 studs, inside the porch's own 30-stud front (half-width 15)
 		-- `docs/design/lobby.md` section 8.3 names.
 		--
 		-- UNBOUNDED, IT ENDED IN A RESPAWN LOOP. The index was a counter that only ever went up, one
@@ -697,12 +897,14 @@ Lobby.CONFIG = {
 	SCAN_HZ = 10,
 	RETURN_COOLDOWN_SECONDS = 3,
 	BUILD_TIMEOUT_SECONDS = 10,
-	-- THE BUDGET ROSE FROM 400 TO 1200 WITH THE FREE MODELS (task 180), and the arithmetic is written
-	-- down so the number is a bound and not a shrug: the lodge is 266 parts, four trucks 304, three
-	-- trophies 55, thirty trees about 150, and the road, verges, fences, ring, yard, sign, counter,
-	-- fireplace and spawn about 190 -- roughly 965, with headroom for a replacement model. The parts
-	-- fallback still builds about 330, so the old budget bound nothing that is still being built.
-	MAX_PARTS = 1200,
+	-- THE BUDGET IS 1500 SINCE TASK 187, and the arithmetic is written down so the number is a bound
+	-- and not a shrug: OUR lodge -- plinth, seven courses of log, the corner ends, four windows with
+	-- their shutters, the door, the roof with its rafter ends, the chimney, the porch with its
+	-- woodpile, the beamed ceiling, the fireplace, the furniture, the gun rack and twelve trophy
+	-- mounts -- is about 500 parts, four trucks 304, thirty trees about 150, and the road, verges,
+	-- fences, four pads, yard and spawn about 190: roughly 1,165, with headroom for a sixth window or
+	-- another row of antlers. The Director's own ceiling for this task was 1,500.
+	MAX_PARTS = 1500,
 }
 
 -- deepFreeze, REQUIRED and not copied: `table.freeze` is shallow, and this repo has already paid for
