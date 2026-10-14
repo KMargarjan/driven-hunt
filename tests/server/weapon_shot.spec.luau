@@ -11,6 +11,11 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+-- ONLY TO PUT THE PROVIDERS BACK (task 183). The sight-line case below unwires four of this
+-- owner's seams for the length of one shot, and `MatchBoot` is what wired them -- so the restore
+-- has to name the same functions rather than nil, exactly as `weapon_rules.spec` does.
+local Match = require(ServerScriptService:WaitForChild("Match"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local Validator = Weapon.Validator
 local Pattern = Weapon.Pattern
@@ -204,6 +209,134 @@ return function()
 			-- an earlier guard, which would make this case green with the whitelist deleted.
 			expect(#preValidator).to.equal(0)
 			expect(#said).to.equal(#actions + #shots)
+		end)
+	end)
+
+	-- ------------------------------------------------------------------ the sight line (task 183)
+	--
+	-- KAREN, 2026-10-14: *"hit it has to be precist and on 200m acurat"*. The question underneath
+	-- that is WHOSE LINE the bullet travels on. The muzzle of a scoped rifle is about a foot below
+	-- and a yard in front of the eye, so a server that cast from the muzzle ALONG THE CAMERA'S
+	-- DIRECTION would miss by that offset at every range -- parallax, and it would never close.
+	--
+	-- `Weapon.onFireRequest` does not do that, and this is the case that pins it: it casts the
+	-- client's ray to find the AIM POINT, then aims the pellet ray from the muzzle AT that point.
+	-- The two rays therefore meet exactly where the player was looking, whatever the offset is.
+	-- Asserted through `Weapon.setCast`, which is the seam that lets a spec read the rays the owner
+	-- really built (design section 13.5).
+	describe("the sight line", function()
+		it("casts the pellet from the MUZZLE but aims it at the point the camera ray hit", function()
+			local subject, snapshot = nil, nil
+			local roster = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				local state = Weapon.getSnapshot(player)
+				local live = state ~= nil and state.equipped == true and state.barrels[state.selected] == "Live"
+				table.insert(roster, player.Name .. (if live then "(armed)" else "(not armed)"))
+				if subject == nil and live then
+					subject, snapshot = player, state
+				end
+			end
+			if subject == nil then
+				-- NOT A SKIP (TestKit fails the run for those): say what was missing, and assert the
+				-- arithmetic the handler would have done, so the claim is never silent.
+				TestKit.note(
+					"weapon_shot sight line: nobody is holding a loaded gun, so the handler was not driven; roster ["
+						.. table.concat(roster, ", ")
+						.. "]"
+				)
+				local muzzle = Vector3.new(0.4, -0.9, -2.0)
+				local origin, aimPoint = Vector3.zero, Vector3.new(0, 0, -714)
+				local aim = (aimPoint - muzzle).Unit
+				local toPoint = aimPoint - muzzle
+				local across = (toPoint - aim * toPoint:Dot(aim)).Magnitude
+				expect(across < 1e-4).to.equal(true)
+				expect(origin).never.to.equal(muzzle)
+				return
+			end
+
+			local root = subject.Character and subject.Character:FindFirstChild("HumanoidRootPart")
+			expect(root).to.be.ok()
+			-- THE EYE, PUT WHERE A SCOPE PUTS IT: above the root and offset across, so the muzzle
+			-- CANNOT be on this ray by accident. A case whose origin is already the muzzle proves
+			-- nothing about parallax.
+			local origin = (root :: BasePart).Position + Vector3.new(0.6, 2.4, 0)
+			local direction = Vector3.new(0, 0, -1)
+			local request = { origin = origin, direction = direction }
+
+			-- THE AIM POINT, 714 STUDS OUT: 200 m at 0.28 m/stud, the distance Karen named. The
+			-- stub answers the FIRST cast (the camera ray) with a hit there and every later cast
+			-- with nothing, so the pellet ray is read rather than resolved against the real world.
+			local aimPoint = origin + direction * 714.29
+			local plate = Instance.new("Part")
+			plate.Name = "ShotSpecSightLinePlate"
+			local casts = {}
+			Weapon.setCast(function(castOrigin: Vector3, castVector: Vector3)
+				table.insert(casts, { origin = castOrigin, vector = castVector })
+				if #casts == 1 then
+					return {
+						instance = plate,
+						position = aimPoint,
+						normal = -direction,
+						distance = (aimPoint - castOrigin).Magnitude,
+					}
+				end
+				return nil
+			end)
+			-- The four rules, out of the way for one shot: this case is about geometry.
+			Weapon.setTargetProvider(nil)
+			Weapon.setStandProvider(nil)
+			Weapon.setLicenceProvider(nil)
+			Weapon.setDriveOpenProvider(function(): boolean
+				return true
+			end)
+
+			local why = Weapon.onFireRequest(subject, request)
+			if why == "rate-limited" then
+				task.wait(1.1)
+				casts = {}
+				why = Weapon.onFireRequest(subject, request)
+			end
+
+			Weapon.setCast(nil)
+			Weapon.setTargetProvider(Match.classifyTarget)
+			Weapon.setStandProvider(Match.standAreaFor)
+			Weapon.setDriveOpenProvider(Match.driveOpen)
+			plate:Destroy()
+
+			expect(why).to.equal(nil) -- the shot was taken
+			expect(#casts >= 2).to.equal(true)
+			-- 1. THE FIRST CAST IS THE CLIENT'S RAY, unaltered: the server does not second-guess
+			--    where the player was looking.
+			expect((casts[1].origin - origin).Magnitude < 1e-4).to.equal(true)
+			expect(casts[1].vector.Unit:Dot(direction) > 1 - 1e-6).to.equal(true)
+			-- 2. THE PELLET STARTS AT THE MUZZLE, which is NOT the eye. If this ever equals the
+			--    origin the gun is shooting out of the camera and the next assertion is vacuous.
+			local muzzle = casts[2].origin
+			expect((muzzle - origin).Magnitude > 0.5).to.equal(true)
+			-- 3. ...AND IT GOES THROUGH THE AIM POINT. The perpendicular distance from the aim
+			--    point to the pellet ray IS the parallax miss, in studs.
+			local aim = casts[2].vector.Unit
+			local toPoint = aimPoint - muzzle
+			local acrossStuds = (toPoint - aim * toPoint:Dot(aim)).Magnitude
+			expect(acrossStuds * 0.28 * 100 < 5).to.equal(true) -- under 5 cm at 200 m, Karen's target
+			-- 4. ...and the ray is long enough to get there at all, which is the other half of the
+			--    bug this task found: the cast vector's own length is the ammo's range.
+			local range = Weapons.ROWS.rifle.RANGE_STUDS.Slug
+			expect(casts[2].vector.Magnitude >= 714.29 or casts[2].vector.Magnitude >= range - 1e-3).to.equal(true)
+			TestKit.note(
+				string.format(
+					"sight line: %s, eye %.2f studs from the muzzle, pellet misses the 200 m aim point by "
+						.. "%.4f studs = %.3f cm; cast reach %.0f studs (rifle range %d), %d cast(s)",
+					subject.Name,
+					(muzzle - origin).Magnitude,
+					acrossStuds,
+					acrossStuds * 0.28 * 100,
+					casts[2].vector.Magnitude,
+					range,
+					#casts
+				)
+			)
+			expect(snapshot).to.be.ok()
 		end)
 	end)
 

@@ -106,12 +106,34 @@ Rifle.CONFIG = {
 	-- as a buckshot PELLET and the rifle would hit softer than the shotgun's slug until the boar's
 	-- own damage table grew a column -- a change inside the animal Karen accepted, and outside this
 	-- task. The word on screen is `AMMO_LABEL`'s business and the Hud's alone.
-	RANGE_STUDS = { Slug = 450 }, -- 126 m at 0.28 m/stud, against the slug's 330
+	-- 800 STUDS, AND 450 WAS THE BUG KAREN FELT (task 183). She asked for a hit that is *"precist
+	-- and on 200m acurat"*, and 200 m is 714 studs at 0.28 m/stud: the old 450 is 126 m, so a shot
+	-- at the distance she named never arrived at all. MEASURED in Play before the change, with the
+	-- real rifle on a plate placed on the reticle centre: 440 studs hit, 455 studs and 470 studs
+	-- produced NO IMPACT, which is the range cap and nothing else. 800 is 224 m -- 200 m plus the
+	-- margin a shot taken slightly uphill needs -- and `Hits.resolve` casts exactly this far from
+	-- the muzzle, so it is the one number that decides whether a long shot exists.
+	--
+	-- WHAT IT DOES NOT MOVE: `Match.CONFIG.SAFETY_RANGE_STUDS` is still 330, so the safety penalty's
+	-- reach down the drive line is unchanged by this. That is queued (TASKS.md 183a) rather than
+	-- changed here, because `src/server/Match/` is a TWO_PLAYER_PATH and this task is the weapon.
+	RANGE_STUDS = { Slug = 800 }, -- 224 m at 0.28 m/stud, against the slug's 330
 	PELLETS = { Slug = 1 },
-	-- DEGREES, FULL cone, like the shotgun's and halved in the same one place (`Pattern.directions`).
-	-- 1 MOA is 0.0167 degrees and a hunting rifle is 1-2 MOA, so 0.05 full is about 1.5 MOA: 0.39
-	-- studs across at 450 studs, which is inside a boar's chest zone.
-	SPREAD_FULL_DEG = { Slug = 0.05 },
+	-- ZERO. A SCOPED RIFLE PUTS THE BULLET ON THE DOT (task 183), because that is what Karen asked
+	-- for and because any cone at all is the error she would feel first: 0.05 degrees FULL is a
+	-- 0.025-degree radius, which is 0.31 studs -- 8.7 cm -- at 714 studs, and the target is 5 cm.
+	-- MEASURED before the change, scoped, three shots at 100 m: 4.97, 4.14 and 3.69 cm off the
+	-- reticle centre, all of it this cone (0.025 degrees at 357 studs is 4.4 cm at the rim).
+	--
+	-- IT IS A DIAL AND IT IS DATA, so a hair of dispersion is one line: 0.02 full is 1.2 MOA, a real
+	-- hunting rifle's group, and 3.5 cm at 714 studs -- inside the target. Zero is shipped because
+	-- "precise" is what was asked and because a number nobody can predict is the wrong place to put
+	-- character. `Pattern.directions` needs no branch for it: `cos(0)` is 1, so the one pellet comes
+	-- out exactly along `aim`.
+	--
+	-- (The old comment claimed 0.05 full was "about 1.5 MOA". 1 MOA is 0.0167 degrees, so 0.05 full
+	-- is 3 MOA -- the 1.5 was the half-angle. Corrected here rather than carried.)
+	SPREAD_FULL_DEG = { Slug = 0 },
 	AMMO_KINDS = { "Slug" },
 	-- The word the Hud prints for the kind. ".416" is the Rigby's own cartridge; the WIRE still says
 	-- Slug, and these two facts meet in exactly one place (`Hud.readoutFor`).
@@ -227,8 +249,34 @@ Rifle.CONFIG = {
 	-- NOBODY HERE HAS HEARD ANY OF THEM. The Builder cannot play audio. KAREN'S EARS DECIDE, and
 	-- every one of these is one line.
 	SOUND = {
-		-- "Rifle Single Shots 1 (SFX)", ProSoundEffects, Barrett M82 .50 Cal. loaded=true 3.36 s
-		shot = { id = "rbxassetid://9118173739", cut = 1.6, fade = 0.4, pitch = 1.0 },
+		-- "Gun Retort 1 (SFX)", ProSoundEffects -- *"Gun Retort, Weapon, Sharp Gun Shots,
+		-- Reverberant Blasts"*, Guns - Handling. loaded=true 4.95 s (measured in Play, 2026-10-14).
+		--
+		-- IT REPLACES THE BARRETT (task 183). Karen, having heard that one: *"sound has to be harder
+		-- like strong caliber"*. Her brief is a deep report with a sharp crack and a rolling tail in
+		-- the open, and this is the ONE sample in Roblox's licensed catalogue whose own store record
+		-- is that sentence -- every search for a hunting rifle returns user re-uploads of Call of
+		-- Duty, Fortnite and CS:GO audio, none of it ours to ship. The whole Guns family was swept
+		-- and measured; the note's section 4 lists what was rejected and why.
+		--
+		-- MEASURED, ALL OF IT: shotgun 0.92 s, the Barrett this replaces 3.36 s, this 4.95 s. So the
+		-- tail is 5.4x the shotgun's and 1.5x the gun it replaces, which IS the roll.
+		--
+		-- `pitch = 0.88` IS THE CALIBRE. Dropping the sample two semitones moves the whole report
+		-- down: a bigger bore is a lower, slower bang, and this is the one dial that makes a sample
+		-- sound like more gun than it was recorded from.
+		--
+		-- `cut = 2.0, fade = 0.8` AND THE PLURAL IS WHY. "Gun Shot*s*" and "Blast*s*" are a TAKE,
+		-- not a round, exactly as the Barrett's "Single Shot*s*" was: a 4.95 s clip from a gunfire
+		-- library may hold more than one bang. At this pitch 2.0 s of playback is 1.76 s of source,
+		-- and the last 0.8 s of it is already going quiet -- so the crack and its roll are heard in
+		-- full and anything behind them arrives under a fade. The Barrett was cut at 1.6 s and
+		-- nobody heard a doublet, so this is the same window plus the tail.
+		--
+		-- NOBODY HERE HAS HEARD IT. The Builder cannot play audio. KAREN'S EARS DECIDE, and every
+		-- number in this line is one line: the Barrett is `9118173739` and the alternatives measured
+		-- beside this one are in the note.
+		shot = { id = "rbxassetid://9114725315", cut = 2.0, fade = 0.8, pitch = 0.88 },
 		-- "Ppsh Burp Gun 7 (SFX)", ProSoundEffects, "Cocking and Loading, Dull Metal Movements,
 		-- Clicks". loaded=true 2.45 s -- a bolt is a short hard clack, so it is cut hard and pitched
 		-- up a little.

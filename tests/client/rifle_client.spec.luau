@@ -642,6 +642,82 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------------------ the reticle IS the camera centre (183)
+	--
+	-- KAREN, 2026-10-14: *"hit it has to be precist and on 200m acurat"*. The server shoots along
+	-- `camera.CFrame.LookVector` -- that is the whole of the wire message (`Weapon.Input.onFire`) --
+	-- and the LookVector passes through the centre of the VIEWPORT. So the mark the player holds on
+	-- the animal is only honest if it is drawn at that pixel, and there is one classic way for it
+	-- not to be: a ScreenGui that respects the topbar inset puts its own (0, 0) 36 px down the
+	-- screen, which at this scope's 19.87 degrees over a 1080-high viewport is 0.33 degrees -- over
+	-- FOUR STUDS, more than a metre, low at 200 m.
+	--
+	-- SO IT IS MEASURED AGAINST THE RAY, not against a number: a world point placed ON the look
+	-- vector is projected back to the screen, and that pixel has to be the dot's own centre.
+	describe("the reticle centre is the camera centre", function()
+		it("draws the dot on the pixel the shot ray goes through", function()
+			local camera = Workspace.CurrentCamera
+			expect(camera).to.be.ok()
+			local gui = Hud.gui()
+			expect(gui).to.be.ok()
+			-- THE INSET, FIRST AND BY NAME: with this false every mark in the Hud sits half the
+			-- topbar lower than the ray, and nothing else in this case would notice.
+			expect((gui :: ScreenGui).IgnoreGuiInset).to.equal(true)
+
+			local scope = Rifle.CONFIG.scope
+			local reticle = Hud.reticle() :: Frame
+			Hud.layoutReticle(reticle, scope, scope.aimFovDeg)
+			frames(2)
+
+			-- WHERE THE SHOT REALLY GOES, projected back to the screen. 500 studs out so the
+			-- projection is well clear of the near plane; the answer is the same at any distance
+			-- along the ray, which is the point.
+			local onTheRay = camera.CFrame.Position + camera.CFrame.LookVector * 500
+			local projected, onScreen = camera:WorldToViewportPoint(onTheRay)
+			expect(onScreen).to.equal(true)
+			expect(projected.Z > 0).to.equal(true)
+
+			local core = reticle:FindFirstChild("Dot") :: Frame
+			expect(core).to.be.ok()
+			local drawn = (core :: Frame).AbsolutePosition + (core :: Frame).AbsoluteSize / 2
+			local offPx = (Vector2.new(projected.X, projected.Y) - drawn).Magnitude
+			-- TWO PIXELS, AND THE REASON IS ROUNDING, not tolerance for an error: an odd-sized
+			-- frame centred on an even pixel lands half a pixel off, and Roblox rounds
+			-- `AbsolutePosition` to integers. Two pixels at this scope on a 1080-high viewport is
+			-- 0.037 degrees, which is 0.46 studs -- 13 cm -- at 200 m, and it is a DRAWING error of
+			-- the mark rather than of the ray.
+			expect(offPx <= 2).to.equal(true)
+
+			-- ...AND THE CROSS AGREES WITH THE DOT, because two marks at two centres is the bug
+			-- that would survive the assertion above: `spanLens` runs the hairs edge to edge, so
+			-- their crossing is where the vertical bar's X meets the horizontal bar's Y.
+			local vertical = reticle:FindFirstChild("CrossTop") :: Frame
+			local horizontal = reticle:FindFirstChild("CrossLeft") :: Frame
+			expect(vertical).to.be.ok()
+			expect(horizontal).to.be.ok()
+			local crossX = (vertical :: Frame).AbsolutePosition.X + (vertical :: Frame).AbsoluteSize.X / 2
+			local crossY = (horizontal :: Frame).AbsolutePosition.Y + (horizontal :: Frame).AbsoluteSize.Y / 2
+			expect(math.abs(crossX - projected.X) <= 2).to.equal(true)
+			expect(math.abs(crossY - projected.Y) <= 2).to.equal(true)
+
+			TestKit.note(
+				string.format(
+					"reticle centre: ray lands at (%.1f, %.1f), dot at (%.1f, %.1f) -> %.2f px off; "
+						.. "cross at (%.1f, %.1f); viewport %d x %d, inset ignored",
+					projected.X,
+					projected.Y,
+					drawn.X,
+					drawn.Y,
+					offPx,
+					crossX,
+					crossY,
+					camera.ViewportSize.X,
+					camera.ViewportSize.Y
+				)
+			)
+		end)
+	end)
+
 	describe("the downloaded count follows the folder it is asked about", function()
 		it("counts the folder it is HANDED, which is the whole of the first bug", function()
 			-- THE DEFECT, PINNED (the Reviewer's note, round 1). The live case above is vacuous in
