@@ -193,13 +193,21 @@ return function()
 			expect(released[1]).to.equal("padsize")
 			expect(unheld[1]).to.equal("padsize")
 
-			-- ...AND THE LIVE PANEL IS PUT BACK, because this case took it over. `Hud.build` made the
-			-- frame; re-starting against it is the only honest way to leave the screen as it was.
+			-- ...AND THE LIVE PANEL IS PUT BACK, because this case took it over. `PadPanel.stop` EMPTIES
+			-- the frame it was given (the Reviewer's round-1 note: without that, re-starting on the
+			-- live frame left it with doubled children), so the re-start below rebuilds exactly one
+			-- title and four buttons -- and the assertion is what proves it rather than the comment.
 			PadPanel.stop()
 			local frame = Hud.padPanel()
-			if frame ~= nil then
-				PadPanel.start(frame :: Frame, { Input = nil, Cursor = nil })
+			expect(frame).to.be.ok()
+			PadPanel.start(frame :: Frame, { remotes = nil })
+			local rebuilt = 0
+			for _, child in ipairs((frame :: Frame):GetChildren()) do
+				if child:IsA("TextButton") then
+					rebuilt += 1
+				end
 			end
+			expect(rebuilt).to.equal(#PADS.SIZES)
 		end)
 	end)
 end

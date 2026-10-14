@@ -183,6 +183,42 @@ return function()
 			expect(Objective.targetFor(nil, "Waiting", nil, Vector3.new(), nil)).to.equal(nil)
 		end)
 
+		it("points the chevron at the NEAREST pad, and falls back to task 177's answer", function()
+			-- TASK 182: FOUR PADS, 17 STUDS APART. Pointing at pad 1 while a player stands by truck 4
+			-- would be the chevron lying about where to go, and this is the case the Reviewer found
+			-- missing in round 1 -- the branch shipped untested.
+			local pads = {
+				Vector3.new(2876, 150, -2914),
+				Vector3.new(2893, 150, -2914),
+				Vector3.new(2910, 150, -2914),
+				Vector3.new(2927, 150, -2914),
+			}
+			local lobby = { spot = pads[1], pads = pads }
+			-- STANDING BY TRUCK 3: the chevron points at PAD 3, with the pad's own height kept.
+			local near3 = Objective.targetFor(nil, "Waiting", nil, Vector3.new(2908, 150, -2920), lobby)
+			expect(near3).to.be.ok()
+			expect((near3 :: any).point).to.equal(pads[3])
+			expect((near3 :: any).word).to.equal(Objective.CONFIG.WORD_TRUCK)
+			expect((near3 :: any).kind).to.equal("truck")
+			-- ...AND EVERY OTHER PAD IS THE ANSWER FROM BESIDE IT.
+			for index, at in ipairs(pads) do
+				local target = Objective.targetFor(nil, "Waiting", nil, at + Vector3.new(0, 0, -6), lobby)
+				expect((target :: any).point).to.equal(pads[index])
+			end
+			-- NO `pads` AT ALL -> `spot`, which is task 177's answer bit for bit. Absent is not
+			-- "nowhere" (`MapUi.pointsFor`'s rule).
+			local old = Objective.targetFor(nil, "Waiting", nil, Vector3.new(2927, 150, -2914), { spot = pads[1] })
+			expect((old :: any).point).to.equal(pads[1])
+			-- AN EMPTY LIST IS THE SAME ANSWER: a world whose pads have not replicated yet.
+			local none =
+				Objective.targetFor(nil, "Waiting", nil, Vector3.new(2927, 150, -2914), { spot = pads[1], pads = {} })
+			expect((none :: any).point).to.equal(pads[1])
+			-- ...AND SO IS "I DO NOT KNOW WHERE HE IS": nearest-of-a-set needs a position, and a
+			-- player with no character has none.
+			local blind = Objective.targetFor(nil, "Waiting", nil, nil, lobby)
+			expect((blind :: any).point).to.equal(pads[1])
+		end)
+
 		it("shows the line in the lobby, because lineVisible forwards it", function()
 			local lobby = { spot = Vector3.new(2850, 153, -2950) }
 			-- Without the forward, the sentence would be computed and then hidden.
@@ -278,9 +314,11 @@ return function()
 					table.insert(tooLong, string.format("Drivers/%s (%d chars)", case.name, #line))
 				end
 			end
-			-- ...AND THE LOBBY'S TWO (task 177), measured at the same 400 px. *"walk to the truck to
-			-- start a hunt"* is the longest sentence on screen anywhere, so if any of them is going to
-			-- miss a phone it is this one.
+			-- ...AND THE LOBBY'S TWO (task 177, the first retuned by task 182), measured at the same
+			-- 400 px. *"leaving for the hunt in %d"* is the longer of the two now: task 182 replaced
+			-- *"walk to the truck to start a hunt"* (33, which is what set the bound below) with
+			-- *"step on a truck pad to hunt"* (27), because the Director's own 35-character sentence
+			-- would not fit a phone.
 			local SPOT = { spot = Vector3.new(0, 0, 0) }
 			for _, case in ipairs({
 				{ name = "lobby", lobby = SPOT },
@@ -296,6 +334,11 @@ return function()
 			end
 			node:Destroy()
 			expect(table.concat(tooLong, ", ")).to.equal("")
+			-- THE BOUND IS STILL 33 AND NOTHING NOW REACHES IT (task 182 shortened the lobby's line
+			-- from 33 to 27), so it is a CEILING rather than a description of the longest sentence.
+			-- It is left where task 177 measured it rather than lowered to the new longest, because a
+			-- bound that tracks the current maximum refuses the next sentence Karen writes.
+			--
 			-- THE DESIGN'S NUMERIC TARGET, 32, AND IT IS 33 SINCE TASK 177 -- a one-character raise,
 			-- measured rather than waved through. `docs/design/hud-clarity.md`'s own target table puts
 			-- the real constraint first: *"every string must satisfy `TextFits` at a 400 px frame --

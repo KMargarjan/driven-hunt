@@ -1193,9 +1193,11 @@ end
 -- the deck, in the pad's own colour -- so the lobby's pads and the hunter's stand circle are still the
 -- same piece of UI language. Two marks drawn two different ways would teach a player two things.
 --
--- NO GROUND READER, and it is the circle's own stated reason: these rectangles lie on the lobby's own
--- FLAT shelf, whose height is one number, so a raycast per corner would be measuring a surface this
--- system built itself.
+-- THEY ARE LAID ON THE GROUND THAT IS MEASURED, NOT ON THE SHELF THE ARITHMETIC PREDICTS, and that
+-- is the one thing this task had to correct after looking at a picture (`pad`'s own comment below).
+-- Task 177's circle used the shelf, which is why its header said a raycast would be *"measuring a
+-- surface this system built itself"* -- true of the ROAD slab, and false of the TERRAIN, whose
+-- surface the engine rounds to its own voxel grid.
 
 -- THE PADS, REMEMBERED, for `Build.keeper`'s stated reason: the owner's 10 Hz scan writes a
 -- billboard and two attributes without finding the part again, and a spec can ask for one without a
@@ -1253,10 +1255,18 @@ local function pad(
 	-- THIS IS TASK 177'S ROUND-1 FINDING, A SECOND TIME AND AGAINST A DIFFERENT SURFACE: the ring was
 	-- buried in the road slab, these were buried in the terrain. Both were found by looking at a
 	-- picture, which is why rule 5 exists.
+	--
+	-- ...AND IT IS BOUNDED FROM BELOW BY THE SLAB, which is the half of the design's guarantee the
+	-- measurement must not throw away (the Reviewer's round-1 note). A pad straddles the terrain AND
+	-- the `Yard` / `Lane` parts, whose top is `shelfY + ROAD.THICK_STUDS`; a probe answering below
+	-- that -- a dip, or a reader that measured terrain under an opaque slab -- would bury the deck in
+	-- exactly the way task 177's ring was buried. `math.max` keeps BOTH guarantees: above whatever
+	-- the ground really is, and never inside a slab this system laid itself.
 	if groundAt ~= nil then
 		local ok, measured = pcall(groundAt, centre.X, centre.Z)
 		if ok and type(measured) == "number" then
-			centre = Vector3.new(centre.X, (measured :: number) + config.LIFT_STUDS - size.Y / 2, centre.Z)
+			local surface = math.max(measured :: number, anchor.Y + cfg.ROAD.THICK_STUDS)
+			centre = Vector3.new(centre.X, surface + config.LIFT_STUDS - size.Y / 2, centre.Z)
 		end
 	end
 	-- WRAPPED, so a fifth bay cannot index past the end of the colour list.
@@ -1341,13 +1351,17 @@ local function pad(
 	-- coloured rectangle reads as broken rather than as empty, and a pad that is BUILT is a pad whose
 	-- state a client can already read -- so `Build.build` into a spec's own folder is a complete pad
 	-- and not a half-built one waiting for a scan that spec never runs.
-	boardLabel("Truck", config.BILLBOARD.TRUCK_PX, 0, colour, string.format(config.BILLBOARD.TRUCK, index))
+	-- THE WORDS COME FROM `Pads.labelFor` AND FROM NOWHERE ELSE -- here and in `setPad` below -- so
+	-- there is ONE formatter of what a board says (the Reviewer's round-1 note: the two lines used to
+	-- be built in both files off the same table, which is two places to change one format).
+	local truckLine, countLine = Pads.labelFor(Pads.empty(index), cfg)
+	boardLabel("Truck", config.BILLBOARD.TRUCK_PX, 0, colour, truckLine)
 	boardLabel(
 		"Count",
 		config.BILLBOARD.COUNT_PX,
 		config.BILLBOARD.TRUCK_PX + 6,
 		Color3.fromRGB(246, 240, 230),
-		string.format(config.BILLBOARD.COUNT_UNSET, 0)
+		countLine
 	)
 	deck:SetAttribute(Data.PAD_STATE_ATTRIBUTE, Data.PAD_STATE.EMPTY)
 
@@ -1383,7 +1397,10 @@ Build.pads = pads
 --
 -- THE TWO ATTRIBUTES ARE THE WHOLE OUTBOUND WIRE (design section 8.1): `DHPadState` is the state
 -- word and `DHPadFirst` is the userId who may pick, which is the dialog's entire visibility rule.
-function Build.setPad(index: number, state: string, firstUserId: number?, count: number, size: number?): boolean
+-- `truckText` AND `countText` ARRIVE READY, from `Pads.labelFor`, because the WORDS are the pure
+-- module's and the WRITE is this one's -- the `Build.faceKeeper` split again, and what keeps one
+-- format of `n / size` in the repository.
+function Build.setPad(index: number, state: string, firstUserId: number?, truckText: string, countText: string): boolean
 	local deck = Build.padPart(index)
 	if deck == nil then
 		return false
@@ -1396,12 +1413,6 @@ function Build.setPad(index: number, state: string, firstUserId: number?, count:
 	then
 		return false
 	end
-	local cfg = Data.CONFIG
-	local words = cfg.PADS.BILLBOARD
-	local truckText = string.format(words.TRUCK, index)
-	local countText = if size == nil
-		then string.format(words.COUNT_UNSET, count)
-		else string.format(words.COUNT, count, size :: number)
 	local wrote = false
 	if (truckLabel :: TextLabel).Text ~= truckText then
 		(truckLabel :: TextLabel).Text = truckText

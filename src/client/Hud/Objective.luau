@@ -177,7 +177,8 @@ Objective.CONFIG = {
 		-- starts by *"Walk to a car"*; 2026-10-14: *"you come to truck back rectangle and can click
 		-- and select how many players"*. This is the only thing on screen that says either. They are
 		-- rows here for the reason every other row is: they are WORDS, and words are hers to
-		-- rewrite. 33 characters, which `hud_clarity.spec` measures with `TextFits` at 400 px.
+		-- rewrite. The new one is 27 characters against a bound of 33, which `hud_clarity.spec`
+		-- measures with the engine's own `TextFits` at 400 px rather than with a font guess.
 		--
 		-- THE DIRECTOR'S OWN SENTENCE WAS *"Step on a truck pad to start a hunt"*, AND IT IS 35
 		-- CHARACTERS -- past the bound this table is held to, which task 177 raised from 32 to 33 by

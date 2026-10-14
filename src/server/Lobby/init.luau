@@ -492,7 +492,8 @@ local function stepPads(lists: { { any } }, occupants: { any }, now: number)
 			-- format, through `Build.setPad`), one edge-triggered write out, asked every scan --
 			-- because the COUNT changes on a join and a leave, and neither of those is a verdict.
 			local pad = pads[index]
-			if Build.setPad(index, pad.state, pad.firstUserId, #pad.members, pad.size) then
+			local truckLine, countLine = Pads.labelFor(pad, cfg)
+			if Build.setPad(index, pad.state, pad.firstUserId, truckLine, countLine) then
 				stats.padWrites += 1
 			end
 		end
@@ -569,8 +570,10 @@ end
 -- over a function that does not exist has no second state to reach, which is the one thing the
 -- feature-flag section demands of a flag.
 --
--- `pcall`, because an injected seam that throws must not take the scan down with it: the party stays
--- standing on the pad and `Pads.step`'s own `leaving` fallback asks them again.
+-- `pcall`, because an injected seam that throws must not take the scan down with it. The party is
+-- then still standing on the pad, so `Pads.step`'s `leaving` case takes it back to `sizing` on the
+-- next scan and asks them again -- which is the one thing that stops a refused enrolment leaving a
+-- man on a dead rectangle (`Pads.step` case 6).
 function Lobby.depart(departure: Departure): number
 	if world ~= nil and type(world.depart) == "function" then
 		local ok, went = pcall(world.depart, departure)
@@ -663,7 +666,8 @@ function Lobby.onPadRequest(player: any, request: any, now: number?): any
 	pads[found] = after
 	stats.picks += 1
 	stats.parties += 1
-	if Build.setPad(found, after.state, after.firstUserId, #after.members, after.size) then
+	local truckLine, countLine = Pads.labelFor(after, cfg)
+	if Build.setPad(found, after.state, after.firstUserId, truckLine, countLine) then
 		stats.padWrites += 1
 	end
 	return { ok = true, size = size }

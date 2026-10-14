@@ -257,9 +257,9 @@ function PadPanel.render()
 	end
 	frame.Visible = ask ~= nil
 	for _, button in ipairs(buttons) do
-		-- A SIZE THIS CLIENT HAS ALREADY ASKED FOR IS DIMMED, so a tap that is in flight looks like a
-		-- tap that happened. It is COSMETIC: the server decides, and `sent` only ever stops THIS
-		-- client sending the same number twice.
+		-- ONCE A PICK IS IN FLIGHT THE WHOLE ROW DIMS, so a tap that has been sent looks like a tap
+		-- that happened and the dialog stops inviting a second one. It is COSMETIC: the server
+		-- decides, and `sent` only ever stops THIS client sending the same number twice.
 		button.TextTransparency = if sent ~= nil then 0.45 else 0
 	end
 end
@@ -323,6 +323,11 @@ function PadPanel.start(frame: Frame, collaborators: any)
 end
 
 -- THE TEARDOWN A CLIENT SPEC NEEDS: nothing on screen, nothing held, and the two doors handed back.
+--
+-- IT EMPTIES THE FRAME IT WAS GIVEN, and the Reviewer's round-1 note is why: `start` calls `build`
+-- unconditionally, so a `stop` that left the title and the four buttons standing meant a re-start on
+-- the same frame ended with DOUBLED children -- a spec that put the live dialog back leaving the
+-- screen worse than it found it.
 function PadPanel.stop()
 	if ask ~= nil then
 		PadPanel.setAsk(nil)
@@ -331,6 +336,13 @@ function PadPanel.stop()
 	ask = nil
 	sent = nil
 	table.clear(buttons)
+	if panel ~= nil then
+		for _, child in ipairs((panel :: Frame):GetChildren()) do
+			if child:IsA("GuiObject") then
+				child:Destroy()
+			end
+		end
+	end
 	panel = nil
 	title = nil
 	remotes = nil

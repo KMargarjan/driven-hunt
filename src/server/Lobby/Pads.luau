@@ -256,8 +256,8 @@ end
 -- `members` IS WHO IS STANDING ON THIS RECTANGLE AND NOT ALREADY IN THE DRIVE. The owner leaves out
 -- a man the drive has, and that exclusion is what makes `leaving` end BY ITSELF: the moment the
 -- party is enrolled every list is empty, so the pad falls back to `empty` with no second verdict and
--- no flag to clear. A man `depart` failed on is still standing there, so his pad re-enters `sizing`
--- and he is asked again -- a failed hand-over retries instead of stranding him.
+-- no flag to clear. A man `depart` FAILED on is still standing there, so his pad re-enters `sizing`
+-- and he is asked again (case 6) -- a failed hand-over retries instead of stranding him.
 function Pads.step(pad: Pad, members: { Occupant }, now: number, cfg): (Pad, string)
 	local list = userIds(members)
 	local on = #list
@@ -353,11 +353,26 @@ function Pads.step(pad: Pad, members: { Occupant }, now: number, cfg): (Pad, str
 		return here, Pads.NONE
 	end
 
-	-- 6. `leaving`. The verdict was given once and must not be given again, so this answers `NONE`
-	--    however long they stand there. There is no clock here on purpose: the state is left by the
-	--    members going away, which is what case 1 does the moment the drive has them -- and if the
-	--    hand-over failed they are still standing there and case 3a asks them again.
-	return here, Pads.NONE
+	-- 6. `leaving`, AND REACHING THIS LINE MEANS THE HAND-OVER DID NOT TAKE THEM. Case 1 above
+	--    returns `empty` the moment the pad has no members, and the owner leaves anyone the drive
+	--    has OUT of the list -- so a party that departed normally never arrives here at all.
+	--
+	--    A MAN STILL STANDING ON A `leaving` PAD IS A FAILED DEPARTURE, and he is ASKED AGAIN rather
+	--    than stranded. `Lobby.depart` returns 0 whenever the injected seam throws or `world.enrol`
+	--    refuses -- `Match.enrol` refuses a player it has never registered, *"Refused rather than
+	--    half-done"* -- and without this the pad would sit in `leaving` with his `DHPadState` on the
+	--    part, no dialog, no countdown and no second attempt, until he happened to walk off the
+	--    rectangle. That is the one state in this machine a player cannot get himself out of.
+	--
+	--    IT IS A FRESH QUESTION AND NOT A RESUMED ONE: the size is dropped and the pick clock starts
+	--    again, which is `Join.decide`'s rule (*"RE-ENTRY DOES NOT INHERIT THE OLD DEADLINE"*) and
+	--    the same thing case 3a does when the first man walks away.
+	local first = earliest(members)
+	here.state = Pads.SIZING
+	here.size = nil
+	here.firstUserId = if first then (first :: Occupant).userId else nil
+	here.deadline = now + cfg.PADS.PICK_TIMEOUT_SECONDS
+	return here, Pads.ASK
 end
 
 -- ---------------------------------------------------------------- the words over the pad

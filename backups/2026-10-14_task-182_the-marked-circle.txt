@@ -48,7 +48,7 @@ out-of-repo `smoke.sh` all read it, and a rename would be an edit to a file this
 		SIGN_TEXT = "STAND HERE TO HUNT",
 	},
 
-The ring's hunting orange is kept as pad 3's colour (`PADS.COLORS[3]`), so the lobby's palette does
+The ring's hunting orange is kept as pad 3's colour (`PADS.COLOURS[3]`), so the lobby's palette does
 not change under Karen.
 
 --------------------------------------------------------------------------------------------------

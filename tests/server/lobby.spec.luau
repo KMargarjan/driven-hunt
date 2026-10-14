@@ -436,17 +436,51 @@ return function()
 			expect(verdict).to.equal(Pads.DEPART)
 			expect(gone.state).to.equal(Pads.LEAVING)
 			expect(#gone.members).to.equal(2)
-			-- ...AND `leaving` NEVER DEPARTS A SECOND TIME, however long they stand there. In
-			-- production the list empties the moment the drive has them (the owner leaves a man it
-			-- has out of the list), and THAT is what takes the pad back to `empty`.
-			local again = gone
-			for step = 1, 40 do
+			-- IN PRODUCTION THE LIST EMPTIES THE MOMENT THE DRIVE HAS THEM -- the owner leaves a man it
+			-- has out of the member list -- and THAT is what takes the pad back to `empty` with no
+			-- second `DEPART`.
+			expect(select(1, Pads.step(gone, {}, 99, CFG)).state).to.equal(Pads.EMPTY)
+		end)
+
+		it("ASKS AGAIN when the hand-over failed, instead of stranding the party on a dead pad", function()
+			-- STILL STANDING THERE ON THE NEXT SCAN MEANS THE DRIVE DID NOT TAKE THEM. `Lobby.depart`
+			-- returns 0 whenever the injected seam throws or `world.enrol` refuses -- `Match.enrol`
+			-- refuses a player it has never registered, *"Refused rather than half-done"* -- and
+			-- without this the pad would sit in `leaving` with its `DHPadState` on the part, no
+			-- dialog, no countdown and no second attempt, until the man happened to walk off the
+			-- rectangle. That is the one state in this machine a player cannot get himself out of.
+			--
+			-- THE REVIEWER FOUND THIS IN ROUND 1: the design's own transition table said the pad
+			-- re-enters `sizing`, two comments claimed it did, and the code returned `NONE` for ever.
+			local pad = select(1, Pads.withSize(select(1, Pads.step(Pads.empty(2), who(11), 1, CFG)), 2, 1.2, CFG))
+			local full = select(1, Pads.step(pad, who(11, 22), 2, CFG))
+			local stuck = select(1, Pads.step(full, who(11, 22), full.deadline :: number, CFG))
+			expect(stuck.state).to.equal(Pads.LEAVING)
+
+			local retry, verdict = Pads.step(stuck, who(11, 22), (full.deadline :: number) + 0.1, CFG)
+			expect(verdict).to.equal(Pads.ASK)
+			expect(retry.state).to.equal(Pads.SIZING)
+			-- A FRESH QUESTION AND NOT A RESUMED ONE: the size is dropped and the pick clock starts
+			-- again, which is `Join.decide`'s rule read at the level of the pad.
+			expect(retry.size).to.equal(nil)
+			expect(retry.firstUserId).to.equal(11)
+			expect(retry.deadline).to.equal((full.deadline :: number) + 0.1 + PADS.PICK_TIMEOUT_SECONDS)
+			-- ...AND IT DOES NOT DEPART AGAIN ON THE WAY OUT: one `DEPART` per countdown, and the
+			-- retry has to go round the whole machine to earn the next one.
+			expect(verdict).never.to.equal(Pads.DEPART)
+			-- THE RETRY REACHES THE DRIVE BY ITSELF, with nobody pressing anything.
+			local at = (full.deadline :: number) + 0.1
+			local sawDepart = false
+			local walking = retry
+			while at < (full.deadline :: number) + PADS.PICK_TIMEOUT_SECONDS + CFG.COUNTDOWN_SECONDS + 1 do
+				at += 1 / CFG.SCAN_HZ
 				local verdictAgain
-				again, verdictAgain = Pads.step(again, who(11, 22), (full.deadline :: number) + step * 0.1, CFG)
-				expect(verdictAgain).to.equal(Pads.NONE)
+				walking, verdictAgain = Pads.step(walking, who(11, 22), at, CFG)
+				if verdictAgain == Pads.DEPART then
+					sawDepart = true
+				end
 			end
-			expect(again.state).to.equal(Pads.LEAVING)
-			expect(select(1, Pads.step(again, {}, 99, CFG)).state).to.equal(Pads.EMPTY)
+			expect(sawDepart).to.equal(true)
 		end)
 
 		it("cancels when the pad EMPTIES, and a re-entry inherits nothing", function()
@@ -803,8 +837,11 @@ return function()
 				expect(board).to.be.ok()
 				expect((board :: Instance):IsA("BillboardGui")).to.equal(true)
 				local truckLine, countLine = Build.padLabel(index)
-				expect(truckLine).to.equal(string.format(CFG.PADS.BILLBOARD.TRUCK, index))
-				expect(countLine).to.equal(string.format(CFG.PADS.BILLBOARD.COUNT_UNSET, 0))
+				-- AGAINST `Pads.labelFor` ITSELF and not against a second copy of the format, which is
+				-- the Reviewer's round-1 note made into a check: the words have ONE formatter now.
+				local wantTruck, wantCount = Pads.labelFor(Pads.empty(index), CFG)
+				expect(truckLine).to.equal(wantTruck)
+				expect(countLine).to.equal(wantCount)
 				-- THE TWO ATTRIBUTES ARE THE WHOLE OUTBOUND WIRE, and they are set at build.
 				expect(pad:GetAttribute(Data.PAD_STATE_ATTRIBUTE)).to.equal(Data.PAD_STATE.EMPTY)
 				expect(pad:GetAttribute(Data.PAD_FIRST_ATTRIBUTE)).to.equal(nil)
@@ -849,11 +886,31 @@ return function()
 				-- ABOVE it, which is the whole of the defect this case exists for.
 				expect(math.abs(top - (anchor.Y + hump + CFG.PADS.LIFT_STUDS)) < 1e-3).to.equal(true)
 				expect(top > anchor.Y + hump).to.equal(true)
+				-- ...AND NEVER INSIDE THE SLAB THIS SYSTEM LAID ITSELF, which is the half of the
+				-- guarantee the measurement must not throw away (the Reviewer's round-1 note).
+				expect(top >= anchor.Y + CFG.ROAD.THICK_STUDS).to.equal(true)
 				-- ...AND ITS x AND z HAVE NOT MOVED: the RULE is flat, so a measured Y may never
 				-- change where the rectangle is.
 				expect(deck.Position.X).to.equal(wanted.X)
 				expect(deck.Position.Z).to.equal(wanted.Z)
 			end
+			-- A GROUND BELOW THE ROAD SLAB IS CLAMPED TO IT, so a dip -- or a reader that measured the
+			-- terrain UNDER an opaque slab -- cannot bury the deck the way task 177's ring was buried.
+			local sunken = Build.build(
+				container,
+				anchor,
+				CFG,
+				fakeTemplates(),
+				{
+					groundAt = function(): number
+						return anchor.Y - 5
+					end,
+				} :: any
+			)
+			local clamped = sunken:FindFirstChild(Data.SPOT_NAME, true) :: BasePart
+			local clampedTop = clamped.Position.Y + clamped.Size.Y / 2
+			expect(math.abs(clampedTop - (anchor.Y + CFG.ROAD.THICK_STUDS + CFG.PADS.LIFT_STUDS)) < 1e-3).to.equal(true)
+
 			-- A READER THAT ANSWERS NOTHING LEAVES THE PURE ARITHMETIC STANDING, which is the branch
 			-- every other case in this file builds with.
 			local blind = Build.build(
@@ -941,23 +998,36 @@ return function()
 			-- THE EDGE CLAIM. `Build.setPad` is called every scan by the owner -- the count changes on
 			-- a join and a leave, which are not verdicts -- so it has to be free when nothing moved,
 			-- or a standing-empty lobby would replicate four attribute writes ten times a second.
+			-- THE WORDS COME IN READY, from the one formatter (`Pads.labelFor`); this module WRITES.
+			local function words(state: string, size: number?, on: number)
+				local pad = Pads.empty(1)
+				pad.state = state
+				pad.size = size
+				for index = 1, on do
+					table.insert(pad.members, index)
+				end
+				return Pads.labelFor(pad, CFG)
+			end
 			local before = Build.stats().padWrites
-			expect(Build.setPad(1, Data.PAD_STATE.EMPTY, nil, 0, nil)).to.equal(false)
+			local idleTruck, idleCount = words(Data.PAD_STATE.EMPTY, nil, 0)
+			expect(Build.setPad(1, Data.PAD_STATE.EMPTY, nil, idleTruck, idleCount)).to.equal(false)
 			expect(Build.stats().padWrites).to.equal(before)
-			expect(Build.setPad(1, Data.PAD_STATE.SIZING, 4242, 1, nil)).to.equal(true)
+			local askTruck, askCount = words(Data.PAD_STATE.SIZING, nil, 1)
+			expect(Build.setPad(1, Data.PAD_STATE.SIZING, 4242, askTruck, askCount)).to.equal(true)
 			expect(Build.stats().padWrites).to.equal(before + 1)
 			local deck = Build.padPart(1) :: BasePart
 			expect(deck:GetAttribute(Data.PAD_STATE_ATTRIBUTE)).to.equal(Data.PAD_STATE.SIZING)
 			expect(deck:GetAttribute(Data.PAD_FIRST_ATTRIBUTE)).to.equal(4242)
 			expect(select(2, Build.padLabel(1))).to.equal(string.format(CFG.PADS.BILLBOARD.COUNT_UNSET, 1))
 			-- THE SAME VALUES AGAIN WRITE NOTHING.
-			expect(Build.setPad(1, Data.PAD_STATE.SIZING, 4242, 1, nil)).to.equal(false)
+			expect(Build.setPad(1, Data.PAD_STATE.SIZING, 4242, askTruck, askCount)).to.equal(false)
 			expect(Build.stats().padWrites).to.equal(before + 1)
 			-- A SIZE TURNS `n / -` INTO KAREN'S OWN `n / size`.
-			expect(Build.setPad(1, Data.PAD_STATE.FILLING, 4242, 2, 4)).to.equal(true)
+			local fillTruck, fillCount = words(Data.PAD_STATE.FILLING, 4, 2)
+			expect(Build.setPad(1, Data.PAD_STATE.FILLING, 4242, fillTruck, fillCount)).to.equal(true)
 			expect(select(2, Build.padLabel(1))).to.equal("2 / 4")
 			-- A PAD THAT DOES NOT EXIST IS REFUSED RATHER THAN CREATED.
-			expect(Build.setPad(CFG.TRUCK.COUNT + 5, Data.PAD_STATE.EMPTY, nil, 0, nil)).to.equal(false)
+			expect(Build.setPad(CFG.TRUCK.COUNT + 5, Data.PAD_STATE.EMPTY, nil, idleTruck, idleCount)).to.equal(false)
 		end)
 
 		it("builds a neutral lodge spawn that writes no team and grants no force field", function()
