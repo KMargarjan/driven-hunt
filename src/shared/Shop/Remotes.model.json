@@ -1,0 +1,7 @@
+{
+  "className": "Folder",
+  "children": [
+    { "name": "ShopRequest", "className": "RemoteEvent" },
+    { "name": "ShopState", "className": "RemoteEvent" }
+  ]
+}

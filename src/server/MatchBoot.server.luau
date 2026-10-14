@@ -40,6 +40,12 @@ local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
 -- no `stop`, no store and no setter -- so the drive cannot open a ProfileStore session, cannot write
 -- a balance and cannot see the library.
 local Economy = require(ServerScriptService:WaitForChild("Economy"))
+-- THE SHOP (task 178), wired below exactly as it is in `ForestTestBoot` -- the same three lines, so
+-- the two worlds cannot drift. This place has no lodge, so it has no counter and nothing can be
+-- bought in it; the owner is still started, because the one thing that must be identical in both
+-- worlds is WHO IS WIRED TO WHOM.
+local Shop = require(ServerScriptService:WaitForChild("Shop"))
+local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
 local TestArena = require(ServerScriptService:WaitForChild("TestArena"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
@@ -276,6 +282,41 @@ Bots.start({
 -- IT PRINTS WHICH STORE IT TOOK -- in Studio always the in-memory one, so no playtest and no harness
 -- run can write a live DataStore key even with *Enable Studio Access to API Services* on.
 Economy.start()
+
+-- ---------------------------------------------------------------- the shop (task 178)
+--
+-- THE SEVENTH OWNER, WIRED THE SAME WAY as the six before it: it requires none of them and none of
+-- them requires it, and this root hands each one what the other answers. Karen, 2026-10-13:
+-- *"Hunting house where inside can shop things"*.
+--
+--   purchase     `Economy.purchase` -- the ONLY writer of either half of a purchase. The shop owns
+--                no balance, no ownership set, no session and no key.
+--   snapshotFor  `Economy.shopStateFor` -- one player's own payload, built by the pure
+--                `Shop.rowsFor`, so `buyable` is decided once and on this side.
+--   counterAt    nil IN THIS WORLD. `Lobby.ANCHORS` has no `map:v1` row, so this place has no lodge
+--                and no counter -- `Shop.withinReach` is then false and every purchase here is
+--                refused `too-far`. That is not a defect (design section 10.4): the DEV place is
+--                where the harness runs, and no check in it can change that answer.
+--
+-- `Weapon.setEntitlementProvider` AND `Body.setLookProvider` ARE THE TRANSLATION, and this root is
+-- where it belongs: both seams take a `Player` and `Economy` *"must not hold a Player"* (its own
+-- header). With the shop OFF neither is wired at all, and then every reader answers nil -- which is
+-- today's game by every branch (docs/design/shop.md section 7.1).
+local shopOn = Shop.start({
+	purchase = Economy.purchase,
+	snapshotFor = Economy.shopStateFor,
+	counterAt = nil,
+	remotes = ShopData.remotes(),
+})
+if shopOn then
+	Weapon.setEntitlementProvider(function(player)
+		return Economy.ownedOf(player.UserId)
+	end)
+	Match.Body.setLookProvider(function(player)
+		local color = ShopData.hatColorFor(Economy.ownedOf(player.UserId))
+		return if color then { hatColor = color } else nil
+	end)
+end
 
 Match.start({
 	-- A PLAYER'S COINS (task 170): a read-only view. The drive calls it at exactly one moment -- the

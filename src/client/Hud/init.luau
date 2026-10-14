@@ -41,6 +41,10 @@ local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+-- THE SHOP'S CATALOGUE AND ITS ONE PURE GEOMETRY QUESTION (task 178): `Shop.withinReach`, asked
+-- once per frame in `Hud.renderObjective` -- the one place in this file that reads where the player
+-- is standing -- and handed to `ShopPanel.setNear`.
+local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 -- The Hud's own 2-D feedback sounds have one writer, and this is it (task 124).
@@ -69,6 +73,11 @@ local MapUi = require(script.MapUi)
 -- it will be clear to understand what happening / could be buttons on the side for M - map ect"*.
 local Objective = require(script.Objective)
 local Rail = require(script.Rail)
+-- ...AND THE SHOP PANEL (task 178), in the same shape: the Hud builds the frame and `ShopPanel` is
+-- the one writer of everything inside it. It follows `MapUi` rather than the compass in the one
+-- respect that matters -- it owns its own `Visible` -- because whether the shop is open is a thing
+-- the player and the counter decide (docs/design/shop.md section 5.1).
+local ShopPanel = require(script.ShopPanel)
 
 local Hud = {}
 
@@ -104,6 +113,9 @@ local feedLines: { TextLabel } = {}
 local feedEntries: { { text: string, at: number } } = {}
 local scorePanel: Frame? = nil
 local reportFrame: Frame? = nil
+-- THE SHOP PANEL'S FRAME (task 178): created here, filled by `Hud.ShopPanel`, and that module --
+-- not this one -- writes its `Visible`.
+local shopFrame: Frame? = nil
 local compassFrame: Frame? = nil
 -- Did the scope's own mask hide the compass strip? See `Hud.renderScope`.
 local compassHiddenByScope = false
@@ -196,6 +208,14 @@ end
 Hud.Compass = Compass
 
 -- The report's frame, so a spec can read its visibility without reaching through PlayerGui by name.
+-- THE SHOP PANEL, published where the Hud starts it -- the `Hud.Rail` / `Hud.Shop` shape a spec
+-- reaches it through.
+Hud.Shop = ShopPanel
+
+function Hud.shopPanel(): Frame?
+	return shopFrame
+end
+
 function Hud.reportPanel(): Frame?
 	return reportFrame
 end
@@ -789,6 +809,22 @@ local function build(): ScreenGui
 	report.Visible = false
 	report.Parent = screen
 
+	-- THE SHOP (task 178). Karen: *"Hunting house where inside can shop things"*. Centred, narrow
+	-- enough to fit a phone screen (`Shop.CONFIG.PANEL.WIDTH` is 360, and the reason is measured --
+	-- design section 13.1), empty and hidden until `ShopPanel.start` fills it. This file creates the
+	-- box and writes nothing inside it, and after `build` it does not write the `Visible` either.
+	local shop = Instance.new("Frame")
+	shop.Name = "ShopPanel"
+	shop.BackgroundColor3 = ShopPanel.LOOK.PANEL_COLOR
+	shop.BackgroundTransparency = 0
+	shop.BorderSizePixel = 0
+	shop.AnchorPoint = Vector2.new(0.5, 0.5)
+	shop.Position = UDim2.fromScale(0.5, 0.5)
+	shop.Size = UDim2.fromOffset(Shop.CONFIG.PANEL.WIDTH, ShopPanel.heightFor(#Shop.ORDER))
+	shop.ZIndex = Shop.CONFIG.PANEL.Z_INDEX
+	shop.Visible = false
+	shop.Parent = screen
+
 	-- THE MAP (task 155). Karen: *"small map in left or right corner circle like is on another
 	-- games"* and *"a map when click M"*. Two frames and a button, created empty and filled by
 	-- `MapUi` -- the same division the compass and the report panel already have.
@@ -964,6 +1000,7 @@ local function build(): ScreenGui
 	feedFrame = feed
 	scorePanel = panel
 	reportFrame = report
+	shopFrame = shop
 	compassFrame = compass
 	scoreTitle = title
 	scoreFooter = footer
@@ -2001,6 +2038,14 @@ function Hud.renderObjective(CameraSystem)
 			),
 		}
 		else nil
+	-- IS HE AT THE SHOP COUNTER (task 178)? ONE EVALUATION, HERE, because this function is already
+	-- *"THE ONE EVALUATION OF 'WHAT MUST I DO, AND WHERE', AND THE ONE CALL TO EACH DRAWER"* and it
+	-- already holds both facts: where he is, and where the lobby's parts are. The panel is TOLD
+	-- (`Rail.setWeapon`'s rule) and `setNear` is edge-triggered inside it, so this costs one
+	-- subtraction a frame and one write per walk-in.
+	ShopPanel.setNear(
+		Shop.withinReach(me, if lobbyData then lobbyData.counterPosition() else nil, Shop.CONFIG.REACH_STUDS)
+	)
 	local target = Objective.targetFor(team, phase, MapUi.geometry(), me, lobby)
 	local far = Objective.distanceStuds(target, me)
 	arrivedAtTarget = Objective.arrived(far, arrivedAtTarget)
@@ -2371,6 +2416,17 @@ function Hud.start()
 			-- See `Compass.headingFrom` for both measurements.
 			Compass.render(Compass.headingFrom(CameraSystem))
 		end)
+	end
+
+	-- THE SHOP PANEL (task 178), handed its frame, the two doors it borrows and its own remotes. Every
+	-- collaborator may be nil and the panel says so in its own header: with no camera there is no
+	-- `Cursor`, and then the mouse is the player's own problem -- which is why the `E` key exists.
+	if shopFrame then
+		ShopPanel.start(shopFrame :: Frame, {
+			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
+			Input = Weapon.Input,
+			remotes = Shop.remotes(),
+		})
 	end
 
 	if reportFrame then

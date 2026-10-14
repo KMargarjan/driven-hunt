@@ -311,8 +311,9 @@ local function interior(folder: Instance, origin: Vector3, cfg)
 		)
 	end
 
-	-- TASK 178'S SHOP: an empty counter and a sign that says so. Karen: *"Hunting house where inside
-	-- can shop things"*.
+	-- THE SHOP (task 177 built it empty, task 178 opened it): the counter is the DOOR, found by name
+	-- through `Lobby.counterPart` and measured against by the server's own reach check. Karen:
+	-- *"Hunting house where inside can shop things"*.
 	local shop = Instance.new("Folder")
 	shop.Name = "Shop"
 	shop.Parent = inside

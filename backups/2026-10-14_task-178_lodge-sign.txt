@@ -1,0 +1,7 @@
+Archived in task 178 (rule 7): the lodge's placeholder shop sign.
+
+src/shared/Lobby/init.luau, Lobby.CONFIG.LODGE.SIGN_TEXT, as task 177 shipped it:
+
+    SIGN_TEXT = "SHOP - coming soon",
+
+Task 178 opened the shop, so the sign says SHOP. Rollback: restore the string above.

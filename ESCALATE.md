@@ -1,5 +1,81 @@
 # Escalations
 
+## 2026-10-14 - Task 178 ROUND 2: NEEDS TEST2 178 6a17fc7 -- the same click, at the new head
+
+Round 2 answered the Reviewer's finding 1 (the licensed beater now has a test that can fail) and
+added the Director's Studio test grant, so the code commit moved: **6a17fc702a1e84a71aa4e4917d2f9f1f86d1d219**,
+FULL `test` twice, both `PASS: 33/33 ... (clean tree) scope=all`. The round-1 line below is the
+Director's at the OLD head and does not carry.
+
+**The command:** `python tools/studio_mcp.py test2` at `6a17fc7`, with the clicks in the round-1
+entry below. The line then replaces the placeholder in `reviews/task-178/REQUEST.md`, and
+`powershell -ExecutionPolicy Bypass -File tools/review.ps1 178` runs round 2.
+
+**FOR KAREN'S MORNING, one more attribute in the Forest Test Studio** (Edit mode, beside
+`DHFlag_SHOP`, `DHFlag_COINS`, `DHFlag_DRIVE_BOTS` and `DHForestStartRole`):
+
+```
+ServerStorage:SetAttribute("DHShopTestGrant", true)
+```
+
+It gives every profile in that STUDIO session 2000 coins and 25 hunts at load, so she can actually
+buy what she is meant to try -- it raises rather than sets, buys nothing for her, and saves nothing.
+It cannot reach a live server (`RunService:IsStudio()` is false there, the same predicate that already
+decides the in-memory store). It is NOT a `DHFlag_`, so `python tools/flags.py clear` does not clear
+it: **set it to nil by hand when the playtest is over**, and note that the harness does not refuse to
+run while it is set -- so never set it in the DEV place.
+
+## 2026-10-14 - Task 178 round 1: NEEDS TEST2 178 f6e6c7d -- the two-player run, which nothing but a human click can start
+
+**The shop is built, gated TWICE on the one-player harness (33/33, clean tree, scope=all, at the
+code commit), smoke-checked in the Forest Test and photographed. The one thing missing is the
+two-player line**, and `run_test2` says so itself: *"NEEDS KAREN, once, in Studio -- StudioMCP CANNOT
+start this test itself"*. The Director's dispatch asked for exactly this stop: *"TWO_PLAYER_PATHS
+likely touched: stop 'NEEDS TEST2 178 <sha>' with a placeholder."*
+
+**Why this task needs it.** `src/server/Match/init.luau` (`mayCarryWeapon`'s last line) and
+`src/server/Match/Body.luau` (the hat's colour) are both in `TWO_PLAYER_PATHS`. A `--scope auto`
+run would waive it, but `tools/studio_mcp.py` is in the diff (the new `shop` scope) and an unmapped
+tool path resolves to the whole suite, so a scoped run is tagged `scope=all` -- full evidence, which
+asks for the two-player line. **`tools/review.sh 178` is refused until that line is in the request**,
+so this blocks the review round as well as the merge.
+
+**What a second player actually answers here:** whether a LICENSED BEATER carries a gun.
+`Match.mayCarryWeapon` answers about a Driver, and a solo session in the DEV place has none.
+
+### The exact clicks, in order
+
+1. In the **DEV** Studio (`Driven Hunt DEV`, place 136410205938347), Edit mode, Rojo connected:
+   **Test tab -> Clients and Servers -> Players: 2 -> Start.**
+2. Leave the three windows alone while they run.
+3. When the harness says so, **Test tab -> Cleanup** (or End Session) to close them.
+
+The command to run beside it is `python tools/studio_mcp.py test2`, at
+**f6e6c7df0f3ef5df55f346a54e39d3ffb1e8530a** on branch `task-178-shop`. The line to paste into
+`reviews/task-178/REQUEST.md`, replacing the paragraph that says it is missing, is
+
+```
+[harness2] PASS: n/m checks @ f6e6c7df0f3ef5df55f346a54e39d3ffb1e8530a (clean tree)
+```
+
+Then `powershell -ExecutionPolicy Bypass -File tools/review.ps1 178`.
+
+### One more thing the Director should know before Karen plays
+
+**`DHFlag_SHOP` IS LEFT ON IN THE FOREST TEST STUDIO** (beside her `DHFlag_COINS`,
+`DHFlag_DRIVE_BOTS` and `DHForestStartRole=hunter`, all untouched), so she can walk into the lodge
+in the morning and see the shop. **With it on she starts a drive with BUCKSHOT ONLY and no rifle
+until she buys them** -- that is her own ladder (*"default is double barrel shotgun"*), and it is the
+one thing in this task that takes something away from the gun she has already accepted. One line
+turns it off again, from `<runs-dir>`:
+
+```
+python shop178.py flags-off     # clears SHOP *and* COINS in the Forest Test Studio
+```
+
+(or set just `DHFlag_SHOP` to nil on `ServerStorage` in that Studio, which leaves her coins alone).
+The DEV place has no override at all, which is why both harness runs passed.
+
 ## 2026-10-14 - Task 177: NEEDS KAREN / NEEDS TEST2 177 09b6932 -- the two-player run, which nothing but a human click can start
 
 **The lobby is built, gated TWICE on the one-player harness, smoke-checked and photographed. The one

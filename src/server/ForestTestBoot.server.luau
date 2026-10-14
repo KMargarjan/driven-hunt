@@ -57,6 +57,11 @@ local Economy = require(ServerScriptService:WaitForChild("Economy"))
 -- next to forrest"*. The sixth owner, wired here exactly as the boar runtime, the weapon, the bots,
 -- the hit record and the coins are: `Lobby` requires no owner and no owner requires it.
 local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
+-- THE SHOP (task 178): its own owner, wired the way `Economy` and `Lobby` above are. It owns the
+-- DOOR and nothing else -- `Economy.purchase` is the only writer of a purchase, and
+-- `Lobby.counterPosition` is the one definition of where the counter is.
+local Shop = require(ServerScriptService:WaitForChild("Shop"))
+local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
 local Data = ForestTest.Data
 
 print(
@@ -516,6 +521,40 @@ local function reportLobby()
 			tostring(Lobby.Data.spotPosition())
 		)
 	)
+end
+
+-- ---------------------------------------------------------------- the shop (task 178)
+--
+-- THE SEVENTH OWNER, WIRED THE SAME WAY as the six before it: it requires none of them and none of
+-- them requires it, and this root hands each one what the other answers. Karen, 2026-10-13:
+-- *"Hunting house where inside can shop things"*.
+--
+--   purchase     `Economy.purchase` -- the ONLY writer of either half of a purchase. The shop owns
+--                no balance, no ownership set, no session and no key.
+--   snapshotFor  `Economy.shopStateFor` -- one player's own payload, built by the pure
+--                `Shop.rowsFor`, so `buyable` is decided once and on this side.
+--   counterAt    `Lobby.Data.counterPosition` -- the ONE definition of where the counter is: the part
+--                the server built, found by name. A world with no lodge answers nil and every
+--                purchase in it is refused `too-far`.
+--
+-- `Weapon.setEntitlementProvider` AND `Body.setLookProvider` ARE THE TRANSLATION, and this root is
+-- where it belongs: both seams take a `Player` and `Economy` *"must not hold a Player"* (its own
+-- header). With the shop OFF neither is wired at all, and then every reader answers nil -- which is
+-- today's game by every branch (docs/design/shop.md section 7.1).
+local shopOn = Shop.start({
+	purchase = Economy.purchase,
+	snapshotFor = Economy.shopStateFor,
+	counterAt = Lobby.Data.counterPosition,
+	remotes = ShopData.remotes(),
+})
+if shopOn then
+	Weapon.setEntitlementProvider(function(player)
+		return Economy.ownedOf(player.UserId)
+	end)
+	Body.setLookProvider(function(player)
+		local color = ShopData.hatColorFor(Economy.ownedOf(player.UserId))
+		return if color then { hatColor = color } else nil
+	end)
 end
 
 Match.start({

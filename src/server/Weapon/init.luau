@@ -44,6 +44,11 @@ local Registry = require(script.Registry)
 -- `Rules.ORDER`'s declared order by `Rules.refuse` -- which this file calls once and does not
 -- second-guess, so the order is a rule a spec can assert rather than this file's private habit.
 local Rules = require(script.Rules)
+-- THE SHOP'S PURE DATA (task 178), for ONE function: `Shop.startFor(row, owned)`, which says what
+-- shells this player may be issued. Frozen shared data with no writer, required the way `Rules`
+-- requires `Licences` -- and `ServerScriptService.Shop` is NOT required here: this owner knows
+-- nothing about a door, a price or a remote.
+local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local SafetyArc = require(script.SafetyArc)
 local Shapes = require(script.Shapes)
 local StateMachine = require(script.StateMachine)
@@ -166,6 +171,8 @@ local armingPolicy: ((Player) -> boolean)? = nil
 local targetProvider: ((Instance?) -> Rules.Target?)? = nil
 local standProvider: ((Player) -> Rules.StandArea?)? = nil
 local licenceProvider: ((Player) -> { [string]: boolean }?)? = nil
+-- WHAT HE HAS BOUGHT (task 178). nil is "nobody answered", which is today's game.
+local entitlementProvider: ((Player) -> { [string]: boolean }?)? = nil
 -- IS THE DRIVE OPEN? (task 174, the fourth fact.) It takes no `Player` and no `Instance`, because it
 -- is not about either: the drive is on or it is not, for everybody at once. `Match.driveOpen` is
 -- what the composition roots hand over.
@@ -191,10 +198,31 @@ function Weapon.setStandProvider(provider: ((Player) -> Rules.StandArea?)?)
 	standProvider = provider
 end
 
--- WHICH SPECIES HE IS LICENSED FOR. Unwired today, and deliberately: no deer exists, and a boar
--- needs no licence (`Licences.ROWS`), so the rule is reachable and inert. The shop task wires it.
+-- WHICH SPECIES HE IS LICENSED FOR. STILL UNWIRED AFTER THE SHOP (task 178), and the promise this
+-- comment used to make -- *"The shop task wires it"* -- is withdrawn with its reason, which is the
+-- shop's own invariant: no deer exists, a boar needs no licence (`Licences.ROWS`), and a catalogue
+-- row for a SPECIES PERMIT for an animal that is not in the game would be a row that grants nothing
+-- -- the one thing `Shop.rowsOk` refuses. Karen names its price the day a deer exists
+-- (docs/design/shop.md section 7.4 and 16 item 13). So the rule stays reachable and inert.
+--
+-- IT IS A DIFFERENT LICENCE FROM THE SHOP'S. `licence.beater` is a BEATER's permission to carry a
+-- gun in a drive and is read by `Match.mayCarryWeapon` alone; this one is permission to shoot AT a
+-- species and is read by `Rules.unlicensed`. Three things called "licence" in one game, and
+-- conflating two of them is the `Match.Penalty` warning applied to a word.
 function Weapon.setLicenceProvider(provider: ((Player) -> { [string]: boolean }?)?)
 	licenceProvider = provider
+end
+
+-- WHAT HE HAS BOUGHT (task 178): the FOURTH injected provider on this owner, in the shape the other
+-- three have. `ServerScriptService.Economy` answers it through the composition root, which is where
+-- the `Player` -> userId translation belongs -- this owner's providers all take a Player and
+-- `Economy` *"must not hold a Player"* (its own header).
+--
+-- UNWIRED MEANS nil, AND nil IS TODAY'S GAME: the full loadout and the weapon's own shells
+-- (docs/design/shop.md section 7.1). A world with no shop -- the bare DEV place and every
+-- `tests/server/weapon_*.spec.luau` -- is untouched by this task.
+function Weapon.setEntitlementProvider(provider: ((Player) -> { [string]: boolean }?)?)
+	entitlementProvider = provider
 end
 
 -- WHETHER THE DRIVE IS BETWEEN ITS TWO SIGNALS (task 174). KAREN, 2026-10-13 ~09:35: *"for hunter
@@ -245,6 +273,28 @@ local function askLicences(player: Player): { [string]: boolean }?
 	end
 	local ok, held = pcall(licenceProvider :: any, player)
 	return if ok and type(held) == "table" then held else nil
+end
+
+-- WHAT HE OWNS, THROUGH A pcall, the rule this file already states for every provider: *"a provider
+-- that errors must not leave a player permanently unable to shoot AND must not silently remove the
+-- rule. It falls back to 'no restriction'"* -- which here is nil, and nil is the gun he has today.
+local function askOwned(player: Player): { [string]: boolean }?
+	if entitlementProvider == nil then
+		return nil
+	end
+	local ok, owned = pcall(entitlementProvider :: any, player)
+	return if ok and type(owned) == "table" then owned else nil
+end
+
+-- WHAT THIS PLAYER'S COPY OF THIS WEAPON STARTS WITH: his allowance, or the weapon's own row when
+-- nobody has said. One call, in one place, so `grant`, `revoke` and `refillForDrive` cannot disagree
+-- about what he may carry.
+local function startFor(player: Player, row: any): { ammo: string?, reserve: { [string]: number }? }?
+	local owned = askOwned(player)
+	if owned == nil then
+		return nil
+	end
+	return Shop.startFor(row, owned)
 end
 
 -- ...AND IT HANDS BACK THE ONE IT IS REPLACING (task 150), so a caller that needs the policy for the
@@ -397,7 +447,11 @@ end
 -- -- the one flag read in the whole weapon system, still at that one boundary.
 function Weapon.refreshArming(player: Player, loadout: { string }?)
 	local allowed = mayArm(player)
-	local wanted = loadout or Weapons.loadout()
+	-- WHAT HE MAY CARRY AT ALL: the flag's list, narrowed by what he has bought (task 178).
+	-- `loadout` stays a PARAMETER with a default, which is what task 141 added it for -- *"the flag's
+	-- two worlds must both be reachable without the flag"* -- and the ownership read is the
+	-- production default beside it.
+	local wanted = loadout or Weapons.loadout(askOwned(player))
 	-- IN `Weapons.ORDER`, AND THE ORDER IS THE HOTBAR (task 141): see `Weapon.grant`. The engine
 	-- numbers a Backpack slot by the order the Tool arrives, so granting in order IS the fix, and it
 	-- only works because nothing equips in the middle of this loop any more.
@@ -639,7 +693,16 @@ function Weapon.refillForDrive(player: Player, driveNumber: number?): number
 	-- own `START_RESERVE` are different numbers and neither is written here.
 	for id, state in pairs(entry.states) do
 		local row = Weapons.row(id) or Weapons.ROWS[Weapons.PRIMARY]
-		local refilled, reason = StateMachine.apply(state, { kind = "Refill" }, os.clock(), row)
+		-- HIS ALLOWANCE, PER WEAPON, FROM THAT WEAPON'S OWN ROW (task 178) -- the rule this function
+		-- already states: *"the shotgun's 12 shells and the rifle's own `START_RESERVE` are different
+		-- numbers and neither is written here"*. nil leaves the row's own pockets, exactly as before.
+		local start = startFor(player, row)
+		local refilled, reason = StateMachine.apply(
+			state,
+			{ kind = "Refill", reserve = if start then start.reserve else nil },
+			os.clock(),
+			row
+		)
 		if reason == nil then
 			setState(player, id, refilled)
 			publish(player, id, refilled, true)
@@ -704,7 +767,9 @@ function Weapon.grant(player: Player, id: string?): Tool?
 	end
 	Hardware.destroy(toolsOfPlayer(player)[weaponId])
 	local previous = stateOf(player, weaponId)
-	local state = StateMachine.initial(row)
+	-- HIS OWN SHELLS (task 178): buckshot only until he has bought the slug, and the weapon's own
+	-- row when there is no shop in this build.
+	local state = StateMachine.initial(row, startFor(player, row))
 	if previous then
 		local bumped = table.clone(state) :: any
 		bumped.epoch = previous.epoch + 1
@@ -807,7 +872,7 @@ function Weapon.revoke(player: Player, id: string?)
 	toolsOfPlayer(player)[weaponId] = nil
 	local previous = stateOf(player, weaponId)
 	if previous then
-		local state = table.clone(StateMachine.initial(row)) :: any
+		local state = table.clone(StateMachine.initial(row, startFor(player, row))) :: any
 		state.epoch = previous.epoch + 1
 		local reset = Shotgun.deepFreeze(state)
 		setState(player, weaponId, reset)
@@ -1254,7 +1319,11 @@ function Weapon.start()
 					-- instrument this repo has for "a player who should be holding a gun and is
 					-- not" (`reviews/task-34/REQUEST.md`: *"armingRepairs has been 0 in every run
 					-- since"*).
-					for _, id in ipairs(Weapons.loadout()) do
+					-- HIS OWN LIST (task 178, the Reviewer's round-1 note), not the flag's whole one: with the
+					-- shop on, a player who has not bought the rifle is CORRECTLY not holding one, and asking the
+					-- unnarrowed list counted him as a repair on every sweep -- destroying the one instrument
+					-- this counter exists to be ("a player who should be holding a gun and was not").
+					for _, id in ipairs(Weapons.loadout(askOwned(player))) do
 						if not holdsTool(player, id) then
 							stats.armingRepairs += 1
 						end

@@ -46,7 +46,15 @@ export type FlagRow = {
 Flags.NAME_PATTERN = "^[A-Z][A-Z0-9_]*$"
 Flags.MAX_NAME_LENGTH = 40 -- "DHFlag_" + 40 <= Roblox's 100-character attribute-name limit
 Flags.OVERRIDE_PREFIX = "DHFlag_"
-Flags.MAX_FLAGS = 12 -- more than twelve dark paths means the stack problem moved, not went away
+-- THIRTEEN SINCE TASK 178, and the bump is a decision with its reason beside it. The cap's own
+-- sentence is about DARK paths -- *"more than twelve dark paths means the stack problem moved, not
+-- went away"* -- and it counts ROWS. Of the thirteen rows, five are LIT and accepted
+-- (`TIE_UNTIL_DRIVE_END`, `BOAR_SOUNDERS`, `ORANGE_OUTFITS`, `RIFLE`, `FIRST_PERSON`: `default =
+-- true`, and three of them are queued for retirement as TASKS.md 82b), so the number the Director
+-- should see is EIGHT DARK, which is under the twelve the rule is about. Retiring those three
+-- brings the row count back under 12 without touching this line, and that is the Director's call
+-- (docs/design/shop.md section 16 item 8), not this task's.
+Flags.MAX_FLAGS = 13
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -293,6 +301,24 @@ Flags.DEFAULTS = {
 			.. "and its rows carry neither `coins` nor `earned`, and the drive bar is byte-identical to "
 			.. "before task 170. The results table still shows the two rankings Karen asked for, with its "
 			.. "coins column reading `--` because there is no money in the build.",
+	} :: FlagRow,
+	SHOP = {
+		-- BORN OFF (CLAUDE.md, feature flags). OFF is task 177's game bit for bit: no panel, no
+		-- inbound remote connected, no profile field written, the hunter keeps the rifle and his
+		-- twelve slugs, and a beater carries nothing.
+		default = false,
+		-- THE FLAG'S NAME LIVES IN THE SHARED MODULE as `Shop.FLAG`, and `Shop.isOn()` is the one
+		-- read -- `RIFLE`'s shape (`owner = "ReplicatedStorage.Weapons"`) and `HORN`'s. Each owner
+		-- calls it ONCE at its own boundary (`ServerScriptService.Shop.ENABLED`,
+		-- `ShopPanel.start`'s `enabled`) and passes the value inward.
+		owner = "ReplicatedStorage.Shop",
+		born = "2026-10-14 task 178",
+		expires = "2026-11-04", -- 21 days: the ceiling in feature-flags.md section 12
+		-- IT NEEDS `COINS` ON AS WELL, or the shop reads CLOSED: with the money off there is no
+		-- profile to charge and nothing to record (docs/design/shop.md section 3.1).
+		why = "A player walks up to the counter in the lodge and buys slug shells, a scoped rifle, "
+			.. "a beater's licence to shoot in a drive or a coloured hat, with the coins the drive "
+			.. "paid him. Needs COINS on too.",
 	} :: FlagRow,
 	LOBBY = {
 		-- BORN OFF on 2026-10-13 (task 177). Karen, that evening: *"I think after this fixes we need

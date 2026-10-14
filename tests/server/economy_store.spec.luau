@@ -37,6 +37,32 @@ return function()
 			expect(#Store.keyFor(9999999999999999999) <= 50).to.equal(true)
 		end)
 
+		-- HAZARD 1 (task 178, design section 8.2a): with a TABLE in the template, `read`'s
+		-- fill-missing half used to hand every profile THE SAME TABLE -- the first purchase would
+		-- have written into the template itself, so one player's hat would be worn by every player
+		-- on the server and on every later one. Two halves close it, and both are asserted: `read`
+		-- CLONES a table default, and the template is FROZEN so a mutation errors loudly.
+		it("holds an ownership set that no profile shares and nobody can write", function()
+			expect(type(Store.TEMPLATE.owned)).to.equal("table")
+			expect(next(Store.TEMPLATE.owned)).to.equal(nil)
+			expect(table.isfrozen(Store.TEMPLATE)).to.equal(true)
+			expect(table.isfrozen(Store.TEMPLATE.owned)).to.equal(true)
+			expect(function()
+				(Store.TEMPLATE :: any).coins = 99
+			end).to.throw()
+			local first, second = Store.read({}), Store.read({})
+			expect(first.owned).never.to.equal(second.owned)
+			expect(first.owned).never.to.equal(Store.TEMPLATE.owned)
+			first.owned["hat.red"] = true
+			expect(next(second.owned)).to.equal(nil)
+			expect(next(Store.TEMPLATE.owned)).to.equal(nil)
+			-- A KEY THAT CAME BACK WITH THE WRONG TYPE is replaced rather than trusted: nobody here
+			-- has verified what an empty Lua table does on a DataStore round trip, and checking the
+			-- type makes the answer irrelevant (design section 17).
+			expect(type(Store.read({ owned = "x" }).owned)).to.equal("table")
+			expect(Store.read({ owned = { a = true } }).owned.a).to.equal(true)
+		end)
+
 		it("holds the balance, lifetime earnings and the drive count, and a schema number", function()
 			local t = Store.TEMPLATE
 			expect(t.coins).to.equal(0)
@@ -100,21 +126,21 @@ return function()
 
 		it("loads a seeded balance and a fresh player's zero", function()
 			local store = Store.memory({ seed = { [1] = 250 } })
-			expect(store.load(1)).to.equal(250)
-			expect(store.load(2)).to.equal(0)
+			expect(store.load(1).coins).to.equal(250)
+			expect(store.load(2).coins).to.equal(0)
 			expect(store.calls().load).to.equal(2)
 		end)
 
 		-- A ROUND TRIP, which is the whole claim of the system: what was saved is what loads back.
 		it("saves a balance and reads the same number back", function()
 			local store = Store.memory()
-			expect(store.load(1)).to.equal(0)
-			expect(store.save(1, 320)).to.equal(true)
+			expect(store.load(1).coins).to.equal(0)
+			expect(store.save(1, { coins = 320 })).to.equal(true)
 			-- A SECOND LOAD IS THE SAME SESSION, not a second one.
-			expect(store.load(1)).to.equal(320)
+			expect(store.load(1).coins).to.equal(320)
 			-- ...and it survives the session ending, which is what `EndSession` is for.
 			expect(store.release(1)).to.equal(true)
-			expect(store.load(1)).to.equal(320)
+			expect(store.load(1).coins).to.equal(320)
 		end)
 
 		-- RENAMED IN ROUND 2 (note 4): the old name said this case asserted `coinsEarnedTotal` and
@@ -123,22 +149,90 @@ return function()
 		it("keeps its table to itself: a second store sees none of the first one's saves", function()
 			local store = Store.memory()
 			store.load(1)
-			store.save(1, 30)
-			store.save(1, 97)
+			store.save(1, { coins = 30 })
+			store.save(1, { coins = 97 })
 			store.release(1)
 			local fresh = Store.memory()
 			-- The second store cannot see the first one's table -- the fake store is per instance,
 			-- *"a separate 'fake' DataStore forgotten at shutdown"* in the library's own words -- so
 			-- this asserts the isolation as much as the arithmetic.
-			expect(fresh.load(1)).to.equal(0)
+			expect(fresh.load(1).coins).to.equal(0)
+		end)
+
+		-- TASK 178: `save` WRITES EXACTLY WHAT IT IS TOLD AND DERIVES NOTHING. It used to add 1 to
+		-- `drivesPaid` and to accumulate `coinsEarnedTotal` on EVERY call, which was correct while
+		-- `payDrive` was the only caller and became a bug the moment a purchase called it: buying a
+		-- hat would have counted as a completed hunt (hazard 2). The increments live in
+		-- `Economy.payDrive` now, and the old bodies are archived with their rollback in
+		-- `backups/2026-10-14_task-178_store-seed-and-save.md`.
+		it("writes exactly the fields it was given and derives nothing", function()
+			local store = Store.memory()
+			store.load(1)
+			expect(store.save(1, { coins = 300 })).to.equal(true)
+			expect(store.peek(1).coins).to.equal(300)
+			expect(store.peek(1).drivesPaid).to.equal(0)
+			expect(store.peek(1).coinsEarnedTotal).to.equal(0)
+			-- A SECOND SAVE IS NOT A SECOND DRIVE.
+			store.save(1, { coins = 220, owned = { ["hat.red"] = true } })
+			expect(store.peek(1).drivesPaid).to.equal(0)
+			expect(store.peek(1).coins).to.equal(220)
+			expect(store.peek(1).owned["hat.red"]).to.equal(true)
+			-- ...AND THE DRIVE'S OWN THREE FIELDS GO THROUGH THE SAME DOOR, named by the caller.
+			store.save(1, { coins = 260, drivesPaid = 3, coinsEarnedTotal = 40 })
+			expect(store.peek(1).drivesPaid).to.equal(3)
+			expect(store.peek(1).coinsEarnedTotal).to.equal(40)
+			-- A FIELD NOBODY NAMED IS NOT TOUCHED: the hat survives a coins-only save.
+			expect(store.peek(1).owned["hat.red"]).to.equal(true)
+		end)
+
+		-- THE SEED IS A WHOLE PROFILE SINCE TASK 178, so one line gives a spec a rich player with a
+		-- hunt count and a cupboard -- and a NUMBER still means `{ coins = n }`, so every call
+		-- written before this task behaves exactly as it did.
+		it("seeds a whole profile, and still accepts a bare number", function()
+			local store = Store.memory({
+				seed = {
+					[1] = { coins = 500, drivesPaid = 30, owned = { ["ammo.slug"] = true } },
+					[2] = 250,
+				},
+			})
+			local rich = store.load(1)
+			expect(rich.coins).to.equal(500)
+			expect(rich.drivesPaid).to.equal(30)
+			expect(rich.owned["ammo.slug"]).to.equal(true)
+			local plain = store.load(2)
+			expect(plain.coins).to.equal(250)
+			expect(plain.drivesPaid).to.equal(0)
+			expect(next(plain.owned)).to.equal(nil)
+			-- THE SET A SPEC SEEDED IS NOT THE ONE THE STORE HANDS BACK: `read` clones, so a case
+			-- cannot edit the seed through the profile it was given.
+			expect(#Store.keyFor(1)).to.be.ok()
+		end)
+
+		-- THE PROFILE GROWS BY AT MOST ONE SMALL DICTIONARY, bounded by the catalogue itself.
+		it("bounds the ownership set by the catalogue", function()
+			local Shop = require(game:GetService("ReplicatedStorage"):WaitForChild("Shop"))
+			local store = Store.memory()
+			store.load(1)
+			local everything = {}
+			for _, id in ipairs(Shop.ORDER) do
+				everything[id] = true
+			end
+			store.save(1, { owned = everything })
+			local count = 0
+			for id in pairs(store.peek(1).owned) do
+				expect(Shop.row(id)).to.be.ok()
+				count += 1
+			end
+			expect(count).to.equal(#Shop.ORDER)
+			expect(count <= Shop.CONFIG.MAX_ITEMS).to.equal(true)
 		end)
 
 		-- NO SESSION MEANS NO SAVING, which is the rule that keeps a refused lock from turning into a
 		-- lost balance somebody else owns.
 		it("refuses to save for a player it never loaded", function()
 			local store = Store.memory()
-			expect(store.save(9, 500)).to.equal(false)
-			expect(store.load(9)).to.equal(0)
+			expect(store.save(9, { coins = 500 })).to.equal(false)
+			expect(store.load(9).coins).to.equal(0)
 		end)
 
 		it("answers nil and a reason when the lock is refused", function()
@@ -148,7 +242,7 @@ return function()
 			-- TOLD APART FROM AN ERROR, because one is another player's server and the other is
 			-- Roblox being down, and a report that cannot tell them apart cannot be acted on.
 			expect(reason).to.equal("refused")
-			expect(store.save(5, 100)).to.equal(false)
+			expect(store.save(5, { coins = 100 })).to.equal(false)
 		end)
 
 		it("releases once and then answers false", function()
@@ -180,7 +274,7 @@ return function()
 			expect(#seen).to.equal(1)
 			expect(seen[1]).to.equal(4)
 			-- The session really is gone, so nothing can be written for him afterwards.
-			expect(store.save(4, 100)).to.equal(false)
+			expect(store.save(4, { coins = 100 })).to.equal(false)
 		end)
 	end)
 

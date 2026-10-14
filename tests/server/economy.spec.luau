@@ -24,6 +24,9 @@ local Economy = require(ServerScriptService:WaitForChild("Economy"))
 
 local Coins = Economy.Coins
 local Store = Economy.Store
+-- The catalogue, for the purchase cases (task 178): the ids, the prices and the reasons live in one
+-- table and this spec reads the same one the owner charges from.
+local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Rank = Drive.Rank
 
 local CONFIG = {
@@ -224,7 +227,15 @@ return function()
 			local players = fakePlayers(opts.ids or { 1, 2 })
 			local store = Store.memory({ seed = opts.seed, refuse = opts.refuse })
 			Economy.stop() -- never inherit another case's state
-			Economy.start({ store = store, players = players, enabled = opts.enabled ~= false })
+			Economy.start({
+				store = store,
+				players = players,
+				enabled = opts.enabled ~= false,
+				-- `false` BY DEFAULT, NOT nil: nil would ask the two production facts, and one of
+				-- them is `RunService:IsStudio()`, which is ALWAYS true in a harness run. A case that
+				-- wants the grant says so (task 178).
+				testGrant = if opts.testGrant ~= nil then opts.testGrant else false,
+			})
 			return players, store
 		end
 
@@ -418,6 +429,12 @@ return function()
 			expect(type(view.payDrive)).to.equal("function")
 			expect(type(view.balances)).to.equal("function")
 			expect(type(view.earned)).to.equal("function")
+			-- ...AND WHAT HE HAS BOUGHT (task 178), read-only like the three above: the drive asks it
+			-- to answer whether a licensed beater may carry a gun, and it cannot write a set, cannot
+			-- buy anything and cannot reach the store.
+			expect(type(view.ownedOf)).to.equal("function")
+			expect((view :: any).purchase).to.equal(nil)
+			expect((view :: any).shopStateFor).to.equal(nil)
 			for _, name in ipairs({ "start", "stop", "load", "release", "closeAll", "Store", "CONFIG" }) do
 				expect((view :: any)[name]).to.equal(nil)
 			end
@@ -428,6 +445,281 @@ return function()
 			-- FROZEN COPIES, so the drive cannot write the owner's tables through them.
 			expect(table.isfrozen(view.balances())).to.equal(true)
 			expect(table.isfrozen(view.earned())).to.equal(true)
+		end)
+
+		-- ------------------------------------------------------------------ the purchase (task 178)
+		--
+		-- `Economy.purchase` IS THE ONLY WRITER OF EITHER HALF of a purchase, so every case a player
+		-- could cause is driven here, against `Store.memory`: no network, no library, no DataStore.
+		it("deducts once, records the ownership and saves both halves", function()
+			local _, store = started({ ids = { 201 }, seed = { [201] = { coins = 500 } } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(201) ~= nil
+			end)).to.equal(true)
+			local receipt = Economy.purchase(201, Shop.ITEM.HAT_RED, { atCounter = true })
+			expect(receipt.ok).to.equal(true)
+			expect(receipt.price).to.equal(80)
+			expect(Economy.balanceOf(201)).to.equal(500 - 80)
+			expect(Economy.ownedOf(201)[Shop.ITEM.HAT_RED]).to.equal(true)
+			-- A FROZEN COPY, so no reader can write the set it was handed.
+			expect(table.isfrozen(Economy.ownedOf(201))).to.equal(true)
+			-- ONE `save`, AND IT IS NOT A NETWORK CALL (the store's own contract). Purchases per
+			-- DataStore request: 0.
+			expect(store.calls().save).to.equal(1)
+			local saved = store.peek(201)
+			expect(saved.coins).to.equal(420)
+			expect(saved.owned[Shop.ITEM.HAT_RED]).to.equal(true)
+			-- A PURCHASE IS NOT A DRIVE: the hunt count is untouched, which is hazard 2 closed.
+			expect(saved.drivesPaid).to.equal(0)
+			expect(Economy.huntsOf(201)).to.equal(0)
+			expect(Economy.stats().purchases).to.equal(1)
+			expect(Economy.stats().coinsSpent).to.equal(80)
+		end)
+
+		-- THE DOUBLE CLICK: the first charges, the second is refused and NOTHING is written.
+		it("charges a double click once", function()
+			started({ ids = { 202 }, seed = { [202] = { coins = 500 } } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(202) ~= nil
+			end)).to.equal(true)
+			expect(Economy.purchase(202, Shop.ITEM.HAT_RED, { atCounter = true }).ok).to.equal(true)
+			local again = Economy.purchase(202, Shop.ITEM.HAT_RED, { atCounter = true })
+			expect(again.ok).to.equal(false)
+			expect(again.refused).to.equal(Shop.REASON.OWNED)
+			expect(Economy.balanceOf(202)).to.equal(420)
+			expect(Economy.stats().purchases).to.equal(1)
+			expect(Economy.stats().refusedBy[Shop.REASON.OWNED]).to.equal(1)
+		end)
+
+		it("refuses a poor player, a locked item and a forged id, and writes nothing for any of them", function()
+			-- TWO PLAYERS, because LOCKED is asked BEFORE POOR and one man cannot be both at once on
+			-- the same row: 203 has walked thirty drives and has no money, 213 has money and has
+			-- walked two. (Round 1 of this task got exactly this wrong, which is the order working.)
+			local _, store = started({
+				ids = { 203, 213 },
+				seed = { [203] = { coins = 100, drivesPaid = 30 }, [213] = { coins = 300, drivesPaid = 2 } },
+			})
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(203) ~= nil and Economy.balanceOf(213) ~= nil
+			end)).to.equal(true)
+			expect(Economy.huntsOf(203)).to.equal(30)
+			-- POOR: the rifle is 1500 and he has 100, with the hunts behind him.
+			local poor = Economy.purchase(203, Shop.ITEM.RIFLE, { atCounter = true })
+			expect(poor.refused).to.equal(Shop.REASON.POOR)
+			expect(poor.refusedNumber).to.equal(1500 - 100)
+			-- LOCKED before POOR: no amount of coins buys past a hunt gate, so THAT is the line he is
+			-- shown -- and 213 can afford the licence's 250 and has walked one drive too few.
+			local short = Economy.purchase(213, Shop.ITEM.BEATER_LICENCE, { atCounter = true })
+			expect(short.refused).to.equal(Shop.REASON.LOCKED)
+			expect(short.refusedNumber).to.equal(1)
+			-- A FORGED ID, and the open-sight rifle, which is in the catalogue and not for sale.
+			expect(Economy.purchase(203, "rifle.free", { atCounter = true }).refused).to.equal(Shop.REASON.UNKNOWN)
+			expect(Economy.purchase(203, Shop.ITEM.RIFLE_OPEN, { atCounter = true }).refused).to.equal(
+				Shop.REASON.NOT_SALE
+			)
+			-- ...AND A MAN WHO IS NOT AT THE COUNTER.
+			expect(Economy.purchase(203, Shop.ITEM.HAT_RED, { atCounter = false }).refused).to.equal(
+				Shop.REASON.TOO_FAR
+			)
+			expect(Economy.balanceOf(203)).to.equal(100)
+			expect(next(Economy.ownedOf(203))).to.equal(nil)
+			expect(store.calls().save).to.equal(0)
+			expect(Economy.stats().purchases).to.equal(0)
+			expect(Economy.stats().purchasesRefused).to.equal(5)
+		end)
+
+		-- NO SESSION, NO PURCHASE, AND NO COIN INVENTED. `balanceOf` is nil, which is *"not the same
+		-- fact as a balance of zero"*, and a man who leaves between the request and the commit falls
+		-- into exactly this branch -- `Economy.release` has already dropped his row.
+		it("refuses a purchase with no open profile, before and after a release", function()
+			local players = started({ ids = { 204 }, refuse = { [204] = true } })
+			expect(waitUntil(2, function()
+				return Economy.stats().loadsRefused == 1
+			end)).to.equal(true)
+			local refused = Economy.purchase(204, Shop.ITEM.HAT_RED, { atCounter = true })
+			expect(refused.refused).to.equal(Shop.REASON.NO_PROFILE)
+			expect(Economy.balanceOf(204)).to.equal(nil)
+			expect(Economy.ownedOf(204)).to.equal(nil)
+			expect(Economy.huntsOf(204)).to.equal(nil)
+			local _ = players
+
+			-- ...AND THE SAME ANSWER FOR A MAN WHO HAS JUST LEFT.
+			local second, store = started({ ids = { 205 }, seed = { [205] = { coins = 500 } } })
+			local _ = second
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(205) ~= nil
+			end)).to.equal(true)
+			Economy.release(205)
+			expect(Economy.purchase(205, Shop.ITEM.HAT_RED, { atCounter = true }).refused).to.equal(
+				Shop.REASON.NO_PROFILE
+			)
+			expect(store.calls().save).to.equal(0)
+		end)
+
+		it("refuses every purchase with the coins off, and reads the whole shop as closed", function()
+			started({ ids = { 206 }, enabled = false })
+			task.wait(0.1)
+			local receipt = Economy.purchase(206, Shop.ITEM.HAT_RED, { atCounter = true })
+			expect(receipt.refused).to.equal(Shop.REASON.CLOSED)
+			-- ...AND THE PANEL IS TOLD THE SAME THING IN ONE LINE rather than five refusals.
+			local state = Economy.shopStateFor(206, receipt)
+			expect(state.coinsOn).to.equal(false)
+			expect(state.balance).to.equal(nil)
+			expect(state.refused).to.equal(Shop.REASON.CLOSED)
+		end)
+
+		-- THE COMPLETED-HUNT COUNT IS `drivesPaid`, and the pay-out is the one event that raises it.
+		it("counts one completed hunt per paid drive, and none for a purchase", function()
+			local _, store = started({ ids = { 207 }, seed = { [207] = { coins = 500, drivesPaid = 7 } } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(207) ~= nil
+			end)).to.equal(true)
+			expect(Economy.huntsOf(207)).to.equal(7)
+			Economy.payDrive(1, { row(207, "Shooters", 10) })
+			expect(Economy.huntsOf(207)).to.equal(8)
+			expect(store.peek(207).drivesPaid).to.equal(8)
+			-- ...and the total earned is the store's own number now, incremented where the DELTA is
+			-- known rather than inside `save`.
+			expect(store.peek(207).coinsEarnedTotal).to.equal(55)
+			Economy.purchase(207, Shop.ITEM.HAT_RED, { atCounter = true })
+			expect(Economy.huntsOf(207)).to.equal(8)
+			expect(store.peek(207).drivesPaid).to.equal(8)
+			-- A SECOND DRIVE RAISES IT AGAIN; the same drive number does not (the double-pay guard).
+			Economy.payDrive(1, { row(207, "Shooters", 10) })
+			expect(Economy.huntsOf(207)).to.equal(8)
+			Economy.payDrive(2, { row(207, "Shooters", 10) })
+			expect(Economy.huntsOf(207)).to.equal(9)
+		end)
+
+		-- WHAT THE PANEL IS SENT, for one player, built by the pure `Shop.rowsFor` on this side.
+		it("builds one player's own shop payload, with the rows already decided", function()
+			started({
+				ids = { 208 },
+				seed = { [208] = { coins = 300, drivesPaid = 30, owned = { [Shop.ITEM.SLUG] = true } } },
+			})
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(208) ~= nil
+			end)).to.equal(true)
+			local state = Economy.shopStateFor(208, nil)
+			expect(state.coinsOn).to.equal(true)
+			expect(state.balance).to.equal(300)
+			expect(state.hunts).to.equal(30)
+			expect(#state.rows).to.equal(#Shop.ORDER)
+			for _, wire in ipairs(state.rows) do
+				if wire.id == Shop.ITEM.SLUG then
+					expect(wire.owned).to.equal(true)
+					expect(wire.buyable).to.equal(false)
+				elseif wire.id == Shop.ITEM.HAT_RED then
+					-- 300 coins, no hunt gate: the one he can buy.
+					expect(wire.buyable).to.equal(true)
+				elseif wire.id == Shop.ITEM.RIFLE then
+					-- 30 hunts is enough, 300 coins is not.
+					expect(wire.locked).to.equal(false)
+					expect(wire.afford).to.equal(false)
+					expect(wire.buyable).to.equal(false)
+				elseif wire.id == Shop.ITEM.RIFLE_OPEN then
+					expect(wire.sale).to.equal(false)
+					expect(wire.buyable).to.equal(false)
+				end
+			end
+			-- A SEEDED SET IS READ BACK, which is the whole load/save round trip for the new field.
+			expect(Economy.ownedOf(208)[Shop.ITEM.SLUG]).to.equal(true)
+		end)
+
+		it("drops the set, the hunts and the balance together when a session is lost or stopped", function()
+			local _, store = started({ ids = { 209 }, seed = { [209] = { coins = 500, drivesPaid = 4 } } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(209) ~= nil
+			end)).to.equal(true)
+			Economy.purchase(209, Shop.ITEM.HAT_RED, { atCounter = true })
+			expect(Economy.ownedOf(209)).to.be.ok()
+			-- A SESSION ANOTHER SERVER TOOK: no further change may be made to that profile, so the
+			-- row goes -- and the readers then see nil, which is "nobody answered" and leaves his gun
+			-- exactly as it is.
+			store.loseSession(209)
+			expect(Economy.ownedOf(209)).to.equal(nil)
+			expect(Economy.huntsOf(209)).to.equal(nil)
+			expect(Economy.balanceOf(209)).to.equal(nil)
+		end)
+
+		-- ------------------------------------------------------- the Studio test grant (task 178)
+		--
+		-- THE DIRECTOR, 2026-10-14: in Studio the store is the in-memory one and every session starts
+		-- a player at nought, so with `SHOP` on Karen can walk up to the counter and afford nothing
+		-- she is meant to try. This is the staging fixture for that, and the cases below are the
+		-- evidence that it cannot reach a live server.
+		it("is impossible on a live server, whatever the attribute says", function()
+			-- THE ONE ASSERTION THAT MATTERS. Inside Studio `IsStudio()` is always true, so this
+			-- pure predicate is the only shape in which the live branch is provable at all --
+			-- `Economy.storeKindFor`'s own argument, and the same fact gates both: where a grant is
+			-- possible nothing is saved, and where something is saved no grant is possible.
+			expect(Economy.testGrantFor(false, true)).to.equal(nil)
+			expect(Economy.testGrantFor(false, false)).to.equal(nil)
+			-- ...and in Studio it needs the attribute to be the BOOLEAN true: a stale `false`, a
+			-- string, a number or nothing at all grants nobody anything.
+			expect(Economy.testGrantFor(true, nil)).to.equal(nil)
+			expect(Economy.testGrantFor(true, false)).to.equal(nil)
+			expect(Economy.testGrantFor(true, "true")).to.equal(nil)
+			expect(Economy.testGrantFor(true, 1)).to.equal(nil)
+			local grant = Economy.testGrantFor(true, true)
+			expect(grant).to.be.ok()
+			expect((grant :: any).coins).to.equal(Economy.CONFIG.TEST_GRANT.coins)
+			expect((grant :: any).hunts).to.equal(Economy.CONFIG.TEST_GRANT.hunts)
+			-- IT IS NOT A `DHFlag_`, and that is deliberate: it is a test fixture, the shape
+			-- `DHForestStartRole` has, not a feature switch that `tools/flags.py` clears and the
+			-- harness refuses to run against.
+			expect(Economy.TEST_GRANT_ATTRIBUTE).to.equal("DHShopTestGrant")
+			expect(string.find(Economy.TEST_GRANT_ATTRIBUTE, "DHFlag_", 1, true)).to.equal(nil)
+			-- ...AND IT UNLOCKS THE WHOLE CATALOGUE WITHOUT BUYING ANY OF IT: 2000 coins covers
+			-- every row that is for sale and 25 hunts is the highest gate.
+			local total, highest = 0, 0
+			for _, id in ipairs(Shop.ORDER) do
+				local item = Shop.ROWS[id]
+				if item.sale then
+					total += item.price
+				end
+				highest = math.max(highest, item.hunts)
+			end
+			expect(Economy.CONFIG.TEST_GRANT.coins >= total).to.equal(true)
+			expect(Economy.CONFIG.TEST_GRANT.hunts >= highest).to.equal(true)
+		end)
+
+		it("tops a Studio session up without buying anything or saving anything", function()
+			local _, store = started({
+				ids = { 301, 302 },
+				-- 302 has already earned more than the grant and walked more drives than it gives.
+				seed = { [301] = { coins = 5 }, [302] = { coins = 9000, drivesPaid = 40 } },
+				testGrant = { coins = 2000, hunts = 25 },
+			})
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(301) ~= nil and Economy.balanceOf(302) ~= nil
+			end)).to.equal(true)
+			-- RAISED, not set: the poor man is topped up...
+			expect(Economy.balanceOf(301)).to.equal(2000)
+			expect(Economy.huntsOf(301)).to.equal(25)
+			-- ...and the rich one keeps everything he earned.
+			expect(Economy.balanceOf(302)).to.equal(9000)
+			expect(Economy.huntsOf(302)).to.equal(40)
+			expect(Economy.stats().testGrants).to.equal(2)
+			-- NOTHING IS BOUGHT FOR HIM: every item is still a button he has to press.
+			expect(next(Economy.ownedOf(301))).to.equal(nil)
+			-- ...AND NOTHING IS SAVED. The grant touches the in-memory copy only, so the key still
+			-- holds what he really earned.
+			expect(store.calls().save).to.equal(0)
+			expect(store.peek(301).coins).to.equal(5)
+			-- ...and he can now buy what the shop sells, which is the whole point of the fixture.
+			expect(Economy.purchase(301, Shop.ITEM.RIFLE, { atCounter = true }).ok).to.equal(true)
+			expect(Economy.balanceOf(301)).to.equal(500)
+		end)
+
+		it("grants nothing when it is not asked for, which is every harness run", function()
+			started({ ids = { 303 }, seed = { [303] = { coins = 5 } } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(303) ~= nil
+			end)).to.equal(true)
+			expect(Economy.balanceOf(303)).to.equal(5)
+			expect(Economy.huntsOf(303)).to.equal(0)
+			expect(Economy.stats().testGrants).to.equal(0)
 		end)
 
 		it("refuses to start twice", function()

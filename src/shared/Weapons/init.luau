@@ -24,6 +24,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+-- WHAT A PLAYER HAS BOUGHT, as a pure question over a frozen catalogue (task 178). The direction is
+-- deliberate and one-way: this module requires the shop's DATA and the shop's data requires nothing
+-- of this -- `Shop.rowsOk` takes the weapon table as a PARAMETER precisely so there is no cycle.
+local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
@@ -220,17 +224,24 @@ function Weapons.geometry(id: WeaponId?): any?
 end
 
 -- PURE, so the flag's two worlds are both reachable in a spec with no flag set.
-function Weapons.loadoutFor(rifleOn: boolean): { WeaponId }
+--
+-- `owned` IS WHAT HE HAS BOUGHT (task 178), and `nil` IS UNRESTRICTED -- today's list, exactly.
+-- That direction is the safety of the whole feature (docs/design/shop.md section 7.1): a world that
+-- wired no provider, every `tests/server/weapon_*.spec.luau`, a build with the shop off, and a
+-- player whose profile would not load all answer nil, and all of them keep the gun they have. The
+-- PRIMARY is never taken away either way -- Karen's *"default is double barrel shotgun"*.
+function Weapons.loadoutFor(rifleOn: boolean, owned: { [string]: boolean }?): { WeaponId }
 	if not rifleOn then
 		return { Weapons.PRIMARY }
 	end
-	return table.clone(Weapons.ORDER)
+	return Shop.loadoutFrom(Weapons.ORDER, Weapons.PRIMARY, owned)
 end
 
 -- THE ONE FLAG READ IN THE WHOLE WEAPON SYSTEM, at this boundary, passed inward as a list -- the
--- only permitted shape (CLAUDE.md, feature flags).
-function Weapons.loadout(): { WeaponId }
-	return Weapons.loadoutFor(Flags.isOn(Weapons.FLAG))
+-- only permitted shape (CLAUDE.md, feature flags). The ownership set is the caller's: the server
+-- owner reads it through its own pcall-ed provider and hands it in (`Weapon.askOwned`).
+function Weapons.loadout(owned: { [string]: boolean }?): { WeaponId }
+	return Weapons.loadoutFor(Flags.isOn(Weapons.FLAG), owned)
 end
 
 function Weapons.toolNames(): { [string]: WeaponId }

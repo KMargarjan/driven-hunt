@@ -66,7 +66,11 @@ export type WeaponSnapshot = {
 -- drive. Server-side only -- `Validator.checkRequest` accepts "Reload" and "SelectAmmo" and nothing
 -- else over the wire -- and it touches the pocket, never what is in the gun.
 export type ActionKind = "Fire" | "Break" | "Load" | "Close" | "SelectAmmo" | "Magazine" | "Refill"
-export type Action = { kind: ActionKind, ammo: AmmoKind? }
+-- `reserve` IS THE PLAYER'S OWN PER-DRIVE POCKET (task 178), read ONLY by the `Refill` branch of
+-- `StateMachine.apply`. It is safe at the wire BY CONSTRUCTION: `Validator.checkRequest` accepts
+-- only "Reload" and "SelectAmmo" from a client, so no client can send a `Refill` at all, let alone
+-- one naming its own reserve. nil means the weapon's own `START_RESERVE`.
+export type Action = { kind: ActionKind, ammo: AmmoKind?, reserve: { [string]: number }? }
 export type RequestKind = "Reload" | "SelectAmmo"
 export type ShotRequest = { origin: Vector3, direction: Vector3 }
 

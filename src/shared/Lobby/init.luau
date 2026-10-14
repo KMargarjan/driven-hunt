@@ -20,7 +20,10 @@
 -- in lobby / There are houses where can buy weapons, License, Gear, Goods / There is place to join
 -- game / ... After you select a game you sit in car and drive to position - Loading"*.
 --
--- THE SHOP INSIDE THE LODGE IS TASK 178. The interior gets an empty counter and a placeholder sign.
+-- THE SHOP INSIDE THE LODGE IS TASK 178, and it is built: the counter task 177 left is the door --
+-- walk up to it and `Hud.ShopPanel` opens. This module gained one reader for it
+-- (`Lobby.counterPosition`) and the sign gained the shop's name; everything else about the lodge is
+-- unchanged.
 --
 -- Design: docs/design/lobby.md (sections 2, 9, 10.3, 10.4, 12.1)
 -- Note:   docs/research/2026-10-13-lobby-and-the-truck.md
@@ -37,6 +40,9 @@ local Lobby = {}
 Lobby.FOLDER_NAME = "Lobby"
 Lobby.SPOT_NAME = "TruckSpot"
 Lobby.SPAWN_NAME = "LodgeSpawn"
+-- THE SHOP COUNTER (task 178). `Build.interior` builds it under `Lodge.Inside.Shop`, and this is the
+-- name both readers find it by.
+Lobby.COUNTER_NAME = "Counter"
 
 -- HOW THE COUNTDOWN REACHES THE CLIENT, with no new wire (design section 10.4). One attribute on the
 -- `Player` it belongs to, holding `Workspace:GetServerTimeNow() + COUNTDOWN_SECONDS`, or nil.
@@ -142,9 +148,12 @@ Lobby.CONFIG = {
 		-- per frame. Karen asked for *"warm inside"*, which is a light and not a system.
 		FIRE_LIGHT = { brightness = 2, rangeStuds = 34, color = Color3.fromRGB(255, 180, 110) },
 		ANTLERS = { tines = 2 }, -- a skull plate and two beams over the door
-		-- TASK 178'S EMPTY COUNTER. The shop replaces the SIGN, not the counter.
+		-- THE SHOP'S COUNTER, and `Shop.CONFIG.REACH_STUDS` (14) is measured against its 12-stud
+		-- width: a man at either end of it can reach the till.
 		COUNTER = Vector3.new(12, 3.5, 2),
-		SIGN_TEXT = "SHOP - coming soon",
+		-- TASK 178 REPLACED THE PLACEHOLDER, which said "SHOP - coming soon" and is archived with its
+		-- reason in `backups/2026-10-14_task-178_lodge-sign.txt` (rule 7).
+		SIGN_TEXT = "SHOP",
 	},
 	-- ---------------- the truck, the track, the spot
 	--
@@ -237,6 +246,39 @@ end
 
 function Lobby.spotPosition(): Vector3?
 	local part = Lobby.spotPart()
+	return if part then part.Position else nil
+end
+
+-- THE ONE READER OF WHERE THE SHOP COUNTER IS (task 178), beside `Lobby.spotPart` and for its
+-- stated reason: the server BUILDS the part, this finds it, and nobody computes the position twice.
+-- Memoised the same way, and the cache is dropped the same way -- a streamed-out or rebuilt lodge
+-- must answer nil rather than a stale position, because a stale counter would let a man buy things
+-- from the middle of a field.
+--
+-- BOTH SIDES READ IT: the SERVER door measures the reach with it per request, and the Hud tells the
+-- panel whether he is standing at it. One definition, two readers.
+local cachedCounter: BasePart? = nil
+
+function Lobby.counterPart(): BasePart?
+	local cached = cachedCounter
+	if cached ~= nil and cached:IsDescendantOf(game) then
+		return cached
+	end
+	cachedCounter = nil
+	local folder = Workspace:FindFirstChild(Lobby.FOLDER_NAME)
+	if folder == nil then
+		return nil
+	end
+	local part = folder:FindFirstChild(Lobby.COUNTER_NAME, true)
+	if part ~= nil and part:IsA("BasePart") then
+		cachedCounter = part :: BasePart
+		return cachedCounter
+	end
+	return nil
+end
+
+function Lobby.counterPosition(): Vector3?
+	local part = Lobby.counterPart()
 	return if part then part.Position else nil
 end
 

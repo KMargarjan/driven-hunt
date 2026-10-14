@@ -37,7 +37,13 @@
 --
 -- Design: docs/design/economy.md (sections 4.2, 9)
 -- Note:   docs/research/2026-10-13-coins-persistence.md
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+
+-- For `deepFreeze` only, and the reason it is needed at all is hazard 1 (design section 8.2a):
+-- `Store.TEMPLATE` now holds a TABLE, and a template whose table could be written into would be
+-- one `owned` set shared by every player on the server and on the next one.
+local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 
 local Store = {}
 
@@ -48,14 +54,26 @@ local WAIT_FOR_LIBRARY_SECONDS = 10
 
 export type Store = {
 	kind: string, -- "memory" | "live"
-	-- YIELDS. The balance, or nil for NO SESSION plus the REASON -- "refused" (another server holds
-	-- the lock) or "error" (the call itself threw). The owner treats them the same (no session means
-	-- no earning and no saving) and COUNTS THEM APART, because one is another player's server and
-	-- the other is Roblox being down, and a report that cannot tell them apart cannot be acted on.
-	load: (userId: number) -> (number?, string?),
-	-- Writes the LOCAL copy and performs NO network call. ProfileStore's own auto-save and its
-	-- `EndSession` do the writing (see the header). `false` when there is no session.
-	save: (userId: number, balance: number) -> boolean,
+	-- YIELDS. THE WHOLE PROFILE through `Store.read`, or nil for NO SESSION plus the REASON --
+	-- "refused" (another server holds the lock) or "error" (the call itself threw). The owner treats
+	-- them the same (no session means no earning and no saving) and COUNTS THEM APART, because one is
+	-- another player's server and the other is Roblox being down, and a report that cannot tell them
+	-- apart cannot be acted on.
+	--
+	-- IT ANSWERED JUST THE BALANCE UNTIL TASK 178, and widening it was forced (design section 8.2b):
+	-- a profile is ONE TABLE (ProfileStore's own model), the projection belongs to the owner that
+	-- knows which fields it wants, and the owner now wants three of them.
+	load: (userId: number) -> ({ [string]: any }?, string?),
+	-- Writes EXACTLY THE NAMED FIELDS of the local copy and performs NO network call. ProfileStore's
+	-- own auto-save and its `EndSession` do the writing (see the header). `false` when there is no
+	-- session.
+	--
+	-- IT DERIVES NOTHING, and that too was forced (design section 8.2b, hazard 2): both
+	-- implementations used to do `data.drivesPaid += 1` on every call, which was correct while
+	-- `payDrive` was the only caller and became a BUG the moment a purchase called `save` -- buying a
+	-- hat would have counted as a completed hunt. The increments live in `Economy.payDrive` now,
+	-- which is where the delta and the event are both known, so "who increments this" has one answer.
+	save: (userId: number, fields: { [string]: any }) -> boolean,
 	-- Ends the session, which saves. Idempotent: a second call answers `false`.
 	release: (userId: number) -> boolean,
 	-- YIELDS. Shutdown only. How many sessions it ended.
@@ -69,6 +87,9 @@ export type Store = {
 	-- `Profile.OnSessionEnd` -- the one case that cannot be reproduced here, because one Studio
 	-- session is one server, so a real session steal needs a second one.
 	loseSession: ((userId: number) -> ())?,
+	-- MEMORY ONLY: what is in the saved key, so a spec can prove a round trip without opening a
+	-- second session. Absent on the live store, where the profile IS the local copy.
+	peek: ((userId: number) -> { [string]: any })?,
 }
 
 -- THE PROFILE'S SHAPE. One table, four numbers, and a `schema` that is READ and never acted on in
@@ -82,8 +103,34 @@ Store.TEMPLATE = {
 	schema = 1,
 	coins = 0,
 	coinsEarnedTotal = 0,
+	-- THE COMPLETED-HUNT COUNT, AND THE DOUBLE-PAY FORENSIC, AND THEY ARE THE SAME NUMBER BY
+	-- CONSTRUCTION (task 178, design section 8.3). It rises once per player per PAID drive, and
+	-- `Coins.forDrive` skips a row that `left` -- *"`PARTICIPATION` is ... for turning up AND
+	-- FINISHING the drive"* -- so "drives he finished and was paid for" is what the shop's unlocks
+	-- mean by "completed hunts".
+	--
+	-- A SECOND `hunts` FIELD WAS REFUSED, with the reason written down: it would be incremented by
+	-- the same line on the same event, so the two could only ever hold the same number, and two
+	-- names for one fact is this project's named failure mode. The key is not renamed either --
+	-- renaming a persisted key under one store name orphans the old one and restarts everybody at 0
+	-- -- so the one reader outside this file is the accessor `Economy.huntsOf`.
 	drivesPaid = 0,
+	-- WHAT HE HAS BOUGHT: itemId -> true, a PURE DICTIONARY of string keys (task 178). ioquake3's
+	-- `ps->stats[STAT_WEAPONS] |= 1 << weapon` read as a Luau table: ownership is a SET, and nothing
+	-- per-player is stored about a weapon except its id.
+	--
+	-- ADDITIVE, so `STORE_NAME` does not go to `_v2`: an older build keeps this key untouched
+	-- (`Store.read`'s keep-unknown half) and a newer one fills it (its fill-missing half).
+	owned = {},
 }
+
+-- FROZEN, AND IT IS HAZARD 1 (design section 8.2a). With a TABLE in the template, `Store.read`'s
+-- fill-missing half used to hand every profile THE SAME TABLE -- the first purchase would have
+-- written into the template itself, so one player's hat would be worn by every player on the server
+-- and on every later one, because the module is required once per process. `read` clones a table
+-- default now, and this freeze is the other half: a mutation of the template ERRORS LOUDLY instead
+-- of corrupting silently.
+Drive.deepFreeze(Store.TEMPLATE)
 
 -- PURE. The DataStore key. 26 characters at the worst userId Roblox can issue, against the
 -- documented 50-character cap (limits page: key name length *"50"*).
@@ -108,8 +155,12 @@ function Store.read(data: any): { [string]: any }
 		end
 	end
 	for key, value in pairs(Store.TEMPLATE) do
-		if out[key] == nil then
-			out[key] = value
+		-- A TABLE DEFAULT IS CLONED AND NEVER HANDED OVER (hazard 1), and a key that came back with
+		-- the WRONG TYPE is replaced rather than trusted: nobody here has verified what an empty Lua
+		-- table does on a DataStore round trip (design section 17), and `owned = {}` is the common
+		-- case for a new player. Checking the type makes the answer irrelevant.
+		if out[key] == nil or (type(value) == "table" and type(out[key]) ~= "table") then
+			out[key] = if type(value) == "table" then table.clone(value) else value
 		end
 	end
 	return out
@@ -121,43 +172,55 @@ end
 -- this implementation is what a Studio session gets, every time, so a playtest cannot write a live
 -- key even with the API toggle on -- and the harness never requires the library at all.
 --
---   `seed`   userId -> a starting balance, so a spec can prove a load/save round trip.
+--   `seed`   userId -> A WHOLE PROFILE (task 178), so one line seeds a balance, a hunt count AND an
+--            ownership set: `{ [7] = { coins = 500, drivesPaid = 30, owned = { ["hat.red"] = true } } }`.
+--            It was `userId -> a number` until the shop needed the other two fields; a NUMBER IS
+--            STILL ACCEPTED and read as `{ coins = n }`, so no existing caller changes
+--            (`backups/2026-10-14_task-178_store-seed-and-save.md`).
 --   `refuse` userId -> true, so `load` answers nil, which is how the REFUSED-SESSION branch is
 --            driven without a second Roblox server (the one case that cannot be reproduced here:
 --            one Studio session is one server).
-function Store.memory(options: { seed: { [number]: number }?, refuse: { [number]: boolean }? }?): Store
+function Store.memory(options: { seed: { [number]: any }?, refuse: { [number]: boolean }? }?): Store
 	local opts = options or {}
 	local saved: { [string]: any } = {}
 	local open: { [number]: boolean } = {}
 	local counts: { [string]: number } = { load = 0, save = 0, release = 0, releaseAll = 0 }
 	local onLost: ((userId: number) -> ())? = nil
 
-	for userId, balance in pairs(opts.seed or {}) do
-		saved[Store.keyFor(userId)] = { coins = balance }
+	for userId, seeded in pairs(opts.seed or {}) do
+		saved[Store.keyFor(userId)] = if type(seeded) == "number" then { coins = seeded } else Store.read(seeded)
 	end
 
 	return {
 		kind = "memory",
-		load = function(userId: number): (number?, string?)
+		load = function(userId: number): ({ [string]: any }?, string?)
 			counts.load += 1
 			if (opts.refuse or {})[userId] then
 				return nil, "refused"
 			end
 			open[userId] = true
-			return Store.read(saved[Store.keyFor(userId)]).coins, nil
+			return Store.read(saved[Store.keyFor(userId)]), nil
 		end,
-		save = function(userId: number, balance: number): boolean
+		-- EXACTLY THE FIELDS IT WAS TOLD, AND NOTHING DERIVED (design section 8.2b). The old body
+		-- computed `coinsEarnedTotal` and `drivesPaid` itself, which is archived with its reason in
+		-- `backups/2026-10-14_task-178_store-seed-and-save.md`.
+		save = function(userId: number, fields: { [string]: any }): boolean
 			counts.save += 1
 			if not open[userId] then
 				return false
 			end
 			local key = Store.keyFor(userId)
 			local data = Store.read(saved[key])
-			data.coinsEarnedTotal += math.max(0, balance - data.coins)
-			data.coins = balance
-			data.drivesPaid += 1
+			for field, value in pairs(fields or {}) do
+				data[field] = value
+			end
 			saved[key] = data
 			return true
+		end,
+		-- WHAT IS IN THE KEY, for a spec that wants to prove a round trip through the SAVED table
+		-- rather than through a second `load` (which would open a session). Memory only.
+		peek = function(userId: number): { [string]: any }
+			return Store.read(saved[Store.keyFor(userId)])
 		end,
 		release = function(userId: number): boolean
 			counts.release += 1
@@ -239,10 +302,10 @@ function Store.live(storeName: string): Store
 
 	return {
 		kind = "live",
-		load = function(userId: number): (number?, string?)
+		load = function(userId: number): ({ [string]: any }?, string?)
 			counts.load += 1
 			if profiles[userId] then
-				return Store.read(profiles[userId].Data).coins, nil
+				return Store.read(profiles[userId].Data), nil
 			end
 			local ok, profile = pcall(function()
 				return profileStore:StartSessionAsync(Store.keyFor(userId))
@@ -269,20 +332,23 @@ function Store.live(storeName: string): Store
 				end
 			end)
 			profile.Data = Store.read(profile.Data)
-			return profile.Data.coins, nil
+			return profile.Data, nil
 		end,
-		save = function(userId: number, balance: number): boolean
+		save = function(userId: number, fields: { [string]: any }): boolean
 			counts.save += 1
 			local profile = profiles[userId]
 			if not profile then
 				return false
 			end
 			-- NOT A NETWORK CALL. The library's own auto-save and `EndSession` do the writing, which
-			-- is the whole reason it was borrowed.
+			-- is the whole reason it was borrowed. **Purchases per DataStore request: 0.**
+			--
+			-- EXACTLY THE FIELDS IT WAS TOLD: the derivation moved to `Economy.payDrive` (design
+			-- section 8.2b), because a `save` that counted a drive would have counted a purchase too.
 			local data = profile.Data
-			data.coinsEarnedTotal += math.max(0, balance - (data.coins or 0))
-			data.coins = balance
-			data.drivesPaid = (data.drivesPaid or 0) + 1
+			for field, value in pairs(fields or {}) do
+				data[field] = value
+			end
 			return true
 		end,
 		release = function(userId: number): boolean
