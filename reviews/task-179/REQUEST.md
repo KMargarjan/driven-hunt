@@ -3,7 +3,7 @@
 Task: 179
 Round: 3
 Base: 253d21f (main, #162 merged)
-Code commit: 7a6acf74f10f58f856add16e7d9ce7b0acc5b38c
+Code commit: c659c6dddd420583949964b2ba73194d264dad7f
 
 ```
 [harness] PASS: 33/33 checks @ 7a6acf74f10f58f856add16e7d9ce7b0acc5b38c (clean tree) scope=all
@@ -11,10 +11,11 @@ Code commit: 7a6acf74f10f58f856add16e7d9ce7b0acc5b38c
 ```
 
 ```
-[harness2] PLACEHOLDER -- NEEDS TEST2 179 7a6acf7 (ESCALATE.md). The round-2 line
-(`[harness2] PASS: 35/35 checks @ 08ddde7`) is the Director's at the OLD head and does not carry:
-`src/server/Match/init.luau` is in TWO_PLAYER_PATHS and the code commit has moved twice since.
+[harness] PASS: 33/33 checks @ c659c6dddd420583949964b2ba73194d264dad7f (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ c659c6dddd420583949964b2ba73194d264dad7f (clean tree)
 ```
+
+DIRECTOR NOTE: both lines are the Director's at the head `c659c6d` (only paperwork after `7a6acf7`).
 
 ## What changed
 
