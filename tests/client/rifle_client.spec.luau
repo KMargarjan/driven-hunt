@@ -10,6 +10,7 @@
 -- Design: docs/design/rifle.md (section 13.2)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
@@ -672,8 +673,19 @@ return function()
 			-- WHERE THE SHOT REALLY GOES, projected back to the screen. 500 studs out so the
 			-- projection is well clear of the near plane; the answer is the same at any distance
 			-- along the ray, which is the point.
+			--
+			-- `WorldToScreenPoint` AND NOT `WorldToViewportPoint`, AND THAT COST A ROUND. The two
+			-- differ by exactly the topbar inset, and MEASURED in the DEV place on 2026-10-14 the
+			-- inset is (0, 58): the ray through the centre of a 969 x 784 viewport projects to
+			-- (484.5, 392.0) in VIEWPORT coordinates and (484.5, 334.0) in SCREEN ones. A
+			-- GuiObject's `AbsolutePosition` is in the SCREEN space -- the ScreenGui itself reports
+			-- `AbsolutePosition = (0, -58)` with `IgnoreGuiInset` true, which is what "ignores the
+			-- inset" means: it covers the whole viewport, and its origin is still quoted relative
+			-- to the inset-adjusted one. So the screen projection is the one that can be compared
+			-- with a frame, and the first version of this case failed by precisely those 58 px
+			-- while the dot was exactly where it belonged.
 			local onTheRay = camera.CFrame.Position + camera.CFrame.LookVector * 500
-			local projected, onScreen = camera:WorldToViewportPoint(onTheRay)
+			local projected, onScreen = camera:WorldToScreenPoint(onTheRay)
 			expect(onScreen).to.equal(true)
 			expect(projected.Z > 0).to.equal(true)
 
@@ -686,6 +698,21 @@ return function()
 			-- `AbsolutePosition` to integers. Two pixels at this scope on a 1080-high viewport is
 			-- 0.037 degrees, which is 0.46 studs -- 13 cm -- at 200 m, and it is a DRAWING error of
 			-- the mark rather than of the ray.
+			TestKit.note(
+				string.format(
+					"reticle centre: ray lands at (%.1f, %.1f), dot at (%.1f, %.1f) -> %.2f px off; "
+						.. "viewport %d x %d, inset %d px, gui origin %.0f, inset ignored",
+					projected.X,
+					projected.Y,
+					drawn.X,
+					drawn.Y,
+					offPx,
+					camera.ViewportSize.X,
+					camera.ViewportSize.Y,
+					GuiService:GetGuiInset().Y,
+					(gui :: ScreenGui).AbsolutePosition.Y
+				)
+			)
 			expect(offPx <= 2).to.equal(true)
 
 			-- ...AND THE CROSS AGREES WITH THE DOT, because two marks at two centres is the bug
@@ -700,21 +727,7 @@ return function()
 			expect(math.abs(crossX - projected.X) <= 2).to.equal(true)
 			expect(math.abs(crossY - projected.Y) <= 2).to.equal(true)
 
-			TestKit.note(
-				string.format(
-					"reticle centre: ray lands at (%.1f, %.1f), dot at (%.1f, %.1f) -> %.2f px off; "
-						.. "cross at (%.1f, %.1f); viewport %d x %d, inset ignored",
-					projected.X,
-					projected.Y,
-					drawn.X,
-					drawn.Y,
-					offPx,
-					crossX,
-					crossY,
-					camera.ViewportSize.X,
-					camera.ViewportSize.Y
-				)
-			)
+			TestKit.note(string.format("reticle centre: cross crosses at (%.1f, %.1f)", crossX, crossY))
 		end)
 	end)
 

@@ -305,38 +305,70 @@ return function()
 
 			expect(why).to.equal(nil) -- the shot was taken
 			expect(#casts >= 2).to.equal(true)
+			-- WHICH GUN ANSWERED, because this case is driven by whatever the harness's player is
+			-- holding -- the shotgun in a one-player DEV run -- and the two claims below are the
+			-- OWNER'S, not one weapon's: the ray starts at the muzzle, and its only deviation from
+			-- the muzzle-to-aim-point line is the cone that weapon's own data declares.
+			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
+			local row = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
+			local ammo = (snapshot :: any).loaded[(snapshot :: any).selected]
+			local halfConeDeg = row.SPREAD_FULL_DEG[ammo] / 2
+
 			-- 1. THE FIRST CAST IS THE CLIENT'S RAY, unaltered: the server does not second-guess
-			--    where the player was looking.
+			--    where the player was looking, and its reach is the ammo's range.
 			expect((casts[1].origin - origin).Magnitude < 1e-4).to.equal(true)
 			expect(casts[1].vector.Unit:Dot(direction) > 1 - 1e-6).to.equal(true)
+			expect(math.abs(casts[1].vector.Magnitude - row.RANGE_STUDS[ammo]) < 1e-3).to.equal(true)
+
 			-- 2. THE PELLET STARTS AT THE MUZZLE, which is NOT the eye. If this ever equals the
-			--    origin the gun is shooting out of the camera and the next assertion is vacuous.
+			--    origin the gun is shooting out of the camera and claim 3 is vacuous.
 			local muzzle = casts[2].origin
 			expect((muzzle - origin).Magnitude > 0.5).to.equal(true)
-			-- 3. ...AND IT GOES THROUGH THE AIM POINT. The perpendicular distance from the aim
-			--    point to the pellet ray IS the parallax miss, in studs.
-			local aim = casts[2].vector.Unit
-			local toPoint = aimPoint - muzzle
-			local acrossStuds = (toPoint - aim * toPoint:Dot(aim)).Magnitude
-			expect(acrossStuds * 0.28 * 100 < 5).to.equal(true) -- under 5 cm at 200 m, Karen's target
-			-- 4. ...and the ray is long enough to get there at all, which is the other half of the
-			--    bug this task found: the cast vector's own length is the ammo's range.
-			local range = Weapons.ROWS.rifle.RANGE_STUDS.Slug
-			expect(casts[2].vector.Magnitude >= 714.29 or casts[2].vector.Magnitude >= range - 1e-3).to.equal(true)
+			for index = 2, #casts do
+				expect((casts[index].origin - muzzle).Magnitude < 1e-4).to.equal(true)
+			end
+
+			-- 3. ...AND EVERY PELLET IS AIMED AT THE AIM POINT. `idealAim` is the muzzle-to-aim-point
+			--    line: a server that cast from the muzzle along the CAMERA'S direction instead
+			--    would sit a constant sight-over-bore offset away from it at every range, and that
+			--    is the parallax this claim rules out. What is left is the declared cone, so the
+			--    bound is the weapon's own half-angle and not a number typed here.
+			local idealAim = (aimPoint - muzzle).Unit
+			local worstDeg = 0
+			for index = 2, #casts do
+				worstDeg = math.max(worstDeg, angleDeg(casts[index].vector, idealAim))
+			end
+			expect(worstDeg <= halfConeDeg + 1e-6).to.equal(true)
+			-- ...and the pellet ray really does reach the aim point, which is the other half of
+			--    what task 183 found: a range under the distance aimed at is a shot that cannot
+			--    arrive however well it is pointed.
+			expect(casts[2].vector.Magnitude >= (aimPoint - muzzle).Magnitude).to.equal(true)
+
 			TestKit.note(
 				string.format(
-					"sight line: %s, eye %.2f studs from the muzzle, pellet misses the 200 m aim point by "
-						.. "%.4f studs = %.3f cm; cast reach %.0f studs (rifle range %d), %d cast(s)",
+					"sight line: %s holding %s/%s, eye %.2f studs from the muzzle; worst pellet %.4f deg "
+						.. "off the muzzle-to-aim line (cone allows %.3f) = %.1f cm at 714 studs; reach "
+						.. "%.0f studs for a %.0f-stud aim point, %d cast(s)",
 					subject.Name,
+					heldId,
+					tostring(ammo),
 					(muzzle - origin).Magnitude,
-					acrossStuds,
-					acrossStuds * 0.28 * 100,
+					worstDeg,
+					halfConeDeg,
+					math.tan(math.rad(worstDeg)) * 714.29 * 0.28 * 100,
 					casts[2].vector.Magnitude,
-					range,
+					(aimPoint - muzzle).Magnitude,
 					#casts
 				)
 			)
-			expect(snapshot).to.be.ok()
+
+			-- 4. AND THE RIFLE'S OWN ANSWER, which is the one Karen asked for: its cone is zero, so
+			--    the parallax claim above plus that datum IS "the bullet lands on the dot", and its
+			--    range covers the 714 studs she named. Asserted here as well as in `rifle.spec`
+			--    because this is the case that drives the real handler.
+			local rifle = Weapons.ROWS.rifle
+			expect(rifle.SPREAD_FULL_DEG.Slug).to.equal(0)
+			expect(rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
 		end)
 	end)
 
