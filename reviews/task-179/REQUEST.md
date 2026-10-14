@@ -3,7 +3,7 @@
 Task: 179
 Round: 2
 Base: 253d21f (main, #162 merged)
-Code commit: 9e880f57c157bb9d72f5e33f0fcc46c76d0fef6d
+Code commit: 08ddde735df89dd897c758496af4bdba546de76a
 
 ```
 [harness] PASS: 33/33 checks @ 9e880f57c157bb9d72f5e33f0fcc46c76d0fef6d (clean tree) scope=all
@@ -11,10 +11,11 @@ Code commit: 9e880f57c157bb9d72f5e33f0fcc46c76d0fef6d
 ```
 
 ```
-[harness2] PLACEHOLDER -- NEEDS TEST2 179 9e880f5 (ESCALATE.md). `src/server/Match/init.luau` is in
-TWO_PLAYER_PATHS; StudioMCP cannot start a two-player test, and `run-test2.sh` refuses while two
-Studios are open (DEV + Karen's Forest Test, which carries her playtest attributes).
+[harness] PASS: 33/33 checks @ 08ddde735df89dd897c758496af4bdba546de76a (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 08ddde735df89dd897c758496af4bdba546de76a (clean tree)
 ```
+
+DIRECTOR NOTE: both lines are the Director's at the head `08ddde7` (only paperwork after `9e880f5`).
 
 ## What changed
 
