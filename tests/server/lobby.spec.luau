@@ -542,8 +542,15 @@ return function()
 			expect(folder:FindFirstChild("DeerHead1", true)).to.be.ok()
 			expect(folder:FindFirstChild("BoarHead2", true)).to.be.ok()
 			expect(folder:FindFirstChild("TreeLine")).to.be.ok()
-			-- one lodge, four trucks, three heads, and the tree line
-			expect(stats.models).to.equal(8 + CFG.TREELINE.COUNT)
+			-- ONE LODGE, FOUR TRUCKS, THREE HEADS -- exactly eight -- AND MOST OF THE TREE LINE.
+			-- It is a BOUND and not an equality on purpose: the arc crosses the road's corridor and
+			-- a tree that would stand in the road is skipped, so `TREELINE.COUNT` is how many are
+			-- ATTEMPTED and never how many are placed. Pinning the exact number would make moving
+			-- the road by a stud a failing test about trees.
+			local trees = stats.models - 8
+			expect(trees > 0).to.equal(true)
+			expect(trees <= CFG.TREELINE.COUNT).to.equal(true)
+			expect(trees >= CFG.TREELINE.COUNT - 6).to.equal(true)
 			expect(stats.fallbacks).to.equal(0)
 			expect(count <= CFG.MAX_PARTS).to.equal(true)
 			templates:Destroy()
