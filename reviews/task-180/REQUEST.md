@@ -1,15 +1,17 @@
 # Task 180: the lobby looks like a real place — free-model lodge, four trucks, trophies, a road, fences and a tree line
 
 Task: 180
-Round: 3
+Round: 1
 Base: main (`253d21f`, #162 merged — task 178's shop)
-Code commit: `7f4d4fe35b3a714a6af6c06b60a4d87442620c7e`
+Code commit: `6fb031eab7daf06ccc91f9ea1bf741918b5bfe37`
 
 Harness, FULL `test`, TWICE on a clean tree at the code commit:
 
 ```
 [harness] PASS: 33/33 checks @ 7f4d4fe35b3a714a6af6c06b60a4d87442620c7e (clean tree) scope=all
 [harness] PASS: 33/33 checks @ 7f4d4fe35b3a714a6af6c06b60a4d87442620c7e (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 6fb031eab7daf06ccc91f9ea1bf741918b5bfe37 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 6fb031eab7daf06ccc91f9ea1bf741918b5bfe37 (clean tree)
 ```
 
 **`test2` is N/A and the reason is the explicit list.** The change touches
@@ -25,6 +27,9 @@ make trophys like head of deer head of boar / so work on lobby now"*.
 Research note: `docs/research/2026-10-14-lobby-free-models.md`, in `docs/research/INDEX.md`.
 
 ---
+
+
+DIRECTOR NOTE (re-review): round 3 PASSED at `0e19dcd`; the Director then merged `main` (task 179, varied drives) into this branch (`6fb031e`, conflict only in docs/research/INDEX.md, both rows kept), which changes code, so this is a re-review (Round 1 per agents.py) at the merge commit; the last two gate lines are the Director's there.
 
 ## Claims, and how to verify each
 
