@@ -1,20 +1,29 @@
 --!strict
--- Lobby.Build: THE ONE WRITER OF EVERY PART IN `Workspace.Lobby` -- the log lodge, its porch and its
--- warm inside, the hunting truck, the dirt track, the marked circle, its sign and the lodge spawn.
+-- Lobby.Build: THE ONE WRITER OF EVERY PART IN `Workspace.Lobby` -- the lodge and its warm inside, the
+-- trophy heads on its wall, the four parked trucks, the road and its fences, the tree line at the
+-- field's edge, the marked circle, its sign and the lodge spawn.
 --
 -- KAREN chose the house herself: a **"Wooden log lodge"** -- logs, a porch, antlers over the door,
 -- warm inside -- and *"Walk to a car"* for starting a hunt. The SHOP inside is task 178: this builds
 -- the empty counter and a placeholder sign and nothing more.
 --
--- IT IS A PARTS BUILD, AND THE REASON IS WRITTEN DOWN SO IT IS NOT RE-LITIGATED (research note
--- section 4). A free Creator Store model (`InsertService:LoadAsset`) needs a hand check for Scripts
--- -- CLAUDE.md forbids script-like instances outside Rojo-owned paths, and a free model is a common
--- place to hide one -- plus an `assets/uploads.json` row carrying **the text of Karen's OK**; a Meshy
--- lodge needs a brief, a run, her OK on the preview and an upload. Both are the asset lane and both
--- are daylight decisions. A parts build is the only one of the three that can be finished, reviewed
--- and merged in one night, and it is the one that puts a picture in front of her in the morning.
--- Every number it uses is in `Lobby.CONFIG`, so swapping the lodge for a mesh later changes this
--- module and nothing else.
+-- SINCE TASK 180 IT IS TWO BUILDS, AND WHICH ONE RAN IS A COUNTED FACT. Karen, 2026-10-14: *"we need
+-- better house we can use free models / we need car truck model or hunting bus also use free model"*.
+-- So the LODGE, the four TRUCKS, the two kinds of TROPHY HEAD and the TREE LINE are clones of
+-- script-free free Creator Store models parked in `Workspace.LobbyAssets` (Studio content, which Rojo
+-- does not manage and Connect does not delete), and task 177's PARTS BUILD is what happens when a
+-- template is not there -- per piece, so a missing truck does not cost you the lodge.
+--
+-- WHY A CLONE AND NOT AN ASSET ID, so it is not re-litigated (research note sections 2 and 6):
+-- `InsertService:LoadAsset` refuses a free Creator Store model whose creator did not tick share
+-- (task 152 measured it: *"User is not authorized to access Asset."*), the documented escape
+-- `AssetService.AllowInsertFreeAssets` is `RobloxScriptSecurity` on read AND write, a `.model.json`
+-- cannot carry geometry (the harness fails a typed `{"Vector3": ...}` as "cannot compare"), and
+-- `.rbxm` is banned. StudioMCP's `insert_asset` puts the model in the place with no human click, and
+-- the one thing left to write is the clone.
+--
+-- Every number it uses is in `Lobby.CONFIG`, so moving the lodge, changing a model or adding a fifth
+-- truck bay changes that table and not this module.
 --
 -- IT DECIDES NOTHING AND OWNS NO STATE. `container` and the anchor are arguments, so a spec builds
 -- the whole lobby into its own Folder and destroys it -- which is what makes the part budget, the
@@ -33,7 +42,8 @@
 --   SurfaceGui       https://create.roblox.com/docs/reference/engine/classes/SurfaceGui
 --
 -- Design: docs/design/lobby.md (sections 9, 9.2, 12.2, 16.1 case 7)
--- Note:   docs/research/2026-10-13-lobby-and-the-truck.md (section 4)
+-- Note:   docs/research/2026-10-13-lobby-and-the-truck.md (section 4),
+--         docs/research/2026-10-14-lobby-free-models.md (the free models, task 180)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Data = require(ReplicatedStorage:WaitForChild("Lobby"))
@@ -42,7 +52,11 @@ local Build = {}
 
 -- WHAT THE LAST BUILD MADE. The module never prints: a tool that `require`s it over StudioMCP gets a
 -- sandboxed copy with empty state (measured, task 122), so the owner prints and this answers.
-local stats = { parts = 0, solids = 0, builds = 0 }
+-- `models` is how many free-model templates were cloned, `fallbacks` how many were asked for and not
+-- found (task 180), and `strippedScripts` how many script instances a template carried in -- all
+-- three so "which build ran" is a number the spec and the boot's own log line can read, never a
+-- belief.
+local stats = { parts = 0, solids = 0, builds = 0, models = 0, fallbacks = 0, strippedScripts = 0 }
 
 function Build.stats()
 	return table.clone(stats)
@@ -140,7 +154,259 @@ local function sign(name: string, size: Vector3, cframe: CFrame, text: string, p
 	return board
 end
 
+-- ---------------------------------------------------------- the free models (task 180)
+
+-- THE ONE PLACE A STUDIO-MADE TEMPLATE BECOMES A LOBBY INSTANCE, and the reason it is a CLONE of
+-- something already in the world rather than an `InsertService:LoadAsset` of an id is measured and
+-- written down in `Lobby.TEMPLATES_NAME`'s comment and in the research note (section 3).
+--
+-- `templates` IS AN ARGUMENT, exactly like `container` and for the same reason: a spec hands it a
+-- Folder it built itself, or nil, and both branches -- the free-model lodge and task 177's parts
+-- lodge -- are reachable without a Creator Store round trip. Nothing in here reads `Workspace`.
+--
+-- A MISSING TEMPLATE IS NOT AN ERROR. It answers nil, the caller builds the parts version, and
+-- `stats.models` / `stats.fallbacks` say which happened -- so "the lobby still builds when a model
+-- is gone" is a counted fact and not a promise.
+--
+-- IT STRIPS SCRIPTS ON THE WAY THROUGH, and that is belt AND braces: the four chosen models carry no
+-- script at all (measured, task 180), and a free model is the classic place to hide one. CLAUDE.md:
+-- *"Nothing script-like (Script, LocalScript, ModuleScript) is ever created in Studio."*
+local function scriptsIn(instance: Instance): number
+	local found = 0
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("LuaSourceContainer") then
+			descendant:Destroy()
+			found += 1
+		end
+	end
+	return found
+end
+
+-- WHERE A CLONE'S BOTTOM IS. A Model's pivot is its bounding-box centre unless somebody set a
+-- PrimaryPart, so "stand it on the shelf" is measured after the rotation is applied and never
+-- guessed from the size the Creator Store listed.
+local function sitOnShelf(model: Model, shelfY: number)
+	local box, size = model:GetBoundingBox()
+	local lowest = box.Position.Y - size.Y / 2
+	model:PivotTo(model:GetPivot() + Vector3.new(0, shelfY - lowest, 0))
+end
+
+--
+-- `seat` IS THE WHOLE DIFFERENCE BETWEEN A BUILDING AND A WALL MOUNT, and getting it wrong is not a
+-- small error: a lodge must stand ON the ground, so its BOTTOM goes to `at.Y`, while a stag's head
+-- hangs AT a height, so its CENTRE does. Seating a trophy put the head's base at the mount height --
+-- its whole 5.4 studs ABOVE the plank it belongs on and, in a room 7.4 studs high, two and a half
+-- studs through the ceiling (review round 1, finding 1).
+local function cloneInstance(
+	template: Instance,
+	name: string,
+	scale: number,
+	at: Vector3,
+	yaw: number,
+	parent: Instance,
+	cosmetic: boolean,
+	seat: boolean
+): Instance
+	local made = template:Clone()
+	made.Name = name
+	stats.strippedScripts += scriptsIn(made)
+	if made:IsA("Model") then
+		if scale ~= 1 then
+			made:ScaleTo(scale)
+		end
+		made:PivotTo(CFrame.new(at) * CFrame.Angles(0, yaw, 0))
+		if seat then
+			sitOnShelf(made :: Model, at.Y)
+		else
+			-- CENTRED ON THE MOUNT, measured rather than assumed: a Model's pivot is its
+			-- bounding-box centre only while nobody has set a PrimaryPart, and a free model may
+			-- have one.
+			-- ALL THREE AXES, not just the height (review round 2, note): a replacement head model
+			-- with a `PrimaryPart` has a pivot that is not its bounding-box centre, and correcting
+			-- only Y would hang it off its plaque sideways.
+			local model = made :: Model
+			local box = model:GetBoundingBox()
+			model:PivotTo(model:GetPivot() + (at - box.Position))
+		end
+	elseif made:IsA("BasePart") then
+		made.CFrame = CFrame.new(at) * CFrame.Angles(0, yaw, 0)
+	end
+	for _, descendant in ipairs(made:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			-- ANCHORED ALWAYS: a free model ships with whatever the builder left, and one unanchored
+			-- plank in a lodge is a lodge that falls over on the first Play.
+			descendant.Anchored = true
+			if cosmetic then
+				descendant.CanCollide = false
+				descendant.CanQuery = false
+				descendant.CanTouch = false
+			end
+			stats.parts += 1
+			if descendant.CanCollide then
+				stats.solids += 1
+			end
+		end
+	end
+	if made:IsA("BasePart") then
+		made.Anchored = true
+		if cosmetic then
+			made.CanCollide = false
+			made.CanQuery = false
+			made.CanTouch = false
+		end
+		stats.parts += 1
+		if made.CanCollide then
+			stats.solids += 1
+		end
+	end
+	made.Parent = parent
+	stats.models += 1
+	return made
+end
+
+-- THE SAME THING, BY TEMPLATE NAME. A missing template is not an error: it answers nil and the caller
+-- builds task 177's version.
+local function clone(
+	templates: Instance?,
+	key: string,
+	name: string,
+	scale: number,
+	at: Vector3,
+	yaw: number,
+	parent: Instance,
+	cosmetic: boolean,
+	seat: boolean?
+): Instance?
+	if templates == nil then
+		return nil
+	end
+	local template = (templates :: Instance):FindFirstChild(key)
+	if template == nil then
+		stats.fallbacks += 1
+		return nil
+	end
+	return cloneInstance(template, name, scale, at, yaw, parent, cosmetic, seat ~= false)
+end
+
 -- ---------------------------------------------------------------- the lodge
+
+-- THE ROOM INSIDE THE LODGE, whichever lodge got built. Everything that hangs on a wall or stands on
+-- the floor is placed against THIS and never against `cfg.LODGE.SIZE`, because the free model's room
+-- (19.6 x 19.6 x 7.4) and task 177's (38 x 26 x 9) are different rectangles and a constant offset
+-- can only be right for one of them.
+export type Room = { centre: Vector3, halfX: number, halfZ: number, height: number }
+
+-- PURE, AND EXPORTED, so `lobby.spec` can bound a trophy against the rectangle the mount actually
+-- used instead of against the lodge's whole footprint. Review round 1, finding 3: a footprint bound
+-- is ten studs away from the wall and cannot see a plaque a quarter of a stud past it, which is
+-- exactly the inverted-yaw bug it was written to catch.
+function Build.roomFor(anchor: Vector3, cfg, fromModel: boolean): Room
+	local origin = anchor + cfg.LODGE.OFFSET
+	if fromModel then
+		local model = cfg.LODGE.MODEL
+		local scale = model.SCALE
+		return {
+			centre = Vector3.new(
+				origin.X + model.ROOM.CENTRE.X * scale,
+				origin.Y + model.ROOM.CENTRE.Y * scale,
+				origin.Z + model.ROOM.CENTRE.Z * scale
+			),
+			halfX = model.ROOM.HALF_X * scale,
+			halfZ = model.ROOM.HALF_Z * scale,
+			height = (model.ROOM.CEILING_Y - model.ROOM.CENTRE.Y) * scale,
+		}
+	end
+	return {
+		centre = Vector3.new(origin.X, origin.Y + 1, origin.Z),
+		halfX = cfg.LODGE.SIZE.X / 2 - 1,
+		halfZ = cfg.LODGE.SIZE.Z / 2 - 1,
+		height = cfg.LODGE.SIZE.Y,
+	}
+end
+
+-- THE TROPHY HEADS ON THE WALL. Karen, 2026-10-14: *"and then on walls we can make trophys like head
+-- of deer head of boar"*.
+--
+-- A MOUNT NAMES A WALL, so the three rows in `CONFIG.TROPHIES.MOUNTS` hang correctly in either room.
+-- Each head gets a plank behind it: the deer model carries its own shield and the boar model does
+-- not, and one plank for both is cheaper than two code paths and reads as a matched set.
+local function trophies(inside: Instance, room: Room, cfg, templates: Instance?)
+	local folder = Instance.new("Folder")
+	folder.Name = "Trophies"
+	folder.Parent = inside
+	local spec = cfg.TROPHIES
+	for index, mount in ipairs(spec.MOUNTS) do
+		-- WHICH WALL, AS THE ONE PLACE THE FOUR NAMES TURN INTO GEOMETRY.
+		--
+		-- `yaw` IS THE DIRECTION THE HEAD LOOKS, AND EVERY OFFSET BELOW RUNS ALONG IT. A CFrame's
+		-- LookVector is its own -Z, so `CFrame.Angles(0, 0, 0)` looks at -Z (north wall -> south) and
+		-- `CFrame.Angles(0, math.pi / 2, 0)` looks at -X (east wall -> west). Getting that backwards
+		-- does not fail, it hangs all three heads on the OUTSIDE of the lodge -- which is exactly
+		-- what the first inside shot showed, with the plaques 0.24 studs past the wall plane and the
+		-- heads a stud past that, in the open air (task 180, rule 5).
+		local at, yaw
+		if mount.wall == "north" then
+			at, yaw = Vector3.new(room.centre.X + mount.along, 0, room.centre.Z + room.halfZ), 0
+		elseif mount.wall == "south" then
+			at, yaw = Vector3.new(room.centre.X + mount.along, 0, room.centre.Z - room.halfZ), math.pi
+		elseif mount.wall == "west" then
+			at, yaw = Vector3.new(room.centre.X - room.halfX, 0, room.centre.Z + mount.along), -math.pi / 2
+		else
+			at, yaw = Vector3.new(room.centre.X + room.halfX, 0, room.centre.Z + mount.along), math.pi / 2
+		end
+		local y = room.centre.Y + math.min(spec.HEIGHT_STUDS, room.height - 2)
+		local facing = CFrame.new(Vector3.new(at.X, y, at.Z)) * CFrame.Angles(0, yaw, 0)
+		part(
+			string.format("Plaque%d", index),
+			spec.PLAQUE,
+			facing * CFrame.new(0, 0, -spec.PLAQUE.Z / 2),
+			spec.PLAQUE_COLOR,
+			Enum.Material.WoodPlanks,
+			false,
+			folder
+		)
+		local key = if mount.kind == "boar" then Data.TEMPLATE.BOAR else Data.TEMPLATE.DEER
+		local head = clone(
+			templates,
+			key,
+			string.format("%s%d", if mount.kind == "boar" then "BoarHead" else "DeerHead", index),
+			1,
+			(facing * CFrame.new(0, 0, -spec.PLAQUE.Z - spec.CLEAR_STUDS)).Position,
+			yaw,
+			folder,
+			true,
+			false -- a wall mount hangs AT a height; it does not stand on the floor
+		)
+		if head ~= nil and head:IsA("Model") then
+			-- UNDER THE CEILING, MEASURED OFF THE HEAD ITSELF. The deer model is 5.4 studs tall and
+			-- the free lodge's room is 7.4, so a head centred at 4.4 would put its antlers through
+			-- the roof -- the same thing `stackHeight` clamps the chimney for, three functions up.
+			local antlers = head :: Model
+			local box, size = antlers:GetBoundingBox()
+			local ceiling = room.centre.Y + room.height - 0.3
+			local wanted = math.min(box.Position.Y, ceiling - size.Y / 2)
+			if wanted < box.Position.Y then
+				antlers:PivotTo(antlers:GetPivot() + Vector3.new(0, wanted - box.Position.Y, 0))
+			end
+		end
+		if head == nil then
+			-- NO MODEL, STILL A TROPHY: a pair of cylinders on the plank, which is what task 177's
+			-- antlers over the door already are. The lobby never comes up empty-walled.
+			for _, side in ipairs({ -1, 1 }) do
+				local spur = part(
+					string.format("Tine%d%s", index, if side < 0 then "W" else "E"),
+					Vector3.new(0.35, 2.4, 0.35),
+					facing * CFrame.new(side * 0.8, 0.9, -spec.PLAQUE.Z - 0.4) * CFrame.Angles(0, 0, side * 0.5),
+					Color3.fromRGB(226, 216, 192),
+					Enum.Material.SmoothPlastic,
+					false,
+					folder
+				)
+				spur.Shape = Enum.PartType.Cylinder
+			end
+		end
+	end
+end
 
 -- ONE WALL OF LOGS, with an optional DOORWAY GAP. Karen asked for a *"door you walk through"*, so
 -- the door is the absence of parts and never a door panel: the courses below the lintel are built as
@@ -233,17 +499,22 @@ end
 -- THE WARM INSIDE: a stone fireplace with ONE `PointLight`, a table, two benches, and task 178's
 -- empty shop counter with its placeholder sign. Nothing here is animated and nothing is written per
 -- frame -- a fire that flickers is a second writer of a light, for a lobby nobody is fighting in.
-local function interior(folder: Instance, origin: Vector3, cfg)
-	local size = cfg.LODGE.SIZE
+local function interior(folder: Instance, room: Room, cfg, templates: Instance?)
+	local origin = room.centre
 	local inside = Instance.new("Folder")
 	inside.Name = "Inside"
 	inside.Parent = folder
 
-	local backZ = origin.Z + size.Z / 2 - 2
+	local backZ = origin.Z + room.halfZ - 2
+	-- THE CHIMNEY STOPS AT THE CEILING. The free model's room is 7.4 studs high against task 177's
+	-- 9, so a 13-stud stack written as a constant would have pushed a slate column through the roof
+	-- of the lodge Karen is being shown -- the "measured correct, looked wrong" failure this project
+	-- is built around (`docs/PROJECT_CONTEXT.md`).
+	local stackHeight = math.min(13, room.height - 0.4)
 	local stack = part(
 		"Fireplace",
-		Vector3.new(9, 13, 3),
-		CFrame.new(origin.X - size.X / 4, origin.Y + 6.5, backZ),
+		Vector3.new(9, stackHeight, 3),
+		CFrame.new(origin.X - room.halfX / 2, origin.Y + stackHeight / 2, backZ),
 		Color3.fromRGB(104, 104, 104),
 		Enum.Material.Slate,
 		true,
@@ -252,7 +523,7 @@ local function interior(folder: Instance, origin: Vector3, cfg)
 	part(
 		"Hearth",
 		Vector3.new(9, 1, 4),
-		CFrame.new(origin.X - size.X / 4, origin.Y + 0.5, backZ - 3),
+		CFrame.new(origin.X - room.halfX / 2, origin.Y + 0.5, backZ - 3),
 		Color3.fromRGB(88, 88, 88),
 		Enum.Material.Slate,
 		false,
@@ -261,7 +532,7 @@ local function interior(folder: Instance, origin: Vector3, cfg)
 	local fire = part(
 		"Fire",
 		Vector3.new(5, 2.5, 2),
-		CFrame.new(origin.X - size.X / 4, origin.Y + 1.8, backZ - 2),
+		CFrame.new(origin.X - room.halfX / 2, origin.Y + 1.8, backZ - 2),
 		Color3.fromRGB(255, 142, 48),
 		Enum.Material.Neon,
 		false,
@@ -317,7 +588,11 @@ local function interior(folder: Instance, origin: Vector3, cfg)
 	local shop = Instance.new("Folder")
 	shop.Name = "Shop"
 	shop.Parent = inside
-	local counterAt = Vector3.new(origin.X + size.X / 4, origin.Y + cfg.LODGE.COUNTER.Y / 2, backZ - 1)
+	-- CLAMPED SO IT CANNOT COME THROUGH THE WALL (review round 1, note). `halfX / 2` plus half a
+	-- 12-stud counter is 10.9 studs in the free model's 9.8-stud half-room, so the till's east end
+	-- stood a stud outside the lodge.
+	local counterX = math.min(room.halfX / 2, math.max(0, room.halfX - cfg.LODGE.COUNTER.X / 2 - 0.3))
+	local counterAt = Vector3.new(origin.X + counterX, origin.Y + cfg.LODGE.COUNTER.Y / 2, backZ - 1)
 	part(
 		"Counter",
 		cfg.LODGE.COUNTER,
@@ -330,18 +605,35 @@ local function interior(folder: Instance, origin: Vector3, cfg)
 	sign(
 		"ShopSign",
 		Vector3.new(10, 2.6, 0.3),
-		CFrame.new(counterAt.X, origin.Y + 7, backZ + 0.8),
+		CFrame.new(counterAt.X, origin.Y + math.min(7, room.height - 1.5), backZ + 0.8),
 		cfg.LODGE.SIGN_TEXT,
 		shop
 	)
+
+	trophies(inside, room, cfg, templates)
 end
 
-local function lodge(container: Instance, anchor: Vector3, cfg): Instance
+-- THE LODGE, AND WHICH OF THE TWO GOT BUILT IS DECIDED IN ONE PLACE.
+--
+-- Karen, 2026-10-14: *"we need better house we can use free models"*. So the FREE MODEL is first
+-- choice and task 177's parts lodge is what happens when it is not there -- a missing template, a
+-- renamed folder, a place that has never had the models inserted (the DEV place is exactly that).
+-- Both branches end the same way, with the same warm inside and the same shop counter hung on the
+-- same measured room, so nothing downstream has to ask which one it got.
+local function lodge(container: Instance, anchor: Vector3, cfg, templates: Instance?): Instance
 	local folder = Instance.new("Folder")
 	folder.Name = "Lodge"
 	local origin = anchor + cfg.LODGE.OFFSET
 	local size = cfg.LODGE.SIZE
 	local halfX, halfZ = size.X / 2, size.Z / 2
+
+	local model = cfg.LODGE.MODEL
+	local built = clone(templates, Data.TEMPLATE.LODGE, "House", model.SCALE, origin, model.YAW_RADIANS, folder, false)
+	if built ~= nil then
+		interior(folder, Build.roomFor(anchor, cfg, true), cfg, templates)
+		folder.Parent = container
+		return folder
+	end
 
 	part(
 		"Floor",
@@ -479,17 +771,18 @@ local function lodge(container: Instance, anchor: Vector3, cfg): Instance
 		porch
 	)
 
-	interior(folder, Vector3.new(origin.X, origin.Y + 1, origin.Z), cfg)
+	interior(folder, Build.roomFor(anchor, cfg, false), cfg, templates)
 	folder.Parent = container
 	return folder
 end
 
 -- ---------------------------------------------------------------- the truck
 
-local function truck(container: Instance, anchor: Vector3, cfg): Instance
+-- ONE TRUCK, BUILT OUT OF PARTS. `bayAt` is where it stands, so the four bays are one loop in
+-- `trucks` and this function never knows how many there are.
+local function truck(container: Instance, at: Vector3, cfg, name: string): Instance
 	local folder = Instance.new("Folder")
-	folder.Name = "Truck"
-	local at = anchor + cfg.TRUCK.OFFSET
+	folder.Name = name
 	local green = cfg.TRUCK.COLOR
 	local dark = Color3.fromRGB(26, 28, 26)
 	-- IT POINTS SOUTH (-Z), down the track and out of the yard: a truck that is about to leave.
@@ -569,6 +862,29 @@ local function truck(container: Instance, anchor: Vector3, cfg): Instance
 	return folder
 end
 
+-- FOUR TRUCKS, SIDE BY SIDE (the Director, task 180), one per party, stepping east from task 177's
+-- single bay -- so bay 1 is exactly where the one truck used to stand and the circle beside it has
+-- not moved. Task 182 puts a queue pad `TRUCK.PAD_BEHIND_STUDS` behind each.
+--
+-- EACH BAY FALLS BACK ON ITS OWN. If the template is there every bay is a model and if it is not
+-- every bay is parts; the loop does not care, which is what makes "a model failed to load" a
+-- survivable state rather than a half-built yard.
+local function trucks(container: Instance, anchor: Vector3, cfg, templates: Instance?)
+	local folder = Instance.new("Folder")
+	folder.Name = "Trucks"
+	local model = cfg.TRUCK.MODEL
+	for index = 1, cfg.TRUCK.COUNT do
+		local at = anchor + cfg.TRUCK.OFFSET + Vector3.new((index - 1) * cfg.TRUCK.BAY_GAP_STUDS, 0, 0)
+		local name = string.format("Truck%d", index)
+		local made = clone(templates, Data.TEMPLATE.TRUCK, name, model.SCALE, at, model.YAW_RADIANS, folder, false)
+		if made == nil then
+			truck(folder, at, cfg, name)
+		end
+	end
+	folder.Parent = container
+	return folder
+end
+
 -- ---------------------------------------------------------------- the marked circle
 
 -- THE RING IS `ForestTest.Markers.RING`'S, BORROWED WHOLE, so the lobby's circle and the hunter's
@@ -584,7 +900,13 @@ end
 local function spot(container: Instance, anchor: Vector3, cfg): BasePart
 	local folder = Instance.new("Folder")
 	folder.Name = "Spot"
-	local centre = anchor + cfg.SPOT.OFFSET
+	-- ON TOP OF THE YARD, NOT INSIDE IT (review round 1, finding 2). `road` lays its slabs ON the
+	-- shelf now, and the yard covers the whole circle -- so a ring lifted 0.08 studs off the SHELF
+	-- sat 0.42 studs inside an opaque slab, and the lobby had a sign reading "STAND HERE TO HUNT"
+	-- with nothing to stand in. The circle's floor is the road surface, so that is what it is lifted
+	-- from. Task 177 got away with the old number because the grass blades hid the slab; the road
+	-- pad removes the blades, which is what made this visible rather than what caused it.
+	local centre = anchor + cfg.SPOT.OFFSET + Vector3.new(0, cfg.ROAD.THICK_STUDS, 0)
 	local ring = cfg.SPOT.RING
 	local radius = cfg.SPOT.RADIUS_STUDS
 	local step = 2 * math.pi / ring.SEGMENTS
@@ -627,14 +949,14 @@ local function spot(container: Instance, anchor: Vector3, cfg): BasePart
 		"SignPost",
 		1,
 		9,
-		Vector3.new(centre.X, centre.Y + 4.5, centre.Z - radius - 1),
+		Vector3.new(centre.X, anchor.Y + 4.5, centre.Z - radius - 1),
 		Color3.fromRGB(96, 72, 48),
 		folder
 	)
 	sign(
 		"SpotSign",
 		Vector3.new(11, 3.2, 0.4),
-		CFrame.new(centre.X, centre.Y + 9.6, centre.Z - radius - 1),
+		CFrame.new(centre.X, anchor.Y + 9.6, centre.Z - radius - 1),
 		cfg.SPOT.SIGN_TEXT,
 		folder
 	)
@@ -642,40 +964,70 @@ local function spot(container: Instance, anchor: Vector3, cfg): BasePart
 	return marker
 end
 
--- ---------------------------------------------------------------- the track and the yard
+-- ---------------------------------------------------------- the road, the fences, the trees
 
-local function track(container: Instance, anchor: Vector3, cfg)
+-- THE ROAD TO THE LODGE. Karen, 2026-10-14: *"place could be a bit more nicer like road going to
+-- that house and around fields and forrests"*.
+--
+-- IT STOPS AT THE SHELF'S EDGE, and that is the measurement in `CONFIG.ROAD`'s comment rather than a
+-- taste: `Field.fill` flattens 220 x 220 and the ground falls away outside it, so a flat strip laid
+-- further would float. Cosmetic and flush, like the track it replaces -- nobody takes cover behind a
+-- road.
+local function road(container: Instance, anchor: Vector3, cfg)
 	local folder = Instance.new("Folder")
-	folder.Name = "Track"
-	local width = cfg.TRACK.WIDTH_STUDS
-	local dirt = Color3.fromRGB(122, 102, 78)
-	-- ONE STRIP RUNNING SOUTH out of the yard, past the truck, and one spur across the front of the
-	-- lodge. Laid flush with the shelf, cosmetic, and never a thing a slug can stop in.
+	folder.Name = "Road"
+	local spec = cfg.ROAD
+	local length = spec.FROM_Z - spec.TO_Z
+	local midZ = (spec.FROM_Z + spec.TO_Z) / 2
+	-- LAID ON THE SHELF, NOT IN IT, AND THAT WAS PHOTOGRAPHED. The first build centred these slabs
+	-- ON `anchor.Y`, so half of each was underground and the terrain's grass blades stood through the
+	-- other half: the shot came back with a field and NO ROAD, with the player standing on it.
+	-- `FIELD.PADS` now puts a blade-free block under the corridor as well -- the two together are the
+	-- fix and either one alone is not.
+	local top = anchor.Y + spec.THICK_STUDS / 2
 	part(
 		"Lane",
-		Vector3.new(width, 0.4, cfg.TRACK.TO_Z),
-		CFrame.new(anchor.X + cfg.TRUCK.OFFSET.X, anchor.Y, anchor.Z + cfg.TRUCK.OFFSET.Z - cfg.TRACK.TO_Z / 2),
-		dirt,
-		cfg.TRACK.MATERIAL,
+		Vector3.new(spec.WIDTH_STUDS, spec.THICK_STUDS, length),
+		CFrame.new(anchor.X + spec.CENTRE_X, top, anchor.Z + midZ),
+		spec.COLOR,
+		spec.MATERIAL,
 		false,
 		folder
 	)
+	for index, side in ipairs({ -1, 1 }) do
+		part(
+			string.format("Verge%d", index),
+			Vector3.new(spec.VERGE_STUDS, spec.THICK_STUDS, length),
+			CFrame.new(
+				anchor.X + spec.CENTRE_X + side * (spec.WIDTH_STUDS + spec.VERGE_STUDS) / 2,
+				top - 0.05,
+				anchor.Z + midZ
+			),
+			spec.VERGE_COLOR,
+			spec.MATERIAL,
+			false,
+			folder
+		)
+	end
+	-- THE YARD in front of the lodge and across the truck bays, so the parking is not four trucks
+	-- standing in a meadow.
+	local bays = (cfg.TRUCK.COUNT - 1) * cfg.TRUCK.BAY_GAP_STUDS
 	part(
 		"Yard",
-		Vector3.new(math.abs(cfg.TRUCK.OFFSET.X) + width, 0.4, width),
-		CFrame.new(anchor.X + cfg.TRUCK.OFFSET.X / 2, anchor.Y, anchor.Z + cfg.SPOT.OFFSET.Z),
-		dirt,
-		cfg.TRACK.MATERIAL,
+		Vector3.new(math.abs(cfg.TRUCK.OFFSET.X - spec.CENTRE_X) + bays + 34, spec.THICK_STUDS, 44),
+		CFrame.new(anchor.X + (spec.CENTRE_X + cfg.TRUCK.OFFSET.X + bays) / 2, top, anchor.Z + cfg.TRUCK.OFFSET.Z),
+		spec.COLOR,
+		spec.MATERIAL,
 		false,
 		folder
 	)
-	-- A woodpile and a trough: the two pieces of field dressing that say somebody lives here.
+	-- A woodpile: the piece of field dressing that says somebody lives here. Task 177's, kept.
 	for index = 1, 6 do
 		local pile = part(
 			string.format("Log%d", index),
 			Vector3.new(7, 1.6, 1.6),
 			CFrame.new(
-				anchor.X - 24,
+				anchor.X - 30,
 				anchor.Y + 0.8 + math.floor((index - 1) / 3) * 1.6,
 				anchor.Z + 34 + ((index - 1) % 3) * 1.7
 			),
@@ -685,6 +1037,118 @@ local function track(container: Instance, anchor: Vector3, cfg)
 			folder
 		)
 		pile.Shape = Enum.PartType.Cylinder
+	end
+	folder.Parent = container
+end
+
+-- THE POST-AND-RAIL FENCE down both sides of the road: Karen's *"around fields"*, as the one piece of
+-- furniture that makes an open shelf read as a field rather than as a lawn. Cosmetic -- a player who
+-- walks into it walks through it, which is the right answer for scenery in a lobby.
+local function fences(container: Instance, anchor: Vector3, cfg)
+	local folder = Instance.new("Folder")
+	folder.Name = "Fences"
+	local spec = cfg.FENCE
+	-- HOW MANY POSTS FIT BETWEEN THE TWO BOUNDS, rather than a count that can walk into the house
+	-- (review round 2). `TO_Z` is south of the yard, so the line stops before the yard, the porch,
+	-- the spawn pad and the lodge -- which is the *"gap at the yard"* `CONFIG.FENCE` always promised.
+	local posts = math.max(2, math.floor((spec.TO_Z - spec.FROM_Z) / spec.SPACING_STUDS) + 1)
+	for _, side in ipairs({ -1, 1 }) do
+		local x = anchor.X + cfg.ROAD.CENTRE_X + side * spec.OFF_ROAD_STUDS
+		local tag = if side < 0 then "W" else "E"
+		for index = 1, posts do
+			local z = anchor.Z + spec.FROM_Z + (index - 1) * spec.SPACING_STUDS
+			part(
+				string.format("Post%s%d", tag, index),
+				spec.POST,
+				CFrame.new(x, anchor.Y + spec.POST.Y / 2, z),
+				spec.COLOR,
+				Enum.Material.Wood,
+				false,
+				folder
+			)
+			if index < posts then
+				for rail, railY in ipairs(spec.RAIL_Y) do
+					part(
+						string.format("Rail%s%d_%d", tag, index, rail),
+						Vector3.new(spec.RAIL_THICK, spec.RAIL_THICK, spec.SPACING_STUDS),
+						CFrame.new(x, anchor.Y + railY, z + spec.SPACING_STUDS / 2),
+						spec.COLOR,
+						Enum.Material.Wood,
+						false,
+						folder
+					)
+				end
+			end
+		end
+	end
+	folder.Parent = container
+end
+
+-- THE FOREST EDGE, AND IT IS THE FOREST'S OWN TREES (the Director: *"reuse the forest's trees"*).
+-- `LobbyAssets.Trees` holds models copied out of `Workspace.OurForest` in Studio, so the ring of wood
+-- round the field is the same wood the drive runs in. No folder, no tree line: the field is open and
+-- the forest to the north is still really there.
+--
+-- COSMETIC, AND THAT IS DELIBERATE. `ForestTest.groundAt` excludes `OurForest`, `Foliage` and
+-- `Boars` by NAME, so a queryable copy of a spruce standing in `Workspace.Lobby` would be the one
+-- tree in this world a ground raycast could hit -- and the ground under the lobby is what every
+-- player placement reads. `CanQuery = false` keeps that promise where the name no longer can.
+local function treeLine(container: Instance, anchor: Vector3, cfg, templates: Instance?)
+	if templates == nil then
+		return
+	end
+	local wood = (templates :: Instance):FindFirstChild(Data.TEMPLATE.TREES)
+	if wood == nil then
+		stats.fallbacks += 1
+		return
+	end
+	local kinds = wood:GetChildren()
+	if #kinds == 0 then
+		stats.fallbacks += 1
+		return
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "TreeLine"
+	local spec = cfg.TREELINE
+	-- ONE SEED, SO THE WOOD IS THE SAME WOOD EVERY BOOT. A lobby that reshuffles its trees on each
+	-- restart is a lobby nobody can photograph twice, and rule 5 is a screenshot somebody compares.
+	local rng = Random.new(1804)
+	local span = spec.TO_RADIANS - spec.FROM_RADIANS
+	for index = 1, spec.COUNT do
+		local angle = spec.FROM_RADIANS + span * ((index - 0.5) / spec.COUNT)
+		local radius = spec.RADIUS_STUDS + rng:NextNumber(-spec.JITTER_STUDS, spec.JITTER_STUDS)
+		local at = Vector3.new(anchor.X + math.sin(angle) * radius, anchor.Y, anchor.Z + math.cos(angle) * radius)
+		-- NOT IN THE ROAD. The arc runs from one side of the yard round the south to the other, and
+		-- the road leaves through the south, so two of the thirty would otherwise stand in it. A
+		-- tree in the road is not scenery.
+		local offRoad = math.abs(at.X - (anchor.X + cfg.ROAD.CENTRE_X))
+		if offRoad < cfg.ROAD.WIDTH_STUDS / 2 + cfg.ROAD.VERGE_STUDS + 4 and at.Z < anchor.Z + cfg.ROAD.FROM_Z then
+			continue
+		end
+		-- ...NOR IN THE YARD (review round 2, note): the arc's eastern end swings past the fourth
+		-- truck bay, and a spruce between the bays is the same mistake as a spruce in the road.
+		local bays = (cfg.TRUCK.COUNT - 1) * cfg.TRUCK.BAY_GAP_STUDS
+		local yardMidX = anchor.X + (cfg.ROAD.CENTRE_X + cfg.TRUCK.OFFSET.X + bays) / 2
+		local yardHalfX = (math.abs(cfg.TRUCK.OFFSET.X - cfg.ROAD.CENTRE_X) + bays + 34) / 2
+		local yardZ = anchor.Z + cfg.TRUCK.OFFSET.Z
+		if math.abs(at.X - yardMidX) < yardHalfX + 4 and math.abs(at.Z - yardZ) < 26 then
+			continue
+		end
+		-- THROUGH `cloneInstance` AND NOT BY HAND (review round 1, note). The hand-rolled walk here
+		-- used `GetDescendants`, which never visits the instance itself, so a `Trees` child that was
+		-- a Part rather than a Model came out UNANCHORED AND QUERYABLE -- the one thing this
+		-- function's own comment says must not happen.
+		local kind = kinds[rng:NextInteger(1, #kinds)]
+		cloneInstance(
+			kind,
+			string.format("Tree%02d", index),
+			rng:NextNumber(spec.SCALE[1], spec.SCALE[2]),
+			Vector3.new(at.X, anchor.Y, at.Z),
+			rng:NextNumber(0, math.pi * 2),
+			folder,
+			true,
+			true
+		)
 	end
 	folder.Parent = container
 end
@@ -699,19 +1163,29 @@ end
 --
 -- Returns the folder, the `TruckSpot` part and how many parts it made, so the budget is a CHECKED
 -- claim (`lobby.spec` asserts `<= CONFIG.MAX_PARTS`) and not a promise.
-function Build.build(container: Instance, anchor: Vector3, cfg): (Instance, BasePart, BasePart, number)
+function Build.build(
+	container: Instance,
+	anchor: Vector3,
+	cfg,
+	templates: Instance?
+): (Instance, BasePart, BasePart, number)
 	local existing = container:FindFirstChild(Data.FOLDER_NAME)
 	if existing then
 		existing:Destroy()
 	end
 	stats.parts = 0
 	stats.solids = 0
+	stats.models = 0
+	stats.fallbacks = 0
+	stats.strippedScripts = 0
 	local folder = Instance.new("Folder")
 	folder.Name = Data.FOLDER_NAME
 
-	track(folder, anchor, cfg)
-	lodge(folder, anchor, cfg)
-	truck(folder, anchor, cfg)
+	road(folder, anchor, cfg)
+	fences(folder, anchor, cfg)
+	treeLine(folder, anchor, cfg, templates)
+	lodge(folder, anchor, cfg, templates)
+	trucks(folder, anchor, cfg, templates)
 	local marker = spot(folder, anchor, cfg)
 
 	-- THE LODGE SPAWN. The engine's own lobby mechanism (`SpawnLocation` + `Player.RespawnLocation`,

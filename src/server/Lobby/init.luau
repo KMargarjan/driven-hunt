@@ -92,6 +92,14 @@ local stats = {
 	dismissals = 0,
 	returns = 0,
 	degradedEnrolments = 0,
+	-- WHICH LODGE AND WHICH TRUCKS GOT BUILT (task 180): how many free-model templates were cloned
+	-- and how many were asked for and not found. The boot prints them, so "the models are in" is a
+	-- line in the console and not an inspection.
+	models = 0,
+	fallbacks = 0,
+	-- ...and how many script instances a template carried in, which the owner must be able to report
+	-- too: `Build.stats()` is not reachable from the boot's log line (review round 1, note).
+	strippedScripts = 0,
 }
 
 function Lobby.stats()
@@ -151,7 +159,19 @@ local function tryBuild(): boolean
 		stats.grassCalls = grassCalls
 	end
 
-	local made, _marker, spawn, parts = Build.build(world.root or Workspace, seat, cfg)
+	-- THE FREE MODELS, FOUND ONCE, AT THE OWNER'S BOUNDARY (task 180). `Workspace.LobbyAssets` is
+	-- Studio content: it exists in the Forest Test place and not in the DEV one, so this answers an
+	-- Instance there and nil here, and `Build` takes the branch it is given. `world.templates` lets a
+	-- spec hand in a folder of its own without a Workspace at all -- the `world.root` seam exactly.
+	local templates = world.templates
+	if templates == nil then
+		templates = (world.root or Workspace):FindFirstChild(Data.TEMPLATES_NAME)
+	end
+	local made, _marker, spawn, parts = Build.build(world.root or Workspace, seat, cfg, templates)
+	local built = Build.stats()
+	stats.models = built.models
+	stats.fallbacks = built.fallbacks
+	stats.strippedScripts = built.strippedScripts
 	folder = made
 	spawnPart = spawn
 	spotAt = seat + cfg.SPOT.OFFSET

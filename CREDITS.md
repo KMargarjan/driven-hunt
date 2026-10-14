@@ -130,6 +130,34 @@ What was changed, and nothing else was:
   so the animal is 5.5 studs long — the length of the physics box it is welded to.
 - No vertex was added, moved relative to its neighbours, or removed, and no animation was edited.
 
+### The lobby's free Creator Store models (task 180, 2026-10-14)
+
+The hunting lodge Karen walks out of, the four trucks parked beside it, and the two trophy heads on
+its wall. All four are **free** Creator Store models, used in this experience under the Creator Store
+terms — which grant use *"in Roblox Studio and in Experiences on the Services"* — and none of them
+asks for a credit. **They are credited anyway**, because Karen's instruction for this task was to
+credit the creator *"even if not required"*, and because an unattributed free model is the kind of
+thing nobody can trace a year later.
+
+Nothing was re-uploaded and nothing was modified: each model is **inserted once into the place in
+Studio** and cloned at run time by `ServerScriptService.Lobby.Build`. The only changes the clone makes
+are to anchor every part and to strip any script instance (all four shipped with **none** — counted,
+not assumed).
+
+| What it is | Model | Creator | Asset |
+|---|---|---|---|
+| the lodge | Log Cabin | uhhhh17 | [4746497269](https://create.roblox.com/store/asset/4746497269) |
+| the four trucks | PickUp Truck (Prop) | RedWood Roleplay GROUP | [8891351929](https://create.roblox.com/store/asset/8891351929) |
+| the stag's head | Deer Head Wall Mount Trophy Decor Home | bell4hd | [101243188132816](https://create.roblox.com/store/asset/101243188132816) |
+| the boar's head | Boar Head | Atejime | [15282258007](https://create.roblox.com/store/asset/15282258007) |
+
+The lobby's tree line is cloned from `Workspace.OurForest` — the wood the drive already runs in —
+and is credited wherever that pack is credited; it is not a new third-party asset.
+
+There is no `assets/uploads.json` row for any of these, and there should not be: that file is *"one
+row per Open Cloud upload"*, and nothing here was uploaded. The route, the measurements and the
+rejected alternatives are in `docs/research/2026-10-14-lobby-free-models.md`.
+
 ## Code and libraries
 
 ### ProfileStore 1.0.3 — MadStudioRoblox (Apache-2.0)

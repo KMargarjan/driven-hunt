@@ -1,0 +1,62 @@
+Archived 2026-10-14, task 180 -- `Lobby.Build.track`, replaced by `Lobby.Build.road`.
+
+WHY (rule 7, archive with a note): Karen, 2026-10-14 ~09:30, verbatim: *"place could be a bit more
+nicer like road going to that house and around fields and forrests"*. `track` laid a 14-stud dirt
+lane running 110 studs SOUTH FROM THE TRUCK and a 14 x 40 yard spur; the lobby it was written for had
+ONE truck and no road to the lodge at all. `road` replaces it with a 20-stud lane with verges running
+the full depth of the shelf past the lodge's front, a yard wide enough for FOUR truck bays, and the
+same woodpile moved six studs west of the new yard. `CONFIG.TRACK` is left in place and unused for
+now: task 182 rebuilds this corner of the yard again and a removed config row would be a second
+change to review for nothing.
+
+Nothing else read `track`; a repo-wide grep for the name returns `Build.build` alone, and that call
+is now `road(folder, anchor, cfg)`.
+
+The source as it stood at 253d21f:
+
+-- ---------------------------------------------------------------- the track and the yard
+
+local function track(container: Instance, anchor: Vector3, cfg)
+	local folder = Instance.new("Folder")
+	folder.Name = "Track"
+	local width = cfg.TRACK.WIDTH_STUDS
+	local dirt = Color3.fromRGB(122, 102, 78)
+	-- ONE STRIP RUNNING SOUTH out of the yard, past the truck, and one spur across the front of the
+	-- lodge. Laid flush with the shelf, cosmetic, and never a thing a slug can stop in.
+	part(
+		"Lane",
+		Vector3.new(width, 0.4, cfg.TRACK.TO_Z),
+		CFrame.new(anchor.X + cfg.TRUCK.OFFSET.X, anchor.Y, anchor.Z + cfg.TRUCK.OFFSET.Z - cfg.TRACK.TO_Z / 2),
+		dirt,
+		cfg.TRACK.MATERIAL,
+		false,
+		folder
+	)
+	part(
+		"Yard",
+		Vector3.new(math.abs(cfg.TRUCK.OFFSET.X) + width, 0.4, width),
+		CFrame.new(anchor.X + cfg.TRUCK.OFFSET.X / 2, anchor.Y, anchor.Z + cfg.SPOT.OFFSET.Z),
+		dirt,
+		cfg.TRACK.MATERIAL,
+		false,
+		folder
+	)
+	-- A woodpile and a trough: the two pieces of field dressing that say somebody lives here.
+	for index = 1, 6 do
+		local pile = part(
+			string.format("Log%d", index),
+			Vector3.new(7, 1.6, 1.6),
+			CFrame.new(
+				anchor.X - 24,
+				anchor.Y + 0.8 + math.floor((index - 1) / 3) * 1.6,
+				anchor.Z + 34 + ((index - 1) % 3) * 1.7
+			),
+			Color3.fromRGB(118, 92, 62),
+			Enum.Material.Wood,
+			false,
+			folder
+		)
+		pile.Shape = Enum.PartType.Cylinder
+	end
+	folder.Parent = container
+end

@@ -40,6 +40,29 @@ local Lobby = {}
 Lobby.FOLDER_NAME = "Lobby"
 Lobby.SPOT_NAME = "TruckSpot"
 Lobby.SPAWN_NAME = "LodgeSpawn"
+-- THE STUDIO-MADE TEMPLATE FOLDER THE FREE MODELS LIVE IN (task 180), and the one name anything
+-- outside this system finds it by. `Workspace` is not Rojo-owned, so a model parked there survives
+-- Karen's Connect; `OurForest`, `Foliage` and the two `Session` folders in the same place are the
+-- same kind of content, put there the same way.
+--
+-- WHY A FOLDER IN THE WORLD AND NOT AN ASSET ID: measured, task 180 (note section 3).
+-- `InsertService:LoadAsset` refuses a free Creator Store model that its creator did not tick
+-- "distribute" (task 152: *"User is not authorized to access Asset."*), and the documented escape
+-- `AssetService.AllowInsertFreeAssets` is `RobloxScriptSecurity` on read AND write, so no script can
+-- take it. A `.model.json` cannot carry geometry either -- the harness fails a typed value
+-- (`{"Vector3": ...}`) as "cannot compare" (`tools/studio_mcp.py` docstring) -- and `.rbxm` is banned
+-- (CLAUDE.md). What is left, and what StudioMCP's `insert_asset` can do with no human click, is to
+-- insert the model into the place ONCE, in Edit, and have the run-time owner clone it.
+Lobby.TEMPLATES_NAME = "LobbyAssets"
+-- The four children `Build` looks for inside it. A missing one is not an error: the lodge, the truck
+-- and the trophies each fall back to task 177's parts build, one at a time.
+Lobby.TEMPLATE = {
+	LODGE = "Lodge",
+	TRUCK = "Truck",
+	DEER = "DeerHead",
+	BOAR = "BoarHead",
+	TREES = "Trees", -- a folder of tree models copied out of `Workspace.OurForest`
+}
 -- THE SHOP COUNTER (task 178). `Build.interior` builds it under `Lodge.Inside.Shop`, and this is the
 -- name both readers find it by.
 Lobby.COUNTER_NAME = "Counter"
@@ -113,12 +136,32 @@ Lobby.CONFIG = {
 		-- the lodge, the porch, the yard and the truck is the whole fix -- and it keeps the FIELD
 		-- grass, which is what makes the field read as a field from outside.
 		--
-		-- It is inside `FIELD` like everything else this module writes, and `lobby.spec` asserts that
-		-- with the same corner check as the other two blocks.
-		PAD = {
-			OFFSET = Vector3.new(6, 0, 38), -- between the lodge (z +32..+60) and the truck (z +10..+26)
-			SIZE = Vector3.new(80, 6, 60),
-			MATERIAL = Enum.Material.Ground,
+		-- TWO PADS SINCE TASK 180, AND THE SECOND ONE IS WHY THE ROAD IS VISIBLE AT ALL. The first
+		-- build of the road laid its slabs flush on the grass shelf and the screenshot came back with
+		-- a field and NO ROAD: the player was standing on it. Same cause as the floorboards above --
+		-- Roblox draws a grass material's blades on the terrain surface and a part laid over them does
+		-- not hide them -- so the road corridor gets its own blade-free block, and `Build.road` lifts
+		-- the slab to sit ON the shelf instead of half inside it.
+		--
+		-- A LIST, so a third pad is a row and not a third code path. Every entry's TOP is the shelf,
+		-- and `lobby.spec` holds all of them to the same rectangle the two big blocks are held to.
+		PADS = {
+			-- THE YARD: under the lodge, its porch, the spawn, the circle and all four truck bays. It
+			-- grew with the bays in task 180 (80 x 60 held one truck).
+			{
+				NAME = "Yard",
+				OFFSET = Vector3.new(26, 0, 30),
+				SIZE = Vector3.new(140, 6, 90),
+				MATERIAL = Enum.Material.Ground,
+			},
+			-- THE ROAD CORRIDOR: the lane, both verges and a stud either side, from the lodge's front
+			-- to the shelf's southern edge.
+			{
+				NAME = "Road",
+				OFFSET = Vector3.new(20, 0, -24),
+				SIZE = Vector3.new(34, 6, 160),
+				MATERIAL = Enum.Material.Ground,
+			},
 		},
 		-- HOW WIDE A CHUNK EACH `FillBlock` MAY BE, in studs along x. `MapGen.Ground`'s header
 		-- records a MEASURED `WriteVoxels` ceiling of 24,576 voxels per region in this Studio
@@ -154,6 +197,67 @@ Lobby.CONFIG = {
 		-- TASK 178 REPLACED THE PLACEHOLDER, which said "SHOP - coming soon" and is archived with its
 		-- reason in `backups/2026-10-14_task-178_lodge-sign.txt` (rule 7).
 		SIGN_TEXT = "SHOP",
+		-- THE FREE MODEL, AND THE MEASUREMENTS THAT POSITION WHAT GOES INSIDE IT (task 180).
+		-- "Log Cabin" by **uhhhh17**, Creator Store 4746497269, free: 266 parts, **no script of any
+		-- kind**, 23.1 x 15.9 x 30.9 studs as delivered, with a porch, steps, railings and windows.
+		-- Measured by raycast inside it: an interior FLOOR 3.3 studs above its own base and a CEILING
+		-- at 10.7, so a 7.4-stud room -- a character is about 5. Credited in `CREDITS.md`.
+		--
+		-- `SCALE` is applied with `Model:ScaleTo`, which scales a MeshPart's own geometry too (none
+		-- of these four models is skinned, so there is no `boar_prep.py` problem here). The two
+		-- heights below are the model's OWN numbers and this module multiplies them by `SCALE`:
+		-- writing the products instead would be two numbers that silently disagree the first time
+		-- the scale moves.
+		MODEL = {
+			SCALE = 1,
+			-- The model is delivered with its porch facing -Z, which is the way task 177's parts
+			-- lodge already faces, so there is no yaw to apply. Kept as a number so a replacement
+			-- model that faces another way is one edit here.
+			YAW_RADIANS = 0,
+			-- THE ROOM INSIDE IT, RAYCAST RATHER THAN READ OFF THE LISTING (task 180), relative to
+			-- the model's own bounding-box CENTRE in x and z and to its BASE in y, before `SCALE`.
+			-- The bounding box is not the room: 10.6 studs of the model's 30.9-stud depth is the
+			-- porch, which is why the room's centre sits 5 studs north of the box's.
+			--   east wall  x = +9.76   west wall  x = -10.01
+			--   back wall  z = +14.85  front wall z = -4.90
+			--   floor      y =  3.31   ceiling    y =  10.72
+			-- HALF_X AND HALF_Z BY NAME, not a `Vector2` whose `Y` secretly means z (review round 2,
+			-- note): both happen to be 9.8, so a swapped pair would be invisible.
+			ROOM = {
+				CENTRE = Vector3.new(-0.1, 3.3, 5.0),
+				HALF_X = 9.8,
+				HALF_Z = 9.8,
+				CEILING_Y = 10.7,
+			},
+		},
+	},
+	-- ---------------- the trophies on the wall
+	--
+	-- KAREN, 2026-10-14: *"and then on walls we can make trophys like head of deer head of boar"*.
+	-- Two free Creator Store models, both script-free: "Deer Head Wall Mount Trophy Decor Home" by
+	-- **bell4hd** (101243188132816, 26 parts, 5.0 x 5.4 x 2.9) and "Boar Head" by **Atejime**
+	-- (15282258007, 3 parts, 3.3 x 2.1 x 2.8). The boar head has no plaque of its own, so this
+	-- module builds it one -- a plank, which is what the parts build is for.
+	--
+	-- A MOUNT NAMES A WALL AND HOW FAR ALONG IT, never an absolute offset, so the same three rows
+	-- hang the same three heads on the free model's 19.6 x 19.6 room AND on task 177's 38 x 26 one.
+	-- An offset in studs would be right for exactly one of the two builds and silently wrong -- a
+	-- trophy half inside a wall -- for the other.
+	TROPHIES = {
+		HEIGHT_STUDS = 4.4, -- above the interior floor: above a standing player's head
+		PLAQUE = Vector3.new(3.4, 3.8, 0.5),
+		PLAQUE_COLOR = Color3.fromRGB(78, 56, 38),
+		CLEAR_STUDS = 0.7, -- how far the mount's face stands off the wall
+		-- THE SIDE WALLS, AND THE BACK WALL IS DELIBERATELY EMPTY. The first build hung two of the
+		-- three on the back wall and the inside shot showed why that is wrong: the fireplace stands
+		-- at `centre.X - halfX/2` on that wall and the shop counter at `+ halfX/2`, with the SHOP
+		-- sign above it -- so a head at -5.5 was half inside the chimney and one at +5.5 was behind
+		-- the sign. The back wall of this room is already fully spoken for.
+		MOUNTS = {
+			{ kind = "deer", wall = "west", along = -3 },
+			{ kind = "boar", wall = "east", along = -3 },
+			{ kind = "deer", wall = "east", along = 3 },
+		},
 	},
 	-- ---------------- the truck, the track, the spot
 	--
@@ -163,8 +267,99 @@ Lobby.CONFIG = {
 		SIZE = Vector3.new(7, 7, 16),
 		WHEELS = 4,
 		COLOR = Color3.fromRGB(46, 62, 44), -- hunting green
+		-- FOUR OF THEM, PARKED SIDE BY SIDE (the Director, task 180): one per party, with room
+		-- BEHIND each for task 182's queue pad. `OFFSET` above is bay 1 and `BAY_GAP_STUDS` steps
+		-- east from it, so task 177's single-truck geometry is still the first bay and the truck spot
+		-- still sits beside it -- 177's flow is unchanged until 182 replaces the spot with pads.
+		COUNT = 4,
+		BAY_GAP_STUDS = 17,
+		-- THE FREE MODEL: "PickUp Truck (Prop)" by **RedWood Roleplay GROUP**, Creator Store
+		-- 8891351929, free: 76 parts, **no script of any kind**, no VehicleSeat, 18.5 x 7.0 x 8.7
+		-- studs -- a prop, which is exactly what a parked truck in a lobby is. Four copies cost 304
+		-- parts, against 937 for the prettiest candidate and 617 for the next. Credited in
+		-- `CREDITS.md`.
+		--
+		-- IT IS DELIVERED POINTING ALONG ITS OWN +X, and the yard wants it pointing SOUTH down the
+		-- track, so a quarter turn. Written as a number for the same reason as the lodge's.
+		MODEL = { SCALE = 1, YAW_RADIANS = 1.5707963 },
+		-- WHERE TASK 182'S PAD WILL GO, said once, here, so that task moves nothing: 12 studs behind
+		-- the tailgate, which is where a man loading into the back would stand.
+		PAD_BEHIND_STUDS = 12,
 	},
 	TRACK = { WIDTH_STUDS = 14, TO_Z = 110, MATERIAL = Enum.Material.Ground },
+	-- ---------------- the road, the fences and the tree line: "a bit more nicer" (Karen)
+	--
+	-- KAREN, 2026-10-14: *"place could be a bit more nicer like road going to that house and around
+	-- fields and forrests"*.
+	--
+	-- THE ROAD STAYS INSIDE THE FIELD, AND THAT IS A MEASUREMENT AND NOT A PREFERENCE. `Field.fill`
+	-- flattens a 220 x 220 shelf and nothing else; the measured ground falls ~10 studs in the first
+	-- 110 studs south of the anchor and ~20 by 160 (task 180, raycast grid). A flat strip laid past
+	-- the shelf's edge would float exactly the way `docs/design/lobby.md` section 9 refuses a slab
+	-- lodge to, so the road runs from the lodge to the shelf's southern edge and stops there, where
+	-- the tree line closes the view anyway.
+	ROAD = {
+		WIDTH_STUDS = 20,
+		-- THICK ENOUGH TO SIT ON THE SHELF AND BE SEEN. `Build.road` centres the slab at
+		-- `shelfY + THICK_STUDS / 2`, so the whole of it is above the terrain rather than half
+		-- inside it (task 180, after the first road shot came back showing no road at all).
+		THICK_STUDS = 0.5,
+		-- PAST the lodge's front wall (z +32 for the parts build, +30.6 for the model) and under
+		-- its floor, so the lane reads as arriving AT the house rather than stopping short of it.
+		FROM_Z = 56,
+		TO_Z = -104, -- the field's southern edge (half-span 110, less a margin)
+		CENTRE_X = 20, -- between the lodge's front door and the truck bays
+		COLOR = Color3.fromRGB(128, 112, 88),
+		MATERIAL = Enum.Material.Ground,
+		-- THE VERGES: two strips of worn earth either side, which is what makes a road read as a
+		-- road rather than as a grey rectangle.
+		VERGE_STUDS = 3,
+		VERGE_COLOR = Color3.fromRGB(104, 92, 68),
+	},
+	-- A POST-AND-RAIL FENCE down both sides of the road, ENDING SOUTH OF THE YARD so the yard, the
+	-- porch and the lodge are open.
+	--
+	-- `TO_Z` IS A BOUND AND NOT A COUNT, and that is the whole of review round 2's blocking finding.
+	-- Written as `POSTS_PER_SIDE = 9` from `FROM_Z = -98` at 18 studs, the west line (`CENTRE_X` 20
+	-- less `OFF_ROAD_STUDS` 18 = x +2) ran to z +46 -- which is the LODGE's own centre. Post 9 stood
+	-- inside the cabin through its floorboards, post 8 in the middle of the porch two studs from the
+	-- doorway, and the rails lay across the spawn pad at knee height. The comment above already said
+	-- *"a gap at the yard"*; nothing implemented it. A southern limit cannot drift into the house the
+	-- way a count can: `Build.fences` walks from `FROM_Z` and stops at `TO_Z`.
+	FENCE = {
+		SPACING_STUDS = 18,
+		FROM_Z = -98,
+		-- The yard slab reaches z -4 (`TRUCK.OFFSET.Z` 18 less half of its 44-stud depth), so -8
+		-- leaves it four studs clear and the last rail ends there too.
+		TO_Z = -8,
+		OFF_ROAD_STUDS = 18, -- how far either side of the road's centre the line runs
+		POST = Vector3.new(0.9, 5, 0.9),
+		RAIL_Y = { 1.6, 3.4 },
+		RAIL_THICK = 0.5,
+		COLOR = Color3.fromRGB(96, 76, 54),
+	},
+	-- THE FOREST EDGE, AND IT IS THE FOREST'S OWN TREES (Karen: *"forrests"*; the Director: *"reuse
+	-- the forest's trees"*). `Workspace.LobbyAssets.Trees` is a folder of models copied out of
+	-- `Workspace.OurForest` in Studio, so the lobby's edge is the same wood the drive runs in rather
+	-- than a second kind of tree. No folder, no tree line -- it is scenery and it never blocks.
+	TREELINE = {
+		COUNT = 30,
+		RADIUS_STUDS = 100, -- just inside the field's half-span of 110
+		-- THE ARC THEY STAND ON: south-east round to south-west, so the trees frame the road and the
+		-- yard without ever standing between the porch and the forest that is really there to the
+		-- north.
+		-- THE ARC LEAVES A GAP DUE NORTH, and that was a bug before it was a decision: written as
+		-- -2.6 .. +2.6 it swept THROUGH angle 0, which IS north -- so the tree line stood between the
+		-- lodge and `OurForest`, the real wood 54 studs behind it, and left the road's approach open.
+		-- It runs east -> south -> west instead. The gap is +-34 degrees of north and no more, so
+		-- there ARE trees north-east and north-west of the lodge; what the gap protects is the view
+		-- straight out of the back of the lodge into the forest that is really there. 0 is north, pi
+		-- is south.
+		FROM_RADIANS = 0.6,
+		TO_RADIANS = 5.68,
+		JITTER_STUDS = 9,
+		SCALE = { 0.85, 1.35 },
+	},
 	SPOT = {
 		OFFSET = Vector3.new(16, 0, 18), -- beside the driver's door
 		RADIUS_STUDS = 8,
@@ -207,7 +402,12 @@ Lobby.CONFIG = {
 	SCAN_HZ = 10,
 	RETURN_COOLDOWN_SECONDS = 3,
 	BUILD_TIMEOUT_SECONDS = 10,
-	MAX_PARTS = 400,
+	-- THE BUDGET ROSE FROM 400 TO 1200 WITH THE FREE MODELS (task 180), and the arithmetic is written
+	-- down so the number is a bound and not a shrug: the lodge is 266 parts, four trucks 304, three
+	-- trophies 55, thirty trees about 150, and the road, verges, fences, ring, yard, sign, counter,
+	-- fireplace and spawn about 190 -- roughly 965, with headroom for a replacement model. The parts
+	-- fallback still builds about 330, so the old budget bound nothing that is still being built.
+	MAX_PARTS = 1200,
 }
 
 -- deepFreeze, REQUIRED and not copied: `table.freeze` is shallow, and this repo has already paid for
