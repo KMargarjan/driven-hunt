@@ -301,10 +301,18 @@ return function()
 			local direction = Vector3.new(0, 0, -1)
 			local request = { origin = origin, direction = direction }
 
-			-- THE AIM POINT, 714 STUDS OUT: 200 m at 0.28 m/stud, the distance Karen named. The
-			-- stub answers the FIRST cast (the camera ray) with a hit there and every later cast
-			-- with nothing, so the pellet ray is read rather than resolved against the real world.
-			local aimPoint = origin + direction * 714.29
+			-- THE AIM POINT, AS FAR OUT AS THE GUN IN HAND CAN REACH, and 714 studs -- 200 m at
+			-- 0.28 m/stud, the distance Karen named -- when it can reach that. It has to be INSIDE
+			-- that weapon's range or the "the ray gets there" claim below is false for a reason
+			-- that has nothing to do with aiming: the harness's player holds the SHOTGUN in a
+			-- one-player DEV run, and a 12-gauge slug stops at 330 studs. That cost a round.
+			-- The stub answers the FIRST cast (the camera ray) with a hit there and every later
+			-- cast with nothing, so the pellet ray is read rather than resolved against the world.
+			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
+			local row = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
+			local ammo = (snapshot :: any).loaded[(snapshot :: any).selected]
+			local reach = math.min(714.29, row.RANGE_STUDS[ammo] * 0.9)
+			local aimPoint = origin + direction * reach
 			local plate = Instance.new("Part")
 			plate.Name = "ShotSpecSightLinePlate"
 			local casts = {}
@@ -368,13 +376,9 @@ return function()
 				expect(Weapons.ROWS.rifle.RANGE_STUDS.Slug >= 714.29).to.equal(true)
 				return
 			end
-			-- WHICH GUN ANSWERED, because this case is driven by whatever the harness's player is
-			-- holding -- the shotgun in a one-player DEV run -- and the two claims below are the
-			-- OWNER'S, not one weapon's: the ray starts at the muzzle, and its only deviation from
-			-- the muzzle-to-aim-point line is the cone that weapon's own data declares.
-			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
-			local row = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
-			local ammo = (snapshot :: any).loaded[(snapshot :: any).selected]
+			-- THE CLAIMS BELOW ARE THE OWNER'S, not one weapon's: the ray starts at the muzzle,
+			-- and its only deviation from the muzzle-to-aim-point line is the cone that weapon's
+			-- own data declares.
 			local halfConeDeg = row.SPREAD_FULL_DEG[ammo] / 2
 
 			-- 1. THE FIRST CAST IS THE CLIENT'S RAY, unaltered: the server does not second-guess
@@ -402,9 +406,11 @@ return function()
 				worstDeg = math.max(worstDeg, angleDeg(casts[index].vector, idealAim))
 			end
 			expect(worstDeg <= halfConeDeg + 1e-6).to.equal(true)
-			-- ...and the pellet ray really does reach the aim point, which is the other half of
-			--    what task 183 found: a range under the distance aimed at is a shot that cannot
-			--    arrive however well it is pointed.
+			-- ...and the pellet ray is exactly as long as the ammo's declared range, and so really
+			--    does reach the aim point. That is the other half of what task 183 found: a range
+			--    under the distance aimed at is a shot that cannot arrive however well it is
+			--    pointed, and `RANGE_STUDS` is the one number that decides it.
+			expect(math.abs(casts[2].vector.Magnitude - row.RANGE_STUDS[ammo]) < 1e-3).to.equal(true)
 			expect(casts[2].vector.Magnitude >= (aimPoint - muzzle).Magnitude).to.equal(true)
 
 			TestKit.note(
