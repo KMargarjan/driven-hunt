@@ -1,21 +1,21 @@
 # Task 183 -- the rifle: more recoil, a heavy-calibre report, and a hit where the scope points at 200 m
 
 Task: 183
-Round: 1
+Round: 2
 Base: 6a49b6c (main)
-Code commit: 30674d902c94ba06f41ace337a1e604978b4fe8c
+Code commit: cb6fa7417d7cb903bcae10fabc165e119f95b251
 
 Harness, FULL, twice, clean tree, at the code commit:
 
 ```
-[harness] PASS: 33/33 checks @ 30674d902c94ba06f41ace337a1e604978b4fe8c (clean tree) scope=all
+[harness] PASS: 33/33 checks @ cb6fa7417d7cb903bcae10fabc165e119f95b251 (clean tree) scope=all
 [harness2] N/A
 ```
 
-`.agent-logs/task183-test1.log` and `.agent-logs/task183-test2.log`.
+`.agent-logs/task183-r2-test1.log` and `.agent-logs/task183-r2-test2.log`.
 
 **`test2` is N/A.** `git diff --name-only 6a49b6c..HEAD` is `src/shared/Rifle/init.luau`,
-`src/shared/Viewmodel/poses.json`, `tests/server/rifle.spec.luau`,
+`src/shared/Viewmodel/poses.json`, `src/client/Camera/init.luau`, `tests/server/rifle.spec.luau`,
 `tests/server/weapon_shot.spec.luau`, `tests/client/rifle_client.spec.luau`, plus `TASKS.md`,
 `PLAYTEST.md` and one research note. **No path in `TWO_PLAYER_PATHS` is touched** (Director,
 2026-10-03): no `src/server/Match/`, no `MatchBoot`, no `src/client/Match/`, no `src/shared/Drive/`,
@@ -55,8 +55,9 @@ a constant -2.80 cm along the ray. The "after" figures are measured perpendicula
    measured 4.97, 4.14 and 3.69 cm off the reticle, all of it that cone. Now 0.
    *Verify:* `Rifle.CONFIG.SPREAD_FULL_DEG`; `rifle.spec` -> "has NO random cone", which drives
    `Pattern.directions` over 50 seeds and bounds the worst angle by **the row's own**
-   `SPREAD_FULL_DEG / 2`, so a Director who later dials in 1.2 MOA changes data and not a test.
-   `Pattern.directions` needs no branch for zero: `cos(0)` is 1.
+   `SPREAD_FULL_DEG / 2`, so a cone that appears when the data says zero fails whatever the data
+   says. The datum itself is pinned at zero in exactly ONE place -- round 1's note counted three
+   copies, and the other two are gone. `Pattern.directions` needs no branch for zero: `cos(0)` is 1.
 
 3. **There was no muzzle parallax to fix, and now something says so.** `Weapon.onFireRequest` casts
    the client's ray to find the aim point and then aims the pellet ray **from the muzzle at that
@@ -66,8 +67,11 @@ a constant -2.80 cm along the ray. The "after" figures are measured perpendicula
    root so the muzzle cannot be on that ray by accident, and asserts: the first cast is the client's
    ray unaltered and as long as the ammo's range; every later cast starts at the muzzle; and no
    pellet is further off the muzzle-to-aim-point line than **the held weapon's own declared
-   half-cone**. Measured live with the shotgun: eye 5.90 studs from the muzzle, worst pellet 0.0766
-   degrees against the 0.080 its data allows.
+   half-cone**. Measured live with the shotgun, both round-2 runs: eye 5.87-5.90 studs from the
+   muzzle, worst pellet 0.0713 and 0.0766 degrees against the 0.080 its data allows -- i.e. the
+   whole deviation is the declared cone and none of it is parallax. Its two fallback branches no
+   longer assert tautologies (round 1's note): both now assert the rifle's own row, which can be
+   false.
 
 4. **The drawn reticle centre is the pixel the shot ray goes through.** The server shoots along
    `camera.CFrame.LookVector`, which passes through the viewport centre, so the mark is only honest
@@ -112,15 +116,29 @@ a constant -2.80 cm along the ray. The "after" figures are measured perpendicula
    shotgun" asserts the shape (an `rbxassetid://` id, a cut, a fade inside it, a pitch below 1) and
    the one comparison her sentence makes.
 
-9. **Only the rifle moved.** `git diff 6a49b6c..HEAD -- src/shared/Viewmodel/poses.json` touches
+9. **Only the rifle moved, and only paperwork follows the code commit.** `git diff 6a49b6c..HEAD -- src/shared/Viewmodel/poses.json` touches
    nine numbers, all under `weapons.rifle.fire`. `Shotgun.CONFIG` is untouched;
    `rifle.spec`'s existing field-by-field assertion of the shotgun's row against `Shotgun.CONFIG`
-   still passes. *Verify:* the diff, and the 33/33 runs.
+   still passes. The code commit `cb6fa74` is the one both harness lines name and is the last
+   commit that touched `src/`, `tests/` or `tools/`; everything after it is this file, `TASKS.md`'s
+   row 183 and `reviews/task-183/RESULT.md`. *Verify:* the diff, `git diff --name-only
+   cb6fa74..HEAD`, `.agent-evidence/paperwork-after-code-commit.txt`, and the 33/33 runs.
 
-10. **Only paperwork changed after the code commit.** The code commit `30674d9` is the one both
-    harness lines name and is at or after the last commit that touched `src/`, `tests/` or `tools/`
-    (`42269d7`). Everything after it is this file. *Verify:* `git diff --name-only 30674d9..HEAD`
-    and `.agent-evidence/paperwork-after-code-commit.txt`.
+10. **ROUND 1's BLOCKING FINDING: the rifle's kick never reached the player, and the Reviewer was
+    right.** `Camera.kick` read `Poses.config(Config)` -- no weapon id -- which answers for
+    `Viewmodel.DEFAULT_WEAPON`, the SHOTGUN, and `Mode.kick` is the only reader of the six RECOIL_*
+    numbers in the repo. So `weapons.rifle.fire` reached nothing: claim 6's 19 degrees arrived as
+    the shotgun's 8, clamped by the shotgun's own 12.5. `Camera.fire` had the same omission, so the
+    rifle's `fire.flash` and `fire.smoke` were the shotgun's too; it is the same line and is fixed
+    with it. Both now go through one named `Camera.fireConfig()`, beside `Camera.poseConfig()`.
+    *Verify:* `src/client/Camera/init.luau`, `Camera.fireConfig` and its two callers, and
+    `tests/client/rifle_client.spec.luau` -> describe "the kick belongs to the gun on screen",
+    which EQUIPS the rifle, waits for `Viewmodel.weaponId()`, waits for the springs to rest, kicks
+    once and reads the three numbers against `Viewmodel.view(DATA, "rifle")` -- and explicitly not
+    against the shotgun's -- restoring the held Tool before it asserts anything. Measured in both
+    runs: `drawn=rifle applied view 5.60 deg / gun 19.00 deg / back 0.680 studs (shotgun wants
+    2.10 / 8.00 / 0.280)`. `rifle.spec`'s "kicks harder than the shotgun" could not see this: it
+    asserts data relations, and the data was always right.
 
 ## What could NOT be verified
 
