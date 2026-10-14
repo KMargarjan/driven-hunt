@@ -1,15 +1,15 @@
 # Task 180: the lobby looks like a real place — free-model lodge, four trucks, trophies, a road, fences and a tree line
 
 Task: 180
-Round: 2
+Round: 3
 Base: main (`253d21f`, #162 merged — task 178's shop)
-Code commit: `6a0b3f41d156bcbe15ef46259eaf97643a22b945`
+Code commit: `7f4d4fe35b3a714a6af6c06b60a4d87442620c7e`
 
 Harness, FULL `test`, TWICE on a clean tree at the code commit:
 
 ```
-[harness] PASS: 33/33 checks @ 6a0b3f41d156bcbe15ef46259eaf97643a22b945 (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 6a0b3f41d156bcbe15ef46259eaf97643a22b945 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 7f4d4fe35b3a714a6af6c06b60a4d87442620c7e (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 7f4d4fe35b3a714a6af6c06b60a4d87442620c7e (clean tree) scope=all
 ```
 
 **`test2` is N/A and the reason is the explicit list.** The change touches
@@ -126,6 +126,38 @@ trophies: Plaque1 2840.3 / Plaque2 2859.4 / Plaque3 2859.4   (walls at 2840.1 an
 circle → `DHLobbyLeaveAt` set → enrolled → placed at the stand (3030, −2097), team Shooters,
 **Shotgun in the character**. Whole-session console: no "Stack Begin", no "attempt to", no "invalid
 argument", no error line.
+
+## Round 3: what changed
+
+**Round 2's one blocking finding was right and is fixed.** `POSTS_PER_SIDE = 9` from z −98 at 18
+studs put the WEST fence line (x +2, two studs off the lodge's own centre line) at z +46 — the
+lodge's centre. A post stood inside the cabin through its floorboards, one in the middle of the porch
+two studs from the doorway, and the rails lay across the `LodgeSpawn` pad at knee and waist height.
+`CONFIG.FENCE`'s own comment promised *"a gap at the yard so the road is open"* and nothing
+implemented it.
+
+A COUNT CAN WALK INTO THE HOUSE AND A BOUND CANNOT: `POSTS_PER_SIDE` is now `TO_Z = -8`, four studs
+south of the yard slab's own southern edge, and `fences` walks from `FROM_Z` and stops.
+*Verify:* `Lobby.CONFIG.FENCE`, `Build.fences`; and `lobby.spec`, *"keeps the fence line OUT of the
+yard, the porch, the spawn and the lodge, in BOTH builds"* — which asserts no `Fences` part reaches
+north of the yard's southern edge and none stands inside `Build.roomFor`'s rectangle. The field
+bound that was supposed to cover this is 110 studs away and passed it trivially, which is the note
+round 2 made about the same case.
+
+**Three notes fixed with it:** a tree may no longer stand in the YARD either (the arc's eastern end
+swings past the fourth bay — the same mistake as a tree in the road); `ROOM.HALF` is `HALF_X` /
+`HALF_Z` by name instead of a `Vector2` whose `Y` secretly meant z, where both being 9.8 made a swap
+invisible; and `cloneInstance`'s unseated branch corrects all three axes, so a replacement head with
+a `PrimaryPart` cannot hang off its plaque sideways. `ROAD.FROM_Z`'s comment now says what 56 is —
+past the front wall and under the floor — rather than "the lodge's front", which it is not.
+
+**Not taken, queued for the Director:** the `corners()` coverage on the road/tree case (the new fence
+case bounds the thing that mattered); `docs/design/lobby.md`'s `MAX_PARTS = 400` and track row
+(Architect's lane); and `CONFIG.TRACK`, dead until task 182.
+
+**Corrected from round 2's own paperwork (rule 8):** the pasted `ceiling y = 160.9` was wrong
+arithmetic on my part — `shelf 149.2 + 3.3 + (10.7 − 3.3)` is **159.9**. The conclusion is unchanged
+(the heads' tops are at 159.6, so they are under it either way), but the number was not the config's.
 
 ## Round 2: what changed
 
