@@ -808,7 +808,11 @@ SCOPE_SPECS = {
               # DUAL MEMBERSHIP, the idiom `zz_horn`, `boar_hit` and `shoot_boar` already use: the
               # lobby enrols through `Match.enrol` and empties the roster through `Match.dismissAll`,
               # so a lobby change plays the drive's own phase and live specs.
-              "tests/server/match_phase.spec.luau", "tests/server/match_live.spec.luau"),
+              "tests/server/match_phase.spec.luau", "tests/server/match_live.spec.luau",
+              # Task 182: the truck pads' size dialog. It is a CLIENT panel whose words, sizes and
+              # payload all come out of `ReplicatedStorage.Lobby`, so a change to the lobby's data
+              # can break it -- and `src/client/Hud/` resolves to `hud`, where it is named too.
+              "tests/client/pad_panel.spec.luau"),
     # The bots (task 161): the fill arithmetic, the lane geometry, and the rigs themselves.
     "bots": ("tests/server/bots_fill.spec.luau", "tests/server/bots_lane.spec.luau",
              "tests/server/bots_live.spec.luau"),
@@ -835,7 +839,10 @@ SCOPE_SPECS = {
             "tests/client/hud_clarity.spec.luau",
             # Task 178: the shop panel. `src/client/Hud/` already resolves to this scope, so only the
             # spec is named here -- the dual membership `shoot_boar` and `zz_horn` already use.
-            "tests/client/shop_panel.spec.luau"),
+            "tests/client/shop_panel.spec.luau",
+            # Task 182: the truck pads' size dialog, for the same reason and with the same dual
+            # membership -- it is also in `lobby`, because its words and sizes are the lobby's data.
+            "tests/client/pad_panel.spec.luau"),
     # The report's geometry is asserted against `Boar.CONFIG`, so a boar zone box that moves reaches
     # this spec too -- which is why it is in the `boar` scope as well.
     "report": ("tests/server/report_silhouette.spec.luau", "tests/client/report_panel.spec.luau"),

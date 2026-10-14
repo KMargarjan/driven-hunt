@@ -52,6 +52,10 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Data = require(ReplicatedStorage:WaitForChild("Lobby"))
+-- THE PADS' GEOMETRY AND THEIR WORDS, BOTH PURE (task 182). `Pads.centreFor` is the ONE place
+-- "where is pad 3" is computed -- this module and the owner both call it, which is what task 177
+-- failed to do for the circle (the same `anchor + cfg.SPOT.OFFSET` expression lived in two files).
+local Pads = require(script.Parent.Pads)
 
 local Build = {}
 
@@ -97,6 +101,10 @@ local stats = {
 	strippedScripts = 0,
 	keepers = 0,
 	keeperDressed = 0,
+	-- HOW MANY TIMES A PAD'S BILLBOARD OR ATTRIBUTES WERE ACTUALLY WRITTEN (task 182). `Build.setPad`
+	-- is edge-triggered, so a number that climbs with the owner's `scans` is the bug this counter
+	-- exists to show -- `keeperTurns`' own rule, one owner over.
+	padWrites = 0,
 }
 
 function Build.stats()
@@ -1167,83 +1175,215 @@ local function trucks(container: Instance, anchor: Vector3, cfg, templates: Inst
 	return folder
 end
 
--- ---------------------------------------------------------------- the marked circle
+-- ---------------------------------------------------------------- the four truck pads (task 182)
 
--- THE RING IS `ForestTest.Markers.RING`'S, BORROWED WHOLE, so the lobby's circle and the hunter's
--- stand circle are the same piece of UI language -- twenty neon chords lifted clear of the ground in
--- hunting orange. Two circles drawn two different ways would teach a player two things.
+-- KAREN, 2026-10-14: *"has to be coloroude circle like in all games or rectangle where people stand
+-- ... and can be several truck like 4 of them nicly aligned next ot each other and you come to truck
+-- back rectangle"*.
 --
--- THE CHORD RATHER THAN THE TANGENT, which is `Markers.ring`'s own rule: consecutive segments share
--- an endpoint exactly, so the ring cannot gap however `SEGMENTS` is changed.
+-- IT REPLACES TASK 177'S SINGLE CIRCLE, archived with its reason in
+-- `backups/2026-10-14_task-182_the-marked-circle.txt` (rule 7).
 --
--- NO GROUND READER HERE, and that is the difference from the stand's ring: this circle lies on the
--- lobby's own FLAT shelf, whose height is one number. A raycast per segment would be measuring a
--- surface this system built itself.
-local function spot(container: Instance, anchor: Vector3, cfg): BasePart
-	local folder = Instance.new("Folder")
-	folder.Name = "Spot"
-	-- ON TOP OF THE YARD, NOT INSIDE IT (review round 1, finding 2). `road` lays its slabs ON the
-	-- shelf now, and the yard covers the whole circle -- so a ring lifted 0.08 studs off the SHELF
-	-- sat 0.42 studs inside an opaque slab, and the lobby had a sign reading "STAND HERE TO HUNT"
-	-- with nothing to stand in. The circle's floor is the road surface, so that is what it is lifted
-	-- from. Task 177 got away with the old number because the grass blades hid the slab; the road
-	-- pad removes the blades, which is what made this visible rather than what caused it.
-	local centre = anchor + cfg.SPOT.OFFSET + Vector3.new(0, cfg.ROAD.THICK_STUDS, 0)
-	local ring = cfg.SPOT.RING
-	local radius = cfg.SPOT.RADIUS_STUDS
-	local step = 2 * math.pi / ring.SEGMENTS
-	local chord = 2 * radius * math.sin(step / 2)
-	for index = 1, ring.SEGMENTS do
-		local a, b = (index - 1) * step, index * step
-		local fromX, fromZ = centre.X + math.cos(a) * radius, centre.Z + math.sin(a) * radius
-		local toX, toZ = centre.X + math.cos(b) * radius, centre.Z + math.sin(b) * radius
-		local midX, midZ = (fromX + toX) / 2, (fromZ + toZ) / 2
-		local seat = Vector3.new(midX, centre.Y + ring.LIFT_STUDS, midZ)
-		local along = Vector3.new(toX - fromX, 0, toZ - fromZ)
-		local segment = part(
-			string.format("Seg%d", index),
-			Vector3.new(chord, ring.HEIGHT_STUDS, ring.THICKNESS_STUDS),
-			CFrame.lookAt(seat, seat + along.Unit, Vector3.yAxis) * CFrame.Angles(0, math.pi / 2, 0),
-			ring.COLOR,
-			Enum.Material.Neon,
-			false,
-			folder
-		)
-		segment.Transparency = ring.TRANSPARENCY
+-- THE GLOWING EDGE IS `SPOT.RING`'S LANGUAGE WITH CORNERS INSTEAD OF A CURVE -- neon, lifted clear of
+-- the deck, in the pad's own colour -- so the lobby's pads and the hunter's stand circle are still the
+-- same piece of UI language. Two marks drawn two different ways would teach a player two things.
+--
+-- NO GROUND READER, and it is the circle's own stated reason: these rectangles lie on the lobby's own
+-- FLAT shelf, whose height is one number, so a raycast per corner would be measuring a surface this
+-- system built itself.
+
+-- THE PADS, REMEMBERED, for `Build.keeper`'s stated reason: the owner's 10 Hz scan writes a
+-- billboard and two attributes without finding the part again, and a spec can ask for one without a
+-- `Workspace`. They are instances this module built and not decisions -- `Build.setPad` is the one
+-- writer of what a pad SAYS, and WHAT it says is `Lobby.step`'s to decide, which is
+-- `Build.faceKeeper`'s arrangement exactly.
+local padParts: { [number]: BasePart } = {}
+
+function Build.padPart(index: number): BasePart?
+	local held = padParts[index]
+	if held ~= nil and held:IsDescendantOf(game) then
+		return held
 	end
+	padParts[index] = nil
+	return nil
+end
 
-	-- THE NAMED PART THE CLIENT READS (design section 10.3). Invisible, unqueryable, and the ONE
-	-- definition of where the truck spot is: the server builds it, the Hud's chevron reads it, and
-	-- nobody computes the position twice.
-	local marker = part(
-		Data.SPOT_NAME,
-		Vector3.new(radius * 2, 0.4, radius * 2),
+-- ONE PAD: a coloured rectangle on the ground, a glowing edge round it, and a billboard over it.
+--
+-- THE DECK *IS* THE NAMED PART. There is no second invisible marker: the part the rule reads, the
+-- part the client finds, the part the attributes live on and the thing Karen looks at are one
+-- instance, so they cannot drift apart. `CanQuery` and `CanTouch` are false -- a pellet must not stop
+-- on it and `Touched` must never fire, because presence here is arithmetic (`Join.withinRect`) -- and
+-- `CanCollide` is false so a player stands on the road under it rather than stepping up onto a kerb.
+local function pad(container: Instance, anchor: Vector3, index: number, cfg): BasePart
+	local config = cfg.PADS
+	local folder = Instance.new("Folder")
+	folder.Name = string.format("Pad%d", index)
+	local centre = Pads.centreFor(anchor, index, cfg)
+	local size = config.SIZE
+	-- WRAPPED, so a fifth bay cannot index past the end of the colour list.
+	local colour = config.COLOURS[(index - 1) % #config.COLOURS + 1]
+
+	local deck = part(
+		Data.padPartName(index) or string.format("Pad%d", index),
+		size,
 		CFrame.new(centre),
-		ring.COLOR,
+		colour,
 		Enum.Material.SmoothPlastic,
 		false,
 		folder
 	)
-	marker.Transparency = 1
+	deck.Transparency = config.TRANSPARENCY
 
-	-- THE SIGN, on a post beside the circle.
-	post(
-		"SignPost",
-		1,
-		9,
-		Vector3.new(centre.X, anchor.Y + 4.5, centre.Z - radius - 1),
-		Color3.fromRGB(96, 72, 48),
-		folder
-	)
-	sign(
-		"SpotSign",
-		Vector3.new(11, 3.2, 0.4),
-		CFrame.new(centre.X, anchor.Y + 9.6, centre.Z - radius - 1),
-		cfg.SPOT.SIGN_TEXT,
-		folder
-	)
+	-- THE GLOWING EDGE: four neon bars, the long pair along x and the short pair along z, each
+	-- standing ON the deck's top rather than inside it. The deck's top is
+	-- `centre.Y + SIZE.Y / 2`, which is the one surface in this build that is above every yard slab.
+	local topY = centre.Y + size.Y / 2
+	local railY = topY + config.RIM_HEIGHT_STUDS / 2
+	local halfX, halfZ = size.X / 2, size.Z / 2
+	local rails = {
+		{ name = "RimN", size = Vector3.new(size.X, config.RIM_HEIGHT_STUDS, config.RIM_STUDS), dx = 0, dz = halfZ },
+		{ name = "RimS", size = Vector3.new(size.X, config.RIM_HEIGHT_STUDS, config.RIM_STUDS), dx = 0, dz = -halfZ },
+		{ name = "RimE", size = Vector3.new(config.RIM_STUDS, config.RIM_HEIGHT_STUDS, size.Z), dx = halfX, dz = 0 },
+		{ name = "RimW", size = Vector3.new(config.RIM_STUDS, config.RIM_HEIGHT_STUDS, size.Z), dx = -halfX, dz = 0 },
+	}
+	for _, rail in ipairs(rails) do
+		part(
+			rail.name,
+			rail.size,
+			CFrame.new(centre.X + rail.dx, railY, centre.Z + rail.dz),
+			colour,
+			Enum.Material.Neon,
+			false,
+			folder
+		)
+	end
+
+	-- THE BOARD OVER IT -- the community pad's own arrangement (note section 2c): the count and the
+	-- state are drawn where the man walking across the yard can read them, in the WORLD, and not on
+	-- his screen. The Hud owns the screen (`docs/design/hud-clarity.md`) and this is the one thing in
+	-- this task that is deliberately not on it.
+	--
+	--   BillboardGui  https://create.roblox.com/docs/reference/engine/classes/BillboardGui
+	--     `Adornee` + `StudsOffsetWorldSpace` hangs it over the pad with no script and nothing
+	--     written per frame, and `MaxDistance` is a property rather than a distance check of ours.
+	--
+	-- `AlwaysOnTop = false`, so the truck in front of it occludes it properly and the board is part of
+	-- the world rather than painted over everything.
+	local board = Instance.new("BillboardGui")
+	board.Name = "Board"
+	board.Adornee = deck
+	board.Size = UDim2.fromOffset(config.BILLBOARD.SIZE_PX.X, config.BILLBOARD.SIZE_PX.Y)
+	board.StudsOffsetWorldSpace = Vector3.new(0, config.BILLBOARD.OFFSET_STUDS, 0)
+	board.MaxDistance = config.BILLBOARD.MAX_DISTANCE_STUDS
+	board.AlwaysOnTop = false
+	board.LightInfluence = 0
+	board.Parent = deck
+
+	local function boardLabel(name: string, textSize: number, y: number, tint: Color3)
+		local text = Instance.new("TextLabel")
+		text.Name = name
+		text.BackgroundTransparency = 1
+		text.Font = Enum.Font.Code
+		text.TextSize = textSize
+		text.TextColor3 = tint
+		text.Text = ""
+		text.Position = UDim2.fromOffset(0, y)
+		text.Size = UDim2.new(1, 0, 0, textSize + 6)
+		-- THE SAME BLACK OUTLINE every label in this game wears: over a sunlit field a thin `Code`
+		-- glyph with no stroke is the half of the text that disappears first (`ShopPanel.label`).
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 2
+		stroke.Color = Color3.new(0, 0, 0)
+		stroke.Parent = text
+		text.Parent = board
+	end
+	boardLabel("Truck", config.BILLBOARD.TRUCK_PX, 0, colour)
+	boardLabel("Count", config.BILLBOARD.COUNT_PX, config.BILLBOARD.TRUCK_PX + 6, Color3.fromRGB(246, 240, 230))
+
 	folder.Parent = container
-	return marker
+	padParts[index] = deck
+	return deck
+end
+
+-- ALL FOUR PADS, one behind each bay, in `TRUCK.COUNT`'s own loop -- so four trucks and three pads
+-- cannot happen. Returns them in pad order, and `Build.build` hands pad 1 back as the marker its
+-- signature has always carried.
+local function pads(container: Instance, anchor: Vector3, cfg): { BasePart }
+	local folder = Instance.new("Folder")
+	folder.Name = "Pads"
+	local made: { BasePart } = {}
+	for index = 1, cfg.TRUCK.COUNT do
+		table.insert(made, pad(folder, anchor, index, cfg))
+	end
+	folder.Parent = container
+	return made
+end
+
+Build.pads = pads
+
+-- THE ONE WRITER OF WHAT A PAD SAYS AND OF ITS TWO ATTRIBUTES, and it is here rather than in the
+-- owner because this module is *"the one writer of every part in `Workspace.Lobby`"* -- an attribute
+-- on one of its parts included. `Build.faceKeeper`'s arrangement for the same reason: the owner
+-- DECIDES (it holds the pad states) and this writes.
+--
+-- IT RETURNS WHETHER IT WROTE ANYTHING, so `stats.padWrites` counts EDGES. A pad standing empty
+-- costs four comparisons a scan and no replication at all, and a counter that climbs with the
+-- owner's `scans` is a bug `lobby_live.spec` catches.
+--
+-- THE TWO ATTRIBUTES ARE THE WHOLE OUTBOUND WIRE (design section 8.1): `DHPadState` is the state
+-- word and `DHPadFirst` is the userId who may pick, which is the dialog's entire visibility rule.
+function Build.setPad(index: number, state: string, firstUserId: number?, count: number, size: number?): boolean
+	local deck = Build.padPart(index)
+	if deck == nil then
+		return false
+	end
+	local board = (deck :: BasePart):FindFirstChild("Board")
+	local truckLabel = if board then board:FindFirstChild("Truck") else nil
+	local countLabel = if board then board:FindFirstChild("Count") else nil
+	if
+		not (truckLabel ~= nil and truckLabel:IsA("TextLabel") and countLabel ~= nil and countLabel:IsA("TextLabel"))
+	then
+		return false
+	end
+	local cfg = Data.CONFIG
+	local words = cfg.PADS.BILLBOARD
+	local truckText = string.format(words.TRUCK, index)
+	local countText = if size == nil
+		then string.format(words.COUNT_UNSET, count)
+		else string.format(words.COUNT, count, size :: number)
+	local wrote = false
+	if (truckLabel :: TextLabel).Text ~= truckText then
+		(truckLabel :: TextLabel).Text = truckText
+		wrote = true
+	end
+	if (countLabel :: TextLabel).Text ~= countText then
+		(countLabel :: TextLabel).Text = countText
+		wrote = true
+	end
+	if (deck :: BasePart):GetAttribute(Data.PAD_STATE_ATTRIBUTE) ~= state then
+		(deck :: BasePart):SetAttribute(Data.PAD_STATE_ATTRIBUTE, state)
+		wrote = true
+	end
+	if (deck :: BasePart):GetAttribute(Data.PAD_FIRST_ATTRIBUTE) ~= firstUserId then
+		(deck :: BasePart):SetAttribute(Data.PAD_FIRST_ATTRIBUTE, firstUserId)
+		wrote = true
+	end
+	if wrote then
+		stats.padWrites += 1
+	end
+	return wrote
+end
+
+-- WHAT IS ACTUALLY WRITTEN OVER PAD n, for a spec and a console probe to read instead of guessing --
+-- `ShopPanel.rowText`'s seam, on the server's side of the game.
+function Build.padLabel(index: number): (string, string)
+	local deck = Build.padPart(index)
+	local board = if deck then (deck :: BasePart):FindFirstChild("Board") else nil
+	local truckLabel = if board then board:FindFirstChild("Truck") else nil
+	local countLabel = if board then board:FindFirstChild("Count") else nil
+	return (if truckLabel ~= nil and truckLabel:IsA("TextLabel") then (truckLabel :: TextLabel).Text else ""),
+		(if countLabel ~= nil and countLabel:IsA("TextLabel") then (countLabel :: TextLabel).Text else "")
 end
 
 -- ---------------------------------------------------------- the road, the fences, the trees
@@ -1463,9 +1603,14 @@ function Build.build(
 	stats.strippedScripts = 0
 	stats.keepers = 0
 	stats.keeperDressed = 0
+	stats.padWrites = 0
 	-- THE OLD KEEPER WENT WITH THE OLD FOLDER. Dropped here rather than relied on, so a rebuild can
 	-- never leave `Build.faceKeeper` turning a body that is no longer in the DataModel.
 	keeper = nil
+	-- ...AND SO DID THE OLD PADS (task 182), for the same reason: `Build.setPad` must never write a
+	-- billboard on a deck that is no longer in the DataModel, which is what `padPart`'s own
+	-- `IsDescendantOf` check would otherwise have to catch one scan late.
+	table.clear(padParts)
 	local folder = Instance.new("Folder")
 	folder.Name = Data.FOLDER_NAME
 
@@ -1474,7 +1619,11 @@ function Build.build(
 	treeLine(folder, anchor, cfg, templates)
 	lodge(folder, anchor, cfg, templates, seams)
 	trucks(folder, anchor, cfg, templates)
-	local marker = spot(folder, anchor, cfg)
+	-- FOUR PADS, AND PAD 1 IS THE `marker` THIS FUNCTION HAS ALWAYS RETURNED (task 182): its part is
+	-- still named `Lobby.SPOT_NAME`, so `Lobby.spotPart`, the Hud's chevron and the Director's
+	-- `smoke.sh` all keep working with no edit.
+	local made = pads(folder, anchor, cfg)
+	local marker = made[1]
 
 	-- THE LODGE SPAWN. The engine's own lobby mechanism (`SpawnLocation` + `Player.RespawnLocation`,
 	-- design section 14.1):

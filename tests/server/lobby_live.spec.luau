@@ -23,9 +23,23 @@ local Workspace = game:GetService("Workspace")
 local Data = require(ReplicatedStorage:WaitForChild("Lobby"))
 local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
 
+local Pads = Lobby.Pads
+
 local CFG = Data.CONFIG
 local ANCHOR = Data.anchorFor("forest-test") :: any
 local SHELF = 153
+
+-- WHERE PAD n IS IN THIS SPEC'S WORLD, through the ONE function that knows (task 182) -- so a retune
+-- of `SIZE` or `PAD_BEHIND_STUDS` moves the spec's occupants with the slabs instead of leaving them
+-- standing in the gap.
+local function padAt(index: number): Vector3
+	return Pads.centreFor(Vector3.new(ANCHOR.x, SHELF, ANCHOR.z), index, CFG)
+end
+
+-- HOW LONG FROM STEPPING ON AN EMPTY PAD TO THE PARTY LEAVING, with no pick at all: the pick
+-- timeout, then the countdown, plus a scan of slack for each edge because `Pads.step` applies ONE
+-- transition per call.
+local SOLO_SECONDS = CFG.PADS.PICK_TIMEOUT_SECONDS + CFG.COUNTDOWN_SECONDS + 3 / CFG.SCAN_HZ
 
 -- A PLAYER-SHAPED THING with a root part and the two methods the lobby touches. It is NOT a Player:
 -- the lobby keys by `UserId` and only ever reads `Character.PrimaryPart`, sets one attribute and
@@ -323,60 +337,283 @@ return function()
 			expect((player.RespawnLocation :: Instance).Name).to.equal(Data.SPAWN_NAME)
 		end)
 
-		it("starts a deadline on his own Player when he steps in, and clears it when he steps out", function()
+		it("asks the first man on a pad, through the pad's own two attributes and nothing else", function()
+			-- TASK 182: STEPPING ON NO LONGER STARTS A CLOCK OF HIS OWN. It starts the PAD, and the
+			-- pad asks him how many -- which reaches his client as two attributes on the pad's own
+			-- part and not as a message.
 			local seen = fresh(bin)
 			Lobby.step(1000, {})
-			local spot = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z) + CFG.SPOT.OFFSET
-			local player = occupant(22, spot, bin)
+			local player = occupant(22, padAt(2), bin)
 			Lobby.step(1001, { player })
-			-- ONE ATTRIBUTE, written by the server, counted down by his own client. No new wire.
-			local deadline = player.attributes[Data.LEAVE_AT_ATTRIBUTE]
-			expect(type(deadline)).to.equal("number")
+			local pad = Lobby.padOf(2)
+			expect(pad.state).to.equal(Pads.SIZING)
+			expect(pad.firstUserId).to.equal(22)
+			expect(pad.size).to.equal(nil)
 			expect(#seen.enrolled).to.equal(0)
-			-- ...AND WRITTEN ONCE, ON THE EDGE (review round 1, note 3). It used to be rewritten on
-			-- every scan -- ~50 replicated writes per walk-in, each recomputing the same deadline.
-			Lobby.step(1001.5, { player })
-			Lobby.step(1001.8, { player })
-			expect(player.attributes[Data.LEAVE_AT_ATTRIBUTE]).to.equal(deadline)
-
-			player.root.Position = spot + Vector3.new(40, 0, 0)
-			Lobby.step(1002, { player })
+			-- THE ATTRIBUTES ARE ON THE PART, AND `Lobby.padAsking` IS WHAT THE CLIENT ASKS.
+			local deck = Lobby.Build.padPart(2) :: BasePart
+			expect(deck:GetAttribute(Data.PAD_STATE_ATTRIBUTE)).to.equal(Pads.SIZING)
+			expect(deck:GetAttribute(Data.PAD_FIRST_ATTRIBUTE)).to.equal(22)
+			expect(Data.padAsking(22)).to.equal(2)
+			expect(Data.padAsking(999)).to.equal(nil)
+			-- AND NO COUNTDOWN YET: `DHLobbyLeaveAt` belongs to the `filling -> countdown` edge.
 			expect(player.attributes[Data.LEAVE_AT_ATTRIBUTE]).to.equal(nil)
+			-- ...THE BILLBOARD SAYS `1 / -`, because nobody has picked and that is not a party of nought.
+			expect(select(2, Lobby.Build.padLabel(2))).to.equal(string.format(CFG.PADS.BILLBOARD.COUNT_UNSET, 1))
+
+			-- HE STEPS OFF: the pad empties, everything is taken back, nobody is enrolled.
+			player.root.Position = padAt(2) + Vector3.new(0, 0, 60)
+			Lobby.step(1002, { player })
+			expect(Lobby.padOf(2).state).to.equal(Pads.EMPTY)
+			expect(deck:GetAttribute(Data.PAD_FIRST_ATTRIBUTE)).to.equal(nil)
+			expect(Data.padAsking(22)).to.equal(nil)
 			expect(#seen.enrolled).to.equal(0)
 			expect(Lobby.stats().cancels).to.equal(1)
 		end)
 
-		it("enrols him exactly once after the countdown, with his respawn point cleared first", function()
+		it("gives every member of a departing party the SAME deadline, once, on the edge", function()
 			local seen = fresh(bin)
 			Lobby.step(1000, {})
-			local spot = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z) + CFG.SPOT.OFFSET
-			local player = occupant(23, spot, bin)
-			Lobby.step(1001, { player })
+			local a = occupant(31, padAt(3), bin)
+			local b = occupant(32, padAt(3) + Vector3.new(2, 0, 2), bin)
+			Lobby.step(1001, { a, b })
+			-- A PICK OF TWO, FROM THE MAN THE PAD ASKED: the pad is full the moment it is sized.
+			expect(Lobby.onPadRequest(a, { pad = 3, size = 2 }, 1001.1).ok).to.equal(true)
+			Lobby.step(1001.2, { a, b })
+			local pad = Lobby.padOf(3)
+			expect(pad.state).to.equal(Pads.COUNTDOWN)
+			-- ONE DEADLINE, SHARED. Task 177 gave each man his own clock; a party of two watching two
+			-- different numbers would be two answers to "how long until I go".
+			local first = a.attributes[Data.LEAVE_AT_ATTRIBUTE]
+			local second = b.attributes[Data.LEAVE_AT_ATTRIBUTE]
+			expect(type(first)).to.equal("number")
+			expect(second).to.equal(first)
 			expect(#seen.enrolled).to.equal(0)
-			Lobby.step(1001 + CFG.COUNTDOWN_SECONDS, { player })
+			-- ...AND WRITTEN ONCE, ON THE EDGE (task 177 review round 1, note 3). It used to be
+			-- rewritten every scan -- ~50 replicated writes per walk-in, each recomputing the same
+			-- number.
+			Lobby.step(1001.5, { a, b })
+			Lobby.step(1001.8, { a, b })
+			expect(a.attributes[Data.LEAVE_AT_ATTRIBUTE]).to.equal(first)
+
+			-- BOTH GO, ONE `enrol` EACH, AND NO FIFTH CALL ON THE NEXT SCAN.
+			Lobby.step(1001.2 + CFG.COUNTDOWN_SECONDS, { a, b })
+			expect(#seen.enrolled).to.equal(2)
+			seen.inDrive[31] = true
+			seen.inDrive[32] = true
+			Lobby.step(1001.4 + CFG.COUNTDOWN_SECONDS, { a, b })
+			Lobby.step(1001.6 + CFG.COUNTDOWN_SECONDS, { a, b })
+			expect(#seen.enrolled).to.equal(2)
+			expect(Lobby.stats().departures).to.equal(1)
+			-- THE PAD EMPTIES BY ITSELF, because a man the drive has is left out of its member list.
+			expect(Lobby.padOf(3).state).to.equal(Pads.EMPTY)
+		end)
+
+		it("takes a pick only from the man it asked, on the pad he is standing on, while it is asking", function()
+			local seen = fresh(bin)
+			Lobby.step(1000, {})
+			local first = occupant(51, padAt(1), bin)
+			local other = occupant(52, padAt(1) + Vector3.new(2, 0, 0), bin)
+			local away = occupant(53, padAt(4), bin)
+			Lobby.step(1001, { first, other, away })
+			expect(Lobby.padOf(1).firstUserId).to.equal(51)
+
+			-- A FORGED PAYLOAD IS COUNTED AS A FORGERY AND CHANGES NOTHING, and `refusedBy` stays
+			-- empty -- `Weapon.stats`' own split, because counting a forgery as a refusal would hide
+			-- a mis-wired client inside a game rule.
+			local forged = {
+				nil,
+				"x",
+				{},
+				{ pad = 99, size = 4 },
+				{ pad = 1, size = 3 },
+				{ pad = 1, size = "4" },
+				{ pad = 1.5, size = 4 },
+			}
+			for index = 1, 7 do
+				local reply = Lobby.onPadRequest(first, forged[index], 1001 + index * 0.3)
+				expect(reply.ok).to.equal(false)
+				expect(reply.refused).to.equal("bad-request")
+			end
+			expect(Lobby.stats().badRequests).to.equal(7)
+			expect(next(Lobby.stats().refusedBy)).to.equal(nil)
+			expect(Lobby.padOf(1).size).to.equal(nil)
+
+			-- A LEGAL PICK FROM THE WRONG MAN: refused by NAME, counted as a refusal and not a forgery.
+			local notFirst = Lobby.onPadRequest(other, { pad = 1, size = 4 }, 1010)
+			expect(notFirst.refused).to.equal("not-first")
+			expect(Lobby.stats().refusedBy["not-first"]).to.equal(1)
+			expect(Lobby.stats().badRequests).to.equal(7)
+			expect(Lobby.padOf(1).size).to.equal(nil)
+
+			-- A PICK FOR A PAD HE IS NOT STANDING ON, measured off the character the SERVER can see
+			-- and never from the payload.
+			local elsewhere = Lobby.onPadRequest(away, { pad = 1, size = 4 }, 1011)
+			expect(elsewhere.refused).to.equal("not-on-pad")
+
+			-- THE REAL ONE.
+			local ok = Lobby.onPadRequest(first, { pad = 1, size = 4 }, 1012)
+			expect(ok.ok).to.equal(true)
+			expect(ok.size).to.equal(4)
+			expect(Lobby.padOf(1).size).to.equal(4)
+			expect(Lobby.padOf(1).state).to.equal(Pads.FILLING)
+			expect(select(2, Lobby.Build.padLabel(1))).to.equal("2 / 4")
+			-- ...AND A SECOND ONE IS TOO LATE: the pad has moved on, which is a stale client and not
+			-- a forged one.
+			expect(Lobby.onPadRequest(first, { pad = 1, size = 2 }, 1013).refused).to.equal("too-late")
+
+			-- RATE-LIMITED. A person cannot press a button four times a second, so a second request
+			-- inside the interval is not answered at all.
+			expect(Lobby.onPadRequest(first, { pad = 1, size = 2 }, 1013.05)).to.equal(nil)
+			expect(Lobby.stats().rateLimited).to.equal(1)
+			expect(#seen.enrolled).to.equal(0)
+		end)
+
+		it("defaults the pick to one and sends him alone, which is the unattended path", function()
+			-- THE PATH THE DIRECTOR'S SMOKE CHECK TAKES: pivot a man onto `TruckSpot`, press nothing,
+			-- and the drive has him 13 seconds later (design section 15.4).
+			local seen = fresh(bin)
+			Lobby.step(1000, {})
+			local player = occupant(61, padAt(1), bin)
+			Lobby.step(1001, { player })
+			local at = 1001
+			while at < 1001 + SOLO_SECONDS do
+				at += 1 / CFG.SCAN_HZ
+				Lobby.step(at, { player })
+			end
+			expect(Lobby.stats().pickTimeouts).to.equal(1)
 			expect(#seen.enrolled).to.equal(1)
-			expect(seen.enrolled[1]).to.equal(23)
+			expect(seen.enrolled[1]).to.equal(61)
 			-- CLEARED BEFORE THE ENROLMENT, because `enrol` reaches `LoadCharacter` inside the same
 			-- call: with the lodge still set, the engine would put the new character there and the
 			-- drive's own pivot would have to beat it.
 			expect(player.RespawnLocation).to.equal(nil)
 			expect(player.attributes[Data.LEAVE_AT_ATTRIBUTE]).to.equal(nil)
-
-			-- ONE WALK IS ONE ENROLMENT, however many scans follow.
-			seen.inDrive[23] = true
-			Lobby.step(1001 + CFG.COUNTDOWN_SECONDS + 1, { player })
-			Lobby.step(1001 + CFG.COUNTDOWN_SECONDS + 2, { player })
-			expect(#seen.enrolled).to.equal(1)
 		end)
+
+		it("hands the party to the injected depart seam instead, when a world gives one", function()
+			-- THE TELEPORT'S SEAM, DRIVEN IN BOTH DIRECTIONS (design section 9). The reserved-server
+			-- path cannot be built here -- Studio cannot reserve a server -- but the SWITCH can be,
+			-- and this is what makes "both branches are reachable by parameter" a checked claim
+			-- rather than a promise.
+			local sent: { any } = {}
+			local seen = fresh(bin, function(world)
+				world.depart = function(departure)
+					table.insert(sent, departure)
+					return #departure.members
+				end
+			end)
+			Lobby.step(1000, {})
+			local player = occupant(71, padAt(2), bin)
+			Lobby.step(1001, { player })
+			local at = 1001
+			while at < 1001 + SOLO_SECONDS do
+				at += 1 / CFG.SCAN_HZ
+				Lobby.step(at, { player })
+			end
+			expect(#sent).to.equal(1)
+			expect(sent[1].padIndex).to.equal(2)
+			expect(sent[1].size).to.equal(1)
+			expect(#sent[1].members).to.equal(1)
+			expect(sent[1].members[1].UserId).to.equal(71)
+			-- ...AND THE DRIVE WAS NOT ASKED AT ALL, which is the whole point of the seam.
+			expect(#seen.enrolled).to.equal(0)
+			expect(Lobby.stats().departures).to.equal(1)
+		end)
+
+		it("re-elects the next man when the first steps off, and clears every attribute when it empties", function()
+			local _seen = fresh(bin)
+			Lobby.step(1000, {})
+			local a = occupant(81, padAt(2), bin)
+			local b = occupant(82, padAt(2) + Vector3.new(2, 0, 0), bin)
+			Lobby.step(1001, { a, b })
+			expect(Lobby.padOf(2).firstUserId).to.equal(81)
+			a.root.Position = padAt(2) + Vector3.new(0, 0, 60)
+			Lobby.step(1002, { a, b })
+			local pad = Lobby.padOf(2)
+			expect(pad.firstUserId).to.equal(82)
+			expect(pad.state).to.equal(Pads.SIZING)
+			-- A FRESH CLOCK, not an inherited one.
+			expect(pad.deadline).to.equal(1002 + CFG.PADS.PICK_TIMEOUT_SECONDS)
+			expect(Data.padAsking(82)).to.equal(2)
+			b.root.Position = padAt(2) + Vector3.new(0, 0, 60)
+			Lobby.step(1003, { a, b })
+			local deck = Lobby.Build.padPart(2) :: BasePart
+			expect(deck:GetAttribute(Data.PAD_STATE_ATTRIBUTE)).to.equal(Pads.EMPTY)
+			expect(deck:GetAttribute(Data.PAD_FIRST_ATTRIBUTE)).to.equal(nil)
+			expect(Data.padAsking(82)).to.equal(nil)
+		end)
+
+		it("still enrols a party while a drive is running: the mid-drive join stays", function()
+			-- THE DIRECTOR'S DEFAULT, ASSERTED (design section 6.5). "HUNT IN PROGRESS, pads inert"
+			-- was refused, because it would make four pads dead for up to ten minutes to protect a
+			-- behaviour `Match.enrol` already supports in any phase.
+			local seen = fresh(bin)
+			Lobby.step(1000, {})
+			local hunting = occupant(91, padAt(4) + Vector3.new(0, 0, 400), bin)
+			seen.inDrive[91] = true
+			local joining = occupant(92, padAt(4), bin)
+			Lobby.step(1001, { hunting, joining })
+			local at = 1001
+			while at < 1001 + SOLO_SECONDS do
+				at += 1 / CFG.SCAN_HZ
+				Lobby.step(at, { hunting, joining })
+			end
+			expect(#seen.enrolled).to.equal(1)
+			expect(seen.enrolled[1]).to.equal(92)
+			-- ...AND THE MAN ALREADY IN THE DRIVE WAS NEVER IN THE PARTY: a pad's members are the men
+			-- standing on it who are NOT already hunting, which is what makes `leaving` end by itself.
+			expect(Lobby.stats().departures).to.equal(1)
+		end)
+
+		it("writes nothing to a pad when nobody moves", function()
+			-- THE EDGE CLAIM, over fifty scans. `Build.setPad` is asked every scan because the COUNT
+			-- changes on a join and a leave, so it has to be free when nothing moved.
+			local _seen = fresh(bin)
+			Lobby.step(1000, {})
+			local before = Lobby.stats().padWrites
+			local scans = Lobby.stats().scans
+			local at = 1000
+			for _ = 1, 50 do
+				at += 1 / CFG.SCAN_HZ
+				Lobby.step(at, {})
+			end
+			expect(Lobby.stats().scans).to.equal(scans + 50)
+			expect(Lobby.stats().padWrites).to.equal(before)
+		end)
+
+		it("starts even when the remote's Connect answers nothing", function()
+			-- MEASURED IN ROUND 1 OF TASK 178: nine cases of `shop_door.spec` died INSIDE `start`
+			-- because `table.insert(t, nil)` throws, and a `RemoteEvent` double whose `Connect`
+			-- returns nil is a legal stand-in -- a spec drives the handler by parameter, which is the
+			-- whole point of it being public. Not repeated here.
+			local _seen, on = fresh(bin, function(world)
+				world.remotes = {
+					PadRequest = { OnServerEvent = {
+						Connect = function()
+							return nil
+						end,
+					} },
+				}
+			end)
+			expect(on).to.equal(true)
+			Lobby.step(1000, {})
+			expect(Lobby.isBuilt()).to.equal(true)
+		end)
+
+		-- "ENROLS HIM EXACTLY ONCE AFTER THE COUNTDOWN" IS NOW TWO CASES, above: the party case
+		-- (which asserts one `enrol` per member and no second call) and the unattended case (which
+		-- asserts the pick timeout, the respawn cleared first, and one man going alone). Task 177's
+		-- single-player five-second walk-in no longer exists as a path -- the pad decides, and a solo
+		-- hunt is a party of one.
 
 		it("leaves a player who is in the drive entirely alone", function()
 			local seen = fresh(bin)
 			Lobby.step(1000, {})
-			local spot = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z) + CFG.SPOT.OFFSET
-			local player = occupant(24, spot, bin)
+			local player = occupant(24, padAt(1), bin)
 			seen.inDrive[24] = true
 			Lobby.step(1001, { player })
-			Lobby.step(1001 + CFG.COUNTDOWN_SECONDS + 1, { player })
+			Lobby.step(1001 + SOLO_SECONDS, { player })
 			expect(#seen.enrolled).to.equal(0)
 			expect(#seen.placed).to.equal(0)
 			expect(player.RespawnLocation).to.equal(nil)
@@ -466,9 +703,15 @@ return function()
 		it("takes the lobby down and hands back everything it wrote", function()
 			local _seen = fresh(bin)
 			Lobby.step(1000, {})
-			local spot = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z) + CFG.SPOT.OFFSET
-			local player = occupant(41, spot, bin)
+			local player = occupant(41, padAt(1), bin)
 			Lobby.step(1001, { player })
+			-- THE DEADLINE ONLY EXISTS ONCE HIS PAD IS COUNTING DOWN (task 182), so this walks the
+			-- scan forward to the point `stop` actually has something of his to hand back.
+			local at = 1001
+			while at < 1001 + CFG.PADS.PICK_TIMEOUT_SECONDS + 2 / CFG.SCAN_HZ do
+				at += 1 / CFG.SCAN_HZ
+				Lobby.step(at, { player })
+			end
 			expect(type(player.attributes[Data.LEAVE_AT_ATTRIBUTE])).to.equal("number")
 			expect(Lobby.isBuilt()).to.equal(true)
 

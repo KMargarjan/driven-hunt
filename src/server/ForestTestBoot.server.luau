@@ -488,6 +488,17 @@ local lobbyOn = Lobby.start({
 	dress = Body.dress,
 	dressConfig = Match.CONFIG,
 	shopOn = ShopData.isOn(),
+	--   remotes      THE PADS' ONE INBOUND DOOR (task 182). `ReplicatedStorage.Lobby.Remotes`, handed
+	--                in rather than found, for the reason every other seam here is handed in: a spec
+	--                drives `Lobby.onPadRequest` by parameter with no remote at all, and nil means
+	--                "there is no door" rather than a crash.
+	--
+	--                `depart` IS DELIBERATELY NOT INJECTED. It defaults to `Lobby.enrolHere` -- this
+	--                server's own drive, through task 177's door -- and the reserved-server teleport
+	--                (`ReserveServerAsync` + `TeleportToPrivateServer`) is the second implementation
+	--                a published build would pass here. It is not built because Studio cannot test a
+	--                teleport at all (docs/design/truck-pads.md section 9).
+	remotes = Lobby.Data.remotes(),
 	groundAt = Data.groundAt,
 	terrain = Workspace.Terrain,
 	now = function()
@@ -498,7 +509,7 @@ print(
 	string.format(
 		"[lobby] %s",
 		if lobbyOn
-			then "on: the drive is entered from the marked circle beside the truck"
+			then "on: the drive is entered from one of the four coloured truck pads (task 182)"
 			else "off: joining the server joins the drive, as before task 177"
 	)
 )
@@ -520,7 +531,7 @@ local function reportLobby()
 	local st = Lobby.stats()
 	print(
 		string.format(
-			"[lobby] built in %d ms: shelf y=%.1f, %d part(s), %d terrain fill(s) (%d grass), spot %s",
+			"[lobby] built in %d ms: shelf y=%.1f, %d part(s), %d terrain fill(s) (%d grass), pad 1 %s",
 			st.buildMs,
 			st.shelfY,
 			st.parts,
@@ -529,6 +540,28 @@ local function reportLobby()
 			tostring(Lobby.Data.spotPosition())
 		)
 	)
+	-- THE FOUR PADS, ON THEIR OWN LINE (task 182), for the reason the keeper has one: a pad whose part
+	-- never got built is a hunt nobody on the server can start, and that has to be a line in the
+	-- console rather than something Karen discovers by walking up to an unmarked truck.
+	local found = #Lobby.Data.padPositions()
+	print(
+		string.format(
+			"[lobby] truck pads: %d/%d built, sizes %s, %ds to pick then %ds to leave, door=%s",
+			found,
+			Lobby.Data.padCount(),
+			(function()
+				local out = {}
+				for _, row in ipairs(Lobby.Data.CONFIG.PADS.SIZES) do
+					table.insert(out, tostring(row.size))
+				end
+				return table.concat(out, "/")
+			end)(),
+			Lobby.Data.CONFIG.PADS.PICK_TIMEOUT_SECONDS,
+			Lobby.Data.CONFIG.COUNTDOWN_SECONDS,
+			tostring(Lobby.Data.remotes() ~= nil)
+		)
+	)
+
 	-- THE SHOPKEEPER, ON HIS OWN LINE (task 181), because he is the only way into the shop since
 	-- this task took task 178's auto-open away: "no keeper" means "no shop", and that has to be a
 	-- line in the console rather than something Karen discovers by walking up to an empty counter.
