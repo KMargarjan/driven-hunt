@@ -20,10 +20,13 @@
 -- in lobby / There are houses where can buy weapons, License, Gear, Goods / There is place to join
 -- game / ... After you select a game you sit in car and drive to position - Loading"*.
 --
--- THE SHOP INSIDE THE LODGE IS TASK 178, and it is built: the counter task 177 left is the door --
--- walk up to it and `Hud.ShopPanel` opens. This module gained one reader for it
--- (`Lobby.counterPosition`) and the sign gained the shop's name; everything else about the lodge is
--- unchanged.
+-- THE SHOP INSIDE THE LODGE IS TASK 178, and the DOOR INTO IT IS A MAN (task 181). Karen,
+-- 2026-10-14: *"in lobby has to be a person bot who you need to click E to get access to shop"* --
+-- so a shopkeeper stands behind task 177's counter with a `ProximityPrompt` on him, and walking up
+-- to the counter no longer opens anything by itself. This module holds his numbers
+-- (`CONFIG.LODGE.KEEPER`) and two readers: `Lobby.counterPosition`, which is where the panel closes
+-- and where the server measures a purchase, and `Lobby.shopPrompt`, which is how the client finds
+-- the one thing that opens it.
 --
 -- Design: docs/design/lobby.md (sections 2, 9, 10.3, 10.4, 12.1)
 -- Note:   docs/research/2026-10-13-lobby-and-the-truck.md
@@ -218,7 +221,16 @@ Lobby.CONFIG = {
 			-- HUNTER GREEN FROM `Match.Body` AND A HAT OF HIS OWN. `Body.dress` takes the team for
 			-- the green and task 178's `Look` for the hat; `Body.tintFor` recolours the hat ONLY, so
 			-- a lodge keeper's brown felt is exactly one field and the apron is not modelled.
-			TEAM = "Hunter",
+			--
+			-- `"Shooters"` AND NOT `"Hunter"`, AND IT IS THE OUTFIT OWNER'S VOCABULARY AND NOT A
+			-- SYNONYM (review round 1, finding 1). `Match.Body.OUTFITS` is keyed `Shooters` /
+			-- `Drivers` and `Body.outfitFor` is a bare table lookup, so `"Hunter"` matched no row,
+			-- `Body.dress` returned early at *"nothing to wear"*, and the man at the counter stood
+			-- there in the default grey of an empty `HumanoidDescription`. `Body.ROLE_WORDS` is the
+			-- repo's own translator (`hunter -> Shooters`) and `Bots` passes the translated word
+			-- too. `tests/server/lobby.spec.luau` now pins this against `Body.outfitFor` itself
+			-- rather than against this constant.
+			TEAM = "Shooters",
 			HAT_COLOR = Color3.fromRGB(96, 66, 42),
 			-- `Bots.Rig.CLIPS.idle` -- THE SAME ASSET THE DRIVE BOTS ALREADY STAND IN, written here
 			-- rather than required out of `Bots` so the lobby does not depend on the drive's owner.

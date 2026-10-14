@@ -144,9 +144,21 @@ end
 -- to build on: `Data.groundAt` raycasts, and a place that has not finished loading answers nil.
 -- Retried once a second by `step` -- the `Match:step` precedent (*"Re-reading while `Waiting` costs
 -- five `GetTagged` calls a second and closes the race for good"*).
+-- IS A BUILD IN FLIGHT? Since task 181 this path can YIELD -- `Build.defaultRigSource` is
+-- `Players:CreateHumanoidModelFromDescription`, which is documented to load assets -- and `step`
+-- runs off the boot's `Heartbeat` at `SCAN_HZ`. Without this, a rig call longer than one scan lets
+-- the next scan see `isBuilt() == false` and build the whole lobby AGAIN: two folders, two lodges,
+-- two keepers with two prompts, and `Build.build`'s own "parented last" means the second build
+-- cannot even see the first to destroy it. Review round 1, finding 3.
+--
+-- It is the discipline this module already states one function below (*"THROTTLED, because
+-- `Body.place` yields on `LoadCharacter` and this scan runs at 10 Hz"*), as a latch rather than a
+-- clock: a second attempt during the first is not delayed, it is not made.
+local building = false
+
 local function tryBuild(): boolean
 	local centre = anchor
-	if centre == nil then
+	if centre == nil or building then
 		return false
 	end
 	stats.buildAttempts += 1
@@ -180,12 +192,28 @@ local function tryBuild(): boolean
 	-- service; the live server always has one, so "somebody forgot to inject it" cannot be a lodge
 	-- with nobody in it. `dress` is `Match.Body.dress`, injected at the composition root exactly as
 	-- `Bots.start({ dress = Body.dress })` injects it -- one dressing path in this repository.
-	local made, _marker, spawn, parts = Build.build(world.root or Workspace, seat, cfg, templates, {
-		rig = world.rig or Build.defaultRigSource,
-		dress = world.dress,
-		dressConfig = world.dressConfig,
-		shopOn = world.shopOn,
-	})
+	-- THE LATCH IS HELD ACROSS THE ONE CALL THAT CAN YIELD, and `pcall` is what clears it on a
+	-- build that throws: a latch left standing would be a lobby that never builds again, which is
+	-- worse than the fault it guards.
+	building = true
+	local ok, made, _marker, spawn, parts = pcall(
+		Build.build,
+		world.root or Workspace,
+		seat,
+		cfg,
+		templates,
+		{
+			rig = world.rig or Build.defaultRigSource,
+			dress = world.dress,
+			dressConfig = world.dressConfig,
+			shopOn = world.shopOn,
+		} :: any
+	)
+	building = false
+	if not ok or made == nil then
+		warn(string.format("[lobby] build failed and will be retried: %s", tostring(made)))
+		return false
+	end
 	local built = Build.stats()
 	stats.models = built.models
 	stats.fallbacks = built.fallbacks

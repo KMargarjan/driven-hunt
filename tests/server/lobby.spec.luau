@@ -24,6 +24,11 @@ local Workspace = game:GetService("Workspace")
 
 local Data = require(ReplicatedStorage:WaitForChild("Lobby"))
 local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
+-- THE OUTFIT OWNER, READ-ONLY AND ONLY TO ASK WHAT WORDS IT KNOWS (review round 1, finding 1). The
+-- lobby does not require `Match`; this spec does, because *"the keeper is dressed"* is a claim about
+-- what ANOTHER owner will do with the team this one hands it, and a spec that asserts the config
+-- against itself passes for any string -- which is exactly how an undressed man got through round 1.
+local Match = require(ServerScriptService:WaitForChild("Match"))
 local Join = Lobby.Join
 local Field = Lobby.Field
 local Build = Lobby.Build
@@ -1010,6 +1015,35 @@ return function()
 			expect(seen.team).to.equal(CFG.LODGE.KEEPER.TEAM)
 			expect(seen.look.hatColor).to.equal(CFG.LODGE.KEEPER.HAT_COLOR)
 			expect(Build.stats().keeperDressed).to.equal(1)
+		end)
+
+		-- ...AND THE TEAM IS A WORD THAT OWNER ACTUALLY KNOWS. Round 1 shipped `"Hunter"`, which
+		-- matches no row in `Body.OUTFITS` (`Shooters` / `Drivers`), so `Body.dress` returned early
+		-- at *"nothing to wear"* and the keeper stood at the counter in default grey. The assertion
+		-- above could not see it: it compared the config with itself.
+		it("hands over a team the outfit owner has an outfit for", function()
+			local Body = Match.Body
+			expect(Body.outfitFor(CFG.LODGE.KEEPER.TEAM, Match.CONFIG)).to.be.ok()
+			expect(Body.baseFor(CFG.LODGE.KEEPER.TEAM, Match.CONFIG)).to.be.ok()
+			-- The repo's own translator agrees: a lodge keeper is a hunter, in the drive's words.
+			expect(CFG.LODGE.KEEPER.TEAM).to.equal(Body.ROLE_WORDS.hunter)
+		end)
+
+		-- `keeperDressed` MEANS THE OUTFIT OWNER SAID YES, not "the call did not throw" (review
+		-- round 1, finding 2). It said `dressed=true` on the console over an undressed man.
+		it("counts him as dressed only when the outfit owner says so", function()
+			local bare = Instance.new("Folder")
+			bare.Name = "LobbyUndressedSpecWorld"
+			bare.Parent = Workspace
+			Build.build(bare, Vector3.new(0, 100, 0), CFG, nil, {
+				rig = fakeRig,
+				dress = function(): boolean
+					return false -- "there was nothing I could put on him"
+				end,
+			})
+			expect(Build.stats().keepers).to.equal(1)
+			expect(Build.stats().keeperDressed).to.equal(0)
+			bare:Destroy()
 		end)
 
 		it("builds the lodge anyway when no body comes back", function()

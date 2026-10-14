@@ -246,6 +246,40 @@ return function()
 			expect(Lobby.stats().scans >= 4).to.equal(true)
 		end)
 
+		-- THE BUILD CANNOT RUN TWICE (review round 1, finding 3). Since task 181 the build path can
+		-- YIELD -- `Players:CreateHumanoidModelFromDescription` is documented to load assets -- and
+		-- `step` runs off a `Heartbeat` at 10 Hz, so a rig call longer than one scan used to let the
+		-- next scan build the WHOLE LOBBY again: two folders, two lodges, two keepers with two
+		-- prompts, and `Build.build`'s "parented last" meant the second could not see the first to
+		-- destroy it. The yield is driven here by the only thing a spec can do deterministically:
+		-- the fake rig re-enters `Lobby.step` from inside the build, which is exactly what a
+		-- heartbeat landing mid-yield does.
+		it("never builds the lobby twice, even when the rig call re-enters the scan", function()
+			local reentered = 0
+			local _seen, on = fresh(bin, function(world)
+				local inner = world.rig
+				world.rig = function(...)
+					reentered += 1
+					if reentered == 1 then
+						Lobby.step(1000.5, {}) -- the next heartbeat, landing inside the yield
+					end
+					return inner(...)
+				end
+			end)
+			expect(on).to.equal(true)
+			Lobby.step(1000, {})
+			expect(reentered).to.equal(1)
+			local folders = 0
+			for _, child in ipairs(bin:GetChildren()) do
+				if child.Name == Data.FOLDER_NAME then
+					folders += 1
+				end
+			end
+			expect(folders).to.equal(1)
+			expect(Lobby.stats().buildAttempts).to.equal(1)
+			expect(Lobby.stats().keepers).to.equal(1)
+		end)
+
 		it("builds inside a second and says how long it took", function()
 			local _seen, on = fresh(bin)
 			expect(on).to.equal(true)

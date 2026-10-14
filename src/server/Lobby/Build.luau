@@ -84,7 +84,8 @@ export type Seams = {
 --
 -- `keepers` (task 181) is 1 when the shopkeeper's body was built and 0 when it was not -- a missing
 -- rig source, a source that answered nil, a body with no root. `keeperDressed` is 1 when the outfit
--- owner said yes. Both are counted for `models`/`fallbacks`' stated reason: "the person at the
+-- owner RETURNED TRUE -- not merely when the call did not throw, which is what it used to mean and
+-- is why it read `dressed=true` over an undressed man (review round 1, finding 2). Both are counted for `models`/`fallbacks`' stated reason: "the person at the
 -- counter is there" must be a number the boot's log line and the spec can read, because a shop with
 -- no keeper is a shop nobody can open since this task took the auto-open away.
 local stats = {
@@ -676,8 +677,13 @@ local function shopkeeper(shop: Instance, counterAt: Vector3, floorY: number, cf
 	-- the hunter's green with task 178's `Look` for a hat of his own, so a lodge keeper is one
 	-- existing call with one existing parameter and this module never learns what an outfit is.
 	if seams ~= nil and seams.dress ~= nil then
-		local dressed = pcall(seams.dress :: any, body, keep.TEAM, seams.dressConfig, { hatColor = keep.HAT_COLOR })
-		if dressed then
+		-- BOTH ANSWERS, AND THE SECOND ONE IS THE ONE THAT MEANS ANYTHING (review round 1, finding
+		-- 2). `pcall`'s flag only says the call did not throw; `Body.dress` returns FALSE for
+		-- "there was nothing I could put on him", which is exactly the state finding 1 was in while
+		-- this counter -- and the boot's `dressed=true` -- said otherwise.
+		local called, answered =
+			pcall(seams.dress :: any, body, keep.TEAM, seams.dressConfig, { hatColor = keep.HAT_COLOR })
+		if called and answered == true then
 			stats.keeperDressed = 1
 		end
 		-- The accessories the outfit owner put on are parts too, and they are cosmetic by the same
