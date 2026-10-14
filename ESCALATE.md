@@ -1,5 +1,23 @@
 # Escalations
 
+## 2026-10-14 - Task 179 ROUND 2: NEEDS TEST2 179 9e880f5 -- the same click, at the new head
+
+Round 2 fixed all four of round 1's findings, so the code commit moved:
+**9e880f57c157bb9d72f5e33f0fcc46c76d0fef6d**, FULL `test` twice, both
+`PASS: 33/33 ... (clean tree) scope=all`. The round-1 entry below is at the OLD head and does not
+carry.
+
+**The command:** `python tools/studio_mcp.py test2` at `9e880f5`, with the clicks in the round-1
+entry below. The line then replaces the placeholder in `reviews/task-179/REQUEST.md`, and
+`powershell -ExecutionPolicy Bypass -File tools/review.ps1 179` runs round 2.
+
+**What a second player answers for this task, restated because round 2 narrowed it:** nothing about
+the layouts -- those are proved one-player, in specs and in two 60-second live runs on the ride and
+the edge. It answers the ONE change outside the forest: `Match` now measures the marker set on the
+`Assigning` edge instead of on the next step, so a drive places its hunters on the set belonging to
+the drive they are in. With one player that is one hunter; with two it is a roster.
+
+
 ## 2026-10-14 - Task 179: NEEDS TEST2 179 598e119 -- the two-player run, which nothing but a human click can start
 
 **Three drive layouts are built, gated TWICE on the one-player harness at the code commit
