@@ -67,6 +67,13 @@ Lobby.TEMPLATE = {
 -- name both readers find it by.
 Lobby.COUNTER_NAME = "Counter"
 
+-- THE SHOPKEEPER AND HIS PROMPT (task 181). Karen, 2026-10-14: *"in lobby has to be a person bot who
+-- you need to click E to get access to shop"*. `Build.shopkeeper` builds both under
+-- `Lodge.Inside.Shop`, and these are the names the CLIENT finds the prompt by -- the one way into
+-- the panel since this task took task 178's auto-open away.
+Lobby.KEEPER_NAME = "Shopkeeper"
+Lobby.PROMPT_NAME = "ShopPrompt"
+
 -- HOW THE COUNTDOWN REACHES THE CLIENT, with no new wire (design section 10.4). One attribute on the
 -- `Player` it belongs to, holding `Workspace:GetServerTimeNow() + COUNTDOWN_SECONDS`, or nil.
 --
@@ -197,6 +204,50 @@ Lobby.CONFIG = {
 		-- TASK 178 REPLACED THE PLACEHOLDER, which said "SHOP - coming soon" and is archived with its
 		-- reason in `backups/2026-10-14_task-178_lodge-sign.txt` (rule 7).
 		SIGN_TEXT = "SHOP",
+		-- THE MAN BEHIND THE COUNTER (task 181), and every number here is in
+		-- `docs/research/2026-10-14-the-shopkeeper.md` section 4 with where it came from.
+		KEEPER = {
+			-- WHERE HE STANDS, from the counter's own centre: 1.4 studs further from the room
+			-- (toward the back wall) so he is BEHIND the till and not standing in it. The counter is
+			-- 2 studs deep, so 1.4 clears its face by 0.4 -- and the back wall is 2 studs beyond,
+			-- which is why this is not 2.
+			BEHIND_STUDS = 1.4,
+			-- HOW HIGH HIS FEET GO ABOVE THE FLOOR, the figure `Rig.place` pivots to: an R15 rig's
+			-- origin is its root, about 3 studs over the ground it stands on.
+			ROOT_HEIGHT = 3,
+			-- HUNTER GREEN FROM `Match.Body` AND A HAT OF HIS OWN. `Body.dress` takes the team for
+			-- the green and task 178's `Look` for the hat; `Body.tintFor` recolours the hat ONLY, so
+			-- a lodge keeper's brown felt is exactly one field and the apron is not modelled.
+			TEAM = "Hunter",
+			HAT_COLOR = Color3.fromRGB(96, 66, 42),
+			-- `Bots.Rig.CLIPS.idle` -- THE SAME ASSET THE DRIVE BOTS ALREADY STAND IN, written here
+			-- rather than required out of `Bots` so the lobby does not depend on the drive's owner.
+			-- Played ONCE, at build: nothing in this system is written per frame.
+			IDLE_ANIMATION = "rbxassetid://507766666",
+			-- THE LOOK-AT, on the lobby's own existing 10 Hz scan and never on a clock of its own.
+			-- `FACE_STUDS` is how near a man has to be before the keeper turns to him, and the
+			-- epsilon is what stops a yaw being written every scan for a player standing still.
+			LOOK_AT = true,
+			FACE_STUDS = 16,
+			FACE_EPSILON_DEGREES = 3,
+			-- HOW HIGH THE PROMPT HANGS ABOVE HIS ROOT, and it is geometry rather than taste: the
+			-- counter is 3.5 studs tall and queryable, so a line-of-sight ray aimed at a root 3
+			-- studs up is stopped by the till itself and the prompt never appears for the one
+			-- person standing where he is meant to stand. 2.2 puts it at head height.
+			PROMPT_HEIGHT = 2.2,
+			-- THE PROMPT ITSELF. `HOLD_SECONDS = 0` is a tap and not a hold; line of sight is
+			-- Valve's `+use` rule (note section 2c); 8 studs is the Director's number and reaches a
+			-- man anywhere along the 12-stud counter.
+			PROMPT = {
+				ACTION_TEXT = "Shop",
+				OBJECT_TEXT = "Press E",
+				MAX_DISTANCE = 8,
+				HOLD_SECONDS = 0,
+				REQUIRES_LINE_OF_SIGHT = true,
+				KEYBOARD_KEY = Enum.KeyCode.E,
+				GAMEPAD_KEY = Enum.KeyCode.ButtonX,
+			},
+		},
 		-- THE FREE MODEL, AND THE MEASUREMENTS THAT POSITION WHAT GOES INSIDE IT (task 180).
 		-- "Log Cabin" by **uhhhh17**, Creator Store 4746497269, free: 266 parts, **no script of any
 		-- kind**, 23.1 x 15.9 x 30.9 studs as delivered, with a porch, steps, railings and windows.
@@ -480,6 +531,33 @@ end
 function Lobby.counterPosition(): Vector3?
 	local part = Lobby.counterPart()
 	return if part then part.Position else nil
+end
+
+-- THE ONE READER OF THE SHOPKEEPER'S PROMPT (task 181), memoised and invalidated exactly like the
+-- two above, and for the same reason: a prompt on a rebuilt lodge is a different instance, and a
+-- panel still listening to the old one is a shop you cannot open.
+--
+-- THE CLIENT IS ITS READER. The server BUILDS it (`Lobby.Build.shopkeeper`) and never reads it back;
+-- the Hud resolves it once a frame and TELLS `ShopPanel` (`Rail.setWeapon`'s rule), so the panel
+-- holds no opinion about where the lodge is.
+local cachedPrompt: ProximityPrompt? = nil
+
+function Lobby.shopPrompt(): ProximityPrompt?
+	local cached = cachedPrompt
+	if cached ~= nil and cached:IsDescendantOf(game) then
+		return cached
+	end
+	cachedPrompt = nil
+	local folder = Workspace:FindFirstChild(Lobby.FOLDER_NAME)
+	if folder == nil then
+		return nil
+	end
+	local found = folder:FindFirstChild(Lobby.PROMPT_NAME, true)
+	if found ~= nil and found:IsA("ProximityPrompt") then
+		cachedPrompt = found :: ProximityPrompt
+		return cachedPrompt
+	end
+	return nil
 end
 
 -- HOW MANY SECONDS UNTIL HE LEAVES. PURE, so the client's countdown is a spec and not a screenshot.

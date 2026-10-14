@@ -100,6 +100,14 @@ local stats = {
 	-- ...and how many script instances a template carried in, which the owner must be able to report
 	-- too: `Build.stats()` is not reachable from the boot's log line (review round 1, note).
 	strippedScripts = 0,
+	-- IS THERE A MAN AT THE COUNTER, AND IS HE DRESSED (task 181)? Reported for `models`' own stated
+	-- reason, and it matters more than the trucks do: since this task took task 178's auto-open
+	-- away, a lodge with no keeper is a shop nobody on the server can open.
+	keepers = 0,
+	keeperDressed = 0,
+	-- How many times his head was actually turned. One write per change and never one per scan, so
+	-- a number that climbs with the scan count is the bug this counter exists to show.
+	keeperTurns = 0,
 }
 
 function Lobby.stats()
@@ -167,11 +175,22 @@ local function tryBuild(): boolean
 	if templates == nil then
 		templates = (world.root or Workspace):FindFirstChild(Data.TEMPLATES_NAME)
 	end
-	local made, _marker, spawn, parts = Build.build(world.root or Workspace, seat, cfg, templates)
+	-- THE KEEPER'S TWO SEAMS, AND THE DEFAULT IS THIS OWNER'S TO SUPPLY (task 181). `Build` builds
+	-- no body at all when it is handed no rig source, which is what keeps a spec free of the avatar
+	-- service; the live server always has one, so "somebody forgot to inject it" cannot be a lodge
+	-- with nobody in it. `dress` is `Match.Body.dress`, injected at the composition root exactly as
+	-- `Bots.start({ dress = Body.dress })` injects it -- one dressing path in this repository.
+	local made, _marker, spawn, parts = Build.build(world.root or Workspace, seat, cfg, templates, {
+		rig = world.rig or Build.defaultRigSource,
+		dress = world.dress,
+		dressConfig = world.dressConfig,
+	})
 	local built = Build.stats()
 	stats.models = built.models
 	stats.fallbacks = built.fallbacks
 	stats.strippedScripts = built.strippedScripts
+	stats.keepers = built.keepers
+	stats.keeperDressed = built.keeperDressed
 	folder = made
 	spawnPart = spawn
 	spotAt = seat + cfg.SPOT.OFFSET
@@ -357,6 +376,30 @@ function Lobby.step(now: number, players: { any }?)
 
 	for _, player in ipairs(occupants) do
 		stepPlayer(player, now)
+	end
+
+	-- WHO THE SHOPKEEPER LOOKS AT (task 181): the nearest man to him, decided HERE and written by
+	-- `Build`, which keeps *"the one writer of every part in `Workspace.Lobby`"* true. It rides the
+	-- scan this function already runs at `SCAN_HZ` -- there is no new clock, and no write at all
+	-- unless the yaw moved more than `KEEPER.FACE_EPSILON_DEGREES`, which is why `keeperTurns`
+	-- climbing with `scans` would be a bug and not a feature.
+	local keeperAt = Build.keeperPosition()
+	if keeperAt ~= nil then
+		local nearest: Vector3? = nil
+		local best = math.huge
+		for _, player in ipairs(occupants) do
+			local here = rootOf(player)
+			if here ~= nil then
+				local far = ((here :: Vector3) - (keeperAt :: Vector3)).Magnitude
+				if far < best then
+					nearest = here
+					best = far
+				end
+			end
+		end
+		if Build.faceKeeper(nearest, cfg) then
+			stats.keeperTurns += 1
+		end
 	end
 end
 

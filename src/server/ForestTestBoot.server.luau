@@ -478,6 +478,11 @@ local lobbyOn = Lobby.start({
 	place = function(player, cframe)
 		Body.place(player, cframe, Match.CONFIG)
 	end,
+	--   dress        `Match.Body.dress` -- the ONE owner of what anybody in this game wears, and the
+	--                shopkeeper (task 181) is dressed by the same call the bots and the players are.
+	--                `Lobby` never learns what an outfit is; it hands over a Model and a team.
+	dress = Body.dress,
+	dressConfig = Match.CONFIG,
 	groundAt = Data.groundAt,
 	terrain = Workspace.Terrain,
 	now = function()
@@ -517,6 +522,17 @@ local function reportLobby()
 			st.fillCalls,
 			st.grassCalls,
 			tostring(Lobby.Data.spotPosition())
+		)
+	)
+	-- THE SHOPKEEPER, ON HIS OWN LINE (task 181), because he is the only way into the shop since
+	-- this task took task 178's auto-open away: "no keeper" means "no shop", and that has to be a
+	-- line in the console rather than something Karen discovers by walking up to an empty counter.
+	print(
+		string.format(
+			"[lobby] shopkeeper: %s, dressed=%s, prompt=%s",
+			if st.keepers > 0 then "standing" else "NONE (the shop cannot be opened)",
+			tostring(st.keeperDressed > 0),
+			tostring(Lobby.Data.shopPrompt() ~= nil)
 		)
 	)
 end

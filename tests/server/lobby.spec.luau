@@ -88,6 +88,37 @@ local function corners(at: CFrame, size: Vector3): { Vector3 }
 	return out
 end
 
+-- A BODY THAT IS NOT AN AVATAR (task 181). `Build` takes its rig source as a seam for exactly this
+-- reason: the real one is `Players:CreateHumanoidModelFromDescription`, which reaches the avatar
+-- service and may yield, and no spec in this harness may do either. It ships UNANCHORED and
+-- COLLIDING, so "the keeper collides with nothing and his root is anchored" is a thing the builder
+-- is proved to DO rather than a property the fake handed it.
+local function fakeRig(): Model
+	local model = Instance.new("Model")
+	local root = Instance.new("Part")
+	root.Name = "HumanoidRootPart"
+	root.Size = Vector3.new(2, 2, 1)
+	root.Anchored = false
+	root.CanCollide = true
+	root.CanQuery = true
+	root.CanTouch = true
+	root.Parent = model
+	for _, name in ipairs({ "Head", "UpperTorso", "LeftHand" }) do
+		local limb = Instance.new("Part")
+		limb.Name = name
+		limb.Size = Vector3.new(1, 1, 1)
+		limb.Anchored = false
+		limb.CanCollide = true
+		limb.CanQuery = true
+		limb.CanTouch = true
+		limb.Parent = model
+	end
+	local humanoid = Instance.new("Humanoid")
+	humanoid.Parent = model
+	model.PrimaryPart = root
+	return model
+end
+
 return function()
 	describe("where the lobby lives", function()
 		it("has a row for the world Karen plays in and none for the harness's", function()
@@ -860,6 +891,183 @@ return function()
 			expect(first.LookVector.Z > 0.99).to.equal(true)
 			-- Centre-out, so a solo player gets the middle of the porch.
 			expect(math.abs(first.Position.X - (anchor.X + CFG.SPAWN.OFFSET.X)) < 1e-4).to.equal(true)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- the shopkeeper (task 181)
+	--
+	-- KAREN, 2026-10-14: *"in lobby has to be a person bot who you need to click E to get access to
+	-- shop"*. Since this task took task 178's auto-open away, the prompt on this body is THE ONLY
+	-- WAY INTO THE SHOP -- so "is there a man there, and has he got a prompt on him" is the one
+	-- assertion in this file whose missing answer makes the shop unopenable.
+	describe("the shopkeeper behind the counter", function()
+		local container, folder
+		local seen: { model: Model?, team: string?, look: any } = { model = nil, team = nil, look = nil }
+
+		beforeEach(function()
+			seen = { model = nil, team = nil, look = nil }
+			container = Instance.new("Folder")
+			container.Name = "LobbyKeeperSpecWorld"
+			container.Parent = Workspace
+			local made = Build.build(container, Vector3.new(0, 100, 0), CFG, nil, {
+				rig = fakeRig,
+				dress = function(model: Model, team: string, _config, look): boolean
+					seen.model = model
+					seen.team = team
+					seen.look = look
+					return true
+				end,
+				dressConfig = { fake = true },
+			})
+			folder = made
+		end)
+
+		afterEach(function()
+			container:Destroy()
+		end)
+
+		it("stands one man behind the till, and counts him", function()
+			local body = folder:FindFirstChild(Data.KEEPER_NAME, true)
+			expect(body).to.be.ok()
+			expect((body :: Instance):IsA("Model")).to.equal(true)
+			expect(Build.stats().keepers).to.equal(1)
+			-- UNDER THE SHOP, with the counter and the sign: one place in the tree to look for the
+			-- whole shop, which is what `Lobby.counterPart` and `Lobby.shopPrompt` rest on.
+			local shop = folder:FindFirstChild("Shop", true)
+			expect(shop).to.be.ok()
+			expect((body :: Instance):IsDescendantOf(shop :: Instance)).to.equal(true)
+			-- BEHIND the counter and not in it: further from the room by `BEHIND_STUDS`, and
+			-- standing on the same floor.
+			local counter = folder:FindFirstChild(Data.COUNTER_NAME, true) :: BasePart
+			local root = (body :: Model).PrimaryPart :: BasePart
+			expect(math.abs(root.Position.X - counter.Position.X) < 1e-3).to.equal(true)
+			local behind = root.Position.Z - counter.Position.Z
+			expect(math.abs(behind - CFG.LODGE.KEEPER.BEHIND_STUDS) < 1e-3).to.equal(true)
+			expect(root.Position.Y > counter.Position.Y).to.equal(true)
+		end)
+
+		it("cannot be pushed, cannot be walked into, and cannot stop a pellet", function()
+			local body = folder:FindFirstChild(Data.KEEPER_NAME, true) :: Model
+			local root = body.PrimaryPart :: BasePart
+			-- THE ROOT IS ANCHORED AND THE LIMBS ARE NOT: `Bots.Rig.place(.., anchored = true)`'s
+			-- arrangement. The anchor is what stops anything nudging him off his spot; the limbs
+			-- stay on their joints so the idle clip can move them.
+			expect(root.Anchored).to.equal(true)
+			local parts = 0
+			for _, descendant in ipairs(body:GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					parts += 1
+					expect(descendant.CanCollide).to.equal(false)
+					-- `CanQuery = false` IS LOAD-BEARING and is this file's own rule everywhere else
+					-- in the lobby: a body that stops a pellet changes what the shot hit.
+					expect(descendant.CanQuery).to.equal(false)
+					expect(descendant.CanTouch).to.equal(false)
+					if descendant ~= root then
+						expect(descendant.Anchored).to.equal(false)
+					end
+				end
+			end
+			expect(parts >= 4).to.equal(true)
+		end)
+
+		it("carries the prompt, with Karen's key, 8 studs and line of sight", function()
+			local prompt = folder:FindFirstChild(Data.PROMPT_NAME, true)
+			expect(prompt).to.be.ok()
+			expect((prompt :: Instance):IsA("ProximityPrompt")).to.equal(true)
+			local p = prompt :: ProximityPrompt
+			local want = CFG.LODGE.KEEPER.PROMPT
+			expect(p.KeyboardKeyCode).to.equal(want.KEYBOARD_KEY)
+			expect(p.KeyboardKeyCode).to.equal(Enum.KeyCode.E) -- Karen's word, written twice on purpose
+			expect(p.GamepadKeyCode).to.equal(want.GAMEPAD_KEY)
+			expect(p.MaxActivationDistance).to.equal(want.MAX_DISTANCE)
+			expect(p.MaxActivationDistance).to.equal(8)
+			expect(p.HoldDuration).to.equal(0) -- a tap, not a hold
+			expect(p.RequiresLineOfSight).to.equal(true)
+			expect(p.ActionText).to.equal("Shop")
+			expect(p.ObjectText).to.equal("Press E")
+			expect(p.Enabled).to.equal(true)
+			-- ON AN ATTACHMENT AT HEAD HEIGHT, AND THAT IS GEOMETRY: the counter is 3.5 studs tall
+			-- and queryable, so a sight line to a root 3 studs up is stopped by the till and the
+			-- prompt never appears for the one person standing where he is meant to stand.
+			local at = p.Parent
+			expect(at).to.be.ok()
+			expect((at :: Instance):IsA("Attachment")).to.equal(true)
+			expect((at :: Attachment).Position.Y).to.equal(CFG.LODGE.KEEPER.PROMPT_HEIGHT)
+			local body = folder:FindFirstChild(Data.KEEPER_NAME, true) :: Model
+			local root = body.PrimaryPart :: BasePart
+			local promptY = root.Position.Y + (at :: Attachment).Position.Y
+			-- The floor is y = 100 here (the anchor's own), so the till's top is 100 + 3.5.
+			expect(promptY > 100 + CFG.LODGE.COUNTER.Y).to.equal(true)
+		end)
+
+		it("is dressed by the outfit owner and by nothing else", function()
+			-- ONE DRESSING PATH IN THIS REPOSITORY: `Build` hands a MODEL and a TEAM to the seam the
+			-- composition root filled with `Match.Body.dress`, and learns nothing about outfits.
+			expect(seen.model).to.be.ok()
+			expect(seen.team).to.equal(CFG.LODGE.KEEPER.TEAM)
+			expect(seen.look.hatColor).to.equal(CFG.LODGE.KEEPER.HAT_COLOR)
+			expect(Build.stats().keeperDressed).to.equal(1)
+		end)
+
+		it("builds the lodge anyway when no body comes back", function()
+			-- A SPEC THAT HAS NOT ASKED FOR A BODY DOES NOT GET ONE, which is what keeps the avatar
+			-- service out of this harness -- and a source that answers nil is a lodge with nobody in
+			-- it, never a lobby that failed to build.
+			local bare = Instance.new("Folder")
+			bare.Name = "LobbyNoKeeperSpecWorld"
+			bare.Parent = Workspace
+			local made = Build.build(bare, Vector3.new(0, 100, 0), CFG)
+			expect(made:FindFirstChild(Data.KEEPER_NAME, true)).to.equal(nil)
+			expect(made:FindFirstChild(Data.COUNTER_NAME, true)).to.be.ok()
+			expect(Build.stats().keepers).to.equal(0)
+			local nilled = Build.build(bare, Vector3.new(0, 100, 0), CFG, nil, {
+				rig = function(): Model?
+					return nil
+				end,
+			})
+			expect(nilled:FindFirstChild(Data.KEEPER_NAME, true)).to.equal(nil)
+			expect(Build.stats().keepers).to.equal(0)
+			bare:Destroy()
+		end)
+
+		it("holds no script anywhere in his body", function()
+			local body = folder:FindFirstChild(Data.KEEPER_NAME, true) :: Model
+			for _, descendant in ipairs(body:GetDescendants()) do
+				expect(descendant:IsA("LuaSourceContainer")).to.equal(false)
+			end
+		end)
+
+		-- THE HEAD TURN, AND THE EPSILON IS THE POINT. The owner decides who he looks at on the scan
+		-- it already runs; this writes it -- and a write per scan for a man standing still would be
+		-- the bug `Lobby.stats().keeperTurns` exists to show.
+		it("turns to the nearest man, and writes nothing when he has not moved", function()
+			local body = folder:FindFirstChild(Data.KEEPER_NAME, true) :: Model
+			local here = (body.PrimaryPart :: BasePart).Position
+			-- Somebody standing well off to one side: that is a turn.
+			local side = here + Vector3.new(10, 0, -4)
+			expect(Build.faceKeeper(side, CFG)).to.equal(true)
+			expect((body.PrimaryPart :: BasePart).CFrame.LookVector.X > 0.5).to.equal(true)
+			-- ...and asking again for the same man writes nothing.
+			expect(Build.faceKeeper(side, CFG)).to.equal(false)
+			-- A man beyond `FACE_STUDS` is not a man he turns to: he goes back to facing the room.
+			local far = here + Vector3.new(CFG.LODGE.KEEPER.FACE_STUDS + 20, 0, 0)
+			expect(Build.faceKeeper(far, CFG)).to.equal(true)
+			expect((body.PrimaryPart :: BasePart).CFrame.LookVector.Z < -0.99).to.equal(true)
+			expect(Build.faceKeeper(nil, CFG)).to.equal(false)
+		end)
+
+		-- THE CLIENT'S OWN READER, against a lobby built where it actually looks. It is the only
+		-- route the panel has to the prompt, so a renamed part or a prompt on the wrong instance is
+		-- a shop nobody can open -- and `Workspace.Lobby` is where the live server builds it.
+		it("is found by `Lobby.shopPrompt`, the one reader the client has", function()
+			local live = Build.build(Workspace, Vector3.new(0, 100, 0), CFG, nil, { rig = fakeRig })
+			local prompt = Data.shopPrompt()
+			expect(prompt).to.be.ok()
+			expect((prompt :: Instance):IsDescendantOf(live)).to.equal(true)
+			live:Destroy()
+			-- AND THE CACHE DIES WITH THE INSTANCE (`Lobby.counterPart`'s own rule): a stale prompt
+			-- would be a panel listening to a lodge that is not there any more.
+			expect(Data.shopPrompt()).to.equal(nil)
 		end)
 	end)
 

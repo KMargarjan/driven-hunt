@@ -70,6 +70,7 @@ local function fakes(bin: Instance)
 		inDrive = {} :: { [number]: boolean },
 		held = {} :: { [number]: boolean },
 		ground = SHELF :: any,
+		dressed = 0,
 	}
 	return seen,
 		{
@@ -96,6 +97,31 @@ local function fakes(bin: Instance)
 			groundAt = function(): number?
 				return seen.ground
 			end,
+			-- THE SHOPKEEPER'S BODY, FAKED (task 181). The owner's default is
+			-- `Players:CreateHumanoidModelFromDescription`, which reaches the avatar service and may
+			-- yield; this hands in four parts and a Humanoid instead, so this spec proves the WIRING
+			-- -- a man is built, he is turned, he is counted -- with no web call anywhere in it.
+			rig = function(): Model?
+				local model = Instance.new("Model")
+				local root = Instance.new("Part")
+				root.Name = "HumanoidRootPart"
+				root.Size = Vector3.new(2, 2, 1)
+				root.Parent = model
+				for _, name in ipairs({ "Head", "UpperTorso", "LeftHand" }) do
+					local limb = Instance.new("Part")
+					limb.Name = name
+					limb.Parent = model
+				end
+				local humanoid = Instance.new("Humanoid")
+				humanoid.Parent = model
+				model.PrimaryPart = root
+				return model
+			end,
+			dress = function(): boolean
+				seen.dressed += 1
+				return true
+			end,
+			dressConfig = { fake = true },
 			terrain = {
 				FillBlock = function()
 					seen.fills += 1
@@ -182,6 +208,42 @@ return function()
 			expect(seen.fills > 0).to.equal(true)
 			expect(stats.fillCalls).to.equal(seen.fills)
 			expect(bin:FindFirstChild(Data.FOLDER_NAME)).to.be.ok()
+		end)
+
+		-- THE SHOPKEEPER (task 181). Karen: *"in lobby has to be a person bot who you need to click E
+		-- to get access to shop"*. He is built by `Build` and WIRED here: the owner is what supplies
+		-- the body and the clothes, and what decides who he turns to on the scan it already runs.
+		it("stands a dressed shopkeeper at the counter, through the two injected seams", function()
+			local seen, on = fresh(bin)
+			expect(on).to.equal(true)
+			Lobby.step(1000, {})
+			local stats = Lobby.stats()
+			expect(stats.keepers).to.equal(1)
+			expect(stats.keeperDressed).to.equal(1)
+			expect(seen.dressed).to.equal(1)
+			local body = (bin:FindFirstChild(Data.FOLDER_NAME) :: Instance):FindFirstChild(Data.KEEPER_NAME, true)
+			expect(body).to.be.ok()
+			expect((body :: Instance):FindFirstChild(Data.PROMPT_NAME, true)).to.be.ok()
+		end)
+
+		it("turns his head on the scan it already runs, and only when the man has moved", function()
+			local _seen, on = fresh(bin)
+			expect(on).to.equal(true)
+			Lobby.step(1000, {})
+			local at = Lobby.Build.keeperPosition()
+			expect(at).to.be.ok()
+			local here = at :: Vector3
+			-- A man standing well off to one side of him: that is a turn, on the next scan.
+			local player = occupant(31, here + Vector3.new(8, 0, -3), bin)
+			Lobby.step(1001, { player })
+			local turns = Lobby.stats().keeperTurns
+			expect(turns).to.equal(1)
+			-- ...AND A MAN STANDING STILL COSTS NOTHING. A counter that climbed with `scans` would
+			-- be a per-scan write on a body, which is exactly what this epsilon exists to stop.
+			Lobby.step(1002, { player })
+			Lobby.step(1003, { player })
+			expect(Lobby.stats().keeperTurns).to.equal(turns)
+			expect(Lobby.stats().scans >= 4).to.equal(true)
 		end)
 
 		it("builds inside a second and says how long it took", function()
