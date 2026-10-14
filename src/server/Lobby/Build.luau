@@ -274,17 +274,23 @@ local function trophies(inside: Instance, room: Room, cfg, templates: Instance?)
 	folder.Parent = inside
 	local spec = cfg.TROPHIES
 	for index, mount in ipairs(spec.MOUNTS) do
-		-- WHICH WALL, AS THE ONE PLACE THE FOUR NAMES TURN INTO GEOMETRY. `yaw` faces the head INTO
-		-- the room, so a head on the north wall looks south.
+		-- WHICH WALL, AS THE ONE PLACE THE FOUR NAMES TURN INTO GEOMETRY.
+		--
+		-- `yaw` IS THE DIRECTION THE HEAD LOOKS, AND EVERY OFFSET BELOW RUNS ALONG IT. A CFrame's
+		-- LookVector is its own -Z, so `CFrame.Angles(0, 0, 0)` looks at -Z (north wall -> south) and
+		-- `CFrame.Angles(0, math.pi / 2, 0)` looks at -X (east wall -> west). Getting that backwards
+		-- does not fail, it hangs all three heads on the OUTSIDE of the lodge -- which is exactly
+		-- what the first inside shot showed, with the plaques 0.24 studs past the wall plane and the
+		-- heads a stud past that, in the open air (task 180, rule 5).
 		local at, yaw
 		if mount.wall == "north" then
-			at, yaw = Vector3.new(room.centre.X + mount.along, 0, room.centre.Z + room.halfZ), math.pi
+			at, yaw = Vector3.new(room.centre.X + mount.along, 0, room.centre.Z + room.halfZ), 0
 		elseif mount.wall == "south" then
-			at, yaw = Vector3.new(room.centre.X + mount.along, 0, room.centre.Z - room.halfZ), 0
+			at, yaw = Vector3.new(room.centre.X + mount.along, 0, room.centre.Z - room.halfZ), math.pi
 		elseif mount.wall == "west" then
-			at, yaw = Vector3.new(room.centre.X - room.halfX, 0, room.centre.Z + mount.along), math.pi / 2
+			at, yaw = Vector3.new(room.centre.X - room.halfX, 0, room.centre.Z + mount.along), -math.pi / 2
 		else
-			at, yaw = Vector3.new(room.centre.X + room.halfX, 0, room.centre.Z + mount.along), -math.pi / 2
+			at, yaw = Vector3.new(room.centre.X + room.halfX, 0, room.centre.Z + mount.along), math.pi / 2
 		end
 		local y = room.centre.Y + math.min(spec.HEIGHT_STUDS, room.height - 2)
 		local facing = CFrame.new(Vector3.new(at.X, y, at.Z)) * CFrame.Angles(0, yaw, 0)

@@ -245,10 +245,15 @@ Lobby.CONFIG = {
 		PLAQUE = Vector3.new(3.4, 3.8, 0.5),
 		PLAQUE_COLOR = Color3.fromRGB(78, 56, 38),
 		CLEAR_STUDS = 0.7, -- how far the mount's face stands off the wall
+		-- THE SIDE WALLS, AND THE BACK WALL IS DELIBERATELY EMPTY. The first build hung two of the
+		-- three on the back wall and the inside shot showed why that is wrong: the fireplace stands
+		-- at `centre.X - halfX/2` on that wall and the shop counter at `+ halfX/2`, with the SHOP
+		-- sign above it -- so a head at -5.5 was half inside the chimney and one at +5.5 was behind
+		-- the sign. The back wall of this room is already fully spoken for.
 		MOUNTS = {
-			{ kind = "deer", wall = "north", along = -5.5 },
-			{ kind = "boar", wall = "north", along = 5.5 },
-			{ kind = "deer", wall = "west", along = -2 },
+			{ kind = "deer", wall = "west", along = -3 },
+			{ kind = "boar", wall = "east", along = -3 },
+			{ kind = "deer", wall = "east", along = 3 },
 		},
 	},
 	-- ---------------- the truck, the track, the spot

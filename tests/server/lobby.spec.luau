@@ -667,6 +667,14 @@ return function()
 						local at = (descendant :: BasePart).Position
 						expect(at.Y > anchor.Y + 1).to.equal(true)
 						expect(at.Y < anchor.Y + CFG.LODGE.RIDGE_STUDS).to.equal(true)
+						-- INSIDE THE LODGE, which is the claim the first build broke. The yaws were
+						-- inverted, so every plaque sat a fraction PAST its wall and every head a
+						-- stud past that, hung on the outside of the building in the open air --
+						-- and nothing in this spec noticed, because it only looked at the height.
+						-- The lodge's own footprint is the loosest bound that still catches it.
+						local lodgeAt = anchor + CFG.LODGE.OFFSET
+						expect(math.abs(at.X - lodgeAt.X) < CFG.LODGE.SIZE.X / 2).to.equal(true)
+						expect(math.abs(at.Z - lodgeAt.Z) < CFG.LODGE.SIZE.Z / 2).to.equal(true)
 					end
 				end
 				expect(plaques).to.equal(#CFG.TROPHIES.MOUNTS)
