@@ -875,11 +875,21 @@ return function()
 				} :: any
 			)
 			-- IT ASKED ONCE PER PAD, at the pad's own centre and nowhere else.
-			expect(#probed).to.equal(CFG.TRUCK.COUNT)
+			--
+			-- SINCE TASK 186 THE TRUCKS ASK THE SAME READER -- under every wheel, twice, because the
+			-- tilt moves the wheels and the ground under them is a new question afterwards -- so the
+			-- probe list is no longer the pads' alone. The pads are the LAST `TRUCK.COUNT` of it,
+			-- because `Build.build` parks the trucks before it lays the pads, and that ORDER is what
+			-- this case now pins: a pad is still measured at its own centre and nowhere else.
+			local padProbes: { Vector3 } = {}
+			for index = #probed - CFG.TRUCK.COUNT + 1, #probed do
+				table.insert(padProbes, probed[index])
+			end
+			expect(#padProbes).to.equal(CFG.TRUCK.COUNT)
 			for index = 1, CFG.TRUCK.COUNT do
 				local wanted = Pads.centreFor(anchor, index, CFG)
-				expect(probed[index].X).to.equal(wanted.X)
-				expect(probed[index].Z).to.equal(wanted.Z)
+				expect(padProbes[index].X).to.equal(wanted.X)
+				expect(padProbes[index].Z).to.equal(wanted.Z)
 				local deck = made:FindFirstChild(Data.padPartName(index) :: string, true) :: BasePart
 				local top = deck.Position.Y + deck.Size.Y / 2
 				-- ON the measured ground, lifted by the one number that stops z-fighting -- and
@@ -1247,6 +1257,226 @@ return function()
 				expect(math.abs((box.Position.Y - size.Y / 2) - anchor.Y) < 0.05).to.equal(true)
 			end
 			templates:Destroy()
+		end)
+
+		-- ------------------------------------------------------------ task 186: the trucks
+		--
+		-- KAREN, 2026-10-14 ~17:00: *"car tyers are inside earth"*, and ~21:15 *"make cars comoflash
+		-- like military like hunting cars"*.
+		--
+		-- WHAT WAS MEASURED IN THE LIVE PLACE BEFORE ANY OF IT WAS WRITTEN: every tyre of all four
+		-- trucks 0.752 studs UNDER the terrain, and the east bay's worst wheel 2.017 under, with a
+		-- 1.266-stud spread across that one truck's own four wheels. So there are two claims here
+		-- and they are different claims: no wheel may be under its ground (ever, under any reader),
+		-- and on ground that really is a plane every wheel must be ON it.
+		it("settles every wheel onto the ground a world can measure", function()
+			-- A SLOPE, not a step: 0.03 per stud is ~1.7 degrees, which is inside `MAX_TILT_DEGREES`
+			-- and well over `MIN_TILT_DEGREES`, so this drives the tilt AND the lift together.
+			local function sloped(x: number, _z: number): number
+				return anchor.Y + 1 + (x - anchor.X) * 0.03
+			end
+			-- THE PARTS BUILD, because its trucks have parts named `Wheel` -- the branch the live
+			-- free model takes too, through its four `Tire` MeshParts.
+			local folder = Build.build(container, anchor, CFG, nil, { groundAt = sloped } :: any)
+			expect(Build.stats().trucksSettled).to.equal(CFG.TRUCK.COUNT)
+			local wheels = 0
+			for index = 1, CFG.TRUCK.COUNT do
+				local made = folder:FindFirstChild(string.format("Truck%d", index), true) :: Instance
+				for _, piece in ipairs(made:GetDescendants()) do
+					if piece:IsA("BasePart") and Build.truckSkinOf(piece.Name, piece.Material) == "tyre" then
+						wheels += 1
+						local bottom = piece.Position.Y - piece.Size.Y / 2
+						local ground = sloped(piece.Position.X, piece.Position.Z)
+						-- ON the ground: never under it, and never floating.
+						expect(bottom >= ground - 1e-3).to.equal(true)
+						expect(bottom - ground <= 0.2).to.equal(true)
+					end
+				end
+			end
+			expect(wheels).to.equal(CFG.TRUCK.COUNT * CFG.TRUCK.WHEELS)
+			-- ...AND THE WORST OF THEM IS THE NUMBER THE CONSOLE PRINTS.
+			expect(Build.stats().truckGroundStuds <= 0.2).to.equal(true)
+		end)
+
+		it("never sinks a truck, even where the ground is steeper than it may tilt", function()
+			-- THE CLAMP'S OWN CASE. Half a stud per stud is 26 degrees, four times
+			-- `MAX_TILT_DEGREES`: the truck CANNOT be stood on that plane, and the one thing it must
+			-- still do is not bury a wheel. The lift is the WORST contact's, so the guarantee
+			-- survives a tilt that was refused.
+			local function cliff(x: number, _z: number): number
+				return anchor.Y + (x - anchor.X) * 0.5
+			end
+			local folder = Build.build(container, anchor, CFG, nil, { groundAt = cliff } :: any)
+			for index = 1, CFG.TRUCK.COUNT do
+				local made = folder:FindFirstChild(string.format("Truck%d", index), true) :: Instance
+				for _, piece in ipairs(made:GetDescendants()) do
+					if piece:IsA("BasePart") and Build.truckSkinOf(piece.Name, piece.Material) == "tyre" then
+						local bottom = piece.Position.Y - piece.Size.Y / 2
+						expect(bottom >= cliff(piece.Position.X, piece.Position.Z) - 1e-3).to.equal(true)
+					end
+				end
+			end
+		end)
+
+		it("leaves a truck exactly on the shelf when the world cannot measure the ground", function()
+			-- THE FALLBACK IS THE OLD BEHAVIOUR, UNCHANGED, and it is what every other spec in this
+			-- file builds with. A reader that throws is the same state as no reader at all: half a
+			-- measurement is how a truck ends up tilted onto a wheel whose ground nobody knows.
+			local folder = Build.build(
+				container,
+				anchor,
+				CFG,
+				nil,
+				{
+					groundAt = function(): number?
+						error("no ground here")
+					end,
+				} :: any
+			)
+			expect(Build.stats().trucksSettled).to.equal(0)
+			local made = folder:FindFirstChild("Truck1", true) :: Instance
+			for _, piece in ipairs(made:GetDescendants()) do
+				if piece:IsA("BasePart") and Build.truckSkinOf(piece.Name, piece.Material) == "tyre" then
+					expect(math.abs((piece.Position.Y - piece.Size.Y / 2) - anchor.Y) < 1e-3).to.equal(true)
+				end
+			end
+		end)
+
+		it("settles a model whose wheels are not called wheels, on its own footprint", function()
+			-- THE SPEC'S STAND-IN TRUCK IS ONE PART CALLED `Body`, and so is any replacement model
+			-- whose author named the wheels in another language. Then the contacts are the
+			-- FOOTPRINT's four corners, and the claim is the one that always holds: nothing sunk.
+			local templates = fakeTemplates()
+			local function hump(_x: number, _z: number): number
+				return anchor.Y + 2.5
+			end
+			local folder = Build.build(container, anchor, CFG, templates, { groundAt = hump } :: any)
+			expect(Build.stats().trucksSettled).to.equal(CFG.TRUCK.COUNT)
+			for index = 1, CFG.TRUCK.COUNT do
+				local made = folder:FindFirstChild(string.format("Truck%d", index), true) :: Model
+				local box, size = made:GetBoundingBox()
+				local lowest = box.Position.Y - size.Y / 2
+				expect(lowest >= anchor.Y + 2.5 - 1e-3).to.equal(true)
+				expect(lowest - (anchor.Y + 2.5) <= 0.2).to.equal(true)
+			end
+			templates:Destroy()
+		end)
+
+		it("paints every truck in the bay's own camouflage, and leaves the glass alone", function()
+			local folder = Build.build(container, anchor, CFG, nil)
+			expect(Build.stats().truckPainted > 0).to.equal(true)
+			local spec = CFG.TRUCK.CAMO
+			for index = 1, CFG.TRUCK.COUNT do
+				local made = folder:FindFirstChild(string.format("Truck%d", index), true) :: Instance
+				local palette = spec.TONES[(index - 1) % #spec.TONES + 1]
+				local tones: { [string]: boolean } = {}
+				local panels = 0
+				for _, piece in ipairs(made:GetDescendants()) do
+					if piece:IsA("BasePart") then
+						local skin = Build.truckSkinOf(piece.Name, piece.Material)
+						if skin == "body" then
+							panels += 1
+							local wanted = false
+							for _, tone in ipairs(palette) do
+								if piece.Color == tone then
+									wanted = true
+								end
+							end
+							expect(wanted).to.equal(true)
+							expect(piece.Material).to.equal(spec.BODY_MATERIAL)
+							tones[tostring(piece.Color)] = true
+						elseif skin == "tyre" then
+							expect(piece.Color).to.equal(spec.TYRE)
+						elseif skin == "glass" then
+							-- THE WINDOWS ARE KEPT (the Director's brief), and the parts truck's own
+							-- windscreen is what proves it: still glass, still its own colour.
+							expect(piece.Material).to.equal(Enum.Material.Glass)
+						end
+					end
+				end
+				expect(panels > 0).to.equal(true)
+				-- MORE THAN ONE TONE ON ONE TRUCK is the difference between a camouflage scheme and
+				-- one flat colour, and it is what the alternating walk through the palette buys.
+				local distinct = 0
+				for _ in pairs(tones) do
+					distinct += 1
+				end
+				expect(distinct > 1).to.equal(true)
+			end
+		end)
+
+		it("knows which part of a truck is paint, glass, a lamp or a wheel", function()
+			-- PURE, and the ORDER is the claim: `WindowFrame` is a free model's real part name and it
+			-- carries both words, so a frame that got painted olive would put an olive bar across a
+			-- window. Glass first, then the lamps, then the wheels, and only what is left is paint.
+			expect(Build.truckSkinOf("WindowFrame", Enum.Material.Fabric)).to.equal("glass")
+			expect(Build.truckSkinOf("Windscreen", Enum.Material.Glass)).to.equal("glass")
+			expect(Build.truckSkinOf("Light", Enum.Material.Neon)).to.equal("light")
+			expect(Build.truckSkinOf("T", Enum.Material.Neon)).to.equal("light")
+			expect(Build.truckSkinOf("Tire", Enum.Material.Fabric)).to.equal("tyre")
+			expect(Build.truckSkinOf("Wheel3", Enum.Material.Rubber)).to.equal("tyre")
+			expect(Build.truckSkinOf("Rim", Enum.Material.Fabric)).to.equal("rim")
+			expect(Build.truckSkinOf("Color", Enum.Material.SmoothPlastic)).to.equal("body")
+			expect(Build.truckSkinOf("Bonnet", Enum.Material.Metal)).to.equal("body")
+			expect(Build.truckSkinOf("BedSide1", Enum.Material.Metal)).to.equal("body")
+			-- ...AND EVERYTHING THIS SYSTEM DID NOT BUILD IS LEFT ALONE: the bumpers, the grille and
+			-- the interior ship near-black, which is what a military truck's trim is anyway.
+			expect(Build.truckSkinOf("Bumper", Enum.Material.Fabric)).to.equal("keep")
+			expect(Build.truckSkinOf("Grill1", Enum.Material.Fabric)).to.equal("keep")
+			expect(Build.truckSkinOf("Steering1", Enum.Material.Fabric)).to.equal("keep")
+		end)
+
+		it("fits a plane through four ground samples, and refuses to fit a line", function()
+			-- PURE. A plane that IS y = 0.2x - 0.1z comes back as exactly that, which is what makes
+			-- the tilt a measurement rather than a guess at a direction.
+			local points = {}
+			for _, x in ipairs({ -5, 5 }) do
+				for _, z in ipairs({ -3, 3 }) do
+					table.insert(points, { x = x, z = z, y = 10 + 0.2 * x - 0.1 * z })
+				end
+			end
+			local slopeX, slopeZ = Build.groundFit(points)
+			expect(math.abs(slopeX - 0.2) < 1e-6).to.equal(true)
+			expect(math.abs(slopeZ + 0.1) < 1e-6).to.equal(true)
+			-- FLAT GROUND IS FLAT.
+			local levelX, levelZ = Build.groundFit({
+				{ x = 0, z = 0, y = 7 },
+				{ x = 4, z = 0, y = 7 },
+				{ x = 0, z = 4, y = 7 },
+				{ x = 4, z = 4, y = 7 },
+			})
+			expect(levelX).to.equal(0)
+			expect(levelZ).to.equal(0)
+			-- ...AND SAMPLES ALL IN A LINE, OR TOO FEW OF THEM, ANSWER LEVEL rather than dividing by
+			-- a determinant at zero: a truck that cannot be fitted stays flat.
+			local lineX, lineZ = Build.groundFit({
+				{ x = 0, z = 0, y = 1 },
+				{ x = 1, z = 0, y = 2 },
+				{ x = 2, z = 0, y = 3 },
+			})
+			expect(lineX).to.equal(0)
+			expect(lineZ).to.equal(0)
+			local fewX, fewZ = Build.groundFit({ { x = 0, z = 0, y = 1 }, { x = 1, z = 1, y = 9 } })
+			expect(fewX).to.equal(0)
+			expect(fewZ).to.equal(0)
+		end)
+
+		it("clamps the tilt at both ends, so a bad ray cannot tip a truck over", function()
+			-- PURE. Level ground is identity, a slope under the floor is identity, a slope over the
+			-- ceiling is the ceiling -- and the lean is still the way the ground rises.
+			local small = math.rad(0.25)
+			local big = math.rad(6)
+			expect(Build.tiltFrom(0, 0, small, big)).to.equal(CFrame.identity)
+			expect(Build.tiltFrom(0.001, 0, small, big)).to.equal(CFrame.identity)
+			local up = Build.tiltFrom(0.5, 0, small, big).UpVector
+			-- SIX DEGREES AND NOT TWENTY-SIX: the angle off vertical is the clamp exactly.
+			expect(math.abs(math.deg(math.acos(math.clamp(up.Y, -1, 1))) - 6) < 1e-3).to.equal(true)
+			-- ...AND IT LEANS THE WAY THE GROUND RISES: a plane climbing in +x tips the up vector
+			-- back toward -x.
+			expect(up.X < 0).to.equal(true)
+			local inside = Build.tiltFrom(0.05, 0, small, big).UpVector
+			local leaned = math.deg(math.acos(math.clamp(inside.Y, -1, 1)))
+			expect(math.abs(leaned - math.deg(math.atan(0.05))) < 1e-3).to.equal(true)
 		end)
 
 		it("keeps the road, the fences and the trees inside the field's own rectangle", function()

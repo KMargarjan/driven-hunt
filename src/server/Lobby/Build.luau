@@ -45,9 +45,18 @@
 --   SpawnLocation    https://create.roblox.com/docs/reference/engine/classes/SpawnLocation
 --   SurfaceGui       https://create.roblox.com/docs/reference/engine/classes/SurfaceGui
 --
+-- SINCE TASK 186 A TRUCK IS SETTLED AND PAINTED AFTER IT IS BUILT, and both are measurements rather
+-- than preferences. Karen: *"car tyers are inside earth"* -- every tyre of all four sat 0.752 studs
+-- under the terrain and the east bay's worst wheel 2.017 under, because this module stood them on
+-- the NOMINAL shelf and Roblox terrain is voxelised. `settleOnGround` rays under each WHEEL through
+-- the world's own reader, exactly as `pad` does for its deck, and that is the same defect twice.
+-- `camo` is her *"make cars comoflash like military like hunting cars"*: a repaint of the panels the
+-- free model ships untextured, with the windows and the lamps left alone.
+--
 -- Design: docs/design/lobby.md (sections 9, 9.2, 12.2, 16.1 case 7)
 -- Note:   docs/research/2026-10-13-lobby-and-the-truck.md (section 4),
---         docs/research/2026-10-14-lobby-free-models.md (the free models, task 180)
+--         docs/research/2026-10-14-lobby-free-models.md (the free models, task 180),
+--         docs/research/2026-10-14-trucks-on-the-ground.md (the settle and the camouflage, task 186)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -110,6 +119,17 @@ local stats = {
 	-- is edge-triggered, so a number that climbs with the owner's `scans` is the bug this counter
 	-- exists to show -- `keeperTurns`' own rule, one owner over.
 	padWrites = 0,
+	-- THE TRUCKS, ON THE GROUND AND IN CAMOUFLAGE (task 186). Karen: *"car tyers are inside earth"*
+	-- and *"make cars comoflash like military like hunting cars"*.
+	--
+	-- `truckGroundStuds` IS THE WHOLE CLAIM AS A NUMBER: the worst wheel of the worst truck, in
+	-- studs ABOVE the ground under it, after settling. The defect it replaces was 0.752 under for
+	-- every wheel of three trucks and 2.017 under at the east bay, and a fix for that cannot be
+	-- something anybody has to take on trust from a screenshot. `trucksSettled` says how many were
+	-- measured at all, so a world with no ground reader is a counted state and not a silent one.
+	trucksSettled = 0,
+	truckGroundStuds = 0,
+	truckPainted = 0,
 }
 
 function Build.stats()
@@ -1073,6 +1093,298 @@ end
 
 -- ---------------------------------------------------------------- the truck
 
+-- WHAT A PART OF A TRUCK IS, FOR THE REPAINT (task 186). PURE, and exported so the rule is a spec
+-- rather than a belief about a free model nobody can read in a diff.
+--
+-- KAREN, 2026-10-14 ~21:15: *"make cars comoflash like military like hunting cars"*.
+--
+-- IT ANSWERS BY NAME AND BY MATERIAL, IN THAT ORDER, and the order is the whole of it: `WindowFrame`
+-- carries both words, and a frame round a window that got painted olive is a window with an olive
+-- bar across it. Glass first, then the lamps, then the wheels, and only what is left is paint.
+--
+-- "keep" IS THE DEFAULT FOR EVERYTHING THIS SYSTEM DID NOT BUILD. The model ships its bumpers,
+-- grilles, mirrors and interior at RGB 17,17,17 -- near black, which is what a military truck's trim
+-- is anyway -- so the repaint touches the PANELS and the WHEELS and nothing else. A painter that
+-- recoloured every part it did not recognise would be a painter that cannot be given a new model.
+--
+-- Measured in the live place, 2026-10-14: the eight body panels are MeshParts named `Color`,
+-- `SmoothPlastic`, RGB 163,162,165, with no `TextureID` and no `SurfaceAppearance`.
+local TRUCK_BODY_WORDS = { "color", "colour", "bed", "cab", "bonnet", "hood", "panel", "body", "door" }
+
+function Build.truckSkinOf(name: string, material: Enum.Material): string
+	local lower = string.lower(name)
+	if material == Enum.Material.Glass or string.find(lower, "glass") or string.find(lower, "window") then
+		return "glass"
+	end
+	if material == Enum.Material.Neon or string.find(lower, "light") then
+		return "light"
+	end
+	if string.find(lower, "tire") or string.find(lower, "tyre") or string.find(lower, "wheel") then
+		return "tyre"
+	end
+	if string.find(lower, "rim") then
+		return "rim"
+	end
+	for _, word in ipairs(TRUCK_BODY_WORDS) do
+		if string.find(lower, word) then
+			return "body"
+		end
+	end
+	return "keep"
+end
+
+-- EVERY PART OF A THING, ROOT INCLUDED, so one settle and one repaint serve BOTH branches: the free
+-- model is a `Model` and task 177's truck is a `Folder`, and neither may need its own geometry.
+local function partsOf(root: Instance): { BasePart }
+	local out = {}
+	if root:IsA("BasePart") then
+		table.insert(out, root :: BasePart)
+	end
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			table.insert(out, descendant :: BasePart)
+		end
+	end
+	return out
+end
+
+-- THE CAMOUFLAGE, PAINTED ON WHATEVER GOT BUILT. `index` is the bay, so the four palettes wrap the
+-- way `PADS.COLOURS` does and a fifth bay cannot index past the end.
+--
+-- THE PANELS ALTERNATE THROUGH THE PALETTE in the order they are met, which is stable for a clone of
+-- a fixed model: that is what makes the shell, the bonnet and the doors three different tones --
+-- a scheme -- instead of one flat olive rectangle.
+--
+-- Returns how many parts it painted, for `stats.truckPainted`: "the trucks are camouflaged" has to
+-- be a number the console can print, not something read off a screenshot alone.
+local function camo(root: Instance, index: number, cfg): number
+	local spec = cfg.TRUCK.CAMO
+	local palette = spec.TONES[(index - 1) % #spec.TONES + 1]
+	local painted, panel = 0, 0
+	for _, piece in ipairs(partsOf(root)) do
+		local skin = Build.truckSkinOf(piece.Name, piece.Material)
+		if skin == "body" then
+			piece.Color = palette[panel % #palette + 1]
+			piece.Material = spec.BODY_MATERIAL
+			piece.Reflectance = 0
+			panel += 1
+			painted += 1
+		elseif skin == "tyre" then
+			piece.Color = spec.TYRE
+			piece.Reflectance = 0
+			painted += 1
+		elseif skin == "rim" then
+			piece.Color = spec.RIM
+			piece.Reflectance = 0
+			painted += 1
+		end
+	end
+	return painted
+end
+
+-- WHERE A TRUCK TOUCHES THE GROUND: one contact per WHEEL, measured off the parts that were actually
+-- built (task 186). `bottom` is the lowest point of that wheel -- exact for a frame that is only
+-- yawed, and within 0.01 studs under the tilt this applies (1.5 studs of radius at 6 degrees).
+--
+-- A MODEL WITH NO PART CALLED A WHEEL FALLS BACK ON ITS OWN FOOTPRINT, and that branch is not
+-- hypothetical: the lobby spec's stand-in truck is a single Part named `Body`, and so is any
+-- replacement model whose author named the wheels in another language. Four corners of the footprint,
+-- pulled in to `FOOTPRINT_INSET` of the half-span so a corner sample cannot fall off the shelf.
+local FOOTPRINT_INSET = 0.6
+
+local function contactsOf(parts: { BasePart }): { { x: number, z: number, bottom: number } }
+	local out = {}
+	for _, piece in ipairs(parts) do
+		if Build.truckSkinOf(piece.Name, piece.Material) == "tyre" then
+			table.insert(out, {
+				x = piece.Position.X,
+				z = piece.Position.Z,
+				bottom = piece.Position.Y - piece.Size.Y / 2,
+			})
+		end
+	end
+	if #out > 0 then
+		return out
+	end
+	local minX, maxX, minZ, maxZ, lowest = math.huge, -math.huge, math.huge, -math.huge, math.huge
+	for _, piece in ipairs(parts) do
+		local half = piece.Size / 2
+		for _, sx in ipairs({ -1, 1 }) do
+			for _, sy in ipairs({ -1, 1 }) do
+				for _, sz in ipairs({ -1, 1 }) do
+					local corner = piece.CFrame * Vector3.new(sx * half.X, sy * half.Y, sz * half.Z)
+					minX, maxX = math.min(minX, corner.X), math.max(maxX, corner.X)
+					minZ, maxZ = math.min(minZ, corner.Z), math.max(maxZ, corner.Z)
+					lowest = math.min(lowest, corner.Y)
+				end
+			end
+		end
+	end
+	if lowest == math.huge then
+		return out
+	end
+	local midX, midZ = (minX + maxX) / 2, (minZ + maxZ) / 2
+	local halfX, halfZ = (maxX - minX) / 2 * FOOTPRINT_INSET, (maxZ - minZ) / 2 * FOOTPRINT_INSET
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sz in ipairs({ -1, 1 }) do
+			table.insert(out, { x = midX + sx * halfX, z = midZ + sz * halfZ, bottom = lowest })
+		end
+	end
+	return out
+end
+
+-- THE PLANE THROUGH THE GROUND UNDER ONE TRUCK. PURE, exported, and it is least squares rather than
+-- three-points-make-a-plane for one reason: four wheels are four samples and the fourth one is not
+-- redundant -- it is the one that says whether the yard really is a plane here.
+--
+-- Returns the two slopes, dy/dx and dy/dz. Fewer than three samples, or samples that are all in a
+-- line (a determinant at zero), answer level: a truck that cannot be fitted is a truck that stays
+-- flat, never one tipped by a divide by nothing.
+function Build.groundFit(points: { { x: number, z: number, y: number } }): (number, number)
+	local n = #points
+	if n < 3 then
+		return 0, 0
+	end
+	local midX, midZ, midY = 0, 0, 0
+	for _, point in ipairs(points) do
+		midX, midZ, midY = midX + point.x, midZ + point.z, midY + point.y
+	end
+	midX, midZ, midY = midX / n, midZ / n, midY / n
+	local sxx, szz, sxz, sxy, szy = 0, 0, 0, 0, 0
+	for _, point in ipairs(points) do
+		local dx, dz, dy = point.x - midX, point.z - midZ, point.y - midY
+		sxx += dx * dx
+		szz += dz * dz
+		sxz += dx * dz
+		sxy += dx * dy
+		szy += dz * dy
+	end
+	local det = sxx * szz - sxz * sxz
+	if math.abs(det) < 1e-9 then
+		return 0, 0
+	end
+	return (sxy * szz - szy * sxz) / det, (szy * sxx - sxy * sxz) / det
+end
+
+-- THE ROTATION THAT STANDS A TRUCK ON THAT PLANE. PURE, exported, and CLAMPED AT BOTH ENDS: under
+-- `minRadians` the ground is level and a tilt would be noise, and over `maxRadians` the answer is a
+-- bad ray rather than a slope -- a truck lying on its side in a car park is a worse bug than the one
+-- this fixes.
+--
+--   CFrame.fromAxisAngle  https://create.roblox.com/docs/reference/engine/datatypes/CFrame
+--
+-- It turns the WORLD's up onto the plane's normal, so it composes with the truck's yaw from the
+-- left (`tilt * rotation`) and the truck keeps pointing down the track.
+function Build.tiltFrom(slopeX: number, slopeZ: number, minRadians: number, maxRadians: number): CFrame
+	local normal = Vector3.new(-slopeX, 1, -slopeZ).Unit
+	local axis = Vector3.new(0, 1, 0):Cross(normal)
+	local sin = math.clamp(axis.Magnitude, 0, 1)
+	if sin < 1e-6 then
+		return CFrame.identity
+	end
+	local angle = math.asin(sin)
+	if angle < minRadians then
+		return CFrame.identity
+	end
+	return CFrame.fromAxisAngle(axis.Unit, math.min(angle, maxRadians))
+end
+
+-- SETTLE ONE TRUCK ONTO THE GROUND THAT IS REALLY THERE (task 186). Karen: *"car tyers are inside
+-- earth"*.
+--
+-- THE SAME READER THE PADS USE, AND THE SAME LOWER BOUND. `groundAt` is the world's one ground
+-- reader; `floorY` is the top of the yard slab this system lays itself, and `math.max` of the two
+-- keeps both guarantees at once -- above whatever the ground really is, and never sunk into a slab
+-- of our own. It is `pad`'s rule, two functions down, applied to a heavier object.
+--
+-- WHY IT RUNS AFTER THE BUILD AND NOT INSTEAD OF IT: `at.Y` is still where the truck is PARKED and
+-- `sitOnShelf` still stands it on that number. This measures what the engine actually produced under
+-- the wheels it actually built, which is the one thing no arithmetic upstream can know.
+--
+-- TWO PASSES, AND THE SECOND ONE IS NOT A REFINEMENT. The tilt moves every wheel sideways as well as
+-- up, so the ground under it is a different question afterwards; measuring again is what makes the
+-- lift exact rather than first-order. The ray is cheap (8 per truck) and this runs once, at build.
+--
+-- Returns the lift it applied and the worst residual left -- how far the worst wheel ends ABOVE its
+-- ground, which is the number `lobby.spec` holds to 0.2 studs and the console prints.
+local function settleOnGround(
+	root: Instance,
+	cfg,
+	groundAt: ((number, number) -> number?)?,
+	floorY: number
+): (boolean, number, number)
+	if groundAt == nil then
+		return false, 0, 0
+	end
+	local spec = cfg.TRUCK.SETTLE
+	local parts = partsOf(root)
+	-- WHERE THE GROUND IS UNDER EACH CONTACT, OR NOTHING AT ALL. A reader that throws, or that
+	-- answers nil for even one wheel, leaves the truck exactly where the arithmetic put it: half a
+	-- measurement is how a truck ends up tilted onto a wheel whose ground nobody knows.
+	local function sample(
+		contacts: { { x: number, z: number, bottom: number } }
+	): { { x: number, z: number, y: number, bottom: number } }?
+		local out = {}
+		for _, contact in ipairs(contacts) do
+			local ok, measured = pcall(groundAt :: any, contact.x, contact.z)
+			if not ok or type(measured) ~= "number" then
+				return nil
+			end
+			table.insert(out, {
+				x = contact.x,
+				z = contact.z,
+				y = math.max(measured :: number, floorY),
+				bottom = contact.bottom,
+			})
+		end
+		return out
+	end
+
+	local first = sample(contactsOf(parts))
+	if first == nil or #first == 0 then
+		return false, 0, 0
+	end
+	local slopeX, slopeZ = Build.groundFit(first :: any)
+	local tilt = Build.tiltFrom(slopeX, slopeZ, math.rad(spec.MIN_TILT_DEGREES), math.rad(spec.MAX_TILT_DEGREES))
+	if tilt ~= CFrame.identity then
+		-- ROTATED ABOUT THE CONTACT PATCH'S OWN CENTRE, not about the model's pivot: turning a truck
+		-- about a point five studs over its wheels would lift one end of it into the air and leave
+		-- the lift below to put it back.
+		local midX, midZ, midY = 0, 0, 0
+		for _, point in ipairs(first :: any) do
+			midX, midZ, midY = midX + point.x, midZ + point.z, midY + point.bottom
+		end
+		local n = #(first :: any)
+		local pivot = Vector3.new(midX / n, midY / n, midZ / n)
+		local delta = CFrame.new(pivot) * tilt * CFrame.new(-pivot)
+		for _, piece in ipairs(parts) do
+			piece.CFrame = delta * piece.CFrame
+		end
+	end
+
+	local second = sample(contactsOf(parts))
+	if second == nil or #second == 0 then
+		return false, 0, 0
+	end
+	local lift = -math.huge
+	for _, point in ipairs(second :: any) do
+		lift = math.max(lift, point.y - point.bottom)
+	end
+	if lift ~= 0 then
+		local up = CFrame.new(0, lift, 0)
+		for _, piece in ipairs(parts) do
+			piece.CFrame = up * piece.CFrame
+		end
+	end
+	-- AND WHAT IT ACTUALLY LEFT, measured off the parts as they now stand -- never computed from the
+	-- lift, which is the arithmetic this whole function exists to stop trusting.
+	local worst = 0
+	for _, point in ipairs(second :: any) do
+		worst = math.max(worst, math.abs((point.bottom + lift) - point.y))
+	end
+	return true, lift, worst
+end
+
 -- ONE TRUCK, BUILT OUT OF PARTS. `bayAt` is where it stands, so the four bays are one loop in
 -- `trucks` and this function never knows how many there are.
 local function truck(container: Instance, at: Vector3, cfg, name: string): Instance
@@ -1164,16 +1476,35 @@ end
 -- EACH BAY FALLS BACK ON ITS OWN. If the template is there every bay is a model and if it is not
 -- every bay is parts; the loop does not care, which is what makes "a model failed to load" a
 -- survivable state rather than a half-built yard.
-local function trucks(container: Instance, anchor: Vector3, cfg, templates: Instance?)
+local function trucks(
+	container: Instance,
+	anchor: Vector3,
+	cfg,
+	templates: Instance?,
+	groundAt: ((number, number) -> number?)?
+)
 	local folder = Instance.new("Folder")
 	folder.Name = "Trucks"
 	local model = cfg.TRUCK.MODEL
+	-- THE TOP OF THE YARD SLAB, which is the surface a truck in a parked bay stands on when the
+	-- terrain under it is lower. `road` lays `Yard` across all four bays at `anchor.Y + THICK / 2`,
+	-- so its top is `anchor.Y + THICK` -- the same bound `pad` holds its deck above, for the same
+	-- reason and out of the same row.
+	local floorY = anchor.Y + cfg.ROAD.THICK_STUDS
 	for index = 1, cfg.TRUCK.COUNT do
 		local at = anchor + cfg.TRUCK.OFFSET + Vector3.new((index - 1) * cfg.TRUCK.BAY_GAP_STUDS, 0, 0)
 		local name = string.format("Truck%d", index)
 		local made = clone(templates, Data.TEMPLATE.TRUCK, name, model.SCALE, at, model.YAW_RADIANS, folder, false)
 		if made == nil then
-			truck(folder, at, cfg, name)
+			made = truck(folder, at, cfg, name)
+		end
+		-- PAINTED FIRST AND SETTLED SECOND, and the order is only readability: one reads the parts
+		-- and the other moves them, so neither can see the other's work.
+		stats.truckPainted += camo(made :: Instance, index, cfg)
+		local settled, _lift, worst = settleOnGround(made :: Instance, cfg, groundAt, floorY)
+		if settled then
+			stats.trucksSettled += 1
+			stats.truckGroundStuds = math.max(stats.truckGroundStuds, worst)
 		end
 	end
 	folder.Parent = container
@@ -1665,6 +1996,9 @@ function Build.build(
 	stats.keepers = 0
 	stats.keeperDressed = 0
 	stats.padWrites = 0
+	stats.trucksSettled = 0
+	stats.truckGroundStuds = 0
+	stats.truckPainted = 0
 	-- THE OLD KEEPER WENT WITH THE OLD FOLDER. Dropped here rather than relied on, so a rebuild can
 	-- never leave `Build.faceKeeper` turning a body that is no longer in the DataModel.
 	keeper = nil
@@ -1679,7 +2013,11 @@ function Build.build(
 	fences(folder, anchor, cfg)
 	treeLine(folder, anchor, cfg, templates)
 	lodge(folder, anchor, cfg, templates, seams)
-	trucks(folder, anchor, cfg, templates)
+	-- THE WORLD'S GROUND READER REACHES THE TRUCKS TOO (task 186), for the reason it already reaches
+	-- the pads: the shelf the arithmetic predicts is not the surface the engine produced, and a truck
+	-- stood on the prediction has its tyres 0.75 studs inside the terrain -- measured, in this place,
+	-- on every one of them.
+	trucks(folder, anchor, cfg, templates, (seams or {}).groundAt)
 	-- FOUR PADS, AND PAD 1 IS THE `marker` THIS FUNCTION HAS ALWAYS RETURNED (task 182): its part is
 	-- still named `Lobby.SPOT_NAME`, so `Lobby.spotPart`, the Hud's chevron and the Director's
 	-- `smoke.sh` all keep working with no edit.
