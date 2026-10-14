@@ -136,6 +136,45 @@ death squeal. Shot 1.6 s, bolt 0.35 s, magazine 0.45 s.
 exists, is licensed library audio, says on its own store record what it is, and loads in this place.
 **Karen's ears decide**, and every one of these is one line to change.
 
+### 4b. The shot sample was replaced (task 183, 2026-10-14)
+
+**Karen heard the Barrett and said it was not enough:** *"sound has to be harder like strong
+caliber"*. The Director's reading of that: a deep, loud report with a **sharp crack and a rolling
+echo in the open**, louder than the shotgun.
+
+**The whole licensed Guns family was swept** through `apis.roblox.com/toolbox-service/v1/marketplace/3`
+and resolved through `economy.roblox.com/v2/assets/<id>/details`, keeping only
+`Creator.Name == "ProSoundEffects"` (Roblox's own licensed catalogue, `IsPublicDomain: true`). That
+is the entire set of candidates this project may ship: every search for "hunting rifle", "30-06",
+"magnum" or "elephant gun" returns **user re-uploads of Call of Duty, Fortnite and CS:GO audio**, as
+section 4 already recorded.
+
+| Id | Name, creator's own description | Measured in Play | Verdict |
+|---|---|---|---|
+| **`9114725315`** | **"Gun Retort 1 (SFX)" -- *"Gun Retort, Weapon, Sharp Gun Shots, Reverberant Blasts"*, Guns - Handling** | **`loaded=true 4.95 s`** | **ADOPTED.** Its own store record is the brief, word for word, and it is the longest of that family |
+| `9114725471` | "Gun Retort 2 (SFX)", same description | `loaded=true 4.95 s` | the same length and the same words; a one-line alternative if hers dislikes this take |
+| `9114725473` | "Gun Retort 3 (SFX)", same description | `loaded=true 3.56 s` | shorter tail |
+| `9114725082` | "Gun Retort 1 (SFX)" -- *"Gun Retort, Distant, Present Decay"* | `loaded=true 8.83 s` | the longest decay in the catalogue, but **"Distant"**: a report heard from somewhere else, with no crack at the front |
+| `9114722167` | "Gun Live Ammunition 2 (SFX)" -- Remington 870, *"Huge Single Blasts"* | `loaded=true 6.64 s` | a shotgun, and this gun is not one |
+| `9116335273` | "Machine Gun 4 (SFX)" -- .223 CAR-16, *"Cracking Bangs, Reverberant Airy Decay"* | `loaded=true 3.24 s` | a .223 is a small bore; the opposite of what she asked for |
+| `9118173739` | "Rifle Single Shots 1 (SFX)" -- Barrett M82 .50 Cal | `loaded=true 3.36 s` | **the one being replaced**; kept here because it is one line to go back to |
+| `99008924129683` | the shotgun's, for scale | `loaded=true 0.92 s` | -- |
+
+**The three numbers beside the id, and why each is what it is.**
+* `pitch = 0.88` **IS THE CALIBRE.** Dropping a sample two semitones moves the whole report down, and
+  a bigger bore is a lower, slower bang. It is the one dial that makes a sample sound like more gun
+  than it was recorded from, and it costs nothing.
+* `cut = 2.0, fade = 0.8` **BECAUSE THE PLURAL IS A WARNING.** "Gun Shot**s**" and "Blast**s**" are a
+  TAKE, not a round -- the same reason the Barrett's "Single Shot**s**" was cut at 1.6. At this pitch
+  2.0 s of playback is **1.76 s of source**, and the last 0.8 s of it is already going quiet, so the
+  crack and its roll are heard in full and anything behind them arrives under a fade.
+* **The volume is the rifle's own, in `poses.json`:** `weapons.rifle.fire.volume.shot` 0.95 -> **1.5**
+  against the shotgun's 0.95. Before this the two guns were equally loud, which is half of what she
+  heard.
+
+**NOBODY HERE HAS HEARD IT EITHER.** Same rule, same remedy: every number above is one line, and
+`9118173739` is the way back.
+
 ---
 
 ## 5. Numeric targets
