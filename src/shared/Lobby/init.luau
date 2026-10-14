@@ -136,12 +136,32 @@ Lobby.CONFIG = {
 		-- the lodge, the porch, the yard and the truck is the whole fix -- and it keeps the FIELD
 		-- grass, which is what makes the field read as a field from outside.
 		--
-		-- It is inside `FIELD` like everything else this module writes, and `lobby.spec` asserts that
-		-- with the same corner check as the other two blocks.
-		PAD = {
-			OFFSET = Vector3.new(6, 0, 38), -- between the lodge (z +32..+60) and the truck (z +10..+26)
-			SIZE = Vector3.new(80, 6, 60),
-			MATERIAL = Enum.Material.Ground,
+		-- TWO PADS SINCE TASK 180, AND THE SECOND ONE IS WHY THE ROAD IS VISIBLE AT ALL. The first
+		-- build of the road laid its slabs flush on the grass shelf and the screenshot came back with
+		-- a field and NO ROAD: the player was standing on it. Same cause as the floorboards above --
+		-- Roblox draws a grass material's blades on the terrain surface and a part laid over them does
+		-- not hide them -- so the road corridor gets its own blade-free block, and `Build.road` lifts
+		-- the slab to sit ON the shelf instead of half inside it.
+		--
+		-- A LIST, so a third pad is a row and not a third code path. Every entry's TOP is the shelf,
+		-- and `lobby.spec` holds all of them to the same rectangle the two big blocks are held to.
+		PADS = {
+			-- THE YARD: under the lodge, its porch, the spawn, the circle and all four truck bays. It
+			-- grew with the bays in task 180 (80 x 60 held one truck).
+			{
+				NAME = "Yard",
+				OFFSET = Vector3.new(26, 0, 30),
+				SIZE = Vector3.new(140, 6, 90),
+				MATERIAL = Enum.Material.Ground,
+			},
+			-- THE ROAD CORRIDOR: the lane, both verges and a stud either side, from the lodge's front
+			-- to the shelf's southern edge.
+			{
+				NAME = "Road",
+				OFFSET = Vector3.new(20, 0, -24),
+				SIZE = Vector3.new(34, 6, 160),
+				MATERIAL = Enum.Material.Ground,
+			},
 		},
 		-- HOW WIDE A CHUNK EACH `FillBlock` MAY BE, in studs along x. `MapGen.Ground`'s header
 		-- records a MEASURED `WriteVoxels` ceiling of 24,576 voxels per region in this Studio
@@ -272,6 +292,10 @@ Lobby.CONFIG = {
 	-- the tree line closes the view anyway.
 	ROAD = {
 		WIDTH_STUDS = 20,
+		-- THICK ENOUGH TO SIT ON THE SHELF AND BE SEEN. `Build.road` centres the slab at
+		-- `shelfY + THICK_STUDS / 2`, so the whole of it is above the terrain rather than half
+		-- inside it (task 180, after the first road shot came back showing no road at all).
+		THICK_STUDS = 0.5,
 		FROM_Z = 56, -- the lodge's front
 		TO_Z = -104, -- the field's southern edge (half-span 110, less a margin)
 		CENTRE_X = 20, -- between the lodge's front door and the truck bays
@@ -303,8 +327,13 @@ Lobby.CONFIG = {
 		-- THE ARC THEY STAND ON: south-east round to south-west, so the trees frame the road and the
 		-- yard without ever standing between the porch and the forest that is really there to the
 		-- north.
-		FROM_RADIANS = -2.6,
-		TO_RADIANS = 2.6,
+		-- THE ARC EXCLUDES THE NORTH, and that was a bug before it was a decision: written as
+		-- -2.6 .. +2.6 it swept THROUGH angle 0, which is north -- so the tree line stood between
+		-- the lodge and `OurForest`, the real wood 54 studs behind it, and left the road's approach
+		-- open. It runs east -> south -> west instead, which frames the road and the yard and
+		-- leaves the northern view to the forest that is actually there. 0 is north, pi is south.
+		FROM_RADIANS = 0.6,
+		TO_RADIANS = 5.68,
 		JITTER_STUDS = 9,
 		SCALE = { 0.85, 1.35 },
 	},

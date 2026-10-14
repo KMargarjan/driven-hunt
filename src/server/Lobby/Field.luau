@@ -51,8 +51,11 @@ end
 -- build's inside shot came back with terrain grass growing through the lodge's floorboards, because
 -- a grass material draws its blades on the terrain surface and a part laid over them does not hide
 -- them.
-function Field.padBlock(anchor: Vector3, shelfY: number, cfg): (CFrame, Vector3)
-	local pad = cfg.FIELD.PAD
+--
+-- SINCE TASK 180 THERE ARE TWO OF THEM AND THIS TAKES THE ROW, because the road needed exactly the
+-- same fix for exactly the same reason: its slabs were laid flush on the grass shelf and the
+-- screenshot came back with a field and no road, with the player standing on it.
+function Field.padBlock(anchor: Vector3, shelfY: number, pad): (CFrame, Vector3)
 	local centre = anchor + pad.OFFSET
 	return CFrame.new(centre.X, shelfY - pad.SIZE.Y / 2, centre.Z), pad.SIZE
 end
@@ -112,10 +115,12 @@ function Field.fill(terrain: any, anchor: Vector3, shelfY: number, cfg): (number
 	end
 	-- THE PAD AFTER THE GRASS AND BEFORE THE AIR: it replaces the top of the grass shelf under the
 	-- buildings, and the air block above it then cuts the hill off exactly as before.
-	local padAt, padSize = Field.padBlock(anchor, shelfY, cfg)
-	for _, piece in ipairs(Field.chunks(padAt, padSize, chunk)) do
-		terrain:FillBlock(piece.at, piece.size, cfg.FIELD.PAD.MATERIAL)
-		calls += 1
+	for _, pad in ipairs(cfg.FIELD.PADS) do
+		local padAt, padSize = Field.padBlock(anchor, shelfY, pad)
+		for _, piece in ipairs(Field.chunks(padAt, padSize, chunk)) do
+			terrain:FillBlock(piece.at, piece.size, pad.MATERIAL)
+			calls += 1
+		end
 	end
 	local airAt, airSize = Field.airBlock(anchor, shelfY, cfg)
 	for _, piece in ipairs(Field.chunks(airAt, airSize, chunk)) do

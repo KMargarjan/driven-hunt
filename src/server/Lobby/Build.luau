@@ -904,10 +904,16 @@ local function road(container: Instance, anchor: Vector3, cfg)
 	local spec = cfg.ROAD
 	local length = spec.FROM_Z - spec.TO_Z
 	local midZ = (spec.FROM_Z + spec.TO_Z) / 2
+	-- LAID ON THE SHELF, NOT IN IT, AND THAT WAS PHOTOGRAPHED. The first build centred these slabs
+	-- ON `anchor.Y`, so half of each was underground and the terrain's grass blades stood through the
+	-- other half: the shot came back with a field and NO ROAD, with the player standing on it.
+	-- `FIELD.PADS` now puts a blade-free block under the corridor as well -- the two together are the
+	-- fix and either one alone is not.
+	local top = anchor.Y + spec.THICK_STUDS / 2
 	part(
 		"Lane",
-		Vector3.new(spec.WIDTH_STUDS, 0.4, length),
-		CFrame.new(anchor.X + spec.CENTRE_X, anchor.Y, anchor.Z + midZ),
+		Vector3.new(spec.WIDTH_STUDS, spec.THICK_STUDS, length),
+		CFrame.new(anchor.X + spec.CENTRE_X, top, anchor.Z + midZ),
 		spec.COLOR,
 		spec.MATERIAL,
 		false,
@@ -916,10 +922,10 @@ local function road(container: Instance, anchor: Vector3, cfg)
 	for index, side in ipairs({ -1, 1 }) do
 		part(
 			string.format("Verge%d", index),
-			Vector3.new(spec.VERGE_STUDS, 0.35, length),
+			Vector3.new(spec.VERGE_STUDS, spec.THICK_STUDS, length),
 			CFrame.new(
 				anchor.X + spec.CENTRE_X + side * (spec.WIDTH_STUDS + spec.VERGE_STUDS) / 2,
-				anchor.Y,
+				top - 0.05,
 				anchor.Z + midZ
 			),
 			spec.VERGE_COLOR,
@@ -933,8 +939,8 @@ local function road(container: Instance, anchor: Vector3, cfg)
 	local bays = (cfg.TRUCK.COUNT - 1) * cfg.TRUCK.BAY_GAP_STUDS
 	part(
 		"Yard",
-		Vector3.new(math.abs(cfg.TRUCK.OFFSET.X - spec.CENTRE_X) + bays + 34, 0.4, 44),
-		CFrame.new(anchor.X + (spec.CENTRE_X + cfg.TRUCK.OFFSET.X + bays) / 2, anchor.Y, anchor.Z + cfg.TRUCK.OFFSET.Z),
+		Vector3.new(math.abs(cfg.TRUCK.OFFSET.X - spec.CENTRE_X) + bays + 34, spec.THICK_STUDS, 44),
+		CFrame.new(anchor.X + (spec.CENTRE_X + cfg.TRUCK.OFFSET.X + bays) / 2, top, anchor.Z + cfg.TRUCK.OFFSET.Z),
 		spec.COLOR,
 		spec.MATERIAL,
 		false,
@@ -1033,6 +1039,13 @@ local function treeLine(container: Instance, anchor: Vector3, cfg, templates: In
 		local angle = spec.FROM_RADIANS + span * ((index - 0.5) / spec.COUNT)
 		local radius = spec.RADIUS_STUDS + rng:NextNumber(-spec.JITTER_STUDS, spec.JITTER_STUDS)
 		local at = Vector3.new(anchor.X + math.sin(angle) * radius, anchor.Y, anchor.Z + math.cos(angle) * radius)
+		-- NOT IN THE ROAD. The arc runs from one side of the yard round the south to the other, and
+		-- the road leaves through the south, so two of the thirty would otherwise stand in it. A
+		-- tree in the road is not scenery.
+		local offRoad = math.abs(at.X - (anchor.X + cfg.ROAD.CENTRE_X))
+		if offRoad < cfg.ROAD.WIDTH_STUDS / 2 + cfg.ROAD.VERGE_STUDS + 4 and at.Z < anchor.Z + cfg.ROAD.FROM_Z then
+			continue
+		end
 		local kind = kinds[rng:NextInteger(1, #kinds)]
 		local made = kind:Clone()
 		made.Name = string.format("Tree%02d", index)

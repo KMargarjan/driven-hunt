@@ -244,23 +244,43 @@ return function()
 			expect(CFG.FIELD.CLEAR_STUDS > CFG.LODGE.RIDGE_STUDS).to.equal(true)
 		end)
 
-		it("lays a pad of a material with no grass blades under the buildings", function()
-			-- A LOOK FIX THAT WAS PHOTOGRAPHED: the first build's inside shot came back with terrain
-			-- grass growing through the lodge's floorboards.
-			local at, size = Field.padBlock(anchor, shelf, CFG)
-			expect(at.Position.Y + size.Y / 2).to.equal(shelf)
-			expect(CFG.FIELD.PAD.MATERIAL).never.to.equal(CFG.FIELD.MATERIAL)
-			-- It covers the lodge's whole footprint, its porch and the circle beside the truck.
-			local half = Vector3.new(size.X / 2, 0, size.Z / 2)
-			local centre = at.Position
-			for _, point in ipairs({
+		it("lays pads of a material with no grass blades under the buildings AND the road", function()
+			-- BOTH OF THESE WERE PHOTOGRAPHED RATHER THAN GUESSED. Task 177's inside shot came back
+			-- with terrain grass growing through the lodge's floorboards; task 180's first road shot
+			-- came back with a field and NO ROAD, with the player standing on it. One cause: a grass
+			-- material draws its blades on the terrain surface and a part laid over them does not
+			-- hide them.
+			local covered = {
 				anchor + CFG.LODGE.OFFSET,
 				anchor + CFG.LODGE.OFFSET - Vector3.new(0, 0, CFG.LODGE.SIZE.Z / 2 + CFG.LODGE.PORCH_DEPTH),
 				anchor + CFG.SPOT.OFFSET,
 				anchor + CFG.SPAWN.OFFSET,
-			}) do
-				expect(math.abs(point.X - centre.X) <= half.X).to.equal(true)
-				expect(math.abs(point.Z - centre.Z) <= half.Z).to.equal(true)
+				-- the far truck bay, which the 80 x 60 yard of task 177 did not reach
+				anchor + CFG.TRUCK.OFFSET + Vector3.new((CFG.TRUCK.COUNT - 1) * CFG.TRUCK.BAY_GAP_STUDS, 0, 0),
+				-- both ends of the road, on its centre line
+				Vector3.new(anchor.X + CFG.ROAD.CENTRE_X, 0, anchor.Z + CFG.ROAD.FROM_Z - 1),
+				Vector3.new(anchor.X + CFG.ROAD.CENTRE_X, 0, anchor.Z + CFG.ROAD.TO_Z + 1),
+				-- and its outer verge, which is the edge the blades came through
+				Vector3.new(
+					anchor.X + CFG.ROAD.CENTRE_X + CFG.ROAD.WIDTH_STUDS / 2 + CFG.ROAD.VERGE_STUDS,
+					0,
+					anchor.Z
+				),
+			}
+			for _, point in ipairs(covered) do
+				local found = false
+				for _, pad in ipairs(CFG.FIELD.PADS) do
+					local at, size = Field.padBlock(anchor, shelf, pad)
+					expect(at.Position.Y + size.Y / 2).to.equal(shelf)
+					expect(pad.MATERIAL).never.to.equal(CFG.FIELD.MATERIAL)
+					if
+						math.abs(point.X - at.Position.X) <= size.X / 2
+						and math.abs(point.Z - at.Position.Z) <= size.Z / 2
+					then
+						found = true
+					end
+				end
+				expect(found).to.equal(true)
 			end
 		end)
 
@@ -268,7 +288,8 @@ return function()
 			for _, block in ipairs({
 				{ Field.grassBlock(anchor, shelf, CFG) },
 				{ Field.airBlock(anchor, shelf, CFG) },
-				{ Field.padBlock(anchor, shelf, CFG) },
+				{ Field.padBlock(anchor, shelf, CFG.FIELD.PADS[1]) },
+				{ Field.padBlock(anchor, shelf, CFG.FIELD.PADS[2]) },
 			}) do
 				local at, size = block[1] :: CFrame, block[2] :: Vector3
 				expect(Field.insideField(anchor, at, size, CFG)).to.equal(true)
@@ -313,7 +334,7 @@ return function()
 				if call.material == CFG.FIELD.MATERIAL then
 					seen.grass += 1
 					expect(seen.pad + seen.air).to.equal(0) -- all the grass goes down first
-				elseif call.material == CFG.FIELD.PAD.MATERIAL then
+				elseif call.material == CFG.FIELD.PADS[1].MATERIAL then
 					seen.pad += 1
 					expect(seen.air).to.equal(0) -- ...and the pad before the air
 				else
