@@ -1,22 +1,59 @@
 # Task 182 review request
 
 Task: 182
-Round: 1
+Round: 2
 Base: 718176d (main, #165 merged)
-Code commit: 1c97dc57a8050c009bb0573ed19bfd6f33e9537c
+Code commit: 66c3b9f5df8130817d931cce2331ef044e876697
 
 ```
-[harness] PASS: 33/33 checks @ 1c97dc57a8050c009bb0573ed19bfd6f33e9537c (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 66c3b9f5df8130817d931cce2331ef044e876697 (clean tree) scope=all
 ```
 
-Run twice at this commit (`.agent-logs/task182-test-final1.log`, `task182-test-final2.log`):
-1415 server assertions, 337 client, 54 + 19 spec files.
+Run twice at this commit (`.agent-logs/task182-r2-test1.log`, `task182-r2-test2.log`):
+1423 server assertions, 345 client, 54 + 19 spec files.
 
 **`[harness2]` is N/A and that is checkable, not hopeful.** `TWO_PLAYER_PATHS` in `tools/agents.py`
 is `src/server/Match/`, `src/server/MatchBoot.server.luau`, `src/client/Match/`,
 `src/client/MatchBoot.client.luau`, `src/shared/Drive/`, `tests/client/Role.luau` and their specs.
 **No file under any of them changed** — `git diff --name-only 718176d..HEAD` is the check, and
 `grep -rn Lobby src/server/Match/` still answers nothing.
+
+## Round 1's two blocking findings, both fixed
+
+**Finding 1 — a failed hand-over STRANDED the party.** Correct, and it was a real hole: the design's
+own transition table and two of my comments said a `leaving` pad with somebody still on it re-enters
+`sizing`, and `Pads.step` returned `NONE` for ever. `Lobby.depart` returns 0 whenever the injected
+seam throws or `world.enrol` refuses (`Match.enrol` refuses a player it has never registered), and
+`occupancy` keeps that man as an occupant, so his pad sat in `leaving` with `DHPadState` on the part,
+no dialog, no countdown and no second attempt until he happened to walk off. **Reaching case 6 now
+MEANS the drive did not take them** — a normal departure empties the list, because the owner leaves
+anyone the drive has out of it — so the pad goes back to `sizing` with a fresh first man and a fresh
+pick clock, verdict `ASK`. *Verify:* `lobby.spec`, *"ASKS AGAIN when the hand-over failed, instead of
+stranding the party on a dead pad"* — it asserts the retry, that it is fresh rather than resumed, and
+walks the retry all the way to a second `DEPART`.
+
+**Finding 2 — the nearest-pad chevron shipped with no test.** Correct, and `REQUEST.md` did not
+disclose it. The three cases the design named are now in `hud_clarity.spec`, *"points the chevron at
+the NEAREST pad, and falls back to task 177's answer"*: nearest of four pads from beside each of
+them (with the pad's own height kept), `pads` nil **and** `pads` empty → `spot`, and `me` nil →
+`spot`.
+
+### The seven notes, all taken
+
+1. The stale *"NO GROUND READER"* paragraph is replaced by what the code now does, and says why task
+   177's reasoning was true of the road SLAB and false of the TERRAIN.
+2. **The measured ground is clamped from below**: `math.max(measured, shelfY + ROAD.THICK_STUDS)`, so
+   a dip — or a reader that measured terrain under an opaque slab — cannot re-bury the deck the way
+   task 177's ring was buried. `lobby.spec` drives a reader that answers 5 studs below the shelf.
+3. **`Pads.labelFor` is now the ONE formatter** of a billboard's two lines. `Build.setPad` takes the
+   two strings and formats nothing; `Build.pads`, `stepPads` and `onPadRequest` all go through
+   `labelFor`; `lobby.spec` asserts the built board against `labelFor` itself rather than a copy.
+4. **`PadPanel.stop` empties the frame it was given**, so a re-start cannot leave doubled children,
+   and `pad_panel.spec` counts them after the re-start instead of claiming it in a comment.
+5. The *"33 characters"* comment said the bound, not the length (27).
+6. `hud_clarity.spec`'s stale comments about the replaced sentence are rewritten, and the `<= 33`
+   bound is now explained as a CEILING nothing reaches rather than as a description.
+7. `COLORS` → `COLOURS` in the backup note.
 
 ---
 
