@@ -356,11 +356,32 @@ function Camera.poseConfig()
 	return Poses.config(Config, Viewmodel.weaponId())
 end
 
+-- THE SHOT'S CONFIG, FOR THE WEAPON ON SCREEN (task 183), and it is a named function rather than a
+-- repeated call because leaving the weapon out of it was a silent bug for three tasks.
+--
+-- `Poses.config(Config)` -- no second argument -- answers for `Viewmodel.DEFAULT_WEAPON`, which is
+-- the SHOTGUN. `Camera.fire` and `Camera.kick` both read it that way, so firing the RIFLE drew the
+-- shotgun's flash and smoke and applied the shotgun's kick: `poses.json`'s `weapons.rifle.fire`
+-- block reached nothing at all, and `Mode.kick` is the only reader of the six RECOIL_* numbers in
+-- the repo. Task 183 raised the rifle's kick to 19 degrees and measured no change on screen, which
+-- is exactly what the Reviewer found (round 1, finding 1) and what `docs/design/rifle.md` 7.4 had
+-- promised: *"a rifle can kick harder than the shotgun without touching the shotgun's spring"*.
+--
+-- The volume half of the same shot path was already right (`Weapon.Sound.shot(Camera.poseConfig())`
+-- passes the id), which is what made the omission visible rather than invisible.
+--
+-- IT IS THE SAME ANSWER AS `Camera.poseConfig`, and the two are kept apart only because they are two
+-- questions -- the pose on screen and the shot's own numbers -- and a reader should not have to know
+-- that `Poses.config` caches on `(override, weapon)` to see that both are per weapon.
+function Camera.fireConfig()
+	return Poses.config(Config, Viewmodel.weaponId())
+end
+
 -- THE SHOT'S FLASH AND SMOKE, ON THE DRAWN GUN (task 112). The gun on screen is not the gun in the
 -- world (see `Camera.viewmodelMuzzle`), so the flash a player sees in first person has to come out of
 -- the viewmodel's own muzzle; `Weapon.Effects` still draws the world one for everybody.
 function Camera.fire(barrel: number?): boolean
-	local config = Poses.config(Config)
+	local config = Camera.fireConfig()
 	if not config.FIRST_PERSON then
 		return false
 	end
@@ -368,9 +389,10 @@ function Camera.fire(barrel: number?): boolean
 end
 
 function Camera.kick()
-	-- THE RESOLVED CONFIG, so `fire` can be tuned live like every other pose number (task 98).
+	-- THE RESOLVED CONFIG, so `fire` can be tuned live like every other pose number (task 98) -- and
+	-- FOR THE WEAPON ON SCREEN since task 183 (see `Camera.fireConfig`).
 	local before = state
-	state = Mode.kick(state, Poses.config(Config))
+	state = Mode.kick(state, Camera.fireConfig())
 	if state ~= before then
 		stats.recoilKicks += 1
 	end

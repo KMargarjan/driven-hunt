@@ -20,6 +20,9 @@ local Camera = require(scripts:WaitForChild("Camera"))
 local Hud = require(scripts:WaitForChild("Hud"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
+-- ...and for ONE table: the poses file as DATA, so the kick below is checked against the rifle's
+-- own `fire` block rather than against whatever `Camera.Config` was built from (task 183).
+local Viewmodel = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 -- ...for ONE name: the shell template, which is never worn (see the case below).
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -638,6 +641,121 @@ return function()
 					core.AbsoluteSize.X,
 					halo.AbsoluteSize.X,
 					viewportY
+				)
+			)
+		end)
+	end)
+
+	-- ------------------------------------------------------ the kick is the DRAWN gun's (task 183)
+	--
+	-- THE CASE THAT WOULD HAVE CAUGHT IT. `Camera.kick` read `Poses.config(Config)` with no weapon
+	-- id, which answers for `Viewmodel.DEFAULT_WEAPON` -- the SHOTGUN -- and `Mode.kick` is the only
+	-- reader of the six RECOIL_* numbers in the repo. So `poses.json`'s `weapons.rifle.fire` block
+	-- reached nothing: task 183 raised the rifle's kick to 19 degrees and the player still got the
+	-- shotgun's 8, clamped by the shotgun's own ceiling. `rifle.spec`'s "kicks harder than the
+	-- shotgun" could not see it, because it asserts DATA RELATIONS and the data was always right.
+	--
+	-- SO THIS ONE EQUIPS THE RIFLE AND READS THE STATE THE PLAYER WOULD BE LOOKING THROUGH. It is
+	-- the only place the wiring is observable: with the shotgun in hand the buggy and the correct
+	-- code return the same table, so a case driven by whatever the harness happens to hold is
+	-- vacuous exactly when it matters.
+	describe("the kick belongs to the gun on screen", function()
+		it("applies the rifle's own recoil when the rifle is the drawn weapon", function()
+			local character = player.Character
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			local backpack = player:FindFirstChildOfClass("Backpack")
+			local held = character and character:FindFirstChildOfClass("Tool")
+			local rifle = nil
+			for _, where in ipairs({ backpack, character }) do
+				if where ~= nil and rifle == nil then
+					local found = where:FindFirstChild("Rifle")
+					if found ~= nil and found:IsA("Tool") then
+						rifle = found
+					end
+				end
+			end
+
+			local rifleView = Viewmodel.view(Viewmodel.DATA, "rifle")
+			local shotgunView = Viewmodel.view(Viewmodel.DATA, "shotgun")
+			-- The two really are different numbers, or nothing below can tell them apart.
+			expect(rifleView.RECOIL_CAM_PITCH_DEG).never.to.equal(shotgunView.RECOIL_CAM_PITCH_DEG)
+
+			if humanoid == nil or rifle == nil then
+				TestKit.note(
+					"rifle kick: no rifle Tool to equip ("
+						.. (if humanoid == nil then "no humanoid" else "not in the backpack")
+						.. "), so the wiring was asserted through Camera.fireConfig instead"
+				)
+				-- THE WEAKER CLAIM, NEVER SILENCE: whatever weapon is drawn, the shot's config is
+				-- the SAME one the poses resolve to. That is the omission, stated without a rifle.
+				expect(Camera.fireConfig()).to.equal(Camera.poseConfig())
+				return
+			end
+
+			humanoid:EquipTool(rifle)
+			local drawn = nil
+			for _ = 1, 60 do
+				drawn = Camera.Viewmodel.weaponId()
+				if drawn == "rifle" then
+					break
+				end
+				frames(2)
+			end
+
+			local applied, settled = nil, false
+			if drawn == "rifle" then
+				-- FROM REST, so the number read back is the kick itself and not a clamped sum.
+				for _ = 1, 240 do
+					if not Mode.recoiling(Camera.getState()) then
+						settled = true
+						break
+					end
+					frames(1)
+				end
+				if settled then
+					Camera.kick()
+					applied = Camera.getState()
+				end
+			end
+
+			-- PUT THE GUN BACK BEFORE ASSERTING ANYTHING, so a failure here cannot leave the session
+			-- holding a weapon the specs that run after this file do not expect.
+			if held ~= nil and held ~= rifle then
+				humanoid:EquipTool(held)
+			else
+				humanoid:UnequipTools()
+			end
+			for _ = 1, 60 do
+				if Camera.Viewmodel.weaponId() ~= "rifle" then
+					break
+				end
+				frames(2)
+			end
+
+			expect(drawn).to.equal("rifle")
+			expect(settled).to.equal(true)
+			expect(applied).to.be.ok()
+			local state = applied :: any
+			-- THE THREE NUMBERS `Mode.kick` WRITES, against the RIFLE's row and not the default's.
+			expect(math.abs(state.recoilCamPitchDeg - rifleView.RECOIL_CAM_PITCH_DEG) < 1e-6).to.equal(true)
+			expect(math.abs(state.recoilGunPitchDeg - rifleView.RECOIL_GUN_PITCH_DEG) < 1e-6).to.equal(true)
+			expect(math.abs(state.recoilGunBackStuds - rifleView.RECOIL_GUN_BACK_STUDS) < 1e-6).to.equal(true)
+			-- ...and explicitly NOT the shotgun's, which is the bug written out.
+			expect(math.abs(state.recoilCamPitchDeg - shotgunView.RECOIL_CAM_PITCH_DEG) > 1e-6).to.equal(true)
+			TestKit.note(
+				string.format(
+					"rifle kick: drawn=%s applied view %.2f deg / gun %.2f deg / back %.3f studs "
+						.. "(rifle wants %.2f / %.2f / %.3f, shotgun %.2f / %.2f / %.3f)",
+					tostring(drawn),
+					state.recoilCamPitchDeg,
+					state.recoilGunPitchDeg,
+					state.recoilGunBackStuds,
+					rifleView.RECOIL_CAM_PITCH_DEG,
+					rifleView.RECOIL_GUN_PITCH_DEG,
+					rifleView.RECOIL_GUN_BACK_STUDS,
+					shotgunView.RECOIL_CAM_PITCH_DEG,
+					shotgunView.RECOIL_GUN_PITCH_DEG,
+					shotgunView.RECOIL_GUN_BACK_STUDS
 				)
 			)
 		end)
