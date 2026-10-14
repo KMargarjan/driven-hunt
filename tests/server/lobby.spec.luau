@@ -510,8 +510,11 @@ return function()
 			local folder, _marker, _spawn, count = Build.build(container, anchor, CFG, templates)
 			local stats = Build.stats()
 			expect(folder:FindFirstChild("House", true)).to.be.ok()
-			-- the parts lodge's own log wall is NOT there: one lodge, never two
-			expect(folder:FindFirstChild("WallS1", true)).to.never.be.ok()
+			-- the parts lodge's own log wall is NOT there: one lodge, never two.
+			-- `WallN` AND NOT `WallS`: the front wall's lower courses are split round the doorway and
+			-- are named `WallS1W`/`WallS1E`, so "WallS1" is absent from the parts build too and would
+			-- pass this line for the wrong reason. The back wall has no door and no such trap.
+			expect(folder:FindFirstChild("WallN1", true)).to.never.be.ok()
 			for index = 1, CFG.TRUCK.COUNT do
 				expect(folder:FindFirstChild(string.format("Truck%d", index), true)).to.be.ok()
 			end
@@ -529,7 +532,7 @@ return function()
 			local folder, _marker, _spawn, count = Build.build(container, anchor, CFG, nil)
 			local stats = Build.stats()
 			expect(folder:FindFirstChild("House", true)).to.never.be.ok()
-			expect(folder:FindFirstChild("WallS1", true)).to.be.ok() -- the log wall
+			expect(folder:FindFirstChild("WallN1", true)).to.be.ok() -- the back wall's lowest log
 			expect(folder:FindFirstChild("Floor", true)).to.be.ok()
 			for index = 1, CFG.TRUCK.COUNT do
 				local made = folder:FindFirstChild(string.format("Truck%d", index), true)
