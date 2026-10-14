@@ -1,21 +1,20 @@
 # Task 179 — varied drives: more than one place to stand
 
 Task: 179
-Round: 2
+Round: 3
 Base: 253d21f (main, #162 merged)
-Code commit: 08ddde735df89dd897c758496af4bdba546de76a
+Code commit: 7a6acf74f10f58f856add16e7d9ce7b0acc5b38c
 
 ```
-[harness] PASS: 33/33 checks @ 9e880f57c157bb9d72f5e33f0fcc46c76d0fef6d (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 9e880f57c157bb9d72f5e33f0fcc46c76d0fef6d (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 7a6acf74f10f58f856add16e7d9ce7b0acc5b38c (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 7a6acf74f10f58f856add16e7d9ce7b0acc5b38c (clean tree) scope=all
 ```
 
 ```
-[harness] PASS: 33/33 checks @ 08ddde735df89dd897c758496af4bdba546de76a (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 08ddde735df89dd897c758496af4bdba546de76a (clean tree)
+[harness2] PLACEHOLDER -- NEEDS TEST2 179 7a6acf7 (ESCALATE.md). The round-2 line
+(`[harness2] PASS: 35/35 checks @ 08ddde7`) is the Director's at the OLD head and does not carry:
+`src/server/Match/init.luau` is in TWO_PLAYER_PATHS and the code commit has moved twice since.
 ```
-
-DIRECTOR NOTE: both lines are the Director's at the head `08ddde7` (only paperwork after `9e880f5`).
 
 ## What changed
 
@@ -66,18 +65,34 @@ round-1 code.** They are claims 1-4 below; claims 5-11 are the task's own and ar
    field it is spawned into, which is what round 1 broke (a ride line spawns at −2420 and the road's
    exit is −2377, already past it).
 
-3. **(finding 3) The map redraws when the world hands it a different layout.** `MapUi.setGeometry`
-   latched `built` for the life of the client, so the attribute signal replaced only the table
-   `withinBounds` reads and the drawn road and stands stayed on the first layout from drive 2 on.
-   It tears down (by ownership: the children of the two frames and the legend holder, all of which
-   `MapUi` is the one writer of) and rebuilds when `sameGeometry` says the geometry is really
-   different — **and is still idempotent for the same one**, because `Hud` calls it on every
-   attribute write and a map that rebuilt per write would flicker.
-   *Verify:* `sameGeometry`, `teardown` and `MapUi.setGeometry`; `map_ui.spec`'s *"REDRAWS the
-   picture when the world hands it a different layout"*, which asserts on **the drawn nodes** —
-   the `Stand*` frames under the minimap's `Geometry` layer, their count and their position — not on
-   `MapUi.geometry()`, which is what let the round-1 claim pass while the picture was wrong. It
-   re-finds the layer every time, because a rebuild destroys it.
+3. **(round 2, finding 1 — THE BLOCKING ONE) The rebuild destroys only what `MapUi` made, so the
+   Hud's own decorations survive it.** Round 2 cleared the two frames' children *by ownership* and
+   the ownership claim was false: `Hud.build` parents four instances of its own into them — the
+   minimap's `UICorner` (which is HOW a circle is drawn in Roblox GUI without an uploaded image;
+   Karen asked for *"small map in left or right corner circle like is on another games"*), a
+   `UIStroke` rim on each frame, and the `MapLegend` frame, which **is** the instance handed back as
+   `frames.legend`. So the first layout change turned the minimap into a square with the road in its
+   corners, took both rims, and left `legendFrame` pointing at a destroyed instance the rebuild then
+   wrote every swatch into. `Hud.build` runs once, so nothing ever put them back.
+   **A list, not a rule**, because the rule is what was wrong: every instance this module parents
+   into a frame it does not own goes through `claim`, and `teardown` destroys that list.
+   *Verify:* `claimed` / `claim` / `teardown` in `src/client/Hud/MapUi.luau`, and the fifteen `claim`
+   sites; `map_ui.spec`'s *"leaves the Hud's OWN decorations alone when it redraws"*, which redraws
+   once per layout and asserts the `UICorner`, both `UIStroke`s and `MapLegend` are **the same
+   instances** afterwards, with the legend's rows still in it and the corner radius still half the
+   side.
+   **The gate caught the other half of this one**, and it is worth saying rather than hiding:
+   `buildDrawer` parents its markers, the player's own dot, the view wedge, the push arrow and its
+   word and the goal mark **directly into the minimap frame**, which my first claim list missed — so
+   a rebuild left the old set behind and the map carried two push arrows, the stale one still
+   `Visible`. `map_ui.spec`'s existing *"hides the arrow when the world states no push"* case failed
+   on it. `claim` now sits above `buildDrawer` and covers it.
+
+3b. **The map still redraws when the world hands it a different layout, and is still idempotent for
+   the same one** (round 1's finding 3, unchanged by the above). `MapUi.setGeometry` latched `built`
+   for the life of the client, so the attribute signal replaced only the table `withinBounds` reads.
+   *Verify:* `sameGeometry`; `map_ui.spec`'s *"REDRAWS the picture when the world hands it a
+   different layout"*, which asserts on **the drawn nodes** and re-finds the layer every time.
 
 4. **(finding 4) The live name is published on every deal, not only when the layout changes.**
    `publishLayout` ran only from `promote`, so a session whose first deal equalled the starting name
@@ -131,6 +146,39 @@ round-1 code.** They are claims 1-4 below; claims 5-11 are the task's own and ar
     the old z comparison became false (`EXIT_Z` is gone and the edge's exit is *south* of the lodge).
     Measured gaps: corridor 463 / 145 / 130 studs, boar bounds 363 / 85 / 70.
 
+## Round 2's notes
+
+**Fixed, all true one-liners:**
+
+* **`standIndexFor` only closed for an ODD count.** With the 6-stand `edge` layout live, hunter 6
+  got stand 0 and hunter 8 got −1; `postIndexFor` found no `Stand0`, fell back to the raw index and
+  `Body.placementFor`'s modulo put him on whichever post happened to be last. Unreachable with bots
+  (`BOTS.TARGET.hunters` is 4), reachable with six real hunters. Clamped into the line, and
+  `forest_stand.spec`'s *"stays inside the line on EVERY layout, including an even-count one"* now
+  loops `LAYOUT_ORDER` and twice the count — the old case looped the road's count only, which is
+  why it could not see this.
+* **`laneSpacing(layout, beater)` was a second answer** to "how far apart is a lane", reachable by
+  any caller passing a table. One answer now, the layout's — and with it the `beater` parameter of
+  `sweepAheadStuds`, `noticeAheadStuds` and `encounterStage` became dead, so it is **gone** rather
+  than left as the next reader's trap (the treatment `forest-drive.md` 7.2 gave `ForestTest.drive`).
+  A spec that wants a spacing no layout has hands in a made-up **layout**.
+* **The stale band arithmetic.** `bandDepth`'s header and design 4.1 both carried the *pre-task-172*
+  reach (89 → 47.9 / 61). With the shipped `SPOOK.BEATER_STUDS` of 71 the flush band is the
+  `MIN_AHEAD_STUDS` floor, **30**, at both spacings. Prose only — the spec asserts the two bands'
+  ORDER, not their values — and the design now carries the correction and the arithmetic.
+
+**Queued as 179a, not fixed, each with the Reviewer's own reason:**
+
+* the **`match_live.spec` case for the marker-freshness change** (`measureMarkers` on the `Assigning`
+  edge, in a `TWO_PLAYER_PATHS` file, has no case at all). The Reviewer's own note says the code is
+  right and this is coverage; it needs an injected `world.markers` returning two different sets,
+  which is a new fixture rather than a one-liner;
+* `bots_lane.spec`'s **per-layout goal cases** (design 9.3's second half). The per-layout half of
+  that section is done; the `Match.beaterGoalFor` half still uses only `CURVED_POSTS`;
+* **the one-name-TABLE branch of `nextLayout`** — the spec's case is a one-element *bag*, which
+  never enters the refill. The guard that makes a one-name table answer the same name rather than
+  loop cannot have a case without changing `LAYOUT_ORDER`, which the Reviewer says too.
+
 ## Evidence that is not a spec
 
 * **The one-player gate, twice, on a clean tree at the code commit** — both lines above, 33/33,
@@ -164,9 +212,11 @@ round-1 code.** They are claims 1-4 below; claims 5-11 are the task's own and ar
 
 ## What I could not verify
 
-* **The two-player line.** `src/server/Match/init.luau` is in `TWO_PLAYER_PATHS`; StudioMCP cannot
-  start that test and `run-test2.sh` refuses while two Studios are open. `ESCALATE.md` carries
-  **NEEDS TEST2 179 9e880f5** with the clicks.
+* **The two-player line at THIS code commit.** The Director ran `test2` at the round-2 head and it
+  passed (`[harness2] PASS: 35/35 checks @ 08ddde7 (clean tree)`), but round 3 moved the code commit
+  twice, so that line no longer names it. `ESCALATE.md` carries **NEEDS TEST2 179 7a6acf7**.
+  Round 2's note that this bullet and the evidence block disagreed was right, and this is the
+  wording that stops it recurring: the line is only evidence for the commit it names.
 * **Karen's eye.** Nobody has *played* a drive on the edge or the ride — the 60-second runs above
   stand still and are about geometry, not feel. Design 11, K1-K5.
 * **The edge layout's push corridor as a SAMPLE COUNT.** The ride's is measured (22 of 25 samples in

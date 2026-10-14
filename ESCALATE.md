@@ -1,5 +1,29 @@
 # Escalations
 
+## 2026-10-14 - Task 179 ROUND 3: NEEDS TEST2 179 7a6acf7 -- the same click, at the final head
+
+Round 3 fixed round 2's blocking finding (the rebuild was destroying four instances `Hud` owns, so
+one layout change left the minimap a square with no rim and no legend) plus three true notes, and the
+gate caught two halves of my own fixes being half-done -- both are in the commits. The code commit is
+now **7a6acf74f10f58f856add16e7d9ce7b0acc5b38c**, FULL `test` twice, both
+`PASS: 33/33 ... (clean tree) scope=all`.
+
+**The round-2 `[harness2] PASS: 35/35 checks @ 08ddde7` does not carry.** A two-player line is
+evidence only for the commit it names, and this one has moved twice since. That is round 2's own
+note about the request and `TASKS.md` disagreeing with each other, taken seriously.
+
+**The command:** `python tools/studio_mcp.py test2` at `7a6acf7`, with the clicks in the round-1
+entry below. The line then replaces the placeholder in `reviews/task-179/REQUEST.md`, and
+`powershell -ExecutionPolicy Bypass -File tools/review.ps1 179` runs round 3 -- **the last round
+`MAX_ROUNDS` allows**.
+
+**What a second player answers, unchanged since round 2:** nothing about the layouts, which are
+proved one-player in specs and in two 60-second live runs. It answers the one change outside the
+forest -- `Match` measuring the marker set on the `Assigning` edge, so a drive places its hunters on
+the set belonging to the drive they are in. With one player that is one hunter; with two it is a
+roster.
+
+
 ## 2026-10-14 - Task 179 ROUND 2: NEEDS TEST2 179 9e880f5 -- the same click, at the new head
 
 Round 2 fixed all four of round 1's findings, so the code commit moved:
