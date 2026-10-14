@@ -282,6 +282,11 @@ local function tryBuild(): boolean
 			dress = world.dress,
 			dressConfig = world.dressConfig,
 			shopOn = world.shopOn,
+			-- THE SAME READER THIS FUNCTION JUST USED FOR THE SHELF, handed down so each truck pad is
+			-- laid on the ground that is really there (task 182). Measured in the live place: without
+			-- it the four pads sat 0.17 studs UNDER the terrain and only their billboards showed,
+			-- because Roblox terrain is voxelised and `Field.fill`'s surface is not exactly `shelfY`.
+			groundAt = world.groundAt,
 		} :: any
 	)
 	building = false

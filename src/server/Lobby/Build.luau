@@ -71,6 +71,11 @@ export type Seams = {
 	rig: ((HumanoidDescription, Enum.HumanoidRigType) -> Model?)?,
 	dress: ((Model, string, any, any) -> boolean)?,
 	dressConfig: any?,
+	-- WHERE THE GROUND IS, at any x/z (task 182). The world's own single reader -- the same
+	-- `Data.groundAt` the owner uses to find the shelf and `Markers.setReaders` uses for the stand
+	-- rings -- so a pad is laid on the surface the engine actually produced rather than on the one
+	-- the arithmetic predicted. nil means "nobody said", and then the pure arithmetic stands.
+	groundAt: ((number, number) -> number?)?,
 	-- IS THE SHOP IN THIS BUILD AT ALL? The `SHOP` flag's value, read ONCE at the composition root
 	-- and passed inward (CLAUDE.md, feature flags), because this module must not learn what a shop
 	-- is. It decides one thing: whether the keeper's prompt is `Enabled`. With the shop off the
@@ -1215,12 +1220,45 @@ end
 -- instance, so they cannot drift apart. `CanQuery` and `CanTouch` are false -- a pellet must not stop
 -- on it and `Touched` must never fire, because presence here is arithmetic (`Join.withinRect`) -- and
 -- `CanCollide` is false so a player stands on the road under it rather than stepping up onto a kerb.
-local function pad(container: Instance, anchor: Vector3, index: number, cfg): BasePart
+local function pad(
+	container: Instance,
+	anchor: Vector3,
+	index: number,
+	cfg,
+	groundAt: ((number, number) -> number?)?
+): BasePart
 	local config = cfg.PADS
 	local folder = Instance.new("Folder")
 	folder.Name = string.format("Pad%d", index)
 	local centre = Pads.centreFor(anchor, index, cfg)
 	local size = config.SIZE
+	-- ...AND THEN THE Y IS TAKEN FROM THE GROUND THAT IS ACTUALLY THERE, which is the one thing
+	-- `Pads.centreFor` cannot know and the one correction this task had to make after LOOKING at it
+	-- (rule 5).
+	--
+	-- MEASURED, 2026-10-14, in the live Forest Test place: every pad's top came out at 149.828 and
+	-- the terrain under it at 150.000 -- the four rectangles were 0.17 studs UNDERGROUND and
+	-- invisible, with only their billboards showing. The design's arithmetic (`shelfY +
+	-- ROAD.THICK_STUDS + LIFT_STUDS`) assumed the surface a pad lands on is the nominal shelf, and
+	-- ROBLOX TERRAIN IS VOXELISED: `Field.fill` asks for a block whose top is `shelfY` and the
+	-- surface the engine actually produces is rounded to its own grid -- here 0.75 studs higher. A
+	-- constant lift cannot fix that, because the rounding is a property of where the block fell and
+	-- not a number this system chose.
+	--
+	-- SO THE PAD SITS ON WHAT IS MEASURED, which is `Markers.setReaders`' own pattern for the stand
+	-- rings and the same `world.groundAt` the owner already uses to find the shelf. A world that
+	-- hands in no reader keeps the pure arithmetic, which is what every spec builds with and what
+	-- makes the fallback a stated branch rather than a crash.
+	--
+	-- THIS IS TASK 177'S ROUND-1 FINDING, A SECOND TIME AND AGAINST A DIFFERENT SURFACE: the ring was
+	-- buried in the road slab, these were buried in the terrain. Both were found by looking at a
+	-- picture, which is why rule 5 exists.
+	if groundAt ~= nil then
+		local ok, measured = pcall(groundAt, centre.X, centre.Z)
+		if ok and type(measured) == "number" then
+			centre = Vector3.new(centre.X, (measured :: number) + config.LIFT_STUDS - size.Y / 2, centre.Z)
+		end
+	end
 	-- WRAPPED, so a fifth bay cannot index past the end of the colour list.
 	local colour = config.COLOURS[(index - 1) % #config.COLOURS + 1]
 
@@ -1321,12 +1359,12 @@ end
 -- ALL FOUR PADS, one behind each bay, in `TRUCK.COUNT`'s own loop -- so four trucks and three pads
 -- cannot happen. Returns them in pad order, and `Build.build` hands pad 1 back as the marker its
 -- signature has always carried.
-local function pads(container: Instance, anchor: Vector3, cfg): { BasePart }
+local function pads(container: Instance, anchor: Vector3, cfg, groundAt: ((number, number) -> number?)?): { BasePart }
 	local folder = Instance.new("Folder")
 	folder.Name = "Pads"
 	local made: { BasePart } = {}
 	for index = 1, cfg.TRUCK.COUNT do
-		table.insert(made, pad(folder, anchor, index, cfg))
+		table.insert(made, pad(folder, anchor, index, cfg, groundAt))
 	end
 	folder.Parent = container
 	return made
@@ -1634,7 +1672,10 @@ function Build.build(
 	-- FOUR PADS, AND PAD 1 IS THE `marker` THIS FUNCTION HAS ALWAYS RETURNED (task 182): its part is
 	-- still named `Lobby.SPOT_NAME`, so `Lobby.spotPart`, the Hud's chevron and the Director's
 	-- `smoke.sh` all keep working with no edit.
-	local made = pads(folder, anchor, cfg)
+	-- THE WORLD'S OWN GROUND READER, handed through so each pad sits on the surface that is really
+	-- there rather than on the one the arithmetic predicted (see `pad`). nil is legal and is what
+	-- every spec uses.
+	local made = pads(folder, anchor, cfg, (seams or {}).groundAt)
 	local marker = made[1]
 
 	-- THE LODGE SPAWN. The engine's own lobby mechanism (`SpawnLocation` + `Player.RespawnLocation`,

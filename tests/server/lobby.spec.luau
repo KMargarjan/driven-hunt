@@ -813,6 +813,64 @@ return function()
 			expect(Data.padPartName(1)).to.equal(Data.SPOT_NAME)
 		end)
 
+		it("sits each pad on the ground that is REALLY there, when a world can measure it", function()
+			-- THE CORRECTION THIS TASK MADE AFTER LOOKING AT IT (rule 5). Measured in the live Forest
+			-- Test place, 2026-10-14: every pad's top was 149.828 and the terrain under it 150.000 --
+			-- the four rectangles were 0.17 studs UNDERGROUND and only their billboards showed.
+			-- `Field.fill` asks for a terrain block whose top is `shelfY`, and Roblox terrain is
+			-- VOXELISED, so the surface the engine produces is rounded to its own grid: 0.75 studs
+			-- higher here. A constant lift cannot fix a rounding this system did not choose.
+			--
+			-- SO THE PAD IS LAID ON `world.groundAt`, and the claim is that its top clears whatever
+			-- that reader says -- not that it clears an arithmetic shelf.
+			local hump = 3.25
+			local probed: { Vector3 } = {}
+			local made = Build.build(
+				container,
+				anchor,
+				CFG,
+				fakeTemplates(),
+				{
+					groundAt = function(x: number, z: number): number
+						table.insert(probed, Vector3.new(x, 0, z))
+						return anchor.Y + hump
+					end,
+				} :: any
+			)
+			-- IT ASKED ONCE PER PAD, at the pad's own centre and nowhere else.
+			expect(#probed).to.equal(CFG.TRUCK.COUNT)
+			for index = 1, CFG.TRUCK.COUNT do
+				local wanted = Pads.centreFor(anchor, index, CFG)
+				expect(probed[index].X).to.equal(wanted.X)
+				expect(probed[index].Z).to.equal(wanted.Z)
+				local deck = made:FindFirstChild(Data.padPartName(index) :: string, true) :: BasePart
+				local top = deck.Position.Y + deck.Size.Y / 2
+				-- ON the measured ground, lifted by the one number that stops z-fighting -- and
+				-- ABOVE it, which is the whole of the defect this case exists for.
+				expect(math.abs(top - (anchor.Y + hump + CFG.PADS.LIFT_STUDS)) < 1e-3).to.equal(true)
+				expect(top > anchor.Y + hump).to.equal(true)
+				-- ...AND ITS x AND z HAVE NOT MOVED: the RULE is flat, so a measured Y may never
+				-- change where the rectangle is.
+				expect(deck.Position.X).to.equal(wanted.X)
+				expect(deck.Position.Z).to.equal(wanted.Z)
+			end
+			-- A READER THAT ANSWERS NOTHING LEAVES THE PURE ARITHMETIC STANDING, which is the branch
+			-- every other case in this file builds with.
+			local blind = Build.build(
+				container,
+				anchor,
+				CFG,
+				fakeTemplates(),
+				{
+					groundAt = function(): number?
+						return nil
+					end,
+				} :: any
+			)
+			local fallback = blind:FindFirstChild(Data.SPOT_NAME, true) :: BasePart
+			expect((fallback.Position - Pads.centreFor(anchor, 1, CFG)).Magnitude < 1e-3).to.equal(true)
+		end)
+
 		it("holds no trace of task 177's circle: no ring, no Spot folder, no sign", function()
 			-- A DELETION IS ONLY DONE WHEN NOTHING IS LEFT BEHIND. The circle is archived in
 			-- `backups/2026-10-14_task-182_the-marked-circle.txt` (rule 7); this is the check that it
