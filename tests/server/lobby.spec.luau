@@ -726,6 +726,42 @@ return function()
 			end
 		end)
 
+		it("keeps the fence line OUT of the yard, the porch, the spawn and the lodge, in BOTH builds", function()
+			-- ROUND 2'S BLOCKING FINDING, as a case that fails without the fix. `POSTS_PER_SIDE = 9`
+			-- from z -98 at 18 studs ran the WEST line (x +2, two studs off the lodge's centre line)
+			-- to z +46 -- the lodge's own centre. One post stood inside the cabin through its
+			-- floorboards, one in the middle of the porch beside the doorway, and a rail lay across
+			-- the spawn pad at knee height. Nothing bounded it: the field rectangle is 110 studs away.
+			--
+			-- The bound is the YARD'S southern edge, because everything the fence must not reach --
+			-- the yard, the circle, the porch, the spawn, the lodge -- is north of it.
+			for _, withModels in ipairs({ true, false }) do
+				local templates = if withModels then fakeTemplates() else nil
+				local folder = Build.build(container, anchor, CFG, templates)
+				local room = Build.roomFor(anchor, CFG, withModels)
+				local yardSouth = anchor.Z + CFG.TRUCK.OFFSET.Z - 22
+				local fences = folder:FindFirstChild("Fences")
+				expect(fences).to.be.ok()
+				local pieces = 0
+				for _, descendant in ipairs((fences :: Instance):GetDescendants()) do
+					if descendant:IsA("BasePart") then
+						pieces += 1
+						local piece = descendant :: BasePart
+						local north = piece.Position.Z + piece.Size.Z / 2
+						expect(north <= yardSouth).to.equal(true)
+						-- ...and, said the other way round, never in the room a player shops in.
+						local insideX = math.abs(piece.Position.X - room.centre.X) < room.halfX
+						local insideZ = math.abs(piece.Position.Z - room.centre.Z) < room.halfZ
+						expect(insideX and insideZ).to.equal(false)
+					end
+				end
+				expect(pieces > 0).to.equal(true)
+				if templates then
+					(templates :: Instance):Destroy()
+				end
+			end
+		end)
+
 		it("leaves the marked circle standing CLEAR of the road surface it is drawn on", function()
 			-- ROUND 1 BURIED IT. `road` lays its slabs on the shelf and the yard covers the whole
 			-- circle, so a ring lifted 0.08 studs off the SHELF sat 0.42 studs inside an opaque

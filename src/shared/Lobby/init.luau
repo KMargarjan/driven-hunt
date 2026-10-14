@@ -221,9 +221,12 @@ Lobby.CONFIG = {
 			--   east wall  x = +9.76   west wall  x = -10.01
 			--   back wall  z = +14.85  front wall z = -4.90
 			--   floor      y =  3.31   ceiling    y =  10.72
+			-- HALF_X AND HALF_Z BY NAME, not a `Vector2` whose `Y` secretly means z (review round 2,
+			-- note): both happen to be 9.8, so a swapped pair would be invisible.
 			ROOM = {
 				CENTRE = Vector3.new(-0.1, 3.3, 5.0),
-				HALF = Vector2.new(9.8, 9.8),
+				HALF_X = 9.8,
+				HALF_Z = 9.8,
 				CEILING_Y = 10.7,
 			},
 		},
@@ -301,7 +304,9 @@ Lobby.CONFIG = {
 		-- `shelfY + THICK_STUDS / 2`, so the whole of it is above the terrain rather than half
 		-- inside it (task 180, after the first road shot came back showing no road at all).
 		THICK_STUDS = 0.5,
-		FROM_Z = 56, -- the lodge's front
+		-- PAST the lodge's front wall (z +32 for the parts build, +30.6 for the model) and under
+		-- its floor, so the lane reads as arriving AT the house rather than stopping short of it.
+		FROM_Z = 56,
 		TO_Z = -104, -- the field's southern edge (half-span 110, less a margin)
 		CENTRE_X = 20, -- between the lodge's front door and the truck bays
 		COLOR = Color3.fromRGB(128, 112, 88),
@@ -311,11 +316,22 @@ Lobby.CONFIG = {
 		VERGE_STUDS = 3,
 		VERGE_COLOR = Color3.fromRGB(104, 92, 68),
 	},
-	-- A POST-AND-RAIL FENCE down both sides of the road, with a gap at the yard so the road is open.
+	-- A POST-AND-RAIL FENCE down both sides of the road, ENDING SOUTH OF THE YARD so the yard, the
+	-- porch and the lodge are open.
+	--
+	-- `TO_Z` IS A BOUND AND NOT A COUNT, and that is the whole of review round 2's blocking finding.
+	-- Written as `POSTS_PER_SIDE = 9` from `FROM_Z = -98` at 18 studs, the west line (`CENTRE_X` 20
+	-- less `OFF_ROAD_STUDS` 18 = x +2) ran to z +46 -- which is the LODGE's own centre. Post 9 stood
+	-- inside the cabin through its floorboards, post 8 in the middle of the porch two studs from the
+	-- doorway, and the rails lay across the spawn pad at knee height. The comment above already said
+	-- *"a gap at the yard"*; nothing implemented it. A southern limit cannot drift into the house the
+	-- way a count can: `Build.fences` walks from `FROM_Z` and stops at `TO_Z`.
 	FENCE = {
-		POSTS_PER_SIDE = 9,
 		SPACING_STUDS = 18,
 		FROM_Z = -98,
+		-- The yard slab reaches z -4 (`TRUCK.OFFSET.Z` 18 less half of its 44-stud depth), so -8
+		-- leaves it four studs clear and the last rail ends there too.
+		TO_Z = -8,
 		OFF_ROAD_STUDS = 18, -- how far either side of the road's centre the line runs
 		POST = Vector3.new(0.9, 5, 0.9),
 		RAIL_Y = { 1.6, 3.4 },

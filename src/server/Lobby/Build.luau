@@ -221,9 +221,12 @@ local function cloneInstance(
 			-- CENTRED ON THE MOUNT, measured rather than assumed: a Model's pivot is its
 			-- bounding-box centre only while nobody has set a PrimaryPart, and a free model may
 			-- have one.
+			-- ALL THREE AXES, not just the height (review round 2, note): a replacement head model
+			-- with a `PrimaryPart` has a pivot that is not its bounding-box centre, and correcting
+			-- only Y would hang it off its plaque sideways.
 			local model = made :: Model
 			local box = model:GetBoundingBox()
-			model:PivotTo(model:GetPivot() + Vector3.new(0, at.Y - box.Position.Y, 0))
+			model:PivotTo(model:GetPivot() + (at - box.Position))
 		end
 	elseif made:IsA("BasePart") then
 		made.CFrame = CFrame.new(at) * CFrame.Angles(0, yaw, 0)
@@ -308,8 +311,8 @@ function Build.roomFor(anchor: Vector3, cfg, fromModel: boolean): Room
 				origin.Y + model.ROOM.CENTRE.Y * scale,
 				origin.Z + model.ROOM.CENTRE.Z * scale
 			),
-			halfX = model.ROOM.HALF.X * scale,
-			halfZ = model.ROOM.HALF.Y * scale,
+			halfX = model.ROOM.HALF_X * scale,
+			halfZ = model.ROOM.HALF_Z * scale,
 			height = (model.ROOM.CEILING_Y - model.ROOM.CENTRE.Y) * scale,
 		}
 	end
@@ -1045,10 +1048,14 @@ local function fences(container: Instance, anchor: Vector3, cfg)
 	local folder = Instance.new("Folder")
 	folder.Name = "Fences"
 	local spec = cfg.FENCE
+	-- HOW MANY POSTS FIT BETWEEN THE TWO BOUNDS, rather than a count that can walk into the house
+	-- (review round 2). `TO_Z` is south of the yard, so the line stops before the yard, the porch,
+	-- the spawn pad and the lodge -- which is the *"gap at the yard"* `CONFIG.FENCE` always promised.
+	local posts = math.max(2, math.floor((spec.TO_Z - spec.FROM_Z) / spec.SPACING_STUDS) + 1)
 	for _, side in ipairs({ -1, 1 }) do
 		local x = anchor.X + cfg.ROAD.CENTRE_X + side * spec.OFF_ROAD_STUDS
 		local tag = if side < 0 then "W" else "E"
-		for index = 1, spec.POSTS_PER_SIDE do
+		for index = 1, posts do
 			local z = anchor.Z + spec.FROM_Z + (index - 1) * spec.SPACING_STUDS
 			part(
 				string.format("Post%s%d", tag, index),
@@ -1059,7 +1066,7 @@ local function fences(container: Instance, anchor: Vector3, cfg)
 				false,
 				folder
 			)
-			if index < spec.POSTS_PER_SIDE then
+			if index < posts then
 				for rail, railY in ipairs(spec.RAIL_Y) do
 					part(
 						string.format("Rail%s%d_%d", tag, index, rail),
@@ -1116,6 +1123,15 @@ local function treeLine(container: Instance, anchor: Vector3, cfg, templates: In
 		-- tree in the road is not scenery.
 		local offRoad = math.abs(at.X - (anchor.X + cfg.ROAD.CENTRE_X))
 		if offRoad < cfg.ROAD.WIDTH_STUDS / 2 + cfg.ROAD.VERGE_STUDS + 4 and at.Z < anchor.Z + cfg.ROAD.FROM_Z then
+			continue
+		end
+		-- ...NOR IN THE YARD (review round 2, note): the arc's eastern end swings past the fourth
+		-- truck bay, and a spruce between the bays is the same mistake as a spruce in the road.
+		local bays = (cfg.TRUCK.COUNT - 1) * cfg.TRUCK.BAY_GAP_STUDS
+		local yardMidX = anchor.X + (cfg.ROAD.CENTRE_X + cfg.TRUCK.OFFSET.X + bays) / 2
+		local yardHalfX = (math.abs(cfg.TRUCK.OFFSET.X - cfg.ROAD.CENTRE_X) + bays + 34) / 2
+		local yardZ = anchor.Z + cfg.TRUCK.OFFSET.Z
+		if math.abs(at.X - yardMidX) < yardHalfX + 4 and math.abs(at.Z - yardZ) < 26 then
 			continue
 		end
 		-- THROUGH `cloneInstance` AND NOT BY HAND (review round 1, note). The hand-rolled walk here
