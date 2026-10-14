@@ -1,6 +1,31 @@
 # Escalations
 
-## 2026-10-14 - Task 178: NEEDS TEST2 178 f6e6c7d -- the two-player run, which nothing but a human click can start
+## 2026-10-14 - Task 178 ROUND 2: NEEDS TEST2 178 6a17fc7 -- the same click, at the new head
+
+Round 2 answered the Reviewer's finding 1 (the licensed beater now has a test that can fail) and
+added the Director's Studio test grant, so the code commit moved: **6a17fc702a1e84a71aa4e4917d2f9f1f86d1d219**,
+FULL `test` twice, both `PASS: 33/33 ... (clean tree) scope=all`. The round-1 line below is the
+Director's at the OLD head and does not carry.
+
+**The command:** `python tools/studio_mcp.py test2` at `6a17fc7`, with the clicks in the round-1
+entry below. The line then replaces the placeholder in `reviews/task-178/REQUEST.md`, and
+`powershell -ExecutionPolicy Bypass -File tools/review.ps1 178` runs round 2.
+
+**FOR KAREN'S MORNING, one more attribute in the Forest Test Studio** (Edit mode, beside
+`DHFlag_SHOP`, `DHFlag_COINS`, `DHFlag_DRIVE_BOTS` and `DHForestStartRole`):
+
+```
+ServerStorage:SetAttribute("DHShopTestGrant", true)
+```
+
+It gives every profile in that STUDIO session 2000 coins and 25 hunts at load, so she can actually
+buy what she is meant to try -- it raises rather than sets, buys nothing for her, and saves nothing.
+It cannot reach a live server (`RunService:IsStudio()` is false there, the same predicate that already
+decides the in-memory store). It is NOT a `DHFlag_`, so `python tools/flags.py clear` does not clear
+it: **set it to nil by hand when the playtest is over**, and note that the harness does not refuse to
+run while it is set -- so never set it in the DEV place.
+
+## 2026-10-14 - Task 178 round 1: NEEDS TEST2 178 f6e6c7d -- the two-player run, which nothing but a human click can start
 
 **The shop is built, gated TWICE on the one-player harness (33/33, clean tree, scope=all, at the
 code commit), smoke-checked in the Forest Test and photographed. The one thing missing is the
