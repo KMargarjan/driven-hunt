@@ -3,14 +3,18 @@
 Task: 178
 Round: 1
 Base: main (`0f58b87`, #161 merged -- task 177's lobby)
-Code commit: `f6e6c7df0f3ef5df55f346a54e39d3ffb1e8530a`
+Code commit: `f6ec1fe20c3787546ef13a88ef8d5c7ffda95437`
 
 Harness, FULL `test`, TWICE on a clean tree at the code commit:
 
 ```
 [harness] PASS: 33/33 checks @ f6e6c7df0f3ef5df55f346a54e39d3ffb1e8530a (clean tree) scope=all
 [harness] PASS: 33/33 checks @ f6e6c7df0f3ef5df55f346a54e39d3ffb1e8530a (clean tree) scope=all
+[harness] PASS: 33/33 checks @ f6ec1fe20c3787546ef13a88ef8d5c7ffda95437 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ f6ec1fe20c3787546ef13a88ef8d5c7ffda95437 (clean tree)
 ```
+
+DIRECTOR NOTE: the last two lines are the Director's at the head `f6ec1fe` (only paperwork after `f6e6c7d`).
 
 `[harness2]` **IS REQUIRED FOR THIS TASK AND IS NOT HERE YET**: the change touches
 `src/server/Match/` (`mayCarryWeapon`, `Body.dress`) and `tests/server/economy*`, and the two-player
