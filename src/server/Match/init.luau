@@ -785,6 +785,14 @@ function Match.phase(): string
 	return state.phase
 end
 
+-- WHICH DRIVE THIS IS, counting from 1; 0 while `Waiting` (task 179). A plain read, so a
+-- `world.markers` provider may call it from inside `dispatch` -- which is the one place the Forest
+-- Test needs it, because the drive boundary is where it deals a new drive layout
+-- (`docs/design/drive-layouts.md` 5.2).
+function Match.driveNumber(): number
+	return state.driveNumber
+end
+
 -- The snapshot the clients were LAST ACTUALLY SENT, or nil before the first broadcast. Not the same
 -- as Match.snapshot(), and the difference is the point: see `broadcast`.
 function Match.lastSent()
@@ -1623,6 +1631,11 @@ end
 
 -- The one place the machine is driven. Every caller goes through here, so the phase can never
 -- advance without its effects being applied and the snapshot cache can never go stale.
+-- FORWARD-DECLARED, because `dispatch` below measures the markers on the `Assigning` edge (task
+-- 179) and the measurement itself needs `world`, which is set by `Match.start` far below. One
+-- declaration, assigned once, at its definition.
+local measureMarkers: () -> ()
+
 local function dispatch(event)
 	local before = state.phase
 	local driveBefore = state.driveNumber
@@ -1690,9 +1703,24 @@ local function dispatch(event)
 	-- which changed nothing anybody could see; the order is the fix.
 	if state.phase ~= before and state.phase == "Assigning" then
 		-- A map rebuilt in Edit between drives is picked up without a server restart (design
-		-- section 6.2). Read on the NEXT step, never from inside dispatch: readMarkers dispatches
-		-- an event of its own, and a dispatch inside a dispatch would apply effects out of order.
+		-- section 6.2). The EVENT goes out on the NEXT step, never from inside dispatch:
+		-- readMarkers dispatches an event of its own, and a dispatch inside a dispatch would
+		-- apply effects out of order.
 		markersStale = true
+		-- ...BUT THE MEASUREMENT HAPPENS NOW (task 179). `applyEffects` below emits `placePlayers`,
+		-- which reads `markerSet` -- so without this line every drive places its players on the set
+		-- measured during the PREVIOUS drive. That was invisible while a world's geometry never
+		-- changed between drives, and in the Forest Test it is now a different LAYOUT: the hunters
+		-- of an `edge` drive would be stood on the `road`'s posts 900 studs away, and the pick
+		-- window would then lock each of them to a stand nowhere near his feet, gate his gun off
+		-- and drag him at the soft wall (docs/design/drive-layouts.md 6.1).
+		--
+		-- ONLY THE MEASUREMENT MOVES. `markersStale` above is untouched, so `Phase` still sees
+		-- exactly the sequence of events it saw before and no dispatch happens inside a dispatch.
+		-- In DEV this is `Markers.read(world.collection)` -- five idempotent `GetTagged` calls on a
+		-- Studio-built map that does not change between drives -- so the value is identical and the
+		-- only difference anywhere is WHEN it was taken.
+		measureMarkers()
 		stats.drives += 1
 		table.clear(driveKills) -- the record is per drive, exactly as the board is (task 159)
 		board = Score.new() -- scores are per drive
@@ -2312,7 +2340,7 @@ end
 --   * 72 studs of total front is not a drive line, it is four men walking at one stand -- and the
 --     base IS the stand she locked, because that is the push line this world releases its waves on;
 --   * a goal translated sideways off one base goal is not on the road. The road is a sine 30 studs
---     deep (`ForestTest.ROAD`), `GOAL_PAST_LINE_STUDS` is 20, and the lateral translation keeps the
+--     deep (`ForestTest.LAYOUTS.road.amplitudeStuds`), `GOAL_PAST_LINE_STUDS` is 20, and the lateral translation keeps the
 --     BASE's z -- so at any real width a lane's goal can land NORTH of the road, the bot stops short
 --     of the line, `Match.crossedLine` never counts it and the drive can only ever end on the timer.
 --
@@ -2606,14 +2634,20 @@ end
 
 -- ------------------------------------------------------------------------------------ lifecycle
 
-local function readMarkers()
-	-- A WORLD MAY HAND OVER A SET, OR A FUNCTION THAT MEASURES ONE (design section 4.1.6). The
-	-- Forest Test's geometry is raycast off its own terrain, so its set has to be built rather than
-	-- held: a table captured once at boot would be a measurement taken before the place had
-	-- finished loading. Every existing caller passes a table and is bit-identical.
-	--
-	-- It is re-read on exactly the two occasions a TAGGED world is re-read, and no others: once a
-	-- second while `Waiting`, and once on entering `Assigning` (`markersStale`).
+-- MEASURES THE SET AND DISPATCHES NOTHING (task 179). Split out of `readMarkers` below so the
+-- `Assigning` edge can take a fresh measurement from INSIDE `dispatch`, where an event may not be
+-- raised but a plain measurement may.
+--
+-- A WORLD MAY HAND OVER A SET, OR A FUNCTION THAT MEASURES ONE (design section 4.1.6). The
+-- Forest Test's geometry is raycast off its own terrain, so its set has to be built rather than
+-- held: a table captured once at boot would be a measurement taken before the place had
+-- finished loading. Every existing caller passes a table and is bit-identical.
+--
+-- THE CONTRACT A `world.markers` FUNCTION NOW HAS TO HONOUR, because it is called from inside
+-- `dispatch`: it MUST NOT YIELD and MUST NOT CALL BACK INTO `Match` in a way that dispatches. The
+-- forest's provider raycasts and creates parts, neither of which yields, and the
+-- `Match.driveNumber()` it reads is a plain table read.
+function measureMarkers()
 	if type(world.markers) == "function" then
 		markerSet = world.markers()
 	elseif world.markers then
@@ -2621,6 +2655,12 @@ local function readMarkers()
 	else
 		markerSet = Markers.read(world.collection)
 	end
+end
+
+local function readMarkers()
+	-- It is re-read on exactly the two occasions a TAGGED world is re-read, and no others: once a
+	-- second while `Waiting`, and once on entering `Assigning` (`markersStale`).
+	measureMarkers()
 	dispatch({
 		kind = "markers",
 		complete = markerSet.complete,

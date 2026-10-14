@@ -367,7 +367,7 @@ end
 -- screen twice"*.
 --
 -- "MY STAND" IS THE NEAREST STAND, AND THE FAILURE CASE IS STATED RATHER THAN HIDDEN. The drive puts
--- a hunter on a post (`Match.Body.placementFor`) and `ForestTest.STAND_SPACING` is 150 studs, so the
+-- a hunter on a post (`Match.Body.placementFor`) and `ForestTest.LAYOUTS.road.standSpacing` is 150 studs, so the
 -- nearest one is his until he walks 75 studs along the line -- past that the chevron silently becomes
 -- his neighbour's. Doing better needs the drive to publish the assigned stand index, which is a new
 -- snapshot field and is refused for this task (D3); it is queued in `TASKS.md` as 165a.

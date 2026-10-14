@@ -2623,6 +2623,32 @@ function Boar.setModelSource(
 	return previousTemplate, previousId
 end
 
+-- REPLACES THE FIELD THIS RUNTIME SPAWNS INTO -- the bounds, the exit line and the ground height
+-- (task 179). Returns the field it replaced, so a caller that must put it back can (the shape
+-- `Boar.setModelSource` already has).
+--
+-- WHY THERE IS A SETTER AT ALL, AND WHY IT IS SAFE. Until task 179 one world meant one field for the
+-- life of the server, so the field was taken once in `Runtime.new`. The Forest Test now deals one of
+-- several DRIVE LAYOUTS per drive (`docs/design/drive-layouts.md`), and each has its own exit line
+-- and its own rectangle -- a ride's exit is 473 studs south of the road's, so a runtime holding the
+-- road's would despawn every animal of a ride drive before it reached the hunters, and
+-- `Brain.insideField` would clamp them to a rectangle 500 studs away.
+--
+-- AN ALREADY-SPAWNED BOAR KEEPS THE FIELD IT WAS BORN WITH: `Brain.new(config, self._field, ...)`
+-- takes it by value at spawn. That is the honest behaviour rather than a limitation, and the forest
+-- is written to it -- it calls `clear()` before `setField`, so a drive never holds animals of two
+-- fields at once. A caller that does not clear gets a world whose old animals are still leaving by
+-- the old line, which is stated here so nobody has to discover it.
+--
+-- THE FOREST IS THE ONLY CALLER. The DEV place's `MatchBoot` builds one field at the composition
+-- root and never changes it, so nothing about that world moves.
+function Runtime:setField(field)
+	assert(type(field) == "table", "Runtime:setField: a field table is required")
+	local previous = self._field
+	self._field = field
+	return previous
+end
+
 function Runtime:setModelSource(templateFor: ((string) -> Instance?)?, animationIdFor: ((string) -> number?)?)
 	self._templateFor = templateFor
 	self._animationIdFor = animationIdFor

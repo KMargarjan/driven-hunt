@@ -66,10 +66,10 @@ local Data = ForestTest.Data
 
 print(
 	string.format(
-		"[ForestTestBoot] world=%s place=%d: %d stands on the road, waves every %ds",
+		"[ForestTestBoot] world=%s place=%d: layouts %s, waves every %ds",
 		Map.EXPECTED_WORLD,
 		game.PlaceId,
-		Data.STAND_COUNT,
+		table.concat(Data.layoutNames(), "/"),
 		Data.SCHEDULE.intervalSeconds
 	)
 )
@@ -80,16 +80,14 @@ print(
 -- map that does not exist in this place, and `Brain:_outcome` despawns a boar at
 -- `position.Z <= exitZ` -- so with the map's exitZ an animal here would either never be gone or be
 -- gone the moment it spawned.
-local field = {
-	bounds = {
-		minX = Data.CENTRE.X - Data.HALF_SPAN,
-		maxX = Data.CENTRE.X + Data.HALF_SPAN,
-		minZ = Data.EXIT_Z - 100,
-		maxZ = Data.CENTRE.Z + Data.DRIVERS.startNorthStuds + 200,
-	},
-	exitZ = Data.EXIT_Z,
-	groundY = Data.CENTRE.Y,
-}
+--
+-- ...AND SINCE TASK 179 IT IS THE LIVE LAYOUT'S, not a table built once at boot. The formula is
+-- unchanged and has moved into `Data.fieldFor` so the one definition can be asked for any layout:
+-- `Data.fieldFor(Data.ROAD_LAYOUT)` is bit-for-bit the table this file used to build, and
+-- `forest_stand.spec` asserts that identity rather than trusting it. `ForestTest` swaps it on the
+-- runtime (`Runtime:setField`) when a drive promotes a new layout, because a ride's exit line is
+-- 473 studs south of the road's.
+local field = Data.fieldFor(ForestTest.layout())
 
 -- THE TWO FLAGS ARE ON IN THIS WORLD, AND THEY ARE TURNED ON HERE RATHER THAN LIVE.
 --
@@ -371,7 +369,7 @@ local function placement(markers, team, index, cfg)
 	-- the trunks at each lane's own x; the look is still straight down the push at the road AT THAT
 	-- x, so each of them walks its own lane and not a shared one.
 	local at = ForestTest.beaterStartPosition(index)
-	local road = Data.roadPointAt(at.X)
+	local road = Data.roadPointAt(at.X, ForestTest.layout())
 	return CFrame.lookAt(at, Vector3.new(road.X, at.Y, road.Z))
 end
 
@@ -570,7 +568,20 @@ Match.start({
 	bots = Bots.view(),
 	weapon = Weapon,
 	markers = function()
-		return ForestTest.Markers.build(ForestTest.hunterStandX())
+		-- THE DRIVE BOUNDARY IS WHERE A LAYOUT CHANGES, and this closure is the one place that sees
+		-- it BEFORE anybody is placed: `Match` measures the set on the `Assigning` edge, ahead of
+		-- its own `placePlayers` effect (docs/design/drive-layouts.md 6.2). A layout promoted any
+		-- later would put the hunters of an edge drive on the road's posts, 900 studs away.
+		--
+		-- `layoutForDrive` IS IDEMPOTENT PER DRIVE NUMBER, so the once-a-second reads while `Waiting`
+		-- promote nothing after the first one.
+		--
+		-- THE ATTRIBUTE IS READ HERE because this file is the only one in this world that touches
+		-- `ServerStorage` (`Data.START_ROLE_ATTRIBUTE` is read exactly here too). The DECISION stays
+		-- in `ForestTest`; the composition root only hands it the two things it cannot reach --
+		-- `Match`'s drive number and the Director's override.
+		ForestTest.layoutForDrive(Match.driveNumber(), ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE))
+		return ForestTest.Markers.build(ForestTest.hunterStandX(), ForestTest.layout())
 	end,
 	placement = placement,
 	-- WHERE A HUNTER'S STAND IS IN THIS WORLD (task 171), and it is NOT where `placement` put him:
@@ -715,7 +726,7 @@ local function showRing(player: Player): (number?, number?)
 	if before ~= nil and before ~= index and not standIsClaimed(before, userId) then
 		ForestTest.Markers.clearRing(before)
 	end
-	return index, ForestTest.Markers.ring(index, Data.PICK.standRadiusStuds)
+	return index, ForestTest.Markers.ring(index, Data.PICK.standRadiusStuds, ForestTest.layout())
 end
 
 -- THE STAND PICK IS THE HUNTER'S TEN SECONDS, and it opens when the DRIVE starts (task 157).
@@ -866,9 +877,10 @@ Match.PhaseChanged:Connect(function(_before, phase)
 	local stats = ForestTest.Markers.stats()
 	print(
 		string.format(
-			"[ForestTestBoot] markers: %d/%d stands (%d refused), max ground delta %.2f, reads=%d",
+			"[ForestTestBoot] markers: layout=%s %d/%d stands (%d refused), max ground delta %.2f, reads=%d",
+			ForestTest.layoutName(),
 			stats.posts,
-			Data.STAND_COUNT,
+			ForestTest.layout().standCount,
 			stats.refused,
 			stats.lastMaxDelta,
 			stats.reads
@@ -902,7 +914,7 @@ local function reportStart(player: Player, character: Model)
 				at.X,
 				at.Y,
 				at.Z,
-				at.Z - Data.roadZ(at.X),
+				at.Z - Data.roadZ(at.X, ForestTest.layout()),
 				Body.settled()
 			)
 		)

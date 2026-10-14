@@ -84,7 +84,7 @@ Lobby.LEAVE_AT_ATTRIBUTE = "DHLobbyLeaveAt"
 -- terrain under every sample and not one non-terrain obstacle, and this centre had the smallest
 -- ground spread (16 studs). It is ~54 studs south of the forest edge -- so the forest fills the
 -- northern view, which is Karen's *"house is in fields next to forrest"* -- and ~570 studs south of
--- both the road and `ForestTest.EXIT_Z`, so it cannot interact with the drive.
+-- both the road and `ForestTest.exitZOf(layout)` for every drive layout, so it cannot interact with the drive.
 --
 -- THERE IS NO `map:v1` ROW. The DEV place is where the harness runs and it has no lobby in this
 -- task; `anchorFor` answers nil and `Lobby.start` builds nothing.
