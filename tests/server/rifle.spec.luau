@@ -291,7 +291,15 @@ return function()
 				return sum
 			end
 			expect(math.abs(sumOf(row.CYCLE) - row.CYCLE_TOTAL) < 1e-9).to.equal(true)
-			expect(row.CYCLE_TOTAL).to.equal(0.62)
+			-- KAREN'S DIAL, PINNED (task 184). 2026-10-14: *"I think it reloads to fast has to be 1 s
+			-- slower"*, of *"Bolt after each shot"* -- so 0.62 + 1. The literal is here and NOT in a
+			-- second copy of the step waits: the sum above is what ties the list to this number.
+			expect(row.CYCLE_TOTAL).to.equal(1.62)
+			-- ...AND THE MAGAZINE CHANGE DID NOT FOLLOW IT, which is the half of task 184 Karen has
+			-- not ruled on: she named the bolt after a shot and nothing else. If the two ever have to
+			-- match, this case is where it will fail first.
+			expect(row.RELOAD[2].wait < row.CYCLE[1].wait).to.equal(true)
+			expect(row.RELOAD[3].wait < row.CYCLE[2].wait).to.equal(true)
 			-- THE MAGAZINE CHANGE IS ITS OWN SEQUENCE, and it ends by chambering a round.
 			expect(#row.RELOAD).to.equal(3)
 			expect(row.RELOAD[1].kind).to.equal("Magazine")
@@ -469,6 +477,37 @@ return function()
 			full.loaded = { "Slug", "Slug", "Slug" }
 			local _, nope = StateMachine.apply(Shotgun.deepFreeze(full), { kind = "Magazine" }, 10, row)
 			expect(nope).to.equal("barrel-full")
+		end)
+
+		it("charges each sequence its OWN window, now that the two disagree", function()
+			-- TASK 184. `Break` and `Close` are in BOTH of the rifle's lists, and until Karen made the
+			-- bolt a second slower they carried the same waits in each -- so the reducer's `waitFor`
+			-- searched them in a fixed order and the order decided nothing. It decides everything now.
+			-- Walk the magazine change and the gun must be busy for the MAGAZINE change's 0.26 s, not
+			-- the bolt's 0.68: a window three times too long means `runCycle` waits out the step,
+			-- asks for `Close`, is refused "busy", and finishes the reload down its error-recovery
+			-- path instead of its own.
+			local row = Weapons.ROWS.rifle
+			local state = equipped(row)
+			local reloadBreak = StateMachine.apply(state, { kind = "Break" }, 0, row, row.RELOAD)
+			expect(math.abs(reloadBreak.busyUntil - row.RELOAD[2].wait) < 1e-9).to.equal(true)
+			local reloadClose = StateMachine.apply(reloadBreak, { kind = "Close" }, 10, row, row.RELOAD)
+			expect(math.abs(reloadClose.busyUntil - (10 + row.RELOAD[3].wait)) < 1e-9).to.equal(true)
+			-- ...and the BOLT, walked as the bolt, gets the slower pair Karen asked for.
+			local boltBreak = StateMachine.apply(state, { kind = "Break" }, 0, row, row.CYCLE)
+			expect(math.abs(boltBreak.busyUntil - row.CYCLE[1].wait) < 1e-9).to.equal(true)
+			local boltClose = StateMachine.apply(boltBreak, { kind = "Close" }, 10, row, row.CYCLE)
+			expect(math.abs(boltClose.busyUntil - (10 + row.CYCLE[2].wait)) < 1e-9).to.equal(true)
+			-- NO SEQUENCE NAMED IS THE OLD BEHAVIOUR, UNCHANGED: `CYCLE` first, which is what every
+			-- caller that is not walking a list still gets.
+			local guessed = StateMachine.apply(state, { kind = "Break" }, 0, row)
+			expect(math.abs(guessed.busyUntil - row.CYCLE[1].wait) < 1e-9).to.equal(true)
+			-- ...AND THE SHOTGUN CANNOT TELL THE DIFFERENCE: it has one sequence, so both answers are
+			-- the same number and this is the half of the change that must stay invisible.
+			local gun = Weapons.ROWS.shotgun
+			local shotOpen = StateMachine.apply(equipped(gun), { kind = "Break" }, 0, gun)
+			local shotOpen2 = StateMachine.apply(equipped(gun), { kind = "Break" }, 0, gun, gun.CYCLE)
+			expect(shotOpen.busyUntil).to.equal(shotOpen2.busyUntil)
 		end)
 
 		it("leaves the SHOTGUN's break action exactly as it was", function()
