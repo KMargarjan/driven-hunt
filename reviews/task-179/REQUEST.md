@@ -1,21 +1,27 @@
 # Task 179 — varied drives: more than one place to stand
 
 Task: 179
-Round: 3
+Round: 4
 Base: 253d21f (main, #162 merged)
-Code commit: c659c6dddd420583949964b2ba73194d264dad7f
+Code commit: f13ad7de1aa354d0b3c98a63d4ea67245661408b
 
 ```
-[harness] PASS: 33/33 checks @ 7a6acf74f10f58f856add16e7d9ce7b0acc5b38c (clean tree) scope=all
-[harness] PASS: 33/33 checks @ 7a6acf74f10f58f856add16e7d9ce7b0acc5b38c (clean tree) scope=all
+[harness] PASS: 33/33 checks @ f13ad7de1aa354d0b3c98a63d4ea67245661408b (clean tree) scope=all
+[harness] PASS: 33/33 checks @ f13ad7de1aa354d0b3c98a63d4ea67245661408b (clean tree) scope=all
 ```
 
 ```
-[harness] PASS: 33/33 checks @ c659c6dddd420583949964b2ba73194d264dad7f (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ c659c6dddd420583949964b2ba73194d264dad7f (clean tree)
+[harness2] PLACEHOLDER -- NEEDS TEST2 179 f13ad7d (ESCALATE.md). The round-3 line
+(`[harness2] PASS: 35/35 checks @ c659c6d`) is the Director's at the OLD head and does not carry:
+`src/server/Match/init.luau` is in TWO_PLAYER_PATHS and the code commit has moved again.
 ```
 
-DIRECTOR NOTE: both lines are the Director's at the head `c659c6d` (only paperwork after `7a6acf7`).
+> **ROUND 4 IS NOT AUTHORISED YET.** `MAX_ROUNDS` is 3 and round 3 came back with findings, so this
+> round needs **Karen's OK**, recorded in `ESCALATE.md` for this task and this round, before
+> `DIRECTOR_MAX_ROUNDS=4` may be set for the one run (CLAUDE.md, *"One extra round, by Director
+> authorisation only"*). The Director is asking her when she wakes (~09:00). **The Builder has not
+> run the review.** Round 3's findings were documentation-adjacent in cause but not in effect — one
+> unclaimed Instance — which is the Director's call to put to her, not mine.
 
 ## What changed
 
@@ -66,28 +72,38 @@ round-1 code.** They are claims 1-4 below; claims 5-11 are the task's own and ar
    field it is spawned into, which is what round 1 broke (a ride line spawns at −2420 and the road's
    exit is −2377, already past it).
 
-3. **(round 2, finding 1 — THE BLOCKING ONE) The rebuild destroys only what `MapUi` made, so the
-   Hud's own decorations survive it.** Round 2 cleared the two frames' children *by ownership* and
-   the ownership claim was false: `Hud.build` parents four instances of its own into them — the
-   minimap's `UICorner` (which is HOW a circle is drawn in Roblox GUI without an uploaded image;
-   Karen asked for *"small map in left or right corner circle like is on another games"*), a
-   `UIStroke` rim on each frame, and the `MapLegend` frame, which **is** the instance handed back as
-   `frames.legend`. So the first layout change turned the minimap into a square with the road in its
-   corners, took both rims, and left `legendFrame` pointing at a destroyed instance the rebuild then
-   wrote every swatch into. `Hud.build` runs once, so nothing ever put them back.
-   **A list, not a rule**, because the rule is what was wrong: every instance this module parents
-   into a frame it does not own goes through `claim`, and `teardown` destroys that list.
-   *Verify:* `claimed` / `claim` / `teardown` in `src/client/Hud/MapUi.luau`, and the fifteen `claim`
-   sites; `map_ui.spec`'s *"leaves the Hud's OWN decorations alone when it redraws"*, which redraws
-   once per layout and asserts the `UICorner`, both `UIStroke`s and `MapLegend` are **the same
-   instances** afterwards, with the legend's rows still in it and the corner radius still half the
-   side.
-   **The gate caught the other half of this one**, and it is worth saying rather than hiding:
-   `buildDrawer` parents its markers, the player's own dot, the view wedge, the push arrow and its
-   word and the goal mark **directly into the minimap frame**, which my first claim list missed — so
-   a rebuild left the old set behind and the map carried two push arrows, the stale one still
-   `Visible`. `map_ui.spec`'s existing *"hides the arrow when the world states no push"* case failed
-   on it. `claim` now sits above `buildDrawer` and covers it.
+3. **(round 2 finding 1, and round 3 finding 1 — THE SAME CLASS, NOW CLOSED BY A COUNT) A rebuild
+   destroys exactly what `MapUi` made, and nothing else.** The history matters more than the diff:
+
+   * **Round 2** cleared the two frames' children *by ownership*, and the ownership claim was false.
+     `Hud.build` parents four of its own into them — the minimap's `UICorner` (which is HOW a circle
+     is drawn in Roblox GUI without an uploaded image; Karen asked for *"small map in left or right
+     corner circle like is on another games"*), a `UIStroke` rim on each frame, and the `MapLegend`
+     frame, which **is** the instance handed back as `frames.legend`. One layout change left a square
+     map with the road in its corners, no rims, no legend, and `legendFrame` pointing at a destroyed
+     instance. `Hud.build` runs once, so nothing put them back.
+   * **Round 3** replaced the rule with a `claim` list — and the gate caught that it missed the six
+     things `buildDrawer` parents into the minimap frame, so the map carried two push arrows.
+   * **Round 3's review** then caught the seventh: **`TargetWord` was not claimed**, so from the first
+     layout change the minimap carried two orange target words, the stale one frozen at the previous
+     layout's pinned position, still `Visible` and never updated again, plus a leaked `TextLabel` and
+     `UIStroke` per change for the life of the client.
+
+   **Claimed now — and the sweep the dispatch asked for was done rather than assumed.** Every
+   `.Parent =` and every `label(...)` in `src/client/Hud/MapUi.luau` was checked against *is the
+   parent a frame `MapUi` does not own*: twenty-three sites, twenty-two already covered (directly, or
+   transitively through a claimed parent — `inner`, `canvas`, `swatch`, a marker node), `TargetWord`
+   the one miss. Nothing of this class is left.
+
+   **And the reason it was missed twice is now a CASE, not a comment.** `map_ui.spec`'s *"leaves
+   EXACTLY ONE of each drawer node on the minimap after a redraw"* counts the minimap's children by
+   name before and after a redraw per layout: one each of `Own`, `Wedge`, `PushArrow`, `PushWord`,
+   `Target`, `TargetWord`, `Geometry`, `MAX_MARKERS` player markers, **and no name whose count
+   changed, appeared or vanished** — which is the half a list of names cannot give you, and what
+   makes the next unclaimed instance fail rather than ship. The comment that asserted the list was
+   complete said *"nine"* while there were fifteen; it carries no count any more.
+   *Verify:* `claimed` / `claim` / `teardown` and the sixteen `claim` sites; that spec case, and
+   *"leaves the Hud's OWN decorations alone when it redraws"* beside it.
 
 3b. **The map still redraws when the world hands it a different layout, and is still idempotent for
    the same one** (round 1's finding 3, unchanged by the above). `MapUi.setGeometry` latched `built`
@@ -147,38 +163,31 @@ round-1 code.** They are claims 1-4 below; claims 5-11 are the task's own and ar
     the old z comparison became false (`EXIT_Z` is gone and the edge's exit is *south* of the lodge).
     Measured gaps: corridor 463 / 145 / 130 studs, boar bounds 363 / 85 / 70.
 
-## Round 2's notes
+## Round 3's notes
 
-**Fixed, all true one-liners:**
+**Fixed, all true:**
 
-* **`standIndexFor` only closed for an ODD count.** With the 6-stand `edge` layout live, hunter 6
-  got stand 0 and hunter 8 got −1; `postIndexFor` found no `Stand0`, fell back to the raw index and
-  `Body.placementFor`'s modulo put him on whichever post happened to be last. Unreachable with bots
-  (`BOTS.TARGET.hunters` is 4), reachable with six real hunters. Clamped into the line, and
-  `forest_stand.spec`'s *"stays inside the line on EVERY layout, including an even-count one"* now
-  loops `LAYOUT_ORDER` and twice the count — the old case looped the road's count only, which is
-  why it could not see this.
-* **`laneSpacing(layout, beater)` was a second answer** to "how far apart is a lane", reachable by
-  any caller passing a table. One answer now, the layout's — and with it the `beater` parameter of
-  `sweepAheadStuds`, `noticeAheadStuds` and `encounterStage` became dead, so it is **gone** rather
-  than left as the next reader's trap (the treatment `forest-drive.md` 7.2 gave `ForestTest.drive`).
-  A spec that wants a spacing no layout has hands in a made-up **layout**.
-* **The stale band arithmetic.** `bandDepth`'s header and design 4.1 both carried the *pre-task-172*
-  reach (89 → 47.9 / 61). With the shipped `SPOOK.BEATER_STUDS` of 71 the flush band is the
-  `MIN_AHEAD_STUDS` floor, **30**, at both spacings. Prose only — the spec asserts the two bands'
-  ORDER, not their values — and the design now carries the correction and the arithmetic.
+* **`teardown` nils `fullScale` as well as `miniScale`** — both `UIScale`s had just been destroyed,
+  and nilling one read as an oversight rather than a decision.
+* **`Hud`'s forest closure WAITS for the `Live` child** (`WaitForChild(name, 10)`), bounded, instead
+  of asking once. `whenReady` fires on the MODULE; its Rojo-owned child is a separate instance, and
+  one that had not replicated in the same frame meant `live == nil` for the session, the warn, and no
+  map for the whole drive — round 1's finding 4 in another shape. `Flags` is the precedent for the
+  host's SHAPE, not for how it is found: it waits on the attribute, which is a different question.
+* **`standIndexFor`'s middle is `floor(count/2) + 1`**, so the centre-out walk is a real permutation
+  on an even count: six stands deal 4, 3, 5, 2, 6, 1 instead of 3, 2, 4, 1, 5, **0**. Round 3's clamp
+  only bounded the answer — stand 6 was still never dealt and hunter 6 doubled onto stand 1. Odd
+  counts are untouched (`floor(9/2) + 1` is 5, which is `ceil(9/2)` and `PICK.defaultIndex`), and
+  `forest_stand.spec` now asserts every stand is dealt exactly once, per layout.
+* **Three stale pieces of prose**: `bandDepth`'s header no longer says a `beater` table is honoured
+  (the second answer round 2 removed); design 11.5 no longer says `standIndexFor` is *"unchanged"*;
+  and task 167's lane-spacing essay moved off `BEATER.dropStuds` — where a reader met it as the drop
+  height's header — to `ForestTest.laneSpacing`, where the number now lives.
 
-**Queued as 179a, not fixed, each with the Reviewer's own reason:**
-
-* the **`match_live.spec` case for the marker-freshness change** (`measureMarkers` on the `Assigning`
-  edge, in a `TWO_PLAYER_PATHS` file, has no case at all). The Reviewer's own note says the code is
-  right and this is coverage; it needs an injected `world.markers` returning two different sets,
-  which is a new fixture rather than a one-liner;
-* `bots_lane.spec`'s **per-layout goal cases** (design 9.3's second half). The per-layout half of
-  that section is done; the `Match.beaterGoalFor` half still uses only `CURVED_POSTS`;
-* **the one-name-TABLE branch of `nextLayout`** — the spec's case is a one-element *bag*, which
-  never enters the refill. The guard that makes a one-name table answer the same name rather than
-  loop cannot have a case without changing `LAYOUT_ORDER`, which the Reviewer says too.
+**Still queued as 179a** (unchanged from round 3): the `match_live.spec` marker-freshness case,
+`bots_lane`'s per-layout goal cases, `nextLayout`'s one-name-TABLE branch, `ForestTest.driverStart`'s
+archival, the edge corridor's sample count, design 11 D2 (the Reviewer agrees it is not his to
+reopen and should stay on the queue under D2's name) and D3's harness-guard task.
 
 ## Evidence that is not a spec
 
@@ -213,11 +222,11 @@ round-1 code.** They are claims 1-4 below; claims 5-11 are the task's own and ar
 
 ## What I could not verify
 
-* **The two-player line at THIS code commit.** The Director ran `test2` at the round-2 head and it
-  passed (`[harness2] PASS: 35/35 checks @ 08ddde7 (clean tree)`), but round 3 moved the code commit
-  twice, so that line no longer names it. `ESCALATE.md` carries **NEEDS TEST2 179 7a6acf7**.
-  Round 2's note that this bullet and the evidence block disagreed was right, and this is the
-  wording that stops it recurring: the line is only evidence for the commit it names.
+* **The two-player line at THIS code commit, and round 4's authorisation.** The Director's
+  `[harness2] PASS: 35/35 checks @ c659c6d` was run at the round-3 head; round 4 moved the code
+  commit, so it no longer names it — a two-player line is evidence only for the commit it names.
+  `ESCALATE.md` carries **READY FOR ROUND 4 179 f13ad7d**. The review itself has NOT been run and may
+  not be until Karen authorises a fourth round.
 * **Karen's eye.** Nobody has *played* a drive on the edge or the ride — the 60-second runs above
   stand still and are about geometry, not feel. Design 11, K1-K5.
 * **The edge layout's push corridor as a SAMPLE COUNT.** The ride's is measured (22 of 25 samples in

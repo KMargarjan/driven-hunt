@@ -1,5 +1,49 @@
 # Escalations
 
+## 2026-10-14 - Task 179: READY FOR ROUND 4 179 f13ad7d -- the cap is reached; this needs Karen's OK
+
+**`MAX_ROUNDS` IS 3 AND ROUND 3 CAME BACK WITH FINDINGS.** `tools/review.sh` will refuse `Round: 4`,
+and it may only be raised for ONE run with `DIRECTOR_MAX_ROUNDS=4` once this file records Karen's
+authorisation **for this task and this round** (CLAUDE.md, *"One extra round, by Director
+authorisation only"*). **The Builder has not run the review**, and will not until that line is here.
+
+**The work is done and ready**, so the authorisation is the only thing between here and a verdict:
+
+* code commit **f13ad7de1aa354d0b3c98a63d4ea67245661408b**, FULL `test` twice, both
+  `PASS: 33/33 ... (clean tree) scope=all` (1372 server + 328 client assertions);
+* round 3's one finding fixed -- `buildDrawer`'s `TargetWord` was the single instance this module
+  parents into the Hud's own minimap frame without claiming it, so every layout change leaked a
+  stale, still-`Visible` target word;
+* **the sweep the dispatch asked for**: all twenty-three `.Parent =` / `label(...)` sites in
+  `MapUi.luau` checked against *is the parent a frame this module does not own*. Twenty-two were
+  already covered; `TargetWord` was the one miss; nothing of that class is left;
+* **and a COUNT rather than a comment**, so a round 5 could not find this a fourth time:
+  `map_ui.spec` counts the minimap's children by name before and after a redraw per layout and
+  requires exactly one of each drawer node, with no name whose count changed, appeared or vanished;
+* round 3's six other notes all fixed (the `fullScale` asymmetry, the `Live` child now waited for,
+  `standIndexFor`'s even-count walk made a real permutation, and three stale comments).
+
+**THE HONEST CASE FOR AND AGAINST A FOURTH ROUND, for Karen:**
+
+* **For:** every round has found something real, and three of the four rounds' findings were in code
+  written to fix the previous round's finding. The one defect left after round 3 is in the client's
+  map and is cosmetic (a duplicated word on the minimap), but the class is one this task has been
+  wrong about three times, so an independent read is worth having.
+* **Against:** it costs another paid Reviewer session (~$6-10) and the Director's `test2` click, and
+  the thing Karen actually wants to judge -- whether three different places to stand is better than
+  one -- is not what the review is about. Merging after round 3's fix plus the Director's own read
+  would also be defensible.
+
+**IF SHE SAYS YES**, the sequence is: `python tools/studio_mcp.py test2` at `f13ad7d` (the round-3
+`[harness2]` line names `c659c6d` and does NOT carry -- a two-player line is evidence only for the
+commit it names), paste it over the placeholder in `reviews/task-179/REQUEST.md`, commit, then
+`DIRECTOR_MAX_ROUNDS=4 powershell -ExecutionPolicy Bypass -File tools/review.ps1 179`. The clicks for
+`test2` are in the round-1 entry below. `DIRECTOR_MAX_ROUNDS` is never committed.
+
+**IF SHE SAYS NO**, this is where it stops and the Director decides on merge or shelve; the branch is
+pushed and green either way.
+
+
 ## 2026-10-14 - Task 179 ROUND 3: NEEDS TEST2 179 7a6acf7 -- the same click, at the final head
 
 Round 3 fixed round 2's blocking finding (the rebuild was destroying four instances `Hud` owns, so
