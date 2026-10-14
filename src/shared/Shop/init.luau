@@ -179,9 +179,12 @@ Shop.CONFIG = {
 	-- 48 px, `Rail.CONFIG.BUTTON_PX`, over the 44 px Roblox's own tutorial sets as a touch button's
 	-- minimum height.
 	BUTTON_PX = 48,
-	-- WHETHER THE PANEL OPENS ITSELF AT THE COUNTER. One boolean for Karen (design 16 item 6), and
-	-- it keeps both branches reachable: `ShopPanel.setNear` reads it.
-	AUTO_OPEN = true,
+	-- THERE IS NO `AUTO_OPEN` ANY MORE, AND ITS ABSENCE IS THE TASK (181). Task 178 opened this
+	-- panel by itself when the player came within `REACH_STUDS` of the counter. Karen, 2026-10-14:
+	-- *"in lobby has to be a person bot who you need to click E to get access to shop"* -- so the
+	-- shopkeeper's `ProximityPrompt` is the one way in, and a panel that was already open when you
+	-- got there would make her key decorative. `REACH_STUDS` still CLOSES it, at the same distance
+	-- the server refuses a purchase at. `tests/client/shop_panel.spec.luau` asserts both halves.
 	PANEL = {
 		-- 360, NOT 420, AND THE REASON IS MEASURED: `tests/client/hud_clarity.spec.luau` asserts
 		-- against a 400 px wide screen and `Drive.CONFIG.SCORE_PANEL_WIDTH` is already 480 -- wider

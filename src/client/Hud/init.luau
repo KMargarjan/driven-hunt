@@ -43,7 +43,9 @@ local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- THE SHOP'S CATALOGUE AND ITS ONE PURE GEOMETRY QUESTION (task 178): `Shop.withinReach`, asked
 -- once per frame in `Hud.renderObjective` -- the one place in this file that reads where the player
--- is standing -- and handed to `ShopPanel.setNear`.
+-- is standing -- and handed to `ShopPanel.setNear`, which now only ever CLOSES the panel: since
+-- task 181 the shopkeeper's `ProximityPrompt` is the one thing that opens it, and that prompt is
+-- resolved in the same place and handed over by `ShopPanel.setPrompt`.
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
@@ -2046,6 +2048,12 @@ function Hud.renderObjective(CameraSystem)
 	ShopPanel.setNear(
 		Shop.withinReach(me, if lobbyData then lobbyData.counterPosition() else nil, Shop.CONFIG.REACH_STUDS)
 	)
+	-- ...AND WHO OPENS IT (task 181). The shopkeeper's `ProximityPrompt` is the one way into the
+	-- panel since this task took task 178's auto-open away, and it is resolved HERE for `setNear`'s
+	-- own stated reason: one reader of the lobby's parts on this client, and a panel that is TOLD.
+	-- `Lobby.shopPrompt()` is memoised and drops its cache with the instance, so this is a cached
+	-- field read a frame and `ShopPanel.setPrompt` does nothing at all unless the prompt CHANGED.
+	ShopPanel.setPrompt(if lobbyData then lobbyData.shopPrompt() else nil)
 	local target = Objective.targetFor(team, phase, MapUi.geometry(), me, lobby)
 	local far = Objective.distanceStuds(target, me)
 	arrivedAtTarget = Objective.arrived(far, arrivedAtTarget)

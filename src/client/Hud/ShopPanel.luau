@@ -1,10 +1,23 @@
 --!strict
 -- Hud.ShopPanel: THE ONE WRITER of everything inside the `ShopPanel` frame -- **including its
--- `Visible`** -- the one binder of the `DrivenHunt.Shop.*` action, and this client's one door onto
--- `ReplicatedStorage.Shop.Remotes` (CLAUDE.md rule 3).
+-- `Visible`** -- the one listener of the shopkeeper's `ProximityPrompt`, and this client's one door
+-- onto `ReplicatedStorage.Shop.Remotes` (CLAUDE.md rule 3).
 --
--- KAREN, 2026-10-13: *"Hunting house where inside can shop things"*. So: walk up to the counter task
--- 177 built inside the lodge and this opens; walk away and it closes.
+-- KAREN, 2026-10-13: *"Hunting house where inside can shop things"*, and 2026-10-14: *"in lobby has
+-- to be a person bot who you need to click E to get access to shop"*. So: walk up to the man behind
+-- the counter, press E at him, and this opens; walk away and it closes.
+--
+-- SINCE TASK 181 THERE IS EXACTLY ONE WAY IN, AND IT IS THE PROMPT. Task 178 opened this panel by
+-- itself when the player came within reach of the counter, and bound `E` through
+-- `ContextActionService` to toggle it. BOTH ARE GONE: the auto-open made Karen's key decorative,
+-- and a `Sink`ing `E` binding within 14 studs of the counter would have swallowed the prompt's own
+-- `E` -- two owners of one key, which is the failure CLAUDE.md rule 3 exists for. What `near` still
+-- does is CLOSE: walking away from the counter shuts the panel, at exactly the distance the server
+-- refuses a purchase at.
+--
+--   ProximityPrompt  https://create.roblox.com/docs/reference/engine/classes/ProximityPrompt
+--     `Triggered` fires on the client that triggered it as well as on the server, so the panel
+--     opens with no round trip -- and the purchase behind it is still the server's alone.
 --
 -- THE FRAME IS NOT ITS OWN. `Hud.build` creates it with the rest of the screen -- one ScreenGui,
 -- built once, so a visibility audit has one place to look -- and this module fills it. It owns the
@@ -33,7 +46,6 @@
 --
 -- Design: docs/design/shop.md (section 5)
 -- Note:   docs/research/2026-10-14-the-shop.md
-local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
@@ -45,14 +57,9 @@ local CONFIG = ShopData.CONFIG
 local PANEL = CONFIG.PANEL
 local TEXT = CONFIG.TEXT
 
--- The reserved prefix, the convention GAME_DESIGN.md's *Input* row sets out and
--- `DrivenHunt.Report.*` follows: a grep for "DrivenHunt.Shop." finds every binding this module owns.
-local TOGGLE = "DrivenHunt.Shop.Toggle"
-
--- `E` IS FREE: the only keys bound in `src/` are Tab (the report), R and X (the weapon), M (the map)
--- and Backspace / Return / the arrows (the report panel). It is bound ONLY WHILE HE IS AT THE
--- COUNTER, so it can never collide with a key a later task wants.
-local TOGGLE_KEY = Enum.KeyCode.E
+-- THIS MODULE BINDS NO KEY AT ALL SINCE TASK 181, and `E` belongs to the shopkeeper's prompt
+-- (`Lobby.CONFIG.LODGE.KEEPER.PROMPT.KEYBOARD_KEY`), which is the one owner of it. A grep for
+-- "DrivenHunt.Shop." finds nothing here on purpose.
 
 -- ---------------------------------------------------------------- the pixels this module owns
 --
@@ -87,7 +94,8 @@ local message: string? = nil
 local messageAt = -math.huge
 
 local started = false
-local bound = false
+local prompt: any = nil
+local promptConnection: any = nil
 local panel: Frame? = nil
 local title: TextLabel? = nil
 local balance: TextLabel? = nil
@@ -98,7 +106,8 @@ local Cursor: any = nil
 local WeaponInput: any = nil
 local enabled = true
 
-local stats = { opens = 0, closes = 0, asks = 0, presses = 0, sent = 0, states = 0, renders = 0 }
+local stats =
+	{ opens = 0, closes = 0, asks = 0, presses = 0, sent = 0, states = 0, renders = 0, prompts = 0, triggers = 0 }
 
 function ShopPanel.stats()
 	return table.clone(stats)
@@ -422,36 +431,16 @@ function ShopPanel.setOpen(next_: boolean)
 	ShopPanel.render()
 end
 
-function ShopPanel.toggle()
-	ShopPanel.setOpen(not open)
-end
-
--- ---------------------------------------------------------------- the counter
-
-local function bind()
-	if bound then
-		return
-	end
-	bound = true
-	ContextActionService:BindAction(TOGGLE, function(_, state: Enum.UserInputState)
-		if state == Enum.UserInputState.Begin then
-			ShopPanel.toggle()
-		end
-		return Enum.ContextActionResult.Sink
-	end, false, TOGGLE_KEY)
-end
-
-local function unbind()
-	if not bound then
-		return
-	end
-	bound = false
-	ContextActionService:UnbindAction(TOGGLE)
-end
+-- ---------------------------------------------------------------- the counter and the keeper
 
 -- IS HE AT THE COUNTER? TOLD to this module and never read here -- `Rail.setWeapon`'s stated rule
 -- (*"`hasWeapon` is TOLD to this module by the Hud, never read here"*), so there is one reader of
 -- the player's position in the Hud and this panel learns nothing about worlds.
+--
+-- SINCE TASK 181 IT ONLY EVER CLOSES. Walking up to the counter opens nothing: the shopkeeper's
+-- prompt is the one way in (Karen: *"a person bot who you need to click E"*). Walking away shuts
+-- the panel, and the distance it shuts at is `Shop.CONFIG.REACH_STUDS` -- THE SAME NUMBER THE
+-- SERVER REFUSES A PURCHASE AT, so "the panel is open but every press is refused" cannot happen.
 --
 -- EDGE-TRIGGERED: one write per change, not one per frame, which is `Lobby`'s own discipline for an
 -- attribute that used to be written fifty times per walk-in.
@@ -461,15 +450,86 @@ function ShopPanel.setNear(next_: boolean)
 		return
 	end
 	near = next_
-	if near then
-		bind()
-		if CONFIG.AUTO_OPEN then
-			ShopPanel.setOpen(true)
-		end
-	else
-		unbind()
+	if not near then
 		ShopPanel.setOpen(false)
 	end
+end
+
+-- THE SHOPKEEPER'S PROMPT, TOLD to this module exactly as `near` is: the Hud resolves it through
+-- `Lobby.shopPrompt()` on the evaluation it already runs, and this connects to it. Anything
+-- carrying a `Triggered` signal is accepted -- which is not laxity but the seam that makes the
+-- wiring testable at all, since a spec cannot fire a real `ProximityPrompt` (`Rail.press`'s stated
+-- limit, and that limit is reported rather than papered over).
+--
+-- EDGE-TRIGGERED ON THE INSTANCE: the same prompt handed in twice does nothing, and a REBUILT lodge
+-- (a new prompt) drops the old connection rather than leaving this panel listening to a prompt that
+-- is no longer in the DataModel.
+function ShopPanel.setPrompt(next_: any)
+	if prompt == next_ then
+		return
+	end
+	if promptConnection ~= nil then
+		pcall(function()
+			(promptConnection :: any):Disconnect()
+		end)
+		promptConnection = nil
+	end
+	prompt = next_
+	if next_ == nil then
+		return
+	end
+	local ok, connection = pcall(function()
+		return next_.Triggered:Connect(function()
+			ShopPanel.onPromptTriggered()
+		end)
+	end)
+	-- ANY CONNECTION OBJECT, not only an `RBXScriptConnection`, and that is the same decision as
+	-- taking anything with a `Triggered` signal: a `BindableEvent` fires DEFERRED (Roblox's signal
+	-- behaviour since 2022), so a spec driving one could never read the result in the same frame --
+	-- measured on this task's first harness run. The fake the spec hands in is therefore a plain
+	-- synchronous signal, and what it drives is this exact line.
+	if ok and connection ~= nil then
+		promptConnection = connection
+		stats.prompts += 1
+	else
+		prompt = nil
+	end
+end
+
+-- Whether this module is listening to a prompt right now -- for a spec, and for a console probe
+-- that wants to know why `E` did nothing.
+function ShopPanel.hasPrompt(): boolean
+	return promptConnection ~= nil
+end
+
+-- THE FLAG'S VALUE, AND IT IS SETTABLE BECAUSE CLAUDE.md REQUIRES IT TO BE: *"a flagged path must
+-- be reachable by parameter as well as by flag, or its two states cannot be tested while the flag
+-- sits at one of them"*. `ShopPanel.start` reads `SHOP` once, at the boundary, and this is the same
+-- value by another door -- for the spec that has to drive the lit path while the row sits at
+-- `false`. Nothing in `src/` calls it.
+function ShopPanel.setEnabled(on: boolean)
+	enabled = on == true
+	if not enabled then
+		ShopPanel.setOpen(false)
+	end
+end
+
+function ShopPanel.isEnabled(): boolean
+	return enabled
+end
+
+-- WHAT THE PROMPT DOES: it OPENS, and never toggles. A prompt you press while the panel is already
+-- open is a prompt you pressed because the panel was in the way of the counter, not a request to
+-- shut it -- and the panel has a CLOSE button and a walk-away rule for that.
+--
+-- THE FLAG IS CHECKED HERE TOO, not only at `setNear`: with `SHOP` off there is no keeper and no
+-- prompt, but an injected one must not open a panel this build does not have.
+function ShopPanel.onPromptTriggered()
+	stats.triggers += 1
+	if not enabled then
+		return
+	end
+	ShopPanel.setOpen(true)
 end
 
 -- ---------------------------------------------------------------- the wire

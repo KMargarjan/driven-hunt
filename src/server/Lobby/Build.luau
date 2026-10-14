@@ -4,8 +4,12 @@
 -- field's edge, the marked circle, its sign and the lodge spawn.
 --
 -- KAREN chose the house herself: a **"Wooden log lodge"** -- logs, a porch, antlers over the door,
--- warm inside -- and *"Walk to a car"* for starting a hunt. The SHOP inside is task 178: this builds
--- the empty counter and a placeholder sign and nothing more.
+-- warm inside -- and *"Walk to a car"* for starting a hunt. The SHOP inside is task 178's counter
+-- and sign, and since task 181 a SHOPKEEPER stands behind it with the `ProximityPrompt` that is now
+-- the one way into the shop panel -- Karen, 2026-10-14: *"in lobby has to be a person bot who you
+-- need to click E to get access to shop"*. He is the only thing in this tree with a Humanoid in it,
+-- and the body and the clothes are both handed in (`Seams`), so this module reaches neither the
+-- avatar service nor the outfit owner by itself.
 --
 -- SINCE TASK 180 IT IS TWO BUILDS, AND WHICH ONE RAN IS A COUNTED FACT. Karen, 2026-10-14: *"we need
 -- better house we can use free models / we need car truck model or hunting bus also use free model"*.
@@ -44,11 +48,32 @@
 -- Design: docs/design/lobby.md (sections 9, 9.2, 12.2, 16.1 case 7)
 -- Note:   docs/research/2026-10-13-lobby-and-the-truck.md (section 4),
 --         docs/research/2026-10-14-lobby-free-models.md (the free models, task 180)
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Data = require(ReplicatedStorage:WaitForChild("Lobby"))
 
 local Build = {}
+
+-- WHAT A KEEPER IS MADE OF, AND WHO HANDS IT IN (task 181). Nothing in this module reaches the
+-- avatar service or `Match.Body` by itself: the owner passes both in, which is the seam
+-- `Bots.Rig.setSource` and `Bots.start({ dress = Body.dress })` already are, and it is what lets a
+-- spec build the whole lobby with no web call and no outfit owner.
+--
+-- `rig = nil` MEANS NO KEEPER, and that is the deliberate default: a spec that has not asked for a
+-- body does not get one built out from under it. The production path never leaves it nil --
+-- `Lobby.tryBuild` passes `world.rig or Build.defaultRigSource`.
+export type Seams = {
+	rig: ((HumanoidDescription, Enum.HumanoidRigType) -> Model?)?,
+	dress: ((Model, string, any, any) -> boolean)?,
+	dressConfig: any?,
+	-- IS THE SHOP IN THIS BUILD AT ALL? The `SHOP` flag's value, read ONCE at the composition root
+	-- and passed inward (CLAUDE.md, feature flags), because this module must not learn what a shop
+	-- is. It decides one thing: whether the keeper's prompt is `Enabled`. With the shop off the
+	-- panel is dead, and a live "Press E" over a man who answers nothing is worse than no prompt.
+	-- nil is "nobody said", which is a prompt that works -- the state a spec builds in.
+	shopOn: boolean?,
+}
 
 -- WHAT THE LAST BUILD MADE. The module never prints: a tool that `require`s it over StudioMCP gets a
 -- sandboxed copy with empty state (measured, task 122), so the owner prints and this answers.
@@ -56,10 +81,40 @@ local Build = {}
 -- found (task 180), and `strippedScripts` how many script instances a template carried in -- all
 -- three so "which build ran" is a number the spec and the boot's own log line can read, never a
 -- belief.
-local stats = { parts = 0, solids = 0, builds = 0, models = 0, fallbacks = 0, strippedScripts = 0 }
+--
+-- `keepers` (task 181) is 1 when the shopkeeper's body was built and 0 when it was not -- a missing
+-- rig source, a source that answered nil, a body with no root. `keeperDressed` is 1 when the outfit
+-- owner RETURNED TRUE -- not merely when the call did not throw, which is what it used to mean and
+-- is why it read `dressed=true` over an undressed man (review round 1, finding 2). Both are counted for `models`/`fallbacks`' stated reason: "the person at the
+-- counter is there" must be a number the boot's log line and the spec can read, because a shop with
+-- no keeper is a shop nobody can open since this task took the auto-open away.
+local stats = {
+	parts = 0,
+	solids = 0,
+	builds = 0,
+	models = 0,
+	fallbacks = 0,
+	strippedScripts = 0,
+	keepers = 0,
+	keeperDressed = 0,
+}
 
 function Build.stats()
 	return table.clone(stats)
+end
+
+-- THE KEEPER'S BODY, REMEMBERED so the owner's 10 Hz scan can turn his head without finding him
+-- again, and so a spec can ask for it without a `Workspace`. It is an instance this module built and
+-- not a decision: `Build.faceKeeper` is the one writer of his CFrame, and WHO he faces is
+-- `Lobby.step`'s to decide.
+local keeper: Model? = nil
+
+function Build.keeper(): Model?
+	if keeper ~= nil and keeper:IsDescendantOf(game) then
+		return keeper
+	end
+	keeper = nil
+	return nil
 end
 
 -- ONE PART. `solid` is the whole of the collision decision: true for the shell a player stands on
@@ -496,10 +551,234 @@ local function roof(folder: Instance, origin: Vector3, cfg)
 	end
 end
 
+-- ---------------------------------------------------------------- the shopkeeper (task 181)
+
+-- THE DEFAULT BODY: one engine call is a complete R15 rig with a Humanoid, so there is no hand-built
+-- rig, no fifteen `Motor6D`s and no `.rbxm` (banned). An EMPTY `HumanoidDescription` on purpose --
+-- no bundle, no clothing, nothing to fetch -- because the outfit owner paints the green and puts the
+-- hat on, and a described outfit would be a second answer to what this game's people look like.
+-- `Bots.Rig`'s own default, taken whole and for its own stated reasons (rule 2).
+--   Players:CreateHumanoidModelFromDescription
+--     https://create.roblox.com/docs/reference/engine/classes/Players#CreateHumanoidModelFromDescription
+--
+-- MAY YIELD: the call is documented to load assets. It happens ONCE, at lobby build, and that cost
+-- is already inside the figure `Lobby.stats().buildMs` reports.
+function Build.defaultRigSource(description: HumanoidDescription, rigType: Enum.HumanoidRigType): Model?
+	local ok, model = pcall(function()
+		return Players:CreateHumanoidModelFromDescription(description, rigType)
+	end)
+	if not ok or typeof(model) ~= "Instance" then
+		return nil
+	end
+	return model :: Model
+end
+
+-- THE MAN BEHIND THE COUNTER, and the only thing in `Workspace.Lobby` with a Humanoid in it.
+--
+-- KAREN, 2026-10-14: *"in lobby has to be a person bot who you need to click E to get access to
+-- shop"*. So he is a body, and the `ProximityPrompt` on him is the ONE way into the shop panel since
+-- this task took task 178's walk-up-and-it-opens away.
+--
+-- HE IS NOT A THING THE GAME CAN TOUCH. Every part: `CanCollide = false` so nobody can push him or
+-- be blocked by him, `CanQuery = false` for the reason this file already states twice (*a slab that
+-- stops a pellet changes what the shot hit*), `CanTouch = false` so he fires nothing. His ROOT is
+-- anchored and his limbs are not, which is `Bots.Rig.place(.., anchored = true)`'s arrangement: the
+-- anchor is what stops anything nudging him off his spot, and the limbs stay on their joints so the
+-- idle clip can move them.
+--
+-- THE PROMPT HANGS ON AN ATTACHMENT AT HEAD HEIGHT AND THAT IS GEOMETRY, NOT TASTE: the counter is
+-- 3.5 studs tall and queryable, so a line-of-sight ray aimed at a root part 3 studs up would be
+-- stopped by the till itself and the prompt would never appear for the one person standing where he
+-- is supposed to stand.
+--
+-- IT RETURNS nil RATHER THAN ERRORING, the rule `clone` already follows: no rig source, a source
+-- that answered nothing, a body with no root -- the lodge still gets built, `stats.keepers` stays 0,
+-- and the boot's own log line is what says so.
+local function shopkeeper(shop: Instance, counterAt: Vector3, floorY: number, cfg, seams: Seams?): Model?
+	local make = if seams ~= nil then seams.rig else nil
+	if make == nil then
+		return nil
+	end
+	local keep = cfg.LODGE.KEEPER
+	local ok, made = pcall(make :: any, Instance.new("HumanoidDescription"), Enum.HumanoidRigType.R15)
+	if not ok or typeof(made) ~= "Instance" or not (made :: Instance):IsA("Model") then
+		return nil
+	end
+	local body = made :: Model
+	body.Name = Data.KEEPER_NAME
+	-- BELT AND BRACES, the same line `cloneInstance` runs over a free model: an avatar rig is not a
+	-- place a script hides, but CLAUDE.md's rule is absolute and the lobby spec asserts it.
+	stats.strippedScripts += scriptsIn(body)
+	local humanoid = body:FindFirstChildOfClass("Humanoid")
+	local found = body.PrimaryPart or body:FindFirstChild("HumanoidRootPart")
+	if humanoid == nil or not (found and found:IsA("BasePart")) then
+		body:Destroy()
+		return nil
+	end
+	local root = found :: BasePart
+	body.PrimaryPart = root
+
+	-- THE VENDOR'S OWN SENTENCE ABOUT A STATIC NPC, as far as the outfit allows: the class has to
+	-- stay, because `Humanoid:AddAccessory` is how the hat goes on, so what goes is the WORK.
+	-- `Bots.Rig.prepare`'s stander branch, line for line.
+	local man = humanoid :: Humanoid
+	man.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	man.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+	man.WalkSpeed = 0
+	man.JumpHeight = 0
+	man.JumpPower = 0
+	man.EvaluateStateMachine = false
+	for _, state in ipairs(Enum.HumanoidStateType:GetEnumItems()) do
+		if state ~= Enum.HumanoidStateType.None then
+			man:SetStateEnabled(state, false)
+		end
+	end
+
+	for _, descendant in ipairs(body:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = false
+			descendant.CanCollide = false
+			descendant.CanQuery = false
+			descendant.CanTouch = false
+			stats.parts += 1
+		end
+	end
+	root.Anchored = true
+
+	-- WHERE HE STANDS AND WHICH WAY HE LOOKS: behind the till, facing the room a customer walks in
+	-- from (-Z is the door side, which is the way task 177's lodge and the free model both face).
+	local standAt = Vector3.new(counterAt.X, floorY + keep.ROOT_HEIGHT, counterAt.Z + keep.BEHIND_STUDS)
+	body.Parent = shop
+	body:PivotTo(CFrame.lookAt(standAt, standAt - Vector3.new(0, 0, 10)))
+
+	-- THE PROMPT. Every property is a number in `Lobby.CONFIG.LODGE.KEEPER.PROMPT` with its reason
+	-- in `docs/research/2026-10-14-the-shopkeeper.md` section 4 -- and ONE property set covers a
+	-- keyboard, a gamepad and a thumb, which is the whole reason this beats the key binding task 178
+	-- had.
+	--   ProximityPrompt  https://create.roblox.com/docs/reference/engine/classes/ProximityPrompt
+	local at = Instance.new("Attachment")
+	at.Name = "ShopPromptAt"
+	at.Position = Vector3.new(0, keep.PROMPT_HEIGHT, 0)
+	at.Parent = root
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = Data.PROMPT_NAME
+	prompt.ActionText = keep.PROMPT.ACTION_TEXT
+	prompt.ObjectText = keep.PROMPT.OBJECT_TEXT
+	prompt.KeyboardKeyCode = keep.PROMPT.KEYBOARD_KEY
+	prompt.GamepadKeyCode = keep.PROMPT.GAMEPAD_KEY
+	prompt.HoldDuration = keep.PROMPT.HOLD_SECONDS
+	prompt.MaxActivationDistance = keep.PROMPT.MAX_DISTANCE
+	prompt.RequiresLineOfSight = keep.PROMPT.REQUIRES_LINE_OF_SIGHT
+	prompt.Enabled = if seams ~= nil and seams.shopOn ~= nil then seams.shopOn == true else true
+	prompt.Parent = at
+
+	-- THE CLOTHES, THROUGH THE ONE DRESSING PATH IN THIS REPOSITORY (`Match.Body.dress`, handed in
+	-- by the composition root exactly as `Bots.start({ dress = Body.dress })` hands it in). He wears
+	-- the hunter's green with task 178's `Look` for a hat of his own, so a lodge keeper is one
+	-- existing call with one existing parameter and this module never learns what an outfit is.
+	if seams ~= nil and seams.dress ~= nil then
+		-- BOTH ANSWERS, AND THE SECOND ONE IS THE ONE THAT MEANS ANYTHING (review round 1, finding
+		-- 2). `pcall`'s flag only says the call did not throw; `Body.dress` returns FALSE for
+		-- "there was nothing I could put on him", which is exactly the state finding 1 was in while
+		-- this counter -- and the boot's `dressed=true` -- said otherwise.
+		local called, answered =
+			pcall(seams.dress :: any, body, keep.TEAM, seams.dressConfig, { hatColor = keep.HAT_COLOR })
+		if called and answered == true then
+			stats.keeperDressed = 1
+		end
+		-- The accessories the outfit owner put on are parts too, and they are cosmetic by the same
+		-- rule as the rest of him.
+		for _, descendant in ipairs(body:GetDescendants()) do
+			if descendant:IsA("BasePart") and descendant ~= root then
+				descendant.CanCollide = false
+				descendant.CanQuery = false
+				descendant.CanTouch = false
+			end
+		end
+	end
+
+	-- THE IDLE, PLAYED ONCE AND NEVER WRITTEN AGAIN -- there is no clock in this system. The id is
+	-- `Bots.Rig.CLIPS.idle`, the same asset every drive bot stands in, written in
+	-- `Lobby.CONFIG` rather than required out of `Bots` so the lobby does not depend on the drive's
+	-- owner. `Rig.loadClips`' measured caveat applies and is repeated: a track that LOADS is
+	-- evidence the call succeeded, not that the body is moving, so the screenshot is what says so.
+	local animator = man:FindFirstChildOfClass("Animator")
+	if animator == nil then
+		animator = Instance.new("Animator");
+		(animator :: Animator).Parent = man
+	end
+	local animation = Instance.new("Animation")
+	animation.Name = "Idle"
+	animation.AnimationId = keep.IDLE_ANIMATION
+	animation.Parent = man
+	pcall(function()
+		local track = (animator :: Animator):LoadAnimation(animation)
+		track.Looped = true
+		track.Priority = Enum.AnimationPriority.Idle
+		track:Play()
+	end)
+
+	stats.keepers = 1
+	keeper = body
+	return body
+end
+
+-- WHERE HE IS STANDING, or nil when there is nobody there -- the owner's test for "is there a
+-- keeper to turn at all", and the one thing it needs to measure who is nearest to him.
+function Build.keeperPosition(): Vector3?
+	local body = Build.keeper()
+	local root = if body ~= nil then (body :: Model).PrimaryPart else nil
+	return if root ~= nil then (root :: BasePart).Position else nil
+end
+
+-- WHICH WAY THE KEEPER LOOKS, and THE ONLY WRITER OF HIS CFRAME AFTER THE BUILD. The owner decides
+-- WHO he faces (`Lobby.step` already walks every occupant's root on its 10 Hz scan, so the nearest
+-- one is free) and this writes it -- which keeps *"the one writer of every part in `Workspace.Lobby`"*
+-- true with no second module touching a body.
+--
+-- YAW ONLY, and only when it MOVED more than the epsilon: a man standing still at the counter costs
+-- one subtraction per scan and no write at all. `nil` means "nobody is near" and he goes back to
+-- facing the room, which is the same rule his build gives him.
+--
+-- Returns whether it actually wrote, so the spec asserts the epsilon rather than the intention.
+function Build.faceKeeper(at: Vector3?, cfg): boolean
+	local body = Build.keeper()
+	if body == nil then
+		return false
+	end
+	local keep = cfg.LODGE.KEEPER
+	if keep.LOOK_AT ~= true then
+		return false
+	end
+	local root = (body :: Model).PrimaryPart
+	if root == nil then
+		return false
+	end
+	local here = (root :: BasePart).Position
+	local toward = Vector3.new(here.X, here.Y, here.Z - 10)
+	if at ~= nil then
+		local flat = Vector3.new((at :: Vector3).X - here.X, 0, (at :: Vector3).Z - here.Z)
+		if flat.Magnitude > 0.1 and flat.Magnitude <= keep.FACE_STUDS then
+			toward = Vector3.new(here.X + flat.X, here.Y, here.Z + flat.Z)
+		end
+	end
+	local wanted = CFrame.lookAt(here, toward)
+	-- THE ANGLE BETWEEN THE TWO FACINGS, in degrees, from the dot product of the two flat look
+	-- vectors -- which is cheaper and better behaved than two `atan2`s subtracted across the wrap.
+	local a, b = (root :: BasePart).CFrame.LookVector, wanted.LookVector
+	local dot = math.clamp(a.X * b.X + a.Z * b.Z, -1, 1)
+	if math.deg(math.acos(dot)) < keep.FACE_EPSILON_DEGREES then
+		return false
+	end
+	(body :: Model):PivotTo(wanted)
+	return true
+end
+
 -- THE WARM INSIDE: a stone fireplace with ONE `PointLight`, a table, two benches, and task 178's
--- empty shop counter with its placeholder sign. Nothing here is animated and nothing is written per
--- frame -- a fire that flickers is a second writer of a light, for a lobby nobody is fighting in.
-local function interior(folder: Instance, room: Room, cfg, templates: Instance?)
+-- shop counter -- with, since task 181, a man standing behind it.  Nothing here is animated per
+-- frame and nothing is written per frame: the keeper's idle is played once, at build, and his head
+-- is turned by the owner's own 10 Hz scan.
+local function interior(folder: Instance, room: Room, cfg, templates: Instance?, seams: Seams?)
 	local origin = room.centre
 	local inside = Instance.new("Folder")
 	inside.Name = "Inside"
@@ -609,6 +888,9 @@ local function interior(folder: Instance, room: Room, cfg, templates: Instance?)
 		cfg.LODGE.SIGN_TEXT,
 		shop
 	)
+	-- THE MAN BEHIND IT (task 181). `origin.Y` is the floor the counter stands on, which is what he
+	-- stands on too -- the one number, read in one place.
+	shopkeeper(shop, counterAt, origin.Y, cfg, seams)
 
 	trophies(inside, room, cfg, templates)
 end
@@ -620,7 +902,7 @@ end
 -- renamed folder, a place that has never had the models inserted (the DEV place is exactly that).
 -- Both branches end the same way, with the same warm inside and the same shop counter hung on the
 -- same measured room, so nothing downstream has to ask which one it got.
-local function lodge(container: Instance, anchor: Vector3, cfg, templates: Instance?): Instance
+local function lodge(container: Instance, anchor: Vector3, cfg, templates: Instance?, seams: Seams?): Instance
 	local folder = Instance.new("Folder")
 	folder.Name = "Lodge"
 	local origin = anchor + cfg.LODGE.OFFSET
@@ -630,7 +912,7 @@ local function lodge(container: Instance, anchor: Vector3, cfg, templates: Insta
 	local model = cfg.LODGE.MODEL
 	local built = clone(templates, Data.TEMPLATE.LODGE, "House", model.SCALE, origin, model.YAW_RADIANS, folder, false)
 	if built ~= nil then
-		interior(folder, Build.roomFor(anchor, cfg, true), cfg, templates)
+		interior(folder, Build.roomFor(anchor, cfg, true), cfg, templates, seams)
 		folder.Parent = container
 		return folder
 	end
@@ -771,7 +1053,7 @@ local function lodge(container: Instance, anchor: Vector3, cfg, templates: Insta
 		porch
 	)
 
-	interior(folder, Build.roomFor(anchor, cfg, false), cfg, templates)
+	interior(folder, Build.roomFor(anchor, cfg, false), cfg, templates, seams)
 	folder.Parent = container
 	return folder
 end
@@ -1167,7 +1449,8 @@ function Build.build(
 	container: Instance,
 	anchor: Vector3,
 	cfg,
-	templates: Instance?
+	templates: Instance?,
+	seams: Seams?
 ): (Instance, BasePart, BasePart, number)
 	local existing = container:FindFirstChild(Data.FOLDER_NAME)
 	if existing then
@@ -1178,13 +1461,18 @@ function Build.build(
 	stats.models = 0
 	stats.fallbacks = 0
 	stats.strippedScripts = 0
+	stats.keepers = 0
+	stats.keeperDressed = 0
+	-- THE OLD KEEPER WENT WITH THE OLD FOLDER. Dropped here rather than relied on, so a rebuild can
+	-- never leave `Build.faceKeeper` turning a body that is no longer in the DataModel.
+	keeper = nil
 	local folder = Instance.new("Folder")
 	folder.Name = Data.FOLDER_NAME
 
 	road(folder, anchor, cfg)
 	fences(folder, anchor, cfg)
 	treeLine(folder, anchor, cfg, templates)
-	lodge(folder, anchor, cfg, templates)
+	lodge(folder, anchor, cfg, templates, seams)
 	trucks(folder, anchor, cfg, templates)
 	local marker = spot(folder, anchor, cfg)
 
