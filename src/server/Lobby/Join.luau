@@ -3,37 +3,50 @@
 -- no Random. That is what lets `tests/server/lobby.spec.luau` drive the entry, the cancel, the
 -- re-entry and the exact boundary second with hand-written numbers and no character at all.
 --
--- KAREN chose *"Walk to a car"*, and for this first version *"step into a marked spot by the truck"*.
+-- KAREN chose *"Walk to a car"*, and task 182 made the marked spot FOUR coloured rectangles, one
+-- behind each truck: *"you come to truck back rectangle and can click and select how many players"*.
+-- What is left in this file is the rectangle predicate the pads are measured with, the field
+-- rectangle, and the rule about where a man belongs when he is not hunting. The pad STATE MACHINE is
+-- `Lobby.Pads`.
 --
 -- Pattern: VALVE'S `trigger_multiple`, READ AS ARITHMETIC.
 --   https://developer.valvesoftware.com/wiki/Trigger_multiple  (CC BY-SA, community wiki, and the
 --   entity ships in every Source game)
 -- A trigger volume's whole value is that it knows who is INSIDE it -- presence, not collision -- and
 -- Half-Life's level flow is built on it. `BasePart.Touched` is the opposite: it fires on CONTACT, so
--- a player who stands perfectly still inside the circle generates nothing after the first touch, and
--- `TouchEnded` cannot reliably answer "has he left" -- which is the one question a countdown that
--- cancels on stepping out has to ask every tick. A `ProximityPrompt` was refused for a different
--- reason: it is a BUTTON, and Karen asked to walk to the car (design section 14.3).
+-- a player who stands perfectly still inside the pad generates nothing after the first touch, and
+-- `TouchEnded` cannot reliably answer "has he left" -- which is the one question a pad that cancels
+-- on stepping off has to ask every tick. A `ProximityPrompt` was refused for a different reason: it
+-- is a BUTTON, and Karen asked to walk to the car (`docs/design/lobby.md` section 14.3).
 --
 -- In Roblox the presence test is a subtraction, not an event, and this repo already has that shape:
 -- `ForestTest.withinStand` (*"IS THIS POSITION INSIDE THE STAND'S CIRCLE? Pure, so the boundary is
--- one rule and not one rule per reader"*). This is the same rule for a different circle.
+-- one rule and not one rule per reader"*). This is the same rule for a different shape.
 --
--- Design: docs/design/lobby.md (section 6)
--- Note:   docs/research/2026-10-13-lobby-and-the-truck.md (section 3)
+-- Design: docs/design/truck-pads.md (sections 4, 6); docs/design/lobby.md (sections 6, 8.1)
+-- Note:   docs/research/2026-10-14-truck-pads.md (section 2a);
+--         docs/research/2026-10-13-lobby-and-the-truck.md (section 3)
 local Join = {}
 
--- IS THIS POSITION INSIDE THE CIRCLE?
+-- IS THIS POSITION INSIDE THE PAD'S RECTANGLE?
+--
+-- KAREN ASKED FOR A RECTANGLE (task 182): *"has to be coloroude circle like in all games or rectangle
+-- where people stand"*, and *"you come to truck back rectangle"*. So task 177's squared-distance
+-- circle becomes two `math.abs` comparisons. THE MECHANISM IS UNCHANGED and the header above is
+-- still the citation: presence, measured as arithmetic, never `BasePart.Touched`.
 --
 -- FLAT: the Y is ignored, exactly as `ForestTest.withinStand` ignores it, because a player standing
--- on the truck's running board is a stud above the ground and has not left the circle.
+-- on the pad's own slab -- or on the truck's running board -- is above its centre and has not left
+-- it.
 --
--- `<=` -- ON the circle is IN it, the same comparison `withinStand` makes. The screen's own
--- "arrived" band (`Objective.CONFIG.ARRIVED_IN_STUDS`, 12 against this radius of 8) is wider on
--- purpose, so the chevron goes out while he is already inside, never the other way round.
-function Join.within(position: Vector3, spot: Vector3, radiusStuds: number): boolean
-	local dx, dz = position.X - spot.X, position.Z - spot.Z
-	return dx * dx + dz * dz <= radiusStuds * radiusStuds
+-- `<=` -- ON the edge is IN it, the same comparison `withinStand` makes, and A CORNER IS IN, which
+-- is the whole difference from a circle: an inscribed circle would call the four corners of Karen's
+-- own rectangle "not the pad".
+--
+-- `size` IS THE PART'S OWN `Vector3` (`CONFIG.PADS.SIZE`) so the rule and the slab cannot disagree
+-- about how big the pad is; `size.Y` is deliberately unread.
+function Join.withinRect(position: Vector3, centre: Vector3, size: Vector3): boolean
+	return math.abs(position.X - centre.X) <= size.X / 2 and math.abs(position.Z - centre.Z) <= size.Z / 2
 end
 
 -- IS THIS POSITION ON THE LOBBY'S OWN FIELD? The rectangle, not a circle, because the field IS a
@@ -41,47 +54,21 @@ end
 -- corners of Karen's yard "not the lobby".
 --
 -- IT IS THE ONLY QUESTION THE RETURN RULE ASKS about where a man is standing, and it is here rather
--- than in the owner for the reason `within` is: a boundary asked twice is two boundaries.
+-- than in the owner for the reason `withinRect` is: a boundary asked twice is two boundaries.
 function Join.insideField(position: Vector3, anchor: Vector3, cfg): boolean
 	local half = cfg.FIELD.SPAN_STUDS / 2
 	return math.abs(position.X - anchor.X) <= half and math.abs(position.Z - anchor.Z) <= half
 end
 
--- ONE PLAYER'S COUNTDOWN, as it stands right now.
-export type Entry = { since: number, leaveAt: number }
-
--- THE FOUR VERDICTS, as words rather than as booleans, because the caller does a different thing for
--- each one and a pair of booleans would have a fifth state that means nothing.
-Join.IDLE = "idle" -- outside, and was outside: nothing to do
-Join.COUNTING = "counting" -- inside, counting down. `entry.leaveAt` is when he goes
-Join.CANCELLED = "cancelled" -- he stepped out before it ran down
-Join.ENROL = "enrol" -- the countdown is done: the caller calls `world.enrol`
-
--- ONE STEP OF ONE PLAYER'S COUNTDOWN. PURE over `(entry, inside, now, cfg)`, so the whole rule is a
--- table of cases in a spec with no world: entry, cancel, re-entry, and the exact boundary second.
+-- THE PER-PLAYER COUNTDOWN IS GONE, AND IT WENT TO THE PAD (task 182). Task 177 gave every man his
+-- own five-second clock (`Join.Entry`, `Join.decide`, and the four verdicts
+-- `IDLE`/`COUNTING`/`CANCELLED`/`ENROL`); a party of four needs ONE clock for the four of them, and
+-- that is what `Lobby.Pads` is -- a state machine per pad instead of an entry per player. Both
+-- functions are archived with their reason, in full, in
+-- `backups/2026-10-14_task-182_the-marked-circle.txt` (rule 7).
 --
--- RE-ENTRY DOES NOT INHERIT THE OLD DEADLINE. Karen's rule is that stepping back out cancels it, and
--- a cancel that kept the clock running would make stepping out for two seconds and back in enrol him
--- instantly -- which is not a cancel, it is a pause nobody asked for. So the entry is dropped on the
--- way out and a new one is started on the way back in.
---
--- `>=` AT THE DEADLINE: five seconds means five, not five-and-a-frame.
-function Join.decide(entry: Entry?, inside: boolean, now: number, cfg): (Entry?, string)
-	if not inside then
-		return nil, (if entry ~= nil then Join.CANCELLED else Join.IDLE)
-	end
-	if entry == nil then
-		return { since = now, leaveAt = now + cfg.COUNTDOWN_SECONDS }, Join.COUNTING
-	end
-	local open = entry :: Entry
-	if now >= open.leaveAt then
-		-- THE ENTRY IS DROPPED WITH THE VERDICT, so the caller cannot enrol the same man twice from
-		-- one walk into the circle. `Match.enrol` is idempotent as well (design section 4.2), which
-		-- is the belt to this brace.
-		return nil, Join.ENROL
-	end
-	return open, Join.COUNTING
-end
+-- WHAT STAYED IS THIS FILE'S OTHER HALF, below: the field rectangle and the return rule. How a hunt
+-- STARTS changed; where a man BELONGS when he is not in one did not.
 
 -- DOES THIS PLAYER BELONG BACK AT THE LODGE?
 --

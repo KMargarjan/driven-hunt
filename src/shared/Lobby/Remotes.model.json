@@ -1,0 +1,6 @@
+{
+  "className": "Folder",
+  "children": [
+    { "name": "PadRequest", "className": "RemoteEvent" }
+  ]
+}

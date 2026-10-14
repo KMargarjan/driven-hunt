@@ -296,7 +296,17 @@ return function()
 		-- `ForestTest.withinStand`, takes a STAND INDEX rather than a centre and a radius, so it
 		-- cannot be driven from here; folding all three into one shared predicate is queued for the
 		-- Director, design 16 item 11.)
-		it("agrees with the lobby's circle on the same three cases", function()
+		it("still answers the same three cases now the lobby's own test is a rectangle", function()
+			-- TASK 182 TOOK THE SECOND COPY AWAY RATHER THAN KEEPING IT IN STEP. `Join.within` was
+			-- the lobby's CIRCLE and this case compared the two circles; the lobby's pads are
+			-- RECTANGLES now (`Join.withinRect`), so there is no second radius in the repository to
+			-- agree with. What is left to guard is the shop's own reach, and the three cases are kept
+			-- verbatim so the counter's boundary is still stated here.
+			--
+			-- THE THIRD COPY, `ForestTest.withinStand`, is still a radius and still takes a STAND
+			-- INDEX rather than a centre, so it cannot be driven from here either; folding what
+			-- remains into one shared predicate stays queued for the Director
+			-- (`docs/design/shop.md` 16 item 11).
 			local centre = Vector3.new(0, 0, 0)
 			for _, case in ipairs({
 				{ at = Vector3.new(5, 12, 0), inside = true },
@@ -304,8 +314,12 @@ return function()
 				{ at = Vector3.new(10.5, 0, 0), inside = false },
 			}) do
 				expect(Shop.withinReach(case.at, centre, 10)).to.equal(case.inside)
-				expect(Join.within(case.at, centre, 10)).to.equal(case.inside)
 			end
+			-- ...AND THE RECTANGLE IS FLAT AND INCLUSIVE IN THE SAME WAY, which is the property the
+			-- two predicates really shared.
+			local size = Vector3.new(20, 1, 20)
+			expect(Join.withinRect(Vector3.new(10, 12, 0), centre, size)).to.equal(true)
+			expect(Join.withinRect(Vector3.new(10.5, 0, 0), centre, size)).to.equal(false)
 		end)
 	end)
 

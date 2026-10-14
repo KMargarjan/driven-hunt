@@ -1,0 +1,114 @@
+ARCHIVED 2026-10-14, task 182 (CLAUDE.md rule 7: never delete, archive with a note)
+
+WHAT: task 177's single marked CIRCLE beside truck 1 -- `Lobby.CONFIG.SPOT`, the `spot()` builder in
+`src/server/Lobby/Build.luau`, and the two pure functions the per-player countdown was made of,
+`Lobby.Join.within` and `Lobby.Join.decide`.
+
+WHY: Karen, 2026-10-14 ~09:30, verbatim:
+
+  "and when start hunt we need to go next to truck has to be mark where and has to be coloroude
+  circle like in all games or rectangle where people stand and can be 1/1 or 4/4 you can select on
+  dialiog how many like in roblox games and can be several truck like 4 of them nicly aligned next
+  ot each other and you come to truck back rectangle and can click and select how many players"
+
+Four coloured RECTANGLES, one behind each of task 180's four trucks, replace the one circle. The
+countdown moves from the PLAYER to the PAD: task 177 gave every man his own five-second clock, and a
+party of four needs one clock for the four of them, which is what `Lobby.Pads` is. So `Join.decide`
+has no caller left, and `Join.within` -- the circle's own radius test -- is replaced by
+`Join.withinRect`, the same Valve `trigger_multiple` arithmetic over a rectangle, in the same file:
+two `math.abs` comparisons instead of one squared distance, because Karen asked for a rectangle and a
+corner of one has to be inside it.
+
+WHAT SURVIVED, and it is most of the file: `Join.insideField` and `Join.needsReturn` are untouched.
+The return rule ("does this player belong back at the lodge", level-triggered, four ways to be in the
+wrong place) has nothing to do with how a hunt starts.
+
+WHAT PAD 1 KEPT: the name. `Lobby.SPOT_NAME = "TruckSpot"` is still pad 1's marker part, because
+`Lobby.spotPart`, `Lobby.spotPosition`, the Hud's `kind = "truck"` chevron and the Director's
+out-of-repo `smoke.sh` all read it, and a rename would be an edit to a file this task cannot test.
+`docs/research/2026-10-14-truck-pads.md` section 6 is the reasoning.
+
+--------------------------------------------------------------------------------------------------
+`Lobby.CONFIG.SPOT`, as it stood at commit 718176d (src/shared/Lobby/init.luau):
+
+	SPOT = {
+		OFFSET = Vector3.new(16, 0, 18), -- beside the driver's door
+		RADIUS_STUDS = 8,
+		-- THE RING IS `ForestTest.Markers.RING`'S, BORROWED WHOLE (design section 14.5), so the
+		-- lobby's circle and the hunter's stand circle are the same piece of UI language: neon
+		-- chords lifted clear of the ground, in hunting orange.
+		RING = {
+			SEGMENTS = 20,
+			THICKNESS_STUDS = 0.5,
+			HEIGHT_STUDS = 0.12,
+			LIFT_STUDS = 0.08,
+			TRANSPARENCY = 0.45,
+			COLOR = Color3.fromRGB(235, 150, 60),
+		},
+		SIGN_TEXT = "STAND HERE TO HUNT",
+	},
+
+The ring's hunting orange is kept as pad 3's colour (`PADS.COLOURS[3]`), so the lobby's palette does
+not change under Karen.
+
+--------------------------------------------------------------------------------------------------
+`Lobby.Join.within` and `Lobby.Join.decide`, as they stood at commit 718176d
+(src/server/Lobby/Join.luau) -- the full text, so the circle can be restored from this file alone:
+
+-- IS THIS POSITION INSIDE THE CIRCLE?
+--
+-- FLAT: the Y is ignored, exactly as `ForestTest.withinStand` ignores it, because a player standing
+-- on the truck's running board is a stud above the ground and has not left the circle.
+--
+-- `<=` -- ON the circle is IN it, the same comparison `withinStand` makes. The screen's own
+-- "arrived" band (`Objective.CONFIG.ARRIVED_IN_STUDS`, 12 against this radius of 8) is wider on
+-- purpose, so the chevron goes out while he is already inside, never the other way round.
+function Join.within(position: Vector3, spot: Vector3, radiusStuds: number): boolean
+	local dx, dz = position.X - spot.X, position.Z - spot.Z
+	return dx * dx + dz * dz <= radiusStuds * radiusStuds
+end
+
+-- ONE PLAYER'S COUNTDOWN, as it stands right now.
+export type Entry = { since: number, leaveAt: number }
+
+-- THE FOUR VERDICTS, as words rather than as booleans, because the caller does a different thing for
+-- each one and a pair of booleans would have a fifth state that means nothing.
+Join.IDLE = "idle" -- outside, and was outside: nothing to do
+Join.COUNTING = "counting" -- inside, counting down. `entry.leaveAt` is when he goes
+Join.CANCELLED = "cancelled" -- he stepped out before it ran down
+Join.ENROL = "enrol" -- the countdown is done: the caller calls `world.enrol`
+
+-- ONE STEP OF ONE PLAYER'S COUNTDOWN. PURE over `(entry, inside, now, cfg)`, so the whole rule is a
+-- table of cases in a spec with no world: entry, cancel, re-entry, and the exact boundary second.
+--
+-- RE-ENTRY DOES NOT INHERIT THE OLD DEADLINE. Karen's rule is that stepping back out cancels it, and
+-- a cancel that kept the clock running would make stepping out for two seconds and back in enrol him
+-- instantly -- which is not a cancel, it is a pause nobody asked for. So the entry is dropped on the
+-- way out and a new one is started on the way back in.
+--
+-- `>=` AT THE DEADLINE: five seconds means five, not five-and-a-frame.
+function Join.decide(entry: Entry?, inside: boolean, now: number, cfg): (Entry?, string)
+	if not inside then
+		return nil, (if entry ~= nil then Join.CANCELLED else Join.IDLE)
+	end
+	if entry == nil then
+		return { since = now, leaveAt = now + cfg.COUNTDOWN_SECONDS }, Join.COUNTING
+	end
+	local open = entry :: Entry
+	if now >= open.leaveAt then
+		-- THE ENTRY IS DROPPED WITH THE VERDICT, so the caller cannot enrol the same man twice from
+		-- one walk into the circle. `Match.enrol` is idempotent as well (design section 4.2), which
+		-- is the belt to this brace.
+		return nil, Join.ENROL
+	end
+	return open, Join.COUNTING
+end
+
+--------------------------------------------------------------------------------------------------
+`spot()`, the circle's builder, as it stood at commit 718176d (src/server/Lobby/Build.luau): twenty
+neon chords lifted `RING.LIFT_STUDS` off the road surface, an invisible unqueryable `TruckSpot` slab
+`RADIUS_STUDS * 2` across at its centre, and a post with a `SurfaceGui` sign reading
+"STAND HERE TO HUNT". It is recoverable with `git show 718176d:src/server/Lobby/Build.luau` and is
+not copied here in full because it is 70 lines of geometry whose every number is in the `SPOT` block
+above; the two PURE functions are copied in full because they are the RULE, and a rule is the thing
+you cannot re-derive from a config block.

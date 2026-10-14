@@ -173,11 +173,20 @@ Objective.CONFIG = {
 		-- drive bar already carries the reason (`WAITING players`), and two renderings of one reason
 		-- is the duplication this task exists to remove.
 		Waiting = "waiting for the drive to start",
-		-- THE LOBBY'S TWO LINES (task 177). KAREN, 2026-10-13: a hunt starts by *"Walk to a car"* --
-		-- a hunting truck parked by the lodge -- and this is the only thing on screen that says so.
-		-- They are rows here for the reason every other row is: they are WORDS, and words are hers
-		-- to rewrite. 32 characters, which `hud_clarity.spec` measures with `TextFits`.
-		Lobby = "walk to the truck to start a hunt",
+		-- THE LOBBY'S TWO LINES (task 177, the first retuned by task 182). KAREN, 2026-10-13: a hunt
+		-- starts by *"Walk to a car"*; 2026-10-14: *"you come to truck back rectangle and can click
+		-- and select how many players"*. This is the only thing on screen that says either. They are
+		-- rows here for the reason every other row is: they are WORDS, and words are hers to
+		-- rewrite. The new one is 27 characters against a bound of 33, which `hud_clarity.spec`
+		-- measures with the engine's own `TextFits` at 400 px rather than with a font guess.
+		--
+		-- THE DIRECTOR'S OWN SENTENCE WAS *"Step on a truck pad to start a hunt"*, AND IT IS 35
+		-- CHARACTERS -- past the bound this table is held to, which task 177 raised from 32 to 33 by
+		-- MEASURING rather than by waving it through. It is shortened to the same meaning instead of
+		-- the bound being raised a second time in two tasks: the bound is a proxy for `TextFits` at a
+		-- 400 px frame, and shortening the sentence is what keeps the proxy honest rather than the
+		-- other way round. Reported to the Director.
+		Lobby = "step on a truck pad to hunt",
 		LobbyLeaving = "leaving for the hunt in %d",
 	},
 
@@ -188,8 +197,10 @@ Objective.CONFIG = {
 	WORD_STAND = "STAND",
 	WORD_LINE = "LINE",
 	WORD_ROAD = "ROAD",
-	-- THE FOURTH (task 177): the marked circle beside the truck, which is the one place in the lobby
-	-- a player has to walk to.
+	-- THE FOURTH (task 177, four of them since task 182): a coloured pad behind one of the trucks,
+	-- which is the one place in the lobby a player has to walk to. The chevron says which THING to
+	-- walk to and the billboard on the pad itself says which TRUCK it is, so the word does not have
+	-- to carry a number.
 	WORD_TRUCK = "TRUCK",
 
 	-- HOW LONG `GO` IS ON SCREEN (task 168). Long enough to read and to connect to the fanfare that
@@ -231,8 +242,11 @@ export type DriveNow = {
 -- world said*. The lobby's own module answers it from the PART the server built, so a world with no
 -- lobby has no spot, and a teamless player there reads exactly what he read before this task: "".
 export type LobbyNow = {
-	spot: Vector3?, -- where the truck spot is, or nil for "this world has no lobby"
-	secondsLeft: number?, -- the countdown, or nil for "he is not standing in the circle"
+	spot: Vector3?, -- pad 1. STILL THE GATE: nil means "this world has no lobby"
+	secondsLeft: number?, -- the countdown, or nil for "his pad is not leaving yet"
+	-- EVERY TRUCK PAD, IN PAD ORDER (task 182). nil or empty answers exactly as task 177 did, which
+	-- is `MapUi.pointsFor`'s rule: absent is not "nowhere".
+	pads: { Vector3 }?,
 }
 
 function Objective.text(phase: string?, team: string?, drive: DriveNow?, lobby: LobbyNow?): string
@@ -383,13 +397,38 @@ end
 -- line instead of diagonally at the mathematically nearest point. On a sine of amplitude 30 over
 -- 1,600 studs the two differ by under a stud, and "walk straight ahead" is the instruction.
 function Objective.targetFor(team: string?, phase: string?, geometry: any?, me: Vector3?, lobby: LobbyNow?): Target?
-	-- THE TRUCK, FOR A PLAYER WITH NO TEAM IN A WORLD THAT HAS A LOBBY (task 177). It is BEFORE the
-	-- phase guard because `Waiting` is not one of the two phases below, and it needs no `geometry`:
-	-- the point is the world's own statement of where the truck is, not something derived from the
-	-- map's road or stands.
+	-- THE TRUCK PAD, FOR A PLAYER WITH NO TEAM IN A WORLD THAT HAS A LOBBY (task 177, four pads
+	-- since task 182). It is BEFORE the phase guard because `Waiting` is not one of the two phases
+	-- below, and it needs no `geometry`: the point is the world's own statement of where the pads
+	-- are -- the parts the server built -- and not something derived from the map's road or stands.
 	if team ~= "Shooters" and team ~= "Drivers" then
 		if phase == "Waiting" and lobby ~= nil and lobby.spot ~= nil then
-			return { point = lobby.spot :: Vector3, word = Objective.CONFIG.WORD_TRUCK, kind = "truck" }
+			-- THE NEAREST PAD, NOT PAD 1 (task 182). There are four of them, 17 studs apart, and
+			-- pointing at the first one while a player stands by truck 4 would be the chevron lying
+			-- about where to go. `Objective.nearestStand` is the SAME flat nearest-of-a-set rule
+			-- this file already states for a hunter's posts, asked of another set of points -- and
+			-- `pads` nil or empty, or `me` nil, answers `lobby.spot`, which is task 177's answer bit
+			-- for bit.
+			local point = lobby.spot :: Vector3
+			local pads = lobby.pads
+			if pads ~= nil and #pads > 0 and typeof(me) == "Vector3" then
+				local flat = {}
+				for _, at in ipairs(pads) do
+					table.insert(flat, Vector2.new(at.X, at.Z))
+				end
+				local near = Objective.nearestStand(flat, me :: Vector3)
+				if near ~= nil then
+					-- THE PAD'S OWN y IS KEPT, as the truck spot's always has been: the chevron is
+					-- projected in three dimensions and a point at y = 0 would float under the map.
+					for _, at in ipairs(pads) do
+						if at.X == (near :: Vector2).X and at.Z == (near :: Vector2).Y then
+							point = at
+							break
+						end
+					end
+				end
+			end
+			return { point = point, word = Objective.CONFIG.WORD_TRUCK, kind = "truck" }
 		end
 		return nil
 	end

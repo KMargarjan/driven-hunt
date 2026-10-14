@@ -80,6 +80,9 @@ local Rail = require(script.Rail)
 -- respect that matters -- it owns its own `Visible` -- because whether the shop is open is a thing
 -- the player and the counter decide (docs/design/shop.md section 5.1).
 local ShopPanel = require(script.ShopPanel)
+-- THE TRUCK PADS' SIZE DIALOG (task 182), in the same shape as the shop panel: this file builds the
+-- frame and that module fills it and owns its `Visible`.
+local PadPanel = require(script.PadPanel)
 
 local Hud = {}
 
@@ -118,6 +121,9 @@ local reportFrame: Frame? = nil
 -- THE SHOP PANEL'S FRAME (task 178): created here, filled by `Hud.ShopPanel`, and that module --
 -- not this one -- writes its `Visible`.
 local shopFrame: Frame? = nil
+-- THE PAD DIALOG'S FRAME (task 182): created here, filled by `Hud.PadPanel`, and that module -- not
+-- this one -- writes its `Visible`. The shop panel's arrangement, one task later.
+local padFrame: Frame? = nil
 local compassFrame: Frame? = nil
 -- Did the scope's own mask hide the compass strip? See `Hud.renderScope`.
 local compassHiddenByScope = false
@@ -214,8 +220,15 @@ Hud.Compass = Compass
 -- reaches it through.
 Hud.Shop = ShopPanel
 
+-- ...AND THE PAD DIALOG (task 182), published the same way and for the same reason.
+Hud.PadPanel = PadPanel
+
 function Hud.shopPanel(): Frame?
 	return shopFrame
+end
+
+function Hud.padPanel(): Frame?
+	return padFrame
 end
 
 function Hud.reportPanel(): Frame?
@@ -827,6 +840,26 @@ local function build(): ScreenGui
 	shop.Visible = false
 	shop.Parent = screen
 
+	-- THE TRUCK PADS' SIZE DIALOG (task 182). Karen: *"you come to truck back rectangle and can click
+	-- and select how many players"*. Centred, 300 wide so it fits the 400 px phone
+	-- `hud_clarity.spec` measures, empty and hidden until `PadPanel.start` fills it. This file
+	-- creates the box and writes nothing inside it, and after `build` it does not write the `Visible`
+	-- either.
+	--
+	-- THE RECTANGLE COMES FROM THE PANEL AND NOT FROM A SECOND READER OF `Lobby.CONFIG`, which is
+	-- `ShopPanel.heightFor`'s own arrangement: ONE number decides both the rows and the box.
+	local padDialog = Instance.new("Frame")
+	padDialog.Name = "PadPanel"
+	padDialog.BackgroundColor3 = PadPanel.LOOK.PANEL_COLOR
+	padDialog.BackgroundTransparency = 0
+	padDialog.BorderSizePixel = 0
+	padDialog.AnchorPoint = Vector2.new(0.5, 0.5)
+	padDialog.Position = UDim2.fromScale(0.5, 0.5)
+	padDialog.Size = UDim2.fromOffset(PadPanel.widthFor(), PadPanel.heightFor())
+	padDialog.ZIndex = PadPanel.zIndex()
+	padDialog.Visible = false
+	padDialog.Parent = screen
+
 	-- THE MAP (task 155). Karen: *"small map in left or right corner circle like is on another
 	-- games"* and *"a map when click M"*. Two frames and a button, created empty and filled by
 	-- `MapUi` -- the same division the compass and the report panel already have.
@@ -1003,6 +1036,7 @@ local function build(): ScreenGui
 	scorePanel = panel
 	reportFrame = report
 	shopFrame = shop
+	padFrame = padDialog
 	compassFrame = compass
 	scoreTitle = title
 	scoreFooter = footer
@@ -2038,6 +2072,10 @@ function Hud.renderObjective(CameraSystem)
 				Players.LocalPlayer:GetAttribute(lobbyData.LEAVE_AT_ATTRIBUTE),
 				Workspace:GetServerTimeNow()
 			),
+			-- EVERY TRUCK PAD (task 182), so the chevron points at the NEAREST one. Four memoised
+			-- part lookups and four `Position` reads -- the same order as the one subtraction
+			-- `ShopPanel.setNear` below already costs this function.
+			pads = lobbyData.padPositions(),
 		}
 		else nil
 	-- IS HE AT THE SHOP COUNTER (task 178)? ONE EVALUATION, HERE, because this function is already
@@ -2054,6 +2092,13 @@ function Hud.renderObjective(CameraSystem)
 	-- `Lobby.shopPrompt()` is memoised and drops its cache with the instance, so this is a cached
 	-- field read a frame and `ShopPanel.setPrompt` does nothing at all unless the prompt CHANGED.
 	ShopPanel.setPrompt(if lobbyData then lobbyData.shopPrompt() else nil)
+	-- ...AND WHETHER A TRUCK PAD IS ASKING HIM HOW MANY (task 182). ONE server-measured fact, read
+	-- here for `setNear`'s own stated reason -- this function is already *"THE ONE EVALUATION"* --
+	-- and the panel is TOLD. `setAsk` is edge-triggered inside it, so this costs four memoised part
+	-- lookups and eight cached attribute reads a frame, and one write per walk-on. A world with no
+	-- lobby asks nobody anything. (The REMOTE is resolved once in `Hud.whenReady`, not here: it
+	-- waits, and nothing on a render tick may.)
+	PadPanel.setAsk(if lobbyData then lobbyData.padAsking(Players.LocalPlayer.UserId) else nil)
 	local target = Objective.targetFor(team, phase, MapUi.geometry(), me, lobby)
 	local far = Objective.distanceStuds(target, me)
 	arrivedAtTarget = Objective.arrived(far, arrivedAtTarget)
@@ -2415,6 +2460,12 @@ function Hud.start()
 	-- truck spot is and how long this player has left.
 	Hud.whenReady(ReplicatedStorage, "Lobby", function(module)
 		lobbyData = require(module)
+		-- THE PAD DIALOG'S REMOTE, RESOLVED HERE AND ONCE (task 182). It is NOT read in
+		-- `renderObjective`, and that is a correctness point rather than a saving: `Lobby.remotes`
+		-- is `Shop.remotes`' shape, `WaitForChild` included, and a `WaitForChild` on a render tick
+		-- would block the frame -- for ever, in a world whose folder never arrives. This callback is
+		-- the one place in this file that is allowed to wait, which is what `whenReady` is FOR.
+		PadPanel.setRemotes((lobbyData :: any).remotes())
 	end)
 
 	-- TASK 165: THE OBJECTIVE AND THE RAIL, started after the map because the per-frame pass below
@@ -2475,6 +2526,16 @@ function Hud.start()
 			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
 			Input = Weapon.Input,
 			remotes = Shop.remotes(),
+		})
+	end
+
+	-- THE PAD DIALOG (task 182), handed its frame and the two doors it borrows. Its remotes are TOLD
+	-- to it per frame instead (`PadPanel.setRemotes`), because `ReplicatedStorage.Lobby` is resolved
+	-- by `Hud.whenReady` and may land after this runs.
+	if padFrame then
+		PadPanel.start(padFrame :: Frame, {
+			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
+			Input = Weapon.Input,
 		})
 	end
 

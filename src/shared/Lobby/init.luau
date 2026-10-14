@@ -85,6 +85,38 @@ Lobby.PROMPT_NAME = "ShopPrompt"
 -- the same shape. There is no inbound door at all, so nothing a client sends can enrol anybody.
 Lobby.LEAVE_AT_ATTRIBUTE = "DHLobbyLeaveAt"
 
+-- HOW A PAD'S STATE REACHES EVERY CLIENT (task 182), with no new outbound wire at all. Two
+-- attributes on the PAD'S OWN PART, because a pad's state is PUBLIC and not per-player -- which is
+-- the `ReplicatedStorage.Flags.State` shape and the exact fallback `docs/design/lobby.md` section 18
+-- item 5 already named for a direction it could not prove.
+--
+-- EXACTLY TWO, AND BOTH ARE READ. `DHPadSize` and `DHPadCount` were considered and refused: the fill
+-- is already on the billboard the server draws over the pad, so an attribute carrying it would be
+-- *"an argument nobody reads is an argument nobody checked"* (`Shop.checkRequest`'s own words). The
+-- countdown a player needs is the one he already gets, `DHLobbyLeaveAt` above.
+--
+-- `DHPadFirst` IS THE DIALOG'S WHOLE VISIBILITY RULE, and it is a SERVER-MEASURED fact mirrored
+-- outward: the client holds no opinion about who is standing where or who may pick.
+Lobby.PAD_STATE_ATTRIBUTE = "DHPadState"
+Lobby.PAD_FIRST_ATTRIBUTE = "DHPadFirst"
+
+-- THE FIVE WORDS A PAD'S STATE CAN BE, and they are HERE rather than in `Lobby.Pads` because they
+-- cross the wire: the server writes one into `DHPadState` and `Lobby.padAsking` -- which both sides
+-- call -- compares against it. `Pads.EMPTY` and friends are aliases of these rows, so there is one
+-- spelling of "sizing" in the repository and a typo cannot make a dialog that never opens.
+Lobby.PAD_STATE = {
+	EMPTY = "empty",
+	SIZING = "sizing",
+	FILLING = "filling",
+	COUNTDOWN = "countdown",
+	LEAVING = "leaving",
+}
+
+-- THE PADS' REMOTE (task 182), AND IT IS THE FIRST INBOUND DOOR THIS SYSTEM HAS EVER HAD. Task 177's
+-- lobby had none at all, and said so in capitals: standing somewhere is not a message. A dialog is.
+Lobby.REMOTES_NAME = "Remotes"
+Lobby.PAD_REQUEST_REMOTE = "PadRequest"
+
 -- ---------------------------------------------------------------- where the lobby is
 
 -- A WORLD HAS A LOBBY WHEN, AND ONLY WHEN, THERE IS A ROW FOR IT (design section 2).
@@ -423,21 +455,141 @@ Lobby.CONFIG = {
 		JITTER_STUDS = 9,
 		SCALE = { 0.85, 1.35 },
 	},
-	SPOT = {
-		OFFSET = Vector3.new(16, 0, 18), -- beside the driver's door
-		RADIUS_STUDS = 8,
-		-- THE RING IS `ForestTest.Markers.RING`'S, BORROWED WHOLE (design section 14.5), so the
-		-- lobby's circle and the hunter's stand circle are the same piece of UI language: neon
-		-- chords lifted clear of the ground, in hunting orange.
-		RING = {
-			SEGMENTS = 20,
-			THICKNESS_STUDS = 0.5,
-			HEIGHT_STUDS = 0.12,
-			LIFT_STUDS = 0.08,
-			TRANSPARENCY = 0.45,
-			COLOR = Color3.fromRGB(235, 150, 60),
+	-- ---------------- THE FOUR TRUCK PADS (task 182)
+	--
+	-- KAREN, 2026-10-14 ~09:30: *"and when start hunt we need to go next to truck has to be mark
+	-- where and has to be coloroude circle like in all games or rectangle where people stand and can
+	-- be 1/1 or 4/4 you can select on dialiog how many like in roblox games and can be several truck
+	-- like 4 of them nicly aligned next ot each other and you come to truck back rectangle and can
+	-- click and select how many players"*.
+	--
+	-- ONE PAD PER TRUCK BAY, AND THE COUNT IS NOT A ROW HERE: it is `TRUCK.COUNT`, so four trucks and
+	-- three pads cannot happen. `TRUCK.PAD_BEHIND_STUDS` -- written down by task 180 for this task --
+	-- is how far back from the BAY CENTRE the pad's near edge sits, and `Pads.centreFor` is the one
+	-- place that arithmetic is written.
+	--
+	-- IT REPLACES TASK 177'S `SPOT`, the single orange circle beside truck 1, archived with its
+	-- reason and its two pure functions in `backups/2026-10-14_task-182_the-marked-circle.txt`
+	-- (rule 7).
+	--
+	-- Design: docs/design/truck-pads.md (sections 4, 4.1, 5)
+	-- Note:   docs/research/2026-10-14-truck-pads.md
+	PADS = {
+		-- 9 WIDE, 12 DEEP, AND EVERY NUMBER HERE IS A CLEARANCE RATHER THAN A TASTE (design section
+		-- 4.1). The brief's first value was ~14 x 10 and 14 DOES NOT FIT: pad 1's west face has to
+		-- clear the parts lodge's east wall, whose outer face is x +21 (`logWall "WallE"` with
+		-- `LOG_DIAMETER` 2), which bounds the half-width at 5; and the far edge has to stay south of
+		-- `Build.treeLine`'s own yard exclusion (z < +44) or a tree can stand on a pad. 108 square
+		-- studs holds eight bodies two across and four deep, and `BAY_GAP_STUDS` 17 leaves 8 studs
+		-- between pads, so four parties read as four places and not as one stripe.
+		--
+		-- `SIZE.Y` IS 0.7 AND THE SLAB IS *SUNK*, WHICH CLOSES TASK 177'S ROUND-1 FINDING IN ADVANCE.
+		-- The ring was lifted 0.08 off the SHELF and therefore sat 0.42 studs inside the opaque road
+		-- slab -- *"the lobby had a sign reading 'STAND HERE TO HUNT' with nothing to stand in"*. A
+		-- pad straddles three surfaces (the `Yard` slab, the road `Lane` and its verge, and bare
+		-- blade-free terrain north of z +40), so its TOP is `shelfY + ROAD.THICK_STUDS + LIFT_STUDS`
+		-- = +0.58, above every slab, and its BOTTOM is `shelfY - 0.12`, below the terrain top. One
+		-- number, both failures closed: nothing floats and nothing can hide inside a slab.
+		SIZE = Vector3.new(9, 0.7, 12),
+		LIFT_STUDS = 0.08, -- `SPOT.RING.LIFT_STUDS`'s number, kept: it is what stops z-fighting
+		RIM_STUDS = 0.5, -- the glowing border's width: `SPOT.RING.THICKNESS_STUDS`'s number
+		RIM_HEIGHT_STUDS = 0.12, -- `SPOT.RING.HEIGHT_STUDS`'s number
+		TRANSPARENCY = 0.45, -- `SPOT.RING.TRANSPARENCY`'s number: the deck is a stain, not a wall
+		-- FOUR HUES, AND THE RING'S HUNTING ORANGE STAYS IN THE PALETTE so the lobby's colours do not
+		-- change under Karen. A colour-blind player still tells the pads apart by POSITION -- they
+		-- are in a row -- and by NUMBER, because each billboard says which truck it belongs to. So
+		-- the colour is what makes them pretty and never what carries the meaning, which is the only
+		-- honest way to use four hues at once.
+		COLOURS = {
+			Color3.fromRGB(86, 170, 88), -- 1 green
+			Color3.fromRGB(72, 124, 208), -- 2 blue
+			Color3.fromRGB(235, 150, 60), -- 3 orange (`SPOT.RING.COLOR`'s own value)
+			Color3.fromRGB(150, 96, 200), -- 4 violet
 		},
-		SIGN_TEXT = "STAND HERE TO HUNT",
+		-- PAD 1'S PART IS STILL CALLED `TruckSpot`, AND IT IS A DATA ROW RATHER THAN A BRANCH IN
+		-- `Build`. `Lobby.SPOT_NAME`, `Lobby.spotPart`, `Lobby.spotPosition`, the Hud's
+		-- `kind = "truck"` chevron and -- outside this repository -- the Director's `smoke.sh` all
+		-- find a part by that name, and none of them has to change. The asymmetry at index 1 is
+		-- deliberate continuity (note section 6), not an oversight.
+		PART_NAMES = { "TruckSpot", "TruckPad2", "TruckPad3", "TruckPad4" },
+		-- THE FOUR PARTY SIZES, AS DATA, WITH THE WORDS BESIDE THEM.
+		--
+		-- 8 IS THE DRIVE'S WHOLE ROSTER (`Match.CONFIG.BOTS.TARGET`: 4 hunters + 4 beaters) and 1 is
+		-- today's game exactly -- one man and seven bots, because bots fill every slot no player
+		-- takes (task 161). So *"full hunt"* on the button is a checked claim and not a boast:
+		-- `lobby.spec` asserts the biggest size against `Match`'s own table rather than a copy.
+		--
+		-- ORDER MATTERS. Row 1 is the size a pick that nobody makes falls back to (`Pads.defaultSize`),
+		-- and the rows are drawn down the dialog in this order.
+		--
+		-- KAREN WROTE THE FORMAT HERSELF -- *"can be 1/1 or 4/4"* -- so the size is both halves of
+		-- the label, and the two ends of the range are named in words so four numbers read as a
+		-- choice rather than as a quiz.
+		SIZES = {
+			{ size = 1, label = "1 / 1  alone" },
+			{ size = 2, label = "2 / 2" },
+			{ size = 4, label = "4 / 4" },
+			{ size = 8, label = "8 / 8  full hunt" },
+		},
+		-- HOW LONG THE DIALOG WAITS FOR AN ANSWER before it falls back to row 1. Long enough to read
+		-- four buttons and press one -- and it is LOAD-BEARING FOR THE EVIDENCE: 8 +
+		-- `COUNTDOWN_SECONDS` 5, plus two scans of slack, is 13.2 s from stepping on to leaving, which
+		-- is what has to fit inside the Director's own unattended smoke window (note section 7). A
+		-- snippet run over StudioMCP gets a sandboxed copy of the server's modules with empty state
+		-- (measured, task 122), so it can neither pick a size nor press a button.
+		PICK_TIMEOUT_SECONDS = 8,
+		-- HOW LONG A PART-FULL PARTY WAITS FOR THE REST OF IT before it goes anyway (the Director:
+		-- *"a countdown when full or after N seconds"*). A FIRST VALUE: the longest a solo player
+		-- should ever stand on a pad waiting for friends who are not coming. One row for Karen.
+		FILL_TIMEOUT_SECONDS = 45,
+		-- `COUNTDOWN_SECONDS` IS DELIBERATELY NOT HERE. `CONFIG.COUNTDOWN_SECONDS` (5) is reused,
+		-- because a second countdown length would be a second answer to "how long until I go".
+		-- HOW OFTEN ONE PLAYER MAY ASK. `Shop.CONFIG.REQUEST_MIN_INTERVAL`'s number: four a second,
+		-- and it is a FORGERY GUARD rather than a game rule -- a person cannot press a button four
+		-- times a second.
+		REQUEST_MIN_INTERVAL = 0.25,
+		-- THE WORDS OVER THE PAD, IN THE WORLD AND NOT ON THE SCREEN -- the community pad's own
+		-- arrangement (note section 2c). The count and the state are drawn where the man walking
+		-- across the yard can read them before he commits to a pad; the Hud owns the screen
+		-- (`docs/design/hud-clarity.md`) and this is the one thing in this task that is deliberately
+		-- not on it.
+		--
+		-- `COUNT_UNSET` IS `%d / -` AND NOT `%d / 0`, because nobody having picked yet is not a party
+		-- of nought.
+		--
+		-- `MAX_DISTANCE_STUDS` 160 IS MEASURED AGAINST THE LOBBY: the porch is 46 studs from the
+		-- bays, so a pad is readable from the lodge door, and the field is 220 across, so the boards
+		-- are gone from the far corners rather than hanging over the whole world.
+		BILLBOARD = {
+			TRUCK = "TRUCK %d",
+			COUNT = "%d / %d",
+			COUNT_UNSET = "%d / -",
+			OFFSET_STUDS = 6,
+			SIZE_PX = Vector2.new(180, 64),
+			TRUCK_PX = 22,
+			COUNT_PX = 30,
+			MAX_DISTANCE_STUDS = 160,
+		},
+		-- THE DIALOG'S PIXELS AND ITS TITLE, here rather than in the panel for `Shop.CONFIG.PANEL`'s
+		-- stated reason: both sides read them -- `Hud.build` sizes the frame and `Hud.PadPanel` fills
+		-- it.
+		--
+		-- 300 WIDE FITS THE 400 px PHONE `hud_clarity.spec` MEASURES, which is the constraint the
+		-- shop panel's own 360 was chosen against (`docs/design/shop.md` 13.1).
+		PANEL = {
+			TITLE = "HOW MANY PLAYERS?", -- Karen's own word: *"select how many players"*
+			WIDTH = 300,
+			HEADER_PX = 44,
+			ROW_PX = 48,
+			GAP = 8,
+			-- `Rail.CONFIG.BUTTON_PX`'s number, over the 44 px Roblox's own tutorial sets as a touch
+			-- minimum: this is the one dialog in the game a player meets before he has learned
+			-- anything.
+			BUTTON_PX = 48,
+			-- `Report.CONFIG.PANEL_Z_INDEX`'s band. `Rail.CONFIG.Z_INDEX` is 16 and stays pressable
+			-- over this dialog -- the `Shop.CONFIG.PANEL` arrangement.
+			Z_INDEX = 15,
+		},
 	},
 	-- WHERE HE ARRIVES: in front of the porch, looking +Z (north) at the lodge with the forest
 	-- behind it, the truck and the ring to his right. Karen's *"house is in fields next to forrest"*
@@ -579,6 +731,127 @@ function Lobby.secondsLeft(leaveAt: number?, serverNow: number): number?
 		return nil
 	end
 	return math.max(0, (leaveAt :: number) - serverNow)
+end
+
+-- ---------------------------------------------------------------- the pads (task 182)
+
+-- HOW MANY PADS THERE ARE, and it is NOT a row of its own: it is the number of trucks, so four
+-- trucks and three pads cannot happen. `lobby.spec` holds `#PADS.PART_NAMES` to it.
+function Lobby.padCount(): number
+	return Lobby.CONFIG.TRUCK.COUNT
+end
+
+-- WHAT PAD n'S PART IS CALLED. One table lookup, so the name is data and never a branch, and pad 1's
+-- `TruckSpot` is a row in that table rather than a special case in the builder.
+function Lobby.padPartName(index: number): string?
+	return Lobby.CONFIG.PADS.PART_NAMES[index]
+end
+
+-- THE ONE READER OF WHERE EACH PAD IS, beside `Lobby.spotPart` and for its stated reason: the server
+-- BUILDS the part, this finds it, and nobody computes the position twice.
+--
+-- MEMOISED PER INDEX, AND EVERY CACHE IS DROPPED WHEN ITS PART LEAVES THE DATAMODEL -- `spotPart`'s
+-- rule and `MapUi.pointsFor`'s (*"a stale dot is a lie about where somebody is"*). A rebuilt lobby
+-- must answer nil rather than a position from the lobby before it.
+local cachedPads: { [number]: BasePart } = {}
+
+function Lobby.padPart(index: number): BasePart?
+	local cached = cachedPads[index]
+	if cached ~= nil and cached:IsDescendantOf(game) then
+		return cached
+	end
+	cachedPads[index] = nil
+	local name = Lobby.padPartName(index)
+	if name == nil then
+		return nil
+	end
+	local folder = Workspace:FindFirstChild(Lobby.FOLDER_NAME)
+	if folder == nil then
+		return nil
+	end
+	local found = folder:FindFirstChild(name :: string, true)
+	if found ~= nil and found:IsA("BasePart") then
+		cachedPads[index] = found :: BasePart
+		return cachedPads[index]
+	end
+	return nil
+end
+
+-- EVERY PAD THAT EXISTS, IN PAD ORDER, as positions. The Hud's chevron points at the NEAREST of them
+-- (task 182) rather than at pad 1, because pointing at pad 1 while a player stands by truck 4 would
+-- be the screen lying about where to go.
+--
+-- A SHORT LIST, REBUILT PER CALL AND NOT CACHED: `padPart` is memoised, so this is four table reads
+-- and four `Position` reads -- the same order as the one subtraction `Hud.renderObjective` already
+-- spends on the shop counter.
+--
+-- A WORLD WITH NO LOBBY ANSWERS AN EMPTY LIST, and `Objective.targetFor` reads that as *"answer
+-- exactly as task 177 did"*. Absent is not "nowhere".
+function Lobby.padPositions(): { Vector3 }
+	local out = {}
+	for index = 1, Lobby.padCount() do
+		local part = Lobby.padPart(index)
+		if part ~= nil then
+			table.insert(out, (part :: BasePart).Position)
+		end
+	end
+	return out
+end
+
+-- WHAT PAD n IS DOING, read off the two attributes the server wrote on its part: the state word and
+-- the userId who may pick. nil, nil for a pad that does not exist or has never been written.
+--
+-- THE CLIENT'S ONLY WINDOW ONTO THE PAD STATE, and it is one-way: there is no setter here and
+-- nothing a client does can change either value.
+function Lobby.padStateOf(index: number): (string?, number?)
+	local part = Lobby.padPart(index)
+	if part == nil then
+		return nil, nil
+	end
+	local state = (part :: BasePart):GetAttribute(Lobby.PAD_STATE_ATTRIBUTE)
+	local first = (part :: BasePart):GetAttribute(Lobby.PAD_FIRST_ATTRIBUTE)
+	return (if type(state) == "string" then state :: string else nil),
+		(if type(first) == "number" then first :: number else nil)
+end
+
+-- WHICH PAD IS ASKING THIS PLAYER TO PICK, or nil. THE DIALOG'S WHOLE VISIBILITY RULE, and it is a
+-- server-measured fact: `DHPadFirst` is only ever written from a man the SERVER saw standing on that
+-- rectangle, so a client cannot decide it is first.
+--
+-- THE STATE IS CHECKED TOO, not just the userId. A pad that has moved on to `filling` still carries
+-- the first man's id -- `Pads` keeps it so "who picked" survives the pick -- and a dialog that
+-- opened on the id alone would re-open after the party was already sized.
+function Lobby.padAsking(userId: number?): number?
+	if type(userId) ~= "number" then
+		return nil
+	end
+	for index = 1, Lobby.padCount() do
+		local state, first = Lobby.padStateOf(index)
+		if state == Lobby.PAD_STATE.SIZING and first == userId then
+			return index
+		end
+	end
+	return nil
+end
+
+-- THE PADS' REMOTE, found once -- `Shop.remotes`' shape exactly, including the `WaitForChild`: this
+-- is called from a boot and from a client's Hud, both of which may run before the folder has
+-- replicated, and it is the ONE place either side names it.
+--
+-- IT IS A CHILD OF THIS MODULE'S OWN FOLDER (`ReplicatedStorage.Lobby.Remotes`), because
+-- `src/shared/Lobby/Remotes.model.json` syncs there -- the same place `ReplicatedStorage.Shop.Remotes`
+-- lives.
+local remotes: any = nil
+
+function Lobby.remotes(): any
+	local cached = remotes
+	if cached ~= nil then
+		return cached
+	end
+	local folder = ReplicatedStorage:WaitForChild("Lobby"):WaitForChild(Lobby.REMOTES_NAME)
+	local built = { PadRequest = folder:WaitForChild(Lobby.PAD_REQUEST_REMOTE) :: RemoteEvent }
+	remotes = built
+	return built
 end
 
 return Lobby

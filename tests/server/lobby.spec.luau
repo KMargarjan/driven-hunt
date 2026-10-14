@@ -30,6 +30,7 @@ local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
 -- against itself passes for any string -- which is exactly how an undressed man got through round 1.
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local Join = Lobby.Join
+local Pads = Lobby.Pads
 local Field = Lobby.Field
 local Build = Lobby.Build
 
@@ -199,67 +200,378 @@ return function()
 		end)
 	end)
 
-	describe("the circle (Valve's trigger_multiple, read as arithmetic)", function()
-		local spot = Vector3.new(100, 50, -200)
+	-- ---------------------------------------------------------------- the pads (task 182)
+	--
+	-- KAREN, 2026-10-14: *"you come to truck back rectangle and can click and select how many
+	-- players ... can be 1/1 or 4/4"*.
+	--
+	-- `Lobby.Pads` IS PURE, which is why every state, every transition and every boundary second is a
+	-- table of cases stated here rather than a thing somebody watches in a playtest. Task 177's
+	-- `Join.within` and `Join.decide` cases are REPLACED by these: the circle is gone and the
+	-- countdown belongs to the pad now (both archived in
+	-- `backups/2026-10-14_task-182_the-marked-circle.txt`).
+	describe("the pads: the rectangle (Valve's trigger_multiple, read as arithmetic)", function()
+		local SIZE = CFG.PADS.SIZE
 
-		it("is in at the radius and out past it", function()
-			expect(Join.within(spot, spot, 8)).to.equal(true)
-			expect(Join.within(spot + Vector3.new(7.9, 0, 0), spot, 8)).to.equal(true)
-			-- ON the circle is IN it: `<=`, the same comparison `ForestTest.withinStand` makes, so
-			-- the screen's chevron and the rule cannot disagree about the edge.
-			expect(Join.within(spot + Vector3.new(8, 0, 0), spot, 8)).to.equal(true)
-			expect(Join.within(spot + Vector3.new(8.1, 0, 0), spot, 8)).to.equal(false)
-			-- The diagonal, so it is a circle and not a square.
-			expect(Join.within(spot + Vector3.new(6, 0, 6), spot, 8)).to.equal(false)
+		it("is a RECTANGLE, flat, and ON any edge -- or a CORNER -- is IN it", function()
+			local centre = Vector3.new(100, 20, -50)
+			expect(Join.withinRect(centre, centre, SIZE)).to.equal(true)
+			-- ON each edge, both axes: the same `<=` every other presence test in this repo makes.
+			expect(Join.withinRect(centre + Vector3.new(SIZE.X / 2, 0, 0), centre, SIZE)).to.equal(true)
+			expect(Join.withinRect(centre - Vector3.new(SIZE.X / 2, 0, 0), centre, SIZE)).to.equal(true)
+			expect(Join.withinRect(centre + Vector3.new(0, 0, SIZE.Z / 2), centre, SIZE)).to.equal(true)
+			expect(Join.withinRect(centre - Vector3.new(0, 0, SIZE.Z / 2), centre, SIZE)).to.equal(true)
+			-- ...and just past each of them.
+			expect(Join.withinRect(centre + Vector3.new(SIZE.X / 2 + 0.01, 0, 0), centre, SIZE)).to.equal(false)
+			expect(Join.withinRect(centre + Vector3.new(0, 0, SIZE.Z / 2 + 0.01), centre, SIZE)).to.equal(false)
+			-- A CORNER IS IN, AND THAT IS THE WHOLE DIFFERENCE FROM TASK 177'S CIRCLE: an inscribed
+			-- circle would call the four corners of Karen's own rectangle "not the pad".
+			expect(Join.withinRect(centre + Vector3.new(SIZE.X / 2, 0, SIZE.Z / 2), centre, SIZE)).to.equal(true)
+			-- FLAT: fifty studs above or below is still on it -- a man on the truck's running board.
+			expect(Join.withinRect(centre + Vector3.new(0, 50, 0), centre, SIZE)).to.equal(true)
+			expect(Join.withinRect(centre - Vector3.new(0, 50, 0), centre, SIZE)).to.equal(true)
 		end)
 
-		it("is FLAT: fifty studs above the spot is still inside", function()
-			-- A player on the truck's running board is a stud above the ground and has not left.
-			expect(Join.within(spot + Vector3.new(0, 50, 0), spot, 8)).to.equal(true)
-			expect(Join.within(spot + Vector3.new(0, -50, 0), spot, 8)).to.equal(true)
+		it("puts one pad behind each bay, clear of the lodge, the tailgates, the trees and the field", function()
+			-- EVERY CLEARANCE IN `docs/design/truck-pads.md` SECTION 4.1, AS ARITHMETIC OVER THE
+			-- CONFIG AND NEVER A LITERAL -- so a retune of `SIZE` or `BAY_GAP_STUDS` that breaks one
+			-- fails the harness instead of looking wrong in a screenshot.
+			local anchor = Vector3.new(0, 100, 0)
+			local half = CFG.FIELD.SPAN_STUDS / 2
+			local lastEast = -math.huge
+			for index = 1, CFG.TRUCK.COUNT do
+				local centre = Pads.centreFor(anchor, index, CFG)
+				-- x: THE BAY'S OWN x, the same expression `Build.trucks` steps with.
+				expect(centre.X).to.equal(anchor.X + CFG.TRUCK.OFFSET.X + (index - 1) * CFG.TRUCK.BAY_GAP_STUDS)
+				-- z: `PAD_BEHIND_STUDS` from the BAY CENTRE to the pad's NEAR edge.
+				local nearEdge = centre.Z - SIZE.Z / 2
+				expect(nearEdge).to.equal(anchor.Z + CFG.TRUCK.OFFSET.Z + CFG.TRUCK.PAD_BEHIND_STUDS)
+				-- ...WHICH CLEARS BOTH TAILGATES. The parts truck's `BedTail` face is at
+				-- `OFFSET.Z + 8.2`; the free model is `MODEL`-yawed and 18.5 long, so 9.25.
+				local bayZ = anchor.Z + CFG.TRUCK.OFFSET.Z
+				expect(nearEdge > bayZ + 8.2).to.equal(true)
+				expect(nearEdge > bayZ + 9.25).to.equal(true)
+				-- THE TREE LINE'S YARD EXCLUSION ENDS AT z +44 (`Build.treeLine`), so the far edge
+				-- has to stay south of it or a tree can stand on a pad.
+				expect(centre.Z + SIZE.Z / 2 <= anchor.Z + 44).to.equal(true)
+				-- EVERY CORNER IS ON THE FIELD.
+				expect(math.abs(centre.X - anchor.X) + SIZE.X / 2 <= half).to.equal(true)
+				expect(math.abs(centre.Z - anchor.Z) + SIZE.Z / 2 <= half).to.equal(true)
+				-- THE FOUR RECTANGLES ARE DISJOINT, which is what lets `Pads.indexAt` return on its
+				-- first match.
+				expect(centre.X - SIZE.X / 2 > lastEast).to.equal(true)
+				lastEast = centre.X + SIZE.X / 2
+				-- THE SLAB IS SUNK: its TOP is above the yard's own road-thick surface and its BOTTOM
+				-- is below the shelf, so nothing floats and nothing can hide inside a slab (task
+				-- 177's round-1 finding, closed in advance).
+				-- A TOLERANCE AND NOT AN EQUALITY, because a `Vector3`'s components are 32-bit: the
+				-- measured answer is 100.58000335097313 for an arithmetic 100.58, which is the same
+				-- surface and a different number (`viewmodel_poses.spec`'s own rule for a value that
+				-- makes a round trip).
+				local top = centre.Y + SIZE.Y / 2
+				expect(math.abs(top - (anchor.Y + CFG.ROAD.THICK_STUDS + CFG.PADS.LIFT_STUDS)) < 1e-3).to.equal(true)
+				expect(centre.Y - SIZE.Y / 2 < anchor.Y).to.equal(true)
+			end
+			-- PAD 1 CLEARS THE PARTS LODGE'S EAST WALL, whose outer face is `LODGE.SIZE.X / 2 +
+			-- LOG_DIAMETER / 2` east of the lodge's own offset -- the bound that made 14 studs wide
+			-- impossible.
+			local wallX = anchor.X + CFG.LODGE.OFFSET.X + CFG.LODGE.SIZE.X / 2 + CFG.LODGE.LOG_DIAMETER / 2
+			expect(Pads.centreFor(anchor, 1, CFG).X - SIZE.X / 2 >= wallX).to.equal(true)
+			-- ...AND THERE IS ONE PART NAME PER BAY, so four trucks and three pads cannot happen.
+			expect(#CFG.PADS.PART_NAMES).to.equal(CFG.TRUCK.COUNT)
+			expect(Data.padCount()).to.equal(CFG.TRUCK.COUNT)
+			-- PAD 1 IS STILL `TruckSpot`, which is what `Lobby.spotPart`, the Hud's chevron and the
+			-- Director's own `smoke.sh` find it by.
+			expect(Data.padPartName(1)).to.equal(Data.SPOT_NAME)
 		end)
 
-		it("is the radius the config states", function()
-			expect(CFG.SPOT.RADIUS_STUDS).to.equal(8)
+		it("answers which pad a position is on, and nil for the gap, the field and no character", function()
+			local anchor = Vector3.new(0, 100, 0)
+			for index = 1, CFG.TRUCK.COUNT do
+				expect(Pads.indexAt(Pads.centreFor(anchor, index, CFG), anchor, CFG)).to.equal(index)
+			end
+			-- THE 8-STUD GAP BETWEEN TWO PADS belongs to neither.
+			local between = (Pads.centreFor(anchor, 1, CFG) + Pads.centreFor(anchor, 2, CFG)) / 2
+			expect(Pads.indexAt(between, anchor, CFG)).to.equal(nil)
+			-- ...AND SO DOES THE REST OF THE FIELD.
+			expect(Pads.indexAt(anchor, anchor, CFG)).to.equal(nil)
+			expect(Pads.indexAt(anchor + Vector3.new(0, 0, 200), anchor, CFG)).to.equal(nil)
+			-- nil POSITION -> nil. A player with no character is standing NOWHERE, and absent is not
+			-- outside: `Join.needsReturn`'s rule and `MapUi.pointsFor`'s.
+			expect(Pads.indexAt(nil, anchor, CFG)).to.equal(nil)
 		end)
 	end)
 
-	describe("the countdown", function()
-		it("goes idle -> counting -> enrol at exactly COUNTDOWN_SECONDS", function()
-			local entry, verdict = Join.decide(nil, false, 0, CFG)
-			expect(entry).to.equal(nil)
-			expect(verdict).to.equal(Join.IDLE)
+	describe("the pads: the state machine", function()
+		local PADS = CFG.PADS
 
-			entry, verdict = Join.decide(nil, true, 10, CFG)
-			expect(verdict).to.equal(Join.COUNTING)
-			expect((entry :: any).leaveAt).to.equal(10 + CFG.COUNTDOWN_SECONDS)
+		local function who(...): { any }
+			local out = {}
+			for _, userId in ipairs({ ... }) do
+				table.insert(out, { userId = userId, since = 0 })
+			end
+			return out
+		end
 
-			-- A tenth of a second short is still counting.
-			local _, still = Join.decide(entry, true, 10 + CFG.COUNTDOWN_SECONDS - 0.1, CFG)
-			expect(still).to.equal(Join.COUNTING)
-
-			-- And five seconds means five.
-			local gone, done = Join.decide(entry, true, 10 + CFG.COUNTDOWN_SECONDS, CFG)
-			expect(done).to.equal(Join.ENROL)
-			-- THE ENTRY IS DROPPED WITH THE VERDICT, so one walk into the circle cannot enrol twice.
-			expect(gone).to.equal(nil)
+		it("asks the FIRST man on an empty pad, and asks nobody twice", function()
+			local pad = Pads.empty(2)
+			expect(pad.state).to.equal(Pads.EMPTY)
+			expect(pad.index).to.equal(2)
+			local after, verdict = Pads.step(pad, who(11, 22, 33), 1, CFG)
+			expect(verdict).to.equal(Pads.ASK)
+			expect(after.state).to.equal(Pads.SIZING)
+			expect(after.firstUserId).to.equal(11)
+			expect(after.size).to.equal(nil)
+			expect(after.deadline).to.equal(1 + PADS.PICK_TIMEOUT_SECONDS)
+			expect(#after.members).to.equal(3)
+			-- `ASK` IS AN EDGE, because the owner turns it into an attribute write.
+			local third, second = Pads.step(after, who(11, 22, 33), 1.1, CFG)
+			expect(second).to.equal(Pads.NONE)
+			expect(third.firstUserId).to.equal(11)
+			expect(third.deadline).to.equal(after.deadline)
+			-- AN EMPTY PAD THAT STAYS EMPTY SAYS NOTHING EITHER.
+			expect(select(2, Pads.step(Pads.empty(1), {}, 5, CFG))).to.equal(Pads.NONE)
 		end)
 
-		it("cancels when he steps out, and a re-entry starts a new clock", function()
-			local entry = (Join.decide(nil, true, 0, CFG))
-			local out, cancelled = Join.decide(entry, false, 3, CFG)
-			expect(cancelled).to.equal(Join.CANCELLED)
-			expect(out).to.equal(nil)
-
-			-- RE-ENTRY DOES NOT INHERIT THE OLD DEADLINE. Karen's rule is that stepping out cancels
-			-- it; a kept clock would make stepping out and back in enrol him instantly.
-			local again, verdict = Join.decide(nil, true, 4, CFG)
-			expect(verdict).to.equal(Join.COUNTING)
-			expect((again :: any).leaveAt).to.equal(4 + CFG.COUNTDOWN_SECONDS)
+		it("elects the man who has been standing there longest, and breaks a tie by userId", function()
+			-- `since` EXISTS FOR EXACTLY THIS. The member list is re-measured every scan and may
+			-- arrive in any order, so "the first man on" cannot be "the first in the list".
+			local late = { { userId = 11, since = 9 }, { userId = 22, since = 2 }, { userId = 33, since = 5 } }
+			expect(select(1, Pads.step(Pads.empty(1), late, 10, CFG)).firstUserId).to.equal(22)
+			local tied = { { userId = 44, since = 3 }, { userId = 22, since = 3 } }
+			expect(select(1, Pads.step(Pads.empty(1), tied, 10, CFG)).firstUserId).to.equal(22)
 		end)
 
-		it("is five seconds", function()
-			expect(CFG.COUNTDOWN_SECONDS).to.equal(5)
+		it("takes a pick only while it is asking, and only one of the four sizes", function()
+			local pad = select(1, Pads.step(Pads.empty(1), who(11, 22), 1, CFG))
+			-- A SIZE THAT IS NOT ON THE LIST CHANGES NOTHING: a forged or stale payload.
+			for _, bad in ipairs({ 3, 7, 9, 0, -1, 1.5, "4", true }) do
+				local nope, ok = Pads.withSize(pad, bad :: any, 1.2, CFG)
+				expect(ok).to.equal(false)
+				expect(nope.size).to.equal(nil)
+				expect(nope.state).to.equal(Pads.SIZING)
+			end
+			expect(Pads.sizeAllowed(nil, CFG)).to.equal(false)
+			expect(Pads.sizeAllowed(0 / 0, CFG)).to.equal(false)
+			-- ...AND THE FOUR THAT ARE.
+			for _, row in ipairs(PADS.SIZES) do
+				expect(Pads.sizeAllowed(row.size, CFG)).to.equal(true)
+				local sized, ok = Pads.withSize(pad, row.size, 1.2, CFG)
+				expect(ok).to.equal(true)
+				expect(sized.state).to.equal(Pads.FILLING)
+				expect(sized.size).to.equal(row.size)
+				expect(sized.deadline).to.equal(1.2 + PADS.FILL_TIMEOUT_SECONDS)
+				-- `firstUserId` SURVIVES THE PICK, which is what lets `Lobby.padAsking` gate the
+				-- dialog on the STATE and still answer "who picked".
+				expect(sized.firstUserId).to.equal(11)
+			end
+			-- A PAD THAT IS NOT ASKING TAKES NO PICK AT ALL: every other state refuses.
+			local filling = select(1, Pads.withSize(pad, 4, 1.2, CFG))
+			for _, state in ipairs({ Pads.EMPTY, Pads.FILLING, Pads.COUNTDOWN, Pads.LEAVING }) do
+				local other = table.clone(filling)
+				other.state = state
+				expect(select(2, Pads.withSize(other, 2, 1.3, CFG))).to.equal(false)
+			end
+		end)
+
+		it("defaults the pick to ONE after PICK_TIMEOUT_SECONDS, and reaches the drive unattended", function()
+			-- THIS IS THE PATH THE DIRECTOR'S OWN SMOKE CHECK TAKES, with no click and no dialog
+			-- (design section 15.4): a snippet run over StudioMCP gets a sandboxed copy of the
+			-- server's modules with empty state (measured, task 122), so it can neither pick a size
+			-- nor press a button.
+			local pad = select(1, Pads.step(Pads.empty(1), who(11), 1, CFG))
+			-- ONE TICK BEFORE THE TIMEOUT: still asking.
+			local waiting = select(1, Pads.step(pad, who(11), 1 + PADS.PICK_TIMEOUT_SECONDS - 0.05, CFG))
+			expect(waiting.state).to.equal(Pads.SIZING)
+			-- AT IT: sized at row 1, which is 1.
+			local sized, set = Pads.step(pad, who(11), 1 + PADS.PICK_TIMEOUT_SECONDS, CFG)
+			expect(set).to.equal(Pads.SET)
+			expect(sized.size).to.equal(1)
+			expect(sized.size).to.equal(Pads.defaultSize(CFG))
+			-- ONE TRANSITION PER CALL, so the countdown starts on the NEXT scan and not in this one.
+			expect(sized.state).to.equal(Pads.FILLING)
+			local armed, verdict = Pads.step(sized, who(11), 1 + PADS.PICK_TIMEOUT_SECONDS + 0.1, CFG)
+			expect(verdict).to.equal(Pads.ARMED)
+			expect(armed.state).to.equal(Pads.COUNTDOWN)
+			expect(armed.deadline).to.equal(1 + PADS.PICK_TIMEOUT_SECONDS + 0.1 + CFG.COUNTDOWN_SECONDS)
+			-- THE WHOLE WALK-ON-TO-GONE, TWO SCANS OF SLACK INCLUDED, HAS TO FIT INSIDE AN UNATTENDED
+			-- SMOKE WINDOW -- asserted rather than believed, because the number is load-bearing.
+			expect(PADS.PICK_TIMEOUT_SECONDS + CFG.COUNTDOWN_SECONDS + 2 / CFG.SCAN_HZ < 20).to.equal(true)
+		end)
+
+		it("counts down when the party is FULL, and when the fill times out", function()
+			local pad = select(1, Pads.withSize(select(1, Pads.step(Pads.empty(1), who(11), 1, CFG)), 4, 1.2, CFG))
+			expect(pad.state).to.equal(Pads.FILLING)
+			-- THREE OF FOUR: still filling, and a join is not a verdict.
+			local three, quiet = Pads.step(pad, who(11, 22, 33), 2, CFG)
+			expect(three.state).to.equal(Pads.FILLING)
+			expect(quiet).to.equal(Pads.NONE)
+			expect(three.deadline).to.equal(pad.deadline)
+			-- THE FOURTH ARRIVES: the countdown, at task 177's own five seconds.
+			local full, armed = Pads.step(three, who(11, 22, 33, 44), 3, CFG)
+			expect(armed).to.equal(Pads.ARMED)
+			expect(full.state).to.equal(Pads.COUNTDOWN)
+			expect(full.deadline).to.equal(3 + CFG.COUNTDOWN_SECONDS)
+			-- SIZE IS A TARGET AND NOT A CAP: a ninth man is in the party, because keeping him off
+			-- the slab would mean MOVING him and this owner may not write a character's position.
+			local over = select(1, Pads.step(three, who(11, 22, 33, 44, 55), 3, CFG))
+			expect(#over.members).to.equal(5)
+			expect(over.state).to.equal(Pads.COUNTDOWN)
+			-- NOBODY ELSE COMES: the fill times out and the part-full party goes anyway.
+			local lonely = select(1, Pads.step(pad, who(11, 22), 1.2 + PADS.FILL_TIMEOUT_SECONDS, CFG))
+			expect(lonely.state).to.equal(Pads.COUNTDOWN)
+			-- ...AND ONE TICK EARLIER IT DID NOT.
+			local nearly = select(1, Pads.step(pad, who(11, 22), 1.2 + PADS.FILL_TIMEOUT_SECONDS - 0.05, CFG))
+			expect(nearly.state).to.equal(Pads.FILLING)
+		end)
+
+		it("hands the party over exactly ONCE, at the deadline and not a frame before", function()
+			local pad = select(1, Pads.withSize(select(1, Pads.step(Pads.empty(3), who(11), 1, CFG)), 2, 1.2, CFG))
+			local full = select(1, Pads.step(pad, who(11, 22), 2, CFG))
+			expect(full.state).to.equal(Pads.COUNTDOWN)
+			-- `>=` AT THE DEADLINE: five seconds means five, not five-and-a-frame.
+			local held = select(1, Pads.step(full, who(11, 22), (full.deadline :: number) - 0.01, CFG))
+			expect(held.state).to.equal(Pads.COUNTDOWN)
+			local gone, verdict = Pads.step(full, who(11, 22), full.deadline :: number, CFG)
+			expect(verdict).to.equal(Pads.DEPART)
+			expect(gone.state).to.equal(Pads.LEAVING)
+			expect(#gone.members).to.equal(2)
+			-- IN PRODUCTION THE LIST EMPTIES THE MOMENT THE DRIVE HAS THEM -- the owner leaves a man it
+			-- has out of the member list -- and THAT is what takes the pad back to `empty` with no
+			-- second `DEPART`.
+			expect(select(1, Pads.step(gone, {}, 99, CFG)).state).to.equal(Pads.EMPTY)
+		end)
+
+		it("ASKS AGAIN when the hand-over failed, instead of stranding the party on a dead pad", function()
+			-- STILL STANDING THERE ON THE NEXT SCAN MEANS THE DRIVE DID NOT TAKE THEM. `Lobby.depart`
+			-- returns 0 whenever the injected seam throws or `world.enrol` refuses -- `Match.enrol`
+			-- refuses a player it has never registered, *"Refused rather than half-done"* -- and
+			-- without this the pad would sit in `leaving` with its `DHPadState` on the part, no
+			-- dialog, no countdown and no second attempt, until the man happened to walk off the
+			-- rectangle. That is the one state in this machine a player cannot get himself out of.
+			--
+			-- THE REVIEWER FOUND THIS IN ROUND 1: the design's own transition table said the pad
+			-- re-enters `sizing`, two comments claimed it did, and the code returned `NONE` for ever.
+			local pad = select(1, Pads.withSize(select(1, Pads.step(Pads.empty(2), who(11), 1, CFG)), 2, 1.2, CFG))
+			local full = select(1, Pads.step(pad, who(11, 22), 2, CFG))
+			local stuck = select(1, Pads.step(full, who(11, 22), full.deadline :: number, CFG))
+			expect(stuck.state).to.equal(Pads.LEAVING)
+
+			local retry, verdict = Pads.step(stuck, who(11, 22), (full.deadline :: number) + 0.1, CFG)
+			expect(verdict).to.equal(Pads.ASK)
+			expect(retry.state).to.equal(Pads.SIZING)
+			-- A FRESH QUESTION AND NOT A RESUMED ONE: the size is dropped and the pick clock starts
+			-- again, which is `Join.decide`'s rule read at the level of the pad.
+			expect(retry.size).to.equal(nil)
+			expect(retry.firstUserId).to.equal(11)
+			expect(retry.deadline).to.equal((full.deadline :: number) + 0.1 + PADS.PICK_TIMEOUT_SECONDS)
+			-- ...AND IT DOES NOT DEPART AGAIN ON THE WAY OUT: one `DEPART` per countdown, and the
+			-- retry has to go round the whole machine to earn the next one.
+			expect(verdict).never.to.equal(Pads.DEPART)
+			-- THE RETRY REACHES THE DRIVE BY ITSELF, with nobody pressing anything.
+			local at = (full.deadline :: number) + 0.1
+			local sawDepart = false
+			local walking = retry
+			while at < (full.deadline :: number) + PADS.PICK_TIMEOUT_SECONDS + CFG.COUNTDOWN_SECONDS + 1 do
+				at += 1 / CFG.SCAN_HZ
+				local verdictAgain
+				walking, verdictAgain = Pads.step(walking, who(11, 22), at, CFG)
+				if verdictAgain == Pads.DEPART then
+					sawDepart = true
+				end
+			end
+			expect(sawDepart).to.equal(true)
+		end)
+
+		it("cancels when the pad EMPTIES, and a re-entry inherits nothing", function()
+			local pad = select(1, Pads.withSize(select(1, Pads.step(Pads.empty(1), who(11), 1, CFG)), 8, 1.2, CFG))
+			expect(pad.size).to.equal(8)
+			local gone, verdict = Pads.step(pad, {}, 2, CFG)
+			expect(verdict).to.equal(Pads.CANCELLED)
+			expect(gone.state).to.equal(Pads.EMPTY)
+			-- KAREN'S RULE, AND IT IS `Join.decide`'S WORD FOR WORD: a cancel that kept the size
+			-- would make stepping out and back in a pause nobody asked for.
+			expect(gone.size).to.equal(nil)
+			expect(gone.firstUserId).to.equal(nil)
+			expect(gone.deadline).to.equal(nil)
+			expect(#gone.members).to.equal(0)
+			local back, again = Pads.step(gone, who(11), 3, CFG)
+			expect(again).to.equal(Pads.ASK)
+			expect(back.size).to.equal(nil)
+			expect(back.deadline).to.equal(3 + PADS.PICK_TIMEOUT_SECONDS)
+		end)
+
+		it("re-elects with a FRESH clock when the first man steps off mid-dialog", function()
+			local pad = select(1, Pads.step(Pads.empty(1), who(11, 22), 1, CFG))
+			expect(pad.firstUserId).to.equal(11)
+			local after, verdict = Pads.step(pad, { { userId = 22, since = 1 } }, 1.5, CFG)
+			-- THE PAD DOES NOT CANCEL WHILE ANYBODY IS ON IT: a pad that cancelled would throw away
+			-- three men because the fourth walked away. It is a QUESTION and not an inheritance --
+			-- `size` is still nil and the clock starts again.
+			expect(verdict).to.equal(Pads.ASK)
+			expect(after.firstUserId).to.equal(22)
+			expect(after.size).to.equal(nil)
+			expect(after.deadline).to.equal(1.5 + PADS.PICK_TIMEOUT_SECONDS)
+		end)
+
+		it("does NOT cancel or move the countdown when somebody joins or leaves it", function()
+			-- TWO JUDGEMENT CALLS, ASSERTED SO THEY ARE DECISIONS AND NOT ACCIDENTS. The countdown
+			-- belongs to the PAD, so (a) a party of four that loses one at second four still goes,
+			-- and (b) a late arrival cannot push back a clock somebody else is watching. Only an
+			-- EMPTY pad cancels.
+			local pad = select(1, Pads.withSize(select(1, Pads.step(Pads.empty(1), who(11), 1, CFG)), 4, 1.2, CFG))
+			local full = select(1, Pads.step(pad, who(11, 22, 33, 44), 2, CFG))
+			expect(full.state).to.equal(Pads.COUNTDOWN)
+			local thinner = select(1, Pads.step(full, who(11, 22), 2.5, CFG))
+			expect(thinner.state).to.equal(Pads.COUNTDOWN)
+			expect(thinner.deadline).to.equal(full.deadline)
+			local fatter = select(1, Pads.step(full, who(11, 22, 33, 44, 55), 2.5, CFG))
+			expect(fatter.deadline).to.equal(full.deadline)
+			expect(#fatter.members).to.equal(5)
+			-- ...AND THE LAST MAN OFF STILL CANCELS IT, with nobody enrolled.
+			local empty, cancelled = Pads.step(full, {}, 2.6, CFG)
+			expect(cancelled).to.equal(Pads.CANCELLED)
+			expect(empty.state).to.equal(Pads.EMPTY)
+		end)
+
+		it("says what the board says, for every state", function()
+			local words = PADS.BILLBOARD
+			local function board(pad)
+				return select(2, Pads.labelFor(pad, CFG))
+			end
+			local idle = Pads.empty(3)
+			expect(select(1, Pads.labelFor(idle, CFG))).to.equal("TRUCK 3")
+			-- `0 / -` AND NOT `0 / 0`: nobody having picked yet is not a party of nought.
+			expect(board(idle)).to.equal(string.format(words.COUNT_UNSET, 0))
+			local sizing = select(1, Pads.step(Pads.empty(3), who(11), 1, CFG))
+			expect(board(sizing)).to.equal(string.format(words.COUNT_UNSET, 1))
+			local filling = select(1, Pads.withSize(sizing, 4, 1.2, CFG))
+			-- KAREN'S OWN FORMAT: *"can be 1/1 or 4/4"*.
+			expect(board(select(1, Pads.step(filling, who(11, 22), 2, CFG)))).to.equal("2 / 4")
+		end)
+
+		it("offers the sizes Karen asked for, and the biggest one IS the drive's whole roster", function()
+			expect(PADS.SIZES[1].size).to.equal(1)
+			local biggest = PADS.SIZES[#PADS.SIZES].size
+			-- 8 = 4 HUNTERS + 4 BEATERS, asserted against the DRIVE's own table and never a copy of
+			-- the number: a party of eight has to BE the whole hunt, or *"full hunt"* on the button
+			-- is a lie. Bots fill every slot no player takes (task 161), which is what makes a party
+			-- of one today's game exactly.
+			local target = Match.CONFIG.BOTS.TARGET
+			expect(biggest).to.equal(target.hunters + target.beaters)
+			-- IN ORDER, WHOLE, AND NONE BIGGER THAN THE DRIVE, so the dialog reads 1, 2, 4, 8 down
+			-- the panel and row 1 is the default a pick nobody makes falls back to.
+			local last = 0
+			for _, row in ipairs(PADS.SIZES) do
+				expect(row.size % 1).to.equal(0)
+				expect(row.size > last).to.equal(true)
+				expect(row.size <= biggest).to.equal(true)
+				expect(type(row.label)).to.equal("string")
+				-- THE LABEL CARRIES THE SIZE ITSELF, so a row whose words and number disagree fails
+				-- here rather than on Karen's screen.
+				expect(string.find(row.label, tostring(row.size), 1, true) ~= nil).to.equal(true)
+				last = row.size
+			end
 		end)
 	end)
 
@@ -330,7 +642,10 @@ return function()
 			local covered = {
 				anchor + CFG.LODGE.OFFSET,
 				anchor + CFG.LODGE.OFFSET - Vector3.new(0, 0, CFG.LODGE.SIZE.Z / 2 + CFG.LODGE.PORCH_DEPTH),
-				anchor + CFG.SPOT.OFFSET,
+				-- TASK 182: all four truck pads, which is what the yard has had to cover since the
+				-- circle became four rectangles behind the bays.
+				Pads.centreFor(anchor, 1, CFG),
+				Pads.centreFor(anchor, CFG.TRUCK.COUNT, CFG),
 				anchor + CFG.SPAWN.OFFSET,
 				-- the far truck bay, which the 80 x 60 yard of task 177 did not reach
 				anchor + CFG.TRUCK.OFFSET + Vector3.new((CFG.TRUCK.COUNT - 1) * CFG.TRUCK.BAY_GAP_STUDS, 0, 0),
@@ -489,16 +804,238 @@ return function()
 			end
 		end)
 
-		it("names the truck spot, puts it where the config says, and makes it unqueryable", function()
-			local marker = folder:FindFirstChild(Data.SPOT_NAME, true)
-			expect(marker).to.be.ok()
-			local at = (marker :: BasePart).Position
-			local wanted = anchor + CFG.SPOT.OFFSET
-			expect(math.abs(at.X - wanted.X) < 1e-4).to.equal(true)
-			expect(math.abs(at.Z - wanted.Z) < 1e-4).to.equal(true)
-			-- It is the ONE definition of where the truck is, and a shot must pass straight through it.
-			expect((marker :: BasePart).CanQuery).to.equal(false)
-			expect((marker :: BasePart).Transparency).to.equal(1)
+		it("builds four named pads where the rule says, each untouchable and a different colour", function()
+			-- THE DECK *IS* THE NAMED PART (task 182): there is no second invisible marker, so the
+			-- part the rule reads, the part the client finds, the part the attributes live on and the
+			-- thing Karen looks at are one instance and cannot drift apart.
+			local seen: { [string]: boolean } = {}
+			for index = 1, CFG.TRUCK.COUNT do
+				local name = Data.padPartName(index) :: string
+				local deck = folder:FindFirstChild(name, true)
+				expect(deck).to.be.ok()
+				local pad = deck :: BasePart
+				local wanted = Pads.centreFor(anchor, index, CFG)
+				expect((pad.Position - wanted).Magnitude < 1e-4).to.equal(true)
+				expect(pad.Size).to.equal(CFG.PADS.SIZE)
+				expect(pad.Anchored).to.equal(true)
+				-- A SHOT MUST PASS STRAIGHT THROUGH IT, `Touched` must never fire (presence here is
+				-- arithmetic), and a player must not step up onto a kerb.
+				expect(pad.CanQuery).to.equal(false)
+				expect(pad.CanTouch).to.equal(false)
+				expect(pad.CanCollide).to.equal(false)
+				-- IT IS VISIBLE, which the circle's marker was not: this one is the coloured
+				-- rectangle Karen asked for.
+				-- A TOLERANCE: `Transparency` is a 32-bit property, so 0.45 comes back as
+				-- 0.44999998807907104.
+				expect(math.abs(pad.Transparency - CFG.PADS.TRANSPARENCY) < 1e-4).to.equal(true)
+				-- FOUR DISTINCT COLOURS.
+				local key = tostring(pad.Color)
+				expect(seen[key]).to.equal(nil)
+				seen[key] = true
+				-- ...AND ONE BILLBOARD WITH TWO LABELS, saying something from the first frame.
+				local board = pad:FindFirstChild("Board")
+				expect(board).to.be.ok()
+				expect((board :: Instance):IsA("BillboardGui")).to.equal(true)
+				local truckLine, countLine = Build.padLabel(index)
+				-- AGAINST `Pads.labelFor` ITSELF and not against a second copy of the format, which is
+				-- the Reviewer's round-1 note made into a check: the words have ONE formatter now.
+				local wantTruck, wantCount = Pads.labelFor(Pads.empty(index), CFG)
+				expect(truckLine).to.equal(wantTruck)
+				expect(countLine).to.equal(wantCount)
+				-- THE TWO ATTRIBUTES ARE THE WHOLE OUTBOUND WIRE, and they are set at build.
+				expect(pad:GetAttribute(Data.PAD_STATE_ATTRIBUTE)).to.equal(Data.PAD_STATE.EMPTY)
+				expect(pad:GetAttribute(Data.PAD_FIRST_ATTRIBUTE)).to.equal(nil)
+			end
+			-- PAD 1 IS THE ONE `Build.build` HANDS BACK as its marker, and it is `TruckSpot`.
+			expect(Data.padPartName(1)).to.equal(Data.SPOT_NAME)
+		end)
+
+		it("sits each pad on the ground that is REALLY there, when a world can measure it", function()
+			-- THE CORRECTION THIS TASK MADE AFTER LOOKING AT IT (rule 5). Measured in the live Forest
+			-- Test place, 2026-10-14: every pad's top was 149.828 and the terrain under it 150.000 --
+			-- the four rectangles were 0.17 studs UNDERGROUND and only their billboards showed.
+			-- `Field.fill` asks for a terrain block whose top is `shelfY`, and Roblox terrain is
+			-- VOXELISED, so the surface the engine produces is rounded to its own grid: 0.75 studs
+			-- higher here. A constant lift cannot fix a rounding this system did not choose.
+			--
+			-- SO THE PAD IS LAID ON `world.groundAt`, and the claim is that its top clears whatever
+			-- that reader says -- not that it clears an arithmetic shelf.
+			local hump = 3.25
+			local probed: { Vector3 } = {}
+			local made = Build.build(
+				container,
+				anchor,
+				CFG,
+				fakeTemplates(),
+				{
+					groundAt = function(x: number, z: number): number
+						table.insert(probed, Vector3.new(x, 0, z))
+						return anchor.Y + hump
+					end,
+				} :: any
+			)
+			-- IT ASKED ONCE PER PAD, at the pad's own centre and nowhere else.
+			expect(#probed).to.equal(CFG.TRUCK.COUNT)
+			for index = 1, CFG.TRUCK.COUNT do
+				local wanted = Pads.centreFor(anchor, index, CFG)
+				expect(probed[index].X).to.equal(wanted.X)
+				expect(probed[index].Z).to.equal(wanted.Z)
+				local deck = made:FindFirstChild(Data.padPartName(index) :: string, true) :: BasePart
+				local top = deck.Position.Y + deck.Size.Y / 2
+				-- ON the measured ground, lifted by the one number that stops z-fighting -- and
+				-- ABOVE it, which is the whole of the defect this case exists for.
+				expect(math.abs(top - (anchor.Y + hump + CFG.PADS.LIFT_STUDS)) < 1e-3).to.equal(true)
+				expect(top > anchor.Y + hump).to.equal(true)
+				-- ...AND NEVER INSIDE THE SLAB THIS SYSTEM LAID ITSELF, which is the half of the
+				-- guarantee the measurement must not throw away (the Reviewer's round-1 note).
+				expect(top >= anchor.Y + CFG.ROAD.THICK_STUDS).to.equal(true)
+				-- ...AND ITS x AND z HAVE NOT MOVED: the RULE is flat, so a measured Y may never
+				-- change where the rectangle is.
+				expect(deck.Position.X).to.equal(wanted.X)
+				expect(deck.Position.Z).to.equal(wanted.Z)
+			end
+			-- A GROUND BELOW THE ROAD SLAB IS CLAMPED TO IT, so a dip -- or a reader that measured the
+			-- terrain UNDER an opaque slab -- cannot bury the deck the way task 177's ring was buried.
+			local sunken = Build.build(
+				container,
+				anchor,
+				CFG,
+				fakeTemplates(),
+				{
+					groundAt = function(): number
+						return anchor.Y - 5
+					end,
+				} :: any
+			)
+			local clamped = sunken:FindFirstChild(Data.SPOT_NAME, true) :: BasePart
+			local clampedTop = clamped.Position.Y + clamped.Size.Y / 2
+			expect(math.abs(clampedTop - (anchor.Y + CFG.ROAD.THICK_STUDS + CFG.PADS.LIFT_STUDS)) < 1e-3).to.equal(true)
+
+			-- A READER THAT ANSWERS NOTHING LEAVES THE PURE ARITHMETIC STANDING, which is the branch
+			-- every other case in this file builds with.
+			local blind = Build.build(
+				container,
+				anchor,
+				CFG,
+				fakeTemplates(),
+				{
+					groundAt = function(): number?
+						return nil
+					end,
+				} :: any
+			)
+			local fallback = blind:FindFirstChild(Data.SPOT_NAME, true) :: BasePart
+			expect((fallback.Position - Pads.centreFor(anchor, 1, CFG)).Magnitude < 1e-3).to.equal(true)
+		end)
+
+		it("holds no trace of task 177's circle: no ring, no Spot folder, no sign", function()
+			-- A DELETION IS ONLY DONE WHEN NOTHING IS LEFT BEHIND. The circle is archived in
+			-- `backups/2026-10-14_task-182_the-marked-circle.txt` (rule 7); this is the check that it
+			-- is actually gone from the world rather than drawn under the pads.
+			expect(folder:FindFirstChild("Spot", true)).to.equal(nil)
+			expect(folder:FindFirstChild("SpotSign", true)).to.equal(nil)
+			-- ...AND IT NAMES WHAT IT FOUND, rather than asserting `false` and leaving the next
+			-- Builder to guess which instance it was.
+			local rings = {}
+			for _, descendant in ipairs(folder:GetDescendants()) do
+				if string.sub(descendant.Name, 1, 3) == "Seg" then
+					table.insert(rings, descendant:GetFullName())
+				end
+			end
+			expect(table.concat(rings, ", ")).to.equal("")
+		end)
+
+		it("is found by the FOUR READERS the client has, on a lobby that is really in Workspace", function()
+			-- THE ONE CASE THAT CANNOT USE A FOLDER OF ITS OWN. `Lobby.padPart`, `padPositions`,
+			-- `padStateOf` and `padAsking` all look for `Workspace.Lobby` by name -- that is what
+			-- makes them the CLIENT's readers, and a client has no `container` to be handed. So this
+			-- builds the real thing in the real place and destroys it again, which is also the only
+			-- way `Data.padAsking` -- the dialog's whole visibility rule -- is provable at all.
+			--
+			-- IT CREATES NO SCRIPT, so the harness's own "no script outside a Rojo path" check is
+			-- untouched, and the folder is gone before the case returns.
+			local made = Build.build(Workspace, anchor, CFG, fakeTemplates())
+			local ok, err = pcall(function()
+				expect(#Data.padPositions()).to.equal(CFG.TRUCK.COUNT)
+				for index = 1, CFG.TRUCK.COUNT do
+					local deck = Data.padPart(index)
+					expect(deck).to.be.ok()
+					expect((deck :: BasePart).Name).to.equal(Data.padPartName(index))
+					local state, first = Data.padStateOf(index)
+					expect(state).to.equal(Data.PAD_STATE.EMPTY)
+					expect(first).to.equal(nil)
+					-- THE POSITION THE CHEVRON IS POINTED AT IS THE PART'S, not a second computation.
+					expect((Data.padPositions()[index] - (deck :: BasePart).Position).Magnitude).to.equal(0)
+				end
+				-- PAD 1 IS WHAT `Lobby.spotPart` STILL ANSWERS, which is what the Director's
+				-- `smoke.sh` pivots a player into and what the chevron falls back to.
+				expect(Data.spotPart()).to.equal(Data.padPart(1))
+				-- NOBODY IS BEING ASKED ANYTHING ON A LOBBY NOBODY IS STANDING IN.
+				expect(Data.padAsking(4242)).to.equal(nil)
+				-- ...AND WHEN THE SERVER SAYS SO, EXACTLY ONE PAD ASKS EXACTLY ONE MAN. The two lines
+				-- come from `Pads.labelFor`, which is the one formatter of what a board says.
+				local asking = Pads.empty(3)
+				asking.state = Data.PAD_STATE.SIZING
+				table.insert(asking.members, 4242)
+				expect(Build.setPad(3, Data.PAD_STATE.SIZING, 4242, Pads.labelFor(asking, CFG))).to.equal(true)
+				expect(Data.padAsking(4242)).to.equal(3)
+				expect(Data.padAsking(4243)).to.equal(nil)
+				-- A PAD THAT HAS MOVED ON ASKS NOBODY, even though it still remembers who picked --
+				-- which is what stops the dialog re-opening after the party is sized.
+				local sized = Pads.empty(3)
+				sized.state = Data.PAD_STATE.FILLING
+				sized.size = 4
+				table.insert(sized.members, 4242)
+				expect(Build.setPad(3, Data.PAD_STATE.FILLING, 4242, Pads.labelFor(sized, CFG))).to.equal(true)
+				expect(select(2, Data.padStateOf(3))).to.equal(4242)
+				expect(Data.padAsking(4242)).to.equal(nil)
+			end)
+			made:Destroy()
+			-- THE MEMOISED READERS DROP A DESTROYED PART rather than answering a stale position,
+			-- which is `MapUi.pointsFor`'s rule and the reason every one of them re-checks
+			-- `IsDescendantOf(game)`.
+			expect(Data.padPart(1)).to.equal(nil)
+			expect(#Data.padPositions()).to.equal(0)
+			expect(Data.padAsking(4242)).to.equal(nil)
+			if not ok then
+				error(err, 0)
+			end
+		end)
+
+		it("writes a pad's words and attributes only when they CHANGE", function()
+			-- THE EDGE CLAIM. `Build.setPad` is called every scan by the owner -- the count changes on
+			-- a join and a leave, which are not verdicts -- so it has to be free when nothing moved,
+			-- or a standing-empty lobby would replicate four attribute writes ten times a second.
+			-- THE WORDS COME IN READY, from the one formatter (`Pads.labelFor`); this module WRITES.
+			local function words(state: string, size: number?, on: number)
+				local pad = Pads.empty(1)
+				pad.state = state
+				pad.size = size
+				for index = 1, on do
+					table.insert(pad.members, index)
+				end
+				return Pads.labelFor(pad, CFG)
+			end
+			local before = Build.stats().padWrites
+			local idleTruck, idleCount = words(Data.PAD_STATE.EMPTY, nil, 0)
+			expect(Build.setPad(1, Data.PAD_STATE.EMPTY, nil, idleTruck, idleCount)).to.equal(false)
+			expect(Build.stats().padWrites).to.equal(before)
+			local askTruck, askCount = words(Data.PAD_STATE.SIZING, nil, 1)
+			expect(Build.setPad(1, Data.PAD_STATE.SIZING, 4242, askTruck, askCount)).to.equal(true)
+			expect(Build.stats().padWrites).to.equal(before + 1)
+			local deck = Build.padPart(1) :: BasePart
+			expect(deck:GetAttribute(Data.PAD_STATE_ATTRIBUTE)).to.equal(Data.PAD_STATE.SIZING)
+			expect(deck:GetAttribute(Data.PAD_FIRST_ATTRIBUTE)).to.equal(4242)
+			expect(select(2, Build.padLabel(1))).to.equal(string.format(CFG.PADS.BILLBOARD.COUNT_UNSET, 1))
+			-- THE SAME VALUES AGAIN WRITE NOTHING.
+			expect(Build.setPad(1, Data.PAD_STATE.SIZING, 4242, askTruck, askCount)).to.equal(false)
+			expect(Build.stats().padWrites).to.equal(before + 1)
+			-- A SIZE TURNS `n / -` INTO KAREN'S OWN `n / size`.
+			local fillTruck, fillCount = words(Data.PAD_STATE.FILLING, 4, 2)
+			expect(Build.setPad(1, Data.PAD_STATE.FILLING, 4242, fillTruck, fillCount)).to.equal(true)
+			expect(select(2, Build.padLabel(1))).to.equal("2 / 4")
+			-- A PAD THAT DOES NOT EXIST IS REFUSED RATHER THAN CREATED.
+			expect(Build.setPad(CFG.TRUCK.COUNT + 5, Data.PAD_STATE.EMPTY, nil, idleTruck, idleCount)).to.equal(false)
 		end)
 
 		it("builds a neutral lodge spawn that writes no team and grants no force field", function()
@@ -551,12 +1088,10 @@ return function()
 			expect((label :: TextLabel).Text).to.equal(CFG.LODGE.SIGN_TEXT)
 		end)
 
-		it("puts a sign on the circle saying what it is for", function()
-			local board = folder:FindFirstChild("SpotSign", true)
-			expect(board).to.be.ok()
-			local label = (board :: Instance):FindFirstChild("Text", true)
-			expect((label :: TextLabel).Text).to.equal(CFG.SPOT.SIGN_TEXT)
-		end)
+		-- TASK 177'S "STAND HERE TO HUNT" SIGN POST IS GONE WITH THE CIRCLE (task 182). What a pad
+		-- is for is written on the pad's own billboard -- `STEP ON TO HUNT` is not a sign in the
+		-- yard, it is the count line before anybody is on it -- and the case above asserts that no
+		-- sign survives.
 
 		it("holds no Script, LocalScript or ModuleScript anywhere in the tree", function()
 			-- CLAUDE.md: nothing script-like is ever created outside a Rojo-owned path, and the
@@ -839,26 +1374,38 @@ return function()
 			end
 		end)
 
-		it("leaves the marked circle standing CLEAR of the road surface it is drawn on", function()
-			-- ROUND 1 BURIED IT. `road` lays its slabs on the shelf and the yard covers the whole
-			-- circle, so a ring lifted 0.08 studs off the SHELF sat 0.42 studs inside an opaque
-			-- slab: a sign reading "STAND HERE TO HUNT" with nothing to stand in. The ring's floor
-			-- is the ROAD surface, so that is what this measures against.
+		it("leaves every pad's SURFACE above the yard slab, and its underside below the shelf", function()
+			-- TASK 177 ROUND 1 BURIED THE CIRCLE. `road` lays its slabs on the shelf and the yard
+			-- covers the whole row of bays, so a ring lifted 0.08 studs off the SHELF sat 0.42 studs
+			-- inside an opaque slab: a sign reading "STAND HERE TO HUNT" with nothing to stand in.
+			-- Task 182 SINKS the pad instead -- its top above every slab, its bottom below the
+			-- terrain -- so neither failure is reachable, and this measures both ends.
 			local folder = Build.build(container, anchor, CFG, fakeTemplates())
 			local yard = folder:FindFirstChild("Yard", true) :: BasePart
-			local ring = folder:FindFirstChild("Spot") :: Instance
 			expect(yard).to.be.ok()
-			expect(ring).to.be.ok()
 			local surface = yard.Position.Y + yard.Size.Y / 2
-			local segments = 0
-			for _, descendant in ipairs(ring:GetChildren()) do
-				if string.sub(descendant.Name, 1, 3) == "Seg" then
-					segments += 1
-					local piece = descendant :: BasePart
-					expect(piece.Position.Y - piece.Size.Y / 2 >= surface).to.equal(true)
+			local shelf = anchor.Y
+			for index = 1, CFG.TRUCK.COUNT do
+				local deck = folder:FindFirstChild(Data.padPartName(index) :: string, true) :: BasePart
+				expect(deck).to.be.ok()
+				local top = deck.Position.Y + deck.Size.Y / 2
+				expect(top >= surface).to.equal(true)
+				-- NOTHING FLOATS: the underside is under the shelf, so there is no visible edge.
+				expect(deck.Position.Y - deck.Size.Y / 2 < shelf).to.equal(true)
+				-- AND THE GLOWING RIM STANDS ON THAT SURFACE rather than inside it, which is the
+				-- same mistake one layer up.
+				local rim = deck.Parent :: Instance
+				local bars = 0
+				for _, child in ipairs(rim:GetChildren()) do
+					if string.sub(child.Name, 1, 3) == "Rim" then
+						bars += 1
+						local piece = child :: BasePart
+						expect(piece.Position.Y - piece.Size.Y / 2 >= top - 1e-4).to.equal(true)
+						expect(piece.Material).to.equal(Enum.Material.Neon)
+					end
 				end
+				expect(bars).to.equal(4)
 			end
-			expect(segments).to.equal(CFG.SPOT.RING.SEGMENTS)
 		end)
 	end)
 
