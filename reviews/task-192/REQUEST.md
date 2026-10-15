@@ -3,12 +3,16 @@
 Task: 192
 Round: 1
 Base: 5cc4472 (main, after #173)
-Code commit: b0e2c6cb119a2a155276de198e9cc97316218274
+Code commit: ba7a8a097db41095930ac0bed26a4cb7e718b9c8
 
 Harness, clean tree, FULL suite (the branch touches `src/server/Match/`, which maps to the `match`
 scope, and `src/server/ForestTestBoot.server.luau`, which maps to nothing and therefore to `all`):
 
     [harness] PASS: 33/33 checks @ b0e2c6cb119a2a155276de198e9cc97316218274 (clean tree) scope=all
+    [harness] PASS: 33/33 checks @ ba7a8a097db41095930ac0bed26a4cb7e718b9c8 (clean tree) scope=all
+    [harness2] PASS: 35/35 checks @ ba7a8a097db41095930ac0bed26a4cb7e718b9c8 (clean tree)
+
+DIRECTOR NOTE: the last two lines are the Director's at the head `ba7a8a0` (only paperwork after `b0e2c6c`).
 
 `[harness2]` is NOT pasted and the review does not need it: the line above is `scope=all`, not
 `scope=auto:...`. **The MERGE does need it** -- `src/server/Match/` is in `TWO_PLAYER_PATHS` -- and
