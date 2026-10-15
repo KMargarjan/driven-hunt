@@ -309,6 +309,11 @@ return function()
 		-- ALIGNMENT bug -- `ExpandToGrid` widened the region to two voxels per axis unless the
 		-- coordinate was exactly 2 (mod 4). So each column puts its x, its z and its surface at a
 		-- different residue mod 4, and a rule that only works on the grid lines cannot pass.
+		-- THE SURFACE IS NOT THE `top` ASKED FOR, and that is measured rather than worked around:
+		-- a fill is quantised to the voxel grid and the smoothed iso-surface lands about two studs
+		-- above the block's own top (requested 500 -> 502.00, requested 501 -> 503.02). Every case
+		-- below therefore RAYCASTS the surface it is about to test against and prints it, so the
+		-- four residues are a reading and not an assumption.
 		local BLOCK = Vector3.new(24, 40, 24)
 		local COLUMNS = {
 			{ x = 5000, z = 5000, top = 500 }, -- 0, 0, 0 mod 4
@@ -316,6 +321,11 @@ return function()
 			{ x = 5082, z = 5066, top = 502 }, -- 2, 2, 2
 			{ x = 5123, z = 5099, top = 503 }, -- 3, 3, 3
 		}
+		-- WAS THE GROUND EMPTY BEFORE THIS SPEC TOUCHED IT? A boolean rather than an `expect` inside
+		-- `beforeAll`: an expectation that throws there takes the fill with it and leaves every case
+		-- below failing for the wrong reason, which is exactly what happened on the first run of
+		-- this spec. The cases assert it, so a place that DOES have terrain here still fails loudly.
+		local wasEmpty = true
 		local filled = false
 
 		local function surfaceAt(column): number?
@@ -328,9 +338,14 @@ return function()
 		end
 
 		beforeAll(function()
+			-- EMPTY FIRST, or this spec writes over something somebody else owns.
 			for _, column in ipairs(COLUMNS) do
-				-- EMPTY FIRST, or this spec writes over something somebody else owns.
-				expect(surfaceAt(column)).to.equal(nil)
+				if surfaceAt(column) ~= nil then
+					wasEmpty = false
+				end
+			end
+			if not wasEmpty then
+				return
 			end
 			for _, column in ipairs(COLUMNS) do
 				Workspace.Terrain:FillBlock(
@@ -339,6 +354,9 @@ return function()
 					Enum.Material.Grass
 				)
 			end
+			-- ONE FRAME, because the voxels are written on the engine's own schedule: measured, a
+			-- read in the same resumption cycle as the fill can still answer the old region.
+			task.wait()
 			filled = true
 		end)
 
@@ -349,13 +367,16 @@ return function()
 			for _, column in ipairs(COLUMNS) do
 				Workspace.Terrain:FillBlock(
 					CFrame.new(column.x, column.top - BLOCK.Y / 2, column.z),
-					BLOCK + Vector3.new(8, 8, 8),
+					BLOCK + Vector3.new(16, 16, 16),
 					Enum.Material.Air
 				)
 			end
+			task.wait()
 		end)
 
 		it("says a character STANDING on the surface is not buried, at every offset", function()
+			expect(wasEmpty).to.equal(true)
+			expect(filled).to.equal(true)
 			local report = {}
 			for _, column in ipairs(COLUMNS) do
 				local surface = surfaceAt(column)
@@ -388,6 +409,7 @@ return function()
 		end)
 
 		it("says a root buried in the hill IS buried, at every offset", function()
+			expect(wasEmpty).to.equal(true)
 			local report = {}
 			for _, column in ipairs(COLUMNS) do
 				local surface = surfaceAt(column) :: number
@@ -418,6 +440,7 @@ return function()
 		end)
 
 		it("reads the cell the point is IN, not the one below or beside it", function()
+			expect(wasEmpty).to.equal(true)
 			-- ROUND 2'S DEFECT, AS ONE ASSERTION. `Region3.new(at - 2, at + 2):ExpandToGrid(4)` is
 			-- eight studs wide at three offsets in four, and index 1 is the MINIMUM corner -- so the
 			-- cell read sat up to four studs below and beside the point. Here: the cell just under
