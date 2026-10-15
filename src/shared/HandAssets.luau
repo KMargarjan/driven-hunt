@@ -70,6 +70,33 @@ HandAssets.KEY_OF = table.freeze({
 --
 -- `python tools/pose.py inspect <pose>` photographs the drawn viewmodel FROM OUTSIDE, which is how
 -- these were judged: three rounds of guessing at two dark lumps beside a barrel could not.
+
+-- WHERE THE RIGHT GLOVE ACTUALLY HOLDS SOMETHING, in that same aligned frame (task 188).
+--
+-- Karen, 2026-10-15: *"we need to improve right hand now seems odd it has to be aligned perfectly"*.
+-- "Aligned" needs a point on the HAND as well as a point on the gun, and this file had neither: the
+-- poses placed the part's BOUNDING-BOX CENTRE, which is a point in the middle of the forearm.
+--
+-- MEASURED, not chosen. The prepped mesh was voxelised at 0.006 studs in the aligned frame and the
+-- enclosed hole in its own silhouette found: the three curled fingers, the palm and the thumb ring a
+-- gap centred at (+0.165, 0.000, -0.006) whose axis is the aligned Y, 0.054 studs across in X and
+-- 0.060 in Z, with a largest inscribed circle of radius 0.024-0.030. One column of it -- exactly
+-- this point -- is clear of glove along the WHOLE of Y, so it is a hole and not a dimple. The
+-- rifle's bolt knob is a ball of radius 0.0256 (`Rifle.Geometry.boltKnobOffset`), which is the same
+-- size: the fist was modelled closed on something this big, and the knob is that thing.
+--
+-- IT IS AT THE PUBLISHED SIZE. `Assets` scales the glove to `HAND_RIGHT_SIZE` (0.669 x 0.350 x
+-- 0.211 studs) and this was measured on the mesh scaled the same way, so it is a part-local offset
+-- and needs no dial. If the glove is ever republished at another size this number moves with it.
+--
+-- NOTHING READS IT AT RUN TIME. `Camera.Viewmodel.poseHands` still places the part, exactly as
+-- before; this is what `tests/server/viewmodel_poses.spec.luau` MEASURES the pose data against, so a
+-- hand that drifts off the grip or off the knob fails the harness instead of waiting for Karen.
+HandAssets.GRIP_STUDS = Vector3.new(0.165, 0.0, -0.006)
+-- Half the gap, for a tolerance that means something: a grip point this far off still has the wood
+-- or the knob inside the hand.
+HandAssets.GRIP_RADIUS_STUDS = 0.027
+
 HandAssets.AXES = table.freeze({
 	[HandAssets.RIGHT] = table.freeze({
 		fingers = Vector3.new(-0.9632, 0.2645, 0.0484),
