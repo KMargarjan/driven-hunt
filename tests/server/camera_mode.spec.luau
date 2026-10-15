@@ -642,8 +642,9 @@ return function()
 				-- and the two models ran opposite ways along their own X.
 				--
 				-- MODEL B'S PAIR DO NOT SHARE AN AXIS -- the right glove's fingers run along its own
-				-- -X and the left glove's along its own +Y (`HandAssets.AXES`, measured in task 108 by
-				-- classifying every vertex by the colour its UV samples) -- so no single number can
+				-- +X and the left glove's along its own +Y (`HandAssets.AXES`; measured in task 108 by
+				-- classifying every vertex by the colour its UV samples, and the right one's SIGN
+				-- re-measured in task 189 against the part Roblox really draws) -- so no single number can
 				-- mean the same thing on both, and `Camera.Viewmodel.align` turns each MESH into one
 				-- convention before the three pose angles are read. Which way the drawn fingers
 				-- actually end up is therefore a claim about the DRAWN PARTS, and that is where it is

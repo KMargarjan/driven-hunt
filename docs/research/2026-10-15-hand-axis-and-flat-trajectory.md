@@ -94,6 +94,43 @@ its fingers pointing off into the air -- which is the "flat olive disc" task 188
 not explain. Its pose was tuned **by eye**, so it absorbs whatever `align` does, and flipping its
 axis would move a hand Karen has already accepted. It is the next task's, with this evidence.
 
+## 3a. The five right hands this task did NOT re-solve, and why they did not move
+
+**The alignment is one rotation for every right hand in the game.** `Viewmodel.poseHands` draws the
+right glove as `base * align` whatever weapon is in hand, and the horn branch does the same -- so
+flipping the axis turns the SHOTGUN's three right-hand poses and the HORN's two end-for-end as well.
+That was the Reviewer's round-1 finding and it was right: round 1 re-solved only the rifle's four.
+
+The rifle's four were re-solved because Karen said they were wrong. The other five are hands she has
+already accepted, and the honest thing to do with an accepted hand is **leave it exactly where it
+is**. They are re-expressed rather than re-solved:
+
+```
+drawn = pose * align          so, to keep `drawn` while `align` changes,
+pose_new = pose_old * (align_old * align_new^-1)
+```
+
+`align` is a pure rotation about the hand's own centre, so the POSITIONS do not move at all and only
+the three angles change. The transport rotation is **149.88 degrees** -- which is the size of the
+defect for anything that is not re-expressed -- and the drawn CFrame is reproduced to **2.2e-16**,
+machine precision, for all five.
+
+| pose | before (as written) | after (same hand, new frame) |
+|---|---|---|
+| `weapons.shotgun.carry.right` | yaw -103.1991, pitch -24.4176, twist -35.5376 | yaw 105.0526, pitch 45.8289, twist 18.7726 |
+| `weapons.shotgun.aim.right` and `reload.right` | yaw 115, pitch -12, twist 60 | yaw -43.1721, pitch -10.4259, twist -60.3094 |
+| `horn.carry.right` and `horn.blow.right` | pitch -24.4176, yaw -103.1991, twist -35.5376 | pitch -143.5824, yaw 68.4900, twist 160.6969 |
+
+`viewmodel_poses.spec` pins all five against where they put the glove's two ends in the gun's own
+frame -- numbers taken from the build Karen played, so they are an outside constant and not a copy
+of the file being read.
+
+**AND ONE OF THEM IS ALREADY END-FOR-END, REPORTED AND NOT FIXED.** Read in the corrected frame, the
+shotgun's **hip** hand is right (the cuff trails the fingertip by **+0.447** studs, so the forearm
+runs back along the gun) and its **aimed** hand is the same hand backwards (**-0.447**). That is a
+pose Karen has accepted and this task was not asked to touch, so it is measured, printed by the
+harness and queued (TASKS.md 189a), exactly as the left glove is.
+
 ## 4. The shot: three sources for a flatter trajectory
 
 1. **"Point-blank range" / maximum point-blank range** (Wikipedia, read 2026-10-15; CC BY-SA,

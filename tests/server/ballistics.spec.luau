@@ -4,7 +4,7 @@
 -- frozen numbers plus functions of their arguments, so everything here is arithmetic -- which is
 -- the whole reason the module is shaped that way (docs/design/ballistics.md section 2).
 --
--- WHAT IT IS FOR, said plainly: it pins the three ballistic numbers of each weapon against the
+-- WHAT IT IS FOR, said plainly: it pins the four ballistic numbers of each weapon against the
 -- research note, so a muzzle velocity that drifts fails the harness instead of quietly changing how
 -- much lead Karen has to hold. One case (`speedAt` at 200 yd) has its right answer from OUTSIDE the
 -- repo -- a published .416 Rigby velocity the drag coefficient was never fitted to.
@@ -35,8 +35,8 @@ return function()
 	local slugShot = Ballistics.shotFor(Weapons.ROWS.shotgun, "Slug")
 	local buckShot = Ballistics.shotFor(Weapons.ROWS.shotgun, "Buck")
 
-	describe("the three numbers come off the real rows", function()
-		it("reads all three for every ammo both shipped weapons carry", function()
+	describe("the four numbers come off the real rows", function()
+		it("reads all four for every ammo both shipped weapons carry", function()
 			for id, row in pairs(Weapons.ROWS) do
 				for _, ammo in ipairs(row.AMMO_KINDS) do
 					local shot = Ballistics.shotFor(row, ammo)
@@ -76,12 +76,12 @@ return function()
 			near((buckShot :: any).gravityScale, 1, 0)
 		end)
 
-		it("answers nil for an unknown ammo and for a row missing any one of the three", function()
+		it("answers nil for an unknown ammo and for a row missing any one of the four", function()
 			expect(Ballistics.shotFor(Weapons.ROWS.rifle, "Buck")).to.equal(nil)
 			expect(Ballistics.shotFor(Weapons.ROWS.rifle, "Birdshot")).to.equal(nil)
 			expect(Ballistics.shotFor(nil, "Slug")).to.equal(nil)
 			expect(Ballistics.shotFor({}, "Slug")).to.equal(nil)
-			-- ONE MISSING FIELD IS ENOUGH, each of the three in turn: this is the branch that
+			-- ONE MISSING FIELD IS ENOUGH, each of the four in turn (the fourth since task 189): this is the branch that
 			-- refuses the shot in `onFireRequest` rather than firing it in a straight line.
 			local full = {
 				MUZZLE_STUDS_PER_S = { Slug = 1000 },
