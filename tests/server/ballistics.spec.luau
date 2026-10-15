@@ -269,7 +269,13 @@ return function()
 			local aim = Vector3.new(0, 0, -1)
 			local bore = Ballistics.launchDirection(aim, rifleShot :: any)
 			near(bore.Magnitude, 1, 1e-6)
-			near(math.deg(math.acos(math.clamp(bore:Dot(aim), -1, 1))), 0.01562, 1e-3)
+			-- READ AS A TANGENT, NOT AN ANGLE (task 189), and the harness is what asked for it: at
+			-- this elevation `bore:Dot(aim)` is 1 - 3.7e-8, and a Vector3 carries 32-bit floats, so
+			-- `acos` of it is rounding error with an angle printed on it. The first run of this task
+			-- failed exactly there. The tangent is the quantity `elevationTangent` defines, it is
+			-- what the launch direction is built from, and it is well conditioned at any size.
+			local rise = bore.Y / math.sqrt(bore.X * bore.X + bore.Z * bore.Z)
+			near(rise, Ballistics.elevationTangent(rifleShot :: any), 1e-6)
 			expect(bore.Y > 0).to.equal(true) -- elevated, not depressed
 			expect(math.abs(bore.X) < 1e-9).to.equal(true) -- stayed in the aim/up plane
 		end)
