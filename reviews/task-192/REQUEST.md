@@ -3,13 +3,21 @@
 Task: 192
 Round: 3
 Base: 5cc4472 (main, after #173)
-Code commit: 94a31d614f919a0c66e0e5b01f00f5e97e0d3983
+Code commit: bca1b0b5db65c8b26684996685400122d0d3dc06
 
 Harness, clean tree, FULL suite (this branch touches `src/server/Match/`, which maps to the `match`
 scope, and `src/server/ForestTestBoot.server.luau`, which maps to nothing and therefore to `all`):
 
     [harness] PASS: 33/33 checks @ 94a31d614f919a0c66e0e5b01f00f5e97e0d3983 (clean tree) scope=all
+    [harness] PASS: 33/33 checks @ bca1b0b5db65c8b26684996685400122d0d3dc06 (clean tree) scope=all
     [harness2] <the Director runs this; `src/server/Match/` is in TWO_PLAYER_PATHS>
+
+THE CODE COMMIT IS THE SECOND ONE, and it is a commit that also carries paperwork -- which the git
+workflow allows and which is the honest fix for my own slip: `docs/research/` is NOT in the merge
+gate's paperwork list, and I had committed the note after the last code commit. Re-running the
+harness at that head costs one run and leaves the history straight, where naming the earlier commit
+would have left the evidence not covering the tree. Between `bca1b0b` and the branch head, only
+`reviews/` and `TASKS.md` change.
 
 Round 2's finding is fixed and it was right. Four of its five notes are fixed; the fifth is answered
 by a rename. **The threshold and one spec case differ from the dispatch's own numbers, for a
