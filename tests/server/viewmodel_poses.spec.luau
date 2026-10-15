@@ -822,10 +822,45 @@ return function()
 				{ name = "cycle", state = stateAt(0, 1) },
 			}) do
 				local offset = Mode.handOffsetAt("right", case.state, rifleConfig)
-				local off = RifleGeometry.offGripAxis(Rifle.CONFIG, gripPointOf(offset))
-				TestKit.note(string.format("rifle right hand %s: %.4f studs off the wrist axis", case.name, off))
+				local at = gripPointOf(offset)
+				local off = RifleGeometry.offGripAxis(Rifle.CONFIG, at)
+				-- ...AND HOW FAR ALONG IT, which is the half of this that round 1 of this task got
+				-- wrong: a pose 0.045 off the axis and 0.158 ALONG it is a hand on the COMB, and an
+				-- off-axis bound on its own passed it. See `GRIP_HALF_LENGTH`.
+				local along = RifleGeometry.alongGripAxis(Rifle.CONFIG, at)
+				TestKit.note(
+					string.format("rifle right hand %s: %.4f off the wrist axis, %+.4f along it", case.name, off, along)
+				)
 				expect(off < WRIST_TOLERANCE).to.equal(true)
+				expect(math.abs(along) < RifleGeometry.gripHalfLength(Rifle.CONFIG)).to.equal(true)
 			end
+		end)
+
+		it("reads its three angles the way `Mode.handOffset` composes them", function()
+			-- THE DEFECT OF ROUND 1, WRITTEN DOWN. The carry/aim/cycle hands go through
+			-- `Mode.handOffset`, which is yaw, THEN pitch, THEN twist about the hand's OWN long axis --
+			-- and NOT `CFrame.Angles(pitch, yaw, twist)`, which is what every other hand block in
+			-- `poses.json` is built with (`BOLT_HAND.grip`, `MAGAZINE_SWAP.hand`, the horn's two).
+			-- Two conventions in one file, and a pose solved in the wrong one lands somewhere nobody
+			-- chose: the first numbers this task shipped put the hand on the comb, 0.158 studs behind
+			-- the wrist, and the live session is what caught it. Nothing can make the two conventions
+			-- the same; what this case does is say which one this pose is in.
+			local set = Data.DATA.weapons.rifle.carry.right
+			local pos = Vector3.new(set.pos.x, set.pos.y, set.pos.z)
+			local built = Mode.handOffset(pos, set.rot.yaw, set.rot.pitch, set.rot.twist)
+			local byHand = CFrame.new(pos)
+				* CFrame.Angles(0, math.rad(set.rot.yaw), 0)
+				* CFrame.Angles(0, 0, math.rad(set.rot.pitch))
+				* CFrame.fromAxisAngle(Vector3.xAxis, math.rad(set.rot.twist))
+			expect(built.RightVector:Dot(byHand.RightVector) > 1 - 1e-6).to.equal(true)
+			-- ...and it is NOT the other convention, which is the whole point of the case.
+			local other = CFrame.new(pos)
+				* CFrame.Angles(math.rad(set.rot.pitch), math.rad(set.rot.yaw), math.rad(set.rot.twist))
+			expect(built.RightVector:Dot(other.RightVector) < 0.99).to.equal(true)
+			-- And the hand this file draws is the first one.
+			local drawn = Mode.handOffsetAt("right", stateAt(0, 0), rifleConfig)
+			expect((drawn.Position - built.Position).Magnitude < 1e-6).to.equal(true)
+			expect(drawn.RightVector:Dot(built.RightVector) > 1 - 1e-6).to.equal(true)
 		end)
 
 		it("does not move between the hip and the aim: one hand, one grip", function()

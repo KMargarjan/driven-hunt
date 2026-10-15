@@ -147,6 +147,18 @@ local GRIP_WRIST_DIR = Vector3.new(0.0087, -0.5221, 0.8529).Unit
 -- (`HandAssets.GRIP_RADIUS_STUDS`), because a knob is a ball the fist closes on and not a column
 -- the fist slides along.
 local GRIP_RADIUS = 0.0719
+-- ...AND HOW FAR ALONG IT A HAND MAY SIT, measured the same way (task 188, round 1's own defect).
+-- The wrist a hand can actually hold runs from the receiver's rear (z +0.9092) to where the stock
+-- starts to swell into the comb -- the first slice more than 5 % wider than the narrowest, which is
+-- z 1.124 at 0.1513 against 0.1437, so the swell begins at about z 1.10. That band is 0.191 studs
+-- of z about its own centre, and the axis's z component is 0.8529, so it is 0.111 studs of ARC
+-- either side of `GRIP_WRIST`.
+--
+-- IT EXISTS BECAUSE OFF-AXIS ALONE DOES NOT SAY "ON THE GRIP". Round 1 of this task shipped a pose
+-- that was 0.045 off the axis -- well inside `GRIP_RADIUS` -- and 0.158 ALONG it: the hand was on
+-- the COMB, behind the wrist entirely, and the spec passed. It was caught by looking at the running
+-- game, not by the numbers, which is rule 5 doing its job and a tolerance doing half of its.
+local GRIP_HALF_LENGTH = 0.111
 
 local STEEL_MATERIAL = Enum.Material.SmoothPlastic -- `Metal` mirrors the sky; see `Gun`'s own note
 
@@ -326,6 +338,17 @@ end
 function Geometry.gripRadius(config): number
 	local at = Geometry.layout(config)
 	return GRIP_RADIUS * (at.total / 4.4)
+end
+
+-- How long the holdable wrist is, halved: see `GRIP_HALF_LENGTH`.
+function Geometry.gripHalfLength(config): number
+	local at = Geometry.layout(config)
+	return GRIP_HALF_LENGTH * (at.total / 4.4)
+end
+
+-- How far ALONG the wrist a point sits, signed, from `gripOffset`. Positive is toward the butt.
+function Geometry.alongGripAxis(config, point: Vector3): number
+	return (point - Geometry.gripOffset(config)):Dot(Geometry.gripAxis(config))
 end
 
 -- How far a point is from the wrist's line. The one expression that answers "is the hand on the

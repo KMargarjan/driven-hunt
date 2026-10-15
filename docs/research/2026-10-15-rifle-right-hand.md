@@ -126,6 +126,39 @@ the gun's centre line, inside the receiver and the comb. Drawn off the model at 
 clear on the right, where a lifted Mauser handle is (source 3). Since `BOLT_HAND.grip` is carried by
 that same transform, the right hand was being driven into the wood with it.
 
+## 5a. THE DEFECT THIS TASK SHIPPED FIRST, AND WHAT CAUGHT IT
+
+**`poses.json` holds hand rotations in TWO conventions, and the first numbers written here were in
+the wrong one.**
+
+* `carry.right`, `aim.right` and `cycle.right` go through **`Mode.handOffset`**, which is
+  `CFrame.new(pos) * Angles(0, yaw, 0) * Angles(0, 0, pitch) * fromAxisAngle(X, twist)` -- yaw, then
+  pitch, then twist about the hand's own long axis, in that order and for the reason that function's
+  header gives (the three a hand actually has, so they read as themselves instead of interacting).
+* **Every other hand block in the same file** -- `cycle.hand.grip`, `magazine.hand`, the horn's two
+  -- is built in `Viewmodel.view` as `CFrame.Angles(pitch, yaw, twist)`, which is `Rx * Ry * Rz`.
+
+The fit in section 7 was solved as a rotation MATRIX and then written out in the second convention
+for all four poses. The bolt pose was right by luck of being in the second group. The three grip
+poses were not, and the matrix they actually produced put the hand **0.158 studs along the wrist
+axis** -- past the wrist entirely, on the comb -- while still sitting only 0.045 off the AXIS, which
+is well inside `gripRadius`. **So the spec passed on a pose that was wrong**, and the harness ran
+green twice over it.
+
+**What caught it was looking at the running game** (rule 5, and the whole reason this repo has it).
+One first-person frame mid-cycle showed the glove hanging in the air beside the receiver rather than
+on the knob; a live probe of the drawn Instances then gave the hand's own CFrame in the Handle's
+frame, and `pose * align` did not reproduce it under the assumed convention while it did under
+`Mode.handOffset`'s. The same probe, run through a real cycle, is section 7's live table.
+
+**Two things changed because of it.** The three grip poses are re-expressed in the right convention
+-- the SAME rotation, pitch 62.5517 / yaw 96.7290 / twist -17.2865 -- and the spec gained the bound
+that would have caught it: **how far ALONG the wrist the hand sits**, bounded by
+`Geometry.gripHalfLength` (0.111 studs of arc, from the receiver's rear at z 0.909 to where the
+stock swells into the comb at about z 1.10). Off-axis alone does not say "on the grip"; a hand can
+be dead on the axis and a hand's length behind the wood. There is also a case that states plainly
+which convention this pose is in, because nothing else in the repo did.
+
 ## 6. The honest limit: a closed fist on a thick wrist
 
 The glove's gap is **0.054 x 0.060 studs**. The wrist of this stock is **0.144 x 0.203**. The fist
@@ -144,10 +177,11 @@ task and Karen's call; it is recorded here rather than worked around (rule 8).
 
 Hip hold, the glove against the rifle's own meshes:
 
-| | off the wrist axis | off the wrist centre | wrap | inside the wood | worst depth | contact |
-|---|---|---|---|---|---|---|
-| before | 0.0995 | 0.2205 | 0.25 | 22.6 % | 0.0880 | 32.8 % |
-| after | **0.0543** | **0.0585** | **1.00** | 23.3 % | 0.0800 | **49.7 %** |
+| | off the wrist axis | along it | off the wrist centre | wrap | inside the wood | worst depth | contact |
+|---|---|---|---|---|---|---|---|
+| before (the shotgun's numbers) | 0.0995 | +0.1964 | 0.2205 | 0.25 | 22.6 % | 0.0880 | 32.8 % |
+| this task's FIRST numbers (wrong convention, section 5a) | 0.0453 | +0.1581 | 0.1645 | -- | -- | -- | -- |
+| after | **0.0543** | **-0.0219** | **0.0585** | **1.00** | 23.3 % | 0.0800 | **49.7 %** |
 
 Bolt cycle -- the hand's grip point against the knob's centre, both carried by the bolt's transform:
 
