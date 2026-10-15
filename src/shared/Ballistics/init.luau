@@ -38,6 +38,13 @@
 -- `Weapon.equipDelayFor` and `Weapons.loadoutFor` already state: a constant that can only be read
 -- at one value cannot be tested at another.
 --
+-- AND SINCE TASK 189 EACH SHOT CARRIES ITS OWN `gravityScale`, which multiplies that g. Karen,
+-- 2026-10-15, after playing: *"are you sure we have right rifle aiming? seems a bit odd when stands
+-- it has to be acurat 100% 100m 150m"*. A rifle zeroed at 200 m rides +12.5 cm high at 100 m --
+-- real, and not what she wants of a still target. The scale FLATTENS the arc without touching the
+-- clock: `timeToRange` does not read gravity at all, so the lead on a running boar is bit-for-bit
+-- what task 185 shipped. The whole derivation is in `Rifle.CONFIG.GRAVITY_SCALE`.
+--
 -- Design: docs/design/ballistics.md (sections 3.3, 4.1, 5, 10)
 -- Note:   docs/research/2026-10-14-ballistics-lead.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -51,12 +58,13 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Ballistics = {}
 
--- The three numbers one (weapon, ammo) pair flies with. A frozen record rather than three loose
+-- The four numbers one (weapon, ammo) pair flies with. A frozen record rather than four loose
 -- arguments, so no caller can pass a muzzle velocity where a drag belongs.
 export type Shot = {
 	v0: number, -- studs/s at the muzzle
 	k: number, -- the drag coefficient, per stud
 	zeroStuds: number, -- where the trajectory crosses the sight line
+	gravityScale: number, -- what fraction of real gravity this projectile falls at (task 189)
 }
 
 Ballistics.CONFIG = Shotgun.deepFreeze({
@@ -71,9 +79,9 @@ Ballistics.CONFIG = Shotgun.deepFreeze({
 
 local G = Ballistics.CONFIG.GRAVITY_STUDS_PER_S2
 
--- THE THREE NUMBERS OFF A `Weapons.Row`, as one frozen record.
+-- THE FOUR NUMBERS OFF A `Weapons.Row`, as one frozen record.
 --
--- `nil` IS A DATA FAULT AND NEVER A FALLBACK (design 6.5). A row missing any one of the three, or
+-- `nil` IS A DATA FAULT AND NEVER A FALLBACK (design 6.5). A row missing any one of the four, or
 -- an ammo the row does not carry, answers nil -- and the owner REFUSES the shot rather than firing
 -- it in a straight line, because a fallback would be a second answer to "where did the bullet go",
 -- reachable by a typo in a data table.
@@ -84,13 +92,21 @@ function Ballistics.shotFor(row: any, ammo: string): Shot?
 	local v0 = row.MUZZLE_STUDS_PER_S and row.MUZZLE_STUDS_PER_S[ammo]
 	local k = row.DRAG_PER_STUD and row.DRAG_PER_STUD[ammo]
 	local zeroStuds = row.ZERO_STUDS and row.ZERO_STUDS[ammo]
+	local gravityScale = row.GRAVITY_SCALE and row.GRAVITY_SCALE[ammo]
 	if type(v0) ~= "number" or type(k) ~= "number" or type(zeroStuds) ~= "number" then
+		return nil
+	end
+	-- THE FOURTH NUMBER IS REQUIRED LIKE THE OTHER THREE (task 189). A row without it would fly at
+	-- real gravity, which is a SECOND answer to "where does the bullet go" reachable by a typo --
+	-- the same reason the three above are required (design 6.5). A negative one is a bullet that
+	-- falls upwards.
+	if type(gravityScale) ~= "number" or gravityScale < 0 then
 		return nil
 	end
 	if v0 <= 0 then
 		return nil
 	end
-	return table.freeze({ v0 = v0, k = k, zeroStuds = zeroStuds })
+	return table.freeze({ v0 = v0, k = k, zeroStuds = zeroStuds, gravityScale = gravityScale })
 end
 
 -- HOW LONG A SHOT TAKES TO TRAVEL `studs` OF PATH, in closed form: integrating `v(s) = v0*exp(-k*s)`
@@ -140,8 +156,13 @@ end
 -- `k <= 0` IS STILL THE VACUUM, and so is the limit of this formula as `b` goes to 0: expanding
 -- `(1 - exp(-b*t))/b = t - b*t^2/2 + ...` leaves `0.5*g*t^2`, so the two branches meet rather than
 -- stepping.
+-- `gravityScale` MULTIPLIES WHATEVER GRAVITY IS HANDED IN (task 189), here and in `advance`, which
+-- are the only two places in this module gravity is used at all -- so the elevation, the sight
+-- offset, the launch direction and the stepped flight all see one number and cannot disagree.
+-- Karen, 2026-10-15: *"seems a bit odd when stands it has to be acurat 100% 100m 150m"*. See
+-- `Rifle.CONFIG.GRAVITY_SCALE` for what the rifle's is and why.
 function Ballistics.dropAt(shot: Shot, studs: number, g: number?): number
-	local gravity = g or G
+	local gravity = (g or G) * shot.gravityScale
 	local t = Ballistics.timeToRange(shot, studs)
 	if t <= 0 then
 		return 0
@@ -218,7 +239,7 @@ function Ballistics.advance(
 	shot: Shot,
 	g: number?
 ): (Vector3, Vector3)
-	local accel = Vector3.new(0, -(g or G), 0)
+	local accel = Vector3.new(0, -(g or G) * shot.gravityScale, 0)
 	local speed = velocity.Magnitude
 	if shot.k > 0 and speed > 1e-6 then
 		accel -= velocity * (shot.k * speed)

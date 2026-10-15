@@ -31,6 +31,13 @@ local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local cameraFolder = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera")
 local Mode = require(cameraFolder:WaitForChild("Mode"))
+-- THE DRAWN ROTATION, NOT THE POSE FRAME (task 190): `Viewmodel.align` is the one
+-- definition of the turn each glove's own mesh takes to reach the pose convention, and
+-- `Camera.Viewmodel.poseHands` draws `pose * align`. Requiring it here is safe for the same
+-- reason `Mode` is -- its top level only calls `GetService` -- and it is the alternative to
+-- a second copy of the alignment living in a spec.
+local Viewmodel3D = require(cameraFolder:WaitForChild("Viewmodel"))
+local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Config = require(cameraFolder:WaitForChild("Config"))
 
 -- BOTH BRANCHES, BY PARAMETER (docs/design/feature-flags.md section 13.3). A spec that read the live
@@ -642,8 +649,9 @@ return function()
 				-- and the two models ran opposite ways along their own X.
 				--
 				-- MODEL B'S PAIR DO NOT SHARE AN AXIS -- the right glove's fingers run along its own
-				-- -X and the left glove's along its own +Y (`HandAssets.AXES`, measured in task 108 by
-				-- classifying every vertex by the colour its UV samples) -- so no single number can
+				-- +X and the left glove's along its own +Y (`HandAssets.AXES`; measured in task 108 by
+				-- classifying every vertex by the colour its UV samples, and the right one's SIGN
+				-- re-measured in task 189 against the part Roblox really draws) -- so no single number can
 				-- mean the same thing on both, and `Camera.Viewmodel.align` turns each MESH into one
 				-- convention before the three pose angles are read. Which way the drawn fingers
 				-- actually end up is therefore a claim about the DRAWN PARTS, and that is where it is
@@ -668,9 +676,41 @@ return function()
 					)
 				)
 				expect(right).never.to.equal(left)
-				-- NOT A HAIR APART: the two frames point their own +X at least a right angle from each
-				-- other, which is the difference between a grip and a forend hold rather than a tweak.
-				expect(right.RightVector:Dot(left.RightVector) < 0.5).to.equal(true)
+				-- NOT A HAIR APART: the two POSES are far from being one pose, which is the
+				-- difference between a grip and a fore-end hold rather than a tweak.
+				--
+				-- WHAT IS MEASURED IS THE DIVERGENCE OF THE TWO POSES, and it has to be, because the
+				-- defect named above is "one pose for both". That quantity is the angle of
+				-- `right.Rotation:Inverse() * left.Rotation`: it is **exactly zero** when the two
+				-- poses are the same six numbers, and it grows as they part. Today it is 41.9
+				-- degrees.
+				--
+				-- TASK 190 FIRST REWROTE THIS TO COMPOSE EACH POSE WITH ITS OWN `align` AND GOT IT
+				-- BACKWARDS, and the Reviewer caught it (round 2, finding 1). The drawn rotations
+				-- are the right thing to look at for "where are the hands"; they are the WRONG thing
+				-- to bound for "are these two poses the same", because with ONE pose for both,
+				-- `drawnRight:Inverse() * drawnLeft` collapses to `align_R^-1 * align_L` -- a fixed
+				-- **178.7 degrees** on the shipped tables. So `> 90` on the drawn angle passes
+				-- hardest on exactly the defect it was written to forbid, and the measure falls as
+				-- the poses diverge (152.1 today, i.e. the baseline minus the divergence). Recorded
+				-- here because the mistake is easy and the arithmetic is not obvious.
+				--
+				-- THE VALUE MOVES WITH EITHER GLOVE'S CONVENTION, THE ZERO DOES NOT. Re-measuring an
+				-- axis and re-expressing the poses with it (task 189 and task 190 both did) changes
+				-- this number -- 139 degrees on task 188's, 177.3 on task 189's, 41.9 now -- while
+				-- the drawn hands stand still. What never moves is where zero is. So the bound is a
+				-- floor well under today's reading rather than a pin on it, and 190a(c) -- the left
+				-- glove -- will move the number again.
+				local _, apart = (right.Rotation:Inverse() * left.Rotation):ToAxisAngle()
+				TestKit.note(string.format("task114 hand poses: %.1f degrees apart", math.deg(apart)))
+				expect(math.deg(apart) > 20).to.equal(true)
+				-- ...and where that puts the two hands ON SCREEN, which is the thing a reader wants
+				-- and is not what the bound above is about: `pose * align` is what
+				-- `Camera.Viewmodel.poseHands` draws.
+				local drawnRight = right.Rotation * Viewmodel3D.align(HandAssets.RIGHT)
+				local drawnLeft = left.Rotation * Viewmodel3D.align(HandAssets.LEFT)
+				local _, drawnApart = (drawnRight:Inverse() * drawnLeft):ToAxisAngle()
+				TestKit.note(string.format("task114 hand frames: %.1f degrees apart, as drawn", math.deg(drawnApart)))
 				-- ...AND THE TWIST IS THE NUMBER THAT SAYS WHOSE GLOVES THESE ARE. The v1 left glove
 				-- was modelled palm-DOWN and needed a half turn to get the palm under the barrels;
 				-- Karen's is modelled palm-UP already, so a 180 here would be the retired pair's

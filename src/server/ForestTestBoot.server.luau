@@ -653,6 +653,13 @@ Match.start({
 		return ForestTest.Markers.build(ForestTest.hunterStandX(), ForestTest.layout())
 	end,
 	placement = placement,
+	-- WHERE THE GROUND IS, FOR THE ONE WRITER OF WHERE A CHARACTER STANDS (task 192). The SAME
+	-- function `Markers.setReaders`, `Bots.start` and `Lobby.start` are handed above -- this world's
+	-- single ground reader -- so `Body.onGround` snaps a placement onto the ground this world agrees
+	-- on and not onto a fourth opinion of it. Without it `Body` falls back to its own ray, which in
+	-- THIS place can stop on the canopy of the 831 trees in the two Studio-built `Session` folders
+	-- (`ForestTest.terrainYAt`'s header measures exactly that).
+	groundAt = Data.groundAt,
 	-- WHERE A HUNTER'S STAND IS IN THIS WORLD (task 171), and it is NOT where `placement` put him:
 	-- here he picks his own by walking to it in the 15 s window (`ForestTest.lockPick`), so the
 	-- circle the fire gate measures is centred on the PICK. `ForestTest.standArea` is the same
@@ -1098,10 +1105,39 @@ RunService.Heartbeat:Connect(function()
 		-- world everybody was always in the drive. The question *"is this man in the hunt"* has one
 		-- owner and one answer -- `Match.isParticipant` -- and this composition root is where it is
 		-- asked, exactly as it asks `ForestTest.roleOfPlayer` on the next line.
-		if root and Match.isParticipant(player.UserId) then
+		--
+		-- ...AND IT IS NOT THE DRIVE'S EITHER WHILE THE DRIVE IS HOLDING HIM (task 192). SAME CLASS
+		-- OF BUG AS THE GUARD ABOVE, MEASURED THE SAME WAY. At the end of a live drive on the `edge`
+		-- layout the results scene stood the player at a ring slot near the middle stand and this
+		-- wall dragged him back to 12.0 studs from his OWN stand -- `PICK.standRadiusStuds` exactly
+		-- -- CARRYING THE RING'S Y WITH HIM, because `boundaryPoint` clamps X and Z and keeps
+		-- `position.Y`. Logged at `(3543, 174.5, -3001)` with the terrain under him at 189.0: his
+		-- feet 17.5 studs under the ground, anchored, for the whole 25-second scene. That is Karen's
+		-- *"when drive ends I am underground"*, and it is two writers of one fact again.
+		--
+		-- `Match.isHeld` IS THE QUESTION'S OTHER HALF AND IT ALREADY EXISTS: the lobby is handed the
+		-- same function for the same reason one screen up (*"`isHeld` is what stops the lobby
+		-- respawning a man out of Karen's results scene"*), so this is a third reader of one answer
+		-- and not a new rule. It covers the gathering and the beaters' hold at the start line.
+		--
+		-- ...AND `Match.isTied` IS A THIRD QUESTION, NOT THE SAME ONE (Reviewer round 1, finding 2,
+		-- which was right and caught a comment claiming a fix the code did not make). `isHeld` reads
+		-- `heldStill`, written only by `applyHold`; a tie writes `tied`, and `applyFree`'s own
+		-- comment says the two never overlap -- *"ties only exist in `Running`, holds only in
+		-- `Assigning` and `Scoring`"*. So a tied hunter was a participant, was not held, and this
+		-- wall went on rewriting his `root.CFrame` every Heartbeat -- dragging him off the rope
+		-- whenever the tree stood outside his stand circle, which is the whole point of a tie.
+		-- Two readers, two tables, one guard.
+		local frozen = Match.isHeld(player.UserId) or Match.isTied(player.UserId)
+		if root and Match.isParticipant(player.UserId) and not frozen then
 			-- THE ROLE IS PASSED IN SINCE TASK 157: the truth of it is `Player.Team`, and this loop is
 			-- what holds the `Player` -- `ForestTest` keys by `userId` and never holds one.
-			ForestTest.boundary(player.UserId, root :: BasePart, ForestTest.roleOfPlayer(player))
+			--
+			-- `Body.liftOntoGround` IS THE FOURTH SEAM THIS LOOP HANDS DOWN, and it is the one
+			-- placement rule applied to the one thing in this world that writes a root's CFrame
+			-- without going through `Body` (task 192). See `ForestTest.boundary` for the two
+			-- measurements that put it here.
+			ForestTest.boundary(player.UserId, root :: BasePart, ForestTest.roleOfPlayer(player), Body.liftOntoGround)
 		end
 	end
 	-- ...AND THE LOBBY'S PRESENCE SCAN (task 177), ONE MORE CALL IN THIS HEARTBEAT AND NOT A SECOND

@@ -232,6 +232,13 @@ Shotgun.CONFIG = {
 	-- this model does not have: the same shot to about 3 cm, against a number nothing here was
 	-- fitted to. Buckshot's drop over its whole 100-stud reach is 1 cm -- it needs no holdover.
 	ZERO_STUDS = { Slug = 180, Buck = 70 },
+	-- REAL GRAVITY, UNCHANGED (task 189). The rifle's bullet is flattened to 0.12 because Karen asked
+	-- for a standing shot that is dead on at 100 and 150 m (`Rifle.CONFIG.GRAVITY_SCALE`); she asked
+	-- that of THE RIFLE, and a shotgun is a short-range gun whose drop is part of what it is -- the
+	-- slug is 11.4 cm low at the end of its own 330-stud range, and buck 4.2 cm at 42 m. Changing it
+	-- here would be changing a feel nobody complained about. 1.0 is what every shot flew at before
+	-- this field existed, so the two shotgun ammos are bit-for-bit task 185's.
+	GRAVITY_SCALE = { Slug = 1.0, Buck = 1.0 },
 
 	-- timings, all feel numbers
 	BARREL_DELAY = 0.25,

@@ -561,7 +561,8 @@ return function()
 		it("records that the two gloves do NOT share an axis, which is Karen's broken left hand", function()
 			-- TASK 108. Karen, 2026-10-02: "hands are bad / left hand is oposit180deg need to turn or
 			-- not sure but broken". The cause is not one number: the two meshes disagree about which
-			-- of their own axes the fingers run along -- the right glove's along its -X, the left's
+			-- of their own axes the fingers run along -- the right glove's along its +X (task 189: the
+			-- DRAWN part's X, which is the other way round from the source file's), the left's
 			-- along its +Y -- so a yaw, a pitch or a twist turns them about different things, and the
 			-- Director's live `left.rot.twist 180` moved the glove to the far side of the barrels
 			-- instead of rolling its palm.
@@ -589,6 +590,32 @@ return function()
 			local agree = math.abs(right.fingers.Unit:Dot(left.fingers.Unit))
 			TestKit.note(string.format("task108 the two finger axes agree by %.3f", agree))
 			expect(agree < 0.8).to.equal(true)
+		end)
+
+		-- THE RIGHT GLOVE'S OWN THUMB, which is the fact task 190 turns on (Reviewer, round 1:
+		-- *"nothing in the suite asserts the handedness the whole task turns on"*).
+		--
+		-- WHY IT IS THE LOAD-BEARING ONE. Task 189 measured the drawn glove's +X/-X ends with marker
+		-- balls and then INFERRED the rest of the frame, assuming the import mirrors the mesh in X.
+		-- It does not: task 190 photographed the drawn part's +-Z, found the PALM on -Z, and the
+		-- thing that makes that a rotation rather than a mirror is the hand's own handedness. For a
+		-- RIGHT hand the thumb lies along `fingers x palm`; a mirror turns a right glove into a left
+		-- one and puts it the other side. So this pair of numbers says "right hand", and a future
+		-- re-measurement that quietly made it a left one fails here instead of in Karen's hands.
+		--
+		-- MEASURED, not chosen: `.screenshots/t190-glove-minusZ.png` is the drawn glove down its own
+		-- -Z, with the fingers to the left and the THUMB AT THE TOP -- its own +Y. See
+		-- `HandAssets.AXES`.
+		--
+		-- THE LEFT GLOVE IS NOT PINNED, because its thumb has not been photographed: its `palm` is
+		-- still the task 108 estimate and carries exactly the guess this task removed from the right
+		-- one (TASKS.md 190a(c)). Pinning it from the file would assert the guess.
+		it("has the RIGHT glove modelled as a right hand: the thumb is fingers x palm", function()
+			local right = HandAssets.AXES[HandAssets.RIGHT]
+			local thumb = right.fingers.Unit:Cross(right.palm.Unit).Unit
+			TestKit.note(string.format("task190 right glove: fingers x palm = %s", tostring(thumb)))
+			-- The drawn part's own +Y, where the photograph puts it.
+			expect(thumb:Dot(Vector3.yAxis) > 0.9).to.equal(true)
 		end)
 
 		it("ships the poses that were measured for THESE gloves, and only those", function()

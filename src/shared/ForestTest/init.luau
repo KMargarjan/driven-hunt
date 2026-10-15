@@ -1477,7 +1477,18 @@ ForestTest.MAX_BODIES_IN_A_COLUMN = 8
 -- A CHARACTER IS SKIPPED AND THE RAY CARRIES ON, rather than every character being excluded up
 -- front: this module is shared and knows nothing about `Players`, and the rule it applies is about
 -- what was HIT -- which covers a dog, an NPC or anything else with a Humanoid, the day one exists.
-function ForestTest.groundAt(x: number, z: number): number?
+-- `fromY` IS WHERE THE RAY STARTS, AND IT IS THE WHOLE OF TASK 192 ROUND 2 (Reviewer, round 1,
+-- finding 1). A ray that starts 600 studs up answers *"what is the first solid thing from the sky"*,
+-- and indoors that is the LODGE'S ROOF: a player standing at the shop counter measured 7-15 studs
+-- *"under the ground"* and the floor net teleported him out four times a second. A DOWNWARD RAY CAN
+-- ONLY HIT WHAT IS BELOW ITS ORIGIN, so asking from just above the point asks the only question that
+-- was ever meant -- *what would this body land on* -- and nothing overhead can answer it.
+--
+-- `nil` IS THE OLD 600, unchanged, for every caller that is asking about a COLUMN rather than about
+-- a body: `Markers.groundFor`, `Bots`, `Lobby.tryBuild` and the boar world all mean "where is the
+-- ground at this x,z" with no body anywhere near it.
+function ForestTest.groundAt(x: number, z: number, fromY: number?): number?
+	local from = if type(fromY) == "number" then fromY :: number else 600
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	local ignore = {}
@@ -1489,7 +1500,7 @@ function ForestTest.groundAt(x: number, z: number): number?
 	end
 	params.FilterDescendantsInstances = ignore
 	for _ = 1, ForestTest.MAX_BODIES_IN_A_COLUMN + 1 do
-		local hit = Workspace:Raycast(Vector3.new(x, 600, z), Vector3.new(0, -1200, 0), params)
+		local hit = Workspace:Raycast(Vector3.new(x, from, z), Vector3.new(0, -1200, 0), params)
 		if hit == nil then
 			return nil
 		end

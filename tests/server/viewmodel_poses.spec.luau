@@ -21,6 +21,11 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Data = require(ReplicatedStorage:WaitForChild("Viewmodel"))
+-- THE RIFLE'S RIGHT HAND (task 188) needs three things this file did not read before: where the gun
+-- is held (`Rifle.Geometry`), where the hand holds (`HandAssets`), and the rifle's own pose set.
+local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
+local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
+local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 -- POSES.JSON IS VERSION 4 (task 140): every pose set lives under `weapons.<id>`, and this file is
 -- about the SHOTGUN's, which is what it has always been about. One alias, so the cases below read
 -- exactly as they did.
@@ -769,6 +774,423 @@ return function()
 			expect(hold).to.equal("aim")
 			local _, bad = Poses.resolve(firstPerson, '{"hold": "upside-down"}')
 			expect(bad).to.equal(nil)
+		end)
+	end)
+
+	-- THE RIFLE'S RIGHT HAND (task 188). Karen, 2026-10-15: *"rifle is ok now / we need to improve
+	-- right hand now seems odd it has to be aligned perfectly"*, and asked where: *"Bolt pull,
+	-- Holding (hip)"*.
+	--
+	-- WHAT THESE CASES ARE FOR. Until this task nothing in the repo said where the rifle was HELD, so
+	-- the right hand's poses could not be wrong -- there was nothing to be wrong about. They were in
+	-- fact the SHOTGUN's six numbers, on a gun whose grip is a fifth of a stud away, and the hand
+	-- hung under the trigger guard with the wrist of the stock above it. Both ends are measured now
+	-- (`Rifle.Geometry.gripOffset` / `boltKnobOffset`, `HandAssets.GRIP_STUDS`) and these cases are
+	-- what holds the pose file to them: a `poses.json` that puts the hand off the grip or off the
+	-- knob fails the harness, which blocks the merge gate, exactly as a bad `expires` date does.
+	--
+	-- THE TOLERANCE IS THE HAND'S OWN GAP, not a number somebody liked: `GRIP_RADIUS_STUDS` is half
+	-- the hole the fist closes around, so a grip point that far off still has the wood -- or the
+	-- knob -- inside the hand.
+	describe("the rifle's right hand, against the gun's own grip and bolt knob", function()
+		local rifleView = Data.view(Data.DATA, "rifle")
+		local rifleConfig = (function()
+			local out = table.clone(Config) :: any
+			for key, value in pairs(rifleView) do
+				out[key] = value
+			end
+			out.FIRST_PERSON = true
+			return table.freeze(out)
+		end)()
+		-- TWO TOLERANCES, AND EACH MEANS A DIFFERENT THING. The WRIST is a column the hand can slide
+		-- a little way along and still be holding: what has to be true is that the grip point is
+		-- inside the WOOD, so the bound is half the wrist's own narrowest width. The KNOB is a ball
+		-- the fist closes on: what has to be true is that it is inside the HAND, so the bound there
+		-- is half the hand's own gap. Neither is a number somebody liked.
+		local WRIST_TOLERANCE = RifleGeometry.gripRadius(Rifle.CONFIG)
+		local KNOB_TOLERANCE = HandAssets.GRIP_RADIUS_STUDS
+		local function gripPointOf(offset: CFrame): Vector3
+			return offset:PointToWorldSpace(HandAssets.GRIP_STUDS)
+		end
+
+		it("holds the wrist of the stock at the hip, aimed, and when the cycle starts", function()
+			-- The three states the right hand can be in before it leaves for the bolt. `handOffsetAt`
+			-- is the one conversion site, so these are the CFrames the viewmodel really draws with.
+			for _, case in ipairs({
+				{ name = "hip", state = stateAt(0, 0) },
+				{ name = "aimed", state = stateAt(1, 0) },
+				{ name = "cycle", state = stateAt(0, 1) },
+			}) do
+				local offset = Mode.handOffsetAt("right", case.state, rifleConfig)
+				local at = gripPointOf(offset)
+				local off = RifleGeometry.offGripAxis(Rifle.CONFIG, at)
+				-- ...AND HOW FAR ALONG IT, which is the half of this that round 1 of this task got
+				-- wrong: a pose 0.045 off the axis and 0.158 ALONG it is a hand on the COMB, and an
+				-- off-axis bound on its own passed it. See `GRIP_HALF_LENGTH`.
+				local along = RifleGeometry.alongGripAxis(Rifle.CONFIG, at)
+				TestKit.note(
+					string.format("rifle right hand %s: %.4f off the wrist axis, %+.4f along it", case.name, off, along)
+				)
+				expect(off < WRIST_TOLERANCE).to.equal(true)
+				expect(math.abs(along) < RifleGeometry.gripHalfLength(Rifle.CONFIG)).to.equal(true)
+			end
+		end)
+
+		it("reads its three angles the way `Mode.handOffset` composes them", function()
+			-- THE DEFECT OF ROUND 1, WRITTEN DOWN. The carry/aim/cycle hands go through
+			-- `Mode.handOffset`, which is yaw, THEN pitch, THEN twist about the hand's OWN long axis --
+			-- and NOT `CFrame.Angles(pitch, yaw, twist)`, which is what every other hand block in
+			-- `poses.json` is built with (`BOLT_HAND.grip`, `MAGAZINE_SWAP.hand`, the horn's two).
+			-- Two conventions in one file, and a pose solved in the wrong one lands somewhere nobody
+			-- chose: the first numbers this task shipped put the hand on the comb, 0.158 studs behind
+			-- the wrist, and the live session is what caught it. Nothing can make the two conventions
+			-- the same; what this case does is say which one this pose is in.
+			local set = Data.DATA.weapons.rifle.carry.right
+			local pos = Vector3.new(set.pos.x, set.pos.y, set.pos.z)
+			local built = Mode.handOffset(pos, set.rot.yaw, set.rot.pitch, set.rot.twist)
+			local byHand = CFrame.new(pos)
+				* CFrame.Angles(0, math.rad(set.rot.yaw), 0)
+				* CFrame.Angles(0, 0, math.rad(set.rot.pitch))
+				* CFrame.fromAxisAngle(Vector3.xAxis, math.rad(set.rot.twist))
+			expect(built.RightVector:Dot(byHand.RightVector) > 1 - 1e-6).to.equal(true)
+			-- ...and it is NOT the other convention, which is the whole point of the case.
+			local other = CFrame.new(pos)
+				* CFrame.Angles(math.rad(set.rot.pitch), math.rad(set.rot.yaw), math.rad(set.rot.twist))
+			expect(built.RightVector:Dot(other.RightVector) < 0.99).to.equal(true)
+			-- And the hand this file draws is the first one.
+			local drawn = Mode.handOffsetAt("right", stateAt(0, 0), rifleConfig)
+			expect((drawn.Position - built.Position).Magnitude < 1e-6).to.equal(true)
+			expect(drawn.RightVector:Dot(built.RightVector) > 1 - 1e-6).to.equal(true)
+		end)
+
+		it("does not move between the hip and the aim: one hand, one grip", function()
+			-- A right hand that changed place when the eye went to the scope would read as the gun
+			-- being re-gripped every time Karen aims. It is the SAME grip in both, so it is the same
+			-- six numbers, and this is what says so.
+			local hip = Mode.handOffsetAt("right", stateAt(0, 0), rifleConfig)
+			local aimed = Mode.handOffsetAt("right", stateAt(1, 0), rifleConfig)
+			expect((hip.Position - aimed.Position).Magnitude < 1e-6).to.equal(true)
+		end)
+
+		it("pinches the bolt knob, and keeps pinching it wherever the bolt has got to", function()
+			local grip = rifleConfig.BOLT_HAND.grip
+			local knob = RifleGeometry.boltKnobOffset(Rifle.CONFIG)
+			local miss = (gripPointOf(grip) - knob).Magnitude
+			TestKit.note(string.format("rifle bolt hand: %.4f studs from the knob's centre", miss))
+			expect(miss < KNOB_TOLERANCE).to.equal(true)
+			-- ...AND IT CANNOT COME OFF IT. `Camera.Viewmodel.poseHands` places this hand from the
+			-- SAME transform the bolt is drawn with (`Viewmodel.hinge`'s return), so the miss is
+			-- invariant under any rigid motion of the bolt -- which is the whole reason the hand is
+			-- placed that way rather than from a second clock. Driven with an arbitrary one here,
+			-- because the property is about the composition and not about any particular frame.
+			local carried = CFrame.new(0.31, -0.17, 0.44) * CFrame.Angles(0.3, -1.1, 0.7)
+			local movedMiss = (gripPointOf(carried * grip) - carried:PointToWorldSpace(knob)).Magnitude
+			expect(math.abs(movedMiss - miss) < 1e-5).to.equal(true)
+		end)
+
+		-- WHICH END OF THE HAND IS DOING THE HOLDING (task 189). Karen, 2026-10-15, after playing
+		-- task 188: *"hadn is oposit now reload with ending of arm not fingers"*.
+		--
+		-- THE CASE TASK 188 COULD NOT HAVE FAILED. Its only landmark on the glove was the grip point,
+		-- and a grip point is exactly as far from the knob whichever way round the hand is -- so a
+		-- hand drawn end-for-end passed every bound in this file twice. `HandAssets.FINGERTIP_STUDS`
+		-- and `CUFF_STUDS` are the two ends, measured, and these two cases ask the question that
+		-- needed asking: is the FIST on the knob, and does the WRIST trail back toward the shooter?
+		--
+		-- (What was actually wrong was `HandAssets.AXES.RIGHT.fingers`: measured off the source glTF,
+		-- and the drawn MeshPart is a HALF TURN ABOUT Y against that file -- task 189 believed a
+		-- mirror and task 190 measured the rotation -- so `align`'s +X pointed at the cuff. Every
+		-- pose solved in that frame came out backwards. Both signs are measured in the RUNNING game
+		-- now -- see that file -- and these cases are what hold the pose against them.)
+		--
+		-- WHAT THESE TWO CASES CAN AND CANNOT FAIL ON, said plainly so the next task does not trust
+		-- them for more than they hold. The landmarks are constants IN THE ALIGNED FRAME, where the
+		-- fingertip is at +X by construction -- so what is held here is the POSE against the
+		-- landmarks, which is what a mis-solved pose gets wrong. The mesh-to-aligned sign itself --
+		-- `HandAssets.AXES` -- is held by the marker-ball screenshots in the running game and by
+		-- nothing in this file, because Luau cannot read a vertex of a MeshPart.
+		local HALF_HAND = (HandAssets.FINGERTIP_STUDS - HandAssets.CUFF_STUDS).Magnitude / 2
+
+		it("holds the knob with the FINGERS, and the wrist trails back toward the shooter", function()
+			local knob = RifleGeometry.boltKnobOffset(Rifle.CONFIG)
+			local grip = rifleConfig.BOLT_HAND.grip
+			local fingertip = grip:PointToWorldSpace(HandAssets.FINGERTIP_STUDS)
+			local cuff = grip:PointToWorldSpace(HandAssets.CUFF_STUDS)
+			TestKit.note(
+				string.format(
+					"rifle bolt hand: fingertip %.3f from the knob, cuff %.3f, cuff %.3f studs behind it in Z",
+					(fingertip - knob).Magnitude,
+					(cuff - knob).Magnitude,
+					cuff.Z - fingertip.Z
+				)
+			)
+			-- The fist end is the near end. This is what fails on a hand that is round the wrong way.
+			expect((fingertip - knob).Magnitude < (cuff - knob).Magnitude).to.equal(true)
+			-- ...AND THE ARM RUNS BACK ALONG THE GUN, not across it. +Z is toward the butt (the muzzle
+			-- is at -Z), so the cuff must be behind the fingertip by more than half the glove's own
+			-- length -- which is only true if the hand lies along the rifle the way a forearm does.
+			-- Task 188's pose stood the hand vertically on the receiver: 0.18 studs, and it failed
+			-- this.
+			expect(cuff.Z - fingertip.Z > HALF_HAND).to.equal(true)
+
+			-- EVERY FRAME OF THE CYCLE, not just this one. The bolt's lift is a turn about the gun's
+			-- Z (`Geometry.boltLift`) and its draw is a slide along Z, and the hand is placed from
+			-- that same transform -- so neither moves the cuff's Z relative to the fingertip's by more
+			-- than the lift's own arc. Driven here at four turns, which is the property stated rather
+			-- than assumed.
+			for _, turn in ipairs({ 0, 0.35, 0.7, 1 }) do
+				local carried = RifleGeometry.boltLift(Rifle.CONFIG, rifleConfig.BOLT_LIFT_DEG, turn)
+				local at = carried * grip
+				local tip = at:PointToWorldSpace(HandAssets.FINGERTIP_STUDS)
+				local back = at:PointToWorldSpace(HandAssets.CUFF_STUDS)
+				local lifted = carried:PointToWorldSpace(knob)
+				expect((tip - lifted).Magnitude < (back - lifted).Magnitude).to.equal(true)
+				expect(back.Z - tip.Z > HALF_HAND).to.equal(true)
+			end
+		end)
+
+		it("holds the stock the same way at the hip and aimed: fist forward, wrist back", function()
+			local wrist = RifleGeometry.gripOffset(Rifle.CONFIG)
+			for _, case in ipairs({
+				{ name = "hip", state = stateAt(0, 0) },
+				{ name = "aimed", state = stateAt(1, 0) },
+				{ name = "cycle", state = stateAt(0, 1) },
+			}) do
+				local offset = Mode.handOffsetAt("right", case.state, rifleConfig)
+				local fingertip = offset:PointToWorldSpace(HandAssets.FINGERTIP_STUDS)
+				local cuff = offset:PointToWorldSpace(HandAssets.CUFF_STUDS)
+				TestKit.note(
+					string.format(
+						"rifle right hand %s: fingertip %.3f from the wrist of the stock, cuff %.3f, trail %.3f",
+						case.name,
+						(fingertip - wrist).Magnitude,
+						(cuff - wrist).Magnitude,
+						cuff.Z - fingertip.Z
+					)
+				)
+				expect((fingertip - wrist).Magnitude < (cuff - wrist).Magnitude).to.equal(true)
+				expect(cuff.Z - fingertip.Z > HALF_HAND).to.equal(true)
+			end
+		end)
+
+		-- WHICH WAY THE HAND IS ROLLED (task 190). Karen, 2026-10-15, after playing task 189:
+		-- *"now right hand reload with outside of fingersit has to palm inside now is outside fix
+		-- that"* -- the fist was the right way round and the BACK of it was on the knob.
+		--
+		-- THE CASE THE TWO ABOVE COULD NOT BE. Both landmarks lie within a tenth of a stud of the
+		-- fingers axis, so a 180 degree roll about that axis barely moves either: the hand was
+		-- inside out and every bound in this file passed. The palm is the axis the roll turns, and
+		-- `align` is DEFINED to put it on +Y -- so the drawn palm IS `offset.UpVector`, and what
+		-- this asks is where that points.
+		--
+		-- WHAT IT HOLDS AND WHAT IT DOES NOT, plainly. It holds the POSE: a pose rolled a half turn
+		-- fails it. It does NOT hold `HandAssets.AXES` -- `align` puts the palm on +Y whatever that
+		-- table says, so a wrong table moves the glove and not this number. The table is held by the
+		-- marker-ball photographs in the running game (`HandAssets.AXES`'s comment) and, for the
+		-- handedness the task turns on, by `gun.spec`'s "the right glove's own thumb".
+		--
+		-- WHAT THESE TWO CASES COST TODAY, SAID PLAINLY (Reviewer, round 2). The rifle's three
+		-- `right` blocks in `poses.json` are byte-identical and the bolt dot is invariant under the
+		-- lift (see below), so the three states below and the four turns above are FOUR AND THREE
+		-- COPIES OF ONE ASSERTION EACH. They are written as loops because the states and the turns
+		-- are what a future pose file will differ across, not because they differ now.
+		--
+		-- THE REFERENCE IS THE BOLT'S OWN AXIS, NOT THE KNOB, and the difference matters. A closed
+		-- fist's palm normal is the axis of the HOLE the fist makes, and the knob sits IN that hole
+		-- (`GRIP_STUDS` is at aligned Y = 0, the middle of the hand) -- so "palm toward the knob" is
+		-- near 90 degrees whichever way round the hand is, and says nothing. What a hunter's hand
+		-- really does is face the RECEIVER: the palm points in at the line the bolt turns about.
+		-- Measured in the running game on the drawn parts, before and after task 190: 111.0-117.9
+		-- degrees, then 73.3-80.3. The sign is the whole of it.
+		it("turns the PALM onto the bolt, not the knuckles (task 190)", function()
+			local axisY = RifleGeometry.boltAxis(Rifle.CONFIG).Y
+			local grip = rifleConfig.BOLT_HAND.grip
+			for _, turn in ipairs({ 0, 0.35, 0.7, 1 }) do
+				local at = RifleGeometry.boltLift(Rifle.CONFIG, rifleConfig.BOLT_LIFT_DEG, turn) * grip
+				local hand = at.Position
+				-- The nearest point of the line the bolt turns about: it runs ALONG the gun through
+				-- (0, axisY, *), so the nearest point to the hand shares the hand's own Z.
+				local inward = (Vector3.new(0, axisY, hand.Z) - hand)
+				local toward = at.UpVector:Dot(inward.Unit)
+				TestKit.note(string.format("task190 bolt hand at turn %.2f: palm . inward %.4f", turn, toward))
+				expect(toward > 0).to.equal(true)
+			end
+		end)
+
+		it("...and onto the wood at the hip and aimed, the same way", function()
+			-- The same question of the hand that holds the stock: Karen asked for the hip grip to be
+			-- checked too (*"palm on the wood, knuckles out"*). The reference here is the wrist of
+			-- the stock itself, which is the thing the fingers close on.
+			local wrist = RifleGeometry.gripOffset(Rifle.CONFIG)
+			for _, case in ipairs({
+				{ name = "hip", state = stateAt(0, 0) },
+				{ name = "aimed", state = stateAt(1, 0) },
+				{ name = "cycle", state = stateAt(0, 1) },
+			}) do
+				local offset = Mode.handOffsetAt("right", case.state, rifleConfig)
+				local inward = wrist - offset.Position
+				local toward = offset.UpVector:Dot(inward.Unit)
+				TestKit.note(string.format("task190 %s hand: palm . toward the wrist %.4f", case.name, toward))
+				expect(toward > 0).to.equal(true)
+			end
+		end)
+
+		it("lifts the bolt handle UP and clear, not down into the receiver", function()
+			-- THE SIGN (task 188). The knob hangs 0.067 studs BELOW the line it turns about, so the
+			-- direction of the turn decides whether the handle rises on the right or sweeps down
+			-- through the wood. It used to sweep down: at a full lift the knob landed at x -0.014,
+			-- left of the gun's centre line and inside the stock, and the hand went with it.
+			local knob = RifleGeometry.boltKnobOffset(Rifle.CONFIG)
+			local axisY = RifleGeometry.boltAxis(Rifle.CONFIG).Y
+			expect(knob.Y < axisY).to.equal(true) -- a CLOSED handle hangs below the axis
+			local lifted = RifleGeometry.boltLift(Rifle.CONFIG, rifleConfig.BOLT_LIFT_DEG, 1):PointToWorldSpace(knob)
+			TestKit.note(
+				string.format(
+					"bolt knob: closed (%.4f, %.4f) -> lifted (%.4f, %.4f), axis Y %.4f",
+					knob.X,
+					knob.Y,
+					lifted.X,
+					lifted.Y,
+					axisY
+				)
+			)
+			expect(lifted.Y > axisY).to.equal(true) -- lifted, it is above it
+			expect(lifted.X > knob.X).to.equal(true) -- and further out on the RIGHT, not across
+			-- At rest it is exactly where it was: nothing moves until the cycle does.
+			expect(
+				(RifleGeometry.boltLift(Rifle.CONFIG, rifleConfig.BOLT_LIFT_DEG, 0):PointToWorldSpace(knob) - knob).Magnitude
+					< 1e-6
+			).to.equal(true)
+			-- A turn outside 0..1 is clamped rather than trusted (the handle would otherwise be
+			-- driven past the top and back down into the wood from the other side).
+			local past = RifleGeometry.boltLift(Rifle.CONFIG, rifleConfig.BOLT_LIFT_DEG, 2.5):PointToWorldSpace(knob)
+			expect((past - lifted).Magnitude < 1e-6).to.equal(true)
+		end)
+	end)
+
+	-- THE FIVE RIGHT HANDS THIS TASK DID NOT RE-SOLVE, PINNED WHERE THEY WERE (task 189, round 2 --
+	-- the Reviewer's finding 1, and it was right).
+	--
+	-- Flipping `HandAssets.AXES.RIGHT` changes what EVERY right-hand pose means, not just the
+	-- rifle's: `Camera.Viewmodel.poseHands` draws the right glove as `base * align` for whatever
+	-- weapon is in hand, and the horn branch does the same. The rifle's four poses were re-solved
+	-- because Karen said they were wrong. The shotgun's three and the horn's two are hands she has
+	-- already accepted, so they were RE-EXPRESSED instead -- `pose_new = pose_old * (align_old *
+	-- align_new^-1)` -- which leaves what is drawn identical to 2e-16, and the arithmetic is in the
+	-- note (section 3a).
+	--
+	-- THIS IS WHAT SAYS SO. The numbers below are where those five hands put the glove's two ends,
+	-- in the gun's own frame, measured off the poses task 188 shipped and composed with the
+	-- alignment task 188 drew with. They are an outside constant: they come from the build Karen
+	-- played, not from the file this case reads. Flip the axis again without re-expressing these
+	-- five and every one of them moves about 150 degrees, which is what this fails on.
+	--
+	-- THEY MOVED IN TASK 190 AND THE HANDS DID NOT, which is worth being exact about. These are
+	-- `offset:PointToWorldSpace(landmark)`, and the LANDMARK is a constant in the aligned frame --
+	-- so the point this case reads moves when either the POSE or the LANDMARK changes. Task 190 put
+	-- `FINGERTIP_STUDS`'s and `CUFF_STUDS`'s Z back to task 188's sign (the import is a rotation,
+	-- not a mirror, so no aligned coordinate ever moved; `HandAssets` has the measurement), which
+	-- shifts every number below. BY EXACTLY TWO AMOUNTS, which is the check: the transport is one
+	-- 170.2 degree roll about the fingers axis, so every fingertip below moves 0.0901 studs and
+	-- every cuff 0.0468 -- the same two numbers for the shotgun's carry, the shotgun's aim and the
+	-- horn, because it is one rotation applied to one pair of landmarks. (0.063 is the LANDMARK's
+	-- own displacement, 2 x 0.0315, which is not what these points move by.)
+	-- The DRAWN hands are untouched: the transport
+	-- reproduces each of the five to 6e-16, and `camera_mode.spec`'s "the two hands are posed
+	-- differently" measures the drawn rotations and reads the same 152.1 degrees either side of
+	-- this task. So what changed is the yardstick, not the hand.
+	--
+	-- AND THE HORN'S TWO ANGLES ARE NOT READ IN THIS ORDER. `Viewmodel.hornPose` builds its right
+	-- hand as `CFrame.Angles(pitch, yaw, twist)` -- Rx*Ry*Rz -- while `Mode.handOffset` builds the
+	-- gun's as `Ry(yaw)*Rz(pitch)*Rx(twist)`. A transport computed in the wrong one of those moves
+	-- the drawn horn hand 58.3 degrees, which is exactly what the horn case below caught in task
+	-- 190's first gate run.
+	describe("the shotgun's and the horn's right hand did not move (task 189)", function()
+		local shotgunConfig = configWith(true, Data.DATA)
+		local hornPoses = Data.view(Data.DATA).HORN
+		local TOLERANCE = 0.002 -- the poses are written to four decimals, so this is round-off only
+
+		local function ends(offset: CFrame): (Vector3, Vector3)
+			return offset:PointToWorldSpace(HandAssets.FINGERTIP_STUDS), offset:PointToWorldSpace(HandAssets.CUFF_STUDS)
+		end
+
+		it("the shotgun's carry and aimed hands are where task 188 drew them", function()
+			for _, case in ipairs({
+				{
+					name = "carry",
+					state = stateAt(0, 0),
+					tip = Vector3.new(-0.1007, 0.0658, 0.7872),
+					cuff = Vector3.new(0.0605, -0.4124, 1.2124),
+				},
+				{
+					name = "aimed",
+					state = stateAt(1, 0),
+					tip = Vector3.new(0.2634, -0.2751, 1.3048),
+					cuff = Vector3.new(-0.2148, -0.1139, 0.8796),
+				},
+			}) do
+				local tip, cuff = ends(Mode.handOffsetAt("right", case.state, shotgunConfig))
+				TestKit.note(
+					string.format(
+						"task189 shotgun %s right hand: fingertip (%.4f, %.4f, %.4f), cuff (%.4f, %.4f, %.4f)",
+						case.name,
+						tip.X,
+						tip.Y,
+						tip.Z,
+						cuff.X,
+						cuff.Y,
+						cuff.Z
+					)
+				)
+				expect((tip - case.tip).Magnitude < TOLERANCE).to.equal(true)
+				expect((cuff - case.cuff).Magnitude < TOLERANCE).to.equal(true)
+			end
+		end)
+
+		it("the horn's hand is where task 176 drew it", function()
+			-- `carry` and `blow` carry the same three angles, so one pose answers for both; the
+			-- positions differ and are not this case's business.
+			local tip, cuff = ends(hornPoses.carry.right)
+			TestKit.note(
+				string.format(
+					"task189 horn right hand: fingertip (%.4f, %.4f, %.4f), cuff (%.4f, %.4f, %.4f)",
+					tip.X,
+					tip.Y,
+					tip.Z,
+					cuff.X,
+					cuff.Y,
+					cuff.Z
+				)
+			)
+			expect((tip - Vector3.new(-0.1295, -0.0382, 0.0582)).Magnitude < TOLERANCE).to.equal(true)
+			expect((cuff - Vector3.new(0.1399, -0.1903, 0.6411)).Magnitude < TOLERANCE).to.equal(true)
+		end)
+
+		it("...and the shotgun's carry hand holds the gun with the fingers, like the rifle's", function()
+			-- A FREE READING OF A HAND NOBODY RE-SOLVED, and it is the question Karen asked of the
+			-- rifle. At the hip the shotgun's right hand passes: the cuff trails the fingertip by
+			-- 0.4252 studs, more than half the glove's own length (0.3300), so the forearm runs back
+			-- along the gun. THE AIMED POSE DOES NOT -- it trails by -0.4252, the same hand end-for-end
+			-- -- and that is a pose Karen has accepted and task 189 was not asked to touch. It is
+			-- reported (TASKS.md 189a) rather than changed here, and this case is what will hold it
+			-- once someone does.
+			local HALF = (HandAssets.FINGERTIP_STUDS - HandAssets.CUFF_STUDS).Magnitude / 2
+			local tip, cuff = ends(Mode.handOffsetAt("right", stateAt(0, 0), shotgunConfig))
+			TestKit.note(
+				string.format(
+					"task189 shotgun carry hand: cuff trails %.4f studs (half the glove is %.4f)",
+					cuff.Z - tip.Z,
+					HALF
+				)
+			)
+			expect(cuff.Z - tip.Z > HALF).to.equal(true)
+			local aimTip, aimCuff = ends(Mode.handOffsetAt("right", stateAt(1, 0), shotgunConfig))
+			TestKit.note(
+				string.format(
+					"task189 shotgun AIMED hand: cuff trails %.4f studs -- reported, not fixed (189a)",
+					aimCuff.Z - aimTip.Z
+				)
+			)
 		end)
 	end)
 

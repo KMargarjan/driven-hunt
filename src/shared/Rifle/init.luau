@@ -159,6 +159,35 @@ Rifle.CONFIG = {
 	-- model carries no scope-height offset. It is ONE LINE, and a 150 m zero would put the whole
 	-- band inside +/-15 cm from 0 to 200 m. Karen's dial (design section 16 item 1).
 	ZERO_STUDS = { Slug = 714 },
+	-- HOW MUCH OF REAL GRAVITY THIS BULLET FALLS AT (task 189), and the whole of Karen's
+	-- 2026-10-15: *"are you sure we have right rifle aiming? seems a bit odd when stands it has to
+	-- be acurat 100% 100m 150m"*.
+	--
+	-- THE COMMENT ABOVE IS WHAT SHE FELT, AND IT IS WRITTEN DOWN AS +12.5 cm AT 100 m. A rifle
+	-- zeroed at 200 m rides high in between -- that is real, and it is also the one thing she says
+	-- the standing shot must not do. Her bar: dead on the reticle at 50, 100, 150 AND 200 m.
+	--
+	-- THE ONLY HONEST DIAL IS GRAVITY, because every other number is already hers. The mid-range
+	-- rise is `elevationTangent * s - dropAt(s)`, and BOTH terms are exactly proportional to g
+	-- (`Ballistics.dropAt` multiplies by it and nothing else does), so scaling g scales the whole
+	-- deviation band by the same factor and moves nothing else. MEASURED: the band peaks at
+	-- **12.57 cm at 105 m** on real gravity, so 2 cm needs 0.159 and **0.12 reaches 1.51 cm** --
+	-- Karen's bar with a quarter of it to spare. At 50/100/150/200 m it is 1.07/1.51/1.19/0.00 cm.
+	--
+	-- AND IT DOES NOT TOUCH THE LEAD. `Ballistics.timeToRange` never reads gravity, so the flight
+	-- time -- and with it every stud of lead on a running boar, which is the OTHER thing she asked
+	-- for (task 185) -- is bit-for-bit what shipped before this line existed.
+	--
+	-- THE DROP IS NOT KEPT AT LONGER RANGES, AND THAT IS DELIBERATE. A scale that switched back to 1
+	-- past 200 m would be a trajectory with a kink in it: two different answers to "where is the
+	-- bullet" at the seam, in the closed form AND in the stepper, which would have to agree about
+	-- where the seam was. What it would buy is the band from 200 m to `RANGE_STUDS` -- 24 metres, on
+	-- a shot nobody in this game takes. At 224 m the drop is 0.92 cm instead of 7.70.
+	--
+	-- IT IS A DIAL AND IT IS KAREN'S: 1.0 is the real world back, and both directions are reachable
+	-- by parameter (`Ballistics.dropAt` takes `g`), which is why this ships without a feature flag
+	-- -- the same call as 185a(h) and 186a(f).
+	GRAVITY_SCALE = { Slug = 0.12 },
 	AMMO_KINDS = { "Slug" },
 	-- The word the Hud prints for the kind. ".416" is the Rigby's own cartridge; the WIRE still says
 	-- Slug, and these two facts meet in exactly one place (`Hud.readoutFor`).

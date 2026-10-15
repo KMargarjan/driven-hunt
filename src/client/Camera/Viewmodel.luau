@@ -744,7 +744,10 @@ end
 -- need to turn or not sure but broken".
 --
 -- THE TWO MESHES DO NOT SHARE AN AXIS. `HandAssets.AXES` records what was measured off each prepped
--- glove: the RIGHT one's fingers run along its own -X and its palm faces its own +Z; the LEFT one's
+-- glove: the RIGHT one's fingers run along its own +X and its palm faces its own **-Z** -- both
+-- signs are the DRAWN part's, not the source file's, and both were measured with marker balls in
+-- the running game (task 189 the fingers, task 190 the palm; see `HandAssets.AXES`, which also says
+-- why the two differ from the file by a half turn about Y and not by a mirror). The LEFT one's
 -- fingers run along its own +Y. So one `twist` turns them about different things -- the Director's
 -- live try of `left.rot.twist 180` swung the glove to the far side of the barrels instead of rolling
 -- the palm, which is exactly what a shared number does when the models disagree.
@@ -1791,12 +1794,19 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config): CFrame
 		-- `Mode.segmentAt`, which maps a time onto a KEYFRAME LIST and would have to be handed a
 		-- list of two to answer this -- the Reviewer's note, round 1: the first version of this
 		-- comment claimed that call and did not make it.
+		--
+		-- THE LIFT IS THE GEOMETRY'S NOW, AND ITS SIGN WAS WRONG (task 188). The angle used to be
+		-- written here as `CFrame.Angles(0, 0, -rad(BOLT_LIFT_DEG * turn))`, which takes +X toward
+		-- -Y: the knob hangs 0.067 studs BELOW the axis it turns about, so a negative turn carried
+		-- it from (right, low) to (-0.014, +0.000) -- left of the centre line and inside the
+		-- receiver and the comb. The handle vanished into the gun on every cycle, and the hand
+		-- placed from `BOLT_HAND.grip` went in after it. `Rifle.Geometry.boltLift` owns the
+		-- direction now, beside the axis it turns about and the knob it carries, and
+		-- `tests/server/viewmodel_poses.spec.luau` asserts a lifted knob ends ABOVE that axis.
 		local lift = math.clamp(config.BOLT_LIFT_FRACTION or 0.35, 1e-3, 1)
 		local turn = math.min(progress, lift) / lift
 		local draw = if progress > lift then (progress - lift) / (1 - lift) else 0
-		swing = hinge
-			* CFrame.Angles(0, 0, -math.rad((config.BOLT_LIFT_DEG or 0) * turn))
-			* hinge:Inverse()
+		swing = geometry.boltLift(row or Shotgun.CONFIG, config.BOLT_LIFT_DEG or 0, turn)
 			* CFrame.new(0, 0, (config.BOLT_DRAW_STUDS or 0) * draw)
 	else
 		-- NEGATIVE ABOUT X IS THE MUZZLE GOING DOWN, which is what "break open" means.

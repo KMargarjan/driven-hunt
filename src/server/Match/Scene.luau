@@ -306,6 +306,32 @@ end
 
 -- ------------------------------------------------------------------------------- the Instances
 
+-- ON THE GROUND UNDER THE POINT, AND NOT ON THE SPOT'S OWN Y (task 192). The layout above is flat
+-- arithmetic -- one `spot` and offsets round it -- and on the `edge` layout's 80-stud hillside that
+-- buries the far half of a row and floats the near half. So every point this module puts an Instance
+-- at asks the reader it was handed where the ground under THAT point is.
+--
+-- IT IS NOT A SECOND DEFINITION OF "WHERE IS THE GROUND": the function is the world's own single
+-- reader, handed down by the owner (`Match.applyScene` passes `Body.groundUnder`), and this module
+-- only substitutes the Y. `nil` reader, or a reader that answers nil for this point, leaves the
+-- point exactly as the layout computed it -- which is the scene this repo built before this task.
+-- Note: docs/research/2026-10-15-one-placement-rule.md
+local function onGround(cframe: CFrame, groundAt: ((number, number, number?) -> number?)?): CFrame
+	if groundAt == nil then
+		return cframe
+	end
+	local at = cframe.Position
+	-- ASKED FROM THE POINT'S OWN HEIGHT (Reviewer round 2, note 1). Without the third argument this
+	-- got the reader's COLUMN answer -- the cast from the sky -- so a carcass or a torch laid out
+	-- under one of this place's `Session` canopies was hung at canopy height, which is the one
+	-- Instance Karen looks at that finding 1 still reached.
+	local ok, y = pcall(groundAt :: any, at.X, at.Z, at.Y)
+	if not ok or type(y) ~= "number" then
+		return cframe
+	end
+	return cframe - at + Vector3.new(at.X, y :: number, at.Z)
+end
+
 local function newPart(name: string, size: Vector3, cframe: CFrame, colour: Color3, parent: Instance): BasePart
 	local part = Instance.new("Part")
 	part.Name = name
@@ -347,7 +373,18 @@ end
 -- template yet, the asset unpublished, `BOAR_MODEL` off, or a template that is not one mesh: that
 -- animal is the grey box of task 159, in the same place and at the same size. A mixed row is an
 -- honest row.
-function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg, displayFor: DisplayFor?): number
+--
+-- `groundAt` IS WHERE THE GROUND IS (task 192), optional and the world's own reader. Without it this
+-- lays everything on the spot's own Y, which is what it did before -- and which put half a row
+-- inside a hill on a sloped layout.
+function Scene.build(
+	spot: Vector3,
+	facing: Vector3,
+	kills: { any },
+	cfg,
+	displayFor: DisplayFor?,
+	groundAt: ((number, number, number?) -> number?)?
+): number
 	Scene.clear()
 	local scene = cfg.SCENE
 	local folder = Instance.new("Folder")
@@ -372,7 +409,8 @@ function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg, displa
 		-- THE REAL ANIMAL FIRST, THE BOX IF THERE IS NONE (task 173). One ask per animal, with the
 		-- ground frame the row put it on: `row[index]` is on the ground facing the drive, which is
 		-- exactly what a thing lying on the ground needs to be told.
-		local display = if displayFor then displayFor(kind, row[index]) else nil
+		local on = onGround(row[index], groundAt)
+		local display = if displayFor then displayFor(kind, on) else nil
 		local laid: Instance
 		if display ~= nil then
 			display.Name = name
@@ -381,7 +419,7 @@ function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg, displa
 			models += 1
 		else
 			local size = Scene.animalSize(kind, cfg)
-			local at = row[index] * CFrame.new(0, size.Y / 2, 0)
+			local at = on * CFrame.new(0, size.Y / 2, 0)
 			laid = newPart(name, size, at, scene.ANIMAL_COLOR, folder)
 			boxes += 1
 		end
@@ -409,7 +447,11 @@ function Scene.build(spot: Vector3, facing: Vector3, kills: { any }, cfg, displa
 	-- THE LIGHT HANGS ON THE FLAME AND NOT ON THE POST, which is a change of one stud-and-a-half of
 	-- meaning: a `PointLight` emits from its parent part's own position, so on a 10-stud post it was
 	-- lighting the bodies from knee height at the post's middle. It now shines from the fire.
-	for index, corner in ipairs(Scene.cornerPositions(spot, facing, cfg, count)) do
+	for index, flat in ipairs(Scene.cornerPositions(spot, facing, cfg, count)) do
+		-- EACH TORCH ON ITS OWN GROUND (task 192): the four corners are up to `cornerReachFor` studs
+		-- from the spot in both axes, so on a slope a flat Y stands one of them in the air and sinks
+		-- the one opposite it.
+		local corner = onGround(CFrame.new(flat), groundAt).Position
 		local post = newPart(
 			string.format("%s%d", Scene.LIGHT_PREFIX, index),
 			scene.POST_SIZE,
