@@ -3,14 +3,15 @@
 Task: 192
 Round: 3
 Base: 5cc4472 (main, after #173)
-Code commit: bca1b0b5db65c8b26684996685400122d0d3dc06
+Code commit: 168fe3d52b6130b9d2255a87deca87270144c2cc
 
 Harness, clean tree, FULL suite (this branch touches `src/server/Match/`, which maps to the `match`
 scope, and `src/server/ForestTestBoot.server.luau`, which maps to nothing and therefore to `all`):
 
     [harness] PASS: 33/33 checks @ 94a31d614f919a0c66e0e5b01f00f5e97e0d3983 (clean tree) scope=all
     [harness] PASS: 33/33 checks @ bca1b0b5db65c8b26684996685400122d0d3dc06 (clean tree) scope=all
-    [harness2] <the Director runs this; `src/server/Match/` is in TWO_PLAYER_PATHS>
+    [harness] PASS: 33/33 checks @ 168fe3d52b6130b9d2255a87deca87270144c2cc (clean tree) scope=all
+    [harness2] PASS: 35/35 checks @ 168fe3d52b6130b9d2255a87deca87270144c2cc (clean tree)
 
 THE CODE COMMIT IS THE SECOND ONE, and it is a commit that also carries paperwork -- which the git
 workflow allows and which is the honest fix for my own slip: `docs/research/` is NOT in the merge
