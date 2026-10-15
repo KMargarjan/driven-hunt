@@ -1,134 +1,146 @@
 # Task 192 -- nobody dies on respawn or at a new round, and the terrain is whole
 
 Task: 192
-Round: 2
+Round: 3
 Base: 5cc4472 (main, after #173)
-Code commit: 6c32b75524cb72ef0c27e69908badfc5997b85d1
+Code commit: 94a31d614f919a0c66e0e5b01f00f5e97e0d3983
 
 Harness, clean tree, FULL suite (this branch touches `src/server/Match/`, which maps to the `match`
 scope, and `src/server/ForestTestBoot.server.luau`, which maps to nothing and therefore to `all`):
 
-    [harness] PASS: 33/33 checks @ 012f0e5aabf5fb4fb02437b521fdc98f7da0ac8e (clean tree) scope=all
-    [harness] PASS: 33/33 checks @ 6c32b75524cb72ef0c27e69908badfc5997b85d1 (clean tree) scope=all
-    [harness2] PASS: 35/35 checks @ 6c32b75524cb72ef0c27e69908badfc5997b85d1 (clean tree)
+    [harness] PASS: 33/33 checks @ 94a31d614f919a0c66e0e5b01f00f5e97e0d3983 (clean tree) scope=all
+    [harness2] <the Director runs this; `src/server/Match/` is in TWO_PLAYER_PATHS>
 
-Round 1's two findings are both fixed and both were right. Round 1's eight notes: five fixed, three
-answered in place.
+Round 2's finding is fixed and it was right. Four of its five notes are fixed; the fifth is answered
+by a rename. **The threshold and one spec case differ from the dispatch's own numbers, for a
+measured reason -- see "Where this differs from the dispatch" at the end.**
 
-## Finding 1 -- the net asked the wrong question, and it was worse than the review could show
+## Finding 1 -- it read a neighbouring voxel, and the proof is the span itself
 
-"Where is the ground under this body" was answered by a ray from 300-600 studs UP, so the first
-solid thing OVERHEAD became the ground. I reproduced both of the Reviewer's cases in the live place
-before changing anything, with that world's OWN reader:
+`Region3.new(at - 2, at + 2):ExpandToGrid(4)` is four studs wide only when the coordinate is exactly
+2 (mod 4); at every other offset it expands to EIGHT -- two voxels per axis -- and
+`materials[1][1][1]` is the region's MINIMUM corner. Measured live at (3555, -3000):
 
-| where | asked from the sky | asked from root + 6 | the lie |
-|---|---|---|---|
-| under the log cabin, (2840, -2910) | **160.8** (`Lobby.Lodge.House.Log Cabin.Part`) | 150.0 (Terrain) | 10.8 studs; a man standing there measured **7.6 studs "under the ground"** |
-| under a canopy, (3450, -2900) | **221.3** (`Workspace.Session.Mesh Tree.OuterLeaves`) | 180.1 (Terrain) | **41.2 studs**, which is a beater's whole 580-stud walk |
+    span = 8, 8, 8   minimum = (3552, 192, -3004)
 
-One correction to the finding's citation, not to the finding: the live lodge has **no `RoofSouth` /
-`RoofNorth`** -- task 180 replaced `Build.roof` with a free model -- so the part that stops the ray
-is the cabin's own geometry. The shop counter itself happens to sit under the door gap and reads
-Terrain; six studs away, inside the cabin, it does not. The fault is exactly as described.
+A root at z -3000 was therefore asked about a cell **four studs away in z**. The function was
+answering about a neighbour, and the only thing standing between that and a 4 Hz teleport was
+`RESCUE_MOVED_STUDS` (1) against a ~0.5-stud gap -- a coincidence of two numbers, exactly as the
+review said.
 
-**The rule now: a downward ray can only hit what is BELOW its origin.**
+**It reads the containing cell now, by construction**: `min = floor(at / 4) * 4`, `max = min + 4`,
+always a 1x1x1 grid. **"Buried" is that cell solid AND the cell four studs above it solid** -- a
+body in the ground with ground over its head.
 
-* `ForestTest.groundAt` takes a `fromY`. `nil` is the old 600, kept for every caller that asks about
-  a COLUMN rather than about a body (`Markers.groundFor`, `Bots`, `Lobby.tryBuild`, the boar world).
-* `Body.groundUnder(x, z, fromY)` asks from `fromY + NEAR_PROBE_STUDS` (6) first. **Stage B, the far
-  cast, runs only when the near one found nothing** -- which is exactly "there is nothing below this
-  point": buried, or over a hole.
-* **Stage B has to exist, and that is measured, not assumed.** At (3555, -3000) with the surface at
-  191.6: from 197.6 down -> HIT 191.6; from 188.6 (three studs INSIDE) -> **MISS**; from 171.6
-  (twenty studs inside) -> **MISS**. A body buried in the hill cannot find its own surface by
-  looking down.
-* `Body.floorStep` **no longer asks for a depth at all.** Three questions, every one about the
-  body's own place: BURIED (`Body.insideTerrain`), OFF THE WORLD (below
-  `FallenPartsDestroyHeight + 100`), or FALLING THROUGH NOTHING (`FloorMaterial == Air` AND moving
-  down faster than `FALLING_SPEED_STUDS` AND a ray from the root finds no floor within
-  `FALL_PROBE_STUDS`). A character the engine says is standing is never touched by 2 or 3 and is
-  remembered as the last good place instead.
-* `Body.insideTerrain` is `Terrain:ReadVoxels`, measured here: four studs above the surface reads
-  `Air` 0.00, three studs inside `Grass` 0.91, twenty studs inside `Grass` 1.00, two hundred up
-  `Air` 0.00. Nothing overhead can change that answer.
+**The threshold is measured, and round 2's own occupancy table was taken from the wrong cells.**
+Reading the CONTAINING cell down four columns of the live place, by offset from the surface:
+
+| offset | (3555,-3000) | (3405,-3000) | (2850,-2934) | (3030,-2097) |
+|---|---|---|---|---|
+| -12 | 1.00 | 1.00 | 1.00 | 1.00 |
+| -8 | 0.98 | 1.00 | 1.00 | 0.89 |
+| -4 | 0.93 | 1.00 | 0.56 | 0.50 |
+| 0 | 0.39 | 0.46 | 0.00 | 0.00 |
+| +4 | 0.00 | 0.00 | 0.00 | 0.00 |
+
+A half puts the surface cell on the fence (0.46 and 0.50 are two of those readings), so
+`TERRAIN_SOLID_OCCUPANCY` is **0.75** -- in the gap between "within one cell of the surface"
+(<= 0.56) and "two or more cells down" (>= 0.89).
 
 ## Claims
 
-1. **Nothing above a point can be its ground any more.** `Body.groundUnder` asks the near stage
-   first and the far cast only on a miss; `Body.underGroundBy` and `Body.onGround` pass the point's
-   own Y into it.
-   *Verify:* `askGround` / `Body.groundUnder` in `src/server/Match/Body.luau`;
-   `tests/server/match_place.spec.luau`, describe "indoors and under a canopy" -- the reader
-   `roofedBuilding` answers the ROOF from the sky and the FLOOR from near a body, which is the live
-   geometry as arithmetic.
+1. **`Body.insideTerrain` reads the cell the point is in, and a second cell above it.** No
+   `ExpandToGrid`, no corner index, no neighbour.
+   *Verify:* `cellOf` / `cellIsSolid` / `Body.insideTerrain` in `src/server/Match/Body.luau`.
 
-2. **The net fires on three body-local facts and no depth.** Buried, off the world, or falling with
-   no floor beneath -- each asked of the body's own position or of the engine.
-   *Verify:* `Body.floorStep` and `fallingFreely`; `match_place.spec`, describe "Body.floorStep"
-   (nine cases, including "leaves a man STANDING UNDER A ROOF alone, however low the sky says the
-   ground is" and "leaves a beater UNDER A CANOPY alone").
+2. **A standing character cannot read "buried", by arithmetic as well as by measurement.** A root
+   is ~3 studs above its feet, so for its cell to be half solid the surface would have to be 2 studs
+   above that cell's floor -- which puts the root 5 studs above the floor of a 4-stud cell.
+   *Verify:* the proof is written at `Body.insideTerrain`; the measurement is claim 3.
 
-3. **Proved live, under the two things the Reviewer named.** 46 s standing under the cabin roof at
-   (2840, 153.1, -2910) and 39 s under the canopy at (3450, 183.3, -2900): not moved once, no
-   `[place] RESCUED` line, and the sampler's own from-above column recorded the lie all the way
-   through (160.7 `Part` and 221.3 `OuterLeaves` against terrain at 150.0 and 180.1).
-   *Verify:* `<runs-dir>/t192b-after.log`, the `-->` marker lines and the samples after each.
+3. **Specced against HAND-PLACED TERRAIN in DEV, at four residues mod 4.** Four columns whose x, z
+   and measured surface land on four different residues (surfaces 502.00, 503.02, 504.02, 505.00 --
+   residues 2, 3, 0, 1). Standing at +3.0 / +3.2 / +3.6 / +4.0 above the surface: **`Air` 0.00,
+   buried = false at all sixteen points.** Buried at -10 / -17.5 / -24: **`Grass` 1.00, buried =
+   true at all twelve.** A third case proves the cell above the surface and the cell well below it
+   are told apart, which the old span could not do.
+   *Verify:* `tests/server/match_place.spec.luau`, describe "Body.insideTerrain"; the two
+   `TestKit.note` lines in the harness report print every reading.
 
-4. **Finding 2: the guard asks both questions now.** `Match.isHeld` reads `heldStill` (written only
-   by `applyHold`) and a tie writes `tied`, so the comment claimed a fix the code did not make. The
-   guard is `Match.isHeld(...) or Match.isTied(...)`, and the comment says why they are two.
-   *Verify:* the `local frozen = ...` line in `src/server/ForestTestBoot.server.luau`.
+4. **The spec cannot damage the place, and that is checked rather than asserted.** The blocks are at
+   x 5000+, y 500; the region is REQUIRED to be empty before anything is written (a boolean every
+   case asserts, not an `expect` inside `beforeAll` -- which is what broke the first run of this
+   spec: the throw took the fill with it); the fill is cleared in `afterAll`; and a Play session's
+   terrain write never reaches the saved place, which is what the harness compares.
+   *Verify:* `beforeAll` / `afterAll` / `wasEmpty` in that describe; `git log` for the second
+   round-3 commit, which says the same thing.
 
-5. **Note 1: a rescue of nobody is not counted.** The net compares the target with where the body
-   already is and does nothing below `RESCUE_MOVED_STUDS`.
-   *Verify:* `Body.floorStep`; the case "counts nothing when there is nowhere to put him".
+5. **Live: four 60-second stands on real terrain, and one forced burial.** The lodge yard
+   (2845, -2934), and three points inside the player's own stand circle at (3030, -1517) x%4=2
+   z%4=3, (3035, -1514) x%4=3 z%4=2 and (3024, -1522) x%4=0 z%4=2 -- the first on flat shelf, the
+   other three on the forest's own slope. **Exactly one `[place] RESCUED` line in the whole session,
+   and it is the forced burial**:
 
-6. **Note 2: the hollow `forget` case is gone**, with a comment saying why rather than a silent
-   deletion -- `lastGood` cannot be populated from a spec, so the case could not fail.
-   *Verify:* the comment where it stood, in describe "Body.floorStep".
+       [place] RESCUED Alhamdulilah824: root (3024, 212.6, -1522) was inside solid terrain,
+       put back at (3024, 236.1, -1522)
 
-7. **Note 3: the wall asks the lift only when the clamp DISPLACED the body.** A hunter leaning on
-   his circle is moved a fraction of a stud a frame and now costs no raycast at all; the mid-drive
-   respawn the lift exists for arrives 900 studs away and still does.
-   *Verify:* `LIFT_WHEN_MOVED_STUDS` and the guard in `ForestTest.boundary`.
+   236.1 is where he had been standing a moment earlier -- so this is also the first live proof of
+   the `lastGood` branch, which round 2 could not exercise.
+   *Verify:* `<runs-dir>/t192c-console.txt`; the marker lines quoted in TASKS.md.
 
-8. **Note 4: the counter moved above `boundary`'s header**, so the header documents the function
-   again. **Note 8: dressing happens before the snap**, so a missed ray cannot delay the appearance
-   window. **The counter that measured a depth was renamed** to `Body.worstRescueStuds` -- the net
-   no longer measures one, so the old name would have been a lie.
-   *Verify:* `src/server/ForestTest/init.luau` around `LIFT_WHEN_MOVED_STUDS`; `Body.place`'s
-   `pivot`; `Body.worstRescueStuds`.
+6. **Note 1: the scene asks the reader from the layout point's own Y.** It was two arguments, so
+   the animals and the torches were still placed with the cast from the sky -- a carcass under one
+   of this place's canopies would have hung at canopy height.
+   *Verify:* `onGround` in `src/server/Match/Scene.luau`.
 
-9. **Notes 5, 6 and 7 are answered rather than changed.** 5 and 6 were miscounts in round 1's
-   request (five `PivotTo` sites, seven cases) and this request counts them correctly -- there are
-   now **five** `PivotTo` call sites in `Body` and **nine** cases in describe "Body.floorStep". 7:
-   the fallback ray is the DEV place's reader and never runs beside the forest's, and its header
-   now says so.
-   *Verify:* `grep -n ":PivotTo(" src/server/Match/Body.luau` prints five lines -- `settle`,
-   `place`, `standCharacter`, `floorStep`, `tieCharacter`; `askGround`'s header.
+7. **Note 2: `fromY` is in all three published types** (`groundReader`, `Body.setGroundReader`,
+   `Scene.build`'s `groundAt`), so a world that injects a two-argument reader is a type error rather
+   than a silent return of finding 1.
+   *Verify:* the three annotations.
 
-10. **The three-cycle proof was repeated whole.** Lobby -> truck pad -> drive -> drive end ->
-    gathering -> next round, three times, on the `edge`, `road` and `ride` layouts (hunter, beater,
-    hunter), with a mid-drive respawn. **2208 samples, 2201 living: foot height above the terrain
-    +0.10 to +5.30 -- NOT ONE living sample under the ground -- 0 unrequested deaths (the single
-    death was requested by the probe 0.1 s earlier), 0 rescues, 0 console errors.** The three
-    `[place]` lines per cycle: `gather ... dY -2.2 / +0.5 / +0.5` and `spawn ... (2850, 153.7,
-    -2934) ground=150.2 askedY=149.2 dY=+4.5` three times, which is the death that is gone.
-    *Verify:* `<runs-dir>/t192b-after.log`, `t192b-after-console.txt`.
+8. **Note 4: the net asks once and never yields.** `Body.onGround` takes `attempts`, and the
+   rescue passes 1 -- it runs inside `Match:step`, where a `task.wait` would delay the drive's own
+   tick. A placement still retries, because it can afford to wait for a region to stream.
+   *Verify:* `groundWithRetries` / `Body.onGround` / the `floorStep` call site.
+
+9. **Note 5: the two mis-titled cases are merged into one that names what it proves.** They passed
+   `never` as `buriedTest` with an anchored root, so they never reached the ground reader; the title
+   now says what they do test (the net's three questions are independent of the reader) and points
+   at the two describes that hold the real guards.
+   *Verify:* the case "asks no depth at all: a reader that answers 14 studs too high moves nobody".
+
+10. **Note 3 is answered by a correction, not a change.** Claim 1 of round 2 ("Nothing above a point
+    can be its ground any more") overstated it: stage B is still the cast from 600 and it runs on
+    the buried case. The headline is dropped and claim 1 of this round says what the code does.
+    *Verify:* this document's claim 1.
 
 ## What I could not verify
 
 * **`test2`.** `src/server/Match/` is in `TWO_PLAYER_PATHS`, so the MERGE needs a two-player line
   and that needs a human F7. The review does not: the pasted line is `scope=all`.
-* **The "last good position" write.** It happens only when `Humanoid.FloorMaterial` says the engine
-  has the body standing, and that property cannot be set from Luau, so the specs drive the other
-  branch and assert that nothing was remembered. Round 1's live run printed the write working
-  (`put back at (3555, 195.1, -3000)`, which was his stand); this run never needed a rescue at all,
-  which is the better outcome and leaves that line unexercised in the live log.
-* **`Body.insideTerrain` against real terrain.** The specs drive `buriedTest` as a seam because
-  `ReadVoxels` needs terrain; the engine half is the measurement table above
-  (`Air` 0.00 / `Grass` 0.91 / `Grass` 1.00), taken in the place Karen plays.
-* **"Terrain is broken" is still not a terrain defect**, as far as I could measure: 564 ray samples
-  over the lobby, the drive area and the road corridor with **0 misses (no holes)**, the stands'
-  two ground readings agreeing to 0.00, and four screenshots from a player's height. Unchanged from
-  round 1.
+* **THE PER-SAMPLE LOG OF THE FOUR STANDS IS LOST, and that is my mistake.** I stopped Play before
+  dumping the 0.5 s sampler, and it lived in the session's `shared` table. What survives is the
+  console (exactly one `RESCUED` line, the forced burial), the marker lines with each spot's
+  coordinates and residues, `deaths = 0`, and an earlier analysed window from the same session
+  showing 119 consecutive samples at the lodge yard with **zero** position change. The claim
+  "nothing moved him" therefore rests on the absence of a rescue rather than on 480 logged
+  positions. Round 2's three-cycle log (`t192b-after.log`, 2208 samples, none under the ground) is
+  unaffected and still stands.
+* **The shallow burial case.** See below.
+
+## Where this differs from the dispatch, and why
+
+The dispatch asked for `occupancy >= 0.5` and for a spec case "root embedded 3+ studs deep ->
+buried". The measured profile makes those two incompatible with each other: at 3 studs deep the root
+is in the cell the surface crosses, which reads **0.39-0.56** across the four columns -- so 0.5
+decides that case by coin-flip, and anything low enough to catch it reliably also hands the surface
+cell to a character standing on top of it, which is round 1's finding returning. The two-cell rule
+answers FALSE at 3 studs deep for the same reason: there is open air over that body's head.
+
+I implemented the dispatch's RULE (containing cell, plus the cell above) and changed its NUMBER
+(0.75, measured), and the spec asserts burial at 10 / 17.5 / 24 studs instead of 3. The shallow case
+is left to the placement rule that prevents it and to the engine, which ejects a body with air above
+it rather than trapping it; the three real failures this net exists for were 4, 17.5 and 47.8 studs,
+and the 4-stud one was a placement, now snapped. **If the Director wants 3 studs caught as well,
+that is a different mechanism (the feet rather than the root, or a ray up from the body) and a
+fourth round -- it is not a threshold tweak.**

@@ -73,6 +73,62 @@ None of the four is a streaming fault (`Workspace.StreamingEnabled` is true in t
 server's own rays answered at every point). All four are the same mistake: **a `Y` that was not
 measured at the point it is used for.**
 
+## 2b. Round 2 and round 3: the reader's starting height, and the voxel it reads
+
+**Round 2 (Reviewer round 1, finding 1).** "Where is the ground under this body" was answered by a
+ray from 300-600 studs UP, so the first solid thing OVERHEAD became the ground. Measured live with
+this world's own reader: under the log cabin at (2840, -2910) it answers **160.8** against a floor
+of **150.0**; under a canopy at (3450, -2900) it answers **221.3**
+(`Workspace.Session.Mesh Tree.OuterLeaves`) against terrain at **180.1** -- a 41-stud lie, over the
+ground a beater walks for 580 studs. A downward ray can only hit what is BELOW its origin, so the
+reader now takes a `fromY` and `Body.groundUnder` asks from the point + 6 first. The far cast
+remains, and has to: **a downward ray that starts inside a solid MISSES** -- at (3555, -3000) with
+the surface at 191.6, from 197.6 HIT 191.6, from 188.6 MISS, from 171.6 MISS -- so a buried point
+cannot find its own surface by looking down.
+
+**Round 3 (Reviewer round 2, finding 1), AND IT CORRECTS A MEASUREMENT IN SECTION 5 BELOW.**
+`Body.insideTerrain` read `Region3.new(at - 2, at + 2):ExpandToGrid(4)` and took index `[1][1][1]`.
+That region is four studs wide only when the coordinate is exactly 2 (mod 4); at every other offset
+it expands to EIGHT -- two voxels per axis -- and index 1 is the region's MINIMUM corner, which
+`MapGen.Ground.paintTrack` already writes down as `rmin = region.CFrame.Position - region.Size / 2`.
+Measured at (3555, -3000): the span came back `8, 8, 8` with its minimum at `(3552, 192, -3004)`, so
+for a root at z -3000 **the cell actually read was four studs away in z**.
+
+**So round 2's occupancy table was itself taken from the wrong cells, and this is the corrected
+one.** Reading the CONTAINING cell (`min = floor(at / 4) * 4`, `max = min + 4`) down four columns of
+the live place, by offset from the measured surface:
+
+| offset | (3555, -3000) | (3405, -3000) | (2850, -2934) | (3030, -2097) |
+|---|---|---|---|---|
+| -12 | 1.00 | 1.00 | 1.00 | 1.00 |
+| -8 | 0.98 | 1.00 | 1.00 | 0.89 |
+| -4 | 0.93 | 1.00 | 0.56 | 0.50 |
+| 0 | 0.39 | 0.46 | 0.00 | 0.00 |
+| +4 | 0.00 | 0.00 | 0.00 | 0.00 |
+
+A half would put the cell the surface crosses on the fence (0.46 and 0.50 are two of those
+readings), so `TERRAIN_SOLID_OCCUPANCY` is **0.75**, in the gap between "within one cell of the
+surface" (<= 0.56) and "two or more cells down" (>= 0.89).
+
+**"Buried" is two cells, not one**: the cell the root is in AND the cell four studs above it. One
+cell alone is a body settling half a stud low; two is a body with ground over its head.
+
+**A standing character cannot read "buried", by arithmetic as well as by measurement.** A root sits
+about 3 studs above its own feet, so for its cell to be half solid the surface would have to be at
+least 2 studs above that cell's floor -- which puts the root at least 5 studs above the floor of a
+cell that is 4 studs tall. It cannot happen. Measured at all four columns: a settled root reads
+`Air` 0.00.
+
+**THE ONE PLACE THIS DEVIATES FROM THE DISPATCH, stated rather than buried.** Task 192 round 3's
+dispatch asked for a spec case "root embedded 3+ studs deep -> buried". With the measured profile a
+root 3 studs under the surface sits in the cell the surface crosses (0.39-0.56) with AIR above it,
+so the two-cell rule answers FALSE there, and raising the threshold to catch it would hand the
+surface cell back to a standing character. The shallow case is also not the failure this net exists
+for: the three real ones were 4, 17.5 and 47.8 studs, the 4-stud one is a placement the snap now
+prevents, and a body with air over its head is ejected upward by the engine rather than trapped. The
+spec therefore asserts burial at 10, 17.5 and 24 studs and the shallow case is left to the placement
+rule. That is a judgement about a number, and it belongs to the Director.
+
 ## 3. Sources
 
 | # | Source | Licence / status | What it does well | What it does badly |
