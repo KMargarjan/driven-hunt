@@ -235,3 +235,85 @@ fails both (0.212 against 0.495, and -0.538 studs of trail).
    travel; the mid-cycle phases are covered by the spec rather than by eye, because the hand is
    carried rigidly by the bolt's own transform and the lift is a turn about the gun's Z, which
    cannot change which end is nearest the knob.
+
+## 9. TASK 190: the palm was the half of the frame this note GUESSED
+
+Karen, 2026-10-15 ~16:30, after playing the merge of this task:
+
+> *"now right hand reload with outside of fingersit has to palm inside now is outside fix that"*
+
+**She is describing section 8.2 and TASKS.md 189a(k), which this note wrote down as an open question
+and shipped anyway.** Marker balls on +X and -X settle ONE AXIS. A frame needs two, and the second
+was filled in by ASSUMING the import mirrors the mesh in X -- which flips `fingers` and leaves
+`palm` pointing the wrong way along Z. Section 8.2 said the transform was "not established" and that
+"nothing here depends on it". The second clause was wrong: `align` squares the palm against the
+fingers, so the palm's sign IS the roll of every right hand in the game.
+
+**MEASURED THE SAME WAY, ON THE OTHER AXIS.** The published `HandRight` template was cloned into the
+sky at identity rotation with neon balls on its own +-Y and +-Z and photographed down all four
+faces. **The -Z face is the PALM** (`.screenshots/t190-glove-minusZ.png`): it is the prep's own
+`render_across.png` frame for frame -- the thumb and the index closing a ring you can see through,
+the finger pads below it -- while +Z is `render_across-back.png`, the stitched back panel and the
+knuckles.
+
+**AND THAT CLOSES 8.2: IT IS A ROTATION, NOT A MIRROR.** In the drawn part the thumb lies at +Y with
+the fingers at +X and the palm at -Z, so `thumb = fingers x palm` -- the RIGHT-hand relation. A
+mirror turns a right glove into a left one and would break it. So the import is the proper rotation
+carrying the file's (-X fingers, +Z palm) to the part's (+X, -Z), a half turn about Y, and both
+measured signs are what that rotation predicts.
+
+**THE LANDMARKS GO BACK TO TASK 188's Z.** A proper rotation moves no coordinate in the aligned
+frame -- `(Rp).(Re) = p.e` on all three axes, cross product included -- so section 3's claim that
+"only their Z changes" was a consequence of the mirror and goes with it. Recomputed off the same
+prepped mesh in the same way: fingertip `(0.3324, -0.0599, +0.0178)`, cuff `(-0.3238, -0.0105,
+-0.0315)`, agreeing with task 188 in X and Y to 2e-4.
+
+### 9.1 What it was worth, measured on the player's path
+
+One probe in a Play session, reading the DRAWN parts, printing the same frame two ways: the real
+palm as the pre-190 build drew it and as this build draws it.
+
+| | before | after |
+|---|---|---|
+| hip, palm against the wrist of the stock | 115.5-154.0 deg | **37.3-70.0 deg** |
+| bolt stroke (79 samples, fist within 0.10 of the knob), palm against the bolt's own axis | 111.0-117.9 deg | **73.3-80.3 deg** |
+
+Section 7's two checks still hold: the fingertip is **0.103-0.178** studs from the knob against the
+cuff's **0.490-0.573**, and the cuff trails by **0.40-0.56**.
+
+**HONEST ABOUT THE BOLT NUMBER (rule 8):** 73-80 degrees is on the right side of 90 but grazing, and
+that is inherent rather than a leftover. A closed fist's palm normal IS the axis of the hole the
+fist makes, and the knob sits IN that hole -- `GRIP_STUDS` is at aligned Y = 0, the middle of the
+hand -- so the component pointing at the receiver is small whichever way round the hand is. **The
+SIGN is the measurement.** Karen looked at `.screenshots/t190-bolt-after.png` and
+`t190-hip-after.png` and said *"now is ok"*.
+
+### 9.2 The thing the gate caught that no amount of care had
+
+The five accepted hands were re-expressed by section 3a's transport, and the first run of the gate
+failed three cases. **`Viewmodel.hornPose` does not read its three angles in `Mode.handOffset`'s
+order.** The horn builds its right hand as `CFrame.Angles(pitch, yaw, twist)` -- `Rx*Ry*Rz` -- and a
+gun's is `Ry(yaw)*Rz(pitch)*Rx(twist)`. A transport computed in the wrong one of those moved the
+drawn horn hand **58.3 degrees**. Recomputed in the horn's own order it reproduces today's hand to
+**5.8e-16**. Two conventions for three angles with the same three names is the real hazard here, and
+TASKS.md 190a(a) is the row for making it one.
+
+The other two were the yardstick moving, not the hands. `viewmodel_poses.spec`'s five pins are
+`offset:PointToWorldSpace(landmark)`, so they move when the LANDMARK's Z goes back to task 188's
+sign; the drawn hands do not. And `camera_mode`'s *"the two hands are posed differently"* compared
+the two POSE frames -- each read in its own glove's aligned convention -- so its answer moved every
+time either axis was re-measured (**139** degrees on task 188's numbers, **177** on task 189's,
+**41.9** on task 190's) while the hands stood still. It measures the DRAWN rotations now and reads
+**152.1** degrees on both sides of this task.
+
+### 9.3 What task 190 could not verify (rule 8)
+
+1. **Whether the roll wants finishing.** The sign flipped and Karen said *"now is ok"*; whether 73-80
+   degrees reads as a closed fist to her over a longer play is hers.
+2. **The LEFT glove is still untouched** -- 189a(a), with the same kind of guess still in it. The
+   marker test that settled this one would settle it too.
+3. **The Forest Test Studio could not be confirmed Rojo-synced** from here: every Rojo script's
+   `Source` reads empty through StudioMCP in that place while DEV's reads correctly. Reported as a
+   NEEDS KAREN (press Connect) rather than worked around.
+4. **The rifle draws with a red-marble-and-gold texture in the DEV place**
+   (`.screenshots/t190-bolt-after.png`). Seen, reported, not touched.
