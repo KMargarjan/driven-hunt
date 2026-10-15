@@ -1,5 +1,39 @@
 # Escalations
 
+## 2026-10-15 - Task 192: NEEDS TEST2 192 b0e2c6cb119a2a155276de198e9cc97316218274
+
+**The work is finished, pushed and ready to review, and the review is refused for one missing line.**
+`tools/agents.py` says, verbatim:
+
+    [agents] REFUSED: this change touches src/server/Match/Body.luau, src/server/Match/Scene.luau,
+    src/server/Match/init.luau, which a one-player run cannot evidence. Paste the TWO-PLAYER line for
+    the code commit as well:
+      [harness2] PASS: n/m checks @ b0e2c6cb119a2a155276de198e9cc97316218274 (clean tree)
+
+**Why I did not produce it myself:** the dispatch says so in its own gate rule -- *"TWO_PLAYER_PATHS
+still need my test2 (stop `NEEDS TEST2 192 <sha>` if so)"* -- and `test2` needs the F7 and
+End-Session clicks plus a Cleanup click afterwards that only a person makes. I am not going to leave
+three orphan Studio processes open against the Director's own instruction.
+
+**I could have dodged it and did not, which is worth one line.** `agents.py` asks for no `[harness2]`
+at all when the pasted line is `scope=auto:...`. This branch resolves to `scope=all` ONLY because
+`src/server/ForestTestBoot.server.luau` is unmapped in `BLAST_RADIUS`; adding a row for it would have
+produced a scoped line and walked the review straight past the two-player gate. That is gaming the
+evidence, so the full run is what is pasted.
+
+**What is already green**, on the clean tree, at the code commit:
+
+    [harness] PASS: 33/33 checks @ b0e2c6cb119a2a155276de198e9cc97316218274 (clean tree) scope=all
+
+(1501 server + 343 client assertions, the FULL suite -- which is also the merge evidence the
+one-player half of git-workflow step 4 asks for.) Plus `SMOKE PASS` and three full lobby -> drive ->
+gathering -> next-round cycles with 0 unrequested deaths.
+
+**What the Director needs to do:** `python tools/studio_mcp.py test2` on the clean tree at
+`b0e2c6c`, then either paste the `[harness2]` line into `reviews/task-192/REQUEST.md` and run
+`powershell -ExecutionPolicy Bypass -File tools/review.ps1 192`, or hand it back to a Builder with
+the line. Nothing else about the branch is waiting on anything.
+
 ## 2026-10-14 - Task 179: READY FOR ROUND 4 179 f13ad7d -- the cap is reached; this needs Karen's OK
 
 **`MAX_ROUNDS` IS 3 AND ROUND 3 CAME BACK WITH FINDINGS.** `tools/review.sh` will refuse `Round: 4`,
