@@ -1,6 +1,44 @@
 # Escalations
 
-## 2026-10-15 - Task 192: NEEDS TEST2 192 b0e2c6cb119a2a155276de198e9cc97316218274
+## 2026-10-16 - Task 192 ROUND 2: NEEDS TEST2 192 012f0e5aabf5fb4fb02437b521fdc98f7da0ac8e
+
+**Round 1's two findings are fixed, the round-2 work is pushed, and `tools/review.ps1 192` is
+refused for the same one missing line as round 1:**
+
+    [agents] REFUSED: this change touches src/server/Match/Body.luau, src/server/Match/Scene.luau,
+    src/server/Match/init.luau, which a one-player run cannot evidence. Paste the TWO-PLAYER line for
+    the code commit as well:
+      [harness2] PASS: n/m checks @ 012f0e5aabf5fb4fb02437b521fdc98f7da0ac8e (clean tree)
+
+The dispatch said so itself -- *"[harness2] placeholder (I run it). Stop `NEEDS TEST2 192 <sha>`"* --
+so this is the handover, not a surprise.
+
+**What is already green**, on the clean tree, at the code commit:
+
+    [harness] PASS: 33/33 checks @ 012f0e5aabf5fb4fb02437b521fdc98f7da0ac8e (clean tree) scope=all
+
+**Finding 1 was right and was worse than the review could show.** Measured live, with the world's
+own reader, before anything was changed:
+
+* under the log cabin at (2840, -2910): from the sky it answers **160.8** (the cabin's own
+  geometry); the floor is **150.0**. A man standing there measured 7.6 studs *"under the ground"*.
+* under a canopy at (3450, -2900): from the sky it answers **221.3**
+  (`Workspace.Session.Mesh Tree.OuterLeaves`); the terrain is **180.1** -- a **41-stud lie**, which
+  is a beater's whole 580-stud walk.
+
+The rule is now that a downward ray can only hit what is BELOW its origin, and the net asks no depth
+at all -- buried (`ReadVoxels`), off the world, or falling with no floor beneath.
+
+**Round 2's own proof:** 46 s standing under the cabin roof and 39 s under the canopy with no move
+and no `[place] RESCUED` line, then three full cycles (edge / road / ride; hunter, beater, hunter)
+with a mid-drive respawn. 2208 samples, 2201 living: foot height above the terrain **+0.10 to
++5.30**, not one living sample under the ground, 0 unrequested deaths, 0 rescues, 0 console errors.
+
+**What the Director needs to do:** `python tools/studio_mcp.py test2` on the clean tree at
+`012f0e5`, paste the `[harness2]` line into `reviews/task-192/REQUEST.md` where the placeholder
+is, then `powershell -ExecutionPolicy Bypass -File tools/review.ps1 192`. Nothing else is waiting.
+
+## 2026-10-15 - Task 192 round 1: NEEDS TEST2 192 b0e2c6cb119a2a155276de198e9cc97316218274 (ANSWERED: the Director ran it, and the review came back with two findings)
 
 **The work is finished, pushed and ready to review, and the review is refused for one missing line.**
 `tools/agents.py` says, verbatim:
