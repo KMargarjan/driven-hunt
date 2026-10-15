@@ -37,9 +37,14 @@ local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestK
 -- 223.4 and 228.2 over 750 studs of x -- about 0.11 studs of climb per stud east. This is that
 -- slope, exactly: a reader whose answer DEPENDS on where it is asked, which is the whole of what the
 -- defect could not see.
-local function hillside(base: number)
+--
+-- IT IS ANCHORED AT A POINT, so `base` is the ground AT `anchorX` and every error this file prints
+-- is the error over the DISTANCE in the case, not over the distance from the world origin. A note
+-- reading "205 studs" about a ring 14 studs across is a true number about the wrong thing, which is
+-- the class of mistake this whole task is about.
+local function hillside(base: number, anchorX: number)
 	return function(x: number, _z: number): number?
-		return base + x * 0.11
+		return base + (x - anchorX) * 0.11
 	end
 end
 
@@ -73,7 +78,7 @@ return function()
 			-- 14-stud ring at that one Y. Over the hillside above, two points 138 studs apart differ
 			-- by 15.2 studs -- so a rule that measures per point and a rule that does not cannot
 			-- agree, and this is the assertion that says which one is in the code.
-			Body.setGroundReader(hillside(0))
+			Body.setGroundReader(hillside(171, 3405))
 			local _, near = Body.onGround(CFrame.new(3405, 171, -3000), CLEARANCE)
 			local _, far = Body.onGround(CFrame.new(3543, 171, -3001), CLEARANCE)
 			expect(near).to.be.ok()
@@ -120,7 +125,8 @@ return function()
 		end)
 
 		it("ends with every slot on its own ground, where one flat Y was 15 studs out", function()
-			Body.setGroundReader(hillside(0))
+			local slope = hillside(171, 3405)
+			Body.setGroundReader(slope)
 			-- The ring exactly as `Match.applyScene` builds it: one spot, one flat Y, eight people.
 			local spot = Vector3.new(3405, 171, -3024)
 			local ring = Scene.ringLayout(spot, 8, Match.CONFIG, 0)
@@ -128,7 +134,7 @@ return function()
 			local worstFlat, worstSnapped = 0, 0
 			for _, slot in ipairs(ring) do
 				local at = slot.Position
-				local ground = (hillside(0))(at.X, at.Z) :: number
+				local ground = slope(at.X, at.Z) :: number
 				-- WHAT THE OLD RULE LEFT: the flat ring's Y against the ground under that slot.
 				worstFlat = math.max(worstFlat, math.abs(at.Y - (ground + CLEARANCE)))
 				local put = Body.onGround(slot, CLEARANCE) :: CFrame
@@ -145,11 +151,12 @@ return function()
 			-- 1.5 studs out even before the 24-stud carry and the 138-stud drag that were measured
 			-- live. Snapped, every slot is exact.
 			expect(worstFlat > 1).to.equal(true)
+			expect(worstFlat < 2).to.equal(true) -- 14 * 0.11, and nothing bigger: the ring is the case
 			expect(worstSnapped < 1e-4).to.equal(true)
 		end)
 
 		it("lays the animals and the torches on their own ground when it is handed a reader", function()
-			local reader = hillside(0)
+			local reader = hillside(50, 200)
 			local spot = Vector3.new(200, 50, -100)
 			local kills = { { kind = "male" }, { kind = "female" }, { kind = "cub" } }
 			Scene.build(spot, Vector3.zAxis, kills, Match.CONFIG, nil, reader)
