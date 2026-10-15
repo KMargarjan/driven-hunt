@@ -1021,6 +1021,22 @@ return function()
 	-- alignment task 188 drew with. They are an outside constant: they come from the build Karen
 	-- played, not from the file this case reads. Flip the axis again without re-expressing these
 	-- five and every one of them moves about 150 degrees, which is what this fails on.
+	--
+	-- THEY MOVED IN TASK 190 AND THE HANDS DID NOT, which is worth being exact about. These are
+	-- `offset:PointToWorldSpace(landmark)`, and the LANDMARK is a constant in the aligned frame --
+	-- so the point this case reads moves when either the POSE or the LANDMARK changes. Task 190 put
+	-- `FINGERTIP_STUDS`'s and `CUFF_STUDS`'s Z back to task 188's sign (the import is a rotation,
+	-- not a mirror, so no aligned coordinate ever moved; `HandAssets` has the measurement), which
+	-- shifts every number below by up to 0.063 studs. The DRAWN hands are untouched: the transport
+	-- reproduces each of the five to 6e-16, and `camera_mode.spec`'s "the two hands are posed
+	-- differently" measures the drawn rotations and reads the same 152.1 degrees either side of
+	-- this task. So what changed is the yardstick, not the hand.
+	--
+	-- AND THE HORN'S TWO ANGLES ARE NOT READ IN THIS ORDER. `Viewmodel.hornPose` builds its right
+	-- hand as `CFrame.Angles(pitch, yaw, twist)` -- Rx*Ry*Rz -- while `Mode.handOffset` builds the
+	-- gun's as `Ry(yaw)*Rz(pitch)*Rx(twist)`. A transport computed in the wrong one of those moves
+	-- the drawn horn hand 58.3 degrees, which is exactly what the horn case below caught in task
+	-- 190's first gate run.
 	describe("the shotgun's and the horn's right hand did not move (task 189)", function()
 		local shotgunConfig = configWith(true, Data.DATA)
 		local hornPoses = Data.view(Data.DATA).HORN
@@ -1035,14 +1051,14 @@ return function()
 				{
 					name = "carry",
 					state = stateAt(0, 0),
-					tip = Vector3.new(-0.1500, 0.0054, 0.7422),
-					cuff = Vector3.new(0.0348, -0.4438, 1.1891),
+					tip = Vector3.new(-0.1007, 0.0658, 0.7872),
+					cuff = Vector3.new(0.0605, -0.4124, 1.2124),
 				},
 				{
 					name = "aimed",
 					state = stateAt(1, 0),
-					tip = Vector3.new(0.2030, -0.3244, 1.3498),
-					cuff = Vector3.new(-0.2462, -0.1396, 0.9029),
+					tip = Vector3.new(0.2634, -0.2751, 1.3048),
+					cuff = Vector3.new(-0.2148, -0.1139, 0.8796),
 				},
 			}) do
 				local tip, cuff = ends(Mode.handOffsetAt("right", case.state, shotgunConfig))
@@ -1078,8 +1094,8 @@ return function()
 					cuff.Z
 				)
 			)
-			expect((tip - Vector3.new(-0.1242, -0.1254, 0.0362)).Magnitude < TOLERANCE).to.equal(true)
-			expect((cuff - Vector3.new(0.1426, -0.2357, 0.6298)).Magnitude < TOLERANCE).to.equal(true)
+			expect((tip - Vector3.new(-0.1295, -0.0382, 0.0582)).Magnitude < TOLERANCE).to.equal(true)
+			expect((cuff - Vector3.new(0.1399, -0.1903, 0.6411)).Magnitude < TOLERANCE).to.equal(true)
 		end)
 
 		it("...and the shotgun's carry hand holds the gun with the fingers, like the rifle's", function()
