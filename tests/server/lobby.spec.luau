@@ -1082,9 +1082,14 @@ return function()
 			for stepX = -2, 2 do
 				for stepY = 0, 8 do
 					for stepZ = -1, 1 do
+						-- THE SNAPPED HEIGHT, not the config's wish (round 3's note): the wall is cut
+						-- by whole courses, so the opening a player walks through is
+						-- `floor(HEIGHT / d) * d` tall and that is the volume to sample.
+						local tall = math.floor(CFG.LODGE.DOOR.HEIGHT / CFG.LODGE.LOG_DIAMETER + 0.5)
+							* CFG.LODGE.LOG_DIAMETER
 						local at = Vector3.new(
 							origin.X + stepX * (CFG.LODGE.DOOR.WIDTH / 2 - 0.4) / 2,
-							room.centre.Y + 0.3 + stepY * (CFG.LODGE.DOOR.HEIGHT - 0.6) / 8,
+							room.centre.Y + 0.3 + stepY * (tall - 0.6) / 8,
 							frontZ + stepZ * CFG.LODGE.LOG_DIAMETER / 2
 						)
 						for _, descendant in ipairs(folder:GetDescendants()) do
@@ -1118,7 +1123,13 @@ return function()
 			local other = Instance.new("Folder")
 			other.Name = "LobbyFarSpecWorld"
 			other.Parent = Workspace
-			local built = Build.build(other, far, CFG, nil)
+			-- EVEN THE BUILD ITSELF (round 3's note): a throw inside `Build.build` would leave this
+			-- folder, and its enabled `SpawnLocation`, in `Workspace` for the rest of the run.
+			local ok, built = pcall(Build.build, other, far, CFG, nil)
+			if not ok then
+				other:Destroy()
+				error(tostring(built), 0)
+			end
 			local origin = far + CFG.LODGE.OFFSET
 			local room = Build.roomFor(far, CFG)
 			local d = CFG.LODGE.LOG_DIAMETER
@@ -1292,6 +1303,50 @@ return function()
 					end
 				end
 			end
+		end)
+
+		it("hangs the OUTSIDE antlers clear of the roof, facing out of the building", function()
+			-- ROUND 3'S BLOCKING FINDING. The stag "over the door" was hung at `doorTop + 5.2`, which
+			-- is 1.6 studs ABOVE the top of the logs on an EAVES wall -- the ridge runs along x, so
+			-- the south front has no gable at all -- and the roof's own slope is already BELOW the
+			-- wall top where it meets it. The mount was skewered by the slab, most of it stood out of
+			-- the south slope, and it faced INTO the roof void. Nothing in the suite could see it:
+			-- every trophy case reads the `Trophies` folder and this one is `Antlers`.
+			local room = Build.roomFor(anchor, CFG)
+			local origin = anchor + CFG.LODGE.OFFSET
+			local wallTop = room.centre.Y + room.height
+			local pitch = math.atan2(origin.Y + CFG.LODGE.RIDGE_STUDS - wallTop, CFG.LODGE.SIZE.Z / 2)
+			local underEave = wallTop - CFG.LODGE.ROOF.THICK / 2 / math.cos(pitch)
+			local outside = folder:FindFirstChild("Antlers", true)
+			expect(outside).to.be.ok()
+			local doorParts, gableParts = 0, 0
+			for _, descendant in ipairs((outside :: Instance):GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					local piece = descendant :: BasePart
+					-- THE SAME BOX PROJECTION the trophy wall is held to: a beam's top is a stud and
+					-- a half above its middle, and it is the TOP that goes through a roof.
+					local _, _, _, _, _, _, m10, m11, m12 = piece.CFrame:GetComponents()
+					local reach = 0.5
+						* (math.abs(m10) * piece.Size.X + math.abs(m11) * piece.Size.Y + math.abs(m12) * piece.Size.Z)
+					if string.sub(piece.Name, 1, 8) == "DoorStag" then
+						doorParts += 1
+						-- OVER THE DOOR: above the lintel, UNDER the roof slope, and SOUTH of the
+						-- wall -- the last one is "facing out of the building", measured.
+						expect(piece.Position.Y - reach >= room.centre.Y + CFG.LODGE.DOOR.HEIGHT).to.equal(true)
+						expect(piece.Position.Y + reach <= underEave).to.equal(true)
+						expect(piece.Position.Z < origin.Z - CFG.LODGE.SIZE.Z / 2).to.equal(true)
+					else
+						gableParts += 1
+						-- ON THE EAST GABLE: above the logs, below the ridge, and EAST of the wall.
+						expect(piece.Position.Y - reach >= wallTop).to.equal(true)
+						expect(piece.Position.Y + reach <= origin.Y + CFG.LODGE.RIDGE_STUDS).to.equal(true)
+						expect(piece.Position.X > origin.X + CFG.LODGE.SIZE.X / 2).to.equal(true)
+					end
+				end
+			end
+			-- BOTH OF THEM ARE REALLY THERE: a bound nothing satisfies is a bound nothing proves.
+			expect(doorParts > 3).to.equal(true)
+			expect(gableParts > 3).to.equal(true)
 		end)
 
 		it("has a warm inside: a real fire, the lanterns, and the shop counter task 178 fills", function()

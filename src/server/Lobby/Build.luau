@@ -689,8 +689,8 @@ local function doorway(folder: Instance, origin: Vector3, floorY: number, height
 	for _, side in ipairs({ -1, 1 }) do
 		part(
 			string.format("DoorPost%s", if side < 0 then "W" else "E"),
-			Vector3.new(1.1, height + 0.8, d + 0.9),
-			CFrame.new(origin.X + side * (spec.WIDTH + 1.1) / 2, floorY + (height + 0.8) / 2, faceZ),
+			Vector3.new(1.1, height + spec.LINTEL_STUDS, d + 0.9),
+			CFrame.new(origin.X + side * (spec.WIDTH + 1.1) / 2, floorY + (height + spec.LINTEL_STUDS) / 2, faceZ),
 			cfg.LODGE.TIMBER_COLOR,
 			Enum.Material.Wood,
 			true,
@@ -699,8 +699,8 @@ local function doorway(folder: Instance, origin: Vector3, floorY: number, height
 	end
 	part(
 		"DoorLintel",
-		Vector3.new(spec.WIDTH + 3.4, 1.4, d + 1.4),
-		CFrame.new(origin.X, floorY + height + 0.7, faceZ),
+		Vector3.new(spec.WIDTH + 3.4, spec.LINTEL_STUDS, d + 1.4),
+		CFrame.new(origin.X, floorY + height + spec.LINTEL_STUDS / 2, faceZ),
 		cfg.LODGE.TIMBER_COLOR,
 		Enum.Material.Wood,
 		true,
@@ -1494,6 +1494,39 @@ local function spanY(piece: BasePart): (number, number)
 	return piece.Position.Y - half, piece.Position.Y + half
 end
 
+-- SLIDE A WHOLE MOUNT UNTIL IT IS INSIDE A BAND, or say it cannot be. Down from the top first and
+-- then up off the bottom, so a mount taller than its band ends resting on the floor rather than
+-- through the ceiling -- the better of the two wrong answers.
+--
+-- IT IS A FUNCTION BECAUSE IT HAS THREE CALLERS NOW (round 3): the twelve wall mounts, the antlers
+-- over the door and the stag on the gable. The last two were hung on arithmetic instead, and the
+-- door's one was driven straight through the roof's south slope -- the same class of mistake as the
+-- porch roof, and for the same reason: a 44-degree eave is already lower at the wall than the wall
+-- top is.
+local function fitBetween(folder: Instance, low: number, high: number): number
+	local lowest, highest = math.huge, -math.huge
+	for _, piece in ipairs(folder:GetChildren()) do
+		if piece:IsA("BasePart") then
+			local bottom, top = spanY(piece :: BasePart)
+			lowest, highest = math.min(lowest, bottom), math.max(highest, top)
+		end
+	end
+	if lowest == math.huge then
+		return 0
+	end
+	local shift = math.min(0, high - highest)
+	shift += math.max(0, low - (lowest + shift))
+	if math.abs(shift) > 1e-4 then
+		for _, piece in ipairs(folder:GetChildren()) do
+			if piece:IsA("BasePart") then
+				local moved = piece :: BasePart
+				moved.CFrame = moved.CFrame + Vector3.new(0, shift, 0)
+			end
+		end
+	end
+	return shift
+end
+
 local function trophies(inside: Instance, room: Room, cfg)
 	local folder = Instance.new("Folder")
 	folder.Name = "Trophies"
@@ -1523,26 +1556,7 @@ local function trophies(inside: Instance, room: Room, cfg)
 		else
 			antlerMount(one, name, face, kind, cfg)
 		end
-		local lowest, highest = math.huge, -math.huge
-		for _, piece in ipairs(one:GetChildren()) do
-			if piece:IsA("BasePart") then
-				local bottom, top = spanY(piece :: BasePart)
-				lowest, highest = math.min(lowest, bottom), math.max(highest, top)
-			end
-		end
-		-- DOWN FROM THE BOARDS FIRST, THEN UP OFF THE FLOOR: a mount taller than the room would
-		-- fight itself, and in that order it ends resting on the floor rather than through the
-		-- ceiling, which is the better of the two wrong answers.
-		local shift = math.min(0, room.centre.Y + room.height - 0.3 - highest)
-		shift += math.max(0, room.centre.Y + 0.3 - (lowest + shift))
-		if math.abs(shift) > 1e-4 then
-			for _, piece in ipairs(one:GetChildren()) do
-				if piece:IsA("BasePart") then
-					local moved = piece :: BasePart
-					moved.CFrame = moved.CFrame + Vector3.new(0, shift, 0)
-				end
-			end
-		end
+		fitBetween(one, room.centre.Y + 0.3, room.centre.Y + room.height - 0.3)
 	end
 end
 
@@ -2033,18 +2047,51 @@ local function lodge(container: Instance, anchor: Vector3, cfg, seams: Seams?): 
 	roof(folder, origin, wallTop, cfg)
 	chimney(folder, origin, cfg)
 
-	-- ANTLERS OVER THE DOOR. Karen's own word, task 177, and now the same mount the wall inside uses
-	-- -- so the thing over the door and the things on the trophy wall are one piece of code.
+	-- WHAT HANGS OUTSIDE, AND THE TWO PLACES THERE REALLY ARE TO HANG IT (round 3).
+	--
+	-- THE SOUTH FRONT IS AN EAVES WALL, NOT A GABLE. The ridge runs along x, so the gables are the
+	-- WEST and EAST ends -- which is why the chimney goes up the west one. Over the door there is a
+	-- band only three studs tall: the lintel's top below, and above it the south slope's own
+	-- underside, which a 44-degree roof puts BELOW the wall top at the wall plane. A stag with four
+	-- segments of antler was hung at `doorTop + 5.2` and went straight through that slope, facing
+	-- into the roof void -- and nothing in the suite could see it, because this folder is not
+	-- `Trophies`.
+	--
+	-- So: a SMALL mount over the door, sized to the band and then MEASURED into it, which is what
+	-- Karen asked for in task 177 and what a lodge really carries over its door; and the big stag on
+	-- the EAST GABLE, under the barge boards, facing the truck pads every player walks in from --
+	-- the one wall on this building that is tall, flat, empty and seen.
+	--
+	-- `yaw` IS OUTWARD-FACING FOR BOTH, in `shield`'s own convention (its `-Z` is "out from the
+	-- wall"): 0 looks south, -pi/2 east.
 	local over = Instance.new("Folder")
 	over.Name = "Antlers"
 	over.Parent = folder
+	local pitch = math.atan2(origin.Y + cfg.LODGE.RIDGE_STUDS - wallTop, halfZ)
+	local underEave = wallTop - cfg.LODGE.ROOF.THICK / 2 / math.cos(pitch)
+	local doorMount = Instance.new("Folder")
+	doorMount.Name = "OverTheDoor"
+	doorMount.Parent = over
 	antlerMount(
-		over,
+		doorMount,
 		"DoorStag",
-		CFrame.new(origin.X, doorTop + 5.2, origin.Z - halfZ - 0.4) * CFrame.Angles(0, math.pi, 0),
+		CFrame.new(origin.X, (doorTop + cfg.LODGE.DOOR.LINTEL_STUDS + underEave) / 2, origin.Z - halfZ - 0.1),
+		cfg.TROPHIES.DOOR,
+		cfg
+	)
+	fitBetween(doorMount, doorTop + 0.2, underEave - 0.2)
+	local gableMount = Instance.new("Folder")
+	gableMount.Name = "EastGable"
+	gableMount.Parent = over
+	antlerMount(
+		gableMount,
+		"GableStag",
+		CFrame.new(origin.X + halfX + 0.1, wallTop + cfg.LODGE.GABLE_MOUNT_STUDS, origin.Z)
+			* CFrame.Angles(0, -math.pi / 2, 0),
 		cfg.TROPHIES.GABLE,
 		cfg
 	)
+	fitBetween(gableMount, wallTop + 0.4, origin.Y + cfg.LODGE.RIDGE_STUDS - 1.2)
 
 	porch(folder, origin, floorY, wallTop, cfg)
 	interior(folder, Build.roomFor(anchor, cfg), cfg, seams)

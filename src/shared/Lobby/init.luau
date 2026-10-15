@@ -260,7 +260,12 @@ Lobby.CONFIG = {
 		LOG_END_STUDS = 0.9,
 		-- WALK-THROUGH: a gap in the front wall, never a door part (Karen, task 177). The leaf stands
 		-- OPEN against the wall beside it, turned out by `LEAF_OPEN_RADIANS` (100 degrees).
-		DOOR = { WIDTH = 7, HEIGHT = 9, LEAF_OPEN_RADIANS = 1.75 },
+		DOOR = { WIDTH = 7, HEIGHT = 9, LINTEL_STUDS = 1.4, LEAF_OPEN_RADIANS = 1.75 },
+		-- HOW FAR ABOVE THE WALL TOP THE GABLE STAG HANGS, on the EAST end -- the one wall on this
+		-- building that is tall, flat, empty and walked towards. Over the DOOR there is no gable at
+		-- all: the ridge runs along x, so the south front is an eaves wall and a 44-degree slope is
+		-- already below the wall top where it meets it (round 3).
+		GABLE_MOUNT_STUDS = 3.4,
 		-- THE ROOF. 28 studs to the ridge is 12.6 of rise over a 13-stud half-depth: a 44-degree
 		-- pitch, which is the steep Alpine gable rather than an American cabin's shallow one. The
 		-- eaves reach 3.4 studs past the wall and the gables 2.2, because the DEEP OVERHANG is most
@@ -500,9 +505,21 @@ Lobby.CONFIG = {
 			SPREAD = 0.45,
 			CURVE = -0.16,
 		},
-		-- THE ONE OVER THE DOOR IS BIGGER THAN THE ONE OVER THE FIRE, and that is deliberate: it
-		-- hangs on the gable, eight studs above a man's head and read from the road, where the indoor
-		-- stag is read from four studs away across a table.
+		-- OVER THE DOOR, AND IT IS SMALL BECAUSE THE BAND IT HANGS IN IS (round 3): the lintel's top
+		-- below it and the south roof slope's own underside above, which is barely three studs. A
+		-- lodge's door carries a modest roe plate; the big trophy goes where there is room for one.
+		DOOR = {
+			PLAQUE = Vector3.new(1.9, 1.2, 0.4),
+			SEGMENTS = 2,
+			SEGMENT_STUDS = 0.5,
+			TINE_STUDS = 0.4,
+			TINES = 1,
+			THICK = 0.24,
+			SPREAD = 0.5,
+			CURVE = -0.12,
+		},
+		-- THE BIG ONE, ON THE EAST GABLE: eight studs above a man's head, read from the truck pads,
+		-- where the indoor stag is read from four studs away across a table.
 		GABLE = {
 			PLAQUE = Vector3.new(4.2, 4.6, 0.6),
 			SEGMENTS = 4,
