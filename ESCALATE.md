@@ -1,6 +1,58 @@
 # Escalations
 
-## 2026-10-16 - Task 192 ROUND 2: NEEDS TEST2 192 012f0e5aabf5fb4fb02437b521fdc98f7da0ac8e
+## 2026-10-16 - Task 192 ROUND 3 (THE LAST): NEEDS TEST2 192 bca1b0b5db65c8b26684996685400122d0d3dc06
+
+Round 2's finding is fixed, round 3 is pushed, and `tools/review.ps1 192` is refused for the same
+missing line as rounds 1 and 2 -- the dispatch says so itself (*"[harness2] placeholder (I run
+it)"*).
+
+**What is already green**, on the clean tree:
+
+    [harness] PASS: 33/33 checks @ bca1b0b5db65c8b26684996685400122d0d3dc06 (clean tree) scope=all
+
+**THERE IS NO ROUND 4**, so two things need the Director's eye before the verdict rather than after
+it.
+
+**1. THE THRESHOLD AND ONE SPEC CASE ARE NOT THE DISPATCH'S NUMBERS, and the reason is a
+measurement.** The dispatch asked for `occupancy >= 0.5` and a case *"root embedded 3+ studs deep ->
+buried"*. Reading the CONTAINING voxel down four columns of the live place, by offset from the
+surface:
+
+    -12   1.00  1.00  1.00  1.00        the hill
+     -8   0.98  1.00  1.00  0.89        the hill
+     -4   0.93  1.00  0.56  0.50        at or just under the surface
+     +0   0.39  0.46  0.00  0.00        the cell the surface crosses
+     +4   0.00  0.00  0.00  0.00        air
+
+A root 3 studs deep sits in the cell the surface crosses -- **0.39 to 0.56** -- so 0.5 decides that
+case by coin-flip, and any threshold low enough to catch it reliably hands the surface cell back to
+a character STANDING on top of it, which is round 1's finding returning. The same body also has open
+air over its head, so the dispatch's own second condition (*"the voxel 4 studs above is also
+solid"*) answers false there too: the rule and the example disagree with each other, not with me.
+
+So I implemented **the dispatch's RULE** (the containing cell, plus the cell above) and changed
+**its NUMBER** to 0.75 -- the measured gap between "within one cell of the surface" (<= 0.56) and
+"two or more cells down" (>= 0.89) -- and the spec asserts burial at 10, 17.5 and 24 studs instead
+of 3. The shallow case is left to the placement rule that prevents it and to the engine, which
+ejects a body with air above it rather than trapping it; the three real failures this net exists for
+were 4, 17.5 and 47.8 studs, and the 4-stud one was a placement, now snapped. **Catching 3 studs as
+well needs a different mechanism -- the feet rather than the root, or a ray up from inside -- not a
+threshold tweak.** If the Director wants it, that is a new task, not a fourth round.
+
+**2. I LOST THE PER-SAMPLE LOG OF THE FOUR 60-SECOND STANDS**, by stopping Play before dumping it:
+the 0.5 s sampler lived in that session's `shared` table. What survives is the console (**exactly
+one `[place] RESCUED` line in the session, and it is the forced burial**), the marker lines with
+each spot's coordinates and residues, `deaths = 0`, and an analysed window from the same session
+showing 119 consecutive samples at the lodge yard with zero position change. So "nothing moved him"
+rests on the absence of a rescue rather than on 480 logged positions. Round 2's three-cycle log
+(2208 samples, none under the ground) is untouched and still stands. If that is not enough for the
+verdict, say so and I will re-run the four stands with the dump taken first.
+
+**What the Director needs to do:** `python tools/studio_mcp.py test2` on the clean tree at
+`bca1b0b`, paste the `[harness2]` line into `reviews/task-192/REQUEST.md` where the placeholder is,
+then `powershell -ExecutionPolicy Bypass -File tools/review.ps1 192`.
+
+## 2026-10-16 - Task 192 ROUND 2: NEEDS TEST2 192 012f0e5aabf5fb4fb02437b521fdc98f7da0ac8e (ANSWERED: the Director ran it; round 2 came back with one finding)
 
 **Round 1's two findings are fixed, the round-2 work is pushed, and `tools/review.ps1 192` is
 refused for the same one missing line as round 1:**
