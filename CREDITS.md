@@ -144,12 +144,21 @@ Studio** and cloned at run time by `ServerScriptService.Lobby.Build`. The only c
 are to anchor every part and to strip any script instance (all four shipped with **none** — counted,
 not assumed).
 
-| What it is | Model | Creator | Asset |
-|---|---|---|---|
-| the lodge | Log Cabin | uhhhh17 | [4746497269](https://create.roblox.com/store/asset/4746497269) |
-| the four trucks | PickUp Truck (Prop) | RedWood Roleplay GROUP | [8891351929](https://create.roblox.com/store/asset/8891351929) |
-| the stag's head | Deer Head Wall Mount Trophy Decor Home | bell4hd | [101243188132816](https://create.roblox.com/store/asset/101243188132816) |
-| the boar's head | Boar Head | Atejime | [15282258007](https://create.roblox.com/store/asset/15282258007) |
+| What it is | Model | Creator | Asset | Still used? |
+|---|---|---|---|---|
+| the lodge | Log Cabin | uhhhh17 | [4746497269](https://create.roblox.com/store/asset/4746497269) | **no, since task 187** |
+| the four trucks | PickUp Truck (Prop) | RedWood Roleplay GROUP | [8891351929](https://create.roblox.com/store/asset/8891351929) | yes |
+| the stag's head | Deer Head Wall Mount Trophy Decor Home | bell4hd | [101243188132816](https://create.roblox.com/store/asset/101243188132816) | **no, since task 187** |
+| the boar's head | Boar Head | Atejime | [15282258007](https://create.roblox.com/store/asset/15282258007) | **no, since task 187** |
+
+**Three of the four were dropped in task 187 and the rows stay**, because a credit is a record of
+what was used and when, not a list of what is in the place today. Karen, 2026-10-14, on the free
+cabins she was shown: *"all of then garbadge ... you build then one proper europen standart"*, so the
+lodge and everything on its walls is built from parts by `Lobby.Build` and no longer clones anything.
+The models are still parked in `Workspace.LobbyAssets` in the Forest Test place and nothing reads
+them; the reason, and what replaced them, are in
+`docs/research/2026-10-14-european-hunting-lodge.md` and
+`backups/2026-10-14_task-187_free-lodge.txt`.
 
 The lobby's tree line is cloned from `Workspace.OurForest` — the wood the drive already runs in —
 and is credited wherever that pack is credited; it is not a new third-party asset.
