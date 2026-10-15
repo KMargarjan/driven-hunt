@@ -1081,6 +1081,20 @@ function ForestTest.startRole(value: any): RoleWord?
 	return ForestTest.parseRole(word)
 end
 
+-- HOW FAR THE CLAMP HAS TO MOVE A BODY BEFORE THE WALL ASKS WHERE THE GROUND IS. Two studs: a
+-- hunter pushing against his circle is clamped by a fraction of a stud a frame, and the mid-drive
+-- respawn the lift exists for arrives from the road spawn 900 studs away.
+local LIFT_WHEN_MOVED_STUDS = 2
+
+-- HOW MANY TIMES THE WALL HAS HAD TO LIFT A BODY OUT OF THE HILL (task 192). It is one per respawn
+-- during a drive and zero otherwise, which is a number to read rather than a thing to assume: see
+-- `ForestTest.boundary` below for what it counts.
+local boundaryLifts = 0
+
+function ForestTest.boundaryLifts(): number
+	return boundaryLifts
+end
+
 -- HOLDS A LOCKED HUNTER INSIDE HIS STAND'S CIRCLE. Returns the position it stopped him at, or nil.
 --
 -- IT IS A WALL, NOT A LEASH, AND TASK 166 IS THAT CHANGE. Karen, 2026-10-12: *"it always put me at
@@ -1100,15 +1114,6 @@ end
 --
 -- IT STILL DOES NOT FREEZE HIM. *"I want tomorrow to test shooting and walking"* -- anchoring the
 -- character would break the thing she is testing, so walking out simply stops being possible.
--- HOW MANY TIMES THE WALL HAS HAD TO LIFT A BODY OUT OF THE HILL (task 192). It is one per respawn
--- during a drive and zero otherwise, which is a number to read rather than a thing to assume: see
--- `ForestTest.boundary` below for what it counts.
-local boundaryLifts = 0
-
-function ForestTest.boundaryLifts(): number
-	return boundaryLifts
-end
-
 -- `lift` IS THE ONE PLACEMENT RULE, HANDED IN (task 192), and it is here because this wall was the
 -- second half of Karen's sentence: *"when I respawn I die"*.
 --
@@ -1154,7 +1159,13 @@ function ForestTest.boundary(
 		return nil
 	end
 	local at = to :: Vector3
-	if lift ~= nil then
+	-- THE LIFT IS ASKED ONLY OF A BODY THAT WAS TELEPORTED HERE, NOT OF ONE WALKING INTO THE WALL
+	-- (Reviewer round 1, note 3: `lift` costs a raycast, and a hunter leaning on his circle's edge
+	-- is the frame-by-frame case task 166 was written around). The discriminator is the clamp's own
+	-- DISPLACEMENT: a man walking into the wall is moved a fraction of a stud a frame, while the
+	-- respawn this exists for arrives 900 studs away at the road spawn. `LIFT_WHEN_MOVED_STUDS` is
+	-- the line between them, so the common case costs nothing and the rare one is still caught.
+	if lift ~= nil and (at - root.Position).Magnitude > LIFT_WHEN_MOVED_STUDS then
 		local lifted, moved = lift(at)
 		if moved then
 			at = lifted

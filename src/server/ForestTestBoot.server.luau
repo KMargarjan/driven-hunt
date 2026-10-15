@@ -1118,10 +1118,18 @@ RunService.Heartbeat:Connect(function()
 		-- `Match.isHeld` IS THE QUESTION'S OTHER HALF AND IT ALREADY EXISTS: the lobby is handed the
 		-- same function for the same reason one screen up (*"`isHeld` is what stops the lobby
 		-- respawning a man out of Karen's results scene"*), so this is a third reader of one answer
-		-- and not a new rule. It covers the gathering, the beaters' hold at the start line AND a
-		-- hunter tied to a tree -- who was being dragged off his rope by this wall whenever the tree
-		-- stood outside his stand circle.
-		if root and Match.isParticipant(player.UserId) and not Match.isHeld(player.UserId) then
+		-- and not a new rule. It covers the gathering and the beaters' hold at the start line.
+		--
+		-- ...AND `Match.isTied` IS A THIRD QUESTION, NOT THE SAME ONE (Reviewer round 1, finding 2,
+		-- which was right and caught a comment claiming a fix the code did not make). `isHeld` reads
+		-- `heldStill`, written only by `applyHold`; a tie writes `tied`, and `applyFree`'s own
+		-- comment says the two never overlap -- *"ties only exist in `Running`, holds only in
+		-- `Assigning` and `Scoring`"*. So a tied hunter was a participant, was not held, and this
+		-- wall went on rewriting his `root.CFrame` every Heartbeat -- dragging him off the rope
+		-- whenever the tree stood outside his stand circle, which is the whole point of a tie.
+		-- Two readers, two tables, one guard.
+		local frozen = Match.isHeld(player.UserId) or Match.isTied(player.UserId)
+		if root and Match.isParticipant(player.UserId) and not frozen then
 			-- THE ROLE IS PASSED IN SINCE TASK 157: the truth of it is `Player.Team`, and this loop is
 			-- what holds the `Player` -- `ForestTest` keys by `userId` and never holds one.
 			--

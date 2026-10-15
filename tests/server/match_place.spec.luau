@@ -11,12 +11,21 @@
 -- `Match.Body`, a singleton every spec shares, so each case sets its own reader and the last one
 -- puts it back -- the discipline `Match.start`/`Match.stop` already follow for `world.groundAt`.
 --
+-- ROUND 2 IS WHERE THE READER STARTS FROM (Reviewer round 1, finding 1). Round 1 asked "where is
+-- the ground" with a ray from 300-600 studs UP, so the first solid thing OVERHEAD answered -- the
+-- lodge's roof for a man at the shop counter, a canopy for a beater in the wood -- and the net
+-- pivoted him out of the building four times a second. The reader `roofedBuilding` below is that
+-- place written as arithmetic: it answers the ROOF when it is asked from the sky and the FLOOR when
+-- it is asked from just above a body, which is exactly what the live geometry does.
+--
 -- WHAT THIS SPEC CANNOT ASSERT, stated rather than left to be assumed:
---   * `lastGood` (*"put him back where he was last standing"*) turns on `Humanoid.FloorMaterial`,
---     which is written by the engine and cannot be set from Luau. A fake character in the air
---     reports `Air`, so these cases exercise the OTHER branch -- back onto the ground over his own
---     x and z. The remembered-position branch is proved by the live run's own console line
---     (`[place] RESCUED <name>: ... put back at (...)`).
+--   * `lastGood` (*"put him back where he was last standing"*) is WRITTEN only when
+--     `Humanoid.FloorMaterial` says the engine has him standing on something, and that property
+--     cannot be set from Luau. A fake character in the air reports `Air`, so these cases exercise
+--     the OTHER branch -- back onto the ground over his own x and z -- and assert that nothing was
+--     remembered. The remembered branch is proved by the live run's own console line
+--     (`[place] RESCUED <name>: ... put back at (...)`), where the place it names is the stand he
+--     had been standing on.
 --   * the SECOND WRITER this task removed (`ForestTest.boundary` dragging a gathered player off his
 --     ring slot while keeping the ring's Y) is one guard in a composition root
 --     (`src/server/ForestTestBoot.server.luau`), which has no spec. It is proved by the live log:
@@ -46,6 +55,22 @@ local function hillside(base: number, anchorX: number)
 	return function(x: number, _z: number): number?
 		return base + (x - anchorX) * 0.11
 	end
+end
+
+-- THE LODGE, AS A READER. Karen's lodge stands on the shelf and its roof is 10-18 studs over it
+-- (`Lobby.CONFIG.LODGE.SIZE` 40 x 10 x 28 with `RIDGE_STUDS` 18), and the roof parts are in no
+-- excluded folder -- so a ray from the sky stops on the ROOF and a ray from just above a man
+-- standing inside stops on the FLOOR. This answers both, by where it is asked from, which is the
+-- whole of finding 1.
+--
+-- It is the canopy case too: a beater under the `Session` trees is a man with something solid
+-- overhead and the ground under his feet, which is the same two answers.
+local FLOOR_Y, ROOF_Y = 150, 167
+local function roofedBuilding(_x: number, _z: number, fromY: number?): number?
+	if fromY == nil or (fromY :: number) > ROOF_Y then
+		return ROOF_Y -- asked from the sky: the first solid thing down is the roof
+	end
+	return FLOOR_Y -- asked from inside the room: the floor
 end
 
 local CLEARANCE = Match.CONFIG.STAND_HEIGHT_STUDS
@@ -190,6 +215,43 @@ return function()
 		end)
 	end)
 
+	describe("indoors and under a canopy: nothing OVERHEAD is ever the ground", function()
+		afterEach(function()
+			Body.setGroundReader(nil)
+		end)
+
+		it("asks from just above the point, so the floor wins over the roof", function()
+			Body.setGroundReader(roofedBuilding)
+			-- A man standing on the lodge floor: his root is CLEARANCE above it.
+			local standing = FLOOR_Y + CLEARANCE
+			expect(Body.groundUnder(0, 0, standing)).to.equal(FLOOR_Y)
+			-- ...and the column question -- no body, no `fromY` -- still gets the far cast, which is
+			-- what the scene's layout points and the DEV place have always used.
+			expect(Body.groundUnder(0, 0)).to.equal(ROOF_Y)
+		end)
+
+		it("does not call a man standing indoors 14 studs underground", function()
+			Body.setGroundReader(roofedBuilding)
+			local standing = Vector3.new(0, FLOOR_Y + CLEARANCE, 0)
+			-- ROUND 1 MEASURED `ROOF_Y - standing.Y` here -- 13.5 studs "under the ground" -- and
+			-- `MAX_BELOW_GROUND_STUDS` is 5, so the wall lifted him onto the roof.
+			local below = Body.underGroundBy(standing)
+			expect(below).to.be.ok()
+			expect((below :: number) < 0).to.equal(true)
+			local at, moved = Body.liftOntoGround(standing, CLEARANCE)
+			expect(moved).to.equal(false)
+			expect(math.abs(at.Y - standing.Y) < 1e-6).to.equal(true)
+		end)
+
+		it("places a spawn target inside the building on the floor, not on the roof", function()
+			Body.setGroundReader(roofedBuilding)
+			-- The lobby's return asks for a Y at the floor itself (`SPAWN.OFFSET.Y` is 0).
+			local put, ground = Body.onGround(CFrame.new(10, FLOOR_Y, 20), CLEARANCE)
+			expect(ground).to.equal(FLOOR_Y)
+			expect(math.abs((put :: CFrame).Position.Y - (FLOOR_Y + CLEARANCE)) < 1e-4).to.equal(true)
+		end)
+	end)
+
 	describe("Body.liftOntoGround: one-sided, for a caller that writes a position itself", function()
 		afterEach(function()
 			Body.setGroundReader(nil)
@@ -249,6 +311,16 @@ return function()
 			return { Name = name, UserId = userId, Character = character }, root
 		end
 
+		-- THE BURIED SEAM, AS TWO CONSTANTS. `Terrain:ReadVoxels` needs real terrain, so "is this body
+		-- inside the hill" is a parameter here and an engine query in production -- the same split
+		-- `service` and `floorY` already have.
+		local function always(): boolean
+			return true
+		end
+		local function never(): boolean
+			return false
+		end
+
 		local function service(players: { any })
 			return {
 				GetPlayers = function()
@@ -278,57 +350,99 @@ return function()
 		it("leaves a character that is standing on the ground exactly where it is", function()
 			local player, root = fakePlayer("OnTheGround", 192001, Vector3.new(0, 100 + CLEARANCE, 0))
 			local before = root.Position
-			expect(Body.floorStep(service({ player }))).to.equal(0)
+			expect(Body.floorStep(service({ player }), nil, never)).to.equal(0)
 			expect((root.Position - before).Magnitude < 1e-6).to.equal(true)
 		end)
 
 		it("leaves a character ABOVE the ground alone -- a jump is not a fall", function()
 			local player, root = fakePlayer("InTheAir", 192002, Vector3.new(0, 140, 0))
-			expect(Body.floorStep(service({ player }))).to.equal(0)
+			expect(Body.floorStep(service({ player }), nil, never)).to.equal(0)
 			expect(math.abs(root.Position.Y - 140) < 1e-6).to.equal(true)
 		end)
 
-		it("puts a character that is under the ground back on it", function()
-			-- 17.5 studs is the number that was MEASURED in the live place at the end of a drive on
-			-- the `edge` layout, so this case is that failure with the terrain replaced by a reader.
+		it("leaves a man STANDING UNDER A ROOF alone, however low the sky says the ground is", function()
+			-- THE FAULT ROUND 1 SHIPPED (Reviewer, finding 1): the lodge and the shop counter. The
+			-- reader answers the ROOF from the sky, the net read that as "the ground", and a man
+			-- standing on the floor was 13.5 studs "under" it -- pivoted away four times a second.
+			-- Nothing but the reader's starting height changed, and this case is 0 either way ONLY
+			-- because the net no longer asks a depth at all.
+			Body.setGroundReader(roofedBuilding)
+			local player, root = fakePlayer("AtTheShopCounter", 192010, Vector3.new(0, FLOOR_Y + CLEARANCE, 0))
+			local before = root.Position
+			local rescues = Body.rescuedFromUnderGround()
+			expect(Body.floorStep(service({ player }), nil, never)).to.equal(0)
+			expect(Body.floorStep(service({ player }), nil, never)).to.equal(0)
+			expect(Body.rescuedFromUnderGround()).to.equal(rescues)
+			expect((root.Position - before).Magnitude < 1e-6).to.equal(true)
+		end)
+
+		it("leaves a beater UNDER A CANOPY alone, for the same reason", function()
+			-- The 831 Studio-built `Session` trees: `ForestTest.terrainYAt`'s own header says the
+			-- world's reader can stop on one of them. A beater walks 580 studs under that.
+			Body.setGroundReader(roofedBuilding)
+			local player, root = fakePlayer("InTheWood", 192011, Vector3.new(120, FLOOR_Y + CLEARANCE, -300))
+			local before = root.Position
+			expect(Body.floorStep(service({ player }), nil, never)).to.equal(0)
+			expect((root.Position - before).Magnitude < 1e-6).to.equal(true)
+		end)
+
+		it("puts a character INSIDE SOLID TERRAIN back on the ground", function()
+			-- 17.5 studs is the number MEASURED in the live place at the end of a drive on the
+			-- `edge` layout. `buried` is the seam here because `Terrain:ReadVoxels` needs real
+			-- terrain; the live run proves the engine half.
 			local player, root = fakePlayer("UnderTheTerrain", 192003, Vector3.new(30, 100 - 17.5, -40))
 			local before = Body.rescuedFromUnderGround()
-			expect(Body.floorStep(service({ player }))).to.equal(1)
+			expect(Body.floorStep(service({ player }), nil, always)).to.equal(1)
 			expect(Body.rescuedFromUnderGround()).to.equal(before + 1)
 			-- BACK ON THE GROUND OVER HIS OWN X AND Z: this fake reports `FloorMaterial = Air`, so
 			-- nothing was ever remembered for him (see this file's header).
 			expect(math.abs(root.Position.Y - (100 + CLEARANCE)) < 1e-4).to.equal(true)
 			expect(math.abs(root.Position.X - 30) < 1e-4).to.equal(true)
 			expect(math.abs(root.Position.Z - -40) < 1e-4).to.equal(true)
-			expect(Body.worstBelowGroundStuds() >= 17.5).to.equal(true)
+			expect(Body.lastGoodPosition(192003)).to.equal(nil)
 		end)
 
-		it("catches a body on its way to being DESTROYED, with the ground gone", function()
+		it("catches a body on its way to being DESTROYED, and puts it back on the ground", function()
 			-- The death Karen reported: the lobby's return put her root at the ground itself, the
 			-- engine ejected the body downward, and it fell 149.2 -> -285.7 and was destroyed below
-			-- `FallenPartsDestroyHeight`. Below the floor there is no ground to measure, which is
-			-- exactly why the floor is a SECOND test and not the same one.
-			Body.setGroundReader(function(_x: number, _z: number): number?
-				return nil
-			end)
+			-- `FallenPartsDestroyHeight`. Below the floor nothing is buried and nothing is standing,
+			-- which is exactly why the floor is a SECOND test and not the same one.
 			local player, root = fakePlayer("FallingOut", 192004, Vector3.new(0, -450, 0))
 			-- The floor is a parameter so this case needs no world: -400 is this place's own
-			-- `FallenPartsDestroyHeight + 100`.
-			expect(Body.floorStep(service({ player }), -400)).to.equal(1)
-			-- With no ground under him the snap hands the frame back unchanged, so he is put at his
-			-- last good position -- and there is none, so he stays where he was and the line says so.
-			-- The POINT of this case is that the net FIRES: a silent fall is the death.
-			expect(root).to.be.ok()
+			-- `FallenPartsDestroyHeight + 100`. The reader is the beforeEach's 100.
+			expect(Body.floorStep(service({ player }), -400, never)).to.equal(1)
+			expect(math.abs(root.Position.Y - (100 + CLEARANCE)) < 1e-4).to.equal(true)
+		end)
+
+		it("counts nothing when there is nowhere to put him (a rescue of nobody is not a rescue)", function()
+			-- Reviewer round 1, note 1: with no remembered place and no measurable ground the
+			-- "rescue" pivoted the body to where it already was, counted it and printed a line --
+			-- at 4 Hz, into the counter whose whole value is that it stays 0.
+			Body.setGroundReader(function(): number?
+				return nil
+			end)
+			local player, root = fakePlayer("NowhereToGo", 192012, Vector3.new(0, -450, 0))
+			local before = Body.rescuedFromUnderGround()
+			expect(Body.floorStep(service({ player }), -400, never)).to.equal(0)
+			expect(Body.rescuedFromUnderGround()).to.equal(before)
+			expect(math.abs(root.Position.Y - -450) < 1e-6).to.equal(true)
 		end)
 
 		it("walks every player it is given, and answers 0 for an empty server", function()
 			local a = fakePlayer("A", 192005, Vector3.new(0, 100 - 30, 0))
 			local b = fakePlayer("B", 192006, Vector3.new(50, 100 + CLEARANCE, 50))
 			local c = fakePlayer("C", 192007, Vector3.new(-50, 100 - 9, -50))
-			expect(Body.floorStep(service({ a, b, c }))).to.equal(2)
-			expect(Body.floorStep(service({}))).to.equal(0)
+			-- `a` and `c` are buried, `b` is not: the seam answers per POSITION, so one pass sorts
+			-- three bodies by where each of them is.
+			local buriedBelow = function(at: Vector3): boolean
+				return at.Y < 100 - 5
+			end
+			expect(Body.floorStep(service({ a, b, c }), nil, buriedBelow)).to.equal(2)
+			expect(Body.floorStep(service({}), nil, never)).to.equal(0)
 			-- A player with no character is not a fault and is not a rescue.
-			expect(Body.floorStep(service({ { Name = "Joining", UserId = 192008, Character = nil } }))).to.equal(0)
+			expect(Body.floorStep(service({ { Name = "Joining", UserId = 192008, Character = nil } }), nil, never)).to.equal(
+				0
+			)
 		end)
 
 		it("leaves a DEAD character alone: the net is for the living", function()
@@ -339,15 +453,15 @@ return function()
 			local player, root = fakePlayer("ARagdoll", 192009, Vector3.new(0, 100 - 40, 0));
 			(player.Character :: Model):FindFirstChildOfClass("Humanoid").Health = 0
 			local before = Body.rescuedFromUnderGround()
-			expect(Body.floorStep(service({ player }))).to.equal(0)
+			expect(Body.floorStep(service({ player }), nil, always)).to.equal(0)
 			expect(Body.rescuedFromUnderGround()).to.equal(before)
 			expect(math.abs(root.Position.Y - (100 - 40)) < 1e-6).to.equal(true)
 		end)
 
-		it("forgets where a player was standing when he leaves", function()
-			expect(Body.lastGoodPosition(192099)).to.equal(nil)
-			Body.forget(192099)
-			expect(Body.lastGoodPosition(192099)).to.equal(nil)
-		end)
+		-- THE "FORGETS HIM WHEN HE LEAVES" CASE IS GONE, and that is the honest move (Reviewer round
+		-- 1, note 2, which was right). It asserted nil, called `Body.forget`, and asserted nil again
+		-- -- and `lastGood` can never be populated from a spec, so it passed with the line it was
+		-- supposed to cover deleted. `Body.forget` clearing `lastGood` is one line beside the two it
+		-- already clears, and a case that cannot fail is worse than no case.
 	end)
 end
