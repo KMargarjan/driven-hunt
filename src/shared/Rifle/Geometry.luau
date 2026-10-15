@@ -115,6 +115,33 @@ local SCOPE_OBJECTIVE_Z = -0.2081 -- the front lens
 -- The bolt turns about its own body's centre line, which is a hair below the bore.
 local BOLT_AXIS_Y = 0.11
 
+-- THE BOLT KNOB AND THE STOCK'S WRIST, MEASURED OFF THE MODEL (task 188). Karen, 2026-10-15:
+-- *"we need to improve right hand now seems odd it has to be aligned perfectly"*, at the hip and on
+-- the bolt. Until this task NOTHING in the repo said where either place was, so the right hand's
+-- three poses were numbers somebody liked -- and they are literally the SHOTGUN's, byte for byte
+-- (`weapons.shotgun.carry.right` and `weapons.rifle.carry.right` were the same six numbers), on a
+-- gun whose grip is 0.22 studs away from model B's. These two anchors are what `poses.json` is now
+-- measured against (`tests/server/viewmodel_poses.spec.luau`).
+--
+-- THE KNOB IS A LEAST-SQUARES SPHERE through the 1,900 surface samples of `Midden1_Low` that lie
+-- past the action's right wall (x > 0.082): centre (0.0879, 0.0428, 0.6340), radius 0.0256, mean
+-- residual 0.0010 and worst 0.0072 -- it is a ball on a stem and it fits one. The glove's own closed
+-- fist has a gap of radius 0.024-0.030 (`HandAssets.GRIP_STUDS`), so the knob and the hole in the
+-- hand are the same size to within half a millimetre at this gun's scale.
+--
+-- THE WRIST IS THE NARROWEST PART OF THE WOOD between the receiver's rear (z +0.909) and the comb,
+-- taken as the centre of `Wood_Low`'s cross-section over 0.05-stud slices: narrowest at z 0.976 and
+-- 1.024 (0.1438 and 0.1437 studs across, against 0.1479 at z 0.875 and 0.1655 at z 1.175). The
+-- AXIS is the first principal direction of those seven slice centres. A hand grips a wrist, not a
+-- point, which is why the axis is published beside the point: `poses.json` is checked against the
+-- LINE.
+--
+-- Note: docs/research/2026-10-15-rifle-right-hand.md
+local BOLT_KNOB = Vector3.new(0.0879, 0.0428, 0.6340)
+local BOLT_KNOB_RADIUS = 0.0256
+local GRIP_WRIST = Vector3.new(-0.0111, -0.0603, 1.0246)
+local GRIP_WRIST_DIR = Vector3.new(0.0087, -0.5221, 0.8529).Unit
+
 local STEEL_MATERIAL = Enum.Material.SmoothPlastic -- `Metal` mirrors the sky; see `Gun`'s own note
 
 local function span(low: number, high: number): (number, number)
@@ -232,6 +259,69 @@ end
 -- written for the shotgun gets a point on the gun rather than nil.
 function Geometry.hinge(config): Vector3
 	return Geometry.boltAxis(config)
+end
+
+-- HOW FAR, AND WHICH WAY, THE HANDLE TURNS WHEN THE BOLT IS LIFTED (task 188). `turn` is 0 at rest
+-- and 1 at a full lift; the CFrame is in the gun's own frame and `Camera.Viewmodel.hinge`'s `slide`
+-- path is its only caller.
+--
+-- IT IS HERE, AND NOT INLINE IN THE VIEWMODEL, BECAUSE THE SIGN WAS WRONG AND NOTHING COULD SEE IT.
+-- A closed bolt handle hangs DOWN and to the right: the knob's measured centre is (0.0879, 0.0428),
+-- which is 0.067 studs BELOW the axis it turns about. `CFrame.Angles(0, 0, -rad(60))` takes +X
+-- toward -Y, so it carried that knob from (right, low) to (-0.0142, +0.0003) -- left of the gun's
+-- centre line and INSIDE the receiver and the comb. Rendered off the model at the shipped sign the
+-- handle simply disappears into the gun for the whole cycle (`.screenshots/`, and the research
+-- note's section 5), and the hand placed from `BOLT_HAND.grip` followed it in there, which is the
+-- bolt half of Karen's *"seems odd"*. The lift is POSITIVE about Z: +60 degrees takes the same knob
+-- to (0.1021, 0.1525), up and clear on the right, where a lifted Mauser handle is.
+--
+-- IT TAKES THE ANGLE RATHER THAN READING IT, because the two live in different tables: the axis is
+-- the WEAPON ROW's (it scales with `HANDLE_SIZE`) and `BOLT_LIFT_DEG` is the POSE DATA's
+-- (`cycle.liftDeg` in poses.json, which the Director tunes live). A version of this that read one
+-- `config` would have got a zero from whichever of the two it was handed.
+--
+-- `turn` is clamped rather than trusted: `Mode.cycleProgress` is clamped already, but this is the
+-- one place a lift angle exists and a caller that passed 1.4 would bury the handle the other way.
+function Geometry.boltLift(config, liftDeg: number, turn: number): CFrame
+	local axis = CFrame.new(Geometry.boltAxis(config))
+	local degrees = (liftDeg or 0) * math.clamp(turn, 0, 1)
+	return axis * CFrame.Angles(0, 0, math.rad(degrees)) * axis:Inverse()
+end
+
+-- THE BOLT KNOB, in the gun's frame, with the bolt CLOSED (task 188). The point the right hand
+-- pinches: `poses.json`'s `cycle.hand.grip` puts `HandAssets.GRIP_STUDS` on it, and the hand is then
+-- carried by the bolt's own transform, so it holds the knob wherever the knob has got to.
+function Geometry.boltKnobOffset(config): Vector3
+	local at = Geometry.layout(config)
+	local k = at.total / 4.4
+	return BOLT_KNOB * k
+end
+
+-- How big that ball is. The hand's own gap is the same size (see the measurement above).
+function Geometry.boltKnobRadius(config): number
+	local at = Geometry.layout(config)
+	return BOLT_KNOB_RADIUS * (at.total / 4.4)
+end
+
+-- THE STOCK'S WRIST: a POINT on it and the DIRECTION it runs (task 188). The hip and the aimed poses
+-- put the hand's own grip point on this LINE -- a hand slides a little along a wrist and is still
+-- holding it, but a hand off the line is a hand beside the gun.
+function Geometry.gripOffset(config): Vector3
+	local at = Geometry.layout(config)
+	return GRIP_WRIST * (at.total / 4.4)
+end
+
+function Geometry.gripAxis(config): Vector3
+	local _ = config -- a direction does not scale
+	return GRIP_WRIST_DIR
+end
+
+-- How far a point is from the wrist's line. The one expression that answers "is the hand on the
+-- grip", so the spec and any future tool cannot disagree about it.
+function Geometry.offGripAxis(config, point: Vector3): number
+	local along = point - Geometry.gripOffset(config)
+	local dir = Geometry.gripAxis(config)
+	return (along - dir * along:Dot(dir)).Magnitude
 end
 
 -- Every piece of the first-person rifle, in build order. Pure.

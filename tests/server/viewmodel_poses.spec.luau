@@ -21,6 +21,11 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Data = require(ReplicatedStorage:WaitForChild("Viewmodel"))
+-- THE RIFLE'S RIGHT HAND (task 188) needs three things this file did not read before: where the gun
+-- is held (`Rifle.Geometry`), where the hand holds (`HandAssets`), and the rifle's own pose set.
+local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
+local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
+local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 -- POSES.JSON IS VERSION 4 (task 140): every pose set lives under `weapons.<id>`, and this file is
 -- about the SHOTGUN's, which is what it has always been about. One alias, so the cases below read
 -- exactly as they did.
@@ -769,6 +774,109 @@ return function()
 			expect(hold).to.equal("aim")
 			local _, bad = Poses.resolve(firstPerson, '{"hold": "upside-down"}')
 			expect(bad).to.equal(nil)
+		end)
+	end)
+
+	-- THE RIFLE'S RIGHT HAND (task 188). Karen, 2026-10-15: *"rifle is ok now / we need to improve
+	-- right hand now seems odd it has to be aligned perfectly"*, and asked where: *"Bolt pull,
+	-- Holding (hip)"*.
+	--
+	-- WHAT THESE CASES ARE FOR. Until this task nothing in the repo said where the rifle was HELD, so
+	-- the right hand's poses could not be wrong -- there was nothing to be wrong about. They were in
+	-- fact the SHOTGUN's six numbers, on a gun whose grip is a fifth of a stud away, and the hand
+	-- hung under the trigger guard with the wrist of the stock above it. Both ends are measured now
+	-- (`Rifle.Geometry.gripOffset` / `boltKnobOffset`, `HandAssets.GRIP_STUDS`) and these cases are
+	-- what holds the pose file to them: a `poses.json` that puts the hand off the grip or off the
+	-- knob fails the harness, which blocks the merge gate, exactly as a bad `expires` date does.
+	--
+	-- THE TOLERANCE IS THE HAND'S OWN GAP, not a number somebody liked: `GRIP_RADIUS_STUDS` is half
+	-- the hole the fist closes around, so a grip point that far off still has the wood -- or the
+	-- knob -- inside the hand.
+	describe("the rifle's right hand, against the gun's own grip and bolt knob", function()
+		local rifleView = Data.view(Data.DATA, "rifle")
+		local rifleConfig = (function()
+			local out = table.clone(Config) :: any
+			for key, value in pairs(rifleView) do
+				out[key] = value
+			end
+			out.FIRST_PERSON = true
+			return table.freeze(out)
+		end)()
+		local TOLERANCE = HandAssets.GRIP_RADIUS_STUDS
+		local function gripPointOf(offset: CFrame): Vector3
+			return offset:PointToWorldSpace(HandAssets.GRIP_STUDS)
+		end
+
+		it("holds the wrist of the stock at the hip, aimed, and when the cycle starts", function()
+			-- The three states the right hand can be in before it leaves for the bolt. `handOffsetAt`
+			-- is the one conversion site, so these are the CFrames the viewmodel really draws with.
+			for _, case in ipairs({
+				{ name = "hip", state = stateAt(0, 0) },
+				{ name = "aimed", state = stateAt(1, 0) },
+				{ name = "cycle", state = stateAt(0, 1) },
+			}) do
+				local offset = Mode.handOffsetAt("right", case.state, rifleConfig)
+				local off = RifleGeometry.offGripAxis(Rifle.CONFIG, gripPointOf(offset))
+				TestKit.note(string.format("rifle right hand %s: %.4f studs off the wrist axis", case.name, off))
+				expect(off < TOLERANCE).to.equal(true)
+			end
+		end)
+
+		it("does not move between the hip and the aim: one hand, one grip", function()
+			-- A right hand that changed place when the eye went to the scope would read as the gun
+			-- being re-gripped every time Karen aims. It is the SAME grip in both, so it is the same
+			-- six numbers, and this is what says so.
+			local hip = Mode.handOffsetAt("right", stateAt(0, 0), rifleConfig)
+			local aimed = Mode.handOffsetAt("right", stateAt(1, 0), rifleConfig)
+			expect((hip.Position - aimed.Position).Magnitude < 1e-6).to.equal(true)
+		end)
+
+		it("pinches the bolt knob, and keeps pinching it wherever the bolt has got to", function()
+			local grip = rifleConfig.BOLT_HAND.grip
+			local knob = RifleGeometry.boltKnobOffset(Rifle.CONFIG)
+			local miss = (gripPointOf(grip) - knob).Magnitude
+			TestKit.note(string.format("rifle bolt hand: %.4f studs from the knob's centre", miss))
+			expect(miss < TOLERANCE).to.equal(true)
+			-- ...AND IT CANNOT COME OFF IT. `Camera.Viewmodel.poseHands` places this hand from the
+			-- SAME transform the bolt is drawn with (`Viewmodel.hinge`'s return), so the miss is
+			-- invariant under any rigid motion of the bolt -- which is the whole reason the hand is
+			-- placed that way rather than from a second clock. Driven with an arbitrary one here,
+			-- because the property is about the composition and not about any particular frame.
+			local carried = CFrame.new(0.31, -0.17, 0.44) * CFrame.Angles(0.3, -1.1, 0.7)
+			local movedMiss = (gripPointOf(carried * grip) - carried:PointToWorldSpace(knob)).Magnitude
+			expect(math.abs(movedMiss - miss) < 1e-5).to.equal(true)
+		end)
+
+		it("lifts the bolt handle UP and clear, not down into the receiver", function()
+			-- THE SIGN (task 188). The knob hangs 0.067 studs BELOW the line it turns about, so the
+			-- direction of the turn decides whether the handle rises on the right or sweeps down
+			-- through the wood. It used to sweep down: at a full lift the knob landed at x -0.014,
+			-- left of the gun's centre line and inside the stock, and the hand went with it.
+			local knob = RifleGeometry.boltKnobOffset(Rifle.CONFIG)
+			local axisY = RifleGeometry.boltAxis(Rifle.CONFIG).Y
+			expect(knob.Y < axisY).to.equal(true) -- a CLOSED handle hangs below the axis
+			local lifted = RifleGeometry.boltLift(Rifle.CONFIG, rifleConfig.BOLT_LIFT_DEG, 1):PointToWorldSpace(knob)
+			TestKit.note(
+				string.format(
+					"bolt knob: closed (%.4f, %.4f) -> lifted (%.4f, %.4f), axis Y %.4f",
+					knob.X,
+					knob.Y,
+					lifted.X,
+					lifted.Y,
+					axisY
+				)
+			)
+			expect(lifted.Y > axisY).to.equal(true) -- lifted, it is above it
+			expect(lifted.X > knob.X).to.equal(true) -- and further out on the RIGHT, not across
+			-- At rest it is exactly where it was: nothing moves until the cycle does.
+			expect(
+				(RifleGeometry.boltLift(Rifle.CONFIG, rifleConfig.BOLT_LIFT_DEG, 0):PointToWorldSpace(knob) - knob).Magnitude
+					< 1e-6
+			).to.equal(true)
+			-- A turn outside 0..1 is clamped rather than trusted (the handle would otherwise be
+			-- driven past the top and back down into the wood from the other side).
+			local past = RifleGeometry.boltLift(Rifle.CONFIG, rifleConfig.BOLT_LIFT_DEG, 2.5):PointToWorldSpace(knob)
+			expect((past - lifted).Magnitude < 1e-6).to.equal(true)
 		end)
 	end)
 
