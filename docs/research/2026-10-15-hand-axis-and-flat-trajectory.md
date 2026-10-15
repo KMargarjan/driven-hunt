@@ -202,10 +202,10 @@ and `Ballistics.timeToRange` never reads gravity at all. Asserted rather than cl
 tolerance**, and `weapon_hits.spec` flies the **real** `Weapon.Flight` at a scripted runner crossing
 at a boar's sprint (38 studs/s) -- for the shotgun as well as the rifle since this task:
 
-| | 28 m | 50 m | 92 m | 100 m | 200 m |
+| | 28 m | 50 m | 84 m | 100 m | 200 m |
 |---|---|---|---|---|---|
 | rifle: the lead that hits | | 2.7 studs | | 5.6 studs | 12.2 studs |
-| shotgun slug: the lead that hits | 2.3 studs | 4.3 studs | 8.6 studs | | |
+| shotgun slug: the lead that hits | 2.3 studs | 4.3 studs | 7.7 studs | | |
 
 In every row, aiming **AT** the animal misses and leading it by `v*t` **hits**, on the body or the
 head as aimed.
