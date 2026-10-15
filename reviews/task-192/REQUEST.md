@@ -3,13 +3,14 @@
 Task: 192
 Round: 2
 Base: 5cc4472 (main, after #173)
-Code commit: 012f0e5aabf5fb4fb02437b521fdc98f7da0ac8e
+Code commit: 6c32b75524cb72ef0c27e69908badfc5997b85d1
 
 Harness, clean tree, FULL suite (this branch touches `src/server/Match/`, which maps to the `match`
 scope, and `src/server/ForestTestBoot.server.luau`, which maps to nothing and therefore to `all`):
 
     [harness] PASS: 33/33 checks @ 012f0e5aabf5fb4fb02437b521fdc98f7da0ac8e (clean tree) scope=all
-    [harness2] <the Director runs this; `src/server/Match/` is in TWO_PLAYER_PATHS>
+    [harness] PASS: 33/33 checks @ 6c32b75524cb72ef0c27e69908badfc5997b85d1 (clean tree) scope=all
+    [harness2] PASS: 35/35 checks @ 6c32b75524cb72ef0c27e69908badfc5997b85d1 (clean tree)
 
 Round 1's two findings are both fixed and both were right. Round 1's eight notes: five fixed, three
 answered in place.
