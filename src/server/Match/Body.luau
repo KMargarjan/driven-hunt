@@ -1071,9 +1071,357 @@ function Body.teamOf(player: Player): TeamName?
 	return (team.Name :: any) :: TeamName?
 end
 
+-- ------------------------------------------------------------------- task 192: ONE PLACEMENT RULE
+--
+-- KAREN, 2026-10-14: *"when drive ends I am underground ... when next round is started respawn in
+-- under terrain and I dead all a time"*.
+--
+-- THE RULE, IN ONE SENTENCE: **a target's Y is the GROUND MEASURED AT THAT TARGET'S OWN x, z, plus a
+-- clearance** -- never a hard-coded number, never a number measured somewhere else and carried
+-- sideways. A CALLER'S Y IS ADVISORY, and that is stated here rather than discovered later:
+-- `Body.placementFor` below still returns post-top + `STAND_HEIGHT_STUDS`, `Scene.ringLayout`
+-- still returns its ring and `Lobby.spawnCFrame` still returns its porch slot; `Body.onGround`
+-- then replaces the Y with the one that is really there. Where the caller was already right -- the
+-- road, the DEV arena -- the snap moves it by less than the voxel surface, and `Body.snapped()`
+-- counts how often it moved it by more.
+--
+-- IT LIVES HERE AND NOWHERE ELSE because this module is the one writer of where a character stands
+-- (this file's header, CLAUDE.md rule 3). Every path Karen walks arrives here: the drive's
+-- `Body.place`, the LOBBY'S RETURN -- which is injected as
+-- `place = function(player, cframe) Body.place(player, cframe, Match.CONFIG) end` -- the results
+-- scene's `Body.stand`, and the tie. One owner, one rule, four callers.
+--
+-- WHAT WAS MEASURED, before any of this was written (note section 2). In the live Forest Test, on
+-- the `edge` layout, with a 0.5 s sampler on the player's root:
+--   * at the drive's end the player sat at `(3543, 174.5, -3001)` with the terrain under him at
+--     189.0 -- his feet 17.5 studs UNDER the ground, anchored, for the whole 25-second scene;
+--   * three seconds into the next round the lobby's return put his ROOT at the ground itself
+--     (149.2, ground 150.0), the engine ejected the body downward, and it fell
+--     119.8 -> 39.0 -> -93.3 -> -285.7 and was DESTROYED below `FallenPartsDestroyHeight`.
+--
+-- Pattern: **DROP TO FLOOR**, which is Valve's `UTIL_DropToFloor` (`game/server/util.cpp`, Source
+-- SDK 2013): an entity's spawn Y is never authored, it is a trace straight down from the authored
+-- point. Unreal does the same for a target inside geometry (`UWorld::FindTeleportSpot`).
+--   https://github.com/ValveSoftware/source-sdk-2013
+--   https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/Engine/UWorld
+--   https://create.roblox.com/docs/workspace/raycasting
+-- Note: docs/research/2026-10-15-one-placement-rule.md
+
+-- HOW FAR ABOVE THE MEASURED GROUND THE ROOT IS PUT. The default is the caller's own
+-- `STAND_HEIGHT_STUDS` (3.5) -- this repo's existing number for exactly this -- and 3.5 was
+-- measured on a live stand as root 4.0 above the terrain with the feet 0.2 clear.
+local DEFAULT_CLEARANCE_STUDS = 3.5
+
+-- THE RAY. 300 above the target and 1200 down: `ForestTest.groundAt` and `ForestTest.terrainYAt`
+-- both use 1200 of reach in this place, and starting 300 above the TARGET rather than at an
+-- absolute height assumes nothing about how high a world is.
+local GROUND_PROBE_UP_STUDS = 300
+local GROUND_PROBE_DOWN_STUDS = 1200
+
+-- A MISSED RAY IS "NOT LOADED YET", NOT "NO GROUND" (Roblox instance streaming). Three tries inside
+-- a sixth of a second, which is well under `PARENT_WAIT_SECONDS` and `config.PLACE_TIMEOUT`.
+local GROUND_RETRIES = 3
+local GROUND_RETRY_SECONDS = 0.05
+
+-- HOW FAR ABOVE A POINT THE NEAR PROBE STARTS (round 2). Big enough to clear the gap between a
+-- caller's Y and a ground slightly above it -- the lobby's return asked for a Y a stud under the
+-- shelf -- and small enough to stay under the lowest thing anybody stands beneath: the lodge's
+-- eaves are 10 studs over the shelf (`Lobby.CONFIG.LODGE.SIZE.Y`) and a root stands about 3 studs
+-- up, so 6 leaves four studs of margin under the eaves and cannot reach a canopy at all.
+local NEAR_PROBE_STUDS = 6
+
+-- HOW FULL A VOXEL HAS TO BE TO COUNT AS SOLID, and HOW BIG ONE IS. Roblox terrain is a 4-stud
+-- voxel grid. The occupancy is MEASURED rather than assumed -- see `Body.insideTerrain` for the
+-- four columns it was read down and why 0.75 and not a half.
+local TERRAIN_CELL_STUDS = 4
+local TERRAIN_SOLID_OCCUPANCY = 0.75
+
+-- HOW FAR THE SNAP HAD TO MOVE A Y BEFORE IT COUNTS AS HAVING MOVED IT. Roblox terrain is voxelised
+-- and a marker's own face is not exactly the surface, so half a stud is "the caller was right".
+local SNAP_TOLERANCE_STUDS = 0.5
+
+-- `fromY` IS IN THE TYPE (Reviewer round 2, note 2). Round 2 reached it by casting
+-- (`pcall(groundReader :: any, x, z, fromY)`), so a world that injected a two-argument reader would
+-- have got the sky answer back with no complaint from the type checker or from selene -- which is
+-- round 1's finding returning silently. The three annotations that carry this shape -- here,
+-- `Body.setGroundReader` and `Scene.build`'s `groundAt` -- all name it now.
+local groundReader: ((number, number, number?) -> number?)? = nil
+local snapped = 0
+local snapMisses = 0
+local worstSnapStuds = 0
+
+-- THE WORLD'S OWN SINGLE GROUND READER, injected at the composition root -- in the Forest Test
+-- `ForestTest.groundAt`, which is the same function `Markers.setReaders`, `Bots.start` and
+-- `Lobby.start` are already handed. `Match.start` sets it from `world.groundAt` and `Match.stop`
+-- clears it, exactly as it does for `world.placement` and `world.config`. A world that injects
+-- nothing gets the fallback below, which is the DEV place.
+function Body.setGroundReader(fn: ((number, number, number?) -> number?)?)
+	groundReader = fn
+end
+
+function Body.groundReader(): ((number, number, number?) -> number?)?
+	return groundReader
+end
+
+-- WHERE THE GROUND IS UNDER THIS POINT. The world's reader when there is one; otherwise one ray
+-- down, excluding every CHARACTER -- a person is not ground, which is the rule `ForestTest.groundAt`
+-- and `ForestTest.roomToStand` already state for this place. It is NOT a second definition of that
+-- rule: when a world has one, this never runs.
+--
+-- `pcall` ROUND THE INJECTED READER: a world's reader that throws must not take a placement with it,
+-- and a placement that cannot measure is the `nil` case below, which is handled.
+-- ONE ASK, AT ONE STARTING HEIGHT. The world's reader when there is one; otherwise one ray down,
+-- excluding every CHARACTER.
+--
+-- THE FALLBACK IS THE DEV PLACE'S READER AND NOTHING ELSE (Reviewer round 1, note 7). It excludes
+-- only characters, while `ForestTest.groundAt` also excludes that world's foliage and animals --
+-- and that is not two answers to one question, because they never both run: a world that has a
+-- reader injects it, and the DEV arena has no foliage, no `Boars` folder and no canopy to stop a
+-- ray on. If a third world ever has foliage, it brings its own reader as the forest does.
+local function askGround(x: number, z: number, fromY: number?): number?
+	if groundReader ~= nil then
+		local ok, measured = pcall(groundReader :: any, x, z, fromY)
+		-- The cast stays because `pcall` erases the argument types either way; the TYPE above is
+		-- what a world is checked against.
+		return if ok and type(measured) == "number" then measured else nil
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.IgnoreWater = true
+	local ignore = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player.Character then
+			table.insert(ignore, player.Character)
+		end
+	end
+	params.FilterDescendantsInstances = ignore
+	local from = if type(fromY) == "number" then fromY :: number else GROUND_PROBE_UP_STUDS
+	local hit = Workspace:Raycast(Vector3.new(x, from, z), Vector3.new(0, -GROUND_PROBE_DOWN_STUDS, 0), params)
+	return if hit then hit.Position.Y else nil
+end
+
+-- WHERE THE GROUND IS UNDER THIS POINT -- and since round 2 that sentence is enforced rather than
+-- hoped for (Reviewer round 1, finding 1).
+--
+-- THE FAULT IT FIXES: a ray that starts 600 or 300 studs up answers "what is the first solid thing
+-- from the sky". Indoors that is the LODGE'S ROOF (`Lobby.Build.roof`, 10-18 studs over the shelf,
+-- in no excluded folder), so a player standing at task 178's shop counter measured 7-15 studs
+-- "under the ground" -- and the floor net below pivoted him out of the building four times a
+-- second. The same ray stops on the canopy of the 831 Studio-built `Session` trees, which is a
+-- beater walking 580 studs through the wood.
+--
+-- THE RULE: **a downward ray can only hit what is BELOW its origin**, so asking from just above the
+-- point asks the only question that was ever meant -- what would a body here land on -- and nothing
+-- overhead can answer it. `NEAR_PROBE_STUDS` is how far above "just above" is.
+--
+-- STAGE B EXISTS BECAUSE A RAY FROM INSIDE A SOLID MISSES, AND THAT IS MEASURED. In this place, at
+-- (3555, -3000) with the surface at 191.6: from 197.6 down -> HIT 191.6; from 188.6 (three studs
+-- INSIDE) -> MISS; from 171.6 (twenty studs inside) -> MISS. So a point buried in the hill cannot
+-- find its own surface by looking down, and the far cast is the only thing that can. It runs ONLY
+-- when the near one found nothing, which is exactly "there is nothing below this point" -- buried,
+-- or over a hole -- and never while a body is standing on something.
+--
+-- `fromY` IS OPTIONAL and nil means "I am asking about a COLUMN, not about a body" -- the scene's
+-- layout points, a spec's hand-written reader. Those get stage B alone, which is where they were
+-- before this round.
+function Body.groundUnder(x: number, z: number, fromY: number?): number?
+	if type(fromY) == "number" then
+		local near = askGround(x, z, (fromY :: number) + NEAR_PROBE_STUDS)
+		if near ~= nil then
+			return near
+		end
+	end
+	return askGround(x, z, nil)
+end
+
+-- IS THIS POINT INSIDE SOLID TERRAIN? The one test in this module that asks about the body's own
+-- place and NOTHING above it, which is why the net leans on it.
+--
+-- ROUND 2 ASKED THE WRONG CELL, AND THE REVIEWER'S ARITHMETIC WAS RIGHT (round 2, finding 1).
+-- `Region3.new(at - 2, at + 2):ExpandToGrid(4)` is FOUR studs wide only when the coordinate is
+-- exactly 2 (mod 4); at every other offset it expands to EIGHT -- two voxels on that axis -- and
+-- `materials[1][1][1]` is the region's MINIMUM corner, which `MapGen.Ground.paintTrack` writes down
+-- as `rmin = region.CFrame.Position - region.Size / 2`. MEASURED in the live place at
+-- (3555, -3000): the requested span came back `8, 8, 8` with its minimum at `(3552, 192, -3004)`,
+-- so for a root at z -3000 the cell actually read was FOUR STUDS AWAY in z. The function was
+-- answering about a neighbour.
+--
+-- SO IT READS THE ONE CELL THAT CONTAINS THE POINT, by construction and not by expansion:
+-- `min = floor(at / 4) * 4`, `max = min + 4`, which is always a 1x1x1 grid.
+--
+-- "BURIED" IS TWO CELLS, NOT ONE, and that is the Director's rule: the cell the root is IN is solid
+-- AND the cell four studs ABOVE it is solid as well -- a body in the ground with ground over it.
+-- One cell alone would be the surface cell of a body settling half a stud low; two cells is a body
+-- that cannot climb out.
+--
+-- THE THRESHOLD IS MEASURED, and it is not 0.5. Reading the CONTAINING cell down four columns of
+-- this place (the stand at (3555,-3000), the middle stand, the lodge shelf and the road), by offset
+-- from the surface:
+--     -12 studs  1.00  1.00  1.00  1.00        the hill
+--      -8 studs  0.98  1.00  1.00  0.89        the hill
+--      -4 studs  0.93  1.00  0.56  0.50        a cell at or just under the surface
+--       0 studs  0.39  0.46  0.00  0.00        the cell the surface crosses
+--      +4 studs  0.00  0.00  0.00  0.00        air
+-- A half would put the surface cell on the fence (0.46 and 0.50 are two of those readings).
+-- `TERRAIN_SOLID_OCCUPANCY` 0.75 sits in the gap between "within one cell of the surface" (<= 0.56)
+-- and "two or more cells down" (>= 0.89), so the answer turns on the measurement rather than on a
+-- coincidence of two numbers.
+--
+-- A STANDING CHARACTER CANNOT READ "BURIED", AND THAT IS ARITHMETIC AS WELL AS MEASUREMENT. A root
+-- sits about 3 studs above its own feet, so for its cell to be half solid the surface would have to
+-- be at least 2 studs above that cell's floor -- which puts the root at least 5 studs above the
+-- cell's floor, and a cell is 4 studs tall. It cannot happen. Measured at all four columns above: a
+-- settled root reads `Air` 0.00 at every one of them.
+--
+--   Terrain:ReadVoxels  https://create.roblox.com/docs/reference/engine/classes/Terrain#ReadVoxels
+-- `pcall` because a region outside the terrain's own extents throws, and "I could not tell" is
+-- `false`.
+local function cellOf(at: Vector3): (Enum.Material?, number?)
+	local lo = Vector3.new(math.floor(at.X / 4) * 4, math.floor(at.Y / 4) * 4, math.floor(at.Z / 4) * 4)
+	local ok, materials, occupancy = pcall(function()
+		return Workspace.Terrain:ReadVoxels(Region3.new(lo, lo + Vector3.new(4, 4, 4)), 4)
+	end)
+	if not ok or type(materials) ~= "table" then
+		return nil, nil
+	end
+	return (materials :: any)[1][1][1], (occupancy :: any)[1][1][1]
+end
+
+-- WATER IS NOT GROUND, so it is named here beside `Air`: a body in a lake is swimming, not buried,
+-- and putting it "back" on the bank is not this net's business.
+local function cellIsSolid(at: Vector3): boolean
+	local material, filled = cellOf(at)
+	if material == nil or filled == nil then
+		return false
+	end
+	if material == Enum.Material.Air or material == Enum.Material.Water then
+		return false
+	end
+	return (filled :: number) >= TERRAIN_SOLID_OCCUPANCY
+end
+
+function Body.insideTerrain(at: Vector3): boolean
+	return cellIsSolid(at) and cellIsSolid(at + Vector3.new(0, TERRAIN_CELL_STUDS, 0))
+end
+
+-- THE TWO HALVES OF THE ANSWER, EXPORTED, so a spec can say WHICH of them a case turns on and a
+-- live probe can print the number rather than the verdict.
+function Body.terrainCellAt(at: Vector3): (string?, number?)
+	local material, filled = cellOf(at)
+	return (if material ~= nil then material.Name else nil), filled
+end
+
+-- THE SAME QUESTION, ASKED AGAIN WHEN IT HAS NO ANSWER. A miss is "this region has not streamed or
+-- loaded yet" far more often than it is "there is no ground here" (Roblox instance streaming), and
+-- the retry is what turns the first case into an answer instead of into a fall. It YIELDS, and only
+-- on a miss: the server holds the whole world, so in a live session this loop runs once.
+local function groundWithRetries(x: number, z: number, fromY: number?, attempts: number?): number?
+	local tries = math.max(1, math.floor(tonumber(attempts) or GROUND_RETRIES))
+	for attempt = 1, tries do
+		local y = Body.groundUnder(x, z, fromY)
+		if y ~= nil then
+			return y
+		end
+		if attempt < tries then
+			task.wait(GROUND_RETRY_SECONDS)
+		end
+	end
+	return nil
+end
+
+-- THE SNAP. Takes the caller's CFrame and returns the same frame with its Y on the ground under it.
+-- Returns the ORIGINAL frame, unchanged, when the ground cannot be measured at all -- a placement
+-- that cannot measure must still happen (a player who is not placed is a player standing in the
+-- lobby forever), and `Body.snapMisses()` is how that shows up as a number instead of as a feeling.
+--
+-- THE ROTATION IS THE CALLER'S AND IS NEVER TOUCHED: which way a hunter faces is the drive's
+-- decision, not the ground's.
+--
+-- IT RETURNS THE MEASURED GROUND AS WELL AS THE FRAME, so the one line the owner prints about a
+-- placement carries the measurement rather than a second ray's opinion of it (`nil` when the ray
+-- missed, which is the honest answer and what `snapMisses` counts).
+-- `attempts` IS HOW MANY TIMES IT MAY ASK, and 1 means "do not yield" (Reviewer round 2, note 4).
+-- `groundWithRetries` `task.wait`s between tries, and the floor net reaches this from `Match:step`
+-- -- so a body over an unmapped point would have delayed the drive's own tick by up to
+-- `GROUND_RETRIES * GROUND_RETRY_SECONDS`. A PLACEMENT can afford to wait for a region to stream; a
+-- 4 Hz net cannot, and it has the next tick anyway.
+function Body.onGround(cframe: CFrame?, clearanceStuds: number?, attempts: number?): (CFrame?, number?)
+	if cframe == nil then
+		return nil, nil
+	end
+	local at = (cframe :: CFrame).Position
+	-- ASKED FROM THE TARGET'S OWN HEIGHT (Reviewer round 1, finding 1): a lobby return or a ring
+	-- slot INSIDE a building must land on the floor, not on the roof over it.
+	local ground = groundWithRetries(at.X, at.Z, at.Y, attempts)
+	if ground == nil then
+		snapMisses += 1
+		return cframe, nil
+	end
+	local clearance = if type(clearanceStuds) == "number" then clearanceStuds else DEFAULT_CLEARANCE_STUDS
+	local wanted = (ground :: number) + clearance
+	local moved = math.abs(wanted - at.Y)
+	if moved > SNAP_TOLERANCE_STUDS then
+		snapped += 1
+		worstSnapStuds = math.max(worstSnapStuds, moved)
+	end
+	return (cframe :: CFrame) - at + Vector3.new(at.X, wanted, at.Z), ground
+end
+
+-- THE ONE LINE A PLACEMENT PRINTS, and it is the evidence this task was dispatched to produce:
+-- every spawn and every teleport says where it put a body, what the ground under that point
+-- measured, and how far it had to move the caller's own Y to get there. A placement that reads
+-- `ground=MISS` is the one case the net below exists for.
+--
+-- ON THE CONSOLE AND NOT IN A COUNTER, because a counter cannot say WHICH placement was wrong, and
+-- because a tool that requires this module over StudioMCP gets a sandboxed copy with empty state
+-- (measured, task 122) -- so the server's own print is the only honest channel. It happens at a
+-- drive boundary and at a lobby return, which is a handful of lines every few minutes.
+local function reportPlacement(what: string, who: string, asked: CFrame, put: CFrame?, ground: number?)
+	local at = if put ~= nil then (put :: CFrame).Position else asked.Position
+	print(
+		string.format(
+			"[place] %s %s at (%.0f, %.1f, %.0f) ground=%s askedY=%.1f dY=%s",
+			what,
+			who,
+			at.X,
+			at.Y,
+			at.Z,
+			if ground ~= nil then string.format("%.1f", ground :: number) else "MISS",
+			asked.Position.Y,
+			if ground ~= nil then string.format("%+.1f", at.Y - asked.Position.Y) else "0.0"
+		)
+	)
+end
+
+-- The clearance a config asks for, with this module's default when it says nothing. One place, so
+-- `place`, `stand` and the floor net cannot disagree about how high off the ground a body sits.
+function Body.clearanceFor(config): number
+	local asked = if config then (config :: any).STAND_HEIGHT_STUDS else nil
+	return if type(asked) == "number" then asked else DEFAULT_CLEARANCE_STUDS
+end
+
+-- How many placements the snap actually MOVED (by more than half a stud), how many could not measure
+-- the ground at all, and the worst correction it has made. 0 / 0 in a world whose callers were
+-- already right; the measured Forest Test gathering was 17.5.
+function Body.snapped(): number
+	return snapped
+end
+
+function Body.snapMisses(): number
+	return snapMisses
+end
+
+function Body.worstSnapStuds(): number
+	return worstSnapStuds
+end
+
 -- Where a player of this team stands, given the marker set and their index within the team.
 -- Shooters take one post each, by index, and face +Z (up the drive). Drivers spread across the
 -- driver start's X extent and face -Z (toward the line).
+--
+-- ITS Y IS ADVISORY SINCE TASK 192 (the rule above): `Body.place` snaps whatever this returns onto
+-- the ground measured at that x, z. The post-top arithmetic stays because it is the right ANSWER in
+-- both worlds -- a post sits on the ground -- and because a spec reads it with no Workspace at all.
 function Body.placementFor(markers, team: TeamName, index: number, config): CFrame?
 	if team == "Shooters" then
 		local posts = markers.posts
@@ -1169,8 +1517,23 @@ function Body.place(player: Player, cframe: CFrame?, config, onPlaced: ((boolean
 		-- one place that already knows a NEW character has arrived for a player whose team is set.
 		-- A NEW CHARACTER IS EXACTLY WHERE THE APPEARANCE RACE LIVES (Task 151), so this is the one
 		-- call site that most needs the window rather than the single shot.
+		--
+		-- ...AND IT IS FIRST, BEFORE THE SNAP (Reviewer round 1, note 8). `Body.onGround` can YIELD
+		-- on a missed ray, so measuring first would open the appearance window up to
+		-- `GROUND_RETRIES * GROUND_RETRY_SECONDS` later for no gain: the two are independent, and
+		-- dressing first costs nothing.
 		Body.dressWhenLoaded(player, character, config)
-		if not cframe then
+		-- ON THE GROUND THAT IS REALLY THERE (task 192, the rule above). The caller's Y is advisory
+		-- and this is where it stops being: the lobby's return asked for the shelf height itself
+		-- (`SPAWN.OFFSET.Y` is 0), which put the ROOT inside the terrain, and the engine answered by
+		-- ejecting the body downward until `FallenPartsDestroyHeight` destroyed it -- measured, and
+		-- it is the death Karen reported at the start of every round.
+		--
+		-- SNAPPED HERE AND NOT BEFORE `LoadCharacter`, because the snap can YIELD and this handler
+		-- is already a `task.spawn`. `Body.settle` below is then given the SNAPPED frame, so the
+		-- second pivot cannot put the body back at the caller's wrong Y.
+		local target, measured = Body.onGround(cframe, Body.clearanceFor(config))
+		if not target then
 			finish(true) -- nowhere to put them: they spawned, and that is not a failure
 			return
 		end
@@ -1197,8 +1560,11 @@ function Body.place(player: Player, cframe: CFrame?, config, onPlaced: ((boolean
 			waited += task.wait()
 		end
 		if character.Parent then
-			character:PivotTo(cframe)
-			Body.settle(character, cframe)
+			character:PivotTo(target :: CFrame)
+			-- REPORTED WHERE IT HAPPENED AND NOT WHERE IT WAS DECIDED (task 192): a line printed
+			-- before the pivot would say a body is somewhere it never reached.
+			reportPlacement("spawn", player.Name, cframe :: CFrame, target, measured)
+			Body.settle(character, target :: CFrame)
 			finish(true)
 		end
 	end
@@ -1434,24 +1800,252 @@ end
 -- `Anchored` IS WHY THE MOVE STICKS: a character's physics is owned by its own client, so a
 -- server-side pivot alone is a suggestion (see this module's header). `holdCharacter` anchors first
 -- and the pivot follows, which is the order the tie uses for the same reason.
-function Body.standCharacter(character: Model?, userId: number, cframe: CFrame): boolean
+--
+-- ...AND ON THE GROUND UNDER THE SLOT IT IS GIVEN (task 192). THIS is where Karen stood 17.5 studs
+-- underground: `Scene.ringLayout` lays a ring 14 studs across at ONE Y, taken off the middle post,
+-- and on the `edge` layout's 80-stud hillside that one Y is not the ground anywhere else on the
+-- line. The ring is still the scene's to compute; the ground is this module's to measure, which is
+-- the same split `placementFor` and `place` already have. `clearance` is the caller's
+-- `STAND_HEIGHT_STUDS`, so a player at the scene stands as high off the floor as a hunter on a
+-- stand -- which is what `Scene.ringLayout`'s own header says it is doing.
+function Body.standCharacter(character: Model?, userId: number, cframe: CFrame, config): boolean
 	local root = Body.holdCharacter(character, userId)
 	if root == nil or character == nil then
 		return false
 	end
-	character:PivotTo(cframe)
+	local target, measured = Body.onGround(cframe, Body.clearanceFor(config))
+	character:PivotTo(target :: CFrame)
+	reportPlacement("gather", character.Name, cframe, target, measured)
 	stood += 1
 	return true
 end
 
 -- The player wrapper, for the same reason `Body.tie` and `Body.hold` have one.
-function Body.stand(player: Player, cframe: CFrame): boolean
-	return Body.standCharacter(player.Character, player.UserId, cframe)
+function Body.stand(player: Player, cframe: CFrame, config): boolean
+	return Body.standCharacter(player.Character, player.UserId, cframe, config)
 end
 
 -- How many characters this module has stood somewhere (the results scene's own number).
 function Body.stood(): number
 	return stood
+end
+
+-- ------------------------------------------------------------------- task 192: THE FLOOR, AS A NET
+--
+-- THE RULE ABOVE IS THE FIX; THIS IS THE NET UNDER IT, and the difference matters. The snap makes
+-- every target right; this catches a body that is under the ground ANYWAY -- a second writer that
+-- has not been found yet, a client whose region had not streamed when it was moved, a fall through a
+-- seam in the voxels -- and puts it back before the engine deletes it.
+--
+-- Pattern: UNREAL'S `KillZ` HOOK, INVERTED. `AWorldSettings::KillZ` plus `AActor::FellOutOfWorld` is
+-- the engine telling the game that a body has left the world instead of only deleting it; Roblox
+-- has the deletion (`Workspace.FallenPartsDestroyHeight`) and NO hook, so this is the hook. The
+-- inversion is the whole point: Unreal's default is to kill, and this puts the body back.
+--   https://create.roblox.com/docs/reference/engine/classes/Workspace#FallenPartsDestroyHeight
+--   https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Engine/GameFramework/AWorldSettings
+--   Humanoid.FloorMaterial https://create.roblox.com/docs/reference/engine/classes/Humanoid#FloorMaterial
+-- Note: docs/research/2026-10-15-one-placement-rule.md section 4
+--
+-- IT MUST STAY AT ZERO. `Body.rescuedFromUnderGround()` is in the drive's report, and a session in
+-- which it is not 0 is a session with a placement bug that this net is hiding -- which is a number
+-- to read, not a thing to be pleased about. The same discipline `strayCleared` already has.
+
+-- HOW FAR UNDER THE GROUND IS NOT A STANDING CHARACTER. An R15 root is about 3 studs above its own
+-- feet and the voxel surface is good to about half a stud, so 5 studs below the measured ground
+-- cannot be anybody standing on it. The three real failures measured in task 192 were 4, 17.5 and
+-- 650 studs. It is the SOFT WALL's threshold (`Body.liftOntoGround`); the net below does not use a
+-- depth at all any more -- see `Body.floorStep`.
+local MAX_BELOW_GROUND_STUDS = 5
+
+-- HOW FAST DOWNWARD COUNTS AS FALLING. Roblox gravity is 196.2 studs/s^2, so a body that has been
+-- falling for a tenth of a second is already past 19; 5 is comfortably above the jitter of a body
+-- settling on a slope and far below anything that is really dropping.
+local FALLING_SPEED_STUDS = 5
+
+-- HOW FAR UNDER A FALLING BODY THE NET LOOKS FOR A FLOOR. 500 studs is about three seconds of fall,
+-- which at the net's 4 Hz is a dozen chances to catch him before `FallenPartsDestroyHeight` does.
+local FALL_PROBE_STUDS = 500
+
+-- HOW FAR A RESCUE HAS TO MOVE A BODY BEFORE IT IS A RESCUE (Reviewer round 1, note 1).
+local RESCUE_MOVED_STUDS = 1
+
+-- HOW MUCH WARNING THE ENGINE'S OWN DELETION GETS. A body below `FallenPartsDestroyHeight` is
+-- DESTROYED, which is a death; 100 studs above it is about a second and a half of fall at terminal
+-- speed, and the net runs at 4 Hz.
+local FLOOR_MARGIN_STUDS = 100
+
+-- WHERE EACH PLAYER WAS LAST SEEN STANDING ON SOMETHING, keyed by userId so nothing here holds a
+-- Player -- the discipline `held` and `watching` already follow. Written only by `floorStep` and
+-- cleared by `Body.forget`.
+local lastGood: { [number]: Vector3 } = {}
+local rescuedUnderGround = 0
+local worstRescueStuds = 0
+
+-- HOW FAR UNDER THE GROUND THIS POINT IS, as a number. Positive means buried; 0 or negative means
+-- on it or above it; nil means the ground could not be measured, which is not the same as "it is
+-- fine" and is why every caller branches on it.
+function Body.underGroundBy(at: Vector3): number?
+	-- ASKED FROM THE POINT ITSELF (round 2). Before this it asked from the sky, so a roof or a
+	-- canopy overhead answered "the ground" and a man standing indoors measured 7-15 studs under it.
+	local ground = Body.groundUnder(at.X, at.Z, at.Y)
+	return if ground == nil then nil else (ground :: number) - at.Y
+end
+
+-- HOW FAR UNDER THE GROUND IS NOT A STANDING CHARACTER, for a caller that has to make the same
+-- judgement this module's own net makes. One number, one reader.
+function Body.maxBelowGround(): number
+	return MAX_BELOW_GROUND_STUDS
+end
+
+-- A POINT, LIFTED OUT OF THE HILL -- and ONLY out of it. Returns the point unchanged (and `false`)
+-- when it is on the ground, above it, or when the ground cannot be measured; the lifted point (and
+-- `true`) when it is more than `MAX_BELOW_GROUND_STUDS` under it.
+--
+-- IT IS ONE-SIDED ON PURPOSE. A caller that writes a position every frame -- `ForestTest.boundary`,
+-- the hunter's soft wall -- must not be allowed to pin a jumping player to the ground; what it must
+-- never do is put a body INTO the hill. So this answers only the second question.
+function Body.liftOntoGround(at: Vector3, clearanceStuds: number?): (Vector3, boolean)
+	local below = Body.underGroundBy(at)
+	if below == nil or (below :: number) <= MAX_BELOW_GROUND_STUDS then
+		return at, false
+	end
+	local clearance = if type(clearanceStuds) == "number" then clearanceStuds else DEFAULT_CLEARANCE_STUDS
+	return Vector3.new(at.X, at.Y + (below :: number) + clearance, at.Z), true
+end
+
+function Body.rescuedFromUnderGround(): number
+	return rescuedUnderGround
+end
+
+-- THE BIGGEST LIFT A RESCUE HAS MADE, in studs. It was `worstBelowGroundStuds` in round 1, when the
+-- net measured a DEPTH; the net no longer asks for one -- it asks whether the body is buried, off
+-- the world or falling through nothing -- so the honest number is how far it had to move him.
+function Body.worstRescueStuds(): number
+	return worstRescueStuds
+end
+
+-- Where this module last saw that player standing on something. nil until it has.
+function Body.lastGoodPosition(userId: number): Vector3?
+	return lastGood[userId]
+end
+
+-- ONE PASS OF THE NET. Returns how many characters it actually MOVED, so the owner can count it.
+--
+-- IT ASKS THREE QUESTIONS AND EVERY ONE OF THEM IS ABOUT THE BODY'S OWN PLACE (Reviewer round 1,
+-- finding 1). Round 1 asked a fourth -- "is the ground above me higher than I am" -- and the ground
+-- was read from the sky, so a roof, a canopy or a truck overhead counted as the floor and this
+-- function pivoted a man out of the lodge four times a second. There is no "how far under the
+-- ground am I" here any more:
+--
+--   1. BURIED. `Body.insideTerrain` reads the voxel the root is in. Nothing above it can change
+--      that answer, and a player standing on the lodge floor reads `Air` because his root is three
+--      studs above the shelf the floor is laid on.
+--   2. OFF THE WORLD. Below `FallenPartsDestroyHeight + FLOOR_MARGIN_STUDS`, where the engine is
+--      about to delete the body -- which is a death, not a fall.
+--   3. FALLING THROUGH NOTHING. The engine says he is not standing on anything
+--      (`Humanoid.FloorMaterial == Air`), he is moving DOWN faster than `FALLING_SPEED_STUDS`, and
+--      a ray from his own root finds no floor within `FALL_PROBE_STUDS`. All three, together.
+--
+-- A CHARACTER THE ENGINE SAYS IS STANDING IS NEVER TOUCHED BY 2 OR 3, and is remembered as the last
+-- good place instead. `FloorMaterial` is the engine's own answer to "is he on something", and it is
+-- true of the lodge's floor, a truck's running board, a branch and the terrain alike.
+local function fallingFreely(root: BasePart, humanoid: Humanoid): boolean
+	if humanoid.FloorMaterial ~= Enum.Material.Air then
+		return false
+	end
+	if root.AssemblyLinearVelocity.Y > -FALLING_SPEED_STUDS then
+		return false
+	end
+	-- FROM THE ROOT, DOWNWARD, AND BOUNDED. A downward ray cannot hit anything above the body, so
+	-- this is "is there a floor under me", never "what is over my head".
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.IgnoreWater = true
+	local ignore = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player.Character then
+			table.insert(ignore, player.Character)
+		end
+	end
+	params.FilterDescendantsInstances = ignore
+	return Workspace:Raycast(root.Position, Vector3.new(0, -FALL_PROBE_STUDS, 0), params) == nil
+end
+
+-- `service` IS A PARAMETER for the reason every seam in this file is: a spec drives it with a fake
+-- `GetPlayers` and no Workspace. `floorY` and `buriedTest` likewise -- the defaults are this
+-- place's own destroy height plus the margin, and `Body.insideTerrain`. A spec can then drive
+-- "this body is inside the hill" and "this body is under the lodge's roof" as two different
+-- answers with hand-written numbers, which is the distinction round 1 could not make at all.
+function Body.floorStep(service: any, floorY: number?, buriedTest: ((Vector3) -> boolean)?): number
+	local players = if service and service.GetPlayers then service:GetPlayers() else {}
+	local floor = if type(floorY) == "number"
+		then floorY :: number
+		else Workspace.FallenPartsDestroyHeight + FLOOR_MARGIN_STUDS
+	local putBack = 0
+	for _, player in ipairs(players) do
+		local character = player.Character
+		local root = character and (character.PrimaryPart or character:FindFirstChild("HumanoidRootPart"))
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		-- THE NET IS FOR THE LIVING, AND THAT IS MEASURED (task 192, the first proof run). A dead
+		-- character is a ragdoll: on the `edge` layout's slope one slid ten studs downhill and
+		-- clipped 47.8 studs into the terrain, and the net dutifully put a CORPSE back on its stand
+		-- half a second before `LoadCharacter` destroyed it. That is a rescue of nobody.
+		local alive = humanoid ~= nil and humanoid.Health > 0
+		if character and character.Parent and root and root:IsA("BasePart") and humanoid and alive then
+			local at = (root :: BasePart).Position
+			local standing = humanoid.FloorMaterial ~= Enum.Material.Air
+			local buried = if buriedTest ~= nil then buriedTest(at) else Body.insideTerrain(at)
+			local offTheWorld = at.Y < floor
+			local falling = not standing and fallingFreely(root :: BasePart, humanoid)
+			if standing and not buried then
+				-- STANDING ON SOMETHING, SO THIS IS A GOOD PLACE -- the lodge floor, a truck's
+				-- running board, a branch, the terrain. The net never moves him from here.
+				lastGood[player.UserId] = at
+			elseif buried or offTheWorld or falling then
+				-- BACK WHERE HE WAS STANDING, and if this module never saw that, on the ground over
+				-- his own x and z. The second case answers a man who fell through the moment he
+				-- arrived.
+				local home = lastGood[player.UserId] or at
+				-- ONE ASK, NO YIELD (Reviewer round 2, note 4): this runs inside `Match:step`.
+				local wanted = Body.onGround(
+					CFrame.new(home) * ((root :: BasePart).CFrame - (root :: BasePart).CFrame.Position),
+					DEFAULT_CLEARANCE_STUDS,
+					1
+				)
+				-- COUNTED ONLY WHEN THE BODY ACTUALLY MOVED (Reviewer round 1, note 1). With no
+				-- remembered place and no measurable ground the "rescue" would pivot him to where he
+				-- already is, and at 4 Hz that is a run of rescues of nobody in the counter whose
+				-- whole value is that it stays 0.
+				local target = if wanted ~= nil then (wanted :: CFrame).Position else at
+				if (target - at).Magnitude > RESCUE_MOVED_STUDS then
+					character:PivotTo(wanted :: CFrame)
+					if not (root :: BasePart).Anchored then
+						(root :: BasePart).AssemblyLinearVelocity = Vector3.zero
+					end
+					putBack += 1
+					rescuedUnderGround += 1
+					worstRescueStuds = math.max(worstRescueStuds, (target - at).Magnitude)
+					print(
+						string.format(
+							"[place] RESCUED %s: root (%.0f, %.1f, %.0f) was %s, put back at (%.0f, %.1f, %.0f)",
+							player.Name,
+							at.X,
+							at.Y,
+							at.Z,
+							if buried
+								then "inside solid terrain"
+								elseif offTheWorld then string.format("below the floor %.0f", floor)
+								else "falling with no floor under it",
+							target.X,
+							target.Y,
+							target.Z
+						)
+					)
+				end
+			end
+		end
+	end
+	return putBack
 end
 
 -- The same work against a Model rather than a Player, which is the seam a spec uses: a live spec must
@@ -1464,7 +2058,25 @@ function Body.tieCharacter(character: Model?, userId: number, tree: BasePart, co
 	if root == nil or character == nil then
 		return false
 	end
-	character:PivotTo(Body.tiePointFor(tree, root.Position, config))
+	-- ...AND NEVER INSIDE THE HILL (task 192), but NOT snapped like the other three.
+	--
+	-- `tiePointFor` reads the TREE's OWN BOTTOM FACE, and that is already a measurement of the
+	-- ground: a tree stands on it. Replacing it with a ray would be worse, not better -- a tree on a
+	-- rock or a platform would tie the offender to the ground far below it, and
+	-- `match_safety.spec`'s own fixture (a trunk 700 studs up) says so in one assertion. So the tie
+	-- keeps the tree's answer and takes only the ONE-SIDED half of the rule: a point more than
+	-- `Body.maxBelowGround()` studs INSIDE the ground is lifted out of it, and a point on or above
+	-- the ground is left exactly where the trunk put it.
+	local asked = Body.tiePointFor(tree, root.Position, config)
+	local clearance = Body.clearanceFor(config)
+	local lifted, moved = Body.liftOntoGround(asked.Position, clearance)
+	local target = if moved then asked - asked.Position + lifted else asked
+	character:PivotTo(target)
+	if moved then
+		-- The ground the lift found, without asking for it twice: it put the point `clearance`
+		-- above it.
+		reportPlacement("tie", character.Name, asked, target, lifted.Y - clearance)
+	end
 
 	local folder = parent or Body.driveMarkers()
 	local previous = folder:FindFirstChild(Body.ropeName(userId))
@@ -1525,6 +2137,9 @@ function Body.forget(userId: number)
 	-- otherwise leave a connection held against a character that is gone -- `Body.appearanceWatching`
 	-- is the number that proves this line works.
 	stopWatching(userId)
+	-- AND WHERE HE WAS LAST STANDING (task 192), for the same reason: a table keyed by userId that
+	-- nothing ever removes from is a leak, and a rejoining player's old position is not his.
+	lastGood[userId] = nil
 end
 
 function Body.tracked(): number

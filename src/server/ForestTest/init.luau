@@ -1081,6 +1081,20 @@ function ForestTest.startRole(value: any): RoleWord?
 	return ForestTest.parseRole(word)
 end
 
+-- HOW FAR THE CLAMP HAS TO MOVE A BODY BEFORE THE WALL ASKS WHERE THE GROUND IS. Two studs: a
+-- hunter pushing against his circle is clamped by a fraction of a stud a frame, and the mid-drive
+-- respawn the lift exists for arrives from the road spawn 900 studs away.
+local LIFT_WHEN_MOVED_STUDS = 2
+
+-- HOW MANY TIMES THE WALL HAS HAD TO LIFT A BODY OUT OF THE HILL (task 192). It is one per respawn
+-- during a drive and zero otherwise, which is a number to read rather than a thing to assume: see
+-- `ForestTest.boundary` below for what it counts.
+local boundaryLifts = 0
+
+function ForestTest.boundaryLifts(): number
+	return boundaryLifts
+end
+
 -- HOLDS A LOCKED HUNTER INSIDE HIS STAND'S CIRCLE. Returns the position it stopped him at, or nil.
 --
 -- IT IS A WALL, NOT A LEASH, AND TASK 166 IS THAT CHANGE. Karen, 2026-10-12: *"it always put me at
@@ -1100,7 +1114,28 @@ end
 --
 -- IT STILL DOES NOT FREEZE HIM. *"I want tomorrow to test shooting and walking"* -- anchoring the
 -- character would break the thing she is testing, so walking out simply stops being possible.
-function ForestTest.boundary(userId: number, root: BasePart, role: RoleWord?): Vector3?
+-- `lift` IS THE ONE PLACEMENT RULE, HANDED IN (task 192), and it is here because this wall was the
+-- second half of Karen's sentence: *"when I respawn I die"*.
+--
+-- MEASURED, twice, in the live place. A hunter who presses Reset in the middle of a drive is
+-- respawned by the engine at `Workspace.ForestRoadSpawn` -- (3000, 138.5, -2109), 900 studs away --
+-- and this wall then clamps his X and Z onto his own stand's circle on the very next Heartbeat
+-- WHILE KEEPING `position.Y`, because that is what `boundaryPoint` returns. He arrives at
+-- (3549, 143.7, -2990): 11.7 studs from stand 4, which is the clamp, and **47.8 studs under the
+-- terrain**, which is the hill it put him inside. Both proof runs produced that point to the stud.
+--
+-- SO THE WALL IS HORIZONTAL AND IT SAYS SO. `lift` is `Match.Body.liftOntoGround`, the one owner's
+-- own rule, and it is ONE-SIDED: it moves a point that is more than `Body.maxBelowGround()` studs
+-- INSIDE the ground, and never touches one that is on it or above it -- so a hunter jumping at the
+-- edge of his circle is clamped exactly as he was and is not pinned to the floor.
+--
+-- `nil` IS THE OLD BEHAVIOUR, for a spec that drives this with no Workspace at all.
+function ForestTest.boundary(
+	userId: number,
+	root: BasePart,
+	role: RoleWord?,
+	lift: ((Vector3, number?) -> (Vector3, boolean))?
+): Vector3?
 	-- A BEATER IS NOT HELD TO A STAND (task 153), and without this line the whole task is dead on
 	-- arrival: a beater walks 580 studs south through the wood (240 when task 153 wrote this line),
 	-- and a circle round the stand
@@ -1124,6 +1159,19 @@ function ForestTest.boundary(userId: number, root: BasePart, role: RoleWord?): V
 		return nil
 	end
 	local at = to :: Vector3
+	-- THE LIFT IS ASKED ONLY OF A BODY THAT WAS TELEPORTED HERE, NOT OF ONE WALKING INTO THE WALL
+	-- (Reviewer round 1, note 3: `lift` costs a raycast, and a hunter leaning on his circle's edge
+	-- is the frame-by-frame case task 166 was written around). The discriminator is the clamp's own
+	-- DISPLACEMENT: a man walking into the wall is moved a fraction of a stud a frame, while the
+	-- respawn this exists for arrives 900 studs away at the road spawn. `LIFT_WHEN_MOVED_STUDS` is
+	-- the line between them, so the common case costs nothing and the rare one is still caught.
+	if lift ~= nil and (at - root.Position).Magnitude > LIFT_WHEN_MOVED_STUDS then
+		local lifted, moved = lift(at)
+		if moved then
+			at = lifted
+			boundaryLifts += 1
+		end
+	end
 	root.CFrame = CFrame.new(at) * (root.CFrame - root.CFrame.Position)
 	-- THE OUTWARD PART OF THE VELOCITY, GONE. `AssemblyLinearVelocity` is the whole character's, not
 	-- one part's, which is what a walking Humanoid has (the engine welds the rig into one assembly).

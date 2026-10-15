@@ -797,6 +797,10 @@ SCOPE_SPECS = {
               # Task 159: the end of a drive and the results scene -- the crossing predicate, the
               # gathering spot and the scene's layout, all of it `src/server/Match/`'s.
               "tests/server/match_scene.spec.luau",
+              # Task 192: the ONE placement rule (a target's Y is the ground measured under it) and
+              # the floor net that puts a body back. `Match.Body` is where both live, so a
+              # `src/server/Match/` edit plays them.
+              "tests/server/match_place.spec.luau",
               # Task 161: the drive calls `world.bots` at its own phase boundaries and
               # `Match.beaterCrossing` counts the bot beaters into the line, so a `src/server/Match/`
               # edit plays the bots' specs too. The dual membership `zz_horn`, `boar_hit` and
