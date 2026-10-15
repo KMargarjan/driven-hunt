@@ -122,6 +122,12 @@ measured at the point it is used for.**
   studs INSIDE the ground and never touches one on it or above it. So the wall cannot bury anybody
   and cannot pin a jumping hunter to the floor either, and the vertical answer still comes from the
   one owner. `ForestTest.boundaryLifts()` counts it.
+* **The TIE is the one placement that is NOT snapped, and that is a measurement too.**
+  `Body.tiePointFor` reads the TREE's own bottom face, which is already an answer to "where is the
+  ground" -- a tree stands on it. A ray would be worse: a tree on a rock or a platform would tie the
+  offender to the ground far below it, and `match_safety.spec`'s own fixture (a trunk 700 studs up)
+  fails on exactly that, which is how this was found rather than argued. So the tie takes the
+  one-sided half only, like the wall: lifted out of the hill, never pulled down to it.
 * **Rejected: snapping inside `Scene` or `Lobby`.** Both would be a second writer of the one fact.
   `Scene` is handed the reader as a parameter so the ANIMALS and the TORCHES sit on their own ground
   too (a buried torch is the same bug seen from outside), but it asks `Body`'s reader -- it does not

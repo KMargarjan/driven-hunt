@@ -1847,14 +1847,25 @@ function Body.tieCharacter(character: Model?, userId: number, tree: BasePart, co
 	if root == nil or character == nil then
 		return false
 	end
-	-- ...ON THE GROUND BESIDE THE TRUNK (task 192, the one placement rule). `tiePointFor` reads the
-	-- TREE's own bottom face, which is right for the DEV arena's pillars -- they stand on the floor,
-	-- and the snap there changes nothing -- and is a guess in a wood of bought meshes whose bounding
-	-- boxes are not the ground. A tie is a teleport, so it obeys the same rule as the other three.
+	-- ...AND NEVER INSIDE THE HILL (task 192), but NOT snapped like the other three.
+	--
+	-- `tiePointFor` reads the TREE's OWN BOTTOM FACE, and that is already a measurement of the
+	-- ground: a tree stands on it. Replacing it with a ray would be worse, not better -- a tree on a
+	-- rock or a platform would tie the offender to the ground far below it, and
+	-- `match_safety.spec`'s own fixture (a trunk 700 studs up) says so in one assertion. So the tie
+	-- keeps the tree's answer and takes only the ONE-SIDED half of the rule: a point more than
+	-- `Body.maxBelowGround()` studs INSIDE the ground is lifted out of it, and a point on or above
+	-- the ground is left exactly where the trunk put it.
 	local asked = Body.tiePointFor(tree, root.Position, config)
-	local target, measured = Body.onGround(asked, Body.clearanceFor(config))
-	character:PivotTo(target :: CFrame)
-	reportPlacement("tie", character.Name, asked, target, measured)
+	local clearance = Body.clearanceFor(config)
+	local lifted, moved = Body.liftOntoGround(asked.Position, clearance)
+	local target = if moved then asked - asked.Position + lifted else asked
+	character:PivotTo(target)
+	if moved then
+		-- The ground the lift found, without asking for it twice: it put the point `clearance`
+		-- above it.
+		reportPlacement("tie", character.Name, asked, target, lifted.Y - clearance)
+	end
 
 	local folder = parent or Body.driveMarkers()
 	local previous = folder:FindFirstChild(Body.ropeName(userId))
