@@ -61,7 +61,7 @@ of eyeballed.
 
 | | target | why that number |
 |---|---|---|
-| hip: the hand's grip point off the **wrist's axis** | **< 0.027 studs** | half the hand's own gap (section 4): inside that, the wood is still inside the fist |
+| hip: the hand's grip point off the **wrist's axis** | **< 0.0719 studs** | half the wrist's own narrowest width: inside that, the grip point is inside the WOOD, which is what having hold of a stock is. (The hand's own gap, 0.027, is the wrong bound here -- a hand slides a little way along a wrist and is still holding it. It IS the right bound for the knob, which is a ball the fist closes on.) Reached: 0.0543 |
 | hip: **wrap** -- how far round the wrist the glove reaches | **>= 0.75** of the circle | source 1's "thumb and fingers wrap around" is a closed hand, not a hand laid against one side |
 | bolt: the hand's grip point off the **knob's centre**, every frame the hand is on it | **< 0.05 studs** (the dispatch's tolerance) | the knob's own radius is 0.0256, so inside this the knob is inside the hand |
 | bolt: glove surface to knob surface | **touching (0.000)** | a hand near the knob is a hand not holding it |

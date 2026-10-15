@@ -802,7 +802,13 @@ return function()
 			out.FIRST_PERSON = true
 			return table.freeze(out)
 		end)()
-		local TOLERANCE = HandAssets.GRIP_RADIUS_STUDS
+		-- TWO TOLERANCES, AND EACH MEANS A DIFFERENT THING. The WRIST is a column the hand can slide
+		-- a little way along and still be holding: what has to be true is that the grip point is
+		-- inside the WOOD, so the bound is half the wrist's own narrowest width. The KNOB is a ball
+		-- the fist closes on: what has to be true is that it is inside the HAND, so the bound there
+		-- is half the hand's own gap. Neither is a number somebody liked.
+		local WRIST_TOLERANCE = RifleGeometry.gripRadius(Rifle.CONFIG)
+		local KNOB_TOLERANCE = HandAssets.GRIP_RADIUS_STUDS
 		local function gripPointOf(offset: CFrame): Vector3
 			return offset:PointToWorldSpace(HandAssets.GRIP_STUDS)
 		end
@@ -818,7 +824,7 @@ return function()
 				local offset = Mode.handOffsetAt("right", case.state, rifleConfig)
 				local off = RifleGeometry.offGripAxis(Rifle.CONFIG, gripPointOf(offset))
 				TestKit.note(string.format("rifle right hand %s: %.4f studs off the wrist axis", case.name, off))
-				expect(off < TOLERANCE).to.equal(true)
+				expect(off < WRIST_TOLERANCE).to.equal(true)
 			end
 		end)
 
@@ -836,7 +842,7 @@ return function()
 			local knob = RifleGeometry.boltKnobOffset(Rifle.CONFIG)
 			local miss = (gripPointOf(grip) - knob).Magnitude
 			TestKit.note(string.format("rifle bolt hand: %.4f studs from the knob's centre", miss))
-			expect(miss < TOLERANCE).to.equal(true)
+			expect(miss < KNOB_TOLERANCE).to.equal(true)
 			-- ...AND IT CANNOT COME OFF IT. `Camera.Viewmodel.poseHands` places this hand from the
 			-- SAME transform the bolt is drawn with (`Viewmodel.hinge`'s return), so the miss is
 			-- invariant under any rigid motion of the bolt -- which is the whole reason the hand is

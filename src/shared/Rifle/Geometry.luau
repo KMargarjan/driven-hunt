@@ -141,6 +141,12 @@ local BOLT_KNOB = Vector3.new(0.0879, 0.0428, 0.6340)
 local BOLT_KNOB_RADIUS = 0.0256
 local GRIP_WRIST = Vector3.new(-0.0111, -0.0603, 1.0246)
 local GRIP_WRIST_DIR = Vector3.new(0.0087, -0.5221, 0.8529).Unit
+-- Half the wrist's own narrowest width (0.1438 across at z 0.976). It is the tolerance that means
+-- something for the HIP hold: a grip point closer to the axis than this is INSIDE the wood, which
+-- is what "the hand has hold of the stock" is. The BOLT's tolerance is the hand's own gap instead
+-- (`HandAssets.GRIP_RADIUS_STUDS`), because a knob is a ball the fist closes on and not a column
+-- the fist slides along.
+local GRIP_RADIUS = 0.0719
 
 local STEEL_MATERIAL = Enum.Material.SmoothPlastic -- `Metal` mirrors the sky; see `Gun`'s own note
 
@@ -314,6 +320,12 @@ end
 function Geometry.gripAxis(config): Vector3
 	local _ = config -- a direction does not scale
 	return GRIP_WRIST_DIR
+end
+
+-- How thick the wrist is, halved: see `GRIP_RADIUS`.
+function Geometry.gripRadius(config): number
+	local at = Geometry.layout(config)
+	return GRIP_RADIUS * (at.total / 4.4)
 end
 
 -- How far a point is from the wrist's line. The one expression that answers "is the hand on the
