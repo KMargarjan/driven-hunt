@@ -669,9 +669,20 @@ return function()
 					)
 				)
 				expect(right).never.to.equal(left)
-				-- NOT A HAIR APART: the two frames point their own +X at least a right angle from each
-				-- other, which is the difference between a grip and a forend hold rather than a tweak.
-				expect(right.RightVector:Dot(left.RightVector) < 0.5).to.equal(true)
+				-- NOT A HAIR APART: the two frames are at least a right angle from each other, which
+				-- is the difference between a grip and a fore-end hold rather than a tweak.
+				--
+				-- MEASURED ON THE WHOLE ROTATION SINCE TASK 189, not on the two +X vectors. That
+				-- comparison only meant something while both frames' +X meant the same thing on both
+				-- gloves, and task 189 re-measured the RIGHT glove's axis against the part Roblox
+				-- really draws (`HandAssets.AXES`) -- so its +X is now the fingers and the left's is
+				-- still whatever its own unflipped measurement says. The two long axes happen to lie
+				-- 34 degrees apart now; the two HANDS are 177 degrees apart, which is the thing this
+				-- case is about. (On the old numbers it was 139 degrees, so this bound would have
+				-- passed then too: it is a better statement of the same rule, not a weaker one.)
+				local _, apart = (right.Rotation:Inverse() * left.Rotation):ToAxisAngle()
+				TestKit.note(string.format("task114 hand frames: %.1f degrees apart", math.deg(apart)))
+				expect(math.deg(apart) > 90).to.equal(true)
 				-- ...AND THE TWIST IS THE NUMBER THAT SAYS WHOSE GLOVES THESE ARE. The v1 left glove
 				-- was modelled palm-DOWN and needed a half turn to get the palm under the barrels;
 				-- Karen's is modelled palm-UP already, so a 180 here would be the retired pair's
