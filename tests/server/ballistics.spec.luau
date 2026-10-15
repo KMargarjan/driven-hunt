@@ -4,7 +4,7 @@
 -- frozen numbers plus functions of their arguments, so everything here is arithmetic -- which is
 -- the whole reason the module is shaped that way (docs/design/ballistics.md section 2).
 --
--- WHAT IT IS FOR, said plainly: it pins the three ballistic numbers of each weapon against the
+-- WHAT IT IS FOR, said plainly: it pins the four ballistic numbers of each weapon against the
 -- research note, so a muzzle velocity that drifts fails the harness instead of quietly changing how
 -- much lead Karen has to hold. One case (`speedAt` at 200 yd) has its right answer from OUTSIDE the
 -- repo -- a published .416 Rigby velocity the drag coefficient was never fitted to.
@@ -35,8 +35,8 @@ return function()
 	local slugShot = Ballistics.shotFor(Weapons.ROWS.shotgun, "Slug")
 	local buckShot = Ballistics.shotFor(Weapons.ROWS.shotgun, "Buck")
 
-	describe("the three numbers come off the real rows", function()
-		it("reads all three for every ammo both shipped weapons carry", function()
+	describe("the four numbers come off the real rows", function()
+		it("reads all four for every ammo both shipped weapons carry", function()
 			for id, row in pairs(Weapons.ROWS) do
 				for _, ammo in ipairs(row.AMMO_KINDS) do
 					local shot = Ballistics.shotFor(row, ammo)
@@ -45,6 +45,9 @@ return function()
 					expect((shot :: any).v0 > 0).to.equal(true)
 					expect(type((shot :: any).k)).to.equal("number")
 					expect(type((shot :: any).zeroStuds)).to.equal("number")
+					-- THE FOURTH NUMBER (task 189): what fraction of real gravity this one falls at.
+					expect(type((shot :: any).gravityScale)).to.equal("number")
+					expect((shot :: any).gravityScale >= 0).to.equal(true)
 					-- A ZERO BEYOND THE RANGE CAP IS A DATA FAULT: the trajectory would never reach
 					-- the distance it is zeroed at, so a still target could not be dead centre
 					-- anywhere.
@@ -59,28 +62,35 @@ return function()
 			near((rifleShot :: any).v0, 2612, 0)
 			near((rifleShot :: any).k, 4.29e-4, 0)
 			near((rifleShot :: any).zeroStuds, 714, 0)
+			-- TASK 189: the rifle's bullet falls at 12 % of real gravity, which is what makes the
+			-- standing shot dead on the reticle from 50 to 200 m. The shotgun's two are the real
+			-- world, unchanged.
+			near((rifleShot :: any).gravityScale, 0.12, 0)
 			near((slugShot :: any).v0, 1752, 0)
 			near((slugShot :: any).k, 1.059e-3, 0)
 			near((slugShot :: any).zeroStuds, 180, 0)
+			near((slugShot :: any).gravityScale, 1, 0)
 			near((buckShot :: any).v0, 1442, 0)
 			near((buckShot :: any).k, 2.631e-3, 0)
 			near((buckShot :: any).zeroStuds, 70, 0)
+			near((buckShot :: any).gravityScale, 1, 0)
 		end)
 
-		it("answers nil for an unknown ammo and for a row missing any one of the three", function()
+		it("answers nil for an unknown ammo and for a row missing any one of the four", function()
 			expect(Ballistics.shotFor(Weapons.ROWS.rifle, "Buck")).to.equal(nil)
 			expect(Ballistics.shotFor(Weapons.ROWS.rifle, "Birdshot")).to.equal(nil)
 			expect(Ballistics.shotFor(nil, "Slug")).to.equal(nil)
 			expect(Ballistics.shotFor({}, "Slug")).to.equal(nil)
-			-- ONE MISSING FIELD IS ENOUGH, each of the three in turn: this is the branch that
+			-- ONE MISSING FIELD IS ENOUGH, each of the four in turn (the fourth since task 189): this is the branch that
 			-- refuses the shot in `onFireRequest` rather than firing it in a straight line.
 			local full = {
 				MUZZLE_STUDS_PER_S = { Slug = 1000 },
 				DRAG_PER_STUD = { Slug = 1e-3 },
 				ZERO_STUDS = { Slug = 100 },
+				GRAVITY_SCALE = { Slug = 1 },
 			}
 			expect(Ballistics.shotFor(full, "Slug")).to.be.ok()
-			for _, field in ipairs({ "MUZZLE_STUDS_PER_S", "DRAG_PER_STUD", "ZERO_STUDS" }) do
+			for _, field in ipairs({ "MUZZLE_STUDS_PER_S", "DRAG_PER_STUD", "ZERO_STUDS", "GRAVITY_SCALE" }) do
 				local partial = table.clone(full)
 				partial[field] = nil
 				expect(Ballistics.shotFor(partial, "Slug")).to.equal(nil)
@@ -90,6 +100,14 @@ return function()
 				MUZZLE_STUDS_PER_S = { Slug = 0 },
 				DRAG_PER_STUD = { Slug = 1e-3 },
 				ZERO_STUDS = { Slug = 100 },
+				GRAVITY_SCALE = { Slug = 1 },
+			}, "Slug")).to.equal(nil)
+			-- ...and a NEGATIVE gravity scale is a bullet that falls upwards (task 189).
+			expect(Ballistics.shotFor({
+				MUZZLE_STUDS_PER_S = { Slug = 1000 },
+				DRAG_PER_STUD = { Slug = 1e-3 },
+				ZERO_STUDS = { Slug = 100 },
+				GRAVITY_SCALE = { Slug = -1 },
 			}, "Slug")).to.equal(nil)
 		end)
 
@@ -97,9 +115,11 @@ return function()
 			expect(Weapons.ROWS.rifle.MUZZLE_STUDS_PER_S).to.equal(Rifle.CONFIG.MUZZLE_STUDS_PER_S)
 			expect(Weapons.ROWS.rifle.DRAG_PER_STUD).to.equal(Rifle.CONFIG.DRAG_PER_STUD)
 			expect(Weapons.ROWS.rifle.ZERO_STUDS).to.equal(Rifle.CONFIG.ZERO_STUDS)
+			expect(Weapons.ROWS.rifle.GRAVITY_SCALE).to.equal(Rifle.CONFIG.GRAVITY_SCALE)
 			expect(Weapons.ROWS.shotgun.MUZZLE_STUDS_PER_S).to.equal(Shotgun.CONFIG.MUZZLE_STUDS_PER_S)
 			expect(Weapons.ROWS.shotgun.DRAG_PER_STUD).to.equal(Shotgun.CONFIG.DRAG_PER_STUD)
 			expect(Weapons.ROWS.shotgun.ZERO_STUDS).to.equal(Shotgun.CONFIG.ZERO_STUDS)
+			expect(Weapons.ROWS.shotgun.GRAVITY_SCALE).to.equal(Shotgun.CONFIG.GRAVITY_SCALE)
 		end)
 	end)
 
@@ -139,7 +159,7 @@ return function()
 		end)
 
 		it("answers the drag-free limit as s/v0 rather than dividing by zero", function()
-			local noDrag = { v0 = 1000, k = 0, zeroStuds = 0 }
+			local noDrag = { v0 = 1000, k = 0, zeroStuds = 0, gravityScale = 1 }
 			near(Ballistics.timeToRange(noDrag, 500), 0.5, 1e-9)
 			expect(Ballistics.speedAt(noDrag, 500)).to.equal(1000)
 		end)
@@ -203,8 +223,11 @@ return function()
 			-- Drag-corrected (`Ballistics.dropAt`), so these are ~9% flatter than the vacuum formula
 			-- this task first shipped -- which is the correction that made a still target land on the
 			-- reticle at its own zero rather than 4.7 cm under it.
-			near(Ballistics.sightOffsetAt(rifleShot :: any, 357), 0.448, 0.02)
-			near(Ballistics.sightOffsetAt(rifleShot :: any, 800), -0.275, 0.02)
+			-- THE RIFLE'S TWO ARE TASK 189's, AND THEY ARE THE OLD ONES TIMES 0.12: the bullet falls
+			-- at 12 % of real gravity, so the whole band shrinks by that factor and nothing else
+			-- moves. 0.448 and -0.275 are what shipped before (`Rifle.CONFIG.GRAVITY_SCALE`).
+			near(Ballistics.sightOffsetAt(rifleShot :: any, 357), 0.0537, 0.002)
+			near(Ballistics.sightOffsetAt(rifleShot :: any, 800), -0.0330, 0.002)
 			near(Ballistics.sightOffsetAt(slugShot :: any, 330), -0.409, 0.02)
 			near(Ballistics.sightOffsetAt(buckShot :: any, 100), -0.034, 0.02)
 			-- THE MODEL AGAINST A NUMBER IT WAS NOT FITTED TO. Federal publishes -5.7 in (-14.5 cm)
@@ -227,11 +250,13 @@ return function()
 			expect(Ballistics.sightOffsetAt(slugShot :: any, 330) < 0).to.equal(true)
 		end)
 
-		it("elevates the bore by 0.1302 degrees for the rifle -- against a 45-degree safety cone", function()
+		it("elevates the bore by 0.0156 degrees for the rifle -- against a 45-degree safety cone", function()
+			-- TASK 189: a twelfth of what it was (0.1302 degrees), because the bore only has to be
+			-- elevated enough to carry a bullet that falls at 12 % of gravity out to its zero.
 			local tangent = Ballistics.elevationTangent(rifleShot :: any)
-			near(tangent, 2.272e-3, 1e-5)
+			near(tangent, 2.7265e-4, 1e-6)
 			local degrees = math.deg(math.atan(tangent))
-			near(degrees, 0.1302, 1e-3)
+			near(degrees, 0.01562, 1e-4)
 			-- THE REASON THE SAFETY ARC'S VERDICT DID NOT MOVE (design section 5 of the note): the
 			-- launch direction differs from the sight line by this, and the forbidden cone is
 			-- SAFETY_ARC_HALF_DEG wide.
@@ -244,14 +269,20 @@ return function()
 			local aim = Vector3.new(0, 0, -1)
 			local bore = Ballistics.launchDirection(aim, rifleShot :: any)
 			near(bore.Magnitude, 1, 1e-6)
-			near(math.deg(math.acos(math.clamp(bore:Dot(aim), -1, 1))), 0.1302, 1e-2)
+			-- READ AS A TANGENT, NOT AN ANGLE (task 189), and the harness is what asked for it: at
+			-- this elevation `bore:Dot(aim)` is 1 - 3.7e-8, and a Vector3 carries 32-bit floats, so
+			-- `acos` of it is rounding error with an angle printed on it. The first run of this task
+			-- failed exactly there. The tangent is the quantity `elevationTangent` defines, it is
+			-- what the launch direction is built from, and it is well conditioned at any size.
+			local rise = bore.Y / math.sqrt(bore.X * bore.X + bore.Z * bore.Z)
+			near(rise, Ballistics.elevationTangent(rifleShot :: any), 1e-6)
 			expect(bore.Y > 0).to.equal(true) -- elevated, not depressed
 			expect(math.abs(bore.X) < 1e-9).to.equal(true) -- stayed in the aim/up plane
 		end)
 
 		it("is `aim` itself when there is no zero, and never NaN straight up", function()
 			local aim = Vector3.new(0, 0, -1)
-			local noZero = { v0 = 2612, k = 4.29e-4, zeroStuds = 0 }
+			local noZero = { v0 = 2612, k = 4.29e-4, zeroStuds = 0, gravityScale = 1 }
 			expect(Ballistics.launchDirection(aim, noZero)).to.equal(aim)
 			local up = Ballistics.launchDirection(Vector3.yAxis, rifleShot :: any)
 			near(up.Magnitude, 1, 1e-6)
@@ -296,6 +327,87 @@ return function()
 					expect(miss).to.be.ok()
 					expect((miss :: number) < 0.05).to.equal(true)
 				end
+			end
+		end)
+
+		it("KAREN'S BAR (task 189): within 2 cm of the reticle at 50, 100, 150 AND 200 m", function()
+			-- Karen, 2026-10-15, after playing task 188: *"are you sure we have right rifle aiming?
+			-- seems a bit odd when stands it has to be acurat 100% 100m 150m"*.
+			--
+			-- WHAT SHE FELT IS THE CASE ABOVE'S OTHER SIDE. A rifle zeroed at 200 m is dead on AT
+			-- 200 m and rides high everywhere in between -- +12.5 cm at 100 m on real gravity. The
+			-- fix is `Rifle.CONFIG.GRAVITY_SCALE`: the deviation is exactly proportional to g, so
+			-- 0.12 of it is 0.12 of the band, and the flight TIME (and so the lead) does not move.
+			--
+			-- MEASURED, NOT ASSUMED, and measured the same way the case above measures the zero:
+			-- `Ballistics.advance` -- the stepper `Weapon.Flight` really flies the bullet with --
+			-- run to the range and interpolated onto it, so what is asserted is the arithmetic the
+			-- server uses and not a second copy of it. The BEFORE column is the same shot with
+			-- `gravityScale = 1`, which is bit-for-bit what task 185 shipped.
+			local TWO_CM = 0.02 / Report.CONFIG.METRES_PER_STUD -- 0.0714 studs
+			local before = { v0 = 2612, k = 4.29e-4, zeroStuds = 714, gravityScale = 1 }
+
+			local function missAt(shot, studs: number): number
+				-- Signed: positive is ABOVE the sight line, which is what rides high at 100 m.
+				local aim = Vector3.new(0, 0, -1)
+				local position, velocity = Vector3.zero, Ballistics.launchDirection(aim, shot :: any) * shot.v0
+				local dt = 1 / 2000
+				for _ = 1, 40000 do
+					local nextPosition, nextVelocity = Ballistics.advance(position, velocity, dt, shot :: any)
+					local along, alongNext = -position.Z, -nextPosition.Z
+					if alongNext >= studs then
+						local span = alongNext - along
+						local fraction = if span > 1e-9 then (studs - along) / span else 0
+						return (position + (nextPosition - position) * fraction).Y
+					end
+					position, velocity = nextPosition, nextVelocity
+				end
+				return math.huge
+			end
+
+			local metresPerStud = Report.CONFIG.METRES_PER_STUD
+			for _, metres in ipairs({ 50, 100, 150, 200 }) do
+				local studs = metres / metresPerStud
+				local was, now = missAt(before, studs), missAt(rifleShot :: any, studs)
+				TestKit.note(
+					string.format(
+						"[ballistics] still target at %d m: was %+.1f cm, now %+.1f cm (bar: 2 cm)",
+						metres,
+						was * metresPerStud * 100,
+						now * metresPerStud * 100
+					)
+				)
+				expect(math.abs(now) < TWO_CM).to.equal(true)
+				-- ...and the case could pass by accident if the two were the same, so: at 100 m the
+				-- old one was OUTSIDE the bar. That is the defect, stated as an assertion.
+				if metres == 100 then
+					expect(math.abs(was) > TWO_CM).to.equal(true)
+				end
+			end
+
+			-- THE PEAK IS INSIDE THE BAR TOO, not just the four ranges Karen named: the band crests
+			-- at about 105 m, between two of them, so a check at the named distances alone could be
+			-- stepped over.
+			local worst = 0
+			for studs = 10, 714, 10 do
+				worst = math.max(worst, math.abs(missAt(rifleShot :: any, studs)))
+			end
+			TestKit.note(string.format("[ballistics] worst deviation 0-200 m: %.2f cm", worst * metresPerStud * 100))
+			expect(worst < TWO_CM).to.equal(true)
+		end)
+
+		it("keeps the lead: the flight time does not read gravity at all (task 189)", function()
+			-- The half of Karen's ask that must NOT change. `timeToRange` is a function of v0, k and
+			-- distance only, so flattening the arc cannot move a single stud of lead -- asserted
+			-- here against the same shot at real gravity rather than left as a claim in a comment.
+			local real = { v0 = 2612, k = 4.29e-4, zeroStuds = 714, gravityScale = 1 }
+			for _, studs in ipairs({ 179, 357, 536, 714, 800 }) do
+				near(Ballistics.timeToRange(rifleShot :: any, studs), Ballistics.timeToRange(real, studs), 0)
+				near(
+					Ballistics.leadStuds(rifleShot :: any, studs, BOAR_SPRINT_STUDS),
+					Ballistics.leadStuds(real, studs, BOAR_SPRINT_STUDS),
+					0
+				)
 			end
 		end)
 	end)

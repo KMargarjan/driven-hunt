@@ -561,7 +561,8 @@ return function()
 		it("records that the two gloves do NOT share an axis, which is Karen's broken left hand", function()
 			-- TASK 108. Karen, 2026-10-02: "hands are bad / left hand is oposit180deg need to turn or
 			-- not sure but broken". The cause is not one number: the two meshes disagree about which
-			-- of their own axes the fingers run along -- the right glove's along its -X, the left's
+			-- of their own axes the fingers run along -- the right glove's along its +X (task 189: the
+			-- DRAWN part's X, which is the other way round from the source file's), the left's
 			-- along its +Y -- so a yaw, a pitch or a twist turns them about different things, and the
 			-- Director's live `left.rot.twist 180` moved the glove to the far side of the barrels
 			-- instead of rolling its palm.

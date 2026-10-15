@@ -744,7 +744,8 @@ end
 -- need to turn or not sure but broken".
 --
 -- THE TWO MESHES DO NOT SHARE AN AXIS. `HandAssets.AXES` records what was measured off each prepped
--- glove: the RIGHT one's fingers run along its own -X and its palm faces its own +Z; the LEFT one's
+-- glove: the RIGHT one's fingers run along its own +X and its palm faces its own +Z (task 189: the
+-- sign is the DRAWN part's, not the source file's -- see `HandAssets.AXES`); the LEFT one's
 -- fingers run along its own +Y. So one `twist` turns them about different things -- the Director's
 -- live try of `left.rot.twist 180` swung the glove to the far side of the barrels instead of rolling
 -- the palm, which is exactly what a shared number does when the models disagree.

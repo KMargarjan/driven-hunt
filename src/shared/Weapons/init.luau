@@ -55,6 +55,11 @@ export type Row = {
 	MUZZLE_STUDS_PER_S: { [string]: number },
 	DRAG_PER_STUD: { [string]: number },
 	ZERO_STUDS: { [string]: number },
+	-- ...AND HOW MUCH OF REAL GRAVITY THAT PROJECTILE FALLS AT (task 189). Required like the three
+	-- above and read by the same `Ballistics.shotFor`: the rifle's bullet is flattened so a standing
+	-- shot is dead on the reticle from 50 to 200 m (Karen, 2026-10-15), and the shotgun's two ammos
+	-- carry 1.0, which is the real world. A row without it refuses the shot.
+	GRAVITY_SCALE: { [string]: number },
 	AMMO_KINDS: { string },
 	AMMO_LABEL: { [string]: string },
 	INITIAL_AMMO: string,
@@ -116,6 +121,7 @@ Weapons.ROWS = {
 		MUZZLE_STUDS_PER_S = C.MUZZLE_STUDS_PER_S,
 		DRAG_PER_STUD = C.DRAG_PER_STUD,
 		ZERO_STUDS = C.ZERO_STUDS,
+		GRAVITY_SCALE = C.GRAVITY_SCALE,
 		AMMO_KINDS = { "Slug", "Buck" },
 		AMMO_LABEL = { Slug = "SLUG", Buck = "BUCK" },
 		INITIAL_AMMO = C.INITIAL_AMMO,
@@ -157,6 +163,7 @@ Weapons.ROWS = {
 		MUZZLE_STUDS_PER_S = Rifle.CONFIG.MUZZLE_STUDS_PER_S,
 		DRAG_PER_STUD = Rifle.CONFIG.DRAG_PER_STUD,
 		ZERO_STUDS = Rifle.CONFIG.ZERO_STUDS,
+		GRAVITY_SCALE = Rifle.CONFIG.GRAVITY_SCALE,
 		AMMO_KINDS = Rifle.CONFIG.AMMO_KINDS,
 		AMMO_LABEL = Rifle.CONFIG.AMMO_LABEL,
 		INITIAL_AMMO = Rifle.CONFIG.INITIAL_AMMO,

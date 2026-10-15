@@ -17,6 +17,9 @@ local Workspace = game:GetService("Workspace")
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Ballistics = require(game:GetService("ReplicatedStorage"):WaitForChild("Ballistics"))
+-- THE ONE METRE/STUD CONVERSION (task 189): read, never copied -- the rule `Ballistics` itself
+-- states. A second 0.28 in this file would be a second answer to how far 100 m is.
+local Report = require(game:GetService("ReplicatedStorage"):WaitForChild("Report"))
 local Weapons = require(game:GetService("ReplicatedStorage"):WaitForChild("Weapons"))
 
 local Hits = Weapon.Hits
@@ -188,9 +191,20 @@ return function()
 				return boar, cast, tick
 			end
 
-			local function fireAt(aim: Vector3, distance: number, cast, tick)
+			-- THE RECORD SAYS WHICH GUN IT IS (task 189, the Reviewer's note). It used to fly the
+			-- shotgun's slug under `weapon = "rifle"` with a `rangeStuds` of 410 against that slug's
+			-- own 330: the lead claim did not depend on either, but a record that lies about itself
+			-- is the kind of thing a later case reads and believes.
+			local function fireAt(aim: Vector3, cast, tick, flown, id)
 				local flight = Flight.new(CONFIG)
-				flight:launch(record({ rangeStuds = distance + 80 }), { Ballistics.launchDirection(aim, shot) }, shot)
+				-- ...AND IT FLIES TO THAT GUN'S OWN RANGE, which is what the real one does. The test
+				-- distances are inside it, so nothing expires on the way to the animal.
+				local reach = Weapons.ROWS[id].RANGE_STUDS.Slug
+				flight:launch(
+					record({ weapon = id, ammo = "Slug", rangeStuds = reach }),
+					{ Ballistics.launchDirection(aim, flown) },
+					flown
+				)
 				local impacts = {}
 				for _ = 1, 400 do
 					tick()
@@ -206,30 +220,132 @@ return function()
 				return impacts
 			end
 
-			for _, distance in ipairs({ 179, 357, 714 }) do
-				local lead = Ballistics.leadStuds(shot, distance, BOAR_SPRINT_STUDS)
-				expect(lead > 1).to.equal(true) -- or the case proves nothing
+			-- BOTH GUNS, AND THAT IS KAREN'S *"same with s/s"* (task 185) still answered after task
+			-- 189 flattened the rifle's arc: flattening touches gravity and the lead is made of
+			-- TIME, so it is this case -- the one that fires the real stepper at a moving target --
+			-- that says the lead still works. The slug's distances are its own: `RANGE_STUDS` is 330.
+			for _, pair in ipairs({
+				{ id = "rifle", shot = shot, ranges = { 179, 357, 714 } },
+				{
+					id = "shotgun",
+					shot = Ballistics.shotFor(Weapons.ROWS.shotgun, "Slug") :: any,
+					-- INSIDE the slug's own 330-stud range, not at it: a pellet that expires in the
+					-- same step it arrives would make this case about the range cap.
+					ranges = { 100, 179, 300 },
+				},
+			}) do
+				for _, distance in ipairs(pair.ranges) do
+					local flown = pair.shot
+					local lead = Ballistics.leadStuds(flown, distance, BOAR_SPRINT_STUDS)
+					expect(lead > 1).to.equal(true) -- or the case proves nothing
 
-				-- AIMED AT THE BOAR'S POSITION AT THE TRIGGER: it has moved out of the path.
-				local atBoar, atCast, atTick = crossingBoar(distance)
-				local missed = fireAt(Vector3.new(distance, 0, 0).Unit, distance, atCast, atTick)
-				expect(#missed).to.equal(0)
+					-- AIMED AT THE BOAR'S POSITION AT THE TRIGGER: it has moved out of the path.
+					local atBoar, atCast, atTick = crossingBoar(distance)
+					local missed = fireAt(Vector3.new(distance, 0, 0).Unit, atCast, atTick, flown, pair.id)
+					expect(#missed).to.equal(0)
 
-				-- AIMED AHEAD BY v*t: it runs into the shot.
-				local aheadBoar, aheadCast, aheadTick = crossingBoar(distance)
-				local hit = fireAt(Vector3.new(distance, 0, lead).Unit, distance, aheadCast, aheadTick)
-				expect(#hit).to.equal(1)
-				expect(Hits.targetOf(hit[1].instance)).to.equal(aheadBoar)
+					-- AIMED AHEAD BY v*t: it runs into the shot.
+					local aheadBoar, aheadCast, aheadTick = crossingBoar(distance)
+					local hit = fireAt(Vector3.new(distance, 0, lead).Unit, aheadCast, aheadTick, flown, pair.id)
+					expect(#hit).to.equal(1)
+					expect(Hits.targetOf(hit[1].instance)).to.equal(aheadBoar)
 
+					TestKit.note(
+						string.format(
+							"[flight] %s at %d studs (%.0f m): aiming AT the boar missed; leading it %.1f studs hit",
+							pair.id,
+							distance,
+							distance * 0.28,
+							lead
+						)
+					)
+					atBoar:Destroy()
+					aheadBoar:Destroy()
+				end
+			end
+		end)
+
+		it("A STILL PLATE ON THE RETICLE: the hole is within 2 cm at 50, 100, 150 and 200 m", function()
+			-- KAREN, 2026-10-15: *"seems a bit odd when stands it has to be acurat 100% 100m 150m"*.
+			--
+			-- THE PLATE IS THE MEASUREMENT (task 183's method, through the server's own flight).
+			-- A vertical plate stands square across the shot at `distance`, its centre exactly on the
+			-- sight line, and the cast answers where the stepped SEGMENT crosses that plane -- so
+			-- what comes back is the hole, and the miss is the hole's height above the reticle's
+			-- centre. Nothing here is the closed form: this is `Flight:advance` stepping
+			-- `Ballistics.advance` behind the real cast seam, which is the path a player's shot takes.
+			--
+			-- BEFORE AND AFTER IN ONE RUN. The same plate is shot twice: once with the shipped shot
+			-- and once with the same numbers at `gravityScale = 1`, which is what task 185 flew.
+			local metresPerStud = Report.CONFIG.METRES_PER_STUD
+			local TWO_CM = 0.02 / metresPerStud
+			local shipped = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
+			local before = { v0 = shipped.v0, k = shipped.k, zeroStuds = shipped.zeroStuds, gravityScale = 1 }
+
+			local function plateAt(distance: number)
+				local plate = Instance.new("Part")
+				plate:SetAttribute("Damageable", true)
+				plate:SetAttribute("HitZone", "body")
+				-- The plate's plane is x = distance; the shot goes down +X from the origin.
+				local function cast(origin: Vector3, direction: Vector3)
+					local reach = direction.X
+					if reach <= 1e-9 or origin.X >= distance then
+						return nil
+					end
+					local fraction = (distance - origin.X) / reach
+					if fraction > 1 then
+						return nil -- this step does not reach the plate yet
+					end
+					local at = origin + direction * fraction
+					return {
+						instance = plate,
+						position = at,
+						normal = -Vector3.xAxis,
+						distance = (at - origin).Magnitude,
+					}
+				end
+				return plate, cast
+			end
+
+			local function holeAt(flown, distance: number): number?
+				local plate, cast = plateAt(distance)
+				local flight = Flight.new(CONFIG)
+				local aim = Vector3.xAxis
+				flight:launch(record({ rangeStuds = distance + 80 }), { Ballistics.launchDirection(aim, flown) }, flown)
+				local height: number? = nil
+				for _ = 1, 400 do
+					for _, res in ipairs(flight:advance(1 / 240, cast)) do
+						for _, impact in ipairs(res.impacts) do
+							height = height or impact.position.Y
+						end
+					end
+					if flight:count() == 0 or height ~= nil then
+						break
+					end
+				end
+				plate:Destroy()
+				return height
+			end
+
+			for _, metres in ipairs({ 50, 100, 150, 200 }) do
+				local distance = metres / metresPerStud
+				local was, now = holeAt(before, distance), holeAt(shipped, distance)
+				expect(was).to.be.ok()
+				expect(now).to.be.ok()
 				TestKit.note(
 					string.format(
-						"[flight] %d studs: aiming AT the boar missed; leading it %.1f studs hit",
+						"[flight] still plate at %d m (%.0f studs): was %+.1f cm high, now %+.1f cm (bar: 2 cm)",
+						metres,
 						distance,
-						lead
+						(was :: number) * metresPerStud * 100,
+						(now :: number) * metresPerStud * 100
 					)
 				)
-				atBoar:Destroy()
-				aheadBoar:Destroy()
+				expect(math.abs(now :: number) < TWO_CM).to.equal(true)
+				if metres == 100 then
+					-- The defect Karen felt, as an assertion: the old shot was outside the bar here.
+					expect(math.abs(was :: number) > TWO_CM).to.equal(true)
+				end
 			end
 		end)
 
