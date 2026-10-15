@@ -3,7 +3,7 @@
 Task: 188
 Round: 1
 Base: `f28fcd9` (`main`, #170 merged)
-Code commit: `PENDING`
+Code commit: `7bcc84af1d7feff73e70327df253651d2c97b65e`
 
 Branch `task-188-rifle-right-hand`. Note `docs/research/2026-10-15-rifle-right-hand.md`. No design
 run and no Architect run: no system and no owner changes. `Camera.Viewmodel.poseHands` is still the
@@ -17,10 +17,13 @@ be aligned perfectly"*; asked where: *"Bolt pull, Holding (hip)"*.
 ## The harness
 
 ```
-PENDING
+[harness] PASS: 33/33 checks @ 7bcc84af1d7feff73e70327df253651d2c97b65e (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 7bcc84af1d7feff73e70327df253651d2c97b65e (clean tree) scope=all
 ```
 
-Run **twice**, both PASS, both at the code commit on a clean tree.
+Run **twice**, both PASS, both at the code commit on a clean tree, logged in
+`.agent-logs/task188-r1b-test1.log` and `task188-r1b-test2.log` (1472 server assertions over 55 spec
+files, 343 client over 19, both runs).
 
 **`test2` is N/A.** No file this task touches is in `TWO_PLAYER_PATHS`: they are
 `src/shared/Rifle/Geometry.luau`, `src/shared/HandAssets.luau`, `src/client/Camera/Viewmodel.luau`,
@@ -46,7 +49,9 @@ the pose file is held to them by the spec.
 4. `src/shared/Viewmodel/poses.json` — the rifle's `carry.right`, `aim.right`, `cycle.right` (one
    grip pose) and `cycle.hand.grip` (the bolt pose). Content lane; four entries; the shotgun's own
    numbers are untouched.
-5. `tests/server/viewmodel_poses.spec.luau` — four cases holding (4) to (1) and (2).
+5. `tests/server/viewmodel_poses.spec.luau` — five cases holding (4) to (1) and (2), one of which
+   exists only because this task shipped the three grip poses in the **wrong rotation convention**
+   first and the other four passed it (claim 11).
 
 ## Claims, and how to verify each
 
@@ -93,12 +98,13 @@ the pose file is held to them by the spec.
    the distance is unchanged — the property `poseHands` has by construction, because it places this
    hand from the same transform the bolt is drawn with. It is a property, not a sampled frame.
 
-7. **The two tolerances are different on purpose.** `gripRadius` (half the wrist's own narrowest
-   width, 0.0719) for the hip, because a hand slides a little way along a stock and is still holding
-   it — what must be true is that the grip point is inside the **wood**. `GRIP_RADIUS_STUDS` (half
-   the hand's gap, 0.027) for the knob, because a knob is a ball the fist closes on. Measured:
-   0.0543 against 0.0719, and 0.0208 against 0.027. Round 1 of this task bound both to the hand's
-   gap and the hip case failed; the commit `b5c179c` message says so.
+7. **Three tolerances, each meaning a different thing.** `gripRadius` (half the wrist's own
+   narrowest width, 0.0719) and `gripHalfLength` (0.111 of arc, the receiver's rear to where the
+   stock swells into the comb) for the hip, because a hand slides a little way ALONG a stock and is
+   still holding it but cannot be behind it. `GRIP_RADIUS_STUDS` (half the hand's gap, 0.027) for
+   the knob, because a knob is a ball the fist closes on. Measured, and the spec prints all of it:
+   `rifle right hand hip: 0.0543 off the wrist axis, -0.0219 along it` and `rifle bolt hand: 0.0208
+   studs from the knob's centre`.
 
 8. **The before/after table is measured off the shipped meshes, and the mapping is checked rather
    than assumed.** Note section 4: the game frame is `(fz, fy, -fx)` of the published group glTFs,
@@ -112,9 +118,40 @@ the pose file is held to them by the spec.
    entries, all under `weapons.rifle`; the shotgun's and the horn's are untouched. The shotgun never
    reaches `boltLift` — its `CYCLE_KIND` is `hinge`, and that branch is unchanged.
 
-10. **The screenshots.** Two first-person frames from a DEV Play session with the rifle in hand —
-    the hip hold and the bolt drawn back — in `.screenshots/`, named in the report, looked at before
-    anything was claimed about them (rule 5).
+10. **The screenshots, and what they actually show.** Three first-person frames from a DEV Play
+    session with the rifle in the character, looked at before anything was claimed about them
+    (rule 5). `.screenshots/t188-hip.png`: at the hip the right hand is **entirely below the bottom
+    of the frame** — what is in shot is the gun and the LEFT glove's cuff as a flat olive disc on
+    the fore-end. `.screenshots/t188-bolt-1.png`: mid-cycle the right hand comes up out of
+    frame-bottom onto the right of the receiver, fingers forward, beside the bolt handle.
+    `.screenshots/t188-marked.png`: the same view with the engine's own
+    `WorldToViewportPoint` of the knob and of the hand's grip point drawn on it — the red knob
+    marker lands on the drawn bolt handle's root, which is what says the measured knob and the
+    drawn one are the same thing, and the blue grip marker is off the bottom edge (`visible =
+    false`), which is the hand being down on the wrist.
+
+11. **THE DEFECT THIS TASK SHIPPED FIRST, AND WHAT CAUGHT IT.** `poses.json` holds hand rotations in
+    **two conventions**: `carry/aim/cycle.right` go through `Mode.handOffset`
+    (`Angles(0, yaw, 0) * Angles(0, 0, pitch) * fromAxisAngle(X, twist)`), while every other hand
+    block in the same file — `cycle.hand.grip`, `magazine.hand`, the horn's two — is built in
+    `Viewmodel.view` as `CFrame.Angles(pitch, yaw, twist)`. The fit was solved as a MATRIX and
+    written out in the second convention for all four poses. The bolt pose was right by luck of
+    being in the second group. **The three grip poses were not**: the matrix they produced put the
+    hand **0.158 studs ALONG the wrist axis** — past the wrist, on the comb — while sitting only
+    0.045 OFF the axis, so claim 5's bound passed it and **the harness ran green twice over a pose
+    that was wrong**. It was caught by looking at the running game: the mid-cycle frame, then a live
+    probe of the drawn Instances whose rotation `pose * align` reproduced only under
+    `Mode.handOffset`'s order. Verify: `git show b5c179c:src/shared/Viewmodel/poses.json` against
+    HEAD, and the case *"reads its three angles the way `Mode.handOffset` composes them"*, which
+    asserts the shipped numbers build the one CFrame and **not** the other.
+
+12. **It was then measured in the running game, not just in the spec.** A probe read the drawn
+    `HandRight` and `Bolt` Instances' CFrames in the Handle's own frame through a real cycle and
+    composed `HandAssets.GRIP_STUDS` into them. At rest the grip point is `(-0.0066, -0.0950,
+    0.9776)` — the fitted value to four decimals — and through the whole draw, bolt z +0.9346 back
+    to +0.5145, the miss is **0.0208 studs at every sample**, with the last two samples (0.1386,
+    0.2678) the hand releasing back to the grip. That is the same number the offline table and the
+    spec give, obtained three independent ways.
 
 ## What I could not verify (rule 8)
 
@@ -134,5 +171,12 @@ the pose file is held to them by the spec.
 4. **The forearm** is off the bottom of the first-person frame at the hip. Its direction was
    constrained to run back and down toward the shoulder and then not looked at again.
 5. **`boar_body.spec`'s two live sounder cases** (`:731`, `:740`, `herd:sounders()[1]` nil) failed in
-   the first run of this branch and passed in both gate runs after it, with nothing between them that
-   touches a boar. Recorded as a flake seen once, not explained.
+   one early run of this branch and passed in all four gate runs after it, with nothing between them
+   that touches a boar. Recorded as a flake seen once, not explained.
+6. **What Karen sees at the HIP may not be the right hand at all.** It is below the bottom of the
+   first-person frame (claim 10). What IS in shot there is the **left** glove's cuff, end-on, as a
+   flat olive disc on the fore-end. Her *"Holding (hip)"* may be about that; it is the LEFT hand,
+   which this task was not asked to touch, so it is reported and not changed.
+7. **Whether 0.0208 studs reads as "holding" on screen.** It is 5 mm at this gun's scale and the
+   knob's radius is 6.7 mm, so the knob is inside the hand — but the glove's fist is a closed one
+   and the knob is behind its fingers, which is a look Karen has to judge.
