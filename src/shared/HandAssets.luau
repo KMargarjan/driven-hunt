@@ -119,16 +119,17 @@ HandAssets.GRIP_RADIUS_STUDS = 0.027
 -- MEASURED the same way everything else here is: the mean of the extreme 2 % of the glove's own
 -- vertices at each end of the fingers axis, at the published size, in the aligned frame. (THE Z OF
 -- BOTH WAS FLIPPED BY TASK 189 AND IS PUT BACK BY TASK 190, for the reason `GRIP_STUDS` gives
--- above: the import is a rotation, which moves no aligned coordinate at all. X and Y are unchanged.) The
--- fingertip landmark is the tip of the one extended digit; the cuff landmark is the open end of the
--- sleeve. `GRIP_STUDS` lies between them, 0.17 from the fingertip and 0.49 from the cuff, which is
--- what makes the spec case meaningful: a pose that holds the knob with the WRONG end puts the cuff
--- nearer the knob than the fingertip, and `viewmodel_poses.spec` fails.
+-- above: the import is a rotation, which moves no aligned coordinate at all. X and Y are
+-- unchanged.) The fingertip landmark is the tip of the one extended digit; the cuff landmark is the
+-- open end of the sleeve. `GRIP_STUDS` lies between them, 0.17 from the fingertip and 0.49 from
+-- the cuff, which is what makes the spec case meaningful: a pose that holds the knob with the
+-- WRONG end puts the cuff nearer the knob than the fingertip, and `viewmodel_poses.spec` fails.
 HandAssets.FINGERTIP_STUDS = Vector3.new(0.3324, -0.0599, 0.0178)
 HandAssets.CUFF_STUDS = Vector3.new(-0.3238, -0.0105, -0.0315)
 
 -- THE RIGHT GLOVE'S AXES ARE THE DRAWN PART'S, NOT THE SOURCE FILE'S (task 189), and the difference
--- between those two is a MIRROR IN X.
+-- between those two is a HALF TURN ABOUT Y (task 190, measured; task 189 believed a mirror in X and
+-- got the palm 180 degrees wrong because of it).
 --
 -- WHAT WENT WRONG. Task 188 measured these off the published right glove's glTF -- cuff centroid to
 -- hand centroid -- and got `fingers = (-0.9632, 0.2645, 0.0484)`. That is correct FOR THAT FILE. It
@@ -169,9 +170,20 @@ HandAssets.CUFF_STUDS = Vector3.new(-0.3238, -0.0105, -0.0315)
 -- WHAT IT COSTS TO BE WRONG HERE, AND WHY NO SPEC CAUGHT IT. `align` is DEFINED to put the palm on
 -- +Y, so the drawn palm is `handOffset.UpVector` whatever this table says -- a pose file and a spec
 -- reading it agree with each other while the glove itself is rolled 180 degrees. The landmarks do
--- not help: both lie within a tenth of a stud of the fingers axis, so they are nearly fixed by the
--- roll. The case that does see it needs THIS table to be right first, and it is in
--- `viewmodel_poses.spec`: the palm must point AT the bolt knob at every sample of the cycle.
+-- not help either: both lie within a tenth of a stud of the fingers axis, so a half turn about it
+-- barely moves them.
+--
+-- SO IT IS GUARDED IN TWO PLACES, AND NEITHER ALONE IS ENOUGH -- both were written by task 190,
+-- because before it there was nothing.
+--   * THIS TABLE is held by `gun.spec`'s *"has the RIGHT glove modelled as a right hand"*: the thumb
+--     is `fingers x palm` for a right hand, so that cross product must come out at the glove's own
+--     +Y, where the photograph puts it. A mirror -- which is what task 189 assumed -- fails it.
+--   * THE POSE is held by `viewmodel_poses.spec`'s *"turns the PALM onto the bolt, not the
+--     knuckles"* and its hip twin: at every sample of the cycle the drawn palm must point IN, at the
+--     line the bolt turns about. Not at the KNOB: the knob sits inside the fist's own hole, whose
+--     axis is the palm, so "palm toward the knob" is near 90 degrees whichever way round the hand
+--     is and says nothing. Measured in the running game, before task 190 and after: 111.0-117.9
+--     degrees off the bolt's axis, then 73.3-80.3.
 --
 -- THE LEFT GLOVE IS NOT TOUCHED AND IT IS PROBABLY WRONG IN THE SAME WAY (task 189, reported not
 -- fixed): the same screenshots show the left hand's olive cuff flat against the fore-end with its
