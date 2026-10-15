@@ -122,7 +122,8 @@ HandAssets.GRIP_RADIUS_STUDS = 0.027
 -- above: the import is a rotation, which moves no aligned coordinate at all. X and Y are
 -- unchanged.) The fingertip landmark is the tip of the one extended digit; the cuff landmark is the
 -- open end of the sleeve. `GRIP_STUDS` lies between them, 0.17 from the fingertip and 0.49 from
--- the cuff, which is what makes the spec case meaningful: a pose that holds the knob with the
+-- the cuff (0.179 and 0.489 on the shipped numbers), which is what makes the spec case
+-- meaningful: a pose that holds the knob with the
 -- WRONG end puts the cuff nearer the knob than the fingertip, and `viewmodel_poses.spec` fails.
 HandAssets.FINGERTIP_STUDS = Vector3.new(0.3324, -0.0599, 0.0178)
 HandAssets.CUFF_STUDS = Vector3.new(-0.3238, -0.0105, -0.0315)
@@ -173,8 +174,10 @@ HandAssets.CUFF_STUDS = Vector3.new(-0.3238, -0.0105, -0.0315)
 -- not help either: both lie within a tenth of a stud of the fingers axis, so a half turn about it
 -- barely moves them.
 --
--- SO IT IS GUARDED IN TWO PLACES, AND NEITHER ALONE IS ENOUGH -- both were written by task 190,
--- because before it there was nothing.
+-- SO IT IS GUARDED IN TWO PLACES, one per failure mode -- both written by task 190, because before
+-- it there was nothing. (For THIS defect the first alone is enough: on task 189's table
+-- `fingers:Cross(palm)` comes out at -Y and fails it outright. The pair is for the general case --
+-- a wrong table and a wrong pose are different mistakes.)
 --   * THIS TABLE is held by `gun.spec`'s *"has the RIGHT glove modelled as a right hand"*: the thumb
 --     is `fingers x palm` for a right hand, so that cross product must come out at the glove's own
 --     +Y, where the photograph puts it. A mirror -- which is what task 189 assumed -- fails it.

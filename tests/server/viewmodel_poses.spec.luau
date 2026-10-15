@@ -989,6 +989,12 @@ return function()
 		-- marker-ball photographs in the running game (`HandAssets.AXES`'s comment) and, for the
 		-- handedness the task turns on, by `gun.spec`'s "the right glove's own thumb".
 		--
+		-- WHAT THESE TWO CASES COST TODAY, SAID PLAINLY (Reviewer, round 2). The rifle's three
+		-- `right` blocks in `poses.json` are byte-identical and the bolt dot is invariant under the
+		-- lift (see below), so the three states below and the four turns above are FOUR AND THREE
+		-- COPIES OF ONE ASSERTION EACH. They are written as loops because the states and the turns
+		-- are what a future pose file will differ across, not because they differ now.
+		--
 		-- THE REFERENCE IS THE BOLT'S OWN AXIS, NOT THE KNOB, and the difference matters. A closed
 		-- fist's palm normal is the axis of the HOLE the fist makes, and the knob sits IN that hole
 		-- (`GRIP_STUDS` is at aligned Y = 0, the middle of the hand) -- so "palm toward the knob" is

@@ -676,24 +676,41 @@ return function()
 					)
 				)
 				expect(right).never.to.equal(left)
-				-- NOT A HAIR APART: the two hands are at least a right angle from each other, which
-				-- is the difference between a grip and a fore-end hold rather than a tweak.
+				-- NOT A HAIR APART: the two POSES are far from being one pose, which is the
+				-- difference between a grip and a fore-end hold rather than a tweak.
 				--
-				-- MEASURED ON THE DRAWN ROTATION SINCE TASK 190, not on the two pose frames. A pose
-				-- frame is read in ITS OWN GLOVE'S aligned convention, so comparing the right's with
-				-- the left's compares two different conventions -- and the answer then moves every
-				-- time either glove's axis is re-measured, which is three times in three tasks:
-				-- 139 degrees on task 188's numbers, 177 on task 189's, 41.9 on task 190's. The
-				-- hands themselves never moved through any of it. Composing each pose with its own
-				-- `Viewmodel.align` -- which is what `Camera.Viewmodel.poseHands` draws -- gives the
-				-- rotation really on screen, and that reads **152.1 degrees** on task 189's numbers
-				-- and 152.1 on task 190's. One axis measurement cannot change it, which is the whole
-				-- point of a case about where the hands are.
+				-- WHAT IS MEASURED IS THE DIVERGENCE OF THE TWO POSES, and it has to be, because the
+				-- defect named above is "one pose for both". That quantity is the angle of
+				-- `right.Rotation:Inverse() * left.Rotation`: it is **exactly zero** when the two
+				-- poses are the same six numbers, and it grows as they part. Today it is 41.9
+				-- degrees.
+				--
+				-- TASK 190 FIRST REWROTE THIS TO COMPOSE EACH POSE WITH ITS OWN `align` AND GOT IT
+				-- BACKWARDS, and the Reviewer caught it (round 2, finding 1). The drawn rotations
+				-- are the right thing to look at for "where are the hands"; they are the WRONG thing
+				-- to bound for "are these two poses the same", because with ONE pose for both,
+				-- `drawnRight:Inverse() * drawnLeft` collapses to `align_R^-1 * align_L` -- a fixed
+				-- **178.7 degrees** on the shipped tables. So `> 90` on the drawn angle passes
+				-- hardest on exactly the defect it was written to forbid, and the measure falls as
+				-- the poses diverge (152.1 today, i.e. the baseline minus the divergence). Recorded
+				-- here because the mistake is easy and the arithmetic is not obvious.
+				--
+				-- THE VALUE MOVES WITH EITHER GLOVE'S CONVENTION, THE ZERO DOES NOT. Re-measuring an
+				-- axis and re-expressing the poses with it (task 189 and task 190 both did) changes
+				-- this number -- 139 degrees on task 188's, 177.3 on task 189's, 41.9 now -- while
+				-- the drawn hands stand still. What never moves is where zero is. So the bound is a
+				-- floor well under today's reading rather than a pin on it, and 190a(c) -- the left
+				-- glove -- will move the number again.
+				local _, apart = (right.Rotation:Inverse() * left.Rotation):ToAxisAngle()
+				TestKit.note(string.format("task114 hand poses: %.1f degrees apart", math.deg(apart)))
+				expect(math.deg(apart) > 20).to.equal(true)
+				-- ...and where that puts the two hands ON SCREEN, which is the thing a reader wants
+				-- and is not what the bound above is about: `pose * align` is what
+				-- `Camera.Viewmodel.poseHands` draws.
 				local drawnRight = right.Rotation * Viewmodel3D.align(HandAssets.RIGHT)
 				local drawnLeft = left.Rotation * Viewmodel3D.align(HandAssets.LEFT)
-				local _, apart = (drawnRight:Inverse() * drawnLeft):ToAxisAngle()
-				TestKit.note(string.format("task114 hand frames: %.1f degrees apart, as drawn", math.deg(apart)))
-				expect(math.deg(apart) > 90).to.equal(true)
+				local _, drawnApart = (drawnRight:Inverse() * drawnLeft):ToAxisAngle()
+				TestKit.note(string.format("task114 hand frames: %.1f degrees apart, as drawn", math.deg(drawnApart)))
 				-- ...AND THE TWIST IS THE NUMBER THAT SAYS WHOSE GLOVES THESE ARE. The v1 left glove
 				-- was modelled palm-DOWN and needed a half turn to get the palm under the barrels;
 				-- Karen's is modelled palm-UP already, so a 180 here would be the retired pair's
