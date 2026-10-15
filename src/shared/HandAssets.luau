@@ -50,7 +50,9 @@ HandAssets.KEY_OF = table.freeze({
 -- the colour its own UV samples in the base-colour map -- the cuff is olive, the glove is brown -- so
 -- the centroid of one to the centroid of the other IS the wrist-to-fingers direction, exactly:
 --
---   RIGHT glove: wrist -> fingers (-0.963, 0.265, 0.048), i.e. its own -X, and the palm faces +Z
+--   RIGHT glove: wrist -> fingers (+0.963, 0.265, 0.048), i.e. its own +X, and the palm faces +Z
+--     ...WHICH IS THE OTHER WAY ROUND SINCE TASK 189, and that sign is the whole of Karen's
+--     *"hadn is oposit now reload with ending of arm not fingers"*. See `AXES` below.
 --   LEFT  glove: wrist -> fingers ( 0.317, 0.874, -0.369), i.e. its own +Y, and the palm faces
 --                roughly (0.458, 0.488, 0.743)
 --
@@ -92,15 +94,63 @@ HandAssets.KEY_OF = table.freeze({
 -- NOTHING READS IT AT RUN TIME. `Camera.Viewmodel.poseHands` still places the part, exactly as
 -- before; this is what `tests/server/viewmodel_poses.spec.luau` MEASURES the pose data against, so a
 -- hand that drifts off the grip or off the knob fails the harness instead of waiting for Karen.
-HandAssets.GRIP_STUDS = Vector3.new(0.165, 0.0, -0.006)
+--
+-- THE Z IS FLIPPED SINCE TASK 189, and the reason is the whole of that task. `AXES.RIGHT` below is
+-- measured in the DRAWN part's own axes now, not the source glTF's, and those two differ by a
+-- mirror in X -- so the aligned frame's third axis (`fingers x palm`) points the other way and this
+-- point's Z goes with it. X and Y are task 188's measurement unchanged.
+HandAssets.GRIP_STUDS = Vector3.new(0.165, 0.0, 0.006)
 -- Half the gap, for a tolerance that means something: a grip point this far off still has the wood
 -- or the knob inside the hand.
 HandAssets.GRIP_RADIUS_STUDS = 0.027
 
+-- THE TWO ENDS OF THE GLOVE (task 189), in the same aligned frame, so a pose can be ASKED which end
+-- is doing the holding instead of being believed.
+--
+-- Karen, 2026-10-15, after playing task 188: *"hadn is oposit now reload with ending of arm not
+-- fingers"*. She is describing exactly this: the hand was drawn end-for-end, so the CUFF worked the
+-- bolt knob and the fist hung in the air behind it. Nothing in the repo could see that, because the
+-- only landmark on the glove was the grip point -- one point, which is at the same distance from the
+-- knob whichever way round the hand is.
+--
+-- MEASURED the same way everything else here is: the mean of the extreme 2 % of the glove's own
+-- vertices at each end of the fingers axis, at the published size, in the aligned frame. The
+-- fingertip landmark is the tip of the one extended digit; the cuff landmark is the open end of the
+-- sleeve. `GRIP_STUDS` lies between them, 0.17 from the fingertip and 0.49 from the cuff, which is
+-- what makes the spec case meaningful: a pose that holds the knob with the WRONG end puts the cuff
+-- nearer the knob than the fingertip, and `viewmodel_poses.spec` fails.
+HandAssets.FINGERTIP_STUDS = Vector3.new(0.3326, -0.0599, -0.0176)
+HandAssets.CUFF_STUDS = Vector3.new(-0.3238, -0.0105, 0.0315)
+
+-- THE RIGHT GLOVE'S AXES ARE THE DRAWN PART'S, NOT THE SOURCE FILE'S (task 189), and the difference
+-- between those two is a MIRROR IN X.
+--
+-- WHAT WENT WRONG. Task 188 measured these off the published right glove's glTF -- cuff centroid to
+-- hand centroid -- and got `fingers = (-0.9632, 0.2645, 0.0484)`. That is correct FOR THAT FILE. It
+-- is not correct for the MeshPart Roblox draws: the asset went up as FBX, and the part that comes
+-- back has its local X the other way about, so the same numbers point `align`'s +X at the CUFF.
+-- Every pose task 188 then SOLVED in that frame came out end-for-end -- the sleeve on the bolt knob,
+-- the fist in the air behind it -- which is what Karen saw and said. (The poses tuned BY EYE before
+-- that, and the left glove's, never noticed: an eyeballed pose absorbs whatever `align` does, which
+-- is exactly why only the solved ones broke.)
+--
+-- MEASURED IN THE RUNNING GAME, not in the file, which is the only place the question can be
+-- settled: a Play session with the rifle in hand, marker balls parked at the part's own +X and -X,
+-- and a screenshot (`.screenshots/t189-axes2.png`, `t189-axes3.png`). The +X ball sits on the brown
+-- fist; the -X ball sits on the olive cuff. Twice, from two poses.
+--
+-- SO THE SIGN FLIPS AND NOTHING ELSE DOES. The X and Y of the landmarks above are unchanged --
+-- mirroring the mesh leaves a point's distance along `fingers` and along `palm` exactly as they
+-- were -- and only their Z changes, because `fingers x palm` is the one axis a mirror turns round.
+--
+-- THE LEFT GLOVE IS NOT TOUCHED AND IT IS PROBABLY WRONG IN THE SAME WAY (task 189, reported not
+-- fixed): the same screenshots show the left hand's olive cuff flat against the fore-end with its
+-- fingers pointing off into the air. Its pose was tuned by eye, so flipping its axis would move a
+-- hand Karen has already accepted; it is the next task's, with the evidence in that task's note.
 HandAssets.AXES = table.freeze({
 	[HandAssets.RIGHT] = table.freeze({
-		fingers = Vector3.new(-0.9632, 0.2645, 0.0484),
-		palm = Vector3.new(-0.0660, 0.1061, 0.9922),
+		fingers = Vector3.new(0.9632, 0.2645, 0.0484),
+		palm = Vector3.new(0.0660, 0.1061, 0.9922),
 	}),
 	[HandAssets.LEFT] = table.freeze({
 		fingers = Vector3.new(0.3172, 0.8738, -0.3686),

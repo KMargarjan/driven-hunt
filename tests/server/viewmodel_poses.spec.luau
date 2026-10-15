@@ -888,6 +888,83 @@ return function()
 			expect(math.abs(movedMiss - miss) < 1e-5).to.equal(true)
 		end)
 
+		-- WHICH END OF THE HAND IS DOING THE HOLDING (task 189). Karen, 2026-10-15, after playing
+		-- task 188: *"hadn is oposit now reload with ending of arm not fingers"*.
+		--
+		-- THE CASE TASK 188 COULD NOT HAVE FAILED. Its only landmark on the glove was the grip point,
+		-- and a grip point is exactly as far from the knob whichever way round the hand is -- so a
+		-- hand drawn end-for-end passed every bound in this file twice. `HandAssets.FINGERTIP_STUDS`
+		-- and `CUFF_STUDS` are the two ends, measured, and these two cases ask the question that
+		-- needed asking: is the FIST on the knob, and does the WRIST trail back toward the shooter?
+		--
+		-- (What was actually wrong was `HandAssets.AXES.RIGHT.fingers`: measured off the source glTF,
+		-- and the drawn MeshPart is mirrored in X against that file, so `align`'s +X pointed at the
+		-- cuff. Every pose solved in that frame came out backwards. The sign is measured in the
+		-- RUNNING game now -- see that file -- and these cases are what hold it.)
+		local HALF_HAND = (HandAssets.FINGERTIP_STUDS - HandAssets.CUFF_STUDS).Magnitude / 2
+
+		it("holds the knob with the FINGERS, and the wrist trails back toward the shooter", function()
+			local knob = RifleGeometry.boltKnobOffset(Rifle.CONFIG)
+			local grip = rifleConfig.BOLT_HAND.grip
+			local fingertip = grip:PointToWorldSpace(HandAssets.FINGERTIP_STUDS)
+			local cuff = grip:PointToWorldSpace(HandAssets.CUFF_STUDS)
+			TestKit.note(
+				string.format(
+					"rifle bolt hand: fingertip %.3f from the knob, cuff %.3f, cuff %.3f studs behind it in Z",
+					(fingertip - knob).Magnitude,
+					(cuff - knob).Magnitude,
+					cuff.Z - fingertip.Z
+				)
+			)
+			-- The fist end is the near end. This is what fails on a hand that is round the wrong way.
+			expect((fingertip - knob).Magnitude < (cuff - knob).Magnitude).to.equal(true)
+			-- ...AND THE ARM RUNS BACK ALONG THE GUN, not across it. +Z is toward the butt (the muzzle
+			-- is at -Z), so the cuff must be behind the fingertip by more than half the glove's own
+			-- length -- which is only true if the hand lies along the rifle the way a forearm does.
+			-- Task 188's pose stood the hand vertically on the receiver: 0.18 studs, and it failed
+			-- this.
+			expect(cuff.Z - fingertip.Z > HALF_HAND).to.equal(true)
+
+			-- EVERY FRAME OF THE CYCLE, not just this one. The bolt's lift is a turn about the gun's
+			-- Z (`Geometry.boltLift`) and its draw is a slide along Z, and the hand is placed from
+			-- that same transform -- so neither moves the cuff's Z relative to the fingertip's by more
+			-- than the lift's own arc. Driven here at four turns, which is the property stated rather
+			-- than assumed.
+			for _, turn in ipairs({ 0, 0.35, 0.7, 1 }) do
+				local carried = RifleGeometry.boltLift(Rifle.CONFIG, rifleConfig.BOLT_LIFT_DEG, turn)
+				local at = carried * grip
+				local tip = at:PointToWorldSpace(HandAssets.FINGERTIP_STUDS)
+				local back = at:PointToWorldSpace(HandAssets.CUFF_STUDS)
+				local lifted = carried:PointToWorldSpace(knob)
+				expect((tip - lifted).Magnitude < (back - lifted).Magnitude).to.equal(true)
+				expect(back.Z - tip.Z > HALF_HAND).to.equal(true)
+			end
+		end)
+
+		it("holds the stock the same way at the hip and aimed: fist forward, wrist back", function()
+			local wrist = RifleGeometry.gripOffset(Rifle.CONFIG)
+			for _, case in ipairs({
+				{ name = "hip", state = stateAt(0, 0) },
+				{ name = "aimed", state = stateAt(1, 0) },
+				{ name = "cycle", state = stateAt(0, 1) },
+			}) do
+				local offset = Mode.handOffsetAt("right", case.state, rifleConfig)
+				local fingertip = offset:PointToWorldSpace(HandAssets.FINGERTIP_STUDS)
+				local cuff = offset:PointToWorldSpace(HandAssets.CUFF_STUDS)
+				TestKit.note(
+					string.format(
+						"rifle right hand %s: fingertip %.3f from the wrist of the stock, cuff %.3f, trail %.3f",
+						case.name,
+						(fingertip - wrist).Magnitude,
+						(cuff - wrist).Magnitude,
+						cuff.Z - fingertip.Z
+					)
+				)
+				expect((fingertip - wrist).Magnitude < (cuff - wrist).Magnitude).to.equal(true)
+				expect(cuff.Z - fingertip.Z > HALF_HAND).to.equal(true)
+			end
+		end)
+
 		it("lifts the bolt handle UP and clear, not down into the receiver", function()
 			-- THE SIGN (task 188). The knob hangs 0.067 studs BELOW the line it turns about, so the
 			-- direction of the turn decides whether the handle rises on the right or sweeps down
