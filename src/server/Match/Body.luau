@@ -1130,16 +1130,22 @@ local GROUND_RETRY_SECONDS = 0.05
 -- up, so 6 leaves four studs of margin under the eaves and cannot reach a canopy at all.
 local NEAR_PROBE_STUDS = 6
 
--- HOW FULL A VOXEL HAS TO BE TO COUNT AS SOLID. Measured in this place: `Air` reads 0.00, three
--- studs inside the surface reads 0.91 and twenty studs inside reads 1.00, so a half is well clear
--- of both the surface's own partial voxel and of nothing.
-local TERRAIN_SOLID_OCCUPANCY = 0.5
+-- HOW FULL A VOXEL HAS TO BE TO COUNT AS SOLID, and HOW BIG ONE IS. Roblox terrain is a 4-stud
+-- voxel grid. The occupancy is MEASURED rather than assumed -- see `Body.insideTerrain` for the
+-- four columns it was read down and why 0.75 and not a half.
+local TERRAIN_CELL_STUDS = 4
+local TERRAIN_SOLID_OCCUPANCY = 0.75
 
 -- HOW FAR THE SNAP HAD TO MOVE A Y BEFORE IT COUNTS AS HAVING MOVED IT. Roblox terrain is voxelised
 -- and a marker's own face is not exactly the surface, so half a stud is "the caller was right".
 local SNAP_TOLERANCE_STUDS = 0.5
 
-local groundReader: ((number, number) -> number?)? = nil
+-- `fromY` IS IN THE TYPE (Reviewer round 2, note 2). Round 2 reached it by casting
+-- (`pcall(groundReader :: any, x, z, fromY)`), so a world that injected a two-argument reader would
+-- have got the sky answer back with no complaint from the type checker or from selene -- which is
+-- round 1's finding returning silently. The three annotations that carry this shape -- here,
+-- `Body.setGroundReader` and `Scene.build`'s `groundAt` -- all name it now.
+local groundReader: ((number, number, number?) -> number?)? = nil
 local snapped = 0
 local snapMisses = 0
 local worstSnapStuds = 0
@@ -1149,11 +1155,11 @@ local worstSnapStuds = 0
 -- `Lobby.start` are already handed. `Match.start` sets it from `world.groundAt` and `Match.stop`
 -- clears it, exactly as it does for `world.placement` and `world.config`. A world that injects
 -- nothing gets the fallback below, which is the DEV place.
-function Body.setGroundReader(fn: ((number, number) -> number?)?)
+function Body.setGroundReader(fn: ((number, number, number?) -> number?)?)
 	groundReader = fn
 end
 
-function Body.groundReader(): ((number, number) -> number?)?
+function Body.groundReader(): ((number, number, number?) -> number?)?
 	return groundReader
 end
 
@@ -1175,6 +1181,8 @@ end
 local function askGround(x: number, z: number, fromY: number?): number?
 	if groundReader ~= nil then
 		local ok, measured = pcall(groundReader :: any, x, z, fromY)
+		-- The cast stays because `pcall` erases the argument types either way; the TYPE above is
+		-- what a world is checked against.
 		return if ok and type(measured) == "number" then measured else nil
 	end
 	local params = RaycastParams.new()
@@ -1229,46 +1237,92 @@ end
 -- IS THIS POINT INSIDE SOLID TERRAIN? The one test in this module that asks about the body's own
 -- place and NOTHING above it, which is why the net leans on it.
 --
---   Terrain:ReadVoxels  https://create.roblox.com/docs/reference/engine/classes/Terrain#ReadVoxels
---     Answers a material and an occupancy per 4-stud voxel. MEASURED in this place, at the stand on
---     the `edge` line: four studs ABOVE the surface reads `Air` 0.00; three studs inside reads
---     `Grass` 0.91; twenty studs inside reads `Grass` 1.00; two hundred studs up reads `Air` 0.00.
---     So "am I buried" has a crisp answer that a roof, a canopy or a truck cannot change -- and a
---     player standing on the lodge floor is NOT buried, because his root is three studs of air
---     above the terrain shelf that floor is laid on.
+-- ROUND 2 ASKED THE WRONG CELL, AND THE REVIEWER'S ARITHMETIC WAS RIGHT (round 2, finding 1).
+-- `Region3.new(at - 2, at + 2):ExpandToGrid(4)` is FOUR studs wide only when the coordinate is
+-- exactly 2 (mod 4); at every other offset it expands to EIGHT -- two voxels on that axis -- and
+-- `materials[1][1][1]` is the region's MINIMUM corner, which `MapGen.Ground.paintTrack` writes down
+-- as `rmin = region.CFrame.Position - region.Size / 2`. MEASURED in the live place at
+-- (3555, -3000): the requested span came back `8, 8, 8` with its minimum at `(3552, 192, -3004)`,
+-- so for a root at z -3000 the cell actually read was FOUR STUDS AWAY in z. The function was
+-- answering about a neighbour.
 --
--- `Region3:ExpandToGrid(4)` because `ReadVoxels` takes a region aligned to the voxel grid; `pcall`
--- because a region outside the terrain's own extents throws, and "I could not tell" is `false`.
-function Body.insideTerrain(at: Vector3): boolean
-	local half = Vector3.new(2, 2, 2)
+-- SO IT READS THE ONE CELL THAT CONTAINS THE POINT, by construction and not by expansion:
+-- `min = floor(at / 4) * 4`, `max = min + 4`, which is always a 1x1x1 grid.
+--
+-- "BURIED" IS TWO CELLS, NOT ONE, and that is the Director's rule: the cell the root is IN is solid
+-- AND the cell four studs ABOVE it is solid as well -- a body in the ground with ground over it.
+-- One cell alone would be the surface cell of a body settling half a stud low; two cells is a body
+-- that cannot climb out.
+--
+-- THE THRESHOLD IS MEASURED, and it is not 0.5. Reading the CONTAINING cell down four columns of
+-- this place (the stand at (3555,-3000), the middle stand, the lodge shelf and the road), by offset
+-- from the surface:
+--     -12 studs  1.00  1.00  1.00  1.00        the hill
+--      -8 studs  0.98  1.00  1.00  0.89        the hill
+--      -4 studs  0.93  1.00  0.56  0.50        a cell at or just under the surface
+--       0 studs  0.39  0.46  0.00  0.00        the cell the surface crosses
+--      +4 studs  0.00  0.00  0.00  0.00        air
+-- A half would put the surface cell on the fence (0.46 and 0.50 are two of those readings).
+-- `TERRAIN_SOLID_OCCUPANCY` 0.75 sits in the gap between "within one cell of the surface" (<= 0.56)
+-- and "two or more cells down" (>= 0.89), so the answer turns on the measurement rather than on a
+-- coincidence of two numbers.
+--
+-- A STANDING CHARACTER CANNOT READ "BURIED", AND THAT IS ARITHMETIC AS WELL AS MEASUREMENT. A root
+-- sits about 3 studs above its own feet, so for its cell to be half solid the surface would have to
+-- be at least 2 studs above that cell's floor -- which puts the root at least 5 studs above the
+-- cell's floor, and a cell is 4 studs tall. It cannot happen. Measured at all four columns above: a
+-- settled root reads `Air` 0.00 at every one of them.
+--
+--   Terrain:ReadVoxels  https://create.roblox.com/docs/reference/engine/classes/Terrain#ReadVoxels
+-- `pcall` because a region outside the terrain's own extents throws, and "I could not tell" is
+-- `false`.
+local function cellOf(at: Vector3): (Enum.Material?, number?)
+	local lo = Vector3.new(math.floor(at.X / 4) * 4, math.floor(at.Y / 4) * 4, math.floor(at.Z / 4) * 4)
 	local ok, materials, occupancy = pcall(function()
-		local region = Region3.new(at - half, at + half):ExpandToGrid(4)
-		return Workspace.Terrain:ReadVoxels(region, 4)
+		return Workspace.Terrain:ReadVoxels(Region3.new(lo, lo + Vector3.new(4, 4, 4)), 4)
 	end)
 	if not ok or type(materials) ~= "table" then
-		return false
+		return nil, nil
 	end
-	local column = ((materials :: any)[1] or {})[1]
-	local material = if column ~= nil then column[1] else nil
-	local filledColumn = ((occupancy :: any)[1] or {})[1]
-	local filled = if filledColumn ~= nil then filledColumn[1] else nil
+	return (materials :: any)[1][1][1], (occupancy :: any)[1][1][1]
+end
+
+-- WATER IS NOT GROUND, so it is named here beside `Air`: a body in a lake is swimming, not buried,
+-- and putting it "back" on the bank is not this net's business.
+local function cellIsSolid(at: Vector3): boolean
+	local material, filled = cellOf(at)
 	if material == nil or filled == nil then
 		return false
 	end
-	return material ~= Enum.Material.Air and (filled :: number) >= TERRAIN_SOLID_OCCUPANCY
+	if material == Enum.Material.Air or material == Enum.Material.Water then
+		return false
+	end
+	return (filled :: number) >= TERRAIN_SOLID_OCCUPANCY
+end
+
+function Body.insideTerrain(at: Vector3): boolean
+	return cellIsSolid(at) and cellIsSolid(at + Vector3.new(0, TERRAIN_CELL_STUDS, 0))
+end
+
+-- THE TWO HALVES OF THE ANSWER, EXPORTED, so a spec can say WHICH of them a case turns on and a
+-- live probe can print the number rather than the verdict.
+function Body.terrainCellAt(at: Vector3): (string?, number?)
+	local material, filled = cellOf(at)
+	return (if material ~= nil then material.Name else nil), filled
 end
 
 -- THE SAME QUESTION, ASKED AGAIN WHEN IT HAS NO ANSWER. A miss is "this region has not streamed or
 -- loaded yet" far more often than it is "there is no ground here" (Roblox instance streaming), and
 -- the retry is what turns the first case into an answer instead of into a fall. It YIELDS, and only
 -- on a miss: the server holds the whole world, so in a live session this loop runs once.
-local function groundWithRetries(x: number, z: number, fromY: number?): number?
-	for attempt = 1, GROUND_RETRIES do
+local function groundWithRetries(x: number, z: number, fromY: number?, attempts: number?): number?
+	local tries = math.max(1, math.floor(tonumber(attempts) or GROUND_RETRIES))
+	for attempt = 1, tries do
 		local y = Body.groundUnder(x, z, fromY)
 		if y ~= nil then
 			return y
 		end
-		if attempt < GROUND_RETRIES then
+		if attempt < tries then
 			task.wait(GROUND_RETRY_SECONDS)
 		end
 	end
@@ -1286,14 +1340,19 @@ end
 -- IT RETURNS THE MEASURED GROUND AS WELL AS THE FRAME, so the one line the owner prints about a
 -- placement carries the measurement rather than a second ray's opinion of it (`nil` when the ray
 -- missed, which is the honest answer and what `snapMisses` counts).
-function Body.onGround(cframe: CFrame?, clearanceStuds: number?): (CFrame?, number?)
+-- `attempts` IS HOW MANY TIMES IT MAY ASK, and 1 means "do not yield" (Reviewer round 2, note 4).
+-- `groundWithRetries` `task.wait`s between tries, and the floor net reaches this from `Match:step`
+-- -- so a body over an unmapped point would have delayed the drive's own tick by up to
+-- `GROUND_RETRIES * GROUND_RETRY_SECONDS`. A PLACEMENT can afford to wait for a region to stream; a
+-- 4 Hz net cannot, and it has the next tick anyway.
+function Body.onGround(cframe: CFrame?, clearanceStuds: number?, attempts: number?): (CFrame?, number?)
 	if cframe == nil then
 		return nil, nil
 	end
 	local at = (cframe :: CFrame).Position
 	-- ASKED FROM THE TARGET'S OWN HEIGHT (Reviewer round 1, finding 1): a lobby return or a ring
 	-- slot INSIDE a building must land on the floor, not on the roof over it.
-	local ground = groundWithRetries(at.X, at.Z, at.Y)
+	local ground = groundWithRetries(at.X, at.Z, at.Y, attempts)
 	if ground == nil then
 		snapMisses += 1
 		return cframe, nil
@@ -1947,9 +2006,11 @@ function Body.floorStep(service: any, floorY: number?, buriedTest: ((Vector3) ->
 				-- his own x and z. The second case answers a man who fell through the moment he
 				-- arrived.
 				local home = lastGood[player.UserId] or at
+				-- ONE ASK, NO YIELD (Reviewer round 2, note 4): this runs inside `Match:step`.
 				local wanted = Body.onGround(
 					CFrame.new(home) * ((root :: BasePart).CFrame - (root :: BasePart).CFrame.Position),
-					DEFAULT_CLEARANCE_STUDS
+					DEFAULT_CLEARANCE_STUDS,
+					1
 				)
 				-- COUNTED ONLY WHEN THE BODY ACTUALLY MOVED (Reviewer round 1, note 1). With no
 				-- remembered place and no measurable ground the "rescue" would pivot him to where he

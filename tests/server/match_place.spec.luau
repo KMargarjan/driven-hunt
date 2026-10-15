@@ -292,6 +292,152 @@ return function()
 		end)
 	end)
 
+	describe("Body.insideTerrain: the voxel the root is IN, at every offset", function()
+		-- HAND-PLACED TERRAIN, FAR FROM EVERYTHING, AND PUT BACK AFTERWARDS. This is the one spec in
+		-- the repo that writes `Workspace.Terrain`, and it is here because round 2's defect could
+		-- not be seen any other way: every `floorStep` case injects `buriedTest`, so the voxel
+		-- arithmetic had no case at all and shipped wrong (Reviewer round 2, finding 1).
+		--
+		-- IT IS SAFE BY THREE FACTS, each checked rather than asserted in a comment: the blocks are
+		-- at x 5000+ and y 500, which `TestArena.LAYOUT` and every map this repo generates are
+		-- nowhere near; the region is REQUIRED to be empty before anything is written, so a place
+		-- that does have terrain there fails loudly instead of being overwritten; and a Play
+		-- session's terrain write does not persist into the saved place (the harness compares the
+		-- EDIT DataModel, which this never touches).
+		--
+		-- FOUR COLUMNS AT FOUR OFFSETS. Roblox terrain is a 4-stud grid, and round 2's bug was an
+		-- ALIGNMENT bug -- `ExpandToGrid` widened the region to two voxels per axis unless the
+		-- coordinate was exactly 2 (mod 4). So each column puts its x, its z and its surface at a
+		-- different residue mod 4, and a rule that only works on the grid lines cannot pass.
+		local BLOCK = Vector3.new(24, 40, 24)
+		local COLUMNS = {
+			{ x = 5000, z = 5000, top = 500 }, -- 0, 0, 0 mod 4
+			{ x = 5041, z = 5033, top = 501 }, -- 1, 1, 1
+			{ x = 5082, z = 5066, top = 502 }, -- 2, 2, 2
+			{ x = 5123, z = 5099, top = 503 }, -- 3, 3, 3
+		}
+		local filled = false
+
+		local function surfaceAt(column): number?
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Include
+			params.FilterDescendantsInstances = { Workspace.Terrain }
+			local hit =
+				Workspace:Raycast(Vector3.new(column.x, column.top + 30, column.z), Vector3.new(0, -60, 0), params)
+			return if hit then hit.Position.Y else nil
+		end
+
+		beforeAll(function()
+			for _, column in ipairs(COLUMNS) do
+				-- EMPTY FIRST, or this spec writes over something somebody else owns.
+				expect(surfaceAt(column)).to.equal(nil)
+			end
+			for _, column in ipairs(COLUMNS) do
+				Workspace.Terrain:FillBlock(
+					CFrame.new(column.x, column.top - BLOCK.Y / 2, column.z),
+					BLOCK,
+					Enum.Material.Grass
+				)
+			end
+			filled = true
+		end)
+
+		afterAll(function()
+			if not filled then
+				return
+			end
+			for _, column in ipairs(COLUMNS) do
+				Workspace.Terrain:FillBlock(
+					CFrame.new(column.x, column.top - BLOCK.Y / 2, column.z),
+					BLOCK + Vector3.new(8, 8, 8),
+					Enum.Material.Air
+				)
+			end
+		end)
+
+		it("says a character STANDING on the surface is not buried, at every offset", function()
+			local report = {}
+			for _, column in ipairs(COLUMNS) do
+				local surface = surfaceAt(column)
+				expect(surface).to.be.ok()
+				-- A SETTLED ROOT: about 3.2 studs above the ground, which is what the live place
+				-- measures ("root 4.0 above the terrain, feet +0.2" settles to +3.2).
+				for _, lift in ipairs({ 3.0, 3.2, 3.6, 4.0 }) do
+					local at = Vector3.new(column.x, (surface :: number) + lift, column.z)
+					local material, occupancy = Body.terrainCellAt(at)
+					local verdict = Body.insideTerrain(at)
+					table.insert(
+						report,
+						string.format(
+							"(%d,%d) top=%d surface=%.2f +%.1f -> %s/%.2f buried=%s",
+							column.x,
+							column.z,
+							column.top,
+							surface :: number,
+							lift,
+							tostring(material),
+							occupancy or -1,
+							tostring(verdict)
+						)
+					)
+					-- THE ASSERTION THE WHOLE TASK RESTS ON.
+					expect(verdict).to.equal(false)
+				end
+			end
+			TestKit.note("match_place: standing on terrain -- " .. table.concat(report, " | "))
+		end)
+
+		it("says a root buried in the hill IS buried, at every offset", function()
+			local report = {}
+			for _, column in ipairs(COLUMNS) do
+				local surface = surfaceAt(column) :: number
+				-- DEEP ENOUGH THAT THE CELL ABOVE IS SOLID TOO, which is the rule: a body in the
+				-- ground WITH GROUND OVER IT. The failures this net exists for were 17.5 and 47.8
+				-- studs under the surface.
+				for _, depth in ipairs({ 10, 17.5, 24 }) do
+					local at = Vector3.new(column.x, surface - depth, column.z)
+					local material, occupancy = Body.terrainCellAt(at)
+					local verdict = Body.insideTerrain(at)
+					table.insert(
+						report,
+						string.format(
+							"(%d,%d) surface=%.2f -%.1f -> %s/%.2f buried=%s",
+							column.x,
+							column.z,
+							surface,
+							depth,
+							tostring(material),
+							occupancy or -1,
+							tostring(verdict)
+						)
+					)
+					expect(verdict).to.equal(true)
+				end
+			end
+			TestKit.note("match_place: buried in terrain -- " .. table.concat(report, " | "))
+		end)
+
+		it("reads the cell the point is IN, not the one below or beside it", function()
+			-- ROUND 2'S DEFECT, AS ONE ASSERTION. `Region3.new(at - 2, at + 2):ExpandToGrid(4)` is
+			-- eight studs wide at three offsets in four, and index 1 is the MINIMUM corner -- so the
+			-- cell read sat up to four studs below and beside the point. Here: the cell just under
+			-- the surface is solid and the cell just over it is air, and `terrainCellAt` must tell
+			-- them apart at a point 2 studs above the surface, which the old span could not.
+			for _, column in ipairs(COLUMNS) do
+				local surface = surfaceAt(column) :: number
+				local _, above = Body.terrainCellAt(Vector3.new(column.x, surface + 6, column.z))
+				local _, below = Body.terrainCellAt(Vector3.new(column.x, surface - 10, column.z))
+				expect(above).to.be.ok()
+				expect(below).to.be.ok()
+				expect((above :: number) < (below :: number)).to.equal(true)
+			end
+		end)
+
+		it("is false where there is no terrain at all", function()
+			expect(Body.insideTerrain(Vector3.new(5600, 500, 5600))).to.equal(false)
+		end)
+	end)
+
 	describe("Body.floorStep: the floor under the rule", function()
 		local folder: Folder? = nil
 
@@ -360,12 +506,15 @@ return function()
 			expect(math.abs(root.Position.Y - 140) < 1e-6).to.equal(true)
 		end)
 
-		it("leaves a man STANDING UNDER A ROOF alone, however low the sky says the ground is", function()
-			-- THE FAULT ROUND 1 SHIPPED (Reviewer, finding 1): the lodge and the shop counter. The
-			-- reader answers the ROOF from the sky, the net read that as "the ground", and a man
-			-- standing on the floor was 13.5 studs "under" it -- pivoted away four times a second.
-			-- Nothing but the reader's starting height changed, and this case is 0 either way ONLY
-			-- because the net no longer asks a depth at all.
+		it("asks no depth at all: a reader that answers 14 studs too high moves nobody", function()
+			-- RENAMED IN ROUND 3, because the old titles ("leaves a man STANDING UNDER A ROOF
+			-- alone") named a fault these cases do not test -- they pass `never` as `buriedTest`
+			-- and an anchored root, so they never reach the ground reader and would pass with the
+			-- whole near stage deleted (Reviewer round 2, note 5). What they DO prove is worth
+			-- keeping and is what the title now says: the net's three questions are independent of
+			-- the ground reader, so no reader answer can make it move a body. The reader-side guard
+			-- -- the thing that actually protects a man indoors -- is the describe "indoors and
+			-- under a canopy" above, and the voxel-side guard is the describe before this one.
 			Body.setGroundReader(roofedBuilding)
 			local player, root = fakePlayer("AtTheShopCounter", 192010, Vector3.new(0, FLOOR_Y + CLEARANCE, 0))
 			local before = root.Position
@@ -374,16 +523,8 @@ return function()
 			expect(Body.floorStep(service({ player }), nil, never)).to.equal(0)
 			expect(Body.rescuedFromUnderGround()).to.equal(rescues)
 			expect((root.Position - before).Magnitude < 1e-6).to.equal(true)
-		end)
-
-		it("leaves a beater UNDER A CANOPY alone, for the same reason", function()
-			-- The 831 Studio-built `Session` trees: `ForestTest.terrainYAt`'s own header says the
-			-- world's reader can stop on one of them. A beater walks 580 studs under that.
-			Body.setGroundReader(roofedBuilding)
-			local player, root = fakePlayer("InTheWood", 192011, Vector3.new(120, FLOOR_Y + CLEARANCE, -300))
-			local before = root.Position
-			expect(Body.floorStep(service({ player }), nil, never)).to.equal(0)
-			expect((root.Position - before).Magnitude < 1e-6).to.equal(true)
+			-- ...and the reader really was the lying one, so the case is not vacuous.
+			expect(Body.groundUnder(0, 0)).to.equal(ROOF_Y)
 		end)
 
 		it("puts a character INSIDE SOLID TERRAIN back on the ground", function()

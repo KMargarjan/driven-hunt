@@ -316,12 +316,16 @@ end
 -- only substitutes the Y. `nil` reader, or a reader that answers nil for this point, leaves the
 -- point exactly as the layout computed it -- which is the scene this repo built before this task.
 -- Note: docs/research/2026-10-15-one-placement-rule.md
-local function onGround(cframe: CFrame, groundAt: ((number, number) -> number?)?): CFrame
+local function onGround(cframe: CFrame, groundAt: ((number, number, number?) -> number?)?): CFrame
 	if groundAt == nil then
 		return cframe
 	end
 	local at = cframe.Position
-	local ok, y = pcall(groundAt :: any, at.X, at.Z)
+	-- ASKED FROM THE POINT'S OWN HEIGHT (Reviewer round 2, note 1). Without the third argument this
+	-- got the reader's COLUMN answer -- the cast from the sky -- so a carcass or a torch laid out
+	-- under one of this place's `Session` canopies was hung at canopy height, which is the one
+	-- Instance Karen looks at that finding 1 still reached.
+	local ok, y = pcall(groundAt :: any, at.X, at.Z, at.Y)
 	if not ok or type(y) ~= "number" then
 		return cframe
 	end
@@ -379,7 +383,7 @@ function Scene.build(
 	kills: { any },
 	cfg,
 	displayFor: DisplayFor?,
-	groundAt: ((number, number) -> number?)?
+	groundAt: ((number, number, number?) -> number?)?
 ): number
 	Scene.clear()
 	local scene = cfg.SCENE
