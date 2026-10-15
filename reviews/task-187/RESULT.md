@@ -1,11 +1,78 @@
-1. `src/server/Lobby/Build.luau` `lodge` — **the stag "over the door" is driven through the main roof and its antlers are built into the building, not out of it.** The call is `antlerMount(over, "DoorStag", CFrame.new(origin.X, doorTop + 5.2, origin.Z - halfZ - 0.4) * CFrame.Angles(0, math.pi, 0), cfg.TROPHIES.GABLE, cfg)`. Two facts about where that lands. (a) IT IS ABOVE THE WALL. `floorYOf` = `origin.Y + PLINTH.HEIGHT(2.2) + FLOOR_THICK(0.6)` = `origin.Y + 2.8`; `snapOpening(floorY, floorY, floorY + 9, 1.8)` returns `doorTop = floorY + 9`, so the mount's centre is `origin.Y + 17.0`, while `wallTop = floorY + coursesOf(cfg) * d` = `origin.Y + 15.4` — 1.6 studs over the top of the logs, and `TROPHIES.GABLE.PLAQUE` is `Vector3.new(4.2, 4.6, 0.6)`, so the plaque spans `origin.Y + 14.7 … 19.3`. There is no gable there to hang it on: `roof` builds `Vector3.new(width, spec.THICK, slope + spec.EAVE_STUDS)` rotated `CFrame.Angles(side * pitch, 0, 0)` and its two wedges sit at `origin.X + half * (size.X / 2 - 0.45)`, so the ridge runs along X and the gables are the WEST and EAST ends — which is why `chimney` goes "up the OUTSIDE of the west gable". The south elevation, the one with the door, is an EAVES wall: the south slab's mid-plane runs through `(z = origin.Z - 13, y = wallTop)` at 44°, so at the plaque's own z (`origin.Z - 13.1`) the slab is at `y ≈ origin.Y + 15.3` with a 0.56-stud vertical half-thickness. The plaque is skewered by the slab and roughly 3.4 studs of it, plus every `antlerBeam` segment above it (root `+PLAQUE.Y * 0.26`, four `SEGMENT_STUDS = 1.6` beams), stand out of the roof's south slope; of the 4.6-stud plaque about 0.05 studs is left under the eave, where `porch`'s own `eaveY = wallTop - math.tan(pitch) * EAVE_STUDS` ≈ `origin.Y + 12.1` is the ceiling an eye in the yard sees under. (b) IT FACES INWARD. `CFrame.Angles(0, math.pi, 0)` is the same yaw `trophies` gives the south wall, and that function's convention is stated in `shield`: "`face` lies on the WALL with its LookVector pointing INTO the room, so `-Z` is 'out from the wall'". So `front = face * CFrame.new(0, 0, -size.Z)`, the skull plate and both beams are built NORTHWARD from the plaque — into the roof void — and what the yard is shown is the back of the plaque. This contradicts `docs/design/lobby.md` ("a skull plate and two beams over the door", "door frame + antlers over the door"), the research note's "**antlers over the door**, on the gable", and TASKS.md's "a stag over the door", and it is the same class of defect as the porch roof this task already fixed ("hung at the wall top, which a 44-degree eave oversailing 3.4 studs is already 3.3 studs below"). Nothing in the suite can see it: "hangs every trophy INSIDE the room…" and "hangs nothing on a wall in front of a window…" both read `folder:FindFirstChild("Trophies", true)` and `DoorStag` is parented to the `Antlers` folder, and "leaves no part of the lodge floating" only bounds `piece.Position` inside an envelope whose ceiling is `origin.Y + RIDGE_STUDS + ABOVE_RIDGE_STUDS + 4` and then accepts the roof slab's own box as the thing it "touches". Required: put the mount in the band that is actually wall and actually visible — above `doorTop` (`origin.Y + 11.8`) and below the south slab's underside at the wall plane (`≈ origin.Y + 14.8`), which `TROPHIES.GABLE` at 4.6 + antlers does not fit, so it needs a smaller spec or a different place — and yaw it `0` so the skull and the beams project south, out of the building; plus a case over the `Antlers` folder that holds it off the roof the way the trophy cases hold the wall mounts off the ceiling.
+PASS
+
+Verified against the repo this round, not taken on the request's word:
+
+- Round 3's blocking finding is really fixed. `lodge` now builds `Antlers.OverTheDoor` with
+  `cfg.TROPHIES.DOOR` at `(doorTop + LINTEL_STUDS + underEave) / 2`, yaw **0** (`shield`'s own
+  convention: `R_y(0)·(0,0,-1) = -Z`, and -Z is south = outdoors, so the skull plate and both beams
+  project into the yard, not into the roof void), then `fitBetween(doorMount, doorTop + 0.2,
+  underEave - 0.2)`. Measured: band `origin.Y + 12.0 … 14.64`, mount span before the clamp
+  `12.822 … 15.288`, shift `-0.6456`, final `12.177 … 14.643` — inside the band, above the lintel,
+  south of the wall plane. The big stag moved to `Antlers.EastGable` at `wallTop + 3.4`, yaw
+  `-pi/2` (LookVector `+X`), clamped into `wallTop + 0.4 … ridge - 1.2`; the gable wedges really are
+  the west/east ends (`Gable%s%s` at `origin.X ± (SIZE.X/2 - 0.45)`), so that wall exists, and the
+  mount's top (~26.6) clears the slab underside at the ridge (~27.7).
+- The new case can fail and tests the player's path: "hangs the OUTSIDE antlers clear of the roof,
+  facing out of the building" projects each part's rotated box (`m10/m11/m12`), splits on
+  `DoorStag`, and bounds height above `DOOR.HEIGHT`, top under the eave and `Position.Z` south of
+  the wall — the round-3 build (`doorTop + 5.2`, yaw `pi`) fails all three. `doorParts > 3` /
+  `gableParts > 3` stop a bound nothing satisfies.
+- Round 2 finding 2 is fixed: in "really CUTS the door and every window…" the build is `pcall`ed,
+  every failure is a string in `problem` / `filled`, and `other:Destroy()` precedes the first
+  `expect`. Nothing can leak an enabled `SpawnLocation` at x 2850 into `Workspace` again.
+- Claims 1, 3, 5, 6, 7, 9, 10 check out: `snapOpening(floorY, floorY+3.4, floorY+7.8, 1.8)` =
+  `(+3.6, +7.2)` and `logWall`'s strict test drops exactly courses 3-4, which is the band
+  `WindowGlass` fills, so the spec's 0.15-stud walk matches within `step*2`; the north window at
+  `-11` leaves a 2.7-stud run (at `-13` it was 0.7 < `d*0.6`, the dropped sliver); `TEMPLATE` has
+  only `TRUCK`/`TREES` with the removed rows and ids archived in
+  `backups/2026-10-14_task-187_free-lodge.txt` (rule 7); `roomFor` = 32.4 × 22.4 × 12.6;
+  lights = `1 + #LANTERN.ALONG(3) + 2` = 6; `#MOUNTS` = 12; `MAX_PARTS = 1500`; the keeper's head
+  gets `HeadColor3` on every `BodyColors` (created if none), a `rbxasset://` Decal, and `Body.paint`
+  still never writes `HeadColor3` — no second writer.
+- Paperwork gate: `[harness] PASS: 33/33 @ 35afd577… (clean tree)` names the request's
+  `Code commit:`, `[harness2] PASS: 35/35 @ 35afd577… (clean tree)` is pasted, and
+  `paperwork-after-code-commit.txt` says OK (only `ESCALATE.md` and `reviews/task-187/REQUEST.md`
+  follow it). selene, stylua and `rojo build` are all exit 0. No conflict markers survived the
+  merge; no absolute user path, email or key in the diff.
 
 ## Notes (non-blocking)
-- `src/server/Lobby/Build.luau` `roof` / `porch` — `EAVE_STUDS` is added to the slab's length, i.e. along the SLOPE, so the real eave edge is at `z = origin.Z - 15.44, y = origin.Y + 13.04`, not the `eaveZ = origin.Z - halfZ - EAVE_STUDS` (−16.4) and `eaveY` (12.1) that `porch` computes. The lean-to is therefore hung about a stud south of and a stud below the point it claims to hang off; the `+ 0.8` padding on `PorchRoof`'s length closes all but ~0.2 studs of the resulting slot. The prose in both files and in the research note ("eaves reach 3.4 studs past the wall") describes a horizontal overhang the code does not build.
-- `windowUnit` — `WindowJamb`/`WindowHead` are `f * 2.2` = 1.1 deep centred 0.1 out, so they reach 0.65 studs from the wall plane against the log's 0.9-stud outer surface. The request's "frame, sill and shutters all stand proud of the logs" is true of the sill (1.35) and the shutters (2.44) and not of the frame.
-- `tests/server/lobby.spec.luau` "leaves the doorway a GAP" — the sampled height still comes from `CFG.LODGE.DOOR.HEIGHT` rather than the snapped `doorTop - doorBottom`. Equal today, and the same drift round 2's note named for the stag.
-- `tests/server/lobby.spec.luau` "really CUTS the door and every window…" — every assertion is deferred now, but a throw inside `Build.build(other, far, CFG, nil)` itself still leaves `LobbyFarSpecWorld` and its enabled `SpawnLocation` in `Workspace`. A `pcall` round the build closes the last path.
-- `docs/design/truck-pads.md` — cites "`Lobby.CONFIG.TRUCK.MODEL` and `LODGE.MODEL`'s comments"; `LODGE.MODEL` is gone with this change. The Architect's file, so a citation for them rather than an edit here.
+- `src/server/Lobby/Build.luau` `lodge` — the door band is measured at the WALL PLANE while the
+  mount stands south of it. `underEave = wallTop - THICK/2/cos(pitch)` = `origin.Y + 14.843` is the
+  slab underside at `z = origin.Z - 13`, but the beams lean out to `z = origin.Z - 13.99`, where the
+  44° underside is `≈ origin.Y + 13.88`. After the clamp the upper segment of each beam and both
+  tines sit INSIDE the south slab: the top tip is `(z = -13.894, y = +14.591)` against an underside
+  of `+13.980` — 0.44 studs perpendicular into a 0.8-stud slab, so nothing emerges through the
+  slate, but roughly the top 0.6 studs of a 2.5-stud mount are swallowed by the soffit. Subtracting
+  `tan(pitch) * (halfZ + the mount's own reach)` from the band, instead of using the wall-plane
+  figure, is the fix. `lobby.spec`'s case recomputes the same wall-plane `underEave`, so it cannot
+  see this.
+- `src/server/Lobby/Build.luau` `doorway` — "The leaf stands OPEN against the wall beside it" /
+  "it stands beside the opening rather than in it" describes the opposite of what is built. With
+  `CFrame.Angles(0, -LEAF_OPEN_RADIANS, 0)` and `R_y(t)·(a,0,0) = (a cos t, 0, -a sin t)`, the
+  translation comes back as **+3.44 in local Z** — inward — so `DoorLeaf` runs from the hinge at
+  `(origin.X + 4.05, origin.Z - 13.3)` to `(origin.X + 2.80, origin.Z - 6.41)`, i.e. 4.8 studs into
+  the room, crossing `DoorPostE` on the way out. An inward-opening door at 100° is not wrong and the
+  leaf is `CanCollide = false` and clear of the walk line, but this is the one offset in the task
+  where the "-Z is out" convention the rest of it fixed is still inverted; either flip the sign or
+  rewrite the comment to say the leaf opens inward.
+- `reviews/task-187/REQUEST.md` — "`[harness2]` is **N/A**: no file this branch touches is in
+  `TWO_PLAYER_PATHS`" and claim 10's "`src/server/Match/` is untouched" are stale after the merge at
+  `35afd57`: the commit under review changes `src/server/Match/Body.luau`, `Scene.luau`, `init.luau`
+  and `tests/server/match_place.spec.luau` relative to the base. True of task 187's own commits, and
+  the `[harness2]` line is pasted anyway, so the evidence is complete — only the sentences are
+  wrong.
+- `src/server/Lobby/Build.luau` `roof` / `porch` — round 3's note, unfixed: `EAVE_STUDS` is added to
+  the slab's length, so the real eave edge is `(z = origin.Z - 15.441, y = origin.Y + 13.034)` and
+  not `porch`'s `eaveZ` (-16.4) / `eaveY` (+12.1); the lean-to still hangs off a point the roof does
+  not reach, with `PorchRoof`'s `+ 0.8` padding closing most of the slot.
+- `src/server/Lobby/Build.luau` `windowUnit` — round 3's note, unfixed: `WindowJamb`/`WindowHead`
+  are `f * 2.2` = 1.1 deep centred 0.1 out, so they stop 0.65 studs from the wall plane against the
+  log's 0.9-stud outer surface. The sill (1.35) and the shutters (to 2.44) are proud of the logs;
+  the frame is not.
+- `docs/design/lobby.md` / `docs/design/truck-pads.md` — the Architect's files, so citations rather
+  than edits here: `MAX_PARTS = 400` and "cap 400" in the first, "`<= MAX_PARTS` (1200), unchanged"
+  and "`LODGE.MODEL`'s comments" in the second, all now wrong. The request already queues §9's
+  "two builds, free model first".
 
 ---
-REVIEWER verdict on commit `111810fa70c8a10ce808cd1418d959ac3720d1f2` (round 3) · 2026-10-14 23:45 UTC · session cost $3.84, 35 turns · written by tools/agents.py
+REVIEWER verdict on commit `27b1623ac25dc8955ad868b627504d3376398088` (round 4) · 2026-10-15 23:44 UTC · session cost $4.23, 43 turns · written by tools/agents.py
