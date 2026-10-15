@@ -696,6 +696,12 @@ local stats = {
 	placementsMissed = 0,
 	-- How many times a world answered nil for where a player of this team stands (task 157).
 	placementsNowhere = 0,
+	-- HOW MANY CHARACTERS THE FLOOR NET PUT BACK (task 192). IT MUST STAY 0: the placement rule in
+	-- `Body.onGround` is the fix and this net is only under it, so a session in which this is not
+	-- zero is a session with a placement bug the net is hiding. Karen's own words were *"when drive
+	-- ends I am underground ... when new round I die"*, and this is the number that says whether
+	-- that is still happening. Note: docs/research/2026-10-15-one-placement-rule.md
+	rescuedFromUnderGround = 0,
 	emptyTeamDrives = 0,
 	-- A KILL WHOSE ANIMAL THIS TABLE HAS NO PRICE FOR (task 160; it was `unknownZoneKills`, the same
 	-- diagnostic pointed at the retired zone table). It is the kind, not the zone, that now decides
@@ -1427,7 +1433,10 @@ local function applyScene()
 		return
 	end
 	stats.scenes += 1
-	local laid = Scene.build(spot, facing, driveKills, config, Match.displayAnimal)
+	-- ...AND ON THE GROUND UNDER EACH POINT OF IT (task 192), through the one ground reader this
+	-- owner already handed `Body`. The animals and the four torches are laid out flat round one
+	-- spot, and on a sloped layout that buries half of them.
+	local laid = Scene.build(spot, facing, driveKills, config, Match.displayAnimal, Body.groundUnder)
 	stats.sceneAnimals += laid
 	-- HOW MANY WERE THE REAL ANIMAL (task 173). `Scene` counts both FOR THE SCENE IT JUST BUILT, and
 	-- the difference between them is the whole of "did the asset load": a row of grey boxes with
@@ -1465,7 +1474,7 @@ local function applyScene()
 	local ring = Scene.ringLayout(spot, #ids + botCount, config, laid)
 	for index, userId in ipairs(ids) do
 		local player = playersService():GetPlayerByUserId(userId)
-		if player and ring[index] and Body.stand(player, ring[index]) then
+		if player and ring[index] and Body.stand(player, ring[index], config) then
 			stats.sceneMoved += 1
 		end
 	end
@@ -2715,6 +2724,13 @@ function Match:step(dt: number)
 		return
 	end
 	accumulator = 0
+	-- THE FLOOR, BEFORE THE TICK (task 192). `Body` owns where a character stands, so it owns putting
+	-- one back that is under the ground; this owner only says WHEN, which is the same split the
+	-- markers, the outfits and the holds already have. It walks every player on the server and not
+	-- only the drive's roster, because the placement that killed Karen every round was the LOBBY's
+	-- return and a man at the lodge is in no roster.
+	-- Note: docs/research/2026-10-15-one-placement-rule.md
+	stats.rescuedFromUnderGround += Body.floorStep(playersService())
 	dispatch({ kind = "tick", aliveBoars = boarsAlive() })
 	if now() - lastBroadcast >= config.STATE_HEARTBEAT then
 		broadcast(true)
@@ -2886,6 +2902,12 @@ function Match.start(injected)
 	-- WHAT A PLAYER HAS BOUGHT, from the economy's read-only view (task 178). nil when no economy
 	-- was injected, which is every spec that starts no money and is the game before this task.
 	ownedProvider = if world.economy and world.economy.ownedOf then world.economy.ownedOf else nil
+	-- WHERE THE GROUND IS, AS THE WORLD'S OWN SINGLE ANSWER (task 192). `Body` snaps every placement
+	-- onto it, and in the Forest Test this is `ForestTest.groundAt` -- the same function
+	-- `Markers.setReaders`, `Bots.start` and `Lobby.start` are already handed, so there is ONE
+	-- definition of "where is the ground" per world and not four. A world that injects nothing gets
+	-- `Body`'s own ray, which is the DEV place.
+	Body.setGroundReader(world.groundAt)
 	-- `~= false` IS THE IDIOM THIS FUNCTION ALREADY USES for `world.remotes` and `world.heartbeat`:
 	-- a world that injects nothing is unchanged (task 177).
 	autoEnrol = world.enrol ~= false
@@ -2971,6 +2993,10 @@ function Match.stop()
 	-- ...NOR THE OWNERSHIP READ (task 178): a stopped drive must not keep asking a dead economy what
 	-- a player has bought, and nil is the answer that leaves a beater exactly as he was.
 	ownedProvider = nil
+	-- ...NOR THE GROUND READER (task 192), for exactly the same reason: a spec that started a forest
+	-- world must not leave the next require of this singleton measuring the ground with a function
+	-- whose Workspace has gone.
+	Body.setGroundReader(nil)
 	if heartbeat then
 		heartbeat:Disconnect()
 		heartbeat = nil

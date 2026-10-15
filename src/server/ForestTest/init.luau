@@ -1100,7 +1100,37 @@ end
 --
 -- IT STILL DOES NOT FREEZE HIM. *"I want tomorrow to test shooting and walking"* -- anchoring the
 -- character would break the thing she is testing, so walking out simply stops being possible.
-function ForestTest.boundary(userId: number, root: BasePart, role: RoleWord?): Vector3?
+-- HOW MANY TIMES THE WALL HAS HAD TO LIFT A BODY OUT OF THE HILL (task 192). It is one per respawn
+-- during a drive and zero otherwise, which is a number to read rather than a thing to assume: see
+-- `ForestTest.boundary` below for what it counts.
+local boundaryLifts = 0
+
+function ForestTest.boundaryLifts(): number
+	return boundaryLifts
+end
+
+-- `lift` IS THE ONE PLACEMENT RULE, HANDED IN (task 192), and it is here because this wall was the
+-- second half of Karen's sentence: *"when I respawn I die"*.
+--
+-- MEASURED, twice, in the live place. A hunter who presses Reset in the middle of a drive is
+-- respawned by the engine at `Workspace.ForestRoadSpawn` -- (3000, 138.5, -2109), 900 studs away --
+-- and this wall then clamps his X and Z onto his own stand's circle on the very next Heartbeat
+-- WHILE KEEPING `position.Y`, because that is what `boundaryPoint` returns. He arrives at
+-- (3549, 143.7, -2990): 11.7 studs from stand 4, which is the clamp, and **47.8 studs under the
+-- terrain**, which is the hill it put him inside. Both proof runs produced that point to the stud.
+--
+-- SO THE WALL IS HORIZONTAL AND IT SAYS SO. `lift` is `Match.Body.liftOntoGround`, the one owner's
+-- own rule, and it is ONE-SIDED: it moves a point that is more than `Body.maxBelowGround()` studs
+-- INSIDE the ground, and never touches one that is on it or above it -- so a hunter jumping at the
+-- edge of his circle is clamped exactly as he was and is not pinned to the floor.
+--
+-- `nil` IS THE OLD BEHAVIOUR, for a spec that drives this with no Workspace at all.
+function ForestTest.boundary(
+	userId: number,
+	root: BasePart,
+	role: RoleWord?,
+	lift: ((Vector3, number?) -> (Vector3, boolean))?
+): Vector3?
 	-- A BEATER IS NOT HELD TO A STAND (task 153), and without this line the whole task is dead on
 	-- arrival: a beater walks 580 studs south through the wood (240 when task 153 wrote this line),
 	-- and a circle round the stand
@@ -1124,6 +1154,13 @@ function ForestTest.boundary(userId: number, root: BasePart, role: RoleWord?): V
 		return nil
 	end
 	local at = to :: Vector3
+	if lift ~= nil then
+		local lifted, moved = lift(at)
+		if moved then
+			at = lifted
+			boundaryLifts += 1
+		end
+	end
 	root.CFrame = CFrame.new(at) * (root.CFrame - root.CFrame.Position)
 	-- THE OUTWARD PART OF THE VELOCITY, GONE. `AssemblyLinearVelocity` is the whole character's, not
 	-- one part's, which is what a walking Humanoid has (the engine welds the rig into one assembly).
