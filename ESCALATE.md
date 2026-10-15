@@ -2528,3 +2528,8 @@ Task 172 reached the 3-round cap; round 3's one finding (a spec that could not f
 ## 2026-10-14 -- DIRECTOR: one extra review round for task 179 (round 4), with Karen's OK
 
 Task 179 reached the 3-round cap (round 3: an unclaimed TargetWord label in MapUi; fixed in `f13ad7d` with a count that prevents the class). Karen was asked "Allow one extra review round so it can merge?" and answered "Yes, allow it" (2026-10-14 ~09:40). The Director authorises ONE extra round for **task 179, round 4**, run with `DIRECTOR_MAX_ROUNDS=4` in the environment (never committed). A failing round 4 is an escalation, not a request for a fifth.
+
+
+## 2026-10-15 -- DIRECTOR: one extra review round for task 187 (round 4), with Karen's OK
+
+Karen was asked whether to use the parked 187 European lodge as the base for fixing the cabin's inside and answered "Use the 187 lodge" (2026-10-15 ~17:40), i.e. merge it. Round 3's finding was fixed in `681001e`. The Director authorises ONE extra round for **task 187, round 4**, run with `DIRECTOR_MAX_ROUNDS=4` in the environment (never committed).

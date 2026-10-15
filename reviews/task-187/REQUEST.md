@@ -1,14 +1,16 @@
 # Task 187 — a Central-European hunting lodge, built by us
 
 Task: 187
-Round: 3
+Round: 4
 Base: f28fcd9 (main, #170 merged — task 186)
-Code commit: 618d22f51b66b2688f7de5c66303091572771405
+Code commit: `35afd5779abb6797cb6f3cad252f07e744a90d15`
 
 Harness, FULL run, TWICE, clean tree:
 
 ```
 [harness] PASS: 33/33 checks @ 618d22f51b66b2688f7de5c66303091572771405 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 35afd5779abb6797cb6f3cad252f07e744a90d15 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 35afd5779abb6797cb6f3cad252f07e744a90d15 (clean tree)
 [harness] PASS: 33/33 checks @ 618d22f51b66b2688f7de5c66303091572771405 (clean tree) scope=all
 ```
 
@@ -16,6 +18,9 @@ Harness, FULL run, TWICE, clean tree:
 
 `[harness2]` is **N/A**: no file this branch touches is in `TWO_PLAYER_PATHS` — `src/server/Lobby/`,
 `src/shared/Lobby/`, `tests/server/lobby.spec.luau` and docs only.
+
+
+DIRECTOR NOTE (round 4): Karen authorised using this lodge on 2026-10-15 ~17:40 ("Use the 187 lodge"); round 3's finding (the door antlers through the roof) was fixed in `681001e`; the Director merged `main` (tasks 188-192) into the branch at `35afd57` (doc conflicts only, both sides kept) and ran both gates there.
 
 ## What this round changed (round 2's two blocking items)
 
