@@ -1,0 +1,94 @@
+ARCHIVED 2026-10-16, task 195: the lodge's door LEAF, its two iron bands, and the
+`LEAF_OPEN_RADIANS` row that swung them.
+
+WHY (rule 7: never delete, archive with a note)
+-----------------------------------------------
+Karen, 2026-10-15 ~17:40, verbatim (via the Director, outside the repo):
+
+    "then you need to fix inside the cabin / it's broken there / you need to make nice inside
+     and person not hanging and all things not hanging clean perfect doors can be open no
+     doors, inside one bot as a seller access with e and you can't go over the table"
+
+THE LEAF IS MOST OF "it's broken there", AND IT WAS MEASURED BEFORE IT WAS TOUCHED. In the Forest
+Test place on 2026-10-16, with the lobby built by `ForestTestBoot`:
+
+    DoorLeaf  centre (2853.426, 156.548, -2913.856)   size 7.000 x 8.600 x 0.450
+    the inner face of the south wall:  z = -2915.2
+    the floor's top:                   y =  152.048   (the leaf's bottom: 152.248)
+
+So the "open" door stood 1.34 studs INSIDE the room and 0.2 studs OFF the floorboards -- a door
+hanging in mid-air in the middle of the floor -- and it is `CanCollide = false`, so a player walks
+through it. `DoorBand1` and `DoorBand2` hung with it. It is also the second half of "all things not
+hanging".
+
+THE CAUSE, so it is not re-introduced
+-------------------------------------
+One sign. `R_y(t) * (a, 0, 0) = (a cos t, 0, -a sin t)`, so about a hinge on the EAST jamb at
+`t = -LEAF_OPEN_RADIANS` a POSITIVE half-width puts the free edge at `+3.444` in world z -- north,
+into the house. The leaf needed `CFrame.new(-spec.WIDTH / 2, 0, 0)`.
+
+WHY IT IS DELETED RATHER THAN CORRECTED
+---------------------------------------
+Because correcting it does not produce anything worth having, and Karen's own sentence offers the
+alternative ("doors can be open no doors"):
+
+* With the sign fixed, the leaf stands at 100 degrees in the MIDDLE OF THE PORCH (centre z about
+  -2920.7 against a porch deck that reaches -2925), still `CanCollide = false`, so it is a slab
+  players walk through -- the same complaint moved outdoors.
+* Laid FLAT against the outside wall it covers a front window at either jamb: the windows are at
+  `along` +-11 and are 5 wide (x 2858.5..2863.5 and 2836.5..2841.5), while a 7-wide leaf hinged
+  4.05 from the centre spans 2854.05..2861.05 to the east or 2838.95..2845.95 to the west.
+* The doorway itself is unchanged and is what Karen asked for in task 177 -- "a door that you walk
+  through". `DoorPostW`, `DoorPostE`, `DoorLintel` and `DoorThreshold` stay and frame it: a 7-stud
+  opening, 9 studs high, with nothing in it.
+
+WHAT CAME OUT OF THE CODE
+-------------------------
+1. `src/shared/Lobby/init.luau`, `CONFIG.LODGE.DOOR`:
+
+       DOOR = { WIDTH = 7, HEIGHT = 9, LINTEL_STUDS = 1.4, LEAF_OPEN_RADIANS = 1.75 },
+
+   is now
+
+       DOOR = { WIDTH = 7, HEIGHT = 9, LINTEL_STUDS = 1.4 },
+
+2. `src/server/Lobby/Build.luau`, the tail of `doorway()`, removed whole:
+
+       -- THE LEAF, OPEN, hinged on the east jamb and swung flat against the outside wall. Cosmetic, and
+       -- it stands beside the opening rather than in it.
+       local hinge = CFrame.new(origin.X + (spec.WIDTH + 1.1) / 2, floorY + height / 2, faceZ - d / 2 - 0.3)
+               * CFrame.Angles(0, -spec.LEAF_OPEN_RADIANS, 0)
+       local leaf = hinge * CFrame.new(spec.WIDTH / 2, 0, 0)
+       part(
+               "DoorLeaf",
+               Vector3.new(spec.WIDTH, height - 0.4, 0.45),
+               leaf,
+               cfg.LODGE.DOOR_COLOR,
+               Enum.Material.WoodPlanks,
+               false,
+               folder
+       )
+       for index, dy in ipairs({ -height / 4, height / 4 }) do
+               part(
+                       string.format("DoorBand%d", index),
+                       Vector3.new(spec.WIDTH - 0.3, 0.4, 0.2),
+                       leaf * CFrame.new(0, dy, -0.3),
+                       Color3.fromRGB(42, 40, 38),
+                       Enum.Material.Metal,
+                       false,
+                       folder
+               )
+       end
+
+   `cfg.LODGE.DOOR_COLOR` is KEPT: it is read by nothing else today, but it is the lodge's palette
+   row for a door and a porch door is a plausible later task.
+
+THE ROLLBACK
+------------
+Put the two blocks above back as they are written here, with `CFrame.new(-spec.WIDTH / 2, 0, 0)`
+instead of the positive half-width, and move the two south windows off `along` +-11 so the leaf has
+a blank stretch of wall to lie on. Nothing else in the lodge depends on the leaf: no spec names it
+(`lobby.spec`'s doorway case asserts the opening is EMPTY, which the leaf never satisfied anyway
+once it drifted inside), and `Lobby.counterPart`, `Lobby.promptPart` and the pads read other names.
+
+Note: docs/research/2026-10-16-lodge-inside-clean.md (sections 2 and 4)

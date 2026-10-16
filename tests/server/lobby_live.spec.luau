@@ -242,9 +242,19 @@ return function()
 			expect(stats.keepers).to.equal(1)
 			expect(stats.keeperDressed).to.equal(1)
 			expect(seen.dressed).to.equal(1)
-			local body = (bin:FindFirstChild(Data.FOLDER_NAME) :: Instance):FindFirstChild(Data.KEEPER_NAME, true)
+			local lobby = bin:FindFirstChild(Data.FOLDER_NAME) :: Instance
+			local body = lobby:FindFirstChild(Data.KEEPER_NAME, true)
 			expect(body).to.be.ok()
-			expect((body :: Instance):FindFirstChild(Data.PROMPT_NAME, true)).to.be.ok()
+			-- THE PROMPT IS ON THE COUNTER SINCE TASK 195, not on the man: a part that collides is
+			-- hit by every ray whatever `CanQuery` says (measured), so the clip that stops a player
+			-- vaulting the till also stops the prompt's own sight line, and a prompt behind it is a
+			-- shop nobody can open. It is still built only when there IS a keeper, which is what
+			-- this case cares about -- so it asks for both, and for the prompt to be on the till.
+			local prompt = lobby:FindFirstChild(Data.PROMPT_NAME, true)
+			expect(prompt).to.be.ok()
+			local counter = lobby:FindFirstChild(Data.COUNTER_NAME, true)
+			expect(counter).to.be.ok()
+			expect((prompt :: Instance):IsDescendantOf(counter :: Instance)).to.equal(true)
 		end)
 
 		it("turns his head on the scan it already runs, and only when the man has moved", function()
