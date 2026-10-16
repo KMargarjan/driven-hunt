@@ -1736,7 +1736,12 @@ return function()
 			expect(trees > 0).to.equal(true)
 			expect(trees <= CFG.TREELINE.COUNT).to.equal(true)
 			expect(trees >= CFG.TREELINE.COUNT - 6).to.equal(true)
-			expect(stats.fallbacks).to.equal(0)
+			-- THE FALLBACKS ARE THE LODGE'S OWN ASSETS AND NOTHING ELSE (task 196). Every free-model
+			-- template this build asks the FOLDER for is found; what is missing is what the
+			-- COMPOSITION ROOT hands over -- the boar for the trophy and the guns for the rack --
+			-- and a spec hands over none, so each of those counts one fallback. A number and not a
+			-- zero, so a truck or a tree that stopped being found still fails this.
+			expect(stats.fallbacks).to.equal(#CFG.TROPHIES.MOUNTS + CFG.LODGE.RACK.GUNS)
 			expect(count <= CFG.MAX_PARTS).to.equal(true)
 			templates:Destroy()
 		end)
@@ -2702,7 +2707,10 @@ return function()
 			local TOL = 0.05
 			local pieces = insideParts()
 			-- A BOUND NOTHING SATISFIES IS A BOUND NOTHING PROVES: this room really is furnished.
-			expect(#pieces > 100).to.equal(true)
+			-- 40 AND NOT 100 SINCE TASK 196: fifteen drawn trophy mounts -- a hundred and fifty
+			-- cylinders between them -- came off the walls at Karen's word, and what hangs there now
+			-- is ONE plaque and an animal the composition root hands in (which a spec does not).
+			expect(#pieces > 40).to.equal(true)
 			local floorY = room.centre.Y
 			local ceilingY = floorY + room.height
 			for _, piece in ipairs(pieces) do

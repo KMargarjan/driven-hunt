@@ -244,7 +244,8 @@ return function()
 				expect(counted >= 1).to.equal(true)
 			end
 			expect(kinds.ammo).to.equal(1)
-			expect(kinds.weapon).to.equal(2)
+			-- ONE WEAPON ROW SINCE TASK 196: Karen removed the open-sighted rifle's.
+			expect(kinds.weapon).to.equal(1)
 			expect(kinds.driveGun).to.equal(1)
 			expect(kinds.hatColor).to.equal(1)
 		end)
