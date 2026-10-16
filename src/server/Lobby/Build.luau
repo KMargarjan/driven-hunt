@@ -64,6 +64,12 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Data = require(ReplicatedStorage:WaitForChild("Lobby"))
+-- WHERE A TREE MEETS THE GROUND, as arithmetic (task 199). The junction rule part 3e invented here
+-- now lives in one module, because `Workspace.OurForest` needs the SAME rule and is re-seated by a
+-- tool rather than by this build: `tools/forest_ground.py` injects that module's own source into
+-- the Luau it sends to Studio, so there is one copy of the arithmetic and no way for the two to
+-- drift apart (lesson L-031).
+local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))
 -- THE PADS' GEOMETRY AND THEIR WORDS, BOTH PURE (task 182). `Pads.centreFor` is the ONE place
 -- "where is pad 3" is computed -- this module and the owner both call it, which is what task 177
 -- failed to do for the circle (the same `anchor + cfg.SPOT.OFFSET` expression lived in two files).
@@ -3023,12 +3029,23 @@ local function settleOnGround(
 	if second == nil or #second == 0 then
 		return false, 0, 0
 	end
-	local lift = if wants.toLowest then math.huge else -math.huge
-	for _, point in ipairs(second :: any) do
-		local want = point.y - point.bottom
-		lift = if wants.toLowest then math.min(lift, want) else math.max(lift, want)
+	-- THE PLANTING HALF OF THIS IS `TreeGround.liftTo` SINCE TASK 199, and the lifting half stays
+	-- here: a tree drops until no contact is in the air (`min`, and the forest's tool wants exactly
+	-- that line), a truck lifts until no wheel is buried (`max`, which nothing else needs).
+	local lift
+	if wants.toLowest then
+		local contacts = {}
+		for _, point in ipairs(second :: any) do
+			table.insert(contacts, { ground = point.y, bottom = point.bottom })
+		end
+		lift = TreeGround.liftTo(contacts, wants.sink or 0) or 0
+	else
+		lift = -math.huge
+		for _, point in ipairs(second :: any) do
+			lift = math.max(lift, point.y - point.bottom)
+		end
+		lift -= wants.sink or 0
 	end
-	lift -= wants.sink or 0
 	if lift ~= 0 then
 		local up = CFrame.new(0, lift, 0)
 		for _, piece in ipairs(parts) do
@@ -3674,13 +3691,14 @@ end
 --
 -- A GRID PLUS THE CORNERS, in the model's own footprint, and the corners matter most because that
 -- is where the root tips are. Pure, so `lobby.spec` can assert the pattern without a world.
+--
+-- THE GRID ITSELF IS `TreeGround.samples` SINCE TASK 199, and this is the Vector2 face of it: the
+-- forest's re-seating tool needs the identical pattern in a place Rojo does not serve, so the
+-- arithmetic moved to the shared module and nothing here restates it.
 function Build.footprintSamples(min: Vector3, max: Vector3, steps: number): { Vector2 }
 	local out = {}
-	local n = math.max(2, steps)
-	for ix = 0, n do
-		for iz = 0, n do
-			table.insert(out, Vector2.new(min.X + (max.X - min.X) * ix / n, min.Z + (max.Z - min.Z) * iz / n))
-		end
+	for _, point in ipairs(TreeGround.samples(min.X, min.Z, max.X, max.Z, steps)) do
+		table.insert(out, Vector2.new(point.x, point.z))
 	end
 	return out
 end
@@ -3859,7 +3877,9 @@ local function treePlan(model: Model, cfg, clawFraction: number): any
 	local min, max = at - half, at + half
 	-- THE JUNCTION, IN THE WORLD. Every contact shares it, so `toLowest` settles the junction onto
 	-- the lowest ground anywhere under the tree and the claws bury themselves on the high side.
-	local junction = min.Y + (max.Y - min.Y) * clawFraction
+	-- `TreeGround.junctionY` SINCE TASK 199: the same line, in the module the forest's tool also
+	-- carries, so "where the claws stop" is defined once for the whole game.
+	local junction = TreeGround.junctionY(min.Y, max.Y, clawFraction)
 	-- THE **BASE'S** FOOTPRINT AND NOT THE CROWN'S, which is a correction measured on the first
 	-- build of this: a birch's crown is twenty-five studs across and its root flare is eight, so a
 	-- grid over the whole bounding box reads the ground under the CANOPY -- twelve studs from the
@@ -3888,6 +3908,18 @@ local function treePlan(model: Model, cfg, clawFraction: number): any
 	end
 	local baseMin = if low ~= nil then Vector3.new(low.X, min.Y, low.Z) else min
 	local baseMax = if high ~= nil then Vector3.new(high.X, max.Y, high.Z) else max
+	-- THE FOREST'S FLARE CLAMP (`TreeGround.flareFootprint`, task 199) IS DELIBERATELY NOT APPLIED
+	-- HERE, and that is a measurement rather than a preference. I added it, claimed it was inert
+	-- for these two templates, and `lobby.spec`'s own "buries each tree's root claws" case failed:
+	-- on its test slope the clamp narrows the sampled strip, the lowest reading comes up, and every
+	-- tree sinks LESS than the 0.6 `SINK_STUDS` the case holds them to.
+	--
+	-- WHY THE FOREST NEEDS IT AND THIS DOES NOT. The footprint above is already the union of the
+	-- parts that REACH THE GROUND, and these two templates' trunk parts are 3.7 and 2.0 studs
+	-- across -- the near-ground parts ARE the flare. `Workspace.OurForest`'s are not: a
+	-- `LarchTree_Var02`'s single "Trunk" mesh is 15.6 studs across and carries the whole lower
+	-- tree, so the clamp is the only thing between its corners and the ground seven studs away,
+	-- down a bank. One function, and the caller that does not need the guard does not pay for it.
 	local contacts = {}
 	for _, point in ipairs(Build.footprintSamples(baseMin, baseMax, 4)) do
 		table.insert(contacts, { x = point.X, z = point.Y, bottom = junction })

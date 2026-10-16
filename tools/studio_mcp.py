@@ -725,6 +725,10 @@ BLAST_RADIUS = (
     # covers the two doors the lobby calls (`enrol` / `dismissAll`) and the `unassign` effect.
     ("src/server/Lobby/", "lobby"),
     ("src/shared/Lobby/", "lobby"),
+    # WHERE A TREE MEETS THE GROUND (task 199). Its only consumer in the game is `Lobby.Build`'s
+    # tree planting -- `tools/forest_ground.py` is the other caller and no spec can reach that --
+    # so a change to the rule plays the lobby's own trees.
+    ("src/shared/TreeGround/", "lobby"),
     ("src/server/Boar/", "boar"),
     ("src/server/BoarAssetsBoot.server.luau", "boar"),
     ("src/shared/Map/", "map"),
@@ -821,6 +825,8 @@ SCOPE_SPECS = {
               "tests/client/zz_tie_to_a_tree.spec.luau"),
     # The lobby (task 177): the pure rule and the geometry, and the owner against fakes.
     "lobby": ("tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
+              # The planting rule itself, pure and worldless (task 199).
+              "tests/server/tree_ground.spec.luau",
               # DUAL MEMBERSHIP, the idiom `zz_horn`, `boar_hit` and `shoot_boar` already use: the
               # lobby enrols through `Match.enrol` and empties the roster through `Match.dismissAll`,
               # so a lobby change plays the drive's own phase and live specs.
