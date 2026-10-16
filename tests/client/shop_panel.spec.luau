@@ -230,9 +230,11 @@ return function()
 			local slug = lineFor(Shop.ITEM.SLUG)
 			expect(string.find(slug :: string, Shop.CONFIG.TEXT.OWNED_TAG, 1, true) ~= nil).to.equal(true)
 			expect(string.find(slug :: string, "120 COINS", 1, true)).to.equal(nil)
-			-- The open-sight rifle is SHOWN and not for sale.
-			local soon = lineFor(Shop.ITEM.RIFLE_OPEN)
-			expect(string.find(soon :: string, Shop.CONFIG.TEXT.SOON_TAG, 1, true) ~= nil).to.equal(true)
+			-- NOTHING IS "SOON" ANY MORE (task 196): Karen removed the open-sighted rifle's row, which
+			-- was the only one in the catalogue that was shown and never sold.
+			for _, line in ipairs(lines) do
+				expect(string.find(line, Shop.CONFIG.TEXT.SOON_TAG, 1, true)).to.equal(nil)
+			end
 			-- The scoped rifle: 30 hunts is enough, 300 coins is not.
 			local rifle = lineFor(Shop.ITEM.RIFLE)
 			expect(string.find(rifle :: string, "NO COINS", 1, true) ~= nil).to.equal(true)
@@ -321,9 +323,12 @@ return function()
 			Panel.select(Shop.ITEM.RIFLE)
 			expect(Panel.detailText().button).to.equal(string.format(Shop.CONFIG.TEXT.LOCKED_TAG, 25))
 
-			-- NOT FOR SALE AT ALL.
-			Panel.select(Shop.ITEM.RIFLE_OPEN)
-			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.SOON_TAG)
+			-- NOT FOR SALE AT ALL -- the state no shipped row is in since task 196, driven here by
+			-- handing the panel a payload with `sale = false` on one row. `buttonTextFor` is pure, so
+			-- this is the button's own word for a state the catalogue no longer contains.
+			expect(Panel.buttonTextFor({ sale = false, owned = false, buyable = false, hunts = 0, price = 1 })).to.equal(
+				Shop.CONFIG.TEXT.SOON_TAG
+			)
 		end)
 
 		-- ---------------------------------------------------------------- the picture
@@ -487,10 +492,11 @@ return function()
 			expect(Panel.pressSelected()).to.equal(false)
 			expect(Panel.stats().sent).to.equal(before + 1)
 			expect(Panel.messageText()).to.equal(Shop.CONFIG.TEXT.OWNED_TAG)
-			-- The open-sight rifle is shown and never sold.
-			Panel.select(Shop.ITEM.RIFLE_OPEN)
+			-- The scoped rifle is locked and unaffordable: the press is refused out of the SAME wire
+			-- row, with no round trip.
+			Panel.select(Shop.ITEM.RIFLE)
 			expect(Panel.pressSelected()).to.equal(false)
-			expect(Panel.messageText()).to.equal(Shop.CONFIG.TEXT.SOON_TAG)
+			expect(Panel.stats().sent).to.equal(before + 1)
 			-- An id the catalogue does not have is not a press at all.
 			expect(Panel.press(nil)).to.equal(false)
 		end)

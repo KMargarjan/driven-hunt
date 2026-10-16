@@ -82,7 +82,12 @@ export type Row = {
 	blurb: string,
 	price: number, -- coins. Karen's, and hers to retune
 	hunts: number, -- completed hunts before it unlocks
-	sale: boolean, -- false = shown and NOT buyable (see `rifle.open`)
+	-- false = shown and NOT buyable. NO ROW SETS IT TODAY (task 196 removed the one that did), and
+	-- it stays because it is the switch invariant I3 turns on -- `Shop.rowsOk` refuses a row that is
+	-- for sale and grants something no build ships, which is what makes *"selling a thing that
+	-- grants nothing is the one failure this repository would not forgive"* structural. A rung
+	-- announced before it ships is one row with `sale = false` again.
+	sale: boolean,
 	grants: Grants,
 }
 
@@ -93,7 +98,11 @@ Shop.ITEM = table.freeze({
 	SLUG = "ammo.slug",
 	BEATER_LICENCE = "licence.beater",
 	HAT_RED = "hat.red",
-	RIFLE_OPEN = "rifle.open",
+	-- THERE IS NO `RIFLE_OPEN` SINCE TASK 196. Karen, 2026-10-16: *"remove rifle without scope soon
+	-- don't need"* -- she had taken the WEAPON out in task 148 and task 178 kept a `sale = false`
+	-- row so her ladder would show all four rungs. The two-column panel made that decision visible
+	-- (the shop opened on a page headed SOON) and she removed it. The row is archived in
+	-- `backups/2026-10-16_task-196_shop-rifle-open-row.md` (rule 7).
 	RIFLE = "rifle.scoped",
 })
 
@@ -146,25 +155,6 @@ Shop.ROWS = {
 		-- then"*).
 		grants = { driveGun = true },
 	} :: Row,
-	[Shop.ITEM.RIFLE_OPEN] = {
-		id = Shop.ITEM.RIFLE_OPEN,
-		label = "RIFLE, OPEN",
-		category = "weapon",
-		blurb = "The same bolt rifle with the glass off, on iron sights. Not in this build yet.",
-		price = 600,
-		hunts = 10,
-		-- NOT FOR SALE IN THIS BUILD, AND THE INVARIANT FORCES IT RATHER THAN A COMMENT ASKING FOR
-		-- IT. KAREN TOOK THIS WEAPON OUT IN TASK 148: *"please remove rifle without scope so we
-		-- don't implement now"*; its row, its pose set and its two spec cases are archived in
-		-- `backups/2026-10-10-rifle-open-sights.md`, and `Weapons.ROWS` has no `rifleOpen`.
-		--
-		-- The RUNG IS STILL SHOWN, because the ladder Karen accepted has four rungs and a shop that
-		-- hid one would tell her the ladder is shorter than it is. `Shop.rowsOk` is what says
-		-- `sale = true` would be illegal today, and the day a build ships that weapon, flipping this
-		-- one word is legal and the invariant is what says so.
-		sale = false,
-		grants = { weapon = "rifleOpen" },
-	} :: Row,
 	[Shop.ITEM.RIFLE] = {
 		id = Shop.ITEM.RIFLE,
 		label = "RIFLE, SCOPED",
@@ -188,7 +178,6 @@ Shop.ORDER = table.freeze({
 	Shop.ITEM.HAT_RED,
 	Shop.ITEM.SLUG,
 	Shop.ITEM.BEATER_LICENCE,
-	Shop.ITEM.RIFLE_OPEN,
 	Shop.ITEM.RIFLE,
 })
 
@@ -452,7 +441,9 @@ end
 --
 -- I3 IS THE ONE THAT MATTERS: a row for sale can actually be granted. It is what makes the note's
 -- *"Selling a thing that grants nothing is the one failure this repository would not forgive"*
--- structural, and it is what FORCES `rifle.open`'s `sale = false`.
+-- structural. It FORCED `rifle.open`'s `sale = false` until task 196 removed that row at Karen's
+-- word; today every row is for sale, and this is what says the next one may not be unless the build
+-- can actually hand it over.
 function Shop.rowsOk(weaponRows: any, ammoKinds: { string }?): { string }
 	local problems = {}
 	local seen: { [string]: boolean } = {}

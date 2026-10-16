@@ -33,6 +33,26 @@ local SHOTGUN = Weapons.ROWS.shotgun
 local RIFLE = Weapons.ROWS.rifle
 
 -- A full wallet with nothing bought, so a case says only what it changes.
+-- NOT_SALE, DRIVEN AGAINST A PRETEND CATALOGUE (task 196). Karen removed the one row that was shown
+-- and never sold (*"remove rifle without scope soon don't need"*), so the reason has no shipped row
+-- to prove it with -- and it is still a reason `Shop.refuse` answers and the panel draws. Every row
+-- is copied with `sale = false`, the real table is put back whatever happens, and what is asserted
+-- is the function rather than the catalogue.
+local function refuseUnsellable(context): (string?, number?)
+	local pretend = {}
+	for id, row in pairs(Shop.ROWS) do
+		local copy = table.clone(row)
+		copy.grants = table.clone(row.grants)
+		copy.sale = false
+		pretend[id] = copy
+	end
+	local saved = Shop.ROWS;
+	(Shop :: any).ROWS = pretend
+	local reason, number = Shop.refuse(context);
+	(Shop :: any).ROWS = saved
+	return reason, number
+end
+
 local function ctx(over)
 	local base = {
 		itemId = Shop.ITEM.HAT_RED,
@@ -52,13 +72,15 @@ end
 return function()
 	describe("the catalogue", function()
 		it("is Karen's ladder, frozen, cheapest first, and no row can be edited at run time", function()
-			-- HER FOUR RUNGS PLUS THE COSMETIC, in `Shop.ORDER`'s own order.
-			expect(#Shop.ORDER).to.equal(5)
+			-- HER THREE RUNGS PLUS THE COSMETIC, in `Shop.ORDER`'s own order. FOUR AND NOT FIVE SINCE
+			-- TASK 196: Karen removed the open-sighted rifle's row (*"remove rifle without scope soon
+			-- don't need"*), which was the only one that was shown and never sold.
+			expect(#Shop.ORDER).to.equal(4)
 			expect(Shop.ORDER[1]).to.equal(Shop.ITEM.HAT_RED)
 			expect(Shop.ORDER[2]).to.equal(Shop.ITEM.SLUG)
 			expect(Shop.ORDER[3]).to.equal(Shop.ITEM.BEATER_LICENCE)
-			expect(Shop.ORDER[4]).to.equal(Shop.ITEM.RIFLE_OPEN)
-			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.RIFLE)
+			expect(Shop.ORDER[4]).to.equal(Shop.ITEM.RIFLE)
+			expect((Shop.ITEM :: any).RIFLE_OPEN).to.equal(nil)
 			-- CHEAPEST FIRST, so a player with 80 coins sees something he can buy at the top.
 			local previous = -1
 			for _, id in ipairs(Shop.ORDER) do
@@ -89,24 +111,27 @@ return function()
 		-- I1, I2 AND I3 IN ONE CALL (design section 4.2). The third is the one that matters: a row
 		-- FOR SALE can actually be granted, which is what forces `rifle.open`'s `sale = false`
 		-- rather than a comment asking for it.
-		it("is legal against the weapons this build ships, and the open-sight rifle is not for sale", function()
+		it("is legal against the weapons this build ships, and every row in it is for sale", function()
 			local problems = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS)
 			expect(#problems).to.equal(0)
 			expect(#Shop.ORDER <= Shop.CONFIG.MAX_ITEMS).to.equal(true)
-			-- THE RUNG IS SHOWN AND IS NOT SELLABLE, because `Weapons.ROWS` has no such weapon:
-			-- Karen took it out in task 148.
-			expect(Shop.ROWS[Shop.ITEM.RIFLE_OPEN].sale).to.equal(false)
-			expect(Weapons.row(Shop.ROWS[Shop.ITEM.RIFLE_OPEN].grants.weapon)).to.equal(nil)
-			-- ...and the invariant is what says so: flip that one word and the catalogue is illegal.
+			-- SINCE TASK 196 NOTHING IS SHOWN AND UNSELLABLE: the one row that was, the open-sighted
+			-- rifle's, is gone at Karen's word and archived (rule 7).
+			for _, id in ipairs(Shop.ORDER) do
+				expect(Shop.ROWS[id].sale).to.equal(true)
+			end
+			-- ...AND THE INVARIANT IS STILL WHAT SAYS A ROW MAY NOT GRANT WHAT NO BUILD SHIPS. The
+			-- weapon `rifleOpen` was retired in task 148 and `Weapons.ROWS` has never had it back,
+			-- so a catalogue that offered it for sale is exactly the illegal case -- driven here
+			-- against a PRETEND catalogue, because no shipped row is in that state any more.
+			expect(Weapons.row("rifleOpen")).to.equal(nil)
 			local pretend = {}
 			for id, row in pairs(Shop.ROWS) do
 				local copy = table.clone(row)
 				copy.grants = table.clone(row.grants)
-				if id == Shop.ITEM.RIFLE_OPEN then
-					copy.sale = true
-				end
 				pretend[id] = copy
 			end
+			pretend[Shop.ITEM.RIFLE].grants = { weapon = "rifleOpen" }
 			local saved = Shop.ROWS;
 			(Shop :: any).ROWS = pretend
 			local broken = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS);
@@ -152,8 +177,8 @@ return function()
 			expect(order[1]).to.equal(groups[1].rows[1].id)
 			-- INSIDE A SHELF THE WIRE'S OWN ORDER SURVIVES, and the wire is `Shop.ORDER`: cheapest
 			-- first, so the open-sight rifle (600) comes before the scoped one (1500).
-			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.RIFLE_OPEN)
-			expect(groups[1].rows[2].id).to.equal(Shop.ITEM.RIFLE)
+			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.RIFLE)
+			expect(#groups[1].rows).to.equal(1)
 			-- NOTHING IN, NOTHING OUT.
 			expect(#Shop.groups(nil)).to.equal(0)
 			expect(#Shop.menuOrder(nil)).to.equal(0)
@@ -236,7 +261,9 @@ return function()
 			expect(Shop.refuse(ctx({ coinsOn = false }))).to.equal(Shop.REASON.CLOSED)
 			expect(Shop.refuse(ctx({ itemId = "rifle.free" }))).to.equal(Shop.REASON.UNKNOWN)
 			expect(Shop.refuse(ctx({ itemId = 7 }))).to.equal(Shop.REASON.UNKNOWN)
-			expect(Shop.refuse(ctx({ itemId = Shop.ITEM.RIFLE_OPEN }))).to.equal(Shop.REASON.NOT_SALE)
+			-- NOT_SALE AGAINST A PRETEND CATALOGUE (task 196): no shipped row sets `sale = false` any
+			-- more, and the reason has to stay provable for the day one does again.
+			expect(refuseUnsellable(ctx({ itemId = Shop.ITEM.RIFLE }))).to.equal(Shop.REASON.NOT_SALE)
 			expect(Shop.refuse(ctx({ hasProfile = false }))).to.equal(Shop.REASON.NO_PROFILE)
 			expect(Shop.refuse(ctx({ atCounter = false }))).to.equal(Shop.REASON.TOO_FAR)
 			expect(Shop.refuse(ctx({ owned = { [Shop.ITEM.HAT_RED] = true } }))).to.equal(Shop.REASON.OWNED)
@@ -273,15 +300,16 @@ return function()
 				coinsOn = false,
 				hasProfile = false,
 				atCounter = false,
-				itemId = Shop.ITEM.RIFLE_OPEN,
-				owned = { [Shop.ITEM.RIFLE_OPEN] = true },
+				itemId = Shop.ITEM.RIFLE,
+				owned = { [Shop.ITEM.RIFLE] = true },
 				balance = 0,
 				hunts = 0,
 			})
 			expect(Shop.refuse(all)).to.equal(Shop.REASON.CLOSED)
 			all.coinsOn = true
-			expect(Shop.refuse(all)).to.equal(Shop.REASON.NOT_SALE)
-			all.itemId = Shop.ITEM.RIFLE
+			-- NOT_SALE comes second, and it is driven against the pretend catalogue for task 196's
+			-- reason: the one row that was never for sale is gone.
+			expect(refuseUnsellable(all)).to.equal(Shop.REASON.NOT_SALE)
 			expect(Shop.refuse(all)).to.equal(Shop.REASON.NO_PROFILE)
 			all.hasProfile = true
 			expect(Shop.refuse(all)).to.equal(Shop.REASON.TOO_FAR)
@@ -430,8 +458,9 @@ return function()
 			expect(#bought).to.equal(2)
 			expect(bought[2]).to.equal("rifle")
 			-- AN ITEM THAT GRANTS A WEAPON NO BUILD SHIPS GRANTS NOTHING, which is the other half of
-			-- why it is not for sale.
-			local pretend = Weapons.loadoutFor(true, { [Shop.ITEM.RIFLE_OPEN] = true })
+			-- why such a row may not be for sale. `rifle.open` is not in the catalogue since task 196,
+			-- so the id is simply one nothing knows -- which is the same answer.
+			local pretend = Weapons.loadoutFor(true, { ["rifle.open"] = true })
 			expect(#pretend).to.equal(1)
 			-- THE FLAG STILL WINS FIRST: off is one weapon whatever he owns.
 			expect(#Weapons.loadoutFor(false, { [Shop.ITEM.RIFLE] = true })).to.equal(1)

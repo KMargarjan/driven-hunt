@@ -246,9 +246,10 @@ function ShopDisplay.rebuildWanted(): boolean
 	return waiting > 0
 end
 
--- ONE RIFLE, FROM THE ONE PIECE LIST. `config.SIGHT` is what tells `Geometry.pieces` whether the
--- glass is on (task 143's filter), so the two rungs of Karen's ladder are the same gun photographed
--- twice rather than two models that can drift apart.
+-- ONE RIFLE, FROM THE ONE PIECE LIST. `config.SIGHT` is still what tells `Geometry.pieces` whether
+-- the glass is on (task 143's filter) and the parameter stays, but since task 196 the catalogue has
+-- ONE rifle in it: Karen removed the open-sighted row (*"remove rifle without scope soon don't
+-- need"*), so nothing passes a sight and the scoped gun is what is drawn.
 --
 -- A PUBLISHED MESH WHERE IT HAS ARRIVED AND THE MEASURED BOX WHERE IT HAS NOT -- `Camera.Viewmodel`'s
 -- own rule, so a shop window on a cold client is a plain dark rifle and never an empty rectangle.
@@ -367,12 +368,6 @@ local DRAW: { [string]: { view: View, build: (Model, string) -> () } } = {
 		view = RIFLE_VIEW,
 		build = function(model: Model, _id: string)
 			buildRifle(model, nil) -- nil SIGHT is the scoped rifle: `Geometry.sightKind`'s default
-		end,
-	},
-	[ShopData.ITEM.RIFLE_OPEN] = {
-		view = RIFLE_VIEW,
-		build = function(model: Model, _id: string)
-			buildRifle(model, "bead")
 		end,
 	},
 	[ShopData.ITEM.SLUG] = {

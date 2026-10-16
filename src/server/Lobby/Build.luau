@@ -94,6 +94,13 @@ export type Seams = {
 	-- panel is dead, and a live "Press E" over a man who answers nothing is worse than no prompt.
 	-- nil is "nobody said", which is a prompt that works -- the state a spec builds in.
 	shopOn: boolean?,
+	-- WHAT A THING IN THE GAME LOOKS LIKE, by this module's own vocabulary (task 196): `"boar"` for
+	-- the trophy on the chimney breast, `"shotgun"` and `"rifle"` for the rack behind the counter.
+	-- The composition root translates a name into a template -- the `Body.setAccessorySource` seam
+	-- exactly, and for its stated reason: *"`Match.Body` must not learn what `ServerStorage.Assets`
+	-- calls anything"*. nil, or a nil answer, means that thing is not drawn: a bare plaque and an
+	-- empty rack, never a crash and never a grey box pretending to be an animal.
+	assets: ((string) -> Instance?)?,
 }
 
 -- WHAT THE LAST BUILD MADE. The module never prints: a tool that `require`s it over StudioMCP gets a
@@ -1384,70 +1391,21 @@ end
 
 -- ---------------------------------------------------------------- the trophies (task 187)
 
--- ONE TAPERED LENGTH OF ANTLER, laid from `from` along `dir` in the MOUNT'S OWN FRAME, and it
--- answers where it ended so the next one starts there. A Part cannot taper, so a beam is a chain of
--- cylinders that each lose a fifth of the last one's thickness -- which is what makes a row of these
--- read as antlers at ten studs instead of as a bundle of sticks.
+-- THERE ARE NO DRAWN ANTLERS ANY MORE (task 196). Karen, 2026-10-16, looking at the lodge:
+-- *"remove those fake antlers we will need real deer head with antlers and boar head"*, and asked
+-- where the heads come from: *"we use our boar head and then add on a wall thats it in when we get
+-- red stag we add also"*.
 --
--- A cylinder's own length is its X, so the frame is turned a quarter turn after it is aimed: the
--- same correction `post`, `Horn.pieces` and `Markers.ring` all make.
-local function antlerPiece(
-	folder: Instance,
-	name: string,
-	face: CFrame,
-	from: Vector3,
-	dir: Vector3,
-	length: number,
-	thick: number,
-	colour: Color3
-): Vector3
-	local unit = dir.Unit
-	local mid = from + unit * (length / 2)
-	local piece = part(
-		name,
-		Vector3.new(length, thick, thick),
-		face * CFrame.lookAt(mid, mid + unit, Vector3.new(0, 0, 1)) * CFrame.Angles(0, math.pi / 2, 0),
-		colour,
-		Enum.Material.SmoothPlastic,
-		false,
-		folder
-	)
-	piece.Shape = Enum.PartType.Cylinder
-	return from + unit * length
-end
-
--- ONE BEAM AND ITS TINES. The beam leaves the skull leaning outward and straightens as it rises,
--- which is the shape of a roe buck's; the tines come off the joints, forward and up.
-local function antlerBeam(folder: Instance, name: string, face: CFrame, root: Vector3, side: number, spec, bone: Color3)
-	local at = root
-	local thick = spec.THICK
-	local dir = Vector3.new(side * spec.SPREAD, 1, -0.14)
-	for index = 1, spec.SEGMENTS do
-		at = antlerPiece(folder, string.format("%sB%d", name, index), face, at, dir, spec.SEGMENT_STUDS, thick, bone)
-		thick *= 0.82
-		dir = Vector3.new(dir.X + side * spec.CURVE, dir.Y, dir.Z - 0.06)
-		if index <= spec.TINES then
-			antlerPiece(
-				folder,
-				string.format("%sT%d", name, index),
-				face,
-				at,
-				Vector3.new(side * 0.18, 1, -0.55),
-				spec.TINE_STUDS,
-				thick * 0.78,
-				bone
-			)
-		end
-	end
-end
-
--- THE SHIELD EVERY TROPHY HANGS ON: a Central-European `Trophaeenschild` is a small dark wooden
--- shield, taller than it is wide, with the skull plate screwed to the middle of it -- "plaque length
--- of 22 cm, width of 10 cm, antler length of 10.5 cm" on the measured example in the note, which is
--- the 2.2 : 1 proportion used here and the reason the antlers are about half the plaque's height.
+-- So the twelve roe plates, the two stags and the boar's tusk `Gewaff` -- every one of them a
+-- bundle of cylinders aimed along a curve -- are gone, with `antlerPiece`, `antlerBeam`,
+-- `antlerMount` and `boarMount`, and are archived whole in
+-- `backups/2026-10-16_task-196_drawn-antlers.luau` (rule 7). What hangs on the wall now is the
+-- GAME'S OWN BOAR, and the red stag's place is kept empty until the game has a red stag to put in
+-- it: a trophy wall is a record of what has been shot, and a wall of drawn sticks is a claim about
+-- animals this game does not have.
 --
--- `face` lies on the WALL with its LookVector pointing INTO the room, so `-Z` is "out from the
--- wall" for everything below.
+-- `shield` SURVIVES, because a plaque is a plaque: it is what the boar's head is mounted on.
+
 local function shield(folder: Instance, name: string, face: CFrame, size: Vector3, cfg): CFrame
 	part(
 		string.format("%sPlaque", name),
@@ -1475,74 +1433,6 @@ local function shield(folder: Instance, name: string, face: CFrame, size: Vector
 	point.Parent = folder
 	stats.parts += 1
 	return face * CFrame.new(0, 0, -size.Z)
-end
-
--- A ROE OR RED-DEER MOUNT: the shield, the skull plate, two beams.
-local function antlerMount(folder: Instance, name: string, face: CFrame, spec, cfg)
-	local front = shield(folder, name, face, spec.PLAQUE, cfg)
-	local bone = cfg.TROPHIES.BONE_COLOR
-	part(
-		string.format("%sSkull", name),
-		Vector3.new(spec.PLAQUE.X * 0.42, spec.PLAQUE.Y * 0.3, spec.PLAQUE.Z * 1.1),
-		front * CFrame.new(0, spec.PLAQUE.Y * 0.14, -spec.PLAQUE.Z * 0.55),
-		bone,
-		Enum.Material.SmoothPlastic,
-		false,
-		folder
-	)
-	local root = Vector3.new(0, spec.PLAQUE.Y * 0.26, -spec.PLAQUE.Z * 0.6)
-	for _, side in ipairs({ -1, 1 }) do
-		antlerBeam(
-			folder,
-			string.format("%s%s", name, if side < 0 then "W" else "E"),
-			front,
-			root + Vector3.new(side * spec.PLAQUE.X * 0.1, 0, 0),
-			side,
-			spec,
-			bone
-		)
-	end
-end
-
--- A BOAR'S TUSK MOUNT: the shield, the lower jaw plate, and the two tusks curling up and out. Karen
--- asked for *"head of boar"* in task 180 and this is the lodge-wall version of it -- the classic
--- `Gewaff` plate, which is what hangs on a European wall between the antlers.
-local function boarMount(folder: Instance, name: string, face: CFrame, spec, cfg)
-	local front = shield(folder, name, face, spec.PLAQUE, cfg)
-	local bone = cfg.TROPHIES.BONE_COLOR
-	part(
-		string.format("%sJaw", name),
-		Vector3.new(spec.PLAQUE.X * 0.55, spec.PLAQUE.Y * 0.26, spec.PLAQUE.Z * 1.4),
-		front * CFrame.new(0, 0, -spec.PLAQUE.Z * 0.7),
-		Color3.fromRGB(212, 202, 180),
-		Enum.Material.SmoothPlastic,
-		false,
-		folder
-	)
-	for _, side in ipairs({ -1, 1 }) do
-		local tag = if side < 0 then "W" else "E"
-		local at = Vector3.new(side * spec.PLAQUE.X * 0.16, -spec.PLAQUE.Y * 0.06, -spec.PLAQUE.Z * 0.8)
-		at = antlerPiece(
-			folder,
-			string.format("%sTusk%sA", name, tag),
-			front,
-			at,
-			Vector3.new(side * 0.5, 1, -0.2),
-			spec.TUSK_STUDS,
-			spec.THICK,
-			bone
-		)
-		antlerPiece(
-			folder,
-			string.format("%sTusk%sB", name, tag),
-			front,
-			at,
-			Vector3.new(side * 1, 0.35, -0.15),
-			spec.TUSK_STUDS * 0.8,
-			spec.THICK * 0.75,
-			bone
-		)
-	end
 end
 
 -- THE TROPHY WALL. Karen, 2026-10-14: *"on walls animal antlers ect"*, and task 180's *"trophys like
@@ -1602,7 +1492,81 @@ local function fitBetween(folder: Instance, low: number, high: number): number
 	return shift
 end
 
-local function trophies(inside: Instance, room: Room, cfg)
+-- THE BOAR'S HEAD ON THE WALL (task 196). Karen: *"we use our boar head and then add on a wall
+-- thats it"*.
+--
+-- IT IS THE GAME'S OWN ANIMAL AND NOT A DRAWING OF ONE, and not an upload either: the bought,
+-- prepared boar (`ServerStorage.Assets`'s `boar.male`, the same template every animal in the drive
+-- wears) is cloned, pointed out of a plaque, and the REST OF IT IS PUT INSIDE THE STONE. A skinned
+-- mesh cannot be cut into pieces -- `docs/PROJECT_CONTEXT.md` names that as one of the things that
+-- killed the previous project -- so there is no "head" to clone: there is a whole boar, 5.5 studs
+-- of it, and the only honest way to show a head is to hide the other four.
+--
+-- WHERE IT HANGS IS WHAT MAKES THAT POSSIBLE: the CHIMNEY BREAST, which stands `FIREPLACE.DEPTH`
+-- (3.2) studs proud of the west wall and is solid stone from the mantel to the ceiling, with the
+-- wall logs and the chimney stack behind it. The body goes back into that stone and TILTS UP, so
+-- what is behind the plaque is inside a part that is opaque from every side -- inside the room and
+-- outside the lodge. The alternative, a box standing four studs out from a flat wall, is a cupboard
+-- with a boar in it.
+--
+-- THE NOSE POINTS SLIGHTLY DOWN, which is what a shoulder mount does: it looks at the room rather
+-- than over it.
+--
+-- WITH NO TEMPLATE IT HANGS THE PLAQUE AND NOTHING ELSE, which is the DEV place and every spec: a
+-- lodge with no asset pipeline has a bare board on the chimney, not a crash.
+local function boarTrophy(
+	folder: Instance,
+	name: string,
+	face: CFrame,
+	spec,
+	cfg,
+	template: Instance?,
+	low: number,
+	high: number
+)
+	local front = shield(folder, name, face, spec.PLAQUE, cfg)
+	-- THE PLAQUE IS FITTED FIRST AND THE HEAD IS HUNG OFF WHERE IT ENDED UP. `fitBetween` slides
+	-- every BasePart in the folder until the board is inside the room; the head is a MODEL and the
+	-- clamp cannot see it, which is deliberate -- most of the animal is inside the stonework on
+	-- purpose, and a clamp that could see it would drag the head out into the room to rescue the
+	-- hidden half.
+	front += Vector3.new(0, fitBetween(folder, low, high), 0)
+	if template == nil or not template:IsA("Model") then
+		stats.fallbacks += 1
+		return
+	end
+	local head = (template :: Model):Clone()
+	head.Name = string.format("%sHead", name)
+	stats.strippedScripts += scriptsIn(head)
+	-- THE WHOLE ANIMAL, MEASURED, so the arithmetic below is about the model that actually arrived
+	-- rather than about a number in a manifest.
+	local _, size = head:GetBoundingBox()
+	local tilt = math.rad(spec.TILT_DEGREES)
+	local aim = front * CFrame.Angles(-tilt, 0, 0)
+	-- HOW FAR THE BOX'S CENTRE SITS BEHIND THE PLAQUE: half the animal's length, less the muzzle we
+	-- want in the room. Along the body's OWN axis, so the tilt moves it back and up together.
+	local back = size.Z / 2 - spec.SNOUT_STUDS
+	head:PivotTo(aim)
+	local box = head:GetBoundingBox()
+	-- CENTRED ON THE POINT WE MEAN, the same correction `cloneInstance` makes and for the same
+	-- reason: a model's pivot is its bounding-box centre only while nobody has set a PrimaryPart.
+	local target = (aim * CFrame.new(0, 0, back)).Position
+	head:PivotTo(head:GetPivot() + (target - box.Position))
+	for _, descendant in ipairs(head:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local piece = descendant :: BasePart
+			piece.Anchored = true
+			piece.CanCollide = false
+			piece.CanQuery = false
+			piece.CanTouch = false
+			stats.parts += 1
+		end
+	end
+	head.Parent = folder
+	stats.models += 1
+end
+
+local function trophies(inside: Instance, room: Room, cfg, assets: ((string) -> Instance?)?)
 	local folder = Instance.new("Folder")
 	folder.Name = "Trophies"
 	folder.Parent = inside
@@ -1626,12 +1590,19 @@ local function trophies(inside: Instance, room: Room, cfg)
 		local wanted = room.centre.Y + (mount.height or spec.HEIGHT_STUDS)
 		local name = string.format("%s%d", mount.kind, index)
 		local face = CFrame.new(Vector3.new(at.X, wanted, at.Z)) * CFrame.Angles(0, yaw, 0)
-		if mount.kind == "boar" then
-			boarMount(one, name, face, kind, cfg)
-		else
-			antlerMount(one, name, face, kind, cfg)
-		end
-		fitBetween(one, room.centre.Y + 0.3, room.centre.Y + room.height - 0.3)
+		-- ONE KIND OF MOUNT SINCE TASK 196, and it is a real animal (see `boarTrophy`). The row's
+		-- `kind` still decides, because the red stag gets a row of its own the day the game has one
+		-- and it will not be a boar.
+		boarTrophy(
+			one,
+			name,
+			face,
+			kind,
+			cfg,
+			if assets ~= nil then assets("boar") else nil,
+			room.centre.Y + 0.3,
+			room.centre.Y + room.height - 0.3
+		)
 	end
 end
 
@@ -1805,11 +1776,143 @@ local function lantern(inside: Instance, name: string, at: Vector3, ceilingY: nu
 	lamp.Parent = box
 end
 
+-- ONE AMMO BOX ON A SHELF: a cardboard carton with a coloured label, the same two colours the
+-- shop's own picture of a box of shells uses.
+local function ammoBox(inside: Instance, name: string, face: CFrame, cfg)
+	local box = cfg.LODGE.RACK.AMMO_BOX
+	part(
+		string.format("%sBox", name),
+		box.SIZE,
+		face,
+		cfg.LODGE.RACK.CARDBOARD_COLOR,
+		Enum.Material.Fabric,
+		false,
+		inside
+	)
+	part(
+		string.format("%sLabel", name),
+		Vector3.new(box.SIZE.X * 0.7, box.SIZE.Y * 0.45, 0.04),
+		face * CFrame.new(0, 0, -box.SIZE.Z / 2 - 0.02),
+		cfg.LODGE.RACK.LABEL_COLOR,
+		Enum.Material.SmoothPlastic,
+		false,
+		inside
+	)
+end
+
+-- THE WALL OF GUNS BEHIND THE COUNTER (task 196). A board, a peg pair per gun, the guns themselves
+-- laid horizontally across it, and a shelf under them with two boxes of shells on it.
+--
+-- EVERY GUN IS A CLONE OF THE REAL ONE. `assets("shotgun")` and `assets("rifle")` are the
+-- composition root's answer to *"what does the gun the player carries look like"* -- a Model built
+-- by `Weapon.Hardware`, the one builder of guns in this game -- so this module never learns what a
+-- weapon is, exactly as it never learns what an outfit is (`seams.dress`). A missing template is not
+-- an error: the pegs are there and the gun is not, which is the same rule every free-model clone in
+-- this file follows.
+--
+-- HOW A GUN IS LAID ON PEGS: its own length is its Z (`HANDLE_SIZE.Z` is 4.4) and its up is its Y,
+-- so a quarter turn about Y lays it along the wall with its side to the room. The pegs are set to
+-- the gun's own length rather than to a number typed here.
+local function gunRack(inside: Instance, room: Room, cfg, counterAt: Vector3, assets: ((string) -> Instance?)?)
+	local rack = cfg.LODGE.RACK
+	-- ON THE NORTH WALL, CENTRED ON THE COUNTER, so it is behind the man and not behind the door.
+	-- `yaw = 0` looks south -- into the room -- which is `shield`'s own convention and the one every
+	-- trophy row uses.
+	local face =
+		CFrame.new(counterAt.X + rack.ALONG_STUDS, room.centre.Y + rack.HEIGHT_STUDS, room.centre.Z + room.halfZ)
+	part(
+		"GunRackBoard",
+		Vector3.new(rack.WIDTH, rack.HEIGHT, rack.BOARD_THICK),
+		face * CFrame.new(0, 0, -rack.BOARD_THICK / 2),
+		cfg.TROPHIES.PLAQUE_COLOR,
+		Enum.Material.Wood,
+		false,
+		inside
+	)
+	local front = face * CFrame.new(0, 0, -rack.BOARD_THICK)
+	-- THE SHELF, under the board, with its two boxes standing ON it rather than in it.
+	local shelf = part(
+		"GunRackShelf",
+		Vector3.new(rack.WIDTH, rack.SHELF_THICK, rack.SHELF_DEPTH),
+		front * CFrame.new(0, -rack.HEIGHT / 2 - rack.SHELF_THICK / 2, -rack.SHELF_DEPTH / 2),
+		cfg.LODGE.TIMBER_COLOR,
+		Enum.Material.Wood,
+		false,
+		inside
+	)
+	local boxSize = rack.AMMO_BOX.SIZE
+	for index, along in ipairs(rack.AMMO_BOX.ALONG) do
+		ammoBox(
+			inside,
+			string.format("Ammo%d", index),
+			CFrame.new(
+				shelf.Position.X + along,
+				shelf.Position.Y + rack.SHELF_THICK / 2 + boxSize.Y / 2,
+				shelf.Position.Z
+			),
+			cfg
+		)
+	end
+	-- THE GUNS, STACKED UP THE BOARD, the shotgun and the rifle alternating.
+	for index = 1, rack.GUNS do
+		local dy = rack.HEIGHT / 2 - rack.FIRST_GUN_DROP - (index - 1) * rack.GUN_GAP
+		local template = if assets ~= nil then assets(if index % 2 == 1 then "shotgun" else "rifle") else nil
+		local gun = if template ~= nil and template:IsA("Model") then (template :: Model):Clone() else nil
+		local span = rack.PEG_SPAN
+		if gun ~= nil then
+			stats.strippedScripts += scriptsIn(gun)
+			local _, size = gun:GetBoundingBox()
+			span = math.max(size.Z * 0.5, 1)
+			-- A QUARTER TURN LAYS IT ALONG THE WALL, and then its box is centred on the pegs -- the
+			-- same correction `cloneInstance` makes, because a Tool's Handle is its pivot and that is
+			-- not the middle of the gun.
+			local aim = front * CFrame.new(0, dy, -rack.GUN_OUT) * CFrame.Angles(0, math.pi / 2, 0)
+			gun:PivotTo(aim)
+			local box = gun:GetBoundingBox()
+			gun:PivotTo(gun:GetPivot() + (aim.Position - box.Position))
+			gun.Name = string.format("RackGun%d", index)
+			for _, descendant in ipairs(gun:GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					local piece = descendant :: BasePart
+					piece.Anchored = true
+					piece.CanCollide = false
+					piece.CanQuery = false
+					piece.CanTouch = false
+					stats.parts += 1
+				end
+			end
+			gun.Parent = inside
+			stats.models += 1
+		else
+			stats.fallbacks += 1
+		end
+		for peg, side in ipairs({ -1, 1 }) do
+			local hook = part(
+				string.format("GunRackPeg%d_%d", index, peg),
+				Vector3.new(rack.PEG_STUDS, rack.PEG_THICK, rack.PEG_THICK),
+				-- THE PEG BEGINS AT THE BOARD'S FACE: half its own length out, never its whole length
+				-- (task 195's measured defect -- two pegs that began 0.05 studs clear of the board).
+				front
+					* CFrame.new(side * span, dy - rack.PEG_DROP, -rack.PEG_STUDS / 2)
+					* CFrame.Angles(0, math.pi / 2, 0),
+				cfg.LODGE.TIMBER_COLOR,
+				Enum.Material.Wood,
+				false,
+				inside
+			)
+			hook.Shape = Enum.PartType.Cylinder
+		end
+	end
+end
+
 -- THE WARM INSIDE: floorboards, a beamed ceiling, the fireplace, a heavy table with its benches,
 -- three lanterns, a gun rack, the shop counter -- and, since task 181, the man standing behind it.
 -- Nothing here is animated per frame and nothing is written per frame: the keeper's idle is played
 -- once, at build, and his head is turned by the owner's own 10 Hz scan.
 local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
+	-- WHAT THE COMPOSITION ROOT CAN HAND US: the boar for the trophy, and the two guns for the rack
+	-- behind the counter (task 196). nil everywhere else, which is the DEV place and every spec.
+	local assets = (seams or {}).assets
 	local origin = room.centre
 	local inside = Instance.new("Folder")
 	inside.Name = "Inside"
@@ -1890,60 +1993,6 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 				Vector3.new(0.6, spec.BENCH_HEIGHT - 0.2, 1.7),
 				CFrame.new(tableX + dx, origin.Y + (spec.BENCH_HEIGHT - 0.2) / 2, tableZ + dz),
 				cfg.LODGE.FURNITURE_COLOR,
-				Enum.Material.Wood,
-				false,
-				inside
-			)
-		end
-	end
-
-	-- THE GUN RACK on the west wall, south of the fireplace: a board, its pegs, and two long guns.
-	-- It is scenery and holds nothing -- `Weapon.Hardware` is the only thing in this game that builds
-	-- a gun a player can touch. `face` looks INTO the room, the same convention every trophy uses.
-	local rack = cfg.LODGE.RACK
-	local face = CFrame.new(origin.X - room.halfX, origin.Y + rack.HEIGHT_STUDS, origin.Z + rack.ALONG_STUDS)
-		* CFrame.Angles(0, -math.pi / 2, 0)
-	part(
-		"GunRackBoard",
-		Vector3.new(rack.WIDTH, 3.6, 0.4),
-		face * CFrame.new(0, 0, -0.2),
-		cfg.TROPHIES.PLAQUE_COLOR,
-		Enum.Material.Wood,
-		false,
-		inside
-	)
-	for index = 1, 3 do
-		local along = -rack.WIDTH / 2 + index * rack.WIDTH / 4
-		for peg, dy in ipairs({ -1.2, 1.2 }) do
-			local hook = part(
-				string.format("GunRackPeg%d_%d", index, peg),
-				Vector3.new(0.9, 0.3, 0.3),
-				-- -0.8 AND NOT -0.9 (task 195): a 0.9-long peg centred 0.9 out from a board whose
-				-- face is 0.4 away begins 0.05 studs clear of it -- two pegs hanging in the air,
-				-- which the live scan found and nothing else could.
-				face * CFrame.new(along, dy, -0.8) * CFrame.Angles(0, math.pi / 2, 0),
-				cfg.LODGE.TIMBER_COLOR,
-				Enum.Material.Wood,
-				false,
-				inside
-			)
-			hook.Shape = Enum.PartType.Cylinder
-		end
-		if index < 3 then
-			part(
-				string.format("GunRackBarrel%d", index),
-				Vector3.new(0.35, 4.6, 0.35),
-				face * CFrame.new(along + 0.4, 0.6, -1.1) * CFrame.Angles(0, 0, 0.06),
-				Color3.fromRGB(46, 46, 48),
-				Enum.Material.Metal,
-				false,
-				inside
-			)
-			part(
-				string.format("GunRackStock%d", index),
-				Vector3.new(0.7, 2.1, 0.5),
-				face * CFrame.new(along + 0.4, -2.1, -1.1),
-				Color3.fromRGB(96, 62, 38),
 				Enum.Material.Wood,
 				false,
 				inside
@@ -2125,7 +2174,22 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 		shopPrompt(counterPart, cfg, seams)
 	end
 
-	trophies(inside, room, cfg)
+	-- THE GUN RACK IS BEHIND THE SELLER NOW, AND THE GUNS ON IT ARE THE GAME'S OWN (task 196).
+	-- Karen, 2026-10-16: *"behind the shoper shotguns on wall rifles on wall ect"*.
+	--
+	-- It used to hang on the WEST wall with two guns DRAWN on it -- a dark cylinder for a barrel and
+	-- a brown box for a stock, which is exactly the kind of thing she has been removing all day. The
+	-- board, its pegs and the two drawn guns are archived in
+	-- `backups/2026-10-16_task-196_drawn-gun-rack.luau` (rule 7).
+	--
+	-- WHAT HANGS ON IT NOW IS `Weapon.Hardware`'s OWN OUTPUT -- the shotgun and the rifle the player
+	-- carries, built by the one builder that builds them and handed in by the composition root as a
+	-- template. So the wall behind the counter shows the things the counter sells, and the day the
+	-- gun changes the wall changes with it. Scenery, every one of them: anchored, `CanCollide`,
+	-- `CanQuery` and `CanTouch` all false, no Tool, nothing to pick up.
+	gunRack(inside, room, cfg, counterAt, assets)
+
+	trophies(inside, room, cfg, assets)
 end
 
 -- THE LODGE. One build, ours, and every piece of it is a part in this file.
@@ -2242,51 +2306,13 @@ local function lodge(container: Instance, anchor: Vector3, cfg, seams: Seams?): 
 	roof(folder, origin, wallTop, cfg)
 	chimney(folder, origin, cfg)
 
-	-- WHAT HANGS OUTSIDE, AND THE TWO PLACES THERE REALLY ARE TO HANG IT (round 3).
-	--
-	-- THE SOUTH FRONT IS AN EAVES WALL, NOT A GABLE. The ridge runs along x, so the gables are the
-	-- WEST and EAST ends -- which is why the chimney goes up the west one. Over the door there is a
-	-- band only three studs tall: the lintel's top below, and above it the south slope's own
-	-- underside, which a 44-degree roof puts BELOW the wall top at the wall plane. A stag with four
-	-- segments of antler was hung at `doorTop + 5.2` and went straight through that slope, facing
-	-- into the roof void -- and nothing in the suite could see it, because this folder is not
-	-- `Trophies`.
-	--
-	-- So: a SMALL mount over the door, sized to the band and then MEASURED into it, which is what
-	-- Karen asked for in task 177 and what a lodge really carries over its door; and the big stag on
-	-- the EAST GABLE, under the barge boards, facing the truck pads every player walks in from --
-	-- the one wall on this building that is tall, flat, empty and seen.
-	--
-	-- `yaw` IS OUTWARD-FACING FOR BOTH, in `shield`'s own convention (its `-Z` is "out from the
-	-- wall"): 0 looks south, -pi/2 east.
-	local over = Instance.new("Folder")
-	over.Name = "Antlers"
-	over.Parent = folder
-	local pitch = math.atan2(origin.Y + cfg.LODGE.RIDGE_STUDS - wallTop, halfZ)
-	local underEave = wallTop - cfg.LODGE.ROOF.THICK / 2 / math.cos(pitch)
-	local doorMount = Instance.new("Folder")
-	doorMount.Name = "OverTheDoor"
-	doorMount.Parent = over
-	antlerMount(
-		doorMount,
-		"DoorStag",
-		CFrame.new(origin.X, (doorTop + cfg.LODGE.DOOR.LINTEL_STUDS + underEave) / 2, origin.Z - halfZ - 0.1),
-		cfg.TROPHIES.DOOR,
-		cfg
-	)
-	fitBetween(doorMount, doorTop + 0.2, underEave - 0.2)
-	local gableMount = Instance.new("Folder")
-	gableMount.Name = "EastGable"
-	gableMount.Parent = over
-	antlerMount(
-		gableMount,
-		"GableStag",
-		CFrame.new(origin.X + halfX + 0.1, wallTop + cfg.LODGE.GABLE_MOUNT_STUDS, origin.Z)
-			* CFrame.Angles(0, -math.pi / 2, 0),
-		cfg.TROPHIES.GABLE,
-		cfg
-	)
-	fitBetween(gableMount, wallTop + 0.4, origin.Y + cfg.LODGE.RIDGE_STUDS - 1.2)
+	-- NOTHING HANGS OUTSIDE ANY MORE (task 196). Karen, 2026-10-16: *"remove those fake antlers"*.
+	-- The small mount over the door and the big stag on the east gable were the same drawn sticks as
+	-- the ones inside, measured into their bands by `fitBetween` -- and a measurement cannot make a
+	-- bundle of cylinders look like an animal. Both are archived in
+	-- `backups/2026-10-16_task-196_drawn-antlers.luau` (rule 7) with the band arithmetic that got
+	-- them clear of the roof, which is the half of that work worth keeping: the day a REAL stag head
+	-- hangs on the east gable, `underEave` and `GABLE_MOUNT_STUDS` are where it goes.
 
 	porch(folder, origin, floorY, wallTop, cfg)
 	interior(folder, Build.roomFor(anchor, cfg), cfg, seams)

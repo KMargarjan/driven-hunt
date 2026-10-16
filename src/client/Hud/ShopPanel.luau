@@ -837,9 +837,10 @@ end
 
 -- WHICH ITEM A FRESHLY OPENED PANEL SHOWS: THE FIRST ONE HE MAY ACTUALLY BUY, and the first row in
 -- the menu when there is no such thing. The first frame of this panel is why (rule 5, measured
--- 2026-10-16): the menu's order puts WEAPONS first and the first weapon is `rifle.open`, so the shop
--- opened on the one item in the catalogue that is not for sale -- a page headed SOON. A shop window
--- opens on something you can take to the counter.
+-- 2026-10-16): the menu's order put WEAPONS first and the first weapon was `rifle.open`, so the shop
+-- opened on the one item in the catalogue that was not for sale -- a page headed SOON. Karen removed
+-- that row the same day; the rule stays, because a locked or unaffordable rung can head the list
+-- just as easily, and a shop window opens on something you can take to the counter.
 local function firstId(): string?
 	local order = ShopData.menuOrder((payload and payload.rows) or nil)
 	for _, id in ipairs(order) do

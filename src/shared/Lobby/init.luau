@@ -496,7 +496,39 @@ Lobby.CONFIG = {
 		-- THE GUN RACK on the WEST wall, south of the fireplace -- the one stretch of wall with no
 		-- window, no chimney and no counter on it. Scenery: it holds nothing, and `Weapon.Hardware`
 		-- stays the only thing in this game that builds a gun.
-		RACK = { ALONG_STUDS = -7, WIDTH = 6, HEIGHT_STUDS = 5.4 },
+		-- THE GUN RACK, BEHIND THE SELLER (task 196). Karen: *"behind the shoper shotguns on wall
+		-- rifles on wall ect"*. It used to hang on the west wall with two DRAWN guns on it; it now
+		-- hangs on the NORTH wall, centred on the counter, with four of `Weapon.Hardware`'s own guns
+		-- laid across it and a shelf of shells under them.
+		--
+		-- EVERY NUMBER IS THE WALL'S OR THE GUN'S. A gun is 4.4 studs long (`Shotgun.CONFIG` and
+		-- `Rifle.CONFIG`'s `HANDLE_SIZE.Z`), so a board 7 wide holds one with a stud and a bit to
+		-- spare at each end and the pegs go at a quarter of the gun's own length either side of the
+		-- middle -- read off the model, never typed. Four guns at 1.05 apart is 3.15 studs of board,
+		-- plus the drop to the first: 4.2 tall, which clears the counter below (3.15) and the SHOP
+		-- sign above (its bottom is 6.3).
+		RACK = {
+			ALONG_STUDS = 0, -- from the counter's own centre: dead behind the man
+			WIDTH = 7,
+			HEIGHT = 4.2,
+			HEIGHT_STUDS = 5.6, -- the board's centre above the floorboards
+			BOARD_THICK = 0.35,
+			GUNS = 4,
+			GUN_GAP = 1.05,
+			FIRST_GUN_DROP = 0.55,
+			-- HOW FAR OFF THE BOARD A GUN HANGS: on the pegs, which stand 0.5 out, so its own
+			-- half-thickness clear of the wood.
+			GUN_OUT = 0.42,
+			PEG_STUDS = 0.5,
+			PEG_THICK = 0.22,
+			PEG_DROP = 0.26, -- the peg sits under the gun, not through it
+			PEG_SPAN = 1.1, -- the fallback when no model arrived to measure
+			SHELF_THICK = 0.3,
+			SHELF_DEPTH = 1.1,
+			CARDBOARD_COLOR = Color3.fromRGB(176, 142, 100),
+			LABEL_COLOR = Color3.fromRGB(150, 32, 30),
+			AMMO_BOX = { SIZE = Vector3.new(1.1, 0.62, 0.72), ALONG = { -2.2, -0.9 } },
+		},
 		-- THE SHOP'S COUNTER, and `Shop.CONFIG.REACH_STUDS` (14) is measured against its 12-stud
 		-- width: a man at either end of it can reach the till. `COUNTER_ALONG` is how far east of the
 		-- room's centre it stands and `COUNTER_BACK` how far in from the north wall, which leaves the
@@ -565,7 +597,13 @@ Lobby.CONFIG = {
 			-- / `Drivers` and `Body.outfitFor` is a bare table lookup, so `"Hunter"` matched no row,
 			-- `Body.dress` returned early at *"nothing to wear"*, and the man at the counter stood
 			-- there in the default grey of an empty `HumanoidDescription`.
-			TEAM = "Shooters",
+			-- `"Keeper"` SINCE TASK 196, AND IT IS A LOOK AND NOT A TEAM. Karen, 2026-10-16:
+			-- *"improve bot visual for shopper nice hat ect"*. `Match.Body.OUTFITS` grew a `Keeper`
+			-- row -- loden suit, felt hat with a band and a brush, a waistcoat -- so the man behind
+			-- the counter is dressed by the SAME system the players are and still looks like
+			-- somebody who works here rather than like a hunter who wandered in. Until this he wore
+			-- `"Shooters"`: the field green and the players' own cap.
+			TEAM = "Keeper",
 			HAT_COLOR = Color3.fromRGB(96, 66, 42),
 			-- HIS FACE. The outfit owner paints the five limb stems and never the head, which is
 			-- right for a player -- and left this man with the solid black head and no features that
@@ -639,98 +677,53 @@ Lobby.CONFIG = {
 	-- MEASURED PROPORTION, not a guess: a real roe shield is 22 cm by 10 cm carrying 10.5 cm of
 	-- antler, so the plaque is 2.2 times as tall as it is wide and the antlers rise about half the
 	-- plaque's height again.
+	-- THE TROPHY WALL IS ONE REAL ANIMAL NOW (task 196). Karen, 2026-10-16: *"remove those fake
+	-- antlers we will need real deer head with antlers and boar head"*, and, asked where the heads
+	-- come from: *"we use our boar head and then add on a wall thats it in when we get red stag we
+	-- add also"*.
+	--
+	-- So the fifteen drawn mounts -- twelve roe plates, two stags and a tusk plate, every one of them
+	-- a bundle of cylinders -- are gone with their four size tables, archived in
+	-- `backups/2026-10-16_task-196_drawn-antlers.luau` and
+	-- `backups/2026-10-16_task-196_trophy-rows.luau` (rule 7), and ONE row is left: the game's own
+	-- boar, on the chimney breast over the fire.
+	--
+	-- THE RED STAG'S PLACE IS KEPT AND IS NOT DRAWN. When the game has a red stag, its row is
+	--     { kind = "stag", wall = "east", along = 0, height = HEIGHT_STUDS }
+	-- -- the east gable wall, dead centre, the wall a player faces walking in from the door, with
+	-- nothing on it today. It is written here rather than built, because a wall of empty boards is
+	-- not a lodge either.
 	TROPHIES = {
-		HEIGHT_STUDS = 4.8, -- above the floorboards: above a standing player's head
-		-- THE SHIELD IS LIGHTER THAN THE WALL BEHIND IT and the antlers are not white: at RGB
-		-- 228,219,198 on a 72,50,34 plaque the first photograph showed white twigs floating on a dark
-		-- wall. Weathered antler is a warm grey-bone, and a `Trophaeenschild` is polished linden.
+		-- 6.6 AND NOT 4.8: the mount hangs on the chimney BREAST, and the mantel it has to clear is
+		-- `FIREPLACE.OPENING_HEIGHT` (4.2) plus the mantel beam, which puts the shelf at about 5.4.
+		-- A 2.6-stud plaque centred at 6.6 begins at 5.3, a tenth of a stud over it.
+		HEIGHT_STUDS = 6.6,
+		-- THE SECOND ROW, KEPT FOR THE DAY THERE IS A SECOND TROPHY. `lobby.spec` asserts that every
+		-- row sits at one of these two heights, which is what keeps a wall of trophies a ROW rather
+		-- than a scatter (the Director's *"even rows"*, task 195).
+		UPPER_STUDS = 8.2,
+		-- A `Trophaeenschild` is polished linden; the plaque is the one drawn thing left in a trophy.
 		PLAQUE_COLOR = Color3.fromRGB(104, 72, 44),
 		BONE_COLOR = Color3.fromRGB(186, 173, 146),
-		ROE = {
-			PLAQUE = Vector3.new(1.8, 2.4, 0.35),
-			SEGMENTS = 3,
-			SEGMENT_STUDS = 0.9,
-			TINE_STUDS = 0.7,
-			TINES = 2,
-			THICK = 0.34,
-			SPREAD = 0.45,
-			CURVE = -0.16,
-		},
-		-- OVER THE DOOR, AND IT IS SMALL BECAUSE THE BAND IT HANGS IN IS (round 3): the lintel's top
-		-- below it and the south roof slope's own underside above, which is barely three studs. A
-		-- lodge's door carries a modest roe plate; the big trophy goes where there is room for one.
-		DOOR = {
-			PLAQUE = Vector3.new(1.9, 1.2, 0.4),
-			SEGMENTS = 2,
-			SEGMENT_STUDS = 0.5,
-			TINE_STUDS = 0.4,
-			TINES = 1,
-			THICK = 0.24,
-			SPREAD = 0.5,
-			CURVE = -0.12,
-		},
-		-- THE BIG ONE, ON THE EAST GABLE: eight studs above a man's head, read from the truck pads,
-		-- where the indoor stag is read from four studs away across a table.
-		GABLE = {
-			PLAQUE = Vector3.new(4.2, 4.6, 0.6),
-			SEGMENTS = 4,
-			SEGMENT_STUDS = 1.6,
-			TINE_STUDS = 1.3,
-			TINES = 3,
-			THICK = 0.6,
-			SPREAD = 0.5,
-			CURVE = -0.16,
-		},
-		STAG = {
-			PLAQUE = Vector3.new(2.8, 3.2, 0.5),
-			SEGMENTS = 3,
-			SEGMENT_STUDS = 1.15,
-			TINE_STUDS = 0.9,
-			TINES = 3,
-			THICK = 0.42,
-			SPREAD = 0.5,
-			CURVE = -0.18,
-		},
 		BOAR = {
-			PLAQUE = Vector3.new(2.2, 2.6, 0.4),
-			TUSK_STUDS = 1.15,
-			THICK = 0.32,
-			SEGMENTS = 2,
-			SEGMENT_STUDS = 1.15,
+			-- 2.6 x 3.0 AND NOT 2.2 x 2.6, AND THE FIRST FRAME IS WHY (rule 5,
+			-- `.screenshots/196-trophy-close.png`): the boar's head is 1.4 studs wide and stands a
+			-- stud and a half out of the board, so a 2.2-wide plaque disappeared behind it and read
+			-- as a plank the animal was growing out of. A trophy board FRAMES the head.
+			PLAQUE = Vector3.new(2.6, 3, 0.4),
+			-- HOW FAR THE SNOUT STANDS OUT OF THE BOARD, and the only number that decides how much
+			-- of the animal is in the room: the rest of its 5.5 studs goes back into the stone.
+			SNOUT_STUDS = 1.7,
+			-- THE HEAD LOOKS SLIGHTLY DOWN, which is what a shoulder mount does -- and the body
+			-- therefore rises INTO the breast rather than running level into the wall behind it.
+			TILT_DEGREES = 18,
 		},
-		-- THE ROWS. The east wall carries the classic grid, the north wall's west half the rest, and
-		-- the two beside the door are what a player sees first from inside. Nothing hangs on the
-		-- south wall's windows, the counter's half of the north wall, or the west wall except the
-		-- stag over the fire -- those are spoken for.
-		--
-		-- TWO HEIGHTS AND TWO HEIGHTS ONLY, AND EVERY ROW SYMMETRIC ABOUT ITS WALL'S CENTRE (task
-		-- 195). Karen asked for *"nice inside"* and the Director for *"even rows"*; before this the
-		-- east wall carried four plaques at 4.8 and two more at 8.2 on `along` values that matched
-		-- neither row, and the north wall's boar hung at 5 between two roe at 4.8. A row is a row
-		-- when the eye can see it is one, so `HEIGHT_STUDS` and `UPPER_STUDS` are the only two
-		-- heights in this table and `lobby.spec` asserts exactly that.
-		UPPER_STUDS = 8.2,
 		MOUNTS = {
-			-- THE EAST GABLE: a 2 x 4 grid, two each side of its one window on each of the two rows.
-			{ kind = "roe", wall = "east", along = -9.4 },
-			{ kind = "roe", wall = "east", along = -6.6 },
-			{ kind = "roe", wall = "east", along = 6.6 },
-			{ kind = "roe", wall = "east", along = 9.4 },
-			{ kind = "roe", wall = "east", along = -9.4, height = 8.2 },
-			{ kind = "roe", wall = "east", along = -6.6, height = 8.2 },
-			{ kind = "roe", wall = "east", along = 6.6, height = 8.2 },
-			{ kind = "roe", wall = "east", along = 9.4, height = 8.2 },
-			-- THE NORTH WALL'S WEST HALF, clear of the counter and of its window: one row of three,
-			-- the boar in the middle at the SAME height as the two roe beside it.
-			{ kind = "roe", wall = "north", along = -7 },
-			{ kind = "boar", wall = "north", along = -3.5 },
-			{ kind = "roe", wall = "north", along = 0 },
-			-- EITHER SIDE OF THE DOOR, between it and the front windows: the two a player sees
-			-- first when he turns round inside.
-			{ kind = "roe", wall = "south", along = -6 },
-			{ kind = "roe", wall = "south", along = 6 },
-			-- AND THE RED STAG OVER THE FIRE, on the chimney breast rather than inside it.
-			{ kind = "stag", wall = "west", along = 4, height = 8.2, standoff = 3.2 },
+			-- ON THE CHIMNEY BREAST, over the fire, centred on it: `standoff` is the breast's own
+			-- depth (`FIREPLACE.DEPTH`), so the plaque sits on the stone that stands proud of the
+			-- west wall instead of three studs inside it, and `along` is the fireplace's own
+			-- `ALONG_STUDS`.
+			{ kind = "boar", wall = "west", along = 4, standoff = 3.2 },
 		},
 	},
 	-- ---------------- the truck, the track, the spot

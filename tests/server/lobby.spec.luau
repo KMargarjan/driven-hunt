@@ -1599,48 +1599,31 @@ return function()
 			end
 		end)
 
-		it("hangs the OUTSIDE antlers clear of the roof, facing out of the building", function()
-			-- ROUND 3'S BLOCKING FINDING. The stag "over the door" was hung at `doorTop + 5.2`, which
-			-- is 1.6 studs ABOVE the top of the logs on an EAVES wall -- the ridge runs along x, so
-			-- the south front has no gable at all -- and the roof's own slope is already BELOW the
-			-- wall top where it meets it. The mount was skewered by the slab, most of it stood out of
-			-- the south slope, and it faced INTO the roof void. Nothing in the suite could see it:
-			-- every trophy case reads the `Trophies` folder and this one is `Antlers`.
-			local room = Build.roomFor(anchor, CFG)
-			local origin = anchor + CFG.LODGE.OFFSET
-			local wallTop = room.centre.Y + room.height
-			local pitch = math.atan2(origin.Y + CFG.LODGE.RIDGE_STUDS - wallTop, CFG.LODGE.SIZE.Z / 2)
-			local underEave = wallTop - CFG.LODGE.ROOF.THICK / 2 / math.cos(pitch)
-			local outside = folder:FindFirstChild("Antlers", true)
-			expect(outside).to.be.ok()
-			local doorParts, gableParts = 0, 0
-			for _, descendant in ipairs((outside :: Instance):GetDescendants()) do
-				if descendant:IsA("BasePart") then
-					local piece = descendant :: BasePart
-					-- THE SAME BOX PROJECTION the trophy wall is held to: a beam's top is a stud and
-					-- a half above its middle, and it is the TOP that goes through a roof.
-					local _, _, _, _, _, _, m10, m11, m12 = piece.CFrame:GetComponents()
-					local reach = 0.5
-						* (math.abs(m10) * piece.Size.X + math.abs(m11) * piece.Size.Y + math.abs(m12) * piece.Size.Z)
-					if string.sub(piece.Name, 1, 8) == "DoorStag" then
-						doorParts += 1
-						-- OVER THE DOOR: above the lintel, UNDER the roof slope, and SOUTH of the
-						-- wall -- the last one is "facing out of the building", measured.
-						expect(piece.Position.Y - reach >= room.centre.Y + CFG.LODGE.DOOR.HEIGHT).to.equal(true)
-						expect(piece.Position.Y + reach <= underEave).to.equal(true)
-						expect(piece.Position.Z < origin.Z - CFG.LODGE.SIZE.Z / 2).to.equal(true)
-					else
-						gableParts += 1
-						-- ON THE EAST GABLE: above the logs, below the ridge, and EAST of the wall.
-						expect(piece.Position.Y - reach >= wallTop).to.equal(true)
-						expect(piece.Position.Y + reach <= origin.Y + CFG.LODGE.RIDGE_STUDS).to.equal(true)
-						expect(piece.Position.X > origin.X + CFG.LODGE.SIZE.X / 2).to.equal(true)
-					end
+		-- TASK 196 REMOVED EVERY DRAWN ANTLER, inside and out. Karen, 2026-10-16: *"remove those fake
+		-- antlers we will need real deer head with antlers and boar head"*. What this case asserted --
+		-- that the two outside mounts cleared the roof -- is now asserted the only way a removal can
+		-- be: nothing is there, under any name, anywhere in the build.
+		it("has no drawn antler left on it, inside or out", function()
+			expect(folder:FindFirstChild("Antlers", true)).to.equal(nil)
+			local suspects = 0
+			for _, descendant in ipairs(folder:GetDescendants()) do
+				local name = descendant.Name
+				if
+					string.find(name, "Stag", 1, true)
+					or string.find(name, "roe", 1, true)
+					or string.find(name, "Antler", 1, true)
+					or string.find(name, "Tusk", 1, true)
+				then
+					suspects += 1
 				end
 			end
-			-- BOTH OF THEM ARE REALLY THERE: a bound nothing satisfies is a bound nothing proves.
-			expect(doorParts > 3).to.equal(true)
-			expect(gableParts > 3).to.equal(true)
+			expect(suspects).to.equal(0)
+			-- ...AND THE CATALOGUE OF SIZES WENT WITH THEM: a table nobody reads is a trophy wall
+			-- that can come back by accident.
+			expect((CFG.TROPHIES :: any).ROE).to.equal(nil)
+			expect((CFG.TROPHIES :: any).STAG).to.equal(nil)
+			expect((CFG.TROPHIES :: any).GABLE).to.equal(nil)
+			expect((CFG.TROPHIES :: any).DOOR).to.equal(nil)
 		end)
 
 		it("has a warm inside: a real fire, the lanterns, and the shop counter task 178 fills", function()
@@ -2131,10 +2114,12 @@ return function()
 					expect(at.Y + reach <= room.centre.Y + room.height).to.equal(true)
 				end
 			end
-			-- ONE SHIELD PER MOUNT, and a mount is never a bare shield: twelve rows come to well over
-			-- a hundred parts, which is what a trophy wall is.
+			-- ONE SHIELD PER MOUNT. A MOUNT IS A BOARD AND AN ANIMAL SINCE TASK 196, and the animal
+			-- is a Model handed in by the composition root -- so in a spec, which hands in none, a
+			-- mount is exactly its board: the plaque and its point. What is asserted is the board,
+			-- because that is the half this build is responsible for.
 			expect(plaques).to.equal(#CFG.TROPHIES.MOUNTS)
-			expect(pieces > #CFG.TROPHIES.MOUNTS * 4).to.equal(true)
+			expect(pieces >= #CFG.TROPHIES.MOUNTS * 2).to.equal(true)
 		end)
 
 		it("hangs nothing on a wall in front of a window or the shop counter", function()
@@ -2165,9 +2150,9 @@ return function()
 								then at.X - room.centre.X
 								else at.Z - room.centre.Z
 							local across = math.abs(along - row.along)
-								< CFG.LODGE.WINDOW.WIDTH / 2 + CFG.TROPHIES.ROE.PLAQUE.X / 2
+								< CFG.LODGE.WINDOW.WIDTH / 2 + CFG.TROPHIES.BOAR.PLAQUE.X / 2
 							local high = at.Y - room.centre.Y
-							local overlaps = high > CFG.LODGE.WINDOW.SILL_STUDS - CFG.TROPHIES.ROE.PLAQUE.Y / 2
+							local overlaps = high > CFG.LODGE.WINDOW.SILL_STUDS - CFG.TROPHIES.BOAR.PLAQUE.Y / 2
 								and high < CFG.LODGE.WINDOW.SILL_STUDS + CFG.LODGE.WINDOW.HEIGHT
 							expect(across and overlaps).to.equal(false)
 						end
@@ -2491,16 +2476,30 @@ return function()
 			expect(Build.stats().keeperDressed).to.equal(1)
 		end)
 
-		-- ...AND THE TEAM IS A WORD THAT OWNER ACTUALLY KNOWS. Round 1 shipped `"Hunter"`, which
-		-- matches no row in `Body.OUTFITS` (`Shooters` / `Drivers`), so `Body.dress` returned early
-		-- at *"nothing to wear"* and the keeper stood at the counter in default grey. The assertion
-		-- above could not see it: it compared the config with itself.
-		it("hands over a team the outfit owner has an outfit for", function()
+		-- ...AND THE LOOK IS A WORD THAT OWNER ACTUALLY KNOWS. Task 181 round 1 shipped `"Hunter"`,
+		-- which matched no row in `Body.OUTFITS`, so `Body.dress` returned early at *"nothing to
+		-- wear"* and the keeper stood at the counter in default grey. The assertion above could not
+		-- see it: it compared the config with itself.
+		--
+		-- SINCE TASK 196 THE WORD IS `Keeper` AND IT IS NOT A TEAM. Karen: *"improve bot visual for
+		-- shopper nice hat ect"* -- he wears a loden suit, a felt hat with a band and a brush, and a
+		-- waistcoat, which is a row in the players' own outfit table and not a second dressing path.
+		it("hands over a look the outfit owner has an outfit for, and it is not a player's", function()
 			local Body = Match.Body
 			expect(Body.outfitFor(CFG.LODGE.KEEPER.TEAM, Match.CONFIG)).to.be.ok()
 			expect(Body.baseFor(CFG.LODGE.KEEPER.TEAM, Match.CONFIG)).to.be.ok()
-			-- The repo's own translator agrees: a lodge keeper is a hunter, in the drive's words.
-			expect(CFG.LODGE.KEEPER.TEAM).to.equal(Body.ROLE_WORDS.hunter)
+			-- NOT A TEAM ANYBODY CAN BE ON: `Match.Roster` deals in `Shooters` and `Drivers`, so a
+			-- keeper's look can never be handed to a player by a team swap.
+			expect(CFG.LODGE.KEEPER.TEAM).never.to.equal(Body.ROLE_WORDS.hunter)
+			expect(CFG.LODGE.KEEPER.TEAM).never.to.equal(Body.ROLE_WORDS.beater)
+			-- HE WEARS A HAT AND A WAISTCOAT, and the waistcoat is the piece no player has.
+			local slots = {}
+			for _, group in ipairs(Body.outfitFor(CFG.LODGE.KEEPER.TEAM, Match.CONFIG).parts) do
+				slots[group.slot] = true
+			end
+			expect(slots[Body.SLOTS.hat]).to.equal(true)
+			expect(slots[Body.SLOTS.waistcoat]).to.equal(true)
+			expect(slots[Body.SLOTS.vest]).to.equal(nil)
 		end)
 
 		-- `keeperDressed` MEANS THE OUTFIT OWNER SAID YES, not "the call did not throw" (review

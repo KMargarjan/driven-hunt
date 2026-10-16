@@ -357,7 +357,126 @@ export type Group = { slot: string, rows: { any }, clears: { string } }
 -- the character's own accessories on those -- AND ONLY WHEN A REAL ACCESSORY IS ACTUALLY WORN.
 -- With the plates, hair stays: they were built to live with it. This is a narrower rule than
 -- `Body.strip`'s spare list and it does not change it -- strip still never touches a hat or hair.
+-- ------------------------------------------------------------------- the lodge keeper (task 196)
+--
+-- KAREN, 2026-10-16, looking at the man behind the counter: *"improve bot visual for shopper nice
+-- hat ect"*.
+--
+-- HE IS DRESSED BY THE SAME SYSTEM THE PLAYERS ARE, which is the whole reason this is a row in this
+-- table and not a pile of parts in the lodge: `Match.Body` is the ONE owner of what anybody in this
+-- game wears (`Bots.start({ dress = Body.dress })`, `Lobby`'s `seams.dress`), and a keeper dressed
+-- anywhere else would be a second answer to "what does a person look like".
+--
+-- WHAT A CENTRAL-EUROPEAN LODGE KEEPER WEARS, and each piece is one row below: LODEN -- the heavy
+-- boiled-wool green that every Alpine hunting coat is made of -- for the suit; a felt HAT with a
+-- brim, a tapered crown and a band (the Tyrolean shape: a narrow brim turned up at the back, which
+-- two stacked cylinders of different widths read as); and a WAISTCOAT over the jacket, which is the
+-- piece that makes a man behind a counter look like a shopkeeper rather than a hunter who wandered
+-- in.
+--
+-- HIS HAT IS STILL THE LOBBY'S COLOUR. `Lobby.CONFIG.LODGE.KEEPER.HAT_COLOR` arrives as task 178's
+-- `Look`, and `Body.tintFor` paints the hat slot and nothing else -- so the brown felt is one field
+-- in the lobby's own config and this table does not have to know about it.
+local LODEN = Color3.fromRGB(62, 74, 52)
+local KEEPER_FELT = Color3.fromRGB(86, 70, 48)
+local KEEPER_BAND = Color3.fromRGB(44, 38, 30)
+
+-- A FELT HAT, NOT THE PLAYERS' CAP: a wider brim (2.6 against 2.2), a crown in two steps so it
+-- tapers, and a dark band where the two meet. The crown is TALLER than the players' (0.8 against
+-- 0.7) and the whole thing sits where their hat sits, which is the height task 77 raised to clear a
+-- default avatar's hair -- the one measurement in this file that a hat may not go under.
+local KEEPER_HAT_ROWS = {
+	{
+		name = "Hat", -- the brim
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		-- 2.05 AND NOT 2.6, AND THE FIRST FRAME IS WHY (rule 5, `.screenshots/196-rack.png`): at 2.6
+		-- across and 0.3 thick the brim read as a SOMBRERO on an R15 head, which is 1.2 studs wide.
+		-- A Tyrolean brim is about the width of the wearer's shoulders and no more.
+		size = Vector3.new(0.22, 2.05, 2.05),
+		rotationDeg = Vector3.new(0, 0, 90),
+		offset = Vector3.new(0, 0.92, 0),
+		color = KEEPER_FELT,
+	},
+	{
+		name = "HatBand",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.2, 1.3, 1.3),
+		rotationDeg = Vector3.new(0, 0, 90),
+		offset = Vector3.new(0, 1.07, 0),
+		color = KEEPER_BAND,
+	},
+	{
+		name = "HatCrown",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.62, 1.22, 1.22),
+		rotationDeg = Vector3.new(0, 0, 90),
+		offset = Vector3.new(0, 1.44, 0),
+		color = KEEPER_FELT,
+	},
+	{
+		-- THE BRUSH: the tuft of chamois hair up the side of every Tyrolean hat there has ever been.
+		-- A thin cylinder leaned back off the band, dark, on his left.
+		name = "HatBrush",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.62, 0.15, 0.15),
+		rotationDeg = Vector3.new(0, 0, 62),
+		offset = Vector3.new(-0.5, 1.5, -0.06),
+		color = KEEPER_BAND,
+	},
+}
+
+-- THE WAISTCOAT: the vest's own four plates, which already wrap any torso on any rig
+-- (`Body.fit`'s invariant), in loden instead of safety orange and a little thinner. It is a SEPARATE
+-- row set and not the vest with a colour, because `Body.tintFor` deliberately refuses to recolour a
+-- vest (*"it is safety orange on purpose"*) -- and a beater's vest and a shopkeeper's waistcoat are
+-- two garments, not one garment with an opinion.
+-- A WAISTCOAT IS THINNER AND SHORTER THAN A SAFETY VEST, and the first frame is why (rule 5,
+-- `.screenshots/196-rack.png`): the vest's own 0.22 plates with its 0.12 gap, in loden, read as a
+-- green CRATE on the man's chest. A beater's vest is meant to be seen across a field; a waistcoat is
+-- a garment. 0.14 thick at a 0.07 gap and 0.72 of the torso's height.
+local WAIST_THICK = 0.14
+local WAIST_GAP = 0.07
+local WAIST_HEIGHT_FRACTION = 0.72
+local WAISTCOAT_ROWS = {}
+for _, row in ipairs(VEST_ROWS) do
+	local copy = table.clone(row)
+	copy.name = string.gsub(row.name, "Vest", "Waistcoat")
+	copy.color = LODEN
+	-- THE SAME FOUR PLATES, RE-FITTED. `Body.fit` reads `scale`, `pad`, `anchor` and `offset`, and
+	-- each of the four rows carries the vest's own numbers in two of them -- so the swap is done by
+	-- which AXIS each row uses rather than by naming the rows one at a time here.
+	local front = row.anchor.Z ~= 0
+	copy.scale = if front then Vector3.new(0.98, WAIST_HEIGHT_FRACTION, 0) else Vector3.new(0, WAIST_HEIGHT_FRACTION, 1)
+	copy.pad = if front
+		then Vector3.new(0, 0, WAIST_THICK)
+		else Vector3.new(WAIST_THICK, 0, 2 * (WAIST_THICK + WAIST_GAP))
+	local out = WAIST_THICK / 2 + WAIST_GAP
+	copy.offset = if front
+		then Vector3.new(0, 0, math.sign(row.anchor.Z) * out)
+		else Vector3.new(math.sign(row.anchor.X) * out, 0, 0)
+	table.insert(WAISTCOAT_ROWS, copy)
+end
+
 local HAT: Group = { slot = "hat", rows = HAT_ROWS, clears = { "HatAttachment", "HairAttachment" } }
+local KEEPER_HAT: Group = { slot = "hat", rows = KEEPER_HAT_ROWS, clears = { "HatAttachment", "HairAttachment" } }
+local WAISTCOAT: Group =
+	{ slot = "waistcoat", rows = WAISTCOAT_ROWS, clears = { "BodyFrontAttachment", "BodyBackAttachment" } }
+-- HIS SUIT IS LODEN AND THE PLAYERS' IS THE SLEEVE GREEN: the same `BaseRow` shape, one colour
+-- apart, so a man behind a counter is not wearing the uniform of the men in the field.
+local KEEPER_BASE: BaseRow = {
+	color = LODEN,
+	limbs = BASE.limbs,
+	clearClasses = BASE.clearClasses,
+	clearLayered = BASE.clearLayered,
+}
 -- The vest hangs off the torso's front; a player's own front or back torso accessory would fight it
 -- for the same space. Nothing on the head or the limbs is touched.
 local VEST: Group = { slot = "vest", rows = VEST_ROWS, clears = { "BodyFrontAttachment", "BodyBackAttachment" } }
@@ -365,11 +484,16 @@ local VEST: Group = { slot = "vest", rows = VEST_ROWS, clears = { "BodyFrontAtta
 local OUTFITS: { [string]: { base: BaseRow, parts: { Group } } } = {
 	Shooters = { base = BASE, parts = { HAT } },
 	Drivers = { base = BASE, parts = { HAT, VEST } },
+	-- THE THIRD ROW IS NOT A TEAM (task 196). `Keeper` is a LOOK, asked for by name
+	-- (`Lobby.CONFIG.LODGE.KEEPER.TEAM`), and nothing in `Match.Roster` can ever answer it: a player
+	-- is on `Shooters` or `Drivers` and this table is a lookup by string. That is exactly why the
+	-- shopkeeper can be dressed by the players' own system without becoming a player.
+	Keeper = { base = KEEPER_BASE, parts = { KEEPER_HAT, WAISTCOAT } },
 }
 
 -- THE SLOT NAMES, published so the composition root and a spec name them from one place rather than
 -- typing a literal each (the `Map.TAGS` rule).
-Body.SLOTS = table.freeze({ hat = "hat", vest = "vest" })
+Body.SLOTS = table.freeze({ hat = "hat", vest = "vest", waistcoat = "waistcoat" })
 
 -- KAREN'S WORD -> THE TEAM NAME, in exactly one place (design section 3, "Naming"). She says beater
 -- and hunter; the code says `Drivers` and `Shooters`, and those strings reach `Match.Roster`,

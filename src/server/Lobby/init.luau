@@ -313,6 +313,12 @@ local function tryBuild(): boolean
 			dress = world.dress,
 			dressConfig = world.dressConfig,
 			shopOn = world.shopOn,
+			-- WHAT A THING LOOKS LIKE, by name (task 196): the boar for the trophy over the fire and
+			-- the two guns for the rack behind the counter. The composition root translates a name
+			-- into a template, exactly as `dress` hands over the one dressing path -- this owner
+			-- never learns what an asset key is, and a world that injects nothing gets a bare plaque
+			-- and an empty rack.
+			assets = world.assets,
 			-- THE SAME READER THIS FUNCTION JUST USED FOR THE SHELF, handed down so each truck pad is
 			-- laid on the ground that is really there (task 182). Measured in the live place: without
 			-- it the four pads sat 0.17 studs UNDER the terrain and only their billboards showed,
