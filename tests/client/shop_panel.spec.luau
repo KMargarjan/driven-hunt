@@ -1,29 +1,30 @@
--- shop_panel.spec: the shop panel, in the real client, on the real Hud (task 178).
+-- shop_panel.spec: the shop panel, in the real client, on the real Hud (tasks 178, 181, 196).
 --
 -- WHAT IT PROVES AND WHAT IT CANNOT. The panel is drawn from a payload the SERVER decides, and no
 -- harness run can walk a character into the lodge -- the DEV place has no lodge at all
 -- (docs/design/shop.md section 10.4). So this spec does what `report_panel.spec` does: it hands the
 -- panel the exact payload the wire would carry and then reads the SCREEN -- the frame's visibility,
--- the row text, the button words, the rectangle and every child's `ZIndex`. That is the one check
--- `docs/PROJECT_CONTEXT.md`'s *"a visibility audit certified a blank screen twice"* demands.
+-- the side menu's lines, the detail pane's five strings, the MODEL in the viewport, the rectangle and
+-- every child's `ZIndex`. That is the one check `docs/PROJECT_CONTEXT.md`'s *"a visibility audit
+-- certified a blank screen twice"* demands.
 --
--- AND IT PROVES THE DARK PATH, which is the state this task MERGES in: with `SHOP` off,
--- `ShopPanel.setNear(true)` opens nothing and an injected prompt opens nothing, so the game is
--- task 177's game.
+-- TASK 196 IS THE TWO-COLUMN PANEL. Karen, 2026-10-15: *"menus for buying things has to be better
+-- more nicer like side menu with click and then shows in right side image and explanation what is
+-- that"*. So the cases below are about the BINDING: a click on the left changes the five strings and
+-- the model on the right, every button state comes from the server's own `WireRow`, and a state that
+-- arrives while the panel is open redraws the big button without anybody clicking again.
 --
--- SINCE TASK 181 IT ALSO PROVES THE ONE WAY IN. Karen: *"in lobby has to be a person bot who you
--- need to click E to get access to shop"*. A spec cannot fire a real `ProximityPrompt`, so what is
--- driven is the SEAM the real prompt is wired through -- `ShopPanel.setPrompt` with a
--- `BindableEvent` standing in for the prompt, and the panel connecting to the same `Triggered`
--- signal. What that proves is the WIRING, not the keystroke; the keystroke is the screenshot and
--- Karen's playtest, and that limit is reported rather than papered over.
+-- AND IT PROVES THE DARK PATH, which is the state this work merges in: with `SHOP` off,
+-- `ShopPanel.setNear(true)` opens nothing and an injected prompt opens nothing.
 --
 -- WHAT NO SPEC HERE CAN DO, reported rather than papered over:
---   * TAP OR CLICK A BUTTON. `GuiButton.Activated` cannot be synthesised, so `ShopPanel.press` and
---     `ShopPanel.pressRow` are the seams -- `Rail.press`'s own stated limit, and what they prove is
---     the ACTION, not the touch.
---   * OPEN THE PANEL BY WALKING UP TO THE COUNTER with the flag off. The live walk-up is the
---     screenshot and Karen's playtest.
+--   * TAP OR CLICK A BUTTON. `GuiButton.Activated` cannot be synthesised, so `ShopPanel.select`,
+--     `ShopPanel.press` and `ShopPanel.pressSelected` are the seams -- `Rail.press`'s own stated
+--     limit, and what they prove is the ACTION, not the touch.
+--   * SAY WHETHER THE PICTURE LOOKS RIGHT. It can prove that the selected item's model is in the
+--     viewport, that it has parts, and that the camera is aimed at it from the item's own measured
+--     distance -- not that a rifle is the right way up. That is the screenshot (rule 5) and Karen's
+--     own look.
 --   * PRESS `E` AT THE SHOPKEEPER. `ProximityPrompt.Triggered` cannot be fired from a script, and
 --     there is no keeper in the DEV place to stand in front of (`Lobby.ANCHORS` has one row).
 --
@@ -54,9 +55,9 @@ local function statePayload(options)
 		coinsOn = if opts.coinsOn ~= nil then opts.coinsOn else true,
 		balance = coins,
 		hunts = hunts,
-		-- `coinsOn` GOES INTO THE ROWS TOO (the Reviewer's round-1 note): hardcoding `true` here made
-		-- the closed-shop case prove its row assertion through `balance == nil` instead of through
-		-- the closed shop.
+		-- `coinsOn` GOES INTO THE ROWS TOO (task 178's round-1 note): hardcoding `true` here made the
+		-- closed-shop case prove its row assertion through `balance == nil` instead of through the
+		-- closed shop.
 		rows = Shop.rowsFor(owned, coins, hunts, if opts.coinsOn ~= nil then opts.coinsOn else true),
 		refused = opts.refused,
 		refusedNumber = opts.refusedNumber,
@@ -75,7 +76,7 @@ local function fakePrompt()
 		-- A SYNCHRONOUS SIGNAL, AND IT HAS TO BE ONE. A `BindableEvent` was the obvious stand-in and
 		-- it does not work: Roblox's signal behaviour has been DEFERRED since 2022, so the handler
 		-- runs at the next resumption point and no `expect` in the same `it` can see it (measured,
-		-- this task's first harness run). This fires in line, which is what a real keypress on a
+		-- task 181's first harness run). This fires in line, which is what a real keypress on a
 		-- `ProximityPrompt` does to the panel as far as this module can tell.
 		Triggered = {
 			Connect = function(_self, fn: () -> ())
@@ -105,6 +106,15 @@ local function fakePrompt()
 			return n
 		end,
 	}
+end
+
+local function lineFor(id: string): string?
+	for index, entry in ipairs(Shop.menuOrder(Shop.rowsFor(nil, nil, nil, true))) do
+		if entry == id then
+			return Panel.rowText()[index]
+		end
+	end
+	return nil
 end
 
 return function()
@@ -138,17 +148,43 @@ return function()
 			expect(children > 0).to.equal(true)
 		end)
 
-		-- THE FIRST PANEL IN THIS REPO THAT FITS THE PHONE SCREEN `hud_clarity.spec` MEASURES
-		-- (design section 13.1): 360 px wide, against the 400 px that spec asserts against, and
-		-- `Drive.CONFIG.SCORE_PANEL_WIDTH` is already 480.
-		it("fits a 400 px screen and gives every button a thumb's worth of height", function()
+		-- THE LAYOUT, ASSERTED AS ARITHMETIC AND NOT AS A SCREENSHOT (task 165's rule). The panel is
+		-- no longer one rectangle, so "it fits a phone" is a claim about a function: two screens in,
+		-- two layouts out, and every rectangle inside its own panel.
+		it("fits a 400 x 800 phone and fills a monitor, with every target a thumb can hit", function()
+			for _, screen in ipairs({ { 400, 800 }, { 800, 600 }, { 1920, 1080 } }) do
+				local layout = Panel.layoutFor(screen[1], screen[2])
+				local margin = Shop.CONFIG.PANEL.MARGIN
+				-- INSIDE THE SCREEN, both ways, with its gutter.
+				expect(layout.width <= screen[1] - 2 * margin).to.equal(true)
+				expect(layout.height <= screen[2] - 2 * margin).to.equal(true)
+				expect(layout.width <= Shop.CONFIG.PANEL.MAX_WIDTH).to.equal(true)
+				-- TWO COLUMNS THAT DO NOT TOUCH AND DO NOT LEAVE THE PANEL.
+				expect(layout.listX > 0).to.equal(true)
+				expect(layout.detailX >= layout.listX + layout.listWidth).to.equal(true)
+				expect(layout.detailX + layout.detailWidth <= layout.width).to.equal(true)
+				expect(layout.detailWidth > 0).to.equal(true)
+				expect(layout.listY + layout.listHeight <= layout.height).to.equal(true)
+				-- A PICTURE WORTH THE NAME, and a row and a button a thumb can hit (44 px is Roblox's
+				-- own minimum; 48 and 56 clear it).
+				expect(layout.imageHeight >= Shop.CONFIG.PANEL.IMAGE_MIN).to.equal(true)
+				expect(layout.imageHeight < layout.listHeight).to.equal(true)
+				expect(layout.rowHeight >= Shop.CONFIG.BUTTON_PX).to.equal(true)
+				expect(layout.buyHeight >= Shop.CONFIG.BUTTON_PX).to.equal(true)
+				expect(layout.buyY > layout.imageHeight).to.equal(true)
+			end
+			-- THE PHONE IS THE CASE THAT MATTERS, and 360 is the width design 13.1 measured: 400 less
+			-- two 12 px gutters is 376, so the panel gets its whole width on the screen
+			-- `hud_clarity.spec` asserts against.
+			local phone = Panel.layoutFor(400, 800)
+			expect(phone.width >= Shop.CONFIG.PANEL.WIDTH).to.equal(true)
+			expect(phone.listWidth >= Shop.CONFIG.PANEL.LIST_MIN).to.equal(true)
+			-- ...AND THE EXPLANATION STILL FITS ON THE PHONE, which is the measurement
+			-- `Shop.CONFIG.PANEL.BLURB_MAX` was taken against: five lines of 27 characters.
+			expect(phone.blurbLines >= 5).to.equal(true)
+			expect(phone.blurbLines * 27 >= Shop.CONFIG.PANEL.BLURB_MAX).to.equal(true)
+			-- ...AND EVERY BUTTON ACTUALLY BUILT IS AT LEAST THAT TALL, including CLOSE.
 			local frame = Hud.shopPanel() :: Frame
-			expect(Shop.CONFIG.PANEL.WIDTH).to.equal(360)
-			expect(frame.AbsoluteSize.X <= 400).to.equal(true)
-			expect(frame.Size.X.Offset).to.equal(360)
-			expect(frame.Size.Y.Offset).to.equal(Panel.heightFor(#Shop.ORDER))
-			-- 48 px, over Roblox's own 44 px minimum, on every button including CLOSE.
-			expect(Shop.CONFIG.BUTTON_PX).to.equal(48)
 			local buttons = 0
 			for _, child in ipairs(frame:GetDescendants()) do
 				if child:IsA("TextButton") then
@@ -156,13 +192,15 @@ return function()
 					expect(child.Size.Y.Offset >= Shop.CONFIG.BUTTON_PX).to.equal(true)
 				end
 			end
-			-- One per catalogue ROW, plus CLOSE -- and the frame is sized from the same number, so a
-			-- sixth row cannot be drawn over the footer.
-			expect(buttons).to.equal(#Shop.ORDER + 1)
+			-- One per catalogue item, plus CLOSE and the one BUY -- five BUY buttons became one
+			-- (task 196).
+			expect(buttons).to.equal(#Shop.ORDER + 2)
 			expect(#Shop.ORDER <= Shop.CONFIG.MAX_ITEMS).to.equal(true)
 		end)
 
-		it("draws the server's own rows, its own words and the player's balance", function()
+		-- ---------------------------------------------------------------- the side menu
+
+		it("draws the server's rows under the four shelves, with the price and one badge", function()
 			Panel.onState(statePayload())
 			Panel.setOpen(true)
 			expect(Panel.isOpen()).to.equal(true)
@@ -170,19 +208,31 @@ return function()
 			expect(Panel.titleText()).to.equal(Shop.CONFIG.TEXT.TITLE)
 			expect(Panel.balanceText()).to.equal("COINS 300     HUNTS 30")
 
+			-- THE SHELVES, IN THE DIRECTOR'S OWN ORDER: Weapons, Ammo, Licences, Clothing.
+			local shelves = Panel.headerText()
+			expect(#shelves).to.equal(4)
+			expect(shelves[1]).to.equal("WEAPONS")
+			expect(shelves[2]).to.equal("AMMO")
+			expect(shelves[3]).to.equal("LICENCES")
+			expect(shelves[4]).to.equal("CLOTHING")
+
 			local lines = Panel.rowText()
-			-- ONE ROW PER CATALOGUE ITEM, in `Shop.ORDER`, and no more.
 			expect(#lines).to.equal(#Shop.ORDER)
-			-- The hat is first, cheapest, and buyable at 300 coins.
-			expect(string.find(lines[1], "RED HAT", 1, true) ~= nil).to.equal(true)
-			expect(string.find(lines[1], "80", 1, true) ~= nil).to.equal(true)
-			expect(string.find(lines[1], Shop.CONFIG.TEXT.BUY, 1, true) ~= nil).to.equal(true)
-			-- The slug is owned: the badge says so and the button is not a BUY.
-			expect(string.find(lines[2], Shop.CONFIG.TEXT.OWNED_TAG, 1, true) ~= nil).to.equal(true)
+			-- EVERY ROW IS ON SCREEN and each says its name and its price or its badge.
+			local hat = lineFor(Shop.ITEM.HAT_RED)
+			expect(hat).to.be.ok()
+			expect(string.find(hat :: string, "RED HAT", 1, true) ~= nil).to.equal(true)
+			expect(string.find(hat :: string, "80 COINS", 1, true) ~= nil).to.equal(true)
+			-- The slug is owned: the badge says so and no price is offered for a thing you have.
+			local slug = lineFor(Shop.ITEM.SLUG)
+			expect(string.find(slug :: string, Shop.CONFIG.TEXT.OWNED_TAG, 1, true) ~= nil).to.equal(true)
+			expect(string.find(slug :: string, "120 COINS", 1, true)).to.equal(nil)
 			-- The open-sight rifle is SHOWN and not for sale.
-			expect(string.find(lines[4], Shop.CONFIG.TEXT.SOON_TAG, 1, true) ~= nil).to.equal(true)
+			local soon = lineFor(Shop.ITEM.RIFLE_OPEN)
+			expect(string.find(soon :: string, Shop.CONFIG.TEXT.SOON_TAG, 1, true) ~= nil).to.equal(true)
 			-- The scoped rifle: 30 hunts is enough, 300 coins is not.
-			expect(string.find(lines[5], "NO COINS", 1, true) ~= nil).to.equal(true)
+			local rifle = lineFor(Shop.ITEM.RIFLE)
+			expect(string.find(rifle :: string, "NO COINS", 1, true) ~= nil).to.equal(true)
 			-- ...and the hint, while nothing has been refused.
 			expect(Panel.messageText()).to.equal(Shop.CONFIG.TEXT.HINT)
 		end)
@@ -190,19 +240,179 @@ return function()
 		it("locks a rung behind the hunts a player has not walked", function()
 			Panel.onState(statePayload({ owned = {}, coins = 5000, hunts = 2 }))
 			Panel.setOpen(true)
-			local lines = Panel.rowText()
-			-- The beater's licence needs 3 hunts and he has 2.
-			expect(string.find(lines[3], "3 HUNTS", 1, true) ~= nil).to.equal(true)
+			-- The beater's licence needs 3 hunts and he has 2...
+			expect(string.find(lineFor(Shop.ITEM.BEATER_LICENCE) :: string, "3 HUNTS", 1, true) ~= nil).to.equal(true)
 			-- ...and the scoped rifle needs 25.
-			expect(string.find(lines[5], "25 HUNTS", 1, true) ~= nil).to.equal(true)
+			expect(string.find(lineFor(Shop.ITEM.RIFLE) :: string, "25 HUNTS", 1, true) ~= nil).to.equal(true)
 		end)
+
+		-- ---------------------------------------------------------------- the binding Karen asked for
+
+		it("shows the clicked item's own page on the right: name, price, unlock and explanation", function()
+			Panel.onState(statePayload({ owned = {}, coins = 300, hunts = 30 }))
+			Panel.setOpen(true)
+			-- SOMETHING IS ALWAYS SELECTED, so the right column is never blank on opening.
+			expect(Panel.selectedId()).to.be.ok()
+
+			Panel.select(Shop.ITEM.SLUG)
+			expect(Panel.selectedId()).to.equal(Shop.ITEM.SLUG)
+			local pane = Panel.detailText()
+			expect(pane.name).to.equal("SLUG SHELLS")
+			expect(pane.price).to.equal("120 COINS")
+			expect(pane.unlock).to.equal(Shop.CONFIG.TEXT.UNLOCK_OPEN)
+			-- THE EXPLANATION IS THE SERVER'S OWN WORDS, verbatim: the panel does not write prose.
+			expect(pane.blurb).to.equal(Shop.ROWS[Shop.ITEM.SLUG].blurb)
+			expect(#pane.blurb > 40).to.equal(true)
+			expect(pane.button).to.equal(Shop.CONFIG.TEXT.BUY)
+
+			-- A SECOND CLICK MOVES THE WHOLE PAGE, not half of it.
+			Panel.select(Shop.ITEM.RIFLE)
+			local second = Panel.detailText()
+			expect(second.name).to.equal("RIFLE, SCOPED")
+			expect(second.price).to.equal("1500 COINS")
+			expect(second.unlock).to.equal(string.format(Shop.CONFIG.TEXT.UNLOCK_AT, 25))
+			expect(second.blurb).to.equal(Shop.ROWS[Shop.ITEM.RIFLE].blurb)
+			-- 300 coins against 1500.
+			expect(second.button).to.equal(Shop.CONFIG.TEXT.POOR_TAG)
+		end)
+
+		it("says how many hunts are still to go on a rung he cannot reach yet", function()
+			Panel.onState(statePayload({ owned = {}, coins = 5000, hunts = 1 }))
+			Panel.setOpen(true)
+			Panel.select(Shop.ITEM.BEATER_LICENCE)
+			local pane = Panel.detailText()
+			expect(pane.unlock).to.equal(string.format(Shop.CONFIG.TEXT.UNLOCK_LEFT, 2))
+			expect(pane.button).to.equal(string.format(Shop.CONFIG.TEXT.LOCKED_TAG, 3))
+		end)
+
+		-- THE FOUR STATES OF THE ONE BUTTON, each one out of the server's own `WireRow` and not out of
+		-- a second opinion on this client (design hazard 10).
+		it("gives the one big button four states, and the green only to the one you may press", function()
+			local buy = ((Hud.shopPanel() :: Frame):FindFirstChild("Detail") :: Frame):FindFirstChild(
+					"Buy"
+				) :: TextButton
+			expect(buy).to.be.ok()
+
+			-- BUYABLE.
+			Panel.onState(statePayload({ owned = {}, coins = 300, hunts = 30 }))
+			Panel.setOpen(true)
+			Panel.select(Shop.ITEM.HAT_RED)
+			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.BUY)
+			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.BUY_COLOR)
+
+			-- OWNED.
+			Panel.onState(statePayload({ owned = { [Shop.ITEM.HAT_RED] = true }, coins = 300, hunts = 30 }))
+			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.OWNED_TAG)
+			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.DEAD_COLOR)
+
+			-- POOR -- AND THIS IS THE RECONCILIATION, WHICH IS THE POINT OF READING THE PAYLOAD AT
+			-- RENDER TIME: nobody clicked anything between these two lines. A balance that changes
+			-- while the panel is open changes the button with it, so an edge-triggered state set when
+			-- the row was clicked cannot go stale here.
+			Panel.onState(statePayload({ owned = {}, coins = 10, hunts = 30 }))
+			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.POOR_TAG)
+			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.DEAD_COLOR)
+
+			-- LOCKED.
+			Panel.onState(statePayload({ owned = {}, coins = 5000, hunts = 0 }))
+			Panel.select(Shop.ITEM.RIFLE)
+			expect(Panel.detailText().button).to.equal(string.format(Shop.CONFIG.TEXT.LOCKED_TAG, 25))
+
+			-- NOT FOR SALE AT ALL.
+			Panel.select(Shop.ITEM.RIFLE_OPEN)
+			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.SOON_TAG)
+		end)
+
+		-- ---------------------------------------------------------------- the picture
+
+		it("puts the selected item's own model in the viewport, under its own camera", function()
+			Panel.onState(statePayload({ owned = {}, coins = 300, hunts = 30 }))
+			Panel.setOpen(true)
+			Panel.select(Shop.ITEM.RIFLE)
+			local frame = Panel.viewportFrame()
+			expect(frame).to.be.ok()
+			-- A `ViewportFrame` RENDERS THROUGH ITS OWN CAMERA and through nothing else: a viewport
+			-- with no `CurrentCamera` is the flat rectangle this spec exists to refuse.
+			expect((frame :: ViewportFrame).CurrentCamera).to.be.ok()
+			expect(((frame :: ViewportFrame).CurrentCamera :: Camera):IsDescendantOf(frame :: ViewportFrame)).to.equal(
+				true
+			)
+
+			-- THE MODEL IS THERE, IT IS THE SELECTED ONE, AND IT HAS PARTS IN IT. Three assertions and
+			-- not one, because *"a visibility audit certified a blank screen twice"*.
+			expect(Panel.pictureId()).to.equal(Shop.ITEM.RIFLE)
+			local model = Panel.pictureModel()
+			expect(model).to.be.ok()
+			expect((model :: Model):IsDescendantOf(frame :: ViewportFrame)).to.equal(true)
+			local parts = 0
+			for _, child in ipairs((model :: Model):GetDescendants()) do
+				if child:IsA("BasePart") then
+					parts += 1
+				end
+			end
+			-- The rifle is four groups plus a drawn piece or two; one part would be a hole.
+			expect(parts >= 3).to.equal(true)
+			expect((model :: Model).PrimaryPart).to.be.ok()
+
+			-- ...AND THE CAMERA IS AIMED AT IT, from the distance the item's own bounding ball asks
+			-- for. `distanceFor` is pure arithmetic, so this is a measurement and not an impression.
+			local camera = (frame :: ViewportFrame).CurrentCamera :: Camera
+			local centre, radius = Panel.pictureBall()
+			local away = (camera.CFrame.Position - centre).Magnitude
+			-- FAR ENOUGH BACK TO HOLD THE WHOLE THING: outside its own bounding ball, and not so far
+			-- that a rifle is a speck.
+			expect(away > radius).to.equal(true)
+			expect(away < radius * 12).to.equal(true)
+			local look = camera.CFrame.LookVector
+			local toward = (centre - camera.CFrame.Position).Unit
+			-- The lens points AT the thing: the two directions agree to within a degree or so.
+			expect(look:Dot(toward) > 0.99).to.equal(true)
+
+			-- ONE MODEL AT A TIME: selecting another item destroys the first rather than stacking
+			-- every item the player has ever clicked inside the viewport.
+			Panel.select(Shop.ITEM.HAT_RED)
+			expect(Panel.pictureId()).to.equal(Shop.ITEM.HAT_RED)
+			expect((model :: Model).Parent).to.equal(nil)
+			local models = 0
+			for _, child in ipairs((frame :: ViewportFrame):GetChildren()) do
+				if child:IsA("Model") then
+					models += 1
+				end
+			end
+			expect(models).to.equal(1)
+		end)
+
+		it("turns the picture while the panel is open and stands still while it is shut", function()
+			Panel.onState(statePayload())
+			Panel.setOpen(true)
+			Panel.select(Shop.ITEM.HAT_RED)
+			local camera = (Panel.viewportFrame() :: ViewportFrame).CurrentCamera :: Camera
+			Panel.step(0)
+			local first = camera.CFrame.Position
+			Panel.step(2)
+			local second = camera.CFrame.Position
+			expect((first - second).Magnitude > 0.05).to.equal(true)
+			-- ...and the distance from the item does not drift as it turns: it is an orbit.
+			local centre = Panel.pictureBall()
+			expect(math.abs((first - centre).Magnitude - (second - centre).Magnitude) < 0.01).to.equal(true)
+			-- SHUT, IT COSTS NOTHING: `step` returns before it writes anything, which is every frame
+			-- of a hunt.
+			Panel.setOpen(false)
+			local parked = camera.CFrame.Position
+			Panel.step(9)
+			expect(camera.CFrame.Position).to.equal(parked)
+		end)
+
+		-- ---------------------------------------------------------------- money, words and the wire
 
 		it("prints one line when there is no money in this build at all", function()
 			Panel.onState(statePayload({ coinsOn = false, noProfile = true }))
 			Panel.setOpen(true)
 			expect(Panel.balanceText()).to.equal(Shop.CONFIG.TEXT.CLOSED)
-			for _, line in ipairs(Panel.rowText()) do
-				expect(string.find(line, Shop.CONFIG.TEXT.BUY .. "|", 1, true)).to.equal(nil)
+			-- NOTHING IS BUYABLE with the money off, whichever row is selected.
+			for _, id in ipairs(Shop.ORDER) do
+				Panel.select(id)
+				expect(Panel.detailText().button).never.to.equal(Shop.CONFIG.TEXT.BUY)
 			end
 		end)
 
@@ -228,24 +438,25 @@ return function()
 			)
 		end)
 
-		-- THE ACTION BEHIND A BUTTON, which is what a spec can reach (`Rail.press`'s stated limit).
-		it("sends an item id for a buyable row and sends nothing for a dead one", function()
+		-- THE ACTION BEHIND THE BUTTON, which is what a spec can reach (`Rail.press`'s stated limit).
+		it("sends an item id for the selected row and sends nothing for a dead one", function()
 			Panel.onState(statePayload({ owned = { [Shop.ITEM.SLUG] = true }, coins = 300, hunts = 30 }))
 			Panel.setOpen(true)
 			local before = Panel.stats().sent
-			-- Row 1 is the hat: buyable at 300 coins.
-			expect(Panel.pressRow(1)).to.equal(true)
+			Panel.select(Shop.ITEM.HAT_RED)
+			expect(Panel.pressSelected()).to.equal(true)
 			expect(Panel.stats().sent).to.equal(before + 1)
-			-- Row 2 is the slug, already owned: nothing is sent and the panel says why, out of the
-			-- SAME wire row the server decided.
-			expect(Panel.pressRow(2)).to.equal(false)
+			-- The slug is already owned: nothing is sent and the panel says why, out of the SAME wire
+			-- row the server decided.
+			Panel.select(Shop.ITEM.SLUG)
+			expect(Panel.pressSelected()).to.equal(false)
 			expect(Panel.stats().sent).to.equal(before + 1)
 			expect(Panel.messageText()).to.equal(Shop.CONFIG.TEXT.OWNED_TAG)
-			-- Row 4 is the open-sight rifle: shown, never sold.
-			expect(Panel.pressRow(4)).to.equal(false)
+			-- The open-sight rifle is shown and never sold.
+			Panel.select(Shop.ITEM.RIFLE_OPEN)
+			expect(Panel.pressSelected()).to.equal(false)
 			expect(Panel.messageText()).to.equal(Shop.CONFIG.TEXT.SOON_TAG)
-			-- A row the catalogue does not have is not a press at all.
-			expect(Panel.pressRow(99)).to.equal(false)
+			-- An id the catalogue does not have is not a press at all.
 			expect(Panel.press(nil)).to.equal(false)
 		end)
 
@@ -255,13 +466,15 @@ return function()
 			Panel.setOpen(false)
 			expect(Panel.isOpen()).to.equal(false)
 			expect((Hud.shopPanel() :: Frame).Visible).to.equal(false)
-			-- THE PAYLOAD IS KEPT, so the next open has something to draw before the server answers.
+			-- THE PAYLOAD AND THE SELECTION ARE KEPT, so the next open has something to draw before
+			-- the server answers.
 			expect(Panel.lastState()).to.be.ok()
+			expect(Panel.selectedId()).to.be.ok()
 		end)
 
 		-- ---------------------------------------------------------------- the shopkeeper (task 181)
 
-		-- THE AUTO-OPEN IS GONE, AND ITS ABSENCE IS THE TASK. Task 178 opened this panel by itself
+		-- THE AUTO-OPEN IS GONE, AND ITS ABSENCE IS THAT TASK. Task 178 opened this panel by itself
 		-- when the player came within reach of the counter; Karen asked for a man and a key, and a
 		-- panel that was already open when you got there would make her key decorative.
 		it("does not open itself at the counter any more", function()
@@ -338,6 +551,10 @@ return function()
 			prompt.fire()
 			expect(Panel.isOpen()).to.equal(true)
 			expect((Hud.shopPanel() :: Frame).Visible).to.equal(true)
+			-- ...AND THE PICTURE IS ALREADY THERE, because something is always selected: Karen's
+			-- *"image and explanation"* is what the first frame after `E` shows.
+			expect(Panel.pictureModel()).to.be.ok()
+			expect(Panel.detailText().name).never.to.equal("")
 			-- IT OPENS AND NEVER TOGGLES: a second press is not a request to shut it. The CLOSE
 			-- button and walking away are what shut it.
 			prompt.fire()
@@ -347,14 +564,13 @@ return function()
 			Panel.setNear(false)
 			expect(Panel.isOpen()).to.equal(false)
 			Panel.setPrompt(nil)
-			-- BACK TO THE BUILD THIS TASK MERGES IN, so no later spec in this file inherits a lit
-			-- flag from this one.
+			-- BACK TO THE BUILD THIS MERGES IN, so no later spec in this file inherits a lit flag.
 			Panel.setEnabled(Shop.isOn())
 			expect(Panel.isEnabled()).to.equal(false)
 		end)
 
-		-- THE DARK PATH, AND IT IS THE STATE THIS TASK MERGES IN. With `SHOP` off the panel is never
-		-- opened by the counter, no prompt opens it, and the game is task 177's game.
+		-- THE DARK PATH, AND IT IS THE STATE THIS WORK MERGES IN. With `SHOP` off the panel is never
+		-- opened by the counter and no prompt opens it.
 		it("opens nothing at the counter while the flag is off", function()
 			expect(Shop.isOn()).to.equal(false)
 			Panel.setNear(true)

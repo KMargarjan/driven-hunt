@@ -115,6 +115,95 @@ return function()
 			expect(string.find(broken[1], "rifleOpen") ~= nil).to.equal(true)
 		end)
 
+		-- ---------------------------------------------------------------- the four shelves (task 196)
+
+		-- KAREN, 2026-10-15: *"side menu with click and then shows in right side image and explanation
+		-- what is that"*. The side menu is a pure function of what the server sent, so what it draws
+		-- is asserted here and not only on the screen.
+		it("sorts the catalogue onto four shelves, cheapest first inside each one", function()
+			local wire = Shop.rowsFor(nil, 1000, 30, true)
+			local groups = Shop.groups(wire)
+			-- FOUR SHELVES, IN THE ORDER THE PANEL DRAWS THEM, and no empty one.
+			expect(#groups).to.equal(4)
+			expect(groups[1].category).to.equal(Shop.CATEGORY.WEAPON)
+			expect(groups[1].label).to.equal("WEAPONS")
+			expect(groups[2].category).to.equal(Shop.CATEGORY.AMMO)
+			expect(groups[3].category).to.equal(Shop.CATEGORY.LICENCE)
+			expect(groups[4].category).to.equal(Shop.CATEGORY.CLOTHING)
+			for _, group in ipairs(groups) do
+				expect(#group.rows > 0).to.equal(true)
+			end
+			-- EVERY ROW IS ON EXACTLY ONE SHELF: nothing is dropped and nothing is drawn twice, which
+			-- is what `rowsOk`'s shelf check is there to keep true.
+			local seen = {}
+			local total = 0
+			for _, group in ipairs(groups) do
+				for _, row in ipairs(group.rows) do
+					expect(seen[row.id]).to.equal(nil)
+					seen[row.id] = true
+					total += 1
+				end
+			end
+			expect(total).to.equal(#Shop.ORDER)
+			-- ...AND THE PANEL'S OWN ORDER IS THAT LIST FLATTENED, which is what decides the item a
+			-- freshly opened panel shows.
+			local order = Shop.menuOrder(wire)
+			expect(#order).to.equal(#Shop.ORDER)
+			expect(order[1]).to.equal(groups[1].rows[1].id)
+			-- INSIDE A SHELF THE WIRE'S OWN ORDER SURVIVES, and the wire is `Shop.ORDER`: cheapest
+			-- first, so the open-sight rifle (600) comes before the scoped one (1500).
+			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.RIFLE_OPEN)
+			expect(groups[1].rows[2].id).to.equal(Shop.ITEM.RIFLE)
+			-- NOTHING IN, NOTHING OUT.
+			expect(#Shop.groups(nil)).to.equal(0)
+			expect(#Shop.menuOrder(nil)).to.equal(0)
+		end)
+
+		-- I4 AND I5: a shelf the menu draws, and an explanation to read in the detail pane. Both are
+		-- `rowsOk` problems rather than comments, for `Weapons`'s own stated reason -- an item on a
+		-- shelf nothing draws is an item that silently does not exist.
+		it("refuses a row with no shelf, no explanation, or one too long to fit a phone", function()
+			local function withRow(id: string, change: (any) -> ()): { string }
+				local pretend = {}
+				for key, row in pairs(Shop.ROWS) do
+					local copy = table.clone(row)
+					copy.grants = table.clone(row.grants)
+					if key == id then
+						change(copy)
+					end
+					pretend[key] = copy
+				end
+				local saved = Shop.ROWS;
+				(Shop :: any).ROWS = pretend
+				local problems = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS);
+				(Shop :: any).ROWS = saved
+				return problems
+			end
+			-- EVERY SHIPPED ROW HAS BOTH, and every explanation fits the pane it is drawn in.
+			for _, id in ipairs(Shop.ORDER) do
+				local row = Shop.ROWS[id]
+				expect(Shop.CATEGORY_LABEL[row.category]).to.be.ok()
+				expect(#row.blurb >= 20).to.equal(true)
+				expect(#row.blurb <= Shop.CONFIG.PANEL.BLURB_MAX).to.equal(true)
+			end
+			local shelf = withRow(Shop.ITEM.SLUG, function(copy)
+				copy.category = "gear"
+			end)
+			expect(#shelf).to.equal(1)
+			expect(string.find(shelf[1], "gear") ~= nil).to.equal(true)
+			-- ...and such a row is dropped by the menu, which is why it may not exist.
+			expect(#Shop.groups({ { id = "x", category = "gear" } :: any })).to.equal(0)
+			local silent = withRow(Shop.ITEM.HAT_RED, function(copy)
+				copy.blurb = ""
+			end)
+			expect(#silent).to.equal(1)
+			local windy = withRow(Shop.ITEM.HAT_RED, function(copy)
+				copy.blurb = string.rep("a", Shop.CONFIG.PANEL.BLURB_MAX + 1)
+			end)
+			expect(#windy).to.equal(1)
+			expect(string.find(windy[1], tostring(Shop.CONFIG.PANEL.BLURB_MAX)) ~= nil).to.equal(true)
+		end)
+
 		it("grants something in every row, and every grant is one of the four kinds", function()
 			local kinds = { ammo = 0, weapon = 0, driveGun = 0, hatColor = 0 }
 			for _, id in ipairs(Shop.ORDER) do

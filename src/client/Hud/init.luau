@@ -824,10 +824,13 @@ local function build(): ScreenGui
 	report.Visible = false
 	report.Parent = screen
 
-	-- THE SHOP (task 178). Karen: *"Hunting house where inside can shop things"*. Centred, narrow
-	-- enough to fit a phone screen (`Shop.CONFIG.PANEL.WIDTH` is 360, and the reason is measured --
-	-- design section 13.1), empty and hidden until `ShopPanel.start` fills it. This file creates the
-	-- box and writes nothing inside it, and after `build` it does not write the `Visible` either.
+	-- THE SHOP (task 178, two columns since task 196). Karen: *"Hunting house where inside can shop
+	-- things"*, and 2026-10-15: *"side menu with click and then shows in right side image and
+	-- explanation what is that"*. Centred, and AS BIG AS THE SCREEN ALLOWS between the panel's own
+	-- bounds -- 640 px on a monitor, 376 on a 400 px phone -- which is `ShopPanel.panelSize()`, the
+	-- panel's own pure arithmetic. Empty and hidden until `ShopPanel.start` fills it. This file
+	-- creates the box from that one number and writes nothing inside it; after `build` the panel is
+	-- the only writer of its `Visible` AND of its `Size`, because the size now follows the screen.
 	local shop = Instance.new("Frame")
 	shop.Name = "ShopPanel"
 	shop.BackgroundColor3 = ShopPanel.LOOK.PANEL_COLOR
@@ -835,7 +838,7 @@ local function build(): ScreenGui
 	shop.BorderSizePixel = 0
 	shop.AnchorPoint = Vector2.new(0.5, 0.5)
 	shop.Position = UDim2.fromScale(0.5, 0.5)
-	shop.Size = UDim2.fromOffset(Shop.CONFIG.PANEL.WIDTH, ShopPanel.heightFor(#Shop.ORDER))
+	shop.Size = ShopPanel.panelSize()
 	shop.ZIndex = Shop.CONFIG.PANEL.Z_INDEX
 	shop.Visible = false
 	shop.Parent = screen
@@ -847,7 +850,7 @@ local function build(): ScreenGui
 	-- either.
 	--
 	-- THE RECTANGLE COMES FROM THE PANEL AND NOT FROM A SECOND READER OF `Lobby.CONFIG`, which is
-	-- `ShopPanel.heightFor`'s own arrangement: ONE number decides both the rows and the box.
+	-- `ShopPanel.panelSize`'s own arrangement: ONE function decides both the rows and the box.
 	local padDialog = Instance.new("Frame")
 	padDialog.Name = "PadPanel"
 	padDialog.BackgroundColor3 = PadPanel.LOOK.PANEL_COLOR
@@ -2092,6 +2095,11 @@ function Hud.renderObjective(CameraSystem)
 	-- `Lobby.shopPrompt()` is memoised and drops its cache with the instance, so this is a cached
 	-- field read a frame and `ShopPanel.setPrompt` does nothing at all unless the prompt CHANGED.
 	ShopPanel.setPrompt(if lobbyData then lobbyData.shopPrompt() else nil)
+	-- ...AND ONE STEP OF THE SHOP WINDOW'S TURNING PICTURE (task 196). HERE, and not in a
+	-- `RenderStepped` of its own, for this function's own stated reason: it is *"THE ONE EVALUATION"*
+	-- and a second per-frame loop on this client would be a second owner of the frame. It returns
+	-- immediately while the panel is shut, which is every frame of a hunt.
+	ShopPanel.step()
 	-- ...AND WHETHER A TRUCK PAD IS ASKING HIM HOW MANY (task 182). ONE server-measured fact, read
 	-- here for `setNear`'s own stated reason -- this function is already *"THE ONE EVALUATION"* --
 	-- and the panel is TOLD. `setAsk` is edge-triggered inside it, so this costs four memoised part

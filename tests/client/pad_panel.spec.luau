@@ -51,7 +51,7 @@ return function()
 			expect(frame).to.be.ok()
 			local panel = frame :: Frame
 			expect(panel.Visible).to.equal(false)
-			-- ONE NUMBER DECIDES BOTH THE ROWS AND THE BOX (`ShopPanel.heightFor`'s rule, and the
+			-- ONE NUMBER DECIDES BOTH THE ROWS AND THE BOX (`ShopPanel.panelSize`'s rule, and the
 			-- Reviewer's task-178 round-1 note: they used to be two, and a sixth row would have been
 			-- drawn outside the frame in silence).
 			expect(panel.Size.X.Offset).to.equal(PadPanel.widthFor())

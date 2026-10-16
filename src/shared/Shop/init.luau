@@ -67,6 +67,19 @@ export type Grants = {
 export type Row = {
 	id: string,
 	label: string, -- what the panel prints
+	-- WHICH SHELF IT SITS ON (task 196). Karen, 2026-10-15: *"menus for buying things has to be
+	-- better more nicer like side menu with click and then shows in right side image and explanation
+	-- what is that"*. A side menu with four shelves needs the shelf written down beside the price,
+	-- for `Shop.CONFIG.TEXT`'s own rule -- and `Shop.rowsOk` refuses a row whose shelf is not one of
+	-- `Shop.CATEGORY`, so a sixth item cannot land in a group nothing draws.
+	category: string, -- one of `Shop.CATEGORY`
+	-- WHAT IT DOES IN THE GAME, in the player's own words, for the detail pane to read out. Karen
+	-- asked for the *"explanation what is that"* and this is it: one or two sentences, and EVERY
+	-- NUMBER IN ONE IS A NUMBER THIS REPO ALREADY MEASURED (the slug's 330 studs and the buckshot's
+	-- 100, `Shotgun.CONFIG.RANGE_STUDS`; the rifle's 800, `Rifle.CONFIG.RANGE_STUDS`; at 0.28 m per
+	-- stud, which is `Map.CONFIG`'s scale). A shop window that invents a ballistic claim is a shop
+	-- window that lies, and this game's own code is the one thing that can check it.
+	blurb: string,
 	price: number, -- coins. Karen's, and hers to retune
 	hunts: number, -- completed hunts before it unlocks
 	sale: boolean, -- false = shown and NOT buyable (see `rifle.open`)
@@ -88,6 +101,8 @@ Shop.ROWS = {
 	[Shop.ITEM.HAT_RED] = {
 		id = Shop.ITEM.HAT_RED,
 		label = "RED HAT",
+		category = "clothing",
+		blurb = "A dark red cap in place of the team's own orange. It changes how you look and nothing else.",
 		-- A COSMETIC IS THE CHEAPEST THING IN THE SHOP, and at 80 it is one good drive: the first
 		-- thing a player can actually buy, which is what makes the shop read as a shop.
 		price = 80,
@@ -100,6 +115,11 @@ Shop.ROWS = {
 	[Shop.ITEM.SLUG] = {
 		id = Shop.ITEM.SLUG,
 		label = "SLUG SHELLS",
+		category = "ammo",
+		-- 330 studs and 100 studs are `Shotgun.CONFIG.RANGE_STUDS`, and 0.28 m per stud is the map's
+		-- own scale: 92 m and 28 m. Rounded DOWN to 90 and 28 rather than invented.
+		blurb = "One heavy ball instead of nine pellets: it carries to about 90 m where buckshot is "
+			.. "spent by 28. A pocket of them every hunt.",
 		-- A drive pays 10 to ~105 coins (docs/design/economy.md section 8), so ~3 drives.
 		price = 120,
 		hunts = 0,
@@ -112,6 +132,9 @@ Shop.ROWS = {
 	[Shop.ITEM.BEATER_LICENCE] = {
 		id = Shop.ITEM.BEATER_LICENCE,
 		label = "BEATER LICENCE",
+		category = "licence",
+		blurb = "A beater may carry a gun in the drive. The safety rule still holds: a shot toward "
+			.. "the line ties you to a tree.",
 		price = 250,
 		-- He must have walked a few drives before he may carry a gun in one.
 		hunts = 3,
@@ -126,6 +149,8 @@ Shop.ROWS = {
 	[Shop.ITEM.RIFLE_OPEN] = {
 		id = Shop.ITEM.RIFLE_OPEN,
 		label = "RIFLE, OPEN",
+		category = "weapon",
+		blurb = "The same bolt rifle with the glass off, on iron sights. Not in this build yet.",
 		price = 600,
 		hunts = 10,
 		-- NOT FOR SALE IN THIS BUILD, AND THE INVARIANT FORCES IT RATHER THAN A COMMENT ASKING FOR
@@ -143,6 +168,10 @@ Shop.ROWS = {
 	[Shop.ITEM.RIFLE] = {
 		id = Shop.ITEM.RIFLE,
 		label = "RIFLE, SCOPED",
+		category = "weapon",
+		-- 800 studs is `Rifle.CONFIG.RANGE_STUDS` (224 m) against the slug's 330 (92 m), and three
+		-- rounds is `Rifle.CONFIG.MAGAZINE`. Neither number is invented here.
+		blurb = "Bolt action, three rounds, and a scope: it reaches about 220 m where the slug stops at 90.",
 		-- *"has to play a lot it's not few hunts"*: ~25 drives of money at the rates
 		-- `Economy.CONFIG` pays today, and 25 finished drives before it unlocks at all.
 		price = 1500,
@@ -162,6 +191,75 @@ Shop.ORDER = table.freeze({
 	Shop.ITEM.RIFLE_OPEN,
 	Shop.ITEM.RIFLE,
 })
+
+-- ---------------------------------------------------------------- the four shelves (task 196)
+--
+-- KAREN, 2026-10-15 ~17:40: *"menus for buying things has to be better more nicer like side menu
+-- with click and then shows in right side image and explanation what is that"*. A side menu with
+-- headers needs the shelves and their ORDER written down once, here, where the prices already are.
+--
+-- THE ORDER IS THE DIRECTOR'S DISPATCH, NOT THE PRICE: Weapons, Ammo, Licences, Clothing. It is a
+-- SECOND order over the same rows and not a replacement for `Shop.ORDER` -- the wire still arrives
+-- cheapest-first, `Shop.ORDER` is still what the server iterates, and the grouping is a pure
+-- function of what arrived. One list, read two ways, so a row can never be in one and not the other.
+Shop.CATEGORY = table.freeze({
+	WEAPON = "weapon",
+	AMMO = "ammo",
+	LICENCE = "licence",
+	CLOTHING = "clothing",
+})
+
+Shop.CATEGORY_ORDER = table.freeze({
+	Shop.CATEGORY.WEAPON,
+	Shop.CATEGORY.AMMO,
+	Shop.CATEGORY.LICENCE,
+	Shop.CATEGORY.CLOTHING,
+})
+
+-- THE HEADER THE PANEL PRINTS, which is `Shop.CONFIG.TEXT`'s own rule -- every word written down.
+Shop.CATEGORY_LABEL = table.freeze({
+	[Shop.CATEGORY.WEAPON] = "WEAPONS",
+	[Shop.CATEGORY.AMMO] = "AMMO",
+	[Shop.CATEGORY.LICENCE] = "LICENCES",
+	[Shop.CATEGORY.CLOTHING] = "CLOTHING",
+})
+
+export type Group = { category: string, label: string, rows: { WireRow } }
+
+-- THE SIDE MENU, GROUPED. PURE and exported, for `Shop.rowsFor`'s own stated reason: what the panel
+-- draws is a function of what arrived and the panel decides nothing. An EMPTY shelf is dropped
+-- rather than drawn as a header with nothing under it, and a row whose `category` is not one of the
+-- four is dropped by the loop and caught by `Shop.rowsOk` -- so a catalogue mistake is a failing
+-- harness rather than an item nobody can see. The rows inside a shelf keep the order they arrived
+-- in, which is `Shop.ORDER`'s cheapest-first.
+function Shop.groups(rows: { WireRow }?): { Group }
+	local out: { Group } = {}
+	for _, category in ipairs(Shop.CATEGORY_ORDER) do
+		local kept: { WireRow } = {}
+		for _, row in ipairs(rows or {}) do
+			if row.category == category then
+				table.insert(kept, row)
+			end
+		end
+		if #kept > 0 then
+			table.insert(out, { category = category, label = Shop.CATEGORY_LABEL[category], rows = kept })
+		end
+	end
+	return out
+end
+
+-- EVERY ROW THE SIDE MENU DRAWS, IN THE ORDER IT DRAWS THEM -- the headers dropped. The panel's
+-- selection is an item ID and never an index (task 196), and this is the list that says which id is
+-- FIRST: what a freshly opened panel shows before anything is clicked.
+function Shop.menuOrder(rows: { WireRow }?): { string }
+	local out: { string } = {}
+	for _, group in ipairs(Shop.groups(rows)) do
+		for _, row in ipairs(group.rows) do
+			table.insert(out, row.id)
+		end
+	end
+	return out
+end
 
 -- ---------------------------------------------------------------- the words and the numbers
 
@@ -185,22 +283,72 @@ Shop.CONFIG = {
 	-- shopkeeper's `ProximityPrompt` is the one way in, and a panel that was already open when you
 	-- got there would make her key decorative. `REACH_STUDS` still CLOSES it, at the same distance
 	-- the server refuses a purchase at. `tests/client/shop_panel.spec.luau` asserts both halves.
+	-- THE SIDE MENU AND THE DETAIL PANE (task 196). Karen: *"side menu with click and then shows in
+	-- right side image and explanation"*. Every number is a PIXEL and the panel's own
+	-- `ShopPanel.layoutFor` is the ONE function that turns them into rectangles -- pure, so the
+	-- phone-sized case is an assertion rather than a screenshot (task 165's layout check).
 	PANEL = {
-		-- 360, NOT 420, AND THE REASON IS MEASURED: `tests/client/hud_clarity.spec.luau` asserts
-		-- against a 400 px wide screen and `Drive.CONFIG.SCORE_PANEL_WIDTH` is already 480 -- wider
-		-- than that screen, which `docs/design/economy.md` section 7.2 names as an existing problem
-		-- it declined to make worse. This is the first panel in the repo that fits the phone screen
-		-- the clarity spec measures, and a panel that fits is worth more than three characters of
-		-- label (design section 13.1).
+		-- 360 IS THE NARROWEST THE PANEL EVER IS, AND THE REASON IS MEASURED:
+		-- `tests/client/hud_clarity.spec.luau` asserts against a 400 px wide screen and
+		-- `Drive.CONFIG.SCORE_PANEL_WIDTH` is already 480 -- wider than that screen, which
+		-- `docs/design/economy.md` section 7.2 names as an existing problem it declined to make
+		-- worse. 400 less two 12 px gutters is 376, so a phone gets the whole panel (design 13.1).
 		WIDTH = 360,
-		ROW_PX = 48,
-		GAP = 8,
+		-- ...AND SINCE TASK 196 IT GROWS. One fixed rectangle could hold a list OR a picture, not
+		-- both: Karen asked for a *"side menu"* on the left and the *"image and explanation"* on the
+		-- right, which is two columns. So the panel is as big as the screen allows between these
+		-- bounds -- a 640 px window on a monitor, 376 on a phone, one layout either way, and
+		-- `ShopPanel.layoutFor` is the one function that works it out.
+		MAX_WIDTH = 640,
+		MIN_HEIGHT = 300,
+		MAX_HEIGHT = 470,
+		-- The gutter between the panel and the edge of the screen, each side.
+		MARGIN = 12,
+		-- HOW MUCH OF THE BODY THE SIDE MENU TAKES, and the pixels it may never go outside: a column
+		-- narrower than 132 cannot hold "BEATER LICENCE" at 14 px in `Enum.Font.Code`, and one wider
+		-- than 220 starves the picture on a phone.
+		LIST_FRACTION = 0.4,
+		LIST_MIN = 132,
+		LIST_MAX = 220,
+		-- A MENU ROW CARRIES TWO LINES -- the name, then the price and the badge -- so it is 56 and
+		-- not the 48 a one-line button needs. Both are over the 44 px Roblox's own tutorial sets as
+		-- a touch minimum, which is what matters: every row in this list is a tap target.
+		ROW_PX = 56,
+		-- A CATEGORY HEADER IS NOT A TAP TARGET and is deliberately small: it is a label on a shelf.
+		HEADER_ROW_PX = 22,
+		GAP = 4,
 		-- 64 AND NOT 40, AND THE FIRST FRAME IS WHY (rule 5). The header is a title at y=8 and the
 		-- balance line under it at y=34, and at 40 the first row was drawn straight through
 		-- "COINS 0     HUNTS 0" -- measured in `.screenshots/20261014-task178-shop-panel.png`, the
 		-- first picture this panel ever took. 64 clears the balance's own 20 px with ten to spare.
 		HEADER_PX = 64,
-		FOOTER_PX = 56,
+		-- THE FOOTER IS ONE LINE NOW (task 196) and not 56 px of it: what it carries is the last
+		-- refusal, and the thing that refused is a button 30 px above it.
+		FOOTER_PX = 30,
+		-- THE PICTURE: `ShopDisplay`'s `ViewportFrame`, as tall as this fraction of its own width and
+		-- never outside these bounds. 0.56 is close enough to 16:9 that a rifle lying across the
+		-- frame fills it.
+		IMAGE_FRACTION = 0.56,
+		IMAGE_MIN = 100,
+		IMAGE_MAX = 210,
+		-- ...AND IT MAY NOT EAT THE COLUMN. Measured while writing `ShopPanel.layoutFor`: on a
+		-- 1920 x 1080 screen the detail column is 384 px wide, so a picture at `IMAGE_FRACTION` is
+		-- 210 px tall -- and with the name, the price, the unlock line and a 52 px button under it
+		-- there were TEN PIXELS left for Karen's *"explanation"*, which is half a line. The picture
+		-- is therefore capped at this fraction of the column's own HEIGHT as well as its width.
+		IMAGE_MAX_FRACTION = 0.42,
+		-- HOW LONG AN EXPLANATION MAY BE, and it is not a style rule: `Shop.rowsOk` refuses a longer
+		-- one. At 12 px in `Enum.Font.Code` a glyph is about 7.2 px wide, so the 200 px pane a
+		-- 400 x 800 phone gives holds ~27 characters a line, and the ~100 px between the unlock line
+		-- and the BUY button holds 5 lines (`layoutFor(400, 800).blurbLines`), so 5 x 27 = 135
+		-- characters is what fits -- and the client spec asserts those five lines are still there, so
+		-- a layout change that quietly starts clipping Karen's sentences fails the harness. On a
+		-- monitor the pane is 53 characters wide and 3 lines tall, which is 159: wider screens are
+		-- not the tight case. The longest explanation in the catalogue today is 124.
+		BLURB_MAX = 135,
+		-- THE ONE BIG BUTTON, taller than the 48 px minimum because it is the only thing in this
+		-- panel that spends money.
+		BUY_PX = 52,
 		-- `Report.CONFIG.PANEL_Z_INDEX` is 15 and `Rail.CONFIG.Z_INDEX` is 16, so the rail stays
 		-- pressable over this panel -- which is what lets a thumb reach the map while it is open.
 		Z_INDEX = 15,
@@ -218,6 +366,17 @@ Shop.CONFIG = {
 		POOR_TAG = "NO COINS",
 		HINT = "WHAT YOU BUY IS YOURS FROM THE NEXT HUNT",
 		BOUGHT = "BOUGHT: %s",
+		-- THE DETAIL PANE'S OWN WORDS (task 196).
+		PRICE = "%d COINS",
+		UNLOCK_OPEN = "NO HUNTS NEEDED",
+		UNLOCK_AT = "UNLOCKS AFTER %d HUNTS",
+		UNLOCK_LEFT = "%d MORE HUNTS TO GO",
+		-- `X` AND NOT "CLOSE" in the corner: the close button is a 48 px square at the top right of
+		-- the panel now, which is where every shop in every game this game's players have played
+		-- keeps it. `Escape` is the Roblox menu's and cannot be bound (`ReportPanel.bind`'s note),
+		-- so this glyph and walking away from the counter are the two ways out.
+		CLOSE_GLYPH = "X",
+		PICK = "PICK AN ITEM ON THE LEFT",
 	},
 }
 
@@ -316,6 +475,33 @@ function Shop.rowsOk(weaponRows: any, ammoKinds: { string }?): { string }
 		end
 		if type(row.hunts) ~= "number" or row.hunts < 0 or row.hunts % 1 ~= 0 then
 			table.insert(problems, string.format("%s has a hunt gate of %s", id, tostring(row.hunts)))
+		end
+		-- I4 AND I5 (task 196): A SHELF THE SIDE MENU DRAWS, AND AN EXPLANATION TO READ. `Shop.groups`
+		-- drops a row whose category is not one of the four, so without this check a mistyped shelf
+		-- would be an item nobody can see and nobody can buy -- the exact silence `Weapons`'s header
+		-- refuses a registry for (*"a weapon that forgot to register is a weapon that silently does
+		-- not exist"*). The blurb is checked for the same reason the label is: the detail pane has a
+		-- paragraph in it, and an empty one is a blank half-panel.
+		if Shop.CATEGORY_LABEL[row.category] == nil then
+			table.insert(
+				problems,
+				string.format("%s sits on the shelf %s, which is not one of four", id, tostring(row.category))
+			)
+		end
+		if type(row.blurb) ~= "string" or #row.blurb < 20 then
+			table.insert(problems, string.format("%s has no explanation to read in the shop window", id))
+		elseif #row.blurb > Shop.CONFIG.PANEL.BLURB_MAX then
+			-- A LONGER ONE IS CLIPPED ON A PHONE, which is not a judgement about prose: see
+			-- `PANEL.BLURB_MAX` for the measurement it comes from.
+			table.insert(
+				problems,
+				string.format(
+					"%s has a %d character explanation and %d is the most that fits",
+					id,
+					#row.blurb,
+					Shop.CONFIG.PANEL.BLURB_MAX
+				)
+			)
 		end
 		local grants = row.grants
 		if
@@ -508,6 +694,13 @@ export type Request = { kind: string, item: string? }
 export type WireRow = {
 	id: string,
 	label: string,
+	-- THE SHELF AND THE EXPLANATION TRAVEL ON THE WIRE (task 196) and are not read off the shared
+	-- catalogue by the panel, even though the panel could. `ShopPanel`'s own rule is *"IT DRAWS WHAT
+	-- ARRIVED AND DECIDES NOTHING"*, and a panel that read half a row from the wire and half from its
+	-- own copy of the table would be two readers of one row the day the catalogue changes under a
+	-- client that has not rejoined. Twelve extra fields per state message, once per press.
+	category: string,
+	blurb: string,
 	price: number,
 	hunts: number,
 	sale: boolean,
@@ -708,6 +901,8 @@ function Shop.rowsFor(owned: { [string]: boolean }?, balance: number?, hunts: nu
 		table.insert(out, {
 			id = id,
 			label = row.label,
+			category = row.category,
+			blurb = row.blurb,
 			price = row.price,
 			hunts = row.hunts,
 			sale = row.sale,

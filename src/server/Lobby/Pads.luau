@@ -378,7 +378,7 @@ end
 -- ---------------------------------------------------------------- the words over the pad
 
 -- WHAT THE BILLBOARD OVER THIS PAD SAYS: the truck's number, and the fill. PURE, so what is written
--- over the trucks is a spec and not a screenshot -- `ShopPanel.rowLabelFor`'s and
+-- over the trucks is a spec and not a screenshot -- `ShopPanel.rowNameFor`'s and
 -- `ReportPanel.listRowText`'s rule (*"the panel reads, the words do not"*).
 --
 -- `%d / -` BEFORE A PICK AND NOT `%d / 0`, because nobody having picked yet is not a party of
