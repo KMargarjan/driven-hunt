@@ -183,6 +183,36 @@ return function()
 	-- KAREN, 2026-10-09: *"no weapon when it loads"*. Two windows, both measured in the Forest Test
 	-- with a per-frame trace from t = 0, and one assertion each -- see task 133.
 	describe("there is a gun on screen when the session starts", function()
+		-- KAREN, 2026-10-16 ~19:00: *"once I close shop I can't move mouse seems disabled need to go
+		-- back to turn again fix that"*.
+		--
+		-- A MOUSE LOCKED TO THE CENTRE HAS NO POINTER, so a `gameProcessedEvent` on a mouse movement
+		-- at that moment can only come from a piece of interface the player cannot point at and
+		-- cannot get out from under -- and the camera used to drop the delta for it, which is a
+		-- camera that will not turn for a reason nobody can see. `Camera.wantsDelta` is the rule, and
+		-- it is pure so this is the whole of it.
+		--
+		-- THE OLD CODE FAILS THE SECOND LINE: it was `if processed then return end`, which is this
+		-- function answering false for a locked cursor.
+		it("takes a mouse delta the interface claimed only while the cursor is locked", function()
+			local LOCKED = Enum.MouseBehavior.LockCenter
+			local FREE = Enum.MouseBehavior.Default
+			-- NOBODY CLAIMED IT: the camera turns, whatever the cursor is doing.
+			expect(Camera.wantsDelta(false, LOCKED)).to.equal(true)
+			expect(Camera.wantsDelta(false, FREE)).to.equal(true)
+			-- THE INTERFACE CLAIMED IT AND THE CURSOR IS LOCKED: there is no pointer, so it is the
+			-- camera's. This is the line that fails on the old code.
+			expect(Camera.wantsDelta(true, LOCKED)).to.equal(true)
+			-- THE INTERFACE CLAIMED IT AND THE CURSOR IS FREE: the player is pointing at a menu, and
+			-- a camera that turned under his hand would be fighting him. Unchanged.
+			expect(Camera.wantsDelta(true, FREE)).to.equal(false)
+			-- ...AND THE LIVE CAMERA IS IN THE STATE THE RULE IS WRITTEN FOR: `Camera.Cursor` is the
+			-- one writer of that property, and with no menu open it locks.
+			Camera.Cursor.apply()
+			expect(UserInputService.MouseBehavior).to.equal(LOCKED)
+			expect(Camera.wantsDelta(true, UserInputService.MouseBehavior)).to.equal(true)
+		end)
+
 		it("has its sources wired by the composition root, every single boot", function()
 			-- THE ONE THAT MADE HER SESSION GUNLESS. `CameraBoot` read `PlayerScripts.Weapon` with
 			-- `FindFirstChild`, so on a boot where that module had not replicated yet the whole

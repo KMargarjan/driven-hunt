@@ -302,6 +302,33 @@ function Camera.lookAt(point: Vector3): boolean
 	return true
 end
 
+-- DOES THIS MOUSE MOVEMENT BELONG TO THE CAMERA? PURE, exported, and the whole of the fix for
+-- Karen's 2026-10-16 report: *"once I close shop I can't move mouse seems disabled need to go back
+-- to turn again"*.
+--
+-- THE OLD RULE WAS `if processed then return end`, AND IT IS RIGHT WHILE THERE IS A POINTER.
+-- `gameProcessedEvent` means the engine gave that movement to the interface -- the mouse is over a
+-- menu, and a camera that turned under an open shop would be a camera fighting the player's hand.
+--
+-- IT IS WRONG THE MOMENT THE CURSOR IS LOCKED TO THE CENTRE. There is then no pointer to be "over"
+-- anything: the mouse is a delta device and nothing else, so a `processed` flag can only come from a
+-- piece of interface the player cannot point at, cannot see and cannot get out from under. A camera
+-- that drops the delta for that is a camera refusing to turn for a reason nobody can undo -- which is
+-- the shape of what Karen hit after closing the shop, and why walking away and back "fixed" it.
+--
+-- So: while the cursor is LOCKED, every mouse delta is the camera's. While it is FREE, the interface
+-- keeps what the engine gave it, exactly as before.
+--
+--   UserInputService.MouseBehavior  https://create.roblox.com/docs/reference/engine/classes/UserInputService
+--   `Camera.Cursor` is the ONE writer of that property (design section 3.3), so this reads the
+--   engine's own value rather than a second copy of the cursor's state.
+function Camera.wantsDelta(processed: boolean, behavior: Enum.MouseBehavior): boolean
+	if not processed then
+		return true
+	end
+	return behavior == Enum.MouseBehavior.LockCenter
+end
+
 -- THE VIEW STARTS FACING THE WAY THE BODY DOES (task 130).
 --
 -- KAREN'S HUNTER SPAWNED WITH HIS BACK TO THE DRIVE. The Forest Test puts the shooter on the road
@@ -587,7 +614,12 @@ function Camera.start()
 	table.insert(
 		connections,
 		UserInputService.InputChanged:Connect(function(input: InputObject, processed: boolean)
-			if processed or input.UserInputType ~= Enum.UserInputType.MouseMovement then
+			if input.UserInputType ~= Enum.UserInputType.MouseMovement then
+				return
+			end
+			-- WHOSE MOVEMENT IS THIS? One pure question, asked of the engine's own cursor state --
+			-- see `Camera.wantsDelta`, and Karen's 2026-10-16 report, which is what it is for.
+			if not Camera.wantsDelta(processed, UserInputService.MouseBehavior) then
 				return
 			end
 			lookDelta += Vector2.new(input.Delta.X, input.Delta.Y)
