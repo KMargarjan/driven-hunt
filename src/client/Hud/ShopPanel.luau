@@ -158,7 +158,7 @@ local viewportBuiltAt = -math.huge
 -- THE BALL THE CAMERA HOLDS, measured ONCE per picture rather than once per frame: `GetExtentsSize`
 -- walks every part, and the model does not change size while it turns.
 local pictureCentre = Vector3.zero
-local pictureRadius = 1
+local pictureSize = Vector3.one
 local screenWas = Vector2.zero
 local menu: { { id: string, row: TextButton } } = {}
 local headers: { TextLabel } = {}
@@ -283,12 +283,12 @@ function ShopPanel.viewportFrame(): ViewportFrame?
 	return viewport
 end
 
--- THE BALL THE PICTURE'S CAMERA IS AIMED AT: the model's own bounding centre and radius, measured
--- once when the picture was built. Exported because the camera is aimed AT THE BOX CENTRE and not at
+-- THE BOX THE PICTURE'S CAMERA IS AIMED AT: the model's own bounding centre and size, measured once
+-- when the picture was built. Exported because the camera is aimed AT THE BOX CENTRE and not at
 -- the model's pivot (`Model:GetPivot` is its PrimaryPart's frame), so a spec checking where the lens
 -- points has to be told which point to check against.
-function ShopPanel.pictureBall(): (Vector3, number)
-	return pictureCentre, pictureRadius
+function ShopPanel.pictureBall(): (Vector3, Vector3)
+	return pictureCentre, pictureSize
 end
 
 -- ---------------------------------------------------------------- the rectangle, pure
@@ -835,10 +835,19 @@ function ShopPanel.rowFor(id: string?): any
 	return nil
 end
 
--- WHICH ITEM A FRESHLY OPENED PANEL SHOWS: the first one in the side menu's own order, so the right
--- column is never blank while there is something to show.
+-- WHICH ITEM A FRESHLY OPENED PANEL SHOWS: THE FIRST ONE HE MAY ACTUALLY BUY, and the first row in
+-- the menu when there is no such thing. The first frame of this panel is why (rule 5, measured
+-- 2026-10-16): the menu's order puts WEAPONS first and the first weapon is `rifle.open`, so the shop
+-- opened on the one item in the catalogue that is not for sale -- a page headed SOON. A shop window
+-- opens on something you can take to the counter.
 local function firstId(): string?
 	local order = ShopData.menuOrder((payload and payload.rows) or nil)
+	for _, id in ipairs(order) do
+		local row = ShopPanel.rowFor(id)
+		if row ~= nil and row.buyable == true then
+			return id
+		end
+	end
 	if #order > 0 then
 		return order[1]
 	end
@@ -879,7 +888,7 @@ function ShopPanel.showPicture(id: string?)
 	model.Parent = frame
 	viewportModel = model
 	viewportId = id
-	pictureCentre, pictureRadius = ShopDisplay.frameOf(model)
+	pictureCentre, pictureSize = ShopDisplay.frameOf(model)
 	viewportBuiltAt = os.clock()
 	stats.pictures += 1
 	ShopPanel.aim(0)
@@ -892,7 +901,13 @@ function ShopPanel.aim(angleDeg: number)
 	if camera == nil or viewportModel == nil then
 		return
 	end
-	camera.CFrame = ShopDisplay.cameraCFrame(pictureCentre, pictureRadius, angleDeg, ShopDisplay.viewFor(viewportId))
+	-- THE FRAME'S SHAPE DECIDES HOW FAR BACK THE CAMERA STANDS, so it is measured off the viewport
+	-- itself: a rifle in a 200 x 112 box is held by its width. `AbsoluteSize` is zero until the Gui has
+	-- been laid out once, and a 16:9 guess is what the first frame then gets.
+	local box = (viewport :: ViewportFrame).AbsoluteSize
+	local aspect = if box.X > 1 and box.Y > 1 then box.X / box.Y else 16 / 9
+	camera.CFrame =
+		ShopDisplay.cameraCFrame(pictureCentre, pictureSize, angleDeg, ShopDisplay.viewFor(viewportId), aspect)
 end
 
 -- ONE STEP OF THE TURN, called by `Hud.renderObjective` -- the Hud's one per-frame evaluation, which

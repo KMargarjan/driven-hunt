@@ -301,7 +301,12 @@ Shop.CONFIG = {
 		-- `ShopPanel.layoutFor` is the one function that works it out.
 		MAX_WIDTH = 640,
 		MIN_HEIGHT = 300,
-		MAX_HEIGHT = 470,
+		-- 560 AND NOT 470, AND THE FIRST FRAME IS WHY (rule 5, measured 2026-10-16 in
+		-- `.screenshots/196-shop-phone-a.png`): at 470 the side menu's own canvas is 404 px against a
+		-- 364 px column, so the shop scrolled with FOUR AND A HALF rows showing out of five and the
+		-- CLOTHING shelf cut in half. At 560 the whole catalogue is on screen at once on a phone and
+		-- on a monitor, and the panel is still 70 % of a 800 px screen's height.
+		MAX_HEIGHT = 560,
 		-- The gutter between the panel and the edge of the screen, each side.
 		MARGIN = 12,
 		-- HOW MUCH OF THE BODY THE SIDE MENU TAKES, and the pixels it may never go outside: a column
@@ -340,11 +345,11 @@ Shop.CONFIG = {
 		-- HOW LONG AN EXPLANATION MAY BE, and it is not a style rule: `Shop.rowsOk` refuses a longer
 		-- one. At 12 px in `Enum.Font.Code` a glyph is about 7.2 px wide, so the 200 px pane a
 		-- 400 x 800 phone gives holds ~27 characters a line, and the ~100 px between the unlock line
-		-- and the BUY button holds 5 lines (`layoutFor(400, 800).blurbLines`), so 5 x 27 = 135
-		-- characters is what fits -- and the client spec asserts those five lines are still there, so
-		-- a layout change that quietly starts clipping Karen's sentences fails the harness. On a
-		-- monitor the pane is 53 characters wide and 3 lines tall, which is 159: wider screens are
-		-- not the tight case. The longest explanation in the catalogue today is 124.
+		-- and the BUY button held 5 lines when this was measured, so 5 x 27 = 135 characters is what
+		-- fits -- and the client spec asserts those five lines are STILL there, so a layout change
+		-- that quietly starts clipping Karen's sentences fails the harness. `MAX_HEIGHT` has since
+		-- gone to 560 and the phone pane now holds ten lines, which is margin and not a reason to
+		-- write more: a shop window is read at a glance. The longest in the catalogue today is 124.
 		BLURB_MAX = 135,
 		-- THE ONE BIG BUTTON, taller than the 48 px minimum because it is the only thing in this
 		-- panel that spends money.

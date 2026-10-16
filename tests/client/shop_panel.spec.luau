@@ -40,6 +40,9 @@ local scripts = player:WaitForChild("PlayerScripts")
 local Hud = require(scripts:WaitForChild("Hud"))
 
 local Panel = Hud.Shop
+-- THE PICTURE'S OWN ARITHMETIC, required directly: `halfExtents` and `distanceFor` are pure, so
+-- where the camera SHOULD be is a calculation this spec can redo rather than a number it copies.
+local Display = require(scripts:WaitForChild("Hud"):WaitForChild("ShopDisplay"))
 
 -- THE PAYLOAD THE SERVER WOULD SEND, built by hand with `Shop.rowsFor` -- the same pure function
 -- `Economy.shopStateFor` calls, so this spec cannot disagree with the server about what a row says.
@@ -357,12 +360,30 @@ return function()
 			-- ...AND THE CAMERA IS AIMED AT IT, from the distance the item's own bounding ball asks
 			-- for. `distanceFor` is pure arithmetic, so this is a measurement and not an impression.
 			local camera = (frame :: ViewportFrame).CurrentCamera :: Camera
-			local centre, radius = Panel.pictureBall()
+			local centre, size = Panel.pictureBall()
+			local radius = size.Magnitude / 2
 			local away = (camera.CFrame.Position - centre).Magnitude
-			-- FAR ENOUGH BACK TO HOLD THE WHOLE THING: outside its own bounding ball, and not so far
-			-- that a rifle is a speck.
-			expect(away > radius).to.equal(true)
+			-- FAR ENOUGH BACK TO HOLD THE WHOLE THING AND NO FURTHER. The framing is the item's
+			-- PROJECTED box and not its bounding ball (`ShopDisplay.halfExtents`, and the first frame
+			-- that made it necessary), so a 4.4-stud rifle seen side-on is held from about five studs
+			-- rather than ten: what this asserts is that the camera is outside the model and not lost
+			-- in the next county.
+			expect(away > size.Y).to.equal(true)
 			expect(away < radius * 12).to.equal(true)
+			-- ...AND THE ARITHMETIC AGREES WITH WHERE IT ACTUALLY IS, to the stud: the distance is a
+			-- pure function of the box, the lens and the shape of the frame.
+			local viewportBox = (frame :: ViewportFrame).AbsoluteSize
+			if viewportBox.X > 1 and viewportBox.Y > 1 then
+				local halfWidth, halfHeight = Display.halfExtents(size, camera.CFrame)
+				local wanted = Display.distanceFor(
+					halfWidth,
+					halfHeight,
+					viewportBox.X / viewportBox.Y,
+					Display.FOV_DEG,
+					Display.viewFor(Shop.ITEM.RIFLE).pad
+				)
+				expect(math.abs(away - wanted) < 0.05).to.equal(true)
+			end
 			local look = camera.CFrame.LookVector
 			local toward = (centre - camera.CFrame.Position).Unit
 			-- The lens points AT the thing: the two directions agree to within a degree or so.

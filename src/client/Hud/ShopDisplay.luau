@@ -47,9 +47,9 @@ local ShopDisplay = {}
 -- A NARROW LENS, because a shop window is a photograph and not a point of view: at 70 degrees a
 -- rifle 2 studs from the glass bends like a fish-eye, and at 28 it reads as a catalogue picture.
 ShopDisplay.FOV_DEG = 28
--- HOW MUCH AIR AROUND THE THING, as a multiplier on its own bounding radius. 1.12 leaves a thin
+-- HOW MUCH AIR AROUND THE THING, as a multiplier on what the lens has to hold. 1.15 leaves a thin
 -- margin on the long axis without making the item small.
-ShopDisplay.PAD = 1.12
+ShopDisplay.PAD = 1.15
 -- SLOWLY. Karen asked for a picture that turns, and a turn you can read is a turn you do not notice:
 -- 24 degrees a second is one revolution in fifteen seconds.
 ShopDisplay.SPIN_DEG_PER_S = 24
@@ -66,25 +66,67 @@ local RIFLE_VIEW: View = { yawDeg = 96, pitchDeg = 16 }
 local SOLID_VIEW: View = { yawDeg = 36, pitchDeg = 22 }
 local CARD_VIEW: View = { yawDeg = 14, pitchDeg = 10, pad = 1.2 }
 
--- HOW FAR BACK THE CAMERA HAS TO BE to hold a ball of this radius in a lens of this angle. PURE --
--- `tan` of the half-angle, the one piece of arithmetic in the framing -- so the picture's framing is
--- a spec and not a screenshot.
-function ShopDisplay.distanceFor(radius: number, fovDeg: number?, pad: number?): number
+-- HOW BIG THE ITEM IS AS THE CAMERA SEES IT: half its width and half its height on the camera's own
+-- two axes. PURE, and it is the exact projection of an axis-aligned box onto a direction -- each
+-- side's length times that side's share of the axis, halved.
+--
+-- THE FIRST FRAME OF THIS PANEL IS WHY IT EXISTS (rule 5, measured 2026-10-16 in
+-- `.screenshots/196-shop-phone-a.png`). The framing was a bounding SPHERE, which is right for a hat
+-- and wrong for a rifle: a 4.4-stud gun 0.9 studs tall has a 2.24-stud radius, so the camera stood
+-- 10 studs back and drew the rifle a quarter of the way across its own picture with empty box above
+-- and below it. A rod in a landscape frame has to be held by its WIDTH.
+function ShopDisplay.halfExtents(size: Vector3, orientation: CFrame): (number, number)
+	local right = orientation.RightVector
+	local up = orientation.UpVector
+	local halfWidth = 0.5 * (math.abs(size.X * right.X) + math.abs(size.Y * right.Y) + math.abs(size.Z * right.Z))
+	local halfHeight = 0.5 * (math.abs(size.X * up.X) + math.abs(size.Y * up.Y) + math.abs(size.Z * up.Z))
+	return halfWidth, halfHeight
+end
+
+-- HOW FAR BACK THE CAMERA HAS TO BE to hold a box this big in a lens of this angle on a frame of
+-- this shape. PURE -- `tan` of the half-angle, the one piece of arithmetic in the framing -- so the
+-- picture's framing is a spec and not a screenshot.
+--
+-- THE LENS'S ANGLE IS VERTICAL (Roblox's `Camera.FieldOfView` is), so the horizontal one is that
+-- angle widened by the frame's aspect. Whichever of the two asks for more room wins: the rifle is
+-- held by its width and the hat by its height, and neither is a special case.
+function ShopDisplay.distanceFor(
+	halfWidth: number,
+	halfHeight: number,
+	aspect: number?,
+	fovDeg: number?,
+	pad: number?
+): number
 	local fov = fovDeg or ShopDisplay.FOV_DEG
-	local half = math.rad(math.clamp(fov, 1, 120)) / 2
-	return (math.max(radius, 0.01) * (pad or ShopDisplay.PAD)) / math.tan(half)
+	local half = math.tan(math.rad(math.clamp(fov, 1, 120)) / 2)
+	local shape = math.max(aspect or 1, 0.05)
+	local air = pad or ShopDisplay.PAD
+	local forHeight = (math.max(halfHeight, 0.01) * air) / half
+	local forWidth = (math.max(halfWidth, 0.01) * air) / (half * shape)
+	return math.max(forHeight, forWidth)
 end
 
 -- WHERE THE CAMERA IS AND WHAT IT LOOKS AT, for an item of this size at this moment. PURE.
 --
 -- THE CAMERA ORBITS AND THE MODEL STANDS STILL, which is the cheaper half of the same picture: one
 -- `CFrame` written per frame instead of a `PivotTo` over every part, and no pivot to keep.
-function ShopDisplay.cameraCFrame(centre: Vector3, radius: number, angleDeg: number, view: View?): CFrame
+function ShopDisplay.cameraCFrame(
+	centre: Vector3,
+	size: Vector3,
+	angleDeg: number,
+	view: View?,
+	aspect: number?
+): CFrame
 	local look = view or SOLID_VIEW
 	local yaw = math.rad(look.yawDeg + angleDeg)
 	local pitch = math.rad(look.pitchDeg)
 	local direction = Vector3.new(math.sin(yaw) * math.cos(pitch), math.sin(pitch), math.cos(yaw) * math.cos(pitch))
-	local distance = ShopDisplay.distanceFor(radius, ShopDisplay.FOV_DEG, look.pad)
+	-- THE ORIENTATION FIRST AND THE DISTANCE SECOND, because how big the item looks depends on which
+	-- way the camera faces: one 4.4-stud gun is a rod end-on and a rod across the frame a quarter-turn
+	-- later. One `CFrame` is built to ask that question, and its answer places the second.
+	local orientation = CFrame.lookAt(centre + direction, centre)
+	local halfWidth, halfHeight = ShopDisplay.halfExtents(size, orientation)
+	local distance = ShopDisplay.distanceFor(halfWidth, halfHeight, aspect, ShopDisplay.FOV_DEG, look.pad)
 	return CFrame.lookAt(centre + direction * distance, centre)
 end
 
@@ -381,18 +423,18 @@ function ShopDisplay.build(id: string?): Model?
 	return model
 end
 
--- THE BALL THE CAMERA HAS TO HOLD: where the item's box is and how big it is. Read off the model
--- rather than declared per item, so a piece added to a drawing cannot push itself out of frame.
-function ShopDisplay.frameOf(model: Model?): (Vector3, number)
+-- THE BOX THE CAMERA HAS TO HOLD: where the item is and how big it is. Read off the model rather
+-- than declared per item, so a piece added to a drawing cannot push itself out of frame.
+function ShopDisplay.frameOf(model: Model?): (Vector3, Vector3)
 	if model == nil then
-		return Vector3.zero, 1
+		return Vector3.zero, Vector3.one
 	end
 	local size = model:GetExtentsSize()
 	local ok, box = pcall(function()
 		return (model :: Model):GetBoundingBox()
 	end)
 	local centre = if ok and box then (box :: CFrame).Position else Vector3.zero
-	return centre, math.max(size.Magnitude / 2, 0.01)
+	return centre, size
 end
 
 return ShopDisplay
