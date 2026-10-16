@@ -833,7 +833,7 @@ local function build(): ScreenGui
 	-- the only writer of its `Visible` AND of its `Size`, because the size now follows the screen.
 	local shop = Instance.new("Frame")
 	shop.Name = "ShopPanel"
-	shop.BackgroundColor3 = ShopPanel.LOOK.PANEL_COLOR
+	shop.BackgroundColor3 = ShopPanel.LOOK.PANEL
 	shop.BackgroundTransparency = 0
 	shop.BorderSizePixel = 0
 	shop.AnchorPoint = Vector2.new(0.5, 0.5)

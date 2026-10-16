@@ -277,100 +277,110 @@ Shop.CONFIG = {
 	-- `ShopPanel.layoutFor` is the ONE function that turns them into rectangles -- pure, so the
 	-- phone-sized case is an assertion rather than a screenshot (task 165's layout check).
 	PANEL = {
-		-- 360 IS THE NARROWEST THE PANEL EVER IS, AND THE REASON IS MEASURED:
-		-- `tests/client/hud_clarity.spec.luau` asserts against a 400 px wide screen and
-		-- `Drive.CONFIG.SCORE_PANEL_WIDTH` is already 480 -- wider than that screen, which
-		-- `docs/design/economy.md` section 7.2 names as an existing problem it declined to make
-		-- worse. 400 less two 12 px gutters is 376, so a phone gets the whole panel (design 13.1).
-		WIDTH = 360,
-		-- ...AND SINCE TASK 196 IT GROWS. One fixed rectangle could hold a list OR a picture, not
-		-- both: Karen asked for a *"side menu"* on the left and the *"image and explanation"* on the
-		-- right, which is two columns. So the panel is as big as the screen allows between these
-		-- bounds -- a 640 px window on a monitor, 376 on a phone, one layout either way, and
-		-- `ShopPanel.layoutFor` is the one function that works it out.
+		-- THE DESIGNER'S NUMBERS (the Designer's spec, 2026-10-16, section 3). Karen handed the look
+		-- over -- *"give this to designer to decide how it should look"* -- and these are the pixels
+		-- that came back. `ShopPanel.layoutFor` is still the ONE function that turns them into
+		-- rectangles, and it is still pure, so the phone case is an assertion and not a screenshot.
+		--
+		--   margin = 12; width = clamp(screenW - 2*margin, 300, 640)
+		--   height = clamp(floor(screenH * 0.80), 300, 640)
+		--   mode   = width >= 520 and "WIDE" or "TALL"
+		--
+		-- 1280 x 720 -> 640 x 576 WIDE. 400 x 800 -> 376 x 640 TALL.
+		MARGIN = 12,
+		MIN_WIDTH = 300,
 		MAX_WIDTH = 640,
 		MIN_HEIGHT = 300,
-		-- 560 AND NOT 470, AND THE FIRST FRAME IS WHY (rule 5, measured 2026-10-16 in
-		-- `.screenshots/196-shop-phone-a.png`): at 470 the side menu's own canvas is 404 px against a
-		-- 364 px column, so the shop scrolled with FOUR AND A HALF rows showing out of five and the
-		-- CLOTHING shelf cut in half. At 560 the whole catalogue is on screen at once on a phone and
-		-- on a monitor, and the panel is still 70 % of a 800 px screen's height.
-		MAX_HEIGHT = 560,
-		-- The gutter between the panel and the edge of the screen, each side.
-		MARGIN = 12,
-		-- HOW MUCH OF THE BODY THE SIDE MENU TAKES, and the pixels it may never go outside: a column
-		-- narrower than 132 cannot hold "BEATER LICENCE" at 14 px in `Enum.Font.Code`, and one wider
-		-- than 220 starves the picture on a phone.
-		LIST_FRACTION = 0.4,
-		LIST_MIN = 132,
-		LIST_MAX = 220,
-		-- A MENU ROW CARRIES TWO LINES -- the name, then the price and the badge -- so it is 56 and
-		-- not the 48 a one-line button needs. Both are over the 44 px Roblox's own tutorial sets as
-		-- a touch minimum, which is what matters: every row in this list is a tap target.
-		ROW_PX = 56,
-		-- A CATEGORY HEADER IS NOT A TAP TARGET and is deliberately small: it is a label on a shelf.
-		HEADER_ROW_PX = 22,
-		GAP = 4,
-		-- 64 AND NOT 40, AND THE FIRST FRAME IS WHY (rule 5). The header is a title at y=8 and the
-		-- balance line under it at y=34, and at 40 the first row was drawn straight through
-		-- "COINS 0     HUNTS 0" -- measured in `.screenshots/20261014-task178-shop-panel.png`, the
-		-- first picture this panel ever took. 64 clears the balance's own 20 px with ten to spare.
+		MAX_HEIGHT = 640,
+		HEIGHT_FRACTION = 0.8,
+		-- THE SPLIT BETWEEN THE TWO LAYOUTS, and it is a width and not a device: a 520 px panel can
+		-- hold a 228 px list and a 260 px picture, and a narrower one cannot -- *"at 376 px the
+		-- detail column would be 178 px wide. So the phone stacks"* (spec 3.4).
+		WIDE_AT = 520,
+		CORNER = 16,
+		-- The header is the same 64 px in both modes (spec 3.2).
 		HEADER_PX = 64,
-		-- THE FOOTER IS ONE LINE NOW (task 196) and not 56 px of it: what it carries is the last
-		-- refusal, and the thing that refused is a button 30 px above it.
-		FOOTER_PX = 30,
-		-- THE PICTURE: `ShopDisplay`'s `ViewportFrame`, as tall as this fraction of its own width and
-		-- never outside these bounds. 0.56 is close enough to 16:9 that a rifle lying across the
-		-- frame fills it.
-		IMAGE_FRACTION = 0.56,
-		IMAGE_MIN = 100,
-		IMAGE_MAX = 210,
-		-- ...AND IT MAY NOT EAT THE COLUMN. Measured while writing `ShopPanel.layoutFor`: on a
-		-- 1920 x 1080 screen the detail column is 384 px wide, so a picture at `IMAGE_FRACTION` is
-		-- 210 px tall -- and with the name, the price, the unlock line and a 52 px button under it
-		-- there were TEN PIXELS left for Karen's *"explanation"*, which is half a line. The picture
-		-- is therefore capped at this fraction of the column's own HEIGHT as well as its width.
-		IMAGE_MAX_FRACTION = 0.42,
-		-- HOW LONG AN EXPLANATION MAY BE, and it is not a style rule: `Shop.rowsOk` refuses a longer
-		-- one. At 12 px in `Enum.Font.Code` a glyph is about 7.2 px wide, so the 200 px pane a
-		-- 400 x 800 phone gives holds ~27 characters a line, and the ~100 px between the unlock line
-		-- and the BUY button held 5 lines when this was measured, so 5 x 27 = 135 characters is what
-		-- fits -- and the client spec asserts those five lines are STILL there, so a layout change
-		-- that quietly starts clipping Karen's sentences fails the harness. `MAX_HEIGHT` has since
-		-- gone to 560 and the phone pane now holds ten lines, which is margin and not a reason to
-		-- write more: a shop window is read at a glance. The longest in the catalogue today is 124.
+		-- WIDE: the side-menu well and the detail column beside it (spec 3.3).
+		WELL_X = 16,
+		WELL_Y = 72,
+		WELL_WIDTH = 228,
+		WELL_BOTTOM = 24,
+		WELL_PAD = 10,
+		DETAIL_GAP = 16,
+		ROW_PX = 60,
+		SHELF_PX = 24,
+		SHELF_GAP = 9,
+		-- TALL: the horizontal strip of cards under the header (spec 3.4).
+		STRIP_Y = 74,
+		STRIP_PX = 82,
+		CARD_WIDTH = 104,
+		CARD_GAP = 8,
+		STRIP_PAD = 16,
+		STRIP_FADE = 26,
+		-- THE DISPLAY CASE, and the floor under it is the spec's: *"take the difference off the
+		-- display case, down to a floor of 110 px"*.
+		CASE_WIDE_PX = 200,
+		CASE_TALL_PX = 178,
+		CASE_MIN_PX = 110,
+		-- THE STACK UNDER THE CASE, as the gaps between one thing and the next (spec 3.3's table
+		-- read as deltas, so the two modes are one arithmetic).
+		EYEBROW_GAP = 12,
+		EYEBROW_PX = 12,
+		NAME_GAP = 14,
+		NAME_PX = 30,
+		PRICE_GAP = 38,
+		PRICE_PX = 24,
+		RULE_GAP = 36,
+		BLURB_GAP = 14,
+		LINE_PX = 21, -- the blurb's line height
+		STATUS_PX = 14,
+		STATUS_GAP = 26, -- the status line sits this far above the button (spec 4)
+		BUTTON_PX = 56,
+		BOTTOM_PX = 12,
+		-- A TOUCH TARGET, UNCHANGED AND STILL THE RULE: the close button is 44 x 44, a row is 60, the
+		-- one big button is 56. *"Never smaller, desktop included"* (spec 8.6).
+		CLOSE_PX = 44,
+		TAG_PX = 19,
+		SCROLLBAR_PX = 3,
+		-- The scrim over the whole screen behind the panel (spec 2).
+		SCRIM_TRANSPARENCY = 0.42,
+		-- HOW LONG AN EXPLANATION MAY BE. 135 still, and the Designer checked it against the new box:
+		-- *"the new blurb box holds about 220 characters on a desktop and about 156 on a phone, so
+		-- every sentence in the catalogue fits with room to spare"*. `Shop.rowsOk` refuses a longer
+		-- one and the client spec asserts the phone still holds three whole lines.
 		BLURB_MAX = 135,
-		-- THE ONE BIG BUTTON, taller than the 48 px minimum because it is the only thing in this
-		-- panel that spends money.
-		BUY_PX = 52,
 		-- `Report.CONFIG.PANEL_Z_INDEX` is 15 and `Rail.CONFIG.Z_INDEX` is 16, so the rail stays
 		-- pressable over this panel -- which is what lets a thumb reach the map while it is open.
 		Z_INDEX = 15,
 	},
 	-- EVERY WORD THE PANEL DRAWS IS WRITTEN DOWN, which is `Drive.CONFIG`'s own rule.
 	TEXT = {
+		-- EVERY WORD THE PANEL DRAWS IS WRITTEN DOWN, which is `Drive.CONFIG`'s own rule -- and since
+		-- the Designer's spec (2026-10-16, section 7) these are the words. `BALANCE` is gone: the
+		-- wallet is two pills with a number and a caption each, so there is no sentence to format.
+		-- `CLOSE_GLYPH` is gone too -- the X is two rotated Frames, so no glyph has to exist in a
+		-- font for the panel to be closable.
 		TITLE = "SHOP",
+		EYEBROW = "HUNTING LODGE",
+		COINS_CAP = "COINS",
+		HUNTS_CAP = "HUNTS",
 		CLOSED = "THE SHOP IS CLOSED",
-		BALANCE = "COINS %s     HUNTS %d",
-		CLOSE = "CLOSE",
 		BUY = "BUY",
+		-- THE ROW'S TAGS. A row answers *"can I buy this?"* without being clicked (spec 0.3), and
+		-- the affordability signal is never colour alone: a row you cannot afford says SHORT.
 		OWNED_TAG = "OWNED",
 		SOON_TAG = "SOON",
-		LOCKED_TAG = "%d HUNTS",
-		POOR_TAG = "NO COINS",
-		HINT = "WHAT YOU BUY IS YOURS FROM THE NEXT HUNT",
+		ROW_LOCK_TAG = "%d / %d",
+		ROW_POOR_TAG = "SHORT %d",
+		-- THE BUTTON'S OWN WORDS, one per state (spec 4).
+		OWNED_BUTTON = "IN YOUR KIT",
+		LOCKED_BUTTON = "%d MORE HUNTS TO GO",
+		POOR_BUTTON = "%d MORE COINS",
+		-- THE ONE MESSAGE SLOT, above the button: the caveat, the receipt and the refusal all read
+		-- where the player is already looking (spec 4).
+		HINT = "YOURS FROM THE NEXT HUNT",
 		BOUGHT = "BOUGHT: %s",
-		-- THE DETAIL PANE'S OWN WORDS (task 196).
-		PRICE = "%d COINS",
-		UNLOCK_OPEN = "NO HUNTS NEEDED",
-		UNLOCK_AT = "UNLOCKS AFTER %d HUNTS",
-		UNLOCK_LEFT = "%d MORE HUNTS TO GO",
-		-- `X` AND NOT "CLOSE" in the corner: the close button is a 48 px square at the top right of
-		-- the panel now, which is where every shop in every game this game's players have played
-		-- keeps it. `Escape` is the Roblox menu's and cannot be bound (`ReportPanel.bind`'s note),
-		-- so this glyph and walking away from the counter are the two ways out.
-		CLOSE_GLYPH = "X",
-		PICK = "PICK AN ITEM ON THE LEFT",
+		PICK = "PICK AN ITEM",
 	},
 }
 

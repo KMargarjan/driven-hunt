@@ -49,22 +49,34 @@ local ShopDisplay = {}
 ShopDisplay.FOV_DEG = 28
 -- HOW MUCH AIR AROUND THE THING, as a multiplier on what the lens has to hold. 1.15 leaves a thin
 -- margin on the long axis without making the item small.
-ShopDisplay.PAD = 1.15
--- SLOWLY. Karen asked for a picture that turns, and a turn you can read is a turn you do not notice:
--- 24 degrees a second is one revolution in fifteen seconds.
-ShopDisplay.SPIN_DEG_PER_S = 24
-ShopDisplay.LIGHT_DIRECTION = Vector3.new(-0.4, -1, -0.6)
-ShopDisplay.LIGHT_COLOR = Color3.fromRGB(255, 248, 236)
-ShopDisplay.AMBIENT = Color3.fromRGB(104, 108, 112)
+ShopDisplay.PAD = 1.12
+-- SLOWLY, AND ONE REVOLUTION IN EIGHTEEN SECONDS (the Designer's spec, 2026-10-16, section 6.4:
+-- *"calm enough to read"*). A turn you can read is a turn you do not notice.
+ShopDisplay.SPIN_DEG_PER_S = 20
+-- WARMER THAN THE FIRST BUILD'S, and the reason is in the spec: *"every item in this shop is wood,
+-- brass, card or cloth"*. A cold grey ambient made all four look like plastic.
+ShopDisplay.LIGHT_DIRECTION = Vector3.new(-0.42, -1, -0.55)
+ShopDisplay.LIGHT_COLOR = Color3.fromHex("FFF8EC")
+ShopDisplay.AMBIENT = Color3.fromHex("6E6A62")
 
 -- WHERE THE CAMERA STANDS, in degrees around the item and degrees above it, per kind of thing: a
 -- rifle is a SILHOUETTE and is photographed from its side, a hat and a box are photographed from
 -- three-quarters on, a card is photographed nearly face-on or it is a line.
-export type View = { yawDeg: number, pitchDeg: number, pad: number? }
+--
+-- A VIEW ALSO SAYS HOW THE ITEM MOVES. A solid ORBITS; a flat card ROCKS, and that is an engine
+-- fact rather than a preference (spec 6.4): *"a flat card on a full orbit goes edge-on twice a
+-- revolution and disappears; a nine-second sway never does"*.
+export type View = {
+	yawDeg: number,
+	pitchDeg: number,
+	pad: number?,
+	rockDegrees: number?,
+	rockSeconds: number?,
+}
 
 local RIFLE_VIEW: View = { yawDeg = 96, pitchDeg = 16 }
-local SOLID_VIEW: View = { yawDeg = 36, pitchDeg = 22 }
-local CARD_VIEW: View = { yawDeg = 14, pitchDeg = 10, pad = 1.2 }
+local SOLID_VIEW: View = { yawDeg = 34, pitchDeg = 25 }
+local CARD_VIEW: View = { yawDeg = 15, pitchDeg = 9, pad = 1.18, rockDegrees = 17, rockSeconds = 9 }
 
 -- HOW BIG THE ITEM IS AS THE CAMERA SEES IT: half its width and half its height on the camera's own
 -- two axes. PURE, and it is the exact projection of an axis-aligned box onto a direction -- each
@@ -132,7 +144,13 @@ end
 
 -- THE ANGLE AT THIS MOMENT, wrapped to one turn. PURE, and taken from a clock the caller passes, so
 -- a spec drives the spin with a number (`Viewmodel.setClock`'s own arrangement).
-function ShopDisplay.spinDegAt(now: number): number
+--
+-- A VIEW THAT ROCKS NEVER COMPLETES A TURN: `17 * sin(2*pi*t/9)` degrees either side of its own
+-- yaw, which is the licence's whole motion (spec 6.4).
+function ShopDisplay.spinDegAt(now: number, view: View?): number
+	if view ~= nil and view.rockDegrees ~= nil and view.rockSeconds ~= nil then
+		return (view.rockDegrees :: number) * math.sin((2 * math.pi * now) / (view.rockSeconds :: number))
+	end
 	return (now * ShopDisplay.SPIN_DEG_PER_S) % 360
 end
 
@@ -148,50 +166,6 @@ local function dress(part: BasePart)
 	part.CanTouch = false
 	part.Massless = true
 	part.CastShadow = false
-end
-
-local function block(
-	parent: Instance,
-	name: string,
-	size: Vector3,
-	at: CFrame,
-	color: Color3,
-	material: Enum.Material?
-): Part
-	local part = Instance.new("Part")
-	part.Name = name
-	part.Shape = Enum.PartType.Block
-	part.Size = size
-	part.CFrame = at
-	part.Color = color
-	part.Material = material or Enum.Material.SmoothPlastic
-	dress(part)
-	part.Parent = parent
-	return part
-end
-
--- A CYLINDER'S AXIS IS ITS OWN X, which is the engine's rule and the one thing that is easy to get
--- wrong here: `Size.X` is the height and `Size.Y`/`Size.Z` are the diameter. Everything below stands
--- a cylinder UP by turning it 90 degrees about Z, once, in this function, so no call site repeats it.
-local function upright(
-	parent: Instance,
-	name: string,
-	height: number,
-	diameter: number,
-	at: Vector3,
-	color: Color3,
-	material: Enum.Material?
-): Part
-	local part = Instance.new("Part")
-	part.Name = name
-	part.Shape = Enum.PartType.Cylinder
-	part.Size = Vector3.new(height, diameter, diameter)
-	part.CFrame = CFrame.new(at) * CFrame.Angles(0, 0, math.rad(90))
-	part.Color = color
-	part.Material = material or Enum.Material.SmoothPlastic
-	dress(part)
-	part.Parent = parent
-	return part
 end
 
 -- ---------------------------------------------------------------- the rifles
@@ -293,66 +267,480 @@ end
 
 -- ---------------------------------------------------------------- the three things that are not guns
 
-local CARDBOARD = Color3.fromRGB(176, 142, 100)
-local HULL_RED = Color3.fromRGB(150, 32, 30)
-local BRASS = Color3.fromRGB(196, 158, 78)
-local CARD_CREAM = Color3.fromRGB(226, 220, 203)
-local HUNTING_GREEN = Color3.fromRGB(42, 86, 48)
-local INK = Color3.fromRGB(58, 54, 48)
+-- THE DESIGNER'S OWN PART TABLES (the Designer's spec, 2026-10-16, section 6), typed out as they
+-- are written there: shape, size in studs, position, rotation, colour, material. Karen asked for
+-- *"nicer shells ect / license nicer"* and handed the look over; these three are the answer, and
+-- every number below is quoted rather than chosen.
+--
+-- THE SHELF IS y = 0 AND +y IS UP, which is the spec's own frame, and the camera looks from +x/+z.
+-- Nothing here reads the panel, the catalogue's prices or a player: a model is geometry.
+--
+-- NO TEXT ON ANY OF THEM, and that is the engine: a `SurfaceGui` does not render inside a
+-- `ViewportFrame`. So every printed line on the box and on the licence is a BLOCK -- which is why
+-- the label is three ink bars and the boar on the licence is twelve of them.
 
--- A BOX OF SHELLS: the box, its label, and three cartridges standing out of it so the thing being
--- sold is visible and not just its packaging. Drawn out of parts rather than out of the uploaded
--- cartridge mesh on purpose -- that mesh is seated in the hand by `Gun.shellLayout`'s own numbers,
--- and a shop window that re-derived them would be the second reader of a seating this repo has
--- already paid to get right once.
-local function buildShellBox(parent: Model)
-	block(parent, "Box", Vector3.new(1.5, 0.78, 0.92), CFrame.new(0, 0, 0), CARDBOARD, Enum.Material.Fabric)
-	block(parent, "Label", Vector3.new(1.08, 0.34, 0.02), CFrame.new(0, 0.06, 0.47), HULL_RED)
-	block(parent, "LabelLine", Vector3.new(0.72, 0.06, 0.02), CFrame.new(0, -0.18, 0.47), INK)
-	-- Three shells, leaning out of the open top: brass head down, red hull up.
-	for index = 1, 3 do
-		local x = -0.42 + (index - 1) * 0.42
-		upright(parent, string.format("Hull%d", index), 0.62, 0.21, Vector3.new(x, 0.62, -0.1), HULL_RED)
-		upright(
-			parent,
-			string.format("Head%d", index),
-			0.2,
-			0.22,
-			Vector3.new(x, 0.21, -0.1),
-			BRASS,
-			Enum.Material.Metal
-		)
+-- ONE ROW OF THE SPEC'S TABLES. `rot` is in DEGREES about the named axis, exactly as the tables
+-- write it, so a reader can put this file and the spec side by side.
+type Piece = {
+	name: string,
+	shape: Enum.PartType?,
+	size: Vector3,
+	at: Vector3,
+	rot: Vector3?,
+	color: Color3,
+	material: Enum.Material?,
+	transparency: number?,
+}
+
+local function place(parent: Model, piece: Piece)
+	local part = Instance.new("Part")
+	part.Name = piece.name
+	part.Shape = piece.shape or Enum.PartType.Block
+	part.Size = piece.size
+	local rot = piece.rot or Vector3.zero
+	part.CFrame = CFrame.new(piece.at) * CFrame.Angles(math.rad(rot.X), math.rad(rot.Y), math.rad(rot.Z))
+	part.Color = piece.color
+	part.Material = piece.material or Enum.Material.SmoothPlastic
+	part.Transparency = piece.transparency or 0
+	dress(part)
+	part.Parent = parent
+	return part
+end
+
+local function pieces(parent: Model, rows: { Piece })
+	for _, row in ipairs(rows) do
+		place(parent, row)
 	end
 end
 
--- A CAP: a brim, a crown and a band. The COLOUR is the row's own `grants.hatColor` -- the thing being
--- bought is the colour, so a window that drew it in some other colour would be selling the wrong
--- item (see the header for why reading that one field here is not the panel deciding anything).
-local function buildHat(parent: Model, id: string)
-	local row = (ShopData.ROWS :: any)[id]
-	local color = (row and row.grants and row.grants.hatColor) or Color3.fromRGB(150, 38, 32)
-	upright(parent, "Brim", 0.1, 1.7, Vector3.new(0, 0, 0), color, Enum.Material.Fabric)
-	upright(parent, "Crown", 0.52, 1.06, Vector3.new(0, 0.31, 0), color, Enum.Material.Fabric)
-	upright(parent, "Band", 0.14, 1.12, Vector3.new(0, 0.12, 0), INK, Enum.Material.Fabric)
-	-- The peak, forward over the brim, so a cap reads as a cap and not as a drum.
-	block(parent, "Peak", Vector3.new(0.78, 0.07, 0.5), CFrame.new(0, 0.04, 0.78), color, Enum.Material.Fabric)
+-- 6.1 SLUG SHELLS: a closed green paperboard box with a printed cream label, and three cartridges
+-- standing in front of it, brass head down -- *"so the thing being sold is the thing you see"*.
+-- The three stand clear of the label on purpose: the label stays readable while the model turns.
+local SHELL_X = { -0.9, -0.52, -0.14 }
+
+local function buildShellBox(parent: Model)
+	pieces(parent, {
+		{
+			name = "Box",
+			size = Vector3.new(1.8, 0.86, 1),
+			at = Vector3.new(0.18, 0.43, -0.55),
+			color = Color3.fromHex("2B4733"),
+			material = Enum.Material.Fabric,
+		},
+		{
+			name = "Label",
+			size = Vector3.new(1.5, 0.58, 0.02),
+			at = Vector3.new(0.18, 0.49, -0.04),
+			color = Color3.fromHex("EDE4CE"),
+		},
+		{
+			name = "LabelBand",
+			size = Vector3.new(1.5, 0.12, 0.022),
+			at = Vector3.new(0.18, 0.72, -0.045),
+			color = Color3.fromHex("D2661B"),
+		},
+		{
+			name = "Print1",
+			size = Vector3.new(0.84, 0.07, 0.022),
+			at = Vector3.new(-0.08, 0.6, -0.045),
+			color = Color3.fromHex("3A3630"),
+		},
+		{
+			name = "Print2",
+			size = Vector3.new(0.58, 0.05, 0.022),
+			at = Vector3.new(-0.21, 0.49, -0.045),
+			color = Color3.fromHex("7A7366"),
+		},
+		{
+			name = "Print3",
+			size = Vector3.new(0.37, 0.05, 0.022),
+			at = Vector3.new(-0.33, 0.41, -0.045),
+			color = Color3.fromHex("7A7366"),
+		},
+		{
+			name = "Seal",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.03, 0.32, 0.32),
+			at = Vector3.new(0.7, 0.55, -0.05),
+			rot = Vector3.new(0, 90, 0),
+			color = Color3.fromHex("C8A258"),
+			material = Enum.Material.Metal,
+		},
+		{
+			name = "SealRing",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.034, 0.22, 0.22),
+			at = Vector3.new(0.7, 0.55, -0.056),
+			rot = Vector3.new(0, 90, 0),
+			color = Color3.fromHex("8E6F30"),
+			material = Enum.Material.Metal,
+		},
+	})
+	for index, x in ipairs(SHELL_X) do
+		pieces(parent, {
+			{
+				name = string.format("Hull%d", index),
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(0.66, 0.235, 0.235),
+				at = Vector3.new(x, 0.59, 0.98),
+				rot = Vector3.new(0, 0, 90),
+				color = Color3.fromHex("B3281F"),
+			},
+			{
+				name = string.format("Crimp%d", index),
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(0.05, 0.215, 0.215),
+				at = Vector3.new(x, 0.895, 0.98),
+				rot = Vector3.new(0, 0, 90),
+				color = Color3.fromHex("8E1F18"),
+			},
+			{
+				name = string.format("Brass%d", index),
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(0.26, 0.25, 0.25),
+				at = Vector3.new(x, 0.13, 0.98),
+				rot = Vector3.new(0, 0, 90),
+				color = Color3.fromHex("C8A258"),
+				material = Enum.Material.Metal,
+			},
+			{
+				name = string.format("Rim%d", index),
+				shape = Enum.PartType.Cylinder,
+				size = Vector3.new(0.05, 0.275, 0.275),
+				at = Vector3.new(x, 0.025, 0.98),
+				rot = Vector3.new(0, 0, 90),
+				color = Color3.fromHex("A8853F"),
+				material = Enum.Material.Metal,
+			},
+		})
+	end
 end
 
--- A LICENCE: a card with a green header, a photograph and two lines of writing. The lines are BLOCKS
--- and not text, and that is the engine's rule rather than a shortcut: a `SurfaceGui` does not render
--- inside a `ViewportFrame`, so writing on a card in a viewport is a thing that cannot be done.
+-- 6.2 THE BEATER LICENCE: a real document standing upright -- green header with a cream boar mark
+-- and a brass eyelet, a photograph, three rows of print, a brass crest and a red rubber stamp. The
+-- back of the card is green. Front face at z = +0.026; the print sits at 0.026-0.032.
+local INK = Color3.fromHex("2C2A26")
+local FIELD = Color3.fromHex("9A9384")
+local CREAM = Color3.fromHex("EDE4CE")
+local LODEN = Color3.fromHex("27452E")
+local BRASS = Color3.fromHex("C8A258")
+local STAMP = Color3.fromHex("9B3A32")
+
+-- THE BOAR MARK, 12 blocks in the header bar -- all cream, all 0.02 thick, all at z = 0.028. The
+-- spec names which five make it a boar if the count ever has to come down: rump, body, back, head,
+-- snout.
+local BOAR_MARK: { { name: string, size: Vector2, at: Vector2, rot: number? } } = {
+	{ name = "MarkRump", size = Vector2.new(0.082, 0.091), at = Vector2.new(-0.773, 1.075) },
+	{ name = "MarkBody", size = Vector2.new(0.191, 0.082), at = Vector2.new(-0.691, 1.07) },
+	{ name = "MarkBack", size = Vector2.new(0.136, 0.045), at = Vector2.new(-0.709, 1.115), rot = 7 },
+	{ name = "MarkHead", size = Vector2.new(0.091, 0.082), at = Vector2.new(-0.577, 1.079), rot = 12 },
+	{ name = "MarkSnout", size = Vector2.new(0.055, 0.036), at = Vector2.new(-0.532, 1.065) },
+	{ name = "MarkEar", size = Vector2.new(0.036, 0.036), at = Vector2.new(-0.595, 1.129), rot = -18 },
+	{ name = "MarkTusk", size = Vector2.new(0.036, 0.018), at = Vector2.new(-0.514, 1.065), rot = 38 },
+	{ name = "MarkTail", size = Vector2.new(0.036, 0.018), at = Vector2.new(-0.814, 1.12), rot = -32 },
+	{ name = "MarkLeg1", size = Vector2.new(0.023, 0.055), at = Vector2.new(-0.757, 1.011) },
+	{ name = "MarkLeg2", size = Vector2.new(0.023, 0.055), at = Vector2.new(-0.721, 1.011) },
+	{ name = "MarkLeg3", size = Vector2.new(0.023, 0.055), at = Vector2.new(-0.657, 1.011) },
+	{ name = "MarkLeg4", size = Vector2.new(0.023, 0.055), at = Vector2.new(-0.621, 1.011) },
+}
+
 local function buildLicence(parent: Model)
-	block(parent, "Card", Vector3.new(1.62, 1.04, 0.05), CFrame.new(0, 0, 0), CARD_CREAM, Enum.Material.SmoothPlastic)
-	block(parent, "Header", Vector3.new(1.62, 0.24, 0.055), CFrame.new(0, 0.4, 0), HUNTING_GREEN)
-	block(parent, "Photo", Vector3.new(0.36, 0.44, 0.06), CFrame.new(-0.53, -0.12, 0.01), INK)
-	for index = 1, 3 do
-		block(
-			parent,
-			string.format("Line%d", index),
-			Vector3.new(0.78, 0.07, 0.06),
-			CFrame.new(0.14, 0.06 - (index - 1) * 0.18, 0.01),
-			INK
-		)
+	pieces(parent, {
+		{
+			name = "Card",
+			size = Vector3.new(1.9, 1.22, 0.05),
+			at = Vector3.new(0, 0.61, 0),
+			color = CREAM,
+		},
+		{
+			name = "Back",
+			size = Vector3.new(1.9, 1.22, 0.012),
+			at = Vector3.new(0, 0.61, -0.031),
+			color = LODEN,
+			material = Enum.Material.Fabric,
+		},
+		{ name = "Header", size = Vector3.new(1.9, 0.27, 0.02), at = Vector3.new(0, 1.085, 0.026), color = LODEN },
+		{
+			name = "HeaderRule",
+			size = Vector3.new(1.9, 0.018, 0.022),
+			at = Vector3.new(0, 0.938, 0.027),
+			color = BRASS,
+			material = Enum.Material.Metal,
+		},
+		{
+			name = "Title1",
+			size = Vector3.new(0.76, 0.064, 0.022),
+			at = Vector3.new(-0.04, 1.106, 0.028),
+			color = Color3.fromHex("EFE6D2"),
+		},
+		{
+			name = "Title2",
+			size = Vector3.new(0.47, 0.036, 0.022),
+			at = Vector3.new(-0.19, 1.029, 0.028),
+			color = Color3.fromHex("BFCBB8"),
+		},
+		{
+			name = "Eyelet",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.06, 0.11, 0.11),
+			at = Vector3.new(0.8, 1.084, 0.026),
+			rot = Vector3.new(0, 90, 0),
+			color = BRASS,
+			material = Enum.Material.Metal,
+		},
+		{
+			name = "EyeletHole",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.07, 0.05, 0.05),
+			at = Vector3.new(0.8, 1.084, 0.028),
+			rot = Vector3.new(0, 90, 0),
+			color = Color3.fromHex("2A2419"),
+		},
+		{
+			name = "Photo",
+			size = Vector3.new(0.42, 0.51, 0.02),
+			at = Vector3.new(-0.63, 0.584, 0.026),
+			color = Color3.fromHex("6E7A66"),
+		},
+		{
+			name = "PhotoHead",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.03, 0.15, 0.15),
+			at = Vector3.new(-0.63, 0.688, 0.028),
+			rot = Vector3.new(0, 90, 0),
+			color = Color3.fromHex("2F3A2C"),
+		},
+		{
+			name = "PhotoBody",
+			size = Vector3.new(0.25, 0.2, 0.025),
+			at = Vector3.new(-0.63, 0.502, 0.028),
+			color = Color3.fromHex("2F3A2C"),
+		},
+		{
+			name = "Sig1",
+			size = Vector3.new(0.4, 0.027, 0.022),
+			at = Vector3.new(-0.64, 0.261, 0.028),
+			rot = Vector3.new(0, 0, 2),
+			color = Color3.fromHex("2A3E6B"),
+		},
+		{
+			name = "Sig2",
+			size = Vector3.new(0.27, 0.027, 0.022),
+			at = Vector3.new(-0.67, 0.215, 0.028),
+			rot = Vector3.new(0, 0, -2),
+			color = Color3.fromHex("2A3E6B"),
+		},
+		{
+			name = "Field1Label",
+			size = Vector3.new(0.25, 0.036, 0.022),
+			at = Vector3.new(-0.19, 0.802, 0.028),
+			color = FIELD,
+		},
+		{
+			name = "Field1Value",
+			size = Vector3.new(0.85, 0.082, 0.022),
+			at = Vector3.new(0.11, 0.706, 0.028),
+			color = INK,
+		},
+		{
+			name = "Field2Label",
+			size = Vector3.new(0.22, 0.036, 0.022),
+			at = Vector3.new(-0.21, 0.566, 0.028),
+			color = FIELD,
+		},
+		{
+			name = "Field2Value",
+			size = Vector3.new(0.6, 0.064, 0.022),
+			at = Vector3.new(-0.01, 0.479, 0.028),
+			color = INK,
+		},
+		{
+			name = "Field3Label",
+			size = Vector3.new(0.27, 0.036, 0.022),
+			at = Vector3.new(-0.18, 0.347, 0.028),
+			color = FIELD,
+		},
+		{
+			name = "Field3Value",
+			size = Vector3.new(0.45, 0.064, 0.022),
+			at = Vector3.new(-0.09, 0.261, 0.028),
+			color = INK,
+		},
+		{
+			name = "CrestTop",
+			size = Vector3.new(0.29, 0.16, 0.022),
+			at = Vector3.new(0.705, 0.72, 0.028),
+			color = BRASS,
+			material = Enum.Material.Metal,
+		},
+		{
+			name = "CrestPoint",
+			size = Vector3.new(0.21, 0.21, 0.022),
+			at = Vector3.new(0.705, 0.643, 0.028),
+			rot = Vector3.new(0, 0, 45),
+			color = Color3.fromHex("A8853F"),
+			material = Enum.Material.Metal,
+		},
+		{
+			name = "CrestFieldTop",
+			size = Vector3.new(0.24, 0.13, 0.024),
+			at = Vector3.new(0.705, 0.711, 0.03),
+			color = LODEN,
+		},
+		{
+			name = "CrestFieldPt",
+			size = Vector3.new(0.16, 0.16, 0.024),
+			at = Vector3.new(0.705, 0.656, 0.03),
+			rot = Vector3.new(0, 0, 45),
+			color = LODEN,
+		},
+		{
+			name = "CrestBar1",
+			size = Vector3.new(0.15, 0.027, 0.026),
+			at = Vector3.new(0.705, 0.716, 0.032),
+			color = Color3.fromHex("D8B36A"),
+			material = Enum.Material.Metal,
+		},
+		{
+			name = "CrestBar2",
+			size = Vector3.new(0.11, 0.027, 0.026),
+			at = Vector3.new(0.705, 0.67, 0.032),
+			color = Color3.fromHex("D8B36A"),
+			material = Enum.Material.Metal,
+		},
+		{
+			name = "StampRing",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.012, 0.47, 0.47),
+			at = Vector3.new(0.45, 0.293, 0.028),
+			rot = Vector3.new(0, 90, 0),
+			color = STAMP,
+			transparency = 0.25,
+		},
+		{
+			name = "StampHole",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.012, 0.415, 0.415),
+			at = Vector3.new(0.45, 0.293, 0.03),
+			rot = Vector3.new(0, 90, 0),
+			color = CREAM,
+		},
+		{
+			name = "StampRing2",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.012, 0.3, 0.3),
+			at = Vector3.new(0.45, 0.293, 0.031),
+			rot = Vector3.new(0, 90, 0),
+			color = STAMP,
+			transparency = 0.4,
+		},
+		{
+			name = "StampHole2",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.012, 0.275, 0.275),
+			at = Vector3.new(0.45, 0.293, 0.032),
+			rot = Vector3.new(0, 90, 0),
+			color = CREAM,
+		},
+		{
+			name = "StampBar",
+			size = Vector3.new(0.47, 0.055, 0.03),
+			at = Vector3.new(0.45, 0.293, 0.033),
+			rot = Vector3.new(0, 0, 13),
+			color = STAMP,
+			transparency = 0.25,
+		},
+	})
+	for _, mark in ipairs(BOAR_MARK) do
+		place(parent, {
+			name = mark.name,
+			size = Vector3.new(mark.size.X, mark.size.Y, 0.02),
+			at = Vector3.new(mark.at.X, mark.at.Y, 0.028),
+			rot = if mark.rot ~= nil then Vector3.new(0, 0, mark.rot) else nil,
+			color = Color3.fromHex("EFE6D2"),
+		})
+	end
+end
+
+-- 6.3 THE RED HAT. The crown colour is the ROW'S OWN `grants.hatColor` and is read, never
+-- hard-coded -- *"because the colour is the thing being sold"*. The band is that colour at 55 %
+-- brightness and the peak at 82 %.
+local function shade(color: Color3, fraction: number): Color3
+	return Color3.new(color.R * fraction, color.G * fraction, color.B * fraction)
+end
+
+local function buildHat(parent: Model, id: string)
+	local row = (ShopData.ROWS :: any)[id]
+	local crown = (row and row.grants and row.grants.hatColor) or Color3.fromHex("962620")
+	local band = shade(crown, 0.55)
+	local peak = shade(crown, 0.82)
+	pieces(parent, {
+		{
+			-- A NON-UNIFORM BALL. The spec's own fallback is written down beside it: if a stretched
+			-- `Ball` does not come out on the live build, make it 1.06 cubed and sink it 0.16 into
+			-- the band. Checked on the live build and it stretches.
+			name = "Crown",
+			shape = Enum.PartType.Ball,
+			size = Vector3.new(1.12, 0.74, 1.06),
+			at = Vector3.new(0, 0.37, 0),
+			color = crown,
+			material = Enum.Material.Fabric,
+		},
+		{
+			name = "Band",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.12, 1.14, 1.14),
+			at = Vector3.new(0, 0.06, 0),
+			rot = Vector3.new(0, 0, 90),
+			color = Color3.fromHex("2C2A26"),
+			material = Enum.Material.Fabric,
+		},
+		{
+			name = "Peak",
+			size = Vector3.new(1.02, 0.07, 0.62),
+			at = Vector3.new(0, 0.1, 0.52),
+			rot = Vector3.new(-8, 0, 0),
+			color = peak,
+			material = Enum.Material.Fabric,
+		},
+		{
+			name = "PeakTip",
+			size = Vector3.new(0.92, 0.06, 0.24),
+			at = Vector3.new(0, 0.04, 0.92),
+			rot = Vector3.new(-20, 0, 0),
+			color = peak,
+			material = Enum.Material.Fabric,
+		},
+		{
+			name = "Button",
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.05, 0.14, 0.14),
+			at = Vector3.new(0, 0.74, 0),
+			rot = Vector3.new(0, 0, 90),
+			color = peak,
+			material = Enum.Material.Fabric,
+		},
+	})
+	for index, turn in ipairs({ 0, 60, 120 }) do
+		place(parent, {
+			name = string.format("Seam%d", index),
+			size = Vector3.new(0.02, 0.5, 1.06),
+			at = Vector3.new(0, 0.4, 0),
+			rot = Vector3.new(0, turn, 0),
+			color = shade(band, 0.8),
+			material = Enum.Material.Fabric,
+		})
+	end
+	for index, side in ipairs({ -1, 1 }) do
+		place(parent, {
+			name = string.format("Eyelet%d", index),
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.03, 0.07, 0.07),
+			at = Vector3.new(side * 0.4, 0.46, 0.18),
+			rot = Vector3.new(0, 90, 0),
+			color = BRASS,
+			material = Enum.Material.Metal,
+		})
 	end
 end
 
