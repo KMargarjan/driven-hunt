@@ -2209,7 +2209,11 @@ return function()
 						continue
 					end
 					pieces += 1
-					if string.find(piece.Name, "Plaque", 1, true) then
+					-- THE SHIELD'S BOARD **IS** THE PLAQUE, and since part 3b that is its name (part
+					-- 3c). `shield` builds `<name>Board`, so counting the word "Plaque" counted zero
+					-- -- another assertion that has not been able to pass since part 3b, hidden
+					-- behind the two above it.
+					if string.match(piece.Name, "Board$") then
 						plaques += 1
 					end
 					-- THE BOUND IS THE INNER FACE PLUS THE OVERLAP THE ROWS ASK FOR (part 3c). A
