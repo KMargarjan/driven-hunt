@@ -201,6 +201,29 @@ function Lobby.isBuilt(): boolean
 	return folder ~= nil and folder:IsDescendantOf(game)
 end
 
+-- WHERE THE DRIVE GATHERS AT ITS END (task 191), and the drive is handed this function as
+-- `world.gatherSpot`. KAREN, 2026-10-15: *"next is when hunt over everyone is in clean ground no
+-- grass firstable / second it could be next to cabin"*.
+--
+-- THE WHOLE OF IT IS A WIRE. The rectangle is `Data.gatherPad`'s row, the facing is
+-- `CONFIG.GATHER.FACING`, the arithmetic is `Data.gatherSpotFor`, and the ground is `world.groundAt`
+-- -- this world's single reader, which this owner was already handed for the shelf. It decides
+-- nothing, holds nothing and creates nothing, which is the `Match.displayAnimal` shape.
+--
+-- `nil, nil` UNTIL THE LOBBY IS REALLY BUILT, AND THAT IS THE FALLBACK DOING ITS JOB rather than a
+-- failure: `Match.gatherSpot` then uses the drive's own "behind the middle stand" rule, which is the
+-- game before this task. The three states it covers are a drive that ends before the shelf could be
+-- read, a world whose config has no `Gather` row, and this owner never started at all.
+--
+-- IT IS READ AT THE DRIVE'S END AND NOT CACHED, because `world.groundAt` answers the surface
+-- `Field.fill` actually produced and that surface does not exist until the lobby has built itself.
+function Lobby.gatherSpot(): (Vector3?, Vector3?)
+	if not started or anchor == nil or not Lobby.isBuilt() then
+		return nil, nil
+	end
+	return Data.gatherSpotFor(anchor :: Vector3, cfg, if world then world.groundAt else nil)
+end
+
 -- WHERE HE STANDS WHEN HE ARRIVES. Spread across the porch front, so two players never spawn inside
 -- each other -- `Body.placementFor`'s driver-spread idiom with this yard's own width -- and facing
 -- +Z (north): he looks at the lodge with the forest behind its roof, and the truck and the circle are

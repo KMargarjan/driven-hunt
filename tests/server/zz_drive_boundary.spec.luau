@@ -371,19 +371,29 @@ return function()
 			expect(Match.phase()).to.equal("Scoring")
 			local lamps, bodies = sceneCounts()
 			local kills = Match.driveKills()
-			local spot = Match.gatherSpotFor(Match.Markers.read(), Match.CONFIG)
+			-- `Match.gatherSpot` AND NOT `gatherSpotFor` SINCE TASK 191: the live owner's own choice
+			-- between the world's spot and the drive's. In the DEV place there is no lobby at all
+			-- (`Lobby.anchorFor` has no `map:v1` row), so `world.gatherSpot` is absent, the drive's
+			-- own rule must answer, and `sceneWorldSpots` must be 0 -- which is the fallback proved
+			-- on the real production owner rather than on a hand-written reader.
+			local spot, _facing, fromWorld = Match.gatherSpot()
 			TestKit.note(
 				string.format(
-					"zz_drive_boundary: scene lamps=%d animals=%d kills=%d spot=%s | scenes=%d moved=%d nowhere=%d",
+					"zz_drive_boundary: scene lamps=%d animals=%d kills=%d spot=%s fromWorld=%s"
+						.. " | scenes=%d moved=%d nowhere=%d worldSpots=%d",
 					lamps,
 					bodies,
 					#kills,
 					tostring(spot),
+					tostring(fromWorld),
 					Match.stats().scenes,
 					Match.stats().sceneMoved,
-					Match.stats().scenesNowhere
+					Match.stats().scenesNowhere,
+					Match.stats().sceneWorldSpots
 				)
 			)
+			expect(fromWorld).to.equal(false)
+			expect(Match.stats().sceneWorldSpots).to.equal(0)
 			-- THE DEV MAP HAS STANDS, so there is somewhere to gather and the scene must exist. A
 			-- world with no stands is the `scenesNowhere` branch, and forest_markers.spec is where
 			-- that case lives.

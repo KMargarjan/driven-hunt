@@ -3151,6 +3151,27 @@ local function treeLine(container: Instance, anchor: Vector3, cfg, templates: In
 		if math.abs(at.X - yardMidX) < yardHalfX + 4 and math.abs(at.Z - yardZ) < 26 then
 			continue
 		end
+		-- ...NOR ON THE GATHERING YARD (task 191), the third exclusion and the same rule a third
+		-- time: a spruce standing among the animals Karen asked to SEE is the same mistake as a
+		-- spruce in the road.
+		--
+		-- IT REMOVES NOTHING TODAY, AND THAT IS MEASURED RATHER THAN HOPED FOR: the western arc
+		-- stands its trunks at x ~ -82 to -104 from the anchor (`RADIUS_STUDS` 100 with
+		-- `JITTER_STUDS` 9), and the yard's west edge is at -80 -- so the thirty trees FRAME the
+		-- gathering instead of standing in it, and `lobby.spec` asserts the count is unchanged. What
+		-- this guard is for is the next edit: a wider yard, a shorter radius or more jitter must not
+		-- be able to put one back.
+		--
+		-- THE RECTANGLE IS `Data.gatherPad`'S ROW and is not recomputed here; `+ 4` is the margin the
+		-- yard exclusion above already uses, so a trunk on the boundary counts as on the yard.
+		local gather = Data.gatherPad(cfg)
+		if gather ~= nil then
+			local centre = anchor + (gather :: any).OFFSET
+			local size = (gather :: any).SIZE
+			if math.abs(at.X - centre.X) < size.X / 2 + 4 and math.abs(at.Z - centre.Z) < size.Z / 2 + 4 then
+				continue
+			end
+		end
 		-- THROUGH `cloneInstance` AND NOT BY HAND (review round 1, note). The hand-rolled walk here
 		-- used `GetDescendants`, which never visits the instance itself, so a `Trees` child that was
 		-- a Part rather than a Model came out UNANCHORED AND QUERYABLE -- the one thing this

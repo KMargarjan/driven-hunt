@@ -28,8 +28,17 @@
 -- and where the server measures a purchase, and `Lobby.shopPrompt`, which is how the client finds
 -- the one thing that opens it.
 --
+-- AND SINCE TASK 191 THE LOBBY ALSO OWNS WHERE THE HUNT ENDS. Karen, 2026-10-15: *"next is when hunt
+-- over everyone is in clean ground no grass firstable / second it could be next to cabin"*. The
+-- end-of-drive gathering used to happen at the DRIVE's own spot out in the forest, in grass that hid
+-- the animals and the players; it happens in the clean yard west of the lodge now. The rectangle is
+-- the `Gather` row in `CONFIG.FIELD.PADS`, the facing is `CONFIG.GATHER`, and `Lobby.gatherSpotFor`
+-- is the one reader -- handed to the drive as `world.gatherSpot`, which is the `world.placement`
+-- shape exactly: the world provides, the owner decides.
+--
 -- Design: docs/design/lobby.md (sections 2, 9, 10.3, 10.4, 12.1)
 -- Note:   docs/research/2026-10-13-lobby-and-the-truck.md
+--         docs/research/2026-10-16-gathering-at-the-cabin.md (task 191: the gathering yard)
 local Workspace = game:GetService("Workspace")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -210,6 +219,66 @@ Lobby.CONFIG = {
 				NAME = "Road",
 				OFFSET = Vector3.new(20, 0, -24),
 				SIZE = Vector3.new(34, 6, 160),
+				MATERIAL = Enum.Material.Ground,
+			},
+			-- ---------------- THE GATHERING YARD (task 191), AND IT IS THE *ONE* PLACE THIS
+			-- RECTANGLE IS WRITTEN.
+			--
+			-- KAREN, 2026-10-15 ~17:20: *"next is when hunt over everyone is in clean ground no grass
+			-- firstable / second it could be next to cabin"*. The end-of-drive gathering -- the bag
+			-- laid out in rows, everybody in a ring, four torches (tasks 159/168/173) -- happened at
+			-- the DRIVE's own spot out in the forest, where the tall grass hides the animals she
+			-- asked to see and the players standing round them. So it happens HERE instead: the
+			-- clean, flat, blade-free yard west of the lodge.
+			--
+			-- FOUR READERS, ONE RECTANGLE. `Field.fill` lays the block from this row (it is a LIST,
+			-- as the comment above it says, so a third pad is a row and not a code path);
+			-- `Lobby.gatherSpotFor` reads its centre; `Build.treeLine` keeps a spruce off it; and
+			-- `lobby.spec` holds the drive scene's own worst-case square inside it. A second copy of
+			-- the rectangle would be two definitions of one fact -- `docs/PROJECT_CONTEXT.md`'s named
+			-- failure -- so `Lobby.gatherPad` finds this row BY NAME and nothing recomputes it.
+			--
+			-- 56 x 56 IS ARITHMETIC: `Match.Scene.cornerReachFor(MAX_ANIMALS)` is 23.5 studs with the
+			-- shipped numbers, so the worst-case scene -- twelve animals, the ring that contains them
+			-- and the four corner torches -- is a 47-stud square. 56 leaves 4.5 studs of margin on
+			-- every side, and `lobby.spec` asserts that against `Match.CONFIG` rather than against a
+			-- copy of it.
+			--
+			-- WEST OF THE LODGE AT (-50, 10), AND THE TWO BOUNDS EITHER SIDE ARE MEASURED (note
+			-- section 5):
+			--   * EAST: the pad stops at x -22, four studs short of the lodge's own footprint (x -18)
+			--     -- and what has to clear the BUILDING is the scene, not the dirt: the gathering
+			--     square reaches x -26.5, which leaves 5.5 studs to the chimney's west face (the
+			--     chimney stands 3 studs proud of the wall) and 8.5 to the wall. The porch, the
+			--     spawn, the road, the fences, the four trucks and the four pads are all east of
+			--     that, so NOTHING of the lobby's own layout is touched. East of x -44 this pad only
+			--     repaints ground the `Yard` pad has already made blade-free anyway.
+			--   * WEST: the pad stops at x -78, and `TREELINE`'s western arc was MEASURED in the
+			--     live place rather than predicted -- the nearest trunk of the thirty is `Tree27` at
+			--     x -86, eight studs clear of this edge and four clear of `Build.treeLine`'s
+			--     exclusion. So the tree line FRAMES the gathering instead of standing in it, and
+			--     not one tree is lost (27 built, the same 27 as before this task: three are skipped
+			--     by the road and yard rules that already existed). A centre at -62 with a 64-stud
+			--     pad -- the first arithmetic -- reached x -94 and would have taken four or five out
+			--     of the arc for no gain.
+			--
+			-- -50 AND NOT -52, AND THAT IS A VOXEL AND NOT A PREFERENCE. `Terrain:FillBlock` writes
+			-- 4-stud voxels, so an edge that does not land on the grid leaves a partly-filled voxel
+			-- that KEEPS ITS GRASS. Measured at -52 in the live place, 2026-10-16: 625 raycasts over
+			-- the gathering square came back 623 `Ground` and **2 `Grass`**, both of them 4 studs
+			-- inside the nominal west edge (2770, which is 692.5 voxels) while the z edges -- which
+			-- happened to be aligned -- lost about a stud. At -50 the edges are x 2772 and 2828 and z
+			-- -2968 and -2912, all four exactly on the grid.
+			--
+			-- Raycast grid over the footprint in Karen's own place, 2026-10-16, BEFORE any of this
+			-- was written: 121 samples, **zero non-terrain obstacles, zero misses**, 13.13 studs of
+			-- ground fall -- well inside `DEPTH_STUDS` 48 and `CLEAR_STUDS` 96, so the existing
+			-- cut-and-fill makes this yard flat at the shelf exactly as it does the lodge's. Measured
+			-- again with the yard built: **dead flat, spread 0.00 studs at y 150.00**.
+			{
+				NAME = "Gather",
+				OFFSET = Vector3.new(-50, 0, 10),
+				SIZE = Vector3.new(56, 6, 56),
 				MATERIAL = Enum.Material.Ground,
 			},
 		},
@@ -1007,6 +1076,21 @@ Lobby.CONFIG = {
 		-- loop `Join.needsReturn`'s own comment says it exists to prevent.
 		SLOTS = 7,
 	},
+	-- ---------------- THE GATHERING AT THE CABIN (task 191)
+	--
+	-- The RECTANGLE is the `Gather` row in `FIELD.PADS` and is not repeated here. What is here is the
+	-- one thing a rectangle cannot say: WHICH WAY THE SCENE FACES.
+	--
+	-- `(1, 0, 0)` IS EAST, AT THE LODGE, and it is not a taste: `Match.Scene.sideAxis` crosses the
+	-- facing with +Y, so a look of +X gives a row axis of +Z -- the animals lie in a line running
+	-- north-south, and a player walking out of the porch (which is east of the yard) sees the whole
+	-- row BROADSIDE rather than end-on. The second row stacks WEST, away from him, which is what
+	-- `Scene.rowLayout` already means by "behind". `Scene.ringLayout` is a full circle and does not
+	-- read it at all.
+	GATHER = {
+		PAD_NAME = "Gather",
+		FACING = Vector3.new(1, 0, 0),
+	},
 	-- ---------------- the rule
 	COUNTDOWN_SECONDS = 5,
 	SCAN_HZ = 10,
@@ -1060,6 +1144,56 @@ end
 function Lobby.spotPosition(): Vector3?
 	local part = Lobby.spotPart()
 	return if part then part.Position else nil
+end
+
+-- ---------------------------------------------------------------- the gathering yard (task 191)
+
+-- THE `Gather` ROW, FOUND BY NAME -- or nil for a config that has none. PURE.
+--
+-- BY NAME AND NOT BY INDEX, so a fourth pad added anywhere in the list cannot silently become the
+-- gathering yard: `CFG.FIELD.PADS[3]` would have been a position, and a position is not an identity.
+-- nil is a legal answer and every reader takes the branch it is given -- a world whose config has no
+-- gathering yard gathers where the drive always did.
+function Lobby.gatherPad(cfg): { [string]: any }?
+	for _, pad in ipairs(cfg.FIELD.PADS) do
+		if pad.NAME == cfg.GATHER.PAD_NAME then
+			return pad
+		end
+	end
+	return nil
+end
+
+-- WHERE THE DAY'S BAG IS LAID OUT, AND WHICH WAY THE SCENE FACES. PURE in the ground reader, which
+-- is what lets `lobby.spec` state the spot with a hand-written function and no world at all -- the
+-- `Match.gatherSpotFor` shape it replaces in this world.
+--
+-- THE Y IS MEASURED AND NEVER PREDICTED, and that is the one thing in this function that is not
+-- arithmetic. `Field.fill`'s surface is NOT the nominal shelf: Roblox terrain is voxelised, and task
+-- 186 measured 150.000 against a shelf at 149.248 in this very yard -- which is why all four trucks
+-- had their tyres 0.752 studs underground. So the centre's height is `groundAt`'s answer, and the
+-- shelf (`anchor.Y`) is only the fallback for a reader that answers nothing.
+--
+-- IT IS NOT A SECOND DEFINITION OF "WHERE IS THE GROUND": `groundAt` is the world's own single
+-- reader, handed down by the owner -- the same function `Field`, `Build.pads`, `Build.trucks`,
+-- `Match.Body` and `Bots` are all given. `Scene.build` asks it AGAIN per animal and per torch (task
+-- 192) and `Body.stand` snaps every ring slot onto it, so three readers share one answer.
+--
+-- `facing` IS A UNIT VECTOR AND THE CONFIG'S OWN (`GATHER.FACING`), returned beside the spot because
+-- `Match.Scene` takes the pair and this owner must not hand back half of it.
+function Lobby.gatherSpotFor(anchor: Vector3, cfg, groundAt: ((number, number) -> number?)?): (Vector3?, Vector3?)
+	local pad = Lobby.gatherPad(cfg)
+	if pad == nil then
+		return nil, nil
+	end
+	local centre = anchor + (pad :: any).OFFSET
+	local y = anchor.Y
+	if groundAt ~= nil then
+		local ok, measured = pcall(groundAt :: any, centre.X, centre.Z)
+		if ok and type(measured) == "number" then
+			y = measured :: number
+		end
+	end
+	return Vector3.new(centre.X, y, centre.Z), cfg.GATHER.FACING
 end
 
 -- THE ONE READER OF WHERE THE SHOP COUNTER IS (task 178), beside `Lobby.spotPart` and for its
