@@ -316,7 +316,11 @@ Shop.CONFIG = {
 		CARD_WIDTH = 104,
 		CARD_GAP = 8,
 		STRIP_PAD = 16,
-		STRIP_FADE = 26,
+		-- 44 AND NOT 26 (task 196 part 3f). At 26 the hint was too narrow to read as "there is more"
+		-- and the last card still looked CHOPPED -- which is what the Director read off the 400-wide
+		-- frame. It is as wide as the gap between two cards plus a card's own padding now, so the
+		-- card under it fades out instead of ending mid-word.
+		STRIP_FADE = 44,
 		-- THE DISPLAY CASE, and the floor under it is the spec's: *"take the difference off the
 		-- display case, down to a floor of 110 px"*.
 		CASE_WIDE_PX = 200,

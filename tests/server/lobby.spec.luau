@@ -1910,6 +1910,31 @@ return function()
 			templates:Destroy()
 		end)
 
+		-- THE WALKABLE SURFACE (task 196 part 3f). This lobby lays its road, its verges and its yard
+		-- as PARTS on top of the terrain, half a stud proud of it, and a tree seated by the terrain
+		-- alone would be planted UNDER one and come up through it.
+		it("plants a tree on the road slab's top, not on the terrain hidden under it", function()
+			local slab = Instance.new("Part")
+			slab.Size = Vector3.new(20, 0.5, 160)
+			slab.CFrame = CFrame.new(10, 100.25, 0)
+			local over = Build.surfaceOver({ slab }, 10, 0)
+			expect(over).to.be.ok()
+			expect(math.abs((over :: number) - 100.5) < 1e-3).to.equal(true)
+			-- ...AND NOTHING OUTSIDE ITS FOOTPRINT, which is what keeps a slab from lifting a tree
+			-- standing beside the road.
+			expect(Build.surfaceOver({ slab }, 10 + 10.1, 0)).to.equal(nil)
+			expect(Build.surfaceOver({ slab }, 10, 81)).to.equal(nil)
+			-- THE HIGHEST ONE WINS where two overlap: the verges are laid 0.05 under the lane and a
+			-- tree on the join belongs on the lane.
+			local upper = Instance.new("Part")
+			upper.Size = Vector3.new(4, 1.6, 2)
+			upper.CFrame = CFrame.new(10, 101, 0)
+			local both = Build.surfaceOver({ slab, upper }, 10, 0)
+			expect(math.abs((both :: number) - 101.8) < 1e-3).to.equal(true)
+			slab:Destroy()
+			upper:Destroy()
+		end)
+
 		-- THE SAMPLING PATTERN ITSELF, pure, because the case above can only prove that today's
 		-- slope happens to be caught.
 		it("samples the whole footprint and its corners, not just the middle", function()

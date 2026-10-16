@@ -236,6 +236,17 @@ function ShopPanel.stats()
 	return table.clone(stats)
 end
 
+-- DOES THE HUD'S RIGHT-EDGE RAIL HAVE TO GET OUT OF THE WAY? (task 196 part 3f.) On a phone the
+-- panel is the whole screen, so the MAP and REPORT buttons sit ON TOP of it -- the Director read
+-- that off the 400-wide frame.
+--
+-- THE SHOP ASKS AND THE HUD HIDES, because the rail is the Hud's (`Hud.Rail` owns every button in
+-- it) and this module must not reach into another owner's frame. PURE, so a spec can ask it at any
+-- width without a screen.
+function ShopPanel.hidesRail(screenWidth: number): boolean
+	return open and screenWidth < ShopData.CONFIG.PANEL.WIDE_AT
+end
+
 function ShopPanel.isOpen(): boolean
 	return open
 end
@@ -1117,7 +1128,9 @@ local function buildStrip(root: Frame)
 	rail.Parent = root
 	local pad = Instance.new("UIPadding")
 	pad.PaddingLeft = UDim.new(0, PANEL.STRIP_PAD)
-	pad.PaddingRight = UDim.new(0, PANEL.STRIP_PAD)
+	-- ...AND THE LAST CARD CAN SCROLL CLEAR OF IT: the right padding carries the fade's width as
+	-- well, so a card scrolled to the end stops beside the hint instead of under it.
+	pad.PaddingRight = UDim.new(0, PANEL.STRIP_PAD + PANEL.STRIP_FADE)
 	pad.Parent = rail
 	local row = Instance.new("UIListLayout")
 	row.FillDirection = Enum.FillDirection.Horizontal
@@ -1552,6 +1565,11 @@ function ShopPanel.relayout()
 		(strip :: ScrollingFrame).Size = UDim2.fromOffset(layout.width, layout.stripHeight)
 	end
 	if stripFade then
+		-- THE FADE IS ANCHORED AT ITS OWN RIGHT EDGE (`AnchorPoint` 1, 0), so `UDim2.new(1, 0, ...)`
+		-- already lands it flush inside the panel -- measured at 417..443 in a 12..443 panel. An
+		-- earlier part-3f edit pulled it back by its own width on the assumption that it was
+		-- anchored at its left, and moved it 44 px INTO the strip; this line is the original.
+		-- What was actually wrong was its WIDTH: see `STRIP_FADE`.
 		(stripFade :: Frame).Visible = not wide;
 		(stripFade :: Frame).Position = UDim2.new(1, 0, 0, layout.stripY);
 		(stripFade :: Frame).Size = UDim2.fromOffset(PANEL.STRIP_FADE, layout.stripHeight)

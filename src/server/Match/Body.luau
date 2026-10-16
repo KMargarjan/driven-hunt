@@ -416,82 +416,93 @@ local FELT = Enum.Material.SmoothPlastic
 --
 -- EVERY ROW IS `Fabric`, and the four that are not felt carry `noTint`.
 local KEEPER_HAT_ROWS = {
+	-- ONE FELT HAT, NOT A STACK OF DISCS (task 196 part 3f). The Director, on part 3e's close-up:
+	-- *"reads as three stacked flat discs with sticks through the brim"*, and he was describing the
+	-- build exactly -- a 0.17 brim, a 0.14 band, a 0.42 crown and a 0.40 crown, each a separate flat
+	-- cylinder of a different diameter, with three brush rods passing THROUGH the brim.
+	--
+	-- WHAT MAKES ONE HAT INSTEAD OF FOUR OBJECTS:
+	--   * the crown is a BALL squashed to 0.62 of its width, not two cylinders. A sphere's silhouette
+	--     curves into the band instead of stepping down to it, which is what a blocked felt crown
+	--     does;
+	--   * the pinch is ONE small block across the top of that ball rather than a disc of its own;
+	--   * the band is barely wider than the crown (1.18 against 1.16), so it reads as a cord TIED ON
+	--     rather than as a fourth plate in the stack;
+	--   * the brim is thinner and sits UNDER the band with nothing between them;
+	--   * and the Gamsbart is MOUNTED ON THE BAND at the left side, tilted up and back, instead of
+	--     three rods pushed through the brim.
 	{
 		name = "HatBrim",
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(0.17, 1.95, 1.95),
+		size = Vector3.new(0.12, 1.98, 1.98),
 		rotationDeg = Vector3.new(0, 0, 90),
-		offset = Vector3.new(0, 0.64, 0),
+		offset = Vector3.new(0, 0.62, 0),
 		color = KEEPER_FELT,
 		material = FELT,
 	},
 	{
+		-- THE BACK OF THE BRIM TURNED UP, which is the one feature that stops a brim reading as a
+		-- dinner plate. It overlaps the brim rather than floating over it.
 		name = "HatBrimBack",
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(0.17, 1.3, 1.3),
-		rotationDeg = Vector3.new(-26, 0, 90),
-		offset = Vector3.new(0, 0.8, 0.56),
+		size = Vector3.new(0.12, 1.5, 1.5),
+		rotationDeg = Vector3.new(-30, 0, 90),
+		offset = Vector3.new(0, 0.74, 0.5),
 		color = KEEPER_FELT,
 		material = FELT,
 	},
 	{
+		-- THE CROWN: ONE squashed ball, seated so its lower third is inside the band.
+		name = "HatCrown",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Ball,
+		size = Vector3.new(1.16, 0.98, 1.16),
+		rotationDeg = Vector3.zero,
+		offset = Vector3.new(0, 1.04, 0),
+		color = KEEPER_FELT,
+		material = FELT,
+	},
+	{
+		-- THE BAND, over the join between brim and crown and only 0.02 proud of the crown.
 		name = "HatBand",
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(0.14, 1.4, 1.4),
+		size = Vector3.new(0.2, 1.18, 1.18),
 		rotationDeg = Vector3.new(0, 0, 90),
-		offset = Vector3.new(0, 0.78, 0),
+		offset = Vector3.new(0, 0.74, 0),
 		color = KEEPER_CORD,
 		material = FELT,
 		noTint = true,
 	},
 	{
-		name = "HatCrownLower",
-		limb = "Head",
-		fallbackLimb = nil,
-		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(0.42, 1.34, 1.34),
-		rotationDeg = Vector3.new(0, 0, 90),
-		offset = Vector3.new(0, 0.88, 0),
-		color = KEEPER_FELT,
-		material = FELT,
-	},
-	{
-		name = "HatCrownUpper",
-		limb = "Head",
-		fallbackLimb = nil,
-		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(0.4, 1.18, 1.18),
-		rotationDeg = Vector3.new(0, 0, 90),
-		offset = Vector3.new(0, 1.28, 0),
-		color = KEEPER_FELT,
-		material = FELT,
-	},
-	{
+		-- THE PINCH along the top of the crown.
 		name = "HatCrease",
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Block,
-		size = Vector3.new(1, 0.12, 0.26),
+		size = Vector3.new(0.82, 0.14, 0.2),
 		rotationDeg = Vector3.zero,
-		offset = Vector3.new(0, 1.46, 0),
+		offset = Vector3.new(0, 1.42, 0),
 		color = KEEPER_CREASE,
 		material = FELT,
 		noTint = true,
 	},
 	{
+		-- THE GAMSBART, ON THE BAND AT HIS LEFT. Three strands fanning up and back out of one root,
+		-- which is where a real one is tied -- not three rods through the brim.
 		name = "HatBrush1",
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(0.72, 0.13, 0.13),
-		rotationDeg = Vector3.new(0, 0, 58),
-		offset = Vector3.new(-0.52, 1.3, 0.2),
+		size = Vector3.new(0.62, 0.11, 0.11),
+		rotationDeg = Vector3.new(0, 14, 64),
+		offset = Vector3.new(-0.58, 1.06, 0.12),
 		color = KEEPER_BRUSH,
 		material = FELT,
 		noTint = true,
@@ -501,9 +512,9 @@ local KEEPER_HAT_ROWS = {
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(0.72, 0.13, 0.13),
-		rotationDeg = Vector3.new(0, 0, 68),
-		offset = Vector3.new(-0.58, 1.34, 0.12),
+		size = Vector3.new(0.56, 0.1, 0.1),
+		rotationDeg = Vector3.new(0, 30, 58),
+		offset = Vector3.new(-0.62, 1.0, 0.2),
 		color = KEEPER_BRUSH,
 		material = FELT,
 		noTint = true,
@@ -513,9 +524,9 @@ local KEEPER_HAT_ROWS = {
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(0.72, 0.13, 0.13),
-		rotationDeg = Vector3.new(0, 0, 50),
-		offset = Vector3.new(-0.46, 1.32, 0.28),
+		size = Vector3.new(0.5, 0.1, 0.1),
+		rotationDeg = Vector3.new(0, 0, 70),
+		offset = Vector3.new(-0.56, 1.04, 0.02),
 		color = KEEPER_BRUSH,
 		material = FELT,
 		noTint = true,
@@ -554,9 +565,12 @@ local KEEPER_FACE_ROWS = {
 		-- 1.16 on this rig, so a 1.26-wide beard hung off both sides of it and read as a BOX rather
 		-- than as hair -- which is what the frame showed. 1.1 x 0.62 x 1.04 at -0.33 covers -0.64
 		-- .. -0.02 of the face, which is the stock smiley's mouth and jaw and not its eyes.
-		size = Vector3.new(1.1, 0.62, 1.04),
+		-- ON THE JAW, NOT IN FRONT OF IT (part 3f). The head measures 1.16 x 1.18 x 1.16, so this
+		-- wraps the lower face from -0.60 to -0.04 and stops 0.01 proud of the face plane: the
+		-- beard follows the jaw line instead of standing off it as a box.
+		size = Vector3.new(1.08, 0.56, 0.96),
 		rotationDeg = Vector3.zero,
-		offset = Vector3.new(0, -0.33, -0.07),
+		offset = Vector3.new(0, -0.32, -0.11),
 		color = BEARD_HAIR,
 		material = FELT,
 	},
@@ -565,9 +579,11 @@ local KEEPER_FACE_ROWS = {
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Block,
-		size = Vector3.new(0.54, 0.3, 0.5),
+		-- THE CHIN TUFT STAYS ON THE HEAD. At -0.55 it hung 0.11 below the jaw and read as a beard
+		-- resting on his chest; it now stops level with the head's own underside.
+		size = Vector3.new(0.5, 0.26, 0.46),
 		rotationDeg = Vector3.zero,
-		offset = Vector3.new(0, -0.55, -0.28),
+		offset = Vector3.new(0, -0.47, -0.3),
 		color = BEARD_HAIR,
 		material = FELT,
 	},

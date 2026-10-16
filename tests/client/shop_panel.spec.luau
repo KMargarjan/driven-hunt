@@ -818,4 +818,23 @@ return function()
 			Panel.setPrompt(nil)
 		end)
 	end)
+
+	describe("the phone's right-edge rail", function()
+		-- TASK 196 PART 3f. On a 400-wide screen the panel is the whole screen and the Hud's MAP /
+		-- REPORT column sat ON TOP of it. The rail is the Hud's; the shop only answers the question.
+		it("asks the Hud to hide the rail only while it is open AND the screen is narrow", function()
+			Panel.setOpen(false)
+			expect(Panel.hidesRail(400)).to.equal(false)
+			expect(Panel.hidesRail(1920)).to.equal(false)
+			Panel.setOpen(true)
+			-- A PHONE: the panel fills it.
+			expect(Panel.hidesRail(400)).to.equal(true)
+			expect(Panel.hidesRail(Shop.CONFIG.PANEL.WIDE_AT - 1)).to.equal(true)
+			-- ...AND A DESKTOP KEEPS ITS RAIL, because the panel does not reach the edge there.
+			expect(Panel.hidesRail(Shop.CONFIG.PANEL.WIDE_AT)).to.equal(false)
+			expect(Panel.hidesRail(1920)).to.equal(false)
+			Panel.setOpen(false)
+			expect(Panel.hidesRail(400)).to.equal(false)
+		end)
+	end)
 end

@@ -3727,6 +3727,55 @@ function Build.boxesOverlap(aAt: Vector3, aHalf: Vector3, bAt: Vector3, bHalf: V
 	return math.abs(gap.X) < reach.X and math.abs(gap.Y) < reach.Y and math.abs(gap.Z) < reach.Z
 end
 
+-- THE SURFACE A PLAYER ACTUALLY WALKS ON AT A POINT, which is not always the terrain (task 196
+-- part 3f). This lobby lays its road, its verges and its yard as PARTS on top of the terrain shelf,
+-- half a stud proud of it -- `road` says so in its own header, and it is why the first build of the
+-- road came back as "a field and NO ROAD". A tree seated by `terrainYAt` alone would therefore be
+-- planted to the terrain UNDER the slab and come up through it.
+--
+-- NO TREE DOES THAT TODAY -- measured, 0 of 38, because `treeLine` already keeps off the road
+-- corridor, the yard and the gathering pad, and the grove's rows are placed clear. This is the same
+-- kind of guard as the gathering-yard exclusion beside it: it removes nothing now, and what it is
+-- for is the next edit -- a wider yard, a shorter radius, one more hand-placed grove row.
+--
+-- PURE, AND OVER THE PARTS THAT ARE ALREADY BUILT: `road` runs before `treeLine` in `Build.build`,
+-- so the slabs exist to be asked.
+function Build.surfaceOver(slabs: { BasePart }, x: number, z: number): number?
+	local best = nil
+	for _, piece in ipairs(slabs) do
+		local half = piece.Size / 2
+		if math.abs(x - piece.Position.X) <= half.X and math.abs(z - piece.Position.Z) <= half.Z then
+			local top = piece.Position.Y + half.Y
+			if best == nil or top > best then
+				best = top
+			end
+		end
+	end
+	return best
+end
+
+-- THE GROUND READER A TREE IS PLANTED WITH: the terrain, or the walkable slab over it, whichever is
+-- HIGHER. nil where neither answers, which `treePlan`'s `skipMissing` already tolerates.
+local function walkableReader(
+	slabs: { BasePart },
+	terrainAt: ((number, number) -> number?)?
+): ((number, number) -> number?)?
+	if terrainAt == nil then
+		return nil
+	end
+	return function(x: number, z: number): number?
+		local ground = terrainAt(x, z)
+		local slab = Build.surfaceOver(slabs, x, z)
+		if ground == nil then
+			return slab
+		end
+		if slab == nil then
+			return ground
+		end
+		return math.max(ground, slab)
+	end
+end
+
 -- HOW CLEAR A TREE HAS TO STAND OF THE HOUSE. The Designer's lodge spec, 2026-10-16, section 16c:
 -- *"nothing through the roof, every crown >= 3.0 studs clear"*.
 local TREE_MARGIN_STUDS = 3.0
@@ -4108,8 +4157,20 @@ function Build.build(
 	-- THE WORLD'S OWN GROUND READER REACHES THE TREES TOO (spec 16a). Without it 18 of the 27 ring
 	-- trees stood clear of the ground, worst 5.55 -- the identical defect task 186 fixed for the
 	-- truck wheels, with the identical fix.
-	treeLine(folder, anchor, cfg, templates, (seams or {}).groundAt, (seams or {}).terrainAt)
-	lodgeTrees(folder, anchor, cfg, templates, (seams or {}).groundAt, (seams or {}).terrainAt)
+	-- THE SLABS THE ROAD JUST LAID, so a tree is seated on the surface a PLAYER sees and not on the
+	-- terrain hidden under it (part 3f). `road` ran four lines up; the parts are there to be asked.
+	local walkable: { BasePart } = {}
+	local laid = folder:FindFirstChild("Road")
+	if laid ~= nil then
+		for _, descendant in ipairs(laid:GetDescendants()) do
+			if descendant:IsA("BasePart") then
+				table.insert(walkable, descendant :: BasePart)
+			end
+		end
+	end
+	local treeGround = walkableReader(walkable, (seams or {}).terrainAt)
+	treeLine(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround)
+	lodgeTrees(folder, anchor, cfg, templates, (seams or {}).groundAt, treeGround)
 	lodge(folder, anchor, cfg, seams)
 	-- THE WORLD'S GROUND READER REACHES THE TRUCKS TOO (task 186), for the reason it already reaches
 	-- the pads: the shelf the arithmetic predicts is not the surface the engine produced, and a truck
