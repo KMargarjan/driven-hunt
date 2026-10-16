@@ -110,3 +110,66 @@ Whether it LOOKS nicer. That is one screenshot (rule 5), inspected, and then Kar
 which is the whole shape of her 2026-10-15 loop. The spec can prove the selected item's model is in
 the viewport with its parts and its camera aimed at it; it cannot prove the rifle is the right way
 up, and after tasks 188-190 that is a thing to look at rather than assume.
+
+
+---
+
+## Addendum, 2026-10-16: the Designer's shop (task 196, part 2)
+
+Karen looked at the panel this note describes and said: *"make nicer design for menu / more intutive
+more modern / nicer shells ect / license nicer and font give this to designer to decide how it
+should look"*. So the LOOK was handed over, and **the Designer's spec, 2026-10-16** ("Lodge Ledger")
+is what the panel is now built to. The spec, its three rendered mockups (desktop, phone, every state
+on one sheet) and their HTML sources live **outside this repository** with the Director's run files;
+nothing from them -- no font file, no PNG -- is copied in. What follows is what it changed here and
+the four places the engine would not do what it says.
+
+### What the spec decided, in one paragraph
+
+A lit display case in a dark lodge: `#1C1915` panel, cream type, brass hairlines, **one accent** --
+blaze orange for the single thing you may press. Green means already yours, amber means the ladder
+is holding it back, clay means you are short of coins, brass means money. Two faces: **Oswald** for
+the title, the item names and every number, **BuilderSans** for sentences, buttons and labels; no
+`Enum.Font.Code` anywhere in the shop and no black `UIStroke` on any of its text. Two layouts from
+one `layoutFor`: **WIDE** (a 228 px side menu and a 364 px detail column) and **TALL** (a
+horizontally scrolling strip of cards over the stacked page), split at a panel width of 520. Every
+row answers *"can I buy this?"* before it is clicked -- name, price, and one tag: `OWNED`, `12 / 25`,
+`SHORT 1160`. One big button in seven states with the price inside it, the locked state carrying its
+own progress bar, and one message slot above it for the caveat, the receipt and the refusal.
+
+### What the engine would not do, and what was done instead
+
+1. **No letter spacing.** Roblox `TextLabel` has no tracking property, and the spec's 9-10 px
+   uppercase micro-labels need it. One helper (`ShopPanel.spaced`) puts a plain space between the
+   letters, and it is applied ONLY to those fixed strings -- at 14 px and above a full space is too
+   wide. The spec names this and the helper is its own.
+2. **No per-corner radius.** The header bar has to be round at the top and square at the bottom; a
+   `UICorner` is all four corners. A second Frame fills the bottom half of the round ones.
+3. **The printed label was invisible** (rule 5, measured in the first frame): the spec puts the
+   shells' label at z = -0.04 and its printing at z = -0.045, but the card is 0.02 thick, so
+   everything at -0.045 is INSIDE it and the box came out with a blank cream label. The band, the
+   three ink bars and the seal moved to z = -0.022, in front of the label's own face. Nothing else
+   about those pieces changed.
+4. **`Enum.Material.Fabric` read as grey stone** on the 1.8-stud shell box (rule 5, the same frame):
+   the weave is sized in studs, so under the case's one light the green the spec picked did not come
+   through at all. The box is `SmoothPlastic`, which shows its colour. The spec's own section 9
+   covers the case: *"the Part tables are the truth; the pictures are what they should come out
+   looking like"*.
+
+### Measured, in the live place
+
+* **Both modes flip by themselves.** The Studio window was resized to a 410 x 780 viewport and the
+  panel went to `386 x 624` TALL with its card strip up, and back to `640 x 627` WIDE when the window
+  was put back -- no rebuild, because `ShopPanel.step` watches the screen size whether the panel is
+  open or shut (task 196 part 1's own fix).
+* **The whole buy path still runs.** The licence was bought through the real remote while the panel
+  was open: 2000 coins became 1750, the row's tag became `OWNED`, the button became `IN YOUR KIT`
+  and the status line turned green with `BOUGHT: BEATER LICENCE` -- all of it from the payload,
+  with nobody clicking the row again.
+* **A real click selects.** The two screenshots were taken after a genuine mouse click on the slug
+  row (desktop) and on the licence card (phone), replayed into the Play client.
+
+### What this addendum cannot tell you
+
+Whether it is *nicer*. That is Karen's, and the two screenshots beside the Designer's own mockups
+are what she is being asked to look at.

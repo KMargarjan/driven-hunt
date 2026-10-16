@@ -321,11 +321,16 @@ local SHELL_X = { -0.9, -0.52, -0.14 }
 local function buildShellBox(parent: Model)
 	pieces(parent, {
 		{
+			-- SMOOTHPLASTIC AND NOT THE SPEC'S `Fabric`, AND THE FIRST FRAME IS WHY (rule 5,
+			-- `.screenshots/196-shop-desktop.png`): `Fabric`'s weave is sized in studs, so on a
+			-- 1.8-stud box under the case's one light it read as grey SPECKLED STONE and the green
+			-- the spec picked did not come through at all. Smooth plastic shows the colour, which is
+			-- what the picture is for. The spec's own rule in section 9 covers this: *"the Part
+			-- tables are the truth; the pictures are what they should come out looking like"*.
 			name = "Box",
 			size = Vector3.new(1.8, 0.86, 1),
 			at = Vector3.new(0.18, 0.43, -0.55),
 			color = Color3.fromHex("2B4733"),
-			material = Enum.Material.Fabric,
 		},
 		{
 			name = "Label",
@@ -334,34 +339,38 @@ local function buildShellBox(parent: Model)
 			color = Color3.fromHex("EDE4CE"),
 		},
 		{
+			-- -0.022 AND NOT THE SPEC'S -0.045, MEASURED (rule 5): the label is 0.02 thick centred at
+			-- -0.04, so it spans -0.05 to -0.03 -- and every printed piece the spec puts at -0.045 is
+			-- INSIDE it and invisible. The camera looks from +z, so the print has to stand in FRONT
+			-- of the label's front face. Everything else about these four pieces is the spec's.
 			name = "LabelBand",
 			size = Vector3.new(1.5, 0.12, 0.022),
-			at = Vector3.new(0.18, 0.72, -0.045),
+			at = Vector3.new(0.18, 0.72, -0.022),
 			color = Color3.fromHex("D2661B"),
 		},
 		{
 			name = "Print1",
 			size = Vector3.new(0.84, 0.07, 0.022),
-			at = Vector3.new(-0.08, 0.6, -0.045),
+			at = Vector3.new(-0.08, 0.6, -0.022),
 			color = Color3.fromHex("3A3630"),
 		},
 		{
 			name = "Print2",
 			size = Vector3.new(0.58, 0.05, 0.022),
-			at = Vector3.new(-0.21, 0.49, -0.045),
+			at = Vector3.new(-0.21, 0.49, -0.022),
 			color = Color3.fromHex("7A7366"),
 		},
 		{
 			name = "Print3",
 			size = Vector3.new(0.37, 0.05, 0.022),
-			at = Vector3.new(-0.33, 0.41, -0.045),
+			at = Vector3.new(-0.33, 0.41, -0.022),
 			color = Color3.fromHex("7A7366"),
 		},
 		{
 			name = "Seal",
 			shape = Enum.PartType.Cylinder,
 			size = Vector3.new(0.03, 0.32, 0.32),
-			at = Vector3.new(0.7, 0.55, -0.05),
+			at = Vector3.new(0.7, 0.55, -0.02),
 			rot = Vector3.new(0, 90, 0),
 			color = Color3.fromHex("C8A258"),
 			material = Enum.Material.Metal,
@@ -370,7 +379,7 @@ local function buildShellBox(parent: Model)
 			name = "SealRing",
 			shape = Enum.PartType.Cylinder,
 			size = Vector3.new(0.034, 0.22, 0.22),
-			at = Vector3.new(0.7, 0.55, -0.056),
+			at = Vector3.new(0.7, 0.55, -0.026),
 			rot = Vector3.new(0, 90, 0),
 			color = Color3.fromHex("8E6F30"),
 			material = Enum.Material.Metal,

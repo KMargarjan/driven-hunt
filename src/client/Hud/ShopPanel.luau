@@ -1408,17 +1408,31 @@ local function buildDetail(root: Frame)
 	eyebrowLabel = label(column, "Eyebrow", SANS_BOLD, 10, LOOK.BLAZE_HI, 2)
 	nameLabel = label(column, "ItemName", OSWALD_SB, 27, LOOK.PAPER, 2)
 
+	-- THE PRICE LINE IS A ROW AND NOT THREE PLACED LABELS, and the first frame is why (rule 5,
+	-- `.screenshots/196-shop-desktop.png`): the number is `AutomaticSize`, so a caption placed at a
+	-- fixed x was overrun by it and came out as a single stray letter beside the figure. A
+	-- `UIListLayout` puts the coin, the number and the unit in a line whatever the number is.
 	local priceRow = frame(column, "PriceRow", 2)
 	priceRow.BackgroundTransparency = 1
+	local priceList = Instance.new("UIListLayout")
+	priceList.FillDirection = Enum.FillDirection.Horizontal
+	priceList.VerticalAlignment = Enum.VerticalAlignment.Center
+	priceList.SortOrder = Enum.SortOrder.LayoutOrder
+	priceList.Padding = UDim.new(0, 8)
+	priceList.Parent = priceRow
 	priceCoin = coin(priceRow, "Coin", 17, 3);
-	(priceCoin :: Frame).Position = UDim2.fromOffset(0, 4)
+	(priceCoin :: Frame).LayoutOrder = 1
 	priceLabel = label(priceRow, "Price", OSWALD_SB, 24, LOOK.COIN_TEXT, 3);
-	(priceLabel :: TextLabel).Position = UDim2.fromOffset(24, 0);
-	(priceLabel :: TextLabel).Size = UDim2.fromOffset(90, 26);
-	(priceLabel :: TextLabel).AutomaticSize = Enum.AutomaticSize.X
+	(priceLabel :: TextLabel).LayoutOrder = 2
+	(priceLabel :: TextLabel).AutomaticSize = Enum.AutomaticSize.X;
+	(priceLabel :: TextLabel).Size = UDim2.fromOffset(0, 26);
+	(priceLabel :: TextLabel).TextYAlignment = Enum.TextYAlignment.Center
 	priceCaption = label(priceRow, "Caption", SANS_SEMI, 10, LOOK.FAINT, 3);
 	(priceCaption :: TextLabel).Text = spaced(TEXT.COINS_CAP);
-	(priceCaption :: TextLabel).Position = UDim2.fromOffset(24, 10)
+	(priceCaption :: TextLabel).LayoutOrder = 3
+	(priceCaption :: TextLabel).AutomaticSize = Enum.AutomaticSize.X;
+	(priceCaption :: TextLabel).Size = UDim2.fromOffset(0, 14);
+	(priceCaption :: TextLabel).TextYAlignment = Enum.TextYAlignment.Center
 
 	ruleLine = frame(column, "Rule", 2);
 	(ruleLine :: Frame).BackgroundColor3 = LOOK.LINE
