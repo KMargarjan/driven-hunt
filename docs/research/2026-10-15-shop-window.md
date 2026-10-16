@@ -240,3 +240,45 @@ and a real one is on the upload list the spec keeps (its section 18).
 * **The washed-out look is the LIGHTING, not the colours.** Every §1 value was read back off the
   live parts after the build and every one matches the spec exactly. `Lighting.Ambient` and
   `OutdoorAmbient` are not the lodge's to set, which the spec says itself.
+
+## Addendum, task 196 part 3c: three frames the Director sent back
+
+The Director looked at part 3b's after-images and called three of them not Karen-ready. All three
+were worse than "does not match the mockup", and two of them were one bug.
+
+**`Model:ScaleTo` is absolute against the AUTHORED size.** It is not a multiplier of what you see
+([Model.ScaleTo](https://create.roblox.com/docs/reference/engine/classes/Model#ScaleTo)); a model a
+human scaled down in Studio carries that factor in `GetScale()`, and `ScaleTo(n)` throws it away.
+Measured in this place: `LobbyAssets.Trees.SilverBirch_Var11_LOD_0` displays 27 x 74 x 27 and
+reports `GetScale() = 0.04329`, so `ScaleTo(0.95)` rebuilt it **1629 studs tall** -- twenty-two
+times the tree in the folder, twenty times `OurForest`'s own 81-stud aspens. That is the trunks
+crossing the roof, the trunk hanging through the porch roof, and the trunk across the path, and it
+is very probably the *"what's wrong with those trees next to house"* Karen reported. `cloneInstance`
+multiplies by the template's own scale now; every other template in the folder reports exactly 1.0.
+
+**`Model:GetBoundingBox` returns an ORIENTED box.** Its CFrame carries the model's rotation, so
+reading its position and size as an axis-aligned box is wrong for anything that has been turned --
+and every tree is turned by a random yaw. The first version of the keep-out check did exactly that
+and still left seven tree parts standing in the house. `Build.worldBoxOf` projects each part's size
+through its own rotation, the projection `lobby.spec` already clamps trophies with.
+
+**`Enum.Material.Fabric` is not felt at head size, for the second time in this task.** Roblox
+material textures are sized in studs, so the weave on a 1.3-stud hat disc is a few enormous cells of
+grey speckle -- a stack of rock discs on the keeper's head and a rock block on his chin. Part 2 had
+already found the identical thing on the shell box. The rule worth keeping: **a material texture
+below about three studs reads as noise, not as a material; carry small surfaces on colour alone.**
+
+**A `WedgePart`'s slope runs along its own +Z**, and three stacked rotations are a guess about which
+way that points. The shield's point was laid flat and read as a shelf under every plaque. A square
+turned forty-five degrees about the face's own normal needs no such guess.
+
+**A mount is a whole animal, so the wall behind it has to be deep enough.** Measured: the boar stood
+1.52 studs proud of the north wall's OUTSIDE face and the sows 0.96, while the capital boar over the
+fire was clear by 6.25 because the chimney gives it 2.8 studs of stone. The trophy run has a boarded
+back store against it now.
+
+**The washed-out room is the place's `Lighting`, not the lodge.** `Ambient` measures 159,159,159 at
+`Brightness` 3.0 and nothing under `src/` writes Lighting at all. Two warm sconces on the trophy
+wall were tried at the Director's request and made it worse before they were dimmed; the heads are
+the same grey with them as without. A room lit by bright flat grey cannot be made to read dark from
+inside it.

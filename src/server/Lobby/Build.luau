@@ -1974,9 +1974,21 @@ local function trophies(inside: Instance, room: Room, cfg, assets: ((string) -> 
 				false,
 				folder
 			)
+			-- THE IRON CUP THE FLAME SITS IN, so the glass is part of a fixture instead of a dot
+			-- hanging off the wall -- which is what the first frame showed.
+			local cup = part(
+				string.format("SconceCup%d", index),
+				Vector3.new(0.3, 0.46, 0.46),
+				CFrame.new(at - Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, 0, math.pi / 2),
+				cfg.LODGE.IRON_COLOR,
+				Enum.Material.Metal,
+				false,
+				folder
+			)
+			cup.Shape = Enum.PartType.Cylinder
 			local bowl = part(
 				string.format("SconceFlame%d", index),
-				Vector3.new(0.42, 0.42, 0.42),
+				Vector3.new(0.3, 0.3, 0.3),
 				CFrame.new(at),
 				lamp.COLOR,
 				Enum.Material.Neon,

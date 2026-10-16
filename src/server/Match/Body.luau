@@ -378,7 +378,11 @@ export type Group = { slot: string, rows: { any }, clears: { string }, clearsOnP
 -- `Look`, and `Body.tintFor` paints the hat slot and nothing else -- so the brown felt is one field
 -- in the lobby's own config and this table does not have to know about it.
 local LODEN = Color3.fromRGB(62, 74, 52)
-local KEEPER_FELT = Color3.fromHex("4C5A3E")
+-- DARKER THAN THE SPEC'S 4C5A3E (part 3c). Looked at: under this place's `Lighting.Ambient` of
+-- 159,159,159 at `Brightness` 3 a 76,90,62 felt renders CREAM, and a cream Tyrolean hat on a
+-- loden suit is not what the Designer drew. The hue is the spec's; the value is what makes it
+-- read as loden in the room it is actually worn in.
+local KEEPER_FELT = Color3.fromHex("35402A")
 local KEEPER_BRUSH = Color3.fromHex("4A3B24")
 
 local KEEPER_CORD = Color3.fromHex("2E2A22")
@@ -529,8 +533,11 @@ local KEEPER_HAT_ROWS = {
 -- keep their own colours whatever a player has bought.
 -- DARK BROWN, NOT WARM GREY (part 3c). 74,64,56 was chosen against the grey speckle it was wearing;
 -- on a smooth part it reads as what it is, so it is a hair colour now.
-local BEARD_HAIR = Color3.fromHex("3E2E20")
-local BEARD_DARK = Color3.fromHex("32251A")
+-- AND DARKER AGAIN AFTER LOOKING AT IT (part 3c). 62,46,32 measured on the live part renders as
+-- light TAN under this place's flat 159-grey ambient, and a tan block on a blown-out white head
+-- reads as a bib. A beard is the darkest thing on a face; at this exposure that means 36,26,18.
+local BEARD_HAIR = Color3.fromHex("241A12")
+local BEARD_DARK = Color3.fromHex("18110B")
 local BROW_COLOR = Color3.fromHex("3A322A")
 
 local KEEPER_FACE_ROWS = {
@@ -539,9 +546,17 @@ local KEEPER_FACE_ROWS = {
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Block,
-		size = Vector3.new(1.24, 0.56, 1.06),
+		-- UP OVER THE MOUTH (part 3c). At -0.34 with 0.56 of height the beard's top edge sat at
+		-- -0.06 of a 1.2-stud head, which is BELOW the stock face's mouth: the frame showed the
+		-- smiley complete, with a brown block under his chin. It covers -0.66 .. +0.06 now, which
+		-- is the mouth and the jaw and not the eyes.
+		-- NARROWER THAN THE HEAD, AND ONLY 0.01 PROUD OF THE FACE. The head measures 1.16 x 1.18 x
+		-- 1.16 on this rig, so a 1.26-wide beard hung off both sides of it and read as a BOX rather
+		-- than as hair -- which is what the frame showed. 1.1 x 0.62 x 1.04 at -0.33 covers -0.64
+		-- .. -0.02 of the face, which is the stock smiley's mouth and jaw and not its eyes.
+		size = Vector3.new(1.1, 0.62, 1.04),
 		rotationDeg = Vector3.zero,
-		offset = Vector3.new(0, -0.34, -0.08),
+		offset = Vector3.new(0, -0.33, -0.07),
 		color = BEARD_HAIR,
 		material = FELT,
 	},
@@ -550,9 +565,9 @@ local KEEPER_FACE_ROWS = {
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Block,
-		size = Vector3.new(0.52, 0.3, 0.5),
+		size = Vector3.new(0.54, 0.3, 0.5),
 		rotationDeg = Vector3.zero,
-		offset = Vector3.new(0, -0.56, -0.26),
+		offset = Vector3.new(0, -0.55, -0.28),
 		color = BEARD_HAIR,
 		material = FELT,
 	},
@@ -561,9 +576,9 @@ local KEEPER_FACE_ROWS = {
 		limb = "Head",
 		fallbackLimb = nil,
 		shape = Enum.PartType.Block,
-		size = Vector3.new(0.56, 0.12, 0.14),
+		size = Vector3.new(0.62, 0.14, 0.16),
 		rotationDeg = Vector3.zero,
-		offset = Vector3.new(0, -0.22, -0.6),
+		offset = Vector3.new(0, -0.14, -0.6),
 		color = BEARD_DARK,
 		material = FELT,
 	},

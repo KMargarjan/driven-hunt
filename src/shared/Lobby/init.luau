@@ -672,7 +672,7 @@ Lobby.CONFIG = {
 			-- LODEN, AND IT AGREES WITH `Match.Body`'s OWN FELT (the Designer's lodge spec, 2026-10-16,
 			-- section 13b): the tint path and the row path have to land on the same colour or the
 			-- brim and the crown are two different hats.
-			HAT_COLOR = Color3.fromHex("4C5A3E"),
+			HAT_COLOR = Color3.fromHex("35402A"),
 			-- HIS FACE. The outfit owner paints the five limb stems and never the head, which is
 			-- right for a player -- and left this man with the solid black head and no features that
 			-- an empty `HumanoidDescription` ships, which is what Karen saw and called broken.
@@ -845,9 +845,12 @@ Lobby.CONFIG = {
 		LIGHT = {
 			ALONG = { -14.2, -3.0 },
 			HEIGHT = 7.4,
-			COLOR = Color3.fromRGB(255, 190, 120),
-			BRIGHTNESS = 2.1,
-			RANGE = 17,
+			-- DIMMER AND SMALLER AFTER LOOKING AT IT (part 3c): at 2.1 and range 17 the pair washed
+			-- the log wall paler than it started and the glass read as a white DOT floating off the
+			-- wall. A sconce is a small warm lamp, not a floodlight.
+			COLOR = Color3.fromRGB(255, 186, 118),
+			BRIGHTNESS = 1.0,
+			RANGE = 12,
 		},
 		-- THE RED STAG'S PLACE, KEPT AND LEGIBLE (spec 15c). Nothing is built inside this box; two
 		-- iron pegs are fixed at the top of it, where a shield would hang from, so it reads as KEPT
