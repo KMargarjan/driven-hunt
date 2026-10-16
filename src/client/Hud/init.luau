@@ -2100,20 +2100,18 @@ function Hud.renderObjective(CameraSystem)
 	-- and a second per-frame loop on this client would be a second owner of the frame. It returns
 	-- immediately while the panel is shut, which is every frame of a hunt.
 	ShopPanel.step()
-	-- ...AND THE RAIL GETS OUT OF THE SHOP'S WAY ON A PHONE (task 196 part 3f). On a 400-wide screen
-	-- the panel is the whole screen and the MAP / REPORT column sat ON TOP of it.
+	-- ...AND THE RAIL GETS OUT OF THE SHOP'S WAY ON A PHONE (task 196 part 3f, corrected in review
+	-- round 1). On a 400-wide screen the panel is the whole screen and the MAP / REPORT column sits
+	-- ON TOP of it.
 	--
-	-- THE HUD HIDES ITS OWN RAIL AND THE SHOP ONLY ANSWERS A QUESTION (`ShopPanel.hidesRail`, pure).
-	-- The rail is `Hud.Rail`'s -- it owns every button in it -- and a panel reaching into another
-	-- owner's frame is the second writer this file exists to not have. One write per change: the
-	-- comparison is a field read a frame.
-	if railFrame ~= nil then
-		local view = Workspace.CurrentCamera
-		local hide = view ~= nil and ShopPanel.hidesRail(view.ViewportSize.X)
-		if (railFrame :: Frame).Visible == hide then
-			(railFrame :: Frame).Visible = not hide
-		end
-	end
+	-- IT STATES A NEED; `Rail` DOES THE WRITING. Part 3f wrote `railFrame.Visible` here, every
+	-- frame, which made a second writer of another owner's frame -- and because it wrote `true`
+	-- whenever the shop was shut, the first frame after a sight picture went up turned four buttons
+	-- back on inside the eyepiece, undoing `Rail.setSuppressed` and beating `SHOW_ON_DESKTOP` with
+	-- it. `Rail.setCovered` is edge-triggered, so this costs one comparison a frame and
+	-- `Rail.applyVisibility` stays the one place `Visible` is written.
+	local screen = Workspace.CurrentCamera
+	Rail.setCovered(screen ~= nil and ShopPanel.hidesRail(screen.ViewportSize.X))
 	-- ...AND WHETHER A TRUCK PAD IS ASKING HIM HOW MANY (task 182). ONE server-measured fact, read
 	-- here for `setNear`'s own stated reason -- this function is already *"THE ONE EVALUATION"* --
 	-- and the panel is TOLD. `setAsk` is edge-triggered inside it, so this costs four memoised part

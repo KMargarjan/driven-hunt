@@ -176,7 +176,10 @@ return function()
 			expect(#order).to.equal(#Shop.ORDER)
 			expect(order[1]).to.equal(groups[1].rows[1].id)
 			-- INSIDE A SHELF THE WIRE'S OWN ORDER SURVIVES, and the wire is `Shop.ORDER`: cheapest
-			-- first, so the open-sight rifle (600) comes before the scoped one (1500).
+			-- first. THE WEAPONS SHELF HAS HELD ONE ROW SINCE TASK 196 -- Karen, 2026-10-16:
+			-- *"remove rifle without scope soon don't need"* -- so what the assertion below proves
+			-- today is that the shelf's single row is the one the wire names, and the ordering it
+			-- was written for comes back with the next weapon.
 			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.RIFLE)
 			expect(#groups[1].rows).to.equal(1)
 			-- NOTHING IN, NOTHING OUT.
