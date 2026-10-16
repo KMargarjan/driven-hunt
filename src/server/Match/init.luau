@@ -35,10 +35,15 @@
 -- there is light on 4 corners and then showing image transperent with results table"*. So:
 --   * a drive ends on the clock as it always did, OR earlier when every REAL beater is through the
 --     hunters' line -- `Match.crossedLine` measures it against the nearest stand, `Phase` decides;
---   * the `Scoring` phase IS the scene: this drive's animals laid out in a row behind the middle
---     stand (`Match.gatherSpotFor`), four lamps on the four corners, everybody held and stood round
---     them (`Body.stand`), and the results table on screen -- which is the drive's own score panel
---     reading the snapshot this owner already broadcasts. There is no second score and no new remote.
+--   * the `Scoring` phase IS the scene: this drive's animals laid out in a row, four lamps on the
+--     four corners, everybody held and stood round them (`Body.stand`), and the results table on
+--     screen -- which is the drive's own score panel reading the snapshot this owner already
+--     broadcasts. There is no second score and no new remote.
+--     WHERE that row lies is `Match.gatherSpot`, and SINCE TASK 191 THE WORLD GETS FIRST SAY: Karen,
+--     2026-10-15, *"next is when hunt over everyone is in clean ground no grass firstable / second
+--     it could be next to cabin"*, so the Forest Test hands this owner `world.gatherSpot` and the
+--     gathering happens in the lobby's clean yard beside the lodge. `Match.gatherSpotFor` -- behind
+--     the middle stand -- is the fallback, and it is what a world that injects nothing still gets.
 --
 -- TASK 161 FILLED THE DRIVE WITH BOTS, and this owner gained no rig and no clock for it. Karen's v1
 -- rule: *"Let's make 4 hunters 4 beaters"*, and she plays solo. `ServerScriptService.Bots` owns every
@@ -729,6 +734,11 @@ local stats = {
 	scenes = 0,
 	scenesCleared = 0,
 	scenesNowhere = 0,
+	-- HOW MANY TIMES THE WORLD NAMED THE SPOT ITSELF (task 191), rather than the drive deriving it
+	-- from the middle stand. It is the one number that tells "the gathering happened at the cabin"
+	-- apart from "the gathering happened in the grass again": in the Forest Test it must equal
+	-- `scenes`, and in the DEV place it must be 0.
+	sceneWorldSpots = 0,
 	sceneAnimals = 0,
 	-- ...AND HOW MANY OF THEM WERE THE REAL ANIMAL AND HOW MANY THE GREY BOX (task 173). Summed from
 	-- `Scene.stats()` after each build, which is the module that knows: these are totals across the
@@ -1413,9 +1423,8 @@ end
 -- ------------------------------------------------------------------ the results scene (task 159)
 --
 -- THE SCENE IS `Match.Scene`'S INSTANCES AND `Body`'S CHARACTERS, and this is the one place either is
--- asked for: the spot and the facing are this owner's reading of the world's own geometry
--- (`Match.gatherSpotFor` over the marker set), the animals are this drive's own kill record, and
--- WHERE A PLAYER STANDS is still written by `Body` alone.
+-- asked for: the spot and the facing come from `Match.gatherSpot` below, the animals are this
+-- drive's own kill record, and WHERE A PLAYER STANDS is still written by `Body` alone.
 --
 -- A WORLD THAT ANSWERS NOWHERE GETS NO SCENE AND ONE LINE SAYING SO, which is the same shape
 -- `applyPlace` already has: a drive whose markers have no stands has nothing to gather the animals
@@ -1424,7 +1433,7 @@ local function applyScene()
 	if not config.SCENE.ENABLED then
 		return
 	end
-	local spot, facing = Match.gatherSpotFor(markerSet, config)
+	local spot, facing, fromWorld = Match.gatherSpot()
 	if spot == nil or facing == nil then
 		stats.scenesNowhere += 1
 		print(
@@ -1433,6 +1442,9 @@ local function applyScene()
 		return
 	end
 	stats.scenes += 1
+	if fromWorld then
+		stats.sceneWorldSpots += 1
+	end
 	-- ...AND ON THE GROUND UNDER EACH POINT OF IT (task 192), through the one ground reader this
 	-- owner already handed `Body`. The animals and the four torches are laid out flat round one
 	-- spot, and on a sloped layout that buries half of them.
@@ -1450,11 +1462,19 @@ local function applyScene()
 	local sceneStats = Scene.stats()
 	stats.sceneModels += sceneStats.models
 	stats.sceneBoxes += sceneStats.boxes
+	-- ...AND WHERE IT HAPPENED, IN THE SAME SENTENCE (task 191). A log line saying twelve animals were
+	-- laid out in two rows cannot tell the yard beside the cabin from the grass in the forest, and
+	-- that is the whole of what Karen asked to change -- so the spot goes in it, with `world` or
+	-- `drive` naming which of the two rules answered.
 	print(
 		string.format(
-			"[match] gathered %d animal(s) in %d row(s): %d real model(s), %d box(es)",
+			"[match] gathered %d animal(s) in %d row(s) at %s (%.0f, %.0f, %.0f): %d real model(s), %d box(es)",
 			laid,
 			sceneStats.rows,
+			if fromWorld then "the world's own spot" else "the drive's spot behind the stands",
+			spot.X,
+			spot.Y,
+			spot.Z,
 			sceneStats.models,
 			sceneStats.boxes
 		)
@@ -1902,6 +1922,55 @@ function Match.gatherSpotFor(markers, cfg): (Vector3?, Vector3?)
 	local ground = middle.Position.Y - middle.Size.Y / 2
 	local at = Vector3.new(middle.Position.X, ground, middle.Position.Z) - normal * cfg.SCENE.GATHER_BEHIND_STUDS
 	return at, normal
+end
+
+-- WHERE *THIS* WORLD GATHERS, AND THE WORLD GETS FIRST SAY (task 191).
+--
+-- KAREN, 2026-10-15 ~17:20: *"next is when hunt over everyone is in clean ground no grass firstable
+-- / second it could be next to cabin"*. In the Forest Test the answer is now the LOBBY's clean yard
+-- beside the lodge (`Lobby.gatherSpot`, injected here as `world.gatherSpot`), and the rule above --
+-- `GATHER_BEHIND_STUDS` behind the middle stand -- is the FALLBACK.
+--
+-- IT IS SOURCE 3.1'S OWN BRANCH, borrowed whole. ioquake3's `FindIntermissionPoint` looks for an
+-- entity the MAP AUTHOR placed and falls back to the spawn logic when there is none:
+--   `ent = G_Find (NULL, FOFS(classname), "info_player_intermission");`
+--   `if ( !ent ) { // the map creator forgot to put in an intermission point...`
+-- Authored answer first, derived answer when there is none. A world with no lobby -- the DEV place,
+-- or a Forest Test whose lobby did not build -- therefore gathers exactly where it gathered before
+-- this task, and that is reachable by PARAMETER (inject nothing) as well as by state.
+--   ioquake3 code/game/g_main.c, GPL-2.0: https://github.com/ioquake/ioq3/blob/main/code/game/g_main.c
+--
+-- THE SEAM IS THE SHAPE THIS FUNCTION'S NEIGHBOURS ALREADY HAVE -- `world.placement`,
+-- `world.markers`, `world.standArea`, `world.boars`, `world.bots` -- *the world provides; the owner
+-- decides*. It is wrapped in `pcall` and type-checked for the reason `Match.displayAnimal` and
+-- `Body.groundUnder` are: a world's reader that throws, or answers something that is not a pair of
+-- `Vector3`s, must cost this drive its fallback and never its scene.
+--
+-- BOTH HALVES OR NEITHER. A world that answers a spot and no facing is not half-right, it is wrong,
+-- so the fallback takes over -- which is also what keeps `applyScene`'s own `spot == nil or facing
+-- == nil` branch the one place "nowhere to gather" is decided.
+--
+-- Note: docs/research/2026-10-16-gathering-at-the-cabin.md
+-- THE THIRD RETURN IS WHICH OF THE TWO ANSWERED, and it exists for the console line: "gathered 12
+-- animals in 2 rows" cannot tell the yard beside the cabin from the grass in the forest.
+--
+-- PURE IN THE WORLD'S READER, AND EXPORTED, which is what lets `match_scene.spec` state all five
+-- cases -- the world answers, the world is absent, the world throws, the world answers half a pair,
+-- the world answers something that is not a `Vector3` -- with no drive, no lobby and no world at all.
+-- `Match.gatherSpot` below is the one line that reaches for the live one.
+function Match.gatherSpotOf(reader: any, markers, cfg): (Vector3?, Vector3?, boolean)
+	if type(reader) == "function" then
+		local ok, at, facing = pcall(reader)
+		if ok and typeof(at) == "Vector3" and typeof(facing) == "Vector3" then
+			return at :: Vector3, facing :: Vector3, true
+		end
+	end
+	local at, facing = Match.gatherSpotFor(markers, cfg)
+	return at, facing, false
+end
+
+function Match.gatherSpot(): (Vector3?, Vector3?, boolean)
+	return Match.gatherSpotOf(if world then world.gatherSpot else nil, markerSet, config)
 end
 
 -- Drivers only. A shooter standing on a post must not push the boar back into the wood before it

@@ -159,6 +159,98 @@ return function()
 		end)
 	end)
 
+	-- TASK 191: KAREN, 2026-10-15 ~17:20, *"next is when hunt over everyone is in clean ground no
+	-- grass firstable / second it could be next to cabin"*. The gathering is no longer always the
+	-- drive's own spot behind the stands: the WORLD gets first say, and the rule above is the
+	-- fallback. `Match.gatherSpotOf` is that choice, pure in the world's reader, so every way a
+	-- world can get it wrong is a line here rather than a drive nobody watched.
+	--
+	-- Borrowed whole from ioquake3's `FindIntermissionPoint` (GPL-2.0): the authored point first,
+	-- `if ( !ent )` the derived one. Note: docs/research/2026-10-16-gathering-at-the-cabin.md
+	describe("who decides where the drive gathers", function()
+		local MARKERS = { posts = POSTS, line = LINE }
+		local YARD = Vector3.new(2798, 150, -2940)
+		local EAST = Vector3.new(1, 0, 0)
+
+		it("takes the world's own spot when there is one, and says so", function()
+			local at, facing, fromWorld = Match.gatherSpotOf(function()
+				return YARD, EAST
+			end, MARKERS, CONFIG)
+			expect(at).to.equal(YARD)
+			expect(facing).to.equal(EAST)
+			expect(fromWorld).to.equal(true)
+		end)
+
+		it("falls back to behind the middle stand when the world names nowhere", function()
+			-- THE DEV PLACE, AND A FOREST TEST WHOSE LOBBY DID NOT BUILD. Both inject nothing (nil)
+			-- or answer nothing, and both must get the game exactly as it was before this task --
+			-- which is the "reachable by parameter" half of CLAUDE.md's flag rule, with no flag.
+			for _, reader in ipairs({
+				{ what = "no reader at all", fn = nil },
+				{ what = "a reader that answers nothing", fn = function() end },
+				{
+					what = "a reader that answers a spot and no facing",
+					fn = function()
+						return YARD
+					end,
+				},
+				{
+					what = "a reader that answers something that is not a Vector3",
+					fn = function()
+						return 7, "east"
+					end,
+				},
+				{
+					what = "a reader that throws",
+					fn = function()
+						error("no lobby here")
+					end,
+				},
+			}) do
+				local at, facing, fromWorld = Match.gatherSpotOf((reader :: any).fn, MARKERS, CONFIG)
+				expect(fromWorld).to.equal(false)
+				-- ...and it is the drive's own answer, not nil: a world that cannot name a spot must
+				-- still get Karen's scene, behind the middle stand, where it has always been.
+				expect(at).to.be.ok()
+				expect(facing).to.equal(Vector3.new(0, 0, 1))
+				expect((at :: Vector3).Z).to.equal(-CONFIG.SCENE.GATHER_BEHIND_STUDS)
+			end
+			TestKit.note("match_scene: five ways a world can name nowhere, five falls back to the stands")
+		end)
+
+		it("answers nowhere only when BOTH rules do", function()
+			-- A world with no reader AND no stands: `applyScene`'s own `scenesNowhere` branch, which
+			-- is the one place "there is nowhere to gather" is decided.
+			local at, facing, fromWorld = Match.gatherSpotOf(nil, { posts = {}, line = LINE }, CONFIG)
+			expect(at).to.equal(nil)
+			expect(facing).to.equal(nil)
+			expect(fromWorld).to.equal(false)
+			-- ...and a world that NAMES one still gathers, with no stands anywhere in it. That is the
+			-- lobby case: the gathering yard is 570 studs from the drive and owes it no geometry.
+			local named, namedFacing = Match.gatherSpotOf(function()
+				return YARD, EAST
+			end, { posts = {} }, CONFIG)
+			expect(named).to.equal(YARD)
+			expect(namedFacing).to.equal(EAST)
+		end)
+
+		it("the facing it is handed is the axis the row lies across", function()
+			-- WHY THE YARD FACES THE LODGE (`Lobby.CONFIG.GATHER.FACING` = +X). `Scene.sideAxis`
+			-- crosses the facing with +Y, so a look of +X gives a row axis of +Z: the animals lie
+			-- north-south and a player arriving from the EAST -- the porch -- sees the whole row
+			-- broadside rather than end-on. This is the arithmetic behind that sentence.
+			local side = Scene.sideAxis(EAST)
+			expect(math.abs(side.X) < 1e-6).to.equal(true)
+			expect(math.abs(math.abs(side.Z) - 1) < 1e-6).to.equal(true)
+			local row = Scene.rowLayout(YARD, EAST, 3, CONFIG)
+			-- Every animal at the same x, stepping in z: the row runs across the viewer's line of sight.
+			for index = 1, #row do
+				expect(math.abs(row[index].Position.X - YARD.X) < 1e-6).to.equal(true)
+			end
+			expect(math.abs(row[2].Position.Z - row[1].Position.Z)).to.equal(CONFIG.SCENE.SPACING_STUDS)
+		end)
+	end)
+
 	describe("the scene's layout", function()
 		local spot = Vector3.new(0, 10, -24)
 		local facing = Vector3.new(0, 0, 1)

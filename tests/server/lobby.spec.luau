@@ -29,6 +29,9 @@ local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
 -- what ANOTHER owner will do with the team this one hands it, and a spec that asserts the config
 -- against itself passes for any string -- which is exactly how an undressed man got through round 1.
 local Match = require(ServerScriptService:WaitForChild("Match"))
+-- `TestKit.note` only, for the measured lines the gathering yard's audits print (task 191): a
+-- clearance is worth more in the report as a NUMBER than as a passing assertion.
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Join = Lobby.Join
 local Pads = Lobby.Pads
 local Field = Lobby.Field
@@ -715,12 +718,19 @@ return function()
 		end)
 
 		it("writes nothing outside the field's own rectangle", function()
-			for _, block in ipairs({
+			-- EVERY PAD IN THE LIST AND NOT THE FIRST TWO BY INDEX (task 191). It was written as
+			-- `PADS[1]` and `PADS[2]`, so the third pad this task adds -- and every pad after it --
+			-- would have been outside the one audit that bounds them. A list the config calls a list
+			-- is iterated.
+			local blocks = {
 				{ Field.grassBlock(anchor, shelf, CFG) },
 				{ Field.airBlock(anchor, shelf, CFG) },
-				{ Field.padBlock(anchor, shelf, CFG.FIELD.PADS[1]) },
-				{ Field.padBlock(anchor, shelf, CFG.FIELD.PADS[2]) },
-			}) do
+			}
+			for _, pad in ipairs(CFG.FIELD.PADS) do
+				table.insert(blocks, { Field.padBlock(anchor, shelf, pad) })
+			end
+			expect(#blocks).to.equal(2 + #CFG.FIELD.PADS)
+			for _, block in ipairs(blocks) do
 				local at, size = block[1] :: CFrame, block[2] :: Vector3
 				expect(Field.insideField(anchor, at, size, CFG)).to.equal(true)
 				for _, point in ipairs(corners(at, size)) do
@@ -775,6 +785,254 @@ return function()
 			expect(seen.grass).to.equal(grassCalls)
 			expect(seen.pad > 0).to.equal(true)
 			expect(seen.air > 0).to.equal(true)
+		end)
+	end)
+
+	-- TASK 191: THE GATHERING HAPPENS ON CLEAN GROUND, NEXT TO THE CABIN.
+	--
+	-- KAREN, 2026-10-15 ~17:20: *"next is when hunt over everyone is in clean ground no grass
+	-- firstable / second it could be next to cabin"*. The end-of-drive gathering used to happen at
+	-- the DRIVE's own spot in the forest, where tall grass hid the animals and the players; it
+	-- happens in the lodge's own west yard now.
+	--
+	-- WHAT THIS BLOCK IS FOR: the rectangle is data, and every claim about it is arithmetic. Does the
+	-- scene FIT in it (against `Match.CONFIG`, never against a copy)? Does it CLEAR everything the
+	-- lobby already has? Is the ground under it BLADE-FREE? And is the spot's Y MEASURED rather than
+	-- predicted, which is the fault that put four trucks' tyres underground in task 186?
+	--
+	-- Note: docs/research/2026-10-16-gathering-at-the-cabin.md
+	describe("the gathering yard beside the cabin", function()
+		local anchor = Vector3.new(2850, 149.248, -2950)
+		local pad = Data.gatherPad(CFG)
+
+		it("is one row in the pad list, found by name, with no grass blades on it", function()
+			expect(pad).to.be.ok()
+			expect((pad :: any).NAME).to.equal(CFG.GATHER.PAD_NAME)
+			-- BLADE-FREE, which is the whole of Karen's *"clean ground no grass"*: Roblox draws a
+			-- grass material's blades ON the terrain surface and nothing laid over them hides them,
+			-- which this repo has photographed twice (the lodge's floorboards, and a road that was
+			-- invisible). `FIELD.MATERIAL` is the grass; a pad is never it.
+			expect((pad :: any).MATERIAL).to.never.equal(CFG.FIELD.MATERIAL)
+			expect((pad :: any).MATERIAL).to.equal(Enum.Material.Ground)
+			-- FOUND BY NAME AND NOT BY INDEX, so a fourth pad inserted anywhere in the list cannot
+			-- silently become the gathering yard.
+			expect(Data.gatherPad({ FIELD = { PADS = {} }, GATHER = CFG.GATHER })).to.equal(nil)
+			expect(Data.gatherPad({
+				FIELD = { PADS = { { NAME = "Yard" }, { NAME = "Road" } } },
+				GATHER = CFG.GATHER,
+			})).to.equal(nil)
+		end)
+
+		it("holds the WHOLE scene at its worst case, measured against Match's own numbers", function()
+			-- THE SQUARE THE SCENE REALLY NEEDS, asked of the module that owns it: twelve animals is
+			-- `MAX_ANIMALS`, `cornerReachFor` is where the four torches stand on both axes, and that
+			-- already contains the ring (`ringRadiusFor`), which already contains the rows. So one
+			-- number bounds every Instance and every body in the scene.
+			local reach = Match.Scene.cornerReachFor(Match.CONFIG.SCENE.MAX_ANIMALS, Match.CONFIG)
+			local size = (pad :: any).SIZE
+			local margin = math.min(size.X, size.Z) / 2 - reach
+			expect(reach > 0).to.equal(true)
+			expect(margin > 0).to.equal(true)
+			TestKit.note(
+				string.format(
+					"lobby: the gathering square is %.1f studs across (%d animals) inside a %.0f x %.0f yard"
+						.. " -- %.1f studs of margin",
+					reach * 2,
+					Match.CONFIG.SCENE.MAX_ANIMALS,
+					size.X,
+					size.Z,
+					margin
+				)
+			)
+			-- ...AND THE RING OF PEOPLE IS INSIDE THE TORCHES, which is `Scene`'s own arithmetic and
+			-- is asserted here because it is what makes the one bound above enough.
+			expect(Match.Scene.ringRadiusFor(Match.CONFIG.SCENE.MAX_ANIMALS, Match.CONFIG) <= reach).to.equal(true)
+		end)
+
+		it("clears the lodge, the porch, the spawn, the road, the fences, the trucks and the four pads", function()
+			local centre = anchor + (pad :: any).OFFSET
+			local size = (pad :: any).SIZE
+			local east = centre.X + size.X / 2
+			-- WHAT HAS TO CLEAR THE BUILDING IS THE SCENE, NOT THE DIRT. The pad is a terrain
+			-- material and nothing else -- east of the `Yard` pad's own west edge it repaints ground
+			-- that is already blade-free -- so the clearance that matters is the square the TORCHES,
+			-- the ring and the rows stand in, and it is `Scene.cornerReachFor` at the cap.
+			local reach = Match.Scene.cornerReachFor(Match.CONFIG.SCENE.MAX_ANIMALS, Match.CONFIG)
+			local lodgeWest = anchor.X + CFG.LODGE.OFFSET.X - CFG.LODGE.SIZE.X / 2
+			local chimneyWest = lodgeWest - (CFG.LODGE.CHIMNEY.WIDTH - CFG.LODGE.CHIMNEY.INSET_STUDS)
+			expect(centre.X + reach < chimneyWest).to.equal(true)
+			-- ...and the PAD still stops short of the lodge's own footprint, so no part of the house
+			-- stands on the gathering yard's dirt.
+			expect(east < lodgeWest).to.equal(true)
+			TestKit.note(
+				string.format(
+					"lobby: gathering square east edge %.1f | yard east edge %.1f | chimney %.1f | lodge wall %.1f",
+					centre.X + reach,
+					east,
+					chimneyWest,
+					lodgeWest
+				)
+			)
+			-- EVERYTHING ELSE IN THE LOBBY IS EAST OF THE YARD, and that is one comparison each
+			-- rather than a rectangle test, because the yard is a strip west of the whole layout.
+			local roadWest = anchor.X + CFG.ROAD.CENTRE_X - CFG.ROAD.WIDTH_STUDS / 2 - CFG.ROAD.VERGE_STUDS
+			local fenceWest = anchor.X + CFG.ROAD.CENTRE_X - CFG.FENCE.OFF_ROAD_STUDS
+			local spawnWest = anchor.X + CFG.SPAWN.OFFSET.X - CFG.SPAWN.SIZE.X / 2 - 3 * CFG.SPAWN.SPREAD_STUDS
+			-- The porch is the lodge less its inset on each side.
+			local porchWest = lodgeWest + CFG.LODGE.PORCH.INSET_STUDS
+			for what, edge in pairs({
+				road = roadWest,
+				fence = fenceWest,
+				spawn = spawnWest,
+				porch = porchWest,
+			}) do
+				expect(east < edge).to.equal(true)
+				if east >= edge then
+					TestKit.note(string.format("lobby: the gathering yard reaches the %s at %.1f", what, edge))
+				end
+			end
+			-- THE FOUR TRUCK BAYS AND THE FOUR PADS, asked of `Pads.centreFor` -- the one place that
+			-- arithmetic lives -- rather than re-derived here.
+			for index = 1, CFG.TRUCK.COUNT do
+				local at = Pads.centreFor(anchor, index, CFG)
+				expect(east < at.X - CFG.PADS.SIZE.X / 2).to.equal(true)
+				local bayX = anchor.X + CFG.TRUCK.OFFSET.X + (index - 1) * CFG.TRUCK.BAY_GAP_STUDS
+				expect(east < bayX - CFG.TRUCK.SIZE.X / 2).to.equal(true)
+			end
+		end)
+
+		it("measures the spot's height and never predicts it", function()
+			-- TASK 186'S FAULT, AND IT IS WHY THIS FUNCTION TAKES A READER AT ALL: `Field.fill`'s
+			-- surface is NOT the nominal shelf -- Roblox terrain is voxelised, measured at 150.000
+			-- against a shelf at 149.248 in this very yard -- and all four trucks had their tyres
+			-- 0.752 studs underground because the arithmetic predicted the shelf.
+			local asked = {}
+			local at, facing = Data.gatherSpotFor(anchor, CFG, function(x, z)
+				table.insert(asked, Vector2.new(x, z))
+				return 150
+			end)
+			local centre = anchor + (pad :: any).OFFSET
+			expect(at).to.be.ok()
+			expect((at :: Vector3).X).to.equal(centre.X)
+			expect((at :: Vector3).Z).to.equal(centre.Z)
+			expect((at :: Vector3).Y).to.equal(150) -- the reader's answer, not the shelf's 149.248
+			-- IT ASKS ABOUT THE YARD'S OWN CENTRE, once, and not about the anchor: the two are 52
+			-- studs apart and the lodge's shelf is not this yard's surface.
+			expect(#asked).to.equal(1)
+			expect(asked[1]).to.equal(Vector2.new(centre.X, centre.Z))
+			-- ...AND THE FACING IS THE CONFIG'S, +X, EAST AT THE LODGE (note section 5).
+			expect(facing).to.equal(CFG.GATHER.FACING)
+			expect(facing).to.equal(Vector3.new(1, 0, 0))
+		end)
+
+		it("falls back to the shelf for a reader that answers nothing, throws, or is not there", function()
+			-- A DRIVE MUST NEVER LOSE KAREN'S SCENE TO A GROUND READER, which is the same rule
+			-- `Match.displayAnimal` and `Body.groundUnder` already keep. The shelf is one stud of
+			-- error at worst and `Scene.build` asks the reader AGAIN per animal and per torch (task
+			-- 192), so a fallback spot is still a scene laid on the ground.
+			local centre = anchor + (pad :: any).OFFSET
+			for _, reader in ipairs({
+				{ what = "no reader", fn = nil },
+				{ what = "answers nothing", fn = function() end },
+				{
+					what = "answers a non-number",
+					fn = function()
+						return "up there"
+					end,
+				},
+				{
+					what = "throws",
+					fn = function()
+						error("no ground")
+					end,
+				},
+			}) do
+				local at, facing = Data.gatherSpotFor(anchor, CFG, (reader :: any).fn)
+				expect(at).to.equal(Vector3.new(centre.X, anchor.Y, centre.Z))
+				expect(facing).to.equal(CFG.GATHER.FACING)
+			end
+			-- AND A CONFIG WITH NO GATHERING YARD ANSWERS NOWHERE, both halves, so
+			-- `Match.gatherSpotOf` falls through to the drive's own spot behind the stands.
+			local none, noneFacing = Data.gatherSpotFor(anchor, {
+				FIELD = { PADS = {} },
+				GATHER = CFG.GATHER,
+			}, nil)
+			expect(none).to.equal(nil)
+			expect(noneFacing).to.equal(nil)
+		end)
+
+		it("takes no tree out of the line, and lets none stand on it", function()
+			-- THE GUARD IN `Build.treeLine` REMOVES NOTHING TODAY, and that is measured rather than
+			-- hoped for: the western arc stands its trunks at x ~ -82 to -104 from the anchor
+			-- (`RADIUS_STUDS` 100 with `JITTER_STUDS` 9) and the yard's west edge is at -80, so the
+			-- thirty trees FRAME the gathering instead of standing in it.
+			--
+			-- EVERY ANGLE AND EVERY RADIUS IN THE JITTER BAND, one stud at a time, because the box is
+			-- convex and a straight segment can cross it with both ends outside: checking the two
+			-- extremes alone would not be a proof.
+			local centre = anchor + (pad :: any).OFFSET
+			local size = (pad :: any).SIZE
+			local spec = CFG.TREELINE
+			local span = spec.TO_RADIANS - spec.FROM_RADIANS
+			local inside, nearest = 0, math.huge
+			for index = 1, spec.COUNT do
+				local angle = spec.FROM_RADIANS + span * ((index - 0.5) / spec.COUNT)
+				for radius = spec.RADIUS_STUDS - spec.JITTER_STUDS, spec.RADIUS_STUDS + spec.JITTER_STUDS, 1 do
+					local x = anchor.X + math.sin(angle) * radius
+					local z = anchor.Z + math.cos(angle) * radius
+					local dx = math.abs(x - centre.X) - size.X / 2
+					local dz = math.abs(z - centre.Z) - size.Z / 2
+					if dx < 4 and dz < 4 then
+						inside += 1
+					end
+					if math.max(dx, dz) < nearest then
+						nearest = math.max(dx, dz)
+					end
+				end
+			end
+			TestKit.note(
+				string.format(
+					"lobby: no arc position can reach the gathering yard -- nearest trunk is %.1f studs outside it",
+					nearest
+				)
+			)
+			expect(inside).to.equal(0)
+		end)
+
+		it("keeps a spruce off the yard even if the arc is moved onto it", function()
+			-- THE GUARD'S OWN TEST, and it needs a tree line that WOULD stand on the yard: the
+			-- shipped arc cannot reach it, so a config whose radius is the yard's own distance is
+			-- what makes the `continue` reachable at all. Without the guard, a spruce stands among
+			-- Karen's animals.
+			local container = Instance.new("Folder")
+			container.Name = "LobbySpecGatherYard"
+			container.Parent = Workspace
+			local templates = fakeTemplates()
+			local moved = table.clone(CFG) :: any
+			moved.TREELINE = table.clone(CFG.TREELINE)
+			-- Straight at the yard's centre, 52 studs west of the anchor, with the jitter turned off.
+			moved.TREELINE.RADIUS_STUDS = math.abs((pad :: any).OFFSET.X)
+			moved.TREELINE.JITTER_STUDS = 0
+			moved.TREELINE.FROM_RADIANS = 4.6
+			moved.TREELINE.TO_RADIANS = 5.2
+			local folder = Build.build(container, anchor, moved, templates)
+			local line = folder:FindFirstChild("TreeLine")
+			local centre = anchor + (pad :: any).OFFSET
+			local size = (pad :: any).SIZE
+			local standing = 0
+			if line ~= nil then
+				for _, tree in ipairs((line :: Instance):GetChildren()) do
+					local at = if tree:IsA("BasePart")
+						then (tree :: BasePart).Position
+						else (tree :: Model):GetPivot().Position
+					if math.abs(at.X - centre.X) <= size.X / 2 and math.abs(at.Z - centre.Z) <= size.Z / 2 then
+						standing += 1
+					end
+				end
+			end
+			expect(standing).to.equal(0)
+			templates:Destroy()
+			container:Destroy()
 		end)
 	end)
 

@@ -667,6 +667,28 @@ Match.start({
 	-- so where he may SHOOT and where he may WALK are one circle asked twice, and nil until his pick
 	-- locks -- which is the whole of "no rule during the pick window".
 	standArea = ForestTest.standArea,
+	-- WHERE THIS WORLD GATHERS AT THE END OF A DRIVE (task 191). KAREN, 2026-10-15 ~17:20: *"next is
+	-- when hunt over everyone is in clean ground no grass firstable / second it could be next to
+	-- cabin"*.
+	--
+	-- IT IS THE LOBBY'S YARD, AND THE LOBBY IS THE OWNER THAT KNOWS WHERE ITS OWN YARD IS. The
+	-- rectangle is one row in `Lobby.CONFIG.FIELD.PADS` (`Gather`), blade-free `Ground` like the
+	-- lodge's own yard, and `Lobby.gatherSpot` measures its centre with THIS world's ground reader --
+	-- the same `Data.groundAt` three lines up. `Match` holds the fallback.
+	--
+	-- `if lobbyOn`, EXACTLY AS `enrol` ABOVE IS, and for the same reason: a lobby that did not build
+	-- has no yard, so the field is absent and the drive gathers behind the middle stand as it did
+	-- before this task. That is the "reachable by parameter" half of the flag rule without a flag --
+	-- and this world cannot switch it off with `tools/flags.py`, the same stated cost
+	-- `BOAR_MODEL`, `CALM`, `PACE`, `MOVE`, `LINE` and the lobby itself already carry: the rollback
+	-- is this one line.
+	--
+	-- THE PLAYERS AND THE BOTS ARRIVE THERE AND STAY: task 177's flow out of the scene starts from
+	-- wherever they are standing (the lobby clears the roster when the scene goes up, so they are no
+	-- longer in the drive, `Match.isHeld` keeps BOTH the lobby's return rule and the stand wall off
+	-- them for its 25 seconds, and `enterWaiting` then frees them where they stand). There is no
+	-- second teleport in either direction.
+	gatherSpot = if lobbyOn then Lobby.gatherSpot else nil,
 	config = {
 		DRIVE_SECONDS = Data.DRIVE.seconds,
 		BOARS_PER_DRIVE = 0,
