@@ -815,7 +815,39 @@ Lobby.CONFIG = {
 			{ kind = "boar", wall = "north", along = -11.4, height = 4.3, standoff = -0.2 },
 			{ kind = "sow", wall = "north", along = -14.6, height = 8.9, standoff = -0.2 },
 			{ kind = "sow", wall = "north", along = -2.6, height = 8.9, standoff = -0.2 },
-			{ kind = "sow", wall = "north", along = -5.4, height = 4.6, standoff = -0.2 },
+			-- 4.53 AND NOT 4.6 (part 3c): a sow's board is 1.44 of body against the boar's 1.9, so
+			-- two shields hung at the same CENTRE are visibly stepped. 4.3 + 0.95 and 4.53 + 0.72
+			-- put both board TOPS on 5.25, which is the line the eye actually reads.
+			{ kind = "sow", wall = "north", along = -5.4, height = 4.53, standoff = -0.2 },
+		},
+		-- THE BOARDED BACK STORE, AND IT IS THERE FOR A MEASURED REASON (part 3c). A mount is the
+		-- WHOLE animal with most of it inside the wall, and the north wall is one log thick: the
+		-- rumps were measured standing **1.52 studs proud of the OUTSIDE face** on the boar and 0.96
+		-- on the three sows -- four boar backsides on the back of the house. The capital boar over
+		-- the fire has 2.8 studs of chimney stone behind it and is clear by 6.25, which is why it
+		-- never showed. So the trophy run gets depth behind it: a boarded lean-to store against the
+		-- back wall, which is a thing a lodge has, and which swallows every rump with 0.9 to spare.
+		BACKING = {
+			ALONG = -8.6,
+			WIDTH = 17.6,
+			BOTTOM = 1.4,
+			TOP = 11.8,
+			DEPTH = 2.6,
+			BOARDS = 5,
+			COLOR = Color3.fromHex("3A2C1F"),
+			BOARD_COLOR = Color3.fromHex("2E2319"),
+		},
+		-- TWO SCONCES ON THE TROPHY WALL (part 3c, the Director's own instruction). The room is lit
+		-- FLAT -- `Lighting.Ambient` measures 159,159,159 at `Brightness` 3 in this place, and
+		-- nothing under `src/` writes Lighting, so it is the place's and not the lodge's -- and flat
+		-- grey ambient is what makes a textured boar read as a pale ghost. A warm local light is the
+		-- part of that the lodge DOES own.
+		LIGHT = {
+			ALONG = { -14.2, -3.0 },
+			HEIGHT = 7.4,
+			COLOR = Color3.fromRGB(255, 190, 120),
+			BRIGHTNESS = 2.1,
+			RANGE = 17,
 		},
 		-- THE RED STAG'S PLACE, KEPT AND LEGIBLE (spec 15c). Nothing is built inside this box; two
 		-- iron pegs are fixed at the top of it, where a shield would hang from, so it reads as KEPT

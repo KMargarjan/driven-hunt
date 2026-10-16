@@ -78,7 +78,18 @@ local function fakeTemplates(withScript: boolean?): Instance
 	local trees = Instance.new("Folder")
 	trees.Name = Data.TEMPLATE.TREES
 	trees.Parent = folder
-	model("Spruce", Vector3.new(6, 30, 6)).Parent = trees
+	-- THE SPECIES THE ALLOW-LIST ACTUALLY ASKS FOR (task 196 part 3c). `treeLine` has picked by NAME
+	-- out of `TREELINE.SPECIES` since part 3b, so a folder holding one model called `Spruce` plants
+	-- NOTHING and quietly counts thirty fallbacks -- which is what this fake was doing.
+	--
+	-- AND THE FIRST ONE IS SCALED DOWN, because that is the bug this fixture exists to catch: the
+	-- real `SilverBirch_Var11_LOD_0` sits in Studio at `GetScale() = 0.04329`, and `Model:ScaleTo`
+	-- is ABSOLUTE against the authored size, so `ScaleTo(0.95)` rebuilt it at 0.95 of its raw import
+	-- -- 1629 studs tall, twenty-two times the tree in the folder.
+	local birch = model(CFG.TREELINE.SPECIES[1].MODEL, Vector3.new(6, 120, 6))
+	birch:ScaleTo(0.25) -- it now DISPLAYS 1.5 x 30 x 1.5
+	birch.Parent = trees
+	model(CFG.TREELINE.SPECIES[2].MODEL, Vector3.new(6, 30, 6)).Parent = trees
 	if withScript then
 		local hidden = Instance.new("Script")
 		hidden.Name = "Fire_Effect"
@@ -1608,6 +1619,13 @@ return function()
 			local suspects = 0
 			for _, descendant in ipairs(folder:GetDescendants()) do
 				local name = descendant.Name
+				-- THE RED STAG'S TWO KEPT PEGS ARE NOT A DRAWN ANTLER (task 196 part 3b, spec 15c).
+				-- They are two 0.5-stud iron pins marking the gap where his shield will hang, which
+				-- is the opposite of the thing this case removes -- and they are the only names in
+				-- the build that may carry the word.
+				if string.match(name, "^StagPeg%d+$") then
+					continue
+				end
 				if
 					string.find(name, "Stag", 1, true)
 					or string.find(name, "roe", 1, true)
@@ -1639,7 +1657,10 @@ return function()
 			-- `PointLight` written ONCE: nothing in this lodge is animated by a script, so there is
 			-- no second writer of anything. The count is read off the config, so a fourth lantern is
 			-- a row and not a failing test.
-			expect(lights).to.equal(1 + #CFG.LODGE.LANTERN.ALONG + 2)
+			-- ...AND THE TWO TROPHY SCONCES SINCE PART 3C. `Lighting.Ambient` measures 159,159,159 at
+			-- `Brightness` 3 in the place Karen plays and NOTHING under `src/` writes Lighting, so a
+			-- warm local light is the only part of a washed-out trophy wall the lodge itself owns.
+			expect(lights).to.equal(1 + #CFG.LODGE.LANTERN.ALONG + 2 + #CFG.TROPHIES.LIGHT.ALONG)
 			-- KAREN ASKED FOR A FIREPLACE WITH A FIRE IN IT: the `Fire`, the embers and the light
 			-- all hang on the one part, which is what makes "the fire is present" checkable.
 			local fire = folder:FindFirstChild("Fire", true)
@@ -1734,12 +1755,26 @@ return function()
 			-- ATTEMPTED and never how many are placed.
 			local trees = stats.models - CFG.TRUCK.COUNT
 			expect(trees > 0).to.equal(true)
-			expect(trees <= CFG.TREELINE.COUNT).to.equal(true)
+			-- THE RING **AND** THE GROVE (part 3c): `lodgeTrees` plants `LODGE_TREES` as well since
+			-- part 3b, and `stats.models` counts every clone, so a bound of `COUNT` alone was a test
+			-- that could only fail.
+			expect(trees <= CFG.TREELINE.COUNT + #CFG.LODGE_TREES).to.equal(true)
 			-- 10 AND NOT 6 SINCE TASK 196 PART 3B: the ring has a FOURTH exclusion now -- the corridor
 			-- in front of the house, which Karen was looking at when she asked what was wrong with
 			-- the trees next to it -- and the count is a BOUND rather than an equality for exactly
 			-- this reason.
 			expect(trees >= CFG.TREELINE.COUNT - 10).to.equal(true)
+			-- A TREE IS THE SIZE OF ITS TEMPLATE TIMES ITS SCALE, and nothing else (part 3c). The
+			-- fixture's birch DISPLAYS 30 studs tall at `GetScale() = 0.25`, so at `SCALE` 0.85 ..
+			-- 1.35 and `ALDER.SCALE` 0.66 .. 0.82 every planted tree is between 19.8 and 40.5 studs.
+			-- ON THE OLD `ScaleTo(scale)` THE BIRCHES CAME OUT AT 102 .. 162 AND THIS FAILS.
+			local tallest = 0
+			for _, one in ipairs((folder:FindFirstChild("TreeLine") :: Instance):GetChildren()) do
+				local _, extent = (one :: Model):GetBoundingBox()
+				tallest = math.max(tallest, extent.Y)
+			end
+			expect(tallest > 0).to.equal(true)
+			expect(tallest <= 30 * CFG.TREELINE.SCALE[2] + 0.01).to.equal(true)
 			-- THE FALLBACKS ARE THE LODGE'S OWN ASSETS AND NOTHING ELSE (task 196). Every free-model
 			-- template this build asks the FOLDER for is found; what is missing is what the
 			-- COMPOSITION ROOT hands over -- the boar for the trophy and the guns for the rack --
@@ -1748,6 +1783,74 @@ return function()
 			expect(stats.fallbacks).to.equal(#CFG.TROPHIES.MOUNTS + CFG.LODGE.RACK.GUNS)
 			expect(count <= CFG.MAX_PARTS).to.equal(true)
 			templates:Destroy()
+		end)
+
+		-- NOTHING THROUGH THE ROOF (task 196 part 3c). The Director read two birch trunks crossing the
+		-- roof slope and one hanging through the porch off `D-house-and-trees.png`, and the reason
+		-- the part-3b check missed them is that it tested the PLANTING POINT: these models lean, so
+		-- a pivot twenty studs clear of the house is no evidence at all about the trunk.
+		it("keeps every tree PART, not every tree pivot, out of the lodge's own volume", function()
+			local templates = fakeTemplates()
+			local folder = Build.build(container, anchor, CFG, templates)
+			local keepAt, keepHalf = Build.lodgeKeepOut(CFG)
+			keepAt += anchor
+			local inside = 0
+			for _, group in ipairs({ "TreeLine", "LodgeTrees" }) do
+				local at = folder:FindFirstChild(group)
+				expect(at).to.be.ok()
+				for _, tree in ipairs((at :: Instance):GetChildren()) do
+					for _, piece in ipairs(tree:GetDescendants()) do
+						if piece:IsA("BasePart") then
+							local box = piece :: BasePart
+							if Build.boxesOverlap(box.Position, box.Size / 2, keepAt, keepHalf, 3) then
+								inside += 1
+							end
+						end
+					end
+				end
+			end
+			expect(inside).to.equal(0)
+			templates:Destroy()
+		end)
+
+		-- THE KEEP-OUT BOX ITSELF, pure, because the case above can only ever prove that today's
+		-- numbers happen to miss the house.
+		it("draws the keep-out box round the eaves, the gables and the porch", function()
+			local at, half = Build.lodgeKeepOut(CFG)
+			-- A `Vector3` COMPONENT IS A 32-BIT FLOAT and the arithmetic that made it is not, so
+			-- 20.2 comes back as 20.200000762939453. Every comparison here is to a tolerance.
+			expect(math.abs(half.X - (CFG.LODGE.SIZE.X / 2 + CFG.LODGE.ROOF.GABLE_STUDS)) < 1e-3).to.equal(true)
+			-- THE PORCH SIDE IS LONGER THAN THE BACK, so the box is not centred on the house.
+			expect(at.Z < CFG.LODGE.OFFSET.Z).to.equal(true)
+			local front = at.Z - half.Z - CFG.LODGE.OFFSET.Z
+			expect(front <= -(CFG.LODGE.SIZE.Z / 2 + CFG.LODGE.PORCH.DEPTH)).to.equal(true)
+			-- IT REACHES THE RIDGE, so a crown over the roof counts as through it.
+			expect(at.Y + half.Y >= CFG.LODGE.RIDGE_STUDS).to.equal(true)
+			-- AND THE OVERLAP TEST APPLIES ITS MARGIN IN BOTH DIRECTIONS.
+			local one = Vector3.new(1, 1, 1)
+			expect(Build.boxesOverlap(Vector3.zero, one, Vector3.new(2.5, 0, 0), one, 0)).to.equal(false)
+			expect(Build.boxesOverlap(Vector3.zero, one, Vector3.new(2.5, 0, 0), one, 1)).to.equal(true)
+		end)
+
+		-- THE TROPHY WALL'S OWN THREE DEFECTS (part 3c), all three read off the Director's own frame.
+		it("hangs a shield with a POINT, no feet under it, and the rumps inside the back store", function()
+			local folder = Build.build(container, anchor, CFG, nil)
+			local spec = CFG.TROPHIES
+			-- 1. THE POINT IS IN THE WALL PLANE. It was a `WedgePart` laid flat, which read as a
+			-- shelf: its thickness ran along x and its 3.2-stud width along z, INTO the room.
+			local tip = folder:FindFirstChild(string.format("%s2Point", spec.MOUNTS[2].kind), true)
+			expect(tip).to.be.ok()
+			local point = tip :: BasePart
+			expect(point:IsA("WedgePart")).to.equal(false)
+			expect(math.abs(point.Size.Z - spec.SHIELD.BOARD_THICK) < 1e-3).to.equal(true)
+			-- 2. THE BACK STORE IS DEEPER THAN THE DEEPEST RUMP. Measured in the live place: the
+			-- boar stood 1.52 studs proud of the north wall's outside face and the sows 0.96.
+			expect(folder:FindFirstChild("TrophyBacking", true)).to.be.ok()
+			expect(spec.BACKING.DEPTH > 1.52).to.equal(true)
+			-- 3. THE WALL LIGHTS ITS OWN TROPHIES, because `Lighting` is the place's and not ours.
+			local bowl = folder:FindFirstChild("SconceFlame1", true)
+			expect(bowl).to.be.ok()
+			expect((bowl :: Instance):FindFirstChildWhichIsA("PointLight")).to.be.ok()
 		end)
 
 		it("builds the SAME lodge when the template folder is not there at all", function()
@@ -2098,6 +2201,13 @@ return function()
 			for _, descendant in ipairs((heads :: Instance):GetDescendants()) do
 				if descendant:IsA("BasePart") then
 					local piece = descendant :: BasePart
+					-- THE BOARDED BACK STORE IS OUTSIDE THE ROOM BECAUSE THAT IS WHAT IT IS FOR
+					-- (part 3c): a mount is the WHOLE animal with most of it inside the wall, and
+					-- the rumps were measured standing 1.52 studs proud of the north wall's OUTSIDE
+					-- face. The store is the depth they need, built against the back of the house.
+					if string.find(piece.Name, "TrophyBacking", 1, true) then
+						continue
+					end
 					pieces += 1
 					if string.find(piece.Name, "Plaque", 1, true) then
 						plaques += 1
@@ -2988,39 +3098,44 @@ return function()
 			-- THE DIRECTOR'S *"even rows"*. Before this the east wall carried four plaques at 4.8
 			-- and two at 8.2 on `along` values that matched neither row, and the north wall's boar
 			-- hung at 5 between two roe at 4.8.
+			-- WHAT THE EYE LINES UP IS THE TOP OF THE BOARD, NOT ITS CENTRE (part 3c). Since the
+			-- Designer's wall (part 3b) a boar's shield and a sow's are different HEIGHTS -- 1.9
+			-- against 1.44 of body -- so two shields whose centres share a `height` are visibly
+			-- stepped, and two that LOOK level have centres 0.3 apart. The old case compared
+			-- `mount.height` against two literals and therefore failed the moment the wall carried
+			-- two sizes: it has been failing since part 3b, and it was testing the wrong number
+			-- before that.
 			local low, high = CFG.TROPHIES.HEIGHT_STUDS, CFG.TROPHIES.UPPER_STUDS
 			expect(high > low).to.equal(true)
-			local rows: { [string]: { [number]: { number } } } = {}
+			local rows: { [string]: { number } } = {}
 			for _, mount in ipairs(CFG.TROPHIES.MOUNTS) do
-				local height = mount.height or low
-				if height ~= low and height ~= high then
-					error(
-						string.format("a trophy on the %s wall hangs at %.2f, which is no row", mount.wall, height),
-						0
-					)
-				end
-				rows[mount.wall] = rows[mount.wall] or { [low] = {}, [high] = {} }
-				table.insert(rows[mount.wall][height], mount.along)
+				local kind = CFG.TROPHIES[string.upper(mount.kind)]
+				local top = (mount.height or low) + kind.BODY / 2
+				rows[mount.wall] = rows[mount.wall] or {}
+				table.insert(rows[mount.wall], top)
 			end
-			for wall, byHeight in pairs(rows) do
-				local lower, upper = byHeight[low], byHeight[high]
-				if #lower > 0 and #upper > 0 then
-					expect(#lower).to.equal(#upper)
-					table.sort(lower)
-					table.sort(upper)
-					for index = 1, #lower do
-						if math.abs(lower[index] - upper[index]) > 1e-6 then
-							error(
-								string.format(
-									"the %s wall rows are not above one another: %.2f against %.2f",
-									wall,
-									lower[index],
-									upper[index]
-								),
-								0
-							)
-						end
+			for wall, tops in pairs(rows) do
+				table.sort(tops)
+				-- AT MOST TWO ROWS A WALL, and every shield in a row level with the others to a
+				-- tenth of a stud.
+				local bands = 1
+				for index = 2, #tops do
+					if tops[index] - tops[index - 1] > 0.1 then
+						bands += 1
+					elseif tops[index] - tops[index - 1] > 1e-6 then
+						-- same band: it has to be LEVEL, not merely close.
+						error(
+							string.format(
+								"two shields on the %s wall sit %.3f studs apart, which reads as crooked",
+								wall,
+								tops[index] - tops[index - 1]
+							),
+							0
+						)
 					end
+				end
+				if bands > 2 then
+					error(string.format("the %s wall hangs its trophies on %d rows, not two", wall, bands), 0)
 				end
 			end
 		end)

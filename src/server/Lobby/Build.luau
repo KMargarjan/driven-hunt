@@ -143,6 +143,8 @@ local stats = {
 	-- HOW MANY TREE PARTS WERE REPAINTED AS ALDER (spec 16b): a counted fact about the build, beside
 	-- `truckPainted` and for the same reason.
 	treesTinted = 0,
+	treesMoved = 0,
+	treesDropped = 0,
 }
 
 function Build.stats()
@@ -335,7 +337,23 @@ local function cloneInstance(
 	stats.strippedScripts += scriptsIn(made)
 	if made:IsA("Model") then
 		if scale ~= 1 then
-			made:ScaleTo(scale)
+			-- `ScaleTo` IS ABSOLUTE AGAINST THE AUTHORED SIZE, NOT A MULTIPLIER OF WHAT YOU SEE
+			-- (https://create.roblox.com/docs/reference/engine/classes/Model#ScaleTo). A template a
+			-- human scaled down in Studio carries that factor in `GetScale()`, and `ScaleTo(0.95)`
+			-- throws it away and rebuilds the model at 0.95 of its RAW IMPORT.
+			--
+			-- MEASURED, 2026-10-16, which is the only reason this was ever found:
+			-- `LobbyAssets.Trees.SilverBirch_Var11_LOD_0` displays 27 x 74 x 27 and reports
+			-- `GetScale() = 0.04329`, so `ScaleTo(0.95)` made it **1629 studs tall** -- twenty-two
+			-- times the tree in the folder, and twenty times `OurForest`'s own 81-stud aspens. That
+			-- is the thing in the photographs: trunks crossing the roof, a trunk hanging through
+			-- the porch, and the *"what's wrong with those trees next to house"* Karen reported.
+			-- The other scaled template, the forest oak, reports 0.19487 and came out at 294.
+			--
+			-- `scale` is meant to be a multiplier of the template AS IT STANDS, so it is multiplied.
+			-- Every other template in `LobbyAssets` reports exactly 1.0 (the truck, the lodge, the
+			-- two heads), so this changes nothing but the trees -- checked before the edit.
+			made:ScaleTo(made:GetScale() * scale)
 		end
 		made:PivotTo(CFrame.new(at) * CFrame.Angles(0, yaw, 0))
 		if seat then
@@ -1638,21 +1656,25 @@ local function shield(folder: Instance, name: string, face: CFrame, spec, cfg): 
 	)
 	crown.Shape = Enum.PartType.Cylinder
 	-- THE POINT AT THE BOTTOM, which is what makes a rectangle a shield.
-	local tip = Instance.new("WedgePart")
-	tip.Name = string.format("%sPoint", name)
-	tip.Size = Vector3.new(box.BOARD_THICK, point, width)
-	tip.Anchored = true
-	tip.CanCollide = false
-	tip.CanQuery = false
-	tip.CanTouch = false
+	--
+	-- A SQUARE TURNED FORTY-FIVE DEGREES, NOT A `WedgePart` (part 3c). The wedge was laid on its
+	-- side: a `WedgePart`'s slope runs along its own +Z and the three rotations above stood it
+	-- HORIZONTAL, so what hung under every plaque was a flat slab -- the *"loose LEDGE/shelf block
+	-- under it that looks like a mistake"* the Director read off `B-trophy-wall-from-door.png`, four
+	-- times over. A square rotated about the face's normal needs no guess about which way a wedge
+	-- slopes: its lower half is a downward point `2 * point` wide and `point` deep, and its upper
+	-- half is behind the board where nobody sees it.
+	local side = point * math.sqrt(2)
+	local tip = part(
+		string.format("%sPoint", name),
+		Vector3.new(side, side, box.BOARD_THICK),
+		face * CFrame.new(0, -(body / 2) + body * 0.026, boardZ) * CFrame.Angles(0, 0, math.pi / 4),
+		look.PLAQUE_COLOR,
+		Enum.Material.Wood,
+		false,
+		folder
+	)
 	tip.CastShadow = false
-	tip.Color = look.PLAQUE_COLOR
-	tip.Material = Enum.Material.Wood
-	tip.CFrame = face
-		* CFrame.new(0, -(body / 2 + point / 2) - body * 0.03, boardZ)
-		* CFrame.Angles(0, math.pi / 2, math.pi / 2)
-	tip.Parent = folder
-	stats.parts += 1
 	-- THE INNER PANEL: the same two shapes at the rim's inset, standing proud.
 	local panelWidth = width - 2 * box.RIM_STUDS
 	local panelZ = -(box.BOARD_THICK + box.PANEL_THICK / 2 + 0.06)
@@ -1823,6 +1845,18 @@ local function boarTrophy(
 	-- reason: a model's pivot is its bounding-box centre only while nobody has set a PrimaryPart.
 	local target = (aim * CFrame.new(0, 0, back)).Position
 	head:PivotTo(head:GetPivot() + (target - box.Position))
+	-- NO TROTTERS UNDER THE PLAQUE (part 3c). The mount is a whole animal with most of it inside the
+	-- wall, and on `B-trophy-wall-from-door.png` its FEET poked out below every board -- measured
+	-- afterwards at 0.05 studs on the boars and 0.13 on the sows, which at that distance is four
+	-- pale specks under a brass plate. The board's bottom is arithmetic off `front` (`shield` hangs
+	-- the board at `body * 0.026` under a face that is `body * 0.184` under the mount point), so the
+	-- animal is simply lifted until its lowest part is 0.12 inside the board.
+	local boardBottom = front.Position.Y - spec.BODY * 0.658
+	local seated, extent = head:GetBoundingBox()
+	local under = (boardBottom + 0.12) - (seated.Position.Y - extent.Y / 2)
+	if under > 0 then
+		head:PivotTo(head:GetPivot() + Vector3.new(0, under, 0))
+	end
 	for _, descendant in ipairs(head:GetDescendants()) do
 		if descendant:IsA("BasePart") then
 			local piece = descendant :: BasePart
@@ -1877,6 +1911,86 @@ local function trophies(inside: Instance, room: Room, cfg, assets: ((string) -> 
 			room.centre.Y + 0.3,
 			room.centre.Y + room.height - 0.3
 		)
+	end
+
+	-- THE BOARDED BACK STORE (part 3c): the depth the mounts need behind them. Built on the OUTSIDE
+	-- of the north wall, where the rumps were measured sticking out.
+	local back = spec.BACKING
+	if back ~= nil then
+		local outer = room.centre.Z + room.halfZ + cfg.LODGE.LOG_DIAMETER / 2
+		local midY = room.centre.Y + (back.BOTTOM + back.TOP) / 2
+		part(
+			"TrophyBacking",
+			Vector3.new(back.WIDTH, back.TOP - back.BOTTOM, back.DEPTH),
+			CFrame.new(room.centre.X + back.ALONG, midY, outer + back.DEPTH / 2),
+			back.COLOR,
+			Enum.Material.Wood,
+			true,
+			folder
+		)
+		for index = 1, back.BOARDS do
+			local t = (index - 0.5) / back.BOARDS
+			part(
+				string.format("TrophyBackingBoard%d", index),
+				Vector3.new(0.45, back.TOP - back.BOTTOM, 0.22),
+				CFrame.new(
+					room.centre.X + back.ALONG - back.WIDTH / 2 + t * back.WIDTH,
+					midY,
+					outer + back.DEPTH + 0.11
+				),
+				back.BOARD_COLOR,
+				Enum.Material.Wood,
+				false,
+				folder
+			)
+		end
+		-- A LID THAT SHEDS WATER, so it reads as a store and not as a box glued to the wall.
+		part(
+			"TrophyBackingCap",
+			Vector3.new(back.WIDTH + 0.8, 0.4, back.DEPTH + 1),
+			CFrame.new(room.centre.X + back.ALONG, room.centre.Y + back.TOP + 0.3, outer + back.DEPTH / 2 + 0.4)
+				* CFrame.Angles(math.rad(-9), 0, 0),
+			cfg.LODGE.ROOF.SHINGLE_A,
+			Enum.Material.Slate,
+			false,
+			folder
+		)
+	end
+
+	-- TWO SCONCES ON THE TROPHY WALL (part 3c). See `TROPHIES.LIGHT`: the room's ambient is the
+	-- PLACE'S and nothing under `src/` writes it, so the only honest thing the lodge can do about a
+	-- washed-out boar is light it itself.
+	local lamp = spec.LIGHT
+	if lamp ~= nil then
+		for index, along in ipairs(lamp.ALONG) do
+			local at =
+				Vector3.new(room.centre.X + along, room.centre.Y + lamp.HEIGHT, room.centre.Z + room.halfZ - 0.55)
+			part(
+				string.format("SconceArm%d", index),
+				Vector3.new(0.16, 0.16, 0.9),
+				CFrame.new(at + Vector3.new(0, 0, 0.3)),
+				cfg.LODGE.IRON_COLOR,
+				Enum.Material.Metal,
+				false,
+				folder
+			)
+			local bowl = part(
+				string.format("SconceFlame%d", index),
+				Vector3.new(0.42, 0.42, 0.42),
+				CFrame.new(at),
+				lamp.COLOR,
+				Enum.Material.Neon,
+				false,
+				folder
+			)
+			bowl.Shape = Enum.PartType.Ball
+			local light = Instance.new("PointLight")
+			light.Color = lamp.COLOR
+			light.Brightness = lamp.BRIGHTNESS
+			light.Range = lamp.RANGE
+			light.Shadows = false
+			light.Parent = bowl
+		end
 	end
 
 	-- THE RED STAG'S PLACE, KEPT AND LEGIBLE (spec 15c): nothing is built inside its box, and two
@@ -3614,6 +3728,43 @@ local function tintAlder(tree: Instance, cfg): number
 	return painted
 end
 
+-- THE BOX NO TREE MAY STAND IN: the house, its eaves, its gables, its porch and its chimney, in the
+-- FIELD'S frame and offset from the anchor. PURE, so `lobby.spec` can assert it without building a
+-- lodge, and computed from the same `CONFIG` numbers the roof is built from rather than from a
+-- hand-copied rectangle.
+--
+-- WHY A BOX AND NOT A RADIUS ROUND THE PIVOT (part 3c): a tree's pivot can stand twenty studs clear
+-- of the house while its TRUNK leans through the roof, because these models lean and their crowns
+-- are wider than they are tall. The Director photographed exactly that. The test below is run
+-- against the planted model's real world bounding box -- every BasePart of it -- and not against the
+-- point it was planted on.
+function Build.lodgeKeepOut(cfg): (Vector3, Vector3)
+	local size = cfg.LODGE.SIZE
+	local eaves = cfg.LODGE.ROOF
+	local deck = cfg.LODGE.PORCH
+	local halfX = size.X / 2 + eaves.GABLE_STUDS
+	-- THE LODGE FACES SOUTH, so the porch and its steps hang off -Z and the box is not symmetric.
+	local north = size.Z / 2 + eaves.EAVE_STUDS
+	local south = size.Z / 2 + eaves.EAVE_STUDS + deck.DEPTH + deck.STEP_DEPTH
+	-- UP TO THE CHIMNEY CAP AND A LITTLE BELOW THE SHELF, because `groundAt` is not `anchor.Y`.
+	local top = cfg.LODGE.RIDGE_STUDS + 6
+	local bottom = -4
+	return cfg.LODGE.OFFSET + Vector3.new(0, (top + bottom) / 2, (north - south) / 2),
+		Vector3.new(halfX, (top - bottom) / 2, (north + south) / 2)
+end
+
+-- TWO AXIS-ALIGNED BOXES, OR NOT. Pure, and the one place the margin is applied.
+function Build.boxesOverlap(aAt: Vector3, aHalf: Vector3, bAt: Vector3, bHalf: Vector3, margin: number): boolean
+	local m = Vector3.new(margin, margin, margin)
+	local gap = aAt - bAt
+	local reach = aHalf + bHalf + m
+	return math.abs(gap.X) < reach.X and math.abs(gap.Y) < reach.Y and math.abs(gap.Z) < reach.Z
+end
+
+-- HOW CLEAR A TREE HAS TO STAND OF THE HOUSE. The Designer's lodge spec, 2026-10-16, section 16c:
+-- *"nothing through the roof, every crown >= 3.0 studs clear"*.
+local TREE_MARGIN_STUDS = 3.0
+
 -- WHERE A TREE'S FOOT GOES: on the ground the engine really produced, sunk by `SINK_STUDS`.
 --
 -- THE SINKING BUG (spec 16a, measured 2026-10-16): 18 of the 27 ring trees stood more than 2 studs
@@ -3624,6 +3775,52 @@ end
 local function plantY(at: Vector3, anchor: Vector3, cfg, groundAt: ((number, number) -> number?)?): number
 	local ground = if groundAt ~= nil then groundAt(at.X, at.Z) else nil
 	return (ground or anchor.Y) - cfg.TREELINE.SINK_STUDS
+end
+
+-- MOVE IT OUT OR DROP IT, and say which. The tree is planted first and MEASURED second, because
+-- the only honest test of a leaning model is where its parts actually ended up. If it fouls the
+-- house it is walked straight out along the line from the house to its foot, 7 studs at a time,
+-- re-seated on the ground at each step; if six steps will not clear it, it is destroyed rather than
+-- left standing in the roof.
+local function clearOfLodge(
+	planted: Instance,
+	foot: Vector3,
+	anchor: Vector3,
+	cfg,
+	groundAt: ((number, number) -> number?)?
+): boolean
+	if not planted:IsA("Model") then
+		return true
+	end
+	local model = planted :: Model
+	local keepAt, keepHalf = Build.lodgeKeepOut(cfg)
+	keepAt += anchor
+	local away = Vector3.new(foot.X - keepAt.X, 0, foot.Z - keepAt.Z)
+	if away.Magnitude < 0.01 then
+		away = Vector3.new(1, 0, 0)
+	end
+	away = away.Unit
+	local at = foot
+	for _ = 0, 6 do
+		local box, size = model:GetBoundingBox()
+		if not Build.boxesOverlap(box.Position, size / 2, keepAt, keepHalf, TREE_MARGIN_STUDS) then
+			return true
+		end
+		at += away * 7
+		-- MOVED BY THE DELTA OF ITS OWN BOUNDING BOX, never by setting the pivot to a point: a free
+		-- model's pivot is its box centre only while nobody has set a `PrimaryPart`, and `cloneInstance`
+		-- makes the same correction for the same reason.
+		box, size = model:GetBoundingBox()
+		local wantBottom = plantY(at, anchor, cfg, groundAt)
+		model:PivotTo(
+			model:GetPivot()
+				+ Vector3.new(at.X - box.Position.X, wantBottom - (box.Position.Y - size.Y / 2), at.Z - box.Position.Z)
+		)
+		stats.treesMoved += 1
+	end
+	stats.treesDropped += 1
+	planted:Destroy()
+	return false
 end
 
 local function treeLine(
@@ -3731,6 +3928,10 @@ local function treeLine(
 			true,
 			true
 		)
+		-- NOT THROUGH THE ROOF (part 3c). Measured on the model that actually landed, not on `at`.
+		if not clearOfLodge(planted, at, anchor, cfg, groundAt) then
+			continue
+		end
 		if species.TINT == "alder" then
 			tintAlder(planted, cfg)
 		end
@@ -3785,6 +3986,12 @@ local function lodgeTrees(
 			true,
 			true
 		)
+		-- NOT THROUGH THE ROOF (part 3c). The grove stands CLOSE to the house on purpose, which is
+		-- exactly why it is the half that needs measuring: four of its birches had trunks crossing
+		-- the roof slope and one hung through the porch.
+		if not clearOfLodge(planted, at, anchor, cfg, groundAt) then
+			continue
+		end
 		if species.TINT == "alder" then
 			tintAlder(planted, cfg)
 		end
@@ -3825,6 +4032,8 @@ function Build.build(
 	stats.truckGroundStuds = 0
 	stats.truckPainted = 0
 	stats.treesTinted = 0
+	stats.treesMoved = 0
+	stats.treesDropped = 0
 	-- THE OLD KEEPER WENT WITH THE OLD FOLDER. Dropped here rather than relied on, so a rebuild can
 	-- never leave `Build.faceKeeper` turning a body that is no longer in the DataModel.
 	keeper = nil

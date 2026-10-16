@@ -383,7 +383,14 @@ local KEEPER_BRUSH = Color3.fromHex("4A3B24")
 
 local KEEPER_CORD = Color3.fromHex("2E2A22")
 local KEEPER_CREASE = Color3.fromHex("3C462F")
-local FELT = Enum.Material.Fabric
+-- `Fabric` IS NOT FELT AT THIS SIZE, and this is the SECOND time this material has done it (part
+-- 3c). Roblox's material textures are sized in STUDS, so `Fabric`'s weave on a 1.3-stud hat disc or
+-- a 1.2-stud beard renders as a few enormous grey-speckled cells -- the Director read the hat as *"a
+-- stack of rock discs"* and the beard as *"a rock block on his chin"*, and part 2 had already found
+-- the identical thing on the shell box (*"`Fabric` read as grey speckled stone on a 1.8-stud box"*).
+-- `SmoothPlastic` carries the COLOUR and nothing else, which at head size is what felt and hair look
+-- like.
+local FELT = Enum.Material.SmoothPlastic
 
 -- A LODEN TYROLEAN HAT, NOT A STOVEPIPE (the Designer's lodge spec, 2026-10-16, section 13b). Karen,
 -- 2026-10-16: *"seller heat need new one"*.
@@ -520,8 +527,10 @@ local KEEPER_HAT_ROWS = {
 --
 -- THE SLOT IS `"beard"` AND DELIBERATELY NOT `"hat"`, so `Body.tintFor` answers nil and these rows
 -- keep their own colours whatever a player has bought.
-local BEARD_HAIR = Color3.fromHex("4A4038")
-local BEARD_DARK = Color3.fromHex("3F362E")
+-- DARK BROWN, NOT WARM GREY (part 3c). 74,64,56 was chosen against the grey speckle it was wearing;
+-- on a smooth part it reads as what it is, so it is a hair colour now.
+local BEARD_HAIR = Color3.fromHex("3E2E20")
+local BEARD_DARK = Color3.fromHex("32251A")
 local BROW_COLOR = Color3.fromHex("3A322A")
 
 local KEEPER_FACE_ROWS = {
