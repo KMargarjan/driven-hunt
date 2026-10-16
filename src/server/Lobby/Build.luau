@@ -1927,27 +1927,11 @@ local function trophies(inside: Instance, room: Room, cfg, assets: ((string) -> 
 	-- the fire, which sits 6.25 studs inside the chimney stonework and never needed either.
 	-- Archived: `backups/2026-10-16_task-196_table-and-north-trophies.txt`.
 
-	-- THE RED STAG'S PLACE, KEPT AND LEGIBLE (spec 15c): nothing is built inside its box, and two
-	-- iron pegs are fixed where a shield would hang from, so the gap reads as KEPT rather than as
-	-- forgotten. The day the game has a stag, its row goes in `MOUNTS` and these come out.
-	local keep = spec.STAG_PLACE
-	if keep ~= nil then
-		for index, along in ipairs(keep.PEG_ALONG) do
-			local at =
-				Vector3.new(room.centre.X + along, room.centre.Y + keep.PEG_HEIGHT, room.centre.Z + room.halfZ + 0.2)
-			local peg = part(
-				string.format("StagPeg%d", index),
-				Vector3.new(keep.PEG_STUDS, keep.PEG_THICK, keep.PEG_THICK),
-				CFrame.new(at) * CFrame.Angles(0, 0, 0),
-				cfg.LODGE.IRON_COLOR,
-				Enum.Material.Metal,
-				false,
-				folder
-			)
-			peg.Shape = Enum.PartType.Cylinder
-			peg.CFrame = CFrame.new(at - Vector3.new(0, 0, keep.PEG_STUDS / 2)) * CFrame.Angles(0, math.pi / 2, 0)
-		end
-	end
+	-- THE RED STAG'S PLACE IS A CONFIG ROW AND NOTHING ELSE SINCE PART 3E. Two iron pegs were fixed
+	-- where his shield would hang, so that the gap would read as KEPT rather than forgotten; on an
+	-- otherwise bare log wall they read as two stray dots, which the Director saw in
+	-- `K-room-from-the-door.png`. `TROPHIES.STAG_PLACE` keeps the measurements for the day he
+	-- exists -- where he hangs and how much wall is reserved -- and builds nothing.
 end
 
 -- ---------------------------------------------------------------- the warm inside
@@ -2945,16 +2929,43 @@ end
 --
 -- Returns the lift it applied and the worst residual left -- how far the worst wheel ends ABOVE its
 -- ground, which is the number `lobby.spec` holds to 0.2 studs and the console prints.
+-- WHAT A THING IS BEING SETTLED AS. A truck sits ON the ground on four wheels and must never sink
+-- into it; a tree is PLANTED, and its root claws have to go UNDER. One settler, two plans (lesson
+-- L-031, 2026-10-16: *"one settler, not more per-task arithmetic"*), so the sampling, the pcall
+-- discipline and the measured-not-computed return are written once.
+export type SettlePlan = {
+	-- THE CONTACT POINTS, when the caller knows better than `contactsOf`. A tree's contacts are its
+	-- footprint, and their `bottom` is NOT the model's lowest point: see `treeContacts`.
+	contacts: { { x: number, z: number, bottom: number } }?,
+	-- TILT TO THE SLOPE? A truck does. A tree does not: a birch leaning with the hill is a birch
+	-- that looks pushed over.
+	tilt: boolean?,
+	-- SETTLE TO THE LOWEST GROUND UNDER IT RATHER THAN THE HIGHEST. A truck lifts until NO wheel is
+	-- buried, which is `max`. A tree sinks until NO contact is in the air, which is `min` -- the
+	-- roots on the high side go into the bank, and that is the whole point.
+	toLowest: boolean?,
+	-- AND THEN A LITTLE FURTHER, so the junction is under the surface rather than exactly on it.
+	sink: number?,
+	-- A CONTACT THE GROUND READER CANNOT ANSWER FOR: skip it, or give up? A truck gives up -- half a
+	-- measurement is how a truck ends up tilted onto a wheel whose ground nobody knows. A tree keeps
+	-- going, because its footprint is sampled on a GRID and a grid near the edge of the terrain has
+	-- holes in it: measured, this was ten of thirty-eight trees left exactly where the arithmetic
+	-- put them because one of twenty-five samples came back nil.
+	skipMissing: boolean?,
+}
+
 local function settleOnGround(
 	root: Instance,
 	cfg,
 	groundAt: ((number, number) -> number?)?,
-	floorY: number
+	floorY: number,
+	plan: SettlePlan?
 ): (boolean, number, number)
 	if groundAt == nil then
 		return false, 0, 0
 	end
 	local spec = cfg.TRUCK.SETTLE
+	local wants = plan or ({} :: SettlePlan)
 	local parts = partsOf(root)
 	-- WHERE THE GROUND IS UNDER EACH CONTACT, OR NOTHING AT ALL. A reader that throws, or that
 	-- answers nil for even one wheel, leaves the truck exactly where the arithmetic put it: half a
@@ -2966,6 +2977,9 @@ local function settleOnGround(
 		for _, contact in ipairs(contacts) do
 			local ok, measured = pcall(groundAt :: any, contact.x, contact.z)
 			if not ok or type(measured) ~= "number" then
+				if wants.skipMissing then
+					continue
+				end
 				return nil
 			end
 			table.insert(out, {
@@ -2978,12 +2992,14 @@ local function settleOnGround(
 		return out
 	end
 
-	local first = sample(contactsOf(parts))
+	local first = sample(wants.contacts or contactsOf(parts))
 	if first == nil or #first == 0 then
 		return false, 0, 0
 	end
 	local slopeX, slopeZ = Build.groundFit(first :: any)
-	local tilt = Build.tiltFrom(slopeX, slopeZ, math.rad(spec.MIN_TILT_DEGREES), math.rad(spec.MAX_TILT_DEGREES))
+	local tilt = if wants.tilt == false
+		then CFrame.identity
+		else Build.tiltFrom(slopeX, slopeZ, math.rad(spec.MIN_TILT_DEGREES), math.rad(spec.MAX_TILT_DEGREES))
 	if tilt ~= CFrame.identity then
 		-- ROTATED ABOUT THE CONTACT PATCH'S OWN CENTRE, not about the model's pivot: turning a truck
 		-- about a point five studs over its wheels would lift one end of it into the air and leave
@@ -3000,14 +3016,19 @@ local function settleOnGround(
 		end
 	end
 
-	local second = sample(contactsOf(parts))
+	-- THE CONTACTS ARE RE-READ ONLY IF THE TILT MOVED THEM. A plan that gave its own contacts and
+	-- asked for no tilt is measuring points that have not moved, and re-deriving them from `parts`
+	-- would throw the plan away.
+	local second = if tilt == CFrame.identity and wants.contacts ~= nil then first else sample(contactsOf(parts))
 	if second == nil or #second == 0 then
 		return false, 0, 0
 	end
-	local lift = -math.huge
+	local lift = if wants.toLowest then math.huge else -math.huge
 	for _, point in ipairs(second :: any) do
-		lift = math.max(lift, point.y - point.bottom)
+		local want = point.y - point.bottom
+		lift = if wants.toLowest then math.min(lift, want) else math.max(lift, want)
 	end
+	lift -= wants.sink or 0
 	if lift ~= 0 then
 		local up = CFrame.new(0, lift, 0)
 		for _, piece in ipairs(parts) do
@@ -3767,35 +3788,87 @@ local function clearOfLodge(
 	return false
 end
 
--- SINK THE TREE TO THE LOWEST GROUND ANYWHERE UNDER IT (task 196 part 3d).
+-- WHERE A TREE TOUCHES THE GROUND, AND IT IS NOT THE BOTTOM OF THE MODEL (task 196 part 3e).
 --
--- THE RULE KAREN NEEDS, in her words and the Director's: no root and no trunk is ever VISIBLY above
--- the ground. The ground under a tree is not one number, so the tree is seated against the LOWEST
--- of it and the roots on the high side go INTO the bank -- which is what a root does, and which
--- nobody can see.
+-- KAREN PHOTOGRAPHED THIS TWICE. Part 3d sank each tree until its LOWEST point reached the lowest
+-- ground, which is exactly right for a truck and exactly wrong for a birch: `SilverBirch_Var11`'s
+-- root flare is a set of ARCHED CLAWS, so putting the claw TIPS on the ground leaves daylight under
+-- every arch -- and to the eye that is a floating tree. The Director, on part 3d's own
+-- `trees-2-grove-by-the-lodge.png`: *"the birch's root flare arches like claws with daylight under
+-- it"*, and *"the tips are in the ground, the arch is the model's shape" is not acceptable*.
+--
+-- THE CONTACT IS THE TRUNK/FLARE JUNCTION -- the height at which the base stops being claws and
+-- becomes trunk -- and the claws go UNDER the ground. That height is a property of the MESH, so it
+-- is measured once per model and stored as data, `TREELINE.SPECIES[n].CLAW_FRACTION`, as a fraction
+-- of the model's height so it survives the per-tree random scale. How it was measured is written
+-- out beside the numbers.
 --
 -- IT RUNS AFTER THE CLONE IS PLACED, because the footprint it samples is the footprint the model
 -- actually ended up with: these models lean, and their scale is a per-tree random.
-local function seatOnGround(model: Model, cfg, ground: ((number, number) -> number?)?): (number?, number?)
-	if ground == nil then
-		return nil, nil
-	end
+local function treePlan(model: Model, cfg, clawFraction: number): any
 	local at, half = Build.worldBoxOf(model)
 	local min, max = at - half, at + half
-	local low = nil
-	for _, point in ipairs(Build.footprintSamples(min, max, 4)) do
-		local y = ground(point.X, point.Y)
-		if y ~= nil and (low == nil or y < low) then
-			low = y
+	-- THE JUNCTION, IN THE WORLD. Every contact shares it, so `toLowest` settles the junction onto
+	-- the lowest ground anywhere under the tree and the claws bury themselves on the high side.
+	local junction = min.Y + (max.Y - min.Y) * clawFraction
+	-- THE **BASE'S** FOOTPRINT AND NOT THE CROWN'S, which is a correction measured on the first
+	-- build of this: a birch's crown is twenty-five studs across and its root flare is eight, so a
+	-- grid over the whole bounding box reads the ground under the CANOPY -- twelve studs from the
+	-- trunk, down a bank or off the edge of the terrain -- and settles the tree to that. The
+	-- contacts are the parts that are actually near the ground.
+	local low, high = nil, nil
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") and (descendant :: BasePart).Transparency < 0.95 then
+			local piece = descendant :: BasePart
+			local _, _, _, r00, r01, r02, r10, r11, r12, r20, r21, r22 = piece.CFrame:GetComponents()
+			local size = piece.Size
+			local ry = 0.5 * (math.abs(r10) * size.X + math.abs(r11) * size.Y + math.abs(r12) * size.Z)
+			if piece.Position.Y - ry <= junction + (max.Y - min.Y) * clawFraction then
+				local rx = 0.5 * (math.abs(r00) * size.X + math.abs(r01) * size.Y + math.abs(r02) * size.Z)
+				local rz = 0.5 * (math.abs(r20) * size.X + math.abs(r21) * size.Y + math.abs(r22) * size.Z)
+				local a = Vector3.new(piece.Position.X - rx, 0, piece.Position.Z - rz)
+				local b = Vector3.new(piece.Position.X + rx, 0, piece.Position.Z + rz)
+				if low == nil then
+					low, high = a, b
+				else
+					low = Vector3.new(math.min(low.X, a.X), 0, math.min(low.Z, a.Z))
+					high = Vector3.new(math.max(high.X, b.X), 0, math.max(high.Z, b.Z))
+				end
+			end
 		end
 	end
-	if low == nil then
-		return nil, nil
+	local baseMin = if low ~= nil then Vector3.new(low.X, min.Y, low.Z) else min
+	local baseMax = if high ~= nil then Vector3.new(high.X, max.Y, high.Z) else max
+	local contacts = {}
+	for _, point in ipairs(Build.footprintSamples(baseMin, baseMax, 4)) do
+		table.insert(contacts, { x = point.X, z = point.Y, bottom = junction })
 	end
-	local want = low - cfg.TREELINE.SINK_STUDS
-	local drop = want - min.Y
-	model:PivotTo(model:GetPivot() + Vector3.new(0, drop, 0))
-	return drop, low
+	return {
+		contacts = contacts,
+		tilt = false,
+		toLowest = true,
+		sink = cfg.TREELINE.SINK_STUDS,
+		skipMissing = true,
+	}
+end
+
+-- THROUGH THE TRUCKS' OWN SETTLER AND NOT A SECOND PLACEMENT PATH (lesson L-031): the sampling, the
+-- pcall discipline and the measured-not-computed return are written once, and a tree is simply a
+-- different PLAN -- no tilt, and settle to the LOWEST contact instead of the highest.
+local function seatOnGround(model: Model, cfg, ground: ((number, number) -> number?)?, claw: number): boolean
+	if ground == nil then
+		return false
+	end
+	-- `-math.huge` AS THE FLOOR: the truck settler clamps the ground it reads UP to the yard slab,
+	-- because a truck in a bay stands on the slab. A tree stands on whatever is actually there.
+	-- THE NUMBER THE TREE WAS PLANTED WITH, ON THE TREE. A ring tree's species is a random draw, so
+	-- anything checking this afterwards -- a probe, a spec, the next person -- would otherwise have
+	-- to guess which fraction applied and would guess wrong for the alders. Measured once already by
+	-- guessing: it reported eleven floating trees that were not floating.
+	model:SetAttribute("DHClawFraction", claw)
+	local settled = settleOnGround(model, cfg, ground, -math.huge, treePlan(model, cfg, claw))
+	model:SetAttribute("DHSeated", settled)
+	return settled
 end
 
 local function treeLine(
@@ -3910,7 +3983,7 @@ local function treeLine(
 		end
 		-- AND NOT ON ITS ROOTS IN THE AIR (part 3d), which is measured LAST because `clearOfLodge`
 		-- may have walked the tree somewhere else entirely.
-		if seatOnGround(planted :: Model, cfg, terrainAt or groundAt) ~= nil then
+		if seatOnGround(planted :: Model, cfg, terrainAt or groundAt, species.CLAW_FRACTION or 0) then
 			stats.treesSeated += 1
 		end
 		if species.TINT == "alder" then
@@ -3974,7 +4047,7 @@ local function lodgeTrees(
 		if not clearOfLodge(planted, at, anchor, cfg, groundAt) then
 			continue
 		end
-		if seatOnGround(planted :: Model, cfg, terrainAt or groundAt) ~= nil then
+		if seatOnGround(planted :: Model, cfg, terrainAt or groundAt, species.CLAW_FRACTION or 0) then
 			stats.treesSeated += 1
 		end
 		if species.TINT == "alder" then

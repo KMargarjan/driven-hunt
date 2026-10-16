@@ -1619,13 +1619,6 @@ return function()
 			local suspects = 0
 			for _, descendant in ipairs(folder:GetDescendants()) do
 				local name = descendant.Name
-				-- THE RED STAG'S TWO KEPT PEGS ARE NOT A DRAWN ANTLER (task 196 part 3b, spec 15c).
-				-- They are two 0.5-stud iron pins marking the gap where his shield will hang, which
-				-- is the opposite of the thing this case removes -- and they are the only names in
-				-- the build that may carry the word.
-				if string.match(name, "^StagPeg%d+$") then
-					continue
-				end
 				if
 					string.find(name, "Stag", 1, true)
 					or string.find(name, "roe", 1, true)
@@ -1855,6 +1848,68 @@ return function()
 			templates:Destroy()
 		end)
 
+		-- TREE-TO-GROUND CONTACT (task 196 part 3e), written in the shape of the trucks' own
+		-- wheels-on-the-ground case, because it is the same claim: the thing a player SEES touching
+		-- the ground is touching it.
+		--
+		-- WHAT IS MEASURED IS THE TRUNK/FLARE JUNCTION, not the model's lowest point. A birch's
+		-- root flare is a set of arched claws, so seating the claw TIPS on the ground leaves
+		-- daylight under every arch -- which is what Karen photographed twice, and what part 3d's
+		-- check could not see because it measured the same lowest point the planter had seated.
+		-- THIS CASE FAILS AT THE PRE-FIX COMMIT: there the junction sits a whole claw-height above
+		-- the ground (0.075 of the model's height, 3.5 to 7.5 studs on these trees).
+		it("buries each tree's root claws: the trunk/flare junction is AT or UNDER the ground", function()
+			local templates = fakeTemplates()
+			local function slope(x: number, _z: number): number
+				return anchor.Y + (if x > 40 then -(x - 40) / 2 else 0)
+			end
+			local folder = Build.build(container, anchor, CFG, templates, { terrainAt = slope } :: any)
+			local byModel: { [string]: number } = {}
+			for _, row in ipairs(CFG.TREELINE.SPECIES) do
+				byModel[row.KIND] = row.CLAW_FRACTION or 0
+			end
+			-- EVERY SPECIES CARRIES THE NUMBER, because a species added without one would be
+			-- planted on its claw tips and nothing would say so.
+			for _, row in ipairs(CFG.TREELINE.SPECIES) do
+				expect(type(row.CLAW_FRACTION)).to.equal("number")
+				expect(row.CLAW_FRACTION > 0).to.equal(true)
+			end
+			local worst, worstName = -math.huge, "-"
+			for _, group in ipairs({ "TreeLine", "LodgeTrees" }) do
+				local at = folder:FindFirstChild(group)
+				expect(at).to.be.ok()
+				for _, tree in ipairs((at :: Instance):GetChildren()) do
+					local boxAt, boxHalf = Build.worldBoxOf(tree)
+					local min, max = boxAt - boxHalf, boxAt + boxHalf
+					-- THE FIXTURE'S TREES ARE ALL ONE SPECIES-WIDTH APART, so the claw fraction is
+					-- taken as the SMALLEST any species uses: a tree buried by more than its own
+					-- claw is still buried.
+					local claw = math.huge
+					for _, value in pairs(byModel) do
+						claw = math.min(claw, value)
+					end
+					local junction = min.Y + (max.Y - min.Y) * claw
+					local low = math.huge
+					for _, point in ipairs(Build.footprintSamples(min, max, 4)) do
+						low = math.min(low, slope(point.X, point.Y))
+					end
+					local gap = junction - low
+					if gap > worst then
+						worst, worstName = gap, tree.Name
+					end
+				end
+			end
+			-- AT OR UNDER, never above: the claws are in the ground.
+			if worst > 0 then
+				error(string.format("%s shows %.2f studs of claw above the ground under it", worstName, worst), 0)
+			end
+			-- ...AND IT IS NOT ZERO ON EVERY TREE EITHER (standing rule E, lesson L-028): a metric
+			-- that reads exactly 0.00 everywhere is a metric nobody has checked. These are sunk by
+			-- their own claw height plus `SINK_STUDS`, so the worst is a real negative number.
+			expect(worst < -CFG.TREELINE.SINK_STUDS / 2).to.equal(true)
+			templates:Destroy()
+		end)
+
 		-- THE SAMPLING PATTERN ITSELF, pure, because the case above can only prove that today's
 		-- slope happens to be caught.
 		it("samples the whole footprint and its corners, not just the middle", function()
@@ -1926,9 +1981,13 @@ return function()
 			local point = tip :: BasePart
 			expect(point:IsA("WedgePart")).to.equal(false)
 			expect(math.abs(point.Size.Z - spec.SHIELD.BOARD_THICK) < 1e-3).to.equal(true)
-			-- AND THE RED STAG'S PLACE IS STILL KEPT. Karen asked for it; it is still waiting.
-			expect(folder:FindFirstChild("StagPeg1", true)).to.be.ok()
-			expect(folder:FindFirstChild("StagPeg2", true)).to.be.ok()
+			-- THE RED STAG'S PLACE IS A MEASUREMENT NOW AND NOT TWO PARTS (part 3e). On a wall with
+			-- no trophies left, two iron pins read as two stray dots -- so the row keeps WHERE he
+			-- will hang and builds nothing.
+			expect(folder:FindFirstChild("StagPeg1", true)).to.equal(nil)
+			expect(spec.STAG_PLACE).to.be.ok()
+			expect(#spec.STAG_PLACE.ALONG).to.equal(2)
+			expect((spec.STAG_PLACE :: any).PEG_ALONG).to.equal(nil)
 		end)
 
 		-- NO TABLE, NO BENCHES, AND NO BENCH LEFT BEHIND (task 196 part 3d). The benches went WITH

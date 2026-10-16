@@ -823,13 +823,13 @@ Lobby.CONFIG = {
 		-- iron pegs are fixed at the top of it, where a shield would hang from, so it reads as KEPT
 		-- rather than as forgotten. The day a stag model exists it mounts at
 		-- `{ kind = "stag", wall = "north", along = -8.5, height = 9.2, standoff = -0.2 }`.
+		-- IT BUILDS NOTHING SINCE PART 3E. The two iron pegs are gone: on a wall with no trophies
+		-- left on it they read as two stray dots. What stays is the MEASUREMENT -- which stretch of
+		-- wall is reserved for him and how high he hangs -- so the day a red stag exists nobody has
+		-- to work it out again, and `PEG_*` goes with the parts it described.
 		STAG_PLACE = {
 			ALONG = { -11.2, -5.8 },
 			HEIGHT = { 7.2, 11.2 },
-			PEG_ALONG = { -9.6, -7.4 },
-			PEG_HEIGHT = 10.35,
-			PEG_STUDS = 0.5,
-			PEG_THICK = 0.18,
 		},
 	},
 	-- ---------------- the truck, the track, the spot
@@ -1024,9 +1024,28 @@ Lobby.CONFIG = {
 		-- forest oak RE-TINTED to alder's near-black furrowed trunk and dark cool-green leaf, and
 		-- held under 0.82 scale, because size is what gives an oak away. A real alder is an upload
 		-- and is listed as one (spec 18).
+		-- `CLAW_FRACTION` IS A PROPERTY OF THE MESH, MEASURED ONCE (task 196 part 3e): how far above
+		-- the model's lowest point its root flare stops being claws and becomes trunk, as a fraction
+		-- of the model's HEIGHT so it survives the per-tree random scale. A tree is planted with
+		-- that junction on the ground and its claws underneath; seating the claw TIPS on the ground
+		-- is what left daylight under every arch in the two frames Karen reported.
+		--
+		-- HOW THEY WERE MEASURED, 2026-10-16: each template rayed horizontally at sixty heights
+		-- from its own TRUNK AXIS -- not its bounding-box centre, which for the oak is 1.1 studs
+		-- off it -- reading the height at which the radius falls back to the trunk's own.
 		SPECIES = {
-			{ MODEL = "SilverBirch_Var11_LOD_0", KIND = "birch", WEIGHT = 3 },
-			{ MODEL = "Forest_OakTree_Var01_LOD_0", KIND = "alder", WEIGHT = 2, TINT = "alder" },
+			-- 74.3 studs tall, trunk radius 0.57. Radius 2.45 at the foot, 1.48 at 5 %, 1.04 at
+			-- 5.8 %, flat 0.78 from 7.5 % up: 5.6 studs of arched claws.
+			{ MODEL = "SilverBirch_Var11_LOD_0", KIND = "birch", WEIGHT = 3, CLAW_FRACTION = 0.075 },
+			-- 70.2 studs tall, trunk radius 0.46, and its radius is 0.79 at the foot and flat from
+			-- there: this model has no flare at all, so it needs almost nothing.
+			{
+				MODEL = "Forest_OakTree_Var01_LOD_0",
+				KIND = "alder",
+				WEIGHT = 2,
+				TINT = "alder",
+				CLAW_FRACTION = 0.03,
+			},
 		},
 		-- HOW DEEP THE FLAT CUT ROOT IS BURIED under the ground the engine really produced: enough
 		-- that no tree stands on a disc, little enough that none reads as a bush.
