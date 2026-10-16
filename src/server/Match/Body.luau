@@ -341,7 +341,14 @@ local VEST_ROWS = {
 -- green pans and green jacket" -- so: hunter = base + hat, beater = base + hat + vest.
 -- A GROUP: one worn thing, its slot, the parts to build when no accessory is available, and which
 -- of the character's OWN attachments the real accessory needs cleared.
-export type Group = { slot: string, rows: { any }, clears: { string } }
+-- `platesOnly` MEANS THE CATALOG NEVER DRESSES THIS GROUP (task 196, review round 2). A group
+-- names a SLOT, and the slot is what the composition root's accessory source is asked for -- so the
+-- keeper's hat, which is a slot-"hat" group because `tintFor` paints the hat slot, was handed the
+-- HUNTERS' cap the moment that source started working again. `KEEPER_HAT`'s own comment already
+-- said "the keeper never wears a catalog accessory"; this is that sentence enforced instead of
+-- hoped for. Measured live before it: the shopkeeper wearing `SolidCap` with his Tyrolean hat
+-- plates gone.
+export type Group = { slot: string, rows: { any }, clears: { string }, clearsOnPlates: boolean?, platesOnly: boolean? }
 
 -- A REAL CAP IS SWALLOWED BY A BIG HAIR MESH, AND THIS IS THE MEASUREMENT (task 151 round 2).
 -- Looked at the preview and the hunter was wearing a BLACK cap with an orange peak. He was not: our
@@ -357,7 +364,344 @@ export type Group = { slot: string, rows: { any }, clears: { string } }
 -- the character's own accessories on those -- AND ONLY WHEN A REAL ACCESSORY IS ACTUALLY WORN.
 -- With the plates, hair stays: they were built to live with it. This is a narrower rule than
 -- `Body.strip`'s spare list and it does not change it -- strip still never touches a hat or hair.
+-- ------------------------------------------------------------------- the lodge keeper (task 196)
+--
+-- KAREN, 2026-10-16, looking at the man behind the counter: *"improve bot visual for shopper nice
+-- hat ect"*.
+--
+-- HE IS DRESSED BY THE SAME SYSTEM THE PLAYERS ARE, which is the whole reason this is a row in this
+-- table and not a pile of parts in the lodge: `Match.Body` is the ONE owner of what anybody in this
+-- game wears (`Bots.start({ dress = Body.dress })`, `Lobby`'s `seams.dress`), and a keeper dressed
+-- anywhere else would be a second answer to "what does a person look like".
+--
+-- WHAT A CENTRAL-EUROPEAN LODGE KEEPER WEARS, and each piece is one row below: LODEN -- the heavy
+-- boiled-wool green that every Alpine hunting coat is made of -- for the suit; a felt HAT with a
+-- brim, a tapered crown and a band (the Tyrolean shape: a narrow brim turned up at the back, which
+-- two stacked cylinders of different widths read as); and a WAISTCOAT over the jacket, which is the
+-- piece that makes a man behind a counter look like a shopkeeper rather than a hunter who wandered
+-- in.
+--
+-- HIS HAT IS STILL THE LOBBY'S COLOUR. `Lobby.CONFIG.LODGE.KEEPER.HAT_COLOR` arrives as task 178's
+-- `Look`, and `Body.tintFor` paints the hat slot and nothing else -- so the brown felt is one field
+-- in the lobby's own config and this table does not have to know about it.
+local LODEN = Color3.fromRGB(62, 74, 52)
+-- DARKER THAN THE SPEC'S 4C5A3E (part 3c). Looked at: under this place's `Lighting.Ambient` of
+-- 159,159,159 at `Brightness` 3 a 76,90,62 felt renders CREAM, and a cream Tyrolean hat on a
+-- loden suit is not what the Designer drew. The hue is the spec's; the value is what makes it
+-- read as loden in the room it is actually worn in.
+local KEEPER_FELT = Color3.fromHex("35402A")
+local KEEPER_BRUSH = Color3.fromHex("4A3B24")
+
+local KEEPER_CORD = Color3.fromHex("2E2A22")
+local KEEPER_CREASE = Color3.fromHex("3C462F")
+-- `Fabric` IS NOT FELT AT THIS SIZE, and this is the SECOND time this material has done it (part
+-- 3c). Roblox's material textures are sized in STUDS, so `Fabric`'s weave on a 1.3-stud hat disc or
+-- a 1.2-stud beard renders as a few enormous grey-speckled cells -- the Director read the hat as *"a
+-- stack of rock discs"* and the beard as *"a rock block on his chin"*, and part 2 had already found
+-- the identical thing on the shell box (*"`Fabric` read as grey speckled stone on a 1.8-stud box"*).
+-- `SmoothPlastic` carries the COLOUR and nothing else, which at head size is what felt and hair look
+-- like.
+local FELT = Enum.Material.SmoothPlastic
+
+-- A LODEN TYROLEAN HAT, NOT A STOVEPIPE (the Designer's lodge spec, 2026-10-16, section 13b). Karen,
+-- 2026-10-16: *"seller heat need new one"*.
+--
+-- WHAT WAS WRONG, MEASURED IN THE SURVEY: a flat 2.05-stud disc floating **0.32 studs clear of the
+-- head**, a straight cylinder crown, and a band and a brush that were INVISIBLE -- and the reason
+-- they were invisible was the tint bug above, not their size.
+--
+-- WHAT MAKES THE SHAPE READ, in the Designer's own words:
+--   * the brim's underside lands at 0.555 -- **0.045 INSIDE the head's top**, an overlap, so it sits
+--     on him instead of hovering over him;
+--   * 1.95 across on a 1.20 head is a head and a half, which is what a Tyrolean brim is;
+--   * `HatBrimBack` at -26 degrees lifts the BACK arc only -- the one feature that stops a brim
+--     reading as a disc;
+--   * two crowns, 1.34 tapering to 1.18, with the cord band at 1.40 standing 0.03 proud of the lower
+--     one, which is what makes it a *band* and not a stripe;
+--   * three brush strands at 58 / 68 / 50 degrees on his left, tips at y 1.61 -- clear above the
+--     crown top at 1.48, so the Gamsbart is visible from the customer's side of the counter.
+--
+-- EVERY ROW IS SMOOTH PLASTIC (`FELT`, above: `Fabric` was abandoned at this size, and the comment
+-- on that constant says why), and the FIVE rows that are not the felt itself carry `noTint`.
+local KEEPER_HAT_ROWS = {
+	-- ONE FELT HAT, NOT A STACK OF DISCS (task 196 part 3f). The Director, on part 3e's close-up:
+	-- *"reads as three stacked flat discs with sticks through the brim"*, and he was describing the
+	-- build exactly -- a 0.17 brim, a 0.14 band, a 0.42 crown and a 0.40 crown, each a separate flat
+	-- cylinder of a different diameter, with three brush rods passing THROUGH the brim.
+	--
+	-- WHAT MAKES ONE HAT INSTEAD OF FOUR OBJECTS:
+	--   * the crown is a BALL squashed to 0.62 of its width, not two cylinders. A sphere's silhouette
+	--     curves into the band instead of stepping down to it, which is what a blocked felt crown
+	--     does;
+	--   * the pinch is ONE small block across the top of that ball rather than a disc of its own;
+	--   * the band is barely wider than the crown (1.18 against 1.16), so it reads as a cord TIED ON
+	--     rather than as a fourth plate in the stack;
+	--   * the brim is thinner and sits UNDER the band with nothing between them;
+	--   * and the Gamsbart is MOUNTED ON THE BAND at the left side, tilted up and back, instead of
+	--     three rods pushed through the brim.
+	{
+		name = "HatBrim",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.12, 1.98, 1.98),
+		rotationDeg = Vector3.new(0, 0, 90),
+		offset = Vector3.new(0, 0.62, 0),
+		color = KEEPER_FELT,
+		material = FELT,
+	},
+	{
+		-- THE BACK OF THE BRIM TURNED UP, which is the one feature that stops a brim reading as a
+		-- dinner plate. It overlaps the brim rather than floating over it.
+		name = "HatBrimBack",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.12, 1.5, 1.5),
+		rotationDeg = Vector3.new(-30, 0, 90),
+		offset = Vector3.new(0, 0.74, 0.5),
+		color = KEEPER_FELT,
+		material = FELT,
+	},
+	{
+		-- THE CROWN: ONE squashed ball, seated so its lower third is inside the band.
+		name = "HatCrown",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Ball,
+		size = Vector3.new(1.16, 0.98, 1.16),
+		rotationDeg = Vector3.zero,
+		offset = Vector3.new(0, 1.04, 0),
+		color = KEEPER_FELT,
+		material = FELT,
+	},
+	{
+		-- THE BAND, over the join between brim and crown and only 0.02 proud of the crown.
+		name = "HatBand",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.2, 1.18, 1.18),
+		rotationDeg = Vector3.new(0, 0, 90),
+		offset = Vector3.new(0, 0.74, 0),
+		color = KEEPER_CORD,
+		material = FELT,
+		noTint = true,
+	},
+	{
+		-- THE PINCH along the top of the crown.
+		name = "HatCrease",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Block,
+		size = Vector3.new(0.82, 0.14, 0.2),
+		rotationDeg = Vector3.zero,
+		offset = Vector3.new(0, 1.42, 0),
+		color = KEEPER_CREASE,
+		material = FELT,
+		noTint = true,
+	},
+	{
+		-- THE GAMSBART, ON THE BAND AT HIS LEFT. Three strands fanning up and back out of one root,
+		-- which is where a real one is tied -- not three rods through the brim.
+		name = "HatBrush1",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.62, 0.11, 0.11),
+		rotationDeg = Vector3.new(0, 14, 64),
+		offset = Vector3.new(-0.58, 1.06, 0.12),
+		color = KEEPER_BRUSH,
+		material = FELT,
+		noTint = true,
+	},
+	{
+		name = "HatBrush2",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.56, 0.1, 0.1),
+		rotationDeg = Vector3.new(0, 30, 58),
+		offset = Vector3.new(-0.62, 1.0, 0.2),
+		color = KEEPER_BRUSH,
+		material = FELT,
+		noTint = true,
+	},
+	{
+		name = "HatBrush3",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Cylinder,
+		size = Vector3.new(0.5, 0.1, 0.1),
+		rotationDeg = Vector3.new(0, 0, 70),
+		offset = Vector3.new(-0.56, 1.04, 0.02),
+		color = KEEPER_BRUSH,
+		material = FELT,
+		noTint = true,
+	},
+}
+
+-- THE FACE (spec 13c). The keeper wears the stock Roblox smiley, and a face texture this project
+-- does not own cannot be replaced without an upload -- but it can be COVERED, and a grey-brown beard
+-- is what a lodge keeper has anyway. `BeardJaw` is 1.24 wide on a 1.20 head, so it wraps past the
+-- cheeks and covers everything below y = -0.06, which is the whole of the stock mouth; its front
+-- face stands 0.01 proud so the texture cannot bleed through. The eyes stay visible and the brows
+-- over them turn a smiley into an expression.
+--
+-- THE SLOT IS `"beard"` AND DELIBERATELY NOT `"hat"`, so `Body.tintFor` answers nil and these rows
+-- keep their own colours whatever a player has bought.
+-- DARK BROWN, NOT WARM GREY (part 3c). 74,64,56 was chosen against the grey speckle it was wearing;
+-- on a smooth part it reads as what it is, so it is a hair colour now.
+-- AND DARKER AGAIN AFTER LOOKING AT IT (part 3c). 62,46,32 measured on the live part renders as
+-- light TAN under this place's flat 159-grey ambient, and a tan block on a blown-out white head
+-- reads as a bib. A beard is the darkest thing on a face; at this exposure that means 36,26,18.
+local BEARD_HAIR = Color3.fromHex("241A12")
+local BEARD_DARK = Color3.fromHex("18110B")
+local BROW_COLOR = Color3.fromHex("3A322A")
+
+local KEEPER_FACE_ROWS = {
+	{
+		name = "BeardJaw",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Block,
+		-- UP OVER THE MOUTH (part 3c). At -0.34 with 0.56 of height the beard's top edge sat at
+		-- -0.06 of a 1.2-stud head, which is BELOW the stock face's mouth: the frame showed the
+		-- smiley complete, with a brown block under his chin. It covers -0.66 .. +0.06 now, which
+		-- is the mouth and the jaw and not the eyes.
+		-- NARROWER THAN THE HEAD, AND ONLY 0.01 PROUD OF THE FACE. The head measures 1.16 x 1.18 x
+		-- 1.16 on this rig, so a 1.26-wide beard hung off both sides of it and read as a BOX rather
+		-- than as hair -- which is what the frame showed. 1.1 x 0.62 x 1.04 at -0.33 covers -0.64
+		-- .. -0.02 of the face, which is the stock smiley's mouth and jaw and not its eyes.
+		-- ON THE JAW, NOT IN FRONT OF IT (part 3f). The head measures 1.16 x 1.18 x 1.16, so this
+		-- wraps the lower face from -0.60 to -0.04 and stops 0.01 proud of the face plane: the
+		-- beard follows the jaw line instead of standing off it as a box.
+		size = Vector3.new(1.08, 0.56, 0.96),
+		rotationDeg = Vector3.zero,
+		offset = Vector3.new(0, -0.32, -0.11),
+		color = BEARD_HAIR,
+		material = FELT,
+	},
+	{
+		name = "BeardChin",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Block,
+		-- THE CHIN TUFT STAYS ON THE HEAD. At -0.55 it hung 0.11 below the jaw and read as a beard
+		-- resting on his chest; it now stops level with the head's own underside.
+		size = Vector3.new(0.5, 0.26, 0.46),
+		rotationDeg = Vector3.zero,
+		offset = Vector3.new(0, -0.47, -0.3),
+		color = BEARD_HAIR,
+		material = FELT,
+	},
+	{
+		name = "Moustache",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Block,
+		size = Vector3.new(0.62, 0.14, 0.16),
+		rotationDeg = Vector3.zero,
+		offset = Vector3.new(0, -0.14, -0.6),
+		color = BEARD_DARK,
+		material = FELT,
+	},
+	{
+		name = "BrowL",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Block,
+		size = Vector3.new(0.26, 0.07, 0.08),
+		rotationDeg = Vector3.zero,
+		offset = Vector3.new(-0.18, 0.14, -0.6),
+		color = BROW_COLOR,
+		material = FELT,
+	},
+	{
+		name = "BrowR",
+		limb = "Head",
+		fallbackLimb = nil,
+		shape = Enum.PartType.Block,
+		size = Vector3.new(0.26, 0.07, 0.08),
+		rotationDeg = Vector3.zero,
+		offset = Vector3.new(0.18, 0.14, -0.6),
+		color = BROW_COLOR,
+		material = FELT,
+	},
+}
+
+-- THE WAISTCOAT: the vest's own four plates, which already wrap any torso on any rig
+-- (`Body.fit`'s invariant), in loden instead of safety orange and a little thinner. It is a SEPARATE
+-- row set and not the vest with a colour, because `Body.tintFor` deliberately refuses to recolour a
+-- vest (*"it is safety orange on purpose"*) -- and a beater's vest and a shopkeeper's waistcoat are
+-- two garments, not one garment with an opinion.
+-- A WAISTCOAT IS THINNER AND SHORTER THAN A SAFETY VEST, and the first frame is why (rule 5,
+-- `.screenshots/196-rack.png`): the vest's own 0.22 plates with its 0.12 gap, in loden, read as a
+-- green CRATE on the man's chest. A beater's vest is meant to be seen across a field; a waistcoat is
+-- a garment. 0.14 thick at a 0.07 gap and 0.72 of the torso's height.
+local WAIST_THICK = 0.14
+local WAIST_GAP = 0.07
+local WAIST_HEIGHT_FRACTION = 0.72
+local WAISTCOAT_ROWS = {}
+for _, row in ipairs(VEST_ROWS) do
+	local copy = table.clone(row)
+	copy.name = string.gsub(row.name, "Vest", "Waistcoat")
+	copy.color = LODEN
+	-- THE SAME FOUR PLATES, RE-FITTED. `Body.fit` reads `scale`, `pad`, `anchor` and `offset`, and
+	-- each of the four rows carries the vest's own numbers in two of them -- so the swap is done by
+	-- which AXIS each row uses rather than by naming the rows one at a time here.
+	local front = row.anchor.Z ~= 0
+	copy.scale = if front then Vector3.new(0.98, WAIST_HEIGHT_FRACTION, 0) else Vector3.new(0, WAIST_HEIGHT_FRACTION, 1)
+	copy.pad = if front
+		then Vector3.new(0, 0, WAIST_THICK)
+		else Vector3.new(WAIST_THICK, 0, 2 * (WAIST_THICK + WAIST_GAP))
+	local out = WAIST_THICK / 2 + WAIST_GAP
+	copy.offset = if front
+		then Vector3.new(0, 0, math.sign(row.anchor.Z) * out)
+		else Vector3.new(math.sign(row.anchor.X) * out, 0, 0)
+	table.insert(WAISTCOAT_ROWS, copy)
+end
+
+-- THE COLLAR (spec 13d). The survey found daylight at the shoulders: four flat plates on an R15
+-- torso with bare loden arms beside them. One row closes the top line.
+table.insert(WAISTCOAT_ROWS, {
+	name = "WaistcoatCollar",
+	limb = "UpperTorso",
+	fallbackLimb = "Torso",
+	shape = Enum.PartType.Block,
+	scale = Vector3.new(1.02, 0, 0),
+	pad = Vector3.new(0, 0.22, 2 * (WAIST_THICK + WAIST_GAP) + 0.04),
+	anchor = Vector3.new(0, 1, 0),
+	offset = Vector3.new(0, -0.03, 0),
+	rotationDeg = Vector3.zero,
+	color = Color3.fromHex("3A452F"),
+	material = Enum.Material.Fabric,
+})
+
 local HAT: Group = { slot = "hat", rows = HAT_ROWS, clears = { "HatAttachment", "HairAttachment" } }
+local KEEPER_HAT: Group = {
+	slot = "hat",
+	rows = KEEPER_HAT_ROWS,
+	clears = { "HatAttachment", "HairAttachment" },
+	-- ...AND THE PLATE PATH CLEARS THEM TOO, which is the one group that needs it: the keeper never
+	-- wears a catalog accessory, so without this his rig's own hair stays under the brim (spec 13a).
+	clearsOnPlates = true,
+	-- ...AND THE CATALOG NEVER DRESSES HIM. His hat is a slot-"hat" group so `tintFor` can paint it
+	-- from `LODGE.KEEPER.HAT_COLOR`, and that is exactly why he needs saying: ask the accessory
+	-- source for "hat" and it answers the hunters' orange cap.
+	platesOnly = true,
+}
+local KEEPER_FACE: Group = { slot = "beard", rows = KEEPER_FACE_ROWS, clears = {} }
+local WAISTCOAT: Group =
+	{ slot = "waistcoat", rows = WAISTCOAT_ROWS, clears = { "BodyFrontAttachment", "BodyBackAttachment" } }
+-- HIS SUIT IS LODEN AND THE PLAYERS' IS THE SLEEVE GREEN: the same `BaseRow` shape, one colour
+-- apart, so a man behind a counter is not wearing the uniform of the men in the field.
+local KEEPER_BASE: BaseRow = {
+	color = LODEN,
+	limbs = BASE.limbs,
+	clearClasses = BASE.clearClasses,
+	clearLayered = BASE.clearLayered,
+}
 -- The vest hangs off the torso's front; a player's own front or back torso accessory would fight it
 -- for the same space. Nothing on the head or the limbs is touched.
 local VEST: Group = { slot = "vest", rows = VEST_ROWS, clears = { "BodyFrontAttachment", "BodyBackAttachment" } }
@@ -365,11 +709,53 @@ local VEST: Group = { slot = "vest", rows = VEST_ROWS, clears = { "BodyFrontAtta
 local OUTFITS: { [string]: { base: BaseRow, parts: { Group } } } = {
 	Shooters = { base = BASE, parts = { HAT } },
 	Drivers = { base = BASE, parts = { HAT, VEST } },
+	-- THE THIRD ROW IS NOT A TEAM (task 196). `Keeper` is a LOOK, asked for by name
+	-- (`Lobby.CONFIG.LODGE.KEEPER.TEAM`), and nothing in `Match.Roster` can ever answer it: a player
+	-- is on `Shooters` or `Drivers` and this table is a lookup by string. That is exactly why the
+	-- shopkeeper can be dressed by the players' own system without becoming a player.
+	Keeper = { base = KEEPER_BASE, parts = { KEEPER_HAT, KEEPER_FACE, WAISTCOAT } },
 }
 
--- THE SLOT NAMES, published so the composition root and a spec name them from one place rather than
--- typing a literal each (the `Map.TAGS` rule).
+-- THE SLOTS THAT CAN CARRY A BOUGHT ACCESSORY, published so the composition root and a spec name
+-- them from one place rather than typing a literal each (the `Map.TAGS` rule).
+--
+-- IT MEANS ONE THING AGAIN (task 196, review round 2, finding 1). Task 196 added `waistcoat` and
+-- `beard` here because they are slots -- which is true, and which broke the game: the composition
+-- root loops this table and asserts every entry has an asset key, so the first plate-only slot made
+-- `OutfitAssetsBoot` die at BOOT, before `Body.setAccessorySource` and before `Loader.preload`.
+-- Every hunter's cap and every beater's vest then fell back to plates, with a red line at every
+-- boot. Measured in the Forest Test before the fix: `Loader.template("outfit.cap")` nil, and the
+-- player wearing `Hat` and `HatCrown` PARTS.
+--
+-- SO THE TABLE KEEPS THE MEANING ITS ONE CONSUMER NEEDS -- *a slot that must be mapped to an asset
+-- key* -- and the keeper's plate-only slots are declared separately below. The alternative was a
+-- "no accessory" sentinel in the boot's mapping with the assert narrowed around it; this one is
+-- better because the boot's loop is then correct for EVERY future slot with nobody remembering to
+-- add an exception in a second file.
 Body.SLOTS = table.freeze({ hat = "hat", vest = "vest" })
+
+-- THE SLOTS THAT ARE ONLY EVER PLATES. The keeper's waistcoat, his beard: parts this module builds
+-- itself, with no catalog accessory behind them and nothing for the asset pipeline to fetch. They
+-- are named here so a spec and a reader have one home for the strings, exactly as `SLOTS` is -- and
+-- deliberately NOT in `SLOTS`, which is the fix above.
+Body.PLATE_SLOTS = table.freeze({ waistcoat = "waistcoat", beard = "beard" })
+
+-- WHICH ACCESSORY SLOTS A MAPPING FAILS TO NAME. Pure, and the composition root's own invariant
+-- expressed where a spec can call it: `OutfitAssetsBoot` is a Script and cannot be required, so
+-- before this the only way to find out that its assert would fire was to boot the game and read the
+-- second line of the console -- which is exactly how this got past six smoke runs.
+--
+-- Returns the slot names, sorted, so a failure says WHICH.
+function Body.unmappedSlots(mapping: { [string]: any }): { string }
+	local missing = {}
+	for _, slot in pairs(Body.SLOTS) do
+		if mapping[slot] == nil then
+			table.insert(missing, slot)
+		end
+	end
+	table.sort(missing)
+	return missing
+end
 
 -- KAREN'S WORD -> THE TEAM NAME, in exactly one place (design section 3, "Naming"). She says beater
 -- and hunter; the code says `Drivers` and `Shooters`, and those strings reach `Match.Roster`,
@@ -479,7 +865,11 @@ function Body.dressFor(team: TeamName?, config, look: Look?): { any }
 	for _, group in ipairs(outfit.parts) do
 		local tint = Body.tintFor((group :: any).slot, look)
 		for _, row in ipairs(group.rows) do
-			if tint ~= nil then
+			-- `noTint` IS THE BUG THE DESIGNER FOUND (the Designer's lodge spec, 2026-10-16, section
+			-- 13a). The tint painted EVERY row of the hat slot, so the keeper's cord band and his
+			-- brush became the same colour as his felt the moment a `look` was present -- which is
+			-- why the survey could not find them. A row that is not the felt says so.
+			if tint ~= nil and not row.noTint then
 				-- A COPY, because the declared rows are this module's own frozen vocabulary and a
 				-- bought colour belongs to ONE player. Editing the row would be one purchase changing
 				-- what everybody on the server wears.
@@ -772,6 +1162,11 @@ end
 
 local function wearAccessory(character: Model, group: Group, tint: Color3?): boolean
 	local slot = group.slot
+	-- THIS GROUP IS PLATES AND NOTHING ELSE (task 196, review round 2): see `Group.platesOnly`.
+	-- Returning false here is the plate path, which is the one this group has always meant to take.
+	if group.platesOnly then
+		return false
+	end
 	local source = accessorySource
 	if not source then
 		return false
@@ -868,8 +1263,15 @@ function Body.dress(character: Model?, team: TeamName?, config, look: Look?): bo
 			continue
 		end
 		slotsFellBack += 1
+		-- THE PLATE PATH HONOURS `clears` TOO, FOR A GROUP THAT ASKS (spec 13a). `wearAccessory`
+		-- clears the character's own hair only when a REAL accessory goes on; the keeper always
+		-- falls back to plates, so his rig's hair stayed and fought the brim -- the dark swoosh over
+		-- his eye in the survey's images 25 and 26. One flag, on the one group that needs it.
+		if (group :: any).clearsOnPlates then
+			clearAttachments(character, group.clears)
+		end
 		for _, row in ipairs(group.rows) do
-			if tint ~= nil then
+			if tint ~= nil and not row.noTint then
 				local tinted = table.clone(row)
 				tinted.color = tint
 				table.insert(rows, tinted)
@@ -899,7 +1301,9 @@ function Body.dress(character: Model?, team: TeamName?, config, look: Look?): bo
 			part.Shape = row.shape
 			part.Size = size
 			part.Color = row.color
-			part.Material = Enum.Material.SmoothPlastic
+			-- THE ROW'S OWN MATERIAL (spec 13a): felt is `Fabric` and plastic is not. A hard-coded
+			-- `SmoothPlastic` is why the keeper's hat read as a toy.
+			part.Material = row.material or Enum.Material.SmoothPlastic
 			part.Anchored = false
 			part.Massless = true
 			part.CanCollide = false

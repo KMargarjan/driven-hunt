@@ -62,6 +62,13 @@ local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
 -- `Lobby.counterPosition` is the one definition of where the counter is.
 local Shop = require(ServerScriptService:WaitForChild("Shop"))
 local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+-- WHAT THE LODGE HANGS ON ITS WALLS (task 196): the boar's own model and the two guns the player
+-- carries. Required HERE, in the composition root, because that is where a name in one owner's
+-- vocabulary is translated into another owner's asset -- the `Body.setAccessorySource` seam's own
+-- rule. `Lobby` never learns what an asset key is and `Match.Body` never learns what a shop is.
+local Assets = require(ServerStorage:WaitForChild("Assets"))
+local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
 local Data = ForestTest.Data
 
 print(
@@ -443,6 +450,85 @@ ForestTest.setBotThreats(Bots.threats)
 -- run can write a live DataStore key even with *Enable Studio Access to API Services* on.
 Economy.start()
 
+-- ---------------------------------------------------------------- what hangs in the lodge (196)
+--
+-- KAREN, 2026-10-16: *"we use our boar head and then add on a wall thats it"*, and *"behind the
+-- shoper shotguns on wall rifles on wall ect"*.
+--
+-- ONE FUNCTION, ANSWERING THREE NAMES, memoised. The lodge asks for `"boar"`, `"shotgun"` and
+-- `"rifle"` -- its own vocabulary, three words -- and gets a Model or nil. Nothing it is handed is
+-- ever put in a player's hands: the lodge anchors every part of it and turns collision, queries and
+-- touch off, which is what makes a wall of guns scenery rather than a shop you can rob.
+--
+-- THE BOAR IS THE ONE IN THE DRIVE. `Assets.KEYS.boarMale` is the same template `Boar` wears, so the
+-- head on the wall is the animal the player shot and not a model of one -- and it costs no upload,
+-- no credit and no moderation (Karen asked for exactly that).
+--
+-- THE GUNS ARE `Weapon.Hardware`'s OWN OUTPUT. It builds a Tool; a Tool cannot be moved as a unit,
+-- so the Handle and everything welded to it is lifted into a Model whose PrimaryPart is that Handle
+-- -- and from there `PivotTo` lays it on the rack. The Tool itself is destroyed here: nothing with a
+-- `Tool` in its name reaches the lodge.
+--
+-- PRELOADED FIRST, AND THAT YIELD IS THE POINT: `Hardware.build` draws the measured FALLBACK BOXES
+-- for a mesh that has not landed, and a rack of grey slabs is exactly what Karen has spent today
+-- removing. `Loader.preload` is idempotent (it answers from the cache for a key already in), so
+-- when `ViewmodelAssetsBoot` has already run this costs a table lookup; when it has not, the lodge
+-- waits for the guns rather than hanging boxes.
+local lodgeAssets: { [string]: any } = {}
+local WEAPON_OF = { shotgun = "shotgun", rifle = "rifle" }
+
+local function lodgeAsset(name: string): Instance?
+	local known = lodgeAssets[name]
+	if known ~= nil then
+		return if known == false then nil else known
+	end
+	local made: Instance? = nil
+	if name == "boar" or name == "sow" then
+		-- THE SOW IS THE FOURTH WORD (the Designer's lodge spec, 2026-10-16, section 14c). Karen:
+		-- *"you can make few more famale and one more male"*. `boar.female` is already in the
+		-- manifest and the model measures 0.8553 of the male's length, so a sow trophy is a SMALLER
+		-- head with smaller tusks and no scaling anywhere -- no upload, no new asset, no credit.
+		local key = if name == "sow" then Assets.KEYS.boarFemale else Assets.KEYS.boarMale
+		local template = Loader.template(key)
+		made = if template ~= nil and template:IsA("Model") then template else nil
+	elseif WEAPON_OF[name] ~= nil then
+		local ok, tool = pcall(Weapon.Hardware.build, Weapons.row(WEAPON_OF[name]))
+		if ok and typeof(tool) == "Instance" and (tool :: Instance):IsA("Tool") then
+			local held = Instance.new("Model")
+			held.Name = string.format("LodgeGun_%s", name)
+			local handle = (tool :: Tool):FindFirstChild("Handle")
+			for _, child in ipairs((tool :: Tool):GetChildren()) do
+				child.Parent = held
+			end
+			if handle ~= nil and handle:IsA("BasePart") then
+				held.PrimaryPart = handle :: BasePart
+				made = held
+			else
+				held:Destroy()
+			end
+			(tool :: Tool):Destroy()
+		end
+	end
+	lodgeAssets[name] = made or false
+	return made
+end
+
+-- THE TWO ANIMALS THE WALL NEEDS, preloaded beside the guns for the same reason: `Loader.template`
+-- never yields and answers nil until the load lands, and a lodge built in that window hangs bare
+-- boards. `preload` is idempotent, so the male -- which `BoarAssetsBoot` loads anyway -- costs a
+-- table lookup.
+for _, loaded in ipairs(Loader.preload({ Assets.KEYS.boarMale, Assets.KEYS.boarFemale })) do
+	if not loaded.ok then
+		warn(string.format("[ForestTest] lodge: %s did not load (%s)", loaded.key, tostring(loaded.reason)))
+	end
+end
+
+for _, loaded in ipairs(Loader.preload(Assets.keysFor("viewmodel"))) do
+	if not loaded.ok then
+		warn(string.format("[ForestTest] lodge: %s did not load (%s)", loaded.key, tostring(loaded.reason)))
+	end
+end
+
 -- ---------------------------------------------------------------- the lobby (task 177)
 --
 -- THE LOBBY GOES FIRST, AND THE ORDER IS THE WHOLE SAFETY OF IT: the drive's enrolment switch
@@ -488,6 +574,9 @@ local lobbyOn = Lobby.start({
 	dress = Body.dress,
 	dressConfig = Match.CONFIG,
 	shopOn = ShopData.isOn(),
+	--   assets       WHAT HANGS ON THE LODGE'S WALLS (task 196): the boar's head over the fire and
+	--                the guns on the rack behind the counter, by name. See `lodgeAsset` above.
+	assets = lodgeAsset,
 	--   remotes      THE PADS' ONE INBOUND DOOR (task 182). `ReplicatedStorage.Lobby.Remotes`, handed
 	--                in rather than found, for the reason every other seam here is handed in: a spec
 	--                drives `Lobby.onPadRequest` by parameter with no remote at all, and nil means
@@ -500,6 +589,16 @@ local lobbyOn = Lobby.start({
 	--                teleport at all (docs/design/truck-pads.md section 9).
 	remotes = Lobby.Data.remotes(),
 	groundAt = Data.groundAt,
+	--   terrainAt    WHERE THE TERRAIN IS, WHICH IS NOT THE SAME QUESTION (task 196 part 3d). Karen,
+	--                2026-10-16: *"look at the trees wtf"* -- birches standing on their splayed
+	--                roots with daylight under them. `Data.groundAt` rays past `OurForest`,
+	--                `Foliage` and `Boars`, but its own header measures that this is not every
+	--                tree: 831 more live in two Studio folders called `Session`, so a downward ray
+	--                can stop on a canopy, and it can also stop on a road part or a fence. A TREE
+	--                seated on a canopy is a tree standing on air. `ForestTest.terrainYAt` includes
+	--                nothing but `Workspace.Terrain` and so can only ever answer "where is the
+	--                ground".
+	terrainAt = ForestTest.terrainYAt,
 	terrain = Workspace.Terrain,
 	now = function()
 		return os.clock()

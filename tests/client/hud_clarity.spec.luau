@@ -1095,5 +1095,51 @@ return function()
 			expect(line.Text).to.equal(Objective.text("Running", "Shooters"))
 			expect(rail.Visible).to.equal(wasRail)
 		end)
+
+		-- TASK 196, REVIEW ROUND 1, FINDING 1. The rail now has TWO reasons to be down -- a sight
+		-- picture is in (`setSuppressed`) and a panel is drawn over it (`setCovered`, the phone
+		-- shop) -- and they are independent: whichever ends first must not turn it back on while
+		-- the other still holds it.
+		--
+		-- THIS CASE FAILS ON ade4711, AND ON THE RIGHT LINE. There the shop's answer was written
+		-- straight onto `railFrame.Visible` from the Hud's per-frame pass, and because it wrote
+		-- `true` whenever the shop was SHUT, the first `Hud.renderObjective` after a scope went up
+		-- put four buttons back inside the eyepiece. So the per-frame pass is driven here, with the
+		-- rail suppressed and no shop open -- the exact state that defect needed.
+		it("stays down while EITHER the sight picture or a panel holds it, per-frame pass included", function()
+			local rail = Hud.rail() :: Frame
+			local wasSuppressed = Rail.isSuppressed()
+			local wasCovered = Rail.isCovered()
+			Rail.setSuppressed(false)
+			Rail.setCovered(false)
+			-- WHAT THIS DEVICE SAYS when nothing is holding the rail down, which is the answer both
+			-- flags are measured against rather than a hard-coded `true`.
+			local free = rail.Visible
+			expect(free).to.equal(Rail.visible(UserInputService.TouchEnabled))
+
+			-- 1. SUPPRESSED, NOTHING COVERING: down, and the per-frame pass must not lift it.
+			Rail.setSuppressed(true)
+			expect(rail.Visible).to.equal(false)
+			Hud.renderObjective(nil)
+			expect(rail.Visible).to.equal(false)
+
+			-- 2. COVERED, NOT SUPPRESSED: down.
+			Rail.setSuppressed(false)
+			Rail.setCovered(true)
+			expect(rail.Visible).to.equal(false)
+
+			-- 3. BOTH: down, and CLEARING ONE DOES NOT LIFT THE OTHER.
+			Rail.setSuppressed(true)
+			expect(rail.Visible).to.equal(false)
+			Rail.setCovered(false)
+			expect(rail.Visible).to.equal(false)
+
+			-- 4. BOTH CLEAR: back to what the device said, never to a hard-coded `true`.
+			Rail.setSuppressed(false)
+			expect(rail.Visible).to.equal(free)
+
+			Rail.setSuppressed(wasSuppressed)
+			Rail.setCovered(wasCovered)
+		end)
 	end)
 end

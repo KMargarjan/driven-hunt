@@ -141,6 +141,17 @@ local nodes: { [string]: TextButton } = {}
 local started = false
 local hasWeapon = false
 local suppressed = false
+-- IS SOMETHING DRAWN OVER THE RAIL? (task 196, review round 1, finding 1.) On a phone the shop panel
+-- is the whole screen and this column sits on top of it. It is a SECOND reason to be hidden and NOT
+-- the same one as `suppressed`: a sight picture and an open shop can be true independently, and
+-- whichever ends first must not turn the rail back on while the other still holds it down.
+--
+-- WHY IT IS A FLAG HERE AND NOT A WRITE THERE: part 3f had the Hud write `railFrame.Visible` every
+-- frame from the shop's answer, which made a second writer of this frame -- and because it wrote
+-- `true` whenever the shop was shut, the first frame after a scope went up turned four buttons back
+-- on INSIDE the eyepiece, which is the picture `Hud.renderScope` exists to prevent. It also beat
+-- `Rail.visible(touchEnabled)`, which is Karen's `SHOW_ON_DESKTOP`.
+local covered = false
 local touchEnabled = false
 local actions: { [string]: () -> any } = {}
 local stats = { presses = 0, byId = {} :: { [string]: number } }
@@ -169,6 +180,10 @@ function Rail.isSuppressed(): boolean
 	return suppressed
 end
 
+function Rail.isCovered(): boolean
+	return covered
+end
+
 -- THE ONE WRITER of every button's `Visible`, and the one place the two rules meet: is the rail on
 -- this device at all, and does this button have a function to call right now.
 function Rail.applyVisibility()
@@ -179,7 +194,9 @@ function Rail.applyVisibility()
 	local box = holder :: Frame
 	-- A LOCAL AND NOT `(holder :: Frame).Visible`: a line that STARTS with an open bracket is read as
 	-- a call on the line above it, which is Luau's one real syntax trap.
-	box.Visible = Rail.visible(touchEnabled) and not suppressed
+	-- THE THREE RULES MEET HERE AND NOWHERE ELSE: is the rail on this device at all, is a sight
+	-- picture up, and is a panel drawn over it.
+	box.Visible = Rail.visible(touchEnabled) and not suppressed and not covered
 	local on = box.Visible
 	local index = 0
 	for _, button in ipairs(Rail.BUTTONS) do
@@ -215,6 +232,19 @@ function Rail.setSuppressed(on: boolean)
 		return
 	end
 	suppressed = on
+	Rail.applyVisibility()
+end
+
+-- A PANEL IS DRAWN OVER THE RAIL, OR IS NOT (task 196 review round 1). The caller states a NEED and
+-- this module does the writing -- the `MapUi.setSuppressed` / `Cursor.requestFree` shape this file
+-- already uses one function up, and for the same reason: one frame, one writer.
+--
+-- EDGE-TRIGGERED like its neighbour, so a per-frame caller costs one comparison and never a write.
+function Rail.setCovered(on: boolean)
+	if covered == on then
+		return
+	end
+	covered = on
 	Rail.applyVisibility()
 end
 

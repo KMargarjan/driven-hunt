@@ -127,7 +127,7 @@ end
 -- ---------------------------------------------------------------- the rectangle, pure and exported
 
 -- HOW TALL THE WHOLE DIALOG IS, for however many sizes the data lists. PURE, so the rectangle is a
--- spec and not a screenshot -- `ShopPanel.heightFor`'s rule, and `Hud.build` sizes the frame with it
+-- spec and not a screenshot -- `ShopPanel.panelSize`'s rule, and `Hud.build` sizes the frame with it
 -- so ONE number decides both the rows and the box (the Reviewer's task-178 round-1 note: they used to
 -- be two, and a sixth row would have been drawn outside the frame in silence).
 function PadPanel.heightFor(count: number?): number

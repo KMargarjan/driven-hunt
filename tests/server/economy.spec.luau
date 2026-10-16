@@ -512,11 +512,12 @@ return function()
 			local short = Economy.purchase(213, Shop.ITEM.BEATER_LICENCE, { atCounter = true })
 			expect(short.refused).to.equal(Shop.REASON.LOCKED)
 			expect(short.refusedNumber).to.equal(1)
-			-- A FORGED ID, and the open-sight rifle, which is in the catalogue and not for sale.
+			-- A FORGED ID. The second case here used to be the open-sight rifle -- in the catalogue and
+			-- not for sale -- and task 196 removed that row at Karen's word, so an id nothing knows is
+			-- the only shape of refusal left at this door. `Shop.refuse`'s own NOT_SALE case is driven
+			-- against a pretend catalogue in `shop.spec`.
 			expect(Economy.purchase(203, "rifle.free", { atCounter = true }).refused).to.equal(Shop.REASON.UNKNOWN)
-			expect(Economy.purchase(203, Shop.ITEM.RIFLE_OPEN, { atCounter = true }).refused).to.equal(
-				Shop.REASON.NOT_SALE
-			)
+			expect(Economy.purchase(203, "rifle.open", { atCounter = true }).refused).to.equal(Shop.REASON.UNKNOWN)
 			-- ...AND A MAN WHO IS NOT AT THE COUNTER.
 			expect(Economy.purchase(203, Shop.ITEM.HAT_RED, { atCounter = false }).refused).to.equal(
 				Shop.REASON.TOO_FAR
@@ -617,10 +618,9 @@ return function()
 					expect(wire.locked).to.equal(false)
 					expect(wire.afford).to.equal(false)
 					expect(wire.buyable).to.equal(false)
-				elseif wire.id == Shop.ITEM.RIFLE_OPEN then
-					expect(wire.sale).to.equal(false)
-					expect(wire.buyable).to.equal(false)
 				end
+				-- EVERY ROW ON THE WIRE IS FOR SALE since task 196 removed the one that was not.
+				expect(wire.sale).to.equal(true)
 			end
 			-- A SEEDED SET IS READ BACK, which is the whole load/save round trip for the new field.
 			expect(Economy.ownedOf(208)[Shop.ITEM.SLUG]).to.equal(true)
