@@ -2212,11 +2212,22 @@ return function()
 					if string.find(piece.Name, "Plaque", 1, true) then
 						plaques += 1
 					end
+					-- THE BOUND IS THE INNER FACE PLUS THE OVERLAP THE ROWS ASK FOR (part 3c). A
+					-- negative `standoff` pushes the board INTO the log bellies on purpose -- the
+					-- Designer's rule everywhere in this spec is that a join overlaps and is never
+					-- flush, because flush against a round log is a hairline gap at the belly and
+					-- coplanar faces at the course joins. At `standoff = -0.2` and a 0.3 board the
+					-- shield's centre sits 0.05 past the inner face, so a bound of the inner face
+					-- EXACTLY is a test that cannot pass: it has been failing since part 3b.
+					local lap = 0
+					for _, row in ipairs(CFG.TROPHIES.MOUNTS) do
+						lap = math.max(lap, -(row.standoff or 0))
+					end
 					local at = piece.Position
-					expect(at.X <= room.centre.X + room.halfX).to.equal(true)
-					expect(at.X >= room.centre.X - room.halfX).to.equal(true)
-					expect(at.Z <= room.centre.Z + room.halfZ).to.equal(true)
-					expect(at.Z >= room.centre.Z - room.halfZ).to.equal(true)
+					expect(at.X <= room.centre.X + room.halfX + lap).to.equal(true)
+					expect(at.X >= room.centre.X - room.halfX - lap).to.equal(true)
+					expect(at.Z <= room.centre.Z + room.halfZ + lap).to.equal(true)
+					expect(at.Z >= room.centre.Z - room.halfZ - lap).to.equal(true)
 					-- ...and off the floor, and NOT THROUGH THE CEILING, which is the other half of
 					-- that round: a 5.4-stud deer seated at its mount height stood 2.4 studs through
 					-- a 7.4-stud room roof.
