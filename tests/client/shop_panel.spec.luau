@@ -413,9 +413,23 @@ return function()
 			Panel.step(2)
 			local second = camera.CFrame.Position
 			expect((first - second).Magnitude > 0.05).to.equal(true)
-			-- ...and the distance from the item does not drift as it turns: it is an orbit.
+			-- ...AND IT IS A TURN AROUND THE ITEM AND NOT A DRIFT AWAY FROM IT: the camera's bearing
+			-- moved by exactly the pure spin, `ShopDisplay.spinDegAt(2) - spinDegAt(0)`.
 			local centre = Panel.pictureBall()
-			expect(math.abs((first - centre).Magnitude - (second - centre).Magnitude) < 0.01).to.equal(true)
+			local function bearing(at: Vector3): number
+				local offset = at - centre
+				return math.deg(math.atan2(offset.X, offset.Z))
+			end
+			local turned = (bearing(second) - bearing(first) + 720) % 360
+			local wanted = (Display.spinDegAt(2) - Display.spinDegAt(0) + 720) % 360
+			expect(math.abs(turned - wanted) < 0.5).to.equal(true)
+			-- THE DISTANCE IS ALLOWED TO BREATHE AS IT TURNS and that is the framing working, not a
+			-- drift: the camera holds the item's PROJECTED box, so a rifle coming side-on is further
+			-- away than a rifle pointing at you. What may not happen is the item swimming off: both
+			-- distances are within half as much again of each other.
+			local near_ = (first - centre).Magnitude
+			local far = (second - centre).Magnitude
+			expect(math.max(near_, far) / math.min(near_, far) < 1.5).to.equal(true)
 			-- SHUT, IT COSTS NOTHING: `step` returns before it writes anything, which is every frame
 			-- of a hunt.
 			Panel.setOpen(false)
