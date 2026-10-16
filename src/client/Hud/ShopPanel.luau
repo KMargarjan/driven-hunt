@@ -923,16 +923,20 @@ end
 -- so the picture is drawn again, once a second, until it is the real gun (task 133's stale-and-rebuild
 -- path, which the viewmodel already takes for the same reason).
 function ShopPanel.step(now: number?)
-	if not open then
-		return
-	end
-	-- A WINDOW DRAGGED OR A PHONE TURNED WHILE THE PANEL IS OPEN. One `Vector2` comparison a frame,
-	-- and `relayout` only runs when the answer actually changed -- the edge-triggered discipline every
-	-- other write in this file keeps.
+	-- A WINDOW DRAGGED, A PHONE TURNED, OR A SCREEN THAT WAS NOT MEASURABLE YET WHEN THE HUD WAS
+	-- BUILT. One `Vector2` read and one comparison a frame -- OPEN OR SHUT -- and `relayout` runs only
+	-- when the answer actually changed, which is the edge-triggered discipline every other write in
+	-- this file keeps.
+	--
+	-- IT IS OUTSIDE THE `open` GUARD AND THE FIRST FRAME IS WHY (rule 5, measured 2026-10-16):
+	-- `Hud.build` sizes this frame before anything has been rendered, and `CurrentCamera.ViewportSize`
+	-- is not the screen yet, so the panel was built to the phone layout this file falls back to and
+	-- stayed that way until the first open. Opening still re-measures; this is what makes the panel
+	-- right BEFORE it is opened, which is also what a screenshot of it staged from outside sees.
 	if screenSize() ~= screenWas then
 		ShopPanel.relayout()
 	end
-	if viewportModel == nil then
+	if not open or viewportModel == nil then
 		return
 	end
 	local clock = now or os.clock()
