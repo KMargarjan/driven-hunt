@@ -1062,6 +1062,68 @@ return function()
 			expect((beater :: any).parts[1]).to.equal((hunter :: any).parts[1])
 		end)
 
+		-- THE COMPOSITION ROOT'S OWN INVARIANT, CALLED (task 196, review round 2, finding 1).
+		--
+		-- `OutfitAssetsBoot` asserts that every slot in `Body.SLOTS` has an asset key, and it does
+		-- that BEFORE `Body.setAccessorySource` and `Loader.preload`. Task 196 put two plate-only
+		-- slots (`waistcoat`, `beard`) into `Body.SLOTS`, so the assert fired at boot and the
+		-- script died: every hunter's cap and every beater's vest fell back to plates, in Karen's
+		-- game, with a red line on the second line of every console. Six smoke runs reported zero
+		-- errors over it, because the smoke reads a console TAIL at the END of an 85-second run and
+		-- the boot lines have scrolled out by then -- and because the assert's own message contains
+		-- none of the words it greps for.
+		--
+		-- SO THE CHECK IS A PURE FUNCTION NOW AND THIS CASE CALLS IT. The boot is a Script and
+		-- cannot be required; this is the same `Body.unmappedSlots` it asserts on, against the same
+		-- mapping it owns, written out here because a mapping typed in two places is the next bug.
+		--
+		-- IT FAILS AT 471c394, where `Body.SLOTS` still carried the two plate slots.
+		it("maps every accessory slot the asset pipeline must fetch, and no plate-only slot", function()
+			-- `OutfitAssetsBoot.SLOT_KEYS`, by hand: a Script's local cannot be required.
+			local mapping = { [Body.SLOTS.hat] = "outfit.cap", [Body.SLOTS.vest] = "outfit.vest" }
+			local missing = Body.unmappedSlots(mapping)
+			if #missing > 0 then
+				error(
+					string.format(
+						"OutfitAssetsBoot's mapping does not name %s -- its assert kills the boot",
+						table.concat(missing, ", ")
+					),
+					0
+				)
+			end
+			-- ...AND THE PLATE-ONLY SLOTS ARE NOT IN THE TABLE THE BOOT WALKS, which is the half
+			-- that stops this coming back: a new plate slot must go in `PLATE_SLOTS`.
+			for name, slot in pairs(Body.PLATE_SLOTS) do
+				expect(name).to.be.ok()
+				expect((Body.SLOTS :: any)[name]).to.equal(nil)
+				expect(mapping[slot]).to.equal(nil)
+			end
+			-- THE KEEPER REALLY WEARS THEM, so `PLATE_SLOTS` is not a table nobody reads.
+			local worn = {}
+			for _, group in ipairs(Body.outfitFor("Keeper", ON).parts) do
+				worn[group.slot] = true
+			end
+			expect(worn[Body.PLATE_SLOTS.waistcoat]).to.equal(true)
+			expect(worn[Body.PLATE_SLOTS.beard]).to.equal(true)
+			expect(worn[Body.SLOTS.hat]).to.equal(true)
+			-- ...AND HIS HAT IS PLATES, THOUGH ITS SLOT IS "hat". Fixing the boot turned the
+			-- accessory source back on, and the first thing it did was put the HUNTERS' orange cap
+			-- on the shopkeeper -- measured live: `SolidCap` on him with his Tyrolean plates gone.
+			-- His hat group is slot "hat" so `tintFor` can paint it, which is exactly why it has to
+			-- say that the catalog never dresses it.
+			for _, group in ipairs(Body.outfitFor("Keeper", ON).parts) do
+				if group.slot == Body.SLOTS.hat then
+					expect(group.platesOnly).to.equal(true)
+				end
+			end
+			-- AND NO PLAYER ROLE IS PLATES-ONLY, or the cap would never be worn by anybody.
+			for _, role in ipairs({ "Shooters", "Drivers" }) do
+				for _, group in ipairs(Body.outfitFor(role, ON).parts) do
+					expect(group.platesOnly).to.equal(nil)
+				end
+			end
+		end)
+
 		it("dresses the live server, because the flag is ON now", function()
 			-- THE ASSERTION THAT BITES TODAY, turned over by task 82. Everything above drives both
 			-- branches with a table of its own; this one asks what the RUNNING server did with the

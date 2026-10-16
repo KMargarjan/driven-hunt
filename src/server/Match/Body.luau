@@ -341,7 +341,14 @@ local VEST_ROWS = {
 -- green pans and green jacket" -- so: hunter = base + hat, beater = base + hat + vest.
 -- A GROUP: one worn thing, its slot, the parts to build when no accessory is available, and which
 -- of the character's OWN attachments the real accessory needs cleared.
-export type Group = { slot: string, rows: { any }, clears: { string }, clearsOnPlates: boolean? }
+-- `platesOnly` MEANS THE CATALOG NEVER DRESSES THIS GROUP (task 196, review round 2). A group
+-- names a SLOT, and the slot is what the composition root's accessory source is asked for -- so the
+-- keeper's hat, which is a slot-"hat" group because `tintFor` paints the hat slot, was handed the
+-- HUNTERS' cap the moment that source started working again. `KEEPER_HAT`'s own comment already
+-- said "the keeper never wears a catalog accessory"; this is that sentence enforced instead of
+-- hoped for. Measured live before it: the shopkeeper wearing `SolidCap` with his Tyrolean hat
+-- plates gone.
+export type Group = { slot: string, rows: { any }, clears: { string }, clearsOnPlates: boolean?, platesOnly: boolean? }
 
 -- A REAL CAP IS SWALLOWED BY A BIG HAIR MESH, AND THIS IS THE MEASUREMENT (task 151 round 2).
 -- Looked at the preview and the hunter was wearing a BLACK cap with an orange peak. He was not: our
@@ -414,7 +421,8 @@ local FELT = Enum.Material.SmoothPlastic
 --   * three brush strands at 58 / 68 / 50 degrees on his left, tips at y 1.61 -- clear above the
 --     crown top at 1.48, so the Gamsbart is visible from the customer's side of the counter.
 --
--- EVERY ROW IS `Fabric`, and the four that are not felt carry `noTint`.
+-- EVERY ROW IS SMOOTH PLASTIC (`FELT`, above: `Fabric` was abandoned at this size, and the comment
+-- on that constant says why), and the FIVE rows that are not the felt itself carry `noTint`.
 local KEEPER_HAT_ROWS = {
 	-- ONE FELT HAT, NOT A STACK OF DISCS (task 196 part 3f). The Director, on part 3e's close-up:
 	-- *"reads as three stacked flat discs with sticks through the brim"*, and he was describing the
@@ -678,6 +686,10 @@ local KEEPER_HAT: Group = {
 	-- ...AND THE PLATE PATH CLEARS THEM TOO, which is the one group that needs it: the keeper never
 	-- wears a catalog accessory, so without this his rig's own hair stays under the brim (spec 13a).
 	clearsOnPlates = true,
+	-- ...AND THE CATALOG NEVER DRESSES HIM. His hat is a slot-"hat" group so `tintFor` can paint it
+	-- from `LODGE.KEEPER.HAT_COLOR`, and that is exactly why he needs saying: ask the accessory
+	-- source for "hat" and it answers the hunters' orange cap.
+	platesOnly = true,
 }
 local KEEPER_FACE: Group = { slot = "beard", rows = KEEPER_FACE_ROWS, clears = {} }
 local WAISTCOAT: Group =
@@ -704,9 +716,46 @@ local OUTFITS: { [string]: { base: BaseRow, parts: { Group } } } = {
 	Keeper = { base = KEEPER_BASE, parts = { KEEPER_HAT, KEEPER_FACE, WAISTCOAT } },
 }
 
--- THE SLOT NAMES, published so the composition root and a spec name them from one place rather than
--- typing a literal each (the `Map.TAGS` rule).
-Body.SLOTS = table.freeze({ hat = "hat", vest = "vest", waistcoat = "waistcoat", beard = "beard" })
+-- THE SLOTS THAT CAN CARRY A BOUGHT ACCESSORY, published so the composition root and a spec name
+-- them from one place rather than typing a literal each (the `Map.TAGS` rule).
+--
+-- IT MEANS ONE THING AGAIN (task 196, review round 2, finding 1). Task 196 added `waistcoat` and
+-- `beard` here because they are slots -- which is true, and which broke the game: the composition
+-- root loops this table and asserts every entry has an asset key, so the first plate-only slot made
+-- `OutfitAssetsBoot` die at BOOT, before `Body.setAccessorySource` and before `Loader.preload`.
+-- Every hunter's cap and every beater's vest then fell back to plates, with a red line at every
+-- boot. Measured in the Forest Test before the fix: `Loader.template("outfit.cap")` nil, and the
+-- player wearing `Hat` and `HatCrown` PARTS.
+--
+-- SO THE TABLE KEEPS THE MEANING ITS ONE CONSUMER NEEDS -- *a slot that must be mapped to an asset
+-- key* -- and the keeper's plate-only slots are declared separately below. The alternative was a
+-- "no accessory" sentinel in the boot's mapping with the assert narrowed around it; this one is
+-- better because the boot's loop is then correct for EVERY future slot with nobody remembering to
+-- add an exception in a second file.
+Body.SLOTS = table.freeze({ hat = "hat", vest = "vest" })
+
+-- THE SLOTS THAT ARE ONLY EVER PLATES. The keeper's waistcoat, his beard: parts this module builds
+-- itself, with no catalog accessory behind them and nothing for the asset pipeline to fetch. They
+-- are named here so a spec and a reader have one home for the strings, exactly as `SLOTS` is -- and
+-- deliberately NOT in `SLOTS`, which is the fix above.
+Body.PLATE_SLOTS = table.freeze({ waistcoat = "waistcoat", beard = "beard" })
+
+-- WHICH ACCESSORY SLOTS A MAPPING FAILS TO NAME. Pure, and the composition root's own invariant
+-- expressed where a spec can call it: `OutfitAssetsBoot` is a Script and cannot be required, so
+-- before this the only way to find out that its assert would fire was to boot the game and read the
+-- second line of the console -- which is exactly how this got past six smoke runs.
+--
+-- Returns the slot names, sorted, so a failure says WHICH.
+function Body.unmappedSlots(mapping: { [string]: any }): { string }
+	local missing = {}
+	for _, slot in pairs(Body.SLOTS) do
+		if mapping[slot] == nil then
+			table.insert(missing, slot)
+		end
+	end
+	table.sort(missing)
+	return missing
+end
 
 -- KAREN'S WORD -> THE TEAM NAME, in exactly one place (design section 3, "Naming"). She says beater
 -- and hunter; the code says `Drivers` and `Shooters`, and those strings reach `Match.Roster`,
@@ -1113,6 +1162,11 @@ end
 
 local function wearAccessory(character: Model, group: Group, tint: Color3?): boolean
 	local slot = group.slot
+	-- THIS GROUP IS PLATES AND NOTHING ELSE (task 196, review round 2): see `Group.platesOnly`.
+	-- Returning false here is the plate path, which is the one this group has always meant to take.
+	if group.platesOnly then
+		return false
+	end
 	local source = accessorySource
 	if not source then
 		return false

@@ -41,12 +41,20 @@ local SLOT_KEYS = {
 -- A SLOT WITH NO KEY IS A TYPO, and it fails here rather than by a player quietly wearing plates
 -- for ever. Both tables are frozen data edited in git, so a mismatch is a mistake somebody just
 -- made and not a state the game can reach.
-for name, slot in pairs(Body.SLOTS) do
-	assert(
-		SLOT_KEYS[slot] ~= nil,
-		string.format("OutfitAssetsBoot: Body.SLOTS.%s is %q and SLOT_KEYS does not name it.", name, slot)
-	)
-end
+--
+-- THROUGH `Body.unmappedSlots` SINCE TASK 196 REVIEW ROUND 2, so the invariant can be CALLED. This
+-- file is a Script and cannot be required, so while the check lived here the only way to find out
+-- it would fire was to boot the game -- and it did fire, for six smoke runs, because task 196 put
+-- two plate-only slots in `Body.SLOTS`. `tests/server/match_outfit.spec.luau` now asserts the same
+-- function against the same mapping.
+--
+-- `Body.PLATE_SLOTS` IS DELIBERATELY NOT CHECKED: those slots are plates this game builds itself
+-- and there is nothing to fetch for them.
+local missing = Body.unmappedSlots(SLOT_KEYS)
+assert(
+	#missing == 0,
+	string.format("OutfitAssetsBoot: SLOT_KEYS does not name %s from Body.SLOTS.", table.concat(missing, ", "))
+)
 
 -- WIRED FIRST, THEN LOADED. `Loader.template` never yields and answers nil until the load lands,
 -- which is the answer `Match.Body` already handles by building its plates.

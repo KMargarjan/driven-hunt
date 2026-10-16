@@ -2811,7 +2811,10 @@ return function()
 				slots[group.slot] = true
 			end
 			expect(slots[Body.SLOTS.hat]).to.equal(true)
-			expect(slots[Body.SLOTS.waistcoat]).to.equal(true)
+			-- `PLATE_SLOTS` AND NOT `SLOTS` SINCE REVIEW ROUND 2: a waistcoat is plates this game
+			-- builds, with no accessory behind it, and `SLOTS` means the slots the asset pipeline
+			-- must have a key for.
+			expect(slots[Body.PLATE_SLOTS.waistcoat]).to.equal(true)
 			expect(slots[Body.SLOTS.vest]).to.equal(nil)
 		end)
 
