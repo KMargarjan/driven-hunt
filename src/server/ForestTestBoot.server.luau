@@ -483,8 +483,13 @@ local function lodgeAsset(name: string): Instance?
 		return if known == false then nil else known
 	end
 	local made: Instance? = nil
-	if name == "boar" then
-		local template = Loader.template(Assets.KEYS.boarMale)
+	if name == "boar" or name == "sow" then
+		-- THE SOW IS THE FOURTH WORD (the Designer's lodge spec, 2026-10-16, section 14c). Karen:
+		-- *"you can make few more famale and one more male"*. `boar.female` is already in the
+		-- manifest and the model measures 0.8553 of the male's length, so a sow trophy is a SMALLER
+		-- head with smaller tusks and no scaling anywhere -- no upload, no new asset, no credit.
+		local key = if name == "sow" then Assets.KEYS.boarFemale else Assets.KEYS.boarMale
+		local template = Loader.template(key)
 		made = if template ~= nil and template:IsA("Model") then template else nil
 	elseif WEAPON_OF[name] ~= nil then
 		local ok, tool = pcall(Weapon.Hardware.build, Weapons.row(WEAPON_OF[name]))
@@ -506,6 +511,16 @@ local function lodgeAsset(name: string): Instance?
 	end
 	lodgeAssets[name] = made or false
 	return made
+end
+
+-- THE TWO ANIMALS THE WALL NEEDS, preloaded beside the guns for the same reason: `Loader.template`
+-- never yields and answers nil until the load lands, and a lodge built in that window hangs bare
+-- boards. `preload` is idempotent, so the male -- which `BoarAssetsBoot` loads anyway -- costs a
+-- table lookup.
+for _, loaded in ipairs(Loader.preload({ Assets.KEYS.boarMale, Assets.KEYS.boarFemale })) do
+	if not loaded.ok then
+		warn(string.format("[ForestTest] lodge: %s did not load (%s)", loaded.key, tostring(loaded.reason)))
+	end
 end
 
 for _, loaded in ipairs(Loader.preload(Assets.keysFor("viewmodel"))) do

@@ -173,3 +173,70 @@ own progress bar, and one message slot above it for the caveat, the receipt and 
 
 Whether it is *nicer*. That is Karen's, and the two screenshots beside the Designer's own mockups
 are what she is being asked to look at.
+
+
+---
+
+## Addendum, 2026-10-16: the lodge polish (task 196, part 3b)
+
+Karen, after playing the shop: *"do detailed fix on all house , all corners all parts and places take
+time make it nice and clean ask designer for help"*, and *"what's wrong with those trees next to
+house fix it / all has to be berzas or alksnis and not hanging"* (birch or alder). The look was
+handed over again, and **the Designer's lodge spec, 2026-10-16** -- 19 sections, a part table per
+item and a cut list -- is what was built. The spec, its mockups and the before/after photographs live
+outside this repository with the Director's run files; nothing from them is copied in.
+
+### What was built, in the spec's own order
+
+One wood became four and one stone stopped being cream (§1: every wood field re-valued and **no
+`WoodPlanks` left anywhere under the lodge**, which is what removes the drawn screw heads from the
+floor, the ceiling, the counter and the deck); 14 shingle courses a side with a ridge cap (§2); nine
+vertical boards per gable end and four barge boards (§3); purlins, fascias and rafters reseated from
+the roof slab so their top faces are coplanar with its underside (§4); a shouldered, corbelled
+chimney (§5); alternating log projections and tones at the corners, the floor slab narrowed so its
+cut edge dies inside the logs (§6); window reveals lined right through the wall, deeper sills, strap
+hinges, and the north window moved to the west wall to free the trophy wall (§7); a deeper threshold,
+prouder posts and a head board (§8); a sill plate and a wall plate closing the floor-to-wall and
+wall-to-ceiling joins (§9); counter stiles, mantel corbels, the rack dropped and the SHOP sign raised
+(§10); lanterns with a base, four corner posts and a ceiling rose, brighter and further-reaching
+(§11); a porch soffit, a tighter woodpile in three tones with two retaining stakes (§12); the
+keeper's loden Tyrolean hat, his beard and a waistcoat collar (§13); a carved oak shield with a
+brass engraved plate in place of the flat board (§14); and the trophy wall -- a second Keiler and
+three Bache on the north wall, the capital boar left over the fire, the red stag's place kept empty
+with two iron pegs (§15).
+
+### The three bugs the spec found, and what they were
+
+1. **The hat's band and brush were invisible because of a one-line tint bug.** `Body.dressFor` and
+   `Body.dress` painted EVERY row of the hat slot with the lobby's `HAT_COLOR`, so the cord and the
+   Gamsbart became the felt. `noTint` on the rows that are not felt is the fix, in both call sites.
+2. **Every plate was `SmoothPlastic`.** The builder hard-coded it, so felt could not be felt. Rows
+   carry their own `material` now.
+3. **`clears` was honoured only on the catalog-accessory path**, and the keeper always falls back to
+   plates -- so his rig's own hair stayed under the brim. `clearsOnPlates` on the one group that
+   needs it.
+
+### The trees, measured before and after
+
+`treeLine` planted every clone at the NOMINAL shelf and `Build.build` never handed it `seams.groundAt`
+at all -- the identical defect task 186 fixed for the truck wheels. **Before: 18 of 27 ring trees
+more than 2 studs out of the ground, worst 5.55. After: not one tree stands above the ground, and
+every measurable grove tree is at exactly -0.60.** The species are an allow-list now (birch and
+alder), which also makes it impossible to pick `SM_AspenTree_Var09` -- a model that **measures 0 x 0
+in the live place**.
+
+**THERE IS NO ALDER MODEL IN THIS PLACE.** Measured: `LobbyAssets.Trees` holds a birch, two oaks, a
+larch and the empty aspen; `OurForest` adds spruce. The alder is the Designer's substitute -- the
+forest oak re-tinted to a near-black trunk and a dark cool-green leaf and held at 0.66-0.82 scale --
+and a real one is on the upload list the spec keeps (its section 18).
+
+### Answered from the live place, not from the photographs
+
+* **The near trees are the RING's.** Within 55 studs of the lodge there are three `OurForest`
+  objects and all three are ferns; the ring's nearest tree is 67 studs out and its southern arc runs
+  across the view from the porch (photographed). So no clearance pass was needed, and what the ring
+  needed was a fourth exclusion: a 44-stud corridor in front of the house, which is the same rule
+  the Designer's own grove follows (*"the front of a hunting lodge is working ground"*).
+* **The washed-out look is the LIGHTING, not the colours.** Every §1 value was read back off the
+  live parts after the build and every one matches the spec exactly. `Lighting.Ambient` and
+  `OutdoorAmbient` are not the lodge's to set, which the spec says itself.

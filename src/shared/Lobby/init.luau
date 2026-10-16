@@ -321,10 +321,13 @@ Lobby.CONFIG = {
 		-- terrain, which task 186 measured at up to a stud below the nominal shelf.
 		PLINTH = {
 			HEIGHT = 2.2,
-			OVERHANG = 1.0,
+			-- 1.4 AND NOT 1.0 (the Designer's lodge spec, 2026-10-16, section 6): at 1.0 the stone
+			-- ends UNDER the bottom log instead of catching it, and the floor slab's cut edge showed
+			-- as a pale board over it.
+			OVERHANG = 1.4,
 			MATERIAL = Enum.Material.Cobblestone,
-			COLOR = Color3.fromRGB(124, 120, 112),
-			CAP_COLOR = Color3.fromRGB(96, 94, 90),
+			COLOR = Color3.fromHex("54524C"),
+			CAP_COLOR = Color3.fromHex("3E3C39"),
 		},
 		FLOOR_THICK = 0.6,
 		-- THE LOGS. 1.8 studs is about 50 cm, which is a big but buildable hand-hewn log, and
@@ -332,6 +335,9 @@ Lobby.CONFIG = {
 		-- block" -- Glentleiten, via Google Arts & Culture; 0.9 studs is 25 cm at Roblox's 0.28 m).
 		LOG_DIAMETER = 1.8,
 		LOG_END_STUDS = 0.9,
+		-- THE LONG COURSES (spec 6). Every course projected by the same 0.9, which reads machined;
+		-- alternating 0.9 / 1.35 up the corner is what a hand-cut `Blockbau` corner looks like.
+		LOG_END_ALT_STUDS = 1.35,
 		-- WALK-THROUGH: a gap in the front wall, never a door part (Karen, task 177) -- AND SINCE
 		-- TASK 195 THERE IS NO LEAF EITHER. Karen, 2026-10-15: *"doors can be open no doors"*. The
 		-- leaf task 187 hung was MEASURED standing 1.34 studs INSIDE the room and 0.2 studs off the
@@ -357,9 +363,25 @@ Lobby.CONFIG = {
 			GABLE_STUDS = 2.2,
 			RAFTERS = 7,
 			MATERIAL = Enum.Material.Slate,
-			COLOR = Color3.fromRGB(58, 54, 52),
-			RIDGE_COLOR = Color3.fromRGB(44, 41, 40),
-			GABLE_COLOR = Color3.fromRGB(82, 58, 40),
+			COLOR = Color3.fromHex("36322F"),
+			RIDGE_COLOR = Color3.fromHex("282523"),
+			-- THE GABLE READ AS BRICK (spec 3): 82,58,40 on `WoodPlanks` over a log wall.
+			GABLE_COLOR = Color3.fromHex("3E3022"),
+			-- THE SHINGLE COURSES (spec 2) and the gable's own boarding (spec 3).
+			-- 14 COURSES A SIDE, each lapping the one below by 0.40 of its 1.95 depth (spec 2).
+			SHINGLE_COURSES = 14,
+			SHINGLE_DEPTH = 1.95,
+			SHINGLE_STEP = 1.55,
+			SHINGLE_THICK = 0.22,
+			-- NINE VERTICAL BOARDS PER GABLE END (spec 3).
+			GABLE_BOARDS = 9,
+			-- THE RAFTER TAIL IS LONGER AND IS SEATED ON THE SLAB (spec 4): 7.4 against 5.6, with its
+			-- top face coplanar with the slab's underside.
+			RAFTER_STUDS = 7.4,
+			SHINGLE_A = Color3.fromHex("3A3734"),
+			SHINGLE_B = Color3.fromHex("2F2C2A"),
+			GABLE_BOARD = Color3.fromHex("443527"),
+			BARGE_COLOR = Color3.fromHex("2E2419"),
 		},
 		-- THE CHIMNEY, up the OUTSIDE of the west gable: no hole in the roof, and the fireplace
 		-- inside stands against the same wall at the same `ALONG_STUDS`.
@@ -370,8 +392,16 @@ Lobby.CONFIG = {
 			ALONG_STUDS = 4,
 			ABOVE_RIDGE_STUDS = 3,
 			MATERIAL = Enum.Material.Cobblestone,
-			COLOR = Color3.fromRGB(118, 113, 106),
-			CAP_COLOR = Color3.fromRGB(78, 76, 74),
+			COLOR = Color3.fromHex("54524C"),
+			CAP_COLOR = Color3.fromHex("363432"),
+			-- A SHOULDERED STACK AND NOT A SLAB (spec 5): wide at the base, stepped in at the wall
+			-- top, stepped out again under the cap. Every number is the spec's.
+			BASE_WIDTH = 5.2,
+			BASE_DEPTH = 7.3,
+			STACK_WIDTH = 4,
+			STACK_DEPTH = 6,
+			SHOULDER_STUDS = 0.5,
+			CORBEL_STUDS = 0.6,
 		},
 		-- THE WINDOWS, AS HOLES IN THE WALL. Each row names a wall and how far along it; the wall
 		-- builder cuts the logs and the window builder dresses the hole, both from this list, so one
@@ -385,11 +415,11 @@ Lobby.CONFIG = {
 			-- OPEN BY HALF A RIGHT ANGLE: at 0.38 rad they lay nearly flat on the logs and read as
 			-- green smudges rather than as shutters.
 			SHUTTER_OPEN_RADIANS = 0.85,
-			GLASS_COLOR = Color3.fromRGB(150, 176, 186),
-			GLASS_TRANSPARENCY = 0.55,
-			FRAME_COLOR = Color3.fromRGB(74, 52, 36),
-			SILL_COLOR = Color3.fromRGB(96, 72, 48),
-			SHUTTER_COLOR = Color3.fromRGB(58, 74, 54),
+			GLASS_COLOR = Color3.fromHex("8096A2"),
+			GLASS_TRANSPARENCY = 0.42,
+			FRAME_COLOR = Color3.fromHex("30251A"),
+			SILL_COLOR = Color3.fromHex("423222"),
+			SHUTTER_COLOR = Color3.fromHex("2E3E2C"),
 			CUTOUT_COLOR = Color3.fromRGB(32, 42, 30),
 		},
 		-- WHICH WALL CARRIES WHAT, decided once and here, because the four walls cannot all carry
@@ -404,7 +434,10 @@ Lobby.CONFIG = {
 			-- -13 the 0.7 studs between the opening and the wall's own end were exactly that -- a
 			-- 0.2-stud slit through the corner on the courses the stub does not cross (review round
 			-- 2, note).
-			{ wall = "north", along = -11 },
+			-- THE NORTH WALL'S WEST HALF IS THE TROPHY WALL NOW (spec 7, 15), so this window moves to
+			-- the west wall, where it lights the table corner and misses both the fireplace breast
+			-- (z -1.5 .. +9.5) and the chimney's bite (z +0.75 .. +7.25).
+			{ wall = "west", along = -7 },
 			{ wall = "east", along = 0 },
 		},
 		-- THE PORCH. Karen's word, and it is where she arrives.
@@ -419,21 +452,45 @@ Lobby.CONFIG = {
 			STEPS = 3,
 			STEP_DEPTH = 1.6,
 			WOOD_ROWS = 4,
-			WOOD_PER_ROW = 5,
+			WOOD_PER_ROW = 6,
 		},
 		-- THE COLOURS AND THE TIMBER. One palette, read by every piece.
 		MATERIAL = Enum.Material.Wood,
 		-- DARKER THAN THE FIRST BUILD, which photographed almost pink: Roblox's `Wood` is a bright
 		-- material and two lanterns on the front wall lift it further. A Central-European lodge is
 		-- oiled, weathered brown.
-		LOG_COLOR = Color3.fromRGB(99, 71, 47),
-		TIMBER_COLOR = Color3.fromRGB(78, 55, 37),
-		FLOOR_COLOR = Color3.fromRGB(112, 86, 60),
-		DECK_COLOR = Color3.fromRGB(98, 75, 53),
-		CEILING_COLOR = Color3.fromRGB(88, 65, 45),
-		FURNITURE_COLOR = Color3.fromRGB(106, 78, 52),
-		DOOR_COLOR = Color3.fromRGB(70, 48, 32),
-		FIREWOOD_COLOR = Color3.fromRGB(148, 120, 92),
+		-- ONE WOOD BECAME FOUR (the Designer's lodge spec, 2026-10-16, section 1). Karen, looking at
+		-- the lodge: *"boar head is good but background is bad this wood is bad"*. Seven wood fields
+		-- sat within 30 RGB points of each other on two materials, so the floor, the walls, the
+		-- ceiling, the furniture and the porch were all the same orange plank.
+		--
+		-- EVERY VALUE IS DARKER THAN IT LOOKS, AND THE SPEC GIVES THE REASON: Roblox's `Wood` and
+		-- `Cobblestone` textures are light and saturated and `Part.Color` MULTIPLIES them, so a
+		-- mid-brown lands as bright orange. These are the colours that land where the old ones were
+		-- meant to.
+		LOG_COLOR = Color3.fromHex("4A3826"),
+		-- A LOG WALL IS NEVER ONE TONE: the courses alternate (spec 1a, 6).
+		LOG_COLOR_ALT = Color3.fromHex("58432D"),
+		TIMBER_COLOR = Color3.fromHex("342819"),
+		FLOOR_COLOR = Color3.fromHex("543E2A"),
+		DECK_COLOR = Color3.fromHex("483828"),
+		-- THE CEILING MUST RECEDE.
+		CEILING_COLOR = Color3.fromHex("3A2C1F"),
+		-- ...AND THE FURNITURE GOES THE OTHER WAY: the ONE worn, lighter wood, so the table, the
+		-- benches and the counter read against a now-dark room.
+		FURNITURE_COLOR = Color3.fromHex("765A3C"),
+		DOOR_COLOR = Color3.fromHex("2E2319"),
+		FIREWOOD_COLOR = Color3.fromHex("7C6348"),
+		-- THE TWO NEW SHARED COLOURS (spec 1a): iron for every hinge, peg and lantern frame, and the
+		-- shop panel's own brass for the trophy plates.
+		IRON_COLOR = Color3.fromHex("2A2724"),
+		BRASS_COLOR = Color3.fromHex("C8A258"),
+		-- THE THREE TONES OF SPLIT FIREWOOD (spec 12), indexed by `(row + index) % 3`.
+		FIREWOOD_TONES = {
+			Color3.fromHex("7C6348"),
+			Color3.fromHex("6E5740"),
+			Color3.fromHex("8A7054"),
+		},
 		-- THE FIREPLACE, against the west wall, at the chimney's own `ALONG_STUDS`.
 		FIREPLACE = {
 			ALONG_STUDS = 4,
@@ -442,8 +499,10 @@ Lobby.CONFIG = {
 			OPENING_WIDTH = 5.4,
 			OPENING_HEIGHT = 4.2,
 			HEARTH_STUDS = 2.6, -- how far the hearth stone reaches out onto the floorboards
-			STONE_COLOR = Color3.fromRGB(122, 118, 110),
-			HEARTH_COLOR = Color3.fromRGB(86, 84, 80),
+			-- **THIS IS HALF OF "BACKGROUND IS BAD"** (spec 1a): a mid-grey on `Cobblestone` renders
+			-- as cream, and the boar's head hangs on it.
+			STONE_COLOR = Color3.fromHex("5A5750"),
+			HEARTH_COLOR = Color3.fromHex("3A3835"),
 		},
 		-- THE FIRE ITSELF: a `Fire`, a `ParticleEmitter` of embers and ONE `PointLight`. Karen asked
 		-- for *"a fireplace"*, which is a fire and a light and not a system -- nothing here is
@@ -463,8 +522,10 @@ Lobby.CONFIG = {
 			ALONG = { -8, 2, 12 },
 			ACROSS = -2,
 			DROP_STUDS = 3.2,
-			brightness = 0.75,
-			rangeStuds = 15,
+			-- THE ROOM WENT DARK IN SPEC 1, so the lanterns carry more of it: three pools of warm
+			-- light on a dark floor is the whole look (spec 11).
+			brightness = 1.05,
+			rangeStuds = 22,
 			color = Color3.fromRGB(255, 186, 116),
 			GLASS_COLOR = Color3.fromRGB(240, 186, 118),
 		},
@@ -490,7 +551,7 @@ Lobby.CONFIG = {
 			OFFSET = Vector2.new(-6.4, 4), -- x and z from the room's centre, the TABLE's convention
 			SIZE = Vector2.new(7, 3.2),
 			THICK = 0.08,
-			COLOR = Color3.fromRGB(104, 48, 42), -- a dark red kelim, the one warm colour in the room
+			COLOR = Color3.fromHex("602C26"), -- a dark red kelim, the one warm colour in the room
 			MATERIAL = Enum.Material.Fabric,
 		},
 		-- THE GUN RACK on the WEST wall, south of the fireplace -- the one stretch of wall with no
@@ -510,12 +571,16 @@ Lobby.CONFIG = {
 		RACK = {
 			ALONG_STUDS = 0, -- from the counter's own centre: dead behind the man
 			WIDTH = 7,
-			HEIGHT = 4.2,
-			HEIGHT_STUDS = 5.6, -- the board's centre above the floorboards
+			-- THE BOARD DROPS AND GROWS (spec 10): at 5.6/4.2 the lowest gun sat visually ON the
+			-- counter top and the SHOP sign crossed the board. At 5.1/4.4 the board spans y
+			-- 2.90..7.30, the guns hang at 6.60 / 5.60 / 4.60 / 3.60, and the lowest clears the
+			-- counter top (3.15) by 0.45.
+			HEIGHT = 4.4,
+			HEIGHT_STUDS = 5.1, -- the board's centre above the floorboards
 			BOARD_THICK = 0.35,
 			GUNS = 4,
-			GUN_GAP = 1.05,
-			FIRST_GUN_DROP = 0.55,
+			GUN_GAP = 1,
+			FIRST_GUN_DROP = 0.7,
 			-- HOW FAR OFF THE BOARD A GUN HANGS: on the pegs, which stand 0.5 out, so its own
 			-- half-thickness clear of the wood.
 			GUN_OUT = 0.42,
@@ -525,7 +590,7 @@ Lobby.CONFIG = {
 			PEG_SPAN = 1.1, -- the fallback when no model arrived to measure
 			SHELF_THICK = 0.3,
 			SHELF_DEPTH = 1.1,
-			CARDBOARD_COLOR = Color3.fromRGB(176, 142, 100),
+			CARDBOARD_COLOR = Color3.fromHex("8A7050"),
 			LABEL_COLOR = Color3.fromRGB(150, 32, 30),
 			AMMO_BOX = { SIZE = Vector3.new(1.1, 0.62, 0.72), ALONG = { -2.2, -0.9 } },
 		},
@@ -604,7 +669,10 @@ Lobby.CONFIG = {
 			-- somebody who works here rather than like a hunter who wandered in. Until this he wore
 			-- `"Shooters"`: the field green and the players' own cap.
 			TEAM = "Keeper",
-			HAT_COLOR = Color3.fromRGB(96, 66, 42),
+			-- LODEN, AND IT AGREES WITH `Match.Body`'s OWN FELT (the Designer's lodge spec, 2026-10-16,
+			-- section 13b): the tint path and the row path have to land on the same colour or the
+			-- brim and the crown are two different hats.
+			HAT_COLOR = Color3.fromHex("4C5A3E"),
 			-- HIS FACE. The outfit owner paints the five limb stems and never the head, which is
 			-- right for a player -- and left this man with the solid black head and no features that
 			-- an empty `HumanoidDescription` ships, which is what Karen saw and called broken.
@@ -693,37 +761,73 @@ Lobby.CONFIG = {
 	-- -- the east gable wall, dead centre, the wall a player faces walking in from the door, with
 	-- nothing on it today. It is written here rather than built, because a wall of empty boards is
 	-- not a lodge either.
+	-- THE TROPHY WALL (the Designer's lodge spec, 2026-10-16, sections 14 and 15). Karen, 2026-10-16:
+	-- *"boar head is good but background is bad this wood is bad"*, and *"you can make few more
+	-- famale and one more male"*.
+	--
+	-- THE HEADS DO NOT CHANGE. What changes is what they hang on -- a carved oak shield with a round
+	-- top, a point, a lighter inner panel standing 0.09 proud of a dark board, and a brass plate
+	-- under the chin -- and how many of them there are: the capital Keiler stays over the fire, and
+	-- a second male and three sows go on the north wall, with the RED STAG'S PLACE KEPT EMPTY.
 	TROPHIES = {
-		-- 6.6 AND NOT 4.8: the mount hangs on the chimney BREAST, and the mantel it has to clear is
-		-- `FIREPLACE.OPENING_HEIGHT` (4.2) plus the mantel beam, which puts the shelf at about 5.4.
-		-- A 2.6-stud plaque centred at 6.6 begins at 5.3, a tenth of a stud over it.
+		-- 6.6 above the floorboards: the mount hangs on the chimney BREAST and has to clear the
+		-- mantel at about 5.4.
 		HEIGHT_STUDS = 6.6,
-		-- THE SECOND ROW, KEPT FOR THE DAY THERE IS A SECOND TROPHY. `lobby.spec` asserts that every
-		-- row sits at one of these two heights, which is what keeps a wall of trophies a ROW rather
-		-- than a scatter (the Director's *"even rows"*, task 195).
-		UPPER_STUDS = 8.2,
-		-- A `Trophaeenschild` is polished linden; the plaque is the one drawn thing left in a trophy.
-		PLAQUE_COLOR = Color3.fromRGB(104, 72, 44),
-		BONE_COLOR = Color3.fromRGB(186, 173, 146),
+		UPPER_STUDS = 8.9,
+		-- THE DARK BOARD AND THE LIGHTER PANEL ON IT. 104,72,44 on `Wood` rendered as a bright
+		-- orange plank, which is the other half of *"this wood is bad"*.
+		PLAQUE_COLOR = Color3.fromHex("2A1F16"),
+		PANEL_COLOR = Color3.fromHex("5C462E"),
+		BRASS_COLOR = Color3.fromHex("C8A258"),
+		BONE_COLOR = Color3.fromHex("B9AE93"),
+		SHIELD = { BOARD_THICK = 0.3, PANEL_THICK = 0.18, PLATE_THICK = 0.07, RIM_STUDS = 0.45 },
+		-- THE CAPITAL BOAR, AND THE SOW AT 0.76 OF HIM ON x AND y (thicknesses unchanged). The sow's
+		-- MODEL is smaller too -- `boar.female` measures 0.8553 of the male's length -- so her head
+		-- and her tusks come out smaller with no scaling anywhere.
 		BOAR = {
-			-- 2.6 x 3.0 AND NOT 2.2 x 2.6, AND THE FIRST FRAME IS WHY (rule 5,
-			-- `.screenshots/196-trophy-close.png`): the boar's head is 1.4 studs wide and stands a
-			-- stud and a half out of the board, so a 2.2-wide plaque disappeared behind it and read
-			-- as a plank the animal was growing out of. A trophy board FRAMES the head.
-			PLAQUE = Vector3.new(2.6, 3, 0.4),
-			-- HOW FAR THE SNOUT STANDS OUT OF THE BOARD, and the only number that decides how much
-			-- of the animal is in the room: the rest of its 5.5 studs goes back into the stone.
+			WIDTH = 3.2,
+			BODY = 1.9,
+			POINT = 1.3,
 			SNOUT_STUDS = 1.7,
-			-- THE HEAD LOOKS SLIGHTLY DOWN, which is what a shoulder mount does -- and the body
-			-- therefore rises INTO the breast rather than running level into the wall behind it.
 			TILT_DEGREES = 18,
+			SCALE = 1,
+			ASSET = "boar",
+			LABEL = "KEILER",
 		},
+		SOW = {
+			WIDTH = 2.43,
+			BODY = 1.44,
+			POINT = 0.99,
+			SNOUT_STUDS = 1.45,
+			TILT_DEGREES = 16,
+			SCALE = 0.76,
+			ASSET = "sow",
+			LABEL = "BACHE",
+		},
+		-- THE WALL IS THE NORTH WALL'S WEST HALF, x -16.2 .. -0.8 (spec 15): it is straight in front
+		-- of the doorway, it is 15.4 studs of unbroken log once the north window moves to the west
+		-- wall, and the shop keeps the east half. `standoff = -0.2` pushes the board 0.2 INTO the
+		-- log bellies -- an overlap, never a touch, which is this spec's rule everywhere: flush
+		-- against a round log leaves a hairline gap at the belly and coplanar faces at the course
+		-- joins, and that is z-fighting in both.
 		MOUNTS = {
-			-- ON THE CHIMNEY BREAST, over the fire, centred on it: `standoff` is the breast's own
-			-- depth (`FIREPLACE.DEPTH`), so the plaque sits on the stone that stands proud of the
-			-- west wall instead of three studs inside it, and `along` is the fireplace's own
-			-- `ALONG_STUDS`.
 			{ kind = "boar", wall = "west", along = 4, standoff = 3.2 },
+			{ kind = "boar", wall = "north", along = -11.4, height = 4.3, standoff = -0.2 },
+			{ kind = "sow", wall = "north", along = -14.6, height = 8.9, standoff = -0.2 },
+			{ kind = "sow", wall = "north", along = -2.6, height = 8.9, standoff = -0.2 },
+			{ kind = "sow", wall = "north", along = -5.4, height = 4.6, standoff = -0.2 },
+		},
+		-- THE RED STAG'S PLACE, KEPT AND LEGIBLE (spec 15c). Nothing is built inside this box; two
+		-- iron pegs are fixed at the top of it, where a shield would hang from, so it reads as KEPT
+		-- rather than as forgotten. The day a stag model exists it mounts at
+		-- `{ kind = "stag", wall = "north", along = -8.5, height = 9.2, standoff = -0.2 }`.
+		STAG_PLACE = {
+			ALONG = { -11.2, -5.8 },
+			HEIGHT = { 7.2, 11.2 },
+			PEG_ALONG = { -9.6, -7.4 },
+			PEG_HEIGHT = 10.35,
+			PEG_STUDS = 0.5,
+			PEG_THICK = 0.18,
 		},
 	},
 	-- ---------------- the truck, the track, the spot
@@ -906,6 +1010,59 @@ Lobby.CONFIG = {
 		TO_RADIANS = 5.68,
 		JITTER_STUDS = 9,
 		SCALE = { 0.85, 1.35 },
+		-- BIRCH AND ALDER, AND NOTHING ELSE (the Designer's lodge spec, 2026-10-16, section 16).
+		-- Karen: *"all has to be berzas or alksnis"* -- birch or alder. `treeLine` used to pick at
+		-- random from everything in `LobbyAssets.Trees`, which is five models: a birch, two oaks, a
+		-- larch and an aspen that MEASURES 0 x 0 in the live place (an empty model, measured
+		-- 2026-10-16). An ALLOW-LIST rather than a cut-down folder, so the folder stays reusable and
+		-- the empty aspen can never be picked again.
+		--
+		-- THERE IS NO ALDER MODEL IN THIS PLACE -- measured: `LobbyAssets.Trees` has birch, two oaks,
+		-- a larch and the empty aspen; `OurForest` adds spruce. The spec's honest substitute is the
+		-- forest oak RE-TINTED to alder's near-black furrowed trunk and dark cool-green leaf, and
+		-- held under 0.82 scale, because size is what gives an oak away. A real alder is an upload
+		-- and is listed as one (spec 18).
+		SPECIES = {
+			{ MODEL = "SilverBirch_Var11_LOD_0", KIND = "birch", WEIGHT = 3 },
+			{ MODEL = "Forest_OakTree_Var01_LOD_0", KIND = "alder", WEIGHT = 2, TINT = "alder" },
+		},
+		-- HOW DEEP THE FLAT CUT ROOT IS BURIED under the ground the engine really produced: enough
+		-- that no tree stands on a disc, little enough that none reads as a bush.
+		SINK_STUDS = 0.6,
+		-- HOW WIDE THE CLEAR CORRIDOR IN FRONT OF THE HOUSE IS, each side of its centre line. 22
+		-- covers the porch's own 14-stud width plus the view past its ends.
+		FRONT_HALF_WIDTH = 22,
+	},
+	-- THE ALDER'S TWO COLOURS (spec 16b). Applied by name and material, the rule `Build.camo` already
+	-- proves for the trucks.
+	ALDER = {
+		TRUNK_COLOR = Color3.fromHex("3A342C"),
+		LEAF_COLOR = Color3.fromHex("2C4426"),
+		SCALE = { 0.66, 0.82 },
+	},
+	-- ---------------- THE GROVE BY THE HOUSE (spec 16c)
+	--
+	-- TWELVE TREES IN THREE GROUPS, in the LODGE'S OWN FRAME (+x east, +z north, origin the lodge
+	-- centre): four birches off the west gable, four north-east, and four alders tight together in
+	-- the hollow behind. Nothing is planted south of z = -20 -- the front of a hunting lodge is
+	-- working ground: the road, the four bays, the turning circle and the pads.
+	--
+	-- EVERY CROWN CLEARS THE ROOF OUTLINE (40.4 x 32.8) BY AT LEAST 3 STUDS, which is the spec's own
+	-- `distance(trunk, nearest point of that rectangle) - 13.5 * scale`, and `lobby.spec` asserts it
+	-- rather than trusting the table.
+	LODGE_TREES = {
+		{ kind = "birch", x = -37, z = 6, scale = 0.95, yaw = 77 },
+		{ kind = "birch", x = -35, z = 17, scale = 0.8, yaw = 102 },
+		{ kind = "birch", x = -42, z = -2, scale = 0.72, yaw = 124 },
+		{ kind = "birch", x = -32, z = 27, scale = 0.88, yaw = 103 },
+		{ kind = "birch", x = 35, z = 22, scale = 0.9, yaw = 117 },
+		{ kind = "birch", x = 28, z = 31, scale = 0.76, yaw = 47 },
+		{ kind = "birch", x = 41, z = 28, scale = 0.84, yaw = 345 },
+		{ kind = "birch", x = 24, z = 40, scale = 0.95, yaw = 88 },
+		{ kind = "alder", x = -8, z = 34, scale = 0.78, yaw = 338 },
+		{ kind = "alder", x = -1, z = 38, scale = 0.7, yaw = 121 },
+		{ kind = "alder", x = 7, z = 33, scale = 0.82, yaw = 112 },
+		{ kind = "alder", x = -14, z = 41, scale = 0.66, yaw = 183 },
 	},
 	-- ---------------- THE FOUR TRUCK PADS (task 182)
 	--

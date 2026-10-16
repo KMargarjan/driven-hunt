@@ -1735,7 +1735,11 @@ return function()
 			local trees = stats.models - CFG.TRUCK.COUNT
 			expect(trees > 0).to.equal(true)
 			expect(trees <= CFG.TREELINE.COUNT).to.equal(true)
-			expect(trees >= CFG.TREELINE.COUNT - 6).to.equal(true)
+			-- 10 AND NOT 6 SINCE TASK 196 PART 3B: the ring has a FOURTH exclusion now -- the corridor
+			-- in front of the house, which Karen was looking at when she asked what was wrong with
+			-- the trees next to it -- and the count is a BOUND rather than an equality for exactly
+			-- this reason.
+			expect(trees >= CFG.TREELINE.COUNT - 10).to.equal(true)
 			-- THE FALLBACKS ARE THE LODGE'S OWN ASSETS AND NOTHING ELSE (task 196). Every free-model
 			-- template this build asks the FOLDER for is found; what is missing is what the
 			-- COMPOSITION ROOT hands over -- the boar for the trophy and the guns for the rack --

@@ -140,6 +140,9 @@ local stats = {
 	trucksSettled = 0,
 	truckGroundStuds = 0,
 	truckPainted = 0,
+	-- HOW MANY TREE PARTS WERE REPAINTED AS ALDER (spec 16b): a counted fact about the build, beside
+	-- `truckPainted` and for the same reason.
+	treesTinted = 0,
 }
 
 function Build.stats()
@@ -224,13 +227,25 @@ end
 
 -- A LOG: a cylinder lying along one horizontal axis. `axis` is "x" or "z", which is the only
 -- freedom a log wall needs, so there is no rotation to get wrong.
-local function log(name: string, length: number, centre: Vector3, axis: string, cfg, parent: Instance): Part
+-- ONE LOG. `course` IS OPTIONAL AND DECIDES ITS TONE (the Designer's lodge spec, 2026-10-16,
+-- sections 1a and 6): a log wall is never one colour, and alternating the courses is what turns a
+-- stack of identical cylinders into timber. nil keeps the odd-course tone, which is what every
+-- caller that does not care gets.
+local function log(
+	name: string,
+	length: number,
+	centre: Vector3,
+	axis: string,
+	cfg,
+	parent: Instance,
+	course: number?
+): Part
 	local d = cfg.LODGE.LOG_DIAMETER
 	local made = part(
 		name,
 		Vector3.new(length, d, d),
 		CFrame.new(centre) * (if axis == "z" then CFrame.Angles(0, math.pi / 2, 0) else CFrame.identity),
-		cfg.LODGE.LOG_COLOR,
+		if course ~= nil and course % 2 == 0 then cfg.LODGE.LOG_COLOR_ALT else cfg.LODGE.LOG_COLOR,
 		cfg.LODGE.MATERIAL,
 		true,
 		parent
@@ -243,7 +258,7 @@ end
 -- Rojo-managed paths" check is unaffected -- and it is the only way to put a sentence on a plank
 -- without an uploaded texture. The board is cosmetic, so it does not collide and cannot stop a shot.
 local function sign(name: string, size: Vector3, cframe: CFrame, text: string, parent: Instance): Part
-	local board = part(name, size, cframe, Color3.fromRGB(58, 44, 32), Enum.Material.WoodPlanks, false, parent)
+	local board = part(name, size, cframe, Color3.fromRGB(58, 44, 32), Enum.Material.Wood, false, parent)
 	local gui = Instance.new("SurfaceGui")
 	gui.Name = "Face"
 	gui.Face = Enum.NormalId.Front
@@ -520,7 +535,7 @@ local function logWall(
 			if span > d * 0.6 then
 				local mid = (run[1] + run[2]) / 2
 				local centre = if axis == "x" then Vector3.new(mid, y, across) else Vector3.new(across, y, mid)
-				log(string.format("%s%d_%d", name, course, index), span, centre, axis, cfg, folder)
+				log(string.format("%s%d_%d", name, course, index), span, centre, axis, cfg, folder, course)
 				placed += 1
 			end
 		end
@@ -558,14 +573,17 @@ end
 --
 -- It is also what CLOSES the corner: the two wall runs stop a diameter short of each other, and the
 -- stub is the part that fills the square where they would have crossed.
+-- THE CORNERS (spec 6). Every course projected by exactly the same 0.9, which reads MACHINED; a
+-- hand-cut `Blockbau` corner alternates long and short up the stack, and the courses themselves are
+-- never one tone.
 local function corners(folder: Instance, origin: Vector3, baseY: number, cfg): number
 	local d = cfg.LODGE.LOG_DIAMETER
-	local out = cfg.LODGE.LOG_END_STUDS
 	local halfX, halfZ = cfg.LODGE.SIZE.X / 2 - d / 2, cfg.LODGE.SIZE.Z / 2 - d / 2
 	local placed = 0
 	for course = 1, coursesOf(cfg) do
 		local y = baseY + d / 2 + (course - 1) * d
 		local axis = if course % 2 == 1 then "x" else "z"
+		local out = if course % 2 == 1 then cfg.LODGE.LOG_END_STUDS else cfg.LODGE.LOG_END_ALT_STUDS
 		for _, sx in ipairs({ -1, 1 }) do
 			for _, sz in ipairs({ -1, 1 }) do
 				log(
@@ -574,7 +592,8 @@ local function corners(folder: Instance, origin: Vector3, baseY: number, cfg): n
 					Vector3.new(origin.X + sx * halfX, y, origin.Z + sz * halfZ),
 					axis,
 					cfg,
-					folder
+					folder,
+					course
 				)
 				placed += 1
 			end
@@ -617,20 +636,24 @@ local function windowUnit(folder: Instance, name: string, face: CFrame, height: 
 	for _, side in ipairs({ -1, 1 }) do
 		part(
 			string.format("WindowJamb%s%s", name, if side < 0 then "W" else "E"),
-			Vector3.new(f, h + 2 * f, f * 2.2),
+			-- 2.30 DEEP AND NOT 1.10 (the Designer's lodge spec, 2026-10-16, section 7): a 1.1-deep
+			-- jamb in a 1.8-stud wall leaves the CUT LOG CYLINDERS AND END-GRAIN showing inside the
+			-- reveal (image 20). At 2.30 the lining runs right through and stands 0.25 proud of each
+			-- face.
+			Vector3.new(f, h + 2 * f, 2.3),
 			face * CFrame.new(side * (w + f) / 2, 0, -0.1),
 			spec.FRAME_COLOR,
-			Enum.Material.WoodPlanks,
+			Enum.Material.Wood,
 			false,
 			folder
 		)
 	end
 	part(
 		string.format("WindowHead%s", name),
-		Vector3.new(w + 2 * f, f, f * 2.2),
+		Vector3.new(w + 2 * f, f, 2.3),
 		face * CFrame.new(0, (h + f) / 2, -0.1),
 		spec.FRAME_COLOR,
-		Enum.Material.WoodPlanks,
+		Enum.Material.Wood,
 		false,
 		folder
 	)
@@ -638,8 +661,8 @@ local function windowUnit(folder: Instance, name: string, face: CFrame, height: 
 	-- window is most of what makes one read as built rather than drawn.
 	part(
 		string.format("WindowSill%s", name),
-		Vector3.new(w + 2 * f + 1.2, f * 1.4, f * 3.4),
-		face * CFrame.new(0, -(h + f * 1.4) / 2, -0.5),
+		Vector3.new(w + 2 * f + 1.2, f * 1.4, 3.2),
+		face * CFrame.new(0, -(h + f * 1.4) / 2, -0.75),
 		spec.SILL_COLOR,
 		Enum.Material.Wood,
 		false,
@@ -681,7 +704,18 @@ local function windowUnit(folder: Instance, name: string, face: CFrame, height: 
 			Vector3.new(w / 2, h, 0.35),
 			leaf,
 			spec.SHUTTER_COLOR,
-			Enum.Material.WoodPlanks,
+			Enum.Material.Wood,
+			false,
+			folder
+		)
+		-- A STRAP HINGE ACROSS THE TOP OF EACH LEAF (the Designer's lodge spec, 2026-10-16, section
+		-- 7): the shutters are flat boards with nothing holding them to the wall (image 03).
+		part(
+			string.format("ShutterHinge%s%s", name, tag),
+			Vector3.new(w / 2 - 0.2, 0.16, 0.14),
+			leaf * CFrame.new(0, h / 2 - 0.45, -0.19),
+			cfg.LODGE.IRON_COLOR,
+			Enum.Material.Metal,
 			false,
 			folder
 		)
@@ -723,7 +757,8 @@ local function doorway(folder: Instance, origin: Vector3, floorY: number, height
 	for _, side in ipairs({ -1, 1 }) do
 		part(
 			string.format("DoorPost%s", if side < 0 then "W" else "E"),
-			Vector3.new(1.1, height + spec.LINTEL_STUDS, d + 0.9),
+			-- 0.3 PROUD OF EACH WALL FACE (spec 8), so the frame reads as a frame.
+			Vector3.new(1.3, height + spec.LINTEL_STUDS, d + 1.2),
 			CFrame.new(origin.X + side * (spec.WIDTH + 1.1) / 2, floorY + (height + spec.LINTEL_STUDS) / 2, faceZ),
 			cfg.LODGE.TIMBER_COLOR,
 			Enum.Material.Wood,
@@ -740,11 +775,25 @@ local function doorway(folder: Instance, origin: Vector3, floorY: number, height
 		true,
 		folder
 	)
+	-- THE HEAD BOARD over the lintel (spec 8): a dark board that caps the frame and gives the door a
+	-- top edge instead of leaving the lintel's own cut face as the last thing you see.
+	part(
+		"DoorHeadBoard",
+		Vector3.new(spec.WIDTH + 3.4, 0.9, d + 1.8),
+		CFrame.new(origin.X, floorY + height + spec.LINTEL_STUDS + 0.45, faceZ),
+		Color3.fromHex("241B13"),
+		Enum.Material.Wood,
+		false,
+		folder
+	)
 	part(
 		"DoorThreshold",
-		Vector3.new(spec.WIDTH + 1.6, 0.3, d + 1.6),
-		CFrame.new(origin.X, floorY + 0.15, faceZ),
-		cfg.LODGE.TIMBER_COLOR,
+		-- WIDER, DEEPER AND DARKER (spec 8): image 22 shows the porch deck and the interior floor
+		-- butting at ninety degrees with NOTHING between them. The threshold now laps over both and
+		-- is the dark line that joint needs.
+		Vector3.new(spec.WIDTH + 2.6, 0.45, d + 2.6),
+		CFrame.new(origin.X, floorY + 0.225, faceZ),
+		Color3.fromHex("241B13"),
 		Enum.Material.Wood,
 		false,
 		folder
@@ -788,35 +837,95 @@ local function roof(folder: Instance, origin: Vector3, wallTop: number, cfg)
 			true,
 			folder
 		)
-		-- THE EXPOSED RAFTER ENDS. Cosmetic, under the eave, following the roof's own pitch.
+		-- THE SLAB'S OWN FRAME, so everything laid on it is placed in studs along the slope rather
+		-- than in world y and z (the Designer's lodge spec, 2026-10-16, sections 2 and 4).
+		local slab = CFrame.new(Vector3.new(origin.X, (wallTop + ridge) / 2, origin.Z + side * halfZ / 2) + down)
+			* CFrame.Angles(side * pitch, 0, 0)
+		local slabHalfZ = (slope + spec.EAVE_STUDS) / 2
+		-- SHINGLE COURSES INSTEAD OF ONE SLAB (spec 2). The slab stays -- it carries the collision
+		-- and closes the roof -- and 14 courses are laid on its outer face from the eave up, each
+		-- lapping the one below by 0.40 and alternating two tones. Survey finding 5: *"one flat slab,
+		-- mottled dirt-brown, no shingles, no ridge cap, nothing to catch the light"*.
+		for course = 1, spec.SHINGLE_COURSES do
+			part(
+				string.format("Shingle%s%02d", if side < 0 then "S" else "N", course),
+				Vector3.new(width, spec.SHINGLE_THICK, spec.SHINGLE_DEPTH),
+				slab
+					* CFrame.new(
+						0,
+						spec.THICK / 2 + spec.SHINGLE_THICK / 2,
+						slabHalfZ - (course - 0.5) * spec.SHINGLE_STEP
+					),
+				if course % 2 == 1 then spec.SHINGLE_A else spec.SHINGLE_B,
+				Enum.Material.Slate,
+				false,
+				folder
+			)
+		end
+		-- THE EAVE'S OWN TIMBER (spec 4). Image 02: seven thin battens hanging in the air under each
+		-- eave, their inner ends stopping in space, with no purlin and no fascia.
+		--
+		-- THE RAFTERS ARE RESEATED FROM THE SLAB AND NOT FROM THE WALL TOP, which is the whole fix:
+		-- a tail placed in world y guesses where the slab's underside is, and this one IS the slab's
+		-- underside -- `-(THICK/2 + 0.275)` puts the tail's top face coplanar with it.
 		for index = 1, spec.RAFTERS do
-			local t = (index - 0.5) / spec.RAFTERS
+			local x = -size.X / 2 + ((index - 0.5) / spec.RAFTERS) * size.X
 			part(
 				string.format("Rafter%s%d", if side < 0 then "S" else "N", index),
-				Vector3.new(0.55, 0.55, spec.EAVE_STUDS + 2.2),
-				CFrame.new(
-					origin.X - size.X / 2 + t * size.X,
-					wallTop - math.tan(pitch) * (spec.EAVE_STUDS / 2) + 0.2,
-					origin.Z + side * (halfZ + spec.EAVE_STUDS / 2)
-				) * CFrame.Angles(side * pitch, 0, 0),
+				Vector3.new(0.55, 0.55, spec.RAFTER_STUDS),
+				slab * CFrame.new(x, -(spec.THICK / 2 + 0.275), slabHalfZ - spec.RAFTER_STUDS / 2 - 0.2),
 				cfg.LODGE.TIMBER_COLOR,
 				Enum.Material.Wood,
 				false,
 				folder
 			)
 		end
+		-- THE FASCIA closes the shingles' cut ends and gives the eave a line.
+		part(
+			string.format("Fascia%s", if side < 0 then "S" else "N"),
+			Vector3.new(width, 0.75, 0.25),
+			slab * CFrame.new(0, -(spec.THICK / 2 + 0.375), slabHalfZ - 0.125),
+			cfg.LODGE.TIMBER_COLOR,
+			Enum.Material.Wood,
+			false,
+			folder
+		)
+		-- THE PURLIN the tails land on, at the wall top.
+		part(
+			string.format("Purlin%s", if side < 0 then "S" else "N"),
+			Vector3.new(width, 0.7, 0.7),
+			CFrame.new(origin.X, wallTop + 0.35, origin.Z + side * (halfZ - 0.35)),
+			cfg.LODGE.TIMBER_COLOR,
+			Enum.Material.Wood,
+			false,
+			folder
+		)
+		-- THE BARGE BOARDS, one down each sloping gable edge under the overhang (spec 3).
+		for _, half in ipairs({ -1, 1 }) do
+			part(
+				string.format("Barge%s%s", if side < 0 then "S" else "N", if half < 0 then "W" else "E"),
+				Vector3.new(0.3, 0.8, slope + spec.EAVE_STUDS),
+				slab * CFrame.new(half * (width / 2 - 0.15), -(spec.THICK / 2 + 0.4), 0),
+				spec.BARGE_COLOR,
+				Enum.Material.Wood,
+				false,
+				folder
+			)
+		end
 	end
+	-- THE RIDGE CAP SITS ON COURSE 14 rather than being buried in the slabs (spec 2).
 	part(
 		"RoofRidge",
-		Vector3.new(width + 0.6, 0.9, 1.8),
-		CFrame.new(origin.X, ridge + 0.35, origin.Z),
+		Vector3.new(width + 0.6, 0.55, 2.4),
+		CFrame.new(origin.X, ridge + 0.5, origin.Z),
 		spec.RIDGE_COLOR,
 		spec.MATERIAL,
 		false,
 		folder
 	)
 	-- THE TWO GABLE TRIANGLES, as boarded wedges: a WedgePart's slope runs along its own +Z, so one
-	-- is turned to face the other.
+	-- is turned to face the other. `side` is the z half and `half` is the gable END (west or east),
+	-- which is why the vertical boarding below hangs off `half` and not off `side`.
 	for _, side in ipairs({ -1, 1 }) do
 		for _, half in ipairs({ -1, 1 }) do
 			local wedge = Instance.new("WedgePart")
@@ -824,7 +933,7 @@ local function roof(folder: Instance, origin: Vector3, wallTop: number, cfg)
 			wedge.Size = Vector3.new(0.9, rise, halfZ)
 			wedge.Anchored = true
 			wedge.Color = spec.GABLE_COLOR
-			wedge.Material = Enum.Material.WoodPlanks
+			wedge.Material = Enum.Material.Wood
 			wedge.CanCollide = true
 			wedge.CFrame = CFrame.new(
 				origin.X + half * (size.X / 2 - 0.45),
@@ -834,6 +943,24 @@ local function roof(folder: Instance, origin: Vector3, wallTop: number, cfg)
 			wedge.Parent = folder
 			stats.parts += 1
 			stats.solids += 1
+		end
+		-- VERTICAL BOARDING ON THE GABLE (spec 3). An alpine gable is boarded vertically, and the
+		-- wedge's horizontal grain is the reason the triangle reads as BRICK against the logs under
+		-- it (images 03, 04, 13). Nine boards a side, each as tall as the triangle is at its own z.
+		for board = 1, spec.GABLE_BOARDS do
+			local z = (board - (spec.GABLE_BOARDS + 1) / 2) * (size.Z / (spec.GABLE_BOARDS + 0.5))
+			local height = rise * (1 - math.abs(z) / halfZ)
+			if height > 0.4 then
+				part(
+					string.format("GableBoard%s%d", if side < 0 then "W" else "E", board),
+					Vector3.new(0.22, height, 2.6),
+					CFrame.new(origin.X + side * (size.X / 2 + 0.11), wallTop + height / 2, origin.Z + z),
+					spec.GABLE_BOARD,
+					Enum.Material.Wood,
+					false,
+					folder
+				)
+			end
 		end
 	end
 end
@@ -848,25 +975,57 @@ local function chimney(folder: Instance, origin: Vector3, cfg)
 	local base = origin.Y - 2
 	local x = origin.X - cfg.LODGE.SIZE.X / 2 - spec.WIDTH / 2 + spec.INSET_STUDS
 	local z = origin.Z + spec.ALONG_STUDS
+	-- A SHOULDERED STACK, NOT A SLAB (the Designer's lodge spec, 2026-10-16, section 5). Image 04:
+	-- one 4.4 x 6.5 slab of the same section from the ground to above the ridge. A real stack is
+	-- WIDE at the base where it takes the fireplace, steps in at the wall top on a shoulder, and
+	-- steps out again on a corbel under the cap -- which is also why it stops reading as stuck on.
+	local wallTop = origin.Y + coursesOf(cfg) * cfg.LODGE.LOG_DIAMETER
 	part(
-		"ChimneyStack",
-		Vector3.new(spec.WIDTH, top - base, spec.DEPTH),
-		CFrame.new(x, (top + base) / 2, z),
+		"ChimneyBase",
+		Vector3.new(spec.BASE_WIDTH, wallTop - base, spec.BASE_DEPTH),
+		CFrame.new(x, (wallTop + base) / 2, z),
 		spec.COLOR,
 		spec.MATERIAL,
 		true,
 		folder
 	)
 	part(
+		"ChimneyShoulder",
+		Vector3.new(spec.BASE_WIDTH + 0.4, spec.SHOULDER_STUDS, spec.BASE_DEPTH + 0.4),
+		CFrame.new(x, wallTop + spec.SHOULDER_STUDS / 2, z),
+		spec.CAP_COLOR,
+		Enum.Material.Slate,
+		false,
+		folder
+	)
+	part(
+		"ChimneyStack",
+		Vector3.new(spec.STACK_WIDTH, top - wallTop - spec.SHOULDER_STUDS, spec.STACK_DEPTH),
+		CFrame.new(x, (top + wallTop + spec.SHOULDER_STUDS) / 2, z),
+		spec.COLOR,
+		spec.MATERIAL,
+		true,
+		folder
+	)
+	part(
+		"ChimneyCorbel",
+		Vector3.new(spec.STACK_WIDTH + 0.8, spec.CORBEL_STUDS, spec.STACK_DEPTH + 0.8),
+		CFrame.new(x, top - 1.1, z),
+		spec.CAP_COLOR,
+		Enum.Material.Slate,
+		false,
+		folder
+	)
+	part(
 		"ChimneyCap",
-		Vector3.new(spec.WIDTH + 1.2, 0.8, spec.DEPTH + 1.2),
+		Vector3.new(spec.STACK_WIDTH + 1.2, 0.8, spec.STACK_DEPTH + 1.2),
 		CFrame.new(x, top + 0.4, z),
 		spec.CAP_COLOR,
 		Enum.Material.Slate,
 		false,
 		folder
 	)
-	for index, dz in ipairs({ -spec.DEPTH / 4, spec.DEPTH / 4 }) do
+	for index, dz in ipairs({ -spec.STACK_DEPTH / 4, spec.STACK_DEPTH / 4 }) do
 		part(
 			string.format("ChimneyPot%d", index),
 			Vector3.new(1.1, 1.6, 1.1),
@@ -913,7 +1072,7 @@ local function porch(folder: Instance, origin: Vector3, floorY: number, wallTop:
 		Vector3.new(width, 0.6, spec.DEPTH),
 		CFrame.new(origin.X, floorY - 0.3, deckZ),
 		cfg.LODGE.DECK_COLOR,
-		Enum.Material.WoodPlanks,
+		Enum.Material.Wood,
 		true,
 		folder
 	)
@@ -994,6 +1153,19 @@ local function porch(folder: Instance, origin: Vector3, floorY: number, wallTop:
 		true,
 		folder
 	)
+	-- THE SOFFIT (the Designer's lodge spec, 2026-10-16, section 12): the porch roof's underside is
+	-- the first thing a player sees walking up to the door, and it is a flat near-black slab (image
+	-- 01). One board under it, in the ceiling's own colour, turns it into a lined roof.
+	part(
+		"PorchSoffit",
+		Vector3.new(width + 3.2, 0.14, math.sqrt(run * run + drop * drop) + 0.8),
+		CFrame.new(origin.X, (eaveY - 0.4 + postTop + 0.9) / 2 - 0.42, (eaveZ + frontZ) / 2)
+			* CFrame.Angles(-math.atan2(drop, run), 0, 0),
+		cfg.LODGE.CEILING_COLOR,
+		Enum.Material.Wood,
+		false,
+		folder
+	)
 	-- THE BENCH beside the door, on the west side.
 	local benchX = origin.X - cfg.LODGE.DOOR.WIDTH / 2 - 4.4
 	part(
@@ -1001,7 +1173,7 @@ local function porch(folder: Instance, origin: Vector3, floorY: number, wallTop:
 		Vector3.new(5.4, 0.45, 1.8),
 		CFrame.new(benchX, floorY + 1.5, deckZ + spec.DEPTH / 4),
 		cfg.LODGE.FURNITURE_COLOR,
-		Enum.Material.WoodPlanks,
+		Enum.Material.Wood,
 		true,
 		folder
 	)
@@ -1026,17 +1198,37 @@ local function porch(folder: Instance, origin: Vector3, floorY: number, wallTop:
 				string.format("Firewood%d_%d", row, index),
 				Vector3.new(spec.DEPTH - 2.6, 1.05, 1.05),
 				CFrame.new(
-					pileX - spec.WOOD_PER_ROW * 0.55 + (index - 0.5) * 1.1 + offset,
-					floorY + 0.55 + (row - 1) * 0.95,
+					-- 1.02 AND 0.92 AGAINST A 1.05 BILLET (the Designer's lodge spec, 2026-10-16,
+					-- section 12): at 1.10 and 0.95 there was DAYLIGHT between every billet, which is
+					-- image 01's complaint. At this pitch they touch.
+					pileX - spec.WOOD_PER_ROW * 0.51 + (index - 0.5) * 1.02 + offset,
+					floorY + 0.55 + (row - 1) * 0.92,
 					deckZ + spec.DEPTH / 5
 				) * CFrame.Angles(0, math.pi / 2, 0),
-				if (row + index) % 3 == 0 then cfg.LODGE.LOG_COLOR else cfg.LODGE.FIREWOOD_COLOR,
+				-- THREE CLOSE TONES AND NOT TWO UNRELATED ONES, so the pile reads as split wood
+				-- rather than as plastic tube.
+				cfg.LODGE.FIREWOOD_TONES[(row + index) % 3 + 1],
 				Enum.Material.Wood,
 				false,
 				folder
 			)
 			piece.Shape = Enum.PartType.Cylinder
 		end
+	end
+	-- TWO RETAINING STAKES (spec 12): without them a stack of loose cylinders has no reason not to
+	-- roll off the deck.
+	for index, side in ipairs({ -1, 1 }) do
+		local stake = part(
+			string.format("WoodStake%d", index),
+			Vector3.new(4.2, 0.22, 0.22),
+			CFrame.new(pileX + side * (spec.WOOD_PER_ROW * 0.51 + 0.3), floorY + 2.1, deckZ + spec.DEPTH / 5)
+				* CFrame.Angles(0, 0, math.pi / 2),
+			cfg.LODGE.TIMBER_COLOR,
+			Enum.Material.Wood,
+			false,
+			folder
+		)
+		stake.Shape = Enum.PartType.Cylinder
 	end
 	-- TWO LANTERNS, one each side of the door, and they are the only lights outside.
 	for _, sx in ipairs({ -1, 1 }) do
@@ -1406,33 +1598,112 @@ end
 --
 -- `shield` SURVIVES, because a plaque is a plaque: it is what the boar's head is mounted on.
 
-local function shield(folder: Instance, name: string, face: CFrame, size: Vector3, cfg): CFrame
+-- A CARVED OAK SHIELD (the Designer's lodge spec, 2026-10-16, section 14). Six parts where there
+-- were two.
+--
+-- Karen: *"boar head is good but background is bad this wood is bad"*. The head is unchanged; this
+-- is everything behind it. A dark oak board with a ROUND TOP and a POINT -- the European form -- a
+-- LIGHTER INNER PANEL standing 0.09 proud of it and leaving a 0.45 rim all round, and a BRASS PLATE
+-- under the chin where a real one is engraved. Under Roblox's own lighting that 0.09 step reads as a
+-- bevelled edge, which is a shadow line for no extra part.
+--
+-- THE ROUND TOP IS A CYLINDER TURNED ONTO z: `CFrame.Angles(0, pi/2, 0)` puts its circular face
+-- toward the room, so its diameter is the board's width and its own length is the board's thickness.
+-- `upright`'s turn is about Z and would stand it on edge.
+--
+-- IT ANSWERS WHERE THE HEAD GOES: the middle of the INNER PANEL, 0.09 proud of its face, so the
+-- snout comes out of the lighter oak and not out of the rim.
+local function shield(folder: Instance, name: string, face: CFrame, spec, cfg): CFrame
+	local look = cfg.TROPHIES
+	local box = look.SHIELD
+	local width, body, point = spec.WIDTH, spec.BODY, spec.POINT
+	local boardZ = -box.BOARD_THICK / 2
 	part(
-		string.format("%sPlaque", name),
-		size,
-		face * CFrame.new(0, 0, -size.Z / 2),
-		cfg.TROPHIES.PLAQUE_COLOR,
+		string.format("%sBoard", name),
+		Vector3.new(width, body, box.BOARD_THICK),
+		face * CFrame.new(0, body * 0.026, boardZ),
+		look.PLAQUE_COLOR,
 		Enum.Material.Wood,
 		false,
 		folder
 	)
+	local crown = part(
+		string.format("%sCrown", name),
+		Vector3.new(box.BOARD_THICK, width, width),
+		face * CFrame.new(0, body / 2 + width * 0.016, boardZ) * CFrame.Angles(0, math.pi / 2, 0),
+		look.PLAQUE_COLOR,
+		Enum.Material.Wood,
+		false,
+		folder
+	)
+	crown.Shape = Enum.PartType.Cylinder
 	-- THE POINT AT THE BOTTOM, which is what makes a rectangle a shield.
-	local point = Instance.new("WedgePart")
-	point.Name = string.format("%sPoint", name)
-	point.Size = Vector3.new(size.Z, size.X * 0.42, size.X)
-	point.Anchored = true
-	point.CanCollide = false
-	point.CanQuery = false
-	point.CanTouch = false
-	point.CastShadow = false
-	point.Color = cfg.TROPHIES.PLAQUE_COLOR
-	point.Material = Enum.Material.Wood
-	point.CFrame = face
-		* CFrame.new(0, -size.Y / 2 - size.X * 0.21, -size.Z / 2)
+	local tip = Instance.new("WedgePart")
+	tip.Name = string.format("%sPoint", name)
+	tip.Size = Vector3.new(box.BOARD_THICK, point, width)
+	tip.Anchored = true
+	tip.CanCollide = false
+	tip.CanQuery = false
+	tip.CanTouch = false
+	tip.CastShadow = false
+	tip.Color = look.PLAQUE_COLOR
+	tip.Material = Enum.Material.Wood
+	tip.CFrame = face
+		* CFrame.new(0, -(body / 2 + point / 2) - body * 0.03, boardZ)
 		* CFrame.Angles(0, math.pi / 2, math.pi / 2)
-	point.Parent = folder
+	tip.Parent = folder
 	stats.parts += 1
-	return face * CFrame.new(0, 0, -size.Z)
+	-- THE INNER PANEL: the same two shapes at the rim's inset, standing proud.
+	local panelWidth = width - 2 * box.RIM_STUDS
+	local panelZ = -(box.BOARD_THICK + box.PANEL_THICK / 2 + 0.06)
+	part(
+		string.format("%sFace", name),
+		Vector3.new(panelWidth, body * 0.684, box.PANEL_THICK),
+		face * CFrame.new(0, body * 0.184, panelZ),
+		look.PANEL_COLOR,
+		Enum.Material.Wood,
+		false,
+		folder
+	)
+	local panelCrown = part(
+		string.format("%sFaceCrown", name),
+		Vector3.new(box.PANEL_THICK, panelWidth, panelWidth),
+		face * CFrame.new(0, body / 2 + width * 0.016, panelZ) * CFrame.Angles(0, math.pi / 2, 0),
+		look.PANEL_COLOR,
+		Enum.Material.Wood,
+		false,
+		folder
+	)
+	panelCrown.Shape = Enum.PartType.Cylinder
+	-- THE BRASS PLATE, on the dark board below the panel, on a flat surface -- which is where a real
+	-- one is. It carries the animal's name on a `SurfaceGui`, and a `SurfaceGui` is not a part.
+	local plate = part(
+		string.format("%sPlate", name),
+		Vector3.new(width * 0.47, body * 0.21, box.PLATE_THICK),
+		face * CFrame.new(0, -(body * 0.326), -(box.BOARD_THICK + box.PLATE_THICK / 2 + 0.02)),
+		look.BRASS_COLOR,
+		Enum.Material.Metal,
+		false,
+		folder
+	)
+	plate.Reflectance = 0.15
+	if spec.LABEL ~= nil then
+		local surface = Instance.new("SurfaceGui")
+		surface.Name = "Engraving"
+		surface.Face = Enum.NormalId.Front
+		surface.CanvasSize = Vector2.new(240, 60)
+		surface.Parent = plate
+		local text = Instance.new("TextLabel")
+		text.BackgroundTransparency = 1
+		text.Size = UDim2.fromScale(1, 1)
+		text.Font = Enum.Font.GothamBold
+		text.TextScaled = true
+		text.TextColor3 = Color3.fromRGB(36, 27, 18)
+		text.Text = spec.LABEL
+		text.Parent = surface
+	end
+	-- WHERE THE HEAD MOUNTS: the middle of the inner panel, 0.09 proud of its face.
+	return face * CFrame.new(0, body * 0.184, panelZ - box.PANEL_THICK / 2 - 0.09)
 end
 
 -- THE TROPHY WALL. Karen, 2026-10-14: *"on walls animal antlers ect"*, and task 180's *"trophys like
@@ -1524,7 +1795,7 @@ local function boarTrophy(
 	low: number,
 	high: number
 )
-	local front = shield(folder, name, face, spec.PLAQUE, cfg)
+	local front = shield(folder, name, face, spec, cfg)
 	-- THE PLAQUE IS FITTED FIRST AND THE HEAD IS HUNG OFF WHERE IT ENDED UP. `fitBetween` slides
 	-- every BasePart in the folder until the board is inside the room; the head is a MODEL and the
 	-- clamp cannot see it, which is deliberate -- most of the animal is inside the stonework on
@@ -1599,10 +1870,35 @@ local function trophies(inside: Instance, room: Room, cfg, assets: ((string) -> 
 			face,
 			kind,
 			cfg,
-			if assets ~= nil then assets("boar") else nil,
+			-- THE ROW ASKS FOR ITS OWN ANIMAL (spec 14c): `"boar"` or `"sow"`, which the composition
+			-- root translates into a template. A literal `"boar"` here is what made every mount a
+			-- male.
+			if assets ~= nil then assets(kind.ASSET) else nil,
 			room.centre.Y + 0.3,
 			room.centre.Y + room.height - 0.3
 		)
+	end
+
+	-- THE RED STAG'S PLACE, KEPT AND LEGIBLE (spec 15c): nothing is built inside its box, and two
+	-- iron pegs are fixed where a shield would hang from, so the gap reads as KEPT rather than as
+	-- forgotten. The day the game has a stag, its row goes in `MOUNTS` and these come out.
+	local keep = spec.STAG_PLACE
+	if keep ~= nil then
+		for index, along in ipairs(keep.PEG_ALONG) do
+			local at =
+				Vector3.new(room.centre.X + along, room.centre.Y + keep.PEG_HEIGHT, room.centre.Z + room.halfZ + 0.2)
+			local peg = part(
+				string.format("StagPeg%d", index),
+				Vector3.new(keep.PEG_STUDS, keep.PEG_THICK, keep.PEG_THICK),
+				CFrame.new(at) * CFrame.Angles(0, 0, 0),
+				cfg.LODGE.IRON_COLOR,
+				Enum.Material.Metal,
+				false,
+				folder
+			)
+			peg.Shape = Enum.PartType.Cylinder
+			peg.CFrame = CFrame.new(at - Vector3.new(0, 0, keep.PEG_STUDS / 2)) * CFrame.Angles(0, math.pi / 2, 0)
+		end
 	end
 end
 
@@ -1669,6 +1965,19 @@ local function fireplace(inside: Instance, room: Room, cfg)
 		false,
 		inside
 	)
+	-- TWO CORBELS UNDER THE MANTEL'S ENDS (spec 10): it overhangs the breast by half a stud each
+	-- side and floats there (image 19). A mantel rests on something.
+	for index, dz in ipairs({ -4.5, 4.5 }) do
+		part(
+			string.format("FireplaceCorbel%d", index),
+			Vector3.new(0.9, 0.9, 1.2),
+			CFrame.new(wallX + 1.6, floorY + spec.OPENING_HEIGHT - 0.35, z + dz),
+			cfg.LODGE.TIMBER_COLOR,
+			Enum.Material.Wood,
+			false,
+			inside
+		)
+	end
 	part(
 		"FireplaceHearth",
 		Vector3.new(spec.DEPTH + spec.HEARTH_STUDS, 0.35, spec.WIDTH + 1.6),
@@ -1737,31 +2046,67 @@ end
 
 -- A HANGING LANTERN: the glass, the cap, the chain up to the beam, and a small warm light. Three of
 -- them plus the fire is what *"warm inside"* actually comes to.
+-- A LANTERN WITH A FRAME (spec 11). Image 30: a glowing white box with a dark lid on a wire -- no
+-- frame, no base, nothing holding it at the ceiling. Four corner posts, a base, and a rose where the
+-- chain lands turn it into a made object, and the glass shrinks so the posts show against it.
 local function lantern(inside: Instance, name: string, at: Vector3, ceilingY: number, cfg)
 	local box = part(
 		name,
-		Vector3.new(0.85, 1.2, 0.85),
+		Vector3.new(0.7, 0.95, 0.7),
 		CFrame.new(at),
 		cfg.LODGE.LANTERN.GLASS_COLOR,
 		Enum.Material.Neon,
 		false,
 		inside
 	)
-	box.Transparency = 0.25
+	box.Transparency = 0.42
+	local iron = cfg.LODGE.IRON_COLOR
 	part(
 		string.format("%sCap", name),
 		Vector3.new(1.15, 0.3, 1.15),
-		CFrame.new(at + Vector3.new(0, 0.75, 0)),
-		Color3.fromRGB(38, 36, 34),
+		CFrame.new(at + Vector3.new(0, 0.62, 0)),
+		iron,
 		Enum.Material.Metal,
 		false,
 		inside
 	)
+	part(
+		string.format("%sBase", name),
+		Vector3.new(1.15, 0.22, 1.15),
+		CFrame.new(at + Vector3.new(0, -0.58, 0)),
+		iron,
+		Enum.Material.Metal,
+		false,
+		inside
+	)
+	for index, corner in ipairs({ Vector2.new(-1, -1), Vector2.new(-1, 1), Vector2.new(1, -1), Vector2.new(1, 1) }) do
+		part(
+			string.format("%sPost%d", name, index),
+			Vector3.new(0.1, 1.05, 0.1),
+			CFrame.new(at + Vector3.new(corner.X * 0.4, 0, corner.Y * 0.4)),
+			iron,
+			Enum.Material.Metal,
+			false,
+			inside
+		)
+	end
+	-- THE ROSE AT THE CEILING, where the chain lands: a lamp hanging off nothing is the complaint.
+	if ceilingY > at.Y then
+		part(
+			string.format("%sRose", name),
+			Vector3.new(0.7, 0.18, 0.7),
+			CFrame.new(at.X, ceilingY - 0.09, at.Z),
+			iron,
+			Enum.Material.Metal,
+			false,
+			inside
+		)
+	end
 	local chain = part(
 		string.format("%sChain", name),
-		Vector3.new(ceilingY - at.Y - 0.75, 0.14, 0.14),
-		CFrame.new(at + Vector3.new(0, (ceilingY - at.Y + 0.75) / 2, 0)) * CFrame.Angles(0, 0, math.pi / 2),
-		Color3.fromRGB(38, 36, 34),
+		Vector3.new(ceilingY - at.Y - 0.62, 0.14, 0.14),
+		CFrame.new(at + Vector3.new(0, (ceilingY - at.Y + 0.62) / 2, 0)) * CFrame.Angles(0, 0, math.pi / 2),
+		cfg.LODGE.IRON_COLOR,
 		Enum.Material.Metal,
 		false,
 		inside
@@ -1909,6 +2254,48 @@ end
 -- three lanterns, a gun rack, the shop counter -- and, since task 181, the man standing behind it.
 -- Nothing here is animated per frame and nothing is written per frame: the keeper's idle is played
 -- once, at build, and his head is turned by the owner's own 10 Hz scan.
+-- THE SILL PLATE AND THE WALL PLATE (the Designer's lodge spec, 2026-10-16, section 9). Images 18,
+-- 22 and 23: a round log meets a flat floor in a SCALLOPED line, and the top course is simply cut
+-- off by the ceiling boards. A real log building has a flat `Schwelle` at the bottom and a wall
+-- plate at the top; both close the joint, and both are four parts.
+--
+-- EVERY JOIN IN THIS SPEC OVERLAPS AND IS NEVER FLUSH: the wall plate's top (11.90 + 0.40 = 12.30)
+-- laps the ceiling boards' underside (12.20) by 0.10, because two coplanar faces are what
+-- z-fighting is made of.
+local function plates(inside: Instance, room: Room, cfg)
+	local timber = cfg.LODGE.TIMBER_COLOR
+	local alongX = room.halfX * 2 - 3.8
+	local alongZ = room.halfZ * 2 - 3.8
+	for _, row in ipairs({
+		{ name = "SillPlateS", size = Vector3.new(alongX, 0.5, 1), at = Vector3.new(0, 0.25, -(room.halfZ - 0.5)) },
+		{ name = "SillPlateN", size = Vector3.new(alongX, 0.5, 1), at = Vector3.new(0, 0.25, room.halfZ - 0.5) },
+		{ name = "SillPlateW", size = Vector3.new(1, 0.5, alongZ), at = Vector3.new(-(room.halfX - 0.5), 0.25, 0) },
+		{ name = "SillPlateE", size = Vector3.new(1, 0.5, alongZ), at = Vector3.new(room.halfX - 0.5, 0.25, 0) },
+		{
+			name = "WallPlateS",
+			size = Vector3.new(alongX, 0.8, 1),
+			at = Vector3.new(0, room.height - 0.7, -(room.halfZ - 0.5)),
+		},
+		{
+			name = "WallPlateN",
+			size = Vector3.new(alongX, 0.8, 1),
+			at = Vector3.new(0, room.height - 0.7, room.halfZ - 0.5),
+		},
+		{
+			name = "WallPlateW",
+			size = Vector3.new(1, 0.8, alongZ),
+			at = Vector3.new(-(room.halfX - 0.5), room.height - 0.7, 0),
+		},
+		{
+			name = "WallPlateE",
+			size = Vector3.new(1, 0.8, alongZ),
+			at = Vector3.new(room.halfX - 0.5, room.height - 0.7, 0),
+		},
+	}) do
+		part(row.name, row.size, CFrame.new(room.centre + row.at), timber, Enum.Material.Wood, false, inside)
+	end
+end
+
 local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 	-- WHAT THE COMPOSITION ROOT CAN HAND US: the boar for the trophy, and the two guns for the rack
 	-- behind the counter (task 196). nil everywhere else, which is the DEV place and every spec.
@@ -1919,6 +2306,10 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 	inside.Parent = folder
 	local ceilingY = origin.Y + room.height
 
+	-- THE PLATES FIRST (spec 9), so the fireplace breast and the counter are built OVER them and the
+	-- west run disappears behind the stone where it should.
+	plates(inside, room, cfg)
+
 	-- THE BEAMED CEILING. Boards first, then the beams under them, which is the order they are built
 	-- in and the order they read in.
 	part(
@@ -1926,7 +2317,7 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 		Vector3.new(room.halfX * 2, 0.4, room.halfZ * 2),
 		CFrame.new(origin.X, ceilingY - 0.2, origin.Z),
 		cfg.LODGE.CEILING_COLOR,
-		Enum.Material.WoodPlanks,
+		Enum.Material.Wood,
 		false,
 		inside
 	)
@@ -1953,7 +2344,7 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 		Vector3.new(spec.SIZE.X, 0.55, spec.SIZE.Y),
 		CFrame.new(tableX, origin.Y + spec.HEIGHT, tableZ),
 		cfg.LODGE.FURNITURE_COLOR,
-		Enum.Material.WoodPlanks,
+		Enum.Material.Wood,
 		true,
 		inside
 	)
@@ -1983,7 +2374,7 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 			Vector3.new(spec.SIZE.X - 1.4, 0.45, 1.9),
 			CFrame.new(tableX, origin.Y + spec.BENCH_HEIGHT, tableZ + dz),
 			cfg.LODGE.FURNITURE_COLOR,
-			Enum.Material.WoodPlanks,
+			Enum.Material.Wood,
 			true,
 			inside
 		)
@@ -2043,7 +2434,7 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 		cfg.LODGE.COUNTER,
 		CFrame.new(counterAt),
 		cfg.LODGE.FURNITURE_COLOR,
-		Enum.Material.WoodPlanks,
+		Enum.Material.Wood,
 		true,
 		shop
 	)
@@ -2090,7 +2481,7 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 			Vector3.new(wingWidth, cfg.LODGE.COUNTER.Y, cfg.LODGE.COUNTER.Z),
 			CFrame.new((counterEastX + eastWallX) / 2, origin.Y + cfg.LODGE.COUNTER.Y / 2, counterAt.Z),
 			cfg.LODGE.FURNITURE_COLOR,
-			Enum.Material.WoodPlanks,
+			Enum.Material.Wood,
 			true,
 			shop
 		)
@@ -2118,7 +2509,7 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 			(counterFrontZ + northWallZ) / 2
 		),
 		cfg.LODGE.FURNITURE_COLOR,
-		Enum.Material.WoodPlanks,
+		Enum.Material.Wood,
 		true,
 		shop
 	)
@@ -2163,10 +2554,26 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 	sign(
 		"ShopSign",
 		Vector3.new(8, 2.2, 0.3),
-		CFrame.new(counterAt.X, origin.Y + math.min(7.4, room.height - 1.6), origin.Z + room.halfZ - 0.15),
+		-- 9.4 AND NOT 7.4 (spec 10): at 7.4 the sign crossed the rack board. It now spans y
+		-- 8.30..10.50, clearing the board's top by 1.00 and the ceiling beams by 0.80.
+		CFrame.new(counterAt.X, origin.Y + math.min(9.4, room.height - 1.6), origin.Z + room.halfZ - 0.15),
 		cfg.LODGE.SIGN_TEXT,
 		shop
 	)
+	-- THE COUNTER'S FRONT, THE SURFACE EVERY PLAYER LOOKS AT LONGEST (spec 10, image 24): three
+	-- vertical stiles on the customer's side, which is what turns a plain slab into joinery.
+	for index, dx in ipairs({ -4.2, 0, 4.2 }) do
+		part(
+			string.format("CounterStile%d", index),
+			Vector3.new(0.45, 2.4, 0.12),
+			CFrame.new(counterAt.X + dx, origin.Y + 1.4, counterAt.Z - cfg.LODGE.COUNTER.Z / 2 - 0.06),
+			cfg.LODGE.TIMBER_COLOR,
+			Enum.Material.Wood,
+			false,
+			shop
+		)
+	end
+
 	-- THE MAN BEHIND IT (task 181). `origin.Y` is the floor the counter stands on, which is what he
 	-- stands on too -- the one number, read in one place. HIS prompt goes on the counter in front of
 	-- him (task 195) and only when he is really there.
@@ -2232,10 +2639,12 @@ local function lodge(container: Instance, anchor: Vector3, cfg, seams: Seams?): 
 	)
 	part(
 		"Floor",
-		Vector3.new(size.X, cfg.LODGE.FLOOR_THICK, size.Z),
+		-- 1.2 NARROWER THAN THE FOOTPRINT (spec 6): the slab's cut edge then dies 1.2 studs inside
+		-- the logs' outer face instead of showing as a pale board over the plinth (image 05).
+		Vector3.new(size.X - 1.2, cfg.LODGE.FLOOR_THICK, size.Z - 1.2),
 		CFrame.new(origin.X, floorY - cfg.LODGE.FLOOR_THICK / 2, origin.Z),
 		cfg.LODGE.FLOOR_COLOR,
-		Enum.Material.WoodPlanks,
+		Enum.Material.Wood,
 		true,
 		folder
 	)
@@ -3136,7 +3545,94 @@ end
 -- `Boars` by NAME, so a queryable copy of a spruce standing in `Workspace.Lobby` would be the one
 -- tree in this world a ground raycast could hit -- and the ground under the lobby is what every
 -- player placement reads. `CanQuery = false` keeps that promise where the name no longer can.
-local function treeLine(container: Instance, anchor: Vector3, cfg, templates: Instance?)
+-- WHICH MODEL A SPECIES WANTS, and what to paint it. PURE and exported, so the allow-list is a
+-- spec rather than a belief about a folder nobody can read in a diff (spec 16b).
+--
+-- A WEIGHTED PICK over `TREELINE.SPECIES`: the birch is 3 and the alder 2, so a ring of thirty comes
+-- out roughly 18 birch to 12 alder, which is what a damp Lithuanian field edge looks like.
+function Build.speciesAt(roll: number, cfg): any
+	local list = cfg.TREELINE.SPECIES
+	local total = 0
+	for _, row in ipairs(list) do
+		total += row.WEIGHT
+	end
+	local pick = (roll % 1) * total
+	local seen = 0
+	for _, row in ipairs(list) do
+		seen += row.WEIGHT
+		if pick < seen then
+			return row
+		end
+	end
+	return list[#list]
+end
+
+-- WHAT ONE PART OF A TREE IS, FOR THE ALDER'S REPAINT. PURE and exported -- `Build.truckSkinOf`'s
+-- own shape, and for its stated reason: a rule about somebody else's model has to be readable in a
+-- diff. `"trunk"`, `"leaf"` or `"none"`, decided from the NAME and the MATERIAL and nothing else.
+function Build.treeSkinOf(name: string, material: Enum.Material): string
+	local lower = string.lower(name)
+	for _, word in ipairs({ "bark", "trunk", "stem", "branch", "wood" }) do
+		if string.find(lower, word, 1, true) then
+			return "trunk"
+		end
+	end
+	for _, word in ipairs({ "leaf", "leaves", "canopy", "foliage", "card" }) do
+		if string.find(lower, word, 1, true) then
+			return "leaf"
+		end
+	end
+	if material == Enum.Material.LeafyGrass or material == Enum.Material.Grass then
+		return "leaf"
+	end
+	if material == Enum.Material.Wood or material == Enum.Material.WoodPlanks then
+		return "trunk"
+	end
+	return "none"
+end
+
+-- THE ALDER, PAINTED ONTO A FOREST OAK (spec 16b(3)). There is no alder model in this place -- that
+-- is measured, not assumed -- so the nearest shape in the library is re-tinted and held small.
+-- Counted, like every other repaint in this file, so "how many trees were tinted" is a number and
+-- not a belief.
+local function tintAlder(tree: Instance, cfg): number
+	local painted = 0
+	for _, descendant in ipairs(tree:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local piece = descendant :: BasePart
+			local skin = Build.treeSkinOf(piece.Name, piece.Material)
+			if skin == "trunk" then
+				piece.Color = cfg.ALDER.TRUNK_COLOR
+				painted += 1
+			elseif skin == "leaf" then
+				piece.Color = cfg.ALDER.LEAF_COLOR
+				painted += 1
+			end
+		end
+	end
+	stats.treesTinted += painted
+	return painted
+end
+
+-- WHERE A TREE'S FOOT GOES: on the ground the engine really produced, sunk by `SINK_STUDS`.
+--
+-- THE SINKING BUG (spec 16a, measured 2026-10-16): 18 of the 27 ring trees stood more than 2 studs
+-- clear of the ground, worst 5.55, because `treeLine` planted every clone at the NOMINAL shelf
+-- (`anchor.Y`) and `Build.build` never handed it `seams.groundAt` at all. Roblox terrain is
+-- voxelised and the real surface is not the nominal one. This is the identical defect task 186
+-- fixed for the truck wheels and task 182 for the pads, with the identical fix: ask the world.
+local function plantY(at: Vector3, anchor: Vector3, cfg, groundAt: ((number, number) -> number?)?): number
+	local ground = if groundAt ~= nil then groundAt(at.X, at.Z) else nil
+	return (ground or anchor.Y) - cfg.TREELINE.SINK_STUDS
+end
+
+local function treeLine(
+	container: Instance,
+	anchor: Vector3,
+	cfg,
+	templates: Instance?,
+	groundAt: ((number, number) -> number?)?
+)
 	if templates == nil then
 		return
 	end
@@ -3198,21 +3694,100 @@ local function treeLine(container: Instance, anchor: Vector3, cfg, templates: In
 				continue
 			end
 		end
+		-- ...NOR IN FRONT OF THE HOUSE, which is the fourth exclusion and the one Karen was looking at
+		-- (2026-10-16: *"what's wrong with those trees next to house"*). The ring is drawn about the
+		-- FIELD'S anchor and the lodge stands `LODGE.OFFSET.Z` north of it, so the arc's southern
+		-- half runs across the view from the porch -- measured in `E-porch-front.png`, two trunks
+		-- standing in the doorway. The Designer's own grove keeps everything north of the house for
+		-- this reason (lodge spec 16c: *"the front of a hunting lodge is working ground"*), and the
+		-- ring has to keep the same corridor clear.
+		local frontX = anchor.X + cfg.LODGE.OFFSET.X
+		local frontZ = anchor.Z + cfg.LODGE.OFFSET.Z
+		if math.abs(at.X - frontX) < cfg.TREELINE.FRONT_HALF_WIDTH and at.Z < frontZ then
+			continue
+		end
 		-- THROUGH `cloneInstance` AND NOT BY HAND (review round 1, note). The hand-rolled walk here
 		-- used `GetDescendants`, which never visits the instance itself, so a `Trees` child that was
 		-- a Part rather than a Model came out UNANCHORED AND QUERYABLE -- the one thing this
 		-- function's own comment says must not happen.
-		local kind = kinds[rng:NextInteger(1, #kinds)]
-		cloneInstance(
-			kind,
+		-- BIRCH OR ALDER, AND NOTHING ELSE (spec 16b(2)). The allow-list is read by NAME out of the
+		-- folder, so a model that is not named -- the empty aspen included -- can never be picked.
+		local species = Build.speciesAt(rng:NextNumber(), cfg)
+		local template = wood:FindFirstChild(species.MODEL)
+		if template == nil then
+			stats.fallbacks += 1
+			continue
+		end
+		local scale = if species.TINT == "alder"
+			then rng:NextNumber(cfg.ALDER.SCALE[1], cfg.ALDER.SCALE[2])
+			else rng:NextNumber(spec.SCALE[1], spec.SCALE[2])
+		local planted = cloneInstance(
+			template,
 			string.format("Tree%02d", index),
-			rng:NextNumber(spec.SCALE[1], spec.SCALE[2]),
-			Vector3.new(at.X, anchor.Y, at.Z),
+			scale,
+			Vector3.new(at.X, plantY(at, anchor, cfg, groundAt), at.Z),
 			rng:NextNumber(0, math.pi * 2),
 			folder,
 			true,
 			true
 		)
+		if species.TINT == "alder" then
+			tintAlder(planted, cfg)
+		end
+	end
+	folder.Parent = container
+end
+
+-- THE GROVE BY THE HOUSE (spec 16c). Twelve trees in three groups, in the LODGE'S frame, planted
+-- on the ground the world reports and sunk the same 0.6 as the ring.
+--
+-- IT IS A SECOND FUNCTION AND NOT A LONGER `treeLine`, because the two answer different questions:
+-- the ring is a procedural ARC at a radius with three exclusions, and this is a hand-placed GROVE
+-- from a table the Designer drew. One of them changes when the field changes; the other changes when
+-- somebody moves a tree.
+local function lodgeTrees(
+	container: Instance,
+	anchor: Vector3,
+	cfg,
+	templates: Instance?,
+	groundAt: ((number, number) -> number?)?
+)
+	if templates == nil then
+		return
+	end
+	local wood = (templates :: Instance):FindFirstChild(Data.TEMPLATE.TREES)
+	if wood == nil then
+		stats.fallbacks += 1
+		return
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "LodgeTrees"
+	local origin = anchor + cfg.LODGE.OFFSET
+	local byKind: { [string]: any } = {}
+	for _, row in ipairs(cfg.TREELINE.SPECIES) do
+		byKind[row.KIND] = row
+	end
+	for index, row in ipairs(cfg.LODGE_TREES) do
+		local species = byKind[row.kind]
+		local template = if species ~= nil then wood:FindFirstChild(species.MODEL) else nil
+		if template == nil then
+			stats.fallbacks += 1
+			continue
+		end
+		local at = Vector3.new(origin.X + row.x, 0, origin.Z + row.z)
+		local planted = cloneInstance(
+			template,
+			string.format("%s%02d", if row.kind == "alder" then "Alder" else "Birch", index),
+			row.scale,
+			Vector3.new(at.X, plantY(at, anchor, cfg, groundAt), at.Z),
+			math.rad(row.yaw),
+			folder,
+			true,
+			true
+		)
+		if species.TINT == "alder" then
+			tintAlder(planted, cfg)
+		end
 	end
 	folder.Parent = container
 end
@@ -3249,6 +3824,7 @@ function Build.build(
 	stats.trucksSettled = 0
 	stats.truckGroundStuds = 0
 	stats.truckPainted = 0
+	stats.treesTinted = 0
 	-- THE OLD KEEPER WENT WITH THE OLD FOLDER. Dropped here rather than relied on, so a rebuild can
 	-- never leave `Build.faceKeeper` turning a body that is no longer in the DataModel.
 	keeper = nil
@@ -3261,7 +3837,11 @@ function Build.build(
 
 	road(folder, anchor, cfg)
 	fences(folder, anchor, cfg)
-	treeLine(folder, anchor, cfg, templates)
+	-- THE WORLD'S OWN GROUND READER REACHES THE TREES TOO (spec 16a). Without it 18 of the 27 ring
+	-- trees stood clear of the ground, worst 5.55 -- the identical defect task 186 fixed for the
+	-- truck wheels, with the identical fix.
+	treeLine(folder, anchor, cfg, templates, (seams or {}).groundAt)
+	lodgeTrees(folder, anchor, cfg, templates, (seams or {}).groundAt)
 	lodge(folder, anchor, cfg, seams)
 	-- THE WORLD'S GROUND READER REACHES THE TRUCKS TOO (task 186), for the reason it already reaches
 	-- the pads: the shelf the arithmetic predicts is not the surface the engine produced, and a truck
