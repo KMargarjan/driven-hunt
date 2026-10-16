@@ -45,7 +45,14 @@ local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Hud = require(scripts:WaitForChild("Hud"))
 
+local UserInputService = game:GetService("UserInputService")
+
 local Panel = Hud.Shop
+-- THE TWO SYSTEMS THE PANEL BORROWS A SEAM FROM, required here so the mouse case can read the tags
+-- back out of them: `Camera.Cursor` is the ONE writer of `UserInputService.MouseBehavior` and
+-- `Weapon.Input` is the one holder of the trigger.
+local CameraSystem = require(scripts:WaitForChild("Camera"))
+local WeaponSystem = require(scripts:WaitForChild("Weapon"))
 -- THE PICTURE'S OWN ARITHMETIC, required directly: `halfExtents` and `distanceFor` are pure, so
 -- where the camera SHOULD be is a calculation this spec can redo rather than a number it copies.
 local Display = require(scripts:WaitForChild("Hud"):WaitForChild("ShopDisplay"))
@@ -609,6 +616,91 @@ return function()
 			-- the server answers.
 			expect(Panel.lastState()).to.be.ok()
 			expect(Panel.selectedId()).to.be.ok()
+		end)
+
+		-- ---------------------------------------------------------------- the mouse (task 196 part 3a)
+
+		-- KAREN, 2026-10-16 ~19:00: *"once I close shop I can't move mouse seems disabled need to go
+		-- back to turn again fix that"*.
+		--
+		-- THE CAMERA TURNS ON A MOUSE DELTA, AND IT ONLY GETS ONE WHILE THE MOUSE IS LOCKED TO THE
+		-- CENTRE. The shop frees the cursor so a thumb or a pointer can press BUY, through
+		-- `Cursor.requestFree("shop")` -- the one tagged door, `Camera.Cursor` being the ONLY writer
+		-- of `UserInputService.MouseBehavior` in this repo. Every way OUT of the shop therefore has
+		-- to give that tag back, or the mouse stays free and the camera never turns again.
+		--
+		-- THIS CASE DRIVES EVERY WAY OUT THERE IS and asserts the two seams the panel borrows are
+		-- both handed back -- and then asserts the SYMPTOM itself: one camera frame later the engine
+		-- is back in `LockCenter`.
+		it("gives the mouse and the trigger back on every way out of the shop", function()
+			local Cursor = (CameraSystem :: any).Cursor
+			local WeaponInput = (WeaponSystem :: any).Input
+			expect(Cursor).to.be.ok()
+			expect(WeaponInput).to.be.ok()
+
+			local function holdsShop(): (boolean, boolean)
+				local mouse = false
+				for _, tag in ipairs(Cursor.stats().tags) do
+					if tag == "shop" then
+						mouse = true
+					end
+				end
+				local trigger = false
+				for _, tag in ipairs(WeaponInput.holdTags()) do
+					if tag == "shop" then
+						trigger = true
+					end
+				end
+				return mouse, trigger
+			end
+
+			local prompt = fakePrompt()
+			Panel.setEnabled(true)
+			Panel.setPrompt(prompt)
+			Panel.onState(statePayload())
+
+			-- 1. THE X IN THE CORNER. `setOpen(false)` is what that button's `Activated` calls.
+			prompt.fire()
+			expect(Panel.isOpen()).to.equal(true)
+			local mouse, trigger = holdsShop()
+			expect(mouse).to.equal(true)
+			expect(trigger).to.equal(true)
+			Panel.setOpen(false)
+			mouse, trigger = holdsShop()
+			expect(mouse).to.equal(false)
+			expect(trigger).to.equal(false)
+			-- ...AND THE ENGINE IS BACK IN LOCKCENTER after the camera's next frame, which is the
+			-- thing Karen actually sees: `Cursor.apply` is the one writer and the owner calls it
+			-- every frame.
+			Cursor.apply()
+			expect(UserInputService.MouseBehavior).to.equal(Enum.MouseBehavior.LockCenter)
+
+			-- 2. WALKING AWAY FROM THE COUNTER.
+			prompt.fire()
+			expect(Panel.isOpen()).to.equal(true)
+			Panel.setNear(true)
+			Panel.setNear(false)
+			expect(Panel.isOpen()).to.equal(false)
+			mouse, trigger = holdsShop()
+			expect(mouse).to.equal(false)
+			expect(trigger).to.equal(false)
+			Cursor.apply()
+			expect(UserInputService.MouseBehavior).to.equal(Enum.MouseBehavior.LockCenter)
+
+			-- 3. THE FLAG GOING OUT UNDER AN OPEN PANEL -- the third door into `setOpen(false)`, and
+			-- the one no player can press but a build switch can.
+			prompt.fire()
+			expect(Panel.isOpen()).to.equal(true)
+			Panel.setEnabled(false)
+			expect(Panel.isOpen()).to.equal(false)
+			mouse, trigger = holdsShop()
+			expect(mouse).to.equal(false)
+			expect(trigger).to.equal(false)
+			Cursor.apply()
+			expect(UserInputService.MouseBehavior).to.equal(Enum.MouseBehavior.LockCenter)
+
+			Panel.setPrompt(nil)
+			Panel.setEnabled(Shop.isOn())
 		end)
 
 		-- ---------------------------------------------------------------- the shopkeeper (task 181)
