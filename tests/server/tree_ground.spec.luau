@@ -59,9 +59,11 @@ return function()
 
 	describe("flareFootprint", function()
 		it("leaves a narrow trunk exactly as it is", function()
-			-- The lobby's birch: a 3.7-stud trunk on a 74-stud tree. The clamp is 5.92 each side, so
-			-- this must come back untouched -- task 199 changed nothing for the lobby's two
-			-- templates and this is the assertion that says so.
+			-- The lobby's birch: a 3.7-stud trunk on a 74-stud tree. The clamp is 5.92 each side,
+			-- so a trunk that narrow comes back untouched. NOTE: `Lobby.Build` does not call this
+			-- at all -- its footprint is already the union of the parts that reach the ground, and
+			-- applying the clamp there measurably changed how deep its trees sit (`lobby.spec`'s
+			-- own claw case caught it). This asserts the function, not the lobby.
 			local trunk = box(100, 50, 200, 103.7, 124, 203.7)
 			local out = TreeGround.flareFootprint(trunk, 74)
 			expect(out.minX).to.equal(100)
@@ -162,9 +164,13 @@ return function()
 			expect(v.lift).to.equal(nil)
 		end)
 
-		it("is on the moving side of the tolerance at 0.21 and not at 0.2", function()
-			expect(TreeGround.decide(100.2, 160, 0, { 100 }).move).to.equal(false)
-			expect(TreeGround.decide(100.21, 160, 0, { 100 }).move).to.equal(true)
+		it("is on the moving side of the tolerance at 0.3 and not at 0.2", function()
+			-- MEASURED FROM ZERO, NOT FROM 100. The first version of this case asked about
+			-- `decide(100.2, ..., { 100 })` and failed: `100.2 - 100` is 0.20000000000000284 in a
+			-- double, so a tree exactly on the tolerance read as floating. The tolerance is a
+			-- judgement about studs of daylight, not about the last bit of a subtraction.
+			expect(TreeGround.decide(0.2, 60, 0, { 0 }).move).to.equal(false)
+			expect(TreeGround.decide(0.3, 60, 0, { 0 }).move).to.equal(true)
 		end)
 
 		it("lists a cliff edge instead of burying the tree in the bank", function()

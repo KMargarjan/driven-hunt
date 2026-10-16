@@ -90,7 +90,8 @@ the split point is below the height at which the flare has thinned back to trunk
 
 ## 6. What was measured and turned out to be wrong
 
-Three of this task's own mistakes, kept because each is now a guard or an assertion:
+Four of this task's own mistakes, kept because each is now a guard, an assertion or a line
+in the code saying what not to do again:
 
 1. **The footprint read the canopy.** The first measurement took the footprint from every part
    whose bottom was within 0.15 of the model's height — which on an aspen includes the **leaves**,
@@ -101,11 +102,17 @@ Three of this task's own mistakes, kept because each is now a guard or an assert
    studs away and down a bank. It made the ground under nineteen larches look like a **cliff edge**
    and the tool declined to move every one of them — while they floated **30 studs in the air**.
    Fixed by `TreeGround.flareFootprint`, which clamps the footprint to a root flare's own width
-   (`max(0.08 × height, 2.0)` each side of its centre). The clamp is **inert for the lobby's two
-   templates** — a 3.7-stud birch trunk on a 74-stud tree is nowhere near the 5.9-stud clamp — which
-   is asserted rather than claimed, so task 196's thirty-eight trees are untouched. Cliff
-   exclusions fell from **426 to 65**.
-3. **The camera was aimed at the model's pivot, and photographed the wrong tree.** The first
+   (`max(0.08 × height, 2.0)` each side of its centre). Cliff exclusions fell from **426 to 65**.
+3. **I applied the flare clamp to the lobby too, claimed it was inert there, and it was not.**
+   The lobby's templates have 3.7- and 2.0-stud trunk parts, nowhere near the 5.9-stud clamp, so
+   "inert" looked safe to assert. `lobby.spec`'s own "buries each tree's root claws" case failed on
+   the very next harness run: that case reads the ground **across the whole model box** on a test
+   slope, so narrowing the sampled strip raises the lowest reading and every lobby tree sinks less
+   than the 0.6 studs it is held to. The clamp is now the forest's alone, and the lobby's
+   `treePlan` is byte-for-byte the behaviour task 196 signed off. **The lobby does not need it:**
+   its footprint is already the union of the parts that reach the ground, and on those two
+   templates the near-ground parts ARE the flare.
+4. **The camera was aimed at the model's pivot, and photographed the wrong tree.** The first
    close-up taken as evidence showed a perfectly seated birch that was not the tree the row was
    about. The tool now reports the **trunk footprint's own x and z**, and that is what the frame
    list in the review request carries.

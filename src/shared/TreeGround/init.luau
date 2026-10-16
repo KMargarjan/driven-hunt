@@ -129,9 +129,15 @@ TreeGround.FLARE_FLOOR = 2.0
 -- on.
 --
 -- IT ONLY EVER SHRINKS, AND ALWAYS ABOUT THE FOOTPRINT'S OWN CENTRE, so a narrow trunk is returned
--- untouched. It is inert for the lobby's two templates (a 3.7-stud birch trunk on a 74-stud tree is
--- nowhere near the 5.9-stud clamp), which is deliberate: this is a guard for the next model, not a
--- change to the thirty-eight trees task 196 signed off.
+-- untouched.
+--
+-- `Lobby.Build` DOES NOT CALL IT, and that is a measurement rather than a preference. I added it
+-- there too, claiming it was inert for the lobby's two templates because their trunk parts are 3.7
+-- and 2.0 studs across -- and `lobby.spec`'s "buries each tree's root claws" case FAILED: that case
+-- reads the ground across the whole model box on a slope, so narrowing the sampled strip raises the
+-- lowest reading and every lobby tree sinks less than the 0.6 studs it is held to. The lobby does
+-- not need the guard anyway: its footprint is already the union of the parts that REACH THE GROUND,
+-- and on those templates the near-ground parts ARE the flare.
 function TreeGround.flareFootprint(box: Box, height: number): Box
 	local reach = math.max(TreeGround.FLARE_FRACTION * height, TreeGround.FLARE_FLOOR)
 	local midX, midZ = (box.minX + box.maxX) / 2, (box.minZ + box.maxZ) / 2

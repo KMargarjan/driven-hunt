@@ -3908,21 +3908,18 @@ local function treePlan(model: Model, cfg, clawFraction: number): any
 	end
 	local baseMin = if low ~= nil then Vector3.new(low.X, min.Y, low.Z) else min
 	local baseMax = if high ~= nil then Vector3.new(high.X, max.Y, high.Z) else max
-	-- ...AND CLAMPED TO THE ROOT FLARE (task 199), the same guard the forest's tool applies. It
-	-- changes NOTHING for these two templates -- a 3.7-stud birch trunk on a 74-stud tree is
-	-- nowhere near the 5.9-stud clamp -- and what it is for is the next model: `OurForest` has
-	-- larches whose "Trunk" mesh is 15.6 studs across, and sampling to ITS corners reads the ground
-	-- seven studs from the trunk and down a bank.
-	local flare = TreeGround.flareFootprint({
-		minX = baseMin.X,
-		minY = baseMin.Y,
-		minZ = baseMin.Z,
-		maxX = baseMax.X,
-		maxY = baseMax.Y,
-		maxZ = baseMax.Z,
-	}, max.Y - min.Y)
-	baseMin = Vector3.new(flare.minX, flare.minY, flare.minZ)
-	baseMax = Vector3.new(flare.maxX, flare.maxY, flare.maxZ)
+	-- THE FOREST'S FLARE CLAMP (`TreeGround.flareFootprint`, task 199) IS DELIBERATELY NOT APPLIED
+	-- HERE, and that is a measurement rather than a preference. I added it, claimed it was inert
+	-- for these two templates, and `lobby.spec`'s own "buries each tree's root claws" case failed:
+	-- on its test slope the clamp narrows the sampled strip, the lowest reading comes up, and every
+	-- tree sinks LESS than the 0.6 `SINK_STUDS` the case holds them to.
+	--
+	-- WHY THE FOREST NEEDS IT AND THIS DOES NOT. The footprint above is already the union of the
+	-- parts that REACH THE GROUND, and these two templates' trunk parts are 3.7 and 2.0 studs
+	-- across -- the near-ground parts ARE the flare. `Workspace.OurForest`'s are not: a
+	-- `LarchTree_Var02`'s single "Trunk" mesh is 15.6 studs across and carries the whole lower
+	-- tree, so the clamp is the only thing between its corners and the ground seven studs away,
+	-- down a bank. One function, and the caller that does not need the guard does not pay for it.
 	local contacts = {}
 	for _, point in ipairs(Build.footprintSamples(baseMin, baseMax, 4)) do
 		table.insert(contacts, { x = point.X, z = point.Y, bottom = junction })
