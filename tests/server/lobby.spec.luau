@@ -1799,13 +1799,12 @@ return function()
 				local at = folder:FindFirstChild(group)
 				expect(at).to.be.ok()
 				for _, tree in ipairs((at :: Instance):GetChildren()) do
-					for _, piece in ipairs(tree:GetDescendants()) do
-						if piece:IsA("BasePart") then
-							local box = piece :: BasePart
-							if Build.boxesOverlap(box.Position, box.Size / 2, keepAt, keepHalf, 3) then
-								inside += 1
-							end
-						end
+					-- THE TREE'S REAL WORLD BOX AND NOT `Model:GetBoundingBox()` (part 3c): that one
+					-- is ORIENTED, and every tree here is turned by a random yaw, which is how the
+					-- first version of this check passed with seven tree parts in the house.
+					local boxAt, boxHalf = Build.worldBoxOf(tree)
+					if Build.boxesOverlap(boxAt, boxHalf, keepAt, keepHalf, 3) then
+						inside += 1
 					end
 				end
 			end
@@ -1819,7 +1818,8 @@ return function()
 			local at, half = Build.lodgeKeepOut(CFG)
 			-- A `Vector3` COMPONENT IS A 32-BIT FLOAT and the arithmetic that made it is not, so
 			-- 20.2 comes back as 20.200000762939453. Every comparison here is to a tolerance.
-			expect(math.abs(half.X - (CFG.LODGE.SIZE.X / 2 + CFG.LODGE.ROOF.GABLE_STUDS)) < 1e-3).to.equal(true)
+			local widest = math.max(CFG.LODGE.ROOF.GABLE_STUDS, CFG.LODGE.CHIMNEY.BASE_DEPTH / 2) + CFG.LODGE.SIZE.X / 2
+			expect(math.abs(half.X - widest) < 1e-3).to.equal(true)
 			-- THE PORCH SIDE IS LONGER THAN THE BACK, so the box is not centred on the house.
 			expect(at.Z < CFG.LODGE.OFFSET.Z).to.equal(true)
 			local front = at.Z - half.Z - CFG.LODGE.OFFSET.Z

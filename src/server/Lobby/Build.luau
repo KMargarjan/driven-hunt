@@ -3742,7 +3742,9 @@ function Build.lodgeKeepOut(cfg): (Vector3, Vector3)
 	local size = cfg.LODGE.SIZE
 	local eaves = cfg.LODGE.ROOF
 	local deck = cfg.LODGE.PORCH
-	local halfX = size.X / 2 + eaves.GABLE_STUDS
+	-- THE CHIMNEY IS WIDER THAN THE GABLE OVERHANG and stands on the west end, so the box is
+	-- MEASURED against both: 18 + 2.2 is 20.2, and the lodge's real west face was measured at 21.6.
+	local halfX = math.max(size.X / 2 + eaves.GABLE_STUDS, size.X / 2 + cfg.LODGE.CHIMNEY.BASE_DEPTH / 2)
 	-- THE LODGE FACES SOUTH, so the porch and its steps hang off -Z and the box is not symmetric.
 	local north = size.Z / 2 + eaves.EAVE_STUDS
 	local south = size.Z / 2 + eaves.EAVE_STUDS + deck.DEPTH + deck.STEP_DEPTH
@@ -3751,6 +3753,40 @@ function Build.lodgeKeepOut(cfg): (Vector3, Vector3)
 	local bottom = -4
 	return cfg.LODGE.OFFSET + Vector3.new(0, (top + bottom) / 2, (north - south) / 2),
 		Vector3.new(halfX, (top - bottom) / 2, (north + south) / 2)
+end
+
+-- A MODEL'S REAL WORLD BOX, AXIS-ALIGNED. `Model:GetBoundingBox()` returns an ORIENTED box -- its
+-- CFrame carries the model's own rotation -- so treating its position and size as an axis-aligned
+-- box is wrong for anything that has been turned, and every tree here is turned by a random yaw.
+-- That is why the first version of this check still let seven tree parts stand in the house.
+--
+-- EVERY PART, PROJECTED: half the part's size dotted through the absolute value of its rotation is
+-- the part's own axis-aligned reach, which is the same projection `lobby.spec` clamps trophies with.
+function Build.worldBoxOf(model: Instance): (Vector3, Vector3)
+	local min, max
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local piece = descendant :: BasePart
+			local _, _, _, r00, r01, r02, r10, r11, r12, r20, r21, r22 = piece.CFrame:GetComponents()
+			local size = piece.Size
+			local reach = Vector3.new(
+				0.5 * (math.abs(r00) * size.X + math.abs(r01) * size.Y + math.abs(r02) * size.Z),
+				0.5 * (math.abs(r10) * size.X + math.abs(r11) * size.Y + math.abs(r12) * size.Z),
+				0.5 * (math.abs(r20) * size.X + math.abs(r21) * size.Y + math.abs(r22) * size.Z)
+			)
+			local low, high = piece.Position - reach, piece.Position + reach
+			if min == nil then
+				min, max = low, high
+			else
+				min = Vector3.new(math.min(min.X, low.X), math.min(min.Y, low.Y), math.min(min.Z, low.Z))
+				max = Vector3.new(math.max(max.X, high.X), math.max(max.Y, high.Y), math.max(max.Z, high.Z))
+			end
+		end
+	end
+	if min == nil then
+		return Vector3.zero, Vector3.zero
+	end
+	return (min + max) / 2, (max - min) / 2
 end
 
 -- TWO AXIS-ALIGNED BOXES, OR NOT. Pure, and the one place the margin is applied.
@@ -3802,19 +3838,18 @@ local function clearOfLodge(
 	away = away.Unit
 	local at = foot
 	for _ = 0, 6 do
-		local box, size = model:GetBoundingBox()
-		if not Build.boxesOverlap(box.Position, size / 2, keepAt, keepHalf, TREE_MARGIN_STUDS) then
+		local boxAt, boxHalf = Build.worldBoxOf(model)
+		if not Build.boxesOverlap(boxAt, boxHalf, keepAt, keepHalf, TREE_MARGIN_STUDS) then
 			return true
 		end
 		at += away * 7
 		-- MOVED BY THE DELTA OF ITS OWN BOUNDING BOX, never by setting the pivot to a point: a free
 		-- model's pivot is its box centre only while nobody has set a `PrimaryPart`, and `cloneInstance`
 		-- makes the same correction for the same reason.
-		box, size = model:GetBoundingBox()
+		boxAt, boxHalf = Build.worldBoxOf(model)
 		local wantBottom = plantY(at, anchor, cfg, groundAt)
 		model:PivotTo(
-			model:GetPivot()
-				+ Vector3.new(at.X - box.Position.X, wantBottom - (box.Position.Y - size.Y / 2), at.Z - box.Position.Z)
+			model:GetPivot() + Vector3.new(at.X - boxAt.X, wantBottom - (boxAt.Y - boxHalf.Y), at.Z - boxAt.Z)
 		)
 		stats.treesMoved += 1
 	end
