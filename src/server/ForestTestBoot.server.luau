@@ -589,6 +589,16 @@ local lobbyOn = Lobby.start({
 	--                teleport at all (docs/design/truck-pads.md section 9).
 	remotes = Lobby.Data.remotes(),
 	groundAt = Data.groundAt,
+	--   terrainAt    WHERE THE TERRAIN IS, WHICH IS NOT THE SAME QUESTION (task 196 part 3d). Karen,
+	--                2026-10-16: *"look at the trees wtf"* -- birches standing on their splayed
+	--                roots with daylight under them. `Data.groundAt` rays past `OurForest`,
+	--                `Foliage` and `Boars`, but its own header measures that this is not every
+	--                tree: 831 more live in two Studio folders called `Session`, so a downward ray
+	--                can stop on a canopy, and it can also stop on a road part or a fence. A TREE
+	--                seated on a canopy is a tree standing on air. `ForestTest.terrainYAt` includes
+	--                nothing but `Workspace.Terrain` and so can only ever answer "where is the
+	--                ground".
+	terrainAt = ForestTest.terrainYAt,
 	terrain = Workspace.Terrain,
 	now = function()
 		return os.clock()

@@ -535,13 +535,10 @@ Lobby.CONFIG = {
 		-- WEST OF THE MIDDLE, AND THAT IS A MEASURED CLEARANCE AND NOT AN ARRANGEMENT: the walk from
 		-- the doorway to the counter runs diagonally across the room, and a bench centred on the room
 		-- stood in it (the spec caught it, with the bench named).
-		TABLE = {
-			OFFSET = Vector2.new(-4.5, -2),
-			SIZE = Vector2.new(10, 4),
-			HEIGHT = 3,
-			BENCH_HEIGHT = 1.8,
-			BENCH_STUDS = 3.4,
-		},
+		-- NO TABLE AND NO BENCHES (task 196 part 3d). KAREN, 2026-10-16: *"remove table and all
+		-- boar heads only keep one where is on fireplace"*. Archived with the builder:
+		-- `backups/2026-10-16_task-196_table-and-north-trophies.txt`. Nothing replaces them --
+		-- what goes in that floor, if anything, is Karen's.
 		-- THE RUG IN FRONT OF THE HEARTH (task 195). Karen: *"make nice inside"*. One flat part
 		-- lying ON the floorboards -- its bottom IS the floor's top, so it cannot float and cannot
 		-- z-fight -- between the hearth stone and the north bench, and clear of both: the hearth
@@ -812,46 +809,16 @@ Lobby.CONFIG = {
 		-- joins, and that is z-fighting in both.
 		MOUNTS = {
 			{ kind = "boar", wall = "west", along = 4, standoff = 3.2 },
-			{ kind = "boar", wall = "north", along = -11.4, height = 4.3, standoff = -0.2 },
-			{ kind = "sow", wall = "north", along = -14.6, height = 8.9, standoff = -0.2 },
-			{ kind = "sow", wall = "north", along = -2.6, height = 8.9, standoff = -0.2 },
-			-- 4.53 AND NOT 4.6 (part 3c): a sow's board is 1.44 of body against the boar's 1.9, so
-			-- two shields hung at the same CENTRE are visibly stepped. 4.3 + 0.95 and 4.53 + 0.72
-			-- put both board TOPS on 5.25, which is the line the eye actually reads.
-			{ kind = "sow", wall = "north", along = -5.4, height = 4.53, standoff = -0.2 },
+			-- ONE MOUNT, AND IT IS THE ONE OVER THE FIRE (task 196 part 3d). KAREN, 2026-10-16:
+			-- *"remove table and all boar heads only keep one where is on fireplace"*. The four
+			-- north-wall rows -- a second Keiler and three Bache -- are archived. The red stag's
+			-- empty place below is KEPT: Karen asked for it and it is still waiting for him.
 		},
-		-- THE BOARDED BACK STORE, AND IT IS THERE FOR A MEASURED REASON (part 3c). A mount is the
-		-- WHOLE animal with most of it inside the wall, and the north wall is one log thick: the
-		-- rumps were measured standing **1.52 studs proud of the OUTSIDE face** on the boar and 0.96
-		-- on the three sows -- four boar backsides on the back of the house. The capital boar over
-		-- the fire has 2.8 studs of chimney stone behind it and is clear by 6.25, which is why it
-		-- never showed. So the trophy run gets depth behind it: a boarded lean-to store against the
-		-- back wall, which is a thing a lodge has, and which swallows every rump with 0.9 to spare.
-		BACKING = {
-			ALONG = -8.6,
-			WIDTH = 17.6,
-			BOTTOM = 1.4,
-			TOP = 11.8,
-			DEPTH = 2.6,
-			BOARDS = 5,
-			COLOR = Color3.fromHex("3A2C1F"),
-			BOARD_COLOR = Color3.fromHex("2E2319"),
-		},
-		-- TWO SCONCES ON THE TROPHY WALL (part 3c, the Director's own instruction). The room is lit
-		-- FLAT -- `Lighting.Ambient` measures 159,159,159 at `Brightness` 3 in this place, and
-		-- nothing under `src/` writes Lighting, so it is the place's and not the lodge's -- and flat
-		-- grey ambient is what makes a textured boar read as a pale ghost. A warm local light is the
-		-- part of that the lodge DOES own.
-		LIGHT = {
-			ALONG = { -14.2, -3.0 },
-			HEIGHT = 7.4,
-			-- DIMMER AND SMALLER AFTER LOOKING AT IT (part 3c): at 2.1 and range 17 the pair washed
-			-- the log wall paler than it started and the glass read as a white DOT floating off the
-			-- wall. A sconce is a small warm lamp, not a floodlight.
-			COLOR = Color3.fromRGB(255, 186, 118),
-			BRIGHTNESS = 1.0,
-			RANGE = 12,
-		},
+		-- THE BOARDED BACK STORE AND THE TWO SCONCES WENT WITH THE NORTH WALL (part 3d). The store
+		-- existed to swallow four boar rumps that stood 1.52 studs proud of the outside face, and
+		-- the sconces existed to light four heads; with the heads gone there is nothing behind the
+		-- wall and nothing on it to light. The capital boar over the fire needs neither: it is
+		-- 6.25 studs inside the chimney stonework, measured. Archived with the rest.
 		-- THE RED STAG'S PLACE, KEPT AND LEGIBLE (spec 15c). Nothing is built inside this box; two
 		-- iron pegs are fixed at the top of it, where a shield would hang from, so it reads as KEPT
 		-- rather than as forgotten. The day a stag model exists it mounts at

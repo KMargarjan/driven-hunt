@@ -1657,10 +1657,11 @@ return function()
 			-- `PointLight` written ONCE: nothing in this lodge is animated by a script, so there is
 			-- no second writer of anything. The count is read off the config, so a fourth lantern is
 			-- a row and not a failing test.
-			-- ...AND THE TWO TROPHY SCONCES SINCE PART 3C. `Lighting.Ambient` measures 159,159,159 at
-			-- `Brightness` 3 in the place Karen plays and NOTHING under `src/` writes Lighting, so a
-			-- warm local light is the only part of a washed-out trophy wall the lodge itself owns.
-			expect(lights).to.equal(1 + #CFG.LODGE.LANTERN.ALONG + 2 + #CFG.TROPHIES.LIGHT.ALONG)
+			-- THE TWO TROPHY SCONCES WENT WITH THE NORTH WALL (task 196 part 3d): they were lit for
+			-- four heads, and the one mount left is over the fire. The count is back to the fire,
+			-- the ceiling lanterns and the two on the porch -- and `TROPHIES.LIGHT` is gone, so a
+			-- term reading it here would not even compile.
+			expect(lights).to.equal(1 + #CFG.LODGE.LANTERN.ALONG + 2)
 			-- KAREN ASKED FOR A FIREPLACE WITH A FIRE IN IT: the `Fire`, the embers and the light
 			-- all hang on the one part, which is what makes "the fire is present" checkable.
 			local fire = folder:FindFirstChild("Fire", true)
@@ -1812,6 +1813,74 @@ return function()
 			templates:Destroy()
 		end)
 
+		-- NO TREE STANDS ON ITS ROOTS IN THE AIR (task 196 part 3d). KAREN, 2026-10-16, with a
+		-- photograph: *"look at the trees wtf"* -- birches on their splayed root flares with one to
+		-- three studs of daylight under them, beside a road cut.
+		--
+		-- THE GROUND UNDER A TREE IS NOT ONE NUMBER, and that is the whole bug. `plantY` asked for
+		-- the ground at the PLANTING POINT and the model's lowest point was put there; a birch's
+		-- root flare is eight or nine studs across, so on a bank the ground under the OUTER tips is
+		-- lower and the tree stands on the high side. The part-3c check made the identical mistake
+		-- in the identical place -- it rayed once, at the box's centre -- which is why it reported
+		-- zero while Karen was looking at this.
+		it("seats every tree on the LOWEST ground anywhere under it, not the ground at its foot", function()
+			local templates = fakeTemplates()
+			-- A GROUND THAT FALLS AWAY, which is what a road cut is: flat at 0 until x = 40, then
+			-- down one stud for every two. A single sample at a tree's foot cannot see it.
+			local function slope(x: number, _z: number): number
+				return anchor.Y + (if x > 40 then -(x - 40) / 2 else 0)
+			end
+			local folder = Build.build(container, anchor, CFG, templates, { terrainAt = slope } :: any)
+			local worst, worstName = -math.huge, "-"
+			for _, group in ipairs({ "TreeLine", "LodgeTrees" }) do
+				local at = folder:FindFirstChild(group)
+				expect(at).to.be.ok()
+				for _, tree in ipairs((at :: Instance):GetChildren()) do
+					local boxAt, boxHalf = Build.worldBoxOf(tree)
+					local low = math.huge
+					for _, point in ipairs(Build.footprintSamples(boxAt - boxHalf, boxAt + boxHalf, 4)) do
+						low = math.min(low, slope(point.X, point.Y))
+					end
+					local gap = (boxAt.Y - boxHalf.Y) - low
+					if gap > worst then
+						worst, worstName = gap, tree.Name
+					end
+				end
+			end
+			-- AT OR BELOW THE LOWEST GROUND UNDER IT, everywhere. Roots on the HIGH side go into the
+			-- bank, which is what a root does and which nobody can see.
+			if worst > 0.2 then
+				error(string.format("%s stands %.2f studs above the ground under it", worstName, worst), 0)
+			end
+			templates:Destroy()
+		end)
+
+		-- THE SAMPLING PATTERN ITSELF, pure, because the case above can only prove that today's
+		-- slope happens to be caught.
+		it("samples the whole footprint and its corners, not just the middle", function()
+			local min, max = Vector3.new(-4, 0, -6), Vector3.new(4, 0, 6)
+			local points = Build.footprintSamples(min, max, 4)
+			expect(#points).to.equal(25)
+			local tips = 0
+			local middle = 0
+			for _, point in ipairs(points) do
+				local onX = math.abs(math.abs(point.X) - 4) < 1e-4
+				local onZ = math.abs(math.abs(point.Y) - 6) < 1e-4
+				if onX and onZ then
+					tips += 1
+				end
+				if math.abs(point.X) < 1e-4 and math.abs(point.Y) < 1e-4 then
+					middle += 1
+				end
+			end
+			-- ALL FOUR CORNERS, because that is where the root tips are...
+			expect(tips).to.equal(4)
+			-- ...and the middle, because that is where the trunk is.
+			expect(middle).to.equal(1)
+			-- A DEGENERATE FOOTPRINT STILL ANSWERS SOMETHING, never an empty list.
+			expect(#Build.footprintSamples(Vector3.zero, Vector3.zero, 0)).to.equal(9)
+		end)
+
 		-- THE KEEP-OUT BOX ITSELF, pure, because the case above can only ever prove that today's
 		-- numbers happen to miss the house.
 		it("draws the keep-out box round the eaves, the gables and the porch", function()
@@ -1832,25 +1901,58 @@ return function()
 			expect(Build.boxesOverlap(Vector3.zero, one, Vector3.new(2.5, 0, 0), one, 1)).to.equal(true)
 		end)
 
-		-- THE TROPHY WALL'S OWN THREE DEFECTS (part 3c), all three read off the Director's own frame.
-		it("hangs a shield with a POINT, no feet under it, and the rumps inside the back store", function()
+		-- ONE MOUNT, AND IT IS THE ONE OVER THE FIRE (task 196 part 3d). KAREN, 2026-10-16:
+		-- *"remove table and all boar heads only keep one where is on fireplace"*.
+		it("hangs ONE trophy, on the fireplace wall, with its point and nothing behind it", function()
 			local folder = Build.build(container, anchor, CFG, nil)
 			local spec = CFG.TROPHIES
-			-- 1. THE POINT IS IN THE WALL PLANE. It was a `WedgePart` laid flat, which read as a
-			-- shelf: its thickness ran along x and its 3.2-stud width along z, INTO the room.
-			local tip = folder:FindFirstChild(string.format("%s2Point", spec.MOUNTS[2].kind), true)
+			-- EXACTLY ONE ROW, AND IT IS THE WEST WALL'S -- the chimney breast over the fire.
+			expect(#spec.MOUNTS).to.equal(1)
+			expect(spec.MOUNTS[1].wall).to.equal("west")
+			-- NOTHING IS LEFT ON THE NORTH WALL. A mount folder is `Mount<n>`, so a second one
+			-- existing at all is four heads that did not go.
+			expect(folder:FindFirstChild("Mount2", true)).to.equal(nil)
+			-- ...AND THE TWO THINGS THAT EXISTED ONLY FOR THEM WENT WITH THEM: the boarded back
+			-- store that swallowed four rumps, and the two sconces that lit four heads.
+			expect(folder:FindFirstChild("TrophyBacking", true)).to.equal(nil)
+			expect(folder:FindFirstChild("SconceFlame1", true)).to.equal(nil)
+			expect((spec :: any).BACKING).to.equal(nil)
+			expect((spec :: any).LIGHT).to.equal(nil)
+			-- THE SHIELD KEEPS ITS POINT (part 3c): it was a `WedgePart` laid flat, which read as a
+			-- shelf under the plaque -- its thickness along x and its 3.2 studs of width INTO the
+			-- room. The one that is left is the one Karen looks at.
+			local tip = folder:FindFirstChild(string.format("%s1Point", spec.MOUNTS[1].kind), true)
 			expect(tip).to.be.ok()
 			local point = tip :: BasePart
 			expect(point:IsA("WedgePart")).to.equal(false)
 			expect(math.abs(point.Size.Z - spec.SHIELD.BOARD_THICK) < 1e-3).to.equal(true)
-			-- 2. THE BACK STORE IS DEEPER THAN THE DEEPEST RUMP. Measured in the live place: the
-			-- boar stood 1.52 studs proud of the north wall's outside face and the sows 0.96.
-			expect(folder:FindFirstChild("TrophyBacking", true)).to.be.ok()
-			expect(spec.BACKING.DEPTH > 1.52).to.equal(true)
-			-- 3. THE WALL LIGHTS ITS OWN TROPHIES, because `Lighting` is the place's and not ours.
-			local bowl = folder:FindFirstChild("SconceFlame1", true)
-			expect(bowl).to.be.ok()
-			expect((bowl :: Instance):FindFirstChildWhichIsA("PointLight")).to.be.ok()
+			-- AND THE RED STAG'S PLACE IS STILL KEPT. Karen asked for it; it is still waiting.
+			expect(folder:FindFirstChild("StagPeg1", true)).to.be.ok()
+			expect(folder:FindFirstChild("StagPeg2", true)).to.be.ok()
+		end)
+
+		-- NO TABLE, NO BENCHES, AND NO BENCH LEFT BEHIND (task 196 part 3d). The benches went WITH
+		-- the table, because a bench facing nothing in the middle of an empty room reads as a
+		-- leftover rather than as furniture.
+		it("has no table and no bench left inside the room", function()
+			local folder = Build.build(container, anchor, CFG, nil)
+			expect((CFG.LODGE :: any).TABLE).to.equal(nil)
+			local left = {}
+			for _, descendant in ipairs(folder:GetDescendants()) do
+				local name = descendant.Name
+				-- `PorchBench` IS NOT THE DINING SET and stays: it is on the deck, against the wall,
+				-- by the door, and it never had a table.
+				if
+					descendant:IsA("BasePart")
+					and not string.find(name, "Porch", 1, true)
+					and (string.match(name, "^Table") or string.match(name, "^Bench"))
+				then
+					table.insert(left, name)
+				end
+			end
+			if #left > 0 then
+				error(string.format("still standing: %s", table.concat(left, ", ")), 0)
+			end
 		end)
 
 		it("builds the SAME lodge when the template folder is not there at all", function()
@@ -2201,13 +2303,6 @@ return function()
 			for _, descendant in ipairs((heads :: Instance):GetDescendants()) do
 				if descendant:IsA("BasePart") then
 					local piece = descendant :: BasePart
-					-- THE BOARDED BACK STORE IS OUTSIDE THE ROOM BECAUSE THAT IS WHAT IT IS FOR
-					-- (part 3c): a mount is the WHOLE animal with most of it inside the wall, and
-					-- the rumps were measured standing 1.52 studs proud of the north wall's OUTSIDE
-					-- face. The store is the depth they need, built against the back of the house.
-					if string.find(piece.Name, "TrophyBacking", 1, true) then
-						continue
-					end
 					pieces += 1
 					-- THE SHIELD'S BOARD **IS** THE PLAQUE, and since part 3b that is its name (part
 					-- 3c). `shield` builds `<name>Board`, so counting the word "Plaque" counted zero
@@ -2963,10 +3058,6 @@ return function()
 				local name = piece.Name
 				if string.match(name, "^Counter") then
 					return "Counter" -- the till, its cap, the wing, the return and the two clips
-				elseif string.match(name, "^Table") then
-					return "Table"
-				elseif string.match(name, "^Bench") then
-					return "Bench" .. (string.match(name, "%d") or "?")
 				elseif string.match(name, "^GunRack") then
 					return "GunRack"
 				elseif name == "Rug" then
@@ -2986,7 +3077,10 @@ return function()
 				end
 			end
 			-- EVERY PIECE THIS CASE CLAIMS TO WATCH IS REALLY THERE.
-			for _, want in ipairs({ "Counter", "Table", "Bench1", "Bench2", "GunRack", "Rug", "Shopkeeper" }) do
+			-- THE TABLE AND ITS TWO BENCHES LEFT THE LIST IN TASK 196 PART 3D, with the furniture.
+			-- Karen, 2026-10-16: *"remove table and all boar heads only keep one where is on
+			-- fireplace"*. What is left is what is still in the room.
+			for _, want in ipairs({ "Counter", "GunRack", "Rug", "Shopkeeper" }) do
 				expect(seen[want]).to.equal(true)
 			end
 			for i = 1, #pieces do

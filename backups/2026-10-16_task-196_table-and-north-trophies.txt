@@ -1,0 +1,157 @@
+Task 196 part 3d — archived, rule 7. Removed 2026-10-16.
+
+KAREN, 2026-10-16 ~21:30, verbatim:
+    "remove table and all boar heads only keep one where is on fireplace"
+
+Removed: the dining table and its two benches, and the four NORTH-WALL trophy
+mounts (the second Keiler and the three Bache) together with everything that
+existed only to serve them -- the boarded back store that gave their rumps
+somewhere to go, and the two trophy-wall sconces that were lit for them.
+
+KEPT: the capital boar over the fireplace (MOUNTS row 1, the west wall), and
+the red stag's empty place with its two iron pegs.
+
+THE BENCHES GO WITH THE TABLE because a bench on its own reads as a leftover,
+not as furniture: they were built from the table's own `OFFSET`, `SIZE` and
+`BENCH_STUDS`, they face nothing once the table is gone, and two planks on legs
+in the middle of an empty room is the kind of thing Karen reports as broken.
+
+Nothing replaces them. Karen decides what goes in that floor, if anything.
+
+------------------------------------------------------------------------------
+src/shared/Lobby/init.luau -- CONFIG.LODGE.TABLE
+
+		TABLE = {
+			OFFSET = Vector2.new(-4.5, -2),
+			SIZE = Vector2.new(10, 4),
+			HEIGHT = 3,
+			BENCH_HEIGHT = 1.8,
+			BENCH_STUDS = 3.4,
+		},
+
+------------------------------------------------------------------------------
+src/shared/Lobby/init.luau -- CONFIG.TROPHIES.MOUNTS, rows 2..5 (row 1 is KEPT)
+
+			{ kind = "boar", wall = "north", along = -11.4, height = 4.3, standoff = -0.2 },
+			{ kind = "sow", wall = "north", along = -14.6, height = 8.9, standoff = -0.2 },
+			{ kind = "sow", wall = "north", along = -2.6, height = 8.9, standoff = -0.2 },
+			-- 4.53 AND NOT 4.6 (part 3c): a sow's board is 1.44 of body against the boar's 1.9, so
+			-- two shields hung at the same CENTRE are visibly stepped. 4.3 + 0.95 and 4.53 + 0.72
+			-- put both board TOPS on 5.25, which is the line the eye actually reads.
+			{ kind = "sow", wall = "north", along = -5.4, height = 4.53, standoff = -0.2 },
+
+------------------------------------------------------------------------------
+src/shared/Lobby/init.luau -- CONFIG.TROPHIES.BACKING (part 3c)
+
+		-- THE BOARDED BACK STORE, AND IT IS THERE FOR A MEASURED REASON (part 3c). A mount is the
+		-- WHOLE animal with most of it inside the wall, and the north wall is one log thick: the
+		-- rumps were measured standing **1.52 studs proud of the OUTSIDE face** on the boar and 0.96
+		-- on the three sows -- four boar backsides on the back of the house. The capital boar over
+		-- the fire has 2.8 studs of chimney stone behind it and is clear by 6.25, which is why it
+		-- never showed. So the trophy run gets depth behind it: a boarded lean-to store against the
+		-- back wall, which is a thing a lodge has, and which swallows every rump with 0.9 to spare.
+		BACKING = {
+			ALONG = -8.6,
+			WIDTH = 17.6,
+			BOTTOM = 1.4,
+			TOP = 11.8,
+			DEPTH = 2.6,
+			BOARDS = 5,
+			COLOR = Color3.fromHex("3A2C1F"),
+			BOARD_COLOR = Color3.fromHex("2E2319"),
+		},
+
+It goes because the only thing behind it was four boar rumps. The fireplace
+boar needs none: it is 6.25 studs inside the chimney stonework, measured.
+
+------------------------------------------------------------------------------
+src/shared/Lobby/init.luau -- CONFIG.TROPHIES.LIGHT (part 3c)
+
+		-- TWO SCONCES ON THE TROPHY WALL (part 3c, the Director's own instruction). The room is lit
+		-- FLAT -- `Lighting.Ambient` measures 159,159,159 at `Brightness` 3 in this place, and
+		-- nothing under `src/` writes Lighting, so it is the place's and not the lodge's -- and flat
+		-- grey ambient is what makes a textured boar read as a pale ghost. A warm local light is the
+		-- part of that the lodge DOES own.
+		LIGHT = {
+			ALONG = { -14.2, -3.0 },
+			HEIGHT = 7.4,
+			COLOR = Color3.fromRGB(255, 186, 118),
+			BRIGHTNESS = 1.0,
+			RANGE = 12,
+		},
+
+They were put in to light the four north-wall heads and were measured NOT to
+help (the heads read the same grey with them as without -- the pale look is the
+place's `Lighting`, which nothing under src/ writes). With the heads gone there
+is nothing on that wall to light, so two lamps burning at an empty log wall is
+two parts and two lights for nothing. The fire and the three ceiling lanterns
+are unchanged.
+
+------------------------------------------------------------------------------
+src/server/Lobby/Build.luau -- the table and bench builder, inside `interior`
+
+	-- THE TABLE AND ITS BENCHES, in the middle of the room where a hunting party eats.
+	local spec = cfg.LODGE.TABLE
+	local tableX, tableZ = origin.X + spec.OFFSET.X, origin.Z + spec.OFFSET.Y
+	part(
+		"TableTop",
+		Vector3.new(spec.SIZE.X, 0.55, spec.SIZE.Y),
+		CFrame.new(tableX, origin.Y + spec.HEIGHT, tableZ),
+		cfg.LODGE.FURNITURE_COLOR,
+		Enum.Material.Wood,
+		true,
+		inside
+	)
+	for index, dx in ipairs({ -spec.SIZE.X / 2 + 1.1, spec.SIZE.X / 2 - 1.1 }) do
+		part(
+			string.format("TableLeg%d", index),
+			Vector3.new(0.9, spec.HEIGHT - 0.3, spec.SIZE.Y - 0.8),
+			CFrame.new(tableX + dx, origin.Y + (spec.HEIGHT - 0.3) / 2, tableZ),
+			cfg.LODGE.FURNITURE_COLOR,
+			Enum.Material.Wood,
+			true,
+			inside
+		)
+	end
+	part(
+		"TableRail",
+		Vector3.new(spec.SIZE.X - 2.6, 0.5, 0.6),
+		CFrame.new(tableX, origin.Y + spec.HEIGHT - 1.4, tableZ),
+		cfg.LODGE.FURNITURE_COLOR,
+		Enum.Material.Wood,
+		false,
+		inside
+	)
+	for index, dz in ipairs({ -spec.BENCH_STUDS, spec.BENCH_STUDS }) do
+		part(
+			string.format("Bench%d", index),
+			Vector3.new(spec.SIZE.X - 1.4, 0.45, 1.9),
+			CFrame.new(tableX, origin.Y + spec.BENCH_HEIGHT, tableZ + dz),
+			cfg.LODGE.FURNITURE_COLOR,
+			Enum.Material.Wood,
+			true,
+			inside
+		)
+		for leg, dx in ipairs({ -spec.SIZE.X / 2 + 1.4, spec.SIZE.X / 2 - 1.4 }) do
+			part(
+				string.format("BenchLeg%d_%d", index, leg),
+				Vector3.new(0.6, spec.BENCH_HEIGHT - 0.2, 1.7),
+				CFrame.new(tableX + dx, origin.Y + (spec.BENCH_HEIGHT - 0.2) / 2, tableZ + dz),
+				cfg.LODGE.FURNITURE_COLOR,
+				Enum.Material.Wood,
+				false,
+				inside
+			)
+		end
+	end
+
+`FURNITURE_COLOR` stays: the counter, the rack, the mantel and the porch bench
+are all painted with it.
+
+------------------------------------------------------------------------------
+src/server/Lobby/Build.luau -- the back store and the sconces, inside `trophies`
+
+(The `TrophyBacking`, `TrophyBackingBoard1..5`, `TrophyBackingCap`,
+`SconceArm1..2`, `SconceCup1..2` and `SconceFlame1..2` builders, each guarded by
+`if spec.BACKING ~= nil` / `if spec.LIGHT ~= nil`. They are removed with their
+config rows above; the guards go with them.)

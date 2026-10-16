@@ -324,6 +324,10 @@ local function tryBuild(): boolean
 			-- it the four pads sat 0.17 studs UNDER the terrain and only their billboards showed,
 			-- because Roblox terrain is voxelised and `Field.fill`'s surface is not exactly `shelfY`.
 			groundAt = world.groundAt,
+			-- AND THE TERRAIN'S OWN READER (task 196 part 3d), which `Build` uses for ONE thing: it
+			-- seats every tree against the LOWEST ground anywhere under its root flare, instead of
+			-- against the ground at the point it was planted. Karen: *"look at the trees wtf"*.
+			terrainAt = world.terrainAt,
 		} :: any
 	)
 	building = false

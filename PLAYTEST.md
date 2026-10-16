@@ -93,3 +93,29 @@ player had finished loading in.
 | 2026-09-25 | **v1 sign-off playtest.** Task 24 (the shotgun, including the new X swap) and Task 26 (the camera: over-the-shoulder shoulder cam, hold right mouse for ADS, the viewmodel) played together | Nothing. "all ok, I am happy for v1" | Nothing. Every feel value stays as configured: the design's defaults for the camera, Karen's five for the shotgun. Her two open questions - pressing X twice costs the shells already in the gun, and 24 shells of each type - were put to her and accepted as they are ("all ok"). The hit feel she deferred on 2026-09-25 is still deferred: she judges it after hit zones (1.5) | 24, 26 |
 | 2026-09-25 | Task 24, the shotgun on the default camera (branch `task-24-shotgun`): fired both barrels, reloaded, pressed X, tried hitting the boar | **X only relabelled the ammo.** "No, it has to change to shells after X, so it reloads to shells." Hitting: "still too early to say" - no ADS and the boar does not react yet. Checks 1 (barrel delay), 2 (empty gun) and 3 (reload timing): no complaint | **Done in this task:** X switches the type AND reloads to it - break open, the unfired shells of the old type go back to their pocket, two of the new type in, close; same 2.0 s uninterruptible window as R, no firing during it; an empty pocket of the new type does nothing and the Hud says "NO BUCK". **Deferred by Karen:** hit feel, judged after the camera (1.4b) and hit zones (1.5) | 24 |
 | 2026-09-25 | First grey-box playtest (main after Task 22): walked at the boar, chased it, watched it idle, walked the 400×400 arena | Nothing. Flees at the right distance; speed OK; colour fine for now; the wander turns and reads like an animal; arena size and cover OK for v1 | Nothing. Boar AI and test arena accepted for Milestone 1 | 17, 18, 22 (recorded by the Director) |
+
+## 2026-10-16 ~21:30 and ~21:35 — Karen, after looking at the lodge (task 196 part 3d)
+
+Verbatim, ~21:30:
+
+> remove table and all boar heads only keep one where is on fireplace
+
+Verbatim, ~21:35, with a screenshot (`driven-hunt-runs/design/karen-floating-trees.png`, outside the
+repo):
+
+> look at the trees wtf
+
+The screenshot shows birch trees standing on their splayed root flares with one to three studs of
+daylight under them, beside a dirt road with grass verges.
+
+**What was done.** The table and its two benches are gone, and so are the four north-wall trophies —
+the second Keiler and the three Bache — with the boarded back store and the two sconces that existed
+only for them. The boar over the fireplace is untouched and the red stag's two empty pegs are kept.
+Nothing replaces the furniture: what goes in that floor is Karen's to decide.
+
+**The trees.** The part-3c claim of *"0 trees above ground"* was wrong for what she is looking at, and
+it was wrong in the same way the planting was: both asked for the ground at ONE point. A birch's root
+flare is eight or nine studs across, so beside a road cut the ground under the outer root tips is one
+to three studs lower than the ground under the trunk, and the tree stands on the high side with its
+other roots in the air. Every tree the lobby plants is now seated against the LOWEST ground anywhere
+under its own footprint, read from the terrain alone.
