@@ -3,13 +3,18 @@
 Task: 199
 Round: 1
 Base: `78f97a2` (main)
-Code commit: `PENDING`
+Code commit: `d540999`
 
 Harness (clean tree, one player):
 
 ```
-PENDING
+[harness] PASS: 33/33 checks @ d540999649fd429fb44cc505d95150cd36278c2e (clean tree) scope=all
 ```
+
+`d540999` is this request itself; the last commit that changed `src/`, `tests/` or `tools/` is
+`854bfc7`, and the only thing between them is this file. Naming the later paperwork commit only
+makes the bound stricter (git workflow step 4). The scope resolved to `all` -- `tools/studio_mcp.py`
+is in the diff -- so this is the FULL run, not a `scope=auto:` one.
 
 Two players: **N/A.** Nothing this task touches is in `TWO_PLAYER_PATHS` (`tools/agents.py`):
 the changed paths are `src/shared/TreeGround/`, `src/server/Lobby/Build.luau`,
