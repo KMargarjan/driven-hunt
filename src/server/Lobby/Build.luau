@@ -188,6 +188,33 @@ local function part(
 	return made
 end
 
+-- A CLIP: a part that stops a BODY and nothing else (task 195). Valve's `tools/toolsplayerclip`,
+-- read as three independent switches on one Roblox part (research note sections 3.1 and 3.2):
+-- `CanCollide` true so a player cannot pass, `CanQuery` false so no ray -- a pellet, or the
+-- keeper's `ProximityPrompt` line-of-sight test -- ever sees it, `CanTouch` false so it fires
+-- nothing, invisible and casting no shadow.
+--
+-- IT IS ONLY EVER PUT FLUSH WITH SOMETHING YOU CAN SEE, which is the one rule the Valve page
+-- insists on: an invisible wall standing in open air is a player bumping into nothing.
+local function clip(name: string, size: Vector3, cframe: CFrame, parent: Instance): Part
+	local made = Instance.new("Part")
+	made.Name = name
+	made.Size = size
+	made.CFrame = cframe
+	made.Anchored = true
+	made.Transparency = 1
+	made.CanCollide = true
+	made.CanQuery = false
+	made.CanTouch = false
+	made.CastShadow = false
+	made.TopSurface = Enum.SurfaceType.Smooth
+	made.BottomSurface = Enum.SurfaceType.Smooth
+	made.Parent = parent
+	stats.parts += 1
+	stats.solids += 1
+	return made
+end
+
 -- A LOG: a cylinder lying along one horizontal axis. `axis` is "x" or "z", which is the only
 -- freedom a log wall needs, so there is no rotation to get wrong.
 local function log(name: string, length: number, centre: Vector3, axis: string, cfg, parent: Instance): Part
@@ -715,31 +742,16 @@ local function doorway(folder: Instance, origin: Vector3, floorY: number, height
 		false,
 		folder
 	)
-	-- THE LEAF, OPEN, hinged on the east jamb and swung flat against the outside wall. Cosmetic, and
-	-- it stands beside the opening rather than in it.
-	local hinge = CFrame.new(origin.X + (spec.WIDTH + 1.1) / 2, floorY + height / 2, faceZ - d / 2 - 0.3)
-		* CFrame.Angles(0, -spec.LEAF_OPEN_RADIANS, 0)
-	local leaf = hinge * CFrame.new(spec.WIDTH / 2, 0, 0)
-	part(
-		"DoorLeaf",
-		Vector3.new(spec.WIDTH, height - 0.4, 0.45),
-		leaf,
-		cfg.LODGE.DOOR_COLOR,
-		Enum.Material.WoodPlanks,
-		false,
-		folder
-	)
-	for index, dy in ipairs({ -height / 4, height / 4 }) do
-		part(
-			string.format("DoorBand%d", index),
-			Vector3.new(spec.WIDTH - 0.3, 0.4, 0.2),
-			leaf * CFrame.new(0, dy, -0.3),
-			Color3.fromRGB(42, 40, 38),
-			Enum.Material.Metal,
-			false,
-			folder
-		)
-	end
+	-- AND THERE IS NO LEAF (task 195). Karen, 2026-10-15: *"doors can be open no doors"*. Task 187's
+	-- leaf was hinged with the wrong SIGN -- `R_y(t) * (a,0,0) = (a cos t, 0, -a sin t)`, so a
+	-- POSITIVE half-width about a jamb at `-LEAF_OPEN_RADIANS` swings the free edge NORTH, into the
+	-- house -- and it was measured standing 1.34 studs inside the room with its bottom 0.2 studs
+	-- off the floorboards: a door hanging in mid-air in the middle of the floor, walked through,
+	-- which is what *"it's broken there"* and *"all things not hanging"* were about. Flipping the
+	-- sign only moves the problem outdoors (a slab at 100 degrees across the porch), and laying the
+	-- leaf flat on the wall covers a front window at either jamb, so the leaf GOES. The posts, the
+	-- lintel and the threshold are the frame; the opening is the door.
+	-- Archived with this reason: `backups/2026-10-16_task-195_door-leaf.txt` (rule 7).
 end
 
 -- THE ROOF: two slabs meeting at the ridge, a capping beam along it, the two gable triangles, and
@@ -1087,10 +1099,10 @@ end
 -- anchor is what stops anything nudging him off his spot, and the limbs stay on their joints so the
 -- idle clip can move them.
 --
--- THE PROMPT HANGS ON AN ATTACHMENT AT HEAD HEIGHT AND THAT IS GEOMETRY, NOT TASTE: the counter is
--- 3.5 studs tall and queryable, so a line-of-sight ray aimed at a root part 3 studs up would be
--- stopped by the till itself and the prompt would never appear for the one person standing where he
--- is supposed to stand.
+-- THE PROMPT IS NOT HIS ANY MORE (task 195): it hangs on the COUNTER, in front of the clip that
+-- stops a player vaulting it, because `CanQuery = false` turned out to be ignored while
+-- `CanCollide` is true and a prompt behind a solid barrier is a shop nobody can open. See
+-- `shopPrompt` below, which is built only when THIS function returns a body.
 --
 -- IT RETURNS nil RATHER THAN ERRORING, the rule `clone` already follows: no rig source, a source
 -- that answered nothing, a body with no root -- the lodge still gets built, `stats.keepers` stays 0,
@@ -1148,30 +1160,24 @@ local function shopkeeper(shop: Instance, counterAt: Vector3, floorY: number, cf
 
 	-- WHERE HE STANDS AND WHICH WAY HE LOOKS: behind the till, facing the room a customer walks in
 	-- from (-Z is the door side, which is the way task 177's lodge and the free model both face).
-	local standAt = Vector3.new(counterAt.X, floorY + keep.ROOT_HEIGHT, counterAt.Z + keep.BEHIND_STUDS)
+	--
+	-- HOW HIGH, AND IT IS THE ENGINE'S OWN ANSWER SINCE TASK 195 (Karen: *"person not hanging"*).
+	-- `Humanoid.HipHeight` is the distance from the ROOT PART'S BOTTOM to the ground it stands on,
+	-- so the root's CENTRE belongs at `floorY + HipHeight + rootHalfHeight`. MEASURED in the live
+	-- place: HipHeight 2.192 on a 2-stud root is 3.192, against the 3 that `KEEPER.ROOT_HEIGHT`
+	-- guesses -- which is the 0.188 studs of floorboard Karen was looking through.
+	--
+	-- WHY NOT JUST MEASURE HIS LOWEST PART, which is what this did first and is why the figure
+	-- above is known: the idle clip moves his legs, and a body seated by its own default pose sank
+	-- 0.174 studs the moment the animation started (measured, the same place, the same session).
+	-- `HipHeight` is a property of the rig and not of the frame it is in.
+	--
+	-- `ROOT_HEIGHT` IS THE FALLBACK, for a hand-built body with no HipHeight at all.
+	local rootHalf = root.Size.Y / 2
+	local lift = if man.HipHeight > 0 then man.HipHeight + rootHalf else keep.ROOT_HEIGHT
+	local standAt = Vector3.new(counterAt.X, floorY + lift, counterAt.Z + keep.BEHIND_STUDS)
 	body.Parent = shop
 	body:PivotTo(CFrame.lookAt(standAt, standAt - Vector3.new(0, 0, 10)))
-
-	-- THE PROMPT. Every property is a number in `Lobby.CONFIG.LODGE.KEEPER.PROMPT` with its reason
-	-- in `docs/research/2026-10-14-the-shopkeeper.md` section 4 -- and ONE property set covers a
-	-- keyboard, a gamepad and a thumb, which is the whole reason this beats the key binding task 178
-	-- had.
-	--   ProximityPrompt  https://create.roblox.com/docs/reference/engine/classes/ProximityPrompt
-	local at = Instance.new("Attachment")
-	at.Name = "ShopPromptAt"
-	at.Position = Vector3.new(0, keep.PROMPT_HEIGHT, 0)
-	at.Parent = root
-	local prompt = Instance.new("ProximityPrompt")
-	prompt.Name = Data.PROMPT_NAME
-	prompt.ActionText = keep.PROMPT.ACTION_TEXT
-	prompt.ObjectText = keep.PROMPT.OBJECT_TEXT
-	prompt.KeyboardKeyCode = keep.PROMPT.KEYBOARD_KEY
-	prompt.GamepadKeyCode = keep.PROMPT.GAMEPAD_KEY
-	prompt.HoldDuration = keep.PROMPT.HOLD_SECONDS
-	prompt.MaxActivationDistance = keep.PROMPT.MAX_DISTANCE
-	prompt.RequiresLineOfSight = keep.PROMPT.REQUIRES_LINE_OF_SIGHT
-	prompt.Enabled = if seams ~= nil and seams.shopOn ~= nil then seams.shopOn == true else true
-	prompt.Parent = at
 
 	-- THE CLOTHES, THROUGH THE ONE DRESSING PATH IN THIS REPOSITORY (`Match.Body.dress`, handed in
 	-- by the composition root exactly as `Bots.start({ dress = Body.dress })` hands it in). He wears
@@ -1230,6 +1236,31 @@ local function shopkeeper(shop: Instance, counterAt: Vector3, floorY: number, cf
 		look.Parent = face
 	end
 
+	-- AND THE GUARD, WHICH ONLY EVER LIFTS (task 195). `HipHeight` above is the rule; this is the
+	-- measurement that catches it being wrong -- a dressed body whose lowest part is still under
+	-- the boards is pulled up until it is not. It cannot push him DOWN, because the pose it
+	-- measures is the one before the idle clip runs and that pose is an upper bound on his soles,
+	-- never the final word.
+	--
+	-- AFTER THE DRESSING, DELIBERATELY: `Body.dress` can replace limbs, and a figure measured
+	-- before it is a figure measured on a body that no longer exists.
+	--
+	-- THE PART'S OWN BOX, PROJECTED -- the same expression `fitBetween` uses for a rotated antler --
+	-- so a tilted foot is measured by where it really reaches and not by its centre.
+	local lowest = math.huge
+	for _, descendant in ipairs(body:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local piece = descendant :: BasePart
+			local _, _, _, _, _, _, m10, m11, m12 = piece.CFrame:GetComponents()
+			local reach = 0.5
+				* (math.abs(m10) * piece.Size.X + math.abs(m11) * piece.Size.Y + math.abs(m12) * piece.Size.Z)
+			lowest = math.min(lowest, piece.Position.Y - reach)
+		end
+	end
+	if lowest < math.huge and lowest < floorY then
+		body:PivotTo(body:GetPivot() + Vector3.new(0, floorY - lowest, 0))
+	end
+
 	-- THE IDLE, PLAYED ONCE AND NEVER WRITTEN AGAIN -- there is no clock in this system. The id is
 	-- `Bots.Rig.CLIPS.idle`, the same asset every drive bot stands in, written in
 	-- `Lobby.CONFIG` rather than required out of `Bots` so the lobby does not depend on the drive's
@@ -1254,6 +1285,50 @@ local function shopkeeper(shop: Instance, counterAt: Vector3, floorY: number, cf
 	stats.keepers = 1
 	keeper = body
 	return body
+end
+
+-- THE PROMPT, ON THE COUNTER AND IN FRONT OF THE CLIP (task 195).
+--
+-- IT USED TO HANG ON THE KEEPER'S ROOT, and a measurement moved it: `CanQuery = false` is IGNORED
+-- while `CanCollide` is true (four parts, one per combination, shot at with a ray in the live
+-- place -- collide+noquery HIT; research note section 3.1). So the clip that stops a player
+-- vaulting the counter also stops the prompt's `RequiresLineOfSight` ray: a ray from a customer's
+-- head to the keeper's head came back *"blocked by CounterGuard"* at 1.5, 3 and 5 studs back from
+-- the till, and a prompt behind that is a shop nobody can open.
+--
+-- A FULL-HEIGHT BARRIER AND A SIGHT LINE THROUGH IT CANNOT BOTH EXIST, so the prompt is on the
+-- customer's side of the barrier: an attachment on the counter, over the till, `PROMPT_OUT_STUDS`
+-- clear of the clip's own slab, with the keeper standing directly behind it. `Lobby.shopPrompt`
+-- finds it by NAME anywhere under `Workspace.Lobby`, so nothing downstream changes.
+--
+-- IT IS BUILT ONLY WHEN THERE IS A KEEPER, which is task 181's rule unchanged: a "Press E" over an
+-- empty counter is worse than no prompt at all.
+--
+-- Every property is a number in `Lobby.CONFIG.LODGE.KEEPER.PROMPT`, and ONE property set covers a
+-- keyboard, a gamepad and a thumb.
+--   ProximityPrompt  https://create.roblox.com/docs/reference/engine/classes/ProximityPrompt
+local function shopPrompt(counter: BasePart, cfg, seams: Seams?): ProximityPrompt
+	local keep = cfg.LODGE.KEEPER
+	local at = Instance.new("Attachment")
+	at.Name = "ShopPromptAt"
+	at.Position = Vector3.new(
+		0,
+		cfg.LODGE.COUNTER.Y / 2 + 0.35 + keep.PROMPT_OVER_STUDS,
+		-(cfg.LODGE.COUNTER.Z / 2 + keep.PROMPT_OUT_STUDS)
+	)
+	at.Parent = counter
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = Data.PROMPT_NAME
+	prompt.ActionText = keep.PROMPT.ACTION_TEXT
+	prompt.ObjectText = keep.PROMPT.OBJECT_TEXT
+	prompt.KeyboardKeyCode = keep.PROMPT.KEYBOARD_KEY
+	prompt.GamepadKeyCode = keep.PROMPT.GAMEPAD_KEY
+	prompt.HoldDuration = keep.PROMPT.HOLD_SECONDS
+	prompt.MaxActivationDistance = keep.PROMPT.MAX_DISTANCE
+	prompt.RequiresLineOfSight = keep.PROMPT.REQUIRES_LINE_OF_SIGHT
+	prompt.Enabled = if seams ~= nil and seams.shopOn ~= nil then seams.shopOn == true else true
+	prompt.Parent = at
+	return prompt
 end
 
 -- WHERE HE IS STANDING, or nil when there is nobody there -- the owner's test for "is there a
@@ -1843,7 +1918,10 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 			local hook = part(
 				string.format("GunRackPeg%d_%d", index, peg),
 				Vector3.new(0.9, 0.3, 0.3),
-				face * CFrame.new(along, dy, -0.9) * CFrame.Angles(0, math.pi / 2, 0),
+				-- -0.8 AND NOT -0.9 (task 195): a 0.9-long peg centred 0.9 out from a board whose
+				-- face is 0.4 away begins 0.05 studs clear of it -- two pegs hanging in the air,
+				-- which the live scan found and nothing else could.
+				face * CFrame.new(along, dy, -0.8) * CFrame.Angles(0, math.pi / 2, 0),
 				cfg.LODGE.TIMBER_COLOR,
 				Enum.Material.Wood,
 				false,
@@ -1873,6 +1951,19 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 		end
 	end
 
+	-- THE RUG IN FRONT OF THE HEARTH (task 195). Its BOTTOM is the floor's top, which is the whole
+	-- of "a rug does not float and does not z-fight": `origin.Y + THICK / 2`, never `origin.Y`.
+	local rug = cfg.LODGE.RUG
+	part(
+		"Rug",
+		Vector3.new(rug.SIZE.X, rug.THICK, rug.SIZE.Y),
+		CFrame.new(origin.X + rug.OFFSET.X, origin.Y + rug.THICK / 2, origin.Z + rug.OFFSET.Y),
+		rug.COLOR,
+		rug.MATERIAL,
+		false,
+		inside
+	)
+
 	-- THREE LANTERNS, hung off the beams.
 	for index, dx in ipairs(cfg.LODGE.LANTERN.ALONG) do
 		lantern(
@@ -1898,7 +1989,7 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 		origin.Y + cfg.LODGE.COUNTER.Y / 2,
 		origin.Z + room.halfZ - cfg.LODGE.COUNTER_BACK
 	)
-	part(
+	local counterPart = part(
 		"Counter",
 		cfg.LODGE.COUNTER,
 		CFrame.new(counterAt),
@@ -1916,19 +2007,123 @@ local function interior(folder: Instance, room: Room, cfg, seams: Seams?)
 		false,
 		shop
 	)
+	-- THE SERVICE SIDE, CLOSED (task 195). Karen: *"you can't go over the table"*. Before this the
+	-- counter was 12 studs of a 32.4-stud room with a 3.2-stud gap at its east end and seventeen at
+	-- its west, and a 3.55-stud top against a default `JumpHeight`.
+	--
+	-- VISIBLE TIMBER FIRST, THE CLIP ONLY ABOVE IT -- Valve's rule for a clip brush, which is that
+	-- the invisible surface must lie on something the eye can see (research note section 4). The
+	-- WING runs from the counter's east end to the east wall and the RETURN from its west end to the
+	-- north wall, both at the counter's own height and in its own timber, so the keeper is in a
+	-- three-sided bay; the CLIPS stand from the counter top to the ceiling, flush with the bay's two
+	-- open faces, so the only way in is over a wall that is not there.
+	local service = cfg.LODGE.SERVICE
+	local counterFrontZ = counterAt.Z - cfg.LODGE.COUNTER.Z / 2
+	local counterWestX = counterAt.X - cfg.LODGE.COUNTER.X / 2
+	local counterEastX = counterAt.X + cfg.LODGE.COUNTER.X / 2
+	local eastWallX = origin.X + room.halfX
+	local northWallZ = origin.Z + room.halfZ
+	local returnWestX = counterWestX - service.RETURN_WIDTH
+	-- WHERE THE CLIPS BEGIN: the top of the SOLID counter, not the top of the cosmetic slab above
+	-- it. The 0.35-stud `CounterTop` does not collide (nothing cosmetic in this lodge does), so a
+	-- clip that started above it would leave a 0.35-stud band with no solid in it -- narrower than
+	-- a body, but a hole in a claim that says "sealed from the floor to the ceiling", and the spec
+	-- samples the plane rather than taking the claim's word.
+	local counterTopY = origin.Y + cfg.LODGE.COUNTER.Y
+	-- ...and the cosmetic slab's own top, which is only used to SIT the two matching slabs.
+	local capTopY = counterTopY + 0.35
+	-- THE WING. Nothing is built when the counter already reaches the wall (the clamp above can put
+	-- it there in a narrow room), because a zero-width part is a part nobody can explain.
+	local wingWidth = eastWallX - counterEastX
+	if wingWidth > 0.05 then
+		part(
+			"CounterWing",
+			Vector3.new(wingWidth, cfg.LODGE.COUNTER.Y, cfg.LODGE.COUNTER.Z),
+			CFrame.new((counterEastX + eastWallX) / 2, origin.Y + cfg.LODGE.COUNTER.Y / 2, counterAt.Z),
+			cfg.LODGE.FURNITURE_COLOR,
+			Enum.Material.WoodPlanks,
+			true,
+			shop
+		)
+		-- ITS TOP STARTS WHERE `CounterTop`'S OVERHANG ENDS, so the two slabs meet rather than
+		-- cross, and it stops AT the wall rather than in it.
+		local capFrom = counterEastX + 0.4
+		part(
+			"CounterWingTop",
+			Vector3.new(eastWallX - capFrom, 0.35, cfg.LODGE.COUNTER.Z + 0.8),
+			CFrame.new((capFrom + eastWallX) / 2, capTopY - 0.175, counterAt.Z),
+			cfg.LODGE.TIMBER_COLOR,
+			Enum.Material.Wood,
+			false,
+			shop
+		)
+	end
+	-- THE RETURN, from the counter's west end back to the north wall.
+	local returnLength = northWallZ - counterFrontZ
+	part(
+		"CounterReturn",
+		Vector3.new(service.RETURN_WIDTH, cfg.LODGE.COUNTER.Y, returnLength),
+		CFrame.new(
+			returnWestX + service.RETURN_WIDTH / 2,
+			origin.Y + cfg.LODGE.COUNTER.Y / 2,
+			(counterFrontZ + northWallZ) / 2
+		),
+		cfg.LODGE.FURNITURE_COLOR,
+		Enum.Material.WoodPlanks,
+		true,
+		shop
+	)
+	part(
+		"CounterReturnTop",
+		Vector3.new(service.RETURN_WIDTH + 0.4, 0.35, returnLength),
+		CFrame.new(
+			returnWestX - 0.4 + (service.RETURN_WIDTH + 0.4) / 2,
+			capTopY - 0.175,
+			(counterFrontZ + northWallZ) / 2
+		),
+		cfg.LODGE.TIMBER_COLOR,
+		Enum.Material.Wood,
+		false,
+		shop
+	)
+	-- THE TWO CLIPS. Each one's visible face is exactly a counter face: the front clip's north side
+	-- is the counter's customer face, the west clip's east side is the return's west face.
+	clip(
+		"CounterGuard",
+		Vector3.new(eastWallX - returnWestX + service.CLIP_THICK, ceilingY - counterTopY, service.CLIP_THICK),
+		CFrame.new(
+			(returnWestX - service.CLIP_THICK + eastWallX) / 2,
+			(counterTopY + ceilingY) / 2,
+			counterFrontZ - service.CLIP_THICK / 2
+		),
+		shop
+	)
+	clip(
+		"CounterGuardWest",
+		Vector3.new(service.CLIP_THICK, ceilingY - counterTopY, returnLength),
+		CFrame.new(returnWestX - service.CLIP_THICK / 2, (counterTopY + ceilingY) / 2, (counterFrontZ + northWallZ) / 2),
+		shop
+	)
+
 	-- A `SurfaceGui`'s `Front` face is the part's own -Z, which is also its LookVector -- so a board
 	-- left unrotated on the north wall already reads into the room, and the half turn this had put
 	-- the word SHOP face down in the logs. Photographed, not reasoned about.
+	--
+	-- `- 0.3` PUT ITS BACK 0.15 STUDS OFF THE LOGS (task 195, measured): half the board's own
+	-- thickness is the whole offset a flush board needs, and 0.15 of air is a sign that hangs.
 	sign(
 		"ShopSign",
 		Vector3.new(8, 2.2, 0.3),
-		CFrame.new(counterAt.X, origin.Y + math.min(7.4, room.height - 1.6), origin.Z + room.halfZ - 0.3),
+		CFrame.new(counterAt.X, origin.Y + math.min(7.4, room.height - 1.6), origin.Z + room.halfZ - 0.15),
 		cfg.LODGE.SIGN_TEXT,
 		shop
 	)
 	-- THE MAN BEHIND IT (task 181). `origin.Y` is the floor the counter stands on, which is what he
-	-- stands on too -- the one number, read in one place.
-	shopkeeper(shop, counterAt, origin.Y, cfg, seams)
+	-- stands on too -- the one number, read in one place. HIS prompt goes on the counter in front of
+	-- him (task 195) and only when he is really there.
+	if shopkeeper(shop, counterAt, origin.Y, cfg, seams) ~= nil then
+		shopPrompt(counterPart, cfg, seams)
+	end
 
 	trophies(inside, room, cfg)
 end

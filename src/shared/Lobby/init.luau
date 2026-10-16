@@ -74,9 +74,14 @@ Lobby.TEMPLATE = {
 Lobby.COUNTER_NAME = "Counter"
 
 -- THE SHOPKEEPER AND HIS PROMPT (task 181). Karen, 2026-10-14: *"in lobby has to be a person bot who
--- you need to click E to get access to shop"*. `Build.shopkeeper` builds both under
--- `Lodge.Inside.Shop`, and these are the names the CLIENT finds the prompt by -- the one way into
--- the panel since this task took task 178's auto-open away.
+-- you need to click E to get access to shop"*. Both live under `Lodge.Inside.Shop`, and these are
+-- the names the CLIENT finds the prompt by -- the one way into the panel since task 181 took task
+-- 178's auto-open away.
+--
+-- SINCE TASK 195 THE PROMPT HANGS ON THE COUNTER rather than on the man, and it is still built only
+-- when there IS a man: the clip that stops a player jumping the counter cannot be made invisible to
+-- a ray (measured), so a prompt behind it is a shop nobody can open. `Lobby.shopPrompt` searches by
+-- NAME anywhere under `Workspace.Lobby`, so nothing that reads it had to change.
 Lobby.KEEPER_NAME = "Shopkeeper"
 Lobby.PROMPT_NAME = "ShopPrompt"
 
@@ -258,9 +263,15 @@ Lobby.CONFIG = {
 		-- block" -- Glentleiten, via Google Arts & Culture; 0.9 studs is 25 cm at Roblox's 0.28 m).
 		LOG_DIAMETER = 1.8,
 		LOG_END_STUDS = 0.9,
-		-- WALK-THROUGH: a gap in the front wall, never a door part (Karen, task 177). The leaf stands
-		-- OPEN against the wall beside it, turned out by `LEAF_OPEN_RADIANS` (100 degrees).
-		DOOR = { WIDTH = 7, HEIGHT = 9, LINTEL_STUDS = 1.4, LEAF_OPEN_RADIANS = 1.75 },
+		-- WALK-THROUGH: a gap in the front wall, never a door part (Karen, task 177) -- AND SINCE
+		-- TASK 195 THERE IS NO LEAF EITHER. Karen, 2026-10-15: *"doors can be open no doors"*. The
+		-- leaf task 187 hung was MEASURED standing 1.34 studs INSIDE the room and 0.2 studs off the
+		-- floorboards, which is the *"it's broken there"* she reported; correcting its swing puts a
+		-- 7 x 8.6 slab at 100 degrees in the middle of the porch, and laying it flat on the wall
+		-- covers a front window at either jamb (the windows are at `along` +-11 and the leaf is 7
+		-- wide hinged 4.05 from centre). So the jambs, the lintel and the threshold frame an open
+		-- doorway and nothing swings. Archived: `backups/2026-10-16_task-195_door-leaf.txt`.
+		DOOR = { WIDTH = 7, HEIGHT = 9, LINTEL_STUDS = 1.4 },
 		-- HOW FAR ABOVE THE WALL TOP THE GABLE STAG HANGS, on the EAST end -- the one wall on this
 		-- building that is tall, flat, empty and walked towards. Over the DOOR there is no gable at
 		-- all: the ridge runs along x, so the south front is an eaves wall and a 44-degree slope is
@@ -401,6 +412,18 @@ Lobby.CONFIG = {
 			BENCH_HEIGHT = 1.8,
 			BENCH_STUDS = 3.4,
 		},
+		-- THE RUG IN FRONT OF THE HEARTH (task 195). Karen: *"make nice inside"*. One flat part
+		-- lying ON the floorboards -- its bottom IS the floor's top, so it cannot float and cannot
+		-- z-fight -- between the hearth stone and the north bench, and clear of both: the hearth
+		-- reaches 5.8 studs out from the west wall and the bench's legs stop at the rug's own south
+		-- edge plus 0.15. Cosmetic, so it stops nothing and the walk to the counter is unchanged.
+		RUG = {
+			OFFSET = Vector2.new(-6.4, 4), -- x and z from the room's centre, the TABLE's convention
+			SIZE = Vector2.new(7, 3.2),
+			THICK = 0.08,
+			COLOR = Color3.fromRGB(104, 48, 42), -- a dark red kelim, the one warm colour in the room
+			MATERIAL = Enum.Material.Fabric,
+		},
 		-- THE GUN RACK on the WEST wall, south of the fireplace -- the one stretch of wall with no
 		-- window, no chimney and no counter on it. Scenery: it holds nothing, and `Weapon.Hardware`
 		-- stays the only thing in this game that builds a gun.
@@ -409,9 +432,35 @@ Lobby.CONFIG = {
 		-- width: a man at either end of it can reach the till. `COUNTER_ALONG` is how far east of the
 		-- room's centre it stands and `COUNTER_BACK` how far in from the north wall, which leaves the
 		-- keeper room to stand behind it.
-		COUNTER = Vector3.new(12, 3.2, 1.8),
+		--
+		-- 2.8 AND NOT 3.2, AND IT IS A MEASUREMENT (task 195): with the top at 3.55 studs over the
+		-- floorboards only 1.4 studs of a 5.5-stud man cleared it, so from the customer side the
+		-- keeper was a head in a hat sitting on a shelf. At 2.8 the top is 3.15 and his chest shows.
+		COUNTER = Vector3.new(12, 2.8, 1.8),
 		COUNTER_ALONG = 7,
-		COUNTER_BACK = 4.6,
+		-- 6.4 AND NOT 4.6 (task 195), AND IT IS THE MAN'S OWN SIZE: his horizontal radius about his
+		-- root was MEASURED at 2.42 studs (the hands' outer corners), and `faceKeeper` turns him on
+		-- the spot -- so the arms that are at his SIDES when he faces the room swing FORWARD when he
+		-- turns to a customer standing off to one side. A 3.7-stud bay could not hold that, and the
+		-- live scan caught a lower arm 1.182 studs inside the till. 6.4 gives a 5.5-stud bay with
+		-- 2.6 studs in front of him and 2.9 behind.
+		COUNTER_BACK = 6.4,
+		-- THE SERVICE SIDE, AND WHY IT IS CLOSED AT ALL (task 195). Karen: *"you can't go over the
+		-- table"*. The counter is 12 studs of a 32.4-stud room, so before this there was a 3.2-stud
+		-- gap at its east end, seventeen studs at its west, and nothing at all against a jump.
+		--
+		-- VALVE'S CLIP BRUSH, APPLIED (research note section 4): close it with VISIBLE timber first
+		-- -- a WING from the counter's east end to the east wall and a RETURN from its west end to
+		-- the north wall, both at counter height -- and put the invisible part ONLY above counter
+		-- height, flush with a visible edge, so nobody ever bumps into nothing.
+		--
+		-- THE CLIP IS `CanQuery = false`, AND THAT IS LOAD-BEARING TWICE: a slab that stops a pellet
+		-- changes what the shot hit (this file's standing rule), and the keeper's prompt
+		-- (`REQUIRES_LINE_OF_SIGHT`) would never appear through a queryable wall at head height.
+		SERVICE = {
+			RETURN_WIDTH = 1.8, -- the counter's own depth, so the return reads as the same bench
+			CLIP_THICK = 0.4,
+		},
 		-- TASK 178 REPLACED THE PLACEHOLDER, which said "SHOP - coming soon" and is archived with its
 		-- reason in `backups/2026-10-14_task-178_lodge-sign.txt` (rule 7).
 		SIGN_TEXT = "SHOP",
@@ -421,9 +470,22 @@ Lobby.CONFIG = {
 			-- WHERE HE STANDS, from the counter's own centre: 1.6 studs further from the room (toward
 			-- the back wall) so he is BEHIND the till and not standing in it. The counter is 1.8
 			-- studs deep, so 1.6 clears its face by 0.7 -- and the north wall is three studs beyond.
-			BEHIND_STUDS = 1.6,
+			-- 3.5 SINCE TASK 195, AND THE OLD 1.6 WAS MEASURED WRONG RATHER THAN CHOSEN WRONG: the
+			-- counter is 1.8 deep, so 1.6 left 0.2 studs between his torso and its back face, and
+			-- the live scan caught his lower arm 1.182 studs THROUGH the till (research note
+			-- section 2). 3.5 puts him in the MIDDLE of the deeper bay `COUNTER_BACK` now gives --
+			-- 2.6 studs of air in front of him, 2.9 behind -- which is more than the 2.42-stud
+			-- horizontal radius his own hands reach, whichever way `faceKeeper` turns him.
+			BEHIND_STUDS = 3.5,
 			-- HOW HIGH HIS FEET GO ABOVE THE FLOOR, the figure `Rig.place` pivots to: an R15 rig's
 			-- origin is its root, about 3 studs over the ground it stands on.
+			--
+			-- SINCE TASK 195 IT IS THE FALLBACK AND NOT THE ANSWER. It put his `LeftFoot` at 151.860
+			-- on a floor whose top is 152.048 -- 0.188 studs UNDER the floorboards, which is Karen's
+			-- *"person not hanging"* read the other way. `Build.shopkeeper` asks the ENGINE instead:
+			-- `Humanoid.HipHeight` (measured 2.192) is the distance from the root part's bottom to
+			-- the ground, so the root's centre goes at `floorY + HipHeight + rootHalfHeight`. This
+			-- number is what a body with no HipHeight at all gets.
 			ROOT_HEIGHT = 3,
 			-- HUNTER GREEN FROM `Match.Body` AND A HAT OF HIS OWN. `Body.dress` takes the team for
 			-- the green and task 178's `Look` for the hat; `Body.tintFor` recolours the hat ONLY, so
@@ -453,17 +515,37 @@ Lobby.CONFIG = {
 			LOOK_AT = true,
 			FACE_STUDS = 16,
 			FACE_EPSILON_DEGREES = 3,
-			-- HOW HIGH THE PROMPT HANGS ABOVE HIS ROOT, and it is geometry rather than taste: the
-			-- counter is queryable, so a line-of-sight ray aimed at a root 3 studs up is stopped by
-			-- the till itself and the prompt never appears for the one person standing where he is
-			-- meant to stand. 2.2 puts it at head height.
-			PROMPT_HEIGHT = 2.2,
+			-- WHERE THE PROMPT HANGS, AND SINCE TASK 195 IT IS ON THE COUNTER AND NOT ON THE MAN.
+			--
+			-- IT IS A MEASUREMENT THAT MOVED IT, and the measurement contradicts Roblox's own
+			-- reference: **`CanQuery = false` is IGNORED while `CanCollide` is true.** Four parts,
+			-- one per combination, each shot at with a ray in Karen's own place on 2026-10-16 --
+			-- collide+query HIT, **collide+noquery HIT**, nocollide+query HIT, nocollide+noquery
+			-- passed through (`docs/research/2026-10-16-lodge-inside-clean.md` section 3.1). So the
+			-- clip that stops a player jumping the counter necessarily stops the prompt's
+			-- `RequiresLineOfSight` ray as well, and with the prompt on the keeper -- BEHIND the
+			-- clip -- the shop could not be opened at all. Measured: *"sight blocked by
+			-- CounterGuard"* at 1.5, 3 and 5 studs back from the till, and no panel on a trigger.
+			--
+			-- A FULL-HEIGHT BARRIER AND A SIGHT LINE THROUGH IT CANNOT BOTH EXIST, so the prompt
+			-- moves to the SOUTH side of the barrier: an attachment on the counter itself, floating
+			-- over the till `OVER_STUDS` above its top and `OUT_STUDS` in front of its customer
+			-- face -- which is clear of the clip's own 0.4-stud slab -- with the keeper standing
+			-- directly behind it. It is still *"a person bot who you need to click E"*: the man is
+			-- what you walk up to, and `Lobby.shopPrompt` finds the prompt by name wherever in the
+			-- lodge it hangs. It is still built ONLY when there is a keeper to stand behind it.
+			PROMPT_OVER_STUDS = 1.2,
+			PROMPT_OUT_STUDS = 0.45,
 			-- THE PROMPT ITSELF. `HOLD_SECONDS = 0` is a tap and not a hold; line of sight is
 			-- Valve's `+use` rule (note section 2c); 8 studs is the Director's number and reaches a
 			-- man anywhere along the 12-stud counter.
 			PROMPT = {
 				ACTION_TEXT = "Shop",
 				OBJECT_TEXT = "Press E",
+				-- STILL THE DIRECTOR'S 8, and since task 195 it is measured from the COUNTER rather
+				-- than from the man behind it -- so it is 8 studs of floor in front of the till
+				-- instead of the 5.5 a keeper 1.6 studs behind it used to leave. The spec asserts
+				-- the floor as well as the number.
 				MAX_DISTANCE = 8,
 				HOLD_SECONDS = 0,
 				REQUIRES_LINE_OF_SIGHT = true,
@@ -551,17 +633,28 @@ Lobby.CONFIG = {
 		-- the two beside the door are what a player sees first from inside. Nothing hangs on the
 		-- south wall's windows, the counter's half of the north wall, or the west wall except the
 		-- stag over the fire -- those are spoken for.
+		--
+		-- TWO HEIGHTS AND TWO HEIGHTS ONLY, AND EVERY ROW SYMMETRIC ABOUT ITS WALL'S CENTRE (task
+		-- 195). Karen asked for *"nice inside"* and the Director for *"even rows"*; before this the
+		-- east wall carried four plaques at 4.8 and two more at 8.2 on `along` values that matched
+		-- neither row, and the north wall's boar hung at 5 between two roe at 4.8. A row is a row
+		-- when the eye can see it is one, so `HEIGHT_STUDS` and `UPPER_STUDS` are the only two
+		-- heights in this table and `lobby.spec` asserts exactly that.
+		UPPER_STUDS = 8.2,
 		MOUNTS = {
-			-- THE EAST GABLE: three each side of its one window, and two more above them.
+			-- THE EAST GABLE: a 2 x 4 grid, two each side of its one window on each of the two rows.
 			{ kind = "roe", wall = "east", along = -9.4 },
 			{ kind = "roe", wall = "east", along = -6.6 },
 			{ kind = "roe", wall = "east", along = 6.6 },
 			{ kind = "roe", wall = "east", along = 9.4 },
-			{ kind = "roe", wall = "east", along = -8, height = 8.2 },
-			{ kind = "roe", wall = "east", along = 8, height = 8.2 },
-			-- THE NORTH WALL'S WEST HALF, clear of the counter and of its window.
+			{ kind = "roe", wall = "east", along = -9.4, height = 8.2 },
+			{ kind = "roe", wall = "east", along = -6.6, height = 8.2 },
+			{ kind = "roe", wall = "east", along = 6.6, height = 8.2 },
+			{ kind = "roe", wall = "east", along = 9.4, height = 8.2 },
+			-- THE NORTH WALL'S WEST HALF, clear of the counter and of its window: one row of three,
+			-- the boar in the middle at the SAME height as the two roe beside it.
 			{ kind = "roe", wall = "north", along = -7 },
-			{ kind = "boar", wall = "north", along = -3.5, height = 5 },
+			{ kind = "boar", wall = "north", along = -3.5 },
 			{ kind = "roe", wall = "north", along = 0 },
 			-- EITHER SIDE OF THE DOOR, between it and the front windows: the two a player sees
 			-- first when he turns round inside.
@@ -1006,7 +1099,8 @@ end
 -- two above, and for the same reason: a prompt on a rebuilt lodge is a different instance, and a
 -- panel still listening to the old one is a shop you cannot open.
 --
--- THE CLIENT IS ITS READER. The server BUILDS it (`Lobby.Build.shopkeeper`) and never reads it back;
+-- THE CLIENT IS ITS READER. The server BUILDS it (`Lobby.Build`'s `shopPrompt`, on the counter since
+-- task 195 and only when there is a keeper behind it) and never reads it back;
 -- the Hud resolves it once a frame and TELLS `ShopPanel` (`Rail.setWeapon`'s rule), so the panel
 -- holds no opinion about where the lodge is.
 local cachedPrompt: ProximityPrompt? = nil

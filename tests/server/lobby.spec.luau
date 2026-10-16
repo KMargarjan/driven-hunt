@@ -101,27 +101,63 @@ end
 -- service and may yield, and no spec in this harness may do either. It ships UNANCHORED and
 -- COLLIDING, so "the keeper collides with nothing and his root is anchored" is a thing the builder
 -- is proved to DO rather than a property the fake handed it.
+-- A BODY WITH A REAL R15'S PROPORTIONS, AND SINCE TASK 195 THAT IS LOAD-BEARING. Until then every
+-- part of this fake stood at the model's origin, so the rig was one stud tall and its root was its
+-- own lowest point -- a body on which "are his feet on the floor?" and "does he reach into the
+-- till?" are both unaskable, which is exactly why neither was ever asked.
+--
+-- EVERY NUMBER BELOW IS THE LIVE RIG'S, MEASURED in the Forest Test place on 2026-10-16
+-- (`docs/research/2026-10-16-lodge-inside-clean.md` section 2): the root stands **3.188** studs
+-- above the soles -- NOT the 3 that `KEEPER.ROOT_HEIGHT` guesses, which is the 0.188-stud sink
+-- Karen saw -- and the hands' outer corners are **2.423** studs from the root in the horizontal
+-- plane, which is the radius the service bay has to hold whichever way `faceKeeper` turns him.
+--
+-- THE LIMBS TOUCH, deliberately: the support case walks every part of the lodge's inside and this
+-- body is in it, so a fake with a gap between a hand and an arm would fail a case about the
+-- BUILDING.
+local FAKE_RIG_PARTS = {
+	{ name = "HumanoidRootPart", size = Vector3.new(2, 2, 1), at = Vector3.new(0, 3.188, 0) },
+	{ name = "Head", size = Vector3.new(1.16, 1.18, 1.16), at = Vector3.new(0, 5.45, 0) },
+	{ name = "UpperTorso", size = Vector3.new(2, 1.7, 1), at = Vector3.new(0, 4.02, 0) },
+	{ name = "LowerTorso", size = Vector3.new(2, 0.42, 1), at = Vector3.new(0, 2.96, 0) },
+	{ name = "LeftUpperArm", size = Vector3.new(1, 1.24, 1), at = Vector3.new(-1.5, 4.26, 0) },
+	{ name = "RightUpperArm", size = Vector3.new(1, 1.24, 1), at = Vector3.new(1.5, 4.26, 0) },
+	{ name = "LeftLowerArm", size = Vector3.new(1, 1.12, 1), at = Vector3.new(-1.5, 3.1, 0) },
+	{ name = "RightLowerArm", size = Vector3.new(1, 1.12, 1), at = Vector3.new(1.5, 3.1, 0) },
+	{ name = "LeftHand", size = Vector3.new(0.984, 0.316, 1.028), at = Vector3.new(-1.733, 2.4, 0) },
+	{ name = "RightHand", size = Vector3.new(0.984, 0.316, 1.028), at = Vector3.new(1.733, 2.4, 0) },
+	{ name = "LeftUpperLeg", size = Vector3.new(1, 1.36, 1), at = Vector3.new(-0.5, 2.34, 0) },
+	{ name = "RightUpperLeg", size = Vector3.new(1, 1.36, 1), at = Vector3.new(0.5, 2.34, 0) },
+	{ name = "LeftLowerLeg", size = Vector3.new(1, 1.3, 1), at = Vector3.new(-0.5, 1.16, 0) },
+	{ name = "RightLowerLeg", size = Vector3.new(1, 1.3, 1), at = Vector3.new(0.5, 1.16, 0) },
+	{ name = "LeftFoot", size = Vector3.new(1, 0.312, 1), at = Vector3.new(-0.5, 0.156, 0) },
+	{ name = "RightFoot", size = Vector3.new(1, 0.312, 1), at = Vector3.new(0.5, 0.156, 0) },
+}
+
 local function fakeRig(): Model
 	local model = Instance.new("Model")
-	local root = Instance.new("Part")
-	root.Name = "HumanoidRootPart"
-	root.Size = Vector3.new(2, 2, 1)
-	root.Anchored = false
-	root.CanCollide = true
-	root.CanQuery = true
-	root.CanTouch = true
-	root.Parent = model
-	for _, name in ipairs({ "Head", "UpperTorso", "LeftHand" }) do
+	local root: BasePart? = nil
+	for _, spec in ipairs(FAKE_RIG_PARTS) do
 		local limb = Instance.new("Part")
-		limb.Name = name
-		limb.Size = Vector3.new(1, 1, 1)
+		limb.Name = spec.name
+		limb.Size = spec.size
+		limb.CFrame = CFrame.new(spec.at)
 		limb.Anchored = false
 		limb.CanCollide = true
 		limb.CanQuery = true
 		limb.CanTouch = true
 		limb.Parent = model
+		if spec.name == "HumanoidRootPart" then
+			root = limb
+		end
 	end
 	local humanoid = Instance.new("Humanoid")
+	-- THE LIVE RIG'S OWN FIGURE, and it is the one the build reads: `Humanoid.HipHeight` is the
+	-- distance from the ROOT PART'S BOTTOM to the ground, so 2.192 on a 2-stud root puts the root's
+	-- centre 3.192 studs over the floorboards -- which is where this fake's soles are (3.188, a
+	-- float apart). A Humanoid left at its default would make the two disagree and the keeper's
+	-- feet a coincidence.
+	humanoid.HipHeight = 2.192
 	humanoid.Parent = model
 	model.PrimaryPart = root
 	return model
@@ -2151,27 +2187,41 @@ return function()
 			expect(p.KeyboardKeyCode).to.equal(Enum.KeyCode.E) -- Karen's word, written twice on purpose
 			expect(p.GamepadKeyCode).to.equal(want.GAMEPAD_KEY)
 			expect(p.MaxActivationDistance).to.equal(want.MAX_DISTANCE)
-			expect(p.MaxActivationDistance).to.equal(8)
+			expect(p.MaxActivationDistance).to.equal(8) -- the Director's number, written twice on purpose
 			expect(p.HoldDuration).to.equal(0) -- a tap, not a hold
 			expect(p.RequiresLineOfSight).to.equal(true)
 			expect(p.ActionText).to.equal("Shop")
 			expect(p.ObjectText).to.equal("Press E")
 			expect(p.Enabled).to.equal(true)
-			-- ON AN ATTACHMENT AT HEAD HEIGHT, AND THAT IS GEOMETRY: the counter is 3.5 studs tall
-			-- and queryable, so a sight line to a root 3 studs up is stopped by the till and the
-			-- prompt never appears for the one person standing where he is meant to stand.
+			-- ON THE COUNTER, IN FRONT OF THE CLIP, AND THAT IS A MEASUREMENT (task 195).
+			-- `CanQuery = false` is IGNORED while `CanCollide` is true -- four parts, one per
+			-- combination, each shot at with a ray in the live place: collide+query HIT,
+			-- **collide+noquery HIT**, nocollide+query HIT, nocollide+noquery passed through. So
+			-- the clip that stops a player vaulting the till also stops the prompt's own sight
+			-- ray, and with the prompt on the keeper BEHIND it the shop could not be opened at
+			-- all ("sight blocked by CounterGuard", measured at 1.5, 3 and 5 studs back).
 			local at = p.Parent
 			expect(at).to.be.ok()
 			expect((at :: Instance):IsA("Attachment")).to.equal(true)
-			-- A TOLERANCE AND NOT AN EQUALITY: `Attachment.Position` is three float32s, so 2.2 comes
-			-- back out of the engine as 2.200000047683716 (measured, this spec's first run).
-			local lift = (at :: Attachment).Position.Y
-			expect(math.abs(lift - CFG.LODGE.KEEPER.PROMPT_HEIGHT) < 1e-5).to.equal(true)
+			local counter = folder:FindFirstChild(Data.COUNTER_NAME, true) :: BasePart
+			expect((at :: Attachment).Parent).to.equal(counter)
+			-- SOUTH OF THE CLIP'S OWN SLAB, which is the whole reason it moved: the clip's front
+			-- face is the counter's customer face, so the prompt has to be in front of BOTH.
+			local guard = folder:FindFirstChild("CounterGuard", true) :: BasePart
+			local promptZ = counter.Position.Z + (at :: Attachment).Position.Z
+			expect(promptZ < guard.Position.Z - guard.Size.Z / 2).to.equal(true)
+			-- ...AND ABOVE THE TILL'S TOP, so it reads as the shop and not as a floating word.
+			local floorY = Build.roomFor(Vector3.new(0, 100, 0), CFG).centre.Y
+			local promptY = counter.Position.Y + (at :: Attachment).Position.Y
+			expect(promptY > floorY + CFG.LODGE.COUNTER.Y + 0.35).to.equal(true)
+			-- THE CUSTOMER'S FLOOR, which is the number that means anything: a man standing eight
+			-- studs out from the counter's face is still inside the prompt, because it is measured
+			-- from the counter now and not from the man behind it.
+			expect(want.MAX_DISTANCE - CFG.LODGE.KEEPER.PROMPT_OUT_STUDS >= 7).to.equal(true)
+			-- AND THERE IS A MAN BEHIND IT. The prompt is only built when there is one.
 			local body = folder:FindFirstChild(Data.KEEPER_NAME, true) :: Model
-			local root = body.PrimaryPart :: BasePart
-			local promptY = root.Position.Y + (at :: Attachment).Position.Y
-			-- The floor is y = 100 here (the anchor's own), so the till's top is 100 + 3.5.
-			expect(promptY > 100 + CFG.LODGE.COUNTER.Y).to.equal(true)
+			expect(body).to.be.ok()
+			expect((body.PrimaryPart :: BasePart).Position.Z > counter.Position.Z).to.equal(true)
 		end)
 
 		it("is dressed by the outfit owner and by nothing else", function()
@@ -2316,6 +2366,394 @@ return function()
 			-- AND THE CACHE DIES WITH THE INSTANCE (`Lobby.counterPart`'s own rule): a stale prompt
 			-- would be a panel listening to a lodge that is not there any more.
 			expect(Data.shopPrompt()).to.equal(nil)
+		end)
+	end)
+
+	-- ------------------------------------------------- the inside, clean (task 195)
+	--
+	-- KAREN, 2026-10-15: *"you need to fix inside the cabin / it's broken there / you need to make
+	-- nice inside and person not hanging and all things not hanging clean perfect ... and you can't
+	-- go over the table"*.
+	--
+	-- WHAT THE PHOTOGRAPHS COULD NOT SAY AND THESE CASES CAN. Every defect this task fixed was
+	-- invisible to the suite that passed task 187: a door leaf standing in the middle of the room
+	-- 0.2 studs off the floor, a keeper 0.188 studs under the floorboards with his arm 1.182 studs
+	-- inside the till, a sign 0.15 studs off the logs, two rack pegs 0.05 off their board, and a
+	-- service side a player could simply walk round. None of them is a missing part or a wrong
+	-- name, which is all the old cases could see, so this block measures BOXES.
+	--
+	-- Note: docs/research/2026-10-16-lodge-inside-clean.md
+	describe("the inside is clean", function()
+		local anchor = Vector3.new(0, 100, 0)
+		local container, folder, room
+
+		beforeEach(function()
+			container = Instance.new("Folder")
+			container.Name = "LobbyCleanSpecWorld"
+			container.Parent = Workspace
+			folder = Build.build(container, anchor, CFG, nil, {
+				rig = fakeRig,
+				dress = function(): boolean
+					return true
+				end,
+			})
+			room = Build.roomFor(anchor, CFG)
+		end)
+
+		afterEach(function()
+			container:Destroy()
+		end)
+
+		-- A PART'S OWN BOX, PROJECTED ONTO THE WORLD AXES -- half-extents, the same expression the
+		-- trophy cases use, so a rotated antler is measured by where it really reaches and not by
+		-- its centre.
+		local function reachOf(piece: BasePart): Vector3
+			local _, _, _, m00, m01, m02, m10, m11, m12, m20, m21, m22 = piece.CFrame:GetComponents()
+			return Vector3.new(
+				0.5 * (math.abs(m00) * piece.Size.X + math.abs(m01) * piece.Size.Y + math.abs(m02) * piece.Size.Z),
+				0.5 * (math.abs(m10) * piece.Size.X + math.abs(m11) * piece.Size.Y + math.abs(m12) * piece.Size.Z),
+				0.5 * (math.abs(m20) * piece.Size.X + math.abs(m21) * piece.Size.Y + math.abs(m22) * piece.Size.Z)
+			)
+		end
+
+		-- HOW FAR TWO BOXES ARE INTO EACH OTHER, as the SMALLEST of the three axis overlaps: a
+		-- positive answer is interpenetration, zero is touching, a negative answer is the gap.
+		local function overlapOf(a: BasePart, b: BasePart): number
+			local ra, rb = reachOf(a), reachOf(b)
+			local d = a.Position - b.Position
+			return math.min(ra.X + rb.X - math.abs(d.X), ra.Y + rb.Y - math.abs(d.Y), ra.Z + rb.Z - math.abs(d.Z))
+		end
+
+		local function insideParts(): { BasePart }
+			local inside = folder:FindFirstChild("Inside", true)
+			expect(inside).to.be.ok()
+			local pieces: { BasePart } = {}
+			for _, descendant in ipairs((inside :: Instance):GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					table.insert(pieces, descendant :: BasePart)
+				end
+			end
+			return pieces
+		end
+
+		it("rests every part of the inside on the floor, a wall, the ceiling or another part", function()
+			-- NOTHING HANGS, AS SIX COMPARISONS PER PART. A piece of the inside is held when its
+			-- bottom IS the floorboards, when its box reaches a wall plane or the ceiling, or when
+			-- it touches another piece of the inside -- all within 0.05 studs. What it may not do
+			-- is stand in the air on its own, which is what the door leaf, the shop sign and two
+			-- rack pegs were doing when Karen said *"all things not hanging"*.
+			local TOL = 0.05
+			local pieces = insideParts()
+			-- A BOUND NOTHING SATISFIES IS A BOUND NOTHING PROVES: this room really is furnished.
+			expect(#pieces > 100).to.equal(true)
+			local floorY = room.centre.Y
+			local ceilingY = floorY + room.height
+			for _, piece in ipairs(pieces) do
+				local r = reachOf(piece)
+				local low, high = piece.Position - r, piece.Position + r
+				local held = math.abs(low.Y - floorY) <= TOL
+					or low.X <= room.centre.X - room.halfX + TOL
+					or high.X >= room.centre.X + room.halfX - TOL
+					or low.Z <= room.centre.Z - room.halfZ + TOL
+					or high.Z >= room.centre.Z + room.halfZ - TOL
+					or high.Y >= ceilingY - TOL
+				if not held then
+					for _, other in ipairs(pieces) do
+						if other ~= piece and overlapOf(piece, other) >= -TOL then
+							held = true
+							break
+						end
+					end
+				end
+				if not held then
+					error(
+						string.format(
+							"%s hangs in the air: its bottom is %.3f with the floor at %.3f, and it touches nothing",
+							piece.Name,
+							low.Y,
+							floorY
+						),
+						0
+					)
+				end
+			end
+		end)
+
+		it("stands the seller's feet ON the floorboards, measured and not assumed", function()
+			-- KAREN: *"person not hanging"*. `KEEPER.ROOT_HEIGHT` is 3 and this rig's root is 3.188
+			-- studs over its soles (the live figure, in `FAKE_RIG_PARTS`), so placing him at
+			-- `floorY + ROOT_HEIGHT` and stopping there buries him 0.188 studs -- which is exactly
+			-- what the live place measured. THIS CASE FAILS ON THE OLD CODE. What makes it pass is
+			-- the engine's own `Humanoid.HipHeight` and not a better constant, because the idle
+			-- clip moves his legs and a body seated by the pose it was built in sank another 0.174
+			-- studs the moment the animation started.
+			local body = folder:FindFirstChild(Data.KEEPER_NAME, true) :: Model
+			expect(body).to.be.ok()
+			local lowest, lowName = math.huge, "?"
+			for _, descendant in ipairs(body:GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					local piece = descendant :: BasePart
+					local bottom = piece.Position.Y - reachOf(piece).Y
+					if bottom < lowest then
+						lowest, lowName = bottom, piece.Name
+					end
+				end
+			end
+			if math.abs(lowest - room.centre.Y) > 0.05 then
+				error(
+					string.format(
+						"the keeper's %s is at %.3f and the floorboards are at %.3f",
+						lowName,
+						lowest,
+						room.centre.Y
+					),
+					0
+				)
+			end
+		end)
+
+		it("gives the seller more room than he can reach, whichever way he is turned", function()
+			-- HE TURNS ON THE SPOT (`Build.faceKeeper`), so the arms that are at his sides when he
+			-- faces the room swing FORWARD when he turns to a customer standing off to one side.
+			-- The bound is therefore his horizontal RADIUS about his own root and not his depth --
+			-- measured live at 2.423 studs, and measured here off the body that was actually built.
+			local body = folder:FindFirstChild(Data.KEEPER_NAME, true) :: Model
+			local root = body.PrimaryPart :: BasePart
+			local radius = 0
+			for _, descendant in ipairs(body:GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					local piece = descendant :: BasePart
+					local r = reachOf(piece)
+					local d = piece.Position - root.Position
+					local far = Vector2.new(math.abs(d.X) + r.X, math.abs(d.Z) + r.Z)
+					radius = math.max(radius, far.Magnitude)
+				end
+			end
+			expect(radius > 2).to.equal(true) -- a man, not a post
+			local counter = folder:FindFirstChild(Data.COUNTER_NAME, true) :: BasePart
+			local backFace = counter.Position.Z + counter.Size.Z / 2
+			local wallZ = room.centre.Z + room.halfZ
+			if root.Position.Z - backFace < radius then
+				error(
+					string.format(
+						"the keeper reaches %.3f studs and has %.3f to the till",
+						radius,
+						root.Position.Z - backFace
+					),
+					0
+				)
+			end
+			if wallZ - root.Position.Z < radius then
+				error(
+					string.format(
+						"the keeper reaches %.3f studs and has %.3f to the back wall",
+						radius,
+						wallZ - root.Position.Z
+					),
+					0
+				)
+			end
+		end)
+
+		it("lets no two pieces of furniture into each other", function()
+			-- A THING THAT HANGS ON OR IN ANOTHER THING IS NOT A THING THAT FLOATS, and the
+			-- opposite holds too: the chimney breast through the ceiling boards, the fire logs in
+			-- the firebox and a lantern's rod into the planks are all CORRECT, and were measured as
+			-- such. What is not correct is two separate pieces of furniture occupying the same air,
+			-- so this case names the pieces and compares only pieces that are not the same piece.
+			local keeper = folder:FindFirstChild(Data.KEEPER_NAME, true)
+			local function groupOf(piece: BasePart): string?
+				if keeper ~= nil and piece:IsDescendantOf(keeper :: Instance) then
+					return "Shopkeeper"
+				end
+				local name = piece.Name
+				if string.match(name, "^Counter") then
+					return "Counter" -- the till, its cap, the wing, the return and the two clips
+				elseif string.match(name, "^Table") then
+					return "Table"
+				elseif string.match(name, "^Bench") then
+					return "Bench" .. (string.match(name, "%d") or "?")
+				elseif string.match(name, "^GunRack") then
+					return "GunRack"
+				elseif name == "Rug" then
+					return "Rug"
+				end
+				return nil
+			end
+			local pieces: { BasePart } = {}
+			local groups: { string } = {}
+			local seen: { [string]: boolean } = {}
+			for _, piece in ipairs(insideParts()) do
+				local group = groupOf(piece)
+				if group ~= nil then
+					table.insert(pieces, piece)
+					table.insert(groups, group)
+					seen[group] = true
+				end
+			end
+			-- EVERY PIECE THIS CASE CLAIMS TO WATCH IS REALLY THERE.
+			for _, want in ipairs({ "Counter", "Table", "Bench1", "Bench2", "GunRack", "Rug", "Shopkeeper" }) do
+				expect(seen[want]).to.equal(true)
+			end
+			for i = 1, #pieces do
+				for j = i + 1, #pieces do
+					if groups[i] ~= groups[j] then
+						local depth = overlapOf(pieces[i], pieces[j])
+						if depth > 0.05 then
+							error(
+								string.format(
+									"%s (%s) is %.3f studs inside %s (%s)",
+									pieces[i].Name,
+									groups[i],
+									depth,
+									pieces[j].Name,
+									groups[j]
+								),
+								0
+							)
+						end
+					end
+				end
+			end
+		end)
+
+		it("lays the rug ON the floorboards", function()
+			local rug = folder:FindFirstChild("Rug", true) :: BasePart
+			expect(rug).to.be.ok()
+			expect(math.abs((rug.Position.Y - rug.Size.Y / 2) - room.centre.Y) < 1e-4).to.equal(true)
+			-- Cosmetic, like everything else in this room that is not walked on or walked into.
+			expect(rug.CanCollide).to.equal(false)
+			expect(rug.CanQuery).to.equal(false)
+		end)
+
+		it("closes the service side: a body can neither walk in nor jump in", function()
+			-- KAREN: *"you can't go over the table"*. The bay behind the counter is bounded by the
+			-- north wall, the east wall and TWO faces a body could cross -- the counter's customer
+			-- face and the return's west face. This samples both planes on a half-stud grid from
+			-- the floorboards to the ceiling and fails unless every sample is inside something
+			-- solid: the till and its wing below, the return beside it, and the clips above.
+			local counter = folder:FindFirstChild(Data.COUNTER_NAME, true) :: BasePart
+			local solids: { BasePart } = {}
+			for _, descendant in ipairs(folder:GetDescendants()) do
+				if descendant:IsA("BasePart") and (descendant :: BasePart).CanCollide then
+					table.insert(solids, descendant :: BasePart)
+				end
+			end
+			local function solidAt(point: Vector3): boolean
+				for _, piece in ipairs(solids) do
+					local near = piece.CFrame:PointToObjectSpace(point)
+					if
+						math.abs(near.X) <= piece.Size.X / 2 + 1e-3
+						and math.abs(near.Y) <= piece.Size.Y / 2 + 1e-3
+						and math.abs(near.Z) <= piece.Size.Z / 2 + 1e-3
+					then
+						return true
+					end
+				end
+				return false
+			end
+			local frontZ = counter.Position.Z - counter.Size.Z / 2
+			local westX = counter.Position.X - counter.Size.X / 2 - CFG.LODGE.SERVICE.RETURN_WIDTH
+			local eastX = room.centre.X + room.halfX
+			local northZ = room.centre.Z + room.halfZ
+			local lowY, highY = room.centre.Y + 0.1, room.centre.Y + room.height - 0.1
+			local step = 0.5
+			local x = westX
+			while x <= eastX + 1e-6 do
+				local y = lowY
+				while y <= highY do
+					if not solidAt(Vector3.new(x, y, frontZ)) then
+						error(string.format("the counter line has a hole at x %.2f, y %.2f", x, y), 0)
+					end
+					y += step
+				end
+				x += step
+			end
+			local z = frontZ
+			while z <= northZ + 1e-6 do
+				local y = lowY
+				while y <= highY do
+					if not solidAt(Vector3.new(westX, y, z)) then
+						error(string.format("the counter west return has a hole at z %.2f, y %.2f", z, y), 0)
+					end
+					y += step
+				end
+				z += step
+			end
+			-- AND THE CLIPS ARE INVISIBLE TO EVERY RAY, which is what keeps a pellet honest and the
+			-- keeper's `RequiresLineOfSight` prompt reachable across the till.
+			for _, name in ipairs({ "CounterGuard", "CounterGuardWest" }) do
+				local guard = folder:FindFirstChild(name, true) :: BasePart
+				expect(guard).to.be.ok()
+				expect(guard.CanCollide).to.equal(true)
+				expect(guard.CanQuery).to.equal(false)
+				expect(guard.CanTouch).to.equal(false)
+				expect(guard.Transparency).to.equal(1)
+			end
+		end)
+
+		it("leaves the doorway open: no leaf, and no door part inside the room", function()
+			-- KAREN: *"doors can be open no doors"*. The leaf is gone
+			-- (`backups/2026-10-16_task-195_door-leaf.txt`), and what is left of the door is in the
+			-- SOUTH WALL, never standing in the room -- which is the test the old suite did not
+			-- have and is why a leaf could drift 1.34 studs indoors unnoticed.
+			expect(CFG.LODGE.DOOR.WIDTH >= 6).to.equal(true)
+			expect((CFG.LODGE.DOOR :: any).LEAF_OPEN_RADIANS).to.equal(nil)
+			local southInner = room.centre.Z - room.halfZ
+			for _, descendant in ipairs(folder:GetDescendants()) do
+				if descendant:IsA("BasePart") and string.match(descendant.Name, "^Door") then
+					local piece = descendant :: BasePart
+					expect(piece.Name).never.to.equal("DoorLeaf")
+					local nearest = piece.Position.Z - reachOf(piece).Z
+					if nearest > southInner + 0.05 then
+						error(
+							string.format("%s stands %.3f studs inside the room", piece.Name, nearest - southInner),
+							0
+						)
+					end
+				end
+			end
+		end)
+
+		it("hangs the trophies in rows: two heights, and a wall's two rows in the same places", function()
+			-- THE DIRECTOR'S *"even rows"*. Before this the east wall carried four plaques at 4.8
+			-- and two at 8.2 on `along` values that matched neither row, and the north wall's boar
+			-- hung at 5 between two roe at 4.8.
+			local low, high = CFG.TROPHIES.HEIGHT_STUDS, CFG.TROPHIES.UPPER_STUDS
+			expect(high > low).to.equal(true)
+			local rows: { [string]: { [number]: { number } } } = {}
+			for _, mount in ipairs(CFG.TROPHIES.MOUNTS) do
+				local height = mount.height or low
+				if height ~= low and height ~= high then
+					error(
+						string.format("a trophy on the %s wall hangs at %.2f, which is no row", mount.wall, height),
+						0
+					)
+				end
+				rows[mount.wall] = rows[mount.wall] or { [low] = {}, [high] = {} }
+				table.insert(rows[mount.wall][height], mount.along)
+			end
+			for wall, byHeight in pairs(rows) do
+				local lower, upper = byHeight[low], byHeight[high]
+				if #lower > 0 and #upper > 0 then
+					expect(#lower).to.equal(#upper)
+					table.sort(lower)
+					table.sort(upper)
+					for index = 1, #lower do
+						if math.abs(lower[index] - upper[index]) > 1e-6 then
+							error(
+								string.format(
+									"the %s wall rows are not above one another: %.2f against %.2f",
+									wall,
+									lower[index],
+									upper[index]
+								),
+								0
+							)
+						end
+					end
+				end
+			end
 		end)
 	end)
 
