@@ -1,12 +1,12 @@
 # Task 201 part 1 — one design system, and the in-drive HUD drawn from it
 
 Task: 201
-Round: 2
+Round: 3
 Base: main @ `c52a332`
-Code commit: `ac9dcd8acae9c10bf485c0046a579506ca05d22b`
+Code commit: `27b21bff6d05d5da7c9fd078f056c3be2a037a8e`
 
 ```
-[harness] PASS: 33/33 checks @ ac9dcd8acae9c10bf485c0046a579506ca05d22b (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 27b21bff6d05d5da7c9fd078f056c3be2a037a8e (clean tree) scope=all
 ```
 
 `[harness2]` **N/A.** No file this branch touches is in `TWO_PLAYER_PATHS` (`tools/agents.py`): the
@@ -94,6 +94,19 @@ player is a Shooter, so the frame was made by setting `Player.Team` to `Drivers`
 `Horn` Tool from the server. The chip's own branches (`READY` / `WAIT` / `THROUGH`) are code and the
 `THROUGH` branch has no frame.
 
+**Round 2's blocking finding is fixed here, and it was mine.** `Hud.hornBlowLatch` is now the whole
+of WHEN this client saw a blast, pure and exported — because the whole of it is an EDGE and an edge
+is exactly what a live case cannot arrange; `renderCorner`'s only use of it is the one call. Both
+halves have now been wrong once each: round 1 started the clock on the first stamp it saw (a horn
+handed back carrying an old stamp read `WAIT` although it was ready), and round 2 gated that on
+`seen ~= nil`, which **swallowed the first blast of every fresh horn** — `Weapon.Horn.blowTool`
+creates the attribute INSIDE the blast, so a horn that has never been blown carries none and nil is
+a real value of `seen`. A separate `primed` flag makes both true, which is the latch
+`src/client/Camera/Viewmodel.luau` already uses for the same attribute and already wrote the reason
+down for. Verify: `hud_style.spec`, "starts no clock on the first look at a horn, and always on the
+first BLAST" — a brand-new horn (no attribute) primes and starts nothing, then nil → 1 starts the
+clock; a horn with an old stamp primes at that value and only a later change counts.
+
 **8. Every feed line is its own toast with a meaning dot, the dot and the words agree, and the
 stack cannot reach the hit card.**
 `Hud.feedMeaningFor` is the one pure mapping and **both** writers of `feedEntries` ask it (no
@@ -169,12 +182,23 @@ Horn already carrying a stamp latched `WAIT` with an empty bar for 1.5 s althoug
 first stamp seen on a Tool starts no clock — this client does not know when that blast was); and the
 status bar's `order` comment named the chips in the wrong order.
 
+**Round 2's three notes** are in: `compass.spec` now narrows the REAL strip to a phone width and
+asks what `render` drew (the one live case ran at the desktop size, where the drawn width and
+`CONFIG.WIDTH` agree, so nothing proved `render` passes `Compass.drawnWidth()`); `hud_style.spec`'s
+feed case opened by restating `feedHeight`'s own expression back at it and now asserts the numbers
+(a desktop toast is 30, five of them with four gaps is 174); and two stale sentences are corrected —
+the objective slate's label is the size of its sentence, not of the band, and the `shop` tuple is
+above the `hud` one in `SCOPE_SPECS`, not below.
+
 Queued as TASKS.md 201a, with the reason: the phone branches of `Style.slate` / `statChip` / `pill`
 / `toast` and the 42 px corner height are unreachable while `build` always sees 1280 (the paddings
 and the pill height are built once and `applyViewportLayout` moves only `TextSize`, the compass's
 width and the status cap — its own comment is narrowed to say so); `Drive.CONFIG.BAR_TEXT_SIZE` and
 `FEED_TEXT_SIZE` join `BAR_TOP_OFFSET` as readerless; and `docs/design/hud-clarity.md`,
-`docs/design/map-ui.md` and `Drive.CONFIG`'s own comment still print the superseded band.
+`docs/design/map-ui.md` and `Drive.CONFIG`'s own comment still print the superseded band; and the status slate has no
+`ClipsDescendants` under its `MaxWidth` cap while the only chip ever dropped is `Coins`, so a phone
+in `Waiting` (Drive + `WAITING <reason>` + Boars + the pill + Coins) could spill past the slate
+rather than drop a whole chip as §3.9 asks — worth measuring, and not measured here.
 
 ## Four defects the SPECS could not catch, and a frame did
 
