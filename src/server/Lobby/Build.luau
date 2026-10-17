@@ -3335,13 +3335,18 @@ local function truckRig(model: Instance, cfg): TruckRig
 		beam.Shadows = true
 		-- A `SpotLight` SHINES ALONG ITS PARENT'S `Face`, and the lamp part's own orientation is the
 		-- model author's, not ours. So the beam is aimed with an `Attachment`, whose CFrame this file
-		-- owns: `Front` down the measured facing, which is what `Light.Face` means for an attachment
-		-- parent (`Top` is the attachment's +Y, and the engine's default face for a SpotLight is
-		-- `Front`).
+		-- owns: the default `Face` of a `SpotLight` is `Front`, which is the attachment's own
+		-- `LookVector`, and `CFrame.new(from, to)` is what points a LookVector at something.
+		--
+		-- **`WorldCFrame`, NOT `CFrame`.** `Attachment.CFrame` is in its PARENT PART'S space, and
+		-- `facing` is a WORLD direction measured off the truck's box -- so writing it to `CFrame`
+		-- would aim every beam by the lamp part's own rotation, which is the free model author's and
+		-- is a quarter turn out on these trucks. This is the same class of mistake as a pivot read in
+		-- the wrong frame, and it is invisible to a spec: a beam has no position to assert.
 		local aim = Instance.new("Attachment")
 		aim.Name = "Aim"
-		aim.CFrame = CFrame.new(Vector3.zero, facing :: Vector3)
 		aim.Parent = head
+		aim.WorldCFrame = CFrame.new(head.Position, head.Position + (facing :: Vector3))
 		beam.Parent = aim
 		beam.Enabled = false
 		table.insert(rig.lights, beam)
@@ -3373,12 +3378,20 @@ local function truckRig(model: Instance, cfg): TruckRig
 		end
 	end
 	if anchor ~= nil then
+		-- HOW LONG THE TRUCK IS ALONG THE DIRECTION IT FACES, and how wide across it. Measured from
+		-- the box rather than assumed to be Z and X: `facing` is derived from the lamps and a truck
+		-- parked across the yard would put its length on the other axis.
+		local look = facing :: Vector3
+		local across = Vector3.new(-look.Z, 0, look.X)
+		local lengthHalf = math.abs(look.X) * half.X + math.abs(look.Z) * half.Z
+		local widthHalf = math.abs(across.X) * half.X + math.abs(across.Z) * half.Z
 		local pipe = Instance.new("Attachment")
 		pipe.Name = "Exhaust"
 		pipe.WorldCFrame = CFrame.new(
 			centre
-				- (facing :: Vector3) * half.Z * 0.92
-				+ Vector3.new(half.X * spec.SMOKE_SIDE_FRACTION, -half.Y * (1 - 2 * spec.SMOKE_HEIGHT_FRACTION), 0)
+				- look * lengthHalf * 0.92
+				+ across * widthHalf * spec.SMOKE_SIDE_FRACTION
+				+ Vector3.new(0, -half.Y * (1 - 2 * spec.SMOKE_HEIGHT_FRACTION), 0)
 		)
 		pipe.Parent = anchor
 		local smoke = Instance.new("ParticleEmitter")
@@ -3404,7 +3417,7 @@ local function truckRig(model: Instance, cfg): TruckRig
 
 		local block = Instance.new("Attachment")
 		block.Name = "Engine"
-		block.WorldCFrame = CFrame.new(centre + (facing :: Vector3) * half.Z * 0.7 + Vector3.new(0, -half.Y * 0.4, 0))
+		block.WorldCFrame = CFrame.new(centre + look * lengthHalf * 0.7 + Vector3.new(0, -half.Y * 0.4, 0))
 		block.Parent = anchor
 		rig.start = engineSound(
 			"EngineStart",
