@@ -2815,7 +2815,11 @@ end
 -- handler rather than a closure, exactly as `Hud.onHitMarker` is, so the client half of the kill log
 -- can be driven in a spec instead of only by a live drive (task 124 round 3).
 function Hud.onKilled(event)
-	table.insert(feedEntries, { text = Hud.killLineText(event), at = os.clock() })
+	-- A KILL IS "YOU DID WELL", SO ITS DOT AND ITS WORDS ARE PINE (§3.11). The meaning travels WITH
+	-- the entry and is resolved by the one pure mapping, so the line and the bullet beside it cannot
+	-- end up two different colours -- which is what the first run of `hud_style.spec` caught: this
+	-- call carried no meaning at all and a kill drew in `BODY`.
+	table.insert(feedEntries, { text = Hud.killLineText(event), at = os.clock(), meaning = "good" })
 	renderFeed(os.clock())
 end
 
@@ -3136,7 +3140,10 @@ function Hud.useMatch(MatchSystem): boolean
 		-- NO TEXT, NO LINE: `feedTextFor` answers nil for an entry another owner now draws.
 		local text = Hud.feedTextFor(entry)
 		if text ~= nil then
-			table.insert(feedEntries, { text = text, at = os.clock() })
+			-- ...AND ITS MEANING COMES WITH IT (task 201, §3.11): one pure mapping, read once here,
+			-- so the dot and the words are one answer. An escape and a tie-to-a-tree are clay; a
+			-- join or a phase line is `BODY`.
+			table.insert(feedEntries, { text = text, at = os.clock(), meaning = Hud.feedMeaningFor(entry) })
 			renderFeed(os.clock())
 		end
 	end)
