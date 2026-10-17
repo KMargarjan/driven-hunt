@@ -1005,6 +1005,54 @@ return function()
 			expect(Body.teamForWord("hunter")).to.equal("Shooters")
 			expect(Body.teamForWord("x")).to.equal(nil)
 		end)
+
+		-- WIRING UP A PLAYER WHO WAS ALREADY THERE (task 202). Karen's `/beater` and the Director's
+		-- `DHForestStartRole` both stopped working, and neither of them was the fault: measured twice
+		-- in a Play Solo session on 2026-10-17, `ForestTestBoot`'s `Players.PlayerAdded` handler
+		-- never ran for the only player in the place -- so neither print inside it appeared, and the
+		-- `player.Chatted` connection that `/beater` travels down was never made. The root yields for
+		-- seconds (3,028 trees) before it reaches that line, and Play Solo puts the local player into
+		-- `Players` while it is still running.
+		--
+		-- THE SWEEP IS WHAT THIS CASE HOLDS, not a second edge handler: the boot asks every tick who
+		-- is still unwired and acts on the answer, so the INSTANT a player joined stops mattering.
+		-- The same shape, and the same stated reason, as `Weapon.refreshArming` and
+		-- `Horn.refreshCarry`.
+		it("says who is still unwired, however early he joined (task 202)", function()
+			local early = { UserId = 101, Name = "Early" } :: any
+			local late = { UserId = 202, Name = "Late" } :: any
+			local wired: { [number]: boolean } = {}
+
+			-- THE BUG, AS ARITHMETIC: he is in `Players` and nothing has been wired, so he is owed a
+			-- wiring -- whether or not anybody was listening when he arrived.
+			local first = ForestTest.toWire({ early }, wired)
+			expect(first).never.to.equal(nil)
+			expect(#(first :: any)).to.equal(1)
+			expect((first :: any)[1].UserId).to.equal(101)
+
+			-- ...AND IT IS DONE ONCE. The caller owns the record, so the sweep settles the moment it
+			-- has acted, and a settled world costs no table at all.
+			wired[101] = true
+			expect(ForestTest.toWire({ early }, wired)).to.equal(nil)
+
+			-- A SECOND PLAYER, JOINING LATER, IS THE SAME QUESTION AND NOT A NEW ONE.
+			local second = ForestTest.toWire({ early, late }, wired)
+			expect(second).never.to.equal(nil)
+			expect(#(second :: any)).to.equal(1)
+			expect((second :: any)[1].UserId).to.equal(202)
+			wired[202] = true
+			expect(ForestTest.toWire({ early, late }, wired)).to.equal(nil)
+
+			-- HE LEFT AND CAME BACK, which is the one case the record has to forget: the connections
+			-- on his old `Player` object are dead, so he is owed a wiring again.
+			wired[202] = nil
+			local again = ForestTest.toWire({ early, late }, wired)
+			expect(again).never.to.equal(nil)
+			expect(#(again :: any)).to.equal(1)
+			expect((again :: any)[1].UserId).to.equal(202)
+
+			TestKit.note("task202 toWire: unwired 101 -> wired -> nil; 202 joins -> 202; 202 leaves -> 202 again")
+		end)
 	end)
 
 	-- WHERE A BEATER STARTS, AND WHY SHE IS NOT HELD TO A STAND (task 153). Karen, 2026-10-11:

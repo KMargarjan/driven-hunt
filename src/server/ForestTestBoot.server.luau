@@ -1155,23 +1155,16 @@ local function reportStart(player: Player, character: Model)
 	end)
 end
 
--- EVERY PLAYER, INCLUDING THE ONE WHO WAS ALREADY THERE (task 202). MEASURED, twice, in the Forest
--- Test on 2026-10-17: neither `[ForestTest] <name> asked to join as a <role> (start switch)` nor
--- `[ForestTest] <name> is a <role> at (...)` was printed in a Play Solo session, and both of those
--- prints are inside this connection -- so `Players.PlayerAdded` did not fire for the only player in
--- the place. Play Solo puts the local player into `Players` while the server scripts are still
--- running, and this root now YIELDS for seconds before it reaches this line (`[ForestTestBoot]
--- places: 3 dressed, 3028 planted ... 2.73s`, plus the asset loads), so the event is long gone by
--- the time anybody is listening for it.
+-- EVERY PLAYER IN THIS WORLD IS WIRED UP, WHENEVER HE JOINED (task 202). `Players.PlayerAdded` did
+-- not fire for the only player in a Play Solo session -- measured twice on 2026-10-17, and the proof
+-- is that neither print inside this function appeared -- because this root yields for seconds before
+-- it reaches this line and Play Solo puts the local player into `Players` while it is still running.
+-- Both routes into a role are in here (the `DHForestStartRole` switch, and the `player.Chatted`
+-- connection Karen's `/beater` travels down), so neither worked.
 --
--- WHAT THAT COST IS BOTH ROUTES INTO A ROLE. `DHForestStartRole` is read here, and `player.Chatted`
--- -- Karen's `/beater` and `/hunter` -- is CONNECTED here, so with the event missed she could become
--- a beater by neither the switch nor by typing, and task 202 could not reproduce in her place the
--- thing it was dispatched to look at.
---
--- THE CATCH-UP LOOP IS THE STANDARD SHAPE for a service event that can fire before a listener
--- exists, and it cannot double up: `Players.PlayerAdded` fires once per player and the loop runs
--- once, at boot, over the players who are already in.
+-- THE FIX IS A SWEEP AND NOT A SECOND EVENT: `ForestTest.toWire` is asked on the Heartbeat below
+-- what is still unwired, and `wired` is this root's own record of what it has done. See that
+-- function's header for why an edge handler is the wrong shape for this at all.
 local function onPlayer(player: Player)
 	player.CharacterAdded:Connect(function(character)
 		reportStart(player, character)
@@ -1207,21 +1200,23 @@ local function onPlayer(player: Player)
 			)
 		end
 	end)
-end
-
-Players.PlayerAdded:Connect(onPlayer)
-for _, player in ipairs(Players:GetPlayers()) do
-	onPlayer(player)
 	-- ...AND THE CHARACTER HE ALREADY HAS, if he has one: `CharacterAdded` has exactly the same hole
-	-- as `PlayerAdded`, and `reportStart` is how a tool outside the server learns which role the
-	-- drive actually gave him (its own header says so).
+	-- as the event this sweep replaced, and `reportStart` is how a tool outside the server learns
+	-- which role the drive actually gave him (its own header says so).
 	local character = player.Character
 	if character ~= nil then
 		reportStart(player, character)
 	end
 end
 
+-- WHO THIS ROOT HAS ALREADY WIRED, by UserId. Owned here and written nowhere else: `toWire` is pure
+-- and answers from it, this is the one place that adds to it, and `PlayerRemoving` below is the one
+-- place that takes away -- so a player who leaves and comes back in the same session is wired again
+-- rather than left with the dead connections of his old `Player` object.
+local wired: { [number]: boolean } = {}
+
 Players.PlayerRemoving:Connect(function(player)
+	wired[player.UserId] = nil
 	-- HIS RING GOES WITH HIS PICK (round 1's note). An edge drawn round a stand nobody is held to is
 	-- a line that means nothing, and without this it stayed until the next intermission cleared all
 	-- of them.
@@ -1276,6 +1271,15 @@ RunService.Heartbeat:Connect(function()
 		end
 	end
 	local players = Players:GetPlayers()
+	-- EVERYBODY IS WIRED UP, WHENEVER HE JOINED (task 202). One table lookup per player per tick
+	-- while nothing has changed, and `toWire` allocates nothing in that case.
+	local joining = ForestTest.toWire(players, wired)
+	if joining ~= nil then
+		for _, player in ipairs(joining) do
+			wired[player.UserId] = true
+			onPlayer(player)
+		end
+	end
 	for _, player in ipairs(players) do
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
