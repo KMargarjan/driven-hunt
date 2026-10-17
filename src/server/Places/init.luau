@@ -40,6 +40,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Plan = require(ReplicatedStorage:WaitForChild("Places"))
+local Ground = require(script:WaitForChild("Ground"))
 local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))
 local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 
@@ -48,6 +49,9 @@ local Places = {}
 -- WHERE THE PLANTED WOOD LIVES: one folder, one child per place. Named for what it is, and NOT
 -- `OurForest` or `Foliage` -- a reader has to be able to tell at a glance which trees a commit owns
 -- and which are Karen's Studio content that rule 7 protects.
+-- IT IS ALSO THE NAME `ForestTest.GROUND_IGNORE` CARRIES, so `groundAt` rays straight through our
+-- own trees (design 10.1). `places.spec` asserts the two agree, so the list cannot drift from the
+-- folder it is about.
 Places.FOLDER = "DrivePlaces"
 
 -- WHERE THE TEMPLATES COME FROM, in order of preference. Both are Studio content in Karen's Forest
@@ -72,6 +76,21 @@ Places.CLAW_FRACTION = table.freeze({
 	SilverBirch_Var12_LOD_0 = 0.0393,
 	SilverBirch_Var13_LOD_0 = 0.0239,
 })
+
+-- HOW MUCH GROUND SPREAD A TREE OF THIS HEIGHT MAY BE PLANTED ACROSS, before this module refuses the
+-- spot rather than seating it.
+--
+-- IT IS A FRACTION OF THE HEIGHT AND NOT A CONSTANT, AND THAT WAS MEASURED. `TreeGround.CLIFF_STUDS`
+-- (4) is the number the RE-SEATING tool uses, where the question is *"would sinking this existing tree
+-- bury it?"*; here the question is *"is this a spot to plant one at all?"*, and on this world's rolling
+-- ground a flat 4 refused **776 of 2,713** candidates -- 29% of the forest, as holes. The junction
+-- always goes to the LOWEST ground under the footprint, so nothing floats either way; the only thing
+-- the spread costs is how much of the UPHILL root flare is buried, and a tenth of the tree's height is
+-- not something an eye can see. `CLIFF_STUDS` stays the floor, so ferns and saplings keep the
+-- tool's own allowance.
+function Places.stepAllowance(heightStuds: number): number
+	return math.max(TreeGround.CLIFF_STUDS, 0.10 * heightStuds)
+end
 
 -- A PART IS INVISIBLE AT OR ABOVE THIS TRANSPARENCY, and an invisible part must never stop a bullet.
 -- `forest_ground.py`'s own number, for the same reason it needed one: *"the birches carry an
@@ -225,7 +244,7 @@ function Places.plantOne(
 	-- tree, because sinking it to the lowest reading would bury it to the crown on the high side.
 	-- For a tree nobody has planted yet the honest answer is to plant it somewhere else -- so it is
 	-- skipped and counted, never left standing in the air (standing rule E).
-	if TreeGround.spread(grounds) > TreeGround.CLIFF_STUDS then
+	if TreeGround.spread(grounds) > Places.stepAllowance(whole.maxY - trunk.minY) then
 		made:Destroy()
 		return nil, "cliff"
 	end
@@ -262,11 +281,24 @@ end
 -- `groundAt` AND `world` ARE ARGUMENTS AND NEVER `Workspace` BY DEFAULT inside a spec's reach, which
 -- is `Lobby.Field`'s discipline: *"a spec hands in a fake with a recording FillBlock, so no spec in
 -- the DEV place can write DEV's terrain, ever"*.
-function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?): { [string]: any }
+function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?, terrain: any?): { [string]: any }
 	local root = world or Workspace
-	local reader = groundAt or function(x: number, z: number): number?
-		return Forest.groundAt(x, z)
+	-- THE GROUND READER IS HANDED IN AND THERE IS NO DEFAULT, AND THAT IS DESIGN 10.1 RATHER THAN
+	-- strictness. The obvious default -- `ForestTest.groundAt` -- CAN SEE THIS MODULE'S OWN TREES: a
+	-- planted trunk keeps `CanQuery = true` (it has to stop a bullet) and `plantOne` parents each clone
+	-- before the next one is measured, so a tree could be planted on the trunk of the tree planted a
+	-- moment earlier -- and WHICH tree would depend on the planting order, which breaks the one
+	-- property this whole system rests on (the plan is a pure function of its seed). Worse, that same
+	-- function is the CANOPY half of `Markers.groundFor`, where a one-stud disagreement with the
+	-- terrain reader REFUSES A STAND.
+	--
+	-- So the boot passes `ForestTest.terrainYAt` -- Terrain only -- and this module keeps no second
+	-- definition of where the ground is. The two plots hold zero non-terrain parts (BRIEF M8) and
+	-- terrain answered every sample over this ground (M4), so terrain IS the ground here.
+	if groundAt == nil then
+		return { places = 0, planted = 0, skipped = 0, missing = 0, cliff = 0, seconds = 0, reason = "no-ground-reader" }
 	end
+	local reader = groundAt
 	local sources = Places.templates(root)
 	local existing = root:FindFirstChild(Places.FOLDER)
 	if existing then
@@ -274,7 +306,7 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 		-- doubling, and what it destroys is only ever this module's own output.
 		existing:Destroy()
 	end
-	local report = { places = 0, planted = 0, skipped = 0, missing = 0, cliff = 0, seconds = 0 }
+	local report = { places = 0, planted = 0, skipped = 0, missing = 0, cliff = 0, parts = 0, paints = 0, seconds = 0 }
 	if #sources == 0 then
 		report.reason = "no-templates"
 		return report
@@ -305,6 +337,12 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 			here.Name = name
 			here.Parent = folder
 			report.places += 1
+			-- THE SURFACE FIRST, because `ReplaceMaterial` changes material and never height: painting
+			-- after the trees would not move one of them, but painting first keeps the order the design
+			-- states and means a failed paint cannot be mistaken for a failed planting.
+			report.paints += Ground.paint(terrain, layout, plan, function(x: number)
+				return Forest.roadZ(x, layout)
+			end, reader)
 			for _, item in ipairs(Plan.plant(layout, plan)) do
 				local source = template(item.model)
 				if source == nil then
@@ -323,6 +361,15 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 		end
 	end
 	folder.Parent = root
+	-- THE PART COUNT IS PRINTED AND NOT ASSUMED (design 11: *"must be printed, not assumed"*). The
+	-- estimate behind the target was ~7 descendants per model; this is the number itself.
+	for _, place in ipairs(folder:GetChildren()) do
+		for _, thing in ipairs(place:GetDescendants()) do
+			if thing:IsA("BasePart") then
+				report.parts += 1
+			end
+		end
+	end
 	report.seconds = os.clock() - started
 	return report
 end

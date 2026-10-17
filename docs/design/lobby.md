@@ -1214,3 +1214,68 @@ One task, but the order matters because each step is provable before the next:
    candidates for retirement.
 5. **The `docs/design/map-generator.md` §2.2 amendment** (§3.1) is the Architect's edit, not the
    Builder's. Queue it, or ask for it in this run's next Architect call.
+
+---
+
+<!-- Added by task 193 from `docs/design/drive-places.md` section 16: the Architect's
+own words for what shipped and was never written down. The Learning Agent, 2026-10-17: no
+Architect run for three days and `docs/design/` is behind the code. -->
+
+### 9.3 The gathering yard (task 191), and the trees that stand on real ground (tasks 196, 199)
+
+**Karen, 2026-10-15 ~17:20:** *"next is when hunt over everyone is in clean ground no grass
+firstable / second it could be next to cabin"*. After playing it, 2026-10-16: *"yes it works / I
+shoot and cna see them there"* (`PLAYTEST.md`).
+
+The end-of-drive gathering happens in the lodge's own clean yard **west of the lodge**, not out in
+the forest grass. The yard is **one row** in `Lobby.CONFIG.FIELD.PADS` named `Gather` (56 × 56,
+`Enum.Material.Ground`), found **by name** by `Lobby.gatherPad(cfg)`, and **four** things read that
+one row: `Field.fill` lays the blade-free block from it (it already loops the list, so this is a row
+and not a code path), `Lobby.gatherSpotFor` reads its centre, `Build.treeLine` keeps a tree off it,
+and `lobby.spec` bounds the drive's whole scene inside it. **Nothing recomputes the rectangle.**
+
+**The world gets first say and the drive's old rule is the fallback, not a replacement.**
+`Lobby.gatherSpot()` (server) is handed to the drive as `world.gatherSpot`;
+`Match.gatherSpotOf(reader, markers, cfg)` is pure in the reader and answers
+`(spot, facing, fromWorld)`; `Match.gatherSpotFor` — `SCENE.GATHER_BEHIND_STUDS` behind the middle
+stand — is **unchanged** and still answers when the world names nowhere. The pattern is ioquake3's
+`FindIntermissionPoint` (GPL-2.0, nothing copied): the authored point first, `if ( !ent )` the
+derived one. **The DEV place has no lobby at all** (`Lobby.ANCHORS` has no `map:v1` row), so the
+harness's own world takes the fallback and `Match.stats().sceneWorldSpots` is 0 there — which is why
+no feature flag was added.
+
+**The spot's height is measured, never predicted.** `Lobby.gatherSpotFor` asks the injected
+`groundAt` **once**, at the yard's own centre, and falls back to the anchor's Y only when the reader
+is absent, answers a non-number, or throws. `Field.fill`'s surface is voxelised and is **not** the
+nominal shelf: that is how four trucks got their tyres 0.752 studs underground (task 186). Live, the
+server printed `(2800, 150, −2940)` against a shelf of 149.2. The yard was also moved **two studs
+east onto the 4-stud voxel grid** after the first build came back 623 `Ground` and 2 `Grass`; it
+re-measured 625/625 `Ground`, spread 0.00.
+
+**The whole scene fits**: `Scene.cornerReachFor(SCENE.MAX_ANIMALS, Match.CONFIG)` is 23.5 studs, so
+the worst-case square is 47 studs inside a 56-stud yard, and the spec asks `Match.Scene` for that
+number rather than copying it.
+
+**Where a tree meets the ground is no longer the lobby's own arithmetic.** Task 196 found that a
+birch's root flare is a set of arched claws, so seating the claw **tips** leaves daylight under every
+arch; task 199 found the same defect in `Workspace.OurForest` (Karen: *"look at the trees wtf"*).
+The rule — the trunk/root **junction** at or below the **lowest** ground anywhere under the trunk's
+own footprint — now lives in **`src/shared/TreeGround`**, which `Lobby.Build` requires from
+`treePlan` and `settleOnGround`, and which **`tools/forest_ground.py` reads from this file** and
+injects into the Luau it sends to Karen's Forest Test (a different place, which Rojo does not serve).
+There is one copy of the arithmetic and the tool carries it rather than restating it.
+`TreeGround.flareFootprint` is deliberately **not** called by `Lobby.Build`, and that is a
+measurement and not a preference: `lobby.spec`'s *"buries each tree's root claws"* case failed with
+it, because the lobby's footprint is already the union of the parts that reach the ground and on its
+two templates those **are** the flare.
+`Lobby.Build` is still **the one writer of every part in `Workspace.Lobby`**, and
+`src/server/Places` (task 193) borrows its shape and not its code for that reason.
+
+**§12.2, `ServerScriptService.Lobby` — add:**
+`Lobby.gatherSpot(): (Vector3?, Vector3?)` — the yard's measured centre and `CONFIG.GATHER.FACING`,
+handed to the drive as `world.gatherSpot`.
+**§12.1, `ReplicatedStorage.Lobby` — add:** `Lobby.gatherPad(cfg)`,
+`Lobby.gatherSpotFor(anchor, cfg, groundAt?)`, `Lobby.CONFIG.GATHER`, and the `Gather` row in
+`CONFIG.FIELD.PADS`.
+**§13 — add the row:** *where the drive gathers → `src/shared/Lobby` states it, `ServerScriptService.Lobby`
+measures it, `ServerScriptService.Match` decides between it and its own fallback.*

@@ -12,7 +12,7 @@
 -- That is task 199's own split, and `docs/research/2026-10-17-forest-trees-on-the-ground.md` says
 -- why it is not one lump: when the arithmetic and the measuring were one, *"neither could be checked
 -- alone"*, and the lobby's ground-fit was wrong for rounds at a time. Here it means
--- `tests/server/places.spec.luau` can assert where all ~1,800 trees go, and that not one of them is
+-- `tests/server/places.spec.luau` can assert where all ~3,000 trees go, and that not one of them is
 -- in a shooting lane, with no Studio running at all.
 --
 -- THE PLAN IS A PURE FUNCTION OF (layout, seed). Same layout, same seed, same forest -- so a frame
@@ -62,8 +62,9 @@ export type Planting = {
 
 -- HOW FAR BEYOND THE STRIP NOTHING IS PLANTED, on top of the strip's own half-width. The dispatch's
 -- *"no trees in the shooting lanes"*: a hunter standing on the line shoots across it, so the clear
--- ground has to be wider than the strip he is standing on. 12 studs is `Forest.PICK`'s own stand
--- radius rounded up, so a tree can never land inside the circle a hunter is locked to either.
+-- ground has to be wider than the strip he is standing on. 12 studs IS `ForestTest.PICK`'s own
+-- `standRadiusStuds` -- the same number, not a rounding of it -- so the lane rule alone already
+-- clears every stand circle, and `places.spec` asserts that identity rather than describing it.
 Places.LANE_STUDS = 12
 
 -- THE JITTER, as a fraction of the cell. 0 is a visible grid; 1 lets two neighbours touch. 0.8 is
@@ -152,11 +153,15 @@ end
 -- THE DRESSING OF EACH PLACE. One row per `ForestTest.LAYOUTS` name; a layout with no row here is
 -- dressed with nothing, which is how `road` stays task 179's world untouched.
 --
--- `halfStripStuds`  half the cleared strip the hunters stand on
--- `beltStuds`       how deep the planted wood runs beyond the lane, each side
--- `spacingStuds`    the grid cell: one tree offered per cell, so this IS the density
--- `fernSpacing`     the same, for the floor
--- `bands`           { herbStuds, shrubStuds } measured OUTWARD from the lane edge
+-- `halfStripStuds`      half the cleared strip the hunters stand on
+-- `beltStuds`           how deep the planted wood runs beyond the lane, SOUTH of the line
+-- `northBeltStuds`      the same, north of it. 0 means "plant nothing there"
+-- `spacingStuds`        the grid cell in the full-density bands: one tree offered per cell
+-- `deepSpacingStuds`    the coarse cell beyond `bands.woodStuds` (design 10.2)
+-- `fernSpacing`         the cell for the floor
+-- `minGapStuds`         no two trees closer than this (design 10.3)
+-- `plotHalfWidthStuds`  how far either side of `centre.X` the ground was SURVEYED (design 10.5)
+-- `bands`               { herbStuds, shrubStuds, woodStuds } measured OUTWARD from the lane edge
 Places.PLANS = table.freeze({
 	-- KAREN'S PLACE 2, karen-ref-6: a stand inside a hedge looking across a field at a far tree
 	-- line. THE FAR FOREST IS THIS WORLD'S REAL WOOD (its southern face is at z -2900, measured
@@ -169,14 +174,25 @@ Places.PLANS = table.freeze({
 		halfStripStuds = 30, -- the grass headland the guns stand on, 17 m across
 		beltStuds = 190,
 		northBeltStuds = 0,
-		spacingStuds = 34,
+		spacingStuds = 26,
+		deepSpacingStuds = 60,
 		fernSpacing = 26,
-		bands = table.freeze({ herbStuds = 36, shrubStuds = 72 }),
+		-- 0.54 of the cell. `TreeGround.FLARE_FRACTION` 0.08 on an 85-stud aspen is a 13.6-stud
+		-- flare, so two trunks 5 studs apart share a stump -- which is measured-correct and looks
+		-- wrong, the exact class `PROJECT_CONTEXT.md` was written about.
+		minGapStuds = 14,
+		plotHalfWidthStuds = 410,
+		-- `herbStuds` 10 AND NOT 36, AND A FRAME IS WHY. At 36 the first BUSH stood 78 studs (22 m)
+		-- behind the gun and the stand read as a bare paddock; karen-ref-6 has bramble within arm's
+		-- reach of the barrel. The `Krautsaum` is still there, it is just a fern skirt and not a
+		-- twenty-metre lawn.
+		bands = table.freeze({ herbStuds = 10, shrubStuds = 60, woodStuds = 190 }),
 		-- A hedge is broadleaf scrub under open-grown oaks -- ref-6 exactly: bramble at eye height,
 		-- one big oak canopy over the stand.
 		herb = mix({ "fern", 1 }),
 		shrub = mix({ "fieldOak", 5 }, { "aspen", 4 }, { "birch", 1 }),
 		wood = mix({ "fieldOak", 5 }, { "aspen", 3 }, { "birch", 2 }),
+		deep = mix({ "fieldOak", 5 }, { "aspen", 3 }, { "birch", 2 }),
 		shrubScale = table.freeze({ 0.18, 0.30 }),
 		woodScale = table.freeze({ 0.85, 1.15 }),
 		seed = 1932,
@@ -186,21 +202,41 @@ Places.PLANS = table.freeze({
 	-- prefer for a `Schussschneise`, at the generous end so a boar is shootable crossing it), forest
 	-- BOTH sides, a band of young pines right at the edge and taller mixed wood behind.
 	--
-	-- THE BELT IS 230 STUDS DEEP because that is 64 m, and the frames show you see 40-60 m between
-	-- trunks in high forest: a belt deeper than the sight line IS the horizon, and anything beyond it
-	-- is wasted. The beaters form up at z -3520, 40 studs inside the north belt's far edge, so a
-	-- hunter never watches them walk in out of open ground.
+	-- THE FULL-DENSITY WOOD IS 230 STUDS DEEP because that is 64 m, and the frames show you see
+	-- 40-60 m between trunks in high forest: past the sight line a tighter grid buys nothing.
+	--
+	-- BUT THE BELT ITSELF REACHES 640 STUDS, AND THAT IS A DEFECT THE ARCHITECT CAUGHT BEFORE IT
+	-- SHIPPED (design 10.2). `beaterNorthStuds()` is 580, so the beaters muster at z -3920 -- and a
+	-- 230-stud belt ends at -4226, which left them forming up in **306 studs of bare grass** that a
+	-- hunter looks straight up the ride at. Worse, `REST.farRoadStuds` is 425 and `restSpot` only
+	-- takes a spot within `nearTrunkStuds` (22) of something solid, so beyond the belt there was no
+	-- legal resting wood at all. 640 is 580 + the same 60-stud run-out task 179 used elsewhere.
+	-- Beyond `bands.woodStuds` the same wood mix is planted on `deepSpacingStuds` with no ferns.
 	ride = table.freeze({
 		halfStripStuds = 32,
 		beltStuds = 230,
-		northBeltStuds = 230,
-		spacingStuds = 30,
+		northBeltStuds = 640,
+		-- 20 AND NOT 30, AND IT WAS MEASURED TWICE. With 30 the belts stopped **19 of 105** rays
+		-- fired from the stands at eye height over 300 studs, mean sight 280 -- i.e. a hunter looked
+		-- straight through the wood at open hillside, which the frame confirmed. 20 is the close
+		-- bands' cell; the deep band stays at 60, where nothing can see it.
+		spacingStuds = 20,
+		deepSpacingStuds = 60,
 		fernSpacing = 24,
-		bands = table.freeze({ herbStuds = 30, shrubStuds = 80 }),
+		minGapStuds = 11,
+		plotHalfWidthStuds = 410,
+		-- `herbStuds` 6 AND NOT 30, FOR THE SAME REASON: at 30 the nearest trunk to a stand measured
+		-- **99 studs**, and karen-ref-5's young pines stand at the ride's own edge. The lane (44
+		-- studs) already keeps the shooting ground clear; a thirty-stud herb strip on top of it just
+		-- pushed the wood out of the picture.
+		bands = table.freeze({ herbStuds = 6, shrubStuds = 60, woodStuds = 230 }),
 		herb = mix({ "fern", 1 }),
 		-- The young pine band ref-5 is a photograph of.
 		shrub = mix({ "young", 8 }, { "birch", 2 }),
 		wood = mix({ "conifer", 9 }, { "birch", 4 }, { "aspen", 4 }, { "oak", 3 }),
+		-- THE DEEP BAND IS THE SAME WOOD, THINNER. Named rather than aliased so a band name always
+		-- indexes a mix and `Places.layer` needs no special case.
+		deep = mix({ "conifer", 9 }, { "birch", 4 }, { "aspen", 4 }, { "oak", 3 }),
 		shrubScale = table.freeze({ 0.25, 0.45 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
 		seed = 1933,
@@ -216,15 +252,30 @@ Places.PLANS = table.freeze({
 	track = table.freeze({
 		halfStripStuds = 9,
 		beltStuds = 230,
-		northBeltStuds = 230,
-		spacingStuds = 28,
+		northBeltStuds = 640,
+		spacingStuds = 18,
+		deepSpacingStuds = 60,
 		fernSpacing = 22,
-		bands = table.freeze({ herbStuds = 14, shrubStuds = 50 }),
+		minGapStuds = 10,
+		plotHalfWidthStuds = 410,
+		-- 4 STUDS OF HERB, which is as close to "forest at the wheel ruts" as the lane allows:
+		-- karen-ref-1 has young firs touching the track. The first trunk is 21 + 4 = 25 studs (7 m)
+		-- from the centre line.
+		bands = table.freeze({ herbStuds = 4, shrubStuds = 50, woodStuds = 230 }),
 		herb = mix({ "fern", 1 }),
 		shrub = mix({ "young", 9 }, { "birch", 1 }),
 		wood = mix({ "conifer", 10 }, { "birch", 6 }, { "aspen", 2 }, { "oak", 2 }),
+		deep = mix({ "conifer", 10 }, { "birch", 6 }, { "aspen", 2 }, { "oak", 2 }),
 		shrubScale = table.freeze({ 0.22, 0.40 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
+		-- THE ONE PAINTED SURFACE IN THE WHOLE SYSTEM (design 7.3). karen-ref-1 is bare soil and leaf
+		-- litter under the trees, which is the one surface the frames demand and our assets can give --
+		-- the road's gravel is Karen's own Studio content, the ride IS grassy in ref-5, and painting
+		-- place 2's field `Ground` would make a ploughed field, a different place from ref-6.
+		--
+		-- 18 STUDS IS 5 m, source B's `Rueckegasse` at its generous end. Only Grass and LeafyGrass are
+		-- replaced, so where this track crosses the world's own Limestone or Asphalt it stays rock.
+		surface = table.freeze({ halfWidthStuds = 9, material = Enum.Material.Ground }),
 		seed = 1934,
 	}),
 })
@@ -259,7 +310,12 @@ function Places.bandAt(distanceStuds: number, plan: any): string?
 	if distanceStuds <= plan.bands.shrubStuds then
 		return "shrub"
 	end
-	return "wood"
+	if distanceStuds <= plan.bands.woodStuds then
+		return "wood"
+	end
+	-- THE FOURTH BAND (design 10.2): the same wood mix on a coarser grid, out to the belt's far edge,
+	-- which is what carries the north belt the 640 studs to where the beaters muster.
+	return "deep"
 end
 
 -- ONE DRAW FROM A MIX. `roll` is a number in [0, 1).
@@ -279,6 +335,25 @@ function Places.speciesFrom(rows: any, roll: number): string
 	return rows[#rows].group
 end
 
+-- THE GROUND THAT WAS SURVEYED, as an x range (design 10.5). The BRIEF measured an 820-stud plot
+-- about each place's `centre.X` and the terrain sweep of M4 stopped at x 4600, so planting out to
+-- `span + beltStuds` reached up to 145 studs past ground nobody looked at. It is not a crash --
+-- `plantOne` answers "no-ground" and counts it -- it is a CLAIM problem: "every tree is on the
+-- ground" must not be asserted over ground that was never measured.
+function Places.plotOf(layout: any, plan: any): { minX: number, maxX: number }
+	local half = plan.plotHalfWidthStuds
+	return { minX = layout.centre.X - half, maxX = layout.centre.X + half }
+end
+
+-- HOW WIDE THE PLANTED GROUND IS: the stands' span plus a belt's worth of run-out either end, CLAMPED
+-- to the surveyed plot. The run-out exists so the wood does not stop square with the end stand -- a
+-- forest that ends in a straight line across the view is what reads as a stage set.
+function Places.widthOf(layout: any, plan: any): (number, number)
+	local span = Forest.standSpan(layout)
+	local plot = Places.plotOf(layout, plan)
+	return math.max(span.minX - plan.beltStuds, plot.minX), math.min(span.maxX + plan.beltStuds, plot.maxX)
+end
+
 -- THE WHOLE PLANTING LIST FOR ONE PLACE. PURE: `Random.new(seed)` is seeded from the plan, so the
 -- same (layout, plan) pair answers the same list every time, in the same order.
 --
@@ -291,73 +366,103 @@ function Places.plant(layout: any, plan: any): { Planting }
 		return out
 	end
 	local rng = Random.new(plan.seed)
-	local span = Forest.standSpan(layout)
-	-- THE RUN-OUT EITHER END, so the wood does not stop square with the end stand -- a forest that
-	-- ends in a straight line across the view is the thing that reads as a stage set.
-	local minX = span.minX - plan.beltStuds
-	local maxX = span.maxX + plan.beltStuds
-	local trees = Places.layer(layout, plan, rng, minX, maxX, plan.spacingStuds, false)
-	for _, item in ipairs(trees) do
+	local minX, maxX = Places.widthOf(layout, plan)
+	for _, item in ipairs(Places.layer(layout, plan, rng, minX, maxX, false)) do
 		table.insert(out, item)
 	end
-	local ferns = Places.layer(layout, plan, rng, minX, maxX, plan.fernSpacing, true)
-	for _, item in ipairs(ferns) do
+	for _, item in ipairs(Places.layer(layout, plan, rng, minX, maxX, true)) do
 		table.insert(out, item)
 	end
 	return out
 end
 
+-- THE NEIGHBOUR TEST, AND IT IS BRIDSON'S AND NOT A SWEEP (design 10.3). A hash of occupied cells at
+-- `gap` resolution, and a candidate is compared against the NINE cells around it -- which is enough
+-- because at that cell size nothing further away can be within `gap`, and it is O(1) rather than
+-- O(n). Without it two trees in adjacent cells could land 5 studs apart while a trunk flare is up to
+-- 13.6 studs across, i.e. two trunks in one stump.
+local function tooClose(grid: any, x: number, z: number, gap: number): boolean
+	local cx, cz = math.floor(x / gap), math.floor(z / gap)
+	for dx = -1, 1 do
+		for dz = -1, 1 do
+			local bucket = grid[(cx + dx) .. ":" .. (cz + dz)]
+			if bucket ~= nil then
+				local ddx, ddz = bucket.x - x, bucket.z - z
+				if ddx * ddx + ddz * ddz < gap * gap then
+					return true
+				end
+			end
+		end
+	end
+	grid[cx .. ":" .. cz] = { x = x, z = z }
+	return false
+end
+
 -- ONE LAYER OF THE GRID -- the trees, or the floor. Split out because the two want different cell
 -- sizes over the same ground, and because a spec can then drive one without the other.
-function Places.layer(
-	layout: any,
-	plan: any,
-	rng: Random,
-	minX: number,
-	maxX: number,
-	spacing: number,
-	floor: boolean
-): { Planting }
+--
+-- THE TREE LAYER WALKS THE BANDS, EACH WITH ITS OWN CELL. `herb` holds no trees at all (it is the
+-- `Krautsaum`), `shrub` and `wood` are the full-density grid, and `deep` -- everything past
+-- `bands.woodStuds` out to the belt's far edge -- is the same wood mix on `deepSpacingStuds`. That is
+-- what carries the north belt the 640 studs to where the beaters muster without paying for 640 studs
+-- of full-density forest (design 10.2).
+function Places.layer(layout: any, plan: any, rng: Random, minX: number, maxX: number, floor: boolean): { Planting }
 	local out: { Planting } = {}
 	local lane = plan.halfStripStuds + Places.LANE_STUDS
-	for x = minX, maxX, spacing do
-		local lineZ = Forest.roadZ(x, layout)
-		for _, side in ipairs({ -1, 1 }) do
-			local depth = if side > 0 then plan.northBeltStuds else plan.beltStuds
-			local from = lane
-			while from < lane + depth do
-				local jx = x + (rng:NextNumber() - 0.5) * spacing * Places.JITTER
-				local jz = from + rng:NextNumber() * spacing * Places.JITTER
-				local z = lineZ + side * jz
-				from += spacing
-				-- THE SUBTRACTION, re-asked at the JITTERED point and not at the cell's centre --
-				-- which is the only version that is true, because the jitter is what could have
-				-- walked it into the lane. On a curved layout it is also re-asked at the jittered x,
-				-- whose line z differs from the cell's.
-				if not Places.inLane(jx, z, layout, plan) then
-					local band = Places.bandAt(math.abs(z - Forest.roadZ(jx, layout)) - lane, plan)
-					if band ~= nil then
-						local wantFloor = floor or band == "herb"
-						if wantFloor == floor then
-							local group =
-								Places.speciesFrom(if floor then plan.herb else (plan :: any)[band], rng:NextNumber())
-							local names = (Places.SPECIES :: any)[group]
-							local scale = 1
-							if not floor then
-								local range = if band == "shrub" then plan.shrubScale else plan.woodScale
-								scale = range[1] + rng:NextNumber() * (range[2] - range[1])
-							else
-								scale = 0.8 + rng:NextNumber() * 0.9
+	local grid = {}
+	-- THE FLOOR IS ONE BAND OVER THE FULL-DENSITY DEPTH; the deep band has no ferns, because nothing
+	-- can see the floor three hundred studs into a wood.
+	local bands = if floor
+		then { { from = 0, to = plan.bands.woodStuds, spacing = plan.fernSpacing } }
+		else {
+			{ from = plan.bands.herbStuds, to = plan.bands.shrubStuds, spacing = plan.spacingStuds },
+			{ from = plan.bands.shrubStuds, to = plan.bands.woodStuds, spacing = plan.spacingStuds },
+			{ from = plan.bands.woodStuds, to = math.huge, spacing = plan.deepSpacingStuds },
+		}
+	local gap = if floor then 0.5 * plan.fernSpacing else plan.minGapStuds
+	for _, side in ipairs({ -1, 1 }) do
+		local depth = if side > 0 then plan.northBeltStuds else plan.beltStuds
+		for _, band in ipairs(bands) do
+			local to = math.min(band.to, depth)
+			if band.from < to then
+				local spacing = band.spacing
+				for x = minX, maxX, spacing do
+					local from = band.from
+					while from < to do
+						local jx = x + (rng:NextNumber() - 0.5) * spacing * Places.JITTER
+						local jz = from + rng:NextNumber() * spacing * Places.JITTER
+						local z = Forest.roadZ(x, layout) + side * (lane + jz)
+						from += spacing
+						-- THE SUBTRACTION, re-asked at the JITTERED point and not at the cell's centre --
+						-- the only version that is true, because the jitter is what could have walked it
+						-- into the lane. On a curved layout the jittered x has its own line z, so this
+						-- re-asks that too.
+						if jx >= minX and jx <= maxX and not Places.inLane(jx, z, layout, plan) then
+							local reach = math.abs(z - Forest.roadZ(jx, layout)) - lane
+							local into = if floor then "herb" else Places.bandAt(reach, plan)
+							if into ~= nil and reach > 0 and not tooClose(grid, jx, z, gap) then
+								local group = Places.speciesFrom((plan :: any)[into], rng:NextNumber())
+								local names = (Places.SPECIES :: any)[group]
+								local scale
+								if floor then
+									scale = 0.8 + rng:NextNumber() * 0.9
+								elseif into == "shrub" then
+									scale = plan.shrubScale[1]
+										+ rng:NextNumber() * (plan.shrubScale[2] - plan.shrubScale[1])
+								else
+									scale = plan.woodScale[1]
+										+ rng:NextNumber() * (plan.woodScale[2] - plan.woodScale[1])
+								end
+								table.insert(out, {
+									model = names[rng:NextInteger(1, #names)],
+									x = jx,
+									z = z,
+									scale = scale,
+									yaw = rng:NextNumber() * math.pi * 2,
+									band = into,
+									side = side,
+								})
 							end
-							table.insert(out, {
-								model = names[rng:NextInteger(1, #names)],
-								x = jx,
-								z = z,
-								scale = scale,
-								yaw = rng:NextNumber() * math.pi * 2,
-								band = band,
-								side = side,
-							})
 						end
 					end
 				end
@@ -368,18 +473,25 @@ function Places.layer(
 end
 
 -- THE UPPER BOUND ON WHAT A PLACE PLANTS, known before anything is cloned. A number that can be
--- asserted is what stops a density tweak quietly becoming a 20,000-part world.
+-- asserted is what stops a density tweak quietly becoming a 20,000-part world. It counts the deep
+-- band at its own coarser cell (design 10.2) over the SURVEYED width (design 10.5).
 function Places.capacity(layout: any, plan: any): number
 	if layout == nil or plan == nil then
 		return 0
 	end
-	local span = Forest.standSpan(layout)
-	local width = (span.maxX - span.minX) + 2 * plan.beltStuds
-	local depth = plan.beltStuds + plan.northBeltStuds
-	local columns = math.floor(width / plan.spacingStuds) + 1
-	local fernColumns = math.floor(width / plan.fernSpacing) + 1
-	return columns * (math.ceil(depth / plan.spacingStuds) + 2)
-		+ fernColumns * (math.ceil(depth / plan.fernSpacing) + 2)
+	local minX, maxX = Places.widthOf(layout, plan)
+	local width = maxX - minX
+	local total = 0
+	for _, side in ipairs({ -1, 1 }) do
+		local depth = if side > 0 then plan.northBeltStuds else plan.beltStuds
+		local close = math.max(0, math.min(plan.bands.woodStuds, depth) - plan.bands.herbStuds)
+		local deep = math.max(0, depth - plan.bands.woodStuds)
+		local floorDepth = math.min(plan.bands.woodStuds, depth)
+		total += (math.floor(width / plan.spacingStuds) + 1) * (math.ceil(close / plan.spacingStuds) + 2)
+		total += (math.floor(width / plan.deepSpacingStuds) + 1) * (math.ceil(deep / plan.deepSpacingStuds) + 2)
+		total += (math.floor(width / plan.fernSpacing) + 1) * (math.ceil(floorDepth / plan.fernSpacing) + 2)
+	end
+	return total
 end
 
 return Places

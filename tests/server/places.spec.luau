@@ -14,6 +14,7 @@ return function()
 	local Plan = require(ReplicatedStorage:WaitForChild("Places"))
 	local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 	local Planter = require(ServerScriptService:WaitForChild("Places"))
+	local Ground = require(ServerScriptService.Places:WaitForChild("Ground"))
 
 	-- ---------------------------------------------------------------- the four places exist
 
@@ -75,9 +76,15 @@ return function()
 			expect(north).to.equal(0)
 		end)
 
-		it("leaves 141 m of open field between the guns and the wood", function()
+		it("leaves Karen's 80-150 m of open field between the guns and the wood", function()
 			-- MEASURED IN THE PLACE, 2026-10-17: the wood's southern face is z -2900 at every column
 			-- of this stand span. Karen asked for 80-150 m of field.
+			--
+			-- IT IS 98 m AND NOT 140, AND A FRAME IS WHY. The line sat at z -3400 (140 m) and the
+			-- hunter's-eye frame came back with the ground rising in front of him -- a ray north from
+			-- eye height died on terrain at 60 studs, so he could see neither the field nor the wood.
+			-- 120 candidate lines were scored and this is the northernmost where EVERY stand sees the
+			-- wood's face; the field it gives is 98 m, still inside her range.
 			local layout = Forest.layoutNamed("edge")
 			local treeLine = -2900
 			local metres = (treeLine - layout.centre.Z) * 0.28
@@ -90,19 +97,27 @@ return function()
 	-- ---------------------------------------------------------------- the lane rule
 
 	describe("the shooting lanes", function()
-		it("has no tree in any lane, in any place", function()
+		it("has no tree in any lane, in any place, by arithmetic the spec does itself", function()
 			-- THE DISPATCH'S *"no trees in the shooting lanes, no stands inside trunks"*, asserted
 			-- over EVERY planting of every place rather than sampled. This is the case the whole
 			-- "the strip is a subtraction" pattern exists to make provable.
+			--
+			-- IT ASSERTS THE DISTANCE AND NOT ONLY THE PREDICATE (design 10.4 item 3). Asking
+			-- `Plan.inLane` alone proves only that the planner called its own predicate -- a wrong
+			-- `inLane` would agree with itself and pass. `PROJECT_CONTEXT.md` names that shape:
+			-- *"One predicate answered two unrelated questions"*. So the gap is computed here, from
+			-- `Forest.roadZ` and the plan's own numbers, and both are checked.
 			local checked, worst, worstPlace = 0, math.huge, "-"
 			for _, name in ipairs(Forest.LAYOUT_ORDER) do
 				local plan = Plan.planFor(name)
 				local layout = Forest.layoutNamed(name)
 				if plan ~= nil and layout ~= nil then
+					local clear = plan.halfStripStuds + Plan.LANE_STUDS
 					for _, item in ipairs(Plan.plant(layout, plan)) do
 						checked += 1
-						expect(Plan.inLane(item.x, item.z, layout, plan)).to.equal(false)
 						local gap = math.abs(item.z - Forest.roadZ(item.x, layout))
+						expect(gap > clear).to.equal(true)
+						expect(Plan.inLane(item.x, item.z, layout, plan)).to.equal(false)
 						if gap < worst then
 							worst, worstPlace = gap, name
 						end
@@ -115,9 +130,14 @@ return function()
 
 		it("keeps every tree clear of every stand circle", function()
 			-- A STAND IS A SPOT A HUNTER IS LOCKED TO (Karen, task 179: *"just a hunter no treestand
-			-- anything"*), and `PICK.radiusStuds` is the circle. A tree inside one is a hunter
+			-- anything"*), and `PICK.standRadiusStuds` is the circle. A tree inside one is a hunter
 			-- standing in a trunk.
-			local radius = Forest.PICK.radiusStuds
+			--
+			-- THE TWO NUMBERS ARE ONE FACT AND ARE CHECKED, NOT DESCRIBED (design 10.4 item 1):
+			-- `LANE_STUDS` is the stand radius, so the lane rule alone already clears every circle.
+			-- Its own comment used to say "rounded up"; they are EQUAL.
+			expect(Plan.LANE_STUDS).to.equal(Forest.PICK.standRadiusStuds)
+			local radius = Forest.PICK.standRadiusStuds
 			for _, name in ipairs(Forest.LAYOUT_ORDER) do
 				local plan = Plan.planFor(name)
 				local layout = Forest.layoutNamed(name)
@@ -198,7 +218,9 @@ return function()
 			end
 			local layout = Forest.layoutNamed("track")
 			local plan = Plan.planFor("track")
-			local counts = { herb = 0, shrub = 0, wood = 0 }
+			-- `deep` IS THE FOURTH BAND (design 10.2); without its row `counts[item.band] += 1` is
+			-- `nil + 1` and the case errors (design 10.4 item 2).
+			local counts = { herb = 0, shrub = 0, wood = 0, deep = 0 }
 			local biggestShrub, smallestWood = 0, math.huge
 			for _, item in ipairs(Plan.plant(layout, plan)) do
 				counts[item.band] += 1
@@ -212,8 +234,15 @@ return function()
 			expect(counts.shrub > 0).to.equal(true)
 			expect(counts.wood > 0).to.equal(true)
 			expect(biggestShrub <= smallestWood).to.equal(true)
+			expect(counts.deep > 0).to.equal(true)
 			TestKit.note(
-				string.format("forest road bands: herb %d, shrub %d, wood %d", counts.herb, counts.shrub, counts.wood)
+				string.format(
+					"forest road bands: herb %d, shrub %d, wood %d, deep %d",
+					counts.herb,
+					counts.shrub,
+					counts.wood,
+					counts.deep
+				)
 			)
 		end)
 
@@ -239,12 +268,91 @@ return function()
 			for _, name in ipairs(Forest.LAYOUT_ORDER) do
 				local plan = Plan.planFor(name)
 				if plan ~= nil then
-					for _, band in ipairs({ "herb", "shrub", "wood" }) do
+					for _, band in ipairs({ "herb", "shrub", "wood", "deep" }) do
 						for _, row in ipairs(plan[band]) do
 							expect(#Plan.SPECIES[row.group] > 0).to.equal(true)
 						end
 					end
 				end
+			end
+		end)
+
+		it("never puts two trees in one stump, and the spec measures that itself", function()
+			-- DESIGN 10.3: the header claimed Bridson's neighbour test and the first build had none, so
+			-- two trees in adjacent cells could land 5 studs apart while a trunk flare is up to 13.6
+			-- studs across. The spec builds its OWN grid rather than calling the planner's helper, so a
+			-- broken `tooClose` cannot agree with itself.
+			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+				local plan = Plan.planFor(name)
+				local layout = Forest.layoutNamed(name)
+				if plan ~= nil and layout ~= nil then
+					local trees, ferns = {}, {}
+					for _, item in ipairs(Plan.plant(layout, plan)) do
+						table.insert(if item.band == "herb" then ferns else trees, item)
+					end
+					for _, pair in ipairs({ { trees, plan.minGapStuds }, { ferns, 0.5 * plan.fernSpacing } }) do
+						local list, gap = pair[1], pair[2]
+						local cells, worst = {}, math.huge
+						for _, item in ipairs(list) do
+							local cx, cz = math.floor(item.x / gap), math.floor(item.z / gap)
+							for dx = -1, 1 do
+								for dz = -1, 1 do
+									for _, other in ipairs(cells[(cx + dx) .. ":" .. (cz + dz)] or {}) do
+										local ddx, ddz = other.x - item.x, other.z - item.z
+										worst = math.min(worst, math.sqrt(ddx * ddx + ddz * ddz))
+									end
+								end
+							end
+							local key = cx .. ":" .. cz
+							cells[key] = cells[key] or {}
+							table.insert(cells[key], item)
+						end
+						if #list > 1 then
+							expect(worst >= gap).to.equal(true)
+						end
+					end
+				end
+			end
+		end)
+
+		it("plants only on the ground the BRIEF surveyed", function()
+			-- DESIGN 10.5: the first build ran out to `span + beltStuds`, which for the forest road was
+			-- x 4245..5355 against a plot measured over 820 studs. An unsurveyed strip is where an
+			-- existing `Session` bush could be standing, and "every tree is on the ground" must not be
+			-- claimed over ground nobody looked at.
+			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+				local plan = Plan.planFor(name)
+				local layout = Forest.layoutNamed(name)
+				if plan ~= nil and layout ~= nil then
+					local plot = Plan.plotOf(layout, plan)
+					for _, item in ipairs(Plan.plant(layout, plan)) do
+						expect(item.x >= plot.minX).to.equal(true)
+						expect(item.x <= plot.maxX).to.equal(true)
+					end
+				end
+			end
+		end)
+
+		it("carries the north belt all the way to where the beaters muster", function()
+			-- DESIGN 10.2: with a 230-stud belt the beaters formed up in 306 studs of bare grass that a
+			-- hunter looks straight up the ride at, and `restSpot` had no legal spot out there at all
+			-- (`REST.farRoadStuds` 425 against `nearTrunkStuds` 22). The belt now reaches
+			-- `beaterNorthStuds()` plus a run-out.
+			local muster = Forest.beaterNorthStuds()
+			for _, name in ipairs({ "ride", "track" }) do
+				local plan = Plan.planFor(name)
+				local layout = Forest.layoutNamed(name)
+				local lane = plan.halfStripStuds + Plan.LANE_STUDS
+				expect(lane + plan.northBeltStuds >= muster).to.equal(true)
+				-- ...and a tree really is planted out there, which the arithmetic alone does not prove.
+				local far = 0
+				for _, item in ipairs(Plan.plant(layout, plan)) do
+					if item.side > 0 and math.abs(item.z - Forest.roadZ(item.x, layout)) >= muster - 60 then
+						far += 1
+					end
+				end
+				expect(far > 0).to.equal(true)
+				TestKit.note(string.format("%s: %d trees within 60 studs of the beaters' muster", name, far))
 			end
 		end)
 
@@ -419,6 +527,109 @@ return function()
 			model:Destroy()
 		end)
 
+		it("is in the ground reader's ignore list, so our own trees are not the ground", function()
+			-- DESIGN 10.1. `ForestTest.groundAt` is the CANOPY half of `Markers.groundFor`, where a
+			-- one-stud disagreement with the terrain reader refuses a stand -- and a planted trunk is a
+			-- legal ray hit because it keeps `CanQuery = true`. The folder name exists once, here.
+			expect(table.find(Forest.GROUND_IGNORE, Planter.FOLDER) ~= nil).to.equal(true)
+			expect(Planter.FOLDER).to.equal("DrivePlaces")
+		end)
+
+		it("plants nothing when nobody hands it a ground reader", function()
+			-- THERE IS NO DEFAULT READER (design 10.1): the boot passes `ForestTest.terrainYAt`, and a
+			-- caller who forgets gets a report with a reason rather than a forest measured against its
+			-- own trunks.
+			local empty = Instance.new("Folder")
+			local report = Planter.build(nil, empty)
+			expect(report.reason).to.equal("no-ground-reader")
+			expect(report.planted).to.equal(0)
+			expect(empty:FindFirstChild(Planter.FOLDER)).to.equal(nil)
+			empty:Destroy()
+		end)
+
+		it("paints the one strip that has a surface, and nothing else", function()
+			-- DESIGN 7.3: only the forest road is painted -- karen-ref-1 is bare soil, the road's gravel
+			-- is Karen's own Studio content, ref-5's ride IS grassy, and painting place 2's field
+			-- `Ground` would make a ploughed field, a different place from ref-6.
+			--
+			-- THE TERRAIN IS A FAKE WITH A RECORDING `ReplaceMaterial`, which is `Lobby.Field`'s own
+			-- discipline: no spec in the DEV place can ever write DEV's terrain.
+			local calls = {}
+			local fake = {
+				ReplaceMaterial = function(_self, region, resolution, source, target)
+					table.insert(calls, { region = region, resolution = resolution, source = source, target = target })
+				end,
+			}
+			local function flat(_x, _z)
+				return 150
+			end
+			local painted, bare = 0, 0
+			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+				local plan = Plan.planFor(name)
+				local layout = Forest.layoutNamed(name)
+				if plan ~= nil and layout ~= nil then
+					table.clear(calls)
+					local n = Ground.paint(fake, layout, plan, function(x)
+						return Forest.roadZ(x, layout)
+					end, flat)
+					expect(n).to.equal(#calls)
+					if plan.surface == nil then
+						bare += 1
+						expect(n).to.equal(0)
+					else
+						painted += 1
+						expect(n > 0).to.equal(true)
+						-- ONE CALL PER SOURCE MATERIAL PER CHUNK, and only Grass and LeafyGrass -- so a
+						-- track crossing this world's Limestone or Asphalt keeps its rock.
+						expect(n % #Ground.SOURCE_MATERIALS).to.equal(0)
+						for _, call in ipairs(calls) do
+							expect(call.resolution).to.equal(Ground.RESOLUTION)
+							expect(call.target).to.equal(plan.surface.material)
+							local ok = false
+							for _, source in ipairs(Ground.SOURCE_MATERIALS) do
+								ok = ok or call.source == source
+							end
+							expect(ok).to.equal(true)
+							-- THE REGION IS ON THE 4-STUD GRID. Task 191 measured "623 Ground and 2 Grass"
+							-- over a rectangle that should have been uniform, because its edge was not.
+							local min = call.region.CFrame.Position - call.region.Size / 2
+							expect(math.abs(min.X % Ground.RESOLUTION) < 0.001).to.equal(true)
+							expect(math.abs(min.Z % Ground.RESOLUTION) < 0.001).to.equal(true)
+							-- ...and it is at least as wide as the strip it is laying.
+							expect(call.region.Size.Z >= plan.surface.halfWidthStuds * 2).to.equal(true)
+						end
+					end
+				end
+			end
+			expect(painted).to.equal(1)
+			expect(bare).to.equal(2)
+			TestKit.note(string.format("surface: %d place painted, %d left alone", painted, bare))
+		end)
+
+		it("measures the painted band off the ground and not off centre.Y", function()
+			-- `centre.Y` IS A FALLBACK GROUND (task 179's design 3.4) and this ground rolls 29-37 studs
+			-- along a stand line, so a band taken from it would miss the strip at one end.
+			local layout = Forest.layoutNamed("track")
+			local plan = Plan.planFor("track")
+			local low, high = Ground.yBandOf(layout, plan, function(x)
+				return Forest.roadZ(x, layout)
+			end, function(x, _z)
+				return 100 + (x - layout.centre.X) * 0.05
+			end)
+			expect(low).to.be.ok()
+			expect(high).to.be.ok()
+			-- the fake slopes 0.05 per stud over +-410 studs, i.e. 79.5..120.5, padded both ways
+			expect(low <= 79.5 - Ground.Y_PAD_STUDS + 0.001).to.equal(true)
+			expect(high >= 120.5 + Ground.Y_PAD_STUDS - 0.001).to.equal(true)
+			-- A PLAN WITH NO SURFACE HAS NO BAND, rather than a band nobody paints.
+			local none = Ground.yBandOf(Forest.layoutNamed("ride"), Plan.planFor("ride"), function(x)
+				return Forest.roadZ(x, Forest.layoutNamed("ride"))
+			end, function()
+				return 150
+			end)
+			expect(none).to.equal(nil)
+		end)
+
 		it("plants nothing at all when the templates are not in this place", function()
 			-- THE DEV CASE. Neither `OurForest` nor `Session` exists there, and the answer is a
 			-- report with a reason -- not a crash, and not a folder.
@@ -426,7 +637,7 @@ return function()
 			expect(#Planter.templates(empty)).to.equal(0)
 			local report = Planter.build(function()
 				return 100
-			end, empty)
+			end, empty, nil)
 			expect(report.reason).to.equal("no-templates")
 			expect(report.planted).to.equal(0)
 			expect(empty:FindFirstChild(Planter.FOLDER)).to.equal(nil)

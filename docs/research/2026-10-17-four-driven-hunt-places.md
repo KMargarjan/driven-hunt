@@ -37,10 +37,12 @@ own sentence.
 | Trunk within the stand circle | **0** | the dispatch's *"no stands inside trunks"* |
 | Cut line (place 3) strip width | **64 studs = 18 m** | source C: 10-15 m preferred for a `Schussschneise`; the dispatch asks 15-25 m; 18 m is in both |
 | Forest road (place 4) track width | **18 studs = 5 m** | source B: a `Rueckegasse` is 3-4 m, "at least four metres" recommended |
-| Field (place 2) width, tree line to hunters | **504 studs = 141 m** | Karen's 80-150 m; measured, `BRIEF.md` M5 |
-| Graded edge depth, field side | **36 studs herb + 36 studs shrub** (10 m + 10 m) | source D: 5-10 m `Krautsaum` + 5-10 m `Strauchmantel` |
-| Visible-band belt depth either side of a strip | **>= 215 studs = 60 m** | the frames: you see 40-60 m between trunks in high forest, so 60 m of belt is the horizon |
-| Build cost, all four places | **< 2 s** | measured: 200 models clone and seat in 0.09 s (`BRIEF.md` M9) |
+| Field (place 2) width, tree line to hunters | **350 studs = 98 m** | Karen's 80-150 m. It was 140 m until a frame showed the ground rising in front of the guns -- section 5 |
+| Every stand can see the drive | **worst terrain intrusion 0.0 studs**, all 5/5/6 stands | section 5, the correction that moved three of the four lines |
+| Graded edge: herb band at the strip's lip | **4-10 studs**, not 14-36 | section 5. The sources' 5-10 m `Krautsaum` is measured from the FIELD, not from inside a 24 m shooting lane |
+| Visible-band belt depth either side of a strip | **>= 230 studs = 64 m** at full density, then a coarse band to **640 studs** | the frames' 40-60 m sight line; 640 is `beaterNorthStuds()` 580 + a run-out, so the beaters muster in trees |
+| A belt is at least as opaque as the wood Karen already has | **>= 22% of eye-height rays stopped by a trunk within 300 studs** | MEASURED off `OurForest` itself: 8-14 of 36, mean sight 242-272 studs |
+| Build cost, all four places | **< 2.5 s** | measured: 200 models clone and seat in 0.09 s (`BRIEF.md` M9) |
 | Metres per stud | 0.28 | the project's constant |
 
 ## 2. Sources
@@ -168,7 +170,54 @@ Task 179's shuffled bag (its sources D and E) is replaced by a fixed cycle. The 
 deals every layout exactly once per cycle in a known order, and the rotation is what Karen asked
 for in words.
 
-## 4. What is NOT built, and why
+## 4. What the first build got wrong, and the measurements that corrected it
+
+Three things in sections 1-3 were right in principle and wrong in the world. All three were found by
+**looking** -- a hunter's-eye frame -- and then **measured** before anything was changed. They are
+recorded here because the design (`docs/design/drive-places.md` section 18) says plainly that the
+Architect measured nothing and saw no frame, so this is the only place the live numbers exist.
+
+**4.1 Three of the four lines could not see their own drive.** The gate rule for this task is *"every
+stand: the hunter stands ON the ground, can see the drive area"*. The first siting used the flattest
+and emptiest ground, which is not the same thing:
+
+| line, as first built | what a ray north from eye height (+5) hit |
+|---|---|
+| `edge` (3480, −3400) | **terrain at 60 studs** at stand 4 -- no field, no tree line, only crowns over a ridge |
+| `ride` (1500, −4100) | 89 studs at stand 1, 241 at stand 3 -- two of five blind |
+| `track` (4800, −4100) | **65 and 62 studs** at the two east stands -- 18 m of visible ground |
+
+So every candidate line was scored by walking the terrain from each stand's eye height to the far
+side and taking the worst intrusion above the sight ray. For `edge`, 120 candidates gave **18 with
+every stand clear**; for `ride` and `track`, a sweep of the whole WEST ground (x 1200…2000,
+z −3700…−4500) found **no line at all** where every stand sees 180 studs, and the EAST ground gave
+**30**. The three lines moved to `edge` (3400, −3250) 5 × 130, `ride` (4900, −4500) 5 × 130 and
+`track` (4700, −3900) 6 × 130 -- **worst intrusion 0.0 studs and a sight line past 400 studs at every
+stand of all three.** Flat is not the same as open, and the gate rule asks for open.
+
+**4.2 The belts were transparent, and the bar is the wood Karen already has.** Firing 21 rays over a
+120° fan from every stand at eye height, the first build's belts stopped **24 of 105** (ride) and
+**25 of 126** (track) within 300 studs, mean sight 276 -- and the frame showed open hillside through
+the trees. The honest bar was then measured off `OurForest` itself at five points inside it:
+**8-14 of 36 rays stopped, mean sight 242-272**. After bringing the young growth to the strip's lip
+(herb band 30 → 6 and 14 → 4) and tightening the close bands' cell (30 → 20 and 28 → 18), the belts
+stop **48 of 105** and **40 of 126**, mean 252 and 244 -- i.e. **denser than the wood this world
+already holds**, which is the only bar that is not invented.
+
+**4.3 A flat 4-stud step allowance refused a quarter of the forest.** `TreeGround.CLIFF_STUDS` is the
+number the RE-SEATING tool uses, where the question is *"would sinking this existing tree bury it?"*.
+For planting the question is *"is this a spot at all?"*, and on this rolling ground a flat 4 refused
+**776 of 2,713** candidates -- 29% of the wood, as holes. The allowance is now
+`max(CLIFF_STUDS, 0.10 × height)`: the junction still goes to the LOWEST ground under the footprint,
+so nothing floats either way, and a tenth of a tree's height of buried uphill flare is not something
+an eye can see.
+
+**What the live build then measured:** 3 places dressed, **3,012 planted**, 0 skipped, 879 refused on
+a step, 0 templates missing, in **2.5 s**; **every planted model's trunk junction below the lowest
+terrain under every footprint sample** (worst +(-0.18) studs, i.e. sunk, over all 3,012); boars
+crossing the hunters' line per drive **12 / 14 / 7**; 7 bots walking, **0 stuck**; 0 console errors.
+
+## 5. What is NOT built, and why
 
 1. **A crop field.** karen-ref-6 is standing maize: dry, golden, waist-high, a boar half hidden in
    it. We have no crop, cereal or stubble model, and nothing in the 61 forest models or the 831

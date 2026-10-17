@@ -134,25 +134,41 @@ ForestTest.LAYOUTS = table.freeze({
 	-- natural terrain edges as the two places that are. This is both.
 	--   https://wildundhund.de/drueckjagdstaende-sicher-ist-sicher/
 	--
-	-- SIX STANDS CENTRED x 3480 AND NOT NINE CENTRED 3030, AND THE LODGE IS WHY.
-	-- `Lobby.anchorFor("forest-test")` is (2850, -2950) -- 50 studs off the ideal nine-stand line --
-	-- so the line is moved east and shortened. At z -3400 the nearest stand is 433 studs from the
-	-- lodge, and `boundsOf`'s west edge (x 3045) is 85 studs clear of the lobby's own field
-	-- (x 2740..2960), which is the clearance task 179 sized `halfSpanStuds` 435 to get: 375 (half
-	-- the stand span) + 60 of run-out, the run-out 60 rather than the road's 200 for that reason.
+	-- z -3250 AND NOT -3400, AND A SCREENSHOT IS WHY. The first build put this line at z -3400 and
+	-- the hunter's-eye frame came back with the ground RISING in front of him: a ray north from eye
+	-- height (+5) died on terrain at **60 studs**, so he could see neither the field nor the wood he
+	-- was supposed to be watching -- only tree crowns over a ridge
+	-- (`.screenshots`/`<runs-dir>/193-p2-north.png`, first build). The dispatch's gate rule for this
+	-- task is *"every stand: the hunter stands ON the ground, can see the drive area"*, and that
+	-- frame fails it.
 	--
-	-- `centre.Y` 202 IS THE MEAN OF THE SIX STANDS' OWN TERRAIN AT THE NEW z, re-measured rather
-	-- than carried over: 211, 189, 178, 191, 222, 223 (2026-10-17, the `terrainYAt` ray). It is a
-	-- FALLBACK only -- every production reader re-measures -- and the 45-stud spread across the line
-	-- is the hillside this stand type wants.
+	-- SO THE LINE WAS MEASURED INSTEAD OF MOVED BY EYE. 120 candidate lines (z -3150..-3300, 5 and 6
+	-- stands, 130 and 150 apart, x centres 3200..3700) were scored by walking the terrain from each
+	-- stand's eye height to a point 4 studs above the ground at the wood's face (z -2900) and taking
+	-- the worst intrusion above that sight ray. 18 came out with EVERY stand clear; this one is the
+	-- northernmost of those that still keeps Karen's field width and the lodge clearance:
+	-- **5 stands, 130 apart, centre x 3400, z -3250 -- worst intrusion 0.0 studs at all five**, and
+	-- a horizontal ray north from each reaches past 400 studs. Measured 2026-10-17 in the place.
+	--
+	-- THE FIELD IS 98 m (350 studs from the line to the wood's face at z -2900), inside Karen's
+	-- *"80-150 m"*. At -3400 it was 140 m and unusable; 98 m that he can see across is the trade, and
+	-- it is her own range either way.
+	--
+	-- FIVE STANDS CENTRED x 3400, AND THE LODGE IS STILL WHY the line sits east.
+	-- `Lobby.anchorFor("forest-test")` is (2850, -2950) and the lobby's own field is x 2740..2960;
+	-- `halfSpanStuds` 320 is 260 (half the stand span) + the 60-stud run-out task 179 sized for
+	-- exactly this, which puts `boundsOf`'s west edge at x 3080 -- **120 studs clear** of that field.
+	--
+	-- `centre.Y` 190 IS THE MEAN OF THE FIVE STANDS' OWN TERRAIN AT THIS z, measured, not carried
+	-- over: 188, 168, 180, 207, 208. It is a FALLBACK only -- every production reader re-measures.
 	edge = table.freeze({
 		name = "edge",
 		label = "Field edge",
-		centre = Vector3.new(3480, 202, -3400),
+		centre = Vector3.new(3400, 190, -3250),
 		amplitudeStuds = 0,
-		standCount = 6,
-		standSpacing = 150,
-		halfSpanStuds = 435,
+		standCount = 5,
+		standSpacing = 130,
+		halfSpanStuds = 320,
 	}),
 
 	-- KAREN'S PLACE 3, *"just cut tree line and forest on both sides"* (task 193): a straight ride cut
@@ -174,10 +190,24 @@ ForestTest.LAYOUTS = table.freeze({
 	-- (`src/shared/Places`). A strip nothing is planted into is a strip no later tweak can grow a
 	-- tree back into.
 	--
-	-- WHY x 1500, z -4100. Of 42 candidate plots scored for a stand line plus 620 studs of drive
-	-- ground north and 280 south, this one holds **zero** non-terrain parts and has the least
-	-- relief along its own 700-stud line (**29 studs**, plot 63) -- the flattest clean ground in
-	-- this world. Stand terrain, measured: 160, 151, 134, 136, 150; `centre.Y` 146 is their mean.
+	-- WHY NOT x 1500, z -4100, WHICH IS WHERE THE FIRST BUILD PUT IT. That plot is the flattest clean
+	-- ground in this world (zero non-terrain parts, 29 studs of relief along its line) and it still
+	-- fails the one test that matters: from stand 1's eye height a ray north dies on terrain at
+	-- **89 studs**, and at stand 3 at 241 -- two of the five cannot see the drive. **The whole
+	-- WEST ground was then swept** (x 1200..2000, z -3700..-4500, 5- and 6-stand lines) for a line
+	-- where every stand sees at least 180 studs: **none exists**. Flat is not the same as open, and
+	-- the gate rule asks for open.
+	--
+	-- SO IT MOVED EAST, TO THE OTHER ZERO-PART GROUND. Of 30 all-clear candidates there, this is the
+	-- one with the longest sight line and no part in its plot: **5 stands, 130 apart, centre x 4900,
+	-- z -4500 -- every stand sees past 400 studs north**, `worstSight` 400. Measured 2026-10-17.
+	-- Stand terrain 160..178; `centre.Y` 166 is their mean.
+	--
+	-- AND BEING EAST BUYS THE HORIZON. `track`'s line is 600 studs north of this one, so this place's
+	-- north belt and that place's south belt are one continuous wood: a hunter here looks up the ride
+	-- into trees rather than at open hillside, which is what karen-ref-5 shows and what the first
+	-- build's frame did not (`<runs-dir>/193-p3-north.png`, first build: open grass hill over the
+	-- belt's far edge).
 	--
 	-- Five stands 130 apart is 520 studs of front instead of the road's 1,200: a different kind of
 	-- drive on purpose, and the one Karen described, where the next gun is "far down the ride".
@@ -185,7 +215,7 @@ ForestTest.LAYOUTS = table.freeze({
 	ride = table.freeze({
 		name = "ride",
 		label = "Cut line",
-		centre = Vector3.new(1500, 146, -4100),
+		centre = Vector3.new(4900, 166, -4500),
 		amplitudeStuds = 0,
 		standCount = 5,
 		standSpacing = 130,
@@ -208,14 +238,18 @@ ForestTest.LAYOUTS = table.freeze({
 	-- The planted strip is 18 studs = 5 m, the generous end of that, because a boar has to be
 	-- shootable crossing it.
 	--
-	-- WHY x 4800, z -4100: the other plot of the 42 with **zero** non-terrain parts in it and the
-	-- lowest PLOT relief of any (58 studs; line relief 37). Stand terrain, measured: 171, 152, 143,
-	-- 151, 159, 173; `centre.Y` 158 is their mean. Six stands 130 apart = 650 studs of front;
-	-- `halfSpanStuds` 385 is 325 + the 60-stud run-out.
+	-- WHY NOT x 4800, z -4100 EITHER. Same defect as the ride's, measured the same way: at that line
+	-- the two east stands (x 4995 and 5125) see **65 and 62 studs** north before the terrain cuts them
+	-- off -- 18 m, which is not a drive you can watch. **x 4700, z -3900, six stands 130 apart** is
+	-- the all-clear candidate with the longest sight line of the thirty: **every stand sees past 400
+	-- studs**, `worstSight` 400, zero non-terrain parts in its plot. Measured 2026-10-17. Stand
+	-- terrain mean 159, which is `centre.Y`.
+	--
+	-- Six stands 130 apart = 650 studs of front; `halfSpanStuds` 385 is 325 + the 60-stud run-out.
 	track = table.freeze({
 		name = "track",
 		label = "Forest road",
-		centre = Vector3.new(4800, 158, -4100),
+		centre = Vector3.new(4700, 159, -3900),
 		amplitudeStuds = 0,
 		standCount = 6,
 		standSpacing = 130,
@@ -1515,6 +1549,18 @@ end
 -- bound exists so a raycast loop can never be unbounded, not because anybody expects to use it.
 ForestTest.MAX_BODIES_IN_A_COLUMN = 8
 
+-- WHAT `groundAt` RAYS STRAIGHT THROUGH, as data rather than as a literal in the loop below
+-- (design `drive-places.md` 10.1). `DrivePlaces` joined the list in task 193 and the reason is a
+-- defect the Architect found before it shipped: the planter's own trees keep `CanQuery = true` (a
+-- trunk must stop a bullet), and this same function is the CANOPY half of `Markers.groundFor` --
+-- where a disagreement of one stud with the terrain reader REFUSES A STAND, and all six refused is
+-- `WAITING forest:stands (0 of 6)` for ever. A tree we planted must not be allowed to answer the
+-- question "where is the ground".
+--
+-- `places.spec` asserts that `Places.FOLDER` is in this list, so the name exists once and the list
+-- cannot drift from the folder it is about.
+ForestTest.GROUND_IGNORE = table.freeze({ "OurForest", "Foliage", "Boars", "DrivePlaces" })
+
 -- IT IGNORES THE FOREST, THE ANIMALS AND THE PEOPLE. A boar must be put on the GROUND, not on a
 -- fern, not on the back of the boar spawned a moment earlier -- and not on a player's head.
 --
@@ -1543,7 +1589,7 @@ function ForestTest.groundAt(x: number, z: number, fromY: number?): number?
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	local ignore = {}
-	for _, name in ipairs({ "OurForest", "Foliage", "Boars" }) do
+	for _, name in ipairs(ForestTest.GROUND_IGNORE) do
 		local found = Workspace:FindFirstChild(name)
 		if found then
 			table.insert(ignore, found)

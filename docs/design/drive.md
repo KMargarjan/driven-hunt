@@ -1664,3 +1664,65 @@ Nothing here is invented except `Penalty.judge`'s point-to-ray test (a dot produ
 magnitude, with eight assertions against it) and the **wedge offsets** in §11.7, which no source specifies
 because a formation's shape is a taste value — which is why it is marked **K** and why it is Karen's first
 question in §14.
+
+---
+
+<!-- Added by task 193 from `docs/design/drive-places.md` section 16: the Architect's
+own words for what shipped and was never written down. The Learning Agent, 2026-10-17: no
+Architect run for three days and `docs/design/` is behind the code. -->
+
+**§10.5 The pad rig: one predicate, two readers (task 197)**
+
+**Karen, 2026-10-15 ~17:40:** *"same with entering in game menu has to be nicer and cleaner / and we
+need clear message that game is loading once clicked 1/1 or other now is delay / also could be car
+started sound light on something like that indicating loading ect"*.
+
+**The delay is not a load and was measured on the player's own path:** press to drive is **5.30 s**,
+of which 5.0 is `Lobby.CONFIG.COUNTDOWN_SECONDS` — a designed wait in which a second player can
+still step on. So the fix is **feedback**, not speed.
+
+**One pure predicate with two readers.** `Lobby.padLoading(state)` is true for `filling`,
+`countdown` and `leaving`. The owner mirrors that pad's state word onto each member as the `Player`
+attribute **`DHPadMine`** (written only by `ServerScriptService.Lobby`, level-triggered with edge
+writes in `setPadMine`, cleared the moment `world.inDrive` is true and again in `Lobby.stop`, with
+**no inbound door**) and hands the same answer to `Build.setTruck`. The banner and the engine are one
+fact said twice.
+
+**The truck is RECONCILED on the owner's scan, not fired on the pick.**
+`Build.setTruck(index, Data.padLoading(pad.state))` is asked every scan in `stepPads`, beside the
+`Build.setPad` that was already there, and is edge-triggered inside — so a running truck costs one
+comparison a scan per bay, and **no truck is ever left idling** whichever of the four ways a party
+ends.
+
+**There is no progress bar while a party is filling, and that is deliberate.**
+`PadPanel.barFraction` answers `nil` for `filling`: NN/g's rule is that a progress indicator says
+*approximately how much time remains*, which `countdown` knows exactly and `filling` — up to 45 s
+waiting for people who may never come — cannot.
+
+**The view turns through the camera's owner, as a request.** A player arrives on a pad facing north
+and his truck is 18 studs south, so the engine start, the headlights and the smoke all happened
+behind him. `Camera.faceTowards(point)` is a request of exactly `Camera.lookAt`'s shape: it eases
+over `Config.FACE_TURN_SECONDS` inside the camera's own `update`, through the pure
+`Mode.towardAngles` / `Mode.angleGapDeg`, and **`Rig.apply` is still the only writer of
+`workspace.CurrentCamera`**. The Hud **asks**, once, on the edge where a pad starts asking
+(`facedPad` in `Hud.renderObjective`), and the point comes from `Lobby.truckPosition(index)` —
+the model the server built, not a repeat of `Pads.centreFor`'s arithmetic on the client. Measured
+live: the view's flat LookVector dotted with the direction to the truck goes **0.037 → 1.000**.
+
+**One message at a time, as a level rule.** `Objective.text` returns `""` while either of the pad's
+panels is up, read from `lobby.asking` / `lobby.loading` — asked **every frame from the state as it
+is**, with no enter/exit edge to miss, so the line comes back by itself.
+
+**Two measured corrections that are design, not polish:** an attachment's `WorldCFrame` written
+**before** it is parented lands in the local `CFrame` — the exhaust and the **engine sound** were
+3,000 studs away, at (5783.8, 304.8, −5872.9) against a lobby at (2893, 150, −2941) — so both are
+parented first now; and a dark `Neon` lamp still glows at night, so the rig remembers each lamp's
+shipped material (`TruckRig.lamps[].was`) and swaps it to `ENGINE.OFF_MATERIAL` when dark. The tail
+`PointLight`s are gone (`ENGINE.TAIL_BRIGHTNESS = 0`, a dial and not a deletion); the lit `Neon`
+lens is what reads as a tail light.
+
+**§3.6 — add the row:** *the pad menu, the loading banner, the truck rig → `ServerScriptService.Lobby`
+(the state and `DHPadMine`), `Lobby.Build` (the rig), `Hud.PadPanel` + `Hud.Objective` (the screen).
+`Match` is unchanged by it.*
+The truck rig's own numbers (`ENGINE.*`, the lamp rules) belong in **`docs/design/truck-pads.md`**,
+not in `drive.md`; the same text serves.

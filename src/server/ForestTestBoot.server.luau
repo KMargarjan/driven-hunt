@@ -99,15 +99,20 @@ print(
 -- ONE LINE, AND IT CARRIES THE COUNTS Karen's *"not fake it or broken"* is checked against: how many
 -- went in, how many were refused for want of ground, and how many were refused because their
 -- footprint lay across a step (`TreeGround.CLIFF_STUDS`).
-local planted = Places.build()
+-- THE READER IS TERRAIN ONLY AND IT IS HANDED IN HERE (design 10.1). `ForestTest.terrainYAt` lives on
+-- the SERVER owner of this world, which is why the composition root is where the two meet: the
+-- planter learns nothing about `Workspace.Terrain` and `ForestTest` learns nothing about planting.
+local planted = Places.build(ForestTest.terrainYAt, nil, workspace.Terrain)
 print(
 	string.format(
-		"[ForestTestBoot] places: %d dressed, %d planted, %d skipped, %d on a step, %d template(s) missing, %.2fs%s",
+		"[ForestTestBoot] places: %d dressed, %d planted (%d parts), %d skipped, %d on a step, %d missing, %d paint call(s), %.2fs%s",
 		planted.places,
 		planted.planted,
+		planted.parts,
 		planted.skipped,
 		planted.cliff,
 		planted.missing,
+		planted.paints,
 		planted.seconds,
 		if planted.reason then " (" .. tostring(planted.reason) .. ")" else ""
 	)
