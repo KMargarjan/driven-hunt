@@ -127,6 +127,15 @@ local ammoValue: TextLabel? = nil
 local ammoCaption: TextLabel? = nil
 local ammoBarFill: Frame? = nil
 local ammoBarTrack: Frame? = nil
+-- THE ROW INSIDE EACH CORNER CHIP, held because the BAR under it is sized from the row's measured
+-- width every frame. A bar sized in SCALE cannot be used here: the slate is `AutomaticSize.X`, so a
+-- scale-width child and the box that measures it chase each other and settle wide -- measured
+-- TWICE, as the horn's bar running the whole screen (`...133631Z-t201-beater-running-2.png`) and
+-- then, with the row moved into its own frame, still 430 px (`...134503Z-t201c-beater-cooldown.png`).
+-- An OFFSET width read off the row terminates: the row does not depend on the bar, and the slate
+-- settles at max(row, bar) = row.
+local ammoBody: Frame? = nil
+local hornBody: Frame? = nil
 local readoutWords = ""
 -- WHEN THIS CLIENT SAW THE RELOAD START, and how long it was going to take. The snapshot carries
 -- `busyFor` and nothing ticks it down between publications, so the BAR is predicted from this
@@ -247,13 +256,61 @@ local started = false
 -- scale (`Style.sizeFor`) and the scale has exactly one break point, so "is this a phone" must have
 -- exactly one reader too. `CurrentCamera` may be nil for a frame at boot, and then the desktop step
 -- is the answer -- which is the step this game is played at.
+-- A VIEWPORT THAT HAS NOT RENDERED YET IS NOT A PHONE, and that cost the first Play of this task.
+-- `Camera.ViewportSize` is **(1, 1)** until the engine has drawn a frame, and `Hud.build` runs
+-- before that -- so every size on the screen came out at the phone step and the compass was built
+-- 120 px wide instead of 420 (`20261017T133606Z-t201-hunter-running.png`). Anything under
+-- `MIN_SENSIBLE_PX` is "not yet", not "small", and the desktop step is the right guess for a game
+-- Karen plays on a PC. `Hud.applyViewportLayout` then corrects it on the first real frame, and on
+-- every resize after that.
+Hud.MIN_SENSIBLE_PX = 200
+
 function Hud.viewportX(): number
 	local camera = Workspace.CurrentCamera
 	if camera == nil then
 		return 1280
 	end
 	local size = camera.ViewportSize
-	return if size.X > 0 then size.X else 1280
+	return if size.X >= Hud.MIN_SENSIBLE_PX then size.X else 1280
+end
+
+-- EVERY LABEL THAT TAKES ITS SIZE FROM THE SCALE, with the step it takes. Registered as it is
+-- built, so `Hud.applyViewportLayout` can move the whole screen to the other step with no list to
+-- keep in two places -- and so a label added later cannot be forgotten, because it is registered
+-- where it is created.
+local sizedLabels: { { label: TextLabel, step: string } } = {}
+
+local function sized(label: TextLabel, step: string): TextLabel
+	table.insert(sizedLabels, { label = label, step = step })
+	return label
+end
+
+-- WHAT FOLLOWS THE WINDOW. Edge-triggered on the width -- `ShopPanel.setNear`'s own discipline --
+-- so the per-frame caller costs one comparison and never a write.
+--
+-- THREE THINGS DEPEND ON THE VIEWPORT and nothing else does: every label's step, the compass
+-- strip's width (420 on a desktop, `screenW - 24` on a phone), and the ceiling the status slate may
+-- not grow past (§4.3 rule 2). The rest of the layout is anchored to an edge or to the centre.
+local lastViewportX = 0
+
+function Hud.applyViewportLayout(viewX: number)
+	if viewX == lastViewportX then
+		return
+	end
+	lastViewportX = viewX
+	for _, entry in ipairs(sizedLabels) do
+		entry.label.TextSize = Style.sizeFor(entry.step, viewX)
+	end
+	if compassFrame ~= nil then
+		(compassFrame :: Frame).Size = UDim2.fromOffset(Compass.widthFor(viewX), Compass.CONFIG.HEIGHT)
+	end
+	if driveBar ~= nil then
+		local cap = (driveBar :: Frame):FindFirstChild("MaxWidth")
+		if cap ~= nil then
+			local _, _, width = Hud.statusRect(Vector2.new(viewX, 1));
+			(cap :: UISizeConstraint).MaxSize = Vector2.new(math.max(1, width), math.huge)
+		end
+	end
 end
 
 -- HOW TALL THE WHOLE TOAST FEED IS ALLOWED TO BE, from the same two numbers the hit card's position
@@ -866,6 +923,7 @@ local function build(): ScreenGui
 			-- place a team is coloured on this bar, and `Style.teamColor` is the one reader of that
 			-- mapping, so a pill, a roster and a map marker cannot disagree about whose orange it is.
 			local pill, text = Style.pill(status, "Role", Style.LOOK.HUNTER, viewX)
+			sized(text, "MICRO")
 			pill.LayoutOrder = index * 10
 			pill.Visible = false
 			statusPill = pill
@@ -875,6 +933,11 @@ local function build(): ScreenGui
 		local chip, value, caption = Style.statChip(status, name, viewX)
 		chip.LayoutOrder = index * 10
 		chip.Visible = false
+		-- THE DRIVE NUMBER IS THE BAR'S EYEBROW AND NOT ONE OF ITS NUMBERS, so it is the one chip
+		-- whose value takes the `HEADING` step. Decided here, before the branch below, so the
+		-- registry and the label agree by construction rather than by index arithmetic.
+		sized(value, if name == "Drive" then "HEADING" else "STAT")
+		sized(caption, "MICRO")
 		if name == "Drive" then
 			-- THE ONE CHIP WHOSE CAPTION COMES FIRST, because the phrase is "DRIVE 1" and not
 			-- "1 DRIVE". It is the bar's eyebrow (§3.4): the small word saying what kind of thing
@@ -947,6 +1010,7 @@ local function build(): ScreenGui
 	table.clear(feedDots)
 	for index = 1, Drive.CONFIG.FEED_LINES do
 		local toast, dot, text = Style.toast(feed, string.format("Line%d", index), viewX)
+		sized(text, "LABEL")
 		toast.LayoutOrder = index
 		toast.Visible = false
 		table.insert(feedToasts, toast)
@@ -1415,12 +1479,32 @@ local function build(): ScreenGui
 	ammo.Position = UDim2.new(1, -Style.MARGIN, 1, -Style.MARGIN)
 	ammo.ZIndex = Hud.STATUS.Z_INDEX
 	ammo.Visible = false
+	-- THE ROW LIVES IN ITS OWN FRAME AND THE BAR SITS BESIDE IT, and that is not tidiness.
+	-- `UIListLayout` lays out EVERY visible child and has no opt-out, so a Scale-width bar dropped
+	-- into the row stretches the row -- measured, as the horn's cooldown bar running the whole
+	-- width of the screen (`20261017T133631Z-t201-beater-running-2.png`). With the row in a frame
+	-- of its own the slate measures the row (`AutomaticSize` ignores a child sized in Scale) and
+	-- the bar spans whatever the row came to.
+	local ammoBodyRow = Instance.new("Frame")
+	ammoBodyRow.Name = "Content"
+	ammoBodyRow.BackgroundTransparency = 1
+	ammoBodyRow.BorderSizePixel = 0
+	-- EXACTLY THE SHAPE THE STATUS BAR'S CHIPS ALREADY HAVE, and that is why it is this shape:
+	-- `AutomaticSize.X` with the HEIGHT in scale, measured three levels deep (slate -> chip ->
+	-- label) and demonstrably coming out at the width of its own words. The row and the bar below
+	-- it are siblings, and the bar is sized and positioned in pure OFFSETS -- a scale-width or
+	-- scale-x-positioned bar and the box that measures it chase each other, which is what made the
+	-- horn chip 430 px wide (`...134503Z-t201c-beater-cooldown.png`).
+	ammoBodyRow.AutomaticSize = Enum.AutomaticSize.X
+	ammoBodyRow.Size = UDim2.fromScale(0, 1)
+	ammoBodyRow.ZIndex = ammo.ZIndex + 1
+	ammoBodyRow.Parent = ammo
 	local ammoRow = Instance.new("UIListLayout")
 	ammoRow.FillDirection = Enum.FillDirection.Horizontal
 	ammoRow.VerticalAlignment = Enum.VerticalAlignment.Center
 	ammoRow.SortOrder = Enum.SortOrder.LayoutOrder
 	ammoRow.Padding = UDim.new(0, 7)
-	ammoRow.Parent = ammo
+	ammoRow.Parent = ammoBodyRow
 
 	-- THE PIPS, BUILT ONCE AND SHOWN AS THE WEAPON NEEDS THEM. `PIP_MAX` is a ceiling and not a
 	-- claim about any gun: a break-action has two chambers and the rifle's magazine shows three, and
@@ -1433,7 +1517,7 @@ local function build(): ScreenGui
 		pip.BorderSizePixel = 0
 		pip.Size = UDim2.fromOffset(9, 14)
 		pip.LayoutOrder = index
-		pip.ZIndex = ammo.ZIndex + 1
+		pip.ZIndex = ammoBodyRow.ZIndex + 1
 		pip.Visible = false
 		Style.corner(pip, Style.RADIUS.BAR)
 		-- THE SELECTED CHAMBER GETS A 2 px BAR UNDER IT (§3.10), and it is a child so it travels
@@ -1445,22 +1529,22 @@ local function build(): ScreenGui
 		under.AnchorPoint = Vector2.new(0.5, 1)
 		under.Position = UDim2.new(0.5, 0, 1, 4)
 		under.Size = UDim2.fromOffset(9, 2)
-		under.ZIndex = ammo.ZIndex + 2
+		under.ZIndex = ammoBodyRow.ZIndex + 2
 		under.Visible = false
 		under.Parent = pip
-		pip.Parent = ammo
+		pip.Parent = ammoBodyRow
 		table.insert(ammoPips, pip)
 	end
 
-	local ammoCount = Style.label(ammo, "Value", "STAT", viewX)
+	local ammoCount = sized(Style.label(ammoBodyRow, "Value", "STAT", viewX), "STAT")
 	ammoCount.AutomaticSize = Enum.AutomaticSize.X
-	ammoCount.Size = UDim2.fromOffset(0, Style.sizeFor("STAT", viewX) + 4)
+	ammoCount.Size = UDim2.fromOffset(0, Style.SIZE.STAT[1] + 4)
 	ammoCount.LayoutOrder = Hud.PIP_MAX + 1
 	ammoCount.TextXAlignment = Enum.TextXAlignment.Left
 
-	local ammoWord = Style.label(ammo, "Caption", "MICRO", viewX)
+	local ammoWord = sized(Style.label(ammoBodyRow, "Caption", "MICRO", viewX), "MICRO")
 	ammoWord.AutomaticSize = Enum.AutomaticSize.X
-	ammoWord.Size = UDim2.fromOffset(0, Style.sizeFor("STAT", viewX) + 4)
+	ammoWord.Size = UDim2.fromOffset(0, Style.SIZE.STAT[1] + 4)
 	ammoWord.LayoutOrder = Hud.PIP_MAX + 2
 	ammoWord.TextColor3 = Style.LOOK.FIELD_MUTED
 	ammoWord.TextXAlignment = Enum.TextXAlignment.Left
@@ -1470,9 +1554,13 @@ local function build(): ScreenGui
 	-- THE RELOAD BAR, across the chip's bottom (§3.8's reload row: track `LINE`, fill `LINE -> PAPER`).
 	-- NO TWEEN: it is a clock and moves with the number, and a bar that eases is a bar that lies.
 	local ammoTrack, ammoFill = Style.bar(ammo, "Reload", Style.LOOK.LINE, Style.LOOK.LINE, Style.LOOK.PAPER, 3)
-	ammoTrack.AnchorPoint = Vector2.new(0.5, 1)
-	ammoTrack.Position = UDim2.new(0.5, 0, 1, 3)
-	ammoTrack.Size = UDim2.new(1, 0, 0, 3)
+	-- ANCHORED LEFT AND POSITIONED IN OFFSETS. A bar centred with `0.5` scale reaches
+	-- `parentW / 2 + w / 2`, which depends on the parent the parent is measuring FROM -- a loop, and
+	-- the one that settled at 430 px. Pure offset in x, so the slate measures `max(row, bar) = row`.
+	ammoTrack.AnchorPoint = Vector2.new(0, 1)
+	ammoTrack.Position = UDim2.new(0, 0, 1, 3)
+	-- ZERO UNTIL IT IS MEASURED (see `ammoBody`): `Hud.renderCorner` writes the row's own width.
+	ammoTrack.Size = UDim2.fromOffset(0, 3)
 	ammoTrack.Visible = false
 
 	-- THE HORN CHIP (§5 surface 7), which does not exist today: *"a beater's bottom-right corner is
@@ -1484,12 +1572,26 @@ local function build(): ScreenGui
 	horn.Position = UDim2.new(1, -Style.MARGIN, 1, -Style.MARGIN)
 	horn.ZIndex = Hud.STATUS.Z_INDEX
 	horn.Visible = false
+	local hornBodyRow = Instance.new("Frame")
+	hornBodyRow.Name = "Content"
+	hornBodyRow.BackgroundTransparency = 1
+	hornBodyRow.BorderSizePixel = 0
+	-- EXACTLY THE SHAPE THE STATUS BAR'S CHIPS ALREADY HAVE, and that is why it is this shape:
+	-- `AutomaticSize.X` with the HEIGHT in scale, measured three levels deep (slate -> chip ->
+	-- label) and demonstrably coming out at the width of its own words. The row and the bar below
+	-- it are siblings, and the bar is sized and positioned in pure OFFSETS -- a scale-width or
+	-- scale-x-positioned bar and the box that measures it chase each other, which is what made the
+	-- horn chip 430 px wide (`...134503Z-t201c-beater-cooldown.png`).
+	hornBodyRow.AutomaticSize = Enum.AutomaticSize.X
+	hornBodyRow.Size = UDim2.fromScale(0, 1)
+	hornBodyRow.ZIndex = horn.ZIndex + 1
+	hornBodyRow.Parent = horn
 	local hornRow = Instance.new("UIListLayout")
 	hornRow.FillDirection = Enum.FillDirection.Horizontal
 	hornRow.VerticalAlignment = Enum.VerticalAlignment.Center
 	hornRow.SortOrder = Enum.SortOrder.LayoutOrder
 	hornRow.Padding = UDim.new(0, 7)
-	hornRow.Parent = horn
+	hornRow.Parent = hornBodyRow
 
 	-- THE HORN ICON IS TWO FRAMES (§3.10): an 18 x 7 brass body rotated -8 degrees with a 9 x 9 bell
 	-- at its right end in `BRASS_HI`. No upload, no glyph, and nothing a font has to carry.
@@ -1498,19 +1600,19 @@ local function build(): ScreenGui
 	hornIcon.BackgroundTransparency = 1
 	hornIcon.Size = UDim2.fromOffset(28, 16)
 	hornIcon.LayoutOrder = 1
-	hornIcon.ZIndex = horn.ZIndex + 1
-	hornIcon.Parent = horn
-	local hornBody = Instance.new("Frame")
-	hornBody.Name = "Body"
-	hornBody.BackgroundColor3 = Style.LOOK.BRASS
-	hornBody.BorderSizePixel = 0
-	hornBody.AnchorPoint = Vector2.new(0, 0.5)
-	hornBody.Position = UDim2.fromScale(0, 0.5)
-	hornBody.Size = UDim2.fromOffset(18, 7)
-	hornBody.Rotation = -8
-	hornBody.ZIndex = hornIcon.ZIndex
-	Style.corner(hornBody, 4)
-	hornBody.Parent = hornIcon
+	hornIcon.ZIndex = hornBodyRow.ZIndex + 1
+	hornIcon.Parent = hornBodyRow
+	local hornShape = Instance.new("Frame")
+	hornShape.Name = "Body"
+	hornShape.BackgroundColor3 = Style.LOOK.BRASS
+	hornShape.BorderSizePixel = 0
+	hornShape.AnchorPoint = Vector2.new(0, 0.5)
+	hornShape.Position = UDim2.fromScale(0, 0.5)
+	hornShape.Size = UDim2.fromOffset(18, 7)
+	hornShape.Rotation = -8
+	hornShape.ZIndex = hornIcon.ZIndex
+	Style.corner(hornShape, 4)
+	hornShape.Parent = hornIcon
 	local hornBell = Instance.new("Frame")
 	hornBell.Name = "Bell"
 	hornBell.BackgroundColor3 = Style.LOOK.BRASS_HI
@@ -1522,15 +1624,15 @@ local function build(): ScreenGui
 	Style.corner(hornBell, 4)
 	hornBell.Parent = hornIcon
 
-	local hornWord = Style.label(horn, "Value", "STAT", viewX)
+	local hornWord = sized(Style.label(hornBodyRow, "Value", "STAT", viewX), "STAT")
 	hornWord.AutomaticSize = Enum.AutomaticSize.X
-	hornWord.Size = UDim2.fromOffset(0, Style.sizeFor("STAT", viewX) + 4)
+	hornWord.Size = UDim2.fromOffset(0, Style.SIZE.STAT[1] + 4)
 	hornWord.LayoutOrder = 2
 	hornWord.TextXAlignment = Enum.TextXAlignment.Left
 
-	local hornState = Style.label(horn, "Caption", "MICRO", viewX)
+	local hornState = sized(Style.label(hornBodyRow, "Caption", "MICRO", viewX), "MICRO")
 	hornState.AutomaticSize = Enum.AutomaticSize.X
-	hornState.Size = UDim2.fromOffset(0, Style.sizeFor("STAT", viewX) + 4)
+	hornState.Size = UDim2.fromOffset(0, Style.SIZE.STAT[1] + 4)
 	hornState.LayoutOrder = 3
 	hornState.TextColor3 = Style.LOOK.FIELD_MUTED
 	hornState.TextXAlignment = Enum.TextXAlignment.Left
@@ -1541,12 +1643,14 @@ local function build(): ScreenGui
 	-- EMPTY on a blast and FILLS over `Horn.CONFIG.COOLDOWN`, which is §7's own instruction.
 	local _, hornFill = Style.bar(horn, "Cooldown", Style.LOOK.BRASS_LO, Style.LOOK.BRASS_LO, Style.LOOK.BRASS, 3)
 	local hornTrack = hornFill.Parent :: Frame
-	hornTrack.AnchorPoint = Vector2.new(0.5, 1)
-	hornTrack.Position = UDim2.new(0.5, 0, 1, 3)
-	hornTrack.Size = UDim2.new(1, 0, 0, 3)
+	hornTrack.AnchorPoint = Vector2.new(0, 1)
+	hornTrack.Position = UDim2.new(0, 0, 1, 3)
+	hornTrack.Size = UDim2.fromOffset(0, 3)
 
 	crosshair = container
 	ammoChip = ammo
+	ammoBody = ammoBodyRow
+	hornBody = hornBodyRow
 	ammoValue = ammoCount
 	ammoCaption = ammoWord
 	ammoBarTrack = ammoTrack
@@ -2722,6 +2826,10 @@ function Hud.renderCorner(Weapon)
 			(hornCaption :: TextLabel).Text = if caption == "" then "" else Style.spaced(caption)
 		end
 		if hornBarFill then
+			local hornTrack = (hornBarFill :: Frame).Parent :: Frame
+			if hornBody ~= nil then
+				hornTrack.Size = UDim2.fromOffset((hornBody :: Frame).AbsoluteSize.X, 3)
+			end
 			(hornBarFill :: Frame).Size = UDim2.fromScale(filled, 1)
 		end
 	end
@@ -2771,6 +2879,9 @@ function Hud.renderCorner(Weapon)
 	-- and then vanish. Latched on the rising edge, which is also where its total comes from.
 	local track, fill = ammoBarTrack, ammoBarFill
 	if track ~= nil and fill ~= nil then
+		if ammoBody ~= nil then
+			track.Size = UDim2.fromOffset((ammoBody :: Frame).AbsoluteSize.X, 3)
+		end
 		if data.busy and reloadStartedAt == nil then
 			reloadStartedAt = now
 			reloadTotal = math.max(0.05, snapshot.busyFor)
@@ -3419,6 +3530,10 @@ function Hud.start()
 	-- objective line and the waypoint exist in every world; what the WORLD has stated decides whether
 	-- there is a target, and `Objective.targetFor` answers nil rather than guessing.
 	RunService.RenderStepped:Connect(function()
+		-- THE WINDOW FIRST, and it is one comparison when nothing moved. `Hud.build` runs before the
+		-- engine has drawn a frame, when `Camera.ViewportSize` is still (1, 1), so the FIRST real
+		-- frame is what puts the whole screen on the right step of the scale.
+		Hud.applyViewportLayout(Hud.viewportX())
 		Hud.renderObjective(CameraSystem)
 		-- THE BOTTOM-RIGHT CORNER IN THE SAME PASS (task 201): the reload bar and the horn's
 		-- readiness bar are CLOCKS, and a clock drawn on an event is a clock that stops.

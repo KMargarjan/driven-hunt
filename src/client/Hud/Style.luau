@@ -405,7 +405,12 @@ end
 -- A chip whose value is unknown is not drawn -- it never shows `--`.
 function Style.statChip(parent: GuiObject, name: string, viewportX: number): (Frame, TextLabel, TextLabel)
 	local phone = Style.isPhone(viewportX)
-	local box = Style.sizeFor("STAT", viewportX) + 4
+	-- THE BOX IS THE DESKTOP STEP AT EVERY VIEWPORT, and only the TEXT inside it changes with the
+	-- scale. A box is a container: a 17 px phone number in a 24 px box reads the same, and it means
+	-- `Hud.applyViewportLayout` has one property to move when the window is resized (a `TextSize`)
+	-- rather than a height per label. The first Play of task 201 built the whole HUD at the phone
+	-- step because `Camera.ViewportSize` is (1, 1) until the first frame is rendered.
+	local box = Style.SIZE.STAT[1] + 4
 	local chip = Instance.new("Frame")
 	chip.Name = name
 	chip.BackgroundTransparency = 1
@@ -485,6 +490,13 @@ function Style.pill(parent: GuiObject, name: string, color: Color3, viewportX: n
 	return pill, text
 end
 
+-- IT IS NEVER A DIRECT CHILD OF A LAID-OUT FRAME. `UIListLayout` lays out EVERY visible child and
+-- has no opt-out, so a Scale-width bar dropped into a chip's row stretches the row -- measured on
+-- `20261017T133631Z-t201-beater-running-2.png`, where the horn's cooldown bar ran the whole width
+-- of the screen. The caller puts the row in a `Content` frame and the bar beside it, so the slate
+-- measures the row (`AutomaticSize` ignores a child sized in Scale) and the bar spans whatever the
+-- row came to.
+--
 -- §3.8 A PROGRESS BAR. NO TWEEN: it is a clock and moves linearly with the number beside it.
 -- Returns the track and the fill; the caller writes the fill's `Size` fraction.
 function Style.bar(
