@@ -294,8 +294,11 @@ return function()
 			-- float precision and not by identity (the gate caught the bare equality once).
 			expect(math.abs(mesh.Z - half) < 1e-6).to.equal(true)
 			-- ...and it IS on the tube: the centre line and the radius both come from the samples.
+			-- 1e-5 AND NOT 1e-9: a `Vector3` holds float32, so the Y that came back through one is
+			-- the rounding of the double `tubeAt` answers -- about 1e-8 apart, which is agreement
+			-- and not drift. (The gate caught 1e-9; the honest bound is the format's.)
 			local centre, radius = Horn.tubeAt(mesh.Z)
-			expect(math.abs(mesh.Y - centre) < 1e-9).to.equal(true)
+			expect(math.abs(mesh.Y - centre) < 1e-5).to.equal(true)
 			expect(radius > 0).to.equal(true)
 			-- ...AND THE FALLBACK COIL PUTS IT SOMEWHERE ELSE ENTIRELY, which is why the caller has to
 			-- say which build is on screen instead of assuming the mesh. `arc.from` is where `pieces`
