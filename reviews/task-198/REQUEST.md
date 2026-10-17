@@ -1,21 +1,28 @@
 # Task 198 -- the hit card: a black boar in the corner with a red dot where each shot landed
 
 Task: 198
-Round: 2
+Round: 1
 Base: `b7e6eb9`
-Code commit: `555bd46f73304d07c8f2310c55b4ee0a7004677c`
+Code commit: `2820229352338474d1114a2be526cbee5a573927`
+
+> **On the round number.** The Director dispatched this as "round 3". It is written as `Round: 1`
+> because that is what `tools/agents.py` demands and refusing to notice would simply have the review
+> refused: `expected = 1 if prev_rnd is None or prev_verdict == "PASS" else prev_rnd + 1`, and this
+> task's committed `RESULT.md` is **round 2, PASS**. A PASS resets the count (CLAUDE.md, the stop
+> rule). So this is round 1 against a NEW code commit, not a third attempt at the old one: round 2
+> passed on `555bd46`, CI then went red on a harness-selftest case, and `2820229` is the one-file fix.
 
 ```
-[harness] PASS: 33/33 checks @ 555bd46f73304d07c8f2310c55b4ee0a7004677c (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 2820229352338474d1114a2be526cbee5a573927 (clean tree) scope=all
 ```
 
 The Director ran that full gate. `test2` is **N/A**: no `TWO_PLAYER_PATHS` file is in the branch --
 nothing under `src/server/Match/`, `src/client/Match/` or `src/shared/Drive/`, neither `MatchBoot`,
-nor `tests/client/Role.luau`, nor any spec on that list (`git diff --name-only b7e6eb9...HEAD`).
+nor `tests/client/Role.luau`, nor any spec on that list; and `tools/studio_mcp.py`, the only file
+`2820229` touches, is explicitly NOT on it (the Director's 2026-10-03 decision puts the harness with
+the tools).
 
-`scope=all` from `--scope auto` is correct rather than an expansion fault: `src/shared/Report/`,
-`src/server/HitLog/` and `src/client/Report/` are not in `BLAST_RADIUS`, and an unmapped code path
-can only mean the whole suite. 78 spec files, 1589 server + 368 client cases.
+`scope=all` from `--scope auto` is correct rather than an expansion fault -- see claim 1.
 
 `SMOKE PASS` (rule A), Forest Test, 80 s: gun in the CHARACTER at 15 s and at 80 s
 (`@15s=1 @80s=1`); `stacks=0 errorLines=0` read over the WHOLE log, boot included (`smoke.sh`
@@ -36,61 +43,78 @@ black boar on a bone plate and a red dot wherever each pellet struck. It holds 3
 private drawing functions moved, unchanged in what they draw, to `src/client/Hud/BoarArt.luau`, with
 the colours, the size and the facing as arguments; `HitLog.Shape.dot` is still the one projection.
 **The one new piece of data** is per-pellet landing places: `Weapon.Hits.group` still makes ONE
-report per (shot, target) and now carries `points` underneath it, which
-`HitLog.Shape.cardDots` projects.
+report per (shot, target) and now carries `points` underneath it, which `HitLog.Shape.cardDots`
+projects.
 
 Files: `src/shared/Report/init.luau`, `src/shared/Shotgun/init.luau`, `src/server/Weapon/Hits.luau`,
 `src/server/HitLog/Shape.luau`, `src/server/HitLog/init.luau`, `src/client/Report/init.luau`,
 `src/client/Hud/BoarArt.luau` (new), `src/client/Hud/HitCard.luau` (new),
 `src/client/Hud/ReportPanel.luau`, `src/client/Hud/init.luau`, `tests/server/hit_card.spec.luau`
-(new), `tests/client/hit_card.spec.luau` (new), `docs/research/2026-10-17-hit-card.md` + INDEX.
+(new), `tests/client/hit_card.spec.luau` (new), `tools/studio_mcp.py` (`SCOPE_SPECS` only),
+`docs/research/2026-10-17-hit-card.md` + INDEX.
 
 ## The round-1 blocking finding, and that the check for it can fail
 
-Round 1 found both new payloads putting a RAW SERVER CLOCK on the wire as `at`, which
+The first review found both new payloads putting a RAW SERVER CLOCK on the wire as `at`, which
 `sinceOpen`'s own comment and `docs/design/drive-report.md` section 2 forbid by name.
 
-**Fixed, and now pinned by a case that was RUN AGAINST THE PRE-FIX CODE AND FAILED THERE** -- the
-thing four earlier tasks got wrong by shipping a check that could not fail. Two runs, each with one
-path of the working tree reverted and then restored (the tree is now byte-identical to the code
-commit: `git diff --quiet 555bd46 HEAD -- src/server/HitLog/init.luau`):
+**Fixed, and pinned by a case that was RUN AGAINST THE PRE-FIX CODE AND FAILED THERE** -- the thing
+four earlier tasks got wrong by shipping a check that could not fail. Two runs, each reverting one
+path of the working tree and restoring it (the tree was byte-identical to the code commit
+afterwards):
 
-**A. the whole round-1 `src/server/HitLog/init.luau` (from `df647fd`), new spec on top**
+**A. the whole pre-fix `src/server/HitLog/init.luau` (from `df647fd`), new spec on top**
 (`<runs-dir>/test-198-prefix-A.log`):
 
 ```
-[harness] testing 3ef2abec48ca60185ea9b55e49f91a81166517fb (DIRTY tree)
   failed [server] hit_card.spec:279 ServerStorage.Tests.hit_card.spec:279: attempt to call a nil value
 [harness] FAIL: 31/33 checks @ 3ef2abe... (DIRTY TREE (1 paths) - NOT valid evidence) scope=all
 ```
 
-That nil is `HitLog.lastCard()`, which did not exist in round 1.
+That nil is `HitLog.lastCard()`, which did not exist then.
 
 **B. the shipped module with ONLY the two `sinceOpen` conversions reverted**
 (`<runs-dir>/test-198-prefix-B.log`):
 
 ```
-[harness] testing 3ef2abec48ca60185ea9b55e49f91a81166517fb (DIRTY tree)
   failed [server] hit_card.spec:300 Expected value "true" (boolean), got "false" (boolean) instead
 [harness] FAIL: 31/33 checks @ 3ef2abe... (DIRTY TREE (1 paths) - NOT valid evidence) scope=all
 ```
 
-Line 300 is the `at` assertion itself -- `expect(math.abs((card).at - 3.0) < 1e-9)`. So the case
-fails for exactly the defect it is about, and for nothing else.
+Line 300 is the `at` assertion itself. The case fails for its own defect and nothing else.
 
 ## Claims
 
-1. **Every `at` this module puts on the wire is seconds since the drive opened.** `recordHit`'s card
-   sends `sinceOpen(at)` and `recordDown`'s `hitFatal` sends `sinceOpen(animal.dots[index].at)`.
-   *Verify:* `tests/server/hit_card.spec.luau`, case **"puts one dot on the card per pellet, and the
-   card it SENT carries them"** -- the drive opens at t=100, a 4-pellet report fires at t=103, and the
-   sent card's `at` is asserted to be 3. Failing runs A and B above. The internal record keeps the raw
-   clock on purpose and the payload builders convert it, unchanged from before this task.
+1. **The two new spec files belong to a scope, both selftests pass, and the scope resolution is
+   UNCHANGED.** CI went red on PR #181 at the harness selftest's "every spec file on disk belongs to
+   a scope" case; `2820229` adds the two files to `SCOPE_SPECS` in `tools/studio_mcp.py` and changes
+   nothing else. They go where what they test lives: `report` gets **both** (`src/shared/Report/` and
+   `src/server/HitLog/` already resolve to that scope, and the card is drawn from
+   `Report.CONFIG.CARD`, placed by `HitLog.Shape.cardDots` and built in `HitLog.recordHit`); `hud`
+   gets the client one (`Hud.HitCard` and `Hud.BoarArt` are under `src/client/Hud/`); `weapon` gets
+   the server one (it drives `Weapon.Hits.group`'s new `points`). The dual membership is the idiom
+   `zz_horn`, `boar_hit`, `shop_panel` and `pad_panel` already use.
+   *Verify:* `python tools/studio_mcp.py selftest` -> `selftest PASS` and
+   `python tools/agents.py selftest` -> `all ok` (logs `<runs-dir>/selftest-198-after.log`,
+   `-agents.log`; the reproduction is `-before.log`).
+   **It only WIDENS what a scoped run plays** -- a `report` change used to play neither file and now
+   plays both. **This branch still resolves to `all`**, read off the resolver rather than assumed:
+   `studio_mcp.resolve_scope("auto")` returns `['all']`, `'auto, from 18 changed path(s)'`, because
+   **`src/client/Report/init.luau` is the one source path with no `BLAST_RADIUS` row**.
+   **No row was added for it**, deliberately: it would be defensible (the client replica of the same
+   system) but it would NARROW a future `--scope auto` for that path from the whole suite to four
+   specs, and narrowing coverage as a side effect of a CI fix is not this task's to do. Unmapped
+   falls back to the full suite, which is the safe direction. Flagged for the Director.
 
-2. **The card a spec reads is the card `recordHit` actually built**, not one the spec rebuilds beside
-   it. `HitLog.lastCard()` is a window onto the last payload, cleared by `HitLog.clear`.
-   *Verify:* the same case asserts `kind`, `drive`, `animal`, `hits`, `#dots` and exactly one `lead`
-   on `HitLog.lastCard()`. Failing run A above is this function not existing.
+2. **Every `at` this module puts on the wire is seconds since the drive opened, and the card a spec
+   reads is the card `recordHit` actually built.** `recordHit`'s card sends `sinceOpen(at)` and
+   `recordDown`'s `hitFatal` sends `sinceOpen(animal.dots[index].at)`; `HitLog.lastCard()` is a
+   window onto the last payload, cleared by `HitLog.clear`. *Verify:* `tests/server/hit_card.spec.luau`,
+   case **"puts one dot on the card per pellet, and the card it SENT carries them"** -- the drive
+   opens at t=100, a 4-pellet report fires at t=103, and the sent card's `at` is asserted to be 3,
+   alongside `kind`, `drive`, `animal`, `hits`, `#dots` and exactly one `lead`. Failing runs A and B
+   above. The internal record keeps the raw clock on purpose and the payload builders convert it,
+   unchanged from before this task.
 
 3. **One dot per pellet that struck the animal; a slug gets one; the list is bounded.**
    *Verify:* `tests/server/hit_card.spec.luau` -- "gives one point per pellet that struck the target,
@@ -123,22 +147,21 @@ fails for exactly the defect it is about, and for nothing else.
    request, and `ReportEvent:FireClient` in `toShooter`, whose only callers are `recordHit` (the
    card) and `recordDown` (the fatal mark), each passing the shooter/killer.
 
-8. **The client draws what arrived and computes nothing: red dots on a black animal, an ASCII
-   label, mirrored when the shot came in on the far flank.** *Verify:*
+8. **The client draws what arrived and computes nothing: red dots on a black animal, an ASCII label,
+   mirrored when the shot came in on the far flank.** *Verify:*
    `tests/client/hit_card.spec.luau` -- "puts one red dot per pellet, at the (u, v) the server
    measured" (reads `U`/`V` back off the Instances and `BackgroundColor3` off the pip); "gives a slug
    exactly one dot and a label with no fraction"; "names the pattern and how much of it landed";
    "turns the animal round when the shot came in on the far flank" (reads the drawn x of all four
    dots in both facings, asserts each mirrored one is exactly `1 - x`, and that the near picture was
    cleared). `Report.cardFacing` and `Report.cardLabel` are pure and asserted server-side, including
-   that every byte of the label is ASCII -- U+00B7 drew as two missing-glyph boxes in the first
-   frame.
+   that every byte of the label is ASCII -- U+00B7 drew as two missing-glyph boxes in the first frame.
 
 9. **It holds ~3 s then fades, a second hit replaces it, and the kill marks the lead dot in the
    report's own kill colour.** *Verify:* "holds for about three seconds, fades, and then is gone"
    (drives `HitCard.step` with its own dt); "replaces the card rather than stacking a second one";
    "marks the lead dot when the shot turns out to be the fatal one"; "ignores a kill that belongs to
-   another animal or another shot". Three round-1 notes are in this area and are fixed:
+   another animal or another shot". Three first-round notes are in this area and are fixed:
    `HitCard.markFatal` now paints `Shotgun.CONFIG.HIT_MARK_KILL_COLOR` (it was painting the colour
    the dot already was), `HitCard.setFade` no longer repaints the art frame's backing that `build`
    deliberately made transparent, and `HitCard.stop` holds and disconnects its two wire connections
@@ -194,11 +217,17 @@ picture is a LOOK decision for Karen and is deliberately not made here.
   anchored bottom-right 24 px tall, so width is safe by construction; HEIGHT is not tested -- under
   about 400 px of viewport the card's top climbs into the compass band. Not a case the game ships
   into today.
-* A round-1 claim of mine was **wrong and is withdrawn**: I reported the Forest Test place as a
-  half-synced tree that could not run this change, and said MEASURED. The probe read
+* A claim of mine from the first round was **wrong and is withdrawn**: I reported the Forest Test
+  place as a half-synced tree that could not run this change, and said MEASURED. The probe read
   `ModuleScript.Source` from the EDIT datamodel, where every script reads back as the empty string --
   `HitLog`, in that place for seventy tasks, "measured" missing too. Re-probed in Play, that place
   has the whole change, and the live shot above was taken there. There is nothing for Karen to click.
+* **The nine notes from the round-2 PASS are queued as `198a` in `TASKS.md`, not fixed.** Three are
+  worth doing first and are named there: `docs/design/drive-report.md`'s remote table no longer
+  describes its own wire now `ReportEvent` also goes to one client; `Hud.build`'s overlap guarantee
+  rests on a copied `20` literal rather than a constant; and the `lead` invariant is computed over
+  two different sets (`position` over all impacts, `points` capped at `POINTS_MAX`) -- unreachable at
+  18 pellets, but not guaranteed by construction.
 
 No `.rbxm`, no `ignoreUnknownInstances`, no flag, no `poses.json`, no Architect design run (this
 extends the drive report rather than adding a system; tasks 135/137/138 did the same).
