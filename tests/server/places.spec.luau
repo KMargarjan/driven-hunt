@@ -98,61 +98,84 @@ return function()
 	-- ---------------------------------------------------------------- the lane rule
 
 	describe("the shooting lanes", function()
-		it("has no tree in any lane, in any place, by arithmetic the spec does itself", function()
-			-- THE DISPATCH'S *"no trees in the shooting lanes, no stands inside trunks"*, asserted
-			-- over EVERY planting of every place rather than sampled. This is the case the whole
-			-- "the strip is a subtraction" pattern exists to make provable.
+		it("has no tree in ANY place's lane -- every planting against every layout", function()
+			-- THE DISPATCH'S *"no trees in the shooting lanes, no stands inside trunks"*, asserted over
+			-- EVERY planting of every place against EVERY layout, rather than against the one the trees
+			-- came from.
 			--
-			-- IT ASSERTS THE DISTANCE AND NOT ONLY THE PREDICATE (design 10.4 item 3). Asking
-			-- `Plan.inLane` alone proves only that the planner called its own predicate -- a wrong
-			-- `inLane` would agree with itself and pass. `PROJECT_CONTEXT.md` names that shape:
-			-- *"One predicate answered two unrelated questions"*. So the gap is computed here, from
-			-- `Forest.roadZ` and the plan's own numbers, and both are checked.
-			local checked, worst, worstPlace = 0, math.huge, "-"
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
-				local plan = Plan.planFor(name)
-				local layout = Forest.layoutNamed(name)
-				if plan ~= nil and layout ~= nil then
-					local clear = plan.halfStripStuds + Plan.LANE_STUDS
-					for _, item in ipairs(Plan.plant(layout, plan)) do
+			-- THE CROSS-PLACE HALF IS THE WHOLE POINT, AND IT USED TO BE UNTESTABLE (Reviewer, round 2,
+			-- finding 1). The old case looped `LAYOUT_ORDER` and compared each place's trees against its
+			-- OWN line, so it could not fail -- and what it could not see was real: the cut line's north
+			-- belt reaches 684 studs and the forest road's line is 600 studs away, so one place's wood was
+			-- planted through the other's track and across five of its six stands.
+			--
+			-- IT ALSO DOES THE ARITHMETIC ITSELF (round 1, finding 3): asking `Plan.inLane` alone proves
+			-- only that the planner called its own predicate.
+			local checked, worst, worstPair = 0, math.huge, "-"
+			for _, from in ipairs(Forest.LAYOUT_ORDER) do
+				local plan = Plan.planFor(from)
+				local grown = Forest.layoutNamed(from)
+				if plan ~= nil and grown ~= nil then
+					for _, item in ipairs(Plan.plant(grown, plan)) do
 						checked += 1
-						local gap = math.abs(item.z - Forest.roadZ(item.x, layout))
-						expect(gap > clear).to.equal(true)
-						expect(Plan.inLane(item.x, item.z, layout, plan)).to.equal(false)
-						if gap < worst then
-							worst, worstPlace = gap, name
+						for _, against in ipairs(Forest.LAYOUT_ORDER) do
+							local other = Forest.layoutNamed(against)
+							local clear = Plan.laneHalfWidth(Plan.planFor(against))
+							local gap = math.abs(item.z - Forest.roadZ(item.x, other))
+							expect(gap > clear).to.equal(true)
+							expect(Plan.inLane(item.x, item.z, other, Plan.planFor(against))).to.equal(false)
+							if gap - clear < worst then
+								worst, worstPair = gap - clear, from .. " vs " .. against
+							end
 						end
+						expect(Plan.clearOfEveryLane(item.x, item.z)).to.equal(true)
 					end
 				end
 			end
 			expect(checked > 100).to.equal(true)
-			TestKit.note(string.format("%d plantings, nearest to a line %.1f studs (%s)", checked, worst, worstPlace))
+			TestKit.note(
+				string.format(
+					"%d plantings x %d layouts, tightest margin %.1f studs (%s)",
+					checked,
+					#Forest.LAYOUT_ORDER,
+					worst,
+					worstPair
+				)
+			)
 		end)
 
-		it("keeps every tree clear of every stand circle", function()
+		it("keeps every tree clear of EVERY place's stand circles", function()
 			-- A STAND IS A SPOT A HUNTER IS LOCKED TO (Karen, task 179: *"just a hunter no treestand
 			-- anything"*), and `PICK.standRadiusStuds` is the circle. A tree inside one is a hunter
-			-- standing in a trunk.
+			-- standing in a trunk -- and it does not matter which place planted it (round 2, finding 1).
 			--
-			-- THE TWO NUMBERS ARE ONE FACT AND ARE CHECKED, NOT DESCRIBED (design 10.4 item 1):
-			-- `LANE_STUDS` is the stand radius, so the lane rule alone already clears every circle.
-			-- Its own comment used to say "rounded up"; they are EQUAL.
+			-- THE TWO NUMBERS ARE ONE FACT AND ARE CHECKED, NOT DESCRIBED: `LANE_STUDS` is the stand
+			-- radius, so the lane rule alone already clears every circle on every line.
 			expect(Plan.LANE_STUDS).to.equal(Forest.PICK.standRadiusStuds)
 			local radius = Forest.PICK.standRadiusStuds
-			for _, name in ipairs(Forest.LAYOUT_ORDER) do
-				local plan = Plan.planFor(name)
-				local layout = Forest.layoutNamed(name)
-				if plan ~= nil and layout ~= nil then
-					local list = Plan.plant(layout, plan)
-					for index = 1, layout.standCount do
-						local stand = Forest.standPosition(index, layout)
-						for _, item in ipairs(list) do
-							local dx, dz = item.x - stand.X, item.z - stand.Z
-							expect(math.sqrt(dx * dx + dz * dz) > radius).to.equal(true)
+			local worst, worstAt = math.huge, "-"
+			for _, from in ipairs(Forest.LAYOUT_ORDER) do
+				local plan = Plan.planFor(from)
+				local grown = Forest.layoutNamed(from)
+				if plan ~= nil and grown ~= nil then
+					local list = Plan.plant(grown, plan)
+					for _, against in ipairs(Forest.LAYOUT_ORDER) do
+						local other = Forest.layoutNamed(against)
+						for index = 1, other.standCount do
+							local stand = Forest.standPosition(index, other)
+							for _, item in ipairs(list) do
+								local dx, dz = item.x - stand.X, item.z - stand.Z
+								local away = math.sqrt(dx * dx + dz * dz)
+								expect(away > radius).to.equal(true)
+								if away < worst then
+									worst, worstAt = away, from .. " tree vs " .. against .. " stand " .. index
+								end
+							end
 						end
 					end
 				end
 			end
+			TestKit.note(string.format("nearest tree to any stand: %.1f studs (%s), radius %d", worst, worstAt, radius))
 		end)
 
 		it("answers the lane against the line's own z at that x, so a curve gets a curved strip", function()

@@ -363,12 +363,17 @@ local chosen = {
 	-- IT IS NOT `drive ~= nil`, and a forced drive is why: `DHForestLayout` sets `drive` without
 	-- advancing the cycle, so a session that starts forced and then clears the attribute must still
 	-- begin the rotation at place 1.
-	rotated = false,
 	-- WHERE THE CYCLE ITSELF IS, which is NOT `name` (Reviewer, round 1, note 6). `promote` writes
 	-- `name` for every source, the override included, so advancing from `name` would resume the
 	-- rotation from the FORCED place: force `road` at drive 3 while the cycle sat at `edge`, and
 	-- drive 4 deals `edge` again. The design's section 5 item 3 says a forced drive *"resumes at
 	-- exactly the next place"*, and this is the field that makes that true rather than nearly true.
+	--
+	-- NIL IS "THE CYCLE HAS NOT STARTED", and it needs no companion flag: `Data.nextLayout(nil)`
+	-- answers `LAYOUT_ORDER[1]` by its own rule, so the first rotated drive of a session is Karen's
+	-- place 1 with no branch at all. Round 2 shipped a `chosen.rotated` beside this; the Reviewer
+	-- pointed out that both of its branches then had the same answer (round 2, note 2), and a flag
+	-- whose two branches agree is a flag that can only ever go wrong.
 	cycle = nil :: string?,
 	-- "default" | "rotation" | "override" -- printed and in `stats()`, the `Flags` discipline. It is
 	-- the only thing that stops a forced playtest being reported as the rotation, because
@@ -540,7 +545,9 @@ function ForestTest.stats()
 		-- no bag to report, and a rotation's next is knowable, which a shuffled bag's was not.
 		layout = chosen.name,
 		layoutSource = chosen.source,
-		layoutNext = Data.nextLayout(chosen.name),
+		-- THE NEXT **ROTATED** PLACE, which during a forced drive is not the one after `layout`
+		-- (round 2, note 3). It reads the cycle, like the deal does.
+		layoutNext = Data.nextLayout(chosen.cycle),
 	}
 end
 
@@ -1911,7 +1918,7 @@ end
 -- `max(1, ...)` the first layout would be dealt for the waiting room and a SECOND one dealt the
 -- instant the first real drive began -- two layouts before anybody had played one.
 --
--- THE OVERRIDE DOES NOT ADVANCE THE ROTATION. A forced drive does not write `chosen.rotated`, so
+-- THE OVERRIDE DOES NOT ADVANCE THE ROTATION. A forced drive does not write `chosen.cycle`, so
 -- clearing `DHForestLayout` returns the cycle to exactly where it left off.
 function ForestTest.layoutForDrive(driveNumber: number?, override: any): string
 	local key = math.max(1, driveNumber or 0)
@@ -1936,11 +1943,11 @@ function ForestTest.layoutForDrive(driveNumber: number?, override: any): string
 			)
 		end
 		-- THE ROTATION (task 193, Karen: *"each time person will be in new place ... then loop it
-		-- again"*). `chosen.rotated` and not `chosen.drive` is the key, because the drive number
-		-- jumps when a forced drive sits in the middle of a session: the cycle must step once per
-		-- ROTATED drive, not once per drive number.
-		name = if chosen.rotated then Data.nextLayout(chosen.cycle) else Data.LAYOUT_ORDER[1]
-		chosen.rotated = true
+		-- again"*). `chosen.cycle` and not `chosen.name` is what it steps from, because `promote`
+		-- writes `name` for a FORCED drive too -- so advancing from `name` would resume the cycle at
+		-- the forced place (Reviewer, round 1, note 6). Nil means the cycle has not started and
+		-- `nextLayout` answers place 1.
+		name = Data.nextLayout(chosen.cycle)
 		chosen.cycle = name
 		source = "rotation"
 	end

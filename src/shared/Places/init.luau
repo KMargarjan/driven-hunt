@@ -36,9 +36,12 @@
 -- bramble wall beside the stand and karen-ref-1's young firs at the track ONE table with different
 -- numbers, instead of three hand-placed rows.
 --
--- THE STRIP IS A SUBTRACTION, NOT A SHAPE. Nothing is planted within `halfStripStuds + LANE_STUDS`
--- of the line. That is the one rule that keeps the shooting lanes clear -- `places.spec` asserts it
--- over every planting of every place -- rather than a row of trees a later tweak could walk inward.
+-- THE STRIP IS A SUBTRACTION, NOT A SHAPE, AND THE SUBTRACTION IS GLOBAL. Nothing is planted within
+-- `halfStripStuds + LANE_STUDS` of **any** place's line (`Places.clearOfEveryLane`). That is the one
+-- rule that keeps the shooting lanes clear -- `places.spec` asserts it over every planting of every
+-- place against every layout -- rather than a row of trees a later tweak could walk inward. It is
+-- global because it had to be: the cut line's north belt reaches 684 studs and the forest road's line
+-- is 600 studs away, so a per-place rule planted one place's wood through the other's track.
 --
 -- Design: docs/design/drive-places.md
 -- Note:   docs/research/2026-10-17-four-driven-hunt-places.md
@@ -296,7 +299,46 @@ end
 -- IT MEASURES AGAINST THE LINE'S OWN z AT THAT x, so a curved layout gets a curved strip for free.
 function Places.inLane(x: number, z: number, layout: any, plan: any): boolean
 	local lineZ = Forest.roadZ(x, layout)
-	return math.abs(z - lineZ) <= plan.halfStripStuds + Places.LANE_STUDS
+	return math.abs(z - lineZ) <= Places.laneHalfWidth(plan)
+end
+
+-- HOW WIDE A LAYOUT'S CLEARED GROUND IS, either side of its line. A layout with no dressing plan --
+-- `road` -- still has one: its stands are 12-stud circles on its line, so `LANE_STUDS` alone is the
+-- ground that must stay clear there.
+function Places.laneHalfWidth(plan: any): number
+	return (if plan ~= nil then plan.halfStripStuds else 0) + Places.LANE_STUDS
+end
+
+-- IS THIS POINT CLEAR OF **EVERY** PLACE'S LANE? THE RULE IS GLOBAL SINCE ROUND 3, and the Reviewer
+-- is who found out why (round 2, finding 1).
+--
+-- WHAT WENT WRONG. `layer` asked `inLane` about its OWN layout only. Task 179 had the places 3,300
+-- studs apart in x so that was harmless; claim 2 of round 1 re-sited them for sight lines and put the
+-- cut line 600 studs south of the forest road -- and the cut line's north belt reaches 684 studs, so
+-- it planted **through the forest road's track and across five of its six stands**. The code's own
+-- comment called the shared wood a feature (*"one continuous wood"*) and nobody checked it against
+-- the other place's lane.
+--
+-- WHY THIS AND NOT A GAP BETWEEN THE PLACES. The Reviewer put the conflict exactly: at these two
+-- centres *"the belt reaches the beaters' muster"* and *"no tree in the track's lane"* cannot both
+-- hold -- IF the belt has to be unbroken. It does not. A cleared corridor through the wood **is what
+-- a forest road is**: the cut line's north belt now reaches its full 640 studs with a 42-stud gap
+-- where the forest road's track crosses it, which is the one shape that keeps both properties and is
+-- also the more honest landscape. Moving a line instead would throw away the sight-line measurement
+-- that put it there, and no scored candidate pair is far enough apart to avoid the overlap.
+--
+-- IT IS ASKED AT THE JITTERED POINT, like `inLane`, because the jitter is what walks a candidate into
+-- a lane.
+function Places.clearOfEveryLane(x: number, z: number): boolean
+	for _, name in ipairs(Forest.LAYOUT_ORDER) do
+		local layout = Forest.layoutNamed(name)
+		if layout ~= nil then
+			if math.abs(z - Forest.roadZ(x, layout)) <= Places.laneHalfWidth(Places.planFor(name)) then
+				return false
+			end
+		end
+	end
+	return true
 end
 
 -- WHICH BAND A POINT IS IN, by its distance from the LANE EDGE (not from the line): "herb", "shrub"
@@ -446,7 +488,8 @@ function Places.layer(layout: any, plan: any, rng: Random, minX: number, maxX: n
 						-- the only version that is true, because the jitter is what could have walked it
 						-- into the lane. On a curved layout the jittered x has its own line z, so this
 						-- re-asks that too.
-						if jx >= minX and jx <= maxX and not Places.inLane(jx, z, layout, plan) then
+						-- EVERY PLACE'S LANE, not just this one (round 2, finding 1).
+						if jx >= minX and jx <= maxX and Places.clearOfEveryLane(jx, z) then
 							local reach = math.abs(z - Forest.roadZ(jx, layout)) - lane
 							local into = if floor then "herb" else Places.bandAt(reach, plan)
 							if into ~= nil and reach > 0 and not tooClose(grid, jx, z, gap) then

@@ -270,13 +270,20 @@ return function()
 			expect(string.sub(Data.LAYOUT_OVERRIDE_ATTRIBUTE, 1, 7)).never.to.equal("DHFlag_")
 		end)
 
-		it("starts a session at place 1, and a forced drive does not move the cycle", function()
-			-- TWO INVARIANTS NOTHING ASSERTED (Reviewer, round 1, note 6), one of which was a DEFECT:
+		it("does not let a forced drive move the cycle", function()
+			-- ONE INVARIANT NOTHING ASSERTED (Reviewer, round 1, note 6), and it was a DEFECT:
 			-- `promote` writes `chosen.name` for every source, so advancing from it resumed the
 			-- rotation at the FORCED place. `chosen.cycle` is where the cycle itself is.
 			--
 			-- THE MODULE CARRIES STATE ACROSS CASES, so this drives it from drive numbers of its own
 			-- and reads `layoutForDrive`'s answers rather than assuming a starting point.
+			--
+			-- "THE FIRST ROTATED DRIVE OF A SESSION IS PLACE 1" IS **NOT** ASSERTED HERE, and the name
+			-- no longer claims it (Reviewer, round 2, note 1). A fresh `chosen` cannot be had from a
+			-- spec -- the module is a singleton this file has already driven -- so asserting it needs
+			-- a seam nobody has built. What IS asserted is the rule it rests on, in `Data`:
+			-- `nextLayout(nil)` answers `LAYOUT_ORDER[1]` (the rotation cases above), and
+			-- `chosen.cycle` starts nil.
 			local order = Data.LAYOUT_ORDER
 			-- 1. a FORCED drive, then a rotated one: the rotated one must be the place that follows
 			--    the last ROTATED place, not the one that follows the forced name.
