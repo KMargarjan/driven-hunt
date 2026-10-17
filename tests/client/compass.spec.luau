@@ -17,6 +17,9 @@ local scripts = player:WaitForChild("PlayerScripts")
 local Hud = require(scripts:WaitForChild("Hud"))
 
 local Compass = Hud.Compass
+-- The one source for every colour, face and size (task 201), read off the Hud the way `Compass`,
+-- `Rail` and `Objective` are -- a spec never walks `PlayerScripts` by name for a sibling module.
+local Style = Hud.Style
 local CONFIG = Compass.CONFIG
 
 return function()
@@ -231,6 +234,72 @@ return function()
 			expect((x :: number) < 0).to.equal(true)
 		end)
 
+		it("keeps a PINNED marker inside the strip at a PHONE width", function()
+			-- ROUND 1, BLOCKING FINDING 1. The strip's width became viewport-dependent in task 201
+			-- (`Compass.widthFor`: 420 on a desktop, `screenW - 24` below the break point) and
+			-- `offsetPx` went on dividing by `CONFIG.WIDTH`. At 400 px that put a bearing more than
+			-- ~54 degrees off the heading at +-210 px inside a 376 px `ClipsDescendants` frame --
+			-- the marker VANISHING instead of pinning, against `PINNED_TRANSPARENCY`'s own contract
+			-- and against Karen's *"we need to indicate from what side drive is comming"*.
+			--
+			-- ARITHMETIC AND NOT A LIVE FRAME, because no tool here can resize a Studio viewport.
+			local phone = Compass.widthFor(400)
+			expect(phone).to.equal(400 - CONFIG.WIDTH_PHONE_MARGIN)
+			local half = phone / 2
+			-- Dead ahead is the centre, at every width.
+			local centre, onCentre = Compass.offsetPx(0, 0, CONFIG, phone)
+			expect(centre).to.be.near(0, 1e-6)
+			expect(onCentre).to.equal(true)
+			-- The span really is `SPAN_DEG` across the DRAWN strip: half of it reaches half the
+			-- strip and not one pixel more.
+			local edge, onEdge = Compass.offsetPx(0, CONFIG.SPAN_DEG / 2, CONFIG, phone)
+			expect(edge).to.be.near(half, 1e-6)
+			expect(onEdge).to.equal(true)
+			-- ...and a bearing behind the player is PINNED to the end, INSIDE the frame.
+			for _, bearing in ipairs({ 90, 150, 180, 210, 270 }) do
+				local x, onStrip = Compass.offsetPx(0, bearing, CONFIG, phone)
+				expect(onStrip).to.equal(false)
+				expect(math.abs(x) <= half).to.equal(true)
+			end
+			-- The desktop width is still the default, so every older caller is unchanged.
+			local wide = Compass.offsetPx(0, CONFIG.SPAN_DEG / 2, CONFIG)
+			expect(wide).to.be.near(CONFIG.WIDTH / 2, 1e-6)
+		end)
+
+		it("RENDERS at the width the strip is drawn at, not at the constant", function()
+			-- ROUND 2 NOTE: `offsetPx`'s parameter is asserted directly above, but the one live case
+			-- runs at the desktop frame size, where the drawn width and `CONFIG.WIDTH` agree -- so
+			-- nothing proved that `render` passes `Compass.drawnWidth()`. This narrows the real
+			-- strip to a phone width and asks what it drew.
+			local frame = Compass.frame()
+			expect(frame).to.be.ok()
+			local strip = frame :: Frame
+			local was = strip.Size
+			local phone = Compass.widthFor(400)
+			strip.Size = UDim2.fromOffset(phone, CONFIG.HEIGHT)
+			expect(Compass.drawnWidth()).to.equal(phone)
+			-- A bearing a quarter of the span to the right sits a quarter of the PHONE strip out.
+			Compass.setBearing(CONFIG.SPAN_DEG / 4)
+			Compass.render(0)
+			local x = Compass.driveMarkerX()
+			expect(x).to.be.ok()
+			expect(x).to.be.near(phone / 4, 1)
+			-- ...and a bearing behind the player pins INSIDE the strip rather than off its end.
+			Compass.setBearing(180)
+			Compass.render(0)
+			local pinned = Compass.driveMarkerX()
+			expect(pinned).to.be.ok()
+			expect(math.abs(pinned :: number) <= phone / 2).to.equal(true)
+			-- At the desktop width the same bearing pins further out, which is the whole point.
+			strip.Size = UDim2.fromOffset(CONFIG.WIDTH, CONFIG.HEIGHT)
+			Compass.render(0)
+			local wide = Compass.driveMarkerX()
+			expect(math.abs(wide :: number)).to.be.near(CONFIG.WIDTH / 2, 1)
+			strip.Size = was
+			Compass.setBearing(nil)
+			Compass.render(0)
+		end)
+
 		it("draws no marker at all when no world has said where the drive comes from", function()
 			-- A marker pointing at zero would be a lie in the shape of a fact.
 			Compass.setBearing(nil)
@@ -266,10 +335,14 @@ return function()
 			-- ON THE SCREEN, not in the table: `Compass.driveMarkerLabel` reads the live TextLabel.
 			Compass.setBearing(data.PUSH_BEARING_DEG, data.PUSH_LABEL)
 			Compass.render(data.PUSH_BEARING_DEG)
-			expect(Compass.driveMarkerLabel()).to.equal(data.PUSH_LABEL)
+			-- SPACED ON THE WAY TO THE SCREEN (task 201, §1.2): the marker's word is 10 px and
+			-- uppercase, so what is DRAWN is "R O A D" and what the world SAID is "ROAD".
+			-- `Compass.driveMarkerLabel` still reads the live `TextLabel`, which is the point of
+			-- this case; the comparison goes through the same one transform the renderer uses.
+			expect(Compass.driveMarkerLabel()).to.equal(Style.spaced(data.PUSH_LABEL))
 			Compass.setBearing(data.DRIVE_BEARING_DEG, nil)
 			Compass.render(data.DRIVE_BEARING_DEG)
-			expect(Compass.driveMarkerLabel()).to.equal(Compass.CONFIG.DRIVE_LABEL)
+			expect(Compass.driveMarkerLabel()).to.equal(Style.spaced(Compass.CONFIG.DRIVE_LABEL))
 			-- No bearing, no marker and no word at all.
 			Compass.setBearing(nil)
 			Compass.render(0)

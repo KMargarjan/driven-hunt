@@ -37,7 +37,15 @@
 --     Roblox's own tutorial caps a touch button at 44 px of height; 48 clears it.
 --
 -- Design: docs/design/hud-clarity.md (section 6)
--- Note:   docs/research/2026-10-12-hud-clarity.md
+-- Note:   docs/research/2026-10-12-hud-clarity.md, docs/research/2026-10-17-one-design-system.md
+local TweenService = game:GetService("TweenService")
+-- THE ONE SOURCE for every colour, face and size on this column (task 201, the Designer's design
+-- system, 2026-10-17). Surface 5: *"Flat `#101214` squares -> ghost slates, corner 11, `LINE`
+-- stroke. Label `LABEL` SemiBold `FIELD_MUTED`; key hint `MICRO` Bold `BRASS` spaced, on its own
+-- line. Hover and press states, which do not exist today. `SHOW_ON_DESKTOP` and `buttonVisible` are
+-- unchanged."*
+local Style = require(script.Parent.Style)
+
 local Rail = {}
 
 export type Button = {
@@ -60,11 +68,21 @@ Rail.CONFIG = {
 	TOP_GAP = 8,
 	LABEL_SIZE = 11,
 	KEY_SIZE = 9,
-	BACKGROUND = Color3.fromRGB(16, 18, 20), -- the compass strip's and the map's
-	TRANSPARENCY = 0.2,
-	RIM_COLOR = Color3.fromRGB(230, 230, 230),
-	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
-	KEY_COLOR = Color3.fromRGB(255, 232, 150), -- the cream the board highlights your own row with
+	-- A GHOST CONTROL OVER THE WORLD IS A QUIET SLATE (the system §3.5 "Ghost"): the charcoal every
+	-- field surface uses, at the 9-11 px transparency, with a `LINE` edge at 0.35 instead of the old
+	-- near-white rim. Hover lifts the slate to opaque and turns the edge brass; press darkens it and
+	-- nudges both labels 1 px down -- three states that did not exist at all before task 201.
+	BACKGROUND = Style.LOOK.SLATE,
+	TRANSPARENCY = Style.SLATE_QUIET_T,
+	RIM_COLOR = Style.LOOK.LINE,
+	RIM_TRANSPARENCY = Style.EDGE_T.GHOST,
+	HOVER_TRANSPARENCY = 0,
+	HOVER_RIM_COLOR = Style.LOOK.BRASS,
+	HOVER_RIM_TRANSPARENCY = Style.EDGE_T.SLATE,
+	PRESSED_COLOR = Style.LOOK.ROW_HOVER,
+	TEXT_COLOR = Style.LOOK.FIELD_MUTED,
+	HOVER_TEXT_COLOR = Style.LOOK.PAPER,
+	KEY_COLOR = Style.LOOK.BRASS, -- §3.5: a key hint is `MICRO` Bold BRASS, letter-spaced
 	-- OVER THE CENTRED PANELS (`Report.CONFIG.PANEL_Z_INDEX` is 15), for the reason in the header.
 	Z_INDEX = 16,
 	-- SHIPPED TRUE, AND THREE REASONS. Karen asked for the buttons and plays on a PC, so a touch-only
@@ -326,39 +344,128 @@ function Rail.start(
 		node.BackgroundColor3 = config.BACKGROUND
 		node.BackgroundTransparency = config.TRANSPARENCY
 		node.BorderSizePixel = 0
-		node.AutoButtonColor = true
-		node.Font = Enum.Font.Code
-		node.TextSize = config.LABEL_SIZE
-		node.TextColor3 = config.TEXT_COLOR
-		node.Text = button.label
-		node.TextYAlignment = Enum.TextYAlignment.Top
-		node.TextWrapped = false
+		-- `AutoButtonColor` OFF SINCE TASK 201. The engine's own darken-on-press fights the three
+		-- states below -- it would wash the hover's brass edge and the pressed fill both -- and the
+		-- design asks for named states and not for a tint the engine picks.
+		node.AutoButtonColor = false
+		-- THE WORDS ARE CHILD LABELS AND THE BUTTON ITSELF SAYS NOTHING (§3.5), so the pressed state
+		-- can nudge them 1 px down without moving the slate they sit on.
+		node.Text = ""
 		node.ZIndex = config.Z_INDEX
 		node.Visible = false
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 8)
-		corner.Parent = node
+		Style.corner(node, Style.RADIUS.ROW)
 		-- `Border` AND NOT THE DEFAULT, which is `MapUi`'s own lesson: `ApplyStrokeMode` defaults to
 		-- `Contextual`, which on a TextButton outlines the TEXT, and this stroke is the button's rim.
-		local rim = Instance.new("UIStroke")
-		rim.Thickness = 1
-		rim.Color = config.RIM_COLOR
-		rim.Transparency = 0.25
-		rim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-		rim.Parent = node
+		local rim = Style.stroke(node, config.RIM_COLOR, config.RIM_TRANSPARENCY)
+		rim.Name = "Rim"
+
+		local word = Instance.new("TextLabel")
+		word.Name = "Label"
+		word.BackgroundTransparency = 1
+		word.BorderSizePixel = 0
+		word.FontFace = Style.FONT.SANS_SEMI
+		word.TextScaled = false
+		word.TextWrapped = false
+		word.TextSize = config.LABEL_SIZE
+		word.TextColor3 = config.TEXT_COLOR
+		word.Text = button.label
+		word.AnchorPoint = Vector2.new(0.5, 0)
+		word.Position = UDim2.new(0.5, 0, 0, 10)
+		word.Size = UDim2.new(1, -6, 0, config.LABEL_SIZE + 3)
+		word.ZIndex = config.Z_INDEX + 1
+		word.Parent = node
+
 		-- The key hint, under the word: a legend for the keyboard and a label for the thumb.
 		local hint = Instance.new("TextLabel")
 		hint.Name = "Key"
 		hint.BackgroundTransparency = 1
-		hint.Font = Enum.Font.Code
+		hint.BorderSizePixel = 0
+		hint.FontFace = Style.FONT.SANS_BOLD
+		hint.TextScaled = false
+		hint.TextWrapped = false
 		hint.TextSize = config.KEY_SIZE
 		hint.TextColor3 = config.KEY_COLOR
-		hint.Text = button.key
+		-- LETTER-SPACED, because it is 9 px and uppercase (§1.2: `spaced()` at 11 px and smaller).
+		hint.Text = Style.spaced(button.key)
 		hint.AnchorPoint = Vector2.new(0.5, 1)
-		hint.Position = UDim2.new(0.5, 0, 1, -4)
+		hint.Position = UDim2.new(0.5, 0, 1, -8)
 		hint.Size = UDim2.new(1, -4, 0, config.KEY_SIZE + 2)
 		hint.ZIndex = config.Z_INDEX + 1
 		hint.Parent = node
+
+		-- THE THREE STATES (§3.5), drawn from `MouseEnter` / `MouseLeave` and
+		-- `MouseButton1Down` / `MouseButton1Up` -- which a `TextButton` fires for a finger as well
+		-- as for a mouse. The colour tween is the system's one permitted motion (§1.4, 0.12 s
+		-- Quad Out), and `Activated` is still the only thing that RUNS anything.
+		--
+		-- A TAP ENDS ON A DEVICE WITH NO POINTER (round 1 note): on touch there is no `MouseLeave`
+		-- after `MouseButton1Up`, so painting the hover state there would leave a thumbed button lit
+		-- for the rest of the session. On touch the release goes back to IDLE; on a desktop the
+		-- pointer really is still over the button, so it goes to hover.
+		local function paint(fill: Color3, fillT: number, edge: Color3, edgeT: number, text: Color3, drop: number)
+			TweenService:Create(
+				node,
+				TweenInfo.new(Style.MOTION.HOVER, Style.MOTION.EASE_OUT, Enum.EasingDirection.Out),
+				{ BackgroundColor3 = fill, BackgroundTransparency = fillT }
+			):Play()
+			rim.Color = edge
+			rim.Transparency = edgeT
+			word.TextColor3 = text
+			word.Position = UDim2.new(0.5, 0, 0, 10 + drop)
+			hint.Position = UDim2.new(0.5, 0, 1, -8 + drop)
+		end
+		node.MouseEnter:Connect(function()
+			paint(
+				config.BACKGROUND,
+				config.HOVER_TRANSPARENCY,
+				config.HOVER_RIM_COLOR,
+				config.HOVER_RIM_TRANSPARENCY,
+				config.HOVER_TEXT_COLOR,
+				0
+			)
+		end)
+		node.MouseLeave:Connect(function()
+			paint(
+				config.BACKGROUND,
+				config.TRANSPARENCY,
+				config.RIM_COLOR,
+				config.RIM_TRANSPARENCY,
+				config.TEXT_COLOR,
+				0
+			)
+		end)
+		node.MouseButton1Down:Connect(function()
+			paint(
+				config.PRESSED_COLOR,
+				0,
+				config.HOVER_RIM_COLOR,
+				config.HOVER_RIM_TRANSPARENCY,
+				config.HOVER_TEXT_COLOR,
+				1
+			)
+		end)
+		node.MouseButton1Up:Connect(function()
+			if touchEnabled then
+				paint(
+					config.BACKGROUND,
+					config.TRANSPARENCY,
+					config.RIM_COLOR,
+					config.RIM_TRANSPARENCY,
+					config.TEXT_COLOR,
+					0
+				)
+				return
+			end
+			paint(
+				config.BACKGROUND,
+				config.HOVER_TRANSPARENCY,
+				config.HOVER_RIM_COLOR,
+				config.HOVER_RIM_TRANSPARENCY,
+				config.HOVER_TEXT_COLOR,
+				0
+			)
+		end)
+
 		local id = button.id
 		node.Activated:Connect(function()
 			Rail.press(id)

@@ -756,7 +756,10 @@ SCOPE_SPECS = {
     # the ECONOMY's own spec -- because `Economy.purchase` is the only thing that writes a purchase.
     "shop": ("tests/server/shop.spec.luau", "tests/server/shop_door.spec.luau",
              "tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau",
-             "tests/client/shop_panel.spec.luau"),
+             "tests/client/shop_panel.spec.luau",
+             # Task 201: the shop's palette IS the game's now, and this spec is what asserts the
+             # alias rather than a second copy.
+             "tests/client/hud_style.spec.luau"),
     # ...AND `rifle.spec` AND `ballistics.spec` BELONG HERE TOO (task 185). `src/shared/Rifle/` and
     # `src/shared/Shotgun/` both resolve to `gun`, and both of those files are where every
     # ballistic number lives -- so a scoped run over a change to `Rifle.CONFIG` has to play the
@@ -887,7 +890,13 @@ SCOPE_SPECS = {
             # the drive report draws too -- so a Hud edit that touches it plays this spec and
             # `report_panel.spec` above. Dual membership with `report`, the idiom `shop_panel` and
             # `pad_panel` already use.
-            "tests/client/hit_card.spec.luau"),
+            "tests/client/hit_card.spec.luau",
+            # Task 201: the ONE design source (`src/client/Hud/Style.luau`) and the surfaces that
+            # read it. `src/client/Hud/` already resolves to this scope, so only the spec is named
+            # here -- the dual membership `shop_panel` and `pad_panel` already use. It is in `shop`
+            # too (the `shop` tuple above): `ShopPanel.LOOK` / `.FONT` / `.spaced` are aliases of `Style`'s now, so a
+            # change to either side can break the shop's look.
+            "tests/client/hud_style.spec.luau"),
     # The report's geometry is asserted against `Boar.CONFIG`, so a boar zone box that moves reaches
     # this spec too -- which is why it is in the `boar` scope as well.
     #

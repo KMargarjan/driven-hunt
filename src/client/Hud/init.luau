@@ -49,6 +49,22 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
+-- THE ONE SOURCE for every colour, face, size, radius and duration this screen draws with (task
+-- 201). The Designer's design system, 2026-10-17 is the spec: Karen, ~12:30, *"all menus all
+-- information (timer  what to shoot who you are ect. ) has to be same design as menu colors loading
+-- ect ... we need one unified design system and colours and style across all game"*.
+--
+-- WHAT THAT MEANS IN THIS FILE: `Enum.Font.Code` and the black `UIStroke` leave the status bar, the
+-- ammo readout and the event feed, and every word drawn over the 3-D world sits on a SLATE instead
+-- (§2). An outline thickens every letter, halves the apparent size of 11 px type, and still fails
+-- over a bright sky because the outline itself is only 1 px; a slate was measured against the six
+-- worst grounds this game makes and clears 4.5 : 1 on all of them.
+local Style = require(script.Style)
+-- The beater's horn, for its cooldown and the attribute the SERVER stamps on the Tool at each
+-- accepted blast (task 201 surface 7). Read-only: `Weapon.Horn` owns the Tool and the blast, and
+-- this file draws the answer it published -- the arrangement `Camera.Viewmodel` already has.
+local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
+
 -- The Hud's own 2-D feedback sounds have one writer, and this is it (task 124).
 local Sound = require(script.Sound)
 -- THE REPORT PANEL (task 124 stage B). It is a sibling module and not a second ScreenGui: the Hud
@@ -101,7 +117,51 @@ local RETICLE_Z = SCOPE_Z + 2
 
 local gui: ScreenGui? = nil
 local crosshair: Frame? = nil
-local readout: TextLabel? = nil
+-- THE AMMO CHIP (surface 6) and THE HORN CHIP (surface 7), bottom right, and ONLY ONE OF THE TWO
+-- EVER EXISTS (§4.3): a beater carries no gun and a hunter carries no horn, so they share a corner
+-- rather than fight for it. `readout` is gone as a `TextLabel`; `Hud.readoutText` now answers
+-- `readoutWords`, which is the chip's own content as one line.
+local ammoChip: Frame? = nil
+local ammoPips: { Frame } = {}
+local ammoValue: TextLabel? = nil
+local ammoCaption: TextLabel? = nil
+local ammoBarFill: Frame? = nil
+local ammoBarTrack: Frame? = nil
+-- THE ROW INSIDE EACH CORNER CHIP, held because the BAR under it is sized from the row's measured
+-- width every frame. A bar sized in SCALE cannot be used here: the slate is `AutomaticSize.X`, so a
+-- scale-width child and the box that measures it chase each other and settle wide -- measured
+-- TWICE, as the horn's bar running the whole screen (`...133631Z-t201-beater-running-2.png`) and
+-- then, with the row moved into its own frame, still 430 px (`...134503Z-t201c-beater-cooldown.png`).
+-- An OFFSET width read off the row terminates: the row does not depend on the bar, and the slate
+-- settles at max(row, bar) = row.
+local ammoBody: Frame? = nil
+local hornBody: Frame? = nil
+local readoutWords = ""
+-- WHEN THIS CLIENT SAW THE RELOAD START, and how long it was going to take. The snapshot carries
+-- `busyFor` and nothing ticks it down between publications, so the BAR is predicted from this
+-- client's own clock -- which is what a readiness bar is for. Latched on the rising edge only.
+local reloadStartedAt: number? = nil
+local reloadTotal = 0
+local hornChip: Frame? = nil
+local hornValue: TextLabel? = nil
+local hornCaption: TextLabel? = nil
+local hornBarFill: Frame? = nil
+-- THE LAST BLAST THIS CLIENT HAS SEEN, and when it noticed -- `Camera.Viewmodel`'s own arrangement
+-- for the same attribute. `Horn.BLOW_ATTRIBUTE` is an increasing number the SERVER stamps inside
+-- `Weapon.Horn.blowTool`, the one door every accepted blast goes through, so the bar starts EMPTY
+-- and FILLS from the server's reply. The design's §7 names the alternative and refuses it: *"a bar
+-- that drains from full and then jumps is worse than no bar"*.
+local hornBlowSeen: number? = nil
+local hornBlowAt: number? = nil
+-- HAS THIS TOOL BEEN PRIMED YET? A SEPARATE FLAG AND NOT `hornBlowSeen ~= nil`, because nil is a
+-- REAL value of it: a horn that has never been blown carries no attribute at all
+-- (`Weapon.Horn.blowTool` creates it inside the blast), so overloading the two swallows the FIRST
+-- blast of every freshly-equipped horn -- the chip reading `READY` with a full bar for the whole
+-- 1.5 s the server is refusing, which is the one question it exists to answer. Round 2's fix for
+-- round 1's note did exactly that, and `src/client/Camera/Viewmodel.luau` had already written the
+-- reason down for its own copy of this latch (`hornBlowPrimed`).
+local hornBlowPrimed = false
+local hornThrough = false
 local hitMark: Frame? = nil
 local hitKind: string? = nil
 local hitToken = 0 -- so a second hit during the first mark's life cannot hide it early
@@ -115,10 +175,26 @@ local matchConnected = false
 -- When `Match` wins its race -- the common case -- this is set before the panel is built and the
 -- panel gets it the way it always did; when it loses, `useMatch` hands it over afterwards.
 local matchSystem: any = nil
-local driveBar: TextLabel? = nil
+-- THE STATUS BAR IS A SLATE OF CHIPS SINCE TASK 201 (surface 1), and not one 20 px line of
+-- `Enum.Font.Code` with a black outline. The frame is still called `DriveBar`, because
+-- `tests/client/match_client.spec.luau` walks for it by name and that spec is in `TWO_PLAYER_PATHS`.
+local driveBar: Frame? = nil
+local statusChips: { [string]: { chip: Frame, value: TextLabel, caption: TextLabel } } = {}
+local statusDividers: { Frame } = {}
+local statusPill: Frame? = nil
+local statusPillText: TextLabel? = nil
+local statusCoin: Frame? = nil
+-- WHAT THE CHIPS SAY, IN ORDER, AS PLAIN WORDS. `Hud.driveBarText` answers this and not the drawn
+-- strings, and the difference is one thing only: §1.2 LETTER-SPACES an uppercase caption at 11 px
+-- and smaller ("T I M E"), which is tracking and not content. A spec asserting `DRIVE %d` is
+-- asserting the FACT. Written in the same pass as the labels, by the same writer, so the two can
+-- never drift.
+local statusWords: { string } = {}
 local feedFrame: Frame? = nil -- kept for the client spec's ancestor walk
 local feedLines: { TextLabel } = {}
-local feedEntries: { { text: string, at: number } } = {}
+local feedToasts: { Frame } = {}
+local feedDots: { Frame } = {}
+local feedEntries: { { text: string, at: number, meaning: string? } } = {}
 local scorePanel: Frame? = nil
 local reportFrame: Frame? = nil
 local hitCardFrame: Frame? = nil
@@ -149,6 +225,10 @@ local mapLegendFrame: Frame? = nil
 -- first button of `Hud.Rail` now, which calls the same `MapUi.toggle` the M key calls. The removed
 -- block is archived with its reason in `backups/2026-10-12_mapui-touch-button.txt` (rule 7).
 -- TASK 165'S OWN NODES: the objective line, the waypoint chevron and its word, and the rail.
+-- THE OBJECTIVE'S SLATE AND ITS LABEL (surface 2). The label is still the thing `Objective` writes
+-- and `Hud.objectiveLine` answers; the slate is what carries it over the world, and `Objective` --
+-- the one writer of the line -- writes its `Visible` too.
+local objectiveSlate: Frame? = nil
 local objectiveLine: TextLabel? = nil
 local waypointMark: Frame? = nil
 local waypointWord: TextLabel? = nil
@@ -180,6 +260,126 @@ local startCardLines: { TextLabel } = {}
 local startCardTimer: TextLabel? = nil
 local started = false
 
+-- HOW WIDE THE SCREEN IS, ASKED ONCE AND IN ONE PLACE. Every size on this screen comes off the
+-- scale (`Style.sizeFor`) and the scale has exactly one break point, so "is this a phone" must have
+-- exactly one reader too. `CurrentCamera` may be nil for a frame at boot, and then the desktop step
+-- is the answer -- which is the step this game is played at.
+-- A VIEWPORT THAT HAS NOT RENDERED YET IS NOT A PHONE, and that cost the first Play of this task.
+-- `Camera.ViewportSize` is **(1, 1)** until the engine has drawn a frame, and `Hud.build` runs
+-- before that -- so every size on the screen came out at the phone step and the compass was built
+-- 120 px wide instead of 420 (`20261017T133606Z-t201-hunter-running.png`). Anything under
+-- `MIN_SENSIBLE_PX` is "not yet", not "small", and the desktop step is the right guess for a game
+-- Karen plays on a PC. `Hud.applyViewportLayout` then corrects it on the first real frame, and on
+-- every resize after that.
+Hud.MIN_SENSIBLE_PX = 200
+
+function Hud.viewportX(): number
+	local camera = Workspace.CurrentCamera
+	if camera == nil then
+		return 1280
+	end
+	local size = camera.ViewportSize
+	return if size.X >= Hud.MIN_SENSIBLE_PX then size.X else 1280
+end
+
+-- EVERY LABEL THAT TAKES ITS SIZE FROM THE SCALE, with the step it takes. Registered as it is
+-- built, so `Hud.applyViewportLayout` can move the whole screen to the other step with no list to
+-- keep in two places -- and so a label added later cannot be forgotten, because it is registered
+-- where it is created.
+local sizedLabels: { { label: TextLabel, step: string } } = {}
+
+local function sized(label: TextLabel, step: string): TextLabel
+	table.insert(sizedLabels, { label = label, step = step })
+	return label
+end
+
+-- WHAT FOLLOWS THE WINDOW. Edge-triggered on the width -- `ShopPanel.setNear`'s own discipline --
+-- so the per-frame caller costs one comparison and never a write.
+--
+-- THREE THINGS DEPEND ON THE VIEWPORT and nothing else does: every label's step, the compass
+-- strip's width (420 on a desktop, `screenW - 24` on a phone), and the ceiling the status slate may
+-- not grow past (§4.3 rule 2). The rest of the layout is anchored to an edge or to the centre.
+local lastViewportX = 0
+
+function Hud.applyViewportLayout(viewX: number)
+	if viewX == lastViewportX then
+		return
+	end
+	lastViewportX = viewX
+	for _, entry in ipairs(sizedLabels) do
+		entry.label.TextSize = Style.sizeFor(entry.step, viewX)
+	end
+	if compassFrame ~= nil then
+		(compassFrame :: Frame).Size = UDim2.fromOffset(Compass.widthFor(viewX), Compass.CONFIG.HEIGHT)
+	end
+	if driveBar ~= nil then
+		local cap = (driveBar :: Frame):FindFirstChild("MaxWidth")
+		if cap ~= nil then
+			local _, _, width = Hud.statusRect(Vector2.new(viewX, 1));
+			(cap :: UISizeConstraint).MaxSize = Vector2.new(math.max(1, width), math.huge)
+		end
+	end
+end
+
+-- HOW TALL THE WHOLE TOAST FEED IS, and it is the REAL stack and not a guess at it. The hit card's
+-- position is computed from this one number, so §4.3's *"BOTTOM LEFT hit card | toast feed --
+-- stacked; hit card bottom = feed top - 8"* holds only if the number is true.
+--
+-- ROUND 1'S SECOND BLOCKING FINDING WAS THAT IT WAS NOT. 28 px a line was written against a toast
+-- that measures 30 (6 + 6 of slate padding around an 18 px line box) with a 6 px gap between them,
+-- so five lines came to 174 px inside a 140 px reservation -- the stack grew 34 px above its own
+-- frame, which has no `ClipsDescendants`, onto a 138 px hit card. Five entries inside
+-- `FEED_SECONDS` is reachable: `renderFeed` trims only past `FEED_LINES`.
+--
+-- `Style.toastHeight` is the one source for a toast's height and `Style.toast` builds to it.
+function Hud.feedHeight(viewportX: number?): number
+	local lines = Drive.CONFIG.FEED_LINES
+	local height = Style.toastHeight(viewportX or Hud.viewportX())
+	return lines * height + math.max(0, lines - 1) * Style.TOAST_GAP
+end
+
+-- ---------------------------------------------------------------- the top band (task 201 §4.1)
+--
+-- WHERE THE STATUS SLATE SITS, AND HOW WIDE IT IS ALLOWED TO GET. The Designer's §4.1 asks for
+-- y 50, h 40 and a maximum width of `screenW - 332`; what is below is that shape fitted into the
+-- band this repo actually has, and the one number that could not move is why.
+--
+-- `Drive.CONFIG.TIED_TOP_OFFSET` IS 74 AND LIVES IN `src/shared/Drive/`, WHICH IS IN
+-- `TWO_PLAYER_PATHS` (CLAUDE.md, Director 2026-10-03) -- so the tied banner cannot be moved by a
+-- task whose gate is the one-player run. The band is therefore: objective 8..38, THIS 40..74, tied
+-- banner 74..104, compass 108..138, minimap 140. The slate is 34 px rather than 40, and the
+-- difference is reported rather than hidden. Moving the banner (surface 13) is the system's own
+-- task C, and the band's final geometry goes with it.
+--
+-- `SIDE_INSET` IS THE RIGHT COLUMN, APPLIED TO BOTH SIDES SO THE SLATE STAYS CENTRED (§4.3 rule 2):
+-- nothing may enter the 68 px the minimap and the rail own. On a PHONE the minimap drops BELOW the
+-- compass, so there is no column beside the bar and the slate gets the full width less a gutter --
+-- which is the design's own §4.2 (max w 376 at 400 px).
+-- HOW MANY CHAMBER PIPS ARE BUILT. A ceiling, not a claim: the break-action has two and the rifle's
+-- magazine shows three, and a wider gun later draws more of the same Frames.
+Hud.PIP_MAX = 8
+
+Hud.STATUS = {
+	TOP = 40,
+	HEIGHT = 34,
+	SIDE_INSET = 166,
+	SIDE_INSET_PHONE = 12,
+	Z_INDEX = 6,
+}
+
+-- THE SLATE'S RECTANGLE at a given viewport: x, y, width, height. PURE AND EXPORTED, for the reason
+-- `Objective.lineRect` and `Rail.rect` are -- `AbsolutePosition` can only answer for whatever size
+-- the Studio window happens to be, and the no-overlap claim is about 400 x 800 as well.
+--
+-- IT IS THE MAXIMUM AND NOT THE DRAWN WIDTH. The slate is `AutomaticSize.X` and is the size of its
+-- chips; this is the box it may never grow past, so an overlap test against it is conservative.
+function Hud.statusRect(viewport: Vector2): (number, number, number, number)
+	local config = Hud.STATUS
+	local inset = if Style.isPhone(viewport.X) then config.SIDE_INSET_PHONE else config.SIDE_INSET
+	local width = math.max(0, viewport.X - 2 * inset)
+	return viewport.X / 2 - width / 2, config.TOP, width, config.HEIGHT
+end
+
 function Hud.gui(): ScreenGui?
 	return gui
 end
@@ -188,12 +388,39 @@ function Hud.isCrosshairVisible(): boolean
 	return crosshair ~= nil and crosshair.Visible
 end
 
+-- WHAT THE AMMO CHIP SAYS, AS ONE LINE: the chamber glyphs, the shell word, the pocket, and " R"
+-- while it is reloading -- which is exactly what the chip draws, with the glyphs as Frames (§3.10
+-- chamber pips) instead of characters. `""` when there is no gun, which is the contract
+-- `tests/client/weapon_client.spec.luau` and `zz_tie_to_a_tree.spec.luau` both assert.
 function Hud.readoutText(): string
-	return if readout then readout.Text else ""
+	return readoutWords
 end
 
+-- WHAT THE STATUS BAR SAYS, AS PLAIN WORDS, in chip order. See `statusWords`: the screen
+-- letter-spaces an uppercase caption at 11 px and smaller and this does not, because that is
+-- typography and not content.
 function Hud.driveBarText(): string
-	return if driveBar then driveBar.Text else ""
+	return table.concat(statusWords, "   ")
+end
+
+-- The chips themselves, for a spec that wants to read a colour or a face off the real screen rather
+-- than off this file's own table.
+function Hud.statusChip(name: string): Frame?
+	local entry = statusChips[name]
+	return if entry then entry.chip else nil
+end
+
+function Hud.statusRolePill(): Frame?
+	return statusPill
+end
+
+-- THE BOTTOM-RIGHT CORNER, and the rule that only one of the two is ever drawn (§4.3).
+function Hud.ammoChip(): Frame?
+	return ammoChip
+end
+
+function Hud.hornChip(): Frame?
+	return hornChip
 end
 
 function Hud.isDriveBarVisible(): boolean
@@ -202,6 +429,37 @@ end
 
 function Hud.feed(): Frame?
 	return feedFrame
+end
+
+-- THE TOASTS THEMSELVES (§3.11), so a spec can read a line's slate and its meaning dot off the real
+-- screen. In feed order, bottom-up, exactly as `renderFeed` stacks them.
+function Hud.feedToasts(): { Frame }
+	return feedToasts
+end
+
+-- WHAT A FEED ENTRY MEANS, AS ONE WORD, and the dot and the words are coloured from it together so
+-- they can never disagree (§3.11's table). PURE, so the mapping is assertable with no wire and no
+-- drive -- the reason `Hud.feedTextFor` and `Hud.killLineText` are pure.
+--
+--   something happened          -> info   (BODY)
+--   you did well                -> good   (PINE_TEXT)  a kill
+--   you lost something          -> bad    (CLAY)       an escape, a penalty, a refusal
+--   money moved                 -> money  (COIN_TEXT)
+--   the game is telling you to  -> go     (BLAZE_HI)
+function Hud.feedMeaningFor(entry): string
+	local kind = entry and entry.kind
+	if kind == "kill" then
+		return "good"
+	elseif kind == "escape" or kind == "violation" or kind == "refusal" then
+		return "bad"
+	elseif kind == "coins" then
+		return "money"
+	end
+	return "info"
+end
+
+function Hud.objectiveSlate(): Frame?
+	return objectiveSlate
 end
 
 function Hud.feedText(): { string }
@@ -293,6 +551,9 @@ end
 
 Hud.Objective = Objective
 Hud.Rail = Rail
+-- THE ONE SOURCE, published where the Hud starts it (task 201), the `Hud.Compass` / `Hud.Rail`
+-- shape: a spec reads the tokens off the Hud rather than walking `PlayerScripts` for a sibling.
+Hud.Style = Style
 
 function Hud.isScorePanelVisible(): boolean
 	return scorePanel ~= nil and scorePanel.Visible
@@ -613,53 +874,165 @@ local function build(): ScreenGui
 		diagonal.Rotation = corner.rotation
 	end
 
-	-- The drive bar, top centre: MM:SS, the phase while it is not Running, the team badge and how
-	-- many boars are left. One line, because a grey box needs the numbers and not a dashboard.
-	local bar = Instance.new("TextLabel")
-	bar.Name = "DriveBar"
-	bar.BackgroundTransparency = 1
-	bar.Font = Enum.Font.Code
-	bar.TextSize = Drive.CONFIG.BAR_TEXT_SIZE
-	bar.TextColor3 = Drive.CONFIG.TEXT_COLOR
-	bar.AnchorPoint = Vector2.new(0.5, 0)
-	bar.Position = UDim2.new(0.5, 0, 0, Drive.CONFIG.BAR_TOP_OFFSET)
-	bar.Size = UDim2.fromOffset(520, 26)
-	bar.Text = ""
-	bar.Visible = false
-	local barStroke = Instance.new("UIStroke")
-	barStroke.Thickness = 1
-	barStroke.Color = Color3.new(0, 0, 0)
-	barStroke.Parent = bar
-	bar.Parent = screen
+	-- ---------------------------------------------------------------- the status bar (surface 1)
+	--
+	-- ONE SLATE, FOUR OR FIVE STAT CHIPS AND A ROLE PILL (the system §3.9 / §5 surface 1). It was one
+	-- 20 px line of `Enum.Font.Code` in a black outline: *"From one 20 px `Enum.Font.Code` line with
+	-- a black stroke to chips on a slate. The clock becomes `STAT` Oswald 20, the biggest number on
+	-- screen."*
+	--
+	-- THE FRAME IS STILL NAMED `DriveBar`. `tests/client/match_client.spec.luau` walks `PlayerGui`
+	-- for that name and checks every ancestor's `Visible`, and that spec is in `TWO_PLAYER_PATHS`
+	-- (CLAUDE.md), so renaming it would cost a two-player run for a word.
+	--
+	-- NO CHIP EVER WRAPS AND NO CHIP IS EVER SHRUNK (§3.9). Every label is `TextWrapped = false`, the
+	-- slate is `AutomaticSize.X`, and when the row will not fit a WHOLE CHIP IS DROPPED -- the phone
+	-- drops `COINS` during a drive (§4.2 item 1). Drawing the phone mockup found this the hard way:
+	-- at 400 px the chips squeezed and each caption stacked one letter per line.
+	local viewX = Hud.viewportX()
+	local statusPhone = Style.isPhone(viewX)
+	local status = Style.slate(screen, "DriveBar", false, statusPhone)
+	status.AutomaticSize = Enum.AutomaticSize.X
+	status.Size = UDim2.fromOffset(0, Hud.STATUS.HEIGHT)
+	status.AnchorPoint = Vector2.new(0.5, 0)
+	status.Position = UDim2.new(0.5, 0, 0, Hud.STATUS.TOP)
+	status.ZIndex = Hud.STATUS.Z_INDEX
+	status.Visible = false
+	-- The slate's own padding, tighter than `Style.slate`'s default because the chips carry their
+	-- own: 34 px of band less 4 leaves 30 for a chip, which is the phone step of §3.9.
+	local statusPad = status:FindFirstChildOfClass("UIPadding")
+	if statusPad then
+		statusPad.PaddingTop = UDim.new(0, 2)
+		statusPad.PaddingBottom = UDim.new(0, 2)
+		statusPad.PaddingLeft = UDim.new(0, 2)
+		statusPad.PaddingRight = UDim.new(0, 2)
+	end
+	local statusRow = Instance.new("UIListLayout")
+	statusRow.FillDirection = Enum.FillDirection.Horizontal
+	statusRow.VerticalAlignment = Enum.VerticalAlignment.Center
+	statusRow.SortOrder = Enum.SortOrder.LayoutOrder
+	statusRow.Padding = UDim.new(0, 0)
+	statusRow.Parent = status
+	-- A ceiling and never a width: the slate is the size of its chips, and this is the box §4.3
+	-- rule 2 says it may not grow past -- the right column the minimap and the rail own, applied to
+	-- both sides so it stays centred.
+	local statusCap = Instance.new("UISizeConstraint")
+	statusCap.Name = "MaxWidth"
+	local _, _, statusMaxWidth = Hud.statusRect(Vector2.new(viewX, 1))
+	statusCap.MaxSize = Vector2.new(statusMaxWidth, math.huge)
+	statusCap.Parent = status
 
-	-- The event feed, bottom left: the last few things that happened, each fading on its own.
+	table.clear(statusChips)
+	table.clear(statusDividers)
+	-- THE ORDER THEY ARE DRAWN IN, left to right, and it is the mockup's: which drive, the phase
+	-- while there is one, the clock, how many boars are left, who you are, what you have.
+	local order = { "Drive", "Phase", "Clock", "Boars", "Role", "Coins" }
+	for index, name in ipairs(order) do
+		if index > 1 then
+			local divider = Style.chipDivider(status, "Divider" .. name)
+			divider.LayoutOrder = index * 10 - 1
+			divider.Visible = false
+			table.insert(statusDividers, divider)
+		end
+		if name == "Role" then
+			-- A ROLE IS AN IDENTITY, SO IT IS A PILL AND NOT A CHIP (§3.6, and §3.9's own table:
+			-- *"a role -> the team colour, and the chip becomes a pill"*). Its colour is the only
+			-- place a team is coloured on this bar, and `Style.teamColor` is the one reader of that
+			-- mapping, so a pill, a roster and a map marker cannot disagree about whose orange it is.
+			local pill, text = Style.pill(status, "Role", Style.LOOK.HUNTER, viewX)
+			sized(text, "MICRO")
+			pill.LayoutOrder = index * 10
+			pill.Visible = false
+			statusPill = pill
+			statusPillText = text
+			continue
+		end
+		local chip, value, caption = Style.statChip(status, name, viewX)
+		chip.LayoutOrder = index * 10
+		chip.Visible = false
+		-- THE DRIVE NUMBER IS THE BAR'S EYEBROW AND NOT ONE OF ITS NUMBERS, so it is the one chip
+		-- whose value takes the `HEADING` step. Decided here, before the branch below, so the
+		-- registry and the label agree by construction rather than by index arithmetic.
+		sized(value, if name == "Drive" then "HEADING" else "STAT")
+		sized(caption, "MICRO")
+		if name == "Drive" then
+			-- THE ONE CHIP WHOSE CAPTION COMES FIRST, because the phrase is "DRIVE 1" and not
+			-- "1 DRIVE". It is the bar's eyebrow (§3.4): the small word saying what kind of thing
+			-- this screen is about, so it is `BRASS` and it is quieter than every number beside it.
+			caption.LayoutOrder = 1
+			caption.TextColor3 = Style.LOOK.BRASS
+			value.TextColor3 = Style.LOOK.FIELD_MUTED
+			value.TextSize = Style.sizeFor("HEADING", viewX)
+			value.FontFace = Style.faceFor("HEADING")
+		elseif name == "Coins" then
+			-- THE COIN DISC (§3.10): a 14 px circle with the brass gradient, and the number beside
+			-- it in `COIN_TEXT`. Money is the one thing brass means.
+			local coin = Instance.new("Frame")
+			coin.Name = "Coin"
+			coin.BackgroundColor3 = Style.LOOK.BRASS
+			coin.BorderSizePixel = 0
+			coin.Size = UDim2.fromOffset(14, 14)
+			coin.LayoutOrder = 1
+			coin.ZIndex = chip.ZIndex + 1
+			local disc = Instance.new("UICorner")
+			disc.CornerRadius = UDim.new(0, 7)
+			disc.Parent = coin
+			local shine = Instance.new("UIGradient")
+			shine.Rotation = 55
+			shine.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Style.LOOK.BRASS_HI),
+				ColorSequenceKeypoint.new(0.5, Style.LOOK.BRASS),
+				ColorSequenceKeypoint.new(1, Style.LOOK.BRASS_LO),
+			})
+			shine.Parent = coin
+			Style.stroke(coin, Color3.fromHex("6E5526"), 0)
+			coin.Parent = chip
+			statusCoin = coin
+			value.TextColor3 = Style.LOOK.COIN_TEXT
+		elseif name == "Phase" then
+			-- A PHASE WORD IS "LATER / HOLDING", WHICH IS AMBER (§1.1), and it is a chip of its own
+			-- rather than a word buried in a sentence.
+			value.TextColor3 = Style.LOOK.AMBER
+		end
+		statusChips[name] = { chip = chip, value = value, caption = caption }
+	end
+
+	-- ---------------------------------------------------------------- the toast feed (surface 8)
+	--
+	-- EACH LINE IS ITS OWN SLATE WITH A MEANING DOT (§3.11), stacked UPWARD from the bottom left with
+	-- a 6 px gap, each fading on its own. It was white monospace with a black stroke on bare sky.
+	--
+	-- `UIListLayout` WITH `VerticalAlignment = Bottom` AND `SortOrder = LayoutOrder`, so a feed of
+	-- two lines sits on the bottom edge and a feed of five grows upward into the screen -- which is
+	-- what "stacked bottom-up" means and what a fixed 20 px per slot could not do once a toast is
+	-- `AutomaticSize` and therefore not all one height.
 	local feed = Instance.new("Frame")
 	feed.Name = "Feed"
 	feed.BackgroundTransparency = 1
 	feed.AnchorPoint = Vector2.new(0, 1)
 	feed.Position = UDim2.new(0, Drive.CONFIG.FEED_LEFT_OFFSET, 1, -Drive.CONFIG.FEED_BOTTOM_OFFSET)
-	feed.Size = UDim2.fromOffset(420, Drive.CONFIG.FEED_LINES * 20)
+	feed.Size = UDim2.fromOffset(440, Hud.feedHeight())
+	feed.ZIndex = Hud.STATUS.Z_INDEX
 	feed.Parent = screen
+	local feedStack = Instance.new("UIListLayout")
+	feedStack.FillDirection = Enum.FillDirection.Vertical
+	feedStack.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	feedStack.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	feedStack.SortOrder = Enum.SortOrder.LayoutOrder
+	feedStack.Padding = UDim.new(0, Style.TOAST_GAP)
+	feedStack.Parent = feed
 
 	table.clear(feedLines)
+	table.clear(feedToasts)
+	table.clear(feedDots)
 	for index = 1, Drive.CONFIG.FEED_LINES do
-		local line = Instance.new("TextLabel")
-		line.Name = string.format("Line%d", index)
-		line.BackgroundTransparency = 1
-		line.Font = Enum.Font.Code
-		line.TextSize = Drive.CONFIG.FEED_TEXT_SIZE
-		line.TextColor3 = Drive.CONFIG.TEXT_COLOR
-		line.TextXAlignment = Enum.TextXAlignment.Left
-		line.Position = UDim2.fromOffset(0, (index - 1) * 20)
-		line.Size = UDim2.fromOffset(420, 20)
-		line.Text = ""
-		line.Visible = false
-		local lineStroke = Instance.new("UIStroke")
-		lineStroke.Thickness = 1
-		lineStroke.Color = Color3.new(0, 0, 0)
-		lineStroke.Parent = line
-		line.Parent = feed
-		table.insert(feedLines, line)
+		local toast, dot, text = Style.toast(feed, string.format("Line%d", index), viewX)
+		sized(text, "LABEL")
+		toast.LayoutOrder = index
+		toast.Visible = false
+		table.insert(feedToasts, toast)
+		table.insert(feedDots, dot)
+		table.insert(feedLines, text)
 	end
 
 	-- EVERY LABEL OF A PANEL SITS ABOVE THE PANEL'S OWN ZINDEX, AND WEARS THE BLACK OUTLINE (task
@@ -816,6 +1189,11 @@ local function build(): ScreenGui
 
 	-- THE COMPASS (task 125). Karen: *"we need to indicate from what side drive is comming"*. Top
 	-- centre, thin, and built empty -- `Compass.start` fills it and this file writes nothing inside.
+	--
+	-- IT IS A QUIET SLATE SINCE TASK 201 (§3.3): corner 11, a brass hairline at 0.55, and the
+	-- charcoal every other field surface uses. It carries 10-11 px type, which is what the QUIET
+	-- variant exists for. Its width follows the viewport (`Compass.widthFor`): 420 on a desktop so
+	-- a 120 degree span is not cramped, `screenW - 24` on a phone so it is not wider than the screen.
 	local compass = Instance.new("Frame")
 	compass.Name = "Compass"
 	compass.BackgroundColor3 = Compass.CONFIG.BACKGROUND
@@ -823,7 +1201,9 @@ local function build(): ScreenGui
 	compass.BorderSizePixel = 0
 	compass.AnchorPoint = Vector2.new(0.5, 0)
 	compass.Position = UDim2.new(0.5, 0, 0, Compass.CONFIG.TOP)
-	compass.Size = UDim2.fromOffset(Compass.CONFIG.WIDTH, Compass.CONFIG.HEIGHT)
+	compass.Size = UDim2.fromOffset(Compass.widthFor(viewX), Compass.CONFIG.HEIGHT)
+	Style.corner(compass, Style.RADIUS.ROW)
+	Style.stroke(compass, Style.LOOK.BRASS, Style.EDGE_T.SLATE)
 	compass.ZIndex = Compass.CONFIG.Z_INDEX
 	compass.ClipsDescendants = true -- a mark that has scrolled off the end must not spill onto the sky
 	compass.Visible = false
@@ -863,7 +1243,11 @@ local function build(): ScreenGui
 		0,
 		Report.CONFIG.CARD.MARGIN_LEFT,
 		1,
-		-(Drive.CONFIG.FEED_BOTTOM_OFFSET + Drive.CONFIG.FEED_LINES * 20 + Report.CONFIG.CARD.FEED_GAP)
+			-- THE FEED'S OWN HEIGHT AND NOT A SECOND COPY OF IT (task 201). A toast is `AutomaticSize`
+			-- and taller than the 20 px line it replaces, so this reads `Hud.feedHeight` -- the one
+			-- number the feed frame is built from, and since round 2 the REAL height of five toasts
+			-- and their four gaps rather than a guess at it.
+		-(Drive.CONFIG.FEED_BOTTOM_OFFSET + Hud.feedHeight() + Report.CONFIG.CARD.FEED_GAP)
 	)
 	hitCard.Size = UDim2.fromOffset(Report.CONFIG.CARD.WIDTH, Report.CONFIG.CARD.HEIGHT)
 	hitCard.ZIndex = Report.CONFIG.CARD.Z_INDEX
@@ -996,27 +1380,48 @@ local function build(): ScreenGui
 	-- of it (`docs/design/hud-clarity.md` section 3).
 	--
 	-- Created empty. `Objective` is the one writer of its text, its size and its `Visible`.
+	--
+	-- IT SITS ON A SLATE SINCE TASK 201 (§2, §5 surface 2). BOTH the slate and the label inside it
+	-- are the size of the sentence and nothing more -- *"a band that touches both edges is a
+	-- letterbox, and this game is played in first person"* -- which is exactly why
+	-- `hud_clarity.spec`'s `TextFits` probe clones the label with `AutomaticSize.None` and
+	-- `Objective.lineRect`'s width: what that case measures is the BAND the slate may not exceed,
+	-- and an auto-sizing clone would report `TextFits` true for any string.
+	-- `Objective` is the one writer of both `Visible`s.
+	local objectiveBack = Style.slate(screen, "ObjectiveSlate", false, statusPhone)
+	objectiveBack.AutomaticSize = Enum.AutomaticSize.XY
+	objectiveBack.Size = UDim2.fromOffset(0, 0)
+	objectiveBack.AnchorPoint = Vector2.new(0.5, 0)
+	objectiveBack.Position = UDim2.new(0.5, 0, 0, Objective.CONFIG.TOP)
+	objectiveBack.ZIndex = Objective.CONFIG.Z_INDEX
+	objectiveBack.Visible = false
+
 	local objective = Instance.new("TextLabel")
 	objective.Name = "ObjectiveLine"
 	objective.BackgroundTransparency = 1
-	objective.Font = Enum.Font.Code
+	objective.BorderSizePixel = 0
+	-- OSWALD MEDIUM, SENTENCE CASE, `PAPER` (§5 surface 2). A sentence is never uppercase: the
+	-- objective line, the blurb and the toast feed stay exactly as Karen wrote them.
+	objective.FontFace = Style.FONT.OSWALD_MD
+	objective.TextScaled = false
+	objective.TextWrapped = false
+	objective.AutomaticSize = Enum.AutomaticSize.X
 	objective.TextSize = Objective.CONFIG.TEXT_SIZE
 	objective.TextColor3 = Objective.CONFIG.TEXT_COLOR
 	objective.TextXAlignment = Enum.TextXAlignment.Center
 	-- FULL WIDTH LESS A MARGIN, IN SCALE, so a 400 px phone gets 368 px of sentence and a 1080p
 	-- screen gets 1888 -- the one thing a fixed `fromOffset` width could not do, and the reason
 	-- `Objective.lineRect` is pure and asserted at three viewports.
-	objective.AnchorPoint = Vector2.new(0.5, 0)
-	objective.Position = UDim2.new(0.5, 0, 0, Objective.CONFIG.TOP)
-	objective.Size = UDim2.new(1, -2 * Objective.CONFIG.SIDE_MARGIN, 0, Objective.CONFIG.HEIGHT)
-	objective.ZIndex = Objective.CONFIG.Z_INDEX
+	objective.AnchorPoint = Vector2.new(0, 0)
+	objective.Position = UDim2.fromOffset(0, 0)
+	objective.Size = UDim2.fromOffset(0, Objective.CONFIG.HEIGHT - 12)
+	objective.ZIndex = Objective.CONFIG.Z_INDEX + 1
 	objective.Text = ""
 	objective.Visible = false
-	local objectiveStroke = Instance.new("UIStroke")
-	objectiveStroke.Thickness = Objective.CONFIG.TEXT_STROKE
-	objectiveStroke.Color = Color3.new(0, 0, 0)
-	objectiveStroke.Parent = objective
-	objective.Parent = screen
+	-- AND NO BLACK OUTLINE (§2). The slate behind it is what makes it readable over a sunlit wood,
+	-- and it was measured: `PAPER` on `SLATE` at 0.18 is 10.7 : 1 over the brightest sky this engine
+	-- makes, against the 4.5 : 1 floor.
+	objective.Parent = objectiveBack
 
 	-- ...AND THE WAYPOINT: a chevron over the world, and its word with the distance under it.
 	--
@@ -1077,27 +1482,205 @@ local function build(): ScreenGui
 	rail.Visible = false
 	rail.Parent = screen
 
-	local label = Instance.new("TextLabel")
-	label.Name = "Readout"
-	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.Code
-	label.TextSize = config.HUD_TEXT_SIZE
-	label.TextColor3 = config.CROSSHAIR_COLOR
-	label.TextXAlignment = Enum.TextXAlignment.Right
-	label.AnchorPoint = Vector2.new(1, 1)
-	label.Position = UDim2.new(1, -16, 1, -16)
-	label.Size = UDim2.fromOffset(240, 24)
-	label.Text = ""
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 1
-	stroke.Color = Color3.new(0, 0, 0)
-	stroke.Parent = label
-	label.Parent = screen
+	-- ---------------------------------------------------------------- the corner (surfaces 6 and 7)
+	--
+	-- BOTTOM RIGHT, AND ONLY ONE OF THE TWO IS EVER DRAWN (§4.3: *"BOTTOM RIGHT ammo chip OR horn
+	-- chip -- alone, and only one of the two ever exists"*). A hunter carries a gun and no horn; a
+	-- beater carries a horn and no gun. `Hud.renderCorner` is the one writer of both.
+	--
+	-- THE AMMO CHIP (§5 surface 6): `[*]* BUCK 12 R` in monospace becomes two CHAMBER PIPS -- Frames,
+	-- live `PAPER`, spent `LINE`, the selected one underlined in `BLAZE_HI` (§3.10) -- then the
+	-- pocket at `STAT`, then the shell word at `MICRO` spaced, and the `R` becomes a reload bar
+	-- across the chip's bottom.
+	local ammo = Style.slate(screen, "Readout", false, statusPhone)
+	ammo.AutomaticSize = Enum.AutomaticSize.X
+	ammo.Size = UDim2.fromOffset(0, if statusPhone then 42 else 46)
+	ammo.AnchorPoint = Vector2.new(1, 1)
+	ammo.Position = UDim2.new(1, -Style.MARGIN, 1, -Style.MARGIN)
+	ammo.ZIndex = Hud.STATUS.Z_INDEX
+	ammo.Visible = false
+	-- THE ROW LIVES IN ITS OWN FRAME AND THE BAR SITS BESIDE IT, and that is not tidiness.
+	-- `UIListLayout` lays out EVERY visible child and has no opt-out, so a Scale-width bar dropped
+	-- into the row stretches the row -- measured, as the horn's cooldown bar running the whole
+	-- width of the screen (`20261017T133631Z-t201-beater-running-2.png`). With the row in a frame
+	-- of its own the slate measures the row (`AutomaticSize` ignores a child sized in Scale) and
+	-- the bar spans whatever the row came to.
+	local ammoBodyRow = Instance.new("Frame")
+	ammoBodyRow.Name = "Content"
+	ammoBodyRow.BackgroundTransparency = 1
+	ammoBodyRow.BorderSizePixel = 0
+	-- EXACTLY THE SHAPE THE STATUS BAR'S CHIPS ALREADY HAVE, and that is why it is this shape:
+	-- `AutomaticSize.X` with the HEIGHT in scale, measured three levels deep (slate -> chip ->
+	-- label) and demonstrably coming out at the width of its own words. The row and the bar below
+	-- it are siblings, and the bar is sized and positioned in pure OFFSETS -- a scale-width or
+	-- scale-x-positioned bar and the box that measures it chase each other, which is what made the
+	-- horn chip 430 px wide (`...134503Z-t201c-beater-cooldown.png`).
+	ammoBodyRow.AutomaticSize = Enum.AutomaticSize.X
+	ammoBodyRow.Size = UDim2.fromScale(0, 1)
+	ammoBodyRow.ZIndex = ammo.ZIndex + 1
+	ammoBodyRow.Parent = ammo
+	local ammoRow = Instance.new("UIListLayout")
+	ammoRow.FillDirection = Enum.FillDirection.Horizontal
+	ammoRow.VerticalAlignment = Enum.VerticalAlignment.Center
+	ammoRow.SortOrder = Enum.SortOrder.LayoutOrder
+	ammoRow.Padding = UDim.new(0, 7)
+	ammoRow.Parent = ammoBodyRow
+
+	-- THE PIPS, BUILT ONCE AND SHOWN AS THE WEAPON NEEDS THEM. `PIP_MAX` is a ceiling and not a
+	-- claim about any gun: a break-action has two chambers and the rifle's magazine shows three, and
+	-- a wider gun later draws more of the same Frames rather than a different readout.
+	table.clear(ammoPips)
+	for index = 1, Hud.PIP_MAX do
+		local pip = Instance.new("Frame")
+		pip.Name = string.format("Pip%d", index)
+		pip.BackgroundColor3 = Style.LOOK.PAPER
+		pip.BorderSizePixel = 0
+		pip.Size = UDim2.fromOffset(9, 14)
+		pip.LayoutOrder = index
+		pip.ZIndex = ammoBodyRow.ZIndex + 1
+		pip.Visible = false
+		Style.corner(pip, Style.RADIUS.BAR)
+		-- THE SELECTED CHAMBER GETS A 2 px BAR UNDER IT (§3.10), and it is a child so it travels
+		-- with the pip and cannot be left behind pointing at the wrong barrel.
+		local under = Instance.new("Frame")
+		under.Name = "Selected"
+		under.BackgroundColor3 = Style.LOOK.BLAZE_HI
+		under.BorderSizePixel = 0
+		under.AnchorPoint = Vector2.new(0.5, 1)
+		under.Position = UDim2.new(0.5, 0, 1, 4)
+		under.Size = UDim2.fromOffset(9, 2)
+		under.ZIndex = ammoBodyRow.ZIndex + 2
+		under.Visible = false
+		under.Parent = pip
+		pip.Parent = ammoBodyRow
+		table.insert(ammoPips, pip)
+	end
+
+	local ammoCount = sized(Style.label(ammoBodyRow, "Value", "STAT", viewX), "STAT")
+	ammoCount.AutomaticSize = Enum.AutomaticSize.X
+	ammoCount.Size = UDim2.fromOffset(0, Style.SIZE.STAT[1] + 4)
+	ammoCount.LayoutOrder = Hud.PIP_MAX + 1
+	ammoCount.TextXAlignment = Enum.TextXAlignment.Left
+
+	local ammoWord = sized(Style.label(ammoBodyRow, "Caption", "MICRO", viewX), "MICRO")
+	ammoWord.AutomaticSize = Enum.AutomaticSize.X
+	ammoWord.Size = UDim2.fromOffset(0, Style.SIZE.STAT[1] + 4)
+	ammoWord.LayoutOrder = Hud.PIP_MAX + 2
+	ammoWord.TextColor3 = Style.LOOK.FIELD_MUTED
+	ammoWord.TextXAlignment = Enum.TextXAlignment.Left
+	ammoWord.TextYAlignment = Enum.TextYAlignment.Bottom
+	Style.padding(ammoWord, 0, 3, 0, 0)
+
+	-- THE RELOAD BAR, across the chip's bottom (§3.8's reload row: track `LINE`, fill `LINE -> PAPER`).
+	-- NO TWEEN: it is a clock and moves with the number, and a bar that eases is a bar that lies.
+	local ammoTrack, ammoFill = Style.bar(ammo, "Reload", Style.LOOK.LINE, Style.LOOK.LINE, Style.LOOK.PAPER, 3)
+	-- ANCHORED LEFT AND POSITIONED IN OFFSETS. A bar centred with `0.5` scale reaches
+	-- `parentW / 2 + w / 2`, which depends on the parent the parent is measuring FROM -- a loop, and
+	-- the one that settled at 430 px. Pure offset in x, so the slate measures `max(row, bar) = row`.
+	ammoTrack.AnchorPoint = Vector2.new(0, 1)
+	ammoTrack.Position = UDim2.new(0, 0, 1, 3)
+	-- ZERO UNTIL IT IS MEASURED (see `ammoBody`): `Hud.renderCorner` writes the row's own width.
+	ammoTrack.Size = UDim2.fromOffset(0, 3)
+	ammoTrack.Visible = false
+
+	-- THE HORN CHIP (§5 surface 7), which does not exist today: *"a beater's bottom-right corner is
+	-- empty"*. Karen's beater has had no answer at all to "why did my horn stop working"; this is it.
+	local horn = Style.slate(screen, "HornChip", false, statusPhone)
+	horn.AutomaticSize = Enum.AutomaticSize.X
+	horn.Size = UDim2.fromOffset(0, if statusPhone then 42 else 46)
+	horn.AnchorPoint = Vector2.new(1, 1)
+	horn.Position = UDim2.new(1, -Style.MARGIN, 1, -Style.MARGIN)
+	horn.ZIndex = Hud.STATUS.Z_INDEX
+	horn.Visible = false
+	local hornBodyRow = Instance.new("Frame")
+	hornBodyRow.Name = "Content"
+	hornBodyRow.BackgroundTransparency = 1
+	hornBodyRow.BorderSizePixel = 0
+	-- EXACTLY THE SHAPE THE STATUS BAR'S CHIPS ALREADY HAVE, and that is why it is this shape:
+	-- `AutomaticSize.X` with the HEIGHT in scale, measured three levels deep (slate -> chip ->
+	-- label) and demonstrably coming out at the width of its own words. The row and the bar below
+	-- it are siblings, and the bar is sized and positioned in pure OFFSETS -- a scale-width or
+	-- scale-x-positioned bar and the box that measures it chase each other, which is what made the
+	-- horn chip 430 px wide (`...134503Z-t201c-beater-cooldown.png`).
+	hornBodyRow.AutomaticSize = Enum.AutomaticSize.X
+	hornBodyRow.Size = UDim2.fromScale(0, 1)
+	hornBodyRow.ZIndex = horn.ZIndex + 1
+	hornBodyRow.Parent = horn
+	local hornRow = Instance.new("UIListLayout")
+	hornRow.FillDirection = Enum.FillDirection.Horizontal
+	hornRow.VerticalAlignment = Enum.VerticalAlignment.Center
+	hornRow.SortOrder = Enum.SortOrder.LayoutOrder
+	hornRow.Padding = UDim.new(0, 7)
+	hornRow.Parent = hornBodyRow
+
+	-- THE HORN ICON IS TWO FRAMES (§3.10): an 18 x 7 brass body rotated -8 degrees with a 9 x 9 bell
+	-- at its right end in `BRASS_HI`. No upload, no glyph, and nothing a font has to carry.
+	local hornIcon = Instance.new("Frame")
+	hornIcon.Name = "Icon"
+	hornIcon.BackgroundTransparency = 1
+	hornIcon.Size = UDim2.fromOffset(28, 16)
+	hornIcon.LayoutOrder = 1
+	hornIcon.ZIndex = hornBodyRow.ZIndex + 1
+	hornIcon.Parent = hornBodyRow
+	local hornShape = Instance.new("Frame")
+	hornShape.Name = "Body"
+	hornShape.BackgroundColor3 = Style.LOOK.BRASS
+	hornShape.BorderSizePixel = 0
+	hornShape.AnchorPoint = Vector2.new(0, 0.5)
+	hornShape.Position = UDim2.fromScale(0, 0.5)
+	hornShape.Size = UDim2.fromOffset(18, 7)
+	hornShape.Rotation = -8
+	hornShape.ZIndex = hornIcon.ZIndex
+	Style.corner(hornShape, 4)
+	hornShape.Parent = hornIcon
+	local hornBell = Instance.new("Frame")
+	hornBell.Name = "Bell"
+	hornBell.BackgroundColor3 = Style.LOOK.BRASS_HI
+	hornBell.BorderSizePixel = 0
+	hornBell.AnchorPoint = Vector2.new(1, 0.5)
+	hornBell.Position = UDim2.fromScale(1, 0.5)
+	hornBell.Size = UDim2.fromOffset(9, 9)
+	hornBell.ZIndex = hornIcon.ZIndex + 1
+	Style.corner(hornBell, 4)
+	hornBell.Parent = hornIcon
+
+	local hornWord = sized(Style.label(hornBodyRow, "Value", "STAT", viewX), "STAT")
+	hornWord.AutomaticSize = Enum.AutomaticSize.X
+	hornWord.Size = UDim2.fromOffset(0, Style.SIZE.STAT[1] + 4)
+	hornWord.LayoutOrder = 2
+	hornWord.TextXAlignment = Enum.TextXAlignment.Left
+
+	local hornState = sized(Style.label(hornBodyRow, "Caption", "MICRO", viewX), "MICRO")
+	hornState.AutomaticSize = Enum.AutomaticSize.X
+	hornState.Size = UDim2.fromOffset(0, Style.SIZE.STAT[1] + 4)
+	hornState.LayoutOrder = 3
+	hornState.TextColor3 = Style.LOOK.FIELD_MUTED
+	hornState.TextXAlignment = Enum.TextXAlignment.Left
+	hornState.TextYAlignment = Enum.TextYAlignment.Bottom
+	Style.padding(hornState, 0, 3, 0, 0)
+
+	-- THE READINESS BAR (§3.8's horn row: track `BRASS_LO`, fill `BRASS_LO -> BRASS`). It starts
+	-- EMPTY on a blast and FILLS over `Horn.CONFIG.COOLDOWN`, which is §7's own instruction.
+	local _, hornFill = Style.bar(horn, "Cooldown", Style.LOOK.BRASS_LO, Style.LOOK.BRASS_LO, Style.LOOK.BRASS, 3)
+	local hornTrack = hornFill.Parent :: Frame
+	hornTrack.AnchorPoint = Vector2.new(0, 1)
+	hornTrack.Position = UDim2.new(0, 0, 1, 3)
+	hornTrack.Size = UDim2.fromOffset(0, 3)
 
 	crosshair = container
-	readout = label
+	ammoChip = ammo
+	ammoBody = ammoBodyRow
+	hornBody = hornBodyRow
+	ammoValue = ammoCount
+	ammoCaption = ammoWord
+	ammoBarTrack = ammoTrack
+	ammoBarFill = ammoFill
+	hornChip = horn
+	hornValue = hornWord
+	hornCaption = hornState
+	hornBarFill = hornFill
 	hitMark = mark
-	driveBar = bar
+	driveBar = status
 	feedFrame = feed
 	scorePanel = panel
 	reportFrame = report
@@ -1115,6 +1698,7 @@ local function build(): ScreenGui
 	miniMapFrame = miniMap
 	fullMapFrame = fullMap
 	mapLegendFrame = legend
+	objectiveSlate = objectiveBack
 	objectiveLine = objective
 	waypointMark = waypoint
 	waypointWord = waypointLabel
@@ -1436,6 +2020,26 @@ function Hud.roleWord(team: string?): string
 	return ""
 end
 
+-- WHAT THE STATUS BAR'S ROLE PILL SAYS. ONE PLACE, so the bar and anything else that names a side
+-- cannot drift apart -- `Hud.roleWord` above is the start card's, and the two still differ by a
+-- word, which is the one thing this task did NOT change and said so.
+--
+-- IT STILL SAYS `SHOOTER` / `DRIVER` AND THE DESIGN ASKS FOR `HUNTER` / `BEATER` (§5 surface 1:
+-- *"the start card's own words, because the HUD says two different things for one fact today"*).
+-- The word is asserted by `tests/client/match_client.spec.luau` through `tests/client/Role.luau`'s
+-- `Role.badge()`, and BOTH of those files are in `TWO_PLAYER_PATHS` (CLAUDE.md, Director
+-- 2026-10-03) -- so changing the string here costs a two-player run, which this task's gate is not.
+-- The pill's SHAPE, its team colour and its place on the bar all land now; the vocabulary flip is
+-- three lines and is queued (TASKS.md 201a) for a task that pays for `test2`.
+function Hud.roleBadge(team: string?): string
+	if team == "Shooters" then
+		return "SHOOTER"
+	elseif team == "Drivers" then
+		return "DRIVER"
+	end
+	return ""
+end
+
 -- WHETHER THE CARD SHOWS: the start of a drive is the `Assigning` phase and nothing else. Pure and
 -- exported for the score panel's own reason -- a drive is 600 seconds long, so no harness run sees
 -- the real transition and a spec has to be able to hand this the snapshot the wire would.
@@ -1510,6 +2114,61 @@ end
 
 -- The bar's whole content. `MatchSystem` may be nil -- the Hud works with no drive at all, exactly
 -- as it works with no camera -- and then the bar is simply hidden.
+-- ONE CHIP, WRITTEN OR HIDDEN. `value == nil` means the fact is unknown and THE WHOLE CHIP IS NOT
+-- DRAWN -- §3.9's rule, stated once here so no caller can decide to print `--` instead. The caption
+-- is letter-spaced on the way to the screen (§1.2) and the plain word is what goes into
+-- `statusWords`, which is what `Hud.driveBarText` answers.
+local function chip(name: string, value: string?, caption: string?, color: Color3?)
+	local entry = statusChips[name]
+	if entry == nil then
+		return
+	end
+	local show = value ~= nil and value ~= ""
+	entry.chip.Visible = show
+	if not show then
+		-- CLEARED, NOT JUST HIDDEN, which is `Hud.renderStartCard`'s rule: the next phase must not
+		-- flash the last one's number for a frame.
+		entry.value.Text = ""
+		entry.caption.Text = ""
+		return
+	end
+	local word = value :: string
+	entry.value.Text = word
+	if color ~= nil then
+		entry.value.TextColor3 = color
+	end
+	local label = caption or ""
+	entry.caption.Text = if label == "" then "" else Style.spaced(label)
+	entry.caption.Visible = label ~= ""
+	if name == "Drive" then
+		table.insert(statusWords, string.format("%s %s", label, word))
+	elseif label == "" then
+		table.insert(statusWords, word)
+	else
+		table.insert(statusWords, string.format("%s %s", word, label))
+	end
+end
+
+-- THE DIVIDERS FOLLOW THE CHIPS. A 1 px rule between two chips is only a rule if there is something
+-- on both sides of it: the first thing drawn never wears one, and a hidden chip must not leave its
+-- divider behind as a hairline floating in the middle of the bar.
+local function applyStatusDividers()
+	local seen = false
+	for _, divider in ipairs(statusDividers) do
+		local name = string.sub(divider.Name, #"Divider" + 1)
+		local entry = statusChips[name]
+		local drawn = if name == "Role"
+			then (statusPill ~= nil and (statusPill :: Frame).Visible)
+			else (entry ~= nil and entry.chip.Visible)
+		divider.Visible = seen and drawn
+		if drawn then
+			seen = true
+		end
+	end
+end
+
+-- THE ONE WRITER of the status bar, the score board, the tied banner and the start card: four
+-- things that could disagree about which phase it is, drawn from ONE read of ONE snapshot.
 local function renderDrive(MatchSystem)
 	local bar = driveBar
 	if not bar then
@@ -1524,42 +2183,104 @@ local function renderDrive(MatchSystem)
 	-- IN THE SAME PASS, from the same snapshot and the same clock as the bar and the board: three
 	-- things that could disagree about which phase it is, drawn from one read (task 158).
 	Hud.renderStartCard(snapshot, if MatchSystem then MatchSystem.myTeam() else nil, left)
+	-- ...AND WHETHER THIS BEATER IS THROUGH THE LINE, which is the horn chip's one other fact and
+	-- comes off the SAME read, for the same reason (§5 surface 7: *"Once he is through the line it
+	-- reads THROUGH in CLAY with an empty bar"*).
+	hornThrough = MatchSystem ~= nil and MatchSystem.isThrough() == true
 	if not snapshot then
 		bar.Visible = false
-		bar.Text = ""
+		table.clear(statusWords)
+		for _, entry in pairs(statusChips) do
+			entry.chip.Visible = false
+		end
+		if statusPill then
+			(statusPill :: Frame).Visible = false
+		end
+		applyStatusDividers()
 		return
 	end
 
+	local viewX = Hud.viewportX()
 	local team = MatchSystem.myTeam()
-	local badge = if team == "Drivers" then "DRIVER" elseif team == "Shooters" then "SHOOTER" else ""
-	bar.TextColor3 = if team == "Drivers"
-		then Drive.CONFIG.DRIVER_COLOR
-		elseif team == "Shooters" then Drive.CONFIG.SHOOTER_COLOR
-		else Drive.CONFIG.TEXT_COLOR
-
 	local phase = snapshot.phase
-	local pieces = { string.format("DRIVE %d", snapshot.driveNumber) }
-	if phase == "Running" then
-		table.insert(pieces, clockText(MatchSystem.secondsLeft()))
-		table.insert(pieces, string.format("BOARS %d", snapshot.boarsLeft))
-	elseif phase == "Waiting" then
+	table.clear(statusWords)
+
+	chip("Drive", tostring(snapshot.driveNumber), "DRIVE")
+	-- THE PHASE IS ITS OWN AMBER CHIP and only while there IS one to say: a drive that is running
+	-- says so with a clock, not with the word "RUNNING".
+	if phase == "Waiting" then
 		-- WHY it is waiting, in the words the server used: "players", or the missing tag names.
-		table.insert(pieces, "WAITING " .. table.concat(snapshot.waitingFor, ","))
+		chip("Phase", "WAITING", table.concat(snapshot.waitingFor, ","), Style.LOOK.AMBER)
+	elseif phase ~= "Running" then
+		chip("Phase", string.upper(phase), nil, Style.LOOK.AMBER)
 	else
-		table.insert(pieces, string.upper(phase))
-		table.insert(pieces, clockText(MatchSystem.secondsLeft()))
+		chip("Phase", nil, nil)
 	end
-	if badge ~= "" then
-		table.insert(pieces, badge)
+	-- THE CLOCK IS THE BIGGEST NUMBER ON SCREEN (§5 surface 1), and its caption says which clock it
+	-- is: the drive's own `TIME` while it runs, and what is `LEFT` of a phase otherwise.
+	if phase == "Waiting" then
+		chip("Clock", nil, nil)
+	else
+		chip(
+			"Clock",
+			clockText(MatchSystem.secondsLeft()),
+			if phase == "Running" then "TIME" else "LEFT",
+			Style.LOOK.PAPER
+		)
 	end
+	chip("Boars", if snapshot.boarsLeft ~= nil then tostring(snapshot.boarsLeft) else nil, "BOARS", Style.LOOK.PAPER)
+
+	-- THE ROLE PILL. `Hud.roleBadge` is the one place the word is decided; the colour beside it is
+	-- `Style.teamColor`'s, which is the one place a team becomes a colour.
+	local badge = Hud.roleBadge(team)
+	local pill, pillText = statusPill, statusPillText
+	if pill ~= nil and pillText ~= nil then
+		local show = badge ~= ""
+		pill.Visible = show
+		if show then
+			local tint = Style.teamColor(team)
+			pill.BackgroundColor3 = tint
+			pillText.TextColor3 = tint
+			local edge = pill:FindFirstChildOfClass("UIStroke")
+			if edge then
+				edge.Color = tint
+			end
+			pillText.Text = Style.spaced(badge)
+			table.insert(statusWords, badge)
+		else
+			pillText.Text = ""
+		end
+	end
+
 	-- THE BALANCE, IN EVERY PHASE (task 170). Karen, 2026-10-11: *"get money"* -- and a currency you
-	-- cannot see between drives is one a player cannot count. `""` with the flag off, so this bar is
-	-- byte-identical to before task 170 in that state.
+	-- cannot see between drives is one a player cannot count. `""` with the flag off, so the bar
+	-- carries no coins column at all in that state.
+	--
+	-- ...AND THE PHONE DROPS IT WHILE A DRIVE IS RUNNING (§4.2 item 1): coins live on the pad and in
+	-- the shop, and during a drive the clock and the count are what matter. A CHIP IS DROPPED WHOLE
+	-- AND NEVER SHRUNK, which is §3.9's rule and what keeps a caption from stacking one letter per
+	-- line at 400 px.
 	local coins = Hud.coinsText(snapshot, Players.LocalPlayer.UserId)
-	if coins ~= "" then
-		table.insert(pieces, coins)
+	local dropCoins = Style.isPhone(viewX) and phase == "Running"
+	if coins ~= "" and not dropCoins then
+		-- `Hud.coinsText` answers "COINS 2000" -- the LABEL first -- and the chip wants the number
+		-- and the word apart, with the number leading (§3.9: *"the caption sits AFTER the number"*).
+		-- AN UNKNOWN BALANCE DRAWS NO CHIP AT ALL rather than `--`, which is §3.9's own rule and is
+		-- the one behaviour change here: the old bar printed `COINS --`.
+		local amount = string.match(coins, "(%S+)$")
+		if amount == Drive.CONFIG.SCORE_COINS_UNKNOWN then
+			amount = nil
+		end
+		chip("Coins", amount, Drive.CONFIG.SCORE_COINS_LABEL, Style.LOOK.COIN_TEXT)
+	else
+		chip("Coins", nil, nil)
 	end
-	bar.Text = table.concat(pieces, "   ")
+	if statusCoin then
+		local entry = statusChips.Coins;
+		(statusCoin :: Frame).Visible = entry ~= nil and entry.chip.Visible
+	end
+
+	applyStatusDividers()
 	bar.Visible = true
 end
 
@@ -1619,6 +2340,9 @@ function Hud.feedTextFor(entry): string?
 	return tostring(entry.text or entry.kind)
 end
 
+-- EACH LINE IS ITS OWN TOAST, AND EACH CARRIES ITS OWN MEANING (§3.11). The per-line fade already
+-- existed and is kept; what is new is that the dot and the words are coloured from ONE answer
+-- (`Hud.feedMeaningFor`), so a kill cannot be green with a grey bullet beside it.
 local function renderFeed(atClock: number)
 	local cutoff = atClock - Drive.CONFIG.FEED_SECONDS
 	while #feedEntries > 0 and feedEntries[1].at < cutoff do
@@ -1629,8 +2353,20 @@ local function renderFeed(atClock: number)
 	end
 	for index, line in ipairs(feedLines) do
 		local entry = feedEntries[index]
+		local toast = feedToasts[index]
+		local dot = feedDots[index]
 		line.Text = if entry then entry.text else ""
 		line.Visible = entry ~= nil
+		if toast ~= nil then
+			toast.Visible = entry ~= nil
+		end
+		if entry ~= nil then
+			local tint = Style.meaningColor(entry.meaning)
+			line.TextColor3 = tint
+			if dot ~= nil then
+				dot.BackgroundColor3 = tint
+			end
+		end
 	end
 end
 
@@ -1999,6 +2735,221 @@ function Hud.crosshairVisible(state, aiming: boolean, firstPerson: boolean): boo
 	return state ~= nil and state.equipped == true
 end
 
+-- WHEN THIS CLIENT SAW A BLAST, as a pure latch over three values. PURE AND EXPORTED because the
+-- whole of it is an EDGE and an edge is exactly what a live case cannot arrange: `renderCorner`'s
+-- only use of it is the one call below.
+--
+-- THE FIRST LOOK AT A TOOL STARTS NO CLOCK AND THE FIRST BLAST ALWAYS DOES. Both halves have been
+-- got wrong once each in this task:
+--   * round 1 started the clock on the first stamp it saw, so a horn handed back carrying a stamp
+--     from an earlier drive read `WAIT` with an empty bar although it was ready -- this client does
+--     not know WHEN that blast was, and a readiness bar that is wrong about readiness is worse
+--     than none;
+--   * round 2 gated that on `hornBlowSeen ~= nil`, which SWALLOWED the first blast of every fresh
+--     horn, because a horn that has never been blown carries no attribute at all and nil is
+--     therefore a real value of `seen`.
+-- `primed` is the separate flag that makes both true, and it is the latch
+-- `src/client/Camera/Viewmodel.luau` already uses for the same attribute.
+function Hud.hornBlowLatch(
+	seen: number?,
+	primed: boolean,
+	blowAt: number?,
+	stamped: any,
+	now: number
+): (number?, boolean, number?)
+	local value: number? = if type(stamped) == "number" then stamped else nil
+	if not primed then
+		-- The frame the Tool is first seen: remember what it carries, nil included, and start nothing.
+		return value, true, blowAt
+	end
+	if value == seen then
+		return seen, true, blowAt
+	end
+	-- ANY change after priming is a blast this client watched happen -- including nil -> 1, which is
+	-- the player's own first blast on a brand-new horn.
+	return value, true, if value ~= nil then now else blowAt
+end
+
+-- WHAT THE AMMO CHIP SHOWS, AS DATA (§3.10 chamber pips). PURE and exported for the reason
+-- `Hud.readoutFor` is: a spec can hand it a state it owns and assert the shape with no gun in the
+-- world. `pips` is one entry per chamber -- "live", "spent" or "empty" -- `selected` is which one
+-- the next trigger pull uses, `pocket` is the reserve the next load comes from, and `label` is the
+-- shell's own word.
+--
+-- A MAGAZINE RIFLE IS NOT TWO BARRELS AND IS NOT DRAWN AS THEM (task 142's own lesson): its pips
+-- are one per round the magazine holds, lit for the rounds actually in it, and nothing is selected.
+function Hud.ammoChipFor(
+	state: Shotgun.WeaponSnapshot,
+	row: any?
+): {
+	pips: { string },
+	selected: number?,
+	pocket: number,
+	label: string,
+	busy: boolean,
+}
+	local resolved = row or Weapons.row(state.weapon)
+	local pips: { string } = {}
+	local selected: number? = nil
+	if resolved ~= nil and resolved.READOUT == "magazine" then
+		local live = 0
+		for _, chamber in ipairs(state.barrels) do
+			if chamber == "Live" then
+				live += 1
+			end
+		end
+		local held = resolved.MAGAZINE or #state.barrels
+		for index = 1, math.min(held, Hud.PIP_MAX) do
+			table.insert(pips, if index <= live then "live" else "empty")
+		end
+	else
+		for index, barrel in ipairs(state.barrels) do
+			if index > Hud.PIP_MAX then
+				break
+			end
+			table.insert(pips, if barrel == "Live" then "live" elseif barrel == "Spent" then "spent" else "empty")
+		end
+		selected = state.selected
+	end
+	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[state.ammo]) or string.upper(state.ammo)
+	return {
+		pips = pips,
+		selected = selected,
+		pocket = state.reserve[state.ammo] or 0,
+		label = label,
+		busy = state.busyFor > 0,
+	}
+end
+
+-- THE ONE WRITER OF THE BOTTOM-RIGHT CORNER, and the one place the "only one of the two" rule of
+-- §4.3 is enforced: the horn wins, because a beater holding a gun is a bug and a beater with two
+-- chips in one corner would hide it.
+--
+-- CALLED ONCE A FRAME. Everything else about the weapon is event-driven, but the two BARS are
+-- clocks -- a reload and a horn cooldown -- and a clock drawn on an event is a clock that stops.
+function Hud.renderCorner(Weapon)
+	local ammo, horn = ammoChip, hornChip
+	if ammo == nil or horn == nil then
+		return
+	end
+	local state = if Weapon ~= nil then Weapon.get() else nil
+	local now = os.clock()
+
+	-- THE HORN. The Tool is the server's and so is the blast; this reads the attribute
+	-- `Weapon.Horn.blowTool` stamps -- the one door every accepted blast goes through -- and starts
+	-- its own clock from it. `Camera.Viewmodel` reads the same attribute for the same reason.
+	local character = Players.LocalPlayer.Character
+	local tool = if character then character:FindFirstChild(Horn.TOOL_NAME) else nil
+	local hasHorn = tool ~= nil
+	if hasHorn then
+		local stamped = (tool :: any):GetAttribute(Horn.BLOW_ATTRIBUTE)
+		hornBlowSeen, hornBlowPrimed, hornBlowAt =
+			Hud.hornBlowLatch(hornBlowSeen, hornBlowPrimed, hornBlowAt, stamped, now)
+	else
+		hornBlowSeen = nil
+		hornBlowAt = nil
+		hornBlowPrimed = false
+	end
+
+	local showHorn = hasHorn
+	local showAmmo = (not showHorn) and state ~= nil and state.equipped == true
+	horn.Visible = showHorn
+	ammo.Visible = showAmmo
+
+	if showHorn then
+		local word, caption, tint = "HORN", "READY", Style.LOOK.PAPER
+		-- A BAR THAT IS FULL MEANS "YOU MAY BLOW IT". It empties the instant the server accepts a
+		-- blast and fills over `Horn.CONFIG.COOLDOWN`, never the other way round (§7).
+		local filled = 1
+		if hornBlowAt ~= nil then
+			filled = math.clamp((now - (hornBlowAt :: number)) / Horn.CONFIG.COOLDOWN, 0, 1)
+			if filled < 1 then
+				caption = "WAIT"
+			end
+		end
+		if hornThrough then
+			-- THE ONLY ON-SCREEN ANSWER TO "WHY DID MY HORN STOP WORKING" (§5 surface 7). A beater
+			-- who is through the line is done, and a refusal is clay.
+			word, caption, tint, filled = "THROUGH", "", Style.LOOK.CLAY, 0
+		end
+		if hornValue then
+			(hornValue :: TextLabel).Text = word;
+			(hornValue :: TextLabel).TextColor3 = tint
+		end
+		if hornCaption then
+			(hornCaption :: TextLabel).Text = if caption == "" then "" else Style.spaced(caption)
+		end
+		if hornBarFill then
+			local hornTrack = (hornBarFill :: Frame).Parent :: Frame
+			if hornBody ~= nil then
+				hornTrack.Size = UDim2.fromOffset((hornBody :: Frame).AbsoluteSize.X, 3)
+			end
+			(hornBarFill :: Frame).Size = UDim2.fromScale(filled, 1)
+		end
+	end
+
+	if not showAmmo then
+		-- NO GUN, NO READOUT (TASKS.md 35b(a)). The server publishes a reset state when it revokes a
+		-- Tool, so a player tied to a tree stops reading an ammo count for a gun that is not in
+		-- their hands -- and `Hud.readoutText` answers "" exactly then.
+		readoutWords = ""
+		reloadStartedAt = nil
+		return
+	end
+
+	local snapshot = state :: Shotgun.WeaponSnapshot
+	local data = Hud.ammoChipFor(snapshot)
+	readoutWords = Hud.readoutFor(snapshot)
+	for index, pip in ipairs(ammoPips) do
+		local kind = data.pips[index]
+		pip.Visible = kind ~= nil
+		if kind == nil then
+			continue
+		end
+		if kind == "live" then
+			pip.BackgroundColor3 = Style.LOOK.PAPER
+			pip.BackgroundTransparency = 0
+		elseif kind == "spent" then
+			pip.BackgroundColor3 = Style.LOOK.LINE
+			pip.BackgroundTransparency = 0
+		else
+			pip.BackgroundColor3 = Style.LOOK.LINE
+			pip.BackgroundTransparency = 0.6
+		end
+		local under = pip:FindFirstChild("Selected")
+		if under ~= nil then
+			(under :: Frame).Visible = data.selected == index
+		end
+	end
+	if ammoValue then
+		(ammoValue :: TextLabel).Text = tostring(data.pocket)
+	end
+	if ammoCaption then
+		(ammoCaption :: TextLabel).Text = Style.spaced(data.label)
+	end
+
+	-- THE RELOAD BAR, PREDICTED FROM THIS CLIENT'S OWN CLOCK. `busyFor` is published once and
+	-- nothing ticks it down between publications, so a bar driven straight off it would sit still
+	-- and then vanish. Latched on the rising edge, which is also where its total comes from.
+	local track, fill = ammoBarTrack, ammoBarFill
+	if track ~= nil and fill ~= nil then
+		if ammoBody ~= nil then
+			track.Size = UDim2.fromOffset((ammoBody :: Frame).AbsoluteSize.X, 3)
+		end
+		if data.busy and reloadStartedAt == nil then
+			reloadStartedAt = now
+			reloadTotal = math.max(0.05, snapshot.busyFor)
+		elseif not data.busy then
+			reloadStartedAt = nil
+		end
+		local busy = reloadStartedAt ~= nil
+		track.Visible = busy
+		if busy then
+			fill.Size = UDim2.fromScale(math.clamp((now - (reloadStartedAt :: number)) / reloadTotal, 0, 1), 1)
+		end
+	end
+end
+
 local function render(Weapon, CameraSystem)
 	local state = Weapon.get()
 	if crosshair then
@@ -2017,13 +2968,9 @@ local function render(Weapon, CameraSystem)
 	-- camera resolved for this frame, so the Hud never reads the weapon table to decide whether to
 	-- draw it -- exactly as it never reads the weapon to decide whether it is in first person.
 	Hud.renderScope(CameraSystem)
-	if readout then
-		-- NO GUN, NO READOUT (TASKS.md 35b(a)). The server publishes a reset state when it revokes a
-		-- Tool, and `equipped` is false in it -- so a player tied to a tree stops reading an ammo
-		-- count for a gun that is not in their hands. Without both halves the old snapshot simply
-		-- stayed on screen, which is what the Task 35 screenshot shows.
-		readout.Text = if state and state.equipped then textFor(state) else ""
-	end
+	-- THE CORNER IS DRAWN BY ITS OWN WRITER (task 201). It is called here as well as once a frame,
+	-- so a `Changed` event redraws the chip immediately rather than on the next tick.
+	Hud.renderCorner(Weapon)
 	-- ...AND THE RAIL LEARNS WHETHER THERE IS A GUN FROM THE SAME READ (task 165). One reader of the
 	-- weapon state in this file; the rail is told and reads nothing. A button whose action cannot run
 	-- is not drawn, which is the dispatch's "no dead buttons".
@@ -2033,7 +2980,17 @@ end
 -- handler rather than a closure, exactly as `Hud.onHitMarker` is, so the client half of the kill log
 -- can be driven in a spec instead of only by a live drive (task 124 round 3).
 function Hud.onKilled(event)
-	table.insert(feedEntries, { text = Hud.killLineText(event), at = os.clock() })
+	-- A KILL IS "YOU DID WELL", SO ITS DOT AND ITS WORDS ARE PINE (§3.11). The meaning travels WITH
+	-- the entry and is resolved by the one pure mapping, so the line and the bullet beside it cannot
+	-- end up two different colours -- which is what the first run of `hud_style.spec` caught: this
+	-- call carried no meaning at all and a kill drew in `BODY`.
+	table.insert(feedEntries, {
+		text = Hud.killLineText(event),
+		at = os.clock(),
+		-- THROUGH THE MAPPING AND NOT A LITERAL `"good"` (round 1 note): "both writers carry it" is
+		-- only true if both ask the same function.
+		meaning = Hud.feedMeaningFor({ kind = "kill" }),
+	})
 	renderFeed(os.clock())
 end
 
@@ -2354,7 +3311,10 @@ function Hud.useMatch(MatchSystem): boolean
 		-- NO TEXT, NO LINE: `feedTextFor` answers nil for an entry another owner now draws.
 		local text = Hud.feedTextFor(entry)
 		if text ~= nil then
-			table.insert(feedEntries, { text = text, at = os.clock() })
+			-- ...AND ITS MEANING COMES WITH IT (task 201, §3.11): one pure mapping, read once here,
+			-- so the dot and the words are one answer. An escape and a tie-to-a-tree are clay; a
+			-- join or a phase line is `BODY`.
+			table.insert(feedEntries, { text = text, at = os.clock(), meaning = Hud.feedMeaningFor(entry) })
 			renderFeed(os.clock())
 		end
 	end)
@@ -2604,6 +3564,7 @@ function Hud.start()
 	if objectiveLine ~= nil and waypointMark ~= nil and waypointWord ~= nil then
 		Objective.start({
 			line = objectiveLine :: TextLabel,
+			slate = objectiveSlate,
 			mark = waypointMark :: Frame,
 			markLabel = waypointWord :: TextLabel,
 		})
@@ -2629,7 +3590,14 @@ function Hud.start()
 	-- objective line and the waypoint exist in every world; what the WORLD has stated decides whether
 	-- there is a target, and `Objective.targetFor` answers nil rather than guessing.
 	RunService.RenderStepped:Connect(function()
+		-- THE WINDOW FIRST, and it is one comparison when nothing moved. `Hud.build` runs before the
+		-- engine has drawn a frame, when `Camera.ViewportSize` is still (1, 1), so the FIRST real
+		-- frame is what puts the whole screen on the right step of the scale.
+		Hud.applyViewportLayout(Hud.viewportX())
 		Hud.renderObjective(CameraSystem)
+		-- THE BOTTOM-RIGHT CORNER IN THE SAME PASS (task 201): the reload bar and the horn's
+		-- readiness bar are CLOCKS, and a clock drawn on an event is a clock that stops.
+		Hud.renderCorner(Weapon)
 	end)
 
 	if compassFrame then
