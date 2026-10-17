@@ -3,16 +3,20 @@
 Task: 197
 Round: 1
 Base: `4644b3e` (main)
-Code commit: `392d773`
+Code commit: `d8e36a3`
 
 Harness (clean tree, one player, SCOPED):
 
 ```
-HARNESS_LINE_PLACEHOLDER
+[harness] PASS: 33/33 checks @ d8e36a392995e2b204cb675631fbdc39a39b9dfc (clean tree) scope=auto:hud,lobby,match
 ```
 
-`392d773` is the one commit that changed `src/` or `tests/`; everything after it in this branch is
-paperwork (`reviews/`, `TASKS.md`'s own row). The scope is `auto:…`, which `tools/agents.py` accepts
+`d8e36a3` is **this request itself**. The last commit that changed `src/` or `tests/` is `6a279f0`,
+and the only thing between them is this file -- naming the later paperwork commit only makes the
+bound stricter, because everything the harness ran over is still covered (git workflow step 4).
+The three code commits are `392d773` (the task), `b7a4810` (the beam aimed in the world frame) and
+`6a279f0` (the banner's eyebrow), and the last two are both defects THIS task found and fixed, one
+of them in a live frame. The scope is `auto:…`, which `tools/agents.py` accepts
 as evidence **for a review round** (Task 113) and which the Director's dispatch for this task asked
 for in as many words: *"GATE RULE: scoped test only (`test --scope auto`, logged)"*. The PR to
 `main` still needs the full run; that is the Director's to take at the branch head.
