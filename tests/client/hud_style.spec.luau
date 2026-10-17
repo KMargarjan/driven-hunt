@@ -185,6 +185,10 @@ return function()
 		end)
 	end)
 
+	-- A PROPERTY READ BACK OFF AN INSTANCE IS A float32 AND THE TOKEN IS A DOUBLE, so 0.18 comes
+	-- back as 0.18000000715255737 and `to.equal` is the wrong question (the first run of this file
+	-- failed on exactly that, four times). `to.be.near` at 1e-5 is two orders finer than any
+	-- transparency step the system names and cannot hide a wrong value.
 	describe("the constructors", function()
 		-- EVERY ONE OF THEM IS BUILT INTO A REAL `ScreenGui` AND THEN DESTROYED, because a `Frame`
 		-- with no parent reports no `AbsoluteSize` and half of what is asserted here is a property
@@ -210,21 +214,21 @@ return function()
 		it("gives a slate the charcoal, the corner and the brass hairline §3.3 asks for", function()
 			local slate = Style.slate(holder :: Frame, "Probe")
 			expect(slate.BackgroundColor3).to.equal(Style.LOOK.SLATE)
-			expect(slate.BackgroundTransparency).to.equal(Style.SLATE_T)
+			expect(slate.BackgroundTransparency).to.be.near(Style.SLATE_T, 1e-5)
 			local corner = slate:FindFirstChildOfClass("UICorner")
 			expect(corner).to.be.ok()
 			expect((corner :: UICorner).CornerRadius).to.equal(UDim.new(0, Style.RADIUS.ROW))
 			local edge = slate:FindFirstChildOfClass("UIStroke")
 			expect(edge).to.be.ok()
 			expect((edge :: UIStroke).Color).to.equal(Style.LOOK.BRASS)
-			expect((edge :: UIStroke).Transparency).to.equal(Style.EDGE_T.SLATE)
+			expect((edge :: UIStroke).Transparency).to.be.near(Style.EDGE_T.SLATE, 1e-5)
 			-- `Border` AND NOT THE DEFAULT `Contextual`, which outlines the TEXT instead of the box.
 			expect((edge :: UIStroke).ApplyStrokeMode).to.equal(Enum.ApplyStrokeMode.Border)
 			expect((edge :: UIStroke).Thickness).to.equal(1)
 			-- The quiet variant is the SAME colour at the 9-11 px transparency, and nothing else.
 			local quiet = Style.slate(holder :: Frame, "Quiet", true)
 			expect(quiet.BackgroundColor3).to.equal(Style.LOOK.SLATE)
-			expect(quiet.BackgroundTransparency).to.equal(Style.SLATE_QUIET_T)
+			expect(quiet.BackgroundTransparency).to.be.near(Style.SLATE_QUIET_T, 1e-5)
 		end)
 
 		it("gives a panel and a card their own rung of the radius ladder", function()
@@ -236,8 +240,8 @@ return function()
 			expect((card:FindFirstChildOfClass("UICorner") :: UICorner).CornerRadius).to.equal(
 				UDim.new(0, Style.RADIUS.CARD)
 			)
-			expect(panel.BackgroundTransparency).to.equal(Style.PANEL_T)
-			expect(card.BackgroundTransparency).to.equal(Style.CARD_T)
+			expect(panel.BackgroundTransparency).to.be.near(Style.PANEL_T, 1e-5)
+			expect(card.BackgroundTransparency).to.be.near(Style.CARD_T, 1e-5)
 			-- §1.3's ladder: a thing that sits on another thing is one step LESS ROUND.
 			expect(Style.RADIUS.MODAL > Style.RADIUS.CARD).to.equal(true)
 			expect(Style.RADIUS.CARD > Style.RADIUS.ROW).to.equal(true)
@@ -269,7 +273,7 @@ return function()
 		it("builds a toast as its own slate with a meaning dot", function()
 			local toast, dot, text = Style.toast(holder :: Frame, "Probe", 1280)
 			expect(toast.BackgroundColor3).to.equal(Style.LOOK.SLATE)
-			expect(toast.BackgroundTransparency).to.equal(Style.SLATE_T)
+			expect(toast.BackgroundTransparency).to.be.near(Style.SLATE_T, 1e-5)
 			expect(toast.AutomaticSize).to.equal(Enum.AutomaticSize.XY)
 			expect(dot.Size).to.equal(UDim2.fromOffset(6, 6))
 			expect(text.FontFace).to.equal(Style.FONT.SANS_SEMI)
@@ -346,7 +350,7 @@ return function()
 			local bar = Hud.gui():FindFirstChild("DriveBar") :: Frame
 			expect(bar).to.be.ok()
 			expect(bar.BackgroundColor3).to.equal(Style.LOOK.SLATE)
-			expect(bar.BackgroundTransparency).to.equal(Style.SLATE_T)
+			expect(bar.BackgroundTransparency).to.be.near(Style.SLATE_T, 1e-5)
 
 			local slate = Hud.objectiveSlate() :: Frame
 			expect(slate).to.be.ok()
@@ -359,7 +363,7 @@ return function()
 			-- The compass is a QUIET slate, because it carries 10-11 px type (§3.3).
 			local strip = Hud.compass() :: Frame
 			expect(strip.BackgroundColor3).to.equal(Style.LOOK.SLATE)
-			expect(strip.BackgroundTransparency).to.equal(Style.SLATE_QUIET_T)
+			expect(strip.BackgroundTransparency).to.be.near(Style.SLATE_QUIET_T, 1e-5)
 			expect(Compass.CONFIG.BACKGROUND).to.equal(Style.LOOK.SLATE)
 			expect(Compass.CONFIG.LABEL_COLOR).to.equal(Style.LOOK.PAPER)
 			expect(Compass.CONFIG.CENTRE_COLOR).to.equal(Style.LOOK.BRASS_HI)

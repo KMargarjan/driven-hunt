@@ -845,7 +845,13 @@ return function()
 			for _, id in ipairs(ids) do
 				local node = Rail.button(id)
 				expect(node).to.be.ok()
-				expect(#(node :: TextButton).Text > 0).to.equal(true)
+				-- THE WORD IS A CHILD LABEL SINCE TASK 201, and the button itself says nothing: the
+				-- system's §3.5 puts the words in children so a pressed state can nudge them 1 px
+				-- down without moving the slate they sit on. What is checked is unchanged -- a
+				-- button on screen has a word on it -- and it is read where the word now lives.
+				local word = (node :: TextButton):FindFirstChild("Label")
+				expect(word).to.be.ok()
+				expect(#(word :: TextLabel).Text > 0).to.equal(true)
 			end
 			TestKit.note(
 				string.format("rail: %s (touch=%s)", table.concat(ids, ","), tostring(UserInputService.TouchEnabled))
