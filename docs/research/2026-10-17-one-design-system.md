@@ -112,3 +112,56 @@ invented; what follows is only where this task's code had to choose.
   screenshot. Studio's Device Emulation would give a real one and needs a human click.
 * **Whether Karen likes it.** Feel and taste are hers (CLAUDE.md), and she looks after the merge
   (2026-10-17: *"it's ok to keep doing it"*).
+
+---
+
+# Part 2 (build task C): the two tables
+
+**Surfaces 11, 12 and 13** — the results board, the TAB report and the tied banner — plus the row
+component §3.12 asks for, which is the thing that makes them one system rather than two tables that
+happen to agree today.
+
+## What was adopted
+
+* **`Style.tableRow` / `Style.cell` / `Style.rowState` / `Style.columnHead` / `Style.sectionHead`
+  / `Style.tag` / `Style.closeButton` / `Style.keyChip`** — ONE row, two panels. The monospace
+  alignment both tables used is gone with `Enum.Font.Code`: *"the numbers line up because they are
+  PLACED, not because every glyph is one width"* (§1.2). A column is an x and a width.
+* **The board's HEIGHT FOLLOWS THE ROW COUNT** (§3.12's one named defect). It was 20 fixed slots
+  drawing a 480 × 574 box to hold three of them; it is `header + rows + footer` now, measured by
+  the pure `Hud.boardHeight`, and the body is a `ScrollingFrame` past 14 rows. Measured live at
+  **520 × 134** with no rows.
+* **The report is a MODAL** (§3.1): a 640 × 576 lodge panel over a full-screen `SCRIM` at 0.42,
+  with an eyebrow + title pair, a well, and the footer's key hints as **ghost chips** instead of
+  `[TAB] CLOSE` inside a sentence.
+* **`DOWN` / `WOUNDED` are tags** (§3.7) and the word is always there: a state is never colour
+  alone. `WOUNDED` is the screen's word for the record's `wounded` — Karen's own "wounded-lost" —
+  and `detailCellsFor` is the one place it is decided, so the tag and the line cannot disagree.
+* **The tied banner is one centred clay toast at `TITLE`** (§5 surface 13).
+
+## What was refused or decided against the letter of the spec
+
+1. **The tied banner moved to y 96 and LEFT the no-overlap band.** A toast at the `TITLE` step is
+   40 px tall, not the 30 the old 74..104 slot held, so it no longer fits between the status slate
+   and the compass. 96 is the designer's own number and it puts the toast **over** the compass
+   (108..138) — which §4.3 permits, because that contract names exactly three members of the TOP
+   BAND and the tied banner is not one of them. It is a notice, it is up for seconds, and a player
+   roped to a tree is not walking anywhere the compass would help with. `hud_clarity.spec` drops it
+   from `bands()` with that reason written in; `hud_style.spec` asserts instead that it is drawn
+   ABOVE the strip it covers, which is the real claim.
+2. **The report keeps its two VIEWS.** Mockup board 4 draws the per-player table and one player's
+   animals on one panel; §5 surface 12 asks only for the row rebuild, the ghost chips, the selected
+   row and the tags. Merging the two views is a behaviour change on a panel Karen already uses, so
+   it was not smuggled into a styling task.
+3. **An unknown number is not drawn at all**, rather than `--` (§3.12). A leaver is not paid, and
+   the `LEFT` tag beside his row is what says why — `--` in the coins column was the same fact said
+   twice and badly.
+
+## What this part could not answer
+
+* **No frame of the results board.** A drive is 600 s and nothing reachable from here shortens it:
+  `Match.advanceForTests` is the server's and the StudioMCP thread may not `require` (the harness's
+  own docstring records why). The board is asserted on the LIVE screen instead — its card, its
+  cells, its team bar, its section colours and its height — by `match_client.spec` and
+  `hud_style.spec`, and its geometry was measured live at 520 × 134. The Director can shoot it by
+  overriding `DRIVE_SECONDS` through a world's `world.config` (`Match.WORLD_OVERRIDABLE`).
