@@ -220,6 +220,22 @@ function Style.sizeFor(step: string, viewportX: number): number
 	return if viewportX < Style.PHONE_BELOW_PX then pair[2] else pair[1]
 end
 
+-- A VIEWPORT THAT HAS NOT RENDERED YET IS NOT A PHONE. `Camera.ViewportSize` is **(1, 1)** until
+-- the engine has drawn a frame, and a HUD built before that comes out at the phone step --
+-- measured twice: task 201 part 1 built a 120 px compass that way, and part 2's report panel built
+-- 24 px rows on a 969 px screen because it had its own ungated reader. ONE reader, here, so there
+-- is one answer and one place to fix it.
+Style.MIN_SENSIBLE_PX = 200
+
+function Style.viewportX(): number
+	local camera = workspace.CurrentCamera
+	if camera == nil then
+		return 1280
+	end
+	local size = camera.ViewportSize
+	return if size.X >= Style.MIN_SENSIBLE_PX then size.X else 1280
+end
+
 -- Is this viewport a phone? One reader of the break point, for a caller that needs the branch
 -- rather than the number (a padding, a line count, whether a chip is dropped).
 function Style.isPhone(viewportX: number): boolean

@@ -268,8 +268,12 @@ return function()
 			-- one colour, in the same unit square. The claim is not weaker: it was five frames and
 			-- it is thirteen, and the fill is asserted too.
 			Panel.render(detailPayload())
-			local frame = Hud.reportPanel() :: Frame
-			local row = frame:FindFirstChild("DetailRow1")
+			-- THE ROWS LIVE IN THE PANEL'S WELL since task 201 part 2 (the design system's §1.3
+			-- ladder: a table sits in a well sunk into the panel it is on), so this looks where
+			-- they are rather than at the panel's own children.
+			local well = Hud.Report.well :: Frame
+			expect(well).to.be.ok()
+			local row = well:FindFirstChild("DetailRow1")
 			local art = row and row:FindFirstChild("Silhouette")
 			expect(art).to.be.ok()
 			for _, piece in ipairs(Report.CONFIG.BOAR) do

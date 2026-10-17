@@ -263,7 +263,12 @@ end
 -- learns ONE panel shape (§3.1). 1280 x 720 gives 640 x 576; a 400 px phone gives 376 x 640.
 function ReportPanel.panelSize(viewport: Vector2?): UDim2
 	local camera = workspace.CurrentCamera
-	local size = viewport or (if camera then camera.ViewportSize else Vector2.new(1280, 720))
+	local size = viewport
+		or (
+			if camera and camera.ViewportSize.X >= Style.MIN_SENSIBLE_PX
+				then camera.ViewportSize
+				else Vector2.new(1280, 720)
+		)
 	local margin = 12
 	local width = math.clamp(size.X - 2 * margin, 300, 640)
 	local height = math.clamp(math.floor(size.Y * 0.80), 300, 640)
@@ -279,7 +284,10 @@ end
 -- and a footer of GHOST KEY CHIPS instead of key names buried in a sentence.
 local function build(frame: Frame)
 	panel = frame
-	local viewX = (if workspace.CurrentCamera then workspace.CurrentCamera.ViewportSize.X else 1280)
+	-- `Style.viewportX` AND NOT `CurrentCamera.ViewportSize.X`: the camera reports (1, 1) until the
+	-- engine has drawn a frame and `build` runs before that, so the ungated reader this line used to
+	-- be built 24 px PHONE rows on a 969 px screen (caught by `hud_style.spec`, round 0 of part 2).
+	local viewX = Style.viewportX()
 	local size = ReportPanel.panelSize()
 	frame.Size = size
 	frame.BackgroundColor3 = Style.LOOK.PANEL

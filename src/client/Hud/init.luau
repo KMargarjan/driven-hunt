@@ -289,15 +289,14 @@ local started = false
 -- `MIN_SENSIBLE_PX` is "not yet", not "small", and the desktop step is the right guess for a game
 -- Karen plays on a PC. `Hud.applyViewportLayout` then corrects it on the first real frame, and on
 -- every resize after that.
-Hud.MIN_SENSIBLE_PX = 200
+-- IT LIVES IN `Style` SINCE TASK 201 PART 2 and this is the alias. The report panel needed the
+-- same guard and cannot require this file (the Hud requires IT), so the reader moved to the one
+-- source -- and the second ungated copy it had built 24 px rows on a 969 px screen, which is the
+-- same defect at a different surface.
+Hud.MIN_SENSIBLE_PX = Style.MIN_SENSIBLE_PX
 
 function Hud.viewportX(): number
-	local camera = Workspace.CurrentCamera
-	if camera == nil then
-		return 1280
-	end
-	local size = camera.ViewportSize
-	return if size.X >= Hud.MIN_SENSIBLE_PX then size.X else 1280
+	return Style.viewportX()
 end
 
 -- EVERY LABEL THAT TAKES ITS SIZE FROM THE SCALE, with the step it takes. Registered as it is
