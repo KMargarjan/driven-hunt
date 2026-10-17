@@ -774,6 +774,10 @@ SCOPE_SPECS = {
                # the dual membership `zz_horn`, `boar_hit` and `shoot_boar` already use -- because
                # the drive is what answers "is this a beater" and "where is his stand".
                "tests/server/weapon_rules.spec.luau",
+               # Task 198: `Weapon.Hits.group` gained `points`, one entry per pellet that struck a
+               # target, and this spec is what drives that grouping with hand-written impacts. Dual
+               # membership with `report`: the data is the weapon's, the picture is the report's.
+               "tests/server/hit_card.spec.luau",
                "tests/server/zz_horn.spec.luau"),
     "boar": ("tests/server/boar_behaviour.spec.luau", "tests/server/boar_behaviour_live.spec.luau",
              "tests/server/boar_body.spec.luau", "tests/server/boar_brain.spec.luau",
@@ -864,10 +868,22 @@ SCOPE_SPECS = {
             "tests/client/shop_panel.spec.luau",
             # Task 182: the truck pads' size dialog, for the same reason and with the same dual
             # membership -- it is also in `lobby`, because its words and sizes are the lobby's data.
-            "tests/client/pad_panel.spec.luau"),
+            "tests/client/pad_panel.spec.luau",
+            # Task 198: the hit card. `Hud.HitCard` and `Hud.BoarArt` live under `src/client/Hud/`,
+            # which already resolves to this scope, and `BoarArt` is now the ONE builder of the boar
+            # the drive report draws too -- so a Hud edit that touches it plays this spec and
+            # `report_panel.spec` above. Dual membership with `report`, the idiom `shop_panel` and
+            # `pad_panel` already use.
+            "tests/client/hit_card.spec.luau"),
     # The report's geometry is asserted against `Boar.CONFIG`, so a boar zone box that moves reaches
     # this spec too -- which is why it is in the `boar` scope as well.
-    "report": ("tests/server/report_silhouette.spec.luau", "tests/client/report_panel.spec.luau"),
+    #
+    # THE HIT CARD IS THIS SYSTEM'S SECOND SCREEN (task 198), so both of its specs are here: the card
+    # is drawn from `Report.CONFIG.CARD`, its dots are placed by `HitLog.Shape.cardDots` and the
+    # payload is built in `HitLog.recordHit` -- and `src/shared/Report/` and `src/server/HitLog/` are
+    # exactly the two paths that resolve to this scope. A change to either MUST play them.
+    "report": ("tests/server/report_silhouette.spec.luau", "tests/client/report_panel.spec.luau",
+               "tests/server/hit_card.spec.luau", "tests/client/hit_card.spec.luau"),
     "input": ("tests/client/input_driving.spec.luau",),
     "sync": ("tests/server/sync.spec.luau", "tests/client/client_env.spec.luau"),
 }

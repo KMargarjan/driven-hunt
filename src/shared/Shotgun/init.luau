@@ -88,6 +88,11 @@ export type HitReport = {
 	-- WHICH GUN MADE THIS HIT (task 140): a `Weapons.WeaponId`, carried as a plain string so this
 	-- module keeps requiring nothing. nil is legal and means "a record from before the rifle".
 	weapon: string?,
+	-- WHERE EVERY PELLET OF THIS SHOT STRUCK THIS TARGET (task 198), in the order they landed.
+	-- The report itself is still ONE per (shot, target) and `position` above is still the NEAREST
+	-- impact; this is the detail underneath it, and it is what the hit card draws a red dot per.
+	-- Optional, because a report written by anything older than task 198 carries none.
+	points: { { position: Vector3, zone: string } }?,
 	at: number,
 }
 export type ShotPayload = {

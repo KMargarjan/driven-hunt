@@ -26,6 +26,10 @@ type HitReport = Shotgun.HitReport
 
 local Hits = {}
 
+-- THE CEILING ON `points` (task 198): more than a legal two-barrel buckshot pattern on one animal
+-- (9 x 2 = 18) and far under `Shotgun.CONFIG.FLIGHT_MAX_LIVE_PELLETS`. See `group`.
+Hits.POINTS_MAX = 24
+
 -- (target root, zone). The root is the nearest ancestor-or-self carrying Damageable == true; the
 -- zone is the hit instance's HitZone, else the root's, else "unknown". No root means a miss.
 function Hits.targetOf(instance: Instance?): (Instance?, string)
@@ -72,13 +76,32 @@ function Hits.group(shooter: Player, impacts: { Impact }, ammo: string, now: num
 		if target then
 			local entry = byTarget[target]
 			if not entry then
-				entry =
-					{ zones = {}, pellets = 0, nearest = math.huge, position = impact.position, normal = impact.normal }
+				entry = {
+					zones = {},
+					pellets = 0,
+					nearest = math.huge,
+					position = impact.position,
+					normal = impact.normal,
+					-- EVERY PELLET'S OWN LANDING PLACE (task 198). The report above this one stays
+					-- ONE report per (shot, target) -- that is the contract `HitLog`, `Match` and the
+					-- hit marker all read -- and this is the detail underneath it, kept because
+					-- Karen's hit card draws *"several of them"*: one red dot per pellet that struck
+					-- the animal. `position` above is still the NEAREST impact and still the one the
+					-- drive report's single dot is made from.
+					points = {},
+				}
 				byTarget[target] = entry
 				order[#order + 1] = target
 			end
 			entry.pellets += 1
 			entry.zones[zone] = (entry.zones[zone] or 0) + 1
+			-- BOUNDED BY CONSTRUCTION, like every other list that crosses this system: a pattern is
+			-- `PELLETS.Buck` = 9 and two barrels inside one flight time is 18, so `POINTS_MAX` is
+			-- above anything a legal shot can produce and a pathological one is truncated rather
+			-- than carried.
+			if #entry.points < Hits.POINTS_MAX then
+				table.insert(entry.points, { position = impact.position, zone = zone })
+			end
 			if impact.distance < entry.nearest then
 				entry.nearest = impact.distance
 				entry.position = impact.position
@@ -108,6 +131,9 @@ function Hits.group(shooter: Player, impacts: { Impact }, ammo: string, now: num
 			normal = entry.normal,
 			ammo = ammo,
 			weapon = weapon,
+			-- One entry per pellet that struck THIS target, in the order they landed; the hit card
+			-- draws one red dot per entry (task 198).
+			points = entry.points,
 			at = now,
 		}
 	end
