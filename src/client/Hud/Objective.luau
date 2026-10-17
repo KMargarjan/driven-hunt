@@ -43,6 +43,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 
+-- THE ONE SOURCE for every colour and face this module draws with (task 201, the Designer's design
+-- system, 2026-10-17). Surface 2: *"Oswald Medium 22 / 18 on a slate, `PAPER`, sentence case
+-- exactly as written. Black stroke gone. `GO - push to the road` is the one line that turns
+-- `BLAZE_HI`."*
+local Style = require(script.Parent.Style)
+
 local Objective = {}
 
 -- WHERE THE PLAYER MUST BE, as data. `word` is what the screen says and `kind` is what a spec and the
@@ -62,16 +68,28 @@ Objective.CONFIG = {
 	-- room (design section 3): bar 44..70, tied banner 74..104, compass 108..134, map 140. The
 	-- objective is the headline, so it is read first and it is biggest.
 	TOP = 8,
-	HEIGHT = 32,
+	-- 32 -> 30 (task 201). The slate behind the line is `AutomaticSize.XY` and is the size of the
+	-- sentence; this is the BAND it owns, which is what `Objective.lineRect` answers and what
+	-- `hud_clarity.spec` tests the top of the screen with. 8..38 leaves the status slate 40..74,
+	-- which is the band the tied banner's fixed 74 allows (see `Hud.STATUS`).
+	HEIGHT = 30,
 	SIDE_MARGIN = 16, -- so the label is viewport-wide less this on each side, at any width
-	-- 24 ON A SCREEN, 18 ON A PHONE, AND ONE BREAK POINT. The bar is 20 and the compass 13, so 24
-	-- reads first; below 700 px wide a 32-character sentence at 24 does not fit, and
-	-- `hud_clarity.spec` asserts that with the engine's own `TextFits` rather than a font guess.
-	TEXT_SIZE = 24,
-	TEXT_SIZE_SMALL = 18,
+	-- 22 ON A SCREEN AND 20 ON A PHONE SINCE TASK 201: the system's `TITLE` step, drawn in Oswald
+	-- MEDIUM. Oswald is condensed, so 22 of it is wider-reading than 24 of `Enum.Font.Code` was and
+	-- the 32-character bound below still fits a 400 px phone -- which `hud_clarity.spec` measures
+	-- with the engine's own `TextFits` rather than with a font guess.
+	TEXT_SIZE = 22,
+	TEXT_SIZE_SMALL = 20,
+	-- THE ONE BREAK POINT IN THE GAME, and `Style.PHONE_BELOW_PX` is the same number read from the
+	-- one source. It is asserted equal in `hud_style.spec`, so the two can never drift.
 	SMALL_BELOW_PX = 700,
-	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
-	TEXT_STROKE = 1,
+	TEXT_COLOR = Style.LOOK.PAPER,
+	-- THE ONE LINE THAT TURNS BLAZE (§5 surface 2). Blaze means ACT, and `GO` is the only sentence
+	-- on this screen that is an order rather than a standing instruction.
+	GO_COLOR = Style.LOOK.BLAZE_HI,
+	-- THE BLACK OUTLINE IS GONE (§2) and this is what is left of it: the slate behind the line is
+	-- what carries it over a sunlit wood. Kept at 0 so nothing can quietly put one back.
+	TEXT_STROKE = 0,
 	-- The compass's band: over the feed and the bar (1), under the scope's mask (11-13) and under the
 	-- report and the score board (15). Top-band furniture, stacked with the rest of it.
 	Z_INDEX = 6,
@@ -84,7 +102,11 @@ Objective.CONFIG = {
 	MARK_PX = 14,
 	MARK_LABEL_SIZE = 11,
 	MARK_LABEL_GAP = 12, -- the word sits under the chevron
-	MARK_COLOR = Color3.fromRGB(235, 90, 55), -- `Compass.CONFIG.DRIVE_COLOR`, the game's "go here" red
+	-- TWO REDS BECAME ONE (§1.1): `#EB5A37` is deleted and the way-mark is `BLAZE_HI`, the game's
+	-- single "go here" orange -- the same colour the compass's drive mark and the map's target use.
+	-- The chevron's own restyle (its word's slate) is the system's task E; the COLOUR moves now, so
+	-- the two reds cannot both be on screen at once.
+	MARK_COLOR = Style.LOOK.BLAZE_HI,
 	-- UNDER THE FURNITURE. A mark that crosses the whole screen must pass BEHIND the compass and the
 	-- map rather than scribble on them, and over the feed and the bar.
 	MARK_Z_INDEX = 5,
@@ -608,6 +630,10 @@ end
 -- ---------------------------------------------------------------- state: one writer, this module
 
 local lineLabel: TextLabel? = nil
+-- THE SLATE BEHIND THE LINE (task 201, §2). Created by `Hud.build` with the rest of the screen and
+-- written here, because the line and the thing that carries it are one answer and must have one
+-- writer.
+local lineSlate: Frame? = nil
 local markFrame: Frame? = nil
 local markLabel: TextLabel? = nil
 local started = false
@@ -647,12 +673,20 @@ function Objective.setSuppressed(on: boolean)
 	suppressed = on
 end
 
-function Objective.start(nodes: { line: TextLabel, mark: Frame, markLabel: TextLabel })
+-- IS THIS SENTENCE THE `GO`? PURE, so the one line that turns blaze is decided in one place and
+-- can be asserted without a drive. Comparing the STRING and not re-deriving the phase is the point:
+-- `Objective.text` already decided, and a second decision here would be a second answer.
+function Objective.isGo(text: string): boolean
+	return text == Objective.CONFIG.TEXT.DriverGo
+end
+
+function Objective.start(nodes: { line: TextLabel, mark: Frame, markLabel: TextLabel, slate: Frame? })
 	if started then
 		return
 	end
 	started = true
 	lineLabel = nodes.line
+	lineSlate = nodes.slate
 	markFrame = nodes.mark
 	markLabel = nodes.markLabel
 end
@@ -676,6 +710,13 @@ function Objective.render(state: {
 	if label ~= nil then
 		local show = state.lineVisible and not suppressed
 		label.Visible = show
+		-- THE SLATE IS THIS MODULE'S TOO, for the reason the label is: one writer, one `Visible`.
+		-- An `AutomaticSize` slate with an empty label still draws its own padding and its brass
+		-- edge, so hiding the words without hiding the slate would leave a small empty tile in the
+		-- top band -- the kind of thing only a screenshot finds.
+		if lineSlate ~= nil then
+			(lineSlate :: Frame).Visible = show
+		end
 		-- CLEARED, NOT JUST HIDDEN, which is `Hud.renderStartCard`'s rule: the next phase must not
 		-- flash the last one's sentence for a frame.
 		local text = if show then state.text else ""
@@ -685,6 +726,11 @@ function Objective.render(state: {
 		local size = Objective.textSizeFor(state.viewport.X)
 		if label.TextSize ~= size then
 			label.TextSize = size
+		end
+		-- ONE LINE TURNS BLAZE AND EVERY OTHER ONE IS PAPER (§5 surface 2).
+		local tint = if Objective.isGo(text) then Objective.CONFIG.GO_COLOR else Objective.CONFIG.TEXT_COLOR
+		if label.TextColor3 ~= tint then
+			label.TextColor3 = tint
 		end
 	end
 

@@ -17,6 +17,9 @@ local scripts = player:WaitForChild("PlayerScripts")
 local Hud = require(scripts:WaitForChild("Hud"))
 
 local Compass = Hud.Compass
+-- The one source for every colour, face and size (task 201), read off the Hud the way `Compass`,
+-- `Rail` and `Objective` are -- a spec never walks `PlayerScripts` by name for a sibling module.
+local Style = Hud.Style
 local CONFIG = Compass.CONFIG
 
 return function()
@@ -266,10 +269,14 @@ return function()
 			-- ON THE SCREEN, not in the table: `Compass.driveMarkerLabel` reads the live TextLabel.
 			Compass.setBearing(data.PUSH_BEARING_DEG, data.PUSH_LABEL)
 			Compass.render(data.PUSH_BEARING_DEG)
-			expect(Compass.driveMarkerLabel()).to.equal(data.PUSH_LABEL)
+			-- SPACED ON THE WAY TO THE SCREEN (task 201, §1.2): the marker's word is 10 px and
+			-- uppercase, so what is DRAWN is "R O A D" and what the world SAID is "ROAD".
+			-- `Compass.driveMarkerLabel` still reads the live `TextLabel`, which is the point of
+			-- this case; the comparison goes through the same one transform the renderer uses.
+			expect(Compass.driveMarkerLabel()).to.equal(Style.spaced(data.PUSH_LABEL))
 			Compass.setBearing(data.DRIVE_BEARING_DEG, nil)
 			Compass.render(data.DRIVE_BEARING_DEG)
-			expect(Compass.driveMarkerLabel()).to.equal(Compass.CONFIG.DRIVE_LABEL)
+			expect(Compass.driveMarkerLabel()).to.equal(Style.spaced(Compass.CONFIG.DRIVE_LABEL))
 			-- No bearing, no marker and no word at all.
 			Compass.setBearing(nil)
 			Compass.render(0)

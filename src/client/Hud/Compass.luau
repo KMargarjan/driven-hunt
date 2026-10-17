@@ -22,26 +22,37 @@
 -- Design: no new design document -- one strip inside the HUD's own ScreenGui, drawn by the HUD,
 -- reading the camera it already reads (`docs/design/camera.md` section 6.2: the Hud reads
 -- `Camera.isFirstPerson()` and never writes the camera).
+-- THE ONE SOURCE for every colour, face and size on this strip (task 201, the Designer's design
+-- system, 2026-10-17). Surface 3 of the inventory: *"`#101214` -> `SLATE`; white -> `PAPER`; drive
+-- mark `#EB5A37` -> `BLAZE_HI`; `DRIVE` becomes a `MICRO` spaced label in `BLAZE_HI`; centre line
+-- `#FFE896` -> `BRASS_HI`. Corner 11, brass edge @ 0.55, 420 wide instead of 360 so a 120 degree
+-- span is not cramped."* The strip is a QUIET SLATE (§3.3): it carries 9-13 px type, so it sits at
+-- `Style.SLATE_QUIET_T` and not at the 0.18 a 12 px-and-up slate uses.
+local Style = require(script.Parent.Style)
+
 local Compass = {}
 
 -- Every number here is a layout choice and they are together so a retune is one block.
 Compass.CONFIG = {
-	-- A THIN STRIP AT THE TOP CENTRE. 360 px wide showing `SPAN_DEG` of the world, so the player
-	-- sees a quarter turn either side of where they are looking and the marker arrives before the
-	-- animals do.
-	WIDTH = 360,
-	HEIGHT = 26,
+	-- A THIN STRIP AT THE TOP CENTRE, showing `SPAN_DEG` of the world, so the player sees a quarter
+	-- turn either side of where they are looking and the marker arrives before the animals do.
+	--
+	-- 420 ON A DESKTOP AND `screenW - 24` ON A PHONE (the system §4.1 / §4.2). 360 cramped a 120
+	-- degree span; 420 gives it room, and the phone's 376 is what keeps the strip clear of the
+	-- screen's own 12 px gutter at 400 px. `Compass.widthFor` is the one reader of the break point.
+	WIDTH = 420,
+	WIDTH_PHONE_MARGIN = 24,
+	HEIGHT = 30,
 	-- BELOW THE DRIVE BAR, NOT ON TOP OF IT (task 125 round 2, the Reviewer's blocking finding). The
 	-- strip was at 10 and covered 360 of the bar's 520 px -- the clock, the boars left and the team
 	-- badge -- in every world that HAS a drive. It was not seen because the frames were taken in the
 	-- Forest Test, where `MatchBoot` stood aside and there was no bar at all.
 	--
-	-- 76 -> 108 (task 165). THE WHOLE TOP BAND MOVED DOWN ONE BAND so the objective line could take
-	-- the top line (`docs/design/hud-clarity.md` section 3): objective 8..40, drive bar 44..70, tied
-	-- banner 74..104, this strip 108..134, the map at 140. **AND THE BANNER IS 30 PX TALL, NOT THE 24
-	-- THIS COMMENT USED TO CLAIM** -- `Hud.build` creates it `UDim2.fromOffset(620, 30)`, so it owns
-	-- 74..104 and this strip clears it by 4. The old numbers happened to work (76 clears 68 either
-	-- way); the new band has 4 px of gap and a stale 24 would have eaten it (design correction C2).
+	-- 76 -> 108 (task 165), AND 108 IS WHERE IT STAYS (task 201). The top band now reads
+	-- objective 8..38, status slate 40..74, tied banner 74..104, this strip 108..138, the minimap at
+	-- 140 -- and the strip grew from 26 to 30 px, which is the 2 px it had spare over the map.
+	-- `tests/client/hud_clarity.spec.luau` asserts the whole band as rectangles at three viewports,
+	-- so a strip that grows into its neighbour fails there rather than in a screenshot.
 	TOP = 108,
 	SPAN_DEG = 120, -- degrees of bearing visible across the whole strip
 	-- Over the feed and the drive bar (1), under the scope's mask (11-13), and under the drive
@@ -50,38 +61,54 @@ Compass.CONFIG = {
 	-- cannot cover what is drawn inside its own circle.
 	Z_INDEX = 6,
 
-	-- The strip itself: dark enough to read against sky AND against sunlit grass, which is the one
-	-- requirement a HUD element in this world actually has (the drive report learned it the hard
-	-- way in task 124 -- 0.25 over an arena is see-through over a forest).
-	BACKGROUND = Color3.fromRGB(16, 18, 20),
-	TRANSPARENCY = 0.2, -- readable over sunlit grass as well as sky; task 124 learned this the hard way
+	-- THE SLATE, AND IT IS NO LONGER THIS FILE'S OWN DARK BLUE-GREY (task 201). Every word over the
+	-- world sits on `Style.LOOK.SLATE`, and the quiet variant is the one for 9-13 px type. The old
+	-- `#101214` at 0.2 was measured by eye in task 124; this one is measured in §2's contrast table.
+	BACKGROUND = Style.LOOK.SLATE,
+	TRANSPARENCY = Style.SLATE_QUIET_T,
 
 	-- THE CARDINALS, and the minor ticks between them. 45 degrees apart for the eight letters, 15
 	-- for the small marks, which is close enough to read motion and far enough not to be a comb.
-	LABEL_SIZE = 13,
-	LABEL_COLOR = Color3.fromRGB(255, 255, 255),
-	TICK_COLOR = Color3.fromRGB(255, 255, 255),
+	LABEL_SIZE = 11,
+	LABEL_COLOR = Style.LOOK.PAPER,
+	TICK_COLOR = Style.LOOK.PAPER,
 	TICK_TRANSPARENCY = 0.3,
 	MINOR_EVERY_DEG = 15,
 	MINOR_HEIGHT = 5,
 	MAJOR_HEIGHT = 9,
 
-	-- WHERE THE DRIVE IS. Karen's own colour language elsewhere in this HUD is red for the thing
-	-- that matters (the kill marker), so the drive marker is the same family and nothing else on
-	-- the strip is coloured at all.
-	DRIVE_COLOR = Color3.fromRGB(235, 90, 55),
+	-- WHERE THE DRIVE IS, and nothing else on the strip is coloured at all.
+	--
+	-- TWO REDS BECAME ONE (§1.1). `#EB5A37` -- this strip's, the chevron's and the map's "go here"
+	-- red -- is deleted; that mark is `BLAZE_HI` now, so CLAY is the only red-ish thing on screen
+	-- and it always means something went wrong.
+	DRIVE_COLOR = Style.LOOK.BLAZE_HI,
 	DRIVE_WIDTH = 13,
 	DRIVE_HEIGHT = 9,
 	DRIVE_LABEL = "DRIVE",
-	DRIVE_LABEL_SIZE = 11,
+	DRIVE_LABEL_SIZE = 10,
 	-- A marker that has gone off the end of the strip is PINNED to that end rather than hidden, so
 	-- "it is behind me and to the left" still has an answer. It dims when it is pinned, so pinned
 	-- and real are not the same picture.
 	PINNED_TRANSPARENCY = 0.45,
 
 	-- The centre mark: where the player is actually looking.
-	CENTRE_COLOR = Color3.fromRGB(255, 232, 150), -- the same cream the score panel highlights your own row with
+	CENTRE_COLOR = Style.LOOK.BRASS_HI, -- §1.1: the brass highlight, which is also your own map marker
 }
+
+-- HOW WIDE THE STRIP IS AT A GIVEN VIEWPORT. PURE AND EXPORTED, for the reason
+-- `Objective.lineRect` and `Rail.rect` are: `AbsolutePosition` can only answer for whatever size
+-- the Studio window happens to be, and the claim being made is about 400 x 800 as well.
+--
+-- A PHONE GETS `screenW - 24` AND NEVER MORE THAN THE DESKTOP WIDTH, which is the design's §4.2
+-- item 2 -- at 400 px a 420 px strip would hang 10 px off each edge of the screen.
+function Compass.widthFor(viewportX: number): number
+	local config = Compass.CONFIG
+	if Style.isPhone(viewportX) then
+		return math.max(120, math.min(config.WIDTH, math.floor(viewportX - config.WIDTH_PHONE_MARGIN)))
+	end
+	return config.WIDTH
+end
 
 -- The eight points. Names, not numbers, because a compass is read in letters.
 Compass.POINTS = {
@@ -289,20 +316,23 @@ local function build(frame: Frame)
 		label.Name = point.text
 		label.AnchorPoint = Vector2.new(0.5, 0)
 		label.BackgroundTransparency = 1
-		label.Font = Enum.Font.Code
+		label.BorderSizePixel = 0
+		-- BUILDERSANS SEMIBOLD AND NOT `Enum.Font.Code` (task 201, the system §1.2): a compass point
+		-- is a LABEL, and every label in this game is BuilderSans. Uppercase at 11 px, so it is
+		-- letter-spaced (§1.2: `spaced()` applies at 11 px and below and nowhere above).
+		label.FontFace = Style.FONT.SANS_SEMI
+		label.TextScaled = false
+		label.TextWrapped = false
 		label.TextSize = config.LABEL_SIZE
 		label.TextColor3 = config.LABEL_COLOR
-		label.Size = UDim2.fromOffset(28, config.LABEL_SIZE + 2)
-		label.Position = UDim2.new(0.5, 0, 0, 1)
-		label.Text = point.text
+		label.Size = UDim2.fromOffset(34, config.LABEL_SIZE + 3)
+		label.Position = UDim2.new(0.5, 0, 0, 2)
+		label.Text = Style.spaced(point.text)
 		label.ZIndex = config.Z_INDEX + 2
 		label.Visible = false
-		-- The same black outline every other label in this HUD wears: a thin Code glyph over a
-		-- bright sky is the half of the text that disappears first.
-		local stroke = Instance.new("UIStroke")
-		stroke.Thickness = 1
-		stroke.Color = Color3.new(0, 0, 0)
-		stroke.Parent = label
+		-- AND NO BLACK OUTLINE (§2). The strip IS the backing panel, which is what an outline was
+		-- standing in for: *"an outline thickens every letter, halves the apparent size of 11 px type,
+		-- and still fails over a bright sky because the outline itself is only 1 px"*.
 		label.Parent = frame
 		table.insert(marks, { deg = point.deg, node = label })
 	end
@@ -333,10 +363,7 @@ local function build(frame: Frame)
 	mark.Rotation = 45
 	mark.ZIndex = config.Z_INDEX + 4
 	mark.Visible = false
-	local markStroke = Instance.new("UIStroke")
-	markStroke.Thickness = 1
-	markStroke.Color = Color3.new(0, 0, 0)
-	markStroke.Parent = mark
+	-- NO BLACK OUTLINE (§2): the chevron sits on the strip's own slate, which is what carries it.
 	mark.Parent = frame
 	driveMark = mark
 
@@ -348,18 +375,21 @@ local function build(frame: Frame)
 	-- clipped away on every frame and the marker was a bare chevron.
 	label.AnchorPoint = Vector2.new(0.5, 1)
 	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.Code
+	label.BorderSizePixel = 0
+	-- A `MICRO` SPACED LABEL IN `BLAZE_HI` (§5 surface 3). BuilderSans Bold, uppercase, and
+	-- letter-spaced because it is 10 px -- the chevron and its word are one mark, so they are one
+	-- colour, and that colour is the game's single "go here" orange.
+	label.FontFace = Style.FONT.SANS_BOLD
+	label.TextScaled = false
+	label.TextWrapped = false
 	label.TextSize = config.DRIVE_LABEL_SIZE
 	label.TextColor3 = config.DRIVE_COLOR
-	label.Size = UDim2.fromOffset(60, config.DRIVE_LABEL_SIZE + 2)
+	label.Size = UDim2.fromOffset(90, config.DRIVE_LABEL_SIZE + 3)
 	label.Position = UDim2.fromScale(0.5, 1)
-	label.Text = config.DRIVE_LABEL
+	label.Text = Style.spaced(config.DRIVE_LABEL)
 	label.ZIndex = config.Z_INDEX + 4
 	label.Visible = false
-	local labelStroke = Instance.new("UIStroke")
-	labelStroke.Thickness = 1
-	labelStroke.Color = Color3.new(0, 0, 0)
-	labelStroke.Parent = label
+	-- No outline, for §2's reason: the strip is the backing panel.
 	label.Parent = frame
 	driveLabel = label
 end
@@ -404,8 +434,12 @@ function Compass.render(headingDeg: number)
 	label.Visible = true
 	-- THE WORD FOLLOWS THE BEARING (task 153 round 2). Written only when it changes: this runs once
 	-- a frame, and a `Text` write fires the property's own signals whether or not the string differs.
-	if label.Text ~= markerText then
-		label.Text = markerText
+	-- SPACED ON THE WAY TO THE SCREEN AND NOT IN THE DATA (§1.2): `markerText` is the word the
+	-- world said ("ROAD", "DRIVE"), and `Compass.driveMarkerLabel` answers what is DRAWN, so the
+	-- spec that compares the two compares like with like.
+	local drawn = Style.spaced(markerText)
+	if label.Text ~= drawn then
+		label.Text = drawn
 	end
 	-- The chevron rides the TOP half of the strip and the word sits under it, both inside the frame.
 	mark.Position = UDim2.new(0.5, math.round(x), 0, config.DRIVE_HEIGHT)

@@ -81,11 +81,20 @@ local function bands(viewport: Vector2)
 	local count = #Rail.BUTTONS
 	local rx, ry, rw, rh =
 		Rail.rect(viewport, MapUi.diameterFor(viewport.X, viewport.Y), MapUi.CONFIG.MINIMAP_TOP, count)
+	-- THE STATUS BAR IS A SLATE OF CHIPS SINCE TASK 201 and is `AutomaticSize.X`, so its width is
+	-- whatever its chips come to. `Hud.statusRect` answers the box it may NEVER GROW PAST -- the
+	-- right column the minimap and the rail own, applied to both sides so the slate stays centred --
+	-- which makes this test conservative: if the ceiling clears everything, the drawn bar does too.
+	-- It replaces `centred(520, Drive.CONFIG.BAR_TOP_OFFSET, 26)`, and that constant now has no
+	-- reader: moving it is `src/shared/Drive/`, which is in `TWO_PLAYER_PATHS` (TASKS.md 201a).
+	local bx, by, bw, bh = Hud.statusRect(viewport)
 	return {
 		{ name = "objective", rect = { ox, oy, ow, oh } },
-		{ name = "driveBar", rect = centred(520, Drive.CONFIG.BAR_TOP_OFFSET, 26) },
+		{ name = "driveBar", rect = { bx, by, bw, bh } },
 		{ name = "tiedBanner", rect = centred(620, Drive.CONFIG.TIED_TOP_OFFSET, 30) },
-		{ name = "compass", rect = centred(Compass.CONFIG.WIDTH, Compass.CONFIG.TOP, Compass.CONFIG.HEIGHT) },
+		-- THE STRIP'S WIDTH FOLLOWS THE VIEWPORT (§4.2 item 2): 420 on a desktop, `screenW - 24` on
+		-- a phone, so a 400 px screen does not get a strip hanging 10 px off each edge.
+		{ name = "compass", rect = centred(Compass.widthFor(viewport.X), Compass.CONFIG.TOP, Compass.CONFIG.HEIGHT) },
 		{ name = "minimap", rect = { mx, my, mw, mh } },
 		{ name = "rail", rect = { rx, ry, rw, rh } },
 	}
@@ -309,10 +318,17 @@ return function()
 			local node = (label :: TextLabel):Clone()
 			node.Name = "SpecProbe"
 			local _, _, width, height = Objective.lineRect(Vector2.new(400, 800))
+			-- `AutomaticSize` OFF ON THE PROBE, AND PARENTED TO THE `ScreenGui` AND NOT TO THE SLATE
+			-- (task 201). The real label grows with its sentence inside an `AutomaticSize` slate, so
+			-- a clone that kept either would report `TextFits` TRUE for any string and the case
+			-- would prove nothing -- which is exactly the failure mode the comment above describes
+			-- from the other direction. What is measured is the BAND the slate may not exceed:
+			-- `Objective.lineRect` at 400 x 800.
+			node.AutomaticSize = Enum.AutomaticSize.None
 			node.Size = UDim2.fromOffset(width, height)
 			node.TextSize = Objective.textSizeFor(400)
 			node.Visible = true
-			node.Parent = (label :: TextLabel).Parent
+			node.Parent = Hud.gui()
 			local tooLong = {}
 			local longest = 0
 			for _, team in ipairs({ "Shooters", "Drivers" }) do

@@ -73,6 +73,9 @@ local Workspace = game:GetService("Workspace")
 
 local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
 local ShopDisplay = require(script.Parent.ShopDisplay)
+-- THE ONE SOURCE for every colour, face, size, radius and duration (task 201, the Designer's
+-- design system, 2026-10-17 §1). This file's `LOOK`, `FONT` and `spaced` are now aliases of it.
+local Style = require(script.Parent.Style)
 
 local ShopPanel = {}
 
@@ -101,13 +104,20 @@ local Z = PANEL.Z_INDEX
 -- answer to *"what colour is blaze orange"* -- `docs/PROJECT_CONTEXT.md`'s named failure mode -- and
 -- it is exactly how the old dialog came to be `Enum.Font.Code` on a blue-grey panel while the shop
 -- beside it was Oswald on charcoal.
-ShopPanel.FONT = {
-	OSWALD_SB = Font.new("rbxasset://fonts/families/Oswald.json", Enum.FontWeight.SemiBold),
-	OSWALD_MD = Font.new("rbxasset://fonts/families/Oswald.json", Enum.FontWeight.Medium),
-	SANS_BOLD = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.Bold),
-	SANS_SEMI = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.SemiBold),
-	SANS_REG = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.Regular),
-}
+-- THEY LIVE IN `Hud.Style` SINCE TASK 201, AND THESE THREE LINES ARE WHAT IS LEFT OF THEM HERE.
+-- The Designer's design system, 2026-10-17 (§1, build task A) made the shop's palette, its two
+-- faces and its letter-spacing THE WHOLE GAME'S, so the table moved up one level and this file --
+-- and `PadPanel`, and `HitCard`, which all read `ShopPanel.LOOK` / `.FONT` / `.spaced` -- reads it
+-- back through a thin alias. SAME TABLE, SAME VALUES, so the shop and the pad dialog look exactly
+-- as `196-shop-desktop.png` and `t197d-dialog.png` already do: that is task A's only check.
+--
+-- WHY AN ALIAS AND NOT A RENAME ACROSS THREE FILES: `tests/client/shop_panel.spec.luau` asserts
+-- `Panel.LOOK.BLAZE`, `Panel.LOOK.MESSAGE_SECONDS` and `Panel.spaced("AMMO")` by those names, and a
+-- field rename across a shared table is this repo's named recurrence (task 196's `Body.SLOTS`).
+-- The alias costs three lines and removes the second copy, which is the whole point of task A.
+ShopPanel.FONT = Style.FONT
+ShopPanel.spaced = Style.spaced
+ShopPanel.LOOK = Style.LOOK
 
 local OSWALD_SB = ShopPanel.FONT.OSWALD_SB
 local OSWALD_MD = ShopPanel.FONT.OSWALD_MD
@@ -115,63 +125,7 @@ local SANS_BOLD = ShopPanel.FONT.SANS_BOLD
 local SANS_SEMI = ShopPanel.FONT.SANS_SEMI
 local SANS_REG = ShopPanel.FONT.SANS_REG
 
--- "WEAPONS" -> "W E A P O N S". Roblox `TextLabel` has no tracking property, so the spec's
--- letter-spaced micro-labels are drawn with a plain space between the letters. ONLY for the <= 10 px
--- uppercase labels it names: at 14 px and above a full space is too wide.
-function ShopPanel.spaced(text: string): string
-	return (string.gsub(string.gsub(text, "(.)", "%1 "), "%s+$", ""))
-end
-
 local spaced = ShopPanel.spaced
-
--- ---------------------------------------------------------------- the palette (spec 2)
-ShopPanel.LOOK = {
-	SCRIM = Color3.fromHex("0A0907"),
-	PANEL = Color3.fromHex("1C1915"),
-	COLUMN = Color3.fromHex("191612"),
-	HEADER_TOP = Color3.fromHex("2A251D"),
-	HEADER_BOTTOM = Color3.fromHex("211D17"),
-	ROW = Color3.fromHex("26221C"),
-	ROW_HOVER = Color3.fromHex("2E2922"),
-	ROW_LOCKED = Color3.fromHex("221E18"),
-	ROW_SELECTED = Color3.fromHex("16261B"),
-	CASE_TOP = Color3.fromHex("262019"),
-	CASE_MID = Color3.fromHex("15120F"),
-	CASE_FLOOR = Color3.fromHex("0C0A08"),
-	BLAZE = Color3.fromHex("D2661B"),
-	BLAZE_HI = Color3.fromHex("E8832F"),
-	BLAZE_LO = Color3.fromHex("A94E12"),
-	BLAZE_EDGE = Color3.fromHex("8E3F0C"),
-	BUY_TOP = Color3.fromHex("E07324"),
-	BUY_MID = Color3.fromHex("C25C15"),
-	PINE = Color3.fromHex("2F6B3E"),
-	PINE_TEXT = Color3.fromHex("8FD39C"),
-	PINE_DARK = Color3.fromHex("1B2A20"),
-	BRASS = Color3.fromHex("C8A258"),
-	BRASS_HI = Color3.fromHex("F0D79A"),
-	BRASS_LO = Color3.fromHex("8E6F30"),
-	COIN_TEXT = Color3.fromHex("E2C488"),
-	AMBER = Color3.fromHex("D9A95F"),
-	AMBER_BAR = Color3.fromHex("A8853F"),
-	AMBER_DARK = Color3.fromHex("241F18"),
-	CLAY = Color3.fromHex("E7917F"),
-	CLAY_EDGE = Color3.fromHex("C8604E"),
-	CLAY_DARK = Color3.fromHex("2A1E1B"),
-	PAPER = Color3.fromHex("F2EBDC"),
-	BODY = Color3.fromHex("D5CCBB"),
-	MUTED = Color3.fromHex("9A9282"),
-	FAINT = Color3.fromHex("6B655B"),
-	LINE = Color3.fromHex("443C31"),
-	WELL_EDGE = Color3.fromHex("322C24"),
-	SOON_FILL = Color3.fromHex("232120"),
-	BUTTON_TEXT = Color3.fromHex("FFF4E4"),
-	HIGHLIGHT = Color3.fromHex("FFD696"),
-	-- How long a refusal or a receipt stays in the status line. A line you caused by pressing a
-	-- button does not stay on the screen for the rest of the session.
-	MESSAGE_SECONDS = 4,
-	-- *"Nothing in the UI moves except a 0.12 s colour tween on hover and press"* (spec 8.9).
-	HOVER_SECONDS = 0.12,
-}
 
 local LOOK = ShopPanel.LOOK
 
