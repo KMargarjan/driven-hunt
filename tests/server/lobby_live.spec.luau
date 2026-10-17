@@ -443,6 +443,46 @@ return function()
 			expect(Lobby.padOf(2).state).to.equal(Pads.COUNTDOWN)
 		end)
 
+		it("puts the engine and the exhaust ON the truck, not three thousand studs away", function()
+			-- **THE DEFECT THIS CASE IS WRITTEN FROM, measured in the live Forest Test on 2026-10-17:**
+			-- the exhaust attachment reported `(5783.8, 304.8, -5872.9)` against a lobby at
+			-- (2893, 150, -2941) -- very nearly twice everything. `Attachment.WorldCFrame` was being
+			-- written BEFORE the attachment was parented, so it landed in the LOCAL `CFrame` and the
+			-- engine then multiplied it by the part's own. The smoke was emitting three thousand
+			-- studs away and the engine SOUND was playing there with it, which is the whole of
+			-- Karen's *"car started sound"* gone -- and no spec could see it, because an attachment
+			-- has no failure to assert, only a position nobody looked at.
+			--
+			-- SO THE ASSERTION IS THE ONE THING THAT WOULD HAVE CAUGHT IT: every piece of the rig is
+			-- inside its own truck's box, with a stud of slack for the exhaust hanging under the
+			-- tailgate.
+			local _seen = fresh(bin)
+			Lobby.step(1000, {})
+			local trucks = bin:FindFirstChild(Data.TRUCKS_NAME, true)
+			expect(trucks).to.be.ok()
+			local checked = 0
+			for index = 1, CFG.TRUCK.COUNT do
+				local truck = (trucks :: Instance):FindFirstChild(string.format(Data.TRUCK_NAME, index))
+				expect(truck).to.be.ok()
+				local centre, half = Lobby.Build.worldBoxOf(truck :: Instance)
+				local slack = Vector3.new(2, 2, 2)
+				for _, piece in ipairs((truck :: Instance):GetDescendants()) do
+					if piece:IsA("Attachment") then
+						local at = (piece :: Attachment).WorldPosition
+						local gap = at - centre
+						expect(math.abs(gap.X) <= half.X + slack.X).to.equal(true)
+						expect(math.abs(gap.Y) <= half.Y + slack.Y).to.equal(true)
+						expect(math.abs(gap.Z) <= half.Z + slack.Z).to.equal(true)
+						checked += 1
+					end
+				end
+			end
+			-- AND THERE IS SOMETHING TO CHECK: two per truck (the engine and the exhaust) plus one
+			-- aim attachment per headlamp, so a rig that built nothing would fail here rather than
+			-- pass a loop over an empty list.
+			expect(checked >= 2 * CFG.TRUCK.COUNT).to.equal(true)
+		end)
+
 		it("turns the truck off again whichever way the party ends", function()
 			-- THE RECONCILE IS THE WHOLE REASON THIS IS NOT AN EVENT. A truck started by the PICK and
 			-- stopped by the DEPARTURE would be left idling by every other way a party can end -- and

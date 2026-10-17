@@ -88,6 +88,24 @@ local Config = {
 	PITCH_MIN_DEG = -72,
 	PITCH_MAX_DEG = 78, -- short of +-90, so the camera never gimbals
 	SENSITIVITY_DEG_PER_PIXEL = 0.25, -- feel (Karen). Converted once, in Mode.step
+	-- ---------------- TURNING TO FACE SOMETHING (task 197)
+	--
+	-- A player who steps onto a truck pad is facing NORTH -- `Camera.faceCharacter` starts the view
+	-- where the body is, and the lobby spawns him looking at the lodge -- and his truck is SOUTH of
+	-- the pad. So the engine starting, the headlights coming on and the smoke all happened behind
+	-- her. These two numbers are the whole of the turn that fixes it.
+	--
+	-- 0.6 s: long enough to read as the view turning and not as a cut, short enough to be over
+	-- before the five-second countdown is half gone.
+	FACE_TURN_SECONDS = 0.6,
+	-- ...AND THE MOUSE ALWAYS WINS. Any frame with a mouse delta past this many pixels cancels the
+	-- turn for good: a camera that kept pulling back toward a truck while the player tried to look
+	-- away would be the camera fighting her hand, which is the exact complaint
+	-- `Camera.wantsDelta`'s own header was written for. 0.5 px, so it is "she moved it" and not
+	-- "a sub-pixel jitter arrived".
+	FACE_CANCEL_DELTA_PX = 0.5,
+	-- ...AND HOW CLOSE COUNTS AS THERE, so a turn ends on arrival rather than running its clock out.
+	FACE_ARRIVED_DEG = 0.5,
 	AIM_SENSITIVITY_OVERRIDE = nil :: number?, -- nil = derive it from the FOV (Mode.sensitivityScale)
 	SPAWN_PITCH_DEG = -8, -- yaw is KEPT across a respawn; only pitch resets
 

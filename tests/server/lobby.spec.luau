@@ -3410,6 +3410,23 @@ return function()
 			expect(Build.isHeadLamp(Color3.fromRGB(255, 89, 89), CFG)).to.equal(false) -- tail red
 			expect(Build.isHeadLamp(Color3.fromRGB(190, 104, 98), CFG)).to.equal(false) -- brake red
 			expect(Build.isHeadLamp(Color3.fromRGB(163, 162, 165), CFG)).to.equal(false) -- the shipped grey
+
+			-- A TAIL IS IN THE FAR *QUARTER*, NOT MERELY THE FAR HALF (task 197 part 2, measured).
+			-- The model's `B` at local x **+2.80** of a 9.2 half-length is the HIGH CENTRE BRAKE
+			-- LIGHT ON THE CAB ROOF. A far-half test called it a tail, hung a red `PointLight` on
+			-- the roof of every started truck, and the like-for-like night pair showed the two
+			-- NEIGHBOURING trucks and the ground washed salmon pink by it.
+			local behind = -9.2 * CFG.TRUCK.ENGINE.TAIL_MIN_FRACTION
+			expect(2.80 < behind).to.equal(false) -- the roof lamp is NOT a tail
+			expect(-8.53 < behind).to.equal(true) -- the real tails are (facing is -x in this frame)
+			expect(-8.64 < behind).to.equal(true)
+			-- ...AND THE FRONT AMBERS ARE NOWHERE NEAR IT, which is what keeps a red glow off a bonnet.
+			expect(7.99 < behind).to.equal(false)
+
+			-- AN UNLIT LAMP IS NOT EMISSIVE AT ALL. `Neon` with a dark colour still glows at night,
+			-- which is how three unlit trucks came to look lit in the first frames -- so `setTruck`
+			-- swaps the MATERIAL with the colour.
+			expect(CFG.TRUCK.ENGINE.OFF_MATERIAL).never.to.equal(Enum.Material.Neon)
 		end)
 
 		it("cuts both engine clips inside what was measured, and keeps the loop out of the start", function()

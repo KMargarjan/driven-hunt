@@ -82,6 +82,11 @@ Lobby.TEMPLATE = {
 -- name both readers find it by.
 Lobby.COUNTER_NAME = "Counter"
 
+-- THE TRUCKS' FOLDER AND A TRUCK'S OWN NAME, here because BOTH sides read them since task 197:
+-- `Build.trucks` writes them and `Lobby.truckPosition` finds them. One spelling of "Truck2".
+Lobby.TRUCKS_NAME = "Trucks"
+Lobby.TRUCK_NAME = "Truck%d"
+
 -- THE SHOPKEEPER AND HIS PROMPT (task 181). Karen, 2026-10-14: *"in lobby has to be a person bot who
 -- you need to click E to get access to shop"*. Both live under `Lodge.Inside.Shop`, and these are
 -- the names the CLIENT finds the prompt by -- the one way into the panel since task 181 took task
@@ -1008,10 +1013,27 @@ Lobby.CONFIG = {
 			-- It is a POSITION test and not a colour test on purpose: the amber indicators at the
 			-- FRONT are the same hue family as a tail light, and a red glow on a bonnet is exactly
 			-- the kind of thing that measures correct and looks wrong (`docs/PROJECT_CONTEXT.md`).
+			--
+			-- ...AND IT MUST BE IN THE FAR *QUARTER*, NOT MERELY THE FAR HALF. MEASURED, 2026-10-17:
+			-- the model's `B` lamp at local x **+2.80** is the HIGH CENTRE BRAKE LIGHT on the cab
+			-- roof -- past the middle, so a far-HALF test called it a tail light and hung a red
+			-- `PointLight` on the roof of every started truck. In the like-for-like night pair
+			-- (`t197b-rig-off.png` / `t197b-rig-on.png`, one held camera, only the rig changed) that
+			-- lamp plus the six real ones washed the two NEIGHBOURING trucks, their wheels and the
+			-- ground salmon pink. 0.55 of the half-length puts the boundary past it and leaves every
+			-- real tail lamp (x +8.53 to +8.64 of a 9.2 half-length) well inside.
+			TAIL_MIN_FRACTION = 0.55,
 			HEAD_COLOR = Color3.fromRGB(255, 246, 214),
-			HEAD_OFF_COLOR = Color3.fromRGB(86, 84, 76),
+			-- **AN UNLIT LAMP IS NOT EMISSIVE AT ALL**, and that is a material and not a colour.
+			-- MEASURED in the same pair: at `Neon` with this grey the "off" headlamps still glowed
+			-- white at night, so three of the four trucks looked lit and the started one did not
+			-- stand out. `Build.setTruck` swaps the MATERIAL with the colour -- `SmoothPlastic` off,
+			-- the lamp's own shipped material on -- and the colour below is then only what the lens
+			-- looks like in daylight.
+			HEAD_OFF_COLOR = Color3.fromRGB(64, 62, 56),
+			OFF_MATERIAL = Enum.Material.SmoothPlastic,
 			TAIL_COLOR = Color3.fromRGB(255, 72, 56),
-			TAIL_OFF_COLOR = Color3.fromRGB(74, 40, 36),
+			TAIL_OFF_COLOR = Color3.fromRGB(58, 30, 28),
 			-- THE SPOTLIGHT IN EACH HEADLAMP. 60 degrees and 46 studs reaches the yard in front of
 			-- the truck without lighting the lodge 46 studs behind it; `Shadows` is on because a beam
 			-- with no shadow is a glow, and four trucks are never lit at once.
@@ -1020,8 +1042,11 @@ Lobby.CONFIG = {
 			HEAD_ANGLE_DEGREES = 60,
 			-- THE TAIL LIGHTS ARE A GLOW AND NOT A BEAM, so a `PointLight` with a short range: a tail
 			-- light you can see from behind the truck, which is where the pad is.
-			TAIL_BRIGHTNESS = 2,
-			TAIL_RANGE_STUDS = 12,
+			-- 1 AND 7, DOWN FROM 2 AND 12, and the night pair above is why: seven red `PointLight`s at
+			-- brightness 2 and range 12 are a floodlight, and what they flooded was the two trucks
+			-- either side. A tail light is a lamp you can SEE, not a lamp that lights things.
+			TAIL_BRIGHTNESS = 1,
+			TAIL_RANGE_STUDS = 7,
 			-- ...AND A FALLBACK TRUCK HAS NO LAMPS AT ALL. `Build.truck` builds seven boxes and four
 			-- cylinders and not one light, so when the free model is missing the rig builds its own
 			-- four lenses off the truck's measured box: at this fraction of its half-width, this
@@ -1738,6 +1763,39 @@ end
 -- and four `Position` reads -- the same order as the one subtraction `Hud.renderObjective` already
 -- spends on the shop counter.
 --
+-- WHERE TRUCK n IS, read off the model the SERVER built -- `Lobby.padPart`'s rule exactly, and the
+-- reason there is no arithmetic here: `Pads.centreFor` already knows where a bay is, it is the
+-- server's, and a client copy of it would be a second answer to *"where is truck 3"*.
+--
+-- TASK 197 PART 2 IS WHY IT EXISTS: a player steps onto a pad facing north, and his truck is south
+-- of him -- so `Hud.renderObjective` asks the CAMERA to turn toward this point. It is a position and
+-- nothing else; what to do with it is the camera's.
+--
+-- MEMOISED PER INDEX AND DROPPED WITH THE INSTANCE, for `padPart`'s stated reason: a rebuilt lobby
+-- must answer nil rather than a position from the lobby before it.
+local cachedTrucks: { [number]: Instance } = {}
+
+function Lobby.truckPosition(index: number): Vector3?
+	local cached = cachedTrucks[index]
+	if cached == nil or not cached:IsDescendantOf(game) then
+		cachedTrucks[index] = nil
+		local folder = Workspace:FindFirstChild(Lobby.FOLDER_NAME)
+		local trucks = if folder then folder:FindFirstChild(Lobby.TRUCKS_NAME) else nil
+		local found = if trucks then trucks:FindFirstChild(string.format(Lobby.TRUCK_NAME, index)) else nil
+		if found == nil then
+			return nil
+		end
+		cachedTrucks[index] = found
+		cached = found
+	end
+	-- THE PIVOT OF THE WHOLE THING, not one part of it: the free model and `Build.truck`'s parts
+	-- fallback share no part name at all, and a pivot is what both of them have.
+	local ok, pivot = pcall(function()
+		return (cached :: any):GetPivot().Position
+	end)
+	return if ok then pivot else nil
+end
+
 -- A WORLD WITH NO LOBBY ANSWERS AN EMPTY LIST, and `Objective.targetFor` reads that as *"answer
 -- exactly as task 177 did"*. Absent is not "nowhere".
 function Lobby.padPositions(): { Vector3 }

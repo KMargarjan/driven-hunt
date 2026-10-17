@@ -3222,11 +3222,21 @@ local function lampsOf(model: Instance, cfg): ({ BasePart }, { BasePart }, Vecto
 		return {}, {}, nil
 	end
 	local facing = flat.Unit
+	-- HOW LONG THE TRUCK IS ALONG THE WAY IT FACES, so "the far quarter" is a fraction of the truck
+	-- and not a number of studs a different model would break.
+	local _, half = Build.worldBoxOf(model)
+	local lengthHalf = math.abs(facing.X) * half.X + math.abs(facing.Z) * half.Z
+	local behind = -lengthHalf * cfg.TRUCK.ENGINE.TAIL_MIN_FRACTION
 	local tails: { BasePart } = {}
 	for _, lamp in ipairs(lamps) do
+		-- **THE FAR QUARTER AND NOT THE FAR HALF**, and that is a measured correction (task 197 part
+		-- 2). The free model's `B` lamp sits at local x +2.80 of a 9.2 half-length -- past the middle,
+		-- so a far-HALF test called the HIGH CENTRE BRAKE LIGHT ON THE CAB ROOF a tail light and hung
+		-- a red `PointLight` up there on every started truck. The like-for-like night pair showed what
+		-- that did: the two NEIGHBOURING trucks, their wheels and the ground all washed salmon pink.
 		if
 			not Build.isHeadLamp(lamp.Color, cfg)
-			and facing:Dot((lamp.Position - centre) * Vector3.new(1, 0, 1)) < 0
+			and facing:Dot((lamp.Position - centre) * Vector3.new(1, 0, 1)) < behind
 		then
 			table.insert(tails, lamp)
 		end
@@ -3239,7 +3249,12 @@ end
 -- `off` / `on` colours are kept per lamp because the lamp is the MODEL'S OWN part and its shipped
 -- colour is not ours to forget.
 type TruckRig = {
-	lamps: { { piece: BasePart, on: Color3, off: Color3 } },
+	-- `was` IS THE LAMP'S SHIPPED MATERIAL. An unlit lamp is not emissive at all (task 197 part 2):
+	-- at `Neon` with an "off" grey the headlamps still glowed white at night, so three dark trucks
+	-- looked lit and the started one did not stand out. It is REMEMBERED rather than assumed --
+	-- `Neon` is what this model ships and what the fallback lenses are built as, but neither is this
+	-- file's to decide for the next model.
+	lamps: { { piece: BasePart, on: Color3, off: Color3, was: Enum.Material } },
 	lights: { Light },
 	smoke: ParticleEmitter?,
 	start: Sound?,
@@ -3248,6 +3263,11 @@ type TruckRig = {
 }
 
 local truckRigs: { [number]: TruckRig } = {}
+-- WHAT AN UNLIT LAMP IS MADE OF, remembered beside the rigs for one reason: `Build.setTruck` is
+-- called by the owner's scan with an index and a boolean and is handed no config -- `Build.setPad`'s
+-- signature exactly -- and one row read at build time is better than a config argument nobody else
+-- in that function needs.
+local offMaterial = Enum.Material.SmoothPlastic
 
 -- A `Sound` CUT TO A MEASURED WINDOW. `PlaybackRegion` plus `LoopRegion`, which is the engine's own
 -- way of playing part of an asset -- the alternative, `TimePosition` with a `Looped` sound, replays
@@ -3290,6 +3310,7 @@ end
 -- lenses), because `Build.truck` builds no lamp at all.
 local function truckRig(model: Instance, cfg): TruckRig
 	local spec = cfg.TRUCK.ENGINE
+	offMaterial = spec.OFF_MATERIAL
 	local rig: TruckRig = { lamps = {}, lights = {}, smoke = nil, start = nil, idle = nil, running = false }
 	local centre, half = Build.worldBoxOf(model)
 	local heads, tails, facing = lampsOf(model, cfg)
@@ -3324,8 +3345,9 @@ local function truckRig(model: Instance, cfg): TruckRig
 	end
 
 	for _, head in ipairs(heads) do
-		table.insert(rig.lamps, { piece = head, on = spec.HEAD_COLOR, off = spec.HEAD_OFF_COLOR })
+		table.insert(rig.lamps, { piece = head, on = spec.HEAD_COLOR, off = spec.HEAD_OFF_COLOR, was = head.Material })
 		head.Color = spec.HEAD_OFF_COLOR
+		head.Material = spec.OFF_MATERIAL
 		local beam = Instance.new("SpotLight")
 		beam.Name = "Beam"
 		beam.Brightness = spec.HEAD_BRIGHTNESS
@@ -3352,8 +3374,9 @@ local function truckRig(model: Instance, cfg): TruckRig
 		table.insert(rig.lights, beam)
 	end
 	for _, tail in ipairs(tails) do
-		table.insert(rig.lamps, { piece = tail, on = spec.TAIL_COLOR, off = spec.TAIL_OFF_COLOR })
+		table.insert(rig.lamps, { piece = tail, on = spec.TAIL_COLOR, off = spec.TAIL_OFF_COLOR, was = tail.Material })
 		tail.Color = spec.TAIL_OFF_COLOR
+		tail.Material = spec.OFF_MATERIAL
 		local glow = Instance.new("PointLight")
 		glow.Name = "Glow"
 		glow.Brightness = spec.TAIL_BRIGHTNESS
@@ -3385,15 +3408,24 @@ local function truckRig(model: Instance, cfg): TruckRig
 		local across = Vector3.new(-look.Z, 0, look.X)
 		local lengthHalf = math.abs(look.X) * half.X + math.abs(look.Z) * half.Z
 		local widthHalf = math.abs(across.X) * half.X + math.abs(across.Z) * half.Z
+		-- **PARENTED FIRST, THEN PLACED.** `Attachment.WorldCFrame` on an attachment with no parent
+		-- part has no world to be in: it writes the LOCAL `CFrame` instead, and the moment the
+		-- attachment is parented the engine multiplies that by the part's own CFrame. MEASURED in
+		-- the live Forest Test on 2026-10-17, with the two lines the other way round: the exhaust
+		-- came out at **(5783.8, 304.8, -5872.9)** against a lobby at (2893, 150, -2941) -- very
+		-- nearly twice everything, which is exactly what `partCFrame * worldCFrame` looks like. The
+		-- smoke was emitting three thousand studs away and the ENGINE SOUND, which is the whole of
+		-- Karen's *"car started sound"*, was playing there with it. Invisible to every spec: an
+		-- attachment has no spec-visible failure, only a position nobody looked at.
 		local pipe = Instance.new("Attachment")
 		pipe.Name = "Exhaust"
+		pipe.Parent = anchor
 		pipe.WorldCFrame = CFrame.new(
 			centre
 				- look * lengthHalf * 0.92
 				+ across * widthHalf * spec.SMOKE_SIDE_FRACTION
 				+ Vector3.new(0, -half.Y * (1 - 2 * spec.SMOKE_HEIGHT_FRACTION), 0)
 		)
-		pipe.Parent = anchor
 		local smoke = Instance.new("ParticleEmitter")
 		smoke.Name = "Smoke"
 		smoke.Texture = spec.SMOKE_TEXTURE
@@ -3417,8 +3449,8 @@ local function truckRig(model: Instance, cfg): TruckRig
 
 		local block = Instance.new("Attachment")
 		block.Name = "Engine"
-		block.WorldCFrame = CFrame.new(centre + look * lengthHalf * 0.7 + Vector3.new(0, -half.Y * 0.4, 0))
 		block.Parent = anchor
+		block.WorldCFrame = CFrame.new(centre + look * lengthHalf * 0.7 + Vector3.new(0, -half.Y * 0.4, 0))
 		rig.start = engineSound(
 			"EngineStart",
 			spec.START_SOUND_ID,
@@ -3470,6 +3502,10 @@ function Build.setTruck(index: number, on: boolean): boolean
 	for _, lamp in ipairs(rig.lamps) do
 		if lamp.piece:IsDescendantOf(game) then
 			lamp.piece.Color = if on then lamp.on else lamp.off
+			-- THE MATERIAL GOES WITH THE COLOUR: emissive while it is lit, and not emissive at all
+			-- when it is not. A dark `Neon` lamp still glows at night, which is how three unlit
+			-- trucks came to look lit in the first night frames.
+			lamp.piece.Material = if on then lamp.was else offMaterial
 		end
 	end
 	for _, light in ipairs(rig.lights) do
@@ -3515,7 +3551,9 @@ local function trucks(
 	groundAt: ((number, number) -> number?)?
 )
 	local folder = Instance.new("Folder")
-	folder.Name = "Trucks"
+	-- THE NAME IS DATA SINCE TASK 197, because the CLIENT finds this folder too (`Lobby.truckPosition`,
+	-- which the Hud asks so the camera can turn toward the right truck). One spelling of "Trucks".
+	folder.Name = Data.TRUCKS_NAME
 	local model = cfg.TRUCK.MODEL
 	-- THE TOP OF THE YARD SLAB, which is the surface a truck in a parked bay stands on when the
 	-- terrain under it is lower. `road` lays `Yard` across all four bays at `anchor.Y + THICK / 2`,
@@ -3524,7 +3562,7 @@ local function trucks(
 	local floorY = anchor.Y + cfg.ROAD.THICK_STUDS
 	for index = 1, cfg.TRUCK.COUNT do
 		local at = anchor + cfg.TRUCK.OFFSET + Vector3.new((index - 1) * cfg.TRUCK.BAY_GAP_STUDS, 0, 0)
-		local name = string.format("Truck%d", index)
+		local name = string.format(Data.TRUCK_NAME, index)
 		local made = clone(templates, Data.TEMPLATE.TRUCK, name, model.SCALE, at, model.YAW_RADIANS, folder, false)
 		if made == nil then
 			made = truck(folder, at, cfg, name)

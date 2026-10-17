@@ -244,6 +244,11 @@ export type DriveNow = {
 export type LobbyNow = {
 	spot: Vector3?, -- pad 1. STILL THE GATE: nil means "this world has no lobby"
 	secondsLeft: number?, -- the countdown, or nil for "his pad is not leaving yet"
+	-- WHETHER THE PAD'S OWN PANEL IS ON SCREEN (task 197 part 2): which pad is asking him to pick,
+	-- and the state word of the pad that is taking him. EITHER means a panel is up saying more than
+	-- this line can, so this line stands down -- see `Objective.text`.
+	asking: number?,
+	loading: string?,
 	-- EVERY TRUCK PAD, IN PAD ORDER (task 182). nil or empty answers exactly as task 177 did, which
 	-- is `MapUi.pointsFor`'s rule: absent is not "nowhere".
 	pads: { Vector3 }?,
@@ -257,6 +262,23 @@ function Objective.text(phase: string?, team: string?, drive: DriveNow?, lobby: 
 	-- nothing at all. He gets the countdown when he is standing in the circle and the instruction
 	-- otherwise.
 	if team ~= "Shooters" and team ~= "Drivers" then
+		-- ONE MESSAGE AT A TIME (task 197 part 2). The Director, after looking at the first frames:
+		-- *"the top line 'step on a truck pad to hunt' still shows while she stands on the pad and
+		-- while the banner says LEAVING; and in the countdown the top line 'leaving for the hunt in
+		-- 5' duplicates the banner"*.
+		--
+		-- SO THE LINE YIELDS TO THE PANEL. Both of the pad's panels say strictly more than this row
+		-- can: the dialog asks the question and the banner counts the same seconds down in letters
+		-- three times the size. An instruction to *"step on a truck pad"* read over a dialog you are
+		-- already standing in front of is not a second message, it is a wrong one.
+		--
+		-- IT IS A LEVEL RULE AND NOT A TOGGLE, which is the whole reason it lives here: this
+		-- function is asked EVERY FRAME from the two facts as they are right now, so there is no
+		-- enter/exit edge to miss and no state to get stuck in. `Hud.renderObjective` reads both off
+		-- the same server-written attributes the panels themselves read.
+		if lobby ~= nil and (lobby.asking ~= nil or lobby.loading ~= nil) then
+			return ""
+		end
 		if phase == "Waiting" and lobby ~= nil and lobby.spot ~= nil then
 			local left = lobby.secondsLeft
 			if type(left) == "number" then

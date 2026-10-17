@@ -127,6 +127,9 @@ local padFrame: Frame? = nil
 -- THE LOADING BANNER'S FRAME (task 197): created here with the rest of the screen, filled by
 -- `Hud.PadPanel`, which also owns its `Visible` -- the dialog's own arrangement, one frame over.
 local padLeavingFrame: Frame? = nil
+-- WHICH PAD THIS CLIENT HAS ALREADY TURNED TO FACE (task 197 part 2). One number, so the camera is
+-- asked ONCE per walk-on and not once a frame -- `ShopPanel.setNear`'s edge discipline.
+local facedPad: number? = nil
 local compassFrame: Frame? = nil
 -- Did the scope's own mask hide the compass strip? See `Hud.renderScope`.
 local compassHiddenByScope = false
@@ -2093,6 +2096,10 @@ function Hud.renderObjective(CameraSystem)
 	-- WHAT THE LOBBY IS DOING RIGHT NOW (task 177): where the truck spot is, and how long until this
 	-- player leaves for the hunt. One table per frame, built from the one definition of each -- the
 	-- PART the server built, and the deadline the server wrote on this player.
+	-- WHICH PAD IS ASKING THIS PLAYER, read ONCE a frame and used by three things: the dialog's
+	-- visibility, the objective line standing down for it, and the camera's turn toward that pad's
+	-- truck (task 197 part 2). Two reads would be two answers to one question.
+	local asking = if lobbyData then lobbyData.padAsking(Players.LocalPlayer.UserId) else nil
 	local lobby = if lobbyData
 		then {
 			spot = lobbyData.spotPosition(),
@@ -2104,6 +2111,12 @@ function Hud.renderObjective(CameraSystem)
 			-- part lookups and four `Position` reads -- the same order as the one subtraction
 			-- `ShopPanel.setNear` below already costs this function.
 			pads = lobbyData.padPositions(),
+			-- ...AND WHETHER EITHER OF THE PAD'S PANELS IS UP (task 197 part 2), so the objective
+			-- line can stand down for them. `asking` is the one read above and `loading` is the same
+			-- attribute the banner itself is told from, so the line and the panels can never
+			-- disagree about whether a panel is up.
+			asking = asking,
+			loading = Players.LocalPlayer:GetAttribute(lobbyData.PAD_MINE_ATTRIBUTE),
 		}
 		else nil
 	-- IS HE AT THE SHOP COUNTER (task 178)? ONE EVALUATION, HERE, because this function is already
@@ -2143,7 +2156,32 @@ function Hud.renderObjective(CameraSystem)
 	-- lookups and eight cached attribute reads a frame, and one write per walk-on. A world with no
 	-- lobby asks nobody anything. (The REMOTE is resolved once in `Hud.whenReady`, not here: it
 	-- waits, and nothing on a render tick may.)
-	PadPanel.setAsk(if lobbyData then lobbyData.padAsking(Players.LocalPlayer.UserId) else nil)
+	PadPanel.setAsk(asking)
+	-- ...AND THE VIEW TURNS TO FACE THAT PAD'S TRUCK (task 197 part 2). The Director, after looking
+	-- at the first frames: the truck is SOUTH of the pad and a player arrives facing NORTH, so the
+	-- engine start, the headlights and the smoke all happened behind her.
+	--
+	-- **IT ASKS; THE CAMERA DECIDES.** `Camera.faceTowards` is a request of exactly the shape
+	-- `Camera.lookAt` and `Cursor.requestFree` are -- it eases the turn over `FACE_TURN_SECONDS` and
+	-- drops it the instant a mouse delta arrives -- and `Rig.apply` is still the one writer of
+	-- `workspace.CurrentCamera`. Nothing here touches an angle.
+	--
+	-- ONCE PER WALK-ON, on the edge, through `facedPad`: a request every frame would be a camera
+	-- that could never be turned away from.
+	--
+	-- IT IS THE *DIALOG'S* EDGE AND NOT THE PICK'S, and the limit is honest: the client is told which
+	-- pad only while that pad is ASKING it (`DHPadFirst`). The first man on a pad is always asked, so
+	-- he always gets the turn; a late joiner who was never asked is never told an index, and this
+	-- does not invent one (the same limit that took the number off the banner's eyebrow).
+	if asking ~= facedPad then
+		facedPad = asking
+		if asking ~= nil and CameraSystem ~= nil and lobbyData ~= nil then
+			local truck = lobbyData.truckPosition(asking :: number)
+			if truck ~= nil then
+				CameraSystem.faceTowards(truck)
+			end
+		end
+	end
 	-- ...AND WHETHER A TRUCK IS ALREADY TAKING HIM (task 197). ONE server-measured fact again --
 	-- `DHPadMine`, the state word of the pad he is loading onto -- read HERE for `setAsk`'s own
 	-- stated reason, and the panel is TOLD both it and the seconds. The seconds are the ONES THIS

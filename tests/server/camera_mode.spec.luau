@@ -1264,4 +1264,68 @@ return function()
 			expect(aimed.pitchDeg).to.equal(state.pitchDeg)
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- task 197 part 2
+	describe("turning the view toward something in the world", function()
+		local function at(yaw: number)
+			return Mode.withYaw(Mode.initial(Config), yaw)
+		end
+
+		it("goes the SHORT way round, which is the only interesting line in it", function()
+			-- A turn from 170 to -170 is TWENTY degrees, not 340. A naive lerp swings the view the
+			-- long way past south -- measured correct, looks wrong, which is this repository's own
+			-- named failure (`docs/PROJECT_CONTEXT.md`).
+			local from = at(170)
+			local to = at(-170)
+			local half = Mode.towardAngles(from, to, 0.5)
+			-- Halfway is 180 (or -180, the same bearing), NOT 0.
+			expect(math.abs(math.abs(half.yawDeg) - 180) < 1e-6).to.equal(true)
+			-- ...and all the way lands exactly on the target.
+			expect(Mode.towardAngles(from, to, 1).yawDeg).to.equal(to.yawDeg)
+			-- The other direction is the same twenty degrees.
+			local back = Mode.towardAngles(to, from, 0.5)
+			expect(math.abs(math.abs(back.yawDeg) - 180) < 1e-6).to.equal(true)
+		end)
+
+		it("clamps its share, so a long frame can overshoot neither angle", function()
+			local from = at(0)
+			local to = at(90)
+			expect(Mode.towardAngles(from, to, 0).yawDeg).to.equal(0)
+			expect(Mode.towardAngles(from, to, 5).yawDeg).to.equal(90)
+			expect(Mode.towardAngles(from, to, -3).yawDeg).to.equal(0)
+			-- A quarter of ninety is twenty-two and a half, and nothing else in the state moves.
+			local part = Mode.towardAngles(from, to, 0.25)
+			expect(math.abs(part.yawDeg - 22.5) < 1e-6).to.equal(true)
+			expect(part.mode).to.equal(from.mode)
+			expect(part.blend).to.equal(from.blend)
+		end)
+
+		it("measures the gap the short way too, so a turn can say it has arrived", function()
+			expect(Mode.angleGapDeg(at(170), at(-170))).to.equal(20)
+			expect(Mode.angleGapDeg(at(0), at(0))).to.equal(0)
+			-- The gap is the WORSE of the two angles, because a view that is right in yaw and wrong
+			-- in pitch has not arrived.
+			local pitched = Mode.towardAngles(at(0), at(0), 1)
+			expect(Mode.angleGapDeg(at(0), pitched) >= 0).to.equal(true)
+		end)
+
+		it("walks a whole turn to the end in the frames the config pays for", function()
+			-- THE REAL SHAPE OF THE EASE, driven exactly as `Camera.update` drives it: each frame
+			-- takes `dt / remaining` of what is left, so the turn lands ON the last frame of
+			-- `FACE_TURN_SECONDS` rather than creeping at an asymptote for ever.
+			local state = at(0)
+			local target = at(180)
+			local left = Config.FACE_TURN_SECONDS
+			local dt = 1 / 60
+			local frames = 0
+			while left > 0 and frames < 600 do
+				local share = if left > dt then dt / left else 1
+				state = Mode.towardAngles(state, target, share)
+				left -= dt
+				frames += 1
+			end
+			expect(frames <= math.ceil(Config.FACE_TURN_SECONDS * 60) + 1).to.equal(true)
+			expect(Mode.angleGapDeg(state, target) <= Config.FACE_ARRIVED_DEG).to.equal(true)
+		end)
+	end)
 end
