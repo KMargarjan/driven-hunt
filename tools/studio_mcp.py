@@ -729,6 +729,13 @@ BLAST_RADIUS = (
     # tree planting -- `tools/forest_ground.py` is the other caller and no spec can reach that --
     # so a change to the rule plays the lobby's own trees.
     ("src/shared/TreeGround/", "lobby"),
+    # KAREN'S FOUR DRIVE PLACES (task 193): the pure plan of what stands around a drive line,
+    # and the one writer of `Workspace.DrivePlaces` that plants it. Its own scope, because it is
+    # its own owner with its own output folder -- and `places.spec` is in `match` as well (the
+    # dual membership `forest_stand` and `bots_lane` already use), because the plan reads a
+    # LAYOUT: move a stand line and the lane rule is what breaks.
+    ("src/shared/Places/", "places"),
+    ("src/server/Places/", "places"),
     ("src/server/Boar/", "boar"),
     ("src/server/BoarAssetsBoot.server.luau", "boar"),
     ("src/shared/Map/", "map"),
@@ -794,7 +801,13 @@ SCOPE_SPECS = {
     # The real drive runs in TWO places since task 157 (the DEV world and the Forest Test), so the
     # per-world config merge and the forest's own marker set are this scope's as well:
     # `src/server/Match/` and `src/server/ForestTest/` are what either of them can break.
+    # Task 193: the four places' own plan -- where every tree goes, and that not one of them is in
+    # a shooting lane. `places.spec` is the whole scope, and it is in `match` too (below).
+    "places": ("tests/server/places.spec.luau", "tests/server/forest_stand.spec.luau"),
     "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
+              # Task 193: the dressing of each place is planned from a LAYOUT, so a change to the
+              # layouts or to the drive plays it.
+              "tests/server/places.spec.luau",
               # DUAL MEMBERSHIP, the idiom `zz_horn`, `boar_hit`, `boar_shot` and `shoot_boar`
               # already use: these two are the forest module's OWN specs (the stand, the pick, the
               # leash, the rest, the threats, the line) and they belong to `boar` as well. A

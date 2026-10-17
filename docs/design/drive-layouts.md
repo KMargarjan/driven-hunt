@@ -39,11 +39,16 @@ Deltas it forces on `docs/design/forest-drive.md` and `docs/design/map-ui.md` ar
    `SafetyArc.isForbidden` and `ForestTest.DRIVE_BEARING_DEG`. §13 says where the seam for it goes.
 2. **Must not carve, paint or delete anything.** All three layouts sit on the ground as Studio built
    it (brief decision 8, rule 7).
-3. **Must not ship a fourth layout.** Of 1,054 points sampled inside the wood, **nine** have nothing
-   colliding within 45 studs and no two are adjacent (note §5). There is no clearing, so the
-   clearing-with-a-high-seat the dispatch asked about cannot be placed in this world; making one
-   means deleting Studio-built trees, which is rule 7 and Karen's call. Not shipped, and the reason
-   is a measurement, not a preference.
+3. ~~**Must not ship a fourth layout.**~~ **SUPERSEDED BY TASK 193** (`docs/design/drive-places.md`).
+   The item read: *of 1,054 points sampled inside the wood, nine have nothing colliding within 45
+   studs and no two are adjacent (note §5); there is no clearing, so a fourth layout cannot be placed
+   in this world.* **The reason is still true; what changed is the answer.** Re-measured on
+   2026-10-17: along the best candidate line inside the wood, **18 of 36 samples have a trunk within
+   14 studs**, and a sweep for any line clear at ±10 studs over 900 studs found **none**
+   (`reviews/task-193/BRIEF.md` M7). So nothing is CUT out of this wood -- the rule that replaces the
+   item is **"must not cut a layout out of the existing wood"** -- and the third and fourth places are
+   **planted** on the two measured clean plots instead (BRIEF M8). Karen asked for four places in her
+   own words on 2026-10-15.
 4. **Must not let the client choose or derive a layout.** It reads a published name and nothing else
    (§5).
 5. **Must not hold a knob no shipped layout turns.** A field that is the same in all three is a
@@ -100,6 +105,12 @@ export type Layout = {
     halfSpanStuds: number,   -- how far the line runs either side of centre.X
 }
 ```
+
+**THE TABLE BELOW IS TASK 179'S AND IS SUPERSEDED BY TASK 193**, which added a fourth place and moved
+two of these three after a hunter's-eye frame showed the ground rising in front of the guns. The live
+numbers are `docs/design/drive-places.md` §4.1 and `ForestTest.LAYOUTS` itself: `road` unchanged,
+`edge` (3400, 190, −3250) 5 × 130, `ride` (4900, 166, −4500) 5 × 130, `track` (4700, 159, −3900)
+6 × 130.
 
 | Field | Replaces today | road | edge | ride |
 |---|---|---|---|---|
@@ -194,8 +205,9 @@ studs; 138 keeps it exactly as false as it is today and no falser.
 ### 3.5 The table and the order
 
 ```luau
-ForestTest.LAYOUTS = { road = {...}, edge = {...}, ride = {...} }   -- deep-frozen
-ForestTest.LAYOUT_ORDER = { "road", "edge", "ride" }                -- the bag's contents, in one place
+-- TASK 193: a fourth row, `track`, and the order IS the rotation rather than a bag's contents.
+ForestTest.LAYOUTS = { road = {...}, edge = {...}, ride = {...}, track = {...} }   -- deep-frozen
+ForestTest.LAYOUT_ORDER = { "road", "edge", "ride", "track" }       -- the CYCLE, in one place
 ForestTest.ROAD_LAYOUT = ForestTest.LAYOUTS.road                    -- the default parameter, named for what it is
 ForestTest.DEFAULT_LAYOUT = "road"
 ForestTest.layoutNamed(name: string?): Layout?                      -- PURE. nil for a name the table does not know
