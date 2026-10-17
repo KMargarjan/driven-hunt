@@ -1,12 +1,12 @@
 # Task 201 part 1 — one design system, and the in-drive HUD drawn from it
 
 Task: 201
-Round: 1
+Round: 2
 Base: main @ `c52a332`
-Code commit: `944d11540c7cd08467f6f7809750416294c732bc`
+Code commit: `ac9dcd8acae9c10bf485c0046a579506ca05d22b`
 
 ```
-[harness] PASS: 33/33 checks @ 944d11540c7cd08467f6f7809750416294c732bc (clean tree) scope=all
+[harness] PASS: 33/33 checks @ ac9dcd8acae9c10bf485c0046a579506ca05d22b (clean tree) scope=all
 ```
 
 `[harness2]` **N/A.** No file this branch touches is in `TWO_PLAYER_PATHS` (`tools/agents.py`): the
@@ -58,11 +58,18 @@ fifth chip — `● 2000 COINS` with the coin disc — and an **amber** `WAITING
 against `...T135300Z-t201e-hunter-ammo-2.png`, where `stay on your stand, boars coming` is `PAPER`.
 `hud_style.spec` "has ONE go-here colour, and it is the blaze".
 
-**4. The compass is a quiet slate, 420 wide, with no white and no outline.**
+**4. The compass is a quiet slate, 420 wide, and its ARITHMETIC uses the width it is drawn at.**
 `Compass.CONFIG` reads `Style.LOOK.SLATE` / `.PAPER` / `.BLAZE_HI` / `.BRASS_HI`; `Compass.widthFor`
-is the pure width. Verify: the live probe in the capture log reads `compass=true 420x30`, and the
-strip in any frame above shows `N W` / `N` / `N E` letter-spaced in cream with ticks, on a rounded
-slate with a brass hairline. `hud_style.spec` "backs every word of the top band with a slate".
+is the pure width and `Compass.drawnWidth` reads it off the frame's own offset `Size`.
+**Round 1's first blocking finding is fixed here:** `Compass.offsetPx` now takes the drawn width
+(defaulting to `CONFIG.WIDTH`, so every older caller is unchanged) and `Compass.render` resolves it
+ONCE for the ticks, the letters and the drive marker together — before this, the frame was sized
+from `widthFor` while the maths divided by 420, so at 400 px the strip showed ~107° while claiming
+`SPAN_DEG` 120 and a bearing more than ~54° off the heading was clamped to ±210 px inside a 376 px
+`ClipsDescendants` frame, i.e. the marker VANISHED instead of pinning. Verify:
+`tests/client/compass.spec.luau`, "keeps a PINNED marker inside the strip at a PHONE width" — dead
+ahead is the centre, half the span reaches half the strip, and all five behind-the-player bearings
+pin inside it. On screen: `compass=true 420x30` in the capture log and the strip in any frame.
 
 **5. The rail is a column of ghost buttons with hover and press states.**
 `Rail.CONFIG` reads `Style.LOOK.SLATE` / `.LINE` / `.FIELD_MUTED` / `.BRASS`; the words are child
@@ -87,8 +94,17 @@ player is a Shooter, so the frame was made by setting `Player.Team` to `Drivers`
 `Horn` Tool from the server. The chip's own branches (`READY` / `WAIT` / `THROUGH`) are code and the
 `THROUGH` branch has no frame.
 
-**8. Every feed line is its own toast with a meaning dot, and the dot and the words agree.**
-`Hud.feedMeaningFor` is the one pure mapping and **both** writers of `feedEntries` carry it. Verify:
+**8. Every feed line is its own toast with a meaning dot, the dot and the words agree, and the
+stack cannot reach the hit card.**
+`Hud.feedMeaningFor` is the one pure mapping and **both** writers of `feedEntries` ask it (no
+literal). **Round 1's second blocking finding is fixed here:** `Hud.feedHeight` reserved
+`FEED_LINES * 28` against a toast that measures 30 with a 6 px gap, so a full feed came to 174 px
+inside a 140 px frame with no `ClipsDescendants` — 34 px of it on top of a 138 px hit card whose
+own position is computed from that number, and five entries inside `FEED_SECONDS` is reachable
+(`renderFeed` trims only past `FEED_LINES`). `Style.toastHeight` is now the one source for a
+toast's height and `Style.toast` builds to it; `Style.TOAST_GAP` is the gap; `feedHeight` is
+`lines × height + gaps`. Verify: `hud_style.spec` "reserves the toast feed's REAL height" — it
+measures the DRAWN feed, the drawn toasts and the drawn hit card, not just the arithmetic. And:
 `...T135300Z` bottom left — `● Drive on` on its own slate. `hud_style.spec` "maps a feed entry to
 one meaning" pushes a real kill through `Hud.onKilled` and asserts the drawn toast's dot and text
 are the SAME colour and are `PINE_TEXT` — the check that caught this missing on the first run.
@@ -143,10 +159,29 @@ the top band's rectangles stacked".
 * **Karen has not seen any of it.** It is all look; she approved merging look work before she sees
   it (2026-10-17: *"it's ok to keep doing it"*).
 
+## Round 1's notes: four fixed, the rest queued
+
+Fixed in round 2 because each is a real defect and not a wording point: a tap on a **touch** device
+left a rail button lit (there is no `MouseLeave` after `MouseButton1Up`, so the release now paints
+IDLE on touch and hover on a desktop, and the stale comment about `InputBegan` is gone);
+`Hud.onKilled` carried the literal `"good"` instead of asking `Hud.feedMeaningFor`; a **re-equipped**
+Horn already carrying a stamp latched `WAIT` with an empty bar for 1.5 s although it was ready (the
+first stamp seen on a Tool starts no clock — this client does not know when that blast was); and the
+status bar's `order` comment named the chips in the wrong order.
+
+Queued as TASKS.md 201a, with the reason: the phone branches of `Style.slate` / `statChip` / `pill`
+/ `toast` and the 42 px corner height are unreachable while `build` always sees 1280 (the paddings
+and the pill height are built once and `applyViewportLayout` moves only `TextSize`, the compass's
+width and the status cap — its own comment is narrowed to say so); `Drive.CONFIG.BAR_TEXT_SIZE` and
+`FEED_TEXT_SIZE` join `BAR_TOP_OFFSET` as readerless; and `docs/design/hud-clarity.md`,
+`docs/design/map-ui.md` and `Drive.CONFIG`'s own comment still print the superseded band.
+
 ## Four defects the SPECS could not catch, and a frame did
 
 Recorded because they are the task's own lesson and all four are in the history: the whole HUD built
 at the **phone step** (`Camera.ViewportSize` is (1, 1) before the first frame, so the compass was
 120 px wide); the horn's bar running the **whole screen**; then **430 px**; then a rename leaving a
 layout and an icon parented to `nil`, so the chip measured **57 px** with the word hanging off the
-end. Commits `5eff363`, `5cbe5c2`, `cb6c39c`, `944d115`.
+end. Commits `5eff363`, `5cbe5c2`, `cb6c39c`, `944d115`. The round-2 frame at
+`.screenshots/20261017T141450Z-t201e-hunter-ammo-2.png` is the band after the compass change, and
+it is identical to the round-1 one: `compass=true 420x30`, `bar 303x34`, `ammo 104x46`.
