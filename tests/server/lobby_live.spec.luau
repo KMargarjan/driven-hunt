@@ -405,9 +405,15 @@ return function()
 			for index = 1, CFG.TRUCK.COUNT do
 				expect(Lobby.Build.truckRunning(index)).to.equal(false)
 				local lamps, lights, voice = Lobby.Build.truckRigCounts(index)
-				-- FOUR LENSES AND FOUR LIGHTS on the fallback truck: two headlights, two tails.
+				-- FOUR LENSES on the fallback truck: two headlights and two tails.
 				expect(lamps).to.equal(4)
-				expect(lights).to.equal(4)
+				-- ...AND TWO LIGHTS, NOT FOUR. A tail lamp is its OWN LENS and nothing else since the
+				-- rear-quarter night frame (`TAIL_BRIGHTNESS = 0`): the six red `PointLight`s behind
+				-- the lenses turned twenty studs of ground, two neighbouring trucks and the lodge
+				-- salmon pink, and the lit lens reads as a tail light without them. The two that are
+				-- left are the headlamps' `SpotLight`s, which have a job to do.
+				local tailGlows = if CFG.TRUCK.ENGINE.TAIL_BRIGHTNESS > 0 then 2 else 0
+				expect(lights).to.equal(2 + tailGlows)
 				-- ...AND AN ENGINE, A SMOKE EMITTER AND BOTH SOUNDS.
 				expect(voice).to.equal(true)
 			end

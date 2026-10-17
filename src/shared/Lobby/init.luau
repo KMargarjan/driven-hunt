@@ -1042,10 +1042,17 @@ Lobby.CONFIG = {
 			HEAD_ANGLE_DEGREES = 60,
 			-- THE TAIL LIGHTS ARE A GLOW AND NOT A BEAM, so a `PointLight` with a short range: a tail
 			-- light you can see from behind the truck, which is where the pad is.
-			-- 1 AND 7, DOWN FROM 2 AND 12, and the night pair above is why: seven red `PointLight`s at
-			-- brightness 2 and range 12 are a floodlight, and what they flooded was the two trucks
-			-- either side. A tail light is a lamp you can SEE, not a lamp that lights things.
-			TAIL_BRIGHTNESS = 1,
+			-- **ZERO, AND THAT MEANS NO `PointLight` AT ALL -- the tail lamps are their own LENS and
+			-- nothing else.** It was 2 at range 12, then 1 at 7, and the rear-quarter night frame
+			-- (`t197d-tail-smoke.png`, camera at the player's own eye) settled it: what you SEE as a
+			-- tail light is the lit `Neon` lens on the tailgate, bright and unmistakable; what the
+			-- six red `PointLight`s behind it added was twenty studs of salmon-pink ground, two pink
+			-- trucks and a pink lodge. A tail light is a lamp you look at, not a lamp that lights
+			-- things -- and the headlights' two `SpotLight`s are the ones that have a job to do.
+			--
+			-- IT IS A ROW AND NOT A DELETION, so bringing a soft glow back is one number: anything
+			-- above 0 builds the lights again. Karen's dial.
+			TAIL_BRIGHTNESS = 0,
 			TAIL_RANGE_STUDS = 7,
 			-- ...AND A FALLBACK TRUCK HAS NO LAMPS AT ALL. `Build.truck` builds seven boxes and four
 			-- cylinders and not one light, so when the free model is missing the rig builds its own

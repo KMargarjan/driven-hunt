@@ -3377,15 +3377,21 @@ local function truckRig(model: Instance, cfg): TruckRig
 		table.insert(rig.lamps, { piece = tail, on = spec.TAIL_COLOR, off = spec.TAIL_OFF_COLOR, was = tail.Material })
 		tail.Color = spec.TAIL_OFF_COLOR
 		tail.Material = spec.OFF_MATERIAL
-		local glow = Instance.new("PointLight")
-		glow.Name = "Glow"
-		glow.Brightness = spec.TAIL_BRIGHTNESS
-		glow.Range = spec.TAIL_RANGE_STUDS
-		glow.Color = spec.TAIL_COLOR
-		glow.Shadows = false
-		glow.Enabled = false
-		glow.Parent = tail
-		table.insert(rig.lights, glow)
+		-- A TAIL LAMP IS ITS OWN LENS, AND BY DEFAULT NOTHING ELSE (`TAIL_BRIGHTNESS` is 0). The
+		-- rear-quarter night frame is why: the lit lens reads as a tail light on its own, and the
+		-- `PointLight`s behind it turned twenty studs of ground, two neighbouring trucks and the
+		-- lodge salmon pink. Above 0 the glow comes back, which is what makes it a dial.
+		if spec.TAIL_BRIGHTNESS > 0 then
+			local glow = Instance.new("PointLight")
+			glow.Name = "Glow"
+			glow.Brightness = spec.TAIL_BRIGHTNESS
+			glow.Range = spec.TAIL_RANGE_STUDS
+			glow.Color = spec.TAIL_COLOR
+			glow.Shadows = false
+			glow.Enabled = false
+			glow.Parent = tail
+			table.insert(rig.lights, glow)
+		end
 	end
 
 	-- THE EXHAUST AND THE ENGINE, both on `Attachment`s of the truck's biggest part -- the only part
