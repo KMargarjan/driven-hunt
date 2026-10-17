@@ -306,7 +306,11 @@ Places.SURFACES = table.freeze({
 	ride = table.freeze({
 		halfWidthStuds = 32,
 		material = Enum.Material.Grass,
-		ruts = table.freeze({ offsetStuds = 9, halfWidthStuds = 3, material = Enum.Material.Mud }),
+		-- NARROW AND WELL APART, because the first paint's ruts filled the near view and the frame
+		-- read grey again. 4 studs is the thinnest a rut can be: a terrain voxel is 4 studs, so
+		-- anything finer snaps back to this. At +-12 the grass between them is 20 studs wide, which is
+		-- what karen-ref-5 shows -- grass with two darker lines in it, not two lines with grass in them.
+		ruts = table.freeze({ offsetStuds = 12, halfWidthStuds = 2, material = Enum.Material.Mud }),
 		plotHalfWidthStuds = 410,
 	}),
 
@@ -317,7 +321,10 @@ Places.SURFACES = table.freeze({
 	track = table.freeze({
 		halfWidthStuds = 9,
 		material = Enum.Material.Ground,
-		ruts = table.freeze({ offsetStuds = 4, halfWidthStuds = 2, material = Enum.Material.Mud }),
+		-- +-6 AND NOT +-4: measured after the first paint, a 4-stud offset snapped to the voxel grid and
+		-- the two ruts MERGED -- the whole 18-stud track came back Mud, with no litter between them. At
+		-- +-6 the middle 8 studs stay `Ground`, which is ref-1's leaf litter between two wheel tracks.
+		ruts = table.freeze({ offsetStuds = 6, halfWidthStuds = 2, material = Enum.Material.Mud }),
 		plotHalfWidthStuds = 410,
 	}),
 })
