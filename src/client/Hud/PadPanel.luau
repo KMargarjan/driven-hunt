@@ -488,7 +488,10 @@ local function buildBanner(frame: Frame)
 	(bannerEyebrow :: TextLabel).Position = UDim2.fromOffset(PAD + 4, 14);
 	(bannerEyebrow :: TextLabel).Size = UDim2.new(1, -2 * (PAD + 4), 0, EYEBROW_SIZE + 3);
 	(bannerEyebrow :: TextLabel).TextXAlignment = Enum.TextXAlignment.Center;
-	(bannerEyebrow :: TextLabel).Text = spaced(string.format(LEAVING.EYEBROW, 1))
+	-- THE EYEBROW CARRIES NO NUMBER, and `LEAVING.EYEBROW`'s own comment says why: measured in the
+	-- live Forest Test, the first banner read TRUCK 1 over a player standing on pad 2, because this
+	-- client has no pad index once the dialog has shut. Written ONCE here and never again.
+	(bannerEyebrow :: TextLabel).Text = spaced(LEAVING.EYEBROW)
 
 	local head = label(frame, "Title", FONT.OSWALD_SB, TITLE_SIZE, LOOK.PAPER, 1)
 	head.Position = UDim2.fromOffset(PAD + 4, 28)
@@ -645,12 +648,6 @@ function PadPanel.renderLeaving()
 	end
 	if bannerLine ~= nil and (bannerLine :: TextLabel).Text ~= line then
 		(bannerLine :: TextLabel).Text = line
-	end
-	if bannerEyebrow ~= nil and ask ~= nil then
-		local want = spaced(string.format(LEAVING.EYEBROW, ask :: number))
-		if (bannerEyebrow :: TextLabel).Text ~= want then
-			(bannerEyebrow :: TextLabel).Text = want
-		end
 	end
 	local fraction = PadPanel.barFraction(loading, left)
 	if bannerTrack ~= nil then

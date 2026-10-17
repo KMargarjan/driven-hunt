@@ -1437,7 +1437,17 @@ Lobby.CONFIG = {
 		-- table in this repository). `TITLE` is the Director's own sentence.
 		LEAVING = {
 			TITLE = "LEAVING FOR THE HUNT",
-			EYEBROW = "TRUCK %d",
+			-- **NO TRUCK NUMBER, AND THAT IS A CORRECTION RATHER THAN A CHOICE.** This row was
+			-- `TRUCK %d` and the first frame of the banner in the live Forest Test read **TRUCK 1
+			-- while the player was standing on pad 2** -- because `Lobby.padAsking` only answers
+			-- during `sizing`, so by the time the banner is up this client has no pad index at all
+			-- and the label was whatever it was built with. The honest fix is to stop claiming the
+			-- number: *"the screen never claims to know more than the world said"*
+			-- (`Objective.CONFIG.TEXT`'s own rule), the pad's BILLBOARD says which truck and it is
+			-- fifteen studs in front of him, and a late joiner was never asked at all so no client
+			-- memory could answer for him either. Putting the index back means the SERVER publishing
+			-- it beside the state word -- queued, not invented here.
+			EYEBROW = "YOUR TRUCK",
 			-- ONE LINE PER STATE, and there are exactly three because `Lobby.padLoading` admits
 			-- exactly three states. A state with no line would be a banner that came up blank.
 			FILLING = "WAITING FOR THE PARTY",

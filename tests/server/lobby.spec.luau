@@ -3476,6 +3476,14 @@ return function()
 			expect(#WORDS.FILLING > 0).to.equal(true)
 			expect(#WORDS.GOING > 0).to.equal(true)
 			expect(string.find(string.format(WORDS.COUNTDOWN, 4), "4", 1, true) ~= nil).to.equal(true)
+			-- THE BANNER'S EYEBROW CARRIES NO NUMBER, and this case is the live defect written down:
+			-- the first banner in the Forest Test read TRUCK 1 over a player standing on pad 2,
+			-- because `Lobby.padAsking` only answers during `sizing` and the banner is up afterwards.
+			-- A format specifier here would be the screen claiming to know what the world never told
+			-- it (`Objective.CONFIG.TEXT`'s own rule). The DIALOG's eyebrow keeps its number, because
+			-- that one is up exactly when the client has been told the index.
+			expect(string.find(WORDS.EYEBROW, "%%", 1, true)).to.equal(nil)
+			expect(#WORDS.EYEBROW > 0).to.equal(true)
 			-- IT IS FULL WIDTH LESS A MARGIN, AND CAPPED, and it sits clear of both bands: under the
 			-- middle of the screen, where neither the top strip nor the bottom rail is.
 			expect(WORDS.MARGIN_PX > 0).to.equal(true)
