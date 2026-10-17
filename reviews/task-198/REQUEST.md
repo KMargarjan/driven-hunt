@@ -92,9 +92,12 @@ Files: `src/shared/Report/init.luau` (`CONFIG.CARD`, `CardDot`/`CardPayload`, `c
 
 8. **It appears at once, holds ~3 s, fades, and a second hit replaces it.** *Verify:* the client
    cases "holds for about three seconds, fades, and then is gone" (drives `HitCard.step` with its own
-   dt) and "replaces the card rather than stacking a second one". Timing live: **0.12 s** measured
-   from `FireClient` to the card being `Visible` in a running DEV session (the frames below are taken
-   from that same path).
+   dt) and "replaces the card rather than stacking a second one". **The 0.3 s is NOT measured
+   end-to-end and I am not claiming it was**: what is checked is structural -- `recordHit` builds and
+   fires the card synchronously inside the `Weapon.HitReported` handler, with no yield between the
+   dot and the `FireClient`, over one RemoteEvent (`grep -n "task.wait\|task.delay\|task.spawn"
+   src/server/HitLog/init.luau` is empty). On screen, the card was `Visible` on the first readback
+   after every injection in `<runs-dir>/t198-frames.log`.
 
 9. **The fatal mark is the report's own mark, and it arrives after the card.** The animal enters DOWN
    on the Brain's NEXT tick, so `recordDown` sends `hitFatal` joined on the animal and the shot's own
