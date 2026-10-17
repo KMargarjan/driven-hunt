@@ -26,6 +26,9 @@ local Data = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
 local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
+-- THE HORN'S OWN GEOMETRY (task 202): `TUBE_SAMPLES` is where the tube actually lies inside the
+-- Handle, raycast off the real one, and it is what the drawn horn and its glove are measured against.
+local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 -- POSES.JSON IS VERSION 4 (task 140): every pose set lives under `weapons.<id>`, and this file is
 -- about the SHOTGUN's, which is what it has always been about. One alias, so the cases below read
 -- exactly as they did.
@@ -1147,23 +1150,43 @@ return function()
 			end
 		end)
 
-		it("the horn's hand is where task 176 drew it", function()
-			-- `carry` and `blow` carry the same three angles, so one pose answers for both; the
-			-- positions differ and are not this case's business.
-			local tip, cuff = ends(hornPoses.carry.right)
-			TestKit.note(
-				string.format(
-					"task189 horn right hand: fingertip (%.4f, %.4f, %.4f), cuff (%.4f, %.4f, %.4f)",
-					tip.X,
-					tip.Y,
-					tip.Z,
-					cuff.X,
-					cuff.Y,
-					cuff.Z
+		it("the horn's hand is where task 202 drew it", function()
+			-- SINCE TASK 202 THE TWO POSES NO LONGER SHARE THEIR THREE ANGLES, so both are pinned.
+			-- The hand is laid ALONG the tube in each of them -- the shotgun's own carry shape -- and
+			-- the tube runs a different way in the carry than it does at the mouth, so one roll
+			-- cannot answer for both. Task 176's numbers are gone with the pose they belonged to;
+			-- what replaces this pin as EVIDENCE is the pair of cases below, which measure the hand
+			-- against the horn instead of against its own past.
+			for _, case in ipairs({
+				{
+					name = "carry",
+					pose = hornPoses.carry.right,
+					tip = Vector3.new(-0.1323, -0.0975, 0.6653),
+					cuff = Vector3.new(-0.1102, -0.4242, 0.0924),
+				},
+				{
+					name = "blow",
+					pose = hornPoses.blow.right,
+					tip = Vector3.new(-0.1523, -0.1328, 0.6810),
+					cuff = Vector3.new(-0.1134, -0.4520, 0.1048),
+				},
+			}) do
+				local tip, cuff = ends(case.pose)
+				TestKit.note(
+					string.format(
+						"task202 horn %s right hand: fingertip (%.4f, %.4f, %.4f), cuff (%.4f, %.4f, %.4f)",
+						case.name,
+						tip.X,
+						tip.Y,
+						tip.Z,
+						cuff.X,
+						cuff.Y,
+						cuff.Z
+					)
 				)
-			)
-			expect((tip - Vector3.new(-0.1295, -0.0382, 0.0582)).Magnitude < TOLERANCE).to.equal(true)
-			expect((cuff - Vector3.new(0.1399, -0.1903, 0.6411)).Magnitude < TOLERANCE).to.equal(true)
+				expect((tip - case.tip).Magnitude < TOLERANCE).to.equal(true)
+				expect((cuff - case.cuff).Magnitude < TOLERANCE).to.equal(true)
+			end
 		end)
 
 		it("...and the shotgun's carry hand holds the gun with the fingers, like the rifle's", function()
@@ -1191,6 +1214,143 @@ return function()
 					aimCuff.Z - aimTip.Z
 				)
 			)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- the horn is in the picture
+	--
+	-- KAREN, 2026-10-14 ~17:00: *"beater hadn is bad and 2 horsn instead 1 it's broken"*. MEASURED in
+	-- the Forest Test on 2026-10-17, as a beater in first person: there is exactly ONE horn drawn in
+	-- every state (at rest, blowing, after a respawn, after a new drive, after /hunter -> /beater) --
+	-- the viewmodel clone, with the real Tool's three parts at `LocalTransparencyModifier` 1, which
+	-- is what task 176 said and it is still true. What was broken is that the ONE horn was drawn as
+	-- TWO: the shipped carry pose ran the 3.125-stud horn from 3.61 studs in front of the lens to
+	-- 0.99, so its near end projected to x = 1455 on a 955-pixel screen and left the picture, and the
+	-- glove sat across the middle of what was left. A ray cast through the viewmodel at eye height
+	-- hit the horn at x = 500..700, the glove at 740..800, NOTHING at 840..880, and the horn again at
+	-- 910..940. Two pale masses with clear background between them. The blow pose was worse: the
+	-- mouthpiece ended up 0.23 studs BEHIND the eye.
+	--
+	-- THESE TWO CASES ARE THE EVIDENCE AND THE PIN ABOVE IS NOT. A pin says "nobody moved this"; it
+	-- cannot say whether what it is holding was ever right, which is why task 176's hand passed every
+	-- gate while sitting 0.16 studs off the tube it was supposed to be holding. These measure the
+	-- drawn horn against the PICTURE and the glove against the HORN -- `Horn.TUBE_SAMPLES`, raycast
+	-- off the real Handle in the same session -- so a pose that leaves the frame or a hand that
+	-- leaves the tube fails here instead of waiting for Karen. Run against the pose data this task
+	-- replaced, both of them fail (the numbers are in the notes below).
+	--
+	-- THE VIEWPORT IS ASSUMED NO NARROWER THAN IT IS TALL. Roblox's `FieldOfView` is the VERTICAL
+	-- angle, so the vertical bound is exact for every window; the horizontal one is the vertical
+	-- bound again, which is what a square window would give and is therefore the strictest any
+	-- window can ask for. Karen plays at 955 x 785, where the horizontal room is 1.22x this.
+	describe("the drawn horn is in the picture, and the glove is on it (task 202)", function()
+		local hornPoses = Data.view(Data.DATA).HORN
+		-- Half the view, as a ratio of the distance: everything inside the picture has
+		-- |x| / depth and |y| / depth below it. `FOV_THIRD_DEG` is the hip field of view, which is
+		-- the one a beater is ever looking through -- a horn has no aim.
+		local HALF_VIEW = math.tan(math.rad(Config.FOV_THIRD_DEG / 2))
+		-- Nothing may be nearer the lens than this. The engine would still draw it, but a section of
+		-- horn a stud from the eye is the wall of horn task 176 shipped.
+		local NEAREST_STUDS = 1.0
+		-- THE MOUTHPIECE MAY LEAVE THE BOTTOM OF THE PICTURE WHEN IT IS AT THE MOUTH, and only then:
+		-- the mouth IS the camera, so a blow that keeps the whole horn on screen is a blow that holds
+		-- it away from the face. Everything from the bell to here stays inside.
+		local MOUTHPIECE_FROM = 1.0
+
+		-- Every measured section of the tube, in the camera's own frame, for one pose.
+		local function sections(item: CFrame)
+			local out = {}
+			for _, row in ipairs(Horn.TUBE_SAMPLES) do
+				table.insert(out, { z = row.z, at = item * Vector3.new(0, row.y, row.z), r = row.r })
+			end
+			return out
+		end
+
+		it("draws the whole horn inside the picture at the carry", function()
+			local worstX, worstY, nearest = 0, 0, math.huge
+			for _, section in ipairs(sections(hornPoses.carry.item)) do
+				local depth = -section.at.Z - section.r
+				nearest = math.min(nearest, depth)
+				expect(depth > 0).to.equal(true)
+				worstX = math.max(worstX, (math.abs(section.at.X) + section.r) / depth)
+				worstY = math.max(worstY, (math.abs(section.at.Y) + section.r) / depth)
+			end
+			TestKit.note(
+				string.format(
+					"task202 carry: worst |x|/depth %.4f, |y|/depth %.4f, nearest %.4f studs"
+						.. " (half view %.4f, nearest allowed %.2f; task 176 shipped 1.6270 / 0.8580 / 1.0885)",
+					worstX,
+					worstY,
+					nearest,
+					HALF_VIEW,
+					NEAREST_STUDS
+				)
+			)
+			expect(worstX < HALF_VIEW).to.equal(true)
+			expect(worstY < HALF_VIEW).to.equal(true)
+			expect(nearest > NEAREST_STUDS).to.equal(true)
+		end)
+
+		it("brings the mouthpiece to the mouth without filling the screen", function()
+			local worstX, worstY, nearest = 0, 0, math.huge
+			for _, section in ipairs(sections(hornPoses.blow.item)) do
+				local depth = -section.at.Z - section.r
+				nearest = math.min(nearest, depth)
+				expect(depth > 0).to.equal(true)
+				if section.z <= MOUTHPIECE_FROM then
+					worstX = math.max(worstX, (math.abs(section.at.X) + section.r) / depth)
+					worstY = math.max(worstY, (math.abs(section.at.Y) + section.r) / depth)
+				end
+			end
+			TestKit.note(
+				string.format(
+					"task202 blow: worst |x|/depth %.4f, |y|/depth %.4f over the horn up to z=%.1f,"
+						.. " nearest %.4f studs (task 176 shipped 10.4059 / 1.3913 / -0.2297 -- the"
+						.. " mouthpiece was BEHIND the eye)",
+					worstX,
+					worstY,
+					MOUTHPIECE_FROM,
+					nearest
+				)
+			)
+			expect(worstX < HALF_VIEW).to.equal(true)
+			expect(worstY < HALF_VIEW).to.equal(true)
+			expect(nearest > NEAREST_STUDS).to.equal(true)
+		end)
+
+		it("lays the right glove on the tube in both poses", function()
+			-- THE THREE LANDMARKS THE GLOVE HAS, each against the tube's own radius where it sits.
+			-- `right` is in the HORN's frame, so a landmark's own Z says which section to ask for --
+			-- no camera and no item pose comes into it, which is why this case answers the same
+			-- question for a pose nobody has looked at yet.
+			for _, case in ipairs({
+				{ name = "carry", pose = hornPoses.carry.right },
+				{ name = "blow", pose = hornPoses.blow.right },
+			}) do
+				for _, landmark in ipairs({
+					{ name = "grip", at = HandAssets.GRIP_STUDS },
+					{ name = "fingertip", at = HandAssets.FINGERTIP_STUDS },
+					{ name = "cuff", at = HandAssets.CUFF_STUDS },
+				}) do
+					local on = case.pose:PointToWorldSpace(landmark.at)
+					local centre, radius = Horn.tubeAt(on.Z)
+					local off = (Vector2.new(on.X, on.Y - centre)).Magnitude
+					TestKit.note(
+						string.format(
+							"task202 %s %s: (%.4f, %.4f, %.4f) is %.4f off the tube's centre line,"
+								.. " whose radius there is %.4f (task 176's grip was 0.2100 off a 0.1854 tube)",
+							case.name,
+							landmark.name,
+							on.X,
+							on.Y,
+							on.Z,
+							off,
+							radius
+						)
+					)
+					expect(off <= radius).to.equal(true)
+				end
+			end
 		end)
 	end)
 

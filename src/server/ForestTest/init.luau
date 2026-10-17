@@ -1079,6 +1079,41 @@ function ForestTest.clearRequest(userId: number)
 	state.requests[userId] = nil
 end
 
+-- WHO IN THIS WORLD IS NOT WIRED UP YET (task 202), as a reconciliation step rather than an event.
+--
+-- KAREN'S `/beater` AND THE DIRECTOR'S `DHForestStartRole` BOTH STOPPED WORKING, and neither of them
+-- is where the fault was. MEASURED in the Forest Test on 2026-10-17, twice running: a Play Solo
+-- session printed neither `[ForestTest] <name> asked to join as a <role> (start switch)` nor
+-- `[ForestTest] <name> is a <role> at (...)`, and BOTH of those prints are inside
+-- `ForestTestBoot`'s `Players.PlayerAdded` handler -- which also holds the `player.Chatted`
+-- connection her `/beater` travels down. The event had already fired. Play Solo puts the local
+-- player into `Players` while the server scripts are still running, and that root now YIELDS for
+-- seconds before it reaches the connection (`places: 3 dressed, 3028 planted ... 2.73s`, plus the
+-- asset loads), so by the time anybody was listening there was nothing left to hear.
+--
+-- A SECOND EDGE HANDLER WOULD BE THE SAME BUG AGAIN. "Wire him when he joins" is a statement about
+-- an INSTANT, and this repo has now lost that instant twice -- the gun that reached the client after
+-- the camera's first render step (`Camera.Rig`'s own header) and this. "Everybody in this world is
+-- wired" is a statement about a STATE, so the boot asks this every tick and acts on the answer: a
+-- player who joined before anything was listening, during a yield, or in the same frame as the
+-- Heartbeat is wired on the next one. It is the `Weapon.refreshArming` / `Horn.refreshCarry`
+-- discipline, for the reason those two carry: *"every edge-triggered grant in this repo has been
+-- measured missing one"*.
+--
+-- PURE, AND IT WRITES NOTHING -- not even `wired`, which the caller owns, because the caller is what
+-- knows whether the wiring actually succeeded. nil rather than an empty table when there is nothing
+-- to do, so the settled case costs one loop and no allocation.
+function ForestTest.toWire(players: { Player }, wired: { [number]: boolean }): { Player }?
+	local out = nil
+	for _, player in ipairs(players) do
+		if not wired[player.UserId] then
+			out = out or {}
+			table.insert(out, player)
+		end
+	end
+	return out
+end
+
 -- WHAT A BOAR SEES WHEN IT LOOKS AT THIS PLAYER (task 153). PURE, and one line, because the whole
 -- point is that "which role has she asked for" and "what kind of stimulus is she" are the same fact
 -- in two vocabularies: a beater is a `driver` and anybody else is a `shooter`. The Brain's own

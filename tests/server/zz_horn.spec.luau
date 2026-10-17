@@ -282,8 +282,24 @@ return function()
 			-- `+Z` end of the mesh in the Handle's frame -- asserted against the function the camera
 			-- reads, so the two cannot drift.
 			local mesh = Horn.mouthpieceOffset(Horn.MESH)
-			local want = Vector3.new(0, 0, Horn.MESH.SIZE_STUDS.X / 2)
-			expect((mesh - want).Magnitude < 1e-4).to.equal(true)
+			-- SINCE TASK 202 IT IS ON THE HORN AND NOT ON THE BOX. Task 175's invariant fixed the
+			-- END (`+Z`, and `ROTATION_DEG` is still the only thing that says which end that is);
+			-- what it did not fix is the height, and the centre of the box's end FACE is 0.44 studs
+			-- above the tube there -- most of the box's own height, in mid-air beside the horn. The
+			-- literal is the measured centre line at that Z (`Horn.TUBE_SAMPLES`), so this stays a
+			-- pin on a number somebody measured rather than a restatement of the arithmetic.
+			local half = Horn.MESH.SIZE_STUDS.X / 2
+			expect((mesh - Vector3.new(0, 0.4415, half)).Magnitude < 1e-4).to.equal(true)
+			-- A TOLERANCE AND NOT `to.equal`: the Z comes through a quarter turn, so it is `half` to
+			-- float precision and not by identity (the gate caught the bare equality once).
+			expect(math.abs(mesh.Z - half) < 1e-6).to.equal(true)
+			-- ...and it IS on the tube: the centre line and the radius both come from the samples.
+			-- 1e-5 AND NOT 1e-9: a `Vector3` holds float32, so the Y that came back through one is
+			-- the rounding of the double `tubeAt` answers -- about 1e-8 apart, which is agreement
+			-- and not drift. (The gate caught 1e-9; the honest bound is the format's.)
+			local centre, radius = Horn.tubeAt(mesh.Z)
+			expect(math.abs(mesh.Y - centre) < 1e-5).to.equal(true)
+			expect(radius > 0).to.equal(true)
 			-- ...AND THE FALLBACK COIL PUTS IT SOMEWHERE ELSE ENTIRELY, which is why the caller has to
 			-- say which build is on screen instead of assuming the mesh. `arc.from` is where `pieces`
 			-- welds the mouthpiece, off the same parametrisation.

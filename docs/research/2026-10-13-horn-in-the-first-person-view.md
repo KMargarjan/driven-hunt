@@ -147,3 +147,74 @@ POSES and no timings, so the first-person gesture and the third-person one canno
 See `reviews/task-176/REQUEST.md` for the run and the numbers. The screenshots (rule 5) are
 `.screenshots/` on the Builder's machine (git-ignored) and are described in the request: one
 first-person carry and one first-person raise, which is what Karen judges.
+
+## 6. What task 202 measured, three days later, and why section 4's targets passed anyway
+
+**Karen, 2026-10-14 ~17:00:** *"beater hadn is bad and 2 horsn instead 1 it's broken"*.
+
+**There is one horn, and there always was.** Measured in the Forest Test on 2026-10-17 as a real
+player beater (`DHForestStartRole=beater`), in five states -- at rest, blowing, after a respawn,
+after a new drive, and after `/hunter` -> `/beater`: in every one of them the scene holds exactly two
+horn part-trees, the viewmodel clone under `workspace.CurrentCamera` (drawn) and the real Tool's two
+parts on the character at `LocalTransparencyModifier = 1` (not drawn). Zero stray horn pieces
+anywhere in `Workspace`. Section 3's complement holds; task 176's claim was true.
+
+**The one horn was DRAWN as two.** With the carry pose this note shipped, the 3.125-stud horn ran
+from 3.61 studs in front of the lens to **0.99**, and its near end projected to **x = 1455 on a
+955-pixel screen** -- off the right-hand edge. Rays cast through the viewmodel at eye height hit the
+horn at x = 500..700, the glove at 740..800, **nothing at 840..880**, and the horn again at 910..940:
+two pale masses with clear background between them. The blow pose was worse -- the mouthpiece ended
+up **0.23 studs behind the eye** and the horn filled the right half of the screen.
+
+**Section 4's targets did not catch either, and that is the lesson.** *"Mouthpiece at the blast
+reaches the bottom-centre of the view"* is a target on ONE POINT of the object. It was met exactly --
+the mouthpiece reached (-0.001, -0.450, -0.050) -- and meeting it is what put the mouthpiece at the
+lens. A pose target has to bound the WHOLE object against the PICTURE, not one landmark against one
+axis. The same hole let the glove pass: it was pinned against its own past
+(`viewmodel_poses.spec`'s task-189 case) and never against the horn, so it sat 0.21 studs off the
+centre line of a tube whose radius there is 0.185 -- outside the horn it was holding.
+
+### 6.1 The horn's own geometry, measured
+
+`Horn.MESH` says how big the mesh's BOX is; it says nothing about where the horn lies inside it, and
+the box is nearly empty. `Horn.TUBE_SAMPLES` closes that: a clone of the real Handle was anchored at
+a known CFrame in a running session and raycast at 0.125-stud steps along the Handle's Z (down from
++4 and up from -4 for the tube's top and bottom, then across at the mid height for its width). The
+centre line sags from `y = +0.02` at the bell to `y = -0.34` at the middle and rises to `y = +0.44`
+at the mouthpiece; the section is 0.56 studs across at the bell, about 0.33 in the middle and 0.13 at
+the tip. The two ends agree with `Horn.mouthpieceOffset` and `Horn.bellOffset`, and were LOOKED at:
+`.screenshots/t202-horn-fixture.png` photographs the clone with a red ball on the Handle's +Z (the
+dark narrow mouthpiece) and a blue one on its -Z (the open bell).
+
+### 6.2 The targets that replace section 4's two pose rows
+
+| What | Target | How it is checked |
+|---|---|---|
+| The carry is in the picture | every measured section of the tube has `(|x| + r) / depth` and `(|y| + r) / depth` below `tan(FOV/2)`, and nothing is nearer than 1.0 stud | `viewmodel_poses.spec`, *"draws the whole horn inside the picture at the carry"*. Shipped before this task: 1.6270 / 0.8580 / 1.0885 -- fails |
+| The blow is in the picture | the same, over the horn up to `z = 1.0`; the mouthpiece beyond it may leave the bottom edge, because the mouth IS the camera | `viewmodel_poses.spec`, *"brings the mouthpiece to the mouth without filling the screen"*. Shipped before: 10.4059 / 1.3913 / **-0.2297** -- the mouthpiece was behind the eye |
+| The glove is on the horn | the grip, the fingertip and the cuff each lie within the tube's own radius of its centre line, in BOTH poses | `viewmodel_poses.spec`, *"lays the right glove on the tube in both poses"*. Shipped before: the grip 0.2100 off a 0.1854 tube -- fails |
+
+The viewport is assumed no narrower than it is tall. Roblox's `FieldOfView` is the VERTICAL angle, so
+the vertical bound is exact for every window and the horizontal bound is the vertical one again --
+the strictest any window can ask for. Karen plays at 955 x 785, which has 1.22x that horizontal room.
+
+### 6.3 The mouthpiece was not on the horn either
+
+`Horn.mouthpieceOffset` answered the centre of the mesh BOX's `+Z` end face. The box is 1.084 studs
+tall and the tube's centre line at that end is **0.4415 studs above** that face's centre -- so the
+point the raise was aimed at, and the point `camera_client`'s *"within 0.15 studs of the view's own
+vertical axis"* was measured against, sat in mid-air beside the horn. The target passed on it while
+the horn was elsewhere: in the pose this task ships, the box end reads **0.410** studs off the view
+axis and the measured tip reads **0.025**. Since task 202 the function lifts that end onto
+`TUBE_SAMPLES`' centre line, which is what makes the client case mean what it says.
+
+### 6.4 What the Forest Test's own `/beater` cost before any of this could be measured
+
+Neither `[ForestTest] <name> asked to join as a <role> (start switch)` nor `[ForestTest] <name> is a
+<role> at (...)` printed in a Play Solo session, twice running: `Players.PlayerAdded` had not fired
+for the only player in the place. Play Solo puts the local player into `Players` while the server
+scripts are still running, and `ForestTestBoot` now yields for seconds before it reaches that
+connection (`places: 3 dressed, 3028 planted ... 2.73s`, plus the asset loads). Both routes into a
+role live inside it -- the `DHForestStartRole` switch AND the `player.Chatted` connection Karen's
+`/beater` travels down -- so neither worked. The fix is the standard catch-up loop over
+`Players:GetPlayers()` at boot, and with it the switch prints and the drive moves her.
