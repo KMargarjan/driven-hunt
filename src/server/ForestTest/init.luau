@@ -353,11 +353,19 @@ local chosen = {
 	name = Data.DEFAULT_LAYOUT,
 	-- The drive number this choice belongs to, so promoting is idempotent: `Match` reads the markers
 	-- once a second while `Waiting`, and only the first of those reads may deal a layout.
+	--
 	drive = nil :: number?,
-	-- The bag. Empty means "refill and shuffle on the next deal" (`Data.nextLayout`).
-	bag = {} :: { string },
-	-- "default" | "bag" | "override" -- printed and in `stats()`, the `Flags` discipline. It is the
-	-- only thing that stops a forced playtest being reported as a random rotation, because
+	-- HAS THE ROTATION EVER STEPPED (task 193)? The rotation needs this and the bag did not. False
+	-- means no drive has been dealt FROM THE CYCLE, so the next one is `LAYOUT_ORDER[1]` -- Karen's
+	-- place 1 -- and not the name AFTER the starting one. Without it, drive 1 of every session would
+	-- be her place 2, because `name` starts at the default and `nextLayout` answers the one after.
+	--
+	-- IT IS NOT `drive ~= nil`, and a forced drive is why: `DHForestLayout` sets `drive` without
+	-- advancing the cycle, so a session that starts forced and then clears the attribute must still
+	-- begin the rotation at place 1.
+	rotated = false,
+	-- "default" | "rotation" | "override" -- printed and in `stats()`, the `Flags` discipline. It is
+	-- the only thing that stops a forced playtest being reported as the rotation, because
 	-- `DHForestLayout` is not a `DHFlag_*` name and the harness does not refuse a run while it is
 	-- set (design 11, D3).
 	source = "default",
@@ -365,9 +373,6 @@ local chosen = {
 	-- call, and this is what distinguishes "the name has not moved" from "the name has never been
 	-- said" -- round 1 could not tell them apart and shipped a session with no map (finding 4).
 	published = false,
-	-- THE BAG'S OWN RANDOMNESS. `state.rng` would do the same job, but `state` is declared
-	-- below this block (see above) and an upvalue has to exist first.
-	rng = Random.new(),
 }
 
 -- THE LIVE LAYOUT, for every reader inside this process.
@@ -518,14 +523,18 @@ function ForestTest.stats()
 		restAlive = ForestTest.restAlive(),
 		active = #state.active,
 		boars = if state.runtime then state.runtime:count() else 0,
-		-- TASK 179: which of the drive layouts this drive is standing on, where the choice came from
-		-- ("default" | "bag" | "override") and what is left in the bag. The SOURCE is the only thing
-		-- that stops a forced playtest being reported as a random rotation, because
-		-- `DHForestLayout` is not a `DHFlag_*` name and the harness does not refuse a run while it
-		-- is set (design 11, D3).
+		-- TASK 179, rotation since TASK 193: which of the drive places this drive is standing on,
+		-- where the choice came from ("default" | "rotation" | "override") and WHAT COMES NEXT. The
+		-- SOURCE is the only thing that stops a forced playtest being reported as the rotation,
+		-- because `DHForestLayout` is not a `DHFlag_*` name and the harness does not refuse a run
+		-- while it is set (design 11, D3).
+		--
+		-- `layoutNext` REPLACES task 179's `layoutBag`, and it answers the same question a reader of
+		-- that field was actually asking -- which place comes after this one. With a cycle there is
+		-- no bag to report, and a rotation's next is knowable, which a shuffled bag's was not.
 		layout = chosen.name,
 		layoutSource = chosen.source,
-		layoutBag = table.concat(chosen.bag, ","),
+		layoutNext = Data.nextLayout(chosen.name),
 	}
 end
 
@@ -1896,8 +1905,8 @@ end
 -- `max(1, ...)` the first layout would be dealt for the waiting room and a SECOND one dealt the
 -- instant the first real drive began -- two layouts before anybody had played one.
 --
--- THE OVERRIDE DOES NOT TOUCH THE BAG. A forced drive is dealt from nothing, so clearing
--- `DHForestLayout` returns the rotation to exactly where it left off.
+-- THE OVERRIDE DOES NOT ADVANCE THE ROTATION. A forced drive does not write `chosen.rotated`, so
+-- clearing `DHForestLayout` returns the cycle to exactly where it left off.
 function ForestTest.layoutForDrive(driveNumber: number?, override: any): string
 	local key = math.max(1, driveNumber or 0)
 	if chosen.drive == key then
@@ -1907,26 +1916,26 @@ function ForestTest.layoutForDrive(driveNumber: number?, override: any): string
 	local name, source
 	if forced ~= nil then
 		name, source = forced, "override"
-	elseif override ~= nil and typeof(override) == "string" then
-		-- A NAME NOBODY KNOWS IS ONE LINE AND A NORMAL DEAL, never a crash: the Director typing
-		-- "clearing" into a Studio field must not be able to stop a playtest.
-		warn(
-			string.format(
-				"[ForestTest] %s=%s is not a layout (have: %s); dealing normally",
-				Data.LAYOUT_OVERRIDE_ATTRIBUTE,
-				tostring(override),
-				table.concat(Data.layoutNames(), ", ")
-			)
-		)
-		name, chosen.bag = Data.nextLayout(chosen.name, chosen.bag, function(n)
-			return chosen.rng:NextInteger(1, n)
-		end)
-		source = "bag"
 	else
-		name, chosen.bag = Data.nextLayout(chosen.name, chosen.bag, function(n)
-			return chosen.rng:NextInteger(1, n)
-		end)
-		source = "bag"
+		if override ~= nil and typeof(override) == "string" then
+			-- A NAME NOBODY KNOWS IS ONE LINE AND A NORMAL DEAL, never a crash: the Director typing
+			-- "clearing" into a Studio field must not be able to stop a playtest.
+			warn(
+				string.format(
+					"[ForestTest] %s=%s is not a layout (have: %s); dealing normally",
+					Data.LAYOUT_OVERRIDE_ATTRIBUTE,
+					tostring(override),
+					table.concat(Data.layoutNames(), ", ")
+				)
+			)
+		end
+		-- THE ROTATION (task 193, Karen: *"each time person will be in new place ... then loop it
+		-- again"*). `chosen.rotated` and not `chosen.drive` is the key, because the drive number
+		-- jumps when a forced drive sits in the middle of a session: the cycle must step once per
+		-- ROTATED drive, not once per drive number.
+		name = if chosen.rotated then Data.nextLayout(chosen.name) else Data.LAYOUT_ORDER[1]
+		chosen.rotated = true
+		source = "rotation"
 	end
 	chosen.drive = key
 	if name ~= chosen.name then
@@ -2054,9 +2063,12 @@ function ForestTest.start(runtime, now: number)
 	-- `Match.start`'s own first marker read -- which the boot runs BEFORE this function, so
 	-- `state.runtime` was still nil and the swap was skipped. The first drive of every session then
 	-- ran a non-road layout against the ROAD's field: on the ride that is an exit line 223 studs
-	-- NORTH of the hunters, and on the edge the spawns are out of bounds outright. The first deal can
-	-- never be the road either (`nextLayout` swaps a fresh bag's head when it equals `previous`, and
-	-- `previous` starts at the default), so it was every session, not an edge case.
+	-- NORTH of the hunters, and on the edge the spawns are out of bounds outright.
+	--
+	-- SINCE TASK 193 THE FIRST DEAL IS THE ROAD (`LAYOUT_ORDER[1]`, Karen's place 1), so the first
+	-- drive of a session no longer hits that case -- but the call stays, because a FORCED first
+	-- drive (`DHForestLayout = ride`) still does, and because the second drive onwards always did.
+	-- Task 179's finding was that the swap was skipped, not that it was skipped only once.
 	ForestTest.applyField(runtime)
 	state.started = true
 	state.startedAt = now

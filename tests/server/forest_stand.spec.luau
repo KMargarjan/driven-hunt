@@ -51,7 +51,7 @@ return function()
 				expect((layout :: any).name).to.equal(name)
 				expect(type((layout :: any).label)).to.equal("string")
 			end
-			-- ...AND EVERY LAYOUT IN THE TABLE IS IN THE ORDER. A layout the bag never deals is a
+			-- ...AND EVERY LAYOUT IN THE TABLE IS IN THE ORDER. A layout the rotation never deals is a
 			-- layout Karen cannot judge, which is the whole reason the choice is a bag.
 			for name in pairs(Data.LAYOUTS) do
 				expect(seen[name]).to.equal(true)
@@ -203,70 +203,47 @@ return function()
 		end)
 	end)
 
-	-- ---------------------------------------------------------------- WHICH LAYOUT COMES NEXT (179)
-	describe("the bag that deals the layouts", function()
-		-- A FIXED ROLL, so there is no randomness in any case below. `roll(n) = 1` leaves
-		-- Fisher-Yates' order alone, which makes the expected sequence writable.
-		local function roll(_n: number): number
-			return 1
-		end
-
-		it("deals every layout exactly once per bag, then refills", function()
-			local bag = {}
+	-- ------------------------------------------------- WHICH PLACE COMES NEXT (179, rotation since 193)
+	describe("the rotation that deals the places", function()
+		it("deals the places in Karen's own order and then loops", function()
+			-- KAREN, 2026-10-15: *"each time person will be in new place when is hunter then loop it
+			-- again"*. Task 179 dealt from a shuffled bag; task 193 replaced it with this cycle, so the
+			-- sequence is writable and there is no roll to fix.
 			local dealt, previous = {}, nil
-			for _ = 1, #Data.LAYOUT_ORDER do
-				local name
-				name, bag = Data.nextLayout(previous, bag, roll)
-				table.insert(dealt, name)
-				previous = name
+			for _ = 1, 2 * #Data.LAYOUT_ORDER do
+				previous = Data.nextLayout(previous)
+				table.insert(dealt, previous)
 			end
-			expect(#bag).to.equal(0)
+			for index, name in ipairs(dealt) do
+				expect(name).to.equal(Data.LAYOUT_ORDER[((index - 1) % #Data.LAYOUT_ORDER) + 1])
+			end
+			-- ...which IS "every place once per cycle": the bag's own stated reason, kept.
 			local seen = {}
-			for _, name in ipairs(dealt) do
-				expect(seen[name]).to.equal(nil)
-				seen[name] = true
+			for index = 1, #Data.LAYOUT_ORDER do
+				expect(seen[dealt[index]]).to.equal(nil)
+				seen[dealt[index]] = true
 			end
-			expect(#dealt).to.equal(#Data.LAYOUT_ORDER)
-			-- The next deal refills.
-			local after
-			after, bag = Data.nextLayout(previous, bag, roll)
-			expect(Data.layoutNamed(after)).to.be.ok()
-			expect(#bag).to.equal(#Data.LAYOUT_ORDER - 1)
+			TestKit.note(string.format("rotation: %s", table.concat(dealt, " -> ")))
 		end)
 
-		it("never deals the same layout twice running, INCLUDING across a refill", function()
-			-- THE BOUNDARY CASE IS THE WHOLE REASON THERE IS A SWAP (TetrisWiki, Random Generator):
-			-- a bag of three can otherwise deal `... C | C ...`, and "never twice running" is the one
-			-- thing it has to mean.
-			local bag = {}
+		it("never deals the same place twice running", function()
+			-- The one property the bag needed a swap to get, and a cycle of two or more has for free.
+			expect(#Data.LAYOUT_ORDER >= 2).to.equal(true)
 			local previous = nil
 			for _ = 1, 4 * #Data.LAYOUT_ORDER do
-				local name
-				name, bag = Data.nextLayout(previous, bag, roll)
+				local name = Data.nextLayout(previous)
 				expect(name).never.to.equal(previous)
 				previous = name
 			end
-			-- ...and explicitly: a fresh bag whose head is the name just played swaps it.
-			if #Data.LAYOUT_ORDER >= 2 then
-				local first = Data.nextLayout(nil, {}, roll)
-				local again = Data.nextLayout(first, {}, roll)
-				expect(again).never.to.equal(first)
-			end
 		end)
 
-		it("never mutates the caller's bag, and survives a roll that answers nonsense", function()
-			local bag = { "road" }
-			local name, out = Data.nextLayout(nil, bag, roll)
-			expect(name).to.equal("road")
-			expect(#bag).to.equal(1) -- the caller's list is untouched
-			expect(#out).to.equal(0)
-			-- A STUB THAT ANSWERS OUT OF RANGE MUST NOT INDEX NIL. A spec is allowed to hand this
-			-- function anything, and `math.clamp` is what makes that true rather than lucky.
-			for _, bad in ipairs({ 0, -5, 99 }) do
-				local got = Data.nextLayout(nil, {}, function()
-					return bad
-				end)
-				expect(Data.layoutNamed(got)).to.be.ok()
+		it("starts the cycle again for a name nobody knows, and never answers nil", function()
+			-- A DRIVE WITH NO LAYOUT IS THE ONE OUTCOME THE DESIGN FORBIDS, so nil (the start of a
+			-- session) and a name deleted from the table between two drives both answer the FIRST place.
+			expect(Data.nextLayout(nil)).to.equal(Data.LAYOUT_ORDER[1])
+			expect(Data.nextLayout("clearing")).to.equal(Data.LAYOUT_ORDER[1])
+			for _, bad in ipairs({ "", "ROAD", "road " }) do
+				expect(Data.layoutNamed(Data.nextLayout(bad))).to.be.ok()
 			end
 		end)
 	end)
@@ -404,8 +381,9 @@ return function()
 			-- and the FIRST deal happens inside `Match.start`'s first marker read -- which the boot
 			-- runs BEFORE `ForestTest.start`. So the first drive of every session ran a non-road
 			-- layout against the ROAD's field: on the ride an exit line 223 studs NORTH of the
-			-- hunters, on the edge spawns out of bounds outright. And the first deal can never be the
-			-- road, because `nextLayout` swaps a fresh bag's head when it equals `previous`.
+			-- hunters, on the edge spawns out of bounds outright. Since task 193 the first deal IS
+			-- the road (`LAYOUT_ORDER[1]`), so the FIRST drive of a session no longer hits that case
+			-- -- but a forced first drive still does, and every drive after the first always did.
 			local given = {}
 			local fake = {
 				setField = function(_self, field)

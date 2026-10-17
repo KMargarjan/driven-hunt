@@ -111,10 +111,21 @@ ForestTest.LAYOUTS = table.freeze({
 		halfSpanStuds = 800,
 	}),
 
-	-- THE SOUTH FOREST EDGE: the hunters stand OUT IN THE OPEN and the drive comes out of the trees
-	-- at them. Measured: the wood's south tree line is at z -2900 at seven of the nine road columns,
-	-- so a line at z -3000 is 100 studs clear of it -- a hunter sees the animals break cover and has
-	-- the whole crossing in front of him instead of a 40-stud lane.
+	-- KAREN'S PLACE 2, *"forest ending then field and then again forest"* (task 193): the hunters
+	-- stand on their OWN edge at the south side of an open field, and the far forest across it is
+	-- this world's real wood, which the drive comes out of. The hunter's own frame is karen-ref-6 --
+	-- a stand inside a hedge, a wide field, a dark tree line across it, a boar crossing.
+	--
+	-- IT MOVED SOUTH, FROM z -3000 TO z -3400, AND THE FIELD IS WHY. At -3000 the hunters stood 100
+	-- studs from the tree line: that is 28 m, a lane and not a field, and task 179's own note called
+	-- it *"100 studs out in the open"*. Karen asked for 80-150 m. The wood's southern face is at
+	-- z -2900 straight across this whole stand span (measured 2026-10-17 at every column x
+	-- 3100..3800: -2900 +/- 25), so -3400 puts **504 studs = 141 m** of open ground in front of the
+	-- line -- inside her range, and far enough that a boar breaking cover is a long crossing shot.
+	--
+	-- AND THE BEATERS STILL START IN THE TREES. `beaterNorthStuds()` is 580, so they form up at
+	-- z -2820, which is 80 studs INSIDE the wood -- they push out of cover into the open, which is
+	-- what makes this a Feldrand stand rather than two lines in a paddock.
 	--
 	-- IT IS THE MOST CLASSICAL OF THE THREE, and that is a borrowed judgement rather than a taste:
 	-- WILD UND HUND's "Drueckjagdstaende -- Sicher ist sicher?" says a stand does NOT belong on a
@@ -125,54 +136,101 @@ ForestTest.LAYOUTS = table.freeze({
 	--
 	-- SIX STANDS CENTRED x 3480 AND NOT NINE CENTRED 3030, AND THE LODGE IS WHY.
 	-- `Lobby.anchorFor("forest-test")` is (2850, -2950) -- 50 studs off the ideal nine-stand line --
-	-- so the line is moved east and shortened until the nearest stand is 255 studs from it. Measured
-	-- per stand at x 3105..3855: ground delta 0.0 and trunk-free at all six, terrain y 148, 148,
-	-- 172, 192, 223, 228 -- an 80-stud climb west to east, which is the hillside above.
+	-- so the line is moved east and shortened. At z -3400 the nearest stand is 433 studs from the
+	-- lodge, and `boundsOf`'s west edge (x 3045) is 85 studs clear of the lobby's own field
+	-- (x 2740..2960), which is the clearance task 179 sized `halfSpanStuds` 435 to get: 375 (half
+	-- the stand span) + 60 of run-out, the run-out 60 rather than the road's 200 for that reason.
 	--
-	-- `centre.Y` 185 is the mean of those six. `halfSpanStuds` 435 is 375 (half the stand span) + 60
-	-- of run-out, and the run-out is 60 rather than the road's 200 BECAUSE OF THE LODGE: at 200 the
-	-- west bound would be x 2905 and the lobby's own field is x 2740..2960, which would put a boar
-	-- on the lodge lawn.
+	-- `centre.Y` 202 IS THE MEAN OF THE SIX STANDS' OWN TERRAIN AT THE NEW z, re-measured rather
+	-- than carried over: 211, 189, 178, 191, 222, 223 (2026-10-17, the `terrainYAt` ray). It is a
+	-- FALLBACK only -- every production reader re-measures -- and the 45-stud spread across the line
+	-- is the hillside this stand type wants.
 	edge = table.freeze({
 		name = "edge",
-		label = "Forest edge",
-		centre = Vector3.new(3480, 185, -3000),
+		label = "Field edge",
+		centre = Vector3.new(3480, 202, -3400),
 		amplitudeStuds = 0,
 		standCount = 6,
 		standSpacing = 150,
 		halfSpanStuds = 435,
 	}),
 
-	-- A STRAIGHT RIDE INSIDE THE EAST WOOD: five stands 130 apart, trunks on both sides, short sight
-	-- lines. A different kind of drive on purpose -- 520 studs of front instead of 1,200.
+	-- KAREN'S PLACE 3, *"just cut tree line and forest on both sides"* (task 193): a straight ride cut
+	-- through dense wood, hunters spaced along it, the animal crossing from cover into cover.
+	-- karen-ref-5 is the frame -- a grassy ride with two ruts, a band of young pines right at its
+	-- edge, taller forest behind them, and the next hunter a long way down it.
 	--
-	-- A REAL RIDE IS CUT, AND THIS ONE IS FOUND. Deutsche Jagdzeitung's "Saubere
-	-- Ansitz-Drueckjagden!" describes the preparation of a drive as the clearing of its stands -- a
-	-- broad shooting lane and a narrow sight line cut before the season -- and this place's wood is
-	-- bought Studio content this repo did not write, so cutting one means deleting it (rule 7, and
-	-- Karen's call). So the line is placed where the wood ALREADY leaves the ground clear, and that
-	-- was measured rather than hoped for: sweeping centres x 3250..3400 against z -2680..-2420,
-	-- seven candidate lines come out 5/5 trunk-free and this is one of them. x 3090..3610, terrain
-	-- y 141..163, 240 studs clear of the lodge in x.
+	-- IT LEFT THE EXISTING WOOD, AND THAT IS A MEASUREMENT AND NOT A PREFERENCE. Task 179 placed
+	-- this line at (3350, -2600) because the wood happened to leave its five STAND POINTS clear
+	-- within 8 studs. A ride is not five points, it is a STRIP, and on 2026-10-17 the strip was
+	-- measured along that same line (x 3060..3640 every 20 studs, `RespectCanCollide`): a trunk
+	-- within 10 studs at **12 of 30** samples, within 20 studs at 23 of 30, within 32 studs at
+	-- **30 of 30**. A sweep for ANY line clear at +-10 studs over 900 studs (z -2400..-2800 by 25,
+	-- three x centres) found **NONE**. There is no cut line in this wood and one cannot be made
+	-- without deleting bought Studio trees -- rule 7, and Karen's call. Deutsche Jagdzeitung's
+	-- "Saubere Ansitz-Drueckjagden!" describes a drive's preparation as exactly that cutting:
 	--   https://djz.de/saubere-ansitz-drueckjagden-858/
+	-- ...so the ride is CUT HERE INSTEAD, on clean ground, by planting the wood either side of it
+	-- (`src/shared/Places`). A strip nothing is planted into is a strip no later tweak can grow a
+	-- tree back into.
 	--
-	-- `centre.Y` 152 is the midpoint of that measured range; `halfSpanStuds` 320 is 260 + the same
-	-- 60-stud run-out as the edge, for the same lodge reason.
+	-- WHY x 1500, z -4100. Of 42 candidate plots scored for a stand line plus 620 studs of drive
+	-- ground north and 280 south, this one holds **zero** non-terrain parts and has the least
+	-- relief along its own 700-stud line (**29 studs**, plot 63) -- the flattest clean ground in
+	-- this world. Stand terrain, measured: 160, 151, 134, 136, 150; `centre.Y` 146 is their mean.
+	--
+	-- Five stands 130 apart is 520 studs of front instead of the road's 1,200: a different kind of
+	-- drive on purpose, and the one Karen described, where the next gun is "far down the ride".
+	-- `halfSpanStuds` 320 is 260 + the same 60-stud run-out as the edge.
 	ride = table.freeze({
 		name = "ride",
-		label = "Ride",
-		centre = Vector3.new(3350, 152, -2600),
+		label = "Cut line",
+		centre = Vector3.new(1500, 146, -4100),
 		amplitudeStuds = 0,
 		standCount = 5,
 		standSpacing = 130,
 		halfSpanStuds = 320,
 	}),
+
+	-- KAREN'S PLACE 4, *"again forest road and forests on side"* (task 193): a SECOND forest road,
+	-- and deliberately the opposite of the first. The road is a wide gravel sweep through open high
+	-- forest you can see 40-60 m into; this is karen-ref-1 -- a narrow dirt double track under brown
+	-- leaves with the forest CLOSE on both sides, young firs right at the wheel ruts.
+	--
+	-- STRAIGHT, WHERE THE ROAD CURVES (`amplitudeStuds` 0 against the road's 30). That is the whole
+	-- difference a hunter reads between the two: on the road the bend takes his neighbour out of
+	-- sight; here he sees the length of the track and the next gun standing on it, which is what
+	-- ref-1 shows.
+	--
+	-- NARROW IS A BORROWED NUMBER. A `Rueckegasse` -- the skid trail this is -- is **3-4 m wide**,
+	-- "at least four metres" recommended, 20-60 m apart (LWF-Merkblatt Nr. 38 / Wald-Prinz):
+	--   https://www.waldwissen.net/de/technik-und-planung/forsttechnik-und-holzernte/walderschliessung/merkblatt-feinerschliessung
+	-- The planted strip is 18 studs = 5 m, the generous end of that, because a boar has to be
+	-- shootable crossing it.
+	--
+	-- WHY x 4800, z -4100: the other plot of the 42 with **zero** non-terrain parts in it and the
+	-- lowest PLOT relief of any (58 studs; line relief 37). Stand terrain, measured: 171, 152, 143,
+	-- 151, 159, 173; `centre.Y` 158 is their mean. Six stands 130 apart = 650 studs of front;
+	-- `halfSpanStuds` 385 is 325 + the 60-stud run-out.
+	track = table.freeze({
+		name = "track",
+		label = "Forest road",
+		centre = Vector3.new(4800, 158, -4100),
+		amplitudeStuds = 0,
+		standCount = 6,
+		standSpacing = 130,
+		halfSpanStuds = 385,
+	}),
 })
 
--- THE BAG'S CONTENTS, IN ONE PLACE, and the one-line commit that puts this world back to exactly
--- today's game: `{ "road" }`. `forest_stand.spec` proves `road` is unchanged number for number, so
--- that commit is a real rollback and not a hope (design 15).
-ForestTest.LAYOUT_ORDER = table.freeze({ "road", "edge", "ride" })
+-- THE ROTATION, IN ONE PLACE AND IN KAREN'S OWN ORDER (task 193): her 1 road, 2 field edge, 3 cut
+-- line, 4 forest road. Since task 193 this is not a bag's contents but the CYCLE ITSELF -- drive 1
+-- plays the first, drive 5 plays the first again (`nextLayout`).
+--
+-- It is still the one-line commit that puts this world back to exactly today's game: `{ "road" }`.
+-- `forest_stand.spec` proves `road` is unchanged number for number, so that commit is a real
+-- rollback and not a hope (design 15).
+ForestTest.LAYOUT_ORDER = table.freeze({ "road", "edge", "ride", "track" })
 
 -- THE DEFAULT PARAMETER, NAMED FOR WHAT IT IS. A default meaning "the live layout" cannot exist in
 -- a replicated module: on a client this module has no live anything, so it would answer `road` for
@@ -215,44 +273,37 @@ function ForestTest.layoutNames(): { string }
 	return table.clone(ForestTest.LAYOUT_ORDER)
 end
 
--- WHICH LAYOUT COMES NEXT: A SHUFFLED BAG, NOT A RE-ROLL (task 179). PURE -- a spec drives it with
--- a fixed roll and no world.
+-- WHICH LAYOUT COMES NEXT: THE ROTATION, IN ORDER, FOR EVER. PURE -- a spec drives it with no world
+-- and no randomness at all.
 --
--- Pattern: the Tetris Guideline's **Random Generator**, the 7-bag -- *"take a bag of all seven
--- tetrominoes, shuffle, deal them one at a time, refill when empty"*. It exists because the naive
--- `math.random(n)` really does deal the same thing several times running and players read that as
--- broken, which is exactly the complaint a repeated drive layout would earn.
---   https://tetris.wiki/Random_Generator
--- The same shape is what this platform's own community arrived at for map rotation:
---   https://devforum.roblox.com/t/an-efficient-way-to-randomize-a-list-of-maps-or-items/223583
--- A bag is taken over "remember the previous and re-roll" (the other DevForum answer) for two
--- reasons: re-rolling is unbounded, and a bag guarantees every layout is SEEN -- which matters here,
--- because Karen is judging the look of each one and a layout she is never dealt is a layout she
--- cannot judge.
+-- KAREN DECIDED THIS, 2026-10-15: *"each time person will be in new place when is hunter then loop
+-- it again"*. Task 179 dealt from a shuffled bag (the Tetris 7-bag,
+-- https://tetris.wiki/Random_Generator, and the DevForum's map-rotation answer,
+-- https://devforum.roblox.com/t/an-efficient-way-to-randomize-a-list-of-maps-or-items/223583); task
+-- 193 replaces it with a fixed cycle, and the bag's own stated reason is the thing the cycle does
+-- BETTER rather than worse: *"a layout she is never dealt is a layout she cannot judge"*. A bag only
+-- guarantees that within a shuffle; a rotation deals every place exactly once per cycle in an order
+-- she can predict, which is what "then loop it again" asks for.
 --
--- `roll(n)` must answer an integer in 1..n; the live caller passes `Random:NextInteger(1, n)`.
-function ForestTest.nextLayout(previous: string?, bag: { string }, roll: (number) -> number): (string, { string })
-	-- NEVER MUTATES THE CALLER'S LIST: the bag is state somebody else owns, and a pure function that
-	-- edits its argument is the kind of second writer rule 3 is about.
-	local next_ = table.clone(bag or {})
-	if #next_ == 0 then
-		next_ = ForestTest.layoutNames()
-		-- Fisher-Yates, the one shuffle. `math.clamp` is not tidiness: a stub roll that answers 0 or
-		-- n+1 would index nil, and a spec is allowed to hand this function anything.
-		for index = #next_, 2, -1 do
-			local other = math.clamp(roll(index), 1, index)
-			next_[index], next_[other] = next_[other], next_[index]
-		end
-		-- THE BOUNDARY CASE, which is the one thing "never twice running" has to mean. A fresh bag
-		-- whose first name is the one just played deals `... C | C ...`; swap it with the second.
-		-- With ONE layout in the table there is no second and the answer is the same name again --
-		-- honest, and not a loop that cannot terminate.
-		if #next_ >= 2 and next_[1] == previous then
-			next_[1], next_[2] = next_[2], next_[1]
+-- WHAT A ROTATION LOSES, said plainly: it is predictable, so a player who has seen four drives knows
+-- the fifth. That is a cost for a shipped game and an advantage for a playtest, and this world is a
+-- playtest world. If it ever becomes the real rotation for players, the fix is a bag per CYCLE
+-- (shuffle the four, deal all four, reshuffle) -- which is the 7-bag again, and keeps "every place
+-- once per cycle".
+--
+-- NO ROLL, NO BAG, NO STATE. The only argument is what was played last, so the caller keeps one
+-- string instead of a list, and there is no way for the two to disagree.
+function ForestTest.nextLayout(previous: string?): string
+	local order = ForestTest.LAYOUT_ORDER
+	-- A NAME NOBODY KNOWS -- nil at the start of a session, or a layout deleted from the table
+	-- between one drive and the next -- starts the cycle again rather than answering nil. A drive
+	-- with no layout is the one outcome the whole design forbids.
+	for index, name in ipairs(order) do
+		if name == previous then
+			return order[(index % #order) + 1]
 		end
 	end
-	local name = table.remove(next_, 1) :: string
-	return name, next_
+	return order[1]
 end
 
 -- WHERE THE LINE IS AT A GIVEN x. The one definition; every other reader calls this.

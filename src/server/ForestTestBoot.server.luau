@@ -69,6 +69,10 @@ local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 -- rule. `Lobby` never learns what an asset key is and `Match.Body` never learns what a shop is.
 local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
+-- THE FOUR PLACES' OWN FOREST (task 193). The seventh owner, wired exactly as the six above are:
+-- `Places` requires no owner and no owner requires it. It is the ONE writer of
+-- `Workspace.DrivePlaces` and it reads a layout from `ForestTest.Data` -- never the other way round.
+local Places = require(ServerScriptService:WaitForChild("Places"))
 local Data = ForestTest.Data
 
 print(
@@ -78,6 +82,34 @@ print(
 		game.PlaceId,
 		table.concat(Data.layoutNames(), "/"),
 		Data.SCHEDULE.intervalSeconds
+	)
+)
+
+-- ---------------------------------------------------------------- the four places
+
+-- KAREN'S FOUR PLACES, PLANTED ONCE, BEFORE ANYTHING ELSE RUNS. Her 2026-10-15: *"make 4 hunting
+-- places where each time person will be in new place when is hunter then loop it again"*.
+--
+-- BEFORE THE BOARS AND BEFORE THE DRIVE, and that is the ordering that matters: a boar released into
+-- a place whose wood arrived afterwards would have pathfound across ground that then grew trees. The
+-- navmesh is rebuilt in the background (`tools/mapgen.py`'s own measurement: a wall thrown across a
+-- corridor still answered `PathStatus.Success` one second later and `NoPath` after five), so the
+-- trees go in first and the first wave is a minute away.
+--
+-- ONE LINE, AND IT CARRIES THE COUNTS Karen's *"not fake it or broken"* is checked against: how many
+-- went in, how many were refused for want of ground, and how many were refused because their
+-- footprint lay across a step (`TreeGround.CLIFF_STUDS`).
+local planted = Places.build()
+print(
+	string.format(
+		"[ForestTestBoot] places: %d dressed, %d planted, %d skipped, %d on a step, %d template(s) missing, %.2fs%s",
+		planted.places,
+		planted.planted,
+		planted.skipped,
+		planted.cliff,
+		planted.missing,
+		planted.seconds,
+		if planted.reason then " (" .. tostring(planted.reason) .. ")" else ""
 	)
 )
 
