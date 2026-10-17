@@ -93,11 +93,27 @@ local Z = PANEL.Z_INDEX
 --
 -- `Enum.Font.Code` LEAVES THE SHOP, and with it the black `UIStroke` every other label in this Hud
 -- wears: that outline is there to hold text over a sunlit forest, and this panel is opaque.
-local OSWALD_SB = Font.new("rbxasset://fonts/families/Oswald.json", Enum.FontWeight.SemiBold)
-local OSWALD_MD = Font.new("rbxasset://fonts/families/Oswald.json", Enum.FontWeight.Medium)
-local SANS_BOLD = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.Bold)
-local SANS_SEMI = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.SemiBold)
-local SANS_REG = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.Regular)
+--
+-- THEY ARE EXPORTED SINCE TASK 197, AND THAT IS THE "ONE SOURCE" RULE READ LITERALLY. The shop sets
+-- the house style (spec section 8: *"Anything built after it follows these"*), so the pad dialog and
+-- its loading banner read these five `Font` values and this file's `LOOK` and `spaced` out of here
+-- rather than re-spelling five family paths and forty hexes. A second copy of a palette is a second
+-- answer to *"what colour is blaze orange"* -- `docs/PROJECT_CONTEXT.md`'s named failure mode -- and
+-- it is exactly how the old dialog came to be `Enum.Font.Code` on a blue-grey panel while the shop
+-- beside it was Oswald on charcoal.
+ShopPanel.FONT = {
+	OSWALD_SB = Font.new("rbxasset://fonts/families/Oswald.json", Enum.FontWeight.SemiBold),
+	OSWALD_MD = Font.new("rbxasset://fonts/families/Oswald.json", Enum.FontWeight.Medium),
+	SANS_BOLD = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.Bold),
+	SANS_SEMI = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.SemiBold),
+	SANS_REG = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.Regular),
+}
+
+local OSWALD_SB = ShopPanel.FONT.OSWALD_SB
+local OSWALD_MD = ShopPanel.FONT.OSWALD_MD
+local SANS_BOLD = ShopPanel.FONT.SANS_BOLD
+local SANS_SEMI = ShopPanel.FONT.SANS_SEMI
+local SANS_REG = ShopPanel.FONT.SANS_REG
 
 -- "WEAPONS" -> "W E A P O N S". Roblox `TextLabel` has no tracking property, so the spec's
 -- letter-spaced micro-labels are drawn with a plain space between the letters. ONLY for the <= 10 px

@@ -153,6 +153,13 @@ local stats = {
 	trucksSettled = 0,
 	truckGroundStuds = 0,
 	truckPainted = 0,
+	-- HOW MANY TIMES A TRUCK WAS ACTUALLY STARTED OR STOPPED (task 197). `Build.setTruck` is
+	-- edge-triggered and asked every scan, so this is `padWrites`' own rule applied to the engine: a
+	-- number that climbs with the owner's `scans` is the bug the counter exists to show.
+	truckWrites = 0,
+	-- ...AND HOW MANY OF THE FOUR GOT A RIG AT ALL, so "the trucks can light up" is a number the
+	-- boot's log line and the spec can read rather than a belief.
+	truckRigs = 0,
 	-- HOW MANY TREE PARTS WERE REPAINTED AS ALDER (spec 16b): a counted fact about the build, beside
 	-- `truckPainted` and for the same reason.
 	treesTinted = 0,
@@ -3145,6 +3152,341 @@ local function truck(container: Instance, at: Vector3, cfg, name: string): Insta
 	return folder
 end
 
+-- ---------------------------------------------------------------- the truck that starts (task 197)
+--
+-- KAREN, 2026-10-15 ~17:40: *"also could be car started sound light on something like that
+-- indicating loading ect"*.
+--
+-- IS THIS PART ONE OF THE TRUCK'S LAMPS? PURE over the four facts a part carries, and exported
+-- because it is the whole of why no truck's geometry had to be guessed at.
+--
+-- IT IS `Build.truckSkinOf`'S OWN "light" CLASS, PLUS A SIZE. That classifier calls anything `Neon`
+-- or named "light" a light, which is exactly right for the paint rule it was written for -- and the
+-- free model's CHASSIS is a `Neon` part named `Light`, 6.70 x 4.50 x 17.65 studs. A classifier that
+-- stopped at the name would have hung a SpotLight inside the chassis of all four trucks. A lamp is
+-- small; `ENGINE.LAMP_MAX_STUDS` is 2.5 and the biggest real lamp measures 1.35.
+function Build.isTruckLamp(name: string, material: Enum.Material, size: Vector3, cfg): boolean
+	if Build.truckSkinOf(name, material) ~= "light" then
+		return false
+	end
+	local bound = cfg.TRUCK.ENGINE.LAMP_MAX_STUDS
+	return size.X <= bound and size.Y <= bound and size.Z <= bound
+end
+
+-- IS THIS LAMP A HEADLIGHT? PURE, and it is a WHITE test and nothing else: the free model's
+-- headlights ship at 248,248,248 and every other lamp on it is amber (213,115,61) or red (255,89,89
+-- / 190,104,98), whose lowest channel is 61, 89 and 98 against a threshold of 0.75.
+function Build.isHeadLamp(color: Color3, cfg): boolean
+	local floor = cfg.TRUCK.ENGINE.HEAD_MIN_CHANNEL
+	return color.R >= floor and color.G >= floor and color.B >= floor
+end
+
+-- EVERY LAMP OF ONE TRUCK, SPLIT INTO HEADS AND TAILS, and WHICH WAY THE TRUCK FACES.
+--
+-- THE WHITE PAIR *IS* THE FRONT, whichever end of the box it sits on, and that is the one thing in
+-- this task that could not be taken from a comment. `CONFIG.TRUCK`'s own header says the free model
+-- *"is delivered pointing along its own +X"* and is given a quarter turn because *"the yard wants it
+-- pointing SOUTH"* -- but the lamps measure the other way round: the headlights are at the model's
+-- local **-X**, so after `YAW_RADIANS` they look NORTH, up the yard, and `Build.truck`'s fallback
+-- (bonnet at `at.Z - 7.4`) looks SOUTH. Two branches, two fronts. So nothing here reads a config
+-- heading at all: the direction is measured from the truck's own centre out through its own white
+-- lamps, and both branches come out right by construction.
+--
+-- A TAIL IS A LAMP ON THE FAR HALF FROM THE HEADS, which is a POSITION test and not a colour test.
+-- The model's amber indicators are the same hue family as its tail lights and sit at the FRONT; a
+-- red glow on a bonnet is the kind of thing that measures correct and looks wrong
+-- (`docs/PROJECT_CONTEXT.md`).
+local function lampsOf(model: Instance, cfg): ({ BasePart }, { BasePart }, Vector3?)
+	local heads: { BasePart } = {}
+	local lamps: { BasePart } = {}
+	for _, piece in ipairs(partsOf(model)) do
+		if Build.isTruckLamp(piece.Name, piece.Material, piece.Size, cfg) then
+			table.insert(lamps, piece)
+			if Build.isHeadLamp(piece.Color, cfg) then
+				table.insert(heads, piece)
+			end
+		end
+	end
+	if #heads == 0 then
+		return {}, {}, nil
+	end
+	local centre = Build.worldBoxOf(model)
+	local sum = Vector3.zero
+	for _, head in ipairs(heads) do
+		sum += head.Position
+	end
+	local flat = (sum / #heads - centre) * Vector3.new(1, 0, 1)
+	-- A TRUCK WHOSE HEADLIGHTS ARE AT ITS OWN CENTRE HAS NO FRONT. It cannot happen on either branch
+	-- and it is not an error: no facing, no beam, and the caller falls back to building its own.
+	if flat.Magnitude < 0.5 then
+		return {}, {}, nil
+	end
+	local facing = flat.Unit
+	local tails: { BasePart } = {}
+	for _, lamp in ipairs(lamps) do
+		if
+			not Build.isHeadLamp(lamp.Color, cfg)
+			and facing:Dot((lamp.Position - centre) * Vector3.new(1, 0, 1)) < 0
+		then
+			table.insert(tails, lamp)
+		end
+	end
+	return heads, tails, facing
+end
+
+-- ONE TRUCK'S RIG, REMEMBERED, for `padParts`' stated reason: the owner's 10 Hz scan turns a truck on
+-- and off without finding anything again, and a spec can ask for one without a `Workspace`. The
+-- `off` / `on` colours are kept per lamp because the lamp is the MODEL'S OWN part and its shipped
+-- colour is not ours to forget.
+type TruckRig = {
+	lamps: { { piece: BasePart, on: Color3, off: Color3 } },
+	lights: { Light },
+	smoke: ParticleEmitter?,
+	start: Sound?,
+	idle: Sound?,
+	running: boolean,
+}
+
+local truckRigs: { [number]: TruckRig } = {}
+
+-- A `Sound` CUT TO A MEASURED WINDOW. `PlaybackRegion` plus `LoopRegion`, which is the engine's own
+-- way of playing part of an asset -- the alternative, `TimePosition` with a `Looped` sound, replays
+-- from zero and so would re-start the engine on every pass:
+--   https://create.roblox.com/docs/reference/engine/classes/Sound#PlaybackRegion
+--   https://create.roblox.com/docs/reference/engine/classes/Sound#LoopRegion
+-- Both windows are measured off the asset's own `PlaybackLoudness` (`CONFIG.TRUCK.ENGINE`).
+local function engineSound(
+	name: string,
+	id: string,
+	from: number,
+	to: number,
+	volume: number,
+	looped: boolean,
+	cfg
+): Sound
+	local sound = Instance.new("Sound")
+	sound.Name = name
+	sound.SoundId = id
+	sound.Volume = volume
+	sound.Looped = looped
+	sound.PlaybackRegionsEnabled = true
+	sound.PlaybackRegion = NumberRange.new(from, to)
+	if looped then
+		sound.LoopRegion = NumberRange.new(from, to)
+	end
+	sound.RollOffMode = Enum.RollOffMode.InverseTapered
+	sound.RollOffMinDistance = cfg.TRUCK.ENGINE.ROLL_OFF_MIN_STUDS
+	sound.RollOffMaxDistance = cfg.TRUCK.ENGINE.ROLL_OFF_MAX_STUDS
+	return sound
+end
+
+-- THE RIG, BUILT ONCE WITH THE TRUCK AND BORN OFF. Every light `Enabled = false`, the emitter
+-- `Enabled = false`, the lamps at their OFF colour and neither sound playing -- so a yard nobody is
+-- standing in is four dark trucks, which is the state the game is in for all but a few seconds.
+--
+-- IT ADDS NO PART TO THE MODEL BRANCH. The lights hang inside the model's own lamps, and the
+-- emitter and the two sounds hang off `Attachment`s -- which are not `BasePart`s, so the lobby's
+-- 1500-part budget is untouched by three of the four pieces. Only a FALLBACK truck costs parts (four
+-- lenses), because `Build.truck` builds no lamp at all.
+local function truckRig(model: Instance, cfg): TruckRig
+	local spec = cfg.TRUCK.ENGINE
+	local rig: TruckRig = { lamps = {}, lights = {}, smoke = nil, start = nil, idle = nil, running = false }
+	local centre, half = Build.worldBoxOf(model)
+	local heads, tails, facing = lampsOf(model, cfg)
+
+	if facing == nil then
+		-- NO LAMPS: build four. `Build.truck`'s fallback points its bonnet at `at.Z - 7.4`, so this
+		-- branch's front is -Z -- the one place in this file a heading is asserted rather than
+		-- measured, and it is asserted about geometry THIS FILE builds twenty lines up.
+		facing = Vector3.new(0, 0, -1)
+		local y = centre.Y - half.Y + 2 * half.Y * spec.LENS_HEIGHT_FRACTION
+		for _, row in ipairs({
+			{ name = "HeadLamp", at = facing, colour = spec.HEAD_OFF_COLOR, head = true },
+			{ name = "TailLamp", at = -facing, colour = spec.TAIL_OFF_COLOR, head = false },
+		}) do
+			for index, way in ipairs({ -1, 1 }) do
+				local lens = part(
+					string.format("%s%d", row.name, index),
+					spec.LENS_STUDS,
+					CFrame.new(
+						centre.X + way * half.X * spec.LENS_SIDE_FRACTION,
+						y,
+						centre.Z + row.at.Z * (half.Z + spec.LENS_STUDS.Z / 2)
+					),
+					row.colour,
+					Enum.Material.Neon,
+					false,
+					model
+				)
+				table.insert(if row.head then heads else tails, lens)
+			end
+		end
+	end
+
+	for _, head in ipairs(heads) do
+		table.insert(rig.lamps, { piece = head, on = spec.HEAD_COLOR, off = spec.HEAD_OFF_COLOR })
+		head.Color = spec.HEAD_OFF_COLOR
+		local beam = Instance.new("SpotLight")
+		beam.Name = "Beam"
+		beam.Brightness = spec.HEAD_BRIGHTNESS
+		beam.Range = spec.HEAD_RANGE_STUDS
+		beam.Angle = spec.HEAD_ANGLE_DEGREES
+		beam.Color = spec.HEAD_COLOR
+		beam.Shadows = true
+		-- A `SpotLight` SHINES ALONG ITS PARENT'S `Face`, and the lamp part's own orientation is the
+		-- model author's, not ours. So the beam is aimed with an `Attachment`, whose CFrame this file
+		-- owns: `Front` down the measured facing, which is what `Light.Face` means for an attachment
+		-- parent (`Top` is the attachment's +Y, and the engine's default face for a SpotLight is
+		-- `Front`).
+		local aim = Instance.new("Attachment")
+		aim.Name = "Aim"
+		aim.CFrame = CFrame.new(Vector3.zero, facing :: Vector3)
+		aim.Parent = head
+		beam.Parent = aim
+		beam.Enabled = false
+		table.insert(rig.lights, beam)
+	end
+	for _, tail in ipairs(tails) do
+		table.insert(rig.lamps, { piece = tail, on = spec.TAIL_COLOR, off = spec.TAIL_OFF_COLOR })
+		tail.Color = spec.TAIL_OFF_COLOR
+		local glow = Instance.new("PointLight")
+		glow.Name = "Glow"
+		glow.Brightness = spec.TAIL_BRIGHTNESS
+		glow.Range = spec.TAIL_RANGE_STUDS
+		glow.Color = spec.TAIL_COLOR
+		glow.Shadows = false
+		glow.Enabled = false
+		glow.Parent = tail
+		table.insert(rig.lights, glow)
+	end
+
+	-- THE EXHAUST AND THE ENGINE, both on `Attachment`s of the truck's biggest part -- the only part
+	-- of a free model this file can name without reading somebody else's naming scheme. A `Sound`
+	-- under an `Attachment` is still a 3-D sound at that attachment's position, which is the whole
+	-- reason for not simply hanging it on the model.
+	local anchor: BasePart? = nil
+	local biggest = -1
+	for _, piece in ipairs(partsOf(model)) do
+		local bulk = piece.Size.X * piece.Size.Y * piece.Size.Z
+		if bulk > biggest then
+			biggest, anchor = bulk, piece
+		end
+	end
+	if anchor ~= nil then
+		local pipe = Instance.new("Attachment")
+		pipe.Name = "Exhaust"
+		pipe.WorldCFrame = CFrame.new(
+			centre
+				- (facing :: Vector3) * half.Z * 0.92
+				+ Vector3.new(half.X * spec.SMOKE_SIDE_FRACTION, -half.Y * (1 - 2 * spec.SMOKE_HEIGHT_FRACTION), 0)
+		)
+		pipe.Parent = anchor
+		local smoke = Instance.new("ParticleEmitter")
+		smoke.Name = "Smoke"
+		smoke.Texture = spec.SMOKE_TEXTURE
+		smoke.Rate = spec.SMOKE_RATE
+		smoke.Lifetime = NumberRange.new(spec.SMOKE_LIFETIME_SECONDS * 0.7, spec.SMOKE_LIFETIME_SECONDS)
+		smoke.Speed = NumberRange.new(spec.SMOKE_SPEED_STUDS * 0.6, spec.SMOKE_SPEED_STUDS)
+		smoke.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, spec.SMOKE_SIZE_STUDS * 0.3),
+			NumberSequenceKeypoint.new(1, spec.SMOKE_SIZE_STUDS),
+		})
+		smoke.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, spec.SMOKE_TRANSPARENCY),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		smoke.Color = ColorSequence.new(spec.SMOKE_COLOR)
+		smoke.LightEmission = 0
+		smoke.Acceleration = Vector3.new(0, 2.5, 0)
+		smoke.Enabled = false
+		smoke.Parent = pipe
+		rig.smoke = smoke
+
+		local block = Instance.new("Attachment")
+		block.Name = "Engine"
+		block.WorldCFrame = CFrame.new(centre + (facing :: Vector3) * half.Z * 0.7 + Vector3.new(0, -half.Y * 0.4, 0))
+		block.Parent = anchor
+		rig.start = engineSound(
+			"EngineStart",
+			spec.START_SOUND_ID,
+			spec.START_FROM,
+			spec.START_TO,
+			spec.START_VOLUME,
+			false,
+			cfg
+		);
+		(rig.start :: Sound).Parent = block
+		rig.idle =
+			engineSound("EngineIdle", spec.IDLE_SOUND_ID, spec.IDLE_FROM, spec.IDLE_TO, spec.IDLE_VOLUME, true, cfg);
+		(rig.idle :: Sound).Parent = block
+	end
+	return rig
+end
+
+-- IS TRUCK n RUNNING? nil for a truck that was never built -- `Build.padLabel`'s read seam, on the
+-- truck's side, so a spec and a console probe read what was WRITTEN instead of guessing.
+function Build.truckRunning(index: number): boolean?
+	local rig = truckRigs[index]
+	return if rig == nil then nil else rig.running
+end
+
+-- WHAT THE RIG IS MADE OF, as counts, for the same reason: *"the panel reads"* said about geometry.
+function Build.truckRigCounts(index: number): (number, number, boolean)
+	local rig = truckRigs[index]
+	if rig == nil then
+		return 0, 0, false
+	end
+	return #rig.lamps, #rig.lights, rig.smoke ~= nil and rig.start ~= nil and rig.idle ~= nil
+end
+
+-- TRUCK n, RUNNING OR DARK. **THE ONE WRITER** of every lamp colour, every light's `Enabled`, the
+-- emitter's `Enabled` and the two sounds -- and WHETHER it is running is `Lobby.step`'s to decide,
+-- which is `Build.setPad`'s and `Build.faceKeeper`'s arrangement exactly.
+--
+-- IT IS A RECONCILE AND NOT AN EVENT, and that is deliberate (the Learning Agent's L-029): the owner
+-- asks this every scan with the answer `Lobby.padLoading` gives for that pad, so a party that
+-- cancels, resets, departs or is interrupted leaves no truck idling with nobody in it. It returns
+-- whether it WROTE anything, so `stats.truckWrites` counts EDGES and a counter that climbs with
+-- `stats.scans` is a bug the spec catches (`padWrites`' own rule).
+function Build.setTruck(index: number, on: boolean): boolean
+	local rig = truckRigs[index]
+	if rig == nil or rig.running == on then
+		return false
+	end
+	rig.running = on
+	for _, lamp in ipairs(rig.lamps) do
+		if lamp.piece:IsDescendantOf(game) then
+			lamp.piece.Color = if on then lamp.on else lamp.off
+		end
+	end
+	for _, light in ipairs(rig.lights) do
+		if light:IsDescendantOf(game) then
+			light.Enabled = on
+		end
+	end
+	if rig.smoke ~= nil and (rig.smoke :: ParticleEmitter):IsDescendantOf(game) then
+		(rig.smoke :: ParticleEmitter).Enabled = on
+	end
+	-- THE START IS A ONE-SHOT AND THE IDLE IS THE LOOP UNDER IT, so turning a truck on sounds like a
+	-- truck starting and turning it off is silence rather than a second start.
+	if rig.start ~= nil and (rig.start :: Sound):IsDescendantOf(game) then
+		if on then
+			(rig.start :: Sound):Play()
+		else
+			(rig.start :: Sound):Stop()
+		end
+	end
+	if rig.idle ~= nil and (rig.idle :: Sound):IsDescendantOf(game) then
+		if on then
+			(rig.idle :: Sound):Play()
+		else
+			(rig.idle :: Sound):Stop()
+		end
+	end
+	stats.truckWrites += 1
+	return true
+end
+
 -- FOUR TRUCKS, SIDE BY SIDE (the Director, task 180), one per party, stepping east from task 177's
 -- single bay -- so bay 1 is exactly where the one truck used to stand and the circle beside it has
 -- not moved. Task 182 puts a queue pad `TRUCK.PAD_BEHIND_STUDS` behind each.
@@ -3182,6 +3524,14 @@ local function trucks(
 			stats.trucksSettled += 1
 			stats.truckGroundStuds = math.max(stats.truckGroundStuds, worst)
 		end
+		-- RIGGED LAST, AFTER THE SETTLE (task 197), and the order is load-bearing rather than
+		-- readability: `truckRig` measures the truck's own box to aim a beam and place an exhaust, and
+		-- `settleOnGround` MOVES and TILTS the whole model. Rigged first, every attachment would be
+		-- placed against a box that no longer exists -- up to 2.0 studs out at the east bay by task
+		-- 186's own measurement. The lights hang inside the model's parts and the attachments are
+		-- `WorldCFrame`'d once, so nothing after this moves them.
+		truckRigs[index] = truckRig(made :: Instance, cfg)
+		stats.truckRigs += 1
 	end
 	folder.Parent = container
 	return folder
@@ -4174,6 +4524,8 @@ function Build.build(
 	stats.treesMoved = 0
 	stats.treesSeated = 0
 	stats.treesDropped = 0
+	stats.truckWrites = 0
+	stats.truckRigs = 0
 	-- THE OLD KEEPER WENT WITH THE OLD FOLDER. Dropped here rather than relied on, so a rebuild can
 	-- never leave `Build.faceKeeper` turning a body that is no longer in the DataModel.
 	keeper = nil
@@ -4181,6 +4533,10 @@ function Build.build(
 	-- billboard on a deck that is no longer in the DataModel, which is what `padPart`'s own
 	-- `IsDescendantOf` check would otherwise have to catch one scan late.
 	table.clear(padParts)
+	-- ...AND SO DID THE OLD TRUCKS' RIGS (task 197), for exactly that reason: `Build.setTruck` must
+	-- never write a lamp colour or play an engine on a model that is no longer in the DataModel, and
+	-- a stale rig would also make `Build.truckRunning` answer about a truck nobody can see.
+	table.clear(truckRigs)
 	local folder = Instance.new("Folder")
 	folder.Name = Data.FOLDER_NAME
 

@@ -124,6 +124,9 @@ local shopFrame: Frame? = nil
 -- THE PAD DIALOG'S FRAME (task 182): created here, filled by `Hud.PadPanel`, and that module -- not
 -- this one -- writes its `Visible`. The shop panel's arrangement, one task later.
 local padFrame: Frame? = nil
+-- THE LOADING BANNER'S FRAME (task 197): created here with the rest of the screen, filled by
+-- `Hud.PadPanel`, which also owns its `Visible` -- the dialog's own arrangement, one frame over.
+local padLeavingFrame: Frame? = nil
 local compassFrame: Frame? = nil
 -- Did the scope's own mask hide the compass strip? See `Hud.renderScope`.
 local compassHiddenByScope = false
@@ -229,6 +232,10 @@ end
 
 function Hud.padPanel(): Frame?
 	return padFrame
+end
+
+function Hud.padLeaving(): Frame?
+	return padLeavingFrame
 end
 
 function Hud.reportPanel(): Frame?
@@ -863,6 +870,23 @@ local function build(): ScreenGui
 	padDialog.Visible = false
 	padDialog.Parent = screen
 
+	-- ...AND THE LOADING BANNER (task 197). KAREN, 2026-10-15: *"we need clear message that game is
+	-- loading once clicked 1/1 or other now is delay"*. The same division as the dialog above it:
+	-- this file creates the box, `Hud.PadPanel` fills it and owns its `Visible`, and the two can never
+	-- be up together. FULL WIDTH less a margin, capped inside the panel so a wide screen gets a
+	-- banner rather than a letterbox -- a SCALE, so nothing has to re-measure on a resize.
+	local padLeaving = Instance.new("Frame")
+	padLeaving.Name = "PadLeaving"
+	padLeaving.BackgroundColor3 = PadPanel.LOOK.LEAVING_COLOR
+	padLeaving.BackgroundTransparency = 0
+	padLeaving.BorderSizePixel = 0
+	padLeaving.AnchorPoint = Vector2.new(0.5, 0.5)
+	padLeaving.Position = PadPanel.leavingPosition()
+	padLeaving.Size = PadPanel.leavingSize()
+	padLeaving.ZIndex = PadPanel.leavingZIndex()
+	padLeaving.Visible = false
+	padLeaving.Parent = screen
+
 	-- THE MAP (task 155). Karen: *"small map in left or right corner circle like is on another
 	-- games"* and *"a map when click M"*. Two frames and a button, created empty and filled by
 	-- `MapUi` -- the same division the compass and the report panel already have.
@@ -1040,6 +1064,7 @@ local function build(): ScreenGui
 	reportFrame = report
 	shopFrame = shop
 	padFrame = padDialog
+	padLeavingFrame = padLeaving
 	compassFrame = compass
 	scoreTitle = title
 	scoreFooter = footer
@@ -2119,6 +2144,17 @@ function Hud.renderObjective(CameraSystem)
 	-- lobby asks nobody anything. (The REMOTE is resolved once in `Hud.whenReady`, not here: it
 	-- waits, and nothing on a render tick may.)
 	PadPanel.setAsk(if lobbyData then lobbyData.padAsking(Players.LocalPlayer.UserId) else nil)
+	-- ...AND WHETHER A TRUCK IS ALREADY TAKING HIM (task 197). ONE server-measured fact again --
+	-- `DHPadMine`, the state word of the pad he is loading onto -- read HERE for `setAsk`'s own
+	-- stated reason, and the panel is TOLD both it and the seconds. The seconds are the ONES THIS
+	-- FUNCTION ALREADY HAS: `lobby.secondsLeft` is converted three lines up for the objective line,
+	-- so the banner's countdown and the line's countdown are the same number and cannot disagree
+	-- (task 153 round 2's finding: *"a marker that moved without its label told a beater the drive
+	-- was south"*). A world with no lobby is loading nobody.
+	PadPanel.setLeaving(
+		if lobbyData then Players.LocalPlayer:GetAttribute(lobbyData.PAD_MINE_ATTRIBUTE) else nil,
+		if lobby then lobby.secondsLeft else nil
+	)
 	local target = Objective.targetFor(team, phase, MapUi.geometry(), me, lobby)
 	local far = Objective.distanceStuds(target, me)
 	arrivedAtTarget = Objective.arrived(far, arrivedAtTarget)
@@ -2556,6 +2592,7 @@ function Hud.start()
 		PadPanel.start(padFrame :: Frame, {
 			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
 			Input = Weapon.Input,
+			leaving = padLeavingFrame,
 		})
 	end
 

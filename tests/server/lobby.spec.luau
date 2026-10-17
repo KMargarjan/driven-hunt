@@ -1640,8 +1640,15 @@ return function()
 		it("has a warm inside: a real fire, the lanterns, and the shop counter task 178 fills", function()
 			local inside = folder:FindFirstChild("Inside", true)
 			expect(inside).to.be.ok()
+			-- COUNTED UNDER THE LODGE AND NOT UNDER THE WHOLE LOBBY (task 197). It used to walk
+			-- `folder`, which was the same thing until the trucks gained tail lights: eight more
+			-- `PointLight`s in the yard made this read 14 against 6. The case is about the lodge's
+			-- warm inside, so the lodge is what it counts -- and the trucks' own lights are asserted
+			-- by `lobby_live.spec`, where they can be turned on and off.
+			local lodge = folder:FindFirstChild("Lodge", true)
+			expect(lodge).to.be.ok()
 			local lights = 0
-			for _, descendant in ipairs(folder:GetDescendants()) do
+			for _, descendant in ipairs((lodge :: Instance):GetDescendants()) do
 				if descendant:IsA("PointLight") then
 					lights += 1
 				end
@@ -3343,6 +3350,141 @@ return function()
 			expect(Data.secondsLeft(105, 100)).to.equal(5)
 			-- A past deadline is "now", never a negative number counting the wrong way.
 			expect(Data.secondsLeft(90, 100)).to.equal(0)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- task 197
+	describe("the truck that starts while a party loads", function()
+		it("is loading in exactly the three states after the pick, and in no other", function()
+			-- THE ONE RULE WITH TWO READERS: the banner on a member's screen (`DHPadMine`) and the
+			-- engine, lights and smoke on that pad's truck (`Build.setTruck`). They come up and go
+			-- down together because they are the same fact said twice.
+			local STATE = Data.PAD_STATE
+			expect(Data.padLoading(STATE.FILLING)).to.equal(true)
+			expect(Data.padLoading(STATE.COUNTDOWN)).to.equal(true)
+			expect(Data.padLoading(STATE.LEAVING)).to.equal(true)
+			-- `sizing` IS THE WHOLE BOUNDARY: a man reading the dialog has committed to nothing, and
+			-- the Director's brief starts at *"the moment a size is picked"* -- the `sizing ->
+			-- filling` edge exactly.
+			expect(Data.padLoading(STATE.SIZING)).to.equal(false)
+			expect(Data.padLoading(STATE.EMPTY)).to.equal(false)
+			expect(Data.padLoading(nil)).to.equal(false)
+			expect(Data.padLoading("Filling")).to.equal(false)
+			expect(Data.padLoading(4 :: any)).to.equal(false)
+			-- EVERY STATE THE MACHINE CAN BE IN IS ANSWERED, so a sixth state could not slip in
+			-- unclassified: four of the five are named above and `Pads` has no other.
+			local seen = 0
+			for _, word in pairs(STATE) do
+				if Data.padLoading(word) or word == STATE.SIZING or word == STATE.EMPTY then
+					seen += 1
+				end
+			end
+			expect(seen).to.equal(5)
+		end)
+
+		it("tells a lamp from a chassis, and a headlight from a tail light", function()
+			-- PURE, AND THE TABLE IS THE MEASUREMENT. Every row below was dumped out of
+			-- `Workspace.LobbyAssets.Truck` -- "PickUp Truck (Prop)", the free model four bays clone
+			-- -- in the Forest Test on 2026-10-17, and the whole point of the size bound is the LAST
+			-- row: the model's CHASSIS is a `Neon` part NAMED `Light`, 17.65 studs long. Without the
+			-- bound, every truck would have had a SpotLight hung inside its own frame.
+			local NEON = Enum.Material.Neon
+			local function lamp(size: Vector3): boolean
+				return Build.isTruckLamp("Light", NEON, size, CFG)
+			end
+			expect(lamp(Vector3.new(1.29, 1.12, 1.35))).to.equal(true) -- the headlights
+			expect(Build.isTruckLamp("T", NEON, Vector3.new(0.4, 1, 0.66), CFG)).to.equal(true) -- a tail
+			expect(Build.isTruckLamp("B", NEON, Vector3.new(0.36, 0.81, 0.2), CFG)).to.equal(true) -- a brake
+			expect(Build.isTruckLamp("TS", NEON, Vector3.new(0.51, 0.32, 0.24), CFG)).to.equal(true) -- a blinker
+			expect(lamp(Vector3.new(5.74, 0.59, 0.57))).to.equal(false) -- the 5.7-stud front bar
+			expect(lamp(Vector3.new(6.72, 3.45, 6.15))).to.equal(false) -- a 6-stud blob
+			expect(lamp(Vector3.new(6.7, 4.5, 17.65))).to.equal(false) -- THE CHASSIS
+			-- ...AND NOTHING THAT IS NOT A LIGHT AT ALL IS A LAMP, however small it is.
+			expect(Build.isTruckLamp("Color", Enum.Material.SmoothPlastic, Vector3.new(1, 1, 1), CFG)).to.equal(false)
+			expect(Build.isTruckLamp("Windscreen", Enum.Material.Glass, Vector3.new(1, 1, 1), CFG)).to.equal(false)
+
+			-- WHITE MEANS HEADLIGHT, and the three other hues on this model do not: their lowest
+			-- channel is 61, 89 and 98 against a threshold of 0.75 (191 of 255).
+			expect(Build.isHeadLamp(Color3.fromRGB(248, 248, 248), CFG)).to.equal(true)
+			expect(Build.isHeadLamp(Color3.fromRGB(213, 115, 61), CFG)).to.equal(false) -- amber
+			expect(Build.isHeadLamp(Color3.fromRGB(255, 89, 89), CFG)).to.equal(false) -- tail red
+			expect(Build.isHeadLamp(Color3.fromRGB(190, 104, 98), CFG)).to.equal(false) -- brake red
+			expect(Build.isHeadLamp(Color3.fromRGB(163, 162, 165), CFG)).to.equal(false) -- the shipped grey
+		end)
+
+		it("cuts both engine clips inside what was measured, and keeps the loop out of the start", function()
+			-- THE WINDOWS ARE MEASURED off the assets' own `PlaybackLoudness` (the research note's
+			-- section 5), and these are the claims those numbers have to keep -- so a retune that
+			-- moved a window back over the part of the recording where the engine STARTS or SHUTS
+			-- DOWN would fail here rather than in Karen's ears.
+			local E = CFG.TRUCK.ENGINE
+			-- The command car is 10.87 s and revs from 3.4: the start has to end before that.
+			expect(E.START_FROM).to.equal(0)
+			expect(E.START_TO > 2).to.equal(true)
+			expect(E.START_TO <= 3.4).to.equal(true)
+			-- The Dodge Ram is 24.91 s, its own start runs to 6.0 and it fades from 24.0: the LOOP
+			-- has to sit strictly inside the flat idle between them, or every pass re-starts the
+			-- engine.
+			expect(E.IDLE_FROM >= 6).to.equal(true)
+			expect(E.IDLE_TO <= 23.8).to.equal(true)
+			expect(E.IDLE_TO - E.IDLE_FROM >= 8).to.equal(true)
+			-- ...AND THE IDLE IS THE LOUDER OF THE TWO BY GAIN, because it was recorded far quieter:
+			-- equal volumes measured ~100-190 against ~15 and would have left silence under the
+			-- banner, which is the thing this task exists to remove.
+			expect(E.IDLE_VOLUME > E.START_VOLUME).to.equal(true)
+			-- BOTH IDS ARE LIBRARY AUDIO AND NEITHER IS EMPTY: a truck with no voice is the silence
+			-- Karen reported, and an empty id plays nothing without saying so.
+			expect(string.match(E.START_SOUND_ID, "^rbxassetid://%d+$") ~= nil).to.equal(true)
+			expect(string.match(E.IDLE_SOUND_ID, "^rbxassetid://%d+$") ~= nil).to.equal(true)
+			-- THE SMOKE IS AN ENGINE TEXTURE (`rbxasset://`) and not an uploaded one, so it cannot
+			-- 404 and cannot be moderated away.
+			expect(string.sub(E.SMOKE_TEXTURE, 1, 11)).to.equal("rbxasset://")
+			-- THE ENGINE CARRIES TO THE PORCH (46 studs) AND NOT ACROSS THE FIELD (220).
+			expect(E.ROLL_OFF_MAX_STUDS > 46).to.equal(true)
+			expect(E.ROLL_OFF_MAX_STUDS < 220).to.equal(true)
+			expect(E.ROLL_OFF_MIN_STUDS < E.ROLL_OFF_MAX_STUDS).to.equal(true)
+		end)
+
+		it("gives the restyled dialog its words, its big buttons and a line for every row", function()
+			-- KAREN: *"same with entering in game menu has to be nicer and cleaner"*. The WORDS and
+			-- the PIXELS are data because both sides read them; what this case holds is that every
+			-- row has a line, that the box still fits a phone, and that the rectangle the Hud builds
+			-- is the one the panel computes.
+			local PANEL = CFG.PADS.PANEL
+			expect(PANEL.WIDTH <= 400).to.equal(true)
+			-- 60 px ROWS, over the 44 Roblox sets as a touch minimum and inside the designer's 48-60.
+			expect(PANEL.BUTTON_PX >= 48).to.equal(true)
+			expect(PANEL.BUTTON_PX <= 60).to.equal(true)
+			expect(PANEL.ROW_PX >= PANEL.BUTTON_PX).to.equal(true)
+			-- THE HEADER IS THE SHOP HEADER'S OWN 64, so the two panels are one header drawn twice.
+			expect(PANEL.HEADER_PX).to.equal(64)
+			expect(#PANEL.TITLE > 0).to.equal(true)
+			expect(#PANEL.HINT > 0).to.equal(true)
+			-- THE EYEBROW CARRIES WHICH TRUCK, so it has to take the number.
+			expect(string.format(PANEL.EYEBROW, 3)).to.equal("TRUCK 3")
+			-- EVERY ROW HAS ITS SHORT LINE (the Director: *"a short line each"*), and the label is
+			-- still Karen's own `1 / 1` with the word moved off it.
+			for _, row in ipairs(CFG.PADS.SIZES) do
+				expect(type(row.note)).to.equal("string")
+				expect(#row.note > 0).to.equal(true)
+				expect(string.find(row.label, "/", 1, true) ~= nil).to.equal(true)
+			end
+			-- THE BANNER'S FOUR LINES, one per loading state plus its title, and the countdown takes
+			-- a number.
+			local WORDS = CFG.PADS.LEAVING
+			expect(#WORDS.TITLE > 0).to.equal(true)
+			expect(#WORDS.FILLING > 0).to.equal(true)
+			expect(#WORDS.GOING > 0).to.equal(true)
+			expect(string.find(string.format(WORDS.COUNTDOWN, 4), "4", 1, true) ~= nil).to.equal(true)
+			-- IT IS FULL WIDTH LESS A MARGIN, AND CAPPED, and it sits clear of both bands: under the
+			-- middle of the screen, where neither the top strip nor the bottom rail is.
+			expect(WORDS.MARGIN_PX > 0).to.equal(true)
+			expect(WORDS.MAX_WIDTH >= PANEL.WIDTH).to.equal(true)
+			expect(WORDS.Y_SCALE > 0.5).to.equal(true)
+			expect(WORDS.Y_SCALE < 0.85).to.equal(true)
+			-- ...AND THE RAIL STAYS PRESSABLE OVER BOTH (16 is `Rail.CONFIG.Z_INDEX`).
+			expect(WORDS.Z_INDEX < 16).to.equal(true)
+			expect(PANEL.Z_INDEX < 16).to.equal(true)
 		end)
 	end)
 end

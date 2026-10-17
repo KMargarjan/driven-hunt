@@ -129,6 +129,35 @@ Lobby.PAD_STATE = {
 	LEAVING = "leaving",
 }
 
+-- WHICH PAD *THIS* PLAYER IS LOADING ONTO, as the pad's own state word, or nil (task 197). One more
+-- attribute on the `Player`, beside `DHLobbyLeaveAt`, and the same one-way read-only mirror: there is
+-- no inbound door, so nothing a client sends can put a banner on anybody's screen.
+--
+-- WHY THE SERVER HAS TO SAY IT AND THE CLIENT CANNOT WORK IT OUT. The dialog's own visibility is
+-- `DHPadFirst` -- *"which pad is asking THIS player"* -- and that is only ever written during
+-- `sizing`. After the pick the pad moves to `filling` and this client is one of a party of up to
+-- eight with no attribute of its own and no way to know WHICH of the four rectangles it is standing
+-- on: `Pads.indexAt` is the server's arithmetic over a position only the server measures (it is in
+-- `ServerScriptService.Lobby`, deliberately), and a client copy of it would be a SECOND answer to
+-- "who is on pad 3" -- the thing `Pads` own header says the party is derived to avoid.
+--
+-- IT IS A STATE WORD AND NOT A BOOLEAN, because the banner says three different things (waiting for
+-- the party, the countdown, going) and a boolean would need a second attribute to tell them apart.
+Lobby.PAD_MINE_ATTRIBUTE = "DHPadMine"
+
+-- IS THIS PAD LOADING A PARTY? PURE, and it is THE ONE RULE with two readers (task 197): the banner
+-- on a member's screen and the engine, lights and smoke on that pad's truck come up and go down
+-- together, because they are the same fact said twice -- *"this truck is about to leave with
+-- somebody in it"*.
+--
+-- `sizing` IS NOT IN IT, AND THAT IS THE WHOLE BOUNDARY. A man standing on a pad reading the dialog
+-- has not committed to anything; the Director's brief starts both at *"the moment a size is
+-- picked"*, which is exactly the `sizing -> filling` edge. `empty` is not in it for the same reason
+-- and `leaving` is, because the party is still standing there until the drive takes them.
+function Lobby.padLoading(state: string?): boolean
+	return state == Lobby.PAD_STATE.FILLING or state == Lobby.PAD_STATE.COUNTDOWN or state == Lobby.PAD_STATE.LEAVING
+end
+
 -- THE PADS' REMOTE (task 182), AND IT IS THE FIRST INBOUND DOOR THIS SYSTEM HAS EVER HAD. Task 177's
 -- lobby had none at all, and said so in capitals: standing somewhere is not a message. A dialog is.
 Lobby.REMOTES_NAME = "Remotes"
@@ -938,6 +967,142 @@ Lobby.CONFIG = {
 			TYRE = Color3.fromRGB(24, 24, 24),
 			RIM = Color3.fromRGB(54, 56, 48),
 		},
+		-- ---------------- THE TRUCK STARTS (task 197)
+		--
+		-- KAREN, 2026-10-15 ~17:40, verbatim: *"also could be car started sound light on something
+		-- like that indicating loading ect"*.
+		--
+		-- SO THE PAD'S OWN TRUCK STARTS WHEN THE PARTY COMMITS, and the other three stay dark: an
+		-- engine, headlights, tail lights and a little exhaust smoke, up for exactly as long as
+		-- `Lobby.padLoading` is true of that pad (`Build.setTruck`, reconciled on the owner's own 10 Hz
+		-- scan and not on a pick event -- so a party that cancels, resets or is interrupted leaves no
+		-- truck idling with nobody in it).
+		--
+		-- THE LAMPS ARE THE MODEL'S OWN, and that is a measurement and not a preference. "PickUp
+		-- Truck (Prop)" ships its lights as `Neon` parts and `camo` was already written to leave every
+		-- one of them alone; dumped out of `Workspace.LobbyAssets.Truck` in the Forest Test on
+		-- 2026-10-17, in the model's own frame (x along its 18.46-stud length), they are:
+		--     Light  x -7.82  z +-2.47  1.29 x 1.12 x 1.35  white 248,248,248   <- the headlights
+		--     Light  x -8.11  z   0.00  5.74 x 0.59 x 0.57  amber 213,115,61    <- the front bar
+		--     TS     x -7.99  z +-2.76  0.51 x 0.32 x 0.24  amber 213,115,61    <- the indicators
+		--     T      x +8.53  z +-3.15  0.40 x 1.00 x 0.66  red   255,89,89     <- the tail lights
+		--     B      x +8.63  z +-3.13  0.36 x 0.81 x 0.20  red   190,104,98    <- the brake lights
+		--     Light  x  0.05  z   0.00  6.70 x 4.50 x 17.65 grey  163,162,165   <- the CHASSIS, named
+		--                                                                          "Light" and 17
+		--                                                                          studs long
+		-- The last row is why `LAMP_MAX_STUDS` exists: `Build.truckSkinOf` calls anything `Neon` or
+		-- named "light" a light, which is right for the paint rule and would here have hung a
+		-- SpotLight inside the chassis. A lamp is small.
+		--
+		-- SO NOTHING IS GUESSED ABOUT WHICH WAY A TRUCK FACES, and that matters because the free model
+		-- faces the OPPOSITE way from `Build.truck`'s fallback: the white pair IS the front, whichever
+		-- end of the box it is on, and the spotlights point from the truck's centre out through it.
+		ENGINE = {
+			-- A LAMP IS SMALL. Over the measured list above this keeps every real lamp (1.35 studs at
+			-- the largest) and rejects the chassis (17.65) and the two 6-stud `Light`/`R` blobs.
+			LAMP_MAX_STUDS = 2.5,
+			-- WHITE MEANS HEADLIGHT. 248,248,248 passes; the ambers (213,115,61) and the reds
+			-- (255,89,89 and 190,104,98) do not, because their lowest channel is 61, 89 and 98.
+			HEAD_MIN_CHANNEL = 0.75,
+			-- ...AND EVERY OTHER SMALL LAMP ON THE FAR HALF OF THE TRUCK FROM THEM IS A TAIL LIGHT.
+			-- It is a POSITION test and not a colour test on purpose: the amber indicators at the
+			-- FRONT are the same hue family as a tail light, and a red glow on a bonnet is exactly
+			-- the kind of thing that measures correct and looks wrong (`docs/PROJECT_CONTEXT.md`).
+			HEAD_COLOR = Color3.fromRGB(255, 246, 214),
+			HEAD_OFF_COLOR = Color3.fromRGB(86, 84, 76),
+			TAIL_COLOR = Color3.fromRGB(255, 72, 56),
+			TAIL_OFF_COLOR = Color3.fromRGB(74, 40, 36),
+			-- THE SPOTLIGHT IN EACH HEADLAMP. 60 degrees and 46 studs reaches the yard in front of
+			-- the truck without lighting the lodge 46 studs behind it; `Shadows` is on because a beam
+			-- with no shadow is a glow, and four trucks are never lit at once.
+			HEAD_BRIGHTNESS = 3,
+			HEAD_RANGE_STUDS = 46,
+			HEAD_ANGLE_DEGREES = 60,
+			-- THE TAIL LIGHTS ARE A GLOW AND NOT A BEAM, so a `PointLight` with a short range: a tail
+			-- light you can see from behind the truck, which is where the pad is.
+			TAIL_BRIGHTNESS = 2,
+			TAIL_RANGE_STUDS = 12,
+			-- ...AND A FALLBACK TRUCK HAS NO LAMPS AT ALL. `Build.truck` builds seven boxes and four
+			-- cylinders and not one light, so when the free model is missing the rig builds its own
+			-- four lenses off the truck's measured box: at this fraction of its half-width, this
+			-- fraction of its height, flush with the end faces. Four parts a truck.
+			LENS_STUDS = Vector3.new(1.1, 0.8, 0.3),
+			LENS_SIDE_FRACTION = 0.62,
+			LENS_HEIGHT_FRACTION = 0.42,
+			-- THE EXHAUST. One `ParticleEmitter` in an `Attachment` -- no part, so no part budget --
+			-- low and to one side at the rear, which is where a tailpipe is.
+			SMOKE_RATE = 7,
+			SMOKE_SIZE_STUDS = 1.4,
+			SMOKE_SPEED_STUDS = 2.6,
+			SMOKE_LIFETIME_SECONDS = 1.5,
+			SMOKE_COLOR = Color3.fromRGB(176, 176, 172),
+			SMOKE_TRANSPARENCY = 0.72,
+			SMOKE_SIDE_FRACTION = 0.55,
+			SMOKE_HEIGHT_FRACTION = 0.12,
+			-- ROBLOX'S OWN PARTICLE TEXTURE, which ships inside the engine (`rbxasset://`, not
+			-- `rbxassetid://`): it cannot 404, cannot be moderated away and needs no upload --
+			-- `Viewmodel`'s own stated reason for using this family.
+			SMOKE_TEXTURE = "rbxasset://textures/particles/smoke_main.dds",
+			-- ---------------- the voice
+			--
+			-- BOTH IDS ARE ROBLOX-PROVIDED LICENSED LIBRARY AUDIO, verified by name and creator
+			-- through `economy.roblox.com/v2/assets/<id>/details` and measured to LOAD in this place
+			-- with `ContentProvider:PreloadAsync` -- the procedure task 124 used for the hit ticks and
+			-- task 142 for the rifle. `IsPublicDomain` is true for both.
+			--
+			-- START: "1942 Dodge Wc Command Car Start Idle Revs 1 (SFX)", **ProSoundEffects**, asset
+			-- 9112936632, category *Vehicles - Military* -- *"Start, Idle, Revs, Turn Off, 6
+			-- Cylinder"*. A 1940s military command car is what four camouflaged hunting trucks sound
+			-- like, and it is the only start in the licensed catalogue whose category is the same
+			-- word as `CAMO`'s. Measured `IsLoaded = true`, `TimeLength = 10.87 s`.
+			--
+			-- IDLE: "2003 Dodge Ram Truck Start Med Cu Long Idle 2 (SFX)", **ProSoundEffects**, asset
+			-- 9125350177 -- *"Start Medium CU, Long Idle, Reverse"*, 24.9 s by its own description.
+			-- The LOOP WINDOW is measured off the asset's own loudness, not taken from the
+			-- description: see `IDLE_FROM` / `IDLE_TO`.
+			START_SOUND_ID = "rbxassetid://9112936632",
+			IDLE_SOUND_ID = "rbxassetid://9125350177",
+			-- THE CLIPS ARE CUT, through `PlaybackRegion`, for the reason `Horn.CONFIG`'s own cut
+			-- exists: an asset is a RECORDING of an event and not the event. The start clip ends by
+			-- turning the engine off and the idle clip begins by starting it, and either played whole
+			-- would say the opposite of what the banner says.
+			--     https://create.roblox.com/docs/reference/engine/classes/Sound#PlaybackRegion
+			-- BOTH WINDOWS ARE MEASURED off the assets' OWN loudness -- `Sound.PlaybackLoudness`, peak
+			-- per 0.2 s bucket, sampled at render rate in a Play session of the DEV place on
+			-- 2026-10-17 -- and the whole profile is in the research note's section 5.
+			--
+			--   9112936632, 10.87 s:  0.0-0.6 the starter turning (35-123) | 0.6-2.0 THE CATCH, the
+			--     clip's loudest moment (191 at 0.8) | 2.0-3.3 settling to idle (70-114) | 3.4-4.6 A
+			--     REV (158 at 4.0) | 4.6-6.0 the rev falling away into the TURN-OFF (104 to 36) |
+			--     6.0-10.8 the recording's own tail (21 down to 0).
+			--   SO THE CUT IS 0 -> 3.3: crank, catch, settle. One second later it revs and then shuts
+			--   down, and a truck that starts, revs and dies while the banner says it is leaving is
+			--   the opposite of the thing Karen asked for.
+			--
+			--   9125350177, 24.91 s:  0.0-0.4 silence then ITS start (240 at 0.4) | 0.4-2.0 the start
+			--     (156-71) | 2.0-6.0 settling (56 down to 17) | **6.2-23.8 FLAT 13-18, seventeen and a
+			--     half seconds of nothing but idle** | 24.0-24.9 the fade-out (7 to 2).
+			--   SO THE LOOP IS 6.2 -> 23.6, inside the flat part at both ends: the asset's own start
+			--   and fade are outside it, so the loop cannot re-start the engine every pass.
+			START_FROM = 0,
+			START_TO = 3.3,
+			IDLE_FROM = 6.2,
+			IDLE_TO = 23.6,
+			-- THE TWO VOLUMES COME OUT OF THE SAME MEASUREMENT and are not a taste. The start clip
+			-- runs at a loudness of ~100-190 and the idle window at ~15 -- the Dodge Ram was recorded
+			-- far quieter than the command car -- so equal `Volume` would have made the idle inaudible
+			-- the moment the start finished, which is exactly the silence this task exists to remove.
+			-- 0.45 against 1.0 is a 2.2x gain the other way, leaving the START still the louder event
+			-- (a start IS louder than an idle) with the idle clearly there under it. Karen's dials.
+			START_VOLUME = 0.45,
+			IDLE_VOLUME = 1,
+			-- HOW FAR THE ENGINE CARRIES. 90 studs: audible from the lodge porch (46 studs from the
+			-- bays) and gone from the far corners of a 220-stud field -- `BILLBOARD.MAX_DISTANCE_STUDS`
+			-- 160's own reasoning, one step tighter because a sound crosses a wall and a billboard
+			-- does not.
+			ROLL_OFF_MIN_STUDS = 14,
+			ROLL_OFF_MAX_STUDS = 90,
+		},
 	},
 	TRACK = { WIDTH_STUDS = 14, TO_Z = 110, MATERIAL = Enum.Material.Ground },
 	-- ---------------- the road, the fences and the tree line: "a bit more nicer" (Karen)
@@ -1156,11 +1321,23 @@ Lobby.CONFIG = {
 		-- KAREN WROTE THE FORMAT HERSELF -- *"can be 1/1 or 4/4"* -- so the size is both halves of
 		-- the label, and the two ends of the range are named in words so four numbers read as a
 		-- choice rather than as a quiz.
+		--
+		-- TASK 197 SPLITS THE WORD OFF THE NUMBER, and that is the designer's row shape rather than a
+		-- rewrite of Karen's: `label` is still the size and nothing else (*"1 / 1"*), and `note` is
+		-- the short line under it the Director asked for -- *"big buttons with a short line each:
+		-- '1/1 -- hunt alone with bots', '2/2', '4/4', '8/8 -- full hunt'"*. The two rows the brief
+		-- left bare get a line anyway, because a row with no line in a list of four reads as a row
+		-- that is missing something (`docs/design/shop.md`'s own rule for the catalogue).
+		--
+		-- `1 / 1  alone` BECOMING `1 / 1` + `hunt alone with bots` IS THE SAME SENTENCE, SAID BIGGER,
+		-- and the number is now set in Oswald at 20 px with the line in BuilderSans at 12 under it --
+		-- the shop panel's own two-line row (`docs/design/shop.md` 3.3: *"name on line 1, price on
+		-- line 2"*).
 		SIZES = {
-			{ size = 1, label = "1 / 1  alone" },
-			{ size = 2, label = "2 / 2" },
-			{ size = 4, label = "4 / 4" },
-			{ size = 8, label = "8 / 8  full hunt" },
+			{ size = 1, label = "1 / 1", note = "hunt alone with bots" },
+			{ size = 2, label = "2 / 2", note = "you and one friend" },
+			{ size = 4, label = "4 / 4", note = "a small party" },
+			{ size = 8, label = "8 / 8", note = "full hunt" },
 		},
 		-- HOW LONG THE DIALOG WAITS FOR AN ANSWER before it falls back to row 1. Long enough to read
 		-- four buttons and press one -- and it is LOAD-BEARING FOR THE EVIDENCE: 8 +
@@ -1207,18 +1384,80 @@ Lobby.CONFIG = {
 		--
 		-- 300 WIDE FITS THE 400 px PHONE `hud_clarity.spec` MEASURES, which is the constraint the
 		-- shop panel's own 360 was chosen against (`docs/design/shop.md` 13.1).
+		-- TASK 197 RESTYLES IT IN THE DESIGNER'S HOUSE STYLE and makes the buttons bigger. KAREN,
+		-- 2026-10-15 ~17:40: *"same with entering in game menu has to be nicer and cleaner"*. The
+		-- style is the shop's, which is the one Karen has already approved (*"menu is nice"*) and
+		-- which its own spec section 8 was written to govern: *"The shop sets the house style.
+		-- Anything built after it follows these, and nothing else needs deciding."* The COLOURS and
+		-- the FONTS are not repeated here -- `Hud.PadPanel` reads `Hud.ShopPanel.LOOK` and
+		-- `.FONT` -- so what is in this table is still only what BOTH SIDES read.
 		PANEL = {
 			TITLE = "HOW MANY PLAYERS?", -- Karen's own word: *"select how many players"*
-			WIDTH = 300,
-			HEADER_PX = 44,
-			ROW_PX = 48,
+			-- THE BRAND EYEBROW ABOVE THE TITLE (spec 3.2), and it carries the one fact the dialog
+			-- used to leave to the billboard outside: WHICH truck you are standing behind. The pad
+			-- index is already on this client (`Lobby.padAsking` answers it), so this costs no wire.
+			EYEBROW = "TRUCK %d",
+			-- THE MESSAGE SLOT (spec 8.8): *"Every panel has exactly one line that carries its
+			-- caveat"*. This dialog's caveat is its own way out -- the thing a player who does not
+			-- want to pick cannot otherwise guess, because there is deliberately no close button.
+			HINT = "STEP OFF THE PAD TO CHANGE YOUR MIND",
+			-- 320, AND IT STILL FITS THE 400 px PHONE `hud_clarity.spec` MEASURES. 20 wider than
+			-- task 182's 300, which is what pays for the two-line rows.
+			WIDTH = 320,
+			-- 64, THE SHOP HEADER'S OWN HEIGHT (spec 3.2: *"64 px tall, identical in both modes"*),
+			-- so the eyebrow, the title and the brass hairline under them land where that panel puts
+			-- them and the two headers are one header drawn twice.
+			HEADER_PX = 64,
+			ROW_PX = 60,
 			GAP = 8,
-			-- `Rail.CONFIG.BUTTON_PX`'s number, over the 44 px Roblox's own tutorial sets as a touch
-			-- minimum: this is the one dialog in the game a player meets before he has learned
-			-- anything.
-			BUTTON_PX = 48,
+			-- 60 NOW, NOT 48. `Rail.CONFIG.BUTTON_PX`'s 48 was already over the 44 px Roblox's own
+			-- tutorial sets as a touch minimum; the Director asked for *"big buttons with a short
+			-- line each"*, and spec 8.6 puts a secondary row at 48-60. A two-line row needs the
+			-- height anyway: 20 px of number plus 14 of line plus the padding.
+			BUTTON_PX = 60,
+			-- THE HINT'S OWN BAND under the last row.
+			HINT_PX = 26,
 			-- `Report.CONFIG.PANEL_Z_INDEX`'s band. `Rail.CONFIG.Z_INDEX` is 16 and stays pressable
 			-- over this dialog -- the `Shop.CONFIG.PANEL` arrangement.
+			Z_INDEX = 15,
+		},
+		-- ---------------- THE LOADING MESSAGE (task 197)
+		--
+		-- KAREN, 2026-10-15 ~17:40, verbatim: *"and we need clear message that game is loading once
+		-- clicked 1/1 or other now is delay"*.
+		--
+		-- WHAT SHE WAS LOOKING AT: task 182 put the whole of this on the ONE objective line, 27
+		-- characters of lower-case at the top of the screen (`Objective.CONFIG.TEXT.LobbyLeaving`,
+		-- *"leaving for the hunt in %d"*) -- and that line is also where the compass, the chevron and
+		-- every other instruction live, so the five seconds between pressing a button and being
+		-- somewhere else read as nothing happening. It is a BANNER now, across the screen, with the
+		-- seconds and a bar; the objective line keeps its own sentence and is not touched.
+		--
+		-- THE WORDS ARE ROWS BECAUSE THEY ARE WORDS, and words are Karen's to rewrite (every TEXT
+		-- table in this repository). `TITLE` is the Director's own sentence.
+		LEAVING = {
+			TITLE = "LEAVING FOR THE HUNT",
+			EYEBROW = "TRUCK %d",
+			-- ONE LINE PER STATE, and there are exactly three because `Lobby.padLoading` admits
+			-- exactly three states. A state with no line would be a banner that came up blank.
+			FILLING = "WAITING FOR THE PARTY",
+			COUNTDOWN = "THE TRUCK LEAVES IN %d",
+			GOING = "GETTING YOU TO YOUR STAND",
+			-- FULL WIDTH, which is the Director's word -- `UDim2.new(1, -2 * MARGIN_PX, 0, HEIGHT_PX)`
+			-- on a phone -- with `MAX_WIDTH` so a 2560 px desktop gets a banner and not a letterbox.
+			-- It is a SCALE and not a viewport read, so nothing has to re-measure on a resize.
+			MARGIN_PX = 12,
+			MAX_WIDTH = 560,
+			HEIGHT_PX = 112,
+			-- 0.68 OF THE SCREEN, under the middle: clear of the top band (the compass strip, the
+			-- objective line, the score) and clear of the bottom rail, which is where every other
+			-- thing that is not this banner already is.
+			Y_SCALE = 0.68,
+			BAR_PX = 10,
+			-- `PANEL.Z_INDEX`'s OWN NUMBER, not one above it. The two can never be up together -- the
+			-- dialog needs `sizing` and the banner needs one of the three states after it -- and
+			-- `Rail.CONFIG.Z_INDEX` is 16 and must stay PRESSABLE over both (`Shop.CONFIG.PANEL`'s
+			-- arrangement, and the reason the dialog is 15 rather than 17).
 			Z_INDEX = 15,
 		},
 	},

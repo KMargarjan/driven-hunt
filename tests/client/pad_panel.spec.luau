@@ -16,8 +16,15 @@
 -- truck.
 --
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
+-- TASK 197 ADDS THE RESTYLE AND THE LOADING BANNER. KAREN, 2026-10-15: *"same with entering in game
+-- menu has to be nicer and cleaner / and we need clear message that game is loading once clicked 1/1
+-- or other now is delay"*. The banner's two pure functions -- what it says and how full its bar is --
+-- are asserted here as arithmetic, and the LIVE banner frame is driven through `PadPanel.setLeaving`,
+-- which is the same TOLD seam `setAsk` already is.
+--
 -- Design: docs/design/truck-pads.md (sections 8.1, 10.3)
 -- Note:   docs/research/2026-10-14-truck-pads.md (section 5.4)
+-- Note:   docs/research/2026-10-17-the-pad-menu-and-the-truck.md (task 197)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -40,10 +47,14 @@ return function()
 		beforeEach(function()
 			restore = PadPanel.padIndex()
 			PadPanel.setAsk(nil)
+			-- ...AND THE BANNER, for the same reason: a case that left one up would leave Karen
+			-- reading "LEAVING FOR THE HUNT" for the rest of the session.
+			PadPanel.setLeaving(nil, nil)
 		end)
 
 		afterEach(function()
 			PadPanel.setAsk(restore)
+			PadPanel.setLeaving(nil, nil)
 		end)
 
 		it("is built, hidden, and the right rectangle for a phone", function()
@@ -106,10 +117,118 @@ return function()
 				end
 			end
 			expect(found).to.equal(#PADS.SIZES)
-			-- THERE IS NO CLOSE BUTTON, AND THAT IS DELIBERATE: `1 / 1  alone` is the "leave me
-			-- alone" button, stepping off the pad is the other exit, and the eight-second timeout
-			-- does it by itself -- so the dialog can never be a dead end.
+			-- THERE IS NO CLOSE BUTTON, AND THAT IS DELIBERATE: `1 / 1` is the "leave me alone"
+			-- button, stepping off the pad is the other exit, and the eight-second timeout does it by
+			-- itself -- so the dialog can never be a dead end.
 			expect(frame:FindFirstChild("Close")).to.equal(nil)
+
+			-- TASK 197: EVERY ROW HAS ITS SHORT LINE (the Director: *"big buttons with a short line
+			-- each"*), and it is the DATA's own line and not a format applied in the panel.
+			local lines = PadPanel.rowNote()
+			expect(#lines).to.equal(#PADS.SIZES)
+			for index, row in ipairs(PADS.SIZES) do
+				expect(lines[index]).to.equal(row.note)
+				expect(#(row.note :: string) > 0).to.equal(true)
+			end
+
+			-- ...AND EXACTLY ONE ORANGE THING ON THE SCREEN (the designer's spec 8.4), on row 1 --
+			-- which is `Pads.defaultSize`, the size a pick nobody makes falls back to. A second
+			-- orange bar would mean the panel was recommending two things at once.
+			local marks = 0
+			for _, child in ipairs(frame:GetChildren()) do
+				if child:IsA("TextButton") and (child :: TextButton):FindFirstChild("Default") ~= nil then
+					marks += 1
+					expect((child :: TextButton).Name).to.equal(string.format("Size%d", PADS.SIZES[1].size))
+				end
+			end
+			expect(marks).to.equal(1)
+		end)
+
+		it("says what the loading banner says, as arithmetic", function()
+			local WORDS = PADS.LEAVING
+			local STATE = LobbyData.PAD_STATE
+			-- NOTHING AT ALL FOR A PAD THAT IS NOT LOADING, including nil and a word that is not a
+			-- state: the rule that decides whether the banner is up (`Lobby.padLoading`) and the rule
+			-- that decides what it says can never disagree.
+			expect(PadPanel.leavingLineFor(nil, nil)).to.equal("")
+			expect(PadPanel.leavingLineFor(STATE.EMPTY, 3)).to.equal("")
+			expect(PadPanel.leavingLineFor(STATE.SIZING, 3)).to.equal("")
+			expect(PadPanel.leavingLineFor("nonsense", 3)).to.equal("")
+			-- ...AND ONE LINE FOR EACH OF THE THREE THAT ARE.
+			expect(PadPanel.leavingLineFor(STATE.FILLING, nil)).to.equal(WORDS.FILLING)
+			expect(PadPanel.leavingLineFor(STATE.LEAVING, nil)).to.equal(WORDS.GOING)
+			-- `ceil`, SO "1" IS THE LAST WHOLE SECOND and the line never reads 0 while he is still
+			-- standing there -- `Objective.text`'s own rule for the same countdown.
+			expect(PadPanel.leavingLineFor(STATE.COUNTDOWN, 4.2)).to.equal(string.format(WORDS.COUNTDOWN, 5))
+			expect(PadPanel.leavingLineFor(STATE.COUNTDOWN, 0.1)).to.equal(string.format(WORDS.COUNTDOWN, 1))
+			expect(PadPanel.leavingLineFor(STATE.COUNTDOWN, -3)).to.equal(string.format(WORDS.COUNTDOWN, 0))
+
+			-- THE BAR FILLS AS THE COUNTDOWN RUNS DOWN, and there is NO BAR while the party is
+			-- filling: in `filling` the pad waits for people who may never come, so a bar inching
+			-- along would be claiming to know how long that is.
+			local whole = LobbyData.CONFIG.COUNTDOWN_SECONDS
+			expect(PadPanel.barFraction(STATE.FILLING, 12)).to.equal(nil)
+			expect(PadPanel.barFraction(STATE.SIZING, 1)).to.equal(nil)
+			expect(PadPanel.barFraction(nil, 1)).to.equal(nil)
+			expect(PadPanel.barFraction(STATE.COUNTDOWN, whole)).to.equal(0)
+			expect(PadPanel.barFraction(STATE.COUNTDOWN, whole / 2)).to.equal(0.5)
+			expect(PadPanel.barFraction(STATE.COUNTDOWN, 0)).to.equal(1)
+			-- CLAMPED AT BOTH ENDS, because the server's deadline and this client's clock are two
+			-- clocks: a late frame must not draw a bar past its track or behind its start.
+			expect(PadPanel.barFraction(STATE.COUNTDOWN, -5)).to.equal(1)
+			expect(PadPanel.barFraction(STATE.COUNTDOWN, whole + 5)).to.equal(0)
+			expect(PadPanel.barFraction(STATE.LEAVING, nil)).to.equal(1)
+		end)
+
+		it("puts the banner up when the server says so, and takes it down on arrival", function()
+			local STATE = LobbyData.PAD_STATE
+			local frame = Hud.padLeaving()
+			expect(frame).to.be.ok()
+			local box = frame :: Frame
+			expect(box.Visible).to.equal(false)
+			-- FULL WIDTH LESS A MARGIN, capped: a SCALE, so nothing re-measures on a resize.
+			expect(box.Size.X.Scale).to.equal(1)
+			expect(box.Size.X.Offset).to.equal(-2 * PADS.LEAVING.MARGIN_PX)
+			expect(box.ZIndex).to.equal(PadPanel.leavingZIndex())
+			-- `Rail.CONFIG.Z_INDEX` IS 16 AND STAYS PRESSABLE OVER IT, like the dialog.
+			expect(PadPanel.leavingZIndex() < 16).to.equal(true)
+
+			local opened = PadPanel.stats().leavingOpens
+			PadPanel.setLeaving(STATE.FILLING, nil)
+			expect(PadPanel.isLeaving()).to.equal(true)
+			expect(box.Visible).to.equal(true)
+			local head, line = PadPanel.leavingText()
+			expect(head).to.equal(PADS.LEAVING.TITLE)
+			expect(line).to.equal(PADS.LEAVING.FILLING)
+			-- NO BAR WHILE FILLING -- the track itself is hidden, not merely empty.
+			local track = box:FindFirstChild("Track")
+			expect(track).to.be.ok()
+			expect((track :: Frame).Visible).to.equal(false)
+			-- EDGE-TRIGGERED: the same state twice is one open.
+			PadPanel.setLeaving(STATE.FILLING, nil)
+			expect(PadPanel.stats().leavingOpens).to.equal(opened + 1)
+
+			-- THE COUNTDOWN DRAWS THE SECONDS AND FILLS THE BAR.
+			local whole = LobbyData.CONFIG.COUNTDOWN_SECONDS
+			PadPanel.setLeaving(STATE.COUNTDOWN, whole / 2)
+			local _, counting, half = PadPanel.leavingText()
+			expect(counting).to.equal(string.format(PADS.LEAVING.COUNTDOWN, math.ceil(whole / 2)))
+			expect((track :: Frame).Visible).to.equal(true)
+			expect(math.abs(half - 0.5) < 0.01).to.equal(true)
+			PadPanel.setLeaving(STATE.COUNTDOWN, 0)
+			expect(select(3, PadPanel.leavingText())).to.equal(1)
+
+			-- AND IT CLEARS WHEN THE DRIVE HAS HIM: the owner writes the attribute nil the moment the
+			-- roster has him, so this is the one edge that takes the banner down.
+			PadPanel.setLeaving(nil, nil)
+			expect(PadPanel.isLeaving()).to.equal(false)
+			expect(box.Visible).to.equal(false)
+			-- ANYTHING THAT IS NOT A LOADING STATE IS "NOBODY IS LOADING" -- `sizing` included, which
+			-- is the state the dialog itself is up in.
+			PadPanel.setLeaving(STATE.SIZING, 2)
+			expect(box.Visible).to.equal(false)
+			PadPanel.setLeaving(7 :: any, 2)
+			expect(box.Visible).to.equal(false)
 		end)
 
 		it("sends ONE message per press, naming the pad the server asked about", function()
@@ -200,7 +319,9 @@ return function()
 			PadPanel.stop()
 			local frame = Hud.padPanel()
 			expect(frame).to.be.ok()
-			PadPanel.start(frame :: Frame, { remotes = nil })
+			-- THE BANNER'S FRAME GOES BACK WITH IT (task 197), or every later case -- and Karen --
+			-- would have a panel with no banner attached to it.
+			PadPanel.start(frame :: Frame, { remotes = nil, leaving = Hud.padLeaving() })
 			local rebuilt = 0
 			for _, child in ipairs((frame :: Frame):GetChildren()) do
 				if child:IsA("TextButton") then
@@ -208,6 +329,24 @@ return function()
 				end
 			end
 			expect(rebuilt).to.equal(#PADS.SIZES)
+			-- ...AND THE BANNER HAS EXACTLY ONE OF EACH OF ITS PIECES, which is the doubled-children
+			-- claim said about the second frame: `stop` destroys EVERY child and not only the
+			-- `GuiObject`s, because the restyle added a `UICorner`, a `UIStroke` and a
+			-- `UISizeConstraint` to each frame and a doubled stroke is a doubled stroke.
+			local bannerFrame = Hud.padLeaving() :: Frame
+			local tracks, corners, strokes = 0, 0, 0
+			for _, child in ipairs(bannerFrame:GetChildren()) do
+				if child.Name == "Track" then
+					tracks += 1
+				elseif child:IsA("UICorner") then
+					corners += 1
+				elseif child:IsA("UIStroke") then
+					strokes += 1
+				end
+			end
+			expect(tracks).to.equal(1)
+			expect(corners).to.equal(1)
+			expect(strokes).to.equal(1)
 		end)
 	end)
 end
