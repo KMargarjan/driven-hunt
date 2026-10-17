@@ -140,19 +140,39 @@ return function()
 		end)
 
 		it("turns the animal round when the shot came in on the far flank", function()
-			local payload = buckPayload()
-			for _, dot in ipairs(payload.dots) do
-				dot.side = -1
+			-- The drawn x of every dot, in the order they were made, off the Instances themselves.
+			local function drawnX(artName: string): { number }
+				local plate = (Hud.hitCard() :: Frame):FindFirstChild("Plate") :: Frame
+				local art = plate:FindFirstChild(artName) :: Frame
+				local out = {}
+				for _, child in ipairs(art:GetChildren()) do
+					if child:IsA("Frame") and child.Name == "Dot" then
+						table.insert(out, child.Position.X.Scale)
+					end
+				end
+				return out
 			end
-			Card.show(payload)
-			expect(Card.mirrored()).to.equal(true)
-			-- ...and the dots went with it: the drawn x is 1 - u, which is the only way a mark can
-			-- stay on the part of the animal it hit.
-			local art = ((Hud.hitCard() :: Frame):FindFirstChild("Plate") :: Frame):FindFirstChild("ArtMirrored")
-			local first = (art :: Frame):FindFirstChild("Dot") :: Frame
-			expect(first.Position.X.Scale < 0.5).to.equal(true) -- u 0.31..0.63 mirrors to 0.37..0.69
+
 			Card.show(buckPayload())
 			expect(Card.mirrored()).to.equal(false)
+			local near = drawnX("Art")
+			expect(#near).to.equal(4)
+
+			local far = buckPayload()
+			for _, dot in ipairs(far.dots) do
+				dot.side = -1
+			end
+			Card.show(far)
+			expect(Card.mirrored()).to.equal(true)
+			local mirrored = drawnX("ArtMirrored")
+			expect(#mirrored).to.equal(4)
+			-- EVERY MARK WENT WITH THE PICTURE: the drawn x is exactly 1 - x, which is the only way
+			-- a dot can stay on the part of the animal it hit when the animal is turned round.
+			for index, x in ipairs(mirrored) do
+				expect(math.abs(x - (1 - near[index])) < 1e-5).to.equal(true)
+			end
+			-- ...and the near-flank picture was cleared, so one card never shows two animals.
+			expect(#drawnX("Art")).to.equal(0)
 		end)
 	end)
 
