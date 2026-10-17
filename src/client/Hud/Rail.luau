@@ -393,10 +393,15 @@ function Rail.start(
 		hint.ZIndex = config.Z_INDEX + 1
 		hint.Parent = node
 
-		-- THE THREE STATES (§3.5). A `TextButton` fires `MouseEnter` / `MouseLeave` for a mouse and
-		-- `InputBegan` / `InputEnded` for a mouse button AND a finger, so one pair of handlers
-		-- serves both without a touch branch -- the reason `Activated` is the only press this module
-		-- listens to. The colour tween is the system's one permitted motion (§1.4, 0.12 s Quad Out).
+		-- THE THREE STATES (§3.5), drawn from `MouseEnter` / `MouseLeave` and
+		-- `MouseButton1Down` / `MouseButton1Up` -- which a `TextButton` fires for a finger as well
+		-- as for a mouse. The colour tween is the system's one permitted motion (§1.4, 0.12 s
+		-- Quad Out), and `Activated` is still the only thing that RUNS anything.
+		--
+		-- A TAP ENDS ON A DEVICE WITH NO POINTER (round 1 note): on touch there is no `MouseLeave`
+		-- after `MouseButton1Up`, so painting the hover state there would leave a thumbed button lit
+		-- for the rest of the session. On touch the release goes back to IDLE; on a desktop the
+		-- pointer really is still over the button, so it goes to hover.
 		local function paint(fill: Color3, fillT: number, edge: Color3, edgeT: number, text: Color3, drop: number)
 			TweenService:Create(
 				node,
@@ -440,6 +445,17 @@ function Rail.start(
 			)
 		end)
 		node.MouseButton1Up:Connect(function()
+			if touchEnabled then
+				paint(
+					config.BACKGROUND,
+					config.TRANSPARENCY,
+					config.RIM_COLOR,
+					config.RIM_TRANSPARENCY,
+					config.TEXT_COLOR,
+					0
+				)
+				return
+			end
 			paint(
 				config.BACKGROUND,
 				config.HOVER_TRANSPARENCY,

@@ -209,9 +209,20 @@ end
 -- WHERE A BEARING SITS ON THE STRIP, in pixels from its centre, and whether it is really there.
 -- Returns (x, onStrip). A caller that gets `false` has a bearing behind the player: the x is already
 -- clamped to the nearer end, so it can pin the marker rather than hide it.
-function Compass.offsetPx(heading: number, bearing: number, config): (number, boolean)
-	local half = config.WIDTH / 2
-	local pixelsPerDeg = config.WIDTH / config.SPAN_DEG
+-- `widthPx` IS THE WIDTH THE STRIP IS ACTUALLY DRAWN AT, and it is a parameter rather than
+-- `config.WIDTH` because since task 201 those are two different numbers on a phone (`widthFor`:
+-- 420 on a desktop, `screenW - 24` below the break point). Round 1's blocking finding is what this
+-- is: the frame was sized from `widthFor` and the arithmetic still divided by 420, so at 400 px the
+-- strip showed ~107 degrees while claiming `SPAN_DEG` 120, AND a bearing more than ~54 degrees off
+-- the heading was clamped to +-210 px inside a 376 px `ClipsDescendants` frame -- which is the
+-- marker VANISHING rather than pinning, against `PINNED_TRANSPARENCY`'s own stated contract and
+-- against Karen's *"we need to indicate from what side drive is comming"*.
+--
+-- It defaults to `config.WIDTH` so every existing caller keeps the desktop answer.
+function Compass.offsetPx(heading: number, bearing: number, config, widthPx: number?): (number, boolean)
+	local width = widthPx or config.WIDTH
+	local half = width / 2
+	local pixelsPerDeg = width / config.SPAN_DEG
 	local x = Compass.deltaDeg(heading, bearing) * pixelsPerDeg
 	if x < -half then
 		return -half, false
@@ -242,6 +253,17 @@ end
 
 function Compass.frame(): Frame?
 	return strip
+end
+
+-- HOW WIDE THE STRIP IS RIGHT NOW, read off the frame itself. `Hud.build` and
+-- `Hud.applyViewportLayout` are the only writers of that `Size` and both write it in OFFSETS from
+-- `Compass.widthFor`, so this is the drawn width and not a layout result that might still be zero.
+function Compass.drawnWidth(): number
+	local frame = strip
+	if frame ~= nil and frame.Size.X.Offset > 0 then
+		return frame.Size.X.Offset
+	end
+	return Compass.CONFIG.WIDTH
 end
 
 function Compass.bearingDeg(): number?
@@ -408,8 +430,12 @@ function Compass.render(headingDeg: number)
 	-- ON THE FRAME ITSELF, because MCP's `require` answers a sandboxed COPY with empty state, so the
 	-- only honest way to read what the LIVE compass used is a property of a real Instance.
 	strip:SetAttribute("Heading", headingDeg)
+	-- THE DRAWN WIDTH, ONCE, FOR EVERYTHING ON THE STRIP. The ticks, the letters and the drive
+	-- marker all have to agree with the frame they are inside, or the span is a lie and a pinned
+	-- marker is clipped away (round 1, finding 1).
+	local width = Compass.drawnWidth()
 	for _, mark in ipairs(marks) do
-		local x, onStrip = Compass.offsetPx(headingDeg, mark.deg, config)
+		local x, onStrip = Compass.offsetPx(headingDeg, mark.deg, config, width)
 		mark.node.Visible = onStrip
 		if onStrip then
 			local current = mark.node.Position
@@ -429,7 +455,7 @@ function Compass.render(headingDeg: number)
 		label.Visible = false
 		return
 	end
-	local x, onStrip = Compass.offsetPx(headingDeg, bearing, config)
+	local x, onStrip = Compass.offsetPx(headingDeg, bearing, config, width)
 	mark.Visible = true
 	label.Visible = true
 	-- THE WORD FOLLOWS THE BEARING (task 153 round 2). Written only when it changes: this runs once

@@ -313,12 +313,21 @@ function Hud.applyViewportLayout(viewX: number)
 	end
 end
 
--- HOW TALL THE WHOLE TOAST FEED IS ALLOWED TO BE, from the same two numbers the hit card's position
--- is computed from, so the two cannot overlap at any viewport (§4.3: *"BOTTOM LEFT hit card | toast
--- feed -- stacked; hit card bottom = feed top - 8"*). A toast is `AutomaticSize`, so this is the
--- ceiling the stack grows into and never the sum of what is drawn.
-function Hud.feedHeight(): number
-	return Drive.CONFIG.FEED_LINES * 28
+-- HOW TALL THE WHOLE TOAST FEED IS, and it is the REAL stack and not a guess at it. The hit card's
+-- position is computed from this one number, so §4.3's *"BOTTOM LEFT hit card | toast feed --
+-- stacked; hit card bottom = feed top - 8"* holds only if the number is true.
+--
+-- ROUND 1'S SECOND BLOCKING FINDING WAS THAT IT WAS NOT. 28 px a line was written against a toast
+-- that measures 30 (6 + 6 of slate padding around an 18 px line box) with a 6 px gap between them,
+-- so five lines came to 174 px inside a 140 px reservation -- the stack grew 34 px above its own
+-- frame, which has no `ClipsDescendants`, onto a 138 px hit card. Five entries inside
+-- `FEED_SECONDS` is reachable: `renderFeed` trims only past `FEED_LINES`.
+--
+-- `Style.toastHeight` is the one source for a toast's height and `Style.toast` builds to it.
+function Hud.feedHeight(viewportX: number?): number
+	local lines = Drive.CONFIG.FEED_LINES
+	local height = Style.toastHeight(viewportX or Hud.viewportX())
+	return lines * height + math.max(0, lines - 1) * Style.TOAST_GAP
 end
 
 -- ---------------------------------------------------------------- the top band (task 201 §4.1)
@@ -907,8 +916,8 @@ local function build(): ScreenGui
 
 	table.clear(statusChips)
 	table.clear(statusDividers)
-	-- THE ORDER THEY ARE DRAWN IN, left to right, and it is the mockup's: which drive, the clock,
-	-- the phase while there is one, how many boars are left, who you are, what you have.
+	-- THE ORDER THEY ARE DRAWN IN, left to right, and it is the mockup's: which drive, the phase
+	-- while there is one, the clock, how many boars are left, who you are, what you have.
 	local order = { "Drive", "Phase", "Clock", "Boars", "Role", "Coins" }
 	for index, name in ipairs(order) do
 		if index > 1 then
@@ -1002,7 +1011,7 @@ local function build(): ScreenGui
 	feedStack.HorizontalAlignment = Enum.HorizontalAlignment.Left
 	feedStack.VerticalAlignment = Enum.VerticalAlignment.Bottom
 	feedStack.SortOrder = Enum.SortOrder.LayoutOrder
-	feedStack.Padding = UDim.new(0, 6)
+	feedStack.Padding = UDim.new(0, Style.TOAST_GAP)
 	feedStack.Parent = feed
 
 	table.clear(feedLines)
@@ -1228,7 +1237,8 @@ local function build(): ScreenGui
 		1,
 			-- THE FEED'S OWN HEIGHT AND NOT A SECOND COPY OF IT (task 201). A toast is `AutomaticSize`
 			-- and taller than the 20 px line it replaces, so this reads `Hud.feedHeight` -- the one
-			-- number the feed frame is built from -- and the two cannot overlap at any viewport.
+			-- number the feed frame is built from, and since round 2 the REAL height of five toasts
+			-- and their four gaps rather than a guess at it.
 		-(Drive.CONFIG.FEED_BOTTOM_OFFSET + Hud.feedHeight() + Report.CONFIG.CARD.FEED_GAP)
 	)
 	hitCard.Size = UDim2.fromOffset(Report.CONFIG.CARD.WIDTH, Report.CONFIG.CARD.HEIGHT)
@@ -2789,8 +2799,15 @@ function Hud.renderCorner(Weapon)
 	if hasHorn then
 		local stamped = (tool :: any):GetAttribute(Horn.BLOW_ATTRIBUTE)
 		if type(stamped) == "number" and stamped ~= hornBlowSeen then
+			-- THE FIRST STAMP SEEN ON A TOOL STARTS NO CLOCK (round 1 note). A Horn that is handed
+			-- back already carrying a stamp from an earlier drive would otherwise read `WAIT` with
+			-- an empty bar for 1.5 s although it is ready -- this client does not know WHEN that
+			-- blast was, and a readiness bar that is wrong about readiness is worse than none.
+			-- Only a stamp that CHANGES while this client is watching is a blast it saw.
+			if hornBlowSeen ~= nil then
+				hornBlowAt = now
+			end
 			hornBlowSeen = stamped
-			hornBlowAt = now
 		end
 	else
 		hornBlowSeen = nil
@@ -2930,7 +2947,13 @@ function Hud.onKilled(event)
 	-- the entry and is resolved by the one pure mapping, so the line and the bullet beside it cannot
 	-- end up two different colours -- which is what the first run of `hud_style.spec` caught: this
 	-- call carried no meaning at all and a kill drew in `BODY`.
-	table.insert(feedEntries, { text = Hud.killLineText(event), at = os.clock(), meaning = "good" })
+	table.insert(feedEntries, {
+		text = Hud.killLineText(event),
+		at = os.clock(),
+		-- THROUGH THE MAPPING AND NOT A LITERAL `"good"` (round 1 note): "both writers carry it" is
+		-- only true if both ask the same function.
+		meaning = Hud.feedMeaningFor({ kind = "kill" }),
+	})
 	renderFeed(os.clock())
 end
 

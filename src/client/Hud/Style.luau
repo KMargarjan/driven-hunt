@@ -531,6 +531,18 @@ function Style.bar(
 	return back, fill
 end
 
+-- HOW TALL ONE TOAST IS. The slate's own padding plus the line's box, which is exactly what
+-- `Style.toast` builds -- so a caller that has to RESERVE room for a stack of them has a number
+-- that matches what is drawn. Round 1's second blocking finding was a reservation that did not:
+-- 28 px assumed against a toast that measures 30.
+function Style.toastHeight(viewportX: number): number
+	local pad = if Style.isPhone(viewportX) then 4 else 6
+	return 2 * pad + Style.sizeFor("LABEL", viewportX) + 6
+end
+
+-- The gap between two stacked toasts (§3.11: *"stacked bottom-up with a 6 px gap"*).
+Style.TOAST_GAP = 6
+
 -- §3.11 A TOAST: the kill feed, the server's refusals and every receipt are ONE component. Each
 -- line is its own slate with a meaning dot, and each fades on its own.
 function Style.toast(parent: Instance, name: string, viewportX: number): (Frame, Frame, TextLabel)

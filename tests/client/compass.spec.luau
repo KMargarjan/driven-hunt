@@ -234,6 +234,38 @@ return function()
 			expect((x :: number) < 0).to.equal(true)
 		end)
 
+		it("keeps a PINNED marker inside the strip at a PHONE width", function()
+			-- ROUND 1, BLOCKING FINDING 1. The strip's width became viewport-dependent in task 201
+			-- (`Compass.widthFor`: 420 on a desktop, `screenW - 24` below the break point) and
+			-- `offsetPx` went on dividing by `CONFIG.WIDTH`. At 400 px that put a bearing more than
+			-- ~54 degrees off the heading at +-210 px inside a 376 px `ClipsDescendants` frame --
+			-- the marker VANISHING instead of pinning, against `PINNED_TRANSPARENCY`'s own contract
+			-- and against Karen's *"we need to indicate from what side drive is comming"*.
+			--
+			-- ARITHMETIC AND NOT A LIVE FRAME, because no tool here can resize a Studio viewport.
+			local phone = Compass.widthFor(400)
+			expect(phone).to.equal(400 - CONFIG.WIDTH_PHONE_MARGIN)
+			local half = phone / 2
+			-- Dead ahead is the centre, at every width.
+			local centre, onCentre = Compass.offsetPx(0, 0, CONFIG, phone)
+			expect(centre).to.be.near(0, 1e-6)
+			expect(onCentre).to.equal(true)
+			-- The span really is `SPAN_DEG` across the DRAWN strip: half of it reaches half the
+			-- strip and not one pixel more.
+			local edge, onEdge = Compass.offsetPx(0, CONFIG.SPAN_DEG / 2, CONFIG, phone)
+			expect(edge).to.be.near(half, 1e-6)
+			expect(onEdge).to.equal(true)
+			-- ...and a bearing behind the player is PINNED to the end, INSIDE the frame.
+			for _, bearing in ipairs({ 90, 150, 180, 210, 270 }) do
+				local x, onStrip = Compass.offsetPx(0, bearing, CONFIG, phone)
+				expect(onStrip).to.equal(false)
+				expect(math.abs(x) <= half).to.equal(true)
+			end
+			-- The desktop width is still the default, so every older caller is unchanged.
+			local wide = Compass.offsetPx(0, CONFIG.SPAN_DEG / 2, CONFIG)
+			expect(wide).to.be.near(CONFIG.WIDTH / 2, 1e-6)
+		end)
+
 		it("draws no marker at all when no world has said where the drive comes from", function()
 			-- A marker pointing at zero would be a lie in the shape of a fact.
 			Compass.setBearing(nil)

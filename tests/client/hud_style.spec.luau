@@ -478,6 +478,45 @@ return function()
 			TestKit.note("hud_style: kill toast drew " .. text.Text)
 		end)
 
+		it("reserves the toast feed's REAL height, so a full stack cannot reach the hit card", function()
+			-- ROUND 1, BLOCKING FINDING 2. `Hud.feedHeight` was `FEED_LINES * 28` against a toast
+			-- that measures 30 with a 6 px gap, so five lines came to 174 px inside a 140 px
+			-- reservation -- and the feed frame has no `ClipsDescendants`, so the stack grew 34 px
+			-- onto the hit card. Five entries inside `FEED_SECONDS` is reachable: `renderFeed`
+			-- trims only past `FEED_LINES`.
+			local viewX = Hud.viewportX()
+			local toast = Style.toastHeight(viewX)
+			local lines = Drive.CONFIG.FEED_LINES
+			expect(Hud.feedHeight(viewX)).to.equal(lines * toast + (lines - 1) * Style.TOAST_GAP)
+			-- THE NUMBER IS TRUE OF WHAT IS DRAWN, and that is the half the arithmetic cannot
+			-- answer: every toast this Hud built is measured against it.
+			local feed = Hud.feed() :: Frame
+			expect(feed).to.be.ok()
+			expect(feed.AbsoluteSize.Y >= lines * toast + (lines - 1) * Style.TOAST_GAP).to.equal(true)
+			local tallest = 0
+			for _, node in ipairs(Hud.feedToasts()) do
+				tallest = math.max(tallest, node.AbsoluteSize.Y)
+			end
+			if tallest > 0 then
+				expect(tallest <= toast + 1).to.equal(true)
+			end
+			-- ...and the hit card's reserved band really does start above the feed's.
+			local card = Hud.hitCard() :: Frame
+			expect(card).to.be.ok()
+			local cardBottom = card.AbsolutePosition.Y + card.AbsoluteSize.Y
+			local feedTop = feed.AbsolutePosition.Y
+			expect(cardBottom <= feedTop + 1).to.equal(true)
+			TestKit.note(
+				string.format(
+					"hud_style: toast %d px, feed reserves %d px, card bottom %d vs feed top %d",
+					toast,
+					Hud.feedHeight(viewX),
+					cardBottom,
+					feedTop
+				)
+			)
+		end)
+
 		it("draws ONE of the ammo chip and the horn chip, never both", function()
 			-- §4.3: *"BOTTOM RIGHT ammo chip OR horn chip -- alone, and only one of the two ever
 			-- exists."* Whatever this run's role is, the rule is the same.
