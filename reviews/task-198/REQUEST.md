@@ -141,3 +141,51 @@ of this request and it is stated first.
 
 Nothing else: no `.rbxm`, no `ignoreUnknownInstances`, no flag, no `poses.json`, no Architect design
 run (this extends the drive report rather than adding a system; tasks 135/137/138 did the same).
+
+---
+
+## CORRECTION, after round 1 (2026-10-17)
+
+**The "the Forest Test place could not run this change at all" paragraph above is WRONG, and the
+"MEASURED" word in it was not earned.** It is left in place rather than edited away, so the record
+shows what was claimed and what it turned out to be.
+
+What happened: the probe read `ModuleScript.Source` from the **Edit** datamodel, where this harness's
+thread reads every script's source back as the empty string. `string.find("", "CARD = {")` is nil for
+every file, so `HitLog` -- a module that has been in that place for seventy tasks -- measured
+"missing" too, which should have been the tell. Re-probed from the **Client** datamodel during Play:
+
+```
+place=130094961655666
+HitCard module bytes=15797 hasMarkFatal=true
+Hud.init hasHitCardStart=true
+shared Report hasCARD=true
+client Report hasHitSignal=true
+HitCard FRAME in PlayerGui=true plate=true
+```
+
+So the Forest Test has the whole change, there is **nothing for Karen to click**, and the NEEDS KAREN
+line above is withdrawn.
+
+**And with that corrected, the live shot was obtained** (`<runs-dir>/t198-LIVE-buck-card.png`, looked
+at; readout in `<runs-dir>/t198-LIVE.log`). One buckshot, through `FireRequest:FireServer`, from
+where the drive put the hunter -- he is never moved, because `Weapon.Rules` refuses a shot from
+outside his stand circle -- at a boar put broadside 54 studs in front of him:
+
+```
+Buck HIT Boar4 | range 53.9 studs = 15.1 m | fire->card 0.143 s | facing=Art
+label=[H I T   -   B U C K   4 / 9] dots=4
+  dot u=1.0000 v=0.0000 zone=rear lead=false  drawnX=0.9700
+  dot u=1.0000 v=0.0000 zone=rear lead=true   drawnX=0.9700
+  dot u=1.0000 v=0.0980 zone=rear lead=false  drawnX=0.9700
+  dot u=1.0000 v=0.1648 zone=rear lead=false  drawnX=0.9764
+```
+
+**So claim 8's 0.3 s IS measured now: 0.143 s**, fire to card visible, on the client's own clock.
+
+**One thing the live frame shows that no spec would have.** The animal turned and ran as it was put
+down, so all four pellets struck the trunk box's REAR FACE -- which `Shape.dot` projects to `u = 1.0`
+exactly, for the same reason a nose-on shot projects to `u = 0` (the comment above `Report.ontoBoar`
+already says this about the front face). The four dots therefore draw on top of each other at the
+rump. The record is truthful and the drawing is faithful to it; whether four pellets into one face
+should be spread out on the picture is a look decision for Karen, and is **not** fixed here.
