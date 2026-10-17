@@ -10,9 +10,13 @@
 -- the payload asked for. That is the one check `docs/PROJECT_CONTEXT.md`'s *"a visibility audit
 -- certified a blank screen twice"* demands.
 --
--- THE CASE THAT MATTERS MOST is the last one: ONE payload is shown on the card and the SAME dot is
--- sent through the drive report's own detail view, and the two pictures are then read with the same
--- reader. The card and the TAB report cannot put one hit in two places and have this pass.
+-- THE CARD-AGAINST-REPORT CASE PROVES ONE THING AND NOT ANOTHER, and the Reviewer was right to say
+-- so (round 1): both sides are read through `BoarArt.dotsOf`, which returns the `U`/`V` ATTRIBUTES --
+-- the true `(u, v)` the server measured -- and not the drawn pixel. So it proves that one hit put on
+-- both screens leaves a dot carrying the SAME `(u, v)` and the same zone on each, which is what
+-- "the dots must match" means for a record; it does NOT prove the two pixels coincide, and a card
+-- that drew every pip in the wrong place would still pass it. The drawn position is checked
+-- separately, against arithmetic this file does itself, in the mirror case.
 --
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Note: docs/research/2026-10-17-hit-card.md

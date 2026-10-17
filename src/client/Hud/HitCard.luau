@@ -29,6 +29,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 local BoarArt = require(script.Parent.BoarArt)
@@ -52,6 +53,10 @@ local showing: { animal: string, at: number }? = nil
 local age = 0
 local alive = false
 local connection: RBXScriptConnection? = nil
+-- The two wire connections, held so `stop` can undo exactly what `start` made: without them a
+-- stop/start pair would connect `show` twice and draw every hit twice (the Reviewer's note,
+-- round 1).
+local wires: { RBXScriptConnection } = {}
 
 local stats = { shows = 0, fatals = 0, replaced = 0, hides = 0 }
 
@@ -210,7 +215,10 @@ local function setFade(fade: number)
 	end
 	for _, art in ipairs({ artNear, artFar }) do
 		if art ~= nil and art.Visible then
-			art.BackgroundTransparency = at
+			-- THE ART FRAME'S OWN BACKING IS LEFT ALONE: `build` made it transparent on purpose (the
+			-- plate is the ground), and writing `at` into it made it an opaque rectangle that only
+			-- happened to match the plate's colour -- a seam waiting for the next palette change
+			-- (the Reviewer's note, round 1).
 			for _, child in ipairs(art:GetChildren()) do
 				if child:IsA("Frame") then
 					child.BackgroundTransparency = at
@@ -319,7 +327,10 @@ function HitCard.markFatal(event: any)
 		return
 	end
 	lead:SetAttribute("Fatal", true)
-	lead.BackgroundColor3 = CONFIG.DOT_COLOR
+	-- THE REPORT'S OWN KILL COLOUR, which is what claim 9 said and what the code did not do: this
+	-- line wrote `DOT_COLOR`, the colour `drawDots` had already painted it (the Reviewer's note,
+	-- round 1), so the fatal mark differed by shape alone.
+	lead.BackgroundColor3 = Shotgun.CONFIG.HIT_MARK_KILL_COLOR
 	lead.Rotation = 45
 	lead.Size = UDim2.fromOffset(CONFIG.DOT_PIXELS + 3, CONFIG.DOT_PIXELS + 3)
 	local corner = lead:FindFirstChildOfClass("UICorner")
@@ -368,8 +379,8 @@ function HitCard.start(frame: Frame, collaborators: any)
 	build(frame)
 	local ReportSystem = collaborators and collaborators.Report
 	if ReportSystem ~= nil then
-		ReportSystem.Hit:Connect(HitCard.show)
-		ReportSystem.HitFatal:Connect(HitCard.markFatal)
+		table.insert(wires, ReportSystem.Hit:Connect(HitCard.show))
+		table.insert(wires, ReportSystem.HitFatal:Connect(HitCard.markFatal))
 	end
 	connection = RunService.RenderStepped:Connect(HitCard.step)
 end
@@ -379,6 +390,10 @@ function HitCard.stop()
 		connection:Disconnect()
 		connection = nil
 	end
+	for _, wire in ipairs(wires) do
+		wire:Disconnect()
+	end
+	table.clear(wires)
 	hide()
 	started = false
 end

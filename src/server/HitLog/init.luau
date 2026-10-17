@@ -273,9 +273,16 @@ function HitLog.recordHit(report, now: number?)
 			hits = dot.pellets,
 			fired = fired,
 			distance = dot.distance,
-			-- THE SHOT'S OWN CLOCK, the same `at` the record's dot carries, so the fatal mark that
-			-- follows can name this card and no other (see `recordDown`).
-			at = at,
+			-- THE SHOT'S OWN CLOCK, THROUGH `sinceOpen` LIKE EVERY OTHER `at` THIS MODULE SENDS
+			-- (the Reviewer's blocking finding, round 1). It went out raw for one round, which is
+			-- the one thing `sinceOpen`'s own comment and `docs/design/drive-report.md` section 2
+			-- forbid by name: *"an `os.clock` from one machine means nothing on another"*.
+			--
+			-- IT IS ALSO WHAT KEEPS THE FATAL MARK JOINABLE. `recordDown` sends the same quantity
+			-- through the same function, and it only reaches that line when the animal is in THIS
+			-- drive -- so the two are always converted against one `openedAt` and
+			-- `HitCard.markFatal`'s match still holds.
+			at = sinceOpen(at),
 			dots = Shape.cardDots(part.CFrame, part.Size, report.points, report.position or part.Position, dot.zone),
 		}
 		stats.cards += 1
@@ -335,7 +342,9 @@ function HitLog.recordDown(record, now: number?)
 				animalKind = animal.kind,
 				hits = 0,
 				distance = record.killingDistance or 0,
-				at = animal.dots[index].at,
+				-- The card's own clock, converted exactly as the card's was: seconds since the
+				-- drive opened (the Reviewer's blocking finding, round 1).
+				at = sinceOpen(animal.dots[index].at),
 				dots = {},
 			})
 		end

@@ -6,7 +6,7 @@
 -- projection"*.
 --
 -- IT IS A MOVE, NOT A NEW SYSTEM. Every line below was `ReportPanel`'s `buildSilhouette`,
--- `clearDots` and `drawDots`, unchanged in what it draws: the same thirteen `Frame`s out of
+-- `clearDots` and `drawDots`, unchanged in what it draws: the same fourteen `Frame`s out of
 -- `Report.CONFIG.BOAR`, the same half-dot inset, the same `Report.ontoBoar` nudge, the same zone
 -- ring lifted by `Report.ringColor`, the same attributes read back by
 -- `tests/client/report_panel.spec.luau`. What is new is that the colours, the size and the facing
@@ -78,7 +78,7 @@ end
 BoarArt.RING = RING
 
 -- ONE SILHOUETTE: a side-view boar, from `Report.CONFIG.BOAR`, in the single fill `look.fill`.
--- Thirteen `Frame`s with a `UICorner` each and no art, no mesh and no `ViewportFrame` -- a 104-px
+-- Fourteen `Frame`s with a `UICorner` each and no art, no mesh and no `ViewportFrame` -- a 104-px
 -- picture of a boar does not need a camera, and a `ViewportFrame` per row would be eight of them.
 --
 -- `ReportPanel` DREW `Report.CONFIG.SILHOUETTE` ITSELF UNTIL TASK 135 -- five tinted zone
@@ -106,8 +106,8 @@ function BoarArt.build(parent: Instance, name: string, position: UDim2, look: Lo
 		round.CornerRadius = UDim.new(0, look.corner)
 		round.Parent = art
 	end
-	-- ONE COLOUR, THIRTEEN PARTS, NO ART FILE. Every number is a SCALE of this frame, so the same
-	-- thirteen parts draw the same animal at 104 x 56 in a report row and at 164 x 70 on the card.
+	-- ONE COLOUR, FOURTEEN PARTS, NO ART FILE. Every number is a SCALE of this frame, so the same
+	-- fourteen parts draw the same animal at 104 x 56 in a report row and at 148 x 80 on the card.
 	for _, piece in ipairs(CONFIG.BOAR) do
 		local part = Instance.new("Frame")
 		part.Name = piece.name

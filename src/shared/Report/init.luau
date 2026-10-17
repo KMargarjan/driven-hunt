@@ -339,6 +339,10 @@ Report.CONFIG = {
 	-- one builder of both pictures and `HitLog.Shape.dot` is the one projection; this block is only
 	-- the card's own numbers -- where it sits, how long it lives, and what colour the animal is.
 	CARD = {
+		-- HOW MANY DOTS ONE CARD MAY CARRY. A full two-barrel buckshot pattern on one animal is 18
+		-- (`Shotgun.CONFIG.PELLETS.Buck` x `BARRELS`), so 24 is above anything a legal shot makes;
+		-- `Weapon.Hits.POINTS_MAX` is the same ceiling at the other end of the wire.
+		DOTS_MAX = 24,
 		-- THE CORNER IS THE LOWER LEFT, ABOVE THE KILL FEED, and the other three are taken at every
 		-- width: the minimap plus the button rail own the top right, the ammo readout owns the very
 		-- bottom right (`Hud.build`'s `Readout`, anchored (1,1) at -16,-16), and the whole top band
@@ -348,10 +352,6 @@ Report.CONFIG = {
 		-- the event feed. So the card stacks directly on top of the feed, and its own bottom is
 		-- computed from the feed's own two constants rather than guessed, so the two cannot overlap
 		-- at any viewport.
-		-- HOW MANY DOTS ONE CARD MAY CARRY. A full two-barrel buckshot pattern on one animal is 18
-		-- (`Shotgun.CONFIG.PELLETS.Buck` x `BARRELS`), so 24 is above anything a legal shot makes;
-		-- `Weapon.Hits.POINTS_MAX` is the same ceiling at the other end of the wire.
-		DOTS_MAX = 24,
 		MARGIN_LEFT = 16,
 		FEED_GAP = 8,
 		WIDTH = 188,
