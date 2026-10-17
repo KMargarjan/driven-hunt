@@ -1,173 +1,151 @@
-# Review request — Task 193: four real driven-hunt places, a new one each drive
+# Review request — Task 193: the ground each reference frame shows, and the muster off the track
 
 Task: 193
-Round: 3
+Round: 1 (the previous review PASSED at `24b4fec`; this is new code, so the count restarts)
 Base: `c02f65e` (main, PR #181 merged)
-Code commit: `87079508403516035a5f90476287d80adff10468`
+Code commit: `168df4812635e13d8043eddd25be32ae3034a472`
 
 Harness, clean tree, at the code commit:
 
 ```
-[harness] PASS: 33/33 checks @ 87079508403516035a5f90476287d80adff10468 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 168df4812635e13d8043eddd25be32ae3034a472 (clean tree) scope=all
 ```
 
-`87079508` is the paperwork commit that carries round 2's `RESULT.md`; the last commit that changed
-`src/` or `tests/` is its parent `1a08a2e`, so this line covers all of the code and is the stricter
-bound (git workflow step 4). `test2` is **N/A** — nothing in `TWO_PLAYER_PATHS` is touched (checked
-against `origin/main`). CI green on the pushed head (run 39020141324).
+That is `test --scope auto`, and the token it printed is **`scope=all`, not `auto:…`** — `tools/studio_mcp.py`
+is in this branch's diff (it gained the `places` blast-radius rows) and that file resolves to `all` by
+its own rule, so the scoped run played the whole suite. It is therefore full evidence for the merge
+gate as well (read off the log, not assumed — lesson L-079). `test2` is **N/A**: nothing in
+`TWO_PLAYER_PATHS` is touched.
 
-## What changed
+## What changed, and why
 
-Karen, 2026-10-15: *"make 4 hunting places where each time person will be in new place when is hunter
-then loop it again"*, and *"be sure you do it properly not fake it or broken"*.
+The Director put the first build's frames next to Karen's references and named three things. **All
+three were measurable and all three were true.**
 
-A **fourth layout** (`track`, the forest road) and a **fixed rotation 1 → 2 → 3 → 4**, replacing task
-179's shuffled bag. Plus **one new system**: a pure planner (`ReplicatedStorage.Places`) and a thin
-planter (`ServerScriptService.Places`, the one writer of `Workspace.DrivePlaces`), with `Places.Ground`
-the only caller of `Terrain`. Step 0 ran (BRIEF, design **PASS**, research note); all five of the
-design's §10 corrections are built, and §16's two behind-the-code updates were applied to `lobby.md`
-and `drive.md` (lesson L-071).
+| he said | measured |
+|---|---|
+| place 3 *"the hunter stands on GREY ASPHALT-LOOKING ground"* | the cut line's strip is **13 of 42** samples `Asphalt` |
+| place 4 *"grey ground again"* | the forest road's is **23 of 42** — more than half |
+| place 1 *"shows grass and an oak and NO ROAD"* | its own line is `Ground` 31 / **`Grass` 29** over 65 samples, and the grass is at stands **1, 2, 7, 8, 9** — the road Karen built covers its middle third only, so a hunter on five of nine stands is standing in a field |
+
+**And the first paint could not have fixed any of it.** `Ground.SOURCE_MATERIALS` was Grass and
+LeafyGrass only, on the argument that the world's rock *"is the world's own rock and made ground"* —
+which skipped exactly the patches he objected to.
 
 ---
 
-## Round 2's blocking finding
+## The ground under each place now — the table Karen asked for
 
-**The cut line's north belt was planted through the forest road's track and across five of its six
-stands, and neither spec case could see it.** `Places.layer` asked `inLane` about its **own** layout
-only. Task 179 had the places 3,300 studs apart in x so that was harmless; round 1 re-sited them for
-sight lines and put the cut line 600 studs south of the forest road — and the cut line's north belt
-reaches 684 studs. My own comment called the shared wood a feature and never checked it against the
-other place's lane. **Round 2's claim 4 was false.**
+Committed **with this code**, in `docs/research/2026-10-17-four-driven-hunt-places.md` §4.4, not after
+it (lesson L-037). `places.spec` asserts this table.
 
-**FIXED, by making the rule global rather than by opening a gap.** `Places.clearOfEveryLane(x, z)`
-refuses a candidate inside **any** place's lane — `road` included, whose half-width is `LANE_STUDS`
-alone because its stands are still circles on its line. The Reviewer put the conflict exactly: at
-these two centres *"the belt reaches the beaters' muster"* and *"no tree in the track's lane"* cannot
-both hold **if the belt must be unbroken**. It need not — **a cleared corridor through the wood is
-what a forest road is.** The cut line's north belt now reaches its full 640 studs with a 42-stud gap
-where the forest road crosses it, which keeps both properties and is the more honest landscape. Moving
-a line would throw away the sight-line measurement that put it there, and no scored candidate pair is
-far enough apart to avoid the overlap.
+| place | reference | strip | ruts | left alone |
+|---|---|---|---|---|
+| 1 `road` | ref-7, pale gravel road | **`Ground`**, 22 studs | none — a graded road, not a pair of ruts | its wood and its geometry (BRIEF D3) |
+| 2 `edge` | ref-6, field edge | **nothing** | — | the whole field: `Ground` there would be a *ploughed* field, a different place from her frame |
+| 3 `ride` | ref-5, grassy ride | **`Grass`**, 64 studs | two **`Mud`** strips, 4 studs wide at ±12 | the verges, which keep the world's own grass |
+| 4 `track` | ref-1, brown dirt track | **`Ground`**, 18 studs | two **`Mud`** strips, 4 studs wide at ±6 | the belts' floor |
 
-**Verify:**
-* `src/shared/Places/init.luau`, `Places.clearOfEveryLane` and `Places.laneHalfWidth`, called from
-  `layer` at the **jittered** point.
-* `tests/server/places.spec.luau`, *"has no tree in ANY place's lane — every planting against every
-  layout"* and *"keeps every tree clear of EVERY place's stand circles"*. Both now loop
-  **planting × layout**, do the arithmetic themselves from `Forest.roadZ` / `Forest.standPosition`
-  **and** ask the predicate, and report the tightest margin they saw. The old pair compared each
-  place's trees against its own line, so the cross-place claim in their names could not fail.
-* **Live, in the world, over the instances actually made** (not the plan): `3020 planted | in a lane:
-  0 (tightest margin 0.1 studs, track tree vs track) | in a stand circle: 0 (tightest 10.4, ride tree
-  vs track stand 2)`. The 0.1 is a track tree against its own strip edge, which is the rule touching
-  its own boundary by construction.
-
-Round 2's notes 1–3 are fixed too: `chosen.rotated` is gone (both branches had the same answer once
-`chosen.cycle` existed), `stats().layoutNext` reads the cycle rather than the forced name, and the
-forced-cycle case no longer claims a "place 1" half it does not assert — the name says what it tests,
-and the rule it rests on (`nextLayout(nil) == LAYOUT_ORDER[1]`) is asserted in `Data`'s own cases.
-Note 4 (`Places.plotOf`) stands and is queued as 193a.
+**Karen's *"brown floor, not green lawn"* is answered on the TRACKS and NOT yet on the forest FLOOR**
+between the trunks, which is still this world's grass with a fern every 22–26 studs. `Ground` is the
+brownest thing the engine gives per region; `Terrain.MaterialColors` would be browner and is
+**global** — it would recolour the lodge's lawn and the whole existing wood with it, which is not ours
+to decide. Closing the floor gap means painting ~692,000 voxels per place against a strip's ~58,000.
+Stated, not faked.
 
 ---
 
 ## Claims
 
-**1. Four places, and the rotation visits them in Karen's order and then loops — observed live.**
-**Verify:** `forest_stand.spec`, *"the rotation that deals the places"* (the order over two full
-cycles; never twice running; nil or an unknown name answers place 1) and *"does not let a forced drive
-move the cycle"*. **Live:** sampling the published `Layout` attribute every 20 s across five drives
-gave **`road → edge → ride → track → road`** (`<runs-dir>/193-rotation2.log`).
+**1. Every strip is the material its reference shows, measured across and along it after the paint.**
+Across the middle stand every 4 studs, and along each strip at 41 samples:
+* `ride` across: `Grass` from −32 to +28 with `Mud` ruts, `Asphalt` only **outside** the strip (±32+).
+  **Along: `Grass` 41/41.**
+* `track` across: `Ground`/`Mud` inside the strip, `Grass` outside. Along: `Mud`/`Ground` 41/41.
+* `road` across: `Ground` ±32 with `Mud` ruts. **Along: `Ground` 41/41** — a continuous road where 29
+  of 65 samples were grass.
+**Verify:** `places.spec`, *"paints the ground each reference frame shows, per place"* — it drives the
+real `Ground.paint` with a recording fake terrain, asserts each place's material against the table
+above, asserts `Asphalt` **is** among the sources used (the whole of the fix), that no band replaces a
+material with itself, and that every region is on the 4-stud grid.
 
-**2. A forced drive does not move the cycle** — `chosen.cycle`, not `chosen.name`, is what the
-rotation steps from, because `promote` writes `name` for a forced drive too. **Verify:** the case
-above deals a rotated drive, forces a place chosen to be **neither** the current one nor the next, and
-asserts the following rotated drive is the place after the last **rotated** one. It fails on round
-2's code.
+**2. Two wheel ruts, and the frames are why they are narrow.** The first paint's ruts filled the near
+view (ride ±9, 6 studs wide) and the forest road's **merged** — at ±4 the voxel grid snapped them
+together and the whole 18-stud track came back `Mud` with no litter between. Now ride ±12 / 4 studs
+(20 studs of grass between them) and track ±6 (the middle 8 studs stay `Ground`). **Verify:**
+`places.spec`, *"lays two wheel ruts over the strip, and only where a frame shows them"* — a rut must
+fit inside its strip, its material differs from the strip's, the road has none, and the ruts are
+painted **after** the strip (the other order paints them straight back over, now that the strip's own
+material is in `SOURCE_MATERIALS`).
 
-**3. Every stand can see its own drive — and three of the four lines MOVED because a frame said they
-could not.** The dispatch's gate rule, which the design could not check (§18: *"I measured nothing
-myself"*). First build: a ray north from eye height (+5) died on terrain at **60 studs** at `edge`
-stand 4, **62 and 65** at two `track` stands, **89** at `ride` stand 1. Candidates were scored by
-walking the terrain along each stand's sight ray; the **whole west ground has no line** where every
-stand sees 180 studs. Shipped: `edge` (3400, 190, −3250) 5 × 130, `ride` (4900, 166, −4500) 5 × 130,
-`track` (4700, 159, −3900) 6 × 130 — **worst intrusion 0.0 studs, sight line past 400 studs, at every
-stand of all three**. **Verify:** each `LAYOUTS` row's comment; frames `<runs-dir>/193-p2-north.png`,
-`193-p3-north.png`, `193-p4-north.png` (first person, on a stand, in a real drive).
+**3. `SURFACES` is its own table, apart from `PLANS`, and `road` is why.** Painting and planting are
+different questions: `road` keeps task 179's wood exactly (BRIEF D3) and so has **no planting plan at
+all**, but it is the place named for a road. **Verify:** `Places.SURFACES` / `Places.surfaceFor`, and
+`Places.build`'s loop, which asks the two separately. `places.spec`'s *"dresses every layout that is
+not the road"* still asserts `planFor("road") == nil`, and the paint case asserts `surfaceFor("road")`
+is not nil.
 
-**4. Every planted tree stands ON the ground, measured at the lowest point under every footprint
-sample — and the metric is not a tautology.** **Live:** over all planted models the worst
-trunk-junction gap above the lowest ground under its own footprint is **−0.177 studs** (every one
-sunk), worst lowest-visible-geometry gap **−0.18**, `0 above tolerance` in all three places. The
-number **varies by species as the arithmetic predicts** — the least-sunk item is a fern, whose
-`sinkFor` is capped at a tenth of its 2.8-stud height — so it is a measurement and not the setter
-echoed back (standing rule E). **With no world:** `places.spec`, *"never plants a tree above the
-ground, on a hillside it has never seen"* re-measures the junction off the settled model, and
-*"allows a bigger step for a bigger tree"* drives both branches of `stepAllowance`.
+**4. The cut line's beaters no longer muster on the forest road's track (TASKS.md 193a(a)).** They
+mustered at z −3920, inside that place's lane (−3921…−3879). The line moved **40 studs south, z −4500
+→ −4540**, so the muster is **−3960, 39 studs clear**. It is the **only** candidate that keeps the
+sight line: measured, −4540 holds **400 studs at every stand** while −4560, −4580 and −4600 collapse
+to **52, 62 and 18**. **Verify:** `places.spec`, *"musters the beaters in cover, not on another
+place's track"* — for every dressed place, the muster z is outside every **other** place's lane across
+the stands' own x span. Live: `layout=ride … centre (4900, -4540), exit -4790`.
 
-**5. The forest is at least as dense as the wood Karen already has, and that bar was measured off
-that wood.** 21 rays over a 120° fan from every stand at eye height: the first build stopped **24 of
-105** (ride) and **25 of 126** (track) within 300 studs, and the frame showed open hillside through the
-trees. `Workspace.OurForest` at five points inside it stops **8–14 of 36** (mean sight 242–272).
-Shipped: **48 of 105** and **40 of 126**, mean 252 and 244.
+**5. Nothing else regressed.** `[harness] PASS: 33/33 … scope=all` at the code commit, so every case
+from the three passing rounds still holds: the rotation, the cross-place lane rule, the stand circles,
+`plantOne` on a fake hillside, the belt reaching the muster, the resting wood. Live boot:
+`3 dressed, 3028 planted (6932 parts), 0 skipped, 863 on a step, 0 missing, 342 paint call(s), 2.65s`.
+**342 paint calls against the design's *≤ 12*, and the reason is this change**: ten source materials ×
+three bands × the chunks of three places. Reported as measured, not hidden — the whole paint is still
+inside 2.65 s of a one-off boot.
 
-**6. Boars cross the hunters' line in every place, counted — and the counter can read zero.** One
-forced drive per place: **cut line 12, forest road 14, field edge 7** crossings, and **0 at t = 20 s
-and t = 45 s in all three**, before any wave. 7 bots walking, **0 stuck**, in every drive; 4, 4 and 9
-waves; 0 `Stack Begin` and 0 error lines (`<runs-dir>/193-drive-*.txt`).
-
-**7. The Architect's five corrections are built**, each with its own spec case: the terrain-only
-reader handed in by the boot (no default), `GROUND_IGNORE` as data carrying `DrivePlaces` and asserted
-against `Places.FOLDER`, the 640-stud north belt through a coarse `deep` band, the neighbour test, the
-three spec bugs, and `Places.plotOf`.
-
-**8. The build is bounded and printed, not assumed.** Live:
-`places: 3 dressed, 3020 planted (6916 parts), 0 skipped, 871 on a step, 0 missing, 10 paint call(s),
-2.73s`. Against design §11: plantings ≈ 3,000 ✓ (`places.spec` asserts `#list ≤ capacity` per place),
-parts **6,916** against *< 25,000* ✓, paint calls **10** against *≤ 12* ✓, build **2.73 s** against
-*< 2.5 s* — **0.23 s over and reported as measured**; the global lane rule costs a loop over four
-layouts per candidate and that is where it went.
-
-**9. Smoke PASS on the player's path, in the place Karen plays.** 90 s, Forest Test, lobby loop:
-`gun in hand @15s=1 @90s=1 | stacks=0 errorLines=0 | waves=10`, `position @15s=ok @end=ok
-respawn+10s=ok`, **SMOKE PASS**. Both selftests PASS; the new spec file is in a `SCOPE_SPECS` scope.
-
-**10. `road` is untouched, number for number** (BRIEF decision 3). **Verify:** `forest_stand.spec`'s
-`fieldFor(ROAD_LAYOUT)` identity case, and `Plan.planFor("road") == nil` in `places.spec`.
+**6. Smoke PASS on the player's path.** 90 s, Forest Test, the lobby loop:
+`gun in hand @15s=1 @90s=1 | stacks=0 errorLines=0 | waves=10`,
+`position @15s=ok @end=ok respawn+10s=ok`, **SMOKE PASS**. Both selftests PASS.
 
 ---
 
+## The frames, each looked at next to its reference
+
+All four are **first person, on a stand, in a real drive**, camera at the character's own eye height
+(~2.5 studs above his feet). The capture cannot be aimed during Play — the client owns the look
+direction — so each is the hunter looking **north at his drive**, which is his working view.
+
+* **`193-p1b-north.png` (place 1, vs karen-ref-7) — the Director's point 3 is answered.** He stands
+  **on** a pale tan road; it runs away north-west between bare pale trunks with green grass verges
+  either side, open high forest beyond. That is ref-7's structure: pale road, green verge, open
+  trunks, the sight line along the road and into the wood. `WHERE` confirms stand 5, x 3030, z −2097,
+  `off=0.0`, `under=Terrain`.
+* **`193-p4c-north.png` (place 4, vs karen-ref-1) — the grey is gone.** A brown dirt track runs away
+  north between close conifers and young firs. The immediate foreground is darker (the `Mud` rut plus
+  shade); the track itself reads as dirt, not asphalt.
+* **`193-p3c-north.png` (place 3, vs karen-ref-5) — the material is fixed and the frame still reads
+  DARK, and I am not claiming otherwise.** The strip measures `Grass` 41/41 and the mid-distance shows
+  a lit green grass band with blades; the near field at the stand is dark grey-green. **That is shade,
+  not asphalt** — the ride sits between two 230-stud belts of tall conifers, so its floor is in deep
+  shadow, which is a consequence of my own density work rather than of the paint. Karen's ref-5 is an
+  open, overcast, well-lit ride. **This is the one of the three I would not call matched**, and the
+  fix is a look decision (thinner or shorter belts on the sunward side, or leave it — a `Schneise`
+  between tall stands genuinely is shaded).
+* **The muster** is reported as a **measurement and not a frame**: z −3960 against the forest road's
+  lane edge −3921, asserted by the spec above. A frame of seven bots standing in trees 580 studs up a
+  ride would be a frame of trees; the number is the evidence, and `193-p3c-north.png` is the view up
+  that ride.
+
 ## What I could not verify, and what I got wrong
 
-* **The cross-place defect was mine and the Reviewer found it, not me** — and my own comment presented
-  the overlap as a feature. Round 2's claim 4 was false. It is fixed in `1a08a2e` and re-measured in
-  the world.
-* **The "along the ride / along the track" view, which two of Karen's frames show.** A capture during
-  Play returns the **client's own camera** and the client owns the look direction, so a server-side
-  `PivotTo` is overridden within a frame. Every frame here is the hunter looking **north at his
-  drive** — his working view, but not ref-5's or ref-1's framing. Turning the camera needs the
-  harness's real mouse input and was not done.
-* **`193-p4b-north.png` is from the WEST RUN-OUT of the forest road (x 4365, outside the stand span)**,
-  where the belt is visibly thinner — the plot clamp ends it at x 4290. Kept because it is the worst
-  spot; `193-p4-north.png` is the mid-line frame.
-* **Karen has seen none of this.** The design's K-list is open and nothing in it is faked: the floor is
-  green where her frames are brown leaf litter; there is **no crop model**, so place 2 is a mown field
-  and not her golden maize; all 61 models are in summer leaf and all seven frames are late autumn.
-* **A single-player session does not start a second drive by itself** — the lobby sends the player back
-  to the lodge and unenrols him, so the rotation steps only when he takes a truck again. My first
-  rotation run did not, sat on `road` for 14 minutes, and I read that as a broken rotation until the
-  HUD frame showed `DRIVE 1 · WAITING players`. Nothing in `src/server/Match/` was touched; **the
-  Director may want to decide whether Karen should have to take a truck between drives to see the
-  rotation at all.**
-* **Four defects of mine were caught by the harness or the Reviewer, not by me:** the grid kept one
-  point per cell where Bridson's invariant needs `r/√2`; `forest_stand.spec` still expected
-  `layoutSource == "bag"`; a forced drive moved the cycle; and the cross-place lane. The first two are
-  in `8b1a164`, the third in `c3367c3`, the fourth in `1a08a2e`.
-* **871 of ~3,900 candidates are refused "on a step"** (22%). Whether that leaves visible holes is a
-  look judgement nobody has made.
-* **`Places.plotOf`'s case still asserts against the planner's own declared plot** and so cannot catch
-  the plot drifting off surveyed ground; for `edge` the declared plot (x 2990…3810) is wider on the
-  west than BRIEF M6's survey (x 3100…3860). Nothing collides today (nearest lobby ring tree x ≤ 2959).
-  Queued as 193a.
-* **That a Play-session terrain write is discarded on stop is carried from `Lobby.Field`, not
-  verified** — stated as an assumption in `Ground.luau`'s header, with design §18's consequence if it
-  is false.
+* **The ride's stand still reads dark in its frame** (above). Measured Grass, looks shaded.
+* **342 `ReplaceMaterial` calls against the design's ≤ 12.** The design sized that for one place, one
+  band and two source materials. It is now three places, three bands and ten sources. It costs
+  nothing measurable inside a 2.65 s boot, but the design's §11 row is stale and is queued.
+* **The capture cannot be aimed in Play**, so none of the four is the along-the-ride framing two of
+  Karen's references use (lesson L-021's "same camera position/state" is met for the *stand* and the
+  *facing the drive* state, and is **not** met for her along-the-track framing).
+* **Karen has seen none of it.** Every look decision is hers.
+* **The forest floor between the trunks is still green** — the largest remaining gap from her
+  ref-2/3/4, with the two ways to close it and their costs written in the note's §4.4.
+* **Round 3's notes other than 193a(a) are still queued, not fixed** (TASKS.md 193a), including the
+  design-delta backlog, `Places.plotOf`'s self-referential case, and `clearOfEveryLane` treating a
+  lane as infinite in x.
