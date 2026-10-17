@@ -270,6 +270,82 @@ return function()
 			expect(caption.ZIndex > chip.ZIndex).to.equal(true)
 		end)
 
+		it("builds a §3.12 table row: a rule, a team bar, and one label per cell", function()
+			-- THE COMPONENT BOTH TABLES ARE BUILT FROM (task 201 part 2). The results board and the
+			-- TAB report draw the same row, which is the whole of what §3.12 asks for -- and the
+			-- monospace alignment they used until now is gone with `Enum.Font.Code`: *"the numbers
+			-- line up because they are PLACED, not because every glyph is one width"* (§1.2).
+			local row = Style.tableRow(holder :: Frame, "Probe", 1280, 400)
+			expect(row.Size).to.equal(UDim2.fromOffset(400, Style.rowHeight(1280)))
+			expect(Style.rowHeight(1280)).to.equal(28)
+			expect(Style.rowHeight(400)).to.equal(24)
+			-- A RULE AT THE BOTTOM, 1 px of `LINE` at 0.55 (§3.12).
+			local rule = row:FindFirstChild("Rule") :: Frame
+			expect(rule).to.be.ok()
+			expect(rule.BackgroundColor3).to.equal(Style.LOOK.LINE)
+			expect(rule.BackgroundTransparency).to.be.near(0.55, 1e-5)
+			expect(rule.Size).to.equal(UDim2.new(1, 0, 0, 1))
+			-- A 3 px LEFT BAR, built and hidden: a row cannot acquire a bar it has no way to lose.
+			local bar = row:FindFirstChild("Bar") :: Frame
+			expect(bar).to.be.ok()
+			expect(bar.Size).to.equal(UDim2.new(0, 3, 1, 0))
+			expect(bar.Visible).to.equal(false)
+			expect(row.BackgroundTransparency).to.equal(1)
+
+			-- YOUR OWN ROW is `ROW_SELECTED` with the bar in your TEAM's colour; the report's
+			-- selected row is `ROW_HOVER`; everybody else's row is transparent and bare.
+			Style.rowState(row, true, "Drivers")
+			expect(row.BackgroundTransparency).to.equal(0)
+			expect(row.BackgroundColor3).to.equal(Style.LOOK.ROW_SELECTED)
+			expect(bar.Visible).to.equal(true)
+			expect(bar.BackgroundColor3).to.equal(Style.LOOK.BEATER)
+			Style.rowState(row, true, "Shooters")
+			expect(bar.BackgroundColor3).to.equal(Style.LOOK.HUNTER)
+			Style.rowState(row, false, nil, true)
+			expect(row.BackgroundColor3).to.equal(Style.LOOK.ROW_HOVER)
+			expect(bar.Visible).to.equal(false)
+			Style.rowState(row, false, nil, false)
+			expect(row.BackgroundTransparency).to.equal(1)
+
+			-- ONE `TextLabel` PER CELL, placed at an x and a width. A NUMBER is right-aligned, which
+			-- is what makes a column of them read as a column.
+			local name = Style.cell(row, "name", 1280, 28, 160, false)
+			local points = Style.cell(row, "points", 1280, 300, 80, true)
+			expect(name.Position).to.equal(UDim2.fromOffset(28, 0))
+			expect(points.Size).to.equal(UDim2.new(0, 80, 1, 0))
+			expect(name.TextXAlignment).to.equal(Enum.TextXAlignment.Left)
+			expect(points.TextXAlignment).to.equal(Enum.TextXAlignment.Right)
+			expect(points.FontFace).to.equal(Style.FONT.OSWALD_MD)
+			expect(points.TextTruncate).to.equal(Enum.TextTruncate.AtEnd)
+			-- EVERY LABEL SITS ABOVE THE ROW IT IS IN (§3's rule, paid for twice in this repo).
+			expect(name.ZIndex > row.ZIndex).to.equal(true)
+		end)
+
+		it("builds a §3.7 tag that always carries its word, and a §3.5 close button of two Frames", function()
+			-- A STATE IS NEVER COLOUR ALONE: a clay row also says `WOUNDED`, so the tag carries text.
+			local tag, word = Style.tag(holder :: Frame, "Probe", Style.LOOK.PINE_TEXT, 1280)
+			expect(tag.BackgroundColor3).to.equal(Style.LOOK.PINE_TEXT)
+			expect(tag.BackgroundTransparency).to.be.near(0.84, 1e-5)
+			expect((tag:FindFirstChildOfClass("UICorner") :: UICorner).CornerRadius).to.equal(
+				UDim.new(0, Style.RADIUS.TAG)
+			)
+			expect(word.TextColor3).to.equal(Style.LOOK.PINE_TEXT)
+			expect(word.TextSize).to.equal(Style.sizeFor("MICRO", 1280))
+
+			-- THE X IS TWO ROTATED FRAMES and not a glyph, so no font has to carry it.
+			local close = Style.closeButton(holder :: Frame, "Close")
+			expect(close.Text).to.equal("")
+			expect(close.Size).to.equal(UDim2.fromOffset(44, 44))
+			local bars = 0
+			for _, node in ipairs(close:GetChildren()) do
+				if node:IsA("Frame") then
+					bars += 1
+					expect(math.abs((node :: Frame).Rotation)).to.equal(45)
+				end
+			end
+			expect(bars).to.equal(2)
+		end)
+
 		it("builds a toast as its own slate with a meaning dot", function()
 			local toast, dot, text = Style.toast(holder :: Frame, "Probe", 1280)
 			expect(toast.BackgroundColor3).to.equal(Style.LOOK.SLATE)
@@ -557,6 +633,56 @@ return function()
 			-- ...and only a CHANGE after that is a blast this client watched.
 			local _, _, laterAt = Hud.hornBlowLatch(oldSeen, oldPrimed, oldAt, 8, NOW + 1)
 			expect(laterAt).to.equal(NOW + 1)
+		end)
+
+		it("draws the two tables from ONE row component, and the tied toast over the band", function()
+			-- SURFACES 11, 12 AND 13 (task 201 part 2). What is checked is the thing that can
+			-- actually drift: that both panels read the one source, and that the tied banner really
+			-- is drawn ABOVE the band it deliberately covers.
+			local board = Hud.scorePanel() :: Frame
+			local report = Hud.reportPanel() :: Frame
+			local scrim = Hud.reportScrim() :: Frame
+			local tied = Hud.tiedBanner() :: Frame
+			expect(board).to.be.ok()
+			expect(report).to.be.ok()
+			expect(scrim).to.be.ok()
+			expect(tied).to.be.ok()
+
+			-- THE BOARD IS A CARD and the REPORT IS A MODAL over a 0.42 scrim (§1.3): a non-modal
+			-- surface lays no scrim and carries its own card, a modal lays one.
+			expect(board.BackgroundTransparency).to.be.near(Style.CARD_T, 1e-5)
+			expect(report.BackgroundTransparency).to.be.near(Style.PANEL_T, 1e-5)
+			expect(scrim.BackgroundColor3).to.equal(Style.LOOK.SCRIM)
+			expect(scrim.BackgroundTransparency).to.be.near(Style.SCRIM_T, 1e-5)
+			expect(scrim.ZIndex < report.ZIndex).to.equal(true)
+			-- The scrim goes with the panel: one owner of "is the report open".
+			expect(scrim.Visible).to.equal(Hud.Report.isOpen())
+
+			-- ONE ROW COMPONENT SERVES BOTH. A row of either table has the same three parts.
+			local boardRow = (Hud.scoreBody() :: ScrollingFrame):FindFirstChild("Row1") :: Frame
+			local reportRow = (Hud.Report.well :: Frame):FindFirstChild("ListRow1")
+			expect(boardRow).to.be.ok()
+			expect(reportRow).to.be.ok()
+			local reportInner = (reportRow :: Instance):FindFirstChild("Row") :: Frame
+			expect(reportInner).to.be.ok()
+			for _, row in ipairs({ boardRow, reportInner }) do
+				expect((row :: Frame):FindFirstChild("Rule")).to.be.ok()
+				expect((row :: Frame):FindFirstChild("Bar")).to.be.ok()
+				expect((row :: Frame).Size.Y.Offset).to.equal(Style.rowHeight(Hud.viewportX()))
+			end
+
+			-- THE TIED BANNER IS A CLAY TOAST AT THE `TITLE` STEP, drawn OVER the compass's band --
+			-- which §5 surface 13 asks for by putting it at y 96, inside 108..138. It is a notice,
+			-- it is up for seconds, and a player roped to a tree is not walking anywhere.
+			local text = tied:FindFirstChild("Text") :: TextLabel
+			local dot = tied:FindFirstChild("Dot") :: Frame
+			expect(text).to.be.ok()
+			expect(text.TextColor3).to.equal(Style.LOOK.CLAY)
+			expect(dot.BackgroundColor3).to.equal(Style.LOOK.CLAY)
+			expect(text.TextSize).to.equal(Style.sizeFor("TITLE", Hud.viewportX()))
+			expect(tied.BackgroundColor3).to.equal(Style.LOOK.SLATE)
+			local compass = Hud.compass() :: Frame
+			expect(tied.ZIndex > compass.ZIndex).to.equal(true)
 		end)
 
 		it("draws ONE of the ammo chip and the horn chip, never both", function()

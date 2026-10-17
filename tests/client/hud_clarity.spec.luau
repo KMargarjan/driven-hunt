@@ -30,7 +30,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
-local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
@@ -87,11 +86,16 @@ local function bands(viewport: Vector2)
 	-- which makes this test conservative: if the ceiling clears everything, the drawn bar does too.
 	-- It replaces `centred(520, Drive.CONFIG.BAR_TOP_OFFSET, 26)`, and that constant now has no
 	-- reader: moving it is `src/shared/Drive/`, which is in `TWO_PLAYER_PATHS` (TASKS.md 201a).
+	-- THE TIED BANNER IS NOT IN THIS LIST SINCE TASK 201 PART 2, and that is the design's decision
+	-- rather than a dropped check. Section 4.3's TOP BAND contract names exactly three members --
+	-- objective, status, compass -- and section 5 surface 13 places the tied banner at y 96, INSIDE
+	-- the compass's band, as one centred clay toast drawn over it. It is a notice, it is up for
+	-- seconds, and a player roped to a tree is not going anywhere the compass would help with.
+	-- `hud_style.spec` asserts it is drawn ABOVE the band it covers, which is the real claim.
 	local bx, by, bw, bh = Hud.statusRect(viewport)
 	return {
 		{ name = "objective", rect = { ox, oy, ow, oh } },
 		{ name = "driveBar", rect = { bx, by, bw, bh } },
-		{ name = "tiedBanner", rect = centred(620, Drive.CONFIG.TIED_TOP_OFFSET, 30) },
 		-- THE STRIP'S WIDTH FOLLOWS THE VIEWPORT (§4.2 item 2): 420 on a desktop, `screenW - 24` on
 		-- a phone, so a 400 px screen does not get a strip hanging 10 px off each edge.
 		{ name = "compass", rect = centred(Compass.widthFor(viewport.X), Compass.CONFIG.TOP, Compass.CONFIG.HEIGHT) },

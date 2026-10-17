@@ -207,14 +207,28 @@ return function()
 
 		it("says how many animals were hit", function()
 			Panel.render(listPayload())
-			expect(string.find(Panel.footerText(), "4 ANIMALS", 1, true)).to.be.ok()
+			-- A SENTENCE IS NEVER UPPERCASE (the design system, 2026-10-17, section 1.2): the footer
+			-- is a sentence and the KEY HINTS beside it are the chips that shout.
+			expect(string.find(Panel.footerText(), "4 animals", 1, true)).to.be.ok()
 		end)
 
-		it("formats a row with the kinds, the kills, the lost and the points column", function()
-			local text = Panel.listRowText(1, listPayload().rows[1], 34)
-			expect(string.find(text, "34", 1, true)).to.be.ok()
-			-- No Match in this world means no points, and a dash rather than a wrong zero.
-			expect(string.find(Panel.listRowText(1, listPayload().rows[1], nil), "-", 1, true)).to.be.ok()
+		it("formats a row as CELLS, with the kinds, the kills, the lost and the points", function()
+			-- ONE `TextLabel` PER CELL since task 201 part 2 (the design system section 3.12): the
+			-- padding is gone with `Enum.Font.Code` and the numbers line up because they are PLACED.
+			-- So what is asserted is the CELLS, and `LIST_COLUMNS` is where each one goes.
+			local row = listPayload().rows[1]
+			local cells = Panel.listCellsFor(1, row, 34)
+			expect(cells.points).to.equal("34")
+			expect(cells.name).to.equal(row.name)
+			expect(cells.kills).to.equal(tostring(row.kills))
+			expect(string.find(Panel.listRowText(1, row, 34), "34", 1, true)).to.be.ok()
+			-- NO POINTS MEANS NO CELL, not a dash (section 3.12: *"an unknown is not drawn at all
+			-- rather than `--`"*). No `Match` in this world is exactly that case.
+			expect(Panel.listCellsFor(1, row, nil).points).to.equal("")
+			-- ...and every column head has a cell under it, which is what makes a column a column.
+			for _, column in ipairs(Panel.LIST_COLUMNS) do
+				expect(cells[column.key]).to.be.ok()
+			end
 		end)
 	end)
 
@@ -228,7 +242,10 @@ return function()
 			expect(string.find(rows[1], "DOWN", 1, true)).to.be.ok()
 			-- 60 studs is 17 m at METRES_PER_STUD, and a hunting report in studs is one nobody reads.
 			expect(string.find(rows[1], string.format("%d m", Report.metres(60)), 1, true)).to.be.ok()
-			expect(string.find(rows[2], "LOST", 1, true)).to.be.ok()
+			-- `WOUNDED` AND NOT `LOST` (the mockup's board 4, and Karen's own "wounded-lost"): the
+			-- record's word is "wounded", the screen's is this, and `detailCellsFor` is the one
+			-- place it is decided so the tag and the line cannot disagree.
+			expect(string.find(rows[2], "WOUNDED", 1, true)).to.be.ok()
 		end)
 
 		it("puts one dot per hit at the (u, v) the record measured", function()

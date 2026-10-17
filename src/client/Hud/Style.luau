@@ -543,9 +543,237 @@ end
 -- The gap between two stacked toasts (§3.11: *"stacked bottom-up with a 6 px gap"*).
 Style.TOAST_GAP = 6
 
+-- §3.7 A TAG: the rectangular sibling of the pill, for a STATE rather than an identity.
+-- `OWNED` / `12 / 25` / `DOWN` / `WOUNDED` / `LEFT`. A STATE IS NEVER COLOUR ALONE -- the word is
+-- the first reading and the colour the second -- so this always carries text.
+function Style.tag(parent: GuiObject, name: string, color: Color3, viewportX: number): (Frame, TextLabel)
+	local tag = Instance.new("Frame")
+	tag.Name = name
+	tag.BackgroundColor3 = color
+	tag.BackgroundTransparency = 0.84
+	tag.BorderSizePixel = 0
+	tag.AutomaticSize = Enum.AutomaticSize.X
+	tag.Size = UDim2.fromOffset(0, if Style.isPhone(viewportX) then 17 else 19)
+	tag.ZIndex = parent.ZIndex + 1
+	Style.corner(tag, Style.RADIUS.TAG)
+	Style.stroke(tag, color, 0.45)
+	Style.padding(tag, 0, 0, 7, 7)
+	tag.Parent = parent
+
+	local text = Style.label(tag, "Text", "MICRO", viewportX)
+	text.AutomaticSize = Enum.AutomaticSize.X
+	text.Size = UDim2.fromScale(0, 1)
+	text.TextColor3 = color
+	text.TextXAlignment = Enum.TextXAlignment.Center
+	return tag, text
+end
+
+-- ---------------------------------------------------------------- §3.12 the table row
+--
+-- THE RESULTS BOARD AND THE REPORT ARE BUILT FROM THIS, ONE `TextLabel` PER CELL. The monospace
+-- alignment they used until task 201 is gone with `Enum.Font.Code`: *"the numbers line up because
+-- they are PLACED, not because every glyph is one width"* (§1.2). A column is an x and a width.
+Style.ROW_H = { 28, 24 }
+
+function Style.rowHeight(viewportX: number): number
+	return if Style.isPhone(viewportX) then Style.ROW_H[2] else Style.ROW_H[1]
+end
+
+-- ONE ROW. `Rule` is the 1 px divider at its bottom (between rows, never after the last -- the
+-- caller hides it on the last one) and `Bar` is the 3 px left edge your OWN row wears in its team's
+-- colour. Both are built every time and shown by `Style.rowState`, so a row cannot acquire a bar it
+-- has no way to lose.
+function Style.tableRow(parent: GuiObject, name: string, viewportX: number, width: number): Frame
+	local row = Instance.new("Frame")
+	row.Name = name
+	row.BackgroundColor3 = LOOK.ROW_SELECTED
+	row.BackgroundTransparency = 1
+	row.BorderSizePixel = 0
+	row.Size = UDim2.fromOffset(width, Style.rowHeight(viewportX))
+	row.ZIndex = parent.ZIndex + 1
+	row.Visible = false
+	row.Parent = parent
+
+	local rule = Instance.new("Frame")
+	rule.Name = "Rule"
+	rule.BackgroundColor3 = LOOK.LINE
+	rule.BackgroundTransparency = 0.55
+	rule.BorderSizePixel = 0
+	rule.AnchorPoint = Vector2.new(0, 1)
+	rule.Position = UDim2.fromScale(0, 1)
+	rule.Size = UDim2.new(1, 0, 0, 1)
+	rule.ZIndex = row.ZIndex
+	rule.Parent = row
+
+	local bar = Instance.new("Frame")
+	bar.Name = "Bar"
+	bar.BackgroundColor3 = LOOK.HUNTER
+	bar.BorderSizePixel = 0
+	bar.Size = UDim2.new(0, 3, 1, 0)
+	bar.ZIndex = row.ZIndex + 1
+	bar.Visible = false
+	bar.Parent = row
+	return row
+end
+
+-- WHOSE ROW IS THIS? `mine` fills it `ROW_SELECTED` and lights the left bar in the team's colour;
+-- `hovered` is `ROW_HOVER` (the report's list only). ONE writer of all three properties, so a row
+-- that stops being mine really stops looking like mine.
+function Style.rowState(row: Frame, mine: boolean, team: string?, hovered: boolean?)
+	row.BackgroundTransparency = if mine or hovered then 0 else 1
+	row.BackgroundColor3 = if mine then LOOK.ROW_SELECTED else LOOK.ROW_HOVER
+	local bar = row:FindFirstChild("Bar")
+	if bar ~= nil then
+		(bar :: Frame).Visible = mine;
+		(bar :: Frame).BackgroundColor3 = Style.teamColor(team)
+	end
+end
+
+-- ONE CELL. A NAME is `HEADING` Oswald Medium and left; a NUMBER is the same face and RIGHT, which
+-- is what makes a column of them read as a column (§3.12).
+function Style.cell(
+	row: GuiObject,
+	name: string,
+	viewportX: number,
+	x: number,
+	width: number,
+	right: boolean?,
+	step: string?
+): TextLabel
+	local text = Style.label(row, name, step or "HEADING", viewportX)
+	text.Position = UDim2.fromOffset(x, 0)
+	text.Size = UDim2.new(0, width, 1, 0)
+	text.TextXAlignment = if right then Enum.TextXAlignment.Right else Enum.TextXAlignment.Left
+	text.TextColor3 = LOOK.BODY
+	text.TextTruncate = Enum.TextTruncate.AtEnd
+	return text
+end
+
+-- A COLUMN HEAD IS ITS OWN ROW: `MICRO` Bold, `spaced()`, `FAINT` on a lodge panel and
+-- `FIELD_MUTED` on a card (§2 bans `FAINT` over the world), with the brass hairline under it.
+function Style.columnHead(parent: GuiObject, name: string, viewportX: number, width: number, onCard: boolean?): Frame
+	local row = Instance.new("Frame")
+	row.Name = name
+	row.BackgroundTransparency = 1
+	row.BorderSizePixel = 0
+	row.Size = UDim2.fromOffset(width, Style.rowHeight(viewportX))
+	row.ZIndex = parent.ZIndex + 1
+	row.Parent = parent
+
+	local hair = Instance.new("Frame")
+	hair.Name = "Hairline"
+	hair.BackgroundColor3 = LOOK.BRASS
+	hair.BackgroundTransparency = if onCard then Style.EDGE_T.CARD else Style.EDGE_T.PANEL
+	hair.BorderSizePixel = 0
+	hair.AnchorPoint = Vector2.new(0, 1)
+	hair.Position = UDim2.fromScale(0, 1)
+	hair.Size = UDim2.new(1, 0, 0, 1)
+	hair.ZIndex = row.ZIndex
+	hair.Parent = row
+	return row
+end
+
+-- A SECTION HEAD (`HUNTERS`, `BEATERS`) is an EYEBROW in the team's colour plus a 1 px `LINE` rule
+-- filling the rest of the width, 8 px after the word. It is NOT a row and it has no rule under it.
+function Style.sectionHead(parent: GuiObject, name: string, viewportX: number, width: number): (Frame, TextLabel, Frame)
+	local head = Instance.new("Frame")
+	head.Name = name
+	head.BackgroundTransparency = 1
+	head.BorderSizePixel = 0
+	head.Size = UDim2.fromOffset(width, if Style.isPhone(viewportX) then 18 else 20)
+	head.ZIndex = parent.ZIndex + 1
+	head.Visible = false
+	head.Parent = parent
+
+	local word = Style.label(head, "Word", "MICRO", viewportX)
+	word.AutomaticSize = Enum.AutomaticSize.X
+	word.Size = UDim2.fromScale(0, 1)
+	word.TextColor3 = LOOK.HUNTER
+	word.TextXAlignment = Enum.TextXAlignment.Left
+
+	local rule = Instance.new("Frame")
+	rule.Name = "Rule"
+	rule.BackgroundColor3 = LOOK.LINE
+	rule.BackgroundTransparency = 0.35
+	rule.BorderSizePixel = 0
+	rule.AnchorPoint = Vector2.new(1, 0.5)
+	rule.Position = UDim2.new(1, 0, 0.5, 1)
+	rule.Size = UDim2.new(1, 0, 0, 1)
+	rule.ZIndex = head.ZIndex
+	rule.Parent = head
+	return head, word, rule
+end
+
+-- §3.5 THE CLOSE BUTTON, the one icon button: 44 x 44, and the X is TWO ROTATED FRAMES so no glyph
+-- has to exist in the font -- the rule the shop's own X already follows.
+function Style.closeButton(parent: GuiObject, name: string): TextButton
+	local node = Instance.new("TextButton")
+	node.Name = name
+	node.Text = ""
+	node.AutoButtonColor = false
+	node.BackgroundColor3 = LOOK.ROW
+	node.BorderSizePixel = 0
+	node.Size = UDim2.fromOffset(44, 44)
+	node.ZIndex = parent.ZIndex + 1
+	Style.corner(node, Style.RADIUS.ROW)
+	Style.stroke(node, LOOK.LINE, 0)
+	node.Parent = parent
+	for index, rotation in ipairs({ 45, -45 }) do
+		local bar = Instance.new("Frame")
+		bar.Name = string.format("Bar%d", index)
+		bar.BackgroundColor3 = LOOK.MUTED
+		bar.BorderSizePixel = 0
+		bar.AnchorPoint = Vector2.new(0.5, 0.5)
+		bar.Position = UDim2.fromScale(0.5, 0.5)
+		bar.Size = UDim2.fromOffset(18, 2)
+		bar.Rotation = rotation
+		bar.ZIndex = node.ZIndex + 1
+		Style.corner(bar, 1)
+		bar.Parent = node
+	end
+	return node
+end
+
+-- §3.5 A GHOST KEY CHIP -- `TAB` `CLOSE`, `ENTER` `DETAILS` -- the footer's key hints as chips
+-- rather than words inside a sentence (§5 surface 12). Not pressable: it is a legend.
+function Style.keyChip(parent: GuiObject, name: string, key: string, word: string, viewportX: number): Frame
+	local chip = Instance.new("Frame")
+	chip.Name = name
+	chip.BackgroundTransparency = 1
+	chip.BorderSizePixel = 0
+	chip.AutomaticSize = Enum.AutomaticSize.X
+	chip.Size = UDim2.fromOffset(0, if Style.isPhone(viewportX) then 26 else 30)
+	chip.ZIndex = parent.ZIndex + 1
+	Style.corner(chip, Style.RADIUS.CHIP)
+	Style.stroke(chip, LOOK.LINE, Style.EDGE_T.GHOST)
+	Style.padding(chip, 0, 0, 10, 10)
+	local row = Instance.new("UIListLayout")
+	row.FillDirection = Enum.FillDirection.Horizontal
+	row.VerticalAlignment = Enum.VerticalAlignment.Center
+	row.SortOrder = Enum.SortOrder.LayoutOrder
+	row.Padding = UDim.new(0, 7)
+	row.Parent = chip
+	chip.Parent = parent
+
+	local keyLabel = Style.label(chip, "Key", "MICRO", viewportX)
+	keyLabel.AutomaticSize = Enum.AutomaticSize.X
+	keyLabel.Size = UDim2.fromScale(0, 1)
+	keyLabel.LayoutOrder = 1
+	keyLabel.TextColor3 = LOOK.BRASS
+	keyLabel.Text = Style.spaced(key)
+
+	local wordLabel = Style.label(chip, "Word", "MICRO", viewportX)
+	wordLabel.AutomaticSize = Enum.AutomaticSize.X
+	wordLabel.Size = UDim2.fromScale(0, 1)
+	wordLabel.LayoutOrder = 2
+	wordLabel.TextColor3 = LOOK.FIELD_MUTED
+	wordLabel.Text = Style.spaced(word)
+	return chip
+end
+
 -- §3.11 A TOAST: the kill feed, the server's refusals and every receipt are ONE component. Each
 -- line is its own slate with a meaning dot, and each fades on its own.
-function Style.toast(parent: Instance, name: string, viewportX: number): (Frame, Frame, TextLabel)
+function Style.toast(parent: Instance, name: string, viewportX: number, step: string?): (Frame, Frame, TextLabel)
 	local phone = Style.isPhone(viewportX)
 	local frame = Style.slate(parent, name, false, phone)
 	frame.AutomaticSize = Enum.AutomaticSize.XY
@@ -576,9 +804,13 @@ function Style.toast(parent: Instance, name: string, viewportX: number): (Frame,
 	round.Parent = dot
 	dot.Parent = frame
 
-	local text = Style.label(frame, "Text", "LABEL", viewportX)
+	-- `step` IS "LABEL" FOR THE FEED AND "TITLE" FOR THE TIED BANNER (§5 surface 13: *"one centred
+	-- clay toast at `TITLE`"*). It is the same component at a different step of the one scale, which
+	-- is the whole point of having a scale.
+	local size = step or "LABEL"
+	local text = Style.label(frame, "Text", size, viewportX)
 	text.AutomaticSize = Enum.AutomaticSize.X
-	text.Size = UDim2.fromOffset(0, Style.sizeFor("LABEL", viewportX) + 6)
+	text.Size = UDim2.fromOffset(0, Style.sizeFor(size, viewportX) + 6)
 	text.LayoutOrder = 2
 	text.TextColor3 = LOOK.BODY
 	text.TextXAlignment = Enum.TextXAlignment.Left
