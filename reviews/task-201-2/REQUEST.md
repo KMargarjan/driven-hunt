@@ -3,11 +3,19 @@
 Task: 201-2
 Round: 1
 Base: main @ `19c5604`
-Code commit: `94bb34b89667673909d434184874e89264084986`
+Code commit: `e1c69665dc4ff6fe4486d41fe7fc9c020bd2accb`
 
 ```
-[harness] PASS: 33/33 checks @ 94bb34b89667673909d434184874e89264084986 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ e1c69665dc4ff6fe4486d41fe7fc9c020bd2accb (clean tree) scope=all
 ```
+
+`e1c6966` IS NAMED AND NOT THE EARLIER `94bb34b`, AND THE REASON IS THE GATE'S OWN RULE: the
+research note and its INDEX row are under `docs/research/`, which is NOT on the merge gate's
+paperwork list (`reviews/`, `ESCALATE.md`, `PLAYTEST.md`, `docs/architecture/audit-NNN.md` and the
+task's `TASKS.md` row). They landed in the same commit as the request, so the harness was re-run at
+the head and that head is the code commit -- at or after the last commit that changed `src/`,
+`tests/` or `tools/`, with nothing after it. `94bb34b` also passed the full run (33/33, clean tree,
+`scope=all`); it simply did not cover the note.
 
 **`[harness2]` IS REQUIRED AND I CANNOT PRODUCE IT.** This branch changes two files in
 `TWO_PLAYER_PATHS` — `src/shared/Drive/init.luau` and `tests/client/match_client.spec.luau` —
@@ -127,9 +135,10 @@ longer weapon label, which is what it was really trying to catch (task 143's own
   arithmetic: `git show main:src/client/Hud/init.luau` builds the board
   `UDim2.fromOffset(SCORE_PANEL_WIDTH, 64 + SCORE_ROWS_MAX * SCORE_ROW_HEIGHT + 30)` = **480 × 534**
   for every roster, against the case's `expect(two < 400)` and the measured 134.
-* **One flaky full run before the PASS.** The first `test` at this sha failed
+* **One flaky full run.** The first `test` at `94bb34b` failed
   `weapon_client.spec:1019` with `rises` 0 against 2 — the input replay saw no shot. The re-run at
-  the SAME sha passed with `shots seen: 2`, and the scoped run before it passed too. Reported
+  the SAME sha passed with `shots seen: 2`, the scoped run before it passed, and the run at
+  `e1c6966` above passed. Three green against one red at the same code. Reported
   rather than hidden: nothing in this branch touches the weapon, and I did not chase it.
 * **Karen has not seen any of it.** It is all look; she approved merging look work before she sees
   it (2026-10-17: *"it's ok to keep doing it"*).
