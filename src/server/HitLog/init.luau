@@ -41,6 +41,11 @@ local current: any = nil
 
 local remotes = nil
 local lastRequestAt: { [Player]: number } = {}
+-- THE LAST CARD THIS MODULE BUILT, so a spec can read what `recordHit` ACTUALLY sent rather than
+-- rebuilding it beside the code and asserting on its own arithmetic (the Reviewer's note, round 1:
+-- *"the `recordHit` call ... never reads the card `recordHit` actually built"*). One payload, no
+-- history: it is a window onto the last call, not a second record.
+local lastCard: Report.CardPayload? = nil
 
 local stats = {
 	hits = 0,
@@ -149,6 +154,11 @@ function HitLog.currentDrive()
 	return current
 end
 
+-- The card `recordHit` built last, or nil. `HitLog.clear` forgets it with everything else.
+function HitLog.lastCard(): Report.CardPayload?
+	return lastCard
+end
+
 function HitLog.stats()
 	local out = table.clone(stats)
 	out.drivesKept = #drives
@@ -160,6 +170,7 @@ function HitLog.clear()
 	drives = {}
 	current = nil
 	lastRequestAt = {}
+	lastCard = nil
 	for key in pairs(stats) do
 		stats[key] = 0
 	end
@@ -286,6 +297,7 @@ function HitLog.recordHit(report, now: number?)
 			dots = Shape.cardDots(part.CFrame, part.Size, report.points, report.position or part.Position, dot.zone),
 		}
 		stats.cards += 1
+		lastCard = card
 		toShooter(shooter, card)
 	else
 		stats.cardlessHits += 1

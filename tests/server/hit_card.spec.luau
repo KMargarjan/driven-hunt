@@ -265,24 +265,52 @@ return function()
 			HitLog.clear()
 		end)
 
-		it("puts one dot on the card per pellet, and a slug gets one", function()
+		it("puts one dot on the card per pellet, and the card it SENT carries them", function()
 			local shooter = Players:GetPlayers()[1]
 			HitLog.clear()
-			HitLog.openDrive(10, 0)
+			HitLog.openDrive(10, 100.0)
 			local boar = fakeBoar("B4")
-			-- The card is built inside `recordHit`, so it is read back the way the client would see
-			-- it: the same arithmetic over the same part at the same instant.
 			local points = {}
 			for index = 1, 4 do
 				table.insert(points, { position = Vector3.new(-1, 3.0 + index * 0.1, index * 0.5), zone = "body" })
 			end
-			local buck = Shape.cardDots(boar.CFrame, boar.Size, points, points[1].position, "body")
-			expect(#buck).to.equal(4)
-			local slug = Shape.cardDots(boar.CFrame, boar.Size, { points[1] }, points[1].position, "chest")
-			expect(#slug).to.equal(1)
-			expect(HitLog.recordHit(report(boar, shooter, points, { at = 3.0 }))).to.equal(true)
-			expect(HitLog.stats().cards).to.equal(1)
-			TestKit.note(string.format("hit card: %d dot(s) for a 4-pellet pattern, %d for a slug", #buck, #slug))
+			-- THE CARD `recordHit` ACTUALLY BUILT, not one this file rebuilds beside it (the
+			-- Reviewer's note, round 1). `HitLog.lastCard()` is the window onto the real one.
+			expect(HitLog.lastCard()).to.equal(nil)
+			expect(HitLog.recordHit(report(boar, shooter, points, { at = 103.0 }))).to.equal(true)
+			local card = HitLog.lastCard()
+			expect(card).to.be.ok()
+			expect((card :: any).kind).to.equal("hit")
+			expect((card :: any).drive).to.equal(10)
+			expect((card :: any).animal).to.equal("B4")
+			expect((card :: any).hits).to.equal(4)
+			-- ONE DOT PER PELLET, on the payload that went out.
+			expect(#(card :: any).dots).to.equal(4)
+			local leads = 0
+			for _, dot in ipairs((card :: any).dots) do
+				if dot.lead then
+					leads += 1
+				end
+			end
+			expect(leads).to.equal(1)
+
+			-- AND `at` IS SECONDS SINCE THE DRIVE OPENED, NEVER A SERVER CLOCK -- the Reviewer's
+			-- blocking finding of round 1, which this case is here to stop coming back. The drive
+			-- opened at 100 and the shot is at 103, so the wire carries 3.
+			expect(math.abs((card :: any).at - 3.0) < 1e-9).to.equal(true)
+			TestKit.note(
+				string.format(
+					"hit card: %d dot(s) for a 4-pellet pattern, at=%.2f s since the drive opened",
+					#(card :: any).dots,
+					(card :: any).at
+				)
+			)
+
+			-- A SLUG GETS ONE, through the same function.
+			expect(HitLog.recordHit(report(boar, shooter, { points[1] }, { at = 104.0, zone = "chest" }))).to.equal(
+				true
+			)
+			expect(#(HitLog.lastCard() :: any).dots).to.equal(1)
 			boar:Destroy()
 			HitLog.clear()
 		end)
