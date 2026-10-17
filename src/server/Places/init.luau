@@ -332,17 +332,24 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 	for _, name in ipairs(Forest.LAYOUT_ORDER) do
 		local layout = Forest.layoutNamed(name)
 		local plan = Plan.planFor(name)
+		-- THE SURFACE IS ASKED FOR SEPARATELY FROM THE PLANTING, and `road` is why: it keeps task
+		-- 179's wood exactly (BRIEF decision 3) so it has no planting plan at all, but it is the place
+		-- NAMED for a road and 29 of its 65 samples were grass. Painting and planting are two
+		-- questions and this loop asks them separately.
+		--
+		-- THE SURFACE FIRST, because `ReplaceMaterial` changes material and never height: painting
+		-- after the trees would not move one of them, but painting first means a failed paint cannot
+		-- be mistaken for a failed planting.
+		if layout ~= nil then
+			report.paints += Ground.paint(terrain, layout, Plan.surfaceFor(name), function(x: number)
+				return Forest.roadZ(x, layout)
+			end, reader)
+		end
 		if layout ~= nil and plan ~= nil then
 			local here = Instance.new("Folder")
 			here.Name = name
 			here.Parent = folder
 			report.places += 1
-			-- THE SURFACE FIRST, because `ReplaceMaterial` changes material and never height: painting
-			-- after the trees would not move one of them, but painting first keeps the order the design
-			-- states and means a failed paint cannot be mistaken for a failed planting.
-			report.paints += Ground.paint(terrain, layout, plan, function(x: number)
-				return Forest.roadZ(x, layout)
-			end, reader)
 			for _, item in ipairs(Plan.plant(layout, plan)) do
 				local source = template(item.model)
 				if source == nil then

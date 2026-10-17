@@ -42,10 +42,29 @@ Ground.RESOLUTION = 4
 -- reader does not have to derive it.
 Ground.CHUNK_STUDS = 200
 
--- WHAT IS REPLACED, AND NOTHING ELSE. A strip that crosses the Limestone, Asphalt or Mud this world
--- also holds (BRIEF M4) KEEPS IT: those are the world's own rock and made ground, and turning them
--- into soil would be inventing geology rather than laying a track.
-Ground.SOURCE_MATERIALS = table.freeze({ Enum.Material.Grass, Enum.Material.LeafyGrass })
+-- WHAT IS REPLACED. **EVERY GROUND MATERIAL THIS WORLD HOLDS, AND THE DIRECTOR'S LOOK IS WHY THE LIST
+-- GREW.** It shipped as Grass and LeafyGrass only, on the reasoning that *"those are the world's own
+-- rock and made ground, and turning them into soil would be inventing geology"*. Then the frames came
+-- back and the Director, 2026-10-17: place 3 *"the hunter stands on GREY ASPHALT-LOOKING ground"*,
+-- place 4 *"grey ground again"*.
+--
+-- IT WAS A MEASUREMENT, NOT A MATTER OF TASTE: along the cut line's own strip **13 of 42 samples are
+-- Asphalt**, and along the forest road's **23 of 42** -- more than half of the track Karen was looking
+-- at. A paint that skips the greys skips exactly the patches she objected to, so the list is now the
+-- whole surface. The STRIP is what gets re-surfaced and nothing else: its width is 18-64 studs
+-- against this world's thousands, so no rock outside a track is touched.
+Ground.SOURCE_MATERIALS = table.freeze({
+	Enum.Material.Grass,
+	Enum.Material.LeafyGrass,
+	Enum.Material.Asphalt,
+	Enum.Material.Limestone,
+	Enum.Material.Mud,
+	Enum.Material.Ground,
+	Enum.Material.Rock,
+	Enum.Material.Slate,
+	Enum.Material.Sand,
+	Enum.Material.Sandstone,
+})
 
 -- HOW FAR THE REGION REACHES ABOVE AND BELOW THE GROUND IT MEASURED. The surface is voxelised, so a
 -- region that stops exactly at the measured height leaves the half-voxel above it untouched.
@@ -59,16 +78,15 @@ Ground.Y_PAD_STUDS = 10
 -- design 3.4) and this ground rolls 29-37 studs along a stand line.
 function Ground.yBandOf(
 	layout: any,
-	plan: any,
+	surface: any,
 	lineZ: (number) -> number,
 	terrainYAt: (number, number) -> number?
 ): (number?, number?)
-	local surface = plan ~= nil and plan.surface or nil
 	if surface == nil then
 		return nil, nil
 	end
 	local low, high = math.huge, -math.huge
-	local from, to = layout.centre.X - plan.plotHalfWidthStuds, layout.centre.X + plan.plotHalfWidthStuds
+	local from, to = layout.centre.X - surface.plotHalfWidthStuds, layout.centre.X + surface.plotHalfWidthStuds
 	for x = from, to, 20 do
 		local y = terrainYAt(x, lineZ(x))
 		if y ~= nil then
@@ -81,8 +99,9 @@ function Ground.yBandOf(
 	return low - Ground.Y_PAD_STUDS, high + Ground.Y_PAD_STUDS
 end
 
--- PAINT THE STRIP. Returns how many `ReplaceMaterial` calls it made -- 0 for a plan with no `surface`
--- row, which is three of the four places (section 7.3).
+-- PAINT THE STRIP, AND ITS TWO WHEEL RUTS. Returns how many `ReplaceMaterial` calls it made -- 0 for
+-- a place with no `SURFACES` row, which is the field edge (its field is grass, and `Ground` there
+-- would be a ploughed field, a different place from karen-ref-6).
 --
 -- `ExpandToGrid(RESOLUTION)` IS NOT TIDINESS. A region whose edge falls off the 4-stud grid leaves
 -- the voxels it clips with their old material, which is what task 191 measured as *"623 Ground and
@@ -90,33 +109,71 @@ end
 function Ground.paint(
 	terrain: any,
 	layout: any,
-	plan: any,
+	surface: any,
 	lineZ: (number) -> number,
 	terrainYAt: (number, number) -> number?
 ): number
-	local surface = plan ~= nil and plan.surface or nil
 	if surface == nil or terrain == nil then
 		return 0
 	end
-	local low, high = Ground.yBandOf(layout, plan, lineZ, terrainYAt)
+	local low, high = Ground.yBandOf(layout, surface, lineZ, terrainYAt)
 	if low == nil or high == nil then
 		return 0
 	end
 	local calls = 0
-	local from, to = layout.centre.X - plan.plotHalfWidthStuds, layout.centre.X + plan.plotHalfWidthStuds
+	local from, to = layout.centre.X - surface.plotHalfWidthStuds, layout.centre.X + surface.plotHalfWidthStuds
 	local x = from
 	while x < to do
 		local nextX = math.min(x + Ground.CHUNK_STUDS, to)
-		local middle = (x + nextX) / 2
-		local z = lineZ(middle)
-		local half = surface.halfWidthStuds
-		local region = Region3.new(Vector3.new(x, low, z - half), Vector3.new(nextX, high, z + half))
-			:ExpandToGrid(Ground.RESOLUTION)
-		for _, source in ipairs(Ground.SOURCE_MATERIALS) do
-			terrain:ReplaceMaterial(region, Ground.RESOLUTION, source, surface.material)
-			calls += 1
+		local z = lineZ((x + nextX) / 2)
+		-- THE STRIP FIRST, THEN THE RUTS OVER IT. The order is the whole of it: a rut painted before
+		-- the strip would be painted straight back over, because the strip's own material is in
+		-- `SOURCE_MATERIALS` now.
+		calls += Ground.band(terrain, x, nextX, low, high, z, surface.halfWidthStuds, surface.material)
+		local ruts = surface.ruts
+		if ruts ~= nil then
+			-- TWO WHEEL RUTS, which is what karen-ref-5 and karen-ref-1 both actually show: not one
+			-- bare track but two darker lines with something growing between them. They are STRIPS OF
+			-- MATERIAL AND NOT TRENCHES -- a terrain voxel is 4 studs (1.1 m) and a rut is a hand deep,
+			-- so cutting one is not reachable and is stated rather than faked (note section 5 item 3).
+			for _, side in ipairs({ -1, 1 }) do
+				calls += Ground.band(
+					terrain,
+					x,
+					nextX,
+					low,
+					high,
+					z + side * ruts.offsetStuds,
+					ruts.halfWidthStuds,
+					ruts.material
+				)
+			end
 		end
 		x = nextX
+	end
+	return calls
+end
+
+-- ONE BAND OF ONE MATERIAL OVER ONE CHUNK: the strip, or one rut. Split out because the two are the
+-- same call with different numbers, and because a spec can then count bands rather than chunks.
+function Ground.band(
+	terrain: any,
+	fromX: number,
+	toX: number,
+	low: number,
+	high: number,
+	centreZ: number,
+	half: number,
+	material: Enum.Material
+): number
+	local region = Region3.new(Vector3.new(fromX, low, centreZ - half), Vector3.new(toX, high, centreZ + half))
+		:ExpandToGrid(Ground.RESOLUTION)
+	local calls = 0
+	for _, source in ipairs(Ground.SOURCE_MATERIALS) do
+		if source ~= material then
+			terrain:ReplaceMaterial(region, Ground.RESOLUTION, source, material)
+			calls += 1
+		end
 	end
 	return calls
 end

@@ -272,17 +272,65 @@ Places.PLANS = table.freeze({
 		deep = mix({ "conifer", 10 }, { "birch", 6 }, { "aspen", 2 }, { "oak", 2 }),
 		shrubScale = table.freeze({ 0.22, 0.40 }),
 		woodScale = table.freeze({ 0.8, 1.2 }),
-		-- THE ONE PAINTED SURFACE IN THE WHOLE SYSTEM (design 7.3). karen-ref-1 is bare soil and leaf
-		-- litter under the trees, which is the one surface the frames demand and our assets can give --
-		-- the road's gravel is Karen's own Studio content, the ride IS grassy in ref-5, and painting
-		-- place 2's field `Ground` would make a ploughed field, a different place from ref-6.
-		--
-		-- 18 STUDS IS 5 m, source B's `Rueckegasse` at its generous end. Only Grass and LeafyGrass are
-		-- replaced, so where this track crosses the world's own Limestone or Asphalt it stays rock.
-		surface = table.freeze({ halfWidthStuds = 9, material = Enum.Material.Ground }),
 		seed = 1934,
 	}),
 })
+
+-- WHAT EACH PLACE'S STRIP IS MADE OF. **A SEPARATE TABLE FROM `PLANS`, and the Director's look is
+-- why.** Painting and planting are different questions: `road` keeps task 179's wood exactly (BRIEF
+-- decision 3) and so has no planting plan at all, but it is still the place NAMED for a road and its
+-- surface is half missing -- measured 2026-10-17 along its own line, 65 samples: `Ground` 31,
+-- **`Grass` 29**, Asphalt 3, Limestone 1, Mud 1, with the grass at stands 1, 2, 7, 8 and 9. A hunter
+-- on five of its nine stands is standing in a field.
+--
+-- `halfWidthStuds`      half the painted strip
+-- `material`            what the strip becomes
+-- `ruts`                optional: two narrow strips either side of the centre line
+-- `plotHalfWidthStuds`  how far either side of `centre.X` to paint (the surveyed plot, as `PLANS`)
+Places.SURFACES = table.freeze({
+	-- KAREN'S PLACE 1, karen-ref-7: a pale gravel forest road curving away between mossy verges.
+	-- **`Ground` AND NOT A GREY GRAVEL**, because 31 of its 65 samples ALREADY are `Ground` -- that
+	-- is the road Karen built, and painting the other 29 to match it finishes her road rather than
+	-- laying a second one over it. Its geometry is untouched (BRIEF decision 3): this paints the
+	-- surface and plants nothing.
+	road = table.freeze({
+		halfWidthStuds = 11,
+		material = Enum.Material.Ground,
+		plotHalfWidthStuds = 800,
+	}),
+
+	-- KAREN'S PLACE 3, karen-ref-5: a GRASSY ride with two darker wheel ruts of bare earth and taller
+	-- dry grass at its edges. The Director, 2026-10-17, on the first build's frame: *"the hunter
+	-- stands on GREY ASPHALT-LOOKING ground"* -- measured, 13 of this strip's 42 samples are Asphalt.
+	-- So the ride is painted `Grass` and the ruts `Mud`.
+	ride = table.freeze({
+		halfWidthStuds = 32,
+		material = Enum.Material.Grass,
+		ruts = table.freeze({ offsetStuds = 9, halfWidthStuds = 3, material = Enum.Material.Mud }),
+		plotHalfWidthStuds = 410,
+	}),
+
+	-- KAREN'S PLACE 4, karen-ref-1: a narrow DIRT track under BROWN LEAVES, two ruts, leaf litter
+	-- between and beside. **23 of its 42 samples were Asphalt** -- more than half the track read grey.
+	-- `Ground` is the brownest thing the engine gives us without touching `Terrain.MaterialColors`,
+	-- which is GLOBAL and would recolour the lodge's lawn and the whole existing wood with it.
+	track = table.freeze({
+		halfWidthStuds = 9,
+		material = Enum.Material.Ground,
+		ruts = table.freeze({ offsetStuds = 4, halfWidthStuds = 2, material = Enum.Material.Mud }),
+		plotHalfWidthStuds = 410,
+	}),
+})
+
+-- THE SURFACE FOR A LAYOUT, OR NIL. Nil is a place whose ground is left as the world made it --
+-- `edge`, because its field is grass and painting it `Ground` would make a ploughed field, which is a
+-- different place from karen-ref-6.
+function Places.surfaceFor(layoutName: string?): any
+	if type(layoutName) ~= "string" then
+		return nil
+	end
+	return (Places.SURFACES :: any)[layoutName]
+end
 
 -- THE PLAN FOR A LAYOUT, OR NIL. Nil is a layout this task does not dress -- `road`, which stays
 -- task 179's world number for number (BRIEF decision 3).

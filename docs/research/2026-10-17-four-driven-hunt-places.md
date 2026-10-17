@@ -217,6 +217,50 @@ a step, 0 templates missing, in **2.5 s**; **every planted model's trunk junctio
 terrain under every footprint sample** (worst +(-0.18) studs, i.e. sunk, over all 3,012); boars
 crossing the hunters' line per drive **12 / 14 / 7**; 7 bots walking, **0 stuck**; 0 console errors.
 
+## 4.4 The ground under each place, per place -- the Director's look, 2026-10-17
+
+He put three frames next to Karen's references and three things read wrong:
+
+> *"PLACE 3 ... the hunter stands on GREY ASPHALT-LOOKING ground"* · *"PLACE 4 ... grey ground
+> again"* · *"PLACE 1 ... shows grass and an oak and NO ROAD"*
+
+**All three were measurable, and all three were true.** Sampling each place's own strip through the
+terrain-only ray:
+
+| place | what was under it | why it read wrong |
+|---|---|---|
+| 1 `road` | along its line, 65 samples: `Ground` **31**, **`Grass` 29**, Asphalt 3, Limestone 1, Mud 1 -- and the grass is at stands **1, 2, 7, 8, 9** | the road Karen built covers only its middle third. A hunter on five of nine stands stands in a field |
+| 3 `ride` | 42 samples: Grass 29, **Asphalt 13** | the grey patches are what the frame showed |
+| 4 `track` | 42 samples: Grass 19, **Asphalt 23** | more than half the track was grey |
+
+**And the first paint could not have fixed any of it**: `Ground.SOURCE_MATERIALS` was Grass and
+LeafyGrass only, on the argument that the world's rock *"is the world's own rock and made ground"*.
+That argument skipped exactly the patches he objected to. The list is now every ground material this
+world holds, and what is re-surfaced is still only the strip -- 18 to 64 studs wide against this
+world's thousands.
+
+**What each place's ground is now** (`Places.SURFACES`, and `places.spec` asserts this table):
+
+| place | reference | strip material | ruts | left alone |
+|---|---|---|---|---|
+| 1 `road` | karen-ref-7, pale gravel road | **`Ground`**, 22 studs wide | none -- a graded road, not a pair of ruts | its wood and its geometry (BRIEF D3) |
+| 2 `edge` | karen-ref-6, field edge | **none** | -- | the whole field. `Ground` there would be a *ploughed* field, a different place from her frame |
+| 3 `ride` | karen-ref-5, grassy ride | **`Grass`**, 64 studs | two **`Mud`** strips, 6 studs wide at +-9 | the verges, which keep the world's own grass |
+| 4 `track` | karen-ref-1, brown dirt track | **`Ground`**, 18 studs | two **`Mud`** strips, 4 studs wide at +-4 | the belts' floor |
+
+**`Ground` AND NOT A TINT.** `Terrain.MaterialColors` would make the browns browner, and it is
+**global** -- it would recolour the lodge's lawn, the existing wood's floor and every other place's
+grass with it. We do not own that decision; `Ground` is the brownest thing the engine gives per
+region. **So Karen's *"brown floor, not green lawn"* (ref-2/3/4) is answered on the TRACKS and NOT yet
+on the forest FLOOR between the trunks**, which is still this world's grass with a fern every 22-26
+studs. That remains the largest gap between her frames and what ships, and closing it means painting
+~692,000 voxels per place against a strip's ~58,000 -- measured in voxels, not timed, so it is a risk
+and not a cost. It is hers to ask for.
+
+**THE RUTS ARE MATERIAL, NOT TRENCHES.** A terrain voxel is 4 studs (1.1 m) and a wheel rut is a hand
+deep, so cutting one is not reachable. Two darker strips with something growing between them is what
+both frames actually show, and it is what is built.
+
 ## 5. What is NOT built, and why
 
 1. **A crop field.** karen-ref-6 is standing maize: dry, golden, waist-high, a boar half hidden in

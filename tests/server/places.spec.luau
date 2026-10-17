@@ -370,6 +370,38 @@ return function()
 			end
 		end)
 
+		it("musters the beaters in cover, not on another place's track", function()
+			-- TASKS.md 193a(a), and the Director asked for it before merge: the cut line's beaters mustered
+			-- at z -3920, which is inside the forest road's lane (-3921..-3879) -- they formed up ON that
+			-- place's painted track, which is the one thing design 10.2 raised the belt to 640 to prevent.
+			-- The cut line moved 40 studs south (z -4540), the only candidate that keeps a 400-stud sight
+			-- line at every stand.
+			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+				local layout = Forest.layoutNamed(name)
+				if layout ~= nil and Plan.planFor(name) ~= nil then
+					local musterZ = layout.centre.Z + Forest.beaterNorthStuds()
+					for _, against in ipairs(Forest.LAYOUT_ORDER) do
+						if against ~= name then
+							local other = Forest.layoutNamed(against)
+							local clear = Plan.laneHalfWidth(Plan.planFor(against))
+							-- at the muster's own x span, which is the stands' span
+							local span = Forest.standSpan(layout)
+							for x = span.minX, span.maxX, 50 do
+								expect(math.abs(musterZ - Forest.roadZ(x, other)) > clear).to.equal(true)
+							end
+						end
+					end
+				end
+			end
+			TestKit.note(
+				string.format(
+					"muster: cut line z %.0f, forest road's lane edge %.0f",
+					Forest.layoutNamed("ride").centre.Z + Forest.beaterNorthStuds(),
+					Forest.layoutNamed("track").centre.Z + Plan.laneHalfWidth(Plan.planFor("track"))
+				)
+			)
+		end)
+
 		it("carries the north belt all the way to where the beaters muster", function()
 			-- DESIGN 10.2: with a 230-stud belt the beaters formed up in 306 studs of bare grass that a
 			-- hunter looks straight up the ride at, and `restSpot` had no legal spot out there at all
@@ -671,10 +703,11 @@ return function()
 			empty:Destroy()
 		end)
 
-		it("paints the one strip that has a surface, and nothing else", function()
-			-- DESIGN 7.3: only the forest road is painted -- karen-ref-1 is bare soil, the road's gravel
-			-- is Karen's own Studio content, ref-5's ride IS grassy, and painting place 2's field
-			-- `Ground` would make a ploughed field, a different place from ref-6.
+		it("paints the ground each reference frame shows, per place", function()
+			-- THE DIRECTOR'S LOOK, 2026-10-17: place 3 *"the hunter stands on GREY ASPHALT-LOOKING
+			-- ground"*, place 4 *"grey ground again"*, place 1 *"shows grass and an oak and NO ROAD"*.
+			-- Measured: the cut line's strip is 13 of 42 samples Asphalt, the forest road's 23 of 42, and
+			-- place 1's own line is 29 of 65 **Grass** with the grass at five of its nine stands.
 			--
 			-- THE TERRAIN IS A FAKE WITH A RECORDING `ReplaceMaterial`, which is `Lobby.Field`'s own
 			-- discipline: no spec in the DEV place can ever write DEV's terrain.
@@ -687,55 +720,110 @@ return function()
 			local function flat(_x, _z)
 				return 150
 			end
+			-- WHAT EACH PLACE'S GROUND IS, as the one table a reader can check against her frames.
+			local want = {
+				road = Enum.Material.Ground, -- karen-ref-7, a pale gravel road; 31/65 of it already was
+				edge = nil, -- karen-ref-6 is a grass field; `Ground` there would be a ploughed field
+				ride = Enum.Material.Grass, -- karen-ref-5 is a GRASSY ride with two earth ruts
+				track = Enum.Material.Ground, -- karen-ref-1 is a brown dirt track under leaves
+			}
 			local painted, bare = 0, 0
 			for _, name in ipairs(Forest.LAYOUT_ORDER) do
-				local plan = Plan.planFor(name)
 				local layout = Forest.layoutNamed(name)
-				if plan ~= nil and layout ~= nil then
-					table.clear(calls)
-					local n = Ground.paint(fake, layout, plan, function(x)
-						return Forest.roadZ(x, layout)
-					end, flat)
-					expect(n).to.equal(#calls)
-					if plan.surface == nil then
-						bare += 1
-						expect(n).to.equal(0)
-					else
-						painted += 1
-						expect(n > 0).to.equal(true)
-						-- ONE CALL PER SOURCE MATERIAL PER CHUNK, and only Grass and LeafyGrass -- so a
-						-- track crossing this world's Limestone or Asphalt keeps its rock.
-						expect(n % #Ground.SOURCE_MATERIALS).to.equal(0)
-						for _, call in ipairs(calls) do
-							expect(call.resolution).to.equal(Ground.RESOLUTION)
-							expect(call.target).to.equal(plan.surface.material)
-							local ok = false
-							for _, source in ipairs(Ground.SOURCE_MATERIALS) do
-								ok = ok or call.source == source
-							end
-							expect(ok).to.equal(true)
-							-- THE REGION IS ON THE 4-STUD GRID. Task 191 measured "623 Ground and 2 Grass"
-							-- over a rectangle that should have been uniform, because its edge was not.
-							local min = call.region.CFrame.Position - call.region.Size / 2
-							expect(math.abs(min.X % Ground.RESOLUTION) < 0.001).to.equal(true)
-							expect(math.abs(min.Z % Ground.RESOLUTION) < 0.001).to.equal(true)
-							-- ...and it is at least as wide as the strip it is laying.
-							expect(call.region.Size.Z >= plan.surface.halfWidthStuds * 2).to.equal(true)
-						end
+				local surface = Plan.surfaceFor(name)
+				table.clear(calls)
+				local n = Ground.paint(fake, layout, surface, function(x)
+					return Forest.roadZ(x, layout)
+				end, flat)
+				expect(n).to.equal(#calls)
+				if want[name] == nil then
+					bare += 1
+					expect(surface).to.equal(nil)
+					expect(n).to.equal(0)
+				else
+					painted += 1
+					expect(surface).never.to.equal(nil)
+					expect(surface.material).to.equal(want[name])
+					expect(n > 0).to.equal(true)
+					-- THE GREYS ARE IN THE SOURCE LIST, which is the whole of the Director's fix: a paint
+					-- that skips Asphalt skips exactly the patches he objected to.
+					local sources = {}
+					for _, call in ipairs(calls) do
+						sources[call.source] = true
+						expect(call.resolution).to.equal(Ground.RESOLUTION)
+						-- A BAND NEVER REPLACES A MATERIAL WITH ITSELF.
+						expect(call.source).never.to.equal(call.target)
+						-- THE REGION IS ON THE 4-STUD GRID. Task 191 measured "623 Ground and 2 Grass" over
+						-- a rectangle that should have been uniform, because its edge was not.
+						local min = call.region.CFrame.Position - call.region.Size / 2
+						expect(math.abs(min.X % Ground.RESOLUTION) < 0.001).to.equal(true)
+						expect(math.abs(min.Z % Ground.RESOLUTION) < 0.001).to.equal(true)
 					end
+					expect(sources[Enum.Material.Asphalt]).to.equal(true)
+					expect(sources[Enum.Material.Grass] or want[name] == Enum.Material.Grass).to.equal(true)
 				end
 			end
-			expect(painted).to.equal(1)
-			expect(bare).to.equal(2)
-			TestKit.note(string.format("surface: %d place painted, %d left alone", painted, bare))
+			expect(painted).to.equal(3)
+			expect(bare).to.equal(1)
+			TestKit.note(
+				string.format(
+					"ground: road=%s ride=%s track=%s edge=(left as the world made it)",
+					tostring(want.road),
+					tostring(want.ride),
+					tostring(want.track)
+				)
+			)
+		end)
+
+		it("lays two wheel ruts over the strip, and only where a frame shows them", function()
+			-- karen-ref-5 and karen-ref-1 both show TWO darker lines with something growing between them,
+			-- not one bare track. The ruts are strips of MATERIAL and not trenches: a terrain voxel is 4
+			-- studs (1.1 m) and a rut is a hand deep, so cutting one is not reachable.
+			for _, name in ipairs({ "ride", "track" }) do
+				local surface = Plan.surfaceFor(name)
+				expect(surface.ruts).never.to.equal(nil)
+				-- A RUT MUST FIT INSIDE THE STRIP IT IS IN, or it is a stripe across the verge.
+				expect(surface.ruts.offsetStuds + surface.ruts.halfWidthStuds <= surface.halfWidthStuds).to.equal(true)
+				expect(surface.ruts.material).never.to.equal(surface.material)
+			end
+			-- ...and the road has none: karen-ref-7 is a graded gravel road, not a pair of ruts.
+			expect(Plan.surfaceFor("road").ruts).to.equal(nil)
+
+			-- THE RUTS ARE PAINTED AFTER THE STRIP, which is load-bearing now that the strip's own
+			-- material is in `SOURCE_MATERIALS`: the other order paints them straight back over.
+			local order = {}
+			local fake = {
+				ReplaceMaterial = function(_self, _region, _resolution, _source, target)
+					table.insert(order, target)
+				end,
+			}
+			local layout = Forest.layoutNamed("ride")
+			local surface = Plan.surfaceFor("ride")
+			Ground.paint(fake, layout, surface, function(x)
+				return Forest.roadZ(x, layout)
+			end, function()
+				return 150
+			end)
+			local firstRut, lastStrip = nil, nil
+			for index, target in ipairs(order) do
+				if target == surface.ruts.material and firstRut == nil then
+					firstRut = index
+				end
+				if target == surface.material then
+					lastStrip = index
+				end
+			end
+			expect(firstRut).to.be.ok()
+			expect(lastStrip).to.be.ok()
+			-- within the FIRST chunk the strip is laid before its ruts
+			expect(firstRut > 1).to.equal(true)
 		end)
 
 		it("measures the painted band off the ground and not off centre.Y", function()
 			-- `centre.Y` IS A FALLBACK GROUND (task 179's design 3.4) and this ground rolls 29-37 studs
 			-- along a stand line, so a band taken from it would miss the strip at one end.
 			local layout = Forest.layoutNamed("track")
-			local plan = Plan.planFor("track")
-			local low, high = Ground.yBandOf(layout, plan, function(x)
+			local low, high = Ground.yBandOf(layout, Plan.surfaceFor("track"), function(x)
 				return Forest.roadZ(x, layout)
 			end, function(x, _z)
 				return 100 + (x - layout.centre.X) * 0.05
@@ -745,9 +833,9 @@ return function()
 			-- the fake slopes 0.05 per stud over +-410 studs, i.e. 79.5..120.5, padded both ways
 			expect(low <= 79.5 - Ground.Y_PAD_STUDS + 0.001).to.equal(true)
 			expect(high >= 120.5 + Ground.Y_PAD_STUDS - 0.001).to.equal(true)
-			-- A PLAN WITH NO SURFACE HAS NO BAND, rather than a band nobody paints.
-			local none = Ground.yBandOf(Forest.layoutNamed("ride"), Plan.planFor("ride"), function(x)
-				return Forest.roadZ(x, Forest.layoutNamed("ride"))
+			-- A PLACE WITH NO SURFACE HAS NO BAND, rather than a band nobody paints.
+			local none = Ground.yBandOf(Forest.layoutNamed("edge"), Plan.surfaceFor("edge"), function(x)
+				return Forest.roadZ(x, Forest.layoutNamed("edge"))
 			end, function()
 				return 150
 			end)

@@ -204,11 +204,20 @@ ForestTest.LAYOUTS = table.freeze({
 	-- z -4500 -- every stand sees past 400 studs north**, `worstSight` 400. Measured 2026-10-17.
 	-- Stand terrain 160..178; `centre.Y` 166 is their mean.
 	--
-	-- AND BEING EAST BUYS THE HORIZON. `track`'s line is 600 studs north of this one, so this place's
-	-- north belt and that place's south belt are one continuous wood: a hunter here looks up the ride
-	-- into trees rather than at open hillside, which is what karen-ref-5 shows and what the first
-	-- build's frame did not (`<runs-dir>/193-p3-north.png`, first build: open grass hill over the
-	-- belt's far edge).
+	-- AND BEING EAST BUYS THE HORIZON. `track`'s line is 640 studs north of this one, so this place's
+	-- north belt and that place's south belt are one wood -- with a 42-stud cleared corridor through it
+	-- where the forest road crosses (`Places.clearOfEveryLane`). A hunter here looks up the ride into
+	-- trees rather than at open hillside, which is what karen-ref-5 shows and what the first build's
+	-- frame did not (`<runs-dir>/193-p3-north.png`, first build: open grass hill over the belt's far
+	-- edge).
+	--
+	-- z -4540 AND NOT -4500, WHICH IS WHERE ROUND 3 LEFT IT (TASKS.md 193a(a)). At -4500 the beaters
+	-- mustered at `beaterNorthStuds()` 580 north = z -3920, which is INSIDE the forest road's lane
+	-- (-3921..-3879): they formed up ON that place's track instead of in cover, which is the one thing
+	-- design 10.2 raised the belt to 640 to prevent. 40 studs south puts the muster at **-3960, 39
+	-- studs clear of that lane**, and it is the ONLY candidate that keeps the sight line: measured
+	-- 2026-10-17, -4540 holds 400 studs at every stand, while -4560, -4580 and -4600 collapse to 52,
+	-- 62 and 18.
 	--
 	-- Five stands 130 apart is 520 studs of front instead of the road's 1,200: a different kind of
 	-- drive on purpose, and the one Karen described, where the next gun is "far down the ride".
@@ -216,7 +225,7 @@ ForestTest.LAYOUTS = table.freeze({
 	ride = table.freeze({
 		name = "ride",
 		label = "Cut line",
-		centre = Vector3.new(4900, 166, -4500),
+		centre = Vector3.new(4900, 166, -4540),
 		amplitudeStuds = 0,
 		standCount = 5,
 		standSpacing = 130,
