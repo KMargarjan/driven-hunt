@@ -196,9 +196,16 @@ return function()
 
 	describe("Report.cardLabel", function()
 		it("prints a fraction for a pattern and none for a single projectile", function()
-			expect(Report.cardLabel("BUCK", 4, 9)).to.equal("HIT · BUCK 4/9")
-			expect(Report.cardLabel("SLUG", 1, 1)).to.equal("HIT · SLUG")
-			expect(Report.cardLabel(".416", 1, nil)).to.equal("HIT · .416")
+			expect(Report.cardLabel("BUCK", 4, 9)).to.equal("HIT - BUCK 4/9")
+			expect(Report.cardLabel("SLUG", 1, 1)).to.equal("HIT - SLUG")
+			expect(Report.cardLabel(".416", 1, nil)).to.equal("HIT - .416")
+			-- ASCII ONLY, and a frame is why (see `Report.cardLabel`): a middle dot came out of
+			-- BuilderSans as two missing-glyph boxes.
+			for _, text in ipairs({ Report.cardLabel("BUCK", 4, 9), Report.cardLabel("SLUG", 1, 1) }) do
+				for index = 1, #text do
+					expect(string.byte(text, index) < 128).to.equal(true)
+				end
+			end
 		end)
 	end)
 

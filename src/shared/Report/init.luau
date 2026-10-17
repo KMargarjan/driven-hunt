@@ -355,7 +355,7 @@ Report.CONFIG = {
 		MARGIN_LEFT = 16,
 		FEED_GAP = 8,
 		WIDTH = 188,
-		HEIGHT = 112,
+		HEIGHT = 138, -- ART_TOP + PLATE_HEIGHT + a bottom margin equal to ART_INSET_X
 		-- The surface ladder of the house style (the Designer's `shop-design-spec.md` section 8.1):
 		-- panel `#1C1915` corner 16, and a thing that sits on it one step lighter and one step less
 		-- round. Near-opaque, because this is read for three seconds over a sunlit wood.
@@ -378,8 +378,17 @@ Report.CONFIG = {
 		BOAR_FILL = Color3.fromHex("0A0907"),
 		ART_INSET_X = 12,
 		ART_TOP = 30,
-		ART_WIDTH = 164,
-		ART_HEIGHT = 70,
+		PLATE_WIDTH = 164,
+		PLATE_HEIGHT = 96,
+		-- AIR ROUND THE ANIMAL. In the first frame the art filled the plate edge to edge, so the
+		-- snout ran off the left side and the feet stood on the bottom rule: a shape with no room
+		-- reads as a blob. 8 px of plate on every side is what makes it a picture of something.
+		ART_PAD = 8,
+		-- THE ANIMAL'S OWN PROPORTION, and the first frame is why it is not 164 x 70.
+		-- `Report.CONFIG.BOAR` is drawn in a box 104 x 56 -- 1.857:1 -- and at 2.34:1 the legs came
+		-- out stubby and the head ran into the shoulder. 148 x 80 is 1.85:1, the same animal.
+		ART_WIDTH = 148,
+		ART_HEIGHT = 80,
 		-- THE RED DOT, with a thin light ring so it reads ON the black animal -- the same problem
 		-- `RING_MIN_LUMA` solves on the report, answered here with one fixed pale ring because the
 		-- fill is one fixed colour.
@@ -532,13 +541,18 @@ end
 -- A SINGLE PROJECTILE GETS NO FRACTION. "HIT - SLUG" says everything there is to say about one
 -- bullet; "HIT - BUCK 4/9" is the whole point of a buckshot card, because the number of dots on the
 -- animal IS the four.
+--
+-- THE SEPARATOR IS A PLAIN HYPHEN AND IT WAS A MIDDLE DOT FOR ONE FRAME. U+00B7 came out of
+-- BuilderSans as two missing-glyph boxes -- `.screenshots`/`<runs-dir>/t198-buck-card.png` of
+-- 2026-10-17 reads "HIT (box)(box) BUCK 4/9" -- which is exactly what the Designer's spec means by
+-- *"No glyph is used unless it has been checked in the family that renders it"*.
 function Report.cardLabel(word: string?, hits: number?, fired: number?): string
 	local name = string.upper(tostring(word or "HIT"))
 	local landed = math.max(0, math.floor(hits or 0))
 	if fired ~= nil and fired > 1 then
-		return string.format("HIT · %s %d/%d", name, landed, math.floor(fired))
+		return string.format("HIT - %s %d/%d", name, landed, math.floor(fired))
 	end
-	return string.format("HIT · %s", name)
+	return string.format("HIT - %s", name)
 end
 
 -- Deep-frozen for the same reason `Drive` is: a shared table with no writer is the only kind both

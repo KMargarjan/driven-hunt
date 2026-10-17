@@ -127,7 +127,7 @@ return function()
 
 		it("names the pattern and how much of it landed", function()
 			Card.show(buckPayload())
-			expect(Card.labelText()).to.equal(string.gsub(string.gsub("HIT · BUCK 4/9", "(.)", "%1 "), "%s+$", ""))
+			expect(Card.labelText()).to.equal(string.gsub(string.gsub("HIT - BUCK 4/9", "(.)", "%1 "), "%s+$", ""))
 		end)
 
 		it("replaces the card rather than stacking a second one", function()

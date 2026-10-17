@@ -138,7 +138,7 @@ local function build(frame: Frame)
 	ground.BackgroundTransparency = 0
 	ground.BorderSizePixel = 0
 	ground.Position = UDim2.fromOffset(CONFIG.ART_INSET_X, CONFIG.ART_TOP)
-	ground.Size = UDim2.fromOffset(CONFIG.ART_WIDTH, CONFIG.ART_HEIGHT)
+	ground.Size = UDim2.fromOffset(CONFIG.PLATE_WIDTH, CONFIG.PLATE_HEIGHT)
 	ground.ZIndex = Z + 1
 	ground.Parent = frame
 	local groundCorner = Instance.new("UICorner")
@@ -149,14 +149,16 @@ local function build(frame: Frame)
 	-- BOTH FACINGS, BUILT ONCE. The alternative is fourteen `Instance.new`s per shot, and a buckshot
 	-- volley is a lot of shots; this costs twenty-eight frames for the session and a `Visible`.
 	local function art(name: string, mirror: boolean): Frame
-		local made = BoarArt.build(ground, name, UDim2.fromScale(0, 0), {
+		local made = BoarArt.build(ground, name, UDim2.fromOffset(CONFIG.ART_PAD, CONFIG.ART_PAD), {
 			fill = CONFIG.BOAR_FILL,
+			-- THE PLATE IS THE GROUND AND THE ART HAS NONE OF ITS OWN: inset by `ART_PAD`, it is
+			-- the plate that shows round the animal, so there is no second rectangle to line up.
 			backing = CONFIG.PLATE_COLOR,
+			backingTransparency = 1,
 			mirror = mirror,
 			width = CONFIG.ART_WIDTH,
 			height = CONFIG.ART_HEIGHT,
 			zIndex = Z + 2,
-			corner = CONFIG.PLATE_CORNER,
 		})
 		made.Visible = false
 		return made
