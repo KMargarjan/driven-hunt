@@ -205,6 +205,29 @@ return function()
 			expect(string.find(Panel.titleText(), "DRIVE 3", 1, true)).to.be.ok()
 		end)
 
+		it("keeps EVERY column inside the well, which the first frame did not", function()
+			-- THE FRAME THAT FOUND IT: `20261017T150447Z-t201b-report-open-2.png`, where POINTS ran
+			-- 14 px past the well's right edge because eight x-and-width pairs were tuned by eye.
+			-- A column table is arithmetic, so it is added up here and never eyeballed again.
+			local inner = Panel.WELL_INNER
+			expect(inner).to.equal(Panel.bodyWidth(Vector2.new(1280, 720)) - 24)
+			for _, columns in ipairs({ Panel.LIST_COLUMNS, Panel.DETAIL_COLUMNS }) do
+				local previous = nil
+				for _, column in ipairs(columns) do
+					expect(column.x >= 0).to.equal(true)
+					expect(column.x + column.w <= inner).to.equal(true)
+					if previous ~= nil then
+						-- ...AND NO COLUMN OVERLAPS THE ONE BEFORE IT, which is what makes a
+						-- right-aligned number readable as a column rather than as a collision.
+						expect(column.x >= previous.x + previous.w).to.equal(true)
+					end
+					previous = column
+				end
+			end
+			-- The animal rows' cells start after the silhouette, which owns the row's left edge.
+			expect(Panel.DETAIL_COLUMNS[1].x).to.equal(Panel.DETAIL_TEXT_X)
+		end)
+
 		it("says how many animals were hit", function()
 			Panel.render(listPayload())
 			-- A SENTENCE IS NEVER UPPERCASE (the design system, 2026-10-17, section 1.2): the footer

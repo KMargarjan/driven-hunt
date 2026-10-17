@@ -63,26 +63,36 @@ local PAGE_RIGHT = "DrivenHunt.Report.PageRight"
 --
 -- THE TWO TABLES HAVE DIFFERENT COLUMNS and are two tables; what they share is the ROW, which is
 -- `Style.tableRow` and is the component §3.12 asks for.
+-- THEY ADD UP TO `ReportPanel.WELL_INNER` AND THAT IS ASSERTED, because the first frame of this
+-- panel ran POINTS 14 px past the well's right edge (`20261017T150447Z-t201b-report-open-2.png`):
+-- a column table is eight numbers and the only way to be sure they fit is to add them up in a spec.
+ReportPanel.WELL_INNER = 584
+
 ReportPanel.LIST_COLUMNS = {
 	{ key = "rank", head = "#", x = 0, w = 20, right = true },
-	{ key = "name", head = "NAME", x = 28, w = 168, right = false },
-	{ key = "male", head = "MALE", x = 200, w = 64, right = true },
-	{ key = "female", head = "FEM", x = 270, w = 56, right = true },
-	{ key = "cub", head = "CUB", x = 332, w = 56, right = true },
-	{ key = "kills", head = "KILLS", x = 394, w = 64, right = true },
-	{ key = "lost", head = "LOST", x = 464, w = 56, right = true },
-	{ key = "points", head = "POINTS", x = 526, w = 72, right = true },
+	{ key = "name", head = "NAME", x = 28, w = 150, right = false },
+	{ key = "male", head = "MALE", x = 186, w = 56, right = true },
+	{ key = "female", head = "FEM", x = 248, w = 50, right = true },
+	{ key = "cub", head = "CUB", x = 304, w = 50, right = true },
+	{ key = "kills", head = "KILLS", x = 360, w = 60, right = true },
+	{ key = "lost", head = "LOST", x = 426, w = 56, right = true },
+	{ key = "points", head = "POINTS", x = 488, w = 96, right = true },
 }
 
 -- THE ANIMAL ROWS. `result` is a TAG and not a word in a column (§3.7), so its slot is a box and
 -- the rest of the row is placed around it.
+-- THEY START AFTER THE SILHOUETTE. The boar with a dot where each shot landed is Karen's *"where
+-- was the hit"* half and §5 surface 12 keeps it unchanged, so it owns the first 116 px of every
+-- animal row and the cells are placed around it.
+ReportPanel.DETAIL_TEXT_X = 116
+
 ReportPanel.DETAIL_COLUMNS = {
-	{ key = "kind", head = "ANIMAL", x = 0, w = 70, right = false },
-	{ key = "result", head = "RESULT", x = 76, w = 84, right = false },
-	{ key = "zone", head = "ZONE", x = 168, w = 120, right = false },
-	{ key = "range", head = "RANGE", x = 330, w = 90, right = true },
-	{ key = "gun", head = "GUN", x = 428, w = 120, right = true },
-	{ key = "hits", head = "HITS", x = 556, w = 42, right = true },
+	{ key = "kind", head = "ANIMAL", x = 116, w = 56, right = false },
+	{ key = "result", head = "RESULT", x = 178, w = 80, right = false },
+	{ key = "zone", head = "ZONE", x = 264, w = 92, right = false },
+	{ key = "range", head = "RANGE", x = 362, w = 66, right = true },
+	{ key = "gun", head = "GUN", x = 434, w = 110, right = true },
+	{ key = "hits", head = "HITS", x = 550, w = 34, right = true },
 }
 
 -- ---------------------------------------------------------------- state (five values, one writer)
