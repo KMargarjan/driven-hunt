@@ -1155,7 +1155,24 @@ local function reportStart(player: Player, character: Model)
 	end)
 end
 
-Players.PlayerAdded:Connect(function(player)
+-- EVERY PLAYER, INCLUDING THE ONE WHO WAS ALREADY THERE (task 202). MEASURED, twice, in the Forest
+-- Test on 2026-10-17: neither `[ForestTest] <name> asked to join as a <role> (start switch)` nor
+-- `[ForestTest] <name> is a <role> at (...)` was printed in a Play Solo session, and both of those
+-- prints are inside this connection -- so `Players.PlayerAdded` did not fire for the only player in
+-- the place. Play Solo puts the local player into `Players` while the server scripts are still
+-- running, and this root now YIELDS for seconds before it reaches this line (`[ForestTestBoot]
+-- places: 3 dressed, 3028 planted ... 2.73s`, plus the asset loads), so the event is long gone by
+-- the time anybody is listening for it.
+--
+-- WHAT THAT COST IS BOTH ROUTES INTO A ROLE. `DHForestStartRole` is read here, and `player.Chatted`
+-- -- Karen's `/beater` and `/hunter` -- is CONNECTED here, so with the event missed she could become
+-- a beater by neither the switch nor by typing, and task 202 could not reproduce in her place the
+-- thing it was dispatched to look at.
+--
+-- THE CATCH-UP LOOP IS THE STANDARD SHAPE for a service event that can fire before a listener
+-- exists, and it cannot double up: `Players.PlayerAdded` fires once per player and the loop runs
+-- once, at boot, over the players who are already in.
+local function onPlayer(player: Player)
 	player.CharacterAdded:Connect(function(character)
 		reportStart(player, character)
 	end)
@@ -1190,7 +1207,19 @@ Players.PlayerAdded:Connect(function(player)
 			)
 		end
 	end)
-end)
+end
+
+Players.PlayerAdded:Connect(onPlayer)
+for _, player in ipairs(Players:GetPlayers()) do
+	onPlayer(player)
+	-- ...AND THE CHARACTER HE ALREADY HAS, if he has one: `CharacterAdded` has exactly the same hole
+	-- as `PlayerAdded`, and `reportStart` is how a tool outside the server learns which role the
+	-- drive actually gave him (its own header says so).
+	local character = player.Character
+	if character ~= nil then
+		reportStart(player, character)
+	end
+end
 
 Players.PlayerRemoving:Connect(function(player)
 	-- HIS RING GOES WITH HIS PICK (round 1's note). An edge drawn round a stand nobody is held to is

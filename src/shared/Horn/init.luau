@@ -676,6 +676,86 @@ function Horn.mouthpieceOffset(mesh, worn: string?): Vector3
 	return pose * Vector3.new(mesh.SIZE_STUDS.X / 2, 0, 0)
 end
 
+-- ---------------------------------------------------------------- the tube itself (task 202)
+--
+-- WHERE THE HORN ACTUALLY IS INSIDE ITS HANDLE, and how thick it is there. The three numbers above
+-- say how big the mesh's BOX is and which way round it goes; they say nothing about where the horn
+-- lies in that box, and the box is nearly empty -- a 3.125 x 1.084 x 0.599 envelope round an arc
+-- whose tube is about 0.33 studs across. Task 176 posed the first-person horn and its hand against
+-- the box, and both answers were wrong in the way the box is wrong.
+--
+-- KAREN, 2026-10-14 ~17:00: *"beater hadn is bad and 2 horsn instead 1 it's broken"*. MEASURED in
+-- the Forest Test on 2026-10-17 with the shipped carry pose: the drawn horn ran from 3.61 studs in
+-- front of the lens to 0.99, and its near end projected to x = 1455 on a 955-pixel screen -- so the
+-- horn left the right-hand edge, and the glove cut what was left into two pale masses with a gap of
+-- clear background between them (a ray through x = 840..880 at eye height hit NOTHING, and rays
+-- either side of it hit the one `Model` MeshPart). One horn, drawn as two. Nothing in the repo could
+-- see that, because nothing in the repo knew where the horn was inside its own envelope.
+--
+-- MEASURED, NOT CHOSEN, and the method is the one task 188 used on the glove: a clone of the real
+-- Handle was anchored at a known CFrame in a running session and raycast at 0.125-stud steps along
+-- the Handle's Z -- down from +4 and up from -4 for the top and bottom of the tube, then across at
+-- the mid height for its width. `y` is the midpoint of that pair (the tube's centre line) and `r` is
+-- half the LARGER of the two spans (the honest radius of a section that is not quite round). The
+-- rows at z = -1.5 .. -1.25 are the bell's RIM, which is a thin wall rather than a solid section --
+-- 0.05 studs thick against 0.4 in the middle -- and they are kept exactly as measured.
+--
+-- THE TWO ENDS AGREE WITH `mouthpieceOffset` AND `bellOffset`: +Z is the narrow mouthpiece (the
+-- section is 0.13 across at z = +1.375) and -Z is the open bell (0.56 at z = -1.125). That was
+-- LOOKED AT as well as measured -- `.screenshots/t202-horn-fixture.png` photographs the clone with a
+-- red ball on the Handle's +Z and a blue one on its -Z, and the red one is at the dark narrow tip.
+--
+-- WHAT READS IT: `tests/server/viewmodel_poses.spec.luau`, which asks whether the drawn horn is
+-- inside the picture and whether the right glove lies on the tube. Nothing draws from it at run
+-- time, exactly as `HandAssets.GRIP_STUDS` is read by the gate and not by the frame.
+Horn.TUBE_SAMPLES = table.freeze({
+	table.freeze({ z = -1.5, y = -0.0765, r = 0.108 }),
+	table.freeze({ z = -1.375, y = -0.153, r = 0.1045 }),
+	table.freeze({ z = -1.25, y = -0.2215, r = 0.109 }),
+	table.freeze({ z = -1.125, y = 0.0245, r = 0.3335 }),
+	table.freeze({ z = -1.0, y = -0.052, r = 0.32 }),
+	table.freeze({ z = -0.875, y = -0.129, r = 0.307 }),
+	table.freeze({ z = -0.75, y = -0.1805, r = 0.2995 }),
+	table.freeze({ z = -0.625, y = -0.202, r = 0.302 }),
+	table.freeze({ z = -0.5, y = -0.222, r = 0.285 }),
+	table.freeze({ z = -0.375, y = -0.2915, r = 0.2345 }),
+	table.freeze({ z = -0.25, y = -0.3135, r = 0.2225 }),
+	table.freeze({ z = -0.125, y = -0.3295, r = 0.2125 }),
+	table.freeze({ z = 0.0, y = -0.336, r = 0.1995 }),
+	table.freeze({ z = 0.125, y = -0.333, r = 0.191 }),
+	table.freeze({ z = 0.25, y = -0.322, r = 0.181 }),
+	table.freeze({ z = 0.375, y = -0.302, r = 0.17 }),
+	table.freeze({ z = 0.5, y = -0.2725, r = 0.1635 }),
+	table.freeze({ z = 0.625, y = -0.217, r = 0.173 }),
+	table.freeze({ z = 0.75, y = -0.156, r = 0.198 }),
+	table.freeze({ z = 0.875, y = -0.1205, r = 0.1695 }),
+	table.freeze({ z = 1.0, y = -0.043, r = 0.137 }),
+	table.freeze({ z = 1.125, y = 0.0605, r = 0.1425 }),
+	table.freeze({ z = 1.25, y = 0.175, r = 0.122 }),
+	table.freeze({ z = 1.375, y = 0.368, r = 0.139 }),
+	table.freeze({ z = 1.5, y = 0.4415, r = 0.0715 }),
+})
+
+-- THE TUBE AT `z`, in the Handle's own frame: where its centre line is, how thick it is there, and
+-- which way it is running. PURE, and linear between the measured rows -- a spline would be a curve
+-- nobody measured. Past either end it holds the end row, so a caller asking for a point off the horn
+-- gets the nearest real section rather than an extrapolation.
+--   returns: the centre line's Y, the radius, and dY/dZ (the tangent's slope in the YZ plane)
+function Horn.tubeAt(z: number): (number, number, number)
+	local rows = Horn.TUBE_SAMPLES
+	local index = 1
+	for at = 1, #rows - 1 do
+		if z >= rows[at].z then
+			index = at
+		end
+	end
+	local a, b = rows[index], rows[index + 1]
+	local span = b.z - a.z
+	local slope = (b.y - a.y) / span
+	local t = math.clamp((z - a.z) / span, 0, 1)
+	return a.y + t * (b.y - a.y), a.r + t * (b.r - a.r), slope
+end
+
 -- THE SPOOK RADIUS IN STUDS, from whichever unit the config carries. PURE, and the ONE place the
 -- conversion happens: no caller multiplies by METRES_PER_STUD itself. `SPOOK_STUDS` wins when it is
 -- there, because a world that overrides the studs means the studs.
