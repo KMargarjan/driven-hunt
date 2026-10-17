@@ -775,6 +775,111 @@ return function()
 			)
 		end)
 
+		it("paints a band the line never leaves, on the one place that curves", function()
+			-- THE DEFECT THIS CASE EXISTS FOR (Reviewer, round 1 after the PASS, finding 1): `paint` takes
+			-- ONE z per chunk, and at the 200 studs that shipped, place 1's sine (amplitude 30, wavelength
+			-- 440) left its own band by up to the full amplitude -- the chunk [2630, 2830] was painted at
+			-- z -2080.7..-2058.7 while the road's z at x 2830 is -2105.4, 21 studs outside. Stands 2 and 8,
+			-- two of the five the Director measured as grass, stayed grass.
+			--
+			-- IT SAMPLES THE LINE AND ASKS WHETHER ANY PAINTED REGION HOLDS IT, which the material case
+			-- cannot: that one checks material, resolution and grid alignment, all of which were right.
+			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+				local surface = Plan.surfaceFor(name)
+				local layout = Forest.layoutNamed(name)
+				if surface ~= nil and layout ~= nil then
+					local regions = {}
+					local fake = {
+						ReplaceMaterial = function(_self, region, _resolution, _source, target)
+							if target == surface.material then
+								table.insert(regions, region)
+							end
+						end,
+					}
+					Ground.paint(fake, layout, surface, function(x)
+						return Forest.roadZ(x, layout)
+					end, function()
+						return 150
+					end)
+					expect(#regions > 0).to.equal(true)
+					local from = layout.centre.X - surface.plotHalfWidthStuds
+					local to = layout.centre.X + surface.plotHalfWidthStuds
+					local worst, worstAt = -math.huge, 0
+					for x = from, to, 5 do
+						local z = Forest.roadZ(x, layout)
+						local inside = false
+						for _, region in ipairs(regions) do
+							local at = region.CFrame.Position
+							local half = region.Size / 2
+							if
+								x >= at.X - half.X - 0.001
+								and x <= at.X + half.X + 0.001
+								and z >= at.Z - half.Z - 0.001
+								and z <= at.Z + half.Z + 0.001
+							then
+								inside = true
+								break
+							end
+						end
+						if not inside and x > worst then
+							worst, worstAt = x, x
+						end
+						expect(inside).to.equal(true)
+					end
+					local _ = worstAt
+					-- ...AND EVERY STAND IS ON IT, which is the Director's actual complaint: a hunter on
+					-- stand 2 or 8 of place 1 was standing in grass.
+					for index = 1, layout.standCount do
+						local stand = Forest.standPosition(index, layout)
+						local inside = false
+						for _, region in ipairs(regions) do
+							local at = region.CFrame.Position
+							local half = region.Size / 2
+							if
+								stand.X >= at.X - half.X - 0.001
+								and stand.X <= at.X + half.X + 0.001
+								and stand.Z >= at.Z - half.Z - 0.001
+								and stand.Z <= at.Z + half.Z + 0.001
+							then
+								inside = true
+								break
+							end
+						end
+						expect(inside).to.equal(true)
+					end
+					TestKit.note(
+						string.format(
+							"%s: %d region(s), chunk %d studs, every sample and all %d stands on the paint",
+							name,
+							#regions,
+							Ground.chunkFor(layout, surface),
+							layout.standCount
+						)
+					)
+				end
+			end
+		end)
+
+		it("paints a band exactly as wide as it was asked for, whatever the line's parity", function()
+			-- `ExpandToGrid` ROUNDS OUTWARD (Reviewer, round 1 after the PASS, finding 2): the ride's ruts,
+			-- asked for at 4 studs, were painted **8**, because its line z is a multiple of 4 and the
+			-- nominal edges straddled a column. The forest road's came out at 4 only because its z happens
+			-- to be 2 off the grid. A rut's width must not depend on where the line was put.
+			for _, centre in ipairs({ -4540, -4528, -3894, -3900, 0, 2, 7.5, -1.25 }) do
+				local low, high = Ground.bandBounds(centre, 2)
+				expect(high - low).to.equal(4)
+				expect(math.abs(low % Ground.RESOLUTION) < 0.001).to.equal(true)
+				expect(centre >= low and centre <= high).to.equal(true)
+				-- a 32-stud half-width is 64 studs, always
+				local wideLow, wideHigh = Ground.bandBounds(centre, 32)
+				expect(wideHigh - wideLow).to.equal(64)
+			end
+			-- ...and the width is `ceil(2 * half / RESOLUTION)` columns, so an odd half still gets whole
+			-- voxels rather than a fraction of one.
+			local low, high = Ground.bandBounds(-2097, 11)
+			expect(high - low).to.equal(24)
+		end)
+
 		it("lays two wheel ruts over the strip, and only where a frame shows them", function()
 			-- karen-ref-5 and karen-ref-1 both show TWO darker lines with something growing between them,
 			-- not one bare track. The ruts are strips of MATERIAL and not trenches: a terrain voxel is 4

@@ -308,8 +308,10 @@ Places.SURFACES = table.freeze({
 		material = Enum.Material.Grass,
 		-- NARROW AND WELL APART, because the first paint's ruts filled the near view and the frame
 		-- read grey again. 4 studs is the thinnest a rut can be: a terrain voxel is 4 studs, so
-		-- anything finer snaps back to this. At +-12 the grass between them is 20 studs wide, which is
-		-- what karen-ref-5 shows -- grass with two darker lines in it, not two lines with grass in them.
+		-- anything finer snaps back to this -- and `Ground.bandBounds` is what makes 4 mean 4 whatever
+		-- this line's z parity is (the Reviewer measured these at EIGHT studs before that existed).
+		-- At +-12 the grass between them is 20 studs, which is what karen-ref-5 shows: grass with two
+		-- darker lines in it, not two lines with grass in them.
 		ruts = table.freeze({ offsetStuds = 12, halfWidthStuds = 2, material = Enum.Material.Mud }),
 		plotHalfWidthStuds = 410,
 	}),

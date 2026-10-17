@@ -30,17 +30,34 @@
 --
 -- Design: docs/design/drive-places.md (sections 6.3 and 7)
 -- Note:   docs/research/2026-10-17-four-driven-hunt-places.md
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
+
 local Ground = {}
 
 -- THE ENGINE'S TERRAIN VOXEL, and the only value `ReplaceMaterial` accepts.
 Ground.RESOLUTION = 4
 
--- ONE CALL PER CHUNK ALONG x. A region is a box, so a long strip is painted in pieces -- and for a
--- curved layout each piece is centred on the line's own z at the chunk's middle, which over the
--- road's amplitude 30 and wavelength 440 would be a 5-stud error at a chunk's edge, inside the band's
--- own half-width. No shipped plan paints a curve (section 7.3), and this is written down so the next
--- reader does not have to derive it.
+-- THE WIDEST CHUNK ALONG x. A region is a box, so a long strip is painted in pieces, each centred on
+-- the line's own z at its middle -- and for a CURVED line the chunk has to be short enough that the
+-- line never leaves the box.
+--
+-- THE 200 THAT SHIPPED WAS WRONG AND ITS JUSTIFICATION WAS ARITHMETICALLY FALSE (Reviewer, round 1
+-- after the PASS, finding 1). The header claimed *"a 5-stud error at a chunk's edge, inside the
+-- band's own half-width"* on the grounds that *"no shipped plan paints a curve"*. Place 1 IS a curve
+-- (`amplitudeStuds` 30 over a 440-stud wavelength) and it now has a surface row, and 200 studs is 2.86
+-- radians of phase -- so the error reaches the full amplitude. Computed from the shipped numbers: the
+-- chunk [2630, 2830] got the band -2080.7..-2058.7 while the road's own z at x 2830 is -2105.4, **21
+-- studs outside it** -- and stands 2 and 8, two of the five the Director measured as grass, were left
+-- unpainted.
+--
+-- SO THE CHUNK IS DERIVED FROM THE CURVE, not chosen (`Ground.chunkFor`). This is only the cap for a
+-- straight line, where one box covers everything.
 Ground.CHUNK_STUDS = 200
+
+-- THE SHORTEST CHUNK WORTH MAKING: two voxels. Below this the region is thinner than the grid it is
+-- snapped to and the call does nothing but cost.
+Ground.MIN_CHUNK_STUDS = 8
 
 -- WHAT IS REPLACED. **EVERY GROUND MATERIAL THIS WORLD HOLDS, AND THE DIRECTOR'S LOOK IS WHY THE LIST
 -- GREW.** It shipped as Grass and LeafyGrass only, on the reasoning that *"those are the world's own
@@ -69,6 +86,43 @@ Ground.SOURCE_MATERIALS = table.freeze({
 -- HOW FAR THE REGION REACHES ABOVE AND BELOW THE GROUND IT MEASURED. The surface is voxelised, so a
 -- region that stops exactly at the measured height leaves the half-voxel above it untouched.
 Ground.Y_PAD_STUDS = 10
+
+-- HOW LONG A CHUNK MAY BE FOR THIS LINE. PURE.
+--
+-- A sine of amplitude `a` and wavelength divisor `w` has |dz/dx| at most `a / w`, so over a half-chunk
+-- `c / 2` the line wanders at most `c * a / (2 * w)` from the box's own centre line. That has to stay
+-- inside the band's half-width, which gives `c <= 2 * half * w / a`. For place 1 -- half 11, a 30,
+-- w 70 -- that is **51 studs**, against the 200 that shipped.
+--
+-- A STRAIGHT LINE WANDERS NOWHERE, so it keeps the full `CHUNK_STUDS` and one box covers 200 studs of
+-- it.
+function Ground.chunkFor(layout: any, surface: any): number
+	local amplitude = layout.amplitudeStuds
+	if amplitude == nil or amplitude <= 0 then
+		return Ground.CHUNK_STUDS
+	end
+	local divisor = Forest.SHAPE.wavelengthDivisor
+	local longest = 2 * surface.halfWidthStuds * divisor / amplitude
+	return math.max(Ground.MIN_CHUNK_STUDS, math.min(Ground.CHUNK_STUDS, math.floor(longest)))
+end
+
+-- THE GRID-ALIGNED z BOUNDS OF ONE BAND, and the painted width that follows. PURE.
+--
+-- `Region3:ExpandToGrid` ROUNDS OUTWARD, so a band whose nominal edges straddle a voxel column comes
+-- out WIDER than it was asked to be -- and by how much depends on the accident of the line's own z
+-- parity. The Reviewer measured it (round 1 after the PASS, finding 2): the ride's ruts, asked for at
+-- 4 studs, were painted **8** because its centre z is a multiple of 4, while the forest road's came
+-- out at 4 because its z happens to be 2 off the grid. A rut's width must not depend on where the
+-- line was put.
+--
+-- So the bounds are snapped HERE, to the column the centre falls in, widened by whole columns until
+-- the asked-for width is covered. `ExpandToGrid` then has nothing left to do and the painted width is
+-- `ceil(2 * half / RESOLUTION) * RESOLUTION` for every line, whatever its parity.
+function Ground.bandBounds(centreZ: number, half: number): (number, number)
+	local columns = math.max(1, math.ceil((2 * half) / Ground.RESOLUTION))
+	local first = Ground.RESOLUTION * math.floor((centreZ - columns * Ground.RESOLUTION / 2) / Ground.RESOLUTION)
+	return first, first + columns * Ground.RESOLUTION
+end
 
 -- THE Y BAND THE STRIP OCCUPIES: the terrain measured every 20 studs along the strip's own centre
 -- line, lowest and highest, padded. PURE given the reader -- `terrainYAt` is handed in, so a spec can
@@ -122,9 +176,10 @@ function Ground.paint(
 	end
 	local calls = 0
 	local from, to = layout.centre.X - surface.plotHalfWidthStuds, layout.centre.X + surface.plotHalfWidthStuds
+	local chunk = Ground.chunkFor(layout, surface)
 	local x = from
 	while x < to do
-		local nextX = math.min(x + Ground.CHUNK_STUDS, to)
+		local nextX = math.min(x + chunk, to)
 		local z = lineZ((x + nextX) / 2)
 		-- THE STRIP FIRST, THEN THE RUTS OVER IT. The order is the whole of it: a rut painted before
 		-- the strip would be painted straight back over, because the strip's own material is in
@@ -166,7 +221,10 @@ function Ground.band(
 	half: number,
 	material: Enum.Material
 ): number
-	local region = Region3.new(Vector3.new(fromX, low, centreZ - half), Vector3.new(toX, high, centreZ + half))
+	-- THE z BOUNDS ARE SNAPPED BEFORE THE REGION IS MADE, so `ExpandToGrid` only ever squares up the x
+	-- and y faces and the painted WIDTH is the one asked for (see `bandBounds`).
+	local minZ, maxZ = Ground.bandBounds(centreZ, half)
+	local region = Region3.new(Vector3.new(fromX, low, minZ), Vector3.new(toX, high, maxZ))
 		:ExpandToGrid(Ground.RESOLUTION)
 	local calls = 0
 	for _, source in ipairs(Ground.SOURCE_MATERIALS) do
