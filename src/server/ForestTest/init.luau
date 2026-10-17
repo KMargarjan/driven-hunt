@@ -364,6 +364,12 @@ local chosen = {
 	-- advancing the cycle, so a session that starts forced and then clears the attribute must still
 	-- begin the rotation at place 1.
 	rotated = false,
+	-- WHERE THE CYCLE ITSELF IS, which is NOT `name` (Reviewer, round 1, note 6). `promote` writes
+	-- `name` for every source, the override included, so advancing from `name` would resume the
+	-- rotation from the FORCED place: force `road` at drive 3 while the cycle sat at `edge`, and
+	-- drive 4 deals `edge` again. The design's section 5 item 3 says a forced drive *"resumes at
+	-- exactly the next place"*, and this is the field that makes that true rather than nearly true.
+	cycle = nil :: string?,
 	-- "default" | "rotation" | "override" -- printed and in `stats()`, the `Flags` discipline. It is
 	-- the only thing that stops a forced playtest being reported as the rotation, because
 	-- `DHForestLayout` is not a `DHFlag_*` name and the harness does not refuse a run while it is
@@ -1933,8 +1939,9 @@ function ForestTest.layoutForDrive(driveNumber: number?, override: any): string
 		-- again"*). `chosen.rotated` and not `chosen.drive` is the key, because the drive number
 		-- jumps when a forced drive sits in the middle of a session: the cycle must step once per
 		-- ROTATED drive, not once per drive number.
-		name = if chosen.rotated then Data.nextLayout(chosen.name) else Data.LAYOUT_ORDER[1]
+		name = if chosen.rotated then Data.nextLayout(chosen.cycle) else Data.LAYOUT_ORDER[1]
 		chosen.rotated = true
+		chosen.cycle = name
 		source = "rotation"
 	end
 	chosen.drive = key

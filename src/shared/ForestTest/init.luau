@@ -120,12 +120,13 @@ ForestTest.LAYOUTS = table.freeze({
 	-- studs from the tree line: that is 28 m, a lane and not a field, and task 179's own note called
 	-- it *"100 studs out in the open"*. Karen asked for 80-150 m. The wood's southern face is at
 	-- z -2900 straight across this whole stand span (measured 2026-10-17 at every column x
-	-- 3100..3800: -2900 +/- 25), so -3400 puts **504 studs = 141 m** of open ground in front of the
-	-- line -- inside her range, and far enough that a boar breaking cover is a long crossing shot.
+	-- 3100..3800: -2900 +/- 25), so -3400 would put 500 studs = 140 m of open ground in front of the
+	-- line. **THAT LINE WAS NOT SHIPPED** -- see the next paragraph, which is why -- and the field
+	-- this place actually has is the 350 studs = 98 m from z -3250.
 	--
 	-- AND THE BEATERS STILL START IN THE TREES. `beaterNorthStuds()` is 580, so they form up at
-	-- z -2820, which is 80 studs INSIDE the wood -- they push out of cover into the open, which is
-	-- what makes this a Feldrand stand rather than two lines in a paddock.
+	-- z -2670, which is **230 studs INSIDE** the wood's face at -2900 -- they push out of cover into
+	-- the open, which is what makes this a Feldrand stand rather than two lines in a paddock.
 	--
 	-- IT IS THE MOST CLASSICAL OF THE THREE, and that is a borrowed judgement rather than a taste:
 	-- WILD UND HUND's "Drueckjagdstaende -- Sicher ist sicher?" says a stand does NOT belong on a

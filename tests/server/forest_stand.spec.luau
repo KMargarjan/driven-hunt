@@ -52,7 +52,7 @@ return function()
 				expect(type((layout :: any).label)).to.equal("string")
 			end
 			-- ...AND EVERY LAYOUT IN THE TABLE IS IN THE ORDER. A layout the rotation never deals is a
-			-- layout Karen cannot judge, which is the whole reason the choice is a bag.
+			-- layout Karen cannot judge, which is the whole reason the choice deals every place once per cycle.
 			for name in pairs(Data.LAYOUTS) do
 				expect(seen[name]).to.equal(true)
 			end

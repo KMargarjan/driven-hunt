@@ -3,7 +3,7 @@
 -- that keeps the shooting lanes clear.
 --
 -- EVERYTHING IN HERE RUNS WITH NO WORLD. `Places` (shared) is pure by construction, so these cases
--- assert where all ~1,800 trees go without a Studio, and the server half is driven through a fake
+-- assert where all ~3,000 trees go without a Studio, and the server half is driven through a fake
 -- ground reader -- which is the whole reason task 199's split was repeated here.
 --
 -- Note: docs/research/2026-10-17-four-driven-hunt-places.md
@@ -15,6 +15,7 @@ return function()
 	local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 	local Planter = require(ServerScriptService:WaitForChild("Places"))
 	local Ground = require(ServerScriptService.Places:WaitForChild("Ground"))
+	local TreeGround = require(ReplicatedStorage:WaitForChild("TreeGround"))
 
 	-- ---------------------------------------------------------------- the four places exist
 
@@ -333,6 +334,19 @@ return function()
 			end
 		end)
 
+		it("keeps the resting wood inside the belt, so a beater has a legal spot to rest in", function()
+			-- DESIGN 12.2, and it was missing (Reviewer, round 1, finding 2). `ForestTest.REST.farRoadStuds`
+			-- is how far north a resting spot may be, and `restSpot` only accepts one whose nearest solid
+			-- thing is within `nearTrunkStuds`. A belt that stops short of `farRoadStuds` leaves the far
+			-- half of the resting wood with no trunk in it at all -- i.e. no legal spot.
+			for _, name in ipairs(Forest.LAYOUT_ORDER) do
+				local plan = Plan.planFor(name)
+				if plan ~= nil and plan.northBeltStuds > 0 then
+					expect(Forest.REST.farRoadStuds <= plan.northBeltStuds - Plan.LANE_STUDS).to.equal(true)
+				end
+			end
+		end)
+
 		it("carries the north belt all the way to where the beaters muster", function()
 			-- DESIGN 10.2: with a 230-stud belt the beaters formed up in 306 studs of bare grass that a
 			-- hunter looks straight up the ride at, and `restSpot` had no legal spot out there at all
@@ -525,6 +539,93 @@ return function()
 			expect(trunk.CanCollide).to.equal(true)
 			expect(trunk.Anchored).to.equal(true)
 			model:Destroy()
+		end)
+
+		it("never plants a tree above the ground, on a hillside it has never seen", function()
+			-- DESIGN 12.1 CASE 22, and the Reviewer was right that it was missing (round 1, finding 2):
+			-- `plantOne` is the function that actually puts a tree on the ground, and nothing asserted it.
+			-- Claim 4 of round 1 rested entirely on one live run.
+			--
+			-- NO WORLD IS NEEDED: the template is a fake tree and the ground is a fake hillside, so this
+			-- drives the real `plantOne` with no Terrain and no Studio.
+			local function fakeTree(trunkHeight: number)
+				local model = Instance.new("Model")
+				local trunk = Instance.new("Part")
+				trunk.Name = "Trunk"
+				trunk.Size = Vector3.new(6, trunkHeight, 6)
+				trunk.CFrame = CFrame.new(0, trunkHeight / 2, 0)
+				trunk.Parent = model
+				local leaves = Instance.new("Part")
+				leaves.Name = "Leaves"
+				leaves.CanCollide = false
+				leaves.Size = Vector3.new(20, 20, 20)
+				leaves.CFrame = CFrame.new(0, trunkHeight, 0)
+				leaves.Parent = model
+				model.PrimaryPart = trunk
+				return model
+			end
+
+			local parent = Instance.new("Folder")
+			local template = fakeTree(60)
+			local item = { model = "Trunk", x = 500, z = -500, scale = 1, yaw = 0, band = "wood", side = -1 }
+
+			-- A GENTLE SLOPE: 0.1 per stud in x, so the 6-stud trunk footprint spans 0.6 studs of ground.
+			local made, reason = Planter.plantOne(item, template, parent, function(x, _z)
+				return 100 + (x - 500) * 0.1
+			end)
+			expect(made).never.to.equal(nil)
+			expect(reason).to.equal("ok")
+			-- THE JUNCTION IS AT OR BELOW THE LOWEST SAMPLE UNDER THE FOOTPRINT, which is the rule, and
+			-- the measurement is re-done here off the settled model rather than taken from the planter.
+			local trunk, whole = Planter.trunkBox(made)
+			local grounds = Planter.groundsUnder(trunk, function(x, _z)
+				return 100 + (x - 500) * 0.1
+			end)
+			local lowest = math.huge
+			for _, y in ipairs(grounds) do
+				lowest = math.min(lowest, y)
+			end
+			local junction = trunk.minY + (whole.maxY - trunk.minY) * Planter.clawFor(item.model)
+			expect(junction <= lowest + TreeGround.TOLERANCE_STUDS).to.equal(true)
+			-- ...and it is SUNK rather than merely not floating: the sink is `TreeGround.sinkFor`.
+			expect(junction < lowest).to.equal(true)
+			TestKit.note(string.format("plantOne: junction %.3f studs under the lowest sample", lowest - junction))
+
+			-- A FOOTPRINT ACROSS A STEP IS REFUSED AND LEAVES NOTHING BEHIND. A clone that is destroyed
+			-- on the way out is the difference between a hole in the forest and a tree in the air.
+			local before = #parent:GetChildren()
+			local cliff, why = Planter.plantOne(item, template, parent, function(x, _z)
+				return if x > 500 then 120 else 100
+			end)
+			expect(cliff).to.equal(nil)
+			expect(why).to.equal("cliff")
+			expect(#parent:GetChildren()).to.equal(before)
+
+			-- GROUND THE WORLD CANNOT ANSWER IS ALSO REFUSED, and also leaves nothing.
+			local none, noneWhy = Planter.plantOne(item, template, parent, function()
+				return nil
+			end)
+			expect(none).to.equal(nil)
+			expect(noneWhy).to.equal("no-ground")
+			expect(#parent:GetChildren()).to.equal(before)
+
+			template:Destroy()
+			parent:Destroy()
+		end)
+
+		it("allows a bigger step for a bigger tree, with the tool's number as the floor", function()
+			-- `Places.stepAllowance` IS NEW IN THIS TASK and nothing asserted either branch (Reviewer,
+			-- round 1, finding 2). `TreeGround.CLIFF_STUDS` is the RE-SEATING tool's number -- *"would
+			-- sinking this existing tree bury it?"* -- and a flat 4 refused 29% of candidates on this
+			-- world's rolling ground. The junction still goes to the lowest sample either way, so what the
+			-- allowance buys is buried uphill flare, and a tenth of the height is not visible.
+			expect(Planter.stepAllowance(10)).to.equal(TreeGround.CLIFF_STUDS)
+			expect(Planter.stepAllowance(0)).to.equal(TreeGround.CLIFF_STUDS)
+			expect(Planter.stepAllowance(100)).to.equal(10)
+			expect(Planter.stepAllowance(85)).to.equal(8.5)
+			-- THE FLOOR AND THE FRACTION CROSS AT TEN TIMES `CLIFF_STUDS`, so nothing shorter than that
+			-- is ever given less than the tool's own allowance.
+			expect(Planter.stepAllowance(TreeGround.CLIFF_STUDS * 10)).to.equal(TreeGround.CLIFF_STUDS)
 		end)
 
 		it("is in the ground reader's ignore list, so our own trees are not the ground", function()

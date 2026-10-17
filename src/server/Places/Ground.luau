@@ -19,9 +19,14 @@
 -- DEV's terrain, ever. That is `Lobby.Field`'s own discipline, borrowed whole.
 --
 -- THE ROLLBACK IS THAT THERE IS NOTHING TO ROLL BACK: this runs inside a Play session, and a Play
--- session's terrain write is discarded when Play stops. That is the property `Lobby.Field` has relied
--- on in this same place since task 178; the design (section 18) flags that it was not re-verified
--- there, and task 193 did verify it -- see the task's review request.
+-- session's terrain write is discarded when Play stops.
+--
+-- **THAT PROPERTY IS CARRIED, NOT VERIFIED.** It is what `Lobby.Field` has relied on in this same
+-- place since task 178, and the design (section 18) flags that it was never re-tested; task 193 did
+-- not re-test it either, and says so in `reviews/task-193/REQUEST.md`. The paint runs only from the
+-- boot, i.e. only inside Play, so no Edit-time write exists for anybody to inspect. If the property
+-- ever turns out false the strip paint is a change to Karen's place file, which is rule 7 territory
+-- (design section 18's own words) -- so it is stated here as an assumption rather than a fact.
 --
 -- Design: docs/design/drive-places.md (sections 6.3 and 7)
 -- Note:   docs/research/2026-10-17-four-driven-hunt-places.md

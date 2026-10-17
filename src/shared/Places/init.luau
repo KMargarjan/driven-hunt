@@ -56,7 +56,7 @@ export type Planting = {
 	z: number,
 	scale: number, -- `Model:ScaleTo`; 1 is the template's own size
 	yaw: number, -- radians about Y
-	band: string, -- "herb" | "shrub" | "wood", for the report and the spec
+	band: string, -- "herb" | "shrub" | "wood" | "deep", for the report and the spec
 	side: number, -- -1 south of the line, +1 north of it
 }
 
@@ -165,7 +165,8 @@ end
 Places.PLANS = table.freeze({
 	-- KAREN'S PLACE 2, karen-ref-6: a stand inside a hedge looking across a field at a far tree
 	-- line. THE FAR FOREST IS THIS WORLD'S REAL WOOD (its southern face is at z -2900, measured
-	-- straight across this whole stand span), and the FIELD is the 504 studs of open ground between.
+	-- straight across this whole stand span), and the FIELD is the 350 studs -- 98 m -- of open ground
+	-- between.
 	-- So this plan plants ONE side only: the hunters' own edge, behind and beside them.
 	--
 	-- `northBelt = 0` IS THE WHOLE POINT and not an omission: plant anything north of this line and
