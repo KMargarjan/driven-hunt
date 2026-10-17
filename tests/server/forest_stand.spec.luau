@@ -270,6 +270,37 @@ return function()
 			expect(string.sub(Data.LAYOUT_OVERRIDE_ATTRIBUTE, 1, 7)).never.to.equal("DHFlag_")
 		end)
 
+		it("starts a session at place 1, and a forced drive does not move the cycle", function()
+			-- TWO INVARIANTS NOTHING ASSERTED (Reviewer, round 1, note 6), one of which was a DEFECT:
+			-- `promote` writes `chosen.name` for every source, so advancing from it resumed the
+			-- rotation at the FORCED place. `chosen.cycle` is where the cycle itself is.
+			--
+			-- THE MODULE CARRIES STATE ACROSS CASES, so this drives it from drive numbers of its own
+			-- and reads `layoutForDrive`'s answers rather than assuming a starting point.
+			local order = Data.LAYOUT_ORDER
+			-- 1. a FORCED drive, then a rotated one: the rotated one must be the place that follows
+			--    the last ROTATED place, not the one that follows the forced name.
+			local rotated = ForestTest.layoutForDrive(900, nil)
+			expect(Data.layoutNamed(rotated)).to.be.ok()
+			expect(ForestTest.stats().layoutSource).to.equal("rotation")
+			local forced = nil
+			for _, name in ipairs(order) do
+				if name ~= rotated and name ~= Data.nextLayout(rotated) then
+					forced = name
+					break
+				end
+			end
+			expect(forced).to.be.ok()
+			expect(ForestTest.layoutForDrive(901, forced)).to.equal(forced)
+			expect(ForestTest.stats().layoutSource).to.equal("override")
+			-- ...and the next rotated drive follows `rotated`, NOT `forced`.
+			expect(ForestTest.layoutForDrive(902, nil)).to.equal(Data.nextLayout(rotated))
+			expect(ForestTest.stats().layoutSource).to.equal("rotation")
+			TestKit.note(
+				string.format("rotation: dealt %s, forced %s, resumed %s", rotated, forced, ForestTest.layoutName())
+			)
+		end)
+
 		it("deals a layout once per drive and keeps it for that drive", function()
 			-- IDEMPOTENT PER DRIVE NUMBER, and that is load-bearing: `Match` reads the markers once a
 			-- second while `Waiting`, so a promoter that dealt on every call would move the ground
