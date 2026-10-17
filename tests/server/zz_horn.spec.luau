@@ -290,7 +290,9 @@ return function()
 			-- pin on a number somebody measured rather than a restatement of the arithmetic.
 			local half = Horn.MESH.SIZE_STUDS.X / 2
 			expect((mesh - Vector3.new(0, 0.4415, half)).Magnitude < 1e-4).to.equal(true)
-			expect(mesh.Z).to.equal(half)
+			-- A TOLERANCE AND NOT `to.equal`: the Z comes through a quarter turn, so it is `half` to
+			-- float precision and not by identity (the gate caught the bare equality once).
+			expect(math.abs(mesh.Z - half) < 1e-6).to.equal(true)
 			-- ...and it IS on the tube: the centre line and the radius both come from the samples.
 			local centre, radius = Horn.tubeAt(mesh.Z)
 			expect(math.abs(mesh.Y - centre) < 1e-9).to.equal(true)
