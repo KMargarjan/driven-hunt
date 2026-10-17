@@ -124,6 +124,12 @@ local shopFrame: Frame? = nil
 -- THE PAD DIALOG'S FRAME (task 182): created here, filled by `Hud.PadPanel`, and that module -- not
 -- this one -- writes its `Visible`. The shop panel's arrangement, one task later.
 local padFrame: Frame? = nil
+-- THE LOADING BANNER'S FRAME (task 197): created here with the rest of the screen, filled by
+-- `Hud.PadPanel`, which also owns its `Visible` -- the dialog's own arrangement, one frame over.
+local padLeavingFrame: Frame? = nil
+-- WHICH PAD THIS CLIENT HAS ALREADY TURNED TO FACE (task 197 part 2). One number, so the camera is
+-- asked ONCE per walk-on and not once a frame -- `ShopPanel.setNear`'s edge discipline.
+local facedPad: number? = nil
 local compassFrame: Frame? = nil
 -- Did the scope's own mask hide the compass strip? See `Hud.renderScope`.
 local compassHiddenByScope = false
@@ -229,6 +235,10 @@ end
 
 function Hud.padPanel(): Frame?
 	return padFrame
+end
+
+function Hud.padLeaving(): Frame?
+	return padLeavingFrame
 end
 
 function Hud.reportPanel(): Frame?
@@ -863,6 +873,23 @@ local function build(): ScreenGui
 	padDialog.Visible = false
 	padDialog.Parent = screen
 
+	-- ...AND THE LOADING BANNER (task 197). KAREN, 2026-10-15: *"we need clear message that game is
+	-- loading once clicked 1/1 or other now is delay"*. The same division as the dialog above it:
+	-- this file creates the box, `Hud.PadPanel` fills it and owns its `Visible`, and the two can never
+	-- be up together. FULL WIDTH less a margin, capped inside the panel so a wide screen gets a
+	-- banner rather than a letterbox -- a SCALE, so nothing has to re-measure on a resize.
+	local padLeaving = Instance.new("Frame")
+	padLeaving.Name = "PadLeaving"
+	padLeaving.BackgroundColor3 = PadPanel.LOOK.LEAVING_COLOR
+	padLeaving.BackgroundTransparency = 0
+	padLeaving.BorderSizePixel = 0
+	padLeaving.AnchorPoint = Vector2.new(0.5, 0.5)
+	padLeaving.Position = PadPanel.leavingPosition()
+	padLeaving.Size = PadPanel.leavingSize()
+	padLeaving.ZIndex = PadPanel.leavingZIndex()
+	padLeaving.Visible = false
+	padLeaving.Parent = screen
+
 	-- THE MAP (task 155). Karen: *"small map in left or right corner circle like is on another
 	-- games"* and *"a map when click M"*. Two frames and a button, created empty and filled by
 	-- `MapUi` -- the same division the compass and the report panel already have.
@@ -1040,6 +1067,7 @@ local function build(): ScreenGui
 	reportFrame = report
 	shopFrame = shop
 	padFrame = padDialog
+	padLeavingFrame = padLeaving
 	compassFrame = compass
 	scoreTitle = title
 	scoreFooter = footer
@@ -2068,6 +2096,10 @@ function Hud.renderObjective(CameraSystem)
 	-- WHAT THE LOBBY IS DOING RIGHT NOW (task 177): where the truck spot is, and how long until this
 	-- player leaves for the hunt. One table per frame, built from the one definition of each -- the
 	-- PART the server built, and the deadline the server wrote on this player.
+	-- WHICH PAD IS ASKING THIS PLAYER, read ONCE a frame and used by three things: the dialog's
+	-- visibility, the objective line standing down for it, and the camera's turn toward that pad's
+	-- truck (task 197 part 2). Two reads would be two answers to one question.
+	local asking = if lobbyData then lobbyData.padAsking(Players.LocalPlayer.UserId) else nil
 	local lobby = if lobbyData
 		then {
 			spot = lobbyData.spotPosition(),
@@ -2079,6 +2111,12 @@ function Hud.renderObjective(CameraSystem)
 			-- part lookups and four `Position` reads -- the same order as the one subtraction
 			-- `ShopPanel.setNear` below already costs this function.
 			pads = lobbyData.padPositions(),
+			-- ...AND WHETHER EITHER OF THE PAD'S PANELS IS UP (task 197 part 2), so the objective
+			-- line can stand down for them. `asking` is the one read above and `loading` is the same
+			-- attribute the banner itself is told from, so the line and the panels can never
+			-- disagree about whether a panel is up.
+			asking = asking,
+			loading = Players.LocalPlayer:GetAttribute(lobbyData.PAD_MINE_ATTRIBUTE),
 		}
 		else nil
 	-- IS HE AT THE SHOP COUNTER (task 178)? ONE EVALUATION, HERE, because this function is already
@@ -2118,7 +2156,43 @@ function Hud.renderObjective(CameraSystem)
 	-- lookups and eight cached attribute reads a frame, and one write per walk-on. A world with no
 	-- lobby asks nobody anything. (The REMOTE is resolved once in `Hud.whenReady`, not here: it
 	-- waits, and nothing on a render tick may.)
-	PadPanel.setAsk(if lobbyData then lobbyData.padAsking(Players.LocalPlayer.UserId) else nil)
+	PadPanel.setAsk(asking)
+	-- ...AND THE VIEW TURNS TO FACE THAT PAD'S TRUCK (task 197 part 2). The Director, after looking
+	-- at the first frames: the truck is SOUTH of the pad and a player arrives facing NORTH, so the
+	-- engine start, the headlights and the smoke all happened behind her.
+	--
+	-- **IT ASKS; THE CAMERA DECIDES.** `Camera.faceTowards` is a request of exactly the shape
+	-- `Camera.lookAt` and `Cursor.requestFree` are -- it eases the turn over `FACE_TURN_SECONDS` and
+	-- drops it the instant a mouse delta arrives -- and `Rig.apply` is still the one writer of
+	-- `workspace.CurrentCamera`. Nothing here touches an angle.
+	--
+	-- ONCE PER WALK-ON, on the edge, through `facedPad`: a request every frame would be a camera
+	-- that could never be turned away from.
+	--
+	-- IT IS THE *DIALOG'S* EDGE AND NOT THE PICK'S, and the limit is honest: the client is told which
+	-- pad only while that pad is ASKING it (`DHPadFirst`). The first man on a pad is always asked, so
+	-- he always gets the turn; a late joiner who was never asked is never told an index, and this
+	-- does not invent one (the same limit that took the number off the banner's eyebrow).
+	if asking ~= facedPad then
+		facedPad = asking
+		if asking ~= nil and CameraSystem ~= nil and lobbyData ~= nil then
+			local truck = lobbyData.truckPosition(asking :: number)
+			if truck ~= nil then
+				CameraSystem.faceTowards(truck)
+			end
+		end
+	end
+	-- ...AND WHETHER A TRUCK IS ALREADY TAKING HIM (task 197). ONE server-measured fact again --
+	-- `DHPadMine`, the state word of the pad he is loading onto -- read HERE for `setAsk`'s own
+	-- stated reason, and the panel is TOLD both it and the seconds. The seconds are the ONES THIS
+	-- FUNCTION ALREADY HAS: `lobby.secondsLeft` is converted three lines up for the objective line,
+	-- so the banner's countdown and the line's countdown are the same number and cannot disagree
+	-- (task 153 round 2's finding: *"a marker that moved without its label told a beater the drive
+	-- was south"*). A world with no lobby is loading nobody.
+	PadPanel.setLeaving(
+		if lobbyData then Players.LocalPlayer:GetAttribute(lobbyData.PAD_MINE_ATTRIBUTE) else nil,
+		if lobby then lobby.secondsLeft else nil
+	)
 	local target = Objective.targetFor(team, phase, MapUi.geometry(), me, lobby)
 	local far = Objective.distanceStuds(target, me)
 	arrivedAtTarget = Objective.arrived(far, arrivedAtTarget)
@@ -2556,6 +2630,7 @@ function Hud.start()
 		PadPanel.start(padFrame :: Frame, {
 			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
 			Input = Weapon.Input,
+			leaving = padLeavingFrame,
 		})
 	end
 

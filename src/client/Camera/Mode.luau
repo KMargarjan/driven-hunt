@@ -121,6 +121,34 @@ function Mode.withYaw(state: State, yawDeg: number): State
 	return table.freeze(next_)
 end
 
+-- ONE STEP OF A TURN TOWARD ANOTHER STATE'S ANGLES, `t` of the way there. PURE, so
+-- `tests/server/camera_mode.spec.luau` drives the whole of task 197's turn-to-your-truck with no
+-- client, no lobby and no clock at all.
+--
+-- **THE YAW GOES THE SHORT WAY ROUND, and that is the only interesting line here.** Yaw is wrapped
+-- to (-180, 180], so a turn from 170 to -170 is 20 degrees and not 340 -- and a naive lerp would
+-- swing the view the long way past south, which is precisely the kind of thing that measures
+-- correct and looks wrong (`docs/PROJECT_CONTEXT.md`). The difference is taken, wrapped, and
+-- applied; the pitch has no wrap because `PITCH_MIN_DEG`/`PITCH_MAX_DEG` already bound it.
+--
+-- `t` IS CLAMPED, so a long frame can overshoot neither angle, and `t = 1` lands exactly on the
+-- target rather than within floating-point reach of it.
+function Mode.towardAngles(state: State, target: State, t: number): State
+	local amount = math.clamp(t, 0, 1)
+	local next_ = table.clone(state) :: any
+	next_.yawDeg = wrapDeg(state.yawDeg + wrapDeg(target.yawDeg - state.yawDeg) * amount)
+	next_.pitchDeg = state.pitchDeg + (target.pitchDeg - state.pitchDeg) * amount
+	return table.freeze(next_)
+end
+
+-- HOW FAR TWO STATES' ANGLES ARE APART, in degrees, the short way round. PURE, and it is what lets
+-- a turn say *"I am there"* rather than run its clock out.
+function Mode.angleGapDeg(a: State, b: State): number
+	local yaw = math.abs(wrapDeg(b.yawDeg - a.yawDeg))
+	local pitch = math.abs(b.pitchDeg - a.pitchDeg)
+	return math.max(yaw, pitch)
+end
+
 function Mode.initial(config): State
 	local state = atRest()
 	state.mode = "Loading" :: ModeName

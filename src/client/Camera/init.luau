@@ -70,6 +70,10 @@ local LOOK_AT_ATTRIBUTE = "DHLookAt"
 -- when its request has actually been rendered, because the harness replays mouse movement into the
 -- same client and a mouse delta in the same frame takes the camera somewhere else.
 local pendingLookAt: Vector3? = nil
+-- THE TURN TOWARD SOMETHING IN THE WORLD (task 197), and its clock. `facingTarget` is a REQUEST the
+-- camera is honouring and nothing else holds; `facingLeft` is how many seconds of it are left.
+local facingTarget: Vector3? = nil
+local facingLeft = 0
 
 local signal = Instance.new("BindableEvent")
 Camera.Changed = signal.Event
@@ -94,6 +98,12 @@ local stats = {
 	breakAngleDeg = 0,
 	-- How many times the view has been started from the body's facing (task 130): one per spawn.
 	spawnFacings = 0,
+	-- THE TURN TOWARD A POINT (task 197): how many were asked for, how many ran to the end, and how
+	-- many the player's own mouse cancelled. The third is the one that matters -- a camera that
+	-- never yields is the complaint, so "she moved it and it stopped" has to be a number.
+	facingRequests = 0,
+	facingsDone = 0,
+	facingCancels = 0,
 	-- Shots this camera has kicked for, and the largest camera pitch offset any of them reached
 	-- (task 92). The second number is what says the kick is "a bit" rather than a lurch, and the
 	-- client spec asserts both it and the return to zero.
@@ -302,6 +312,48 @@ function Camera.lookAt(point: Vector3): boolean
 	return true
 end
 
+-- TURN THE VIEW TOWARD A POINT IN THE WORLD, SMOOTHLY, ONCE -- and give it up the moment she moves
+-- the mouse (task 197 part 2).
+--
+-- KAREN'S PROBLEM, from the Director's own look at the first frames: *"in every player frame the
+-- view looks north into the trees; the truck is south of the pad, so the engine start, the lights
+-- and the smoke ... happen behind her"*. A player arrives on a pad facing the lodge, because
+-- `Camera.faceCharacter` starts the view where the BODY is, and his truck is eighteen studs the
+-- other way.
+--
+-- **IT IS A REQUEST, EXACTLY AS `Camera.lookAt` AND `Cursor.requestFree` ARE.** The Hud asks, the
+-- camera decides, and `Rig.apply` is still the one thing that writes `workspace.CurrentCamera` --
+-- the foreign-write counter is untouched by this. Nothing in the lobby or the Hud may set an angle.
+--
+-- THE DIFFERENCE FROM `Camera.lookAt` IS THE WHOLE POINT: that one SNAPS, because it exists so a
+-- test can aim. This one eases over `FACE_TURN_SECONDS` inside `update`, and **any mouse movement
+-- past `FACE_CANCEL_DELTA_PX` cancels it for good**. A camera that kept pulling back toward a truck
+-- while the player tried to look away would be the camera fighting her hand, which is what
+-- `Camera.wantsDelta`'s header was written about.
+--
+-- ASKING AGAIN REPLACES THE TARGET AND RESTARTS THE CLOCK; asking with nil gives it up. Returns
+-- false when there is no character to turn yet, the same answer `lookAt` gives.
+function Camera.faceTowards(point: Vector3?): boolean
+	if point == nil then
+		facingTarget, facingLeft = nil, 0
+		return true
+	end
+	local _, root = characterParts()
+	if not root then
+		return false
+	end
+	facingTarget = point
+	facingLeft = Config.FACE_TURN_SECONDS
+	stats.facingRequests += 1
+	return true
+end
+
+-- IS A REQUESTED TURN STILL RUNNING? For a spec and a console probe, so "it turned" is a read and
+-- not a belief.
+function Camera.facingTarget(): Vector3?
+	return facingTarget
+end
+
 -- DOES THIS MOUSE MOVEMENT BELONG TO THE CAMERA? PURE, exported, and the whole of the fix for
 -- Karen's 2026-10-16 report: *"once I close shop I can't move mouse seems disabled need to go back
 -- to turn again"*.
@@ -473,6 +525,34 @@ local function update(dt: number)
 	-- open and two shells out while it takes the picture, and the weapon will not oblige on request.
 	breaking = Poses.holdReload(hold) or breaking
 	Viewmodel.setReload(breaking)
+
+	-- THE TURN TOWARD THE TRUCK, ONE FRAME OF IT (task 197 part 2). It runs BEFORE `Mode.step`
+	-- consumes `lookDelta`, because the delta is what cancels it: this is the one place that can see
+	-- "did she move the mouse THIS frame" and the state's angles together.
+	--
+	-- IT IS NOT A SECOND WRITER OF ANYTHING. It changes the same two numbers `Camera.faceCharacter`
+	-- changes, through a pure reducer in `Mode`, and `Rig.apply` below is still the one thing that
+	-- writes the engine's camera.
+	if facingTarget ~= nil then
+		if lookDelta.Magnitude > config.FACE_CANCEL_DELTA_PX then
+			-- HER HAND WINS, AND FOR GOOD: the target is dropped, not paused.
+			facingTarget, facingLeft = nil, 0
+			stats.facingCancels += 1
+		elseif root ~= nil then
+			local want = Mode.anglesToward(state, root.CFrame, facingTarget :: Vector3, config)
+			local share = if facingLeft > dt then dt / facingLeft else 1
+			state = Mode.towardAngles(state, want, share)
+			facingLeft -= dt
+			if facingLeft <= 0 or Mode.angleGapDeg(state, want) <= config.FACE_ARRIVED_DEG then
+				facingTarget, facingLeft = nil, 0
+				stats.facingsDone += 1
+			end
+		else
+			-- NO BODY TO TURN: the request is dropped rather than held, which is what a respawn
+			-- between the ask and the next frame looks like.
+			facingTarget, facingLeft = nil, 0
+		end
+	end
 
 	local previous = state.mode
 	state = Mode.step(state, {

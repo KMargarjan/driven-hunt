@@ -183,6 +183,36 @@ return function()
 			expect(Objective.targetFor(nil, "Waiting", nil, Vector3.new(), nil)).to.equal(nil)
 		end)
 
+		it("stands the top line down while either of the pad's own panels is up", function()
+			-- TASK 197 PART 2. The Director, after looking at the first frames: *"the top line 'step
+			-- on a truck pad to hunt' still shows while she stands on the pad and while the banner
+			-- says LEAVING; and in the countdown the top line 'leaving for the hunt in 5' duplicates
+			-- the banner"*. One message at a time.
+			local spot = Vector3.new(2876, 150, -2914)
+			-- NOTHING ON THE PAD YET: the instruction is the only thing saying what to do, so it stays.
+			expect(Objective.text("Waiting", nil, nil, { spot = spot })).to.equal(Objective.CONFIG.TEXT.Lobby)
+			-- THE DIALOG IS UP: it asks the question in letters three times the size.
+			expect(Objective.text("Waiting", nil, nil, { spot = spot, asking = 2 })).to.equal("")
+			-- THE BANNER IS UP, in each of the three states it can be up in.
+			for _, word in ipairs({ "filling", "countdown", "leaving" }) do
+				expect(Objective.text("Waiting", nil, nil, { spot = spot, loading = word })).to.equal("")
+			end
+			-- ...INCLUDING THE COUNTDOWN, which is the duplication the Director named: this row used
+			-- to read "leaving for the hunt in 5" beside a banner saying THE TRUCK LEAVES IN 5.
+			expect(Objective.text("Waiting", nil, nil, { spot = spot, secondsLeft = 5, loading = "countdown" })).to.equal(
+				""
+			)
+			-- ...AND IT COMES BACK the moment neither panel is up, which is what makes this a LEVEL
+			-- rule and not a toggle: the same call with the same world answers the line again.
+			expect(Objective.text("Waiting", nil, nil, { spot = spot, secondsLeft = 5 })).to.equal(
+				string.format(Objective.CONFIG.TEXT.LobbyLeaving, 5)
+			)
+			-- A PLAYER IN THE DRIVE IS NOT AFFECTED AT ALL: the lobby's rows are the teamless branch.
+			expect(Objective.text("Running", "Shooters", nil, { spot = spot, loading = "countdown" })).never.to.equal(
+				""
+			)
+		end)
+
 		it("points the chevron at the NEAREST pad, and falls back to task 177's answer", function()
 			-- TASK 182: FOUR PADS, 17 STUDS APART. Pointing at pad 1 while a player stands by truck 4
 			-- would be the chevron lying about where to go, and this is the case the Reviewer found

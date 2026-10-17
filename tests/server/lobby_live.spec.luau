@@ -389,6 +389,215 @@ return function()
 			expect(Lobby.stats().cancels).to.equal(1)
 		end)
 
+		-- ---------------------------------------------------------------- task 197
+		it("starts THAT pad's truck when the size is picked, and leaves the other three dark", function()
+			-- KAREN, 2026-10-15: *"also could be car started sound light on something like that
+			-- indicating loading ect"*.
+			--
+			-- IT RUNS AGAINST `Build.truck`'S FALLBACK AND THAT IS THE POINT HERE: the DEV place has
+			-- no `LobbyAssets`, so every bay is the parts truck, which ships NO lamp at all -- the
+			-- branch that has to build its own four lenses. The free model's own lamps are classified
+			-- by `lobby.spec`'s pure case, off the table measured out of the real model.
+			local _seen = fresh(bin)
+			Lobby.step(1000, {})
+			-- EVERY TRUCK GOT A RIG, AND EVERY ONE IS BORN OFF: a yard nobody is standing in is four
+			-- dark trucks, which is the state the game is in for all but a few seconds.
+			for index = 1, CFG.TRUCK.COUNT do
+				expect(Lobby.Build.truckRunning(index)).to.equal(false)
+				local lamps, lights, voice = Lobby.Build.truckRigCounts(index)
+				-- FOUR LENSES on the fallback truck: two headlights and two tails.
+				expect(lamps).to.equal(4)
+				-- ...AND TWO LIGHTS, NOT FOUR. A tail lamp is its OWN LENS and nothing else since the
+				-- rear-quarter night frame (`TAIL_BRIGHTNESS = 0`): the six red `PointLight`s behind
+				-- the lenses turned twenty studs of ground, two neighbouring trucks and the lodge
+				-- salmon pink, and the lit lens reads as a tail light without them. The two that are
+				-- left are the headlamps' `SpotLight`s, which have a job to do.
+				local tailGlows = if CFG.TRUCK.ENGINE.TAIL_BRIGHTNESS > 0 then 2 else 0
+				expect(lights).to.equal(2 + tailGlows)
+				-- ...AND AN ENGINE, A SMOKE EMITTER AND BOTH SOUNDS.
+				expect(voice).to.equal(true)
+			end
+			expect(Lobby.Build.stats().truckRigs).to.equal(CFG.TRUCK.COUNT)
+			expect(Lobby.Build.truckRunning(CFG.TRUCK.COUNT + 1)).to.equal(nil)
+
+			local player = occupant(61, padAt(2), bin)
+			Lobby.step(1001, { player })
+			-- STILL DARK WHILE THE DIALOG IS UP: `sizing` is not loading, because a man reading the
+			-- dialog has committed to nothing.
+			expect(Lobby.padOf(2).state).to.equal(Pads.SIZING)
+			expect(Lobby.Build.truckRunning(2)).to.equal(false)
+
+			-- THE PICK STARTS IT, ON THE PRESS AND NOT ON THE NEXT SCAN.
+			expect(Lobby.onPadRequest(player, { pad = 2, size = 1 }, 1001.1).ok).to.equal(true)
+			expect(Lobby.Build.truckRunning(2)).to.equal(true)
+			for _, dark in ipairs({ 1, 3, 4 }) do
+				expect(Lobby.Build.truckRunning(dark)).to.equal(false)
+			end
+			local writes = Lobby.stats().truckWrites
+			expect(writes).to.equal(1)
+
+			-- IT IS AN EDGE AND NOT A SCAN. `setTruck` is asked every scan with a level answer, so
+			-- fifty scans of a running truck are still one write -- `padWrites`' own claim, which is
+			-- what stops this costing four instance writes a tick for ever.
+			for tick = 1, 20 do
+				Lobby.step(1001.1 + tick * 0.12, { player })
+			end
+			expect(Lobby.stats().truckWrites).to.equal(writes)
+			expect(Lobby.Build.truckRunning(2)).to.equal(true)
+			-- ...AND IT IS STILL RUNNING THROUGH THE COUNTDOWN, which is the state the banner counts
+			-- down in.
+			expect(Lobby.padOf(2).state).to.equal(Pads.COUNTDOWN)
+		end)
+
+		it("puts the engine and the exhaust ON the truck, not three thousand studs away", function()
+			-- **THE DEFECT THIS CASE IS WRITTEN FROM, measured in the live Forest Test on 2026-10-17:**
+			-- the exhaust attachment reported `(5783.8, 304.8, -5872.9)` against a lobby at
+			-- (2893, 150, -2941) -- very nearly twice everything. `Attachment.WorldCFrame` was being
+			-- written BEFORE the attachment was parented, so it landed in the LOCAL `CFrame` and the
+			-- engine then multiplied it by the part's own. The smoke was emitting three thousand
+			-- studs away and the engine SOUND was playing there with it, which is the whole of
+			-- Karen's *"car started sound"* gone -- and no spec could see it, because an attachment
+			-- has no failure to assert, only a position nobody looked at.
+			--
+			-- SO THE ASSERTION IS THE ONE THING THAT WOULD HAVE CAUGHT IT: every piece of the rig is
+			-- inside its own truck's box, with a stud of slack for the exhaust hanging under the
+			-- tailgate.
+			local _seen = fresh(bin)
+			Lobby.step(1000, {})
+			local trucks = bin:FindFirstChild(Data.TRUCKS_NAME, true)
+			expect(trucks).to.be.ok()
+			local checked = 0
+			for index = 1, CFG.TRUCK.COUNT do
+				local truck = (trucks :: Instance):FindFirstChild(string.format(Data.TRUCK_NAME, index))
+				expect(truck).to.be.ok()
+				local centre, half = Lobby.Build.worldBoxOf(truck :: Instance)
+				local slack = Vector3.new(2, 2, 2)
+				for _, piece in ipairs((truck :: Instance):GetDescendants()) do
+					if piece:IsA("Attachment") then
+						local at = (piece :: Attachment).WorldPosition
+						local gap = at - centre
+						expect(math.abs(gap.X) <= half.X + slack.X).to.equal(true)
+						expect(math.abs(gap.Y) <= half.Y + slack.Y).to.equal(true)
+						expect(math.abs(gap.Z) <= half.Z + slack.Z).to.equal(true)
+						checked += 1
+					end
+				end
+			end
+			-- AND THERE IS SOMETHING TO CHECK: two per truck (the engine and the exhaust) plus one
+			-- aim attachment per headlamp, so a rig that built nothing would fail here rather than
+			-- pass a loop over an empty list.
+			expect(checked >= 2 * CFG.TRUCK.COUNT).to.equal(true)
+		end)
+
+		it("turns the truck off again whichever way the party ends", function()
+			-- THE RECONCILE IS THE WHOLE REASON THIS IS NOT AN EVENT. A truck started by the PICK and
+			-- stopped by the DEPARTURE would be left idling by every other way a party can end -- and
+			-- there are three, driven one after the other below.
+			local seen = fresh(bin)
+			Lobby.step(1000, {})
+
+			-- (1) HE DEPARTS. The drive takes him, the pad empties by itself, the truck goes quiet.
+			local goes = occupant(71, padAt(1), bin)
+			Lobby.step(1001, { goes })
+			expect(Lobby.onPadRequest(goes, { pad = 1, size = 1 }, 1001.1).ok).to.equal(true)
+			expect(Lobby.Build.truckRunning(1)).to.equal(true)
+			-- ONE TRANSITION PER CALL (`Pads.step`'s own rule), so the scan that arms the countdown and
+			-- the scan that departs are two scans and the deadline is measured from the FIRST of them.
+			Lobby.step(1001.2, { goes })
+			expect(Lobby.padOf(1).state).to.equal(Pads.COUNTDOWN)
+			Lobby.step(1001.3 + CFG.COUNTDOWN_SECONDS, { goes })
+			expect(#seen.enrolled).to.equal(1)
+			Lobby.step(1001.5 + CFG.COUNTDOWN_SECONDS, { goes })
+			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
+			expect(Lobby.Build.truckRunning(1)).to.equal(false)
+
+			-- (2) HE WALKS AWAY DURING THE COUNTDOWN. Karen's own task-177 rule -- stepping out
+			-- cancels it -- and the truck has to stop with it.
+			local quits = occupant(72, padAt(3), bin)
+			Lobby.step(1010, { quits })
+			expect(Lobby.onPadRequest(quits, { pad = 3, size = 1 }, 1010.1).ok).to.equal(true)
+			expect(Lobby.Build.truckRunning(3)).to.equal(true)
+			quits.root.Position = padAt(3) + Vector3.new(0, 0, 60)
+			Lobby.step(1010.3, { quits })
+			expect(Lobby.padOf(3).state).to.equal(Pads.EMPTY)
+			expect(Lobby.Build.truckRunning(3)).to.equal(false)
+
+			-- (3) THE HAND-OVER FAILS. `Lobby.depart` returns 0, the pad re-enters `sizing` -- a
+			-- fresh question, not a resumed one -- and `sizing` is not loading, so the engine stops
+			-- rather than idling at a pad that is asking again.
+			local stuck = fresh(bin, function(world)
+				world.enrol = function()
+					return false
+				end
+			end)
+			expect(stuck).to.be.ok()
+			Lobby.step(2000, {})
+			local stranded = occupant(73, padAt(4), bin)
+			Lobby.step(2001, { stranded })
+			expect(Lobby.onPadRequest(stranded, { pad = 4, size = 1 }, 2001.1).ok).to.equal(true)
+			expect(Lobby.Build.truckRunning(4)).to.equal(true)
+			Lobby.step(2001.2, { stranded })
+			expect(Lobby.padOf(4).state).to.equal(Pads.COUNTDOWN)
+			Lobby.step(2001.3 + CFG.COUNTDOWN_SECONDS, { stranded })
+			Lobby.step(2001.5 + CFG.COUNTDOWN_SECONDS, { stranded })
+			expect(Lobby.padOf(4).state).to.equal(Pads.SIZING)
+			expect(Lobby.Build.truckRunning(4)).to.equal(false)
+		end)
+
+		it("tells every member of the party that his truck is loading, and nobody else", function()
+			-- KAREN: *"we need clear message that game is loading once clicked 1/1 or other now is
+			-- delay"*. `DHPadMine` is the banner's whole visibility rule and it is a server-measured
+			-- fact: one attribute per member, the state word of the pad taking him.
+			local seen = fresh(bin)
+			Lobby.step(1000, {})
+			local a = occupant(81, padAt(2), bin)
+			local b = occupant(82, padAt(2) + Vector3.new(2, 0, 2), bin)
+			local bystander = occupant(83, Vector3.new(ANCHOR.x, SHELF, ANCHOR.z) + CFG.SPAWN.OFFSET, bin)
+			Lobby.step(1001, { a, b, bystander })
+			-- NOTHING WHILE THE DIALOG IS UP: `sizing` is not a loading state, so the dialog and the
+			-- banner can never be on screen together.
+			expect(a.attributes[Data.PAD_MINE_ATTRIBUTE]).to.equal(nil)
+
+			expect(Lobby.onPadRequest(a, { pad = 2, size = 2 }, 1001.1).ok).to.equal(true)
+			Lobby.step(1001.2, { a, b, bystander })
+			-- BOTH MEMBERS, THE SAME WORD, and it is the pad's own state -- so the banner's line and
+			-- the pad's billboard can never disagree about what is happening.
+			expect(a.attributes[Data.PAD_MINE_ATTRIBUTE]).to.equal(Lobby.padOf(2).state)
+			expect(b.attributes[Data.PAD_MINE_ATTRIBUTE]).to.equal(a.attributes[Data.PAD_MINE_ATTRIBUTE])
+			expect(Data.padLoading(a.attributes[Data.PAD_MINE_ATTRIBUTE])).to.equal(true)
+			-- AND NOT THE MAN BY THE LODGE.
+			expect(bystander.attributes[Data.PAD_MINE_ATTRIBUTE]).to.equal(nil)
+
+			-- IT CLEARS THE MOMENT THE DRIVE HAS HIM, which is the Director's *"until the drive takes
+			-- the player"* -- the same edge the roster is written on, so the banner cannot outlive the
+			-- thing it was counting down to.
+			Lobby.step(1001.2 + CFG.COUNTDOWN_SECONDS, { a, b, bystander })
+			expect(#seen.enrolled).to.equal(2)
+			Lobby.step(1001.4 + CFG.COUNTDOWN_SECONDS, { a, b, bystander })
+			expect(a.attributes[Data.PAD_MINE_ATTRIBUTE]).to.equal(nil)
+			expect(b.attributes[Data.PAD_MINE_ATTRIBUTE]).to.equal(nil)
+		end)
+
+		it("leaves no banner and no running truck behind when the owner stops", function()
+			-- THE TEARDOWN CLAIM, extended to task 197's two new things: an owner that stopped must
+			-- leave nothing on anybody's screen and no engine running in an empty yard.
+			local _seen = fresh(bin)
+			Lobby.step(1000, {})
+			local player = occupant(91, padAt(1), bin)
+			Lobby.step(1001, { player })
+			expect(Lobby.onPadRequest(player, { pad = 1, size = 1 }, 1001.1).ok).to.equal(true)
+			Lobby.step(1001.2, { player })
+			expect(player.attributes[Data.PAD_MINE_ATTRIBUTE]).to.be.ok()
+			expect(Lobby.Build.truckRunning(1)).to.equal(true)
+			Lobby.stop()
+			expect(player.attributes[Data.PAD_MINE_ATTRIBUTE]).to.equal(nil)
+			expect(player.attributes[Data.LEAVE_AT_ATTRIBUTE]).to.equal(nil)
+			-- THE TRUCK WENT WITH THE FOLDER: `Lobby.stop` destroys it, so there is nothing left to
+			-- be running. The rig is dropped at the next build, and `setTruck` would write nothing on
+			-- a part that is no longer in the DataModel.
+			expect(Lobby.Build.padPart(1)).to.equal(nil)
+		end)
+
 		it("gives every member of a departing party the SAME deadline, once, on the edge", function()
 			local seen = fresh(bin)
 			Lobby.step(1000, {})
@@ -603,11 +812,13 @@ return function()
 			-- whole point of it being public. Not repeated here.
 			local _seen, on = fresh(bin, function(world)
 				world.remotes = {
-					PadRequest = { OnServerEvent = {
-						Connect = function()
-							return nil
-						end,
-					} },
+					PadRequest = {
+						OnServerEvent = {
+							Connect = function()
+								return nil
+							end,
+						},
+					},
 				}
 			end)
 			expect(on).to.equal(true)

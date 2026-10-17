@@ -151,6 +151,10 @@ local stats = {
 	-- HOW MANY TIMES A PAD'S BILLBOARD OR ATTRIBUTES CHANGED. `Build.setPad` is edge-triggered, so a
 	-- number that climbs with `scans` is the bug this counter exists to show.
 	padWrites = 0,
+	-- ...AND HOW MANY TIMES A TRUCK WAS STARTED OR STOPPED (task 197). `Build.setTruck` is
+	-- edge-triggered for the same reason and reports the same way, so the two counters read together:
+	-- one party leaving is one `truckWrites` on and one off.
+	truckWrites = 0,
 	dismissals = 0,
 	returns = 0,
 	degradedEnrolments = 0,
@@ -370,6 +374,17 @@ local function clearLeaveAt(player: any)
 	end
 end
 
+-- WHICH PAD THIS MAN IS LOADING ONTO, as its own state word, or nil (task 197). `clearLeaveAt`'s
+-- shape exactly: WRITTEN ONLY WHEN IT DIFFERS, so it is one replicated write per change and not ten
+-- a second, and asked every scan so it is a LEVEL rule -- which is what makes the banner on his
+-- screen go down by itself when the party cancels, when the drive takes him, or when he walks away.
+local function setPadMine(player: any, state: string?)
+	if player:GetAttribute(Data.PAD_MINE_ATTRIBUTE) ~= state then
+		player:SetAttribute(Data.PAD_MINE_ATTRIBUTE, state)
+		touched[player.UserId] = player
+	end
+end
+
 -- WRITTEN ONLY WHEN IT DIFFERS, so it is one write per change and not one per scan.
 local function setRespawn(player: any, to: BasePart?)
 	if player.RespawnLocation ~= to then
@@ -407,6 +422,10 @@ local function stepPlayer(player: any, now: number, padIndex: number?, serverNow
 		-- HE IS IN THE HUNT. Nothing of the lobby's applies to him: no deadline on his screen, and no
 		-- respawn point at the lodge -- `Match.Body` owns where he stands now.
 		clearLeaveAt(player)
+		-- ...AND THE LOADING BANNER COMES DOWN HERE, which is the Director's *"until the drive takes
+		-- the player"* said as a line of code. It is the SAME edge the roster is written on -- the
+		-- drive has him -- so the banner cannot outlive the thing it was counting down to.
+		setPadMine(player, nil)
 		setRespawn(player, nil)
 		return
 	end
@@ -423,6 +442,10 @@ local function stepPlayer(player: any, now: number, padIndex: number?, serverNow
 	-- `filling -> countdown` edge and cleared the moment he steps off -- which is the per-member half
 	-- of what `Pads.step`'s own cancel does for the whole pad.
 	local pad = if padIndex ~= nil then pads[padIndex] else nil
+	-- ...AND WHETHER HIS PAD IS LOADING, through the ONE predicate the truck's lights read too
+	-- (`Data.padLoading`): so the banner on his screen and the engine on that truck are the same
+	-- fact, and there is no second answer to *"is this party leaving"*.
+	setPadMine(player, if pad ~= nil and Data.padLoading(pad.state) then pad.state else nil)
 	local leaveAt = if pad ~= nil and pad.state == Pads.COUNTDOWN then pad.deadline else nil
 	if leaveAt == nil then
 		clearLeaveAt(player)
@@ -539,6 +562,17 @@ local function stepPads(lists: { { any } }, occupants: { any }, now: number)
 			local truckLine, countLine = Pads.labelFor(pad, cfg)
 			if Build.setPad(index, pad.state, pad.firstUserId, truckLine, countLine) then
 				stats.padWrites += 1
+			end
+			-- ...AND THE TRUCK IN FRONT OF IT STARTS OR STAYS DARK (task 197). KAREN, 2026-10-15:
+			-- *"could be car started sound light on something like that indicating loading"*.
+			--
+			-- ASKED EVERY SCAN WITH A LEVEL ANSWER, exactly like the billboard above it and for a
+			-- stronger reason: an engine turned on by the PICK and off by the DEPARTURE would be left
+			-- running by every other way a party can end -- the last man stepping off in `countdown`,
+			-- a failed hand-over re-entering `sizing`, a phase change emptying the pads. `setTruck`
+			-- is edge-triggered inside, so this costs one comparison a scan per truck.
+			if Build.setTruck(index, Data.padLoading(pad.state)) then
+				stats.truckWrites += 1
 			end
 		end
 	end
@@ -713,6 +747,14 @@ function Lobby.onPadRequest(player: any, request: any, now: number?): any
 	local truckLine, countLine = Pads.labelFor(after, cfg)
 	if Build.setPad(found, after.state, after.firstUserId, truckLine, countLine) then
 		stats.padWrites += 1
+	end
+	-- THE TRUCK STARTS ON THE PRESS AND NOT ON THE NEXT SCAN (task 197). The Director's brief begins
+	-- at *"the moment a size is picked"*, and this function already applies the pick here rather than
+	-- waiting -- the billboard two lines up is written for the same reason. The scan's own call is
+	-- what keeps it honest afterwards; this one only removes a tenth of a second of silence from the
+	-- one edge a player can hear.
+	if Build.setTruck(found, Data.padLoading(after.state)) then
+		stats.truckWrites += 1
 	end
 	return { ok = true, size = size }
 end
@@ -927,8 +969,16 @@ function Lobby.stop()
 	-- EXACTLY WHAT IT WROTE AND NOTHING ELSE: the players this module actually touched, not every
 	-- player on the server.
 	for _, player in pairs(touched) do
-		if player.Parent ~= nil or player:GetAttribute(Data.LEAVE_AT_ATTRIBUTE) ~= nil then
+		if
+			player.Parent ~= nil
+			or player:GetAttribute(Data.LEAVE_AT_ATTRIBUTE) ~= nil
+			or player:GetAttribute(Data.PAD_MINE_ATTRIBUTE) ~= nil
+		then
 			player:SetAttribute(Data.LEAVE_AT_ATTRIBUTE, nil)
+			-- ...AND THE LOADING BANNER (task 197). It is the same teardown claim as the deadline
+			-- beside it: an owner that stopped must leave nothing on anybody's screen, and this
+			-- attribute is the banner's whole visibility rule.
+			player:SetAttribute(Data.PAD_MINE_ATTRIBUTE, nil)
 			player.RespawnLocation = nil
 		end
 	end
