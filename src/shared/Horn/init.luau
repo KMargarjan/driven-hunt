@@ -673,7 +673,23 @@ function Horn.mouthpieceOffset(mesh, worn: string?): Vector3
 	local rotation = mesh.ROTATION_DEG
 	local pose = CFrame.new(mesh.OFFSET_STUDS)
 		* CFrame.Angles(math.rad(rotation.X), math.rad(rotation.Y), math.rad(rotation.Z))
-	return pose * Vector3.new(mesh.SIZE_STUDS.X / 2, 0, 0)
+	-- WHICH END, from the mesh's own three numbers -- unchanged, and still the only thing that says
+	-- the mouthpiece is at +Z rather than -Z.
+	local end_ = pose * Vector3.new(mesh.SIZE_STUDS.X / 2, 0, 0)
+	-- ...AND THEN ONTO THE HORN (task 202). The line above is the centre of the BOX's end face, and
+	-- the box is nearly empty: at that end the tube's centre line is 0.44 studs above it, which is
+	-- most of the box's own height. Task 176 aimed the first-person raise at the box and the number
+	-- LOOKED right -- `camera_client`'s *"within 0.15 studs of the view's own vertical axis"* passed
+	-- on it -- while what it actually put at the lips was a point in mid-air beside the horn. Lifting
+	-- it onto `TUBE_SAMPLES`' measured centre line is the whole difference, and it is why that case
+	-- now fails on a pose that holds the box end at the mouth and passes on one that holds the HORN
+	-- there (0.410 studs off the axis against 0.025).
+	--
+	-- THE SAMPLES ARE IN THE HANDLE'S FRAME, i.e. with `pose` already applied, so this reads the
+	-- centre line at the END's own Z and keeps the end's X: moving `ROTATION_DEG` or `OFFSET_STUDS`
+	-- means re-measuring them, which their own header says.
+	local centre = Horn.tubeAt(end_.Z)
+	return Vector3.new(end_.X, centre, end_.Z)
 end
 
 -- ---------------------------------------------------------------- the tube itself (task 202)

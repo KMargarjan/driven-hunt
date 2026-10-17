@@ -198,7 +198,17 @@ The viewport is assumed no narrower than it is tall. Roblox's `FieldOfView` is t
 the vertical bound is exact for every window and the horizontal bound is the vertical one again --
 the strictest any window can ask for. Karen plays at 955 x 785, which has 1.22x that horizontal room.
 
-### 6.3 What the Forest Test's own `/beater` cost before any of this could be measured
+### 6.3 The mouthpiece was not on the horn either
+
+`Horn.mouthpieceOffset` answered the centre of the mesh BOX's `+Z` end face. The box is 1.084 studs
+tall and the tube's centre line at that end is **0.4415 studs above** that face's centre -- so the
+point the raise was aimed at, and the point `camera_client`'s *"within 0.15 studs of the view's own
+vertical axis"* was measured against, sat in mid-air beside the horn. The target passed on it while
+the horn was elsewhere: in the pose this task ships, the box end reads **0.410** studs off the view
+axis and the measured tip reads **0.025**. Since task 202 the function lifts that end onto
+`TUBE_SAMPLES`' centre line, which is what makes the client case mean what it says.
+
+### 6.4 What the Forest Test's own `/beater` cost before any of this could be measured
 
 Neither `[ForestTest] <name> asked to join as a <role> (start switch)` nor `[ForestTest] <name> is a
 <role> at (...)` printed in a Play Solo session, twice running: `Players.PlayerAdded` had not fired
