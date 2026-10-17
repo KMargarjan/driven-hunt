@@ -91,8 +91,9 @@ Ground.Y_PAD_STUDS = 10
 --
 -- A sine of amplitude `a` and wavelength divisor `w` has |dz/dx| at most `a / w`, so over a half-chunk
 -- `c / 2` the line wanders at most `c * a / (2 * w)` from the box's own centre line. That has to stay
--- inside the band's half-width, which gives `c <= 2 * half * w / a`. For place 1 -- half 11, a 30,
--- w 70 -- that is **51 studs**, against the 200 that shipped.
+-- inside the band's USABLE half-width, which gives `c <= 2 * (half - RESOLUTION) * w / a` -- the grid
+-- snap costs one column (see below). For place 1 -- half 11, a 30, w 70 -- that is **32 studs**,
+-- against the 200 that shipped.
 --
 -- A STRAIGHT LINE WANDERS NOWHERE, so it keeps the full `CHUNK_STUDS` and one box covers 200 studs of
 -- it.
@@ -102,7 +103,13 @@ function Ground.chunkFor(layout: any, surface: any): number
 		return Ground.CHUNK_STUDS
 	end
 	local divisor = Forest.SHAPE.wavelengthDivisor
-	local longest = 2 * surface.halfWidthStuds * divisor / amplitude
+	-- THE BAND IS SNAPPED TO THE GRID, SO IT IS NOT SYMMETRICAL ABOUT THE LINE, and the chunk has to
+	-- pay for that. `bandBounds` puts the first column at or below `z - half`, so the band reaches at
+	-- least `half` BELOW the chunk's centre line but only `half - RESOLUTION` above it in the worst
+	-- phase. The harness caught the first version of this arithmetic for exactly that reason
+	-- (`places.spec:827`): chunk 51 let the line wander 10.9 studs into an upward reach of 8.
+	local usable = math.max(Ground.RESOLUTION, surface.halfWidthStuds - Ground.RESOLUTION)
+	local longest = 2 * usable * divisor / amplitude
 	return math.max(Ground.MIN_CHUNK_STUDS, math.min(Ground.CHUNK_STUDS, math.floor(longest)))
 end
 
