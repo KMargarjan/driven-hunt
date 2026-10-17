@@ -55,6 +55,37 @@ export type AnimalRow = {
 	dots: { WireDot },
 }
 
+-- ONE SHOT'S WORTH OF DOTS, SENT TO THE PLAYER WHO FIRED IT AND TO NOBODY ELSE (task 198). This is
+-- the hit card's whole payload, and every number in it is the SERVER's: the client decides nothing
+-- about where a pellet landed.
+--
+-- `dots` is one entry per PROJECTILE that struck the animal -- nine for a full buckshot pattern,
+-- one for a slug -- each projected by `HitLog.Shape.dot`, the same function the drive report's dots
+-- come out of. `lead` marks the one dot that IS the drive report's dot for this shot (the nearest
+-- impact, which is the position `Weapon.Hits.group` reports), so the card and the TAB report can be
+-- put side by side and the same mark found on both.
+export type CardDot = {
+	u: number,
+	v: number,
+	side: number,
+	zone: string,
+	lead: boolean,
+}
+
+export type CardPayload = {
+	kind: string,
+	drive: number,
+	animal: string,
+	animalKind: string?,
+	weapon: string?,
+	ammo: string?,
+	hits: number,
+	fired: number?,
+	distance: number,
+	at: number,
+	dots: { CardDot },
+}
+
 export type HunterRow = {
 	userId: number,
 	name: string,
@@ -297,6 +328,80 @@ Report.CONFIG = {
 	DETAIL_TEXT_X = 136,
 	FAR_SIDE_TRANSPARENCY = 0.55, -- a dot on the far flank, so you can see which side it came in on
 	TOGGLE_KEY = Enum.KeyCode.Tab,
+
+	-- THE HIT CARD (task 198). Karen, 2026-10-16, with a reference frame of somebody else's video:
+	-- *"there is a black boar image as you can see and red dot / so once we hit boar we can show
+	-- where it has been hitted / red dot will indicate so if shells then several of them / so
+	-- somewhere in corner after hit we indicate where it landed"*.
+	--
+	-- IT IS THE REPORT'S OWN BOAR AND THE REPORT'S OWN PROJECTION, drawn small and now (dispatch:
+	-- *"reuse them, do not make a second boar drawing or a second projection"*). `Hud.BoarArt` is the
+	-- one builder of both pictures and `HitLog.Shape.dot` is the one projection; this block is only
+	-- the card's own numbers -- where it sits, how long it lives, and what colour the animal is.
+	CARD = {
+		-- THE CORNER IS THE LOWER LEFT, ABOVE THE KILL FEED, and the other three are taken at every
+		-- width: the minimap plus the button rail own the top right, the ammo readout owns the very
+		-- bottom right (`Hud.build`'s `Readout`, anchored (1,1) at -16,-16), and the whole top band
+		-- is the objective line (y 8), the drive bar (y 44) and the compass (y 108, 360 px wide --
+		-- which on a 400 px phone is the entire width). What is left is the left edge under the
+		-- compass, and the bottom of it is where the player already looks for *what just happened*:
+		-- the event feed. So the card stacks directly on top of the feed, and its own bottom is
+		-- computed from the feed's own two constants rather than guessed, so the two cannot overlap
+		-- at any viewport.
+		-- HOW MANY DOTS ONE CARD MAY CARRY. A full two-barrel buckshot pattern on one animal is 18
+		-- (`Shotgun.CONFIG.PELLETS.Buck` x `BARRELS`), so 24 is above anything a legal shot makes;
+		-- `Weapon.Hits.POINTS_MAX` is the same ceiling at the other end of the wire.
+		DOTS_MAX = 24,
+		MARGIN_LEFT = 16,
+		FEED_GAP = 8,
+		WIDTH = 188,
+		HEIGHT = 112,
+		-- The surface ladder of the house style (the Designer's `shop-design-spec.md` section 8.1):
+		-- panel `#1C1915` corner 16, and a thing that sits on it one step lighter and one step less
+		-- round. Near-opaque, because this is read for three seconds over a sunlit wood.
+		PANEL_COLOR = Color3.fromHex("1C1915"),
+		PANEL_TRANSPARENCY = 0.06,
+		CORNER = 14,
+		-- ONE BRASS HAIRLINE, which in the house style separates a header from a body. A card this
+		-- small has no header, so the hairline is its EDGE -- the one rule the spec allows a card to
+		-- wear, and what stops a dark box over a dark wood from having no border at all.
+		EDGE_COLOR = Color3.fromHex("C8A258"),
+		EDGE_TRANSPARENCY = 0.42,
+		EDGE_THICKNESS = 1,
+		-- THE PLATE THE BLACK ANIMAL IS PRINTED ON, and the one place this card leaves the dark
+		-- ladder. Karen's reference is a SOLID BLACK boar, and a black boar on a `#1C1915` card is
+		-- not a picture of anything. So the animal gets its own pale ground, the way a paper hit
+		-- card has one: bone, one step less round than the card, inset inside it.
+		PLATE_COLOR = Color3.fromHex("D9D2C4"),
+		PLATE_CORNER = 11,
+		-- Her reference exactly: the animal is one solid near-black shape and nothing else.
+		BOAR_FILL = Color3.fromHex("0A0907"),
+		ART_INSET_X = 12,
+		ART_TOP = 30,
+		ART_WIDTH = 164,
+		ART_HEIGHT = 70,
+		-- THE RED DOT, with a thin light ring so it reads ON the black animal -- the same problem
+		-- `RING_MIN_LUMA` solves on the report, answered here with one fixed pale ring because the
+		-- fill is one fixed colour.
+		DOT_COLOR = Color3.fromHex("D8251F"),
+		RING_COLOR = Color3.fromHex("F6F1E6"),
+		RING_THICKNESS = 1,
+		DOT_PIXELS = 7,
+		-- The label: BuilderSans Bold, letter-spaced, 10 px -- the house style's micro-label.
+		LABEL_SIZE = 10,
+		LABEL_COLOR = Color3.fromHex("E8E2D6"),
+		LABEL_X = 12,
+		LABEL_Y = 10,
+		-- HOW LONG IT LIVES. 3 s is the dispatch's; the fade is the only motion the house style
+		-- allows anything but the display case, and it is on transparency alone.
+		HOLD_SECONDS = 3,
+		FADE_SECONDS = 0.5,
+		-- OVER THE SCOPE'S MASK (11-13) AND UNDER THE REPORT PANEL (15). A hunter who has just
+		-- fired through the scope is exactly the player this card is for, so a mask that cut it off
+		-- would hide it from its own audience; the report is a thing the player opened on purpose
+		-- and stays on top.
+		Z_INDEX = 14,
+	},
 }
 
 Report.FOLDER_NAME = "Report"
@@ -393,6 +498,47 @@ end
 
 function Report.metres(studs: number?): number
 	return math.round((studs or 0) * Report.CONFIG.METRES_PER_STUD)
+end
+
+-- WHICH WAY THE HIT CARD DRAWS THE ANIMAL (task 198).
+--
+-- The drive report always draws the boar nose-LEFT and half-fades a dot that landed on the far
+-- flank (`FAR_SIDE_TRANSPARENCY`), because a report is a page you compare rows on and the rows have
+-- to be the same way round. A hit card is one animal and one shot, and Karen's whole ask is *"we can
+-- show where it has been hitted"* -- so it turns the animal around instead of fading the mark: if
+-- the shot came in on the far flank, the picture is MIRRORED and you are looking at the flank that
+-- was hit, with every dot drawn solid.
+--
+-- THE DECISION IS THE MAJORITY OF THIS SHOT'S OWN DOTS. `side` is -1 or 1 out of `HitLog.Shape.dot`
+-- and a buckshot pattern can straddle the spine, so one pellet cannot decide the picture; a tie
+-- keeps the report's own facing, so the default is always the one the player already knows.
+-- Pure, so `tests/server/hit_card.spec.luau` drives it with hand-written dots.
+function Report.cardFacing(dots: { any }?): boolean
+	local near, far = 0, 0
+	for _, dot in ipairs(dots or {}) do
+		if (dot.side or 1) < 0 then
+			far += 1
+		else
+			near += 1
+		end
+	end
+	return far > near
+end
+
+-- THE CARD'S ONE LINE OF TEXT. `word` is the ammunition's own, which the client resolves through
+-- `Weapons.row(id).AMMO_LABEL` -- the same split the wire already has for the gun (`WireDot.weapon`):
+-- the wire carries the id and the screen carries the word.
+--
+-- A SINGLE PROJECTILE GETS NO FRACTION. "HIT - SLUG" says everything there is to say about one
+-- bullet; "HIT - BUCK 4/9" is the whole point of a buckshot card, because the number of dots on the
+-- animal IS the four.
+function Report.cardLabel(word: string?, hits: number?, fired: number?): string
+	local name = string.upper(tostring(word or "HIT"))
+	local landed = math.max(0, math.floor(hits or 0))
+	if fired ~= nil and fired > 1 then
+		return string.format("HIT · %s %d/%d", name, landed, math.floor(fired))
+	end
+	return string.format("HIT · %s", name)
 end
 
 -- Deep-frozen for the same reason `Drive` is: a shared table with no writer is the only kind both

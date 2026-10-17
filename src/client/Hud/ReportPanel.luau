@@ -32,7 +32,11 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
-local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+
+-- THE ONE BUILDER OF THE BOAR PICTURE AND THE ONE PLACER OF A DOT ON IT (task 198). It was three
+-- local functions in this file until the hit card needed the same animal in the corner; moving them
+-- was the alternative to a second drawing of a boar and a second way of placing a mark on it.
+local BoarArt = require(script.Parent.BoarArt)
 
 local CONFIG = Report.CONFIG
 
@@ -136,16 +140,8 @@ function ReportPanel.dots(): { { u: number, v: number, zone: string, fatal: bool
 	local out = {}
 	for _, row in ipairs(detailRows) do
 		if row.Visible then
-			local art = row:FindFirstChild("Silhouette")
-			for _, child in ipairs(if art then art:GetChildren() else {}) do
-				if child:IsA("Frame") and child.Name == "Dot" then
-					table.insert(out, {
-						u = (child:GetAttribute("U") :: number?) or 0,
-						v = (child:GetAttribute("V") :: number?) or 0,
-						zone = (child:GetAttribute("Zone") :: string?) or "",
-						fatal = (child:GetAttribute("Fatal") :: boolean?) == true,
-					})
-				end
+			for _, dot in ipairs(BoarArt.dotsOf(row:FindFirstChild("Silhouette"))) do
+				table.insert(out, dot)
 			end
 		end
 	end
@@ -187,53 +183,16 @@ local function label(parent: Instance, name: string, size: number, position: UDi
 	return text
 end
 
--- ONE SILHOUETTE: a side-view boar, from `Report.CONFIG.BOAR`, in the single fill `BOAR_FILL`.
--- Thirteen `Frame`s with a `UICorner` each and no art, no mesh and no `ViewportFrame` -- a 104-px
--- picture of a boar does not need a camera, and a `ViewportFrame` per row would be eight of them.
---
--- IT DREW `Report.CONFIG.SILHOUETTE` ITSELF UNTIL TASK 135 -- five tinted zone rectangles, which
--- task 124 round 3's own note called "a colour-coded bar, not a boar's outline". Those rectangles
--- are still the record every dot is placed against; they are no longer the picture.
+-- ONE SILHOUETTE, from `Hud.BoarArt` (task 198): the report's own fill on the report's own dark
+-- backing, nose-LEFT, at 104 x 56 -- the same picture, out of the file that is now its one builder.
 local function buildSilhouette(parent: Frame): Frame
-	local art = Instance.new("Frame")
-	art.Name = "Silhouette"
-	-- ITS OWN DARK BACKING, and the first frame is why: over a sunlit forest the zone rectangles were
-	-- being read against leaves, and a picture of an animal that competes with a tree is not a
-	-- picture of an animal.
-	art.BackgroundColor3 = CONFIG.ART_BACKGROUND
-	art.BackgroundTransparency = 0
-	art.BorderSizePixel = 0
-	art.ZIndex = Z + 2
-	art.Position = UDim2.fromOffset(8, 6)
-	art.Size = UDim2.fromOffset(CONFIG.SILHOUETTE_WIDTH, CONFIG.SILHOUETTE_HEIGHT)
-	art.Parent = parent
-	-- THE ANIMAL, IN ONE FILL (task 135). Until now this loop painted `Report.CONFIG.SILHOUETTE`
-	-- itself -- the five zone rectangles, each in its own tint -- and task 124 round 3's own note
-	-- said what that looked like: "a colour-coded bar, not a boar's outline". The rectangles are
-	-- still the record every dot is placed against; they are no longer the picture.
-	--
-	-- ONE COLOUR, THIRTEEN PARTS, NO ART FILE. Every number is a SCALE of this frame, so the same
-	-- thirteen parts draw the same animal at 104 x 56 in a row and at any size a larger view asks for.
-	for _, piece in ipairs(CONFIG.BOAR) do
-		local part = Instance.new("Frame")
-		part.Name = piece.name
-		part.BackgroundColor3 = CONFIG.BOAR_FILL
-		part.BackgroundTransparency = 0
-		part.BorderSizePixel = 0
-		part.Position = UDim2.fromScale(piece.u0, piece.v0)
-		part.Size = UDim2.fromScale(piece.u1 - piece.u0, piece.v1 - piece.v0)
-		-- ONE ZINDEX FOR THE WHOLE ANIMAL: the parts are the same colour, so there is nothing for a
-		-- stacking order to decide, and the dots sit above all of them at Z + 5.
-		part.ZIndex = Z + 3
-		-- THE CORNER IS A FRACTION OF THE PART'S OWN SHORTER SIDE, in SCALE, so a leg does not turn
-		-- into a lozenge when the silhouette is drawn larger. `UICorner`'s Scale is relative to the
-		-- shorter side already (https://create.roblox.com/docs/reference/engine/classes/UICorner).
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(piece.corner, 0)
-		corner.Parent = part
-		part.Parent = art
-	end
-	return art
+	return BoarArt.build(parent, "Silhouette", UDim2.fromOffset(8, 6), {
+		fill = CONFIG.BOAR_FILL,
+		backing = CONFIG.ART_BACKGROUND,
+		width = CONFIG.SILHOUETTE_WIDTH,
+		height = CONFIG.SILHOUETTE_HEIGHT,
+		zIndex = Z + 2,
+	})
 end
 
 local function build(frame: Frame)
@@ -367,90 +326,21 @@ end
 
 -- ---------------------------------------------------------------- drawing
 
--- THE RING COLOUR PER ZONE, built once from the list of zones this panel draws (task 135).
---
--- `Report.CONFIG.ZONES` is that list, and this is its reader: it lost its old one when the five
--- tinted rectangles stopped being the picture, and a list in a shared config that nothing reads is
--- the kind of lie `Penalty.expired`'s own comment warns about. It is also the right shape for the
--- job -- a string off the wire indexes one small table, built at load, rather than two.
-local RING: { [string]: Color3 } = {}
-for _, zone in ipairs(CONFIG.ZONES) do
-	local rect = CONFIG.SILHOUETTE[zone]
-	if rect ~= nil then
-		-- ...LIFTED UNTIL IT CAN BE READ ON THE ANIMAL (task 137). `body`'s tint is 16 of 255 per
-		-- channel from `BOAR_FILL`, so that ring was not a ring; see `Report.ringColor`.
-		RING[zone] = Report.ringColor(rect.tint, CONFIG.BOAR_FILL)
-	end
-end
-
 local function clearDots(art: Frame)
-	for _, child in ipairs(art:GetChildren()) do
-		if child:IsA("Frame") and child.Name == "Dot" then
-			child:Destroy()
-		end
-	end
+	BoarArt.clearDots(art)
 end
 
--- ONE DOT PER HIT, at the (u, v) the server measured in the animal's own frame at the moment of the
--- shot. The fatal one is the marker's own kill colour and a little larger; a dot on the FAR flank is
--- half transparent, so a report of a broadside shows which side the animal was hit from.
+-- ONE DOT PER HIT, drawn by `Hud.BoarArt` -- the report's scheme: a white dot ringed in the zone's
+-- own lifted colour, the fatal one turned 45 degrees in the kill marker's red, and a dot on the FAR
+-- flank half transparent so a report of a broadside shows which side the animal was hit from.
 local function drawDots(art: Frame, row: any)
-	clearDots(art)
-	for _, dot in ipairs((row and row.dots) or {}) do
-		local pip = Instance.new("Frame")
-		pip.Name = "Dot"
-		pip.AnchorPoint = Vector2.new(0.5, 0.5)
-		local size = if dot.fatal then CONFIG.DOT_PIXELS + 3 else CONFIG.DOT_PIXELS
-		-- INSET BY HALF A DOT, so a hit at u = 0 -- a nose-on shot, which the zone measurement of
-		-- 2026-10-05 showed is the commonest kind there is -- is drawn ON the animal instead of
-		-- hanging half outside it. The shift is at most 5 px of 104, under 5% of the body's length,
-		-- and it is a drawing decision: the record itself is untouched and the attributes below
-		-- still carry the true (u, v).
-		local insetU = (size / 2) / CONFIG.SILHOUETTE_WIDTH
-		local insetV = (size / 2) / CONFIG.SILHOUETTE_HEIGHT
-		-- ...AND THEN ONTO THE ANIMAL, if the inset still leaves it in the air (task 138). The
-		-- nudge is applied to the DRAWN position, because that is the space `Report.CONFIG.BOAR`'s
-		-- parts are laid out in; the attributes below still carry the true `(u, v)`.
-		local drawnU, drawnV = Report.ontoBoar(
-			insetU + math.clamp(dot.u or 0, 0, 1) * (1 - 2 * insetU),
-			insetV + math.clamp(dot.v or 0, 0, 1) * (1 - 2 * insetV)
-		)
-		pip.Position = UDim2.fromScale(drawnU, drawnV)
-		pip.Size = UDim2.fromOffset(size, size)
-		pip.BackgroundColor3 = if dot.fatal then Shotgun.CONFIG.HIT_MARK_KILL_COLOR else Color3.new(1, 1, 1)
-		pip.BackgroundTransparency = if (dot.side or 1) < 0 then CONFIG.FAR_SIDE_TRANSPARENCY else 0
-		pip.BorderSizePixel = 0
-		pip.ZIndex = Z + 5
-		-- AN OUTLINE IN THE ZONE'S OWN COLOUR (task 135). It was black, for a reason that has gone:
-		-- a white dot was invisible on the pale chest rectangle and a red one on the red head
-		-- rectangle, and the animal is now a single mid fill that both read against. So the ring
-		-- carries the zone instead -- head, chest, rear, legs or body at a glance -- which is the
-		-- one thing the old tinted rectangles told you that a plain silhouette does not. The tints
-		-- are `Boar.CONFIG.ZONES`' own, mirrored into `Report.CONFIG.SILHOUETTE` and asserted
-		-- against the source by `tests/server/report_silhouette.spec.luau`.
-		local edge = Instance.new("UIStroke")
-		edge.Thickness = CONFIG.RING_THICKNESS
-		-- A zone this panel does not draw falls back to the trunk's own colour rather than erroring
-		-- on a string that came off the wire.
-		edge.Color = RING[tostring(dot.zone or "")] or RING.body or Color3.new(0, 0, 0)
-		edge.Parent = pip
-		pip.Rotation = if dot.fatal then 45 else 0 -- the fatal dot reads as an X at a glance
-		-- ...WHICH ONLY WORKS IF THE OTHERS ARE ROUND (task 135). They were all squares, so the
-		-- fatal one was a square turned 45 degrees among squares; a round hit beside a turned one
-		-- reads as a different KIND of mark rather than the same mark at a different angle. The
-		-- fatal marker itself is untouched -- same size, same kill colour, same turn.
-		if not dot.fatal then
-			local round = Instance.new("UICorner")
-			round.CornerRadius = UDim.new(0.5, 0)
-			round.Parent = pip
-		end
-		-- The numbers a spec reads, on the thing itself: no second table to drift from the picture.
-		pip:SetAttribute("U", dot.u or 0)
-		pip:SetAttribute("V", dot.v or 0)
-		pip:SetAttribute("Zone", tostring(dot.zone or ""))
-		pip:SetAttribute("Fatal", dot.fatal == true)
-		pip.Parent = art
-	end
+	BoarArt.drawDots(art, (row and row.dots) or {}, {
+		fill = CONFIG.BOAR_FILL,
+		width = CONFIG.SILHOUETTE_WIDTH,
+		height = CONFIG.SILHOUETTE_HEIGHT,
+		zIndex = Z + 3,
+		fadeFarSide = true,
+	})
 end
 
 -- POINTS COME FROM `Match`, JOINED ON userId, ON THE CLIENT (design section 8.1). The report's payload

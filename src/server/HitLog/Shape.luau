@@ -42,6 +42,58 @@ function Shape.dot(cframe: CFrame, size: Vector3, impact: Vector3): (number, num
 	return u, v, side
 end
 
+-- ONE SHOT'S DOTS FOR THE HIT CARD (task 198): one per PROJECTILE that struck the animal, in the
+-- same unit square and out of the same `Shape.dot` the drive report's single dot comes from. Pure,
+-- so `tests/server/hit_card.spec.luau` drives it with hand-written impacts and no world.
+--
+-- IT IS NOT A SECOND PROJECTION AND IT IS NOT A SECOND RECORD. `Shape.dot` is called once per
+-- point; the drive report's record is untouched and still carries ONE dot per (shot, target), which
+-- is `Weapon.Hits.group`'s own contract. The card is the detail UNDERNEATH that one dot: Karen,
+-- 2026-10-16, *"if shells then several of them"*.
+--
+-- `lead` IS THE DOT THE DRIVE REPORT DRAWS. `Hits.group` reports the NEAREST impact as the shot's
+-- position, so the card's dot made from that same point is the report's dot -- marked here, so a
+-- frame of the card beside a frame of the TAB report can be checked mark against mark rather than
+-- taken on trust. The nearest point to `impact` wins, so it is exactly one even if two pellets
+-- landed on the same spot, and a card built from no points at all is that single dot alone.
+function Shape.cardDots(
+	cframe: CFrame,
+	size: Vector3,
+	points: { { position: Vector3, zone: string } }?,
+	impact: Vector3,
+	zone: string?
+): { Report.CardDot }
+	local out: { Report.CardDot } = {}
+	local cap = Report.CONFIG.CARD.DOTS_MAX
+	for _, point in ipairs(points or {}) do
+		if #out >= cap then
+			break
+		end
+		local u, v, side = Shape.dot(cframe, size, point.position)
+		table.insert(out, { u = u, v = v, side = side, zone = tostring(point.zone or zone or "unknown"), lead = false })
+	end
+	if #out == 0 then
+		-- A SHOT WITH NO PER-PELLET DETAIL STILL GETS A CARD, and it is the record's own dot. That is
+		-- every report written by anything older than this task, and it is the honest answer rather
+		-- than an empty picture.
+		local u, v, side = Shape.dot(cframe, size, impact)
+		table.insert(out, { u = u, v = v, side = side, zone = tostring(zone or "unknown"), lead = true })
+		return out
+	end
+	local bestIndex, bestFar = 1, math.huge
+	for index, point in ipairs(points or {}) do
+		if index > #out then
+			break
+		end
+		local far = (point.position - impact).Magnitude
+		if far < bestFar then
+			bestIndex, bestFar = index, far
+		end
+	end
+	out[bestIndex].lead = true
+	return out
+end
+
 -- ONE ZONE BOX, PROJECTED INTO THE SILHOUETTE'S UNIT SQUARE. The same mapping `Shape.dot` uses, run
 -- over a BOX instead of a point, so the rectangles the panel draws and the dots it puts on them come
 -- out of one piece of arithmetic and cannot drift apart.

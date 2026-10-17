@@ -55,6 +55,9 @@ local Sound = require(script.Sound)
 -- builds the frame with everything else here, and `ReportPanel` is the one writer of what goes inside
 -- it. One ScreenGui, built once, so a visibility audit has one place to look.
 local ReportPanel = require(script.ReportPanel)
+-- THE HIT CARD (task 198): created here with the rest of the screen, filled by `Hud.HitCard`, which
+-- -- not this file -- is the only writer of what goes in it and of its `Visible`.
+local HitCard = require(script.HitCard)
 -- ...and the compass strip (task 125). Same shape as the report panel: the Hud builds the frame
 -- with everything else, and `Compass` is the one writer of what goes inside it.
 local Compass = require(script.Compass)
@@ -118,6 +121,7 @@ local feedLines: { TextLabel } = {}
 local feedEntries: { { text: string, at: number } } = {}
 local scorePanel: Frame? = nil
 local reportFrame: Frame? = nil
+local hitCardFrame: Frame? = nil
 -- THE SHOP PANEL'S FRAME (task 178): created here, filled by `Hud.ShopPanel`, and that module --
 -- not this one -- writes its `Visible`.
 local shopFrame: Frame? = nil
@@ -245,8 +249,13 @@ function Hud.reportPanel(): Frame?
 	return reportFrame
 end
 
+function Hud.hitCard(): Frame?
+	return hitCardFrame
+end
+
 -- The panel module itself, for the same reason: the Hud starts it, so the Hud is where it is found.
 Hud.Report = ReportPanel
+Hud.HitCard = HitCard
 
 -- THE MAP (task 155): its two frames and its button, so a spec reads them off the Hud instead of
 -- walking `PlayerGui` by name -- the `Hud.compass()` / `Hud.reportPanel()` shape.
@@ -834,6 +843,33 @@ local function build(): ScreenGui
 	report.Visible = false
 	report.Parent = screen
 
+	-- THE HIT CARD (task 198), in the LOWER LEFT, stacked on top of the event feed. Karen,
+	-- 2026-10-16: *"so somewhere in corner after hit we indicate where it landed"*.
+	--
+	-- WHY THAT CORNER AND NOT ANOTHER: the minimap and the button rail own the top right, the ammo
+	-- readout owns the very bottom right (`Readout`, anchored (1,1) at -16, -16), and the whole top
+	-- band is the objective line (y 8), the drive bar (y 44) and the compass (y 108, 360 px wide,
+	-- which on a 400 px phone is the entire width). What is left is the bottom left, where the
+	-- player already looks for what just happened -- the kill feed -- so the card sits directly on
+	-- top of it. Its bottom is computed from the FEED's own two constants, so the two cannot overlap
+	-- at any viewport instead of being eyeballed at one.
+	local hitCard = Instance.new("Frame")
+	hitCard.Name = "HitCard"
+	hitCard.BackgroundColor3 = Report.CONFIG.CARD.PANEL_COLOR
+	hitCard.BackgroundTransparency = Report.CONFIG.CARD.PANEL_TRANSPARENCY
+	hitCard.BorderSizePixel = 0
+	hitCard.AnchorPoint = Vector2.new(0, 1)
+	hitCard.Position = UDim2.new(
+		0,
+		Report.CONFIG.CARD.MARGIN_LEFT,
+		1,
+		-(Drive.CONFIG.FEED_BOTTOM_OFFSET + Drive.CONFIG.FEED_LINES * 20 + Report.CONFIG.CARD.FEED_GAP)
+	)
+	hitCard.Size = UDim2.fromOffset(Report.CONFIG.CARD.WIDTH, Report.CONFIG.CARD.HEIGHT)
+	hitCard.ZIndex = Report.CONFIG.CARD.Z_INDEX
+	hitCard.Visible = false
+	hitCard.Parent = screen
+
 	-- THE SHOP (task 178, two columns since task 196). Karen: *"Hunting house where inside can shop
 	-- things"*, and 2026-10-15: *"side menu with click and then shows in right side image and
 	-- explanation what is that"*. Centred, and AS BIG AS THE SCREEN ALLOWS between the panel's own
@@ -1065,6 +1101,7 @@ local function build(): ScreenGui
 	feedFrame = feed
 	scorePanel = panel
 	reportFrame = report
+	hitCardFrame = hitCard
 	shopFrame = shop
 	padFrame = padDialog
 	padLeavingFrame = padLeaving
@@ -2632,6 +2669,10 @@ function Hud.start()
 			Input = Weapon.Input,
 			leaving = padLeavingFrame,
 		})
+	end
+
+	if hitCardFrame then
+		HitCard.start(hitCardFrame :: Frame, { Report = ReportSystem })
 	end
 
 	if reportFrame then

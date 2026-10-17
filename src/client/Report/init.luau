@@ -21,11 +21,19 @@ local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local ReportClient = {}
 
 local killedSignal = Instance.new("BindableEvent")
+local hitSignal = Instance.new("BindableEvent")
+local hitFatalSignal = Instance.new("BindableEvent")
 local dataSignal = Instance.new("BindableEvent")
 local driveSignal = Instance.new("BindableEvent")
 
 -- A kill happened, anywhere, to anybody: the kill-log line.
 ReportClient.Killed = killedSignal.Event
+-- THE HIT CARD (task 198). `hit` is one shot of MINE that landed on an animal, with one dot per
+-- pellet; `hitFatal` says that a shot already carried by a `hit` turned out to be the killing one.
+-- They are the only things on this remote that are sent to one client rather than to everybody --
+-- the server fires them to the shooter alone (`HitLog.toShooter`).
+ReportClient.Hit = hitSignal.Event
+ReportClient.HitFatal = hitFatalSignal.Event
 -- A payload came back for something this client asked for.
 ReportClient.Data = dataSignal.Event
 -- A drive opened or closed. `kind` says which.
@@ -36,7 +44,7 @@ local started = false
 local lastData: any = nil
 local drive = { number = 0, open = false }
 
-local stats = { kills = 0, payloads = 0, driveEvents = 0, asked = 0 }
+local stats = { kills = 0, payloads = 0, driveEvents = 0, asked = 0, hits = 0, hitFatals = 0 }
 
 function ReportClient.stats()
 	return table.clone(stats)
@@ -73,7 +81,13 @@ function ReportClient.start()
 		if type(event) ~= "table" then
 			return
 		end
-		if event.kind == "kill" then
+		if event.kind == "hit" then
+			stats.hits += 1
+			hitSignal:Fire(event)
+		elseif event.kind == "hitFatal" then
+			stats.hitFatals += 1
+			hitFatalSignal:Fire(event)
+		elseif event.kind == "kill" then
 			stats.kills += 1
 			killedSignal:Fire(event)
 		elseif event.kind == "driveOpened" then

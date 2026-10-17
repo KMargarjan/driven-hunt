@@ -25,6 +25,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Shape = require(script.Shape)
 
 local HitLog = {}
@@ -55,6 +56,12 @@ local stats = {
 	droppedAnimals = 0,
 	drivesOpened = 0,
 	requestsDropped = 0,
+	-- THE HIT CARD (task 198): how many went out, and how many hits were NOT worth one. A hit on
+	-- something that is not an animal, or by nobody, is counted here rather than guessed at in a
+	-- playtest -- the same idiom `unmatchedDowns` and `droppedDots` already set.
+	cards = 0,
+	cardlessHits = 0,
+	cardFatals = 0,
 }
 
 local function channel()
@@ -75,6 +82,29 @@ end
 
 local function broadcast(event: Report.Event)
 	channel().ReportEvent:FireAllClients(event)
+end
+
+-- THE HIT CARD GOES TO ONE PLAYER: the one who fired the shot (task 198). It is the only thing this
+-- module sends to a single client rather than to everybody, and it is on `ReportEvent` beside the
+-- kill line for the reason that line is there at all -- one writer, one remote, one client path in
+-- both worlds (`recordDown`'s own comment).
+local function toShooter(player: Player, event: Report.CardPayload)
+	channel().ReportEvent:FireClient(player, event)
+end
+
+-- WHETHER A HIT EARNS A CARD. One line, one place, because the dispatch names two things it must
+-- never draw for -- a beater and scenery -- and a guard spread over two call sites is two answers.
+--
+-- `Damageable` IS THE ONE DEFINITION OF AN ANIMAL THIS GAME HAS. It is the attribute
+-- `Weapon.Hits.targetOf` walks for, published by the target's own owner (`Boar.Body.create`), and
+-- today nothing but an animal carries it -- a beater is a player character and a tree is a tree, so
+-- neither is ever the target of a `HitReport` at all. If a player or a prop is ever made damageable,
+-- THIS is the line that needs a kind check, exactly as `recordHit`'s own guard says.
+function HitLog.cardWorthy(part: BasePart?, shooter: Player?): boolean
+	if shooter == nil or part == nil then
+		return false
+	end
+	return part:GetAttribute("Damageable") == true
 end
 
 -- ---------------------------------------------------------------- the drive window
@@ -221,6 +251,38 @@ function HitLog.recordHit(report, now: number?)
 		stats.droppedDots += 1
 	end
 	stats.hits += 1
+
+	-- ...AND THE CARD, STRAIGHT BACK TO WHOEVER FIRED (task 198). Karen, 2026-10-16: *"so once we
+	-- hit boar we can show where it has been hitted / red dot will indicate so if shells then
+	-- several of them / so somewhere in corner after hit we indicate where it landed"*.
+	--
+	-- IT IS SENT HERE AND NOT FROM A SECOND LISTENER, because this is the one function that holds
+	-- both halves at once: the report's per-pellet points, and the trunk's CFrame at the instant of
+	-- the hit. A listener wired beside this one would read the CFrame a frame later, by which time
+	-- the animal has moved and every dot is a small lie.
+	if HitLog.cardWorthy(part, shooter) and shooter ~= nil then
+		local row = Weapons.row(report.weapon)
+		local fired = if row ~= nil and report.ammo ~= nil then row.PELLETS[report.ammo] else nil
+		local card: Report.CardPayload = {
+			kind = "hit",
+			drive = current.number,
+			animal = part.Name,
+			animalKind = part:GetAttribute("Kind") :: string?,
+			weapon = report.weapon,
+			ammo = report.ammo,
+			hits = dot.pellets,
+			fired = fired,
+			distance = dot.distance,
+			-- THE SHOT'S OWN CLOCK, the same `at` the record's dot carries, so the fatal mark that
+			-- follows can name this card and no other (see `recordDown`).
+			at = at,
+			dots = Shape.cardDots(part.CFrame, part.Size, report.points, report.position or part.Position, dot.zone),
+		}
+		stats.cards += 1
+		toShooter(shooter, card)
+	else
+		stats.cardlessHits += 1
+	end
 	return true
 end
 
@@ -254,6 +316,29 @@ function HitLog.recordDown(record, now: number?)
 	local index = Shape.fatalDot(animal.dots, record.killingZone, record.at, record.killedByUserId)
 	if index ~= nil then
 		animal.dots[index].fatal = true
+		-- ...AND THE CARD THAT IS PROBABLY STILL ON HIS SCREEN LEARNS IT (task 198). The card goes out
+		-- at the instant of the HIT and the animal goes down on the Brain's NEXT tick, so at the
+		-- moment it was drawn nobody -- server included -- knew yet whether that shot killed. Rather
+		-- than hold the card back for a tick, the mark follows it: one small event naming the animal
+		-- and the shot's own clock, which is the pair the card already carries.
+		--
+		-- THE SAME JOIN THE RECORD USES, so the card and the report cannot disagree about which shot
+		-- was the fatal one: `at` here is `animal.dots[index].at`, which IS the `report.at` the card
+		-- was built with.
+		local killer = if record.killedByUserId then Players:GetPlayerByUserId(record.killedByUserId) else nil
+		if killer ~= nil then
+			stats.cardFatals += 1
+			toShooter(killer, {
+				kind = "hitFatal",
+				drive = current.number,
+				animal = animal.id,
+				animalKind = animal.kind,
+				hits = 0,
+				distance = record.killingDistance or 0,
+				at = animal.dots[index].at,
+				dots = {},
+			})
+		end
 		-- ...AND THE MISS IS COUNTED WHERE IT HAPPENS. `fatalDot` falls back to the shooter's last
 		-- dot, and the fallback used to be invisible from here: `unmatchedFatal` only rose when the
 		-- killer had NO dot at all, so design section 12's "`unmatchedFatal == 0` after a live kill"
