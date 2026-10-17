@@ -378,23 +378,31 @@ end
 
 -- THE NEIGHBOUR TEST, AND IT IS BRIDSON'S AND NOT A SWEEP (design 10.3). A hash of occupied cells at
 -- `gap` resolution, and a candidate is compared against the NINE cells around it -- which is enough
--- because at that cell size nothing further away can be within `gap`, and it is O(1) rather than
--- O(n). Without it two trees in adjacent cells could land 5 studs apart while a trunk flare is up to
--- 13.6 studs across, i.e. two trunks in one stump.
+-- because nothing outside them can be within `gap`, and it is O(1) rather than O(n). Without it two
+-- trees in adjacent cells could land 5 studs apart while a trunk flare is up to 13.6 studs across,
+-- i.e. two trunks in one stump.
+--
+-- EACH CELL KEEPS A LIST AND NOT ONE POINT, and the harness is what taught that: with one point per
+-- cell at this resolution Bridson's invariant does NOT hold -- a cell of side `gap` can legally hold
+-- two points `gap * sqrt(2)` apart, so storing one FORGETS the other and a third candidate can land
+-- inside the forgotten one. `places.spec` keeps every point in its own grid and caught it
+-- (`places.spec:311`, 2026-10-17). Bridson's own cell is `r / sqrt(n)`; keeping the list is the same
+-- guarantee without a second magic number.
 local function tooClose(grid: any, x: number, z: number, gap: number): boolean
 	local cx, cz = math.floor(x / gap), math.floor(z / gap)
 	for dx = -1, 1 do
 		for dz = -1, 1 do
-			local bucket = grid[(cx + dx) .. ":" .. (cz + dz)]
-			if bucket ~= nil then
-				local ddx, ddz = bucket.x - x, bucket.z - z
+			for _, other in ipairs(grid[(cx + dx) .. ":" .. (cz + dz)] or {}) do
+				local ddx, ddz = other.x - x, other.z - z
 				if ddx * ddx + ddz * ddz < gap * gap then
 					return true
 				end
 			end
 		end
 	end
-	grid[cx .. ":" .. cz] = { x = x, z = z }
+	local key = cx .. ":" .. cz
+	grid[key] = grid[key] or {}
+	table.insert(grid[key], { x = x, z = z })
 	return false
 end
 

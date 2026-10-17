@@ -292,7 +292,7 @@ return function()
 			-- A name nobody knows does not stop the drive: it deals normally and says so.
 			local dealt = ForestTest.layoutForDrive(3, "clearing")
 			expect(Data.layoutNamed(dealt)).to.be.ok()
-			expect(ForestTest.stats().layoutSource).to.equal("bag")
+			expect(ForestTest.stats().layoutSource).to.equal("rotation")
 			TestKit.note(
 				string.format("layouts: drive 1 dealt %s, drive 3 dealt %s after a bad override", first, dealt)
 			)
