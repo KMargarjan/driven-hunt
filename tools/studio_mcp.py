@@ -894,7 +894,7 @@ SCOPE_SPECS = {
             # Task 201: the ONE design source (`src/client/Hud/Style.luau`) and the surfaces that
             # read it. `src/client/Hud/` already resolves to this scope, so only the spec is named
             # here -- the dual membership `shop_panel` and `pad_panel` already use. It is in `shop`
-            # too (below): `ShopPanel.LOOK` / `.FONT` / `.spaced` are aliases of `Style`'s now, so a
+            # too (the `shop` tuple above): `ShopPanel.LOOK` / `.FONT` / `.spaced` are aliases of `Style`'s now, so a
             # change to either side can break the shop's look.
             "tests/client/hud_style.spec.luau"),
     # The report's geometry is asserted against `Boar.CONFIG`, so a boar zone box that moves reaches

@@ -487,6 +487,12 @@ return function()
 			local viewX = Hud.viewportX()
 			local toast = Style.toastHeight(viewX)
 			local lines = Drive.CONFIG.FEED_LINES
+			-- THE NUMBERS AND NOT THE EXPRESSION (round 2 note): restating `feedHeight`'s own
+			-- arithmetic back at it is a case that cannot fail. A desktop toast is 6 + 6 of slate
+			-- padding around an 18 px line box, and five of them with four 6 px gaps is 174.
+			expect(Style.toastHeight(1280)).to.equal(30)
+			expect(Style.toastHeight(400)).to.equal(25)
+			expect(Hud.feedHeight(1280)).to.equal(5 * 30 + 4 * 6)
 			expect(Hud.feedHeight(viewX)).to.equal(lines * toast + (lines - 1) * Style.TOAST_GAP)
 			-- THE NUMBER IS TRUE OF WHAT IS DRAWN, and that is the half the arithmetic cannot
 			-- answer: every toast this Hud built is measured against it.
@@ -515,6 +521,42 @@ return function()
 					feedTop
 				)
 			)
+		end)
+
+		it("starts no clock on the first look at a horn, and always on the first BLAST", function()
+			-- BOTH HALVES HAVE BEEN WRONG ONCE EACH IN THIS TASK, which is why the latch is pure and
+			-- why this case drives the EDGE rather than a frame: round 1 started the clock on the
+			-- first stamp it saw (a horn handed back carrying an old stamp read `WAIT` although it
+			-- was ready), and round 2 gated that on `seen ~= nil`, which SWALLOWED the first blast
+			-- of every fresh horn -- `Weapon.Horn.blowTool` creates the attribute INSIDE the blast,
+			-- so a horn that has never been blown carries none and nil is a real value of `seen`.
+			local NOW = 100
+
+			-- A BRAND-NEW HORN: no attribute at all. Primed, and nothing started.
+			local seen, primed, at = Hud.hornBlowLatch(nil, false, nil, nil, NOW)
+			expect(seen).to.equal(nil)
+			expect(primed).to.equal(true)
+			expect(at).to.equal(nil)
+			-- ...and the player's own FIRST blast (nil -> 1) starts it.
+			seen, primed, at = Hud.hornBlowLatch(seen, primed, at, 1, NOW + 2)
+			expect(seen).to.equal(1)
+			expect(at).to.equal(NOW + 2)
+			-- A frame with no change moves nothing.
+			local seen2, _, at2 = Hud.hornBlowLatch(seen, primed, at, 1, NOW + 3)
+			expect(seen2).to.equal(1)
+			expect(at2).to.equal(NOW + 2)
+			-- ...and the next blast does.
+			local _, _, at3 = Hud.hornBlowLatch(seen, primed, at, 2, NOW + 4)
+			expect(at3).to.equal(NOW + 4)
+
+			-- A HORN HANDED BACK ALREADY CARRYING A STAMP: primed at that value, clock untouched.
+			local oldSeen, oldPrimed, oldAt = Hud.hornBlowLatch(nil, false, nil, 7, NOW)
+			expect(oldSeen).to.equal(7)
+			expect(oldPrimed).to.equal(true)
+			expect(oldAt).to.equal(nil)
+			-- ...and only a CHANGE after that is a blast this client watched.
+			local _, _, laterAt = Hud.hornBlowLatch(oldSeen, oldPrimed, oldAt, 8, NOW + 1)
+			expect(laterAt).to.equal(NOW + 1)
 		end)
 
 		it("draws ONE of the ammo chip and the horn chip, never both", function()

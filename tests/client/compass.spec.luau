@@ -266,6 +266,40 @@ return function()
 			expect(wide).to.be.near(CONFIG.WIDTH / 2, 1e-6)
 		end)
 
+		it("RENDERS at the width the strip is drawn at, not at the constant", function()
+			-- ROUND 2 NOTE: `offsetPx`'s parameter is asserted directly above, but the one live case
+			-- runs at the desktop frame size, where the drawn width and `CONFIG.WIDTH` agree -- so
+			-- nothing proved that `render` passes `Compass.drawnWidth()`. This narrows the real
+			-- strip to a phone width and asks what it drew.
+			local frame = Compass.frame()
+			expect(frame).to.be.ok()
+			local strip = frame :: Frame
+			local was = strip.Size
+			local phone = Compass.widthFor(400)
+			strip.Size = UDim2.fromOffset(phone, CONFIG.HEIGHT)
+			expect(Compass.drawnWidth()).to.equal(phone)
+			-- A bearing a quarter of the span to the right sits a quarter of the PHONE strip out.
+			Compass.setBearing(CONFIG.SPAN_DEG / 4)
+			Compass.render(0)
+			local x = Compass.driveMarkerX()
+			expect(x).to.be.ok()
+			expect(x).to.be.near(phone / 4, 1)
+			-- ...and a bearing behind the player pins INSIDE the strip rather than off its end.
+			Compass.setBearing(180)
+			Compass.render(0)
+			local pinned = Compass.driveMarkerX()
+			expect(pinned).to.be.ok()
+			expect(math.abs(pinned :: number) <= phone / 2).to.equal(true)
+			-- At the desktop width the same bearing pins further out, which is the whole point.
+			strip.Size = UDim2.fromOffset(CONFIG.WIDTH, CONFIG.HEIGHT)
+			Compass.render(0)
+			local wide = Compass.driveMarkerX()
+			expect(math.abs(wide :: number)).to.be.near(CONFIG.WIDTH / 2, 1)
+			strip.Size = was
+			Compass.setBearing(nil)
+			Compass.render(0)
+		end)
+
 		it("draws no marker at all when no world has said where the drive comes from", function()
 			-- A marker pointing at zero would be a lie in the shape of a fact.
 			Compass.setBearing(nil)

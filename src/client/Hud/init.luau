@@ -153,6 +153,14 @@ local hornBarFill: Frame? = nil
 -- that drains from full and then jumps is worse than no bar"*.
 local hornBlowSeen: number? = nil
 local hornBlowAt: number? = nil
+-- HAS THIS TOOL BEEN PRIMED YET? A SEPARATE FLAG AND NOT `hornBlowSeen ~= nil`, because nil is a
+-- REAL value of it: a horn that has never been blown carries no attribute at all
+-- (`Weapon.Horn.blowTool` creates it inside the blast), so overloading the two swallows the FIRST
+-- blast of every freshly-equipped horn -- the chip reading `READY` with a full bar for the whole
+-- 1.5 s the server is refusing, which is the one question it exists to answer. Round 2's fix for
+-- round 1's note did exactly that, and `src/client/Camera/Viewmodel.luau` had already written the
+-- reason down for its own copy of this latch (`hornBlowPrimed`).
+local hornBlowPrimed = false
 local hornThrough = false
 local hitMark: Frame? = nil
 local hitKind: string? = nil
@@ -1373,11 +1381,13 @@ local function build(): ScreenGui
 	--
 	-- Created empty. `Objective` is the one writer of its text, its size and its `Visible`.
 	--
-	-- IT SITS ON A SLATE SINCE TASK 201 (§2, §5 surface 2). The slate is `AutomaticSize.XY` -- it is
-	-- the size of the sentence and nothing more, because *"a band that touches both edges is a
-	-- letterbox, and this game is played in first person"* -- and the LABEL inside it keeps the full
-	-- band width `Objective.lineRect` answers, so `TextFits` still measures the same box
-	-- `hud_clarity.spec` asserts at 400 px. `Objective` is the one writer of both `Visible`s.
+	-- IT SITS ON A SLATE SINCE TASK 201 (§2, §5 surface 2). BOTH the slate and the label inside it
+	-- are the size of the sentence and nothing more -- *"a band that touches both edges is a
+	-- letterbox, and this game is played in first person"* -- which is exactly why
+	-- `hud_clarity.spec`'s `TextFits` probe clones the label with `AutomaticSize.None` and
+	-- `Objective.lineRect`'s width: what that case measures is the BAND the slate may not exceed,
+	-- and an auto-sizing clone would report `TextFits` true for any string.
+	-- `Objective` is the one writer of both `Visible`s.
 	local objectiveBack = Style.slate(screen, "ObjectiveSlate", false, statusPhone)
 	objectiveBack.AutomaticSize = Enum.AutomaticSize.XY
 	objectiveBack.Size = UDim2.fromOffset(0, 0)
@@ -2725,6 +2735,41 @@ function Hud.crosshairVisible(state, aiming: boolean, firstPerson: boolean): boo
 	return state ~= nil and state.equipped == true
 end
 
+-- WHEN THIS CLIENT SAW A BLAST, as a pure latch over three values. PURE AND EXPORTED because the
+-- whole of it is an EDGE and an edge is exactly what a live case cannot arrange: `renderCorner`'s
+-- only use of it is the one call below.
+--
+-- THE FIRST LOOK AT A TOOL STARTS NO CLOCK AND THE FIRST BLAST ALWAYS DOES. Both halves have been
+-- got wrong once each in this task:
+--   * round 1 started the clock on the first stamp it saw, so a horn handed back carrying a stamp
+--     from an earlier drive read `WAIT` with an empty bar although it was ready -- this client does
+--     not know WHEN that blast was, and a readiness bar that is wrong about readiness is worse
+--     than none;
+--   * round 2 gated that on `hornBlowSeen ~= nil`, which SWALLOWED the first blast of every fresh
+--     horn, because a horn that has never been blown carries no attribute at all and nil is
+--     therefore a real value of `seen`.
+-- `primed` is the separate flag that makes both true, and it is the latch
+-- `src/client/Camera/Viewmodel.luau` already uses for the same attribute.
+function Hud.hornBlowLatch(
+	seen: number?,
+	primed: boolean,
+	blowAt: number?,
+	stamped: any,
+	now: number
+): (number?, boolean, number?)
+	local value: number? = if type(stamped) == "number" then stamped else nil
+	if not primed then
+		-- The frame the Tool is first seen: remember what it carries, nil included, and start nothing.
+		return value, true, blowAt
+	end
+	if value == seen then
+		return seen, true, blowAt
+	end
+	-- ANY change after priming is a blast this client watched happen -- including nil -> 1, which is
+	-- the player's own first blast on a brand-new horn.
+	return value, true, if value ~= nil then now else blowAt
+end
+
 -- WHAT THE AMMO CHIP SHOWS, AS DATA (§3.10 chamber pips). PURE and exported for the reason
 -- `Hud.readoutFor` is: a spec can hand it a state it owns and assert the shape with no gun in the
 -- world. `pips` is one entry per chamber -- "live", "spent" or "empty" -- `selected` is which one
@@ -2798,20 +2843,12 @@ function Hud.renderCorner(Weapon)
 	local hasHorn = tool ~= nil
 	if hasHorn then
 		local stamped = (tool :: any):GetAttribute(Horn.BLOW_ATTRIBUTE)
-		if type(stamped) == "number" and stamped ~= hornBlowSeen then
-			-- THE FIRST STAMP SEEN ON A TOOL STARTS NO CLOCK (round 1 note). A Horn that is handed
-			-- back already carrying a stamp from an earlier drive would otherwise read `WAIT` with
-			-- an empty bar for 1.5 s although it is ready -- this client does not know WHEN that
-			-- blast was, and a readiness bar that is wrong about readiness is worse than none.
-			-- Only a stamp that CHANGES while this client is watching is a blast it saw.
-			if hornBlowSeen ~= nil then
-				hornBlowAt = now
-			end
-			hornBlowSeen = stamped
-		end
+		hornBlowSeen, hornBlowPrimed, hornBlowAt =
+			Hud.hornBlowLatch(hornBlowSeen, hornBlowPrimed, hornBlowAt, stamped, now)
 	else
 		hornBlowSeen = nil
 		hornBlowAt = nil
+		hornBlowPrimed = false
 	end
 
 	local showHorn = hasHorn
