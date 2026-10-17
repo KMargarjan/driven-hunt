@@ -1,176 +1,164 @@
 # Task 198 -- the hit card: a black boar in the corner with a red dot where each shot landed
 
 Task: 198
-Round: 1
-Base: `b7e6eb9` (`main`, the merge of #180)
-Code commit: `9194785023729dcb58c1773301e8e9be439332d1`
-
-Gate (one player; **no TWO_PLAYER_PATHS file is touched** -- nothing under `src/server/Match/`,
-`src/client/Match/`, `src/shared/Drive/`, neither `MatchBoot`, nor `tests/client/Role.luau`, nor any
-spec on that list):
+Round: 2
+Base: `b7e6eb9`
+Code commit: `555bd46f73304d07c8f2310c55b4ee0a7004677c`
 
 ```
-[harness] PASS: 33/33 checks @ 9194785023729dcb58c1773301e8e9be439332d1 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 555bd46f73304d07c8f2310c55b4ee0a7004677c (clean tree) scope=all
 ```
 
-`SMOKE PASS` (rule A), Forest Test, 80 s: `gun in hand @15s=1 @80s=1 | stacks=0 errorLines=0 |
-waves=9`, player on the ground at 15 s, at the end and 10 s after a respawn. The "0 errors" was read
-over the WHOLE log, boot included: `smoke.sh` writes `consolefull` at boot into
-`smoke-console-boot.txt` and again at the end, and greps the concatenation (L-087).
+The Director ran that full gate. `test2` is **N/A**: no `TWO_PLAYER_PATHS` file is in the branch --
+nothing under `src/server/Match/`, `src/client/Match/` or `src/shared/Drive/`, neither `MatchBoot`,
+nor `tests/client/Role.luau`, nor any spec on that list (`git diff --name-only b7e6eb9...HEAD`).
 
-## What changed
+`scope=all` from `--scope auto` is correct rather than an expansion fault: `src/shared/Report/`,
+`src/server/HitLog/` and `src/client/Report/` are not in `BLAST_RADIUS`, and an unmapped code path
+can only mean the whole suite. 78 spec files, 1589 server + 368 client cases.
+
+`SMOKE PASS` (rule A), Forest Test, 80 s: gun in the CHARACTER at 15 s and at 80 s
+(`@15s=1 @80s=1`); `stacks=0 errorLines=0` read over the WHOLE log, boot included (`smoke.sh`
+concatenates the boot `consolefull` with the end one before grepping); `waves=9` released; the
+player on the ground at 15 s, at the end, and 10 s after a respawn.
+
+## What this is
 
 Karen, 2026-10-16, with a reference frame of somebody else's hunting video: *"there is a black boar
 image as you can see and red dot / so once we hit boar we can show where it has been hitted / red dot
 will indicate so if shells then several of them / so somewhere in corner after hit we indicate where
 it landed"*.
 
-**ONE owner for the picture and the projection.** `ReportPanel`'s three private drawing functions
-(`buildSilhouette`, `clearDots`, `drawDots`) moved, unchanged in what they draw, to
-`src/client/Hud/BoarArt.luau`; the colours, the size and the facing became arguments.
-`HitLog.Shape.dot` is still the one projection and is not duplicated anywhere.
+One of **your** shots lands on an animal; a small dark card appears in the lower left with a solid
+black boar on a bone plate and a red dot wherever each pellet struck. It holds 3 s and fades.
 
+**ONE owner for the picture and the projection** (the dispatch's words). `ReportPanel`'s three
+private drawing functions moved, unchanged in what they draw, to `src/client/Hud/BoarArt.luau`, with
+the colours, the size and the facing as arguments; `HitLog.Shape.dot` is still the one projection.
 **The one new piece of data** is per-pellet landing places: `Weapon.Hits.group` still makes ONE
-report per (shot, target) with `pellets = n` and the NEAREST impact as `position`, and now carries
-`points` underneath it (`Hits.POINTS_MAX` = 24). `HitLog.Shape.cardDots` projects each through
-`Shape.dot` and marks the one the drive report draws as `lead`.
+report per (shot, target) and now carries `points` underneath it, which
+`HitLog.Shape.cardDots` projects.
 
-Files: `src/shared/Report/init.luau` (`CONFIG.CARD`, `CardDot`/`CardPayload`, `cardFacing`,
-`cardLabel`), `src/shared/Shotgun/init.luau` (`HitReport.points`), `src/server/Weapon/Hits.luau`,
-`src/server/HitLog/Shape.luau` (`cardDots`), `src/server/HitLog/init.luau` (`cardWorthy`,
-`toShooter`, the card in `recordHit`, the `hitFatal` in `recordDown`), `src/client/Report/init.luau`
-(`Hit`, `HitFatal`), `src/client/Hud/BoarArt.luau` (new), `src/client/Hud/HitCard.luau` (new),
-`src/client/Hud/ReportPanel.luau` (delegates), `src/client/Hud/init.luau` (the frame + `start`),
-`tests/server/hit_card.spec.luau` (new), `tests/client/hit_card.spec.luau` (new),
-`docs/research/2026-10-17-hit-card.md` + INDEX.
+Files: `src/shared/Report/init.luau`, `src/shared/Shotgun/init.luau`, `src/server/Weapon/Hits.luau`,
+`src/server/HitLog/Shape.luau`, `src/server/HitLog/init.luau`, `src/client/Report/init.luau`,
+`src/client/Hud/BoarArt.luau` (new), `src/client/Hud/HitCard.luau` (new),
+`src/client/Hud/ReportPanel.luau`, `src/client/Hud/init.luau`, `tests/server/hit_card.spec.luau`
+(new), `tests/client/hit_card.spec.luau` (new), `docs/research/2026-10-17-hit-card.md` + INDEX.
+
+## The round-1 blocking finding, and that the check for it can fail
+
+Round 1 found both new payloads putting a RAW SERVER CLOCK on the wire as `at`, which
+`sinceOpen`'s own comment and `docs/design/drive-report.md` section 2 forbid by name.
+
+**Fixed, and now pinned by a case that was RUN AGAINST THE PRE-FIX CODE AND FAILED THERE** -- the
+thing four earlier tasks got wrong by shipping a check that could not fail. Two runs, each with one
+path of the working tree reverted and then restored (the tree is now byte-identical to the code
+commit: `git diff --quiet 555bd46 HEAD -- src/server/HitLog/init.luau`):
+
+**A. the whole round-1 `src/server/HitLog/init.luau` (from `df647fd`), new spec on top**
+(`<runs-dir>/test-198-prefix-A.log`):
+
+```
+[harness] testing 3ef2abec48ca60185ea9b55e49f91a81166517fb (DIRTY tree)
+  failed [server] hit_card.spec:279 ServerStorage.Tests.hit_card.spec:279: attempt to call a nil value
+[harness] FAIL: 31/33 checks @ 3ef2abe... (DIRTY TREE (1 paths) - NOT valid evidence) scope=all
+```
+
+That nil is `HitLog.lastCard()`, which did not exist in round 1.
+
+**B. the shipped module with ONLY the two `sinceOpen` conversions reverted**
+(`<runs-dir>/test-198-prefix-B.log`):
+
+```
+[harness] testing 3ef2abec48ca60185ea9b55e49f91a81166517fb (DIRTY tree)
+  failed [server] hit_card.spec:300 Expected value "true" (boolean), got "false" (boolean) instead
+[harness] FAIL: 31/33 checks @ 3ef2abe... (DIRTY TREE (1 paths) - NOT valid evidence) scope=all
+```
+
+Line 300 is the `at` assertion itself -- `expect(math.abs((card).at - 3.0) < 1e-9)`. So the case
+fails for exactly the defect it is about, and for nothing else.
 
 ## Claims
 
-1. **One dot per pellet that struck the animal; a slug gets one.** `Hits.group` collects
-   `entry.points` per impact and `Shape.cardDots` projects each. *Verify:* `tests/server/hit_card.spec.luau`,
-   "gives one point per pellet that struck the target, and keeps one report" (4 hand-written impacts
-   -> `#reports == 1`, `pellets == 4`, `#points == 4`) and "gives one dot per pellet..." / "gives a
-   slug exactly one dot". Live: the card readout below.
+1. **Every `at` this module puts on the wire is seconds since the drive opened.** `recordHit`'s card
+   sends `sinceOpen(at)` and `recordDown`'s `hitFatal` sends `sinceOpen(animal.dots[index].at)`.
+   *Verify:* `tests/server/hit_card.spec.luau`, case **"puts one dot on the card per pellet, and the
+   card it SENT carries them"** -- the drive opens at t=100, a 4-pellet report fires at t=103, and the
+   sent card's `at` is asserted to be 3. Failing runs A and B above. The internal record keeps the raw
+   clock on purpose and the payload builders convert it, unchanged from before this task.
 
-2. **The card's dots come out of the drive report's own projection, not a second one.**
-   `Shape.cardDots` calls `Shape.dot` and nothing else; `BoarArt` does no projection at all. *Verify:*
-   the spec case "gives one dot per pellet, at exactly what Shape.dot answers for that pellet"
-   recomputes `Shape.dot` independently per point and compares to 1e-9; and `grep -rn "PointToObjectSpace" src/`
-   finds it in the hit path exactly once, `src/server/HitLog/Shape.luau:33` (the only other hits are
-   `src/client/Hud/Objective.luau`, which projects the objective line's arrow and has nothing to do
-   with a shot).
+2. **The card a spec reads is the card `recordHit` actually built**, not one the spec rebuilds beside
+   it. `HitLog.lastCard()` is a window onto the last payload, cleared by `HitLog.clear`.
+   *Verify:* the same case asserts `kind`, `drive`, `animal`, `hits`, `#dots` and exactly one `lead`
+   on `HitLog.lastCard()`. Failing run A above is this function not existing.
 
-3. **The `lead` dot is the one the report draws, and there is exactly one.** `Hits.group` reports the
-   NEAREST impact as the shot's position; `cardDots` marks the point nearest that. *Verify:* the spec
-   case "marks exactly one lead dot, and it is the one the drive report draws".
+3. **One dot per pellet that struck the animal; a slug gets one; the list is bounded.**
+   *Verify:* `tests/server/hit_card.spec.luau` -- "gives one point per pellet that struck the target,
+   and keeps one report" (4 hand-written impacts through `Weapon.Hits.group` -> one report,
+   `pellets == 4`, `#points == 4`, and `position` still the nearest impact); "gives a slug exactly
+   one dot"; "never carries more dots than the ceiling" (`Report.CONFIG.CARD.DOTS_MAX`, with
+   `Hits.POINTS_MAX` the same number at the other end).
 
-4. **Nothing for a miss, a beater or scenery.** A miss makes no `HitReport` at all
-   (`Hits.targetOf` finds no `Damageable` root); a hit on anything not damageable is still RECORDED
-   but gets no card, and the refusal is counted. *Verify:* the spec cases "makes no report and no
-   points at all for a miss", "HitLog.cardWorthy ... is true only for a damageable target hit by a
-   real shooter", and "sends one card per hit on an animal, and none for a beater or a miss"
-   (`stats.cards` 1, `stats.cardlessHits` 1).
+4. **The card's dots come out of the drive report's own projection, and there is no second one.**
+   *Verify:* "gives one dot per pellet, at exactly what Shape.dot answers for that pellet" recomputes
+   `HitLog.Shape.dot` independently per point and compares to 1e-9; and
+   `grep -rn "PointToObjectSpace" src/` finds it in the hit path exactly once, in
+   `src/server/HitLog/Shape.luau` (`src/client/Hud/Objective.luau` also uses it, for the objective
+   line's arrow, nothing to do with a shot). `BoarArt` projects nothing.
 
-5. **It goes to the shooter and to nobody else.** *Verify:*
-   `grep -n "FireClient\|FireAllClients" src/server/HitLog/init.luau` gives three lines: the
-   pre-existing `FireAllClients` in `broadcast` (the kill line and the drive boundaries), the
-   pre-existing `ReportData:FireClient` that answers a client's own request, and the one this task
-   adds -- `ReportEvent:FireClient(player, event)` in `toShooter`, whose only two callers are
-   `recordHit` (the card) and `recordDown` (the fatal mark), each passing the shooter/killer.
+5. **Exactly one `lead` dot, and it is the one the TAB report draws.** `Hits.group` reports the
+   NEAREST impact as the shot's position; `Shape.cardDots` marks the point nearest that.
+   *Verify:* "marks exactly one lead dot, and it is the one the drive report draws".
 
-6. **The client draws exactly what arrived, in red, on a black animal.** *Verify:*
-   `tests/client/hit_card.spec.luau`, "puts one red dot per pellet, at the (u, v) the server
-   measured" (reads the `U`/`V` attributes back off the Instances and the `BackgroundColor3` off the
-   pip), "gives a slug exactly one dot and a label with no fraction", "names the pattern and how
-   much of it landed".
+6. **Nothing for a miss, a beater or scenery, and the refusals are counted.** A miss makes no
+   `HitReport` at all (`Hits.targetOf` finds no `Damageable` root); a hit on anything not damageable
+   is still RECORDED but gets no card. *Verify:* "makes no report and no points at all for a miss";
+   `HitLog.cardWorthy` -- "is true only for a damageable target hit by a real shooter"; "sends one
+   card per hit on an animal, and none for a beater or a miss" (`stats.cards` 1, `stats.cardlessHits`
+   1).
 
-7. **A far-flank shot turns the animal round, and the marks go with it.** `Report.cardFacing` is the
-   majority of this shot's own `side`; `BoarArt` lays the parts out at `u -> 1 - u` and mirrors the
-   dots with the same line. *Verify:* the client case "turns the animal round when the shot came in
-   on the far flank" reads the drawn x of all four dots in both facings and asserts each mirrored one
-   is exactly `1 - x`; and the server case "Report.cardFacing" for the majority rule and the tie.
+7. **It goes to the shooter and to nobody else.** *Verify:*
+   `grep -n "FireClient\|FireAllClients" src/server/HitLog/init.luau` -- the pre-existing
+   `FireAllClients` in `broadcast`, the pre-existing `ReportData:FireClient` answering a client's own
+   request, and `ReportEvent:FireClient` in `toShooter`, whose only callers are `recordHit` (the
+   card) and `recordDown` (the fatal mark), each passing the shooter/killer.
 
-8. **It appears at once, holds ~3 s, fades, and a second hit replaces it.** *Verify:* the client
-   cases "holds for about three seconds, fades, and then is gone" (drives `HitCard.step` with its own
-   dt) and "replaces the card rather than stacking a second one". **The 0.3 s is NOT measured
-   end-to-end and I am not claiming it was**: what is checked is structural -- `recordHit` builds and
-   fires the card synchronously inside the `Weapon.HitReported` handler, with no yield between the
-   dot and the `FireClient`, over one RemoteEvent (`grep -n "task.wait\|task.delay\|task.spawn"
-   src/server/HitLog/init.luau` is empty). On screen, the card was `Visible` on the first readback
-   after every injection in `<runs-dir>/t198-frames.log`.
+8. **The client draws what arrived and computes nothing: red dots on a black animal, an ASCII
+   label, mirrored when the shot came in on the far flank.** *Verify:*
+   `tests/client/hit_card.spec.luau` -- "puts one red dot per pellet, at the (u, v) the server
+   measured" (reads `U`/`V` back off the Instances and `BackgroundColor3` off the pip); "gives a slug
+   exactly one dot and a label with no fraction"; "names the pattern and how much of it landed";
+   "turns the animal round when the shot came in on the far flank" (reads the drawn x of all four
+   dots in both facings, asserts each mirrored one is exactly `1 - x`, and that the near picture was
+   cleared). `Report.cardFacing` and `Report.cardLabel` are pure and asserted server-side, including
+   that every byte of the label is ASCII -- U+00B7 drew as two missing-glyph boxes in the first
+   frame.
 
-9. **The fatal mark is the report's own mark, and it arrives after the card.** The animal enters DOWN
-   on the Brain's NEXT tick, so `recordDown` sends `hitFatal` joined on the animal and the shot's own
-   clock. *Verify:* the client cases "marks the lead dot when the shot turns out to be the fatal one"
-   and "ignores a kill that belongs to another animal or another shot".
+9. **It holds ~3 s then fades, a second hit replaces it, and the kill marks the lead dot in the
+   report's own kill colour.** *Verify:* "holds for about three seconds, fades, and then is gone"
+   (drives `HitCard.step` with its own dt); "replaces the card rather than stacking a second one";
+   "marks the lead dot when the shot turns out to be the fatal one"; "ignores a kill that belongs to
+   another animal or another shot". Three round-1 notes are in this area and are fixed:
+   `HitCard.markFatal` now paints `Shotgun.CONFIG.HIT_MARK_KILL_COLOR` (it was painting the colour
+   the dot already was), `HitCard.setFade` no longer repaints the art frame's backing that `build`
+   deliberately made transparent, and `HitCard.stop` holds and disconnects its two wire connections
+   so a stop/start pair cannot draw every hit twice.
 
-10. **The corner collides with nothing, at any width.** Lower left, above the kill feed, its bottom
-    computed from `Drive.CONFIG.FEED_BOTTOM_OFFSET` and `FEED_LINES`. *Verify:* the client case "keeps
-    the card clear of the feed, the readout, the compass, the bar and the map" (rectangle
-    intersection against `Feed`, `Readout`, `Compass`, `DriveBar`, `ObjectiveLine`, `MiniMap`,
-    `Rail`, all made visible for the measurement), and "sits over the scope's mask and under the
-    report" (`Z_INDEX` 14, between 13 and `PANEL_Z_INDEX` 15).
+10. **The corner collides with nothing and sits in the right layer.** Lower left, above the kill
+    feed, its bottom computed from `Drive.CONFIG.FEED_BOTTOM_OFFSET` and `FEED_LINES` rather than
+    eyeballed. *Verify:* "keeps the card clear of the feed, the readout, the compass, the bar and the
+    map" (rectangle intersection against `Feed`, `Readout`, `Compass`, `DriveBar`, `ObjectiveLine`,
+    `MiniMap`, `Rail`, all made visible for the measurement); "sits over the scope's mask and under
+    the report" (`CARD.Z_INDEX` 14, between the scope's 13 and `PANEL_Z_INDEX` 15).
 
-## What I could not verify, and one thing that needs Karen
+## The live shot
 
-**THE LIVE SHOT WAS NOT OBTAINED, AND THE FRAMES ARE NOT OF A REAL PELLET.** This is the weakest part
-of this request and it is stated first.
-
-* The frames (`<runs-dir>/t198-buck-card.png`, `t198-slug-card.png`, `t198-farside-card.png`,
-  `t198-buck-and-report-card.png`, all looked at) are taken from the player's own eye in a running
-  DEV session, and every line of the drawing is the shipped client's: the payload is sent down the
-  REAL remote the server uses for the card (`Report.Remotes.ReportEvent`, which is exactly what
-  `HitLog.toShooter` fires) rather than being measured off a pellet. The readback off the Instances
-  is in `<runs-dir>/t198-frames.log` -- 4 dots for the pattern, 1 for the slug, 3 mirrored onto
-  `ArtMirrored`, label `H I T   -   B U C K   4 / 9`, card at (16, 464), 188 x 138, ZIndex 14.
-* **The Forest Test place could not run this change at all**, which is why no live shot landed there.
-  MEASURED: in that place `ReplicatedStorage.Report`'s source has no `CARD` block and
-  `ServerScriptService.HitLog`'s has no `cardWorthy`, while `Hud.BoarArt` and `Hud.HitCard` ARE
-  present -- a half-synced tree. `servePlaceIds` in `default.project.json` is the DEV place only.
-  **NEEDS KAREN:** open the Forest Test Studio and press Rojo **Connect** (or re-publish DEV to it)
-  before judging this in the wood.
-* Seven live runs in the Forest Test are in `<runs-dir>/t198-live.log` and the session's own console;
-  what they measured, all of it worth keeping: the weapon REFUSES a shot from outside the hunter's
-  stand circle ("NOT IN YOUR STAND") and between drives ("THE DRIVE IS OVER"), so a hunter may not be
-  teleported to a chosen range; and a first-order lead computed from the client's
-  `AssemblyLinearVelocity` threw every shot off the animal.
-* **The fatal mark has not been seen on a live kill** -- only in the client spec, which drives
-  `markFatal` directly.
-* The buckshot-at-15-m and slug-at-40-m frames Karen asked for are therefore at the PAYLOAD level,
-  not the pellet level. The server specs are what stand behind the pellet counts.
-
-Nothing else: no `.rbxm`, no `ignoreUnknownInstances`, no flag, no `poses.json`, no Architect design
-run (this extends the drive report rather than adding a system; tasks 135/137/138 did the same).
-
----
-
-## CORRECTION, after round 1 (2026-10-17)
-
-**The "the Forest Test place could not run this change at all" paragraph above is WRONG, and the
-"MEASURED" word in it was not earned.** It is left in place rather than edited away, so the record
-shows what was claimed and what it turned out to be.
-
-What happened: the probe read `ModuleScript.Source` from the **Edit** datamodel, where this harness's
-thread reads every script's source back as the empty string. `string.find("", "CARD = {")` is nil for
-every file, so `HitLog` -- a module that has been in that place for seventy tasks -- measured
-"missing" too, which should have been the tell. Re-probed from the **Client** datamodel during Play:
-
-```
-place=130094961655666
-HitCard module bytes=15797 hasMarkFatal=true
-Hud.init hasHitCardStart=true
-shared Report hasCARD=true
-client Report hasHitSignal=true
-HitCard FRAME in PlayerGui=true plate=true
-```
-
-So the Forest Test has the whole change, there is **nothing for Karen to click**, and the NEEDS KAREN
-line above is withdrawn.
-
-**And with that corrected, the live shot was obtained** (`<runs-dir>/t198-LIVE-buck-card.png`, looked
-at; readout in `<runs-dir>/t198-LIVE.log`). One buckshot, through `FireRequest:FireServer`, from
-where the drive put the hunter -- he is never moved, because `Weapon.Rules` refuses a shot from
-outside his stand circle -- at a boar put broadside 54 studs in front of him:
+One buckshot through the real request path (`FireRequest:FireServer`) in the Forest Test, from where
+the drive put the hunter -- he is never moved, because `Weapon.Rules` refuses a shot from outside his
+stand circle -- at a boar put broadside 54 studs in front of him. **Run:
+`<runs-dir>/t198-LIVE.log`, frame `<runs-dir>/t198-LIVE-buck-card.png`** (first person, player's eye
+height, looked at by me and by the Director). Every number below is from that one run and that one
+frame:
 
 ```
 Buck HIT Boar4 | range 53.9 studs = 15.1 m | fire->card 0.143 s | facing=Art
@@ -181,11 +169,36 @@ label=[H I T   -   B U C K   4 / 9] dots=4
   dot u=1.0000 v=0.1648 zone=rear lead=false  drawnX=0.9764
 ```
 
-**So claim 8's 0.3 s IS measured now: 0.143 s**, fire to card visible, on the client's own clock.
+So the 0.3 s target is **measured at 0.143 s**, fire to card visible, on the client's own clock, and
+four pellets of nine drew four dots.
 
-**One thing the live frame shows that no spec would have.** The animal turned and ran as it was put
-down, so all four pellets struck the trunk box's REAR FACE -- which `Shape.dot` projects to `u = 1.0`
-exactly, for the same reason a nose-on shot projects to `u = 0` (the comment above `Report.ontoBoar`
-already says this about the front face). The four dots therefore draw on top of each other at the
-rump. The record is truthful and the drawing is faithful to it; whether four pellets into one face
-should be spread out on the picture is a look decision for Karen, and is **not** fixed here.
+**What that frame shows that no spec would have:** the animal turned and ran as it was put down, so
+all four pellets struck the trunk box's REAR FACE, which `Shape.dot` projects to `u = 1.0` exactly --
+the same arithmetic that sends a nose-on shot to `u = 0`, which the comment above `Report.ontoBoar`
+already describes. The four dots therefore draw on top of each other at the rump. The record is
+truthful and the drawing faithful to it; whether same-face pellets should be spread out on the
+picture is a LOOK decision for Karen and is deliberately not made here.
+
+## What is NOT proven
+
+* **The wire seam has no spec.** Nothing in `tests/` exercises the `event.kind == "hit"` /
+  `"hitFatal"` branches of `ReportClient.start`'s `OnClientEvent`, nor the
+  `ReportSystem.Hit:Connect(HitCard.show)` wiring in `Hud.start`; every client case drives
+  `HitCard.show` / `HitCard.markFatal` directly. The reason it is not fixed rather than an oversight:
+  only the SERVER can `FireClient`, so a client spec cannot reach that branch, and a server spec
+  cannot order itself against the client runner. The live shot above is the only evidence that branch
+  runs, and it is real evidence -- the card in that frame arrived over it.
+* **The fatal mark has never been seen on a live kill**, only in the client spec driving `markFatal`.
+  The new kill COLOUR has no assertion at all; the spec checks the `Fatal` attribute and the shape.
+* **Claim 10 is measured at one viewport.** The card's x span is fixed (16..204) and the `Readout` is
+  anchored bottom-right 24 px tall, so width is safe by construction; HEIGHT is not tested -- under
+  about 400 px of viewport the card's top climbs into the compass band. Not a case the game ships
+  into today.
+* A round-1 claim of mine was **wrong and is withdrawn**: I reported the Forest Test place as a
+  half-synced tree that could not run this change, and said MEASURED. The probe read
+  `ModuleScript.Source` from the EDIT datamodel, where every script reads back as the empty string --
+  `HitLog`, in that place for seventy tasks, "measured" missing too. Re-probed in Play, that place
+  has the whole change, and the live shot above was taken there. There is nothing for Karen to click.
+
+No `.rbxm`, no `ignoreUnknownInstances`, no flag, no `poses.json`, no Architect design run (this
+extends the drive report rather than adding a system; tasks 135/137/138 did the same).
