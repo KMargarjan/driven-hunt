@@ -24,6 +24,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -68,6 +69,14 @@ local function slugPayload()
 		at = 20.0,
 		dots = { { u = 0.40, v = 0.30, side = 1, zone = "chest", lead = true } },
 	}
+end
+
+-- ONE PAYLOAD, ONE KIND (task 205): the card picks Karen's male or female silhouette from the
+-- record's own `animalKind`, so a case about the picture needs to vary exactly that.
+local function payloadFor(kind: string)
+	local payload = slugPayload()
+	payload.animalKind = kind
+	return payload
 end
 
 local function overlaps(a: GuiObject, b: GuiObject): boolean
@@ -143,7 +152,17 @@ return function()
 			expect(Card.isVisible()).to.equal(true)
 		end)
 
-		it("turns the animal round when the shot came in on the far flank", function()
+		-- IT USED TO TURN THE ANIMAL ROUND, AND IT NO LONGER CAN (task 205 round 2). This case was
+		-- written for the fourteen-`Frame` drawing, which mirrors by LAYING THE PARTS OUT THE OTHER
+		-- WAY; Karen's silhouette is one image, and this engine cannot flip one -- measured in Play
+		-- with three labels on one plate (`.screenshots/20261018T173406Z-t205-mirror-probe.png`): a
+		-- negative `Size.X` draws the image unflipped and a negative `ImageRectSize` draws nothing.
+		--
+		-- SO THE CLAIM CHANGES WITH THE DRAWING, and it is the same claim underneath: THE DOTS AND
+		-- THE PICTURE AGREE. They used to agree at `1 - x`; they now agree at `x`, because neither
+		-- is flipped -- which is what keeps a head shot on the head. What is lost is the facing,
+		-- and that is stated in `BoarArt.setKind` rather than hidden here.
+		it("keeps every mark where it struck when the shot came in on the far flank", function()
 			-- The drawn x of every dot, in the order they were made, off the Instances themselves.
 			local function drawnX(artName: string): { number }
 				local plate = (Hud.hitCard() :: Frame):FindFirstChild("Plate") :: Frame
@@ -170,13 +189,234 @@ return function()
 			expect(Card.mirrored()).to.equal(true)
 			local mirrored = drawnX("ArtMirrored")
 			expect(#mirrored).to.equal(4)
-			-- EVERY MARK WENT WITH THE PICTURE: the drawn x is exactly 1 - x, which is the only way
-			-- a dot can stay on the part of the animal it hit when the animal is turned round.
+			-- EVERY MARK IS WHERE IT STRUCK, which is the drawn x of the near flank: the picture is
+			-- not flipped (it cannot be) and neither are the dots, so the two agree.
+			local plateFar = (Hud.hitCard() :: Frame):FindFirstChild("Plate") :: Frame
+			local artFar = plateFar:FindFirstChild("ArtMirrored") :: Frame
+			expect(artFar:GetAttribute("Mirrored")).to.equal(false)
 			for index, x in ipairs(mirrored) do
-				expect(math.abs(x - (1 - near[index])) < 1e-5).to.equal(true)
+				expect(math.abs(x - near[index]) < 1e-5).to.equal(true)
 			end
 			-- ...and the near-flank picture was cleared, so one card never shows two animals.
 			expect(#drawnX("Art")).to.equal(0)
+		end)
+	end)
+
+	-- TASK 205. Karen, 2026-10-18, looking at `karen-2026-10-18/shot-4.png`: *"and what is that? you
+	-- need proper image for wildboar when showing hit now it feels mess unclear wtf ? / it's in
+	-- download male named"*. Her two silhouettes replace the fourteen `Frame`s.
+	describe("Karen's silhouette", function()
+		it("draws ONE image and picks it by the record's kind", function()
+			local male = Report.boarImage("male")
+			local female = Report.boarImage("female")
+			-- THE TWO ARE DIFFERENT PICTURES, which is the whole point of sending the kind.
+			expect(male.id).never.to.equal(female.id)
+			expect(string.find(male.id, "rbxassetid://", 1, true)).to.equal(1)
+			expect(string.find(female.id, "rbxassetid://", 1, true)).to.equal(1)
+			-- A PIGLET IS THE SOW, SMALLER, and it is said out loud rather than hidden.
+			local piglet = Report.boarImage("cub")
+			expect(piglet.id).to.equal(female.id)
+			expect(piglet.scale).to.equal(Report.CONFIG.PIGLET_SCALE)
+			expect(piglet.scale < 1).to.equal(true)
+			expect(male.scale).to.equal(1)
+			-- An unknown kind -- a record from before the kinds, or a world with KINDS off -- is a
+			-- boar and never nothing.
+			expect(Report.boarImage(nil).id).to.equal(male.id)
+			expect(Report.boarImage("wildebeest").id).to.equal(male.id)
+
+			-- ...AND THE SCREEN FOLLOWS. The card is handed a female's payload and the drawn
+			-- `ImageLabel` is the sow.
+			Hud.HitCard.show(payloadFor("female"))
+			local art = Hud.HitCard.art()
+			expect(art).to.be.ok()
+			local picture = (art :: Frame):FindFirstChild("Silhouette")
+			expect(picture).to.be.ok()
+			expect((picture :: ImageLabel):IsA("ImageLabel")).to.equal(true)
+			expect((picture :: ImageLabel).Image).to.equal(female.id)
+			Hud.HitCard.show(payloadFor("male"))
+			local after = (Hud.HitCard.art() :: Frame):FindFirstChild("Silhouette") :: ImageLabel
+			expect(after.Image).to.equal(male.id)
+			-- `Fit`, because the two PNGs are different shapes and a stretched boar is the thing
+			-- she could not read.
+			expect(after.ScaleType).to.equal(Enum.ScaleType.Fit)
+			TestKit.note("hit_card: male " .. male.id .. " female " .. female.id)
+		end)
+
+		it("SPREADS pellets that landed in the same place, so every hit is visible", function()
+			-- KAREN, 2026-10-17: *"if same place spread if not same show spread"*. A buckshot
+			-- pattern puts up to eighteen pellets inside a hand's width of animal and at this scale
+			-- they land on top of one another -- one dot, and no way to tell a graze from a pattern.
+			local BoarArt = Hud.BoarArt
+			local same = {}
+			for _ = 1, 9 do
+				table.insert(same, { u = 0.5, v = 0.5 })
+			end
+			local fanned = BoarArt.spread(same, 7, 148, 80)
+			expect(#fanned).to.equal(#same)
+			-- EVERY ONE OF THEM IS SOMEWHERE ELSE: nine pellets at one point draw nine dots.
+			local seen = {}
+			for _, dot in ipairs(fanned) do
+				local key = string.format("%.4f,%.4f", dot.u, dot.v)
+				expect(seen[key]).to.equal(nil)
+				seen[key] = true
+			end
+			-- ...AND THEY STAY WHERE THE SHOT WAS: the fan is about the group's own centre.
+			local cu, cv = 0, 0
+			for _, dot in ipairs(fanned) do
+				cu += dot.u
+				cv += dot.v
+			end
+			expect(cu / #fanned).to.be.near(0.5, 1e-6)
+			expect(cv / #fanned).to.be.near(0.5, 1e-6)
+			-- A PELLET ON ITS OWN IS NOT MOVED. Karen's rule has two halves and this is the other.
+			local apart = BoarArt.spread({ { u = 0.2, v = 0.3 }, { u = 0.8, v = 0.7 } }, 7, 148, 80)
+			expect(apart[1].u).to.equal(0.2)
+			expect(apart[1].v).to.equal(0.3)
+			expect(apart[2].u).to.equal(0.8)
+			expect(apart[2].v).to.equal(0.7)
+			-- IT IS DETERMINISTIC: the same shot draws the same picture twice, so two screenshots of
+			-- one hit cannot disagree. A jitter would have been the easy way and the wrong one.
+			local again = BoarArt.spread(same, 7, 148, 80)
+			for index, dot in ipairs(fanned) do
+				expect(again[index].u).to.equal(dot.u)
+				expect(again[index].v).to.equal(dot.v)
+			end
+
+			-- AND ON THE SCREEN: nine pellets at one point draw nine dots at nine positions.
+			local payload = payloadFor("male")
+			payload.dots = {}
+			for _ = 1, 9 do
+				table.insert(payload.dots, { u = 0.5, v = 0.5, zone = "chest", side = 1 })
+			end
+			Hud.HitCard.show(payload)
+			local art = Hud.HitCard.art() :: Frame
+			local places = {}
+			local pips = 0
+			for _, node in ipairs(art:GetChildren()) do
+				if node:IsA("Frame") and node.Name == "Dot" then
+					pips += 1
+					local key = string.format("%.3f,%.3f", node.Position.X.Scale, node.Position.Y.Scale)
+					expect(places[key]).to.equal(nil)
+					places[key] = true
+				end
+			end
+			expect(pips).to.equal(9)
+			TestKit.note(string.format("hit_card: 9 pellets at one point -> %d distinct dots", pips))
+		end)
+
+		it("keeps every dot inside the box the animal occupies on the image", function()
+			-- THE MEASUREMENT THIS TASK RESTS ON. The dots' unit square is the boar's TRUNK and the
+			-- image is the whole animal -- legs, tail and mane outside it -- so a dot placed in the
+			-- whole frame would land in the air beside the silhouette. `BoarArt.setKind` writes the
+			-- measured box onto the frame and `drawDots` maps into it.
+			Hud.HitCard.show(payloadFor("male"))
+			local art = Hud.HitCard.art() :: Frame
+			for _, key in ipairs({ "BoxU0", "BoxU1", "BoxV0", "BoxV1" }) do
+				expect(art:GetAttribute(key)).to.be.ok()
+			end
+			local u0 = art:GetAttribute("BoxU0") :: number
+			local u1 = art:GetAttribute("BoxU1") :: number
+			local v0 = art:GetAttribute("BoxV0") :: number
+			local v1 = art:GetAttribute("BoxV1") :: number
+			-- The box is INSIDE the frame and still SPANS the animal -- a box shrunk onto the torso
+			-- would keep every dot on black and stop meaning where the shot landed.
+			expect(u0 >= 0 and u1 <= 1 and v0 >= 0 and v1 <= 1).to.equal(true)
+			expect(u1 - u0 >= 0.6).to.equal(true)
+			expect(v1 - v0 >= 0.35).to.equal(true)
+			-- EVERY DRAWN DOT IS IN IT, at the four corners of the unit square and the centre.
+			local payload = payloadFor("male")
+			payload.dots = {
+				{ u = 0, v = 0, zone = "head", side = 1 },
+				{ u = 1, v = 0, zone = "rear", side = 1 },
+				{ u = 0, v = 1, zone = "legs", side = 1 },
+				{ u = 1, v = 1, zone = "legs", side = 1 },
+				{ u = 0.5, v = 0.5, zone = "chest", side = 1 },
+			}
+			Hud.HitCard.show(payload)
+			art = Hud.HitCard.art() :: Frame
+			local drawn = 0
+			for _, node in ipairs(art:GetChildren()) do
+				if node:IsA("Frame") and node.Name == "Dot" then
+					drawn += 1
+					local x, y = node.Position.X.Scale, node.Position.Y.Scale
+					expect(x >= u0 - 1e-6 and x <= u1 + 1e-6).to.equal(true)
+					expect(y >= v0 - 1e-6 and y <= v1 + 1e-6).to.equal(true)
+				end
+			end
+			expect(drawn).to.equal(5)
+			TestKit.note(string.format("hit_card: box u %.3f..%.3f v %.3f..%.3f", u0, u1, v0, v1))
+		end)
+
+		-- THE FAR FLANK, WHICH IS THE CARD NOBODY HAD EVER DRAWN (round 1, finding 1). Every case
+		-- above uses `side = 1`, so `Report.cardFacing` was false and the MIRRORED frame -- the one
+		-- the old `UDim2.fromScale(-scale, scale)` was in -- was never shown or asserted. Roughly
+		-- half of all shots take it.
+		--
+		-- WHAT IS ASSERTED IS WHAT THE ENGINE CAN ACTUALLY DO, measured in Play on 2026-10-18 with
+		-- three labels on one plate (`.screenshots/20261018T173406Z-t205-mirror-probe.png`): a
+		-- negative `Size.X` draws the image UNMIRRORED, and a negative `ImageRectSize` draws
+		-- nothing at all. So the picture is never flipped, its drawn box stays positive, and the
+		-- dots are not flipped either -- which is what keeps a head shot on the head.
+		it("draws the far flank with a real picture and the marks still on the right end", function()
+			local payload = payloadFor("male")
+			-- ALL FAR-SIDE, so `Report.cardFacing` is true and the mirrored frame is the one shown.
+			payload.dots = {
+				{ u = 0.08, v = 0.35, side = -1, zone = "head", lead = true },
+				{ u = 0.92, v = 0.45, side = -1, zone = "rear" },
+			}
+			expect(Report.cardFacing(payload.dots)).to.equal(true)
+			Hud.HitCard.show(payload)
+			expect(Hud.HitCard.mirrored()).to.equal(true)
+			local art = Hud.HitCard.art() :: Frame
+			local picture = art:FindFirstChild("Silhouette") :: ImageLabel
+			expect(picture).to.be.ok()
+			expect(picture.Visible).to.equal(true)
+			-- A DRAWN SIZE, NOT A NEGATIVE ONE: `AbsoluteSize` is what the player sees, and the old
+			-- line put a negative scale in here.
+			expect(picture.Size.X.Scale > 0).to.equal(true)
+			expect(picture.AbsoluteSize.X > 1).to.equal(true)
+			expect(picture.AbsoluteSize.Y > 1).to.equal(true)
+			-- ...AND IT IS INSIDE THE ART FRAME, which a mirrored origin moved it out of.
+			expect(picture.AbsolutePosition.X >= art.AbsolutePosition.X - 1).to.equal(true)
+			expect(
+				picture.AbsolutePosition.X + picture.AbsoluteSize.X <= art.AbsolutePosition.X + art.AbsoluteSize.X + 1
+			).to.equal(true)
+			-- THE HEAD DOT IS STILL AT THE HEAD END. `u = 0.08` is the nose; with the picture
+			-- unflipped and the dots unflipped it draws in the left third of the box, and the rump
+			-- dot in the right third. Flipping ONE of the two is what would swap them.
+			expect(art:GetAttribute("Mirrored")).to.equal(false)
+			local u0 = art:GetAttribute("BoxU0") :: number
+			local u1 = art:GetAttribute("BoxU1") :: number
+			local xs = {}
+			for _, node in ipairs(art:GetChildren()) do
+				if node:IsA("Frame") and node.Name == "Dot" then
+					table.insert(xs, node.Position.X.Scale)
+				end
+			end
+			expect(#xs).to.equal(2)
+			table.sort(xs)
+			expect(xs[1] < u0 + (u1 - u0) * 0.34).to.equal(true)
+			expect(xs[2] > u0 + (u1 - u0) * 0.66).to.equal(true)
+			TestKit.note(
+				string.format("hit_card: far flank, head %.3f rump %.3f in box %.3f..%.3f", xs[1], xs[2], u0, u1)
+			)
+		end)
+
+		-- THE ASSET IS AN IMAGE AND NOT A DECAL, which is what made the card draw nothing at all
+		-- (round 2). An `ImageLabel` cannot render a Decal id: measured in Play, every label with
+		-- the decal ids was `IsLoaded = false` on an empty plate while a built-in control loaded.
+		-- A spec cannot ask the engine to fetch an asset, so what it CAN guard is the shape of the
+		-- id -- that both silhouettes are the ids `InsertService:LoadAsset` answered with, and not
+		-- the decal ids in `assets/uploads.json`.
+		it("points at the IMAGE behind each decal, not the decal", function()
+			local male = Report.boarImage("male")
+			local female = Report.boarImage("female")
+			expect(male.id).to.equal("rbxassetid://135789362198066")
+			expect(female.id).to.equal("rbxassetid://121961957713451")
+			for _, decal in ipairs({ "80206901277832", "108874258373849" }) do
+				expect(string.find(male.id, decal, 1, true)).to.equal(nil)
+				expect(string.find(female.id, decal, 1, true)).to.equal(nil)
+			end
 		end)
 	end)
 
@@ -192,6 +432,48 @@ return function()
 			Card.step(0.2 + CONFIG.FADE_SECONDS / 2)
 			expect(Card.isVisible()).to.equal(true)
 			expect((Hud.hitCard() :: Frame).BackgroundTransparency > CONFIG.PANEL_TRANSPARENCY + 1e-3).to.equal(true)
+			-- EVERY CHILD GOES WITH IT, WHATEVER CLASS IT IS (round 2's blocking finding). The walk
+			-- used to ask `IsA("Frame")`, and the silhouette is an `ImageLabel` -- so the panel, the
+			-- plate, the words and the dots faded while Karen's black boar stayed at full strength
+			-- over the world for the last half-second and then vanished.
+			--
+			-- ASSERTED BY CLASS, over every descendant of the card, so the next child type added to
+			-- it cannot slip through the same hole: an image by its `ImageTransparency`, a label by
+			-- its `TextTransparency`, a stroke and a frame by their own. Each must be PAST its
+			-- resting value and not yet gone, which is what "fading" means and what a hard-coded
+			-- `== at` could not say for the panel (its rest is `PANEL_TRANSPARENCY`).
+			local kinds = {}
+			for _, node in ipairs((Hud.hitCard() :: Frame):GetDescendants()) do
+				local visible = node:IsA("GuiObject") and node.Visible
+				local inside = node:FindFirstAncestorWhichIsA("GuiObject")
+				while inside ~= nil and visible do
+					visible = inside.Visible
+					inside = inside:FindFirstAncestorWhichIsA("GuiObject")
+				end
+				if node:IsA("ImageLabel") and visible then
+					kinds.image = true
+					expect(node.ImageTransparency > 1e-3).to.equal(true)
+					expect(node.ImageTransparency < 1 - 1e-3).to.equal(true)
+				elseif node:IsA("TextLabel") and visible and node.Text ~= "" then
+					kinds.text = true
+					expect(node.TextTransparency > 1e-3).to.equal(true)
+					expect(node.TextTransparency < 1 - 1e-3).to.equal(true)
+				elseif node:IsA("Frame") and node.Name == "Dot" and visible then
+					kinds.dot = true
+					expect(node.BackgroundTransparency > 1e-3).to.equal(true)
+					expect(node.BackgroundTransparency < 1 - 1e-3).to.equal(true)
+					local ring = node:FindFirstChildOfClass("UIStroke")
+					if ring ~= nil then
+						kinds.stroke = true
+						expect(ring.Transparency > 1e-3).to.equal(true)
+					end
+				end
+			end
+			-- ...and all four kinds were really on screen to be checked, so this cannot pass by
+			-- finding nothing.
+			for _, kind in ipairs({ "image", "text", "dot", "stroke" }) do
+				expect(kinds[kind]).to.equal(true)
+			end
 			Card.step(CONFIG.FADE_SECONDS)
 			expect(Card.isVisible()).to.equal(false)
 			expect(#Card.dots()).to.equal(0)

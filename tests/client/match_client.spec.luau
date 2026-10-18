@@ -12,6 +12,9 @@ local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
+-- The one place a data kind becomes a player-facing noun (`Report.kindWord`, 201 part 3): the
+-- start card, the hit card and the report all read it, and the card's rule-4 case asserts it here.
+local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
 
@@ -166,12 +169,21 @@ return function()
 			print("[match_client] drive bar: " .. text)
 			expect(string.find(text, "DRIVE %d") ~= nil).to.equal(true)
 			expect(string.find(text, "nil") == nil).to.equal(true)
-			-- THE BADGE IS THIS PLAYER'S OWN. With one player that is SHOOTER (Director decision F);
-			-- in a two-player run one client is the DRIVER and its badge must say so, in its own
-			-- team colour. Asserting "SHOOTER" for everybody was a one-player claim inside a suite
+			-- THE BADGE IS THIS PLAYER'S OWN. With one player that is the hunter (Director decision
+			-- F); in a two-player run one client is the beater and its badge must say so, in its own
+			-- team colour. Asserting one word for everybody was a one-player claim inside a suite
 			-- the two-player run has to pass (TASKS.md row 34a).
+			--
+			-- `HUNTER` / `BEATER` SINCE 201 PART 3 (201a), and the two halves of the claim are
+			-- different: the TEAM is still `Shooters` / `Drivers` -- the string the server, the
+			-- wire and `Style.teamColor` use -- and only the drawn WORD moved.
 			expect(string.find(text, Role.badge()) ~= nil).to.equal(true)
-			expect(Role.badge()).to.equal(if Match.myTeam() == "Drivers" then "DRIVER" else "SHOOTER")
+			expect(Role.badge()).to.equal(if Match.myTeam() == "Drivers" then "BEATER" else "HUNTER")
+			expect(Hud.roleBadge(Match.myTeam())).to.equal(Role.badge())
+			-- THE OLD VOCABULARY IS ASSERTED AS GONE FROM THE BAR, not merely replaced: the defect
+			-- was the HUD saying two things for one fact.
+			expect(string.find(text, "SHOOTER", 1, true)).to.equal(nil)
+			expect(string.find(text, "DRIVER", 1, true)).to.equal(nil)
 			local phase = Match.phase()
 			if phase == "Running" or phase == "Assigning" or phase == "Scoring" then
 				expect(string.find(text, "%d+:%d%d") ~= nil).to.equal(true)
@@ -389,6 +401,10 @@ return function()
 			-- freed is the coins column. Asserted as GONE, not merely absent from a name check.
 			expect(string.find(rows[2], "SHOOTER", 1, true)).to.equal(nil)
 			expect(string.find(rows[4], "DRIVER", 1, true)).to.equal(nil)
+			-- ...AND THE NEW VOCABULARY IS NOT ON THE ROWS EITHER (201a). The pill says HUNTER now,
+			-- and the point of the heading is that the ROW does not repeat it.
+			expect(string.find(rows[2], "HUNTER", 1, true)).to.equal(nil)
+			expect(string.find(rows[4], "BEATER", 1, true)).to.equal(nil)
 			expect(string.find(rows[2], "nil", 1, true) == nil).to.equal(true)
 			-- WHAT THE DRIVE PAID, with its sign, which is the "+N coins" the task asked for.
 			expect(string.find(rows[2], "+67", 1, true) ~= nil).to.equal(true)
@@ -781,12 +797,15 @@ return function()
 	-- will not show it here. `Hud.renderStartCard` is public for exactly this. The screenshot is
 	-- separate evidence and this does not replace it.
 	describe("the start card", function()
-		-- THE SERVER'S WORDS, AS THE SERVER NOW SAYS THEM (task 160): each kind with what it is
-		-- worth, off `Match.CONFIG.POINTS.KIND`. The Hud passes this through and decides nothing
-		-- about it, which is the whole point of the last case in this describe.
-		-- ...AND SINCE TASK 170 A PIGLET IS A PENALTY, which the card says in the server's own words:
-		-- `cub -10`, and a note that tells the player to leave them.
-		local CARD_QUARRY = { "WILD BOAR, POINTS: male 10, female 6, cub -10", "a piglet COSTS you - leave them" }
+		-- THE SERVER'S ROWS, AS THE SERVER NOW SENDS THEM (201 part 3): one entry per kind with what
+		-- that kind is worth, off `Match.CONFIG.POINTS.KIND`, plus what shooting a PERSON costs. The
+		-- Hud decides nothing about any of it -- which is what the last cases here check.
+		local CARD_QUARRY = {
+			{ species = "WILD BOAR", kind = "male", points = 10 },
+			{ species = "WILD BOAR", kind = "female", points = 6 },
+			{ species = "WILD BOAR", kind = "cub", points = -10 },
+		}
+		local CARD_SAFETY = -10
 
 		local function snapshotIn(phase: string)
 			local snapshot = {
@@ -797,6 +816,7 @@ return function()
 				boarsLeft = 6,
 				waitingFor = {},
 				quarry = CARD_QUARRY,
+				safetyPenalty = CARD_SAFETY,
 				rows = {},
 				tied = {},
 			}
@@ -839,6 +859,8 @@ return function()
 			-- Cleared, not just hidden: the next drive must not flash the last one's card.
 			expect(#Hud.startCardText()).to.equal(0)
 			expect(Hud.startCardTimerText()).to.equal("")
+			expect(Hud.startCardRoleText()).to.equal("")
+			expect(Hud.startCardSectionText()).to.equal("")
 		end)
 
 		it("is really on screen in Assigning: every ancestor present and visible", function()
@@ -861,42 +883,135 @@ return function()
 			expect(card.BackgroundTransparency < 1).to.equal(true)
 		end)
 
-		it("draws the card's text IN FRONT of the card, with an outline (task 159)", function()
-			-- THE SAME DEFECT AS THE RESULTS TABLE, in the other frame task 141 raised: Karen reads
-			-- this card for ten seconds at the start of every drive, through its own panel.
+		-- THE OTHER HALF OF TASK 159'S CASE, AND THE OPPOSITE OF ITS SECOND HALF. 159 asserted that
+		-- every label was in front of the card AND wore a black `UIStroke`; the design system's
+		-- section 2 retires the stroke and the monospace with it, and fault 5 of the start-card spec
+		-- is that helper by name. So: still in front, and now with NO outline and NO `Enum.Font.Code`
+		-- anywhere in the card -- the surface is what makes the words readable.
+		it("draws every word in front of the card, with no black outline and no monospace", function()
 			Hud.renderStartCard(starting(), "Shooters", 7)
 			local card = Hud.startCard()
 			expect(card).to.be.ok()
 			local checked = 0
-			for _, child in ipairs(card:GetChildren()) do
-				if child:IsA("TextLabel") then
+			for _, node in ipairs(card:GetDescendants()) do
+				if node:IsA("TextLabel") then
 					checked += 1
-					expect(child.ZIndex > card.ZIndex).to.equal(true)
-					expect(child.TextTransparency < 0.5).to.equal(true)
-					local stroke = child:FindFirstChildOfClass("UIStroke")
-					expect(stroke).to.be.ok()
+					expect(node.ZIndex > card.ZIndex).to.equal(true)
+					expect(node.TextTransparency < 0.5).to.equal(true)
+					expect(node:FindFirstChildOfClass("UIStroke")).to.equal(nil)
+					-- A `FontFace` FROM THE SCALE, AND NEVER THE MONOSPACE. Setting `FontFace` makes
+					-- `Font` report the matching enum (`BuilderSansBold`, `Oswald`), so the claim is
+					-- stated as the one thing that must not be true rather than as one that may.
+					expect(node.Font).never.to.equal(Enum.Font.Code)
+					expect(node.TextScaled).to.equal(false)
 				end
 			end
-			expect(checked).to.equal(2 + Drive.CONFIG.START_CARD_LINES_MAX)
+			-- The eyebrow, the role, the section word, the countdown's two, and four rows x (text,
+			-- value, word, tag text): more than a dozen labels, and the number is not the claim --
+			-- that every one of them passes is.
+			expect(checked > 10).to.equal(true)
+			TestKit.note(string.format("match_client: start card labels checked = %d", checked))
 		end)
 
-		it("tells a HUNTER his role, what he may shoot, and how long he has to reach his stand", function()
+		it("tells a HUNTER his role, what to shoot with its price, and how long he has", function()
 			Hud.renderStartCard(starting(), "Shooters", 10)
-			local lines = Hud.startCardText()
-			print("[match_client] start card: " .. table.concat(lines, " / ") .. " / " .. Hud.startCardTimerText())
-			expect(lines[1]).to.equal("YOU ARE A HUNTER")
-			-- WHAT MAY BE SHOT IS THE SERVER'S WORDS, passed through: the client decides nothing
-			-- about what is legal.
-			expect(lines[2]).to.equal(CARD_QUARRY[1])
-			expect(lines[3]).to.equal(CARD_QUARRY[2])
+			local rows = Hud.startCardRowText()
+			local drawn = {}
+			for _, row in ipairs(rows) do
+				table.insert(drawn, string.format("%s %s %s", row.glyph, row.text, row.value))
+			end
+			print(
+				"[match_client] start card (hunter): "
+					.. Hud.startCardTitleText()
+					.. " / "
+					.. Hud.startCardRoleText()
+					.. " / "
+					.. Hud.startCardSectionText()
+					.. " / "
+					.. table.concat(drawn, " | ")
+					.. " / "
+					.. Hud.startCardTimerText()
+			)
+			expect(Hud.startCardRoleText()).to.equal("YOU ARE A HUNTER")
 			expect(string.find(Hud.startCardTitleText(), "DRIVE 4", 1, true) ~= nil).to.equal(true)
+			expect(Hud.startCardSectionText()).to.equal("WHAT TO SHOOT")
+			-- FOUR ROWS, ONE IDEA EACH, and the price is the SERVER's number with its own sign.
+			expect(#rows).to.equal(4)
+			expect(rows[1].glyph).to.equal("tick")
+			expect(rows[1].text).to.equal("Male boar")
+			expect(rows[1].value).to.equal("+10")
+			expect(rows[2].glyph).to.equal("tick")
+			expect(rows[2].text).to.equal("Female boar")
+			expect(rows[2].value).to.equal("+6")
+			-- A CROSS AND A NEGATIVE, which is the spec's rule 3: the glyph is the first reading.
+			expect(rows[3].glyph).to.equal("cross")
+			expect(rows[3].text).to.equal("Piglet - leave them")
+			expect(rows[3].value).to.equal("-10")
+			-- THE ROW THE DESIGNER ADDED, priced off the wire and not off a number typed here.
+			expect(rows[4].glyph).to.equal("cross")
+			expect(rows[4].text).to.equal("A person")
+			expect(rows[4].value).to.equal("-10")
 			expect(Hud.startCardTimerText()).to.equal("GET TO YOUR STAND  10")
 		end)
 
-		it("tells a BEATER the drive is what is counting down, not his walk", function()
+		-- THE FOURTH FAULT, FIXED: *"The beater gets the hunter's card... a man who may not shoot at
+		-- all is handed a price list of things to shoot, and is told nothing about the horn, the
+		-- push, or the line he must not cross."*
+		it("tells a BEATER his job instead of the hunter's price list", function()
 			Hud.renderStartCard(starting(), "Drivers", 3)
-			expect(Hud.startCardText()[1]).to.equal("YOU ARE A BEATER")
-			expect(Hud.startCardTimerText()).to.equal("DRIVE STARTS IN  3")
+			local rows = Hud.startCardRowText()
+			local drawn = {}
+			for _, row in ipairs(rows) do
+				table.insert(drawn, string.format("%s %s %s", row.glyph, row.text, row.value))
+			end
+			print(
+				"[match_client] start card (beater): "
+					.. Hud.startCardRoleText()
+					.. " / "
+					.. Hud.startCardSectionText()
+					.. " / "
+					.. table.concat(drawn, " | ")
+					.. " / "
+					.. Hud.startCardTimerText()
+			)
+			expect(Hud.startCardRoleText()).to.equal("YOU ARE A BEATER")
+			expect(Hud.startCardSectionText()).to.equal("WHAT TO DO")
+			expect(#rows).to.equal(4)
+			expect(rows[1].glyph).to.equal("cross")
+			expect(rows[1].text).to.equal("You do not shoot")
+			expect(rows[1].value).to.equal("NEEDS LICENCE")
+			expect(rows[2].glyph).to.equal("chevron")
+			expect(rows[2].text).to.equal("Push the boars to the hunters")
+			expect(rows[2].value).to.equal("")
+			expect(rows[3].glyph).to.equal("horn")
+			expect(rows[3].text).to.equal("Click your horn as you walk")
+			expect(rows[4].glyph).to.equal("cross")
+			expect(rows[4].text).to.equal("Do not cross their line")
+			expect(rows[4].value).to.equal("DRIVE OVER")
+			-- NOT ONE OF THE HUNTER'S PRICES IS ON HIS CARD. He is told about the boars -- pushing
+			-- them is his job -- and he is told nothing about what one is WORTH, which is the fourth
+			-- fault: *"a man who may not shoot at all is handed a price list of things to shoot"*.
+			for _, row in ipairs(rows) do
+				expect(string.find(row.value, "%+%d")).to.equal(nil)
+				expect(string.find(row.value, "%-%d")).to.equal(nil)
+			end
+			-- BOTH LAST LINES ARE INSTRUCTIONS NOW, and it is the same deadline either way.
+			expect(Hud.startCardTimerText()).to.equal("WAIT FOR THE HORN  3")
+		end)
+
+		-- THE SECOND FAULT, FIXED, AND RULE 4: *"`cub` is never printed. The player-facing word is
+		-- `piglet`, in one place, shared with the hit card and the report."*
+		it("never prints the word cub, on either card", function()
+			for _, team in ipairs({ "Shooters", "Drivers" }) do
+				Hud.renderStartCard(starting(), team, 8)
+				for _, row in ipairs(Hud.startCardRowText()) do
+					expect(string.find(string.lower(row.text), "cub", 1, true)).to.equal(nil)
+				end
+			end
+			-- ONE PLACE, and the hit card and the report read the same function.
+			expect(Report.kindWord("cub")).to.equal("piglet")
+			expect(Report.kindWord("male")).to.equal("male")
+			expect(Report.kindWord(nil)).to.equal("")
 		end)
 
 		it("rounds the countdown UP, so a player never reads 0 while he still has time", function()
@@ -905,20 +1020,76 @@ return function()
 			expect(Hud.startCardTimerFor("Shooters", 9.2)).to.equal("GET TO YOUR STAND  10")
 			expect(Hud.startCardTimerFor("Shooters", 0.4)).to.equal("GET TO YOUR STAND  1")
 			expect(Hud.startCardTimerFor("Shooters", 0)).to.equal("GET TO YOUR STAND  0")
-			expect(Hud.startCardTimerFor("Drivers", -5)).to.equal("DRIVE STARTS IN  0") -- never negative
+			expect(Hud.startCardTimerFor("Drivers", -5)).to.equal("WAIT FOR THE HORN  0") -- never negative
+			expect(Hud.startCardSecondsFor(nil)).to.equal(0)
+		end)
+
+		-- THE BAR IS FULL ON THE FRAME THE CARD APPEARS, whatever the phase's length is. The client
+		-- is never told `Match.CONFIG.INTERMISSION_SECONDS` (15 today, 20 and 10 before), so the
+		-- largest `secondsLeft` seen is the length and a typed 10 would draw a two-thirds bar.
+		it("fills the countdown bar against the phase it actually saw, not a constant", function()
+			expect(Hud.startCardBarScale(15, 15)).to.be.near(1, 1e-6)
+			expect(Hud.startCardBarScale(15, 0)).to.be.near(1, 1e-6) -- the first frame: nothing latched yet
+			expect(Hud.startCardBarScale(7.5, 15)).to.be.near(0.5, 1e-6)
+			expect(Hud.startCardBarScale(0, 15)).to.be.near(0, 1e-6)
+			expect(Hud.startCardBarScale(-3, 15)).to.be.near(0, 1e-6)
+			expect(Hud.startCardBarScale(0, 0)).to.be.near(0, 1e-6)
 		end)
 
 		it("shows nothing at all with no drive, and no role line for a player on no team", function()
 			Hud.renderStartCard(nil, nil, 0)
 			expect(Hud.isStartCardVisible()).to.equal(false)
-			-- The lines themselves are pure, so the no-team case is one assertion: the quarry still
-			-- reads, because what may be shot does not depend on which side you are on.
-			local lines = Hud.startCardLines(starting(), nil)
-			expect(#lines).to.equal(2)
-			expect(lines[1]).to.equal(CARD_QUARRY[1])
+			-- The rows are pure, so the no-team case is one assertion: the quarry still reads,
+			-- because what may be shot does not depend on which side you are on. A player with no
+			-- team is given no ROLE line rather than "YOU ARE A ".
+			local rows = Hud.startCardRows(starting(), nil, false)
+			expect(#rows).to.equal(4)
+			expect(rows[1].text).to.equal("Male boar")
 			expect(Hud.roleWord(nil)).to.equal("")
 			expect(Hud.roleWord("Shooters")).to.equal("HUNTER")
 			expect(Hud.roleWord("Drivers")).to.equal("BEATER")
+			Hud.renderStartCard(starting(), nil, 5)
+			expect(Hud.startCardRoleText()).to.equal("")
+		end)
+
+		-- THE ROWS ARE THE WIRE'S, AND A KIND WITH NO PRICE DRAWS NO NUMBER rather than a wrong one
+		-- -- the retired `QUARRY_NOTE`'s own rule, kept.
+		it("draws a kind the server priced with no number, and keeps the row", function()
+			local rows = Hud.startCardRows({
+				phase = "Assigning",
+				driveNumber = 1,
+				quarry = { { species = "RED DEER", kind = "stag" } },
+			}, "Shooters", false)
+			expect(#rows).to.equal(1)
+			expect(rows[1].value).to.equal(nil)
+			expect(rows[1].glyph).to.equal("cross") -- unpriced is not "may shoot"
+			expect(rows[1].text).to.equal("Stag")
+			-- AND NO PERSON ROW WITHOUT THE SERVER'S NUMBER: a -10 typed on this side would be a
+			-- second copy of a penalty.
+			for _, row in ipairs(rows) do
+				expect(row.text).never.to.equal("A person")
+			end
+		end)
+
+		-- THE PHONE DROPS THE BEATER'S TWO RIGHT-HAND CELLS, and only his (the spec's amendment 2
+		-- and rule 2): at 264 wide the row text wins the width, the same way the status bar drops a
+		-- whole chip rather than squeezing one.
+		it("drops the beater's right-hand cells at the phone step and keeps his words", function()
+			local wide = Hud.startCardRows(starting(), "Drivers", false)
+			local narrow = Hud.startCardRows(starting(), "Drivers", true)
+			expect(wide[1].tag).to.equal("NEEDS LICENCE")
+			expect(wide[4].word).to.equal("DRIVE OVER")
+			expect(narrow[1].tag).to.equal(nil)
+			expect(narrow[4].word).to.equal(nil)
+			expect(#narrow).to.equal(#wide)
+			for index, row in ipairs(narrow) do
+				expect(row.text).to.equal(wide[index].text)
+				expect(row.glyph).to.equal(wide[index].glyph)
+			end
+			-- ...AND THE TEXT CELL TAKES THE SLACK THE DROPPED CELL LEAVES.
+			local phoneContent = Hud.startCardContentWidth(400)
+			expect(Hud.startCardTextWidth(400, 0) > Hud.startCardTextWidth(400, 34)).to.equal(true)
+			expect(Hud.startCardTextWidth(400, 0) < phoneContent).to.equal(true)
 		end)
 
 		it("is only ever the start of a drive: no other phase shows it", function()
@@ -940,9 +1111,26 @@ return function()
 			local snapshot = Match.get()
 			expect(type(snapshot.quarry)).to.equal("table")
 			expect(#snapshot.quarry > 0).to.equal(true)
-			print("[match_client] the wire's quarry: " .. table.concat(snapshot.quarry, " | "))
-			for _, field in ipairs({ "QUARRY", "QUARRY_NOTE", "START_HOLD_TEAM" }) do
+			local drawn = {}
+			for _, row in ipairs(snapshot.quarry) do
+				expect(type(row)).to.equal("table") -- ROWS, not a formatted sentence
+				expect(type(row.kind)).to.equal("string")
+				table.insert(drawn, string.format("%s=%s", row.kind, tostring(row.points)))
+			end
+			print(
+				"[match_client] the wire's quarry: "
+					.. table.concat(drawn, " | ")
+					.. " / person "
+					.. tostring(snapshot.safetyPenalty)
+			)
+			expect(type(snapshot.safetyPenalty)).to.equal("number")
+			-- NO RULE ON THIS SIDE: the config holds the card's words and both its layouts, and not
+			-- one fact about what is legal or what it is worth.
+			for _, field in ipairs({ "QUARRY", "QUARRY_NOTE", "START_HOLD_TEAM", "POINTS" }) do
 				expect((Drive.CONFIG :: any)[field]).to.equal(nil)
+			end
+			for _, word in pairs(Drive.CONFIG.START_CARD_QUARRY_WORDS) do
+				expect(string.find(word, "%d")).to.equal(nil) -- no price is typed into the copy
 			end
 		end)
 	end)

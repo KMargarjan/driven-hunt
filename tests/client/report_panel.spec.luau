@@ -318,6 +318,14 @@ return function()
 			-- record's word is "wounded", the screen's is this, and `detailCellsFor` is the one
 			-- place it is decided so the tag and the line cannot disagree.
 			expect(string.find(rows[2], "WOUNDED", 1, true)).to.be.ok()
+			-- `PIGLET` AND NOT `CUB` (201 part 3). The second row's record is a `cub` and this column
+			-- printed that word, while the start card said `piglet` -- fault 2 of the Designer's
+			-- start-card spec: *"A new player reads them as two animals and shoots the one he thinks
+			-- is safe."* `Report.kindWord` is the one place the mapping lives and all three screens
+			-- read it.
+			expect(detailPayload().rows[2].kind).to.equal("cub") -- the RECORD is unchanged
+			expect(string.find(rows[2], "PIGLET", 1, true)).to.be.ok()
+			expect(string.find(rows[2], "CUB", 1, true)).to.equal(nil)
 		end)
 
 		it("puts one dot per hit at the (u, v) the record measured", function()

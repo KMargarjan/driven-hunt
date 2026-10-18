@@ -39,6 +39,10 @@ export type Look = {
 	height: number,
 	zIndex: number,
 	corner: number?,
+	-- THE RECORD'S OWN `kind` (task 205): "male", "female", "cub", or nil. With a kind this draws
+	-- KAREN'S IMAGE through `Report.boarImage`; without one it draws the fourteen `Frame`s, which is
+	-- every caller before task 205 and is the fallback for a world with no asset.
+	kind: string?,
 }
 
 export type DotLook = {
@@ -106,8 +110,29 @@ function BoarArt.build(parent: Instance, name: string, position: UDim2, look: Lo
 		round.CornerRadius = UDim.new(0, look.corner)
 		round.Parent = art
 	end
-	-- ONE COLOUR, FOURTEEN PARTS, NO ART FILE. Every number is a SCALE of this frame, so the same
-	-- fourteen parts draw the same animal at 104 x 56 in a report row and at 148 x 80 on the card.
+	-- ONE IMAGE SINCE TASK 205, AND IT IS KAREN'S OWN. She played on 2026-10-18 and said of the
+	-- card this draws: *"and what is that? you need proper image for wildboar when showing hit now
+	-- it feels mess unclear wtf ?"* -- `karen-2026-10-18/shot-4.png`. What she was looking at is the
+	-- fourteen `Frame`s below, which at 148 x 80 read as two rounded blobs with four stubs.
+	--
+	-- `look.kind` IS THE RECORD'S OWN WORD and `Report.boarImage` is the one place it becomes a
+	-- picture, so the hit card and the drive report cannot show two different animals for one shot.
+	-- The fourteen parts are KEPT and are the fallback for a caller that passes no kind at all
+	-- (rule 7: the old drawing is not deleted, and a world with no asset still draws an animal).
+	if look.kind ~= nil then
+		local picture = Instance.new("ImageLabel")
+		picture.Name = "Silhouette"
+		picture.BackgroundTransparency = 1
+		picture.BorderSizePixel = 0
+		-- `Fit` AND NOT `Stretch`: the two PNGs have different aspect ratios (1.99 and 1.72) and a
+		-- stretched boar is a boar nobody recognises, which is the whole of what she complained of.
+		picture.ScaleType = Enum.ScaleType.Fit
+		picture.ImageColor3 = look.fill
+		picture.ZIndex = look.zIndex + 1
+		picture.Parent = art
+		BoarArt.setKind(art, look.kind)
+		return art
+	end
 	for _, piece in ipairs(CONFIG.BOAR) do
 		local part = Instance.new("Frame")
 		part.Name = piece.name
@@ -131,6 +156,112 @@ function BoarArt.build(parent: Instance, name: string, position: UDim2, look: Lo
 	return art
 end
 
+-- WHICH ANIMAL THIS FRAME IS SHOWING, and the ONE writer of the picture and of the box the dots
+-- are placed in -- so the two can never describe different animals.
+--
+-- IT IS CALLED AT SHOW TIME AND NOT ONLY AT BUILD TIME, because the hit card builds its two art
+-- frames (nose-left and nose-right) before any shot has been fired and learns the kind from the
+-- payload. `Report.boarImage` decides; this draws.
+-- IT TAKES NO `mirror` SINCE ROUND 2 OF THIS TASK'S REVIEW, and that absence is the fix: there is
+-- nothing a caller could ask for here that this engine can draw (the measurement is below).
+function BoarArt.setKind(art: Frame, kind: string?)
+	local picture = art:FindFirstChild("Silhouette")
+	if picture == nil or not picture:IsA("ImageLabel") then
+		return
+	end
+	local chosen = Report.boarImage(kind)
+	picture.Image = chosen.id
+	-- A PIGLET IS THE SOW AT 70 %, centred, which `Report.boarImage` decides and this draws.
+	local inset = (1 - chosen.scale) / 2
+	-- THE PICTURE IS NEVER FLIPPED, BECAUSE THIS ENGINE CANNOT FLIP ONE -- measured, not assumed.
+	-- Round 1's reviewer caught a `UDim2.fromScale(-scale, scale)` here and was right. Three labels
+	-- on one plate in Play, same image, 2026-10-18
+	-- (`.screenshots/20261018T173406Z-t205-mirror-probe.png`):
+	--
+	--   A  plain                    -> drawn, nose LEFT
+	--   B  negative `Size.X`        -> drawn, nose LEFT -- the box moves, the PIXELS DO NOT MIRROR
+	--   C  negative `ImageRectSize` -> NOTHING DRAWN AT ALL
+	--
+	-- So the old line was not a mirror, it was a no-op that moved the frame; and the rect trick the
+	-- round-2 dispatch asked about draws an empty box, which is worse. This file's own header said
+	-- so twelve lines above `build` -- *"a `Frame` cannot be flipped, so the parts are laid out the
+	-- other way round"* -- and the fourteen-part drawing mirrors by RELAYOUT for exactly that
+	-- reason. One image has no parts to relay out.
+	--
+	-- WHAT IS KEPT AND WHAT IS LOST, said plainly. The card no longer faces the way the player
+	-- stood: Karen's boar always walks to the left. What it does keep is the only thing the card is
+	-- FOR -- a hit on the head draws on the head -- because `drawDots` stops mirroring the dots in
+	-- the same breath (see `drawDots`: the two flips used to cancel for anatomy and only change the
+	-- facing, so dropping both leaves every dot where it belongs). A boar facing left with its head
+	-- drawn on the right would be the wrong trade, and that is what flipping ONE of the two does.
+	picture.Position = UDim2.fromScale(inset, inset)
+	picture.Size = UDim2.fromScale(chosen.scale, chosen.scale)
+	-- WHETHER THIS FRAME'S ANIMAL IS MIRRORED, written where `drawDots` reads it -- so the dots and
+	-- the picture cannot disagree about which way the animal is facing.
+	art:SetAttribute("Mirrored", false)
+	-- WHERE THE DOTS' UNIT SQUARE SITS ON THIS PICTURE, written on the frame so `drawDots` reads it
+	-- back rather than being told the same thing twice. `Report.CONFIG.BOAR_IMAGE`'s measured box,
+	-- scaled by the piglet's own scale so a cub's hit lands in the same place on the same body.
+	art:SetAttribute("BoxU0", inset + chosen.box.u0 * chosen.scale)
+	art:SetAttribute("BoxU1", inset + chosen.box.u1 * chosen.scale)
+	art:SetAttribute("BoxV0", inset + chosen.box.v0 * chosen.scale)
+	art:SetAttribute("BoxV1", inset + chosen.box.v1 * chosen.scale)
+end
+
+-- KAREN'S RULE, 2026-10-17: *"if same place spread if not same show spread"*. A buckshot pattern
+-- puts up to eighteen pellets inside a hand's width of animal, and at the card's scale they land on
+-- top of one another: the player sees ONE dot and cannot tell a graze from a pattern.
+--
+-- PURE, AND IT MOVES THE DRAWING AND NEVER THE RECORD. Dots closer together than `gap` (in the
+-- frame's own pixels) are FANNED onto a ring about their own centre, in index order, so the same
+-- shot always draws the same picture -- a random jitter would make two screenshots of one hit
+-- disagree. A group of one is left exactly where it was.
+--
+-- THE RING'S RADIUS GROWS WITH THE GROUP so eighteen pellets do not sit on a circle meant for
+-- three, and it is capped at `gap` x 2 so a pattern stays a pattern rather than becoming a halo.
+function BoarArt.spread(dots: { any }, gap: number, width: number, height: number): { any }
+	local out = {}
+	local taken = {}
+	for index, dot in ipairs(dots or {}) do
+		table.insert(out, { u = dot.u or 0, v = dot.v or 0, source = index })
+	end
+	for index, dot in ipairs(out) do
+		if taken[index] then
+			continue
+		end
+		local group = { index }
+		taken[index] = true
+		for other = index + 1, #out do
+			if taken[other] then
+				continue
+			end
+			local dx = (out[other].u - dot.u) * width
+			local dy = (out[other].v - dot.v) * height
+			if dx * dx + dy * dy < gap * gap then
+				taken[other] = true
+				table.insert(group, other)
+			end
+		end
+		if #group < 2 then
+			continue
+		end
+		-- THE GROUP'S OWN CENTRE, so the fan stays where the pellets actually struck.
+		local cu, cv = 0, 0
+		for _, which in ipairs(group) do
+			cu += out[which].u
+			cv += out[which].v
+		end
+		cu, cv = cu / #group, cv / #group
+		local radius = math.min(gap * 2, gap * 0.6 * math.sqrt(#group))
+		for place, which in ipairs(group) do
+			local angle = (place - 1) * (2 * math.pi / #group)
+			out[which].u = cu + (radius * math.cos(angle)) / math.max(1, width)
+			out[which].v = cv + (radius * math.sin(angle)) / math.max(1, height)
+		end
+	end
+	return out
+end
+
 function BoarArt.clearDots(art: Frame)
 	for _, child in ipairs(art:GetChildren()) do
 		if child:IsA("Frame") and child.Name == "Dot" then
@@ -146,7 +277,18 @@ end
 function BoarArt.drawDots(art: Frame, dots: { any }?, look: DotLook)
 	BoarArt.clearDots(art)
 	local pixels = look.pixels or CONFIG.DOT_PIXELS
-	for _, dot in ipairs(dots or {}) do
+	-- SAME PLACE -> SPREAD (Karen, 2026-10-17). The fan is computed on the DRAWN positions, in this
+	-- frame's own pixels, because "a dot's width apart" is a thing about the picture and not about
+	-- the animal. The record is untouched: the attributes written below still carry the true (u, v).
+	local placed = BoarArt.spread(dots or {}, pixels, look.width, look.height)
+	-- WHERE THE UNIT SQUARE SITS ON THE PICTURE. With Karen's image it is the measured box
+	-- (`build` wrote it onto the frame); with the fallback drawing it is the whole frame, which is
+	-- what every dot before task 205 was placed in.
+	local boxU0 = art:GetAttribute("BoxU0") or 0
+	local boxU1 = art:GetAttribute("BoxU1") or 1
+	local boxV0 = art:GetAttribute("BoxV0") or 0
+	local boxV1 = art:GetAttribute("BoxV1") or 1
+	for index, dot in ipairs(dots or {}) do
 		local pip = Instance.new("Frame")
 		pip.Name = "Dot"
 		pip.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -161,13 +303,29 @@ function BoarArt.drawDots(art: Frame, dots: { any }?, look: DotLook)
 		-- ...AND THEN ONTO THE ANIMAL, if the inset still leaves it in the air (task 138). The
 		-- nudge is applied to the DRAWN position, because that is the space `Report.CONFIG.BOAR`'s
 		-- parts are laid out in; the attributes below still carry the true `(u, v)`.
+		-- THE FANNED POSITION, not the raw one (see `BoarArt.spread` above).
+		local fanned = placed[index] or { u = dot.u or 0, v = dot.v or 0 }
 		local drawnU, drawnV = Report.ontoBoar(
-			insetU + math.clamp(dot.u or 0, 0, 1) * (1 - 2 * insetU),
-			insetV + math.clamp(dot.v or 0, 0, 1) * (1 - 2 * insetV)
+			insetU + math.clamp(fanned.u, 0, 1) * (1 - 2 * insetU),
+			insetV + math.clamp(fanned.v, 0, 1) * (1 - 2 * insetV)
 		)
-		-- THE SAME ONE LINE THE ANIMAL WAS LAID OUT WITH (see `build`): mirror the picture, mirror
-		-- the marks, or the dot would be on the wrong end of a boar facing the other way.
-		pip.Position = UDim2.fromScale(if look.mirror then 1 - drawnU else drawnU, drawnV)
+		-- ...AND THEN INTO THE BOX THE UNIT SQUARE OCCUPIES ON THIS PICTURE. Before task 205 the
+		-- animal filled the frame and the two were the same rectangle; Karen's image carries legs,
+		-- a tail and a mane outside the trunk, so a dot placed in the whole frame would land in the
+		-- air beside the animal.
+		drawnU = boxU0 + drawnU * (boxU1 - boxU0)
+		drawnV = boxV0 + drawnV * (boxV1 - boxV0)
+		-- THE SAME ANSWER THE ANIMAL WAS LAID OUT WITH, and the FRAME is the one place it is kept.
+		-- `Mirrored` is written by `setKind` (false: a picture cannot be flipped in this engine, and
+		-- the comment there has the measurement) and is ABSENT for the fourteen-part drawing, which
+		-- does mirror by relayout -- so the fallback still flips its dots and Karen's silhouette
+		-- does not. Flipping one without the other is the bug: the dot would land on the rump of an
+		-- animal whose head is where it always was.
+		local flipped = art:GetAttribute("Mirrored")
+		if flipped == nil then
+			flipped = look.mirror == true
+		end
+		pip.Position = UDim2.fromScale(if flipped then 1 - drawnU else drawnU, drawnV)
 		pip.Size = UDim2.fromOffset(size, size)
 		local plain = look.dot or Color3.new(1, 1, 1)
 		pip.BackgroundColor3 = if dot.fatal then Shotgun.CONFIG.HIT_MARK_KILL_COLOR else plain

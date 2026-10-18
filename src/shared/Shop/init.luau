@@ -887,7 +887,7 @@ end
 -- ---------------------------------------------------------------- the panel's body
 
 -- THE WHOLE PANEL, DECIDED ONCE, ON THE SERVER. PURE and exported -- the idiom
--- `Hud.scorePanelLines`, `Hud.startCardLines` and `Match.quarryLines` already establish, and it is
+-- `Hud.scorePanelLines` and `Hud.startCardRows` already establish, and it is
 -- why the panel decides nothing (design section 5.2).
 --
 -- `buyable` IS `Shop.refuse(...) == nil` FOR THE SAME FACTS, which `shop.spec` asserts over a table

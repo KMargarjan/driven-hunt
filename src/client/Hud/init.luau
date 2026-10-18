@@ -74,6 +74,10 @@ local ReportPanel = require(script.ReportPanel)
 -- THE HIT CARD (task 198): created here with the rest of the screen, filled by `Hud.HitCard`, which
 -- -- not this file -- is the only writer of what goes in it and of its `Visible`.
 local HitCard = require(script.HitCard)
+-- ...AND THE ONE BUILDER OF THE BOAR PICTURE (task 198), required here only so the Hud can publish
+-- it the way it publishes every other sibling module -- a spec reads it off the Hud rather than
+-- walking PlayerScripts for it. Nothing in this file draws with it; `HitCard` and `ReportPanel` do.
+local BoarArt = require(script.BoarArt)
 -- ...and the compass strip (task 125). Same shape as the report panel: the Hud builds the frame
 -- with everything else, and `Compass` is the one writer of what goes inside it.
 local Compass = require(script.Compass)
@@ -272,10 +276,40 @@ local tiedText: TextLabel? = nil
 -- drive actually used.
 local scoreCountdownFrom = 0
 -- THE START CARD (task 158): built once with everything else, shown only by `Hud.renderStartCard`.
+-- EIGHT CHILDREN AND FOUR ROWS SINCE 201 PART 3 (the Designer's `startcard-spec.md`), each handle
+-- held here because the card is built once and written per frame -- the rule every surface in this
+-- file follows.
 local startCard: Frame? = nil
-local startCardTitle: TextLabel? = nil
-local startCardLines: { TextLabel } = {}
-local startCardTimer: TextLabel? = nil
+local startCardPad: UIPadding? = nil
+local startCardTitle: TextLabel? = nil -- the eyebrow: `DRIVE 1`
+local startCardRole: TextLabel? = nil
+local startCardRules: { Frame } = {}
+local startCardSection: Frame? = nil
+local startCardSectionWord: TextLabel? = nil
+local startCardSectionRule: Frame? = nil
+local startCardRowsBox: Frame? = nil
+local startCardTimer: TextLabel? = nil -- the countdown's label
+local startCardSecondsLabel: TextLabel? = nil
+local startCardCount: Frame? = nil
+local startCardBarSlot: Frame? = nil
+local startCardFill: Frame? = nil
+-- ONE ROW'S PARTS. Every glyph is BUILT and one is SHOWN -- the discipline the board's badge and
+-- leaver tag already use, because a renderer that creates instances per frame is the one thing a
+-- HUD must never do.
+type StartRowParts = {
+	row: Frame,
+	icons: { [string]: Frame },
+	text: TextLabel,
+	value: TextLabel,
+	word: TextLabel,
+	tag: Frame,
+	tagText: TextLabel,
+}
+local startCardRowParts: { StartRowParts } = {}
+-- WHAT THE COUNTDOWN BAR IS FULL AT, latched. See `Drive.CONFIG`'s own note: the phase's length is
+-- `Match.CONFIG.INTERMISSION_SECONDS` and the client is never told it, so the largest `secondsLeft`
+-- this card has seen IS the length, and the first frame is full by construction.
+local startCardFullSeconds = 0
 local started = false
 
 -- HOW WIDE THE SCREEN IS, ASKED ONCE AND IN ONE PLACE. Every size on this screen comes off the
@@ -318,6 +352,169 @@ end
 -- not grow past (§4.3 rule 2). The rest of the layout is anchored to an edge or to the centre.
 local lastViewportX = 0
 
+-- ---------------------------------------------------------------- the start card's two layouts
+--
+-- EVERY NUMBER THE DESIGNER MEASURED, in one table, desktop then phone (`startcard-spec.md`
+-- section 3: *"Measured on `startcard-mockups.png`, after the fonts load"*). The card is the only
+-- surface in the game whose whole geometry changes at the break point -- it is 440 wide and centred
+-- on a desktop and 264 wide against the left margin on a phone -- so the two steps are written out
+-- rather than derived, and `layoutStartCard` is the one writer of all of them.
+--
+-- WHY IT IS NOT CENTRED ON A PHONE (the spec's amendment 2): a 368-wide card centred on 400 px runs
+-- x 16..384, which buries the minimap (x 288..384) and sits under the rail that draws OVER it.
+-- 16..280 stops 8 px short of the map, so a hunter keeps the map he needs to find his stand.
+Hud.START_CARD = {
+	{
+		width = 440,
+		height = 274,
+		pad = 14,
+		side = 16,
+		eyebrow = 12,
+		role = 30,
+		roleTop = 4,
+		ruleTop = 10,
+		section = 11,
+		sectionTop = 10,
+		rowsTop = 6,
+		rowH = 24,
+		glyph = 16,
+		gap = 12,
+		value = 40,
+		rule2Top = 10,
+		countTop = 11,
+		count = 30,
+		barTop = 8,
+		top = 150,
+		left = nil :: number?,
+	},
+	{
+		width = 264,
+		height = 239,
+		pad = 12,
+		side = 14,
+		eyebrow = 11,
+		role = 26,
+		roleTop = 3,
+		ruleTop = 8,
+		section = 10,
+		sectionTop = 8,
+		rowsTop = 5,
+		rowH = 21,
+		glyph = 14,
+		gap = 10,
+		value = 34,
+		rule2Top = 9,
+		countTop = 10,
+		count = 26,
+		barTop = 7,
+		top = 124,
+		left = 16 :: number?,
+	},
+}
+
+function Hud.startCardStep(viewX: number)
+	return if Style.isPhone(viewX) then Hud.START_CARD[2] else Hud.START_CARD[1]
+end
+
+-- THE CONTENT BOX'S WIDTH: the card less its own padding, which is what every cell inside is
+-- measured against. One function, because `Style.cardInset`'s own lesson in part 2 was a surface
+-- measured WITHOUT the padding that indents it.
+function Hud.startCardContentWidth(viewX: number): number
+	local step = Hud.startCardStep(viewX)
+	return step.width - 2 * step.side
+end
+
+-- HOW WIDE A ROW'S TEXT CELL IS. `reserve` is what the right-hand cell takes (0 when the row has
+-- nothing to say, which is the spec's rule 2: *"the right-hand cell is dropped first and the text
+-- keeps the width"*). PURE, so the one rule that a row never wraps can be asserted without a frame.
+function Hud.startCardTextWidth(viewX: number, reserve: number): number
+	local step = Hud.startCardStep(viewX)
+	local x = step.glyph + step.gap
+	local slack = Hud.startCardContentWidth(viewX) - x
+	if reserve > 0 then
+		slack -= reserve + step.gap
+	end
+	return math.max(1, slack)
+end
+
+local function layoutStartCard(viewX: number)
+	local card = startCard
+	if card == nil then
+		return
+	end
+	local step = Hud.startCardStep(viewX)
+	card.Size = UDim2.fromOffset(step.width, step.height)
+	if step.left ~= nil then
+		card.AnchorPoint = Vector2.new(0, 0)
+		card.Position = UDim2.fromOffset(step.left, step.top)
+	else
+		card.AnchorPoint = Vector2.new(0.5, 0)
+		card.Position = UDim2.new(0.5, 0, 0, step.top)
+	end
+	if startCardPad ~= nil then
+		local pad = startCardPad :: UIPadding
+		pad.PaddingTop = UDim.new(0, step.pad)
+		pad.PaddingBottom = UDim.new(0, step.pad)
+		pad.PaddingLeft = UDim.new(0, step.side)
+		pad.PaddingRight = UDim.new(0, step.side)
+	end
+	if startCardTitle ~= nil then
+		(startCardTitle :: TextLabel).Size = UDim2.new(1, 0, 0, step.eyebrow)
+	end
+	if startCardRole ~= nil then
+		local role = startCardRole :: TextLabel
+		role.Size = UDim2.new(1, 0, 0, step.role + step.roleTop)
+		local pad = role:FindFirstChildOfClass("UIPadding")
+		if pad ~= nil then
+			(pad :: UIPadding).PaddingTop = UDim.new(0, step.roleTop)
+		end
+	end
+	-- FULL-BLEED, which is why the card's list is centre-aligned: a child 2 x `side` wider than the
+	-- content box overhangs it equally on both sides, so the hairline runs to the card's own edges.
+	for index, slot in ipairs(startCardRules) do
+		local above = if index == 1 then step.ruleTop else step.rule2Top
+		slot.Size = UDim2.new(1, 2 * step.side, 0, 1 + above)
+	end
+	if startCardSection ~= nil then
+		local head = startCardSection :: Frame
+		head.Size = UDim2.new(1, 0, 0, step.section + step.sectionTop)
+		local pad = head:FindFirstChildOfClass("UIPadding")
+		if pad ~= nil then
+			(pad :: UIPadding).PaddingTop = UDim.new(0, step.sectionTop)
+		end
+	end
+	if startCardRowsBox ~= nil then
+		local box = startCardRowsBox :: Frame
+		local pad = box:FindFirstChildOfClass("UIPadding")
+		if pad ~= nil then
+			(pad :: UIPadding).PaddingTop = UDim.new(0, step.rowsTop)
+		end
+	end
+	for _, parts in ipairs(startCardRowParts) do
+		parts.row.Size = UDim2.new(1, 0, 0, if parts.row.Visible then step.rowH else 0)
+		local icon = parts.row:FindFirstChild("Icon") :: Frame?
+		if icon ~= nil then
+			icon.Size = UDim2.fromOffset(step.glyph, step.glyph)
+		end
+		for _, glyph in pairs(parts.icons) do
+			glyph.Size = UDim2.fromOffset(step.glyph, step.glyph)
+		end
+		parts.text.Position = UDim2.fromOffset(step.glyph + step.gap, 0)
+		parts.value.Size = UDim2.new(0, step.value, 1, 0)
+	end
+	if startCardCount ~= nil then
+		local count = startCardCount :: Frame
+		count.Size = UDim2.new(1, 0, 0, step.count + step.countTop)
+		local pad = count:FindFirstChildOfClass("UIPadding")
+		if pad ~= nil then
+			(pad :: UIPadding).PaddingTop = UDim.new(0, step.countTop)
+		end
+	end
+	if startCardBarSlot ~= nil then
+		(startCardBarSlot :: Frame).Size = UDim2.new(1, 0, 0, 4 + step.barTop)
+	end
+end
+
 function Hud.applyViewportLayout(viewX: number)
 	if viewX == lastViewportX then
 		return
@@ -336,6 +533,10 @@ function Hud.applyViewportLayout(viewX: number)
 			(cap :: UISizeConstraint).MaxSize = Vector2.new(math.max(1, width), math.huge)
 		end
 	end
+	-- ...AND THE START CARD, WHOLE. It is the fourth thing that follows the window and the only one
+	-- whose own box changes: 440 x 274 centred, or 264 x 239 at the left margin (the spec's
+	-- section 3). Edge-triggered with the rest, so it costs one comparison per frame.
+	layoutStartCard(viewX)
 end
 
 -- HOW TALL THE WHOLE TOAST FEED IS, and it is the REAL stack and not a guess at it. The hit card's
@@ -599,6 +800,10 @@ end
 -- The panel module itself, for the same reason: the Hud starts it, so the Hud is where it is found.
 Hud.Report = ReportPanel
 Hud.HitCard = HitCard
+-- THE ONE BUILDER OF THE BOAR PICTURE AND THE ONE PLACER OF A DOT ON IT (task 198), published here
+-- the way every other sibling module is -- a spec reads it off the Hud rather than walking
+-- PlayerScripts. Task 205 made its spread rule pure, and that is what a case asks.
+Hud.BoarArt = BoarArt
 
 -- THE MAP (task 155): its two frames and its button, so a spec reads them off the Hud instead of
 -- walking `PlayerGui` by name -- the `Hud.compass()` / `Hud.reportPanel()` shape.
@@ -740,22 +945,74 @@ function Hud.isStartCardVisible(): boolean
 end
 
 function Hud.startCardTitleText(): string
-	return if startCardTitle then startCardTitle.Text else ""
+	return if startCardTitle then Style.unspaced(startCardTitle.Text) else ""
+end
+
+-- THE ROLE LINE, DRAWN. Its own accessor since 201 part 3: the eyebrow and the role are two labels
+-- now (`DRIVE 1` over `YOU ARE A HUNTER`), because one line carrying both was the card's old
+-- `DRIVE 1   YOU MAY SHOOT` -- two facts in one line, which is what the spec took apart.
+function Hud.startCardRoleText(): string
+	return if startCardRole then startCardRole.Text else ""
+end
+
+-- THE SECTION HEAD, DRAWN -- `WHAT TO SHOOT` or `WHAT TO DO`.
+function Hud.startCardSectionText(): string
+	return if startCardSectionWord then Style.unspaced(startCardSectionWord.Text) else ""
+end
+
+-- WHAT EACH DRAWN ROW SAYS, in order and only the visible ones: the glyph that is showing, the
+-- words, and whatever is in the right-hand cell. The ONE accessor a spec reads the card's body
+-- through, so a case asserts what is on the screen and not what a pure function returned.
+function Hud.startCardRowText(): { { glyph: string, text: string, value: string } }
+	local out = {}
+	for _, parts in ipairs(startCardRowParts) do
+		if not parts.row.Visible then
+			continue
+		end
+		local glyph = ""
+		for _, kind in ipairs(Style.GLYPHS) do
+			local frame = parts.icons[kind]
+			if frame ~= nil and frame.Visible then
+				glyph = kind
+			end
+		end
+		local value = ""
+		if parts.value.Visible then
+			value = parts.value.Text
+		elseif parts.tag.Visible then
+			-- A TAG'S WORD IS NOT LETTER-SPACED (§3.7 draws it plain), so it is read back plain.
+			value = parts.tagText.Text
+		elseif parts.word.Visible then
+			value = Style.unspaced(parts.word.Text)
+		end
+		table.insert(out, { glyph = glyph, text = parts.text.Text, value = value })
+	end
+	return out
 end
 
 -- Only the lines actually showing something, in order -- the same shape as `Hud.scoreRowText`.
 function Hud.startCardText(): { string }
 	local out = {}
-	for _, line in ipairs(startCardLines) do
-		if line.Visible and line.Text ~= "" then
-			table.insert(out, line.Text)
-		end
+	for _, entry in ipairs(Hud.startCardRowText()) do
+		table.insert(out, entry.text)
 	end
 	return out
 end
 
+-- THE COUNTDOWN AS ONE READABLE LINE, out of the TWO labels that draw it. The card's last line is
+-- an instruction and a number at opposite ends of the card now (the spec's section 2), so a caller
+-- that wants "what does the countdown say" is given the pair joined -- the shape every spec and
+-- every console line already expects.
 function Hud.startCardTimerText(): string
-	return if startCardTimer then startCardTimer.Text else ""
+	if startCardTimer == nil or startCardSecondsLabel == nil then
+		return ""
+	end
+	local label = Style.unspaced((startCardTimer :: TextLabel).Text)
+	local seconds = (startCardSecondsLabel :: TextLabel).Text
+	if label == "" and seconds == "" then
+		return ""
+	end
+	return string.format("%s  %s", label, seconds)
 end
 
 function Hud.isHitMarkVisible(): boolean
@@ -1174,38 +1431,6 @@ local function build(): ScreenGui
 		table.insert(feedLines, text)
 	end
 
-	-- EVERY LABEL OF A PANEL SITS ABOVE THE PANEL'S OWN ZINDEX, AND WEARS THE BLACK OUTLINE (task
-	-- 159). THE SECOND TIME THIS REPO HAS PAID FOR IT, and the first is written down six lines into
-	-- `src/client/Hud/ReportPanel.luau`: *"with the panel opaque at ZIndex 10 and its labels at the
-	-- default 1, the whole report came out as an EMPTY BLACK RECTANGLE -- the text was being drawn
-	-- BEHIND its own background"*. Task 141 raised the SCORE PANEL and the START CARD to
-	-- `Report.CONFIG.PANEL_Z_INDEX` (15) over the scope's mask and left their labels at 1, so both
-	-- have been drawing their text behind their own translucent dark background ever since -- which
-	-- is what `.screenshots/20261011T230613Z-task159-results-scene.png` and `...230908Z...` show:
-	-- the panel reads, the words do not.
-	--
-	-- One helper, so a third panel cannot be built without it. It works under either
-	-- `ScreenGui.ZIndexBehavior`: under `Global` the absolute numbers order the whole screen, under
-	-- `Sibling` these still order correctly among their own siblings
-	-- (https://create.roblox.com/docs/reference/engine/enums/ZIndexBehavior).
-	local function panelLabel(parent: Frame, name: string, size: number): TextLabel
-		local text = Instance.new("TextLabel")
-		text.Name = name
-		text.ZIndex = parent.ZIndex + 1
-		text.BackgroundTransparency = 1
-		text.Font = Enum.Font.Code
-		text.TextSize = size
-		text.TextColor3 = Drive.CONFIG.TEXT_COLOR
-		text.TextXAlignment = Enum.TextXAlignment.Left
-		text.Text = ""
-		local stroke = Instance.new("UIStroke")
-		stroke.Thickness = Drive.CONFIG.SCORE_TEXT_STROKE
-		stroke.Color = Color3.new(0, 0, 0)
-		stroke.Parent = text
-		text.Parent = parent
-		return text
-	end
-
 	-- THE RESULTS BOARD (surface 11), a CARD over the world at the gathering. Karen, task 159:
 	-- *"showing image transperent with results table"* -- this IS that table, and since task 201
 	-- part 2 it is built from §3.12's row: an eyebrow and a title, a column head, a section per
@@ -1336,47 +1561,241 @@ local function build(): ScreenGui
 	boardTrack.Position = UDim2.new(0, 0, 1, -8)
 	boardTrack.Size = UDim2.new(1, 0, 0, 4)
 
-	-- THE START CARD (task 158), upper middle, up for the countdown and gone at GO. Karen: *"we just
-	-- need to at the begining what they can shoot and timer when start"* -- so: what may be shot,
-	-- your role, and one line counting down. Built once, like everything else here, and shown by
-	-- `Hud.renderStartCard` -- the ONE writer of its visibility and its text.
-	local cardLines = Drive.CONFIG.START_CARD_LINES_MAX
-	local cardHeight = 44 + cardLines * Drive.CONFIG.START_CARD_LINE_HEIGHT + 34
-	local card = Instance.new("Frame")
-	card.Name = "StartCard"
-	card.BackgroundColor3 = Drive.CONFIG.START_CARD_COLOR
-	card.BackgroundTransparency = Drive.CONFIG.START_CARD_TRANSPARENCY
-	card.BorderSizePixel = 0
-	card.AnchorPoint = Vector2.new(0.5, 0)
-	card.Position = UDim2.fromScale(0.5, Drive.CONFIG.START_CARD_TOP_SCALE)
-	card.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH, cardHeight)
-	-- The score panel's own number, and for its reason: a panel the GAME put up outranks a sight
-	-- picture, so it is drawn over the scope's mask rather than cut off at the glass (task 141).
+	-- ---------------------------------------------------------------- THE START CARD
+	--
+	-- Task 158, AND REBUILT HERE TO THE DESIGNER'S OWN SPEC (`startcard-spec.md`, 2026-10-18, an
+	-- amendment to `design-system.md` surface 10). Karen, having played that day: *"this message has
+	-- to be improved maybe each from new line ask designer more user friendly"*.
+	--
+	-- WHAT IT WAS: a 440-wide panel of four 24 px lines of `Enum.Font.Code` with a black stroke, and
+	-- the body was ONE SENTENCE from the server -- `WILD BOAR, POINTS: male 10, female 6, cub -10`.
+	-- `startcard-before.png` is that card and the spec's section 0 lists its five faults: three
+	-- prices in one run of commas, two words for one animal (`cub` and `piglet`), a penalty that
+	-- looks like a price, a BEATER handed the hunter's shopping list, and the monospace §2 deleted.
+	--
+	-- WHAT IT IS: eight children in a `UIListLayout`, four rows of glyph + words + number, and one
+	-- instruction per line. Every colour, face, radius and opacity is `Style`'s; every word and both
+	-- layouts are `Drive.CONFIG`'s; the RULE -- which kinds are quarry and what each is worth -- is
+	-- the server's, on the snapshot (`Match.quarryRows`). `Hud.renderStartCard` is the one writer.
+	--
+	-- THE LIST IS CENTRE-ALIGNED AND EVERY GAP IS A `UIPadding` (the spec's section 2: *"Padding 0 --
+	-- every gap is a UIPadding below"*). Centred, because the two hairlines are FULL-BLEED: they are
+	-- `2 x side` wider than the content box and a centred list overhangs it equally on both sides.
+	local card = Style.card(screen, "StartCard")
 	card.ZIndex = Report.CONFIG.PANEL_Z_INDEX
 	card.Visible = false
-	card.Parent = screen
+	local cardPad = card:FindFirstChildOfClass("UIPadding")
+	local cardList = Instance.new("UIListLayout")
+	cardList.FillDirection = Enum.FillDirection.Vertical
+	cardList.SortOrder = Enum.SortOrder.LayoutOrder
+	cardList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	cardList.Padding = UDim.new(0, 0)
+	cardList.Parent = card
 
-	-- THE SAME DEFECT AND THE SAME FIX (task 159). The start card is the OTHER frame task 141 raised
-	-- to `PANEL_Z_INDEX` with its labels left at 1, so Karen has been reading her ten-second card
-	-- through its own panel too. It is fixed here, in the same commit, because it is one defect with
-	-- two instances and leaving the second would mean shipping a card nobody can read on purpose.
-	local cardTitle = panelLabel(card, "Title", Drive.CONFIG.START_CARD_TITLE_SIZE)
-	cardTitle.Position = UDim2.fromOffset(16, 10)
-	cardTitle.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH - 32, 28)
+	-- 1. THE EYEBROW. `DRIVE 1`, brass, letter-spaced -- the same pair (eyebrow over title) that
+	-- names every surface in the game (§3.4).
+	local cardTitle = sized(Style.label(card, "Eyebrow", "MICRO", viewX), "MICRO")
+	cardTitle.LayoutOrder = 1
+	cardTitle.TextColor3 = Style.LOOK.BRASS
+	cardTitle.TextXAlignment = Enum.TextXAlignment.Left
 
-	table.clear(startCardLines)
-	for index = 1, cardLines do
-		local line = panelLabel(card, string.format("Line%d", index), Drive.CONFIG.START_CARD_TEXT_SIZE)
-		line.Position = UDim2.fromOffset(16, 44 + (index - 1) * Drive.CONFIG.START_CARD_LINE_HEIGHT)
-		line.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH - 32, Drive.CONFIG.START_CARD_LINE_HEIGHT)
-		line.Visible = false
-		table.insert(startCardLines, line)
+	-- 2. THE ROLE, and it is the card's first second. In the team's colour at `DISPLAY`, which makes
+	-- it the only coloured heading on screen -- so the player learns the two team colours here and
+	-- reads the status pill, the roster and the map markers with them afterwards (the spec's §1.3).
+	local cardRole = sized(Style.label(card, "Role", "DISPLAY", viewX), "DISPLAY")
+	cardRole.LayoutOrder = 2
+	cardRole.TextXAlignment = Enum.TextXAlignment.Left
+	Style.padding(cardRole, 4, 0, 0, 0)
+
+	-- 3 and 6. THE TWO HAIRLINES, each a transparent slot carrying its own gap above a 1 px rule.
+	-- The gradient is the system's own: clear at both ends, so the line does not end in a hard stop
+	-- against the card's edge.
+	table.clear(startCardRules)
+	for index = 1, 2 do
+		local slot = Instance.new("Frame")
+		slot.Name = string.format("Rule%d", index)
+		slot.BackgroundTransparency = 1
+		slot.BorderSizePixel = 0
+		slot.LayoutOrder = if index == 1 then 3 else 6
+		slot.ZIndex = card.ZIndex + 1
+		slot.Parent = card
+
+		local line = Instance.new("Frame")
+		line.Name = "Line"
+		line.BackgroundColor3 = Style.LOOK.BRASS
+		line.BorderSizePixel = 0
+		line.AnchorPoint = Vector2.new(0, 1)
+		line.Position = UDim2.fromScale(0, 1)
+		line.Size = UDim2.new(1, 0, 0, 1)
+		line.ZIndex = slot.ZIndex
+		local fade = Instance.new("UIGradient")
+		fade.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.12, 0.58),
+			NumberSequenceKeypoint.new(0.88, 0.58),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		fade.Parent = line
+		line.Parent = slot
+		table.insert(startCardRules, slot)
 	end
 
-	local cardTimer = panelLabel(card, "Timer", Drive.CONFIG.START_CARD_TITLE_SIZE)
-	cardTimer.TextColor3 = Drive.CONFIG.START_CARD_TIMER_COLOR
-	cardTimer.Position = UDim2.fromOffset(16, 44 + cardLines * Drive.CONFIG.START_CARD_LINE_HEIGHT + 2)
-	cardTimer.Size = UDim2.fromOffset(Drive.CONFIG.START_CARD_WIDTH - 32, 28)
+	-- 4. THE SECTION HEAD -- `WHAT TO SHOOT` or `WHAT TO DO` -- and it is `Style.sectionHead`, the
+	-- same component the results board's `HUNTERS` / `BEATERS` bands use. `FIELD_MUTED` here: it
+	-- labels a list on a card that already has one coloured heading, and §1.1 allows one.
+	local cardSection, cardSectionWord, cardSectionRule =
+		Style.sectionHead(card, "Section", viewX, 0, Style.LOOK.FIELD_MUTED)
+	cardSection.LayoutOrder = 4
+	cardSection.Visible = true
+	cardSection.Size = UDim2.new(1, 0, 0, 21)
+	sized(cardSectionWord, "MICRO")
+	Style.padding(cardSection, 10, 0, 0, 0)
+
+	-- 5. THE FOUR ROWS. `AutomaticSize = Y` over a vertical list, so a role with three rows draws
+	-- three and the card does not reserve a fourth -- and an invisible row is ALSO given zero
+	-- height, because `UIListLayout` is not relied on to skip it.
+	local cardRows = Instance.new("Frame")
+	cardRows.Name = "Rows"
+	cardRows.BackgroundTransparency = 1
+	cardRows.BorderSizePixel = 0
+	cardRows.AutomaticSize = Enum.AutomaticSize.Y
+	cardRows.Size = UDim2.fromScale(1, 0)
+	cardRows.LayoutOrder = 5
+	cardRows.ZIndex = card.ZIndex + 1
+	cardRows.Parent = card
+	Style.padding(cardRows, 6, 0, 0, 0)
+	local rowsList = Instance.new("UIListLayout")
+	rowsList.FillDirection = Enum.FillDirection.Vertical
+	rowsList.SortOrder = Enum.SortOrder.LayoutOrder
+	rowsList.Padding = UDim.new(0, 0)
+	rowsList.Parent = cardRows
+
+	table.clear(startCardRowParts)
+	for index = 1, Drive.CONFIG.START_CARD_ROWS_MAX do
+		local row = Instance.new("Frame")
+		row.Name = string.format("Row%d", index)
+		row.BackgroundTransparency = 1
+		row.BorderSizePixel = 0
+		row.Size = UDim2.new(1, 0, 0, 24)
+		row.LayoutOrder = index
+		row.ZIndex = cardRows.ZIndex + 1
+		row.Visible = false
+		row.Parent = cardRows
+
+		-- THE CELLS ARE AN x AND A WIDTH, which is §3.12's own idiom (*"the numbers line up because
+		-- they are PLACED"*) and not the spec's `UIListLayout` + slack: "take the rest of the width"
+		-- needs a `UIFlexItem`, which nothing in this repo uses and which I have not proved in this
+		-- Studio version. The picture is the same and the arithmetic is testable without a frame
+		-- (`Hud.startCardTextWidth`).
+		local icon = Instance.new("Frame")
+		icon.Name = "Icon"
+		icon.BackgroundTransparency = 1
+		icon.BorderSizePixel = 0
+		icon.AnchorPoint = Vector2.new(0, 0.5)
+		icon.Position = UDim2.fromScale(0, 0.5)
+		icon.Size = UDim2.fromOffset(16, 16)
+		icon.ZIndex = row.ZIndex + 1
+		icon.Parent = row
+
+		-- ALL FOUR GLYPHS ARE BUILT AND ONE IS SHOWN. A renderer that made instances per frame is
+		-- the one thing a HUD must not do, and the board's badge/tag pair already works this way.
+		local icons: { [string]: Frame } = {}
+		for _, kind in ipairs(Style.GLYPHS) do
+			local glyph = Style.glyph(icon, kind, kind, 16)
+			glyph.Position = UDim2.fromScale(0, 0)
+			glyph.Visible = false
+			icons[kind] = glyph
+		end
+
+		local text = sized(Style.label(row, "Text", "BODY", viewX), "BODY")
+		text.Position = UDim2.fromOffset(28, 0)
+		text.Size = UDim2.new(0, 1, 1, 0)
+		text.TextXAlignment = Enum.TextXAlignment.Left
+		text.TextTruncate = Enum.TextTruncate.AtEnd
+		text.TextColor3 = Style.LOOK.BODY
+
+		-- THE RIGHT-HAND CELL IS THREE THINGS IN ONE SLOT, and exactly one of them is ever shown: a
+		-- signed NUMBER (the hunter's price), a TAG (`NEEDS LICENCE`, §3.7), or a WORD (`DRIVE OVER`,
+		-- a cost that is not points). All three are right-aligned to the same edge.
+		local value = sized(Style.label(row, "Value", "HEADING", viewX), "HEADING")
+		value.AnchorPoint = Vector2.new(1, 0.5)
+		value.Position = UDim2.fromScale(1, 0.5)
+		value.Size = UDim2.new(0, 40, 1, 0)
+		value.TextXAlignment = Enum.TextXAlignment.Right
+		value.Visible = false
+
+		local word = sized(Style.label(row, "Word", "MICRO", viewX), "MICRO")
+		word.AnchorPoint = Vector2.new(1, 0.5)
+		word.Position = UDim2.fromScale(1, 0.5)
+		word.AutomaticSize = Enum.AutomaticSize.X
+		word.Size = UDim2.fromScale(0, 1)
+		word.TextXAlignment = Enum.TextXAlignment.Right
+		word.TextColor3 = Style.LOOK.CLAY
+		word.Visible = false
+
+		local tag, tagText = Style.tag(row, "Tag", Style.LOOK.AMBER, viewX)
+		tag.AnchorPoint = Vector2.new(1, 0.5)
+		tag.Position = UDim2.fromScale(1, 0.5)
+		tag.Visible = false
+		sized(tagText, "MICRO")
+
+		table.insert(startCardRowParts, {
+			row = row,
+			icons = icons,
+			text = text,
+			value = value,
+			word = word,
+			tag = tag,
+			tagText = tagText,
+		})
+	end
+
+	-- 7. THE COUNTDOWN: the instruction on the left, the number on the right. The role and the
+	-- seconds are the only two things at `DISPLAY` -- the card's two answers, WHO AM I and HOW LONG
+	-- HAVE I GOT -- and they sit at opposite corners so they never compete (the spec's section 2).
+	local cardCount = Instance.new("Frame")
+	cardCount.Name = "Countdown"
+	cardCount.BackgroundTransparency = 1
+	cardCount.BorderSizePixel = 0
+	cardCount.Size = UDim2.new(1, 0, 0, 41)
+	cardCount.LayoutOrder = 7
+	cardCount.ZIndex = card.ZIndex + 1
+	cardCount.Parent = card
+	Style.padding(cardCount, 11, 0, 0, 0)
+
+	local cardTimer = sized(Style.label(cardCount, "Label", "MICRO", viewX), "MICRO")
+	cardTimer.AnchorPoint = Vector2.new(0, 1)
+	cardTimer.Position = UDim2.fromScale(0, 1)
+	cardTimer.Size = UDim2.new(0.7, 0, 0, 14)
+	cardTimer.TextColor3 = Style.LOOK.FIELD_MUTED
+	cardTimer.TextXAlignment = Enum.TextXAlignment.Left
+	cardTimer.TextYAlignment = Enum.TextYAlignment.Bottom
+	-- 3 px of bottom padding, so the word sits on the number's baseline and not on the card's.
+	Style.padding(cardTimer, 0, 3, 0, 0)
+
+	local cardSeconds = sized(Style.label(cardCount, "Seconds", "DISPLAY", viewX), "DISPLAY")
+	cardSeconds.AnchorPoint = Vector2.new(1, 1)
+	cardSeconds.Position = UDim2.fromScale(1, 1)
+	cardSeconds.Size = UDim2.fromScale(0.3, 1)
+	cardSeconds.TextXAlignment = Enum.TextXAlignment.Right
+	cardSeconds.TextYAlignment = Enum.TextYAlignment.Bottom
+
+	-- 8. THE BAR (§3.8), in a slot that carries its gap above it. NO TWEEN: it is a clock, and a
+	-- tweened clock lies about the time for the length of the tween.
+	local cardBarSlot = Instance.new("Frame")
+	cardBarSlot.Name = "Bar"
+	cardBarSlot.BackgroundTransparency = 1
+	cardBarSlot.BorderSizePixel = 0
+	cardBarSlot.Size = UDim2.new(1, 0, 0, 12)
+	cardBarSlot.LayoutOrder = 8
+	cardBarSlot.ZIndex = card.ZIndex + 1
+	cardBarSlot.Parent = card
+
+	local cardTrack, cardFill =
+		Style.bar(cardBarSlot, "Track", Style.LOOK.BLAZE_LO, Style.LOOK.BLAZE, Style.LOOK.BLAZE_HI, 4)
+	cardTrack.AnchorPoint = Vector2.new(0, 1)
+	cardTrack.Position = UDim2.fromScale(0, 1)
+	cardTrack.Size = UDim2.new(1, 0, 0, 4)
 
 	-- The tied banner, for the local player alone and only while they are tied. The comedy is the
 	-- point and so is the teaching: it says what they did.
@@ -1926,8 +2345,18 @@ local function build(): ScreenGui
 	tiedBanner = tied
 	tiedText = tiedText_
 	startCard = card
+	startCardPad = cardPad
 	startCardTitle = cardTitle
+	startCardRole = cardRole
+	startCardSection = cardSection
+	startCardSectionWord = cardSectionWord
+	startCardSectionRule = cardSectionRule
+	startCardRowsBox = cardRows
 	startCardTimer = cardTimer
+	startCardSecondsLabel = cardSeconds
+	startCardCount = cardCount
+	startCardBarSlot = cardBarSlot
+	startCardFill = cardFill
 	miniMapFrame = miniMap
 	fullMapFrame = fullMap
 	mapLegendFrame = legend
@@ -2042,7 +2471,7 @@ local Rank = Drive.Rank
 -- ONE ROW OF THE RESULTS TABLE.
 --
 -- THE `TEAM` COLUMN IS GONE AND THE COINS COLUMN IS WHAT IT PAID FOR (task 170). With a
--- `-- HUNTERS --` heading over the list, printing SHOOTER / DRIVER on every row under it says one
+-- `-- HUNTERS --` heading over the list, printing the role on every row under it says one
 -- fact twice -- and the panel had no spare width: `SCORE_PANEL_WIDTH` is already 480 against the
 -- 400-px screen `tests/client/hud_clarity.spec.luau` measures, so widening it would make an existing
 -- problem worse. 41 characters plus badge and star, against today's 42.
@@ -2112,7 +2541,7 @@ export type ScoreLine = {
 -- bonus can never land on different rows.
 --
 -- THE `OTHERS` HEADING IS DRAWN ONLY WHEN THAT LIST HAS A ROW IN IT, which is the rule
--- `Match.quarryLines` already applies to its own POINTS label: *"THE WORD ONLY WHEN THERE IS A
+-- the retired `Match.quarryLines` applied to its own POINTS label: *"THE WORD ONLY WHEN THERE IS A
 -- NUMBER UNDER IT"*. `others` gets no first place either, because it is not a ranking -- it is the
 -- people who were not in one (a player who joined outside `Assigning`/`Running` has no team yet).
 --
@@ -2391,11 +2820,11 @@ end
 
 -- ---------------------------------------------------------------- the start card (task 158)
 --
--- KAREN'S WORDS FOR THE TWO SIDES, and this is the one place they are said. The drive bar still says
--- SHOOTER / DRIVER, which are the TEAM names in `Match.CONFIG` and on the scoreboard; her design doc
--- and every message she sends say hunter and beater. The card is the thing she asked for in those
--- words, so it uses them -- and which vocabulary the whole Hud should speak is a Karen decision, not
--- one to take quietly in a renderer (TASKS.md row 158a).
+-- KAREN'S WORDS FOR THE TWO SIDES, and this is the one place they are said -- BY THE WHOLE HUD since
+-- 201 part 3, not just by the start card. `Hud.roleBadge` (the status bar's pill) returns this, so
+-- the two surfaces that name a side cannot print two vocabularies for one fact. Her design doc and
+-- every message she sends say hunter and beater; `Shooters` / `Drivers` stay the TEAM names in
+-- `Match.CONFIG` and on the wire, which is a different string and a different job.
 function Hud.roleWord(team: string?): string
 	if team == "Shooters" then
 		return "HUNTER"
@@ -2405,24 +2834,25 @@ function Hud.roleWord(team: string?): string
 	return ""
 end
 
--- WHAT THE STATUS BAR'S ROLE PILL SAYS. ONE PLACE, so the bar and anything else that names a side
--- cannot drift apart -- `Hud.roleWord` above is the start card's, and the two still differ by a
--- word, which is the one thing this task did NOT change and said so.
+-- WHAT THE STATUS BAR'S ROLE PILL SAYS, AND IT IS `Hud.roleWord` -- the same words as the start
+-- card's, out of the same function. ONE PLACE, so the bar and the card cannot drift apart.
 --
--- IT STILL SAYS `SHOOTER` / `DRIVER` AND THE DESIGN ASKS FOR `HUNTER` / `BEATER` (§5 surface 1:
--- *"the start card's own words, because the HUD says two different things for one fact today"*).
--- The word is asserted by `tests/client/match_client.spec.luau` through `tests/client/Role.luau`'s
--- `Role.badge()`, and BOTH of those files are in `TWO_PLAYER_PATHS` (CLAUDE.md, Director
--- 2026-10-03) -- so changing the string here costs a two-player run, which this task's gate is not.
--- The pill's SHAPE, its team colour and its place on the bar all land now; the vocabulary flip is
--- three lines and is queued (TASKS.md 201a) for a task that pays for `test2`.
+-- IT SAID `SHOOTER` / `DRIVER` UNTIL 201 PART 3, and that was the design system's §5 surface 1
+-- written down as a defect: *"the start card's own words, because the HUD says two different things
+-- for one fact today"*. Karen's doc and every message she sends say hunter and beater; the card has
+-- said so since task 158 while the pill two inches above it said SHOOTER, which is one fact printed
+-- twice in two vocabularies. The reason it survived three tasks is in `TWO_PLAYER_PATHS`: the word
+-- is asserted by `tests/client/match_client.spec.luau` through `tests/client/Role.luau`'s
+-- `Role.badge()`, so the flip costs a two-player run -- and THIS task pays for one already (the
+-- wire's quarry rows), which is why the Director called it here (TASKS.md 201a).
+--
+-- `Shooters` / `Drivers` ARE UNTOUCHED, and the two are not the same string: the TEAM names are the
+-- server's (`Match.CONFIG`, `Players.Team`, `Match.myTeam`, `Style.teamColor`, `MapUi`'s marker
+-- table, every `team == "Drivers"` branch in this file) and only the DISPLAYED word changed. The
+-- pill's colour is `Style.teamColor(team)`, keyed by the team name and not by this string, so
+-- nothing in the game keys off the word that moved.
 function Hud.roleBadge(team: string?): string
-	if team == "Shooters" then
-		return "SHOOTER"
-	elseif team == "Drivers" then
-		return "DRIVER"
-	end
-	return ""
+	return Hud.roleWord(team)
 end
 
 -- WHETHER THE CARD SHOWS: the start of a drive is the `Assigning` phase and nothing else. Pure and
@@ -2436,29 +2866,123 @@ function Hud.startCardVisible(snapshot, reportOpen: boolean?): boolean
 	return snapshot ~= nil and snapshot.phase == "Assigning" and reportOpen ~= true
 end
 
--- THE CARD'S BODY, as pure text: your role, then what may be shot in the server's own words.
--- `snapshot.quarry` is the rule and this does not interpret it -- a client that decided for itself
--- what was legal would be a second answer to one rule.
-function Hud.startCardLines(snapshot, team: string?): { string }
-	local lines = {}
-	local role = Hud.roleWord(team)
-	if role ~= "" then
-		table.insert(lines, "YOU ARE A " .. role)
+-- ---------------------------------------------------------------- the card's body, pure
+--
+-- ONE IDEA PER ROW, which is the whole of what Karen asked for: *"this message has to be improved
+-- maybe each from new line"*. A row is a GLYPH (tick, cross, chevron, horn), the WORDS, and at most
+-- one right-hand cell -- a signed number, a tag, or a word.
+--
+-- THE RULE IS STILL THE SERVER'S. `snapshot.quarry` is `Match.quarryRows`: one entry per kind with
+-- what that kind is worth. This side decides nothing about what is legal -- it decides where the
+-- number is drawn, which is the division task 158 already stated and the spec repeats
+-- (*"The rule stays the server's; only the layout is the client's"*).
+--
+-- `meaning` IS THE SECOND READING AND THE GLYPH IS THE FIRST (the spec's rule 3): a tick and a
+-- cross say may / must not before any colour is read, and the number then carries its own sign.
+--
+-- `phone` DROPS THE BEATER'S RIGHT-HAND CELLS, and only his (the spec's amendment 2 and rule 2):
+-- at 264 wide `Push the boars to the hunters` needs the whole row, so the cell goes and the text
+-- keeps the width -- the same way the status bar drops a whole chip rather than squeezing one.
+export type StartRow = {
+	glyph: string,
+	text: string,
+	value: string?,
+	meaning: string?,
+	tag: string?,
+	word: string?,
+}
+
+function Hud.startCardRows(snapshot, team: string?, phone: boolean?): { StartRow }
+	local rows: { StartRow } = {}
+	local max = Drive.CONFIG.START_CARD_ROWS_MAX
+	if team == "Drivers" then
+		for _, source in ipairs(Drive.CONFIG.START_CARD_BEATER_ROWS) do
+			if #rows >= max then
+				break
+			end
+			table.insert(rows, {
+				glyph = source.glyph,
+				text = source.text,
+				-- A CROSS ROW IS CLAY AND A ROW THAT IS A JOB IS NOT: `meaning` is read for the
+				-- text's colour as well as the number's, so "you do not shoot" and "do not cross"
+				-- are the two clay lines on his card and the push and the horn are not.
+				meaning = if source.glyph == "cross" then "bad" else nil,
+				tag = if phone then nil else source.tag,
+				word = if phone then nil else source.word,
+			})
+		end
+		return rows
 	end
-	for _, line in ipairs((snapshot and snapshot.quarry) or {}) do
-		table.insert(lines, line)
+	-- THE HUNTER'S LIST IS THE WIRE'S, IN THE WIRE'S ORDER. A kind with no price is drawn with no
+	-- number rather than with a wrong one -- the retired `QUARRY_NOTE`'s own rule.
+	for _, entry in ipairs((snapshot and snapshot.quarry) or {}) do
+		if #rows >= max then
+			break
+		end
+		local kind = tostring(entry.kind or "")
+		local points = entry.points
+		local word = Drive.CONFIG.START_CARD_QUARRY_WORDS[kind]
+		if word == nil then
+			-- `Report.kindWord` IS THE ONE PLACE A DATA KIND BECOMES A NOUN, so even a kind this
+			-- card has no copy for is never printed as `cub` (the spec's rule 4).
+			local noun = Report.kindWord(kind)
+			word = string.upper(string.sub(noun, 1, 1)) .. string.sub(noun, 2)
+		end
+		table.insert(rows, {
+			glyph = if points ~= nil and points > 0 then "tick" else "cross",
+			text = word,
+			value = if points ~= nil then string.format("%+d", points) else nil,
+			meaning = if points ~= nil and points > 0 then "good" else "bad",
+		})
 	end
-	return lines
+	-- THE PERSON ROW, and it is the one the Designer added: *"`SAFETY_PENALTY = -10` and a tie to a
+	-- tree for the rest of the drive is a real rule the card never mentioned, and the beaters are
+	-- walking toward the hunter while this card is up"*. Drawn only when the SERVER sent the
+	-- number -- a typed -10 here would be a second copy of a penalty.
+	local safety = snapshot and snapshot.safetyPenalty
+	if safety ~= nil and #rows < max then
+		table.insert(rows, {
+			glyph = "cross",
+			text = Drive.CONFIG.START_CARD_PERSON,
+			value = string.format("%+d", safety),
+			meaning = "bad",
+		})
+	end
+	return rows
 end
 
--- THE ONE LINE THAT COUNTS DOWN, in the words of the role it is for. Karen: *"Get to your stand:
--- 10..."* for a hunter, *"Drive starts in 10..."* for a beater -- and it is the SAME ten seconds,
--- because both are this phase's own deadline.
+-- WHICH LIST THIS ROLE IS READING. The same two words start both heads, so a player who has played
+-- the other side finds the list in the same place (the spec's §1.3).
+function Hud.startCardSectionFor(team: string?): string
+	return if team == "Drivers" then Drive.CONFIG.START_CARD_SECTION_BEATER else Drive.CONFIG.START_CARD_SECTION_HUNTER
+end
+
+-- THE LAST LINE'S INSTRUCTION, in the words of the role it is for. BOTH are instructions now:
+-- `DRIVE STARTS IN` was a clock with no job in it, and `WAIT FOR THE HORN` is the phrase the
+-- objective line already shows a beater in `Assigning`.
 function Hud.startCardTimerFor(team: string?, secondsLeft: number?): string
 	local label = if team == "Drivers"
 		then Drive.CONFIG.START_CARD_BEATER_TIMER
 		else Drive.CONFIG.START_CARD_HUNTER_TIMER
-	return string.format("%s  %d", label, math.max(0, math.ceil(secondsLeft or 0)))
+	return string.format("%s  %d", label, Hud.startCardSecondsFor(secondsLeft))
+end
+
+-- THE NUMBER BESIDE IT. `math.ceil`, so the card shows `1` for the whole last second and never `0`
+-- while it is still up (the spec's rule 5), and never a negative.
+function Hud.startCardSecondsFor(secondsLeft: number?): number
+	return math.max(0, math.ceil(secondsLeft or 0))
+end
+
+-- HOW FULL THE BAR IS. `full` is the largest `secondsLeft` this card has seen, which IS the phase's
+-- length -- see `Drive.CONFIG`'s note: the client is never told `INTERMISSION_SECONDS`, and a typed
+-- 10 would draw a bar two thirds full on the frame the card appears.
+function Hud.startCardBarScale(secondsLeft: number?, full: number?): number
+	local left = math.max(0, secondsLeft or 0)
+	local span = math.max(left, full or 0)
+	if span <= 0 then
+		return 0
+	end
+	return math.clamp(left / span, 0, 1)
 end
 
 -- THE ONE WRITER of the start card. Public for the same reason `Hud.renderScore` is.
@@ -2471,29 +2995,98 @@ function Hud.renderStartCard(snapshot, team: string?, secondsLeft: number?)
 	cardFrame.Visible = show
 	if not show then
 		-- Cleared, not just hidden: the next drive must not flash the last one's card for a frame.
+		-- THE LATCH GOES WITH IT, so the next card's bar starts full again.
+		startCardFullSeconds = 0
 		if startCardTitle then
 			startCardTitle.Text = ""
+		end
+		if startCardRole then
+			startCardRole.Text = ""
+		end
+		if startCardSectionWord then
+			startCardSectionWord.Text = ""
 		end
 		if startCardTimer then
 			startCardTimer.Text = ""
 		end
-		for _, line in ipairs(startCardLines) do
-			line.Text = ""
-			line.Visible = false
+		if startCardSecondsLabel then
+			startCardSecondsLabel.Text = ""
+		end
+		for _, parts in ipairs(startCardRowParts) do
+			parts.row.Visible = false
+			parts.row.Size = UDim2.fromScale(1, 0)
+			parts.text.Text = ""
 		end
 		return
 	end
+	local viewX = Hud.viewportX()
+	local step = Hud.startCardStep(viewX)
 	if startCardTitle then
-		startCardTitle.Text = string.format("DRIVE %d   %s", snapshot.driveNumber, Drive.CONFIG.START_CARD_HEADING)
+		startCardTitle.Text = Style.spaced(string.format(Drive.CONFIG.START_CARD_EYEBROW, snapshot.driveNumber))
 	end
-	local lines = Hud.startCardLines(snapshot, team)
-	for index, label in ipairs(startCardLines) do
-		local text = lines[index]
-		label.Text = text or ""
-		label.Visible = text ~= nil
+	-- THE ROLE LINE, in the team's colour. A player with no team yet is given no role line rather
+	-- than `YOU ARE A ` -- the same rule the status bar's chips follow (§3.9: an unknown fact is not
+	-- drawn).
+	local role = Hud.roleWord(team)
+	if startCardRole then
+		local label = startCardRole :: TextLabel
+		label.Text = if role ~= "" then string.format(Drive.CONFIG.START_CARD_ROLE, role) else ""
+		label.TextColor3 = Style.teamColor(team)
 	end
+	if startCardSectionWord and startCardSectionRule then
+		local wordLabel = startCardSectionWord :: TextLabel
+		wordLabel.Text = Style.spaced(Hud.startCardSectionFor(team))
+		-- THE RULE FILLS WHAT THE WORD LEAVES (§3.12). Written per frame off the drawn bounds,
+		-- because the face loads after the build and a rule sized at build time runs under the word.
+		Style.ruleAfter(wordLabel, startCardSectionRule :: Frame, 9)
+	end
+	local rows = Hud.startCardRows(snapshot, team, Style.isPhone(viewX))
+	for index, parts in ipairs(startCardRowParts) do
+		local row = rows[index]
+		parts.row.Visible = row ~= nil
+		parts.row.Size = UDim2.new(1, 0, 0, if row ~= nil then step.rowH else 0)
+		if row == nil then
+			parts.text.Text = ""
+			continue
+		end
+		for kind, glyph in pairs(parts.icons) do
+			glyph.Visible = kind == row.glyph
+		end
+		parts.text.Text = row.text
+		-- CLAY ON A CROSS ROW, `BODY` ON A TICK ROW (the spec's row table): the words of a thing you
+		-- must not do are the same colour as the number it costs.
+		parts.text.TextColor3 = if row.meaning == "bad" then Style.LOOK.CLAY else Style.LOOK.BODY
+		parts.value.Visible = row.value ~= nil
+		parts.value.Text = row.value or ""
+		parts.value.TextColor3 = Style.meaningColor(row.meaning)
+		parts.tag.Visible = row.tag ~= nil
+		parts.tagText.Text = row.tag or ""
+		parts.word.Visible = row.word ~= nil
+		parts.word.Text = if row.word ~= nil then Style.spaced(row.word) else ""
+		-- A ROW NEVER WRAPS AND NEVER TRUNCATES BEHIND ITS OWN RIGHT-HAND CELL. The reserve is what
+		-- that cell actually MEASURES -- a tag is `AutomaticSize` -- so the text cannot run under it.
+		local reserve = 0
+		if row.value ~= nil then
+			reserve = step.value
+		elseif row.tag ~= nil then
+			reserve = math.max(step.value, math.ceil(parts.tag.AbsoluteSize.X))
+		elseif row.word ~= nil then
+			reserve = math.max(step.value, math.ceil(parts.word.TextBounds.X))
+		end
+		parts.text.Size = UDim2.new(0, Hud.startCardTextWidth(viewX, reserve), 1, 0)
+	end
+	local seconds = Hud.startCardSecondsFor(secondsLeft)
+	startCardFullSeconds = math.max(startCardFullSeconds, seconds)
 	if startCardTimer then
-		startCardTimer.Text = Hud.startCardTimerFor(team, secondsLeft)
+		startCardTimer.Text = Style.spaced(
+			if team == "Drivers" then Drive.CONFIG.START_CARD_BEATER_TIMER else Drive.CONFIG.START_CARD_HUNTER_TIMER
+		)
+	end
+	if startCardSecondsLabel then
+		(startCardSecondsLabel :: TextLabel).Text = tostring(seconds)
+	end
+	if startCardFill then
+		(startCardFill :: Frame).Size = UDim2.fromScale(Hud.startCardBarScale(secondsLeft, startCardFullSeconds), 1)
 	end
 end
 

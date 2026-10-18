@@ -148,99 +148,104 @@ return function()
 		end)
 	end)
 
-	-- WHAT MAY BE SHOT, AS THE START CARD SAYS IT (task 158). `Match.quarryLines` is pure and
-	-- exported for exactly this: the rule is the server's and the card only lays it out, so the words
-	-- a player reads can be checked with no client, no drive and no world.
-	describe("the quarry lines", function()
-		it("names the species and its kinds, from the config and not from a literal", function()
-			local lines = Match.quarryLines({
+	-- WHAT MAY BE SHOT, AS THE START CARD DRAWS IT (task 158, ROWS since 201 part 3).
+	-- `Match.quarryRows` is pure and exported for exactly this: the rule is the server's and the
+	-- card only lays it out, so what a player is told can be checked with no client and no world.
+	--
+	-- IT USED TO BE A SENTENCE and the cases under it asserted the sentence's wording
+	-- (`WILD BOAR, POINTS: male 10, female 6, cub -10`). The Designer's `startcard-spec.md` section
+	-- 0 is why they are gone: *"One line carries three prices... Nothing can be found in it at a
+	-- glance, and the one number that is negative is the one hiding at the end."* They are in
+	-- `backups/2026-10-18_task-201-3_quarry-lines.txt`.
+	describe("the quarry rows", function()
+		it("sends one row per kind, with the species on each, from the config and not a literal", function()
+			local rows = Match.quarryRows({
 				QUARRY = { { species = "WILD BOAR", kinds = { "male", "female" } } },
-				QUARRY_NOTE = "a note",
 			})
-			expect(#lines).to.equal(2)
-			expect(lines[1]).to.equal("WILD BOAR: male, female")
-			expect(lines[2]).to.equal("a note")
+			expect(#rows).to.equal(2)
+			expect(rows[1].species).to.equal("WILD BOAR")
+			expect(rows[1].kind).to.equal("male")
+			expect(rows[2].kind).to.equal("female")
 		end)
 
 		-- ...AND WHAT EACH KIND IS WORTH, OFF `POINTS.KIND` AND NOT OFF A SECOND COPY OF IT (task
 		-- 160). Karen asked *"How many shoot and male is more worth then famale"*, and the screen
 		-- that answers "what may I shoot" is where that answer belongs.
-		it("prices each kind from POINTS.KIND, and says the word POINTS when it has one", function()
-			local lines = Match.quarryLines({
+		it("prices each kind from POINTS.KIND", function()
+			local rows = Match.quarryRows({
 				QUARRY = { { species = "WILD BOAR", kinds = { "male", "female", "cub" } } },
-				POINTS = { KIND = { male = 10, female = 6, cub = 2 } },
+				POINTS = { KIND = { male = 10, female = 6, cub = -10 } },
 			})
-			expect(lines[1]).to.equal("WILD BOAR, POINTS: male 10, female 6, cub 2")
+			expect(rows[1].points).to.equal(10)
+			expect(rows[2].points).to.equal(6)
+			expect(rows[3].points).to.equal(-10)
 		end)
 
-		it("prints a kind the table has no price for with no number, rather than a wrong one", function()
-			local lines = Match.quarryLines({
+		it("sends a kind the table has no price for with NO number, rather than a wrong one", function()
+			local rows = Match.quarryRows({
 				QUARRY = { { species = "WILD BOAR", kinds = { "male", "yearling" } } },
 				POINTS = { KIND = { male = 10, unknown = 6 } },
 			})
 			-- `unknown` is a FALLBACK and not a price for this animal: the card does not claim a
-			-- yearling is worth 6 when nobody decided that it is.
-			expect(lines[1]).to.equal("WILD BOAR, POINTS: male 10, yearling")
-		end)
-
-		it("leaves the word POINTS off entirely when no kind on the line has one", function()
-			local lines = Match.quarryLines({
-				QUARRY = { { species = "RED DEER", kinds = { "stag" } } },
-				POINTS = { KIND = { male = 10 } },
-			})
-			expect(lines[1]).to.equal("RED DEER: stag")
+			-- yearling is worth 6 when nobody decided that it is. The row still goes out, so the
+			-- player is told the animal is quarry -- it is the NUMBER that is absent.
+			expect(rows[2].kind).to.equal("yearling")
+			expect(rows[2].points).to.equal(nil)
 		end)
 
 		it("takes more than one species, which is what red deer will be", function()
-			local lines = Match.quarryLines({
+			local rows = Match.quarryRows({
 				QUARRY = {
 					{ species = "WILD BOAR", kinds = { "male", "female", "cub" } },
 					{ species = "RED DEER", kinds = { "stag" } },
 				},
 			})
-			expect(#lines).to.equal(2) -- no note: a config without one gets no empty line
-			expect(lines[2]).to.equal("RED DEER: stag")
+			expect(#rows).to.equal(4)
+			expect(rows[4].species).to.equal("RED DEER")
+			expect(rows[4].kind).to.equal("stag")
 		end)
 
 		it("says nothing at all when nothing is named, rather than erroring", function()
-			expect(#Match.quarryLines({})).to.equal(0)
+			expect(#Match.quarryRows({})).to.equal(0)
 		end)
 
 		it("SAYS WHAT THE RULE REALLY IS: a piglet is legal and it COSTS you", function()
 			-- Karen's words were "wild boar -- male, female; NOT piglets/cubs", and on 2026-10-12 she
-			-- settled the half of it the code can hold: shooting a piglet is a PENALTY. So since task 170
-			-- `POINTS.KIND.cub` is -10 and the card says so.
+			-- settled the half of it the code can hold: shooting a piglet is a PENALTY. So since task
+			-- 170 `POINTS.KIND.cub` is -10 and the card says so.
 			--
-			-- THE WEAPON-SIDE REFUSAL NOW EXISTS AND A CUB IS DELIBERATELY NOT IN IT (task 171). The
-			-- gate this comment used to wait for is `Weapon.Rules`, and what it refuses is a shot at a
-			-- BEATER, a shot from off your stand and a shot at a species you have no licence for --
-			-- Karen's three rules of 2026-10-11 and 2026-10-12. A piglet is the one she settled the
-			-- other way, the same week: *a piglet is a PENALTY*. So `Boar.CONFIG.KINDS` still
-			-- distinguishes the three kinds, the drive still spawns all of them, the weapon still
-			-- fires at a cub, and the card states the PRICE -- which is why this case still passes and
-			-- what it now guards is that the price has not quietly gone. (Until task 170 the reminder
-			-- it carried was the opposite one: "a cub is legal, because nothing in the code refuses
-			-- one", with `cub > 0`.)
-			local lines = Match.quarryLines(Match.CONFIG)
-			local joined = table.concat(lines, " | ")
-			expect(string.find(joined, "WILD BOAR", 1, true) ~= nil).to.equal(true)
-			expect(string.find(joined, "male", 1, true) ~= nil).to.equal(true)
-			expect(string.find(joined, "female", 1, true) ~= nil).to.equal(true)
-			expect(string.find(joined, "cub -10", 1, true) ~= nil).to.equal(true)
-			-- THE OLD SENTENCE IS GONE, asserted as gone: it said the opposite of today's rule.
-			expect(string.find(joined, "no cub rule yet", 1, true)).to.equal(nil)
-			expect(string.find(joined, "piglet", 1, true) ~= nil).to.equal(true)
-			-- ...and the points table is the evidence for the claim: every KIND the drive spawns has a
-			-- price, and the cub's is NEGATIVE -- which is "it counts against you" and is still not "it
-			-- is refused".
-			local kinds = Match.CONFIG.POINTS.KIND
-			for _, kind in ipairs({ "male", "female", "cub" }) do
-				expect(type(kinds[kind])).to.equal("number")
+			-- THE WEAPON-SIDE REFUSAL EXISTS AND A CUB IS DELIBERATELY NOT IN IT (task 171): what
+			-- `Weapon.Rules` refuses is a shot at a BEATER, a shot from off your stand and a species
+			-- you have no licence for. A piglet is the one Karen settled the other way.
+			local rows = Match.quarryRows(Match.CONFIG)
+			local byKind = {}
+			local joined = {}
+			for _, row in ipairs(rows) do
+				byKind[row.kind] = row
+				table.insert(joined, string.format("%s %s", row.kind, tostring(row.points)))
 			end
-			expect(kinds.cub < 0).to.equal(true)
-			expect(kinds.cub < kinds.female).to.equal(true)
-			expect(kinds.female < kinds.male).to.equal(true)
-			TestKit.note("match-config: the start card's quarry lines -> " .. joined)
+			for _, kind in ipairs({ "male", "female", "cub" }) do
+				expect(byKind[kind]).to.be.ok()
+				expect(byKind[kind].species).to.equal("WILD BOAR")
+				expect(type(byKind[kind].points)).to.equal("number")
+			end
+			expect(byKind.cub.points < 0).to.equal(true)
+			expect(byKind.cub.points < byKind.female.points).to.equal(true)
+			expect(byKind.female.points < byKind.male.points).to.equal(true)
+			-- THE SENTENCE AND ITS NOTE ARE GONE, asserted as gone -- a config that still carried
+			-- `QUARRY_NOTE` would mean the card has two sources for the piglet rule again.
+			expect(Match.quarryLines).to.equal(nil)
+			expect(Match.CONFIG.QUARRY_NOTE).to.equal(nil)
+			TestKit.note("match-config: the start card's quarry rows -> " .. table.concat(joined, " | "))
+		end)
+
+		-- WHAT SHOOTING A PERSON COSTS, ON THE WIRE (201 part 3). The Designer added that row to the
+		-- card -- *"a real rule the card never mentioned, and the beaters are walking toward the
+		-- hunter while this card is up"* -- and the client is given the number rather than holding a
+		-- copy of it.
+		it("prices a person off SAFETY_PENALTY, which is the number the card draws", function()
+			expect(Match.CONFIG.POINTS.SAFETY_PENALTY < 0).to.equal(true)
+			expect(Match.CONFIG.POINTS.SAFETY_PENALTY).to.equal(-10)
 		end)
 	end)
 

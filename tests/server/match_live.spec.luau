@@ -245,20 +245,27 @@ return function()
 	-- and when -- is `match_phase.spec`; this is the half that only production can answer: the wire
 	-- really carries the quarry, and the owner really holds nobody once the drive is live.
 	describe("the start of a drive", function()
-		it("puts what may be shot on the wire, in the server's own words", function()
+		it("puts what may be shot on the wire, as the rows the card draws", function()
 			local snapshot = Match.snapshot()
 			expect(type(snapshot.quarry)).to.equal("table")
 			expect(#snapshot.quarry > 0).to.equal(true)
-			-- THE SERVER'S RULE, NOT A SECOND COPY: the snapshot's lines are `Match.quarryLines` of
-			-- the config this drive is running on, word for word.
-			local expected = Match.quarryLines(Match.config())
+			-- THE SERVER'S RULE, NOT A SECOND COPY: the snapshot's rows are `Match.quarryRows` of
+			-- the config this drive is running on, kind for kind and price for price.
+			local expected = Match.quarryRows(Match.config())
 			expect(#snapshot.quarry).to.equal(#expected)
-			for index, line in ipairs(expected) do
-				expect(snapshot.quarry[index]).to.equal(line)
+			local drawn = {}
+			for index, row in ipairs(expected) do
+				expect(snapshot.quarry[index].species).to.equal(row.species)
+				expect(snapshot.quarry[index].kind).to.equal(row.kind)
+				expect(snapshot.quarry[index].points).to.equal(row.points)
+				table.insert(drawn, string.format("%s=%s", row.kind, tostring(row.points)))
 			end
+			-- ...AND WHAT SHOOTING A PERSON COSTS, which is the card's fourth row (201 part 3).
+			expect(snapshot.safetyPenalty).to.equal(Match.config().POINTS.SAFETY_PENALTY)
 			-- ...and it is frozen all the way down, like every other field on it.
 			expect(table.isfrozen(snapshot.quarry)).to.equal(true)
-			TestKit.note("match-live: the start card reads -> " .. table.concat(snapshot.quarry, " | "))
+			expect(table.isfrozen(snapshot.quarry[1])).to.equal(true)
+			TestKit.note("match-live: the start card reads -> " .. table.concat(drawn, " | "))
 		end)
 
 		it("holds nobody once the drive is live, and every frozen player is frozen BY THE TIE", function()

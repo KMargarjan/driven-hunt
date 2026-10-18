@@ -606,6 +606,85 @@ function Style.tag(parent: GuiObject, name: string, color: Color3, viewportX: nu
 	return tag, text
 end
 
+-- ---------------------------------------------------------------- §3.10 the icon glyphs
+--
+-- AN ICON IS A FRAME. §3.10 names the whole permitted set and this is the one place four of them
+-- are built -- the four the start card needs (`startcard-spec.md` section 2). The system's own
+-- reason: *"Anything else is a Frame"*, because a glyph a font does not have comes back at the
+-- `.notdef` width and draws as a rectangle, and no screenshot of a mockup will tell you that
+-- happened on somebody else's machine.
+--
+-- EVERY NUMBER IS A FRACTION OF `px`, so one glyph draws at 16 px on a desktop row and 14 on a
+-- phone without a second table of sizes. The system's numbers are quoted at its own 14..18 px and
+-- the start-card spec's at 16: `tick` 7 x 2.5 and 12 x 2.5, `cross` 15 x 2.5, `chevron` 11 x 11,
+-- `horn` 15 x 6 with an 8 x 8 bell -- all at `px = 16`, which is what the ratios below reproduce.
+Style.GLYPHS = { "tick", "cross", "chevron", "horn" }
+
+function Style.glyph(parent: GuiObject, name: string, kind: string, px: number, color: Color3?): Frame
+	local box = Instance.new("Frame")
+	box.Name = name
+	box.BackgroundTransparency = 1
+	box.BorderSizePixel = 0
+	box.Size = UDim2.fromOffset(px, px)
+	box.ZIndex = parent.ZIndex + 1
+	box.Parent = parent
+
+	local function bar(partName: string, w: number, h: number, rotation: number, fill: Color3): Frame
+		local part = Instance.new("Frame")
+		part.Name = partName
+		part.BackgroundColor3 = fill
+		part.BorderSizePixel = 0
+		part.AnchorPoint = Vector2.new(0.5, 0.5)
+		part.Position = UDim2.fromScale(0.5, 0.5)
+		part.Size = UDim2.fromOffset(math.max(1, w), math.max(1, h))
+		part.Rotation = rotation
+		part.ZIndex = box.ZIndex + 1
+		Style.corner(part, math.max(1, math.round(px / 16)))
+		part.Parent = box
+		return part
+	end
+
+	if kind == "tick" then
+		-- THE SHORT STROKE DOWN-LEFT AND THE LONG ONE UP-RIGHT, meeting at the heel. The two are
+		-- nudged off centre so the join is the tick's corner and not its middle.
+		local fill = color or LOOK.PINE_TEXT
+		local short = bar("Short", px * 7 / 16, px * 2.5 / 16, 45, fill)
+		short.Position = UDim2.fromScale(0.3, 0.62)
+		local long = bar("Long", px * 12 / 16, px * 2.5 / 16, -50, fill)
+		long.Position = UDim2.fromScale(0.58, 0.46)
+	elseif kind == "cross" then
+		-- 15 AND NOT 18 (the start-card spec's own note): the row is 24 px tall and the close
+		-- button's 18 px X in a 16 px box would touch the text beside it.
+		local fill = color or LOOK.CLAY
+		bar("A", px * 15 / 16, px * 2.5 / 16, 45, fill)
+		bar("B", px * 15 / 16, px * 2.5 / 16, -45, fill)
+	elseif kind == "chevron" then
+		local fill = color or LOOK.BLAZE_HI
+		local tile = bar("Tile", px * 11 / 16, px * 11 / 16, 45, fill)
+		Style.corner(tile, math.max(2, math.round(px * 2 / 16)))
+	elseif kind == "horn" then
+		-- THE ONE GLYPH THAT IS TWO SHAPES AND NOT TWO STROKES: a tapering body and the bell at its
+		-- wide end, which is what makes it read as a horn at 16 px rather than as a dash.
+		local body = bar("Body", px * 15 / 16, px * 6 / 16, -8, color or LOOK.BRASS)
+		body.Position = UDim2.fromScale(0.46, 0.54)
+		Style.corner(body, math.max(2, math.round(px * 3 / 16)))
+		local bell = bar("Bell", px * 8 / 16, px * 8 / 16, -8, LOOK.BRASS_HI)
+		bell.Position = UDim2.fromScale(0.82, 0.4)
+		Style.corner(bell, math.max(2, math.round(px * 4 / 16)))
+	else
+		error(string.format("[Style] no such glyph: %s", tostring(kind)), 2)
+	end
+	return box
+end
+
+-- WHERE A SECTION HEAD'S RULE STARTS. §3.12: a section head is a word plus a hairline FILLING THE
+-- REST OF THE WIDTH -- so the rule begins after the word, and the word's own drawn width is the
+-- only honest source for that (`TextBounds`, which the engine updates once the face has loaded).
+-- Called from the render and not from the build, because a head whose word changes moves the rule.
+function Style.ruleAfter(word: TextLabel, rule: Frame, gap: number)
+	rule.Size = UDim2.new(1, -(math.ceil(word.TextBounds.X) + gap), 0, 1)
+end
+
 -- ---------------------------------------------------------------- §3.12 the table row
 --
 -- THE RESULTS BOARD AND THE REPORT ARE BUILT FROM THIS, ONE `TextLabel` PER CELL. The monospace
@@ -713,7 +792,16 @@ end
 
 -- A SECTION HEAD (`HUNTERS`, `BEATERS`) is an EYEBROW in the team's colour plus a 1 px `LINE` rule
 -- filling the rest of the width, 8 px after the word. It is NOT a row and it has no rule under it.
-function Style.sectionHead(parent: GuiObject, name: string, viewportX: number, width: number): (Frame, TextLabel, Frame)
+-- `color` IS THE HEAD'S OWN WORD COLOUR and defaults to the results board's team orange, which is
+-- what every caller before the start card wanted. The card's heads are `FIELD_MUTED`: they label a
+-- list on a card that already has one coloured heading (the role line), and §1.1 allows one.
+function Style.sectionHead(
+	parent: GuiObject,
+	name: string,
+	viewportX: number,
+	width: number,
+	color: Color3?
+): (Frame, TextLabel, Frame)
 	local head = Instance.new("Frame")
 	head.Name = name
 	head.BackgroundTransparency = 1
@@ -726,7 +814,7 @@ function Style.sectionHead(parent: GuiObject, name: string, viewportX: number, w
 	local word = Style.label(head, "Word", "MICRO", viewportX)
 	word.AutomaticSize = Enum.AutomaticSize.X
 	word.Size = UDim2.fromScale(0, 1)
-	word.TextColor3 = LOOK.HUNTER
+	word.TextColor3 = color or LOOK.HUNTER
 	word.TextXAlignment = Enum.TextXAlignment.Left
 
 	local rule = Instance.new("Frame")
