@@ -1517,6 +1517,107 @@ return function()
 		end)
 	end)
 
+	-- ---------------------------------------------------------------- the load (task 204)
+	--
+	-- Karen, 2026-10-18: *"we need to change shooting sound and power to shotgun when slugs and
+	-- shells is used slugs are harder"*. Before this task both loads peaked the real camera at
+	-- 1.94-2.04 degrees and both played the shot sample at `Volume = 0.950, PlaybackSpeed = 1.000`
+	-- -- measured through this same seam, twice.
+	--
+	-- IT FIRES REAL SHOTS THROUGH `FireRequest:FireServer` WITH EACH LOAD CHAMBERED, and reads what
+	-- the two owners actually did: `Camera.getState()` for the recoil the camera applied, sampled
+	-- over frames rather than described, and `Weapon.Sound.lastShot()` for the numbers handed to the
+	-- engine. Reading the config instead would assert that two tables differ, which is not what
+	-- Karen is complaining about.
+	describe("a slug is harder than buckshot, fired", function()
+		it("kicks the camera further and speaks louder and deeper, through the real request", function()
+			if Role.isDriver() then
+				-- A driver has no gun, which the cases above already assert.
+				return
+			end
+			local channel = Shotgun.remotes()
+			-- `cameraView()` is this file's own tolerant resolver: the weapon's spec must still run
+			-- in a place with no camera system, which is why it is a lookup and not a require.
+			local Camera = cameraView()
+			if Camera == nil then
+				TestKit.note("task204: no camera system in this place; the kick cannot be measured here")
+				return
+			end
+
+			-- ONE SHOT WITH ONE LOAD, AND WHAT IT DID. The gun is reloaded first so the CHAMBERED
+			-- round is the load being measured -- `SelectAmmo` only decides what the next reload
+			-- feeds -- and the peak is taken from the recoil terms the camera owner writes, which
+			-- the player's own replayed mouse cannot move.
+			local function fireWith(ammo: string)
+				channel.ActionRequest:FireServer("SelectAmmo", ammo)
+				task.wait(0.4)
+				channel.ActionRequest:FireServer("Reload")
+				task.wait(Shotgun.CONFIG.RELOAD_TOTAL + 0.8)
+				Weapon.Sound.resetStats()
+				local camera = Workspace.CurrentCamera
+				local peak = { cam = 0, gun = 0, back = 0 }
+				local trace = {}
+				local started = os.clock()
+				channel.FireRequest:FireServer({
+					origin = camera.CFrame.Position,
+					direction = camera.CFrame.LookVector,
+				})
+				while os.clock() - started < 1.2 do
+					Workspace.CurrentCamera:GetPropertyChangedSignal("CFrame"):Wait()
+					local live = Camera.getState()
+					peak.cam = math.max(peak.cam, math.abs(live.recoilCamPitchDeg))
+					peak.gun = math.max(peak.gun, math.abs(live.recoilGunPitchDeg))
+					peak.back = math.max(peak.back, math.abs(live.recoilGunBackStuds))
+					if #trace < 12 then
+						table.insert(
+							trace,
+							string.format("%.0fms:%.2f", (os.clock() - started) * 1000, live.recoilCamPitchDeg)
+						)
+					end
+				end
+				local sound = Weapon.Sound.lastShot()
+				TestKit.note(
+					string.format(
+						"task204 %s: peak cam=%.3f gun=%.3f back=%.4f | sound volume=%s pitch=%s | %s",
+						ammo,
+						peak.cam,
+						peak.gun,
+						peak.back,
+						tostring(sound.volume),
+						tostring(sound.pitch),
+						table.concat(trace, " ")
+					)
+				)
+				return peak, sound
+			end
+
+			-- BUCKSHOT FIRST, because it is the reference Karen already accepted and because the
+			-- spring has to be back at rest before the next shot is measured.
+			local buck, buckSound = fireWith("Buck")
+			task.wait(1.0)
+			local slug, slugSound = fireWith("Slug")
+
+			-- A SHOT THAT WAS REFUSED MEASURES NOTHING, and must say so rather than pass quietly:
+			-- no `Sound` means the server turned the trigger pull down (`Weapon.Rules.REASON`).
+			if buckSound.volume == nil or slugSound.volume == nil then
+				TestKit.note("task204: a shot was refused -- no sound was played, so nothing was measured")
+			end
+			expect(buckSound.volume).to.be.ok()
+			expect(slugSound.volume).to.be.ok()
+
+			-- HARDER: a bigger kick, in all three recoil terms the owner writes.
+			expect(slug.cam > buck.cam).to.equal(true)
+			expect(slug.gun > buck.gun).to.equal(true)
+			expect(slug.back > buck.back).to.equal(true)
+			-- LOUDER, AND DEEPER -- a LOWER playback speed is a deeper report.
+			expect(slugSound.volume > buckSound.volume).to.equal(true)
+			expect(slugSound.pitch < buckSound.pitch).to.equal(true)
+			-- ...AND IT IS THE SAME SAMPLE: this task uploaded nothing (rule: no new asset without
+			-- Karen's OK), it plays the gun's own voice differently.
+			expect(slugSound.id).to.equal(buckSound.id)
+		end)
+	end)
+
 	describe("cleanup", function()
 		it("unbinds the cue key", function()
 			ContextActionService:UnbindAction(CUE_ACTION)

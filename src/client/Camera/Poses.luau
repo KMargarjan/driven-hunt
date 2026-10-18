@@ -140,6 +140,47 @@ function Poses.config(base: any, weaponId: string?): any
 	return resolved
 end
 
+-- THE SAME CONFIG, SCALED BY THE LOAD IN THE CHAMBER (task 204). Karen, 2026-10-18: *"slugs are
+-- harder"*.
+--
+-- PURE, and keyed on nothing: it is called once per shot, not once per frame, so there is no cache
+-- to go stale and no second resolved config to drift from `Poses.config`'s. `Camera.kick` is its one
+-- caller and the SIX recoil amplitudes are all it touches -- the three a shot adds and the three
+-- ceilings a doublet is clamped to. The spring's own shape (`RECOIL_FREQUENCY_HZ`,
+-- `RECOIL_DAMPING_RATIO`, `RECOIL_REST_EPSILON`, `RECOIL_MAX_SUBSTEP_SECONDS`) is deliberately NOT
+-- scaled: a slug is heavier, it is not a different gun, and `tests/server/camera_mode.spec.luau`
+-- rests on that spring settling to exactly zero at 240, 60 and 20 fps.
+--
+-- `config` ITSELF COMES BACK WHEN THE SCALE IS 1, which is every weapon with no `loads` block, every
+-- ammo the block does not name, and buckshot -- so the shot this repo has always fired is still
+-- fired from the very same frozen table.
+Poses.RECOIL_SCALED = table.freeze({
+	"RECOIL_GUN_PITCH_DEG",
+	"RECOIL_GUN_BACK_STUDS",
+	"RECOIL_CAM_PITCH_DEG",
+	"RECOIL_MAX_GUN_PITCH_DEG",
+	"RECOIL_MAX_GUN_BACK_STUDS",
+	"RECOIL_MAX_CAM_PITCH_DEG",
+})
+
+function Poses.forLoad(config: any, ammo: string?): any
+	if type(config) ~= "table" then
+		return config
+	end
+	local scale = Data.loadFor(config.FIRE, ammo).recoilScale
+	if scale == 1 then
+		return config
+	end
+	local out = table.clone(config)
+	for _, key in ipairs(Poses.RECOIL_SCALED) do
+		local value = config[key]
+		if type(value) == "number" then
+			out[key] = value * scale
+		end
+	end
+	return table.freeze(out)
+end
+
 -- WHICH POSE IS BEING HELD for a screenshot, or nil. Set by `tools/pose.py compare`, which needs the
 -- gun to sit still in one named pose while it captures the frame: a swing caught half way is not a
 -- picture anybody can compare with a video frame.

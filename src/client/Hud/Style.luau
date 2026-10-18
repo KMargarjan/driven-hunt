@@ -618,7 +618,28 @@ end
 -- phone without a second table of sizes. The system's numbers are quoted at its own 14..18 px and
 -- the start-card spec's at 16: `tick` 7 x 2.5 and 12 x 2.5, `cross` 15 x 2.5, `chevron` 11 x 11,
 -- `horn` 15 x 6 with an 8 x 8 bell -- all at `px = 16`, which is what the ratios below reproduce.
-Style.GLYPHS = { "tick", "cross", "chevron", "horn" }
+-- ...AND THE TWO SHELLS (task 204). Karen, 2026-10-18: *"please diferenciate slug from shells"*.
+-- Her own frame of the chip (`karen-2026-10-18/shot-3.png`) and this task's reproduction of it
+-- showed a slug chip and a buckshot chip that differed in ONE WORD and nothing else -- same two
+-- pips, same colours, same shape -- which is not something anybody reads at a glance while a boar
+-- is crossing.
+--
+-- THEY ARE THE SAME SHELL WITH A DIFFERENT HEAD, which is what the two things actually are: one
+-- brass rim, one hull, and then either ONE SOLID LEAD NOSE or a CLUSTER OF FOUR PELLETS. The hull
+-- carries the load's own colour as well -- the game's shop already draws the slug box green
+-- (`Hud.ShopDisplay`'s `buildShellBox`) and a red hull is what buckshot has looked like since
+-- before anybody here was born -- so the two differ in SHAPE and in COLOUR, and a player who can
+-- see neither still has the word.
+Style.GLYPHS = { "tick", "cross", "chevron", "horn", "slug", "buck" }
+
+-- THE TWO HULL COLOURS, as one table per load rather than a branch in the builder: `Style.glyph`
+-- draws the same shell for both and this is the only thing that differs besides the head. They are
+-- also what the chip's load WORD is tinted with (`Hud.AMMO_ACCENT`), so the glyph and the word
+-- cannot say two different things.
+Style.SHELL = table.freeze({
+	slug = table.freeze({ hull = Color3.fromHex("3C7A50"), head = Color3.fromHex("D8D2C6") }),
+	buck = table.freeze({ hull = Color3.fromHex("B2462F"), head = Color3.fromHex("E8E1D2") }),
+})
 
 function Style.glyph(parent: GuiObject, name: string, kind: string, px: number, color: Color3?): Frame
 	local box = Instance.new("Frame")
@@ -671,6 +692,34 @@ function Style.glyph(parent: GuiObject, name: string, kind: string, px: number, 
 		local bell = bar("Bell", px * 8 / 16, px * 8 / 16, -8, LOOK.BRASS_HI)
 		bell.Position = UDim2.fromScale(0.82, 0.4)
 		Style.corner(bell, math.max(2, math.round(px * 4 / 16)))
+	elseif kind == "slug" or kind == "buck" then
+		-- ONE SHELL, STANDING, 10 x 15 in a 16 px box: a 4 px brass rim at the foot, the hull above
+		-- it, and the head on top. The parts are `bar`s like every other glyph here, so one number
+		-- (`px`) sizes the whole thing and the 14 px phone shell is the same implementation as the
+		-- 16 px desktop one.
+		local shell = Style.SHELL[kind]
+		local hull = bar("Hull", px * 10 / 16, px * 11 / 16, 0, shell.hull)
+		hull.Position = UDim2.fromScale(0.5, 0.42)
+		local rim = bar("Rim", px * 10 / 16, px * 5 / 16, 0, color or LOOK.BRASS)
+		rim.Position = UDim2.fromScale(0.5, 0.84)
+		if kind == "slug" then
+			-- ONE SOLID NOSE, as wide as the hull and domed by its own corner radius: a single mass
+			-- of lead, which is the whole difference from the cluster below.
+			local nose = bar("Nose", px * 8 / 16, px * 6 / 16, 0, shell.head)
+			nose.Position = UDim2.fromScale(0.5, 0.2)
+			Style.corner(nose, math.max(2, math.round(px * 3 / 16)))
+		else
+			-- FOUR PELLETS, 2 x 2. Four and not nine: at 16 px nine dots are a grey smear, and what
+			-- has to read is "many small" against "one big". They are square-cornered circles -- a
+			-- 3 px dot with a 2 px radius -- for the same reason the horn's bell is.
+			for index = 1, 4 do
+				local column = (index - 1) % 2
+				local row = math.floor((index - 1) / 2)
+				local pellet = bar(string.format("Pellet%d", index), px * 3.4 / 16, px * 3.4 / 16, 0, shell.head)
+				pellet.Position = UDim2.fromScale(0.34 + column * 0.32, 0.12 + row * 0.26)
+				Style.corner(pellet, math.max(2, math.round(px * 2 / 16)))
+			end
+		end
 	else
 		error(string.format("[Style] no such glyph: %s", tostring(kind)), 2)
 	end

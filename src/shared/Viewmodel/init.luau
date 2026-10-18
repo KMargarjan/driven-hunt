@@ -58,6 +58,32 @@ Viewmodel.HOLDS = table.freeze({ "carry", "raise", "aim", "reload" })
 -- fails the harness rather than silently becoming a linear swing nobody chose.
 Viewmodel.EASING = "quadOut"
 
+-- WHAT ONE LOAD DOES TO THE SHOT, AS THREE MULTIPLIERS (task 204). Karen, 2026-10-18: *"we need to
+-- change shooting sound and power to shotgun when slugs and shells is used slugs are harder"*.
+--
+-- MEASURED BEFORE IT WAS CHANGED, through `FireRequest:FireServer` with each load chambered: both
+-- loads peaked the real camera at 1.94-2.04 degrees and both played the shot sample at
+-- `Volume = 0.950, PlaybackSpeed = 1.000`. A slug and nine pellets of 00 buck were the same gun,
+-- because `fire` has one block per WEAPON and nothing in the shot path had ever read the ammo.
+--
+-- THREE SCALES AND NOT THREE SETS OF NUMBERS. A whole second `fire` block per load would be nine
+-- numbers to keep in step with the one Karen already accepted, and the first time somebody tuned
+-- the spring the two would drift. A scale says what this task is actually about -- *harder* -- and
+-- leaves the kick's SHAPE (`frequencyHz`, `dampingRatio`) exactly where it is, so the gun still
+-- settles the way `tests/server/camera_mode.spec.luau` asserts it does at 240, 60 and 20 fps.
+--
+-- `recoilScale` multiplies the three amplitudes AND their three ceilings, so the ceiling keeps the
+-- same relation to one shot that it has today (about 1.67x) and a doublet of slugs really is worse
+-- than a doublet of buckshot -- which is the point. `volumeScale` and `pitchScale` are the shot
+-- sample's: lower pitch is a deeper report, and it is longer as well, because the shotgun's voice
+-- has no `cut`.
+--
+-- NEUTRAL IS THE ANSWER FOR ANYTHING ELSE, never an error: a weapon with no `loads` block (the
+-- rifle), an ammo the block does not name, or a caller that passes no ammo at all. One multiplier
+-- of 1 is bit-for-bit the shot this repo has always fired.
+Viewmodel.NEUTRAL_LOAD = table.freeze({ recoilScale = 1, volumeScale = 1, pitchScale = 1 })
+Viewmodel.LOAD_SCALES = table.freeze({ "recoilScale", "volumeScale", "pitchScale" })
+
 -- ---------------------------------------------------------------- the data
 
 -- A parentless CLONE is not needed here: this is a production require of a sibling module inside the
@@ -72,6 +98,28 @@ Viewmodel.DATA = Shotgun.deepFreeze(loaded)
 
 local function isNumber(value: any): boolean
 	return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
+end
+
+-- PURE, and the ONE place "what does this load do to the shot" is answered (CLAUDE.md rule 3). The
+-- camera reads it for the kick and `Weapon.Sound` for the voice, so the two cannot disagree about
+-- how hard a slug is.
+function Viewmodel.loadFor(fire: any, ammo: string?): { [string]: number }
+	if type(fire) ~= "table" or type(fire.loads) ~= "table" or type(ammo) ~= "string" then
+		return Viewmodel.NEUTRAL_LOAD
+	end
+	local row = fire.loads[ammo]
+	if type(row) ~= "table" then
+		return Viewmodel.NEUTRAL_LOAD
+	end
+	-- A HALF-WRITTEN ROW IS NOT A HALF-APPLIED LOAD. `Viewmodel.validate` refuses a file whose row
+	-- is missing a scale, and this is what keeps a hand-written override from firing a shot whose
+	-- volume moved and whose kick did not.
+	for _, key in ipairs(Viewmodel.LOAD_SCALES) do
+		if not isNumber(row[key]) then
+			return Viewmodel.NEUTRAL_LOAD
+		end
+	end
+	return row
 end
 
 -- Deep copy, because every pose read is frozen and the override has to produce a NEW table. Arrays
@@ -510,6 +558,31 @@ function Viewmodel.validate(data: any): { string }
 		end
 		if isNumber(fire.frequencyHz) and fire.frequencyHz <= 0 then
 			table.insert(problems, "fire.frequencyHz must be positive")
+		end
+		-- THE PER-LOAD SCALES (task 204), and the block is OPTIONAL for the same reason `MAGAZINE`
+		-- is optional on a weapon row: a gun with one kind of ammunition has nothing to say here,
+		-- and the rifle carries none. Present, it is checked whole -- every named load, every one of
+		-- the three scales, each a positive number -- because `Viewmodel.loadFor` falls back to
+		-- NEUTRAL on a half-written row, and a slug that silently kicks like buckshot is exactly the
+		-- defect Karen reported. A zero or a negative scale is refused too: a shot with no kick and
+		-- no sound is not a load, it is a bug nobody can see.
+		if fire.loads ~= nil then
+			if type(fire.loads) ~= "table" then
+				table.insert(problems, "fire.loads is not a table")
+			else
+				for ammo, row in pairs(fire.loads) do
+					local where = "fire.loads." .. tostring(ammo)
+					if type(row) ~= "table" then
+						table.insert(problems, where .. " is not a table")
+						continue
+					end
+					for _, key in ipairs(Viewmodel.LOAD_SCALES) do
+						if not isNumber(row[key]) or row[key] <= 0 then
+							table.insert(problems, where .. "." .. key .. " must be a positive number")
+						end
+					end
+				end
+			end
 		end
 	end
 	local reload = data.reload

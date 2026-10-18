@@ -1393,4 +1393,115 @@ return function()
 			expect((drawn :: any).loaded[2]).to.equal(true)
 		end)
 	end)
+	-- ---------------------------------------------------------------- the load (task 204)
+	--
+	-- Karen, 2026-10-18: *"we need to change shooting sound and power to shotgun when slugs and
+	-- shells is used slugs are harder"*. What is asserted here is the DATA and the two pure readers;
+	-- that a real shot out of a real gun actually comes out harder is `weapon_client.spec`'s, which
+	-- fires one of each through `FireRequest:FireServer` and measures the camera and the Sound.
+	describe("the shot, per load", function()
+		it("ships a scale for each of the shotgun's two loads, and the slug is the harder one", function()
+			local loads = SET.fire.loads
+			expect(type(loads)).to.equal("table")
+			for _, kind in ipairs({ "Slug", "Buck" }) do
+				expect(type(loads[kind])).to.equal("table")
+				for _, key in ipairs(Data.LOAD_SCALES) do
+					expect(type(loads[kind][key])).to.equal("number")
+					expect(loads[kind][key] > 0).to.equal(true)
+				end
+			end
+			-- THE WHOLE POINT, AS THREE INEQUALITIES. "Harder" is a bigger kick and a louder report;
+			-- "deeper" is a LOWER playback speed, which is why that one runs the other way.
+			expect(loads.Slug.recoilScale > loads.Buck.recoilScale).to.equal(true)
+			expect(loads.Slug.volumeScale > loads.Buck.volumeScale).to.equal(true)
+			expect(loads.Slug.pitchScale < loads.Buck.pitchScale).to.equal(true)
+			-- BUCKSHOT IS THE GUN KAREN ALREADY ACCEPTED, unchanged: this task moved the slug away
+			-- from it and left the reference where it was.
+			expect(loads.Buck.recoilScale).to.equal(1)
+			expect(loads.Buck.volumeScale).to.equal(1)
+			expect(loads.Buck.pitchScale).to.equal(1)
+			TestKit.note(
+				string.format(
+					"load scales: slug recoil=%.2f volume=%.2f pitch=%.2f | buck recoil=%.2f volume=%.2f pitch=%.2f",
+					loads.Slug.recoilScale,
+					loads.Slug.volumeScale,
+					loads.Slug.pitchScale,
+					loads.Buck.recoilScale,
+					loads.Buck.volumeScale,
+					loads.Buck.pitchScale
+				)
+			)
+		end)
+
+		it("answers NEUTRAL for a weapon, an ammo or a row it does not know", function()
+			local fire = SET.fire
+			expect(Data.loadFor(fire, "Slug")).to.equal(fire.loads.Slug)
+			-- The rifle has no block at all, which is what keeps its shot bit-for-bit what it was.
+			expect(Data.loadFor(Data.DATA.weapons.rifle.fire, "Slug")).to.equal(Data.NEUTRAL_LOAD)
+			expect(Data.loadFor(fire, "Birdshot")).to.equal(Data.NEUTRAL_LOAD)
+			expect(Data.loadFor(fire, nil)).to.equal(Data.NEUTRAL_LOAD)
+			expect(Data.loadFor(nil, "Slug")).to.equal(Data.NEUTRAL_LOAD)
+			-- A HALF-WRITTEN ROW IS NEUTRAL, NOT HALF-APPLIED: a shot whose volume moved and whose
+			-- kick did not is the defect this whole task is about, in miniature.
+			expect(Data.loadFor({ loads = { Slug = { volumeScale = 2 } } }, "Slug")).to.equal(Data.NEUTRAL_LOAD)
+			for _, scale in ipairs(Data.LOAD_SCALES) do
+				expect(Data.NEUTRAL_LOAD[scale]).to.equal(1)
+			end
+		end)
+
+		it("refuses a loads block that is not three positive numbers per load", function()
+			local function withLoads(loads: any): { string }
+				local data = Data.copy(Data.DATA)
+				data.weapons.shotgun.fire.loads = loads
+				return Data.validate(data)
+			end
+			expect(#withLoads(nil)).to.equal(0) -- OPTIONAL: a gun with one kind of shell has none
+			expect(#withLoads({ Slug = { recoilScale = 1.45, volumeScale = 1.25, pitchScale = 0.82 } })).to.equal(0)
+			expect(#withLoads("heavy") > 0).to.equal(true)
+			expect(#withLoads({ Slug = 1.45 }) > 0).to.equal(true)
+			expect(#withLoads({ Slug = { recoilScale = 1.45, volumeScale = 1.25 } }) > 0).to.equal(true)
+			expect(#withLoads({ Slug = { recoilScale = 0, volumeScale = 1, pitchScale = 1 } }) > 0).to.equal(true)
+			expect(#withLoads({ Slug = { recoilScale = -1, volumeScale = 1, pitchScale = 1 } }) > 0).to.equal(true)
+		end)
+
+		it("scales the six recoil amplitudes for the load and nothing else about the spring", function()
+			local base = configWith(true, Data.DATA)
+			-- BUCKSHOT IS THE CONFIG ITSELF, not a copy of it: `recoilScale == 1` is the shot this
+			-- repo has always fired, out of the very same frozen table.
+			expect(Poses.forLoad(base, "Buck")).to.equal(base)
+			expect(Poses.forLoad(base, nil)).to.equal(base)
+			local slug = Poses.forLoad(base, "Slug")
+			expect(slug).never.to.equal(base)
+			local scale = SET.fire.loads.Slug.recoilScale
+			for _, key in ipairs(Poses.RECOIL_SCALED) do
+				expect(math.abs(slug[key] - base[key] * scale) < 1e-6).to.equal(true)
+			end
+			-- THE SPRING'S SHAPE IS NOT THE LOAD'S BUSINESS. A slug is heavier; it is not a
+			-- different gun, and `camera_mode.spec` rests on this spring settling to exactly zero.
+			for _, key in ipairs({
+				"RECOIL_FREQUENCY_HZ",
+				"RECOIL_DAMPING_RATIO",
+				"RECOIL_REST_EPSILON",
+				"RECOIL_MAX_SUBSTEP_SECONDS",
+			}) do
+				expect(slug[key]).to.equal(base[key])
+			end
+			-- ...AND THE KICK THE CAMERA ACTUALLY TAKES IS BIGGER, through `Mode.kick` itself.
+			local rest = Mode.initial(base)
+			local afterBuck = Mode.kick(rest, Poses.forLoad(base, "Buck"))
+			local afterSlug = Mode.kick(rest, slug)
+			expect(afterSlug.recoilCamPitchDeg > afterBuck.recoilCamPitchDeg).to.equal(true)
+			expect(afterSlug.recoilGunPitchDeg > afterBuck.recoilGunPitchDeg).to.equal(true)
+			expect(afterSlug.recoilGunBackStuds > afterBuck.recoilGunBackStuds).to.equal(true)
+			TestKit.note(
+				string.format(
+					"one shot, pure: camPitch buck=%.3f slug=%.3f deg; gunPitch buck=%.2f slug=%.2f deg",
+					afterBuck.recoilCamPitchDeg,
+					afterSlug.recoilCamPitchDeg,
+					afterBuck.recoilGunPitchDeg,
+					afterSlug.recoilGunPitchDeg
+				)
+			)
+		end)
+	end)
 end

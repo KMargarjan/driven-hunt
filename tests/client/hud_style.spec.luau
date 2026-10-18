@@ -782,6 +782,111 @@ return function()
 			expect(magazine.label).to.equal("SLUG")
 			expect(magazine.busy).to.equal(true)
 		end)
+
+		-- ---------------------------------------------------------------- the shell (task 204)
+		--
+		-- Karen, 2026-10-18: *"please diferenciate slug from shells"*. Her frame of the chip, and
+		-- this task's reproduction of it, showed two chips that differed in ONE WORD.
+		it("names a different shell for each load, and none for a gun that has one", function()
+			local function chipFor(ammo: string, row: any?)
+				return Hud.ammoChipFor(
+					{
+						equipped = true,
+						barrels = { "Live", "Live" },
+						loaded = { ammo, ammo },
+						selected = 1,
+						ammo = ammo,
+						reserve = { [ammo] = 8 },
+						busyFor = 0,
+						weapon = "shotgun",
+					} :: any,
+					row
+				)
+			end
+			local slug = chipFor("Slug")
+			local buck = chipFor("Buck")
+			expect(slug.glyph).to.equal("slug")
+			expect(buck.glyph).to.equal("buck")
+			expect(slug.glyph).never.to.equal(buck.glyph)
+			expect(slug.label).never.to.equal(buck.label)
+			-- THE SHOTGUN'S ROW IS WHERE THE MAPPING LIVES, not the wire word: the rifle's `Slug`
+			-- is a .416 Rigby cartridge and must not be drawn as a shotgun shell.
+			expect(Hud.ammoChipFor(
+				{
+					equipped = true,
+					barrels = { "Live" },
+					loaded = { "Slug" },
+					selected = 1,
+					ammo = "Slug",
+					reserve = { Slug = 9 },
+					busyFor = 0,
+					weapon = "rifle",
+				} :: any,
+				{ READOUT = "magazine", MAGAZINE = 3, AMMO_LABEL = { Slug = ".416" } }
+			).glyph).to.equal(nil)
+			-- ...AND THE TWO ACCENTS ARE THE TWO HULL COLOURS, so the word and the glyph agree.
+			expect(Hud.AMMO_ACCENT.slug).to.equal(Style.SHELL.slug.hull)
+			expect(Hud.AMMO_ACCENT.buck).to.equal(Style.SHELL.buck.hull)
+			expect(Hud.AMMO_ACCENT.slug).never.to.equal(Hud.AMMO_ACCENT.buck)
+		end)
+
+		it("builds both shells into the chip as Frames, and shows at most one", function()
+			-- §3.10: *"Anything else is a Frame"*. BOTH are built and one is shown, the discipline
+			-- the start card's row glyphs and the chamber pips already use -- a chip that rebuilt
+			-- the Frame on every X press would flicker, and the corner is drawn once a frame.
+			local chip = Hud.ammoChip() :: Frame
+			expect(chip).to.be.ok()
+			local row = chip:FindFirstChild("Content") :: Frame
+			expect(row).to.be.ok()
+			local shown = 0
+			for _, kind in ipairs({ "Slug", "Buck" }) do
+				local shell = row:FindFirstChild("Shell" .. kind) :: Frame
+				expect(shell).to.be.ok()
+				expect(shell:IsA("Frame")).to.equal(true)
+				expect(shell.LayoutOrder).to.equal(0) -- before Pip1: the shell, then the chambers
+				if shell.Visible then
+					shown += 1
+				end
+			end
+			expect(shown <= 1).to.equal(true)
+			-- THE TWO ARE DIFFERENT PICTURES, not one picture in two colours: a slug is one solid
+			-- nose and buckshot is a cluster of four pellets, which is what reads at a glance.
+			local slug = row:FindFirstChild("ShellSlug") :: Frame
+			local buck = row:FindFirstChild("ShellBuck") :: Frame
+			expect(slug:FindFirstChild("Nose")).to.be.ok()
+			expect(buck:FindFirstChild("Nose")).to.equal(nil)
+			local pellets = 0
+			for _, part in ipairs(buck:GetChildren()) do
+				if string.sub(part.Name, 1, 6) == "Pellet" then
+					pellets += 1
+				end
+			end
+			expect(pellets).to.equal(4)
+			expect((slug:FindFirstChild("Hull") :: Frame).BackgroundColor3).to.equal(Style.SHELL.slug.hull)
+			expect((buck:FindFirstChild("Hull") :: Frame).BackgroundColor3).to.equal(Style.SHELL.buck.hull)
+			-- BOTH STEPS ARE ONE IMPLEMENTATION (§3.10: every number is a fraction of `px`), so the
+			-- phone shell is the desktop shell at 14. This is what makes the phone claim checkable
+			-- without a phone: build one of each at both steps and compare the ratios.
+			local holder = Instance.new("Frame")
+			local sizes = {}
+			for _, px in ipairs({ 16, 14 }) do
+				local made = Style.glyph(holder, string.format("Probe%d", px), "slug", px)
+				sizes[px] = { box = made.Size, hull = (made:FindFirstChild("Hull") :: Frame).Size }
+			end
+			holder:Destroy()
+			expect(sizes[16].box).to.equal(UDim2.fromOffset(16, 16))
+			expect(sizes[14].box).to.equal(UDim2.fromOffset(14, 14))
+			expect(sizes[14].hull.X.Offset < sizes[16].hull.X.Offset).to.equal(true)
+			TestKit.note(
+				string.format(
+					"ammo shells: slug hull %s @16 / %s @14, buck pellets=%d, chipShown=%d",
+					tostring(sizes[16].hull),
+					tostring(sizes[14].hull),
+					pellets,
+					shown
+				)
+			)
+		end)
 	end)
 
 	-- ---------------------------------------------------------------- the start card (surface 10)
