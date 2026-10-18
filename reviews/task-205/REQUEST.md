@@ -1,12 +1,12 @@
-# Task 201 part 3 — the start card for both roles, and Karen's boar on the hit card
+# Task 201 part 3 — the start card, the pill's vocabulary, and Karen's boar on the hit card
 
 Task: 205
 Round: 1
 Base: main @ `e3ad45f`
-Code commit: `320020f2874cdebf856c9ab02968acd7ae3864b9`
+Code commit: `c7f789c74306907c4b2af83fa2552e6015977fb0`
 
 ```
-[harness] PASS: 33/33 checks @ 320020f2874cdebf856c9ab02968acd7ae3864b9 (clean tree) scope=auto:hud,lobby,match,report,shop
+[harness] PASS: 33/33 checks @ c7f789c74306907c4b2af83fa2552e6015977fb0 (clean tree) scope=all
 ```
 
 **THE FOLDER IS `task-205` AND THE ROADMAP CALLS THIS "201 PART 3".** `tools/agents.py` resolves a
@@ -15,10 +15,17 @@ holds part 1's own PASS for a PR already merged to `main` (rule 7). Part 2 is in
 same reason. 205 is this branch's other real task number and both halves shipped in it, so one
 request covers both, as the dispatch asked.
 
-**THIS CHANGE NEEDS `test2`.** `src/server/Match/`, `src/shared/Drive/`,
+**THIS CHANGE NEEDS `test2`.** `src/server/Match/`, `src/shared/Drive/`, `tests/client/Role.luau`,
 `tests/client/match_client.spec.luau` and `tests/server/match_*.spec.luau` are all in
-`TWO_PLAYER_PATHS`. The scoped line above is the review-round evidence CLAUDE.md allows; the
-`[harness2]` line for the same commit is the Director's run and the merge needs it.
+`TWO_PLAYER_PATHS`. The `[harness2]` line for this commit is the Director's run and the merge needs
+it.
+
+**THE LINE ABOVE IS `scope=all`, NOT A SCOPED ONE.** `--scope auto` resolved to the WHOLE suite,
+because `tests/client/Role.luau` maps to no `BLAST_RADIUS` row and anything unmapped under `tests/`
+can only mean everything. So it is FULL one-player evidence for the merge, not just review-round
+evidence (CLAUDE.md: *"A `--scope auto` run that resolves to the whole suite is tagged `scope=all`
+… it played every spec, so it IS full evidence"*). I read the token out of the log rather than
+assuming the run was narrow.
 
 Note: `docs/research/2026-10-17-one-design-system.md`, the "Part 3" and "Task 205" sections.
 
@@ -94,7 +101,37 @@ its colour. **`panelLabel` is gone** — the Hud's last `Enum.Font.Code` + black
 final caller was this card (`backups/2026-10-18_task-201-3_panelLabel.txt`); the card's own case
 asserts no `UIStroke` and no `Enum.Font.Code` on any of its 21 labels.
 
-## 5. Task 205: Karen's own boar silhouettes, and her spread rule
+## 5. The status pill says `HUNTER` / `BEATER` (201a)
+
+The design system's §5 surface 1 called the old pill a defect in these words: *"the start card's own
+words, because the HUD says two different things for one fact today"*. The card has said `YOU ARE A
+HUNTER` since task 158 while the pill two inches above it said `SHOOTER`. Karen's doc and every
+message she sends say hunter and beater.
+
+**One owner**: `Hud.roleBadge` now RETURNS `Hud.roleWord`, so the bar and the card cannot drift
+apart again — the pill is the only place in the game that still draws a role word, because task
+170 took the TEAM column off the results rows.
+
+**Display only, and I grepped before claiming it** (L-030). Every `SHOOTER` / `DRIVER` literal in
+`src/` and `tests/` is one of: this badge (changed), the spec kit's copy of it
+(`tests/client/Role.luau`, changed), a comment, or a name that is not the word —
+`SHOT_HEARD_FROM_SHOOTER_M`, `PACE.DRIVER_RUN_STUDS`, `Drive.CONFIG.SHOOTER_COLOR` /
+`DRIVER_COLOR` (config KEYS read by `MapUi`), and `local SHOOTER = 11` in `match_safety.spec` (a
+userId). **The TEAM names are a different string and are untouched**: `Shooters` / `Drivers` on the
+wire, in `Match.CONFIG`, in `Players.Team`, in `Match.myTeam`, in `Style.teamColor` and in `MapUi`'s
+marker table, and every `team == "Drivers"` branch still reads those. Nothing keys off the badge
+word: the pill's colour is `Style.teamColor(team)`, by team name.
+
+*Verify*: `Hud.roleBadge` in `src/client/Hud/init.luau`; `Role.badge()` in `tests/client/Role.luau`;
+`match_client.spec` "has the drive's own words on it" — the DRAWN bar contains `Role.badge()`, the
+two agree, and the bar carries **neither** `SHOOTER` nor `DRIVER` any more; and the board's rows are
+asserted clear of both vocabularies.
+
+**Before and after, same frame, same camera:**
+`.screenshots/20261018T163740Z-t201c-startcard-hunter.png` (pill `SHOOTER`, card `YOU ARE A HUNTER`)
+and `...20261018T170948Z-t201c-startcard-hunter.png` (pill `HUNTER`).
+
+## 6. Task 205: Karen's own boar silhouettes, and her spread rule
 
 Karen: *"and what is that? you need proper image for wildboar when showing hit now it feels mess
 unclear wtf ? / it's in download male named"* and *"if same place spread if not same show spread"*.
@@ -114,7 +151,7 @@ at one spot drawn as nine distinct deterministic dots and a lone pellet unmoved;
 the measured box). L-028 lines at the pre-fix `e3ad45f` are in the previous dispatch's report:
 `hit_card.spec:197/241/300` all "attempt to call a nil value".
 
-## 6. The countdown bar has no length constant, on purpose
+## 7. The countdown bar has no length constant, on purpose
 
 The phase is `Match.CONFIG.INTERMISSION_SECONDS` (15 today; 20 and 10 before) and the client is
 never told it, so the spec's `secondsLeft / 10` would draw a two-thirds-full bar on the frame the
@@ -147,11 +184,21 @@ failed [client] hud_style.spec:900 attempt to index nil with 'TextSize'    -> no
 (The client report prints the first five failures; 20 failed in all, the rest being the per-role
 word cases in `match_client.spec`.)
 
-## Ready-check (standing rule A) — one Play of 88 s in DEV
+**And the PILL's own cases, failing at `f92fca0`** — the same method, `git stash`-ing only `src/`
+so the new specs run against the old source:
+```
+failed [client] match_client.spec:180 Expected value "true" (boolean), got "false" (boolean)
+        -> the drawn bar says SHOOTER and Role.badge() now says HUNTER
+[client] 417 passed, 1 failed       (and 418 passed, 0 failed with the fix)
+```
+TestEZ stops a case at its first failed `expect`, so the two assertions after it on lines 181-186
+are covered by the same case passing afterwards.
+
+## Ready-check (standing rule A) — one Play of 88 s in DEV, at the code commit
 
 1. **The Tool is in the CHARACTER**: at 15 s `team=Shooters character=[Shotgun] backpack=[Rifle]`;
    at the end the same.
-2. **The console**: 10 703 chars, **0** lines matching `Stack Begin` / `attempt to` /
+2. **The console**: 10 975 chars, **0** lines matching `Stack Begin` / `attempt to` /
    `invalid argument` / `is not a valid member` / `Unable to cast`
    (`<runs-dir>/t201c-console.txt`).
 3. **The changed feature ran**: the card drew and then CLEARED at `Running`
@@ -197,8 +244,9 @@ suspicious. A third in the Forest Test place: 13 131 chars, 0 suspicious.
 * **The section head's hairline is faint on screen.** It is `LINE` at 0.35 over `PANEL`, which is
   the system's own token and the same pair the results board draws — but at 1 px on a card I can
   barely see it in either frame. Worth the Designer's eye; not changed on my own judgement.
-* **The status pill still says `SHOOTER` / `DRIVER` while the card says `HUNTER` / `BEATER`** (TASKS
-  201a). It is three lines, and this task PAYS FOR `test2` already — so if the Director wants the
-  vocabulary flip, this is the cheapest round it will ever have.
+* **201a is only PARTLY resolved.** The pill's word is done (section 5); the other two items that
+  report listed as skipped are NOT, and nothing here touches them: the top band's spacing
+  (8 / 40 / 108 → 12 / 50 / 98) and the ammo chip's `NO BUCK` notice. Any ready message to Karen
+  must name those two as still open.
 * **Karen has not seen any of it.** It is all look; she approved merging look work before she sees
   it (2026-10-17: *"it's ok to keep doing it"*).
