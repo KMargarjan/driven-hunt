@@ -683,6 +683,39 @@ return function()
 			expect(tied.BackgroundColor3).to.equal(Style.LOOK.SLATE)
 			local compass = Hud.compass() :: Frame
 			expect(tied.ZIndex > compass.ZIndex).to.equal(true)
+
+			-- ...AND ITS WORDS ARE IN FRONT OF ITS OWN SLATE. ROUND 1, BLOCKING FINDING 3: the toast
+			-- is parented to the `ScreenGui`, which is not a `GuiObject`, so `Style.toast`'s guard
+			-- never fired -- the dot and the label were created at ZIndex 2 and the slate was raised
+			-- to 7 a line later, leaving Karen's `TIED TO A TREE` as an empty clay rectangle under
+			-- `ZIndexBehavior.Global`. That is the defect task 159 paid for twice.
+			expect(text.ZIndex > tied.ZIndex).to.equal(true)
+			expect(dot.ZIndex > tied.ZIndex).to.equal(true)
+			-- The same rule, on the feed's own toasts, which take their band from the feed frame.
+			for _, node in ipairs(Hud.feedToasts()) do
+				local word = node:FindFirstChild("Text") :: TextLabel
+				expect(word.ZIndex > node.ZIndex).to.equal(true)
+			end
+		end)
+
+		it("opens the report and the SCRIM goes with it, and closes them together", function()
+			-- ROUND 1 NOTE: the case above asserted `scrim.Visible == Hud.Report.isOpen()`, which is
+			-- `false == false` with the report shut -- so it passed with the `setOpen` scrim write
+			-- deleted. A case that cannot fail is worse than no case; this one opens the panel.
+			local report = Hud.reportPanel() :: Frame
+			local scrim = Hud.reportScrim() :: Frame
+			local was = Hud.Report.isOpen()
+			Hud.Report.setOpen(false)
+			expect(scrim.Visible).to.equal(false)
+			expect(report.Visible).to.equal(false)
+			Hud.Report.setOpen(true)
+			expect(report.Visible).to.equal(true)
+			expect(scrim.Visible).to.equal(true)
+			-- ...and the scrim is BEHIND the panel and in front of the world (§1.3's stacking).
+			expect(scrim.ZIndex < report.ZIndex).to.equal(true)
+			Hud.Report.setOpen(false)
+			expect(scrim.Visible).to.equal(false)
+			Hud.Report.setOpen(was)
 		end)
 
 		it("draws ONE of the ammo chip and the horn chip, never both", function()

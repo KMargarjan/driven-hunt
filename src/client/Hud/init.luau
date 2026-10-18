@@ -387,7 +387,10 @@ Hud.BOARD_ORDER = { "rank", "name", "kills", "points", "coins" }
 
 Hud.BOARD = {
 	WIDTH = 520,
-	PADDING = 16,
+	-- IT IS `Style.cardInset`'s 12 AND NOT 16 (round 1 note): the board IS a card, the card's own
+	-- `UIPadding` is what indents it, and a second, larger number here pushed the whole table 8 px
+	-- left of centre inside that padding. One inset, read from one place.
+	PADDING = 12,
 	-- The eyebrow + title pair, the column head, and the footer with its countdown bar.
 	HEADER_H = 54,
 	FOOTER_H = 52,
@@ -410,13 +413,27 @@ Hud.BOARD = {
 -- the row count" is the whole of what §3.12 asks for and a spec cannot reach `Scoring`.
 --
 -- A SECTION HEAD IS SHORTER THAN A ROW, so the two are counted separately rather than averaged.
+-- ...AND IT COUNTS THE CARD'S OWN PADDING, which round 1's second blocking finding was about.
+-- `Style.card` ends with a `UIPadding` of `Style.cardInset` all round, so a board of height H has a
+-- CONTENT box of H - 2 x inset; this returned the content height as the whole height, and the
+-- footer -- anchored to the bottom of that content box -- was therefore drawn `2 x inset` up, over
+-- the last row of the table. `Style.cardInset` is the one source for the number.
 function Hud.boardHeight(rows: number, heads: number, viewportX: number?): number
 	local view = viewportX or Hud.viewportX()
 	local rowH = Style.rowHeight(view)
 	local headH = if Style.isPhone(view) then 18 else 20
 	local body = math.max(0, rows) * rowH + math.max(0, heads) * headH
 	local cap = Hud.BOARD.MAX_VISIBLE_ROWS * rowH
-	return Hud.BOARD.HEADER_H + rowH + math.min(body, cap) + Hud.BOARD.FOOTER_H
+	local content = Hud.BOARD.HEADER_H + rowH + math.min(body, cap) + Hud.BOARD.FOOTER_H
+	return content + 2 * Style.cardInset(view)
+end
+
+-- THE CONTENT BOX the three bands are laid out in -- the card's height less its own padding. The
+-- renderer positions the header, the column head and the body from the TOP of this box and the
+-- footer from its BOTTOM, so this is the one number that says they cannot collide.
+function Hud.boardContentHeight(rows: number, heads: number, viewportX: number?): number
+	local view = viewportX or Hud.viewportX()
+	return Hud.boardHeight(rows, heads, view) - 2 * Style.cardInset(view)
 end
 
 -- HOW MANY CHAMBER PIPS ARE BUILT. A ceiling, not a claim: the break-action has two and the rifle's
@@ -650,12 +667,15 @@ end
 function Hud.scoreFooterText(): string
 	-- The words and the number as one line, which is what the footer SAYS: the bar beside them is
 	-- the same fact drawn, and `Hud.scoreCountdownFraction` is how a spec asks that.
-	local word = if scoreFooterWord then string.gsub((scoreFooterWord :: TextLabel).Text, " ", "") else ""
+	-- THE DRAWN WORD AND NOT THE CONSTANT (round 1 note). It read the label, stripped its spacing
+	-- and then threw it away for `Drive.CONFIG.SCORE_FOOTER_WORD` -- so the one case that asserts
+	-- this line would have passed with ANY word on screen, which is a seam that cannot fail.
+	local word = if scoreFooterWord then (string.gsub((scoreFooterWord :: TextLabel).Text, " ", "")) else ""
 	local value = if scoreFooterValue then (scoreFooterValue :: TextLabel).Text else ""
 	if word == "" and value == "" then
 		return ""
 	end
-	return string.format("%s %s", Drive.CONFIG.SCORE_FOOTER_WORD, value)
+	return string.format("%s %s", word, value)
 end
 
 -- Only the lines that are actually showing something, in board order.
@@ -1145,7 +1165,7 @@ local function build(): ScreenGui
 	table.clear(feedToasts)
 	table.clear(feedDots)
 	for index = 1, Drive.CONFIG.FEED_LINES do
-		local toast, dot, text = Style.toast(feed, string.format("Line%d", index), viewX)
+		local toast, dot, text = Style.toast(feed, string.format("Line%d", index), viewX, nil, feed.ZIndex)
 		sized(text, "LABEL")
 		toast.LayoutOrder = index
 		toast.Visible = false
@@ -1367,10 +1387,12 @@ local function build(): ScreenGui
 	--
 	-- `Hud.tiedBanner()` answers this FRAME now and not a `TextLabel`: `zz_tie_to_a_tree.spec` walks
 	-- its ancestors for `Visible` and asks nothing about its class.
-	local tied, tiedDot, tiedText_ = Style.toast(screen, "TiedBanner", viewX, "TITLE")
+	-- THE BAND GOES IN AT BUILD TIME (round 1, finding 3). `screen` is a `ScreenGui` and not a
+	-- `GuiObject`, so there was nothing for the toast to inherit and its dot and its words were
+	-- created under a slate that was raised a line later.
+	local tied, tiedDot, tiedText_ = Style.toast(screen, "TiedBanner", viewX, "TITLE", Hud.STATUS.Z_INDEX + 1)
 	tied.AnchorPoint = Vector2.new(0.5, 0)
 	tied.Position = UDim2.new(0.5, 0, 0, Drive.CONFIG.TIED_TOP_OFFSET)
-	tied.ZIndex = Hud.STATUS.Z_INDEX + 1
 	tied.Visible = false
 	tiedDot.BackgroundColor3 = Style.LOOK.CLAY
 	tiedText_.TextColor3 = Style.LOOK.CLAY

@@ -1138,6 +1138,28 @@ function ForestTest.startRole(value: any): RoleWord?
 	return ForestTest.parseRole(word)
 end
 
+-- HOW LONG THIS WORLD'S DRIVE RUNS, from the switch the Director sets (task 201 part 2). PURE:
+-- whatever the `ServerStorage` attribute holds, in; a number of seconds, or nil for "nobody has
+-- said" and then the world's own `DRIVE.seconds`.
+--
+-- IT REFUSES RATHER THAN CLAMPS SILENTLY. A value under `DRIVE_SECONDS_MIN` would end the drive
+-- before its own first release, and a value above the world's own length would be making a
+-- playtest LONGER -- which nobody asked for and which one mistyped digit could do. Out of range is
+-- nil, which is "nobody has said", which is the default: a switch that cannot be set to something
+-- harmful is a switch nobody has to remember the bounds of.
+function ForestTest.driveSeconds(value: any, default: number?): number?
+	local full = default or Data.DRIVE.seconds
+	local seconds = if typeof(value) == "number" then value else tonumber(tostring(value or ""))
+	if seconds == nil then
+		return nil
+	end
+	seconds = math.floor(seconds)
+	if seconds < Data.DRIVE_SECONDS_MIN or seconds > full then
+		return nil
+	end
+	return seconds
+end
+
 -- HOW FAR THE CLAMP HAS TO MOVE A BODY BEFORE THE WALL ASKS WHERE THE GROUND IS. Two studs: a
 -- hunter pushing against his circle is clamped by a fraction of a stud a frame, and the mid-drive
 -- respawn the lift exists for arrives from the road spawn 900 studs away.

@@ -228,6 +228,55 @@ return function()
 			expect(Panel.DETAIL_COLUMNS[1].x).to.equal(Panel.DETAIL_TEXT_X)
 		end)
 
+		it("reaches EVERY row the server can send, which the clipped well did not", function()
+			-- ROUND 1, BLOCKING FINDING 1. The well's content box is 420 px. The server pages EIGHT
+			-- animals (`ANIMALS_PER_PAGE`, and `HitLog` computes `pages` from it) at
+			-- `DETAIL_ROW_HEIGHT` 68 = 544 px, and lists SIXTEEN hunters at 28 = 448 -- so with
+			-- `ClipsDescendants` and no scroll a player saw FIVE of the eight while the footer still
+			-- read `Page 1 of 1`, and lost rows 15 and 16 of the list.
+			--
+			-- THE MAXIMUM THE SERVER CAN SEND, not a convenient number: the two constants it pages by.
+			local maxList = Report.CONFIG.HUNTER_ROWS
+			local maxDetail = Report.CONFIG.ANIMALS_PER_PAGE
+			local scroll = Panel.body
+			expect(scroll).to.be.ok()
+			expect((scroll :: ScrollingFrame):IsA("ScrollingFrame")).to.equal(true)
+			expect((scroll :: ScrollingFrame).ScrollingDirection).to.equal(Enum.ScrollingDirection.Y)
+
+			-- THE CANVAS HOLDS THEM ALL -- which is what "reachable" means for a scrolling frame --
+			-- and it is BIGGER than the window, so the ones past the window scroll into view rather
+			-- than being clipped away.
+			local window = Panel.windowHeight()
+			expect(window > 0).to.equal(true)
+			local listCanvas = Panel.canvasHeight("list", maxList)
+			local detailCanvas = Panel.canvasHeight("detail", maxDetail)
+			expect(listCanvas).to.equal(maxList * Hud.Style.rowHeight(Hud.viewportX()))
+			expect(detailCanvas).to.equal(maxDetail * Report.CONFIG.DETAIL_ROW_HEIGHT)
+			expect(detailCanvas > window).to.equal(true)
+			TestKit.note(
+				string.format(
+					"report: window %d px, list canvas %d (%d rows), detail canvas %d (%d rows)",
+					window,
+					listCanvas,
+					maxList,
+					detailCanvas,
+					maxDetail
+				)
+			)
+
+			-- AND ON THE SCREEN: with a full page rendered, the LAST row is inside the canvas the
+			-- frame can scroll to, and the canvas really was written for what was drawn.
+			Panel.render(detailPayload())
+			local drawn = #detailPayload().rows
+			expect((scroll :: ScrollingFrame).CanvasSize.Y.Offset).to.equal(Panel.canvasHeight("detail", drawn))
+			local last = (scroll :: ScrollingFrame):FindFirstChild(string.format("DetailRow%d", maxDetail)) :: Frame
+			expect(last).to.be.ok()
+			local bottom = last.Position.Y.Offset + last.Size.Y.Offset
+			expect(bottom <= Panel.canvasHeight("detail", maxDetail)).to.equal(true)
+			-- The rows live in the SCROLLING body and not in the clipping well.
+			expect(last:IsDescendantOf(scroll :: ScrollingFrame)).to.equal(true)
+		end)
+
 		it("says how many animals were hit", function()
 			Panel.render(listPayload())
 			-- A SENTENCE IS NEVER UPPERCASE (the design system, 2026-10-17, section 1.2): the footer

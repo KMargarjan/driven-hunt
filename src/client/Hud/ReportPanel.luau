@@ -115,6 +115,9 @@ local detailRows: { Frame } = {}
 -- than counting children. The two tables have different columns and so two lists.
 local listCells: { { [string]: TextLabel } } = {}
 local detailCells: { { [string]: TextLabel } } = {}
+-- THE SCROLLING BODY the rows live in (round 1, finding 1). The well CLIPS and does not scroll, so
+-- until this frame existed a player simply lost the rows past its 420 px.
+ReportPanel.body = nil :: ScrollingFrame?
 local listHead: Frame? = nil
 local detailHead: Frame? = nil
 -- The panel's own padding, and the bands its header and footer own.
@@ -339,6 +342,38 @@ local function build(frame: Frame)
 	ReportPanel.well = well
 	local inner = body - 24
 
+	-- THE ROWS SCROLL, AND ROUND 1'S FIRST BLOCKING FINDING IS WHY. The well's content box is 420 px
+	-- tall; the server pages EIGHT animals (`Report.CONFIG.ANIMALS_PER_PAGE`, and `HitLog` computes
+	-- `pages` from it) at `DETAIL_ROW_HEIGHT` 68 = 544 px, and it lists SIXTEEN hunters
+	-- (`HUNTER_ROWS`, which is `Match.CONFIG.MAX_PLAYERS`) at 28 = 448. With `ClipsDescendants` and
+	-- no scroll a player saw FIVE of the eight while the footer still read `Page 1 of 1`, and lost
+	-- rows 15 and 16 of the list. The horizontal padding was accounted for (`inner` above); the
+	-- vertical was not.
+	--
+	-- A `ScrollingFrame` AND NOT A SHORTER PAGE: the page size is the SERVER's (`HitLog` reports
+	-- `pages` from it), so making the client show fewer would be the client disagreeing with the
+	-- payload about how many there are -- the failure this panel's own header exists to prevent
+	-- (*"IT DRAWS WHAT ARRIVED AND COMPUTES NOTHING"*).
+	--
+	-- THE COLUMN HEAD DOES NOT SCROLL. It is pinned in the well above this frame, because a column
+	-- head that scrolls away leaves a table of numbers with nothing saying what they are.
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "Body"
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.Position = UDim2.fromOffset(0, Style.rowHeight(viewX))
+	scroll.Size = UDim2.new(1, 0, 1, -Style.rowHeight(viewX))
+	scroll.CanvasSize = UDim2.fromOffset(0, 0)
+	-- THE SYSTEM'S OWN SCROLL TREATMENT: a 3 px brass bar at half transparency, which is what the
+	-- results board's body already uses -- one scrollbar in the game, not two.
+	scroll.ScrollBarThickness = 3
+	scroll.ScrollBarImageColor3 = Style.LOOK.BRASS
+	scroll.ScrollBarImageTransparency = 0.5
+	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	scroll.ZIndex = well.ZIndex + 1
+	scroll.Parent = well
+	ReportPanel.body = scroll
+
 	-- THE COLUMN HEAD, its own row with the brass hairline under it, one per table.
 	local function headRow(name: string, columns): Frame
 		local row = Style.columnHead(well, name, viewX, inner, false)
@@ -354,7 +389,6 @@ local function build(frame: Frame)
 	detailHead = headRow("DetailHead", ReportPanel.DETAIL_COLUMNS)
 
 	local rowH = Style.rowHeight(viewX)
-	local top = rowH
 
 	-- THE LIST ROWS ARE BUTTONS, because Karen asked to *"click on details or similar"*. A click
 	-- does what Enter does; the keyboard path exists for a client with no mouse freed (no camera, so
@@ -369,11 +403,11 @@ local function build(frame: Frame)
 		button.Text = ""
 		button.BackgroundTransparency = 1
 		button.BorderSizePixel = 0
-		button.Position = UDim2.fromOffset(0, top + (index - 1) * rowH)
+		button.Position = UDim2.fromOffset(0, (index - 1) * rowH)
 		button.Size = UDim2.fromOffset(inner, rowH)
 		button.Visible = false
 		button.ZIndex = Z + 1
-		button.Parent = well
+		button.Parent = scroll
 		local row = Style.tableRow(button, "Row", viewX, inner)
 		row.Position = UDim2.fromOffset(0, 0)
 		row.Visible = true
@@ -393,9 +427,9 @@ local function build(frame: Frame)
 	table.clear(detailRows)
 	table.clear(detailCells)
 	for index = 1, CONFIG.ANIMALS_PER_PAGE do
-		local row = Style.tableRow(well, string.format("DetailRow%d", index), viewX, inner)
+		local row = Style.tableRow(scroll, string.format("DetailRow%d", index), viewX, inner)
 		row.Size = UDim2.fromOffset(inner, CONFIG.DETAIL_ROW_HEIGHT)
-		row.Position = UDim2.fromOffset(0, top + (index - 1) * CONFIG.DETAIL_ROW_HEIGHT)
+		row.Position = UDim2.fromOffset(0, (index - 1) * CONFIG.DETAIL_ROW_HEIGHT)
 		buildSilhouette(row)
 		local cells: { [string]: TextLabel } = {}
 		for _, column in ipairs(ReportPanel.DETAIL_COLUMNS) do
@@ -579,6 +613,30 @@ local function pointsFor(userId: number): number?
 	return nil
 end
 
+-- HOW TALL THE SCROLLING BODY'S CANVAS IS for a given view and row count. PURE, because "every row
+-- the server can send is reachable" is the whole of round 1's first finding and a spec has to be
+-- able to ask it without a payload on the wire.
+function ReportPanel.canvasHeight(whichView: string, rows: number): number
+	local rowH = if whichView == "detail" then CONFIG.DETAIL_ROW_HEIGHT else Style.rowHeight(Style.viewportX())
+	return math.max(0, rows) * rowH
+end
+
+-- HOW TALL THE WINDOW ONTO THAT CANVAS IS -- the well's content box less the pinned column head.
+-- Read off the DRAWN frame, because the thing round 1 caught was a drawn box that was too short
+-- for the rows put in it, and a second arithmetic copy of the same number would not have caught it.
+function ReportPanel.windowHeight(): number
+	local scroll = ReportPanel.body
+	return if scroll ~= nil then (scroll :: ScrollingFrame).AbsoluteSize.Y else 0
+end
+
+local function applyCanvas(whichView: string, rows: number)
+	local scroll = ReportPanel.body
+	if scroll == nil then
+		return
+	end
+	(scroll :: ScrollingFrame).CanvasSize = UDim2.fromOffset(0, ReportPanel.canvasHeight(whichView, rows))
+end
+
 -- WHICH KEY CHIPS THE FOOTER SHOWS. PURE: the list offers DETAILS and CLOSE, the detail view offers
 -- PAGE, BACK and CLOSE. A chip for a key that does nothing in this view is the "no dead buttons"
 -- rule applied to a legend.
@@ -644,6 +702,7 @@ local function renderList(data: any)
 	(footer :: TextLabel).Text = if #rows == 0
 		then "Nobody has hit anything yet"
 		else string.format("%d animals hit this drive", (data and data.animals) or 0)
+	applyCanvas("list", math.min(#rows, CONFIG.HUNTER_ROWS))
 	applyKeys("list")
 end
 
@@ -707,6 +766,7 @@ local function renderDetail(data: any)
 	end
 	(footer :: TextLabel).Text =
 		string.format("Page %d of %d", (data and data.page) or 1, math.max(1, (data and data.pages) or 1))
+	applyCanvas("detail", math.min(#rows, CONFIG.ANIMALS_PER_PAGE))
 	applyKeys("detail")
 end
 

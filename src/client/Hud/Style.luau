@@ -329,6 +329,15 @@ function Style.panel(parent: Instance, name: string): Frame
 	return frame
 end
 
+-- HOW MUCH OF A CARD ITS OWN PADDING EATS (§3.2: *"UIPadding 12 all round (10 on a phone)"*).
+-- ONE SOURCE, because round 1's second blocking finding was a surface measured WITHOUT it:
+-- `Hud.boardHeight` returned `header + rows + footer` for a card whose content box is 24 px
+-- shorter than that, so the footer -- pinned to the bottom of the PADDED box -- drew its countdown
+-- across the last row of the table.
+function Style.cardInset(viewportX: number): number
+	return if Style.isPhone(viewportX) then 10 else 12
+end
+
 -- §3.2 a floating card over the world: the hit card, the start card, the results board.
 function Style.card(parent: Instance, name: string, phone: boolean?): Frame
 	local frame = Instance.new("Frame")
@@ -338,7 +347,8 @@ function Style.card(parent: Instance, name: string, phone: boolean?): Frame
 	frame.BorderSizePixel = 0
 	Style.corner(frame, Style.RADIUS.CARD)
 	Style.stroke(frame, LOOK.BRASS, Style.EDGE_T.CARD)
-	local inset = if phone then 10 else 12
+	-- `cardInset` IS THE ONE SOURCE, and this takes the step from the same boolean it is handed.
+	local inset = if phone then Style.cardInset(1) else Style.cardInset(Style.PHONE_BELOW_PX)
 	Style.padding(frame, inset, inset, inset, inset)
 	frame.Parent = parent
 	return frame
@@ -789,16 +799,33 @@ end
 
 -- §3.11 A TOAST: the kill feed, the server's refusals and every receipt are ONE component. Each
 -- line is its own slate with a meaning dot, and each fades on its own.
-function Style.toast(parent: Instance, name: string, viewportX: number, step: string?): (Frame, Frame, TextLabel)
+-- `zIndex` IS THE BAND THE WHOLE TOAST SITS IN, and it is a PARAMETER because round 1's third
+-- blocking finding was the guard below failing silently: a `ScreenGui` is not a `GuiObject`, so a
+-- toast parented straight to the screen kept `ZIndex` 1, its dot and its words were created at 2
+-- (`Style.label` reads `parent.ZIndex + 1`), and the caller then raised the SLATE to 7 -- leaving
+-- the words drawing BEHIND their own background under `ZIndexBehavior.Global`. That is the defect
+-- task 159 paid for twice and the one this function's own header already forbade.
+function Style.toast(
+	parent: Instance,
+	name: string,
+	viewportX: number,
+	step: string?,
+	zIndex: number?
+): (Frame, Frame, TextLabel)
 	local phone = Style.isPhone(viewportX)
 	local frame = Style.slate(parent, name, false, phone)
 	frame.AutomaticSize = Enum.AutomaticSize.XY
 	frame.Size = UDim2.fromOffset(0, 0)
-	-- THE SLATE TAKES ITS PARENT'S BAND BEFORE ITS CHILDREN ARE MADE, because `Style.label` reads
+	-- THE SLATE TAKES ITS BAND BEFORE ITS CHILDREN ARE MADE, because `Style.label` reads
 	-- `parent.ZIndex + 1` at creation: raising the frame afterwards would leave the dot and the
 	-- words drawing BEHIND their own background, which is the defect task 159 paid for twice
 	-- (*"the panel reads, the words do not"*).
-	if parent:IsA("GuiObject") then
+	--
+	-- AN EXPLICIT `zIndex` WINS, and a `ScreenGui` parent is exactly why it exists: it is not a
+	-- `GuiObject`, so there is no band to inherit and the old guard simply did not fire.
+	if zIndex ~= nil then
+		frame.ZIndex = zIndex
+	elseif parent:IsA("GuiObject") then
 		frame.ZIndex = (parent :: GuiObject).ZIndex
 	end
 	local row = Instance.new("UIListLayout")

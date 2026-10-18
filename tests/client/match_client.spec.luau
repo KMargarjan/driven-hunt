@@ -462,6 +462,56 @@ return function()
 			TestKit.note(string.format("match_client: board is %d px for 2 rows + 2 heads", two))
 		end)
 
+		it("leaves the footer clear of the table, which the card's own padding ate", function()
+			-- ROUND 1, BLOCKING FINDING 2. `Style.card` ends with a `UIPadding` of `Style.cardInset`
+			-- all round, so a board of height H has a CONTENT box of H - 24. `Hud.boardHeight`
+			-- returned the content height as the WHOLE height, and the footer -- anchored to the
+			-- bottom of that content box -- was drawn 24 px up, with its 28 px countdown number
+			-- across the last row of the table.
+			local Style = Hud.Style
+			local viewX = Hud.viewportX()
+			local inset = Style.cardInset(viewX)
+			expect(inset).to.equal(12)
+			-- THE HEIGHT COUNTS THE PADDING, and the content box is what the bands are laid out in.
+			expect(Hud.boardHeight(2, 2, viewX) - Hud.boardContentHeight(2, 2, viewX)).to.equal(2 * inset)
+			expect(Hud.boardContentHeight(2, 2, viewX)).to.equal(
+				Hud.BOARD.HEADER_H + Style.rowHeight(viewX) + 2 * Style.rowHeight(viewX) + 2 * 20 + Hud.BOARD.FOOTER_H
+			)
+
+			-- ...AND ON THE SCREEN: the footer's top really is below the last drawn row's bottom.
+			Hud.renderScore(scoring(), 12)
+			local board = Hud.scorePanel() :: Frame
+			local body = Hud.scoreBody() :: ScrollingFrame
+			local foot = board:FindFirstChild("Footer") :: Frame
+			expect(foot).to.be.ok()
+			task.wait()
+			local bodyBottom = body.AbsolutePosition.Y + body.AbsoluteSize.Y
+			local footTop = foot.AbsolutePosition.Y
+			expect(footTop >= bodyBottom).to.equal(true)
+			TestKit.note(string.format("match_client: body ends %d, footer starts %d", bodyBottom, footTop))
+
+			-- THE TABLE IS CENTRED IN THE CARD'S PADDING (round 1 note): `Hud.BOARD.PADDING` was 16
+			-- against the card's own 12, so the whole table sat 8 px left of centre.
+			expect(Hud.BOARD.PADDING).to.equal(inset)
+			expect(Hud.BOARD.WIDTH - 2 * Hud.BOARD.PADDING).to.equal(Hud.BOARD.WIDTH - 2 * inset)
+		end)
+
+		it("answers the footer's DRAWN word, not the constant it was supposed to match", function()
+			-- ROUND 1 NOTE: `Hud.scoreFooterText` read the label, stripped its letter-spacing and
+			-- then threw it away for `Drive.CONFIG.SCORE_FOOTER_WORD` -- so the one case that
+			-- asserts this line would have passed with ANY word on screen. A seam that cannot fail.
+			Hud.renderScore(scoring(), 12)
+			expect(Hud.scoreFooterText()).to.equal("NEXT DRIVE IN 12")
+			local board = Hud.scorePanel() :: Frame
+			local word = (board:FindFirstChild("Footer") :: Frame):FindFirstChild("Word") :: TextLabel
+			expect(word).to.be.ok()
+			local was = word.Text
+			word.Text = Hud.Style.spaced("SOMETHING ELSE")
+			expect(Hud.scoreFooterText()).to.equal("SOMETHING ELSE 12")
+			word.Text = was
+			expect(Hud.scoreFooterText()).to.equal("NEXT DRIVE IN 12")
+		end)
+
 		-- THE FIRST-PLACE BADGE (task 160, and since task 170 the rule lives in `Drive.Rank`). Karen,
 		-- 2026-10-11: *"first place ofc more"*. The rule is pure, so every case below is a table rather
 		-- than a rendered frame -- and the two cases that matter are the ones where the badge must NOT
