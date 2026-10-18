@@ -165,3 +165,116 @@ happen to agree today.
   cells, its team bar, its section colours and its height — by `match_client.spec` and
   `hud_style.spec`, and its geometry was measured live at 520 × 134. The Director can shoot it by
   overriding `DRIVE_SECONDS` through a world's `world.config` (`Match.WORLD_OVERRIDABLE`).
+
+# Part 3 (build task D): the start card, for both roles
+
+Karen, 2026-10-18, having played: *"this message has to be improved maybe each from new line ask
+designer more user friendly"*. The Designer answered with a file of its own —
+`startcard-spec.md`, an amendment to this system's surface 10 — and this part builds it. Task 205
+(Karen's own boar silhouettes on the hit card) shipped in the same branch and is the section after
+this one.
+
+## What was wrong, in the Designer's order
+
+1. **One line carried three prices.** `WILD BOAR, POINTS: male 10, female 6, cub -10` is the whole
+   scoring system in one run of commas, and the one number that is NEGATIVE is the one hiding at
+   the end.
+2. **Two words for one animal**: the server's kind is `cub`, the note under it said `piglet`.
+3. **`-10` did not look like a penalty** — same colour, same weight as `10`.
+4. **The beater got the hunter's card**: a man who may not shoot at all was handed a price list of
+   things to shoot, and told nothing about the horn, the push, or the line he must not cross.
+5. **Monospace with a black stroke**, which §2 of this system deleted from the game.
+
+## The one decision worth writing down: a sentence cannot be laid out
+
+The spec says the server *"sends the same facts it sends today (`snapshot.quarry`, the kinds and
+their points) and the client lays them out as rows"*. It sent them as a FORMATTED SENTENCE. A card
+that wants a tick, a noun and a signed number in three columns needs three values, so the only
+honest readings were (a) parse the server's own sentence on the client, or (b) send the values.
+
+(a) was refused: a presentation string is not an interface, and the Designer's fourth row — `A
+person -10`, priced off `SAFETY_PENALTY` — is not in that sentence at all, so the client would have
+had to carry a copy of a penalty. (b) is what `Match.quarryRows` is: one row per kind with its
+price, plus `safetyPenalty` on the snapshot. **The rule did not move.** Which kinds are quarry and
+what each is worth are still only in `Match.CONFIG`; what moved to the client is where the number is
+drawn, which is the division task 158 already stated.
+
+The cost is paid in the gate, not in the design: `src/server/Match/`, `src/shared/Drive/` and
+`tests/client/match_client.spec.luau` are all in `TWO_PLAYER_PATHS`, so this part needs `test2`.
+The card's own words were going to cost that anyway — `match_client.spec` asserts them.
+
+## What else is now one thing instead of two
+
+* **`Report.kindWord`** is the one place a data kind becomes a player-facing noun (`cub` ->
+  `piglet`). The start card, the hit card and the drive report's ANIMAL column all read it; the
+  report printed `CUB` until this task.
+* **`Style.glyph`** builds §3.10's tick, cross, chevron and horn as Frames, sized as fractions of
+  one `px` argument, so a 16 px desktop glyph and a 14 px phone one are one implementation.
+* **`panelLabel` is gone** — the Hud's last `Enum.Font.Code` + black-stroke builder. The start card
+  was its final caller (`backups/2026-10-18_task-201-3_panelLabel.txt`).
+
+## Where I did not follow the spec exactly, and why
+
+1. **A row's cells are an x and a width, not a `UIListLayout` with slack.** "Take the rest of the
+   width" needs a `UIFlexItem`, which nothing in this repo uses and which I did not prove in this
+   Studio version. §3.12's own idiom is placement (*"the numbers line up because they are PLACED"*),
+   the picture is identical, and the arithmetic became testable without a frame
+   (`Hud.startCardTextWidth`).
+2. **The dash in `Piglet - leave them` is ASCII**, not §3.10's permitted `–` (U+2013). That
+   character is only legal after the Builder's one-time Studio check against both families with
+   `GetTextBoundsAsync`, which I did not run; the spec names `-` as its own fallback. `Style.spaced`
+   also walks a string BYTE by byte, so a multi-byte glyph in a letter-spaced label would be cut in
+   half — a second reason to check it before using it anywhere.
+3. **No fade-in.** §1.4's 0.16 s fade needs a `CanvasGroup` to fade a card as one object, which
+   changes how the whole card composites against the world. The card appears and clears as it did.
+
+## What the countdown bar is full at, and why there is no constant for it
+
+The phase is `Match.CONFIG.INTERMISSION_SECONDS` — 15 today, 20 and 10 before it — and the client is
+never told that number. The spec's `secondsLeft / 10` would draw a bar two thirds full on the frame
+the card appears. So the renderer LATCHES the largest `secondsLeft` it has seen since the card went
+up and fills against that: the first frame is full by construction, and the latch is cleared with
+the card.
+
+
+# Task 205 (the same branch): Karen's own boar on the hit card
+
+Karen, 2026-10-18, looking at `karen-2026-10-18/shot-4.png`: *"and what is that? you need proper
+image for wildboar when showing hit now it feels mess unclear wtf ? / it's in download male
+named"*. What she was looking at was `BoarArt`'s fourteen `Frame`s, which at 148 x 80 read as two
+rounded blobs with four stubs.
+
+## What was done
+
+Her two JPGs (`male wild boar`, `famale wildboar`) carry a BAKED grey/white checkerboard rather than
+an alpha channel, so each was keyed to a transparent PNG -- luminance under 60 opaque black, over
+150 clear, a narrow ramp between for the anti-aliased edge -- cropped to the animal, checked at 2x,
+and uploaded as a `Decal` with `tools/roblox_upload.py` (her OK and both moderation states are in
+`assets/uploads.json`; the JPG and the PNG live outside the repo and are never committed). The tool
+learned the `Decal` type in the same commit.
+
+`Report.boarImage` is the one place a kind becomes a picture, so the hit card and the drive report
+cannot show two different animals for one shot: male takes the boar, female the sow, a piglet the
+sow at `PIGLET_SCALE` (0.70). The fourteen frames are KEPT as the no-kind fallback (rule 7).
+
+## The measurement worth keeping: the dot box is a FIT, not the outline's extremes
+
+The dots are placed in the boar's own unit square (nose u=0, tail u=1, back v=0, belly v=1) and the
+image is the whole animal, legs, tail and mane included -- so the two are not the same rectangle.
+Taking the keyed PNG's raw extremes put the HEAD zone's centre OFF the animal (11 % of its sample
+grid on black) because this boar carries its head low and its withers high, which the game's box
+model does not. The box was searched for instead: the one that keeps every zone of
+`Report.CONFIG.SILHOUETTE` on the animal while still SPANNING it (82 % of the worst zone's grid,
+male; 92 % female; every zone's centre on black). **A box that scored 100 % was available and
+refused**: it shrank onto the torso, so a head shot and a rump shot both drew inside the belly and
+the picture stopped meaning where the shot landed.
+
+`Report.CONFIG.SILHOUETTE` itself -- the server's zone truth -- was not touched.
+
+## Karen's spread rule
+
+*"if same place spread if not same show spread"*. `BoarArt.spread` is pure and moves the DRAWING,
+never the record: dots closer together than one dot's width are fanned onto a deterministic ring
+about their own centre, in index order, so two screenshots of one shot agree. The ring's radius
+grows with the group and is capped at twice the gap, so eighteen pellets stay a pattern rather than
+becoming a halo. A lone pellet is left exactly where it struck.
