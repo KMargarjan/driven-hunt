@@ -507,6 +507,12 @@ return function()
 			if Rig.blowAnimationId(Rig.BLOW) ~= nil then
 				perBody += 1
 			end
+			-- ...AND A FIFTH SINCE TASK 206, the horn-at-the-side pose, asked for the same way and
+			-- for the same reason: `Rig.carryAnimationId` is memoised, and asking rather than
+			-- adding 1 keeps the count honest in a session where that registration failed.
+			if Rig.carryAnimationId(Rig.CARRY) ~= nil then
+				perBody += 1
+			end
 			expect(s.clipsLoaded + s.clipsFailed).to.equal(perBody * 2)
 			expect(s.clipsFailed).to.equal(0)
 

@@ -2284,36 +2284,30 @@ local function build(): ScreenGui
 	hornRow.Padding = UDim.new(0, 7)
 	hornRow.Parent = hornBodyRow
 
-	-- THE HORN ICON IS TWO FRAMES (§3.10): an 18 x 7 brass body rotated -8 degrees with a 9 x 9 bell
-	-- at its right end in `BRASS_HI`. No upload, no glyph, and nothing a font has to carry.
+	-- THE HORN ICON IS `Style.glyph`'s, AND SINCE TASK 206 IT IS NOT A SECOND COPY OF ONE.
+	--
+	-- KAREN, 2026-10-18, of this chip: *"and what is this icon ?"*. The glyph she could not read was
+	-- drawn HERE -- an 18 x 7 brass bar with a 9 x 9 bell -- while `Style.GLYPHS` carried a "horn" of
+	-- its own, 15 x 6 with an 8 x 8 bell, for the start card. Two hand-built horns, neither of them
+	-- legible, and nothing that could make one of them better without the other going stale: exactly
+	-- the two-writers fault this repo's rule 3 exists for.
+	--
+	-- SO THE CHIP ASKS THE DESIGN SYSTEM, like every other icon in this file. The box is square
+	-- because that is what `Style.glyph` builds -- the old 28 x 16 box was two thirds empty -- and it
+	-- is 20 px rather than a row's 16 because this glyph is not in a row: the chip is 46 px tall and
+	-- carries ONE icon beside a `STAT` word, so 16 px read as a smaller mark than the bar it
+	-- replaced (photographed at both: `.screenshots/t206-chip-before-after.png`). The phone's 18
+	-- keeps the same ratio against its 42 px chip. `Style.glyph` is a fraction of `px` throughout,
+	-- so this is one number and not a second drawing.
+	local hornPx = if statusPhone then 18 else 20
 	local hornIcon = Instance.new("Frame")
 	hornIcon.Name = "Icon"
 	hornIcon.BackgroundTransparency = 1
-	hornIcon.Size = UDim2.fromOffset(28, 16)
+	hornIcon.Size = UDim2.fromOffset(hornPx, hornPx)
 	hornIcon.LayoutOrder = 1
 	hornIcon.ZIndex = hornBodyRow.ZIndex + 1
 	hornIcon.Parent = hornBodyRow
-	local hornShape = Instance.new("Frame")
-	hornShape.Name = "Body"
-	hornShape.BackgroundColor3 = Style.LOOK.BRASS
-	hornShape.BorderSizePixel = 0
-	hornShape.AnchorPoint = Vector2.new(0, 0.5)
-	hornShape.Position = UDim2.fromScale(0, 0.5)
-	hornShape.Size = UDim2.fromOffset(18, 7)
-	hornShape.Rotation = -8
-	hornShape.ZIndex = hornIcon.ZIndex
-	Style.corner(hornShape, 4)
-	hornShape.Parent = hornIcon
-	local hornBell = Instance.new("Frame")
-	hornBell.Name = "Bell"
-	hornBell.BackgroundColor3 = Style.LOOK.BRASS_HI
-	hornBell.BorderSizePixel = 0
-	hornBell.AnchorPoint = Vector2.new(1, 0.5)
-	hornBell.Position = UDim2.fromScale(1, 0.5)
-	hornBell.Size = UDim2.fromOffset(9, 9)
-	hornBell.ZIndex = hornIcon.ZIndex + 1
-	Style.corner(hornBell, 4)
-	hornBell.Parent = hornIcon
+	Style.glyph(hornIcon, "Horn", "horn", hornPx)
 
 	local hornWord = sized(Style.label(hornBodyRow, "Value", "STAT", viewX), "STAT")
 	hornWord.AutomaticSize = Enum.AutomaticSize.X

@@ -905,6 +905,49 @@ Horn.BLOW_POSE = table.freeze({
 	LOWER_SECONDS = 0.35,
 })
 
+-- ---------------------------------------------------------------- the horn at the side (task 206)
+--
+-- KAREN, 2026-10-18 ~14:20, verbatim: *"also horn is broken arm is wrong"*, with a frame of a bot
+-- beater seen by a hunter (`karen-2026-10-18/shot-9.png`): the arm straight out in front, the horn
+-- level and a long way from the body.
+--
+-- MEASURED BEFORE A NUMBER WAS TOUCHED, in the Forest Test on 2026-10-18, on all three bot beaters
+-- at once and identically: the arm ran **0.99 along the body's own forward** and 0.12 down, the
+-- right hand sat **1.95 studs in front of the chest** and the Handle **2.30** -- so a 3.125-stud
+-- horn was carried at full stretch in front of the ribs. The clip doing it is Roblox's own
+-- `ToolNoneAnim` (`rbxassetid://507768375`), which task 164 added at `Idle` so the horn would stop
+-- riding a freely swinging arm. It is the right clip for a GUN -- a player holding a shotgun has
+-- exactly this arm -- and the wrong one for a horn, which is carried and not presented.
+--
+-- SO THE BEATER GETS HIS OWN CARRY, AND IT IS THE REST POSE. `SHOULDER_DEG` and `ELBOW_DEG` are
+-- zero on purpose: the R15 rest pose IS an arm hanging at the side, which is how a person carries a
+-- signal horn on its cord, and the whole job of this clip is to take the shoulder back from
+-- `ToolNoneAnim`. The shoulder's small `z` is the one real number -- it swings the arm OUT from the
+-- ribs so a horn 3.125 studs long hangs clear of the leg rather than through it.
+--
+-- EVERY NUMBER HERE WAS MEASURED ON A LIVE BOT, by registering the candidate clip in the running
+-- session and reading the rig back (the same thing this code does at run time), 2026-10-18:
+--     shoulder (0, 0, 0)   hand 1.48 out, 1.06 down, 0.13 BEHIND the chest; arm 1.00 down
+--     shoulder (0, 0, 8)   hand 1.57 out, 1.02 down, 0.28 behind; arm 1.00 down; Handle 0.29 from
+--                          the chest, against 2.30 before -- and the right leg's centre is at 0.57,
+--                          so the fist is a full stud clear of it
+--     shoulder (0, 0, 14)  the arm leaves the side altogether
+-- 8 is the one that holds the horn beside the body and clear of the leg, so 8 is what ships.
+--
+-- WHAT IT COSTS, SAID PLAINLY: a clip at `Movement` holds the right shoulder still, so a walking
+-- beater's right arm no longer swings. That is not a new cost -- `ToolNoneAnim` at `Idle` was
+-- already holding it still, which is the whole reason task 164 added it -- and it is the same
+-- trade every Roblox tool pose makes. The LEFT arm still swings with the gait, which is `Core` and
+-- is not touched here.
+Horn.CARRY_POSE = table.freeze({
+	SHOULDER_DEG = { x = 0, y = 0, z = 8 },
+	ELBOW_DEG = { x = 0, y = 0, z = 0 },
+	-- Faded in and out rather than snapped, for `BLOW_POSE`'s reason: these are `Play`/`Stop` fade
+	-- times and the engine blends the pose, so an arm that comes down after a blast arrives here
+	-- instead of jumping. Shorter than the blast's own fades because nothing is being performed.
+	FADE_SECONDS = 0.2,
+})
+
 -- ---------------------------------------------------------------- the blast, as the CLIENT sees it
 --
 -- THE ONE SIGNAL THAT SAYS "A BLAST WAS ACCEPTED" (task 176). `Weapon.Horn.blowTool` stamps this
@@ -973,13 +1016,12 @@ end
 -- place's own avatar type is R15 (MEASURED in a Play session, task 168). A `Pose` is matched by its
 -- place in the rig's hierarchy, so on an R6 character these names match nothing and the clip simply
 -- poses nothing -- no error and no half-raised arm, which is the right failure for a cosmetic.
-function Horn.blowSequence(config): KeyframeSequence
-	local blow = config or Horn.BLOW_POSE
+function Horn.armSequence(arm, priority: Enum.AnimationPriority): KeyframeSequence
 	local sequence = Instance.new("KeyframeSequence")
 	sequence.Loop = true
-	sequence.Priority = Enum.AnimationPriority.Action
-	local shoulder = blow.SHOULDER_DEG
-	local elbow = blow.ELBOW_DEG
+	sequence.Priority = priority
+	local shoulder = arm.SHOULDER_DEG
+	local elbow = arm.ELBOW_DEG
 	for _, at in ipairs({ 0, 0.5 }) do
 		local keyframe = Instance.new("Keyframe")
 		keyframe.Time = at
@@ -1016,6 +1058,20 @@ function Horn.blowSequence(config): KeyframeSequence
 	return sequence
 end
 
+-- THE BLAST'S CLIP, at `Action`. One line, because the shape is `armSequence`'s and the only thing
+-- this adds is WHICH pose and WHICH priority -- the two facts a caller needs and the two the carry
+-- below differs in. `Bots.Rig.blowSequence` is an alias of this and keeps the signature it had.
+function Horn.blowSequence(config): KeyframeSequence
+	return Horn.armSequence(config or Horn.BLOW_POSE, Enum.AnimationPriority.Action)
+end
+
+-- THE CARRY'S CLIP, at `Movement` (task 206). Below `Action`, so a blast still takes the arm; above
+-- `Idle`, which is where `ToolNoneAnim` is played, and above `Core`, which is the gait -- so this is
+-- what the shoulder and the elbow resolve to while a beater is simply carrying the horn.
+function Horn.carrySequence(pose): KeyframeSequence
+	return Horn.armSequence(pose or Horn.CARRY_POSE, Enum.AnimationPriority.Movement)
+end
+
 -- THE REGISTERED ID, MADE ONCE PER SESSION AND SHARED BY EVERY BODY THAT BLOWS A HORN -- bots and
 -- players both, which is the point of it living here. Registering is a service call, the sequence is
 -- the same for everybody, and the id is a string, so one registration serves eight bots and a player.
@@ -1030,24 +1086,44 @@ end
 local blowAnimationId: string? = nil
 local blowRegisterTried = false
 
-function Horn.blowAnimationId(config): string?
-	if blowAnimationId ~= nil then
-		return blowAnimationId
+-- ONE REGISTRATION PER CLIP, and the two clips are two rows rather than two copies of this function
+-- (task 206): the blast's and the carry's differ only in which sequence is built, and a second
+-- hand-written cache is how two caches start disagreeing about whether a registration was tried.
+local function registered(made: () -> KeyframeSequence, id: string?, tried: boolean): (string?, boolean)
+	if id ~= nil then
+		return id, true
 	end
-	if blowRegisterTried then
-		return nil
+	if tried then
+		return nil, true
 	end
-	blowRegisterTried = true
-	local sequence = Horn.blowSequence(config)
-	local ok, id = pcall(function()
+	local sequence = made()
+	local ok, answer = pcall(function()
 		return KeyframeSequenceProvider:RegisterKeyframeSequence(sequence)
 	end)
 	sequence:Destroy()
-	if not ok or type(id) ~= "string" then
-		return nil
+	if not ok or type(answer) ~= "string" then
+		return nil, true
 	end
-	blowAnimationId = id :: string
+	return answer :: string, true
+end
+
+function Horn.blowAnimationId(config): string?
+	blowAnimationId, blowRegisterTried = registered(function()
+		return Horn.blowSequence(config)
+	end, blowAnimationId, blowRegisterTried)
 	return blowAnimationId
+end
+
+-- THE CARRY'S ID, the same way and for the same reasons (task 206). One registration serves every
+-- beater in the session, bot and player, because the clip is the same clip.
+local carryAnimationId: string? = nil
+local carryRegisterTried = false
+
+function Horn.carryAnimationId(pose): string?
+	carryAnimationId, carryRegisterTried = registered(function()
+		return Horn.carrySequence(pose)
+	end, carryAnimationId, carryRegisterTried)
+	return carryAnimationId
 end
 
 Shotgun.deepFreeze(Horn.CONFIG)

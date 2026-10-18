@@ -257,6 +257,10 @@ local stats = {
 	-- over the gait, exactly as a player's `Animate` does -- without it the horn rides a freely
 	-- swinging arm, which is what the probe measured on every beater in Karen's place.
 	toolPosed = 0,
+	-- THE CARRY POSE (task 206). ...and then the horn is brought DOWN TO THE SIDE, because the tool
+	-- pose above holds the arm straight out in front -- right for a gun, wrong for a horn, and what
+	-- Karen's 2026-10-18 frame of a bot beater shows.
+	carryPosed = 0,
 	steps = 0,
 	stepMsTotal = 0,
 	stepMsMax = 0,
@@ -374,6 +378,14 @@ local function finishBuild(bot: Bot, model: Model, config, builtAt: number)
 	-- is about there being a Tool in the hand and `bot.horn` is what says so.
 	if Rig.holdTool(clips, bot.horn ~= nil) then
 		stats.toolPosed += 1
+	end
+
+	-- ...AND A HORN HANGS AT THE SIDE (task 206). KAREN, 2026-10-18: *"also horn is broken arm is
+	-- wrong"* -- her frame is a bot beater with the horn held straight out in front of it, which is
+	-- what the tool pose above does and is right for a gun. The same predicate as the line above,
+	-- because it is the same fact: there is a horn in this bot's hand.
+	if Rig.holdHorn(clips, bot.horn ~= nil) then
+		stats.carryPosed += 1
 	end
 
 	bot.movedAt = builtAt
@@ -634,6 +646,8 @@ local PER_DRIVE_STATS = {
 	"toolPosed",
 	-- `toolPosed`'s reason, for the same kind of counter: "did a bot raise its horn THIS drive".
 	"blowPosed",
+	-- ...and "did a bot put its horn at its SIDE this drive" (task 206).
+	"carryPosed",
 	"stepMsMax",
 }
 

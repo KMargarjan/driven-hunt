@@ -1,5 +1,73 @@
 # Escalations
 
+## 2026-10-19 - Task 206: A DECISION IS NEEDED -- the first-person horn's HAND cannot be fixed by posing it, because the horn is too big
+
+**This is a feel/size decision, which is Karen's (CLAUDE.md stop rules). Task 206's other two halves
+-- the third-person arm and the HORN icon -- are DONE, gated and reviewed; nothing below blocks
+them.** What is escalated is the third of Karen's three frames, `karen-2026-10-18/shot-5.png`: the
+first-person horn with a small dark patch of hand on it.
+
+**WHAT IS ACTUALLY WRONG, MEASURED THREE WAYS IN THE FOREST TEST, 2026-10-18.**
+
+1. The drawn horn covers **569 x 363 px of her 955 x 785 screen** and sits **3.13-4.07 studs from the
+   lens**. The glove is **0.669 studs long** and covers **119 px**. The SHOTGUN's right glove, in the
+   same place and the same session, sits **0.32-0.91 studs** from the lens and covers **638 px** --
+   so the hand on the horn is five times smaller than the hand Karen has already accepted on the gun,
+   because it is four times further away.
+2. Task 202 "laid the glove along the tube", and that is literally what it did: the fist's hole axis
+   is **90.0 degrees** off the tube's tangent at the grip, and the fingers run **0.0 degrees** ALONG
+   it. The hand is lying on the horn like a sticker rather than closed round it. A zoom of her own
+   defect shows the finger ring with horn visible THROUGH it
+   (`.screenshots/t206-before-fp.png`, the glove at screen 551..670 x 650..740).
+3. **Re-posing cannot fix either, and this is the part that needs the decision.** The horn is
+   **3.125 studs (0.875 m)** long and the grip is 1.03 studs from the mouthpiece and 2.03 from the
+   bell. For the WHOLE horn to stay inside a 70-degree view it must be broadside at **>= L/1.24 =
+   2.52 studs** -- which is the pose that ships, and which puts the hand at 3.5. Bringing the hand to
+   the gun's 1.5 studs forces one end of the horn to within ~1.1 studs of the lens, where it is a
+   pale blob filling the middle of the screen. Four solved poses were tried and two were photographed
+   (`t206-after1-fp.png`, `t206-after3-fp.png`): the mouthpiece cap in the middle-left, and the glove
+   end-on as a dark sausage. **Both are worse than what ships, so the pose data was put back
+   untouched** (`git checkout src/shared/Viewmodel/poses.json`) rather than shipping a change that
+   cannot be shown to be better.
+
+**SO THE SIZE IS THE CAUSE, AND THE SIZE IS KAREN'S OWN INSTRUCTION.** `Horn.MESH.SIZE_STUDS` is
+3.125 because of her 2026-10-13 *"for beater horn has to be doubble or tripple size now is to
+small"*, about the 1.25-stud horn of task 169. Task 175 read that as 2.5x. 0.875 m is bigger than any
+real signal horn and was MEANT to be. The Builder will not quietly undo an instruction she gave
+(Learning Agent L-010), so here are the two options with their costs.
+
+**OPTION A -- SHRINK THE WORLD HORN to about 2.0 studs (1.6x task 169's 1.25).** The hand then reads
+at ~1.5 studs and ~234 px with the whole horn still in frame. It also fixes the third person, where a
+3.125-stud horn hanging at the side reaches from the hip to **0.33 studs above the sole** (measured
+today). COST: `MESH.SIZE_STUDS`, the `GRIP_BLOW` refit its own header derives (`T.z = 0.3 +
+(SIZE - 1.25) / 2`), and `Horn.TUBE_SAMPLES` -- 25 rows raycast off the real Handle at 3.125, which
+scale EXACTLY by the ratio because the mesh is scaled uniformly about a centred offset, but which
+should be re-measured once in the running game rather than only multiplied (Learning Agent L-020).
+RISK: it is below the "double" she asked for.
+
+**OPTION B -- SCALE THE FIRST-PERSON CLONE ONLY, which is the standard FPS viewmodel trick.**
+`Camera.Viewmodel.buildHorn` already clones the Handle; scaling that clone by k and dividing its
+distance by k leaves the horn's ANGULAR size on screen exactly as it is now, while the GLOVE -- which
+is posed separately, `hand.CFrame = horn * right * align`, and is NOT scaled by it -- comes
+1/k closer and draws 1/k bigger. At k = 0.64 the hand is at 2.2 studs and ~170 px with the horn
+unchanged; at k = 0.5, 1.75 studs and ~215 px. The WORLD horn every other player sees is untouched,
+so Karen's size instruction stands exactly as given. COST: a scale factor in `Camera.Viewmodel`, and
+`viewmodel_poses.spec`'s two horn cases have to multiply `Horn.TUBE_SAMPLES` by it.
+
+**AND EITHER WAY, THE GRIP MUST BE RE-SOLVED**, because finding 2 is independent of the size: the
+fist has to close AROUND the tube (hole axis along the tangent, grip point ON the measured centre
+line) instead of lying along it. The arithmetic is done and verified against the running game -- the
+model reproduces the live camera-space positions to the digit -- so it is a `poses.json` change plus
+one new spec case, in whichever task takes the size decision. **`viewmodel_poses.spec`'s
+*"lays the right glove on the tube"* case is what forced the wrong answer** and must change with it:
+it requires all THREE landmarks within the tube's radius, which is true of a hand lying flat on the
+horn and false of a hand gripping it -- a wrist that holds something leaves the thing it holds
+(measured: the cuff is 0.49 studs off the tube in every correct grip).
+
+**NEEDED FROM KAREN:** A or B, or "leave it". **NEEDED FROM THE DIRECTOR:** the follow-up task, which
+is not a 2-hour job either way.
+
+
 ## 2026-10-15 - Task 187: READY FOR ROUND 4 187 681001e -- the cap is reached, and the lodge is built
 
 **`MAX_ROUNDS` IS 3 AND ROUND 3 CAME BACK WITH ONE FINDING.** `tools/review.sh` will refuse
