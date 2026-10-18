@@ -432,6 +432,48 @@ return function()
 			Card.step(0.2 + CONFIG.FADE_SECONDS / 2)
 			expect(Card.isVisible()).to.equal(true)
 			expect((Hud.hitCard() :: Frame).BackgroundTransparency > CONFIG.PANEL_TRANSPARENCY + 1e-3).to.equal(true)
+			-- EVERY CHILD GOES WITH IT, WHATEVER CLASS IT IS (round 2's blocking finding). The walk
+			-- used to ask `IsA("Frame")`, and the silhouette is an `ImageLabel` -- so the panel, the
+			-- plate, the words and the dots faded while Karen's black boar stayed at full strength
+			-- over the world for the last half-second and then vanished.
+			--
+			-- ASSERTED BY CLASS, over every descendant of the card, so the next child type added to
+			-- it cannot slip through the same hole: an image by its `ImageTransparency`, a label by
+			-- its `TextTransparency`, a stroke and a frame by their own. Each must be PAST its
+			-- resting value and not yet gone, which is what "fading" means and what a hard-coded
+			-- `== at` could not say for the panel (its rest is `PANEL_TRANSPARENCY`).
+			local kinds = {}
+			for _, node in ipairs((Hud.hitCard() :: Frame):GetDescendants()) do
+				local visible = node:IsA("GuiObject") and node.Visible
+				local inside = node:FindFirstAncestorWhichIsA("GuiObject")
+				while inside ~= nil and visible do
+					visible = inside.Visible
+					inside = inside:FindFirstAncestorWhichIsA("GuiObject")
+				end
+				if node:IsA("ImageLabel") and visible then
+					kinds.image = true
+					expect(node.ImageTransparency > 1e-3).to.equal(true)
+					expect(node.ImageTransparency < 1 - 1e-3).to.equal(true)
+				elseif node:IsA("TextLabel") and visible and node.Text ~= "" then
+					kinds.text = true
+					expect(node.TextTransparency > 1e-3).to.equal(true)
+					expect(node.TextTransparency < 1 - 1e-3).to.equal(true)
+				elseif node:IsA("Frame") and node.Name == "Dot" and visible then
+					kinds.dot = true
+					expect(node.BackgroundTransparency > 1e-3).to.equal(true)
+					expect(node.BackgroundTransparency < 1 - 1e-3).to.equal(true)
+					local ring = node:FindFirstChildOfClass("UIStroke")
+					if ring ~= nil then
+						kinds.stroke = true
+						expect(ring.Transparency > 1e-3).to.equal(true)
+					end
+				end
+			end
+			-- ...and all four kinds were really on screen to be checked, so this cannot pass by
+			-- finding nothing.
+			for _, kind in ipairs({ "image", "text", "dot", "stroke" }) do
+				expect(kinds[kind]).to.equal(true)
+			end
 			Card.step(CONFIG.FADE_SECONDS)
 			expect(Card.isVisible()).to.equal(false)
 			expect(#Card.dots()).to.equal(0)

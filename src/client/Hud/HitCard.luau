@@ -203,6 +203,30 @@ local function hide()
 	shown = nil
 end
 
+-- WHAT CARRIES ONE NODE'S INK, whatever class it is. BY CLASS AND NOT BY A LIST OF NAMES, which is
+-- round 2's blocking finding: the walk below said `if child:IsA("Frame")`, and task 205 put an
+-- `ImageLabel` in the art -- a `GuiLabel`, not a `Frame` -- so for the last half-second of every
+-- card the panel, the plate, the words and the dots faded out while Karen's black boar stayed at
+-- full strength over the world and then vanished. The fourteen `Frame`s it replaced did fade.
+--
+-- A GENERIC WALK IS THE FIX AND NOT A SECOND NAME IN THE LIST: the next child type added to this
+-- card -- an icon, a tag, a stroke -- would recur the same defect, and this function is the one
+-- place that has to learn about it. Each class is faded by the property that carries what you SEE:
+-- an image's `ImageTransparency`, a label's `TextTransparency`, a stroke's `Transparency`, a
+-- frame's `BackgroundTransparency`. A node's BACKGROUND is never touched unless it IS a frame --
+-- the silhouette's is deliberately transparent, and writing `at` into it would draw a rectangle.
+local function fadeInk(node: Instance, at: number)
+	if node:IsA("ImageLabel") or node:IsA("ImageButton") then
+		(node :: ImageLabel).ImageTransparency = at
+	elseif node:IsA("TextLabel") or node:IsA("TextButton") then
+		(node :: TextLabel).TextTransparency = at
+	elseif node:IsA("UIStroke") then
+		(node :: UIStroke).Transparency = at
+	elseif node:IsA("Frame") then
+		(node :: Frame).BackgroundTransparency = at
+	end
+end
+
 -- THE WHOLE CARD AT ONE TRANSPARENCY, so the fade is one number and not six that can drift apart.
 -- `UIStroke` and `TextLabel` do not inherit a parent's transparency, so each is set from the same
 -- `fade` -- the thing a frame of the fade would otherwise show as a hairline still at full strength
@@ -228,15 +252,10 @@ local function setFade(fade: number)
 			-- THE ART FRAME'S OWN BACKING IS LEFT ALONE: `build` made it transparent on purpose (the
 			-- plate is the ground), and writing `at` into it made it an opaque rectangle that only
 			-- happened to match the plate's colour -- a seam waiting for the next palette change
-			-- (the Reviewer's note, round 1).
-			for _, child in ipairs(art:GetChildren()) do
-				if child:IsA("Frame") then
-					child.BackgroundTransparency = at
-					local stroke = child:FindFirstChildOfClass("UIStroke")
-					if stroke ~= nil then
-						stroke.Transparency = at
-					end
-				end
+			-- (the Reviewer's note, round 1). So this walks the art's DESCENDANTS and never the
+			-- frame itself.
+			for _, node in ipairs(art:GetDescendants()) do
+				fadeInk(node, at)
 			end
 		end
 	end
