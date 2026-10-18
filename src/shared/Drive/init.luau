@@ -192,10 +192,10 @@ Drive.CONFIG = {
 	-- player with name, role, kills and points, up for the whole of `Scoring`. What this task
 	-- changed is the WORD: the panel now says what she calls it. `%d` is the drive number.
 	--
-	-- THE ROLE WORDS ON THE ROWS ARE DELIBERATELY NOT TOUCHED. The board says SHOOTER / DRIVER (the
-	-- team names) while Karen says hunter / beater, and which vocabulary the whole Hud should speak
-	-- is her decision, still open from task 158 (TASKS.md row 158a). Renaming half the screen to
-	-- settle it quietly is exactly what that row exists to prevent.
+	-- THE ROLE WORDS ARE OFF THE ROWS ENTIRELY (task 170 took the TEAM column; the heading carries
+	-- the side), and the one word that is still drawn -- the status bar's pill -- says HUNTER /
+	-- BEATER since 201 part 3, which is Karen's own vocabulary and the start card's.
+	-- `Shooters` / `Drivers` remain the TEAM names on the wire; only what is DRAWN moved.
 	SCORE_TITLE_FORMAT = "DRIVE %d RESULTS",
 	-- THE SAME SENTENCE IN TWO PIECES SINCE TASK 201 PART 2, because the board wears an EYEBROW and
 	-- a TITLE now (the Designer's design system, 2026-10-17, section 3.4): the small brass word

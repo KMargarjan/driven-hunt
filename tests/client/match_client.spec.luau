@@ -169,12 +169,21 @@ return function()
 			print("[match_client] drive bar: " .. text)
 			expect(string.find(text, "DRIVE %d") ~= nil).to.equal(true)
 			expect(string.find(text, "nil") == nil).to.equal(true)
-			-- THE BADGE IS THIS PLAYER'S OWN. With one player that is SHOOTER (Director decision F);
-			-- in a two-player run one client is the DRIVER and its badge must say so, in its own
-			-- team colour. Asserting "SHOOTER" for everybody was a one-player claim inside a suite
+			-- THE BADGE IS THIS PLAYER'S OWN. With one player that is the hunter (Director decision
+			-- F); in a two-player run one client is the beater and its badge must say so, in its own
+			-- team colour. Asserting one word for everybody was a one-player claim inside a suite
 			-- the two-player run has to pass (TASKS.md row 34a).
+			--
+			-- `HUNTER` / `BEATER` SINCE 201 PART 3 (201a), and the two halves of the claim are
+			-- different: the TEAM is still `Shooters` / `Drivers` -- the string the server, the
+			-- wire and `Style.teamColor` use -- and only the drawn WORD moved.
 			expect(string.find(text, Role.badge()) ~= nil).to.equal(true)
-			expect(Role.badge()).to.equal(if Match.myTeam() == "Drivers" then "DRIVER" else "SHOOTER")
+			expect(Role.badge()).to.equal(if Match.myTeam() == "Drivers" then "BEATER" else "HUNTER")
+			expect(Hud.roleBadge(Match.myTeam())).to.equal(Role.badge())
+			-- THE OLD VOCABULARY IS ASSERTED AS GONE FROM THE BAR, not merely replaced: the defect
+			-- was the HUD saying two things for one fact.
+			expect(string.find(text, "SHOOTER", 1, true)).to.equal(nil)
+			expect(string.find(text, "DRIVER", 1, true)).to.equal(nil)
 			local phase = Match.phase()
 			if phase == "Running" or phase == "Assigning" or phase == "Scoring" then
 				expect(string.find(text, "%d+:%d%d") ~= nil).to.equal(true)
@@ -392,6 +401,10 @@ return function()
 			-- freed is the coins column. Asserted as GONE, not merely absent from a name check.
 			expect(string.find(rows[2], "SHOOTER", 1, true)).to.equal(nil)
 			expect(string.find(rows[4], "DRIVER", 1, true)).to.equal(nil)
+			-- ...AND THE NEW VOCABULARY IS NOT ON THE ROWS EITHER (201a). The pill says HUNTER now,
+			-- and the point of the heading is that the ROW does not repeat it.
+			expect(string.find(rows[2], "HUNTER", 1, true)).to.equal(nil)
+			expect(string.find(rows[4], "BEATER", 1, true)).to.equal(nil)
 			expect(string.find(rows[2], "nil", 1, true) == nil).to.equal(true)
 			-- WHAT THE DRIVE PAID, with its sign, which is the "+N coins" the task asked for.
 			expect(string.find(rows[2], "+67", 1, true) ~= nil).to.equal(true)

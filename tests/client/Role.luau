@@ -12,7 +12,8 @@
 --   * a driver never holds a Tool, and the weapon's input actions are never bound for him;
 --   * a driver's crosshair is never on screen and his camera never enters Aiming;
 --   * a driver is never staged on a boar and never receives a hit marker;
---   * a driver's Hud badge says DRIVER.
+--   * a driver's Hud badge says BEATER (it said DRIVER until 201 part 3; the word on the pill is
+--     the start card's now, and the team NAME is still `Drivers`).
 -- Both branches are asserted, so `test2` can require PASS from all three reports.
 --
 -- RESOLVED AT REQUIRE TIME, ON PURPOSE. Every spec module is required before TestEZ builds its plan,
@@ -53,9 +54,10 @@ function Role.mine(): string?
 	return Role.team
 end
 
--- UNKNOWN COUNTS AS SHOOTER, and that is deliberate: it is the one-player truth (Director decision F
--- makes a lone player a Shooter) and it is the historical behaviour of every spec here, so a drive
--- stuck in Waiting fails the shooter's assertions loudly instead of quietly passing a driver's.
+-- UNKNOWN COUNTS AS A SHOOTER, and that is deliberate: it is the one-player truth (Director decision
+-- F makes a lone player a Shooter) and it is the historical behaviour of every spec here, so a drive
+-- stuck in Waiting fails the shooter's assertions loudly instead of quietly passing a driver's. The
+-- TEAM is what this reads (`Drivers`); only the badge's WORD changed in 201 part 3.
 function Role.isDriver(): boolean
 	return Role.team == "Drivers"
 end
@@ -64,9 +66,12 @@ function Role.isShooter(): boolean
 	return not Role.isDriver()
 end
 
--- What the Hud's team badge must read for this player.
+-- What the Hud's team badge must read for this player. `BEATER` / `HUNTER` since 201 part 3 --
+-- Karen's own two words, which the start card has used since task 158 and the pill now uses too
+-- (`Hud.roleBadge` -> `Hud.roleWord`). This file is the TWO-PLAYER kit's copy of that expectation,
+-- so the driver's client asserts the driver's word.
 function Role.badge(): string
-	return if Role.isDriver() then "DRIVER" else "SHOOTER"
+	return if Role.isDriver() then "BEATER" else "HUNTER"
 end
 
 return Role

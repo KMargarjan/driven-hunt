@@ -2471,7 +2471,7 @@ local Rank = Drive.Rank
 -- ONE ROW OF THE RESULTS TABLE.
 --
 -- THE `TEAM` COLUMN IS GONE AND THE COINS COLUMN IS WHAT IT PAID FOR (task 170). With a
--- `-- HUNTERS --` heading over the list, printing SHOOTER / DRIVER on every row under it says one
+-- `-- HUNTERS --` heading over the list, printing the role on every row under it says one
 -- fact twice -- and the panel had no spare width: `SCORE_PANEL_WIDTH` is already 480 against the
 -- 400-px screen `tests/client/hud_clarity.spec.luau` measures, so widening it would make an existing
 -- problem worse. 41 characters plus badge and star, against today's 42.
@@ -2820,11 +2820,11 @@ end
 
 -- ---------------------------------------------------------------- the start card (task 158)
 --
--- KAREN'S WORDS FOR THE TWO SIDES, and this is the one place they are said. The drive bar still says
--- SHOOTER / DRIVER, which are the TEAM names in `Match.CONFIG` and on the scoreboard; her design doc
--- and every message she sends say hunter and beater. The card is the thing she asked for in those
--- words, so it uses them -- and which vocabulary the whole Hud should speak is a Karen decision, not
--- one to take quietly in a renderer (TASKS.md row 158a).
+-- KAREN'S WORDS FOR THE TWO SIDES, and this is the one place they are said -- BY THE WHOLE HUD since
+-- 201 part 3, not just by the start card. `Hud.roleBadge` (the status bar's pill) returns this, so
+-- the two surfaces that name a side cannot print two vocabularies for one fact. Her design doc and
+-- every message she sends say hunter and beater; `Shooters` / `Drivers` stay the TEAM names in
+-- `Match.CONFIG` and on the wire, which is a different string and a different job.
 function Hud.roleWord(team: string?): string
 	if team == "Shooters" then
 		return "HUNTER"
@@ -2834,24 +2834,25 @@ function Hud.roleWord(team: string?): string
 	return ""
 end
 
--- WHAT THE STATUS BAR'S ROLE PILL SAYS. ONE PLACE, so the bar and anything else that names a side
--- cannot drift apart -- `Hud.roleWord` above is the start card's, and the two still differ by a
--- word, which is the one thing this task did NOT change and said so.
+-- WHAT THE STATUS BAR'S ROLE PILL SAYS, AND IT IS `Hud.roleWord` -- the same words as the start
+-- card's, out of the same function. ONE PLACE, so the bar and the card cannot drift apart.
 --
--- IT STILL SAYS `SHOOTER` / `DRIVER` AND THE DESIGN ASKS FOR `HUNTER` / `BEATER` (§5 surface 1:
--- *"the start card's own words, because the HUD says two different things for one fact today"*).
--- The word is asserted by `tests/client/match_client.spec.luau` through `tests/client/Role.luau`'s
--- `Role.badge()`, and BOTH of those files are in `TWO_PLAYER_PATHS` (CLAUDE.md, Director
--- 2026-10-03) -- so changing the string here costs a two-player run, which this task's gate is not.
--- The pill's SHAPE, its team colour and its place on the bar all land now; the vocabulary flip is
--- three lines and is queued (TASKS.md 201a) for a task that pays for `test2`.
+-- IT SAID `SHOOTER` / `DRIVER` UNTIL 201 PART 3, and that was the design system's §5 surface 1
+-- written down as a defect: *"the start card's own words, because the HUD says two different things
+-- for one fact today"*. Karen's doc and every message she sends say hunter and beater; the card has
+-- said so since task 158 while the pill two inches above it said SHOOTER, which is one fact printed
+-- twice in two vocabularies. The reason it survived three tasks is in `TWO_PLAYER_PATHS`: the word
+-- is asserted by `tests/client/match_client.spec.luau` through `tests/client/Role.luau`'s
+-- `Role.badge()`, so the flip costs a two-player run -- and THIS task pays for one already (the
+-- wire's quarry rows), which is why the Director called it here (TASKS.md 201a).
+--
+-- `Shooters` / `Drivers` ARE UNTOUCHED, and the two are not the same string: the TEAM names are the
+-- server's (`Match.CONFIG`, `Players.Team`, `Match.myTeam`, `Style.teamColor`, `MapUi`'s marker
+-- table, every `team == "Drivers"` branch in this file) and only the DISPLAYED word changed. The
+-- pill's colour is `Style.teamColor(team)`, keyed by the team name and not by this string, so
+-- nothing in the game keys off the word that moved.
 function Hud.roleBadge(team: string?): string
-	if team == "Shooters" then
-		return "SHOOTER"
-	elseif team == "Drivers" then
-		return "DRIVER"
-	end
-	return ""
+	return Hud.roleWord(team)
 end
 
 -- WHETHER THE CARD SHOWS: the start of a drive is the `Assigning` phase and nothing else. Pure and
