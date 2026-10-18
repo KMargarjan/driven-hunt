@@ -1,20 +1,28 @@
 # Task 209 — the lobby flow: the trucks back, the banner on the click, 8 s between drives
 
 Task: 209
-Round: 1
+Round: 2
 Base: 9465e12 (main)
-Code commit: 9c203cb
+Code commit: 2f4a8b6
 
 Harness (paste, clean tree):
+
+```
+[harness] PASS: 33/33 checks @ 2f4a8b640a0851fea1422f51cd1dfc379c2345b5 (clean tree) scope=auto:flags,hud,lobby,match
+```
+
+A SCOPED line, for a review round (Task 113). `--scope auto` read the 12 paths this branch changed
+against `origin/main` and resolved them to four scopes — 40 spec files, not the whole 74 — so the
+`scope=` token is `auto:…` and not `all`; the token in the log was read rather than assumed (L-079).
+1,630 server and 424 client specs ran and passed (423 before this round: the new case is the 424th).
+**The merge to `main` still needs the full `test` and, because `src/server/Match/init.luau` and
+`tests/server/match_live.spec.luau` are in `TWO_PLAYER_PATHS`, the `[harness2]` line as well.** Round
+1's pair, at the code commit this round builds on:
 
 ```
 [harness] PASS: 33/33 checks @ 9c203cb1060974cf9009a8f25c76556f43451c08 (clean tree) scope=all
 [harness2] PASS: 35/35 checks @ 9c203cb1060974cf9009a8f25c76556f43451c08 (clean tree)
 ```
-
-Both lines name the code commit. The two-player line is required because `src/server/Match/init.luau`
-and `tests/server/match_live.spec.luau` are in `TWO_PLAYER_PATHS`; the Director ran it (the Builder
-could not: `run-test2.sh` refuses while more than one Studio is open, and two were).
 
 ## What changed
 
@@ -33,6 +41,75 @@ The frames are in `driven-hunt-runs/t209/` (git-ignored, outside the repo).
 Files: `src/shared/Lobby/init.luau`, `src/server/Lobby/Build.luau`, `src/client/Hud/PadPanel.luau`,
 `src/client/Hud/init.luau`, `src/server/Match/init.luau`, plus `tests/server/lobby.spec.luau`,
 `tests/client/pad_panel.spec.luau`, `tests/server/match_live.spec.luau`.
+
+## Round 2: the blocking finding, fixed
+
+**The finding was right.** `PadPanel.press` raised the banner while the size dialog was still open,
+and the two opaque frames shared `ZIndex` 15 — the shared number rested on a premise this task made
+false (`LEAVING.Z_INDEX`: *"The two can never be up together"*). I measured the timing of the banner
+and never shot a frame of the state the change created, which is why it went out.
+
+11. **The case was written FIRST and run against the code that has the bug.** Commit `9337d9b`
+    changes `tests/client/pad_panel.spec.luau` only — `git diff --name-only 9c203cb..9337d9b -- src/`
+    is **empty**, so `src/` there is byte-identical to the commit the Reviewer read. The gate at that
+    commit:
+
+    ```
+    failed [client] pad_panel.spec:497 Expected value "true" (boolean), got "false" (boolean) instead
+    [harness] FAIL: 31/33 checks @ 9337d9baab98942c98d010ee46e981c59131e762 (clean tree) scope=auto:flags,hud,lobby,match
+    ```
+
+    Line 497 is the intersection assertion itself, not one of the state assertions around it: the
+    dialog and the banner were both up (those passed), and their rectangles crossed.
+    *Verify:* `driven-hunt-runs/t209/test-209-r2-failing.log` (outside the repo), and the commit's
+    own diffstat.
+
+12. **The fix is geometry, and the band it had to land in is arithmetic.** `LEAVING.Y_SCALE`
+    0.68 → **0.88**. The dialog is centred, `AnchorPoint.Y` 0.5 and `heightFor()` 368 tall, so it
+    owns `H/2 - 184 .. H/2 + 184`; the banner is `HEIGHT_PX` 112 about `H * Y_SCALE`. Below it and
+    wholly on screen is `0.5 + 240/H <= Y_SCALE <= 1 - 56/H` — [0.8334, 0.9222] at 720, [0.800,
+    0.930] at 800, [0.7223, 0.9482] at 1080. **0.88 is inside all three**, 34 px clear at the
+    tightest. `Z_INDEX` stays 15 (raising it is not available: the Rail at 16 must stay pressable
+    over both) and the dialog's `Visible` is untouched and still the server's.
+    **ONE position, not one per state:** a banner that moved only while the pick was in flight would
+    jump when the server answered, which is a different moment from the dialog closing.
+    *Verify:* the `Y_SCALE` and `Z_INDEX` rows and their comments in `Lobby.CONFIG.PADS.LEAVING`.
+
+13. **The case passes now, and it holds both viewport steps against the LIVE frames.**
+    `tests/client/pad_panel.spec.luau`, *"never draws the click's banner across the size dialog
+    (task 209 round 2)"*: it presses with the pad still asking, asserts the dialog is still open and
+    the banner is up, asserts the banner is not above the dialog (`<=`, so a later restack is not a
+    failure but raising the banner over it is), and then at **800 and 720** asserts the two
+    rectangles are disjoint and the banner is wholly on screen. `bandOf` reads each frame's own
+    `Position`, `Size` and `AnchorPoint` rather than restating `Hud.build`, so a rectangle that moves
+    in the Hud moves here too.
+
+14. **Looked at (rule F, L-006): one frame of the moment right after the click, both frames up.**
+    `driven-hunt-runs/t209/r2-after-click.png`, player's eye height on pad 1 in the live Forest
+    Test, viewport **955 x 785**, taken ~0.6 s after a real left click on `1 / 1`. I opened it. The
+    dialog is complete and readable — all four rows and the hint *"STEP OFF THE PAD TO CHANGE YOUR
+    MIND"* — with the `1 / 1` row dimmed because the pick is in flight; the banner sits entirely
+    below it reading *"YOUR TRUCK / LEAVING FOR THE HUNT / GETTING THE TRUCK READY"*; nothing
+    crosses. **The exact rectangles, read off the live client in the same breath** (both
+    `Visible = true`, both `ZIndex` 15): `PadPanel` x[318..638] y[150..518], `PadLeaving`
+    x[198..758] y[577..689] — **59 px of clear screen between them**. The 400x800 and 1280x720 steps
+    the Reviewer named are held by the spec in claim 13, not by this image: the Studio client is
+    955 x 785 and I did not resize it, which is said plainly rather than implied.
+
+15. **One pre-existing bound was MEASURED FALSE and replaced, not deleted.**
+    `tests/server/lobby.spec.luau` asserted `Y_SCALE < 0.85` with the reason *"clear of the bottom
+    rail"*. **The rail is not at the bottom**: in the same live reading as claim 14, `Rail` is
+    x[895..943] y[240..344] — a column down the RIGHT EDGE at mid height — and the banner
+    (x[198..758]) never reaches it in x at any height. So that bound blocked the real requirement
+    while protecting against something that was not there. It is replaced by `Y_SCALE < 1` plus the
+    measurement written down, and a pointer to the client spec that holds the real rule — which
+    needs the dialog's drawn height (`PadPanel.heightFor()`, a client module a server spec cannot
+    require) and two viewports. Copying that arithmetic into `lobby.spec` would be a second answer
+    to *"where is the banner"*.
+    **One thing I am NOT claiming:** the banner at 0.88 covers more of the kill `Feed`
+    (x[16..456] y[537..711], `ZIndex` 6) than it did at 0.68 — the whole of the banner's band rather
+    than 53 px of it. The banner is above it and was already over part of it, the feed is empty in
+    the lobby where this banner lives, and no spec or design row bounds the two; reported, not fixed.
 
 ## Claims
 
@@ -184,6 +261,15 @@ Files: `src/shared/Lobby/init.luau`, `src/server/Lobby/Build.luau`, `src/client/
 - **Karen has not seen any of it.** She approved merging looks before she sees them.
 
 ## Standing rule A, on the lobby path
+
+**Round 2's run, at the code commit** (`driven-hunt-runs/t209/smoke-209-r2.log`): a fresh Play of
+the Forest Test, teleport to pad 1, a real left click on `1 / 1`, then
+`team=Shooters character=[Shotgun] backpack=[]` at **+20 s, +45 s and +70 s** — in the character,
+never in the backpack; console **13,702 characters, 0 suspicious lines**; and the thing this round
+changed ran, which is the frame in claim 14 (the dialog and the banner both up, not crossing).
+Rule G: `tools/studio_mcp.py selftest` and `tools/agents.py selftest` both pass.
+
+Round 1's runs, kept:
 
 A fresh Play of the Forest Test, twice.
 
