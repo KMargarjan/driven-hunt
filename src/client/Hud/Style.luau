@@ -708,16 +708,23 @@ function Style.glyph(parent: GuiObject, name: string, kind: string, px: number, 
 		-- EVERY NUMBER IS A FRACTION OF `px`, exactly as the four glyphs above are, so the phone's
 		-- 14 px horn is this implementation and not a second table. Drawn at 16 and at 14 before it
 		-- was written down (rule 5): `.screenshots/t206-glyph-before-after.png`.
+		--
+		-- ...AND THE TAPER SURVIVES WHOLE PIXELS, which is a MEASUREMENT and not a rounding of the
+		-- numbers that looked nice. `UDim2.fromOffset` TRUNCATES, so the first try's 2.4 / 3.2 / 4.2
+		-- came out 2 / 2 / 3 px at `px = 14` -- the phone's size, where the first two sections were
+		-- the same thickness and the taper that makes this read as a horn was simply not drawn. The
+		-- spec case drives 14, 16 and 18 for exactly that reason, and 2.6 / 3.6 / 4.8 is the triple
+		-- that comes out three distinct, increasing integers at all three.
 		local brass = color or LOOK.BRASS
 		local mouth = bar("Mouthpiece", px * 2.6 / 16, px * 3.0 / 16, 20, LOOK.BRASS_LO)
 		mouth.Position = UDim2.fromScale(0.10, 0.60)
 		Style.corner(mouth, math.max(1, math.round(px * 1.5 / 16)))
-		local near = bar("TubeNear", px * 5.4 / 16, px * 2.4 / 16, 16, brass)
+		local near = bar("TubeNear", px * 5.4 / 16, px * 2.6 / 16, 16, brass)
 		near.Position = UDim2.fromScale(0.28, 0.62)
-		local mid = bar("TubeMid", px * 5.4 / 16, px * 3.2 / 16, 0, brass)
+		local mid = bar("TubeMid", px * 5.4 / 16, px * 3.6 / 16, 0, brass)
 		mid.Position = UDim2.fromScale(0.50, 0.57)
 		Style.corner(mid, math.max(1, math.round(px * 1.5 / 16)))
-		local far = bar("TubeFar", px * 5.0 / 16, px * 4.2 / 16, -18, brass)
+		local far = bar("TubeFar", px * 5.0 / 16, px * 4.8 / 16, -18, brass)
 		far.Position = UDim2.fromScale(0.70, 0.47)
 		Style.corner(far, math.max(2, math.round(px * 2 / 16)))
 		-- LAST, SO IT IS ON TOP. Every bar here carries the same `ZIndex`, and a sibling drawn

@@ -656,13 +656,20 @@ return function()
 			-- rather than on a constant: the gait is `Core`, `ToolNoneAnim` is `Idle`, this is
 			-- `Movement` and the blast is `Action`, so a beater carries the horn at his side while
 			-- he walks and a blast still takes the arm off him.
+			--
+			-- NAMED, NOT COMPARED, and THAT IS A MEASUREMENT (round 1 of this task). The obvious
+			-- line -- `carry.Priority.Value > Core.Value` -- FAILS in this engine, because
+			-- `Enum.AnimationPriority` is not numbered in its own blending order:
+			-- `Idle` is 0, `Movement` 1, `Action` 2 ... and `Core`, which blends LOWEST, is 1000.
+			-- So the enum's `.Value` says the opposite of the truth for the one comparison that
+			-- matters here, and the only honest assertion is which named priority each clip got.
 			local carry = Horn.carrySequence(Horn.CARRY_POSE)
 			local blow = Horn.blowSequence(Horn.BLOW_POSE)
 			expect(carry.Priority).to.equal(Enum.AnimationPriority.Movement)
 			expect(blow.Priority).to.equal(Enum.AnimationPriority.Action)
-			expect(carry.Priority.Value > Enum.AnimationPriority.Idle.Value).to.equal(true)
-			expect(carry.Priority.Value > Enum.AnimationPriority.Core.Value).to.equal(true)
-			expect(blow.Priority.Value > carry.Priority.Value).to.equal(true)
+			expect(carry.Priority).never.to.equal(Enum.AnimationPriority.Idle)
+			expect(carry.Priority).never.to.equal(Enum.AnimationPriority.Core)
+			expect(carry.Priority).never.to.equal(blow.Priority)
 
 			-- THE SAME TWO JOINTS AND NO OTHERS, which is what keeps the walk, the lean and the
 			-- wrist out of it -- `blowSequence`'s own rule, and now one builder for both.
