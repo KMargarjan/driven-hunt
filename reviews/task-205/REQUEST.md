@@ -173,7 +173,9 @@ suspicious. A third in the Forest Test place: 13 131 chars, 0 suspicious.
   went at a dismembered zone part and nothing was hit. **The route for the next attempt is in this
   repo**: `tools/studio_mcp.py`'s own `shoot-the-boar` scenario stages properly
   (`QUERY_STAGE_TARGET` + the input scenario), and this run's own gate line reports
-  `staged on Workspace.Boars.Boar1, 22 studs away`. Reuse that rather than a hand-rolled search.
+  `staged on Workspace.Boars.Boar1, 22 studs away`. Reuse that rather than a hand-rolled search --
+  and with `python tools/flags.py set QUICK_TEST on` there is no 35 s wait either: that flag is
+  *"3 s intermission, the first release immediately, 3 boars on the road in front of the shooters"*.
   The silhouette, the measured box and the spread are `hit_card.spec`'s.
 * **`DHForestStartRole` cannot colour the FIRST drive's card, and that is a real finding.** I set it
   to `beater` in the Forest Test place (prior value `hunter`, captured BEFORE the write, restored
