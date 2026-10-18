@@ -152,7 +152,17 @@ return function()
 			expect(Card.isVisible()).to.equal(true)
 		end)
 
-		it("turns the animal round when the shot came in on the far flank", function()
+		-- IT USED TO TURN THE ANIMAL ROUND, AND IT NO LONGER CAN (task 205 round 2). This case was
+		-- written for the fourteen-`Frame` drawing, which mirrors by LAYING THE PARTS OUT THE OTHER
+		-- WAY; Karen's silhouette is one image, and this engine cannot flip one -- measured in Play
+		-- with three labels on one plate (`.screenshots/20261018T173406Z-t205-mirror-probe.png`): a
+		-- negative `Size.X` draws the image unflipped and a negative `ImageRectSize` draws nothing.
+		--
+		-- SO THE CLAIM CHANGES WITH THE DRAWING, and it is the same claim underneath: THE DOTS AND
+		-- THE PICTURE AGREE. They used to agree at `1 - x`; they now agree at `x`, because neither
+		-- is flipped -- which is what keeps a head shot on the head. What is lost is the facing,
+		-- and that is stated in `BoarArt.setKind` rather than hidden here.
+		it("keeps every mark where it struck when the shot came in on the far flank", function()
 			-- The drawn x of every dot, in the order they were made, off the Instances themselves.
 			local function drawnX(artName: string): { number }
 				local plate = (Hud.hitCard() :: Frame):FindFirstChild("Plate") :: Frame
@@ -179,10 +189,13 @@ return function()
 			expect(Card.mirrored()).to.equal(true)
 			local mirrored = drawnX("ArtMirrored")
 			expect(#mirrored).to.equal(4)
-			-- EVERY MARK WENT WITH THE PICTURE: the drawn x is exactly 1 - x, which is the only way
-			-- a dot can stay on the part of the animal it hit when the animal is turned round.
+			-- EVERY MARK IS WHERE IT STRUCK, which is the drawn x of the near flank: the picture is
+			-- not flipped (it cannot be) and neither are the dots, so the two agree.
+			local plateFar = (Hud.hitCard() :: Frame):FindFirstChild("Plate") :: Frame
+			local artFar = plateFar:FindFirstChild("ArtMirrored") :: Frame
+			expect(artFar:GetAttribute("Mirrored")).to.equal(false)
 			for index, x in ipairs(mirrored) do
-				expect(math.abs(x - (1 - near[index])) < 1e-5).to.equal(true)
+				expect(math.abs(x - near[index]) < 1e-5).to.equal(true)
 			end
 			-- ...and the near-flank picture was cleared, so one card never shows two animals.
 			expect(#drawnX("Art")).to.equal(0)
