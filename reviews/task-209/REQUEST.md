@@ -164,6 +164,23 @@ Files: `src/shared/Lobby/init.luau`, `src/server/Lobby/Build.luau`, `src/client/
   asserts `Visible == true` in the same expectation as the `press` call.
 - **Karen has not seen any of it.** She approved merging looks before she sees them.
 
+## Standing rule A, on the lobby path
+
+A fresh Play of the Forest Test, twice.
+
+1. **The Tool is in the CHARACTER.** The first run spent its 88 s in the lodge and read
+   `team=nil character=[] backpack=[]` — which is the lobby's designed state and not a fault: you
+   are given nothing until you take a truck. So a second run took one: teleport to pad 1, a real
+   left click on `1 / 1`, then `team=Shooters character=[Shotgun] backpack=[]` at +20 s, +45 s and
+   +70 s. In the character, never in the backpack.
+2. **The console.** Run 1: 12,951 characters, **0** suspicious lines. Run 2: 15,352 characters,
+   **0**. (For contrast, the BEFORE run in the same place carried four `Stack Begin` traces from
+   `Boar runtime is at maxBoars` in `ForestTest.releaseLine` — pre-existing, nothing to do with this
+   task, and absent from both runs above.)
+3. **The thing I changed ran.** The lobby built with the new geometry (`[lobby] built ... pad 1
+   2876, 149.73, -2906`), the dialog opened, the banner came up on the click and the truck took him
+   into drive 1 as a Shooter.
+
 ## Karen's place was left exactly as found
 
 `ServerStorage` attributes on the Forest Test, read before the first Play and again after the last:
