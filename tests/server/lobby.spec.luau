@@ -3554,12 +3554,25 @@ return function()
 			-- that one is up exactly when the client has been told the index.
 			expect(string.find(WORDS.EYEBROW, "%%", 1, true)).to.equal(nil)
 			expect(#WORDS.EYEBROW > 0).to.equal(true)
-			-- IT IS FULL WIDTH LESS A MARGIN, AND CAPPED, and it sits clear of both bands: under the
-			-- middle of the screen, where neither the top strip nor the bottom rail is.
+			-- IT IS FULL WIDTH LESS A MARGIN, AND CAPPED, and it sits under the middle of the screen.
 			expect(WORDS.MARGIN_PX > 0).to.equal(true)
 			expect(WORDS.MAX_WIDTH >= PANEL.WIDTH).to.equal(true)
 			expect(WORDS.Y_SCALE > 0.5).to.equal(true)
-			expect(WORDS.Y_SCALE < 0.85).to.equal(true)
+			expect(WORDS.Y_SCALE < 1).to.equal(true)
+			-- **THE UPPER BOUND USED TO BE 0.85 AND ITS STATED REASON WAS MEASURED FALSE** (task 209
+			-- round 2). It read *"clear of the bottom rail"*; the rail is not at the bottom. Measured
+			-- live in the Forest Test with the dialog and the banner both up, on a 955 x 785 client:
+			-- `Rail` is x[895..943] y[240..344] -- a column down the RIGHT EDGE at mid height -- and
+			-- the banner is x[198..758], which never reaches it in x at any height. What the banner
+			-- actually has to clear is the SIZE DIALOG, which it did not: at 0.68 they overlapped by
+			-- 96 px on a 400x800 screen and 110 px on 1280x720, which was round 1's blocking finding.
+			--
+			-- THAT RULE IS HELD WHERE IT CAN BE MEASURED RATHER THAN RESTATED. It needs the dialog's
+			-- own drawn height (`PadPanel.heightFor()`, a client module this server spec cannot
+			-- require) and it has to hold at more than one viewport, so it lives in
+			-- `tests/client/pad_panel.spec.luau`, *"never draws the click's banner across the size
+			-- dialog (task 209 round 2)"*, which reads the LIVE frames at 400x800 and at 1280x720.
+			-- Copying the arithmetic here would be a second answer to "where is the banner".
 			-- ...AND THE RAIL STAYS PRESSABLE OVER BOTH (16 is `Rail.CONFIG.Z_INDEX`).
 			expect(WORDS.Z_INDEX < 16).to.equal(true)
 			expect(PANEL.Z_INDEX < 16).to.equal(true)
