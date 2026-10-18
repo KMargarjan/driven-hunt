@@ -292,7 +292,12 @@ function HitCard.show(payload: any)
 	-- built before any shot is fired.
 	-- `animalKind` AND NOT `kind`: the payload's own `kind` is the MESSAGE's ("hit"), and the
 	-- animal's is beside it. One wrong field here would draw a boar for every sow.
-	BoarArt.setKind(art, payload and payload.animalKind, mirror)
+	-- NO `mirror` ARGUMENT ANY MORE (round 2): a picture cannot be flipped in this engine -- three
+	-- labels on one plate proved it -- so `setKind` draws the animal one way round and `drawDots`
+	-- reads the `Mirrored` attribute it writes rather than this local. `mirror` still chooses WHICH
+	-- art frame is shown, and both now draw the same facing; what it no longer does is claim a flip
+	-- that never happened.
+	BoarArt.setKind(art, payload and payload.animalKind)
 	BoarArt.drawDots(art, dots, {
 		fill = CONFIG.BOAR_FILL,
 		width = CONFIG.ART_WIDTH,

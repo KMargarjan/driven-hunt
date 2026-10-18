@@ -130,7 +130,7 @@ function BoarArt.build(parent: Instance, name: string, position: UDim2, look: Lo
 		picture.ImageColor3 = look.fill
 		picture.ZIndex = look.zIndex + 1
 		picture.Parent = art
-		BoarArt.setKind(art, look.kind, look.mirror)
+		BoarArt.setKind(art, look.kind)
 		return art
 	end
 	for _, piece in ipairs(CONFIG.BOAR) do
@@ -162,7 +162,9 @@ end
 -- IT IS CALLED AT SHOW TIME AND NOT ONLY AT BUILD TIME, because the hit card builds its two art
 -- frames (nose-left and nose-right) before any shot has been fired and learns the kind from the
 -- payload. `Report.boarImage` decides; this draws.
-function BoarArt.setKind(art: Frame, kind: string?, mirror: boolean?)
+-- IT TAKES NO `mirror` SINCE ROUND 2 OF THIS TASK'S REVIEW, and that absence is the fix: there is
+-- nothing a caller could ask for here that this engine can draw (the measurement is below).
+function BoarArt.setKind(art: Frame, kind: string?)
 	local picture = art:FindFirstChild("Silhouette")
 	if picture == nil or not picture:IsA("ImageLabel") then
 		return
@@ -171,15 +173,32 @@ function BoarArt.setKind(art: Frame, kind: string?, mirror: boolean?)
 	picture.Image = chosen.id
 	-- A PIGLET IS THE SOW AT 70 %, centred, which `Report.boarImage` decides and this draws.
 	local inset = (1 - chosen.scale) / 2
-	if mirror then
-		-- A NEGATIVE WIDTH IS THE MIRROR, and the origin moves with it -- the same one line the
-		-- dots are mirrored by, so a boar facing the other way keeps its marks on the right end.
-		picture.Position = UDim2.fromScale(inset + chosen.scale, inset)
-		picture.Size = UDim2.fromScale(-chosen.scale, chosen.scale)
-	else
-		picture.Position = UDim2.fromScale(inset, inset)
-		picture.Size = UDim2.fromScale(chosen.scale, chosen.scale)
-	end
+	-- THE PICTURE IS NEVER FLIPPED, BECAUSE THIS ENGINE CANNOT FLIP ONE -- measured, not assumed.
+	-- Round 1's reviewer caught a `UDim2.fromScale(-scale, scale)` here and was right. Three labels
+	-- on one plate in Play, same image, 2026-10-18
+	-- (`.screenshots/20261018T173406Z-t205-mirror-probe.png`):
+	--
+	--   A  plain                    -> drawn, nose LEFT
+	--   B  negative `Size.X`        -> drawn, nose LEFT -- the box moves, the PIXELS DO NOT MIRROR
+	--   C  negative `ImageRectSize` -> NOTHING DRAWN AT ALL
+	--
+	-- So the old line was not a mirror, it was a no-op that moved the frame; and the rect trick the
+	-- round-2 dispatch asked about draws an empty box, which is worse. This file's own header said
+	-- so twelve lines above `build` -- *"a `Frame` cannot be flipped, so the parts are laid out the
+	-- other way round"* -- and the fourteen-part drawing mirrors by RELAYOUT for exactly that
+	-- reason. One image has no parts to relay out.
+	--
+	-- WHAT IS KEPT AND WHAT IS LOST, said plainly. The card no longer faces the way the player
+	-- stood: Karen's boar always walks to the left. What it does keep is the only thing the card is
+	-- FOR -- a hit on the head draws on the head -- because `drawDots` stops mirroring the dots in
+	-- the same breath (see `drawDots`: the two flips used to cancel for anatomy and only change the
+	-- facing, so dropping both leaves every dot where it belongs). A boar facing left with its head
+	-- drawn on the right would be the wrong trade, and that is what flipping ONE of the two does.
+	picture.Position = UDim2.fromScale(inset, inset)
+	picture.Size = UDim2.fromScale(chosen.scale, chosen.scale)
+	-- WHETHER THIS FRAME'S ANIMAL IS MIRRORED, written where `drawDots` reads it -- so the dots and
+	-- the picture cannot disagree about which way the animal is facing.
+	art:SetAttribute("Mirrored", false)
 	-- WHERE THE DOTS' UNIT SQUARE SITS ON THIS PICTURE, written on the frame so `drawDots` reads it
 	-- back rather than being told the same thing twice. `Report.CONFIG.BOAR_IMAGE`'s measured box,
 	-- scaled by the piglet's own scale so a cub's hit lands in the same place on the same body.
@@ -296,9 +315,17 @@ function BoarArt.drawDots(art: Frame, dots: { any }?, look: DotLook)
 		-- air beside the animal.
 		drawnU = boxU0 + drawnU * (boxU1 - boxU0)
 		drawnV = boxV0 + drawnV * (boxV1 - boxV0)
-		-- THE SAME ONE LINE THE ANIMAL WAS LAID OUT WITH (see `build`): mirror the picture, mirror
-		-- the marks, or the dot would be on the wrong end of a boar facing the other way.
-		pip.Position = UDim2.fromScale(if look.mirror then 1 - drawnU else drawnU, drawnV)
+		-- THE SAME ANSWER THE ANIMAL WAS LAID OUT WITH, and the FRAME is the one place it is kept.
+		-- `Mirrored` is written by `setKind` (false: a picture cannot be flipped in this engine, and
+		-- the comment there has the measurement) and is ABSENT for the fourteen-part drawing, which
+		-- does mirror by relayout -- so the fallback still flips its dots and Karen's silhouette
+		-- does not. Flipping one without the other is the bug: the dot would land on the rump of an
+		-- animal whose head is where it always was.
+		local flipped = art:GetAttribute("Mirrored")
+		if flipped == nil then
+			flipped = look.mirror == true
+		end
+		pip.Position = UDim2.fromScale(if flipped then 1 - drawnU else drawnU, drawnV)
 		pip.Size = UDim2.fromOffset(size, size)
 		local plain = look.dot or Color3.new(1, 1, 1)
 		pip.BackgroundColor3 = if dot.fatal then Shotgun.CONFIG.HIT_MARK_KILL_COLOR else plain

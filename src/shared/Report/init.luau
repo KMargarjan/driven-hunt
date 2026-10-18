@@ -210,9 +210,22 @@ Report.CONFIG = {
 	-- zone's grid and every zone's centre on black, against 11 % before. A box that scored 100 %
 	-- was available and refused: it shrank onto the torso, so a head shot and a rump shot both drew
 	-- inside the belly and the picture stopped meaning where the shot landed.
+	-- THE ID IS THE IMAGE'S AND NOT THE DECAL'S, AND THAT COST THIS TASK A WHOLE ROUND. An Open
+	-- Cloud upload of a PNG creates a **Decal** (`AssetTypeId 13`), and the id it returns is the
+	-- DECAL's -- which an `ImageLabel` cannot draw. Measured in Play on 2026-10-18, three labels on
+	-- one plate (`.screenshots/20261018T173221Z-t205-mirror-probe.png`): with the decal ids every
+	-- label was `IsLoaded = false` and the plate was EMPTY, while a built-in `rbxasset://` control
+	-- beside them loaded. So the card has been drawing NO ANIMAL AT ALL since the silhouettes
+	-- landed, which no spec could see -- `Image` is a string and it was set correctly.
+	--
+	-- HOW TO GET THE IMAGE ID FROM A DECAL ID: on the SERVER,
+	-- `InsertService:LoadAsset(decalId)` returns a model holding a `Decal`, and its `.Texture` is
+	-- the image. Run on 2026-10-18: `80206901277832 -> rbxassetid://135789362198066` and
+	-- `108874258373849 -> rbxassetid://121961957713451`. Both decal ids stay in
+	-- `assets/uploads.json`, because that file records what was UPLOADED.
 	BOAR_IMAGE = {
-		male = { id = "rbxassetid://80206901277832", box = { u0 = 0.100, u1 = 0.900, v0 = 0.230, v1 = 0.730 } },
-		female = { id = "rbxassetid://108874258373849", box = { u0 = 0.120, u1 = 0.920, v0 = 0.150, v1 = 0.650 } },
+		male = { id = "rbxassetid://135789362198066", box = { u0 = 0.100, u1 = 0.900, v0 = 0.230, v1 = 0.730 } },
+		female = { id = "rbxassetid://121961957713451", box = { u0 = 0.120, u1 = 0.920, v0 = 0.150, v1 = 0.650 } },
 	},
 
 	-- HOW SMALL A PIGLET IS DRAWN. Karen has no third image and did not ask for one: a piglet is the

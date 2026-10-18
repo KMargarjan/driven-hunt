@@ -333,6 +333,78 @@ return function()
 			expect(drawn).to.equal(5)
 			TestKit.note(string.format("hit_card: box u %.3f..%.3f v %.3f..%.3f", u0, u1, v0, v1))
 		end)
+
+		-- THE FAR FLANK, WHICH IS THE CARD NOBODY HAD EVER DRAWN (round 1, finding 1). Every case
+		-- above uses `side = 1`, so `Report.cardFacing` was false and the MIRRORED frame -- the one
+		-- the old `UDim2.fromScale(-scale, scale)` was in -- was never shown or asserted. Roughly
+		-- half of all shots take it.
+		--
+		-- WHAT IS ASSERTED IS WHAT THE ENGINE CAN ACTUALLY DO, measured in Play on 2026-10-18 with
+		-- three labels on one plate (`.screenshots/20261018T173406Z-t205-mirror-probe.png`): a
+		-- negative `Size.X` draws the image UNMIRRORED, and a negative `ImageRectSize` draws
+		-- nothing at all. So the picture is never flipped, its drawn box stays positive, and the
+		-- dots are not flipped either -- which is what keeps a head shot on the head.
+		it("draws the far flank with a real picture and the marks still on the right end", function()
+			local payload = payloadFor("male")
+			-- ALL FAR-SIDE, so `Report.cardFacing` is true and the mirrored frame is the one shown.
+			payload.dots = {
+				{ u = 0.08, v = 0.35, side = -1, zone = "head", lead = true },
+				{ u = 0.92, v = 0.45, side = -1, zone = "rear" },
+			}
+			expect(Report.cardFacing(payload.dots)).to.equal(true)
+			Hud.HitCard.show(payload)
+			expect(Hud.HitCard.mirrored()).to.equal(true)
+			local art = Hud.HitCard.art() :: Frame
+			local picture = art:FindFirstChild("Silhouette") :: ImageLabel
+			expect(picture).to.be.ok()
+			expect(picture.Visible).to.equal(true)
+			-- A DRAWN SIZE, NOT A NEGATIVE ONE: `AbsoluteSize` is what the player sees, and the old
+			-- line put a negative scale in here.
+			expect(picture.Size.X.Scale > 0).to.equal(true)
+			expect(picture.AbsoluteSize.X > 1).to.equal(true)
+			expect(picture.AbsoluteSize.Y > 1).to.equal(true)
+			-- ...AND IT IS INSIDE THE ART FRAME, which a mirrored origin moved it out of.
+			expect(picture.AbsolutePosition.X >= art.AbsolutePosition.X - 1).to.equal(true)
+			expect(
+				picture.AbsolutePosition.X + picture.AbsoluteSize.X <= art.AbsolutePosition.X + art.AbsoluteSize.X + 1
+			).to.equal(true)
+			-- THE HEAD DOT IS STILL AT THE HEAD END. `u = 0.08` is the nose; with the picture
+			-- unflipped and the dots unflipped it draws in the left third of the box, and the rump
+			-- dot in the right third. Flipping ONE of the two is what would swap them.
+			expect(art:GetAttribute("Mirrored")).to.equal(false)
+			local u0 = art:GetAttribute("BoxU0") :: number
+			local u1 = art:GetAttribute("BoxU1") :: number
+			local xs = {}
+			for _, node in ipairs(art:GetChildren()) do
+				if node:IsA("Frame") and node.Name == "Dot" then
+					table.insert(xs, node.Position.X.Scale)
+				end
+			end
+			expect(#xs).to.equal(2)
+			table.sort(xs)
+			expect(xs[1] < u0 + (u1 - u0) * 0.34).to.equal(true)
+			expect(xs[2] > u0 + (u1 - u0) * 0.66).to.equal(true)
+			TestKit.note(
+				string.format("hit_card: far flank, head %.3f rump %.3f in box %.3f..%.3f", xs[1], xs[2], u0, u1)
+			)
+		end)
+
+		-- THE ASSET IS AN IMAGE AND NOT A DECAL, which is what made the card draw nothing at all
+		-- (round 2). An `ImageLabel` cannot render a Decal id: measured in Play, every label with
+		-- the decal ids was `IsLoaded = false` on an empty plate while a built-in control loaded.
+		-- A spec cannot ask the engine to fetch an asset, so what it CAN guard is the shape of the
+		-- id -- that both silhouettes are the ids `InsertService:LoadAsset` answered with, and not
+		-- the decal ids in `assets/uploads.json`.
+		it("points at the IMAGE behind each decal, not the decal", function()
+			local male = Report.boarImage("male")
+			local female = Report.boarImage("female")
+			expect(male.id).to.equal("rbxassetid://135789362198066")
+			expect(female.id).to.equal("rbxassetid://121961957713451")
+			for _, decal in ipairs({ "80206901277832", "108874258373849" }) do
+				expect(string.find(male.id, decal, 1, true)).to.equal(nil)
+				expect(string.find(female.id, decal, 1, true)).to.equal(nil)
+			end
+		end)
 	end)
 
 	describe("the clock", function()
