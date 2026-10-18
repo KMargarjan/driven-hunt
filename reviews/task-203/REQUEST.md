@@ -1,13 +1,28 @@
 # Task 201 part 2 — the two tables, and one row component for both
 
-Task: 201-2
+Task: 203
 Round: 1
 Base: main @ `19c5604`
 Code commit: `e1c69665dc4ff6fe4486d41fe7fc9c020bd2accb`
 
 ```
 [harness] PASS: 33/33 checks @ e1c69665dc4ff6fe4486d41fe7fc9c020bd2accb (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ e1c69665dc4ff6fe4486d41fe7fc9c020bd2accb (clean tree)
 ```
+
+**WHY THIS FOLDER IS `task-203` AND NOT `task-201-2`.** The roadmap and `TASKS.md` call this task
+**201 part 2**; `tools/agents.py` cannot. `resolve_task` accepts a task of DIGITS only
+(`[0-9]{1,4}`) and finds a request with `reviews/task-(\d+)/REQUEST\.md`, so a `task-201-2/` folder
+is invisible to it and a `Task: 201-2` line fails its `^Task:\s*(\d+)` parse. The obvious
+alternative — writing into `reviews/task-201/` — would OVERWRITE part 1's own request and its
+**PASS verdict at round 3**, which is the evidence for a PR already merged to `main` (rule 7: never
+delete). So this part takes the next free task number for its loop folder, the file was `git mv`d
+rather than copied, and `TASKS.md`'s row still reads 201-2 and points here.
+
+**`[harness2]` IS THE DIRECTOR'S RUN**, at the same code commit as the one-player line above
+(standing lesson L-034: both lines name `e1c6966`). His note with it: the first two-player attempt
+failed one known-flaky `weapon_client` reload case in the SHOOTER client — not this branch's code,
+and queued separately — and the retry passed.
 
 `e1c6966` IS NAMED AND NOT THE EARLIER `94bb34b`, AND THE REASON IS THE GATE'S OWN RULE: the
 research note and its INDEX row are under `docs/research/`, which is NOT on the merge gate's
@@ -17,10 +32,11 @@ the head and that head is the code commit -- at or after the last commit that ch
 `tests/` or `tools/`, with nothing after it. `94bb34b` also passed the full run (33/33, clean tree,
 `scope=all`); it simply did not cover the note.
 
-**`[harness2]` IS REQUIRED AND I CANNOT PRODUCE IT.** This branch changes two files in
-`TWO_PLAYER_PATHS` — `src/shared/Drive/init.luau` and `tests/client/match_client.spec.luau` —
-confirmed against `tools/agents.py`'s own list. The Director runs `test2` at this sha and the line
-goes here before the review.
+**WHY `test2` WAS NEEDED AT ALL:** this branch changes two files in `TWO_PLAYER_PATHS` —
+`src/shared/Drive/init.luau` and `tests/client/match_client.spec.luau` — confirmed against
+`tools/agents.py`'s own list. That spec asserted the OLD board structurally (every direct-child
+`TextLabel` white, black-stroked, 23 of them, the panel at `SCORE_PANEL_TRANSPARENCY`), which is
+exactly what §3.12 replaces, so it could not be left alone.
 
 The scoped run, for the record: `scope=auto:hud,match,report,shop,weapon (auto, from 9 changed
 path(s)): 54 spec file(s) in the blast radius` — it names the Hud paths rather than falling through
