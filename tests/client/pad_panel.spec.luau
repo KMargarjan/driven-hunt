@@ -51,6 +51,17 @@ return function()
 		-- window after a click can be stepped over in an expectation rather than waited through.
 		local clock = 1000
 
+		-- WHERE A FRAME'S TOP AND BOTTOM EDGES LAND ON A SCREEN `height` PIXELS TALL. It reads the
+		-- LIVE frame's own `Position`, `Size` and `AnchorPoint` rather than restating `Hud.build`'s
+		-- arithmetic, so a rectangle that moves in the Hud moves here too -- and it takes the height
+		-- as an argument because a spec cannot resize the viewport and the rule has to hold at more
+		-- than the one size this machine happens to run at.
+		local function bandOf(frame: GuiObject, height: number): (number, number)
+			local tall = height * frame.Size.Y.Scale + frame.Size.Y.Offset
+			local top = height * frame.Position.Y.Scale + frame.Position.Y.Offset - frame.AnchorPoint.Y * tall
+			return top, top + tall
+		end
+
 		-- A CLICK NOW HOLDS THE BANNER UP FOR `PENDING_SECONDS` ON ITS OWN, so clearing the banner
 		-- means stepping PAST that window as well as handing back a nil state.
 		local function clearBanner()
@@ -441,6 +452,53 @@ return function()
 			PadPanel.setLeaving(nil, nil, clock)
 			expect(frame.Visible).to.equal(false)
 			expect(PadPanel.isLeaving()).to.equal(false)
+			PadPanel.setRemotes(nil)
+		end)
+
+		-- ---------------------------------------------------- task 209 round 1's blocking finding
+		--
+		-- THE OPTIMISTIC BANNER PUT TWO OPAQUE RECTANGLES ON THE SCREEN AT ONCE. Before this task the
+		-- banner and the dialog shared one `Z_INDEX` on a stated premise -- `LEAVING.Z_INDEX`'s own
+		-- comment: *"The two can never be up together -- the dialog needs `sizing` and the banner
+		-- needs one of the three states after it"*. Raising the banner on the CLICK made that false:
+		-- the dialog's `Visible` is a SERVER-measured fact (`docs/design/truck-pads.md` 8.1, through
+		-- `DHPadState` + `DHPadFirst`) and the pad goes on asking until the owner's next 10 Hz scan,
+		-- so for that scan -- or for the whole of `PENDING_SECONDS` when the pick is refused and no
+		-- word ever comes -- both were up, 112 px of banner across the dialog's last button and its
+		-- one stated way out. Measured by the Reviewer at 96 px of overlap on a 400x800 screen and
+		-- 110 px on 1280x720.
+		--
+		-- THE RULE IS "THEY DO NOT INTERSECT", NOT "THE BANNER IS ON TOP". Equal-`ZIndex` siblings
+		-- have no defined precedence in Roblox, and the banner may not be raised above the dialog
+		-- either: `Rail.CONFIG.Z_INDEX` 16 has to stay pressable over both. So the fix is geometry,
+		-- and this is the case that holds it.
+		it("never draws the click's banner across the size dialog (task 209 round 2)", function()
+			local dialog = Hud.padPanel() :: Frame
+			local banner = Hud.padLeaving() :: Frame
+			-- A REMOTE THAT SWALLOWS THE PICK, because this case is about two rectangles and not
+			-- about the message: what it must NOT do is reach a real server from a spec.
+			PadPanel.setRemotes({ PadRequest = { FireServer = function() end } })
+			clock += 1
+			PadPanel.setLeaving(nil, nil, clock)
+			PadPanel.setAsk(2)
+			expect(PadPanel.press(1)).to.equal(true)
+			-- THE STATE THE CLICK CREATES, asserted rather than assumed: the dialog is STILL OPEN,
+			-- because nothing here may close it, and the banner is up over the same screen.
+			expect(dialog.Visible).to.equal(true)
+			expect(banner.Visible).to.equal(true)
+			-- ...AND THE BANNER IS NOT ABOVE IT. Written as `<=` and not as an equality so that a
+			-- later restack of the dialog is not a failure here, but raising the banner over the
+			-- dialog -- the fix this case exists to forbid -- is.
+			expect(banner.ZIndex <= dialog.ZIndex).to.equal(true)
+			-- THE TWO VIEWPORT STEPS THE REVIEWER NAMED: a 400x800 phone and a 1280x720 desktop.
+			for _, height in ipairs({ 800, 720 }) do
+				local dialogTop, dialogBottom = bandOf(dialog, height)
+				local bannerTop, bannerBottom = bandOf(banner, height)
+				expect(bannerTop >= dialogBottom or bannerBottom <= dialogTop).to.equal(true)
+				-- ...and "move it off the screen" is not a fix: the whole banner is still drawn.
+				expect(bannerTop >= 0).to.equal(true)
+				expect(bannerBottom <= height).to.equal(true)
+			end
 			PadPanel.setRemotes(nil)
 		end)
 
