@@ -994,6 +994,75 @@ return function()
 			end
 		end)
 
+		-- ---------------------------------------------------------------- the horn reads as a horn (task 206)
+		--
+		-- KAREN, 2026-10-18, of the beater's HORN chip: *"and what is this icon ?"*. It was a 15 x 6
+		-- rounded bar with an 8 x 8 rounded square over its right end -- at 16 px a lozenge and a
+		-- dot, with nothing tapering and nothing curving.
+		--
+		-- A TEST CANNOT SAY "THIS LOOKS LIKE A HORN", so what it says is the three things that make
+		-- a brass shape read as one at this size and that the old glyph had none of: it TAPERS from
+		-- the mouthpiece end to the bell, it CURVES (the sections do not all share one rotation),
+		-- and the BELL is clearly taller than the tube it grows out of. Those are measurable off
+		-- the built Frames. What it looks like is a screenshot's job
+		-- (`.screenshots/t206-glyph-before-after.png`, looked at).
+		it("draws the horn as a tapering, curving tube with a bell (task 206)", function()
+			for _, px in ipairs({ 14, 16, 18 }) do
+				local probe = Instance.new("Frame")
+				local glyph = Style.glyph(probe, "Probe", "horn", px)
+				local function part(name: string): Frame
+					local found = glyph:FindFirstChild(name)
+					expect(found).to.be.ok()
+					return found :: Frame
+				end
+				local mouth, near, mid, far, bell =
+					part("Mouthpiece"), part("TubeNear"), part("TubeMid"), part("TubeFar"), part("Bell")
+
+				-- IT TAPERS, section by section, toward the bell.
+				expect(near.Size.Y.Offset < mid.Size.Y.Offset).to.equal(true)
+				expect(mid.Size.Y.Offset < far.Size.Y.Offset).to.equal(true)
+				-- ...AND IT CURVES: three sections, three different angles, turning one way.
+				expect(near.Rotation > mid.Rotation).to.equal(true)
+				expect(mid.Rotation > far.Rotation).to.equal(true)
+				-- ...AND THE BELL FLARES. Taller than the widest tube section, which is the one
+				-- thing that separates a horn from a stick, and it is the last child so it draws on
+				-- top of the section it grows out of.
+				expect(bell.Size.Y.Offset > far.Size.Y.Offset).to.equal(true)
+				local children = glyph:GetChildren()
+				expect(children[#children]).to.equal(bell)
+				-- THREE VALUES, so the two ends are told apart without colour vision doing the work:
+				-- a dark mouthpiece, the tube, a bright bell.
+				expect(mouth.BackgroundColor3).to.equal(Style.LOOK.BRASS_LO)
+				expect(near.BackgroundColor3).to.equal(Style.LOOK.BRASS)
+				expect(bell.BackgroundColor3).to.equal(Style.LOOK.BRASS_HI)
+				-- IT STAYS IN ITS BOX, near enough to sit in a 16 px slot beside a word: the
+				-- mouthpiece is at the left end and the bell at the right, inside the box's width.
+				expect(mouth.Position.X.Scale < 0.2).to.equal(true)
+				expect(bell.Position.X.Scale > 0.75).to.equal(true)
+				expect(bell.Position.X.Scale < 0.95).to.equal(true)
+				probe:Destroy()
+			end
+		end)
+
+		-- ONE HORN GLYPH IN THE GAME, not two (task 206). The beater's HORN chip used to build its
+		-- own 18 x 7 bar and 9 x 9 bell here in `Hud`, beside `Style.GLYPHS`' own "horn" -- two
+		-- hand-built icons, and no way to improve one without the other going stale. It asks the
+		-- design system now, like every other icon in that file.
+		it("builds the HORN chip's icon out of Style.glyph (task 206)", function()
+			local chip = Hud.hornChip()
+			expect(chip).to.be.ok()
+			local icon = (chip :: Frame):FindFirstChild("Icon", true)
+			expect(icon).to.be.ok()
+			local horn = (icon :: Frame):FindFirstChild("Horn")
+			expect(horn).to.be.ok()
+			expect((horn :: Frame):FindFirstChild("Bell")).to.be.ok()
+			expect((horn :: Frame):FindFirstChild("Mouthpiece")).to.be.ok()
+			expect((horn :: Frame):FindFirstChild("TubeMid")).to.be.ok()
+			-- ...AND THE OLD HAND-BUILT PAIR IS GONE: a "Body" directly under the icon box is the
+			-- shape Karen could not read.
+			expect((icon :: Frame):FindFirstChild("Body")).to.equal(nil)
+		end)
+
 		it("puts the role and the seconds at DISPLAY, at opposite corners, and nothing else there", function()
 			-- The card's two answers -- WHO AM I and HOW LONG HAVE I GOT -- and the spec's reason for
 			-- them being the only two at that step: *"they sit at opposite corners, and they never

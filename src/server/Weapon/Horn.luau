@@ -90,6 +90,8 @@ local stats = {
 	refusedThrough = 0, -- blasts refused because the blower is through the hunters' line (task 168)
 	raised = 0, -- how many times an arm went up to the mouth (task 168)
 	raisesMissed = 0, -- ...and how many times there was no clip or no Animator to do it with
+	carried = 0, -- how many times the horn-at-the-side pose started (task 206)
+	carryMissed = 0, -- ...and how many times there was no clip or no Animator to do it with
 	equippedNow = 0,
 	equippedLate = 0,
 	equipGaveUp = 0,
@@ -480,6 +482,28 @@ function Horn.grant(player: Player): Tool?
 	end
 	table.insert(list, activated)
 
+	-- THE ARM GOES DOWN WHILE THE HORN IS IN THE HAND (task 206), and comes back to the stock pose
+	-- when it leaves it. `Tool.Equipped` and `Tool.Unequipped` are the two moments the horn IS in
+	-- the hand, they fire on the server for the Tool the server owns -- the same property
+	-- `Tool.Activated` is read for, two lines up -- and they are per-Tool, so a respawn's new horn
+	-- brings its own pair and the dead one's go with it through `connections`.
+	--
+	-- `player.Character` IS READ IN THE HANDLER, not captured here: the Tool outlives nothing, but
+	-- the character it is equipped into at the moment of the event is the one whose Animator has to
+	-- play the clip, and that is not necessarily the character this grant saw.
+	table.insert(
+		list,
+		tool.Equipped:Connect(function()
+			Horn.carryArm(player.Character, true)
+		end)
+	)
+	table.insert(
+		list,
+		tool.Unequipped:Connect(function()
+			Horn.carryArm(player.Character, false)
+		end)
+	)
+
 	-- ONE life watcher per player, replaced at each grant rather than appended: a player granted
 	-- every few seconds would otherwise leave a dead connection behind every time, for the session.
 	local previous = lifeWatchers[player]
@@ -563,22 +587,31 @@ end
 -- in a session leaves twenty dead Models behind otherwise, each holding a track.
 --   https://create.roblox.com/docs/luau/metatables (`__mode = "k"`)
 local raiseTracks: { [Model]: AnimationTrack } = setmetatable({}, { __mode = "k" }) :: any
+-- THE CARRY'S OWN CACHE (task 206), weak-keyed for `raiseTracks`' reason. Two tables and not one
+-- row with two fields, because the two clips are loaded at different moments -- the blast at the
+-- first blow, the carry at the first equip -- and a single row would have to carry "which half is
+-- filled in" as a third fact.
+local carryTracks: { [Model]: AnimationTrack } = setmetatable({}, { __mode = "k" }) :: any
 
-local function raiseTrackFor(character: Model): AnimationTrack?
+-- ONE CLIP ON ONE CHARACTER'S ANIMATOR, CACHED. Both of this module's two poses come through here
+-- (task 206): they differ in which registered id they ask for and at what priority they play, and
+-- everything else -- the cache, the Animator, the `LoadAnimation` guard -- was already identical.
+local function trackFor(
+	character: Model,
+	cache: { [Model]: AnimationTrack },
+	id: string?,
+	priority: Enum.AnimationPriority
+): AnimationTrack?
 	-- CACHED PER CHARACTER, AND THE TEST IS THE CHARACTER'S OWN PARENT -- never the TRACK's.
 	-- MEASURED in a live Play session (2026-10-12): `Animator:LoadAnimation` returns a track whose
 	-- `Parent` is nil, so `existing.Parent ~= nil` was false on every blast and this loaded a second
 	-- track for the same pose every time -- the live probe caught the same clip playing twice.
-	local existing = raiseTracks[character]
+	local existing = cache[character]
 	if existing ~= nil and character.Parent ~= nil then
 		return existing
 	end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid == nil then
-		return nil
-	end
-	local id = Data.blowAnimationId(Data.BLOW_POSE)
-	if id == nil then
+	if humanoid == nil or id == nil then
 		return nil
 	end
 	local animator = humanoid:FindFirstChildOfClass("Animator")
@@ -596,15 +629,57 @@ local function raiseTrackFor(character: Model): AnimationTrack?
 		animation:Destroy()
 		return nil
 	end
-	-- `Action` OUTRANKS THE STOCK `Animate` SCRIPT'S WALK AND IDLE, which is the whole reason the arm
-	-- moves at all: the player's own animator re-solves the shoulder from the playing tracks every
-	-- frame, so only a higher-priority track can take it. Set here and not trusted to the registered
-	-- sequence's stored priority, exactly as `Bots.Rig.loadClips` does not trust an asset's.
+	-- THE PRIORITY OUTRANKS THE STOCK `Animate` SCRIPT'S WALK AND IDLE, which is the whole reason the
+	-- arm moves at all: the player's own animator re-solves the shoulder from the playing tracks
+	-- every frame, so only a higher-priority track can take it. Set here and not trusted to the
+	-- registered sequence's stored priority, exactly as `Bots.Rig.loadClips` does not trust an
+	-- asset's.
 	pcall(function()
-		(track :: AnimationTrack).Priority = Enum.AnimationPriority.Action
+		(track :: AnimationTrack).Priority = priority
 	end)
-	raiseTracks[character] = track
+	cache[character] = track
 	return track
+end
+
+local function raiseTrackFor(character: Model): AnimationTrack?
+	return trackFor(character, raiseTracks, Data.blowAnimationId(Data.BLOW_POSE), Enum.AnimationPriority.Action)
+end
+
+-- THE HORN AT THE BEATER'S SIDE (task 206). KAREN, 2026-10-18: *"also horn is broken arm is wrong"*,
+-- with a frame of a bot beater holding the horn straight out in front of itself.
+--
+-- WHY IT IS A CLIP AND NOT A GRIP. The horn was 2.30 studs in front of the chest because the ARM was
+-- (measured, 2026-10-18: the arm ran 0.99 along the body's own forward on all three bot beaters) --
+-- Roblox's `ToolNoneAnim`, which `Bots.Rig` plays at `Idle` and a player's own `Animate` script
+-- plays for any Tool. `Tool.Grip` cannot answer that: it says where in the HAND the horn sits, so
+-- moving it would pull the horn off a fist that is still out in front. The arm is what is wrong, so
+-- the arm is what this changes. Every number is `Data.CARRY_POSE`'s, with its own measurements.
+--
+-- ON OR OFF, LEVEL-TRIGGERED, and it answers whether the pose is now playing -- so a caller counts
+-- the state and not the attempt. Idempotent: `Play` on a playing track restarts the fade, which is
+-- why the `IsPlaying` test is here and not in the two callers.
+function Horn.carryArm(character: Model?, on: boolean): boolean
+	if character == nil or character.Parent == nil then
+		return false
+	end
+	local track =
+		trackFor(character, carryTracks, Data.carryAnimationId(Data.CARRY_POSE), Enum.AnimationPriority.Movement)
+	if track == nil then
+		stats.carryMissed += 1
+		return false
+	end
+	local fade = Data.CARRY_POSE.FADE_SECONDS
+	if on then
+		if not track.IsPlaying then
+			track:Play(fade)
+			stats.carried += 1
+		end
+		return true
+	end
+	if track.IsPlaying then
+		track:Stop(fade)
+	end
+	return false
 end
 
 -- UP NOW, DOWN AFTER `seconds`. Returns whether the arm really went up, so the caller counts poses

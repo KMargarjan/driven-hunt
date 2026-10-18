@@ -302,15 +302,24 @@ Rig.BLOW = HornData.BLOW_POSE
 Rig.blowSequence = HornData.blowSequence
 Rig.blowAnimationId = HornData.blowAnimationId
 
+-- THE HORN AT THE SIDE (task 206), the same three aliases for the same reason: the pose, the
+-- sequence and the registered id are `src/shared/Horn`'s, so a bot and a player carry the horn with
+-- ONE clip and `Weapon.Horn.carryArm` plays the very same id on a player's own Animator.
+Rig.CARRY = HornData.CARRY_POSE
+Rig.carrySequence = HornData.carrySequence
+Rig.carryAnimationId = HornData.carryAnimationId
+
 export type Clips = {
 	walk: AnimationTrack?,
 	idle: AnimationTrack?,
 	tool: AnimationTrack?,
 	blow: AnimationTrack?,
+	carry: AnimationTrack?,
 	playing: string?,
 	rate: number?,
 	holding: boolean?,
 	blowing: boolean?,
+	carrying: boolean?,
 }
 
 -- PURE: a ground speed and what is playing now -> the clip to play, and the rate to play it at.
@@ -360,6 +369,13 @@ function Rig.loadClips(humanoid: Humanoid?): (Clips, number, number)
 	if blowId ~= nil then
 		wanted.blow = blowId
 	end
+	-- THE HORN-AT-THE-SIDE POSE (task 206), on the same terms as the blow above it: asked for here
+	-- so a beater's first step is not the first time the clip is loaded, and CONDITIONAL because
+	-- the registration can answer nil.
+	local carryId = Rig.carryAnimationId(Rig.CARRY)
+	if carryId ~= nil then
+		wanted.carry = carryId
+	end
 	local clips: Clips = {}
 	local loaded = 0
 	local tried = 0
@@ -395,6 +411,15 @@ function Rig.loadClips(humanoid: Humanoid?): (Clips, number, number)
 	if blow ~= nil then
 		pcall(function()
 			(blow :: AnimationTrack).Priority = Enum.AnimationPriority.Action
+		end)
+	end
+	-- ...AND THE CARRY SITS BETWEEN THEM (task 206). `Movement` is above `Idle` (the tool pose) and
+	-- `Core` (the gait) and BELOW `Action` (the blast), which is exactly the order the gesture needs:
+	-- the horn hangs at the side while the beater walks, and a blast still takes the arm.
+	local carry = clips.carry
+	if carry ~= nil then
+		pcall(function()
+			(carry :: AnimationTrack).Priority = Enum.AnimationPriority.Movement
 		end)
 	end
 	return clips, loaded, tried
@@ -452,6 +477,33 @@ function Rig.holdTool(clips: Clips?, holding: boolean): boolean
 		track:Stop(Rig.GAIT.FADE_SECONDS)
 	end
 	clips.holding = holding
+	return true
+end
+
+-- THE HORN CARRIED AT THE SIDE, on or off (task 206). KAREN, 2026-10-18: *"also horn is broken arm
+-- is wrong"*, with a frame of a bot beater holding the horn straight out in front of it.
+--
+-- ON TOP OF THE TOOL POSE AND NOT INSTEAD OF IT, so a rig's stack is the SAME stack a player's body
+-- has: the gait at `Core`, Roblox's `ToolNoneAnim` at `Idle` (a player's own `Animate` script plays
+-- it for any Tool, and task 164 gave a rig the same clip for the same reason), this at `Movement`,
+-- the blast at `Action`. One layer added to both bodies rather than one body taking a different
+-- route, which is what kept a bot's arm and a player's arm the same thing through tasks 164 and 166.
+--
+-- Idempotent, and it returns whether it CHANGED, exactly as its two neighbours do.
+function Rig.holdHorn(clips: Clips?, on: boolean): boolean
+	if clips == nil or (clips.carrying == true) == on then
+		return false
+	end
+	local track = clips.carry
+	if track == nil then
+		return false
+	end
+	if on then
+		track:Play(Rig.CARRY.FADE_SECONDS)
+	else
+		track:Stop(Rig.CARRY.FADE_SECONDS)
+	end
+	clips.carrying = on
 	return true
 end
 

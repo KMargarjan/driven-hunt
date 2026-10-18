@@ -618,6 +618,73 @@ return function()
 			-- cooldown lets him blow a second time, which is what stops a horn stuck at the chin.
 			expect(Horn.BLOW_POSE.RAISE_SECONDS + Horn.BLOW_POSE.LOWER_SECONDS < CONFIG.COOLDOWN).to.equal(true)
 		end)
+
+		-- ---------------------------------------------------------------- the horn at the side (task 206)
+		--
+		-- KAREN, 2026-10-18: *"also horn is broken arm is wrong"*, with a frame of a bot beater
+		-- holding the horn straight out in front of it (`karen-2026-10-18/shot-9.png`).
+		--
+		-- WHAT WAS MEASURED, in the Forest Test the same day, on all three bot beaters and
+		-- identically: the arm ran 0.99 along the body's own forward and 0.12 down, the right hand
+		-- sat 1.95 studs in front of the chest and the Handle 2.30. That is Roblox's `ToolNoneAnim`
+		-- at `Idle` doing exactly its job -- it is the pose a player holding a GUN has.
+		--
+		-- WHAT THESE CASES HOLD is the three facts the fix rests on, none of which a frame can
+		-- state: the carry is ONE table shared by a player and a bot, its priority sits between the
+		-- tool pose and the blast, and its shoulder actually points the arm DOWN. The arm's real
+		-- place in a running game was measured and is in the request; what cannot be allowed to
+		-- drift silently is this.
+		it("carries the horn at the side, under the blast and over the tool pose (task 206)", function()
+			local Rig = require(ServerScriptService:WaitForChild("Bots")).Rig
+			-- ONE TABLE, ONE SEQUENCE, ONE REGISTRATION -- `BLOW_POSE`'s own rule, for the pose a
+			-- beater is in for all but a second of the drive.
+			expect(Rig.CARRY).to.equal(Horn.CARRY_POSE)
+			expect(Rig.carrySequence).to.equal(Horn.carrySequence)
+			expect(Rig.carryAnimationId).to.equal(Horn.carryAnimationId)
+
+			-- THE ARM HANGS. The R15 rest pose IS an arm at the side, so the two bend angles are
+			-- zero and the shoulder's roll is the only number -- it swings the arm OUT from the ribs
+			-- so a 3.125-stud horn hangs clear of the leg. Anything that bent the shoulder or the
+			-- elbow forward would be the defect again.
+			expect(Horn.CARRY_POSE.SHOULDER_DEG.x).to.equal(0)
+			expect(Horn.CARRY_POSE.ELBOW_DEG.x).to.equal(0)
+			expect(Horn.CARRY_POSE.SHOULDER_DEG.z > 0).to.equal(true)
+			expect(Horn.CARRY_POSE.SHOULDER_DEG.z < 20).to.equal(true)
+			expect(Horn.CARRY_POSE.FADE_SECONDS > 0).to.equal(true)
+
+			-- THE PRIORITY ORDER IS THE WHOLE MECHANISM, and it is asserted on the built sequences
+			-- rather than on a constant: the gait is `Core`, `ToolNoneAnim` is `Idle`, this is
+			-- `Movement` and the blast is `Action`, so a beater carries the horn at his side while
+			-- he walks and a blast still takes the arm off him.
+			local carry = Horn.carrySequence(Horn.CARRY_POSE)
+			local blow = Horn.blowSequence(Horn.BLOW_POSE)
+			expect(carry.Priority).to.equal(Enum.AnimationPriority.Movement)
+			expect(blow.Priority).to.equal(Enum.AnimationPriority.Action)
+			expect(carry.Priority.Value > Enum.AnimationPriority.Idle.Value).to.equal(true)
+			expect(carry.Priority.Value > Enum.AnimationPriority.Core.Value).to.equal(true)
+			expect(blow.Priority.Value > carry.Priority.Value).to.equal(true)
+
+			-- THE SAME TWO JOINTS AND NO OTHERS, which is what keeps the walk, the lean and the
+			-- wrist out of it -- `blowSequence`'s own rule, and now one builder for both.
+			for _, sequence in ipairs({ carry, blow }) do
+				local keyframes = sequence:GetChildren()
+				expect(#keyframes).to.equal(2)
+				local weighted = {}
+				for _, keyframe in ipairs(keyframes) do
+					for _, pose in ipairs((keyframe :: Keyframe):GetDescendants()) do
+						if pose:IsA("Pose") and pose.Weight > 0 then
+							weighted[pose.Name] = true
+						end
+					end
+				end
+				expect(weighted.RightUpperArm).to.equal(true)
+				expect(weighted.RightLowerArm).to.equal(true)
+				expect(weighted.UpperTorso).to.equal(nil)
+				expect(weighted.RightHand).to.equal(nil)
+			end
+			carry:Destroy()
+			blow:Destroy()
+		end)
 	end)
 
 	---------------------------------------------------------------- pure: the two decisions

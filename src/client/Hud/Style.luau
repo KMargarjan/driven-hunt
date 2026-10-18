@@ -617,7 +617,8 @@ end
 -- EVERY NUMBER IS A FRACTION OF `px`, so one glyph draws at 16 px on a desktop row and 14 on a
 -- phone without a second table of sizes. The system's numbers are quoted at its own 14..18 px and
 -- the start-card spec's at 16: `tick` 7 x 2.5 and 12 x 2.5, `cross` 15 x 2.5, `chevron` 11 x 11,
--- `horn` 15 x 6 with an 8 x 8 bell -- all at `px = 16`, which is what the ratios below reproduce.
+-- `horn` a tapering arc of three sections with an 8 px bell (task 206; it was 15 x 6 with an
+-- 8 x 8 bell, which Karen could not read) -- all at `px = 16`, which is what the ratios below reproduce.
 -- ...AND THE TWO SHELLS (task 204). Karen, 2026-10-18: *"please diferenciate slug from shells"*.
 -- Her own frame of the chip (`karen-2026-10-18/shot-3.png`) and this task's reproduction of it
 -- showed a slug chip and a buckshot chip that differed in ONE WORD and nothing else -- same two
@@ -684,14 +685,46 @@ function Style.glyph(parent: GuiObject, name: string, kind: string, px: number, 
 		local tile = bar("Tile", px * 11 / 16, px * 11 / 16, 45, fill)
 		Style.corner(tile, math.max(2, math.round(px * 2 / 16)))
 	elseif kind == "horn" then
-		-- THE ONE GLYPH THAT IS TWO SHAPES AND NOT TWO STROKES: a tapering body and the bell at its
-		-- wide end, which is what makes it read as a horn at 16 px rather than as a dash.
-		local body = bar("Body", px * 15 / 16, px * 6 / 16, -8, color or LOOK.BRASS)
-		body.Position = UDim2.fromScale(0.46, 0.54)
-		Style.corner(body, math.max(2, math.round(px * 3 / 16)))
-		local bell = bar("Bell", px * 8 / 16, px * 8 / 16, -8, LOOK.BRASS_HI)
-		bell.Position = UDim2.fromScale(0.82, 0.4)
-		Style.corner(bell, math.max(2, math.round(px * 4 / 16)))
+		-- A CURVED, TAPERING TUBE WITH A BELL AND A MOUTHPIECE (task 206). KAREN, 2026-10-18,
+		-- looking at the beater's HORN chip: *"and what is this icon ?"*.
+		--
+		-- WHAT SHE WAS LOOKING AT, and it is the honest description: a 15 x 6 rounded bar with an
+		-- 8 x 8 rounded square overlapping its right end -- at 16 px, a lozenge and a dot. Nothing
+		-- in it tapered, nothing curved, and the "bell" was as wide as it was tall, so the two
+		-- shapes read as one blob. Her own frame is `karen-2026-10-18/shot-6.png`.
+		--
+		-- SO IT IS FIVE SHAPES, and each one is a thing a horn actually has: a dark MOUTHPIECE nub
+		-- at the narrow end, THREE tube sections that taper 2.4 -> 3.2 -> 4.2 px and turn +16, 0,
+		-- -18 degrees (a shallow arc rising to the right -- the arc of this game's own horn, whose
+		-- measured centre line is `Horn.TUBE_SAMPLES`), and a BELL that is 8 px tall against the
+		-- 4.2 px tube it grows out of. The taper and the flare are the whole of what makes a brass
+		-- shape read as a horn at this size; the old glyph had neither.
+		--
+		-- THREE COLOURS, NOT ONE, for the same reason the two shells have two (task 204): the
+		-- mouthpiece is `BRASS_LO` and the bell `BRASS_HI` against the tube's `BRASS`, so the two
+		-- ends are told apart by VALUE as well as by shape -- which is what survives being 14 px on
+		-- a phone, and what a flat silhouette does not.
+		--
+		-- EVERY NUMBER IS A FRACTION OF `px`, exactly as the four glyphs above are, so the phone's
+		-- 14 px horn is this implementation and not a second table. Drawn at 16 and at 14 before it
+		-- was written down (rule 5): `.screenshots/t206-glyph-before-after.png`.
+		local brass = color or LOOK.BRASS
+		local mouth = bar("Mouthpiece", px * 2.6 / 16, px * 3.0 / 16, 20, LOOK.BRASS_LO)
+		mouth.Position = UDim2.fromScale(0.10, 0.60)
+		Style.corner(mouth, math.max(1, math.round(px * 1.5 / 16)))
+		local near = bar("TubeNear", px * 5.4 / 16, px * 2.4 / 16, 16, brass)
+		near.Position = UDim2.fromScale(0.28, 0.62)
+		local mid = bar("TubeMid", px * 5.4 / 16, px * 3.2 / 16, 0, brass)
+		mid.Position = UDim2.fromScale(0.50, 0.57)
+		Style.corner(mid, math.max(1, math.round(px * 1.5 / 16)))
+		local far = bar("TubeFar", px * 5.0 / 16, px * 4.2 / 16, -18, brass)
+		far.Position = UDim2.fromScale(0.70, 0.47)
+		Style.corner(far, math.max(2, math.round(px * 2 / 16)))
+		-- LAST, SO IT IS ON TOP. Every bar here carries the same `ZIndex`, and a sibling drawn
+		-- later wins -- which is the order the old two-shape glyph already relied on.
+		local bell = bar("Bell", px * 3.4 / 16, px * 8.0 / 16, -18, LOOK.BRASS_HI)
+		bell.Position = UDim2.fromScale(0.83, 0.34)
+		Style.corner(bell, math.max(1, math.round(px * 1.5 / 16)))
 	elseif kind == "slug" or kind == "buck" then
 		-- ONE SHELL, STANDING, 10 x 15 in a 16 px box: a 4 px brass rim at the foot, the hull above
 		-- it, and the head on top. The parts are `bar`s like every other glyph here, so one number
