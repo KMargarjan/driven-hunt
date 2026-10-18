@@ -439,6 +439,132 @@ return function()
 			expect(Markers.clearRings()).to.equal(0)
 		end)
 
+		-- TASK 207. KAREN, 2026-10-18 ~14:20, on the road line's stand 6: *"and this is not circle is
+		-- broken one"*. These three cases are the ones task 166's ring FAILS, and they are driven on
+		-- a plane so the right answer is arithmetic rather than a reading of the placement code's
+		-- own output. MEASURED against the pre-fix commit, on this same slope of 0.5 (26.6 degrees):
+		-- worst joint 1.854 studs, worst slab buried 0.927, worst slab floating 0.967. On the real
+		-- ground of Karen's four places, over all 25 stands: 2.48, 1.06 and 1.56, all at road 6.
+		local SLOPE = 0.5
+		local CROSS = 0.3
+		local function hill(x: number, z: number): number?
+			return FLAT_Y + SLOPE * (x - Data.standPosition(4).X) + CROSS * (z - Data.standPosition(4).Z)
+		end
+
+		-- THE LOWEST VISIBLE GEOMETRY OF A SEGMENT against the ground under EVERY footprint point
+		-- (rule E), never the pivot: `u` runs the length of the box, `v` its width, and the sample is
+		-- taken on the BOTTOM face.
+		local function worstGroundError(ring: Instance, groundOf): (number, number)
+			local buried, floating = -math.huge, -math.huge
+			for _, child in ipairs(ring:GetChildren()) do
+				local box = child :: BasePart
+				for _, u in ipairs({ -0.5, -0.25, 0, 0.25, 0.5 }) do
+					for _, v in ipairs({ -0.5, 0, 0.5 }) do
+						local at = box.CFrame * Vector3.new(u * box.Size.X, -box.Size.Y / 2, v * box.Size.Z)
+						local y = groundOf(at.X, at.Z) :: number
+						buried = math.max(buried, y - at.Y)
+						floating = math.max(floating, at.Y - y)
+					end
+				end
+			end
+			return buried, floating
+		end
+
+		-- EVERY JOINT, AS TWO NUMBERS, because one cannot tell an overlap from a gap (lesson L-086:
+		-- a single distance of 0.12 reads the same whether the two ends passed each other or missed
+		-- each other by the same amount). For each segment, its nearest successor is found, and then:
+		--   * `overlap`  -- how far this segment's far end lies PAST its successor's near end, along
+		--                   the successor's own axis. Positive means they overlap. SMALLEST wins.
+		--   * `miss`     -- how far that far end lies OFF the successor's centre line. This is the
+		--                   STEP, and task 166's level slabs on a slope answered 1.85 for it.
+		local function worstJoints(ring: Instance): (number, number)
+			local boxes = ring:GetChildren()
+			local leastOverlap, worstMiss = math.huge, -math.huge
+			for i = 1, #boxes do
+				local a = boxes[i] :: BasePart
+				local tip = a.CFrame * Vector3.new(a.Size.X / 2, 0, 0)
+				local nearest, at = math.huge, nil
+				for j = 1, #boxes do
+					if j ~= i then
+						local b = boxes[j] :: BasePart
+						local start = b.CFrame * Vector3.new(-b.Size.X / 2, 0, 0)
+						if (tip - start).Magnitude < nearest then
+							nearest, at = (tip - start).Magnitude, b
+						end
+					end
+				end
+				if at ~= nil then
+					local follower = at :: BasePart
+					local offset = tip - follower.CFrame * Vector3.new(-follower.Size.X / 2, 0, 0)
+					local along = offset:Dot(follower.CFrame.RightVector)
+					leastOverlap = math.min(leastOverlap, along)
+					worstMiss = math.max(worstMiss, (offset - follower.CFrame.RightVector * along).Magnitude)
+				end
+			end
+			return leastOverlap, worstMiss
+		end
+
+		it("meets itself on a slope: every neighbour overlaps, so there is no gap and no step", function()
+			Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
+			local radius = Data.PICK.standRadiusStuds
+			expect(Markers.ring(4, radius, Data.ROAD_LAYOUT, hill, hill)).to.equal(Markers.RING.SEGMENTS)
+			local ring = ringOf(4) :: Instance
+			local overlap, miss = worstJoints(ring)
+			-- THEY PASS EACH OTHER, so the joint is not merely small, and NO END IS OFF ITS
+			-- NEIGHBOUR'S LINE -- which is the step task 166 could not avoid, because its two
+			-- neighbours read the ground in two different places.
+			expect(overlap > Markers.RING.OVERLAP_STUDS / 2).to.equal(true)
+			expect(miss < 0.03).to.equal(true)
+			TestKit.note(
+				string.format(
+					"stand ring on a slope of %.2f/%.2f: %d segments, least overlap %.3f, worst step %.3f studs (task 166: a 1.854-stud joint)",
+					SLOPE,
+					CROSS,
+					#ring:GetChildren(),
+					overlap,
+					miss
+				)
+			)
+			Markers.clearRings()
+		end)
+
+		it("lies ON the slope: no segment is buried in it and none floats over it", function()
+			Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
+			Markers.ring(4, Data.PICK.standRadiusStuds, Data.ROAD_LAYOUT, hill, hill)
+			local buried, floating = worstGroundError(ringOf(4) :: Instance, hill)
+			-- NOTHING UNDER THE GROUND AT ALL, and nothing further over it than the lift it was
+			-- given plus the sag of one 1.57-stud chord across a plane, which on a plane is zero.
+			expect(buried <= 0).to.equal(true)
+			expect(floating < Markers.RING.LIFT_STUDS + 0.05).to.equal(true)
+			TestKit.note(
+				string.format(
+					"stand ring on a slope: worst buried %.3f, worst floating %.3f (task 166 answered 0.927 and 0.967)",
+					buried,
+					floating
+				)
+			)
+			Markers.clearRings()
+		end)
+
+		it("keeps the circle whole where the canopy reader argues with the terrain", function()
+			Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
+			-- A READER THAT STOPPED ON A BRANCH over half the circle. `build` refuses such a point,
+			-- and must; the ring draws it on the TERRAIN reading instead of leaving a hole in itself.
+			local function branchy(x: number, z: number): number?
+				local y = flat(x, z) :: number
+				return if x > Data.standPosition(4).X then y + Markers.GROUND_TOLERANCE_STUDS + 9 else y
+			end
+			expect(Markers.ring(4, Data.PICK.standRadiusStuds, Data.ROAD_LAYOUT, flat, branchy)).to.equal(
+				Markers.RING.SEGMENTS
+			)
+			expect(Markers.stats().lastRingFallbacks > 0).to.equal(true)
+			for _, child in ipairs((ringOf(4) :: Instance):GetChildren()) do
+				-- ON THE TERRAIN, not on the branch: not one segment is nine studs up.
+				expect((child :: BasePart).Position.Y).to.be.near(FLAT_Y + Markers.RING.LIFT_STUDS, 0.05)
+			end
+			Markers.clearRings()
+		end)
+
 		it("refuses the ground it cannot read, and draws nothing at all for a radius of zero", function()
 			Markers.build(Data.standX(5), Data.ROAD_LAYOUT, flat, flat)
 			-- THE SAME REFUSAL `build` MAKES: where the two readings disagree there is no segment,

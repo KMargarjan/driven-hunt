@@ -88,7 +88,8 @@ function Markers.setReaders(ground: ((number, number) -> number?)?, canopy: ((nu
 	defaultGround, defaultCanopy = ground, canopy
 end
 
-local stats = { posts = 0, refused = 0, reads = 0, lastMaxDelta = 0, rings = 0, lastRingSegments = 0 }
+local stats =
+	{ posts = 0, refused = 0, reads = 0, lastMaxDelta = 0, rings = 0, lastRingSegments = 0, lastRingFallbacks = 0 }
 
 -- What the last build measured: how many stands it placed, how many it refused, how many builds
 -- there have been, and the worst disagreement between the two ground readings. The console prints it
@@ -154,21 +155,57 @@ end
 -- boot says WHEN -- one ring when a pick locks, all of them cleared when the next intermission drops
 -- the picks -- and that is the same split the markers have.
 --
--- WHY TWENTY BOXES AND NOT ONE PART: there is no ring primitive. A Cylinder is a disc, a torus needs
--- a mesh (nothing is uploaded for this), and a decal needs an image. Twenty chords of a 12-stud
--- circle are 3.8 studs each and read as a circle from standing height; each one is placed on its own
--- ground reading, so the ring follows the lane instead of floating over it.
+-- WHY BOXES AND NOT ONE PART: there is no ring primitive. A Cylinder is a disc, a torus needs a mesh
+-- (nothing is uploaded for this), and a decal needs an image. So the circle is a POLYLINE LAID ON
+-- THE GROUND: short boxes end to end, each one tilted to the slope it crosses.
+--
+-- KAREN, 2026-10-18 ~14:20, looking at stand 6 of the road line: *"and this is not circle is broken
+-- one"*. Task 166 drew twenty 3.8-stud chords, each one LEVEL and sitting at the ground reading
+-- under its own MIDDLE. On a slope a level 3.8-stud slab cannot touch the ground at both ends, so
+-- its uphill half went under the hill and its downhill half hung in the air, and two neighbours met
+-- at a vertical STEP. MEASURED over all 25 stands of the four layouts, in Karen's own place
+-- (2026-10-19, before this change): worst slab buried 1.06 studs, worst slab floating 1.56 studs,
+-- and the worst joint between two neighbours 2.48 studs apart -- all three at road stand 6, which is
+-- the stand her screenshot was taken on. That is the picture: separate slabs with gaps between them.
+--
+-- WHAT MAKES IT ONE LINE AGAIN, and each part of it is load-bearing:
+--
+--   * THE GROUND IS READ AT THE VERTICES, NOT AT THE MIDDLES. Two neighbouring segments share a
+--     vertex, so they share ONE reading of the ground there and meet at the same height. The step
+--     between them is not made small, it is made IMPOSSIBLE -- the same trick `Horn.pieces` uses to
+--     stop its tube gapping, and the reason the chord is measured in 3D here rather than taken from
+--     `2r sin(pi/n)`.
+--   * EACH SEGMENT IS TILTED along its own chord (`CFrame.fromMatrix`'s X axis is the chord), and
+--     ROLLED to the cross-slope measured either side of its middle. A tilted box lies on the hill
+--     instead of cutting into it, which is what removes the burying and the floating.
+--   * 48 SEGMENTS, NOT 20. At r = 12 that is a chord of 1.57 studs, and the error between a chord
+--     and the true circle is r*(1-cos(pi/48)) = 0.026 studs -- a thirtieth of the ring's own width,
+--     so no corner can show at eye height. 48 parts per ring, at most one ring per hunter
+--     (`ForestTestBoot` draws one when a pick locks and `clearRings` takes them all down at the next
+--     intermission), so the worst case is 48 x 9 = 432 invisible-to-a-pellet parts on the road line.
+--     64 WAS MEASURED TOO, on the same 25 stands: worst buried 0.17 against 48's 0.21 and worst
+--     floating 0.20 against 0.16. What is left at 48 is not the chord's sag, it is a 24-degree
+--     CREASE in the terrain at road stand 6, which no number of segments removes -- so the extra 16
+--     parts a ring bought nothing and 48 is the number.
+--   * THE NEIGHBOURS OVERLAP by `OVERLAP_STUDS`, half at each end, so the wedge a bend leaves on the
+--     outside of a joint is covered rather than merely small.
+--   * A GROUND THE TWO READERS DISAGREE ON NO LONGER DELETES THE SEGMENT (`ringGroundFor`): it falls
+--     back to the TERRAIN reader and counts it. `build` keeps its refusal -- a stand nobody can
+--     measure must not be stood on -- but the ring stops no pellet and decides nothing, and a hole
+--     in the circle is the very defect this task is about.
 Markers.RING_PREFIX = "StandRing"
 
 Markers.RING = table.freeze({
-	-- Twenty chords: the gap between a chord's middle and the true circle is r*(1-cos(pi/20)) =
-	-- 0.15 studs at r=12, which is less than the ring's own thickness, so the shape does not read as
-	-- a polygon.
-	SEGMENTS = 20,
+	SEGMENTS = 48,
 	THICKNESS_STUDS = 0.5,
 	HEIGHT_STUDS = 0.12,
 	-- Just clear of the ground, so z-fighting cannot make it flicker as the camera moves.
 	LIFT_STUDS = 0.08,
+	-- HOW FAR NEIGHBOURS OVERLAP, half of it at each end of every segment. 0.12 is a fifth of the
+	-- ring's own width and a quarter of its thickness: enough to cover the outside of a bend
+	-- (0.25 * tan(3.75 deg) = 0.016 studs at 48 segments) many times over, and far too little to
+	-- read as a bulge.
+	OVERLAP_STUDS = 0.12,
 	-- SUBTLE, which is the dispatch's word: a line you notice when you look down and not a fence.
 	TRANSPARENCY = 0.45,
 	-- Neon so it reads in the wood's shade without a light. A muted hunting-orange, the colour this
@@ -227,20 +264,28 @@ function Markers.ring(
 	end
 	local home = Data.standPosition(standIndex, layout)
 	local config = Markers.RING
-	local step = 2 * math.pi / config.SEGMENTS
-	-- The chord between two adjacent points ON the circle, so consecutive segments share an endpoint
-	-- exactly and the ring cannot gap however `SEGMENTS` is changed (`Horn.pieces`' own rule).
-	local chord = 2 * radiusStuds * math.sin(step / 2)
+	local count = config.SEGMENTS
+	local step = 2 * math.pi / count
+	-- THE VERTICES FIRST, AND THAT ORDER IS THE WHOLE FIX. Every point on the circle is measured
+	-- once, at its own x,z, and the two segments that meet there both end at that one height -- so a
+	-- step between neighbours cannot be produced, on any ground.
+	local points: { Vector3? } = {}
+	local fallbacks = 0
+	for index = 1, count do
+		local a = (index - 1) * step
+		local x, z = home.X + math.cos(a) * radiusStuds, home.Z + math.sin(a) * radiusStuds
+		local y, fellBack = Markers.ringGroundFor(x, z, groundReader, canopyReader)
+		if fellBack then
+			fallbacks += 1
+		end
+		points[index] = if y ~= nil then Vector3.new(x, y + config.LIFT_STUDS, z) else nil
+	end
 	local folder: Folder? = nil
 	local placed = 0
-	for index = 1, config.SEGMENTS do
-		local a = (index - 1) * step
-		local b = index * step
-		local from = Vector2.new(home.X + math.cos(a) * radiusStuds, home.Z + math.sin(a) * radiusStuds)
-		local to = Vector2.new(home.X + math.cos(b) * radiusStuds, home.Z + math.sin(b) * radiusStuds)
-		local midX, midZ = (from.X + to.X) / 2, (from.Y + to.Y) / 2
-		local y = Markers.groundFor(midX, midZ, groundReader, canopyReader)
-		if y ~= nil then
+	for index = 1, count do
+		local from, to = points[index], points[(index % count) + 1]
+		local span = if from and to then to - from else nil
+		if from and to and span and span.Magnitude > 1e-4 then
 			if folder == nil then
 				local made = Instance.new("Folder")
 				made.Name = Markers.ringName(standIndex)
@@ -249,7 +294,9 @@ function Markers.ring(
 			end
 			local part = Instance.new("Part")
 			part.Name = string.format("Seg%d", index)
-			part.Size = Vector3.new(chord, config.HEIGHT_STUDS, config.THICKNESS_STUDS)
+			-- OVERLAPPING ITS NEIGHBOURS: the box is longer than the gap it bridges, by half the
+			-- overlap at each end.
+			part.Size = Vector3.new(span.Magnitude + config.OVERLAP_STUDS, config.HEIGHT_STUDS, config.THICKNESS_STUDS)
 			part.Anchored = true
 			-- `CanQuery = false` IS LOAD-BEARING here for the same reason it is on every other marker
 			-- in this file: a slab that stops a pellet changes what the shot hit.
@@ -260,11 +307,9 @@ function Markers.ring(
 			part.Material = Enum.Material.Neon
 			part.Color = config.COLOR
 			part.Transparency = config.TRANSPARENCY
-			-- Lying along the chord: the box's own X is its length, so the frame looks along the
-			-- chord and then turns a quarter turn, exactly as `Horn.pieces` lays its tube sections.
-			local centre = Vector3.new(midX, (y :: number) + config.LIFT_STUDS, midZ)
-			local along = Vector3.new(to.X - from.X, 0, to.Y - from.Y)
-			part.CFrame = CFrame.lookAt(centre, centre + along.Unit, Vector3.yAxis) * CFrame.Angles(0, math.pi / 2, 0)
+			local middle = (from + to) / 2
+			local along = span.Unit
+			part.CFrame = CFrame.fromMatrix(middle, along, Markers.ringUp(middle, along, groundReader, canopyReader))
 			part.Parent = folder
 			placed += 1
 		end
@@ -275,7 +320,56 @@ function Markers.ring(
 		stats.rings += 1
 	end
 	stats.lastRingSegments = placed
+	stats.lastRingFallbacks = fallbacks
 	return placed
+end
+
+-- WHICH WAY IS UP FOR ONE SEGMENT, so the box lies ON the hill instead of cutting across it.
+--
+-- The ground is read at `THICKNESS_STUDS / 2` either side of the segment's middle, ACROSS its own
+-- chord: that is the one slope the chord's two endpoints cannot already describe, and it is the
+-- difference between a 0.5-stud strip whose downhill edge is buried and one that is not. The up
+-- vector is then made square to the chord, because the chord's own tilt is already decided by the
+-- two vertices and must not be moved.
+--
+-- The fallback is straight up -- a reading that cannot be taken must not tilt anything.
+function Markers.ringUp(middle: Vector3, along: Vector3, ground, canopy): Vector3
+	local up = Vector3.yAxis
+	local across = along:Cross(Vector3.yAxis)
+	if across.Magnitude > 1e-4 then
+		across = across.Unit
+		local half = Markers.RING.THICKNESS_STUDS / 2
+		local high = Markers.ringGroundFor(middle.X + across.X * half, middle.Z + across.Z * half, ground, canopy)
+		local low = Markers.ringGroundFor(middle.X - across.X * half, middle.Z - across.Z * half, ground, canopy)
+		if high ~= nil and low ~= nil then
+			-- TWO TANGENTS, AND THE NORMAL IS THEIR CROSS PRODUCT. `along` is the surface's tangent
+			-- down the chord -- it joins two points measured ON the ground -- and
+			-- `across + yAxis * slope` is its tangent across it. The cross product of the two is the
+			-- surface itself, exactly, rather than a vector that is only square to one of them.
+			local slope = ((high :: number) - (low :: number)) / Markers.RING.THICKNESS_STUDS
+			local normal = (across + Vector3.yAxis * slope):Cross(along)
+			up = if normal.Y < 0 then -normal else normal
+		end
+	end
+	local square = up - along * up:Dot(along)
+	return if square.Magnitude > 1e-4 then square.Unit else Vector3.yAxis
+end
+
+-- WHERE A RING SITS, AND IT NEVER LEAVES A HOLE WHERE THE TWO READERS DISAGREE. Returns the height
+-- and whether it had to fall back.
+--
+-- `build` refuses such a point and that stays right: a stand nobody can measure must not be stood
+-- on, and the refusal is a named `missing` string rather than a silent guess. A RING IS NOT A STAND.
+-- It stops no pellet (`CanQuery = false`), decides nothing, and is read by nobody but the player's
+-- eye -- so where the canopy reader argues with the terrain reader, the TERRAIN is what a line drawn
+-- on the ground should follow, and a missing segment is the exact defect Karen named.
+function Markers.ringGroundFor(x: number, z: number, ground, canopy): (number?, boolean)
+	local agreed = Markers.groundFor(x, z, ground, canopy)
+	if agreed ~= nil then
+		return agreed, false
+	end
+	local terrain = if ground then ground(x, z) else nil
+	return terrain, terrain ~= nil
 end
 
 -- WHERE THE GROUND IS, OR NIL, asking both readers and refusing a disagreement. Pure given its two
