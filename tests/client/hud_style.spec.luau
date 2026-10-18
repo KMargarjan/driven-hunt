@@ -123,6 +123,12 @@ return function()
 
 		it("letter-spaces an uppercase label and strips the trailing space", function()
 			expect(Style.spaced("AMMO")).to.equal("A M M O")
+			-- ...AND `unspaced` IS ITS EXACT INVERSE, which a `gsub` of every space is NOT: a spaced
+			-- sentence has TWO spaces where the original had one, so stripping them all gave
+			-- "NEXTDRIVEIN" and that is what the footer accessor answered on round 2's first gate.
+			expect(Style.unspaced(Style.spaced("NEXT DRIVE IN"))).to.equal("NEXT DRIVE IN")
+			expect(Style.unspaced(Style.spaced("AMMO"))).to.equal("AMMO")
+			expect(Style.unspaced(Style.spaced("N"))).to.equal("N")
 			expect(Style.spaced("N")).to.equal("N")
 			expect(Style.spaced("")).to.equal("")
 		end)
@@ -660,7 +666,8 @@ return function()
 
 			-- ONE ROW COMPONENT SERVES BOTH. A row of either table has the same three parts.
 			local boardRow = (Hud.scoreBody() :: ScrollingFrame):FindFirstChild("Row1") :: Frame
-			local reportRow = (Hud.Report.well :: Frame):FindFirstChild("ListRow1")
+			-- THE ROWS LIVE IN THE SCROLLING BODY since round 2, not in the clipping well.
+			local reportRow = (Hud.Report.body :: ScrollingFrame):FindFirstChild("ListRow1")
 			expect(boardRow).to.be.ok()
 			expect(reportRow).to.be.ok()
 			local reportInner = (reportRow :: Instance):FindFirstChild("Row") :: Frame

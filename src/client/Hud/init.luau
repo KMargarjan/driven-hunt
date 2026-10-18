@@ -670,7 +670,7 @@ function Hud.scoreFooterText(): string
 	-- THE DRAWN WORD AND NOT THE CONSTANT (round 1 note). It read the label, stripped its spacing
 	-- and then threw it away for `Drive.CONFIG.SCORE_FOOTER_WORD` -- so the one case that asserts
 	-- this line would have passed with ANY word on screen, which is a seam that cannot fail.
-	local word = if scoreFooterWord then (string.gsub((scoreFooterWord :: TextLabel).Text, " ", "")) else ""
+	local word = if scoreFooterWord then Style.unspaced((scoreFooterWord :: TextLabel).Text) else ""
 	local value = if scoreFooterValue then (scoreFooterValue :: TextLabel).Text else ""
 	if word == "" and value == "" then
 		return ""
@@ -692,7 +692,7 @@ function Hud.scoreRowText(): { string }
 		local head = scoreHeads[index]
 		if head ~= nil and head.Visible then
 			local word = head:FindFirstChild("Word")
-			table.insert(out, if word then string.gsub((word :: TextLabel).Text, " ", "") else "")
+			table.insert(out, if word then Style.unspaced((word :: TextLabel).Text) else "")
 		end
 		if row.Visible then
 			local cells = scoreCells[index]

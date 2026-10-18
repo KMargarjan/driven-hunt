@@ -340,12 +340,12 @@ return function()
 			-- one colour, in the same unit square. The claim is not weaker: it was five frames and
 			-- it is thirteen, and the fill is asserted too.
 			Panel.render(detailPayload())
-			-- THE ROWS LIVE IN THE PANEL'S WELL since task 201 part 2 (the design system's §1.3
-			-- ladder: a table sits in a well sunk into the panel it is on), so this looks where
+			-- THE ROWS LIVE IN THE WELL'S SCROLLING BODY since round 2 (the well clips and does not
+			-- scroll, which lost five of the eight animals the server pages), so this looks where
 			-- they are rather than at the panel's own children.
-			local well = Hud.Report.well :: Frame
-			expect(well).to.be.ok()
-			local row = well:FindFirstChild("DetailRow1")
+			local body = Hud.Report.body :: ScrollingFrame
+			expect(body).to.be.ok()
+			local row = body:FindFirstChild("DetailRow1")
 			local art = row and row:FindFirstChild("Silhouette")
 			expect(art).to.be.ok()
 			for _, piece in ipairs(Report.CONFIG.BOAR) do

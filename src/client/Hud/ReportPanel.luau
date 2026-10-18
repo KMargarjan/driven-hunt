@@ -170,7 +170,7 @@ end
 -- is tracking and not content).
 function ReportPanel.eyebrowText(): string
 	local label = ReportPanel.eyebrow
-	return if label then (string.gsub((label :: TextLabel).Text, " ", "")) else ""
+	return if label then Style.unspaced((label :: TextLabel).Text) else ""
 end
 
 -- WHAT THE COLUMN HEAD OF THE VISIBLE TABLE SAYS, read off the drawn cells. It was one padded
@@ -186,7 +186,7 @@ function ReportPanel.headerText(): string
 	for _, column in ipairs(columns) do
 		local cell = (row :: Frame):FindFirstChild(column.key)
 		if cell ~= nil then
-			table.insert(parts, (string.gsub((cell :: TextLabel).Text, " ", "")))
+			table.insert(parts, Style.unspaced((cell :: TextLabel).Text))
 		end
 	end
 	return table.concat(parts, " ")
@@ -219,7 +219,7 @@ function ReportPanel.rowText(): { string }
 			if column.key == "result" then
 				local word = if row ~= nil then ReportPanel.tagTextOf[row] else nil
 				if word ~= nil and word.Text ~= "" then
-					table.insert(parts, (string.gsub(word.Text, " ", "")))
+					table.insert(parts, Style.unspaced(word.Text))
 				end
 				continue
 			end

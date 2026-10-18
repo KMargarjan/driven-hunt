@@ -60,6 +60,18 @@ function Style.spaced(text: string): string
 	return (string.gsub(string.gsub(text, "(.)", "%1 "), "%s+$", ""))
 end
 
+-- THE EXACT INVERSE OF `Style.spaced`, and it is a function rather than a `gsub` because the naive
+-- one is WRONG: `spaced("NEXT DRIVE IN")` puts a space after EVERY character, the original space
+-- included, so stripping every space gives "NEXTDRIVEIN". `spaced` writes the string at the odd
+-- positions, so this reads them back.
+function Style.unspaced(text: string): string
+	local out = {}
+	for index = 1, #text, 2 do
+		table.insert(out, string.sub(text, index, index))
+	end
+	return table.concat(out)
+end
+
 -- ---------------------------------------------------------------- §1.1 the palette
 --
 -- ONE MEANING PER COLOUR. Blaze = act / go here. Pine = already true. Amber = later / holding.
