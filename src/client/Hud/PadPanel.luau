@@ -139,11 +139,18 @@ PadPanel.LOOK = {
 	LEAVING_COLOR = LOOK.PANEL,
 }
 
--- ---------------------------------------------------------------- state (four values, one writer)
+-- ---------------------------------------------------------------- state (six values, one writer)
 local ask: number? = nil
 local sent: number? = nil
 local loading: string? = nil
 local left: number? = nil
+-- THE CLICK THE SERVER HAS NOT ANSWERED YET (task 209). `sentAt` is when this client fired its pick
+-- and `shownAt` the clock it was last told, both in the SAME seconds: the Hud hands `setLeaving` an
+-- `os.clock()` every frame and this module keeps no clock of its own -- `Pads.step`'s arrangement on
+-- the server's side of this system, and what lets `pad_panel.spec` expire the window with a number
+-- instead of a `task.wait`.
+local sentAt: number? = nil
+local shownAt = 0
 
 local started = false
 local panel: Frame? = nil
@@ -160,8 +167,19 @@ local remotes: any = nil
 local Cursor: any = nil
 local WeaponInput: any = nil
 
-local stats =
-	{ opens = 0, closes = 0, presses = 0, sent = 0, renders = 0, leavingOpens = 0, leavingCloses = 0, barWrites = 0 }
+-- `optimistic` IS ONE PER CLICK THAT RAISED THE BANNER BEFORE THE SERVER ANSWERED (task 209), which
+-- is what makes *"it shows immediately"* a number a probe can read rather than a claim.
+local stats = {
+	opens = 0,
+	closes = 0,
+	presses = 0,
+	sent = 0,
+	renders = 0,
+	leavingOpens = 0,
+	leavingCloses = 0,
+	barWrites = 0,
+	optimistic = 0,
+}
 
 function PadPanel.stats()
 	return table.clone(stats)
@@ -253,8 +271,38 @@ function PadPanel.barFraction(state: string?, secondsLeft: number?): number?
 	return nil
 end
 
+-- WHAT THE BANNER SAYS WHEN THE SERVER HAS NOT SPOKEN YET. PURE, and it is the ONE place the
+-- server's three words and this client's own click meet (task 209).
+--
+-- THE SERVER WINS WHENEVER IT HAS SAID ANYTHING. `pending` only ever fills the gap between the
+-- click and the first `DHPadMine` -- measured at 3.65 s on Karen's own path -- so the banner can
+-- never contradict the world: the moment a pad state arrives, `leavingLineFor` answers and this
+-- function returns its line unchanged.
+function PadPanel.bannerLineFor(state: string?, secondsLeft: number?, pending: boolean?): string
+	local line = PadPanel.leavingLineFor(state, secondsLeft)
+	if line ~= "" then
+		return line
+	end
+	return if pending == true then LEAVING.SENT else ""
+end
+
+-- IS THIS CLIENT'S OWN PICK STILL IN FLIGHT? `sentAt` is cleared by the server's first word, by a
+-- new pad asking, and by `PENDING_SECONDS` of silence -- the third being the one that matters, since
+-- a pick the server REFUSES produces no word at all and a banner with no way down is worse than a
+-- slow one.
+local function pendingPick(): boolean
+	if sentAt == nil then
+		return false
+	end
+	if shownAt - (sentAt :: number) >= LEAVING.PENDING_SECONDS then
+		sentAt = nil
+		return false
+	end
+	return true
+end
+
 function PadPanel.isLeaving(): boolean
-	return PadPanel.leavingLineFor(loading, left) ~= ""
+	return PadPanel.bannerLineFor(loading, left, pendingPick()) ~= ""
 end
 
 -- WHAT IS ACTUALLY ON THE BANNER: its title, its one line and how full its bar is. The read seam a
@@ -555,6 +603,13 @@ function PadPanel.setAsk(next_: number?)
 	-- one: without this, stepping off pad 1 after picking 4 and onto pad 2 would leave the dialog
 	-- unable to send anything at all.
 	sent = nil
+	-- ...AND SO IS THE BANNER THAT CLICK PUT UP (task 209), but ONLY for a different pad ASKING. The
+	-- distinction is load-bearing: a pick the server ACCEPTS stops that pad asking (`DHPadFirst`
+	-- goes), so `ask` falls to nil one scan after every successful click -- clearing on nil would
+	-- take the banner down again in the very gap it exists to fill.
+	if ask ~= nil then
+		sentAt = nil
+	end
 	if ask ~= nil and not wasOpen then
 		stats.opens += 1
 		-- THE MOUSE AND THE TRIGGER, through the two doors that already exist: `Cursor.requestFree`
@@ -587,9 +642,19 @@ end
 -- THE SECONDS ARE NOT EDGE-TRIGGERED AND CANNOT BE: they change every frame, which is the point of
 -- them. The STATE is, and the bar is written only when its scale actually moves by a pixel's worth --
 -- `stats.barWrites` is what makes that claim checkable rather than a comment.
-function PadPanel.setLeaving(state: string?, secondsLeft: number?)
+function PadPanel.setLeaving(state: string?, secondsLeft: number?, now: number?)
+	-- THE CLOCK IS TOLD, NOT TAKEN (task 209), for the reason the seconds already are: this module
+	-- holds no clock, the Hud's one evaluation has one, and a spec can hand it any number it likes.
+	if type(now) == "number" then
+		shownAt = now :: number
+	end
 	if type(state) ~= "string" or not LobbyData.padLoading(state) then
 		state = nil
+	end
+	-- THE SERVER HAS SPOKEN, SO THIS CLIENT'S GUESS IS OVER. One line, and it is the whole of what
+	-- makes the optimistic banner safe: from here on the words are the world's.
+	if state ~= nil then
+		sentAt = nil
 	end
 	local was = loading
 	loading = state
@@ -634,7 +699,7 @@ function PadPanel.renderLeaving()
 	if frame == nil then
 		return
 	end
-	local line = PadPanel.leavingLineFor(loading, left)
+	local line = PadPanel.bannerLineFor(loading, left, pendingPick())
 	-- WRITTEN ONLY WHEN IT DIFFERS. This one is called EVERY FRAME -- the seconds change every frame,
 	-- which is the point of them -- so it is the one renderer in this module that cannot be
 	-- edge-triggered from outside, and the writes are edge-triggered INSIDE instead: the `Visible`,
@@ -693,6 +758,14 @@ function PadPanel.press(size: number): boolean
 		remotes.PadRequest:FireServer({ pad = index, size = size })
 		stats.sent += 1
 	end
+	-- THE BANNER GOES UP HERE, ON THE CLICK, BEFORE THE SERVER HAS BEEN ASKED ANYTHING (task 209).
+	-- Karen: *"once I click I need imeadiatly show loading (Leaving dfor hunting)"*; it was 3.65 s,
+	-- measured through a real left click on her own path. `shownAt` is the Hud's last clock rather
+	-- than a new reading, so the window below is measured in the same seconds the Hud counts in and
+	-- is at most one frame stale.
+	sentAt = shownAt
+	stats.optimistic += 1
+	PadPanel.renderLeaving()
 	PadPanel.render()
 	return true
 end

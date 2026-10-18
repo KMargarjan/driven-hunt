@@ -3567,7 +3567,14 @@ local function trucks(
 	-- reason and out of the same row.
 	local floorY = anchor.Y + cfg.ROAD.THICK_STUDS
 	for index = 1, cfg.TRUCK.COUNT do
-		local at = anchor + cfg.TRUCK.OFFSET + Vector3.new((index - 1) * cfg.TRUCK.BAY_GAP_STUDS, 0, 0)
+		-- THE BAY STEPS EAST AND THE TRUCK STANDS `BACK_STUDS` SOUTH OF IT (task 209, Karen: *"car
+		-- has to be moved back ... so I can easy access enter to game"*). The bay centre itself is
+		-- unmoved, so the pad (`Pads.centreFor`), the yard's x and the billboards are where they
+		-- were and nothing but the parked body shifts; -z is away from the pad, which is north of
+		-- it. This is the ONE reader of `BACK_STUDS`.
+		local at = anchor
+			+ cfg.TRUCK.OFFSET
+			+ Vector3.new((index - 1) * cfg.TRUCK.BAY_GAP_STUDS, 0, -cfg.TRUCK.BACK_STUDS)
 		local name = string.format(Data.TRUCK_NAME, index)
 		local made = clone(templates, Data.TEMPLATE.TRUCK, name, model.SCALE, at, model.YAW_RADIANS, folder, false)
 		if made == nil then
@@ -3863,6 +3870,31 @@ end
 
 -- ---------------------------------------------------------- the road, the fences, the trees
 
+-- WHERE THE YARD IS, AS ONE RECTANGLE, SAID ONCE (task 209). Returns its centre and its half-spans
+-- in x and z, in WORLD studs.
+--
+-- IT EXISTS BECAUSE THERE WERE TWO ANSWERS. The slab in `road` and the tree exclusion in `trees`
+-- each built the same rectangle out of the same four config rows, and each carried its own copy of
+-- the literals (`+ 34` and `44` in one, `+ 34` and `26` in the other). Task 209 moves the trucks and
+-- the pads apart, which changes the rectangle -- and two answers to "where is the yard" is how a
+-- spruce ends up standing on a queue pad, which is this repository's named failure mode
+-- (`docs/PROJECT_CONTEXT.md`). One function, two callers.
+--
+-- z IS DERIVED FROM WHAT THE YARD HAS TO CARRY rather than from a round number: the trucks' south
+-- end (the bay, less `BACK_STUDS`, less half the model's length) and the pads' north edge
+-- (`PAD_BEHIND_STUDS` plus the pad's own depth), each with `YARD_LIP_STUDS` of gravel beyond it. The
+-- old literal 44 was 22 either side of the bay, which already fell 2 studs short of the pads before
+-- this task moved them.
+function Build.yardRect(anchor: Vector3, cfg): (number, number, number, number)
+	local bays = (cfg.TRUCK.COUNT - 1) * cfg.TRUCK.BAY_GAP_STUDS
+	local midX = anchor.X + (cfg.ROAD.CENTRE_X + cfg.TRUCK.OFFSET.X + bays) / 2
+	local halfX = (math.abs(cfg.TRUCK.OFFSET.X - cfg.ROAD.CENTRE_X) + bays + cfg.ROAD.YARD_END_STUDS) / 2
+	local lip = cfg.ROAD.YARD_LIP_STUDS
+	local south = -(cfg.TRUCK.BACK_STUDS + cfg.TRUCK.MODEL.LENGTH_STUDS / 2 + lip)
+	local north = cfg.TRUCK.PAD_BEHIND_STUDS + cfg.PADS.SIZE.Z + lip
+	return midX, halfX, anchor.Z + cfg.TRUCK.OFFSET.Z + (south + north) / 2, (north - south) / 2
+end
+
 -- THE ROAD TO THE LODGE. Karen, 2026-10-14: *"place could be a bit more nicer like road going to
 -- that house and around fields and forrests"*.
 --
@@ -3907,12 +3939,12 @@ local function road(container: Instance, anchor: Vector3, cfg)
 		)
 	end
 	-- THE YARD in front of the lodge and across the truck bays, so the parking is not four trucks
-	-- standing in a meadow.
-	local bays = (cfg.TRUCK.COUNT - 1) * cfg.TRUCK.BAY_GAP_STUDS
+	-- standing in a meadow. ONE rectangle, from `yardRect`, which `trees` asks for too.
+	local yardMidX, yardHalfX, yardMidZ, yardHalfZ = Build.yardRect(anchor, cfg)
 	part(
 		"Yard",
-		Vector3.new(math.abs(cfg.TRUCK.OFFSET.X - spec.CENTRE_X) + bays + 34, spec.THICK_STUDS, 44),
-		CFrame.new(anchor.X + (spec.CENTRE_X + cfg.TRUCK.OFFSET.X + bays) / 2, top, anchor.Z + cfg.TRUCK.OFFSET.Z),
+		Vector3.new(yardHalfX * 2, spec.THICK_STUDS, yardHalfZ * 2),
+		CFrame.new(yardMidX, top, yardMidZ),
 		spec.COLOR,
 		spec.MATERIAL,
 		false,
@@ -4400,11 +4432,8 @@ local function treeLine(
 		end
 		-- ...NOR IN THE YARD (review round 2, note): the arc's eastern end swings past the fourth
 		-- truck bay, and a spruce between the bays is the same mistake as a spruce in the road.
-		local bays = (cfg.TRUCK.COUNT - 1) * cfg.TRUCK.BAY_GAP_STUDS
-		local yardMidX = anchor.X + (cfg.ROAD.CENTRE_X + cfg.TRUCK.OFFSET.X + bays) / 2
-		local yardHalfX = (math.abs(cfg.TRUCK.OFFSET.X - cfg.ROAD.CENTRE_X) + bays + 34) / 2
-		local yardZ = anchor.Z + cfg.TRUCK.OFFSET.Z
-		if math.abs(at.X - yardMidX) < yardHalfX + 4 and math.abs(at.Z - yardZ) < 26 then
+		local yardMidX, yardHalfX, yardMidZ, yardHalfZ = Build.yardRect(anchor, cfg)
+		if math.abs(at.X - yardMidX) < yardHalfX + 4 and math.abs(at.Z - yardMidZ) < yardHalfZ + 4 then
 			continue
 		end
 		-- ...NOR ON THE GATHERING YARD (task 191), the third exclusion and the same rule a third

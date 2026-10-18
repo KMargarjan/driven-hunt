@@ -284,6 +284,55 @@ return function()
 			expect(Join.withinRect(centre - Vector3.new(0, 50, 0), centre, SIZE)).to.equal(true)
 		end)
 
+		-- ---------------------------------------------------------- task 209, Karen's clearance
+		--
+		-- KAREN, 2026-10-18, with a screenshot: *"car has to be moved back meaning left same size
+		-- twice as car now is (screenshoot) so I can easy access enter to game"*. Measured on her
+		-- path first: the gap between pad 1's near edge and her truck's tailgate was 2.77 studs.
+		--
+		-- THE RULE IS WRITTEN AGAINST THE MODEL'S OWN DRAWN FOOTPRINT (`MODEL.WIDTH_STUDS`,
+		-- `MODEL.LENGTH_STUDS`), which is data rather than a comment since this task, and both
+		-- numbers were measured off the built trucks in the live Forest Test rather than read off
+		-- the Creator Store page. A pivot or an assumed import frame is not a footprint.
+		it("parks every truck at least two truck-widths back from its own pad (task 209)", function()
+			local anchor = Vector3.new(0, 100, 0)
+			local model = CFG.TRUCK.MODEL
+			for index = 1, CFG.TRUCK.COUNT do
+				local centre = Pads.centreFor(anchor, index, CFG)
+				local bayZ = anchor.Z + CFG.TRUCK.OFFSET.Z
+				-- the parked body's own north face: half its length, brought back by `BACK_STUDS`
+				local tailZ = bayZ + model.LENGTH_STUDS / 2 - CFG.TRUCK.BACK_STUDS
+				local gap = (centre.Z - SIZE.Z / 2) - tailZ
+				expect(gap >= 2 * model.WIDTH_STUDS).to.equal(true)
+				-- ...AND SAID THE OTHER WAY ROUND: the pad and the parked body never share a stud,
+				-- which is the half of it a player feels rather than measures.
+				expect(gap > 0).to.equal(true)
+				-- THE TRUCK IS SOUTH OF ITS PAD AND NOT THE OTHER WAY, so "back" is away from the
+				-- man standing on it and `Camera.faceTowards` still turns him toward a truck.
+				expect(tailZ < centre.Z).to.equal(true)
+			end
+		end)
+
+		-- THE YARD IS ONE RECTANGLE WITH TWO READERS (`Build.road`'s slab and `Build.trees`'
+		-- exclusion), and it has to carry everything task 209 moved apart: if it does not, a truck
+		-- stands with its rear wheels off the gravel or a spruce grows on a queue pad.
+		it("keeps every truck and every pad on the yard rectangle (task 209)", function()
+			local anchor = Vector3.new(0, 100, 0)
+			local midX, halfX, midZ, halfZ = Build.yardRect(anchor, CFG)
+			local model = CFG.TRUCK.MODEL
+			for index = 1, CFG.TRUCK.COUNT do
+				local bayX = anchor.X + CFG.TRUCK.OFFSET.X + (index - 1) * CFG.TRUCK.BAY_GAP_STUDS
+				local truckZ = anchor.Z + CFG.TRUCK.OFFSET.Z - CFG.TRUCK.BACK_STUDS
+				-- the truck's four corners
+				expect(math.abs(bayX - midX) + model.WIDTH_STUDS / 2 <= halfX).to.equal(true)
+				expect(math.abs(truckZ - midZ) + model.LENGTH_STUDS / 2 <= halfZ).to.equal(true)
+				-- ...and the pad's
+				local centre = Pads.centreFor(anchor, index, CFG)
+				expect(math.abs(centre.X - midX) + SIZE.X / 2 <= halfX).to.equal(true)
+				expect(math.abs(centre.Z - midZ) + SIZE.Z / 2 <= halfZ).to.equal(true)
+			end
+		end)
+
 		it("puts one pad behind each bay, clear of the lodge, the tailgates, the trees and the field", function()
 			-- EVERY CLEARANCE IN `docs/design/truck-pads.md` SECTION 4.1, AS ARITHMETIC OVER THE
 			-- CONFIG AND NEVER A LITERAL -- so a retune of `SIZE` or `BAY_GAP_STUDS` that breaks one
@@ -299,13 +348,17 @@ return function()
 				local nearEdge = centre.Z - SIZE.Z / 2
 				expect(nearEdge).to.equal(anchor.Z + CFG.TRUCK.OFFSET.Z + CFG.TRUCK.PAD_BEHIND_STUDS)
 				-- ...WHICH CLEARS BOTH TAILGATES. The parts truck's `BedTail` face is at
-				-- `OFFSET.Z + 8.2`; the free model is `MODEL`-yawed and 18.5 long, so 9.25.
+				-- `OFFSET.Z + 8.2`; the free model is `MODEL`-yawed and 18.46 long, so 9.23 -- and
+				-- since task 209 it is parked `BACK_STUDS` SOUTH of the bay, so both come back by
+				-- that much.
 				local bayZ = anchor.Z + CFG.TRUCK.OFFSET.Z
-				expect(nearEdge > bayZ + 8.2).to.equal(true)
-				expect(nearEdge > bayZ + 9.25).to.equal(true)
-				-- THE TREE LINE'S YARD EXCLUSION ENDS AT z +44 (`Build.treeLine`), so the far edge
-				-- has to stay south of it or a tree can stand on a pad.
-				expect(centre.Z + SIZE.Z / 2 <= anchor.Z + 44).to.equal(true)
+				expect(nearEdge > bayZ + 8.2 - CFG.TRUCK.BACK_STUDS).to.equal(true)
+				expect(nearEdge > bayZ + CFG.TRUCK.MODEL.LENGTH_STUDS / 2 - CFG.TRUCK.BACK_STUDS).to.equal(true)
+				-- THE TREE LINE'S YARD EXCLUSION IS `Build.yardRect` PLUS FOUR STUDS (it was the
+				-- literal z +44 until task 209 derived the rectangle), so the far edge has to stay
+				-- inside it or a tree can stand on a pad.
+				local _, _, yardMidZ, yardHalfZ = Build.yardRect(anchor, CFG)
+				expect(centre.Z + SIZE.Z / 2 <= yardMidZ + yardHalfZ + 4).to.equal(true)
 				-- EVERY CORNER IS ON THE FIELD.
 				expect(math.abs(centre.X - anchor.X) + SIZE.X / 2 <= half).to.equal(true)
 				expect(math.abs(centre.Z - anchor.Z) + SIZE.Z / 2 <= half).to.equal(true)

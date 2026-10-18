@@ -214,6 +214,14 @@ return function()
 			-- backups/2026-10-11_task158_intermission_20s.txt,
 			-- backups/2026-10-12_task163_intermission_10s.txt.
 			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(15)
+			-- ...AND THE WAIT ON THE OTHER SIDE OF A DRIVE (task 209). Karen, 2026-10-18: *"time for
+			-- next rount is to long make 8s max"*. This is the number she was reading: the results
+			-- panel's footer says `NEXT DRIVE IN n` and counts THIS down, and it was 25 -- measured
+			-- at 25.22 s on her own path in the live Forest Test before a line was changed. The
+			-- `<=` and not an `==` is the rule she gave ("8s max"), so a later tune down cannot
+			-- quietly fail a spec that only pins a number.
+			expect(Match.CONFIG.SCORE_SECONDS <= 8).to.equal(true)
+			expect(Match.CONFIG.SCORE_SECONDS).to.equal(8)
 			-- TASK 163: the drive signals, and the drive it is signalling is this one.
 			expect(Match.CONFIG.SIGNAL_ENABLED).to.equal(true)
 			expect(Match.CONFIG.BOARS_PER_DRIVE).to.equal(6)
