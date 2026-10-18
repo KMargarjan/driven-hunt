@@ -1566,15 +1566,44 @@ Lobby.CONFIG = {
 			MARGIN_PX = 12,
 			MAX_WIDTH = 560,
 			HEIGHT_PX = 112,
-			-- 0.68 OF THE SCREEN, under the middle: clear of the top band (the compass strip, the
-			-- objective line, the score) and clear of the bottom rail, which is where every other
-			-- thing that is not this banner already is.
-			Y_SCALE = 0.68,
+			-- 0.88 OF THE SCREEN: **BELOW THE DIALOG, AND THAT IS ARITHMETIC** (task 209 round 2).
+			--
+			-- IT WAS 0.68 AND THAT CROSSED THE DIALOG. The Reviewer measured it: with the banner now
+			-- raised on the CLICK (`PadPanel.press`), both rectangles are up at once, and at 0.68
+			-- they overlapped by **96 px on a 400x800 screen and 110 px on 1280x720** -- the
+			-- dialog's last `8 / 8` row and the hint that is its only stated way out, or the
+			-- banner's own line and bar, with no defined precedence between two opaque siblings at
+			-- the same `ZIndex`.
+			--
+			-- THE BAND THIS NUMBER HAS TO LAND IN, for a screen `H` pixels tall. The dialog is
+			-- centred, `AnchorPoint.Y` 0.5, `heightFor()` 368 tall, so it owns `H/2 - 184` to
+			-- `H/2 + 184`; this banner is `HEIGHT_PX` 112 tall about `H * Y_SCALE`. Below it and
+			-- still wholly on the screen is therefore
+			--     `0.5 + 240 / H  <=  Y_SCALE  <=  1 - 56 / H`,
+			-- which is [0.8334, 0.9222] at 720, [0.800, 0.930] at 800 and [0.7223, 0.9482] at 1080.
+			-- **0.88 is inside all three**, with 34 px of clearance at the tightest (720) and 30 px
+			-- of screen under it. `pad_panel.spec`'s *"never draws the click's banner across the
+			-- size dialog"* holds it at both of the Reviewer's viewport steps, and it reads the
+			-- LIVE frames rather than restating this arithmetic.
+			--
+			-- ONE POSITION AND NOT TWO. A banner that sat lower only while the pick was in flight
+			-- would JUMP when the server answered, which is a different moment from the dialog
+			-- closing -- two writes, two frames, one visible twitch. The band above is clear
+			-- whether the dialog is up or not, so the banner never moves.
+			--
+			-- AND IT IS STILL CLEAR OF THE BOTTOM RAIL, measured in the live Forest Test rather
+			-- than assumed: see the task-209 round-2 request.
+			Y_SCALE = 0.88,
 			BAR_PX = 10,
-			-- `PANEL.Z_INDEX`'s OWN NUMBER, not one above it. The two can never be up together -- the
-			-- dialog needs `sizing` and the banner needs one of the three states after it -- and
-			-- `Rail.CONFIG.Z_INDEX` is 16 and must stay PRESSABLE over both (`Shop.CONFIG.PANEL`'s
-			-- arrangement, and the reason the dialog is 15 rather than 17).
+			-- `PANEL.Z_INDEX`'s OWN NUMBER, not one above it, and since task 209 round 2 that is a
+			-- rule about GEOMETRY rather than about time. It used to rest on *"the two can never be
+			-- up together"* -- true until the click began raising the banner before the server had
+			-- answered. They CAN be up together now, so they are kept APART instead (`Y_SCALE`
+			-- above): equal-`ZIndex` siblings have no defined precedence in Roblox, so two opaque
+			-- rectangles that touch are a coin toss over which one the player reads.
+			-- Raising this above the dialog is NOT the way out: `Rail.CONFIG.Z_INDEX` is 16 and must
+			-- stay PRESSABLE over both (`Shop.CONFIG.PANEL`'s arrangement, and the reason the dialog
+			-- is 15 rather than 17).
 			Z_INDEX = 15,
 		},
 	},
