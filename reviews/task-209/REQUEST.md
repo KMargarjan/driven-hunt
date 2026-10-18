@@ -8,16 +8,29 @@ Code commit: 2f4a8b6
 Harness (paste, clean tree):
 
 ```
+[harness] PASS: 33/33 checks @ 2f4a8b640a0851fea1422f51cd1dfc379c2345b5 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 2f4a8b640a0851fea1422f51cd1dfc379c2345b5 (clean tree)
+```
+
+**BOTH LINES ARE THE FULL RUNS AND BOTH NAME THE CODE COMMIT**, so this round is evidenced to the
+merge gate's own standard and not only to a review round's. The Director ran them, first try: the
+Builder cannot run `test2` (`run-test2.sh` refuses while more than one Studio is open, and both DEV
+and the Forest Test are). `src/server/Match/init.luau` and `tests/server/match_live.spec.luau` are in
+`TWO_PLAYER_PATHS`, which is why the two-player line is required at all.
+
+The Builder's own scoped run at the same commit, kept because the round-2 claims below cite it
+against the FAILING run that precedes it:
+
+```
 [harness] PASS: 33/33 checks @ 2f4a8b640a0851fea1422f51cd1dfc379c2345b5 (clean tree) scope=auto:flags,hud,lobby,match
 ```
 
-A SCOPED line, for a review round (Task 113). `--scope auto` read the 12 paths this branch changed
-against `origin/main` and resolved them to four scopes — 40 spec files, not the whole 74 — so the
-`scope=` token is `auto:…` and not `all`; the token in the log was read rather than assumed (L-079).
-1,630 server and 424 client specs ran and passed (423 before this round: the new case is the 424th).
-**The merge to `main` still needs the full `test` and, because `src/server/Match/init.luau` and
-`tests/server/match_live.spec.luau` are in `TWO_PLAYER_PATHS`, the `[harness2]` line as well.** Round
-1's pair, at the code commit this round builds on:
+`--scope auto` read the 12 paths this branch changed against `origin/main` and resolved them to four
+scopes — 40 spec files, not the whole 74 — so its `scope=` token is `auto:…` and not `all`; the token
+was read out of the log rather than assumed (L-079). 1,630 server and 424 client specs passed (423
+before this round: the new case is the 424th).
+
+Round 1's pair, at the code commit this round builds on:
 
 ```
 [harness] PASS: 33/33 checks @ 9c203cb1060974cf9009a8f25c76556f43451c08 (clean tree) scope=all
