@@ -34,6 +34,7 @@ local Hud = require(PlayerScripts:WaitForChild("Hud"))
 
 local PADS = LobbyData.CONFIG.PADS
 local PANEL = PADS.PANEL
+local LEAVING = PADS.LEAVING
 
 return function()
 	describe("the truck pads' size dialog", function()
@@ -44,17 +45,41 @@ return function()
 		-- Karen's screen.
 		local restore: number? = nil
 
+		-- THE CLOCK THESE CASES HAND OVER (task 209). `setLeaving`'s third argument is the Hud's
+		-- `os.clock()` in the real client; here it is a number this file owns, which is the whole
+		-- reason the module takes one instead of reading a clock of its own -- the six-second
+		-- window after a click can be stepped over in an expectation rather than waited through.
+		local clock = 1000
+
+		-- WHERE A FRAME'S TOP AND BOTTOM EDGES LAND ON A SCREEN `height` PIXELS TALL. It reads the
+		-- LIVE frame's own `Position`, `Size` and `AnchorPoint` rather than restating `Hud.build`'s
+		-- arithmetic, so a rectangle that moves in the Hud moves here too -- and it takes the height
+		-- as an argument because a spec cannot resize the viewport and the rule has to hold at more
+		-- than the one size this machine happens to run at.
+		local function bandOf(frame: GuiObject, height: number): (number, number)
+			local tall = height * frame.Size.Y.Scale + frame.Size.Y.Offset
+			local top = height * frame.Position.Y.Scale + frame.Position.Y.Offset - frame.AnchorPoint.Y * tall
+			return top, top + tall
+		end
+
+		-- A CLICK NOW HOLDS THE BANNER UP FOR `PENDING_SECONDS` ON ITS OWN, so clearing the banner
+		-- means stepping PAST that window as well as handing back a nil state.
+		local function clearBanner()
+			clock += LEAVING.PENDING_SECONDS + 1
+			PadPanel.setLeaving(nil, nil, clock)
+		end
+
 		beforeEach(function()
 			restore = PadPanel.padIndex()
 			PadPanel.setAsk(nil)
 			-- ...AND THE BANNER, for the same reason: a case that left one up would leave Karen
 			-- reading "LEAVING FOR THE HUNT" for the rest of the session.
-			PadPanel.setLeaving(nil, nil)
+			clearBanner()
 		end)
 
 		afterEach(function()
 			PadPanel.setAsk(restore)
-			PadPanel.setLeaving(nil, nil)
+			clearBanner()
 		end)
 
 		it("is built, hidden, and the right rectangle for a phone", function()
@@ -347,6 +372,151 @@ return function()
 			expect(tracks).to.equal(1)
 			expect(corners).to.equal(1)
 			expect(strokes).to.equal(1)
+		end)
+
+		-- ---------------------------------------------------------- task 209, the instant banner
+		--
+		-- KAREN, 2026-10-18: *"also once I click I need imeadiatly show loading (Leaving dfor
+		-- hunting)"*. MEASURED on her path first (rule H): a real left click on `1 / 1`, with the
+		-- timestamp taken inside the client on `UserInputService.InputBegan` and again when
+		-- `PadLeaving.Visible` turned true, was **3.65 s** -- the pick travels to the server, waits
+		-- for the owner's 10 Hz scan, changes the pad's state, writes `DHPadMine` and comes back.
+		--
+		-- WHAT THIS CASE PROVES IS THE ACTION AND NOT THE TOUCH, which is `press`' own stated limit:
+		-- a spec cannot fire `GuiButton.Activated`. The real click is measured in the live Forest
+		-- Test and reported with the request; what belongs here is that pressing raises the banner
+		-- with NOTHING from the server, that the server's word replaces the line the moment it
+		-- arrives, and that a pick nobody answers takes the banner down again.
+		it("shows the leaving banner on the click, before the server has said anything (task 209)", function()
+			local frame = Hud.padLeaving() :: Frame
+			local sent: { any } = {}
+			PadPanel.setRemotes({
+				PadRequest = {
+					FireServer = function(_self, payload: any)
+						table.insert(sent, payload)
+					end,
+				},
+			})
+			clock += 1
+			PadPanel.setLeaving(nil, nil, clock)
+			PadPanel.setAsk(2)
+			expect(frame.Visible).to.equal(false)
+			expect(PadPanel.isLeaving()).to.equal(false)
+
+			-- THE CLICK. One message, and the banner is up in the same call -- no server, no
+			-- attribute, no scan.
+			expect(PadPanel.press(1)).to.equal(true)
+			expect(#sent).to.equal(1)
+			expect(frame.Visible).to.equal(true)
+			expect(PadPanel.isLeaving()).to.equal(true)
+			local _, line = PadPanel.leavingText()
+			expect(line).to.equal(LEAVING.SENT)
+			expect(PadPanel.stats().optimistic >= 1).to.equal(true)
+
+			-- ...AND IT SURVIVES THE PAD NO LONGER ASKING, which is what a pick the server ACCEPTS
+			-- looks like one scan later: `DHPadFirst` goes before `DHPadMine` arrives, and a banner
+			-- that fell with the dialog would blink out in exactly the gap it exists to fill.
+			PadPanel.setAsk(nil)
+			clock += 0.5
+			PadPanel.setLeaving(nil, nil, clock)
+			expect(frame.Visible).to.equal(true)
+
+			-- THE SERVER'S WORD REPLACES IT, and from then on the words are the world's.
+			clock += 0.5
+			PadPanel.setLeaving(LobbyData.PAD_STATE.COUNTDOWN, 3, clock)
+			local _, counted = PadPanel.leavingText()
+			expect(counted).to.equal(string.format(LEAVING.COUNTDOWN, 3))
+			-- ...and when the pad lets go, so does the banner: the click's own window is spent.
+			clock += 0.5
+			PadPanel.setLeaving(nil, nil, clock)
+			expect(frame.Visible).to.equal(false)
+			PadPanel.setRemotes(nil)
+		end)
+
+		it("takes the banner back down when the server never answers the click (task 209)", function()
+			local frame = Hud.padLeaving() :: Frame
+			PadPanel.setRemotes({ PadRequest = { FireServer = function() end } })
+			clock += 1
+			PadPanel.setLeaving(nil, nil, clock)
+			PadPanel.setAsk(3)
+			expect(PadPanel.press(2)).to.equal(true)
+			expect(frame.Visible).to.equal(true)
+			-- A SECOND BEFORE THE WINDOW SHUTS it is still up...
+			clock += LEAVING.PENDING_SECONDS - 1
+			PadPanel.setLeaving(nil, nil, clock)
+			expect(frame.Visible).to.equal(true)
+			-- ...and a second after it, it is not. A pick the server refuses (a pad that emptied, a
+			-- forged size) leaves no word at all, and a banner with no way down is worse than a slow
+			-- one -- the dialog is still open underneath, which is what says to pick again.
+			clock += 2
+			PadPanel.setLeaving(nil, nil, clock)
+			expect(frame.Visible).to.equal(false)
+			expect(PadPanel.isLeaving()).to.equal(false)
+			PadPanel.setRemotes(nil)
+		end)
+
+		-- ---------------------------------------------------- task 209 round 1's blocking finding
+		--
+		-- THE OPTIMISTIC BANNER PUT TWO OPAQUE RECTANGLES ON THE SCREEN AT ONCE. Before this task the
+		-- banner and the dialog shared one `Z_INDEX` on a stated premise -- `LEAVING.Z_INDEX`'s own
+		-- comment: *"The two can never be up together -- the dialog needs `sizing` and the banner
+		-- needs one of the three states after it"*. Raising the banner on the CLICK made that false:
+		-- the dialog's `Visible` is a SERVER-measured fact (`docs/design/truck-pads.md` 8.1, through
+		-- `DHPadState` + `DHPadFirst`) and the pad goes on asking until the owner's next 10 Hz scan,
+		-- so for that scan -- or for the whole of `PENDING_SECONDS` when the pick is refused and no
+		-- word ever comes -- both were up, 112 px of banner across the dialog's last button and its
+		-- one stated way out. Measured by the Reviewer at 96 px of overlap on a 400x800 screen and
+		-- 110 px on 1280x720.
+		--
+		-- THE RULE IS "THEY DO NOT INTERSECT", NOT "THE BANNER IS ON TOP". Equal-`ZIndex` siblings
+		-- have no defined precedence in Roblox, and the banner may not be raised above the dialog
+		-- either: `Rail.CONFIG.Z_INDEX` 16 has to stay pressable over both. So the fix is geometry,
+		-- and this is the case that holds it.
+		it("never draws the click's banner across the size dialog (task 209 round 2)", function()
+			local dialog = Hud.padPanel() :: Frame
+			local banner = Hud.padLeaving() :: Frame
+			-- A REMOTE THAT SWALLOWS THE PICK, because this case is about two rectangles and not
+			-- about the message: what it must NOT do is reach a real server from a spec.
+			PadPanel.setRemotes({ PadRequest = { FireServer = function() end } })
+			clock += 1
+			PadPanel.setLeaving(nil, nil, clock)
+			PadPanel.setAsk(2)
+			expect(PadPanel.press(1)).to.equal(true)
+			-- THE STATE THE CLICK CREATES, asserted rather than assumed: the dialog is STILL OPEN,
+			-- because nothing here may close it, and the banner is up over the same screen.
+			expect(dialog.Visible).to.equal(true)
+			expect(banner.Visible).to.equal(true)
+			-- ...AND THE BANNER IS NOT ABOVE IT. Written as `<=` and not as an equality so that a
+			-- later restack of the dialog is not a failure here, but raising the banner over the
+			-- dialog -- the fix this case exists to forbid -- is.
+			expect(banner.ZIndex <= dialog.ZIndex).to.equal(true)
+			-- THE TWO VIEWPORT STEPS THE REVIEWER NAMED: a 400x800 phone and a 1280x720 desktop.
+			for _, height in ipairs({ 800, 720 }) do
+				local dialogTop, dialogBottom = bandOf(dialog, height)
+				local bannerTop, bannerBottom = bandOf(banner, height)
+				expect(bannerTop >= dialogBottom or bannerBottom <= dialogTop).to.equal(true)
+				-- ...and "move it off the screen" is not a fix: the whole banner is still drawn.
+				expect(bannerTop >= 0).to.equal(true)
+				expect(bannerBottom <= height).to.equal(true)
+			end
+			PadPanel.setRemotes(nil)
+		end)
+
+		it("never lets the click's banner contradict the server (task 209)", function()
+			-- PURE, so the rule is a spec and not a screenshot: whatever the pending flag says, a
+			-- state the server HAS sent wins, and the fourth line only ever fills a silence.
+			for _, state in ipairs({ LobbyData.PAD_STATE.FILLING, LobbyData.PAD_STATE.LEAVING }) do
+				expect(PadPanel.bannerLineFor(state, nil, true)).to.equal(PadPanel.leavingLineFor(state, nil))
+				expect(PadPanel.bannerLineFor(state, nil, false)).to.equal(PadPanel.leavingLineFor(state, nil))
+			end
+			expect(PadPanel.bannerLineFor(LobbyData.PAD_STATE.COUNTDOWN, 4, true)).to.equal(
+				string.format(LEAVING.COUNTDOWN, 4)
+			)
+			-- ...AND THE FOURTH LINE IS NOT A PAD STATE. `Lobby.padLoading` must keep meaning "the
+			-- SERVER says this party is leaving"; no pad is ever in it, only this client is.
+			expect(PadPanel.bannerLineFor(nil, nil, true)).to.equal(LEAVING.SENT)
+			expect(PadPanel.bannerLineFor(nil, nil, false)).to.equal("")
+			expect(LobbyData.padLoading(LEAVING.SENT)).to.equal(false)
 		end)
 	end)
 end

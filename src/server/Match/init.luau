@@ -137,7 +137,18 @@ Match.CONFIG = {
 	-- HOW LONG THE RESULTS SCENE IS UP (task 159): the Scoring phase, unchanged in length. Karen's
 	-- scene -- the animals laid out, the four lights, everybody standing round them and the results
 	-- table on screen -- lasts exactly this, and then the next drive starts as it always did.
-	SCORE_SECONDS = 25, -- K
+	-- KAREN, 2026-10-18 ~14:20: *"time for next rount is to long make 8s max"*. THIS is the number
+	-- she was reading: the results panel's own footer says `NEXT DRIVE IN n` and counts this down
+	-- (`Hud.ScorePanel.Footer`), and it was 25. The drive ends, everybody is held at the gathering
+	-- scene, and that hold IS this row -- so it is the one wait between two drives that she spends
+	-- doing nothing at all.
+	--
+	-- THE OTHER WAIT IS `INTERMISSION_SECONDS` 15 AND IT IS DELIBERATELY LEFT ALONE, reported to the
+	-- Director rather than cut: that one is Karen's own (task 158, *"timer like 10s to find position
+	-- to stand"*), she is respawned, free and walking to her stand through it, and it is the
+	-- countdown the start card shows. Cutting the results hold is what she asked for; cutting her
+	-- stand timer is not.
+	SCORE_SECONDS = 8, -- K, 2026-10-18 ("make 8s max"); 25 from task 32 until then
 	-- THE SECOND WAY A DRIVE CAN END (task 159). Karen: *"Timer or when all beaters cross line of
 	-- hunters"*. The clock still ends every drive; this can only ever end one EARLIER, and only when
 	-- there is at least one real beater in it -- `Phase.beatersThrough` is the whole rule.

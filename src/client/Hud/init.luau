@@ -4161,9 +4161,14 @@ function Hud.renderObjective(CameraSystem)
 	-- so the banner's countdown and the line's countdown are the same number and cannot disagree
 	-- (task 153 round 2's finding: *"a marker that moved without its label told a beater the drive
 	-- was south"*). A world with no lobby is loading nobody.
+	-- ...AND THE CLOCK, since task 209. The banner now goes up on the CLICK and comes back down if
+	-- the server never answers, and the window that bounds that is measured in SECONDS -- so this
+	-- function, which already has the only clock on this tick, hands one over rather than letting a
+	-- renderer start one of its own.
 	PadPanel.setLeaving(
 		if lobbyData then Players.LocalPlayer:GetAttribute(lobbyData.PAD_MINE_ATTRIBUTE) else nil,
-		if lobby then lobby.secondsLeft else nil
+		if lobby then lobby.secondsLeft else nil,
+		os.clock()
 	)
 	local target = Objective.targetFor(team, phase, MapUi.geometry(), me, lobby)
 	local far = Objective.distanceStuds(target, me)

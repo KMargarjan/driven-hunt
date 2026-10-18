@@ -888,10 +888,54 @@ Lobby.CONFIG = {
 		--
 		-- IT IS DELIVERED POINTING ALONG ITS OWN +X, and the yard wants it pointing SOUTH down the
 		-- track, so a quarter turn. Written as a number for the same reason as the lodge's.
-		MODEL = { SCALE = 1, YAW_RADIANS = 1.5707963 },
-		-- WHERE TASK 182'S PAD WILL GO, said once, here, so that task moves nothing: 12 studs behind
-		-- the tailgate, which is where a man loading into the back would stand.
-		PAD_BEHIND_STUDS = 12,
+		--
+		-- `WIDTH_STUDS` AND `LENGTH_STUDS` ARE THE MODEL'S OWN DRAWN FOOTPRINT, and they are DATA
+		-- since task 209 rather than a sentence in the comment above, because the clearance rule
+		-- Karen asked for is written against them and a spec cannot read a comment. They are the
+		-- WORLD-AXIS extents after the quarter turn -- length along z (down the track), width along
+		-- x (across the bays) -- and both were MEASURED off the built trucks in the live Forest Test
+		-- on 2026-10-18, not read off the Creator Store page: every corner of every `BasePart` of
+		-- `Workspace.Lobby.Trucks.Truck1..3`, in world space, gives x 8.70 and z 18.46. (Truck 4
+		-- measures 9.09 x 18.57 because `settleOnGround` TILTS it to the hill; the nominal model is
+		-- what the rule is written against, and `lobby_live.spec` is what holds the built ones to
+		-- it.) The 18.5 x 7.0 x 8.7 in the paragraph above is the Creator Store's own rounding of
+		-- the same box.
+		MODEL = { SCALE = 1, YAW_RADIANS = 1.5707963, WIDTH_STUDS = 8.7, LENGTH_STUDS = 18.46 },
+		-- ---------------- HOW FAR THE TRUCK STANDS FROM ITS PAD (task 209)
+		--
+		-- KAREN, 2026-10-18 ~14:20, with a screenshot of the trucks:
+		--   *"car has to be moved back meaning left same size twice as car now is (screenshoot) so I
+		--   can easy access enter to game"*.
+		--
+		-- WHAT SHE WAS LOOKING AT, MEASURED BEFORE A LINE OF THIS WAS WRITTEN (rule H). Her
+		-- objective chevron read *"TRUCK 8 m"*: standing on pad 1, her own truck's tailgate was
+		-- **2.77 studs** from the pad's near edge and 8.77 from its centre, and the truck filled the
+		-- frame. From the south -- where her screenshot was taken -- the four trucks hid their own
+		-- pads completely: one corner of pad 1's green deck was the only pad visible, and the three
+		-- `TRUCK n` billboards were chopped into each other by the truck bodies in front of them.
+		-- The before frames are in the task-209 review request.
+		--
+		-- TWO ROWS AND NOT ONE, because the pad and the truck move APART rather than together:
+		--   * `BACK_STUDS` moves the TRUCK south, away from its pad, inside its own bay. Nothing
+		--     else reads it -- the bay, the pad, the yard's x and the billboards are all still the
+		--     bay centre's -- so "where is bay 3" still has one answer.
+		--   * `PAD_BEHIND_STUDS` moves the PAD north, toward the lodge she walks from.
+		-- Eight studs each. The sum is what she asked for: the clear gap between a pad's near edge
+		-- and its truck's drawn box is `PAD_BEHIND_STUDS - (LENGTH_STUDS / 2 - BACK_STUDS)` =
+		-- **18.75 studs**, which is **2.16 x a truck's measured width** (8.70) and 1.02 x its
+		-- length. `lobby.spec` holds that rule, and `lobby_live.spec` holds the BUILT trucks to it.
+		--
+		-- WHY NOT ONE ROW OF 16: because the yard slab is 22 studs deep each side of the bay and the
+		-- pads are laid on the ground that is MEASURED. Sixteen studs of pad movement alone would
+		-- put the pads 10 studs off the slab and run pad 1 up against the lodge's roof overhang
+		-- (east-most point x +20.5 from the anchor, measured; pad 1's west edge is +21.5). Sixteen
+		-- studs of truck movement alone would push the trucks 3 studs off the south end of the same
+		-- slab. Eight each keeps both on it.
+		BACK_STUDS = 8,
+		-- WHERE TASK 182'S PAD WENT, said once, here. From the BAY CENTRE to the pad's NEAR edge
+		-- (`Pads.centreFor`), which is a measurement and not a tailgate -- its own comment says why.
+		-- It was 12 until task 209, which is where Karen's 2.77-stud gap came from.
+		PAD_BEHIND_STUDS = 20,
 		-- ---------------- THE TYRES ON THE GROUND (task 186)
 		--
 		-- KAREN, 2026-10-14 ~17:00: *"car tyers are inside earth"*.
@@ -1165,6 +1209,18 @@ Lobby.CONFIG = {
 		-- road rather than as a grey rectangle.
 		VERGE_STUDS = 3,
 		VERGE_COLOR = Color3.fromRGB(104, 92, 68),
+		-- ---------------- THE YARD SLAB'S OWN TWO MARGINS (task 209)
+		--
+		-- They were literals inside `Build.road` and `Build.trees` -- `+ 34` in both, `44` in one and
+		-- `26` in the other -- and `Build`'s new `yardRect` is the one place that reads them now.
+		--
+		-- `YARD_END_STUDS` is the gravel past the two ENDS of the row, west of the road's centre and
+		-- east of the last bay: 34 wide, so 17 at each end. Unchanged by task 209.
+		-- `YARD_LIP_STUDS` is the gravel past the trucks' south end and past the pads' north edge.
+		-- Four: enough that a tyre and a pad corner stand ON the yard rather than at its lip, and
+		-- small enough that the slab does not run on under the lodge.
+		YARD_END_STUDS = 34,
+		YARD_LIP_STUDS = 4,
 	},
 	-- A POST-AND-RAIL FENCE down both sides of the road, ENDING SOUTH OF THE YARD so the yard, the
 	-- porch and the lodge are open.
@@ -1485,21 +1541,69 @@ Lobby.CONFIG = {
 			FILLING = "WAITING FOR THE PARTY",
 			COUNTDOWN = "THE TRUCK LEAVES IN %d",
 			GOING = "GETTING YOU TO YOUR STAND",
+			-- ...AND A FOURTH LINE THAT IS NOT A PAD STATE AT ALL (task 209). Karen, 2026-10-18:
+			-- *"also once I click I need imeadiatly show loading (Leaving dfor hunting)"*. MEASURED
+			-- on her path first (rule H): a real left click on `1 / 1`, timestamped inside the
+			-- client on `UserInputService.InputBegan` and again when `PadLeaving.Visible` turned
+			-- true, was **3.65 s** -- the pick has to reach the server, wait for the owner's 10 Hz
+			-- scan, change the pad's state, write `DHPadMine` and replicate back.
+			--
+			-- SO THE BANNER GOES UP ON THE CLICK, SAYING THIS, AND THE SERVER'S THREE WORDS REPLACE
+			-- IT THE MOMENT ONE ARRIVES. It is deliberately NOT one of the three above and
+			-- deliberately not in `PAD_STATE`: no pad is in this state, only this client is, and
+			-- `Lobby.padLoading` must keep meaning *"the server says this party is leaving"*.
+			-- `PadPanel.bannerLineFor` is where the two meet.
+			SENT = "GETTING THE TRUCK READY",
+			-- HOW LONG THE CLICK MAY HOLD THE BANNER UP ON ITS OWN. Six seconds: longer than the
+			-- 3.65 s measured above with room for a worse one, and short enough that a pick the
+			-- server REFUSES (a forged size, a pad that emptied) takes the banner down again
+			-- instead of leaving it on screen for ever. The dialog is still open underneath in that
+			-- case, which is what tells him to pick again.
+			PENDING_SECONDS = 6,
 			-- FULL WIDTH, which is the Director's word -- `UDim2.new(1, -2 * MARGIN_PX, 0, HEIGHT_PX)`
 			-- on a phone -- with `MAX_WIDTH` so a 2560 px desktop gets a banner and not a letterbox.
 			-- It is a SCALE and not a viewport read, so nothing has to re-measure on a resize.
 			MARGIN_PX = 12,
 			MAX_WIDTH = 560,
 			HEIGHT_PX = 112,
-			-- 0.68 OF THE SCREEN, under the middle: clear of the top band (the compass strip, the
-			-- objective line, the score) and clear of the bottom rail, which is where every other
-			-- thing that is not this banner already is.
-			Y_SCALE = 0.68,
+			-- 0.88 OF THE SCREEN: **BELOW THE DIALOG, AND THAT IS ARITHMETIC** (task 209 round 2).
+			--
+			-- IT WAS 0.68 AND THAT CROSSED THE DIALOG. The Reviewer measured it: with the banner now
+			-- raised on the CLICK (`PadPanel.press`), both rectangles are up at once, and at 0.68
+			-- they overlapped by **96 px on a 400x800 screen and 110 px on 1280x720** -- the
+			-- dialog's last `8 / 8` row and the hint that is its only stated way out, or the
+			-- banner's own line and bar, with no defined precedence between two opaque siblings at
+			-- the same `ZIndex`.
+			--
+			-- THE BAND THIS NUMBER HAS TO LAND IN, for a screen `H` pixels tall. The dialog is
+			-- centred, `AnchorPoint.Y` 0.5, `heightFor()` 368 tall, so it owns `H/2 - 184` to
+			-- `H/2 + 184`; this banner is `HEIGHT_PX` 112 tall about `H * Y_SCALE`. Below it and
+			-- still wholly on the screen is therefore
+			--     `0.5 + 240 / H  <=  Y_SCALE  <=  1 - 56 / H`,
+			-- which is [0.8334, 0.9222] at 720, [0.800, 0.930] at 800 and [0.7223, 0.9482] at 1080.
+			-- **0.88 is inside all three**, with 34 px of clearance at the tightest (720) and 30 px
+			-- of screen under it. `pad_panel.spec`'s *"never draws the click's banner across the
+			-- size dialog"* holds it at both of the Reviewer's viewport steps, and it reads the
+			-- LIVE frames rather than restating this arithmetic.
+			--
+			-- ONE POSITION AND NOT TWO. A banner that sat lower only while the pick was in flight
+			-- would JUMP when the server answered, which is a different moment from the dialog
+			-- closing -- two writes, two frames, one visible twitch. The band above is clear
+			-- whether the dialog is up or not, so the banner never moves.
+			--
+			-- AND IT IS STILL CLEAR OF THE BOTTOM RAIL, measured in the live Forest Test rather
+			-- than assumed: see the task-209 round-2 request.
+			Y_SCALE = 0.88,
 			BAR_PX = 10,
-			-- `PANEL.Z_INDEX`'s OWN NUMBER, not one above it. The two can never be up together -- the
-			-- dialog needs `sizing` and the banner needs one of the three states after it -- and
-			-- `Rail.CONFIG.Z_INDEX` is 16 and must stay PRESSABLE over both (`Shop.CONFIG.PANEL`'s
-			-- arrangement, and the reason the dialog is 15 rather than 17).
+			-- `PANEL.Z_INDEX`'s OWN NUMBER, not one above it, and since task 209 round 2 that is a
+			-- rule about GEOMETRY rather than about time. It used to rest on *"the two can never be
+			-- up together"* -- true until the click began raising the banner before the server had
+			-- answered. They CAN be up together now, so they are kept APART instead (`Y_SCALE`
+			-- above): equal-`ZIndex` siblings have no defined precedence in Roblox, so two opaque
+			-- rectangles that touch are a coin toss over which one the player reads.
+			-- Raising this above the dialog is NOT the way out: `Rail.CONFIG.Z_INDEX` is 16 and must
+			-- stay PRESSABLE over both (`Shop.CONFIG.PANEL`'s arrangement, and the reason the dialog
+			-- is 15 rather than 17).
 			Z_INDEX = 15,
 		},
 	},
