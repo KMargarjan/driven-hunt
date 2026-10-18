@@ -117,7 +117,10 @@ Flags.DEFAULTS = {
 		default = false,
 		owner = "ServerScriptService.Match",
 		born = "2026-09-27 task 83",
-		expires = "2026-10-18", -- 21 days: the ceiling in feature-flags.md section 12
+		expires = "2026-11-08", -- 21 days: the ceiling in feature-flags.md section 12
+		-- STILL IN USE, 2026-10-18: the Director's live playtest switch. Task 205's lobby-card
+		-- frames were shot with it on the night of 2026-10-17, because a frame of the lodge cannot
+		-- wait 30 s per drive. Re-justified for another 21 days rather than retired.
 		why = "Studio only: 3 s intermission, the first release immediately, 3 boars on the road in "
 			.. "front of the shooters. `python tools/flags.py set QUICK_TEST on`, play, then "
 			.. "`python tools/flags.py clear`. OFF is the real drive, 10 s + 20 s and boars at the "
