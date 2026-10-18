@@ -1,0 +1,59 @@
+Archived 2026-10-18, task 201 part 3 (the Designer's start card, `startcard-spec.md`).
+
+WHAT WAS RETIRED, AND WHY. `Match.quarryLines` formatted what may be shot as ONE SENTENCE --
+`WILD BOAR, POINTS: male 10, female 6, cub -10` -- and `Match.CONFIG.QUARRY_NOTE` was the line
+under it, `"a piglet COSTS you - leave them"` (Karen's own words, task 170).
+
+Karen, 2026-10-18, having played and read that card: *"this message has to be improved maybe each
+from new line ask designer more user friendly"*. The Designer's spec names the fault first
+(section 0): *"One line carries three prices. `male 10, female 6, cub -10` is the whole scoring
+system in one run of commas. Nothing can be found in it at a glance, and the one number that is
+negative is the one hiding at the end."*
+
+A sentence cannot be laid out. The card now draws a tick or a cross, a noun and a signed number in
+three columns, so the server sends the three VALUES (`Match.quarryRows`) and the client places
+them. The rule did not move: which kinds are quarry and what each is worth are still only in
+`Match.CONFIG`. Karen's *"leave them"* is not lost either -- it is the piglet row's own words on
+the card (`Drive.CONFIG.START_CARD_QUARRY_WORDS`).
+
+HOW TO PUT IT BACK: paste the function below into `src/server/Match/init.luau`, restore
+`QUARRY_NOTE = "a piglet COSTS you - leave them",` under `QUARRY`, and send
+`quarry = Match.quarryLines(config)` on the snapshot again. The specs that asserted its wording are
+in `tests/server/match_config.spec.luau` at commit 6c734af ("the quarry lines").
+
+----------------------------------------------------------------------------- the function, verbatim
+
+-- ...AND SINCE TASK 160 EACH KIND CARRIES WHAT IT IS WORTH, off `POINTS.KIND` and no second copy of
+-- it. Karen asked *"How many shoot and male is more worth then famale"*, and the one screen that
+-- answers "what may I shoot" is the one place that answer belongs -- so the card reads
+-- `WILD BOAR, POINTS: male 10, female 6, cub -10` (task 170: a piglet is a penalty) and a player
+-- learns the price before the drive starts instead of inferring it from the board afterwards.
+--
+-- `QUARRY` STILL SAYS WHICH ANIMALS ARE IN THE DRIVE AND `POINTS.KIND` SAYS WHAT EACH IS WORTH, and
+-- the two tables are not merged: `POINTS.KIND` carries a `legendary` row with no animal behind it
+-- and an `unknown` fallback, and neither of those is quarry. A kind the points table has no row for
+-- is printed with no number rather than with a wrong one.
+function Match.quarryLines(cfg): { string }
+	local lines = {}
+	local prices = (cfg.POINTS or {}).KIND or {}
+	for _, row in ipairs(cfg.QUARRY or {}) do
+		local priced = {}
+		local anyPriced = false
+		for _, kind in ipairs(row.kinds) do
+			local points = prices[kind]
+			if points ~= nil then
+				anyPriced = true
+			end
+			table.insert(priced, if points ~= nil then string.format("%s %d", kind, points) else kind)
+		end
+		-- THE WORD ONLY WHEN THERE IS A NUMBER UNDER IT. A card reading "POINTS:" over three bare
+		-- kind names would be a label for something that is not there -- which is the same lie task
+		-- 158 refused to print about the cub rule.
+		local label = if anyPriced then string.format("%s, POINTS", row.species) else row.species
+		table.insert(lines, string.format("%s: %s", label, table.concat(priced, ", ")))
+	end
+	if cfg.QUARRY_NOTE then
+		table.insert(lines, cfg.QUARRY_NOTE)
+	end
+	return lines
+end

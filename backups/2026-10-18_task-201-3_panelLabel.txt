@@ -1,0 +1,49 @@
+Archived 2026-10-18, task 201 part 3 (the Designer's start card).
+
+`panelLabel`, a local helper in `src/client/Hud/init.luau`: a `TextLabel` in `Enum.Font.Code` with a
+1 px black `UIStroke`, raised above its panel's own ZIndex (task 159's fix).
+
+WHY IT IS GONE. The START CARD was its last caller. The design system's section 2 retires both
+things it builds: *"`Enum.Font.Code` and the black text stroke leave the game. Oswald for titles and
+every number, BuilderSans for every sentence and label. Readability comes from the slate behind the
+text, never from an outline around it."* -- and fault 5 of the start-card spec is this helper by
+name: *"Monospace with a black stroke, which section 2 of the system deleted from the game."*
+
+WHAT REPLACED IT: `Style.label(parent, name, step, viewportX)`, which sets the face, the size and
+the colour from the one scale and puts every label at `parent.ZIndex + 1` -- so task 159's lesson
+(*"the panel reads, the words do not"*) is kept by the component rather than by a local helper each
+panel had to remember to call.
+
+----------------------------------------------------------------------------- the helper, verbatim
+
+	-- EVERY LABEL OF A PANEL SITS ABOVE THE PANEL'S OWN ZINDEX, AND WEARS THE BLACK OUTLINE (task
+	-- 159). THE SECOND TIME THIS REPO HAS PAID FOR IT, and the first is written down six lines into
+	-- `src/client/Hud/ReportPanel.luau`: *"with the panel opaque at ZIndex 10 and its labels at the
+	-- default 1, the whole report came out as an EMPTY BLACK RECTANGLE -- the text was being drawn
+	-- BEHIND its own background"*. Task 141 raised the SCORE PANEL and the START CARD to
+	-- `Report.CONFIG.PANEL_Z_INDEX` (15) over the scope's mask and left their labels at 1, so both
+	-- have been drawing their text behind their own translucent dark background ever since -- which
+	-- is what `.screenshots/20261011T230613Z-task159-results-scene.png` and `...230908Z...` show:
+	-- the panel reads, the words do not.
+	--
+	-- One helper, so a third panel cannot be built without it. It works under either
+	-- `ScreenGui.ZIndexBehavior`: under `Global` the absolute numbers order the whole screen, under
+	-- `Sibling` these still order correctly among their own siblings
+	-- (https://create.roblox.com/docs/reference/engine/enums/ZIndexBehavior).
+	local function panelLabel(parent: Frame, name: string, size: number): TextLabel
+		local text = Instance.new("TextLabel")
+		text.Name = name
+		text.ZIndex = parent.ZIndex + 1
+		text.BackgroundTransparency = 1
+		text.Font = Enum.Font.Code
+		text.TextSize = size
+		text.TextColor3 = Drive.CONFIG.TEXT_COLOR
+		text.TextXAlignment = Enum.TextXAlignment.Left
+		text.Text = ""
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = Drive.CONFIG.SCORE_TEXT_STROKE
+		stroke.Color = Color3.new(0, 0, 0)
+		stroke.Parent = text
+		text.Parent = parent
+		return text
+	end

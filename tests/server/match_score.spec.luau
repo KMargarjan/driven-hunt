@@ -343,15 +343,21 @@ return function()
 		-- a rollback of either one alone fails here.
 		it("states the piglet rule on the start card, in the same commit as the price", function()
 			expect(Match.CONFIG.POINTS.KIND.cub).to.equal(-10)
-			local note = Match.CONFIG.QUARRY_NOTE
-			expect(type(note)).to.equal("string")
-			-- The OLD sentence is asserted as gone. It said the opposite of today's rule.
-			expect(string.find(note, "no cub rule yet", 1, true)).to.equal(nil)
-			expect(string.find(note, "piglet", 1, true) ~= nil).to.equal(true)
-			-- ...and the card really prints the negative price, off `POINTS.KIND` and no second copy.
-			local lines = Match.quarryLines(Match.CONFIG)
-			expect(string.find(table.concat(lines, "\n"), "cub -10", 1, true) ~= nil).to.equal(true)
-			expect(lines[#lines]).to.equal(note)
+			-- THE NOTE IS GONE AND THE ROW TOOK ITS PLACE (201 part 3). `QUARRY_NOTE` was the
+			-- sentence *"a piglet COSTS you - leave them"* under a line of three prices; the card now
+			-- draws the piglet as its own row -- a cross, Karen's own *"leave them"*, and the price
+			-- with its sign. The rule is still ONLY here, and the row carries it.
+			expect(Match.CONFIG.QUARRY_NOTE).to.equal(nil)
+			local rows = Match.quarryRows(Match.CONFIG)
+			local cub = nil
+			for _, row in ipairs(rows) do
+				if row.kind == "cub" then
+					cub = row
+				end
+			end
+			expect(cub).to.be.ok()
+			expect(cub.points).to.equal(-10)
+			expect(cub.points < 0).to.equal(true)
 		end)
 	end)
 end

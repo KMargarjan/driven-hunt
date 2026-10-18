@@ -545,6 +545,28 @@ function Report.metres(studs: number?): number
 	return math.round((studs or 0) * Report.CONFIG.METRES_PER_STUD)
 end
 
+-- WHAT THE PLAYER IS TOLD THE ANIMAL IS. PURE, and the ONE place a data kind becomes a noun --
+-- the start card, the hit card and the drive report all read it, so a player cannot be shown two
+-- words for one animal.
+--
+-- `cub` -> `piglet`, AND THAT IS WHY THIS EXISTS. The Designer's start-card spec, 2026-10-18,
+-- section 0 fault 2: *"Two words for one animal. The server's kind is `cub`; `QUARRY_NOTE` calls
+-- the same animal a `piglet`. A new player reads them as two animals and shoots the one he thinks
+-- is safe."* Rule 4 of the same spec: *"`cub` is never printed. The player-facing word is
+-- `piglet`, in one place, shared with the hit card and the report."* This is that place. The data
+-- string stays `cub` everywhere it is a key (`Match.CONFIG.POINTS.KIND`, the kill record,
+-- `Report.boarImage`) -- renaming the key would be renaming the rule.
+--
+-- AN UNKNOWN KIND IS RETURNED AS IT CAME. A kind nobody has a word for is still a fact about the
+-- animal that died, and printing `boar` over it would be this function inventing one.
+function Report.kindWord(kind: string?): string
+	local word = string.lower(tostring(kind or ""))
+	if word == "cub" then
+		return "piglet"
+	end
+	return word
+end
+
 -- WHICH IMAGE AN ANIMAL GETS, AND HOW BIG. PURE, and the one place the record's `kind` becomes a
 -- picture -- so the hit card and the drive report cannot show a player two different animals for
 -- one shot. `male` and anything unknown take the boar; `female` takes the sow; `cub` takes the sow

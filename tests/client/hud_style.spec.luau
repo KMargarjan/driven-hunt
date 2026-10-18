@@ -783,4 +783,193 @@ return function()
 			expect(magazine.busy).to.equal(true)
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- the start card (surface 10)
+	--
+	-- THE DESIGNER'S `startcard-spec.md`, 2026-10-18, after Karen: *"this message has to be improved
+	-- maybe each from new line ask designer more user friendly"*. What is asserted here is the BUILD
+	-- -- that the card is the system's floating card, that its eight children are in the spec's
+	-- order, that the glyphs are Frames and not characters, and that both layouts are the numbers
+	-- the Designer measured. The WORDS are `match_client.spec`'s, per role.
+	describe("the start card", function()
+		local function card(): Frame
+			local frame = Hud.startCard()
+			expect(frame).to.be.ok()
+			return frame :: Frame
+		end
+
+		it("is the system's floating card and nothing hand-rolled", function()
+			local frame = card()
+			expect(frame.BackgroundColor3).to.equal(Style.LOOK.PANEL)
+			expect(frame.BackgroundTransparency).to.be.near(Style.CARD_T, 1e-5)
+			local corner = frame:FindFirstChildOfClass("UICorner")
+			expect(corner).to.be.ok()
+			expect(corner.CornerRadius.Offset).to.equal(Style.RADIUS.CARD)
+			local stroke = frame:FindFirstChildOfClass("UIStroke")
+			expect(stroke).to.be.ok()
+			expect(stroke.Color).to.equal(Style.LOOK.BRASS)
+			expect(stroke.Transparency).to.be.near(Style.EDGE_T.CARD, 1e-5)
+			-- OVER THE SCOPE'S MASK, which is the number task 141 settled: a panel the GAME put up
+			-- outranks a sight picture.
+			expect(frame.ZIndex).to.equal(15)
+		end)
+
+		it("lays its eight children out in the Designer's own order", function()
+			local frame = card()
+			local list = frame:FindFirstChildOfClass("UIListLayout")
+			expect(list).to.be.ok()
+			expect(list.FillDirection).to.equal(Enum.FillDirection.Vertical)
+			expect(list.SortOrder).to.equal(Enum.SortOrder.LayoutOrder)
+			-- EVERY GAP IS A `UIPadding` (the spec's section 2), so the list's own padding is 0.
+			expect(list.Padding.Offset).to.equal(0)
+			-- CENTRED, because the two hairlines are FULL-BLEED: wider than the content box, so a
+			-- centred list overhangs it equally and the line runs to the card's own edges.
+			expect(list.HorizontalAlignment).to.equal(Enum.HorizontalAlignment.Center)
+			local order = {}
+			for _, child in ipairs(frame:GetChildren()) do
+				if child:IsA("GuiObject") then
+					order[child.LayoutOrder] = child.Name
+				end
+			end
+			expect(order[1]).to.equal("Eyebrow")
+			expect(order[2]).to.equal("Role")
+			expect(order[3]).to.equal("Rule1")
+			expect(order[4]).to.equal("Section")
+			expect(order[5]).to.equal("Rows")
+			expect(order[6]).to.equal("Rule2")
+			expect(order[7]).to.equal("Countdown")
+			expect(order[8]).to.equal("Bar")
+		end)
+
+		it("draws both hairlines full-bleed, as a gradient and not a hard line", function()
+			local frame = card()
+			local pad = frame:FindFirstChildOfClass("UIPadding")
+			expect(pad).to.be.ok()
+			local side = pad.PaddingLeft.Offset
+			expect(side > 0).to.equal(true)
+			for _, name in ipairs({ "Rule1", "Rule2" }) do
+				local slot = frame:FindFirstChild(name) :: Frame
+				expect(slot).to.be.ok()
+				-- `2 x side` WIDER THAN THE CONTENT BOX: that is what full-bleed IS, and it is the
+				-- one number that has to agree with the card's own padding.
+				expect(slot.Size.X.Offset).to.equal(2 * side)
+				local line = slot:FindFirstChild("Line") :: Frame
+				expect(line).to.be.ok()
+				expect(line.BackgroundColor3).to.equal(Style.LOOK.BRASS)
+				expect(line.Size.Y.Offset).to.equal(1)
+				expect(line:FindFirstChildOfClass("UIGradient")).to.be.ok()
+			end
+		end)
+
+		it("builds every glyph as Frames, never as a character in a font", function()
+			-- §3.10: *"Icons are Frames"*. A glyph a font does not have comes back at the `.notdef`
+			-- width and draws as a rectangle, and no mockup screenshot says that happened.
+			for _, kind in ipairs(Style.GLYPHS) do
+				local probe = Instance.new("Frame")
+				local glyph = Style.glyph(probe, "Probe", kind, 16)
+				expect(glyph:IsA("Frame")).to.equal(true)
+				expect(#glyph:GetChildren() > 0).to.equal(true)
+				for _, part in ipairs(glyph:GetChildren()) do
+					if part:IsA("GuiObject") then
+						expect(part:IsA("TextLabel")).to.equal(false)
+					end
+				end
+				probe:Destroy()
+			end
+			-- ...AND THE FOUR THE CARD USES ARE ALL BUILT ON EVERY ROW, one shown (the board's
+			-- badge/tag discipline: a renderer never makes instances).
+			local rows = card():FindFirstChild("Rows")
+			expect(rows).to.be.ok()
+			local row = rows:FindFirstChild("Row1")
+			expect(row).to.be.ok()
+			local icon = row:FindFirstChild("Icon")
+			expect(icon).to.be.ok()
+			for _, kind in ipairs(Style.GLYPHS) do
+				expect(icon:FindFirstChild(kind)).to.be.ok()
+			end
+		end)
+
+		it("puts the role and the seconds at DISPLAY, at opposite corners, and nothing else there", function()
+			-- The card's two answers -- WHO AM I and HOW LONG HAVE I GOT -- and the spec's reason for
+			-- them being the only two at that step: *"they sit at opposite corners, and they never
+			-- compete"*.
+			local frame = card()
+			local viewX = Hud.viewportX()
+			local display = Style.sizeFor("DISPLAY", viewX)
+			local role = frame:FindFirstChild("Role") :: TextLabel
+			expect(role.TextSize).to.equal(display)
+			expect(role.FontFace).to.equal(Style.FONT.OSWALD_SB)
+			expect(role.TextXAlignment).to.equal(Enum.TextXAlignment.Left)
+			local seconds = frame:FindFirstChild("Countdown"):FindFirstChild("Seconds") :: TextLabel
+			expect(seconds.TextSize).to.equal(display)
+			expect(seconds.TextXAlignment).to.equal(Enum.TextXAlignment.Right)
+			expect(seconds.TextColor3).to.equal(Style.LOOK.PAPER)
+			local label = frame:FindFirstChild("Countdown"):FindFirstChild("Label") :: TextLabel
+			expect(label.TextSize).to.equal(Style.sizeFor("MICRO", viewX))
+			expect(label.TextColor3).to.equal(Style.LOOK.FIELD_MUTED)
+			-- NO OTHER LABEL IN THE CARD IS AT `DISPLAY`.
+			local atDisplay = 0
+			for _, node in ipairs(frame:GetDescendants()) do
+				if node:IsA("TextLabel") and node.TextSize == display then
+					atDisplay += 1
+				end
+			end
+			expect(atDisplay).to.equal(2)
+		end)
+
+		it("never wraps a row, and reserves the right-hand cell out of the measured width", function()
+			-- The spec's rule 2: *"A row never wraps. `TextWrapped = false`, `TextTruncate = AtEnd`.
+			-- If a row would truncate at the phone step, the right-hand cell is dropped first."*
+			local rows = card():FindFirstChild("Rows")
+			for index = 1, Drive.CONFIG.START_CARD_ROWS_MAX do
+				local text = rows:FindFirstChild(string.format("Row%d", index)):FindFirstChild("Text") :: TextLabel
+				expect(text.TextWrapped).to.equal(false)
+				expect(text.TextTruncate).to.equal(Enum.TextTruncate.AtEnd)
+				expect(text.TextXAlignment).to.equal(Enum.TextXAlignment.Left)
+			end
+			-- The arithmetic, at both steps: the text cell plus the glyph, the gap and the reserve
+			-- never exceed the content box -- which is the whole of "a row fits".
+			for _, viewX in ipairs({ 1280, 400 }) do
+				local step = Hud.startCardStep(viewX)
+				local content = Hud.startCardContentWidth(viewX)
+				expect(content).to.equal(step.width - 2 * step.side)
+				local full = Hud.startCardTextWidth(viewX, 0)
+				local reserved = Hud.startCardTextWidth(viewX, step.value)
+				expect(full + step.glyph + step.gap).to.equal(content)
+				expect(reserved + step.glyph + 2 * step.gap + step.value).to.equal(content)
+				expect(reserved < full).to.equal(true)
+			end
+		end)
+
+		it("is the Designer's two measured layouts, and the phone one is anchored left", function()
+			-- Section 3 of the spec, and these numbers were MEASURED on `startcard-mockups.png`
+			-- rather than typed: 440 x 274 centred at y 150, or 264 x 239 at the left safe margin.
+			local desktop = Hud.startCardStep(1280)
+			expect(desktop.width).to.equal(440)
+			expect(desktop.height).to.equal(274)
+			expect(desktop.top).to.equal(150)
+			expect(desktop.left).to.equal(nil)
+			local phone = Hud.startCardStep(400)
+			expect(phone.width).to.equal(264)
+			expect(phone.height).to.equal(239)
+			expect(phone.top).to.equal(124)
+			expect(phone.left).to.equal(16)
+			-- 16..280 STOPS 8 px SHORT OF THE MINIMAP (x 288..384 on a 400 px screen), which is the
+			-- whole reason it is not centred.
+			expect(phone.left + phone.width).to.equal(280)
+			-- ...and the card on screen IS one of the two, whichever step this harness is running at.
+			local frame = card()
+			local step = Hud.startCardStep(Hud.viewportX())
+			expect(frame.Size.X.Offset).to.equal(step.width)
+			expect(frame.Size.Y.Offset).to.equal(step.height)
+			TestKit.note(
+				string.format(
+					"hud_style: start card drawn %dx%d at viewport %d",
+					frame.Size.X.Offset,
+					frame.Size.Y.Offset,
+					Hud.viewportX()
+				)
+			)
+		end)
+	end)
 end

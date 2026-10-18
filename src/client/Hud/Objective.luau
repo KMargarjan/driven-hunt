@@ -236,7 +236,7 @@ Objective.CONFIG = {
 
 -- THE ONE SENTENCE, or "" for "draw nothing". PURE over the phase and the team, which is what lets
 -- `hud_clarity.spec` assert all eight rows with no drive, no world and no wire -- the shape
--- `Hud.startCardLines` and `Hud.crosshairVisible` already have, and for the same reason: a drive is
+-- `Hud.startCardRows` and `Hud.crosshairVisible` already have, and for the same reason: a drive is
 -- 600 seconds long, so no harness run reaches `Scoring`.
 --
 -- NO TEAM, NO SENTENCE, IN EVERY PHASE. A player with no team has no objective, and a line would be

@@ -28,7 +28,7 @@
 -- intermission, now 10 seconds, and the three things Karen asked for all read its one deadline --
 -- the start card ("what you can shoot" plus your role), the hunter's stand timer, and the beaters
 -- held at their line until GO. Two effects (`hold`, `free`), one set (`heldStill`), one pure rule
--- each side: `Phase.heldUserIds` says who is held, `Match.quarryLines` says what may be shot.
+-- each side: `Phase.heldUserIds` says who is held, `Match.quarryRows` says what may be shot.
 --
 -- TASK 159 ADDED THE END OF A DRIVE AND THE RESULTS SCENE, and no phase either. Karen: *"Timer or
 -- when all beaters cross line of hunters. And yes could be that all they standing around the animals
@@ -328,7 +328,6 @@ Match.CONFIG = {
 	QUARRY = {
 		{ species = "WILD BOAR", kinds = { "male", "female", "cub" } },
 	},
-	QUARRY_NOTE = "a piglet COSTS you - leave them",
 	PLACE_TIMEOUT = 5,
 	STAND_HEIGHT_STUDS = 3.5, -- how far above a post's top face a character is put down
 	-- HOW BIG THE STAND IS, AS AN AREA (task 171). 12 studs (~3.4 m) is the radius task 166
@@ -440,7 +439,7 @@ Match.CONFIG = {
 			-- NEGATIVE SINCE TASK 170, AND THAT DAY HAS COME: Karen, 2026-10-12, shooting a piglet
 			-- is a penalty. Task 160 left this row at `+2` with a promise -- *"The day Karen
 			-- protects cubs (her doc says 'NOT piglets/cubs') this row goes to 0 or negative and
-			-- that sentence changes in the same commit"* -- and `QUARRY_NOTE` two screens up changed
+			-- that sentence changes in the same commit"* -- and `QUARRY_NOTE` (retired in 201 part 3) changed
 			-- in this one.
 			--
 			-- `-10` AND NOT `0`: one whole male, the same figure `SAFETY_PENALTY` uses for the other
@@ -570,37 +569,34 @@ Match.WORLD_OVERRIDABLE = table.freeze({
 -- for "what can I shoot" and the client holds no second copy of it.
 -- ...AND SINCE TASK 160 EACH KIND CARRIES WHAT IT IS WORTH, off `POINTS.KIND` and no second copy of
 -- it. Karen asked *"How many shoot and male is more worth then famale"*, and the one screen that
--- answers "what may I shoot" is the one place that answer belongs -- so the card reads
--- `WILD BOAR, POINTS: male 10, female 6, cub -10` (task 170: a piglet is a penalty) and a player
--- learns the price before the drive starts instead of inferring it from the board afterwards.
+-- answers "what may I shoot" is the one place that answer belongs.
+--
+-- IT SENDS ROWS AND NOT A SENTENCE SINCE TASK 201 PART 3, and that is the whole change here. It
+-- used to format `WILD BOAR, POINTS: male 10, female 6, cub -10` -- one line carrying three prices,
+-- which is the first fault the Designer's start-card spec names (`startcard-spec.md` section 0,
+-- after Karen on 2026-10-18: *"this message has to be improved maybe each from new line ask designer
+-- more user friendly"*). A LINE CANNOT BE LAID OUT: a card that wants a tick, a noun and a signed
+-- number in three columns has to have three values, so the server sends the three values. The RULE
+-- is still only here -- which kinds are quarry and what each is worth -- and the client still holds
+-- no copy of it; what moved to the client is where the number is drawn. The old function, its
+-- `QUARRY_NOTE` and the specs that asserted its wording are in
+-- `backups/2026-10-18_task-201-3_quarry-lines.txt` (rule 7).
 --
 -- `QUARRY` STILL SAYS WHICH ANIMALS ARE IN THE DRIVE AND `POINTS.KIND` SAYS WHAT EACH IS WORTH, and
 -- the two tables are not merged: `POINTS.KIND` carries a `legendary` row with no animal behind it
 -- and an `unknown` fallback, and neither of those is quarry. A kind the points table has no row for
--- is printed with no number rather than with a wrong one.
-function Match.quarryLines(cfg): { string }
-	local lines = {}
+-- is sent with `points = nil` rather than with a wrong number, and the card then draws the row with
+-- no value cell -- the same discipline as the old label's *"THE WORD ONLY WHEN THERE IS A NUMBER
+-- UNDER IT"*.
+function Match.quarryRows(cfg): { { species: string, kind: string, points: number? } }
+	local rows = {}
 	local prices = (cfg.POINTS or {}).KIND or {}
 	for _, row in ipairs(cfg.QUARRY or {}) do
-		local priced = {}
-		local anyPriced = false
 		for _, kind in ipairs(row.kinds) do
-			local points = prices[kind]
-			if points ~= nil then
-				anyPriced = true
-			end
-			table.insert(priced, if points ~= nil then string.format("%s %d", kind, points) else kind)
+			table.insert(rows, { species = row.species, kind = kind, points = prices[kind] })
 		end
-		-- THE WORD ONLY WHEN THERE IS A NUMBER UNDER IT. A card reading "POINTS:" over three bare
-		-- kind names would be a label for something that is not there -- which is the same lie task
-		-- 158 refused to print about the cub rule.
-		local label = if anyPriced then string.format("%s, POINTS", row.species) else row.species
-		table.insert(lines, string.format("%s: %s", label, table.concat(priced, ", ")))
 	end
-	if cfg.QUARRY_NOTE then
-		table.insert(lines, cfg.QUARRY_NOTE)
-	end
-	return lines
+	return rows
 end
 
 -- PURE, and exported so the spec drives every branch without a world (design section 4.2.2).
@@ -1012,10 +1008,16 @@ function Match.snapshot()
 		boarsReleased = state.boarsReleased,
 		boarsLeft = math.max(0, config.BOARS_PER_DRIVE - state.boarsAccounted),
 		waitingFor = Phase.waitingFor(state, config),
-		-- WHAT MAY BE SHOT IN THIS DRIVE, in the server's own words (task 158): the start card's
-		-- quarry lines. The same shape as `waitingFor` right above it, and for the same reason --
-		-- the rule is the server's and the Hud only draws it.
-		quarry = Match.quarryLines(config),
+		-- WHAT MAY BE SHOT IN THIS DRIVE (task 158), AS ROWS SINCE 201 PART 3: one entry per kind,
+		-- carrying what that kind is worth. The rule is the server's and the Hud only lays it out.
+		quarry = Match.quarryRows(config),
+		-- WHAT SHOOTING A PERSON COSTS, so the start card can price the other thing you must not
+		-- shoot. The Designer's spec adds that row for a reason worth keeping: *"`SAFETY_PENALTY =
+		-- -10` and a tie to a tree for the rest of the drive is a real rule the card never
+		-- mentioned, and the beaters are walking toward the hunter while this card is up"*. It is
+		-- sent rather than typed into the client for the same reason the quarry's points are: there
+		-- is one copy of a rule and it is this one.
+		safetyPenalty = config.POINTS.SAFETY_PENALTY,
 		-- WHETHER THIS BUILD HAS MONEY IN IT AT ALL (task 170, round 2). Absent means no, and absent is
 		-- what the game before task 170 sends -- so a client reading this field is byte-identical to one
 		-- that never heard of it.

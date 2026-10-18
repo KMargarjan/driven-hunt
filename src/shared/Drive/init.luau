@@ -57,6 +57,15 @@ export type ScoreRow = {
 	earned: number?, -- what THIS drive paid him. MAY BE NEGATIVE (a piglet costs points)
 }
 
+-- ONE KIND THE DRIVE ALLOWS, AND ITS PRICE. `kind` is the SERVER's data string (`male`, `female`,
+-- `cub`); the player-facing noun is `Report.kindWord`'s and the start card's own copy below -- the
+-- Designer's rule 4: *"`cub` is never printed. The player-facing word is `piglet`"*.
+export type QuarryRow = {
+	species: string,
+	kind: string,
+	points: number?,
+}
+
 export type MatchSnapshot = {
 	phase: PhaseName,
 	phaseEndsAt: number, -- SERVER TIME (Workspace:GetServerTimeNow), never a duration
@@ -64,10 +73,15 @@ export type MatchSnapshot = {
 	boarsReleased: number,
 	boarsLeft: number,
 	waitingFor: { string }, -- why it is Waiting: "players", or the missing tag names
-	-- WHAT MAY BE SHOT IN THIS DRIVE, in the server's own words -- the start card's lines
-	-- (task 158). The RULE is the server's (`Match.quarryLines`); this side only lays it out, so a
-	-- client holds no second copy of what is legal. Same shape as `waitingFor` above.
-	quarry: { string },
+	-- WHAT MAY BE SHOT IN THIS DRIVE -- the start card's rows (task 158, ROWS since 201 part 3).
+	-- The RULE is the server's (`Match.quarryRows`); this side only lays it out, so a client holds
+	-- no second copy of what is legal. One entry per KIND, with what that kind is worth: a `nil`
+	-- `points` means the server has no price for it and the card draws the row with no number.
+	quarry: { QuarryRow },
+	-- WHAT SHOOTING A PERSON COSTS (`Match.CONFIG.POINTS.SAFETY_PENALTY`), for the start card's
+	-- last row. ABSENT means the server never sent it, and the card then draws no person row --
+	-- never a typed-in -10, which would be a second copy of a penalty.
+	safetyPenalty: number?,
 	rows: { ScoreRow },
 	-- WHETHER THIS BUILD HAS MONEY IN IT (task 170, round 2 of the gate). ONE fact for the whole
 	-- board, not a row field, because whether money exists is a property of the server. ABSENT means
@@ -216,7 +230,7 @@ Drive.CONFIG = {
 	-- way to draw one.
 	SCORE_HUNTERS_HEADING = "HUNTERS",
 	SCORE_BEATERS_HEADING = "BEATERS",
-	-- Drawn ONLY when that list has a row in it -- the rule `Match.quarryLines` already applies to
+	-- Drawn ONLY when that list has a row in it -- the rule the retired `Match.quarryLines` applied to
 	-- its own POINTS label: *"THE WORD ONLY WHEN THERE IS A NUMBER UNDER IT"*. A row has no team
 	-- when a player joined outside `Assigning`/`Running`, which is a real state and not an error.
 	SCORE_OTHERS_HEADING = "OTHERS",
@@ -246,27 +260,89 @@ Drive.CONFIG = {
 	-- band's own ZIndex so it covers rather than is covered.
 	TIED_TOP_OFFSET = 96,
 
-	-- THE START CARD (task 158). Karen: *"we just need to at the begining what they can shoot and
-	-- timer when start"*, *"Simple, readable, a few seconds, no tutorial"*. LAYOUT AND WORDING
-	-- ONLY: the quarry lines themselves arrive on the snapshot, because what is legal is a rule and
-	-- rules are the server's.
+	-- ---------------------------------------------------------------- THE START CARD
+	--
+	-- Task 158, REBUILT TO THE DESIGNER'S OWN SPEC IN 201 PART 3 (`startcard-spec.md`, 2026-10-18,
+	-- an amendment to `design-system.md` surface 10). Karen, having played that day: *"this message
+	-- has to be improved maybe each from new line ask designer more user friendly"*.
+	--
+	-- WHAT IS HERE IS WORDS AND SIZES -- the card's COPY and its two layouts. Every colour, face,
+	-- radius, duration and opacity it draws with is `Style`'s, and the one rule on it (what may be
+	-- shot, and what it is worth) is the SERVER's, on the snapshot. The old block this replaces --
+	-- a 440-wide panel of four 24 px lines in `Enum.Font.Code` over `Color3.fromRGB(16, 18, 20)` --
+	-- is in `backups/2026-10-18_task-201-3_quarry-lines.txt`.
+	--
+	-- THE CARD IS 274 TALL AND NOT "auto, max 220" (the spec's amendment 1 to the system's section
+	-- 4.1): eight children will not live in 220 at this type scale. It is up ONLY in `Assigning`,
+	-- when every player is being placed and nobody is aiming, which is the same argument that
+	-- exempts the results board from section 4.3's *"the centre 240 x 240 is never covered"*.
 	START_CARD_WIDTH = 440,
-	START_CARD_TITLE_SIZE = 24,
-	START_CARD_TEXT_SIZE = 18,
-	START_CARD_LINE_HEIGHT = 24,
-	-- One role line plus the quarry's own. Four is two more than today's rule needs, which is the
-	-- room red deer and a licence will want (Karen's doc) without a second layout.
-	START_CARD_LINES_MAX = 4,
-	START_CARD_COLOR = Color3.fromRGB(16, 18, 20),
-	START_CARD_TRANSPARENCY = 0.25,
-	-- UPPER MIDDLE, not dead centre: the centre of the screen is the crosshair and the sight
-	-- picture, and this is up for ten seconds while a hunter is walking to his stand.
-	START_CARD_TOP_SCALE = 0.22,
-	START_CARD_HEADING = "YOU MAY SHOOT",
-	-- The one line that counts down, in the words of the role it is for.
+	START_CARD_HEIGHT = 274,
+	START_CARD_TOP = 150,
+	-- ON A PHONE IT IS 264 WIDE AND SITS AT THE LEFT SAFE MARGIN, not centred (amendment 2). A
+	-- centred card runs x 16..384 on a 400 px screen: it buries the minimap (x 288..384) and sits
+	-- under the rail, which draws OVER it. 16..280 stops 8 px short of the map, so a hunter keeps
+	-- the map he needs to find his stand while the ten seconds run.
+	START_CARD_WIDTH_PHONE = 264,
+	START_CARD_HEIGHT_PHONE = 239,
+	START_CARD_TOP_PHONE = 124,
+	START_CARD_LEFT_PHONE = 16,
+	-- ONE IDEA PER LINE, AND FOUR LINES IS THE CEILING for a three-second read (the spec's section
+	-- 1.4). Both roles fit it, which is why there is no fifth row and no second layout.
+	START_CARD_ROWS_MAX = 4,
+	START_CARD_ROW_H = 24,
+	START_CARD_ROW_H_PHONE = 21,
+
+	-- THE EYEBROW AND THE ROLE LINE. `YOU ARE A HUNTER` is unchanged from task 158 and from
+	-- `Hud.roleWord`: it is the one line Karen already approved and it is the card's first second.
+	START_CARD_EYEBROW = "DRIVE %d",
+	START_CARD_ROLE = "YOU ARE A %s",
+	-- THE SECTION HEAD, one per role. The same two words start both -- a player who has played the
+	-- other side finds the list in the same place. `YOU MAY SHOOT` (task 158's heading) was wrong
+	-- over a list whose last two rows are things you must NOT shoot.
+	START_CARD_SECTION_HUNTER = "WHAT TO SHOOT",
+	START_CARD_SECTION_BEATER = "WHAT TO DO",
+
+	-- WHAT EACH QUARRY KIND IS CALLED ON THIS CARD. The KINDS and their POINTS arrive on the
+	-- snapshot (`Match.quarryRows`) -- this is only the copy drawn beside the number.
+	--
+	-- `piglet`, NEVER `cub` (the spec's rule 4). `Report.kindWord` is the one place that mapping
+	-- lives and the fallback below reads it, so a kind with no row here is still never printed as
+	-- `cub`. Karen's own *"leave them"* is kept from the retired `QUARRY_NOTE`, because it is the
+	-- INSTRUCTION: the number says what a piglet costs, the words say what to do about it.
+	START_CARD_QUARRY_WORDS = {
+		male = "Male boar",
+		female = "Female boar",
+		cub = "Piglet - leave them",
+	},
+	-- THE ROW THE DESIGNER ADDED, and the only one whose price is not quarry: a tie to a tree and
+	-- `SAFETY_PENALTY` were a real rule the card never mentioned, and the beaters are walking
+	-- TOWARD the hunter while this card is up. Drawn only when the server sent the number.
+	START_CARD_PERSON = "A person",
+
+	-- THE BEATER'S FOUR ROWS, in his own order. He asks "what may I shoot" too, so the answer is in
+	-- the same slot on his card -- and the amber tag says WHY rather than "never": the licence is
+	-- 250 coins and three hunts away in the shop, and amber already means *later / holding*.
+	START_CARD_BEATER_ROWS = {
+		{ glyph = "cross", text = "You do not shoot", tag = "NEEDS LICENCE" },
+		{ glyph = "chevron", text = "Push the boars to the hunters" },
+		{ glyph = "horn", text = "Click your horn as you walk" },
+		-- Karen's rule: *"when beater cross the line of hunter it's done for him"*. The cost is not
+		-- points, so the right-hand cell says the cost in WORDS.
+		{ glyph = "cross", text = "Do not cross their line", word = "DRIVE OVER" },
+	},
+
+	-- THE LAST LINE IS AN INSTRUCTION ON BOTH CARDS, and it is the same deadline either way --
+	-- which is what task 158's two labels obscured. `WAIT FOR THE HORN` is the phrase the objective
+	-- line already shows a beater in `Assigning`.
 	START_CARD_HUNTER_TIMER = "GET TO YOUR STAND",
-	START_CARD_BEATER_TIMER = "DRIVE STARTS IN",
-	START_CARD_TIMER_COLOR = Color3.fromRGB(255, 232, 150),
+	START_CARD_BEATER_TIMER = "WAIT FOR THE HORN",
+	-- THE BAR HAS NO LENGTH CONSTANT ON PURPOSE. The phase is `Match.CONFIG.INTERMISSION_SECONDS`
+	-- long -- 15 today, 20 and 10 before that -- and the client is not told it. A typed 10 here
+	-- would draw a bar that is two thirds full on the frame the card appears. So the renderer
+	-- LATCHES the largest `secondsLeft` it has seen since this card went up and fills against that
+	-- (`Hud.startCardBarScale`): the first frame is full by construction, whatever the phase's
+	-- length is, and the latch is cleared with the card.
 
 	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
 	DRIVER_COLOR = Color3.fromRGB(90, 150, 255), -- Bright blue, the Drivers team colour
