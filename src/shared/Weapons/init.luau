@@ -62,6 +62,12 @@ export type Row = {
 	GRAVITY_SCALE: { [string]: number },
 	AMMO_KINDS: { string },
 	AMMO_LABEL: { [string]: string },
+	-- WHICH `Style.glyph` THE HUD'S AMMO CHIP DRAWS FOR EACH LOAD (task 204), and OPTIONAL: a gun
+	-- whose row has none gets the chip it has always had. It sits beside `AMMO_LABEL` and for
+	-- exactly the same reason -- the wire says `Slug` for BOTH guns, because `Boar.Wound.damageFor`
+	-- branches on that string, so a glyph keyed off the wire word alone would draw a shotgun shell
+	-- for a .416 Rigby cartridge. The row is where a gun says what its own ammunition looks like.
+	AMMO_GLYPH: { [string]: string }?,
 	INITIAL_AMMO: string,
 	START_RESERVE: { [string]: number },
 
@@ -124,6 +130,8 @@ Weapons.ROWS = {
 		GRAVITY_SCALE = C.GRAVITY_SCALE,
 		AMMO_KINDS = { "Slug", "Buck" },
 		AMMO_LABEL = { Slug = "SLUG", Buck = "BUCK" },
+		-- THE ONLY GUN IN THE GAME THAT HAS TWO LOADS, so the only row that carries this (task 204).
+		AMMO_GLYPH = { Slug = "slug", Buck = "buck" },
 		INITIAL_AMMO = C.INITIAL_AMMO,
 		START_RESERVE = C.START_RESERVE,
 		BARRELS = C.BARRELS,

@@ -14,20 +14,36 @@
 -- because an id is not a number and `tools/pose.py` tunes numbers; `fire.volume` in `poses.json`
 -- holds the three volumes, so the Director can balance them live while listening. AN EMPTY ID PLAYS NOTHING
 -- and is not an error: see `Config.SOUND_SHOT_ID`.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
+
+-- THE ONE ANSWER TO "WHAT DOES THIS LOAD DO TO THE SHOT" (task 204). The camera reads the same
+-- function for the kick, so the gun cannot sound like a slug and kick like buckshot.
+local Data = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 
 local Sound = {}
 
 local played = { shot = 0, open = 0, close = 0, bolt = 0, magazine = 0, dry = 0 }
+-- WHAT THE LAST SHOT ACTUALLY CAME OUT AT (task 204): the id, the resolved Volume and the resolved
+-- PlaybackSpeed. A COUNT cannot tell a slug from buckshot -- both are one shot -- and Karen's
+-- complaint is about the difference, so the difference is what a spec has to be able to read. It is
+-- written where the `Sound` is built, from the very numbers handed to the engine, rather than
+-- recomputed beside it.
+local lastShot: { [string]: any } = {}
 
 -- So a spec can hear what was asked for without a speaker.
 function Sound.stats()
 	return table.clone(played)
 end
 
+function Sound.lastShot()
+	return table.clone(lastShot)
+end
+
 function Sound.resetStats()
 	played = { shot = 0, open = 0, close = 0, bolt = 0, magazine = 0, dry = 0 }
+	lastShot = {}
 end
 
 -- WHICH SOUND THIS WEAPON MAKES FOR THIS EVENT, and nil when it has nothing of its own (task 142).
@@ -70,7 +86,10 @@ local function cutAfter(made: Sound, cut: number?, fade: number?)
 	end)
 end
 
-local function play(kind: string, config, id: string?, volume: number?, voice: any?): boolean
+-- `pitch` IS THE PLAYBACK SPEED THE CALLER RESOLVED (task 204), and nil means "whatever the voice
+-- says", which is every caller but the shot. One number, applied at the one site that builds the
+-- `Sound`: a second place that set `PlaybackSpeed` would be a second answer to how deep the gun is.
+local function play(kind: string, config, id: string?, volume: number?, voice: any?, pitch: number?): boolean
 	-- NO CONFIG, NO SOUND. Task 112 asked the gun flag here as well, which kept the two clicks
 	-- off the gun Karen was playing while it was still flagged; the flag retired with that gun in
 	-- task 114, and what is left is the honest check -- a caller with no resolved config has no
@@ -87,8 +106,12 @@ local function play(kind: string, config, id: string?, volume: number?, voice: a
 	local made = Instance.new("Sound")
 	made.SoundId = id
 	made.Volume = volume or 0.5
-	if voice ~= nil and voice.pitch ~= nil then
-		made.PlaybackSpeed = voice.pitch
+	local speed = pitch or (voice ~= nil and voice.pitch) or nil
+	if speed ~= nil then
+		made.PlaybackSpeed = speed
+	end
+	if kind == "shot" then
+		lastShot = { id = id, volume = made.Volume, pitch = made.PlaybackSpeed }
 	end
 	made.Parent = SoundService
 	made:Play()
@@ -103,11 +126,26 @@ end
 -- volumes come from `poses.json` and change on the next shot while a session runs.
 -- `row` IS THE WEAPON (task 142) and is optional: a caller that does not pass one gets the camera
 -- config's single id, which is what the shotgun has always used.
-function Sound.shot(config, row: any?): boolean
+-- `ammo` IS THE LOAD THAT WENT OFF (task 204). Karen, 2026-10-18: *"we need to change shooting sound
+-- and power to shotgun when slugs and shells is used slugs are harder"*. A slug is LOUDER and
+-- DEEPER, and both are one multiplier off `fire.loads` in `poses.json` -- the same block
+-- `Camera.kick` scales its spring by, so the ear and the eye are told the same thing.
+--
+-- NO NEW SOUND WAS UPLOADED AND NONE WAS NEEDED. The dispatch allows a low-frequency layer "if the
+-- game already has a suitable sound", and it does not: the other four voices are Studio's own
+-- `switch`, `switch3` and `clickfast` wavs, which are mechanism clicks and not a boom. Dropping the
+-- sample's `PlaybackSpeed` lowers its whole spectrum AND stretches it -- the shotgun's voice has no
+-- `cut`, so the full report plays -- which is what a heavier charge sounds like.
+function Sound.shot(config, row: any?, ammo: string?): boolean
 	local volume = config ~= nil and config.FIRE ~= nil and config.FIRE.volume or nil
 	local voice = Sound.voiceFor(row, "shot")
 	local id = if voice ~= nil then voice.id else (config and config.SOUND_SHOT_ID)
-	return play("shot", config, id, volume and volume.shot, voice)
+	local load = Data.loadFor(config and config.FIRE, ammo)
+	local base = volume and volume.shot
+	-- THE VOICE'S OWN PITCH IS THE BASE, not 1: the rifle's sample is already played slow, and a
+	-- load scale has to multiply what the weapon says rather than replace it.
+	local pitch = ((voice ~= nil and voice.pitch) or 1) * load.pitchScale
+	return play("shot", config, id, base and base * load.volumeScale, voice, pitch)
 end
 
 -- THE BOLT AND THE MAGAZINE (task 142), which only a weapon that has them ever asks for. A row with

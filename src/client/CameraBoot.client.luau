@@ -117,15 +117,22 @@ if weaponModule then
 	-- comes out of the pipe on screen instead of the hidden gun at the character's shoulder. Neither
 	-- owner requires the other -- this file is the only place that knows both, exactly as the aim
 	-- source above.
-	Weapon.Fired:Connect(function()
-		Camera.kick()
+	--
+	-- ...AND WHICH LOAD WENT OFF SINCE TASK 204. Karen: *"slugs are harder"*. `shot.ammo` is the
+	-- SERVER's own word for what left the barrel -- the field `ShotFired` has carried since task
+	-- 149b -- and not the chip's `state.ammo`, which is what the NEXT load will be: a player who
+	-- presses X between the trigger and the shot must not get the other load's kick. Both owners are
+	-- handed the same string, exactly as both are handed the same resolved config.
+	Weapon.Fired:Connect(function(shot)
+		local ammo = if type(shot) == "table" then shot.ammo else nil
+		Camera.kick(ammo)
 		-- THE SHOT'S NOISE (task 112). `Weapon.Sound` owns it; this file is still the only place that
 		-- knows both owners, exactly as the kick and the muzzle provider are.
 		-- ...AND IT IS THE WEAPON'S OWN NOISE SINCE TASK 142. Karen: *"for rifle has to be another
 		-- gun fire sound"*. The id comes off the row the DRAWN gun says it is, the same read the
 		-- optics source above makes, so a switch changes the voice on the same frame it changes the
 		-- gun.
-		Weapon.Sound.shot(Camera.poseConfig(), Weapons.row(Camera.Viewmodel.weaponId()))
+		Weapon.Sound.shot(Camera.poseConfig(), Weapons.row(Camera.Viewmodel.weaponId()), ammo)
 	end)
 	-- ...AND THE SHOT THAT DID NOT HAPPEN (task 171). The server refused it -- a beater in the line,
 	-- a hunter off his stand, a species with no licence -- and said so in `snapshot.refused`. The

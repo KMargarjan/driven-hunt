@@ -467,11 +467,15 @@ function Camera.fire(barrel: number?): boolean
 	return Viewmodel.flash(barrel, config)
 end
 
-function Camera.kick()
+-- `ammo` IS THE LOAD THAT WENT OFF (task 204). Karen, 2026-10-18: *"slugs are harder"*. It arrives
+-- on the server's own `ShotFired` payload -- the field has been on that wire since task 149b -- so
+-- the kick is scaled by what actually left the barrel rather than by what the chip says will be
+-- loaded next. nil is the neutral load, which is every caller written before this task.
+function Camera.kick(ammo: string?)
 	-- THE RESOLVED CONFIG, so `fire` can be tuned live like every other pose number (task 98) -- and
 	-- FOR THE WEAPON ON SCREEN since task 183 (see `Camera.fireConfig`).
 	local before = state
-	state = Mode.kick(state, Camera.fireConfig())
+	state = Mode.kick(state, Poses.forLoad(Camera.fireConfig(), ammo))
 	if state ~= before then
 		stats.recoilKicks += 1
 	end

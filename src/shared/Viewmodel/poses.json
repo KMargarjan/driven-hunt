@@ -416,6 +416,18 @@
         "frequencyHz": 2.8,
         "gunBackStuds": 0.28,
         "gunPitchDeg": 8.0,
+        "loads": {
+          "Buck": {
+            "pitchScale": 1.0,
+            "recoilScale": 1.0,
+            "volumeScale": 1.0
+          },
+          "Slug": {
+            "pitchScale": 0.82,
+            "recoilScale": 1.45,
+            "volumeScale": 1.25
+          }
+        },
         "maxCamPitchDeg": 3.5,
         "maxGunBackStuds": 0.45,
         "maxGunPitchDeg": 12.5,

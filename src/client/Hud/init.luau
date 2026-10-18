@@ -126,6 +126,8 @@ local crosshair: Frame? = nil
 -- rather than fight for it. `readout` is gone as a `TextLabel`; `Hud.readoutText` now answers
 -- `readoutWords`, which is the chip's own content as one line.
 local ammoChip: Frame? = nil
+-- The two shells the chip can wear, by `Style.glyph` kind. Built once with the chip; see §3.10.
+local ammoShells: { [string]: Frame } = {}
 local ammoPips: { Frame } = {}
 local ammoValue: TextLabel? = nil
 local ammoCaption: TextLabel? = nil
@@ -2172,6 +2174,29 @@ local function build(): ScreenGui
 	ammoRow.Padding = UDim.new(0, 7)
 	ammoRow.Parent = ammoBodyRow
 
+	-- THE SHELL (task 204), AT THE HEAD OF THE ROW. Karen, 2026-10-18: *"please diferenciate slug
+	-- from shells"*. BOTH are built and ONE is shown -- the discipline the start card's row glyphs
+	-- and the chamber pips below already use (*"every glyph is BUILT and one is SHOWN"*) -- because
+	-- a chip that destroys and rebuilds a Frame every time the player presses X is a chip that
+	-- flickers, and `Hud.renderCorner` runs once a frame.
+	--
+	-- `LayoutOrder = 0` puts it BEFORE `Pip1`, so the row reads left to right as "this shell, in
+	-- these chambers, this many left, called this". The box is sized by `Style.glyph` from one `px`,
+	-- which is the phone step on a phone and the desktop step otherwise -- the same single number
+	-- the rest of §3.10 is drawn from.
+	table.clear(ammoShells)
+	for _, kind in ipairs({ "slug", "buck" }) do
+		local shell = Style.glyph(
+			ammoBodyRow,
+			"Shell" .. string.upper(string.sub(kind, 1, 1)) .. string.sub(kind, 2),
+			kind,
+			if statusPhone then 14 else 16
+		)
+		shell.LayoutOrder = 0
+		shell.Visible = false
+		ammoShells[kind] = shell
+	end
+
 	-- THE PIPS, BUILT ONCE AND SHOWN AS THE WEAPON NEEDS THEM. `PIP_MAX` is a ceiling and not a
 	-- claim about any gun: a break-action has two chambers and the rifle's magazine shows three, and
 	-- a wider gun later draws more of the same Frames rather than a different readout.
@@ -3748,6 +3773,16 @@ function Hud.hornBlowLatch(
 	return value, true, if value ~= nil then now else blowAt
 end
 
+-- THE LOAD'S OWN ACCENT, one entry per `Style.glyph` shell kind (task 204). It is the HULL colour
+-- the glyph is drawn in, so the word under a green shell is green and the word under a red one is
+-- red: the chip says "slug" twice, in two ways, and a player who reads neither still has the
+-- cluster against the single nose. A load with no shell keeps `FIELD_MUTED`, which is the caption
+-- every chip wore before this task.
+Hud.AMMO_ACCENT = {
+	slug = Style.SHELL.slug.hull,
+	buck = Style.SHELL.buck.hull,
+}
+
 -- WHAT THE AMMO CHIP SHOWS, AS DATA (§3.10 chamber pips). PURE and exported for the reason
 -- `Hud.readoutFor` is: a spec can hand it a state it owns and assert the shape with no gun in the
 -- world. `pips` is one entry per chamber -- "live", "spent" or "empty" -- `selected` is which one
@@ -3764,6 +3799,7 @@ function Hud.ammoChipFor(
 	selected: number?,
 	pocket: number,
 	label: string,
+	glyph: string?,
 	busy: boolean,
 }
 	local resolved = row or Weapons.row(state.weapon)
@@ -3790,11 +3826,16 @@ function Hud.ammoChipFor(
 		selected = state.selected
 	end
 	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[state.ammo]) or string.upper(state.ammo)
+	-- WHICH SHELL THIS LOAD IS (task 204), off the WEAPON'S row and not off the wire word: the wire
+	-- says `Slug` for both guns, and the rifle's row names no glyph at all, so its chip is exactly
+	-- the chip it has always had. nil is "draw no shell", never a wrong one.
+	local glyph = if resolved ~= nil and resolved.AMMO_GLYPH ~= nil then resolved.AMMO_GLYPH[state.ammo] else nil
 	return {
 		pips = pips,
 		selected = selected,
 		pocket = state.reserve[state.ammo] or 0,
 		label = label,
+		glyph = glyph,
 		busy = state.busyFor > 0,
 	}
 end
@@ -3902,8 +3943,15 @@ function Hud.renderCorner(Weapon)
 	if ammoValue then
 		(ammoValue :: TextLabel).Text = tostring(data.pocket)
 	end
+	-- THE SHELL AND THE WORD SAY THE SAME THING (task 204): one glyph visible, and the word in that
+	-- load's own hull colour. A row with no `AMMO_GLYPH` -- the rifle's -- shows neither shell and
+	-- keeps the muted caption it has always had, which is why `Hud.AMMO_ACCENT` falls back to it.
+	for kind, shell in pairs(ammoShells) do
+		shell.Visible = data.glyph == kind
+	end
 	if ammoCaption then
-		(ammoCaption :: TextLabel).Text = Style.spaced(data.label)
+		(ammoCaption :: TextLabel).Text = Style.spaced(data.label);
+		(ammoCaption :: TextLabel).TextColor3 = Hud.AMMO_ACCENT[data.glyph or ""] or Style.LOOK.FIELD_MUTED
 	end
 
 	-- THE RELOAD BAR, PREDICTED FROM THIS CLIENT'S OWN CLOCK. `busyFor` is published once and
