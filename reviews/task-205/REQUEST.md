@@ -7,7 +7,10 @@ Code commit: `c7f789c74306907c4b2af83fa2552e6015977fb0`
 
 ```
 [harness] PASS: 33/33 checks @ c7f789c74306907c4b2af83fa2552e6015977fb0 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ c7f789c74306907c4b2af83fa2552e6015977fb0 (clean tree)
 ```
+
+Both lines are the Director's own runs at this commit, on a clean tree, `test2` first try.
 
 **THE FOLDER IS `task-205` AND THE ROADMAP CALLS THIS "201 PART 3".** `tools/agents.py` resolves a
 task of DIGITS only (`resolve_task`, and the `task-(\d+)/REQUEST\.md` regex), and `reviews/task-201/`
@@ -15,17 +18,21 @@ holds part 1's own PASS for a PR already merged to `main` (rule 7). Part 2 is in
 same reason. 205 is this branch's other real task number and both halves shipped in it, so one
 request covers both, as the dispatch asked.
 
-**THIS CHANGE NEEDS `test2`.** `src/server/Match/`, `src/shared/Drive/`, `tests/client/Role.luau`,
-`tests/client/match_client.spec.luau` and `tests/server/match_*.spec.luau` are all in
-`TWO_PLAYER_PATHS`. The `[harness2]` line for this commit is the Director's run and the merge needs
-it.
+**THIS CHANGE NEEDS `test2`, AND IT HAS IT.** `src/server/Match/`, `src/shared/Drive/`,
+`tests/client/Role.luau`, `tests/client/match_client.spec.luau` and `tests/server/match_*.spec.luau`
+are all in `TWO_PLAYER_PATHS`; the `[harness2]` line above is the Director's run at this same
+commit. Both halves of the merge gate's test evidence are therefore in hand before the review.
 
 **THE LINE ABOVE IS `scope=all`, NOT A SCOPED ONE.** `--scope auto` resolved to the WHOLE suite,
 because `tests/client/Role.luau` maps to no `BLAST_RADIUS` row and anything unmapped under `tests/`
 can only mean everything. So it is FULL one-player evidence for the merge, not just review-round
 evidence (CLAUDE.md: *"A `--scope auto` run that resolves to the whole suite is tagged `scope=all`
 … it played every spec, so it IS full evidence"*). I read the token out of the log rather than
-assuming the run was narrow.
+assuming the run was narrow (L-079).
+
+**Only paperwork has been committed since `c7f789c`** — `git diff --name-only c7f789c..HEAD` is
+`TASKS.md` and `reviews/task-205/REQUEST.md`, both on the merge gate's allow-list, so the two lines
+above still cover the head.
 
 Note: `docs/research/2026-10-17-one-design-system.md`, the "Part 3" and "Task 205" sections.
 
