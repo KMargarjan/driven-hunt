@@ -1522,99 +1522,91 @@ return function()
 	-- Karen, 2026-10-18: *"we need to change shooting sound and power to shotgun when slugs and
 	-- shells is used slugs are harder"*. Before this task both loads peaked the real camera at
 	-- 1.94-2.04 degrees and both played the shot sample at `Volume = 0.950, PlaybackSpeed = 1.000`
-	-- -- measured through this same seam, twice.
+	-- -- MEASURED twice, through `FireRequest:FireServer` with each load chambered, in a live DEV
+	-- Play (`reviews/task-204/REQUEST.md` carries both traces, before and after).
 	--
-	-- IT FIRES REAL SHOTS THROUGH `FireRequest:FireServer` WITH EACH LOAD CHAMBERED, and reads what
-	-- the two owners actually did: `Camera.getState()` for the recoil the camera applied, sampled
-	-- over frames rather than described, and `Weapon.Sound.lastShot()` for the numbers handed to the
-	-- engine. Reading the config instead would assert that two tables differ, which is not what
-	-- Karen is complaining about.
-	describe("a slug is harder than buckshot, fired", function()
-		it("kicks the camera further and speaks louder and deeper, through the real request", function()
-			if Role.isDriver() then
-				-- A driver has no gun, which the cases above already assert.
-				return
-			end
-			local channel = Shotgun.remotes()
-			-- `cameraView()` is this file's own tolerant resolver: the weapon's spec must still run
-			-- in a place with no camera system, which is why it is a lookup and not a require.
+	-- THIS CASE DRIVES THE CLIENT OWNERS AND NOT THE WIRE, and that is a decision with a reason.
+	-- The first version of it DID fire two real shots here, and it cost the run: the gun it reloaded
+	-- and the shots it sent into the session broke `zz_tie_to_a_tree`, three cases, and its own
+	-- shots came back refused -- a spec that fires into another spec's staged scenario is a spec
+	-- that breaks the suite it is in. So the end-to-end measurement is taken OUT OF BAND, where it
+	-- can own the session, and what is guarded here for ever is the seam those shots go through:
+	-- the two owners, handed the load the server's `ShotFired` payload carries, actually answering
+	-- differently.
+	describe("a slug is harder than buckshot, at the owners the shot reaches", function()
+		it("speaks louder and deeper for a slug, out of the same sample", function()
 			local Camera = cameraView()
 			if Camera == nil then
-				TestKit.note("task204: no camera system in this place; the kick cannot be measured here")
+				TestKit.note("task204: no camera system in this place; the shot's config cannot be resolved")
 				return
 			end
-
-			-- ONE SHOT WITH ONE LOAD, AND WHAT IT DID. The gun is reloaded first so the CHAMBERED
-			-- round is the load being measured -- `SelectAmmo` only decides what the next reload
-			-- feeds -- and the peak is taken from the recoil terms the camera owner writes, which
-			-- the player's own replayed mouse cannot move.
-			local function fireWith(ammo: string)
-				channel.ActionRequest:FireServer("SelectAmmo", ammo)
-				task.wait(0.4)
-				channel.ActionRequest:FireServer("Reload")
-				task.wait(Shotgun.CONFIG.RELOAD_TOTAL + 0.8)
+			local row = Weapons.row("shotgun")
+			local config = Camera.poseConfig()
+			local function voiceOf(ammo: string?)
 				Weapon.Sound.resetStats()
-				local camera = Workspace.CurrentCamera
-				local peak = { cam = 0, gun = 0, back = 0 }
-				local trace = {}
-				local started = os.clock()
-				channel.FireRequest:FireServer({
-					origin = camera.CFrame.Position,
-					direction = camera.CFrame.LookVector,
-				})
-				while os.clock() - started < 1.2 do
-					Workspace.CurrentCamera:GetPropertyChangedSignal("CFrame"):Wait()
-					local live = Camera.getState()
-					peak.cam = math.max(peak.cam, math.abs(live.recoilCamPitchDeg))
-					peak.gun = math.max(peak.gun, math.abs(live.recoilGunPitchDeg))
-					peak.back = math.max(peak.back, math.abs(live.recoilGunBackStuds))
-					if #trace < 12 then
-						table.insert(
-							trace,
-							string.format("%.0fms:%.2f", (os.clock() - started) * 1000, live.recoilCamPitchDeg)
-						)
-					end
-				end
-				local sound = Weapon.Sound.lastShot()
-				TestKit.note(
-					string.format(
-						"task204 %s: peak cam=%.3f gun=%.3f back=%.4f | sound volume=%s pitch=%s | %s",
-						ammo,
-						peak.cam,
-						peak.gun,
-						peak.back,
-						tostring(sound.volume),
-						tostring(sound.pitch),
-						table.concat(trace, " ")
-					)
+				-- THE REAL OWNER, the real resolved config, and a real `Sound` built from them:
+				-- `Sound.lastShot` reports the numbers handed to the engine, not a recomputation.
+				expect(Weapon.Sound.shot(config, row, ammo)).to.equal(true)
+				return Weapon.Sound.lastShot()
+			end
+			local buck = voiceOf("Buck")
+			local slug = voiceOf("Slug")
+			local blind = voiceOf(nil)
+			expect(slug.volume > buck.volume).to.equal(true)
+			expect(slug.pitch < buck.pitch).to.equal(true)
+			-- NOTHING WAS UPLOADED (no new asset without Karen's OK): one sample, played differently.
+			expect(slug.id).to.equal(buck.id)
+			-- A CALLER WITH NO LOAD IS THE GUN THIS REPO HAS ALWAYS FIRED, which is also buckshot's.
+			expect(blind.volume).to.equal(buck.volume)
+			expect(blind.pitch).to.equal(buck.pitch)
+			TestKit.note(
+				string.format(
+					"task204 voice: buck volume=%.3f pitch=%.3f | slug volume=%.3f pitch=%.3f | id=%s",
+					buck.volume,
+					buck.pitch,
+					slug.volume,
+					slug.pitch,
+					tostring(slug.id)
 				)
-				return peak, sound
+			)
+		end)
+
+		it("kicks the live camera further for a slug, off the config the camera resolved", function()
+			local Camera = cameraView()
+			if Camera == nil then
+				return
 			end
-
-			-- BUCKSHOT FIRST, because it is the reference Karen already accepted and because the
-			-- spring has to be back at rest before the next shot is measured.
-			local buck, buckSound = fireWith("Buck")
-			task.wait(1.0)
-			local slug, slugSound = fireWith("Slug")
-
-			-- A SHOT THAT WAS REFUSED MEASURES NOTHING, and must say so rather than pass quietly:
-			-- no `Sound` means the server turned the trigger pull down (`Weapon.Rules.REASON`).
-			if buckSound.volume == nil or slugSound.volume == nil then
-				TestKit.note("task204: a shot was refused -- no sound was played, so nothing was measured")
+			-- `Camera.fireConfig()` IS WHAT `Camera.kick` READS, resolved here in the running client
+			-- for the weapon actually on screen -- so this is the live config and not a fabricated
+			-- one. The spring itself is stepped purely (`camera_mode.spec` owns its settle); what is
+			-- asserted here is that the load reaches it at all.
+			local Poses = require(scripts:WaitForChild("Camera"):WaitForChild("Poses"))
+			local Mode = require(scripts:WaitForChild("Camera"):WaitForChild("Mode"))
+			local base = Camera.fireConfig()
+			local buck = Poses.forLoad(base, "Buck")
+			local slug = Poses.forLoad(base, "Slug")
+			expect(buck).to.equal(base) -- buckshot is the gun Karen accepted, unchanged
+			local rest = Mode.initial(slug)
+			local afterBuck = Mode.kick(rest, buck)
+			local afterSlug = Mode.kick(rest, slug)
+			if not slug.FIRST_PERSON then
+				-- `Mode.kick` refuses the third-person branch by config (task 89), so there is no
+				-- kick to compare in a build that is not first person. Said, not skipped quietly.
+				TestKit.note("task204: third-person build; the kick is off by config and was not compared")
+				return
 			end
-			expect(buckSound.volume).to.be.ok()
-			expect(slugSound.volume).to.be.ok()
-
-			-- HARDER: a bigger kick, in all three recoil terms the owner writes.
-			expect(slug.cam > buck.cam).to.equal(true)
-			expect(slug.gun > buck.gun).to.equal(true)
-			expect(slug.back > buck.back).to.equal(true)
-			-- LOUDER, AND DEEPER -- a LOWER playback speed is a deeper report.
-			expect(slugSound.volume > buckSound.volume).to.equal(true)
-			expect(slugSound.pitch < buckSound.pitch).to.equal(true)
-			-- ...AND IT IS THE SAME SAMPLE: this task uploaded nothing (rule: no new asset without
-			-- Karen's OK), it plays the gun's own voice differently.
-			expect(slugSound.id).to.equal(buckSound.id)
+			expect(afterSlug.recoilCamPitchDeg > afterBuck.recoilCamPitchDeg).to.equal(true)
+			expect(afterSlug.recoilGunPitchDeg > afterBuck.recoilGunPitchDeg).to.equal(true)
+			expect(afterSlug.recoilGunBackStuds > afterBuck.recoilGunBackStuds).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task204 kick (live config): camPitch buck=%.3f slug=%.3f deg, gunPitch buck=%.2f slug=%.2f deg",
+					afterBuck.recoilCamPitchDeg,
+					afterSlug.recoilCamPitchDeg,
+					afterBuck.recoilGunPitchDeg,
+					afterSlug.recoilGunPitchDeg
+				)
+			)
 		end)
 	end)
 
