@@ -185,6 +185,42 @@ Report.CONFIG = {
 		body = { u0 = 0.000, u1 = 1.000, v0 = 0.000, v1 = 1.000, tint = Color3.fromRGB(96, 84, 76) },
 	},
 
+	-- KAREN'S OWN TWO SILHOUETTES (task 205). She played on 2026-10-18 and said of the hit card:
+	-- *"and what is that? you need proper image for wildboar when showing hit now it feels mess
+	-- unclear wtf ? / it's in download male named"*. `karen-2026-10-18/shot-4.png` is what she was
+	-- looking at: the fourteen `Frame`s of `BOAR` below, which at 148 x 80 read as two rounded blobs
+	-- with four stubs.
+	--
+	-- THEY ARE UPLOADS, AND THAT IS THE CHANGE. Her two JPGs carry a BAKED grey/white checkerboard
+	-- (not an alpha channel), so each was keyed to a transparent PNG -- every pixel under luminance
+	-- 60 opaque black, over 150 clear, a narrow ramp between for the anti-aliased edge -- cropped to
+	-- the animal, and uploaded as a `Decal`. Her OK and the moderation state are in
+	-- `assets/uploads.json`; the JPG and the PNG live outside the repo and are never committed.
+	--
+	-- `box` IS WHERE THE DOTS' UNIT SQUARE SITS ON THE IMAGE, as fractions of the PNG, and it was
+	-- MEASURED on the keyed pixels rather than inherited from the frame drawing. The unit square is
+	-- the boar's TRUNK (nose u = 0, tail u = 1, back v = 0, belly v = 1) and the image is the whole
+	-- animal -- legs, tail and mane included -- so the two are not the same rectangle.
+	--
+	-- IT IS A FIT AND NOT THE OUTLINE'S EXTREMES, and that is the measurement worth writing down.
+	-- Taking the raw nose/rump/back/belly of the PNG put the HEAD zone's centre OFF the animal (11 %
+	-- of a head box's sample grid on black, male) because this boar carries its head low and its
+	-- withers high, which the game's box model does not. The box below was searched for the one that
+	-- keeps every zone of `SILHOUETTE` on the animal while still SPANNING it -- 82 % of the worst
+	-- zone's grid and every zone's centre on black, against 11 % before. A box that scored 100 %
+	-- was available and refused: it shrank onto the torso, so a head shot and a rump shot both drew
+	-- inside the belly and the picture stopped meaning where the shot landed.
+	BOAR_IMAGE = {
+		male = { id = "rbxassetid://80206901277832", box = { u0 = 0.100, u1 = 0.900, v0 = 0.230, v1 = 0.730 } },
+		female = { id = "rbxassetid://108874258373849", box = { u0 = 0.120, u1 = 0.920, v0 = 0.150, v1 = 0.650 } },
+	},
+
+	-- HOW SMALL A PIGLET IS DRAWN. Karen has no third image and did not ask for one: a piglet is the
+	-- SOW's silhouette at 70 %, which is about what a cub is beside its mother and is honest about
+	-- being the same drawing. The dots' box scales with it, so a piglet's hit lands in the same
+	-- place on the same animal.
+	PIGLET_SCALE = 0.70,
+
 	-- A WILD BOAR, SIDE ON, IN THE SAME UNIT SQUARE AS THE DOTS (task 135). Karen, 2026-10-05:
 	-- *"something simple but cool"*, and *"see boars where was the hit"*. What this panel drew until
 	-- now was `SILHOUETTE` above painted straight onto the screen -- five tinted rectangles, which
@@ -507,6 +543,25 @@ end
 
 function Report.metres(studs: number?): number
 	return math.round((studs or 0) * Report.CONFIG.METRES_PER_STUD)
+end
+
+-- WHICH IMAGE AN ANIMAL GETS, AND HOW BIG. PURE, and the one place the record's `kind` becomes a
+-- picture -- so the hit card and the drive report cannot show a player two different animals for
+-- one shot. `male` and anything unknown take the boar; `female` takes the sow; `cub` takes the sow
+-- at `PIGLET_SCALE`, which is said out loud rather than hidden in a renderer.
+--
+-- `cub` IS A DATA STRING AND `piglet` IS THE WORD (the Designer's start-card spec, 2026-10-18,
+-- section 1.3: *"the player-facing word is piglet everywhere"*). This function takes the data
+-- string; nothing here prints either.
+function Report.boarImage(kind: string?): { id: string, box: any, scale: number }
+	local word = string.lower(tostring(kind or ""))
+	local art = Report.CONFIG.BOAR_IMAGE
+	if word == "female" then
+		return { id = art.female.id, box = art.female.box, scale = 1 }
+	elseif word == "cub" or word == "piglet" then
+		return { id = art.female.id, box = art.female.box, scale = Report.CONFIG.PIGLET_SCALE }
+	end
+	return { id = art.male.id, box = art.male.box, scale = 1 }
 end
 
 -- WHICH WAY THE HIT CARD DRAWS THE ANIMAL (task 198).

@@ -78,19 +78,39 @@ MAX_FILE_BYTES = 20 * 1024 * 1024  # the guide's "up to 20 MB" per call
 # extension this tool guesses a content type for is an extension Roblox has not agreed to -- and the
 # table is per type because it has to be: with one flat Model-only table, `--type Decal --file
 # model.fbx` was accepted and sent as `model/fbx` (review round 1). The guide lists Decal/Image,
-# Audio, Video and Animation too; this tool implements **Model only**, and says so by refusing the
-# rest rather than by a sentence in a docstring nobody runs.
+# Audio, Video and Animation too; this tool implements **Model and Decal**, and says so by refusing
+# the rest rather than by a sentence in a docstring nobody runs.
+#
+# DECAL WAS ADDED FOR TASK 205 (2026-10-18). Karen, having played: *"what is that? you need proper
+# image for wildboar when showing hit now it feels mess unclear wtf ?"* -- the hit card drew the
+# animal out of thirteen `Frame`s and she could not read it. Her own two silhouettes replace it, and
+# an image has to be an ASSET. The formats are the Assets guide's own for Decal (PNG, JPEG, BMP,
+# TGA); `.png` is what this repo keys and crops to, and it is the only one with an alpha channel --
+# which a silhouette on a bone plate needs.
 CONTENT_TYPES = {
     "Model": {
         ".fbx": "model/fbx",
         ".glb": "model/gltf-binary",
         ".gltf": "model/gltf+json",
     },
+    "Decal": {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".bmp": "image/bmp",
+        ".tga": "image/tga",
+    },
 }
 # The order a prepared folder is searched in. FBX first: it is what the guide's own example uploads,
 # it is the only format the guide says can later be UPDATED in place ("Currently, you can only update
 # the asset content for .fbx files"), and it is what Task 72 writes.
+# ...AND THE SAME, PER TYPE. A Decal folder holds an image and never a model, so looking for
+# `model.fbx` in it would refuse every correct folder.
 PREFERRED_FILES = ("model.fbx", "model.glb", "model.gltf")
+PREFERRED_BY_TYPE = {
+    "Model": PREFERRED_FILES,
+    "Decal": ("image.png", "image.jpg", "image.jpeg", "image.bmp", "image.tga"),
+}
 
 POLL_GAP_S = 2.0      # ours: the guide publishes no rate limit for this endpoint
 POLL_BUDGET_S = 180.0  # ours
@@ -187,12 +207,13 @@ def find_model(folder, wanted=None, asset_type="Model"):
         if not os.path.isfile(path):
             raise Refused("no %s in the prepared folder" % wanted)
     else:
-        for name in PREFERRED_FILES:
+        wanted_names = PREFERRED_BY_TYPE.get(asset_type, PREFERRED_FILES)
+        for name in wanted_names:
             path = os.path.join(folder, name)
             if os.path.isfile(path):
                 break
         else:
-            raise Refused("no model.fbx / model.glb / model.gltf in the prepared folder")
+            raise Refused("no %s in the prepared folder" % " / ".join(wanted_names))
     extension = os.path.splitext(path)[1].lower()
     if extension not in allowed:
         raise Refused("Roblox does not list %s for assetType %s (%s)"
@@ -515,8 +536,21 @@ def command_selftest(_args):
             handle.write(b"v 0 0 0" + b"\n")
         refuses("it refuses an extension Roblox does not list",
                 lambda: find_model(folder, "model.obj"), "does not list")
+        # DECAL IS IMPLEMENTED SINCE TASK 205, so the type that is refused is a type that is not --
+        # and the per-type table is what makes the refusal real: an `.fbx` is NOT a Decal format and
+        # a `.png` is NOT a Model one, which is the mix-up review round 1 of task 72 caught.
         refuses("it refuses an asset type it does not implement",
-                lambda: find_model(folder, "model.fbx", "Decal"), "uploads Model only")
+                lambda: find_model(folder, "model.fbx", "Audio"), "uploads Decal and Model only")
+        refuses("a model file is not a Decal",
+                lambda: find_model(folder, "model.fbx", "Decal"), "does not list")
+        with open(os.path.join(folder, "image.png"), "wb") as handle:
+            handle.write(bytes([0x89, 0x50, 0x4E, 0x47]))
+        refuses("an image file is not a Model",
+                lambda: find_model(folder, "image.png", "Model"), "does not list")
+        path, content_type, _size = find_model(folder, None, "Decal")
+        ok("a Decal folder is searched for an image, not a model",
+              os.path.basename(path) == "image.png" and content_type == "image/png",
+              "%s %s" % (os.path.basename(path), content_type))
         big = os.path.join(folder, "big.fbx")
         with open(big, "wb") as handle:
             handle.seek(MAX_FILE_BYTES + 1)

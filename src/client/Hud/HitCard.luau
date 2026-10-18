@@ -84,6 +84,12 @@ end
 -- Every dot on the card, as `BoarArt` wrote them: the seam a spec reads instead of guessing, and the
 -- same reader `ReportPanel.dots` uses -- so "the card and the report put the same hit in the same
 -- place" is one comparison of two lists rather than two different ways of looking.
+-- THE ART FRAME THAT IS ACTUALLY SHOWN -- nose-left or nose-right -- so a spec can read the drawn
+-- picture and the drawn dots rather than the renderer's input (task 205).
+function HitCard.art(): Frame?
+	return shown
+end
+
 function HitCard.dots(): { { u: number, v: number, zone: string, fatal: boolean } }
 	if shown == nil or not HitCard.isVisible() then
 		return {}
@@ -164,6 +170,10 @@ local function build(frame: Frame)
 			width = CONFIG.ART_WIDTH,
 			height = CONFIG.ART_HEIGHT,
 			zIndex = Z + 2,
+			-- KAREN'S OWN SILHOUETTE (task 205), and `male` only until a payload says otherwise:
+			-- this frame is built before any shot is fired, and `HitCard.show` calls
+			-- `BoarArt.setKind` with the record's own kind.
+			kind = "male",
 		})
 		made.Visible = false
 		return made
@@ -276,6 +286,13 @@ function HitCard.show(payload: any)
 		end
 	end
 	shown = art
+	-- WHICH ANIMAL THIS SHOT WAS (task 205). The record carries the kind and `Report.boarImage` is
+	-- the one place it becomes a picture, so the card and the drive report cannot show two
+	-- different animals for one hit. It is set HERE and not at build time: the two art frames are
+	-- built before any shot is fired.
+	-- `animalKind` AND NOT `kind`: the payload's own `kind` is the MESSAGE's ("hit"), and the
+	-- animal's is beside it. One wrong field here would draw a boar for every sow.
+	BoarArt.setKind(art, payload and payload.animalKind, mirror)
 	BoarArt.drawDots(art, dots, {
 		fill = CONFIG.BOAR_FILL,
 		width = CONFIG.ART_WIDTH,

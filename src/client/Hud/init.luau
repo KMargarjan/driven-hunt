@@ -74,6 +74,10 @@ local ReportPanel = require(script.ReportPanel)
 -- THE HIT CARD (task 198): created here with the rest of the screen, filled by `Hud.HitCard`, which
 -- -- not this file -- is the only writer of what goes in it and of its `Visible`.
 local HitCard = require(script.HitCard)
+-- ...AND THE ONE BUILDER OF THE BOAR PICTURE (task 198), required here only so the Hud can publish
+-- it the way it publishes every other sibling module -- a spec reads it off the Hud rather than
+-- walking PlayerScripts for it. Nothing in this file draws with it; `HitCard` and `ReportPanel` do.
+local BoarArt = require(script.BoarArt)
 -- ...and the compass strip (task 125). Same shape as the report panel: the Hud builds the frame
 -- with everything else, and `Compass` is the one writer of what goes inside it.
 local Compass = require(script.Compass)
@@ -599,6 +603,10 @@ end
 -- The panel module itself, for the same reason: the Hud starts it, so the Hud is where it is found.
 Hud.Report = ReportPanel
 Hud.HitCard = HitCard
+-- THE ONE BUILDER OF THE BOAR PICTURE AND THE ONE PLACER OF A DOT ON IT (task 198), published here
+-- the way every other sibling module is -- a spec reads it off the Hud rather than walking
+-- PlayerScripts. Task 205 made its spread rule pure, and that is what a case asks.
+Hud.BoarArt = BoarArt
 
 -- THE MAP (task 155): its two frames and its button, so a spec reads them off the Hud instead of
 -- walking `PlayerGui` by name -- the `Hud.compass()` / `Hud.reportPanel()` shape.

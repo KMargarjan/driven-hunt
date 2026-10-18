@@ -24,6 +24,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -68,6 +69,14 @@ local function slugPayload()
 		at = 20.0,
 		dots = { { u = 0.40, v = 0.30, side = 1, zone = "chest", lead = true } },
 	}
+end
+
+-- ONE PAYLOAD, ONE KIND (task 205): the card picks Karen's male or female silhouette from the
+-- record's own `animalKind`, so a case about the picture needs to vary exactly that.
+local function payloadFor(kind: string)
+	local payload = slugPayload()
+	payload.animalKind = kind
+	return payload
 end
 
 local function overlaps(a: GuiObject, b: GuiObject): boolean
@@ -177,6 +186,152 @@ return function()
 			end
 			-- ...and the near-flank picture was cleared, so one card never shows two animals.
 			expect(#drawnX("Art")).to.equal(0)
+		end)
+	end)
+
+	-- TASK 205. Karen, 2026-10-18, looking at `karen-2026-10-18/shot-4.png`: *"and what is that? you
+	-- need proper image for wildboar when showing hit now it feels mess unclear wtf ? / it's in
+	-- download male named"*. Her two silhouettes replace the fourteen `Frame`s.
+	describe("Karen's silhouette", function()
+		it("draws ONE image and picks it by the record's kind", function()
+			local male = Report.boarImage("male")
+			local female = Report.boarImage("female")
+			-- THE TWO ARE DIFFERENT PICTURES, which is the whole point of sending the kind.
+			expect(male.id).never.to.equal(female.id)
+			expect(string.find(male.id, "rbxassetid://", 1, true)).to.equal(1)
+			expect(string.find(female.id, "rbxassetid://", 1, true)).to.equal(1)
+			-- A PIGLET IS THE SOW, SMALLER, and it is said out loud rather than hidden.
+			local piglet = Report.boarImage("cub")
+			expect(piglet.id).to.equal(female.id)
+			expect(piglet.scale).to.equal(Report.CONFIG.PIGLET_SCALE)
+			expect(piglet.scale < 1).to.equal(true)
+			expect(male.scale).to.equal(1)
+			-- An unknown kind -- a record from before the kinds, or a world with KINDS off -- is a
+			-- boar and never nothing.
+			expect(Report.boarImage(nil).id).to.equal(male.id)
+			expect(Report.boarImage("wildebeest").id).to.equal(male.id)
+
+			-- ...AND THE SCREEN FOLLOWS. The card is handed a female's payload and the drawn
+			-- `ImageLabel` is the sow.
+			Hud.HitCard.show(payloadFor("female"))
+			local art = Hud.HitCard.art()
+			expect(art).to.be.ok()
+			local picture = (art :: Frame):FindFirstChild("Silhouette")
+			expect(picture).to.be.ok()
+			expect((picture :: ImageLabel):IsA("ImageLabel")).to.equal(true)
+			expect((picture :: ImageLabel).Image).to.equal(female.id)
+			Hud.HitCard.show(payloadFor("male"))
+			local after = (Hud.HitCard.art() :: Frame):FindFirstChild("Silhouette") :: ImageLabel
+			expect(after.Image).to.equal(male.id)
+			-- `Fit`, because the two PNGs are different shapes and a stretched boar is the thing
+			-- she could not read.
+			expect(after.ScaleType).to.equal(Enum.ScaleType.Fit)
+			TestKit.note("hit_card: male " .. male.id .. " female " .. female.id)
+		end)
+
+		it("SPREADS pellets that landed in the same place, so every hit is visible", function()
+			-- KAREN, 2026-10-17: *"if same place spread if not same show spread"*. A buckshot
+			-- pattern puts up to eighteen pellets inside a hand's width of animal and at this scale
+			-- they land on top of one another -- one dot, and no way to tell a graze from a pattern.
+			local BoarArt = Hud.BoarArt
+			local same = {}
+			for _ = 1, 9 do
+				table.insert(same, { u = 0.5, v = 0.5 })
+			end
+			local fanned = BoarArt.spread(same, 7, 148, 80)
+			expect(#fanned).to.equal(#same)
+			-- EVERY ONE OF THEM IS SOMEWHERE ELSE: nine pellets at one point draw nine dots.
+			local seen = {}
+			for _, dot in ipairs(fanned) do
+				local key = string.format("%.4f,%.4f", dot.u, dot.v)
+				expect(seen[key]).to.equal(nil)
+				seen[key] = true
+			end
+			-- ...AND THEY STAY WHERE THE SHOT WAS: the fan is about the group's own centre.
+			local cu, cv = 0, 0
+			for _, dot in ipairs(fanned) do
+				cu += dot.u
+				cv += dot.v
+			end
+			expect(cu / #fanned).to.be.near(0.5, 1e-6)
+			expect(cv / #fanned).to.be.near(0.5, 1e-6)
+			-- A PELLET ON ITS OWN IS NOT MOVED. Karen's rule has two halves and this is the other.
+			local apart = BoarArt.spread({ { u = 0.2, v = 0.3 }, { u = 0.8, v = 0.7 } }, 7, 148, 80)
+			expect(apart[1].u).to.equal(0.2)
+			expect(apart[1].v).to.equal(0.3)
+			expect(apart[2].u).to.equal(0.8)
+			expect(apart[2].v).to.equal(0.7)
+			-- IT IS DETERMINISTIC: the same shot draws the same picture twice, so two screenshots of
+			-- one hit cannot disagree. A jitter would have been the easy way and the wrong one.
+			local again = BoarArt.spread(same, 7, 148, 80)
+			for index, dot in ipairs(fanned) do
+				expect(again[index].u).to.equal(dot.u)
+				expect(again[index].v).to.equal(dot.v)
+			end
+
+			-- AND ON THE SCREEN: nine pellets at one point draw nine dots at nine positions.
+			local payload = payloadFor("male")
+			payload.dots = {}
+			for _ = 1, 9 do
+				table.insert(payload.dots, { u = 0.5, v = 0.5, zone = "chest", side = 1 })
+			end
+			Hud.HitCard.show(payload)
+			local art = Hud.HitCard.art() :: Frame
+			local places = {}
+			local pips = 0
+			for _, node in ipairs(art:GetChildren()) do
+				if node:IsA("Frame") and node.Name == "Dot" then
+					pips += 1
+					local key = string.format("%.3f,%.3f", node.Position.X.Scale, node.Position.Y.Scale)
+					expect(places[key]).to.equal(nil)
+					places[key] = true
+				end
+			end
+			expect(pips).to.equal(9)
+			TestKit.note(string.format("hit_card: 9 pellets at one point -> %d distinct dots", pips))
+		end)
+
+		it("keeps every dot inside the box the animal occupies on the image", function()
+			-- THE MEASUREMENT THIS TASK RESTS ON. The dots' unit square is the boar's TRUNK and the
+			-- image is the whole animal -- legs, tail and mane outside it -- so a dot placed in the
+			-- whole frame would land in the air beside the silhouette. `BoarArt.setKind` writes the
+			-- measured box onto the frame and `drawDots` maps into it.
+			Hud.HitCard.show(payloadFor("male"))
+			local art = Hud.HitCard.art() :: Frame
+			for _, key in ipairs({ "BoxU0", "BoxU1", "BoxV0", "BoxV1" }) do
+				expect(art:GetAttribute(key)).to.be.ok()
+			end
+			local u0 = art:GetAttribute("BoxU0") :: number
+			local u1 = art:GetAttribute("BoxU1") :: number
+			local v0 = art:GetAttribute("BoxV0") :: number
+			local v1 = art:GetAttribute("BoxV1") :: number
+			-- The box is INSIDE the frame and still SPANS the animal -- a box shrunk onto the torso
+			-- would keep every dot on black and stop meaning where the shot landed.
+			expect(u0 >= 0 and u1 <= 1 and v0 >= 0 and v1 <= 1).to.equal(true)
+			expect(u1 - u0 >= 0.6).to.equal(true)
+			expect(v1 - v0 >= 0.35).to.equal(true)
+			-- EVERY DRAWN DOT IS IN IT, at the four corners of the unit square and the centre.
+			local payload = payloadFor("male")
+			payload.dots = {
+				{ u = 0, v = 0, zone = "head", side = 1 },
+				{ u = 1, v = 0, zone = "rear", side = 1 },
+				{ u = 0, v = 1, zone = "legs", side = 1 },
+				{ u = 1, v = 1, zone = "legs", side = 1 },
+				{ u = 0.5, v = 0.5, zone = "chest", side = 1 },
+			}
+			Hud.HitCard.show(payload)
+			art = Hud.HitCard.art() :: Frame
+			local drawn = 0
+			for _, node in ipairs(art:GetChildren()) do
+				if node:IsA("Frame") and node.Name == "Dot" then
+					drawn += 1
+					local x, y = node.Position.X.Scale, node.Position.Y.Scale
+					expect(x >= u0 - 1e-6 and x <= u1 + 1e-6).to.equal(true)
+					expect(y >= v0 - 1e-6 and y <= v1 + 1e-6).to.equal(true)
+				end
+			end
+			expect(drawn).to.equal(5)
+			TestKit.note(string.format("hit_card: box u %.3f..%.3f v %.3f..%.3f", u0, u1, v0, v1))
 		end)
 	end)
 
