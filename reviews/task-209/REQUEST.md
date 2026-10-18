@@ -9,11 +9,12 @@ Harness (paste, clean tree):
 
 ```
 [harness] PASS: 33/33 checks @ 9c203cb1060974cf9009a8f25c76556f43451c08 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 9c203cb1060974cf9009a8f25c76556f43451c08 (clean tree)
 ```
 
-Two players: see claim 10 — `src/server/Match/init.luau` and
-`tests/server/match_live.spec.luau` are both in `TWO_PLAYER_PATHS`, so this change needs the
-`[harness2]` line and the Director has it on the stop word.
+Both lines name the code commit. The two-player line is required because `src/server/Match/init.luau`
+and `tests/server/match_live.spec.luau` are in `TWO_PLAYER_PATHS`; the Director ran it (the Builder
+could not: `run-test2.sh` refuses while more than one Studio is open, and two were).
 
 ## What changed
 
@@ -141,12 +142,30 @@ Files: `src/shared/Lobby/init.luau`, `src/server/Lobby/Build.luau`, `src/client/
     Director rather than decided here. *Verify:* `Match.CONFIG.SCORE_SECONDS` and its comment;
     `tests/server/match_live.spec.luau`, the `<= 8` and the `== 8`.
 
+## Not done, and why (both are Director decisions, 2026-10-18, and both go to Karen)
+
+- **`INTERMISSION_SECONDS` stays at 15.** It is the OTHER wait between two drives, and it is over
+  Karen's "8s max" — but it is **her own number**: task 163, after she played the 10 s version
+  (*"for hunter a bit more time like 15s to find a place"*). It is the start card's countdown, the
+  hunter's stand timer and the beaters' hold, all one deadline, and she is respawned and WALKING to
+  her stand through it rather than frozen at a results board. The wait she named — the one she sits
+  still for and reads a counter through — is `SCORE_SECONDS`, and that is the one this task cut.
+  **The Director's decision: leave it at 15 and ask Karen in the morning report.** Changing it is
+  one line if she says so.
+- **The LATERAL gap between the trucks stays at `BAY_GAP_STUDS` 17.** The dispatch asked for a gap
+  of about 2x a truck's width between neighbouring trucks as well. **It does not fit the lobby
+  field, and that is arithmetic rather than an opinion:** the yard slab's east edge is
+  `anchor + 43 + 3g` (`Build.yardRect`) and the field's own half-span is `FIELD.SPAN_STUDS / 2` =
+  110, so `g <= 22.3`; `g = 26` is what 2x the measured 8.70 width needs, and even `g = 22` buys
+  only 1.53x and already pushes the slab 13 studs past the flattened `FIELD.PADS` "Yard" rectangle
+  (x −44..96), which would then have to be widened too — terrain, with thirty trees standing in it.
+  **The Director's decision: correct to leave it; it goes to Karen as a look question.** What this
+  task DID fix from the same frame is that the pads are no longer hidden: compare
+  `t209/before-approach.png`, where one sliver of one pad shows, with `t209/after-approach.png`,
+  where all four decks do.
+
 ## What I could not verify
 
-- **The two-player run.** `src/server/Match/init.luau` and `tests/server/match_live.spec.luau` are
-  in `TWO_PLAYER_PATHS`, so this needs `[harness2]`, which needs a second client. Two Studios are
-  open on this machine (DEV and the Forest Test), and `run-test2.sh` refuses unless exactly one is.
-  Handed to the Director with the stop word.
 - **The label overlap at a glancing angle is NOT fixed, and I say so rather than claim it.** The
   pads themselves are now plainly visible from her approach (compare `before-approach.png`, where
   one sliver of one pad shows, with `after-approach.png`, where all four decks do), but the four
