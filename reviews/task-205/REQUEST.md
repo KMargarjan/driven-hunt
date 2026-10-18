@@ -1,259 +1,221 @@
 # Task 201 part 3 — the start card, the pill's vocabulary, and Karen's boar on the hit card
 
 Task: 205
-Round: 1
+Round: 2
 Base: main @ `e3ad45f`
-Code commit: `c7f789c74306907c4b2af83fa2552e6015977fb0`
+Code commit: `2c622e9c19511b5906d0934179554b8bcd396c0a`
 
 ```
-[harness] PASS: 33/33 checks @ c7f789c74306907c4b2af83fa2552e6015977fb0 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ c7f789c74306907c4b2af83fa2552e6015977fb0 (clean tree)
+[harness] PASS: 33/33 checks @ 2c622e9c19511b5906d0934179554b8bcd396c0a (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 2c622e9c19511b5906d0934179554b8bcd396c0a (clean tree)
 ```
 
-Both lines are the Director's own runs at this commit, on a clean tree, `test2` first try.
+Both lines are the Director's own runs at this commit, on a clean tree, first try. `scope=all` is
+FULL one-player evidence, not a scoped round line: `--scope auto` resolved to the whole suite
+because `tests/client/Role.luau` maps to no `BLAST_RADIUS` row, and I read that token out of the log
+rather than assuming the run was narrow. Only `TASKS.md` and this file have been committed since
+`2c622e9`, both on the merge gate's allow-list.
 
-**THE FOLDER IS `task-205` AND THE ROADMAP CALLS THIS "201 PART 3".** `tools/agents.py` resolves a
-task of DIGITS only (`resolve_task`, and the `task-(\d+)/REQUEST\.md` regex), and `reviews/task-201/`
-holds part 1's own PASS for a PR already merged to `main` (rule 7). Part 2 is in `task-203` for the
-same reason. 205 is this branch's other real task number and both halves shipped in it, so one
-request covers both, as the dispatch asked.
+**THE FOLDER IS `task-205`, THE ROADMAP CALLS THIS "201 PART 3".** `tools/agents.py` resolves a task
+of DIGITS only, and `reviews/task-201/` holds part 1's PASS for a PR already on `main` (rule 7).
+Part 2 is in `task-203` for the same reason.
 
-**THIS CHANGE NEEDS `test2`, AND IT HAS IT.** `src/server/Match/`, `src/shared/Drive/`,
+**`test2` IS REQUIRED AND IS IN HAND**: `src/server/Match/`, `src/shared/Drive/`,
 `tests/client/Role.luau`, `tests/client/match_client.spec.luau` and `tests/server/match_*.spec.luau`
-are all in `TWO_PLAYER_PATHS`; the `[harness2]` line above is the Director's run at this same
-commit. Both halves of the merge gate's test evidence are therefore in hand before the review.
+are in `TWO_PLAYER_PATHS`.
 
-**THE LINE ABOVE IS `scope=all`, NOT A SCOPED ONE.** `--scope auto` resolved to the WHOLE suite,
-because `tests/client/Role.luau` maps to no `BLAST_RADIUS` row and anything unmapped under `tests/`
-can only mean everything. So it is FULL one-player evidence for the merge, not just review-round
-evidence (CLAUDE.md: *"A `--scope auto` run that resolves to the whole suite is tagged `scope=all`
-… it played every spec, so it IS full evidence"*). I read the token out of the log rather than
-assuming the run was narrow (L-079).
-
-**Only paperwork has been committed since `c7f789c`** — `git diff --name-only c7f789c..HEAD` is
-`TASKS.md` and `reviews/task-205/REQUEST.md`, both on the merge gate's allow-list, so the two lines
-above still cover the head.
+Round 1 returned **two blocking findings**. Both were real, both are fixed below, and the second one
+uncovered a defect bigger than either: **the hit card had been drawing no animal at all**.
 
 Note: `docs/research/2026-10-17-one-design-system.md`, the "Part 3" and "Task 205" sections.
 
 ---
 
-## 1. The start card, to the Designer's `startcard-spec.md`
+## 1. Round 1, finding 1: the mirror was not a mirror — measured, not argued
 
-Karen, 2026-10-18: *"this message has to be improved maybe each from new line ask designer more user
-friendly"*. The Designer wrote a file for it; this builds it.
+The reviewer caught `picture.Size = UDim2.fromScale(-chosen.scale, chosen.scale)` and was right.
+Three `ImageLabel`s on one plate, same image, in a live Play
+(`.screenshots/20261018T173406Z-t205-mirror-probe.png`):
 
-**What it was** (`startcard-before.png`): a 440-wide panel of four 24 px `Enum.Font.Code` lines with
-a black stroke, whose body was one server sentence — `WILD BOAR, POINTS: male 10, female 6, cub -10`
-— plus `a piglet COSTS you - leave them`, and the BEATER got the same card.
+| | result |
+|---|---|
+| plain | drawn, **nose left** |
+| negative `Size.X` — what the code did | drawn, **nose left**: the box moves, the pixels do not flip |
+| negative `ImageRectSize.X` — the other candidate | **nothing drawn at all** |
 
-**What it is**: `Style.card` + a `UIListLayout` of eight children — `Eyebrow / Role / Rule1 /
-Section / Rows / Rule2 / Countdown / Bar` — and four rows of glyph + words + at most one right-hand
-cell. Per role: `WHAT TO SHOOT` with the four prices, or `WHAT TO DO` with the licence, the push,
-the horn and the line. Both last lines are instructions over the same deadline.
+So neither is a mirror. **The picture is never flipped now, and `drawDots` stops flipping the dots
+with it** — the two flips used to cancel for anatomy and change only the facing, so dropping both
+leaves every dot where it struck. Kept: a hit on the head draws on the head. Lost, and written into
+`BoarArt.setKind` rather than implied: the card no longer faces the way the player stood, because
+one image has no parts to lay the other way round. The fourteen-part fallback still mirrors by
+relayout and reads the same `Mirrored` attribute. `setKind` no longer takes a `mirror` argument.
 
-*Verify*: `Hud.renderStartCard` in `src/client/Hud/init.luau` is still the one writer;
-`Hud.startCardRows` is the pure body; `hud_style.spec`'s `describe("the start card")` asserts the
-build (the card's own tokens, the eight children in order, the full-bleed hairlines, the glyphs as
-Frames, the two `DISPLAY` labels and nothing else at that step, both measured layouts);
-`match_client.spec`'s `describe("the start card")` asserts the WORDS, per role, read off the drawn
-card through `Hud.startCardRowText`.
+*Verify*: `BoarArt.setKind` and `BoarArt.drawDots`; `hit_card.spec` "draws the far flank with a real
+picture and the marks still on the right end" — a `side = -1` payload, which nothing had ever drawn.
 
-**Live, in DEV** — `.screenshots/20261018T163740Z-t201c-startcard-hunter.png` (hunter) and
-`20261018T164244Z-t201c-startcard-beater-dev.png` (beater). Probed off the live `PlayerGui`:
+## 2. The defect that finding 2 uncovered: the ids were DECALS, and nothing rendered
 
-```
-card=true 440x274 at 264,92 | DRIVE 1 / YOU ARE A HUNTER / WHAT TO SHOOT
-  | [tick] Male boar +10 || [tick] Female boar +6 || [cross] Piglet - leave them -10
-  || [cross] A person -10 | GET TO YOUR STAND 11 | bar=1.00
-card=true 440x274 ... | DRIVE 1 / YOU ARE A BEATER / WHAT TO DO
-  | [cross] You do not shoot [NEEDS LICENCE] || [chevron] Push the boars to the hunters
-  || [horn] Click your horn as you walk || [cross] Do not cross their line DRIVE OVER
-  | WAIT FOR THE HORN 9
-```
+An Open Cloud PNG upload creates a **Decal** (`AssetTypeId 13`), and an `ImageLabel` cannot draw
+one. Measured on the same plate (`...173221Z-t205-mirror-probe.png`): with the decal ids every label
+was `IsLoaded = false` and the plate was EMPTY, while a built-in `rbxasset://` control beside them
+loaded. **So the card has been drawing no animal since the silhouettes landed**, and no spec could
+see it — `Image` is a string and it was set correctly.
 
-## 2. A sentence cannot be laid out, so the server sends values
+`InsertService:LoadAsset(decalId)` returns a model holding a `Decal` whose `.Texture` is the image:
+`80206901277832 -> rbxassetid://135789362198066`, `108874258373849 -> rbxassetid://121961957713451`.
+Those are what `Report.CONFIG.BOAR_IMAGE` carries now; the decal ids stay in `assets/uploads.json`,
+which records what was UPLOADED.
 
-`Match.quarryLines` → **`Match.quarryRows`**: one row per kind with what that kind is worth, and the
-snapshot also carries **`safetyPenalty`**, which is what the Designer's new `A person` row is priced
-off. The RULE did not move — which kinds are quarry and what each is worth are still only in
-`Match.CONFIG` — and the client still holds no copy of it.
+*Verify*: `Report.CONFIG.BOAR_IMAGE`; `hit_card.spec` "points at the IMAGE behind each decal, not
+the decal".
 
-*Why not parse the old sentence on the client*: a presentation string is not an interface, and
-`SAFETY_PENALTY` is not in that sentence at all, so the client would have had to carry a copy of a
-penalty. *Verify*: `match_config.spec`'s `describe("the quarry rows")`, `match_live.spec`'s "puts
-what may be shot on the wire, as the rows the card draws" (the live snapshot equals
-`Match.quarryRows(Match.config())` kind for kind and price for price, and `safetyPenalty` equals the
-config's), and `match_client.spec`'s last case (the wire's rows are TABLES, and `Drive.CONFIG` holds
-no `QUARRY`, no `POINTS` and no price inside its copy).
+## 3. Round 1, finding 2: the frames, both facings, through the real path
 
-The retired function, `QUARRY_NOTE` and the rollback are in
+`QUICK_TEST` on for the run (cleared after, verified `off / none / off`), the hunter left **on his
+stand** — teleporting him beside the animal is why eight earlier shots never landed,
+`Weapon.Rules.outsideStand` refuses them — the boar moved in front of him, and the shot sent on
+`FireRequest:FireServer` with `src/client/Weapon/Input.luau`'s own payload.
+
+* **`.screenshots/20261018T174012Z-t205-hitcard-right.png`** — near flank, `HIT - SLUG`, one red dot
+  **on the head**; the kill feed beside it reads `MALE BOAR head 2 m SHOTGUN`.
+* **`.screenshots/20261018T174113Z-t205-hitcard-left.png`** — far flank (`side = -1`, so
+  `Report.cardFacing` is true and the mirrored frame is the one shown), `HIT - BUCK 9/9`, the nine
+  pellets **fanned into a rosette**: Karen's *"if same place spread"* rule, live.
+
+Both are the same card, plate and `HIT - SLUG` label as her own
+`<runs-dir>/karen-2026-10-18/shot-4.png`, which is the fourteen `Frame`s she called *"mess unclear
+wtf ?"*. I looked at all three.
+
+## 4. The start card, to the Designer's `startcard-spec.md`
+
+Karen: *"this message has to be improved maybe each from new line ask designer more user friendly"*.
+`Style.card` + a `UIListLayout` of eight children — `Eyebrow / Role / Rule1 / Section / Rows /
+Rule2 / Countdown / Bar` — and four rows of glyph + words + at most one right-hand cell. Per role:
+`WHAT TO SHOOT` with the four prices, or `WHAT TO DO` with the licence, the push, the horn and the
+line. Live: `.screenshots/20261018T170948Z-t201c-startcard-hunter.png` and
+`...164244Z-t201c-startcard-beater-dev.png`.
+
+*Verify*: `Hud.renderStartCard` is still the one writer, `Hud.startCardRows` the pure body;
+`hud_style.spec`'s `describe("the start card")` (the card's own tokens, the eight children in order,
+the full-bleed hairlines, the glyphs as Frames, the two `DISPLAY` labels and nothing else at that
+step, both measured layouts); `match_client.spec`'s `describe("the start card")` for the WORDS, per
+role, read off the drawn card.
+
+## 5. A sentence cannot be laid out, so the server sends values
+
+`Match.quarryLines` → **`Match.quarryRows`**: one row per kind with its price, plus `safetyPenalty`
+on the snapshot for the Designer's `A person` row. The RULE did not move — which kinds are quarry
+and what each is worth are still only in `Match.CONFIG`. *Why not parse the old sentence on the
+client*: a presentation string is not an interface, and `SAFETY_PENALTY` is not in it at all. The
+retired function, `QUARRY_NOTE` and the rollback are in
 `backups/2026-10-18_task-201-3_quarry-lines.txt` (rule 7).
 
-## 3. `cub` is never printed, in one place
+*Verify*: `match_config.spec`'s `describe("the quarry rows")`; `match_live.spec` "puts what may be
+shot on the wire, as the rows the card draws"; `match_client.spec`'s last case.
 
-`Report.kindWord` is that place (`cub` → `piglet`); the start card, the hit card and the drive
-report's ANIMAL column all read it. The report printed `CUB` until this task while the card said
-`piglet` — fault 2 of the spec: *"A new player reads them as two animals and shoots the one he
-thinks is safe."* The data string is unchanged everywhere it is a KEY.
+## 6. `cub` is never printed, in one place
+
+`Report.kindWord` (`cub` → `piglet`); the start card, the hit card and the drive report's ANIMAL
+column all read it. The report printed `CUB` until this task while the card said `piglet`.
 
 *Verify*: `match_client.spec` "never prints the word cub, on either card"; `report_panel.spec`
-"draws one row per animal…" now asserts the record is still `cub` and the drawn row says `PIGLET`.
+asserts the record is still `cub` and the drawn row says `PIGLET`.
 
-## 4. `Style` gained §3.10's glyphs, and lost the last monospace builder
+## 7. `Style` gained §3.10's glyphs, and lost the last monospace builder
 
-`Style.glyph` builds tick, cross, chevron and horn as Frames, every number a fraction of one `px`
-argument. `Style.ruleAfter` puts a section head's hairline after its word. `Style.sectionHead` takes
-its colour. **`panelLabel` is gone** — the Hud's last `Enum.Font.Code` + black-stroke builder, whose
-final caller was this card (`backups/2026-10-18_task-201-3_panelLabel.txt`); the card's own case
-asserts no `UIStroke` and no `Enum.Font.Code` on any of its 21 labels.
+`Style.glyph` (tick, cross, chevron, horn as Frames, every number a fraction of one `px`),
+`Style.ruleAfter`, and a colour on `Style.sectionHead`. **`panelLabel` is gone** — the Hud's last
+`Enum.Font.Code` + black-stroke builder, archived under `backups/`.
 
-## 5. The status pill says `HUNTER` / `BEATER` (201a)
+## 8. The status pill says `HUNTER` / `BEATER` (201a)
 
-The design system's §5 surface 1 called the old pill a defect in these words: *"the start card's own
-words, because the HUD says two different things for one fact today"*. The card has said `YOU ARE A
-HUNTER` since task 158 while the pill two inches above it said `SHOOTER`. Karen's doc and every
-message she sends say hunter and beater.
+`Hud.roleBadge` now RETURNS `Hud.roleWord`, so the bar and the card cannot drift apart again.
+**Display only, grepped before claiming it**: every other `SHOOTER` / `DRIVER` literal is a comment
+or a name that is not the word (`SHOT_HEARD_FROM_SHOOTER_M`, `PACE.DRIVER_RUN_STUDS`,
+`Drive.CONFIG.SHOOTER_COLOR` / `DRIVER_COLOR`, `local SHOOTER = 11` in `match_safety.spec`). The
+TEAM names `Shooters` / `Drivers` are a different string and are untouched; nothing keys off the
+badge, because the pill's colour is `Style.teamColor(team)`.
 
-**One owner**: `Hud.roleBadge` now RETURNS `Hud.roleWord`, so the bar and the card cannot drift
-apart again — the pill is the only place in the game that still draws a role word, because task
-170 took the TEAM column off the results rows.
+Before / after, same frame and camera: `...163740Z-t201c-startcard-hunter.png` (pill `SHOOTER` over
+a card saying `YOU ARE A HUNTER`) → `...170948Z-t201c-startcard-hunter.png` (pill `HUNTER`).
 
-**Display only, and I grepped before claiming it** (L-030). Every `SHOOTER` / `DRIVER` literal in
-`src/` and `tests/` is one of: this badge (changed), the spec kit's copy of it
-(`tests/client/Role.luau`, changed), a comment, or a name that is not the word —
-`SHOT_HEARD_FROM_SHOOTER_M`, `PACE.DRIVER_RUN_STUDS`, `Drive.CONFIG.SHOOTER_COLOR` /
-`DRIVER_COLOR` (config KEYS read by `MapUi`), and `local SHOOTER = 11` in `match_safety.spec` (a
-userId). **The TEAM names are a different string and are untouched**: `Shooters` / `Drivers` on the
-wire, in `Match.CONFIG`, in `Players.Team`, in `Match.myTeam`, in `Style.teamColor` and in `MapUi`'s
-marker table, and every `team == "Drivers"` branch still reads those. Nothing keys off the badge
-word: the pill's colour is `Style.teamColor(team)`, by team name.
-
-*Verify*: `Hud.roleBadge` in `src/client/Hud/init.luau`; `Role.badge()` in `tests/client/Role.luau`;
-`match_client.spec` "has the drive's own words on it" — the DRAWN bar contains `Role.badge()`, the
-two agree, and the bar carries **neither** `SHOOTER` nor `DRIVER` any more; and the board's rows are
-asserted clear of both vocabularies.
-
-**Before and after, same frame, same camera:**
-`.screenshots/20261018T163740Z-t201c-startcard-hunter.png` (pill `SHOOTER`, card `YOU ARE A HUNTER`)
-and `...20261018T170948Z-t201c-startcard-hunter.png` (pill `HUNTER`).
-
-## 6. Task 205: Karen's own boar silhouettes, and her spread rule
-
-Karen: *"and what is that? you need proper image for wildboar when showing hit now it feels mess
-unclear wtf ? / it's in download male named"* and *"if same place spread if not same show spread"*.
-Her two JPGs were keyed (the checkerboard is baked, not alpha), cropped, checked at 2x and uploaded
-as Decals — both **Approved**, her OK quoted in `assets/uploads.json`, nothing of hers committed.
-`Report.boarImage` is the one place a kind becomes a picture; `BoarArt.spread` is pure and fans
-co-located dots onto a deterministic ring, moving the DRAWING and never the record.
-
-**The dot box is a FIT, not the outline's extremes**, and that is the measurement worth checking:
-the raw extremes put the head zone's CENTRE off the animal (11 % of its sample grid on black). The
-box keeps every zone on the animal while still spanning it (worst zone 82 % male, 92 % female). A
-100 %-scoring box was refused because it shrank onto the torso and destroyed what the picture means.
-`Report.CONFIG.SILHOUETTE` — the server's zone truth — was not touched.
-
-*Verify*: `hit_card.spec`'s `describe("Karen's silhouette")` (the image chosen by kind; nine pellets
-at one spot drawn as nine distinct deterministic dots and a lone pellet unmoved; every dot inside
-the measured box). L-028 lines at the pre-fix `e3ad45f` are in the previous dispatch's report:
-`hit_card.spec:197/241/300` all "attempt to call a nil value".
-
-## 7. The countdown bar has no length constant, on purpose
+## 9. The countdown bar has no length constant, on purpose
 
 The phase is `Match.CONFIG.INTERMISSION_SECONDS` (15 today; 20 and 10 before) and the client is
 never told it, so the spec's `secondsLeft / 10` would draw a two-thirds-full bar on the frame the
-card appears. The renderer latches the largest `secondsLeft` it has seen since the card went up.
-*Verify*: `Hud.startCardBarScale`, and `match_client.spec` "fills the countdown bar against the
-phase it actually saw, not a constant".
+card appears. The renderer latches the largest `secondsLeft` it has seen. *Verify*:
+`Hud.startCardBarScale` and its case in `match_client.spec`.
 
 ---
 
-## The new cases, failing at the pre-fix commit `6c734af` (L-028)
+## Every new case, failing at `f92fca0` (L-028)
 
-`git checkout 6c734af -- src/` with the NEW specs, then `test --scope auto` on a deliberately dirty
-tree (the harness flags it `DIRTY TREE - NOT valid evidence`, which is right: it is evidence about
-the CASES).
+`git checkout f92fca0 -- src/`, then `test --scope auto` against the NEW specs.
 
 ```
-failed [server] match_config.spec:162 attempt to call a nil value   -> no Match.quarryRows
-failed [server] match_config.spec:175 attempt to call a nil value
-failed [server] match_config.spec:185 attempt to call a nil value
-failed [server] match_config.spec:197 attempt to call a nil value
-failed [server] match_config.spec:209 attempt to call a nil value
-failed [client] Expected value "0.109804, 0.0980392, 0.0823529", got "0.0627451, 0.0705882, 0.0784314"
-        -> the card was Color3.fromRGB(16, 18, 20) and not Style.LOOK.PANEL
-failed [client] hud_style.spec:820 Expected value "nil" to be non-nil      -> no Rule1 slot
-failed [client] hud_style.spec:847 Expected value "nil" to be non-nil      -> no Rows/Row1/Icon
-failed [client] hud_style.spec:867 invalid argument #1 to 'ipairs'         -> no Countdown
-failed [client] hud_style.spec:900 attempt to index nil with 'TextSize'    -> no Section
-[client] 398 passed, 20 failed
+failed [client] hit_card.spec:196 Expected value "false" (boolean), got "nil" (nil) instead
+        -> no Mirrored attribute: the drawing and the dots had no shared answer
+failed [client] hit_card.spec:376 Expected value "true" (boolean), got "false" (boolean) instead
+        -> picture.Size.X.Scale > 0 is FALSE on the far flank: finding 1's negative width
+failed [client] Expected value "rbxassetid://135789362198066" (string), got "rbxassetid://80206901277832"
+        -> the decal id, which renders nothing
+failed [client] match_client.spec:180 Expected value "true" (boolean), got "false" (boolean) instead
+        -> the drawn bar said SHOOTER while Role.badge() says HUNTER
+[client] 416 passed, 4 failed      (418+ passed, 0 failed at the code commit: 33/33 scope=all)
 ```
-(The client report prints the first five failures; 20 failed in all, the rest being the per-role
-word cases in `match_client.spec`.)
 
-**And the PILL's own cases, failing at `f92fca0`** — the same method, `git stash`-ing only `src/`
-so the new specs run against the old source:
+The start card's own cases fail at the part's base `6c734af` for the same kind of reason
+(`match_config.spec:162/175/185/197/209` "attempt to call a nil value" — no `Match.quarryRows`;
+`hud_style.spec:820/847/867/900` — no `Rule1`, `Rows/Row1/Icon`, `Countdown` or `Section`; and the
+card's colour read `0.0627, 0.0706, 0.0784`, which is `Color3.fromRGB(16, 18, 20)` and not
+`Style.LOOK.PANEL`).
+
+**One case changed rather than being added**: `hit_card.spec`'s far-flank case was written for the
+fourteen-`Frame` drawing and asserted the dots land at `1 - x`. It now asserts they land at `x`,
+because neither the picture nor the dots are flipped. The same claim underneath — the dots and the
+picture agree — restated for a drawing that cannot flip. **The gate caught that, not a review.**
+
+## Ready-check (standing rule A)
+
+**In DEV, at this build** — the frames Play:
+1. **Tool in the CHARACTER**: at 15 s `team=Shooters character=[Shotgun] backpack=[Rifle]`; at the
+   end the same.
+2. **Console**: 11 196 chars, **0** lines matching `Stack Begin` / `attempt to` /
+   `invalid argument` / `is not a valid member` / `Unable to cast`.
+3. **The changed feature ran**: both hit cards drew, with the image loaded
+   (`card=true image=rbxassetid://135789362198066 loaded=true drawn=148x80 dots=9`).
+
+**In the FOREST TEST, the place Karen plays — half of rule A is NOT met there, and this is the
+measurement rather than an assertion.** Two Plays of ≥ 88 s at this build, both probed at 15 s and
+again at the end, in that place:
+
 ```
-failed [client] match_client.spec:180 Expected value "true" (boolean), got "false" (boolean)
-        -> the drawn bar says SHOOTER and Role.badge() now says HUNTER
-[client] 417 passed, 1 failed       (and 418 passed, 0 failed with the fix)
+15 s  (rule A): Alhamdulilah824 team=nil character=[] backpack=[]
+end   (rule A): Alhamdulilah824 team=nil character=[] backpack=[]
+hud: hitcard=true image=rbxassetid://135789362198066 startcard=false
+console 12 903 chars; suspicious 0        (second Play: 13 028 chars; suspicious 0)
 ```
-TestEZ stops a case at its first failed `expect`, so the two assertions after it on lines 181-186
-are covered by the same case passing afterwards.
 
-## Ready-check (standing rule A) — one Play of 88 s in DEV, at the code commit
+So in that world the console is clean and the HUD is alive carrying the new image id, but the
+player is **unenrolled in the lobby** — no team and no Tool at all, which is that place's own
+design, not a regression from this branch: he is given a gun when he walks onto a truck pad
+(`<runs-dir>/lobby-go.luau` is the route, and it is what the beater run used earlier today). I ran
+out of the time box before re-running the Forest Test through that route, so **the "Tool in the
+character" half of rule A is DEV's and not the Forest Test's**.
 
-1. **The Tool is in the CHARACTER**: at 15 s `team=Shooters character=[Shotgun] backpack=[Rifle]`;
-   at the end the same.
-2. **The console**: 10 975 chars, **0** lines matching `Stack Begin` / `attempt to` /
-   `invalid argument` / `is not a valid member` / `Unable to cast`
-   (`<runs-dir>/t201c-console.txt`).
-3. **The changed feature ran**: the card drew and then CLEARED at `Running`
-   (`card=false … | / / | | | bar=0.00`), which is the rule that the next drive must not flash the
-   last one's card.
+## What else is NOT proven
 
-A second 88 s Play for the beater frame: same tool line (`team=Drivers`), 10 829 chars, 0
-suspicious. A third in the Forest Test place: 13 131 chars, 0 suspicious.
-
-## What is NOT proven, and what I got wrong
-
-* **No live hit-card frame, after five attempts across two sessions, and I now know why.** The shot
-  itself works: `FireRequest:FireServer` with `Input.luau`'s own payload fires with no console
-  error, and the live card already carries **Karen's male silhouette**
-  (`image=rbxassetid://80206901277832`, read off the live `PlayerGui` — so the upload, the asset id
-  and the `ImageLabel` are proven on the real screen). What I could not do is STAGE the animal: the
-  BaseParts under `Workspace.Boars` are the boar's ZONE parts (`ZoneHead`, `ZoneRear`), and my
-  script moved ONE of them 50 studs in front of the player instead of the animal — so every shot
-  went at a dismembered zone part and nothing was hit. **The route for the next attempt is in this
-  repo**: `tools/studio_mcp.py`'s own `shoot-the-boar` scenario stages properly
-  (`QUERY_STAGE_TARGET` + the input scenario), and this run's own gate line reports
-  `staged on Workspace.Boars.Boar1, 22 studs away`. Reuse that rather than a hand-rolled search --
-  and with `python tools/flags.py set QUICK_TEST on` there is no 35 s wait either: that flag is
-  *"3 s intermission, the first release immediately, 3 boars on the road in front of the shooters"*.
-  The silhouette, the measured box and the spread are `hit_card.spec`'s.
-* **`DHForestStartRole` cannot colour the FIRST drive's card, and that is a real finding.** I set it
-  to `beater` in the Forest Test place (prior value `hunter`, captured BEFORE the write, restored
-  after and read back: `RESTORED DHForestStartRole = hunter`). The console shows
-  `[ForestTest] … asked to join as a beater (start switch)`, but `ForestTestBoot` honours a request
-  at the `Running` boundary — after the `Assigning` the card is drawn in — so drive 1's card is
-  still the hunter's. **The beater frame was taken in DEV instead**, by moving the player to the
-  `Drivers` team from a server line during `Assigning` — which is the same thing
-  `Match.requestTeam` does, and `Match.myTeam()` reads `LocalPlayer.Team`. The card, the wire and
-  the HUD are all real; only the ROSTER's choice was made by hand, and that is said here rather
-  than implied.
-* **Three deliberate departures from the spec**, each with its reason in the research note: a row's
-  cells are an x and a width rather than a `UIListLayout` with slack (that needs `UIFlexItem`, which
-  nothing in this repo uses and I did not prove in this Studio); the dash in `Piglet - leave them`
-  is ASCII, not §3.10's `–` (that character is only legal after the one-time Studio glyph check I
-  did not run, and `Style.spaced` walks bytes, so a multi-byte glyph in a spaced label would be cut
-  in half); and there is no 0.16 s fade-in (fading a card as one object needs a `CanvasGroup`,
-  which changes how the whole card composites over the world).
-* **The section head's hairline is faint on screen.** It is `LINE` at 0.35 over `PANEL`, which is
-  the system's own token and the same pair the results board draws — but at 1 px on a card I can
-  barely see it in either frame. Worth the Designer's eye; not changed on my own judgement.
-* **201a is only PARTLY resolved.** The pill's word is done (section 5); the other two items that
-  report listed as skipped are NOT, and nothing here touches them: the top band's spacing
-  (8 / 40 / 108 → 12 / 50 / 98) and the ammo chip's `NO BUCK` notice. Any ready message to Karen
-  must name those two as still open.
-* **Karen has not seen any of it.** It is all look; she approved merging look work before she sees
-  it (2026-10-17: *"it's ok to keep doing it"*).
+* **The frames are mine.** Per the standing lesson that proof frames should be re-shot by the
+  checker, the route is in `<runs-dir>/t205-frames.py`: `flags.py set QUICK_TEST on`, leave the
+  hunter on his stand, move `workspace.Boars.Boar1` 20 studs in front of him, fire through
+  `FireRequest:FireServer`.
+* **201a is only partly resolved.** The pill's word is done; the top band's spacing
+  (8 / 40 / 108 → 12 / 50 / 98) and the ammo chip's `NO BUCK` notice are untouched and still open.
+* **Round 1's seven non-blocking notes are not fixed** (notes under a PASS are queued, and these
+  were under findings): the nine dead `Drive.CONFIG.START_CARD_*` size constants, the
+  `ScaleType.Fit` letterbox error of ~1.5-4 px, the bar re-latching if TAB is opened during
+  `Assigning`, the fan now applying to the drive report's rows too, the misplaced `HitCard.art`
+  doc comment, the backup file's wording, and this request's own "21 labels" claim (the case
+  asserts `> 10` and prints the count).
+* **Karen has not seen any of it.** She approved merging look work before she sees it (2026-10-17:
+  *"it's ok to keep doing it"*).
