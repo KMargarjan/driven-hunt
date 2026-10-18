@@ -304,60 +304,76 @@ return function()
 			expect(panel.BackgroundTransparency < 1).to.equal(true)
 		end)
 
-		it("draws its text IN FRONT of its own panel, in white, with an outline (task 159)", function()
+		it("draws every CELL in front of its own card, and never in Code or in a black outline", function()
 			-- THE DEFECT THIS CASE EXISTS FOR, and it shipped twice before anybody looked: task 141
-			-- raised this panel to `Report.CONFIG.PANEL_Z_INDEX` (15) so it would not be cut off at
+			-- raised this board to `Report.CONFIG.PANEL_Z_INDEX` (15) so it would not be cut off at
 			-- the scope's glass, and left every label at the default ZIndex 1 -- so the translucent
 			-- dark panel was drawn OVER its own words. `Hud.scoreRowText()` read them back perfectly
 			-- the whole time; the screen showed a grey rectangle
 			-- (.screenshots/20261011T230908Z-task159-results-scene.png). `ReportPanel` had already
-			-- paid for exactly this on 2026-10-05 ("an EMPTY BLACK RECTANGLE ... drawn BEHIND its own
-			-- background"), which is why the rule is now one helper and this is asserted.
+			-- paid for exactly this on 2026-10-05, which is why the rule is now one helper in
+			-- `Hud.Style` and this is asserted.
+			--
+			-- IT IS A CARD OF TABLE ROWS SINCE TASK 201 PART 2 (the Designer's design system,
+			-- 2026-10-17, section 3.12), so what is walked is every descendant and not the direct
+			-- children: one `TextLabel` PER CELL, inside a row, inside the scrolling body.
 			Hud.renderScore(scoring(), 12)
-			local panel = Hud.scorePanel()
-			expect(panel).to.be.ok()
-			local checked = 0
-			for _, child in ipairs(panel:GetChildren()) do
-				if child:IsA("TextLabel") then
+			local board = Hud.scorePanel()
+			expect(board).to.be.ok()
+			local Style = Hud.Style
+			local checked, offenders = 0, {}
+			for _, node in ipairs(board:GetDescendants()) do
+				if node:IsA("TextLabel") and node.Visible and node.Text ~= "" then
 					checked += 1
-					-- IN FRONT OF ITS OWN PANEL.
-					expect(child.ZIndex > panel.ZIndex).to.equal(true)
-					-- WHITE. The header is dimmer by TRANSPARENCY, not by a grey colour, and the
-					-- highlighted row is Karen's own gold.
-					local white = child.TextColor3 == Drive.CONFIG.TEXT_COLOR
-					local mine = child.TextColor3 == Drive.CONFIG.SCORE_HIGHLIGHT_COLOR
-					expect(white or mine).to.equal(true)
-					-- ...and not faded out of existence by its own transparency.
-					expect(child.TextTransparency < 0.5).to.equal(true)
-					-- THE OUTLINE every other label in this Hud wears: a thin Code glyph over sunlit
-					-- grass is the half of the text that disappears first.
-					local stroke = child:FindFirstChildOfClass("UIStroke")
-					expect(stroke).to.be.ok()
-					expect(stroke.Thickness).to.equal(Drive.CONFIG.SCORE_TEXT_STROKE)
+					-- IN FRONT OF THE SURFACE IT SITS ON.
+					if node.ZIndex <= board.ZIndex then
+						table.insert(offenders, node.Name .. " (behind the card)")
+					end
+					-- NO `Enum.Font.Code` AND NO BLACK OUTLINE. The card is what carries the words
+					-- now; an outline halves the apparent size of 11 px type and still fails over a
+					-- bright sky (section 2).
+					if node.Font == Enum.Font.Code then
+						table.insert(offenders, node.Name .. " (Code)")
+					end
+					local stroke = node:FindFirstChildOfClass("UIStroke")
+					if stroke ~= nil and stroke.Color == Color3.new(0, 0, 0) then
+						table.insert(offenders, node.Name .. " (black stroke)")
+					end
+					if node.TextTransparency >= 0.5 then
+						table.insert(offenders, node.Name .. " (faded out)")
+					end
 				end
 			end
-			-- Title, header, footer and every row slot.
-			expect(checked).to.equal(3 + Drive.CONFIG.SCORE_ROWS_MAX)
-			-- The title is the line that says what the panel is: bigger than a row, and BOLD.
-			local title = panel:FindFirstChild("Title")
-			expect(title.TextSize > Drive.CONFIG.SCORE_TEXT_SIZE).to.equal(true)
-			expect(title.TextSize).to.equal(Drive.CONFIG.SCORE_TITLE_SIZE)
-			expect(title.FontFace.Weight).to.equal(Enum.FontWeight.Bold)
-			-- ...and the panel is still see-through, which is what Karen asked for.
-			expect(Drive.CONFIG.SCORE_PANEL_TRANSPARENCY > 0).to.equal(true)
+			expect(table.concat(offenders, ", ")).to.equal("")
+			-- Title, eyebrow, the column heads, and the cells of the rows that are drawn.
+			expect(checked > 6).to.equal(true)
+			-- THE CARD, and it is a card and not a modal: see-through at `Style.CARD_T`, which is
+			-- the other half of what Karen asked for (*"showing image transperent with results
+			-- table"*).
+			expect(board.BackgroundColor3).to.equal(Style.LOOK.PANEL)
+			expect(board.BackgroundTransparency).to.be.near(Style.CARD_T, 1e-5)
+			expect(Style.CARD_T > 0).to.equal(true)
+			-- THE EYEBROW AND THE TITLE PAIR (section 3.4): the small brass word saying what kind of
+			-- thing this is, over the thing.
+			local header = board:FindFirstChild("Header")
+			expect(header).to.be.ok()
+			local eyebrow = header:FindFirstChild("Eyebrow")
+			local title = header:FindFirstChild("Title")
+			expect(eyebrow.TextColor3).to.equal(Style.LOOK.BRASS)
+			expect(title.TextSize).to.equal(Style.sizeFor("TITLE", Hud.viewportX()))
+			expect(title.FontFace).to.equal(Style.FONT.OSWALD_SB)
 			TestKit.note(
 				string.format(
-					"match_client: results table -- panel z=%d labels z=%d title %d bold, stroke %d, panel alpha %.2f",
-					panel.ZIndex,
-					title.ZIndex,
-					title.TextSize,
-					Drive.CONFIG.SCORE_TEXT_STROKE,
-					panel.BackgroundTransparency
+					"match_client: results card -- %d cells, z=%d, alpha %.2f, title %d",
+					checked,
+					board.ZIndex,
+					board.BackgroundTransparency,
+					title.TextSize
 				)
 			)
 		end)
 
-		it("shows this drive's points, one row per player, mine highlighted", function()
+		it("shows this drive's points, one row per player, mine with a team bar", function()
 			Hud.renderScore(scoring(), 12)
 			local rows = Hud.scoreRowText()
 			print("[match_client] score row 1: " .. (rows[1] or "<none>"))
@@ -368,41 +384,131 @@ return function()
 			expect(string.find(rows[2], player.Name, 1, true) ~= nil).to.equal(true)
 			expect(string.find(rows[2], "16", 1, true) ~= nil).to.equal(true)
 			expect(string.find(rows[4], "Mila", 1, true) ~= nil).to.equal(true)
-			-- THE TEAM COLUMN IS GONE AND THE HEADING CARRIES THE SIDE (task 170): a `-- HUNTERS --`
-			-- heading with SHOOTER on every row under it printed one fact twice, and the width it freed
-			-- is the coins column. Asserted as GONE, not merely absent from a name check.
+			-- THE TEAM COLUMN IS GONE AND THE HEADING CARRIES THE SIDE (task 170): a `HUNTERS`
+			-- heading with SHOOTER on every row under it printed one fact twice, and the width it
+			-- freed is the coins column. Asserted as GONE, not merely absent from a name check.
 			expect(string.find(rows[2], "SHOOTER", 1, true)).to.equal(nil)
 			expect(string.find(rows[4], "DRIVER", 1, true)).to.equal(nil)
 			expect(string.find(rows[2], "nil", 1, true) == nil).to.equal(true)
 			-- WHAT THE DRIVE PAID, with its sign, which is the "+N coins" the task asked for.
 			expect(string.find(rows[2], "+67", 1, true) ~= nil).to.equal(true)
 			expect(string.find(rows[4], "+41", 1, true) ~= nil).to.equal(true)
-			-- EVERY ROW FITS THE PANEL. The glyph width is an estimate and the screenshot settles the
-			-- pixels; what a spec can hold is the CHARACTER COUNT, which is what the layout was built
-			-- against: 48 at the worst case (41 + badge + leaver's star) inside 56 (448 px / 8).
-			for _, line in ipairs(rows) do
-				expect(#line <= 56).to.equal(true)
+
+			-- EVERY CELL IS INSIDE ITS OWN COLUMN. The character count the old monospace board was
+			-- held to is meaningless now -- the numbers line up because they are PLACED (section
+			-- 1.2) -- so what a spec can hold is that no cell runs past the next column's x, which
+			-- is the thing that actually breaks when a name or a number grows.
+			local Style = Hud.Style
+			local columns = Hud.BOARD.COLUMNS
+			for _, key in ipairs(Hud.BOARD_ORDER) do
+				local column = columns[key]
+				expect(column.x >= 0).to.equal(true)
+				expect(column.x + column.w <= Hud.BOARD.WIDTH - 2 * Hud.BOARD.PADDING).to.equal(true)
 			end
 
-			local panel = Hud.scorePanel()
-			-- Row1 is the HUNTERS heading, Row2 is my row, Row3 the BEATERS heading, Row4 hers.
-			local mine = panel:FindFirstChild("Row2")
-			local theirs = panel:FindFirstChild("Row4")
-			expect(mine.TextColor3).to.equal(Drive.CONFIG.SCORE_HIGHLIGHT_COLOR)
-			expect(theirs.TextColor3).to.equal(Drive.CONFIG.TEXT_COLOR)
-			-- A HEADING RECEDES, exactly as the column header does.
-			expect(panel:FindFirstChild("Row1").TextTransparency).to.equal(Drive.CONFIG.SCORE_HEADER_TRANSPARENCY)
-			expect(mine.TextTransparency).to.equal(0)
+			-- MY OWN ROW WEARS A 3 px BAR IN MY TEAM'S COLOUR and my name is `PAPER`; everybody
+			-- else's name is `BODY` and their row has no bar (section 3.12).
+			local body = Hud.scoreBody()
+			expect(body).to.be.ok()
+			local mine = body:FindFirstChild("Row2")
+			local theirs = body:FindFirstChild("Row4")
+			expect(mine).to.be.ok()
+			expect(theirs).to.be.ok()
+			expect(mine:FindFirstChild("Bar").Visible).to.equal(true)
+			expect(theirs:FindFirstChild("Bar").Visible).to.equal(false)
+			expect(mine:FindFirstChild("name").TextColor3).to.equal(Style.LOOK.PAPER)
+			expect(theirs:FindFirstChild("name").TextColor3).to.equal(Style.LOOK.BODY)
+			-- A COINS NUMBER IS BRASS, wherever it is (section 3.12).
+			expect(mine:FindFirstChild("coins").TextColor3).to.equal(Style.LOOK.COIN_TEXT)
+			-- A SECTION HEAD IS ITS TEAM'S COLOUR, which is the only team colour on this board
+			-- besides your own row's bar.
+			local hunters = body:FindFirstChild("Head1")
+			local beaters = body:FindFirstChild("Head3")
+			expect(hunters.Visible).to.equal(true)
+			expect(hunters:FindFirstChild("Word").TextColor3).to.equal(Style.LOOK.HUNTER)
+			expect(beaters:FindFirstChild("Word").TextColor3).to.equal(Style.LOOK.BEATER)
 
-			expect(string.find(Hud.scoreTitleText(), "DRIVE 3", 1, true) ~= nil).to.equal(true)
-			-- THE RESULTS TABLE (task 159). Karen: *"showing image transperent with results table"* --
-			-- this panel IS that table, and it says so. The WORDING is the contract's, so the
-			-- assertion is against `Drive.CONFIG` and not against a string typed twice.
-			expect(Hud.scoreTitleText()).to.equal(string.format(Drive.CONFIG.SCORE_TITLE_FORMAT, 3))
-			expect(string.find(Hud.scoreTitleText(), "RESULTS", 1, true) ~= nil).to.equal(true)
-			-- ...and it is see-through, which is the other half of what she asked for.
-			expect(Drive.CONFIG.SCORE_PANEL_TRANSPARENCY > 0).to.equal(true)
-			expect(Hud.scorePanel().BackgroundTransparency).to.equal(Drive.CONFIG.SCORE_PANEL_TRANSPARENCY)
+			-- THE EYEBROW IS WHICH DRIVE AND THE TITLE IS WHAT THIS IS (section 3.4). The wording is
+			-- the contract's, so the assertion is against `Drive.CONFIG` and not a string typed twice.
+			expect(Hud.scoreEyebrowText()).to.equal(Style.spaced(string.format(Drive.CONFIG.SCORE_EYEBROW_FORMAT, 3)))
+			expect(Hud.scoreTitleText()).to.equal(Drive.CONFIG.SCORE_TITLE_WORD)
+			expect(Hud.scoreFooterText()).to.equal("NEXT DRIVE IN 12")
+		end)
+
+		it("makes its HEIGHT follow the row count, which 20 fixed slots never did", function()
+			-- THE ONE THING SECTION 3.12 ASKS FOR BY NAME: *"The results board today is 20 fixed row
+			-- slots tall and draws a 480 x 574 box to hold three of them
+			-- (`191-gathering-aimed-1.png`). From here on it is `header + rows x rowHeight + footer`,
+			-- and it scrolls past 14 rows."*
+			local Style = Hud.Style
+			local viewX = Hud.viewportX()
+			local rowH = Style.rowHeight(viewX)
+
+			-- The arithmetic first: a board of two lines is shorter than a board of twelve, and the
+			-- difference is exactly the rows.
+			local small = Hud.boardHeight(2, 2, viewX)
+			local big = Hud.boardHeight(12, 2, viewX)
+			expect(big - small).to.equal(10 * rowH)
+			-- ...and it stops growing at 14 rows, because past that the body scrolls.
+			expect(Hud.boardHeight(14, 0, viewX)).to.equal(Hud.boardHeight(40, 0, viewX))
+
+			-- THEN THE SCREEN. Two rows and two headings, drawn by the real renderer.
+			Hud.renderScore(scoring(), 12)
+			local board = Hud.scorePanel()
+			local two = board.Size.Y.Offset
+			expect(two).to.equal(Hud.boardHeight(2, 2, viewX))
+			-- The old board was 574 px tall for exactly this snapshot; this one is far less.
+			expect(two < 400).to.equal(true)
+			TestKit.note(string.format("match_client: board is %d px for 2 rows + 2 heads", two))
+		end)
+
+		it("leaves the footer clear of the table, which the card's own padding ate", function()
+			-- ROUND 1, BLOCKING FINDING 2. `Style.card` ends with a `UIPadding` of `Style.cardInset`
+			-- all round, so a board of height H has a CONTENT box of H - 24. `Hud.boardHeight`
+			-- returned the content height as the WHOLE height, and the footer -- anchored to the
+			-- bottom of that content box -- was drawn 24 px up, with its 28 px countdown number
+			-- across the last row of the table.
+			local Style = Hud.Style
+			local viewX = Hud.viewportX()
+			local inset = Style.cardInset(viewX)
+			expect(inset).to.equal(12)
+			-- THE HEIGHT COUNTS THE PADDING, and the content box is what the bands are laid out in.
+			expect(Hud.boardHeight(2, 2, viewX) - Hud.boardContentHeight(2, 2, viewX)).to.equal(2 * inset)
+			expect(Hud.boardContentHeight(2, 2, viewX)).to.equal(
+				Hud.BOARD.HEADER_H + Style.rowHeight(viewX) + 2 * Style.rowHeight(viewX) + 2 * 20 + Hud.BOARD.FOOTER_H
+			)
+
+			-- ...AND ON THE SCREEN: the footer's top really is below the last drawn row's bottom.
+			Hud.renderScore(scoring(), 12)
+			local board = Hud.scorePanel() :: Frame
+			local body = Hud.scoreBody() :: ScrollingFrame
+			local foot = board:FindFirstChild("Footer") :: Frame
+			expect(foot).to.be.ok()
+			task.wait()
+			local bodyBottom = body.AbsolutePosition.Y + body.AbsoluteSize.Y
+			local footTop = foot.AbsolutePosition.Y
+			expect(footTop >= bodyBottom).to.equal(true)
+			TestKit.note(string.format("match_client: body ends %d, footer starts %d", bodyBottom, footTop))
+
+			-- THE TABLE IS CENTRED IN THE CARD'S PADDING (round 1 note): `Hud.BOARD.PADDING` was 16
+			-- against the card's own 12, so the whole table sat 8 px left of centre.
+			expect(Hud.BOARD.PADDING).to.equal(inset)
+			expect(Hud.BOARD.WIDTH - 2 * Hud.BOARD.PADDING).to.equal(Hud.BOARD.WIDTH - 2 * inset)
+		end)
+
+		it("answers the footer's DRAWN word, not the constant it was supposed to match", function()
+			-- ROUND 1 NOTE: `Hud.scoreFooterText` read the label, stripped its letter-spacing and
+			-- then threw it away for `Drive.CONFIG.SCORE_FOOTER_WORD` -- so the one case that
+			-- asserts this line would have passed with ANY word on screen. A seam that cannot fail.
+			Hud.renderScore(scoring(), 12)
+			expect(Hud.scoreFooterText()).to.equal("NEXT DRIVE IN 12")
+			local board = Hud.scorePanel() :: Frame
+			local word = (board:FindFirstChild("Footer") :: Frame):FindFirstChild("Word") :: TextLabel
+			expect(word).to.be.ok()
+			local was = word.Text
+			word.Text = Hud.Style.spaced("SOMETHING ELSE")
+			expect(Hud.scoreFooterText()).to.equal("SOMETHING ELSE 12")
+			word.Text = was
 			expect(Hud.scoreFooterText()).to.equal("NEXT DRIVE IN 12")
 		end)
 
@@ -622,14 +728,19 @@ return function()
 		-- A LEAVER IS NOT PAID (`Economy.Coins.forDrive` skips `row.left`), so his row carries no
 		-- `earned` and the column says so with the same `--` an unknown balance uses. His row still
 		-- SHOWS, which is `Score.leave`'s own decision.
-		it("reads `--` for a row the drive did not pay", function()
+		it("draws NO coins cell for a row the drive did not pay, and says LEFT instead", function()
 			local rows = {
 				{ userId = 1, name = "gone", team = "Shooters", points = 16, kills = 2, left = true },
 			}
 			local lines = Hud.scorePanelLines({ rows = rows }, nil)
 			expect(#lines).to.equal(2)
-			expect(string.find(lines[2].text, Drive.CONFIG.SCORE_COINS_UNKNOWN, 1, true) ~= nil).to.equal(true)
-			expect(string.find(lines[2].text, "*", 1, true) ~= nil).to.equal(true)
+			-- AN UNKNOWN IS NOT DRAWN AT ALL RATHER THAN `--` (the design system section 3.12), and
+			-- the `LEFT` TAG beside the row is what says why he was not paid -- a `--` in the coins
+			-- column was the same fact said twice and badly.
+			expect((lines[2].cells :: any).coins).to.equal("")
+			expect(string.find(lines[2].text, Drive.CONFIG.SCORE_COINS_UNKNOWN, 1, true)).to.equal(nil)
+			expect(lines[2].left).to.equal(true)
+			expect(string.find(lines[2].text, "LEFT", 1, true) ~= nil).to.equal(true)
 		end)
 
 		it("puts the badge on the drawn row, on the leader's row only", function()

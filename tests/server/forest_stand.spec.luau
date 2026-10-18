@@ -995,6 +995,33 @@ return function()
 			expect(Data.START_ROLE_ATTRIBUTE).to.equal("DHForestStartRole")
 		end)
 
+		it("takes the Director's short-drive switch, and refuses a value that would lie", function()
+			-- TASK 201 PART 2. The results board is the screen Karen reads at the end of EVERY
+			-- drive, and a drive here is 300 s -- so a frame of it cost five minutes, and
+			-- `Match.advanceForTests` is the server's and cannot be reached from the harness
+			-- (`tools/studio_mcp.py`: that thread may not `require`). The switch is the same kind as
+			-- `DHForestLayout` and `DHForestStartRole`: an attribute, read at the composition root,
+			-- through `Match.WORLD_OVERRIDABLE`'s own `DRIVE_SECONDS` key.
+			local full = Data.DRIVE.seconds
+			expect(ForestTest.driveSeconds(45)).to.equal(45)
+			expect(ForestTest.driveSeconds("45")).to.equal(45)
+			expect(ForestTest.driveSeconds(45.9)).to.equal(45)
+			expect(ForestTest.driveSeconds(full)).to.equal(full)
+			expect(ForestTest.driveSeconds(Data.DRIVE_SECONDS_MIN)).to.equal(Data.DRIVE_SECONDS_MIN)
+			-- NOBODY HAS SAID -> the world's own length, which is what every run before the switch
+			-- existed used.
+			expect(ForestTest.driveSeconds(nil)).to.equal(nil)
+			expect(ForestTest.driveSeconds("")).to.equal(nil)
+			expect(ForestTest.driveSeconds("soon")).to.equal(nil)
+			-- IT REFUSES RATHER THAN CLAMPING: under the minimum the drive would end before its own
+			-- first release, and over the world's own length it would make a playtest LONGER.
+			expect(ForestTest.driveSeconds(Data.DRIVE_SECONDS_MIN - 1)).to.equal(nil)
+			expect(ForestTest.driveSeconds(full + 1)).to.equal(nil)
+			-- ...and the key it feeds is one a world is ALLOWED to override.
+			local Match = require(ServerScriptService:WaitForChild("Match"))
+			expect(Match.WORLD_OVERRIDABLE.DRIVE_SECONDS).to.equal(true)
+		end)
+
 		it("translates Karen's word through Match.Body, which is the one translator", function()
 			-- `ForestTest` answers in KAREN'S words and never in team names: the mapping lives in
 			-- `Match.Body.ROLE_WORDS` alone, so "beater means Drivers" is written down once.

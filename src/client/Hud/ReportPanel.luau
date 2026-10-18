@@ -29,7 +29,6 @@
 local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
@@ -37,6 +36,12 @@ local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 -- local functions in this file until the hit card needed the same animal in the corner; moving them
 -- was the alternative to a second drawing of a boar and a second way of placing a mark on it.
 local BoarArt = require(script.Parent.BoarArt)
+-- THE ONE SOURCE for every colour, face, size and component this panel draws with (task 201 part 2,
+-- the Designer's design system, 2026-10-17). Surface 12: *"The same rebuild as the board, plus: the
+-- footer's key hints become ghost chips instead of words inside a sentence; the selected row is
+-- `ROW_HOVER` with a brass left bar; `DOWN` / `LOST` become tags; the silhouette dot art is
+-- unchanged."* It is a MODAL (§3.1), so it lays a `SCRIM` over the whole screen at 0.42.
+local Style = require(script.Parent.Style)
 
 local CONFIG = Report.CONFIG
 
@@ -52,6 +57,44 @@ local DOWN = "DrivenHunt.Report.Down"
 local PAGE_LEFT = "DrivenHunt.Report.PageLeft"
 local PAGE_RIGHT = "DrivenHunt.Report.PageRight"
 
+-- WHERE EVERY COLUMN OF BOTH TABLES SITS, inside the panel's padded body. One `TextLabel` per cell
+-- (§3.12): the numbers line up because they are PLACED, which is what replaced the `%7d` padding
+-- when `Enum.Font.Code` left.
+--
+-- THE TWO TABLES HAVE DIFFERENT COLUMNS and are two tables; what they share is the ROW, which is
+-- `Style.tableRow` and is the component §3.12 asks for.
+-- THEY ADD UP TO `ReportPanel.WELL_INNER` AND THAT IS ASSERTED, because the first frame of this
+-- panel ran POINTS 14 px past the well's right edge (`20261017T150447Z-t201b-report-open-2.png`):
+-- a column table is eight numbers and the only way to be sure they fit is to add them up in a spec.
+ReportPanel.WELL_INNER = 584
+
+ReportPanel.LIST_COLUMNS = {
+	{ key = "rank", head = "#", x = 0, w = 20, right = true },
+	{ key = "name", head = "NAME", x = 28, w = 150, right = false },
+	{ key = "male", head = "MALE", x = 186, w = 56, right = true },
+	{ key = "female", head = "FEM", x = 248, w = 50, right = true },
+	{ key = "cub", head = "CUB", x = 304, w = 50, right = true },
+	{ key = "kills", head = "KILLS", x = 360, w = 60, right = true },
+	{ key = "lost", head = "LOST", x = 426, w = 56, right = true },
+	{ key = "points", head = "POINTS", x = 488, w = 96, right = true },
+}
+
+-- THE ANIMAL ROWS. `result` is a TAG and not a word in a column (§3.7), so its slot is a box and
+-- the rest of the row is placed around it.
+-- THEY START AFTER THE SILHOUETTE. The boar with a dot where each shot landed is Karen's *"where
+-- was the hit"* half and §5 surface 12 keeps it unchanged, so it owns the first 116 px of every
+-- animal row and the cells are placed around it.
+ReportPanel.DETAIL_TEXT_X = 116
+
+ReportPanel.DETAIL_COLUMNS = {
+	{ key = "kind", head = "ANIMAL", x = 116, w = 56, right = false },
+	{ key = "result", head = "RESULT", x = 178, w = 80, right = false },
+	{ key = "zone", head = "ZONE", x = 264, w = 92, right = false },
+	{ key = "range", head = "RANGE", x = 362, w = 66, right = true },
+	{ key = "gun", head = "GUN", x = 434, w = 110, right = true },
+	{ key = "hits", head = "HITS", x = 550, w = 34, right = true },
+}
+
 -- ---------------------------------------------------------------- state (five values, one writer)
 local open = false
 local view = "list"
@@ -61,11 +104,28 @@ local autoOpenedFor: number? = nil
 
 local started = false
 local panel: Frame? = nil
+-- THE FULL-SCREEN SCRIM BEHIND THIS PANEL (§1.3). The Hud creates it; this module writes its
+-- `Visible` with the panel's own, because they are one answer to one question.
+local scrim: Frame? = nil
 local title: TextLabel? = nil
-local header: TextLabel? = nil
 local footer: TextLabel? = nil
 local listRows: { TextButton } = {}
 local detailRows: { Frame } = {}
+-- ONE `TextLabel` PER CELL (§3.12), kept by column key so a renderer writes `cells.points` rather
+-- than counting children. The two tables have different columns and so two lists.
+local listCells: { { [string]: TextLabel } } = {}
+local detailCells: { { [string]: TextLabel } } = {}
+-- THE SCROLLING BODY the rows live in (round 1, finding 1). The well CLIPS and does not scroll, so
+-- until this frame existed a player simply lost the rows past its 420 px.
+ReportPanel.body = nil :: ScrollingFrame?
+local listHead: Frame? = nil
+local detailHead: Frame? = nil
+-- The panel's own padding, and the bands its header and footer own.
+local PAD = 16
+local HEAD_H = 76
+local FOOT_H = 52
+-- Each animal row's result TAG, by row, because a tag is a Frame and its word is inside it.
+ReportPanel.tagTextOf = {} :: { [Frame]: TextLabel }
 local payload: any = nil
 
 -- The collaborators, resolved once at `start` and all three optional -- the same shape `Hud.start`
@@ -106,8 +166,30 @@ function ReportPanel.titleText(): string
 	return if title then title.Text else ""
 end
 
+-- WHAT THE PANEL'S EYEBROW SAYS, unspaced (§1.2 letter-spaces an uppercase label at 10 px, which
+-- is tracking and not content).
+function ReportPanel.eyebrowText(): string
+	local label = ReportPanel.eyebrow
+	return if label then Style.unspaced((label :: TextLabel).Text) else ""
+end
+
+-- WHAT THE COLUMN HEAD OF THE VISIBLE TABLE SAYS, read off the drawn cells. It was one padded
+-- `TextLabel` until task 201 part 2 and is one cell per column now, so this joins them in column
+-- order -- and it answers the VISIBLE table, because the panel shows one of the two at a time.
 function ReportPanel.headerText(): string
-	return if header then header.Text else ""
+	local row = if view == "detail" then detailHead else listHead
+	local columns = if view == "detail" then ReportPanel.DETAIL_COLUMNS else ReportPanel.LIST_COLUMNS
+	if row == nil then
+		return ""
+	end
+	local parts = {}
+	for _, column in ipairs(columns) do
+		local cell = (row :: Frame):FindFirstChild(column.key)
+		if cell ~= nil then
+			table.insert(parts, Style.unspaced((cell :: TextLabel).Text))
+		end
+	end
+	return table.concat(parts, " ")
 end
 
 function ReportPanel.footerText(): string
@@ -115,21 +197,38 @@ function ReportPanel.footerText(): string
 end
 
 -- What is actually on screen, row by row: the seam a client spec reads instead of guessing.
+-- WHAT THE VISIBLE TABLE SAYS, ROW BY ROW, as plain words -- the DRAWN cells joined in column
+-- order. It reads the labels and not the renderer's input, which is the whole point of it: the
+-- tables are one `TextLabel` per cell now (§3.12), and a reader that asked the formatter instead
+-- would be asserting the thing it is trying to check.
+--
+-- An animal's RESULT is a tag rather than a cell, so its word is read out of the tag.
 function ReportPanel.rowText(): { string }
 	local out = {}
-	if view == "detail" then
-		for _, row in ipairs(detailRows) do
-			if row.Visible then
-				local label = row:FindFirstChild("Text")
-				table.insert(out, if label and label:IsA("TextLabel") then label.Text else "")
+	local rows = if view == "detail" then detailRows else listRows
+	local cellsOf = if view == "detail" then detailCells else listCells
+	local columns = if view == "detail" then ReportPanel.DETAIL_COLUMNS else ReportPanel.LIST_COLUMNS
+	for index, node in ipairs(rows) do
+		if not node.Visible then
+			continue
+		end
+		local row = if view == "detail" then node :: Frame else (node :: Instance):FindFirstChild("Row") :: Frame
+		local cells = cellsOf[index] or {}
+		local parts = {}
+		for _, column in ipairs(columns) do
+			if column.key == "result" then
+				local word = if row ~= nil then ReportPanel.tagTextOf[row] else nil
+				if word ~= nil and word.Text ~= "" then
+					table.insert(parts, Style.unspaced(word.Text))
+				end
+				continue
+			end
+			local cell = cells[column.key]
+			if cell ~= nil and cell.Text ~= "" then
+				table.insert(parts, cell.Text)
 			end
 		end
-		return out
-	end
-	for _, row in ipairs(listRows) do
-		if row.Visible then
-			table.insert(out, row.Text)
-		end
+		table.insert(out, table.concat(parts, " "))
 	end
 	return out
 end
@@ -161,32 +260,10 @@ end
 --   https://create.roblox.com/docs/reference/engine/enums/ZIndexBehavior
 local Z = CONFIG.PANEL_Z_INDEX
 
-local function label(parent: Instance, name: string, size: number, position: UDim2, width: number): TextLabel
-	local text = Instance.new("TextLabel")
-	text.Name = name
-	text.ZIndex = Z + 1
-	-- THE SAME BLACK OUTLINE every other label in this Hud wears. Over a bright forest a thin Code
-	-- glyph with no stroke is the half of the text that disappears first.
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 1
-	stroke.Color = Color3.new(0, 0, 0)
-	stroke.Parent = text
-	text.BackgroundTransparency = 1
-	text.Font = Enum.Font.Code
-	text.TextSize = size
-	text.TextColor3 = Drive.CONFIG.TEXT_COLOR
-	text.TextXAlignment = Enum.TextXAlignment.Left
-	text.Position = position
-	text.Size = UDim2.fromOffset(width, size + 6)
-	text.Text = ""
-	text.Parent = parent
-	return text
-end
-
 -- ONE SILHOUETTE, from `Hud.BoarArt` (task 198): the report's own fill on the report's own dark
 -- backing, nose-LEFT, at 104 x 56 -- the same picture, out of the file that is now its one builder.
 local function buildSilhouette(parent: Frame): Frame
-	return BoarArt.build(parent, "Silhouette", UDim2.fromOffset(8, 6), {
+	return BoarArt.build(parent, "Silhouette", UDim2.fromOffset(0, 6), {
 		fill = CONFIG.BOAR_FILL,
 		backing = CONFIG.ART_BACKGROUND,
 		width = CONFIG.SILHOUETTE_WIDTH,
@@ -195,73 +272,225 @@ local function buildSilhouette(parent: Frame): Frame
 	})
 end
 
+-- HOW BIG THE PANEL IS -- the shop's own rule, which every modal in the game shares so a player
+-- learns ONE panel shape (§3.1). 1280 x 720 gives 640 x 576; a 400 px phone gives 376 x 640.
+function ReportPanel.panelSize(viewport: Vector2?): UDim2
+	local camera = workspace.CurrentCamera
+	local size = viewport
+		or (
+			if camera and camera.ViewportSize.X >= Style.MIN_SENSIBLE_PX
+				then camera.ViewportSize
+				else Vector2.new(1280, 720)
+		)
+	local margin = 12
+	local width = math.clamp(size.X - 2 * margin, 300, 640)
+	local height = math.clamp(math.floor(size.Y * 0.80), 300, 640)
+	return UDim2.fromOffset(width, height)
+end
+
+function ReportPanel.bodyWidth(viewport: Vector2?): number
+	return ReportPanel.panelSize(viewport).X.Offset - 2 * PAD
+end
+
+-- THE WHOLE PANEL, built once. It is a MODAL now (§3.1): an opaque lodge panel with a brass
+-- hairline over a full-screen `SCRIM` at 0.42, an eyebrow + title pair, a well holding the table,
+-- and a footer of GHOST KEY CHIPS instead of key names buried in a sentence.
 local function build(frame: Frame)
 	panel = frame
-	local width = CONFIG.PANEL_WIDTH
-	title = label(frame, "Title", Drive.CONFIG.SCORE_TITLE_SIZE, UDim2.fromOffset(16, 10), width - 32)
-	header = label(frame, "Header", Drive.CONFIG.SCORE_TEXT_SIZE, UDim2.fromOffset(16, 44), width - 32)
-	-- 0.4 was the score panel's, over the arena. On this panel's second frame the column names were
-	-- the first thing that stopped being readable, so the header is only slightly dimmed.
-	header.TextTransparency = 0.15
+	-- `Style.viewportX` AND NOT `CurrentCamera.ViewportSize.X`: the camera reports (1, 1) until the
+	-- engine has drawn a frame and `build` runs before that, so the ungated reader this line used to
+	-- be built 24 px PHONE rows on a 969 px screen (caught by `hud_style.spec`, round 0 of part 2).
+	local viewX = Style.viewportX()
+	local size = ReportPanel.panelSize()
+	frame.Size = size
+	frame.BackgroundColor3 = Style.LOOK.PANEL
+	frame.BackgroundTransparency = Style.PANEL_T
+	Style.corner(frame, Style.RADIUS.MODAL)
+	Style.stroke(frame, Style.LOOK.BRASS, Style.EDGE_T.PANEL)
+	local width = size.X.Offset
+	local body = width - 2 * PAD
 
-	-- THE LIST ROWS ARE BUTTONS, because Karen asked to *"click on details or similar"*. A click does
-	-- what Enter does; the keyboard path exists for a client with no mouse freed (no camera, so no
-	-- `Cursor`), which is why it is not a nicety.
-	local top = 44 + CONFIG.HEADER_HEIGHT + 4
+	local headerFrame, eyebrow, titleLabel = Style.header(frame, body, viewX, false)
+	headerFrame.Position = UDim2.fromOffset(PAD, 8)
+	title = titleLabel
+	ReportPanel.eyebrow = eyebrow
+
+	-- THE ONE ICON BUTTON (§3.5), and the X is two rotated Frames so no glyph has to exist in the
+	-- font -- the shop's own rule. `Escape` IS NOT BINDABLE (it belongs to the Roblox menu), so a
+	-- panel that claimed to close on it would be lying; this and `Tab` are the two ways out.
+	local close = Style.closeButton(frame, "Close")
+	close.AnchorPoint = Vector2.new(1, 0)
+	close.Position = UDim2.new(1, -PAD, 0, 14)
+	close.Activated:Connect(function()
+		ReportPanel.setOpen(false)
+	end)
+
+	-- THE TABLE SITS IN A WELL sunk into the panel (§1.3's ladder: one step lighter and one step
+	-- less round than the panel it is in).
+	local well = Instance.new("Frame")
+	well.Name = "Well"
+	well.BackgroundColor3 = Style.LOOK.COLUMN
+	well.BorderSizePixel = 0
+	well.Position = UDim2.fromOffset(PAD, HEAD_H)
+	well.Size = UDim2.fromOffset(body, size.Y.Offset - HEAD_H - FOOT_H - 8)
+	well.ClipsDescendants = true
+	well.ZIndex = Z + 1
+	well.Parent = frame
+	Style.corner(well, Style.RADIUS.WELL)
+	Style.stroke(well, Style.LOOK.WELL_EDGE, Style.EDGE_T.WELL)
+	Style.padding(well, 10, 10, 12, 12)
+	ReportPanel.well = well
+	local inner = body - 24
+
+	-- THE ROWS SCROLL, AND ROUND 1'S FIRST BLOCKING FINDING IS WHY. The well's content box is 420 px
+	-- tall; the server pages EIGHT animals (`Report.CONFIG.ANIMALS_PER_PAGE`, and `HitLog` computes
+	-- `pages` from it) at `DETAIL_ROW_HEIGHT` 68 = 544 px, and it lists SIXTEEN hunters
+	-- (`HUNTER_ROWS`, which is `Match.CONFIG.MAX_PLAYERS`) at 28 = 448. With `ClipsDescendants` and
+	-- no scroll a player saw FIVE of the eight while the footer still read `Page 1 of 1`, and lost
+	-- rows 15 and 16 of the list. The horizontal padding was accounted for (`inner` above); the
+	-- vertical was not.
+	--
+	-- A `ScrollingFrame` AND NOT A SHORTER PAGE: the page size is the SERVER's (`HitLog` reports
+	-- `pages` from it), so making the client show fewer would be the client disagreeing with the
+	-- payload about how many there are -- the failure this panel's own header exists to prevent
+	-- (*"IT DRAWS WHAT ARRIVED AND COMPUTES NOTHING"*).
+	--
+	-- THE COLUMN HEAD DOES NOT SCROLL. It is pinned in the well above this frame, because a column
+	-- head that scrolls away leaves a table of numbers with nothing saying what they are.
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "Body"
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.Position = UDim2.fromOffset(0, Style.rowHeight(viewX))
+	scroll.Size = UDim2.new(1, 0, 1, -Style.rowHeight(viewX))
+	scroll.CanvasSize = UDim2.fromOffset(0, 0)
+	-- THE SYSTEM'S OWN SCROLL TREATMENT: a 3 px brass bar at half transparency, which is what the
+	-- results board's body already uses -- one scrollbar in the game, not two.
+	scroll.ScrollBarThickness = 3
+	scroll.ScrollBarImageColor3 = Style.LOOK.BRASS
+	scroll.ScrollBarImageTransparency = 0.5
+	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	scroll.ZIndex = well.ZIndex + 1
+	scroll.Parent = well
+	ReportPanel.body = scroll
+
+	-- THE COLUMN HEAD, its own row with the brass hairline under it, one per table.
+	local function headRow(name: string, columns): Frame
+		local row = Style.columnHead(well, name, viewX, inner, false)
+		row.Position = UDim2.fromOffset(0, 0)
+		for _, column in ipairs(columns) do
+			local cell = Style.cell(row, column.key, viewX, column.x, column.w, column.right, "MICRO")
+			cell.TextColor3 = Style.LOOK.FAINT
+			cell.Text = Style.spaced(column.head)
+		end
+		return row
+	end
+	listHead = headRow("ListHead", ReportPanel.LIST_COLUMNS)
+	detailHead = headRow("DetailHead", ReportPanel.DETAIL_COLUMNS)
+
+	local rowH = Style.rowHeight(viewX)
+
+	-- THE LIST ROWS ARE BUTTONS, because Karen asked to *"click on details or similar"*. A click
+	-- does what Enter does; the keyboard path exists for a client with no mouse freed (no camera, so
+	-- no `Cursor`), which is why it is not a nicety. The ROW inside each one is `Style.tableRow`,
+	-- so the board and this panel draw the same row.
 	table.clear(listRows)
+	table.clear(listCells)
 	for index = 1, CONFIG.HUNTER_ROWS do
-		local row = Instance.new("TextButton")
-		row.Name = string.format("ListRow%d", index)
-		row.AutoButtonColor = false
-		row.BackgroundTransparency = 1
-		row.BorderSizePixel = 0
-		row.Font = Enum.Font.Code
-		row.TextSize = Drive.CONFIG.SCORE_TEXT_SIZE
-		row.TextColor3 = Drive.CONFIG.TEXT_COLOR
-		row.TextXAlignment = Enum.TextXAlignment.Left
-		row.Position = UDim2.fromOffset(16, top + (index - 1) * CONFIG.LIST_ROW_HEIGHT)
-		row.Size = UDim2.fromOffset(width - 32, CONFIG.LIST_ROW_HEIGHT)
-		row.Text = ""
-		row.Visible = false
-		row.ZIndex = Z + 1
-		row.Parent = frame
-		row.Activated:Connect(function()
+		local button = Instance.new("TextButton")
+		button.Name = string.format("ListRow%d", index)
+		button.AutoButtonColor = false
+		button.Text = ""
+		button.BackgroundTransparency = 1
+		button.BorderSizePixel = 0
+		button.Position = UDim2.fromOffset(0, (index - 1) * rowH)
+		button.Size = UDim2.fromOffset(inner, rowH)
+		button.Visible = false
+		button.ZIndex = Z + 1
+		button.Parent = scroll
+		local row = Style.tableRow(button, "Row", viewX, inner)
+		row.Position = UDim2.fromOffset(0, 0)
+		row.Visible = true
+		local cells: { [string]: TextLabel } = {}
+		for _, column in ipairs(ReportPanel.LIST_COLUMNS) do
+			cells[column.key] = Style.cell(row, column.key, viewX, column.x, column.w, column.right)
+		end
+		button.Activated:Connect(function()
 			ReportPanel.selectRow(index)
 		end)
-		table.insert(listRows, row)
+		table.insert(listRows, button)
+		table.insert(listCells, cells)
 	end
 
+	-- THE ANIMAL ROWS: the silhouette, the cells, and the result as a TAG (§3.7) -- `DOWN` in pine,
+	-- `WOUNDED` in clay. A STATE IS NEVER COLOUR ALONE, which is why the tag carries the word.
 	table.clear(detailRows)
+	table.clear(detailCells)
 	for index = 1, CONFIG.ANIMALS_PER_PAGE do
-		local row = Instance.new("Frame")
-		row.Name = string.format("DetailRow%d", index)
-		row.BackgroundTransparency = 1
-		row.BorderSizePixel = 0
-		row.Position = UDim2.fromOffset(16, top + (index - 1) * CONFIG.DETAIL_ROW_HEIGHT)
-		row.Size = UDim2.fromOffset(width - 32, CONFIG.DETAIL_ROW_HEIGHT)
-		row.Visible = false
-		row.ZIndex = Z + 1
-		row.Parent = frame
+		local row = Style.tableRow(scroll, string.format("DetailRow%d", index), viewX, inner)
+		row.Size = UDim2.fromOffset(inner, CONFIG.DETAIL_ROW_HEIGHT)
+		row.Position = UDim2.fromOffset(0, (index - 1) * CONFIG.DETAIL_ROW_HEIGHT)
 		buildSilhouette(row)
-		local text = label(
-			row,
-			"Text",
-			Drive.CONFIG.SCORE_TEXT_SIZE,
-			UDim2.fromOffset(CONFIG.DETAIL_TEXT_X, 22),
-			width - 32 - CONFIG.DETAIL_TEXT_X
-		)
-		assert(text.Name == "Text", "the detail row's label is read back by name")
+		local cells: { [string]: TextLabel } = {}
+		for _, column in ipairs(ReportPanel.DETAIL_COLUMNS) do
+			if column.key == "result" then
+				continue
+			end
+			local cell = Style.cell(row, column.key, viewX, column.x, column.w, column.right)
+			cell.Position = UDim2.fromOffset(column.x, 0)
+			cells[column.key] = cell
+		end
+		local tag, tagText = Style.tag(row, "Result", Style.LOOK.PINE_TEXT, viewX)
+		tag.AnchorPoint = Vector2.new(0, 0.5)
+		tag.Position = UDim2.new(0, ReportPanel.DETAIL_COLUMNS[2].x, 0.5, 0)
+		tag.Visible = false
+		ReportPanel.tagTextOf[row] = tagText
 		table.insert(detailRows, row)
+		table.insert(detailCells, cells)
 	end
 
-	footer = label(
-		frame,
-		"Footer",
-		Drive.CONFIG.SCORE_TEXT_SIZE,
-		UDim2.fromOffset(16, CONFIG.PANEL_HEIGHT - CONFIG.FOOTER_HEIGHT - 10),
-		width - 32
-	);
-	(footer :: TextLabel).TextTransparency = 0.25
+	-- THE FOOTER: the sentence on the left, and the KEY HINTS as ghost chips on the right (§5
+	-- surface 12). They were `[ENTER] DETAILS   [TAB] CLOSE` inside the sentence itself.
+	local foot = Instance.new("Frame")
+	foot.Name = "Footer"
+	foot.BackgroundTransparency = 1
+	foot.BorderSizePixel = 0
+	foot.AnchorPoint = Vector2.new(0, 1)
+	foot.Position = UDim2.new(0, PAD, 1, -14)
+	foot.Size = UDim2.fromOffset(body, 30)
+	foot.ZIndex = Z + 1
+	foot.Parent = frame
+
+	footer = Style.label(foot, "Text", "BODY", viewX);
+	(footer :: TextLabel).TextColor3 = Style.LOOK.MUTED;
+	(footer :: TextLabel).Size = UDim2.new(1, -260, 1, 0);
+	(footer :: TextLabel).TextXAlignment = Enum.TextXAlignment.Left
+
+	local chips = Instance.new("Frame")
+	chips.Name = "Keys"
+	chips.BackgroundTransparency = 1
+	chips.AutomaticSize = Enum.AutomaticSize.X
+	chips.AnchorPoint = Vector2.new(1, 0.5)
+	chips.Position = UDim2.fromScale(1, 0.5)
+	chips.Size = UDim2.fromScale(0, 1)
+	chips.ZIndex = foot.ZIndex
+	chips.Parent = foot
+	local chipRow = Instance.new("UIListLayout")
+	chipRow.FillDirection = Enum.FillDirection.Horizontal
+	chipRow.VerticalAlignment = Enum.VerticalAlignment.Center
+	chipRow.SortOrder = Enum.SortOrder.LayoutOrder
+	chipRow.Padding = UDim.new(0, 8)
+	chipRow.Parent = chips
+	ReportPanel.keyChips = {
+		enter = Style.keyChip(chips, "Enter", "ENTER", "DETAILS", viewX),
+		back = Style.keyChip(chips, "Back", "BACKSPACE", "BACK", viewX),
+		page = Style.keyChip(chips, "Page", "< >", "PAGE", viewX),
+		close = Style.keyChip(chips, "Close", "TAB", "CLOSE", viewX),
+	}
+	ReportPanel.keyChips.enter.LayoutOrder = 1
+	ReportPanel.keyChips.back.LayoutOrder = 2
+	ReportPanel.keyChips.page.LayoutOrder = 3
+	ReportPanel.keyChips.close.LayoutOrder = 4
 end
 
 -- ---------------------------------------------------------------- the text, pure and exported
@@ -269,59 +498,85 @@ end
 -- Pure and exported for the reason `Hud.renderScore` and `Hud.killLineText` are: a drive is 300
 -- seconds long in the Forest Test and 600 in the real one, so no harness run ever reaches a drive's
 -- end, and a spec that cannot ask for the text cannot prove the panel says anything.
-function ReportPanel.listHeaderText(): string
-	return "#  NAME              MALE  FEM  CUB   KILLS  LOST  POINTS"
+-- WHAT ONE COLUMN HEAD ROW SAYS, joined. The columns themselves are `ReportPanel.LIST_COLUMNS` /
+-- `DETAIL_COLUMNS`, which is where the x and the width live; this is the WORDS, for a reader.
+local function headText(columns): string
+	local parts = {}
+	for _, column in ipairs(columns) do
+		table.insert(parts, column.head)
+	end
+	return table.concat(parts, " ")
 end
 
-function ReportPanel.listRowText(rank: number, row: any, points: number?): string
-	local kinds = (row and row.byKind) or {}
-	return string.format(
-		"%-2d %-16s %4d %4d %4d %7d %5d %7s",
-		rank,
-		string.sub(tostring(row and row.name or "?"), 1, 16),
-		(kinds.male or 0) + (kinds.unknown or 0),
-		kinds.female or 0,
-		kinds.cub or 0,
-		(row and row.kills) or 0,
-		(row and row.lost) or 0,
-		if points ~= nil then string.format("%d", points) else "-"
-	)
+function ReportPanel.listHeaderText(): string
+	return headText(ReportPanel.LIST_COLUMNS)
 end
 
 function ReportPanel.detailHeaderText(): string
-	return "ANIMAL   RESULT   ZONE     RANGE  GUN          HITS"
+	return headText(ReportPanel.DETAIL_COLUMNS)
 end
 
--- ONE ANIMAL'S LINE. `result` is the record's own word: "down" is a carcass, "wounded" is Karen's
--- *"wounded-lost"* -- an animal somebody hit that the drive never accounted for.
-function ReportPanel.detailRowText(row: any): string
-	local kind = string.upper(tostring((row and row.kind) or "boar"))
-	local result = if (row and row.result) == "down" then "DOWN" else "LOST"
+-- ONE PLAYER'S ROW, AS CELLS (§3.12: *"one `TextLabel` per cell"*). THE PADDING IS GONE with
+-- `Enum.Font.Code` -- *"the numbers line up because they are PLACED, not because every glyph is one
+-- width"* (§1.2) -- so this answers the WORDS and `LIST_COLUMNS` answers where each goes.
+function ReportPanel.listCellsFor(rank: number, row: any, points: number?): { [string]: string }
+	local kinds = (row and row.byKind) or {}
+	return {
+		rank = tostring(rank),
+		name = string.sub(tostring(row and row.name or "?"), 1, 18),
+		male = tostring((kinds.male or 0) + (kinds.unknown or 0)),
+		female = tostring(kinds.female or 0),
+		cub = tostring(kinds.cub or 0),
+		kills = tostring((row and row.kills) or 0),
+		lost = tostring((row and row.lost) or 0),
+		-- AN UNKNOWN IS NOT DRAWN AT ALL rather than `-` (§3.12): points come from `Match`, joined
+		-- on userId, and a client that has not got the snapshot yet does not know them.
+		points = if points ~= nil then string.format("%d", points) else "",
+	}
+end
+
+-- ONE ANIMAL'S ROW, AS CELLS. `result` is the record's own word: "down" is a carcass, "wounded" is
+-- Karen's *"wounded-lost"* -- an animal somebody hit that the drive never accounted for. It is
+-- drawn as a TAG (§3.7) and so is the one cell that carries a MEANING as well as a word.
+function ReportPanel.detailCellsFor(row: any): { [string]: string }
 	-- ...AND WHICH GUN (task 140, design section 9). The WIRE carries the weapon's id and the SCREEN
-	-- carries its word -- `Weapons.row(id).label` -- which is the same split `AMMO_LABEL` has. A
-	-- record from before the rifle has no id and prints nothing rather than the word "nil", the rule
-	-- `Hud.killLineText` already follows for `animalKind`.
+	-- carries its word -- `Weapons.row(id).label` -- the same split `AMMO_LABEL` has. A record from
+	-- before the rifle has no id and prints nothing rather than the word "nil".
 	local gun = Weapons.row(row and row.weapon)
-	-- AFTER THE DISTANCE, not after the hits (design section 9, the Reviewer's note round 2): the
-	-- zone, the range and the gun are the three facts about the SHOT, and the hit count is a fact
-	-- about the animal.
-	return string.format(
-		-- THE GUN COLUMN IS 12 WIDE, NOT 9 (task 143): `RIFLE (OPEN)` is twelve characters, and in a
-		-- nine-wide field every open-rifle row pushed HITS three characters right of its own header
-		-- (the Reviewer's round-1 note). `detailHeaderText` above moves with it, which is the whole
-		-- point of the two being read together -- and the RANGE column gained the second space it
-		-- always owed, because `%3d m` is five wide against a six-character "RANGE  ", which had
-		-- every column after it sitting one character left of its own heading since task 140.
-		-- `rifle_client.spec` asserts the alignment for every label the weapon table carries, so
-		-- the next long one fails a case instead of reaching Karen's screen.
-		"%-8s %-8s %-8s %3d m  %-12s %4d",
-		kind,
-		result,
-		tostring((row and row.zone) or "-"),
-		Report.metres(row and row.distance),
-		if gun ~= nil then gun.label else "",
-		(row and row.hits) or 0
-	)
+	return {
+		kind = string.upper(tostring((row and row.kind) or "boar")),
+		-- THE SCREEN'S WORD AND NOT THE WIRE'S. The record says "down" / "wounded"; the board used
+		-- to print `LOST` and the mockup (board 4) says `WOUNDED`, which is Karen's own
+		-- *"wounded-lost"* -- an animal somebody hit that the drive never accounted for. ONE word,
+		-- here, so the tag and the line cannot say two different things.
+		result = if (row and row.result) == "down" then "DOWN" else "WOUNDED",
+		zone = tostring((row and row.zone) or "-"),
+		range = string.format("%d m", Report.metres(row and row.distance)),
+		gun = if gun ~= nil then gun.label else "",
+		hits = tostring((row and row.hits) or 0),
+	}
+end
+
+-- ...AND THE SAME ROWS AS ONE LINE EACH. Kept for the reason `Hud.scoreRowText`'s own line is kept:
+-- a spec that wants the row's FACTS rather than its pixels reads this, and the tie between the two
+-- is ONE function rather than two formatters that can disagree.
+local function joined(columns, cells): string
+	local parts = {}
+	for _, column in ipairs(columns) do
+		local word = cells[column.key]
+		if word ~= nil and word ~= "" then
+			table.insert(parts, word)
+		end
+	end
+	return table.concat(parts, " ")
+end
+
+function ReportPanel.listRowText(rank: number, row: any, points: number?): string
+	return joined(ReportPanel.LIST_COLUMNS, ReportPanel.listCellsFor(rank, row, points))
+end
+
+function ReportPanel.detailRowText(row: any): string
+	return joined(ReportPanel.DETAIL_COLUMNS, ReportPanel.detailCellsFor(row))
 end
 
 -- ---------------------------------------------------------------- drawing
@@ -358,72 +613,177 @@ local function pointsFor(userId: number): number?
 	return nil
 end
 
+-- HOW TALL THE SCROLLING BODY'S CANVAS IS for a given view and row count. PURE, because "every row
+-- the server can send is reachable" is the whole of round 1's first finding and a spec has to be
+-- able to ask it without a payload on the wire.
+function ReportPanel.canvasHeight(whichView: string, rows: number): number
+	local rowH = if whichView == "detail" then CONFIG.DETAIL_ROW_HEIGHT else Style.rowHeight(Style.viewportX())
+	return math.max(0, rows) * rowH
+end
+
+-- HOW TALL THE WINDOW ONTO THAT CANVAS IS -- the well's content box less the pinned column head.
+-- Read off the DRAWN frame, because the thing round 1 caught was a drawn box that was too short
+-- for the rows put in it, and a second arithmetic copy of the same number would not have caught it.
+function ReportPanel.windowHeight(): number
+	local scroll = ReportPanel.body
+	return if scroll ~= nil then (scroll :: ScrollingFrame).AbsoluteSize.Y else 0
+end
+
+local function applyCanvas(whichView: string, rows: number)
+	local scroll = ReportPanel.body
+	if scroll == nil then
+		return
+	end
+	(scroll :: ScrollingFrame).CanvasSize = UDim2.fromOffset(0, ReportPanel.canvasHeight(whichView, rows))
+end
+
+-- WHICH KEY CHIPS THE FOOTER SHOWS. PURE: the list offers DETAILS and CLOSE, the detail view offers
+-- PAGE, BACK and CLOSE. A chip for a key that does nothing in this view is the "no dead buttons"
+-- rule applied to a legend.
+function ReportPanel.keysFor(whichView: string): { string }
+	if whichView == "detail" then
+		return { "page", "back", "close" }
+	end
+	return { "enter", "close" }
+end
+
+local function applyKeys(whichView: string)
+	local wanted = {}
+	for _, key in ipairs(ReportPanel.keysFor(whichView)) do
+		wanted[key] = true
+	end
+	for key, chip in pairs(ReportPanel.keyChips or {}) do
+		(chip :: Frame).Visible = wanted[key] == true
+	end
+end
+
 local function renderList(data: any)
 	local rows = (data and data.rows) or {}
-	(title :: TextLabel).Text = string.format(
-		"DRIVE %d   REPORT%s",
-		(data and data.drive) or 0,
-		if data and data.closed then "   (ENDED)" else ""
-	);
-	(header :: TextLabel).Text = ReportPanel.listHeaderText();
-	(header :: TextLabel).Position = UDim2.fromOffset(16, 44)
-	for index, row in ipairs(listRows) do
+	(ReportPanel.eyebrow :: TextLabel).Text = Style.spaced(if data and data.closed then "DRIVE ENDED" else "THIS DRIVE");
+	(title :: TextLabel).Text = string.format("DRIVE %d REPORT", (data and data.drive) or 0)
+	if listHead ~= nil then
+		(listHead :: Frame).Visible = true
+	end
+	if detailHead ~= nil then
+		(detailHead :: Frame).Visible = false
+	end
+	for index, button in ipairs(listRows) do
 		local entry = rows[index]
-		row.Visible = entry ~= nil
-		if entry ~= nil then
-			row.Text = ReportPanel.listRowText(index, entry, pointsFor(entry.userId))
-			local mine = entry.userId == ReportPanel.localUserId
-			row.TextColor3 = if mine then Drive.CONFIG.SCORE_HIGHLIGHT_COLOR else Drive.CONFIG.TEXT_COLOR
-			row.BackgroundTransparency = if selected == index then 0.75 else 1
-			row.ZIndex = Z + 1
-			row.BackgroundColor3 = Drive.CONFIG.TEXT_COLOR
+		button.Visible = entry ~= nil
+		if entry == nil then
+			continue
+		end
+		local row = button:FindFirstChild("Row") :: Frame
+		local cells = listCells[index]
+		local mine = entry.userId == ReportPanel.localUserId
+		-- THE SELECTED ROW IS `ROW_HOVER` WITH A BRASS LEFT BAR (§5 surface 12), and YOUR row is
+		-- `ROW_SELECTED` with your team's. `Style.rowState` is the one writer of both.
+		Style.rowState(row, mine, entry.team, selected == index)
+		local bar = row:FindFirstChild("Bar")
+		if bar ~= nil and selected == index and not mine then
+			(bar :: Frame).Visible = true
+			(bar :: Frame).BackgroundColor3 = Style.LOOK.BRASS
+		end
+		local words = ReportPanel.listCellsFor(index, entry, pointsFor(entry.userId))
+		for key, cell in pairs(cells) do
+			local word = words[key] or ""
+			cell.Text = word
+			cell.TextColor3 = ReportPanel.cellColor(key, word, mine)
+		end
+		-- The last drawn row wears no rule (§3.12).
+		local rule = row:FindFirstChild("Rule")
+		if rule ~= nil then
+			(rule :: Frame).Visible = rows[index + 1] ~= nil
 		end
 	end
 	for _, row in ipairs(detailRows) do
 		row.Visible = false
 	end
 	(footer :: TextLabel).Text = if #rows == 0
-		then "NOBODY HAS HIT ANYTHING YET          [TAB] CLOSE"
-		else string.format(
-			"%d ANIMALS HIT THIS DRIVE   [ENTER] DETAILS   [TAB] CLOSE",
-			(data and data.animals) or 0
-		)
+		then "Nobody has hit anything yet"
+		else string.format("%d animals hit this drive", (data and data.animals) or 0)
+	applyCanvas("list", math.min(#rows, CONFIG.HUNTER_ROWS))
+	applyKeys("list")
 end
 
 local function renderDetail(data: any)
 	local rows = (data and data.rows) or {}
-	(title :: TextLabel).Text = string.format(
-		"%s   DRIVE %d   %d SHOWN",
-		string.upper(tostring((data and data.name) or "?")),
-		(data and data.drive) or 0,
-		#rows
-	);
-	-- THE HEADER MOVES TO WHERE THE ROWS' TEXT STARTS. In the first frame it sat at x = 16, over the
-	-- silhouettes, and not one column name was above its own column.
-	(header :: TextLabel).Text = ReportPanel.detailHeaderText();
-	(header :: TextLabel).Position = UDim2.fromOffset(CONFIG.DETAIL_TEXT_X, 44)
-	for _, row in ipairs(listRows) do
-		row.Visible = false
+	-- THE EYEBROW IS WHOSE REPORT THIS IS AND HOW MANY ANIMALS -- the mockup's `KAREN - 3 ANIMALS`
+	-- (board 4) -- and the title stays the drive's, so the player never loses which screen he is on.
+	(ReportPanel.eyebrow :: TextLabel).Text =
+		Style.spaced(string.format("%s - %d ANIMALS", string.upper(tostring((data and data.name) or "?")), #rows));
+	(title :: TextLabel).Text = string.format("DRIVE %d REPORT", (data and data.drive) or 0)
+	if listHead ~= nil then
+		(listHead :: Frame).Visible = false
+	end
+	if detailHead ~= nil then
+		(detailHead :: Frame).Visible = true
+	end
+	for _, button in ipairs(listRows) do
+		button.Visible = false
 	end
 	for index, row in ipairs(detailRows) do
 		local entry = rows[index]
 		row.Visible = entry ~= nil
 		local art = row:FindFirstChild("Silhouette")
-		local text = row:FindFirstChild("Text")
-		if entry ~= nil and art and art:IsA("Frame") then
-			drawDots(art, entry)
-			if text and text:IsA("TextLabel") then
-				text.Text = ReportPanel.detailRowText(entry)
+		local cells = detailCells[index]
+		local tag = row:FindFirstChild("Result")
+		if entry == nil then
+			if art and art:IsA("Frame") then
+				clearDots(art)
 			end
-		elseif art and art:IsA("Frame") then
-			clearDots(art)
+			continue
+		end
+		if art and art:IsA("Frame") then
+			drawDots(art, entry)
+		end
+		local words = ReportPanel.detailCellsFor(entry)
+		for key, cell in pairs(cells) do
+			cell.Text = words[key] or ""
+			cell.TextColor3 = ReportPanel.cellColor(key, cell.Text, false)
+		end
+		-- `DOWN` IN PINE, `WOUNDED` IN CLAY (§3.7), and the word is always there: a state is never
+		-- colour alone. The wire's own word is "LOST"; the screen's is Karen's, "WOUNDED".
+		if tag ~= nil then
+			local down = words.result == "DOWN"
+			local tint = if down then Style.LOOK.PINE_TEXT else Style.LOOK.CLAY;
+			(tag :: Frame).Visible = true
+			(tag :: Frame).BackgroundColor3 = tint
+			local edge = (tag :: Frame):FindFirstChildOfClass("UIStroke")
+			if edge ~= nil then
+				edge.Color = tint
+			end
+			local word = ReportPanel.tagTextOf[row]
+			if word ~= nil then
+				word.Text = Style.spaced(words.result)
+				word.TextColor3 = tint
+			end
+		end
+		local rule = row:FindFirstChild("Rule")
+		if rule ~= nil then
+			(rule :: Frame).Visible = rows[index + 1] ~= nil
 		end
 	end
-	(footer :: TextLabel).Text = string.format(
-		"PAGE %d/%d   [<] [>] PAGE   [BACKSPACE] BACK   [TAB] CLOSE",
-		(data and data.page) or 1,
-		math.max(1, (data and data.pages) or 1)
-	)
+	(footer :: TextLabel).Text =
+		string.format("Page %d of %d", (data and data.page) or 1, math.max(1, (data and data.pages) or 1))
+	applyCanvas("detail", math.min(#rows, CONFIG.ANIMALS_PER_PAGE))
+	applyKeys("detail")
+end
+
+-- WHAT COLOUR A CELL IS (§3.12): your own name is `PAPER` and everyone else's `BODY`; a NEGATIVE
+-- points number is `CLAY`; a zero is `FIELD_MUTED`. PURE, because it is three rules and a spec can
+-- hold all three.
+function ReportPanel.cellColor(key: string, word: string, mine: boolean): Color3
+	if key == "name" or key == "kind" then
+		return if mine then Style.LOOK.PAPER else Style.LOOK.BODY
+	end
+	if key == "points" and string.sub(word, 1, 1) == "-" then
+		return Style.LOOK.CLAY
+	end
+	if word == "0" then
+		return Style.LOOK.FIELD_MUTED
+	end
+	return if mine then Style.LOOK.PAPER else Style.LOOK.BODY
 end
 
 -- PUBLIC, for the same stated reason `Hud.renderScore` is: no harness run ever reaches a drive's end,
@@ -462,6 +822,11 @@ function ReportPanel.setOpen(next_: boolean)
 	open = next_
 	if panel ~= nil then
 		panel.Visible = open
+	end
+	if scrim ~= nil then
+		-- THE SCRIM GOES WITH THE PANEL, written here so there is ONE owner of "is the report open"
+		-- and no frame can be left lying over the world after the panel has gone.
+		(scrim :: Frame).Visible = open
 	end
 	if open then
 		stats.opens += 1
@@ -671,6 +1036,7 @@ function ReportPanel.start(frame: Frame, collaborators: any)
 	WeaponInput = collaborators and collaborators.Input
 	Cursor = collaborators and collaborators.Cursor
 	MatchSystem = collaborators and collaborators.Match
+	scrim = collaborators and collaborators.scrim
 	ReportPanel.localUserId = (collaborators and collaborators.userId) or 0
 	build(frame)
 	frame.Visible = false

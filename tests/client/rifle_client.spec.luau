@@ -917,24 +917,38 @@ return function()
 			local atGun = string.find(text, label, 1, true)
 			expect(atRange).to.be.ok()
 			expect((atGun :: number) > (atRange :: number)).to.equal(true)
-			local header = Report.detailHeaderText()
-			expect((string.find(header, "GUN", 1, true) :: number) > (string.find(header, "RANGE", 1, true) :: number)).to.equal(
+			-- ...AND EVERY COLUMN STANDS IN ITS OWN CELL, for every label the weapon table carries.
+			-- UNTIL TASK 201 PART 2 THIS WAS A CHARACTER OFFSET -- the row was one padded monospace
+			-- string and `RIFLE (OPEN)` at twelve characters pushed HITS three right of its header
+			-- (the Reviewer's round-1 note on task 143). The row is one `TextLabel` PER CELL now
+			-- (the design system section 3.12), so the question is no longer "where in the string"
+			-- but "is it the GUN cell" -- which is the thing that was actually being asked, and it
+			-- cannot be broken by a longer word.
+			local head = Report.detailHeaderText()
+			expect((string.find(head, "GUN", 1, true) :: number) > (string.find(head, "RANGE", 1, true) :: number)).to.equal(
 				true
 			)
-			-- ...AND EVERY COLUMN STANDS UNDER ITS OWN HEADING, for every label the weapon table
-			-- carries (the Reviewer's round-1 note: `RIFLE (OPEN)` is twelve characters and the
-			-- field was nine, so every open-rifle row pushed HITS three characters right). A case
-			-- rather than an eye, so weapon four's label fails here and not on Karen's screen.
 			for _, id in ipairs(Weapons.ids()) do
 				local one = table.clone(row)
 				one.weapon = id
-				local line = Report.detailRowText(one)
+				local cells = Report.detailCellsFor(one)
 				local word = (Weapons.row(id) :: any).label
-				expect(string.find(line, word, 1, true)).to.equal(string.find(header, "GUN", 1, true))
-				-- ...and the HITS column is the right-hand edge of both, which is what makes the
-				-- count readable: `%4d` ends where `HITS` ends.
-				expect(#line).to.equal(#header)
+				expect(cells.gun).to.equal(word)
+				-- ...and the HITS cell is its own, whatever the gun is called.
+				expect(cells.hits).to.equal(tostring(one.hits))
 			end
+			-- THE COLUMN THE CELL IS DRAWN IN has a place of its own, and GUN is left of HITS.
+			local gunColumn, hitsColumn = nil, nil
+			for _, column in ipairs(Report.DETAIL_COLUMNS) do
+				if column.key == "gun" then
+					gunColumn = column
+				elseif column.key == "hits" then
+					hitsColumn = column
+				end
+			end
+			expect(gunColumn).to.be.ok()
+			expect(hitsColumn).to.be.ok()
+			expect((gunColumn :: any).x + (gunColumn :: any).w <= (hitsColumn :: any).x).to.equal(true)
 
 			-- A RECORD FROM BEFORE THE RIFLE NAMES NO GUN, and prints no word rather than "nil".
 			local old = table.clone(row)

@@ -205,16 +205,102 @@ return function()
 			expect(string.find(Panel.titleText(), "DRIVE 3", 1, true)).to.be.ok()
 		end)
 
-		it("says how many animals were hit", function()
-			Panel.render(listPayload())
-			expect(string.find(Panel.footerText(), "4 ANIMALS", 1, true)).to.be.ok()
+		it("keeps EVERY column inside the well, which the first frame did not", function()
+			-- THE FRAME THAT FOUND IT: `20261017T150447Z-t201b-report-open-2.png`, where POINTS ran
+			-- 14 px past the well's right edge because eight x-and-width pairs were tuned by eye.
+			-- A column table is arithmetic, so it is added up here and never eyeballed again.
+			local inner = Panel.WELL_INNER
+			expect(inner).to.equal(Panel.bodyWidth(Vector2.new(1280, 720)) - 24)
+			for _, columns in ipairs({ Panel.LIST_COLUMNS, Panel.DETAIL_COLUMNS }) do
+				local previous = nil
+				for _, column in ipairs(columns) do
+					expect(column.x >= 0).to.equal(true)
+					expect(column.x + column.w <= inner).to.equal(true)
+					if previous ~= nil then
+						-- ...AND NO COLUMN OVERLAPS THE ONE BEFORE IT, which is what makes a
+						-- right-aligned number readable as a column rather than as a collision.
+						expect(column.x >= previous.x + previous.w).to.equal(true)
+					end
+					previous = column
+				end
+			end
+			-- The animal rows' cells start after the silhouette, which owns the row's left edge.
+			expect(Panel.DETAIL_COLUMNS[1].x).to.equal(Panel.DETAIL_TEXT_X)
 		end)
 
-		it("formats a row with the kinds, the kills, the lost and the points column", function()
-			local text = Panel.listRowText(1, listPayload().rows[1], 34)
-			expect(string.find(text, "34", 1, true)).to.be.ok()
-			-- No Match in this world means no points, and a dash rather than a wrong zero.
-			expect(string.find(Panel.listRowText(1, listPayload().rows[1], nil), "-", 1, true)).to.be.ok()
+		it("reaches EVERY row the server can send, which the clipped well did not", function()
+			-- ROUND 1, BLOCKING FINDING 1. The well's content box is 420 px. The server pages EIGHT
+			-- animals (`ANIMALS_PER_PAGE`, and `HitLog` computes `pages` from it) at
+			-- `DETAIL_ROW_HEIGHT` 68 = 544 px, and lists SIXTEEN hunters at 28 = 448 -- so with
+			-- `ClipsDescendants` and no scroll a player saw FIVE of the eight while the footer still
+			-- read `Page 1 of 1`, and lost rows 15 and 16 of the list.
+			--
+			-- THE MAXIMUM THE SERVER CAN SEND, not a convenient number: the two constants it pages by.
+			local maxList = Report.CONFIG.HUNTER_ROWS
+			local maxDetail = Report.CONFIG.ANIMALS_PER_PAGE
+			local scroll = Panel.body
+			expect(scroll).to.be.ok()
+			expect((scroll :: ScrollingFrame):IsA("ScrollingFrame")).to.equal(true)
+			expect((scroll :: ScrollingFrame).ScrollingDirection).to.equal(Enum.ScrollingDirection.Y)
+
+			-- THE CANVAS HOLDS THEM ALL -- which is what "reachable" means for a scrolling frame --
+			-- and it is BIGGER than the window, so the ones past the window scroll into view rather
+			-- than being clipped away.
+			local window = Panel.windowHeight()
+			expect(window > 0).to.equal(true)
+			local listCanvas = Panel.canvasHeight("list", maxList)
+			local detailCanvas = Panel.canvasHeight("detail", maxDetail)
+			expect(listCanvas).to.equal(maxList * Hud.Style.rowHeight(Hud.viewportX()))
+			expect(detailCanvas).to.equal(maxDetail * Report.CONFIG.DETAIL_ROW_HEIGHT)
+			expect(detailCanvas > window).to.equal(true)
+			TestKit.note(
+				string.format(
+					"report: window %d px, list canvas %d (%d rows), detail canvas %d (%d rows)",
+					window,
+					listCanvas,
+					maxList,
+					detailCanvas,
+					maxDetail
+				)
+			)
+
+			-- AND ON THE SCREEN: with a full page rendered, the LAST row is inside the canvas the
+			-- frame can scroll to, and the canvas really was written for what was drawn.
+			Panel.render(detailPayload())
+			local drawn = #detailPayload().rows
+			expect((scroll :: ScrollingFrame).CanvasSize.Y.Offset).to.equal(Panel.canvasHeight("detail", drawn))
+			local last = (scroll :: ScrollingFrame):FindFirstChild(string.format("DetailRow%d", maxDetail)) :: Frame
+			expect(last).to.be.ok()
+			local bottom = last.Position.Y.Offset + last.Size.Y.Offset
+			expect(bottom <= Panel.canvasHeight("detail", maxDetail)).to.equal(true)
+			-- The rows live in the SCROLLING body and not in the clipping well.
+			expect(last:IsDescendantOf(scroll :: ScrollingFrame)).to.equal(true)
+		end)
+
+		it("says how many animals were hit", function()
+			Panel.render(listPayload())
+			-- A SENTENCE IS NEVER UPPERCASE (the design system, 2026-10-17, section 1.2): the footer
+			-- is a sentence and the KEY HINTS beside it are the chips that shout.
+			expect(string.find(Panel.footerText(), "4 animals", 1, true)).to.be.ok()
+		end)
+
+		it("formats a row as CELLS, with the kinds, the kills, the lost and the points", function()
+			-- ONE `TextLabel` PER CELL since task 201 part 2 (the design system section 3.12): the
+			-- padding is gone with `Enum.Font.Code` and the numbers line up because they are PLACED.
+			-- So what is asserted is the CELLS, and `LIST_COLUMNS` is where each one goes.
+			local row = listPayload().rows[1]
+			local cells = Panel.listCellsFor(1, row, 34)
+			expect(cells.points).to.equal("34")
+			expect(cells.name).to.equal(row.name)
+			expect(cells.kills).to.equal(tostring(row.kills))
+			expect(string.find(Panel.listRowText(1, row, 34), "34", 1, true)).to.be.ok()
+			-- NO POINTS MEANS NO CELL, not a dash (section 3.12: *"an unknown is not drawn at all
+			-- rather than `--`"*). No `Match` in this world is exactly that case.
+			expect(Panel.listCellsFor(1, row, nil).points).to.equal("")
+			-- ...and every column head has a cell under it, which is what makes a column a column.
+			for _, column in ipairs(Panel.LIST_COLUMNS) do
+				expect(cells[column.key]).to.be.ok()
+			end
 		end)
 	end)
 
@@ -228,7 +314,10 @@ return function()
 			expect(string.find(rows[1], "DOWN", 1, true)).to.be.ok()
 			-- 60 studs is 17 m at METRES_PER_STUD, and a hunting report in studs is one nobody reads.
 			expect(string.find(rows[1], string.format("%d m", Report.metres(60)), 1, true)).to.be.ok()
-			expect(string.find(rows[2], "LOST", 1, true)).to.be.ok()
+			-- `WOUNDED` AND NOT `LOST` (the mockup's board 4, and Karen's own "wounded-lost"): the
+			-- record's word is "wounded", the screen's is this, and `detailCellsFor` is the one
+			-- place it is decided so the tag and the line cannot disagree.
+			expect(string.find(rows[2], "WOUNDED", 1, true)).to.be.ok()
 		end)
 
 		it("puts one dot per hit at the (u, v) the record measured", function()
@@ -251,8 +340,12 @@ return function()
 			-- one colour, in the same unit square. The claim is not weaker: it was five frames and
 			-- it is thirteen, and the fill is asserted too.
 			Panel.render(detailPayload())
-			local frame = Hud.reportPanel() :: Frame
-			local row = frame:FindFirstChild("DetailRow1")
+			-- THE ROWS LIVE IN THE WELL'S SCROLLING BODY since round 2 (the well clips and does not
+			-- scroll, which lost five of the eight animals the server pages), so this looks where
+			-- they are rather than at the panel's own children.
+			local body = Hud.Report.body :: ScrollingFrame
+			expect(body).to.be.ok()
+			local row = body:FindFirstChild("DetailRow1")
 			local art = row and row:FindFirstChild("Silhouette")
 			expect(art).to.be.ok()
 			for _, piece in ipairs(Report.CONFIG.BOAR) do

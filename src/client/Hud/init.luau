@@ -197,6 +197,9 @@ local feedDots: { Frame } = {}
 local feedEntries: { { text: string, at: number, meaning: string? } } = {}
 local scorePanel: Frame? = nil
 local reportFrame: Frame? = nil
+-- THE REPORT'S SCRIM (task 201 part 2): the report is a MODAL and a modal lays one. Created here,
+-- written by `ReportPanel`, which is the one owner of whether the report is open.
+local reportScrimFrame: Frame? = nil
 local hitCardFrame: Frame? = nil
 -- THE SHOP PANEL'S FRAME (task 178): created here, filled by `Hud.ShopPanel`, and that module --
 -- not this one -- writes its `Visible`.
@@ -249,10 +252,25 @@ local arrivedAtTarget = false
 -- replicates to every client in every place, and `Lobby.spotPosition()` answers nil until the server
 -- has actually built one. So the Hud learns nothing about worlds and reads no flag.
 local lobbyData: any = nil
+-- THE RESULTS BOARD'S PARTS (task 201 part 2). A slot is a section HEAD or a ROW and both are
+-- built for every line the body can hold; `scoreCells` is that row's `TextLabel` per column, which
+-- is what §3.12's *"one `TextLabel` per cell"* means in this file.
+local scoreEyebrow: TextLabel? = nil
 local scoreTitle: TextLabel? = nil
-local scoreLines: { TextLabel } = {}
-local scoreFooter: TextLabel? = nil
-local tiedBanner: TextLabel? = nil
+local scoreBody: ScrollingFrame? = nil
+local scoreLines: { Frame } = {}
+local scoreHeads: { Frame } = {}
+local scoreCells: { { [string]: TextLabel } } = {}
+local scoreFooterWord: TextLabel? = nil
+local scoreFooterValue: TextLabel? = nil
+local scoreFooterFill: Frame? = nil
+local tiedBanner: Frame? = nil
+local tiedText: TextLabel? = nil
+-- WHAT THE COUNTDOWN BAR IS A FRACTION OF. Latched from the clock itself while the board is up and
+-- cleared when it goes down -- `Match.CONFIG.SCORE_SECONDS` is the SERVER's and this client cannot
+-- require it, and a constant copied here would be a number that can disagree with the gap the
+-- drive actually used.
+local scoreCountdownFrom = 0
 -- THE START CARD (task 158): built once with everything else, shown only by `Hud.renderStartCard`.
 local startCard: Frame? = nil
 local startCardTitle: TextLabel? = nil
@@ -271,15 +289,14 @@ local started = false
 -- `MIN_SENSIBLE_PX` is "not yet", not "small", and the desktop step is the right guess for a game
 -- Karen plays on a PC. `Hud.applyViewportLayout` then corrects it on the first real frame, and on
 -- every resize after that.
-Hud.MIN_SENSIBLE_PX = 200
+-- IT LIVES IN `Style` SINCE TASK 201 PART 2 and this is the alias. The report panel needed the
+-- same guard and cannot require this file (the Hud requires IT), so the reader moved to the one
+-- source -- and the second ungated copy it had built 24 px rows on a 969 px screen, which is the
+-- same defect at a different surface.
+Hud.MIN_SENSIBLE_PX = Style.MIN_SENSIBLE_PX
 
 function Hud.viewportX(): number
-	local camera = Workspace.CurrentCamera
-	if camera == nil then
-		return 1280
-	end
-	local size = camera.ViewportSize
-	return if size.X >= Hud.MIN_SENSIBLE_PX then size.X else 1280
+	return Style.viewportX()
 end
 
 -- EVERY LABEL THAT TAKES ITS SIZE FROM THE SCALE, with the step it takes. Registered as it is
@@ -355,6 +372,70 @@ end
 -- nothing may enter the 68 px the minimap and the rail own. On a PHONE the minimap drops BELOW the
 -- compass, so there is no column beside the bar and the slate gets the full width less a gutter --
 -- which is the design's own §4.2 (max w 376 at 400 px).
+-- ---------------------------------------------------------------- the results board (surface 11)
+--
+-- THE BOARD IS A CARD OF TABLE ROWS SINCE TASK 201 PART 2, and its HEIGHT FOLLOWS THE ROW COUNT.
+-- Until now it was 20 fixed row slots and drew a 480 x 574 box to hold three of them --
+-- `191-gathering-aimed-1.png` is most of the problem in one picture, and §3.12 names it.
+--
+-- ONE `TextLabel` PER CELL. The monospace alignment is gone with `Enum.Font.Code`: the numbers line
+-- up because they are PLACED, which is why a column here is an x and a width rather than a
+-- `%7d` inside one string.
+-- LEFT TO RIGHT, which `pairs` over `COLUMNS` cannot answer: a table has no order and a board read
+-- back out of order would be a board nobody could compare with the screen.
+Hud.BOARD_ORDER = { "rank", "name", "kills", "points", "coins" }
+
+Hud.BOARD = {
+	WIDTH = 520,
+	-- IT IS `Style.cardInset`'s 12 AND NOT 16 (round 1 note): the board IS a card, the card's own
+	-- `UIPadding` is what indents it, and a second, larger number here pushed the whole table 8 px
+	-- left of centre inside that padding. One inset, read from one place.
+	PADDING = 12,
+	-- The eyebrow + title pair, the column head, and the footer with its countdown bar.
+	HEADER_H = 54,
+	FOOTER_H = 52,
+	-- IT SCROLLS PAST 14 ROWS (§3.12). A roster of 16 in two rankings plus two section heads is 18
+	-- lines, which is the one case the designer could not fit on a phone (§7) -- so the body is a
+	-- `ScrollingFrame` whose own height is the content's, capped here.
+	MAX_VISIBLE_ROWS = 14,
+	-- x, width and alignment of every column, inside the padded body (488 px at 520 wide).
+	COLUMNS = {
+		rank = { x = 0, w = 20, right = true },
+		name = { x = 28, w = 186, right = false },
+		kills = { x = 214, w = 74, right = true },
+		points = { x = 292, w = 78, right = true },
+		coins = { x = 374, w = 66, right = true },
+		badge = { x = 448, w = 40, right = false },
+	},
+}
+
+-- HOW TALL THE BOARD IS FOR A GIVEN NUMBER OF LINES. PURE AND EXPORTED, because "the height follows
+-- the row count" is the whole of what §3.12 asks for and a spec cannot reach `Scoring`.
+--
+-- A SECTION HEAD IS SHORTER THAN A ROW, so the two are counted separately rather than averaged.
+-- ...AND IT COUNTS THE CARD'S OWN PADDING, which round 1's second blocking finding was about.
+-- `Style.card` ends with a `UIPadding` of `Style.cardInset` all round, so a board of height H has a
+-- CONTENT box of H - 2 x inset; this returned the content height as the whole height, and the
+-- footer -- anchored to the bottom of that content box -- was therefore drawn `2 x inset` up, over
+-- the last row of the table. `Style.cardInset` is the one source for the number.
+function Hud.boardHeight(rows: number, heads: number, viewportX: number?): number
+	local view = viewportX or Hud.viewportX()
+	local rowH = Style.rowHeight(view)
+	local headH = if Style.isPhone(view) then 18 else 20
+	local body = math.max(0, rows) * rowH + math.max(0, heads) * headH
+	local cap = Hud.BOARD.MAX_VISIBLE_ROWS * rowH
+	local content = Hud.BOARD.HEADER_H + rowH + math.min(body, cap) + Hud.BOARD.FOOTER_H
+	return content + 2 * Style.cardInset(view)
+end
+
+-- THE CONTENT BOX the three bands are laid out in -- the card's height less its own padding. The
+-- renderer positions the header, the column head and the body from the TOP of this box and the
+-- footer from its BOTTOM, so this is the one number that says they cannot collide.
+function Hud.boardContentHeight(rows: number, heads: number, viewportX: number?): number
+	local view = viewportX or Hud.viewportX()
+	return Hud.boardHeight(rows, heads, view) - 2 * Style.cardInset(view)
+end
+
 -- HOW MANY CHAMBER PIPS ARE BUILT. A ceiling, not a claim: the break-action has two and the rifle's
 -- magazine shows three, and a wider gun later draws more of the same Frames.
 Hud.PIP_MAX = 8
@@ -507,6 +588,10 @@ function Hud.reportPanel(): Frame?
 	return reportFrame
 end
 
+function Hud.reportScrim(): Frame?
+	return reportScrimFrame
+end
+
 function Hud.hitCard(): Frame?
 	return hitCardFrame
 end
@@ -559,26 +644,80 @@ function Hud.isScorePanelVisible(): boolean
 	return scorePanel ~= nil and scorePanel.Visible
 end
 
+-- WHAT THE BOARD'S EYEBROW SAYS -- `DRIVE 1` -- which is the small brass word above the title
+-- saying what kind of thing this is (§3.4).
+function Hud.scoreEyebrowText(): string
+	return if scoreEyebrow then scoreEyebrow.Text else ""
+end
+
+function Hud.scoreBody(): ScrollingFrame?
+	return scoreBody
+end
+
+-- HOW FULL THE COUNTDOWN BAR IS, 0..1. The drawn fraction, so a spec reads the bar rather than
+-- recomputing what the bar should have been.
+function Hud.scoreCountdownFraction(): number
+	return if scoreFooterFill then (scoreFooterFill :: Frame).Size.X.Scale else 0
+end
+
 function Hud.scoreTitleText(): string
 	return if scoreTitle then scoreTitle.Text else ""
 end
 
 function Hud.scoreFooterText(): string
-	return if scoreFooter then scoreFooter.Text else ""
+	-- The words and the number as one line, which is what the footer SAYS: the bar beside them is
+	-- the same fact drawn, and `Hud.scoreCountdownFraction` is how a spec asks that.
+	-- THE DRAWN WORD AND NOT THE CONSTANT (round 1 note). It read the label, stripped its spacing
+	-- and then threw it away for `Drive.CONFIG.SCORE_FOOTER_WORD` -- so the one case that asserts
+	-- this line would have passed with ANY word on screen, which is a seam that cannot fail.
+	local word = if scoreFooterWord then Style.unspaced((scoreFooterWord :: TextLabel).Text) else ""
+	local value = if scoreFooterValue then (scoreFooterValue :: TextLabel).Text else ""
+	if word == "" and value == "" then
+		return ""
+	end
+	return string.format("%s %s", word, value)
 end
 
 -- Only the lines that are actually showing something, in board order.
+-- WHAT THE BOARD'S BODY SAYS, LINE BY LINE, as plain words -- a section head's word, or a row's
+-- cells joined in column order. It reads the DRAWN labels, which is the whole point of it: the
+-- board is one `TextLabel` per cell now, and a spec that asked the renderer's input instead would
+-- be asserting the thing it is trying to check.
+--
+-- THE SCREEN LETTER-SPACES an uppercase head at 10 px (§1.2) and this does not, for the reason
+-- `Hud.driveBarText` gives: that is tracking, not content.
 function Hud.scoreRowText(): { string }
 	local out = {}
-	for _, line in ipairs(scoreLines) do
-		if line.Visible and line.Text ~= "" then
-			table.insert(out, line.Text)
+	for index, row in ipairs(scoreLines) do
+		local head = scoreHeads[index]
+		if head ~= nil and head.Visible then
+			local word = head:FindFirstChild("Word")
+			table.insert(out, if word then Style.unspaced((word :: TextLabel).Text) else "")
+		end
+		if row.Visible then
+			local cells = scoreCells[index]
+			local parts = {}
+			for _, key in ipairs(Hud.BOARD_ORDER) do
+				local cell = cells and cells[key]
+				if cell ~= nil and cell.Text ~= "" then
+					table.insert(parts, cell.Text)
+				end
+			end
+			local badge = row:FindFirstChild("Badge")
+			if badge ~= nil and (badge :: Frame).Visible then
+				table.insert(parts, Drive.CONFIG.SCORE_FIRST_BADGE)
+			end
+			local gone = row:FindFirstChild("Left")
+			if gone ~= nil and (gone :: Frame).Visible then
+				table.insert(parts, "LEFT")
+			end
+			table.insert(out, table.concat(parts, " "))
 		end
 	end
 	return out
 end
 
-function Hud.tiedBanner(): TextLabel?
+function Hud.tiedBanner(): Frame?
 	return tiedBanner
 end
 
@@ -587,7 +726,7 @@ function Hud.isTiedBannerVisible(): boolean
 end
 
 function Hud.tiedBannerText(): string
-	return if tiedBanner then tiedBanner.Text else ""
+	return if tiedText then (tiedText :: TextLabel).Text else ""
 end
 
 -- ------------------------------------------------------------------ the start card (task 158)
@@ -1026,7 +1165,7 @@ local function build(): ScreenGui
 	table.clear(feedToasts)
 	table.clear(feedDots)
 	for index = 1, Drive.CONFIG.FEED_LINES do
-		local toast, dot, text = Style.toast(feed, string.format("Line%d", index), viewX)
+		local toast, dot, text = Style.toast(feed, string.format("Line%d", index), viewX, nil, feed.ZIndex)
 		sized(text, "LABEL")
 		toast.LayoutOrder = index
 		toast.Visible = false
@@ -1067,64 +1206,135 @@ local function build(): ScreenGui
 		return text
 	end
 
-	-- The score screen: a centred panel, hidden except in the Scoring phase. Built once, like
-	-- everything else here, and shown by renderScore -- the ONE writer of its visibility.
-	-- SINCE TASK 159 IT IS ALSO KAREN'S RESULTS TABLE, read over a sunlit wood at the end of every
-	-- drive, which is why every label below goes through `panelLabel`.
-	local rows = Drive.CONFIG.SCORE_ROWS_MAX
-	local rowHeight = Drive.CONFIG.SCORE_ROW_HEIGHT
-	local panel = Instance.new("Frame")
-	panel.Name = "ScorePanel"
-	panel.BackgroundColor3 = Drive.CONFIG.SCORE_PANEL_COLOR
-	panel.BackgroundTransparency = Drive.CONFIG.SCORE_PANEL_TRANSPARENCY
-	panel.BorderSizePixel = 0
-	panel.AnchorPoint = Vector2.new(0.5, 0.5)
-	panel.Position = UDim2.fromScale(0.5, 0.5)
-	panel.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH, 64 + rows * rowHeight + 30)
+	-- THE RESULTS BOARD (surface 11), a CARD over the world at the gathering. Karen, task 159:
+	-- *"showing image transperent with results table"* -- this IS that table, and since task 201
+	-- part 2 it is built from §3.12's row: an eyebrow and a title, a column head, a section per
+	-- ranking in its team's colour, one `TextLabel` per cell, and a footer counting the next drive
+	-- in over a blaze bar.
+	--
+	-- `Hud.renderScore` is the one writer of every word in it AND of its height.
+	local board = Style.card(screen, "ScorePanel", statusPhone)
+	board.AnchorPoint = Vector2.new(0.5, 0.5)
+	board.Position = UDim2.fromScale(0.5, 0.5)
+	board.Size = UDim2.fromOffset(Hud.BOARD.WIDTH, Hud.boardHeight(0, 0, viewX))
 	-- OVER THE FEED AND THE BAR, because it is the thing to read -- AND OVER THE SCOPE'S MASK
 	-- (task 141): this is drawn at the centre of the screen, which is inside the eyepiece, so at the
 	-- old 5 a player who could still hold the aim in `Scoring` would read a board cut off at the
 	-- glass. Same class as the compass and the drive report: a panel the GAME put up outranks a
 	-- sight picture, and it shares the report's own number for that reason.
-	--
-	-- (Round 2 added this as a SECOND assignment seven lines above the old `= 5`, which the old one
-	-- then overwrote -- a dead write, and a fix claimed in a request that had not happened.)
-	panel.ZIndex = Report.CONFIG.PANEL_Z_INDEX
-	panel.Visible = false
-	panel.Parent = screen
+	board.ZIndex = Report.CONFIG.PANEL_Z_INDEX
+	board.Visible = false
+	local boardBody = Hud.BOARD.WIDTH - 2 * Hud.BOARD.PADDING
 
-	local title = panelLabel(panel, "Title", Drive.CONFIG.SCORE_TITLE_SIZE)
-	title.Position = UDim2.fromOffset(16, 8)
-	title.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, 30)
-	-- BOLD, through `FontFace` rather than a second font: `Font.fromEnum` keeps the Code family the
-	-- whole Hud is written in -- the columns below are aligned by `string.format`, so a
-	-- proportional title beside a monospace table would be two typefaces for one panel -- and the
-	-- weight is the one property that changes.
-	-- https://create.roblox.com/docs/reference/engine/datatypes/Font
-	local titleFace = Font.fromEnum(Enum.Font.Code)
-	titleFace.Weight = Enum.FontWeight.Bold
-	title.FontFace = titleFace
+	local _, boardEyebrow, boardTitle = Style.header(board, boardBody, viewX, false)
+	local boardHeaderFrame = boardEyebrow.Parent :: Frame
+	boardHeaderFrame.Size = UDim2.fromOffset(boardBody, Hud.BOARD.HEADER_H)
+	boardEyebrow.Position = UDim2.fromOffset(0, 0)
+	boardEyebrow.Size = UDim2.fromOffset(boardBody, 12)
+	boardTitle.Position = UDim2.fromOffset(0, 14)
+	boardTitle.Size = UDim2.fromOffset(boardBody, Hud.BOARD.HEADER_H - 18)
+	sized(boardEyebrow, "MICRO")
+	sized(boardTitle, "TITLE")
 
-	local header = panelLabel(panel, "Header", Drive.CONFIG.SCORE_TEXT_SIZE)
-	-- DIMMER WHITE, not grey (see the contract's own comment).
-	header.TextTransparency = Drive.CONFIG.SCORE_HEADER_TRANSPARENCY
-	header.Position = UDim2.fromOffset(16, 42)
-	header.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, rowHeight)
-	-- The TEAM column is gone and COINS took its place (task 170): see `scoreRowText`.
-	header.Text = "#  NAME             KILLS  POINTS   COINS"
-
-	table.clear(scoreLines)
-	for index = 1, rows do
-		local line = panelLabel(panel, string.format("Row%d", index), Drive.CONFIG.SCORE_TEXT_SIZE)
-		line.Position = UDim2.fromOffset(16, 64 + (index - 1) * rowHeight)
-		line.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, rowHeight)
-		line.Visible = false
-		table.insert(scoreLines, line)
+	-- THE COLUMN HEAD, its own row with the brass hairline under it (§3.12).
+	local boardHead = Style.columnHead(board, "ColumnHead", viewX, boardBody, true)
+	boardHead.Position = UDim2.fromOffset(0, Hud.BOARD.HEADER_H)
+	for key, column in pairs(Hud.BOARD.COLUMNS) do
+		if key == "badge" then
+			continue
+		end
+		local cell = Style.cell(boardHead, key, viewX, column.x, column.w, column.right, "MICRO")
+		cell.TextColor3 = Style.LOOK.FIELD_MUTED
+		cell.Text = Style.spaced(if key == "rank" then "#" else string.upper(key))
+		sized(cell, "MICRO")
 	end
 
-	local footer = panelLabel(panel, "Footer", Drive.CONFIG.SCORE_TEXT_SIZE)
-	footer.Position = UDim2.fromOffset(16, 64 + rows * rowHeight + 4)
-	footer.Size = UDim2.fromOffset(Drive.CONFIG.SCORE_PANEL_WIDTH - 32, 22)
+	-- THE BODY SCROLLS PAST 14 ROWS and is the size of its own content below that (§3.12). A
+	-- `ScrollingFrame` and not a clipped Frame, because a roster of 16 in two rankings is 18 lines
+	-- and the alternative is a board that silently drops the last of them.
+	local boardScroll = Instance.new("ScrollingFrame")
+	boardScroll.Name = "Body"
+	boardScroll.BackgroundTransparency = 1
+	boardScroll.BorderSizePixel = 0
+	boardScroll.Position = UDim2.fromOffset(0, Hud.BOARD.HEADER_H + Style.rowHeight(viewX))
+	boardScroll.Size = UDim2.fromOffset(boardBody, Style.rowHeight(viewX))
+	boardScroll.CanvasSize = UDim2.fromOffset(0, 0)
+	boardScroll.ScrollBarThickness = 3
+	boardScroll.ScrollBarImageColor3 = Style.LOOK.BRASS
+	boardScroll.ScrollBarImageTransparency = 0.5
+	boardScroll.ZIndex = board.ZIndex + 1
+	boardScroll.Parent = board
+
+	-- ONE SLOT PER LINE THE BODY CAN EVER HOLD, built once and shown as the snapshot needs them --
+	-- the arrangement every other surface in this Hud already has. A slot is a section HEAD or a
+	-- ROW; which one it is, is decided per render, so a roster of one beater costs the same tree as
+	-- a roster of sixteen.
+	table.clear(scoreLines)
+	table.clear(scoreHeads)
+	table.clear(scoreCells)
+	for index = 1, Drive.CONFIG.SCORE_ROWS_MAX do
+		local head = Style.sectionHead(boardScroll, string.format("Head%d", index), viewX, boardBody)
+		sized(head:FindFirstChild("Word") :: TextLabel, "MICRO")
+		table.insert(scoreHeads, head)
+
+		local row = Style.tableRow(boardScroll, string.format("Row%d", index), viewX, boardBody)
+		local cells: { [string]: TextLabel } = {}
+		for key, column in pairs(Hud.BOARD.COLUMNS) do
+			if key == "badge" then
+				continue
+			end
+			local cell = Style.cell(row, key, viewX, column.x, column.w, column.right)
+			sized(cell, "HEADING")
+			cells[key] = cell
+		end
+		-- THE BADGE IS A PILL AND THE LEAVER'S MARK IS A TAG, which is §3.6 against §3.7: `1st` is
+		-- an IDENTITY (a rank) and `LEFT` is a STATE. Both are built and only one is ever shown.
+		local badgeColumn = Hud.BOARD.COLUMNS.badge
+		local badge, badgeText = Style.pill(row, "Badge", Style.LOOK.BRASS, viewX)
+		badge.AnchorPoint = Vector2.new(0, 0.5)
+		badge.Position = UDim2.new(0, badgeColumn.x, 0.5, 0)
+		badge.Visible = false
+		sized(badgeText, "MICRO")
+		local gone, goneText = Style.tag(row, "Left", Style.LOOK.FAINT, viewX)
+		gone.AnchorPoint = Vector2.new(0, 0.5)
+		gone.Position = UDim2.new(0, badgeColumn.x, 0.5, 0)
+		gone.Visible = false
+		goneText.Text = Style.spaced("LEFT")
+		sized(goneText, "MICRO")
+
+		table.insert(scoreLines, row)
+		table.insert(scoreCells, cells)
+	end
+
+	-- THE FOOTER: the words, the number, and a blaze bar draining over the countdown (§3.8). NO
+	-- TWEEN -- it is a clock, and a bar that eases is a bar that lies.
+	local boardFoot = Instance.new("Frame")
+	boardFoot.Name = "Footer"
+	boardFoot.BackgroundTransparency = 1
+	boardFoot.BorderSizePixel = 0
+	boardFoot.AnchorPoint = Vector2.new(0, 1)
+	boardFoot.Position = UDim2.fromScale(0, 1)
+	boardFoot.Size = UDim2.fromOffset(boardBody, Hud.BOARD.FOOTER_H)
+	boardFoot.ZIndex = board.ZIndex + 1
+	boardFoot.Parent = board
+
+	local boardFooterWord = Style.label(boardFoot, "Word", "MICRO", viewX)
+	boardFooterWord.Position = UDim2.fromOffset(0, 10)
+	boardFooterWord.Size = UDim2.fromOffset(boardBody - 90, 14)
+	boardFooterWord.TextColor3 = Style.LOOK.FIELD_MUTED
+	sized(boardFooterWord, "MICRO")
+
+	local boardFooterValue = Style.label(boardFoot, "Value", "DISPLAY", viewX)
+	boardFooterValue.Position = UDim2.fromOffset(boardBody - 90, 0)
+	boardFooterValue.Size = UDim2.fromOffset(90, 30)
+	boardFooterValue.TextXAlignment = Enum.TextXAlignment.Right
+	sized(boardFooterValue, "DISPLAY")
+
+	local boardTrack, boardFill =
+		Style.bar(boardFoot, "Countdown", Style.LOOK.BLAZE_LO, Style.LOOK.BLAZE, Style.LOOK.BLAZE_HI, 4)
+	boardTrack.AnchorPoint = Vector2.new(0, 1)
+	boardTrack.Position = UDim2.new(0, 0, 1, -8)
+	boardTrack.Size = UDim2.new(1, 0, 0, 4)
 
 	-- THE START CARD (task 158), upper middle, up for the countdown and gone at GO. Karen: *"we just
 	-- need to at the begining what they can shoot and timer when start"* -- so: what may be shot,
@@ -1170,22 +1380,23 @@ local function build(): ScreenGui
 
 	-- The tied banner, for the local player alone and only while they are tied. The comedy is the
 	-- point and so is the teaching: it says what they did.
-	local tied = Instance.new("TextLabel")
-	tied.Name = "TiedBanner"
-	tied.BackgroundTransparency = 1
-	tied.Font = Enum.Font.Code
-	tied.TextSize = Drive.CONFIG.TIED_TEXT_SIZE
-	tied.TextColor3 = Drive.CONFIG.TIED_COLOR
+	-- ...AND IT IS ONE CENTRED CLAY TOAST SINCE TASK 201 PART 2 (§5 surface 13). It was
+	-- `#FF5F4B` monospace 24 on bare sky; it is a REFUSAL, so it is clay, and it uses the component
+	-- every other refusal in the game uses -- at the `TITLE` step, because it is the one notice
+	-- that has to be read at a glance while something is happening to you.
+	--
+	-- `Hud.tiedBanner()` answers this FRAME now and not a `TextLabel`: `zz_tie_to_a_tree.spec` walks
+	-- its ancestors for `Visible` and asks nothing about its class.
+	-- THE BAND GOES IN AT BUILD TIME (round 1, finding 3). `screen` is a `ScreenGui` and not a
+	-- `GuiObject`, so there was nothing for the toast to inherit and its dot and its words were
+	-- created under a slate that was raised a line later.
+	local tied, tiedDot, tiedText_ = Style.toast(screen, "TiedBanner", viewX, "TITLE", Hud.STATUS.Z_INDEX + 1)
 	tied.AnchorPoint = Vector2.new(0.5, 0)
 	tied.Position = UDim2.new(0.5, 0, 0, Drive.CONFIG.TIED_TOP_OFFSET)
-	tied.Size = UDim2.fromOffset(620, 30)
-	tied.Text = ""
 	tied.Visible = false
-	local tiedStroke = Instance.new("UIStroke")
-	tiedStroke.Thickness = 1
-	tiedStroke.Color = Color3.new(0, 0, 0)
-	tiedStroke.Parent = tied
-	tied.Parent = screen
+	tiedDot.BackgroundColor3 = Style.LOOK.CLAY
+	tiedText_.TextColor3 = Style.LOOK.CLAY
+	sized(tiedText_, "TITLE")
 
 	-- THE COMPASS (task 125). Karen: *"we need to indicate from what side drive is comming"*. Top
 	-- centre, thin, and built empty -- `Compass.start` fills it and this file writes nothing inside.
@@ -1211,6 +1422,22 @@ local function build(): ScreenGui
 
 	-- THE REPORT, over everything: it is a thing you stop and read. Empty and hidden until
 	-- `ReportPanel.start` fills it -- this file creates the box and writes nothing inside it.
+	-- THE MODAL'S SCRIM (§1.3: *"A modal lays `SCRIM` over the whole screen at 0.42"*). Built here
+	-- with the rest of the screen and written by `ReportPanel`, which owns whether the report is
+	-- open -- the division the panel itself already has. A non-modal surface lays NO scrim: the
+	-- results board is a field surface and carries its own card.
+	local reportScrim = Instance.new("Frame")
+	reportScrim.Name = "ReportScrim"
+	reportScrim.BackgroundColor3 = Style.LOOK.SCRIM
+	reportScrim.BackgroundTransparency = Style.SCRIM_T
+	reportScrim.BorderSizePixel = 0
+	reportScrim.Size = UDim2.fromScale(1, 1)
+	reportScrim.Position = UDim2.fromScale(0.5, 0.5)
+	reportScrim.AnchorPoint = Vector2.new(0.5, 0.5)
+	reportScrim.ZIndex = Report.CONFIG.PANEL_Z_INDEX - 1
+	reportScrim.Visible = false
+	reportScrim.Parent = screen
+
 	local report = Instance.new("Frame")
 	report.Name = "ReportPanel"
 	report.BackgroundColor3 = Report.CONFIG.PANEL_COLOR
@@ -1682,16 +1909,22 @@ local function build(): ScreenGui
 	hitMark = mark
 	driveBar = status
 	feedFrame = feed
-	scorePanel = panel
+	scorePanel = board
 	reportFrame = report
+	reportScrimFrame = reportScrim
 	hitCardFrame = hitCard
 	shopFrame = shop
 	padFrame = padDialog
 	padLeavingFrame = padLeaving
 	compassFrame = compass
-	scoreTitle = title
-	scoreFooter = footer
+	scoreEyebrow = boardEyebrow
+	scoreTitle = boardTitle
+	scoreBody = boardScroll
+	scoreFooterWord = boardFooterWord
+	scoreFooterValue = boardFooterValue
+	scoreFooterFill = boardFill
 	tiedBanner = tied
+	tiedText = tiedText_
 	startCard = card
 	startCardTitle = cardTitle
 	startCardTimer = cardTimer
@@ -1815,34 +2048,58 @@ local Rank = Drive.Rank
 -- problem worse. 41 characters plus badge and star, against today's 42.
 --
 -- `rank` RESTARTS AT 1 INSIDE EACH RANKING, because that is what "two first places" means.
-local function scoreRowText(rank: number, row, first: boolean?): string
-	-- `left` is a fact the board carries; a leaver's row stays on this drive's screen (drive design
-	-- section 4.4), and a trailing "*" is how the reader knows why they are not in the next drive.
-	-- A leaver is also NOT PAID (`Economy.Coins.forDrive`), so his coins column reads `--`, which is
-	-- the same symbol an unknown balance uses and means the same thing here: no number for him.
-	local gone = if row.left then " *" else ""
-	-- AFTER THE COINS AND BEFORE THE LEAVER'S STAR, so the badge sits against the numbers it was
-	-- earned with and a first-placed leaver still reads as one.
-	local badge = if first then "  " .. Drive.CONFIG.SCORE_FIRST_BADGE else ""
-	-- WHAT THIS DRIVE PAID HIM, not his balance: the balance is on the bar, in every phase, and the
-	-- results table is about THIS drive. Absent (the flag off, or no profile) reads `--` and never
-	-- `0` -- `0` would be an assertion that the drive paid him nothing.
+-- ONE ROW OF THE RESULTS TABLE, AS CELLS (§3.12: *"one `TextLabel` per cell"*). The padding is
+-- gone with `Enum.Font.Code` -- the numbers line up because they are PLACED -- so what this answers
+-- is the WORDS, and `Hud.BOARD.COLUMNS` says where each one goes.
+--
+-- AN UNKNOWN IS NOT DRAWN AT ALL RATHER THAN `--` (§3.12). That is the one behaviour change in the
+-- data: a leaver is not paid (`Economy.Coins.forDrive` skips `row.left`), and the `LEFT` tag beside
+-- his row is what says why -- a `--` in the coins column was the same fact said twice and badly.
+local function scoreCellsFor(rank: number, row): { [string]: string }
 	local coins = if type(row.earned) == "number"
 		then string.format(Drive.CONFIG.SCORE_EARNED_FORMAT, row.earned)
-		else Drive.CONFIG.SCORE_COINS_UNKNOWN
-	return string.format(
-		"%-2d %-16s %5d %7d %7s%s%s",
-		rank,
-		string.sub(tostring(row.name or "?"), 1, 16),
-		row.kills,
-		row.points,
-		coins,
-		badge,
-		gone
-	)
+		else ""
+	return {
+		rank = tostring(rank),
+		name = string.sub(tostring(row.name or "?"), 1, 18),
+		kills = tostring(row.kills or 0),
+		points = tostring(row.points or 0),
+		coins = coins,
+	}
 end
 
-export type ScoreLine = { text: string, heading: boolean, mine: boolean }
+-- ...AND THE SAME ROW AS ONE LINE, for `ScoreLine.text`. Kept because it is what a spec reads when
+-- it wants the row's FACTS rather than its pixels, and because the tie between the two is one
+-- function rather than two formatters that can disagree.
+local function scoreRowText(rank: number, row, first: boolean?): string
+	local cells = scoreCellsFor(rank, row)
+	local parts = {}
+	for _, key in ipairs(Hud.BOARD_ORDER) do
+		if cells[key] ~= "" then
+			table.insert(parts, cells[key])
+		end
+	end
+	if first then
+		table.insert(parts, Drive.CONFIG.SCORE_FIRST_BADGE)
+	end
+	if row.left then
+		table.insert(parts, "LEFT")
+	end
+	return table.concat(parts, " ")
+end
+
+-- `cells` IS WHAT THE BOARD DRAWS and `text` is the same row as one line; `badge`, `left` and
+-- `team` are the three things the ROW ITSELF wears -- the brass `1st` pill, the faint `LEFT` tag and
+-- the colour of your own row's 3 px left bar.
+export type ScoreLine = {
+	text: string,
+	heading: boolean,
+	mine: boolean,
+	cells: { [string]: string }?,
+	badge: boolean?,
+	left: boolean?,
+	team: string?,
+}
 
 -- THE WHOLE BODY OF THE RESULTS TABLE, AS DATA (task 170). Karen, 2026-10-12: separate rankings for
 -- hunters and beaters. PURE and exported for the reason every other string on this panel is -- a
@@ -1885,6 +2142,10 @@ function Hud.scorePanelLines(snapshot, myUserId: number?): { ScoreLine }
 				text = scoreRowText(index, row, index == firstRank),
 				heading = false,
 				mine = myUserId ~= nil and (row :: any).userId == myUserId,
+				cells = scoreCellsFor(index, row),
+				badge = index == firstRank,
+				left = (row :: any).left == true,
+				team = (row :: any).team,
 			})
 		end
 	end
@@ -1948,49 +2209,169 @@ end
 -- item 4) could not be written at all unless a spec can hand this the snapshot the wire would. It is
 -- the same reason Hud.onHitMarker is a named function and not an inline closure. Nothing else in the
 -- repo calls it but renderDrive.
+-- THE ONE WRITER of the results board: its words, its row states, its footer bar AND its height.
+--
+-- THE HEIGHT FOLLOWS THE ROW COUNT (§3.12). Until task 201 part 2 the board was 20 fixed slots and
+-- drew a 480 x 574 box to hold three of them. Now it is `header + rows + footer`, measured by the
+-- pure `Hud.boardHeight`, and the body scrolls past 14 rows.
 function Hud.renderScore(snapshot, secondsLeft: number?)
-	local panel = scorePanel
-	if not panel then
+	local board = scorePanel
+	if not board then
 		return
 	end
 	local show = Hud.scorePanelVisible(snapshot, ReportPanel.isOpen())
-	panel.Visible = show
+	board.Visible = show
 	if not show then
 		-- Cleared, not just hidden: a stale board must not flash for a frame at the next Scoring.
-		for _, line in ipairs(scoreLines) do
-			line.Text = ""
-			line.Visible = false
+		for index, row in ipairs(scoreLines) do
+			row.Visible = false
+			local head = scoreHeads[index]
+			if head ~= nil then
+				head.Visible = false
+			end
 		end
+		scoreCountdownFrom = 0
 		return
 	end
-	if scoreTitle then
-		-- THE WORDING IS THE CONTRACT'S, not this renderer's (task 159): Karen asked for a "results
-		-- table", and `Drive.CONFIG` is where every word this Hud draws is written down.
-		scoreTitle.Text = string.format(Drive.CONFIG.SCORE_TITLE_FORMAT, snapshot.driveNumber)
+	local viewX = Hud.viewportX()
+	if scoreEyebrow then
+		-- THE EYEBROW IS WHICH DRIVE and the title is WHAT THIS IS (§3.4), which is the pair the
+		-- whole game's panels share. The wording is `Drive.CONFIG`'s and not this renderer's.
+		(scoreEyebrow :: TextLabel).Text =
+			Style.spaced(string.format(Drive.CONFIG.SCORE_EYEBROW_FORMAT, snapshot.driveNumber))
 	end
+	if scoreTitle then
+		(scoreTitle :: TextLabel).Text = Drive.CONFIG.SCORE_TITLE_WORD
+	end
+
 	local me = Players.LocalPlayer.UserId
-	-- THE BODY IS DECIDED BY ONE PURE CALL AND THIS LOOP DECIDES NOTHING (task 170): it writes
-	-- `.Text`, `.TextColor3`, `.TextTransparency` and `.Visible`, and the rankings, the ranks, the
-	-- badges and the headings are all `Hud.scorePanelLines`'s -- which is also the only way a spec can
-	-- assert them, since no client suite reaches `Scoring`.
+	-- THE BODY IS DECIDED BY ONE PURE CALL AND THIS LOOP DECIDES NOTHING (task 170): the rankings,
+	-- the ranks, the badges and the headings are all `Hud.scorePanelLines`'s -- which is also the
+	-- only way a spec can assert them, since no client suite reaches `Scoring`.
 	local lines = Hud.scorePanelLines(snapshot, me)
-	for index, label in ipairs(scoreLines) do
+	local rowH = Style.rowHeight(viewX)
+	local headH = if Style.isPhone(viewX) then 18 else 20
+	local y = 0
+	local rows, heads = 0, 0
+	for index, row in ipairs(scoreLines) do
+		local head = scoreHeads[index]
 		local entry = lines[index]
-		if entry then
-			label.Text = entry.text
-			-- A HEADING RECEDES exactly as the column header does, and for the same reason: it is a
-			-- label for the rows under it, not one of them.
-			label.TextTransparency = if entry.heading then Drive.CONFIG.SCORE_HEADER_TRANSPARENCY else 0
-			label.TextColor3 = if entry.mine then Drive.CONFIG.SCORE_HIGHLIGHT_COLOR else Drive.CONFIG.TEXT_COLOR
-			label.Visible = true
-		else
-			label.Text = ""
-			label.Visible = false
+		local isHead = entry ~= nil and entry.heading
+		if head ~= nil then
+			head.Visible = isHead
+		end
+		row.Visible = entry ~= nil and not entry.heading
+		if entry == nil then
+			continue
+		end
+		if isHead then
+			heads += 1
+			local word = head and head:FindFirstChild("Word")
+			if word ~= nil then
+				(word :: TextLabel).Text = Style.spaced(entry.text);
+				-- A SECTION HEAD IS ITS TEAM'S COLOUR and nothing else on this board is coloured by
+				-- team except your own row's bar. `others` is neither side, so it takes `PAPER`.
+				(word :: TextLabel).TextColor3 = if entry.text == Drive.CONFIG.SCORE_HUNTERS_HEADING
+					then Style.LOOK.HUNTER
+					elseif entry.text == Drive.CONFIG.SCORE_BEATERS_HEADING then Style.LOOK.BEATER
+					else Style.LOOK.PAPER
+			end
+			(head :: Frame).Position = UDim2.fromOffset(0, y)
+			y += headH
+			continue
+		end
+		rows += 1
+		row.Position = UDim2.fromOffset(0, y)
+		y += rowH
+		Style.rowState(row, entry.mine == true, entry.team)
+		local cells = scoreCells[index]
+		for key, cell in pairs(cells or {}) do
+			local word = (entry.cells or {})[key] or ""
+			cell.Text = word
+			cell.TextColor3 = Hud.scoreCellColor(key, word, entry.mine == true)
+		end
+		local badge = row:FindFirstChild("Badge")
+		if badge ~= nil then
+			(badge :: Frame).Visible = entry.badge == true
+			local text = (badge :: Frame):FindFirstChild("Text")
+			if text ~= nil then
+				(text :: TextLabel).Text = Style.spaced(Drive.CONFIG.SCORE_FIRST_BADGE)
+			end
+		end
+		local gone = row:FindFirstChild("Left")
+		if gone ~= nil then
+			-- ONE OR THE OTHER, NEVER BOTH: they share the same x, and a first-placed leaver reads
+			-- as a leaver -- which is the fact that explains why he is not in the next drive.
+			(gone :: Frame).Visible = entry.left == true
+			if entry.left == true and badge ~= nil then
+				(badge :: Frame).Visible = false
+			end
 		end
 	end
-	if scoreFooter then
-		scoreFooter.Text = string.format("NEXT DRIVE IN %d", math.max(0, math.floor(secondsLeft or 0)))
+	-- THE LAST DRAWN ROW WEARS NO RULE (§3.12: *"between rows, not after the last"*).
+	for index = #scoreLines, 1, -1 do
+		local row = scoreLines[index]
+		if row.Visible then
+			local rule = row:FindFirstChild("Rule")
+			if rule ~= nil then
+				(rule :: Frame).Visible = false
+			end
+			break
+		end
 	end
+	for index, row in ipairs(scoreLines) do
+		local rule = row:FindFirstChild("Rule")
+		if rule ~= nil and row.Visible and index < #lines then
+			(rule :: Frame).Visible = true
+		end
+	end
+
+	-- THE HEIGHT, AND THE BODY'S OWN. Both from the one pure measure, so the board a spec computes
+	-- and the board on screen are the same board.
+	local body = scoreBody
+	if body ~= nil then
+		local cap = Hud.BOARD.MAX_VISIBLE_ROWS * rowH;
+		(body :: ScrollingFrame).Size = UDim2.fromOffset(Hud.BOARD.WIDTH - 2 * Hud.BOARD.PADDING, math.min(y, cap));
+		(body :: ScrollingFrame).CanvasSize = UDim2.fromOffset(0, y)
+	end
+	board.Size = UDim2.fromOffset(Hud.BOARD.WIDTH, Hud.boardHeight(rows, heads, viewX))
+
+	local left = math.max(0, math.floor(secondsLeft or 0))
+	if scoreFooterWord then
+		(scoreFooterWord :: TextLabel).Text = Style.spaced(Drive.CONFIG.SCORE_FOOTER_WORD)
+	end
+	if scoreFooterValue then
+		(scoreFooterValue :: TextLabel).Text = tostring(left)
+	end
+	-- THE BAR'S DENOMINATOR IS LATCHED FROM THE CLOCK ITSELF and is not a second copy of
+	-- `Match.CONFIG.SCORE_SECONDS` -- which is the SERVER's and which this client cannot require.
+	-- The first frame of `Scoring` carries the whole gap, so the bar starts full and drains; a
+	-- constant here would be a number that can disagree with the one the drive actually used.
+	scoreCountdownFrom = math.max(scoreCountdownFrom, left)
+	if scoreFooterFill then
+		-- IT DRAINS, and it is a CLOCK (§3.8): no tween.
+		local whole = math.max(1, scoreCountdownFrom);
+		(scoreFooterFill :: Frame).Size = UDim2.fromScale(math.clamp(left / whole, 0, 1), 1)
+	end
+end
+
+-- WHAT COLOUR A CELL'S NUMBER IS (§3.12). PURE, because it is four rules and a spec can hold all
+-- four: a coin number is `COIN_TEXT` and carries its `+`; a NEGATIVE points number is `CLAY`; a
+-- zero is `FIELD_MUTED`; your own name is `PAPER` and everybody else's is `BODY`.
+function Hud.scoreCellColor(key: string, word: string, mine: boolean): Color3
+	if key == "coins" then
+		return Style.LOOK.COIN_TEXT
+	end
+	if key == "name" then
+		return if mine then Style.LOOK.PAPER else Style.LOOK.BODY
+	end
+	if key == "points" and string.sub(word, 1, 1) == "-" then
+		return Style.LOOK.CLAY
+	end
+	if word == "0" then
+		return Style.LOOK.FIELD_MUTED
+	end
+	return if mine then Style.LOOK.PAPER else Style.LOOK.BODY
 end
 
 -- THE ONE WRITER of the tied banner. The local player only: everybody else's tie is in the feed and
@@ -2001,7 +2382,11 @@ function Hud.renderTied(isTied: boolean)
 		return
 	end
 	banner.Visible = isTied
-	banner.Text = if isTied then Drive.CONFIG.TIED_TEXT else ""
+	if tiedText ~= nil then
+		-- Cleared, not just hidden, which is this file's rule everywhere: the next tie must not
+		-- flash the last one's sentence for a frame.
+		(tiedText :: TextLabel).Text = if isTied then Drive.CONFIG.TIED_TEXT else ""
+	end
 end
 
 -- ---------------------------------------------------------------- the start card (task 158)
@@ -3650,6 +4035,9 @@ function Hud.start()
 			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
 			Match = matchSystem,
 			userId = player.UserId,
+			-- THE MODAL'S SCRIM, created with the rest of the screen and written by the panel: one
+			-- owner of "is the report open", two frames that follow from it.
+			scrim = reportScrimFrame,
 		})
 	end
 

@@ -183,6 +183,14 @@ Drive.CONFIG = {
 	-- is her decision, still open from task 158 (TASKS.md row 158a). Renaming half the screen to
 	-- settle it quietly is exactly what that row exists to prevent.
 	SCORE_TITLE_FORMAT = "DRIVE %d RESULTS",
+	-- THE SAME SENTENCE IN TWO PIECES SINCE TASK 201 PART 2, because the board wears an EYEBROW and
+	-- a TITLE now (the Designer's design system, 2026-10-17, section 3.4): the small brass word
+	-- above the title saying WHAT KIND OF THING THIS IS, and then the thing. `SCORE_TITLE_FORMAT`
+	-- is kept for the one line a reader may still want whole.
+	SCORE_EYEBROW_FORMAT = "DRIVE %d",
+	SCORE_TITLE_WORD = "RESULTS",
+	-- The footer, over the bar that drains while the next drive is coming.
+	SCORE_FOOTER_WORD = "NEXT DRIVE IN",
 	SCORE_PANEL_COLOR = Color3.fromRGB(16, 18, 20),
 	SCORE_PANEL_TRANSPARENCY = 0.25,
 	SCORE_HIGHLIGHT_COLOR = Color3.fromRGB(255, 232, 150), -- your own row
@@ -202,12 +210,16 @@ Drive.CONFIG = {
 	-- heading with SHOOTER on every row under it prints one fact twice. That column is what pays for
 	-- the coins column, so `SCORE_PANEL_WIDTH` does not move. Which vocabulary the WHOLE Hud speaks
 	-- is still Karen's open question (TASKS.md row 158a) and this settles only this panel.
-	SCORE_HUNTERS_HEADING = "-- HUNTERS --",
-	SCORE_BEATERS_HEADING = "-- BEATERS --",
+	-- THE DASHES ARE GONE SINCE TASK 201 PART 2 and a 1 px rule took their place: a section head is
+	-- an EYEBROW in the team's colour plus a rule filling the rest of the width (design system
+	-- section 3.12). `-- HUNTERS --` was a rule drawn in punctuation because the old board had no
+	-- way to draw one.
+	SCORE_HUNTERS_HEADING = "HUNTERS",
+	SCORE_BEATERS_HEADING = "BEATERS",
 	-- Drawn ONLY when that list has a row in it -- the rule `Match.quarryLines` already applies to
 	-- its own POINTS label: *"THE WORD ONLY WHEN THERE IS A NUMBER UNDER IT"*. A row has no team
 	-- when a player joined outside `Assigning`/`Running`, which is a real state and not an error.
-	SCORE_OTHERS_HEADING = "-- OTHERS --",
+	SCORE_OTHERS_HEADING = "OTHERS",
 	-- WHAT AN ABSENT NUMBER LOOKS LIKE. `--`, never `0`: a player whose profile did not open has an
 	-- UNKNOWN balance, and printing 0 would be this Hud asserting he has no coins.
 	SCORE_COINS_UNKNOWN = "--",
@@ -223,7 +235,16 @@ Drive.CONFIG = {
 	TIED_TEXT = "TIED TO A TREE - you fired toward the drive",
 	TIED_TEXT_SIZE = 24,
 	TIED_COLOR = Color3.fromRGB(255, 95, 75),
-	TIED_TOP_OFFSET = 74, -- just under the drive bar, which moved to 44..70 (task 165)
+	-- 74 -> 96 (task 201 part 2). The banner is ONE CENTRED CLAY TOAST now (the Designer's design
+	-- system, 2026-10-17, section 5 surface 13) and a toast at the `TITLE` step is 40 px tall, not
+	-- 30 -- so it no longer fits the 74..104 slot between the status slate and the compass.
+	--
+	-- 96 IS THE DESIGNER'S OWN NUMBER, and it puts the toast OVER the compass strip (108..138) on
+	-- purpose: section 4.3's TOP BAND contract names exactly three members -- objective, status,
+	-- compass -- and this is not one of them. It is a NOTICE, it is up for seconds, and a player
+	-- roped to a tree cannot walk anywhere the compass would help him get to. It is drawn above the
+	-- band's own ZIndex so it covers rather than is covered.
+	TIED_TOP_OFFSET = 96,
 
 	-- THE START CARD (task 158). Karen: *"we just need to at the begining what they can shoot and
 	-- timer when start"*, *"Simple, readable, a few seconds, no tutorial"*. LAYOUT AND WORDING

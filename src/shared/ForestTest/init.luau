@@ -860,6 +860,25 @@ ForestTest.PUSH_TEAM = "Drivers"
 -- refuses to run while a flag override is set -- cannot see it and cannot be defeated by it.
 ForestTest.START_ROLE_ATTRIBUTE = "DHForestStartRole"
 
+-- HOW LONG A DRIVE RUNS IN THIS WORLD, for a Director who needs to SEE the end of one (task 201
+-- part 2). `ForestTest.DRIVE.seconds` is 300, so a results board -- the screen Karen reads at the
+-- end of every drive -- costs five minutes a frame, and `Match.advanceForTests` is the server's and
+-- cannot be reached from the harness (`tools/studio_mcp.py`'s own docstring: that thread may not
+-- `require`). This is the same kind of switch as `DHForestLayout` and `DHForestStartRole` above and
+-- is read in the same place, the composition root, through `Match.WORLD_OVERRIDABLE`'s
+-- `DRIVE_SECONDS`.
+--
+-- AN ATTRIBUTE AND NOT A FILE, for their reason: it is a playtest setting, it must not show up in
+-- the git tree, and it survives into Play because Play copies the Edit DataModel. It is not a
+-- `DHFlag_*` name, so the harness's override guard cannot see it and cannot be defeated by it.
+ForestTest.DRIVE_SECONDS_ATTRIBUTE = "DHForestDriveSeconds"
+
+-- THE BOUNDS, AND THEY ARE THE POINT OF HAVING A RESOLVER AT ALL. Below 20 s a drive cannot reach
+-- its own first release (`FIRST_RELEASE_SECONDS`), so a "short drive" that ended before any animal
+-- moved would be a worse lie than the long one; above `DRIVE.seconds` the switch would be making
+-- the playtest LONGER, which nobody has asked for and which a typo could do by accident.
+ForestTest.DRIVE_SECONDS_MIN = 20
+
 -- WHICH LANE OF THE LINE THIS BEATER WALKS, as an offset along the road from the push line (task
 -- 167). PURE, and the one answer to *"all bots came to me"*.
 --

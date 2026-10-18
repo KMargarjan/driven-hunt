@@ -826,7 +826,13 @@ Match.start({
 	-- second teleport in either direction.
 	gatherSpot = if lobbyOn then Lobby.gatherSpot else nil,
 	config = {
-		DRIVE_SECONDS = Data.DRIVE.seconds,
+		-- THE DIRECTOR'S SHORT-DRIVE SWITCH, read HERE because this is the composition root and
+		-- `Match.WORLD_OVERRIDABLE` names `DRIVE_SECONDS` as a key a world may set (task 201 part
+		-- 2). Nobody has set it in the normal case and this is `Data.DRIVE.seconds`, which is what
+		-- every run before the switch existed used. `ForestTest.driveSeconds` is the one place the
+		-- value is judged, and it answers nil -- the default -- for anything out of range.
+		DRIVE_SECONDS = ForestTest.driveSeconds(ServerStorage:GetAttribute(Data.DRIVE_SECONDS_ATTRIBUTE))
+			or Data.DRIVE.seconds,
 		BOARS_PER_DRIVE = 0,
 	},
 	now = function()
