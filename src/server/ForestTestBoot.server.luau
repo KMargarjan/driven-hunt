@@ -1090,7 +1090,16 @@ Match.PhaseChanged:Connect(function(_before, phase)
 			for _, player in ipairs(Players:GetPlayers()) do
 				local character = player.Character
 				local root = character and character:FindFirstChild("HumanoidRootPart")
-				if root ~= nil and ForestTest.roleOfPlayer(player) == "hunter" then
+				-- ...AND NOT FOR A MAN WHO HAS ASKED TO BE A BEATER (task 214). The sweep honours his
+				-- ask the moment his character has landed, which is about this instant; without this
+				-- the two answers race and Karen sees a ring drawn round a stand and taken down
+				-- again a frame later. `roleOfPlayer` cannot see the ask -- it reads `Player.Team`,
+				-- which is the drive's answer and not the question.
+				if
+					root ~= nil
+					and ForestTest.roleOfPlayer(player) == "hunter"
+					and ForestTest.pendingRequest(player.UserId) == nil
+				then
 					ForestTest.openPick(player.UserId, os.clock(), ForestTest.nearestStand((root :: BasePart).Position))
 					local index, segments = showRing(player)
 					print(
@@ -1110,13 +1119,14 @@ Match.PhaseChanged:Connect(function(_before, phase)
 	if phase ~= "Running" then
 		return
 	end
-	-- A REQUEST MADE BETWEEN DRIVES IS HONOURED HERE, not in `Assigning`: that phase respawns
-	-- everybody already, and honouring inside it would be a second `LoadCharacter` for the same
-	-- player in the same intermission. The cost is one extra respawn for the player who asked, at the
-	-- instant the drive starts, and it is stated rather than discovered.
-	for _, player in ipairs(Players:GetPlayers()) do
-		honour(player)
-	end
+	-- A REQUEST IS NO LONGER HONOURED FROM THIS EDGE (task 214). It used to be honoured here and
+	-- nowhere else -- "not in `Assigning`: that phase respawns everybody already, and honouring
+	-- inside it would be a second `LoadCharacter` for the same player in the same intermission" --
+	-- and the lobby made that one instant the wrong one: a player now enrols from a truck pad, so by
+	-- the time the drive could use his ask he had already spent the whole intermission on the other
+	-- side, with the other side's gun and a ring round a stand he was about to be taken away from.
+	-- The sweep on the Heartbeat below owns it now, which covers this instant and every other one;
+	-- `ForestTest.toHonour` carries the measurement.
 	for _, player in ipairs(Players:GetPlayers()) do
 		openPickFor(player)
 	end
@@ -1137,6 +1147,13 @@ Match.PhaseChanged:Connect(function(_before, phase)
 	)
 end)
 
+-- WHAT EACH PLAYER WAS WHEN HIS BODY LAST STOOD STILL (task 214), by UserId: the character, and the
+-- team he was on at that moment. Owned here, written only in `reportStart`'s settle delay below and
+-- dropped only by `PlayerRemoving`. Nothing has to clear it on a respawn or on a team change:
+-- `ForestTest.toHonour` compares both fields with what the player has NOW, and its header carries
+-- the measurement that says why one of them is not enough.
+local settledCharacter: { [number]: ForestTest.Settled } = {}
+
 -- ONE LINE PER START, AND IT IS PRINTED WHEN THE CHARACTER HAS ACTUALLY LANDED (task 157).
 --
 -- IT USED TO BE PRINTED FROM THE PHASE HANDLER, and round 1 of this task measured what that was
@@ -1148,8 +1165,22 @@ end)
 -- IT WRITES NOTHING. `Match.Body` is still the only thing that moves a character; this reads the
 -- position it ended up in and says what the role was, which is the only channel a tool outside the
 -- server has (an MCP `require` of this module answers with a sandboxed copy -- measured, task 122).
+--
+-- ...AND IT IS ALSO WHERE THIS ROOT LEARNS THAT A CHARACTER HAS LANDED (task 214). `settledCharacter`
+-- below is written in exactly one place, this delay, for the same reason the line above is printed
+-- from it: it is the one moment in this file that knows a respawn is over. `ForestTest.toHonour`
+-- reads it so that a role request cannot be offered to the drive while the drive's own placement is
+-- still in flight for the same player -- that function's header carries the measurement.
 local function reportStart(player: Player, character: Model)
 	task.delay(PLACEMENT_SETTLE_SECONDS, function()
+		-- RECORDED BEFORE THE EARLY RETURN BELOW, and that is deliberate: what this answers is "has
+		-- `PLACEMENT_SETTLE_SECONDS` passed since this character arrived", which is the race guard
+		-- `ForestTest.toHonour` wants, and it is a different question from "is this character worth
+		-- printing a line about". A character that is still unparented at this point would otherwise
+		-- leave the player's ask unhonourable for ever, which the `Running` edge used to cover.
+		if player.Character == character then
+			settledCharacter[player.UserId] = { character = character, team = player.Team }
+		end
 		local root = character.PrimaryPart
 		if character.Parent == nil or root == nil then
 			return
@@ -1232,6 +1263,9 @@ local wired: { [number]: boolean } = {}
 
 Players.PlayerRemoving:Connect(function(player)
 	wired[player.UserId] = nil
+	-- ...AND SO DOES THE CHARACTER THIS ROOT HAD SEEN LAND (task 214): a Model kept here would hold
+	-- a departed player's body alive, which is `Match.forget`'s own rule one line further down.
+	settledCharacter[player.UserId] = nil
 	-- HIS RING GOES WITH HIS PICK (round 1's note). An edge drawn round a stand nobody is held to is
 	-- a line that means nothing, and without this it stayed until the next intermission cleared all
 	-- of them.
@@ -1293,6 +1327,17 @@ RunService.Heartbeat:Connect(function()
 		for _, player in ipairs(joining) do
 			wired[player.UserId] = true
 			onPlayer(player)
+		end
+	end
+	-- ...AND EVERYBODY WHO ASKED FOR A ROLE IS GIVEN IT AS SOON AS THE DRIVE CAN GIVE IT (task 214).
+	-- Same shape and same reason as the line above: "he asked" is a STATE, and the one instant this
+	-- used to be read at (the `Running` edge) is not the instant the lobby enrols him at. `honour`
+	-- is already one-shot and already asks the drive rather than deciding -- outside a drive
+	-- `Match.requestTeam` refuses and the ask stays pending, which is what makes a sweep safe here.
+	local owed = ForestTest.toHonour(players, settledCharacter)
+	if owed ~= nil then
+		for _, player in ipairs(owed) do
+			honour(player)
 		end
 	end
 	for _, player in ipairs(players) do
