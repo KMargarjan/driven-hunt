@@ -438,12 +438,13 @@ end
 -- THE BOTS (task 161), started BEFORE the drive, because `Match.start` dispatches its first phase
 -- and the drive's `syncBots` runs at the end of it.
 --
--- FOUR SEAMS IN THIS WORLD, AND THE TWO EXTRA ONES ARE THIS WORLD'S OWN SINGLE READERS: its terrain
--- climbs 56 studs in 400 and it is mostly ferns and leaf cards with `CanCollide = false`, so
--- "where is the ground" is `Data.groundAt` and "is there room for a body" is
--- `ForestTest.roomToStand` -- the same two functions this file already hands to `Markers.setReaders`
--- and the boar world. A third copy of either would be two definitions of one fact, which is this
--- project's named failure mode.
+-- THE EXTRA SEAMS ARE THIS WORLD'S OWN SINGLE READERS: its terrain climbs 56 studs in 400 and it is
+-- mostly ferns and leaf cards with `CanCollide = false`, so "where is the ground" is
+-- `Data.groundAt`, "is there room for a body" is `ForestTest.roomToStand` and -- since task 208 --
+-- "what is in the way between here and there" is `ForestTest.laneAhead`. All three are functions
+-- this file hands on rather than versions of its own: `Markers.setReaders` and the boar world get
+-- the first two as well. A second copy of any of them would be two definitions of one fact, which is
+-- this project's named failure mode.
 --
 -- `dress` is `Match.Body.dress` -- the ONE owner of what a character wears, in this world as in the
 -- real one -- and `horn` is `Weapon.Horn`'s, with `give` asking the horn's own `carriesFor` so who
@@ -468,6 +469,14 @@ Bots.start({
 	},
 	groundAt = Data.groundAt,
 	roomToStand = ForestTest.roomToStand,
+	-- ANOTHER SEAM (task 208), and it is this world's THIRD single reader: "what is in the way
+	-- between here and there, and how high is it". `ForestTest.laneAhead` sweeps a body down the
+	-- lane with `Blockcast` and -- unlike `roomToStand`, which says in so many words that *a person
+	-- is not an obstacle* -- it counts another BODY as something to walk round. That difference is a
+	-- measurement: two bot beaters spent 34.0 s and 6.0 s pinned against anchored bot hunters
+	-- standing on the stands their own lanes aim 20 studs past
+	-- (`docs/research/2026-10-19-bots-unstuck.md` section 4.2).
+	laneAhead = ForestTest.laneAhead,
 	now = function()
 		return os.clock()
 	end,

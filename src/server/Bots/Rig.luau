@@ -105,7 +105,16 @@ function Rig.prepare(model: Model, config, walks: boolean): Humanoid?
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
 	humanoid.WalkSpeed = if walks then config.WALK_SPEED else 0
-	humanoid.JumpHeight = 0
+	-- A WALKER CAN NOW GET OVER A LOG (task 208), AND A STANDER STILL CANNOT MOVE AT ALL. The
+	-- recovery ladder's jump rung (`Bots.Lane.recoveryFor`, ioquake3's `BotCheckBarrierJump`) asks
+	-- the humanoid to jump, and `ChangeState(Jumping)` is worth nothing at `JumpHeight = 0` -- so the
+	-- walker gets `JUMP_HEIGHT_STUDS` (5.2, one stud over what it is allowed to jump rather than go
+	-- round) and the stander keeps the 0 the vendor's "static NPC" sentence asks for, with its whole
+	-- state machine off below.
+	--   https://create.roblox.com/docs/reference/engine/classes/Humanoid
+	humanoid.JumpHeight = if walks then config.JUMP_HEIGHT_STUDS or 0 else 0
+	-- `UseJumpPower` is deprecated and `JumpHeight` is the live property, so this stays 0 in both
+	-- cases: one answer to "how high does it jump", not two that can disagree.
 	humanoid.JumpPower = 0
 
 	-- THE VENDOR'S OWN SENTENCE, taken as far as the outfit allows (Roblox, "Improve performance":

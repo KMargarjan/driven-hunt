@@ -3120,6 +3120,169 @@ function ForestTest.roomToStand(point: Vector3, radius: number): boolean
 	return true
 end
 
+-- HOW WIDE AND HOW TALL A PERSON IS, for the one measurement no cast can make (`laneAhead` below).
+-- A Roblox character is 2 studs across and about 5 tall, so the half-width is 1.
+--
+-- THE HEIGHT IS WHAT KEEPS A BODY ABOVE `Bots.CONFIG.JUMP_OVER_STUDS` (4), so a body is always gone
+-- ROUND and never jumped over -- and round 1's blocking finding 1 is that the arithmetic below did
+-- not deliver that. With a walker's root at the same level as the caster's, `laneAhead` now reports
+-- `BODY_HEIGHT_STUDS / 2 + LANE_BODY_SIZE.Y / 2` = 2.5 + 2.5 = **5.0**, which is above 4. A beater
+-- hopping over a hunter is a thing Karen would see.
+--
+-- They are named rather than written into the loop because they are the same two numbers
+-- `Bots.CONFIG.LANE_BODY_SIZE` is built from.
+ForestTest.BODY_HALF_WIDTH_STUDS = 1
+ForestTest.BODY_HEIGHT_STUDS = 5
+
+-- WHAT IS IN THE WAY BETWEEN HERE AND THERE, AND HOW HIGH IT IS (task 208). Returns how far down
+-- the path the first solid thing stands and how far its top is above the BOTTOM of the swept body,
+-- or `nil, nil` when the way is clear. Read-only.
+--
+-- IT IS `ForestTest.clearRoute`'S OWN CAST (task 127), with that function's own stated reason: *"a
+-- raycast down the centreline would miss a trunk its shoulder hits"*. A swept BOX the size of a
+-- walking man is the only shape that can answer "will my body fit between here and there".
+--   https://create.roblox.com/docs/reference/engine/classes/WorldRoot#Blockcast
+--
+-- A BODY IS AN OBSTACLE HERE, AND THAT IS THE WHOLE DIFFERENCE FROM `roomToStand`. That function,
+-- `nearestSolid` and `Data.groundAt` all say in so many words that *a person is not an obstacle* --
+-- which is right for "may she STAND here" and was MEASURED WRONG for "may he WALK there": on
+-- 2026-10-19, two bot beaters in the edge drive spent 34.0 s and 6.0 s pinned against ANCHORED BOT
+-- HUNTERS standing on the stands their lanes aim 20 studs past, with the clearance reader answering
+-- "clear" the whole time because it had been told to ignore exactly that
+-- (`docs/research/2026-10-19-bots-unstuck.md` section 4.2). So this reader excludes the Terrain, the
+-- animals and the walker's OWN model, and nothing else: another body is a thing to walk round.
+--
+-- IT ANSWERS IN TWO PASSES AND THEY AGREE ABOUT PEOPLE. The swept cast finds whatever it finds --
+-- MEASURED in round 2, that includes `CanQuery = false` parts when `RespectCanCollide` is on, so it
+-- can find a bot rig itself -- and the body pass after it catches the ones it did not. Either way a
+-- CHARACTER is reported at `BODY_HEIGHT_STUDS`, never at the height of whichever of its parts was
+-- hit, so `Bots.Lane.recoveryFor` can never answer "jump" for a person.
+--
+-- `stepStuds` IS WHAT DECIDES JUMP AGAINST DETOUR (`Bots.Lane.recoveryFor`), so it is measured off
+-- the hit part's own top rather than guessed: a fallen log is stepped over and a trunk is not.
+-- Design: docs/design/bots.md (section 9.1)
+-- Note:   docs/research/2026-10-19-bots-unstuck.md (sections 2.3, 2.5, 3)
+function ForestTest.laneAhead(from: Vector3, to: Vector3, size: Vector3, ignore: Instance?): (number?, number?)
+	local span = Vector3.new(to.X - from.X, 0, to.Z - from.Z)
+	local length = span.Magnitude
+	if length < 1e-3 then
+		return nil, nil
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local exclude = { Workspace.Terrain :: Instance }
+	local boars = Workspace:FindFirstChild("Boars")
+	if boars then
+		table.insert(exclude, boars)
+	end
+	if ignore ~= nil then
+		table.insert(exclude, ignore)
+	end
+	params.FilterDescendantsInstances = exclude
+	params.IgnoreWater = true
+	-- THE SAME `RespectCanCollide` TEST `roomToStand` MAKES, for its own reason: this forest is
+	-- mostly ferns and leaf cards with `CanCollide = false`, and a beater walking through a fern is
+	-- walking through a forest. What stops him is a thing that collides.
+	params.RespectCanCollide = true
+	local direction = span.Unit
+	local start = CFrame.lookAt(from, from + direction)
+	local hit = Workspace:Blockcast(start, size, direction * length, params)
+	local ahead: number? = nil
+	local step: number? = nil
+	if hit ~= nil then
+		local away = hit.Position - from
+		ahead = Vector3.new(away.X, 0, away.Z).Magnitude
+		local part = hit.Instance
+		-- A PERSON IS NOT A LOG, EVEN WHEN THE CAST IS THE THING THAT FOUND HIM. MEASURED
+		-- 2026-10-19 (round 2): `Blockcast` with `RespectCanCollide = true` DOES return parts whose
+		-- `CanQuery` is false -- which every bot rig part is (`Bots.Rig.prepare`) -- so the cast can
+		-- answer about a body before the body pass below ever looks. It answers about the PART: a
+		-- `HumanoidRootPart` is 2 studs tall, so its top is 1 stud up and the step height comes out
+		-- 3.5, under `Bots.CONFIG.JUMP_OVER_STUDS` (4), and the ladder picks "jump" -- a beater
+		-- hopping at a hunter, which is the one answer this reader must never give.
+		--
+		-- `Data.characterOf` IS THE ONE RULE FOR "WHAT IS A PERSON" in this file
+		-- (`roomToStand`, `nearestSolid` and `Data.groundAt` all ask it), so the two branches cannot
+		-- disagree: whoever finds the body, a body is reported at a body's height.
+		local character = if part ~= nil then Data.characterOf(part) else nil
+		if character ~= nil then
+			local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+			local middle = if root ~= nil and root:IsA("BasePart")
+				then (root :: BasePart).Position.Y
+				else hit.Position.Y
+			step = (middle + ForestTest.BODY_HEIGHT_STUDS / 2) - (from.Y - size.Y / 2)
+		else
+			local top = if part ~= nil and part:IsA("BasePart")
+				then (part :: BasePart).Position.Y + (part :: BasePart).Size.Y / 2
+				else hit.Position.Y
+			step = top - (from.Y - size.Y / 2)
+		end
+	end
+
+	-- ...AND THEN THE BODIES, BY DISTANCE, BECAUSE NO CAST CAN SEE THEM. MEASURED 2026-10-19 at the
+	-- exact spot of a 169-second pin: the same `Blockcast` this function makes found the planted
+	-- spruce trunk 3.8 studs ahead, and at the edge drive's 34-second pin the thing in the way was a
+	-- bot HUNTER's body -- which every spatial query in the engine skips, because `Bots.Rig.prepare`
+	-- sets `CanQuery = false` on every part of every rig (`SHOOTABLE = false`, and its own header
+	-- says why: *a prop that stops a pellet changes what the shot hit*). A cast is therefore blind to
+	-- exactly the obstacle the measurement found most of, and the only honest answer is to measure
+	-- the bodies themselves.
+	--
+	-- THE BODIES ARE FEW AND NAMED: the players' characters and `Workspace.DriveBots`' rigs, at most
+	-- 16 and 8. A point-to-segment distance each, no cast, no `GetDescendants` -- which is why this
+	-- can run at `SEE_HZ` for eight walkers and still cost what section 7 of the note measures.
+	--
+	-- A BODY IS NEVER JUMPED: its reported step height is its own, which is above
+	-- `Bots.CONFIG.JUMP_OVER_STUDS`, so `Lane.recoveryFor` always goes ROUND a person. That is the
+	-- intent and not an accident -- a beater hopping over a hunter is a thing Karen would see.
+	local bodies: { Model } = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		if character ~= nil then
+			table.insert(bodies, character)
+		end
+	end
+	local rigs = Workspace:FindFirstChild("DriveBots")
+	if rigs ~= nil then
+		for _, rig in ipairs(rigs:GetChildren()) do
+			if rig:IsA("Model") then
+				table.insert(bodies, rig)
+			end
+		end
+	end
+	local half = math.max(size.X, size.Z) / 2
+	for _, body in ipairs(bodies) do
+		if body ~= ignore then
+			local root = body.PrimaryPart or body:FindFirstChild("HumanoidRootPart")
+			if root ~= nil and root:IsA("BasePart") then
+				local at = (root :: BasePart).Position
+				-- HOW FAR DOWN THE PATH IT STANDS, and how far off it: the projection onto the
+				-- segment, clamped to it, which is the one piece of arithmetic a swept box does for
+				-- the parts it can see.
+				local along = math.clamp(Vector3.new(at.X - from.X, 0, at.Z - from.Z):Dot(direction), 0, length)
+				local nearest = from + direction * along
+				local off = Vector3.new(at.X - nearest.X, 0, at.Z - nearest.Z).Magnitude
+				if off <= half + ForestTest.BODY_HALF_WIDTH_STUDS and math.abs(at.Y - from.Y) < size.Y then
+					if ahead == nil or along < (ahead :: number) then
+						ahead = along
+						-- ITS TOP AGAINST THE BOTTOM OF THE SWEPT BODY, which is the SAME arithmetic
+						-- the cast branch above does -- and round 1's blocking finding 1 is why it is
+						-- written that way rather than off the root part's own size. A root part is
+						-- 2 studs tall, so `Size.Y / 2 + BODY_HEIGHT_STUDS / 2` came to **3.5**,
+						-- BELOW `Bots.CONFIG.JUMP_OVER_STUDS` (4) -- so a bot JUMPED at a person
+						-- instead of walking round one, which is the opposite of what this header
+						-- and the ladder both say. A man's head is `BODY_HEIGHT_STUDS / 2` above his
+						-- root and the swept body's floor is `size.Y / 2` below the caster's.
+						local top = at.Y + ForestTest.BODY_HEIGHT_STUDS / 2
+						step = top - (from.Y - size.Y / 2)
+					end
+				end
+			end
+		end
+	end
+	return ahead, step
+end
+
 -- WHERE A BEATER IS PUT DOWN: behind the line's own spawn, on the ground, clear of trunks (task 153).
 --
 -- THE PUSH LINE IS THE HUNTER'S STAND, which is the same x the drive releases its lines at
