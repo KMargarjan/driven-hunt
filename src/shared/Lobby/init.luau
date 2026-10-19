@@ -598,7 +598,14 @@ Lobby.CONFIG = {
 			brightness = 0.85,
 			rangeStuds = 14,
 			color = Color3.fromRGB(255, 214, 170),
-			GLASS_COLOR = Color3.fromRGB(240, 186, 118),
+			-- THE GLASS IS A `Neon` PART AND NO LAMP NUMBER CAN REACH IT, which is why the
+			-- Director's second sentence -- *"the ceiling lanterns are glowing yellow blocks"* --
+			-- needed its own change. `Neon` ignores the light in the room entirely and renders at
+			-- roughly its own colour, so taking the room DOWN made the lantern read brighter
+			-- against it, not dimmer. 240,186,118 was a white-hot pane that swallowed its own iron
+			-- frame; 208,160,104 is a warm amber one you can see the four corner posts against, and
+			-- it sits further under `Bloom`'s 1.6 threshold as well.
+			GLASS_COLOR = Color3.fromRGB(208, 160, 104),
 		},
 		CEILING_BEAMS = 6,
 		-- THE TABLE AND ITS BENCHES, in the middle of the room. `OFFSET` is x and z from the room's
