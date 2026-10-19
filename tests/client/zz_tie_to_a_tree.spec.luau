@@ -135,11 +135,14 @@ local BESIDE_STUDS = 5
 -- Seconds to wait for the server's answer to one probe shot. It is one round trip; the gun publishes
 -- on the refusal with `force`, so this is slack and not a guess.
 local PROBE_TIMEOUT = 3
--- How long the probe keeps TRYING, and it is a window rather than a moment because the scenario does
--- other things to the gun inside it: R lands 1.2 s after the cue and a 2.0 s reload makes every shot
--- a `busy` rejection, which commits no state and carries no `refused`. A rejected attempt costs
--- nothing, so the honest shape is "try while the staging holds until the server answers with a RULE".
--- The first replayed click lands 3.8 s after the cue, so this window brackets it.
+-- How long the probe keeps TRYING, and it is a window rather than a moment because the staging can
+-- take several attempts to satisfy: a rejected attempt commits no state and costs nothing, so the
+-- honest shape is "try while the staging holds until the server answers with a RULE".
+-- WHAT THE SCENARIO GIVES IT (`input_scenarios.txt`, "tie-the-driver", reordered in task 210): the
+-- reload comes BEFORE the cue and is over by it, so the cue finds a loaded, idle gun, and the first
+-- replayed click is 4.0 s after the cue. That 4.0 s is the runway in which a probe shot and the
+-- server's answer can both land with nothing else writing the gun -- which is what the comparison
+-- below needs and what it did not have when R landed 1.2 s after the cue.
 local PROBE_WINDOW = 10
 -- Between attempts. Six requests a second is `Shotgun.CONFIG.FIRE_RATE_LIMIT`, so four a second
 -- cannot be rate-limited into looking like a refusal.
@@ -148,6 +151,11 @@ local PROBE_EVERY = 0.25
 -- the ammo's range, so a beater beyond it is not in the ray at all and the rule correctly says
 -- nothing -- which is why the driver is brought to the stand and not aimed at across the arena.
 local PROBE_REACH = 40
+-- HOW LONG THE GUN MUST HAVE BEEN LEFT ALONE BEFORE A PROBE SHOT GOES (task 210). `busyFor` is the
+-- SERVER's answer, published; a replayed key that landed a moment ago is already on the wire and its
+-- reload has not reached this client's snapshot yet, so "not busy" is not yet "nobody is reloading
+-- it". `RELOAD_TOTAL` is 2.0 s and one round trip is milliseconds, so half a second is slack.
+local PROBE_QUIET = 0.5
 
 local cuedAt: number? = nil
 local stagedFrom: Vector3? = nil
@@ -178,6 +186,31 @@ local probeBlocked: string? = nil
 local probeFromCentre: number? = nil
 local probeToDriver: number? = nil
 local probeRayHit: string? = nil
+-- HOW MANY ATTEMPTS WERE THROWN AWAY BECAUSE THE REPLAY TOUCHED THE GUN INSIDE THE WINDOW (task
+-- 210). See `QUIET_ACTION` below and the discard in the probe loop.
+local probeDiscarded = 0
+
+-- WHEN THE REPLAY LAST TOUCHED THIS GUN (task 210, borrowing `weapon_client.spec`'s own
+-- `QUIET_ACTION` -- the same keys for the same reason). The probe's claim is "a refused shot spends
+-- nothing", and it is measured as a gun print taken before the shot against one taken when the
+-- server answers. THE REPLAY WRITES THE SAME GUN INSIDE THAT WINDOW: this scenario's `R` is a real
+-- reload, and a reload of a Live/Live gun puts both unfired shells back into the pocket, empties the
+-- barrels and sets `busyUntil` (`Weapon.StateMachine`'s `Break` branch, `RELOAD_BREAK` = 0.5 s) --
+-- which is EXACTLY the pair the Director measured on 2026-10-18 at `e1c6966` and `449e012`:
+-- `eq=true b=Live/Live ammo=Buck res=10 busy=0.00` before, `eq=true b=Empty/Empty ammo=Buck res=12
+-- busy=0.50` after. +2 in the pocket, both barrels emptied, half a second of Break. Nothing to do
+-- with the refused shot: the replay's own reload, landing between the request and the answer.
+--
+-- Nothing in the STATE can tell those apart, so an attempt whose window was not quiet is THROWN AWAY
+-- AND RETRIED rather than asserted through -- a refused attempt commits nothing and costs no shell,
+-- which is what makes a retry free here (the same reasoning as the `off-stand` retry below).
+-- `Pass`, like every probe in this file, so nothing a player does is swallowed.
+local QUIET_ACTION = "DrivenHunt.Test.TieQuiet"
+local lastWeaponInput = 0
+ContextActionService:BindAction(QUIET_ACTION, function()
+	lastWeaponInput = os.clock()
+	return Enum.ContextActionResult.Pass
+end, false, Enum.KeyCode.R, Enum.KeyCode.X, Enum.UserInputType.MouseButton1, Enum.UserInputType.MouseButton2)
 -- WAS HE TIED, AND HOW MANY VIOLATIONS HAD BEEN ANNOUNCED, ON EITHER SIDE OF THE PROBE'S OWN SHOT.
 -- The pair IS the claim: a refused shot ties nobody. Read later, the question becomes "is he tied
 -- NOW", and after the replayed click the honest answer to that is yes.
@@ -404,6 +437,12 @@ local function onCue(_name: string, state: Enum.UserInputState)
 				if gun == nil or not gun.equipped or gun.busyFor > 0 or gun.barrels[gun.selected] ~= "Live" then
 					return false, "gun-not-ready", fromCentre, toDriver, "?"
 				end
+				-- ...AND NOBODY MAY HAVE JUST TOUCHED IT (task 210). `busyFor` above is the server's
+				-- published answer, so a replayed key already on the wire reads as an idle gun right
+				-- up to the moment its reload comes back.
+				if os.clock() - lastWeaponInput < PROBE_QUIET then
+					return false, "input-in-flight", fromCentre, toDriver, "?"
+				end
 				-- AND THE AIM RAY MUST REALLY REACH HIS BODY. The server refuses on what the ray
 				-- HITS, so this client casts the same ray first and names what is in the way --
 				-- which in `cd30764` would have said "the post he had walked behind".
@@ -427,7 +466,9 @@ local function onCue(_name: string, state: Enum.UserInputState)
 
 			-- IT RETRIES WHILE THE STAGING HOLDS. A rejected attempt commits no state and costs no
 			-- shell, so trying again is free -- and it is the only way to be sure the shot lands in a
-			-- gun that is not mid-reload, which the scenario guarantees for 2 of the first 3 seconds.
+			-- gun that is not mid-reload. Since task 210 the scenario's reload is over BEFORE the cue
+			-- and the first replayed click is 4.0 s after it, so the whole runway is quiet; the
+			-- discard below is what makes that a measurement rather than an assumption.
 			-- WHERE THIS CASE STARTS FROM, recorded before the first attempt: it must start UNTIED.
 			-- A session that arrives here already tied is a real finding and not something to work
 			-- around -- the gun would be gone, the probe could not fire at all, and the case says so
@@ -458,9 +499,12 @@ local function onCue(_name: string, state: Enum.UserInputState)
 				if toward.Magnitude < 1e-3 then
 					break
 				end
-				if probeBefore == nil then
-					probeBefore = gunPrint()
-				end
+				-- THE STATE THIS SHOT IS ABOUT, READ FRESH FOR EVERY ATTEMPT (task 210). It used to
+				-- be read once and kept, so after an `off-stand` retry the comparison below
+				-- bracketed every attempt since the first -- seconds of replayed input, not one
+				-- shot's round trip.
+				probeBefore = gunPrint()
+				local inputMark = lastWeaponInput
 				probeBlocked = nil
 				probeFromCentre, probeToDriver, probeRayHit = fromCentre, toDriver, hitName
 				stagedTheirs = (root :: BasePart).Position
@@ -475,6 +519,24 @@ local function onCue(_name: string, state: Enum.UserInputState)
 					task.wait(0.05)
 				end
 				local answered = refusals[before + 1]
+				-- THE WINDOW HAS TO HAVE BEEN QUIET, or "the shot spent nothing" cannot be read off
+				-- the gun at all (task 210). Thrown away and retried, with the attempt in the log.
+				if lastWeaponInput ~= inputMark then
+					probeDiscarded += 1
+					probeBefore = nil
+					if #probeLog < 12 then
+						table.insert(
+							probeLog,
+							string.format(
+								"#%d DISCARDED: the replay touched the gun inside the window (answered=%s)",
+								probeShots,
+								tostring(answered)
+							)
+						)
+					end
+					task.wait(PROBE_EVERY)
+					continue
+				end
 				probeAfter = gunPrint()
 				-- THE OTHER HALF OF THE CLAIM, read the instant the server has answered: a refused
 				-- shot must have tied nobody and announced nothing.
@@ -698,7 +760,13 @@ return function()
 			-- EVERY ATTEMPT, with the tie state at each one: the Director's question of `bac93d6`
 			-- ("what was the first attempt?") answered in the log rather than inferred from a
 			-- counter.
-			TestKit.note("zz_tie: probe attempts: " .. table.concat(probeLog, " | "))
+			TestKit.note(
+				string.format(
+					"zz_tie: probe attempts (%d discarded for replayed input inside the window, task 210): %s",
+					probeDiscarded,
+					table.concat(probeLog, " | ")
+				)
+			)
 			-- WHAT THE SERVER'S OWN ANSWER DID, AND HOW LONG IT TOOK (task 174). The number that was
 			-- missing when this case failed at `454d58a`: the client's distance said one thing and the
 			-- server's rule another, and nothing in the log said how long that lasted. The server's
@@ -912,6 +980,7 @@ return function()
 				aiming:Disconnect()
 			end
 			ContextActionService:UnbindAction(CUE_ACTION)
+			ContextActionService:UnbindAction(QUIET_ACTION)
 		end)
 	end)
 end

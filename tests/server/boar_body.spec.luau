@@ -460,6 +460,22 @@ return function()
 			return if nearest == math.huge then -1 else nearest
 		end
 
+		-- THE BODIES THE SOUNDER STILL COUNTS AS MEMBERS (task 210). `live(group)` is WIDER than the
+		-- sounder: a carcass is filtered out of it, but a member that has LEFT the sounder is still a
+		-- live boar standing in the field. The break rule only ever measures members against each
+		-- other, so this is the set whose width means anything to it.
+		local function memberBodies(handles, view): { any }
+			local out = {}
+			for _, id in ipairs(view.memberIds) do
+				for _, handle in ipairs(handles) do
+					if handle.id == id and handle.part.Parent ~= nil then
+						table.insert(out, handle)
+					end
+				end
+			end
+			return out
+		end
+
 		-- ...AND EVERY OTHER NUMBER THOSE PRECONDITIONS DEPEND ON, in one string: how many members
 		-- the sounder still has, how wide it is against `BREAK_STUDS`, how many have left it
 		-- altogether, and how much field is left.
@@ -734,17 +750,67 @@ return function()
 					spread(live(group))
 				)
 			)
-			TestKit.note("t210 scatter-case EXIT: " .. herdPrint(group))
+			TestKit.note("boar sounder: the scatter case leaves -- " .. herdPrint(group))
 		end)
 
 		it("drops a member that has been too far away for too long", function()
-			TestKit.note("t210 break-case ENTRY: " .. herdPrint(group))
+			TestKit.note("boar sounder: the break case inherits -- " .. herdPrint(group))
+
+			-- THE SCATTER IS NOT THIS CASE'S SUBJECT, AND IT BREAKS SOUNDERS BY DESIGN (task 210).
+			-- The case before this one shot the leader, which latches `SCATTER_SECONDS` = 6: for
+			-- those seconds `Brain._herdSteer` drops cohesion, alignment and the file and TRIPLES
+			-- separation, so the group spreads on purpose -- and the rule this case tests expels a
+			-- member that is further than `BREAK_STUDS` from the animal ahead of it for
+			-- `BREAK_SECONDS`. Run the break clock inside the scatter and the sounder loses members
+			-- the world never dragged anywhere.
+			--
+			-- MEASURED, and it is why this case was red on most two-player runs of the week of
+			-- 2026-10-18: in the Director's runs at `e1c6966` and `449e012` the scatter had reached
+			-- 40.7 and 44.0 studs of width by the end of the case before this one, against 32.4 in a
+			-- passing run, and the sounder then fell to ONE member inside this case's four seconds,
+			-- dissolved itself (`#members <= 1` in `Runtime._stepSounders`) and left
+			-- `herd:sounders()[1]` nil on the last line below -- `attempt to index nil with
+			-- 'memberIds'`, here and at the head of the next case. Reproduced deterministically by
+			-- forcing the width to 160 studs here: 0 sounders, `membersLeft` 4, those two errors.
+			--
+			-- SO IT WAITS FOR THE SCATTER TO BE OVER, on the runtime's OWN published clock and on
+			-- the width that clock produced -- not on a sleep, and nothing is loosened: the
+			-- assertions below are unchanged. `scatterFor` counts down in `_step`
+			-- (`math.max(0, scatterFor - dt)`) and the sounder re-forms under cohesion once it
+			-- reaches 0. The width is the second half of the condition and it is the half that
+			-- matters to the rule: `spread` is the WIDEST pair, so a width under `BREAK_STUDS` means
+			-- every member is inside `BREAK_STUDS` of every other one, which means the rule's own
+			-- `awayFor` counter was reset to 0 for all of them on that very step. The break clock
+			-- this case is about therefore starts from zero, for every member, by construction.
+			local reformed, waited = waitUntil(SETTINGS.SCATTER_SECONDS + 10, function()
+				local current = herd:sounders()[1]
+				return current ~= nil
+					and current.scatterFor == 0
+					and spread(memberBodies(group, current)) < SETTINGS.BREAK_STUDS
+			end)
+			TestKit.note(
+				string.format(
+					"boar sounder: the break case waited %.2f s for the scatter to end and the sounder to "
+						.. "re-form (re-formed=%s) -- %s",
+					waited,
+					tostring(reformed),
+					herdPrint(group)
+				)
+			)
+			expect(reformed).to.equal(true)
+
 			local view = herd:sounders()[1]
 			local strayId = view.memberIds[#view.memberIds]
 			local stray = handleOf(group, strayId)
 			expect(stray).to.be.ok()
 			local before = herd:stats().membersLeft
 			local members = #view.memberIds
+			-- ...AND THE SOUNDER MUST BE ABLE TO LOSE ONE AND STILL BE A SOUNDER. This case drops
+			-- exactly one member, and a sounder of two that loses one dissolves -- so with fewer than
+			-- three the assertions below are asking a different question. Said out loud here, so a
+			-- herd that arrives damaged fails with THIS line rather than with a nil index three
+			-- lines later (task 210).
+			expect(members >= 3).to.equal(true)
 
 			-- The WORLD moves it, not the runtime: BREAK_STUDS is 60, so the far corner of the plate
 			-- is outside it. (The design drags it with a threat instead; that spends BREAK_SECONDS
@@ -756,7 +822,7 @@ return function()
 				elapsed += RunService.Heartbeat:Wait()
 			end
 
-			TestKit.note("t210 break-case EXIT: " .. herdPrint(group))
+			TestKit.note("boar sounder: the break case leaves -- " .. herdPrint(group))
 			expect(herd:sounderOf(strayId)).to.equal(nil)
 			expect(herd:stats().membersLeft > before).to.equal(true)
 			expect(#herd:sounders()[1].memberIds).to.equal(members - 1)
@@ -767,7 +833,11 @@ return function()
 			-- animal is still alive and still running, and it leaves the sounder because a dying
 			-- animal cannot hold formation and the group would otherwise crawl to the line at its
 			-- speed (LEAVE_ON_MORTAL).
-			TestKit.note("t210 mortal-case ENTRY: " .. herdPrint(group))
+			TestKit.note("boar sounder: the mortal case inherits -- " .. herdPrint(group))
+			-- THE SOUNDER THE CASE BEFORE THIS ONE LEFT BEHIND, asserted before it is indexed: this
+			-- was the second `attempt to index nil with 'memberIds'` of task 210, and a nil index
+			-- says nothing about which case lost the sounder.
+			expect(#herd:sounders()).to.equal(1)
 			local view = herd:sounders()[1]
 			local members = #view.memberIds
 			expect(members >= 2).to.equal(true)
