@@ -373,7 +373,98 @@ against this wood's ~800, so a cast there may cost more. The per-drive `[bots]` 
 cast count and the step cost, so the question is answered by the next drive rather than by this
 paragraph.
 
-## 8. What is NOT in this task
+## 8. The measurement AFTER the fix, same places, same instrument
+
+Four more full drives in Karen's Forest Test on 2026-10-19, each entered through the truck pad, each
+sampled at 2 Hz, read by the same `analyse.py` with the same rule (**moved less than 2 studs over 4
+seconds while en route**). Traces: `<runs-dir>/208-after-{road,edge,ride,track}-trace.json`.
+
+| place | episodes over 3 s | ALL episodes | worst | total stuck | bots that reached their goal |
+|---|---|---|---|---|---|
+| road | **0** (was 0) | **0** | — | **0.0 s** (was 0.0) | 4 of 4, 1.3–15.4 studs out |
+| edge | **0** (was 2) | **0** | — | **0.0 s** (was 40.0) | 4 of 4, 1.6–10.8 studs out |
+| ride | **0** (was 1) | **0** | — | **0.0 s** (was 15.5) | 4 of 4, 1.6–10.1 studs out |
+| track | **0** (was 1) | **0** | — | **0.0 s** (was 169.1) | 4 of 4, 4.2–11.4 studs out |
+
+**Zero stuck episodes of ANY length, in every place, over all sixteen beater walks.** The bar was
+"no bot stuck longer than 3 s"; the trace finds none stuck for even one window. Before, the same
+instrument found four episodes over three seconds totalling **224.6 s**, and on the track a bot
+ended its drive **238.8 studs short of its goal** — against 4.2–11.4 studs now.
+
+### 8.1 What the drive's own line says, per place
+
+The `[bots]` line now carries the recovery counters, so the mechanism is readable without the trace:
+
+```
+road   0 stuck, worst pin 0.0s, 525 side-steps | 31 detours (1 boxed in),  0 recoveries, 1269 casts | step 0.35 ms avg
+edge   0 stuck, worst pin 0.0s, 157 side-steps | 13 detours (0 boxed in),  0 recoveries, 1217 casts | step 0.29 ms avg
+ride   0 stuck, worst pin 0.8s, 355 side-steps | 47 detours (3 boxed in),  1 recovery  (1 sidestep), 1312 casts | step 0.35 ms avg
+track  0 stuck, worst pin 0.9s, 268 side-steps |  9 detours (1 boxed in),  1 recovery  (1 jump),     1252 casts | step 0.30 ms avg
+```
+
+**The fix works mostly by NOT getting stuck in the first place.** 100 detours across the four drives
+— a bot seeing a trunk or a body and going round it before touching it — against **two** recoveries
+in total, each of which cleared inside one window (the worst pin either side of a recovery was 0.8
+and 0.9 seconds, against the 3-second bar and the 169 seconds before). The two recoveries also show
+two different rungs firing in the field: a sidestep on the ride and a **jump** on the track.
+
+### 8.2 What it costs, measured rather than projected
+
+Per-step cost of the whole bot stepper, read off the same `[bots]` line before and after, with four
+walkers and three standers in both cases:
+
+| place | before | after | delta |
+|---|---|---|---|
+| road | 0.27 ms | 0.35 ms | +0.08 |
+| edge | 0.20 ms | 0.29 ms | +0.09 |
+| ride | 0.24 ms | 0.35 ms | +0.11 |
+
+(The track's before-drive never finished — the 169-second pin kept the line from crossing — so it
+printed no `[bots]` line to compare against. Its after figure is 0.30 ms.)
+
+**+0.09 ms a step for four walkers is 0.023 ms per walker**, so **eight walkers cost about 0.19 ms a
+step more than none** — a step of roughly 0.5 ms against the 200 ms a step is allowed at `STEP_HZ`
+5. That is a measured delta, not a projection from the cast price; the projection agrees with it:
+1,250 casts over a ~130 s drive is **2.4 casts per bot per second** against the 15/s ceiling, and at
+the measured **0.0606 ms** a cast (section 7) that is 0.15 ms a second per bot.
+
+`stepMsMax` is 21–29 ms in every drive, before and after alike: that is the rig BUILD, which yields,
+and it is unchanged by this task.
+
+### 8.3 One eye-height frame, looked at
+
+`<runs-dir>/208-after-track-trunk-2.png` — the track place, camera at the player's own eye
+(y 178.0, the bot's root at 177.0), standing 15 studs south of `bot-beater-1` and looking at it.
+**Two bot beaters in the orange vest stand in the open between the trunks**, 11.6 studs from
+`Workspace.DrivePlaces.track.LarchTree_Var02.Trunk`, walking on — not pressed against it, and not
+pressed against each other. `<runs-dir>/208-after-track-trunk-1.png` and `-3.png` are the same shot
+at two other trunks (10.7 and 13.8 studs). The closest any beater came to a planted trunk in that
+whole drive was **10.7 studs**.
+
+**What this pair is NOT.** It is not the same spruce as the 169-second pin
+(`Old_Spruce_Tree_Var02_LOD_0` at 4772.3, -3683.9). The lanes are dealt out from whichever stand the
+drive aims at, so no beater walked that exact x in the after-drives; the trunk in these frames is a
+larch on the same place's planted ground. The number that carries the before/after claim is the
+trace (section 8 table), not this picture.
+
+### 8.4 A placement question this task did NOT fix, and should not
+
+**The hunters' stands sit exactly IN the beaters' lanes, by construction.**
+`ForestTest.beaterLaneOffset` deals the lanes out in multiples of the layout's own `standSpacing`
+from the stand the drive aims at, and `Match.beaterGoalFor` puts each lane's goal 20 studs PAST the
+nearest stand — so a lane's x IS a stand's x, and its goal is straight through whoever is standing
+on it. Measured, in these drives' own `[lanes]` lines: edge lanes 3140 / 3270 / 3400 against stands
+3140 / 3270 / 3400 / 3530 / 3660; road lanes 2730 / 2880 / 3030 / 3180 against stands 150 apart from
+3030. Exact matches, every time.
+
+That is what put two beaters against two anchored bot hunters in section 4.2. **The walker now steps
+round them**, which is the general fix and also covers Karen herself standing there. Whether the
+LANES should be offset half a stand spacing from the stands is a placement decision in
+`src/server/Match/` and `src/shared/ForestTest/` — `TWO_PLAYER_PATHS` territory, a human click per
+review round — and it is a question about what a drive should look like, which is Karen's. Queued,
+not taken here.
+
+## 9. What is NOT in this task
 
 * **The trees, the terrain and the four places are not touched.** Karen: *"do not try to fix forest,
   we will go together"*.
