@@ -3201,10 +3201,10 @@ function ForestTest.laneAhead(from: Vector3, to: Vector3, size: Vector3, ignore:
 		-- 3.5, under `Bots.CONFIG.JUMP_OVER_STUDS` (4), and the ladder picks "jump" -- a beater
 		-- hopping at a hunter, which is the one answer this reader must never give.
 		--
-		-- `ForestTest.characterOf` IS THE ONE RULE FOR "WHAT IS A PERSON" in this file
+		-- `Data.characterOf` IS THE ONE RULE FOR "WHAT IS A PERSON" in this file
 		-- (`roomToStand`, `nearestSolid` and `Data.groundAt` all ask it), so the two branches cannot
 		-- disagree: whoever finds the body, a body is reported at a body's height.
-		local character = if part ~= nil then ForestTest.characterOf(part) else nil
+		local character = if part ~= nil then Data.characterOf(part) else nil
 		if character ~= nil then
 			local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
 			local middle = if root ~= nil and root:IsA("BasePart")
