@@ -354,11 +354,18 @@ return function()
 		end)
 
 		it("leaves a lantern's pool smaller than the room, which is what makes it a pool", function()
-			-- The lodge floor measures 34.8 x 24.8 studs and the three inside lanterns sit at
-			-- `ALONG` -8 / 2 / 12, hung `DROP_STUDS` under the ceiling. A lamp whose range reaches
-			-- the far wall is not a pool, it is a wash -- which is exactly what 20 and 30 were.
-			expect(LODGE.LANTERN.rangeStuds * 2 < 34.8).to.equal(true)
-			expect(LODGE.FIRE_LIGHT.rangeStuds * 2 < 34.8).to.equal(true)
+			-- The lodge floor measures 34.8 x 24.8 studs (measured live) and the three inside
+			-- lanterns sit at `ALONG` -8 / 2 / 12, hung `DROP_STUDS` under the ceiling. A lamp whose
+			-- range reaches the far wall is not a pool, it is a wash -- which is what 20 and 30 were.
+			--
+			-- THE TWO LAMPS NEED DIFFERENT ARITHMETIC AND THE FIRST VERSION OF THIS CASE GOT THE
+			-- FIRE'S WRONG (it failed the harness, which is what the harness is for). A lantern
+			-- hangs near the middle of the room, so its reach spans TWICE its range and the test is
+			-- `2 x range < length`. The fire is built against the WEST WALL, so it only ever reaches
+			-- ONE radius into the room and the test is `range < length`.
+			local ROOM_LENGTH = 34.8
+			expect(LODGE.LANTERN.rangeStuds * 2 < ROOM_LENGTH).to.equal(true)
+			expect(LODGE.FIRE_LIGHT.rangeStuds < ROOM_LENGTH).to.equal(true)
 			-- WHAT THIS DOES NOT CLAIM, because it was measured rather than assumed: the three
 			-- lanterns still OVERLAP along the room's centre line (they sit 10 studs apart and a
 			-- range-14 lamp hung 3.2 studs up reaches ~13.6 studs of floor), so "dark boards
