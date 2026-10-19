@@ -49,9 +49,10 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Light = {}
 
 -- THE ONE FLAG READ, AT THIS OWNER'S BOUNDARY, passed inward as `plan`'s first argument -- the only
--- permitted shape (CLAUDE.md, feature flags). It is BORN ON, which no other dark path in the table
--- is: there is no point merging a look nobody can look at, and the row exists so the Director can
--- take it off live the moment Karen says it is too dark.
+-- permitted shape (CLAUDE.md, feature flags). It is BORN ON, which no other new path in that table
+-- is, and that is the DIRECTOR'S decision, dispatched in task 215 and transcribed verbatim in
+-- TASKS.md row 215: *"a feature flag born ON (`AUTUMN_LIGHT` ...) so the Director can switch it off
+-- live with flags.py if Karen finds it too dark"*. The row itself carries the rest of the reason.
 Light.ENABLED = Flags.isOn("AUTUMN_LIGHT")
 
 -- The names this module gives the instances it CREATES. It adopts whatever is already there first

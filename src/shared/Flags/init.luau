@@ -46,8 +46,11 @@ export type FlagRow = {
 Flags.NAME_PATTERN = "^[A-Z][A-Z0-9_]*$"
 Flags.MAX_NAME_LENGTH = 40 -- "DHFlag_" + 40 <= Roblox's 100-character attribute-name limit
 Flags.OVERRIDE_PREFIX = "DHFlag_"
--- FOURTEEN SINCE TASK 215, and the bump is a decision with its reason beside it. The cap's own
--- sentence is about DARK paths -- *"more than twelve dark paths means the stack problem moved, not
+-- FOURTEEN SINCE TASK 215. `docs/design/feature-flags.md` section 12 makes a bump the DIRECTOR'S
+-- call and task 215's dispatch does not name one, so this line is queued for the Director's word as
+-- TASKS.md row 215a item (a); the arithmetic below is why it is paperwork and not a real breach.
+--
+-- The cap's own sentence is about DARK paths -- *"more than twelve dark paths means the stack problem moved, not
 -- went away"* -- and it counts ROWS. Of the fourteen rows, SIX are LIT and accepted
 -- (`TIE_UNTIL_DRIVE_END`, `BOAR_SOUNDERS`, `ORANGE_OUTFITS`, `RIFLE`, `FIRST_PERSON` and now
 -- `AUTUMN_LIGHT`: `default = true`, and three of them are queued for retirement as TASKS.md 82b),
@@ -353,15 +356,25 @@ Flags.DEFAULTS = {
 			.. "nothing is built and no terrain is written.",
 	} :: FlagRow,
 	AUTUMN_LIGHT = {
-		-- BORN **ON**, which no dark path in this table is, and the reason is what the flag protects
-		-- against rather than what it switches on. KAREN, 2026-10-17, asked whether the Designer
-		-- should tune the lighting -- the cabin and the boar heads read pale: *"yes"*. The Designer's
-		-- answer (the lighting spec, 2026-10-19) takes `Ambient` from 159,159,159 to 44,40,34, which
-		-- is most of the fix and is also the single thing that could be TOO MUCH: a late-autumn
-		-- morning that nobody can see in is worse than a pale one. So the look ships ON -- there is
-		-- no point merging a look nobody can look at -- and this row exists so the Director can take
-		-- it off LIVE with `tools/flags.py set AUTUMN_LIGHT off` the moment Karen says it is too
-		-- dark, without a commit and without a build.
+		-- BORN **ON**, WHICH NO OTHER NEW PATH IN THIS TABLE IS, AND IT IS THE DIRECTOR'S DECISION
+		-- AND NOT THE BUILDER'S. `docs/design/feature-flags.md` section 11 step 1 says a new path is
+		-- born `false`; this row is the documented exception, dispatched in these words
+		-- (Director, 2026-10-19, task 215, transcribed verbatim in TASKS.md row 215):
+		--
+		--   *"Put the whole look behind a feature flag born ON (`AUTUMN_LIGHT`, expires <= 21 days,
+		--   the standard row), so the Director can switch it off live with flags.py if Karen finds
+		--   it too dark: with it OFF, the place's own Lighting is left untouched."*
+		--
+		-- The REASON it is the exception is what the flag protects against rather than what it
+		-- switches on. KAREN, 2026-10-17, asked whether the Designer should tune the lighting -- the
+		-- cabin and the boar heads read pale: *"yes"*. The Designer's answer (the lighting spec,
+		-- 2026-10-19) takes `Ambient` from 159,159,159 to 44,40,34, which is most of the fix and is
+		-- also the single thing that could be TOO MUCH: a late-autumn morning nobody can see in is
+		-- worse than a pale one. So the look ships ON -- the point of the task was that Karen should
+		-- SEE it -- and this row exists so the Director can take it off LIVE with
+		-- `tools/flags.py set AUTUMN_LIGHT off` the moment she says it is too dark, without a commit
+		-- and without a build. Karen's verdict still lands the ordinary way: her OK retires the row
+		-- (section 10 step 7), and a no is one `flags.py` line now and a three-line commit after.
 		--
 		-- OFF IS "UNTOUCHED", NOT "A SECOND SET OF NUMBERS". `Light.plan` answers nil when it is
 		-- off, so `LightBoot` writes nothing at all and the place keeps whatever its own `Lighting`
