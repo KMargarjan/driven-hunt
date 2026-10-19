@@ -1226,45 +1226,59 @@ return function()
 	-- assert the step height instead of assuming it.
 	describe("ForestTest.laneAhead, the real reader (round 2, finding 1)", function()
 		afterEach(function()
+			-- THIS BLOCK BUILDS ITS OWN BODIES, so it clears up after itself: `Bots.clear()` only
+			-- destroys what the OWNER made, and a spec fixture left in `Workspace.DriveBots` would
+			-- be in the way of every case after it -- including the clear-lane one below.
+			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME)
+			if folder ~= nil then
+				for _, child in ipairs(folder:GetChildren()) do
+					if child.Name == "spec-body" then
+						child:Destroy()
+					end
+				end
+			end
 			Bots.clear()
 			Bots.setRigSource(nil)
 		end)
 
-		local function bodyOnTheLane(): Model
-			Bots.setRigSource(fakeRig)
-			Bots.fill({
-				{
-					id = "bot-beater-1",
-					team = "Drivers",
-					-- 4,000 STUDS UP, where the third case below proves there is nothing at all: the
-					-- DEV arena's own fixtures live near the ground, and a cast through them would
-					-- answer about a wall instead of about the body this case is here to measure.
-					from = CFrame.new(0, 4000, 0),
-					to = Vector3.new(0, 4000, -200),
-					lane = 1,
-				},
-			})
-			Bots.step(0.2, 20000)
-			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
-			local body = folder:FindFirstChild("bot-beater-1") :: Model
-			expect(body).to.be.ok()
-			-- ANCHORED, BY THIS FIXTURE AND NOT BY THE OWNER: a walker is deliberately unanchored
-			-- (`Rig.place(..., bot.to == nil)`), and in the DEV arena at y 200 there is nothing under
-			-- it, so it FALLS between the position being read and the cast being made -- which is
-			-- what made the step height come out a little under 5 the first time this case ran. The
-			-- question here is the reader's arithmetic, not the physics.
-			local root = (body.PrimaryPart or body:FindFirstChild("HumanoidRootPart")) :: BasePart
+		-- A BODY IN THE FOLDER THE READER LOOKS IN, built here rather than through `Bots.fill`: the
+		-- question is what `ForestTest.laneAhead` answers about a body, and the fewer owners stand
+		-- between the fixture and the reader the fewer ways the case can be wrong about its own
+		-- setup. `Rig.folder()` is the one writer of that folder's NAME, so this uses it rather than
+		-- spelling "DriveBots" a second time.
+		--
+		-- ANCHORED, because a loose part falls and the reader would then be asked about a body that
+		-- is somewhere else by the time the cast is made.
+		local function bodyAt(at: Vector3): Model
+			local model = Instance.new("Model")
+			model.Name = "spec-body"
+			local root = Instance.new("Part")
+			root.Name = "HumanoidRootPart"
+			root.Size = Vector3.new(2, 2, 1)
 			root.Anchored = true
-			return body
+			root.CanQuery = false -- exactly as `Rig.prepare` leaves a bot: invisible to every cast
+			root.Position = at
+			root.Parent = model
+			model.PrimaryPart = root
+			local humanoid = Instance.new("Humanoid")
+			humanoid.Parent = model
+			model.Parent = Rig.folder()
+			return model
 		end
 
 		it("reports a BODY as TALLER than a bot may jump, so a person is gone ROUND", function()
-			local body = bodyOnTheLane()
-			local at = Rig.positionOf(body) :: Vector3
+			-- 4,000 studs up, where the clear-lane case below proves there is nothing at all: the
+			-- DEV arena's own fixtures live near the ground and a cast through one would answer
+			-- about a wall instead of about the body this case is here to measure.
+			local at = Vector3.new(0, 4000, 0)
+			bodyAt(at)
 			-- Looking down the lane from 10 studs behind it, at the same height.
 			local from = Vector3.new(at.X, at.Y, at.Z + 10)
 			local to = Vector3.new(at.X, at.Y, at.Z - 2)
 			local ahead, step = ForestTest.laneAhead(from, to, Bots.CONFIG.LANE_BODY_SIZE, nil)
+			-- THE NUMBERS ARE IN THE FAILURE, because a bare `to.be.ok()` on a nil tells whoever
+			-- reads the report nothing about which of the two answers went missing.
+			expect(string.format("%s/%s", tostring(ahead), tostring(step))).never.to.equal("nil/nil")
 			expect(ahead).to.be.ok()
 			expect(step).to.be.ok()
 			-- THE CLAIM, as a number: above the jump gate, so `recoveryFor` can never answer "jump".
@@ -1276,8 +1290,8 @@ return function()
 		end)
 
 		it("does not see the walker's OWN body, which is what `ignore` is for", function()
-			local body = bodyOnTheLane()
-			local at = Rig.positionOf(body) :: Vector3
+			local at = Vector3.new(0, 4000, 0)
+			local body = bodyAt(at)
 			local from = Vector3.new(at.X, at.Y, at.Z + 10)
 			local to = Vector3.new(at.X, at.Y, at.Z - 2)
 			local ahead = ForestTest.laneAhead(from, to, Bots.CONFIG.LANE_BODY_SIZE, body)
