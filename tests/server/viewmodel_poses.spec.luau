@@ -1194,9 +1194,13 @@ return function()
 				},
 				{
 					name = "blow",
+					-- RE-COMPOSED IN ROUND 2 (the Director, 2026-10-19, having looked at round 1's
+					-- frame): *"the glove fills about a third of the screen, floats in the middle of
+					-- the view ... it reads as a giant glove, not a beater raising a horn to his
+					-- lips"*. The CARRY above is untouched -- *"good ... Keep it exactly"*.
 					pose = hornPoses.blow.right,
-					tip = Vector3.new(-0.0433, -0.2618, 0.1918),
-					cuff = Vector3.new(0.0829, 0.3485, -0.0252),
+					tip = Vector3.new(-0.1043, 0.0913, 0.2763),
+					cuff = Vector3.new(0.2665, -0.4451, 0.3773),
 				},
 			}) do
 				local tip, cuff = ends(case.pose)
@@ -1456,6 +1460,90 @@ return function()
 				expect(angle < 15).to.equal(true)
 				expect(tipOff < cuffOff).to.equal(true)
 			end
+		end)
+
+		-- WHERE THE HAND IS IN THE PICTURE (task 211 round 2). THE DIRECTOR, 2026-10-19, having
+		-- looked at round 1's blow frame: *"the glove fills about a third of the screen, floats in
+		-- the middle of the view ... the bar is that it looks like the shotgun's hands do when
+		-- aiming: hand at the bottom edge, forearm entering from the bottom, the horn's mouthpiece
+		-- at the lips (bottom-centre), the bell pointing up and forward out of the view."*
+		--
+		-- ROUND 1 HAD NOTHING LOOKING AT THE GLOVE AT ALL, which is the Reviewer's own note (211a(c))
+		-- and is how a hand in the middle of the screen passed every case in the file: the two cases
+		-- above measure the HORN against the picture and the GLOVE against the horn, and the glove
+		-- against the PICTURE was nobody's. It is the only thing this task moved on screen.
+		--
+		-- THE BOTTOM QUARTER, as a ratio of the depth exactly like the horn's own bounds: the frame
+		-- runs from -HALF_VIEW to +HALF_VIEW, so its bottom quarter is -HALF_VIEW .. -HALF_VIEW/2.
+		-- The CUFF is required BELOW the glove's centre rather than inside the frame, because a
+		-- forearm that enters from the bottom edge leaves it -- which is what the shotgun's own
+		-- right hand does at the carry (its centre projects to -1.71, entirely under the picture).
+		local function onScreen(point: Vector3)
+			return Vector2.new(point.X / -point.Z, point.Y / -point.Z)
+		end
+
+		it("puts the blowing hand at the bottom of the frame, forearm leaving it", function()
+			for _, case in ipairs({
+				{ name = "carry", pose = hornPoses.carry, bottomQuarter = false },
+				{ name = "blow", pose = hornPoses.blow, bottomQuarter = true },
+			}) do
+				local hand = case.pose.item * case.pose.right
+				local centre = onScreen(hand.Position)
+				local cuff = onScreen(hand:PointToWorldSpace(HandAssets.CUFF_STUDS))
+				local tip = onScreen(hand:PointToWorldSpace(HandAssets.FINGERTIP_STUDS))
+				TestKit.note(
+					string.format(
+						"task211r2 %s glove: centre (%.3f, %.3f) at %.3f studs, cuff (%.3f, %.3f),"
+							.. " fingertip (%.3f, %.3f); half view %.3f, bottom quarter %.3f..%.3f"
+							.. " (round 1's blow centre was -0.011, -0.060 at 0.687 studs)",
+						case.name,
+						centre.X,
+						centre.Y,
+						hand.Position.Magnitude,
+						cuff.X,
+						cuff.Y,
+						tip.X,
+						tip.Y,
+						HALF_VIEW,
+						-HALF_VIEW,
+						-HALF_VIEW / 2
+					)
+				)
+				-- THE FOREARM LEAVES THE BOTTOM in both poses: the cuff is below the hand's centre,
+				-- which is what makes the arm read as coming from the player rather than floating.
+				expect(cuff.Y < centre.Y).to.equal(true)
+				expect(tip.Y > cuff.Y).to.equal(true)
+				if case.bottomQuarter then
+					expect(math.abs(centre.X) < HALF_VIEW).to.equal(true)
+					expect(centre.Y < -HALF_VIEW / 2).to.equal(true)
+					expect(centre.Y > -HALF_VIEW).to.equal(true)
+				end
+			end
+		end)
+
+		it("...and round 1's blowing hand floated in the middle of that frame", function()
+			-- THE CASE ABOVE CAN FAIL, SHOWN ON THE NUMBERS IT WAS WRITTEN FOR (Learning Agent
+			-- L-028). These twelve are `poses.json`'s `horn.blow` as task 211 round 1 shipped it --
+			-- the pose in `.screenshots/t211-after-blow.png`, the one the Director bounced -- and the
+			-- hand in it sits a twentieth of the frame below the centre line, not in the bottom
+			-- quarter.
+			local item = CFrame.new(-0.204, 0.034, -0.748)
+				* CFrame.Angles(math.rad(42.51), math.rad(7.0), math.rad(-82.42))
+			local right = CFrame.new(0.0135, 0.0623, 0.1134)
+				* CFrame.Angles(math.rad(-113.9412), math.rad(-83.2375), math.rad(-180.0))
+			local centre = onScreen((item * right).Position)
+			TestKit.note(
+				string.format(
+					"task211r2 the REPLACED blow glove: centre (%.3f, %.3f), which is %.3f of the way"
+						.. " down a half frame of %.3f -- the bottom quarter starts at %.3f",
+					centre.X,
+					centre.Y,
+					-centre.Y,
+					HALF_VIEW,
+					-HALF_VIEW / 2
+				)
+			)
+			expect(centre.Y > -HALF_VIEW / 2).to.equal(true)
 		end)
 
 		it("...and the same measure answers 90 degrees on the pose Karen called broken", function()
