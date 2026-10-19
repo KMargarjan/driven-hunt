@@ -39,6 +39,17 @@ local CONFIG = {
 	SIDE_TRIES = 4,
 	ARRIVE_STUDS = 4,
 	AHEAD_STUDS = 12,
+	-- TASK 208's own rows, hand-written here for the same reason the four above are: these cases
+	-- state a rule, and a rule stated against the shipped table moves every time somebody tunes it.
+	-- The cases that are about the SHIPPED numbers say so and read `Bots.CONFIG` instead.
+	STUCK_FAST_SECONDS = 0.8,
+	STUCK_SLOW_SPEED = 1.0,
+	STUCK_ORDERED_SPEED = 2,
+	DETOUR_ANGLES_DEG = { 18, 32, 50, 70, 88 },
+	DETOUR_CASTS = 5,
+	BACK_OFF_AFTER_TRIES = 3,
+	BACK_OFF_STUDS = 8,
+	JUMP_OVER_STUDS = 4,
 }
 
 -- THE DEV ARENA'S LINE: straight, with the normal pointing AT the beaters (`Markers.read`), so the
@@ -301,6 +312,167 @@ return function()
 			local nudged, steps = Lane.clearAim(at, goal, 1, nil, CONFIG)
 			expect(steps).to.equal(1)
 			expect(nudged).never.to.equal(aim)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- not getting stuck (task 208)
+	--
+	-- KAREN, 2026-10-18 ~14:20: *"bot beater stuck we definatly need to fix that they not stuck the
+	-- can avoid"*. MEASURED first, in her own Forest Test, all four places, every bot at 2 Hz
+	-- (`docs/research/2026-10-19-bots-unstuck.md` section 4): four episodes over three seconds, the
+	-- worst **169.1 s**, which hung the whole drive -- a drive ends when the line is through.
+	--
+	-- EVERY BRANCH OF THE LADDER HAS A CASE THAT ENTERS IT: `jump`, `sidestep` and `backoff` are
+	-- three separate cases below, not one case about the easiest of them.
+	describe("the fast stuck test (task 208)", function()
+		it("is stuck when it was told to walk and covered almost nothing", function()
+			-- 0.05 studs/s is what the 169-second pin actually measured.
+			expect(Lane.isStuck(0.04, 0.8, 5, CONFIG)).to.equal(true)
+		end)
+
+		it("is NOT stuck when it is walking", function()
+			-- 4.7 studs/s is what an unobstructed bot measured in the same drive: two decimal orders
+			-- of room between the two answers, which is why this threshold needs no tuning.
+			expect(Lane.isStuck(3.76, 0.8, 5, CONFIG)).to.equal(false)
+		end)
+
+		it("is NOT stuck inside its own window, however little it moved", function()
+			-- The window has to close before it can answer: a shorter sample is noise.
+			expect(Lane.isStuck(0.0, 0.5, 5, CONFIG)).to.equal(false)
+		end)
+
+		it("is NOT stuck when it was never told to move, which is a held or arrived bot", function()
+			expect(Lane.isStuck(0.0, 2.0, 0, CONFIG)).to.equal(false)
+			expect(Lane.isStuck(0.0, 2.0, CONFIG.STUCK_ORDERED_SPEED - 0.1, CONFIG)).to.equal(false)
+		end)
+
+		it("reads the SHIPPED numbers as a pin at the measured speeds", function()
+			-- The one case here made of `Bots.CONFIG` rather than of hand-written numbers, because
+			-- the claim is about the shipped build: the pin this task fixes trips it, and the walk
+			-- this task must not change does not.
+			local shipped = Bots.CONFIG
+			expect(Lane.isStuck(0.05 * 0.8, 0.8, shipped.WALK_SPEED, shipped)).to.equal(true)
+			expect(Lane.isStuck(4.7 * 0.8, 0.8, shipped.WALK_SPEED, shipped)).to.equal(false)
+		end)
+	end)
+
+	describe("going round it (task 208)", function()
+		local at = Vector3.new(0, 10, 240)
+		local goal = Vector3.new(0, 10, -20)
+
+		it("deflects the LANE and keeps the aim AHEAD_STUDS out, which is what keeps four a line", function()
+			local straight = Lane.aimFor(at, goal, CONFIG.AHEAD_STUDS)
+			local turned = Lane.turnedAim(at, goal, 32, CONFIG)
+			expect(near((turned - at).Magnitude, CONFIG.AHEAD_STUDS, 0.05)).to.equal(true)
+			expect(near((straight - at).Magnitude, CONFIG.AHEAD_STUDS, 0.05)).to.equal(true)
+			local a = (straight - at).Unit
+			local b = (turned - at).Unit
+			expect(near(math.deg(math.acos(math.clamp(a:Dot(b), -1, 1))), 32, 0.5)).to.equal(true)
+			expect(near(turned.Y, at.Y, 0.001)).to.equal(true)
+		end)
+
+		it("never aims past the goal, so a deflection cannot walk a beater through the line", function()
+			local close = Vector3.new(0, 10, -15)
+			local turned = Lane.turnedAim(close, goal, 88, CONFIG)
+			expect((turned - close).Magnitude <= 5.01).to.equal(true)
+		end)
+
+		it("takes the SMALLEST deflection that has room (Reynolds), on its own side first", function()
+			-- Blocked straight ahead and at 18 degrees, clear at 32.
+			local bad = Lane.turnedAim(at, goal, 18, CONFIG)
+			local blockedAt = function(point: Vector3)
+				return (point - bad).Magnitude < 0.01
+			end
+			local aim = Lane.detourAim(at, goal, 1, blockedAt, CONFIG)
+			expect(aim).to.be.ok()
+			expect(((aim :: Vector3) - Lane.turnedAim(at, goal, 32, CONFIG)).Magnitude < 0.01).to.equal(true)
+		end)
+
+		it("goes the OTHER way for a bot whose side is the other one", function()
+			local clear = function()
+				return false
+			end
+			local right = Lane.detourAim(at, goal, 1, clear, CONFIG)
+			local left = Lane.detourAim(at, goal, -1, clear, CONFIG)
+			expect(right).to.be.ok()
+			expect(left).to.be.ok()
+			expect(((right :: Vector3) - Lane.turnedAim(at, goal, 18, CONFIG)).Magnitude < 0.01).to.equal(true)
+			expect(((left :: Vector3) - Lane.turnedAim(at, goal, -18, CONFIG)).Magnitude < 0.01).to.equal(true)
+		end)
+
+		it("answers NOTHING when the whole fan is blocked, which is boxed in and not a lie", function()
+			local everything = function()
+				return true
+			end
+			expect(Lane.detourAim(at, goal, 1, everything, CONFIG)).to.equal(nil)
+		end)
+
+		it("spends at most DETOUR_CASTS casts", function()
+			local spent = 0
+			local everything = function()
+				spent += 1
+				return true
+			end
+			Lane.detourAim(at, goal, 1, everything, CONFIG)
+			expect(spent).to.equal(CONFIG.DETOUR_CASTS)
+		end)
+	end)
+
+	describe("the recovery ladder (task 208)", function()
+		local at = Vector3.new(0, 10, 240)
+		local goal = Vector3.new(0, 10, -20)
+
+		it("JUMPS a low thing -- the branch ioquake3 calls a barrier jump", function()
+			expect(Lane.recoveryFor(3.0, CONFIG.JUMP_OVER_STUDS - 0.5, 1, CONFIG)).to.equal("jump")
+			-- ...and the aim does NOT move for a jump: the jump is the action.
+			local aim = Lane.recoverAim(at, goal, "jump", 1, CONFIG)
+			expect(aim).to.equal(Lane.aimFor(at, goal, CONFIG.AHEAD_STUDS))
+		end)
+
+		it("SIDESTEPS anything taller -- a trunk, or a body", function()
+			expect(Lane.recoveryFor(3.0, CONFIG.JUMP_OVER_STUDS + 0.5, 1, CONFIG)).to.equal("sidestep")
+			-- A measured 5-stud body, which is what `ForestTest.laneAhead` reports for a person: it
+			-- is gone round and never jumped over.
+			expect(Lane.recoveryFor(2.4, 5, 1, CONFIG)).to.equal("sidestep")
+			local aim = Lane.recoverAim(at, goal, "sidestep", 1, CONFIG)
+			expect(aim).to.equal(Lane.sideStep(Lane.aimFor(at, goal, CONFIG.AHEAD_STUDS), at, goal, 1, CONFIG))
+		end)
+
+		it("SIDESTEPS with no measurement at all, which is the DEV arena", function()
+			expect(Lane.recoveryFor(nil, nil, 1, CONFIG)).to.equal("sidestep")
+		end)
+
+		it("BACKS OFF once the tries run out, and backing off aims BEHIND the bot", function()
+			expect(Lane.recoveryFor(3.0, 2, CONFIG.BACK_OFF_AFTER_TRIES, CONFIG)).to.equal("backoff")
+			local aim = Lane.recoverAim(at, goal, "backoff", 3, CONFIG)
+			-- BEHIND: further from the goal than the bot is.
+			local before = Vector3.new(at.X - goal.X, 0, at.Z - goal.Z).Magnitude
+			local after = Vector3.new(aim.X - goal.X, 0, aim.Z - goal.Z).Magnitude
+			expect(after > before).to.equal(true)
+			-- ...and offset across the lane, so the next try starts from clear ground.
+			expect(math.abs(aim.X) > 0.1).to.equal(true)
+		end)
+
+		it("alternates the side as the tries climb, so a bot does not lean harder on one trunk", function()
+			local first = Lane.recoverAim(at, goal, "sidestep", 1, CONFIG)
+			local second = Lane.recoverAim(at, goal, "sidestep", 2, CONFIG)
+			expect(first.X > 0).to.equal(true)
+			expect(second.X < 0).to.equal(true)
+			-- ...and it widens: try 3 is two steps out, not one.
+			local third = Lane.recoverAim(at, goal, "sidestep", 3, CONFIG)
+			expect(math.abs(third.X) > math.abs(first.X)).to.equal(true)
+		end)
+
+		it("holds the recovery for longer than the sidestep it committed to takes to walk", function()
+			-- THE RELATION, not a number: `RECOVER_HOLD_SECONDS` has to cover `SIDE_STEP_STUDS` at
+			-- `WALK_SPEED`, or the bot turns back into the thing before it is past it -- the boar's
+			-- `WEDGE_HOLD_SECONDS` reasoning, and the defect this task measured.
+			local shipped = Bots.CONFIG
+			expect(shipped.RECOVER_HOLD_SECONDS >= shipped.SIDE_STEP_STUDS / shipped.WALK_SPEED).to.equal(true)
+			-- ...and a detour's hold outlives the interval that would re-decide it.
+			expect(shipped.DETOUR_HOLD_SECONDS > 1 / shipped.SEE_HZ).to.equal(true)
+			-- ...and a jump clears what it is allowed to jump.
+			expect(shipped.JUMP_HEIGHT_STUDS > shipped.JUMP_OVER_STUDS).to.equal(true)
 		end)
 	end)
 

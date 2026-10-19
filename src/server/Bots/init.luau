@@ -143,6 +143,84 @@ Bots.CONFIG = {
 	-- what opens the research note's escape hatch (SimplePath) with a number rather than a feeling.
 	STUCK_SECONDS = 4,
 	STUCK_STUDS = 3,
+
+	-- ---------------------------------------------------------------- not getting stuck (task 208)
+	--
+	-- KAREN, 2026-10-18 ~14:20: *"bot beater stuck we definatly need to fix that they not stuck the
+	-- can avoid"* -- and, in the same message, *"do not try to fix forest, we will go together"*. So
+	-- these numbers are the whole of the fix: the wood does not change.
+	--
+	-- THE ESCAPE HATCH ABOVE WAS OPENED BY A MEASUREMENT, which is what it was for. All four places,
+	-- every bot sampled at 2 Hz through a whole drive, 2026-10-19
+	-- (`docs/research/2026-10-19-bots-unstuck.md` section 4): three episodes over three seconds, the
+	-- worst **34.0 s**, and SimplePath was still refused -- what was measured is not a routing
+	-- failure (note section 2.4). Two of the three were a beater pressed against an ANCHORED BOT
+	-- HUNTER on the stand its own lane aims 20 studs past, which no pathfinder would have helped
+	-- with either: `roomToStand` cannot see a body by construction.
+	--
+	-- THE FAST STUCK TEST, beside the four-second one and not instead of it: the boar's own wedge
+	-- test (`Boar.CONFIG.MOVE.WEDGE_SECONDS` 0.75 / `WEDGE_SPEED` 0.5 / `WEDGE_ORDERED_SPEED` 2,
+	-- task 150), whose header says why two are needed -- a window only answers on the tick it
+	-- closes, so a four-second window is up to four seconds late and cannot start a three-second
+	-- recovery.
+	--
+	-- 0.8 s IS FOUR STEPS at `STEP_HZ` 5: the shortest window that cannot be one sample's noise.
+	-- 1.0 studs/s is a FIFTH of the pace it was told to walk, and it is deliberately looser than the
+	-- boar's ninth because the measurement leaves two decimal orders of room: a pinned bot crept at
+	-- **0.05 studs/s** for eighteen seconds, and a walking one makes **4.7**.
+	STUCK_FAST_SECONDS = 0.8,
+	STUCK_SLOW_SPEED = 1.0,
+	STUCK_ORDERED_SPEED = 2,
+	-- HOW LONG A RECOVERY IS HELD. `SIDE_STEP_STUDS` (10) at `WALK_SPEED` (5) is 2.0 s, so the hold
+	-- has to be at least that or the bot turns back into the thing before it is past it -- the boar's
+	-- `WEDGE_HOLD_SECONDS` reasoning ("the next frame's steering blend starts pulling it back toward
+	-- the trunk at once") with this walk's own arithmetic, plus 0.2 s for the turn.
+	RECOVER_HOLD_SECONDS = 2.2,
+	-- A DETOUR IS A DEFLECTION, NOT A RECOVERY: held for shorter, so the lane is resumed as soon as
+	-- the trunk is passed. Above `1 / SEE_HZ` so a held answer is never re-decided inside its hold.
+	DETOUR_HOLD_SECONDS = 1.2,
+	-- THE DECLARED FLOOR ON THE EXPENSIVE CALL -- SimplePath's `TIME_VARIANCE = 0.07` exists because
+	-- the community found one was needed (note 2026-10-12 section 2.4). Every other step; at
+	-- `WALK_SPEED` 5 that is 2 studs of travel between looks against a 12-stud lookahead.
+	SEE_HZ = 2.5,
+	-- THE BODY THAT IS SWEPT DOWN THE LANE. A Roblox character is 2 studs across and about 5 tall;
+	-- 4 is its width plus a body's clearance either side, which is `AVOID_RADIUS_STUDS`' own
+	-- reasoning for 1.6 against a 2-stud animal, and `ForestTest.clearRoute` sweeps (3, 3, 1) for
+	-- the boar for the same reason.
+	LANE_BODY_SIZE = Vector3.new(4, 5, 1),
+	-- THE CANDIDATE DEFLECTIONS, SMALLEST FIRST: Reynolds' "only as much as the intrusion needs"
+	-- (note section 2.2). A 6-stud stand rig 12 studs ahead needs about 27 degrees to pass with a
+	-- body's clearance and one 6 studs ahead about 50, so the fan is dense where the answers are and
+	-- coarse where they are desperate; the last is a right angle, where a sidestep begins. Five
+	-- against the boar's six, because this lookahead is 12 studs and not 26.
+	DETOUR_ANGLES_DEG = { 18, 32, 50, 70, 88 },
+	-- THE CAST BUDGET, PER BOT PER EVALUATION. With `SEE_HZ` the ceiling is 2.5 * (1 + 5) = **15
+	-- swept casts a second per bot** and 120 for eight -- MEASURED at **0.0606 ms a cast** in this
+	-- wood (note section 7: 2,000 of them over the beaters' own ground), so the whole line's worst
+	-- case is **7.3 ms a second**, or 1.5 ms on a step where every bot is boxed in at once. Today's
+	-- step costs 0.20-0.27 ms. That is the number the vendor's performance page does not have.
+	DETOUR_CASTS = 5,
+	-- ioquake3's `AVOIDREACH_TRIES` IS 4 AND THIS IS 3, on purpose: three sidesteps at
+	-- `RECOVER_HOLD_SECONDS` each is 6.6 s and the bar for this task is three seconds an episode, so
+	-- the ladder has to reach its last rung sooner than ioquake3's does.
+	BACK_OFF_AFTER_TRIES = 3,
+	-- Far enough to be clear of a body (2 studs across) or a trunk's flare; short enough that it
+	-- reads as a man taking a step back.
+	BACK_OFF_STUDS = 8,
+	-- WHEN THE TRY COUNT RESETS: PROOF, not a timer. `AHEAD_STUDS` away from where the recovery
+	-- began is a bot that has actually got past the thing.
+	RECOVERED_STUDS = 12,
+	-- A RE-ISSUE COSTS ONE PROPERTY WRITE, so the aim is issued the moment it MOVES (which is task
+	-- 208's own defect, below) -- but an aim that jitters by centimetres would re-issue every step
+	-- and stutter the gait. 2 studs is less than half a sidestep and more than any rounding.
+	AIM_EPSILON_STUDS = 2,
+	-- WHAT A MAN STEPS OVER RATHER THAN WALKS ROUND: a log, a bank, a root. Above it is a trunk or a
+	-- body, and those are gone round. ioquake3's `BotCheckBarrierJump` is the branch.
+	JUMP_OVER_STUDS = 4,
+	-- ONE STUD CLEAR OF `JUMP_OVER_STUDS`. Roblox's own default is 7.2, which is a leap; this is a
+	-- man getting over a log. **WALKERS ONLY** -- `Rig.prepare` keeps a stander at 0 with its whole
+	-- state machine off, which is the vendor's "static NPC" sentence (design section 9.2).
+	JUMP_HEIGHT_STUDS = 5.2,
 	-- *"BLOW THE HORN NOW AND THEN"*. The floor is the horn's own `COOLDOWN` (1.5 s), far below
 	-- this, so a bot can never be the thing that tests the cooldown -- `bots_live.spec` asserts that
 	-- relation rather than trusting it. Jittered off a deterministic hash, never a Random: a Random
@@ -207,7 +285,43 @@ type Bot = {
 	-- WHERE IT WAS WHEN IT ARRIVED (task 167), stamped on the arriving step: the results scene moves
 	-- every rig into a ring before the report prints, so the position at report time is the ring's.
 	arrivedX: number?,
+	-- THE FAST STUCK WINDOW (task 208), separate from `movedFrom`/`movedAt` for the same reason the
+	-- gait sample is: that pair is re-stamped only every `STUCK_SECONDS` and this one every
+	-- `STUCK_FAST_SECONDS`, so one window cannot answer both questions.
+	blockFrom: Vector3?,
+	blockAt: number?,
+	-- THE HELD DECISION (task 208): what it is walking at and until when. ioquake3's
+	-- `avoidreachtimes`, SimplePath's `TIME_VARIANCE` and the boar's `_wedgeFor`, which are three
+	-- names for "spend the next moment GETTING PAST the thing instead of deciding again".
+	holdAim: Vector3?,
+	holdUntil: number?,
+	-- HOW MANY RECOVERIES IN A ROW (ioquake3's `avoidreachtries`), and where the current run of them
+	-- began -- `RECOVERED_STUDS` from there is the proof that resets it.
+	tries: number,
+	recoverFrom: Vector3?,
+	-- WHEN THE FORWARD CAST WAS LAST SPENT, so `SEE_HZ` is a floor and not a wish.
+	sawAt: number?,
+	-- THE POINT LAST ISSUED TO THE HUMANOID. Without it there is no way to know the aim MOVED, which
+	-- is the whole of task 208's third finding.
+	aimAt: Vector3?,
+	-- WHICH WAY THIS BOT GOES ROUND A THING, drawn once from its own lane rather than from a Random:
+	-- two bots on one trunk must not both choose left, and a Random would make a report
+	-- unreproducible (the reason `Phase` has none either).
+	detourSide: number,
+	-- HOW LONG THE CURRENT PIN HAS LASTED, in seconds, so `worstStuckSeconds` can be a DURATION and
+	-- not a count: a count cannot say whether one bot was stuck for thirty-four seconds or
+	-- thirty-four bots for one, and the task's bar is written in seconds.
+	pinnedFor: number?,
 }
+
+-- FLAT, IN ONE PLACE. Every distance this module compares against a stud count is horizontal -- the
+-- gait's, the stuck window's, the aim's -- for `Lane.arrived`'s own reason: a bot three studs below
+-- its goal on a hill has arrived, and a bot that has climbed four studs has not moved along its
+-- lane. `Bots.Lane` has its own copy because it is pure and takes no module (the same shape
+-- `Boar.Brain`'s `flat` and `Boar`'s `flatOf` are in).
+local function flatOf(v: Vector3): Vector3
+	return Vector3.new(v.X, 0, v.Z)
+end
 
 local started = false
 local world: any = nil
@@ -243,6 +357,22 @@ local stats = {
 	walkSeconds = 0,
 	stuck = 0,
 	sideSteps = 0,
+	-- TASK 208, AND THEY ARE THE EVIDENCE. `laneCasts` is every swept cast the walk spent (the
+	-- budget's own meter, the shape `Boar`'s `avoidCasts` already is); `detours` is how many times a
+	-- bot went ROUND something before it touched it; `boxedIn` is how many times no deflection in
+	-- the fan had room; and the three recoveries are counted by NAME, because "which branch fired"
+	-- is the question a stuck report has to answer and a single total cannot.
+	laneCasts = 0,
+	detours = 0,
+	boxedIn = 0,
+	recoveries = 0,
+	sidesteps = 0,
+	backoffs = 0,
+	jumps = 0,
+	-- THE LONGEST SINGLE PIN OF THE DRIVE, in seconds, measured off the fast window: the one number
+	-- the dispatch's bar is written against ("0 bots stuck longer than 3 s"). A count cannot say
+	-- whether one bot was stuck for thirty-four seconds or thirty-four bots for one.
+	worstStuckSeconds = 0,
 	groundMissing = 0,
 	gathered = 0,
 	-- THE WALK ANIMATION (round 2). A rig built by the engine carries no `Animate` script -- that
@@ -522,6 +652,21 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 				arrivedX = nil,
 				gathered = false,
 				index = madeIndex,
+				-- TASK 208: the fast stuck window, the held decision, the try counter and the point
+				-- last issued. All nil/0, so a bot that has never walked has nothing in force.
+				blockFrom = nil,
+				blockAt = nil,
+				holdAim = nil,
+				holdUntil = nil,
+				tries = 0,
+				recoverFrom = nil,
+				sawAt = nil,
+				aimAt = nil,
+				-- WHICH WAY IT GOES ROUND A THING, drawn once from the lane number and never again:
+				-- odd lanes go one way and even the other, so two neighbours on one trunk part
+				-- rather than both choosing the same side. The discipline `Rig`'s own jitter follows
+				-- -- a hash, never a `Random`, so a report is reproducible.
+				detourSide = if slot.lane % 2 == 1 then 1 else -1,
 			}
 			table.insert(order, slot.id)
 		else
@@ -542,6 +687,18 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 				bot.gaitFrom = nil
 				bot.gaitAt = nil
 				bot.gathered = false
+				-- ...AND SO DOES EVERYTHING TASK 208 HOLDS, for exactly the gait sample's reason:
+				-- a detour committed from where it used to stand, a stuck window anchored there and
+				-- an issued aim point behind it are all measurements of a place this body is no
+				-- longer in. The teleport invalidates all four.
+				bot.blockFrom = nil
+				bot.blockAt = nil
+				bot.holdAim = nil
+				bot.holdUntil = nil
+				bot.tries = 0
+				bot.recoverFrom = nil
+				bot.sawAt = nil
+				bot.aimAt = nil
 				Rig.place(bot.model, Bots.groundedFrom(from, cfg), bot.to == nil)
 			end
 		end
@@ -648,6 +805,16 @@ local PER_DRIVE_STATS = {
 	"blowPosed",
 	-- ...and "did a bot put its horn at its SIDE this drive" (task 206).
 	"carryPosed",
+	-- TASK 208: every one of them is printed under `[bots] drive N`, so every one of them is
+	-- per-drive, for exactly the reason this list's header gives.
+	"laneCasts",
+	"detours",
+	"boxedIn",
+	"recoveries",
+	"sidesteps",
+	"backoffs",
+	"jumps",
+	"worstStuckSeconds",
 	"stepMsMax",
 }
 
@@ -833,7 +1000,7 @@ end
 
 -- ------------------------------------------------------------------ the step
 
-local function stepWalker(bot: Bot, at: number, config, roomToStand)
+local function stepWalker(bot: Bot, at: number, config, roomToStand, laneAhead)
 	local model = bot.model
 	local humanoid = bot.humanoid
 	local goal = bot.to
@@ -862,6 +1029,9 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand)
 		-- first thing a released bot does is side-step for no reason.
 		bot.movedAt = at
 		bot.movedFrom = here
+		-- ...AND SO DOES THE FAST WINDOW (task 208), for the same reason and not a different one.
+		bot.blockAt = at
+		bot.blockFrom = here
 	end
 	if Lane.arrived(here, goal, config.ARRIVE_STUDS) then
 		bot.arrived = true
@@ -926,14 +1096,137 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand)
 		bot.movedFrom = here
 	end
 
-	-- THE WHOLE AIM DECISION IS `Lane.clearAim`'S, and it is pure in the world's clearance reader so
-	-- `bots_live.spec` drives every branch -- including the stuck one with a reader that answers
-	-- "clear", which is the case round 1 found unreachable.
-	local aim, stepped = Lane.clearAim(here, goal, forced, roomToStand, config)
-	stats.sideSteps += stepped
+	-- ...AND THE FAST ONE BESIDE IT (task 208): the boar's wedge test, which answers inside 0.8 s
+	-- instead of up to 4. The two windows are separate stamps on purpose -- one window cannot be
+	-- re-set at two rates -- and `Lane.isStuck` is the pure rule.
+	local pinned = false
+	local blockFrom, blockAt = bot.blockFrom, bot.blockAt
+	if blockFrom ~= nil and blockAt ~= nil then
+		local over = at - (blockAt :: number)
+		if over >= config.STUCK_FAST_SECONDS then
+			local covered = flatOf(here - (blockFrom :: Vector3)).Magnitude
+			pinned = Lane.isStuck(covered, over, humanoid.WalkSpeed, config)
+			if pinned then
+				-- HOW LONG THIS PIN HAS LASTED, which is the number the task is judged on. The run
+				-- of consecutive pinned windows is what a 34-second episode looks like from in here.
+				bot.pinnedFor = (bot.pinnedFor or 0) + over
+				stats.worstStuckSeconds = math.max(stats.worstStuckSeconds, bot.pinnedFor :: number)
+			else
+				bot.pinnedFor = 0
+			end
+			bot.blockAt = at
+			bot.blockFrom = here
+		end
+	else
+		bot.blockAt = at
+		bot.blockFrom = here
+	end
 
-	if at - bot.lastMoveAt >= config.MOVE_REISSUE_SECONDS then
+	-- THE TRY COUNT RESETS ON PROOF, NOT ON A TIMER (ioquake3 drops a reach off its avoid list when
+	-- its own clock runs out; here the proof is that the bot actually got past the thing).
+	local recoverFrom = bot.recoverFrom
+	if bot.tries > 0 and recoverFrom ~= nil then
+		if flatOf(here - (recoverFrom :: Vector3)).Magnitude > config.RECOVERED_STUDS then
+			bot.tries = 0
+			bot.recoverFrom = nil
+		end
+	end
+
+	-- ------------------------------------------------------------------ what it aims at
+	--
+	-- THE DECISION IS HELD. While a recovery or a detour is in force nothing re-decides, because the
+	-- hold is what the bot SPENDS GETTING PAST the thing: ioquake3's `AVOIDREACH_TIME`, SimplePath's
+	-- `TIME_VARIANCE` and the boar's `WEDGE_HOLD_SECONDS`, which are three names for one idea (note
+	-- sections 2.1, 2.4, 2.5). Without it the next step's lane point aims straight back into
+	-- whatever was in the way, which is what the 34-second pin was made of.
+	local aim: Vector3
+	local holdUntil = bot.holdUntil
+	if holdUntil ~= nil and at < (holdUntil :: number) and bot.holdAim ~= nil then
+		aim = bot.holdAim :: Vector3
+	elseif pinned then
+		-- THE RECOVERY LADDER. Which rung is a MEASUREMENT of what is in front of it, and with no
+		-- reader (the DEV arena) it is the sidestep this has always been.
+		bot.tries += 1
+		bot.recoverFrom = here
+		local ahead: number?, step: number? = nil, nil
+		if laneAhead ~= nil then
+			ahead, step = laneAhead(here, Lane.aimFor(here, goal, config.AHEAD_STUDS), config.LANE_BODY_SIZE, model)
+			stats.laneCasts += 1
+		end
+		local kind = Lane.recoveryFor(ahead, step, bot.tries, config)
+		aim = Lane.recoverAim(here, goal, kind, bot.tries, config)
+		stats.recoveries += 1
+		if kind == "jump" then
+			stats.jumps += 1
+			-- THE JUMP IS THE ACTION, and `JumpHeight` is what makes it worth anything -- a stander
+			-- keeps 0 and its state machine off (`Rig.prepare`), so only a walker can ever do this.
+			--   https://create.roblox.com/docs/reference/engine/classes/Humanoid
+			if humanoid.JumpHeight > 0 then
+				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+			end
+		elseif kind == "backoff" then
+			stats.backoffs += 1
+		else
+			stats.sidesteps += 1
+		end
+		bot.holdAim = aim
+		bot.holdUntil = at + config.RECOVER_HOLD_SECONDS
+	else
+		aim = Lane.aimFor(here, goal, config.AHEAD_STUDS)
+		-- SEEING IT BEFORE TOUCHING IT. The swept cast down the lane at `SEE_HZ`, and a detour by
+		-- the smallest deflection that has room -- Reynolds' obstacle avoidance (note section 2.2).
+		-- This is the half `roomToStand` cannot do: it tests the POINT 12 studs ahead and is blind
+		-- to everything between here and there.
+		if laneAhead ~= nil and at - (bot.sawAt or -math.huge) >= 1 / config.SEE_HZ then
+			bot.sawAt = at
+			stats.laneCasts += 1
+			local ahead, step = laneAhead(here, aim, config.LANE_BODY_SIZE, model)
+			if ahead ~= nil and (step == nil or step > config.JUMP_OVER_STUDS) then
+				local blockedAt = function(point: Vector3): boolean
+					stats.laneCasts += 1
+					return laneAhead(here, point, config.LANE_BODY_SIZE, model) ~= nil
+				end
+				local detour = Lane.detourAim(here, goal, bot.detourSide, blockedAt, config)
+				if detour ~= nil then
+					aim = detour :: Vector3
+					stats.detours += 1
+					bot.holdAim = aim
+					bot.holdUntil = at + config.DETOUR_HOLD_SECONDS
+				else
+					-- BOXED IN: nothing in the fan had room. Say so with a number and leave it to
+					-- the stuck ladder, which is `Boar`'s own `avoidBoxedIn` reasoning -- this
+					-- function never has to solve a dead end, only to miss what it can see.
+					stats.boxedIn += 1
+				end
+			end
+		end
+		-- ...AND THE OLD POINT TEST STILL HAS THE LAST WORD ON THE AIM POINT ITSELF, which is the
+		-- different question it was always answering: "is there room to STAND where I am sending
+		-- him". `forced` is 0 now -- the stuck case is the ladder's above, not a one-step nudge the
+		-- cadence used to throw away.
+		local nudged, stepped = Lane.clearAim(here, goal, forced, roomToStand, config)
+		if stepped > 0 then
+			aim = nudged
+			stats.sideSteps += stepped
+		end
+	end
+
+	-- ------------------------------------------------------------------ ...AND IT REACHES THE HUMANOID
+	--
+	-- THIS IS TASK 208'S THIRD FINDING, and it is the one that made the other two invisible (note
+	-- section 4.3). The aim was computed every step (`STEP_HZ` 5) and issued only every
+	-- `MOVE_REISSUE_SECONDS` (2) -- so NINE OUT OF TEN decisions, every stuck nudge among them, were
+	-- thrown away before the humanoid ever saw them. In the edge drive the stuck counter fired NINE
+	-- times over 34 seconds and the bot never moved.
+	--
+	-- A DECISION IS ISSUED WHEN IT MOVES. The interval stays as the engine's documented 8-second
+	-- `MoveTo` timeout asks (note section 2.3), so a bot walking a clear lane still re-issues every
+	-- 2 s and nothing about an unobstructed walk changes; `AIM_EPSILON_STUDS` keeps a jittering aim
+	-- from re-issuing every step.
+	local moved = bot.aimAt == nil or flatOf(aim - (bot.aimAt :: Vector3)).Magnitude > config.AIM_EPSILON_STUDS
+	if moved or at - bot.lastMoveAt >= config.MOVE_REISSUE_SECONDS then
 		bot.lastMoveAt = at
+		bot.aimAt = aim
 		humanoid:MoveTo(aim)
 	end
 end
@@ -943,10 +1236,14 @@ end
 -- world's. A spec passes them to drive the stuck window without spending four real seconds of the
 -- suite's budget (the trap `zz_horn`'s own `zz_` prefix exists for), and to drive the stuck nudge
 -- against a reader that answers "clear" -- the branch round 1 found unreachable.
-function Bots.step(_dt: number?, clock: number?, roomToStand: any?)
+function Bots.step(_dt: number?, clock: number?, roomToStand: any?, laneAhead: any?)
 	local config = Bots.CONFIG
 	local at = clock or now()
 	local clearance = if roomToStand ~= nil then roomToStand else (world ~= nil and world.roomToStand or nil)
+	-- THE THIRD SEAM (task 208), injected exactly as the other two are: the world's own swept test
+	-- down a lane (`ForestTest.laneAhead`). A world that injects none -- the DEV arena, flat and
+	-- empty -- keeps today's behaviour bit for bit, and `bots_live.spec` drives both answers.
+	local seeing = if laneAhead ~= nil then laneAhead else (world ~= nil and world.laneAhead or nil)
 	local began = os.clock()
 	stats.steps += 1
 
@@ -966,7 +1263,7 @@ function Bots.step(_dt: number?, clock: number?, roomToStand: any?)
 		end
 		if bot.to ~= nil and released then
 			walking += 1
-			stepWalker(bot, at, config, clearance)
+			stepWalker(bot, at, config, clearance, seeing)
 			if bot.horn ~= nil then
 				if bot.hornDueAt == nil then
 					bot.hornDueAt = Bots.hornDue(bot, at, config)
@@ -1065,8 +1362,9 @@ function Bots.report(driveNumber: number): string
 	local s = Bots.stats()
 	return string.format(
 		"[bots] drive %d: %d/%d hunters, %d/%d beaters (%d failed, %d stale) | %d walking, %d arrived in %.1fs"
-			.. " | %d stuck, %d side-steps, %d no-ground | %d blasts (%d refused) | %d tool-posed"
-			.. " | step %.2f ms avg, %.2f ms max",
+			.. " | %d stuck, worst pin %.1fs, %d side-steps, %d no-ground | %d detours (%d boxed in),"
+			.. " %d recoveries (%d sidestep, %d back off, %d jump), %d casts"
+			.. " | %d blasts (%d refused) | %d tool-posed | step %.2f ms avg, %.2f ms max",
 		driveNumber,
 		Bots.count("Shooters"),
 		desired.hunters,
@@ -1078,8 +1376,19 @@ function Bots.report(driveNumber: number): string
 		s.arrived,
 		s.walkSeconds,
 		s.stuck,
+		-- TASK 208'S OWN NUMBER: the LONGEST single pin of the drive, in seconds. The bar Karen's
+		-- complaint is measured against is "no bot stuck longer than 3 s", and a count of stuck
+		-- windows cannot say whether that held.
+		s.worstStuckSeconds,
 		s.sideSteps,
 		s.groundMissing,
+		s.detours,
+		s.boxedIn,
+		s.recoveries,
+		s.sidesteps,
+		s.backoffs,
+		s.jumps,
+		s.laneCasts,
 		s.blasts,
 		s.blastsRefused,
 		s.toolPosed,

@@ -956,4 +956,201 @@ return function()
 			expect(Bots.stats().stepMsAvg >= 0).to.equal(true)
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- not getting stuck (task 208)
+	--
+	-- KAREN, 2026-10-18 ~14:20: *"bot beater stuck we definatly need to fix that they not stuck the
+	-- can avoid"*. These cases are the three findings of
+	-- `docs/research/2026-10-19-bots-unstuck.md` section 4, each as a thing a spec can state:
+	--   1. the walk could not SEE a body in the way (`roomToStand` ignores characters by design);
+	--   2. the recovery it did make was not HELD, so the next step aimed back into the thing;
+	--   3. the decision was issued on a 2-second cadence, so NINE IN TEN never reached the humanoid.
+	--
+	-- `Humanoid.WalkToPoint` IS HOW A SPEC SEES `MoveTo`. The engine sets it from the call, so "did
+	-- this bot get told to walk somewhere new" is a property read and not a stub.
+	describe("a bot that is pinned (task 208)", function()
+		afterEach(function()
+			Bots.clear()
+			Bots.setRigSource(nil)
+		end)
+
+		-- A FAKE RIG DOES NOT WALK -- it is a Part with a Humanoid and nothing to stand on -- which
+		-- makes it the perfect PINNED bot, exactly as the round-2 cases above use it.
+		local function walkerSlot()
+			return {
+				{
+					id = "bot-beater-1",
+					team = "Drivers",
+					from = CFrame.new(0, 10, 240),
+					to = Vector3.new(0, 10, -20),
+					lane = 1,
+				},
+			}
+		end
+
+		local function pinnedWalker(clock: number)
+			Bots.setRigSource(fakeRig)
+			Bots.fill(walkerSlot())
+			Bots.step(0.2, clock)
+			Bots.go()
+			Bots.step(0.2, clock) -- the first released step: stamps the walk and issues the first aim
+			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
+			local body = folder:FindFirstChild("bot-beater-1") :: Model
+			return body:FindFirstChildOfClass("Humanoid") :: Humanoid
+		end
+
+		it("TELLS THE HUMANOID somewhere new as soon as it is pinned, not on the next re-issue", function()
+			-- FINDING 3, AND THIS CASE FAILS ON THE CODE BEFORE THIS TASK. The clock moves 1.0 s --
+			-- long enough for the fast stuck window (`STUCK_FAST_SECONDS` 0.8) and SHORTER than
+			-- `MOVE_REISSUE_SECONDS` (2) -- so the old cadence could not have issued anything, and
+			-- the old four-second window had not even noticed. Measured in Karen's place, that is
+			-- how a bot stood against a spruce for 169 seconds while the stuck counter ticked.
+			local humanoid = pinnedWalker(4000)
+			local before = humanoid.WalkToPoint
+			Bots.step(0.2, 4000 + Bots.CONFIG.STUCK_FAST_SECONDS + 0.2)
+			expect((humanoid.WalkToPoint - before).Magnitude > 1).to.equal(true)
+			expect(Bots.stats().recoveries).to.equal(1)
+		end)
+
+		it("HOLDS that decision instead of aiming back into the thing on the next step", function()
+			-- FINDING 2. Three more steps inside the hold must not move the aim: the hold is what
+			-- the bot spends GETTING PAST the thing (the boar's `WEDGE_HOLD_SECONDS`).
+			local humanoid = pinnedWalker(5000)
+			local at = 5000 + Bots.CONFIG.STUCK_FAST_SECONDS + 0.2
+			Bots.step(0.2, at)
+			local committed = humanoid.WalkToPoint
+			local recoveries = Bots.stats().recoveries
+			for i = 1, 3 do
+				Bots.step(0.2, at + i * 0.2)
+			end
+			expect((humanoid.WalkToPoint - committed).Magnitude < 0.01).to.equal(true)
+			expect(Bots.stats().recoveries).to.equal(recoveries)
+		end)
+
+		it("tries again, and the OTHER WAY, once the hold has run out", function()
+			-- ioquake3's `avoidreachtries` and the boar's alternating `_wedgeCount`: a bot that
+			-- could not get past on one side tries the other rather than leaning harder.
+			local humanoid = pinnedWalker(6000)
+			local at = 6000 + Bots.CONFIG.STUCK_FAST_SECONDS + 0.2
+			Bots.step(0.2, at)
+			local first = humanoid.WalkToPoint
+			local after = at + Bots.CONFIG.RECOVER_HOLD_SECONDS + Bots.CONFIG.STUCK_FAST_SECONDS + 0.2
+			Bots.step(0.2, after)
+			expect(Bots.stats().recoveries).to.equal(2)
+			expect((humanoid.WalkToPoint - first).Magnitude > 1).to.equal(true)
+			-- Opposite sides of the lane, which runs down z: so the two aims straddle x = 0.
+			expect(first.X * humanoid.WalkToPoint.X < 0).to.equal(true)
+		end)
+
+		it("BACKS OFF once the tries run out, which is the last rung of the ladder", function()
+			-- THE BRANCH THAT IS HARDEST TO REACH, and it gets its own case for exactly that reason.
+			local humanoid = pinnedWalker(7000)
+			local at = 7000
+			for _ = 1, Bots.CONFIG.BACK_OFF_AFTER_TRIES + 1 do
+				at += Bots.CONFIG.RECOVER_HOLD_SECONDS + Bots.CONFIG.STUCK_FAST_SECONDS + 0.2
+				Bots.step(0.2, at)
+			end
+			expect(Bots.stats().backoffs >= 1).to.equal(true)
+			-- A back-off aims BEHIND the bot: further from the goal than the bot stands.
+			local goal = walkerSlot()[1].to :: Vector3
+			local body = (Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder):FindFirstChild("bot-beater-1") :: Model
+			local here = Rig.positionOf(body) :: Vector3
+			local mine = Vector3.new(here.X - goal.X, 0, here.Z - goal.Z).Magnitude
+			local aimed = Vector3.new(humanoid.WalkToPoint.X - goal.X, 0, humanoid.WalkToPoint.Z - goal.Z).Magnitude
+			expect(aimed > mine).to.equal(true)
+		end)
+
+		it("JUMPS a low thing, and only a walker can", function()
+			-- THE THIRD BRANCH, driven by a reader that reports a knee-high obstruction. A fake rig
+			-- has no state machine to watch, so the claim is the COUNT and the JumpHeight that makes
+			-- the call worth anything -- the two things `Rig.prepare` and the ladder decide.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(walkerSlot())
+			Bots.step(0.2, 8000)
+			Bots.go()
+			local low = function()
+				return 3.0, Bots.CONFIG.JUMP_OVER_STUDS - 1
+			end
+			Bots.step(0.2, 8000, nil, low)
+			Bots.step(0.2, 8000 + Bots.CONFIG.STUCK_FAST_SECONDS + 0.2, nil, low)
+			expect(Bots.stats().jumps).to.equal(1)
+			expect(Bots.stats().sidesteps).to.equal(0)
+			local body = (Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder):FindFirstChild("bot-beater-1") :: Model
+			local humanoid = body:FindFirstChildOfClass("Humanoid") :: Humanoid
+			expect(humanoid.JumpHeight).to.equal(Bots.CONFIG.JUMP_HEIGHT_STUDS)
+		end)
+
+		it("goes ROUND a thing it can see BEFORE it touches it, and holds that too", function()
+			-- FINDING 1, as the thing that stops the pin happening at all: the swept reader answers
+			-- "blocked straight ahead, clear at an angle", and the bot deflects without ever being
+			-- stuck. The reader is the `laneAhead` seam, so no world and no trunk are needed.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(walkerSlot())
+			Bots.step(0.2, 9000)
+			Bots.go()
+			local straight = Vector3.new(0, 10, 228) -- 12 studs down the lane from (0, 10, 240)
+			local reader = function(_from: Vector3, to: Vector3)
+				if math.abs(to.X) < 1 and math.abs(to.Z - straight.Z) < 1 then
+					return 4.0, 20.0 -- a trunk, too tall to jump
+				end
+				return nil, nil
+			end
+			Bots.step(0.2, 9000, nil, reader)
+			expect(Bots.stats().detours).to.equal(1)
+			expect(Bots.stats().recoveries).to.equal(0) -- it was never stuck: it saw it
+			local body = (Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder):FindFirstChild("bot-beater-1") :: Model
+			local humanoid = body:FindFirstChildOfClass("Humanoid") :: Humanoid
+			expect(math.abs(humanoid.WalkToPoint.X) > 1).to.equal(true)
+		end)
+
+		it("says BOXED IN rather than inventing a way through", function()
+			Bots.setRigSource(fakeRig)
+			Bots.fill(walkerSlot())
+			Bots.step(0.2, 9500)
+			Bots.go()
+			local everywhere = function()
+				return 2.0, 30.0
+			end
+			Bots.step(0.2, 9500, nil, everywhere)
+			expect(Bots.stats().boxedIn).to.equal(1)
+			expect(Bots.stats().detours).to.equal(0)
+		end)
+
+		it("spends NO cast at all in a world with no reader, which is the DEV arena", function()
+			Bots.setRigSource(fakeRig)
+			Bots.fill(walkerSlot())
+			Bots.step(0.2, 9800)
+			Bots.go()
+			Bots.step(0.2, 9800)
+			Bots.step(0.2, 9800 + Bots.CONFIG.STUCK_FAST_SECONDS + 0.2)
+			expect(Bots.stats().laneCasts).to.equal(0)
+			expect(Bots.stats().detours).to.equal(0)
+			-- ...and it still recovers, by the sidestep this has always been there.
+			expect(Bots.stats().sidesteps).to.equal(1)
+		end)
+
+		it("reports the WORST PIN in seconds, which is the number the task is judged on", function()
+			local humanoid = pinnedWalker(10000)
+			expect(humanoid).to.be.ok()
+			local at = 10000
+			for _ = 1, 4 do
+				at += Bots.CONFIG.STUCK_FAST_SECONDS + 0.05
+				Bots.step(0.2, at)
+			end
+			-- Four closed windows of a bot that never moved: the pin is at least three of them.
+			expect(Bots.stats().worstStuckSeconds > 2.5).to.equal(true)
+			expect(string.find(Bots.report(1), "worst pin")).to.be.ok()
+		end)
+
+		it("is NOT pinned while it is still being held at the start line", function()
+			-- A bot standing on its lane start through the countdown is HELD, not stuck -- and
+			-- `Bots.go` has not been called here at all.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(walkerSlot())
+			Bots.step(0.2, 11000)
+			Bots.step(0.2, 11000 + Bots.CONFIG.STUCK_FAST_SECONDS + 5)
+			expect(Bots.stats().recoveries).to.equal(0)
+			expect(Bots.stats().stuck).to.equal(0)
+		end)
+	end)
 end

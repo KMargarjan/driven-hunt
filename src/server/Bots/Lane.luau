@@ -117,4 +117,142 @@ function Lane.clearAim(here: Vector3, goal: Vector3, forced: number, roomToStand
 	return aim, 0
 end
 
+-- ------------------------------------------------------------------ seeing it, and getting off it
+--
+-- TASK 208. KAREN, 2026-10-18 ~14:20: *"bot beater stuck we definatly need to fix that they not
+-- stuck the can avoid"*, with *"do not try to fix forest, we will go together"* in the same message
+-- -- so the bots cope with the wood as it is.
+--
+-- WHAT WAS MEASURED (`docs/research/2026-10-19-bots-unstuck.md` section 4), in Karen's own Forest
+-- Test, all four places, every bot sampled at 2 Hz: **three episodes over three seconds**, the worst
+-- **34.0 s**, and two of the three were a beater pressed against an ANCHORED BOT HUNTER standing on
+-- the very stand its lane aims 20 studs past. The clearance reader above cannot see that by
+-- construction -- `ForestTest.roomToStand` says in so many words that *a person is not an obstacle*
+-- -- and the nudge the stuck window does fire was being thrown away before the humanoid saw it (the
+-- owner's `MoveTo` cadence; section 4.3).
+--
+-- So three things are added, and every one of them is a borrow (note section 2):
+--   `isStuck`      the boar's own fast wedge test (`Brain:_updateWedge`, task 150)
+--   `detourAim`    Reynolds' obstacle avoidance: the smallest deflection that has room
+--   `recoveryFor` / `recoverAim`   ioquake3's three answers and its try counter (`be_ai_move.c`)
+
+-- IS IT STUCK? PURE, and it is the BOAR'S OWN WEDGE TEST re-pointed (`Boar.CONFIG.MOVE.WEDGE_*`,
+-- task 150): told to move faster than `STUCK_ORDERED_SPEED`, actually covering less than
+-- `STUCK_SLOW_SPEED` of ground, over at least `STUCK_FAST_SECONDS`. Karen's complaint about the
+-- animals then -- *"still can see sometimes boar hit tree and wal in place so not avoiding tree"* --
+-- is her complaint about the bots now, so the answer that worked is the answer borrowed.
+--
+-- MEASURED OFF POSITION, NOT OFF THE SETPOINT, which is that function's own stated reason: *"a
+-- setpoint cannot know the animal is not moving"*. `Humanoid.MoveDirection` cannot do it either:
+-- MEASURED 2026-10-19 in Karen's Forest Test, a bot rig walking at 5 studs/s under `MoveTo` reads
+-- `MoveDirection.Magnitude = 0.000` on the SERVER on every sample while its state is `Running`
+-- (note section 4.1). The property is documented Not Replicated and is evidently not filled in for
+-- a server-driven humanoid.
+--
+-- WHY THE WINDOW IS 0.8 s AND NOT THE EXISTING 4: `STUCK_SECONDS` only answers on the tick its
+-- window closes, so the first report of a bot that stopped dead is up to four seconds late and a
+-- three-second recovery cannot start from it. Both tests live side by side, exactly as the boar's
+-- two do.
+function Lane.isStuck(coveredStuds: number, overSeconds: number, orderedSpeed: number, config): boolean
+	if overSeconds < config.STUCK_FAST_SECONDS or orderedSpeed < config.STUCK_ORDERED_SPEED then
+		return false
+	end
+	return coveredStuds / overSeconds < config.STUCK_SLOW_SPEED
+end
+
+-- THE DEFLECTED AIM POINT, `degrees` off the lane. PURE. The lane's own direction is rotated about Y
+-- and the aim is re-measured from the bot, so a deflection is still a point `AHEAD_STUDS` away and
+-- never past the goal: a detour is a DEFLECTION OF THE LANE, which is what keeps four of these a
+-- line (note 2026-10-12 section 3).
+function Lane.turnedAim(here: Vector3, goal: Vector3, degrees: number, config): Vector3
+	local away = flat(goal - here)
+	if away.Magnitude < 1e-4 then
+		return Lane.aimFor(here, goal, config.AHEAD_STUDS)
+	end
+	local reach = math.min(away.Magnitude, config.AHEAD_STUDS)
+	local radians = math.rad(degrees)
+	local unit = away.Unit
+	local turned = Vector3.new(
+		unit.X * math.cos(radians) - unit.Z * math.sin(radians),
+		0,
+		unit.X * math.sin(radians) + unit.Z * math.cos(radians)
+	)
+	return Vector3.new(here.X + turned.X * reach, here.Y, here.Z + turned.Z * reach)
+end
+
+-- GO ROUND IT, BY THE SMALLEST DEFLECTION THAT HAS ROOM. `blockedAt(point)` is the world's own swept
+-- test, passed in (`ForestTest.laneAhead`, wrapped by the owner), so every branch here is a spec's
+-- to drive with a function of its own. Returns the aim and the degrees it cost, or nil when no
+-- candidate in the fan is clear -- and nil means "say nothing", which leaves the lane point and the
+-- stuck ladder to it.
+--
+-- Pattern: Reynolds' obstacle avoidance -- *"takes action only when a nearby obstacle lies directly
+-- in front of the character"*, and the steering is only as large as the intrusion needs
+-- (<http://www.red3d.com/cwr/steer/gdc99/>). It is `Brain.clearTurnDeg`'s shape, and the reason it
+-- is not that function is an owner boundary: `Bots` must not require `Boar` to walk a man through a
+-- wood (CLAUDE.md rule 3, and rule 2's written reason for a second copy).
+--
+-- THE BOT'S OWN SIDE FIRST, alternating after it, so two bots on one trunk do not both choose left.
+function Lane.detourAim(here: Vector3, goal: Vector3, side: number, blockedAt, config): (Vector3?, number?)
+	local prefer = if side < 0 then -1 else 1
+	local spent = 0
+	for _, magnitude in ipairs(config.DETOUR_ANGLES_DEG) do
+		if spent >= config.DETOUR_CASTS then
+			return nil, nil
+		end
+		local degrees = magnitude * prefer
+		local candidate = Lane.turnedAim(here, goal, degrees, config)
+		spent += 1
+		if blockedAt(candidate) ~= true then
+			return candidate, degrees
+		end
+	end
+	return nil, nil
+end
+
+-- WHICH RECOVERY, AND IT IS A MEASUREMENT AND NOT A GUESS. `aheadStuds` is how far down the lane the
+-- first solid thing is and `stepStuds` how far its top stands above the bottom of the swept body --
+-- both from the world's own cast. ioquake3's three answers, in its own order (`be_ai_move.c`): a low
+-- thing is JUMPED (`BotCheckBarrierJump`), anything else is gone ROUND, and a route element that
+-- keeps failing is BACKED AWAY FROM and counted (`AVOIDREACH_TRIES` 4; this ladder reaches its last
+-- rung at `BACK_OFF_AFTER_TRIES` 3, because the bar here is three seconds per episode).
+--
+-- NO MEASUREMENT (the DEV arena injects no reader) IS A SIDESTEP, which is exactly what the stuck
+-- nudge has always done there.
+function Lane.recoveryFor(aheadStuds: number?, stepStuds: number?, tries: number, config): string
+	if tries >= config.BACK_OFF_AFTER_TRIES then
+		return "backoff"
+	end
+	if aheadStuds ~= nil and stepStuds ~= nil and stepStuds <= config.JUMP_OVER_STUDS then
+		return "jump"
+	end
+	return "sidestep"
+end
+
+-- WHERE A RECOVERY AIMS. PURE.
+--   `sidestep`  perpendicular to the lane, the width growing with the tries and the side
+--               ALTERNATING -- `Lane.sideStep`'s own existing law, which is the boar's
+--               `_wedgeCount % 2`: a bot that cannot get past on one side tries the other instead of
+--               leaning harder on the same one.
+--   `jump`      the lane's own point. The jump is the ACTION (the owner changes the humanoid's
+--               state); the aim must not move, or the bot hops sideways off a log it is clearing.
+--   `backoff`   behind the bot, down its own lane, and then offset to the side it is about to try --
+--               so the next sidestep starts from clear ground rather than from against the thing.
+function Lane.recoverAim(here: Vector3, goal: Vector3, kind: string, tries: number, config): Vector3
+	local aim = Lane.aimFor(here, goal, config.AHEAD_STUDS)
+	if kind == "jump" then
+		return aim
+	end
+	local try = math.max(tries, 1)
+	if kind == "backoff" then
+		local away = flat(goal - here)
+		if away.Magnitude < 1e-4 then
+			return aim
+		end
+		local back = here - away.Unit * config.BACK_OFF_STUDS
+		return Lane.sideStep(Vector3.new(back.X, here.Y, back.Z), here, goal, try, config)
+	end
+	return Lane.sideStep(aim, here, goal, try, config)
+end
+
 return Lane
