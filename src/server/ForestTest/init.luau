@@ -1114,6 +1114,66 @@ function ForestTest.toWire(players: { Player }, wired: { [number]: boolean }): {
 	return out
 end
 
+-- WHOSE ROLE REQUEST IS OWED AND MAY BE OFFERED TO THE DRIVE ON THIS TICK (task 214), as a
+-- reconciliation step rather than an event. `toWire`'s shape above, for `toWire`'s reason, and it is
+-- the same defect one layer further in: task 202 fixed "nobody was listening when he joined", and
+-- this fixes "nobody asked again after he joined".
+--
+-- MEASURED IN THE FOREST TEST, 2026-10-19, on Karen's own path (lodge -> truck pad -> drive), with
+-- `DHForestStartRole=beater`: the request was recorded at the join (`asked to join as a beater
+-- (start switch)`), and she then spent THE WHOLE INTERMISSION as a hunter -- `team=Shooters
+-- hand=[Shotgun]`, placed on stand 5 at the road, a ring drawn round it and the objective reading
+-- *get to your stand* -- and was flipped only at GO (`is now a beater (team=Drivers)`), which
+-- respawned her 580 studs north in the middle of the fanfare. THE REQUEST WAS NEVER LOST: it was
+-- offered to the drive at exactly ONE INSTANT, the `Running` edge, and the lobby moved the moment
+-- she enrols to AFTER the one instant that could have used it. Before the lobby (177/209) she was
+-- in the drive from the frame she joined, so `Assigning` and the `Running` edge were the same
+-- intermission and the gap could not be seen.
+--
+-- `settled` IS WHY THIS IS NOT SIMPLY CALLED EVERY TICK, and it is a measurement of `Body.place`
+-- rather than a precaution: that function connects `CharacterAdded` and then calls
+-- `LoadCharacter`, and it disconnects only once its own pivot has finished -- so two placements in
+-- flight for one player both pivot the SAME new character, one to the stand and one to the beater
+-- line, and which one lands last is a coin flip. MEASURED, 2026-10-19, with the first version of
+-- this sweep, which guarded on the character alone: `[place] spawn ... at (3030, 237.6, -1517)`
+-- (the beater line) and then `[place] spawn ... at (3030, 143.5, -2097)` (the road) for one
+-- enrolment, and she finished the intermission a beater -- with the horn, on the HUNTERS' stand.
+--
+-- SO THE RECORD IS "WHAT HE WAS WHEN HIS BODY LAST STOOD STILL", AND IT IS TWO FACTS, because the
+-- race has two halves and the character alone only covers one of them:
+--   * `character` -- the Model the caller watched land. A respawn replaces it, so a stale entry
+--     answers false by construction, which covers the window AFTER `LoadCharacter` has swapped him.
+--   * `team` -- the `Player.Team` he had at that moment. `assignTeams` is applied BEFORE
+--     `placePlayers` in the same dispatch, so a drive that is about to move a man has already
+--     written his new side -- which is the only signal available during the window BEFORE
+--     `LoadCharacter` swaps anything, and it is exactly the window the measurement above fell into.
+-- Together they say: his body has stood still since the drive last changed its mind about him.
+--
+-- PURE OF THE CALLER'S RECORD and it writes nothing -- not `settled`, which the caller owns, and not
+-- `state.requests`, which `takeRequest` consumes when the drive has actually honoured the ask. nil
+-- rather than an empty table when there is nothing to do, so the settled case costs one loop and no
+-- allocation.
+export type Settled = { character: Instance, team: Instance? }
+
+function ForestTest.toHonour(players: { Player }, settled: { [number]: Settled }): { Player }?
+	local out = nil
+	for _, player in ipairs(players) do
+		local seen = settled[player.UserId]
+		local character = player.Character
+		if
+			state.requests[player.UserId] ~= nil
+			and character ~= nil
+			and seen ~= nil
+			and seen.character == character
+			and seen.team == player.Team
+		then
+			out = out or {}
+			table.insert(out, player)
+		end
+	end
+	return out
+end
+
 -- WHAT A BOAR SEES WHEN IT LOOKS AT THIS PLAYER (task 153). PURE, and one line, because the whole
 -- point is that "which role has she asked for" and "what kind of stimulus is she" are the same fact
 -- in two vocabularies: a beater is a `driver` and anybody else is a `shooter`. The Brain's own

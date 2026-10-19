@@ -1080,6 +1080,84 @@ return function()
 
 			TestKit.note("task202 toWire: unwired 101 -> wired -> nil; 202 joins -> 202; 202 leaves -> 202 again")
 		end)
+
+		-- THE SAME DEFECT ONE LAYER FURTHER IN (task 214). Task 202 fixed "nobody was listening when
+		-- he joined"; this is "nobody asked again after he joined", and the lobby is what opened it.
+		--
+		-- MEASURED IN THE FOREST TEST, 2026-10-19, on Karen's own path, `DHForestStartRole=beater`:
+		-- the ask was recorded at the join, and she spent the WHOLE intermission as a hunter --
+		-- `team=Shooters hand=[Shotgun]`, on stand 5, a ring round it, the objective reading *get to
+		-- your stand* -- because the ask was offered to the drive at exactly ONE INSTANT, the
+		-- `Running` edge, and the lobby moved her enrolment to after it. She was then flipped at GO
+		-- and respawned 580 studs north in the middle of the fanfare.
+		--
+		-- `settled` IS THE ONE THING THIS SWEEP HAS THAT `toWire` DOES NOT, and it is a measurement
+		-- of `Body.place` and not a precaution: that function connects `CharacterAdded` and only
+		-- then calls `LoadCharacter`, and disconnects once its own pivot is done -- so two
+		-- placements in flight for one player both pivot the SAME new character, one to the stand
+		-- and one to the beater line. MEASURED, 2026-10-19, with a first version of this sweep that
+		-- guarded on the character alone: `[place] spawn ... (3030, 237.6, -1517)` (the beater line)
+		-- then `[place] spawn ... (3030, 143.5, -2097)` (the road) for ONE enrolment, and she
+		-- finished the intermission a beater with the horn, standing on the HUNTERS' stand.
+		it("says whose role ask is owed, once his body has stood still (task 214)", function()
+			local body = Instance.new("Model")
+			local other = Instance.new("Model")
+			local drivers = Instance.new("Team")
+			local shooters = Instance.new("Team")
+			local asked = { UserId = 1214, Name = "Asked", Character = body, Team = shooters } :: any
+			local quiet = { UserId = 1215, Name = "Quiet", Character = body, Team = shooters } :: any
+			local settled: { [number]: any } = {}
+			ForestTest.clearRequest(1214)
+			ForestTest.clearRequest(1215)
+
+			-- NOBODY HAS ASKED FOR ANYTHING: the settled world costs no table at all.
+			settled[1214] = { character = body, team = shooters }
+			expect(ForestTest.toHonour({ asked, quiet }, settled)).to.equal(nil)
+
+			-- HE ASKED, AND HIS BODY HAS STOOD STILL SINCE THE DRIVE LAST MOVED HIM, SO HE IS OWED
+			-- IT -- whatever phase the drive is in and whenever he enrolled, which is the whole
+			-- point of a sweep rather than one instant.
+			ForestTest.requestRole(1214, "beater")
+			local owed = ForestTest.toHonour({ asked, quiet }, settled)
+			expect(owed).never.to.equal(nil)
+			expect(#(owed :: any)).to.equal(1)
+			expect((owed :: any)[1].UserId).to.equal(1214)
+
+			-- ...BUT NOT WHILE A PLACEMENT IS LANDING FOR HIM. A respawn replaces the Model, so the
+			-- record goes stale by construction: this is the drive's own placement still in flight,
+			-- and offering the ask here is the coin flip the header describes.
+			settled[1214] = { character = other, team = shooters }
+			expect(ForestTest.toHonour({ asked, quiet }, settled)).to.equal(nil)
+			settled[1214] = nil
+			expect(ForestTest.toHonour({ asked, quiet }, settled)).to.equal(nil)
+
+			-- ...AND NOT WHILE THE DRIVE HAS JUST DECIDED TO MOVE HIM AND NOT YET DONE IT, WHICH IS
+			-- THE HALF THE CHARACTER CANNOT SEE: `assignTeams` is applied before `placePlayers` in
+			-- the same dispatch, so a new team with the OLD body still in place means
+			-- `LoadCharacter` has been called and has not landed. That is the window the live
+			-- measurement above fell into.
+			settled[1214] = { character = body, team = drivers }
+			expect(ForestTest.toHonour({ asked, quiet }, settled)).to.equal(nil)
+
+			-- A PLAYER WITH NO CHARACTER AT ALL IS NOT OWED ANYTHING EITHER: absent is not landed.
+			local bodiless = { UserId = 1214, Name = "Asked", Character = nil, Team = shooters } :: any
+			settled[1214] = { character = body, team = shooters }
+			expect(ForestTest.toHonour({ bodiless }, settled)).to.equal(nil)
+
+			-- AND IT IS CONSUMED BY THE HONOUR AND NOT BY THE SWEEP: this function writes nothing,
+			-- so the ask is still there until `takeRequest` has it.
+			expect(ForestTest.pendingRequest(1214)).to.equal("beater")
+			expect(ForestTest.takeRequest(1214)).to.equal("beater")
+			expect(ForestTest.toHonour({ asked, quiet }, settled)).to.equal(nil)
+
+			body:Destroy()
+			other:Destroy()
+			drivers:Destroy()
+			shooters:Destroy()
+			TestKit.note(
+				"task214 toHonour: no ask -> nil; ask + stood still -> 1214; newer body -> nil; newer team -> nil; no body -> nil; taken -> nil"
+			)
+		end)
 	end)
 
 	-- WHERE A BEATER STARTS, AND WHY SHE IS NOT HELD TO A STAND (task 153). Karen, 2026-10-11:
