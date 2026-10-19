@@ -1134,22 +1134,39 @@ end
 -- rather than a precaution: that function connects `CharacterAdded` and then calls
 -- `LoadCharacter`, and it disconnects only once its own pivot has finished -- so two placements in
 -- flight for one player both pivot the SAME new character, one to the stand and one to the beater
--- line, and which one lands last is a coin flip. The drive's `Assigning` placement is in flight for
--- about a second, which is exactly when an unguarded sweep would fire. So the caller records the
--- character it has seen STANDING STILL (the `PLACEMENT_SETTLE_SECONDS` delay `reportStart` already
--- waits, which is the one moment in that file that knows a character has actually landed), and a
--- stale entry answers false by construction: a respawn replaces the Model, so `settled[userId] ==
--- player.Character` is false again until the new one has landed.
+-- line, and which one lands last is a coin flip. MEASURED, 2026-10-19, with the first version of
+-- this sweep, which guarded on the character alone: `[place] spawn ... at (3030, 237.6, -1517)`
+-- (the beater line) and then `[place] spawn ... at (3030, 143.5, -2097)` (the road) for one
+-- enrolment, and she finished the intermission a beater -- with the horn, on the HUNTERS' stand.
+--
+-- SO THE RECORD IS "WHAT HE WAS WHEN HIS BODY LAST STOOD STILL", AND IT IS TWO FACTS, because the
+-- race has two halves and the character alone only covers one of them:
+--   * `character` -- the Model the caller watched land. A respawn replaces it, so a stale entry
+--     answers false by construction, which covers the window AFTER `LoadCharacter` has swapped him.
+--   * `team` -- the `Player.Team` he had at that moment. `assignTeams` is applied BEFORE
+--     `placePlayers` in the same dispatch, so a drive that is about to move a man has already
+--     written his new side -- which is the only signal available during the window BEFORE
+--     `LoadCharacter` swaps anything, and it is exactly the window the measurement above fell into.
+-- Together they say: his body has stood still since the drive last changed its mind about him.
 --
 -- PURE OF THE CALLER'S RECORD and it writes nothing -- not `settled`, which the caller owns, and not
 -- `state.requests`, which `takeRequest` consumes when the drive has actually honoured the ask. nil
 -- rather than an empty table when there is nothing to do, so the settled case costs one loop and no
 -- allocation.
-function ForestTest.toHonour(players: { Player }, settled: { [number]: Instance? }): { Player }?
+export type Settled = { character: Instance, team: Instance? }
+
+function ForestTest.toHonour(players: { Player }, settled: { [number]: Settled }): { Player }?
 	local out = nil
 	for _, player in ipairs(players) do
+		local seen = settled[player.UserId]
 		local character = player.Character
-		if state.requests[player.UserId] ~= nil and character ~= nil and settled[player.UserId] == character then
+		if
+			state.requests[player.UserId] ~= nil
+			and character ~= nil
+			and seen ~= nil
+			and seen.character == character
+			and seen.team == player.Team
+		then
 			out = out or {}
 			table.insert(out, player)
 		end

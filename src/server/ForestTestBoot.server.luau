@@ -1147,11 +1147,12 @@ Match.PhaseChanged:Connect(function(_before, phase)
 	)
 end)
 
--- WHICH CHARACTER OF HIS THIS ROOT HAS SEEN STAND STILL (task 214), by UserId. Owned here, written
--- only in `reportStart`'s settle delay below and dropped only by `PlayerRemoving`: nothing has to
--- clear it on a respawn, because the test every reader makes is `settledCharacter[userId] ==
--- player.Character`, and a respawn replaces the Model.
-local settledCharacter: { [number]: Instance? } = {}
+-- WHAT EACH PLAYER WAS WHEN HIS BODY LAST STOOD STILL (task 214), by UserId: the character, and the
+-- team he was on at that moment. Owned here, written only in `reportStart`'s settle delay below and
+-- dropped only by `PlayerRemoving`. Nothing has to clear it on a respawn or on a team change:
+-- `ForestTest.toHonour` compares both fields with what the player has NOW, and its header carries
+-- the measurement that says why one of them is not enough.
+local settledCharacter: { [number]: ForestTest.Settled } = {}
 
 -- ONE LINE PER START, AND IT IS PRINTED WHEN THE CHARACTER HAS ACTUALLY LANDED (task 157).
 --
@@ -1178,7 +1179,7 @@ local function reportStart(player: Player, character: Model)
 		-- printing a line about". A character that is still unparented at this point would otherwise
 		-- leave the player's ask unhonourable for ever, which the `Running` edge used to cover.
 		if player.Character == character then
-			settledCharacter[player.UserId] = character
+			settledCharacter[player.UserId] = { character = character, team = player.Team }
 		end
 		local root = character.PrimaryPart
 		if character.Parent == nil or root == nil then
