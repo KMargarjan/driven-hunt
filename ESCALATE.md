@@ -1,5 +1,46 @@
 # Escalations
 
+## 2026-10-19 - Task 210: NEEDS KAREN -- `test2` is the only thing that can evidence the tie-spec fix
+
+**Nothing is wrong and nothing is undecided. This is the one click I cannot make.** Task 210's two
+fixes are built, gated and committed at code commit `d6d42bc`
+(`[harness] PASS: 33/33 checks @ d6d42bce673ea7d7d80004d475fe6b3b4f745267 (clean tree) scope=all`,
+five runs at that commit, 5/5 PASS, CI green), and the Director's dispatch provided for exactly this
+outcome: *"if either is in TWO_PLAYER_PATHS, STOP `NEEDS TEST2 210 <sha>`"*.
+
+**WHY.** One of the two specs is `tests/client/zz_tie_to_a_tree.spec.luau`, which is in
+`TWO_PLAYER_PATHS`, and its probe does not fire at all with one player -- all five runs print
+`zz_tie: one player, so no beater to refuse a shot at; probe not fired`, because there is no driver
+to aim at. So the one-player suite cannot evidence that half, and `tools/review.sh` refuses the
+review round without the two-player line:
+
+```
+[agents] REFUSED: this change touches tests/client/zz_tie_to_a_tree.spec.luau, which a one-player
+run cannot evidence. Paste the TWO-PLAYER line for the code commit as well:
+  [harness2] PASS: n/m checks @ d6d42bce673ea7d7d80004d475fe6b3b4f745267 (clean tree)
+```
+
+**THE EXACT STEPS, in order.**
+
+1. Studio open on **Driven Hunt DEV** (placeId 136410205938347) in **Edit** mode, Rojo connected.
+2. `git switch task-210-flakes` -- the tree must be clean at `d6d42bc` or later (only paperwork has
+   landed since: `reviews/task-210/REQUEST.md`, this file and the `TASKS.md` row).
+3. `python tools/studio_mcp.py test2` -- **and the one human click it asks for**, to start the
+   two-player local server.
+4. Paste the `[harness2] PASS: n/m checks @ d6d42bce673ea7d7d80004d475fe6b3b4f745267 (clean tree)`
+   line into `reviews/task-210/REQUEST.md` under the existing `[harness]` line, commit it, then run
+   `powershell -ExecutionPolicy Bypass -File tools/review.ps1 210`.
+
+The dispatch says the Director runs `test2` x3, which is also the right bar for a race fix
+(Learning Agent L-033) -- a single clean two-player run would not settle either spec.
+
+**WHAT TO LOOK FOR IN THOSE RUNS,** beyond PASS: the note
+`zz_tie: probe attempts (N discarded for replayed input inside the window, task 210)`. `N` is how
+many attempts the replay's own gun input would previously have been asserted through. And in
+`boar_body.spec`, `boar sounder: the break case inherits -- ... scatterFor 3.9x ...` followed by
+`the break case leaves -- 1 sounder(s), 3 member(s)`: the clock ran inside a live scatter and the
+sounder still lost exactly the one member the case dragged away.
+
 ## 2026-10-19 - Task 206: A DECISION IS NEEDED -- the first-person horn's HAND cannot be fixed by posing it, because the horn is too big
 
 **This is a feel/size decision, which is Karen's (CLAUDE.md stop rules). Task 206's other two halves
