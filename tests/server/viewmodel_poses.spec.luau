@@ -1289,20 +1289,6 @@ return function()
 		-- |x| / depth and |y| / depth below it. `FOV_THIRD_DEG` is the hip field of view, which is
 		-- the one a beater is ever looking through -- a horn has no aim.
 		local HALF_VIEW = math.tan(math.rad(Config.FOV_THIRD_DEG / 2))
-		-- ...AND HALF THE VIEW ACROSS, WHICH IS NOT THE SAME NUMBER (task 212). `FieldOfView` is
-		-- VERTICAL, so the horizontal half is the vertical one times the aspect: the two cases below
-		-- compared an |x| against `HALF_VIEW` and were therefore asking whether the horn fitted a
-		-- SQUARE crop of the middle of the screen. Nothing noticed until now because every horn
-		-- before this one was a narrow shape near the centre column -- task 211's blow spanned
-		-- x 41..53 % of the width.
-		--
-		-- IT MATTERS NOW BECAUSE THE DESIGNER PUTS THE BELL AT x = 80 % (`horngrip-spec.md` section
-		-- 3: bell *"centred at x 80% / y 31%"*, and *"keep the horn left of x = 84%"*), which is
-		-- outside a square centre crop and well inside a 16:9 frame. 16:9 IS THE BOARD'S FRAME --
-		-- every number in that file is read off a 1280x720 picture -- so it is the aspect this
-		-- bound is written against, and a narrower window crops the sides rather than moving the
-		-- horn. The vertical bound is untouched.
-		local HALF_VIEW_ACROSS = HALF_VIEW * 16 / 9
 		-- Nothing may be nearer the lens than this. The engine would still draw it, but a section of
 		-- horn a stud from the eye is the wall of horn task 176 shipped -- AND THAT BOUND IS ABOUT A
 		-- 3.125-STUD HORN (task 211), so it scales with the horn that is actually drawn. The floor
@@ -1370,17 +1356,16 @@ return function()
 			TestKit.note(
 				string.format(
 					"task202 carry: worst |x|/depth %.4f, |y|/depth %.4f, nearest %.4f studs"
-						.. " (half view %.4f across, %.4f down, nearest allowed %.2f; task 176"
-						.. " shipped 1.6270 / 0.8580 / 1.0885)",
+						.. " (half view %.4f, nearest allowed %.2f; task 176 shipped"
+						.. " 1.6270 / 0.8580 / 1.0885)",
 					worstX,
 					worstY,
 					nearest,
-					HALF_VIEW_ACROSS,
 					HALF_VIEW,
 					NEAREST_STUDS
 				)
 			)
-			expect(worstX < HALF_VIEW_ACROSS).to.equal(true)
+			expect(worstX < HALF_VIEW).to.equal(true)
 			expect(worstY < HALF_VIEW).to.equal(true)
 			expect(nearest > NEAREST_STUDS).to.equal(true)
 		end)
@@ -1407,7 +1392,7 @@ return function()
 					nearest
 				)
 			)
-			expect(worstX < HALF_VIEW_ACROSS).to.equal(true)
+			expect(worstX < HALF_VIEW).to.equal(true)
 			expect(worstY < HALF_VIEW).to.equal(true)
 			expect(nearest > NEAREST_STUDS).to.equal(true)
 		end)
@@ -1455,9 +1440,9 @@ return function()
 		-- MeshPart's vertices; it is checked against the mesh rather than assumed. Measured off the
 		-- published `prepped/glove_right_v4_r1/model.glb` (which is the drawn part: its bounds times
 		-- a hundred are `Assets.HAND_RIGHT_NATURAL` to the digit, and it carries the 6,192 triangles
-		-- that manifest row records) with this same ray test, the real vertices answer 0.29 and 0.40
-		-- for task 211's two poses where this box answers 0.24 and 0.26, and 0.59 and 0.63 for task
-		-- 212's where it answers 0.42 and 0.46. The box reads low and moves the same way.
+		-- that manifest row records) with this same ray test, the real vertices answer 0.29 and 0.39
+		-- for task 211's two poses where this box answers 0.24 and 0.26, and 0.56 and 0.43 for task
+		-- 212's where it answers 0.43 and 0.44. The box tracks the mesh across all four.
 		local SAMPLES = {}
 		for i = 0, 5 do
 			for j = 0, 3 do
@@ -1478,9 +1463,19 @@ return function()
 			for step = 0, 63 do
 				local t = 0.02 + (0.995 - 0.02) * step / 63
 				local u = horn:PointToObjectSpace(point * t) / scale
-				local centre, radius = Horn.tubeAt(u.Z)
-				if math.sqrt(u.X * u.X + (u.Y - centre) * (u.Y - centre)) <= radius then
-					return true
+				-- THE TUBE HAS ENDS, and `Horn.tubeAt` does not say so: its header records that
+				-- "past either end it holds the end row", which is right for a question about the
+				-- horn and wrong for a ray that has flown off it. Without this line the test sees an
+				-- infinite cylinder -- radius 0.108 past the bell and 0.0715 past the mouthpiece --
+				-- and a ray that misses the horn entirely counts as covered. `TUBE_SAMPLES` runs
+				-- -1.5 .. +1.5. (It changes no shipped number: both poses here and both of task
+				-- 211's answer the same share with it and without it. It is here so the measure
+				-- cannot be fooled by a pose that puts the hand off the end of the horn.)
+				if u.Z >= -1.5 and u.Z <= 1.5 then
+					local centre, radius = Horn.tubeAt(u.Z)
+					if math.sqrt(u.X * u.X + (u.Y - centre) * (u.Y - centre)) <= radius then
+						return true
+					end
 				end
 			end
 			return false
@@ -1497,8 +1492,8 @@ return function()
 		end
 
 		-- THE BOUND IS 0.35 AND THE TWO SIDES OF IT ARE BUILDS THAT WERE LOOKED AT: task 211's two
-		-- poses answer 0.24 and 0.26 (the case below runs them), and task 212's answer 0.42 and
-		-- 0.46. It is nowhere near either, so a pose has to really move for this to change hands.
+		-- poses answer 0.24 and 0.26 (the case below runs them), and task 212's answer 0.43 and
+		-- 0.44. It is nowhere near either, so a pose has to really move for this to change hands.
 		local COVERED = 0.35
 
 		it("closes the right fist around the tube in both poses", function()
@@ -1518,7 +1513,8 @@ return function()
 				TestKit.note(
 					string.format(
 						"task212 %s grip: the horn covers %.3f of the fist (task 211 covered 0.24 and"
-							.. " 0.26); grip (%.4f, %.4f, %.4f) is %.4f off the centre line (tube"
+							.. " 0.26, and this file asks for more than 0.35); grip (%.4f, %.4f,"
+							.. " %.4f) is %.4f off the centre line (tube"
 							.. " radius %.4f there), hole axis %.2f deg off the tangent, fingertip"
 							.. " %.4f off against the cuff's %.4f",
 						case.name,
