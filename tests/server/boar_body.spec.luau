@@ -756,61 +756,62 @@ return function()
 		it("drops a member that has been too far away for too long", function()
 			TestKit.note("boar sounder: the break case inherits -- " .. herdPrint(group))
 
-			-- THE SCATTER IS NOT THIS CASE'S SUBJECT, AND IT BREAKS SOUNDERS BY DESIGN (task 210).
-			-- The case before this one shot the leader, which latches `SCATTER_SECONDS` = 6: for
-			-- those seconds `Brain._herdSteer` drops cohesion, alignment and the file and TRIPLES
-			-- separation, so the group spreads on purpose -- and the rule this case tests expels a
-			-- member that is further than `BREAK_STUDS` from the animal ahead of it for
-			-- `BREAK_SECONDS`. Run the break clock inside the scatter and the sounder loses members
-			-- the world never dragged anywhere.
-			--
-			-- MEASURED, and it is why this case was red on most two-player runs of the week of
-			-- 2026-10-18: in the Director's runs at `e1c6966` and `449e012` the scatter had reached
-			-- 40.7 and 44.0 studs of width by the end of the case before this one, against 32.4 in a
-			-- passing run, and the sounder then fell to ONE member inside this case's four seconds,
-			-- dissolved itself (`#members <= 1` in `Runtime._stepSounders`) and left
-			-- `herd:sounders()[1]` nil on the last line below -- `attempt to index nil with
-			-- 'memberIds'`, here and at the head of the next case. Reproduced deterministically by
-			-- forcing the width to 160 studs here: 0 sounders, `membersLeft` 4, those two errors.
-			--
-			-- SO IT WAITS FOR THE SCATTER TO BE OVER, on the runtime's OWN published clock and on
-			-- the width that clock produced -- not on a sleep, and nothing is loosened: the
-			-- assertions below are unchanged. `scatterFor` counts down in `_step`
-			-- (`math.max(0, scatterFor - dt)`) and the sounder re-forms under cohesion once it
-			-- reaches 0. The width is the second half of the condition and it is the half that
-			-- matters to the rule: `spread` is the WIDEST pair, so a width under `BREAK_STUDS` means
-			-- every member is inside `BREAK_STUDS` of every other one, which means the rule's own
-			-- `awayFor` counter was reset to 0 for all of them on that very step. The break clock
-			-- this case is about therefore starts from zero, for every member, by construction.
-			local reformed, waited = waitUntil(SETTINGS.SCATTER_SECONDS + 10, function()
-				local current = herd:sounders()[1]
-				return current ~= nil
-					and current.scatterFor == 0
-					and spread(memberBodies(group, current)) < SETTINGS.BREAK_STUDS
-			end)
-			TestKit.note(
-				string.format(
-					"boar sounder: the break case waited %.2f s for the scatter to end and the sounder to "
-						.. "re-form (re-formed=%s) -- %s",
-					waited,
-					tostring(reformed),
-					herdPrint(group)
-				)
-			)
-			expect(reformed).to.equal(true)
-
+			-- THE SOUNDER THIS CASE NEEDS, ASSERTED BEFORE IT IS INDEXED (task 210): one sounder, and
+			-- one that can lose a member and still BE a sounder. This case drops exactly one member,
+			-- and a sounder of two that loses one dissolves -- so with fewer than three the
+			-- assertions below are asking a different question. Said out loud here, so a herd that
+			-- arrives damaged fails on a line that names the problem rather than on a nil index.
+			expect(#herd:sounders()).to.equal(1)
 			local view = herd:sounders()[1]
-			local strayId = view.memberIds[#view.memberIds]
+			local members = #view.memberIds
+			expect(members >= 3).to.equal(true)
+			local strayId = view.memberIds[members]
 			local stray = handleOf(group, strayId)
 			expect(stray).to.be.ok()
 			local before = herd:stats().membersLeft
-			local members = #view.memberIds
-			-- ...AND THE SOUNDER MUST BE ABLE TO LOSE ONE AND STILL BE A SOUNDER. This case drops
-			-- exactly one member, and a sounder of two that loses one dissolves -- so with fewer than
-			-- three the assertions below are asking a different question. Said out loud here, so a
-			-- herd that arrives damaged fails with THIS line rather than with a nil index three
-			-- lines later (task 210).
-			expect(members >= 3).to.equal(true)
+
+			-- THE SCATTER IS NOT THIS CASE'S SUBJECT, AND IT BREAKS SOUNDERS BY DESIGN (task 210).
+			-- The case before this one shoots the leader, which latches `SCATTER_SECONDS` = 6: for
+			-- those seconds `Brain._herdSteer` drops cohesion, alignment and the file and TRIPLES
+			-- separation, so the group spreads ON PURPOSE. This case then starts a `BREAK_SECONDS` = 4
+			-- clock -- and the rule it tests expels any member further than `BREAK_STUDS` = 60 from
+			-- the animal ahead of it for those four seconds. Run that clock inside the scatter and the
+			-- sounder loses members the world never dragged anywhere.
+			--
+			-- MEASURED, and it is why these two cases were red on most two-player runs of the week of
+			-- 2026-10-18: in the Director's runs at `e1c6966` and `449e012` (and in `test2-t158b.log`
+			-- and `test2-t201c.log` before them) the scatter had reached 40.7 and 44.0 studs of width
+			-- by the end of the previous case, against 32.4 in a passing run, with 60 the limit. The
+			-- sounder then fell to ONE member inside this case's four seconds, dissolved itself
+			-- (`#members <= 1` in `Runtime._stepSounders`) and left `herd:sounders()[1]` nil on the
+			-- last line of this case -- `attempt to index nil with 'memberIds'`, here and at the head
+			-- of the next one. Reproduced deterministically by forcing that width to 160 studs here:
+			-- 0 sounders, `membersLeft` 4, the same two errors.
+			--
+			-- SO THE WORLD HOLDS THE GROUP WHILE THE CLOCK RUNS, which is this case's own instrument
+			-- pointed at its own premise. It already drags ONE member out of formation every frame
+			-- and asserts that the rule expels it; holding the OTHERS in formation for those same
+			-- frames is the other half of that sentence -- "and the rest are still a group" -- and it
+			-- is the half that was never established. Nothing is loosened and nothing sleeps: every
+			-- assertion is unchanged, the clock is still the rule's own `BREAK_SECONDS`, and the only
+			-- member outside `BREAK_STUDS` is now the one this case put there.
+			--
+			-- WAITING THE SCATTER OUT INSTEAD WAS TRIED AND MEASURED, and it is not enough: on
+			-- `scatterFor == 0` plus a re-formed width the sounder had already lost a member DURING
+			-- the wait (4 -> 3 in 5.57 s, at `557fa15`). That moves the race rather than removing it.
+			local held, heldAt = {}, {}
+			for _, handle in ipairs(memberBodies(group, view)) do
+				if handle.id ~= strayId then
+					table.insert(held, handle)
+					table.insert(heldAt, handle.part.CFrame)
+				end
+			end
+			-- ...AND WHAT IT HOLDS MUST BE A FORMATION. A group already wider than `BREAK_STUDS` when
+			-- this case starts is a frozen broken sounder, not a held one: 32.6 studs in a passing
+			-- run and 40.7 / 44.0 in the two failing ones, so the previous case has never yet handed
+			-- over a group that was already over the limit -- and if it ever does, THIS line says so
+			-- instead of the arithmetic quietly changing.
+			expect(spread(held) < SETTINGS.BREAK_STUDS).to.equal(true)
 
 			-- The WORLD moves it, not the runtime: BREAK_STUDS is 60, so the far corner of the plate
 			-- is outside it. (The design drags it with a threat instead; that spends BREAK_SECONDS
@@ -819,6 +820,10 @@ return function()
 			while elapsed < SETTINGS.BREAK_SECONDS + 1.5 do
 				stray.part.CFrame = CFrame.new(Vector3.new(-200, SOUNDER_Y + CONFIG.BODY_SIZE.Y / 2, 200))
 				stray.part.AssemblyLinearVelocity = Vector3.zero
+				for index, handle in ipairs(held) do
+					handle.part.CFrame = heldAt[index]
+					handle.part.AssemblyLinearVelocity = Vector3.zero
+				end
 				elapsed += RunService.Heartbeat:Wait()
 			end
 
