@@ -181,9 +181,16 @@ return function()
 
 		it("keeps the four over-the-world opacities the contrast table was computed at", function()
 			-- §2's whole table rests on these. If the lighting pass makes the sky brighter than
-			-- `#B4CFE4`, the ONE knob is `SLATE_T`: 0.18 -> 0.12 -- and that is a decision, not a
-			-- drift, so it changes here and the table is recomputed.
-			expect(Style.SLATE_T).to.equal(0.18)
+			-- `#B4CFE4`, the ONE knob is `SLATE_T` -- and that is a decision, not a drift, so it
+			-- changes here and the table is recomputed.
+			--
+			-- 0.14 SINCE TASK 215, ON THE DIRECTOR'S INSTRUCTION. The lighting spec's §6 makes the
+			-- change conditional on the sky measuring brighter than `#B4CFE4`, and it does NOT:
+			-- with `AUTUMN_LIGHT` on the brightest sky over two Forest Test frames is `#94B9D3`
+			-- (luma 176.9) against that `#B4CFE4` (201.3). The change is kept because it is
+			-- strictly safer -- `BLAZE_HI`, the tightest colour, goes 4.66 : 1 -> 5.18 : 1 over
+			-- §2's own tested ground -- and reverting it is one line in `Style.luau` and this one.
+			expect(Style.SLATE_T).to.equal(0.14)
 			expect(Style.SLATE_QUIET_T).to.equal(0.08)
 			expect(Style.CARD_T).to.equal(0.06)
 			expect(Style.PANEL_T).to.equal(0)

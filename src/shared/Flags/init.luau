@@ -46,15 +46,16 @@ export type FlagRow = {
 Flags.NAME_PATTERN = "^[A-Z][A-Z0-9_]*$"
 Flags.MAX_NAME_LENGTH = 40 -- "DHFlag_" + 40 <= Roblox's 100-character attribute-name limit
 Flags.OVERRIDE_PREFIX = "DHFlag_"
--- THIRTEEN SINCE TASK 178, and the bump is a decision with its reason beside it. The cap's own
+-- FOURTEEN SINCE TASK 215, and the bump is a decision with its reason beside it. The cap's own
 -- sentence is about DARK paths -- *"more than twelve dark paths means the stack problem moved, not
--- went away"* -- and it counts ROWS. Of the thirteen rows, five are LIT and accepted
--- (`TIE_UNTIL_DRIVE_END`, `BOAR_SOUNDERS`, `ORANGE_OUTFITS`, `RIFLE`, `FIRST_PERSON`: `default =
--- true`, and three of them are queued for retirement as TASKS.md 82b), so the number the Director
--- should see is EIGHT DARK, which is under the twelve the rule is about. Retiring those three
--- brings the row count back under 12 without touching this line, and that is the Director's call
+-- went away"* -- and it counts ROWS. Of the fourteen rows, SIX are LIT and accepted
+-- (`TIE_UNTIL_DRIVE_END`, `BOAR_SOUNDERS`, `ORANGE_OUTFITS`, `RIFLE`, `FIRST_PERSON` and now
+-- `AUTUMN_LIGHT`: `default = true`, and three of them are queued for retirement as TASKS.md 82b),
+-- so the number the Director should see is still EIGHT DARK, which is under the twelve the rule is
+-- about -- task 215 added a row and no dark path at all. Retiring those three brings the row count
+-- back under 12 without touching this line, and that is the Director's call
 -- (docs/design/shop.md section 16 item 8), not this task's.
-Flags.MAX_FLAGS = 13
+Flags.MAX_FLAGS = 14
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -350,6 +351,35 @@ Flags.DEFAULTS = {
 			.. "by standing in the marked circle beside the truck; at the end of a drive he is back "
 			.. "at the lodge. OFF is the game before task 177: joining the server joins the drive, "
 			.. "nothing is built and no terrain is written.",
+	} :: FlagRow,
+	AUTUMN_LIGHT = {
+		-- BORN **ON**, which no dark path in this table is, and the reason is what the flag protects
+		-- against rather than what it switches on. KAREN, 2026-10-17, asked whether the Designer
+		-- should tune the lighting -- the cabin and the boar heads read pale: *"yes"*. The Designer's
+		-- answer (the lighting spec, 2026-10-19) takes `Ambient` from 159,159,159 to 44,40,34, which
+		-- is most of the fix and is also the single thing that could be TOO MUCH: a late-autumn
+		-- morning that nobody can see in is worse than a pale one. So the look ships ON -- there is
+		-- no point merging a look nobody can look at -- and this row exists so the Director can take
+		-- it off LIVE with `tools/flags.py set AUTUMN_LIGHT off` the moment Karen says it is too
+		-- dark, without a commit and without a build.
+		--
+		-- OFF IS "UNTOUCHED", NOT "A SECOND SET OF NUMBERS". `Light.plan` answers nil when it is
+		-- off, so `LightBoot` writes nothing at all and the place keeps whatever its own `Lighting`
+		-- holds -- which, measured on 2026-10-19, is 159,159,159 at `Brightness` 3.0 in the Forest
+		-- Test and 110,100,90 at 2.6 in DEV. A restore-from-snapshot off-switch was refused in the
+		-- note (section 4): a snapshot taken after something else has written is a snapshot of the
+		-- wrong thing.
+		default = true,
+		-- The owner is the module that READS it at its boundary (`Light.ENABLED`) and passes it
+		-- inward as `Light.plan`'s first argument -- the only permitted shape, and what keeps both
+		-- branches reachable by parameter while the row sits at `true`:
+		-- `tests/server/light.spec.luau` calls `plan(false, CONFIG)` with no service and no Play.
+		owner = "ServerScriptService.Light",
+		born = "2026-10-19 task 215",
+		expires = "2026-11-09", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "One late-autumn Central-European morning, written from code in every world: a warm "
+			.. "near-black Ambient, a cool OutdoorAmbient, a low 8.2 sun, one Atmosphere and two "
+			.. "post effects. OFF leaves the place's own Lighting exactly as it is.",
 	} :: FlagRow,
 }
 

@@ -2067,8 +2067,9 @@ local function build(): ScreenGui
 	objective.Text = ""
 	objective.Visible = false
 	-- AND NO BLACK OUTLINE (§2). The slate behind it is what makes it readable over a sunlit wood,
-	-- and it was measured: `PAPER` on `SLATE` at 0.18 is 10.7 : 1 over the brightest sky this engine
-	-- makes, against the 4.5 : 1 floor.
+	-- and it was measured: `PAPER` on `SLATE` at `Style.SLATE_T` is 11.9 : 1 over the brightest sky
+	-- this engine makes (10.7 : 1 before task 215 moved that number from 0.18 to 0.14), against the
+	-- 4.5 : 1 floor.
 	objective.Parent = objectiveBack
 
 	-- ...AND THE WAYPOINT: a chevron over the world, and its word with the distance under it.

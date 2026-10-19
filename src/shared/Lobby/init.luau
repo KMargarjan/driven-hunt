@@ -548,7 +548,15 @@ Lobby.CONFIG = {
 			COLOR = Color3.fromRGB(255, 160, 60),
 			SECONDARY_COLOR = Color3.fromRGB(216, 72, 24),
 		},
-		FIRE_LIGHT = { brightness = 2.4, rangeStuds = 42, color = Color3.fromRGB(255, 176, 104) },
+		-- THE RANGE IS 30 AND NOT 42 SINCE TASK 215 (the Designer's lighting spec, 2026-10-19, §5).
+		-- At 42 the fire lit the ENTIRE room evenly -- the flat look again, just warmer. At 30 the
+		-- north end (the counter, the rack) falls outside the fire's reach and the lanterns up there
+		-- do their own job, so the room gains a gradient from hearth to counter -- which is the only
+		-- reason to have two kinds of light in one room. `Shadows` stays at its default `false`:
+		-- a shadow-casting `PointLight` is a cubemap render per frame and six of them would cost
+		-- more than the whole lighting change put together. These are fill lights; fill does not
+		-- cast.
+		FIRE_LIGHT = { brightness = 2.4, rangeStuds = 30, color = Color3.fromRGB(255, 176, 104) },
 		-- THE LANTERNS: three inside hung off the beams, two outside beside the door.
 		-- DIM, AND WARM. At brightness 1.1 over 20 studs the two on the porch washed the whole front
 		-- wall white in the first photograph; a lantern is a thing you see, not a floodlight.
@@ -558,8 +566,15 @@ Lobby.CONFIG = {
 			DROP_STUDS = 3.2,
 			-- THE ROOM WENT DARK IN SPEC 1, so the lanterns carry more of it: three pools of warm
 			-- light on a dark floor is the whole look (spec 11).
-			brightness = 1.05,
-			rangeStuds = 22,
+			--
+			-- HOTTER AND TIGHTER SINCE TASK 215 (the Designer's lighting spec, 2026-10-19, §5):
+			-- 1.05 -> 1.25 and 22 -> 20. The pools were always there and nobody could see one of
+			-- them, because `Lighting.Ambient` at 159,159,159 was brighter than all six lamps put
+			-- together; with the ambient down to 44,40,34 these two numbers are what turn a wash
+			-- into three distinct pools -- which is what this config's own comment asked for and
+			-- could not get.
+			brightness = 1.25,
+			rangeStuds = 20,
 			color = Color3.fromRGB(255, 186, 116),
 			GLASS_COLOR = Color3.fromRGB(240, 186, 118),
 		},

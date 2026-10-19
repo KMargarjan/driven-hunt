@@ -148,10 +148,24 @@ local LOOK = Style.LOOK
 
 -- ---------------------------------------------------------------- §1.3 depth: the four opacities
 --
--- OVER-THE-WORLD OPACITY, MEASURED AND NOT CHOSEN (§2). A slate at 0.18 over the six worst grounds
--- this game makes keeps every type colour above 4.5 : 1. If the lighting pass ends up brighter than
--- `#B4CFE4`, the ONE knob is this number: 0.18 -> 0.12, and §2's table still holds with room.
-Style.SLATE_T = 0.18
+-- OVER-THE-WORLD OPACITY, MEASURED AND NOT CHOSEN (§2). A slate over the six worst grounds this
+-- game makes must keep every type colour above 4.5 : 1. If the lighting pass ends up brighter than
+-- `#B4CFE4`, the ONE knob is this number, and §2's table still holds with room.
+--
+-- 0.14 SINCE TASK 215, ON THE DIRECTOR'S INSTRUCTION, AND THE MEASUREMENT DID NOT ASK FOR IT --
+-- which is written here because the next person to read this line will otherwise assume it did.
+-- The lighting spec's §6 makes the change CONDITIONAL: *"If Karen measures the sky and it is at or
+-- under `#B4CFE4`, leave the slate at 0.18. The 0.14 is insurance, not an improvement."* The sky
+-- was measured, off 82,945 pixels of real sky in two Forest Test frames with `AUTUMN_LIGHT` on
+-- (`<runs-dir>/t215/measure.py`): the brightest patch is **`#94B9D3`, luma 176.9** -- DARKER than
+-- the `#B4CFE4` (201.3) that §2 already tested, and darker than the same frames without the flag
+-- (`#ACBECC`, 186.2). The new lighting makes the sky dimmer, not brighter, so §6's trigger is not
+-- met.
+--
+-- It is 0.14 anyway because the Director asked for it and it is strictly safer: over §2's own
+-- tested `#B4CFE4` the tightest colour, `BLAZE_HI`, goes from **4.66 : 1 to 5.18 : 1**, and every
+-- other colour gains with it. Reverting it is this one line.
+Style.SLATE_T = 0.14
 Style.SLATE_QUIET_T = 0.08 -- a surface holding 9-11 px type: the compass band, a rail button
 Style.CARD_T = 0.06 -- a floating card: the hit card, the start card, the results board
 Style.PANEL_T = 0 -- a modal panel
