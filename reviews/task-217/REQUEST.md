@@ -11,10 +11,12 @@ Branch `task-217-role-rotation`. Design `docs/design/role-rotation.md` (Architec
 
 ```
 [harness] PASS: 33/33 checks @ af0c257fbe927246853fc68c6b91856d91654999 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ af0c257fbe927246853fc68c6b91856d91654999 (clean tree)
 ```
 
-`[harness2]` is **NOT YET PASTED**: `src/server/Match/` and `src/shared/Drive/` are both in
-`TWO_PLAYER_PATHS`, so this task needs it and **the Director runs it** (`NEEDS TEST2 217 af0c257`).
+Both lines name the **same** commit, and it is the code commit: `src/server/Match/` and
+`src/shared/Drive/` are both in `TWO_PLAYER_PATHS`, so this task needs the two-player run. The
+**Director ran it**, first try, on the clean tree at that commit.
 
 ---
 
@@ -177,5 +179,6 @@ fixes neither; it designs AROUND 214a(a) (the memoised read, claim 9) and shapes
 
 ## Paperwork only after the code commit
 
-`git diff --name-only af0c257..HEAD` is `reviews/task-217/REQUEST.md` and the task's status row in
-`TASKS.md`. Nothing under `src/`, `tests/` or `tools/` changed after the tested commit.
+`git diff --name-only af0c257..HEAD` answers exactly two paths — `reviews/task-217/REQUEST.md` and
+`TASKS.md` (the task's own status row plus the rows queued as 217a/217b/217c). Nothing under `src/`,
+`tests/` or `tools/` changed after the tested commit, so both harness lines above cover the head.
