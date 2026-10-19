@@ -1,7 +1,7 @@
 # Task 211 — the first-person horn fits the view, with a real hand on it
 
 Task: 211
-Round: 2
+Round: 1
 Base: 70d7788 (main)
 Code commit: 94470972649988cd95ebbdf78311b6b30a5404a9
 
@@ -13,6 +13,10 @@ Code commit: 94470972649988cd95ebbdf78311b6b30a5404a9
 `test2` is **N/A**: `agents.needs_two_player` answers `[]` for every path this branch touches —
 `src/shared/Viewmodel/`, `src/client/Camera/Viewmodel.luau` and two spec files, none of them in
 `TWO_PLAYER_PATHS` (the match, the drive, the tie, the teams).
+
+**`Round: 1` and not 2 on purpose:** round 1's review came back `PASS`, so `tools/agents.py`
+counts this as a fresh round — the counter advances on findings, not on builds. This is the second
+BUILD round, after the Director looked at round 1's frames and bounced the blow pose.
 
 ## What changed
 
