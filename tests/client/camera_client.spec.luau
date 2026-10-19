@@ -1616,6 +1616,62 @@ return function()
 			return tool, handle
 		end
 
+		-- THE DRAWN HORN IS SCALED AND THE REAL ONE IS NOT (task 211). KAREN, 2026-10-18: *"also horn
+		-- is broken arm is wrong"*. The Director's decision on task 206's escalation (option B,
+		-- 2026-10-19) is that the FIRST-PERSON CLONE shrinks so the glove -- which is not scaled with
+		-- it -- comes nearer and draws bigger, while the horn every other player sees keeps the size
+		-- Karen asked for. That is a claim about two objects, so it is measured on both: the clone
+		-- under the camera carries `HORN.scale`, and the Tool's own Handle and its mesh are the size
+		-- they were handed in. `viewmodel_poses.spec` holds the pose arithmetic; this is the only
+		-- place the engine's own `ScaleTo` actually runs.
+		it("scales the clone under the camera and never the Tool's own Handle", function()
+			local tool, handle = hornTool()
+			local body = handle:FindFirstChild("Body") :: BasePart
+			local wasHandle, wasBody = handle.Size, body.Size
+			local live = Camera.Viewmodel.getSource()
+			Camera.Viewmodel.setSource(function()
+				return handle
+			end)
+			local ok, err = pcall(function()
+				Camera.Viewmodel.clear()
+				task.wait(0.3)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
+				local drawn = Camera.Viewmodel.current()
+				expect(drawn).to.be.ok()
+				expect((drawn :: Model).Name).to.equal("DrivenHuntHornViewmodel")
+				local scale = (firstPersonConfig :: any).HORN.scale
+				TestKit.note(
+					string.format(
+						"task211 the drawn horn is at scale %.4f (the file says %.4f); the Tool's"
+							.. " Handle is still %.4f x %.4f x %.4f and its mesh %.4f long",
+						(drawn :: Model):GetScale(),
+						scale,
+						handle.Size.X,
+						handle.Size.Y,
+						handle.Size.Z,
+						body.Size.X
+					)
+				)
+				expect(math.abs((drawn :: Model):GetScale() - scale) < 1e-4).to.equal(true)
+				-- THE CLONE'S OWN PARTS ACTUALLY SHRANK, which is what `GetScale` is a record of and
+				-- not a substitute for: the drawn body is the real one times the scale.
+				local drawnBody = ((drawn :: Model).PrimaryPart :: BasePart):FindFirstChild("Body")
+				expect(drawnBody).to.be.ok()
+				expect(math.abs((drawnBody :: BasePart).Size.X - wasBody.X * scale) < 1e-3).to.equal(true)
+				-- AND THE TOOL IS UNTOUCHED. The Handle the server welded to the character is what
+				-- every other player sees, and a viewmodel that resized it would have shrunk the
+				-- horn in the world -- which is the option the Director did NOT take.
+				expect(handle.Size).to.equal(wasHandle)
+				expect(body.Size).to.equal(wasBody)
+			end)
+			Camera.Viewmodel.setSource(live)
+			Camera.Viewmodel.clear()
+			tool:Destroy()
+			if not ok then
+				error(err, 0)
+			end
+		end)
+
 		it("draws the horn in CAMERA space, so a 360 turn cannot leave it behind", function()
 			local tool, handle = hornTool()
 			local live = Camera.Viewmodel.getSource()
