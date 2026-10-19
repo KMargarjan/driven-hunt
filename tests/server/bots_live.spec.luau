@@ -1236,8 +1236,11 @@ return function()
 				{
 					id = "bot-beater-1",
 					team = "Drivers",
-					from = CFrame.new(0, 200, 0),
-					to = Vector3.new(0, 200, -200),
+					-- 4,000 STUDS UP, where the third case below proves there is nothing at all: the
+					-- DEV arena's own fixtures live near the ground, and a cast through them would
+					-- answer about a wall instead of about the body this case is here to measure.
+					from = CFrame.new(0, 4000, 0),
+					to = Vector3.new(0, 4000, -200),
 					lane = 1,
 				},
 			})
