@@ -75,8 +75,12 @@ export type Eyepiece = {
 	atBlend: number,
 	diameterDeg: number,
 	rimThickDeg: number,
-	rimColor: Color3,
-	maskColor: Color3,
+	-- NO COLOURS (task 201 E). The TUBE'S GEOMETRY is the weapon's and the TUBE'S COLOUR is the
+	-- design system's: `rimColor` and `maskColor` lived here until the Designer's design system,
+	-- 2026-10-17 made one palette the one answer (§5 surface 20: *"Mask stays `#000000`; the rim
+	-- goes from the flat grey of `t146-scope-aim.png` to `#0A0907` with a 1 px inner `BRASS` @ 0.70
+	-- ring"*). `Hud.layoutScope` reads `Style.LOOK` for both, so a second scope cannot ship a
+	-- second answer to "what colour is a scope tube".
 	-- HOW MUCH OF THE WORLD SURVIVES OUTSIDE THE TUBE (task 146). Karen: *"scope aiming has to be
 	-- different cross look at the exaple I attached"* -- and in that frame the forest outside the
 	-- scope body is dark but PRESENT, not painted out. 0 is the solid black task 141 shipped.
@@ -412,21 +416,13 @@ Rifle.CONFIG = {
 			-- the glass is 92 px of 1080 in it -- 0.085 of the height, which at this FOV is 1.69
 			-- degrees. Task 141's 0.45 was a hairline bevel, not a scope body.
 			rimThickDeg = 1.69,
-			-- NEAR-BLACK (task 147), AND TASK 146 PUT IT AT 60/60/62 FOR A REASON THAT DID NOT SURVIVE
-			-- THE SCREEN: "a black ring against a black mask is one shape". That was true of task
-			-- 141's OPAQUE mask and is not true of this one -- the surround is 0.45 transparent now,
-			-- so it is dark WORLD rather than black, and the tube reads against it.
-			--
-			-- THE DIRECTOR ASKED FOR IT, NOT KAREN: her note of 2026-10-10 ~11:30 is the rings and
-			-- the bolt, and says nothing about the tube (`PLAYTEST.md`). The dispatch's words are
-			-- "near-black like Karen's reference, not light grey". Sampled off that reference again,
-			-- in the SHADOWED part of the body rather than the lit top edge: a scope is a dark object
-			-- with a highlight on it, and one flat UI colour has to pick the body.
-			--
-			-- IT MAY NOW BE TOO DARK -- `t147-ship-scope.png` has the tube nearly merging with the
-			-- darkened surround, which is the cost of having no highlight. Karen's eye owns that.
-			rimColor = Color3.fromRGB(22, 22, 24),
-			maskColor = Color3.fromRGB(0, 0, 0),
+			-- THE TUBE'S COLOUR MOVED TO `Hud.Style` (task 201 E). It was 22/22/24 here, sampled off
+			-- the shadowed part of Karen's reference, and the comment that chose it ended *"it may
+			-- now be too dark -- `t147-ship-scope.png` has the tube nearly merging with the
+			-- darkened surround, which is the cost of having no highlight"*. The system answers
+			-- exactly that: the tube is `SCRIM` and it gets a 1 px `BRASS` ring on its INNER edge,
+			-- which is the highlight the flat colour never had. Archived with its reason in
+			-- `backups/2026-10-19_rifle-eyepiece-colours.txt` (rule 7).
 			-- THE WORLD OUTSIDE SURVIVES (task 146). In her frame the grass and trunks past the tube
 			-- are plainly there, just dark. 0.45 keeps about half of them; 0 is task 141's solid
 			-- black. ROBLOX UI CANNOT BLUR, so "softened" is darkened here and nothing else -- said

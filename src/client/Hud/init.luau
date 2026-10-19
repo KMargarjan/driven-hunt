@@ -200,12 +200,15 @@ local feedFrame: Frame? = nil -- kept for the client spec's ancestor walk
 local feedLines: { TextLabel } = {}
 local feedToasts: { Frame } = {}
 local feedDots: { Frame } = {}
-local feedEntries: { { text: string, at: number, meaning: string? } } = {}
+-- `count` IS NEW IN TASK 201 E and is 1 on every entry: the feed collapses repeats rather than
+-- stacking them (`Hud.pushFeed`).
+local feedEntries: { { text: string, at: number, meaning: string?, count: number } } = {}
 local scorePanel: Frame? = nil
 local reportFrame: Frame? = nil
 -- THE REPORT'S SCRIM (task 201 part 2): the report is a MODAL and a modal lays one. Created here,
 -- written by `ReportPanel`, which is the one owner of whether the report is open.
 local reportScrimFrame: Frame? = nil
+local mapScrimFrame: Frame? = nil
 local hitCardFrame: Frame? = nil
 -- THE SHOP PANEL'S FRAME (task 178): created here, filled by `Hud.ShopPanel`, and that module --
 -- not this one -- writes its `Visible`.
@@ -241,6 +244,9 @@ local objectiveSlate: Frame? = nil
 local objectiveLine: TextLabel? = nil
 local waypointMark: Frame? = nil
 local waypointWord: TextLabel? = nil
+-- The way-mark word's own slate (task 201 E). `Objective` is the one writer of its `Visible` and of
+-- its fade, exactly as it is of the word inside it.
+local waypointSlateFrame: Frame? = nil
 local railFrame: Frame? = nil
 -- WHERE THE WORLD SAYS THE DRIVE IS, resolved once by the closure in `Hud.start` and read every
 -- frame by `Hud.renderObjective`. Module-level because the per-frame pass is now the ONE writer of
@@ -553,7 +559,7 @@ end
 --
 -- `Style.toastHeight` is the one source for a toast's height and `Style.toast` builds to it.
 function Hud.feedHeight(viewportX: number?): number
-	local lines = Drive.CONFIG.FEED_LINES
+	local lines = Style.FEED_LINES
 	local height = Style.toastHeight(viewportX or Hud.viewportX())
 	return lines * height + math.max(0, lines - 1) * Style.TOAST_GAP
 end
@@ -821,6 +827,12 @@ function Hud.mapLegend(): Frame?
 	return mapLegendFrame
 end
 
+-- THE FULL MAP'S SCRIM (task 201 E). `MapUi.applyVisibility` is its one writer; this is how a spec
+-- reads it back without walking `PlayerGui` by name.
+function Hud.mapScrim(): Frame?
+	return mapScrimFrame
+end
+
 Hud.MapUi = MapUi
 
 -- TASK 165's THREE NODES AND TWO MODULES, read off the Hud for the reason every accessor above is:
@@ -835,6 +847,11 @@ end
 
 function Hud.waypointWord(): TextLabel?
 	return waypointWord
+end
+
+-- ...AND THE SLATE UNDER THAT WORD (task 201 E). `Objective` is its one writer.
+function Hud.waypointSlate(): Frame?
+	return waypointSlateFrame
 end
 
 function Hud.rail(): Frame?
@@ -1038,7 +1055,26 @@ function Hud.driveConnected(): boolean
 	return matchConnected
 end
 
-local function arm(parent: Frame, name: string, size: UDim2, anchor: Vector2, position: UDim2, color: Color3)
+-- ONE ARM OF THE CROSSHAIR OR OF THE HIT MARK, AND ITS DROP LINE (§2's one exception, task 201 E).
+--
+-- THE BLACK `UIStroke` IS GONE FROM BOTH MARKS. An outline is drawn on EVERY side, so a 2 px arm
+-- wearing one is a 4 px arm that is half black -- *"an outline thickens every letter"* is the
+-- system's wording for text and it is worse on a 2 px bar. What replaces it is one companion line
+-- offset 1 px down and right (`Style.dropLine`), which is what a mark needs over a white sky and
+-- nothing more.
+--
+-- `rotation` IS A PARAMETER AND NOT SOMETHING THE CALLER SETS AFTERWARDS, because the drop line is
+-- a SIBLING: rotating the arm after this returns would leave its shadow square to the screen, and
+-- the hit mark's four arms are all diagonal.
+local function arm(
+	parent: Frame,
+	name: string,
+	size: UDim2,
+	anchor: Vector2,
+	position: UDim2,
+	color: Color3,
+	rotation: number?
+)
 	local frame = Instance.new("Frame")
 	frame.Name = name
 	frame.Size = size
@@ -1046,11 +1082,9 @@ local function arm(parent: Frame, name: string, size: UDim2, anchor: Vector2, po
 	frame.Position = position
 	frame.BackgroundColor3 = color
 	frame.BorderSizePixel = 0
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 1
-	stroke.Color = Color3.new(0, 0, 0)
-	stroke.Parent = frame
+	frame.Rotation = rotation or 0
 	frame.Parent = parent
+	Style.dropLine(frame)
 	return frame
 end
 
@@ -1081,7 +1115,7 @@ local function build(): ScreenGui
 		UDim2.fromOffset(thick, arms),
 		Vector2.new(0.5, 1),
 		UDim2.new(0.5, 0, 0.5, -gap),
-		config.CROSSHAIR_COLOR
+		Style.LOOK.PAPER
 	)
 	arm(
 		container,
@@ -1089,7 +1123,7 @@ local function build(): ScreenGui
 		UDim2.fromOffset(thick, arms),
 		Vector2.new(0.5, 0),
 		UDim2.new(0.5, 0, 0.5, gap),
-		config.CROSSHAIR_COLOR
+		Style.LOOK.PAPER
 	)
 	arm(
 		container,
@@ -1097,7 +1131,7 @@ local function build(): ScreenGui
 		UDim2.fromOffset(arms, thick),
 		Vector2.new(1, 0.5),
 		UDim2.new(0.5, -gap, 0.5, 0),
-		config.CROSSHAIR_COLOR
+		Style.LOOK.PAPER
 	)
 	arm(
 		container,
@@ -1105,7 +1139,7 @@ local function build(): ScreenGui
 		UDim2.fromOffset(arms, thick),
 		Vector2.new(0, 0.5),
 		UDim2.new(0.5, gap, 0.5, 0),
-		config.CROSSHAIR_COLOR
+		Style.LOOK.PAPER
 	)
 
 	-- THE SCOPE'S RETICLE: the INSTANCES for every element any scope in this game draws -- a ring,
@@ -1154,6 +1188,13 @@ local function build(): ScreenGui
 	maskEdge.Name = "Edge"
 	maskEdge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	maskEdge.Thickness = 1
+	-- COLOURED AT BUILD TIME AND NOT ONLY AT LAYOUT (task 201 E). A `UIStroke` is BLACK by
+	-- default, and `layoutScope` runs only once a weapon with an eyepiece is actually up -- so
+	-- until the first scope was raised these three strokes were default black, which is what the
+	-- system's own acceptance walk over the live screen found. `Style.SCOPE_MASK` happens to be
+	-- black and is the one place in the palette that is (§5 surface 20); the point is that it is
+	-- NAMED, and the other two below are not black at all.
+	maskEdge.Color = Style.SCOPE_MASK
 	maskEdge.Parent = mask
 
 	-- The ocular lens's own rim, drawn INSIDE the circle: a stroke goes outward, so this frame is
@@ -1174,7 +1215,31 @@ local function build(): ScreenGui
 	rimEdge.Name = "Edge"
 	rimEdge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	rimEdge.Thickness = 1
+	rimEdge.Color = Style.LOOK.SCRIM -- see `maskEdge` above: a stroke is black until it is told
 	rimEdge.Parent = rim
+
+	-- THE BRASS RING ON THE INSIDE OF THE TUBE (§5 surface 20, task 201 E): *"the rim goes from the
+	-- flat grey of `t146-scope-aim.png` to `#0A0907` with a 1 px inner `BRASS` @ 0.70 ring"*. The
+	-- tube is one flat dark colour and a real scope is a dark object WITH A HIGHLIGHT -- task 147's
+	-- own comment said the tube "may now be too dark ... which is the cost of having no highlight",
+	-- and this is the highlight.
+	--
+	-- IT IS A THIRD FRAME AND NOT A SECOND STROKE ON `Rim`, because a `UIStroke` is drawn OUTWARD
+	-- from its frame's border: the rim's own stroke already runs from the glass edge out to the
+	-- mask, so a second one on the same frame would land in the same pixels. This frame is the GLASS
+	-- itself (`inner`), and a 1 px stroke on it sits exactly against the inside of the tube.
+	local bezel = Instance.new("Frame")
+	bezel.Name = "Bezel"
+	bezel.BackgroundTransparency = 1
+	bezel.AnchorPoint = Vector2.new(0.5, 0.5)
+	bezel.Position = UDim2.fromScale(0.5, 0.5)
+	bezel.Size = UDim2.fromOffset(2, 2)
+	bezel.ZIndex = SCOPE_Z + 1
+	bezel.Parent = overlay
+	local bezelRound = Instance.new("UICorner")
+	bezelRound.CornerRadius = UDim.new(0.5, 0)
+	bezelRound.Parent = bezel
+	Style.stroke(bezel, Style.LOOK.BRASS, Style.SCOPE_RING_T)
 
 	local reticle = Instance.new("Frame")
 	reticle.Name = "Reticle"
@@ -1201,6 +1266,12 @@ local function build(): ScreenGui
 	local edge = Instance.new("UIStroke")
 	edge.Name = "Edge"
 	edge.Thickness = 1
+	-- THE RING IS THE ONE RETICLE ELEMENT THE RIFLE DOES NOT CARRY (task 146: Karen's cross has
+	-- neither ring nor posts), so `layoutReticle` never colours it and it stayed default black.
+	-- `PAPER` is §2's own answer for a mark -- and the ring is `Visible = false` for every scope
+	-- in the game today, so this decides nothing on screen; it decides what a BLACK stroke means
+	-- when the acceptance walk finds one.
+	edge.Color = Style.LOOK.PAPER
 	edge.Parent = ring
 
 	-- THE ILLUMINATED DOT (task 142), two frames: a soft halo and the core on top of it. Last in
@@ -1261,15 +1332,15 @@ local function build(): ScreenGui
 		{ name = "BottomLeft", x = -reach, y = reach, rotation = -45 },
 		{ name = "BottomRight", x = reach, y = reach, rotation = 45 },
 	}) do
-		local diagonal = arm(
+		arm(
 			mark,
 			corner.name,
 			UDim2.fromOffset(config.HIT_MARK_THICK_PX, config.HIT_MARK_ARM_PX),
 			Vector2.new(0.5, 0.5),
 			UDim2.new(0.5, corner.x, 0.5, corner.y),
-			config.HIT_MARK_COLOR
+			Style.hitMarkColor(nil),
+			corner.rotation
 		)
-		diagonal.Rotation = corner.rotation
 	end
 
 	-- ---------------------------------------------------------------- the status bar (surface 1)
@@ -1423,7 +1494,7 @@ local function build(): ScreenGui
 	table.clear(feedLines)
 	table.clear(feedToasts)
 	table.clear(feedDots)
-	for index = 1, Drive.CONFIG.FEED_LINES do
+	for index = 1, Style.FEED_LINES do
 		local toast, dot, text = Style.toast(feed, string.format("Line%d", index), viewX, nil, feed.ZIndex)
 		sized(text, "LABEL")
 		toast.LayoutOrder = index
@@ -1980,10 +2051,15 @@ local function build(): ScreenGui
 	local miniCorner = Instance.new("UICorner")
 	miniCorner.CornerRadius = UDim.new(0.5, 0)
 	miniCorner.Parent = miniMap
+	-- BRASS AT 0.55, 2 PX (§5 surface 4, task 201 E): *"circle Frame on a quiet slate, rim =
+	-- `BRASS` @ 0.55, 2 px"*. It was `#E6E6E6` at 0.25 -- a bright white ring, the loudest thing in
+	-- the top right corner, and the one element of the HUD that read as a cut-out rather than as
+	-- part of the lodge.
 	local miniRim = Instance.new("UIStroke")
 	miniRim.Thickness = MapUi.CONFIG.RIM_THICKNESS
+	miniRim.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	miniRim.Color = MapUi.CONFIG.RIM_COLOR
-	miniRim.Transparency = 0.25
+	miniRim.Transparency = MapUi.CONFIG.RIM_TRANSPARENCY
 	miniRim.Parent = miniMap
 	miniMap.Parent = screen
 
@@ -1991,9 +2067,35 @@ local function build(): ScreenGui
 	-- and the ammo readout below it at every viewport. Its size is written by `MapUi` from the
 	-- world's own span -- a wide, shallow world gets a wide, shallow panel -- so the offset here is
 	-- only what it starts at.
+	-- ITS OWN SCRIM, AND IT IS A MODAL NOW (§5 surface 14, task 201 E: *"panel + scrim + header +
+	-- legend well"*). The map takes the whole screen's attention while it is up -- you stop and read
+	-- it, exactly as you stop and read the TAB report -- so it lays `SCRIM` at 0.42 like every other
+	-- modal in the game. Built here with the rest of the screen and written by `MapUi`, which is
+	-- already THE ONE WRITER of both map frames' `Visible`: a third Visible with a second writer is
+	-- the bug this repo's own header warns about, so it goes through `applyVisibility` or nowhere.
+	--
+	-- IT DIMS THE WORLD AND NOT THE TOP BAND, AND THAT IS MEASURED RATHER THAN HOPED. This scrim
+	-- sits at `MapUi.CONFIG.Z_INDEX - 1` = 5, because the map PANEL is 6 -- it has to stay under the
+	-- scope's mask (11-13) and under the report (15), which is what that band is for. The status
+	-- slate, the objective, the compass and the feed are all at 6 as well, so they stay lit and what
+	-- goes dark is the forest behind the panel. The report's scrim can sit at 14 and dim everything
+	-- because its panel is at 15; this one cannot, and raising the map into the report's band would
+	-- put a map over a scope picture. Said out loud because the difference is visible and deliberate.
+	local mapScrim = Instance.new("Frame")
+	mapScrim.Name = "MapScrim"
+	mapScrim.BackgroundColor3 = Style.LOOK.SCRIM
+	mapScrim.BackgroundTransparency = Style.SCRIM_T
+	mapScrim.BorderSizePixel = 0
+	mapScrim.Size = UDim2.fromScale(1, 1)
+	mapScrim.Position = UDim2.fromScale(0.5, 0.5)
+	mapScrim.AnchorPoint = Vector2.new(0.5, 0.5)
+	mapScrim.ZIndex = MapUi.CONFIG.Z_INDEX - 1
+	mapScrim.Visible = false
+	mapScrim.Parent = screen
+
 	local fullMap = Instance.new("Frame")
 	fullMap.Name = "FullMap"
-	fullMap.BackgroundColor3 = MapUi.CONFIG.BACKGROUND
+	fullMap.BackgroundColor3 = Style.LOOK.PANEL
 	fullMap.BackgroundTransparency = MapUi.CONFIG.PANEL_TRANSPARENCY
 	fullMap.BorderSizePixel = 0
 	fullMap.AnchorPoint = Vector2.new(0.5, 0)
@@ -2001,11 +2103,13 @@ local function build(): ScreenGui
 	fullMap.Size = UDim2.fromOffset(MapUi.CONFIG.FULL_MAX_WIDTH_PX, MapUi.CONFIG.FULL_MAX_HEIGHT_PX)
 	fullMap.ZIndex = MapUi.CONFIG.Z_INDEX
 	fullMap.Visible = false
-	local fullRim = Instance.new("UIStroke")
-	fullRim.Thickness = 1
-	fullRim.Color = MapUi.CONFIG.RIM_COLOR
-	fullRim.Transparency = 0.4
-	fullRim.Parent = fullMap
+	-- CORNER 16 AND A BRASS EDGE (§3.1, §5 surface 14). The same two lines every modal in this game
+	-- wears, so a player learns one panel shape. `PANEL` at `PANEL_T` is opaque: a map you can see
+	-- the forest through is a map you have to work to read, which is what 0.25 made it.
+	local fullRound = Style.corner(fullMap, MapUi.CONFIG.PANEL_CORNER)
+	fullRound.Name = "Corner"
+	local fullRim = Style.stroke(fullMap, MapUi.CONFIG.RIM_COLOR, MapUi.CONFIG.PANEL_EDGE_TRANSPARENCY)
+	fullRim.Name = "Edge"
 	fullMap.Parent = screen
 
 	-- THE MAP'S LEGEND (task 165), a frame of the map's inside the map's own panel: created here
@@ -2090,31 +2194,48 @@ local function build(): ScreenGui
 	waypoint.Rotation = 45
 	waypoint.ZIndex = Objective.CONFIG.MARK_Z_INDEX
 	waypoint.Visible = false
-	local waypointStroke = Instance.new("UIStroke")
-	waypointStroke.Thickness = 1
-	waypointStroke.Color = Color3.new(0, 0, 0)
-	waypointStroke.Parent = waypoint
+	-- NO BLACK OUTLINE ON THE CHEVRON EITHER (§2, task 201 E). It is a solid 14 px blaze square on
+	-- a 45-degree turn; an outline on all four sides of it is a dark frame around a small mark, and
+	-- `BLAZE_HI` over the world was measured at 4.66 : 1 against the brightest sky this engine
+	-- makes without one (§2's table). What the WORD under it needed was never an outline -- it was
+	-- a ground, and it has one now.
 	waypoint.Parent = screen
 
-	-- THE WORD AND THE DISTANCE, A SIBLING AND NOT A CHILD. A child would inherit the chevron's
-	-- 45-degree `Rotation` and read at an angle, which is the kind of thing only a screenshot finds.
+	-- THE WORD AND THE DISTANCE, ON THEIR OWN TINY SLATE (§5 surface 21, task 201 E): *"the word
+	-- (`STAND` / `LINE` / `ROAD` / `TRUCK`) gets its own tiny slate so it reads over sky, instead of
+	-- a stroke"*. It is the same `Style.slate` the objective line and every toast sit on, at
+	-- `AutomaticSize.XY` so it is the size of the word and nothing more.
+	--
+	-- A SIBLING OF THE CHEVRON AND NOT A CHILD, which is the one thing about this pair that has
+	-- never changed: a child would inherit the chevron's 45-degree `Rotation` and read at an angle.
+	local waypointSlate = Style.slate(screen, "WaypointSlate", true, statusPhone)
+	waypointSlate.AutomaticSize = Enum.AutomaticSize.XY
+	waypointSlate.Size = UDim2.fromOffset(0, 0)
+	waypointSlate.AnchorPoint = Vector2.new(0.5, 0)
+	waypointSlate.Position = UDim2.fromScale(0.5, 0.5)
+	waypointSlate.ZIndex = Objective.CONFIG.MARK_Z_INDEX
+	waypointSlate.Visible = false
+
 	local waypointLabel = Instance.new("TextLabel")
 	waypointLabel.Name = "WaypointWord"
 	waypointLabel.BackgroundTransparency = 1
-	waypointLabel.Font = Enum.Font.Code
+	waypointLabel.BorderSizePixel = 0
+	-- BUILDERSANS BOLD AT THE `MICRO` STEP -- what `Style.faceFor` answers for a small spaced
+	-- label, and what every other key, caption and eyebrow in this HUD is drawn in.
+	waypointLabel.FontFace = Style.faceFor("MICRO")
+	waypointLabel.TextScaled = false
+	waypointLabel.TextWrapped = false
+	waypointLabel.AutomaticSize = Enum.AutomaticSize.X
 	waypointLabel.TextSize = Objective.CONFIG.MARK_LABEL_SIZE
 	waypointLabel.TextColor3 = Objective.CONFIG.MARK_COLOR
-	waypointLabel.AnchorPoint = Vector2.new(0.5, 0)
-	waypointLabel.Position = UDim2.fromScale(0.5, 0.5)
-	waypointLabel.Size = UDim2.fromOffset(140, Objective.CONFIG.MARK_LABEL_SIZE + 4)
-	waypointLabel.ZIndex = Objective.CONFIG.MARK_Z_INDEX
+	waypointLabel.TextXAlignment = Enum.TextXAlignment.Center
+	waypointLabel.AnchorPoint = Vector2.new(0, 0)
+	waypointLabel.Position = UDim2.fromOffset(0, 0)
+	waypointLabel.Size = UDim2.fromOffset(0, Objective.CONFIG.MARK_LABEL_SIZE + 4)
+	waypointLabel.ZIndex = Objective.CONFIG.MARK_Z_INDEX + 1
 	waypointLabel.Text = ""
 	waypointLabel.Visible = false
-	local waypointWordStroke = Instance.new("UIStroke")
-	waypointWordStroke.Thickness = 1
-	waypointWordStroke.Color = Color3.new(0, 0, 0)
-	waypointWordStroke.Parent = waypointLabel
-	waypointLabel.Parent = screen
+	waypointLabel.Parent = waypointSlate
 
 	-- ...AND THE BUTTON RAIL, right edge, under the minimap. Karen: *"could be buttons on the side
 	-- for M - map ect"*. Created empty: `Rail` builds the buttons inside it and is the one writer of
@@ -2379,11 +2500,13 @@ local function build(): ScreenGui
 	startCardFill = cardFill
 	miniMapFrame = miniMap
 	fullMapFrame = fullMap
+	mapScrimFrame = mapScrim
 	mapLegendFrame = legend
 	objectiveSlate = objectiveBack
 	objectiveLine = objective
 	waypointMark = waypoint
 	waypointWord = waypointLabel
+	waypointSlateFrame = waypointSlate
 	railFrame = rail
 	return screen
 end
@@ -2398,11 +2521,19 @@ function Hud.showHitMark(kind: string?)
 	end
 	local config = Shotgun.CONFIG
 	local kill = kind == "kill"
-	hitKind = if kill then "kill" else "hit"
+	-- THREE KINDS SINCE TASK 201 E (§5 surface 19): a hit is `PAPER`, a kill is `PINE_TEXT`, a wound
+	-- is `CLAY` -- the feed's own three meanings, so the marker and the line under it agree. Anything
+	-- the wire has not heard of still draws a PLAIN hit, which is the rule this function was written
+	-- with: *"a marker that silently does nothing is the failure this exists to fix"*.
+	hitKind = if kill then "kill" elseif kind == "wound" then "wound" else "hit"
+	local tint = Style.hitMarkColor(hitKind)
 
 	for _, child in ipairs(mark:GetChildren()) do
-		if child:IsA("Frame") then
-			child.BackgroundColor3 = if kill then config.HIT_MARK_KILL_COLOR else config.HIT_MARK_COLOR
+		-- THE DROP LINES KEEP THEIR OWN COLOUR. They are `Frame`s under the same marker and this
+		-- loop used to be able to assume every one of them was an arm; a shadow recoloured to
+		-- `PINE_TEXT` would double the mark's apparent thickness in green.
+		if child:IsA("Frame") and child:GetAttribute("DropLine") ~= true then
+			child.BackgroundColor3 = tint
 		end
 	end
 	mark.Visible = true
@@ -3338,6 +3469,64 @@ function Hud.feedTextFor(entry): string?
 	return tostring(entry.text or entry.kind)
 end
 
+-- WHAT ONE FEED ENTRY READS AS ON SCREEN, COUNT AND ALL. PURE, so every arm of the collapse is
+-- assertable without a drive and without a wire.
+--
+-- ASCII, AND `x5` RATHER THAN THE MULTIPLICATION SIGN THE DISPATCH WROTE. The Director's words were
+-- "a boar got away x5" with a true multiplication sign; everything drawn in this repo is ASCII and
+-- `Objective.CONFIG`'s own comment says so (*"ASCII, a hyphen and never an em dash, like everything
+-- else drawn in this repo"*). A lower-case `x` after a space is what every kill feed in the genre
+-- uses and it needs no font to carry a glyph.
+function Hud.feedLineText(entry): string
+	local text = tostring(entry.text or "")
+	local count = tonumber(entry.count) or 1
+	if count <= 1 then
+		return text
+	end
+	return string.format("%s x%d", text, count)
+end
+
+-- THE ONE WRITER OF THE FEED'S LIST, and the whole of the collapse rule (task 201 E; the Director,
+-- 2026-10-19, after `t212r2-blow-fp.png`: *"the toast feed stacks identical lines ('a boar got away'
+-- x5 for a beater): collapse repeats into one line with a count"*).
+--
+-- WHY A BEATER SAW FIVE OF THEM: `Match`'s feed fires one `escape` entry per animal, and a sounder
+-- that turns at the line escapes as a GROUP. Five identical sentences is five lines of a
+-- three-line feed saying one thing, and it pushed everything else off the screen -- the kill that
+-- mattered, the coins, the penalty.
+--
+-- IT COLLAPSES AGAINST ANY LIVE ENTRY AND NOT ONLY THE LAST ONE, because the entries that interleave
+-- are exactly the ones a player wants to keep: "a boar got away / Anna tied to a tree / a boar got
+-- away" is two things that happened, not three lines.
+--
+-- A REPEAT MOVES TO THE NEWEST END AND ITS CLOCK IS REFRESHED. The feed is newest-last (`renderFeed`
+-- trims from the front and `UIListLayout` is bottom-aligned), so a line that just happened again
+-- belongs at the bottom with the rest of the present -- and it must not fade out on the strength of
+-- the FIRST of its five.
+--
+-- THREE ARMS, AND EACH IS REACHABLE BY PARAMETER: a new line, a repeat, and the over-cap drop that
+-- `renderFeed` applies. Returns the entry it wrote, so a spec can read the count back.
+function Hud.pushFeed(text: string, meaning: string?, atClock: number)
+	for index, entry in ipairs(feedEntries) do
+		if entry.text == text then
+			local bumped = {
+				text = text,
+				-- THE FIRST LINE'S MEANING WINS unless this one carries one: five escapes are one
+				-- clay line, and a repeat that arrived with no meaning must not turn it grey.
+				at = atClock,
+				meaning = meaning or entry.meaning,
+				count = (tonumber(entry.count) or 1) + 1,
+			}
+			table.remove(feedEntries, index)
+			table.insert(feedEntries, bumped)
+			return bumped
+		end
+	end
+	local made = { text = text, at = atClock, meaning = meaning, count = 1 }
+	table.insert(feedEntries, made)
+	return made
+end
+
 -- EACH LINE IS ITS OWN TOAST, AND EACH CARRIES ITS OWN MEANING (§3.11). The per-line fade already
 -- existed and is kept; what is new is that the dot and the words are coloured from ONE answer
 -- (`Hud.feedMeaningFor`), so a kill cannot be green with a grey bullet beside it.
@@ -3346,14 +3535,17 @@ local function renderFeed(atClock: number)
 	while #feedEntries > 0 and feedEntries[1].at < cutoff do
 		table.remove(feedEntries, 1)
 	end
-	while #feedEntries > Drive.CONFIG.FEED_LINES do
+	-- THE CAP IS `Style.FEED_LINES` AND NOT `Drive.CONFIG.FEED_LINES` (task 201 E, the Director,
+	-- 2026-10-19): three, and it is a LOOK number. See `Style.FEED_LINES` for why the shared one was
+	-- left where it is rather than deleted.
+	while #feedEntries > Style.FEED_LINES do
 		table.remove(feedEntries, 1)
 	end
 	for index, line in ipairs(feedLines) do
 		local entry = feedEntries[index]
 		local toast = feedToasts[index]
 		local dot = feedDots[index]
-		line.Text = if entry then entry.text else ""
+		line.Text = if entry then Hud.feedLineText(entry) else ""
 		line.Visible = entry ~= nil
 		if toast ~= nil then
 			toast.Visible = entry ~= nil
@@ -3366,6 +3558,23 @@ local function renderFeed(atClock: number)
 			end
 		end
 	end
+end
+
+-- THE FEED'S TWO TEST DOORS, and they exist for the reason `Match.advanceForTests` does: the
+-- collapse has four arms (a new line, a repeat, an interleaved repeat, the over-cap drop) and a
+-- spec cannot run five boars past a line to reach them. `renderFeed` is local because it is not a
+-- thing any other module may call; these two drive it with a clock the case owns.
+--
+-- `clearFeedForTests` EMPTIES THE LIST OUTRIGHT and does not fake a stale clock. A push with an old
+-- timestamp lands at the NEWEST end (that is what `pushFeed` does), and `renderFeed` trims from the
+-- FRONT, so "push something ancient and re-render" does not clear anything -- which is exactly the
+-- sort of case that passes while proving nothing.
+function Hud.clearFeedForTests()
+	table.clear(feedEntries)
+end
+
+function Hud.renderFeedForTests(atClock: number)
+	renderFeed(atClock)
 end
 
 -- WHEN THE CROSSHAIR IS DRAWN, as a pure predicate so a spec can assert all eight combinations
@@ -3466,7 +3675,11 @@ function Hud.layoutScope(overlay: Frame, optics: any, fovDeg: number)
 		mask.Size = UDim2.fromOffset(diameter, diameter)
 		local edge = mask:FindFirstChild("Edge")
 		if edge and edge:IsA("UIStroke") then
-			edge.Color = spec.maskColor
+			-- THE ONE PURE BLACK IN THE PALETTE, AND IT IS NAMED (§5 surface 20, task 201 E). It
+			-- came off the weapon's own `eyepiece.maskColor` until this task; the tube's GEOMETRY is
+			-- the rifle's and its COLOUR is the design system's, so a second scope cannot ship a
+			-- second answer. Archived in `backups/2026-10-19_rifle-eyepiece-colours.txt` (rule 7).
+			edge.Color = Style.SCOPE_MASK
 			-- ...AND IT IS NOT NECESSARILY OPAQUE (task 146). Karen's reference keeps the forest
 			-- outside the scope body visible, just dark. `maskTransparency` nil is task 141's solid
 			-- black, so every scope written before this task is unchanged.
@@ -3477,14 +3690,22 @@ function Hud.layoutScope(overlay: Frame, optics: any, fovDeg: number)
 		end
 	end
 	local rim = overlay:FindFirstChild("Rim")
+	local inner = math.max(2, diameter - 2 * rimPx)
 	if rim and rim:IsA("Frame") then
-		local inner = math.max(2, diameter - 2 * rimPx)
 		rim.Size = UDim2.fromOffset(inner, inner)
 		local edge = rim:FindFirstChild("Edge")
 		if edge and edge:IsA("UIStroke") then
-			edge.Color = spec.rimColor
+			-- `#0A0907`, THE SYSTEM'S OWN DARKEST SURFACE (§5 surface 20), and not the weapon's
+			-- 22/22/24 any more. See the mask above for why the colour moved out of the rifle.
+			edge.Color = Style.LOOK.SCRIM
 			edge.Thickness = rimPx
 		end
+	end
+	-- THE BRASS RING SITS ON THE GLASS'S OWN EDGE, so it is the same `inner` the tube is cut to: one
+	-- number, computed once, and the ring cannot drift off the tube when the field of view changes.
+	local bezel = overlay:FindFirstChild("Bezel")
+	if bezel and bezel:IsA("Frame") then
+		bezel.Size = UDim2.fromOffset(inner, inner)
 	end
 end
 
@@ -4005,13 +4226,11 @@ function Hud.onKilled(event)
 	-- the entry and is resolved by the one pure mapping, so the line and the bullet beside it cannot
 	-- end up two different colours -- which is what the first run of `hud_style.spec` caught: this
 	-- call carried no meaning at all and a kill drew in `BODY`.
-	table.insert(feedEntries, {
-		text = Hud.killLineText(event),
-		at = os.clock(),
-		-- THROUGH THE MAPPING AND NOT A LITERAL `"good"` (round 1 note): "both writers carry it" is
-		-- only true if both ask the same function.
-		meaning = Hud.feedMeaningFor({ kind = "kill" }),
-	})
+	-- THROUGH `Hud.pushFeed` AND NOT `table.insert` (task 201 E): the collapse and the cap are the
+	-- feed's rules, not this handler's, and there are two writers of this list. THROUGH THE MAPPING
+	-- AND NOT A LITERAL `"good"` (round 1 note): "both writers carry it" is only true if both ask
+	-- the same function.
+	Hud.pushFeed(Hud.killLineText(event), Hud.feedMeaningFor({ kind = "kill" }), os.clock())
 	renderFeed(os.clock())
 end
 
@@ -4340,7 +4559,7 @@ function Hud.useMatch(MatchSystem): boolean
 			-- ...AND ITS MEANING COMES WITH IT (task 201, §3.11): one pure mapping, read once here,
 			-- so the dot and the words are one answer. An escape and a tie-to-a-tree are clay; a
 			-- join or a phase line is `BODY`.
-			table.insert(feedEntries, { text = text, at = os.clock(), meaning = Hud.feedMeaningFor(entry) })
+			Hud.pushFeed(text, Hud.feedMeaningFor(entry), os.clock())
 			renderFeed(os.clock())
 		end
 	end)
@@ -4464,6 +4683,10 @@ function Hud.start()
 			-- (`backups/2026-10-12_mapui-touch-button.txt`).
 			legend = mapLegendFrame,
 			rail = railFrame,
+			-- THE MODAL'S SCRIM (task 201 E), handed over with the frames for the same reason the
+			-- legend is: `MapUi.applyVisibility` is already the one writer of what the map shows,
+			-- and the scrim is part of what the map shows.
+			scrim = mapScrimFrame,
 		}, {
 			-- FOR `viewHeadingDeg` ONLY, and it may be nil: then there is no facing wedge and the
 			-- rest of the map is unchanged. One-way, like every other thing the Hud reads.
@@ -4593,6 +4816,7 @@ function Hud.start()
 			slate = objectiveSlate,
 			mark = waypointMark :: Frame,
 			markLabel = waypointWord :: TextLabel,
+			markSlate = waypointSlateFrame,
 		})
 	end
 	if railFrame ~= nil then

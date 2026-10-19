@@ -1,0 +1,38 @@
+ARCHIVED 2026-10-19, task 201 part 4 (design system E). Rule 7: never delete.
+
+WHAT: two colour fields of `Shotgun.CONFIG` in `src/shared/Shotgun/init.luau`.
+
+    HIT_MARK_COLOR = Color3.fromRGB(255, 255, 255),   -- the hit marker's four arms
+    CROSSHAIR_COLOR = Color3.fromRGB(255, 255, 255),  -- the hipfire crosshair's four arms
+
+Both were pure white, and both marks wore a 1 px BLACK `UIStroke` on every side (the `arm` helper
+in `src/client/Hud/init.luau`).
+
+WHY THEY WENT: the Designer's design system, 2026-10-17.
+  §2, the one exception: "The crosshair, the hit mark and the scope reticle are not text and carry
+  no slate. They are `PAPER` strokes with a 1 px `#0A0907` companion line offset 1 px down and
+  right -- a drop line, not an outline."
+  §5 surface 19: "coloured by kind: a hit `PAPER`, a kill `PINE_TEXT`, a wound `CLAY`. One colour
+  serves all three today."
+An outline is drawn on every side, so a 2 px arm wearing one is a 4 px arm that is half black.
+`Style.hitMarkColor(kind)` is the one mapping now, and `Style.dropLine(mark)` makes the companion.
+
+WHAT READ THEM, and nothing else did (grepped over src/, tests/ and tools/ before removal):
+  src/client/Hud/init.luau   the four crosshair arms, the four hit-mark arms, `Hud.showHitMark`
+  tests/client/hit_marker.spec.luau   two assertions, now written against `Style.hitMarkColor`
+
+NOT REMOVED: `HIT_MARK_KILL_COLOR` (235, 70, 55). It is still read by `Hud.BoarArt` (the `fatal`
+pip) and `Hud.HitCard` (the lead mark) as the FATAL DOT on the boar plate, which is a wound
+position drawn on a bone silhouette -- red reads as blood there and the marker's green would not.
+Its NAME is now wrong for what it does; renaming it would touch `docs/design/drive-report.md` and
+`docs/research/2026-10-17-hit-card.md`, which are the Architect's files, so it is queued instead.
+
+TO PUT THEM BACK: restore the two lines, and in `src/client/Hud/init.luau` pass
+`config.CROSSHAIR_COLOR` / `config.HIT_MARK_COLOR` to `arm` again instead of the `Style` tokens.
+
+STALE DOCUMENTATION THIS LEAVES (the Builder may not write `docs/design/`, CLAUDE.md roles --
+reported to the Director instead):
+  docs/design/shotgun.md line 629   "each `BackgroundColor3 = CONFIG.CROSSHAIR_COLOR` ... with a
+                                    `UIStroke` child"
+  docs/design/shotgun.md line 1066  "`CROSSHAIR_COLOR` | white, with a 1-px black `UIStroke`"
+  docs/architecture/audit-003.md line 213  lists `CROSSHAIR_COLOR` among the crosshair's numbers

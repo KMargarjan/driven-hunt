@@ -390,7 +390,18 @@ Shotgun.CONFIG = {
 	HIT_MARK_ARM_PX = 9,
 	HIT_MARK_GAP_PX = 6,
 	HIT_MARK_THICK_PX = 2,
-	HIT_MARK_COLOR = Color3.fromRGB(255, 255, 255),
+	-- THE MARKER'S OWN COLOURS LEFT THIS TABLE IN TASK 201 E. `HIT_MARK_COLOR` (white) and
+	-- `CROSSHAIR_COLOR` (white) are gone: the Designer's design system, 2026-10-17 §5 surfaces 18
+	-- and 19 make both marks `Style`'s -- `PAPER` for a hit, `PINE_TEXT` for a kill, `CLAY` for a
+	-- wound -- and `Style.hitMarkColor` is the one mapping. Archived with their values and the way
+	-- back in `backups/2026-10-19_hit-mark-colours.txt` (rule 7).
+	--
+	-- `HIT_MARK_KILL_COLOR` STAYS, AND IT IS NO LONGER THE HIT MARKER'S. It is the FATAL DOT on the
+	-- boar plate -- `Hud.BoarArt`'s `dot.fatal` pip and `Hud.HitCard`'s lead mark, both of which
+	-- draw a wound POSITION on a bone-coloured silhouette, where red reads as blood and the
+	-- marker's green would not. The name is kept because `docs/design/drive-report.md` and
+	-- `docs/research/2026-10-17-hit-card.md` both name it and those are the Architect's files, not
+	-- the Builder's (CLAUDE.md roles); renaming it is queued for the Director.
 	HIT_MARK_KILL_COLOR = Color3.fromRGB(235, 70, 55),
 	-- 0.35 AND 0.80, NOT 0.15 AND 0.45 (task 124). 0.15 s is four frames at 30 fps: readable only if
 	-- you were already looking at the centre of the screen, which during a crossing you are not.
@@ -425,7 +436,8 @@ Shotgun.CONFIG = {
 	CROSSHAIR_ARM_PX = 8,
 	CROSSHAIR_GAP_PX = 5,
 	CROSSHAIR_THICK_PX = 2,
-	CROSSHAIR_COLOR = Color3.fromRGB(255, 255, 255),
+	-- NO `CROSSHAIR_COLOR` (task 201 E): see `HIT_MARK_KILL_COLOR` above. The crosshair is `PAPER`
+	-- with a drop line now, and `src/client/Hud/Style.luau` is where that is written.
 	HUD_TEXT_SIZE = 18,
 
 	CAMERA_DRIFT_TOLERANCE = 0.5, -- studs the camera may drift relative to its subject (13.3)

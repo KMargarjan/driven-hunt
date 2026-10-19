@@ -433,6 +433,294 @@ return function()
 			TestKit.note(string.format("hud_style: %d surfaces clear of Code and black strokes", #roots))
 		end)
 
+		it("is clear of Code, white and black strokes over the WHOLE Hud (the system's §6 test)", function()
+			-- THE ACCEPTANCE TEST OF THE WHOLE SYSTEM (§6, after part E), asked of the LIVE SCREEN
+			-- and not of a grep. The case above narrowed it to part 1's seven surfaces because C, D
+			-- and E had not landed; this one walks every descendant of the `ScreenGui`.
+			--
+			-- WHAT THE GREP CANNOT SEE AND THIS CAN: a colour read from another module's config
+			-- (the map's marks came from `Drive.CONFIG` and would have passed every grep while
+			-- drawing `#FFA03C`), and a stroke added at RUN time rather than at build time.
+			local gui = Hud.gui() :: ScreenGui
+			expect(gui).to.be.ok()
+			local banned = {
+				[tostring(Color3.fromRGB(255, 255, 255))] = "white",
+				[tostring(Color3.fromHex("101214"))] = "101214",
+				[tostring(Color3.fromHex("EB5A37"))] = "EB5A37",
+				[tostring(Color3.fromHex("5A96FF"))] = "5A96FF",
+				[tostring(Color3.fromHex("FFA03C"))] = "FFA03C",
+				[tostring(Color3.fromHex("FFE896"))] = "FFE896",
+			}
+			local offenders = {}
+			local labels, strokes = 0, 0
+			for _, node in ipairs(gui:GetDescendants()) do
+				if node:IsA("TextLabel") or node:IsA("TextButton") then
+					labels += 1
+					local text = node :: any
+					if text.Font == Enum.Font.Code then
+						table.insert(offenders, node:GetFullName() .. " (Code)")
+					end
+					if text.TextScaled then
+						table.insert(offenders, node:GetFullName() .. " (TextScaled)")
+					end
+					local tint = banned[tostring(text.TextColor3)]
+					if tint ~= nil then
+						table.insert(offenders, string.format("%s (text %s)", node:GetFullName(), tint))
+					end
+				end
+				if node:IsA("UIStroke") then
+					strokes += 1
+					-- BLACK IS BANNED ON TEXT, which is what §2 actually says: *"UIStroke whose
+					-- Color is `Color3.new(0, 0, 0)` -- on any TextLabel"*. THE ONE BLACK STROKE
+					-- LEFT IN THE GAME is the scope's MASK, and it is not an outline at all: it is
+					-- the paint OUTSIDE the eyepiece, a stroke thicker than the screen's diagonal
+					-- on a circle, and §5 surface 20 says in so many words *"Mask stays
+					-- `#000000`"*. It is excluded BY NAME AND BY PARENT so nothing else can hide
+					-- behind the exemption.
+					local parent = node.Parent
+					local isScopeMask = node.Name == "Edge" and parent ~= nil and parent.Name == "Mask"
+					if node.Color == Color3.new(0, 0, 0) and not isScopeMask then
+						table.insert(offenders, node:GetFullName() .. " (black stroke)")
+					end
+				end
+				if node:IsA("Frame") then
+					-- A FRAME'S FILL CARRIES THE OLD PALETTE TOO. The minimap's own marker was
+					-- `#FFE896` and its rim `#E6E6E6`; neither is text, and neither would have been
+					-- caught by a grep for a font or a stroke.
+					local fill = node :: Frame
+					local tint = banned[tostring(fill.BackgroundColor3)]
+					if tint ~= nil and fill.BackgroundTransparency < 1 then
+						table.insert(offenders, string.format("%s (fill %s)", node:GetFullName(), tint))
+					end
+				end
+			end
+			expect(table.concat(offenders, ", ")).to.equal("")
+			expect(labels > 40).to.equal(true)
+			TestKit.note(
+				string.format(
+					"hud_style: §6 acceptance over the whole Hud -- %d labels, %d strokes, 0 offenders",
+					labels,
+					strokes
+				)
+			)
+		end)
+
+		it("collapses a repeated feed line into one line with a count, and caps the feed at 3", function()
+			-- THE DIRECTOR, 2026-10-19, after `t212r2-blow-fp.png`: *"the toast feed stacks
+			-- identical lines ('a boar got away' x5 for a beater): collapse repeats into one line
+			-- with a count ('a boar got away x5') and cap the feed at 3."*
+			--
+			-- EVERY ARM, AND NOT ONLY THE ONE THE SCREENSHOT SHOWS: a new line, a repeat, an
+			-- INTERLEAVED repeat (the arm a consecutive-only collapse would get wrong), and the
+			-- over-cap drop.
+			local now = os.clock()
+			-- A CLEAN SLATE, AND IT REALLY IS ONE: `Hud.clearFeedForTests` empties the list. A push
+			-- with an ancient timestamp would NOT have cleared it -- `pushFeed` appends to the
+			-- newest end and `renderFeed` trims from the front.
+			Hud.clearFeedForTests()
+			Hud.renderFeedForTests(now)
+			expect(#Hud.feedText()).to.equal(0)
+
+			-- ARM 1: a new line is count 1 and reads as itself.
+			local first = Hud.pushFeed("a boar got away", "bad", now)
+			expect(first.count).to.equal(1)
+			expect(Hud.feedLineText(first)).to.equal("a boar got away")
+
+			-- ARM 2: the same sentence again is ONE line with a count, not two lines.
+			Hud.pushFeed("a boar got away", "bad", now)
+			Hud.renderFeedForTests(now)
+			local shown = Hud.feedText()
+			expect(#shown).to.equal(1)
+			expect(shown[1]).to.equal("a boar got away x2")
+
+			-- ARM 3: INTERLEAVED. Something else happens, then the escape repeats: still two lines,
+			-- and the repeat is the NEWEST, because it is what just happened.
+			Hud.pushFeed("Anna tied to a tree", "bad", now)
+			local third = Hud.pushFeed("a boar got away", "bad", now)
+			expect(third.count).to.equal(3)
+			Hud.renderFeedForTests(now)
+			shown = Hud.feedText()
+			expect(#shown).to.equal(2)
+			expect(shown[1]).to.equal("Anna tied to a tree")
+			expect(shown[2]).to.equal("a boar got away x3")
+
+			-- ...and the meaning survives a repeat that carried none.
+			local keeps = Hud.pushFeed("a boar got away", nil, now)
+			expect(keeps.meaning).to.equal("bad")
+
+			-- ARM 4: THE CAP. Five DISTINCT lines, and only the newest three are on screen.
+			for index = 1, 5 do
+				Hud.pushFeed(string.format("line %d", index), "info", now)
+			end
+			Hud.renderFeedForTests(now)
+			shown = Hud.feedText()
+			expect(#shown).to.equal(Style.FEED_LINES)
+			expect(Style.FEED_LINES).to.equal(3)
+			expect(shown[#shown]).to.equal("line 5")
+			expect(shown[1]).to.equal("line 3")
+			-- THE SLOTS THEMSELVES ARE THE CAP TOO, which is the half an entry-list test cannot
+			-- answer: a fourth toast cannot appear because a fourth toast was never built.
+			expect(#Hud.feedToasts()).to.equal(Style.FEED_LINES)
+
+			-- Left as it was found, so the next case does not inherit this one's five lines.
+			Hud.clearFeedForTests()
+			Hud.renderFeedForTests(now)
+			TestKit.note("hud_style: feed collapse -- new, repeat, interleaved repeat, over-cap drop")
+		end)
+
+		it("draws the map in the palette, with a brass rim and a scrim that follows it", function()
+			-- §5 SURFACES 4 AND 14. The marks were `Drive.CONFIG`'s three colours and the rim was
+			-- `#E6E6E6`; a grep over `src/client/` would have passed on every one of them, because
+			-- those hexes live in `src/shared/Drive/`.
+			local mini = Hud.minimap() :: Frame
+			local full = Hud.fullMap() :: Frame
+			expect(mini).to.be.ok()
+			expect(full).to.be.ok()
+			-- The minimap is a QUIET SLATE: it carries 9-11 px labels (§2's second opacity).
+			expect(mini.BackgroundColor3).to.equal(Style.LOOK.SLATE)
+			expect(mini.BackgroundTransparency).to.be.near(Style.SLATE_QUIET_T, 1e-6)
+			local rim = mini:FindFirstChildOfClass("UIStroke") :: UIStroke
+			expect(rim).to.be.ok()
+			expect(rim.Color).to.equal(Style.LOOK.BRASS)
+			expect(rim.Transparency).to.be.near(Style.EDGE_T.SLATE, 1e-6)
+			expect(rim.Thickness).to.equal(2)
+			-- The full map is a PANEL: opaque, corner 16, brass edge at the panel's own opacity.
+			expect(full.BackgroundColor3).to.equal(Style.LOOK.PANEL)
+			expect(full.BackgroundTransparency).to.be.near(Style.PANEL_T, 1e-6)
+			local corner = full:FindFirstChildOfClass("UICorner") :: UICorner
+			expect(corner).to.be.ok()
+			expect(corner.CornerRadius).to.equal(UDim.new(0, Style.RADIUS.MODAL))
+			local edge = full:FindFirstChildOfClass("UIStroke") :: UIStroke
+			expect(edge.Color).to.equal(Style.LOOK.BRASS)
+			expect(edge.Transparency).to.be.near(Style.EDGE_T.PANEL, 1e-6)
+			-- ...AND ITS SCRIM FOLLOWS IT EXACTLY, in both directions. A scrim left up over a shut
+			-- map is a dark screen with nothing to explain it.
+			local scrim = Hud.mapScrim() :: Frame
+			expect(scrim).to.be.ok()
+			expect(scrim.BackgroundColor3).to.equal(Style.LOOK.SCRIM)
+			expect(scrim.BackgroundTransparency).to.be.near(Style.SCRIM_T, 1e-6)
+			expect(scrim.ZIndex < full.ZIndex).to.equal(true)
+			expect(scrim.Visible).to.equal(full.Visible)
+			local was = Hud.MapUi.isOpen()
+			Hud.MapUi.setOpen(not was)
+			expect(scrim.Visible).to.equal(full.Visible)
+			Hud.MapUi.setOpen(was)
+			expect(scrim.Visible).to.equal(full.Visible)
+			TestKit.note(
+				string.format(
+					"hud_style: map rim brass, scrim follows panel (open=%s, drawn=%s)",
+					tostring(Hud.MapUi.isOpen()),
+					tostring(full.Visible)
+				)
+			)
+		end)
+
+		it("gives the way-mark's word its own slate, and dims all of it when pinned", function()
+			-- §5 SURFACE 21: *"the word (`STAND` / `LINE` / `ROAD` / `TRUCK`) gets its own tiny
+			-- slate so it reads over sky, instead of a stroke. Pinned stays dimmer (T 0.45)."*
+			local view = CFrame.new(Vector3.new(0, 0, 0))
+			local viewport = Vector2.new(1920, 1080)
+			local word = Hud.waypointWord() :: TextLabel
+			local slate = Hud.waypointSlate() :: Frame
+			expect(slate).to.be.ok()
+			-- THE WORD IS IN THE SLATE and not beside it: a slate the word is not inside is a tile
+			-- with a word floating next to it.
+			expect(word.Parent).to.equal(slate)
+			expect(slate.BackgroundColor3).to.equal(Style.LOOK.SLATE)
+			expect(word.ZIndex > slate.ZIndex).to.equal(true)
+
+			local ahead = { point = Vector3.new(0, 0, -100), word = "ROAD", kind = "road" }
+			Hud.Objective.render({
+				text = "",
+				target = ahead,
+				distanceStuds = 100,
+				view = view,
+				fovDeg = 70,
+				viewport = viewport,
+				lineVisible = false,
+				markVisible = true,
+			})
+			expect(slate.Visible).to.equal(true)
+			expect(slate.BackgroundTransparency).to.be.near(Style.SLATE_QUIET_T, 1e-6)
+			local slateEdge = slate:FindFirstChildOfClass("UIStroke") :: UIStroke
+			expect(slateEdge.Transparency).to.be.near(Style.EDGE_T.SLATE, 1e-6)
+
+			-- PINNED: the chevron, the word AND the slate all dim together, from the one number.
+			local behind = { point = Vector3.new(5000, 0, 100), word = "STAND", kind = "stand" }
+			Hud.Objective.render({
+				text = "",
+				target = behind,
+				distanceStuds = 5000,
+				view = view,
+				fovDeg = 70,
+				viewport = viewport,
+				lineVisible = false,
+				markVisible = true,
+			})
+			local pinned = Hud.Objective.CONFIG.PINNED_TRANSPARENCY
+			expect(Hud.Objective.isMarkPinned()).to.equal(true)
+			expect(word.TextTransparency).to.be.near(pinned, 1e-6)
+			expect(slate.BackgroundTransparency > Style.SLATE_QUIET_T).to.equal(true)
+			expect(slateEdge.Transparency > Style.EDGE_T.SLATE).to.equal(true)
+
+			-- ...and nothing of the three is left on screen when there is nowhere to go.
+			Hud.Objective.render({
+				text = "",
+				target = nil,
+				distanceStuds = nil,
+				view = view,
+				fovDeg = 70,
+				viewport = viewport,
+				lineVisible = false,
+				markVisible = false,
+			})
+			expect(slate.Visible).to.equal(false)
+			expect(word.Visible).to.equal(false)
+			expect((Hud.waypoint() :: Frame).Visible).to.equal(false)
+		end)
+
+		it("rims the scope in the system's darkest surface, with a brass ring on the glass", function()
+			-- §5 SURFACE 20: *"Mask stays `#000000`; the rim goes from the flat grey of
+			-- `t146-scope-aim.png` to `#0A0907` with a 1 px inner `BRASS` @ 0.70 ring"*. The two
+			-- colours came off `Rifle.CONFIG.scope.eyepiece` until task 201 E; the tube's GEOMETRY
+			-- is the weapon's and its COLOUR is the system's
+			-- (`backups/2026-10-19_rifle-eyepiece-colours.txt`).
+			local overlay = Hud.scopeOverlay() :: Frame
+			expect(overlay).to.be.ok()
+			local optics = {
+				aimFovDeg = 20,
+				eyepiece = { atBlend = 0.98, diameterDeg = 21, rimThickDeg = 1.69, maskTransparency = 0.45 },
+			}
+			-- HANDED ITS INPUTS, for the reason every other render case here is: a spec cannot
+			-- raise a rifle, and `layoutScope` writes nothing but the nodes it is given.
+			Hud.layoutScope(overlay, optics, 20)
+			local mask = overlay:FindFirstChild("Mask") :: Frame
+			local rim = overlay:FindFirstChild("Rim") :: Frame
+			local bezel = overlay:FindFirstChild("Bezel") :: Frame
+			expect(mask).to.be.ok()
+			expect(rim).to.be.ok()
+			expect(bezel).to.be.ok()
+			expect((mask:FindFirstChild("Edge") :: UIStroke).Color).to.equal(Style.SCOPE_MASK)
+			expect((rim:FindFirstChild("Edge") :: UIStroke).Color).to.equal(Style.LOOK.SCRIM)
+			local ring = bezel:FindFirstChildOfClass("UIStroke") :: UIStroke
+			expect(ring).to.be.ok()
+			expect(ring.Color).to.equal(Style.LOOK.BRASS)
+			expect(ring.Transparency).to.be.near(Style.SCOPE_RING_T, 1e-6)
+			expect(ring.Thickness).to.equal(1)
+			-- THE RING IS ON THE GLASS'S EDGE, which is the rim's INNER size and not the tube's
+			-- outer one: a ring drawn at the outer diameter would sit in the black.
+			expect(bezel.Size.X.Offset).to.equal(rim.Size.X.Offset)
+			expect(bezel.Size.X.Offset < mask.Size.X.Offset).to.equal(true)
+			expect(bezel.ZIndex > mask.ZIndex).to.equal(true)
+			TestKit.note(
+				string.format(
+					"hud_style: scope glass %d px inside a %d px tube, brass ring on it",
+					bezel.Size.X.Offset,
+					mask.Size.X.Offset
+				)
+			)
+		end)
+
 		it("backs every word of the top band with a slate, and no word with an outline", function()
 			-- §2 is the rule this task exists to apply: *"Text over the 3-D world always sits on a
 			-- backing panel. It never wears a black `UIStroke`."*
@@ -569,19 +857,21 @@ return function()
 
 		it("reserves the toast feed's REAL height, so a full stack cannot reach the hit card", function()
 			-- ROUND 1, BLOCKING FINDING 2. `Hud.feedHeight` was `FEED_LINES * 28` against a toast
-			-- that measures 30 with a 6 px gap, so five lines came to 174 px inside a 140 px
-			-- reservation -- and the feed frame has no `ClipsDescendants`, so the stack grew 34 px
-			-- onto the hit card. Five entries inside `FEED_SECONDS` is reachable: `renderFeed`
-			-- trims only past `FEED_LINES`.
+			-- that measures 30 with a 6 px gap, so the stack came to more than its reservation --
+			-- and the feed frame has no `ClipsDescendants`, so it grew onto the hit card. A full
+			-- stack inside `FEED_SECONDS` is reachable: `renderFeed` trims only past the cap.
+			--
+			-- THE CAP IS `Style.FEED_LINES` SINCE TASK 201 E and it is 3, not `Drive.CONFIG`'s 5
+			-- (the Director, 2026-10-19). Both of this case's numbers move with it.
 			local viewX = Hud.viewportX()
 			local toast = Style.toastHeight(viewX)
-			local lines = Drive.CONFIG.FEED_LINES
+			local lines = Style.FEED_LINES
 			-- THE NUMBERS AND NOT THE EXPRESSION (round 2 note): restating `feedHeight`'s own
 			-- arithmetic back at it is a case that cannot fail. A desktop toast is 6 + 6 of slate
-			-- padding around an 18 px line box, and five of them with four 6 px gaps is 174.
+			-- padding around an 18 px line box, and three of them with two 6 px gaps is 102.
 			expect(Style.toastHeight(1280)).to.equal(30)
 			expect(Style.toastHeight(400)).to.equal(25)
-			expect(Hud.feedHeight(1280)).to.equal(5 * 30 + 4 * 6)
+			expect(Hud.feedHeight(1280)).to.equal(3 * 30 + 2 * 6)
 			expect(Hud.feedHeight(viewX)).to.equal(lines * toast + (lines - 1) * Style.TOAST_GAP)
 			-- THE NUMBER IS TRUE OF WHAT IS DRAWN, and that is the half the arithmetic cannot
 			-- answer: every toast this Hud built is measured against it.
