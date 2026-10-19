@@ -1270,8 +1270,14 @@ return function()
 			-- 4,000 studs up, where the clear-lane case below proves there is nothing at all: the
 			-- DEV arena's own fixtures live near the ground and a cast through one would answer
 			-- about a wall instead of about the body this case is here to measure.
-			local at = Vector3.new(0, 4000, 0)
-			bodyAt(at)
+			local body = bodyAt(Vector3.new(0, 4000, 0))
+			-- WHERE IT ACTUALLY IS, read back, not where it was asked to be -- which is this whole
+			-- task's lesson applied to its own fixture. A Model with a Humanoid in it does not stay
+			-- exactly where a Part was put: MEASURED in this very case, a root placed at y 4000 read
+			-- back 1.5 studs lower and 0.45 further down the lane, and the case failed against a
+			-- step height computed from the number it had ASKED for rather than the one the world
+			-- had. The reader's arithmetic was right all along.
+			local at = Rig.positionOf(body) :: Vector3
 			-- Looking down the lane from 10 studs behind it, at the same height.
 			local from = Vector3.new(at.X, at.Y, at.Z + 10)
 			local to = Vector3.new(at.X, at.Y, at.Z - 2)
@@ -1290,8 +1296,8 @@ return function()
 		end)
 
 		it("does not see the walker's OWN body, which is what `ignore` is for", function()
-			local at = Vector3.new(0, 4000, 0)
-			local body = bodyAt(at)
+			local body = bodyAt(Vector3.new(0, 4000, 0))
+			local at = Rig.positionOf(body) :: Vector3
 			local from = Vector3.new(at.X, at.Y, at.Z + 10)
 			local to = Vector3.new(at.X, at.Y, at.Z - 2)
 			local ahead = ForestTest.laneAhead(from, to, Bots.CONFIG.LANE_BODY_SIZE, body)
