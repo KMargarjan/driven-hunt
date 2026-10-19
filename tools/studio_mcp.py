@@ -874,7 +874,13 @@ SCOPE_SPECS = {
     # own contract. `match`'s own tuple is what covers the drive boundary that triggers a pay-out --
     # `zz_drive_boundary.spec` is named there and is where `drivesPaid == drives` is asserted.
     "economy": ("tests/server/shop.spec.luau", "tests/server/shop_door.spec.luau",
-                "tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau"),
+                "tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau",
+                # Task 217: the drive now READS this owner on every event (`Economy.owedTeams`) and
+                # writes to it at two edges, so an Economy-only change can move who is on which team
+                # -- and `match_live.spec` is what asserts the real session's teams. The dual
+                # membership this table already uses (`zz_horn`, `boar_hit`, `boar_shot`,
+                # `shoot_boar`); `match`'s own tuple names it too.
+                "tests/server/match_live.spec.luau"),
     "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau"),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).

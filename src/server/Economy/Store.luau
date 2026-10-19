@@ -35,8 +35,8 @@
 -- `Store.memory` does not -- and reaching it still means requiring the library in Studio, which
 -- item 2 forbids.
 --
--- Design: docs/design/economy.md (sections 4.2, 9)
--- Note:   docs/research/2026-10-13-coins-persistence.md
+-- Design: docs/design/economy.md (sections 4.2, 9), docs/design/role-rotation.md (sections 3.1, 6)
+-- Note:   docs/research/2026-10-13-coins-persistence.md, docs/research/2026-10-20-role-rotation.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
@@ -92,9 +92,9 @@ export type Store = {
 	peek: ((userId: number) -> { [string]: any })?,
 }
 
--- THE PROFILE'S SHAPE. One table, four numbers, and a `schema` that is READ and never acted on in
--- this task -- it is the number a later migration branches on, and branching on it now would be a
--- migration with nothing to migrate.
+-- THE PROFILE'S SHAPE. One table, four numbers, an ownership set, the turn (task 217), and a
+-- `schema` that is READ and never acted on -- it is the number a later migration branches on, and
+-- branching on it now would be a migration with nothing to migrate.
 --
 -- `coinsEarnedTotal` is the one number SPENDING destroys and cannot rebuild, which is why it is here
 -- before there is anything to spend on. `drivesPaid` is the double-pay forensic: if a balance ever
@@ -122,6 +122,24 @@ Store.TEMPLATE = {
 	-- ADDITIVE, so `STORE_NAME` does not go to `_v2`: an older build keeps this key untouched
 	-- (`Store.read`'s keep-unknown half) and a newer one fills it (its fill-missing half).
 	owned = {},
+	-- THE TURN (task 217). KAREN, 2026-10-11: *"ROLES ROTATE: you start as a hunter, next round you
+	-- are a beater; it is REMEMBERED across logout/login (no cheating back to hunter)"*. It is the
+	-- TEAM this player must be given at the next assignment he takes part in: `"Drivers"`,
+	-- `"Shooters"`, or `""` for NO TURN STORED. During a drive it is the team he is PLAYING, so a
+	-- rejoin resumes the drive he left; from the drive's `Scoring` edge it is the OTHER one.
+	--
+	-- A STRING AND NOT A TABLE, AND THAT IS STRUCTURAL RATHER THAN A PREFERENCE (design section 3.3,
+	-- hazard 2): this template is enumerated by `Store.read`'s fill-missing half, whose clone branch
+	-- is `type(value) == "table"` -- so a scalar default can never reach hazard 1, where one shared
+	-- table would have been handed to every player on the server. `""` and not a missing key,
+	-- because a key whose default were nil cannot exist in a Lua table at all, so the template
+	-- would not name the field and nothing reading the template would see the profile's real shape.
+	--
+	-- ADDITIVE, so `STORE_NAME` does not go to `_v2` (the argument `owned` above already makes): an
+	-- older build keeps this key untouched and a newer one fills it. The ONE validator is
+	-- `Economy.teamFromRecord`, at the owner's boundary; anything that is not one of the two team
+	-- names reads as NO TURN STORED, which is the brand-new-player case and already has to work.
+	nextTeam = "",
 }
 
 -- FROZEN, AND IT IS HAZARD 1 (design section 8.2a). With a TABLE in the template, `Store.read`'s

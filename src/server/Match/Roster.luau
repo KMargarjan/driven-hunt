@@ -8,8 +8,8 @@
 -- gives the same assignment on every server and in every spec run. A Random here would make the one
 -- rule Karen cares about ("equal teams") unreproducible in a bug report.
 --
--- Design: docs/design/drive.md (section 5.2)
--- Note:   docs/research/2026-09-25-drive.md
+-- Design: docs/design/drive.md (section 5.2), docs/design/role-rotation.md (section 4.1)
+-- Note:   docs/research/2026-09-25-drive.md, docs/research/2026-10-20-role-rotation.md
 local Roster = {}
 
 export type TeamName = "Drivers" | "Shooters"
@@ -39,6 +39,96 @@ function Roster.smallerTeam(counts: { [string]: number }, config): TeamName
 	return config.ODD_PLAYER_TEAM
 end
 
+-- ---------------------------------------------------------------- the stored turn (task 217)
+--
+-- KAREN, 2026-10-11: *"ROLES ROTATE: you start as a hunter, next round you are a beater; it is
+-- REMEMBERED across logout/login (no cheating back to hunter)"*.
+--
+-- THE FOUR FUNCTIONS BELOW ARE THE WHOLE RULE, and `Roster.assign` is DELIBERATELY NOT TOUCHED:
+-- its algorithm, its `|Drivers - Shooters| <= 1` balance check and its plain-split fallback are
+-- what tests/server/match_roster.spec.luau pins at every roster size from 2 to 16, and rewriting a
+-- pinned pure function to add a feature is a bigger change than the feature. The stored turn is
+-- folded in as a SYNTHETIC `previous` instead.
+--
+-- Design: docs/design/role-rotation.md (sections 4.1, 5.3)
+-- Note:   docs/research/2026-10-20-role-rotation.md
+
+-- PURE. The other side. nil in, nil out -- and that is load-bearing, not politeness: the input is
+-- sometimes a value that came off a DataStore key, so a corrupted row must DROP rather than invent
+-- a team.
+function Roster.other(team: TeamName?): TeamName?
+	if team == DRIVERS then
+		return SHOOTERS
+	elseif team == SHOOTERS then
+		return DRIVERS
+	end
+	return nil
+end
+
+-- PURE. Every row flipped, as a NEW table. The input is never written: it is usually
+-- `state.assignment`, which `Phase.freezeState` has frozen.
+--
+-- IT IS WHAT THE END OF A DRIVE STORES (design section 5.2, edge 2): the role he is owed next is the
+-- other one from the role he ACTUALLY played, which is what makes "the turn is not consumed when the
+-- balance rule overrules it" structural rather than bookkeeping -- a man owed beater who was made a
+-- hunter is written beater again, with no second field and no "was it honoured" flag to get wrong.
+function Roster.invert(assignment: Assignment): Assignment
+	local out: Assignment = {}
+	for userId, team in pairs(assignment) do
+		local other = Roster.other(team)
+		if other then
+			out[userId] = other
+		end
+	end
+	return out
+end
+
+-- PURE. THE STORED TURN, FOLDED IN AS A SYNTHETIC `previous`.
+--
+--   * `owed` nil or EMPTY -> `previous` is returned BY IDENTITY. Nothing is allocated, and the game
+--     is bit-for-bit what it was before this task: that identity IS the flag-off story (design
+--     section 7) and a spec asserts the raw table equality rather than a deep compare.
+--   * otherwise -> a NEW table: `previous`'s rows, with `other(owed[u])` written over the row of
+--     every player who is owed a turn. `previous` may be nil, and then the result holds only the
+--     owed rows -- which is what makes the FIRST drive after a rejoin honour the turn, because a
+--     rejoiner has no previous row by definition.
+--
+-- THE INVERSION IS HERE AND ONLY HERE, AND IT IS THE ONE TRAP IN THIS DESIGN (design section 4.1,
+-- hazard 9): `Roster.assign`'s swap gives a player the OPPOSITE of his `previous` row, so to land
+-- him on the team he is OWED the synthetic row must be the other one. `Roster.joinTeam` below does
+-- NOT invert, because it places a man directly.
+function Roster.previousFrom(previous: Assignment?, owed: { [number]: TeamName }?): Assignment?
+	if owed == nil or next(owed) == nil then
+		return previous
+	end
+	-- A CLONE, so neither input is written: `previous` is usually `state.previousAssignment`, which
+	-- `Phase.freezeState` has frozen, and `owed` is the economy's frozen memo.
+	local out: Assignment = table.clone(previous or {})
+	for userId, team in pairs(owed) do
+		local synthetic = Roster.other(team)
+		if synthetic then
+			out[userId] = synthetic
+		end
+	end
+	return out
+end
+
+-- PURE. WHICH TEAM A LATE ARRIVAL GETS. `Roster.smallerTeam` unless the two sides are EQUAL, in
+-- which case the owed team costs the balance nothing and wins -- the result differs by one either
+-- way. Off a tie the smaller team wins and the turn is simply not consumed.
+--
+-- `owed` nil answers `smallerTeam` EXACTLY, which is this question before task 217.
+--
+-- IT MATTERS MORE THAN IT LOOKS: since tasks 177 and 209 a player walks onto a truck pad during the
+-- intermission, so the `join` branch is now the NORMAL way into a drive rather than an edge case
+-- (design section 8.5).
+function Roster.joinTeam(counts: { [string]: number }, owed: TeamName?, config): TeamName
+	if owed ~= nil and (counts.Drivers or 0) == (counts.Shooters or 0) then
+		return owed
+	end
+	return Roster.smallerTeam(counts, config)
+end
+
 local function sorted(userIds: { number }): { number }
 	local out = table.clone(userIds)
 	table.sort(out)
@@ -47,7 +137,9 @@ end
 
 -- Splits `userIds` into two teams differing by at most one.
 --
--- `previous` is the LAST drive's assignment and is honoured only to swap roles
+-- `previous` is the LAST drive's assignment -- or, since task 217, the SYNTHETIC one
+-- `Roster.previousFrom` builds from it plus each player's stored turn -- and is honoured only to
+-- swap roles
 -- (SWAP_TEAMS_EACH_DRIVE): everybody who drove shoots next, which is why it is on by default --
 -- everyone wants to shoot, and fixed roles make half the players tourists. Sizes still balance,
 -- because a swap of a balanced split is a balanced split.

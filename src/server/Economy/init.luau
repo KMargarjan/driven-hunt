@@ -1,6 +1,13 @@
 --!strict
--- Economy: THE ONE OWNER of a player's coins (CLAUDE.md rule 3) -- the in-memory balance, the
--- ProfileStore session behind it, and what the last drive paid each player.
+-- Economy: THE ONE OWNER of a player's PERSISTENT RECORD (CLAUDE.md rule 3) -- the in-memory
+-- balance, what he owns, how many drives he has finished, WHICH ROLE HE IS OWED NEXT (task 217),
+-- the ProfileStore session behind all of it, and what the last drive paid each player.
+--
+-- IT IS THE ONE PERSISTENCE OWNER AND NOT "the coins owner", which is why task 217 extended this
+-- record rather than opening a second store: one key per player, one session lock, one place that
+-- may reach `DataStoreService` (Roblox's own best-practices page, and the Director's instruction).
+-- Karen, 2026-10-11: *"ROLES ROTATE: you start as a hunter, next round you are a beater; it is
+-- REMEMBERED across logout/login (no cheating back to hunter)"*.
 --
 -- Karen, 2026-10-11: *"Scoring - yes get money when shoot boar not much but get money and first
 -- place ofc more legendary more ect"*. 2026-10-10, her design doc: *"Progress trophys, money can
@@ -29,8 +36,8 @@
 -- nor `earned` -- so the Hud draws today's one-table board because the DATA is absent, not because
 -- a second renderer was written.
 --
--- Design: docs/design/economy.md
--- Note:   docs/research/2026-10-13-coins-persistence.md
+-- Design: docs/design/economy.md, docs/design/role-rotation.md (sections 4.4, 5)
+-- Note:   docs/research/2026-10-13-coins-persistence.md, docs/research/2026-10-20-role-rotation.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -58,6 +65,12 @@ Economy.Coins = Coins
 Economy.Store = StoreModule
 
 export type Store = StoreModule.Store
+-- THE TWO TEAM NAMES, AS A TYPE. `Drive.TeamName` cannot be reached as a type from here: the require
+-- above goes through `WaitForChild`, so Luau cannot resolve that module's exports -- which is why
+-- `Match.Body` declares its own copy of this line too. The RUNTIME answer is not copied: the
+-- membership test is `Drive.TEAMS`, read by the one validator below, so there is exactly one place
+-- the two strings are checked (design section 3.4).
+export type TeamName = "Drivers" | "Shooters"
 
 -- Server-only and NEVER REPLICATED. `ReplicatedStorage.Drive`'s header states the rule these numbers
 -- are kept on this side by: a client that knows a rate learns nothing it is not already told, and
@@ -115,7 +128,9 @@ Drive.deepFreeze(Economy.CONFIG)
 
 -- ------------------------------------------------------------------------------- the only state
 --
--- Four tables, one fact each, and nothing else in the repository may write any of them.
+-- One table per fact, and nothing else in the repository may write any of them. (The count in this
+-- line used to be "four" and had been stale since task 178 added `ownedSets`; task 217 adds
+-- `nextTeams` and its memo, so the sentence says the RULE now instead of a number that drifts.)
 
 -- The in-memory balance -- the one the wire reports. A userId with NO ROW has no open profile, which
 -- is NOT the same fact as a balance of zero (see `Economy.balanceOf`).
@@ -137,6 +152,21 @@ local ownedSets: { [number]: { [string]: boolean } } = {}
 --   `earnedTotals` `coinsEarnedTotal`: the one number SPENDING destroys and cannot rebuild.
 local huntsCache: { [number]: number } = {}
 local earnedTotals: { [number]: number } = {}
+-- WHOSE TURN IS WHICH (task 217): userId -> the TEAM he must be given at the next assignment he
+-- takes part in. The in-memory mirror of the profile's `nextTeam`, with ONE writer
+-- (`Economy.noteNextTeams`) and one reader (`Economy.owedTeams`), so the number in memory and the
+-- saved field cannot diverge -- the discipline `huntsCache` and `earnedTotals` above already follow.
+local nextTeams: { [number]: string } = {}
+-- ...AND THE FROZEN ANSWER, MEMOISED. `Match.dispatch` asks for this on EVERY event (the
+-- `aliveBoars` idiom), and while TASKS.md 214a(a) is open that dispatch is stepped at ~15x
+-- `MATCH_STEP_HZ` -- so a clone-and-freeze per call would be ~60 table builds a second for a table
+-- that changes at most twice a drive. Rebuilt (never mutated) by `invalidateOwed` below, which is
+-- called by every writer of `nextTeams`.
+local owedFrozen: { [number]: string }? = nil
+
+local function invalidateOwed()
+	owedFrozen = nil
+end
 -- THE DOUBLE-PAY GUARD. A belt over the brace of the phase edge in `Match`'s dispatch, and it is
 -- justified: `Match.start` resets `driveNumber` to 0, so two worlds in one process both count from 1
 -- and the guard is reset by `start`/`stop` rather than trusted to be unique for ever.
@@ -181,6 +211,13 @@ local stats = {
 	-- How many players this session's Studio test grant topped up. 0 in every live server and in
 	-- every harness run, by construction.
 	testGrants = 0,
+	-- THE TURN (task 217): rows written, and the two reasons a row is skipped. A skip is not an
+	-- error -- a player whose profile is not open simply keeps whatever is on his key -- but "how
+	-- often did the rotation fail to be recorded" is a real question about a live server and the
+	-- answer belongs in a number rather than in a feeling.
+	nextTeamsWritten = 0,
+	nextTeamSkippedNoProfile = 0,
+	nextTeamRefused = 0,
 	purchases = 0,
 	purchasesRefused = 0,
 	coinsSpent = 0,
@@ -256,6 +293,95 @@ function Economy.testGrantFor(isStudio: boolean, attribute: any, config): { coin
 	end
 	local grant = (config or Economy.CONFIG).TEST_GRANT
 	return { coins = grant.coins, hunts = grant.hunts }
+end
+
+-- PURE, exported. THE ONE VALIDATOR of the turn (task 217), at this owner's boundary and nowhere
+-- else -- the discipline `Economy.load`'s four `type(...)` checks already follow.
+--
+-- IT ANSWERS nil FOR ANYTHING THAT IS NOT ONE OF THE TWO TEAM NAMES, and `nil` MEANS *no turn
+-- stored*: `""` (the template's own default), a stale `"hunter"` from a vocabulary this project
+-- never shipped, a number, a boolean, a table, a key written by a build that does not exist yet.
+-- Never an error, never a crash and never a guess -- a corrupted profile puts a man on the smaller
+-- side, which is the brand-new-player path and already has to work.
+--
+-- `Drive.TEAMS` IS THE MEMBERSHIP TEST and not two literals here, so there is no sixth copy of the
+-- two strings to drift (design section 3.4).
+function Economy.teamFromRecord(value: any): TeamName?
+	if type(value) == "string" and (Drive.TEAMS :: any)[value] then
+		return (value :: any) :: TeamName
+	end
+	return nil
+end
+
+-- WHAT EACH OPEN PROFILE IS OWED: userId -> team. FROZEN, so no reader can write the table it was
+-- handed -- the `Economy.balances` idiom -- and MEMOISED, which `balances` is not, for a measured
+-- reason: `Match.dispatch` reads this on EVERY event (the `aliveBoars` idiom), and while TASKS.md
+-- 214a(a) is open that dispatch is stepped at ~15x `MATCH_STEP_HZ`. One table read, no clone and no
+-- freeze per call.
+--
+-- THE MEMO IS REBUILT AND NEVER MUTATED (hazard 2): every writer of `nextTeams` calls
+-- `invalidateOwed`, so a reader still holding the previous table holds a correct snapshot of the
+-- moment it asked rather than a table that changed under it.
+--
+-- EMPTY when the flag is off (no session is ever opened, so no row exists), when no profile is open,
+-- and in every spec that starts no money -- which is the first link of the flag-off identity
+-- (design section 7).
+function Economy.owedTeams(): { [number]: TeamName }
+	local cached = owedFrozen
+	if cached == nil then
+		cached = table.freeze(table.clone(nextTeams))
+		owedFrozen = cached
+	end
+	return (cached :: any) :: { [number]: TeamName }
+end
+
+-- THE ONE WRITER OF `nextTeam`, AND IT DERIVES NOTHING. It is told each player's next team and it
+-- stores exactly that -- which is hazard 2's lesson and the reason `Store.save` stopped deriving in
+-- task 178: a `save` that computed the turn would have had to know which EVENT it was being called
+-- for, and the two callers mean opposite things (the team he is playing, and the team he is owed
+-- next). The rule that tells them apart is pure and lives at the caller (`Roster.invert`).
+--
+-- Returns HOW MANY ROWS IT WROTE, so a spec can assert a number rather than a feeling.
+--   * a userId with NO OPEN SESSION is skipped and counted. His key on disk is untouched, which is
+--     what makes the profile-load race cost one drive and never the record (design section 5.4);
+--   * a value `teamFromRecord` refuses is skipped and counted;
+--   * THE CALLER'S TABLE IS READ AND NEVER RETAINED.
+--
+-- EVERY ACCEPTED ROW IS WRITTEN, even one whose value is already the stored one, and the reason is
+-- that `Store.save` IS FREE: it writes the server-local copy and performs no network call, so the
+-- figure a spec can hold this to is an exact one -- `save` rises by exactly 2N over a complete
+-- drive of N players with open sessions, one at each edge (design section 8.6). A
+-- write-if-different would have made that number depend on whether the previous drive's turn had
+-- been honoured, which is a worse thing to own than one free call.
+--
+-- THE MEMO IS A DIFFERENT QUESTION and is invalidated only when a row's VALUE actually moved: the
+-- memo exists because `Match.dispatch` reads it ~60 times a second, and rebuilding it for a write
+-- that changed nothing would throw that away.
+function Economy.noteNextTeams(teams: { [number]: any }): number
+	if not enabled then
+		return 0
+	end
+	local written = 0
+	for userId, value in pairs(teams or {}) do
+		local team = Economy.teamFromRecord(value)
+		if team == nil then
+			stats.nextTeamRefused += 1
+		elseif sessions[userId] == nil then
+			stats.nextTeamSkippedNoProfile += 1
+		else
+			if nextTeams[userId] ~= team then
+				nextTeams[userId] = team
+				invalidateOwed()
+			end
+			local current = store
+			if current then
+				current.save(userId, { nextTeam = team })
+			end
+			stats.nextTeamsWritten += 1
+			written += 1
+		end
+	end
+	return written
 end
 
 -- ------------------------------------------------------------------------------- reads
@@ -568,6 +694,11 @@ function Economy.load(player: Player)
 		ownedSets[userId] = if type(data.owned) == "table" then table.clone(data.owned) else {}
 		huntsCache[userId] = if type(data.drivesPaid) == "number" then data.drivesPaid else 0
 		earnedTotals[userId] = if type(data.coinsEarnedTotal) == "number" then data.coinsEarnedTotal else 0
+		-- THE TURN (task 217), the fifth projected field and the only one with a VALIDATOR rather
+		-- than a `type` check: `""` is the template's own default and means *no turn stored*, so the
+		-- "is it one of the two team names" question cannot be asked with `type` alone.
+		nextTeams[userId] = Economy.teamFromRecord(data.nextTeam)
+		invalidateOwed()
 		-- THE STUDIO TEST GRANT (task 178), applied to the IN-MEMORY copy and never saved: in Studio
 		-- the store is the memory one anyway, so there is nothing to persist and nothing to undo.
 		-- It RAISES rather than sets, so a player who has already earned more keeps what he earned,
@@ -594,6 +725,12 @@ function Economy.release(userId: number)
 	ownedSets[userId] = nil
 	huntsCache[userId] = nil
 	earnedTotals[userId] = nil
+	-- THE TURN'S ROW GOES WITH THE SESSION (task 217) AND THE KEY ON DISK KEEPS IT. A player who
+	-- left reads as *no turn stored* to the drive -- which is correct, because he is not in it -- and
+	-- the value `Store.release` has just saved is what his next `load` reads back. That round trip IS
+	-- the feature.
+	nextTeams[userId] = nil
+	invalidateOwed()
 	stats.releases += 1
 	task.spawn(function()
 		local current = store
@@ -651,6 +788,8 @@ function Economy.closeAll(): number
 	table.clear(ownedSets)
 	table.clear(huntsCache)
 	table.clear(earnedTotals)
+	table.clear(nextTeams)
+	invalidateOwed()
 	return ended
 end
 
@@ -671,6 +810,21 @@ export type View = {
 	-- gun (`Match.mayCarryWeapon`) and what colour is his hat (`Match.Body`) -- and it cannot write
 	-- a set, cannot buy anything and cannot reach the store.
 	ownedOf: (userId: number) -> { [string]: boolean }?,
+	-- WHOSE TURN IS WHICH (task 217): userId -> the team he must be given at his next assignment, as
+	-- a FROZEN, MEMOISED table. READ-ONLY, like the four above, and the drive reads it on every event
+	-- (`Match.dispatch`, the `aliveBoars` idiom) to hand it to the pure roster as a SUGGESTION --
+	-- `Roster.assign`'s balance rule may discard it entirely, and nothing is consumed when it does.
+	owedTeams: () -> { [number]: TeamName },
+	-- ...AND THE ONE NAMED WRITE, in `payDrive`'s shape and not a setter: the drive is the only thing
+	-- that knows who played which role, so it has to be able to say so. It names no profile field --
+	-- this owner chooses that -- and it DERIVES NOTHING: the rotation rule is pure and lives at the
+	-- caller (`Roster.invert`).
+	--
+	-- WHAT THE DRIVE STILL CANNOT DO THROUGH THIS VIEW: open a session, end one, read or write a
+	-- balance, read or write a hunt count, buy or grant anything, name a profile field, reach
+	-- `Store`, reach ProfileStore, reach `DataStoreService`, start or stop this owner, or write any
+	-- row for a userId whose profile is not open.
+	noteNextTeams: (teams: { [number]: any }) -> (),
 }
 
 -- WHAT THE DRIVE IS HANDED: three functions, no `start`, no `stop`, no store and no setter -- the
@@ -685,6 +839,10 @@ function Economy.view(): View
 		earned = Economy.earned,
 		enabled = Economy.isEnabled,
 		ownedOf = Economy.ownedOf,
+		owedTeams = Economy.owedTeams,
+		noteNextTeams = function(teams: { [number]: any })
+			Economy.noteNextTeams(teams)
+		end,
 	}
 end
 
@@ -728,6 +886,8 @@ function Economy.start(injected: World?)
 	table.clear(ownedSets)
 	table.clear(huntsCache)
 	table.clear(earnedTotals)
+	table.clear(nextTeams)
+	invalidateOwed()
 	earnedThisDrive = {}
 	started = true
 
@@ -787,6 +947,12 @@ function Economy.start(injected: World?)
 		ownedSets[userId] = nil
 		huntsCache[userId] = nil
 		earnedTotals[userId] = nil
+		-- ...AND THE TURN'S ROW (task 217), for the same sentence: a `Store.save` into a dead table
+		-- is what dropping the row prevents. He reads as *no turn stored* until a session opens
+		-- again, and what is on his key is whatever the last live write put there -- so a stolen
+		-- session costs the turn for that server and never corrupts the record (hazard 3).
+		nextTeams[userId] = nil
+		invalidateOwed()
 	end)
 	-- WHICH STORE WAS TAKEN, said out loud once (the dispatch's *"clearly logged"*). A module never
 	-- prints in this repo for a measured reason -- a tool that requires it over StudioMCP gets a
@@ -850,6 +1016,8 @@ function Economy.stop()
 	table.clear(ownedSets)
 	table.clear(huntsCache)
 	table.clear(earnedTotals)
+	table.clear(nextTeams)
+	invalidateOwed()
 	earnedThisDrive = {}
 end
 
