@@ -284,32 +284,45 @@ return function()
 			expect(Join.withinRect(centre - Vector3.new(0, 50, 0), centre, SIZE)).to.equal(true)
 		end)
 
-		-- ---------------------------------------------------------- task 209, Karen's clearance
+		-- ---------------------------------------------------------- task 213, Karen's gap
 		--
 		-- KAREN, 2026-10-18, with a screenshot: *"car has to be moved back meaning left same size
-		-- twice as car now is (screenshoot) so I can easy access enter to game"*. Measured on her
-		-- path first: the gap between pad 1's near edge and her truck's tailgate was 2.77 studs.
+		-- twice as car now is (screenshoot) so I can easy access enter to game"* -- task 209, which
+		-- measured her gap at 2.77 studs and opened it to 18.77.
+		-- KAREN, 2026-10-19, looking at that: *"truck is good, now can make pods closer to truck"*.
+		-- Measured on her own path first again (rule H): the built gaps were 18.74 / 18.77 / 18.77 /
+		-- 18.41 -- a truck's whole length of gravel between her rectangle and her truck.
 		--
-		-- THE RULE IS WRITTEN AGAINST THE MODEL'S OWN DRAWN FOOTPRINT (`MODEL.WIDTH_STUDS`,
-		-- `MODEL.LENGTH_STUDS`), which is data rather than a comment since this task, and both
-		-- numbers were measured off the built trucks in the live Forest Test rather than read off
-		-- the Creator Store page. A pivot or an assumed import frame is not a footprint.
-		it("parks every truck at least two truck-widths back from its own pad (task 209)", function()
+		-- THE RULE IS A BAND IN THE DATA (`TRUCK.PAD_GAP_STUDS`) AND NOT A LITERAL HERE, because the
+		-- gap is EMERGENT: `PAD_BEHIND_STUDS`, `BACK_STUDS` and `MODEL.LENGTH_STUDS` each move it, and
+		-- a retune of any one of them could walk it out of *"closer"* with nothing to catch it. It
+		-- replaces task 209's *"at least two truck-widths"*, which is the same sentence with her older
+		-- number in it: the truck did not move in 213, the pad did.
+		--
+		-- EVERY BAY, NOT THE ONE IN THE SCREENSHOT (L-093): each pair is measured at its own x, and bay
+		-- 4's truck is the one the hill tilts.
+		it("leaves one short step -- not a walk -- between every pad and its own truck (task 213)", function()
 			local anchor = Vector3.new(0, 100, 0)
 			local model = CFG.TRUCK.MODEL
+			local band = CFG.TRUCK.PAD_GAP_STUDS
+			-- A BAND THAT ALLOWS ZERO WOULD ALLOW THE PAD UNDER THE BUMPER, so the band itself is
+			-- asserted before anything is measured against it.
+			expect(band.MIN > 0).to.equal(true)
+			expect(band.MAX > band.MIN).to.equal(true)
 			for index = 1, CFG.TRUCK.COUNT do
 				local centre = Pads.centreFor(anchor, index, CFG)
 				local bayZ = anchor.Z + CFG.TRUCK.OFFSET.Z
 				-- the parked body's own north face: half its length, brought back by `BACK_STUDS`
 				local tailZ = bayZ + model.LENGTH_STUDS / 2 - CFG.TRUCK.BACK_STUDS
 				local gap = (centre.Z - SIZE.Z / 2) - tailZ
-				expect(gap >= 2 * model.WIDTH_STUDS).to.equal(true)
-				-- ...AND SAID THE OTHER WAY ROUND: the pad and the parked body never share a stud,
-				-- which is the half of it a player feels rather than measures.
+				expect(gap >= band.MIN).to.equal(true)
+				expect(gap <= band.MAX).to.equal(true)
+				-- ...AND SAID THE OTHER WAY ROUND: the pad and the parked body never share a stud, which
+				-- is the half of it a player feels rather than measures.
 				expect(gap > 0).to.equal(true)
-				-- THE TRUCK IS SOUTH OF ITS PAD AND NOT THE OTHER WAY, so "back" is away from the
-				-- man standing on it and `Camera.faceTowards` still turns him toward a truck.
-				expect(tailZ < centre.Z).to.equal(true)
+				-- THE TRUCK IS STILL SOUTH OF ITS PAD AND NOT THE OTHER WAY, so "closer" never becomes
+				-- "through", and `Camera.faceTowards` still turns a man on the pad toward a truck.
+				expect(tailZ < centre.Z - SIZE.Z / 2).to.equal(true)
 			end
 		end)
 
@@ -382,6 +395,19 @@ return function()
 			-- impossible.
 			local wallX = anchor.X + CFG.LODGE.OFFSET.X + CFG.LODGE.SIZE.X / 2 + CFG.LODGE.LOG_DIAMETER / 2
 			expect(Pads.centreFor(anchor, 1, CFG).X - SIZE.X / 2 >= wallX).to.equal(true)
+			-- ...AND ITS ROOF AND ITS PORCH, WHICH IS A NEW BOUND SINCE TASK 213 AND NOT A SPARE ONE.
+			-- The pads used to sit at z +38..+50, north of the porch entirely; at `PAD_BEHIND_STUDS` 5
+			-- they sit at +5..+17, which is the porch's own z band (the deck hangs `PORCH.DEPTH` plus its
+			-- steps off the lodge's south wall), so pad 1's west face now has to clear the two things
+			-- that overhang furthest on the lodge's EAST side rather than only the wall below them:
+			--   * the main roof's gable overhang, `SIZE.X / 2 + ROOF.GABLE_STUDS` (`Build.roof`'s own
+			--     expression; `EAVE_STUDS` is the z overhang and the chimney is on the WEST end), and
+			--   * the porch, which is INSET from the house (`Build.porch`: `size.X - INSET_STUDS * 2`)
+			--     and so is narrower than either.
+			local gableX = anchor.X + CFG.LODGE.OFFSET.X + CFG.LODGE.SIZE.X / 2 + CFG.LODGE.ROOF.GABLE_STUDS
+			expect(Pads.centreFor(anchor, 1, CFG).X - SIZE.X / 2 >= gableX).to.equal(true)
+			local porchX = anchor.X + CFG.LODGE.OFFSET.X + (CFG.LODGE.SIZE.X - CFG.LODGE.PORCH.INSET_STUDS * 2) / 2
+			expect(Pads.centreFor(anchor, 1, CFG).X - SIZE.X / 2 >= porchX).to.equal(true)
 			-- ...AND THERE IS ONE PART NAME PER BAY, so four trucks and three pads cannot happen.
 			expect(#CFG.PADS.PART_NAMES).to.equal(CFG.TRUCK.COUNT)
 			expect(Data.padCount()).to.equal(CFG.TRUCK.COUNT)

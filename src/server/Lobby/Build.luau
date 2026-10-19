@@ -3683,10 +3683,38 @@ local function pad(
 	-- that -- a dip, or a reader that measured terrain under an opaque slab -- would bury the deck in
 	-- exactly the way task 177's ring was buried. `math.max` keeps BOTH guarantees: above whatever
 	-- the ground really is, and never inside a slab this system laid itself.
+	-- ...AND IT IS ASKED IN NINE PLACES AND NOT ONE (task 213), WHICH IS TASK 196'S FINDING ON A
+	-- THIRD SURFACE: *"WHY ONE SAMPLE IS NOT ENOUGH, which is the whole bug: `plantY` asked for the
+	-- ground at the PLANTING POINT"* -- a birch stood on its high root with daylight under the rest.
+	-- A pad is nine studs across, and one ray at its centre says nothing about its corners.
+	--
+	-- MEASURED, 2026-10-19, in the live Forest Test, when `PAD_BEHIND_STUDS` brought the pads south
+	-- to Karen's gap: the yard is dead flat under pads 1, 2 and 3 (81 rays each, spread 0.000), and
+	-- under pad 4 the old east hill -- the same 1.27 studs of it that `TRUCK.SETTLE` was written for
+	-- -- rises 0.936 studs across the rectangle's south-east corner. With the centre ray alone, 8 of
+	-- pad 4's 81 samples came out ABOVE the deck's top: its corner and part of its east rim were
+	-- underground, which is task 182's own defect (*"laid on the ground that is MEASURED"*) in the
+	-- one place the ground is not level. Both frames are in the task-213 review request.
+	--
+	-- THE HIGHEST SAMPLE WINS, because the thing being prevented is a BURIED deck. A flat slab on
+	-- sloping ground cannot be flush at both ends, and of the two ways to be wrong -- a corner you
+	-- cannot see, or an edge standing a third of a stud proud -- only one of them hides the
+	-- rectangle Karen is told to stand on. The truck beside it answers the same ground by TILTING
+	-- (`settleOnGround`); a pad is one part plus its rim and its board, and tilting those is a
+	-- rotation this system has no other reason to own, so it takes the lift and states the cost.
 	if groundAt ~= nil then
-		local ok, measured = pcall(groundAt, centre.X, centre.Z)
-		if ok and type(measured) == "number" then
-			local surface = math.max(measured :: number, anchor.Y + cfg.ROAD.THICK_STUDS)
+		local highest: number? = nil
+		for _, dx in ipairs({ -1, 0, 1 }) do
+			for _, dz in ipairs({ -1, 0, 1 }) do
+				local ok, measured = pcall(groundAt, centre.X + dx * size.X / 2, centre.Z + dz * size.Z / 2)
+				if ok and type(measured) == "number" then
+					local here = measured :: number
+					highest = if highest == nil then here else math.max(highest :: number, here)
+				end
+			end
+		end
+		if highest ~= nil then
+			local surface = math.max(highest :: number, anchor.Y + cfg.ROAD.THICK_STUDS)
 			centre = Vector3.new(centre.X, surface + config.LIFT_STUDS - size.Y / 2, centre.Z)
 		end
 	end
