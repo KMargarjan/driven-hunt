@@ -1265,22 +1265,44 @@ return function()
 					end,
 				} :: any
 			)
-			-- IT ASKED ONCE PER PAD, at the pad's own centre and nowhere else.
+			-- IT ASKED NINE TIMES PER PAD, OVER THAT PAD'S OWN FOOTPRINT (task 213), and the nine
+			-- are its centre, its four corners and the middle of its four edges. It asked ONCE per
+			-- pad until task 213 brought the pads south onto Karen's gap and the last of the yard's
+			-- east hill came up through pad 4's corner: one ray at a nine-stud rectangle's middle
+			-- says nothing about its corners, which is task 196's finding on a third surface.
 			--
 			-- SINCE TASK 186 THE TRUCKS ASK THE SAME READER -- under every wheel, twice, because the
 			-- tilt moves the wheels and the ground under them is a new question afterwards -- so the
-			-- probe list is no longer the pads' alone. The pads are the LAST `TRUCK.COUNT` of it,
-			-- because `Build.build` parks the trucks before it lays the pads, and that ORDER is what
-			-- this case now pins: a pad is still measured at its own centre and nowhere else.
+			-- probe list is no longer the pads' alone. The pads are the LAST `TRUCK.COUNT * 9` of
+			-- it, because `Build.build` parks the trucks before it lays the pads, and that ORDER is
+			-- what this case pins.
+			local PER_PAD = 9
 			local padProbes: { Vector3 } = {}
-			for index = #probed - CFG.TRUCK.COUNT + 1, #probed do
+			for index = #probed - CFG.TRUCK.COUNT * PER_PAD + 1, #probed do
 				table.insert(padProbes, probed[index])
 			end
-			expect(#padProbes).to.equal(CFG.TRUCK.COUNT)
+			expect(#padProbes).to.equal(CFG.TRUCK.COUNT * PER_PAD)
 			for index = 1, CFG.TRUCK.COUNT do
 				local wanted = Pads.centreFor(anchor, index, CFG)
-				expect(padProbes[index].X).to.equal(wanted.X)
-				expect(padProbes[index].Z).to.equal(wanted.Z)
+				-- THE NINE COVER THE RECTANGLE: every corner of this pad is among them, and every
+				-- one of them is ON this pad (never on its neighbour, 8 studs away).
+				local cornerProbes = 0
+				local centres = 0
+				for step = 1, PER_PAD do
+					local probe = padProbes[(index - 1) * PER_PAD + step]
+					expect(math.abs(probe.X - wanted.X) <= CFG.PADS.SIZE.X / 2 + 1e-6).to.equal(true)
+					expect(math.abs(probe.Z - wanted.Z) <= CFG.PADS.SIZE.Z / 2 + 1e-6).to.equal(true)
+					local onEdgeX = math.abs(math.abs(probe.X - wanted.X) - CFG.PADS.SIZE.X / 2) < 1e-6
+					local onEdgeZ = math.abs(math.abs(probe.Z - wanted.Z) - CFG.PADS.SIZE.Z / 2) < 1e-6
+					if onEdgeX and onEdgeZ then
+						cornerProbes += 1
+					end
+					if probe.X == wanted.X and probe.Z == wanted.Z then
+						centres += 1
+					end
+				end
+				expect(cornerProbes).to.equal(4)
+				expect(centres).to.equal(1)
 				local deck = made:FindFirstChild(Data.padPartName(index) :: string, true) :: BasePart
 				local top = deck.Position.Y + deck.Size.Y / 2
 				-- ON the measured ground, lifted by the one number that stops z-fighting -- and
