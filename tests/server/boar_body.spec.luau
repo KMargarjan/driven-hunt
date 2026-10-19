@@ -477,17 +477,22 @@ return function()
 		end
 
 		-- ...AND EVERY OTHER NUMBER THOSE PRECONDITIONS DEPEND ON, in one string: how many members
-		-- the sounder still has, how wide it is against `BREAK_STUDS`, how many have left it
-		-- altogether, and how much field is left.
+		-- the sounder still has, how wide it is against `BREAK_STUDS`, how much of `SCATTER_SECONDS`
+		-- is still on its clock, how many members have left it altogether, and how much field is
+		-- left. `scatterFor` is there because it is the one that cost the week of 2026-10-18: it
+		-- proves the break case below ran its whole clock inside a LIVE scatter and still lost
+		-- exactly the one member the case dragged away.
 		local function herdPrint(handles): string
 			local view = herd:sounders()[1]
 			return string.format(
-				"%d sounder(s), %d member(s), %d live, width %.1f of %d, membersLeft %d, %.1f studs from the line",
+				"%d sounder(s), %d member(s), %d live, width %.1f of %d, scatterFor %.2f, membersLeft %d, "
+					.. "%.1f studs from the line",
 				#herd:sounders(),
 				if view ~= nil then #view.memberIds else -1,
 				#live(handles),
 				spread(live(handles)),
 				SETTINGS.BREAK_STUDS,
+				if view ~= nil then view.scatterFor else -1,
 				herd:stats().membersLeft,
 				toExitLine(handles)
 			)
