@@ -175,8 +175,17 @@ return function()
 			expect(into:FindFirstChildOfClass("Atmosphere")).never.to.equal(nil)
 			expect(into:FindFirstChildOfClass("ColorCorrectionEffect")).never.to.equal(nil)
 			expect(into:FindFirstChildOfClass("BloomEffect")).never.to.equal(nil)
-			expect((into:FindFirstChildOfClass("Atmosphere") :: Atmosphere).Density).to.equal(CFG.ATMOSPHERE.Density)
-			expect((into:FindFirstChildOfClass("BloomEffect") :: BloomEffect).Threshold).to.equal(CFG.BLOOM.Threshold)
+			-- A PROPERTY READ BACK OFF AN INSTANCE IS A float32 AND THE TOKEN IS A DOUBLE, so 0.28
+			-- comes back as 0.2800000011920929 and `to.equal` is the wrong question --
+			-- `tests/client/hud_style.spec.luau` learned this on its own first run.
+			expect((into:FindFirstChildOfClass("Atmosphere") :: Atmosphere).Density).to.be.near(
+				CFG.ATMOSPHERE.Density,
+				1e-5
+			)
+			expect((into:FindFirstChildOfClass("BloomEffect") :: BloomEffect).Threshold).to.be.near(
+				CFG.BLOOM.Threshold,
+				1e-5
+			)
 			into:Destroy()
 		end)
 
@@ -205,9 +214,9 @@ return function()
 				end
 			end
 			expect(atmospheres).to.equal(1) -- adopted, not duplicated
-			expect(existing.Density).to.equal(CFG.ATMOSPHERE.Density)
+			expect(existing.Density).to.be.near(CFG.ATMOSPHERE.Density, 1e-5) -- float32, see above
 			expect(existing.Name).to.equal("Atmosphere") -- an adopted instance keeps its own name
-			expect(grade.Saturation).to.equal(CFG.COLOR_CORRECTION.Saturation)
+			expect(grade.Saturation).to.be.near(CFG.COLOR_CORRECTION.Saturation, 1e-5)
 			expect(rays.Enabled).to.equal(false) -- §4: SunRays is not used
 			expect(#report.created).to.equal(1) -- the Bloom only
 			expect(#report.adopted).to.equal(3)
@@ -235,7 +244,8 @@ return function()
 			two.Parent = into
 			local report = Light.apply(into, Light.plan(true, CFG) :: any)
 			expect(#report.extra).to.equal(1)
-			expect(two.Density).to.equal(0.9) -- untouched: deleting Studio content is not this owner's call
+			-- untouched: deleting Studio content is not this owner's call (float32, see above)
+			expect(two.Density).to.be.near(0.9, 1e-5)
 			into:Destroy()
 		end)
 
