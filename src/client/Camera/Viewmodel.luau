@@ -87,6 +87,13 @@ local hornBlowAt: number? = nil
 -- is a real value of it -- a horn that has never been blown carries no attribute at all -- and
 -- overloading the two would have swallowed the FIRST blast of every session.
 local hornBlowPrimed = false
+-- WHAT SCALE THE DRAWN CLONE WAS BUILT AT (task 211), so a scale the Director moves in a live
+-- session reaches the screen. `Model:ScaleTo` is applied once, at BUILD time -- it is a
+-- transformation of the parts and not a per-frame property -- so the number that was used has to be
+-- remembered or a tuning change would sit in `poses.json` with nothing on screen answering it. It is
+-- part of the build's identity exactly as `hornSignature` is, and `updateHorn` compares it in the
+-- same `if`.
+local hornScale: number? = nil
 
 -- THE GUN GOES STALE WHEN ITS MESHES ARRIVE (task 99), and since task 114 that is the ONLY way it
 -- can. While the gun was a clone of the Tool's Handle it also went stale when that Handle's children
@@ -454,6 +461,7 @@ function Viewmodel.clear()
 	-- the next frame pose a gun's clone with a horn's numbers.
 	builtKind = nil
 	hornSignature = nil
+	hornScale = nil
 	hornBlowSeen = nil
 	hornBlowPrimed = false
 	hornBlowAt = nil
@@ -1408,7 +1416,29 @@ end
 -- SOURCE parts are the ones `Camera.Rig` is holding at 1 for the local player -- that is the whole
 -- point of the complement -- and `Clone()` copies the property. Without this the first-person horn
 -- would be invisible exactly when it is supposed to be the only one on screen.
-local function buildHorn(handle: BasePart, config): Model
+--
+-- ...AND THE CLONE IS SCALED, WHICH THE WORLD HORN IS NOT (task 211, the Director's decision on task
+-- 206's escalation: option B, 2026-10-19). KAREN, 2026-10-18: *"also horn is broken arm is wrong"*.
+-- MEASURED in the Forest Test for that escalation: the 3.125-stud horn put the grip 4.04 studs from
+-- the lens, where the 0.669-stud glove covers 119 px against the shotgun glove's own 638 -- five
+-- times smaller than the hand Karen has already accepted, because it is three times further away --
+-- and no pose could fix it, because a horn that long has to stand that far back to stay inside a
+-- 70-degree view at all (the escalation's arithmetic: >= L/1.24 studs).
+--
+-- SO THE DRAWN HORN IS SCALED AND ITS DISTANCE IS DIVIDED BY THE SAME NUMBER, which is the standard
+-- first-person viewmodel trick: the whole camera-space picture is one uniform scale about the EYE,
+-- so the horn's ANGULAR size on screen is exactly what it was -- Karen's picture is unchanged -- and
+-- the GLOVE, which is posed separately and is NOT scaled by this, comes 1/scale nearer and draws
+-- 1/scale bigger. `Horn.MESH.SIZE_STUDS` is untouched, so the horn every other player sees is still
+-- the one she asked for on 2026-10-13 (*"doubble or tripple size"*).
+--
+-- `Model:ScaleTo` AND NOT A HAND-WRITTEN WALK: it is the engine's own uniform scale about the
+-- model's pivot, which is the PrimaryPart's own CFrame here, and the horn's mesh is centred in its
+-- Handle (`Horn.MESH.OFFSET_STUDS` is zero) -- so every point of the tube, `Horn.TUBE_SAMPLES`
+-- included, is simply multiplied by it. BEFORE the fill light, deliberately: `ScaleTo` scales a
+-- light's range with everything else, and this light's range was measured for an unlit face an inch
+-- from the lens (task 102) and has nothing to do with how big the horn is.
+local function buildHorn(handle: BasePart, config, scale: number): Model
 	local made = Instance.new("Model")
 	made.Name = HORN_NAME
 
@@ -1439,6 +1469,12 @@ local function buildHorn(handle: BasePart, config): Model
 	clone.LocalTransparencyModifier = 0
 	clone.Parent = made
 	made.PrimaryPart = clone
+	-- ONE CALL, AND ONLY WHEN IT IS NOT 1: `ScaleTo(1)` is a no-op the engine still walks, and a
+	-- build that never scales is the build every spec before this task asserted.
+	if scale ~= 1 then
+		made:ScaleTo(scale)
+	end
+	hornScale = scale
 
 	-- THE SAME FILL LIGHT THE GUN GETS (task 102), for the same measured reason: an unlit face an
 	-- inch from the lens gets `Lighting.Ambient` alone (~0.275 here), and polished brass reads
@@ -1519,7 +1555,13 @@ function Viewmodel.hornMouthpiece(): CFrame?
 			break
 		end
 	end
-	return (clone :: BasePart).CFrame * CFrame.new(Horn.mouthpieceOffset(Horn.MESH, worn))
+	-- ...AT THE SCALE IT IS DRAWN AT (task 211). `Horn.mouthpieceOffset` answers in the Handle's own
+	-- frame at the horn's real size, and the first-person clone is a SCALED copy of it, so the offset
+	-- is scaled by the same number -- exactly as every `TUBE_SAMPLES` row is. Without this line the
+	-- raise would be aimed at a point a horn's length past the end of the drawn one, which is the
+	-- task-176 defect (*"a point in mid-air beside the horn"*) with a different cause.
+	local scale = hornScale or 1
+	return (clone :: BasePart).CFrame * CFrame.new(Horn.mouthpieceOffset(Horn.MESH, worn) * scale)
 end
 
 -- THE HORN, DRAWN AND POSED FOR THIS FRAME. Answers true when it drew one, so `Viewmodel.update`
@@ -1538,9 +1580,19 @@ local function updateHorn(camCFrame: CFrame, handle: BasePart, cam: Camera?, con
 		end
 		return true
 	end
-	if not model or builtFrom ~= handle or builtKind ~= HeldTool.HORN or hornSignatureOf(handle) ~= hornSignature then
+	-- THE SCALE IS PART OF WHAT WAS BUILT (task 211), so moving it in a live session rebuilds the
+	-- clone on the next frame -- which is what makes it a content-lane number the Director can tune
+	-- (`python tools/pose.py set horn.scale 0.3`) rather than a constant that needs a commit to see.
+	local scale = if type(poses.scale) == "number" then poses.scale else 1
+	if
+		not model
+		or builtFrom ~= handle
+		or builtKind ~= HeldTool.HORN
+		or hornSignatureOf(handle) ~= hornSignature
+		or hornScale ~= scale
+	then
 		Viewmodel.clear()
-		model = buildHorn(handle, config)
+		model = buildHorn(handle, config, scale)
 		builtFrom = handle
 		builtKind = HeldTool.HORN
 		-- PRIMED, NOT RAISED: see `Viewmodel.hornBlow`.

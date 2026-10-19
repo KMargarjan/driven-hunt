@@ -177,6 +177,31 @@ return function()
 			end)).to.equal(1)
 		end)
 
+		-- THE FIRST-PERSON CLONE'S SCALE (task 211) IS REFUSED THE SAME WAY, and for the same reason
+		-- every other number in this block is: the two poses are SOLVED for a horn of that size, so
+		-- a file that carries them without it -- or with a scale that is not a scale -- would draw
+		-- the glove a horn's length away from the horn. The bound is (0, 1]: above 1 the first-person
+		-- horn would be BIGGER than the one in the world, which is not a viewmodel scale.
+		it("names a horn scale that is missing or is not a scale", function()
+			local gone = broken(function(data)
+				data.horn.scale = nil
+			end)
+			expect(#gone).to.equal(1)
+			expect(string.find(gone[1], "horn.scale is missing") ~= nil).to.equal(true)
+			for _, bad in ipairs({ 0, -0.5, 1.5 }) do
+				local problems = broken(function(data)
+					data.horn.scale = bad
+				end)
+				expect(#problems).to.equal(1)
+				expect(string.find(problems[1], "horn.scale") ~= nil).to.equal(true)
+			end
+			-- ...AND A FILE WITHOUT IT PUBLISHES NO HORN, rather than one drawn at a size nobody
+			-- chose -- exactly what half a pose already does.
+			local without = Data.copy(Data.DATA)
+			without.horn.scale = nil
+			expect(Data.view(without).HORN).to.equal(nil)
+		end)
+
 		-- ...AND WHAT THE CAMERA IS HANDED IS TWO POSES AND NO TIMINGS (task 176). How long the raise,
 		-- the hold and the lower take is `Horn.BLOW_POSE` and `Horn.CONFIG.BLOW_SECONDS` -- the same
 		-- three numbers the SERVER plays the third-person arm with -- so a timing in this file would be
@@ -1150,31 +1175,34 @@ return function()
 			end
 		end)
 
-		it("the horn's hand is where task 202 drew it", function()
+		it("the horn's hand is where task 211 solved it", function()
 			-- SINCE TASK 202 THE TWO POSES NO LONGER SHARE THEIR THREE ANGLES, so both are pinned.
-			-- The hand is laid ALONG the tube in each of them -- the shotgun's own carry shape -- and
-			-- the tube runs a different way in the carry than it does at the mouth, so one roll
-			-- cannot answer for both. Task 176's numbers are gone with the pose they belonged to;
-			-- what replaces this pin as EVIDENCE is the pair of cases below, which measure the hand
-			-- against the horn instead of against its own past.
+			-- The tube runs a different way in the carry than it does at the mouth, so one roll
+			-- cannot answer for both. Task 176's numbers went with the pose they belonged to, and
+			-- TASK 202's WENT WITH THEIRS: that pair laid the glove ALONG the tube, which measured
+			-- as 90.0 degrees of hole-axis against the tangent and photographed as a hand lying on
+			-- the horn like a sticker (`.screenshots/t206-before-fp.png`, and Karen on 2026-10-18:
+			-- *"also horn is broken arm is wrong"*). These are the solved grip's. What replaces this
+			-- pin as EVIDENCE is the pair of cases below, which measure the hand against the horn
+			-- instead of against its own past.
 			for _, case in ipairs({
 				{
 					name = "carry",
 					pose = hornPoses.carry.right,
-					tip = Vector3.new(-0.1323, -0.0975, 0.6653),
-					cuff = Vector3.new(-0.1102, -0.4242, 0.0924),
+					tip = Vector3.new(0.1541, -0.0003, 0.2067),
+					cuff = Vector3.new(-0.4623, -0.2307, 0.2550),
 				},
 				{
 					name = "blow",
 					pose = hornPoses.blow.right,
-					tip = Vector3.new(-0.1523, -0.1328, 0.6810),
-					cuff = Vector3.new(-0.1134, -0.4520, 0.1048),
+					tip = Vector3.new(-0.0433, -0.2618, 0.1918),
+					cuff = Vector3.new(0.0829, 0.3485, -0.0252),
 				},
 			}) do
 				local tip, cuff = ends(case.pose)
 				TestKit.note(
 					string.format(
-						"task202 horn %s right hand: fingertip (%.4f, %.4f, %.4f), cuff (%.4f, %.4f, %.4f)",
+						"task211 horn %s right hand: fingertip (%.4f, %.4f, %.4f), cuff (%.4f, %.4f, %.4f)",
 						case.name,
 						tip.X,
 						tip.Y,
@@ -1243,28 +1271,73 @@ return function()
 	-- angle, so the vertical bound is exact for every window; the horizontal one is the vertical
 	-- bound again, which is what a square window would give and is therefore the strictest any
 	-- window can ask for. Karen plays at 955 x 785, where the horizontal room is 1.22x this.
-	describe("the drawn horn is in the picture, and the glove is on it (task 202)", function()
+	describe("the drawn horn is in the picture, and the glove is on it (task 202, 211)", function()
 		local hornPoses = Data.view(Data.DATA).HORN
+		-- THE FIRST-PERSON CLONE'S SCALE (task 211). Every row of `TUBE_SAMPLES` is multiplied by it
+		-- here for the same reason `Camera.Viewmodel` multiplies the mouthpiece offset: the samples
+		-- were raycast off the REAL Handle, and what is drawn under the camera is a uniformly scaled
+		-- copy of it. `item.pos` carries the same factor, so every ratio below -- which is what the
+		-- picture IS -- comes out exactly as it did before the scale existed. That is the point of
+		-- option B: the horn Karen sees is the same size on screen and only the HAND changed.
+		local SCALE = hornPoses.scale
 		-- Half the view, as a ratio of the distance: everything inside the picture has
 		-- |x| / depth and |y| / depth below it. `FOV_THIRD_DEG` is the hip field of view, which is
 		-- the one a beater is ever looking through -- a horn has no aim.
 		local HALF_VIEW = math.tan(math.rad(Config.FOV_THIRD_DEG / 2))
 		-- Nothing may be nearer the lens than this. The engine would still draw it, but a section of
-		-- horn a stud from the eye is the wall of horn task 176 shipped.
-		local NEAREST_STUDS = 1.0
+		-- horn a stud from the eye is the wall of horn task 176 shipped -- AND THAT BOUND IS ABOUT A
+		-- 3.125-STUD HORN (task 211), so it scales with the horn that is actually drawn. The floor
+		-- under it is the camera's own `NEAR_PLANE_MARGIN_STUDS`, which is what every piece of the
+		-- GUN is already held to an inch from the same lens: a scale small enough to put the horn
+		-- inside the near plane is a scale that fails here instead of slicing the horn on screen.
+		local NEAREST_STUDS = math.max(1.0 * SCALE, Config.NEAR_PLANE_MARGIN_STUDS)
 		-- THE MOUTHPIECE MAY LEAVE THE BOTTOM OF THE PICTURE WHEN IT IS AT THE MOUTH, and only then:
 		-- the mouth IS the camera, so a blow that keeps the whole horn on screen is a blow that holds
-		-- it away from the face. Everything from the bell to here stays inside.
-		local MOUTHPIECE_FROM = 1.0
+		-- it away from the face. Everything from the bell to here stays inside. It is a Z ON THE
+		-- DRAWN HORN, so it carries the scale like every other length here.
+		local MOUTHPIECE_FROM = 1.0 * SCALE
 
-		-- Every measured section of the tube, in the camera's own frame, for one pose.
+		-- Every measured section of the tube, in the camera's own frame, for one pose -- AT THE SIZE
+		-- IT IS DRAWN (task 211).
 		local function sections(item: CFrame)
 			local out = {}
 			for _, row in ipairs(Horn.TUBE_SAMPLES) do
-				table.insert(out, { z = row.z, at = item * Vector3.new(0, row.y, row.z), r = row.r })
+				table.insert(out, {
+					z = row.z * SCALE,
+					at = item * (Vector3.new(0, row.y, row.z) * SCALE),
+					r = row.r * SCALE,
+				})
 			end
 			return out
 		end
+
+		-- THE SCALE IS THE FIRST-PERSON CLONE'S AND NOTHING ELSE'S (task 211). The Director's
+		-- decision on task 206's escalation was option B *because* option A -- shrinking the real
+		-- horn -- would have undone Karen's own instruction of 2026-10-13 (*"for beater horn has to
+		-- be doubble or tripple size now is to small"*), which `Horn.MESH.SIZE_STUDS` is. So the two
+		-- numbers that say how big the horn is IN THE WORLD, and where it is held there, are pinned
+		-- here beside the viewmodel's scale: a later task that reaches for the easy fix moves one of
+		-- them and this case says what it is undoing.
+		it("scales the drawn horn only -- the world horn and its carry are Karen's size", function()
+			expect(SCALE > 0 and SCALE <= 1).to.equal(true)
+			-- KAREN'S HORN, UNTOUCHED: 3.125 studs = 0.875 m, which is task 175's reading of her
+			-- "double or triple" over task 169's 1.25.
+			expect(Horn.MESH.SIZE_STUDS.X).to.equal(3.125)
+			-- ...AND WHERE THE THIRD PERSON HOLDS IT, which task 206 fixed and this task may not
+			-- move: `Horn.CONFIG.GRIP` is the Tool's own grip, read by the server.
+			expect(Horn.CONFIG.GRIP).to.equal(CFrame.new(0, 0, 0.25))
+			TestKit.note(
+				string.format(
+					"task211 the drawn horn is %.4f studs long (%.3f m at %.2f m/stud) against the"
+						.. " world horn's %.4f; scale %.4f",
+					Horn.MESH.SIZE_STUDS.X * SCALE,
+					Horn.MESH.SIZE_STUDS.X * SCALE * Horn.CONFIG.METRES_PER_STUD,
+					Horn.CONFIG.METRES_PER_STUD,
+					Horn.MESH.SIZE_STUDS.X,
+					SCALE
+				)
+			)
+		end)
 
 		it("draws the whole horn inside the picture at the carry", function()
 			local worstX, worstY, nearest = 0, 0, math.huge
@@ -1318,39 +1391,98 @@ return function()
 			expect(nearest > NEAREST_STUDS).to.equal(true)
 		end)
 
-		it("lays the right glove on the tube in both poses", function()
-			-- THE THREE LANDMARKS THE GLOVE HAS, each against the tube's own radius where it sits.
-			-- `right` is in the HORN's frame, so a landmark's own Z says which section to ask for --
-			-- no camera and no item pose comes into it, which is why this case answers the same
-			-- question for a pose nobody has looked at yet.
+		-- THE FIST CLOSES ROUND THE TUBE (task 211), WHICH IS NOT WHAT TASK 202 ASKED.
+		--
+		-- That case required all THREE landmarks inside the tube's radius, and the pose that passed
+		-- it is the one Karen called broken: a hand lying FLAT on the horn, fist hole across the
+		-- tube at 90.0 degrees and the fingers running 0.0 degrees along it, with horn visible
+		-- through the finger ring (`.screenshots/t206-before-fp.png`). A wrist that HOLDS something
+		-- leaves the thing it holds -- measured, the cuff is about 0.49 studs off the tube in every
+		-- correct grip -- so "all three on the tube" is a test a grip cannot pass and a sticker
+		-- cannot fail. What a grip IS, as three facts anyone can check:
+		--   * the GRIP point -- the hole task 188 measured in the glove's own silhouette -- is on
+		--     the tube's measured centre line, within the tube's own radius there;
+		--   * the HOLE AXIS, which is the aligned +Y that hole runs along, is along the tube's
+		--     TANGENT at that point rather than across it (the dispatch's bound: under 15 degrees);
+		--   * the FINGERTIP is nearer the tube than the CUFF, so the hand holds with its fingers and
+		--     not with its sleeve -- task 189's defect, in the one place it could come back.
+		--
+		-- `right` is in the HORN's frame, so a landmark's own Z says which section to ask for -- no
+		-- camera and no item pose comes into it, which is why this answers the same question for a
+		-- pose nobody has looked at yet. The Z IS DIVIDED BY THE SCALE before it is asked: the
+		-- samples are the real horn's and the pose is solved against the DRAWN one.
+		local function gripOf(pose: CFrame, scale: number)
+			local on = pose:PointToWorldSpace(HandAssets.GRIP_STUDS)
+			local centre, radius, slope = Horn.tubeAt(on.Z / scale)
+			local tangent = Vector3.new(0, slope, 1).Unit
+			-- The fist's own hole runs along the ALIGNED +Y (`HandAssets.GRIP_STUDS`' header: "whose
+			-- axis is the aligned Y"), and `Camera.Viewmodel.poseHands` applies `align` on the RIGHT
+			-- of this pose -- so the pose's UpVector IS that axis in the horn's frame.
+			local angle = math.deg(math.acos(math.clamp(math.abs(pose.UpVector:Dot(tangent)), 0, 1)))
+			local off = (Vector2.new(on.X, on.Y - centre * scale)).Magnitude
+			return on, off, radius * scale, angle
+		end
+
+		it("closes the right fist around the tube in both poses", function()
 			for _, case in ipairs({
 				{ name = "carry", pose = hornPoses.carry.right },
 				{ name = "blow", pose = hornPoses.blow.right },
 			}) do
-				for _, landmark in ipairs({
-					{ name = "grip", at = HandAssets.GRIP_STUDS },
-					{ name = "fingertip", at = HandAssets.FINGERTIP_STUDS },
-					{ name = "cuff", at = HandAssets.CUFF_STUDS },
-				}) do
-					local on = case.pose:PointToWorldSpace(landmark.at)
-					local centre, radius = Horn.tubeAt(on.Z)
-					local off = (Vector2.new(on.X, on.Y - centre)).Magnitude
-					TestKit.note(
-						string.format(
-							"task202 %s %s: (%.4f, %.4f, %.4f) is %.4f off the tube's centre line,"
-								.. " whose radius there is %.4f (task 176's grip was 0.2100 off a 0.1854 tube)",
-							case.name,
-							landmark.name,
-							on.X,
-							on.Y,
-							on.Z,
-							off,
-							radius
-						)
-					)
-					expect(off <= radius).to.equal(true)
+				local on, off, radius, angle = gripOf(case.pose, SCALE)
+				local tip = case.pose:PointToWorldSpace(HandAssets.FINGERTIP_STUDS)
+				local cuff = case.pose:PointToWorldSpace(HandAssets.CUFF_STUDS)
+				local function offTube(point: Vector3): number
+					local centre = Horn.tubeAt(point.Z / SCALE)
+					return (Vector2.new(point.X, point.Y - centre * SCALE)).Magnitude
 				end
+				local tipOff, cuffOff = offTube(tip), offTube(cuff)
+				TestKit.note(
+					string.format(
+						"task211 %s grip: (%.4f, %.4f, %.4f) is %.4f off the centre line (tube radius"
+							.. " %.4f there), hole axis %.2f deg off the tangent, fingertip %.4f off"
+							.. " against the cuff's %.4f (task 202 shipped 90.00 deg)",
+						case.name,
+						on.X,
+						on.Y,
+						on.Z,
+						off,
+						radius,
+						angle,
+						tipOff,
+						cuffOff
+					)
+				)
+				expect(off <= radius).to.equal(true)
+				expect(angle < 15).to.equal(true)
+				expect(tipOff < cuffOff).to.equal(true)
 			end
+		end)
+
+		it("...and the same measure answers 90 degrees on the pose Karen called broken", function()
+			-- THE CASE ABOVE CAN FAIL, AND THIS IS THE PROOF RATHER THAN THE CLAIM (Learning Agent
+			-- L-028: a new bound offered as evidence has to be shown failing on the data it was
+			-- written for). These six numbers are `poses.json`'s own `horn.carry.right` as task 202
+			-- shipped it -- the pose in `.screenshots/t206-before-fp.png` -- read through the same
+			-- `gripOf`. If the measure were ever reduced to something a sticker also passes, this
+			-- case goes green and says so.
+			local task202 = CFrame.new(-0.0867, -0.2714, 0.3788)
+				* CFrame.Angles(math.rad(-113.9412), math.rad(26.6003), math.rad(-90.0))
+			-- AT ITS OWN SCALE, WHICH WAS 1: that pose was solved against the full-size horn, and
+			-- measuring it against the drawn one would be comparing it with a horn it never saw.
+			local on, off, radius, angle = gripOf(task202, 1)
+			TestKit.note(
+				string.format(
+					"task211 the REPLACED carry grip: (%.4f, %.4f, %.4f), %.4f off a %.4f tube,"
+						.. " hole axis %.2f deg off the tangent",
+					on.X,
+					on.Y,
+					on.Z,
+					off,
+					radius,
+					angle
+				)
+			)
+			expect(angle > 60).to.equal(true)
 		end)
 	end)
 

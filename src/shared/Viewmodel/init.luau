@@ -479,6 +479,23 @@ function Viewmodel.validate(data: any): { string }
 	if type(horn) ~= "table" then
 		table.insert(problems, "horn is missing")
 	else
+		-- THE FIRST-PERSON CLONE'S OWN SCALE (task 211), and it is a number rather than a pose
+		-- because it is one fact about the DRAWN horn and not about where the horn is held. The
+		-- Director's decision on task 206's escalation (option B, 2026-10-19): the first-person
+		-- clone is scaled and the WORLD horn every other player sees keeps Karen's size, which is
+		-- the standard FPS viewmodel practice and the only one that leaves her own 2026-10-13
+		-- *"doubble or tripple size"* instruction standing (`Horn.MESH.SIZE_STUDS`, untouched).
+		--
+		-- REFUSED OUTSIDE (0, 1]: zero or less is a horn with no size, and anything above 1 would
+		-- draw the first-person horn BIGGER than the one in the world -- which is not a viewmodel
+		-- scale, it is a second horn. A file that carries no scale at all is refused too rather
+		-- than defaulted here, for `hornPose`'s own reason: a horn drawn from a number nobody
+		-- chose is the defect this block exists to prevent.
+		if not isNumber(horn.scale) then
+			table.insert(problems, "horn.scale is missing")
+		elseif horn.scale <= 0 or horn.scale > 1 then
+			table.insert(problems, "horn.scale must be above 0 and at most 1")
+		end
 		for _, name in ipairs({ "carry", "blow" }) do
 			local pose = horn[name]
 			if type(pose) ~= "table" then
@@ -730,8 +747,15 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 	if type(whole.horn) == "table" then
 		local carry = hornPose(whole.horn.carry)
 		local blow = hornPose(whole.horn.blow)
-		if carry ~= nil and blow ~= nil then
-			horn = table.freeze({ carry = carry, blow = blow })
+		-- THE SCALE TRAVELS WITH THE POSES AND IS NOT OPTIONAL (task 211). Half a horn block is
+		-- dropped whole for `hornPose`'s reason, and a scale is half of it now: the two poses are
+		-- SOLVED for a horn of this size -- `item.pos` is the unscaled distance times it and the
+		-- glove's grip is on the scaled tube -- so poses without their scale would draw the hand
+		-- a horn's length from the horn. `validate` refuses a file that lacks it; this is what
+		-- stops a fabricated table reaching the camera with one half of the pair.
+		local scale = whole.horn.scale
+		if carry ~= nil and blow ~= nil and isNumber(scale) and scale > 0 then
+			horn = table.freeze({ carry = carry, blow = blow, scale = scale })
 		end
 	end
 	local boltHand = nil
@@ -776,9 +800,9 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 		VIEWMODEL_FILL_RANGE_STUDS = whole.look.fill.rangeStuds,
 		VIEWMODEL_FILL_COLOR = col(whole.look.fill.color),
 		VIEWMODEL_FILL_OFFSET_STUDS = vec(whole.look.fill.offset),
-		-- THE HORN THE BEATER CARRIES (task 176): the two poses, as CFrames. It is not a weapon and
-		-- has no flat names -- a pose is a shape, like `SHELL_LOAD` and `FIRE` -- and
-		-- `Camera.Viewmodel` is the only reader.
+		-- THE HORN THE BEATER CARRIES (task 176): the two poses, as CFrames, and since task 211 the
+		-- first-person clone's `scale`. It is not a weapon and has no flat names -- a pose is a
+		-- shape, like `SHELL_LOAD` and `FIRE` -- and `Camera.Viewmodel` is the only reader.
 		HORN = horn,
 		-- the aimed pose, solved from the gun's own sight
 		EYE_RELIEF_STUDS = data.aim.eyeReliefStuds,
