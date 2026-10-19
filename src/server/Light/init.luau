@@ -9,9 +9,14 @@
 -- affect.
 --
 -- WHY THIS FILE EXISTS AT ALL, which is not the same as why the numbers changed. Before it,
--- `Lighting` was PLACE CONTENT THAT NOBODY OWNED: no file in `src/`, `tests/` or `tools/` mentioned
--- `Lighting`, `Atmosphere`, `Bloom` or `SunRays` (grep, empty), so the only record of the game's
--- light was whatever was last typed into a Studio property box -- in two places, differently. Read
+-- `Lighting` was PLACE CONTENT THAT NOBODY OWNED: nothing in `src/`, `tests/` or `tools/` WROTE
+-- `Lighting`, an `Atmosphere`, a `Bloom` or a `SunRays` -- seven files NAME `Lighting`
+-- (`src/shared/Horn/`, `src/shared/Shotgun/`, `src/server/Boar/`, `src/server/Match/Body.luau`,
+-- `src/server/Match/Scene.luau`, `src/client/Camera/Viewmodel.luau`, `src/client/Hud/ShopPanel.luau`)
+-- and every one of them is a COMMENT reasoning about the ambient, not an assignment (round 2,
+-- note 2: the first wording of this sentence said "grep, empty", which was wrong). So the only
+-- record of the game's light was whatever was last typed into a Studio property box -- in two
+-- places, differently. Read
 -- live on 2026-10-19: the Forest Test was `Ambient` 159,159,159 / `Brightness` 3.0 / `ClockTime` 15,
 -- and DEV was 110,100,90 / 2.6 / 13. A reviewer could not read either and a commit could not change
 -- either. One owner, one table, one diff.
@@ -51,7 +56,7 @@ local Light = {}
 -- THE ONE FLAG READ, AT THIS OWNER'S BOUNDARY, passed inward as `plan`'s first argument -- the only
 -- permitted shape (CLAUDE.md, feature flags). It is BORN ON, which no other new path in that table
 -- is, and that is the DIRECTOR'S decision, dispatched in task 215 and transcribed verbatim in
--- TASKS.md row 215: *"a feature flag born ON (`AUTUMN_LIGHT` ...) so the Director can switch it off
+-- TASKS.md row 215d (row 215 is the status row): *"a feature flag born ON (`AUTUMN_LIGHT` ...) so the Director can switch it off
 -- live with flags.py if Karen finds it too dark"*. The row itself carries the rest of the reason.
 Light.ENABLED = Flags.isOn("AUTUMN_LIGHT")
 
@@ -385,7 +390,10 @@ function Light.plan(enabled: boolean, config: typeof(Light.CONFIG)): Plan?
 		},
 	}
 
-	return table.freeze({ service = service, children = children }) :: any
+	-- deepFreeze AND NOT `table.freeze`, which is shallow: a shallow freeze leaves `children`, every
+	-- `Write` row and every `props` table writable, so "a frozen list of writes" would have been
+	-- half true (round 2, note 4). `Light.CONFIG` is deep-frozen for the same reason.
+	return Shotgun.deepFreeze({ service = service, children = children }) :: any
 end
 
 -- ---------------------------------------------------------------- the one write

@@ -123,10 +123,17 @@ return function()
 			expect(Light.plan(false, CFG)).to.equal(nil)
 		end)
 
-		it("answers a frozen plan when the flag is on", function()
-			local plan = Light.plan(true, CFG)
+		it("answers a DEEP-frozen plan when the flag is on", function()
+			local plan = (Light.plan(true, CFG) :: any) :: Light.Plan
 			expect(plan).never.to.equal(nil)
 			expect(table.isfrozen(plan :: any)).to.equal(true)
+			-- ...and every row and every props table under it. A shallow `table.freeze` leaves all
+			-- of these writable, which is round 2's note 4.
+			expect(table.isfrozen(plan.children :: any)).to.equal(true)
+			for _, write in ipairs(plan.children) do
+				expect(table.isfrozen(write :: any)).to.equal(true)
+				expect(table.isfrozen(write.props :: any)).to.equal(true)
+			end
 		end)
 
 		it("puts every LIGHTING row on the service and nothing else", function()
@@ -265,8 +272,19 @@ return function()
 		-- The spec's §2, re-derived rather than quoted. `Light.shade` is the ambient term alone --
 		-- the WORST case, before EnvironmentDiffuseScale, the ColorShifts, the exposure and the
 		-- grade lift it -- so a ratio that holds here holds in the frame.
+		--
+		-- **THIS WHOLE BLOCK IS ABOUT THE GREY-BOX BOAR AND NOT THE MESH ONE** (round 2, note 3).
+		-- `Boar.CONFIG.BODY_COLOR` is what `Boar.Body` paints its parts, and `BOAR_MODEL` is still
+		-- `default = false`, so this is the animal a default server shows. The MESH boar the Forest
+		-- Test loads is a dark brown texture that is DARKER than grass and always was -- measured
+		-- 0.73 : 1 before this task and 2.91 : 1 of separation after it (the request's claim 6).
+		-- Two different animals: this case covers the box one, the frames cover the mesh one, and
+		-- neither stands in for the other.
 		local SKY = CFG.LIGHTING.OutdoorAmbient
-		local BOAR = Color3.fromRGB(198, 158, 110) -- Boar.CONFIG.BODY_COLOR, Karen's dial, untouched
+		-- A HARDCODED COPY OF `Boar.CONFIG.BODY_COLOR` AND NOT A READ, which is round 1's note (d)
+		-- and is queued as TASKS.md 215a: a change to Karen's dial leaves this passing on the old
+		-- colour.
+		local BOAR = Color3.fromRGB(198, 158, 110)
 		local GRASS = Color3.fromRGB(112, 124, 72)
 		local DIRT = Color3.fromRGB(120, 104, 82)
 

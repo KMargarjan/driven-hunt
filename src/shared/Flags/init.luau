@@ -359,7 +359,8 @@ Flags.DEFAULTS = {
 		-- BORN **ON**, WHICH NO OTHER NEW PATH IN THIS TABLE IS, AND IT IS THE DIRECTOR'S DECISION
 		-- AND NOT THE BUILDER'S. `docs/design/feature-flags.md` section 11 step 1 says a new path is
 		-- born `false`; this row is the documented exception, dispatched in these words
-		-- (Director, 2026-10-19, task 215, transcribed verbatim in TASKS.md row 215):
+		-- (Director, 2026-10-19, task 215, transcribed verbatim in TASKS.md row 215d --
+		-- row 215 is the STATUS row and carries none of the dispatch's words):
 		--
 		--   *"Put the whole look behind a feature flag born ON (`AUTUMN_LIGHT`, expires <= 21 days,
 		--   the standard row), so the Director can switch it off live with flags.py if Karen finds

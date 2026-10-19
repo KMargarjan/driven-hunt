@@ -21,7 +21,7 @@
 -- because the lodge's six lamps are `Lobby.Build`'s and this script never touches a `PointLight`.
 --
 -- Design: no new design document -- one owner for a service nobody owned, as the Director's dispatch
--- specified it (TASKS.md row 215).
+-- specified it (transcribed verbatim in TASKS.md row 215d; row 215 is the status row).
 -- Note: docs/research/2026-10-19-one-owner-for-the-lighting.md
 local Lighting = game:GetService("Lighting")
 local ServerScriptService = game:GetService("ServerScriptService")

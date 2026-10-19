@@ -27,8 +27,12 @@ it could be written down as code.
 
 ## 2. What is actually there, measured first (2026-10-19, Edit, both places)
 
-Nothing in `src/`, `tests/` or `tools/` mentions `Lighting`, `Atmosphere`, `Bloom` or `SunRays`
-(`grep`, empty). So both places were read live:
+Nothing in `src/`, `tests/` or `tools/` **writes** `Lighting`, an `Atmosphere`, a `Bloom` or a
+`SunRays`. (Seven files NAME `Lighting` -- `src/shared/Horn/`, `src/shared/Shotgun/`,
+`src/server/Boar/`, `src/server/Match/Body.luau`, `src/server/Match/Scene.luau`,
+`src/client/Camera/Viewmodel.luau`, `src/client/Hud/ShopPanel.luau` -- and every one is a COMMENT
+reasoning about the ambient. The first draft of this sentence said "grep, empty", which was wrong;
+the point it was making is not.) So both places were read live:
 
 | | Forest Test (Karen plays here) | DEV (the harness) |
 |---|---|---|
@@ -130,7 +134,8 @@ and not taken from the table.
 * **`Light.CONFIG`** is the Designer's spec as data: one table, one row per property, each with the
   spec's own reason beside it. Source C's "one asset, not scattered properties".
 * **`Light.plan(enabled, config)`** is pure and is where the flag lands. It answers **`nil` when the
-  flag is off** and a frozen list of writes when it is on. That is what makes "off = untouched"
+  flag is off** and a DEEP-frozen list of writes when it is on (`Shotgun.deepFreeze`: a shallow
+  `table.freeze` would leave every row and every `props` table writable). That is what makes "off = untouched"
   provable *by parameter* while the row sits at `true` (source B's boundary rule, and CLAUDE.md's
   "reachable by parameter as well as by flag"): the spec calls `plan(false, CONFIG)` and asserts
   nothing comes back, without a Lighting service and without a Play session.
