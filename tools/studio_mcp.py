@@ -742,6 +742,14 @@ BLAST_RADIUS = (
     ("src/serverstorage/MapGen/", "map"),
     ("src/serverstorage/Assets/", "assets"),
     ("src/shared/Flags/", "flags"),
+    # THE GAME'S LIGHT (task 215): the one owner of `Lighting`, its `Atmosphere` and its post
+    # effects, and the boot line that calls it. Its own scope, because it is its own owner with its
+    # own service -- and `light.spec` is in `lobby` as well (the dual membership `zz_horn`,
+    # `boar_hit` and `shoot_boar` already use), because the spec asserts the lodge's three lamp
+    # numbers out of `Lobby.CONFIG.LODGE`: the lamps belong to the lodge and the room they stand in
+    # belongs to this scope, so either side can break the picture.
+    ("src/server/Light/", "light"),
+    ("src/server/LightBoot.server.luau", "light"),
     # The rules that refuse a shot (task 171). The licence TABLE is the fire gate's data and the
     # gate lives in `src/server/Weapon/`, which already resolves to `weapon` above -- so the one new
     # prefix is the shared table.
@@ -845,6 +853,10 @@ SCOPE_SPECS = {
               "tests/client/zz_tie_to_a_tree.spec.luau"),
     # The lobby (task 177): the pure rule and the geometry, and the owner against fakes.
     "lobby": ("tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
+              # Task 215: the lodge's fire and lantern numbers are `Lobby.CONFIG.LODGE`'s and the
+              # lighting spec asserts all three, so a lobby change plays it (the dual membership
+              # above).
+              "tests/server/light.spec.luau",
               # The planting rule itself, pure and worldless (task 199).
               "tests/server/tree_ground.spec.luau",
               # DUAL MEMBERSHIP, the idiom `zz_horn`, `boar_hit` and `shoot_boar` already use: the
@@ -867,7 +879,16 @@ SCOPE_SPECS = {
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).
     "assets": ("tests/server/assets_seam.spec.luau", "tests/server/boar_model.spec.luau"),
+    # The game's light (task 215): the Designer's numbers as data, the pure flag boundary and the
+    # adopt-don't-duplicate writer -- plus the lobby's own specs, because the three lodge lamp
+    # numbers this scope asserts live in `Lobby.CONFIG.LODGE` and `lobby.spec` is what counts the
+    # six lights into the built room.
+    "light": ("tests/server/light.spec.luau", "tests/server/lobby.spec.luau",
+              "tests/server/flags.spec.luau"),
     "flags": ("tests/server/flags.spec.luau", "tests/client/flags_client.spec.luau",
+              # Task 215: `AUTUMN_LIGHT` is a row in the same table, and `light.spec` is what
+              # asserts its owner reads it at a boundary -- so a flags change plays it too.
+              "tests/server/light.spec.luau",
               "tests/server/boar_model.spec.luau", "tests/server/boar_shot.spec.luau",
               "tests/server/boar_calm.spec.luau"),
     # The map (task 155) is a module under the Hud -- `src/client/Hud/MapUi.luau` -- so
