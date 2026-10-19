@@ -332,10 +332,39 @@ return function()
 	describe("the lodge falls to its own lamps", function()
 		local LODGE = Lobby.CONFIG.LODGE
 
-		it("carries the spec's three nudges", function()
-			expect(LODGE.FIRE_LIGHT.rangeStuds).to.equal(30)
-			expect(LODGE.LANTERN.brightness).to.equal(1.25)
-			expect(LODGE.LANTERN.rangeStuds).to.equal(20)
+		it("carries the lamp numbers the Director's look settled on", function()
+			-- The Designer's §5 asked for fire range 30 and lanterns 1.25 / 20, and that is what
+			-- task 215 shipped to the Director. He rejected the frame -- *"a saturated ORANGE
+			-- wash"* -- and these are the numbers that answer it: dimmer, tighter, and far less
+			-- orange, with the fire still the brightest thing in the room.
+			expect(LODGE.FIRE_LIGHT.rangeStuds).to.equal(20)
+			expect(LODGE.LANTERN.brightness).to.equal(0.85)
+			expect(LODGE.LANTERN.rangeStuds).to.equal(14)
+		end)
+
+		it("keeps the lamps warm but not ORANGE, which is what made the wood read as a filter", function()
+			-- The measurement behind this: `LOG_COLOR` is #4A3826 and the hearth stone is a NEUTRAL
+			-- grey (#5A5750), and the stone was still rendering saturated ochre -- so the orange was
+			-- the lamp colour, not the albedo and not the grade. Blue over red is the number that
+			-- says how orange a warm lamp is: 116/255 = 0.45 was the wash, 170/255 = 0.67 is warm.
+			for _, lamp in ipairs({ LODGE.LANTERN.color, LODGE.FIRE_LIGHT.color }) do
+				expect(lamp.B / lamp.R > 0.5).to.equal(true)
+				expect(lamp.R >= lamp.G and lamp.G >= lamp.B).to.equal(true) -- still warm, not neutral
+			end
+		end)
+
+		it("leaves a lantern's pool smaller than the room, which is what makes it a pool", function()
+			-- The lodge floor measures 34.8 x 24.8 studs and the three inside lanterns sit at
+			-- `ALONG` -8 / 2 / 12, hung `DROP_STUDS` under the ceiling. A lamp whose range reaches
+			-- the far wall is not a pool, it is a wash -- which is exactly what 20 and 30 were.
+			expect(LODGE.LANTERN.rangeStuds * 2 < 34.8).to.equal(true)
+			expect(LODGE.FIRE_LIGHT.rangeStuds * 2 < 34.8).to.equal(true)
+			-- WHAT THIS DOES NOT CLAIM, because it was measured rather than assumed: the three
+			-- lanterns still OVERLAP along the room's centre line (they sit 10 studs apart and a
+			-- range-14 lamp hung 3.2 studs up reaches ~13.6 studs of floor), so "dark boards
+			-- between the pools" is true at the room's EDGES and off the walk, not down the middle.
+			-- The live floor-coverage figure is in the review request; this case only asserts the
+			-- thing that turns a wash into pools at all -- no lamp reaching the far wall.
 		end)
 
 		it("keeps the fire reaching further than a lantern, so the room has a gradient", function()

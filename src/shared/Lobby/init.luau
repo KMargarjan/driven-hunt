@@ -548,15 +548,25 @@ Lobby.CONFIG = {
 			COLOR = Color3.fromRGB(255, 160, 60),
 			SECONDARY_COLOR = Color3.fromRGB(216, 72, 24),
 		},
-		-- THE RANGE IS 30 AND NOT 42 SINCE TASK 215 (the Designer's lighting spec, 2026-10-19, §5).
-		-- At 42 the fire lit the ENTIRE room evenly -- the flat look again, just warmer. At 30 the
-		-- north end (the counter, the rack) falls outside the fire's reach and the lanterns up there
-		-- do their own job, so the room gains a gradient from hearth to counter -- which is the only
-		-- reason to have two kinds of light in one room. `Shadows` stays at its default `false`:
-		-- a shadow-casting `PointLight` is a cubemap render per frame and six of them would cost
-		-- more than the whole lighting change put together. These are fill lights; fill does not
-		-- cast.
-		FIRE_LIGHT = { brightness = 2.4, rangeStuds = 30, color = Color3.fromRGB(255, 176, 104) },
+		-- THE RANGE IS 20 AND NOT 42, AND THE COLOUR IS LESS ORANGE, SINCE THE DIRECTOR'S LOOK AT
+		-- TASK 215. The Designer's §5 asked for 30; at 30 the fire still reached every wall of a
+		-- 34.8 x 24.8 room, and with five lanterns at range 20 beside it the result was the thing
+		-- the Director rejected in one sentence: *"the whole room is a saturated ORANGE wash: logs,
+		-- floor, stone and the counter are all one orange ... it reads as a colour filter, not warm
+		-- wood."* At 20 the fire lights the hearth end and stops, which is what leaves the north end
+		-- to the lanterns and the corners to nothing.
+		--
+		-- 255,190,136 AND NOT 255,176,104: the hearth stone's albedo is a NEUTRAL GREY (#5A5750) and
+		-- it was rendering saturated ochre, which is the measurement that proves the orange was the
+		-- LAMPS and not the wood (`LOG_COLOR` is already #4A3826). Still warm, still clearly
+		-- firelight, no longer a filter over everything it touches.
+		--
+		-- IT STAYS THE BRIGHTEST THING IN THE ROOM at 2.4 against the lanterns' 0.85 -- the
+		-- Director's own condition, and what makes the trophy above it read as lit from below.
+		-- `Shadows` stays at its default `false`: a shadow-casting `PointLight` is a cubemap render
+		-- per frame and six of them would cost more than the whole lighting change put together.
+		-- These are fill lights; fill does not cast.
+		FIRE_LIGHT = { brightness = 2.4, rangeStuds = 20, color = Color3.fromRGB(255, 190, 136) },
 		-- THE LANTERNS: three inside hung off the beams, two outside beside the door.
 		-- DIM, AND WARM. At brightness 1.1 over 20 studs the two on the porch washed the whole front
 		-- wall white in the first photograph; a lantern is a thing you see, not a floodlight.
@@ -567,15 +577,27 @@ Lobby.CONFIG = {
 			-- THE ROOM WENT DARK IN SPEC 1, so the lanterns carry more of it: three pools of warm
 			-- light on a dark floor is the whole look (spec 11).
 			--
-			-- HOTTER AND TIGHTER SINCE TASK 215 (the Designer's lighting spec, 2026-10-19, §5):
-			-- 1.05 -> 1.25 and 22 -> 20. The pools were always there and nobody could see one of
-			-- them, because `Lighting.Ambient` at 159,159,159 was brighter than all six lamps put
-			-- together; with the ambient down to 44,40,34 these two numbers are what turn a wash
-			-- into three distinct pools -- which is what this config's own comment asked for and
-			-- could not get.
-			brightness = 1.25,
-			rangeStuds = 20,
-			color = Color3.fromRGB(255, 186, 116),
+			-- DIMMER, TIGHTER AND LESS ORANGE SINCE THE DIRECTOR'S LOOK AT TASK 215. The Designer's
+			-- §5 went the other way -- 1.05 -> 1.25 and 22 -> 20 -- on the theory that with
+			-- `Lighting.Ambient` down from 159,159,159 to 44,40,34 the lamps would finally read as
+			-- three pools. They did not: six lamps at range 20 and 30 BLANKET a 34.8 x 24.8 room
+			-- (measured: of 1,681 floor samples, zero were outside every lamp's reach), so the room
+			-- came out as one even orange and the Director rejected it -- *"the ceiling lanterns are
+			-- glowing yellow blocks ... it reads as a colour filter, not warm wood."*
+			--
+			-- SO THE POOLS COME FROM THE RANGE, NOT FROM THE AMBIENT. 0.85 over 14 studs from a
+			-- lantern hung 3.2 studs under the ceiling reaches about 11 studs of floor, and the
+			-- three of them sit at -8, 2 and 12 along a 34.8-stud room: three pools with dark boards
+			-- between them and dark corners, which is what §5 asked for and what 1.25/20 could not
+			-- give at any ambient.
+			--
+			-- 255,214,170 IS THE DIRECTOR'S OWN NUMBER and it is what stops the wood reading as a
+			-- filter: at 255,186,116 the blue channel is 0.45 of the red, so every surface it
+			-- touched went orange INCLUDING the neutral-grey hearth stone (#5A5750); at 0.67 of the
+			-- red the log wall reads brown with its courses visible and the stone reads grey-brown.
+			brightness = 0.85,
+			rangeStuds = 14,
+			color = Color3.fromRGB(255, 214, 170),
 			GLASS_COLOR = Color3.fromRGB(240, 186, 118),
 		},
 		CEILING_BEAMS = 6,
