@@ -245,13 +245,21 @@ return function()
 			local mark = gui:FindFirstChild("HitMark")
 			expect(mark).to.be.ok()
 			expect(mark.Parent).to.equal(gui) -- NOT a child of the crosshair, which ADS hides
-			local arms = 0
+			-- FOUR ARMS AND FOUR DROP LINES SINCE TASK 201 E. The two are counted separately and
+			-- not together: before this task every `Frame` under the marker was an arm, and a case
+			-- that counts eight would pass if the shadows were arms.
+			local arms, drops = 0, 0
 			for _, child in ipairs(mark:GetChildren()) do
 				if child:IsA("Frame") then
-					arms += 1
+					if child:GetAttribute("DropLine") == true then
+						drops += 1
+					else
+						arms += 1
+					end
 				end
 			end
 			expect(arms).to.equal(4)
+			expect(drops).to.equal(4)
 		end)
 	end)
 end

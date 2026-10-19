@@ -1188,6 +1188,13 @@ local function build(): ScreenGui
 	maskEdge.Name = "Edge"
 	maskEdge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	maskEdge.Thickness = 1
+	-- COLOURED AT BUILD TIME AND NOT ONLY AT LAYOUT (task 201 E). A `UIStroke` is BLACK by
+	-- default, and `layoutScope` runs only once a weapon with an eyepiece is actually up -- so
+	-- until the first scope was raised these three strokes were default black, which is what the
+	-- system's own acceptance walk over the live screen found. `Style.SCOPE_MASK` happens to be
+	-- black and is the one place in the palette that is (§5 surface 20); the point is that it is
+	-- NAMED, and the other two below are not black at all.
+	maskEdge.Color = Style.SCOPE_MASK
 	maskEdge.Parent = mask
 
 	-- The ocular lens's own rim, drawn INSIDE the circle: a stroke goes outward, so this frame is
@@ -1208,6 +1215,7 @@ local function build(): ScreenGui
 	rimEdge.Name = "Edge"
 	rimEdge.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	rimEdge.Thickness = 1
+	rimEdge.Color = Style.LOOK.SCRIM -- see `maskEdge` above: a stroke is black until it is told
 	rimEdge.Parent = rim
 
 	-- THE BRASS RING ON THE INSIDE OF THE TUBE (§5 surface 20, task 201 E): *"the rim goes from the
@@ -1258,6 +1266,12 @@ local function build(): ScreenGui
 	local edge = Instance.new("UIStroke")
 	edge.Name = "Edge"
 	edge.Thickness = 1
+	-- THE RING IS THE ONE RETICLE ELEMENT THE RIFLE DOES NOT CARRY (task 146: Karen's cross has
+	-- neither ring nor posts), so `layoutReticle` never colours it and it stayed default black.
+	-- `PAPER` is §2's own answer for a mark -- and the ring is `Visible = false` for every scope
+	-- in the game today, so this decides nothing on screen; it decides what a BLACK stroke means
+	-- when the acceptance walk finds one.
+	edge.Color = Style.LOOK.PAPER
 	edge.Parent = ring
 
 	-- THE ILLUMINATED DOT (task 142), two frames: a soft halo and the core on top of it. Last in

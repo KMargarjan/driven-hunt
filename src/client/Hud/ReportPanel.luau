@@ -588,12 +588,20 @@ local function clearDots(art: Frame)
 	BoarArt.clearDots(art)
 end
 
--- ONE DOT PER HIT, drawn by `Hud.BoarArt` -- the report's scheme: a white dot ringed in the zone's
+-- ONE DOT PER HIT, drawn by `Hud.BoarArt` -- the report's scheme: a PAPER dot ringed in the zone's
 -- own lifted colour, the fatal one turned 45 degrees in the kill marker's red, and a dot on the FAR
 -- flank half transparent so a report of a broadside shows which side the animal was hit from.
+--
+-- `PAPER` AND NOT WHITE SINCE TASK 201 E. `BoarArt`'s fallback is `Color3.new(1, 1, 1)` and this
+-- caller passed no `dot` at all, so the report's silhouette was the last pure white left on the
+-- screen -- found by the system's own acceptance walk over the live Hud and NOT by its grep, which
+-- only reads `src/client/` for the literal. §5 surface 12 keeps the dot ART unchanged; this is its
+-- colour, and `#F2EBDC` against `#FFFFFF` on a near-black boar is a change nobody will see except
+-- as one fewer white on the screen.
 local function drawDots(art: Frame, row: any)
 	BoarArt.drawDots(art, (row and row.dots) or {}, {
 		fill = CONFIG.BOAR_FILL,
+		dot = Style.LOOK.PAPER,
 		width = CONFIG.SILHOUETTE_WIDTH,
 		height = CONFIG.SILHOUETTE_HEIGHT,
 		zIndex = Z + 3,

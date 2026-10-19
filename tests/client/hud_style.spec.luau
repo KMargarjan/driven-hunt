@@ -857,19 +857,21 @@ return function()
 
 		it("reserves the toast feed's REAL height, so a full stack cannot reach the hit card", function()
 			-- ROUND 1, BLOCKING FINDING 2. `Hud.feedHeight` was `FEED_LINES * 28` against a toast
-			-- that measures 30 with a 6 px gap, so five lines came to 174 px inside a 140 px
-			-- reservation -- and the feed frame has no `ClipsDescendants`, so the stack grew 34 px
-			-- onto the hit card. Five entries inside `FEED_SECONDS` is reachable: `renderFeed`
-			-- trims only past `FEED_LINES`.
+			-- that measures 30 with a 6 px gap, so the stack came to more than its reservation --
+			-- and the feed frame has no `ClipsDescendants`, so it grew onto the hit card. A full
+			-- stack inside `FEED_SECONDS` is reachable: `renderFeed` trims only past the cap.
+			--
+			-- THE CAP IS `Style.FEED_LINES` SINCE TASK 201 E and it is 3, not `Drive.CONFIG`'s 5
+			-- (the Director, 2026-10-19). Both of this case's numbers move with it.
 			local viewX = Hud.viewportX()
 			local toast = Style.toastHeight(viewX)
-			local lines = Drive.CONFIG.FEED_LINES
+			local lines = Style.FEED_LINES
 			-- THE NUMBERS AND NOT THE EXPRESSION (round 2 note): restating `feedHeight`'s own
 			-- arithmetic back at it is a case that cannot fail. A desktop toast is 6 + 6 of slate
-			-- padding around an 18 px line box, and five of them with four 6 px gaps is 174.
+			-- padding around an 18 px line box, and three of them with two 6 px gaps is 102.
 			expect(Style.toastHeight(1280)).to.equal(30)
 			expect(Style.toastHeight(400)).to.equal(25)
-			expect(Hud.feedHeight(1280)).to.equal(5 * 30 + 4 * 6)
+			expect(Hud.feedHeight(1280)).to.equal(3 * 30 + 2 * 6)
 			expect(Hud.feedHeight(viewX)).to.equal(lines * toast + (lines - 1) * Style.TOAST_GAP)
 			-- THE NUMBER IS TRUE OF WHAT IS DRAWN, and that is the half the arithmetic cannot
 			-- answer: every toast this Hud built is measured against it.
