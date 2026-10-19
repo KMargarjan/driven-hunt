@@ -435,15 +435,24 @@ function MapUi.fullMapRect(viewport: Vector2): (number, number, number, number)
 end
 
 -- WHAT THE LEGEND SAYS, as data. Six rows, in the order they are drawn. `shape` is "line" for the
--- road (a thin bar), "square" for a stand and "dot" for a body, which is exactly how each of those
--- is drawn on the map -- a key whose swatch is a different shape from the thing it keys is a key that
--- has to be explained.
+-- road (a thin bar), "square" for a stand, "diamond" for the target mark and "dot" for a body, which
+-- is exactly how each of those is drawn on the map -- a key whose swatch is a different shape from
+-- the thing it keys is a key that has to be explained.
+--
+-- `GO HERE` BECAME A DIAMOND IN TASK 201 E, AND THAT IS A REGRESSION THIS TASK CAUSED AND FIXED.
+-- Before the palette the target was `#EB5A37` and a stand `#FFA03C`: two oranges, told apart by
+-- colour alone, and the key drew both as squares. The system has ONE go-here orange and the hunters
+-- ARE that orange (§1.1: `HUNTER` and `BLAZE_HI` are both `#E8832F`), so after the recolour the key
+-- showed three identical orange squares reading STAND, GO HERE and HUNTER. The MAP never had the
+-- problem -- it has always drawn the target turned 45 degrees (`buildDrawer`'s `goal.Rotation = 45`)
+-- and a body as a circle -- so the fix is to make the key draw what the map draws. Found by looking
+-- at `t201e-fullmap.png` (rule 5), not by a test.
 function MapUi.legendRows(): { { word: string, color: Color3, shape: string } }
 	local colors = MapUi.COLORS
 	return {
 		{ word = "ROAD", color = MapUi.CONFIG.ROAD_COLOR, shape = "line" },
 		{ word = "STAND", color = colors.stand, shape = "square" },
-		{ word = "GO HERE", color = colors.arrow, shape = "square" },
+		{ word = "GO HERE", color = colors.arrow, shape = "diamond" },
 		{ word = "YOU", color = colors.own, shape = "dot" },
 		{ word = "HUNTER", color = colors.Shooters, shape = "dot" },
 		{ word = "BEATER", color = colors.Drivers, shape = "dot" },
@@ -1773,6 +1782,11 @@ function MapUi.setGeometry(next_: MapGeometry?)
 				local round = Instance.new("UICorner")
 				round.CornerRadius = UDim.new(0.5, 0)
 				round.Parent = swatch
+			elseif row.shape == "diamond" then
+				-- THE TARGET MARK'S OWN TURN (`buildDrawer`: `goal.Rotation = 45`). A square and a
+				-- diamond in one orange are two marks; two squares in one orange are one mark drawn
+				-- twice.
+				swatch.Rotation = 45
 			end
 			claim(swatch).Parent = holder
 			local word = claim(label(holder, string.format("Word%d", index), config.LEGEND_TEXT_PX, row.word))

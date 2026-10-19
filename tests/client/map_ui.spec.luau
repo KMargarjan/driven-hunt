@@ -457,6 +457,38 @@ return function()
 			expect(MapUi.overflowFor({ { userId = 1, position = nil } })).to.equal(0)
 		end)
 
+		it("keys every mark by a shape as well as by a colour", function()
+			-- TASK 201 E, AND IT IS A REGRESSION THIS TASK CAUSED. The palette has ONE go-here
+			-- orange and the hunters ARE that orange (§1.1: `HUNTER` and `BLAZE_HI` are the same
+			-- `#E8832F`), so STAND, GO HERE and HUNTER are now one colour -- and the key drew the
+			-- first two as the same square. Found by looking at `t201e-fullmap.png` (rule 5).
+			--
+			-- SO THE KEY IS ASSERTED AS A PAIR, colour AND shape, and the pair must be unique:
+			-- that is the only property that makes a key readable, and the one a colour-only case
+			-- could never have caught.
+			local seen = {}
+			local rows = MapUi.legendRows()
+			expect(#rows).to.equal(6)
+			for _, row in ipairs(rows) do
+				local key = tostring(row.color) .. "/" .. row.shape
+				expect(seen[key]).to.equal(nil)
+				seen[key] = row.word
+			end
+			-- ...and the target's shape is the one the MAP draws it with: turned 45 degrees
+			-- (`buildDrawer`'s `goal.Rotation = 45`), never a second plain square.
+			for _, row in ipairs(rows) do
+				if row.word == "GO HERE" then
+					expect(row.shape).to.equal("diamond")
+					expect(row.color).to.equal(Style.LOOK.BLAZE_HI)
+				elseif row.word == "STAND" then
+					expect(row.shape).to.equal("square")
+					expect(row.color).to.equal(Style.LOOK.HUNTER)
+				end
+			end
+			-- The two that share a colour are told apart by shape, which is the whole claim.
+			expect(Style.LOOK.HUNTER).to.equal(Style.LOOK.BLAZE_HI)
+		end)
+
 		it("colours by team, from the ONE mapping the pill and the roster read", function()
 			-- TASK 201 E: these were `Drive.CONFIG`'s three colours, which was the right answer
 			-- while the drive bar's badges were the only other team-coloured thing on screen. The
