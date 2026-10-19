@@ -1,12 +1,12 @@
 # Task 215 — the lighting: a late-autumn morning, with one owner
 
 Task: 215
-Round: 2
+Round: 3
 Base: `120ce75` (main, the merge of #196)
-Code commit: `e27bdb88ef1ae1ae6773763ab16a379d752817f3`
+Code commit: `e597477ad81efafd67ed7592ce3c83b0352ed483`
 
 ```
-[harness] PASS: 33/33 checks @ e27bdb88ef1ae1ae6773763ab16a379d752817f3 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ e597477ad81efafd67ed7592ce3c83b0352ed483 (clean tree) scope=all
 ```
 
 `[harness2]`: **N/A.** Not one path this task touches is in `TWO_PLAYER_PATHS`
@@ -124,8 +124,30 @@ Director's instruction, `Style.SLATE_T` 0.18 -> 0.14.
    cut if it matters is `Bloom`.
    *Verify:* `<runs-dir>/t215/cameras.json`, keys `frame_after` / `frame_before`.
 
-10. **The four scenes, before and after at identical cameras, looked at.** Lodge from the door;
-    the boar on the stone; a stand on the line; the forest as a beater. `<runs-dir>/t215/pair-*.png`.
+10. **The four scenes, before and after at identical cameras, and what they actually show** (round
+    2, finding 1 — the round-2 request named cameras and described nothing).
+    *The lodge, from the door* (`pair-D-lodge-from-the-door.png`): before, every surface is one pale
+    cream value, the fire is a flat yellow triangle and the lantern a flat white rectangle; after,
+    the room is warm amber, the fire GLOWS and falls off, the lantern reads as a thing that emits,
+    and there is a real hearth-to-counter gradient. **But §5's "three warm pools on a DARK floor,
+    dark boards between them, corners brown-black" is NOT what this is, and that is arithmetic, not
+    tuning:** measured live with the dispatch's own lamp numbers, the lodge floor is **34.8 × 24.8
+    studs** and of **1,681 floor samples ZERO are outside every lamp's reach** — only 2 % are inside
+    exactly one. Six lamps at range 20 (five lanterns) and 30 (the fire) blanket a room that size.
+    Pools would want ranges well under the dispatch's 20/30, or fewer lamps, and inventing those is
+    neither the Designer's spec nor the dispatch: **queued as `TASKS.md` row 215b, needing the
+    Designer or the Director.**
+    *The boar on the stone* (`pair-E-boar-on-the-stone.png`): **§5's trophy target PASSES and the
+    §5 fallback is NOT needed.** Before, it is a grey blob on flat grey stone — Karen's own
+    complaint. After, the head is warm brown with cream tusks on ochre stone, lit from BELOW by the
+    fire (the jaw and snout are the brightest part of it) with the `KEILER` plaque legible under it.
+    It does not read black, so the one mantel `PointLight` §5 names as the fix is not wanted.
+    *A stand on the line* (`pair-A-…`): before, flat grey-green with no shadow anywhere and the big
+    trunk a grey post; after, the trunk is dark with a lit edge, the stand pad carries a visible
+    shadow, and lit and shaded grass are different colours rather than two brightnesses.
+    *The forest, as a beater* (`pair-B-…`): the sun rakes through the birches from one side and the
+    trunks are lit on one face; the horn in the hands picks up a top edge. **The one thing §7
+    promises that did NOT happen is the grass** — see "What I could not verify".
     **Smoke PASS (rule A), on the round-1 code (unchanged outside two comment blocks and a
     `MAX_FLAGS` comment since):** `lobby=[lobby gunBefore=false] gun in hand @15s=1 @80s=1 | stacks=0
     errorLines=0 | waves=9`, and `[LightBoot] AUTUMN_LIGHT is on: 30 property(ies) written...` in
@@ -147,10 +169,16 @@ Director's instruction, `Style.SLATE_T` 0.18 -> 0.14.
   2.9 : 1 from its grass, but dark in absolute terms. `python tools/flags.py set AUTUMN_LIGHT off`
   is the switch, and in the Forest Test it is `DHFlag_AUTUMN_LIGHT` on that place's own
   `ServerStorage`, because `flags.py` writes DEV's.
-* **The seven round-1 notes are queued as `TASKS.md` row 215a**, not fixed here, per CLAUDE.md step
-  5. Two of them were factual errors in the round-1 request itself and ARE corrected above (claims 1
-  and 4's verify recipes), because a request has to be true.
-* **A harness fault, reported (rule 6).** Three times during this task the DEV Studio's StudioMCP
+* **The notes are queued as `TASKS.md` rows 215a and 215b**, not fixed here, per CLAUDE.md step 5 —
+  with one exception each round, for notes that are simply FALSE SENTENCES rather than improvements.
+  Round 1: two wrong *Verify* recipes, corrected in claims 1 and 4. Round 3 fixes three of round 2's
+  five: the dispatch pointers said `TASKS.md` row 215 (the status row) when the verbatim
+  transcription is row **215d**; two "grep, empty" sentences in `Light`'s header and the research
+  note were never true (seven files name `Lighting`, all in comments); and `Light.plan` froze its
+  result SHALLOWLY while the note called it "a frozen list of writes" — it is `Shotgun.deepFreeze`
+  now, and `light.spec` asserts every row and every `props` table. `light.spec`'s shade block also
+  now says which boar it covers.
+* **A harness fault, reported (rule 6).** Four times during this task the DEV Studio's StudioMCP
   connection dropped for a few seconds and an unscoped call fell through to the **Forest Test**
   window while the banner still printed *"defaults to Driven Hunt DEV (placeId: 136410205938347)"*.
   The run that did it failed correctly — `FAIL Studio has the DEV place open (130094961655666 vs
