@@ -1,12 +1,12 @@
 # Task 215 — the lighting: a late-autumn morning, with one owner
 
 Task: 215
-Round: 1
+Round: 2
 Base: `120ce75` (main, the merge of #196)
-Code commit: `a940d76258810ed97d3b80739496b3f07cb9fe35`
+Code commit: `e27bdb88ef1ae1ae6773763ab16a379d752817f3`
 
 ```
-[harness] PASS: 33/33 checks @ a940d76258810ed97d3b80739496b3f07cb9fe35 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ e27bdb88ef1ae1ae6773763ab16a379d752817f3 (clean tree) scope=all
 ```
 
 `[harness2]`: **N/A.** Not one path this task touches is in `TWO_PLAYER_PATHS`
@@ -27,12 +27,30 @@ Director's instruction, `Style.SLATE_T` 0.18 -> 0.14.
 1. **There is exactly one writer of `Lighting`, and it runs in every world.** `Light.apply` is the
    only function in the repo that touches the service; `LightBoot` is its only caller and has no
    `Map.EXPECTED_WORLD` guard, unlike `ArenaBoot` / `MatchBoot` / `ForestTestBoot`.
-   *Verify:* `grep -rn "Lighting\|Atmosphere\|BloomEffect\|SunRays" src/ tests/ tools/` — before this
-   commit it was empty; now every hit is under `src/server/Light/`, `LightBoot.server.luau`,
-   `tests/server/light.spec.luau` or `tools/studio_mcp.py`'s scope table. `Light` never names
-   `PointLight`, `SpotLight`, `Fire`, `Beam` or `Sky`: the lodge's six lamps stay `Lobby.Build`'s.
+   *Verify:* `grep -rn "Lighting\." src/ tests/` and look at what is on the left of each `=`. Seven
+   files MENTION `Lighting` and did before this commit — `src/shared/Horn/init.luau`,
+   `src/shared/Shotgun/init.luau`, `src/server/Boar/init.luau`, `src/server/Match/Body.luau`,
+   `src/server/Match/Scene.luau`, `src/client/Camera/Viewmodel.luau`,
+   `src/client/Hud/ShopPanel.luau` — and **every one of them is a COMMENT reasoning about the
+   ambient, not a write** (round 1 note (g) corrected this recipe; the claim it was meant to check
+   is unchanged). The only assignment to the service or its children in the repo is `Light.apply`'s
+   guarded `set`. `Light` never names `PointLight`, `SpotLight`, `Fire`, `Beam` or `Sky`: the
+   lodge's six lamps stay `Lobby.Build`'s.
 
-2. **The flag is read once, at the owner's boundary, and OFF means NOT WRITTEN.** `Light.ENABLED`
+2. **`AUTUMN_LIGHT` is born ON by the DIRECTOR'S decision, and the repo now says so** (round 1,
+   finding 1 — the only blocking one). `docs/design/feature-flags.md` section 11 step 1 births a new
+   path `false`; the dispatch overrode it in those words, and they were outside the repo, so the row
+   carried only the Builder's reasoning. The dispatch is now transcribed **verbatim** in `TASKS.md`
+   row **215d** (marked as the Director's, which CLAUDE.md lets the Builder do for a dispatch that
+   arrived outside the repo) and quoted in the `AUTUMN_LIGHT` row and in `Light`'s own comment. The
+   default is unchanged — ON, as dispatched — and nothing in the tests depends on it: every
+   `light.spec` case drives `plan` / `apply` by parameter.
+   **`Flags.MAX_FLAGS` 13 -> 14 is a DIFFERENT Director call** (section 12) that the dispatch does
+   not name; that line now says so and is queued as `TASKS.md` 215a item (a). Eight dark paths, under
+   the twelve the cap is about.
+   *Verify:* `TASKS.md` row 215d, the `AUTUMN_LIGHT` row's comment, `Flags.MAX_FLAGS`'s comment.
+
+3. **The flag is read once, at the owner's boundary, and OFF means NOT WRITTEN.** `Light.ENABLED`
    is the only `Flags.isOn` call; it is passed inward as `Light.plan`'s first argument, and
    `plan(false, ...)` returns **nil**, so `apply` is never reached. Refused in the note (section 4):
    a restore-from-snapshot off-switch, because a snapshot taken after something else has written is
@@ -42,17 +60,20 @@ Director's instruction, `Style.SLATE_T` 0.18 -> 0.14.
    `Amb=159,159,159 Out=125,155,200 B=3.00 CT=15.00 Lat=54.0 Exp=0.00 EDS=0.00`, `SunRays=true`,
    `DepthOfField=true`, `Blur=true` — untouched (`<runs-dir>/t215/cameras.json`, key `live_before`).
 
-3. **`apply` adopts, never duplicates, and never throws.** It takes the first child of each class
+4. **`apply` adopts, never duplicates, and never throws.** It takes the first child of each class
    that is there and creates one only when there is none; it never creates a `SunRaysEffect`,
    `BlurEffect` or `DepthOfFieldEffect` (`create = false`), only switches one off; a second instance
    of an owned class is **reported and not touched**; every write is guarded and a refusal is
    counted, not raised.
    *Verify:* `light.spec` -> "apply adopts, never duplicates, and never throws" (five cases, each on
-   a parentless `Folder`, so no case touches the real service). **Live:** the boot line reads
-   `adopted=Atmosphere,ColorCorrectionEffect,BloomEffect,SunRaysEffect,BlurEffect,DepthOfFieldEffect`
-   with **nothing created** in either place.
+   a parentless `Folder`, so no case touches the real service). **Live, and the two places differ
+   exactly as they should:** the Forest Test has all six classes, so its line reads
+   `30 property(ies) written ... adopted=Atmosphere,ColorCorrectionEffect,BloomEffect,SunRaysEffect,BlurEffect,DepthOfFieldEffect`;
+   DEV has no `BlurEffect`, so its line reads 29 written, five adopted and `absent=BlurEffect`
+   (round 1 note (g) — the round-1 request printed the Forest Test's line for both). **Nothing is
+   created in either place**, which is the half of the claim that matters.
 
-4. **The numbers are the Designer's, and three deviations are named.** `Light.CONFIG` carries every
+5. **The numbers are the Designer's, and three deviations are named.** `Light.CONFIG` carries every
    value of the spec's §1, §3 and §4, asserted one by one.
    (a) **`Technology` is not written** — this engine refuses even to *read* it from a script
    (*"lacking capability RobloxScript"*, probed 2026-10-19), so the `ShadowMap` row is a comment.
@@ -62,21 +83,21 @@ Director's instruction, `Style.SLATE_T` 0.18 -> 0.14.
    *Verify:* `light.spec` -> "carries the exact numbers of the lighting spec, 2026-10-19",
    "never names Technology...", "never names the fog...".
 
-5. **The spec's §2 arithmetic was checked rather than quoted, and one row of it is wrong.** BT.601
-   reproduces the boar (72) and the dirt (47) to the digit; the GRASS row does not — `112,124,72`
-   under `OutdoorAmbient` renders luma **51.0, not the 45 printed**, so the advertised 1.6 : 1 is
-   really **1.43 : 1**. The spec is not patched; `light.spec` records the corrected figure.
-   *Verify:* `light.spec` -> "a boar stays visible in shade" (five cases).
-
-6. **A boar in shade separates from its ground BETTER after than before: 2.91 : 1 against 1.37 : 1.**
-   Measured off real pixels, same camera, same staged boar on the same shaded grass, the flag the
-   only difference: boar luma **5.2** on grass **15.3** after; **39.4** on **53.9** before
-   (`<runs-dir>/t215/measure.py`, boxes drawn on the frame and looked at).
-   **The dispatch's "≥ 1.5" cannot be met as literally written and never could be**: the real boar's
-   mesh is DARKER than grass, so it was 0.73 : 1 before this task. Read as separation — brighter
-   over darker, which is what `Light.ratio` computes and what a hunter reads — it is 2.91 : 1.
-   *Verify:* `<runs-dir>/t215/after-C-boar-in-shade.png` against `before-C-...`, and
-   `pair-C-boar-in-shade.png`.
+6. **A boar stays visible in shade, checked twice: on the spec's own arithmetic, and on pixels.**
+   *The arithmetic, re-derived rather than quoted:* BT.601 reproduces §2's boar (72) and dirt (47)
+   to the digit, and its GRASS row does **not** — `112,124,72` under `OutdoorAmbient` renders luma
+   **51.0, not the 45 printed**, so the spec's advertised 1.6 : 1 is really **1.43 : 1**. The spec
+   is not patched; `light.spec` records the corrected figure as a number so nobody derives it twice.
+   *The pixels, same camera, same staged boar on the same shaded grass, the flag the only
+   difference:* boar luma **5.2** on grass **15.3** after; **39.4** on **53.9** before — the boar
+   separates from its ground **2.91 : 1 after against 1.37 : 1 before**.
+   **The dispatch's "ratio >= 1.5" cannot be met as literally written and never could be:** the real
+   boar's mesh is DARKER than grass, so it was 0.73 : 1 before this task touched anything. Read as
+   separation — brighter over darker, which is what `Light.ratio` computes and what a hunter
+   actually reads off a silhouette — it is 2.91 : 1 and better than before.
+   *Verify:* `light.spec` -> "a boar stays visible in shade" (five cases); and
+   `<runs-dir>/t215/measure.py` against `after-C-boar-in-shade.png` / `before-C-...` /
+   `pair-C-boar-in-shade.png`, with the sample boxes drawn on the frame and looked at.
 
 7. **The spec's own rescue knob was tried live and makes things worse, so the numbers ship as
    written.** Five variants at one camera on one staged boar (`<runs-dir>/t215/knobs.py`):
@@ -105,7 +126,8 @@ Director's instruction, `Style.SLATE_T` 0.18 -> 0.14.
 
 10. **The four scenes, before and after at identical cameras, looked at.** Lodge from the door;
     the boar on the stone; a stand on the line; the forest as a beater. `<runs-dir>/t215/pair-*.png`.
-    **Smoke PASS (rule A):** `lobby=[lobby gunBefore=false] gun in hand @15s=1 @80s=1 | stacks=0
+    **Smoke PASS (rule A), on the round-1 code (unchanged outside two comment blocks and a
+    `MAX_FLAGS` comment since):** `lobby=[lobby gunBefore=false] gun in hand @15s=1 @80s=1 | stacks=0
     errorLines=0 | waves=9`, and `[LightBoot] AUTUMN_LIGHT is on: 30 property(ies) written...` in
     that same console. `tools/studio_mcp.py selftest` and `tools/agents.py selftest` both pass
     (rule G).
@@ -125,10 +147,13 @@ Director's instruction, `Style.SLATE_T` 0.18 -> 0.14.
   2.9 : 1 from its grass, but dark in absolute terms. `python tools/flags.py set AUTUMN_LIGHT off`
   is the switch, and in the Forest Test it is `DHFlag_AUTUMN_LIGHT` on that place's own
   `ServerStorage`, because `flags.py` writes DEV's.
-* **A harness fault, reported (rule 6).** Twice during this task the DEV Studio's StudioMCP
+* **The seven round-1 notes are queued as `TASKS.md` row 215a**, not fixed here, per CLAUDE.md step
+  5. Two of them were factual errors in the round-1 request itself and ARE corrected above (claims 1
+  and 4's verify recipes), because a request has to be true.
+* **A harness fault, reported (rule 6).** Three times during this task the DEV Studio's StudioMCP
   connection dropped for a few seconds and an unscoped call fell through to the **Forest Test**
   window while the banner still printed *"defaults to Driven Hunt DEV (placeId: 136410205938347)"*.
   The run that did it failed correctly — `FAIL Studio has the DEV place open (130094961655666 vs
   136410205938347)` — so nothing ran in the wrong place, but the banner is misleading and the
-  listing's `name` can disagree with the connection actually used. Both settled on their own within
-  a few seconds. Not fixed here.
+  listing's `name` can disagree with the connection actually used. Each settled on its own within a
+  few seconds and a re-run passed. Not fixed here.
