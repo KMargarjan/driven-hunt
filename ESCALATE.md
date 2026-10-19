@@ -1,8 +1,17 @@
 # Escalations
 
-## 2026-10-19 - Task 210: NEEDS KAREN -- `test2` is the only thing that can evidence the tie-spec fix
+## 2026-10-19 - Task 210: RESOLVED -- NO CLICK WAS NEEDED; `run-test2.sh` presses F7 itself
 
-**Nothing is wrong and nothing is undecided. This is the one click I cannot make.** Task 210's two
+**RESOLVED by the Director, 2026-10-19, with this line: `run-test2.sh` presses F7 itself, no click
+was needed.** The Director then ran `test2` three times at code commit `d6d42bc` on a clean tree,
+all three `[harness2] PASS: 35/35 checks @ d6d42bce673ea7d7d80004d475fe6b3b4f745267 (clean tree)`,
+and those lines are in `reviews/task-210/REQUEST.md`. **Nothing below is open.** It is kept rather
+than deleted (rule 7) because the premise it was written on -- that a two-player run costs a human
+click -- was wrong, and that is worth having on the record: a Builder can ask the Director for a
+`test2` instead of stopping.
+
+**WHAT IT SAID WHEN IT WAS WRITTEN.** Nothing is wrong and nothing is undecided. This is the one
+click I cannot make. Task 210's two
 fixes are built, gated and committed at code commit `d6d42bc`
 (`[harness] PASS: 33/33 checks @ d6d42bce673ea7d7d80004d475fe6b3b4f745267 (clean tree) scope=all`,
 five runs at that commit, 5/5 PASS, CI green), and the Director's dispatch provided for exactly this

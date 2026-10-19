@@ -7,11 +7,16 @@ Code commit: d6d42bce673ea7d7d80004d475fe6b3b4f745267
 
 ```
 [harness] PASS: 33/33 checks @ d6d42bce673ea7d7d80004d475fe6b3b4f745267 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ d6d42bce673ea7d7d80004d475fe6b3b4f745267 (clean tree)
+[harness2] PASS: 35/35 checks @ d6d42bce673ea7d7d80004d475fe6b3b4f745267 (clean tree)
+[harness2] PASS: 35/35 checks @ d6d42bce673ea7d7d80004d475fe6b3b4f745267 (clean tree)
 ```
 
-Five runs at that commit, every one 33/33 PASS. **No `[harness2]` line: this change touches
-`tests/client/zz_tie_to_a_tree.spec.luau`, which IS in `TWO_PLAYER_PATHS`, and the Director runs
-`test2` x3. See "What could not be verified".**
+**Five one-player runs at that commit, every one 33/33 PASS, and THREE CONSECUTIVE TWO-PLAYER RUNS
+at the same commit, every one 35/35 PASS** (the three `[harness2]` lines above are the Director's,
+2026-10-19; `tests/client/zz_tie_to_a_tree.spec.luau` is in `TWO_PLAYER_PATHS`, and three runs rather
+than one is the right bar for a race fix). Only paperwork has landed since that commit:
+`git diff --name-only d6d42bce..HEAD` is `ESCALATE.md`, `TASKS.md` and this file.
 
 ## What changed
 
@@ -88,18 +93,22 @@ races; neither was a code race.** No file under `src/` is touched.
 
 ## What could not be verified
 
-* **The tie fix is NOT exercised by the one-player suite.** With one player the probe never fires --
-  `zz_tie: one player, so no beater to refuse a shot at; probe not fired` in all five runs -- because
-  there is no driver to aim at. Its verification is `test2`, and `zz_tie_to_a_tree.spec.luau` is in
-  `TWO_PLAYER_PATHS`, so **this branch is blocked on `NEEDS TEST2 210 d6d42bc`.** Everything claimed
-  about it above is read off the code and off the Director's own measured output, not off a run of
-  mine.
+* **The tie fix is not exercised by the ONE-player suite, and I did not run the two-player one.**
+  With one player the probe never fires -- `zz_tie: one player, so no beater to refuse a shot at;
+  probe not fired` in all five of my runs -- because there is no driver to aim at. Its verification is
+  `test2`, which the Director ran three times at this commit (the three `[harness2] PASS: 35/35`
+  lines above). So the claims about the tie spec are backed by three green two-player runs, but the
+  REASONING about them -- which attempt was discarded, and why the reload used to land inside the
+  window -- is read off the code and off the Director's earlier failing output, not off a run of
+  mine. **What a reviewer can still ask of those runs** is the note
+  `zz_tie: probe attempts (N discarded for replayed input inside the window, task 210)`: `N` is how
+  many attempts would previously have been asserted through, and the Director's logs carry it.
 * **The boar fix's five clean runs are one-player runs.** They do carry the evidence that matters:
   `scatterFor 3.96-3.97` at the break case's entry in every one, so the case ran its whole
   four-second clock inside a LIVE scatter and still lost exactly one member (`4 member(s)` ->
   `3 member(s)`, `membersLeft 1` -> `2`). Under two-client load the entry width was 40.7 / 44.0 rather
   than ~32.5; both are under `BREAK_STUDS`, and the hold freezes whichever it is, so the arithmetic
-  cannot change -- but the two-player confirmation is the Director's `test2` x3.
+  cannot change. The two-player confirmation is the Director's `test2` x3, above.
 * **No screenshot (rule 5):** nothing drawn changed. Test-only commit, nothing under `src/`.
 
 ### The reproduction output, pre-fix (claim 3)
