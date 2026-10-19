@@ -1114,6 +1114,49 @@ function ForestTest.toWire(players: { Player }, wired: { [number]: boolean }): {
 	return out
 end
 
+-- WHOSE ROLE REQUEST IS OWED AND MAY BE OFFERED TO THE DRIVE ON THIS TICK (task 214), as a
+-- reconciliation step rather than an event. `toWire`'s shape above, for `toWire`'s reason, and it is
+-- the same defect one layer further in: task 202 fixed "nobody was listening when he joined", and
+-- this fixes "nobody asked again after he joined".
+--
+-- MEASURED IN THE FOREST TEST, 2026-10-19, on Karen's own path (lodge -> truck pad -> drive), with
+-- `DHForestStartRole=beater`: the request was recorded at the join (`asked to join as a beater
+-- (start switch)`), and she then spent THE WHOLE INTERMISSION as a hunter -- `team=Shooters
+-- hand=[Shotgun]`, placed on stand 5 at the road, a ring drawn round it and the objective reading
+-- *get to your stand* -- and was flipped only at GO (`is now a beater (team=Drivers)`), which
+-- respawned her 580 studs north in the middle of the fanfare. THE REQUEST WAS NEVER LOST: it was
+-- offered to the drive at exactly ONE INSTANT, the `Running` edge, and the lobby moved the moment
+-- she enrols to AFTER the one instant that could have used it. Before the lobby (177/209) she was
+-- in the drive from the frame she joined, so `Assigning` and the `Running` edge were the same
+-- intermission and the gap could not be seen.
+--
+-- `settled` IS WHY THIS IS NOT SIMPLY CALLED EVERY TICK, and it is a measurement of `Body.place`
+-- rather than a precaution: that function connects `CharacterAdded` and then calls
+-- `LoadCharacter`, and it disconnects only once its own pivot has finished -- so two placements in
+-- flight for one player both pivot the SAME new character, one to the stand and one to the beater
+-- line, and which one lands last is a coin flip. The drive's `Assigning` placement is in flight for
+-- about a second, which is exactly when an unguarded sweep would fire. So the caller records the
+-- character it has seen STANDING STILL (the `PLACEMENT_SETTLE_SECONDS` delay `reportStart` already
+-- waits, which is the one moment in that file that knows a character has actually landed), and a
+-- stale entry answers false by construction: a respawn replaces the Model, so `settled[userId] ==
+-- player.Character` is false again until the new one has landed.
+--
+-- PURE OF THE CALLER'S RECORD and it writes nothing -- not `settled`, which the caller owns, and not
+-- `state.requests`, which `takeRequest` consumes when the drive has actually honoured the ask. nil
+-- rather than an empty table when there is nothing to do, so the settled case costs one loop and no
+-- allocation.
+function ForestTest.toHonour(players: { Player }, settled: { [number]: Instance? }): { Player }?
+	local out = nil
+	for _, player in ipairs(players) do
+		local character = player.Character
+		if state.requests[player.UserId] ~= nil and character ~= nil and settled[player.UserId] == character then
+			out = out or {}
+			table.insert(out, player)
+		end
+	end
+	return out
+end
+
 -- WHAT A BOAR SEES WHEN IT LOOKS AT THIS PLAYER (task 153). PURE, and one line, because the whole
 -- point is that "which role has she asked for" and "what kind of stimulus is she" are the same fact
 -- in two vocabularies: a beater is a `driver` and anybody else is a `shooter`. The Brain's own
