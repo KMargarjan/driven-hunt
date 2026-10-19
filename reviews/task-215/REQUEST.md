@@ -1,187 +1,134 @@
-# Task 215 — the lighting: a late-autumn morning, with one owner
+# Task 215 — the lodge, after the Director's look before merge
 
 Task: 215
-Round: 3
+Round: 1
 Base: `120ce75` (main, the merge of #196)
-Code commit: `e597477ad81efafd67ed7592ce3c83b0352ed483`
+Code commit: `f228a425ad6d686482f2fed4b5bcfaa1947bf2b4`
 
 ```
-[harness] PASS: 33/33 checks @ e597477ad81efafd67ed7592ce3c83b0352ed483 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ f228a425ad6d686482f2fed4b5bcfaa1947bf2b4 (clean tree) scope=all
 ```
 
-`[harness2]`: **N/A.** Not one path this task touches is in `TWO_PLAYER_PATHS`
-(`tools/agents.py`): `src/server/Light/`, `src/server/LightBoot.server.luau`,
-`src/shared/Flags/`, `src/shared/Lobby/`, `src/client/Hud/Style.luau`,
-`src/client/Hud/init.luau`, `tools/studio_mcp.py`, `tests/server/light.spec.luau`,
-`tests/client/hud_style.spec.luau`. The light looks the same to one player as to two.
+`[harness2]`: **N/A.** The only code files this round touches are `src/shared/Lobby/init.luau` and
+`tests/server/light.spec.luau`; neither is in `TWO_PLAYER_PATHS` (`tools/agents.py`). Six lamps in
+one room look the same to one player as to two.
 
-## What changed
-
-`Lighting` was place content nobody owned. `ServerScriptService.Light` is now its one writer, in
-every world, from one frozen table that is the Designer's lighting spec, 2026-10-19, with the whole
-look behind `AUTUMN_LIGHT` (born **ON**). Plus the spec's three lodge lamp numbers and, on the
-Director's instruction, `Style.SLATE_T` 0.18 -> 0.14.
+The earlier rounds of task 215 passed review (`RESULT.md`, round 3, commit `1ba5b5b`). The Director
+then looked at the frames before merging and rejected ONE scene: *"D (lodge from the door): NOT
+Karen-ready. The whole room is a saturated ORANGE wash: logs, floor, stone and the counter are all
+one orange; the ceiling lanterns are glowing yellow blocks; it reads as a colour filter, not warm
+wood."* C and B he kept. This round is that fix and nothing else.
 
 ## Claims
 
-1. **There is exactly one writer of `Lighting`, and it runs in every world.** `Light.apply` is the
-   only function in the repo that touches the service; `LightBoot` is its only caller and has no
-   `Map.EXPECTED_WORLD` guard, unlike `ArenaBoot` / `MatchBoot` / `ForestTestBoot`.
-   *Verify:* `grep -rn "Lighting\." src/ tests/` and look at what is on the left of each `=`. Seven
-   files MENTION `Lighting` and did before this commit — `src/shared/Horn/init.luau`,
-   `src/shared/Shotgun/init.luau`, `src/server/Boar/init.luau`, `src/server/Match/Body.luau`,
-   `src/server/Match/Scene.luau`, `src/client/Camera/Viewmodel.luau`,
-   `src/client/Hud/ShopPanel.luau` — and **every one of them is a COMMENT reasoning about the
-   ambient, not a write** (round 1 note (g) corrected this recipe; the claim it was meant to check
-   is unchanged). The only assignment to the service or its children in the repo is `Light.apply`'s
-   guarded `set`. `Light` never names `PointLight`, `SpotLight`, `Fire`, `Beam` or `Sky`: the
-   lodge's six lamps stay `Lobby.Build`'s.
+1. **The orange was the LAMPS, and that is a measurement rather than a guess.** `LOG_COLOR` is
+   already `#4A3826` and the hearth stone is a NEUTRAL GREY `#5A5750`, and the stone was still
+   rendering saturated ochre — so the albedo cannot be the cause. Proved live at one camera: with
+   every `PointLight` and the `Fire` disabled the room renders **black**, so nothing but the lamps
+   lights it (`Ambient 44,40,34` contributes effectively nothing indoors, which is what it was
+   chosen to do).
+   *Verify:* `<runs-dir>/t215/diag-V0-no-lamps-no-fire.png` and `diag-V1-no-lamps-fire-only.png`.
 
-2. **`AUTUMN_LIGHT` is born ON by the DIRECTOR'S decision, and the repo now says so** (round 1,
-   finding 1 — the only blocking one). `docs/design/feature-flags.md` section 11 step 1 births a new
-   path `false`; the dispatch overrode it in those words, and they were outside the repo, so the row
-   carried only the Builder's reasoning. The dispatch is now transcribed **verbatim** in `TASKS.md`
-   row **215d** (marked as the Director's, which CLAUDE.md lets the Builder do for a dispatch that
-   arrived outside the repo) and quoted in the `AUTUMN_LIGHT` row and in `Light`'s own comment. The
-   default is unchanged — ON, as dispatched — and nothing in the tests depends on it: every
-   `light.spec` case drives `plan` / `apply` by parameter.
-   **`Flags.MAX_FLAGS` 13 -> 14 is a DIFFERENT Director call** (section 12) that the dispatch does
-   not name; that line now says so and is queued as `TASKS.md` 215a item (a). Eight dark paths, under
-   the twelve the cap is about.
-   *Verify:* `TASKS.md` row 215d, the `AUTUMN_LIGHT` row's comment, `Flags.MAX_FLAGS`'s comment.
+2. **The grade is NOT what oranges the wood, tested on its own lever, and so it is unchanged.** The
+   Director asked me to check `ColorCorrection.Saturation`. Lamps held at the new values, grade
+   moved 0.14 → 0.06 → 0.00 at one settled camera: the lit log wall goes **luma 44.4 → 43.5** and
+   blue-over-red **0.04 → 0.08**; the three frames are indistinguishable. `Saturation` stays at the
+   Designer's **0.14** and `ExposureCompensation` at **0.15**, so **B and C cannot have moved** —
+   one lever for one defect (L-012), and the lever is six lamps inside a building 800 studs from
+   the drive.
+   *Verify:* `<runs-dir>/t215/diag-S14-designers-grade-D.png`, `diag-S06-less-sat-D.png`,
+   `diag-S00-no-sat-D.png`; the numbers in `lodge-measure.txt`.
 
-3. **The flag is read once, at the owner's boundary, and OFF means NOT WRITTEN.** `Light.ENABLED`
-   is the only `Flags.isOn` call; it is passed inward as `Light.plan`'s first argument, and
-   `plan(false, ...)` returns **nil**, so `apply` is never reached. Refused in the note (section 4):
-   a restore-from-snapshot off-switch, because a snapshot taken after something else has written is
-   a snapshot of the wrong thing.
-   *Verify:* `light.spec` -> "the flag boundary is pure, and OFF means nothing is written".
-   **And live, in the Forest Test with `DHFlag_AUTUMN_LIGHT=false`:** the place came back at its own
-   `Amb=159,159,159 Out=125,155,200 B=3.00 CT=15.00 Lat=54.0 Exp=0.00 EDS=0.00`, `SunRays=true`,
-   `DepthOfField=true`, `Blur=true` — untouched (`<runs-dir>/t215/cameras.json`, key `live_before`).
+3. **What changed, all of it in `Lobby.CONFIG.LODGE`:**
+   `LANTERN` **1.25 / 20 / 255,186,116 → 0.85 / 14 / 255,214,170** (the Director's own colour),
+   `FIRE_LIGHT` **2.40 / 30 / 255,176,104 → 2.40 / 20 / 255,190,136**, and
+   `LANTERN.GLASS_COLOR` **240,186,118 → 208,160,104**. The fire keeps its brightness and stays the
+   brightest thing in the room, which was his condition.
+   *Verify:* `light.spec` → "carries the lamp numbers the Director's look settled on", "keeps the
+   lamps warm but not ORANGE", "leaves a lantern's pool smaller than the room", "keeps the fire
+   reaching further than a lantern".
 
-4. **`apply` adopts, never duplicates, and never throws.** It takes the first child of each class
-   that is there and creates one only when there is none; it never creates a `SunRaysEffect`,
-   `BlurEffect` or `DepthOfFieldEffect` (`create = false`), only switches one off; a second instance
-   of an owned class is **reported and not touched**; every write is guarded and a refusal is
-   counted, not raised.
-   *Verify:* `light.spec` -> "apply adopts, never duplicates, and never throws" (five cases, each on
-   a parentless `Folder`, so no case touches the real service). **Live, and the two places differ
-   exactly as they should:** the Forest Test has all six classes, so its line reads
-   `30 property(ies) written ... adopted=Atmosphere,ColorCorrectionEffect,BloomEffect,SunRaysEffect,BlurEffect,DepthOfFieldEffect`;
-   DEV has no `BlurEffect`, so its line reads 29 written, five adopted and `absent=BlurEffect`
-   (round 1 note (g) — the round-1 request printed the Forest Test's line for both). **Nothing is
-   created in either place**, which is the half of the claim that matters.
+4. **The glass needed its own change because no lamp number can reach it.** The pane is
+   `Enum.Material.Neon`, which ignores the light in the room and renders at roughly its own colour
+   — so taking the room DOWN made the lantern read brighter against it, not dimmer, which is the
+   Director's *"glowing yellow blocks"* exactly. Tested at his camera against 176,134,86: at
+   **208,160,104** the pane reads as a warm amber lamp with its four iron corner posts visible
+   against it, and it sits further under `Bloom`'s 1.6 threshold; 176 is dimmer with nothing
+   gained. Only the inside and porch lanterns read this constant — the window glass has its own
+   (`#8096A2`).
+   *Verify:* `<runs-dir>/t215/diag-G240-as-built-D.png`, `diag-G208-D.png`, `diag-G176-D.png`.
 
-5. **The numbers are the Designer's, and three deviations are named.** `Light.CONFIG` carries every
-   value of the spec's §1, §3 and §4, asserted one by one.
-   (a) **`Technology` is not written** — this engine refuses even to *read* it from a script
-   (*"lacking capability RobloxScript"*, probed 2026-10-19), so the `ShadowMap` row is a comment.
-   (b) **`SunRays` (spec §4: not used), `Blur` and `DepthOfField` are switched off** — the Forest
-   Test was running all three, and the spec never saw the last two.
-   (c) **Fog is left alone**, as the spec asks.
-   *Verify:* `light.spec` -> "carries the exact numbers of the lighting spec, 2026-10-19",
-   "never names Technology...", "never names the fog...".
+5. **At the Director's own camera, measured: the room is much darker and the gradient is real.**
+   Rejected build against committed build, same camera, same session shape:
+   | | rejected | now |
+   |---|---|---|
+   | lit log wall | `#B34001` luma 91.1 | `#832B01` luma **64.7** (−29 %) |
+   | hearth stone | `#B76413` luma 115.4 | `#8C4B17` luma **88.7** (−23 %) |
+   | floor | `#D35601` luma 113.8 | `#892E01` luma **67.7** (−41 %) |
+   | the dark end of the room | `#792002` luma 55.5 | `#250601` luma **14.7** (−73 %) |
+   *Verify:* `<runs-dir>/t215/final-pair-D-lodge-from-the-door.png`, looked at.
 
-6. **A boar stays visible in shade, checked twice: on the spec's own arithmetic, and on pixels.**
-   *The arithmetic, re-derived rather than quoted:* BT.601 reproduces §2's boar (72) and dirt (47)
-   to the digit, and its GRASS row does **not** — `112,124,72` under `OutdoorAmbient` renders luma
-   **51.0, not the 45 printed**, so the spec's advertised 1.6 : 1 is really **1.43 : 1**. The spec
-   is not patched; `light.spec` records the corrected figure as a number so nobody derives it twice.
-   *The pixels, same camera, same staged boar on the same shaded grass, the flag the only
-   difference:* boar luma **5.2** on grass **15.3** after; **39.4** on **53.9** before — the boar
-   separates from its ground **2.91 : 1 after against 1.37 : 1 before**.
-   **The dispatch's "ratio >= 1.5" cannot be met as literally written and never could be:** the real
-   boar's mesh is DARKER than grass, so it was 0.73 : 1 before this task touched anything. Read as
-   separation — brighter over darker, which is what `Light.ratio` computes and what a hunter
-   actually reads off a silhouette — it is 2.91 : 1 and better than before.
-   *Verify:* `light.spec` -> "a boar stays visible in shade" (five cases); and
-   `<runs-dir>/t215/measure.py` against `after-C-boar-in-shade.png` / `before-C-...` /
-   `pair-C-boar-in-shade.png`, with the sample boxes drawn on the frame and looked at.
+6. **The trophy scene is the one that is unambiguously fixed.** Rejected: a flat bright ochre sheet
+   of stone with a pale head on it. Now: the breast reads as dark GREY-BROWN stone with its mortar
+   and relief visible, the head is dark with a warm lit snout and tusks, and the `KEILER` plaque is
+   the brightest thing under it. That is the Director's *"stone as grey-brown stone"* met.
+   *Verify:* `<runs-dir>/t215/final-pair-E-boar-on-the-stone.png`, looked at.
 
-7. **The spec's own rescue knob was tried live and makes things worse, so the numbers ship as
-   written.** Five variants at one camera on one staged boar (`<runs-dir>/t215/knobs.py`):
-   as-written boar 5.2 / sep **2.91**; `Ambient`->54,49,43 (the spec's §2 knob) 5.8 / sep 2.65;
-   `Contrast` 0.10 -> 9.8 / sep 2.06; both -> 8.9 / 2.27; `Ambient` 70,64,56 + `Contrast` 0.12 ->
-   7.6 / 2.47. The spec's values have the best separation of the five.
-   *Verify:* `<runs-dir>/t215/knob-*.png`, five frames, looked at.
+7. **The boar in shade did not move, and the strongest evidence is the GRASS.** Same camera, same
+   staged boar on the same shaded grass: the grass measures **luma 15.25 before and 15.27 after** —
+   the outdoor light is unchanged to two decimal places, as claim 2 says it must be. The boar's own
+   box reads 5.40 → 6.05, so the separation is **2.82 : 1 → 2.52 : 1**. That delta is the ANIMAL,
+   not the light: it is anchored but not frozen mid-pose, and across four sessions at this camera
+   the same build measures between 2.52 and 3.05. **So the honest answer to "is it still ≥ 2.91" is
+   no — it is 2.52 at this frame, and it was never stably 2.91**; what did not change is the
+   lighting.
+   *Verify:* `<runs-dir>/t215/final-pair-C-boar-in-shade.png` and the four C frames
+   (`after-`, `fix-`, `fix2-`, `final-`).
 
-8. **The slate moved to 0.14 on the Director's instruction and the measurement did NOT ask for it.**
-   Spec §6 makes the change conditional on the sky measuring brighter than `#B4CFE4`. Measured over
-   82,945 real sky pixels in two Forest Test frames: with the flag on the brightest sky is
-   **`#94B9D3` (luma 176.9)**, DARKER than `#B4CFE4` (201.3) and darker than the same frames with
-   the flag off (`#ACBECC`, 186.2). It is kept because it is strictly safer: over §2's own tested
-   ground the tightest colour, `BLAZE_HI`, goes **4.66 : 1 -> 5.18 : 1**, and every other colour
-   gains. Reverting it is one line in `Style.luau` plus one in `hud_style.spec`.
-   *Verify:* `Style.SLATE_T`'s comment, `hud_style.spec` -> "keeps the four over-the-world
-   opacities...", and `<runs-dir>/t215/measure.py` (its 4.66 reproduces `Style.luau`'s own recorded
-   figure, which is the check that the arithmetic is right).
+8. **The pools are real now, and 215b is answered in part.** With the new ranges, of 1,681 floor
+   samples **122 (7 %) are reached by NO lamp** and **442 (26 %) by exactly one** — against **0 %**
+   and **2 %** on the rejected build. No lamp reaches the far wall of the 34.8 × 24.8 room any
+   more. The three lanterns still OVERLAP down the centre walk (10 studs apart, ~13.6 studs of
+   floor reach each), so "dark boards between the pools" is true at the edges and not down the
+   middle — and `light.spec` says so in the file rather than claiming otherwise.
+   *Verify:* the coverage line in `<runs-dir>/t215/cameras.json` (`cover_final`); `light.spec` →
+   "leaves a lantern's pool smaller than the room".
 
-9. **The cost, measured at one fixed camera, 8 s of `RenderStepped` each.** With the flag on:
-   **26.3 ms mean (38.0 fps)**; off: **23.3 ms (42.8 fps)**. **+3.0 ms**, against the spec's
-   predicted +0.55. Measured once per pass on a Studio Play session, so it carries Studio's own
-   noise — the worst frame moved 42.5 -> 77.0 ms. **Not verified as a phone figure**, and §8's first
-   cut if it matters is `Bloom`.
-   *Verify:* `<runs-dir>/t215/cameras.json`, keys `frame_after` / `frame_before`.
+9. **How dark is too dark was measured, not guessed, and it set the floor.** Four lamp levels at
+   the shop counter: on the committed numbers the keeper reads as a dark figure with his hat and
+   the counter edge visible; one step darker (0.65 / 12) and he is a shape; two (0.45 / 11) and the
+   counter is black. That is why the numbers stop here and not lower.
+   *Verify:* `<runs-dir>/t215/diag-W5-shipped-S.png`, `diag-W2-committed-S.png`, `diag-W6-mid-S.png`,
+   `diag-W3-half-S.png`.
 
-10. **The four scenes, before and after at identical cameras, and what they actually show** (round
-    2, finding 1 — the round-2 request named cameras and described nothing).
-    *The lodge, from the door* (`pair-D-lodge-from-the-door.png`): before, every surface is one pale
-    cream value, the fire is a flat yellow triangle and the lantern a flat white rectangle; after,
-    the room is warm amber, the fire GLOWS and falls off, the lantern reads as a thing that emits,
-    and there is a real hearth-to-counter gradient. **But §5's "three warm pools on a DARK floor,
-    dark boards between them, corners brown-black" is NOT what this is, and that is arithmetic, not
-    tuning:** measured live with the dispatch's own lamp numbers, the lodge floor is **34.8 × 24.8
-    studs** and of **1,681 floor samples ZERO are outside every lamp's reach** — only 2 % are inside
-    exactly one. Six lamps at range 20 (five lanterns) and 30 (the fire) blanket a room that size.
-    Pools would want ranges well under the dispatch's 20/30, or fewer lamps, and inventing those is
-    neither the Designer's spec nor the dispatch: **queued as `TASKS.md` row 215b, needing the
-    Designer or the Director.**
-    *The boar on the stone* (`pair-E-boar-on-the-stone.png`): **§5's trophy target PASSES and the
-    §5 fallback is NOT needed.** Before, it is a grey blob on flat grey stone — Karen's own
-    complaint. After, the head is warm brown with cream tusks on ochre stone, lit from BELOW by the
-    fire (the jaw and snout are the brightest part of it) with the `KEILER` plaque legible under it.
-    It does not read black, so the one mantel `PointLight` §5 names as the fix is not wanted.
-    *A stand on the line* (`pair-A-…`): before, flat grey-green with no shadow anywhere and the big
-    trunk a grey post; after, the trunk is dark with a lit edge, the stand pad carries a visible
-    shadow, and lit and shaded grass are different colours rather than two brightnesses.
-    *The forest, as a beater* (`pair-B-…`): the sun rakes through the birches from one side and the
-    trunks are lit on one face; the horn in the hands picks up a top edge. **The one thing §7
-    promises that did NOT happen is the grass** — see "What I could not verify".
-    **Smoke PASS (rule A), on the round-1 code (unchanged outside two comment blocks and a
-    `MAX_FLAGS` comment since):** `lobby=[lobby gunBefore=false] gun in hand @15s=1 @80s=1 | stacks=0
-    errorLines=0 | waves=9`, and `[LightBoot] AUTUMN_LIGHT is on: 30 property(ies) written...` in
-    that same console. `tools/studio_mcp.py selftest` and `tools/agents.py selftest` both pass
-    (rule G).
+10. **Gate and rules.** `tools/studio_mcp.py selftest` and `tools/agents.py selftest` both pass
+    (rule G). One spec assertion of mine was wrong and the harness caught it — the first version
+    asserted `2 × range < room length` for BOTH lamps and the fire failed it, because the fire is
+    built against the WEST WALL and only ever reaches one radius in; the config was right and the
+    assertion was fixed (`8a473d7`).
 
-## What I could not verify
+## What I could not verify, and what I got wrong
 
-* **The frame cost is a Studio number, not a phone number.** +3.0 ms is measured, but on one
-  machine, once per pass, inside Studio Play; the spec's per-item phone budget (0.1 / 0.05 / 0.4 ms)
-  is the Designer's and is **not** confirmed here. I did not isolate which of `Atmosphere`, the
-  grade and `Bloom` costs what.
-* **The spec's §7 promise that lit grass "loses its summer lime and goes dry ochre" does not happen,
-  and cannot from this change.** `ColorCorrectionEffect` has no hue control, and the grass is lime
-  because its ALBEDO is (the terrain's `MaterialColors`, the map's property, not the light's). The
-  beater frame still shows summer-green grass. Raising saturation makes it MORE lime, not less.
-* **Whether this is the right darkness is Karen's call, not a measurement.** The deep-shade boar
-  renders at luma 5.2 — readable as a silhouette (I looked at five frames of it), separating
-  2.9 : 1 from its grass, but dark in absolute terms. `python tools/flags.py set AUTUMN_LIGHT off`
-  is the switch, and in the Forest Test it is `DHFlag_AUTUMN_LIGHT` on that place's own
-  `ServerStorage`, because `flags.py` writes DEV's.
-* **The notes are queued as `TASKS.md` rows 215a and 215b**, not fixed here, per CLAUDE.md step 5 —
-  with one exception each round, for notes that are simply FALSE SENTENCES rather than improvements.
-  Round 1: two wrong *Verify* recipes, corrected in claims 1 and 4. Round 3 fixes three of round 2's
-  five: the dispatch pointers said `TASKS.md` row 215 (the status row) when the verbatim
-  transcription is row **215d**; two "grep, empty" sentences in `Light`'s header and the research
-  note were never true (seven files name `Lighting`, all in comments); and `Light.plan` froze its
-  result SHALLOWLY while the note called it "a frozen list of writes" — it is `Shotgun.deepFreeze`
-  now, and `light.spec` asserts every row and every `props` table. `light.spec`'s shade block also
-  now says which boar it covers.
-* **A harness fault, reported (rule 6).** Four times during this task the DEV Studio's StudioMCP
-  connection dropped for a few seconds and an unscoped call fell through to the **Forest Test**
-  window while the banner still printed *"defaults to Driven Hunt DEV (placeId: 136410205938347)"*.
-  The run that did it failed correctly — `FAIL Studio has the DEV place open (130094961655666 vs
-  136410205938347)` — so nothing ran in the wrong place, but the banner is misleading and the
-  listing's `name` can disagree with the connection actually used. Each settled on its own within a
-  few seconds and a re-run passed. Not fixed here.
+* **The lodge is better but it is NOT "brown wood and grey-brown stone" at the wide camera, and I
+  will not claim it is.** Claim 5's numbers are real and claim 6's frame is a clean win, but at the
+  Director's own framing the room still reads as a warm orange room rather than brown wood. The
+  reason is measurable and no lamp or grade number fixes it: at these light levels the BLUE channel
+  has almost nothing to work with (the lit wall is blue-over-red **0.04**, against a lamp colour of
+  0.67), so every interior surface renders warm whatever its albedo. Getting a genuinely neutral
+  stone would need a cool fill light in the room or a much less warm lamp — both design decisions
+  past the three levers the dispatch named. **If that is still not Karen-ready, the next step is a
+  decision, not another tweak.**
+* **Two darker variants are already shot and are a one-line change each** if the Director wants to
+  go further knowing the cost to the shop (claim 9): `W6` = 0.65 / 12 / 255,220,182 with fire
+  2.00 / 17, and `W3` = 0.45 / 11 / 255,222,190 with fire 1.60 / 15.
+* **A mistake of mine, named.** My first comparison sheet concluded the fix worked by putting a
+  CLOSE frame beside two WIDE ones — the first capture of a Studio session comes back at a wider
+  framing than the ones after it, and at the lodge the camera is third-person (wide) or first-person
+  (close) depending on how many transitions it has been through. That is not a comparison (L-021),
+  and every pair in this request is now same-framing, with a thrown-away warm-up capture before it.
+* **I did not shoot the Director's frames for him.** Every frame here is mine, which is the thing
+  L-086 says has never been checked independently. The Director's own camera numbers are in
+  `<runs-dir>/t215/cameras.json` and `reshoot.py` takes a label, so `python reshoot.py <name>`
+  reproduces D, E and C from his side.
+* **Time box:** 60 minutes asked, about 100 spent. The overrun is the two extra live sessions that
+  found the framing mistake and the Neon glass.
