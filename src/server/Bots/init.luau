@@ -362,13 +362,17 @@ local stats = {
 	-- bot went ROUND something before it touched it; `boxedIn` is how many times no deflection in
 	-- the fan had room; and the three recoveries are counted by NAME, because "which branch fired"
 	-- is the question a stuck report has to answer and a single total cannot.
+	--
+	-- `recoverSide` AND NOT `sidesteps`, deliberately: `sideSteps` above is a different counter --
+	-- the aim-point nudge `Lane.clearAim` has always made -- and two names differing only in one
+	-- capital is a bug nobody would see in a diff.
 	laneCasts = 0,
 	detours = 0,
 	boxedIn = 0,
 	recoveries = 0,
-	sidesteps = 0,
-	backoffs = 0,
-	jumps = 0,
+	recoverSide = 0,
+	recoverBack = 0,
+	recoverJump = 0,
 	-- THE LONGEST SINGLE PIN OF THE DRIVE, in seconds, measured off the fast window: the one number
 	-- the dispatch's bar is written against ("0 bots stuck longer than 3 s"). A count cannot say
 	-- whether one bot was stuck for thirty-four seconds or thirty-four bots for one.
@@ -811,9 +815,9 @@ local PER_DRIVE_STATS = {
 	"detours",
 	"boxedIn",
 	"recoveries",
-	"sidesteps",
-	"backoffs",
-	"jumps",
+	"recoverSide",
+	"recoverBack",
+	"recoverJump",
 	"worstStuckSeconds",
 	"stepMsMax",
 }
@@ -1080,14 +1084,16 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand, laneAhead)
 	local clip, rate = Rig.gait(measured or config.WALK_SPEED, bot.clips and bot.clips.playing)
 	Rig.playClip(bot.clips, clip, rate)
 
-	-- STUCK: it has not moved `STUCK_STUDS` in `STUCK_SECONDS`. One forced side-step and a count --
-	-- the count is what opens the note's escape hatch with a number rather than a feeling.
-	local forced = 0
+	-- STUCK, THE LONG WINDOW: it has not moved `STUCK_STUDS` in `STUCK_SECONDS`. The count is what
+	-- opened this note's escape hatch with a number rather than a feeling (task 161), and it is
+	-- still what `[bots]` prints -- but since task 208 it NO LONGER NUDGES. The recovery is the fast
+	-- window's ladder below, which holds its decision and issues it at once; a one-step nudge on a
+	-- four-second edge was discarded nine times in ten by the re-issue cadence, and that is how a
+	-- bot stood against a spruce for 169 seconds while this counter ticked nine times.
 	local from = bot.movedFrom
 	if from ~= nil and at - bot.movedAt >= config.STUCK_SECONDS then
 		if (here - from).Magnitude < config.STUCK_STUDS then
 			stats.stuck += 1
-			forced = 1
 		end
 		bot.movedAt = at
 		bot.movedFrom = here
@@ -1157,7 +1163,7 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand, laneAhead)
 		aim = Lane.recoverAim(here, goal, kind, bot.tries, config)
 		stats.recoveries += 1
 		if kind == "jump" then
-			stats.jumps += 1
+			stats.recoverJump += 1
 			-- THE JUMP IS THE ACTION, and `JumpHeight` is what makes it worth anything -- a stander
 			-- keeps 0 and its state machine off (`Rig.prepare`), so only a walker can ever do this.
 			--   https://create.roblox.com/docs/reference/engine/classes/Humanoid
@@ -1165,13 +1171,14 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand, laneAhead)
 				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 			end
 		elseif kind == "backoff" then
-			stats.backoffs += 1
+			stats.recoverBack += 1
 		else
-			stats.sidesteps += 1
+			stats.recoverSide += 1
 		end
 		bot.holdAim = aim
 		bot.holdUntil = at + config.RECOVER_HOLD_SECONDS
 	else
+		local deflected = false
 		aim = Lane.aimFor(here, goal, config.AHEAD_STUDS)
 		-- SEEING IT BEFORE TOUCHING IT. The swept cast down the lane at `SEE_HZ`, and a detour by
 		-- the smallest deflection that has room -- Reynolds' obstacle avoidance (note section 2.2).
@@ -1189,6 +1196,7 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand, laneAhead)
 				local detour = Lane.detourAim(here, goal, bot.detourSide, blockedAt, config)
 				if detour ~= nil then
 					aim = detour :: Vector3
+					deflected = true
 					stats.detours += 1
 					bot.holdAim = aim
 					bot.holdUntil = at + config.DETOUR_HOLD_SECONDS
@@ -1200,14 +1208,29 @@ local function stepWalker(bot: Bot, at: number, config, roomToStand, laneAhead)
 				end
 			end
 		end
-		-- ...AND THE OLD POINT TEST STILL HAS THE LAST WORD ON THE AIM POINT ITSELF, which is the
-		-- different question it was always answering: "is there room to STAND where I am sending
-		-- him". `forced` is 0 now -- the stuck case is the ladder's above, not a one-step nudge the
-		-- cadence used to throw away.
-		local nudged, stepped = Lane.clearAim(here, goal, forced, roomToStand, config)
-		if stepped > 0 then
-			aim = nudged
-			stats.sideSteps += stepped
+		-- ...AND THE OLD POINT TEST ANSWERS ITS OWN, DIFFERENT QUESTION, unchanged: "is there room
+		-- to STAND where I am sending him".
+		--
+		-- IT IS ASKED WITH `forced = 0` SINCE TASK 208, AND THAT IS A REAL CHANGE, not tidiness.
+		-- The one-step nudge `clearAim` used to make when the FOUR-SECOND window fired is now the
+		-- recovery ladder's job, and it has to be: the ladder holds its decision and issues it at
+		-- once, which is what the nudge never did (note section 4.3). The two tests cannot disagree
+		-- about who recovers, because the fast one is strictly the more sensitive -- 3 studs in 4 s
+		-- is 0.75 studs/s, below `STUCK_SLOW_SPEED` (1.0) -- so anything the four-second window
+		-- would have nudged is already in the branch above. `STUCK_SECONDS` stays as the REPORT's
+		-- long-window number, which is what `[bots]` has always printed and what task 161's escape
+		-- hatch was opened with.
+		--
+		-- ONLY WHEN THIS STEP DID NOT DEFLECT, and that is a defect this task would otherwise have
+		-- shipped: `Lane.clearAim` recomputes from the plain LANE point, so letting it speak after a
+		-- detour would throw the detour away and aim the bot back at the trunk it had just decided
+		-- to go round -- the very shape of the bug being fixed.
+		if not deflected then
+			local nudged, stepped = Lane.clearAim(here, goal, 0, roomToStand, config)
+			if stepped > 0 then
+				aim = nudged
+				stats.sideSteps += stepped
+			end
 		end
 	end
 
@@ -1385,9 +1408,9 @@ function Bots.report(driveNumber: number): string
 		s.detours,
 		s.boxedIn,
 		s.recoveries,
-		s.sidesteps,
-		s.backoffs,
-		s.jumps,
+		s.recoverSide,
+		s.recoverBack,
+		s.recoverJump,
 		s.laneCasts,
 		s.blasts,
 		s.blastsRefused,

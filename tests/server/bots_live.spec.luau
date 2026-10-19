@@ -403,11 +403,17 @@ return function()
 			}
 		end
 
-		it("nudges a bot that has stopped moving, WITH A READER THAT SAYS THE WAY IS CLEAR", function()
-			-- THE END-TO-END OF ROUND 1'S FINDING 1. In the Forest Test `roomToStand` is injected, so
-			-- `room` was true and the forced branch was dead: a stuck bot was counted and never
-			-- moved. Here the reader answers `true` for every point -- the inverted case -- and the
-			-- side-step must still fire.
+		it("MOVES a bot that has stopped, WITH A READER THAT SAYS THE WAY IS CLEAR", function()
+			-- THE END-TO-END OF ROUND 1'S FINDING 1, kept and RE-POINTED by task 208. In the Forest
+			-- Test `roomToStand` is injected, so `room` was true and the forced branch was dead: a
+			-- stuck bot was counted and never moved. The reader here still answers `true` for every
+			-- point -- the inverted case -- and the bot must still be moved.
+			--
+			-- WHAT CHANGED IS WHO MOVES IT. Until task 208 the recovery was `Lane.clearAim`'s
+			-- one-step nudge on the FOUR-SECOND edge, which the re-issue cadence then discarded nine
+			-- times in ten (note section 4.3); it is now the fast window's ladder, which holds its
+			-- decision and issues it at once. So this asserts `recoverSide` where it used to assert
+			-- `sideSteps`, and the long counter is still counted for the report.
 			local clear = function()
 				return true
 			end
@@ -415,16 +421,21 @@ return function()
 			Bots.fill(walkerSlot())
 			Bots.step(0.2, 1000, clear)
 			Bots.go()
+			Bots.step(0.2, 1000, clear) -- the first released step: the walk and both windows start
 			local stuckBefore = Bots.stats().stuck
-			local stepsBefore = Bots.stats().sideSteps
-			Bots.step(0.2, 1001, clear) -- inside the stuck window: nothing yet
+			local recoveredBefore = Bots.stats().recoveries
+			Bots.step(0.2, 1000.5, clear) -- inside even the FAST window: nothing yet
 			expect(Bots.stats().stuck).to.equal(stuckBefore)
-			expect(Bots.stats().sideSteps).to.equal(stepsBefore)
+			expect(Bots.stats().recoveries).to.equal(recoveredBefore)
 
-			-- ...and past `STUCK_SECONDS`, having moved nowhere.
-			Bots.step(0.2, 1001 + Bots.CONFIG.STUCK_SECONDS + 0.1, clear)
+			-- ...past `STUCK_FAST_SECONDS`, having moved nowhere: it is recovered at once.
+			Bots.step(0.2, 1000 + Bots.CONFIG.STUCK_FAST_SECONDS + 0.1, clear)
+			expect(Bots.stats().recoveries).to.equal(recoveredBefore + 1)
+			expect(Bots.stats().recoverSide).to.equal(1)
+
+			-- ...and the LONG window still counts, because that is what `[bots]` prints.
+			Bots.step(0.2, 1000 + Bots.CONFIG.STUCK_SECONDS + 0.1, clear)
 			expect(Bots.stats().stuck).to.equal(stuckBefore + 1)
-			expect(Bots.stats().sideSteps).to.equal(stepsBefore + 1)
 		end)
 
 		it("measures the WALK, not the stuck window", function()
@@ -1050,7 +1061,7 @@ return function()
 				at += Bots.CONFIG.RECOVER_HOLD_SECONDS + Bots.CONFIG.STUCK_FAST_SECONDS + 0.2
 				Bots.step(0.2, at)
 			end
-			expect(Bots.stats().backoffs >= 1).to.equal(true)
+			expect(Bots.stats().recoverBack >= 1).to.equal(true)
 			-- A back-off aims BEHIND the bot: further from the goal than the bot stands.
 			local goal = walkerSlot()[1].to :: Vector3
 			local body = (Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder):FindFirstChild("bot-beater-1") :: Model
@@ -1073,11 +1084,12 @@ return function()
 			end
 			Bots.step(0.2, 8000, nil, low)
 			Bots.step(0.2, 8000 + Bots.CONFIG.STUCK_FAST_SECONDS + 0.2, nil, low)
-			expect(Bots.stats().jumps).to.equal(1)
-			expect(Bots.stats().sidesteps).to.equal(0)
+			expect(Bots.stats().recoverJump).to.equal(1)
+			expect(Bots.stats().recoverSide).to.equal(0)
 			local body = (Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder):FindFirstChild("bot-beater-1") :: Model
 			local humanoid = body:FindFirstChildOfClass("Humanoid") :: Humanoid
-			expect(humanoid.JumpHeight).to.equal(Bots.CONFIG.JUMP_HEIGHT_STUDS)
+			-- A float32 round trip through the property: 5.2 comes back as 5.199999809265137.
+			expect(math.abs(humanoid.JumpHeight - Bots.CONFIG.JUMP_HEIGHT_STUDS) < 1e-4).to.equal(true)
 		end)
 
 		it("goes ROUND a thing it can see BEFORE it touches it, and holds that too", function()
@@ -1100,6 +1112,32 @@ return function()
 			expect(Bots.stats().recoveries).to.equal(0) -- it was never stuck: it saw it
 			local body = (Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder):FindFirstChild("bot-beater-1") :: Model
 			local humanoid = body:FindFirstChildOfClass("Humanoid") :: Humanoid
+			expect(math.abs(humanoid.WalkToPoint.X) > 1).to.equal(true)
+		end)
+
+		it("does NOT let the point test throw the detour away", function()
+			-- A DEFECT THIS TASK WOULD OTHERWISE HAVE SHIPPED. `Lane.clearAim` recomputes from the
+			-- plain LANE point, so if it spoke after a detour it would aim the bot straight back at
+			-- the thing it had just decided to go round. The reader below blocks the lane and the
+			-- clearance reader calls every point clear, so a surviving `clearAim` would return the
+			-- lane point and the aim would come back to x = 0.
+			Bots.setRigSource(fakeRig)
+			Bots.fill(walkerSlot())
+			Bots.step(0.2, 12000)
+			Bots.go()
+			local straightOnly = function(_from: Vector3, to: Vector3)
+				if math.abs(to.X) < 1 then
+					return 4.0, 20.0
+				end
+				return nil, nil
+			end
+			local allClear = function()
+				return true
+			end
+			Bots.step(0.2, 12000, allClear, straightOnly)
+			local body = (Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder):FindFirstChild("bot-beater-1") :: Model
+			local humanoid = body:FindFirstChildOfClass("Humanoid") :: Humanoid
+			expect(Bots.stats().detours).to.equal(1)
 			expect(math.abs(humanoid.WalkToPoint.X) > 1).to.equal(true)
 		end)
 
@@ -1126,7 +1164,7 @@ return function()
 			expect(Bots.stats().laneCasts).to.equal(0)
 			expect(Bots.stats().detours).to.equal(0)
 			-- ...and it still recovers, by the sidestep this has always been there.
-			expect(Bots.stats().sidesteps).to.equal(1)
+			expect(Bots.stats().recoverSide).to.equal(1)
 		end)
 
 		it("reports the WORST PIN in seconds, which is the number the task is judged on", function()
