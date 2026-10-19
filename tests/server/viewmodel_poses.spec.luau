@@ -213,8 +213,21 @@ return function()
 			expect(typeof(view.HORN.carry.right)).to.equal("CFrame")
 			expect(typeof(view.HORN.blow.item)).to.equal("CFrame")
 			expect(typeof(view.HORN.blow.right)).to.equal("CFrame")
-			-- THE TWO POSES ARE DIFFERENT PLACES, or the raise draws nothing at all.
-			expect((view.HORN.carry.item.Position - view.HORN.blow.item.Position).Magnitude > 0.5).to.equal(true)
+			-- THE TWO POSES ARE DIFFERENT PLACES, or the raise draws nothing at all -- MEASURED AT
+			-- THE MOUTHPIECE (task 212), which is the point the gesture is defined by: the raise
+			-- carries it from the hip to the lips, and `Viewmodel.hornMouthpiece` exists to aim at
+			-- it. The Handle's PIVOT was the old yardstick and it is a weak one, because a swing
+			-- that is mostly rotation turns the horn about its middle and barely moves that middle
+			-- at all: task 212's poses are 130 degrees apart and move the pivot 0.4542, while the
+			-- mouthpiece -- the end a beater actually watches travel -- moves 0.7162. Task 211's
+			-- answer the same two ways round, 0.6240 and 1.0440. THE BOUND IS UNCHANGED at 0.5;
+			-- what changed is which point it is asked about.
+			local mouth = Vector3.new(0, 0.4415, 1.5) * view.HORN.scale -- TUBE_SAMPLES' z = +1.5 row
+			local travel = (
+				view.HORN.carry.item:PointToWorldSpace(mouth) - view.HORN.blow.item:PointToWorldSpace(mouth)
+			).Magnitude
+			TestKit.note(string.format("task212 the raise carries the mouthpiece %.4f studs", travel))
+			expect(travel > 0.5).to.equal(true)
 			-- THE POSITION IS THE FILE'S, read through the one conversion site rather than repeated
 			-- here: `view` is the only thing in the repo that turns these three numbers into a Vector3.
 			local pos = Data.DATA.horn.carry.item.pos
