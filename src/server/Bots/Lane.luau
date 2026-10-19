@@ -124,9 +124,10 @@ end
 -- -- so the bots cope with the wood as it is.
 --
 -- WHAT WAS MEASURED (`docs/research/2026-10-19-bots-unstuck.md` section 4), in Karen's own Forest
--- Test, all four places, every bot sampled at 2 Hz: **three episodes over three seconds**, the worst
--- **34.0 s**, and two of the three were a beater pressed against an ANCHORED BOT HUNTER standing on
--- the very stand its lane aims 20 studs past. The clearance reader above cannot see that by
+-- Test, all four places, every bot sampled at 2 Hz: **four episodes over three seconds**, the worst
+-- **169.1 s** -- which hung the whole drive, because a drive ends when the beater line is through.
+-- Two of the four were a beater pressed against an ANCHORED BOT HUNTER standing on the very stand
+-- its lane aims 20 studs past; the longest was a planted spruce trunk 3.8 studs in front of it. The clearance reader above cannot see that by
 -- construction -- `ForestTest.roomToStand` says in so many words that *a person is not an obstacle*
 -- -- and the nudge the stuck window does fire was being thrown away before the humanoid saw it (the
 -- owner's `MoveTo` cadence; section 4.3).
@@ -192,7 +193,11 @@ end
 -- is not that function is an owner boundary: `Bots` must not require `Boar` to walk a man through a
 -- wood (CLAUDE.md rule 3, and rule 2's written reason for a second copy).
 --
--- THE BOT'S OWN SIDE FIRST, alternating after it, so two bots on one trunk do not both choose left.
+-- THE BOT'S OWN SIDE, AND ONLY IT: one evaluation tries one side, smallest angle first (which is
+-- what `DETOUR_CASTS`' own comment says the budget buys). The ALTERNATION is BETWEEN BOTS, not
+-- within the fan -- `bot.detourSide` is drawn once from the lane number -- so two neighbours on
+-- one trunk part rather than both choosing left. A bot that finds its own side shut is not
+-- stuck yet; the ladder is what answers that.
 function Lane.detourAim(here: Vector3, goal: Vector3, side: number, blockedAt, config): (Vector3?, number?)
 	local prefer = if side < 0 then -1 else 1
 	local spent = 0

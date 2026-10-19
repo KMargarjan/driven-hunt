@@ -21,6 +21,7 @@ local Workspace = game:GetService("Workspace")
 
 local Bots = require(ServerScriptService:WaitForChild("Bots"))
 local HornData = require(game:GetService("ReplicatedStorage"):WaitForChild("Horn"))
+local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 local Rig = Bots.Rig
@@ -1117,28 +1118,47 @@ return function()
 
 		it("does NOT let the point test throw the detour away", function()
 			-- A DEFECT THIS TASK WOULD OTHERWISE HAVE SHIPPED. `Lane.clearAim` recomputes from the
-			-- plain LANE point, so if it spoke after a detour it would aim the bot straight back at
-			-- the thing it had just decided to go round. The reader below blocks the lane and the
-			-- clearance reader calls every point clear, so a surviving `clearAim` would return the
-			-- lane point and the aim would come back to x = 0.
+			-- plain LANE point, so if it spoke after a detour it would aim the bot at ITS answer
+			-- instead of the one the deflection chose.
+			--
+			-- ROUND 1'S BLOCKING FINDING 2: the first version of this case handed `clearAim` a
+			-- reader that called every point CLEAR, which makes it return `stepped = 0` and leave
+			-- the aim alone -- so the case passed with the `if not deflected` guard DELETED and
+			-- proved nothing. The clearance reader here BLOCKS the lane point and clears the sides,
+			-- so a surviving `clearAim` returns a side-step with `stepped = 1` and would overwrite
+			-- the detour; and the assertion is now that the issued point IS the detour point, not
+			-- merely that it is off-centre -- a `SIDE_STEP_STUDS` nudge of 10 is off-centre too, and
+			-- further off than the 18-degree deflection this must choose.
 			Bots.setRigSource(fakeRig)
 			Bots.fill(walkerSlot())
 			Bots.step(0.2, 12000)
 			Bots.go()
+			local slot = walkerSlot()[1]
+			local here = slot.from.Position
+			local goal = slot.to :: Vector3
+			local lanePoint = Bots.Lane.aimFor(here, goal, Bots.CONFIG.AHEAD_STUDS)
 			local straightOnly = function(_from: Vector3, to: Vector3)
 				if math.abs(to.X) < 1 then
-					return 4.0, 20.0
+					return 4.0, 20.0 -- a trunk dead ahead, too tall to jump
 				end
 				return nil, nil
 			end
-			local allClear = function()
-				return true
+			-- BLOCKED at the lane point, clear anywhere else: `clearAim` would answer with a
+			-- `SIDE_STEP_STUDS` side-step and `stepped = 1`.
+			local blockTheLane = function(point: Vector3)
+				return (point - lanePoint).Magnitude > 0.01
 			end
-			Bots.step(0.2, 12000, allClear, straightOnly)
+			Bots.step(0.2, 12000, blockTheLane, straightOnly)
 			local body = (Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder):FindFirstChild("bot-beater-1") :: Model
 			local humanoid = body:FindFirstChildOfClass("Humanoid") :: Humanoid
 			expect(Bots.stats().detours).to.equal(1)
-			expect(math.abs(humanoid.WalkToPoint.X) > 1).to.equal(true)
+			-- THE DETOUR POINT ITSELF -- the smallest deflection in the fan, on this bot's own side.
+			local wanted = Bots.Lane.turnedAim(here, goal, Bots.CONFIG.DETOUR_ANGLES_DEG[1], Bots.CONFIG)
+			expect((humanoid.WalkToPoint - wanted).Magnitude < 0.01).to.equal(true)
+			-- ...and NOT the side-step `clearAim` would have given, which is further out.
+			local nudge = Bots.Lane.sideStep(lanePoint, here, goal, 1, Bots.CONFIG)
+			expect((humanoid.WalkToPoint - nudge).Magnitude > 1).to.equal(true)
+			expect(Bots.stats().sideSteps).to.equal(0)
 		end)
 
 		it("says BOXED IN rather than inventing a way through", function()
@@ -1189,6 +1209,78 @@ return function()
 			Bots.step(0.2, 11000 + Bots.CONFIG.STUCK_FAST_SECONDS + 5)
 			expect(Bots.stats().recoveries).to.equal(0)
 			expect(Bots.stats().stuck).to.equal(0)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- the reader itself (round 2)
+	--
+	-- ROUND 1'S BLOCKING FINDING 1: every case above drives a HAND-WRITTEN reader, so nothing asserted
+	-- what the real one answers -- and the real one was wrong. A character's `HumanoidRootPart` is 2
+	-- studs tall, so `Size.Y / 2 + BODY_HEIGHT_STUDS / 2` came to **3.5**, BELOW
+	-- `Bots.CONFIG.JUMP_OVER_STUDS` (4), which meant a bot JUMPED at a person instead of walking
+	-- round one -- the opposite of what `ForestTest.laneAhead`'s own header, the ladder and the task's
+	-- request all said. `bots_lane.spec` even asserted a hand-written 5 under the comment *"which is
+	-- what `ForestTest.laneAhead` reports for a person"*, a number the function never returned.
+	--
+	-- SO THESE CASES CALL THE REAL READER, with a real rig in the real `Workspace.DriveBots`, and
+	-- assert the step height instead of assuming it.
+	describe("ForestTest.laneAhead, the real reader (round 2, finding 1)", function()
+		afterEach(function()
+			Bots.clear()
+			Bots.setRigSource(nil)
+		end)
+
+		local function bodyOnTheLane(): Vector3
+			Bots.setRigSource(fakeRig)
+			Bots.fill({
+				{
+					id = "bot-beater-1",
+					team = "Drivers",
+					from = CFrame.new(0, 200, 0),
+					to = Vector3.new(0, 200, -200),
+					lane = 1,
+				},
+			})
+			Bots.step(0.2, 20000)
+			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
+			local body = folder:FindFirstChild("bot-beater-1") :: Model
+			expect(body).to.be.ok()
+			return Rig.positionOf(body) :: Vector3
+		end
+
+		it("reports a BODY as TALLER than a bot may jump, so a person is gone ROUND", function()
+			local at = bodyOnTheLane()
+			-- Looking down the lane from 10 studs behind it, at the same height.
+			local from = Vector3.new(at.X, at.Y, at.Z + 10)
+			local to = Vector3.new(at.X, at.Y, at.Z - 2)
+			local ahead, step = ForestTest.laneAhead(from, to, Bots.CONFIG.LANE_BODY_SIZE, nil)
+			expect(ahead).to.be.ok()
+			expect(step).to.be.ok()
+			-- THE CLAIM, as a number: above the jump gate, so `recoveryFor` can never answer "jump".
+			expect((step :: number) > Bots.CONFIG.JUMP_OVER_STUDS).to.equal(true)
+			expect(math.abs((step :: number) - 5) < 0.01).to.equal(true)
+			expect(Bots.Lane.recoveryFor(ahead, step, 1, Bots.CONFIG)).to.equal("sidestep")
+			-- ...and it is where the body actually is, not at the far end of the segment.
+			expect(math.abs((ahead :: number) - 10) < 1.5).to.equal(true)
+		end)
+
+		it("does not see the walker's OWN body, which is what `ignore` is for", function()
+			local at = bodyOnTheLane()
+			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
+			local body = folder:FindFirstChild("bot-beater-1") :: Model
+			local from = Vector3.new(at.X, at.Y, at.Z + 10)
+			local to = Vector3.new(at.X, at.Y, at.Z - 2)
+			local ahead = ForestTest.laneAhead(from, to, Bots.CONFIG.LANE_BODY_SIZE, body)
+			expect(ahead).to.equal(nil)
+		end)
+
+		it("answers NOTHING down an empty lane, which is the clear case", function()
+			-- 4,000 studs up, where neither this world's terrain nor anything else is.
+			local from = Vector3.new(0, 4000, 0)
+			local to = Vector3.new(0, 4000, -12)
+			local ahead, step = ForestTest.laneAhead(from, to, Bots.CONFIG.LANE_BODY_SIZE, nil)
+			expect(ahead).to.equal(nil)
+			expect(step).to.equal(nil)
 		end)
 	end)
 end

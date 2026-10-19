@@ -152,9 +152,9 @@ Bots.CONFIG = {
 	--
 	-- THE ESCAPE HATCH ABOVE WAS OPENED BY A MEASUREMENT, which is what it was for. All four places,
 	-- every bot sampled at 2 Hz through a whole drive, 2026-10-19
-	-- (`docs/research/2026-10-19-bots-unstuck.md` section 4): three episodes over three seconds, the
-	-- worst **34.0 s**, and SimplePath was still refused -- what was measured is not a routing
-	-- failure (note section 2.4). Two of the three were a beater pressed against an ANCHORED BOT
+	-- (`docs/research/2026-10-19-bots-unstuck.md` section 4): four episodes over three seconds, the
+	-- worst **169.1 s**, and SimplePath was still refused -- what was measured is not a routing
+	-- failure (note section 2.4). Two of the four were a beater pressed against an ANCHORED BOT
 	-- HUNTER on the stand its own lane aims 20 studs past, which no pathfinder would have helped
 	-- with either: `roomToStand` cannot see a body by construction.
 	--
@@ -200,9 +200,10 @@ Bots.CONFIG = {
 	-- case is **7.3 ms a second**, or 1.5 ms on a step where every bot is boxed in at once. Today's
 	-- step costs 0.20-0.27 ms. That is the number the vendor's performance page does not have.
 	DETOUR_CASTS = 5,
-	-- ioquake3's `AVOIDREACH_TRIES` IS 4 AND THIS IS 3, on purpose: three sidesteps at
-	-- `RECOVER_HOLD_SECONDS` each is 6.6 s and the bar for this task is three seconds an episode, so
-	-- the ladder has to reach its last rung sooner than ioquake3's does.
+	-- ioquake3's `AVOIDREACH_TRIES` IS 4 AND THIS IS 3, on purpose: the bar for this task is three
+	-- seconds an episode, so the ladder has to reach its last rung sooner than ioquake3's does.
+	-- `stepWalker` counts the try BEFORE it asks, and the guard is `tries >= 3`, so the THIRD try is
+	-- the back-off: two sidesteps at `RECOVER_HOLD_SECONDS` each (4.4 s) and then away from it.
 	BACK_OFF_AFTER_TRIES = 3,
 	-- Far enough to be clear of a body (2 studs across) or a trunk's flare; short enough that it
 	-- reads as a man taking a step back.
@@ -666,6 +667,7 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 				recoverFrom = nil,
 				sawAt = nil,
 				aimAt = nil,
+				pinnedFor = nil,
 				-- WHICH WAY IT GOES ROUND A THING, drawn once from the lane number and never again:
 				-- odd lanes go one way and even the other, so two neighbours on one trunk part
 				-- rather than both choosing the same side. The discipline `Rig`'s own jitter follows
@@ -703,6 +705,11 @@ function Bots.fill(slots: { Slot }, config: any?): Counts
 				bot.recoverFrom = nil
 				bot.sawAt = nil
 				bot.aimAt = nil
+				-- ...AND THE PIN'S OWN CLOCK (round 1 note). `worstStuckSeconds` is in
+				-- `PER_DRIVE_STATS`, so a bot kept across a drive boundary that carried its
+				-- accumulated pin forward would print the PREVIOUS drive's seconds under the one
+				-- number this task's bar is written against.
+				bot.pinnedFor = nil
 				Rig.place(bot.model, Bots.groundedFrom(from, cfg), bot.to == nil)
 			end
 		end

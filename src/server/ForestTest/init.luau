@@ -3121,10 +3121,16 @@ function ForestTest.roomToStand(point: Vector3, radius: number): boolean
 end
 
 -- HOW WIDE AND HOW TALL A PERSON IS, for the one measurement no cast can make (`laneAhead` below).
--- A Roblox character is 2 studs across and about 5 tall; the half-width is therefore 1, and the
--- height is the number that keeps a body ABOVE `Bots.CONFIG.JUMP_OVER_STUDS` (4) so a body is always
--- gone round and never jumped over. They are named rather than written into the loop because they
--- are the same two numbers `Bots.CONFIG.LANE_BODY_SIZE` is built from.
+-- A Roblox character is 2 studs across and about 5 tall, so the half-width is 1.
+--
+-- THE HEIGHT IS WHAT KEEPS A BODY ABOVE `Bots.CONFIG.JUMP_OVER_STUDS` (4), so a body is always gone
+-- ROUND and never jumped over -- and round 1's blocking finding 1 is that the arithmetic below did
+-- not deliver that. With a walker's root at the same level as the caster's, `laneAhead` now reports
+-- `BODY_HEIGHT_STUDS / 2 + LANE_BODY_SIZE.Y / 2` = 2.5 + 2.5 = **5.0**, which is above 4. A beater
+-- hopping over a hunter is a thing Karen would see.
+--
+-- They are named rather than written into the loop because they are the same two numbers
+-- `Bots.CONFIG.LANE_BODY_SIZE` is built from.
 ForestTest.BODY_HALF_WIDTH_STUDS = 1
 ForestTest.BODY_HEIGHT_STUDS = 5
 
@@ -3233,7 +3239,16 @@ function ForestTest.laneAhead(from: Vector3, to: Vector3, size: Vector3, ignore:
 				if off <= half + ForestTest.BODY_HALF_WIDTH_STUDS and math.abs(at.Y - from.Y) < size.Y then
 					if ahead == nil or along < (ahead :: number) then
 						ahead = along
-						step = (root :: BasePart).Size.Y / 2 + ForestTest.BODY_HEIGHT_STUDS / 2
+						-- ITS TOP AGAINST THE BOTTOM OF THE SWEPT BODY, which is the SAME arithmetic
+						-- the cast branch above does -- and round 1's blocking finding 1 is why it is
+						-- written that way rather than off the root part's own size. A root part is
+						-- 2 studs tall, so `Size.Y / 2 + BODY_HEIGHT_STUDS / 2` came to **3.5**,
+						-- BELOW `Bots.CONFIG.JUMP_OVER_STUDS` (4) -- so a bot JUMPED at a person
+						-- instead of walking round one, which is the opposite of what this header
+						-- and the ladder both say. A man's head is `BODY_HEIGHT_STUDS / 2` above his
+						-- root and the swept body's floor is `size.Y / 2` below the caster's.
+						local top = at.Y + ForestTest.BODY_HEIGHT_STUDS / 2
+						step = top - (from.Y - size.Y / 2)
 					end
 				end
 			end
