@@ -1230,7 +1230,7 @@ return function()
 			Bots.setRigSource(nil)
 		end)
 
-		local function bodyOnTheLane(): Vector3
+		local function bodyOnTheLane(): Model
 			Bots.setRigSource(fakeRig)
 			Bots.fill({
 				{
@@ -1245,11 +1245,19 @@ return function()
 			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
 			local body = folder:FindFirstChild("bot-beater-1") :: Model
 			expect(body).to.be.ok()
-			return Rig.positionOf(body) :: Vector3
+			-- ANCHORED, BY THIS FIXTURE AND NOT BY THE OWNER: a walker is deliberately unanchored
+			-- (`Rig.place(..., bot.to == nil)`), and in the DEV arena at y 200 there is nothing under
+			-- it, so it FALLS between the position being read and the cast being made -- which is
+			-- what made the step height come out a little under 5 the first time this case ran. The
+			-- question here is the reader's arithmetic, not the physics.
+			local root = (body.PrimaryPart or body:FindFirstChild("HumanoidRootPart")) :: BasePart
+			root.Anchored = true
+			return body
 		end
 
 		it("reports a BODY as TALLER than a bot may jump, so a person is gone ROUND", function()
-			local at = bodyOnTheLane()
+			local body = bodyOnTheLane()
+			local at = Rig.positionOf(body) :: Vector3
 			-- Looking down the lane from 10 studs behind it, at the same height.
 			local from = Vector3.new(at.X, at.Y, at.Z + 10)
 			local to = Vector3.new(at.X, at.Y, at.Z - 2)
@@ -1265,9 +1273,8 @@ return function()
 		end)
 
 		it("does not see the walker's OWN body, which is what `ignore` is for", function()
-			local at = bodyOnTheLane()
-			local folder = Workspace:FindFirstChild(Rig.FOLDER_NAME) :: Folder
-			local body = folder:FindFirstChild("bot-beater-1") :: Model
+			local body = bodyOnTheLane()
+			local at = Rig.positionOf(body) :: Vector3
 			local from = Vector3.new(at.X, at.Y, at.Z + 10)
 			local to = Vector3.new(at.X, at.Y, at.Z - 2)
 			local ahead = ForestTest.laneAhead(from, to, Bots.CONFIG.LANE_BODY_SIZE, body)
