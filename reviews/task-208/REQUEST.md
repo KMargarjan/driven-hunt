@@ -1,17 +1,17 @@
 # Task 208 — the bot beaters do not get stuck
 
 Task: 208
-Round: 1
+Round: 2
 Base: main @ `db2822a`
-Code commit: `489695bbc812cae0b422eb3469361d7b94270d72`
+Code commit: `bacdf98981b68d9781f259b85f1ef5de0066b809`
 
 Harness, clean tree, FULL run (the merge-gate line):
 
 ```
-[harness] PASS: 33/33 checks @ 489695bbc812cae0b422eb3469361d7b94270d72 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ bacdf98981b68d9781f259b85f1ef5de0066b809 (clean tree) scope=all
 ```
 
-Scoped run at the same tree's code commit, for the record:
+Scoped run, on the round-1 tree of the same change:
 
 ```
 [harness] PASS: 33/33 checks @ b198758cf5364b1127bd75ded0a8d8355b16b5f0 (clean tree) scope=auto:bots,match
@@ -79,10 +79,15 @@ away before the humanoid saw them.
 6. **The walk can now SEE a body, and that is the half no cast can do.** `ForestTest.laneAhead`
    sweeps a body-sized `Blockcast` down the lane AND measures the players' characters and
    `Workspace.DriveBots`' rigs by distance — because `Bots.Rig.prepare` sets `CanQuery = false` on
-   every rig part, so every spatial query in the engine skips exactly the obstacle the measurement
-   found most of. A body's reported step height is above `JUMP_OVER_STUDS`, so a person is always
-   gone round and never jumped over. Verify: `ForestTest.laneAhead`, `Rig.prepare`'s `CanQuery` line,
-   note §4.2.
+   every rig part, so an `OverlapParams` query (which is what `roomToStand` is) skips exactly the
+   obstacle the measurement found most of. **A CHARACTER is reported at `BODY_HEIGHT_STUDS` whichever
+   pass finds it** — round 2 measured that `Blockcast` with `RespectCanCollide = true` DOES return
+   `CanQuery = false` parts, so the cast can find a rig itself and must not answer about the part it
+   hit. Both passes ask `Data.characterOf`, the one rule in that file for what a person is. So a
+   person is always gone round, never jumped over, and `Lane.recoveryFor` can never answer "jump"
+   for one. Verify: `ForestTest.laneAhead`'s two branches; the three cases in `bots_live.spec`
+   describe *"ForestTest.laneAhead, the real reader (round 2, finding 1)"*, which drive the REAL
+   reader with a real body and assert the step height instead of assuming it.
 
 7. **The owner boundary is unchanged.** `Bots` still reads no marker, tag, Player or flag; the new
    reader is INJECTED by `ForestTestBoot` beside `groundAt` and `roomToStand`; `Bots.Lane` stays
@@ -101,7 +106,10 @@ away before the humanoid saw them.
    stuck: **100 detours across the four drives against TWO recoveries**, and those two fired two
    different rungs in the field (a sidestep on the ride, a **jump** on the track). Verify: note §8
    and §8.1; traces `<runs-dir>/208-after-{road,edge,ride,track}-trace.json`; the four `[bots]` lines
-   in `<runs-dir>/208-after-*.log`.
+   in `<runs-dir>/208-after-*.log`. The EDGE place was re-measured on this round's tree, because the
+   body fix changes exactly the path its pins were on: `<runs-dir>/208-after2-edge-trace.json`, 0
+   stuck, all four beaters 1.4–11.7 studs from their goals, 16 detours, 0 recoveries. The other three
+   after-traces were taken on the round-1 tree and their paths are trunks, not bodies.
 
 10. **Two defects of my own, found by the first gate run and fixed in `b198758`.** (a) the point test
     could THROW THE DETOUR AWAY — `Lane.clearAim` recomputes from the plain lane point, so letting it
@@ -112,6 +120,51 @@ away before the humanoid saw them.
     the number `[bots]` prints. Verify: that commit; the case *"does NOT let the point test throw the
     detour away"*; the re-pointed round-2 case *"MOVES a bot that has stopped, WITH A READER THAT
     SAYS THE WAY IS CLEAR"*.
+
+
+## Round 2 — both blocking findings, and what they turned up
+
+**Finding 1 was right, and fixing it properly took three measurements.**
+`ForestTest.laneAhead` reported a body as **3.5** studs against a `JUMP_OVER_STUDS` of 4, so a bot
+JUMPED at a person instead of walking round one — the opposite of what that function's header, the
+ladder and round 1's own claim 6 all said. The cause was measuring off the ROOT PART (2 studs tall)
+instead of doing what the cast branch does. Then the new case that drives the REAL reader (which the
+finding also required, and which round 1 had nowhere) found two more things that no hand-written
+reader could have:
+
+* **`Blockcast` with `RespectCanCollide = true` DOES return parts whose `CanQuery` is false** —
+  which every bot rig part is (`Rig.prepare`). So the cast can answer about a body before the body
+  pass ever looks, and it answered about the PART, which is where the 3.5 kept coming from even
+  after the body pass was fixed. The cast branch now asks `Data.characterOf` — the one rule in that
+  file for what a person is, which `roomToStand` and `nearestSolid` already ask — and reports a
+  character at `BODY_HEIGHT_STUDS`. **The two passes cannot disagree about people any more.**
+* **the first version of that guard called `ForestTest.characterOf`, which does not exist on the
+  server module** (it is on the shared one, `Data`). A nil call, caught by the new case.
+
+**Finding 2 was right too**: the detour case passed with the guard it names deleted, because its
+clearance reader called every point CLEAR, which makes `clearAim` return `stepped = 0` and leave the
+aim alone whatever the guard does. It now BLOCKS the lane point and clears the sides — so a
+surviving `clearAim` would overwrite the detour with a 10-stud side-step — and asserts the issued
+point IS the detour point (`Lane.turnedAim` at the first fan angle), not merely that it is
+off-centre.
+
+**Four of the non-blocking notes were taken** rather than queued, because each was a sentence that
+said the opposite of the code: the stale *"three episodes / 34.0 s"* in two headers (it is four /
+169.1), the detour fan described as alternating when the alternation is between BOTS, the back-off
+arithmetic (the third try IS the back-off: two sidesteps, 4.4 s), and `pinnedFor` surviving a
+re-place so a bot could carry the previous drive's pin into the number the task's bar is printed
+against. The rest are queued in TASKS.md 208c.
+
+**The edge place was re-measured after the body fix**, because that fix changes exactly the path the
+edge pins were on (a body is now gone ROUND at 5.0 studs, not jumped at 3.5):
+`<runs-dir>/208-after2-edge-trace.json` — **0 stuck episodes, all four beaters within 1.4–11.7 studs
+of their goals, 16 detours, 0 recoveries**. The other three places' after-traces were taken on the
+round-1 tree; their paths (trunks, not bodies) are unchanged by this round, and that is said here
+rather than implied.
+
+## What is NOT done in this round
+
+* **The Reviewer has not seen round 2.** This request is written for it.
 
 ## What could not be verified, and what is left
 
