@@ -213,8 +213,21 @@ return function()
 			expect(typeof(view.HORN.carry.right)).to.equal("CFrame")
 			expect(typeof(view.HORN.blow.item)).to.equal("CFrame")
 			expect(typeof(view.HORN.blow.right)).to.equal("CFrame")
-			-- THE TWO POSES ARE DIFFERENT PLACES, or the raise draws nothing at all.
-			expect((view.HORN.carry.item.Position - view.HORN.blow.item.Position).Magnitude > 0.5).to.equal(true)
+			-- THE TWO POSES ARE DIFFERENT PLACES, or the raise draws nothing at all -- MEASURED AT
+			-- THE MOUTHPIECE (task 212), which is the point the gesture is defined by: the raise
+			-- carries it from the hip to the lips, and `Viewmodel.hornMouthpiece` exists to aim at
+			-- it. The Handle's PIVOT was the old yardstick and it is a weak one, because a swing
+			-- that is mostly rotation turns the horn about its middle and barely moves that middle
+			-- at all: task 212's poses are 130 degrees apart and move the pivot 0.4542, while the
+			-- mouthpiece -- the end a beater actually watches travel -- moves 0.7162. Task 211's
+			-- answer the same two ways round, 0.6240 and 1.0440. THE BOUND IS UNCHANGED at 0.5;
+			-- what changed is which point it is asked about.
+			local mouth = Vector3.new(0, 0.4415, 1.5) * view.HORN.scale -- TUBE_SAMPLES' z = +1.5 row
+			local travel = (
+				view.HORN.carry.item:PointToWorldSpace(mouth) - view.HORN.blow.item:PointToWorldSpace(mouth)
+			).Magnitude
+			TestKit.note(string.format("task212 the raise carries the mouthpiece %.4f studs", travel))
+			expect(travel > 0.5).to.equal(true)
 			-- THE POSITION IS THE FILE'S, read through the one conversion site rather than repeated
 			-- here: `view` is the only thing in the repo that turns these three numbers into a Vector3.
 			local pos = Data.DATA.horn.carry.item.pos
@@ -1175,38 +1188,39 @@ return function()
 			end
 		end)
 
-		it("the horn's hand is where task 211 solved it", function()
-			-- SINCE TASK 202 THE TWO POSES NO LONGER SHARE THEIR THREE ANGLES, so both are pinned.
-			-- The tube runs a different way in the carry than it does at the mouth, so one roll
-			-- cannot answer for both. Task 176's numbers went with the pose they belonged to, and
-			-- TASK 202's WENT WITH THEIRS: that pair laid the glove ALONG the tube, which measured
-			-- as 90.0 degrees of hole-axis against the tangent and photographed as a hand lying on
-			-- the horn like a sticker (`.screenshots/t206-before-fp.png`, and Karen on 2026-10-18:
-			-- *"also horn is broken arm is wrong"*). These are the solved grip's. What replaces this
-			-- pin as EVIDENCE is the pair of cases below, which measure the hand against the horn
-			-- instead of against its own past.
+		it("the horn's hand is where task 212 solved it", function()
+			-- SINCE TASK 212 THE TWO POSES SHARE EVERY NUMBER, which is why both rows below are the
+			-- same pair of points. The Designer's spec asks for it in so many words
+			-- (`driven-hunt-runs/design/horngrip-spec.md` section 4): *"The grip never changes. Same
+			-- point on the horn, same hand, in carry, in blow, and through the walk sway. If the
+			-- hand slides along the tube between poses, the horn stops being held and starts being
+			-- followed."* `blow.right == carry.right` below is what holds that.
+			--
+			-- WHY THEY MOVED OFF TASK 211's. Task 211 placed the glove so the FIST'S OWN HOLE ran
+			-- along the tube -- 0.00 degrees of hole-axis against the tangent, the grip point dead
+			-- on the centre line -- and that pose is exactly the one Karen rejected on 2026-10-19
+			-- (*"still need to improve hand position when holding horn"*, with the glove lying on
+			-- the tube in `karen-2026-10-19/horn-carry.png`). The hole cannot take the tube, which
+			-- is measured in `closes the right fist` below; so the pose that scores perfectly on the
+			-- hole is the pose that photographs as a sticker. These are the Designer's grip's.
 			for _, case in ipairs({
 				{
 					name = "carry",
 					pose = hornPoses.carry.right,
-					tip = Vector3.new(0.1541, -0.0003, 0.2067),
-					cuff = Vector3.new(-0.4623, -0.2307, 0.2550),
+					tip = Vector3.new(-0.0488, 0.0063, 0.2931),
+					cuff = Vector3.new(0.2656, -0.3373, 0.7606),
 				},
 				{
 					name = "blow",
-					-- RE-COMPOSED IN ROUND 2 (the Director, 2026-10-19, having looked at round 1's
-					-- frame): *"the glove fills about a third of the screen, floats in the middle of
-					-- the view ... it reads as a giant glove, not a beater raising a horn to his
-					-- lips"*. The CARRY above is untouched -- *"good ... Keep it exactly"*.
 					pose = hornPoses.blow.right,
-					tip = Vector3.new(-0.1043, 0.0913, 0.2763),
-					cuff = Vector3.new(0.2665, -0.4451, 0.3773),
+					tip = Vector3.new(-0.0488, 0.0063, 0.2931),
+					cuff = Vector3.new(0.2656, -0.3373, 0.7606),
 				},
 			}) do
 				local tip, cuff = ends(case.pose)
 				TestKit.note(
 					string.format(
-						"task211 horn %s right hand: fingertip (%.4f, %.4f, %.4f), cuff (%.4f, %.4f, %.4f)",
+						"task212 horn %s right hand: fingertip (%.4f, %.4f, %.4f), cuff (%.4f, %.4f, %.4f)",
 						case.name,
 						tip.X,
 						tip.Y,
@@ -1355,7 +1369,8 @@ return function()
 			TestKit.note(
 				string.format(
 					"task202 carry: worst |x|/depth %.4f, |y|/depth %.4f, nearest %.4f studs"
-						.. " (half view %.4f, nearest allowed %.2f; task 176 shipped 1.6270 / 0.8580 / 1.0885)",
+						.. " (half view %.4f, nearest allowed %.2f; task 176 shipped"
+						.. " 1.6270 / 0.8580 / 1.0885)",
 					worstX,
 					worstY,
 					nearest,
@@ -1427,14 +1442,82 @@ return function()
 			return on, off, radius * scale, angle
 		end
 
+		-- HOW MUCH OF THE HAND THE HORN COVERS, and since task 212 this is what says the hand is
+		-- holding the horn rather than lying on it. The Designer's spec, section 4: *"The palm, the
+		-- knuckles and the finger roots go BEHIND the tube; the fingertips and the thumb go in FRONT
+		-- of it. The hand's silhouette must be BROKEN by the horn. One plane = touching."*
+		--
+		-- THE SAMPLES ARE THE FIST'S OWN BOX in the aligned frame (`HandAssets`: fingers +X, palm
+		-- +Y, thumb +Z) -- 6 x 4 x 4 points over x 0.00..0.33, y -0.10..0.11, z -0.10..0.14, which
+		-- is the hand end of the glove. A BOX AND NOT THE MESH because a spec cannot read a
+		-- MeshPart's vertices; it is checked against the mesh rather than assumed. Measured off the
+		-- published `prepped/glove_right_v4_r1/model.glb` (which is the drawn part: its bounds times
+		-- a hundred are `Assets.HAND_RIGHT_NATURAL` to the digit, and it carries the 6,192 triangles
+		-- that manifest row records) with this same ray test, the real vertices answer 0.29 and 0.39
+		-- for task 211's two poses where this box answers 0.24 and 0.26, and 0.56 and 0.43 for task
+		-- 212's where it answers 0.43 and 0.44. The box tracks the mesh across all four.
+		local SAMPLES = {}
+		for i = 0, 5 do
+			for j = 0, 3 do
+				for k = 0, 3 do
+					table.insert(SAMPLES, Vector3.new(0.33 * i / 5, -0.10 + 0.21 * j / 3, -0.10 + 0.24 * k / 3))
+				end
+			end
+		end
+
+		-- IS THE DRAWN HORN BETWEEN THE EYE AND THIS POINT? The viewmodel's frame has the lens at
+		-- the origin, so the ray is the segment from zero to the point and the horn is the measured
+		-- tube: `Horn.tubeAt` at the sample's own Z, divided by the scale for the reason `gripOf`
+		-- gives. 64 steps over the segment -- the tube is 0.14 studs across at the grip and the
+		-- segment is about a stud, so a step is a fifth of the tube's width and cannot pass through
+		-- it. It never looks past the point itself (t <= 0.995), because horn BEHIND the hand is
+		-- exactly what this is here to tell apart from horn in front of it.
+		local function hornInFront(point: Vector3, horn: CFrame, scale: number): boolean
+			for step = 0, 63 do
+				local t = 0.02 + (0.995 - 0.02) * step / 63
+				local u = horn:PointToObjectSpace(point * t) / scale
+				-- THE TUBE HAS ENDS, and `Horn.tubeAt` does not say so: its header records that
+				-- "past either end it holds the end row", which is right for a question about the
+				-- horn and wrong for a ray that has flown off it. Without this line the test sees an
+				-- infinite cylinder -- radius 0.108 past the bell and 0.0715 past the mouthpiece --
+				-- and a ray that misses the horn entirely counts as covered. `TUBE_SAMPLES` runs
+				-- -1.5 .. +1.5. (It changes no shipped number: both poses here and both of task
+				-- 211's answer the same share with it and without it. It is here so the measure
+				-- cannot be fooled by a pose that puts the hand off the end of the horn.)
+				if u.Z >= -1.5 and u.Z <= 1.5 then
+					local centre, radius = Horn.tubeAt(u.Z)
+					if math.sqrt(u.X * u.X + (u.Y - centre) * (u.Y - centre)) <= radius then
+						return true
+					end
+				end
+			end
+			return false
+		end
+
+		local function hiddenShare(pose, scale: number): number
+			local hidden = 0
+			for _, sample in ipairs(SAMPLES) do
+				if hornInFront((pose.item * pose.right):PointToWorldSpace(sample), pose.item, scale) then
+					hidden += 1
+				end
+			end
+			return hidden / #SAMPLES
+		end
+
+		-- THE BOUND IS 0.35 AND THE TWO SIDES OF IT ARE BUILDS THAT WERE LOOKED AT: task 211's two
+		-- poses answer 0.24 and 0.26 (the case below runs them), and task 212's answer 0.43 and
+		-- 0.44. It is nowhere near either, so a pose has to really move for this to change hands.
+		local COVERED = 0.35
+
 		it("closes the right fist around the tube in both poses", function()
 			for _, case in ipairs({
-				{ name = "carry", pose = hornPoses.carry.right },
-				{ name = "blow", pose = hornPoses.blow.right },
+				{ name = "carry", pose = hornPoses.carry, right = hornPoses.carry.right },
+				{ name = "blow", pose = hornPoses.blow, right = hornPoses.blow.right },
 			}) do
-				local on, off, radius, angle = gripOf(case.pose, SCALE)
-				local tip = case.pose:PointToWorldSpace(HandAssets.FINGERTIP_STUDS)
-				local cuff = case.pose:PointToWorldSpace(HandAssets.CUFF_STUDS)
+				local share = hiddenShare(case.pose, SCALE)
+				local on, off, radius, angle = gripOf(case.right, SCALE)
+				local tip = case.right:PointToWorldSpace(HandAssets.FINGERTIP_STUDS)
+				local cuff = case.right:PointToWorldSpace(HandAssets.CUFF_STUDS)
 				local function offTube(point: Vector3): number
 					local centre = Horn.tubeAt(point.Z / SCALE)
 					return (Vector2.new(point.X, point.Y - centre * SCALE)).Magnitude
@@ -1442,10 +1525,13 @@ return function()
 				local tipOff, cuffOff = offTube(tip), offTube(cuff)
 				TestKit.note(
 					string.format(
-						"task211 %s grip: (%.4f, %.4f, %.4f) is %.4f off the centre line (tube radius"
-							.. " %.4f there), hole axis %.2f deg off the tangent, fingertip %.4f off"
-							.. " against the cuff's %.4f (task 202 shipped 90.00 deg)",
+						"task212 %s grip: the horn covers %.3f of the fist (task 211 covered 0.24 and"
+							.. " 0.26, and this file asks for more than 0.35); grip (%.4f, %.4f,"
+							.. " %.4f) is %.4f off the centre line (tube"
+							.. " radius %.4f there), hole axis %.2f deg off the tangent, fingertip"
+							.. " %.4f off against the cuff's %.4f",
 						case.name,
+						share,
 						on.X,
 						on.Y,
 						on.Z,
@@ -1456,10 +1542,40 @@ return function()
 						cuffOff
 					)
 				)
-				expect(off <= radius).to.equal(true)
-				expect(angle < 15).to.equal(true)
+				-- THE HORN CROSSES THE HAND. This replaces task 211's `off <= radius` and
+				-- `angle < 15`, which asked whether the FIST'S HOLE was threaded on the tube.
+				-- MEASURED in task 212, by voxelising the published glove at 0.004 studs in the
+				-- aligned frame: along the thumb axis -- the way a tube has to run for this grip --
+				-- the fist has NO through-hole at all (2 voxels, radius 0.004), and along the
+				-- fingers none either. The one hole it has runs along the PALM NORMAL and is
+				-- 0.052 x 0.072 studs, largest inscribed radius 0.0170, while the tube at the grip
+				-- is 0.339 studs across unscaled. So the hole is a fifth of the tube's width AND it
+				-- points the wrong way: the fist was modelled closed on the rifle's bolt knob, a
+				-- ball of radius 0.0256 (`Rifle.Geometry.boltKnobOffset`), and that is what fits it.
+				-- A pose that scores 0.00 degrees on that hole is a pose that cannot be holding
+				-- anything -- which is why task 211 passed this file and failed Karen's eye.
+				expect(share > COVERED).to.equal(true)
+				-- ...AND THE FINGERS ARE THE END THAT IS ON IT, which is the one thing task 189's
+				-- end-for-end defect could not fake and is kept exactly as it was.
 				expect(tipOff < cuffOff).to.equal(true)
 			end
+		end)
+
+		-- THE GRIP NEVER CHANGES, and it is one equality rather than two pins (the Designer's spec,
+		-- section 4). The hand is posed in the HORN's own frame, so the same CFrame in both poses IS
+		-- the same hand on the same point of the tube however far the horn swings -- and task 211,
+		-- which carried two different ones, is what let the glove slide between the carry and the
+		-- mouth. `CFrame` has no tolerance here on purpose: these come from one block of numbers in
+		-- `poses.json`, so anything but equality means somebody edited one half.
+		it("holds the horn with the same hand in the carry and at the lips", function()
+			TestKit.note(
+				string.format(
+					"task212 carry.right %s / blow.right %s",
+					tostring(hornPoses.carry.right),
+					tostring(hornPoses.blow.right)
+				)
+			)
+			expect(hornPoses.carry.right).to.equal(hornPoses.blow.right)
 		end)
 
 		-- WHERE THE HAND IS IN THE PICTURE (task 211 round 2). THE DIRECTOR, 2026-10-19, having
@@ -1546,31 +1662,50 @@ return function()
 			expect(centre.Y > -HALF_VIEW / 2).to.equal(true)
 		end)
 
-		it("...and the same measure answers 90 degrees on the pose Karen called broken", function()
+		it("...and the horn covered a quarter of the fist on the pose Karen rejected", function()
 			-- THE CASE ABOVE CAN FAIL, AND THIS IS THE PROOF RATHER THAN THE CLAIM (Learning Agent
 			-- L-028: a new bound offered as evidence has to be shown failing on the data it was
-			-- written for). These six numbers are `poses.json`'s own `horn.carry.right` as task 202
-			-- shipped it -- the pose in `.screenshots/t206-before-fp.png` -- read through the same
-			-- `gripOf`. If the measure were ever reduced to something a sticker also passes, this
-			-- case goes green and says so.
-			local task202 = CFrame.new(-0.0867, -0.2714, 0.3788)
-				* CFrame.Angles(math.rad(-113.9412), math.rad(26.6003), math.rad(-90.0))
-			-- AT ITS OWN SCALE, WHICH WAS 1: that pose was solved against the full-size horn, and
-			-- measuring it against the drawn one would be comparing it with a horn it never saw.
-			local on, off, radius, angle = gripOf(task202, 1)
-			TestKit.note(
-				string.format(
-					"task211 the REPLACED carry grip: (%.4f, %.4f, %.4f), %.4f off a %.4f tube,"
-						.. " hole axis %.2f deg off the tangent",
-					on.X,
-					on.Y,
-					on.Z,
-					off,
-					radius,
-					angle
+			-- written for). These are `poses.json`'s own `horn` block AS TASK 211 SHIPPED IT -- the
+			-- build in `karen-2026-10-19/horn-carry.png` and `horn-blow.png`, the two frames Karen
+			-- answered with *"still need to improve hand position when holding horn"* -- read
+			-- through the same `hiddenShare`.
+			--
+			-- IT IS THE QUANTITY THE DEFECT MOVED, not a pivot and not a box corner: on those
+			-- numbers the GLOVE is the thing in front, so the horn covers a quarter of the fist and
+			-- this bound is missed by a wide margin. Both are run, because the blow was re-composed
+			-- in task 211 round 2 and passed that round's own cases while still covering 0.26.
+			--
+			-- AT THEIR OWN SCALE, WHICH WAS 0.34: those poses were solved against a horn drawn that
+			-- size, and measuring them against today's 0.42 would be comparing them with a horn
+			-- they never saw.
+			for _, case in ipairs({
+				{
+					name = "carry",
+					item = CFrame.new(0.187, -0.51, -1.224)
+						* CFrame.Angles(math.rad(68.2), math.rad(72.42), math.rad(-69.13)),
+					right = CFrame.new(-0.1601, -0.1249, 0.1965)
+						* CFrame.Angles(math.rad(-113.9412), math.rad(-16.1747), math.rad(0.0)),
+				},
+				{
+					name = "blow",
+					item = CFrame.new(-0.1007, -0.0655, -0.8939)
+						* CFrame.Angles(math.rad(45.0447), math.rad(8.541), math.rad(-8.4607)),
+					right = CFrame.new(0.0773, -0.1934, 0.2949)
+						* CFrame.Angles(math.rad(74.1455), math.rad(-60.0), math.rad(180.0)),
+				},
+			}) do
+				local share = hiddenShare({ item = case.item, right = case.right }, 0.34)
+				TestKit.note(
+					string.format(
+						"task212 the REJECTED %s: the horn covers %.3f of the fist, against the %.2f"
+							.. " this file now asks for",
+						case.name,
+						share,
+						COVERED
+					)
 				)
-			)
-			expect(angle > 60).to.equal(true)
+				expect(share < COVERED).to.equal(true)
+			end
 		end)
 	end)
 
