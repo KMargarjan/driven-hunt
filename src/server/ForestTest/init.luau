@@ -3152,6 +3152,12 @@ ForestTest.BODY_HEIGHT_STUDS = 5
 -- (`docs/research/2026-10-19-bots-unstuck.md` section 4.2). So this reader excludes the Terrain, the
 -- animals and the walker's OWN model, and nothing else: another body is a thing to walk round.
 --
+-- IT ANSWERS IN TWO PASSES AND THEY AGREE ABOUT PEOPLE. The swept cast finds whatever it finds --
+-- MEASURED in round 2, that includes `CanQuery = false` parts when `RespectCanCollide` is on, so it
+-- can find a bot rig itself -- and the body pass after it catches the ones it did not. Either way a
+-- CHARACTER is reported at `BODY_HEIGHT_STUDS`, never at the height of whichever of its parts was
+-- hit, so `Bots.Lane.recoveryFor` can never answer "jump" for a person.
+--
 -- `stepStuds` IS WHAT DECIDES JUMP AGAINST DETOUR (`Bots.Lane.recoveryFor`), so it is measured off
 -- the hit part's own top rather than guessed: a fallen log is stepped over and a trunk is not.
 -- Design: docs/design/bots.md (section 9.1)
@@ -3187,10 +3193,30 @@ function ForestTest.laneAhead(from: Vector3, to: Vector3, size: Vector3, ignore:
 		local away = hit.Position - from
 		ahead = Vector3.new(away.X, 0, away.Z).Magnitude
 		local part = hit.Instance
-		local top = if part ~= nil and part:IsA("BasePart")
-			then (part :: BasePart).Position.Y + (part :: BasePart).Size.Y / 2
-			else hit.Position.Y
-		step = top - (from.Y - size.Y / 2)
+		-- A PERSON IS NOT A LOG, EVEN WHEN THE CAST IS THE THING THAT FOUND HIM. MEASURED
+		-- 2026-10-19 (round 2): `Blockcast` with `RespectCanCollide = true` DOES return parts whose
+		-- `CanQuery` is false -- which every bot rig part is (`Bots.Rig.prepare`) -- so the cast can
+		-- answer about a body before the body pass below ever looks. It answers about the PART: a
+		-- `HumanoidRootPart` is 2 studs tall, so its top is 1 stud up and the step height comes out
+		-- 3.5, under `Bots.CONFIG.JUMP_OVER_STUDS` (4), and the ladder picks "jump" -- a beater
+		-- hopping at a hunter, which is the one answer this reader must never give.
+		--
+		-- `ForestTest.characterOf` IS THE ONE RULE FOR "WHAT IS A PERSON" in this file
+		-- (`roomToStand`, `nearestSolid` and `Data.groundAt` all ask it), so the two branches cannot
+		-- disagree: whoever finds the body, a body is reported at a body's height.
+		local character = if part ~= nil then ForestTest.characterOf(part) else nil
+		if character ~= nil then
+			local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+			local middle = if root ~= nil and root:IsA("BasePart")
+				then (root :: BasePart).Position.Y
+				else hit.Position.Y
+			step = (middle + ForestTest.BODY_HEIGHT_STUDS / 2) - (from.Y - size.Y / 2)
+		else
+			local top = if part ~= nil and part:IsA("BasePart")
+				then (part :: BasePart).Position.Y + (part :: BasePart).Size.Y / 2
+				else hit.Position.Y
+			step = top - (from.Y - size.Y / 2)
+		end
 	end
 
 	-- ...AND THEN THE BODIES, BY DISTANCE, BECAUSE NO CAST CAN SEE THEM. MEASURED 2026-10-19 at the
