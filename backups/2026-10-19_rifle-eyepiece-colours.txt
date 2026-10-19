@@ -1,0 +1,26 @@
+ARCHIVED 2026-10-19, task 201 part 4 (design system E). Rule 7: never delete.
+
+WHAT: the two colour fields of `Rifle.CONFIG.scope.eyepiece` in `src/shared/Rifle/init.luau`,
+and the two matching fields of the exported `Eyepiece` type.
+
+    rimColor = Color3.fromRGB(22, 22, 24),
+    maskColor = Color3.fromRGB(0, 0, 0),
+
+    export type Eyepiece = { ... rimColor: Color3, maskColor: Color3, ... }
+
+WHY THEY WENT: the Designer's design system, 2026-10-17, §5 surface 20 -- "Mask stays `#000000`;
+the rim goes from the flat grey of `t146-scope-aim.png` to `#0A0907` with a 1 px inner `BRASS` @
+0.70 ring". One palette, one owner: the weapon keeps the tube's GEOMETRY (`diameterDeg`,
+`rimThickDeg`, `maskTransparency`, `atBlend`) and `src/client/Hud/Style.luau` owns its COLOUR.
+`Hud.layoutScope` now reads `Style.LOOK.SCRIM` and `Style.SCOPE_MASK`.
+
+WHAT THE OLD VALUES WERE FOR, in the words of the comment that chose them (task 147): "near-black
+like Karen's reference, not light grey ... sampled off that reference in the SHADOWED part of the
+body rather than the lit top edge". Its own closing line is why this change was wanted: "IT MAY NOW
+BE TOO DARK -- `t147-ship-scope.png` has the tube nearly merging with the darkened surround, which
+is the cost of having no highlight."
+
+TO PUT THEM BACK: restore the two fields and the two type lines, and in
+`src/client/Hud/init.luau`'s `Hud.layoutScope` read `spec.maskColor` / `spec.rimColor` again
+instead of the `Style` tokens. The inner brass ring ("Bezel") is a separate frame and can stay or
+go on its own.

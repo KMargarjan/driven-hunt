@@ -1063,6 +1063,73 @@ function Style.toast(
 	return frame, dot, text
 end
 
+-- THE SCOPE'S MASK, AND IT IS THE ONE PURE BLACK IN THE WHOLE PALETTE (§5 surface 20: *"Mask stays
+-- `#000000`"*). It is not a surface and not type: it is the absence of a sight picture, painted
+-- over everything outside the eyepiece, and `SCRIM #0A0907` would read as a very dark brown square
+-- around a circle of forest. Named here so the one black in `src/client/` has an owner and a reason
+-- rather than sitting as a literal beside a comment.
+Style.SCOPE_MASK = Color3.new(0, 0, 0)
+-- The brass ring on the INSIDE edge of the tube (§5 surface 20), which is the highlight the flat
+-- near-black tube of task 147 never had: *"a scope is a dark object with a highlight on it"*.
+Style.SCOPE_RING_T = 0.70
+
+-- HOW MANY TOASTS THE FEED DRAWS AT ONCE, and it is THE ONE ANSWER for both widths.
+--
+-- THE DIRECTOR, 2026-10-19: *"the toast feed stacks identical lines ('a boar got away' x5 for a
+-- beater, `t212r2-blow-fp.png`): collapse repeats into one line with a count ('a boar got away x5')
+-- and cap the feed at 3."* §5 surface 8 said five on a desktop and three on a phone; with the
+-- repeats collapsed (`Hud.pushFeed`) five slots held the same sentence five times, which is the
+-- defect, and three distinct lines is the whole of what the bottom-left corner has ever carried.
+-- The mockup board itself draws THREE (`hud-mockups.png`, board 1), so this is also what was drawn.
+--
+-- IT LIVES HERE AND NOT IN `Drive.CONFIG` BECAUSE IT IS A LOOK NUMBER, and `Drive.CONFIG.FEED_LINES`
+-- (5) now has no reader at all. It was left in place rather than deleted because `src/shared/Drive/`
+-- is in `TWO_PLAYER_PATHS` (CLAUDE.md) and this is a one-player look task: deleting one dead number
+-- would have cost a two-player run. Queued for the next task that touches that file.
+Style.FEED_LINES = 3
+
+-- THE DROP LINE (§2's one exception). *"The crosshair, the hit mark and the scope reticle are not
+-- text and carry no slate. They are `PAPER` strokes with a 1 px `#0A0907` companion line offset
+-- 1 px down and right -- a drop line, not an outline."*
+--
+-- A SIBLING AND NOT A CHILD, AND THAT IS THE WHOLE REASON THIS IS A FUNCTION. A `ScreenGui`'s
+-- `ZIndexBehavior` is `Sibling`, under which a CHILD always draws over its parent whatever its
+-- `ZIndex` -- so a shadow parented to the mark would sit ON TOP of it and the mark would read as a
+-- dark cross with a pale edge. It is therefore made beside the mark, one band below it.
+--
+-- IT CARRIES AN ATTRIBUTE, because `Hud.showHitMark` recolours every `Frame` under the marker by
+-- kind and a drop line is the one child that must keep its colour.
+function Style.dropLine(mark: Frame): Frame
+	local shade = mark:Clone()
+	shade:ClearAllChildren()
+	shade.Name = mark.Name .. "Drop"
+	shade.BackgroundColor3 = LOOK.SCRIM
+	shade.BackgroundTransparency = mark.BackgroundTransparency
+	shade.ZIndex = mark.ZIndex - 1
+	shade.Position =
+		UDim2.new(mark.Position.X.Scale, mark.Position.X.Offset + 1, mark.Position.Y.Scale, mark.Position.Y.Offset + 1)
+	shade:SetAttribute("DropLine", true)
+	shade.Parent = mark.Parent
+	return shade
+end
+
+-- WHAT THE HIT MARK IS COLOURED BY (§5 surface 19): *"coloured by kind: a hit `PAPER`, a kill
+-- `PINE_TEXT`, a wound `CLAY`. One colour serves all three today."* The same three meanings the
+-- feed's own table carries, so a kill is green on the marker and green in the line under it.
+--
+-- `"wound"` HAS NO SENDER YET and that is said out loud rather than left to be discovered:
+-- `Weapon.markHit` is called with `"hit"` and with `"kill"` only (`src/server/Weapon/init.luau`,
+-- `MatchBoot`, `ForestTestBoot`). The mapping is here, reachable by parameter and asserted by
+-- `hit_marker.spec`, so the day the server learns to say "wounded" the screen already answers it.
+function Style.hitMarkColor(kind: string?): Color3
+	if kind == "kill" then
+		return LOOK.PINE_TEXT
+	elseif kind == "wound" then
+		return LOOK.CLAY
+	end
+	return LOOK.PAPER
+end
+
 -- WHAT A LINE MEANS, AS A COLOUR (§3.11). One table, five meanings, and the dot and the words
 -- always agree because they are read from the same entry.
 Style.MEANING = {

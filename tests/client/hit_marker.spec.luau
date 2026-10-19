@@ -28,6 +28,10 @@ local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild(
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
 local Hud = require(scripts:WaitForChild("Hud"))
+-- THE MARKER'S COLOURS ARE `Style`'S SINCE TASK 201 E (the Designer's design system, 2026-10-17,
+-- §5 surface 19). They were `Shotgun.CONFIG.HIT_MARK_COLOR` / `HIT_MARK_KILL_COLOR`, which are
+-- archived in `backups/2026-10-19_hit-mark-colours.txt`.
+local Style = Hud.Style
 
 -- How long to wait for the SERVER's marker. It was 30 s, and that was a claim about the shooter
 -- dressed up as a claim about the wire: a shooter also receives a marker for every shot he lands, so
@@ -65,6 +69,16 @@ local function armColor(): Color3?
 	local mark = gui and gui:FindFirstChild("HitMark")
 	local arm = mark and mark:FindFirstChild("TopLeft")
 	return if arm and arm:IsA("Frame") then arm.BackgroundColor3 else nil
+end
+
+-- THE ARM'S DROP LINE (§2's one exception, task 201 E): a SIBLING of the arm, one band under it,
+-- `SCRIM` and offset 1 px down and right. Read back off the real screen, because "the stroke went
+-- away" and "something replaced it" are two different claims.
+local function armDrop(): Frame?
+	local gui = Hud.gui()
+	local mark = gui and gui:FindFirstChild("HitMark")
+	local drop = mark and mark:FindFirstChild("TopLeftDrop")
+	return if drop and drop:IsA("Frame") then drop :: Frame else nil
 end
 
 return function()
@@ -125,7 +139,8 @@ return function()
 			Hud.onHitMarker({ kind = "hit" })
 			expect(Hud.isHitMarkVisible()).to.equal(true)
 			expect(Hud.hitMarkKind()).to.equal("hit")
-			expect(armColor()).to.equal(CONFIG.HIT_MARK_COLOR)
+			expect(armColor()).to.equal(Style.hitMarkColor("hit"))
+			expect(armColor()).to.equal(Style.LOOK.PAPER)
 
 			-- It is a tick, not a state: it goes away on its own.
 			expect(waitUntil(CONFIG.HIT_MARK_SECONDS + 1, function()
@@ -138,14 +153,63 @@ return function()
 			Hud.onHitMarker({ kind = "kill" })
 			expect(Hud.isHitMarkVisible()).to.equal(true)
 			expect(Hud.hitMarkKind()).to.equal("kill")
-			expect(armColor()).to.equal(CONFIG.HIT_MARK_KILL_COLOR)
-			expect(armColor()).never.to.equal(CONFIG.HIT_MARK_COLOR)
+			expect(armColor()).to.equal(Style.hitMarkColor("kill"))
+			expect(armColor()).to.equal(Style.LOOK.PINE_TEXT)
+			expect(armColor()).never.to.equal(Style.hitMarkColor("hit"))
 
 			-- Still up after a plain hit's whole lifetime would have expired.
 			task.wait(CONFIG.HIT_MARK_SECONDS + 0.05)
 			expect(Hud.isHitMarkVisible()).to.equal(true)
 
 			expect(waitUntil(CONFIG.HIT_MARK_KILL_SECONDS + 1, function()
+				return not Hud.isHitMarkVisible()
+			end)).to.equal(true)
+		end)
+
+		it("shows a THIRD one on a wound, and the drop line keeps its own colour", function()
+			-- §5 surface 19: *"a hit `PAPER`, a kill `PINE_TEXT`, a wound `CLAY`. One colour serves
+			-- all three today."* THE THIRD ARM IS REACHABLE BY PARAMETER AND NOT YET BY THE WIRE:
+			-- `Weapon.markHit` is called with "hit" and with "kill" only, so this case is what
+			-- proves the screen already answers a wound the day the server learns to say it.
+			Hud.onHitMarker({ kind = "wound" })
+			expect(Hud.isHitMarkVisible()).to.equal(true)
+			expect(Hud.hitMarkKind()).to.equal("wound")
+			expect(armColor()).to.equal(Style.LOOK.CLAY)
+			-- THREE DISTINCT COLOURS, asserted as three and not as "not the other one".
+			expect(Style.hitMarkColor("hit")).never.to.equal(Style.hitMarkColor("kill"))
+			expect(Style.hitMarkColor("kill")).never.to.equal(Style.hitMarkColor("wound"))
+			expect(Style.hitMarkColor("wound")).never.to.equal(Style.hitMarkColor("hit"))
+
+			-- THE DROP LINE IS NOT AN ARM. `Hud.showHitMark` recolours every `Frame` under the
+			-- marker, and a shadow recoloured to the kind's colour would double the mark's apparent
+			-- thickness. It is skipped by its own attribute, and this reads that off the screen.
+			local drop = armDrop()
+			expect(drop).to.be.ok()
+			expect((drop :: Frame):GetAttribute("DropLine")).to.equal(true)
+			expect((drop :: Frame).BackgroundColor3).to.equal(Style.LOOK.SCRIM)
+			expect((drop :: Frame).BackgroundColor3).never.to.equal(armColor())
+			-- ...offset exactly one pixel down and right of its arm, and under it.
+			local gui = Hud.gui()
+			local mark = (gui :: ScreenGui):FindFirstChild("HitMark") :: Frame
+			local arm = mark:FindFirstChild("TopLeft") :: Frame
+			expect((drop :: Frame).Position.X.Offset - arm.Position.X.Offset).to.equal(1)
+			expect((drop :: Frame).Position.Y.Offset - arm.Position.Y.Offset).to.equal(1)
+			expect((drop :: Frame).ZIndex < arm.ZIndex).to.equal(true)
+			-- ...and turned with it, which a square shadow under a diagonal arm would not be.
+			expect((drop :: Frame).Rotation).to.equal(arm.Rotation)
+
+			-- AND NO BLACK `UIStroke` IS LEFT ANYWHERE UNDER EITHER MARK (§2). The whole point of
+			-- the drop line is that it replaced one.
+			for _, holder in ipairs({ mark, (gui :: ScreenGui):FindFirstChild("Crosshair") }) do
+				if holder ~= nil then
+					for _, node in ipairs((holder :: Instance):GetDescendants()) do
+						expect(node:IsA("UIStroke")).to.equal(false)
+					end
+				end
+			end
+			TestKit.note("hit marker: three kinds, drop line present, no stroke under either mark")
+
+			expect(waitUntil(CONFIG.HIT_MARK_SECONDS + 1, function()
 				return not Hud.isHitMarkVisible()
 			end)).to.equal(true)
 		end)

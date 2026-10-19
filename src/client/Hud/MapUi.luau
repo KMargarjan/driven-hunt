@@ -49,8 +49,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
-local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+-- `Drive` IS NOT REQUIRED HERE ANY MORE (task 201 E). It was read for three colours -- the drive
+-- bar's two team badges and its white text -- and the palette answers all three now
+-- (`MapUi.COLORS`), so the map's only remaining cross-system read is `Report.CONFIG.METRES_PER_STUD`
+-- for the scale bar.
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
+-- THE ONE SOURCE FOR EVERY COLOUR, FACE AND RADIUS ON THIS MAP since task 201 E (the Designer's
+-- design system, 2026-10-17). `script.Parent` and not a service path: `Style` is this folder's own
+-- module, exactly as `ReportPanel` and `Rail` require it.
+local Style = require(script.Parent:WaitForChild("Style"))
 
 local MapUi = {}
 
@@ -113,7 +120,13 @@ MapUi.CONFIG = {
 	-- a squashed rectangle: a decision instead of an accident.
 	FULL_MIN_HEIGHT_PX = 240,
 	FULL_PADDING = 14,
-	FULL_TITLE_HEIGHT = 20,
+	-- 20 -> 36 (task 201 E). §5 surface 14: *"the title becomes eyebrow `MAP` + title = the world's
+	-- name"*, which is two lines where there was one -- a 10 px brass eyebrow over a 22 px Oswald
+	-- name. The 16 px comes off the CANVAS, which is the one place in this panel that can give it:
+	-- the map is drawn at one scale into whatever is left, so a shorter canvas is a slightly
+	-- smaller map and never a clipped one.
+	FULL_TITLE_HEIGHT = 36,
+	FULL_EYEBROW_HEIGHT = 12,
 	FULL_FOOTER_HEIGHT = 24,
 
 	-- ---------------- the geometry
@@ -152,20 +165,49 @@ MapUi.CONFIG = {
 
 	-- ---------------- what things look like
 	--
-	-- Dark enough to read against sunlit grass as well as sky, which is the one requirement a HUD
-	-- element in this world actually has: the drive report learned it the hard way in task 124
-	-- (0.25 over an arena is see-through over a forest).
-	BACKGROUND = Color3.fromRGB(16, 18, 20),
-	MINIMAP_TRANSPARENCY = 0.2, -- the compass strip's own number
-	PANEL_TRANSPARENCY = 0.25, -- the score panel's, which Karen has accepted
-	RIM_COLOR = Color3.fromRGB(230, 230, 230),
+	-- EVERY ONE OF THESE IS A `Style` TOKEN SINCE TASK 201 E (the Designer's design system,
+	-- 2026-10-17, §5 surfaces 4, 14 and 22). What this block held before was six hand-picked
+	-- colours: a `#101214` ground, a `#E6E6E6` rim, white text and a `#BEB6A4` road, each measured
+	-- by eye in task 155 and each a second answer to a question the palette now answers once.
+	--
+	-- THE MINIMAP IS A *QUIET SLATE* AND THE FULL MAP IS A *PANEL*, which is the system's whole
+	-- division (§0.2): a field surface floats over the world at 8-14 % and a lodge surface is opaque
+	-- over a scrim. The minimap carries 9-11 px labels, so it takes `SLATE_QUIET_T` -- the compass
+	-- band's own number, measured in §2's contrast table rather than chosen.
+	BACKGROUND = Style.LOOK.SLATE,
+	MINIMAP_TRANSPARENCY = Style.SLATE_QUIET_T,
+	PANEL_TRANSPARENCY = Style.PANEL_T,
+	-- *"rim = `BRASS` @ 0.55, 2 px"* (§5 surface 4). The full map's edge is a PANEL's -- 1 px at
+	-- `EDGE_T.PANEL` -- so the two read as the two surface families they are.
+	RIM_COLOR = Style.LOOK.BRASS,
+	RIM_TRANSPARENCY = Style.EDGE_T.SLATE,
 	RIM_THICKNESS = 2,
-	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
-	LABEL_SIZE = 11,
-	TITLE_SIZE = 14,
+	PANEL_EDGE_TRANSPARENCY = Style.EDGE_T.PANEL,
+	PANEL_CORNER = Style.RADIUS.MODAL,
+	TEXT_COLOR = Style.LOOK.PAPER,
+	-- THE SCALE BAR (§5 surface 14: *"the scale bar is `BODY` text over a brass bar"*). A scale is a
+	-- measurement and not a mark, so it is the quietest thing on the panel.
+	SCALE_BAR_COLOR = Style.LOOK.BRASS,
+	SCALE_TEXT_COLOR = Style.LOOK.BODY,
+	-- THE LEGEND IS A WELL (§3 / §5 surface 22): a sunk panel inside the panel, one step darker and
+	-- one step less round than what it sits on.
+	LEGEND_WELL_COLOR = Style.LOOK.COLUMN,
+	LEGEND_WELL_EDGE = Style.LOOK.WELL_EDGE,
+	LEGEND_WELL_CORNER = Style.RADIUS.WELL,
+	LEGEND_WORD_COLOR = Style.LOOK.BODY,
+	-- *"every label `MICRO` `PAPER`, no stroke"* (§5 surface 4). `MICRO` is 10 px on a desktop and 9
+	-- on a phone; this map's labels are drawn inside a `UIScale`d pixel space rather than at screen
+	-- size, so the DESKTOP step is the one that is true of the space they are drawn in and
+	-- `legendVisible` is what decides whether that space is big enough to read at all.
+	LABEL_SIZE = Style.SIZE.MICRO[1],
+	-- The panel's own name, at the system's `TITLE` step and drawn in Oswald -- the same pair every
+	-- other panel in the game wears. The canvas's `N` is drawn at this size too, because north is
+	-- the second thing a map has to say.
+	TITLE_SIZE = Style.SIZE.TITLE[1],
 
-	-- THE ROAD is the hunters' line and the thing everything else is read against.
-	ROAD_COLOR = Color3.fromRGB(190, 182, 164), -- the same family as `Map.PALETTE.road`
+	-- THE ROAD is the hunters' line and the thing everything else is read against. `BODY` (§5
+	-- surface 4: *"road `#BEB6A4` -> `BODY`"*) -- a pale line, quieter than the marks on it.
+	ROAD_COLOR = Style.LOOK.BODY,
 	ROAD_PX = 3,
 
 	-- EACH HUNTER STAND. A SQUARE, so a stand is not a player.
@@ -220,15 +262,28 @@ MapUi.CONFIG = {
 	Z_INDEX = 6,
 }
 
--- WHERE THE MAP'S COLOURS COME FROM: three of `Drive.CONFIG`'s own and the compass's marker colour.
--- Read, never re-typed, so the map and the score board can never disagree about which team is blue.
+-- WHERE THE MAP'S COLOURS COME FROM, AND IT IS `Style` SINCE TASK 201 E (§5 surface 4: *"own
+-- marker `#FFE896` -> `BRASS_HI`; hunters `#FFA03C` -> `HUNTER`; beaters `#5A96FF` -> `BEATER`;
+-- target mark -> `BLAZE_HI`"*).
+--
+-- IT USED TO READ `Drive.CONFIG`, and that was the right answer to a different question: in task
+-- 155 the drive bar's badges were the only other place a team was coloured, so reading them was
+-- what stopped the map and the score board disagreeing. Since task 201 B the badge is a `Style`
+-- PILL and `Style.teamColor` is the one mapping, so reading `Drive.CONFIG` is now what WOULD make
+-- them disagree -- the drive's three colours are the pre-system ones and nothing on screen uses
+-- them any more. `teamColor` is called rather than `LOOK.HUNTER` written out, so the pill, the
+-- roster row and the map marker are one answer and not three.
 MapUi.COLORS = {
-	own = Drive.CONFIG.SCORE_HIGHLIGHT_COLOR, -- your own row on the score board
-	Drivers = Drive.CONFIG.DRIVER_COLOR, -- the drive bar's DRIVER badge
-	Shooters = Drive.CONFIG.SHOOTER_COLOR, -- the drive bar's SHOOTER badge
-	none = Drive.CONFIG.TEXT_COLOR,
-	stand = Drive.CONFIG.SHOOTER_COLOR, -- a stand is a hunter's place, so it wears their colour
-	arrow = Color3.fromRGB(235, 90, 55), -- `Compass.CONFIG.DRIVE_COLOR`
+	own = Style.LOOK.BRASS_HI, -- you, in the cream the compass's centre hairline already uses
+	Drivers = Style.teamColor("Drivers"), -- BEATER
+	Shooters = Style.teamColor("Shooters"), -- HUNTER
+	-- A BODY WITH NO TEAM. `FIELD_MUTED` and not `MUTED`: this is text-weight colour over a field
+	-- surface, and §2 bans `MUTED` there (4.11 : 1 over a bright sky).
+	none = Style.LOOK.FIELD_MUTED,
+	stand = Style.teamColor("Shooters"), -- a stand is a hunter's place, so it wears their colour
+	-- ONE "GO HERE" ORANGE IN THE GAME (§1.1). `#EB5A37` was this map's and the compass's and the
+	-- way-mark's; all three are `BLAZE_HI` now.
+	arrow = Style.LOOK.BLAZE_HI,
 }
 
 export type Bounds = { minX: number, maxX: number, minZ: number, maxZ: number }
@@ -397,8 +452,10 @@ end
 
 -- IS THERE ROOM TO READ IT? The legend lives in the panel's fixed pixel space and is scaled with it,
 -- so below a scale where `LEGEND_TEXT_PX` would render under `LEGEND_MIN_TEXT_PX` the whole block is
--- hidden rather than drawn illegibly. 8 px is the floor for `Enum.Font.Code`; 12 / 8 makes the
--- threshold 0.67, which a 400 px phone (scale ~0.3) is well under and 1080p (scale 1) is over.
+-- hidden rather than drawn illegibly. 8 px is the floor for a drawn word (it was measured for
+-- `Enum.Font.Code`, which left this file in task 201 E; BuilderSans at 8 px is no more readable, so
+-- the floor stands); 12 / 8 makes the threshold 0.67, which a 400 px phone (scale ~0.3) is well
+-- under and 1080p (scale 1) is over.
 function MapUi.legendVisible(scale: number): boolean
 	local config = MapUi.CONFIG
 	return scale * config.LEGEND_TEXT_PX >= config.LEGEND_MIN_TEXT_PX
@@ -670,6 +727,9 @@ local fullFrame: Frame? = nil
 -- the minimap's rendered diameter (`layoutFor`). `Hud.Rail` is the one writer of everything inside
 -- it, and this module never reads it.
 local legendFrame: Frame? = nil
+-- The modal's full-screen scrim (task 201 E). `Hud.build` creates it; `applyVisibility` is its one
+-- writer, and it is written from the PANEL's own answer so the two cannot part company.
+local scrimFrame: Frame? = nil
 local railFrame: Frame? = nil
 local miniScale: UIScale? = nil
 local fullScale: UIScale? = nil
@@ -850,24 +910,29 @@ end
 
 -- ---------------------------------------------------------------- the picture, built once
 
-local function stroked<T>(node: T & GuiObject): T
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 1
-	stroke.Color = Color3.new(0, 0, 0)
-	stroke.Parent = node
-	return node
-end
+-- `stroked` IS GONE (task 201 E). It put a 1 px BLACK `UIStroke` on every mark and every label on
+-- this map -- the road's scale bar, each stand, each player dot, each legend swatch and all six
+-- legend words -- and §2 is the whole of why that is over: *"an outline thickens every letter,
+-- halves the apparent size of 11 px type, and still fails over a bright sky because the outline
+-- itself is only 1 px"*. On an 8 px stand square an outline on all four sides is HALF the square.
+-- What separates a mark from the ground now is the ground: the minimap is a slate and the full map
+-- is an opaque panel, both measured in §2's contrast table.
 
 local function label(parent: GuiObject, name: string, size: number, text: string): TextLabel
 	local node = Instance.new("TextLabel")
 	node.Name = name
 	node.BackgroundTransparency = 1
-	node.Font = Enum.Font.Code
+	-- BUILDERSANS BOLD, WHICH IS WHAT `Style.faceFor` ANSWERS FOR `MICRO` AND `LABEL` (§1.2: Oswald
+	-- for a title, a name and every number; BuilderSans for every label). `Enum.Font.Code` is gone
+	-- from this file with it -- the map's numbers are stand INDEXES and a scale in metres, not a
+	-- column of figures that has to line up.
+	node.FontFace = Style.faceFor(if size >= MapUi.CONFIG.TITLE_SIZE then "LABEL" else "MICRO")
+	node.TextScaled = false
+	node.TextWrapped = false
 	node.TextSize = size
 	node.TextColor3 = MapUi.CONFIG.TEXT_COLOR
 	node.Text = text
 	node.ZIndex = MapUi.CONFIG.Z_INDEX + 3
-	stroked(node)
 	node.Parent = parent
 	return node
 end
@@ -914,7 +979,6 @@ local function drawGeometry(holder: GuiObject, model: MapGeometry, view: MapView
 		node.BackgroundColor3 = MapUi.COLORS.stand
 		node.BorderSizePixel = 0
 		node.ZIndex = config.Z_INDEX + 1
-		stroked(node)
 		node.Parent = holder
 		if standLabels then
 			local text = label(node, "Index", config.LABEL_SIZE, tostring(index))
@@ -951,7 +1015,6 @@ local function buildDrawer(
 		local corner = Instance.new("UICorner")
 		corner.CornerRadius = UDim.new(0.5, 0)
 		corner.Parent = node
-		stroked(node)
 		claim(node).Parent = frame
 		table.insert(markers, node)
 	end
@@ -968,7 +1031,6 @@ local function buildDrawer(
 	local ownCorner = Instance.new("UICorner")
 	ownCorner.CornerRadius = UDim.new(0.5, 0)
 	ownCorner.Parent = own
-	stroked(own)
 	claim(own).Parent = frame
 
 	-- WHICH WAY YOU ARE LOOKING. A short bar offset along the view bearing from your own dot, in the
@@ -982,7 +1044,6 @@ local function buildDrawer(
 	wedge.BorderSizePixel = 0
 	wedge.ZIndex = config.Z_INDEX + 3
 	wedge.Visible = false
-	stroked(wedge)
 	claim(wedge).Parent = frame
 
 	-- WHICH WAY TO GO. Karen: *"what direction to move"*. A bar from your own marker with the word at
@@ -1004,7 +1065,6 @@ local function buildDrawer(
 	arrow.BorderSizePixel = 0
 	arrow.ZIndex = config.Z_INDEX + 2
 	arrow.Visible = false
-	stroked(arrow)
 	claim(arrow).Parent = frame
 
 	local word = claim(label(frame, "PushWord", config.LABEL_SIZE, ""))
@@ -1027,7 +1087,6 @@ local function buildDrawer(
 	goal.Rotation = 45
 	goal.ZIndex = config.Z_INDEX + 2
 	goal.Visible = false
-	stroked(goal)
 	claim(goal).Parent = frame
 
 	-- A SIBLING AND NOT A CHILD, for the reason the waypoint's word is one in `Hud.build`: a child
@@ -1184,6 +1243,13 @@ function MapUi.applyVisibility()
 	local reportOpen = ReportSystem ~= nil and ReportSystem.isOpen() == true
 	local hasGeometry = geometry ~= nil
 	full.Visible = hasGeometry and MapUi.fullMapVisible(open, suppressed, reportOpen)
+	-- THE SCRIM FOLLOWS THE PANEL EXACTLY (task 201 E, §5 surface 14). It is read off the panel's
+	-- own answer rather than recomputed, so the two can never disagree -- a scrim left up over a
+	-- closed map is a dark screen with no way to tell why, which is `docs/PROJECT_CONTEXT.md`'s own
+	-- "a visibility audit certified a blank screen twice".
+	if scrimFrame ~= nil then
+		(scrimFrame :: Frame).Visible = full.Visible
+	end
 	-- `outside` IS WRITTEN BY `render`, WHICH ALREADY FINDS `me` (task 177): this stays the ONE writer
 	-- of both frames' `Visible` and the Hud gains no plumbing at all. It is false until a tick has
 	-- found a position, because ABSENT IS NOT OUTSIDE -- a map that hid itself while a player was
@@ -1606,10 +1672,22 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	fullShrink.Parent = full
 	fullScale = fullShrink
 
-	local title = claim(label(full, "Title", config.TITLE_SIZE, string.format("MAP   %s", model.world)))
+	-- EYEBROW + TITLE (§3.4, §5 surface 14), and not one `MAP   forest` line any more. The eyebrow
+	-- says WHAT KIND OF THING THIS IS in small spaced brass; the title is the world's own name. It
+	-- is the pair every other panel in this game now wears, built out of the two labels rather than
+	-- `Style.header` because that component draws a 64 px gradient bar and this panel's height is
+	-- the world's span plus its furniture -- 64 px of chrome would come straight off the map.
+	local eyebrow = claim(label(full, "Eyebrow", Style.SIZE.MICRO[1], Style.spaced("MAP")))
+	eyebrow.TextColor3 = Style.LOOK.BRASS
+	eyebrow.AnchorPoint = Vector2.new(0.5, 0)
+	eyebrow.Position = UDim2.new(0.5, 0, 0, 5)
+	eyebrow.Size = UDim2.new(1, -2 * config.FULL_PADDING, 0, config.FULL_EYEBROW_HEIGHT)
+
+	local title = claim(label(full, "Title", config.TITLE_SIZE, model.world))
+	title.FontFace = Style.FONT.OSWALD_SB
 	title.AnchorPoint = Vector2.new(0.5, 0)
-	title.Position = UDim2.new(0.5, 0, 0, 3)
-	title.Size = UDim2.new(1, -2 * config.FULL_PADDING, 0, config.FULL_TITLE_HEIGHT)
+	title.Position = UDim2.new(0.5, 0, 0, 5 + config.FULL_EYEBROW_HEIGHT)
+	title.Size = UDim2.new(1, -2 * config.FULL_PADDING, 0, config.FULL_TITLE_HEIGHT - config.FULL_EYEBROW_HEIGHT - 5)
 
 	local canvas = Instance.new("Frame")
 	canvas.Name = "Canvas"
@@ -1634,13 +1712,13 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	bar.AnchorPoint = Vector2.new(0, 1)
 	bar.Size = UDim2.fromOffset(math.max(8, math.round(studs * fullView.pxPerStud)), 3)
 	bar.Position = UDim2.new(0, config.FULL_PADDING, 1, -(config.FULL_FOOTER_HEIGHT - 8))
-	bar.BackgroundColor3 = config.TEXT_COLOR
+	bar.BackgroundColor3 = config.SCALE_BAR_COLOR
 	bar.BorderSizePixel = 0
 	bar.ZIndex = config.Z_INDEX + 3
-	stroked(bar)
 	claim(bar).Parent = full
 
 	local barLabel = claim(label(full, "ScaleLabel", config.LABEL_SIZE, string.format("%d m", metres)))
+	barLabel.TextColor3 = config.SCALE_TEXT_COLOR
 	barLabel.AnchorPoint = Vector2.new(0, 1)
 	barLabel.Position = UDim2.new(0, config.FULL_PADDING, 1, -3)
 	barLabel.Size = UDim2.fromOffset(80, config.LABEL_SIZE + 2)
@@ -1653,6 +1731,30 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	if legend ~= nil then
 		local holder = legend :: Frame
 		holder.Position = UDim2.new(1, -config.FULL_PADDING, 1, -(config.FULL_FOOTER_HEIGHT - 4))
+		-- IT IS A WELL NOW (§5 surface 22, task 201 E): *"the legend becomes a well of swatch
+		-- rows"*. It was six swatches and six black-outlined words floating on the map itself, so
+		-- the key and the thing it keyed were the same surface. A well is one step darker and one
+		-- step less round than the panel it sits in, which is the ladder in §1.3.
+		--
+		-- A CLAIMED CHILD AND NOT THE HOLDER ITSELF, for two reasons. `Hud.build` owns that frame
+		-- and `teardown` destroys only what `claim` recorded, so painting the holder would leave a
+		-- coloured box behind on a world change; and a `UIPadding` on the holder would move every
+		-- row, because each one is positioned by offset from its top-left. The well is drawn BEHIND
+		-- the rows instead, one band under them and a little larger on every side, so
+		-- `legendVisible`'s floor and the row arithmetic are untouched.
+		local well = Instance.new("Frame")
+		well.Name = "Well"
+		well.BackgroundColor3 = config.LEGEND_WELL_COLOR
+		well.BorderSizePixel = 0
+		well.Position = UDim2.fromOffset(-Style.SPACE.M, -Style.SPACE.S)
+		well.Size = UDim2.fromOffset(
+			config.LEGEND_WIDTH_PX + Style.SPACE.M + Style.SPACE.S,
+			config.LEGEND_HEIGHT_PX + Style.SPACE.S
+		)
+		well.ZIndex = config.Z_INDEX + 2
+		Style.corner(well, config.LEGEND_WELL_CORNER)
+		Style.stroke(well, config.LEGEND_WELL_EDGE, Style.EDGE_T.WELL)
+		claim(well).Parent = holder
 		for index, row in ipairs(MapUi.legendRows()) do
 			local y = (index - 1) * config.LEGEND_ROW_HEIGHT
 			local swatch = Instance.new("Frame")
@@ -1672,13 +1774,15 @@ function MapUi.setGeometry(next_: MapGeometry?)
 				round.CornerRadius = UDim.new(0.5, 0)
 				round.Parent = swatch
 			end
-			stroked(swatch)
 			claim(swatch).Parent = holder
 			local word = claim(label(holder, string.format("Word%d", index), config.LEGEND_TEXT_PX, row.word))
 			word.AnchorPoint = Vector2.new(0, 0.5)
 			word.Position = UDim2.fromOffset(config.LEGEND_SWATCH_PX + 8, y + config.LEGEND_ROW_HEIGHT / 2)
 			word.Size =
 				UDim2.fromOffset(config.LEGEND_WIDTH_PX - config.LEGEND_SWATCH_PX - 8, config.LEGEND_TEXT_PX + 2)
+			-- `BODY` AND NOT `PAPER` (§5 surface 22: *"text to `BODY` / `FIELD_MUTED`"*). A key is
+			-- read once and then remembered; the marks on the map are what the eye goes back to.
+			word.TextColor3 = config.LEGEND_WORD_COLOR
 			word.TextXAlignment = Enum.TextXAlignment.Left
 		end
 	end
@@ -1709,7 +1813,10 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	MapUi.render()
 end
 
-function MapUi.start(frames: { miniMap: Frame, fullMap: Frame, legend: Frame?, rail: Frame? }, collaborators: any)
+function MapUi.start(
+	frames: { miniMap: Frame, fullMap: Frame, legend: Frame?, rail: Frame?, scrim: Frame? },
+	collaborators: any
+)
 	if started then
 		return
 	end
@@ -1721,6 +1828,7 @@ function MapUi.start(frames: { miniMap: Frame, fullMap: Frame, legend: Frame?, r
 	-- diameter and the rail hangs under it, so `layoutFor` writes where the column starts -- and
 	-- nothing else about it. `Hud.Rail` is the one writer of its buttons.
 	railFrame = frames.rail
+	scrimFrame = frames.scrim
 	CameraSystem = collaborators and collaborators.Camera
 	ReportSystem = collaborators and collaborators.Report
 	localUserId = (collaborators and collaborators.userId) or 0

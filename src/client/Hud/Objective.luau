@@ -636,6 +636,9 @@ local lineLabel: TextLabel? = nil
 local lineSlate: Frame? = nil
 local markFrame: Frame? = nil
 local markLabel: TextLabel? = nil
+-- The word's own slate (task 201 E, §5 surface 21). One writer -- this module -- of its `Visible`,
+-- its position and its fade, for the same reason the objective line's slate is this module's.
+local markSlate: Frame? = nil
 local started = false
 local suppressed = false
 local lastMarkU: number? = nil
@@ -680,7 +683,9 @@ function Objective.isGo(text: string): boolean
 	return text == Objective.CONFIG.TEXT.DriverGo
 end
 
-function Objective.start(nodes: { line: TextLabel, mark: Frame, markLabel: TextLabel, slate: Frame? })
+function Objective.start(
+	nodes: { line: TextLabel, mark: Frame, markLabel: TextLabel, slate: Frame?, markSlate: Frame? }
+)
 	if started then
 		return
 	end
@@ -689,6 +694,7 @@ function Objective.start(nodes: { line: TextLabel, mark: Frame, markLabel: TextL
 	lineSlate = nodes.slate
 	markFrame = nodes.mark
 	markLabel = nodes.markLabel
+	markSlate = nodes.markSlate
 end
 
 -- THE ONE WRITER of all three nodes. Public and taking EVERYTHING, for the reason `Hud.renderScore`
@@ -748,6 +754,13 @@ function Objective.render(state: {
 	if not show or state.target == nil then
 		frame.Visible = false
 		wordLabel.Visible = false
+		-- THE SLATE GOES WITH THE WORD, ALWAYS AND IN BOTH DIRECTIONS (task 201 E). An
+		-- `AutomaticSize` slate with an empty label still draws its own padding and its brass edge,
+		-- so a hidden word on a shown slate is a small empty tile sitting in the middle of the
+		-- forest -- the same trap the objective line's slate has a comment about.
+		if markSlate ~= nil then
+			(markSlate :: Frame).Visible = false
+		end
 		lastMarkU, lastMarkV = nil, nil
 		markPinned = false
 		return
@@ -765,13 +778,36 @@ function Objective.render(state: {
 	frame.Position = UDim2.new(0.5, math.round(u), 0.5, math.round(v))
 	frame.BackgroundTransparency = transparency
 	frame.Visible = true
-	wordLabel.Position = UDim2.new(0.5, math.round(u), 0.5, math.round(v) + config.MARK_LABEL_GAP)
 	local text = Objective.markText(state.target, state.distanceStuds)
 	if wordLabel.Text ~= text then
 		wordLabel.Text = text
 	end
 	wordLabel.TextTransparency = transparency
 	wordLabel.Visible = true
+	-- THE SLATE CARRIES THE WORD'S POSITION NOW, because the word is its CHILD (§5 surface 21): it
+	-- is `AutomaticSize.XY` and sits at the word's old place, so the pair still travels together
+	-- and the word is still centred under the chevron at every string length.
+	--
+	-- A PINNED MARK DIMS ALL THREE PARTS OF ITSELF (`PINNED_TRANSPARENCY`, and the rule is older
+	-- than this slate: *"pinned and real are not the same picture"*). `BackgroundTransparency` and a
+	-- `UIStroke`'s own transparency do NOT inherit from a parent in Roblox UI, which is the lesson
+	-- `HitCard.fade` is written around, so each of the three is faded from the one number -- the
+	-- slate towards invisible from its own `SLATE_QUIET_T`, not from 0.
+	if markSlate ~= nil then
+		local slate = markSlate :: Frame
+		slate.Position = UDim2.new(0.5, math.round(u), 0.5, math.round(v) + config.MARK_LABEL_GAP)
+		slate.BackgroundTransparency = Style.SLATE_QUIET_T + (1 - Style.SLATE_QUIET_T) * transparency
+		local edge = slate:FindFirstChildOfClass("UIStroke")
+		if edge ~= nil then
+			edge.Transparency = Style.EDGE_T.SLATE + (1 - Style.EDGE_T.SLATE) * transparency
+		end
+		slate.Visible = true
+	else
+		-- NO SLATE IS STILL A WORKING MARK. `markSlate` is optional in `Objective.start`, and a
+		-- caller that passes only the three old nodes (every spec written before this task) gets
+		-- the word positioned exactly where it was.
+		wordLabel.Position = UDim2.new(0.5, math.round(u), 0.5, math.round(v) + config.MARK_LABEL_GAP)
+	end
 end
 
 return Objective
