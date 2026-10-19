@@ -9,18 +9,24 @@ facts read out of the code **by symbol** (what seam already exists and what does
 four external sources with licence and maintenance status; §4 is the pattern and the reason;
 §5 the numeric targets.
 
-**This is NOT a new system document.** It is a **delta** to two designs that already exist, and the
-Architect's commit must EDIT THEM, not only write `reviews/task-217/ARCH_RESULT.md` (Learning Agent
-L-071: deltas to this same area from tasks 191, 213 and 214 sat unqueued for days):
+**The document is `docs/design/role-rotation.md`**, and `tools/agents.py` writes exactly that one
+file plus `reviews/task-217/ARCH_RESULT.md` — it cannot edit a second design, so the deltas below
+have to be carried IN this document rather than applied to the others. **That is a requirement, not
+a formality** (Learning Agent L-071: deltas to this same area from tasks 191, 213 and 214 sat
+unqueued for days). The design must therefore contain **one explicit delta table** naming, section
+by section, what it SUPERSEDES in the designs that already exist, so the Builder can queue each row
+in `TASKS.md` and no reader of the older text is left with a design that says the opposite of the
+code:
 
 - **`docs/design/economy.md`** — §9 (the profile: shape, key, store name, migration), §4.4 (the
   owner's interface), §4.5 (what `Match` changes), §10 (the seams and the spec claim each one buys),
   §11 (hazards), §12 (deltas), §13 (open decisions).
 - **`docs/design/drive.md`** — §5.2 (`Roster`), §5.3 (what `Assigning` does, in order), §4.2 (events
   the machine consumes), §9.2 (the owner's interface).
+- **`docs/design/forest-drive.md`** §5.2/§5.3 (the `DHForestStartRole` / `/beater` request) — only if
+  the Architect rules differently from decision 7 below.
 
-A third file is touched only if the Architect rules differently from decision 7 below:
-`docs/design/forest-drive.md` §5.2/§5.3 (the `DHForestStartRole` / `/beater` request).
+`ARCH_RESULT.md` must repeat that delta list, so the Director sees it without opening the design.
 
 ---
 
@@ -207,6 +213,9 @@ wanted.
 9. **The numeric targets** of note §5, confirmed or corrected.
 10. **What this design deliberately leaves alone**, naming 214a(a), 214b, the `COINS` default, and
     anything else it refuses.
+11. **THE DELTA TABLE** of the three designs listed at the top of this brief: one row per section
+    superseded, what it says now, what it says after this task. It is the only record of those
+    deltas, because the script writes no second design file.
 
 ---
 
