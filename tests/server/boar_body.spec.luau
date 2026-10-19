@@ -449,6 +449,34 @@ return function()
 			return out
 		end
 
+		-- TASK 210, MEASUREMENT ONLY: how much field the group has left. Every case below runs the
+		-- SAME herd at the SAME exit line, and a member that crosses it has escaped and is
+		-- despawned -- so this is the number the later cases' preconditions actually depend on.
+		local function toExitLine(handles): number
+			local nearest = math.huge
+			for _, handle in ipairs(live(handles)) do
+				nearest = math.min(nearest, handle.position().Z - SOUNDER_FIELD.exitZ)
+			end
+			return if nearest == math.huge then -1 else nearest
+		end
+
+		-- ...AND EVERY OTHER NUMBER THOSE PRECONDITIONS DEPEND ON, in one string: how many members
+		-- the sounder still has, how wide it is against `BREAK_STUDS`, how many have left it
+		-- altogether, and how much field is left.
+		local function herdPrint(handles): string
+			local view = herd:sounders()[1]
+			return string.format(
+				"%d sounder(s), %d member(s), %d live, width %.1f of %d, membersLeft %d, %.1f studs from the line",
+				#herd:sounders(),
+				if view ~= nil then #view.memberIds else -1,
+				#live(handles),
+				spread(live(handles)),
+				SETTINGS.BREAK_STUDS,
+				herd:stats().membersLeft,
+				toExitLine(handles)
+			)
+		end
+
 		local function handleOf(handles, id: string?)
 			for _, handle in ipairs(handles) do
 				if handle.id == id then
@@ -706,9 +734,11 @@ return function()
 					spread(live(group))
 				)
 			)
+			TestKit.note("t210 scatter-case EXIT: " .. herdPrint(group))
 		end)
 
 		it("drops a member that has been too far away for too long", function()
+			TestKit.note("t210 break-case ENTRY: " .. herdPrint(group))
 			local view = herd:sounders()[1]
 			local strayId = view.memberIds[#view.memberIds]
 			local stray = handleOf(group, strayId)
@@ -726,6 +756,7 @@ return function()
 				elapsed += RunService.Heartbeat:Wait()
 			end
 
+			TestKit.note("t210 break-case EXIT: " .. herdPrint(group))
 			expect(herd:sounderOf(strayId)).to.equal(nil)
 			expect(herd:stats().membersLeft > before).to.equal(true)
 			expect(#herd:sounders()[1].memberIds).to.equal(members - 1)
@@ -736,6 +767,7 @@ return function()
 			-- animal is still alive and still running, and it leaves the sounder because a dying
 			-- animal cannot hold formation and the group would otherwise crawl to the line at its
 			-- speed (LEAVE_ON_MORTAL).
+			TestKit.note("t210 mortal-case ENTRY: " .. herdPrint(group))
 			local view = herd:sounders()[1]
 			local members = #view.memberIds
 			expect(members >= 2).to.equal(true)
