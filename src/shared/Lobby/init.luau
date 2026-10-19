@@ -901,41 +901,72 @@ Lobby.CONFIG = {
 		-- it.) The 18.5 x 7.0 x 8.7 in the paragraph above is the Creator Store's own rounding of
 		-- the same box.
 		MODEL = { SCALE = 1, YAW_RADIANS = 1.5707963, WIDTH_STUDS = 8.7, LENGTH_STUDS = 18.46 },
-		-- ---------------- HOW FAR THE TRUCK STANDS FROM ITS PAD (task 209)
+		-- ---------------- HOW FAR THE TRUCK STANDS FROM ITS PAD (tasks 209 and 213)
 		--
 		-- KAREN, 2026-10-18 ~14:20, with a screenshot of the trucks:
 		--   *"car has to be moved back meaning left same size twice as car now is (screenshoot) so I
 		--   can easy access enter to game"*.
+		-- KAREN, 2026-10-19 ~09:00, looking at what that built:
+		--   *"truck is good, now can make pods closer to truck"*.
 		--
-		-- WHAT SHE WAS LOOKING AT, MEASURED BEFORE A LINE OF THIS WAS WRITTEN (rule H). Her
-		-- objective chevron read *"TRUCK 8 m"*: standing on pad 1, her own truck's tailgate was
-		-- **2.77 studs** from the pad's near edge and 8.77 from its centre, and the truck filled the
-		-- frame. From the south -- where her screenshot was taken -- the four trucks hid their own
-		-- pads completely: one corner of pad 1's green deck was the only pad visible, and the three
+		-- SO THE TWO ROWS BELOW ARE ONE SENTENCE OF HERS EACH, AND ONLY ONE OF THEM MOVES IN TASK 213:
+		-- the truck's row is settled (*"truck is good"*) and the PAD's row comes back toward it.
+		--
+		-- WHAT SHE WAS LOOKING AT IN 209, MEASURED BEFORE A LINE OF IT WAS WRITTEN (rule H). Her
+		-- objective chevron read *"TRUCK 8 m"*: standing on pad 1, her own truck's nose was **2.77
+		-- studs** from the pad's near edge and 8.77 from its centre, and the truck filled the frame.
+		-- From the south -- where her screenshot was taken -- the four trucks hid their own pads
+		-- completely: one corner of pad 1's green deck was the only pad visible, and the three
 		-- `TRUCK n` billboards were chopped into each other by the truck bodies in front of them.
 		-- The before frames are in the task-209 review request.
 		--
-		-- TWO ROWS AND NOT ONE, because the pad and the truck move APART rather than together:
-		--   * `BACK_STUDS` moves the TRUCK south, away from its pad, inside its own bay. Nothing
-		--     else reads it -- the bay, the pad, the yard's x and the billboards are all still the
-		--     bay centre's -- so "where is bay 3" still has one answer.
-		--   * `PAD_BEHIND_STUDS` moves the PAD north, toward the lodge she walks from.
-		-- Eight studs each. The sum is what she asked for: the clear gap between a pad's near edge
-		-- and its truck's drawn box is `PAD_BEHIND_STUDS - (LENGTH_STUDS / 2 - BACK_STUDS)` =
-		-- **18.75 studs**, which is **2.16 x a truck's measured width** (8.70) and 1.02 x its
-		-- length. `lobby.spec` holds that rule, and `lobby_live.spec` holds the BUILT trucks to it.
+		-- TWO ROWS AND NOT ONE, because the pad and the truck move SEPARATELY:
+		--   * `BACK_STUDS` moves the TRUCK south, away from its pad, inside its own bay. Nothing else
+		--     reads it -- the bay, the pad, the yard's x and the billboards are all still the bay
+		--     centre's -- so "where is bay 3" still has one answer. Eight studs, and it is HERS: it is
+		--     also what keeps the trucks on the yard slab, which sixteen studs of truck alone would
+		--     have pushed them 3 studs off the south end of.
+		--   * `PAD_BEHIND_STUDS` moves the PAD. It is the ONE row task 213 touches.
 		--
-		-- WHY NOT ONE ROW OF 16: because the yard slab is 22 studs deep each side of the bay and the
-		-- pads are laid on the ground that is MEASURED. Sixteen studs of pad movement alone would
-		-- put the pads 10 studs off the slab and run pad 1 up against the lodge's roof overhang
-		-- (east-most point x +20.5 from the anchor, measured; pad 1's west edge is +21.5). Sixteen
-		-- studs of truck movement alone would push the trucks 3 studs off the south end of the same
-		-- slab. Eight each keeps both on it.
+		-- WHAT TASK 213 MEASURED FIRST (rule H, 2026-10-19, live Forest Test, before the change): the
+		-- clear gap between each pad's near edge and its own truck's DRAWN box -- every world-axis
+		-- corner of every `BasePart` of the built truck, counted only over the parts standing in that
+		-- pad's own x band, so it is the pair's own footprint and never a pivot (L-024, L-086):
+		--     bay 1  18.74    bay 2  18.77    bay 3  18.77    bay 4  18.41 (tilted to the hill)
+		-- That is a truck's whole length of empty gravel between the rectangle she stands on and the
+		-- truck she is getting into, and it is what she is asking to close.
+		--
+		-- `PAD_BEHIND_STUDS` 20 -> 5 LEAVES A NOMINAL **3.77 studs**
+		-- (`PAD_BEHIND_STUDS - (LENGTH_STUDS / 2 - BACK_STUDS)`), built as 3.74 / 3.77 / 3.77 / 3.41.
+		-- WHY THAT AND NOT 2, OR 8 -- read off the walk and off the box:
+		--   * IT HAS TO CLEAR A BODY, NOT A POINT. `Join.withinRect` is `<=`, so the near edge is
+		--     standable ground; a man standing on it is ~2 studs deep at the torso, and his half plus
+		--     the truck's own bumper is the first ~2 studs of any gap before a stud of it is spare.
+		--   * IT HAS TO SURVIVE THE TILT. `settleOnGround` tilts a truck onto the plane through its
+		--     four wheels, which LENGTHENS the drawn box along z: bay 4 measures 18.71 against the
+		--     nominal 18.46 and so eats 0.36 studs of its own gap. The nominal is the ceiling of what
+		--     gets built, never the floor -- which is why the band below has room under it.
+		--   * IT MUST STAY ONE STEP. 3.77 studs is a quarter of the truck's own length and a quarter of
+		--     a second at a walk (16 studs/s): close enough to read as that truck's own loading place,
+		--     far enough that the pad is not under its bumper.
+		--
+		-- THE YARD FOLLOWS THE PAD AND IS NOT MOVED BY HAND: `Build.yardRect` derives the gravel's
+		-- north edge from this row plus the pad's own depth, so the slab comes south with the pads
+		-- instead of leaving them on bare terrain, and `Build.trees`' exclusion comes with it.
 		BACK_STUDS = 8,
 		-- WHERE TASK 182'S PAD WENT, said once, here. From the BAY CENTRE to the pad's NEAR edge
 		-- (`Pads.centreFor`), which is a measurement and not a tailgate -- its own comment says why.
-		-- It was 12 until task 209, which is where Karen's 2.77-stud gap came from.
-		PAD_BEHIND_STUDS = 20,
+		-- It was 12 until task 209 (Karen's 2.77-stud gap), and 20 until task 213 (her 18.77-stud one).
+		PAD_BEHIND_STUDS = 5,
+		-- WHAT THAT ROW HAS TO LEAVE, AS DATA RATHER THAN AS A LITERAL INSIDE A SPEC. The gap is
+		-- EMERGENT -- three rows make it (`PAD_BEHIND_STUDS`, `BACK_STUDS` and `MODEL.LENGTH_STUDS`) --
+		-- so it is the one number here that nothing owns, and a retune of any one of the three could
+		-- walk it out of Karen's *"closer"* without touching this line. `MIN` is the body-plus-bumper
+		-- bound written above; `MAX` is the Director's ceiling for *"small"* (2026-10-19).
+		-- `lobby.spec` holds the arithmetic to this band, so a drift fails the harness instead of
+		-- looking wrong in a screenshot. The BUILT trucks are held to it by measurement in the live
+		-- Forest Test (the free model is not in the harness place, so no spec can see one).
+		PAD_GAP_STUDS = { MIN = 2, MAX = 4 },
 		-- ---------------- THE TYRES ON THE GROUND (task 186)
 		--
 		-- KAREN, 2026-10-14 ~17:00: *"car tyers are inside earth"*.

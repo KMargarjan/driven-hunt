@@ -311,6 +311,53 @@ return function()
 			expect(Lobby.stats().keepers).to.equal(1)
 		end)
 
+		-- ---------------------------------------------------------- task 213, the hill under pad 4
+		--
+		-- KAREN, 2026-10-19: *"truck is good, now can make pods closer to truck"*. Bringing the pads
+		-- south to her gap put pad 4's south-east corner on the last of the yard's old east hill --
+		-- the same 1.27 studs of it `TRUCK.SETTLE` was written for. MEASURED in the live Forest Test
+		-- the same day, 81 rays per pad: dead flat under pads 1, 2 and 3 (spread 0.000) and 0.936
+		-- studs of rise across pad 4's corner, which left 8 of its 81 samples ABOVE the deck's top --
+		-- a buried corner and a broken rim, photographed from the player's eye.
+		--
+		-- SO THE GROUND IS ASKED AT NINE PLACES AND THE HIGHEST WINS, which is task 196's finding
+		-- (*"WHY ONE SAMPLE IS NOT ENOUGH"*) on a third surface. This case is the shape of that live
+		-- yard: flat everywhere except one corner of one pad.
+		it("lays a pad on the HIGHEST ground under it, not the ground at its middle (task 213)", function()
+			local BUMP = 0.936 -- the live measurement, kept as the number it was measured at
+			local corner = padAt(CFG.TRUCK.COUNT)
+			local _seen, on = fresh(bin, function(world)
+				world.groundAt = function(x: number?, z: number?): number?
+					-- THE HILL IS IN THE LAST PAD'S LAST CORNER AND NOWHERE ELSE, so a build that
+					-- read the centre, the mean or the lowest sample cannot pass this.
+					if
+						x ~= nil
+						and z ~= nil
+						and x >= corner.X + CFG.PADS.SIZE.X / 2 - 0.5
+						and z <= corner.Z - CFG.PADS.SIZE.Z / 2 + 0.5
+					then
+						return SHELF + BUMP
+					end
+					return SHELF
+				end
+			end)
+			expect(on).to.equal(true)
+			Lobby.step(1000, {})
+			expect(Lobby.isBuilt()).to.equal(true)
+			-- THE PAD ON THE HILL CLEARS IT: its top is the highest ground plus the z-fighting lift.
+			local hilly = Lobby.Build.padPart(CFG.TRUCK.COUNT) :: BasePart
+			local top = hilly.Position.Y + hilly.Size.Y / 2
+			expect(math.abs(top - (SHELF + BUMP + CFG.PADS.LIFT_STUDS)) < 1e-3).to.equal(true)
+			-- ...AND THE FLAT ONES ARE NOT DRAGGED UP WITH IT. One pad's hill is one pad's business:
+			-- the lift is per pad and the slab's own floor (`ROAD.THICK_STUDS`) still bounds it.
+			for index = 1, CFG.TRUCK.COUNT - 1 do
+				local flat = Lobby.Build.padPart(index) :: BasePart
+				local flatTop = flat.Position.Y + flat.Size.Y / 2
+				expect(math.abs(flatTop - (SHELF + CFG.ROAD.THICK_STUDS + CFG.PADS.LIFT_STUDS)) < 1e-3).to.equal(true)
+				expect(flatTop < top).to.equal(true)
+			end
+		end)
+
 		it("builds inside a second and says how long it took", function()
 			local _seen, on = fresh(bin)
 			expect(on).to.equal(true)
