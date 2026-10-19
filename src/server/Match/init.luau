@@ -1112,6 +1112,22 @@ local function applyAssignTeams(assignment)
 		end
 		board = Score.setTeam(board, userId, team)
 	end
+	-- THE PERSISTED RECORD MIRRORS THE ROLE HE IS ACTUALLY PLAYING (task 217, write edge 1). It is
+	-- HERE, beside `Body.setTeam`, because this is the ONE place a team is written -- so an
+	-- assignment this task did not think of (a mid-drive join, a `/beater` request, a second
+	-- placement) cannot leave the record stale. That is the shape task 214's root cause in this very
+	-- path was missing: a fact written at remembered moments instead of where it is decided.
+	--
+	-- DURING A DRIVE THE OWED TEAM IS THE TEAM HE IS PLAYING, which is what makes a rejoin resume
+	-- the drive he left rather than hand a beater a gun -- Karen's *"no cheating back to hunter"*.
+	-- The drive's END is what flips it (write edge 2).
+	--
+	-- `assignment` is sometimes the whole table and sometimes one row (`{ [userId] = team }`), and
+	-- both are correct inputs: the record is per player, so a partial update is a partial update.
+	-- The owner derives nothing -- it is handed the table and stores exactly it.
+	if world and world.economy and world.economy.noteNextTeams then
+		world.economy.noteNextTeams(assignment)
+	end
 end
 
 -- A TEAM HANDED BACK, and it closes a hole that was invisible until the lobby existed (task 177,
@@ -1712,6 +1728,21 @@ local function dispatch(event)
 		-- be refused his horn at the start of drive 2.
 		table.clear(throughLine)
 	end
+	-- ...AND WHAT EACH PLAYER IS OWED (task 217), on every event for exactly `aliveBoars`' reason: an
+	-- assignment happens on a JOIN as well as on a tick, so a fact read only on ticks would be
+	-- missing from the branch that needs it most -- the lobby's own door into the drive.
+	--
+	-- THE VIEW'S ANSWER IS A MEMOISED FROZEN TABLE, so this is one table read, no clone and no
+	-- freeze. That matters while TASKS.md 214a(a) is open: with a refused role ask pending, this
+	-- dispatch is stepped at ~15x `MATCH_STEP_HZ`, and a clone here would be ~60 table builds a
+	-- second for a table that changes at most twice a drive (design, hazard 5).
+	--
+	-- IT IS A SUGGESTION AND NEVER A DECISION: `Phase` hands it to `Roster.previousFrom`, and
+	-- `Roster.assign`'s balance check may discard the whole swap -- in which case nothing is
+	-- consumed, because the only thing that ever WRITES a turn is the drive's end.
+	if filled.owed == nil and world and world.economy and world.economy.owedTeams then
+		filled.owed = world.economy.owedTeams()
+	end
 	local endedEarlyBefore = state.endedEarly
 	local holdbacksBefore = state.holdbacks
 	state, effects = Phase.step(state, filled, now(), config)
@@ -1793,6 +1824,29 @@ local function dispatch(event)
 	-- copy from before the pay-out, and the pure board is what the pure conversion wants.
 	if state.phase ~= before and state.phase == "Scoring" and world and world.economy then
 		world.economy.payDrive(state.driveNumber, Score.leaderboard(board))
+		-- ...AND THE TURN FLIPS (task 217, write edge 2). A drive that reached `Scoring` is a drive he
+		-- COMPLETED, and the value stored is `other(the role he ACTUALLY played)` -- which is what
+		-- makes "a turn the balance rule could not honour is not consumed" structural rather than
+		-- bookkeeping: a man owed beater who was made a hunter is written beater again, with no
+		-- second field and no "was it honoured" flag to get wrong (design section 5.3).
+		--
+		-- COMPUTED WHOLE from the final assignment, so it also RECONCILES every mid-flight write of
+		-- this drive: whatever write edge 1 missed (a player whose profile had not answered yet, a
+		-- race on the spawned load thread) is corrected once per drive, by construction.
+		--
+		-- WHY BEFORE `applyEffects`, and it is NOT the forced-broadcast reason the pay-out above
+		-- rests on -- nothing about the turn goes on the wire. `applyEffects` at this edge applies
+		-- `release`, `clearBoars`, `hold` and `scene`, and `applyScene` MOVES every character; if
+		-- anything in that list yields, a `Players.PlayerRemoving` landing in the window reaches
+		-- `Economy.release` and drops the session before the flip was written, losing the turn of a
+		-- man who was there when the drive ended. Writing first closes that window and costs nothing.
+		--
+		-- `state.assignment` AND NOT `state.previousAssignment`: `enterScoring` has just set the
+		-- second to the first and cleared neither, so they are the same table at this instant. The
+		-- live one is the one to read.
+		if world.economy.noteNextTeams then
+			world.economy.noteNextTeams(Roster.invert(state.assignment))
+		end
 		snapshotCache = nil
 	end
 

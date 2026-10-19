@@ -19,7 +19,7 @@
 -- empty board. Both are stated rather than hidden.
 --
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
--- Design: docs/design/drive.md (sections 4.1, 8.4, 9.1)
+-- Design: docs/design/drive.md (sections 4.1, 8.4, 9.1), docs/design/role-rotation.md (section 11.6)
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
@@ -296,6 +296,15 @@ return function()
 			local tiedBefore = #before.tied
 			-- BEFORE the clock moves, so "it rose by exactly one" is a measurement and not a guess.
 			local paidBefore = Economy.stats().drivesPaid
+			-- ...AND THE SIDE EACH PLAYER IS ACTUALLY PLAYING (task 217), for the same reason: the
+			-- turn this edge writes is `other(what he played)`, so the claim needs the BEFORE.
+			local playedBefore: { [number]: string } = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				local team = Match.assignmentOf(player.UserId)
+				if team then
+					playedBefore[player.UserId] = team
+				end
+			end
 			TestKit.note(
 				string.format(
 					"zz_drive_boundary: drive %d had %d row(s), %d tied, %d point-unit(s), %d rope(s)",
@@ -360,6 +369,40 @@ return function()
 					expect(scoreRow.coins).to.equal(nil)
 				end
 				TestKit.note("zz_drive_boundary: COINS is off, so the boundary paid nothing and no row carries one")
+			end
+
+			-- ...AND THE TURN FLIPPED, ON THIS SAME EDGE (task 217). The only place in the suite where
+			-- write edge 2 is driven by the REAL production path: `Match`'s own dispatch, with
+			-- whatever `Economy` the composition root wired. `economy.spec` owns the record's
+			-- arithmetic and `match_roster.spec` the rule; what this owns is "it happened, here".
+			--
+			-- CONDITIONAL ON THE FLAG, and the condition is READ rather than assumed -- for the
+			-- pay-out's reason above and one more: `test` and `test2` both REFUSE to start while a
+			-- `DHFlag_` override is set, so NO harness run can ever have `COINS` on (design hazard
+			-- 11). The ON branch's evidence on the production path is the live Forest Test run, and
+			-- this is said out loud rather than papered over.
+			local owed = Economy.owedTeams()
+			if Economy.isEnabled() then
+				local checked = 0
+				for userId, played in pairs(playedBefore) do
+					-- `other(what he ACTUALLY played)`: a man who shot this drive is owed a beater's
+					-- turn, and a man the balance rule made a hunter against his turn is owed that
+					-- turn again -- which is the same assertion, because the value is computed from
+					-- what he played and not from what he was owed (design section 5.3).
+					expect(owed[userId]).to.equal(Match.Roster.other(played))
+					checked += 1
+				end
+				TestKit.note(
+					string.format("zz_drive_boundary: the turn flipped for %d player(s) on the Scoring edge", checked)
+				)
+			else
+				-- OFF IS THE GAME BEFORE THIS TASK, measured at the one boundary that could break it:
+				-- no session is opened, so there is no row at all -- and `Roster.previousFrom` is
+				-- then handed an empty table and answers `previousAssignment` BY IDENTITY, which is
+				-- why the next drive's teams are the roster's alone (design section 7).
+				expect(next(owed)).to.equal(nil)
+				expect(Economy.stats().nextTeamsWritten).to.equal(0)
+				TestKit.note("zz_drive_boundary: COINS is off, so no turn is stored and the roster alone decides")
 			end
 		end)
 

@@ -11,8 +11,8 @@
 -- session steal cannot be reproduced -- what IS testable is OUR reaction to it, through
 -- `Store.memory`'s `refuse` option and its `loseSession` door.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
--- Design: docs/design/economy.md (sections 4.2, 9)
--- Note:   docs/research/2026-10-13-coins-persistence.md
+-- Design: docs/design/economy.md (sections 4.2, 9), docs/design/role-rotation.md (section 11.4)
+-- Note:   docs/research/2026-10-13-coins-persistence.md, docs/research/2026-10-20-role-rotation.md
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Economy = require(ServerScriptService:WaitForChild("Economy"))
@@ -63,7 +63,7 @@ return function()
 			expect(Store.read({ owned = { a = true } }).owned.a).to.equal(true)
 		end)
 
-		it("holds the balance, lifetime earnings and the drive count, and a schema number", function()
+		it("holds the balance, lifetime earnings, the drive count, the TURN and a schema number", function()
 			local t = Store.TEMPLATE
 			expect(t.coins).to.equal(0)
 			-- `coinsEarnedTotal` is the one number SPENDING destroys and cannot rebuild, which is why
@@ -73,6 +73,81 @@ return function()
 			-- READ AND NEVER ACTED ON in this task: it is the number a later migration branches on,
 			-- and branching on it now would be a migration with nothing to migrate.
 			expect(t.schema).to.equal(1)
+		end)
+
+		-- ------------------------------------------------------------ the turn (task 217)
+		--
+		-- KAREN, 2026-10-11: *"ROLES ROTATE ... it is REMEMBERED across logout/login (no cheating
+		-- back to hunter) -- persistent per player (DataStore)."*
+		-- Design: docs/design/role-rotation.md (sections 3.1, 3.3, 6, 11.4)
+		it("holds the turn as a STRING, which is what keeps it clear of the shared-table hazard", function()
+			local t = Store.TEMPLATE
+			-- `""` MEANS NO TURN STORED, and it is a string rather than a table on purpose: this
+			-- template is ENUMERATED by `Store.read`'s fill-missing half, whose clone branch is
+			-- `type(value) == "table"` -- so a scalar default can never reach hazard 1, where one
+			-- shared table would have been handed to every player on the server.
+			expect(t.nextTeam).to.equal("")
+			expect(type(t.nextTeam)).to.equal("string")
+			-- ...AND `""` RATHER THAN A MISSING KEY, because a key whose default were nil cannot
+			-- exist in a Lua table at all: the template would not name the field, so
+			-- `ProfileStore.New(storeName, Store.TEMPLATE)` would not know it and nothing reading
+			-- the template would see the profile's real shape.
+			expect(table.isfrozen(t)).to.equal(true)
+		end)
+
+		it("adds the turn to the key and NOT to the store's name: it is additive", function()
+			-- The whole reason a new field costs nothing: an older build keeps this key untouched
+			-- (`Store.read`'s keep-unknown half) and a newer one fills it, so no `_v2` and no
+			-- migration. `schema` is still 1 because there is nothing to migrate.
+			expect(Economy.CONFIG.STORE_NAME).to.equal("DrivenHuntPlayer_v1")
+			expect(Store.TEMPLATE.schema).to.equal(1)
+			expect(Store.read({ coins = 500 }).nextTeam).to.equal("")
+			expect(Store.read({ nextTeam = "Drivers" }).nextTeam).to.equal("Drivers")
+			-- A value from a vocabulary this project never shipped is KEPT by the store and refused
+			-- by the owner's validator: the store's job is the key, not the rule.
+			expect(Store.read({ nextTeam = "hunter" }).nextTeam).to.equal("hunter")
+			expect(Economy.teamFromRecord(Store.read({ nextTeam = "hunter" }).nextTeam)).to.equal(nil)
+		end)
+
+		-- THE ROUND TRIP, AND IT IS THE FEATURE (design hazard 10). "Two drives in a row: hunter
+		-- then beater" is ALREADY TRUE without this task, from the drive's in-memory swap -- so the
+		-- only evidence that anything was REMEMBERED is that the value survives a release and a
+		-- reload. `Store.memory`'s `saved` closure outlives a release, so this is a real round trip
+		-- and not a simulation of one.
+		it("keeps the turn across a release and a fresh load, which is the whole feature", function()
+			local store = Store.memory()
+			expect(store.load(77)).to.be.ok()
+			expect(store.save(77, { nextTeam = "Drivers" })).to.equal(true)
+			expect((store.peek :: any)(77).nextTeam).to.equal("Drivers")
+			expect(store.release(77)).to.equal(true)
+			-- HE IS GONE and the key still says it.
+			expect((store.peek :: any)(77).nextTeam).to.equal("Drivers")
+			-- ...AND HE COMES BACK.
+			local again = store.load(77)
+			expect((again :: any).nextTeam).to.equal("Drivers")
+			-- Nothing else moved with it.
+			expect((again :: any).coins).to.equal(0)
+			expect((again :: any).drivesPaid).to.equal(0)
+		end)
+
+		it("seeds a turn whole, and a bare-number seed still fills it with no turn", function()
+			local store = Store.memory({ seed = { [78] = { nextTeam = "Shooters" }, [79] = 500 } })
+			expect((store.load(78) :: any).nextTeam).to.equal("Shooters")
+			local other = store.load(79) :: any
+			expect(other.coins).to.equal(500)
+			expect(other.nextTeam).to.equal("")
+		end)
+
+		it("writes the turn without touching the balance, and the balance without touching the turn", function()
+			-- `Store.save` writes EXACTLY the fields it is told and derives nothing (task 178,
+			-- hazard 2), which is what keeps a pay-out and a purchase off the turn (design hazard 6).
+			local store = Store.memory({ seed = { [80] = { coins = 100, nextTeam = "Drivers" } } })
+			expect(store.load(80)).to.be.ok()
+			store.save(80, { coins = 140 })
+			expect((store.peek :: any)(80).nextTeam).to.equal("Drivers")
+			store.save(80, { nextTeam = "Shooters" })
+			expect((store.peek :: any)(80).coins).to.equal(140)
+			expect((store.peek :: any)(80).nextTeam).to.equal("Shooters")
 		end)
 
 		it("versions the store in its NAME, which is the only migration that cannot corrupt data", function()

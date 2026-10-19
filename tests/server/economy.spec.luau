@@ -14,7 +14,7 @@
 -- Studio can never -- which is the only way to assert it from inside Studio, where
 -- `RunService:IsStudio()` is always true.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
--- Design: docs/design/economy.md (sections 4.1, 4.4, 10)
+-- Design: docs/design/economy.md (sections 4.1, 4.4, 10), docs/design/role-rotation.md (section 11.3)
 -- Note:   docs/research/2026-10-13-coins-persistence.md
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
@@ -770,6 +770,265 @@ return function()
 			expect(Flags.DEFAULTS.COINS.default).to.equal(false)
 			expect(Flags.DEFAULTS.COINS.owner).to.equal("ServerScriptService.Economy")
 			expect(Economy.CONFIG.ENABLED).to.equal(Flags.isOn("COINS"))
+		end)
+	end)
+	-- ---------------------------------------------------------------- the stored turn (task 217)
+	--
+	-- KAREN, 2026-10-11: *"ROLES ROTATE: you start as a hunter, next round you are a beater; it is
+	-- REMEMBERED across logout/login (no cheating back to hunter) -- persistent per player
+	-- (DataStore)."*
+	--
+	-- EVERY CASE HERE DRIVES THE ON BRANCH BY PARAMETER (`enabled = true`), and it has to: `test`
+	-- and `test2` both REFUSE to start while a `DHFlag_` override is set, so no harness run can ever
+	-- have `COINS` on (design hazard 11). That is `docs/design/feature-flags.md`'s own rule -- a
+	-- flagged path must be reachable by parameter as well as by flag -- and it is why the flag-OFF
+	-- case below is driven the same way.
+	-- Design: docs/design/role-rotation.md (sections 4.4, 11.3)
+	describe("the role a player is owed", function()
+		local function started(options)
+			local opts = options or {}
+			local players = fakePlayers(opts.ids or { 1 })
+			local store = Store.memory({ seed = opts.seed, refuse = opts.refuse })
+			Economy.stop()
+			Economy.start({
+				store = store,
+				players = players,
+				enabled = opts.enabled ~= false,
+				testGrant = false,
+			})
+			return players, store
+		end
+
+		afterEach(function()
+			Economy.stop()
+		end)
+
+		-- THE ONE VALIDATOR, and it is the only thing standing between a corrupted profile and a man
+		-- on the wrong side. `nil` out MEANS *no turn stored*, which is the brand-new-player path and
+		-- already has to work -- so a bad value is never an error, never a crash and never a guess.
+		it("accepts only the two team names, and reads everything else as no turn stored", function()
+			expect(Economy.teamFromRecord("Drivers")).to.equal("Drivers")
+			expect(Economy.teamFromRecord("Shooters")).to.equal("Shooters")
+			expect(Economy.teamFromRecord("")).to.equal(nil) -- the template's own default
+			expect(Economy.teamFromRecord(nil)).to.equal(nil)
+			expect(Economy.teamFromRecord("hunter")).to.equal(nil) -- Karen's word is not a team name
+			expect(Economy.teamFromRecord("beater")).to.equal(nil)
+			expect(Economy.teamFromRecord("drivers")).to.equal(nil) -- and the case matters
+			expect(Economy.teamFromRecord(7)).to.equal(nil)
+			expect(Economy.teamFromRecord(true)).to.equal(nil)
+			expect(Economy.teamFromRecord({})).to.equal(nil)
+		end)
+
+		it("installs the row from a seeded profile at load", function()
+			started({ ids = { 51, 52 }, seed = { [51] = { nextTeam = "Drivers" }, [52] = { coins = 10 } } })
+			expect(waitUntil(2, function()
+				return Economy.owedTeams()[51] ~= nil
+			end)).to.equal(true)
+			expect(Economy.owedTeams()[51]).to.equal("Drivers")
+			-- A profile with no turn stored has NO ROW, which is not the same fact as a team: the
+			-- drive reads nil as "nobody answered" and the roster decides.
+			expect(Economy.owedTeams()[52]).to.equal(nil)
+		end)
+
+		it("hands out a FROZEN table, and the same one until something writes", function()
+			started({ ids = { 53 }, seed = { [53] = { nextTeam = "Shooters" } } })
+			expect(waitUntil(2, function()
+				return Economy.owedTeams()[53] ~= nil
+			end)).to.equal(true)
+			local first = Economy.owedTeams()
+			expect(function()
+				(first :: any)[999] = "Drivers"
+			end).to.throw()
+			-- MEMOISED, and that is a measurement rather than a preference: `Match.dispatch` reads
+			-- this on EVERY event, and while TASKS.md 214a(a) is open that dispatch is stepped at
+			-- ~15x `MATCH_STEP_HZ`. Identity is the assertion, because a deep compare would pass for
+			-- a fresh clone per call -- which is the thing this is here to forbid.
+			expect(Economy.owedTeams()).to.equal(first)
+			expect(Economy.noteNextTeams({ [53] = "Drivers" })).to.equal(1)
+			local second = Economy.owedTeams()
+			expect(second).never.to.equal(first)
+			expect(second[53]).to.equal("Drivers")
+			-- ...and a write that changes NOTHING does not throw the memo away.
+			expect(Economy.noteNextTeams({ [53] = "Drivers" })).to.equal(1)
+			expect(Economy.owedTeams()).to.equal(second)
+		end)
+
+		-- THE ROUND TRIP, THROUGH THE OWNER. It is the feature: "two drives in a row, hunter then
+		-- beater" is already true without this task (the in-memory swap), so the only evidence of
+		-- the record is that it SURVIVES a release and a reload (design hazard 10).
+		it("writes the turn to the key, and reads it back after a release and a reload", function()
+			local players, store = started({ ids = { 54 } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(54) ~= nil
+			end)).to.equal(true)
+			local savesBefore = store.calls().save
+			expect(Economy.noteNextTeams({ [54] = "Drivers" })).to.equal(1)
+			expect((store.peek :: any)(54).nextTeam).to.equal("Drivers")
+			expect(store.calls().save).to.equal(savesBefore + 1)
+
+			-- HE LEAVES. The in-memory row goes with the session and the key keeps the value.
+			Economy.release(54)
+			expect(Economy.owedTeams()[54]).to.equal(nil)
+			expect((store.peek :: any)(54).nextTeam).to.equal("Drivers")
+
+			-- ...AND HE COMES BACK. `Store.memory`'s saved table outlives a release, so this is a
+			-- real round trip and not a simulation of one.
+			Economy.load(players:GetPlayers()[1] :: any)
+			expect(waitUntil(2, function()
+				return Economy.owedTeams()[54] ~= nil
+			end)).to.equal(true)
+			expect(Economy.owedTeams()[54]).to.equal("Drivers")
+		end)
+
+		it("writes every accepted row and says how many, one `save` each", function()
+			local _, store = started({ ids = { 55, 56 } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(55) ~= nil and Economy.balanceOf(56) ~= nil
+			end)).to.equal(true)
+			local savesBefore = store.calls().save
+			expect(Economy.noteNextTeams({ [55] = "Drivers", [56] = "Shooters" })).to.equal(2)
+			-- EXACTLY ONE LOCAL `save` PER ROW AND NO NETWORK CALL AT ALL: `Store.save` writes the
+			-- server-local copy and ProfileStore's own auto-save does the writing (design section
+			-- 8.6). Over a complete drive of N players that is 2N -- one at each edge.
+			expect(store.calls().save).to.equal(savesBefore + 2)
+			expect(Economy.stats().nextTeamsWritten).to.equal(2)
+		end)
+
+		-- A RACE ON THE PROFILE LOAD COSTS ONE DRIVE AND NEVER THE RECORD (design section 5.4):
+		-- `Economy.load` runs in a spawned thread and the store yields, so a player can be assigned
+		-- before his profile answers. He is skipped here, his key is NOT overwritten, and the drive's
+		-- end writes `other(what he played)` -- which for a turn that was not honoured is the turn
+		-- itself.
+		it("skips a userId with no open session, counts it, and leaves his key alone", function()
+			local _, store = started({ ids = { 57 }, seed = { [57] = { nextTeam = "Drivers" } } })
+			expect(waitUntil(2, function()
+				return Economy.owedTeams()[57] ~= nil
+			end)).to.equal(true)
+			local savesBefore = store.calls().save
+			-- 99 is not on this server at all.
+			expect(Economy.noteNextTeams({ [99] = "Shooters" })).to.equal(0)
+			expect(Economy.stats().nextTeamSkippedNoProfile).to.equal(1)
+			expect(store.calls().save).to.equal(savesBefore)
+			expect((store.peek :: any)(57).nextTeam).to.equal("Drivers")
+		end)
+
+		it("refuses a value that is not a team, counts it, and writes nothing", function()
+			local _, store = started({ ids = { 58 } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(58) ~= nil
+			end)).to.equal(true)
+			local savesBefore = store.calls().save
+			expect(Economy.noteNextTeams({ [58] = "hunter" })).to.equal(0)
+			expect(Economy.stats().nextTeamRefused).to.equal(1)
+			expect(store.calls().save).to.equal(savesBefore)
+			expect(Economy.owedTeams()[58]).to.equal(nil)
+		end)
+
+		it("does not retain the caller's table", function()
+			started({ ids = { 59 } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(59) ~= nil
+			end)).to.equal(true)
+			local asked = { [59] = "Drivers" }
+			Economy.noteNextTeams(asked)
+			asked[59] = "Shooters"
+			asked[60] = "Drivers"
+			expect(Economy.owedTeams()[59]).to.equal("Drivers")
+			expect(Economy.owedTeams()[60]).to.equal(nil)
+		end)
+
+		-- A SESSION ANOTHER SERVER TAKES OFF US. The row goes the instant ownership moves, so a
+		-- `Store.save` into a dead table cannot happen -- and he reads as *no turn stored* until a
+		-- session opens again (design hazard 3).
+		it("drops the row when the session is lost, and never writes into a dead profile", function()
+			local _, store = started({ ids = { 61 }, seed = { [61] = { nextTeam = "Drivers" } } })
+			expect(waitUntil(2, function()
+				return Economy.owedTeams()[61] ~= nil
+			end)).to.equal(true)
+			local savesBefore = store.calls().save;
+			(store.loseSession :: any)(61)
+			expect(Economy.stats().sessionsLost).to.equal(1)
+			expect(Economy.owedTeams()[61]).to.equal(nil)
+			expect(Economy.noteNextTeams({ [61] = "Shooters" })).to.equal(0)
+			expect(store.calls().save).to.equal(savesBefore)
+		end)
+
+		it("empties the table on release, closeAll and stop", function()
+			started({ ids = { 62 }, seed = { [62] = { nextTeam = "Drivers" } } })
+			expect(waitUntil(2, function()
+				return Economy.owedTeams()[62] ~= nil
+			end)).to.equal(true)
+			Economy.closeAll()
+			expect(next(Economy.owedTeams())).to.equal(nil)
+			Economy.stop()
+			expect(next(Economy.owedTeams())).to.equal(nil)
+		end)
+
+		-- THE FLAG-OFF STORY'S FIRST LINK (design section 7): off, nothing is read and nothing is
+		-- written, so `Roster.previousFrom` is handed an empty table and answers `previous` BY
+		-- IDENTITY -- which is the whole claim that the drive's assignment is unchanged.
+		it("answers an empty frozen table with the money off, and writes nothing", function()
+			local _, store = started({ ids = { 63 }, seed = { [63] = { nextTeam = "Drivers" } }, enabled = false })
+			expect(Economy.isEnabled()).to.equal(false)
+			local owed = Economy.owedTeams()
+			expect(next(owed)).to.equal(nil)
+			expect(table.isfrozen(owed :: any)).to.equal(true)
+			expect(Economy.noteNextTeams({ [63] = "Drivers" })).to.equal(0)
+			expect(store.calls().save).to.equal(0)
+			expect(store.calls().load).to.equal(0)
+			expect(Economy.stats().nextTeamsWritten).to.equal(0)
+		end)
+
+		-- NEITHER THE PAY-OUT NOR A PURCHASE MAY TOUCH THE TURN (design hazard 6). `Store.save`
+		-- writes exactly the fields it is told and derives nothing, which is the discipline task 178
+		-- forced on it after a purchase started counting as a completed hunt.
+		it("is left alone by a pay-out and by a purchase", function()
+			local _, store = started({ ids = { 64 }, seed = { [64] = { coins = 2000, drivesPaid = 25 } } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(64) ~= nil
+			end)).to.equal(true)
+			Economy.noteNextTeams({ [64] = "Drivers" })
+			Economy.payDrive(1, { row(64, "Shooters", 16) })
+			expect((store.peek :: any)(64).nextTeam).to.equal("Drivers")
+			local receipt = Economy.purchase(64, Shop.ITEM.HAT_RED, { atCounter = true })
+			expect(receipt.ok).to.equal(true)
+			expect((store.peek :: any)(64).nextTeam).to.equal("Drivers")
+			expect(Economy.owedTeams()[64]).to.equal("Drivers")
+		end)
+
+		-- THE VIEW'S EXACT KEY SET, so a setter cannot be slipped onto it later without a failing
+		-- case. The drive gets four reads, one named write for the money and one named write for the
+		-- turn -- and no `start`, no `stop`, no `Store`, no `release` and no balance setter.
+		it("reaches the drive through a view of exactly seven functions", function()
+			started({ ids = { 65 } })
+			local view = Economy.view()
+			local expected = {
+				payDrive = true,
+				balances = true,
+				earned = true,
+				enabled = true,
+				ownedOf = true,
+				owedTeams = true,
+				noteNextTeams = true,
+			}
+			local seen = 0
+			for key, value in pairs(view :: any) do
+				expect(expected[key]).to.equal(true)
+				expect(type(value)).to.equal("function")
+				seen += 1
+			end
+			expect(seen).to.equal(7)
+		end)
+
+		it("and that view reads and writes the turn the owner holds", function()
+			local _, store = started({ ids = { 66 } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(66) ~= nil
+			end)).to.equal(true)
+			local view = Economy.view()
+			view.noteNextTeams({ [66] = "Drivers" })
+			expect(view.owedTeams()[66]).to.equal("Drivers")
+			expect((store.peek :: any)(66).nextTeam).to.equal("Drivers")
 		end)
 	end)
 end

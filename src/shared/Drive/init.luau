@@ -35,6 +35,16 @@ Drive.Rank = table.freeze(require(script.Rank))
 export type TeamName = "Drivers" | "Shooters"
 export type PhaseName = "Waiting" | "Assigning" | "Running" | "Scoring"
 
+-- THE RUNTIME HALF OF `Drive.TeamName` (task 217): the membership test, so a validator does not need
+-- a sixth copy of the two strings. A type is a compile-time fact and `Economy.teamFromRecord` has to
+-- answer a question about a value that came off a DataStore key -- which is a run-time fact, and the
+-- only thing standing between a corrupted profile and a player on the wrong side.
+--
+-- FROZEN SHARED DATA WITH NO WRITER, the discipline the rest of this module follows (`Drive.Rank`
+-- above, `Drive.CONFIG` below). It holds no game number, so the header's rule is intact.
+-- Design: docs/design/role-rotation.md (section 3.4)
+Drive.TEAMS = table.freeze({ Drivers = true, Shooters = true })
+
 -- Dense arrays only, no holes and no mixed keys: a table that is neither a dense array nor a pure
 -- dictionary does not survive the wire faithfully (shotgun design section 2.3).
 export type ScoreRow = {

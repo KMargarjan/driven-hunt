@@ -44,8 +44,8 @@
 -- and the start card are all the SAME number counted down locally, and they cannot disagree. What is
 -- new is two effects, `hold` and `free`, and `Phase.heldUserIds` to say who.
 --
--- Design: docs/design/drive.md (section 4)
--- Note:   docs/research/2026-09-25-drive.md
+-- Design: docs/design/drive.md (section 4), docs/design/role-rotation.md (section 4.2)
+-- Note:   docs/research/2026-09-25-drive.md, docs/research/2026-10-20-role-rotation.md
 local Roster = require(script.Parent.Roster)
 
 local Phase = {}
@@ -122,6 +122,16 @@ export type Event = {
 	-- `beaters = 0` the question answers itself.
 	beaters: number?,
 	beatersAcross: number?,
+	-- WHAT EACH PLAYER IS OWED (task 217): userId -> the team he must be given at the next
+	-- assignment he takes part in. Filled by the owner on EVERY event, which is the `aliveBoars` /
+	-- `boarEntries` / `beaters` idiom above and the shape TASKS.md 214b prescribes -- an assignment
+	-- can happen on a join as well as on a tick, so a fact read only on ticks would be missing one.
+	--
+	-- A FROZEN table the owner MEMOISES. This machine only READS it and never stores it in the
+	-- state: a state field would need a writer, and the only honest writer is the owner, which is
+	-- the owner holding one fact twice. Absent or empty means nobody is owed anything, and then
+	-- every answer below is today's answer BY IDENTITY (`Roster.previousFrom`, design section 7).
+	owed: { [number]: TeamName }?,
 }
 
 export type Effect = {
@@ -482,7 +492,11 @@ end
 -- phase change is the one thing a client must not learn about at the next 5-second heartbeat. Found
 -- by Task 41's clock seam, which crossed two boundaries inside one throttle window and watched the
 -- drive-start push vanish (the clients were still being told it was the previous drive).
-local function enterAssigning(state: State, effects: { Effect }, now: number, config)
+-- `owed` is each player's stored turn, off the EVENT (task 217). It is a SUGGESTION and never a
+-- decision: `Roster.previousFrom` folds it into the synthetic `previous` below, and
+-- `Roster.assign`'s own balance check may discard the whole swap -- in which case nothing is
+-- consumed, because the only thing that ever WRITES a turn is the drive's end (design section 5.3).
+local function enterAssigning(state: State, effects: { Effect }, now: number, config, owed)
 	state.phase = "Assigning"
 	-- THE RESULTS SCENE GOES FIRST, AND THE HOLD IT PUT ON EVERYBODY GOES WITH IT (task 159). Before
 	-- the teams, before the placement and before the new hold: `clearScene` takes down the lights and
@@ -510,7 +524,12 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	end
 	table.sort(userIds)
 
-	state.assignment = Roster.assign(userIds, state.previousAssignment, config)
+	-- THE STORED TURN IS AN INPUT TO THE SPLIT (task 217), and it arrives as a synthetic `previous`
+	-- rather than as a second algorithm: `Roster.previousFrom` answers `state.previousAssignment`
+	-- BY IDENTITY when nobody is owed anything, so with no economy in the build this line is the
+	-- line it was before this task, value for value (design section 7).
+	local previous = Roster.previousFrom(state.previousAssignment, owed)
+	state.assignment = Roster.assign(userIds, previous, config)
 	-- ANYBODY WHO WAS IN THE LAST DRIVE AND IS NOT IN THIS ONE (task 177, design section 4.4). The
 	-- OTHER door out of `Scoring` is straight into `Assigning` -- a lobby player can enrol during the
 	-- results scene -- and that path never reaches `enterWaiting`, so without this a dismissed player
@@ -772,7 +791,14 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		if next_.phase == "Running" or next_.phase == "Assigning" then
 			-- Assigned immediately to the SMALLER team and placed. Nobody already playing moves: a
 			-- team swap mid-drive is the worst kind of surprise (design section 1.2).
-			local team = Roster.smallerTeam(Roster.counts(next_.assignment), config)
+			-- ...TO THE SMALLER TEAM, OR TO THE TEAM HE IS OWED WHEN THE SIDES ARE LEVEL (task 217):
+			-- on a tie the turn costs the balance nothing, because the result differs by one either
+			-- way. `Roster.joinTeam` with no owed team IS `Roster.smallerTeam`, which is this line
+			-- before task 217. It matters more than it looks: since tasks 177 and 209 a player walks
+			-- onto a truck pad during the intermission, so this branch is the NORMAL way into a
+			-- drive rather than an edge case (design section 8.5).
+			local owedTeam = if event.owed then event.owed[event.userId] else nil
+			local team = Roster.joinTeam(Roster.counts(next_.assignment), owedTeam, config)
 			next_.assignment[event.userId] = team
 			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = team } })
 			-- A BEATER WHO ARRIVES WHILE THE LINE IS STILL HELD IS HELD LIKE THE REST (task 158),
@@ -882,7 +908,7 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 	-- same step rather than waiting for the next tick.
 	if next_.phase == "Waiting" then
 		if enoughPlayers(next_, config) and next_.markersComplete then
-			enterAssigning(next_, effects, now, config)
+			enterAssigning(next_, effects, now, config, event.owed)
 		end
 	elseif next_.phase == "Assigning" then
 		if now >= next_.phaseEndsAt then
@@ -911,7 +937,7 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 	elseif next_.phase == "Scoring" then
 		if now >= next_.phaseEndsAt then
 			if enoughPlayers(next_, config) and next_.markersComplete then
-				enterAssigning(next_, effects, now, config)
+				enterAssigning(next_, effects, now, config, event.owed)
 			else
 				enterWaiting(next_, effects, now)
 			end

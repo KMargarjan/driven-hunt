@@ -5,7 +5,7 @@
 --
 -- Time is simulated: `now` is a number this spec increments. There is no task.wait in this file.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
--- Design: docs/design/drive.md (sections 4, 12.1)
+-- Design: docs/design/drive.md (sections 4, 12.1), docs/design/role-rotation.md (section 11.2)
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -2082,6 +2082,221 @@ return function()
 			expect((ids :: any)[2]).to.equal(2)
 			-- ...and the one who IS in the new drive is not in that list and has a team.
 			expect(state.assignment[9]).to.be.ok()
+		end)
+	end)
+	-- ---------------------------------------------------------------- the stored turn (task 217)
+	--
+	-- KAREN, 2026-10-11: *"ROLES ROTATE: you start as a hunter, next round you are a beater; it is
+	-- REMEMBERED across logout/login (no cheating back to hunter)"*.
+	--
+	-- WHY THESE CASES ARE HERE AND NOT ON THE LIVE DRIVE. "Two drives in a row: hunter then beater"
+	-- is ALREADY TRUE without this task, from the in-memory swap off `previousAssignment` -- so the
+	-- only place the STORED turn can be told apart from the swap is here, where
+	-- `previousAssignment` can be held at nil while `event.owed` carries a value (design hazard 10,
+	-- section 11.2).
+	--
+	-- `event.owed` is a FROZEN table in production (the economy's memo), so every case freezes it.
+	-- Design: docs/design/role-rotation.md (sections 4.2, 5.1, 11.2)
+	describe("the role a player is OWED, arriving on the event", function()
+		it("decides the first drive of a rejoiner, with no previous drive on this server at all", function()
+			local cfg = config({ MIN_PLAYERS = 1 })
+			local state = ready(cfg)
+			-- NOBODY HAS PLAYED HERE YET: `previousAssignment` is nil, so the in-memory swap has
+			-- nothing to say and the only input is the record. A solo player would be `Shooters`
+			-- (ODD_PLAYER_TEAM); he is owed a beater's turn, so he gets it.
+			expect(state.previousAssignment).to.equal(nil)
+			state = (
+				Phase.step(state, {
+					kind = "join",
+					userId = 1,
+					name = "Karen",
+					owed = table.freeze({ [1] = "Drivers" }),
+				}, 0, cfg)
+			)
+			expect(state.phase).to.equal("Assigning")
+			expect(state.assignment[1]).to.equal("Drivers")
+		end)
+
+		it("and with nothing owed the same roster is a hunter, which is the line before this task", function()
+			local cfg = config({ MIN_PLAYERS = 1 })
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			expect(state.assignment[1]).to.equal("Shooters")
+		end)
+
+		it("gives every member of a four-player roster the side he is owed", function()
+			local cfg = config({ MIN_PLAYERS = 4 })
+			local state = ready(cfg)
+			-- 1 and 3 owe a beater's turn, 2 and 4 a hunter's: a split the plain sort would NOT
+			-- produce (it would make 1 and 2 the beaters), so this cannot pass by accident.
+			local owed = table.freeze({ [1] = "Drivers", [2] = "Shooters", [3] = "Drivers", [4] = "Shooters" })
+			for userId = 1, 4 do
+				state = (
+					Phase.step(state, { kind = "join", userId = userId, name = "p" .. userId, owed = owed }, 0, cfg)
+				)
+			end
+			expect(state.phase).to.equal("Assigning")
+			expect(state.assignment[1]).to.equal("Drivers")
+			expect(state.assignment[2]).to.equal("Shooters")
+			expect(state.assignment[3]).to.equal("Drivers")
+			expect(state.assignment[4]).to.equal("Shooters")
+		end)
+
+		it("is overruled by the team sizes, and the roster still splits equally", function()
+			-- Karen's older rule wins (the Director, 2026-10-20): four men owed the same side cannot
+			-- all have it. `Roster.assign`'s balance check discards the whole swap and the plain
+			-- split decides. NOTHING IS CONSUMED HERE -- the record is only ever written by the
+			-- drive's END, which is the owner's edge and not this machine's.
+			local cfg = config({ MIN_PLAYERS = 4 })
+			local state = ready(cfg)
+			local owed = table.freeze({ [1] = "Drivers", [2] = "Drivers", [3] = "Drivers", [4] = "Drivers" })
+			for userId = 1, 4 do
+				state = (
+					Phase.step(state, { kind = "join", userId = userId, name = "p" .. userId, owed = owed }, 0, cfg)
+				)
+			end
+			local counts = Match.Roster.counts(state.assignment)
+			expect(counts.Drivers).to.equal(2)
+			expect(counts.Shooters).to.equal(2)
+		end)
+
+		it("is read at the next drive's Assigning too, not only out of Waiting", function()
+			-- The OTHER door into `enterAssigning`: the `Scoring` exit. A drive that ends while a
+			-- player is owed the side he just played must hand it to him again -- which is exactly
+			-- what the not-consumed rule produces (design section 5.3).
+			local cfg = config({ MIN_PLAYERS = 1 })
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			expect(state.assignment[1]).to.equal("Shooters")
+			local at = 0
+			state, _, at = run(state, cfg, at, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, 0.5)
+			expect(state.phase).to.equal("Scoring")
+			-- The record says SHOOTERS again (he is owed the side he just played), so the swap must
+			-- be overridden and he must stay a hunter for drive 2.
+			state = (
+				Phase.step(state, {
+					kind = "tick",
+					aliveBoars = 0,
+					owed = table.freeze({ [1] = "Shooters" }),
+				}, at + cfg.SCORE_SECONDS + 1, cfg)
+			)
+			expect(state.phase).to.equal("Assigning")
+			expect(state.driveNumber).to.equal(2)
+			expect(state.assignment[1]).to.equal("Shooters")
+		end)
+
+		it("is never written into the state: it is a per-event fact, like aliveBoars", function()
+			local cfg = config({ MIN_PLAYERS = 1 })
+			local state = ready(cfg)
+			state = (
+				Phase.step(state, {
+					kind = "join",
+					userId = 1,
+					name = "Karen",
+					owed = table.freeze({ [1] = "Drivers" }),
+				}, 0, cfg)
+			)
+			expect((state :: any).owed).to.equal(nil)
+		end)
+
+		it("adds no effect kind and no second assignTeams", function()
+			local cfg = config({ MIN_PLAYERS = 1 })
+			local state = ready(cfg)
+			local effects
+			state, effects = Phase.step(state, {
+				kind = "join",
+				userId = 1,
+				name = "Karen",
+				owed = table.freeze({ [1] = "Drivers" }),
+			}, 0, cfg)
+			expect(countKind(effects, "assignTeams")).to.equal(1)
+			for _, kind in ipairs(kinds(effects)) do
+				expect(kind).never.to.equal("noteNextTeams")
+			end
+		end)
+	end)
+
+	describe("a player who joins a drive that is already running", function()
+		-- SINCE TASKS 177 AND 209 THIS IS THE NORMAL DOOR, not an edge case: a player walks onto a
+		-- truck pad during the intermission and is enrolled then.
+		-- Design: docs/design/role-rotation.md (section 8.5)
+		local function running(cfg, owed)
+			local state = ready(cfg)
+			for userId = 1, 2 do
+				state = (
+					Phase.step(state, { kind = "join", userId = userId, name = "p" .. userId, owed = owed }, 0, cfg)
+				)
+			end
+			local at
+			state, _, at = run(state, cfg, 0, cfg.INTERMISSION_SECONDS + 1, 0.5)
+			expect(state.phase).to.equal("Running")
+			return state, at
+		end
+
+		it("gets the side he is owed when the two sides are LEVEL", function()
+			local cfg = config({ MIN_PLAYERS = 2 })
+			local state = running(cfg, nil)
+			local counts = Match.Roster.counts(state.assignment)
+			expect(counts.Drivers).to.equal(1)
+			expect(counts.Shooters).to.equal(1)
+			state = (
+				Phase.step(state, {
+					kind = "join",
+					userId = 9,
+					name = "p9",
+					owed = table.freeze({ [9] = "Drivers" }),
+				}, 20, cfg)
+			)
+			expect(state.assignment[9]).to.equal("Drivers")
+		end)
+
+		it("gets the SMALLER side when they are not level, whatever he is owed", function()
+			local cfg = config({ MIN_PLAYERS = 2 })
+			local state = running(cfg, nil)
+			-- One more man makes it 2-1 (or 1-2); the next one must even it up regardless of his turn.
+			state = (Phase.step(state, { kind = "join", userId = 8, name = "p8" }, 20, cfg))
+			local counts = Match.Roster.counts(state.assignment)
+			local bigger = if counts.Drivers > counts.Shooters then "Drivers" else "Shooters"
+			local smaller = if bigger == "Drivers" then "Shooters" else "Drivers"
+			state = (
+				Phase.step(state, {
+					kind = "join",
+					userId = 9,
+					name = "p9",
+					owed = table.freeze({ [9] = bigger }),
+				}, 21, cfg)
+			)
+			expect(state.assignment[9]).to.equal(smaller)
+		end)
+
+		it("is the smaller side exactly when nothing is owed, which is the line before this task", function()
+			local cfg = config({ MIN_PLAYERS = 2 })
+			local state = running(cfg, nil)
+			state = (Phase.step(state, { kind = "join", userId = 9, name = "p9" }, 20, cfg))
+			-- A tie with no turn goes to ODD_PLAYER_TEAM (`Roster.smallerTeam`), as it always has.
+			expect(state.assignment[9]).to.equal(cfg.ODD_PLAYER_TEAM)
+		end)
+
+		-- THE STUDIO SWITCH STILL WINS FOR ITS OWN DRIVE (the Director's decision 7, design hazard
+		-- 4). `DHForestStartRole` and `/beater` arrive as a `team` event, and a `team` event is
+		-- about THIS drive -- so an opposite stored turn cannot swallow it. The record then mirrors
+		-- the role he actually plays, which is the owner's edge and not this machine's.
+		it("can still be moved by a `team` request against an opposite stored turn", function()
+			local cfg = config({ MIN_PLAYERS = 1 })
+			local state = ready(cfg)
+			local owed = table.freeze({ [1] = "Shooters" })
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen", owed = owed }, 0, cfg))
+			expect(state.assignment[1]).to.equal("Shooters")
+			local effects
+			state, effects = Phase.step(state, {
+				kind = "team",
+				userId = 1,
+				name = "Karen",
+				team = "Drivers",
+				owed = owed,
+			}, 1, cfg)
+			expect(state.assignment[1]).to.equal("Drivers")
+			expect(countKind(effects, "assignTeams")).to.equal(1)
 		end)
 	end)
 end

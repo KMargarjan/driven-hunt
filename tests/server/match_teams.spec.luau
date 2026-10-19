@@ -11,11 +11,13 @@
 -- Match is a singleton, and a spec that started its own would be testing a stub of the thing the
 -- players are standing in.
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
--- Design: docs/design/drive.md (sections 5.1, 5.2, 12.6)
+-- Design: docs/design/drive.md (sections 5.1, 5.2, 12.6), docs/design/role-rotation.md (section 11.5)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+-- THE PERSISTED TURN (task 217), read for one claim: the record agrees with `Player.Team`.
+local Economy = require(ServerScriptService:WaitForChild("Economy"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local Body = Match.Body
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
@@ -284,6 +286,44 @@ return function()
 			Body.settle(character, CFrame.new(Vector3.new(0, 50, 0)))
 			task.wait(0.2)
 			expect(Body.settled()).to.equal(before)
+		end)
+	end)
+	-- ---------------------------------------------------------------- the stored turn (task 217)
+	--
+	-- KAREN, 2026-10-11: *"ROLES ROTATE: you start as a hunter, next round you are a beater; it is
+	-- REMEMBERED across logout/login (no cheating back to hunter)"*.
+	--
+	-- THE LIVE SHAPE OF HAZARD 1, on the REAL drive: the record is written beside `Body.setTeam`, so
+	-- it must agree with `Player.Team` for every player in the session. A disagreement here is a
+	-- stale mirror, which is the failure task 214 paid for in this same code path.
+	--
+	-- CONDITIONAL ON THE FLAG, and the condition is READ rather than assumed: `COINS` is born OFF
+	-- and `test`/`test2` both REFUSE to start while a `DHFlag_` override is set, so no harness run
+	-- can ever have it on (design hazard 11). OFF, the honest assertion is that there is no record
+	-- at all -- which is also what makes the drive's teams the roster's alone.
+	-- Design: docs/design/role-rotation.md (sections 5.2, 9, 11.5)
+	describe("the turn each player is owed", function()
+		it("agrees with the team the drive gave him, for every player in this session", function()
+			expect(waitUntil(ASSIGN_TIMEOUT, function()
+				return Match.phase() ~= "Waiting"
+			end)).to.equal(true)
+			local owed = Economy.owedTeams()
+			if Economy.isEnabled() then
+				local checked = 0
+				for _, player in ipairs(Players:GetPlayers()) do
+					local team = Match.assignmentOf(player.UserId)
+					if team then
+						-- DURING a drive the owed team IS the team he is playing, which is what makes
+						-- a rejoin resume the drive he left rather than hand a beater a gun.
+						expect(owed[player.UserId]).to.equal(team)
+						checked += 1
+					end
+				end
+				TestKit.note(string.format("match_teams: the record agrees with Player.Team for %d player(s)", checked))
+			else
+				expect(next(owed)).to.equal(nil)
+				TestKit.note("match_teams: COINS is off, so no turn is stored and the roster alone assigns")
+			end
 		end)
 	end)
 end
