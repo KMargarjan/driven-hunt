@@ -233,6 +233,12 @@ local hiddenNow = false
 -- When the running magazine change started, and how long it lasts. See `Viewmodel.setMagazine`.
 local magazineAt: number? = nil
 local magazineSeconds: number? = nil
+-- THE SHELL LIFTER'S OWN CLOCK (task 225), the EXACT shape `magazineAt`/`magazineSeconds` already
+-- has and for the same reason: the server says WHICH step and HOW LONG, and how far through one we
+-- are is this module's business. One tray lift per shell, started on the edge `Camera.fedShell`
+-- answers.
+local liftAt: number? = nil
+local liftSeconds: number? = nil
 -- The drawn box's rest offset in the Handle's frame, read off the clone once per build.
 local magazineLocal: CFrame? = nil
 
@@ -301,6 +307,9 @@ local openedAt: number? = nil
 -- has its own clock -- the moment the replica first said that chamber holds a shell.
 local loadedAt: { [number]: number } = {}
 local barrelsLocal: CFrame? = nil
+-- The lifter envelope's rest pose, read off the clone once per build, exactly as the cycle
+-- group's above -- so a mesh that arrives with its own offset still turns about the right point.
+local liftLocal: CFrame? = nil
 -- WHAT ELSE RIDES ON THE BARRELS (task 96, round 2): the bead. An anchored part does not follow its
 -- parent, so every piece that swings with the barrel group is placed by hand from the same
 -- transform, and its rest offset is read off the clone once.
@@ -363,6 +372,54 @@ function Viewmodel.magazineProgress(): number?
 		return nil
 	end
 	return math.clamp(t, 0, 1)
+end
+
+-- ONE SHELL IS GOING THROUGH THE PORT, AND THE TRAY'S LIFT LASTS `seconds` (task 225). nil ends
+-- it. Fed by `CameraBoot`'s break-source closure on the edge `Camera.fedShell` answers, which is
+-- already the one reader of the replica -- a second reader is what rule 3 exists to stop.
+--
+-- IT STARTS ONE ONLY IF NONE IS RUNNING, which is `setMagazine`'s own rule: the server publishes
+-- the step name on every step of a sequence, so a lift that restarted on each publish would never
+-- finish its own ramp.
+function Viewmodel.setLift(seconds: number?)
+	if seconds == nil or seconds <= 0 then
+		liftAt, liftSeconds = nil, nil
+		return
+	end
+	liftSeconds = seconds
+	if liftAt == nil then
+		liftAt = clock()
+	end
+end
+
+-- How far through this shell's lift, 0..1, or nil when there is none -- and nil again once it has
+-- finished, so a reload the server never ended cannot leave the tray stuck up inside the receiver.
+-- Clearing the clock at 1 is the fix the Reviewer's note bought for `magazineProgress`, kept here.
+function Viewmodel.liftProgress(): number?
+	if liftAt == nil or liftSeconds == nil then
+		return nil
+	end
+	local t = (clock() - (liftAt :: number)) / (liftSeconds :: number)
+	if t >= 1 then
+		liftAt, liftSeconds = nil, nil
+		return nil
+	end
+	return math.clamp(t, 0, 1)
+end
+
+-- HOW FAR UP THE TRAY IS, from how far through the lift it is. PURE, so a spec drives the whole
+-- ramp with no session.
+--
+-- IT GOES UP AND COMES BACK DOWN, which is the one thing a tray does that a bolt does not: it
+-- carries a shell to the chamber and returns to take the next. A monotone 0..1 would leave it
+-- standing up inside the receiver between shells. The peak is at the half, so the rise and the fall
+-- take the same time -- and `nil` (no lift running) is 0, the rest position.
+function Viewmodel.lifterWeight(progress: number?): number
+	if progress == nil then
+		return 0
+	end
+	local t = math.clamp(progress, 0, 1)
+	return if t <= 0.5 then t * 2 else (1 - t) * 2
 end
 
 -- WHERE THE BOX IS AND HOW MUCH OF THE LEFT HAND IS ON IT, as one pure pair. PURE, so a spec drives
@@ -449,6 +506,8 @@ function Viewmodel.clear()
 		model = nil
 	end
 	barrelsLocal = nil -- the next clone reads its own barrels' rest pose (task 96)
+	liftLocal = nil -- ...and its own lifter's (task 225)
+	liftAt, liftSeconds = nil, nil -- a tray half-raised when the gun went away must not come back
 	handsOn = false -- the hands went with the model (task 93)
 	handsMissingCounted = false
 	table.clear(ridersLocal)
@@ -1246,6 +1305,26 @@ local function buildNewGun(config, geometry, row): Model
 	barrels.CFrame = handle.CFrame * CFrame.new(0, 0, at.cycleZ or at.barrelZ or (at.bolt and at.bolt.at.Z) or 0)
 	barrels.Parent = handle
 
+	-- THE SECOND MOVING GROUP'S ENVELOPE (task 225), and only for a geometry that declares one.
+	-- The semi-automatic shotgun's shell lifter moves on the RELOAD where its bolt moves on the
+	-- CYCLE -- two independent things on two different sequences -- so it gets its own envelope
+	-- rather than sharing the first. PARENTED TO THE HANDLE, not to `barrels`: the tray does not
+	-- travel with the bolt, and hanging it off the bolt would make it do so.
+	--
+	-- A geometry without `LIFT_GROUP_NAME` builds exactly what it built before this task: the
+	-- variable stays nil and the parent branch below never reaches it.
+	local lift: BasePart? = nil
+	if geometry.LIFT_GROUP_NAME ~= nil then
+		local made_ = Instance.new("Part")
+		made_.Name = geometry.LIFT_GROUP_NAME
+		made_.Size = Vector3.new(0.3, 0.2, at.liftLength or 0.3)
+		made_.Transparency = 1
+		dress(made_)
+		made_.CFrame = handle.CFrame * CFrame.new(0, 0, at.liftZ or 0)
+		made_.Parent = handle
+		lift = made_
+	end
+
 	-- MODEL B WHERE THE SERVER HAS PUBLISHED IT (task 105), and the measured box where it has not.
 	-- Karen chose this model after calling the drawn gun "bad"; `ServerScriptService.
 	-- ViewmodelAssetsBoot` loads its two hinge groups and parks them in `Gun.FOLDER_NAME`, and this
@@ -1295,7 +1374,16 @@ local function buildNewGun(config, geometry, row): Model
 		part.Name = piece.name
 		dress(part)
 		part.CFrame = handle.CFrame * offset
-		part.Parent = if piece.group == "barrels" then barrels else handle
+		-- WHICH ENVELOPE THIS PIECE RIDES. `"lift"` is task 225's second moving group; a piece that
+		-- asks for it on a geometry that declared none falls back to the Handle, which is a piece
+		-- that holds still -- the safe answer, and the one every gun before this task gives.
+		local parent: BasePart = handle
+		if piece.group == "barrels" then
+			parent = barrels
+		elseif piece.group == "lift" and lift ~= nil then
+			parent = lift :: BasePart
+		end
+		part.Parent = parent
 	end
 
 	-- WHERE THE REST OF THE SYSTEM LOOKS. `Mode.aimOffset` solves the aimed pose from `Sight`, and
@@ -1813,6 +1901,10 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 	-- barrel group ended up at -- the gun's own when there is nothing to hinge -- and the left hand
 	-- is placed from that, because it holds a forend that swings with them.
 	local barrels = Viewmodel.hinge(gun, state, config)
+	-- THE SHELL LIFTER (task 225), placed directly after the cycle group and from the gun's own
+	-- transform rather than the cycle group's: the two move independently, on two different
+	-- sequences, and hanging the tray off the bolt would make it travel with the bolt.
+	Viewmodel.lift(gun, config)
 	-- THE MAGAZINE LEAVES THE GUN (task 142). It is a child of the Handle and anchored, so like
 	-- every other rider it is placed by hand from the gun's own transform, with its rest offset read
 	-- off the clone once.
@@ -1825,6 +1917,57 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 		(box :: BasePart).CFrame = gun * (magazineLocal :: CFrame) * CFrame.new(0, -away, 0)
 	end
 	Viewmodel.poseHands(gun, barrels, state, config)
+end
+
+-- THE SHELL LIFTER (task 225): the second moving group, and the first one in this repo that is not
+-- the group a shot moves. It turns about its own pin, on the RELOAD's clock, once per shell pushed
+-- through the port.
+--
+-- IT IS A SEPARATE FUNCTION FROM `hinge` AND NOT A BRANCH INSIDE IT, because `hinge` answers with
+-- the transform the CYCLE group ended at and `Viewmodel.poseHands` is placed from that answer. The
+-- tray carries no hand and nothing is placed from it, so folding it in would mean one function with
+-- two return values and one caller using each -- and the left hand would start following a tray.
+--
+-- NOTHING HAPPENS ON A GUN THAT HAS NO SECOND GROUP: the Handle has no child of that name, so the
+-- lookup answers nil and this returns. Every gun written before this task takes exactly that path.
+function Viewmodel.lift(gunCFrame: CFrame, config)
+	local made = model
+	local clone = made and made.PrimaryPart
+	if clone == nil then
+		return
+	end
+	local geometry = Viewmodel.geometryNow()
+	local name = geometry ~= nil and geometry.LIFT_GROUP_NAME or nil
+	if name == nil then
+		return
+	end
+	local tray = (clone :: BasePart):FindFirstChild(name :: string)
+	if tray == nil or not tray:IsA("BasePart") then
+		return
+	end
+	if liftLocal == nil then
+		liftLocal = (clone :: BasePart).CFrame:ToObjectSpace((tray :: BasePart).CFrame)
+	end
+	local row = Weapons.row(Viewmodel.weaponId())
+	-- THE ANGLE IS THE POSE DATA'S AND THE SIGN IS THE GEOMETRY'S (task 188's rule, task 224's
+	-- restatement): `lifterSwing` is the one place that says a positive turn about +X raises the
+	-- tray's free end, and `cycle.lifterDeg` is the number the Director tunes live.
+	local weight = Viewmodel.lifterWeight(Viewmodel.liftProgress())
+	local swing = geometry.lifterSwing(row or Shotgun.CONFIG, config.LIFTER_DEG or 0, weight)
+	local swungLift = gunCFrame * swing
+	local trayPart = tray :: BasePart
+	trayPart.CFrame = swungLift * (liftLocal :: CFrame)
+	-- EVERY PIECE THE TRAY OWNS RIDES WITH IT, by being parented to it -- the same rule the cycle
+	-- group keeps since task 99. An anchored part does not follow its parent, so each rider is
+	-- placed by hand with its rest offset read off the clone once.
+	for _, descendant in ipairs(trayPart:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			if ridersLocal[descendant] == nil then
+				ridersLocal[descendant] = (clone :: BasePart).CFrame:ToObjectSpace(descendant.CFrame)
+			end
+			descendant.CFrame = swungLift * ridersLocal[descendant]
+		end
+	end
 end
 
 -- THE BREAK (task 96). Karen, 2026-09-27: the reload is a break action like the real gun, so the
@@ -1897,6 +2040,17 @@ function Viewmodel.hinge(gunCFrame: CFrame, state: Mode.State, config): CFrame
 		local draw = if progress > lift then (progress - lift) / (1 - lift) else 0
 		swing = geometry.boltLift(row or Shotgun.CONFIG, config.BOLT_LIFT_DEG or 0, turn)
 			* CFrame.new(0, 0, (config.BOLT_DRAW_STUDS or 0) * draw)
+	elseif geometry.CYCLE_KIND == "straight" then
+		-- A GAS BOLT (task 225): it reciprocates straight back and straight home, and NOTHING about
+		-- it rotates. One translation, no segments -- there is no handle to turn first, which is the
+		-- whole reason this is a fourth branch and not the Rigby's `"slide"` with a zero angle: that
+		-- path spends its first `BOLT_LIFT_FRACTION` turning, so a zero angle buys a bolt that holds
+		-- still for a third of its stroke and a `boltLift` on that geometry whose only job is to
+		-- return identity.
+		--
+		-- THE SIGN AND THE BOUND ARE THE GEOMETRY'S, for task 188's reason: `-Z` is the muzzle, so
+		-- back is `+Z`, and `boltTravel` is the one place in the repo that says so about this gun.
+		swing = geometry.boltTravel(row or Shotgun.CONFIG, config.BOLT_DRAW_STUDS or 0, progress)
 	elseif geometry.CYCLE_KIND == "lever" then
 		-- A LEVER THROW (task 224): the loop swings DOWN AND FORWARD about the pin it hangs from,
 		-- and comes home again. One rotation, not two segments -- there is no lift-then-draw here.

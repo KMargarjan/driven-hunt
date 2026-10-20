@@ -38,7 +38,9 @@ local ContentProvider = game:GetService("ContentProvider")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Lever = require(ReplicatedStorage:WaitForChild("Lever"))
+local SemiAuto = require(ReplicatedStorage:WaitForChild("SemiAuto"))
 local LeverGeometry = require(ReplicatedStorage:WaitForChild("Lever"):WaitForChild("Geometry"))
+local SemiAutoGeometry = require(ReplicatedStorage:WaitForChild("SemiAuto"):WaitForChild("Geometry"))
 local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
 
@@ -280,6 +282,14 @@ end
 -- grey laminate rather than the Rigby's blued steel and walnut.
 local function buildLeverRifle(parent: Model)
 	buildGun(parent, LeverGeometry, Lever.CONFIG)
+end
+
+-- THE SEMI-AUTOMATIC SHOTGUN (task 225), from its own config so the window draws its own blued
+-- steel and walnut -- and its own RED DOT, which `Geometry.pieces` carries as an ordinary piece, so
+-- the window gets it for free and `buildGun` needed no edit. `buildGun` is already "one drawing for
+-- any gun this repo has geometry for" (task 224), which is why this is three lines.
+local function buildSemiAuto(parent: Model)
+	buildGun(parent, SemiAutoGeometry, SemiAuto.CONFIG)
 end
 
 -- ---------------------------------------------------------------- the three things that are not guns
@@ -1080,6 +1090,12 @@ end
 -- already makes for a Tool it does not name, and for the same reason: *"draw whatever is in the
 -- hand"* is what once drew a shotgun out of a horn.
 local DRAW: { [string]: { view: View, build: (Model, string) -> () } } = {
+	[ShopData.ITEM.SEMIAUTO] = {
+		view = RIFLE_VIEW,
+		build = function(model: Model, _id: string)
+			buildSemiAuto(model)
+		end,
+	},
 	[ShopData.ITEM.LEVER] = {
 		view = RIFLE_VIEW,
 		build = function(model: Model, _id: string)

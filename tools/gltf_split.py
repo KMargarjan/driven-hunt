@@ -269,7 +269,86 @@ LEVER_PLAN = {
     "dropNodes": [],
 }
 
-PLANS = {"model-b": MODEL_B_PLAN, "rigby": RIGBY_PLAN, "lever": LEVER_PLAN}
+# THE SEMI-AUTOMATIC SHOTGUN (task 225): an MP-153-pattern 12 gauge, bought on Fab by Karen.
+#
+# THE NODE NAMES SAY NOTHING AT ALL THIS TIME, which is the same problem as the Rigby's and the
+# Marlin's in its purest form. The dispatch described this file as a rigged skeletal mesh with bones
+# `Trigger`, `Zatvor`, `Lotok`, `Otse` and `Gauge12`; it is not. Read twice -- by Blender and by a
+# stdlib parser of the FBX binary itself -- it has NO armature, NO deformer, NO skin weight and none
+# of those five strings anywhere in it. Its twelve nodes are `shotgun.004`, `shotgun.012` ...
+# `shotgun.022` and `sight.001`. So every line below is a MEASUREMENT, and each was then LOOKED AT:
+# the twelve objects were rendered in twelve flat colours from four sides and two zooms and
+# identified off those frames (research note section 2).
+#
+# THE FRAME IS PROVED BY THE GUN, not assumed. Forward is -Y and up is +Z, so right is -X -- and the
+# only two nodes off the centre line are the charging handle (`shotgun.014`, reaching to x -0.0375)
+# and the bolt-release button (`shotgun.021`, lying ENTIRELY at x -0.0247..-0.0203). They are on the
+# same side, and on an MP-153 both are on the RIGHT.
+#
+# WHAT EACH NODE IS, in the file's own axes (-Y is the muzzle, +Z is up):
+#   * `shotgun.012` is the BARREL with its vent rib: Y[-1.1334 -0.3293], the longest node, at bore
+#     height. One tube, so its principal axis IS the bore line.
+#   * `shotgun.022` is the FORE-END over the gas system and the magazine tube, and `shotgun.004` the
+#     MAGAZINE CAP at its muzzle end -- both BELOW the barrel, both the barrel's material.
+#   * `shotgun.014` IS THE BOLT, and it is the one node visible from BOTH flanks of the receiver: it
+#     fills the ejection port on the right (x out to -0.0375 is its charging handle) and is seen from
+#     underneath through the open loading port. It reciprocates; nothing about it rotates.
+#   * `shotgun.018` IS THE SHELL LIFTER: the tray in the loading port under the receiver,
+#     Z[+0.0257 +0.0381] -- 0.012 thick, at the receiver's floor, 0.099 long. It rises once per
+#     shell, which is why it is its own group and not part of the body.
+#   * `shotgun.013` is the RECEIVER, `shotgun.020` the PICATINNY RAIL on its top face, `shotgun.016`
+#     the TRIGGER GUARD and `shotgun.017` the 148-triangle TRIGGER inside it. None of them moves.
+#   * `shotgun.019` is the BUTT STOCK and `sight.001` the RED-DOT SIGHT on the rail.
+#
+# SIX GROUPS, AND THE SPLIT IS NOT A PREFERENCE. Three of the six lines are forced by MATERIAL --
+# this file has three (`M_Shotgun_barrel`, `M_Shotgun_stock`, `M_Sight`) where the Marlin had one,
+# and refusal 4 below is "one MeshPart is one material". Two more are forced by MOTION: the bolt and
+# the lifter move, on two different sequences, so neither can be welded into the body. The sixth is
+# the stock, which shares the body's material and is kept apart for its silhouette, exactly as both
+# other guns keep theirs.
+#
+# NOTHING IS DROPPED and nothing is decimated: 8,724 triangles over six groups, worst group 2,802,
+# against the Rigby's prepped worst of 8,258.
+#
+# Design: docs/design/semiauto-shotgun.md (sections 10.2, 10.3)
+# Note:   docs/research/2026-10-20-semiauto-shotgun.md
+SEMIAUTO_PLAN = {
+    "tool": TOOL_VERSION,
+    "name": "semiauto",
+    # 4.9 studs: the scale was anchored on the BARREL (710 mm, a listed length), which then puts the
+    # overall length at 1254 mm against a published 1250, the receiver at 37.7 mm against 38, and the
+    # tube at 4.1 shells of 76 mm against a published 4+1. Three checks inside 1 %, none fitted.
+    "lengthStuds": 4.9,
+    # `Gun.BARREL_Y`, the same number all three shipped guns put their bore line at.
+    "boreUpStuds": 0.12,
+    # The barrel's own principal axis IS the bore line (one tube, and the longest node in the file).
+    "axisFromNode": "shotgun.012",
+    # The rail is bolted to the receiver's TOP face and nothing else on this gun is above the bore
+    # by as much, so it settles the sign of "up".
+    "upTowardNode": "shotgun.020",
+    # ...and the butt stock is certainly behind the muzzle.
+    "backTowardNode": "shotgun.019",
+    "anchorSize": 1.0e-4,
+    "groups": [
+        # The body, worn as `Model`: receiver, rail, trigger guard, trigger, bolt release.
+        {"name": "action", "nodes": ["shotgun.013", "shotgun.020", "shotgun.016",
+                                     "shotgun.017", "shotgun.021"]},
+        # A different material: barrel, fore-end, magazine cap.
+        {"name": "barrel", "nodes": ["shotgun.012", "shotgun.022", "shotgun.004"]},
+        {"name": "stock", "nodes": ["shotgun.019"]},
+        # IT MOVES -- straight back and home, once per shot.
+        {"name": "bolt", "nodes": ["shotgun.014"]},
+        # IT MOVES -- up and down, once per shell pushed through the port.
+        {"name": "lifter", "nodes": ["shotgun.018"]},
+        # A third material, and the thing the red dot is drawn on.
+        {"name": "sight", "nodes": ["sight.001"]},
+    ],
+    # Nothing is dropped: every node this model has belongs on the gun.
+    "dropNodes": [],
+}
+
+PLANS = {"model-b": MODEL_B_PLAN, "rigby": RIGBY_PLAN, "lever": LEVER_PLAN,
+         "semiauto": SEMIAUTO_PLAN}
 
 
 class Refused(Exception):

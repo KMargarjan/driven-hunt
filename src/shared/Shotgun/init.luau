@@ -293,6 +293,21 @@ Shotgun.CONFIG = {
 	-- Karen's to change (docs/design/economy-v1.md section 17, K-2); the mechanism is settled
 	-- either way. It lives here because the readout is the WEAPON's.
 	POCKET_UNLIMITED_TEXT = "INF",
+	-- WHAT THE 12-GAUGE SHELL IS -- WHICH LOADS EXIST, WHAT EACH IS CALLED ON SCREEN, AND WHICH
+	-- GLYPH DRAWS IT. These three were literals inside `Weapons.ROWS.shotgun` until task 225, which
+	-- was right while one gun fired this shell and wrong the moment a second did: they are facts
+	-- about the CARTRIDGE and not about the gun, so they live beside the cartridge's ballistics and
+	-- both shotgun rows read them. No value moved.
+	--
+	-- THE WIRE WORD IS `Slug` ON ALL FOUR GUNS, because `Boar.Wound.damageFor` branches
+	-- `if ammo == "Slug"` and any new string would be charged as a buckshot PELLET. The word on
+	-- screen is `AMMO_LABEL`'s business and the Hud's alone (`Hud.readoutFor`).
+	AMMO_KINDS = { "Slug", "Buck" },
+	AMMO_LABEL = { Slug = "SLUG", Buck = "BUCK" },
+	-- THE ONLY SHELL IN THE GAME THAT HAS TWO LOADS, so the only ammunition that carries this (task
+	-- 204). It sits beside `AMMO_LABEL` for the same reason: the wire says `Slug` for the rifles too,
+	-- so a glyph keyed off the wire word alone would draw a shotgun shell for a .416 Rigby cartridge.
+	AMMO_GLYPH = { Slug = "slug", Buck = "buck" },
 	INITIAL_AMMO = "Slug" :: AmmoKind,
 	AUTO_EQUIP = true, -- a grey-box playtest should not start by hunting for the hotbar
 	-- ...AND NOT IN THE SAME FRAME AS THE GRANT (task 141). THE HOTBAR'S ORDER IS NOT OURS: the

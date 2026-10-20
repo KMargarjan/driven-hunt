@@ -35,6 +35,7 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- of it -- the rule `Gun.beadOffset` and `Shape.beadOffset` already follow one layer over.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 local LeverGeometry = require(ReplicatedStorage:WaitForChild("Lever"):WaitForChild("Geometry"))
+local SemiAutoGeometry = require(ReplicatedStorage:WaitForChild("SemiAuto"):WaitForChild("Geometry"))
 local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 -- THE HORN'S OWN GEOMETRY (task 169), for the four numbers that say how big the uploaded horn is,
 -- which way round it goes and where in the hand it sits. They live in the horn's own data file for
@@ -404,6 +405,19 @@ local LEVER_LICENCE = {
 		.. "to this machine (see `BOAR_LICENCE`'s own comment below)",
 	readOn = "2026-10-20",
 	attribution = 'Lever-action rifle model: "Lever action rifle" by Jeick, bought on Fab '
+		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-20",
+}
+
+local SEMIAUTO_LICENCE = {
+	basis = "fab-standard",
+	quote = 'A "Standard License" grants you a non-exclusive and non-transferable license to '
+		.. "privately use, reproduce, display, perform, and modify the Content in accordance with "
+		.. "the terms of this Agreement. [...] you may not Distribute Content on a standalone basis "
+		.. "to third parties except to your collaborators",
+	quotedFrom = "fab.com/eula, read through a web search on 2026-10-03; the page itself answers 403 "
+		.. "to this machine (see `BOAR_LICENCE`'s own comment below)",
+	readOn = "2026-10-20",
+	attribution = 'Semi-automatic shotgun model: "Semi-Automatic Shotgun" by PStudio, bought on Fab '
 		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-20",
 }
 
@@ -2394,6 +2408,187 @@ Assets.ROWS = {
 			.. "(render_three-quarter.png): unmistakably a large-loop lever with its pivot plate. Its "
 			.. "own previews are otherwise near-blank, because a 0.66-stud part inside a 4.0-stud "
 			.. "anchor box is a speck -- so this group is judged in Studio, not here.",
+	},
+	-- ------------------------------------------------- the semi-automatic shotgun (task 225)
+	--
+	-- SIX GROUPS OF ONE GUN, and every one of them carries the WHOLE gun's bounding box: the anchor
+	-- triangles `tools/gltf_split.py` adds at the model's opposite corners, so all six import at one
+	-- size and one origin and assemble at ONE CFrame with no measured per-piece offset. That is why
+	-- every row below has the same `sizeStuds`, the same zero offset and the same rotation.
+	--
+	-- SIX AND NOT THE LEVER'S THREE, and not one of the six is a preference. THREE of the splits are
+	-- forced by MATERIAL -- this model carries three where the Marlin carried one, and `gltf_split`
+	-- refuses a group spanning two because one MeshPart is one material. TWO are forced by MOTION:
+	-- the bolt cycles on a shot and the shell lifter rises on a reload, on two different sequences,
+	-- so neither can be welded into the body. The sixth is the stock, kept apart for its silhouette
+	-- exactly as both rifles keep theirs.
+	--
+	-- 4.9 STUDS, THE LONGEST GUN IN THE GAME, and it is a fact about the gun: the scale was anchored
+	-- on the 710 mm BARREL, which then put the overall length at 1254 mm against a published 1250
+	-- and the receiver at 37.7 mm against 38. `naturalSizeStuds` is the split report's own box at
+	-- 100x.
+	--
+	-- THE SAME TWO TURNS EVERY GROUP NEEDS (`Gun.MESH_ROTATION_DEG`): the splitter writes the muzzle
+	-- at the file's +X and the Blender export plus the Roblox import reverse the model along its own
+	-- long axis (task 107, measured on screen).
+	{
+		key = "semiauto.action",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 134412465352047,
+		displayName = "Driven Hunt semi-auto shotgun action r1",
+		fileName = "model.fbx",
+		sourceSha256 = "4699a5ddd97dcf53f46330714f524690fac859ae091c853ee17bcf8dca18f3d7",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 2402,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The receiver, the Picatinny rail, the trigger guard, the trigger and the bolt-release button -- "
+			.. "everything in the body that does not move. Worn as `Model`, so this is the piece that decides "
+			.. "whether the gun counts as dressed. Looked at before it was called done "
+			.. "(render_three-quarter.png): a blued receiver with the ejection port cut through it, the rail's "
+			.. "slots legible along the top and the guard hanging under it. Near-native at 2,402 triangles -- "
+			.. "NOTHING on this gun was decimated, because its worst group is 2,802 against the Rigby action's "
+			.. "8,258.",
+	},
+	{
+		key = "semiauto.barrel",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 82992193600284,
+		displayName = "Driven Hunt semi-auto shotgun barrel r1",
+		fileName = "model.fbx",
+		sourceSha256 = "e8f53ac3394d819464d79f4554c6a2191a0f23f53c9bf72fe0826aa64efa5eba",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 2804,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The barrel with its vent rib, the fore-end over the gas system, and the magazine cap. ONE GROUP "
+			.. "BECAUSE IT IS ONE MATERIAL: this model carries three where the Marlin carried one, and "
+			.. "`gltf_split` refuses a group that spans two -- one MeshPart is one material. Looked at "
+			.. "(render_three-quarter.png): a long blued tube with the rib visible down it and a WALNUT fore-end "
+			.. "under its rear half, which is the silhouette that separates this gun from the two rifles.",
+	},
+	{
+		key = "semiauto.stock",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 103838194748917,
+		displayName = "Driven Hunt semi-auto shotgun stock r1",
+		fileName = "model.fbx",
+		sourceSha256 = "8da1e3d3a813cd593b6969fddba2c9f70dff7ccf8ab7c3dd8b3f970719631e26",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 1064,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The butt stock, in one piece, near-native at 1,064 triangles. Looked at "
+			.. "(render_three-quarter.png): WALNUT with its grain visible, not the lever's grey laminate -- "
+			.. "which is why `SemiAuto.CONFIG.LOOK.wood` is a warm brown sampled off this preview where the "
+			.. "lever's is grey.",
+	},
+	{
+		key = "semiauto.bolt",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 115920287287204,
+		displayName = "Driven Hunt semi-auto shotgun bolt r1",
+		fileName = "model.fbx",
+		sourceSha256 = "478155cfab78abe31634eb22a0cae9f9ad35c946520acb8d1582bdb0a990be94",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 636,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "THE PIECE THAT MOVES ON A SHOT: the bolt and its charging handle. Which node that was is a "
+			.. "MEASUREMENT and not a name -- the bought file carries NO rig and no useful names at all (every "
+			.. "node is `shotgun.0NN`) -- so it was found by geometry and then confirmed by eye: it is the only "
+			.. "node visible from BOTH flanks, filling the ejection port on the right and seen from underneath "
+			.. "through the loading port. Looked at (render_three-quarter.png): BARE STEEL, much brighter than "
+			.. "the blued receiver it sits in, which is a gift -- this is the piece a player watches travel.",
+	},
+	{
+		key = "semiauto.lifter",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 86845514924224,
+		displayName = "Driven Hunt semi-auto shotgun lifter r1",
+		fileName = "model.fbx",
+		sourceSha256 = "9de9cb4245660b32f28eb515ae1140e903ee61889f2654b1e5a2f41dc7a89c5e",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 250,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "THE PIECE THAT MOVES ON A RELOAD: the shell lifter in the loading port, and the first SECOND "
+			.. "moving group any gun in this repo has had. Found by geometry like the bolt -- a tray 0.044 studs "
+			.. "thick at the receiver's floor, 0.34 long -- and confirmed from the underside frame, where it is "
+			.. "the tray in the port with the bolt visible above it. Its OWN previews are near-blank, because a "
+			.. "250-triangle part inside a 4.9-stud anchor box is a speck, so this group is judged in Studio and "
+			.. "not here.",
+	},
+	{
+		key = "semiauto.sight",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 119945589301201,
+		displayName = "Driven Hunt semi-auto shotgun sight r1",
+		fileName = "model.fbx",
+		sourceSha256 = "b88bfb93f7dbee86f4fdbaf0cc78779fc1d936cf4a5352dee25195549cd6eb7d",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 1580,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The red-dot sight on the rail. Its own material, which is one of the three reasons the split has "
+			.. "six groups. THE ARTIST'S EMISSIVE AND OPACITY MAPS ARE DELIBERATELY NOT UPLOADED: "
+			.. "`SurfaceAppearance` has four channels -- ColorMap, NormalMap, MetalnessMap, RoughnessMap -- and "
+			.. "NO emission, so an emissive map would render as nothing at all. The DOT is drawn instead, as a 3 "
+			.. "mm `Neon` ball at this sight's own measured optical centre (`SemiAuto.Geometry.beadOffset`).",
 	},
 	-- ------------------------------------------------- the beater kit (task 151, round 2)
 	--

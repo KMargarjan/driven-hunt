@@ -14,6 +14,7 @@
 local Shape = require(script.Parent.Shape)
 local ShapeLever = require(script.Parent.ShapeLever)
 local ShapeRifle = require(script.Parent.ShapeRifle)
+local ShapeSemiAuto = require(script.Parent.ShapeSemiAuto)
 
 local Shapes = {}
 
@@ -21,6 +22,7 @@ Shapes.BY_ID = table.freeze({
 	shotgun = Shape,
 	rifle = ShapeRifle,
 	lever = ShapeLever,
+	semiauto = ShapeSemiAuto,
 })
 
 -- `for_` rather than `for`, which is a Luau keyword. A weapon this map does not know gets the
