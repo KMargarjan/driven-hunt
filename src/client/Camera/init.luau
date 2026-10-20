@@ -214,6 +214,36 @@ function Camera.breakFrom(lastClosed, snapshot)
 	return { open = true, spent = spent, loaded = loaded }
 end
 
+-- ONE SHELL JUST WENT IN (task 225). PURE, public, and beside `breakFrom` because it answers the
+-- same kind of question off the same two snapshots.
+--
+-- TRUE WHEN THE SERVER IS RUNNING A `Load` STEP **AND THE NUMBER OF LIVE CHAMBERS WENT UP**. That
+-- second half is the whole point. The obvious signal -- the rising edge of `action == "Load"` --
+-- fires ONCE PER RUN and not once per shell, because `runCycle` publishes the step name on every
+-- step and the step before each `Load` after the first is that same `Load`. `CameraBoot`'s own
+-- comment measured and wrote that down for the lever's gate voice, and queued it as 224a(e): a tray
+-- that flicked once during a five-shell reload would be the "measures correct, looks wrong" defect.
+--
+-- THE LIVE-CHAMBER COUNT WAS ALREADY ON THE WIRE, so this is a read and not a protocol change. And
+-- it cannot misfire on the two cases that defeated the earlier round-counting attempts: a re-grant
+-- publishes a full gun with `action = nil`, and a magazine change publishes `action == "Magazine"`
+-- -- neither is a `Load`.
+function Camera.fedShell(previous, snapshot): boolean
+	if snapshot == nil or snapshot.action ~= "Load" then
+		return false
+	end
+	local function live(of): number
+		local n = 0
+		for _, barrel in ipairs((of and of.barrels) or {}) do
+			if barrel == "Live" then
+				n += 1
+			end
+		end
+		return n
+	end
+	return live(snapshot) > live(previous)
+end
+
 function Camera.setBreakSource(source: BreakSource?)
 	breakSource = source
 end

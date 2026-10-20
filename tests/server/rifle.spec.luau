@@ -31,16 +31,18 @@ end
 
 return function()
 	describe("the weapon table", function()
-		it("holds exactly the three weapons, in hotbar order, frozen all the way down", function()
+		it("holds exactly the four weapons, in hotbar order, frozen all the way down", function()
 			local ids = Weapons.ids()
-			-- THREE SINCE TASK 224. It was two from task 148 -- Karen took the open-sighted Rigby out
-			-- (*"please remove rifle without scope so we don't implement now"*) -- and slot 3 is
-			-- re-occupied by the LEVER-ACTION rifle, which is a different gun and not that one with
-			-- its glass off. The ORDER is the hotbar's (task 141).
-			expect(#ids).to.equal(3)
+			-- FOUR SINCE TASK 225. It was two from task 148 -- Karen took the open-sighted Rigby out
+			-- (*"please remove rifle without scope so we don't implement now"*) -- slot 3 was
+			-- re-occupied by the LEVER-ACTION rifle in task 224, and slot 4 is the SEMI-AUTOMATIC
+			-- SHOTGUN. The ORDER is the hotbar's (task 141), and slot 4 was APPENDED rather than
+			-- inserted: a slot a player already knows must not move under him.
+			expect(#ids).to.equal(4)
 			expect(ids[1]).to.equal("shotgun")
 			expect(ids[2]).to.equal("rifle")
 			expect(ids[3]).to.equal("lever")
+			expect(ids[4]).to.equal("semiauto")
 			expect(Weapons.row("rifle_open")).to.equal(nil)
 			expect(Weapons.row("nope")).to.equal(nil)
 			expect(Weapons.row(nil)).to.equal(nil)

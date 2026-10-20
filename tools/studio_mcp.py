@@ -676,6 +676,10 @@ BLAST_RADIUS = (
     # `src/shared/Rifle/` is, and for the same reason -- `lever.spec` is in `gun` as well as in
     # `weapon` and `shop`, so a scoped run over `Lever.CONFIG` plays the spec that asserts it.
     ("src/shared/Lever/", "gun"),
+    # The semi-automatic shotgun (task 225): the same reason again -- `semiauto.spec` is in `gun`
+    # as well as in `weapon` and `shop`, so a scoped run over `SemiAuto.CONFIG` plays the spec that
+    # asserts it.
+    ("src/shared/SemiAuto/", "gun"),
     ("src/shared/Weapons/", "weapon"),
     # The flight (task 185): the pure ballistics maths. It resolves to `weapon`, not `gun` -- `gun`
     # is the DRAWN gun's geometry (`gun.spec`, `gun_client.spec`) and has nothing to do with
@@ -786,6 +790,8 @@ SCOPE_SPECS = {
              "tests/client/shop_panel.spec.luau",
              # Task 224: the lever rifle's row, its grant and its place on the ladder.
              "tests/server/lever.spec.luau",
+             # Task 225: the semi-auto's row, its grant, its free buckshot and its rung.
+             "tests/server/semiauto.spec.luau",
              # Task 201: the shop's palette IS the game's now, and this spec is what asserts the
              # alias rather than a second copy.
              "tests/client/hud_style.spec.luau",
@@ -809,12 +815,20 @@ SCOPE_SPECS = {
             # Task 224: `src/shared/Lever/` resolves to `gun` for `src/shared/Rifle/`'s reason, so
             # the spec that asserts that config has to be played by a scoped run over it.
             "tests/server/lever.spec.luau",
+            # Task 225: `src/shared/SemiAuto/` resolves to `gun` for the same reason.
+            "tests/server/semiauto.spec.luau",
             "tests/server/weapon_state.spec.luau"),
     # Task 224: the drawn lever -- its `"lever"` CYCLE_KIND branch, the fore-end glove and the
     # shells gate -- is the viewmodel's, exactly as `gun_client.spec` is.
     "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau",
-                  "tests/client/lever_client.spec.luau"),
-    "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau"),
+                  "tests/client/lever_client.spec.luau",
+                  # Task 225: the drawn semi-auto -- its `"straight"` bolt, its SECOND moving group
+                  # and the pose share that keeps the gun still -- is the viewmodel's too.
+                  "tests/client/semiauto_client.spec.luau"),
+    # Task 225: `CYCLE_POSE_SHARE` is read in `Camera.Mode`, and the spec that asserts both of
+    # its arms is the semi-auto's -- so a scoped run over that file has to play them.
+    "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau",
+               "tests/server/semiauto.spec.luau", "tests/client/semiauto_client.spec.luau"),
     "weapon": ("tests/server/ballistics.spec.luau",
                # Task 223: `src/shared/Licences` flipped `reddeer.shipped`, and this spec drives
                # the fire gate from a REAL deer trunk rather than from the stub.
@@ -828,6 +842,10 @@ SCOPE_SPECS = {
                # Task 224: the lever rifle drives `Weapon.cycleRefusal` and the reducer, which are
                # `src/server/Weapon/` -- this scope -- as well as its own numbers.
                "tests/server/lever.spec.luau",
+               # Task 225: the semi-auto drives the same two, plus `Weapon.ShapeSemiAuto` --
+               # and its client spec drives the drawn weapon through the real seam.
+               "tests/server/semiauto.spec.luau",
+               "tests/client/semiauto_client.spec.luau",
                "tests/client/lever_client.spec.luau",
                "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
                "tests/client/rifle_client.spec.luau",

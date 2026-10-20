@@ -826,10 +826,14 @@ return function()
 					highest = math.max(highest, item.hunts)
 				end
 			end
-			-- 11495 + 750 SINCE TASK 223 (the DEER LICENCE), + 650 SINCE TASK 224 (the LEVER RIFLE).
-			expect(total).to.equal(12895)
+			-- 11495 + 750 SINCE TASK 223 (the DEER LICENCE), + 650 SINCE TASK 224 (the LEVER RIFLE),
+			-- + 500 SINCE TASK 225 (the SEMI-AUTOMATIC SHOTGUN).
+			expect(total).to.equal(13395)
 			expect(highest).to.equal(30)
-			expect(Economy.CONFIG.TEST_GRANT.coins).to.equal(13000)
+			-- ...AND THE TEST GRANT HAD TO MOVE WITH IT, which is what this pair of assertions is
+			-- for: the grant exists so Karen can buy EVERY rung and see every state, and at 13000
+			-- against a 13395 catalogue she would have been 395 short of the last one.
+			expect(Economy.CONFIG.TEST_GRANT.coins).to.equal(13500)
 			expect(Economy.CONFIG.TEST_GRANT.coins >= total).to.equal(true)
 			-- EXACTLY the highest gate, not above it: every rung is unlocked and nothing is bought
 			-- FOR her, so she still presses every button and sees every state.

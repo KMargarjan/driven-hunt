@@ -360,8 +360,9 @@ function Viewmodel.validate(data: any): { string }
 	-- new weapon adds a line here. Task 143 added `rifle_open` and task 148 took it out again,
 	-- because Karen asked for the open-sighted rifle to wait.
 	-- EVERY WEAPON THE GAME SHIPS MUST HAVE A POSE SET, and this literal is what makes a missing one
-	-- a named failure rather than a gun drawn at the origin. `lever` joined it in task 224.
-	for _, id in ipairs({ "shotgun", "rifle", "lever" }) do
+	-- a named failure rather than a gun drawn at the origin. `lever` joined it in task 224 and
+	-- `semiauto` in task 225.
+	for _, id in ipairs({ "shotgun", "rifle", "lever", "semiauto" }) do
 		if type(data.weapons[id]) ~= "table" then
 			table.insert(problems, "weapons." .. id .. " is missing")
 		end
@@ -841,6 +842,22 @@ function Viewmodel.view(data: any, weaponId: string?): { [string]: any }
 		BOLT_LIFT_DEG = action.liftDeg,
 		BOLT_DRAW_STUDS = action.drawStuds,
 		BOLT_LIFT_FRACTION = action.liftFraction,
+		-- THE SHELL LIFTER'S OWN TWO NUMBERS (task 225), nil for every gun that has no second
+		-- moving group -- which is every gun written before it. `Camera.Viewmodel.lift` reads them
+		-- and nothing else does.
+		LIFTER_DEG = action.lifterDeg,
+		LIFTER_SECONDS = action.lifterSeconds,
+		-- HOW MUCH OF THE ACTION POSE THE GUN ACTUALLY TAKES WHILE ITS ACTION IS OPEN (task 225),
+		-- and the default is 1, which is every gun written before it, bit-for-bit.
+		--
+		-- IT EXISTS BECAUSE A GUN THAT CYCLES ITSELF MUST NOT MOVE. `Camera.Mode` carries the gun
+		-- and both hands to the action pose and back from `openTilt`, which is right for a hand
+		-- working a break action, a bolt or a lever -- and wrong for a gas piston, where the
+		-- shooter does nothing at all. At 0.42 s a shot that is a lurch out of the sight picture
+		-- 2.4 times a second, and NO choice of pose data fixes it: a `cycle` pose equal to the
+		-- carry steadies the hip and slides the aimed hold, and one equal to the aimed hold does
+		-- the reverse. So it is a SHARE of the blend rather than another pose.
+		CYCLE_POSE_SHARE = action.poseShare,
 		SHELL_EJECT_SECONDS = action.shells.ejectSeconds,
 		SHELL_EJECT_RISE_STUDS = action.shells.ejectRiseStuds,
 		SHELL_FEED_SECONDS = action.shells.feedSeconds,

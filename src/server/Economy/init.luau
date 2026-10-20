@@ -136,7 +136,11 @@ Economy.CONFIG = {
 	-- longer covered the catalogue and `economy.spec` -- which asserts this against the sum of
 	-- every sellable row rather than against itself -- said so. 13,000 is 105 clear of the 12,895
 	-- total, which is the same headroom the old number had.
-	TEST_GRANT = { coins = 13000, hunts = 30 },
+	-- 13500 SINCE TASK 225, and it moves with the catalogue rather than being a round number
+	-- somebody liked: the grant exists so Karen can buy EVERY rung and see every state, and the
+	-- semi-automatic shotgun took the sale total from 12895 to 13395 -- 395 past the old 13000.
+	-- `economy.spec` asserts both halves, which is how that was caught rather than shipped.
+	TEST_GRANT = { coins = 13500, hunts = 30 },
 }
 Drive.deepFreeze(Economy.CONFIG)
 

@@ -134,6 +134,10 @@ Shop.ITEM = table.freeze({
 	-- held (`backups/2026-10-16_task-196_shop-rifle-open-row.md`: 600 coins, 10 hunts). The id is
 	-- `rifle.lever` and not `lever.rifle` so the two rifles sort together in any id-ordered listing.
 	LEVER = "rifle.lever",
+	-- THE SEMI-AUTOMATIC SHOTGUN (task 225). The id is `shotgun.semiauto` and not `semiauto.shotgun`
+	-- for the same reason `rifle.lever` is not `lever.rifle`: the two shotguns sort together in any
+	-- id-ordered listing, and so do the two rifles.
+	SEMIAUTO = "shotgun.semiauto",
 	-- KAREN'S v1 LIST, 2026-10-20 (task 221).
 	HIGH_SEAT = "access.highseat",
 	UNLIMITED_AMMO = "ammo.unlimited",
@@ -312,6 +316,30 @@ Shop.ROWS = {
 		sale = true,
 		grants = { weapon = "lever" },
 	} :: Row,
+	[Shop.ITEM.SEMIAUTO] = {
+		id = Shop.ITEM.SEMIAUTO,
+		label = "SEMI-AUTO SHOTGUN",
+		category = "weapon",
+		-- EVERY NUMBER IN THIS SENTENCE IS ONE THIS REPO MEASURED, which is `Row.blurb`'s own rule:
+		-- five rounds is `SemiAuto.CONFIG.MAGAZINE` (measured off the model's own tube AND matching
+		-- the manufacturer's 4+1), two is `Shotgun.CONFIG.BARRELS`, and it fires the side-by-side's
+		-- own shells because `SemiAuto.CONFIG` reads that gun's ammunition rows BY REFERENCE. A
+		-- shop window that invents a ballistic claim is a shop window that lies.
+		-- 127 CHARACTERS, against `PANEL.BLURB_MAX` of 135 (design 11.1 says 109; 127 is what the
+		-- shipped sentence measures, and both are inside the box), which is the Designer's measured box.
+		blurb = "Five shells instead of two, and it works its own action: pull the trigger and it "
+			.. "is ready again. Same shells, a red dot on top.",
+		-- 500 SITS UNDER THE LEVER'S 650, AND THE LADDER IS THE ARGUMENT. The scarce thing in a
+		-- driven hunt is REACH, and this gun adds none -- it fires the free gun's shell at the free
+		-- gun's range. What it buys is VOLUME: five rounds instead of two and no cycle between them.
+		-- So the rungs each buy a different thing: free double, this for volume, the lever for
+		-- reach, the scoped rifle for precision at range. ~12 drives at the rates `Economy.CONFIG`
+		-- pays. KAREN'S, AND HERS TO RETUNE.
+		price = 500,
+		hunts = 8,
+		sale = true,
+		grants = { weapon = "semiauto" },
+	} :: Row,
 	[Shop.ITEM.ALWAYS_HUNTER] = {
 		id = Shop.ITEM.ALWAYS_HUNTER,
 		label = "ALWAYS HUNTER",
@@ -475,6 +503,10 @@ Shop.RETIRED_ORDER = table.freeze({
 Shop.ORDER = table.freeze({
 	Shop.ITEM.SLUG,
 	Shop.ITEM.BEATER_LICENCE,
+	-- 500 SITS BETWEEN THE BEATER'S LICENCE (250) AND THE HIDE (575), and `Shop.ORDER` IS
+	-- CHEAPEST-FIRST -- `shop.spec` asserts the whole list is ascending, so this is a position and
+	-- not a preference. It is the first WEAPON a player can buy.
+	Shop.ITEM.SEMIAUTO,
 	Shop.ITEM.BUNDLE_HIDE,
 	Shop.ITEM.HIGH_SEAT,
 	-- 650 SITS BETWEEN THE HIGH SEAT'S 600 AND THE DEER LICENCE'S 750, and `Shop.ORDER` IS
@@ -500,6 +532,7 @@ Shop.ORDER = table.freeze({
 Shop.ALL_ORDER = table.freeze({
 	Shop.ITEM.SLUG,
 	Shop.ITEM.BEATER_LICENCE,
+	Shop.ITEM.SEMIAUTO,
 	Shop.ITEM.BUNDLE_HIDE,
 	Shop.ITEM.HIGH_SEAT,
 	Shop.ITEM.RED_STAG,
@@ -787,6 +820,13 @@ Shop.BASE_AMMO = table.freeze({
 	-- same words: it is a 650-coin purchase, and selling a man a rifle and then no rounds for it
 	-- would be the shop taking money for nothing. The wire word is `Slug` on all three guns.
 	lever = table.freeze({ Slug = true }),
+	-- ...AND THE SEMI-AUTOMATIC SHOTGUN'S BUCKSHOT IS FREE WITH IT (task 225) -- but NOT its slug,
+	-- which is the SHOTGUN's rule and not the rifles'. The two rifles get their only load free
+	-- because selling a man a rifle and then no rounds for it would be the shop taking money for
+	-- an ornament; this gun fires the free weapon's shell, so its buckshot is already his and the
+	-- slug is still the ladder's first rung (`ammo.slug`, 120). `Shop.startFor` hands a kind he may
+	-- not be issued a pocket of ZERO rather than an absent one, so the readout stays honest.
+	semiauto = table.freeze({ Buck = true }),
 })
 
 -- ---------------------------------------------------------------- reads of the catalogue

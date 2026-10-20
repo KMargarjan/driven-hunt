@@ -80,21 +80,30 @@ return function()
 			-- hunter always - We can also make a few packages bundles"*. TEN ROWS: her seven items
 			-- plus three packages. The RED HAT is not one of them -- *"From shop remove red heat"* --
 			-- and it is in `Shop.RETIRED` instead, still granting to whoever bought one.
-			-- ELEVEN SINCE TASK 224: the lever rifle's row.
-			expect(#Shop.ORDER).to.equal(11)
+			-- ELEVEN SINCE TASK 224 (the lever rifle), TWELVE SINCE TASK 225 (the semi-automatic
+			-- shotgun, at 500, between the beater's licence and THE HIDE).
+			--
+			-- TWELVE IS `Shop.CONFIG.MAX_ITEMS`, so THIS ROW TAKES THE LAST SLOT and the next
+			-- catalogue row needs that number moved. Said here, where the count is asserted, so it
+			-- arrives as a one-line decision rather than as a red harness.
+			expect(#Shop.ORDER).to.equal(12)
+			expect(#Shop.ORDER).to.equal(Shop.CONFIG.MAX_ITEMS)
 			expect(Shop.ORDER[1]).to.equal(Shop.ITEM.SLUG)
 			expect(Shop.ORDER[2]).to.equal(Shop.ITEM.BEATER_LICENCE)
-			expect(Shop.ORDER[3]).to.equal(Shop.ITEM.BUNDLE_HIDE)
-			expect(Shop.ORDER[4]).to.equal(Shop.ITEM.HIGH_SEAT)
+			expect(Shop.ORDER[3]).to.equal(Shop.ITEM.SEMIAUTO)
+			expect(Shop.ORDER[4]).to.equal(Shop.ITEM.BUNDLE_HIDE)
+			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.HIGH_SEAT)
 			-- TASK 224: the lever rifle at 650 lands between the high seat's 600 and the deer
 			-- licence's 750, because `Shop.ORDER` is cheapest-first and the case below asserts it.
-			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.LEVER)
-			expect(Shop.ORDER[6]).to.equal(Shop.ITEM.RED_STAG)
-			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.UNLIMITED_AMMO)
-			expect(Shop.ORDER[8]).to.equal(Shop.ITEM.RIFLE)
-			expect(Shop.ORDER[9]).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
-			expect(Shop.ORDER[10]).to.equal(Shop.ITEM.ALWAYS_HUNTER)
-			expect(Shop.ORDER[11]).to.equal(Shop.ITEM.BUNDLE_SEASON)
+			-- EVERY INDEX FROM HERE ON MOVED UP ONE IN TASK 225, which is what inserting a 500-coin
+			-- row into a cheapest-first list does.
+			expect(Shop.ORDER[6]).to.equal(Shop.ITEM.LEVER)
+			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.RED_STAG)
+			expect(Shop.ORDER[8]).to.equal(Shop.ITEM.UNLIMITED_AMMO)
+			expect(Shop.ORDER[9]).to.equal(Shop.ITEM.RIFLE)
+			expect(Shop.ORDER[10]).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
+			expect(Shop.ORDER[11]).to.equal(Shop.ITEM.ALWAYS_HUNTER)
+			expect(Shop.ORDER[12]).to.equal(Shop.ITEM.BUNDLE_SEASON)
 			expect((Shop.ITEM :: any).RIFLE_OPEN).to.equal(nil)
 			-- THE RED HAT IS OFF THE SHELF AND STILL IN THE BUILD (task 221).
 			expect(Shop.ROWS[Shop.ITEM.HAT_RED]).to.equal(nil)
@@ -402,11 +411,13 @@ return function()
 			-- INSIDE A SHELF THE WIRE'S OWN ORDER SURVIVES, and the wire is `Shop.ORDER`: cheapest
 			-- first. THE WEAPONS SHELF HELD ONE ROW FROM TASK 196 TO TASK 224 -- and the case's own
 			-- comment then said *"the ordering it was written for comes back with the next weapon"*.
-			-- It has: the lever rifle is 650 and the scoped rifle is 1500, so the shelf is two rows
-			-- cheapest-first and this assertion is doing the job it was written for again.
-			expect(#groups[1].rows).to.equal(2)
-			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.LEVER)
-			expect(groups[1].rows[2].id).to.equal(Shop.ITEM.RIFLE)
+			-- It has, and THREE ROWS SINCE TASK 225: the semi-automatic shotgun is 500, the lever
+			-- rifle 650 and the scoped rifle 1500, so the shelf is three rows cheapest-first and
+			-- this assertion is doing the job it was written for twice over.
+			expect(#groups[1].rows).to.equal(3)
+			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.SEMIAUTO)
+			expect(groups[1].rows[2].id).to.equal(Shop.ITEM.LEVER)
+			expect(groups[1].rows[3].id).to.equal(Shop.ITEM.RIFLE)
 			-- ...AND A SHELF WITH THREE ROWS KEEPS THE WIRE'S CHEAPEST-FIRST ORDER, which is the
 			-- ordering the case above was written for and could not show with one row.
 			local packages = groups[5].rows
@@ -493,10 +504,11 @@ return function()
 			-- these counts are the catalogue's shape and not just its length.
 			-- slug: its own row + THE HIDE + THE FULL SEASON.
 			expect(kinds.ammo).to.equal(3)
-			-- the two rifles: each one's own row, + THE MARKSMAN and THE FULL SEASON, which both
-			-- cover the SCOPED one. Four since task 224, and the lever is in no package (a bundle
-			-- covering both rifles would make `mergedGrants` conflict on a single-valued field).
-			expect(kinds.weapon).to.equal(4)
+			-- the three bought guns: each one's own row, + THE MARKSMAN and THE FULL SEASON, which
+			-- both cover the SCOPED rifle. FIVE SINCE TASK 225, and neither the lever nor the
+			-- semi-auto is in any package -- a bundle covering two guns would make `mergedGrants`
+			-- conflict on a single-valued field.
+			expect(kinds.weapon).to.equal(5)
 			-- the beater licence: its own row + THE FULL SEASON.
 			expect(kinds.driveGun).to.equal(2)
 			-- the high seat: its own row + THE HIDE + THE FULL SEASON.

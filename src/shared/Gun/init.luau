@@ -52,10 +52,16 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Gun = {}
 
--- WHICH GROUP A PIECE BELONGS TO, and it is the whole of the break-open. "body" is bolted to the
--- action and never moves; "barrels" swings down about the hinge, and everything in it goes with it
--- -- the two tubes, the forend and the bead, exactly as on a real gun.
-export type Group = "body" | "barrels"
+-- WHICH MOVING GROUP A PIECE BELONGS TO. `"body"` is everything that holds still, `"barrels"` is
+-- the group that moves on a SHOT whatever the gun calls it (the side-by-side's barrels, the Rigby's
+-- bolt, the lever's loop, the semi-auto's bolt), and `"lift"` is the group that moves on a RELOAD
+-- -- which until task 225 no gun had. `buildNewGun` reads this and nothing else to decide which
+-- envelope a piece is parented to, so a gun with no `"lift"` piece builds exactly as it did.
+--
+-- ON THE BREAK-OPEN THIS TYPE WAS WRITTEN FOR, that reads: "body" is bolted to the action and never
+-- moves; "barrels" swings down about the hinge and everything in it goes with it -- the two tubes,
+-- the forend and the bead, exactly as on a real gun.
+export type Group = "body" | "barrels" | "lift"
 
 export type Piece = {
 	name: string,

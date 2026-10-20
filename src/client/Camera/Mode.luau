@@ -667,6 +667,24 @@ local function lerpHand(a: HandFrame, b: HandFrame, t: number): HandFrame
 	}
 end
 
+-- HOW MUCH OF THE ACTION POSE THIS GUN ACTUALLY TAKES (task 225). `openTilt` says how far through
+-- its action the gun is; this says how much of that the GUN AND THE HANDS are allowed to show.
+--
+-- 1 IS EVERY GUN WRITTEN BEFORE THIS TASK, PROVABLY: the key is absent from their pose sets, so
+-- `CYCLE_POSE_SHARE` is nil, so this returns 1, so the expression at each call site is exactly the
+-- expression that was there. Nothing about the side-by-side, the Rigby or the lever moves.
+--
+-- 0 IS THE SEMI-AUTOMATIC SHOTGUN, and it is the only honest answer for it. A gas gun works its own
+-- action: the shooter does nothing, so the gun must not move -- only the bolt does. At 0.42 s a shot
+-- the shipped blend is a lurch out of the sight picture 2.4 times a second, and it cannot be dialled
+-- out in the pose data, because one `cycle` pose has to serve both the hip and the aimed hold and
+-- any value steadies one by sliding the other.
+--
+-- BOTH ENDS ARE REACHABLE BY PARAMETER, so a spec drives them with no session and no flag.
+local function poseShare(config): number
+	return math.clamp((config and config.CYCLE_POSE_SHARE) or 1, 0, 1)
+end
+
 -- WHERE ONE HAND IS THIS FRAME, in the gun's own frame. `side` is "right" or "left", the two keys
 -- every pose in `poses.json` carries.
 --
@@ -687,7 +705,7 @@ function Mode.handFrame(side: string, state: State, config): HandFrame
 	table.insert(frames, aim)
 	local index, along = segmentAt(times, Mode.ease(state.blend))
 	local value = lerpHand(frames[index], frames[index + 1], along)
-	return lerpHand(value, handFrameOf(poses.reload[side]), math.clamp(state.openTilt, 0, 1))
+	return lerpHand(value, handFrameOf(poses.reload[side]), math.clamp(state.openTilt, 0, 1) * poseShare(config))
 end
 
 -- The hand pose as a CFrame, through the one conversion site. This is what the viewmodel draws with.
@@ -759,7 +777,7 @@ function Mode.viewmodelOffset(state: State, sightLocal: CFrame?, config): CFrame
 	-- picture. While the gun is open it is held IN FRONT of the player, low and turned so the breech
 	-- faces the eye, and the pose eases there and back with `openTilt`. The BARRELS themselves are
 	-- hinged by `Camera.Viewmodel`, which is the only owner that can move one piece of the gun.
-	pose = pose:Lerp(Mode.breakOffset(config), math.clamp(state.openTilt, 0, 1))
+	pose = pose:Lerp(Mode.breakOffset(config), math.clamp(state.openTilt, 0, 1) * poseShare(config))
 	return CFrame.new(state.bobStuds)
 		* CFrame.Angles(math.rad(state.swayDeg.Y), math.rad(state.swayDeg.X), 0)
 		* pose
