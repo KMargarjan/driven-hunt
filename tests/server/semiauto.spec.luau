@@ -266,17 +266,22 @@ return function()
 			-- Three shells fired, two go back in, and the fourth `Load` finds the tube full --
 			-- which is the refusal `Weapon.cycleRefusal` turns into "finish" rather than an error.
 			local state = equipped(ROW)
+			-- THE CLOCK MUST MOVE. `Fire` sets `busyUntil = now + BARREL_DELAY`, so three shots at
+			-- `now = 0` are one shot and two refusals -- which is what the first version of this
+			-- case did, leaving four in the tube and reading as though the reducer were wrong.
+			local at = 0
 			for _ = 1, 3 do
-				state = StateMachine.apply(state, { kind = "Fire" }, 0, ROW)
-				state = StateMachine.apply(state, { kind = "Break" }, 0, ROW)
-				state = StateMachine.apply(state, { kind = "Close" }, 0, ROW)
+				state = StateMachine.apply(state, { kind = "Fire" }, at, ROW)
+				state = StateMachine.apply(state, { kind = "Break" }, at + 0.2, ROW)
+				state = StateMachine.apply(state, { kind = "Close" }, at + 0.4, ROW)
+				at += 0.5
 			end
 			expect(live(state)).to.equal(2)
 			local before = state.reserve.Buck
 			local steps = 0
 			local refusal: string? = nil
 			for _ = 1, C.MAGAZINE do
-				local next_, reason = StateMachine.apply(state, { kind = "Load" }, 0, ROW)
+				local next_, reason = StateMachine.apply(state, { kind = "Load" }, at, ROW)
 				if reason ~= nil then
 					refusal = reason
 					break
