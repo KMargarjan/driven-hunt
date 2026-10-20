@@ -262,8 +262,20 @@ BOTH LINES, at the same commit, on a clean tree:
 
 ```
 [harness]  PASS: 33/33 checks @ ebc97103617413543a7dae7882544c2775746771 (clean tree) scope=all
-[harness2] <NEEDED at this commit -- round 1's was at 125926d and is superseded>
+[harness2] PASS: 35/35 checks @ ebc97103617413543a7dae7882544c2775746771 (clean tree)
 ```
+
+Both at the SAME commit, both on a clean tree. The two-player line is the **Director's**
+(2026-10-20, first try) -- `test2` needs a human click StudioMCP cannot make; `ESCALATE.md`'s round-2
+entry records that stop as resolved. On L-055, which was raised against this task because it is a
+`Match`/`Score` case: it cannot apply to `test2`, which is a DEV-place mode BY CONSTRUCTION --
+`HARNESS_PLACE_ID` is the DEV id and the mode's own `[<side>] report comes from the DEV place` check
+compares the report's `placeId` against it on both sides, so a run that landed elsewhere would fail
+rather than pass quietly. There is no Forest Test leg to fall back from. I verified that semantics
+and that the sha and clean-tree marker match the code commit; I did not run it, and say so.
+
+**The Director also looked at the tint frame** (`.screenshots/20261020T045958Z-219-r2-tint.png`) and
+accepted it: *"the legendary now reads as a dark, grizzled boar with fur"*.
 
 ROUND 1's PAIR, now superseded by the commit above:
 ```

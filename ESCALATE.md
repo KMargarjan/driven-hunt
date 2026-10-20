@@ -2747,7 +2747,17 @@ room for a fifth row (the Designer's ceiling, see TASKS.md 219a(a)), and the hit
 frame -- the card holds 3 s and the role rotation put the player on Drivers before the next chance.
 The live negative half (an ordinary male's card, tag correctly off) WAS caught.
 
-## 2026-10-20 -- Task 219 round 2: NEEDS TEST2 219 ebc97103617413543a7dae7882544c2775746771
+## 2026-10-20 -- Task 219 round 2: NEEDS TEST2 219 ebc97103617413543a7dae7882544c2775746771 -- **RESOLVED**
+
+**RESOLVED 2026-10-20.** The Director ran it at the code commit, first try:
+`[harness2] PASS: 35/35 checks @ ebc97103617413543a7dae7882544c2775746771 (clean tree)`. He also looked at
+the tint frame and accepted it (*"the legendary now reads as a dark, grizzled boar with fur"*). Both
+lines are in `reviews/task-219/REQUEST.md` and the round-2 review has been run. **The entry below is
+kept unedited, because item 2 -- the sow guard meaning DEV can no longer spawn a legendary -- is a
+DECISION THAT IS STILL OPEN**, whatever the review says; it is queued as TASKS.md 219a(h).
+
+---
+
 
 **For the Director.** Round 1's four blocking findings are fixed, the tint is lighter, and the gate
 is green at a NEW code commit -- so round 1's `[harness2] PASS @ 125926d` no longer covers the code
