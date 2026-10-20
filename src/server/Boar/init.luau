@@ -19,6 +19,10 @@ local PathfindingService = game:GetService("PathfindingService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+-- THE DIRECTOR'S STUDIO-ONLY FORCING SWITCH LIVES HERE AS AN ATTRIBUTE (task 219, Boar.legendaryForced).
+-- It is the same container tools/studio_mcp.py keeps its DHFlag_ overrides on, for the same reason: a
+-- server-only service nothing replicates, so no client can see or write it.
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
@@ -68,6 +72,10 @@ Boar.stepSoundFor = Body.stepSoundFor
 -- Pure, and exported for the same reason: a spec can ask what SoundId a config row turns into
 -- without a boar, a sound or a world (task 126).
 Boar.soundUri = Body.soundUri
+-- ...and the row those two read, exported in round 3 so a spec can ask "does this kind have a voice
+-- at all" rather than only "what pitch does it come out at" -- which is the question the fourth kind
+-- failed (`boar_legendary.spec`, the voice case).
+Boar.voiceRow = Body.voiceRow
 Boar.voicePitch = Body.voicePitch
 Boar.voiceIds = Body.voiceIds
 Boar.farScale = Body.farScale
@@ -300,6 +308,9 @@ Boar.hasClip = Body.hasClip
 -- world, and the one that matters is that a cub's hit zones are a cub's size.
 Boar.kindRow = Body.kindRow
 Boar.kindGeometry = Body.kindGeometry
+-- ...and task 219's four, all pure and all for the same reason: whether a drive has a legendary in
+-- it, which member of a release becomes one, how much harder it is to kill, and the config it lives
+-- by. Defined below, beside `Boar.sounderKinds`, because they are decisions about WHO an animal is.
 -- ...and the one review round 2 added: every gait edge and both rate rails for one animal, so "a cub
 -- is never asked for a rate its own ceiling refuses" is a sweep with no boar in the world.
 Boar.gaitBands = Body.gaitBands
@@ -1665,6 +1676,21 @@ Boar.CONFIG.SOUND = {
 			cry = { 9117369876, 9117370072 },
 			grunt = { 9117352464, 9117344600 }, -- "Pig Grunts 3 / 6"
 		},
+		-- DEEPER THAN THE MALE, and it is the ONE thing the trophy does not borrow from him (task
+		-- 219 round 2, finding 1). The fallback above would have given it his voice whole, which is
+		-- already right -- this row exists because a 35 % bigger animal should sound 35 % bigger
+		-- lower, and 0.72 is a tenth below his 0.8. It is his SAMPLES (the beast-like scream and the
+		-- two low grunts, which are the right ones), pitched down: a new sample nobody has heard
+		-- would be a second thing to judge, and Karen has heard these.
+		--
+		-- IT IS WRITTEN OUT RATHER THAN DERIVED (`male.pitch * 0.9`) so it stays Karen's dial: she
+		-- turns one number here, not a factor somewhere else.
+		legendary = {
+			pitch = 0.72,
+			death = { 9117361361 }, -- the male's "Pigs Beast-Like Screams 8"
+			cry = { 9117369876, 9117370072 },
+			grunt = { 9117357588, 9117352464 },
+		},
 		-- Higher and thinner: one squeal, played half again as fast, which also makes it shorter.
 		cub = {
 			pitch = 1.4,
@@ -2036,13 +2062,121 @@ Boar.CONFIG.SENSE = {
 --              each rig's answer is its own measurement. A FOURTH KIND MUST BE MEASURED THE SAME
 --              WAY -- and if it is not, `boar_model.spec`'s "the dead animal is drawn on the
 --              ground" case is what says so.
+--
+-- THE FOURTH ROW IS A DIFFERENT KIND OF ROW (task 219), and the three fields that are only on it say
+-- why: `meshScale`, `tint` and `toughness`. The sow and the cub are DIFFERENT ANIMALS, baked smaller
+-- by `tools/boar_prep.py` and uploaded; the LEGENDARY is the MALE at another size -- Karen,
+-- 2026-10-10: *"Legendary animals: one or a few, e.g. a legendary boar"* -- so it reuses his asset
+-- (`model = "male"`) and is scaled at runtime, which is no upload, no new id and no second rig to
+-- keep in step.
+--
+--   meshScale  HOW MUCH THE DRAWN RIG IS SCALED WHEN IT IS WELDED ON (`Body.attachVisual`), and it
+--              is `Model:ScaleTo` and NOT `MeshPart.Size`. This file is required by `Boar.Body`,
+--              whose header has said since task 115 that *"`Size` and `Model:ScaleTo` move the mesh
+--              and not the bones, which tears the animal as soon as a clip plays"*. **HALF OF THAT
+--              IS WRONG, and it was MEASURED** in the DEV place on the real published male
+--              (`boar.male` v3, modelId 120607820179994), reading every `Bone.WorldPosition` in the
+--              mesh own object space:
+--
+--                                              mesh Size.Y   lowest bone   hoof_f.L Z
+--                as loaded                        3.2573        -1.6264      -0.7206
+--                after mesh.Size = Size * 1.35    4.3974        -1.6264      -0.7206
+--                after model:ScaleTo(1.35)        4.3974        -2.1957      -0.9728
+--
+--              -2.1957 / -1.6264 and -0.9728 / -0.7206 are both **exactly 1.3500**. So `Size` leaves
+--              the skeleton where it was -- which is the tear -- and `ScaleTo` takes it with it. The
+--              old sentence was written for a sow and a cub, which had to be baked anyway because
+--              they are different animals; `ScaleTo` on its own was never measured. It is now.
+--   clipScale  1.35, AND THAT IS MEASURED TOO, in a PLAY session -- a clip reports `Length = 0` in
+--              Edit because the asset is never fetched there, so this task first measurement was
+--              thrown away. On the published walk clip (78821328262922), 41 samples across it, the
+--              `hoof_f.L` Z travel went **1.6409 -> 2.2152 = 1.3500**: a scaled model Animator
+--              scales the clip absolute translations with it. The feet carry 1.35x the male stride,
+--              so `Body.gaitBands` gives this animal a longer stride and a higher gait-change speed,
+--              which is what a bigger animal should look like.
+--   deathLiftStuds
+--              0, the male own number, and MEASURED on the same rig rather than assumed: the death
+--              clip (128792697872198) held at `length - HOLD_EPSILON` leaves the lowest bone
+--              **+0.0030** above the box bottom plane, against the male own +0.0022. No fourth
+--              per-bone measurement is needed, because this rig IS the male rig.
+--   tint       THE COAT, MULTIPLIED. The loaded mesh carries exactly one `SurfaceAppearance` (its
+--              `ColorMap` is rbxassetid://140199537340988) whose `Color` exists and reads (1, 1, 1)
+--              -- measured, because a `MeshPart.Color` write is IGNORED when a SurfaceAppearance is
+--              present, and an overlay part would be a second thing to weld.
+--
+--              IT IS A MULTIPLIER AND NOT A COLOUR, AND THAT IS WHAT ROUND 1 GOT WRONG. The value
+--              was RGB(70, 58, 48), which as a multiply is (0.275, 0.227, 0.188) -- it takes the
+--              artist's coat to a QUARTER of its brightness, and the Director's frame
+--              (`219-pair-lit2.png`) showed the result: *"a FLAT BLACK silhouette -- no fur, no
+--              detail"*. He is right, and the number he offered instead (70, 62, 55) is 0.275 /
+--              0.243 / 0.216 -- the same quarter, so it would not have fixed what he saw. Said here
+--              because the arithmetic is the whole point: at 255 the coat is untouched, and every
+--              step down multiplies the FUR as well as the colour.
+--
+--              RGB(150, 138, 125) is (0.588, 0.541, 0.490): a little over half brightness, warmed
+--              down and very slightly desaturated, so the animal reads clearly darker than the males
+--              beside it while the ColorMap's bristles, highlights and the pale tusks all survive.
+--              **Karen's dial, and the floor is the thing to keep: below about 0.35 the fur stops
+--              being visible at all, which `boar_legendary.spec` now asserts rather than leaving to
+--              the next person's eye.**
+--              THE TUSKS COULD NOT BE DONE and that is said out loud: the rig is one skinned mesh
+--              with no separate tusk geometry and the tusks are painted into the ColorMap, so "paler
+--              and a bit longer" needs a second mesh or a reworked upload -- an asset task. They are
+--              drawn 35 % bigger with the rest of him and that is all this task delivers there.
+--   toughness  HOW MUCH HARDER IT IS TO KILL, as a DIVISOR on the damage a NON-VITAL zone does --
+--              `Boar.toughnessFor` is the one reader and `WOUND.CLASS` is what decides which zones
+--              those are. The DJV `Schild` is the source (an old keiler shoulders and flanks carry
+--              centimetres of hardened connective tissue; its skull and its chamber do not), so at
+--              2.0 one head or chest slug still kills it outright and a body slug goes from
+--              mortal-and-down to a graze. That IS Karen own second option -- *"only head/chest
+--              zones kill"* -- read off the table this game already has.
+--              A BIGGER `LETHAL`/`MORTAL` WAS REFUSED: it scales the span `Wound.flightStuds` tapers
+--              the run across, so the animal would also run further for the same FRACTION of a
+--              mortal wound -- a second change nobody asked for, hidden in a number that looks like
+--              it only means "tougher".
+--   wary       TWO MULTIPLIERS, read by `Boar.kindConfig` and by nothing else: `noticeScale` on
+--              every radius at which the animal reacts to a person, and `runScale` on the one
+--              function that answers how fast it runs when it is frightened.
 Boar.CONFIG.KINDS = {
 	ENABLED = Flags.isOn("BOAR_MODEL"),
 	DEFAULT = "male",
-	ORDER = { "male", "female", "cub" },
+	ORDER = { "male", "female", "cub", "legendary" },
 	male = { name = "male", scale = 1.0, clipScale = 1.0, model = "male", deathLiftStuds = 0 },
 	female = { name = "female", scale = 0.85, clipScale = 0.8553, model = "female", deathLiftStuds = 0.205 },
 	cub = { name = "cub", scale = 0.45, clipScale = 0.4372, model = "cub", deathLiftStuds = 1.009 },
+	legendary = {
+		name = "legendary",
+		scale = 1.35,
+		clipScale = 1.35,
+		model = "male", -- THE SAME BOUGHT ASSET. No upload, no new id
+		deathLiftStuds = 0,
+		meshScale = 1.35,
+		tint = Color3.fromRGB(150, 138, 125),
+		toughness = 2.0,
+		wary = { noticeScale = 1.4, runScale = 1.12 },
+	},
+	-- HOW RARE IT IS, and both halves are here because "one per drive" and "not every drive" are one
+	-- decision. Karen asked for *"one or a few"*. Reasoned from THIS game rather than from the genre,
+	-- because the genre published rare-spawn rates are player estimates and the research note records
+	-- that as a NEGATIVE result: a drive is ten minutes and a session is a handful of drives, so 1 in
+	-- 4 means a player meets one in about forty minutes and a full evening carries two or three. At 1
+	-- in 10 most sessions would have none and the animal would be folklore; at 1 in 2 it is just the
+	-- big boar. **One number, Karen to turn.**
+	--
+	-- THE CAP IS STRUCTURAL AND NOT A COUNT THAT COULD DRIFT: the roll is drawn ONCE, on a drive
+	-- first release (`Runtime:_legendaryAllowed`), and the permission is spent the instant one is
+	-- promoted. `Runtime:clear` resets both, and `Match` already calls it at every drive end.
+	LEGENDARY = {
+		CHANCE_PER_DRIVE = 0.25,
+		MAX_PER_DRIVE = 1,
+		-- THE DIRECTOR FORCING SWITCH, and it is Studio-only by construction: the attribute is read
+		-- only when `RunService:IsStudio()`, so it cannot change a live server whatever is written on
+		-- it. It is deliberately NOT a `DHFlag_*` override -- those are `tools/studio_mcp.py` own and
+		-- the harness refuses to start while one is set -- so the guard that keeps a forgotten switch
+		-- out of a harness run is a SPEC instead: `tests/server/boar_legendary.spec.luau` fails while
+		-- this attribute is present, by name, and prints how to clear it.
+		FORCE_ATTRIBUTE = "DrivenHunt.ForceLegendary",
+	},
 }
 
 Boar.CONFIG.MODEL = {
@@ -2244,6 +2378,150 @@ function Boar.sounderKinds(size: number, rolls: { number }, config, composition)
 		end
 	end
 	return kinds
+end
+
+-- WHETHER THIS DRIVE HAS A LEGENDARY IN IT (task 219). Pure: one roll in, one answer out, so "one
+-- drive in four" is a spec case and not a probability a playtest has to measure. `roll` is a number
+-- in [0, 1); `CHANCE_PER_DRIVE` of 0 and 1 are therefore EXACT -- never and always -- which is what
+-- lets every other case in this task be driven without any randomness at all.
+-- THE DIRECTOR'S STUDIO-ONLY SWITCH, read in ONE place. `Runtime:_legendaryAllowed` is the only
+-- caller and this is the only reader of the attribute, so "how do I force a legendary" has one
+-- answer: in Studio, `ServerStorage:SetAttribute("DrivenHunt.ForceLegendary", true)`.
+--
+-- OUTSIDE STUDIO IT IS ALWAYS FALSE, and that is not a convention -- `RunService:IsStudio()` is
+-- checked here, so a live server ignores the attribute even if something wrote it.
+--
+-- IT IS NOT A `DHFlag_*` OVERRIDE. Those belong to `tools/studio_mcp.py`, which REFUSES to start a
+-- harness run while one is set; this one it cannot see, so a switch left on would silently change
+-- what every drive spawns. `tests/server/boar_legendary.spec.luau` is the guard: it fails, by name,
+-- while this attribute is present.
+function Boar.legendaryForced(rare): boolean
+	local name = rare and rare.FORCE_ATTRIBUTE
+	if type(name) ~= "string" or not RunService:IsStudio() then
+		return false
+	end
+	local ok, value = pcall(function()
+		return ServerStorage:GetAttribute(name)
+	end)
+	return ok and value == true
+end
+
+function Boar.wantsLegendary(roll: number, config): boolean
+	local rare = (config.KINDS or {}).LEGENDARY
+	if rare == nil or config.KINDS == nil or config.KINDS.ENABLED ~= true then
+		return false -- with `BOAR_MODEL` off there are no kinds at all, so there is no trophy either
+	end
+	if config.KINDS.legendary == nil then
+		return false -- no row, no animal: the price without the animal is what task 160 already had
+	end
+	return roll < (rare.CHANCE_PER_DRIVE or 0)
+end
+
+-- ...AND WHICH MEMBER OF A RELEASE IT IS. Pure, and the CAP IS IN THE SHAPE: it promotes AT MOST ONE
+-- animal, returns a NEW list, and says which index it took -- so "at most one per drive" is the
+-- caller spending a single permission rather than a counter that two code paths could disagree
+-- about.
+--
+-- IT IS ALWAYS A MALE, AND NEVER A MALE INSIDE A NURSERY (round 1, note 5). A legendary is a mature
+-- lone boar: `SOUNDER.MAKEUP.LONE` is already `"male"` and `SOUNDER.COMPOSITIONS` row 6 is *"a lone
+-- big male, which is what a mature boar actually is"*.
+--
+-- SO A RELEASE WITH A SOW IN IT PROMOTES NOBODY, and that is the half round 1 missed.
+-- `SOUNDER.MAKEUP.YOUNG_MALE` is ALSO `"male"` at `YOUNG_MALE_CHANCE` 0.25, so "the first male in
+-- the release" picked, a quarter of the time, a YEARLING walking behind its mother -- and the
+-- trophy would have been three times the size of the piglets beside it, in the one group the design
+-- says it is never in. The note claimed *"a release of sows and piglets promotes NOBODY"*; that was
+-- true only of a release with no yearling in it. One `if` makes it true as written.
+--
+-- **THE PERMISSION IS NOT SPENT** when nobody is promoted, so the next release of the same drive
+-- that is actually a male group carries the trophy -- which is why the caller must not treat "I
+-- asked" as "I spent".
+function Boar.promoteLegendary(kinds: { string }, allowed: boolean, config): ({ string }, number?)
+	local out = table.clone(kinds)
+	if allowed ~= true then
+		return out, nil
+	end
+	local row = (config.KINDS or {}).legendary
+	if row == nil or config.KINDS.ENABLED ~= true then
+		return out, nil
+	end
+	local makeup = config.SOUNDER.MAKEUP
+	for _, kind in ipairs(out) do
+		if kind == makeup.SOW then
+			return out, nil -- a sow leads this one: her young are not the trophy
+		end
+	end
+	for index, kind in ipairs(out) do
+		if kind == makeup.LONE then
+			out[index] = row.name
+			return out, index
+		end
+	end
+	return out, nil
+end
+
+-- HOW MUCH HARDER THIS ANIMAL IS TO KILL, as a DIVISOR on the damage a non-vital zone does, or `nil`
+-- for every animal in the game before task 219. Pure, and `Boar.Wound` is what APPLIES it -- the
+-- damage model owns the rule ("the vitals are not armoured"), this owns which animal carries which
+-- number, and the Runtime only carries it from one to the other.
+function Boar.toughnessFor(kind: string?, config): number?
+	local row = Body.kindRow(kind, config)
+	local toughness = row and row.toughness
+	if type(toughness) ~= "number" or toughness <= 1 then
+		return nil -- 1 and below is not armour, and `nil` is the shape every caller already handles
+	end
+	return toughness
+end
+
+-- THE CONFIG ONE ANIMAL LIVES BY (task 219). Pure. For every kind with no `wary` row it returns the
+-- config TABLE ITSELF and not a copy, so for the male, the sow, the cub and the whole flag-off world
+-- this is the IDENTITY FUNCTION and nothing can drift -- which is the only way to add a per-animal
+-- config without putting a second answer beside every number the Brain reads.
+--
+-- WHY A CONFIG AND NOT A SECOND RULE IN `Brain`. `Brain` has exactly one reader of each of the two
+-- facts this changes: `Brain.noticeRadius` / `Brain.fleeRadius` for how far away it reacts to a
+-- person, and `Brain:_runSpeed` for how fast it runs when it is frightened -- whose own comment is
+-- *"One function, so the bolt, the hit and the pace clamp cannot disagree about what running is"*.
+-- Scaling the NUMBERS those functions read keeps that promise; a branch inside them would break it.
+--
+-- AN ALREADY-SPAWNED BOAR KEEPS THE CONFIG IT WAS BORN WITH, exactly as it keeps `self._field`
+-- (`Runtime:spawn`): this is handed to `Brain.new` once and never again.
+function Boar.kindConfig(kind: string?, config)
+	local row = Body.kindRow(kind, config)
+	local wary = row and row.wary
+	if type(wary) ~= "table" then
+		return config
+	end
+	local notice = math.max(0, wary.noticeScale or 1)
+	local run = math.max(0, wary.runScale or 1)
+	local out = table.clone(config)
+	-- EVERY RADIUS AT WHICH A PERSON MATTERS, and they move together: `DETECT_RADIUS` is the moving
+	-- flee radius AND the flag-off notice radius, `CALM_RADIUS` is the hysteresis that lets the
+	-- animal settle again, and `SENSE.NOTICE_*` / `SENSE.FLUSH_STUDS` are the four the sense model
+	-- added. Scaling one and not the others would put the calm radius INSIDE the flee radius, which
+	-- is a state that flickers.
+	out.DETECT_RADIUS = config.DETECT_RADIUS * notice
+	out.CALM_RADIUS = config.CALM_RADIUS * notice
+	if type(config.SENSE) == "table" then
+		local sense = table.clone(config.SENSE)
+		sense.NOTICE_MOVING = config.SENSE.NOTICE_MOVING * notice
+		sense.NOTICE_STANDING = config.SENSE.NOTICE_STANDING * notice
+		sense.FLUSH_STUDS = config.SENSE.FLUSH_STUDS * notice
+		sense.CALM_MARGIN = config.SENSE.CALM_MARGIN * notice
+		out.SENSE = sense
+	end
+	-- ...AND THE ONE SPEED. `SPRINT_SPEED` is what `_runSpeed` answers with the pace clamp off, and
+	-- `PACE.RUN_SPEED` is what it answers with the clamp on (Karen: *"when they fleet make speed
+	-- slover"*), so both are scaled or the clamp would quietly cancel the trait.
+	out.SPRINT_SPEED = config.SPRINT_SPEED * run
+	if type(config.PACE) == "table" then
+		local pace = table.clone(config.PACE)
+		if type(config.PACE.RUN_SPEED) == "number" then
+			pace.RUN_SPEED = config.PACE.RUN_SPEED * run
+		end
+		out.PACE = pace
+	end
+	return out
 end
 
 function Boar.defaultWorld(field)
@@ -2470,6 +2748,33 @@ function Boar.newRuntime(world)
 	self._stepVoiceId = nil :: string?
 	self._stepVoiceAt = 0
 	self._nextSounderId = 0
+	-- THE TROPHY, PER DRIVE (task 219). `nil` means "this drive has not been rolled for yet"; a
+	-- boolean is the answer, drawn ONCE on the drive's first release. `_legendaryDrawn` is how many
+	-- have actually been promoted, against `KINDS.LEGENDARY.MAX_PER_DRIVE`. Both are reset by
+	-- `Runtime:clear`, which `Match` already calls at the end of every drive.
+	self._legendaryInDrive = nil :: boolean?
+	self._legendaryDrawn = 0
+	-- ...AND THE ROLL COMES OUT OF ITS OWN STREAM, WHICH THE WORLD SUPPLIES (round 1, finding 1).
+	--
+	-- IT IS A SEPARATE STREAM because `self._rng` is the one every spec written before this task was
+	-- written against -- the formation draw and the per-member rolls both take from it, and both are
+	-- GATED on `BOAR_MODEL` for exactly that reason -- so one more draw per drive out of it would
+	-- shift every number after it.
+	--
+	-- BUT SEPARATE IS NOT ENOUGH, AND ROUND 1 SHIPPED THE HALF THAT WAS. It was `Random.new()` with
+	-- no seed and no way for a world to supply one, and the comment here claimed "no spec depends on
+	-- it". That is true of the STREAM and FALSE OF THE OUTCOME: `SOUNDER.MAKEUP.YOUNG_MALE` is
+	-- `"male"` at a 0.25 chance, so a sow-led release can contain a male for `Boar.promoteLegendary`
+	-- to take, and a spec that then looks a promoted animal up in a three-kind table gets nil.
+	-- `boar_behaviour_live.spec` did exactly that (`wanted[handle.kind]`), so a green gate was ONE
+	-- SAMPLE OF A RANDOM VARIABLE rather than evidence. A harness run has to be reproducible.
+	--
+	-- SO THE WORLD OWNS IT, exactly as it owns `rng` one line up: a spec hands in a stream it can
+	-- pin, and the three specs that release a sounder with kinds ON now pin the CHANCE to 0 or 1 --
+	-- which needs no stream at all, because `NextNumber` returns [0, 1) and so 0 is never and 1 is
+	-- always, exactly. Production passes nothing and gets a fresh stream, which is what "one drive in
+	-- four" has to be.
+	self._legendaryRng = world.legendaryRng or Random.new()
 	-- EVERY STIMULUS'S MEASURED SPEED (task 118, design section 4.6), written here and nowhere else:
 	-- id -> { position, speed }. A character's own `AssemblyLinearVelocity` is network-owned by that
 	-- character's client, so a client that wants to be unnoticed could simply report nothing; a
@@ -2486,6 +2791,11 @@ function Boar.newRuntime(world)
 		pathRequests = 0,
 		pathFailures = 0,
 		pathBlocked = 0,
+		-- HOW MANY LEGENDARIES THIS RUNTIME HAS PUT IN THE WORLD (task 219). Cumulative over the
+		-- session and NOT reset by `clear`, because the per-drive cap is `_legendaryDrawn` and a
+		-- number that means two things is a number that will be read wrong: this one answers "has a
+		-- trophy ever actually spawned", which is what a live session or a report wants to know.
+		legendariesSpawned = 0,
 		spawned = 0,
 		-- ...of which this many arrived already running, because a shot had gone off inside
 		-- `PACE.SPOOK_MEMORY_SECONDS` (task 123 round 3).
@@ -2658,8 +2968,29 @@ function Runtime:setModelSource(templateFor: ((string) -> Instance?)?, animation
 end
 
 -- The template, or nil, asking at most once every ASK_EVERY_SECONDS until it has one.
+--
+-- IT ASKS FOR THE KIND'S `model` KEY AND NOT FOR ITS NAME (task 219), which is what that field has
+-- always been for -- and for `male`, `female` and `cub` the two ARE the same string, so this is the
+-- identity it has been since task 119 and every world's model source is asked exactly what it was
+-- asked before. The LEGENDARY's key is `"male"`: it is the same bought asset, so it costs no second
+-- fetch and no second asset id, and `_heldTemplate` is keyed by the KEY so the two share one
+-- template rather than loading it twice.
+--
+-- THE ROW IS READ BY NAME AND NOT THROUGH `Body.kindRow`, AND THE HARNESS IS WHY. `kindRow` answers
+-- the DEFAULT row for a kind it does not know AND for every kind while `KINDS.ENABLED` is false --
+-- which is exactly right for GEOMETRY (with the kinds off every animal is the male-sized box) and
+-- exactly wrong here: it made this function ask for `"male"` for every kind in a MODEL-on,
+-- KINDS-off world, so `Runtime:displayCarcass` drew a male for a dead sow and for a dead piglet.
+-- `boar_model.spec`'s *"draws each kind from its OWN asset, at its own size"* caught it on the first
+-- run. Reading `KINDS[kind]` directly keeps all three answers right: a known kind gets its own
+-- `model` whatever the flag says, the legendary gets `"male"`, and a kind with NO row falls through
+-- to its own name -- so an unknown kind still reaches a source that has no row for it and still
+-- answers nothing, which is the grey box, and the runtime still invents no kind.
 function Runtime:_modelTemplate(kind: string, now: number): Instance?
-	local held = self._heldTemplate[kind]
+	local kinds = self._config.KINDS
+	local row = if type(kinds) == "table" then kinds[kind] else nil
+	local key = (type(row) == "table" and row.model) or kind
+	local held = self._heldTemplate[key]
 	if held ~= nil and held.Parent ~= nil then
 		return held
 	end
@@ -2667,15 +2998,15 @@ function Runtime:_modelTemplate(kind: string, now: number): Instance?
 	if ask == nil then
 		return nil
 	end
-	if now - (self._askedModelAt[kind] or -math.huge) < self._config.MODEL.ASK_EVERY_SECONDS then
+	if now - (self._askedModelAt[key] or -math.huge) < self._config.MODEL.ASK_EVERY_SECONDS then
 		return nil
 	end
-	self._askedModelAt[kind] = now
-	local template = ask(kind)
+	self._askedModelAt[key] = now
+	local template = ask(key)
 	if template == nil then
 		return nil
 	end
-	self._heldTemplate[kind] = template
+	self._heldTemplate[key] = template
 	local ids = self._config.MODEL.ANIMATION_IDS
 	local lookup = if self._modelSourceSet then self._animationIdFor else moduleAnimationIdFor
 	if lookup then
@@ -2867,7 +3198,13 @@ function Runtime:takeHit(part: BasePart, hit): boolean
 
 			local wound = self._config.WOUND
 			local payload = if type(hit) == "table" then hit else {}
-			local nextWound, severity = Wound.apply(entry.wound, payload, wound)
+			-- HOW HARD THIS ANIMAL IS TO KILL (task 219), carried from the kind's row to the damage
+			-- model and decided by neither of them here: `Boar.toughnessFor` says which animal has a
+			-- number and `Wound.apply` says what a number means (the vitals are never armoured).
+			-- `nil` for every animal in the game before this task, which is the branch that was
+			-- always there.
+			local toughness = Boar.toughnessFor(entry.body.kind, self._config)
+			local nextWound, severity = Wound.apply(entry.wound, payload, wound, toughness)
 			local record = nextWound.wounds[#nextWound.wounds]
 			entry.wound = nextWound
 			entry.lastHit = payload
@@ -2989,6 +3326,12 @@ function Runtime:clear(reason: string?)
 	-- ...and no sounder is left behind. This is NOT counted as a dissolve: the drive is over, and a
 	-- counter that moves when the world is torn down cannot be used to ask how the drive went.
 	table.clear(self._sounders)
+	-- ...AND THE DRIVE'S TROPHY IS FORGOTTEN (task 219). This is the ONE drive boundary this owner
+	-- has -- `Match` calls `clear("driveOver")` when a drive ends -- so it is where "one per drive"
+	-- and "a chance per drive" are both reset. Setting the answer back to `nil` is what makes the
+	-- next drive roll again; zeroing the count is what gives it a fresh permission.
+	self._legendaryInDrive = nil
+	self._legendaryDrawn = 0
 end
 
 function Runtime:boars()
@@ -3004,6 +3347,49 @@ end
 -- Design: docs/design/drive.md ("the boar runtime's sounder interface"). Every function below
 -- returns a COPY: there is no setter, and the drive never reads any of them in production -- they
 -- exist for specs, for diagnostics, and for the step's own bookkeeping.
+
+-- THE ONE PLACE THE DRIVE'S PERMISSION IS SPENT (task 219). It asks, promotes, and counts -- and
+-- `Runtime:spawnSounder` calls it on BOTH of its paths, which is the whole reason it exists: the
+-- lone-animal path (`size == 1`) returns early, and that path is the one most likely to BE the
+-- trophy, because `{ males = 1 }` is *"a lone big male, which is what a mature boar actually is"*.
+-- Spending it in two places would be two chances to forget one.
+function Runtime:_promoteLegendary(kinds: { string }): { string }
+	local out, promoted = Boar.promoteLegendary(kinds, self:_legendaryAllowed(), self._config)
+	if promoted ~= nil then
+		self._legendaryDrawn += 1
+		self._stats.legendariesSpawned += 1
+	end
+	return out
+end
+
+-- MAY THIS RELEASE CARRY THE DRIVE'S LEGENDARY? (task 219.) It draws the drive's one roll the first
+-- time it is asked and remembers the answer, so a drive is rolled once however many releases it has.
+--
+-- IT DOES NOT SPEND THE PERMISSION: the caller does, and only if a male was actually there to
+-- promote (`Boar.promoteLegendary` returns `nil` for a release of sows and piglets). So a drive that
+-- rolled a trophy and then released nothing but a nursery still has it to give.
+--
+-- THE FORCING SWITCH IS READ HERE AND NOWHERE ELSE, at this owner's boundary, and ONLY in Studio:
+-- `RunService:IsStudio()` is false on a live server, so the attribute cannot change a real game
+-- whatever anyone writes on it. It is checked BEFORE the chance, so forcing is forcing.
+function Runtime:_legendaryAllowed(): boolean
+	local kinds = self._config.KINDS
+	local rare = kinds and kinds.LEGENDARY
+	if rare == nil or kinds.legendary == nil or kinds.ENABLED ~= true then
+		return false
+	end
+	if self._legendaryDrawn >= math.max(0, rare.MAX_PER_DRIVE or 1) then
+		return false
+	end
+	if self._legendaryInDrive == nil then
+		if Boar.legendaryForced(rare) then
+			self._legendaryInDrive = true
+		else
+			self._legendaryInDrive = Boar.wantsLegendary(self._legendaryRng:NextNumber(), self._config)
+		end
+	end
+	return self._legendaryInDrive == true
+end
 
 -- ONE OF THE WORLD'S TWO VOICES, OR NOTHING (task 120). Karen, 2026-10-04: "several sqeeng it
 -- could be anoying and shit sound / so we need realistic". Prunes the squeals that have finished,
@@ -3800,7 +4186,12 @@ function Runtime:displayCarcass(kind: string?, cframe: CFrame): Model?
 	-- off the step loop, and `_modelTemplate`'s once-a-second gate only ever delays a FIRST ask --
 	-- a template already held (which is the case for any kind this drive drew) comes back at once.
 	local template = self:_modelTemplate(kind or self._config.KINDS.DEFAULT, os.clock())
-	return Body.displayCarcass(template, cframe, self._config)
+	-- ...AND THE KIND'S OWN GEOMETRY WITH IT (round 1, finding 2). Without this the trophy was laid
+	-- out at the gathering as an ordinary male -- the male's length in the male's coat -- in the ONLY
+	-- branch a world with `BOAR_MODEL` on ever takes. `Body.kindGeometry` is the one answer to "how
+	-- big is this animal and what colour is it", and it is the same call `Runtime:spawn` makes.
+	local geometry = Body.kindGeometry(kind or self._config.KINDS.DEFAULT, self._config)
+	return Body.displayCarcass(template, cframe, self._config, geometry)
 end
 
 -- ALL OR NOTHING: it creates the whole sounder or nothing at all, so a half sounder cannot exist
@@ -3821,10 +4212,15 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?,
 	if size == 1 then
 		-- ONE ANIMAL IS NOT A SOUNDER, and with a composition it is whatever that composition named
 		-- -- a lone big male for `{ males = 1 }`, which is the one Karen asks for by name.
+		--
+		-- ...AND SO THIS IS THE RELEASE MOST LIKELY TO CARRY THE TROPHY (task 219), which is why the
+		-- promotion runs here too and not only on the sounder path below. With no composition the
+		-- kind is `SOUNDER.MAKEUP.LONE` -- which is what `Runtime:spawn` falls back to anyway, so
+		-- naming it here changes nothing for every caller before this task.
 		local only = if type(composition) == "table"
 			then Boar.sounderKinds(1, {}, self._config, composition)[1]
-			else nil
-		return { self:spawn(center, only) }
+			else self._config.SOUNDER.MAKEUP.LONE
+		return { self:spawn(center, self:_promoteLegendary({ only })[1]) }
 	end
 
 	local config = self._config
@@ -3883,6 +4279,12 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?,
 		end
 	end
 	local kinds = Boar.sounderKinds(size, rolls, config, composition)
+
+	-- THE DRIVE'S ONE LEGENDARY (task 219), promoted over the top of whoever this release already
+	-- decided to be -- which is exactly how it should read: a legendary is not a fourth animal in the
+	-- makeup, it is ONE OF THE MALES, grown old. The permission is spent only when a male was
+	-- actually there, so a nursery release leaves the trophy for the next one.
+	kinds = self:_promoteLegendary(kinds)
 
 	local handles = {}
 	for index = 1, size do
@@ -4003,7 +4405,11 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 	self._nextId += 1
 	local id = string.format("Boar%d", self._nextId)
 	local body = Body.create(config, self._folder, id, at, geometry.kind)
-	local brain = Brain.new(config, self._field, at, self._rng)
+	-- THE CONFIG THIS ANIMAL LIVES BY (task 219), and for every kind but the legendary it IS
+	-- `config` -- `Boar.kindConfig` returns the table itself when there is no `wary` row, so this
+	-- line is the identity it has always been. A boar keeps the config it was born with, exactly as
+	-- it keeps `self._field` two arguments along.
+	local brain = Brain.new(Boar.kindConfig(geometry.kind, config), self._field, at, self._rng)
 
 	local handle = {
 		id = id,

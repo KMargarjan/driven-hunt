@@ -86,12 +86,23 @@ ReportPanel.LIST_COLUMNS = {
 -- animal row and the cells are placed around it.
 ReportPanel.DETAIL_TEXT_X = 116
 
+-- THE ANIMAL COLUMN WENT 56 -> 78 AND THE GUN COLUMN 110 -> 88 (task 219), and it is a MEASUREMENT
+-- and not a nudge. `LEGENDARY` is the longest animal word this game has, and `Style.cell` truncates
+-- at the end -- a clipped word is a defect no spec can see. MEASURED with
+-- `TextService:GetTextBoundsAsync` in a Play client, in this cell's own face (Oswald Medium 17):
+--
+--     MALE 24.0    FEMALE 34.0    PIGLET 31.0    LEGENDARY 55.0        SHOTGUN 46.0    RIFLE 25.0
+--
+-- 55.0 in a 56 px cell is a ONE-PIXEL margin, and this table's own spec exists because eight columns
+-- *"tuned by eye"* ran POINTS 14 px past the well. 78 gives the longest animal word the proportional
+-- headroom `SHOTGUN` already had, the 22 px come off `GUN` (which still clears its own 46 twice
+-- over), and the eight columns still add up to `WELL_INNER` -- which is arithmetic, and asserted.
 ReportPanel.DETAIL_COLUMNS = {
-	{ key = "kind", head = "ANIMAL", x = 116, w = 56, right = false },
-	{ key = "result", head = "RESULT", x = 178, w = 80, right = false },
-	{ key = "zone", head = "ZONE", x = 264, w = 92, right = false },
-	{ key = "range", head = "RANGE", x = 362, w = 66, right = true },
-	{ key = "gun", head = "GUN", x = 434, w = 110, right = true },
+	{ key = "kind", head = "ANIMAL", x = 116, w = 78, right = false },
+	{ key = "result", head = "RESULT", x = 200, w = 80, right = false },
+	{ key = "zone", head = "ZONE", x = 286, w = 92, right = false },
+	{ key = "range", head = "RANGE", x = 384, w = 66, right = true },
+	{ key = "gun", head = "GUN", x = 456, w = 88, right = true },
 	{ key = "hits", head = "HITS", x = 550, w = 34, right = true },
 }
 
@@ -524,7 +535,13 @@ function ReportPanel.listCellsFor(rank: number, row: any, points: number?): { [s
 	return {
 		rank = tostring(rank),
 		name = string.sub(tostring(row and row.name or "?"), 1, 18),
-		male = tostring((kinds.male or 0) + (kinds.unknown or 0)),
+		-- A LEGENDARY IS COUNTED HERE, AND THAT IS A DECISION (task 219): it IS a male boar, and a
+		-- fourth count column does not fit the 584 px well without taking 44 px off NAME. So the
+		-- trophy is NAMED on the detail page's ANIMAL column, on the hit card and on the start
+		-- card, and it is COUNTED here -- rather than falling through all three count columns and
+		-- showing a player who shot one `MALE 0 FEM 0 CUB 0 KILLS 1`, which reads as broken.
+		-- A column of its own is queued, not smuggled in.
+		male = tostring((kinds.male or 0) + (kinds.unknown or 0) + (kinds.legendary or 0)),
 		female = tostring(kinds.female or 0),
 		cub = tostring(kinds.cub or 0),
 		kills = tostring((row and row.kills) or 0),

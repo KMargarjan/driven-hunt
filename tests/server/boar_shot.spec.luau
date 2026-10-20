@@ -907,7 +907,17 @@ return function()
 				-- sounder is dropped at z -10 and the driver stands 18 studs up-field of it.
 				return { { position = Vector3.new(0, GROUND_Y, 8), kind = "driver" } }
 			end
-			world.config.KINDS = { ENABLED = true } -- a sow and her young, which is what a sounder is
+			world.config.KINDS = {
+				ENABLED = true,
+				-- NO TROPHY IN THIS SPEC'S DRIVES (task 219 round 1, finding 1). The per-drive
+				-- roll is `KINDS.LEGENDARY.CHANCE_PER_DRIVE`, and `NextNumber` returns [0, 1),
+				-- so **0 is never, exactly** -- no stream, no seed, no chance of a surprise
+				-- fourth kind. Before this pin a sow-led release could contain a yearling
+				-- (`MAKEUP.YOUNG_MALE` is "male" at 0.25), `Boar.promoteLegendary` took it, and
+				-- a case here looked the promoted animal up in a three-kind table and did
+				-- arithmetic on nil -- so a green run was a SAMPLE and not evidence.
+				LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 },
+			} -- a sow and her young, which is what a sounder is
 			world.config.SOUND = voicedSound() -- the cue exists on BOTH sides; only the ration differs
 			if not rationed then
 				world.config.SOUND = looseSound()
@@ -1048,7 +1058,17 @@ return function()
 		-- round 1, finding 1: both states reachable without touching the config the game ships).
 		local function gruntsIn(name: string, seconds: number, rationed: boolean): (number, number)
 			local world = buildWorld(true, name) -- its own `threats()` is empty: nothing to flee
-			world.config.KINDS = { ENABLED = true }
+			world.config.KINDS = {
+				ENABLED = true,
+				-- NO TROPHY IN THIS SPEC'S DRIVES (task 219 round 1, finding 1). The per-drive
+				-- roll is `KINDS.LEGENDARY.CHANCE_PER_DRIVE`, and `NextNumber` returns [0, 1),
+				-- so **0 is never, exactly** -- no stream, no seed, no chance of a surprise
+				-- fourth kind. Before this pin a sow-led release could contain a yearling
+				-- (`MAKEUP.YOUNG_MALE` is "male" at 0.25), `Boar.promoteLegendary` took it, and
+				-- a case here looked the promoted animal up in a three-kind table and did
+				-- arithmetic on nil -- so a green run was a SAMPLE and not evidence.
+				LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 },
+			}
 			world.config.SOUND = voicedSound() -- see `voicedSound`: the game ships this cue OFF
 			if not rationed then
 				world.config.SOUND = looseSound()
@@ -1212,7 +1232,17 @@ return function()
 			-- sound per flack when they are close"*. Delete `Runtime:_stepApproachGrunts` and every
 			-- other case in this file still passes, with the game left silent.
 			local world = buildWorld(true, "BoarsApproach")
-			world.config.KINDS = { ENABLED = true }
+			world.config.KINDS = {
+				ENABLED = true,
+				-- NO TROPHY IN THIS SPEC'S DRIVES (task 219 round 1, finding 1). The per-drive
+				-- roll is `KINDS.LEGENDARY.CHANCE_PER_DRIVE`, and `NextNumber` returns [0, 1),
+				-- so **0 is never, exactly** -- no stream, no seed, no chance of a surprise
+				-- fourth kind. Before this pin a sow-led release could contain a yearling
+				-- (`MAKEUP.YOUNG_MALE` is "male" at 0.25), `Boar.promoteLegendary` took it, and
+				-- a case here looked the promoted animal up in a three-kind table and did
+				-- arithmetic on nil -- so a green run was a SAMPLE and not evidence.
+				LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 },
+			}
 			-- THE WORLD-WIDE GAP IS OFF FOR THIS CASE, by parameter. `GRUNT_GAP_SECONDS` spaces two
 			-- FLOCKS arriving together and is measured in REAL seconds (`os.clock`), while a spec
 			-- steps a simulated clock in a fraction of one -- so with it on, the second approach

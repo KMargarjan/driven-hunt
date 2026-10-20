@@ -53,8 +53,10 @@ export type WoundState = {
 
 export type KillRecord = {
 	id: string,
-	-- WHICH ANIMAL DIED (task 120): "male", "female" or "cub", or nil for a caller that predates
-	-- kinds. The one thing a cub penalty cannot be written without.
+	-- WHICH ANIMAL DIED (task 120): "male", "female", "cub" or -- since task 219 -- "legendary",
+	-- or nil for a caller that predates kinds. The one thing a cub penalty cannot be written
+	-- without, and the one thing the trophy's 25 points cannot be scored without either: `Score.kill`
+	-- reads this field and `Match.CONFIG.POINTS.KIND` is the table it reads it into.
 	kind: string?,
 	at: number,
 	position: Vector3,
@@ -129,10 +131,32 @@ end
 
 -- Points for `pellets` projectiles of `ammo` in `zone`. A slug is one projectile charged at the
 -- Slug column; every buckshot pellet is charged separately at the Pellet column.
-function Wound.damageFor(zone: string, ammo: string, pellets: number, config): number
+--
+-- `toughness` IS THE ANIMAL'S ARMOUR AND THE VITALS ARE NEVER ARMOURED (task 219). It divides the
+-- points, and it divides them ONLY where `Wound.hitClass` says the shot did not land in something
+-- vital -- which is this file's own table (`config.CLASS`: `head` and `chest` are `vital`) and not a
+-- second list of zone names. `nil` is every animal in this game before task 219 and leaves the line
+-- above arithmetically untouched.
+--
+-- THE SOURCE IS THE REAL ANIMAL. An old keiler grows a `Schild` -- centimetres of hardened
+-- connective tissue over the shoulders and flanks -- and his skull and his chamber are no harder
+-- than a young boar's. So the hunting rule, and now this game's rule, is the same sentence: take the
+-- chamber or the head. At `toughness = 2` one chest slug still kills a legendary outright and one
+-- body slug, which drops a male, only grazes it. Note:
+-- docs/research/2026-10-20-legendary-boar.md ("Harder to kill").
+--
+-- A BIGGER `LETHAL`/`MORTAL` FOR THE SAME ANIMAL WAS REFUSED, and the reason is in this file:
+-- `Wound.flightStuds` tapers the run across the span `MORTAL..LETHAL`, so scaling the thresholds
+-- would ALSO change how far a wounded legendary runs for the same fraction of a mortal wound. Armour
+-- is the narrower change and it is the one that was asked for.
+function Wound.damageFor(zone: string, ammo: string, pellets: number, config, toughness: number?): number
 	local zoneRow = row(config, zone)
 	local each = if ammo == "Slug" then zoneRow.Slug else zoneRow.Pellet
-	return each * math.max(0, pellets)
+	local points = each * math.max(0, pellets)
+	if type(toughness) == "number" and toughness > 1 and Wound.hitClass(zone, config) ~= "vital" then
+		return points / toughness
+	end
+	return points
 end
 
 function Wound.severityFor(damage: number, config): Severity
@@ -177,7 +201,12 @@ end
 -- in. When it is absent (an older caller, or a hand-written spec hit) every pellet is charged at the
 -- dominant zone, the record says `tallyless`, and the Runtime counts it -- a degradation that is a
 -- number in the harness report rather than a feeling in a playtest (design section 5.4).
-function Wound.apply(state: WoundState, hit, config): (WoundState, Severity)
+--
+-- `toughness` IS THE ANIMAL'S OWN AND IS NOT ON THE HIT (task 219): it describes what was SHOT, not
+-- what was fired, so the Runtime reads it off the animal's kind (`Boar.toughnessFor`) and hands it
+-- in. Putting it on `hit` would let a weapon decide how tough an animal is. `nil` is every caller
+-- written before this task.
+function Wound.apply(state: WoundState, hit, config, toughness: number?): (WoundState, Severity)
 	local ammo = hit.ammo or "Slug"
 	local pellets = if type(hit.pellets) == "number" then hit.pellets else 1
 	local byZone = table.clone(state.byZone)
@@ -197,7 +226,7 @@ function Wound.apply(state: WoundState, hit, config): (WoundState, Severity)
 		-- Wound.chargedZone is the one answer, so the tally in Runtime:takeHit and the damage here
 		-- cannot drift apart (TASKS.md 28a(g)).
 		local key = Wound.chargedZone(zone, config)
-		local points = Wound.damageFor(zone, ammo, count, config)
+		local points = Wound.damageFor(zone, ammo, count, config, toughness)
 		byZone[key] = (byZone[key] or 0) + points
 		added += points
 	end

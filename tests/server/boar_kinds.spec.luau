@@ -284,10 +284,19 @@ return function()
 			-- MEASURED, 2026-10-04, in a Play session, off each loaded template's own `nose` bone in
 			-- mesh object space, with that mesh's own measured height: part-space Y is mesh Y plus
 			-- (meshHeight - boxHeight) / 2, which is `Body.visualOffset`.
+			--
+			-- THE LEGENDARY IS THE MALE'S ROW TIMES 1.35 (task 219), and that is DERIVED rather than
+			-- measured a fourth time -- because it is the male's own rig: `Model:ScaleTo(1.35)` was
+			-- measured in the DEV place to move every bone by exactly 1.3500 (the lowest went
+			-- -1.6264 -> -2.1957 and `hoof_f.L`'s Z -0.7206 -> -0.9728). A uniform scaling of the
+			-- rig against a uniform scaling of the box is the one case where the arithmetic is the
+			-- measurement -- and it is still worth a case, because `scale` and `meshScale` are two
+			-- separate fields and nothing else would notice if they stopped agreeing.
 			local noses = {
 				male = { z = -2.388, meshY = 0.538, meshHeight = 3.2573 },
 				female = { z = -2.057, meshY = 0.418, meshHeight = 2.6473 },
 				cub = { z = -1.082, meshY = 0.267, meshHeight = 1.4389 },
+				legendary = { z = -2.388 * 1.35, meshY = 0.538 * 1.35, meshHeight = 3.2573 * 1.35 },
 			}
 			for kind, nose in pairs(noses) do
 				local geometry = Boar.kindGeometry(kind, on)

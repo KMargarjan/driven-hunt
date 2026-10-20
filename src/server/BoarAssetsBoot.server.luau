@@ -105,21 +105,44 @@ for name, key in pairs(CLIP_KEYS) do
 	)
 end
 
--- ...AND THE ONE MAPPING FROM AN ANIMAL'S KIND TO ITS MODEL KEY (task 119), here for the same
--- reason: `Boar` knows three kinds by the names its own config uses and must not hold a copy of an
--- asset key. An unknown kind answers the male, which is the state every boar was in before this task.
+-- ...AND THE ONE MAPPING FROM A MODEL NAME TO ITS ASSET KEY (task 119), here for the same reason:
+-- `Boar` knows its animals by the names its own config uses and must not hold a copy of an asset
+-- key. An unknown name answers the male, which is the state every boar was in before task 119.
+--
+-- IT IS KEYED BY A KIND'S `model` FIELD AND NOT BY THE KIND (task 219), and that is ONE answer
+-- rather than two: `KINDS.legendary.model` is already `"male"` -- the trophy is the male's own
+-- bought asset, scaled -- so a `legendary` row here would be a second place saying the same thing,
+-- and the two could disagree. There are three MODELS and four kinds, and this table is the models.
 local MODEL_KEYS = {
 	male = Assets.KEYS.boarMale,
 	female = Assets.KEYS.boarFemale,
 	cub = Assets.KEYS.boarCub,
 }
-for kind in pairs(Boar.CONFIG.KINDS) do
-	if kind ~= "ENABLED" and kind ~= "DEFAULT" and kind ~= "ORDER" then
-		assert(
-			MODEL_KEYS[kind] ~= nil,
-			string.format("BoarAssetsBoot: Boar.CONFIG.KINDS has a kind %q that MODEL_KEYS does not name.", kind)
+
+-- A KIND WHOSE MODEL HAS NO ASSET KEY IS A TYPO, AND IT FAILS HERE rather than by standing in the
+-- field as a grey box nobody can explain. Both tables are frozen data edited in git, so a mismatch
+-- is a mistake somebody just made and not a state the game can reach.
+--
+-- IT WALKS `ORDER` AND NOT `pairs(KINDS)` (task 219), and the gate did not catch why: `KINDS` is a
+-- table of ROWS **and** of settings, so the old loop skipped three names by hand (`ENABLED`,
+-- `DEFAULT`, `ORDER`) and asserted on everything else -- which meant the next field anyone added to
+-- that table would fail the boot. Task 219 added two (`legendary` and the `LEGENDARY` rarity block)
+-- and it did exactly that: **this script died at its own assert, so `setModelSource` was never
+-- called and NOT ONE BOAR IN THE GAME WAS EVER DRESSED.** No spec saw it, because no spec runs a
+-- boot script; it was found by looking at a live server. `ORDER` is the list of animals by
+-- definition, so there is nothing to skip and nothing to forget.
+for _, kind in ipairs(Boar.CONFIG.KINDS.ORDER) do
+	local row = Boar.CONFIG.KINDS[kind]
+	local model = (type(row) == "table" and row.model) or kind
+	assert(
+		MODEL_KEYS[model] ~= nil,
+		string.format(
+			"BoarAssetsBoot: Boar.CONFIG.KINDS[%q] wears the model %q, which MODEL_KEYS does not name."
+				.. " Add it to both, or to neither (src/server/BoarAssetsBoot.server.luau).",
+			kind,
+			model
 		)
-	end
+	)
 end
 
 Boar.setModelSource(function(kind: string): Instance?

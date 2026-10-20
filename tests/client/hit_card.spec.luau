@@ -242,6 +242,72 @@ return function()
 			TestKit.note("hit_card: male " .. male.id .. " female " .. female.id)
 		end)
 
+		-- TASK 219. Karen, 2026-10-10: *"Legendary animals: one or a few, e.g. a legendary boar"*. The
+		-- card draws the MALE's silhouette for a trophy -- it IS a male boar and there is no third
+		-- picture -- so without a word on it, the one animal in four drives looks exactly like the
+		-- ones beside it.
+		it("names the LEGENDARY BOAR on the plate, and nothing else wears that tag", function()
+			-- THE WORD IS A PURE DECISION in one place, so the card cannot say "legendary" for a sow.
+			expect(Report.trophyWord("legendary")).to.equal("LEGENDARY BOAR")
+			for _, kind in ipairs({ "male", "female", "cub" }) do
+				expect(Report.trophyWord(kind)).to.equal(nil)
+			end
+			expect(Report.trophyWord(nil)).to.equal(nil)
+
+			-- ...AND THE SCREEN FOLLOWS, which is the half a data table cannot promise (L-093, from
+			-- task 205's two art frames that both drew `kind = "male"`).
+			Card.show(payloadFor("legendary"))
+			local plate = Card.frame() :: Frame
+			local tag = plate:FindFirstChild("Trophy", true) :: TextLabel
+			expect(tag).to.be.ok()
+			expect(tag.Visible).to.equal(true)
+			expect(Hud.Style.unspaced(tag.Text)).to.equal("LEGENDARY BOAR")
+
+			-- IT IS NOT IN THE HEADLINE, and that is a MEASUREMENT and not a preference: spaced,
+			-- `LEGENDARY - BUCKSHOT 4/9` is 167 px in a 164 px label, so the headline keeps saying
+			-- what the SHOT was and the plate says what the ANIMAL was.
+			expect(string.find(Card.labelText(), "L E G E N D", 1, true)).to.equal(nil)
+			local params = Instance.new("GetTextBoundsParams")
+			params.Text = tag.Text
+			params.Font = tag.FontFace
+			params.Size = tag.TextSize
+			params.Width = 10000
+			local measured = game:GetService("TextService"):GetTextBoundsAsync(params)
+			-- AGAINST THE LABEL'S OWN BOX and not the plate's width (round 1, note 6): the thing that
+			-- truncates text is the box it is in.
+			expect(measured.X <= tag.AbsoluteSize.X).to.equal(true)
+
+			-- ...AND IT IS CLEAR OF THE PICTURE, which round 1's was not (round 1, finding 4). The
+			-- tag sat at plate y 76..90 inside an art box spanning 8..88, in the animal's own ink,
+			-- above the animal AND the dots -- and no frame of it had ever been taken. Asserted as
+			-- rectangles, so "it does not cover the animal" is arithmetic and not an opinion.
+			local art = Card.art() :: Frame
+			local tagTop = tag.AbsolutePosition.Y
+			local artBottom = art.AbsolutePosition.Y + art.AbsoluteSize.Y
+			expect(tagTop >= artBottom).to.equal(true)
+			-- ...and every pellet dot is above it too, which is the one thing this card exists for.
+			for _, node in ipairs(art:GetDescendants()) do
+				if node:IsA("GuiObject") and node.Name == "Dot" then
+					expect(node.AbsolutePosition.Y + node.AbsoluteSize.Y <= tagTop).to.equal(true)
+				end
+			end
+			TestKit.note(
+				string.format(
+					"hit_card: the trophy tag measures %.1f px in its own %d px box, starting %.0f px below the picture",
+					measured.X,
+					tag.AbsoluteSize.X,
+					tagTop - artBottom
+				)
+			)
+
+			-- ...AND IT IS GONE ON THE NEXT ORDINARY SHOT. A tag that survived one card would label
+			-- the next animal a trophy, which is worse than never drawing it.
+			Card.show(payloadFor("male"))
+			local after = (Card.frame() :: Frame):FindFirstChild("Trophy", true) :: TextLabel
+			expect(after.Visible).to.equal(false)
+			expect(after.Text).to.equal("")
+		end)
+
 		it("SPREADS pellets that landed in the same place, so every hit is visible", function()
 			-- KAREN, 2026-10-17: *"if same place spread if not same show spread"*. A buckshot
 			-- pattern puts up to eighteen pellets inside a hand's width of animal and at this scale
@@ -422,7 +488,17 @@ return function()
 
 	describe("the clock", function()
 		it("holds for about three seconds, fades, and then is gone", function()
-			Card.show(buckPayload())
+			-- A **LEGENDARY** PAYLOAD (task 219 round 1, finding 3), and that is the whole reason this
+			-- line changed: the trophy tag is drawn only for one, and this case only ever asserts over
+			-- a `TextLabel` that is VISIBLE with text in it -- so driven with `buckPayload()` the tag
+			-- was hidden and empty and the walk below stepped straight over it. `setFade` never
+			-- touched it (it is a child of the CARD, not of an art frame), so for the whole
+			-- `FADE_SECONDS` it stayed at full strength over the world and then snapped away. That is
+			-- the defect this file was blocked for in round 2 of task 198, recurred on the next child
+			-- type added -- exactly as `fadeInk`'s own header predicted.
+			local fading = buckPayload()
+			fading.animalKind = "legendary"
+			Card.show(fading)
 			Card.step(CONFIG.HOLD_SECONDS - 0.1)
 			expect(Card.isVisible()).to.equal(true)
 			expect(math.abs((Hud.hitCard() :: Frame).BackgroundTransparency - CONFIG.PANEL_TRANSPARENCY) < 1e-4).to.equal(
@@ -474,6 +550,14 @@ return function()
 			for _, kind in ipairs({ "image", "text", "dot", "stroke" }) do
 				expect(kinds[kind]).to.equal(true)
 			end
+			-- ...AND THE TROPHY TAG IS ONE OF THE LABELS IT FOUND, named rather than left to the
+			-- class walk: "some TextLabel was fading" is what passed while this one did not exist.
+			local tag = (Hud.hitCard() :: Frame):FindFirstChild("Trophy", true) :: TextLabel
+			expect(tag).to.be.ok()
+			expect(tag.Visible).to.equal(true)
+			expect(tag.Text ~= "").to.equal(true)
+			expect(tag.TextTransparency > 1e-3).to.equal(true)
+			expect(tag.TextTransparency < 1 - 1e-3).to.equal(true)
 			Card.step(CONFIG.FADE_SECONDS)
 			expect(Card.isVisible()).to.equal(false)
 			expect(#Card.dots()).to.equal(0)

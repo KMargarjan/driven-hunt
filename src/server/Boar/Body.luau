@@ -36,9 +36,14 @@
 -- `HitZone`. So the physics, the raycasts, the wounds and the sounders are the same code over the
 -- same Instances as before it, and the flag's two states differ by exactly what is DRAWN.
 --   Skinned meshes      https://create.roblox.com/docs/art/modeling/rigging
---     Bones are descendants of the MeshPart, so moving the MeshPart moves the whole rig, and the
---     scale has to be baked into the upload: `Size` and `Model:ScaleTo` move the mesh and not the
---     bones, which tears the animal as soon as a clip plays.
+--     Bones are descendants of the MeshPart, so moving the MeshPart moves the whole rig.
+--     **`MeshPart.Size` moves the mesh and NOT the bones**, which tears the animal as soon as a clip
+--     plays -- so a DIFFERENT animal (the sow, the cub) has its scale baked into its own upload.
+--     **`Model:ScaleTo` DOES take the bones with it**, and that half of this sentence was wrong here
+--     for five tasks: measured on the real published male (task 219), `Size * 1.35` left the lowest
+--     bone at -1.6264 where it already was, and `ScaleTo(1.35)` moved it to -2.1957 -- exactly
+--     1.3500, as did `hoof_f.L`'s Z. That is what lets the LEGENDARY be the male's own asset at
+--     another size with no upload; see `Boar.CONFIG.KINDS` and `Body.attachVisual`.
 --   AnimationController + Animator  https://create.roblox.com/docs/reference/engine/classes/AnimationController
 --     The rig root is the controller's PARENT, which is why the controller is a child of the cloned
 --     Model rather than of the trunk. `Animator:LoadAnimation` on the SERVER replicates the track to
@@ -123,6 +128,12 @@ function Body.kindGeometry(kind: string?, config)
 		clipScale = row.clipScale,
 		model = row.model,
 		bodySize = config.BODY_SIZE * scale,
+		-- HOW MUCH THE DRAWN RIG IS SCALED WHEN IT IS WELDED ON, and `nil`/1 for every kind whose
+		-- scale is BAKED into its own upload -- the male, the sow and the cub (task 219). It travels
+		-- with the geometry because that is what it is: the drawn half of the same `scale`.
+		meshScale = row.meshScale or 1,
+		-- ...AND WHAT COLOUR THE COAT IS MULTIPLIED BY, or `nil` for the coat as the artist drew it.
+		tint = row.tint,
 		zones = zones,
 		-- HOW FAR THIS ANIMAL'S CARCASS HAS TO BE PUT BACK UP (task 120), travelling with the rest
 		-- of its geometry because that is what it is. Measured per kind; the derivation and the
@@ -173,7 +184,20 @@ function Body.gaitBands(clipScale: number?, config)
 		-- "the ceiling is above everything the game can ask for" is its own derivation -- and what
 		-- the game asks of a cub is its stride's worth more.
 		minRate = model.MIN_RATE,
-		maxRate = model.MAX_RATE / scale,
+		-- ...AND DIVIDING IS ONLY SAFE BELOW 1 (task 219). The worst rate the game can ask for is the
+		-- TROT clip at the top of its own band, and that ask is scale-INVARIANT, because the band
+		-- edge scales with the stride too: `RUN_FROM * s / (10.244 * s)` is 2.733 for every `s`. So
+		-- for a bigger animal `MAX_RATE / s` would fall BELOW the ask -- at the legendary's 1.35 the
+		-- ceiling would be 2.074 against 2.733, a third of its feet sliding at the top of the trot
+		-- band -- while the cub's case this formula was written for needs the division because what
+		-- the game asks of a CUB is the male's world speeds, which do not scale at all.
+		--
+		-- `math.min(scale, 1)` is both of those sentences: every kind that existed before this task
+		-- keeps its exact number (male 2.8, female 3.27, cub 6.40), and anything BIGGER than the male
+		-- gets the male's own 2.8, which is the rail he already clears 2.733 with.
+		-- `tests/server/boar_kinds.spec.luau` sweeps every animal at every speed the Brain can ask
+		-- for and fails if any of them sits on either rail.
+		maxRate = model.MAX_RATE / math.min(scale, 1),
 	}
 end
 
@@ -569,11 +593,49 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 		drawn.Anchored = false -- an anchored part welded into an assembly anchors the whole boar
 	end
 	cloneMesh.CastShadow = true
+	model.PrimaryPart = cloneMesh
+
+	-- THE LEGENDARY IS THE MALE'S OWN RIG, SCALED (task 219), and it is `Model:ScaleTo` -- never
+	-- `MeshPart.Size`. MEASURED in the DEV place on the real published male, reading every
+	-- `Bone.WorldPosition` in the mesh's own object space: `mesh.Size = Size * 1.35` took the drawn
+	-- mesh to 4.3974 studs tall and left the lowest bone at **-1.6264**, exactly where it was, while
+	-- `model:ScaleTo(1.35)` moved it to **-2.1957** -- a ratio of exactly 1.3500, and `hoof_f.L`'s Z
+	-- went -0.7206 -> -0.9728, the same 1.3500. So `Size` is the tear this file's header warns about
+	-- and `ScaleTo` takes the skeleton with it. The clips scale too (measured in Play, where a clip
+	-- actually loads: the walk clip's hoof travel went 1.6409 -> 2.2152, 1.3500 again), which is why
+	-- `KINDS.legendary.clipScale` is 1.35 and not 1.
+	--
+	-- BEFORE THE `CFrame` BELOW, because `Body.visualOffset` reads `cloneMesh.Size`: scaled first,
+	-- the SAME expression stands the bigger animal's feet on the bigger animal's box with no second
+	-- number anywhere. And before the welds further down, which are made against the final size.
+	--
+	-- 1 FOR EVERY OTHER KIND, so this is a no-op for the male, the sow, the cub and the whole
+	-- flag-off world: their scale is baked into their own upload by `tools/boar_prep.py`.
+	local meshScale = (handle.geometry and handle.geometry.meshScale) or 1
+	if meshScale ~= 1 then
+		model:ScaleTo(meshScale)
+	end
+
+	-- ...AND THE COAT IS MULTIPLIED, on the `SurfaceAppearance` THE ASSET ALREADY CARRIES. MEASURED:
+	-- the loaded mesh has exactly one (`ColorMap` rbxassetid://140199537340988) and its `Color`
+	-- property exists and reads (1, 1, 1). It has to be that property and not `MeshPart.Color`, which
+	-- a `SurfaceAppearance` ignores -- so a write there would have looked like a no-op nobody could
+	-- explain. `nil` for every other kind, which leaves the coat as the artist drew it.
+	local tint = handle.geometry and handle.geometry.tint
+	if tint ~= nil then
+		for _, drawn in ipairs(parts) do
+			for _, child in ipairs(drawn:GetChildren()) do
+				if child:IsA("SurfaceAppearance") then
+					child.Color = tint
+				end
+			end
+		end
+	end
+
 	-- THE KIND'S OWN BOX (task 119): the offset is worked out from the template's measured height
 	-- against the box this animal actually has, so a cub's feet land on a cub's box.
 	local boxSize = (handle.geometry and handle.geometry.bodySize) or config.BODY_SIZE
 	cloneMesh.CFrame = trunk.CFrame * CFrame.new(Body.visualOffset(cloneMesh.Size, boxSize))
-	model.PrimaryPart = cloneMesh
 	model.Parent = trunk
 
 	-- EVERY DRAWN PART IS WELDED, not only the mesh (review round 2, note). The loop above forces
@@ -730,7 +792,18 @@ end
 -- nil means "the caller keeps its grey box", and it is the same refusal `Body.attachVisual` makes
 -- for the same reason: a template that is not one mesh is a different asset than the row describes,
 -- and the honest answer to that is the box (`soleMesh`).
-function Body.displayCarcass(template: Instance?, ground: CFrame, config): Model?
+--
+-- `geometry` IS THE KIND'S OWN, AND ROUND 1 DID NOT PASS IT (round 1, finding 2). The display is
+-- what the player walks up to at the end of the drive, and without this the LEGENDARY he just shot
+-- was laid out at the male's 5.5 studs in the male's coat -- the trophy, indistinguishable from the
+-- animals beside it, in the only branch the live game takes. `Match.CONFIG.SCENE.ANIMAL_SCALES` is
+-- read ONLY on the grey-box fallback, so the one world that honoured 1.35 was the one with no model
+-- in it. Everything needed was already one call away: `Runtime:displayCarcass` knows the kind and
+-- `Body.kindGeometry` answers both numbers.
+--
+-- IT IS OPTIONAL, so every caller written before this still gets exactly what it got: nil geometry
+-- means scale 1 and no tint, which is the male.
+function Body.displayCarcass(template: Instance?, ground: CFrame, config, geometry): Model?
 	if template == nil then
 		return nil
 	end
@@ -763,6 +836,30 @@ function Body.displayCarcass(template: Instance?, ground: CFrame, config): Model
 			table.insert(parts, descendant)
 		end
 	end
+	-- THE KIND'S OWN SIZE AND COAT (round 1, finding 2), and it is the SAME two operations
+	-- `Body.attachVisual` performs on the live animal -- `Model:ScaleTo`, which was MEASURED to take
+	-- a skinned rig's bones with it, and the `SurfaceAppearance.Color` the bought asset already
+	-- carries. Done BEFORE the pose below, because `Body.lyingCFrame` reads `cloneMesh.Size`: scaled
+	-- first, the same expression rests the bigger animal on the ground with no second number.
+	--
+	-- A nil `geometry`, or a kind whose scale is baked into its own upload, is scale 1 and no tint --
+	-- so the male, the sow and the cub are laid out exactly as they were before this.
+	model.PrimaryPart = cloneMesh
+	local meshScale = (geometry and geometry.meshScale) or 1
+	if meshScale ~= 1 then
+		model:ScaleTo(meshScale)
+	end
+	local tint = geometry and geometry.tint
+	if tint ~= nil then
+		for _, drawn in ipairs(parts) do
+			for _, child in ipairs(drawn:GetChildren()) do
+				if child:IsA("SurfaceAppearance") then
+					child.Color = tint
+				end
+			end
+		end
+	end
+
 	for _, drawn in ipairs(parts) do
 		-- ANCHORED, because this is scenery: nothing may shove it, nothing may drop it, and there is
 		-- no assembly for it to anchor by accident (the hazard `attachVisual` guards against is a
@@ -803,7 +900,8 @@ function Body.displayCarcass(template: Instance?, ground: CFrame, config): Model
 	for drawn, offset in pairs(offsets) do
 		drawn.CFrame = cloneMesh.CFrame * offset
 	end
-	model.PrimaryPart = cloneMesh
+	-- `PrimaryPart` was set further up, before `Model:ScaleTo` (task 219 round 2): the scale is taken
+	-- about the model's PIVOT, so the mesh has to be the pivot before it is scaled, not after.
 	return model
 end
 
@@ -1550,6 +1648,23 @@ end
 -- `voiceRow` is nil whenever the voice is off, the kind is unknown, or the cue is not one of the
 -- animal's own (hooves, breath and the sniff are the world, not the animal) -- and every caller
 -- then gets exactly what it got before task 120.
+--
+-- A KIND WITH NO VOICE OF ITS OWN BORROWS ITS `model`'s (task 219 round 2, finding 1), which is the
+-- same resolution `Runtime:_modelTemplate` makes for the asset key and for the same reason. The
+-- fourth kind was added to `KINDS` and not to `VOICE`, so this function answered nil for it and the
+-- biggest, oldest boar in the game cried, grunted and DIED on the module-level generic samples at
+-- pitch 1.0 -- a sow's voice, HIGHER than an ordinary male's 0.8, against Karen's own words on that
+-- table (*"pown should sqeen differen, male differen female different"*).
+--
+-- **IT IS A FALLBACK AND NOT A FOURTH ROW BECAUSE THIS TASK MADE THE SAME MISTAKE THREE TIMES** --
+-- `BoarAssetsBoot`'s `pairs(KINDS)` killed the boot, `HitLog`'s `byKind` counted the trophy as an
+-- `unknown`, and this one made it sound wrong. A row would have fixed the legendary and left the
+-- FIFTH kind to make it a fourth time. Resolving through `model` means any future animal built on
+-- the male's asset sounds like the male without anybody remembering anything.
+--
+-- THE LOOKUP IS ONE HOP, NOT A CHAIN: `KINDS[kind].model` names a kind that wears its own asset
+-- (`boar_legendary.spec` asserts exactly that, and `BoarAssetsBoot` asserts it at boot), so there is
+-- no cycle to guard against here.
 function Body.voiceRow(name: string, kind: string?, config)
 	local voice = config.SOUND.VOICE
 	if voice == nil or voice.ENABLED ~= true or kind == nil then
@@ -1558,7 +1673,17 @@ function Body.voiceRow(name: string, kind: string?, config)
 	if voice.APPLIES[name] ~= true then
 		return nil
 	end
-	return voice[kind]
+	local own = voice[kind]
+	if own ~= nil then
+		return own
+	end
+	local kinds = config.KINDS
+	local row = if type(kinds) == "table" then kinds[kind] else nil
+	local model = type(row) == "table" and row.model
+	if type(model) == "string" and model ~= kind then
+		return voice[model]
+	end
+	return nil
 end
 
 -- The CENTRE of the pitch jitter for one cue on one animal: the kind's own voice, or 1 (or the

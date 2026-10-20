@@ -44,6 +44,9 @@ local started = false
 local card: Frame? = nil
 local plate: Frame? = nil
 local label: TextLabel? = nil
+-- THE TROPHY TAG (task 219), built once with the plate and shown only when the shot was at a
+-- legendary. It is held here, beside `label`, because `HitCard.show` is the one writer of both.
+local trophy: TextLabel? = nil
 local artNear: Frame? = nil -- nose-LEFT, the report's own facing
 local artFar: Frame? = nil -- nose-RIGHT, for a hit that came in on the other flank
 local shown: Frame? = nil -- which of the two is carrying the dots right now
@@ -181,6 +184,37 @@ local function build(frame: Frame)
 	artNear = art("Art", false)
 	artFar = art("ArtMirrored", true)
 
+	-- THE TROPHY TAG, UNDER THE PLATE (task 219). Karen, 2026-10-10: *"Legendary animals: one or a
+	-- few, e.g. a legendary boar"* -- and a card that draws the same boar picture for a male and for
+	-- the one animal in four drives has not told the player which he shot. The headline cannot carry
+	-- the word: measured, `LEGENDARY - BUCKSHOT 4/9` spaced is 167 px in a 164 px label.
+	--
+	-- ROUND 1 PUT IT ON THE PLATE AND IT LANDED ON THE ANIMAL (round 1, finding 4): the art box spans
+	-- plate y 8..88 and the tag sat at 76..90, in `BOAR_FILL` -- the animal's own ink -- above both
+	-- the animal and the dots, and no frame of it had ever been taken. It is below the plate now, on
+	-- the dark card, in the headline's own `LABEL_COLOR`, in a band the card grew by six pixels to
+	-- hold (`Report.CONFIG.CARD.HEIGHT` 138 -> 144). It cannot cover the animal or a pellet dot,
+	-- which is the one thing this card exists to show.
+	--
+	-- BUILT ONCE AND HIDDEN, exactly as the two art frames are: `show` writes its `Visible`, so a
+	-- normal shot's card is the card Karen has already seen, bar the six pixels.
+	local tag = Instance.new("TextLabel")
+	tag.Name = "Trophy"
+	tag.BackgroundTransparency = 1
+	tag.FontFace = ShopPanel.FONT.SANS_BOLD
+	tag.TextSize = CONFIG.TROPHY_SIZE
+	tag.TextColor3 = CONFIG.LABEL_COLOR
+	tag.TextXAlignment = Enum.TextXAlignment.Left
+	tag.TextYAlignment = Enum.TextYAlignment.Center
+	tag.Position = UDim2.fromOffset(CONFIG.LABEL_X, CONFIG.ART_TOP + CONFIG.PLATE_HEIGHT + CONFIG.TROPHY_GAP)
+	tag.Size = UDim2.fromOffset(CONFIG.WIDTH - 2 * CONFIG.LABEL_X, CONFIG.TROPHY_HEIGHT)
+	tag.Text = ""
+	tag.Visible = false
+	-- The same step above the card as the headline (`Z + 1`): it sits on the card, not on the plate.
+	tag.ZIndex = Z + 1
+	tag.Parent = frame
+	trophy = tag
+
 	frame.Visible = false
 end
 
@@ -195,6 +229,10 @@ local function hide()
 	if artNear ~= nil then
 		artNear.Visible = false
 		BoarArt.clearDots(artNear)
+	end
+	if trophy ~= nil then
+		trophy.Visible = false
+		trophy.Text = ""
 	end
 	if artFar ~= nil then
 		artFar.Visible = false
@@ -243,6 +281,15 @@ local function setFade(fade: number)
 	end
 	if label ~= nil then
 		label.TextTransparency = at
+	end
+	-- ...AND THE TROPHY TAG, WHICH ROUND 1 LEFT OUT (round 1, finding 3) -- the exact defect this
+	-- file was blocked for in round 2 of task 198, and the one `fadeInk`'s own header predicts for
+	-- *"the next child type added to this card -- an icon, a TAG, a stroke"*. It is a child of the
+	-- CARD and not of an art frame, so the walk below could never reach it: for the whole
+	-- `FADE_SECONDS` it stayed at full strength over the world and then snapped away with
+	-- `card.Visible`. Named here beside `label`, which is the other label this card owns directly.
+	if trophy ~= nil then
+		trophy.TextTransparency = at
 	end
 	if plate ~= nil then
 		plate.BackgroundTransparency = at
@@ -317,6 +364,14 @@ function HitCard.show(payload: any)
 	-- art frame is shown, and both now draw the same facing; what it no longer does is claim a flip
 	-- that never happened.
 	BoarArt.setKind(art, payload and payload.animalKind)
+	-- ...AND WHETHER IT WAS THE TROPHY (task 219). `Report.trophyWord` is the one place that decision
+	-- is made and it answers `nil` for every animal that is not one, so this is the whole of it: the
+	-- same `animalKind` the picture is chosen from, never a second field.
+	if trophy ~= nil then
+		local word = Report.trophyWord(payload and payload.animalKind)
+		trophy.Text = if word ~= nil then ShopPanel.spaced(word) else ""
+		trophy.Visible = word ~= nil
+	end
 	BoarArt.drawDots(art, dots, {
 		fill = CONFIG.BOAR_FILL,
 		width = CONFIG.ART_WIDTH,
