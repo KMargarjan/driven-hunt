@@ -272,7 +272,17 @@ return function()
 				expect(named == nil or named:IsA("Attachment")).to.equal(true)
 				local at = clone.CFrame * (sight :: CFrame)
 				local miss = (dot.Position - at.Position).Magnitude
-				TestKit.note(string.format("task225 dot vs the sight attachment: %.6f studs apart", miss))
+				TestKit.note(
+					string.format(
+						"task225 dot %s vs sight attachment %s (local %s, beadOffset %s, dot.Parent=%s): %.6f apart",
+						tostring(clone.CFrame:ToObjectSpace(dot.CFrame).Position),
+						tostring((sight :: CFrame).Position),
+						tostring(clone.CFrame:ToObjectSpace(CFrame.new(at.Position)).Position),
+						tostring(SemiAutoGeometry.beadOffset(ROW)),
+						tostring(dot.Parent and dot.Parent.Name),
+						miss
+					)
+				)
 				expect(miss < 1e-3).to.equal(true)
 			end)
 		end)
