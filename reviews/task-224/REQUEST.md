@@ -3,10 +3,10 @@
 Task: 224
 Round: 3
 Base: `747d628` (main, the task-223 merge)
-Code commit: `c08355f8ec69a74c5a4358a4cb67d924596109a1`
+Code commit: `77899a220c6ea8a7703258df3edd0169065d6070`
 
 ```
-[harness] PASS: 33/33 checks @ c08355f8ec69a74c5a4358a4cb67d924596109a1 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 77899a220c6ea8a7703258df3edd0169065d6070 (clean tree) scope=all
 ```
 
 `test2` **N/A, checked at this round's head**: no file in this diff is in `TWO_PLAYER_PATHS` — the
@@ -16,6 +16,28 @@ this request.
 **Round 2 returned two blocking findings and both were right — both were my tests being toothless a
 second time.** This round is those two and the refusal diagnosis, and nothing else. Claims from
 rounds 1 and 2 that the Reviewer has already accepted are not restated.
+
+
+## Addendum after the round-3 PASS: `poses.json` re-saved in the tool's own format
+
+CI's **Pose tool selftest** was red. `tools/pose.py`'s `write_poses` is
+`json.dumps(data, indent=2, sort_keys=True)`, and `pose.py selftest` asserts the shipped file is
+already in that format — so that an edit saved through the tool shows only what moved instead of a
+773-line reformat burying one number. I had hand-written it at `indent=1`.
+
+**Rewritten through `write_poses` itself, not by hand, and no value changed:** both trees walked
+together, **430 leaf values compared, 0 differences**. The diff is indentation, 773 insertions and
+773 deletions. `pose.py selftest`, `studio_mcp.py selftest` and `agents.py selftest` all PASS, as do
+StyLua, selene, `rojo build` and `privacy_scan`.
+
+**Why this needs no fourth review round, said explicitly rather than assumed** ([L-036]/[L-039] ask
+for it): the commit touches **one file and it is `src/shared/Viewmodel/poses.json`**, which
+`tools/agents.py` itself classifies — *"content lane: 1 data file(s) ... need no review round
+(CLAUDE.md 'Content lane')"* — and which CLAUDE.md's content lane exempts from the Builder and
+Reviewer rounds while still requiring the one-player `test`, which is the PASS above. No Luau, no
+tool and no spec changed between `c08355f8` (the round-3 PASS) and this commit. A `Round: 4` would
+in any case be refused by `MAX_ROUNDS` without a recorded Director authorisation. **The merge
+decision on this sha is the Director's, and this paragraph is the record of what changed.**
 
 ---
 
