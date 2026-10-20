@@ -157,27 +157,20 @@ return function()
 					local row = Boar.voiceRow(cue, kind, on)
 					-- A ROW, NOT NIL: nil is the generic set, which is what "sounds like a sow" was.
 					expect(row).to.be.ok()
+					-- ...AND THE ROW ANSWERS FOR THIS CUE, which is the thing that was missing: with no
+					-- row at all `voiceIds` falls through to the module-level `spec.ids` and the
+					-- animal borrows the generic set. Asserted as "the row supplies the list, and
+					-- `voiceIds` returns THAT list" -- identity, not contents.
+					--
+					-- NOT "the ids differ from the generic pair", which is what the first draft of
+					-- this case asserted and which the gate refused: the male's and the cub's own
+					-- `cry` ARE `SOUND.DEATH.ids` ("Pig Squeals 1 / 3"), by the config's own choice.
+					-- Only their `death` and `grunt` differ. Sharing a sample deliberately is not
+					-- the defect; having no row is.
+					expect(type(row[cue])).to.equal("table")
+					expect(#row[cue] > 0).to.equal(true)
 					local ids = Boar.voiceIds(cue, kind, { ids = generic, pitch = 1 }, on)
-					expect(type(ids)).to.equal("table")
-					expect(#ids > 0).to.equal(true)
-					-- ...AND IT IS THE ANIMAL'S OWN SET, not the module-level default it falls back
-					-- to. Asserted as "not the generic list", because that IS the defect's signature.
-					local same = #ids == #generic
-					if same then
-						for index, id in ipairs(ids) do
-							if id ~= generic[index] then
-								same = false
-								break
-							end
-						end
-					end
-					if kind ~= "female" then
-						-- The sow's own `cry`/`death` ARE the generic pair by design (hers is "the
-						-- sample set the config carried before any of this"), so she is the one kind
-						-- this comparison cannot speak for -- said out loud rather than skipped
-						-- silently.
-						expect(same).to.equal(false)
-					end
+					expect(ids).to.equal(row[cue])
 				end
 			end
 
