@@ -1,5 +1,110 @@
 # Escalations
 
+## 2026-10-20 - Task 221: STOP -- `NEEDS TEST2 221 d0ea20a613be248113fce2c964184672b1e73e0c`
+
+Nothing is wrong and nothing is undecided. The dispatch ends with
+*"TWO_PLAYER_PATHS -> STOP `NEEDS TEST2 221 <sha>` before the review"*, so this is that stop.
+
+**IT IS REQUIRED THIS TIME, and by the paths rather than by a guess.** Unlike task 218, this branch
+really does touch the two-player list: `src/server/Match/init.luau`, `src/server/Match/Phase.luau`,
+`src/server/Match/Roster.luau`, `src/server/Match/Body.luau`, `src/server/MatchBoot.server.luau`,
+`src/shared/Drive/init.luau`, `tests/server/match_roster.spec.luau` and
+`tests/client/match_client.spec.luau` are all in `TWO_PLAYER_PATHS` or in the specs that test them.
+And the thing they changed is exactly the class of question a second player answers: **who the
+OTHER player is.** The roster now folds a bought preference into the split, the snapshot now
+publishes WHICH players were overruled, and the placement seam now carries the whole hunter line.
+
+**What the Director runs, in Edit, with only DEV open:**
+
+```
+python tools/studio_mcp.py test2
+```
+
+and the line wanted is
+
+```
+[harness2] PASS: n/n checks @ d0ea20a613be248113fce2c964184672b1e73e0c (clean tree)
+```
+
+The one-player half is already done, at that same commit and on a clean tree:
+
+```
+[harness] PASS: 33/33 checks @ d0ea20a613be248113fce2c964184672b1e73e0c (clean tree) scope=all
+```
+
+1,824 server assertions and 446 client assertions, 0 failed, 0 errors. It took four rounds; the
+first three were the specs still reading the old catalogue, and the fourth found nothing.
+
+---
+
+### What is NOT done, said plainly rather than left for the Reviewer to find (rule 8)
+
+The dispatch's proof list is not complete. The task ran well past its 3.5 h box on the build and on
+four harness rounds, and these three are outstanding:
+
+1. **The frames.** No screenshot has been taken of the shop open on the v1 catalogue, of the `$` on
+   the top bar, or of the `$` on the results board. **Rule 5 is therefore not satisfied for this
+   task**, and nothing in the report claims it is.
+2. **The live purchase** of one item with the test grant in the Forest Test.
+3. **The smoke run** (standing rule A). **So nobody should say "ready for Karen" on this branch
+   yet**, and this entry is the record of that.
+
+They need Play with `SHOP` and `COINS` on, and the Learning Agent's own warning applies to doing
+them: `tools/flags.py` resolves the target Studio **by mode, not by place** (TASKS.md 216b,
+unfixed), and both DEV and the Forest Test have been connected during this session. Whoever does
+them captures, restores and **reads back** every attribute touched.
+
+---
+
+### Four things the Director should read before merging. All measured; none of them blocking by
+### themselves, and all of them Karen's or the Director's call rather than the Builder's.
+
+**(a) THE ALWAYS-HUNTER SEAM IS WEAKER THAN ITS $2,000 PRICE, and this is the one worth a decision.**
+
+The privilege is written into the **synthetic previous** (the seam task 217 built), and
+`Roster.assign` keeps its swap only while `|Drivers − Shooters| <= 1`. Flipping one man's synthetic
+row moves the **swapped** counts by **two**. So on an even roster whose last split was even,
+honouring one always-hunter who already held `Shooters` **always** unbalances the swap,
+`Roster.assign` discards the swap **whole**, and everybody falls through to the plain split — which
+is by sorted userId with `ODD_PLAYER_TEAM = "Shooters"`, so the first half lands on `Drivers`.
+
+**A low userId is therefore overruled every time rather than occasionally.** Measured, and
+`match_roster.spec` asserts it rather than hiding it, beside the case that shows what the privilege
+*does* buy (he drove last drive, so honouring it costs the balance nothing and he keeps the
+hunter's place).
+
+This is the design the Architect PASSed and the brief's own rule — *"the drive's balancing still
+wins when it must, and then he is told why"* — and the man **is** told why. But a player who pays
+$2,000 and is put on the beaters most drives will not read it as the rule working. Making it
+stronger means changing `Roster.assign` itself, which that function's own header argues against
+(*"rewriting a pinned pure function to add a feature is a bigger change than the feature"*) and
+which is a task of its own.
+
+**(b) SIX OF THE TEN ROWS HAVE NO PICTURE.** `ShopDisplay.DRAW` names four item ids — the rifle, the
+slug box, the hat and the licence card — and **declares** that an id it does not name draws nothing
+while the panel says `PICK AN ITEM`. That is a stated fallback and not a crash, and no line of the
+design or the dispatch asks for the art. But high-seat access, unlimited ammunition, the red stag
+card, always-hunter and the three packages will all show an empty display case, and that is what
+Karen will see. A Designer or Asset job.
+
+**(c) TASK 218's HIGH SEATS ARE INHERITED UNPROVEN.** TASKS.md row 218 reads *"NOT PROVEN: … the
+climb itself, and TrussPart.Size read-back"*, queued as 218a(h). Task 221 gates that feature behind
+money; **gating a privilege behind money does not make the privilege work.** What 221 proves is the
+DEAL — which hunter is given which stand, over four layouts, three stand counts, four entitlement
+patterns and every roster size to 16. What it inherits unproven is whether a hunter can climb the
+thing once he is on it.
+
+**(d) THE WALK-UP HOLE.** In the Forest Test the placement is only where a hunter **starts**:
+`ForestTest.lockPick` decides which stand the fire gate holds him to, and he picks it by walking to
+it in the 15-second window. So an unentitled hunter can still walk to a seated stand and climb the
+engine's own ladder. The shop's wording was written to match what is built — *"You are given one of
+the wooden high seats on the line when one is free"*, not *"only you may climb it"* — and gating
+the pick is the design's **D-2**, deliberately not in this task because refusing a pick risks the
+measured *"locked to a stand nowhere near his feet"* defect `Match.dispatch` already records.
+
+
+---
+
 ## 2026-10-20 - Task 218: STOP -- `NEEDS TEST2 218 c21429f` (by the dispatch) and NEEDS KAREN (her look)
 
 Nothing is wrong and nothing is undecided. The dispatch ends with
