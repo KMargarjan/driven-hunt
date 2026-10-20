@@ -177,7 +177,19 @@ function Shape.hunterRows(drive, cap: number): ({ Report.HunterRow }, boolean)
 				-- ALL FIVE KEYS, ALWAYS, AS NUMBERS: a dictionary with a hole does not survive the
 				-- wire faithfully (`Drive`'s own rule for `ScoreRow`). `legendary` is the fifth
 				-- (task 219).
-				byKind = { male = 0, female = 0, cub = 0, legendary = 0, unknown = 0 },
+				byKind = {
+					male = 0,
+					female = 0,
+					cub = 0,
+					legendary = 0,
+					-- THE RED DEER (task 223). Seeded here for the reason every key is: the wire
+					-- carries all of them always, because a dictionary with a hole does not
+					-- survive it faithfully.
+					stag = 0,
+					hind = 0,
+					calf = 0,
+					unknown = 0,
+				},
 			}
 			byUser[userId] = row
 			table.insert(order, userId)
@@ -209,8 +221,13 @@ function Shape.hunterRows(drive, cap: number): ({ Report.HunterRow }, boolean)
 				-- `KILL.unknown` kept for zones -- so letting the trophy fall into it would have
 				-- destroyed that signal silently, and silently is the word: the list table already
 				-- adds `unknown` into its MALE column, so the count would have looked right.
+				--
+				-- ...AND SO ARE THE THREE DEER (task 223), named one by one for exactly that
+				-- reason. A stag falling into `unknown` would be counted into the report's MALE
+				-- column by `listCellsFor` -- so it would LOOK right -- while the one signal that
+				-- catches a kind typo was quietly gone.
 				local kind = animal.kind
-				if kind == "male" or kind == "female" or kind == "cub" or kind == "legendary" then
+				if row.byKind[kind] ~= nil and kind ~= "unknown" then
 					row.byKind[kind] += 1
 				else
 					row.byKind.unknown += 1

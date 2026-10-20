@@ -285,20 +285,21 @@ return function()
 			)
 			-- The slug is owned, so it wears the OWNED chip.
 			expect(lineFor(Shop.ITEM.SLUG)).to.equal(string.format("SLUG SHELLS|$120|%s", Shop.CONFIG.TEXT.OWNED_TAG))
-			-- ...AND THE RED STAG CARD IS "SOON" (task 221): Karen asked for the row and there is no
-			-- red stag in this game, so it is shown and refused. Task 196 had left nothing in this
-			-- state, and `sale = false` is exactly what it was kept for.
+			-- ...AND THE DEER LICENCE IS A ROW LIKE ANY OTHER SINCE TASK 223. It was "SOON" in task
+			-- 221 because there was no deer; Karen bought one on 2026-10-20, so the card went on
+			-- sale in the same commit as the animal and this player is $450 short of it.
 			expect(lineFor(Shop.ITEM.RED_STAG)).to.equal(
-				string.format("RED STAG CARD|$750|%s", Shop.CONFIG.TEXT.SOON_TAG)
+				string.format("DEER LICENCE|$750|%s", string.format(Shop.CONFIG.TEXT.ROW_POOR_TAG, Money.text(450)))
 			)
-			-- ...AND IT IS THE ONLY ONE: nothing else in the catalogue is announced and unsellable.
+			-- ...AND NOTHING IS ANNOUNCED-AND-UNSELLABLE ANY MORE. `SOON_TAG` stays for the next
+			-- rung announced before it ships; `shop.spec` is what proves the mechanism still bites.
 			local soon = 0
 			for _, line in ipairs(lines) do
 				if string.find(line, Shop.CONFIG.TEXT.SOON_TAG, 1, true) ~= nil then
 					soon += 1
 				end
 			end
-			expect(soon).to.equal(1)
+			expect(soon).to.equal(0)
 			-- The scoped rifle: 30 hunts is enough, 300 coins is not, so the tag says HOW SHORT he is
 			-- -- *"the affordability signal is never colour alone"*.
 			expect(lineFor(Shop.ITEM.RIFLE)).to.equal(

@@ -240,7 +240,24 @@ Match.CONFIG = {
 		-- scene must not learn what a boar is, and these are the same four numbers
 		-- `Boar.CONFIG.KINDS` holds. A trophy laid out at the gathering is 35 % longer than the males
 		-- beside it, which is the whole point of having shot it.
-		ANIMAL_SCALES = { male = 1.0, female = 0.85, cub = 0.45, legendary = 1.35 },
+		-- ...AND THE THREE RED DEER (task 223). **THEY ARE AGAINST THE BOAR MALE'S 5.5 STUDS LIKE
+		-- EVERY OTHER ROW HERE, AND THAT IS THE TRAP IN THIS LINE**: `Boar.CONFIG.KINDS[kind].scale`
+		-- for a deer is against the STAG's 7.05, because a deer's boxes are built from the deer's
+		-- own `BODY_SIZE`. The two numbers for one animal mean different things, so they are not the
+		-- same number and must never be "tidied" into each other. Written as the division that
+		-- produced them:
+		--   stag 7.05 / 5.5 = 1.2818   hind 6.03 / 5.5 = 1.0964   calf 3.49 / 5.5 = 0.6345
+		-- `tests/server/deer.spec.luau` asserts `ANIMAL_SCALES[kind] * 5.5` against each kind's
+		-- baked length for all SEVEN kinds, which turns this comment into arithmetic a spec checks.
+		ANIMAL_SCALES = {
+			male = 1.0,
+			female = 0.85,
+			cub = 0.45,
+			legendary = 1.35,
+			stag = 1.2818,
+			hind = 1.0964,
+			calf = 0.6345,
+		},
 		ANIMAL_COLOR = Color3.fromRGB(58, 48, 42),
 		POST_SIZE = Vector3.new(0.6, 10, 0.6),
 		POST_COLOR = Color3.fromRGB(70, 60, 50),
@@ -488,6 +505,31 @@ Match.CONFIG = {
 			-- `Economy.CONFIG.COINS_PER_POINT` it pays 50 coins, through the same rule as every other
 			-- kill and with no second price anywhere.
 			legendary = 25, -- K
+			-- THE RED DEER (task 223), AND THE PENALTY IS THE ROW. Karen bought a red deer family
+			-- on 2026-10-20 and made it licensed quarry: *"deer also will be possible to shoot if
+			-- you have purchased deer license"*.
+			--
+			--   stag 20   TWO MALES. Above a male boar because it is the licensed, rarer,
+			--             paid-for quarry -- the 750-coin DEER LICENCE is bought for this shot --
+			--             and BELOW the legendary boar's 25, which stays this game's ceiling
+			--             because that number is Karen's own (*"first place ofc more legendary more
+			--             ect"*) and because a legendary is a 1-in-4 trophy while a stag is in most
+			--             drives.
+			--   hind 6    EXACTLY THE SOW'S PRICE, and that is the point rather than a coincidence:
+			--             a hind and a sow are the same thing to a hunter -- the female of the
+			--             species -- so they cost the same and no gap has to be invented.
+			--   calf -10  A CALF IS A PIGLET. Karen's rule of 2026-10-12 is that shooting the young
+			--             is a penalty, and this is the identical figure `cub` carries and the one
+			--             `SAFETY_PENALTY` uses for the other thing you must not shoot.
+			--
+			-- **THERE IS NO SECOND MECHANISM FOR THE CALF.** `Score.kill` prices a kill off
+			-- `record.kind` and off nothing else, so a negative row IS the penalty -- the same way
+			-- `cub = -10` has been the piglet's penalty since task 170. Nothing in `Penalty`,
+			-- nothing in the weapon, no refusal: the price is the rule, and at
+			-- `Economy.CONFIG.COINS_PER_POINT = 2` it costs him 20 coins as well.
+			stag = 20, -- K's species, the Director's "stag > male boar"
+			hind = 6, -- K, the Director's "hind ~ female boar": the sow's own number
+			calf = -10, -- K, the piglet's rule applied to the piglet's equivalent
 			-- An unnamed kind: never free, and counted by the owner as `stats().unknownKindKills`.
 			-- A kind typo must show up as a NUMBER rather than as an animal that quietly scores
 			-- nothing -- the same discipline the retired `KILL.unknown` kept for zones.

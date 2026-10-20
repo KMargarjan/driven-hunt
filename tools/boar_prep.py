@@ -1,11 +1,26 @@
-"""Driven Hunt boar prep: turn a bought, rigged animal package into one model this game can wear.
+"""Driven Hunt animal prep: turn a bought, rigged animal package into one model this game can wear.
+
+TWO SPECIES SINCE TASK 223, AND THE SECOND ONE IS WHY `SPECIES` EXISTS. Karen bought a red deer
+family on 2026-10-20 -- stag, hind and calf -- and it arrives in exactly this package's shape
+(`<animal>_NoAlpha.fbx` + `<animal>_anim_IP.fbx`, `<Stem>_Albedo1..4/Normal/Roughness`) with
+exactly this tool's problems. So the species is DATA in one table (`SPECIES` below) rather than a
+second copy of this program: the animal names, the texture stems, the clip list, the authored clips
+and the material name. `docs/design/red-deer.md` section 9 is the decision and its three
+requirements, the third of which is that **the boar's values are the same objects they always
+were** -- `DEFAULT_CLIPS` and `SYNTH_CLIPS` go into the `boar` row BY IDENTITY, and `selftest`
+asserts that by `is`, so this change cannot have moved a character of the boar's recipe.
+
+The file keeps the name `boar_prep.py` this task. `tools/animal_prep.py` is the right name and it
+goes with the `src/server/Boar` -> `src/server/Animal` rename, which is a LATER task
+(`docs/design/red-deer.md` section 11.1).
 
 It drives **headless Blender** (`--background --python`) with `tools/boar_prep_blender.py` and does
-the four things a bought animal needs before a boar in this game can be it:
+the four things a bought animal needs before an animal in this game can be it:
 
-  (a) KEEP THE CLIPS THE GAME ASKS FOR, out of the package's 74, renamed to their short names (the
-      package calls `Walk_F_IP` "Arm_Boar.001|Arm_Boar|Walk_F_IP"). `DEFAULT_CLIPS` is that list --
-      the drive's ten since task 115 and the calm repertoire's six since task 117 -- and `selftest`
+  (a) KEEP THE CLIPS THE GAME ASKS FOR, out of the package's 74 (77 for the deer, 80 for the calf),
+      renamed to their short names (the package calls `Walk_F_IP` "Arm_Boar.001|Arm_Boar|Walk_F_IP").
+      `SPECIES[<name>]["clips"]` is that list -- the boar's drive ten since task 115 plus the calm
+      repertoire's six since task 117, and the deer's eleven since task 223 -- and `selftest`
       names every one of them, so a dropped or misspelt clip fails offline in a second;
   (b) SCALE THE WHOLE THING so the model is `--length-studs` long, baked into the FBX -- because a
       skinned MeshPart cannot be scaled after import without tearing (`Size`/`ScaleTo` moves the
@@ -35,7 +50,14 @@ Usage:
   python tools/boar_prep.py prep --in <fbx-folder> --textures <texture-folder> --out <folder>
         [--animal BoarMale] [--albedo 1|2|3] [--length-studs 5.5] [--texture-px 1024]
         [--clips Idle_1,Walk_F_IP,...] [--scale-correction 1.0] [--dry-run]
+  python tools/boar_prep.py species                   # print the table: who knows which animal
   python tools/boar_prep.py selftest        # offline: no Blender, no model, no network
+
+`--animal` IS WHAT SAYS WHICH SPECIES, and there is deliberately no `--species` flag: two flags that
+can disagree about one animal is the "two correct pieces of code disagreeing" failure
+docs/PROJECT_CONTEXT.md names. Every animal name belongs to exactly one row of `SPECIES`, so
+`--animal Red_Deer` is a deer run and `--animal BoarMale` is a boar run, and an animal in no row is
+refused by name with the known ones listed (refusal 6).
 
 Exit codes, the harness's shape: 0 done - 1 the run failed - 2 REFUSED before anything happened.
 
@@ -49,8 +71,14 @@ WHAT IT REFUSES, BEFORE IT TOUCHES ANYTHING:
      repo takes none of it, and `.rbxm` is banned outright anyway (CLAUDE.md).
   4. An output folder that already exists and is not empty. Nothing is ever overwritten and nothing
      is ever deleted (rule 7): a second run wants a second folder.
-  5. A clip the package does not have, an albedo variant it does not ship, a non-positive length or
-     a texture size that is not a power of two between 256 and 4096.
+  5. A clip the package does not have FOR THAT SPECIES, an albedo variant it does not ship, a
+     non-positive length or a texture size that is not a power of two between 256 and 4096. The
+     refusal NAMES THE SPECIES, because "clip 'Hit_F' is not one of the 11 this game asks for" is
+     unreadable without it: `Hit_F` is a real boar clip and a real deer typo.
+  6. An `--animal` that belongs to no `SPECIES` row, with the known animals listed. This is
+     stricter than the fallback it replaced (an unknown name used to take the boar's clips and its
+     own name as the texture stem, and then fail at the missing mesh): a typo'd deer name must not
+     become a boar run.
 
 THE INPUT IS COPIED, NOT OPENED, exactly as `tools/asset_prep.py` does it and for the same reason:
 Blender's FBX importer extracts embedded textures into a `.fbm` folder NEXT TO THE FILE IT READS. So
@@ -136,6 +164,41 @@ DEFAULT_CLIPS = (
     "Dig_walk_IP",
 )
 
+# THE ELEVEN CLIPS THE RED DEER ASKS FOR (task 223), and the whole list of reasons -- which is
+# `docs/design/red-deer.md` section 6.2, table by table. The names are NOT the boar's: this package
+# has `Hit_Front`/`Hit_Back`/`Hit_Middle` where the boar has `Hit_F`/`Hit_B`, ONE `Eat_loop` where
+# the boar has two, and `Eat_walk_IP`/`EatDig_loop` where the boar has `Dig_walk_IP`. Measured with
+# headless Blender on 2026-10-20 over all three deer FBX (reviews/task-223/BRIEF.md section 2).
+#
+#   Idle_1          standing still is standing still, and it is what every missing clip falls back to
+#   Walk_F_IP       WANDER_SPEED, and the band MODEL.WALK_FROM..TROT_FROM
+#   Trot_F_IP       TROT_SPEED -- being pushed, which is most of a drive
+#   Run_F_IP        SPRINT_SPEED x runScale -- bolting
+#   Turn_L_IP       a pivot below WALK_FROM, so a turning deer does not skate
+#   Turn_R_IP       the other way
+#   Death_L/R       DOWN: it falls on the side Body.collapse rolls it onto
+#   Hit_Front/Back  the flinch on the tick a pellet lands, chosen off `handle.hitFromBehind`
+#   Idle_5          MODEL.ALERT_CLIP -- head up. The single most characteristic thing a deer does,
+#                   and the one the ALERT state already asks for by name, which is why it is the one
+#                   piece of the calm repertoire that is in v1 (design section 6.3).
+#
+# EVERY ONE OF THESE IS A HAND PUBLISH IN STUDIO'S ANIMATION EDITOR -- eleven of Karen's clicks --
+# which is the whole reason the grazing four (`Eat_loop`, `EatDrink_start`, `EatDrink_end`,
+# `Eat_walk_IP`) and `Hit_Middle` are out of v1 rather than "free to add".
+DEER_CLIPS = (
+    "Idle_1",
+    "Walk_F_IP",
+    "Trot_F_IP",
+    "Run_F_IP",
+    "Turn_L_IP",
+    "Turn_R_IP",
+    "Death_L",
+    "Death_R",
+    "Hit_Front",
+    "Hit_Back",
+    "Idle_5",
+)
+
 # THE THREE CLIPS THE PACKAGE DOES NOT HAVE, AUTHORED OUT OF THE ONES IT DOES (task 116).
 #
 # Karen, 2026-10-03: "can fall on side and legs moving like in real life" and "can be hit to back
@@ -204,9 +267,98 @@ SYNTH_CLIPS = (
 )
 
 
+# WHICH ANIMALS THIS TOOL KNOWS, AND WHAT EACH SPECIES BRINGS WITH IT (task 223,
+# `docs/design/red-deer.md` section 9). One row per species, and the row is DATA: the animal names
+# the package ships, the texture stem each one's maps are named with, the clip list, the authored
+# clips and the material name.
+#
+# THE BOAR'S VALUES ARE THE SAME OBJECTS THEY ALWAYS WERE, by identity and not by retyping --
+# `DEFAULT_CLIPS` and `SYNTH_CLIPS` go in as the tuples themselves. `selftest` asserts that with
+# `is`, so this generalisation provably did not move one character of the recipe that produced the
+# boar in Karen's game. A retyped copy would measure correct on the day and drift on the next edit.
+#
+# `root` AND `hooves` ARE NOT HERE, and that is a measurement rather than an oversight: `Arm_Deer`
+# (42 bones) carries `root_bone` and `hoof_b.L/R` + `hoof_f.L/R` under exactly the names `Arm_Boar`
+# (46 bones) does, so the ground-speed measurement needs nothing per species. The ONE bone-name
+# difference the brief measured is the neck -- `Neck` on the boar, `neck_01`/`neck_02` on the deer --
+# and it is recorded in `bones` for the later task that authors the deer's death-paddle clips, which
+# are the only thing that reads a neck. Nothing in v1 reads `bones`; it is a note in the one place a
+# note cannot get lost, and `selftest` asserts it so it cannot quietly become wrong either.
+SPECIES = {
+    "boar": {
+        "animals": ("BoarMale", "BoarFemale", "BoarCub"),
+        # The male's files are `Boar_Male_Albedo1.png`; the female's and the cub's are `BoarFemale_*`
+        # and `BoarCub_*`. One underscore of difference, so the mapping is data and not a format
+        # string -- which is the sentence `texture_names` has carried since task 119.
+        "textures": {"BoarMale": "Boar_Male", "BoarFemale": "BoarFemale", "BoarCub": "BoarCub"},
+        "clips": DEFAULT_CLIPS,  # BY IDENTITY
+        "synth": SYNTH_CLIPS,  # BY IDENTITY
+        "albedos": (1, 2, 3),  # the package ships three colour variants of the same boar
+        "material": "Boar",
+        "armature": "Arm_Boar",
+        "bones": {"neck": ("Neck",)},
+        # None = MEASURE IT (the longest axis), which is right for a boar: this package's male is
+        # 1.9185 m long against 1.1362 m tall, so the longest axis IS the length and always was.
+        "lengthAxis": None,
+    },
+    "reddeer": {
+        # Karen's "Red Deer Family" (RedDeer, Fab, bought 2026-10-20). The package's own file stems,
+        # and they are not spelt the same way twice: the stag's mesh is `Red_Deer_NoAlpha.fbx` while
+        # his textures are `Red_Deer_*`, the hind's mesh is `RedDeer_Doe_*` while her textures are
+        # `RedDeerDoe_*`. Exactly the boar's situation, which is why this is a table.
+        "animals": ("Red_Deer", "RedDeer_Doe", "RedDeer_Calf"),
+        "textures": {"Red_Deer": "Red_Deer", "RedDeer_Doe": "RedDeerDoe", "RedDeer_Calf": "RedDeerCalf"},
+        "clips": DEER_CLIPS,
+        # NO AUTHORED CLIPS IN V1 (design section 6.6). `Body.clipFor` then returns the fall and
+        # holds it and a crippled deer plays its gait -- the pre-task-116 behaviour, which is tested.
+        "synth": (),
+        "albedos": (1, 2, 3, 4),  # this package ships FOUR, where the boar's ships three
+        "material": "Deer",
+        "armature": "Arm_Deer",
+        "bones": {"neck": ("neck_01", "neck_02")},
+        # 1 (Blender's Y), PINNED, AND IT IS THE TRAP `docs/design/red-deer.md` SECTION 7.1 NAMED --
+        # *"the one number that would silently make a stag 7.9 studs tall"*. **This was measured
+        # going wrong before it was fixed:** the first stag run on 2026-10-20 took the default
+        # "longest axis" and came back *"2.2187 m long on axis 2"*, which is the ANTLER HEIGHT, so
+        # it baked antler-tip-to-hoof at 7.05 studs and left the body 6.275. An animal that carries
+        # headgear breaks the "longest axis is the length" rule, and the calf breaks it a second way:
+        # its Y is 0.9757 against a Z of 0.9731, so which axis wins is a coin flip of 2.6 mm. One
+        # pinned axis also keeps THE THREE IN PROPORTION TO EACH OTHER, which "whichever is longest"
+        # cannot promise.
+        "lengthAxis": 1,
+    },
+}
+
+
+def species_of(animal):
+    """Which species that animal is, or None when no row claims it.
+
+    `--animal` is the only flag that says which species a run is (see the usage block): two flags
+    that can disagree about one animal is a bug waiting for a typo.
+    """
+    for name, row in SPECIES.items():
+        if animal in row["animals"]:
+            return name
+    return None
+
+
+def known_animals():
+    """Every animal this tool knows, as `species/animal`, for a refusal message."""
+    return [
+        "%s/%s" % (species, animal)
+        for species in sorted(SPECIES)
+        for animal in SPECIES[species]["animals"]
+    ]
+
+
 # THE DEFAULT RECIPE. Every value is either measured (see the note) or a stated taste pick.
 DEFAULT_RECIPE = {
     "tool": TOOL_VERSION,
+    # WHICH ANIMAL, AND THEREFORE WHICH SPECIES (task 223). `run_prep` overwrites both off
+    # `--animal`; they are here with the boar male's values so that the recipe is complete on its
+    # own and `selftest`'s `validate` cases read like a real run rather than a half-filled one.
+    "animal": "BoarMale",
+    "species": "boar",
     # 2 x 3 x 5.5 studs is `Boar.CONFIG.BODY_SIZE`, and the LENGTH is what the model is fitted by:
     # fitting all three would squash the animal to the grey box's proportions, and a squashed boar
     # measures perfectly (the same rule `Assets` states for the gun). The real male boar in this
@@ -310,10 +462,18 @@ def inside_repo(path):
 def texture_names(animal, albedo):
     """The package's own file names for one animal's three maps.
 
-    The male's files are `Boar_Male_Albedo1.png`; the female's and the cub's are `BoarFemale_*` and
-    `BoarCub_*`. One underscore of difference, so the mapping is data and not a format string.
+    The stems live in `SPECIES[<species>]["textures"]` since task 223, because two packages name
+    them two ways and neither is derivable from the animal: the boar male's files are
+    `Boar_Male_Albedo1.png` against his `BoarMale`, and the deer hind's are `RedDeerDoe_Albedo1.png`
+    against her `RedDeer_Doe`. The mapping is data and not a format string.
+
+    AN UNKNOWN ANIMAL FALLS BACK TO ITS OWN NAME, which is what this function did before the table
+    existed. It is unreachable from the two commands -- both refuse an unknown animal by name
+    (refusal 6) -- and it is kept so that this helper alone is never the thing that raises.
     """
-    stem = {"BoarMale": "Boar_Male", "BoarFemale": "BoarFemale", "BoarCub": "BoarCub"}.get(animal, animal)
+    species = species_of(animal)
+    stems = SPECIES[species]["textures"] if species else {}
+    stem = stems.get(animal, animal)
     return {
         "albedo": "%s_Albedo%d.png" % (stem, albedo),
         "normal": "%s_Normal.png" % stem,
@@ -333,8 +493,23 @@ def playback_rate(world_studs_per_second, clip_studs_per_second):
 
 
 def validate(args, recipe):
-    """Every refusal, as a list, so one run says everything that is wrong (Refused on any)."""
+    """Every refusal, as a list, so one run says everything that is wrong (Refused on any).
+
+    `recipe["species"]` decides the clip list and the legal albedo variants; an animal in no
+    `SPECIES` row is refused here by name, which is refusal 6 and is the first thing checked,
+    because every later message would otherwise be written about the wrong animal.
+    """
     problems = []
+    species = recipe.get("species")
+    if species is None:
+        problems.append(
+            "--animal %r is not an animal this tool knows. The known ones are: %s. Add it to "
+            "SPECIES with its texture stems and its clip list first."
+            % (recipe.get("animal"), ", ".join(known_animals()))
+        )
+    row = SPECIES.get(species) or {}
+    clips = row.get("clips", ())
+    albedos = row.get("albedos", (1, 2, 3))
     if recipe["lengthStuds"] <= 0:
         problems.append("--length-studs must be positive, not %r" % recipe["lengthStuds"])
     if recipe["texturePx"] not in LEGAL_TEXTURE_PX:
@@ -342,18 +517,23 @@ def validate(args, recipe):
             "--texture-px must be one of %s, not %r"
             % (", ".join(str(px) for px in LEGAL_TEXTURE_PX), recipe["texturePx"])
         )
-    if recipe["albedo"] not in (1, 2, 3):
-        problems.append("--albedo must be 1, 2 or 3, not %r" % recipe["albedo"])
+    if species is not None and recipe["albedo"] not in albedos:
+        problems.append(
+            "--albedo must be one of %s for %s, not %r"
+            % (", ".join(str(one) for one in albedos), species, recipe["albedo"])
+        )
     if recipe["scaleCorrection"] <= 0:
         problems.append("--scale-correction must be positive, not %r" % recipe["scaleCorrection"])
     if not recipe["clips"]:
         problems.append("--clips is empty: a model with no clip is the grey box with a texture")
     for clip in recipe["clips"]:
-        if clip not in DEFAULT_CLIPS:
+        if species is not None and clip not in clips:
+            # THE SPECIES IS NAMED, because `Hit_F` is a real boar clip and a real deer typo, and a
+            # message that does not say which animal it is talking about cannot tell you which.
             problems.append(
-                "clip %r is not one of the %d this game asks for (%s). Add it to DEFAULT_CLIPS with "
-                "a reason first: an animation nothing can reach is an asset id nobody reviewed."
-                % (clip, len(DEFAULT_CLIPS), ", ".join(DEFAULT_CLIPS))
+                "clip %r is not one of the %d this game asks for a %s (%s). Add it to that "
+                "species' clip list with a reason first: an animation nothing can reach is an asset "
+                "id nobody reviewed." % (clip, len(clips), species, ", ".join(clips))
             )
     if args.out and inside_repo(args.out):
         problems.append("--out is inside the repository; everything this tool writes stays outside it")
@@ -424,6 +604,13 @@ def shrink_texture(source, destination, px, drop_alpha):
 def run_probe(args):
     """Read-only: what is in the input folder."""
     animal = args.animal
+    species = species_of(animal)
+    if species is None:
+        raise Refused(
+            "--animal %r is not an animal this tool knows. The known ones are: %s"
+            % (animal, ", ".join(known_animals()))
+        )
+    say("%s is a %s (armature %s)" % (animal, species, SPECIES[species]["armature"]))
     mesh = os.path.join(args.inp, "%s_NoAlpha.fbx" % animal)
     clips = os.path.join(args.inp, "%s_anim_IP.fbx" % animal)
     for label, path in (("mesh", mesh), ("clips", clips)):
@@ -438,7 +625,8 @@ def run_probe(args):
                 say("%-9s %s  %.1f MB" % (role, name, os.path.getsize(path) / 1e6))
             else:
                 say("%-9s MISSING: %s" % (role, name))
-    say("the %d clips this game asks for: %s" % (len(DEFAULT_CLIPS), ", ".join(DEFAULT_CLIPS)))
+    clips = SPECIES[species]["clips"]
+    say("the %d clips this game asks for a %s: %s" % (len(clips), species, ", ".join(clips)))
     return 0
 
 
@@ -449,7 +637,20 @@ def run_prep(args):
     recipe["albedo"] = args.albedo
     recipe["scaleCorrection"] = args.scale_correction
     recipe["animal"] = args.animal
-    recipe["clips"] = [clip.strip() for clip in args.clips.split(",") if clip.strip()]
+    # THE SPECIES COMES OFF THE ANIMAL and nothing else (task 223), and everything the species owns
+    # is read here, once, at this one boundary: the clip list, the authored clips and the material
+    # name. `None` for an unknown animal, which `validate` refuses by name before anything is done.
+    recipe["species"] = species_of(args.animal)
+    row = SPECIES.get(recipe["species"]) or {}
+    if row:
+        recipe["synth"] = list(row["synth"])
+        recipe["materialName"] = row["material"]
+        recipe["lengthAxis"] = row["lengthAxis"]
+    # `--clips` DEFAULTS TO THIS SPECIES' OWN LIST, which is why its argparse default is None: a
+    # default computed at parse time could only ever be one species', and it would silently hand a
+    # deer run the boar's sixteen names.
+    wanted = args.clips if args.clips is not None else ",".join(row.get("clips", ()))
+    recipe["clips"] = [clip.strip() for clip in wanted.split(",") if clip.strip()]
 
     blender = find_blender()
     problems = validate(args, recipe)
@@ -617,6 +818,23 @@ def run_prep(args):
 # ---------------------------------------------------------------- selftest
 
 
+def run_species(_args):
+    """Read-only: the table. Which animals this tool knows, and what each species brings."""
+    for name in sorted(SPECIES):
+        row = SPECIES[name]
+        say("%s  armature %s  material %s  albedos %s" % (
+            name, row["armature"], row["material"], ",".join(str(one) for one in row["albedos"])
+        ))
+        for animal in row["animals"]:
+            maps = texture_names(animal, row["albedos"][0])
+            say("    %-14s textures %s" % (animal, maps["albedo"]))
+        say("    %d clips: %s" % (len(row["clips"]), ", ".join(row["clips"])))
+        say("    %d authored clips: %s" % (
+            len(row["synth"]), ", ".join(clip["name"] for clip in row["synth"]) or "none"
+        ))
+    return 0
+
+
 def run_selftest(_args):
     """Offline, no Blender, no model, no network. Every pure rule this tool rests on."""
     failures = []
@@ -662,12 +880,82 @@ def run_selftest(_args):
     check("and nothing else is", sorted(set(DEFAULT_CLIPS) - set(wanted)), [])
     check("no duplicate clip", len(set(DEFAULT_CLIPS)), len(DEFAULT_CLIPS))
 
+    # 1b. THE DEER'S ELEVEN, BY NAME, for exactly the same reason (task 223). A deer clip that is
+    #     dropped, misspelt or quietly added fails here, offline, instead of becoming a key with no
+    #     row -- or worse, one of Karen's eleven clicks spent on a clip nothing plays.
+    deer_wanted = (
+        # The drive's: stand, the three gaits, the two turns, the two deaths, the two flinches.
+        "Idle_1",
+        "Walk_F_IP",
+        "Trot_F_IP",
+        "Run_F_IP",
+        "Turn_L_IP",
+        "Turn_R_IP",
+        "Death_L",
+        "Death_R",
+        "Hit_Front",
+        "Hit_Back",
+        # The one piece of the calm repertoire that is in v1: MODEL.ALERT_CLIP, the head-up look.
+        "Idle_5",
+    )
+    check("every deer clip asked for is in the tuple", sorted(set(deer_wanted) - set(DEER_CLIPS)), [])
+    check("and nothing else is", sorted(set(DEER_CLIPS) - set(deer_wanted)), [])
+    check("no duplicate deer clip", len(set(DEER_CLIPS)), len(DEER_CLIPS))
+    check("eleven deer clips, eleven clicks", len(DEER_CLIPS), 11)
+
+    # 1c. THE DIFFERENCE BETWEEN THE TWO LISTS, by name. Nine clip names are in BOTH packages under
+    #     the same spelling (the three gaits, the two turns, the two deaths, `Idle_1`, `Idle_5`), so
+    #     "the two lists do not overlap" would be FALSE and is not the rule. The rule is that each
+    #     species asks for its own package's spelling, and these four cases are where the two
+    #     packages genuinely disagree (reviews/task-223/BRIEF.md section 2, fact 3).
+    # BY IDENTITY, which is design section 9's first hard requirement: the boar's row holds the same
+    # tuple OBJECTS, not retyped copies, so this generalisation cannot have moved one character of
+    # the recipe that made the boar in Karen's game.
+    check("the boar's clips are the same object", SPECIES["boar"]["clips"] is DEFAULT_CLIPS, True)
+    check("the boar's synth clips are too", SPECIES["boar"]["synth"] is SYNTH_CLIPS, True)
+    check("the deer authors no clip in v1", SPECIES["reddeer"]["synth"], ())
+    # Three clip names the boar has and the deer does not, and one the deer has and the boar does
+    # not -- the measured difference (reviews/task-223/BRIEF.md section 2, fact 3). Asserted so that
+    # "the deer has Hit_F" can never become true by a copy-paste.
+    check("the deer has no Hit_F", "Hit_F" in DEER_CLIPS, False)
+    check("the deer has no Eat_loop_1", "Eat_loop_1" in DEER_CLIPS, False)
+    check("the deer has no Dig_walk_IP", "Dig_walk_IP" in DEER_CLIPS, False)
+    check("the boar has no Hit_Front", "Hit_Front" in DEFAULT_CLIPS, False)
+
+    # 1d. WHICH SPECIES AN ANIMAL IS, which is the only thing `--animal` decides.
+    check("the male is a boar", species_of("BoarMale"), "boar")
+    check("the cub is a boar", species_of("BoarCub"), "boar")
+    check("the stag is a deer", species_of("Red_Deer"), "reddeer")
+    check("the hind is a deer", species_of("RedDeer_Doe"), "reddeer")
+    check("the calf is a deer", species_of("RedDeer_Calf"), "reddeer")
+    check("an unknown animal is nobody's", species_of("RedDeer_Stag"), None)
+    check("no animal is in two species", len(known_animals()), len(set(known_animals())))
+    # The ONE bone-name difference the brief measured, recorded where the later task that authors
+    # the deer's death-paddle clips will read it (design section 6.6).
+    check("the boar's neck", SPECIES["boar"]["bones"]["neck"], ("Neck",))
+    check("the deer's neck is two bones", SPECIES["reddeer"]["bones"]["neck"], ("neck_01", "neck_02"))
+    check("the deer's armature", SPECIES["reddeer"]["armature"], "Arm_Deer")
+    # THE LENGTH AXIS, which is the one thing this table fixes that a measurement got wrong: the
+    # boar measures its own (the longest axis IS its length) and the deer pins Y, because the stag's
+    # longest axis is his ANTLERS. Asserted both ways so neither can be "tidied" into the other.
+    check("the boar measures its own length axis", SPECIES["boar"]["lengthAxis"], None)
+    check("the deer pins Y as its length", SPECIES["reddeer"]["lengthAxis"], 1)
+
     # 2. The texture names, per animal. One underscore of difference between the male and the rest.
     check("male albedo 1", texture_names("BoarMale", 1)["albedo"], "Boar_Male_Albedo1.png")
     check("male albedo 3", texture_names("BoarMale", 3)["albedo"], "Boar_Male_Albedo3.png")
     check("male normal", texture_names("BoarMale", 1)["normal"], "Boar_Male_Normal.png")
     check("female albedo 2", texture_names("BoarFemale", 2)["albedo"], "BoarFemale_Albedo2.png")
     check("cub roughness", texture_names("BoarCub", 1)["roughness"], "BoarCub_Roughness.png")
+    # 2b. The deer's three stems, by name, which is design section 9's third requirement. The stag's
+    #     mesh is `Red_Deer_*` and so are his textures; the hind's mesh is `RedDeer_Doe_*` and her
+    #     textures are `RedDeerDoe_*` -- no underscore. Measured off the package on 2026-10-20.
+    check("stag albedo 1", texture_names("Red_Deer", 1)["albedo"], "Red_Deer_Albedo1.png")
+    check("stag normal", texture_names("Red_Deer", 1)["normal"], "Red_Deer_Normal.png")
+    check("hind albedo 1", texture_names("RedDeer_Doe", 1)["albedo"], "RedDeerDoe_Albedo1.png")
+    check("hind roughness", texture_names("RedDeer_Doe", 1)["roughness"], "RedDeerDoe_Roughness.png")
+    check("calf albedo 4", texture_names("RedDeer_Calf", 4)["albedo"], "RedDeerCalf_Albedo4.png")
+    check("calf normal", texture_names("RedDeer_Calf", 1)["normal"], "RedDeerCalf_Normal.png")
 
     # 3. THE PLAYBACK RATE, which is the one number a sliding foot would come from. The clip speeds
     #    are this package's own measurements (2026-10-03, at 5.5 studs long: walk 2.852, trot 10.243,
@@ -709,6 +997,34 @@ def run_selftest(_args):
     check("one real clip is accepted", problems_for(clips=["Walk_F_IP"]), [])
     # Several faults at once are reported together, not one per run.
     check("three faults, three lines", len(problems_for(albedo=9, texturePx=7, lengthStuds=0)), 3)
+
+    # 5b. THE SPECIES GATE (task 223), which is the half of `validate` the deer added. Each case
+    #     enters an arm that did not exist: an unknown animal, a clip that is the OTHER species'
+    #     spelling in both directions, and an albedo variant one package ships and the other
+    #     does not.
+    def deer(**overrides):
+        fields = {"animal": "Red_Deer", "species": "reddeer", "clips": list(DEER_CLIPS)}
+        fields.update(overrides)
+        return problems_for(**fields)
+
+    check("a good deer recipe is accepted", deer(), [])
+    check("the deer's eleven are accepted", deer(clips=["Hit_Front", "Hit_Back"]), [])
+    # THE CROSS-SPECIES CLIP, BOTH WAYS. This is the one a copy-pasted command line produces, and
+    # before the species table it was accepted for the deer and would have asked Blender for a clip
+    # `Arm_Deer` does not have -- twenty minutes in, or a key with no row.
+    boar_clip_for_deer = deer(clips=["Hit_F"])
+    check("a boar clip is refused for a deer", len(boar_clip_for_deer), 1)
+    check("and the refusal names the species", "reddeer" in boar_clip_for_deer[0], True)
+    check("a deer clip is refused for a boar", len(problems_for(clips=["Hit_Front"])), 1)
+    check("and that one names the boar", "boar" in problems_for(clips=["Hit_Front"])[0], True)
+    # Albedo 4 exists for the deer and not for the boar, which is why `albedos` is per species.
+    check("albedo 4 is accepted for a deer", deer(albedo=4), [])
+    check("albedo 5 is refused for a deer", len(deer(albedo=5)), 1)
+    unknown = problems_for(animal="RedDeer_Stag", species=None, clips=list(DEER_CLIPS))
+    # One line only: the species is unknown, so the clip list cannot be judged at all and the run
+    # must not also be told its eleven real clips are wrong.
+    check("an unknown animal is refused", len(unknown), 1)
+    check("and it is told the known ones", "reddeer/Red_Deer" in unknown[0], True)
 
     class RepoArgs(object):
         out = os.path.join(REPO, "assets", "boar")
@@ -755,7 +1071,9 @@ def run_selftest(_args):
 
     for failure in failures:
         print("FAIL " + failure)
-    total = 7
+    # 11 groups since task 223: 1, 1b, 1c, 1d, 2, 2b, 3, 4, 5, 5b, 6, 7 -- counted as the
+    # numbered blocks above, so a block that is deleted shows up as a number that moved.
+    total = 11
     if failures:
         print("[boar-prep] selftest FAIL: %d problem(s) over %d groups" % (len(failures), total))
         return 1
@@ -771,8 +1089,14 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
 
     def common(target):
-        target.add_argument("--animal", default="BoarMale", help="BoarMale (default), BoarFemale or BoarCub")
-        target.add_argument("--albedo", type=int, default=DEFAULT_RECIPE["albedo"], help="1, 2 or 3")
+        target.add_argument(
+            "--animal",
+            default="BoarMale",
+            help="which animal, and therefore which species: " + ", ".join(known_animals()),
+        )
+        target.add_argument(
+            "--albedo", type=int, default=DEFAULT_RECIPE["albedo"], help="which colour variant (1-3 boar, 1-4 deer)"
+        )
 
     probe = sub.add_parser("probe", help="read-only: what is in the input folder")
     probe.add_argument("--in", dest="inp", required=True)
@@ -786,14 +1110,16 @@ def main(argv=None):
     common(prep)
     prep.add_argument("--length-studs", type=float, default=DEFAULT_RECIPE["lengthStuds"])
     prep.add_argument("--texture-px", type=int, default=DEFAULT_RECIPE["texturePx"])
-    prep.add_argument("--clips", default=",".join(DEFAULT_CLIPS))
+    # None, not a joined list: the default is THIS SPECIES' clips and is resolved in `run_prep`.
+    prep.add_argument("--clips", default=None)
     prep.add_argument("--scale-correction", type=float, default=DEFAULT_RECIPE["scaleCorrection"])
     prep.add_argument("--dry-run", action="store_true")
 
+    sub.add_parser("species", help="print the table: which animals this tool knows")
     sub.add_parser("selftest", help="offline: no Blender, no model, no network")
 
     args = parser.parse_args(argv)
-    handler = {"probe": run_probe, "prep": run_prep, "selftest": run_selftest}[args.command]
+    handler = {"probe": run_probe, "prep": run_prep, "species": run_species, "selftest": run_selftest}[args.command]
     try:
         return handler(args)
     except Refused as refused:

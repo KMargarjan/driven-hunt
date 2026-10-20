@@ -223,6 +223,35 @@ Assets.KEYS = table.freeze({
 	-- ACCESSORIES, worn by the experience. See their rows for why that costs nobody anything.
 	outfitVest = "outfit.vest",
 	outfitCap = "outfit.cap",
+	-- THE RED DEER (task 223). Three skinned models, and ONE clip set for all three: the package's
+	-- stag, hind and calf share one armature (`Arm_Deer`, 42 bones, identical names -- MEASURED in
+	-- headless Blender on 2026-10-20), exactly as `Arm_Boar` is shared by the male, the sow and the
+	-- cub. So the eleven publishes below are 1x and not 3x.
+	deerStag = "deer.stag",
+	deerHind = "deer.hind",
+	deerCalf = "deer.calf",
+	-- THE ELEVEN CLIP KEYS HAVE NO ROWS YET, AND THAT IS NOT AN OVERSIGHT -- it is the same honest
+	-- state the boar's ten were in between tasks 115 and 116, for the same unchanged reason: an
+	-- animation asset id can ONLY be made inside Studio (see the boar's block above; Open Cloud's
+	-- Assets API takes an Animation only as a `.rbxm`/`.rbxmx` "edited inside Roblox Studio", and
+	-- `AssetService:CreateAssetAsync` answered "not available yet" when it was tried here on
+	-- 2026-10-03). `tools/boar_prep.py` wrote one FBX per clip under the prep run's `clips/`, which
+	-- is what the Animation Editor's "Import -> From FBX Animation" takes, one at a time.
+	--
+	-- `ESCALATE.md`'s **NEEDS KAREN 223** entry is those eleven clicks, in order. Until each lands,
+	-- `Assets.byKey` answers nil, `Body.hasClip` is false, `trackFor` returns nil, and the deer
+	-- STANDS AND SLIDES -- which is honest, is tested, and is the precedent.
+	deerIdle = "deer.anim.idle",
+	deerWalk = "deer.anim.walk",
+	deerTrot = "deer.anim.trot",
+	deerRun = "deer.anim.run",
+	deerTurnLeft = "deer.anim.turn.left",
+	deerTurnRight = "deer.anim.turn.right",
+	deerDeathLeft = "deer.anim.death.left",
+	deerDeathRight = "deer.anim.death.right",
+	deerHitFront = "deer.anim.hit.front",
+	deerHitBack = "deer.anim.hit.back",
+	deerSmell = "deer.anim.calm.smell",
 })
 
 -- WHICH KINDS `Loader` CAN TURN INTO AN INSTANCE, and therefore which ones `keysFor` may hand a boot
@@ -417,6 +446,22 @@ local BOAR_LICENCE = {
 	readOn = "2026-10-03",
 	attribution = 'Wild boar models and animations: "Boar Family" by RedDeer, bought on Fab '
 		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-03",
+}
+
+-- THE RED DEER'S LICENCE (task 223), and it is the boar's one word for word with a new attribution:
+-- the same seller, the same shop, the same Fab Standard License, bought on 2026-10-20. The caveat is
+-- inherited verbatim and deliberately -- **fab.com/eula answers 403 to this machine's fetch tool**,
+-- so the quote below came through a web search on 2026-10-03 and says so rather than pretending the
+-- page was read. The two conditions that matter are met either way: the binary is never committed
+-- (`.rbxm` is banned outright) and nothing is distributed standalone -- what reaches Roblox is an
+-- asset inside Karen's own account, used by her own place.
+local DEER_LICENCE = {
+	basis = "fab-standard",
+	quote = BOAR_LICENCE.quote,
+	quotedFrom = BOAR_LICENCE.quotedFrom,
+	readOn = BOAR_LICENCE.readOn,
+	attribution = 'Red deer models and animations: "Red Deer Family" by RedDeer, bought on Fab '
+		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-20",
 }
 
 Assets.ROWS = {
@@ -2373,6 +2418,114 @@ Assets.ROWS = {
 			.. "Roblox reads, metalness written down to 0.10 and roughness to 0.50 so it does not "
 			.. "mirror the sky; NO base colour was recoloured, and the two material slots over one "
 			.. "texture set were collapsed into one.",
+	},
+	-- ------------------------------------------------- the red deer (task 223)
+	--
+	-- KAREN, 2026-10-20: *"I will buy red tag deer"*, then the upload OK, verbatim `"yes"`, to *"may
+	-- I upload the Red Deer models and their animations to Roblox (your account, private use in this
+	-- game, never shared)?"*. Her words and the moderation state for all three are in
+	-- `assets/uploads.json`; the bought FBX, its 650 MB of textures and everything
+	-- `tools/boar_prep.py` wrote live OUTSIDE the repository and are never committed.
+	--
+	-- THREE MODELS, ONE RIG, ELEVEN CLIPS. All three carry `Arm_Deer` (42 bones, identical names),
+	-- so one published clip set serves all three kinds -- which is why there are three model rows
+	-- here and eleven clip KEYS with no rows, rather than thirty-three of anything.
+	--
+	-- MEASURED, not declared: every `sizeStuds` below was read off the LOADED asset in Studio on
+	-- 2026-10-20 and agrees with what `tools/boar_prep.py` re-measured on its own export to the
+	-- thousandth. Roblox's Y is the model's HEIGHT and its Z the LENGTH.
+	{
+		key = "deer.stag",
+		version = 1,
+		kind = "model" :: Kind,
+		-- ITS OWN SCOPE, NOT THE BOAR'S (design section 6.5). One `preload` call for six skinned
+		-- meshes would spend the boar's `Loader.CONFIG.PRELOAD_BUDGET_S` on the deer; two calls give
+		-- each scope its own budget, so a slow deer load cannot cost a boar its coat.
+		scope = "deer" :: string?,
+		modelId = 138123244438701,
+		displayName = "DrivenHunt Red Deer Stag",
+		fileName = "model.fbx",
+		sourceSha256 = "9ff480fe5898034f92d1313a0bc361e072a46a84e074e2e4f26e8cb8ef35d6dc",
+		source = "creator-store" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = DEER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 14652,
+		texturePx = 1024,
+		sizeStuds = Vector3.new(3.4670, 7.9200, 7.0500),
+		naturalSizeStuds = Vector3.new(3.4670, 7.9200, 7.0500),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "THE STAG, 7.05 STUDS FROM NOSE TO TAIL. His Y of 7.920 is ANTLER HEIGHT and not "
+			.. "length, and that is the one number that would silently have made him a 7.9-stud "
+			.. "animal: the FIRST prep run on 2026-10-20 took the tool's default longest-axis rule, "
+			.. "measured 2.2187 m on the antlers and baked the body to 6.275 instead. The run was "
+			.. "thrown away and tools/boar_prep.py's SPECIES row now PINS the length axis for the "
+			.. "deer, with its selftest asserting both directions.",
+	},
+	{
+		key = "deer.hind",
+		version = 1,
+		kind = "model" :: Kind,
+		-- ITS OWN SCOPE, NOT THE BOAR'S (design section 6.5). One `preload` call for six skinned
+		-- meshes would spend the boar's `Loader.CONFIG.PRELOAD_BUDGET_S` on the deer; two calls give
+		-- each scope its own budget, so a slow deer load cannot cost a boar its coat.
+		scope = "deer" :: string?,
+		modelId = 100004057120478,
+		displayName = "DrivenHunt Red Deer Hind",
+		fileName = "model.fbx",
+		sourceSha256 = "f63b9dd08b4d78e79399d5a0088dceae7540e15a2dc379ab06afc5b74a247761",
+		source = "creator-store" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = DEER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 12342,
+		texturePx = 1024,
+		sizeStuds = Vector3.new(2.0080, 5.1010, 6.0300),
+		naturalSizeStuds = Vector3.new(2.0080, 5.1010, 6.0300),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "THE HIND, 6.03 STUDS -- 0.8553 of the stag, which is the boar sow's own number "
+			.. "to four decimals and is a COINCIDENCE of two independent measurements rather than a "
+			.. "shared constant. Her clip ground speeds agree with the stag's to four decimals on "
+			.. "all four locomotion clips, so her stride is one number: clipScale 0.900.",
+	},
+	{
+		key = "deer.calf",
+		version = 1,
+		kind = "model" :: Kind,
+		-- ITS OWN SCOPE, NOT THE BOAR'S (design section 6.5). One `preload` call for six skinned
+		-- meshes would spend the boar's `Loader.CONFIG.PRELOAD_BUDGET_S` on the deer; two calls give
+		-- each scope its own budget, so a slow deer load cannot cost a boar its coat.
+		scope = "deer" :: string?,
+		modelId = 75215560041836,
+		displayName = "DrivenHunt Red Deer Calf",
+		fileName = "model.fbx",
+		sourceSha256 = "2e5157194cce19dc0335510f466e7c898acb3b4329e4725cedaea88ce4903f21",
+		source = "creator-store" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = DEER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 12200,
+		texturePx = 1024,
+		sizeStuds = Vector3.new(1.2340, 3.4810, 3.4900),
+		naturalSizeStuds = Vector3.new(1.2340, 3.4810, 3.4900),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "THE CALF, 3.49 STUDS. Shooting one is a PENALTY -- Match.CONFIG.POINTS.KIND.calf "
+			.. "is -10, the same rule the piglet has carried since task 170. Its clip ground speeds "
+			.. "do NOT scale uniformly against the stag's (walk 0.674, trot 0.610, run 1.029, turn "
+			.. "0.488): this package gave the calf its own bounding gallop. clipScale is the walk's, "
+			.. "because the gait bands are built on the walk clip; see Boar.CONFIG.KINDS.calf.",
 	},
 } :: { AssetRow }
 
