@@ -462,10 +462,15 @@ return function()
 			expect(string.find(windy[1], tostring(Shop.CONFIG.PANEL.BLURB_MAX)) ~= nil).to.equal(true)
 		end)
 
-		it("grants something in every row, and every grant is one of the four kinds", function()
-			local kinds = { ammo = 0, weapon = 0, driveGun = 0, hatColor = 0 }
-			for _, id in ipairs(Shop.ORDER) do
-				local grants = Shop.ROWS[id].grants
+		it("grants something in every row, and every grant is one of the declared kinds", function()
+			-- COUNTED OVER `GRANT_FIELDS` SINCE TASK 221, so this case cannot go stale against a
+			-- ninth field the way a hand-written list of four did.
+			local kinds: { [string]: number } = {}
+			for _, field in ipairs(Shop.GRANT_FIELDS) do
+				kinds[field] = 0
+			end
+			for _, id in ipairs(Shop.ALL_ORDER) do
+				local grants = Shop.anyRow(id).grants
 				local counted = 0
 				for key in pairs(kinds) do
 					if (grants :: any)[key] ~= nil then
@@ -475,11 +480,25 @@ return function()
 				end
 				-- A ROW THAT GRANTS NOTHING IS A ROW THAT CHARGES FOR NOTHING.
 				expect(counted >= 1).to.equal(true)
+				expect(Shop.grantsAnything(grants)).to.equal(true)
 			end
-			expect(kinds.ammo).to.equal(1)
-			-- ONE WEAPON ROW SINCE TASK 196: Karen removed the open-sighted rifle's.
-			expect(kinds.weapon).to.equal(1)
-			expect(kinds.driveGun).to.equal(1)
+			-- THE ORDINARY ROW GRANTS IT ONCE AND EACH PACKAGE THAT COVERS IT GRANTS IT AGAIN, so
+			-- these counts are the catalogue's shape and not just its length.
+			-- slug: its own row + THE HIDE + THE FULL SEASON.
+			expect(kinds.ammo).to.equal(3)
+			-- rifle: its own row + THE MARKSMAN + THE FULL SEASON.
+			expect(kinds.weapon).to.equal(3)
+			-- the beater licence: its own row + THE FULL SEASON.
+			expect(kinds.driveGun).to.equal(2)
+			-- the high seat: its own row + THE HIDE + THE FULL SEASON.
+			expect(kinds.highSeat).to.equal(3)
+			-- unlimited ammo: its own row + THE MARKSMAN + THE FULL SEASON.
+			expect(kinds.unlimitedAmmo).to.equal(3)
+			-- always-hunter: its own row + THE FULL SEASON.
+			expect(kinds.alwaysHunter).to.equal(2)
+			-- the red stag card: its own row, and no package covers a row that is not for sale.
+			expect(kinds.licence).to.equal(1)
+			-- THE HAT IS RETIRED AND STILL THE ONLY THING THAT GRANTS A COLOUR.
 			expect(kinds.hatColor).to.equal(1)
 		end)
 	end)

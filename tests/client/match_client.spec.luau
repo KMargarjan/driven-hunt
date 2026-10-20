@@ -407,9 +407,9 @@ return function()
 			expect(string.find(rows[2], "HUNTER", 1, true)).to.equal(nil)
 			expect(string.find(rows[4], "BEATER", 1, true)).to.equal(nil)
 			expect(string.find(rows[2], "nil", 1, true) == nil).to.equal(true)
-			-- WHAT THE DRIVE PAID, with its sign, which is the "+N coins" the task asked for.
-			expect(string.find(rows[2], "+67", 1, true) ~= nil).to.equal(true)
-			expect(string.find(rows[4], "+41", 1, true) ~= nil).to.equal(true)
+			-- WHAT THE DRIVE PAID, with its sign AND its symbol since task 221: "+$67".
+			expect(string.find(rows[2], "+$67", 1, true) ~= nil).to.equal(true)
+			expect(string.find(rows[4], "+$41", 1, true) ~= nil).to.equal(true)
 
 			-- EVERY CELL IS INSIDE ITS OWN COLUMN. The character count the old monospace board was
 			-- held to is meaningless now -- the numbers line up because they are PLACED (section
@@ -777,7 +777,7 @@ return function()
 			expect(string.find(rows[2], badge, 1, true) > (string.find(rows[2], "16", 1, true) :: number)).to.equal(
 				true
 			)
-			expect(string.find(rows[2], badge, 1, true) > (string.find(rows[2], "+67", 1, true) :: number)).to.equal(
+			expect(string.find(rows[2], badge, 1, true) > (string.find(rows[2], "+$67", 1, true) :: number)).to.equal(
 				true
 			)
 			TestKit.note("match_client: first place -> " .. rows[2])

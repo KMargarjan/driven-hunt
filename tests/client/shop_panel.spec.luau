@@ -40,6 +40,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
+local Money = require(ReplicatedStorage:WaitForChild("Money"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -254,7 +255,7 @@ return function()
 			expect(Panel.titleText()).to.equal(Shop.CONFIG.TEXT.TITLE)
 			-- THE WALLET IS TWO NUMBERS IN TWO PILLS: the captions are their own labels, so there is
 			-- no sentence to format and `TEXT.BALANCE` is gone.
-			expect(Panel.walletText()).to.equal("300|30")
+			expect(Panel.walletText()).to.equal("$300|30")
 
 			-- THE SHELVES, IN THE DIRECTOR'S OWN ORDER: Weapons, Ammo, Licences, Clothing.
 			-- ...AND THEY ARE LETTER-SPACED, because Roblox `TextLabel` has no tracking property and
@@ -285,7 +286,7 @@ return function()
 			-- The scoped rifle: 30 hunts is enough, 300 coins is not, so the tag says HOW SHORT he is
 			-- -- *"the affordability signal is never colour alone"*.
 			expect(lineFor(Shop.ITEM.RIFLE)).to.equal(
-				string.format("RIFLE, SCOPED|1500|%s", string.format(Shop.CONFIG.TEXT.ROW_POOR_TAG, 1200))
+				string.format("RIFLE, SCOPED|$1500|%s", string.format(Shop.CONFIG.TEXT.ROW_POOR_TAG, Money.text(1200)))
 			)
 			-- ...and the status line carries the caveat, while nothing has been refused.
 			expect(Panel.statusText()).to.equal(Shop.CONFIG.TEXT.HINT)
@@ -297,10 +298,10 @@ return function()
 			-- THE TAG IS A PROGRESS AND NOT A GATE (the Designer's spec, 5): `2 / 3` says both how
 			-- many he needs and how many he has walked.
 			expect(lineFor(Shop.ITEM.BEATER_LICENCE)).to.equal(
-				string.format("BEATER LICENCE|250|%s", string.format(Shop.CONFIG.TEXT.ROW_LOCK_TAG, 2, 3))
+				string.format("BEATER LICENCE|$250|%s", string.format(Shop.CONFIG.TEXT.ROW_LOCK_TAG, 2, 3))
 			)
 			expect(lineFor(Shop.ITEM.RIFLE)).to.equal(
-				string.format("RIFLE, SCOPED|1500|%s", string.format(Shop.CONFIG.TEXT.ROW_LOCK_TAG, 2, 25))
+				string.format("RIFLE, SCOPED|$1500|%s", string.format(Shop.CONFIG.TEXT.ROW_LOCK_TAG, 2, 25))
 			)
 		end)
 
@@ -318,7 +319,7 @@ return function()
 			expect(pane.name).to.equal("SLUG SHELLS")
 			-- THE PRICE IS A NUMBER AND THE UNIT IS ITS OWN CAPTION, which is what lets Oswald's
 			-- figures be the biggest thing on the line.
-			expect(pane.price).to.equal("120")
+			expect(pane.price).to.equal("$120")
 			-- THE EYEBROW IS THE SHELF IT CAME OFF, letter-spaced by the panel's own helper.
 			expect(pane.eyebrow).to.equal(Panel.spaced("AMMO"))
 			-- THE EXPLANATION IS THE SERVER'S OWN WORDS, verbatim: the panel does not write prose.
@@ -326,7 +327,7 @@ return function()
 			expect(#pane.blurb > 40).to.equal(true)
 			-- THE BUTTON CARRIES THE PRICE INSIDE IT: the word, a divider, a coin and the amount.
 			expect(pane.button).to.equal(Shop.CONFIG.TEXT.BUY)
-			expect(pane.amount).to.equal("120")
+			expect(pane.amount).to.equal("$120")
 
 			-- A SECOND CLICK MOVES THE WHOLE PAGE, not half of it.
 			Panel.select(Shop.ITEM.RIFLE)

@@ -473,7 +473,7 @@ return function()
 			expect(saved.drivesPaid).to.equal(0)
 			expect(Economy.huntsOf(201)).to.equal(0)
 			expect(Economy.stats().purchases).to.equal(1)
-			expect(Economy.stats().coinsSpent).to.equal(80)
+			expect(Economy.stats().coinsSpent).to.equal(120)
 		end)
 
 		-- THE DOUBLE CLICK: the first charges, the second is refused and NOTHING is written.
@@ -486,7 +486,7 @@ return function()
 			local again = Economy.purchase(202, Shop.ITEM.SLUG, { atCounter = true })
 			expect(again.ok).to.equal(false)
 			expect(again.refused).to.equal(Shop.REASON.OWNED)
-			expect(Economy.balanceOf(202)).to.equal(420)
+			expect(Economy.balanceOf(202)).to.equal(380)
 			expect(Economy.stats().purchases).to.equal(1)
 			expect(Economy.stats().refusedBy[Shop.REASON.OWNED]).to.equal(1)
 		end)
@@ -1023,6 +1023,9 @@ return function()
 				enabled = true,
 				ownedOf = true,
 				owedTeams = true,
+				-- WHO BOUGHT THE HUNTER'S PLACE (task 221): the eighth read-only member, and still
+				-- nothing the drive can write through.
+				alwaysHunters = true,
 				noteNextTeams = true,
 			}
 			local seen = 0
@@ -1031,7 +1034,7 @@ return function()
 				expect(type(value)).to.equal("function")
 				seen += 1
 			end
-			expect(seen).to.equal(7)
+			expect(seen).to.equal(8)
 		end)
 
 		it("and that view reads and writes the turn the owner holds", function()
