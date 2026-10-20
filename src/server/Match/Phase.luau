@@ -538,13 +538,17 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	-- BY IDENTITY when nobody is owed anything, so with no economy in the build this line is the
 	-- line it was before this task, value for value (design section 7).
 	--
-	-- THE BOUGHT PREFERENCE IS WRITTEN OVER THE TURN FIRST (task 221), and then the pair goes
-	-- through the one inversion that already exists: `Roster.owedWith` answers `owed` BY IDENTITY
-	-- when nobody bought always-hunter, so this is still the line it was, value for value.
-	-- `Roster.assign` is UNTOUCHED, so its balance rule still beats the privilege and
-	-- `match_roster.spec`'s pins at every roster size still hold.
-	local previous = Roster.previousFrom(state.previousAssignment, Roster.owedWith(owed, always))
-	state.assignment = Roster.assign(userIds, previous, config)
+	-- THE STORED TURN GOES IN AS THE SYNTHETIC PREVIOUS, exactly as task 217 built it...
+	local previous = Roster.previousFrom(state.previousAssignment, owed)
+	-- ...AND THE BOUGHT PLACE GOES IN AS ITS OWN ARGUMENT (task 221 round 3, the Director's
+	-- decision of 2026-10-20). It is NOT folded into `owed` any more: doing that moved the SWAPPED
+	-- counts by two, so `Roster.assign`'s balance check discarded the whole swap and a paid
+	-- always-hunter was overruled on every even roster. `Roster.assign` now places the men who
+	-- bought it FIRST and lets the rotation fill what is left, so the result is balanced by
+	-- construction rather than by a check that can throw everything away.
+	--
+	-- `always` nil or empty takes the path this line took before, untouched.
+	state.assignment = Roster.assign(userIds, previous, config, always)
 	-- ANYBODY WHO WAS IN THE LAST DRIVE AND IS NOT IN THIS ONE (task 177, design section 4.4). The
 	-- OTHER door out of `Scoring` is straight into `Assigning` -- a lobby player can enrol during the
 	-- results scene -- and that path never reaches `enterWaiting`, so without this a dismissed player

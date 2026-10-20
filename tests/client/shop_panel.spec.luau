@@ -502,6 +502,52 @@ return function()
 			expect(models).to.equal(1)
 		end)
 
+		it("has a picture for every row it sells", function()
+			-- THE DIRECTOR, 2026-10-20: *"every row the shop sells gets a display model"*. Six of
+			-- the ten rows drew nothing before this round, which is a declared fallback and still
+			-- the wrong thing for a shop window.
+			for _, id in ipairs(Shop.ORDER) do
+				expect(Display.knows(id)).to.equal(true)
+				local model = Display.build(id)
+				expect(model).to.be.ok()
+				local parts = 0
+				for _, descendant in ipairs((model :: Model):GetDescendants()) do
+					if descendant:IsA("BasePart") then
+						parts += 1
+					end
+				end
+				-- A MODEL WITH ONE PART IS A BLOCK, not a drawing: every existing item is at least
+				-- three, and so is every new one.
+				expect(parts >= 3).to.equal(true)
+				expect((model :: Model).PrimaryPart).to.be.ok();
+				(model :: Model):Destroy()
+			end
+			-- A PACKAGE DRAWS ITS OWN CONTENTS, through the same per-item builder -- so it can
+			-- never show something it does not contain.
+			local season = Display.build(Shop.ITEM.BUNDLE_SEASON)
+			expect(season).to.be.ok()
+			local drawn = 0
+			for _, covered in ipairs(Shop.ROWS[Shop.ITEM.BUNDLE_SEASON].covers) do
+				if Display.knows(covered) then
+					drawn += 1
+				end
+			end
+			-- Every covered row is drawable, so the board carries one model each.
+			expect(drawn).to.equal(#Shop.ROWS[Shop.ITEM.BUNDLE_SEASON].covers)
+			local children = 0
+			for _, child in ipairs((season :: Model):GetChildren()) do
+				if child:IsA("Model") then
+					children += 1
+				end
+			end
+			expect(children).to.equal(drawn);
+			(season :: Model):Destroy()
+			-- ...AND AN ID THE CATALOGUE DOES NOT HAVE STILL DRAWS NOTHING, which is the stated
+			-- fallback and the reason the panel has words for it.
+			expect(Display.knows("no.such.row")).to.equal(false)
+			expect(Display.build("no.such.row")).to.equal(nil)
+		end)
+
 		it("turns the picture while the panel is open and stands still while it is shut", function()
 			Panel.onState(statePayload())
 			Panel.setOpen(true)

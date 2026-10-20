@@ -192,6 +192,60 @@ local function sorted(userIds: { number }): { number }
 	return out
 end
 
+-- HOW MANY OF THIS ROSTER MAY BE HUNTERS. PURE. The split differs by at most one, and the odd man
+-- goes to `ODD_PLAYER_TEAM` -- so this is the same arithmetic the plain split below does, named
+-- once because the always-hunter pass has to know the number before it deals anybody.
+function Roster.shooterSlots(total: number, config): number
+	local count = math.max(0, math.floor(total))
+	if config.ODD_PLAYER_TEAM == SHOOTERS then
+		return math.ceil(count / 2)
+	end
+	return math.floor(count / 2)
+end
+
+-- WHO GIVES UP THE HUNTER'S PLACE FIRST when more men bought it than there are hunter slots. PURE.
+-- The front of this list yields.
+--
+-- THE KEY IS "DID HE HAVE IT LAST DRIVE", and that is a deliberate reading of the Director's
+-- *"fewest drives as always-hunter yield first"* rather than the literal one. Taken literally --
+-- order by a count of drives served as an always-hunter, lowest first -- the man at the bottom
+-- NEVER accumulates, because yielding is exactly what stops him serving: he would be overruled
+-- every drive for ever, which is the starvation this whole change exists to remove. So the order
+-- is by RECENCY, which is the same fairness without the trap:
+--
+--   1. he held `Shooters` in the previous drive      -> yields FIRST (he has just had it)
+--   2. he has no previous row at all (he just arrived) -> yields next
+--   3. he drove last drive                            -> yields LAST (it is his turn)
+--   ...and ties by userId, which is stable and total.
+--
+-- IT CANNOT STARVE, and that is provable rather than hoped: a man who yields is a DRIVER this
+-- drive, so next drive he is in group 3 and has priority over everybody who just held it.
+--
+-- `previous` IS THE ONLY INPUT IT NEEDS, which is why there is no new state, no new profile field
+-- and nothing added to `Phase.freezeState`: the rotation's own memory already records who held
+-- what. Join time is NOT used -- a pure function cannot see it, and carrying it would mean a new
+-- field in the frozen state for a tie-break that userId already settles deterministically.
+function Roster.yieldOrder(holders: { number }, previous: Assignment?): { number }
+	local out = table.clone(holders)
+	local function rank(userId: number): number
+		local was = if previous ~= nil then previous[userId] else nil
+		if was == SHOOTERS then
+			return 1
+		elseif was == nil then
+			return 2
+		end
+		return 3
+	end
+	table.sort(out, function(a: number, b: number): boolean
+		local ra, rb = rank(a), rank(b)
+		if ra ~= rb then
+			return ra < rb
+		end
+		return a < b
+	end)
+	return out
+end
+
 -- Splits `userIds` into two teams differing by at most one.
 --
 -- `previous` is the LAST drive's assignment -- or, since task 217, the SYNTHETIC one
@@ -200,9 +254,86 @@ end
 -- (SWAP_TEAMS_EACH_DRIVE): everybody who drove shoots next, which is why it is on by default --
 -- everyone wants to shoot, and fixed roles make half the players tourists. Sizes still balance,
 -- because a swap of a balanced split is a balanced split.
-function Roster.assign(userIds: { number }, previous: Assignment?, config): Assignment
+--
+-- `always` IS THE MEN WHO BOUGHT THE HUNTER'S PLACE (task 221, round 3), and it is why this
+-- function changed at all. Its own header used to argue that *"rewriting a pinned pure function to
+-- add a feature is a bigger change than the feature"*, and the DIRECTOR OVERRULED THAT on
+-- 2026-10-20 with a measurement: folding the privilege into the synthetic `previous` moved the
+-- SWAPPED counts by two, so on an even roster the balance check discarded the whole swap and the
+-- plain split put a low userId on the beaters EVERY drive. *"A paid privilege that is overruled
+-- every time on even rosters is a broken product."*
+--
+-- SO THE PRIVILEGE IS PLACED FIRST AND THE ROTATION FILLS WHAT IS LEFT:
+--   1. the hunter slots are counted (`Roster.shooterSlots`);
+--   2. every always-hunter takes one, in `Roster.yieldOrder` from the BACK, so if there are more
+--      of them than slots the ones who just had it are the ones overruled;
+--   3. everybody else fills the remaining hunter slots and then the beaters' side, preferring the
+--      men the rotation owes a turn -- whoever DROVE last drive goes first.
+-- The result is balanced BY CONSTRUCTION rather than by a check that can discard the whole thing.
+--
+-- `always` nil or EMPTY TAKES THE OLD PATH, UNTOUCHED, and that is the identity `match_roster.spec`
+-- pins at every roster size from 2 to 16: a build where nobody bought it is the game before this
+-- task, line for line.
+function Roster.assign(userIds: { number }, previous: Assignment?, config, always: { [number]: boolean }?): Assignment
 	local ids = sorted(userIds)
 	local assignment: Assignment = {}
+
+	-- ---------------------------------------------------------------- the bought place (task 221)
+	local holders: { number } = {}
+	if always ~= nil then
+		for _, userId in ipairs(ids) do
+			if always[userId] == true then
+				table.insert(holders, userId)
+			end
+		end
+	end
+	if #holders > 0 then
+		local slots = Roster.shooterSlots(#ids, config)
+		local order = Roster.yieldOrder(holders, previous)
+		local keep = math.min(#order, slots)
+		local yielding = #order - keep
+		local shooters = 0
+		for index, userId in ipairs(order) do
+			if index <= yielding then
+				-- OVERRULED: there are more paid hunters than hunter slots, and he just had it.
+				-- `Roster.overruled` is what puts his name on the wire so his own screen says why.
+				assignment[userId] = DRIVERS
+			else
+				assignment[userId] = SHOOTERS
+				shooters += 1
+			end
+		end
+		-- ...AND EVERYBODY ELSE, THE ROTATION FIRST. A man the swap owes a turn (he drove last
+		-- drive) takes a remaining hunter slot before a man who just shot -- so the rotation still
+		-- rotates over whatever the privilege leaves, instead of being thrown away whole.
+		local rest: { number } = {}
+		for _, userId in ipairs(ids) do
+			if assignment[userId] == nil then
+				table.insert(rest, userId)
+			end
+		end
+		local function owedRank(userId: number): number
+			local was = if previous ~= nil then previous[userId] else nil
+			if was == DRIVERS then
+				return 1 -- he drove: the swap owes him the hunter's side
+			elseif was == nil then
+				return 2 -- he was not here
+			end
+			return 3 -- he shot last drive: his turn to drive
+		end
+		table.sort(rest, function(a: number, b: number): boolean
+			local ra, rb = owedRank(a), owedRank(b)
+			if ra ~= rb then
+				return ra < rb
+			end
+			return a < b
+		end)
+		local remaining = math.max(0, slots - shooters)
+		for index, userId in ipairs(rest) do
+			assignment[userId] = if index <= remaining then SHOOTERS else DRIVERS
+		end
+		return assignment
+	end
 
 	if previous and config.SWAP_TEAMS_EACH_DRIVE then
 		local swapped, unknown = {}, {}

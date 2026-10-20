@@ -710,4 +710,92 @@ return function()
 			expect((afterShot :: any).barrels[snapshot.selected]).to.equal("Spent")
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- the deck he did not buy
+	-- (task 221 round 3)
+	--
+	-- THE DIRECTOR, 2026-10-20: *"an unentitled hunter on a high-seat DECK cannot shoot (the stand
+	-- rule: the deck counts as a stand only for an entitled hunter or the one assigned there)"*.
+	--
+	-- IT IS NOT THE PLACEMENT'S JOB: the deal gives an unentitled hunter a GROUND stand, but
+	-- `ForestTest.lockPick` lets him walk to any stand in the 15-second window and the engine's own
+	-- ladder lets him climb it. So the gate is where every other shooting rule is.
+	describe("a high seat nobody paid for", function()
+		local DECK = 128.5
+		local function area(seatPaid: boolean?)
+			return { centre = Vector3.new(0, 0, 0), radius = 12, minY = DECK, seatPaid = seatPaid }
+		end
+		local function at(y: number)
+			return Vector3.new(0, y, 0)
+		end
+
+		it("refuses a shot from the deck, and says the one thing he can do about it", function()
+			-- ON THE DECK AND HE HAS NOT BOUGHT IT.
+			expect(Rules.onUnpaidPlatform(at(DECK), area(false))).to.equal(true)
+			expect(Rules.onUnpaidPlatform(at(DECK + 4), area(false))).to.equal(true)
+			expect(Rules.refuse({ position = at(DECK), stand = area(false) })).to.equal(Rules.REASON.UNPAID_PLATFORM)
+			expect(Rules.noticeFor(Rules.REASON.UNPAID_PLATFORM)).to.equal("BUY TREE STAND ACCESS")
+			-- `>=` AND NOT `>`: `minY` IS the deck's top face, and standing on it is being on it.
+			-- Between this and `belowPlatform` there is no sliver of height that is neither.
+			expect(Rules.onUnpaidPlatform(at(DECK - 0.01), area(false))).to.equal(false)
+		end)
+
+		it("leaves him the ground under it, rather than trapping him", function()
+			-- A STAND HE HAS NOT PAID FOR IS A GROUND STAND TO HIM. Without this he would be told
+			-- CLIMB TO YOUR STAND on the ground and refused for being on the deck once he did.
+			expect(Rules.belowPlatform(at(DECK - 10), area(false))).to.equal(false)
+			expect(Rules.refuse({ position = at(DECK - 10), stand = area(false) })).to.equal(nil)
+			-- ...AND THE TWO RULES CAN NEVER BOTH FIRE, at any height.
+			for y = DECK - 20, DECK + 20, 0.5 do
+				local both = Rules.belowPlatform(at(y), area(false)) and Rules.onUnpaidPlatform(at(y), area(false))
+				expect(both).to.equal(false)
+			end
+		end)
+
+		it("changes nothing at all for the man who bought it", function()
+			-- HE IS TOLD TO CLIMB, exactly as task 218 built it...
+			expect(Rules.onUnpaidPlatform(at(DECK - 10), area(true))).to.equal(false)
+			expect(Rules.belowPlatform(at(DECK - 10), area(true))).to.equal(true)
+			expect(Rules.refuse({ position = at(DECK - 10), stand = area(true) })).to.equal(Rules.REASON.OFF_PLATFORM)
+			-- ...AND ON THE DECK HE MAY SHOOT.
+			expect(Rules.onUnpaidPlatform(at(DECK), area(true))).to.equal(false)
+			expect(Rules.refuse({ position = at(DECK), stand = area(true) })).to.equal(nil)
+		end)
+
+		it("is no rule at all where nobody answered", function()
+			-- nil `seatPaid` IS "NOTHING SAID", which is every ground stand, the DEV arena, every
+			-- world with no seats and every build with the shop off -- the call `outsideStand`'s
+			-- nil area and `driveClosed`'s nil already make, for the stated reason that a gate
+			-- which refused on an unwired world would make a mis-wiring look like Karen's rule
+			-- working.
+			expect(Rules.onUnpaidPlatform(at(DECK), area(nil))).to.equal(false)
+			expect(Rules.refuse({ position = at(DECK), stand = area(nil) })).to.equal(nil)
+			-- ...and task 218's rule is untouched by the absence.
+			expect(Rules.belowPlatform(at(DECK - 10), area(nil))).to.equal(true)
+			-- A GROUND STAND HAS NOTHING TO PAY FOR: no `minY`, no rule, whatever is said.
+			local ground = { centre = Vector3.new(0, 0, 0), radius = 12, seatPaid = false }
+			expect(Rules.onUnpaidPlatform(at(50), ground)).to.equal(false)
+			expect(Rules.refuse({ position = at(50), stand = ground })).to.equal(nil)
+			-- NO POSITION AND NO AREA ARE BOTH "no rule".
+			expect(Rules.onUnpaidPlatform(nil, area(false))).to.equal(false)
+			expect(Rules.onUnpaidPlatform(at(DECK), nil)).to.equal(false)
+		end)
+
+		it("is asked after he is in his circle and before he is told to climb", function()
+			-- THE ORDER IS THE RULE. Out of his circle beats everything about the platform: a man
+			-- on somebody else's deck is told he is not in his stand, which is the truer answer.
+			local far = Vector3.new(500, DECK, 0)
+			expect(Rules.refuse({ position = far, stand = area(false) })).to.equal(Rules.REASON.OFF_STAND)
+			local order = {}
+			for index, reason in ipairs(Rules.ORDER) do
+				order[reason] = index
+			end
+			expect(order[Rules.REASON.OFF_STAND] < order[Rules.REASON.UNPAID_PLATFORM]).to.equal(true)
+			expect(order[Rules.REASON.UNPAID_PLATFORM] < order[Rules.REASON.OFF_PLATFORM]).to.equal(true)
+			-- EVERY REASON HAS A LINE, and the order names every reason exactly once.
+			for _, reason in ipairs(Rules.ORDER) do
+				expect(Rules.noticeFor(reason)).to.be.ok()
+			end
+		end)
+	end)
 end

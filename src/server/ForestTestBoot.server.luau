@@ -790,6 +790,13 @@ if shopOn then
 	Weapon.setLicenceProvider(function(player)
 		return ShopData.licencesFor(Economy.ownedOf(player.UserId))
 	end)
+	-- ...AND WHETHER HE MAY STAND ON A HIGH SEAT (task 221 round 3). The placement only decides
+	-- where he STARTS -- `ForestTest.lockPick` lets him walk to any stand in the 15-second window --
+	-- so without this he could pick a seated stand, climb the engine's own ladder and shoot from a
+	-- deck he never bought. `Weapon.Rules.onUnpaidPlatform` is the one question asked about it.
+	ForestTest.setSeatProvider(function(userId)
+		return ShopData.grantsHighSeat(Economy.ownedOf(userId))
+	end)
 	Body.setLookProvider(function(player)
 		local color = ShopData.hatColorFor(Economy.ownedOf(player.UserId))
 		return if color then { hatColor = color } else nil

@@ -434,6 +434,13 @@ local CREAM = Color3.fromHex("EDE4CE")
 local LODEN = Color3.fromHex("27452E")
 local BRASS = Color3.fromHex("C8A258")
 local STAMP = Color3.fromHex("9B3A32")
+-- TASK 221's THREE: the weathered timber a high seat is built of (`HighSeats.COLORS`' own two, which
+-- were chosen against the lodge's logs and looked at in the live place), and the hunters' orange,
+-- which is `Style.LOOK.BLAZE` -- named here rather than required, because this module draws PARTS
+-- and has never required the Hud's palette.
+local TIMBER = Color3.fromHex("8A7A5E")
+local TIMBER_DARK = Color3.fromHex("6B5E47")
+local BLAZE = Color3.fromHex("E2641B")
 
 -- THE BOAR MARK, 12 blocks in the header bar -- all cream, all 0.02 thick, all at z = 0.028. The
 -- spec names which five make it a boar if the count ever has to come down: rump, body, back, head,
@@ -753,6 +760,301 @@ local function buildHat(parent: Model, id: string)
 	end
 end
 
+-- ---------------------------------------------------------------- the v1 catalogue's own pictures
+-- (task 221 round 3)
+--
+-- THE DIRECTOR, 2026-10-20: *"every row the shop sells gets a display model in ShopDisplay.DRAW …
+-- built from parts like the existing ones; no uploads"*. Six rows arrived with Karen's v1 list and
+-- `DRAW` knew four ids, so six of ten showed an empty case -- which is a declared fallback and
+-- still the wrong thing for a shop window.
+--
+-- EVERY ONE IS PARTS, in the palette this file already has, at the scale the existing four use
+-- (about 1.2 to 2 studs, which is what `distanceFor` was tuned against).
+
+-- THE HIGH SEAT, IN MINIATURE: four legs, a deck, a rail on the far three faces and a truss
+-- ladder -- the same silhouette `HighSeats.plan` builds at full size, at about a tenth of it. The
+-- rail is left OFF the front face on purpose: it is the face the camera is on, and a bar across it
+-- would hide the deck that is the thing being sold.
+local SEAT_LEG = { { -0.42, -0.42 }, { 0.42, -0.42 }, { -0.42, 0.42 }, { 0.42, 0.42 } }
+
+local function buildHighSeat(parent: Model)
+	local rows: { Piece } = {}
+	for index, leg in ipairs(SEAT_LEG) do
+		table.insert(rows, {
+			name = string.format("Leg%d", index),
+			size = Vector3.new(0.1, 1.18, 0.1),
+			at = Vector3.new(leg[1], 0.59, leg[2]),
+			color = TIMBER,
+			material = Enum.Material.Wood,
+		})
+	end
+	table.insert(rows, {
+		name = "Deck",
+		size = Vector3.new(1.02, 0.08, 1.02),
+		at = Vector3.new(0, 1.22, 0),
+		color = TIMBER,
+		material = Enum.Material.Wood,
+	})
+	-- THE BOARD A MAN RESTS A GUN ON, on three faces. `HighSeats.DIMS` puts the real one at 0.67 m
+	-- above the deck; at this scale that is 0.3.
+	local rail = {
+		{ name = "RailBack", size = Vector3.new(1.02, 0.09, 0.07), at = Vector3.new(0, 1.52, 0.48) },
+		{ name = "RailLeft", size = Vector3.new(0.07, 0.09, 1.02), at = Vector3.new(-0.48, 1.52, 0) },
+		{ name = "RailRight", size = Vector3.new(0.07, 0.09, 1.02), at = Vector3.new(0.48, 1.52, 0) },
+	}
+	for _, board in ipairs(rail) do
+		table.insert(rows, {
+			name = board.name,
+			size = board.size,
+			at = board.at,
+			color = TIMBER_DARK,
+			material = Enum.Material.Wood,
+		})
+	end
+	for _, post in ipairs({ -0.48, 0.48 }) do
+		table.insert(rows, {
+			name = string.format("Upright%d", if post < 0 then 1 else 2),
+			size = Vector3.new(0.07, 0.34, 0.07),
+			at = Vector3.new(post, 1.39, 0.48),
+			color = TIMBER_DARK,
+			material = Enum.Material.Wood,
+		})
+	end
+	-- THE LADDER, as two rails and four rungs. The real one is a `TrussPart` and the climb is the
+	-- engine's own `Climbing` state; a picture of it is three sticks.
+	for _, side in ipairs({ -0.16, 0.16 }) do
+		table.insert(rows, {
+			name = string.format("LadderRail%d", if side < 0 then 1 else 2),
+			size = Vector3.new(0.06, 1.26, 0.06),
+			at = Vector3.new(side, 0.63, -0.62),
+			color = TIMBER_DARK,
+			material = Enum.Material.Wood,
+		})
+	end
+	for rung = 1, 4 do
+		table.insert(rows, {
+			name = string.format("Rung%d", rung),
+			size = Vector3.new(0.38, 0.045, 0.045),
+			at = Vector3.new(0, 0.22 * rung, -0.62),
+			color = TIMBER_DARK,
+			material = Enum.Material.Wood,
+		})
+	end
+	pieces(parent, rows)
+end
+
+-- UNLIMITED AMMUNITION: an open crate with shells standing in it, stencilled. It is the SLUG box's
+-- own vocabulary at a bigger size, which is the point -- what is being sold is not a different
+-- shell, it is never running out of them.
+local CRATE_SHELL = { -0.3, -0.1, 0.1, 0.3 }
+
+local function buildAmmoCrate(parent: Model)
+	local rows: { Piece } = {
+		{
+			name = "Floor",
+			size = Vector3.new(1.3, 0.07, 0.86),
+			at = Vector3.new(0, 0.035, 0),
+			color = TIMBER,
+			material = Enum.Material.Wood,
+		},
+		{
+			name = "Front",
+			size = Vector3.new(1.3, 0.56, 0.07),
+			at = Vector3.new(0, 0.28, -0.4),
+			color = TIMBER,
+			material = Enum.Material.Wood,
+		},
+		{
+			name = "Back",
+			size = Vector3.new(1.3, 0.56, 0.07),
+			at = Vector3.new(0, 0.28, 0.4),
+			color = TIMBER,
+			material = Enum.Material.Wood,
+		},
+		{
+			name = "Left",
+			size = Vector3.new(0.07, 0.56, 0.86),
+			at = Vector3.new(-0.62, 0.28, 0),
+			color = TIMBER_DARK,
+			material = Enum.Material.Wood,
+		},
+		{
+			name = "Right",
+			size = Vector3.new(0.07, 0.56, 0.86),
+			at = Vector3.new(0.62, 0.28, 0),
+			color = TIMBER_DARK,
+			material = Enum.Material.Wood,
+		},
+		-- THE STENCIL, as two bars: this file draws no text, and the licence card already says a
+		-- printed line with a Part.
+		{
+			name = "Stencil1",
+			size = Vector3.new(0.52, 0.07, 0.016),
+			at = Vector3.new(-0.18, 0.37, -0.44),
+			color = CREAM,
+		},
+		{
+			name = "Stencil2",
+			size = Vector3.new(0.33, 0.05, 0.016),
+			at = Vector3.new(-0.27, 0.25, -0.44),
+			color = CREAM,
+		},
+	}
+	-- FOUR SHELLS STANDING, brass down, above the crate's rim so the thing being sold is the thing
+	-- you see -- the slug box's own stated rule.
+	for index, x in ipairs(CRATE_SHELL) do
+		table.insert(rows, {
+			name = string.format("Shell%d", index),
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.46, 0.17, 0.17),
+			at = Vector3.new(x, 0.52, 0.06),
+			rot = Vector3.new(0, 0, 90),
+			color = STAMP,
+		})
+		table.insert(rows, {
+			name = string.format("Head%d", index),
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(0.12, 0.18, 0.18),
+			at = Vector3.new(x, 0.35, 0.06),
+			rot = Vector3.new(0, 0, 90),
+			color = BRASS,
+			material = Enum.Material.Metal,
+		})
+	end
+	pieces(parent, rows)
+end
+
+-- THE RED STAG CARD: the beater licence's own card with a STAG on it instead of a plain panel --
+-- head, neck and a pair of antlers, in silhouette. It is the same card on purpose: a licence is a
+-- licence, and what tells them apart is the animal.
+local function buildStagCard(parent: Model)
+	buildLicence(parent)
+	local antler = { -0.22, 0.22 }
+	local rows: { Piece } = {
+		-- The panel the silhouette sits on, so the stag reads against the cream rather than on it.
+		{ name = "Panel", size = Vector3.new(1.18, 0.6, 0.016), at = Vector3.new(0, 0.52, 0.027), color = LODEN },
+		{
+			name = "StagBody",
+			size = Vector3.new(0.5, 0.26, 0.018),
+			at = Vector3.new(-0.06, 0.44, 0.036),
+			color = CREAM,
+		},
+		{
+			name = "StagNeck",
+			size = Vector3.new(0.13, 0.26, 0.018),
+			at = Vector3.new(0.17, 0.58, 0.036),
+			color = CREAM,
+		},
+		{ name = "StagHead", size = Vector3.new(0.23, 0.1, 0.018), at = Vector3.new(0.25, 0.69, 0.036), color = CREAM },
+		{ name = "LegF", size = Vector3.new(0.055, 0.2, 0.018), at = Vector3.new(0.06, 0.24, 0.036), color = CREAM },
+		{ name = "LegB", size = Vector3.new(0.055, 0.2, 0.018), at = Vector3.new(-0.24, 0.24, 0.036), color = CREAM },
+	}
+	for index, dx in ipairs(antler) do
+		table.insert(rows, {
+			name = string.format("Antler%d", index),
+			size = Vector3.new(0.035, 0.21, 0.018),
+			at = Vector3.new(0.21 + dx * 0.16, 0.83, 0.036),
+			rot = Vector3.new(0, 0, dx * 26),
+			color = CREAM,
+		})
+		for tine = 1, 2 do
+			table.insert(rows, {
+				name = string.format("Tine%d%d", index, tine),
+				size = Vector3.new(0.03, 0.1, 0.018),
+				at = Vector3.new(0.21 + dx * (0.2 + tine * 0.03), 0.8 + tine * 0.06, 0.036),
+				rot = Vector3.new(0, 0, dx * 52),
+				color = CREAM,
+			})
+		end
+	end
+	pieces(parent, rows)
+end
+
+-- ALWAYS HUNTER: a hunter's badge -- a brass shield on a loden backing, with the orange band the
+-- hunters already wear across it. Not a card: what is sold is a STANDING, and a badge is what a
+-- standing looks like.
+local function buildBadge(parent: Model)
+	pieces(parent, {
+		{
+			name = "Shield",
+			size = Vector3.new(1.08, 1.24, 0.07),
+			at = Vector3.new(0, 0.62, 0),
+			color = BRASS,
+			material = Enum.Material.Metal,
+		},
+		{
+			name = "Point",
+			size = Vector3.new(0.76, 0.76, 0.07),
+			at = Vector3.new(0, 0.1, 0),
+			rot = Vector3.new(0, 0, 45),
+			color = BRASS,
+			material = Enum.Material.Metal,
+		},
+		{
+			name = "Face",
+			size = Vector3.new(0.86, 1.0, 0.03),
+			at = Vector3.new(0, 0.66, 0.042),
+			color = LODEN,
+			material = Enum.Material.Fabric,
+		},
+		-- THE HUNTERS' OWN ORANGE, so the badge belongs to the side it buys you a place on.
+		{ name = "Band", size = Vector3.new(0.86, 0.2, 0.034), at = Vector3.new(0, 0.5, 0.046), color = BLAZE },
+		{
+			name = "Pin",
+			size = Vector3.new(0.3, 0.05, 0.05),
+			at = Vector3.new(0, 1.3, 0),
+			color = BRASS,
+			material = Enum.Material.Metal,
+		},
+	})
+end
+
+-- A PACKAGE: its contents, side by side on a shelf board. Nothing new is drawn -- each part is the
+-- model that row already has, scaled down and set along the board -- so a package can never show
+-- something it does not contain, and a row that gains a picture gains it inside every package that
+-- covers it. `ShopDisplay.knows` is what decides which contents are drawable.
+local BUNDLE_SPREAD = 1.45
+
+local function buildBundle(parent: Model, id: string)
+	local row = ShopData.anyRow(id)
+	local covers = (row and row.covers) or {}
+	local drawable: { string } = {}
+	for _, covered in ipairs(covers) do
+		if ShopDisplay.knows(covered) then
+			table.insert(drawable, covered)
+		end
+	end
+	pieces(parent, {
+		{
+			name = "Board",
+			size = Vector3.new(math.max(1.2, #drawable * BUNDLE_SPREAD + 0.4), 0.08, 1.1),
+			at = Vector3.new(0, 0.04, 0),
+			color = TIMBER_DARK,
+			material = Enum.Material.Wood,
+		},
+	})
+	local span = (#drawable - 1) * BUNDLE_SPREAD
+	for index, covered in ipairs(drawable) do
+		-- THROUGH `ShopDisplay.build`, so a package draws EXACTLY the model that row draws on its
+		-- own page: there is one drawing per item and a package cannot show something it does not
+		-- contain. It cannot recurse -- `rowsOk` I7 refuses a package that covers a package.
+		local piece = ShopDisplay.build(covered)
+		if piece ~= nil then
+			piece.Name = string.format("Part%d", index)
+			-- SCALED AND SET ALONG THE BOARD. `GetBoundingBox` is the same answer this file's own
+			-- framing is measured with, so there is no table of offsets to go stale the day a
+			-- model changes.
+			local _, size = piece:GetBoundingBox()
+			local tallest = math.max(size.X, size.Y, size.Z)
+			local scale = if tallest > 0 then math.clamp(1.15 / tallest, 0.05, 1) else 1
+			piece:ScaleTo(scale)
+			local at = Vector3.new(-span / 2 + (index - 1) * BUNDLE_SPREAD, 0.08 + (size.Y * scale) / 2, 0)
+			piece:PivotTo(CFrame.new(at))
+			piece.Parent = parent
+		end
+	end
+end
+
 -- ---------------------------------------------------------------- what to draw for an id
 
 -- THE ONE TABLE THAT SAYS WHICH DRAWING AND WHICH CAMERA EACH ITEM GETS, keyed by the catalogue's own
@@ -784,6 +1086,47 @@ local DRAW: { [string]: { view: View, build: (Model, string) -> () } } = {
 		build = function(model: Model, _id: string)
 			buildLicence(model)
 		end,
+	},
+	-- TASK 221: EVERY ROW THE SHOP SELLS HAS A PICTURE NOW (the Director, 2026-10-20). Six of the
+	-- ten were drawing nothing, which is a declared fallback and still the wrong thing for a shop.
+	[ShopData.ITEM.HIGH_SEAT] = {
+		view = SOLID_VIEW,
+		build = function(model: Model, _id: string)
+			buildHighSeat(model)
+		end,
+	},
+	[ShopData.ITEM.UNLIMITED_AMMO] = {
+		view = SOLID_VIEW,
+		build = function(model: Model, _id: string)
+			buildAmmoCrate(model)
+		end,
+	},
+	[ShopData.ITEM.RED_STAG] = {
+		view = CARD_VIEW,
+		build = function(model: Model, _id: string)
+			buildStagCard(model)
+		end,
+	},
+	[ShopData.ITEM.ALWAYS_HUNTER] = {
+		view = CARD_VIEW,
+		build = function(model: Model, _id: string)
+			buildBadge(model)
+		end,
+	},
+	-- THE PACKAGES DRAW THEIR OWN CONTENTS, through `ShopDisplay.build` per covered row -- so there
+	-- is one drawing per item, a package can never show something it does not contain, and a row
+	-- that gains a picture gains it inside every package that covers it.
+	[ShopData.ITEM.BUNDLE_HIDE] = {
+		view = SOLID_VIEW,
+		build = buildBundle,
+	},
+	[ShopData.ITEM.BUNDLE_MARKSMAN] = {
+		view = SOLID_VIEW,
+		build = buildBundle,
+	},
+	[ShopData.ITEM.BUNDLE_SEASON] = {
+		view = SOLID_VIEW,
+		build = buildBundle,
 	},
 }
 

@@ -996,11 +996,36 @@ end
 -- says why the default is permissive). The role is NOT asked here: `Match.standAreaFor` has already
 -- refused anybody who is not a hunter, which is the same split as `ForestTest.boundary`'s `role`
 -- parameter -- the caller holds the `Player`, this module keys by `userId`.
+-- MAY THIS PLAYER USE A HIGH SEAT? (task 221 round 3.) INJECTED, exactly as
+-- `Weapon.setEntitlementProvider` and `Body.setLookProvider` are, so this world module learns
+-- nothing about a shop, an item id or a price -- it asks one boolean of whatever the composition
+-- root wired. nil provider is nil answer, which is "nothing said", which is no rule.
+local seatProvider: ((number) -> boolean?)? = nil
+
+function ForestTest.setSeatProvider(provider: ((number) -> boolean?)?)
+	seatProvider = provider
+end
+
+local function seatPaidFor(userId: number): boolean?
+	local ask = seatProvider
+	if ask == nil then
+		return nil
+	end
+	-- THROUGH `pcall`, the discipline every injected provider in this repo is asked through: a
+	-- provider that throws must leave the game as it was and not refuse every shot in the drive.
+	local ok, answer = pcall(ask, userId)
+	if not ok or type(answer) ~= "boolean" then
+		return nil
+	end
+	return answer
+end
+
 function ForestTest.standArea(userId: number)
 	local pick = ForestTest.pickOf(userId)
 	if pick == nil or (pick :: any).lockedAt == nil then
 		return nil
 	end
+	local deck = Seats.deckTopY(pick.index)
 	return {
 		centre = Data.standPosition(pick.index, chosen.layout),
 		radius = Data.PICK.standRadiusStuds,
@@ -1008,7 +1033,11 @@ function ForestTest.standArea(userId: number)
 		-- and every other world (task 218, design section 5.2). Read off the SEAT THE WORLD BUILT,
 		-- so "where may he shoot" and "what is he standing on" are one fact asked once: a stand
 		-- whose seat was refused answers nil here and is a ground stand in every respect.
-		minY = Seats.deckTopY(pick.index),
+		minY = deck,
+		-- ...AND WHETHER THIS MAN MAY USE IT (task 221 round 3). Only asked where there IS a seat:
+		-- a ground stand has nothing to pay for, and answering `false` there would be a rule about
+		-- a platform that does not exist.
+		seatPaid = if deck ~= nil then seatPaidFor(userId) else nil,
 	}
 end
 
