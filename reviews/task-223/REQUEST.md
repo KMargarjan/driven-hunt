@@ -1,14 +1,103 @@
 # Task 223 -- the red deer: stag, hind and calf in the drive, behind a licence
 
 Task: 223
-Round: 1
+Round: 2
 Base: fdf2317 (main)
-Code commit: 113f3aa480bb16fe382b1a82ceac035a5356b054
+Code commit: 5d47be432ad330a97486aa007a32e3d279b63ade
 
 ```
-[harness] PASS: 33/33 checks @ 113f3aa480bb16fe382b1a82ceac035a5356b054 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ 113f3aa480bb16fe382b1a82ceac035a5356b054 (clean tree)
+[harness] PASS: 33/33 checks @ 5d47be432ad330a97486aa007a32e3d279b63ade (clean tree) scope=all
 ```
+
+**`[harness2]` IS NOT PASTED FOR THIS ROUND'S CODE COMMIT.** Round 1's pair was clean at `113f3aa`
+(`[harness] PASS: 33/33` and the Director's `[harness2] PASS: 35/35`), but round 2 changed
+`src/server/Boar/init.luau` and three spec files, so the two-player line has to be re-run at
+`5d47be4` and that needs a human click. `ESCALATE.md`: **`NEEDS TEST2 223 5d47be4`**.
+
+## ROUND 2: the four findings, each fixed at its owner
+
+**AND THEY WERE NOT ALL THE SAME KIND OF THING, which is worth saying before the list.** Findings 1
+and 2 were **defects**: their new specs FAIL against `113f3aa`, and the failing output is pasted
+below. Findings 3 and 4 were **missing coverage**: those specs PASS against `113f3aa`, because the
+code was already right and nothing proved it. Reporting them as four identical repairs would be
+dressing up two holes as two bugs.
+
+### Measured failing at `113f3aa` (specs only, `src/` and `tools/` stashed back):
+
+```
+[tests:server] FAIL: 1873 passed, 4 failed, 0 skipped, 4 errors, 63 spec files
+  failed [server] deer.spec:419  Expected value "7" (number), got "9" (number) instead
+  failed [server] deer.spec:354  Expected value "false" (boolean), got "true" (boolean) instead
+  failed [server] boar_zones.spec:496 Expected value "true" (boolean), got "false" (boolean)
+  failed [server] boar_zones.spec:496 Expected value "true" (boolean), got "false" (boolean)
+```
+
+* `deer.spec:419` is **finding 1 with its magnitude**: a composition-less release drew **9** numbers
+  with `BOAR_MODEL` off against the baseline release's **7**. Two extra, every release, in the
+  shipped default build.
+* `boar_zones.spec:496` is **finding 2, failing twice and passing once** -- the stag and the hind
+  started under the plate, the calf did not. That is exactly the asymmetry the Reviewer derived from
+  the numbers (0.40 studs and 0.053 studs under; a cub-sized box clears on the male's floor).
+* `deer.spec:354` is the Reviewer's `deerGroupsAllowed` note: at a cap of 2 it capped nothing.
+
+### 1. The flag-off `Random` stream -- FIXED at `Runtime:spawnSounder` + `Boar.deerGroupsAllowed`
+
+The flag is now tested **in front of the call**, so no argument is evaluated at all when
+`BOAR_MODEL` is off, and `deerGroupsAllowed` reads `KINDS.ENABLED` itself rather than answering
+`true` on every release of the default build. The gate inside `deerComposition` stays -- it is that
+function's own rule and a spec drives it directly. It is now the shape `Runtime:_legendaryAllowed`
+and the `rolls` loop sixty lines below already had.
+**Verify:** `deer.spec`'s *"draws NOT ONE extra number with BOAR_MODEL off"* -- it wraps the
+runtime's `Random` in a counter and compares a flag-off composition-less release against a release
+with a NAMED composition, which `spawnSounder` never offers the deer draw. It asserts two runs
+agree; it hard-codes no count.
+
+### 2. Spawn height -- FIXED at `Runtime:spawn`, plus the sweep
+
+`math.max(config.BODY_SIZE.Y, animalConfig.BODY_SIZE.Y) / 2`, which puts a stag's own box bottom on
+the ground **and keeps task 119's male floor for the cub** -- a 1.35-stud box dropped from its own
+half-height would start entirely below a surface that sits 2 studs above `groundY`, which is the bug
+that killed every cub in the drive.
+**The sweep the Director asked for found one more of the same class:** `_avoidTurnFor` casts its
+obstacle whisker from `BODY_SIZE.Y / 2` (*"the eye is the body's middle"*) off the RUNTIME's config,
+so a deer swept at a boar's knee height and would have turned away from roots it could step over.
+Now `entry.config`. **One site was deliberately left as the boar's and is documented in place:** the
+spawn RING's `BODY_SIZE.Z` spacing, because it is computed *before* `kinds` is drawn and reordering
+it would move `self._rng` draws relative to `phase` -- the exact stream shift finding 1 was about.
+**Verify:** `boar_zones.spec`'s *"starts ON the ground and not inside it"*, per kind. **It reads the
+PLATE's own measured top and the trunk's real `Position`, not the `groundHere`/`BODY_SIZE` the spawn
+line just computed** (L-086), and it samples BEFORE `runtime:run()` so a body already ejected upward
+cannot hide the choice.
+
+### 3. The deer's zone boxes -- twelve real rays per kind
+
+`boar_zones.spec` gained a describe per deer kind: twelve rays from outside at the stag, the hind
+and the calf, each insisting on the zone the geometry claims **and** that the zone part stands
+PROUD of the trunk, so a merely flush part fails instead of passing on a tie. The probe points are
+fractions of each animal's own box, so one table drives all three sizes -- and a scale is precisely
+what can push a box through a surface it cleared at full size. Each also asserts its trunk is the
+DEER's box times its `scale` and is **not** the boar's box at the same scale, which a single length
+assertion cannot tell apart.
+
+### 4. The report-counting path -- one case per kind, on both owners
+
+`hitlog.spec` counts a stag, a hind and a calf kill under their own `byKind` keys and `unknown` at
+zero, with every other key asserted unmoved -- plus the other arm, a kind nobody named still landing
+in `unknown`, which is what makes the first case mean anything. `report_panel.spec` drives
+`listCellsFor` with an eight-key `byKind` per kind, asserts the fold (stag to MALE, hind to FEM,
+calf to CUB), asserts a stag-shooter never sees `MALE 0 FEM 0 CUB 0 KILLS 1` (design section 1.1
+must-6), and asserts the deer ADD to the boars beside them rather than replacing them.
+**Round 1's claim 10 was wrong about where these were verified and is corrected here.**
+
+### The Reviewer's notes, done in this round
+
+`deerGroupsAllowed` now counts **groups** by sounder id rather than returning on the first live deer
+(at `MAX_GROUPS_ALIVE = 2` it capped nothing); `Boar.setModelSource`'s return type; and four comments
+that had drifted from their code (`boar_prep`'s selftest group count 11 to 12, the blurb's 120 to
+101, the `weight`-is-skipped sentence, and `BODY_SIZE`'s 4.85-against-4.8).
+**Still queued, not done:** the twelve fakes in `boar_model.spec`/`boar_shot.spec` ignore the species
+(223a(i)), `MARCH_RANK`'s three keys are still unasserted, the client arms of design section 13.3,
+and `deer.spec`'s two stale header sentences -- all of which are notes, not findings.
 
 **BOTH GATE LINES, AT THE CODE COMMIT, ON A CLEAN TREE.** The `[harness2]` line is the Director's,
 run first try on 2026-10-20 -- the change touches `src/server/Match/init.luau` (the three deer

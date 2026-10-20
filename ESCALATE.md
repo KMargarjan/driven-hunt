@@ -1,5 +1,22 @@
 # Escalations
 
+## 2026-10-20 - Task 223 round 2: `NEEDS TEST2 223 5d47be4` -- one human click
+
+Round 1's pair was clean at `113f3aa` and the Director ran `test2` there first try. **Round 2
+changed `src/server/Boar/init.luau`** (the flag-off gate, the spawn height, the avoid whisker, the
+group count) **and three spec files**, so the two-player line has to be re-run at the new code
+commit -- `src/server/Match/init.luau` is still in this task's diff against main, and that is what
+puts it on `TWO_PLAYER_PATHS`.
+
+One-player line, in hand and clean:
+
+```
+[harness] PASS: 33/33 checks @ 5d47be432ad330a97486aa007a32e3d279b63ade (clean tree) scope=all
+```
+
+**What is needed:** `python tools/studio_mcp.py test2` at `5d47be4`.
+
+
 ## 2026-10-20 - Task 223: `NEEDS TEST2 223 113f3aa` -- **RESOLVED**, the Director ran it first try
 
 The red deer touches **two files on `TWO_PLAYER_PATHS`** and there is no way around it:
