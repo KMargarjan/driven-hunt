@@ -3,7 +3,7 @@
 Task: 219
 Round: 2
 Base: 43a7d3d
-Code commit: __R2__
+Code commit: ebc9710
 
 Karen, 2026-10-10: *"Legendary animals: one or a few, e.g. a legendary boar"*, and 2026-10-11:
 *"legendary animals worth more"*. Task 160 wrote `POINTS.KIND.legendary = 25` as a price with no
@@ -261,9 +261,24 @@ tracked -- the real server logged `shots=0, refused=0, badRequests=0`, which is 
 BOTH LINES, at the same commit, on a clean tree:
 
 ```
+[harness]  PASS: 33/33 checks @ ebc97103617413543a7dae7882544c2775746771 (clean tree) scope=all
+[harness2] <NEEDED at this commit -- round 1's was at 125926d and is superseded>
+```
+
+ROUND 1's PAIR, now superseded by the commit above:
+```
 [harness]  PASS: 33/33 checks @ 125926dc5925b9573d78e3de943bdd6ed3c3cf0d (clean tree) scope=all
 [harness2] PASS: 35/35 checks @ 125926dc5925b9573d78e3de943bdd6ed3c3cf0d (clean tree)
 ```
+
+**THE FIRST ROUND-2 GATE FAILED AND IT WAS ALL MINE**, reported because a clean line on its own
+hides the work: `FAIL: 31/33 @ 4707c2d (DIRTY TREE (1 paths))`. Two failures, both in the spec this
+round ADDED -- the promote case still led with a SOW and expected the third member taken, which is
+the yearling-behind-its-mother that note 5 is about written down as an expectation; and the new
+display case's fake template was UNPARENTED, and `Runtime:_modelTemplate` only reuses a held
+template while `held.Parent ~= nil` with re-asks rate-limited to once a second per key, so it
+answered `male` and nil to `legendary` (the same "male" key) for a reason with nothing to do with
+the trophy. The DIRTY TREE was mine too: I edited this file while the run was going.
 
 The one-player line is mine; the **two-player line is the Director's** (2026-10-20, first try) --
 `test2` needs a human click that StudioMCP cannot make, which is what this task stopped for and what

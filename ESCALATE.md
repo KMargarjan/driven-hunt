@@ -2746,3 +2746,41 @@ room for a fifth row (the Designer's ceiling, see TASKS.md 219a(a)), and the hit
 `LEGENDARY BOAR` tag was proven by a client spec against the real renderer but NOT caught in a live
 frame -- the card holds 3 s and the role rotation put the player on Drivers before the next chance.
 The live negative half (an ordinary male's card, tag correctly off) WAS caught.
+
+## 2026-10-20 -- Task 219 round 2: NEEDS TEST2 219 ebc97103617413543a7dae7882544c2775746771
+
+**For the Director.** Round 1's four blocking findings are fixed, the tint is lighter, and the gate
+is green at a NEW code commit -- so round 1's `[harness2] PASS @ 125926d` no longer covers the code
+and `test2` is needed again at `ebc9710`. The change still touches `src/server/Match/init.luau`
+(`TWO_PLAYER_PATHS`).
+
+```
+[harness]  PASS: 33/33 checks @ ebc97103617413543a7dae7882544c2775746771 (clean tree) scope=all
+[harness2] <needed, same commit -- one human click>
+```
+
+**TWO THINGS FOR YOU BEFORE THE REVIEW, and the second is a decision only you can take.**
+
+1. **Verify the tint frame yourself** (`.screenshots/20261020T045958Z-219-r2-tint.png`). You were
+   right that the old one was a flat black silhouette; the number you offered, RGB(70, 62, 55),
+   would not have fixed it, because the value MULTIPLIES the artist's ColorMap -- it is x0.275 /
+   0.243 / 0.216, the same quarter-brightness as the RGB(70, 58, 48) you were looking at. It is
+   RGB(150, 138, 125) = x0.588 / 0.541 / 0.490 now, and the bristles, muzzle, hump and legs are
+   visible in the frame. **It is also NOT the pair you asked for, and you should know why before
+   you judge it:** see 2.
+
+2. **THE SOW GUARD MEANS DEV CAN NO LONGER SPAWN A LEGENDARY AT ALL.** Round 1 note 5 was right that
+   the trophy was being drawn from YEARLINGS walking behind their mothers, and the fix is to refuse
+   any release containing a sow. But DEV's drive releases carry no composition, so
+   `Boar.sounderKinds` always makes member 1 the sow and nothing in that world qualifies -- round
+   1's DEV trophy WAS the yearling case. The Forest Test is unaffected (`SOUNDER.COMPOSITIONS` rows
+   2 and 6 are `{ males = 2 }` and the lone big male). So the tint frame above shows the two
+   operations the code performs, applied by hand to a live drawn animal beside an untinted one,
+   not a legendary the drive released.
+   **Your call:** leave it (the trophy is a male-group animal; DEV is a test world), or have
+   `Match.Phase` release a lone male when a drive has drawn one -- a change to the release schedule,
+   a different owner, and not a findings round's work. Queued as TASKS.md 219a(h).
+
+**And one gate fault of mine, reported rather than buried:** the first round-2 run was
+`FAIL: 31/33 @ 4707c2d (DIRTY TREE)`. Both failures were in the spec this round added, and the dirty
+tree was me editing the request mid-run. Fixed in `cb0d117`; the green line above is the rerun.
