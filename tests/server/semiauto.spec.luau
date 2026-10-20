@@ -366,13 +366,16 @@ return function()
 			-- buys and what five chambers make unreadable otherwise.
 			expect(string.find(line, "5/5", 1, true)).to.be.ok()
 			expect(string.find(line, "BUCK", 1, true)).to.be.ok()
-			-- ...AND THE CHIP DRAWS THIS SHELL'S OWN GLYPH, which only exists because the row carries
-			-- `AMMO_GLYPH` (the wire word is `Slug` on all four guns).
-			if Hud.ammoChipFor ~= nil then
-				local chip = Hud.ammoChipFor(Shotgun.snapshot(state, 0, nil, ROW.id), ROW)
-				TestKit.note(string.format("task225 chip: %s", tostring(chip and chip.glyph or chip)))
-				expect(chip).to.be.ok()
-			end
+			-- ...AND THE CHIP DRAWS FIVE PIPS AND THIS SHELL'S OWN GLYPH. `ammoChipFor` always
+			-- returns a table, so a `to.be.ok()` on it cannot fail -- the CONTENT is the case
+			-- (the Reviewer, round 2). The glyph exists only because the row carries `AMMO_GLYPH`:
+			-- the wire word is `Slug` on all four guns, so a chip keyed off that alone would draw
+			-- a shotgun shell for a .416 Rigby cartridge.
+			local chip = Hud.ammoChipFor(Shotgun.snapshot(state, 0, nil, ROW.id), ROW)
+			TestKit.note(string.format("task225 chip: %d pip(s), glyph=%s", #chip.pips, tostring(chip.glyph)))
+			expect(#chip.pips).to.equal(C.MAGAZINE)
+			expect(chip.pips[1]).to.equal("live")
+			expect(chip.glyph).to.equal("buck")
 		end)
 	end)
 
@@ -479,25 +482,62 @@ return function()
 	end)
 
 	describe("the gun does not move when it cycles itself", function()
-		it("holds the gun and BOTH hands still from open to shut", function()
-			-- THE ARM `CYCLE_POSE_SHARE` EXISTS FOR, entered at both ends. At `poseShare = 0` the
-			-- pose at full open must be the pose at rest, to the last decimal -- otherwise this gun
-			-- lurches out of its own sight picture 2.4 times a second.
+		it("holds the gun still from open to shut -- AND MOVES IT AT share 1, or this proves nothing", function()
+			-- THE ARM `CYCLE_POSE_SHARE` EXISTS FOR, entered at BOTH ends (design 15.1 case 5's
+			-- required negative arm, which round 2 of the review found missing).
+			--
+			-- IT IS DRIVEN AT BLEND 1, and that is not a detail. At blend 0 the gun's pose is
+			-- `carryOffset` and the cycle target is `breakOffset` -- and on THIS gun those are the
+			-- same numbers (`carry.gun` and `cycle.gun` are bit-identical in `poses.json`), so the
+			-- `Lerp` is identity for every value of the share and a hip comparison cannot fail
+			-- whatever the code does. At blend 1 the pose is the sight-solved aim, which is NOT
+			-- `cycle.gun`, so the share actually gates something.
 			expect(semiConfig.CYCLE_POSE_SHARE).to.equal(0)
 			local shut, open = stateAt(1, 0), stateAt(1, 1)
 			local a = Mode.viewmodelOffset(shut, nil, semiConfig)
 			local b = Mode.viewmodelOffset(open, nil, semiConfig)
-			TestKit.note(
-				string.format(
-					"task225 gun pose moved %.6f studs over a whole cycle",
-					(a.Position - b.Position).Magnitude
-				)
-			)
-			expect((a.Position - b.Position).Magnitude < 1e-6).to.equal(true)
+			local held = (a.Position - b.Position).Magnitude
+			-- THE SAME TWO STATES WITH THE SHARE FORCED TO 1 MUST DIFFER. Without this the case
+			-- above would pass just as happily against a `poseShare` nothing reads.
+			local forced = table.clone(semiConfig) :: any
+			forced.CYCLE_POSE_SHARE = 1
+			forced = table.freeze(forced)
+			local c = Mode.viewmodelOffset(shut, nil, forced)
+			local d = Mode.viewmodelOffset(open, nil, forced)
+			local moves = (c.Position - d.Position).Magnitude
+			TestKit.note(string.format("task225 gun over a cycle: %.6f studs at share 0, %.4f at share 1", held, moves))
+			expect(held < 1e-6).to.equal(true)
+			expect(moves > 0.05).to.equal(true)
+		end)
+
+		it("holds BOTH hands still -- and they are held by the pose data, not by the share", function()
+			-- SAID PLAINLY BECAUSE THE SHORT VERSION IS MISLEADING (the Reviewer, round 2). The
+			-- hands do not move on this gun, but `CYCLE_POSE_SHARE` is not what stops them:
+			-- `Mode.handFrame` blends `carry` -> `aim` -> `cycle`, and on this gun ALL THREE hand
+			-- poses are bit-identical, so the hand frame is constant across every state and every
+			-- share. That is the right answer for a gas gun -- the shooter's hands really do
+			-- nothing -- and this case asserts the fact rather than claiming the mechanism.
+			local forced = table.clone(semiConfig) :: any
+			forced.CYCLE_POSE_SHARE = 1
+			forced = table.freeze(forced)
 			for _, side in ipairs({ "left", "right" }) do
-				local p = Mode.handOffsetAt(side, shut, semiConfig)
-				local q = Mode.handOffsetAt(side, open, semiConfig)
-				expect((p.Position - q.Position).Magnitude < 1e-6).to.equal(true)
+				local hip = Mode.handOffsetAt(side, stateAt(0, 0), semiConfig)
+				for _, case in ipairs({
+					{ name = "aimed", state = stateAt(1, 0), config = semiConfig },
+					{ name = "cycling", state = stateAt(1, 1), config = semiConfig },
+					{ name = "cycling at share 1", state = stateAt(1, 1), config = forced },
+				}) do
+					local at = Mode.handOffsetAt(side, case.state, case.config)
+					expect((at.Position - hip.Position).Magnitude < 1e-6).to.equal(true)
+				end
+			end
+			-- ...AND THE POSE DATA REALLY DOES SAY SO, which is the fact the case rests on.
+			local set = Viewmodel.DATA.weapons.semiauto
+			for _, side in ipairs({ "left", "right" }) do
+				for _, key in ipairs({ "x", "y", "z" }) do
+					expect(set.cycle[side].pos[key]).to.equal(set.carry[side].pos[key])
+					expect(set.aim[side].pos[key]).to.equal(set.carry[side].pos[key])
+				end
 			end
 		end)
 

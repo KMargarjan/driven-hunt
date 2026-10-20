@@ -136,47 +136,78 @@ return function()
 				expect(left.Parent).to.equal(clone)
 				expect(right.Parent).to.equal(clone)
 				expect(right:IsDescendantOf(Workspace.CurrentCamera)).to.equal(true)
+				-- THE DRAWN PART COUNT, PINNED ON THE REAL BUILD the way `gun_client.spec` pins the
+				-- side-by-side's (design 15.3 case 1). Nothing named `partCount` for this gun until
+				-- the Reviewer asked in round 2: the design said 9, the code ships 10, and neither
+				-- was asserted anywhere.
+				local parts, worn = 0, 0
+				for _, found in ipairs((Camera.Viewmodel.current() :: Model):GetDescendants()) do
+					if found:IsA("BasePart") then
+						if found.Name == HandAssets.RIGHT or found.Name == HandAssets.LEFT then
+							worn += 1
+						else
+							parts += 1
+						end
+					end
+				end
+				TestKit.note(string.format("task225 the drawn gun is %d gun part(s) plus %d worn", parts, worn))
+				expect(worn).to.equal(2)
+				expect(parts).to.equal(SemiAutoGeometry.partCount(ROW))
 			end)
 		end)
 
-		it("THE BOLT GOES STRAIGHT BACK, and the gun and both gloves hold still", function()
+		it("THE BOLT GOES STRAIGHT BACK, and the gun holds still -- but MOVES at share 1", function()
 			-- THE TWO ARMS THIS GUN ADDS, in one frame-to-frame comparison: `CYCLE_KIND ==
 			-- "straight"` (the bolt translates and nothing rotates) and `CYCLE_POSE_SHARE == 0` (the
 			-- gun does not travel to a cycle pose, because the shooter does nothing).
 			--
-			-- TO SEE THE FIRST FAIL: change `boltTravel`'s `+ back` to `- back` -- the bolt then
-			-- goes out of the muzzle and the Z assertion flips. TO SEE THE SECOND FAIL: set
-			-- `cycle.poseShare` to 1 in `poses.json` -- the gun and both gloves then travel and the
-			-- last three assertions go from ~0 to tenths of a stud.
+			-- IT IS DRIVEN AT BLEND 1, AND THAT IS NOT A DETAIL (the Reviewer, round 2). At blend 0
+			-- the gun's pose is `carryOffset` and the cycle target is `breakOffset` -- and on this
+			-- gun those are the same numbers, because `carry.gun` and `cycle.gun` are bit-identical
+			-- in `poses.json`. So at the hip that `Lerp` is identity for EVERY value of the share
+			-- and the comparison cannot fail whatever the code does. At blend 1 the pose is the
+			-- sight-solved aim, which is not `cycle.gun`, so the share actually gates something.
+			--
+			-- THE GLOVES ARE NOT ASSERTED HERE. They are constant on this gun for the same reason
+			-- -- all three hand poses are identical -- so "they held still" would be another
+			-- vacuous assertion. `semiauto.spec` asserts that as the FACT it is.
+			--
+			-- TO SEE THE FIRST FAIL: change `boltTravel`'s `+ back` to `- back`; the bolt goes out
+			-- of the muzzle and the Z assertion flips. THE SECOND IS ITS OWN NEGATIVE ARM: the same
+			-- two frames with the share forced to 1 must MOVE the gun, or nothing here is testing
+			-- `poseShare` at all.
 			--
 			-- MEASURED IN THE BODY'S OWN FRAME, NOT THE WORLD, which is `camera_client.spec`'s own
 			-- hard-won correction.
 			withSemiAutoDrawn(function()
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAt(0), semiConfig)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAt(0, 1), semiConfig)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local bolt = clone:FindFirstChild(SemiAutoGeometry.CYCLE_GROUP_NAME) :: BasePart
-				local left = clone:FindFirstChild(HandAssets.LEFT) :: BasePart
-				local right = clone:FindFirstChild(HandAssets.RIGHT) :: BasePart
 				local boltRest = clone.CFrame:ToObjectSpace(bolt.CFrame)
-				local leftRest = clone.CFrame:ToObjectSpace(left.CFrame)
-				local rightRest = clone.CFrame:ToObjectSpace(right.CFrame)
-				local gunRest = clone.CFrame
+				local gunRest = clone.CFrame.Position
 
-				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAt(1), semiConfig)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAt(1, 1), semiConfig)
 				local boltBack = clone.CFrame:ToObjectSpace(bolt.CFrame)
-				local leftBack = clone.CFrame:ToObjectSpace(left.CFrame)
-				local rightBack = clone.CFrame:ToObjectSpace(right.CFrame)
+				local gunHeld = (clone.CFrame.Position - gunRest).Magnitude
+
+				-- THE NEGATIVE ARM: the same two frames with the share forced to 1.
+				local forced = table.clone(semiConfig) :: any
+				forced.CYCLE_POSE_SHARE = 1
+				forced = table.freeze(forced)
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAt(0, 1), forced)
+				local openAt = clone.CFrame.Position
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAt(1, 1), forced)
+				local gunMoves = (clone.CFrame.Position - openAt).Magnitude
 
 				local travelled = boltBack.Position.Z - boltRest.Position.Z
 				TestKit.note(
 					string.format(
-						"task225 cycle on the body: bolt %+.4f in Z, %.4f in X/Y; gun moved %.4f; gloves %.4f / %.4f",
+						"task225 cycle on the body: bolt %+.4f in Z, %.4f in X/Y; gun %.4f at share 0, %.4f at share 1",
 						travelled,
 						math.abs(boltBack.Position.X - boltRest.Position.X)
 							+ math.abs(boltBack.Position.Y - boltRest.Position.Y),
-						(clone.CFrame.Position - gunRest.Position).Magnitude,
-						(leftBack.Position - leftRest.Position).Magnitude,
-						(rightBack.Position - rightRest.Position).Magnitude
+						gunHeld,
+						gunMoves
 					)
 				)
 				-- BACK is +Z in this frame, and the bolt actually travelled.
@@ -185,9 +216,10 @@ return function()
 				expect(math.abs(boltBack.Position.X - boltRest.Position.X) < 1e-3).to.equal(true)
 				expect(math.abs(boltBack.Position.Y - boltRest.Position.Y) < 1e-3).to.equal(true)
 				expect((boltBack.UpVector - boltRest.UpVector).Magnitude < 1e-3).to.equal(true)
-				-- THE GUN AND BOTH GLOVES HELD STILL, which is what `poseShare = 0` buys.
-				expect((leftBack.Position - leftRest.Position).Magnitude < 1e-3).to.equal(true)
-				expect((rightBack.Position - rightRest.Position).Magnitude < 1e-3).to.equal(true)
+				-- THE GUN HELD STILL AT share 0 AND MOVES AT share 1, which is the mechanism and
+				-- not a coincidence of this gun's pose data.
+				expect(gunHeld < 1e-3).to.equal(true)
+				expect(gunMoves > 0.05).to.equal(true)
 			end)
 		end)
 
@@ -272,7 +304,8 @@ return function()
 				expect(dot).to.be.ok()
 				expect(dot.Material).to.equal(Enum.Material.Neon)
 				expect(clone:FindFirstChild("Optic")).to.be.ok()
-				-- ...AND NO PART MAY TAKE THE ATTACHMENT'S NAME, on this gun or any other.
+				-- ...AND NO DIRECT CHILD OF THE HANDLE MAY TAKE THE ATTACHMENT'S NAME, which is
+				-- exactly the lookup `Viewmodel.sight()` does (`FindFirstChild`, not recursive).
 				local named = clone:FindFirstChild("Sight")
 				expect(named == nil or named:IsA("Attachment")).to.equal(true)
 				local at = clone.CFrame * (sight :: CFrame)
@@ -315,8 +348,10 @@ return function()
 				local body = clone:FindFirstChild("Action") :: BasePart
 				expect(body).to.be.ok()
 				expect(body.Transparency < 1).to.equal(true)
-				-- ...AND THE AIMED HOLD IS A DIFFERENT HOLD FROM THE HIP, which is what proves the
-				-- aimed pose was actually solved rather than falling through to a default.
+				-- ...AND THE AIMED HOLD IS A DIFFERENT HOLD FROM THE HIP. This does NOT by itself
+				-- prove the aim was solved from the sight: `VIEWMODEL_AIM_OFFSET`, the fallback
+				-- round 1's defect fell through to, is also well away from the hip (the Reviewer,
+				-- round 2). What carries that is the dot case's `expect(sight).to.be.ok()`.
 				local aimed = Camera.Mode.viewmodelOffset(stateAt(0, 1), Camera.Viewmodel.sight(), semiConfig)
 				local hip = Camera.Mode.viewmodelOffset(stateAt(0, 0), Camera.Viewmodel.sight(), semiConfig)
 				TestKit.note(

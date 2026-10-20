@@ -289,6 +289,10 @@ end
 -- THE PIN THE SIDE-BY-SIDE SWINGS ON. This gun has none, and a caller written for that gun must
 -- still get a point on the gun rather than nil -- `Camera.Viewmodel.hinge` reads this BEFORE it
 -- branches. The bolt's own rest centre is the honest answer: it is the thing that moves.
+--
+-- IT IS INERT ON THIS GUN, and so is `poses.json`'s `cycle.hingeStuds` beside it: the `"straight"`
+-- path reads `drawStuds` and turns about nothing. Both ship because the flat-name set every weapon
+-- publishes is the side-by-side's, which is the lever's `hingeStuds`' own reason.
 function Geometry.hinge(config): Vector3
 	local at = Geometry.layout(config)
 	return Vector3.new(0, at.bolt.at.Y, at.bolt.at.Z)

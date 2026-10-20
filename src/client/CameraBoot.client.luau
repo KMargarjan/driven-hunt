@@ -244,8 +244,13 @@ if weaponModule then
 					Camera.Viewmodel.setLift(lifterSeconds)
 				end
 			end
-			lastSnapshot = snapshot
-			seenSnapshot = true
+			-- A nil SNAPSHOT IS NOT A BASELINE EITHER. Remembering one and calling it seen left a
+			-- client that saw nil and then a mid-reload snapshot reading one spurious fed shell
+			-- (the Reviewer, round 2).
+			if snapshot ~= nil then
+				lastSnapshot = snapshot
+				seenSnapshot = true
+			end
 			wasAction = nowAction
 			-- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142). The SERVER SAYS WHICH STEP IT
 			-- IS RUNNING (`snapshot.action`) and `busyFor` is that step's own clock, so this is a

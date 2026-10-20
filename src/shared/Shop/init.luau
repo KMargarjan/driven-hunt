@@ -325,7 +325,8 @@ Shop.ROWS = {
 		-- the manufacturer's 4+1), two is `Shotgun.CONFIG.BARRELS`, and it fires the side-by-side's
 		-- own shells because `SemiAuto.CONFIG` reads that gun's ammunition rows BY REFERENCE. A
 		-- shop window that invents a ballistic claim is a shop window that lies.
-		-- 127 CHARACTERS, against `PANEL.BLURB_MAX` of 135, which is the Designer's measured box.
+		-- 127 CHARACTERS, against `PANEL.BLURB_MAX` of 135 (design 11.1 says 109; 127 is what the
+		-- shipped sentence measures, and both are inside the box), which is the Designer's measured box.
 		blurb = "Five shells instead of two, and it works its own action: pull the trigger and it "
 			.. "is ready again. Same shells, a red dot on top.",
 		-- 500 SITS UNDER THE LEVER'S 650, AND THE LADDER IS THE ARGUMENT. The scarce thing in a
