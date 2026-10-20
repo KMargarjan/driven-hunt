@@ -19,8 +19,7 @@ round changed `Match`, `Economy` and `Objective`, so `test2` is needed again at
 [harness2] PASS: 35/35 checks @ 61ad71a9eb3ae360ff73a5b0bb8ec652fdb1623e (clean tree)
 ```
 
-The `[harness2]` line is the Director's, run twice (L-033: this change is ordering-sensitive, so one
-clean run was not accepted as evidence). Only paperwork has been committed after the code commit.
+Only paperwork has been committed after the code commit.
 
 Karen, 2026-10-20 ~08:30: *"We need to change coins to actual money $ / From shop remove red heat /
 It will be for sale in v1: - Access to tree stand - Rifle - Unlimited amunition - Red stag card -
