@@ -22,6 +22,14 @@ local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Viewmodel = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+-- THE HAND ANCHORS (round 2) need three things this file did not read: where the hand holds
+-- (`HandAssets`), the camera's own pose maths (`Mode.handOffsetAt`, which is the ONE conversion
+-- site the viewmodel draws with), and a config carrying this weapon's pose set.
+local StarterPlayer = game:GetService("StarterPlayer")
+local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
+local cameraScripts = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera")
+local Config = require(cameraScripts:WaitForChild("Config"))
+local Mode = require(cameraScripts:WaitForChild("Mode"))
 
 local StateMachine = Weapon.StateMachine
 local Shapes = Weapon.Shapes
@@ -33,6 +41,32 @@ local FPS_PER_STUD_PER_S = METRES_PER_STUD / 0.3048
 
 local function equipped(row)
 	return StateMachine.setEquipped(StateMachine.initial(row), true)
+end
+
+-- THE GLOVE'S OWN GRIP POINT, not the pose's origin: `HandAssets.GRIP_STUDS` is the hole in the
+-- closed fist, and a pose is only "on the gun" if THAT lands on the gun. Lifted verbatim from
+-- `tests/server/viewmodel_poses.spec.luau`, which holds the Rigby's hands the same way -- so the two
+-- guns are measured by one expression and cannot drift apart.
+local function gripPointOf(offset: CFrame): Vector3
+	return offset:PointToWorldSpace(HandAssets.GRIP_STUDS)
+end
+
+-- The lever's own pose set, as the camera resolves it: `Mode.handOffsetAt` reads these fields.
+local leverConfig = (function()
+	local out = table.clone(Config) :: any
+	for key, value in pairs(Viewmodel.view(Viewmodel.DATA, "lever")) do
+		out[key] = value
+	end
+	out.FIRST_PERSON = true
+	return table.freeze(out)
+end)()
+
+local function stateAt(blend: number, openTilt: number)
+	local state = table.clone(Mode.initial(Config)) :: any
+	state.mode = if blend > 0 then "Aiming" else "Third"
+	state.blend = blend
+	state.openTilt = openTilt
+	return table.freeze(state)
 end
 
 local function live(state)
@@ -392,31 +426,70 @@ return function()
 			expect(set.cycle.closeSeconds < ROW.CYCLE[2].wait).to.equal(true)
 		end)
 
-		it("holds the gun where the gun actually is: the wrist, the fore-end and the loop", function()
-			-- TASK 188'S FOUR TOLERANCES, on this gun's own measured anchors. A hand off the wrist's
-			-- LINE is a hand beside the gun, and a spec that checks a point rather than a line is the
-			-- one that passed while the hand sat on the comb.
-			local set = Viewmodel.DATA.weapons.lever
-			local function vec(p)
-				return Vector3.new(p.x, p.y, p.z)
-			end
-			expect(LeverGeometry.offGripAxis(ROW, LeverGeometry.gripOffset(ROW)) < 1e-6).to.equal(true)
-			local along = LeverGeometry.alongGripAxis(ROW, vec(set.carry.right.pos))
-			local off = LeverGeometry.offGripAxis(ROW, vec(set.carry.right.pos))
-			TestKit.note(
-				string.format(
-					"task224 hip hold: along %.4f (half %.4f), off %.4f (r %.4f)",
-					along,
-					LeverGeometry.gripHalfLength(ROW),
-					off,
-					LeverGeometry.gripRadius(ROW)
+		it("holds the WRIST with the right hand, inside the gun's own two bounds", function()
+			-- THE CASE ROUND 1 WROTE SO IT COULD NOT FAIL, rewritten so it can. It asserted
+			-- `off < 0.5` on a 4.0-stud gun whose own `gripRadius` is 0.0468 -- ten times the bound
+			-- the design names -- never asserted `along` at all, and opened with
+			-- `offGripAxis(gripOffset)`, which is the distance of a point ON the line FROM the line
+			-- and is zero by construction. MEASURED on the poses it passed: the glove's grip point
+			-- was **0.0602** off the wrist line, against 0.0468. That is the "no gloves on the gun"
+			-- defect the request reported, and this case existed to catch it.
+			--
+			-- IT IS COMPUTED THE WAY THE RIGBY'S IS (`viewmodel_poses.spec`, "holds the wrist of the
+			-- stock at the hip, aimed, and when the cycle starts"): through `Mode.handOffsetAt`,
+			-- which is the one conversion site the viewmodel really draws with -- NOT by reading
+			-- `pos` out of the file. The two differ by the glove's own `GRIP_STUDS`, and a pose
+			-- checked at its origin is a pose nobody checked.
+			for _, case in ipairs({
+				{ name = "hip", state = stateAt(0, 0) },
+				{ name = "aimed", state = stateAt(1, 0) },
+				{ name = "cycle", state = stateAt(0, 1) },
+			}) do
+				local at = gripPointOf(Mode.handOffsetAt("right", case.state, leverConfig))
+				local off = LeverGeometry.offGripAxis(ROW, at)
+				local along = LeverGeometry.alongGripAxis(ROW, at)
+				TestKit.note(
+					string.format(
+						"task224 lever right hand %s: %.4f off the wrist axis (bound %.4f), %+.4f along it (bound %.4f)",
+						case.name,
+						off,
+						LeverGeometry.gripRadius(ROW),
+						along,
+						LeverGeometry.gripHalfLength(ROW)
+					)
 				)
+				expect(off < LeverGeometry.gripRadius(ROW)).to.equal(true)
+				expect(math.abs(along) < LeverGeometry.gripHalfLength(ROW)).to.equal(true)
+			end
+		end)
+
+		it("pinches the LOOP, and keeps pinching it wherever the lever has got to", function()
+			-- The design's third bound, which round 1 omitted entirely. Same shape as the Rigby's
+			-- bolt-knob case, against this gun's own loop.
+			local grip = leverConfig.BOLT_HAND.grip
+			expect(grip).to.be.ok()
+			local loop = LeverGeometry.leverGripOffset(ROW)
+			local miss = (gripPointOf(grip) - loop).Magnitude
+			local bound = LeverGeometry.leverGripRadius(ROW) + HandAssets.GRIP_RADIUS_STUDS
+			TestKit.note(
+				string.format("task224 lever cycling hand: %.4f studs from the loop (bound %.4f)", miss, bound)
 			)
-			-- The hand's ROOT is not its grip point, so these are generous bounds on the same line
-			-- the Rigby's are checked against; what they exclude is a hand on the comb or off the gun.
-			expect(off < 0.5).to.equal(true)
-			-- THE CYCLING HAND IS ON THE LOOP, in the cycle group's own frame.
-			expect(set.cycle.hand).to.be.ok()
+			expect(miss < bound).to.equal(true)
+			-- ...AND IT CANNOT COME OFF IT. `poseHands` places this hand from the SAME transform the
+			-- lever is drawn with, so the miss is invariant under any rigid motion of the loop --
+			-- which is the whole reason the hand is placed that way rather than from a second clock.
+			local carried = CFrame.new(0.31, -0.17, 0.44) * CFrame.Angles(0.3, -1.1, 0.7)
+			local moved = (gripPointOf(carried * grip) - carried:PointToWorldSpace(loop)).Magnitude
+			expect(math.abs(moved - miss) < 1e-5).to.equal(true)
+		end)
+
+		it("keeps the pose set's own shape: one grip, and a throw that is a throw", function()
+			local set = Viewmodel.DATA.weapons.lever
+			-- ONE HAND, ONE GRIP: a right hand that moved between the hip and the aim would read as
+			-- the gun being re-gripped every time Karen aims (the Rigby's own rule).
+			local hip = Mode.handOffsetAt("right", stateAt(0, 0), leverConfig)
+			local aimed = Mode.handOffsetAt("right", stateAt(1, 0), leverConfig)
+			expect((hip.Position - aimed.Position).Magnitude < 1e-6).to.equal(true)
 			expect(set.cycle.hand.reachShare > 0 and set.cycle.hand.reachShare < 1).to.equal(true)
 			expect(set.cycle.openDeg > 0).to.equal(true)
 		end)
