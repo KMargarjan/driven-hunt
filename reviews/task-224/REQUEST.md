@@ -1,121 +1,140 @@
 # Task 224: the lever-action rifle, bought in the shop
 
 Task: 224
-Round: 2
+Round: 3
 Base: `747d628` (main, the task-223 merge)
-Code commit: `c4c7b5f401fd7da7d319e5de2f17f72daf379a33`
+Code commit: `c08355f8ec69a74c5a4358a4cb67d924596109a1`
 
 ```
-[harness] PASS: 33/33 checks @ c4c7b5f401fd7da7d319e5de2f17f72daf379a33 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ c08355f8ec69a74c5a4358a4cb67d924596109a1 (clean tree) scope=all
 ```
 
-`test2` **N/A at this round's head**: no file in this diff is in `TWO_PLAYER_PATHS` — the match, the
-drive, the tie and the teams are untouched. `tools/agents.py` says so for this commit's own change
-set when it gates this request.
+`test2` **N/A, checked at this round's head**: no file in this diff is in `TWO_PLAYER_PATHS` — the
+match, the drive, the tie and the teams are untouched. `tools/agents.py` reports it when it gates
+this request.
 
-**Round 1 returned two blocking findings and both were right.** This round is those two, and nothing
-else. Every claim below that round 1 already made is unchanged and is not restated; what follows is
-what moved.
+**Round 2 returned two blocking findings and both were right — both were my tests being toothless a
+second time.** This round is those two and the refusal diagnosis, and nothing else. Claims from
+rounds 1 and 2 that the Reviewer has already accepted are not restated.
 
 ---
 
-## Finding 1 — the hand case was written so it could not fail. Fixed, and shown failing first.
+## Finding 1 — the glove case never read `poseHands`. Now it drives the instances.
 
-The Reviewer was right on every count: the case asserted `off < 0.5` on a 4.0-stud gun whose own
-`gripRadius` is **0.0468**, never asserted `along`, omitted the loop bound entirely, and opened with
-`offGripAxis(gripOffset)` — the distance of a point *on* the line *from* the line, which cannot fail.
+Round 2's version was `expect(atCarry.x).to.equal(atCycle.x)` over two `poses.json` entries: forcing
+`follows = true` — the defect itself — left it green, and its swing half duplicated the server case.
 
-**1a. The bounds are now the design's three, computed the way the Rigby's are.** Through
-`Mode.handOffsetAt` and `gripPointOf` (`offset:PointToWorldSpace(HandAssets.GRIP_STUDS)`) — the one
-conversion site the viewmodel really draws with — and not by reading `pos` out of the file. The two
-differ by the glove's own `GRIP_STUDS`, and a pose checked at its origin is a pose nobody checked.
-*Verify:* `tests/server/lever.spec.luau`, "holds the WRIST with the right hand, inside the gun's own
-two bounds" (hip, aimed and cycle), "pinches the LOOP, and keeps pinching it wherever the lever has
-got to" (with the rigid-motion invariance case the Rigby's has), and "keeps the pose set's own shape".
+**The seam is the one this repo already uses, and my stated reason for avoiding it was wrong.**
+`Viewmodel.weaponId` reads `DrivenHunt.Weapon` off the Handle's **Tool parent**, so a Handle in a
+Tool saying `"lever"`, handed over through `Camera.Viewmodel.setSource`, makes `geometryNow()` answer
+`Lever.Geometry` — no purchase, no grant, no drive. `withLeverDrawn` does that and puts the live
+source, the hand templates and the reload state back whatever happens, the way `gun_client.spec`'s
+`withNewGun` does.
 
-**1b. They were run against the OLD poses first, and they failed.** Committed at `c5b97812` with the
-poses untouched; the harness said:
+*Verify:* `tests/client/lever_client.spec.luau`, "THE LOOP SWINGS DOWN AND FORWARD while the fore-end
+glove stays put". It runs `Viewmodel.update` at `openTilt` 0 and 1 and measures the **instances in
+the body's own frame** (`clone.CFrame:ToObjectSpace(...)`, which is `camera_client.spec`'s own
+correction — working the action moves the whole gun, so world space would pass for the wrong
+reason): the `Lever` part must go **down** and **forward**, and `HandLeft`'s place on the body must
+move **< 0.01 stud**.
 
-```
-note  task224 lever right hand hip: 0.0602 off the wrist axis (bound 0.0468), -0.0109 along it (bound 0.1042)
-note  task224 lever cycling hand: 0.0113 studs from the loop (bound 0.0713)
-failed [server] lever.spec:461 Expected value "true" (boolean), got "false" (boolean) instead
-```
+## Finding 2 — the shell case could not fail. Now it drives `Viewmodel.shells`.
 
-**0.0602 is the Reviewer's own 0.060**, reproduced by the game. One correction, offered as a
-measurement and not an argument: the Reviewer's loop figure (0.173 from `pos`, "0.268 with
-`GRIP_STUDS` applied") does not reproduce — the game measures the cycling hand's **grip point** at
-**0.0113** from the loop, inside the 0.0713 bound, before and after this round. The hip hand was the
-real one, and it was failing.
+Round 2 counted shell parts on a freshly built clone — 0 for every weapon, because `buildNewGun`
+draws no shells at all.
 
-**1c. The cause, and why shifting was wrong.** Round 1 built this gun's hand poses by shifting the
-**Rigby's** by the difference between the two guns' anchors. That is wrong twice: the anchors are at
-different scales (4.4 against 4.0), and the two wrists run in different **directions** — the Rigby's
-drops, this one rises 16.3° — so an offset that preserves distance from a *point* does not preserve
-distance from a *line*. Each hand is now **solved**: `pos = target − R · HandAssets.GRIP_STUDS`, with
-`R` composed the way `Mode.handOffset` composes it (yaw, **then** pitch, **then** twist about the
-hand's own long axis — *not* `CFrame.Angles(pitch, yaw, twist)`, which is the convention task 188
-shipped a pose in and put the hand on the comb).
-*Verify:* the same three cases at the new head:
+*Verify:* same file, "draws NO loose shell when the action is open with a spent case in it". It
+drives `Viewmodel.shells` on the lever clone with `setReload({ open = true, spent = 1, ... })` — the
+state that makes the drawing happen — and asserts `stats().shellsDrawn` does not move and no
+`SpentShell*` / `FreshShell*` child appears.
+
+## Both were shown FAILING with the defects forced, in the running game
+
+I edited `Viewmodel.luau` to force `follows = true` and to delete the `handFeedsShells` guard, ran
+the full gate, and the harness said:
 
 ```
-note  task224 lever right hand hip:    0.0000 off the wrist axis (bound 0.0468), -0.0000 along it (bound 0.1042)
-note  task224 lever right hand aimed:  0.0000 off the wrist axis (bound 0.0468), -0.0000 along it (bound 0.1042)
-note  task224 lever right hand cycle:  0.0000 off the wrist axis (bound 0.0468), -0.0000 along it (bound 0.1042)
-note  task224 lever cycling hand:      0.0113 studs from the loop (bound 0.0713)
+note   task224 throw on the body: lever down 0.3023, forward 0.0983; fore-end glove moved 0.7147 studs
+note   task224 lever shells: shellsDrawn 32 -> 33, 1 shell part(s) on the clone
+failed [client] lever_client.spec: Expected value "true" (boolean), got "false" (boolean) instead
+failed [client] lever_client.spec: Expected value "32" (number), got "33" (number) instead
+[harness] FAIL: 31/33 checks @ ... (DIRTY TREE (1 paths) - NOT valid evidence) scope=all
 ```
+
+**0.7147 studs of glove travel against a 0.01 bound, and a 12-gauge hull really was drawn on the
+.45-70.** The file was then restored byte for byte (`git status` clean) and the gate is the PASS
+above. The request says which edit reproduces each, so the Reviewer can repeat it.
+
+**Two more things this round:** `hiddenByScope` is driven **both ways** — false for this gun's nil
+optics even fully aimed, **true** for the Rigby's optics at the same state — so the lever's answer is
+a fact about the weapon and not about the function. And `Viewmodel.buildNewGun`'s export from round 2
+is **reverted**: nothing uses it now, and an export added for a test that no longer needs it is dead
+weight. **`src/` therefore gains nothing at all this round** — the whole diff is the spec, the scope
+entries having already landed.
 
 ---
 
-## Finding 2 — the drawn lever was certified by nothing. `tests/client/lever_client.spec.luau`.
+## Why the shot was refused — measured, and it is my workaround, not the gun
 
-Four cases, in `SCOPE_SPECS` under **`weapon`** and **`viewmodel`** (standing rule G; `studio_mcp`
-and `agents` selftests both pass, and a new spec in no scope turns CI red).
+Instance facts, live, with the lever in the character (`driven-hunt-runs/t224-why-refused.luau`):
 
-**2a. A REAL clone, built by the owner's own builder** from this weapon's geometry and row: the
-moving group is named `Lever`, and no descendant is named `Scope`.
-**2b. The `"lever"` branch, driven rather than argued:** at rest the transform is identity, at full
-throw the loop's grip point is **down and forward** — the harness printed
-`grip (0.000, -0.359, 0.820) -> (0.000, -0.755, 0.253)`. And the fore-end glove does **not** follow
-it, which is the `poseHands` finding section 7.1 is built on.
-**2c. The shells gate on a real clone:** `handFeedsShells` for all three geometries, the declaration
-on the geometry rather than inferred from `MAGAZINE_SWAP` (which this gun does not have, so the old
-predicate would have passed it), and a built lever clone carrying **0** shell parts.
-**2d. It aims down its own irons:** no `scope` block, `sightKind` is `"bead"`, and the front blade is
-on the bore's centre line forward of the action.
+```
+held=Lever | handle=true muzzle=true | weaponAttr=lever | team=Shooters
+posts tagged=7 | nearest post ShooterPost1 at 4.6 studs | origin-root gap=1.53
+```
 
-`Viewmodel.buildNewGun` is **exported** to make 2a/2c possible: an `OWNED_ONLY` weapon is never in a
-test session's hands, so the only way to assert what it draws is to build one. It is a pure builder
-— config, geometry and row in, a parentless Model out — and the live path still calls the local.
+Every guard in `onFireRequest` that these can answer is **satisfied**: the Tool is held, the `Muzzle`
+attachment exists (so not `no-muzzle`), the player is a Shooter 4.6 studs from his post (so not
+`outsideStand`), and the origin is 1.53 studs from the root (inside `Validator.checkShot`'s
+tolerance). What is left is the first guard in the function:
 
----
+```luau
+local state = stateOf(player, id)
+if not state then
+    return "untracked"
+end
+```
 
-## What I could not verify, and what needs Karen before this merges
+**`"untracked"`, and the cause is the route, not the weapon.** The lever in that character was put
+there by `Weapon.refreshArming` called from an **MCP-side module instance** — a separate copy of
+`Weapon` with its own state table (this is the measured StudioMCP property: a live probe gets a fresh
+module, so only INSTANCE facts are trustworthy). The Tool is real; the **live** server never armed
+it, so the live `Weapon` holds no state for `"lever"` and refuses every shot for it.
 
-**(a) ONE FRAME, NOT FOUR, and the carry pose needs Karen's eye.**
-`.screenshots/t224r2-carry.png`, first person, player eye height, DEV drive: the gun draws correctly
-— stainless receiver, Picatinny rail with its slots, tube magazine, fore-end, the large loop below,
-butt to the lower right — and the Hud reads **five pips, `.45-70`, 10 in reserve**, which is
-`BARRELS`/`MAGAZINE` 5 and `START_RESERVE` 10. A dark glove sits at the fore-end. **The right hand is
-not in frame**: this carry pose holds the gun low and across the screen with the butt off the bottom
-edge, which is where the wrist is. The numbers now say both grip points are exactly on their
-anchors; **whether the gun is HELD in a place Karen likes is her call, not mine** — it is
-`weapons.lever.carry.gun` and the hand rotations, all content lane. **Per L-008 this grip wants her
-look before merge**, and I am saying so rather than hard-stopping only because this round was
-explicitly dispatched through to the review.
+**A legitimate shot therefore needs the live server to grant the gun, which needs ownership, which
+needs the shop counter — and the DEV place has none**: `MatchBoot.server.luau` passes
+`counterAt = nil`, so `Shop.atCounter` is false and every purchase in DEV is refused `too-far`
+(measured over the real wire in round 1: `refused=too-far balance=13000 hunts=30 LEVER owned=false
+buyable=true price=650`). **It is only doable in the Forest Test place.** I did not do it: that place
+is Karen's and this session has no route that reaches "owned + equipped + on stand" there.
 
-**(b) No aim, mid-throw or gate-feed frame, and no 50 m / 100 m shots.** I fired through
-`FireRequest:FireServer` and the shot was **refused** — the Hud still read five pips and 10 in
-reserve afterwards — and I ran out of box before finding out why. Nothing about the aim picture, the
-drawn throw or a live hit is claimed here; what the throw does is held by 2b instead.
+## What I could not verify
 
-**(c) CI not checked from here.** `gh` is not authenticated in this session; the branch is pushed.
+**(a) Frames: one, and it does NOT show the fix.** `.screenshots/t224r3-carry-solved.png` (first
+person, player eye height, DEV drive) is the carry frame with the solved poses, beside round 2's
+`t224r2-carry.png`. Said plainly: **the two look the same.** The hand corrections were 0.06–0.12
+studs — sub-pixel at this framing — and `carry.gun` did not change at all. **The fix is the
+measurement, not the picture**: `0.0602 off the wrist axis (bound 0.0468)` became `0.0000`, three
+states, printed by the harness. What the frame does show is the gun drawn right (stainless receiver,
+rail, tube, fore-end, loop), the Hud reading **five pips / `.45-70` / 10**, the left glove on the
+fore-end, and the gun held low and across the screen with the right hand below the bottom edge.
 
-**(d) Karen's dials, untouched:** `GRAVITY_SCALE` 0.35, the 1.10 s throw and 2.90 s reload, the
-recoil block, the three voices and their pitches, and the 650 / 12-hunt price. Nobody here has heard
-a sound or felt a kick.
+**(b) No aim, mid-throw or gate-feed frame.** Each needs either real input or the live camera
+module, and neither is reachable from an MCP script (the fresh-module property again). The throw is
+held by the spec instead — the instances, down 0.3023 and forward 0.0983 on the body — which is what
+design 15.4 offers as the alternative to those frames.
 
-**(e) Still queued as 224a** (from the design): the drawn gate feed and its three prerequisites; one
-gate click per run of `Load` steps rather than per round; folding `cycleLength`/`cycleZ` into `Gun`
-and `Rifle.Geometry`. Round 1's non-blocking notes are not addressed in this round and remain the
-Director's to schedule.
+**(c) CI not checked from here:** `gh` is not authenticated in this session; the branch is pushed.
+
+**(d) KAREN'S LOOK, and it is the one thing I would not merge without (L-008).** The carry pose and
+the hand rotations are **content lane**. The numbers now put both grip points exactly on their
+anchors, but *where the gun sits in the frame* is `weapons.lever.carry.gun` and is hers — and a hand
+position has already recurred four times on the horn when shipped on our own look alone.
+
+**(e) Karen's dials, untouched:** `GRAVITY_SCALE` 0.35, the 1.10 s throw and 2.90 s reload, the
+recoil block, the three voices, the 650 / 12-hunt price.
+
+**(f) Still queued as 224a**, and round 2's non-blocking notes with them: the drawn gate feed and its
+three prerequisites; one gate click per run of `Load` steps; folding `cycleLength`/`cycleZ` into
+`Gun` and `Rifle.Geometry`; `leverThrow`'s header table (which quotes 0.360/0.546 where the shipped
+constants give 0.396/0.567); design 15.1 cases 15 and 17; the `lever-aim` scenario line.
