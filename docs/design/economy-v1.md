@@ -89,7 +89,7 @@ window** (§6.6 — it is a real hole, it is named, and it is the Director's, op
 | **`ReplicatedStorage.Shop`** | `src/shared/Shop/init.luau` | unchanged | the **v1 catalogue**: `RETIRED`, `ALL_ORDER`, `BUNDLES`, the sixth shelf, four new `Grants` fields, `GRANT_FIELDS`, `mergedGrants`, `anyRow`, `isRetired`, `ownedOrCovered`, and four new pure readers (`grantsHighSeat`, `grantsUnlimitedAmmo`, `grantsAlwaysHunter`, `licencesFor`). Still frozen data plus pure functions | everything |
 | **`ServerScriptService.Economy`** | `src/server/Economy/` | unchanged | `Economy.grant` (**the one writer of the owned set**), `Economy.SOURCE`, `Economy.alwaysHunters()` (frozen + memoised), and the new `TEST_GRANT` numbers | the door, the panel, the catalogue, the roster, a weapon, an Instance |
 | **`ServerScriptService.Shop`** | `src/server/Shop/` | unchanged | one counter (`stats.retiredItems`). Nothing else | unchanged |
-| **`Match.Roster`** | `src/server/Match/Roster.luau` | unchanged | two pure functions: `Roster.owedWith`, `Roster.overruled`. **`Roster.assign` is still untouched** | unchanged |
+| **`Match.Roster`** | `src/server/Match/Roster.luau` | unchanged | two pure functions: `Roster.owedWith`, `Roster.overruled`. **`Roster.assign` WAS rewritten in round 3** (the Director's decision of 2026-10-20) | unchanged |
 | **`ServerScriptService.Match`** | `src/server/Match/` | unchanged | the fifth argument to the placement seam (`line`), `roleOverruled` on the snapshot, and one more read of the economy view it already holds | what a high seat is, which stand anybody gets, a price, an item id |
 | **`ReplicatedStorage.HighSeats`** | `src/shared/HighSeats/init.luau` | unchanged | `HighSeats.dealLine` — **the one rule that says which hunter gets which stand when a seat is paid for**. Pure: no Instance, no service, no raycast | a position, a part, a player |
 | **`ServerScriptService.ForestTest`** | `src/server/ForestTest/init.luau` | unchanged | `ForestTest.standWalk()` — `standIndexFor`'s own sequence as a list | unchanged |
@@ -779,7 +779,7 @@ opposite of unknown. The word is **Karen's to change (K-2)**; the mechanism is s
 
 `Roster.assign`'s swap is kept only when `|Drivers − Shooters| <= 1`; otherwise it falls through to a
 plain split and he can land on Drivers. **That is correct and stays**: a drive with eight hunters and
-no beaters is not a drive. `Roster.assign` is **not touched** — its own header states why
+no beaters is not a drive. `Roster.assign` was **rewritten in round 3** — see `ESCALATE.md` and the function's own header
 (*"rewriting a pinned pure function to add a feature is a bigger change than the feature"*), and
 `match_roster.spec` pins it at every roster size from 2 to 16.
 

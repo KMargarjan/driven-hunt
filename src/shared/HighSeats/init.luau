@@ -254,6 +254,13 @@ function HighSeats.dealLine(
 ): { number }
 	local taken: { [number]: boolean } = {}
 	local out: { number } = {}
+	-- AN EMPTY WALK IS NO LINE AT ALL (the Reviewer's round-1 note). Unreachable today -- every
+	-- `ForestTest.LAYOUTS` row has `standCount >= 1` -- but the walk is a PARAMETER of a pure
+	-- function, and without this pass 3 would index `walk[1]`, get nil, and throw *table index is
+	-- nil* on the line below it.
+	if #walk == 0 then
+		return out
+	end
 	local total = math.max(0, math.floor(count))
 	for index = 1, total do
 		local allowSeat = entitled == nil or entitled[index] ~= false

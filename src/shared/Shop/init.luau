@@ -711,6 +711,11 @@ Shop.CONFIG = {
 
 -- deepFreeze, REQUIRED and not copied: `table.freeze` is shallow and this repo has paid for that
 -- once already (`src/shared/Drive/init.luau`, Task 23a note (b)).
+-- ...AND THE DECLARED PACKAGES, which every other catalogue table already was (the Reviewer's
+-- round-1 note). The merge loop clones them and the clones are frozen with `ROWS`, so this changes
+-- no behaviour -- it keeps the module's own stated discipline that the rules of the game are not
+-- writable at run time.
+Shotgun.deepFreeze(Shop.BUNDLES)
 Shotgun.deepFreeze(Shop.ROWS)
 -- THE RETIRED TABLE IS FROZEN LIKE THE LIVE ONE. It is still read by all eight readers of what
 -- ownership gives, so a caller that could edit it could edit the rules of the game at run time.

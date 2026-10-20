@@ -44,7 +44,9 @@ end
 -- KAREN, 2026-10-11: *"ROLES ROTATE: you start as a hunter, next round you are a beater; it is
 -- REMEMBERED across logout/login (no cheating back to hunter)"*.
 --
--- THE FOUR FUNCTIONS BELOW ARE THE WHOLE RULE, and `Roster.assign` is DELIBERATELY NOT TOUCHED:
+-- THE FOUR FUNCTIONS BELOW ARE TASK 217'S. `Roster.assign` WAS left untouched by that task, and
+-- task 221 round 3 rewrote it at the Director's decision -- see its own header for the
+-- measurement that overruled the argument this sentence used to make:
 -- its algorithm, its `|Drivers - Shooters| <= 1` balance check and its plain-split fallback are
 -- what tests/server/match_roster.spec.luau pins at every roster size from 2 to 16, and rewriting a
 -- pinned pure function to add a feature is a bigger change than the feature. The stored turn is

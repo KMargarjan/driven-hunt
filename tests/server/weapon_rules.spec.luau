@@ -27,6 +27,10 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+-- TASK 221: this file clears the licence provider for one case and must put back what the
+-- composition roots wired, so the rest of the harness session runs against the live seam.
+local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
+local Economy = require(ServerScriptService:WaitForChild("Economy"))
 
 local Rules = Weapon.Rules
 local StateMachine = Weapon.StateMachine
@@ -638,6 +642,13 @@ return function()
 			Weapon.setCast(nil)
 			Weapon.setTargetProvider(Match.classifyTarget)
 			Weapon.setStandProvider(Match.standAreaFor)
+			-- ...AND THE LICENCE PROVIDER (task 221, the Reviewer's round-1 note). This case clears
+			-- it at the top, and that was harmless while the seam was unwired by design -- task 221
+			-- wires it in BOTH composition roots, so leaving it cleared would run the rest of the
+			-- harness session against a live wiring this case had switched off.
+			Weapon.setLicenceProvider(function(player)
+				return ShopData.licencesFor(Economy.ownedOf(player.UserId))
+			end)
 			-- PUT BACK WHAT `MatchBoot` WIRED (task 174), not nil: the drive answers this one.
 			Weapon.setDriveOpenProvider(Match.driveOpen)
 			stub:Destroy()

@@ -48,8 +48,12 @@ Money.UNKNOWN = "--"
 
 -- A WHOLE DOLLAR. No balance in this game is fractional (`COINS_PER_POINT` is 2 and
 -- `PARTICIPATION` is 10), so a `$12.0000001` on screen would be this formatter inventing a
--- precision the game does not have. `math.floor` on the magnitude, so -0.5 reads `$0` and not
--- `-$1`.
+-- precision the game does not have.
+--
+-- IT IS THE MAGNITUDE THAT IS FLOORED, and the SIGN is taken from the value itself -- so
+-- `Money.text(-0.5)` is `-$0` and not `$0` (the Reviewer's round-1 note corrected the sentence that
+-- used to claim otherwise). Nothing in the game can produce a fractional balance, so no screen
+-- reaches it; the comment is now what the code does.
 local function whole(amount: number): number
 	return math.floor(math.abs(amount) + 0.0000001)
 end
