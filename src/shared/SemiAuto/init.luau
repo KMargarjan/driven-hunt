@@ -98,8 +98,10 @@ SemiAuto.CONFIG = {
 	-- than this gun's: `Break` is the hand leaving the grip for the port and `Close` is it coming
 	-- back. Said out loud because a reader who knows the side-by-side will read them as a hinge.
 	--
-	-- 2.60 s FULL, AND IT IS THE SLOWEST RELOAD IN THE GAME -- the price of five rounds. 0.38 per
-	-- shell against the lever's 0.42 because a shotgun's port is a bigger hole than a rifle's gate.
+	-- 2.60 s FULL: slower than the side-by-side's 2.0, which is the price of five rounds, and
+	-- QUICKER than the lever's 2.90 -- 0.38 per shell against its 0.42, because a shotgun's port
+	-- is a bigger hole than a rifle's gate. (The design's 6.2 calls this the slowest reload in
+	-- the game. It is not: `semiauto.spec` measures both comparisons rather than repeating it.)
 	-- A PARTIAL top-up is correspondingly shorter: `Weapon.cycleRefusal` answers `"finish"` when the
 	-- tube fills, so two shells cost 0.35 + 2 * 0.38 + 0.35 = 1.46 s rather than the full 2.60.
 	RELOAD = {
