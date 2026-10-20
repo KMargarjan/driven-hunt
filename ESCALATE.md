@@ -2705,3 +2705,35 @@ Task 179 reached the 3-round cap (round 3: an unclaimed TargetWord label in MapU
 ## 2026-10-15 -- DIRECTOR: one extra review round for task 187 (round 4), with Karen's OK
 
 Karen was asked whether to use the parked 187 European lodge as the base for fixing the cabin's inside and answered "Use the 187 lodge" (2026-10-15 ~17:40), i.e. merge it. Round 3's finding was fixed in `681001e`. The Director authorises ONE extra round for **task 187, round 4**, run with `DIRECTOR_MAX_ROUNDS=4` in the environment (never committed).
+
+## 2026-10-20 -- Task 219: NEEDS TEST2 219 125926dc5925b9573d78e3de943bdd6ed3c3cf0d
+
+**For the Director.** Task 219 (the legendary boar) is built, gated and pushed, and it is STOPPED
+before the review exactly as the dispatch asked.
+
+**Why it is stopped.** The change touches `src/server/Match/init.luau`, which is in
+`TWO_PLAYER_PATHS`, so `tools/agents.py` refuses the review round until the request pastes a
+`[harness2]` line for the SAME commit. My one-player line came back `scope=all` -- full evidence,
+not a `scope=auto:...` line -- so the two-player exemption that a scoped line would have bought does
+not apply.
+
+```
+[harness]  PASS: 33/33 checks @ 125926dc5925b9573d78e3de943bdd6ed3c3cf0d (clean tree) scope=all
+[harness2] <needed, at the same commit -- one human click>
+```
+
+**What is in `Match`** and could be dropped if you would rather not spend the run:
+`SCENE.ANIMAL_SCALES` gains `legendary = 1.35` (so the gathering lays the trophy out 35 % longer
+than the males beside it -- the "results show it" half of the brief), plus two comment blocks:
+`QUARRY`'s, which records WHY the start card does not name the trophy, and `POINTS.KIND.legendary`'s,
+which stops claiming there is no animal behind the price. The scale is a real feature; the other two
+are comments that would otherwise be false. My recommendation is to spend the run.
+
+Branch `task-219-legendary-boar`, pushed, CI green (run 39368289275). Request:
+`reviews/task-219/REQUEST.md`.
+
+**Also for you, two items the task could not settle and did not pretend to:** the start card has no
+room for a fifth row (the Designer's ceiling, see TASKS.md 219a(a)), and the hit card's own
+`LEGENDARY BOAR` tag was proven by a client spec against the real renderer but NOT caught in a live
+frame -- the card holds 3 s and the role rotation put the player on Drivers before the next chance.
+The live negative half (an ordinary male's card, tag correctly off) WAS caught.
