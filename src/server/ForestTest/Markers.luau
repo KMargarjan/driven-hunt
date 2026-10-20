@@ -381,6 +381,38 @@ function Markers.ringGroundFor(x: number, z: number, ground, canopy): (number?, 
 	return terrain, terrain ~= nil
 end
 
+-- HOW FAR FROM A SEATED STAND'S OWN POINT A READING IS STILL "UNDER THAT SEAT". It is
+-- `HighSeats.DIMS.FOOTPRINT_RADIUS_STUDS` rounded up by half a stud of margin, written here rather
+-- than required, because this module is a child of `ForestTest` and already takes everything it
+-- knows about seats through one injected function. `high_seats.spec` asserts it covers the real
+-- footprint radius, so the two cannot drift apart.
+Markers.SEAT_COVER_STUDS = 5.6
+
+-- IS THIS POINT UNDER ONE OF THE SEATS THIS BUILD PLACED? Flat, because a seat's footprint is flat.
+function Markers.seatCovers(x: number, z: number, seated: { Vector3 }?): boolean
+	if seated == nil then
+		return false
+	end
+	for _, stand in ipairs(seated) do
+		local dx, dz = x - stand.X, z - stand.Z
+		if dx * dx + dz * dz <= Markers.SEAT_COVER_STUDS * Markers.SEAT_COVER_STUDS then
+			return true
+		end
+	end
+	return false
+end
+
+-- WHERE THE DRIVE LINE'S GROUND IS. `groundFor` everywhere, except under a seat we built ourselves,
+-- where the TERRAIN reader answers alone -- see `build`'s own comment for the live run that found
+-- it. Returns the height and the disagreement, exactly as `groundFor` does, so the caller's
+-- `lastMaxDelta` arithmetic is unchanged; under a seat there is no disagreement to report.
+function Markers.lineGroundFor(x: number, z: number, ground, canopy, seated: { Vector3 }?): (number?, number?)
+	if Markers.seatCovers(x, z, seated) then
+		return (if ground then ground(x, z) else nil), nil
+	end
+	return Markers.groundFor(x, z, ground, canopy)
+end
+
 -- WHERE THE GROUND IS, OR NIL, asking both readers and refusing a disagreement. Pure given its two
 -- readers, which is what makes the refusal testable without a forest.
 function Markers.groundFor(x: number, z: number, ground, canopy): (number?, number?)
@@ -429,10 +461,16 @@ function Markers.build(
 
 	-- SORTED BY X ASCENDING, which `Match.Markers.read` guarantees too (`byX`): post n is stand n,
 	-- always, so `ForestTest.standIndexFor` can name a stand by its index.
+	-- WHERE A SEAT STANDS, collected as it goes. The LINE's own reading has to know (`seatCovers`
+	-- below), and this loop is the one place that already asks the seat source.
+	local seated: { Vector3 } = {}
 	for index = 1, layout.standCount do
 		local stand = Data.standPosition(index, layout)
 		local y, delta
 		local deck = if seatSource ~= nil then seatSource(index) else nil
+		if deck ~= nil then
+			table.insert(seated, stand)
+		end
 		if deck ~= nil then
 			-- A STAND WITH A HIGH SEAT IS NOT MEASURED HERE, AND THAT IS THE WHOLE OF THE CALL
 			-- ORDER (design section 7.2). `Data.groundAt` asked from the sky would see the DECK
@@ -483,8 +521,22 @@ function Markers.build(
 	-- THE LINE'S OWN READING COUNTS TOWARD `lastMaxDelta` TOO (round 1 note): a disagreement over
 	-- the line or over the beater pad can make `complete` false on its own, and a console number that
 	-- folded in only the nine posts would be silent about exactly that.
+	--
+	-- ...AND THE LINE'S OWN POINT CAN BE UNDER A HIGH SEAT, WHICH WAS MEASURED AND NOT REASONED
+	-- ABOUT (task 218). The line is read at `layout.centre.X`, and for a layout with an ODD stand
+	-- count that x IS the middle stand's x -- `standX(middle)` is `centre.X + 0` -- and its z is the
+	-- same `roadZ`. On the `edge` layout the middle stand is stand 3, stand 3 carries a seat, and
+	-- the FIRST live run of this task came back `WAITING forest:line`: the canopy reader, asked from
+	-- 600 studs up, hit the deck at 193.26 against the terrain's 179.89 -- a 13.37-stud disagreement
+	-- against a tolerance of 1 -- so the line was refused and the drive could never start.
+	--
+	-- THE FIX IS THE TERRAIN READER ALONE, AND ONLY UNDER A SEAT. `Markers.lineGroundFor` asks
+	-- `groundFor` as before everywhere else, and where the point lies inside a seat's footprint it
+	-- takes the TERRAIN reading -- which by construction cannot see a deck, a canopy or a trunk. It
+	-- is the same judgement `Markers.ringGroundFor` already makes for the stand ring, and it costs
+	-- the canopy check only at the one point in the world we ourselves put a roof over.
 	local lineY, lineDelta =
-		Markers.groundFor(layout.centre.X, Data.roadZ(layout.centre.X, layout), groundReader, canopyReader)
+		Markers.lineGroundFor(layout.centre.X, Data.roadZ(layout.centre.X, layout), groundReader, canopyReader, seated)
 	if lineDelta ~= nil then
 		stats.lastMaxDelta = math.max(stats.lastMaxDelta, lineDelta)
 	end

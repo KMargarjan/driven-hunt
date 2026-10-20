@@ -21,6 +21,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
+local HighSeats = require(ReplicatedStorage:WaitForChild("HighSeats"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
@@ -313,6 +314,59 @@ return function()
 			expect(set.posts[1].Position.Y).to.equal(DECK)
 			-- Every OTHER stand was refused by the disagreement, which is today's rule untouched.
 			expect(Markers.stats().refused).to.equal(layout.standCount - 1)
+		end)
+
+		-- THE DEFECT THE FIRST LIVE RUN OF TASK 218 FOUND, as a case. The drive line is read at
+		-- `layout.centre.X`, and for an ODD stand count that x IS the middle stand's -- so on the
+		-- `edge` layout, whose stand 3 carries a seat, the canopy reader hit the DECK at 193.26
+		-- against the terrain's 179.89 and the set came back `WAITING forest:line`. The design
+		-- exempted the stand column and not the line's own point.
+		it("reads the drive line's ground through the terrain when a seat stands over it", function()
+			local layout = Data.ROAD_LAYOUT
+			-- The middle stand of an odd count is exactly the line's own x.
+			local middle = math.floor(layout.standCount / 2) + 1
+			expect(math.abs(Data.standX(middle, layout) - layout.centre.X) < 1e-6).to.equal(true)
+
+			local DECK = FLAT_Y + 12.5
+			local deckFromTheSky = function(_x: number, _z: number): number?
+				return DECK
+			end
+			local seats = function(index: number): number?
+				return if index == middle then DECK else nil
+			end
+			-- `flat` is the terrain (it cannot see a deck); `deckFromTheSky` is the canopy reader
+			-- answering the deck at every column, which is what the live place did at this one.
+			local set = Markers.build(Data.standX(5), layout, flat, deckFromTheSky, seats)
+			expect(set.line).to.be.ok()
+			expect((set.line :: any).position.Y).to.equal(FLAT_Y)
+			expect(hasMissing(set, "forest:line")).to.equal(false)
+		end)
+
+		it("still refuses a drive line the two readers disagree about away from a seat", function()
+			-- ...and the refusal it is there for is untouched: a canopy over the line, with no seat
+			-- anywhere near it, is still `forest:line`.
+			local layout = Data.ROAD_LAYOUT
+			local high = function(_x: number, _z: number): number?
+				return FLAT_Y + 12
+			end
+			local noSeats = function(_index: number): number?
+				return nil
+			end
+			local set = Markers.build(Data.standX(5), layout, flat, high, noSeats)
+			expect(set.line).to.equal(nil)
+			expect(hasMissing(set, "forest:line")).to.equal(true)
+		end)
+
+		it("covers the whole of a seat's own footprint", function()
+			-- The radius `seatCovers` uses must reach every part of a seat, or a reading just off
+			-- the stand point would still be taken through a leg.
+			expect(Markers.SEAT_COVER_STUDS >= HighSeats.footprintRadiusStuds()).to.equal(true)
+			expect(Markers.seatCovers(100, 200, { Vector3.new(100, 0, 200) })).to.equal(true)
+			expect(Markers.seatCovers(100 + Markers.SEAT_COVER_STUDS + 0.1, 200, { Vector3.new(100, 0, 200) })).to.equal(
+				false
+			)
+			expect(Markers.seatCovers(100, 200, nil)).to.equal(false)
+			expect(Markers.seatCovers(100, 200, {})).to.equal(false)
 		end)
 
 		it("is byte-for-byte today's set in a world with no seats", function()
