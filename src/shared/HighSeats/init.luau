@@ -38,14 +38,26 @@ local Forest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 
 local HighSeats = {}
 
--- THE TIMBER. `TIMBER` is the lodge's own second log tone (`Lobby.CONFIG.LODGE.LOG_COLOR_ALT`,
--- #58432D) so a seat is built of the same wood as the house Karen chose; `BOARDS` is a weathered
--- grey-brown for the deck and the rail, because ref-7's boards are weather-greyed and its posts are
--- not. The two are NAMED here rather than required from `Lobby`: this module is shared, the lobby
--- is a server system, and a shared module requiring a server one would be a cycle waiting to happen.
+-- THE TIMBER, AND IT IS WEATHERED GREY-BROWN BECAUSE THE FIRST ONE WAS LOOKED AT AND FAILED.
+--
+-- ROUND 1 USED THE LODGE'S OWN LOG TONE (`Lobby.CONFIG.LODGE.LOG_COLOR_ALT`, #58432D) on the
+-- reasoning that a seat should be built of the same wood as the house Karen chose. LOOKED AT in the
+-- live place -- `<runs-dir>/218-edge-seat2.png`, from a player's eye 11.5 studs south of the seat --
+-- it read NEAR BLACK against bright grass, because a dark log standing in the shade of its own deck
+-- has nothing left to reflect, and the Director's verdict was that the thing read as a STEEL PYLON
+-- rather than as ref-7's wooden hunter's seat. The lodge's logs are varnished and under a roof; a
+-- Drueckjagdbock stands out in the weather for years and goes silver-grey. So these are NOT the
+-- lodge's numbers and must not be re-unified with them later.
+--
+-- THREE TONES, EACH WITH A JOB. `TIMBER` is what you see most of -- the four legs and the rail
+-- boards. `DECK` is a shade lighter because planks seen face-on catch the sky. `JOINT` is the only
+-- dark one and is used ONLY where the structure is already in its own shadow: the girt and the two
+-- braces, under the deck. Named here rather than required from `Lobby`, because this module is
+-- shared and the lobby is a server system.
 HighSeats.COLORS = table.freeze({
-	TIMBER = Color3.fromHex("58432D"),
-	BOARDS = Color3.fromHex("6B6253"),
+	TIMBER = Color3.fromRGB(120, 104, 86),
+	DECK = Color3.fromRGB(138, 120, 98),
+	JOINT = Color3.fromRGB(96, 82, 66),
 })
 
 -- EVERY DIMENSION, IN STUDS, WITH ITS METRES AT `Report.CONFIG.METRES_PER_STUD` 0.28.
@@ -90,9 +102,16 @@ HighSeats.DIMS = table.freeze({
 	FOOTPRINT_RADIUS_STUDS = 5.1,
 })
 
--- HOW MANY PARTS ONE SEAT IS: four legs, four girts, two braces, the deck, five rail boards, the
+-- HOW MANY PARTS ONE SEAT IS: four legs, ONE girt, two braces, the deck, five rail boards, the
 -- ladder. Named so the spec counts against a number this module states rather than against itself.
-HighSeats.PARTS_PER_SEAT = 17
+--
+-- 17 -> 14 AFTER THE DIRECTOR'S LOOK (2026-10-20). Round 1 put a girt on all four faces; with the
+-- two diagonals and the truss's own default lattice the thing read as a steel pylon rather than as
+-- ref-7, which is four posts, a ladder and a platform you can see straight through. The three
+-- girts that are gone were the three you could not have seen anyway: the two side ones sit behind
+-- the braces and the north one faces the drive, where the ref shows nothing at all. This is a
+-- DEVIATION from `docs/design/high-seats.md` section 4.2's seventeen, made on the Director's look.
+HighSeats.PARTS_PER_SEAT = 14
 
 -- HOW HIGH A ROBLOX CHARACTER JUMPS. `StarterPlayer.CharacterJumpHeight`'s default, and MEASURED in
 -- Karen's Forest Test on 2026-10-20: `CharacterJumpHeight = 7.2`, `CharacterUseJumpPower = false`.
@@ -309,7 +328,7 @@ function HighSeats.blockedBand(aimRise: number, dropStuds: number): (number, num
 	return dropStuds / under, dropStuds / over
 end
 
--- ---------------------------------------------------------------- the seat, as seventeen pieces
+-- ---------------------------------------------------------------- the seat, as PARTS_PER_SEAT pieces
 
 export type Piece = {
 	name: string,
@@ -321,6 +340,8 @@ export type Piece = {
 	canCollide: boolean,
 	canQuery: boolean,
 	castShadow: boolean,
+	-- `TrussPart.Style` ONLY, and nil for every `Part`. See the ladder in `plan` for why it exists.
+	style: Enum.Style?,
 }
 
 -- EVERY PIECE COLLIDES AND EVERY PIECE IS QUERYABLE, which is the deliberate opposite of every other
@@ -352,6 +373,7 @@ local function piece(
 		canCollide = true,
 		canQuery = true,
 		castShadow = true,
+		style = nil,
 	}
 end
 
@@ -373,7 +395,7 @@ end
 -- for a seat that must not be built -- a reading the world could not make, or a footprint spread
 -- over the cap -- and never a partial seat: a seat with three legs is worse than no seat.
 --
--- DETERMINISTIC: the same arguments twice give the same seventeen pieces, so a frame Karen judges
+-- DETERMINISTIC: the same arguments twice give the same pieces, so a frame Karen judges
 -- can be rebuilt from a commit and a defect can be bisected.
 function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, string?)
 	-- NO `#grounds` GUARD. `#` on a table with a hole is not defined to be either count in Luau, so
@@ -425,38 +447,22 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 	local girtY = footY + dims.GIRT_RISE_STUDS
 	local girtSection = dims.GIRT_SECTION_STUDS
 	local girtSpan = inset * 2 + dims.LEG_SECTION_STUDS
-	for _, row in ipairs({
-		{ name = "GirtN", dz = inset },
-		{ name = "GirtS", dz = -inset },
-	}) do
-		table.insert(
-			pieces,
-			piece(
-				row.name,
-				"Part",
-				Vector3.new(girtSpan, girtSection, girtSection),
-				CFrame.new(stand.X, girtY, stand.Z + row.dz),
-				Enum.Material.Wood,
-				HighSeats.COLORS.TIMBER
-			)
+	-- ONE GIRT, ON THE SOUTH FACE, AND NOT FOUR (the Director's look, 2026-10-20). Round 1 put a
+	-- horizontal on all four faces and a diagonal on two, and the result read as a LATTICE -- a
+	-- steel pylon rather than ref-7's four posts. The ref has a frame you can see straight through.
+	-- The south face is the one with the ladder against it, so a tie there is the one that reads as
+	-- carpentry rather than as structure; `JOINT` because it sits in the seat's own shadow.
+	table.insert(
+		pieces,
+		piece(
+			"Girt",
+			"Part",
+			Vector3.new(girtSpan, girtSection, girtSection),
+			CFrame.new(stand.X, girtY, stand.Z - inset),
+			Enum.Material.Wood,
+			HighSeats.COLORS.JOINT
 		)
-	end
-	for _, row in ipairs({
-		{ name = "GirtE", dx = inset },
-		{ name = "GirtW", dx = -inset },
-	}) do
-		table.insert(
-			pieces,
-			piece(
-				row.name,
-				"Part",
-				Vector3.new(girtSection, girtSection, inset * 2),
-				CFrame.new(stand.X + row.dx, girtY, stand.Z),
-				Enum.Material.Wood,
-				HighSeats.COLORS.TIMBER
-			)
-		)
-	end
+	)
 
 	-- THE BRACES: one diagonal on each of the two side faces, placed with `CFrame.fromMatrix` along
 	-- its own chord -- `Markers.ring`'s own idiom, so a sloping timber is drawn the one way this
@@ -481,7 +487,7 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 				Vector3.new(span.Magnitude, dims.BRACE_SECTION_STUDS, dims.BRACE_SECTION_STUDS),
 				CFrame.fromMatrix((from + to) / 2, along, up.Unit),
 				Enum.Material.Wood,
-				HighSeats.COLORS.TIMBER
+				HighSeats.COLORS.JOINT
 			)
 		)
 	end
@@ -496,7 +502,7 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 			dims.DECK_SIZE,
 			CFrame.new(stand.X, deck - dims.DECK_SIZE.Y / 2, stand.Z),
 			Enum.Material.WoodPlanks,
-			HighSeats.COLORS.BOARDS
+			HighSeats.COLORS.DECK
 		)
 	)
 
@@ -515,7 +521,7 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 			Vector3.new(width, tall, thick),
 			CFrame.new(stand.X, railCentreY, stand.Z + plane),
 			Enum.Material.Wood,
-			HighSeats.COLORS.BOARDS
+			HighSeats.COLORS.TIMBER
 		)
 	)
 	for _, row in ipairs({
@@ -530,7 +536,7 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 				Vector3.new(thick, tall, width - thick * 2),
 				CFrame.new(stand.X + row.dx, railCentreY, stand.Z),
 				Enum.Material.Wood,
-				HighSeats.COLORS.BOARDS
+				HighSeats.COLORS.TIMBER
 			)
 		)
 	end
@@ -550,26 +556,33 @@ function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, stri
 				Vector3.new(stubWidth, tall, thick),
 				CFrame.new(stand.X + row.dx, railCentreY, stand.Z - plane),
 				Enum.Material.Wood,
-				HighSeats.COLORS.BOARDS
+				HighSeats.COLORS.TIMBER
 			)
 		)
 	end
 
 	-- THE LADDER: the engine's own, so there is no control to learn and nothing to write. Its top
 	-- runs a stud past the deck so a climber can step off, and its foot is sunk like every other.
+	--
+	-- `Style = NoSupports`, AND THAT ONE PROPERTY IS MOST OF WHY ROUND 1 READ AS A PYLON.
+	-- `TrussPart`'s default is `AlternatingSupports`, which draws a DIAGONAL X-LATTICE down every
+	-- 2 x 2 x 2 section -- the look of a transmission tower or a scaffold, and the single loudest
+	-- shape in `<runs-dir>/218-edge-seat2.png`. `NoSupports` draws the corner posts and the rungs
+	-- and nothing else, which is a LADDER. The climb is unchanged: a Humanoid climbs a `TrussPart`
+	-- because of its CLASS, not its style, so brief D4 still holds and no input owner moves.
+	--   Enum.Style   https://create.roblox.com/docs/reference/engine/enums/Style
 	local ladderFootY = (grounds[5] :: number) - embed
 	local ladderTopY = deck + dims.LADDER_OVER_DECK_STUDS
-	table.insert(
-		pieces,
-		piece(
-			"Ladder",
-			"TrussPart",
-			Vector3.new(dims.LADDER_SIZE_STUDS, ladderTopY - ladderFootY, dims.LADDER_SIZE_STUDS),
-			CFrame.new(stand.X, (ladderFootY + ladderTopY) / 2, stand.Z + dims.LADDER_OFFSET_STUDS),
-			Enum.Material.Wood,
-			HighSeats.COLORS.TIMBER
-		)
+	local ladder = piece(
+		"Ladder",
+		"TrussPart",
+		Vector3.new(dims.LADDER_SIZE_STUDS, ladderTopY - ladderFootY, dims.LADDER_SIZE_STUDS),
+		CFrame.new(stand.X, (ladderFootY + ladderTopY) / 2, stand.Z + dims.LADDER_OFFSET_STUDS),
+		Enum.Material.Wood,
+		HighSeats.COLORS.TIMBER
 	)
+	ladder.style = Enum.Style.NoSupports
+	table.insert(pieces, ladder)
 
 	return pieces, nil
 end

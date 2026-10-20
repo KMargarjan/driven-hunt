@@ -1,7 +1,7 @@
 -- high_seats.spec: THE WOODEN HIGH SEAT, AS ARITHMETIC (task 218).
 --
 -- EVERYTHING HERE RUNS WITH HAND-WRITTEN NUMBERS AND NO STUDIO. `HighSeats` is pure -- no Instance,
--- no service, no raycast -- so the seventeen pieces of a seat on a hillside, the deck's reference to
+-- no service, no raycast -- so the pieces of a seat on a hillside, the deck's reference to
 -- the WORST footprint corner, the rail's blocked band and the platform rule's own line are all
 -- assertable in the DEV place where the harness runs, with no forest and no terrain.
 --
@@ -198,7 +198,7 @@ return function()
 	end)
 
 	describe("HighSeats: the plan", function()
-		it("builds exactly seventeen pieces, every one solid and queryable", function()
+		it("builds exactly PARTS_PER_SEAT pieces, every one solid and queryable", function()
 			local pieces, reason = HighSeats.plan(STAND, HILL)
 			expect(reason).to.equal(nil)
 			expect(#pieces).to.equal(HighSeats.PARTS_PER_SEAT)
@@ -260,6 +260,11 @@ return function()
 			local pieces = HighSeats.plan(STAND, HILL)
 			local ladder = pieceNamed(pieces, "Ladder")
 			expect(ladder.class).to.equal("TrussPart")
+			-- `NoSupports` IS THE LOOK AND IT IS ASSERTED, because the engine's DEFAULT
+			-- (`AlternatingSupports`) draws the X-lattice that made round 1 read as a steel pylon.
+			-- The climb is unaffected either way -- a Humanoid climbs a `TrussPart` by its class --
+			-- so nothing but a frame would ever have caught a regression here.
+			expect(ladder.style).to.equal(Enum.Style.NoSupports)
 			-- `TrussPart` is constrained to 2 x 2 x n, so its cross-section is not ours to choose.
 			expect(ladder.size.X).to.equal(HighSeats.DIMS.LADDER_SIZE_STUDS)
 			expect(ladder.size.Z).to.equal(HighSeats.DIMS.LADDER_SIZE_STUDS)
@@ -267,6 +272,19 @@ return function()
 			expect(
 				math.abs(topOf(ladder) - (HighSeats.deckTopFor(HILL) + HighSeats.DIMS.LADDER_OVER_DECK_STUDS)) < 1e-3
 			).to.equal(true)
+		end)
+
+		it("ties the frame with ONE girt and two braces, not a lattice", function()
+			-- THE DIRECTOR'S LOOK, 2026-10-20: round 1's four girts plus two diagonals plus the
+			-- truss's default lattice read as a steel pylon. Four posts you can see between is the
+			-- ref. This is the count asserted, so a later tweak cannot quietly re-lattice it.
+			local pieces = HighSeats.plan(STAND, HILL)
+			expect(pieceNamed(pieces, "Girt")).never.to.equal(nil)
+			for _, gone in ipairs({ "GirtN", "GirtE", "GirtW" }) do
+				expect(pieceNamed(pieces, gone)).to.equal(nil)
+			end
+			expect(pieceNamed(pieces, "BraceE")).never.to.equal(nil)
+			expect(pieceNamed(pieces, "BraceW")).never.to.equal(nil)
 		end)
 
 		it("leaves a gap in the south rail wide enough to climb through", function()

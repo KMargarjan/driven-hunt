@@ -3,7 +3,7 @@
 --
 -- Task 218. KAREN, 2026-10-10: *"maybe will add towers where they can stand"*. `ReplicatedStorage`'s
 -- `HighSeats` says WHAT A SEAT IS and WHICH STANDS CARRY ONE, as pure arithmetic; this module
--- measures the ground under five footprint points and builds the seventeen parts. The split is the
+-- measures the ground under five footprint points and builds its parts. The split is the
 -- one `Places` / `src/server/Places` already makes, and for the reason
 -- `docs/research/2026-10-17-forest-trees-on-the-ground.md` gives: when the arithmetic and the
 -- measuring were one lump, *"neither could be checked alone"*.
@@ -170,6 +170,12 @@ local function build(spec: any, parent: Instance): BasePart
 	part.Material = spec.material
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
+	-- THE TRUSS'S OWN LOOK, and only the truss has one: `Style = NoSupports` is what turns the
+	-- engine's default X-lattice -- a transmission tower -- into a ladder. The plan decides it; this
+	-- only writes it, so the one place a seat's look is chosen stays `HighSeats`.
+	if spec.style ~= nil then
+		part.Style = spec.style
+	end
 	part.Parent = parent
 	return part :: BasePart
 end
