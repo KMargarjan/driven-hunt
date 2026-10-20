@@ -378,25 +378,33 @@ local MODEL_B_LICENCE = {
 -- trademarks printed on it. The scope's maker name, its "Made in Austria" line and serial, its two
 -- bird logos and the stock's gold double-R monogram were painted out of the base colour atlas before
 -- anything was uploaded. `CREDITS.md` records exactly what was changed, as the licence asks.
--- THE LEVER RIFLE'S LICENCE (task 224), AND WHAT IS HONESTLY KNOWN ABOUT IT. Karen bought the model
--- on Fab (Jeick, "Lever action rifle") and the download she handed over -- `lever_action_rifle.fbx`,
--- the `.obj`, and `additional_files.zip` -- CARRIES NO LICENCE FILE. The Rigby's download shipped a
--- `license.txt` and that is why its block can quote one; this one has nothing to quote, and a quote
--- invented to fill the field would be worse than an empty field.
+-- THE LEVER RIFLE'S LICENCE (task 224), AND IT IS THE BOAR'S WORD FOR WORD with a new attribution:
+-- Karen bought this model on Fab exactly as she bought the boar and the red deer, so it is used
+-- under the same grant and this row records it the same way (Director decision, 2026-10-20).
 --
--- SO THIS ROW SAYS WHAT IT KNOWS AND NAMES WHAT IT DOES NOT. The purchase is Karen's, the upload is
--- hers, and the use is this game. **The Director should confirm the Fab licence tier against her
--- purchase record before this gun ships publicly** -- it is in the task report and in TASKS.md.
+-- THE TIER IS NOT NAMED, AND THAT IS DELIBERATE. The dispatch said "Standard Licence (Personal
+-- tier)"; neither the boar's row nor the deer's names a tier, the download Karen handed over ships
+-- NO licence file at all (checked: the FBX, the OBJ and every entry of `additional_files.zip`), and
+-- nothing this machine can reach is Karen's purchase record. So this row says what the other two
+-- say and no more -- a tier written down because it was dictated would be a record of a sentence
+-- rather than a record of a purchase.
+--
+-- THE SAME CAVEAT IS INHERITED VERBATIM, for the reason the boar's row gives: **fab.com/eula answers
+-- 403 to this machine's fetch tool**, so the quote came through a web search on 2026-10-03 and says
+-- so rather than pretending the page was read. The two conditions that matter are met either way:
+-- the binary is never committed (`.rbxm` is banned outright) and nothing is distributed standalone
+-- -- what reaches Roblox is three meshes inside Karen's own account, used by her own place.
 local LEVER_LICENCE = {
-	basis = "purchased-fab",
-	quote = "NOT READ: the download carries no licence file (checked: the FBX, the OBJ and every "
-		.. "entry of additional_files.zip). The licence is whatever tier Karen's own Fab purchase "
-		.. "record names, and this field will carry its text when that is read.",
-	quotedFrom = "no licence file shipped with the download Karen handed over on 2026-10-20",
+	basis = "fab-standard",
+	quote = 'A "Standard License" grants you a non-exclusive and non-transferable license to '
+		.. "privately use, reproduce, display, perform, and modify the Content in accordance with "
+		.. "the terms of this Agreement. [...] you may not Distribute Content on a standalone basis "
+		.. "to third parties except to your collaborators",
+	quotedFrom = "fab.com/eula, read through a web search on 2026-10-03; the page itself answers 403 "
+		.. "to this machine (see `BOAR_LICENCE`'s own comment below)",
 	readOn = "2026-10-20",
-	attribution = 'This work is based on "Lever action rifle" by Jeick, bought on Fab '
-		.. "(https://www.fab.com) by Karen on 2026-10-20. The model is used in Driven Hunt only and "
-		.. "is never committed to this repository or redistributed.",
+	attribution = 'Lever-action rifle model: "Lever action rifle" by Jeick, bought on Fab '
+		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-20",
 }
 
 local RIGBY_LICENCE = {
