@@ -20,6 +20,10 @@ type Action = Shotgun.Action
 
 local StateMachine = {}
 
+-- THE EMPTY ANSWER for a state that has no `unlimited` of its own. Frozen and shared: it is
+-- only ever read, and one table beats one allocation per Load (task 221 round 4).
+local EMPTY: { [string]: boolean } = table.freeze({})
+
 -- THE ROW IS THE CONFIG (task 140). `initial` always read `BARRELS`, `INITIAL_AMMO` and
 -- `START_RESERVE` off whatever it was handed, and a weapon row carries all three -- so a two-barrel
 -- shotgun and a one-chamber rifle start from the same function with no branch in it.
@@ -207,7 +211,7 @@ function StateMachine.apply(
 			-- of the old type go back to the reserve"); a spent case is gone. One rule, in the one
 			-- place that owns the action.
 			local loadedKind = next.loaded[index]
-			if chamber == "Live" and loadedKind ~= "None" and not next.unlimited[loadedKind] then
+			if chamber == "Live" and loadedKind ~= "None" and not (next.unlimited or EMPTY)[loadedKind] then
 				-- ...AND AN UNLIMITED POCKET DOES NOT GO UP EITHER (task 221). Nothing was taken out
 				-- of it when the shell was loaded, so putting one back would make the number on
 				-- screen climb for ever.
@@ -224,7 +228,10 @@ function StateMachine.apply(
 		end
 		-- AN UNLIMITED POCKET IS NEVER EMPTY (task 221): the refusal is skipped and the number below
 		-- is not written, so the readout holds still and `INF` is the truth rather than a label.
-		local boundless = state.unlimited[state.ammo] == true
+		-- `or EMPTY` AND NOT A BARE INDEX: every state this module makes carries `unlimited`, but a
+		-- bare index would turn any state assembled elsewhere into *attempt to index nil* on the
+		-- shooter's gun -- a crash in the one code path a hunter uses every few seconds.
+		local boundless = (state.unlimited or EMPTY)[state.ammo] == true
 		if not boundless and (state.reserve[state.ammo] or 0) <= 0 then
 			return state, "no-reserve"
 		end
@@ -278,7 +285,10 @@ function StateMachine.apply(
 		end
 		-- AN UNLIMITED POCKET FEEDS AS MANY AS THERE ARE CHAMBERS (task 221), and is not written
 		-- below: `pocket` stands in for "enough", so the loop fills every empty barrel.
-		local boundless = state.unlimited[state.ammo] == true
+		-- `or EMPTY` AND NOT A BARE INDEX: every state this module makes carries `unlimited`, but a
+		-- bare index would turn any state assembled elsewhere into *attempt to index nil* on the
+		-- shooter's gun -- a crash in the one code path a hunter uses every few seconds.
+		local boundless = (state.unlimited or EMPTY)[state.ammo] == true
 		local pocket = if boundless then #state.barrels else (state.reserve[state.ammo] or 0)
 		if pocket <= 0 then
 			return state, "no-reserve"

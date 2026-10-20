@@ -20,7 +20,14 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Money = require(ReplicatedStorage:WaitForChild("Money"))
+-- BOUNDED, unlike every other `WaitForChild` in this folder, and the reason is that `Money` is
+-- NEW in task 221: a spec's top-level code runs inside `TestKit`'s load loop, so an unbounded
+-- wait for a module that has not replicated blocks the WHOLE client suite before TestEZ
+-- starts. 10 s is far longer than replication takes and far shorter than the runner's own
+-- 300 s bound, so a missing module is a named failure instead of a silent stall.
+local MoneyModule = ReplicatedStorage:WaitForChild("Money", 10)
+assert(MoneyModule ~= nil, "ReplicatedStorage.Money did not replicate within 10 s")
+local Money = require(MoneyModule)
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 
