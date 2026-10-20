@@ -278,7 +278,11 @@ return function()
 			-- A ROW IS `NAME|PRICE|TAG`: the name, the number (the coin is a Frame beside it), and the
 			-- one tag that answers *"can I buy this?"* without a click.
 			-- THE PRICE CARRIES A `$` SINCE TASK 221, everywhere a player reads one.
-			expect(lineFor(Shop.ITEM.HIGH_SEAT)).to.equal("HIGH SEAT ACCESS|$600|")
+			-- HIGH SEAT ACCESS is $600 and his wallet is $300, so the row says HOW SHORT he is --
+			-- *"the affordability signal is never colour alone"*.
+			expect(lineFor(Shop.ITEM.HIGH_SEAT)).to.equal(
+				string.format("HIGH SEAT ACCESS|$600|%s", string.format(Shop.CONFIG.TEXT.ROW_POOR_TAG, Money.text(300)))
+			)
 			-- The slug is owned, so it wears the OWNED chip.
 			expect(lineFor(Shop.ITEM.SLUG)).to.equal(string.format("SLUG SHELLS|$120|%s", Shop.CONFIG.TEXT.OWNED_TAG))
 			-- ...AND THE RED STAG CARD IS "SOON" (task 221): Karen asked for the row and there is no
@@ -387,7 +391,7 @@ return function()
 			-- the row was clicked cannot go stale here. The button says the SHORTFALL, because the
 			-- number he is short is the only number that helps.
 			Panel.onState(statePayload({ owned = {}, coins = 10, hunts = 30 }))
-			expect(Panel.detailText().button).to.equal(string.format(Shop.CONFIG.TEXT.POOR_BUTTON, 70))
+			expect(Panel.detailText().button).to.equal(string.format(Shop.CONFIG.TEXT.POOR_BUTTON, Money.text(110)))
 			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.CLAY_DARK)
 
 			-- LOCKED: the amber fill, the hunts still to walk, and the progress drawn along the
@@ -493,7 +497,10 @@ return function()
 		it("turns the picture while the panel is open and stands still while it is shut", function()
 			Panel.onState(statePayload())
 			Panel.setOpen(true)
-			Panel.select(Shop.ITEM.BEATER_LICENCE)
+			-- THE SLUG BOX, because its view is the plain SPINNING one: the licence CARD rocks
+			-- instead (`ShopDisplay.viewFor`), and this case measures the spin against
+			-- `spinDegAt(t, nil)`.
+			Panel.select(Shop.ITEM.SLUG)
 			local camera = (Panel.viewportFrame() :: ViewportFrame).CurrentCamera :: Camera
 			Panel.step(0)
 			local first = camera.CFrame.Position
@@ -573,10 +580,10 @@ return function()
 		it("says what the server said about the last press, and then goes back to the hint", function()
 			Panel.setOpen(true)
 			Panel.onState(statePayload({ refused = Shop.REASON.POOR, refusedNumber = 1200 }), 100)
-			expect(Panel.statusText()).to.equal("YOU NEED 1200 COINS")
+			expect(Panel.statusText()).to.equal("YOU NEED $1200")
 			-- ...and a purchase says what it bought, by its own label.
 			Panel.onState(statePayload({ bought = Shop.ITEM.HIGH_SEAT }), 100)
-			expect(Panel.statusText()).to.equal(string.format(Shop.CONFIG.TEXT.BOUGHT, "RED HAT"))
+			expect(Panel.statusText()).to.equal(string.format(Shop.CONFIG.TEXT.BOUGHT, "HIGH SEAT ACCESS"))
 			-- THE ONE MESSAGE SLOT TAKES ITS COLOUR FROM WHAT IT IS SAYING (the Designer's spec, 4):
 			-- green for the receipt, clay for the refusal, faint for the caveat.
 			expect(Panel.statusColorFor("BOUGHT: X", "bought", 100, 100)).to.equal(Panel.LOOK.PINE_TEXT)
