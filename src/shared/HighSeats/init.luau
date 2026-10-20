@@ -209,6 +209,89 @@ function HighSeats.hasSeat(layoutName: string, standIndex: number): boolean
 	return false
 end
 
+-- ---------------------------------------------------------------- who gets which stand (task 221)
+--
+-- KAREN, 2026-10-20: *"Access to tree stand"* -- the high seats became a thing a player BUYS. So:
+--
+--   A hunter who does not own high-seat access is never placed on a seated stand while any stand
+--   he is allowed on is free. He gets a ground stand instead.
+--
+-- THE WHOLE LINE IS DEALT AT ONCE, AND THAT IS FORCED RATHER THAN TIDY. `Match` places players ONE
+-- AT A TIME (`world.placement(markers, team, index, cfg)`), and a per-player rule cannot be
+-- collision-free: two hunters independently skipping the same seat land on the same ground stand.
+-- So `Match` passes the LINE -- how many are being placed and which of them are entitled -- and
+-- this function answers every hunter's stand in one pass (design section 6.2).
+--
+-- Pattern: SERIAL DICTATORSHIP from the house-allocation literature (Abdulkadiroglu and Sonmez,
+-- Econometrica 66(3), 1998) -- agents in a fixed order each take their most preferred item among
+-- those still unclaimed AND acceptable to them, which is collision-free by construction. "Not
+-- acceptable" is exactly where the entitlement lives. The literature RANDOMISES the order for
+-- fairness across draws and we deliberately do not: ours is `indexWithinTeam`'s sorted userIds, so
+-- the same roster gets the same stands every drive.
+--
+-- WHAT IS INVENTED (rule 2): the three-tier fallback. No source assigns scarce PRIVILEGED positions
+-- to a roster -- Quake III's `SelectSpawnPoint` family picks per player and tolerates telefrags,
+-- which is the collision this must not have, and a general assignment solver is hundreds of lines
+-- for a 9x8 problem whose only objective is *entitled first*. The greedy version is provably
+-- collision-free (pass 2) and provably identical to today (`entitled == nil`), which a solver would
+-- have to be tested into.
+--
+-- Design: docs/design/economy-v1.md sections 6.2-6.4
+-- Note:   docs/research/2026-10-20-money-and-the-v1-catalogue.md
+--
+-- `walk`     the order stands are offered in: the caller's centre-out sequence over 1..standCount
+--            (`ForestTest.standWalk()`), so there is no second walk to drift from `standIndexFor`.
+-- `seated`   `seated[s] == true` when stand `s` carries a high seat.
+-- `entitled` `entitled[i] ~= false` means "may be dealt a seated stand". nil ANYWHERE is "nobody
+--            answered", which is entitled -- `Shop.grantsHighSeat`'s own nil rule, and what keeps
+--            an un-wired world dealing exactly as it does today.
+-- `count`    how many hunters to deal for.
+function HighSeats.dealLine(
+	walk: { number },
+	seated: { [number]: boolean },
+	entitled: { boolean? }?,
+	count: number
+): { number }
+	local taken: { [number]: boolean } = {}
+	local out: { number } = {}
+	local total = math.max(0, math.floor(count))
+	for index = 1, total do
+		local allowSeat = entitled == nil or entitled[index] ~= false
+		local got: number? = nil
+		-- PASS 1: the first free stand he is ALLOWED on. With everybody entitled this is always
+		-- `walk[index]`, which is `ForestTest.standIndexFor(index)` -- today's game, bit for bit.
+		for _, stand in ipairs(walk) do
+			if not taken[stand] and (allowSeat or not seated[stand]) then
+				got = stand
+				break
+			end
+		end
+		-- PASS 2: the first free stand AT ALL. A hunter with no stand is worse than a hunter on a
+		-- seat he did not pay for -- AND this is what makes "no new collisions" exact rather than
+		-- approximate. MEASURED: without it, five unentitled hunters on `edge` (5 stands, the seat
+		-- on 3) get 2, 4, 1, 5, 5 -- two men on one stand, where today all five fit. Eight shooters
+		-- is reachable at `MAX_PLAYERS` 16, so that is a real new collision. With it the fifth man
+		-- is given the seat instead: 2, 4, 1, 5, 3. The seat is given away rather than a stand
+		-- shared, which is the design's own ordering.
+		if got == nil then
+			for _, stand in ipairs(walk) do
+				if not taken[stand] then
+					got = stand
+					break
+				end
+			end
+		end
+		-- PASS 3: every stand is taken, so this is the wrap -- and it is TODAY'S ANSWER, because
+		-- `walk` is `standIndexFor`'s sequence and `standIndexFor` wraps on the same modulo.
+		if got == nil then
+			got = walk[((index - 1) % math.max(1, #walk)) + 1]
+		end
+		taken[got :: number] = true
+		out[index] = got :: number
+	end
+	return out
+end
+
 -- WHERE THE FIVE FOOTPRINT SAMPLES ARE, as flat offsets from the stand point: the four leg centres
 -- and the ladder's own foot. PURE, so the reader loop has nothing to get wrong and the spec names
 -- the same five points the build does. ORDER IS PART OF THE INTERFACE: `plan`'s `grounds` is in it.

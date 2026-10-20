@@ -44,6 +44,9 @@ local Markers = require(script.Markers)
 -- nothing else, it requires this module back in no way at all, and its two ground readers are
 -- injected at the bottom of this file beside `Markers`'.
 local Seats = require(script.Seats)
+-- THE FROZEN SEAT DATA (task 221). `ForestTest.seatedStands` is the one place this layout
+-- name is applied to it, so the stand DEAL and the seats `Seats.ensure` builds read one table.
+local Plan = require(ReplicatedStorage:WaitForChild("HighSeats"))
 
 local ForestTest = {}
 ForestTest.Data = Data
@@ -3075,6 +3078,37 @@ function ForestTest.standIndexFor(index: number): number
 	-- (`Match.CONFIG.BOTS.TARGET.hunters` is 4), reachable with six real hunters. A clamp is the
 	-- honest answer: the outside of the walk is the end of the line, and there is no stand past it.
 	return math.clamp(middle + step * side, 1, count)
+end
+
+-- `ForestTest.standIndexFor`'s OWN SEQUENCE, AS A LIST (task 221). PURE.
+--
+-- `{ standIndexFor(1), standIndexFor(2), ... standIndexFor(standCount) }`, which is the centre-out
+-- order over every stand of this layout: `5, 4, 6, 3, 7, 2, 8, 1, 9` on the road.
+--
+-- IT IS DERIVED AND NOT RE-IMPLEMENTED, and that is the point: `HighSeats.dealLine` needs the walk
+-- as a list in order to deal the whole line at once, and a second hand-written copy of the
+-- centre-out arithmetic would be exactly the two-pieces-of-code-disagreeing failure this project is
+-- named after. `forest_stand.spec` already pins the permutation `standIndexFor` produces, so this
+-- is pinned with it.
+function ForestTest.standWalk(): { number }
+	local out: { number } = {}
+	for index = 1, chosen.layout.standCount do
+		table.insert(out, ForestTest.standIndexFor(index))
+	end
+	return out
+end
+
+-- WHICH OF THIS LAYOUT'S STANDS CARRY A HIGH SEAT, as a SET keyed by stand index (task 221).
+--
+-- `ReplicatedStorage.HighSeats` is the frozen data and this is the one place the live layout's name
+-- is applied to it, so the deal and the thing `Seats.ensure` actually builds read one table. It is
+-- NOT a second record of where the seats are: `Seats.ensure` builds from the same `standsFor`.
+function ForestTest.seatedStands(): { [number]: boolean }
+	local out: { [number]: boolean } = {}
+	for _, index in ipairs(Plan.standsFor(chosen.name)) do
+		out[index] = true
+	end
+	return out
 end
 
 -- WHICH ENTRY OF `markers.posts` IS STAND `index`. PURE.

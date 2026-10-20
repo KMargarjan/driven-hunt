@@ -59,7 +59,7 @@ export type ScoreRow = {
 	left: boolean,
 	-- TASK 170, THE ECONOMY. Both are ABSENT -- not 0 -- when the `COINS` flag is off or when this
 	-- player has no open profile, because absent is "unknown" and 0 is the statement that he has no
-	-- coins. The Hud draws an absent one as `SCORE_COINS_UNKNOWN`.
+	-- coins. The Hud draws an absent one as `Money.UNKNOWN`.
 	--
 	-- THE RATES ARE NOT HERE, exactly as the points table is not (see the header): these are two
 	-- RESULTS, already computed on the server out of `Economy.CONFIG`, which is never replicated.
@@ -112,6 +112,16 @@ export type MatchSnapshot = {
 	-- (`Match.mayBlowHorn`); this list is so the man's own screen can say why, and it is the same
 	-- shape as `tied` right above it, for the same reason.
 	through: { number },
+	-- WHO PAID FOR THE HUNTER'S PLACE AND IS DRIVING ANYWAY (task 221). Karen, 2026-10-20:
+	-- *"Posibility to be a hunter always"* -- which this repo sells as a strong PREFERENCE, because
+	-- `Roster.assign`'s balance rule still has to be able to make a drive out of the roster. This
+	-- list is so the man's own screen can say WHY, and it is the same shape as `tied` and `through`
+	-- above it, for the same reason.
+	--
+	-- OPTIONAL, unlike those two: ABSENT means there is no economy in this build at all, which is
+	-- the `stands` and `coinsOn` idiom -- so a client that never heard of the field reads exactly
+	-- what it always did.
+	roleOverruled: { number }?,
 	-- WHERE EACH SHOOTER'S STAND CIRCLE IS (task 171), keyed by `tostring(userId)` -- the keying
 	-- `Horn.keyFor` already uses, because a JSON-ish table on the wire has string keys. Absent for a
 	-- beater and for anybody the drive has nowhere to put, which means NO CIRCLE and therefore no
@@ -244,15 +254,17 @@ Drive.CONFIG = {
 	-- its own POINTS label: *"THE WORD ONLY WHEN THERE IS A NUMBER UNDER IT"*. A row has no team
 	-- when a player joined outside `Assigning`/`Running`, which is a real state and not an error.
 	SCORE_OTHERS_HEADING = "OTHERS",
-	-- WHAT AN ABSENT NUMBER LOOKS LIKE. `--`, never `0`: a player whose profile did not open has an
-	-- UNKNOWN balance, and printing 0 would be this Hud asserting he has no coins.
-	SCORE_COINS_UNKNOWN = "--",
-	-- `%+d`: the sign is always drawn, because this drive could have COST him (a piglet is -10
-	-- points, so -20 coins). "+34" and "-20" read as a change; "34" and "-20" read as two kinds of
-	-- thing.
-	SCORE_EARNED_FORMAT = "%+d",
-	-- The balance on the drive bar, in every phase (the dispatch: the balance on the HUD).
-	SCORE_COINS_LABEL = "COINS",
+	-- `SCORE_COINS_UNKNOWN` IS GONE (task 221): it is `Money.UNKNOWN` now, in the one module that
+	-- owns how money looks. The rule it carried is unchanged and lives there -- `--`, never `0`,
+	-- because a player whose profile did not open has an UNKNOWN balance and printing 0 would be
+	-- the Hud asserting he has none.
+	-- `SCORE_EARNED_FORMAT` IS GONE (task 221): it is `Money.signed` now. The reason it carried is
+	-- unchanged and lives there -- the sign is always drawn, because a drive could have COST him (a
+	-- piglet is -10 points, so -$20), and "+$34" and "-$20" read as a change where "$34" and "-$20"
+	-- read as two kinds of thing.
+	-- `SCORE_COINS_LABEL` IS GONE (task 221). Karen, 2026-10-20: *"We need to change coins to
+	-- actual money $"* -- the word is `Money.WORD` and the number is `Money.text`, in the one
+	-- module that owns both, so the drive bar and the shop window cannot disagree about either.
 
 	-- The tied banner (design section 9.3 item 4), for the local player only. ASCII, like everything
 	-- else drawn in this repo, and it says WHY -- the penalty is also the teaching mechanism.

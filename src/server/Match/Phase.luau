@@ -132,6 +132,15 @@ export type Event = {
 	-- the owner holding one fact twice. Absent or empty means nobody is owed anything, and then
 	-- every answer below is today's answer BY IDENTITY (`Roster.previousFrom`, design section 7).
 	owed: { [number]: TeamName }?,
+	-- WHO BOUGHT THE HUNTER'S PLACE (task 221). Same shape, same discipline and same reason as
+	-- `owed` above: filled by the owner on EVERY event off a FROZEN memo
+	-- (`Economy.alwaysHunters`), read here and never stored in the state. Absent or empty is the
+	-- game before this task, BY IDENTITY (`Roster.owedWith`).
+	--
+	-- IT IS KEPT APART FROM `owed` ON PURPOSE. They are two different facts -- the turn he is OWED
+	-- and the privilege he BOUGHT -- and folding them into one table would leave
+	-- `Roster.overruled` nothing to read when the balance rule beats the privilege.
+	alwaysShooters: { [number]: boolean }?,
 }
 
 export type Effect = {
@@ -496,7 +505,7 @@ end
 -- decision: `Roster.previousFrom` folds it into the synthetic `previous` below, and
 -- `Roster.assign`'s own balance check may discard the whole swap -- in which case nothing is
 -- consumed, because the only thing that ever WRITES a turn is the drive's end (design section 5.3).
-local function enterAssigning(state: State, effects: { Effect }, now: number, config, owed)
+local function enterAssigning(state: State, effects: { Effect }, now: number, config, owed, always)
 	state.phase = "Assigning"
 	-- THE RESULTS SCENE GOES FIRST, AND THE HOLD IT PUT ON EVERYBODY GOES WITH IT (task 159). Before
 	-- the teams, before the placement and before the new hold: `clearScene` takes down the lights and
@@ -528,7 +537,13 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	-- rather than as a second algorithm: `Roster.previousFrom` answers `state.previousAssignment`
 	-- BY IDENTITY when nobody is owed anything, so with no economy in the build this line is the
 	-- line it was before this task, value for value (design section 7).
-	local previous = Roster.previousFrom(state.previousAssignment, owed)
+	--
+	-- THE BOUGHT PREFERENCE IS WRITTEN OVER THE TURN FIRST (task 221), and then the pair goes
+	-- through the one inversion that already exists: `Roster.owedWith` answers `owed` BY IDENTITY
+	-- when nobody bought always-hunter, so this is still the line it was, value for value.
+	-- `Roster.assign` is UNTOUCHED, so its balance rule still beats the privilege and
+	-- `match_roster.spec`'s pins at every roster size still hold.
+	local previous = Roster.previousFrom(state.previousAssignment, Roster.owedWith(owed, always))
 	state.assignment = Roster.assign(userIds, previous, config)
 	-- ANYBODY WHO WAS IN THE LAST DRIVE AND IS NOT IN THIS ONE (task 177, design section 4.4). The
 	-- OTHER door out of `Scoring` is straight into `Assigning` -- a lobby player can enrol during the
@@ -797,7 +812,12 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			-- before task 217. It matters more than it looks: since tasks 177 and 209 a player walks
 			-- onto a truck pad during the intermission, so this branch is the NORMAL way into a
 			-- drive rather than an edge case (design section 8.5).
-			local owedTeam = if event.owed then event.owed[event.userId] else nil
+			-- THE PRIVILEGE REACHES A MID-DRIVE JOINER TOO (task 221): since tasks 177 and 209 a
+			-- player walks onto a truck pad during the intermission, so this is the NORMAL way into a
+			-- drive. `joinTeam`'s own rule is unchanged -- the owed team wins only off a tie -- so the
+			-- balance still beats the privilege here as well.
+			local wanted = Roster.owedWith(event.owed, event.alwaysShooters)
+			local owedTeam = if wanted then wanted[event.userId] else nil
 			local team = Roster.joinTeam(Roster.counts(next_.assignment), owedTeam, config)
 			next_.assignment[event.userId] = team
 			table.insert(effects, { kind = "assignTeams", assignment = { [event.userId] = team } })
@@ -908,7 +928,7 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 	-- same step rather than waiting for the next tick.
 	if next_.phase == "Waiting" then
 		if enoughPlayers(next_, config) and next_.markersComplete then
-			enterAssigning(next_, effects, now, config, event.owed)
+			enterAssigning(next_, effects, now, config, event.owed, event.alwaysShooters)
 		end
 	elseif next_.phase == "Assigning" then
 		if now >= next_.phaseEndsAt then
@@ -937,7 +957,7 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 	elseif next_.phase == "Scoring" then
 		if now >= next_.phaseEndsAt then
 			if enoughPlayers(next_, config) and next_.markersComplete then
-				enterAssigning(next_, effects, now, config, event.owed)
+				enterAssigning(next_, effects, now, config, event.owed, event.alwaysShooters)
 			else
 				enterWaiting(next_, effects, now)
 			end

@@ -43,6 +43,8 @@ local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
 -- would be a second answer (`docs/design/beater-kit.md` section 9).
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local Body = Match.Body
+-- THE SEAT DEAL (task 221): which hunter gets which stand when a seat is a thing you buy.
+local HighSeats = require(ReplicatedStorage:WaitForChild("HighSeats"))
 -- THE HIT RECORD (task 124). It is wired here, at the composition root, exactly as the boar runtime
 -- and the weapon are: `HitLog` requires neither of them and neither requires it.
 local HitLog = require(ServerScriptService:WaitForChild("HitLog"))
@@ -398,13 +400,28 @@ Weapon.Horn.start()
 -- sine whose tangent swings +-23 degrees (`atan(30/70)`), so the generic look would be up to 23
 -- degrees off the push.
 -- Design: docs/design/forest-drive.md section 4.3
-local function placement(markers, team, index, cfg)
+--
+-- `line` IS THE WHOLE HUNTER LINE (task 221) and it is why the seat deal lives HERE rather than in
+-- `Match`: which stands carry a high seat is this world's geometry, and `Match` passes only how
+-- many hunters there are and which of them paid. With no line -- the DEV place, a spec, any caller
+-- that never heard of the argument -- `dealLine` is handed nil `entitled`, which is "nobody
+-- answered", which is entitled, and the deal IS `standIndexFor` for every index.
+local function placement(markers, team, index, cfg, line)
 	if team ~= Data.PUSH_TEAM then
+		-- WHICH STAND, DEALT FOR THE WHOLE LINE AT ONCE (task 221). A hunter who has not bought
+		-- high-seat access is never given a seated stand while any stand he may stand on is free;
+		-- a per-player rule could not promise that without putting two men on one circle.
+		local deal = HighSeats.dealLine(
+			ForestTest.standWalk(),
+			ForestTest.seatedStands(),
+			if line then line.entitled else nil,
+			math.max(index, if line then line.count else index)
+		)
 		-- THROUGH THE POST'S NAME AND NOT ITS PLACE IN THE LIST: a stand whose ground was refused is
 		-- not in `markers.posts` at all (MEASURED: one run came back `8/9 stands (1 refused)`), and
 		-- `placementFor` indexes modulo the length -- so the fifth entry of eight is not stand 5,
 		-- while the drive goes on aiming every wave at stand 5's x.
-		local stand = ForestTest.standIndexFor(index)
+		local stand = deal[index] or ForestTest.standIndexFor(index)
 		return Body.placementFor(markers, team, ForestTest.postIndexFor(markers.posts, stand), cfg)
 	end
 	-- BY INDEX SINCE TASK 167, exactly as a hunter's stand is. Karen: *"and seem like all bots came
@@ -762,6 +779,16 @@ local shopOn = Shop.start({
 if shopOn then
 	Weapon.setEntitlementProvider(function(player)
 		return Economy.ownedOf(player.UserId)
+	end)
+	-- WHICH SPECIES HE HOLDS A CARD FOR (task 221). Task 178 left this provider unwired and said
+	-- why: *"a species permit is a FIFTH item in the catalogue for an animal that is not in the
+	-- game: it would be the thing invariant I3 exists to forbid"*. THAT REASON IS GONE -- Karen put
+	-- the RED STAG CARD in the catalogue herself on 2026-10-20 -- so the gate, the catalogue and
+	-- the invariant are consistent in one commit rather than in three. The card is `sale = false`
+	-- until the animal ships, so nothing can hold a licence yet; `Weapon.askLicences` calls every
+	-- provider through `pcall` and falls back to no restriction, which is today's game.
+	Weapon.setLicenceProvider(function(player)
+		return ShopData.licencesFor(Economy.ownedOf(player.UserId))
 	end)
 	Body.setLookProvider(function(player)
 		local color = ShopData.hatColorFor(Economy.ownedOf(player.UserId))

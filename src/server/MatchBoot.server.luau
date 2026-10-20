@@ -312,6 +312,16 @@ if shopOn then
 	Weapon.setEntitlementProvider(function(player)
 		return Economy.ownedOf(player.UserId)
 	end)
+	-- WHICH SPECIES HE HOLDS A CARD FOR (task 221). Task 178 left this provider unwired and said
+	-- why: *"a species permit is a FIFTH item in the catalogue for an animal that is not in the
+	-- game: it would be the thing invariant I3 exists to forbid"*. THAT REASON IS GONE -- Karen put
+	-- the RED STAG CARD in the catalogue herself on 2026-10-20 -- so the gate, the catalogue and
+	-- the invariant are consistent in one commit rather than in three. The card is `sale = false`
+	-- until the animal ships, so nothing can hold a licence yet; `Weapon.askLicences` calls every
+	-- provider through `pcall` and falls back to no restriction, which is today's game.
+	Weapon.setLicenceProvider(function(player)
+		return ShopData.licencesFor(Economy.ownedOf(player.UserId))
+	end)
 	Match.Body.setLookProvider(function(player)
 		local color = ShopData.hatColorFor(Economy.ownedOf(player.UserId))
 		return if color then { hatColor = color } else nil

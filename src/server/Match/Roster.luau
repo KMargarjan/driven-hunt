@@ -129,6 +129,63 @@ function Roster.joinTeam(counts: { [string]: number }, owed: TeamName?, config):
 	return Roster.smallerTeam(counts, config)
 end
 
+-- ---------------------------------------------------------------- the bought preference (task 221)
+--
+-- KAREN, 2026-10-20: *"Posibility to be a hunter always"*.
+--
+-- PURE. The team each player WANTS: his stored turn with the privilege written over it.
+--
+-- IT IS NOT A THIRD ARGUMENT TO `Roster.previousFrom`, and the reason is that `previousFrom`'s
+-- whole job is *the stored TURN folded in as a synthetic previous* -- it carries the one trap in
+-- task 217 (the inversion) and adding the privilege to it would make one function answer two
+-- questions. Two separable facts stay separable, which is also what lets `Roster.overruled` tell
+-- the man WHY when the balance beats him.
+--
+--   * `always` nil or EMPTY -> `owed` is returned BY IDENTITY. Nothing is allocated and the game is
+--     bit-for-bit what it was before this task, which IS the flag-off story -- the same device
+--     `Roster.previousFrom` uses, and a spec asserts the raw table equality.
+--   * otherwise -> a NEW table: `owed`'s rows, with `Shooters` written over every always-hunter.
+--     `owed` may be nil, and then the result holds only the bought rows.
+--
+-- IT DOES NOT INVERT. The inversion is `previousFrom`'s and stays there, and only there: this
+-- answers the team he WANTS, and `previousFrom` is what turns that into the synthetic previous row
+-- `Roster.assign`'s swap needs.
+function Roster.owedWith(owed: { [number]: TeamName }?, always: { [number]: boolean }?): { [number]: TeamName }?
+	if always == nil or next(always) == nil then
+		return owed
+	end
+	local out: { [number]: TeamName } = table.clone(owed or {})
+	for userId, bought in pairs(always) do
+		if bought == true then
+			out[userId] = SHOOTERS
+		end
+	end
+	return out
+end
+
+-- PURE. WHOSE PRIVILEGE THE BALANCE RULE OVERRULED: the always-hunters whose FINAL team is
+-- `Drivers`.
+--
+-- A man who paid $2000 for the hunter's place and starts a drive with a horn, with no explanation,
+-- reads the purchase as broken and says so. This is the list the drive publishes so the Hud can
+-- tell him why -- and it is computed from the assignment that was actually made, so it can never
+-- disagree with the team he is on.
+--
+-- A LIST, SORTED, so the wire is a dense array -- the shape `tied` and `through` already have.
+function Roster.overruled(assignment: Assignment, always: { [number]: boolean }?): { number }
+	local out: { number } = {}
+	if always == nil then
+		return out
+	end
+	for userId, bought in pairs(always) do
+		if bought == true and assignment[userId] == DRIVERS then
+			table.insert(out, userId)
+		end
+	end
+	table.sort(out)
+	return out
+end
+
 local function sorted(userIds: { number }): { number }
 	local out = table.clone(userIds)
 	table.sort(out)

@@ -67,6 +67,12 @@ local stats = {
 	-- A well-formed id naming no row: a STALE CLIENT after a catalogue change, which is a different
 	-- fact from a forged packet.
 	unknownItems = 0,
+	-- ...AND A ROW THAT USED TO BE SOLD, COUNTED APART FROM BOTH (task 221). Karen took the red hat
+	-- off the shelf, so a client that has not rejoined can still ask for it -- and that is neither
+	-- a forged packet nor a typo, it is a STALE CATALOGUE. The reply is still `UNKNOWN`: a new wire
+	-- reason would cost a notice and a panel state for a row nobody can see. The split is
+	-- `Weapon.stats`' own, between `stats.refused` and `stats.badRequests`.
+	retiredItems = 0,
 	-- A reply that could not be sent because he had already left.
 	repliesDropped = 0,
 }
@@ -81,10 +87,13 @@ function Shop.isEnabled(): boolean
 	return enabled
 end
 
-local function count(reason: string)
+local function count(reason: string, itemId: any)
 	stats.refusedBy[reason] = (stats.refusedBy[reason] or 0) + 1
 	if reason == Data.REASON.UNKNOWN then
 		stats.unknownItems += 1
+		if Data.isRetired(itemId) then
+			stats.retiredItems += 1
+		end
 	end
 end
 
@@ -176,7 +185,7 @@ function Shop.onRequest(player: any, request: any, now: number?): any
 	if receipt ~= nil and receipt.ok == true then
 		stats.granted += 1
 	elseif receipt ~= nil and type(receipt.refused) == "string" then
-		count(receipt.refused)
+		count(receipt.refused, item)
 	end
 	reply(player, receipt)
 	return receipt

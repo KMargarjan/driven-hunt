@@ -319,7 +319,10 @@ end
 -- WHAT THIS PLAYER'S COPY OF THIS WEAPON STARTS WITH: his allowance, or the weapon's own row when
 -- nobody has said. One call, in one place, so `grant`, `revoke` and `refillForDrive` cannot disagree
 -- about what he may carry.
-local function startFor(player: Player, row: any): { ammo: string?, reserve: { [string]: number }? }?
+local function startFor(
+	player: Player,
+	row: any
+): { ammo: string?, reserve: { [string]: number }?, unlimited: { [string]: boolean }? }?
 	local owned = askOwned(player)
 	if owned == nil then
 		return nil
@@ -755,7 +758,14 @@ function Weapon.refillForDrive(player: Player, driveNumber: number?): number
 		local start = startFor(player, row)
 		local refilled, reason = StateMachine.apply(
 			state,
-			{ kind = "Refill", reserve = if start then start.reserve else nil },
+			-- ...AND HIS UNLIMITED POCKETS, ON THE SAME ACTION (task 221). `Refill` is a server-side
+			-- primitive -- `Validator.checkRequest` accepts only "Reload" and "SelectAmmo" over the
+			-- wire -- so no client can send one, let alone one carrying an allowance.
+			{
+				kind = "Refill",
+				reserve = if start then start.reserve else nil,
+				unlimited = if start then start.unlimited else nil,
+			},
 			os.clock(),
 			row
 		)

@@ -32,6 +32,16 @@ export type WeaponState = {
 	-- Shells are carried PER TYPE (Karen, 2026-09-25): X switches type and reloads to it, and "no
 	-- reserve of the new type" has to mean something.
 	reserve: { [string]: number },
+	-- WHICH POCKETS DO NOT GO DOWN (task 221). Karen, 2026-10-20: *"Unlimited amunition"*.
+	--
+	-- IT IS THE POCKET AND NOT THE GUN. The barrels still hold two, he still breaks the action and
+	-- he still loads: nothing in `Fire`, `Break` or `Close` reads this, because a reload that no
+	-- longer costs a keypress would change the FEEL of the weapon, and that is Karen's to judge.
+	--
+	-- `{}` BY DEFAULT, which is every state in a build where nobody bought it. The ALLOWANCE is
+	-- `Shop.startFor`'s -- it says which kinds he may be issued at all -- and this is only the
+	-- consequence inside the one owner of a weapon state.
+	unlimited: { [string]: boolean },
 	busyUntil: number,
 	epoch: number,
 }
@@ -43,6 +53,9 @@ export type WeaponSnapshot = {
 	loaded: { AmmoLoad },
 	selected: number,
 	ammo: AmmoKind,
+	-- WHICH POCKETS DO NOT GO DOWN (task 221). ABSENT, not an empty table, when nobody in this build
+	-- bought it -- so a snapshot in such a build is byte-identical to the one before this task.
+	unlimited: { [string]: boolean }?,
 	reserve: { [string]: number },
 	busyFor: number,
 	-- The step the server's own sequence is running (task 142): "Magazine", "Break", "Close",
@@ -154,6 +167,12 @@ function Shotgun.snapshot(
 		selected = state.selected,
 		ammo = state.ammo,
 		reserve = table.clone(state.reserve),
+		-- ONLY WHEN THERE IS ONE (task 221): `nil` rather than `{}` in a build where nobody bought
+		-- unlimited ammunition, so the snapshot is byte-identical to the one before this task and a
+		-- client that never heard of the field reads exactly what it always did.
+		unlimited = if state.unlimited ~= nil and next(state.unlimited) ~= nil
+			then table.clone(state.unlimited)
+			else nil,
 		busyFor = math.max(0, state.busyUntil - now),
 		notice = notice,
 		weapon = weapon,
@@ -265,6 +284,15 @@ Shotgun.CONFIG = {
 	-- unlimited (~12 reloads of a type in a 10-minute drive), which is what she has now asked to end.
 	DRIVE_SHELLS = DRIVE_SHELLS,
 	START_RESERVE = { Slug = DRIVE_SHELLS, Buck = DRIVE_SHELLS },
+	-- WHAT THE READOUT PRINTS WHERE THE POCKET COUNT WOULD BE, for a pocket that does not go down
+	-- (task 221, `WeaponState.unlimited`). Three ASCII characters, in the slot the two-digit count
+	-- already occupies, so no width moves.
+	--
+	-- DELIBERATELY NOT `--`: in this repo `--` means UNKNOWN (`Money.UNKNOWN`, and the balance of a
+	-- player whose profile did not open), and an unlimited pocket is the opposite of unknown.
+	-- Karen's to change (docs/design/economy-v1.md section 17, K-2); the mechanism is settled
+	-- either way. It lives here because the readout is the WEAPON's.
+	POCKET_UNLIMITED_TEXT = "INF",
 	INITIAL_AMMO = "Slug" :: AmmoKind,
 	AUTO_EQUIP = true, -- a grey-box playtest should not start by hunting for the hotbar
 	-- ...AND NOT IN THE SAME FRAME AS THE GRANT (task 141). THE HOTBAR'S ORDER IS NOT OURS: the

@@ -32,17 +32,34 @@ export type Row = {
 	label: string, -- what a shop or a Hud would print
 	licence: boolean, -- does shooting one need a licence at all
 	price: number?, -- what it costs in coins, nil while nobody sells it
+	-- DOES AN ANIMAL OF THIS SPECIES EXIST IN THIS BUILD? (task 221). It is NOT a rule of the fire
+	-- gate -- `Licences.required` and `Licences.allows` do not read it, so every existing case is
+	-- untouched -- it is what makes the SHOP's refusal structural: `Shop.rowsOk`'s I3a refuses a
+	-- row that is for sale and grants a licence for a species nothing publishes, exactly as I3
+	-- already refuses one granting a weapon no build ships.
+	--
+	-- Without it a naive check (*does the licence table know this species*) would PASS for the red
+	-- stag -- the row below has existed since task 171 -- and nothing structural would stop someone
+	-- flipping `sale`. Karen's rule is that we never sell what does not work.
+	shipped: boolean,
 }
 
 Licences.ROWS = {
 	-- FREE, AND IT IS THE WHOLE GAME TODAY. Karen's quarry is wild boar and she has never asked for
 	-- a licence for one; the row exists so that "which species is this" has an answer for the only
 	-- animal in the drive, and so the gate is exercised by every real shot rather than by a spec.
-	boar = { species = "boar", label = "WILD BOAR", licence = false } :: Row,
+	-- `shipped = true`: `Boar.Body.create` publishes `Species = "boar"` on the trunk, so this row
+	-- describes an animal that is actually in the drive.
+	boar = { species = "boar", label = "WILD BOAR", licence = false, shipped = true } :: Row,
 	-- THE ONE KAREN'S RULE IS ABOUT, and there is no deer in this game yet. 2026-10-10:
 	-- *"they can aim but no shooting happening"*. `price` is nil because the shop does not exist and
 	-- a number here would be a decision nobody has taken (it is Karen's, with the shop task).
-	reddeer = { species = "reddeer", label = "RED DEER", licence = true } :: Row,
+	--
+	-- `shipped = false`, AND IT IS WHAT HOLDS THE SHOP'S DOOR SHUT. Task 221 put a RED STAG CARD in
+	-- the catalogue at Karen's word; it ships `sale = false`, and `Shop.rowsOk`'s I3a is what makes
+	-- that forced rather than chosen. The day the animal lands, `shipped = true` and `sale = true`
+	-- go in the SAME commit as it (design section 17, D-6).
+	reddeer = { species = "reddeer", label = "RED DEER", licence = true, shipped = false } :: Row,
 }
 
 -- DEEP-FROZEN, so neither the shop nor a spec can edit the rules of the game at run time.

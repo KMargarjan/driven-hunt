@@ -181,6 +181,17 @@ Objective.CONFIG = {
 		-- It counts the `Assigning` phase down, which is the same deadline the start card's timer and
 		-- the hunter's stand timer count (task 158's one number), so the three cannot disagree.
 		DriverCountdown = "drive starts in %d",
+		-- HE PAID FOR THE HUNTER'S PLACE AND THE TEAMS COULD NOT BE MADE EVEN (task 221). Karen:
+		-- *"Posibility to be a hunter always"* -- which this repo sells as a strong preference and
+		-- not an exemption, because a drive with eight hunters and no beaters is not a drive.
+		--
+		-- IT REPLACES THE COUNTDOWN AND CARRIES THE SAME NUMBER, so there is no second surface, no
+		-- timing rule and no new rectangle -- the Director's own rule from task 197 part 2. And it
+		-- reaches ONLY the man it happened to: an always-hunter who got `Shooters` reads nothing
+		-- new, and a player who bought nothing reads nothing new.
+		--
+		-- Karen's register and hers to change (docs/design/economy-v1.md section 17, K-3).
+		DriverOverruled = "TEAMS MUST BE EVEN - you beat this drive. %d",
 		-- THE FANFARE IS SOUNDING AND THE LINE IS STILL HELD: *"you can't move as a beater before
 		-- horn made signal"*. GO is the END of the phrase, so there are two seconds of drive in which
 		-- a beater is free to wonder why he cannot walk, and this is the answer to that.
@@ -254,6 +265,9 @@ export type DriveNow = {
 	holdLeft: number?, -- until the beaters may walk; > 0 means the fanfare is still sounding
 	goAge: number?, -- since they were let go, or nil for "they have not been"
 	through: boolean?, -- this player is past the hunters' line and his drive is over
+	-- HIS BOUGHT HUNTER'S PLACE WAS OVERRULED BY THE BALANCE (task 221). Optional, like every other
+	-- field here, so two arguments still answer exactly what they answered before.
+	roleOverruled: boolean?,
 }
 
 -- WHAT THE LOBBY IS DOING RIGHT NOW (task 177), and both fields are optional for the same reason
@@ -327,7 +341,10 @@ function Objective.text(phase: string?, team: string?, drive: DriveNow?, lobby: 
 			return words.DriverThrough
 		end
 		if phase == "Assigning" and drive.secondsLeft ~= nil then
-			return string.format(words.DriverCountdown, math.max(0, math.ceil(drive.secondsLeft)))
+			-- THE OVERRULE SENTENCE IS THE COUNTDOWN, REWORDED (task 221) -- not a second line and
+			-- not a banner, so one message is up at a time by construction.
+			local line = if drive.roleOverruled == true then words.DriverOverruled else words.DriverCountdown
+			return string.format(line, math.max(0, math.ceil(drive.secondsLeft)))
 		end
 		if phase == "Running" then
 			if (drive.holdLeft or 0) > 0 then
