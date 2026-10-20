@@ -85,6 +85,35 @@ adopted and why, and the numeric targets — plus, under rule 8, what could not 
   `ground + 3.5 + 7.2` at his apex and a line at `ground + 10.5` is reached. At the deck's own face
   there are **1.8 studs** of air under the line and **3.5** above it.
 
+### 3.1 What the first build got wrong, and it was a LOOK and not a number
+
+Round 1 was gated, measured and correct, and it still failed the only test that matters here.
+Looked at from a player's eye in the live place (`<runs-dir>/218-edge-seat2.png`), the Director's
+verdict was *"near-black timber, and the X-braced lattice reads as a STEEL PYLON, not Karen's ref-7
+wooden hunter's seat"*. Three causes, in order of how loud each was:
+
+1. **The ladder's `TrussPart` was at the engine's default `Style = AlternatingSupports`**, which
+   draws a diagonal X-lattice down every 2 x 2 x 2 section. That is the silhouette of a
+   transmission tower, and it was the single biggest shape in the frame. `NoSupports` draws the
+   corner posts and the rungs and nothing else. **The climb is untouched** -- a Humanoid climbs a
+   `TrussPart` because of its CLASS, not its style -- so source A's borrowing survives whole.
+2. **The palette borrowed the lodge** (`LOG_COLOR_ALT`, #58432D). That was the wrong analogy: the
+   lodge's logs are varnished and under a roof, while a Drueckjagdbock stands out in the weather for
+   years and goes silver-grey (source E's larch stands are sold unfinished). In the shade of its own
+   deck a dark log has nothing left to reflect, so it read black. Three tones now, each with a job:
+   `TIMBER` (120, 104, 86) for the legs and rails, `DECK` (138, 120, 98) a shade lighter because
+   planks seen face-on catch the sky, and `JOINT` (96, 82, 66) **only** where the frame is already
+   in its own shadow.
+3. **Four girts plus two diagonals is a cage.** Ref-7's stand is four posts you can see straight
+   between. One girt, on the south face where the ladder lands, is the tie that reads as carpentry.
+   17 -> 14 parts, a declared deviation from the design's section 4.2.
+
+**The lesson is the one this repo already has** (`docs/PROJECT_CONTEXT.md`): *"Things measured
+correct and looked wrong."* Every number in section 5 was right in round 1 and the thing was still
+wrong, and no spec could have caught it -- which is why `high_seats.spec` now asserts the truss's
+`Style` and the girt count, so at least a REGRESSION is catchable even though the original defect
+was not.
+
 **What was NOT adopted, and why.** No bench (ref-7's hunter is seated; Roblox has no sit here and a
 bench takes a third of a 6-stud deck), no roof (it is a *Bock*, not a *Kanzel*), no walls, no gun
 hook, and no weathering or per-layout variation.
@@ -110,7 +139,7 @@ would have been tempting to invent are both recorded as refusals:
 | Deck top above the seat's **worst** footprint ground | 12.5 studs = 3.50 m | `high_seats.spec`, "the deck is referenced to the worst corner" |
 | Deck | 6 × 0.5 × 6 studs (1.68 m square) | same |
 | Rail board top above the deck | 2.4 studs = 0.67 m | same, "every rail board's top at one height" |
-| Parts per seat | 17 | `high_seats.spec`, "exactly seventeen pieces" |
+| Parts per seat | **14** (17 in round 1 -- see section 3.1) | `high_seats.spec`, "exactly PARTS_PER_SEAT pieces" |
 | Seats per layout | ≤ `ceil(standCount/3)`, never two adjacent, at least one | `high_seats.spec`, "takes at least one stand…" |
 | Minimum sight gain for a seat | 60 studs = 17 m ≈ 3.3 s at a boar's trot | the selection rule (section 6.2 of the design) |
 | Footprint spread a seat accepts | ≤ 4.0 studs | `high_seats.spec`, "refuses rather than building a partial seat" |
