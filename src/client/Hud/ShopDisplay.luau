@@ -37,6 +37,8 @@
 local ContentProvider = game:GetService("ContentProvider")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Lever = require(ReplicatedStorage:WaitForChild("Lever"))
+local LeverGeometry = require(ReplicatedStorage:WaitForChild("Lever"):WaitForChild("Geometry"))
 local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
 
@@ -230,10 +232,14 @@ end
 -- All four meshes carry the WHOLE gun's bounding box, so ONE offset places every one of them
 -- (`Rifle.Geometry`'s header), and that offset is the piece's own `meshOffset`: this file does not
 -- compute a single coordinate of the gun.
-local function buildRifle(parent: Model, sight: string?)
-	local config = if sight ~= nil then { SIGHT = sight } else nil
-	local folder = ReplicatedStorage:FindFirstChild(RifleGeometry.FOLDER_NAME)
-	for _, piece in ipairs(RifleGeometry.pieces(config)) do
+-- ONE DRAWING FOR ANY GUN THIS REPO HAS GEOMETRY FOR (task 224). It was `buildRifle` and read
+-- `RifleGeometry` directly; the lever rifle is the same drawing with a different module, because
+-- every geometry in this game publishes the same function set precisely so a generic caller cannot
+-- tell the guns apart (`Weapons.geometry(id)`'s own rule). A second copy of this loop would be a
+-- second answer to "what does a gun look like in the shop window".
+local function buildGun(parent: Model, geometry: any, config: any?)
+	local folder = ReplicatedStorage:FindFirstChild(geometry.FOLDER_NAME)
+	for _, piece in ipairs(geometry.pieces(config)) do
 		local found = if folder and piece.meshKey ~= nil then folder:FindFirstChild(piece.name) else nil
 		local mesh = if found and found:IsA("BasePart") then found :: BasePart else nil
 		if mesh ~= nil and not meshReady(mesh) then
@@ -263,6 +269,17 @@ local function buildRifle(parent: Model, sight: string?)
 		part.CFrame = offset
 		part.Parent = parent
 	end
+end
+
+local function buildRifle(parent: Model, sight: string?)
+	local config = if sight ~= nil then { SIGHT = sight } else nil
+	buildGun(parent, RifleGeometry, config)
+end
+
+-- THE LEVER RIFLE (task 224), from its own config so the window draws its own stainless and its own
+-- grey laminate rather than the Rigby's blued steel and walnut.
+local function buildLeverRifle(parent: Model)
+	buildGun(parent, LeverGeometry, Lever.CONFIG)
 end
 
 -- ---------------------------------------------------------------- the three things that are not guns
@@ -1063,6 +1080,12 @@ end
 -- already makes for a Tool it does not name, and for the same reason: *"draw whatever is in the
 -- hand"* is what once drew a shotgun out of a horn.
 local DRAW: { [string]: { view: View, build: (Model, string) -> () } } = {
+	[ShopData.ITEM.LEVER] = {
+		view = RIFLE_VIEW,
+		build = function(model: Model, _id: string)
+			buildLeverRifle(model)
+		end,
+	},
 	[ShopData.ITEM.RIFLE] = {
 		view = RIFLE_VIEW,
 		build = function(model: Model, _id: string)

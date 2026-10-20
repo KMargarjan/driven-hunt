@@ -297,8 +297,11 @@ Shop.ROWS = {
 		-- to 165 rather than invented), five rounds is `Lever.CONFIG.MAGAZINE`, and the slug's 90 m
 		-- is `Shotgun.CONFIG.RANGE_STUDS`. A shop window that invents a ballistic claim is a shop
 		-- window that lies.
+		-- 123 CHARACTERS, against `PANEL.BLURB_MAX` of 135, which is the Designer's measured box.
+		-- The first cut said "top it up through the gate" as well and came to 152: `rowsOk` caught
+		-- it, which is what that invariant is for.
 		blurb = "Five rounds in the tube and iron sights: it reaches about 165 m where the slug "
-			.. "stops at 90. Work the lever after every shot; top it up through the gate.",
+			.. "stops at 90. Work the lever after each shot.",
 		-- BETWEEN THE SLUG AND THE SCOPED RIFLE, which is what the Director asked for. Dearer than
 		-- the archived open-sight rung (600 / 10 hunts) because that row never shipped a gun and
 		-- this one does; well under the scoped rifle's 1500, so the ladder Karen accepted -- slugs,

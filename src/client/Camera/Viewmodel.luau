@@ -1021,7 +1021,13 @@ function Viewmodel.freshShellAt(barrel: number, config, now: number): CFrame?
 	return Viewmodel.shellFeedAt(barrel, 1, config) -- seated, and it stays there
 end
 
-function Viewmodel.loadingAt(config, now: number): (number, CFrame?, number?, CFrame?)
+-- `geometry` IS A PARAMETER AND NOT A LOOKUP (task 224, and this is the Reviewer's rule rather
+-- than a convenience): the first cut of the hand-fed test read `Viewmodel.geometryNow()` here,
+-- which made a PURE function depend on which Tool happened to be in the hand -- so
+-- `rifle_client.spec`'s fabricated break-action config answered with the LEVER's geometry and the
+-- case that proves the feed exists stopped proving anything. It defaults to the drawn gun's, so
+-- every caller that passes nothing behaves exactly as it did.
+function Viewmodel.loadingAt(config, now: number, geometry: any?): (number, CFrame?, number?, CFrame?)
 	local load = config ~= nil and config.SHELL_LOAD or nil
 	if load == nil or not reload.open then
 		return 0, nil, nil, nil
@@ -1040,7 +1046,7 @@ function Viewmodel.loadingAt(config, now: number): (number, CFrame?, number?, CF
 	-- `magazineAtProgress` -- untouched.
 	-- `Viewmodel.geometryNow` AND NOT THE BARE LOCAL: the local `geometryNow` is declared further
 	-- down this file, so the name would be a nil global here and the first reload would crash.
-	if not Viewmodel.handFeedsShells(Viewmodel.geometryNow()) then
+	if not Viewmodel.handFeedsShells(geometry or Viewmodel.geometryNow()) then
 		return 0, nil, nil, nil
 	end
 	local best, bestFrame, carryBarrel, carryShell = 0, nil, nil, nil

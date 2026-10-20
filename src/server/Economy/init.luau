@@ -132,7 +132,11 @@ Economy.CONFIG = {
 	--
 	-- `economy.spec` ASSERTS BOTH NUMBERS AGAINST THE CATALOGUE rather than against themselves, so
 	-- the grant cannot fall behind a row somebody adds later without the harness saying so.
-	TEST_GRANT = { coins = 12750, hunts = 30 },
+	-- 12,750 -> 13,000 SINCE TASK 224: the lever rifle is a 650-coin rung, so the old grant no
+	-- longer covered the catalogue and `economy.spec` -- which asserts this against the sum of
+	-- every sellable row rather than against itself -- said so. 13,000 is 105 clear of the 12,895
+	-- total, which is the same headroom the old number had.
+	TEST_GRANT = { coins = 13000, hunts = 30 },
 }
 Drive.deepFreeze(Economy.CONFIG)
 

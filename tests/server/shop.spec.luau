@@ -88,10 +88,13 @@ return function()
 			expect(Shop.ORDER[4]).to.equal(Shop.ITEM.HIGH_SEAT)
 			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.RED_STAG)
 			expect(Shop.ORDER[6]).to.equal(Shop.ITEM.UNLIMITED_AMMO)
-			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.RIFLE)
-			expect(Shop.ORDER[8]).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
-			expect(Shop.ORDER[9]).to.equal(Shop.ITEM.ALWAYS_HUNTER)
-			expect(Shop.ORDER[10]).to.equal(Shop.ITEM.BUNDLE_SEASON)
+			-- TASK 224: the lever rifle at 650 lands between UNLIMITED AMMO's 900 and the scoped
+			-- rifle's 1500 in the DECLARED order, which is the wire's and the panel's.
+			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.LEVER)
+			expect(Shop.ORDER[8]).to.equal(Shop.ITEM.RIFLE)
+			expect(Shop.ORDER[9]).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
+			expect(Shop.ORDER[10]).to.equal(Shop.ITEM.ALWAYS_HUNTER)
+			expect(Shop.ORDER[11]).to.equal(Shop.ITEM.BUNDLE_SEASON)
 			expect((Shop.ITEM :: any).RIFLE_OPEN).to.equal(nil)
 			-- THE RED HAT IS OFF THE SHELF AND STILL IN THE BUILD (task 221).
 			expect(Shop.ROWS[Shop.ITEM.HAT_RED]).to.equal(nil)

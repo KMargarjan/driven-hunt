@@ -351,9 +351,13 @@ return function()
 			-- `"hinge"`, so the value itself is the assertion.
 			expect(LeverGeometry.CYCLE_KIND ~= "hinge").to.equal(true)
 			-- The generic envelope pair the viewmodel reads (design 7.2), derived from the lever box.
+			-- 1e-5 AND NOT 1e-9: a `Vector3` component is a float32, so `at.lever.size.Z` is a
+			-- rounded copy of the float64 `cycleLength` these two are derived from. The first cut
+			-- used 1e-9 and failed on exactly that -- which is the right failure for the wrong
+			-- reason, and the tolerance is the fix rather than rounding the data.
 			local at = LeverGeometry.layout(ROW)
-			expect(math.abs(at.cycleLength - at.lever.size.Z) < 1e-9).to.equal(true)
-			expect(math.abs(at.cycleZ - at.lever.at.Z) < 1e-9).to.equal(true)
+			expect(math.abs(at.cycleLength - at.lever.size.Z) < 1e-5).to.equal(true)
+			expect(math.abs(at.cycleZ - at.lever.at.Z) < 1e-5).to.equal(true)
 		end)
 
 		it("puts no loose round in the hands, where the shotgun does", function()
@@ -437,7 +441,12 @@ return function()
 
 		it("is clean against rowsOk, with the real weapon table passed in", function()
 			-- THE INVARIANT THAT MATTERS: the shop cannot sell a weapon no build ships.
-			local problems = Shop.rowsOk(Weapons.ROWS)
+			-- THE SAME THREE ARGUMENTS `deer.spec` PASSES. `rowsOk` checks the ammo a row grants
+			-- against the kinds it is given and the licence a row grants against the rows it is
+			-- given, so calling it with the weapon table alone reports four rows as granting things
+			-- no build ships -- a self-inflicted failure, not a finding.
+			local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
+			local problems = Shop.rowsOk(Weapons.ROWS, Weapons.ROWS.shotgun.AMMO_KINDS, Licences.ROWS)
 			if #problems > 0 then
 				TestKit.note("task224 rowsOk: " .. table.concat(problems, " | "))
 			end
