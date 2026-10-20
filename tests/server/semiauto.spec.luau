@@ -292,7 +292,11 @@ return function()
 			local steps = 0
 			local refusal: string? = nil
 			for _ = 1, C.MAGAZINE do
+				-- EACH `Load` HAS ITS OWN WINDOW TOO (0.38 s), so the clock advances per shell. The
+				-- version of this case that did not reported `1 Load step ... refused busy`, which
+				-- is the reducer being right and the case being impatient.
 				local next_, reason = StateMachine.apply(state, { kind = "Load" }, at, ROW)
+				at += 1.0
 				if reason ~= nil then
 					refusal = reason
 					break
