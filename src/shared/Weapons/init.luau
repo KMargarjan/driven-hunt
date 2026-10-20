@@ -98,6 +98,22 @@ export type Row = {
 	-- WHICH SIGHT THE GUN CARRIES (task 143): "scope" or "bead". nil is "scope", which is every row
 	-- written before this task -- and on a weapon with no `scope` block at all it decides nothing.
 	SIGHT: string?,
+	-- IS THIS WEAPON BOUGHT, OR CAN IT ALSO ARRIVE FREE? (task 224.) nil or false is every row
+	-- written before it, and those keep their behaviour bit-for-bit.
+	--
+	-- WHY IT EXISTS, and it was MEASURED rather than feared. `Shop.loadoutFrom` hands out EVERY id
+	-- when the ownership set is nil, and nil is "unrestricted": a world that wired no provider, a
+	-- build with the shop off, a profile that would not load, and every `weapon_*.spec`. That
+	-- direction is the safety of the whole feature -- nobody loses a gun because a DataStore was
+	-- slow -- and it is NOT weakened here. But it also means a third weapon changes what those
+	-- worlds hand out, and the DEV gate measured exactly that: the character held the LEVER and the
+	-- shotgun sat in the backpack, which is a gun the player never bought and never asked for.
+	--
+	-- THE DIRECTOR'S RULE, 2026-10-20: *"a player who has NOT bought the lever rifle must never hold
+	-- it -- the free-path default stays exactly as before 224"*. A row that sets this is carried
+	-- ONLY by a player whose ownership set actually names it. Nothing about the shotgun or the
+	-- Rigby moves, which is the point.
+	OWNED_ONLY: boolean?,
 
 	HANDLE_SIZE: Vector3,
 	HANDLE_TRANSPARENCY: number,
@@ -261,6 +277,10 @@ Weapons.ROWS = {
 		-- row that used it (`backups/2026-10-10-rifle-open-sights.md`).
 		SIGHT = "bead",
 		scope = nil,
+		-- BOUGHT, OR NOT CARRIED (task 224, the Director's rule). The unrestricted default -- what
+		-- every un-wired world and every weapon spec gets -- does NOT hand this gun out, so the free
+		-- path is bit-for-bit what it was before this weapon existed.
+		OWNED_ONLY = true,
 	} :: Row,
 }
 
@@ -322,11 +342,39 @@ end
 -- wired no provider, every `tests/server/weapon_*.spec.luau`, a build with the shop off, and a
 -- player whose profile would not load all answer nil, and all of them keep the gun they have. The
 -- PRIMARY is never taken away either way -- Karen's *"default is double barrel shotgun"*.
+-- WHICH IDS ARE EVEN CANDIDATES (task 224). `OWNED_ONLY` is applied HERE and not in `Shop`, because
+-- this is the module that owns "which of them a hunter carries" and the only one that can see the
+-- rows: `Shop.loadoutFrom` takes a LIST OF IDS precisely so it never has to know what a weapon is,
+-- and `Shop.rowsOk` takes the weapon table as a parameter for the same reason -- there is no require
+-- from the shop's data back to here and there must not be one.
+--
+-- IT NARROWS THE LIST; IT DOES NOT CHANGE THE RULE. `Shop.loadoutFrom` still decides, and still
+-- answers "everything it was given" for a nil ownership set. The PRIMARY is still never taken away.
+-- The only difference is that a bought-or-nothing weapon is not in the unrestricted list at all.
+--
+-- PURE, like everything else on this path, so both branches are reachable in a spec with no flag
+-- and no provider anywhere.
+local function carriable(owned: { [string]: boolean }?): { WeaponId }
+	if owned ~= nil then
+		-- OWNERSHIP IS ALREADY THE GATE: every id goes forward and `loadoutFrom` keeps the ones he
+		-- bought. `OWNED_ONLY` decides nothing here, which is what makes buying the gun work at all.
+		return Weapons.ORDER
+	end
+	local out: { WeaponId } = {}
+	for _, id in ipairs(Weapons.ORDER) do
+		local row = Weapons.ROWS[id]
+		if row == nil or not row.OWNED_ONLY then
+			table.insert(out, id)
+		end
+	end
+	return out
+end
+
 function Weapons.loadoutFor(rifleOn: boolean, owned: { [string]: boolean }?): { WeaponId }
 	if not rifleOn then
 		return { Weapons.PRIMARY }
 	end
-	return Shop.loadoutFrom(Weapons.ORDER, Weapons.PRIMARY, owned)
+	return Shop.loadoutFrom(carriable(owned), Weapons.PRIMARY, owned)
 end
 
 -- THE ONE FLAG READ IN THE WHOLE WEAPON SYSTEM, at this boundary, passed inward as a list -- the

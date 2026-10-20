@@ -453,6 +453,36 @@ return function()
 			expect(#problems).to.equal(0)
 		end)
 
+		it("is NEVER handed out free, and the free path is what it was before this weapon", function()
+			-- THE DIRECTOR'S RULE, 2026-10-20: *"a player who has NOT bought the lever rifle must
+			-- never hold it -- the free-path default stays exactly as before 224"*. MEASURED on the
+			-- DEV gate before the fix: the character held the LEVER and the shotgun sat in the
+			-- backpack.
+			expect(ROW.OWNED_ONLY).to.equal(true)
+			-- nil IS UNRESTRICTED, and it is the one every un-wired world and every weapon spec
+			-- gets. The lever is not in it.
+			local free = Weapons.loadoutFor(true, nil)
+			expect(#free).to.equal(2)
+			expect(free[1]).to.equal("shotgun")
+			expect(free[2]).to.equal("rifle")
+			for _, id in ipairs(free) do
+				expect(id ~= "lever").to.equal(true)
+			end
+			-- THE OTHER DIRECTION, or this case only proves the gun is missing: a man who HAS bought
+			-- it carries it, so `OWNED_ONLY` gates the free path and nothing else.
+			local bought = Weapons.loadoutFor(true, { [Shop.ITEM.LEVER] = true })
+			expect(#bought).to.equal(2)
+			expect(bought[2]).to.equal("lever")
+			-- ...AND THE TWO SHIPPED GUNS ARE UNTOUCHED BY THE FIELD, which is what makes it safe:
+			-- neither declares it, so neither's free path moved.
+			expect(Weapons.ROWS.shotgun.OWNED_ONLY).to.equal(nil)
+			expect(Weapons.ROWS.rifle.OWNED_ONLY).to.equal(nil)
+			-- THE FLAG-OFF SPAWN IS STILL THE PRIMARY ALONE.
+			local off = Weapons.loadoutFor(false, nil)
+			expect(#off).to.equal(1)
+			expect(off[1]).to.equal("shotgun")
+		end)
+
 		it("puts the gun in the loadout of the man who bought it, and nobody else's", function()
 			local owned = { [Shop.ITEM.LEVER] = true }
 			expect(Shop.ownsWeapon(owned, "lever")).to.equal(true)

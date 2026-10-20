@@ -709,12 +709,12 @@ return function()
 			-- nil IS UNRESTRICTED: today's list, which is what every world that wired no provider
 			-- gets -- including every weapon spec.
 			local unrestricted = Weapons.loadoutFor(true, nil)
-			-- THREE SINCE TASK 224, and that is the accepted cost shop design 7.1 names: nobody
-			-- loses a gun because a DataStore was slow.
-			expect(#unrestricted).to.equal(3)
+			-- STILL TWO AFTER TASK 224: the accepted cost shop design 7.1 names (*"a player who owns
+			-- nothing is handed the rifle for one drive"*) is unchanged for the rifle, and the lever
+			-- rifle is `OWNED_ONLY` so it is not in this list at all.
+			expect(#unrestricted).to.equal(2)
 			expect(unrestricted[1]).to.equal("shotgun")
 			expect(unrestricted[2]).to.equal("rifle")
-			expect(unrestricted[3]).to.equal("lever")
 			-- A set that owns nothing: the shotgun alone, which is Karen's *"default is double barrel
 			-- shotgun"*.
 			local bare = Weapons.loadoutFor(true, {})

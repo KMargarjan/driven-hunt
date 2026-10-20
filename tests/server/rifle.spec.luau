@@ -60,12 +60,14 @@ return function()
 			expect(#off).to.equal(1)
 			expect(off[1]).to.equal("shotgun")
 			local on = Weapons.loadoutFor(true)
-			-- THREE SINCE TASK 224: with no ownership set the flag carries every bought weapon, which
-			-- is `Shop.loadoutFrom`'s nil-is-unrestricted rule and the accepted cost shop design 7.1
-			-- already names.
-			expect(#on).to.equal(3)
+			-- STILL TWO AFTER TASK 224, AND THAT IS THE POINT OF `OWNED_ONLY`. The table holds three
+			-- weapons now, but the FREE PATH -- no ownership set, which is every un-wired world and
+			-- every weapon spec -- is bit-for-bit what it was before the lever rifle existed. The
+			-- Director's rule, 2026-10-20: *"a player who has NOT bought the lever rifle must never
+			-- hold it"*.
+			expect(#on).to.equal(2)
+			expect(on[1]).to.equal("shotgun")
 			expect(on[2]).to.equal("rifle")
-			expect(on[3]).to.equal("lever")
 			expect(Weapons.FLAG).to.equal("RIFLE")
 		end)
 
