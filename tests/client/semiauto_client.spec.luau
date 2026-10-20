@@ -265,8 +265,13 @@ return function()
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local sight = Camera.Viewmodel.sight()
 				expect(sight).to.be.ok()
-				local dot = clone:FindFirstChild("RedDot") :: BasePart
+				-- `Dot` IS THE LIT BALL; `Optic` IS THE SIGHT'S UPLOADED HOUSING. Two names on
+				-- purpose: the first cut of this case asked for the housing and measured the two
+				-- 0.56 studs apart, which is the housing's mesh offset and not a defect in the aim.
+				local dot = clone:FindFirstChild("Dot") :: BasePart
 				expect(dot).to.be.ok()
+				expect(dot.Material).to.equal(Enum.Material.Neon)
+				expect(clone:FindFirstChild("Optic")).to.be.ok()
 				-- ...AND NO PART MAY TAKE THE ATTACHMENT'S NAME, on this gun or any other.
 				local named = clone:FindFirstChild("Sight")
 				expect(named == nil or named:IsA("Attachment")).to.equal(true)
@@ -274,12 +279,9 @@ return function()
 				local miss = (dot.Position - at.Position).Magnitude
 				TestKit.note(
 					string.format(
-						"task225 dot %s vs sight attachment %s (local %s, beadOffset %s, dot.Parent=%s): %.6f apart",
+						"task225 dot %s vs the sight attachment %s: %.6f studs apart",
 						tostring(clone.CFrame:ToObjectSpace(dot.CFrame).Position),
 						tostring((sight :: CFrame).Position),
-						tostring(clone.CFrame:ToObjectSpace(CFrame.new(at.Position)).Position),
-						tostring(SemiAutoGeometry.beadOffset(ROW)),
-						tostring(dot.Parent and dot.Parent.Name),
 						miss
 					)
 				)

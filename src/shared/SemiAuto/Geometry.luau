@@ -119,7 +119,7 @@ Geometry.MESH_KEYS = table.freeze({
 	Stock = "semiauto.stock",
 	Bolt = "semiauto.bolt",
 	Lifter = "semiauto.lifter",
-	-- `RedDot` AND NOT `Sight`, AND THE NAME IS LOAD-BEARING. `"Sight"` is already taken twice
+	-- `Optic` AND NOT `Sight`, AND THE NAME IS LOAD-BEARING. `"Sight"` is already taken twice
 	-- over: `Camera.Viewmodel`'s `SIGHT_NAME` is the ATTACHMENT `buildNewGun` puts on the
 	-- Handle to mark where the eye is laid, and `Weapon.Hardware.SIGHT_NAME` is the same name
 	-- on the world Tool. `Viewmodel.sight()` resolves it with `FindFirstChild(SIGHT_NAME)` and
@@ -131,7 +131,12 @@ Geometry.MESH_KEYS = table.freeze({
 	-- The piece name, this key and the row's `MESH_NAMES` entry must all say the same word:
 	-- `meshFor(piece.name)` looks the published mesh up BY PIECE NAME and `publishGunPiece`
 	-- walks this table's keys.
-	RedDot = "semiauto.sight",
+	--
+	-- `Optic` IS THE SIGHT'S BODY AND `Dot` IS THE LIT BALL INSIDE IT, and keeping those two
+	-- words apart matters: the first cut of this fix called the MESH `RedDot`, and the spec
+	-- that looks for the dot then found the sight's housing instead and measured them 0.56
+	-- studs apart. One is an uploaded mesh, the other is drawn.
+	Optic = "semiauto.sight",
 })
 
 -- THE RED DOT'S OWN PLANE, measured on the sight's optical path: its rear glass centres at
@@ -472,9 +477,9 @@ function Geometry.pieces(config): { Piece }
 		{
 			-- NOT `"Sight"`: that name is the aim ATTACHMENT's, on this gun and on the world Tool
 			-- alike. See `MESH_KEYS` above for what happens when a part takes it.
-			name = "RedDot",
+			name = "Optic",
 			group = "body" :: Gun.Group,
-			meshKey = Geometry.MESH_KEYS.RedDot,
+			meshKey = Geometry.MESH_KEYS.Optic,
 			meshOffset = meshAt,
 			size = at.sight.size,
 			offset = CFrame.new(at.sight.at),

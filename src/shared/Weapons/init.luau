@@ -356,11 +356,11 @@ Weapons.ROWS = {
 			"semiauto.lifter",
 			"semiauto.sight",
 		},
-		-- `RedDot` AND NOT `Sight`: `Hardware.SIGHT_NAME` is `"Sight"`, and `Hardware.setSight`
+		-- `Optic` AND NOT `Sight`: `Hardware.SIGHT_NAME` is `"Sight"`, and `Hardware.setSight`
 		-- finds the Handle's sight ATTACHMENT with `FindFirstChild` -- so a worn MESH of that
 		-- name is found first and the attachment is lost. The same collision on the drawn gun
 		-- cost the aimed pose its sight plane (the Reviewer, round 1, finding 1).
-		MESH_NAMES = { "Model", "Barrel", "Stock", "Bolt", "Lifter", "RedDot" },
+		MESH_NAMES = { "Model", "Barrel", "Stock", "Bolt", "Lifter", "Optic" },
 		SOUND = SemiAuto.CONFIG.SOUND,
 		-- NO `scope` BLOCK AT ALL, which is what makes aiming the side-by-side's path rather than
 		-- the Rigby's: no eyepiece, no mask, no magnification, the gun and both gloves left in the
