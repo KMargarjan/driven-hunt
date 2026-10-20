@@ -1,5 +1,90 @@
 # Escalations
 
+## 2026-10-20 - Task 221 round 5: `NEEDS KAREN` -- the Forest Test is running PRE-221 CODE
+
+**STOP, one click.** The Forest Test place is open, but it is **not Rojo-Connected to this branch**,
+so every proof the round asked for would have been shot against the OLD build. Measured, not
+assumed, from inside the running place:
+
+```
+placeId=130094961655666
+Money=false | Shop.BUNDLES=false order=4
+RS children: Ballistics,ClientTests,...,Licences,Lobby,Map,Places,Report,Rifle,Shop,Shotgun,...
+```
+
+* **`ReplicatedStorage.Money` does not exist there.** It is the module this whole task's `$` rests
+  on.
+* **`Shop.ORDER` has 4 entries, not 10**, and `Shop.BUNDLES` is nil -- that is the catalogue as it
+  stood BEFORE task 221 (hat, slug, beater licence, rifle).
+
+`servePlaceIds` in `default.project.json` already lists `130094961655666`, so `rojo serve` is
+willing to serve it; the Studio simply has not Connected (or connected before these files existed
+and has not reconciled). DEV is fine -- the one-player gate passes there.
+
+**Had I taken the frames anyway they would have shown the old four-row shop and no `$`, and been
+worse than no evidence.** That is why this round produced no contact sheet.
+
+### THE EXACT CLICK
+
+1. In the **Driven Hunt Forest Test** Studio window, press the Rojo plugin's **Connect**.
+2. Accept the reconcile dialog (it will list the additions -- `ReplicatedStorage.Money` among them).
+3. Leave it in **Edit** and say so.
+
+Then this round's proof runs: the shop contact sheet, `$` on the top bar and the results, the live
+purchase (flags are already right there -- read directly from the place, **`COINS=true SHOP=true`**;
+I did NOT use `tools/flags.py`, because it resolves by Studio MODE and not by place, TASKS.md 216b).
+
+### The climb (218a(h)): STILL NOT PROVEN, and it is NOT a "CLIMB FAILS"
+
+I will not call it a failure, because I could not get a trustworthy negative. What happened:
+
+* The seats are there: `Workspace.HighSeats` holds **3 seats** (the road layout's `{1,4,7}`), and
+  `Seat4`'s ladder is a real **`TrussPart`, 2.00 x 13.80 x 2.00**, foot at **Y 131.72**, deck top at
+  **Y 144.52** -- a 12.8-stud truss spanning foot to deck, which is the geometry the engine's
+  `Climbing` state needs. That much is evidenced.
+* I placed the hunter at the ladder's foot (**placedOff 0.00**, start Y 135.15, needing +9.37) with
+  the default control module **disabled**, and drove `Humanoid:Move` toward the truss for 13 s.
+  **Rise 0.00, and not one `StateChanged` event** -- not even Running to Freefall.
+* The probe environment is not the problem: a tick probe in the same context measured
+  **163 heartbeats over 3.27 s**, so frames really were advancing.
+
+So the character does not walk under `Humanoid:Move` from a probe, and **I cannot separate "the
+ladder does not work" from "my rig cannot walk him"**. A real climb needs replayed input (the
+harness's own scenario mechanism) or a human at the keyboard. **My first attempt also produced a
+FALSE PASS** -- it placed him at Y 143 against a deck top of 109 and duly reported `reached=true`;
+I caught it on the numbers and threw it away. Flagging that because a metric that passes trivially
+is exactly what rule E says to report as suspect.
+
+**218a(h) stands: the climb has still never been evidenced live.** Three rounds have now been asked
+for it and none has produced a route; the route I wrote this round
+(`driven-hunt-runs/221-climb-client.luau`) places him correctly and is reusable, but the walk is
+the missing half.
+
+### Where the branch stands
+
+* One-player gate: `[harness] PASS: 33/33 checks @ 61ad71a... (clean tree) scope=all`, only DEV open.
+* Two-player gate: the Director's `[harness2] PASS: 35/35 @ 61ad71a...`, **twice**.
+* CI green. No code changed this round -- the dispatch said proof without code changes, and none
+  was needed.
+* **Not done: the contact sheet, the `$` frames, the live purchase, smoke (rule A), and therefore
+  the review.** Rule 5 is still not satisfied. All of it is behind the one Connect click.
+
+### Queued as 221b (the Director's instruction), with the numbers
+
+Spec LOAD times, from the `TestKit` instrument added in round 4 -- these are top-level yields, not
+test time, and they block the whole suite before TestEZ starts:
+
+| run | file | load |
+|---|---|---|
+| two-player, shooter | `shoot_boar.spec` | **11.2 s / 9.8 s** |
+| two-player, driver | `weapon_client.spec` | **15.0 s** |
+| one-player | `weapon_client.spec` | **17.1 s** (reproduced twice) |
+
+Everything else in both suites loads in under 40 ms. Not a blocker now that test2 passes; worth a
+task because ~17 s of every run is one file's top-level wait.
+
+---
+
 ## 2026-10-20 - Task 221 round 4: the test2 regression is REAL and NOT YET FOUND
 
 **I did not find the cause, and I am not going to pretend otherwise.** What follows is what the
