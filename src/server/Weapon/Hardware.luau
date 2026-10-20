@@ -650,6 +650,7 @@ function Hardware.equip(tool: Tool, player: Player)
 		return
 	end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	print(string.format("[t224probe] Hardware.equip asked for %s for %s", tool.Name, player.Name))
 	if humanoid ~= nil then
 		humanoid:EquipTool(tool)
 		Hardware.equipStats.now += 1

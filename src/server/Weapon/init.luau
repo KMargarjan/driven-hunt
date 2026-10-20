@@ -802,6 +802,16 @@ local function watchEquipped(player: Player, tool: Tool, id: string)
 			entry.held = nil
 		end
 		local next = StateMachine.setEquipped(state, equipped)
+		if next ~= state and equipped then
+			print(
+				string.format(
+					"[t224probe] %s became EQUIPPED for %s; parent=%s",
+					id,
+					player.Name,
+					tostring(tool.Parent)
+				)
+			)
+		end
 		if next ~= state then
 			setState(player, id, next)
 			-- THROUGH THE `equip` BUCKET rather than forced: see `publish`.
