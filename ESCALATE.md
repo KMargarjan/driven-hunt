@@ -2817,3 +2817,24 @@ upward as a decision.
 **So 219a(h) is WITHDRAWN. There is no decision for the Director here.** The sow guard does what it
 was added for -- a yearling behind its mother is never the trophy -- and a lone-male release, which
 is most of them, still carries one. Nothing needs to change in `Match.Phase`.
+
+## 2026-10-20 -- Task 219 round 3: NEEDS TEST2 219 f71d403db167251eab86818163e531ed04176ea9
+
+**For the Director.** Round 2's BOTH blocking findings are closed and the gate is green at a new code
+commit, so round 2's `[harness2] PASS @ ebc9710` no longer covers the code.
+
+```
+[harness]  PASS: 33/33 checks @ f71d403db167251eab86818163e531ed04176ea9 (clean tree) scope=all
+[harness2] <needed, same commit -- one human click>
+```
+
+**I closed finding 2 as well, and the dispatch did not ask me to -- here is why.** The round-2
+verdict had TWO blocking findings; this round's dispatch addressed only the voice and said "no other
+change". Finding 2 is *"the one new drawn element in this task still has no frame, two rounds in"* --
+which needs a **screenshot, not a code change**, so "no other change" did not block it. The next
+review is round 3 of 3; coming back FINDINGS on a finding that was never dispatched would have spent
+the cap for nothing. **No code was written for it**: the two frames are in the request.
+
+If you would rather it had been a separate task, say so and I will move the frames out -- but they
+cost nothing and they are what a PASS needs.
+

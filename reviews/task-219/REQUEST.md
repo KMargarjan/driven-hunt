@@ -1,13 +1,72 @@
 # Task 219 -- the legendary boar
 
 Task: 219
-Round: 2
+Round: 3
 Base: 43a7d3d
-Code commit: ebc9710
+Code commit: f71d403
 
 Karen, 2026-10-10: *"Legendary animals: one or a few, e.g. a legendary boar"*, and 2026-10-11:
 *"legendary animals worth more"*. Task 160 wrote `POINTS.KIND.legendary = 25` as a price with no
 animal behind it. This is the animal, and the price did not move.
+
+## Round 3: both of round 2's findings, and the frame that was owed for two rounds
+
+**FINDING 1 -- the trophy sounded like a sow, and the gate showed it before the fix.** As asked:
+
+```
+[harness] FAIL: 31/33 checks @ bb6a95dadfbcff2e0c4fc98738b63fc30e81d150 (clean tree) scope=all
+```
+
+That commit is the new spec case plus the one export it needs (`Boar.voiceRow`, a pure read, no
+behaviour), deliberately committed BEFORE the fix so the failure is the assertion and not a nil
+call. It failed on the legendary's samples being the module-level generic pair -- a sow's voice at
+pitch 1.0, higher than an ordinary male's 0.8.
+
+**THE FIX IS A FALLBACK, NOT A ROW, AND THAT IS THE WHOLE POINT.** `Body.voiceRow` now resolves a
+kind with no voice of its own through its `model`, which is the same resolution
+`Runtime:_modelTemplate` makes for the asset key. A row alone would have fixed the legendary and
+left the FIFTH kind to make it a fourth time -- **this task shipped the same omission class three
+times**: `BoarAssetsBoot`'s `pairs(KINDS)` (the boot died, no boar was ever dressed), `HitLog`'s
+`byKind` (the trophy counted as an `unknown`), and `SOUND.VOICE`. Any future animal built on the
+male's asset now sounds like the male without anybody remembering anything.
+
+**...and the trophy does get a row, for the one thing it should not borrow:** `pitch = 0.72` against
+the male's 0.8, on HIS samples. A 35 % bigger animal should sound lower, and his beast-like scream is
+one Karen has already heard; a new sample would be a second thing to judge. Written out rather than
+derived from his, so it stays one number she can turn.
+
+Check: `boar_legendary.spec`, *"has a VOICE -- and so does every kind, which is the omission this
+task made three times"*. It walks **every kind in `KINDS.ORDER`** rather than naming the one that was
+missed; it covers the **fallback arm** with a fabricated fifth kind that has no voice row (L-093: a
+case per arm); it keeps the unknown-kind and not-a-voice-cue arms answering nil; and it pins the
+pitch **ladder** -- legendary 0.72 < male 0.8 < female 1.0 < cub 1.4 -- rather than the presence of a
+row.
+
+**One correction I had to make to my own case, and the src fix was never what failed.** My first
+draft asserted that every kind's ids DIFFER from the generic pair; the gate refused it, because the
+male's and the cub's own `cry` **are** `SOUND.DEATH.ids` by the config's own choice -- only their
+`death` and `grunt` differ. Sharing a sample deliberately is not the defect; having no row is. The
+case now asserts that the row supplies a list for the cue and that `voiceIds` returns THAT list
+(identity, not contents).
+
+### FINDING 2 -- the frames, which needed no code change at all
+
+Round 2 was right that my stated reason was not a reason: a staged card needs no spawned animal.
+The dispatch for this round said "no other change", and **a screenshot is not a change** -- so this
+finding is closed with evidence rather than deferred, because leaving it open would have spent the
+last round on it.
+
+Both frames were driven through the **real** client module, not a probe's copy of it: a probe's
+`require` returns a separate `Hud` whose `build` never ran (`Card.frame()` answered nil), so the
+payload is fired down `Report.Remotes.ReportEvent` from the server and the genuine module draws it.
+
+* **`.screenshots/20261020T055315Z-219-card-legendary.png`** -- `HIT - BUCK 4/9` on top, the bone
+  plate with the black boar and four red dots (the chest one the fatal diamond), and **`LEGENDARY
+  BOAR`** below the plate on the dark card. Measured on the drawn GUI: `cardH=144`, the tag's top is
+  **10 px below the art's bottom**, and all four dots are above it.
+* **`.screenshots/20261020T055343Z-219-card-ordinary.png`** -- the same shot with `animalKind =
+  "male"`: identical card, tag hidden and empty, and the six-pixel band under the plate reads as a
+  margin rather than as a gap. That is the cost stated in round 2, now looked at.
 
 ## Round 2: the four blocking findings, and the Director's look
 
@@ -260,6 +319,12 @@ tracked -- the real server logged `shots=0, refused=0, badRequests=0`, which is 
 
 BOTH LINES, at the same commit, on a clean tree:
 
+```
+[harness]  PASS: 33/33 checks @ f71d403db167251eab86818163e531ed04176ea9 (clean tree) scope=all
+[harness2] <NEEDED at this commit -- round 2's was at ebc9710 and is superseded>
+```
+
+ROUND 2's PAIR, superseded by the commit above:
 ```
 [harness]  PASS: 33/33 checks @ ebc97103617413543a7dae7882544c2775746771 (clean tree) scope=all
 [harness2] PASS: 35/35 checks @ ebc97103617413543a7dae7882544c2775746771 (clean tree)
