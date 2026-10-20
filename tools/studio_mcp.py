@@ -672,6 +672,10 @@ BLAST_RADIUS = (
     # The rifle (task 140): its numbers and its drawn geometry are a gun's, and the table that
     # holds BOTH weapons' rows is the weapon system's.
     ("src/shared/Rifle/", "gun"),
+    # The lever-action rifle (task 224): its numbers and its drawn geometry are a gun's, exactly as
+    # `src/shared/Rifle/` is, and for the same reason -- `lever.spec` is in `gun` as well as in
+    # `weapon` and `shop`, so a scoped run over `Lever.CONFIG` plays the spec that asserts it.
+    ("src/shared/Lever/", "gun"),
     ("src/shared/Weapons/", "weapon"),
     # The flight (task 185): the pure ballistics maths. It resolves to `weapon`, not `gun` -- `gun`
     # is the DRAWN gun's geometry (`gun.spec`, `gun_client.spec`) and has nothing to do with
@@ -780,6 +784,8 @@ SCOPE_SPECS = {
              "tests/server/deer.spec.luau",
              "tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau",
              "tests/client/shop_panel.spec.luau",
+             # Task 224: the lever rifle's row, its grant and its place on the ladder.
+             "tests/server/lever.spec.luau",
              # Task 201: the shop's palette IS the game's now, and this spec is what asserts the
              # alias rather than a second copy.
              "tests/client/hud_style.spec.luau",
@@ -800,6 +806,9 @@ SCOPE_SPECS = {
     # change would not play the spec that tests the change.
     "gun": ("tests/server/gun.spec.luau", "tests/client/gun_client.spec.luau",
             "tests/server/rifle.spec.luau", "tests/server/ballistics.spec.luau",
+            # Task 224: `src/shared/Lever/` resolves to `gun` for `src/shared/Rifle/`'s reason, so
+            # the spec that asserts that config has to be played by a scoped run over it.
+            "tests/server/lever.spec.luau",
             "tests/server/weapon_state.spec.luau"),
     "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau"),
     "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau"),
@@ -813,6 +822,9 @@ SCOPE_SPECS = {
                "tests/server/boar_hit.spec.luau",
                "tests/server/boar_shot.spec.luau",
                "tests/server/rifle.spec.luau",
+               # Task 224: the lever rifle drives `Weapon.cycleRefusal` and the reducer, which are
+               # `src/server/Weapon/` -- this scope -- as well as its own numbers.
+               "tests/server/lever.spec.luau",
                "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
                "tests/client/rifle_client.spec.luau",
                "tests/client/shoot_boar.spec.luau",

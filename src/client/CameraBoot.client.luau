@@ -199,6 +199,24 @@ if weaponModule then
 					Weapon.Sound.magazine(Camera.poseConfig(), voiced)
 				end
 			end
+			-- ...AND THE EDGE INTO A GATE FEED (task 224), beside it and by exactly the same rule.
+			-- `Load` is one cartridge: the lever rifle's `RELOAD` is `Break`, five `Load`s and
+			-- `Close`, so this fires once per round that actually goes in. The SHOTGUN also runs
+			-- `Load` steps and is deliberately untouched -- its row carries no `SOUND` block, so
+			-- `voiceFor` answers nil and nothing plays, which is exactly today.
+			--
+			-- IT IS AN EDGE AND NOT A LEVEL, so two `Load` steps in a row each get their own click
+			-- only because `wasAction` has been something else in between; `runCycle` publishes the
+			-- step name on every step, and the step before each `Load` after the first is that same
+			-- `Load`. MEASURED CONSEQUENCE, said out loud: the gate clicks on the FIRST round of a
+			-- run and not on each of the five. Making it one per round needs a step SEQUENCE number
+			-- on the wire, which is a protocol change and not this task's (queued as 224a).
+			if nowAction == "Load" and wasAction ~= "Load" then
+				local voiced = Weapons.row(snapshot ~= nil and snapshot.weapon or nil)
+				if Weapon.Sound.voiceFor(voiced, "load") ~= nil then
+					Weapon.Sound.load(Camera.poseConfig(), voiced)
+				end
+			end
 			wasAction = nowAction
 			-- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142). The SERVER SAYS WHICH STEP IT
 			-- IS RUNNING (`snapshot.action`) and `busyFor` is that step's own clock, so this is a

@@ -198,7 +198,78 @@ RIGBY_PLAN = {
     "dropNodes": ["Lens_Low"],
 }
 
-PLANS = {"model-b": MODEL_B_PLAN, "rigby": RIGBY_PLAN}
+# THE LEVER-ACTION RIFLE (task 224). Karen, 2026-10-20: *"so you have things to do / deer /
+# weapons / make it work like we have now"*, and she bought the model herself: Jeick, "Lever action
+# rifle" on Fab -- a Ruger-made Marlin 1895 SBL in .45-70.
+#
+# IT IS 4.0 STUDS AND NOT THE OTHER TWO GUNS' 4.4, and that is a fact about the guns rather than a
+# convenience. A Rigby stalking rifle and a Beretta 486 are both about 45 inches, which is where 4.4
+# came from; a Marlin 1895 is about 40.5, so 40.5 / 45 * 4.4 = 3.96. A lever carbine is VISIBLY
+# shorter and that is half of what it looks like. Everything downstream of it is per-row data
+# (`Lever.CONFIG.HANDLE_SIZE`, `MUZZLE_OFFSET`, `Lever.Geometry.MESH_SIZE_STUDS`), and this gun's
+# poses are authored fresh either way, so the shorter gun costs nothing.
+#
+# THE FILE IS ALREADY AXIS-ALIGNED, which is the one thing this model makes easy: forward is +X (the
+# barrel runs to +2.446 and the butt plate to -2.459) and up is +Z, so there is no Sketchfab tilt to
+# measure out -- `measure_frame` reports right/up/fwd within 0.0008 of the file's own axes. The
+# measured bore line then lands at y +0.1192 against the +0.1200 this plan asks for, which is the
+# barrel's muzzle ring against its own principal axis: 0.0008 studs, and it is the plan's number that
+# is used.
+#
+# ONE MATERIAL (`Marlin`) ON ALL 18 NODES, so the Rigby's material-1 lens problem cannot arise and
+# there is no `dropNodes` list: every node is placed, and refusal 4 is what guarantees it.
+#
+# THE NODE NAMES LIE ABOUT THE ACTION, EXACTLY AS THE RIGBY'S DID, and the geometry says so. Measured
+# in the Handle frame (muzzle at z -2.0, butt at +2.0, bore line at y +0.12):
+#   * `Trigger frame` IS THE FINGER LEVER, not a trigger guard that stays put: Y[-0.3949 +0.0138]
+#     Z[+0.1749 +0.8357] -- a loop 0.66 long hanging 0.41 BELOW the receiver and sweeping back under
+#     the wrist. On a Marlin the finger lever *is* the guard, which is why the file has no separate
+#     guard node. The `Trigger` itself is a 106-triangle blade inside that loop.
+#   * `Bolt action` is the BREECH BOLT: Y[+0.0789 +0.1456] Z[-0.0443 +0.5395], inside the receiver at
+#     barrel height. A lever does not live up there. It is in the static group -- welded to the loop
+#     it would swing in an arc below the receiver, which is a worse lie than a bolt that holds still.
+#   * `slide ` (with the artist's trailing space) IS THE LOADING GATE: X[+0.0169 +0.0412], the only
+#     node in the file lying ENTIRELY on one side of the centre line, on the receiver's right flank.
+#   * `Magazine` is the TUBE under the barrel (Z[-1.8997 -0.9643]) and `Magazine release` its front
+#     cap and plug. A Marlin has no magazine release and neither node moves.
+#
+# THE PICATINNY RAIL STAYS, and that is a measurement rather than a taste. The rear sight (`Sights`)
+# sits at Y[+0.1901 +0.2301] -- ON the rail's top face -- while the receiver's top is +0.1759, so
+# dropping the rail leaves the rear sight floating over a bare slot. Task 147 hit this exact trap on
+# the Rigby's scope rings and the Director cancelled it. This gun is sold with a rail and ghost-ring
+# irons on it: the rail is the sight base, and the gun aims down its own irons.
+#
+# Design: docs/design/lever-rifle.md (sections 10.2, 10.3)
+# Note:   docs/research/2026-10-20-lever-action.md
+LEVER_PLAN = {
+    "tool": TOOL_VERSION,
+    "name": "lever",
+    "lengthStuds": 4.0,
+    # `Gun.BARREL_Y`, the same number both shipped guns put their bore line at: what is MEASURED off
+    # this model is everything relative to it (the sights, the pivot, the wrist), not this.
+    "boreUpStuds": 0.12,
+    # The barrel's own principal axis IS the bore line (one tube).
+    "axisFromNode": "Barrel",
+    # The rail is certainly above the bore, and on this gun it carries the rear sight as well.
+    "upTowardNode": "Picatinny rail",
+    # ...and the stock is certainly behind the muzzle.
+    "backTowardNode": "Stock",
+    "anchorSize": 1.0e-4,
+    # THREE GROUPS, AND ONLY THE LEVER MOVES. Three and not the Rigby's four because this model has
+    # no scope to take off: its sights are on the rail, inside the action group.
+    "groups": [
+        {"name": "stock", "nodes": ["Stock", "Butt plate_low", "fastening belt2.001"]},
+        {"name": "action", "nodes": ["Gun frame", "Barrel", "Picatinny rail", "Front sight",
+                                     "Sights", "Magazine", "Magazine release", "front stoke",
+                                     "front stoke1", "fastening belt2", "Trigger", "Hammer",
+                                     "Bolt action", "slide "]},
+        {"name": "lever", "nodes": ["Trigger frame"]},
+    ],
+    # Nothing is dropped: every node this model has belongs on the gun.
+    "dropNodes": [],
+}
+
+PLANS = {"model-b": MODEL_B_PLAN, "rigby": RIGBY_PLAN, "lever": LEVER_PLAN}
 
 
 class Refused(Exception):

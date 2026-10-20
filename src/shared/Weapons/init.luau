@@ -28,9 +28,11 @@ local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
 -- deliberate and one-way: this module requires the shop's DATA and the shop's data requires nothing
 -- of this -- `Shop.rowsOk` takes the weapon table as a PARAMETER precisely so there is no cycle.
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
+local Lever = require(ReplicatedStorage:WaitForChild("Lever"))
 local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
+local LeverGeometry = require(ReplicatedStorage:WaitForChild("Lever"):WaitForChild("Geometry"))
 local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 
 local Weapons = {}
@@ -203,6 +205,63 @@ Weapons.ROWS = {
 		scope = Rifle.CONFIG.scope,
 		SIGHT = "scope",
 	} :: Row,
+	-- THE LEVER-ACTION RIFLE (task 224). Karen, 2026-10-20: *"weapons / make it work like we have
+	-- now"*, and she bought the model: a Ruger-made Marlin 1895 SBL in .45-70.
+	--
+	-- IT READS NOTHING OUT OF `Rifle.CONFIG`, and that is the rule rather than an oversight: the two
+	-- rifles share NO number, only machinery. `Rifle`'s own header says why -- the file that holds
+	-- Karen's accepted numbers must not become the file everybody edits -- and `lever.spec` walks
+	-- this row field by field against `Lever.CONFIG`, so a number that moves fails the harness
+	-- instead of drifting.
+	lever = {
+		id = "lever",
+		-- FIVE CHARACTERS, AND IT MUST STAY AT SEVEN OR FEWER: `ReportPanel.DETAIL_COLUMNS`' `gun`
+		-- cell is 88 px, and task 219 measured `SHOTGUN` at 46 px in that cell's own face.
+		label = "LEVER",
+		toolName = "Lever",
+		slot = 3,
+		RANGE_STUDS = Lever.CONFIG.RANGE_STUDS,
+		PELLETS = Lever.CONFIG.PELLETS,
+		SPREAD_FULL_DEG = Lever.CONFIG.SPREAD_FULL_DEG,
+		MUZZLE_STUDS_PER_S = Lever.CONFIG.MUZZLE_STUDS_PER_S,
+		DRAG_PER_STUD = Lever.CONFIG.DRAG_PER_STUD,
+		ZERO_STUDS = Lever.CONFIG.ZERO_STUDS,
+		GRAVITY_SCALE = Lever.CONFIG.GRAVITY_SCALE,
+		AMMO_KINDS = Lever.CONFIG.AMMO_KINDS,
+		AMMO_LABEL = Lever.CONFIG.AMMO_LABEL,
+		INITIAL_AMMO = Lever.CONFIG.INITIAL_AMMO,
+		START_RESERVE = Lever.CONFIG.START_RESERVE,
+		BARRELS = Lever.CONFIG.BARRELS,
+		BARREL_DELAY = Lever.CONFIG.BARREL_DELAY,
+		AUTO_CYCLE = Lever.CONFIG.AUTO_CYCLE,
+		CYCLE = Lever.CONFIG.CYCLE,
+		CYCLE_TOTAL = Lever.CONFIG.CYCLE_TOTAL,
+		-- The tube's own rules: the throw ejects the fired case only, the reload is cartridges
+		-- through the gate one at a time, and the Hud prints rounds over capacity.
+		CYCLE_EJECTS = Lever.CONFIG.CYCLE_EJECTS,
+		RELOAD = Lever.CONFIG.RELOAD,
+		RELOAD_TOTAL = Lever.CONFIG.RELOAD_TOTAL,
+		MAGAZINE = Lever.CONFIG.MAGAZINE,
+		AUTO_RELOAD_WHEN_EMPTY = Lever.CONFIG.AUTO_RELOAD_WHEN_EMPTY,
+		READOUT = Lever.CONFIG.READOUT,
+		HANDLE_SIZE = Lever.CONFIG.HANDLE_SIZE,
+		HANDLE_TRANSPARENCY = Lever.CONFIG.HANDLE_TRANSPARENCY,
+		GRIP = Lever.CONFIG.GRIP,
+		MUZZLE_OFFSET = Lever.CONFIG.MUZZLE_OFFSET,
+		HANDLE_COLOR = Lever.CONFIG.LOOK.wood,
+		LOOK = Lever.CONFIG.LOOK,
+		-- The action is worn as `Model` -- the body, the piece that must be there for the gun to
+		-- count as dressed -- and the other two hang off the Handle beside it.
+		ASSET_KEYS = { "lever.action", "lever.stock", "lever.lever" },
+		MESH_NAMES = { "Model", "Stock", "Lever" },
+		SOUND = Lever.CONFIG.SOUND,
+		-- NO `scope` BLOCK AT ALL, which is what makes the aim the shotgun's path rather than the
+		-- Rigby's: no eyepiece, no reticle, no sight picture, the gun and both gloves left in the
+		-- view. `SIGHT = "bead"` is task 143's machinery, kept on purpose when task 148 retired the
+		-- row that used it (`backups/2026-10-10-rifle-open-sights.md`).
+		SIGHT = "bead",
+		scope = nil,
+	} :: Row,
 }
 
 -- Hotbar order: slot 1 and slot 2, which are the keys Roblox itself binds.
@@ -215,7 +274,10 @@ Weapons.ROWS = {
 -- `Geometry.sightKind`, `Geometry.beadOffset`, the `Bead` piece's `onlyFor` and `ShapeRifle`'s
 -- `skipFor` are what let ONE geometry draw a gun with or without glass, which is the shape the next
 -- sight (Karen also asked for an Aimpoint) wants.
-Weapons.ORDER = { "shotgun", "rifle" }
+-- SLOT 3 IS THE LEVER RIFLE (task 224). It was the open-sighted Rigby until task 148, and the
+-- ordering was measured then (`1 Shotgun, 2 Rifle, 3 RifleOpen`), so this is a rung being
+-- re-occupied rather than a new mechanism.
+Weapons.ORDER = { "shotgun", "rifle", "lever" }
 -- What `AUTO_EQUIP` puts in the hand at a spawn. A spawn is bit-for-bit what it was before the
 -- rifle existed.
 Weapons.PRIMARY = "shotgun"
@@ -232,6 +294,7 @@ table.freeze(Weapons.ORDER)
 local GEOMETRY = table.freeze({
 	shotgun = Gun,
 	rifle = RifleGeometry,
+	lever = LeverGeometry,
 })
 
 function Weapons.row(id: WeaponId?): Row?

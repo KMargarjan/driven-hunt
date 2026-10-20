@@ -31,14 +31,16 @@ end
 
 return function()
 	describe("the weapon table", function()
-		it("holds exactly the two weapons, in hotbar order, frozen all the way down", function()
+		it("holds exactly the three weapons, in hotbar order, frozen all the way down", function()
 			local ids = Weapons.ids()
-			-- TWO AGAIN SINCE TASK 148. Task 143 added a third -- the same rifle with the glass off,
-			-- on slot 3 -- and Karen took it out: *"please remove rifle without scope so we don't
-			-- implement now"*. The ORDER is the hotbar's (task 141).
-			expect(#ids).to.equal(2)
+			-- THREE SINCE TASK 224. It was two from task 148 -- Karen took the open-sighted Rigby out
+			-- (*"please remove rifle without scope so we don't implement now"*) -- and slot 3 is
+			-- re-occupied by the LEVER-ACTION rifle, which is a different gun and not that one with
+			-- its glass off. The ORDER is the hotbar's (task 141).
+			expect(#ids).to.equal(3)
 			expect(ids[1]).to.equal("shotgun")
 			expect(ids[2]).to.equal("rifle")
+			expect(ids[3]).to.equal("lever")
 			expect(Weapons.row("rifle_open")).to.equal(nil)
 			expect(Weapons.row("nope")).to.equal(nil)
 			expect(Weapons.row(nil)).to.equal(nil)
@@ -58,9 +60,12 @@ return function()
 			expect(#off).to.equal(1)
 			expect(off[1]).to.equal("shotgun")
 			local on = Weapons.loadoutFor(true)
-			-- TWO AGAIN SINCE TASK 148: the flag carries the scoped rifle and nothing else.
-			expect(#on).to.equal(2)
+			-- THREE SINCE TASK 224: with no ownership set the flag carries every bought weapon, which
+			-- is `Shop.loadoutFrom`'s nil-is-unrestricted rule and the accepted cost shop design 7.1
+			-- already names.
+			expect(#on).to.equal(3)
 			expect(on[2]).to.equal("rifle")
+			expect(on[3]).to.equal("lever")
 			expect(Weapons.FLAG).to.equal("RIFLE")
 		end)
 

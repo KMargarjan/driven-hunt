@@ -80,7 +80,8 @@ return function()
 			-- hunter always - We can also make a few packages bundles"*. TEN ROWS: her seven items
 			-- plus three packages. The RED HAT is not one of them -- *"From shop remove red heat"* --
 			-- and it is in `Shop.RETIRED` instead, still granting to whoever bought one.
-			expect(#Shop.ORDER).to.equal(10)
+			-- ELEVEN SINCE TASK 224: the lever rifle's row.
+			expect(#Shop.ORDER).to.equal(11)
 			expect(Shop.ORDER[1]).to.equal(Shop.ITEM.SLUG)
 			expect(Shop.ORDER[2]).to.equal(Shop.ITEM.BEATER_LICENCE)
 			expect(Shop.ORDER[3]).to.equal(Shop.ITEM.BUNDLE_HIDE)
@@ -396,12 +397,13 @@ return function()
 			expect(#order).to.equal(#Shop.ORDER)
 			expect(order[1]).to.equal(groups[1].rows[1].id)
 			-- INSIDE A SHELF THE WIRE'S OWN ORDER SURVIVES, and the wire is `Shop.ORDER`: cheapest
-			-- first. THE WEAPONS SHELF HAS HELD ONE ROW SINCE TASK 196 -- Karen, 2026-10-16:
-			-- *"remove rifle without scope soon don't need"* -- so what the assertion below proves
-			-- today is that the shelf's single row is the one the wire names, and the ordering it
-			-- was written for comes back with the next weapon.
-			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.RIFLE)
-			expect(#groups[1].rows).to.equal(1)
+			-- first. THE WEAPONS SHELF HELD ONE ROW FROM TASK 196 TO TASK 224 -- and the case's own
+			-- comment then said *"the ordering it was written for comes back with the next weapon"*.
+			-- It has: the lever rifle is 650 and the scoped rifle is 1500, so the shelf is two rows
+			-- cheapest-first and this assertion is doing the job it was written for again.
+			expect(#groups[1].rows).to.equal(2)
+			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.LEVER)
+			expect(groups[1].rows[2].id).to.equal(Shop.ITEM.RIFLE)
 			-- ...AND A SHELF WITH THREE ROWS KEEPS THE WIRE'S CHEAPEST-FIRST ORDER, which is the
 			-- ordering the case above was written for and could not show with one row.
 			local packages = groups[5].rows
@@ -702,9 +704,12 @@ return function()
 			-- nil IS UNRESTRICTED: today's list, which is what every world that wired no provider
 			-- gets -- including every weapon spec.
 			local unrestricted = Weapons.loadoutFor(true, nil)
-			expect(#unrestricted).to.equal(2)
+			-- THREE SINCE TASK 224, and that is the accepted cost shop design 7.1 names: nobody
+			-- loses a gun because a DataStore was slow.
+			expect(#unrestricted).to.equal(3)
 			expect(unrestricted[1]).to.equal("shotgun")
 			expect(unrestricted[2]).to.equal("rifle")
+			expect(unrestricted[3]).to.equal("lever")
 			-- A set that owns nothing: the shotgun alone, which is Karen's *"default is double barrel
 			-- shotgun"*.
 			local bare = Weapons.loadoutFor(true, {})

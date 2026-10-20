@@ -130,6 +130,10 @@ Shop.ITEM = table.freeze({
 	-- (the shop opened on a page headed SOON) and she removed it. The row is archived in
 	-- `backups/2026-10-16_task-196_shop-rifle-open-row.md` (rule 7).
 	RIFLE = "rifle.scoped",
+	-- THE LEVER-ACTION RIFLE (task 224), and it re-occupies the rung the archived "RIFLE, OPEN" row
+	-- held (`backups/2026-10-16_task-196_shop-rifle-open-row.md`: 600 coins, 10 hunts). The id is
+	-- `rifle.lever` and not `lever.rifle` so the two rifles sort together in any id-ordered listing.
+	LEVER = "rifle.lever",
 	-- KAREN'S v1 LIST, 2026-10-20 (task 221).
 	HIGH_SEAT = "access.highseat",
 	UNLIMITED_AMMO = "ammo.unlimited",
@@ -283,6 +287,27 @@ Shop.ROWS = {
 		hunts = 25,
 		sale = true,
 		grants = { weapon = "rifle" },
+	} :: Row,
+	[Shop.ITEM.LEVER] = {
+		id = Shop.ITEM.LEVER,
+		label = "LEVER RIFLE",
+		category = "weapon",
+		-- EVERY NUMBER IN THIS SENTENCE IS ONE THIS REPO MEASURED, which is `Row.blurb`'s own rule:
+		-- 600 studs is `Lever.CONFIG.RANGE_STUDS` (168 m at the map's 0.28 m per stud, rounded DOWN
+		-- to 165 rather than invented), five rounds is `Lever.CONFIG.MAGAZINE`, and the slug's 90 m
+		-- is `Shotgun.CONFIG.RANGE_STUDS`. A shop window that invents a ballistic claim is a shop
+		-- window that lies.
+		blurb = "Five rounds in the tube and iron sights: it reaches about 165 m where the slug "
+			.. "stops at 90. Work the lever after every shot; top it up through the gate.",
+		-- BETWEEN THE SLUG AND THE SCOPED RIFLE, which is what the Director asked for. Dearer than
+		-- the archived open-sight rung (600 / 10 hunts) because that row never shipped a gun and
+		-- this one does; well under the scoped rifle's 1500, so the ladder Karen accepted -- slugs,
+		-- then this, then the scope -- still climbs. ~16 drives at the rates `Economy.CONFIG` pays.
+		-- KAREN'S, AND HERS TO RETUNE.
+		price = 650,
+		hunts = 12,
+		sale = true,
+		grants = { weapon = "lever" },
 	} :: Row,
 	[Shop.ITEM.ALWAYS_HUNTER] = {
 		id = Shop.ITEM.ALWAYS_HUNTER,
@@ -451,6 +476,9 @@ Shop.ORDER = table.freeze({
 	Shop.ITEM.HIGH_SEAT,
 	Shop.ITEM.RED_STAG,
 	Shop.ITEM.UNLIMITED_AMMO,
+	-- 650 sits between the high seat's 600 and the deer licence's 750, which is where the panel's
+	-- cheapest-first ordering puts it.
+	Shop.ITEM.LEVER,
 	Shop.ITEM.RIFLE,
 	Shop.ITEM.BUNDLE_MARKSMAN,
 	Shop.ITEM.ALWAYS_HUNTER,
@@ -472,6 +500,7 @@ Shop.ALL_ORDER = table.freeze({
 	Shop.ITEM.HIGH_SEAT,
 	Shop.ITEM.RED_STAG,
 	Shop.ITEM.UNLIMITED_AMMO,
+	Shop.ITEM.LEVER,
 	Shop.ITEM.RIFLE,
 	Shop.ITEM.BUNDLE_MARKSMAN,
 	Shop.ITEM.ALWAYS_HUNTER,
@@ -750,6 +779,10 @@ Shotgun.deepFreeze(Shop.CONFIG)
 Shop.BASE_AMMO = table.freeze({
 	shotgun = table.freeze({ Buck = true }),
 	rifle = table.freeze({ Slug = true }),
+	-- ...AND THE LEVER RIFLE'S .45-70 IS FREE WITH THE LEVER RIFLE, for the same reason and in the
+	-- same words: it is a 650-coin purchase, and selling a man a rifle and then no rounds for it
+	-- would be the shop taking money for nothing. The wire word is `Slug` on all three guns.
+	lever = table.freeze({ Slug = true }),
 })
 
 -- ---------------------------------------------------------------- reads of the catalogue
