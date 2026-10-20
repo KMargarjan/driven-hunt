@@ -137,7 +137,7 @@ return function()
 			expect(headroom >= HighSeats.MAX_JUMP_STUDS).to.equal(true)
 			-- ...and the margin that is left is the number the stand selection's relief test uses,
 			-- so the two cannot drift apart.
-			expect(math.abs((headroom - HighSeats.MAX_JUMP_STUDS) - HighSeats.JUMP_RELIEF_STUDS) < 1e-6).to.equal(true)
+			expect(math.abs((headroom - HighSeats.MAX_JUMP_STUDS) - HighSeats.JUMP_RELIEF_STUDS) < 1e-3).to.equal(true)
 		end)
 
 		it("keeps the deck's underside above the floor net's own near probe", function()
@@ -225,6 +225,10 @@ return function()
 			end
 		end)
 
+		-- THE TOLERANCE IS 1e-3 AND NOT 1e-6 THROUGHOUT, and it is a fact about the engine rather
+		-- than slack: `Vector3` and `CFrame` components are FLOAT32, so a y of 155.5 cannot be
+		-- stored to better than about 1e-5 and a 1e-6 comparison fails on arithmetic that is
+		-- exactly right. `forest_markers.spec` compares at 1e-3 for the same reason.
 		it("cuts each leg to its own ground and still leaves the deck level", function()
 			local pieces = HighSeats.plan(STAND, HILL)
 			local samples = HighSeats.footprint()
@@ -235,20 +239,20 @@ return function()
 				expect(leg).never.to.equal(nil)
 				-- ITS OWN ground, which is what stops one leg hanging and the next one buried --
 				-- lesson L-024/L-025, the bug task 207 and task 196 both paid for.
-				expect(math.abs(bottomOf(leg) - (HILL[index] - embed)) < 1e-6).to.equal(true)
-				expect(math.abs(leg.cframe.Position.X - (STAND.X + samples[index].dx)) < 1e-6).to.equal(true)
-				expect(math.abs(leg.cframe.Position.Z - (STAND.Z + samples[index].dz)) < 1e-6).to.equal(true)
+				expect(math.abs(bottomOf(leg) - (HILL[index] - embed)) < 1e-3).to.equal(true)
+				expect(math.abs(leg.cframe.Position.X - (STAND.X + samples[index].dx)) < 1e-3).to.equal(true)
+				expect(math.abs(leg.cframe.Position.Z - (STAND.Z + samples[index].dz)) < 1e-3).to.equal(true)
 				table.insert(tops, topOf(leg))
 			end
 			for index = 2, #tops do
-				expect(math.abs(tops[index] - tops[1]) < 1e-6).to.equal(true)
+				expect(math.abs(tops[index] - tops[1]) < 1e-3).to.equal(true)
 			end
 		end)
 
 		it("puts the deck's top face where the rule and the marker both read it", function()
 			local pieces = HighSeats.plan(STAND, HILL)
 			local deck = pieceNamed(pieces, "Deck")
-			expect(math.abs(topOf(deck) - HighSeats.deckTopFor(HILL)) < 1e-6).to.equal(true)
+			expect(math.abs(topOf(deck) - HighSeats.deckTopFor(HILL)) < 1e-3).to.equal(true)
 			expect(deck.size).to.equal(HighSeats.DIMS.DECK_SIZE)
 		end)
 
@@ -259,7 +263,7 @@ return function()
 			-- `TrussPart` is constrained to 2 x 2 x n, so its cross-section is not ours to choose.
 			expect(ladder.size.X).to.equal(HighSeats.DIMS.LADDER_SIZE_STUDS)
 			expect(ladder.size.Z).to.equal(HighSeats.DIMS.LADDER_SIZE_STUDS)
-			expect(math.abs(bottomOf(ladder) - (HILL[5] - HighSeats.DIMS.FOOT_EMBED_STUDS)) < 1e-6).to.equal(true)
+			expect(math.abs(bottomOf(ladder) - (HILL[5] - HighSeats.DIMS.FOOT_EMBED_STUDS)) < 1e-3).to.equal(true)
 			expect(
 				math.abs(topOf(ladder) - (HighSeats.deckTopFor(HILL) + HighSeats.DIMS.LADDER_OVER_DECK_STUDS)) < 1e-6
 			).to.equal(true)
@@ -270,7 +274,7 @@ return function()
 			local east = pieceNamed(pieces, "RailSE")
 			local west = pieceNamed(pieces, "RailSW")
 			local gap = (east.cframe.Position.X - east.size.X / 2) - (west.cframe.Position.X + west.size.X / 2)
-			expect(math.abs(gap - HighSeats.DIMS.LADDER_GAP_STUDS) < 1e-6).to.equal(true)
+			expect(math.abs(gap - HighSeats.DIMS.LADDER_GAP_STUDS) < 1e-3).to.equal(true)
 			-- A Roblox character is 2 studs across, so the opening has to be wider than that.
 			expect(gap > 2).to.equal(true)
 		end)
@@ -281,7 +285,7 @@ return function()
 			for _, name in ipairs({ "RailN", "RailE", "RailW", "RailSE", "RailSW" }) do
 				local board = pieceNamed(pieces, name)
 				expect(board).never.to.equal(nil)
-				expect(math.abs(topOf(board) - wanted) < 1e-6).to.equal(true)
+				expect(math.abs(topOf(board) - wanted) < 1e-3).to.equal(true)
 			end
 		end)
 

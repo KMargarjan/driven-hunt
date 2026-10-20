@@ -213,9 +213,16 @@ end
 -- to stop. A seat is the opposite case: the deck's Y is also the platform rule's own line
 -- (`minYFor`), so referencing the HIGHEST foot makes "nobody standing under this seat is above the
 -- line" arithmetic instead of hope.
+--
+-- IT WALKS BY INDEX AND NOT WITH `ipairs`, AND A SPEC CAUGHT THAT (the full run at `6b6999a`).
+-- `ipairs` STOPS AT THE FIRST NIL, so `{140, 142, nil, 141, 143}` -- a world that could read four
+-- of its five footprint samples -- answered `142 + 12.5` instead of nil, and `plan` then went on to
+-- build a seat with a leg whose ground it never had. A hole in the readings is exactly the case
+-- this function exists to refuse, so it has to be able to SEE one.
 function HighSeats.deckTopFor(grounds: { number? }): number?
 	local highest: number? = nil
-	for _, y in ipairs(grounds) do
+	for index = 1, #HighSeats.footprint() do
+		local y = grounds[index]
 		if type(y) ~= "number" then
 			return nil
 		end
@@ -229,9 +236,12 @@ function HighSeats.deckTopFor(grounds: { number? }): number?
 	return (highest :: number) + HighSeats.DIMS.DECK_RISE_STUDS
 end
 
+-- BY INDEX, for `deckTopFor`'s reason: `ipairs` cannot see a hole, and a hole is the thing to
+-- refuse.
 function HighSeats.spreadOf(grounds: { number? }): number?
 	local low: number?, high: number? = nil, nil
-	for _, y in ipairs(grounds) do
+	for index = 1, #HighSeats.footprint() do
+		local y = grounds[index]
 		if type(y) ~= "number" then
 			return nil
 		end
@@ -366,9 +376,9 @@ end
 -- DETERMINISTIC: the same arguments twice give the same seventeen pieces, so a frame Karen judges
 -- can be rebuilt from a commit and a defect can be bisected.
 function HighSeats.plan(stand: Vector3, grounds: { number? }): ({ Piece }?, string?)
-	if #grounds ~= #HighSeats.footprint() then
-		return nil, string.format("grounds: %d readings, expected %d", #grounds, #HighSeats.footprint())
-	end
+	-- NO `#grounds` GUARD. `#` on a table with a hole is not defined to be either count in Luau, so
+	-- a list that is short and a list that is holed are the SAME question -- "is every one of the
+	-- five samples a number" -- and `deckTopFor` is the one place that asks it.
 	local deckTopY = HighSeats.deckTopFor(grounds)
 	if deckTopY == nil then
 		return nil, "ground: a footprint sample could not be read"
