@@ -225,9 +225,9 @@ return function()
 			end
 		end)
 
-		-- THE TOLERANCE IS 1e-3 AND NOT 1e-6 THROUGHOUT, and it is a fact about the engine rather
+		-- THE TOLERANCE IS 1e-3 AND NOT 1e-3 THROUGHOUT, and it is a fact about the engine rather
 		-- than slack: `Vector3` and `CFrame` components are FLOAT32, so a y of 155.5 cannot be
-		-- stored to better than about 1e-5 and a 1e-6 comparison fails on arithmetic that is
+		-- stored to better than about 1e-5 and a 1e-3 comparison fails on arithmetic that is
 		-- exactly right. `forest_markers.spec` compares at 1e-3 for the same reason.
 		it("cuts each leg to its own ground and still leaves the deck level", function()
 			local pieces = HighSeats.plan(STAND, HILL)
@@ -265,7 +265,7 @@ return function()
 			expect(ladder.size.Z).to.equal(HighSeats.DIMS.LADDER_SIZE_STUDS)
 			expect(math.abs(bottomOf(ladder) - (HILL[5] - HighSeats.DIMS.FOOT_EMBED_STUDS)) < 1e-3).to.equal(true)
 			expect(
-				math.abs(topOf(ladder) - (HighSeats.deckTopFor(HILL) + HighSeats.DIMS.LADDER_OVER_DECK_STUDS)) < 1e-6
+				math.abs(topOf(ladder) - (HighSeats.deckTopFor(HILL) + HighSeats.DIMS.LADDER_OVER_DECK_STUDS)) < 1e-3
 			).to.equal(true)
 		end)
 
