@@ -91,6 +91,51 @@ return function()
 			)
 		end)
 
+		it("wears a model the composition root can actually find an asset for", function()
+			-- THIS CASE EXISTS BECAUSE THE HARNESS COULD NOT SEE THE DEFECT, and the defect was the
+			-- worst one in this task. `BoarAssetsBoot` asserts, at server start, that every kind has
+			-- a model it can map to an asset key -- and its loop walked `pairs(KINDS)` with three
+			-- names skipped by hand, so the two fields task 219 added to that table (`legendary` and
+			-- the `LEGENDARY` rarity block) failed the assert, the script died before
+			-- `Boar.setModelSource`, and **not one boar in the game was ever dressed.** A full
+			-- 33/33 gate said nothing, because no spec runs a boot script; it was found by looking
+			-- at a live server's output.
+			--
+			-- WHAT A SPEC *CAN* HOLD is the invariant the boot depends on, without copying its asset
+			-- keys: every kind's `model` must name a kind that exists and that wears its OWN asset.
+			-- A new kind whose `model` is a typo, or a chain of models pointing at each other, fails
+			-- here -- in the gate -- instead of at somebody's next Play.
+			local kinds = CONFIG.KINDS
+			for _, kind in ipairs(kinds.ORDER) do
+				local row = kinds[kind]
+				expect(type(row)).to.equal("table")
+				expect(type(row.model)).to.equal("string")
+				local base = kinds[row.model]
+				expect(base).to.be.ok() -- the model names a kind, not a string nothing answers
+				expect(base.model).to.equal(row.model) -- ...and that kind wears its own: no chains
+			end
+			-- AND THE TROPHY'S IS THE MALE'S, which is the whole of "no upload, no new asset id".
+			expect(kinds.legendary.model).to.equal("male")
+			expect(kinds.male.model).to.equal("male")
+			TestKit.note(
+				string.format(
+					"boar-legendary: %d kinds wear %s distinct model(s)",
+					#kinds.ORDER,
+					tostring(#(function()
+						local seen, list = {}, {}
+						for _, kind in ipairs(kinds.ORDER) do
+							local model = kinds[kind].model
+							if not seen[model] then
+								seen[model] = true
+								table.insert(list, model)
+							end
+						end
+						return list
+					end)())
+				)
+			)
+		end)
+
 		it("carries a coat tint, and no other animal does", function()
 			-- THE COAT IS MULTIPLIED on the `SurfaceAppearance` the bought asset already carries --
 			-- measured: it has exactly one, and its `Color` reads (1, 1, 1). A `MeshPart.Color` write
