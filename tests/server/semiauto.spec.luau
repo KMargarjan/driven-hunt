@@ -281,6 +281,13 @@ return function()
 				at += 1.0
 			end
 			expect(live(state)).to.equal(2)
+			-- ...AND THE RELOAD OPENS THE ACTION FIRST, which is `RELOAD`'s own first step and not
+			-- an incantation: `Load` is refused `"is-closed"` on a shut gun, and the version of
+			-- this case without it reported `0 Load step(s)` and read as though the pocket were
+			-- empty. On this weapon `Break` opens nothing -- it is the hand leaving the grip for
+			-- the port -- but the reducer's precondition is the reducer's.
+			state = StateMachine.apply(state, { kind = "Break" }, at, ROW)
+			at += 1.0
 			local before = state.reserve.Buck
 			local steps = 0
 			local refusal: string? = nil
