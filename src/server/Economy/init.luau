@@ -119,16 +119,20 @@ Economy.CONFIG = {
 	-- and afford nothing she is meant to try. A drive is 300 seconds and pays ~20-60 coins, so
 	-- earning the 1500-coin rifle in a playtest is forty drives.
 	--
-	-- 12,000 BUYS THE WHOLE CATALOGUE THAT IS FOR SALE (task 221): the items are
-	-- 120 + 250 + 600 + 900 + 1500 + 2000 = 5,370 and the packages 575 + 1800 + 3750 = 6,125, so
-	-- everything for sale is $11,495 and this covers it with $505 over. The RED STAG CARD is not
-	-- counted -- it cannot be bought. 30 HUNTS is exactly the highest gate in the catalogue (ALWAYS
+	-- 12,750 BUYS THE WHOLE CATALOGUE THAT IS FOR SALE (task 221, raised in task 223): the items
+	-- are 120 + 250 + 600 + 750 + 900 + 1500 + 2000 = 6,120 and the packages
+	-- 575 + 1800 + 3750 = 6,125, so everything for sale is $12,245 and this covers it with $505
+	-- over -- the same margin 12,000 left before the DEER LICENCE was sellable. **THE CARD IS
+	-- COUNTED NOW BECAUSE IT CAN BE BOUGHT**: Karen's red deer arrived on 2026-10-20, so the row
+	-- that was `sale = false` went on sale in the same commit as the animal, and a test grant that
+	-- did not cover it would leave her unable to try the one thing this task added.
+	-- 30 HUNTS is exactly the highest gate in the catalogue (ALWAYS
 	-- HUNTER and THE FULL SEASON), so every rung is unlocked and nothing is bought FOR her -- she
 	-- still presses every button and sees every state.
 	--
 	-- `economy.spec` ASSERTS BOTH NUMBERS AGAINST THE CATALOGUE rather than against themselves, so
 	-- the grant cannot fall behind a row somebody adds later without the harness saying so.
-	TEST_GRANT = { coins = 12000, hunts = 30 },
+	TEST_GRANT = { coins = 12750, hunts = 30 },
 }
 Drive.deepFreeze(Economy.CONFIG)
 

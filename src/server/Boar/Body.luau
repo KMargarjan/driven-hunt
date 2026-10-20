@@ -300,7 +300,15 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 	-- been -- what this line buys is that the rule is LIVE on every real shot rather than only in a
 	-- spec. Boar-owned data the boar publishes about itself; the weapon only reads
 	-- (shotgun design section 6.4, the idiom `Damageable` and `HitZone` already follow).
-	part:SetAttribute(Licences.SPECIES_ATTRIBUTE, Licences.ROWS.boar.species)
+	--
+	-- ...AND SINCE TASK 223 IT COMES OFF THE KIND'S OWN ROW, which is the whole of the species seam
+	-- on this side. `Body.kindRow` was already called one block above to size this animal, and
+	-- `row.species` is one string on it: `"reddeer"` on the stag, the hind and the calf, and ABSENT
+	-- on all four boar rows -- so `or Licences.ROWS.boar.species` is what leaves every boar
+	-- unchanged in meaning without one of those rows being edited. A red deer published as a boar
+	-- would be shootable by everybody, which is Karen's rule inverted.
+	local speciesRow = Body.kindRow(kind, config)
+	part:SetAttribute(Licences.SPECIES_ATTRIBUTE, (speciesRow and speciesRow.species) or Licences.ROWS.boar.species)
 	part.Anchored = false
 	part.CanCollide = true
 	-- ...AND IT DOES NOT SHOVE ITS OWN KIND (task 127 round 3). See `Boar.CONFIG.BOAR_COLLISION`:

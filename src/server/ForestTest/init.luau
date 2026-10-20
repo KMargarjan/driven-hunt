@@ -794,7 +794,7 @@ function ForestTest.release(now: number): (number, string)
 	-- `Boar.CONFIG.SOUNDER.COMPOSITIONS`, because who is in a flock is the boar system's fact and
 	-- which flock comes next is the drive's. A composition carries its own size.
 	local composition = boarConfig().SOUNDER.COMPOSITIONS[spec.composition]
-	local wanted = if composition then Boar.compositionSize(composition) else (spec.size or 1)
+	local wanted = if composition then Boar.compositionSize(composition, Boar.CONFIG) else (spec.size or 1)
 	local size = math.min(wanted, room)
 	-- ...AND IF THERE IS NOT ROOM FOR THE WHOLE FLOCK the SHAPE is dropped rather than quietly
 	-- half-filled: "five males and three females" arriving as three animals of whichever kind the
@@ -1690,7 +1690,7 @@ function ForestTest.stockWood(now: number): string?
 	local parts = {}
 	for index, spec in ipairs(rest.groups) do
 		local composition = boarConfig().SOUNDER.COMPOSITIONS[spec.composition]
-		local wanted = if composition then Boar.compositionSize(composition) else 1
+		local wanted = if composition then Boar.compositionSize(composition, Boar.CONFIG) else 1
 		-- THE CAP IS CHECKED BEFORE THE SPAWN, exactly as `ForestTest.release` checks it and for the
 		-- same reason: `Runtime:spawn` ASSERTS at `maxBoars`, and an assert inside the Heartbeat
 		-- kills the step rather than the spawn.

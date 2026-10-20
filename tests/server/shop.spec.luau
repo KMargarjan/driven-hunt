@@ -136,31 +136,32 @@ return function()
 			end).to.throw()
 		end)
 
-		-- THE ONE ROW KAREN ASKED FOR THAT CANNOT BE BOUGHT, AND WHY IT CANNOT (task 221).
-		it("shows the red stag card and refuses to sell it, and the refusal is structural", function()
+		-- THE ROW KAREN ASKED FOR, AND IT IS BUYABLE SINCE TASK 223 BECAUSE THE ANIMAL EXISTS.
+		--
+		-- IT IS THE SAME INVARIANT AS TASK 221'S, SATISFIED RATHER THAN WEAKENED, and this case
+		-- still drives BOTH arms: the shipped catalogue passes, and a hand-made one whose species
+		-- is not shipped is still refused by name. That second half is the half that could rot.
+		it("sells the deer licence, and would still refuse one for an animal nobody ships", function()
 			local row = Shop.ROWS[Shop.ITEM.RED_STAG]
-			expect(row.sale).to.equal(false)
+			expect(row.sale).to.equal(true)
 			expect(row.grants.licence).to.equal("reddeer")
-			-- THERE IS NO RED STAG IN THIS GAME, and that is the fact the shop reads.
-			expect(Licences.ROWS.reddeer.shipped).to.equal(false)
+			-- IT COVERS THE WHOLE SPECIES, so it may not be named for one of its three animals.
+			expect(row.label).to.equal("DEER LICENCE")
+			-- THE RED DEER IS IN THIS GAME, and that is the fact the shop reads.
+			expect(Licences.ROWS.reddeer.shipped).to.equal(true)
 			expect(Licences.ROWS.boar.shipped).to.equal(true)
-			-- THE DOOR REFUSES IT with the reason whose notice already reads NOT IN THE GAME YET.
-			expect(Shop.refuse(ctx({ itemId = Shop.ITEM.RED_STAG }))).to.equal(Shop.REASON.NOT_SALE)
-			-- ...AND I3a IS WHAT STOPS SOMEBODY FLIPPING `sale`. `Licences.ROWS` has known
-			-- `reddeer` since task 171, so a check that only asked *does the table know it* would
-			-- PASS -- which is why `shipped` exists. Driven against a pretend catalogue, because no
-			-- shipped row is in that state.
+			expect(Shop.refuse(ctx({ itemId = Shop.ITEM.RED_STAG }))).never.to.equal(Shop.REASON.NOT_SALE)
+			-- ...AND I3a IS STILL WHAT STOPS SOMEBODY SELLING A LICENCE FOR AN ANIMAL THAT IS NOT
+			-- THERE. `Licences.ROWS` has known `reddeer` since task 171, so a check that only asked
+			-- *does the table know it* would PASS even then -- which is why `shipped` exists.
+			-- Driven against a pretend licence table, because no shipped row is in that state.
 			local pretend = {}
-			for id, existing in pairs(Shop.ROWS) do
+			for name, existing in pairs(Licences.ROWS) do
 				local copy = table.clone(existing)
-				copy.grants = table.clone(existing.grants)
-				pretend[id] = copy
+				copy.shipped = false
+				pretend[name] = copy
 			end
-			pretend[Shop.ITEM.RED_STAG].sale = true
-			local saved = Shop.ROWS;
-			(Shop :: any).ROWS = pretend
-			local broken = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS, Licences.ROWS);
-			(Shop :: any).ROWS = saved
+			local broken = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS, pretend)
 			expect(#broken).to.equal(1)
 			expect(string.find(broken[1], "reddeer") ~= nil).to.equal(true)
 		end)
@@ -172,15 +173,16 @@ return function()
 			local problems = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS, Licences.ROWS)
 			expect(#problems).to.equal(0)
 			expect(#Shop.ORDER <= Shop.CONFIG.MAX_ITEMS).to.equal(true)
-			-- EXACTLY ONE ROW IS SHOWN AND NOT SELLABLE, and it is the red stag card.
+			-- EVERY SHOWN ROW IS SELLABLE SINCE TASK 223. Task 221's one exception was the red
+			-- stag card, and the animal it waited for arrived; `sale` is kept for the next rung
+			-- announced before it ships, and the case above is what proves it still bites.
 			local notForSale = {}
 			for _, id in ipairs(Shop.ORDER) do
 				if Shop.ROWS[id].sale ~= true then
 					table.insert(notForSale, id)
 				end
 			end
-			expect(#notForSale).to.equal(1)
-			expect(notForSale[1]).to.equal(Shop.ITEM.RED_STAG)
+			expect(#notForSale).to.equal(0)
 			-- EVERY ROBUX PRODUCT ID IS nil IN THIS BUILD (task 221, I12): there are no products
 			-- yet, and a fabricated id is a shop window that lies. Task 222 is what fills them.
 			for _, id in ipairs(Shop.ALL_ORDER) do

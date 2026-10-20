@@ -775,6 +775,9 @@ SCOPE_SPECS = {
     # The shop (task 178): the catalogue and the pure rules, the door against fakes, the panel, and
     # the ECONOMY's own spec -- because `Economy.purchase` is the only thing that writes a purchase.
     "shop": ("tests/server/shop.spec.luau", "tests/server/shop_door.spec.luau",
+             # Task 223: the RED STAG CARD became the DEER LICENCE and went on sale, which is
+             # `rowsOk`'s I3a satisfied rather than weakened.
+             "tests/server/deer.spec.luau",
              "tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau",
              "tests/client/shop_panel.spec.luau",
              # Task 201: the shop's palette IS the game's now, and this spec is what asserts the
@@ -801,6 +804,9 @@ SCOPE_SPECS = {
     "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau"),
     "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau"),
     "weapon": ("tests/server/ballistics.spec.luau",
+               # Task 223: `src/shared/Licences` flipped `reddeer.shipped`, and this spec drives
+               # the fire gate from a REAL deer trunk rather than from the stub.
+               "tests/server/deer.spec.luau",
                "tests/server/weapon_hits.spec.luau", "tests/server/weapon_look.spec.luau",
                "tests/server/weapon_rearm.spec.luau", "tests/server/weapon_shot.spec.luau",
                "tests/server/weapon_state.spec.luau", "tests/server/weapon_equip.spec.luau",
@@ -820,6 +826,10 @@ SCOPE_SPECS = {
                "tests/server/hit_card.spec.luau",
                "tests/server/zz_horn.spec.luau"),
     "boar": ("tests/server/boar_behaviour.spec.luau", "tests/server/boar_behaviour_live.spec.luau",
+             # Task 223: the red deer -- the species seam, the licence pair on a real trunk,
+             # the spawn mix and the calf penalty. It is in SIX scopes, because six owners'
+             # files can break it; the dual-membership idiom is `zz_horn` and `boar_hit`.
+             "tests/server/deer.spec.luau",
              "tests/server/boar_body.spec.luau", "tests/server/boar_brain.spec.luau",
              "tests/server/boar_calm.spec.luau", "tests/server/boar_kinds.spec.luau",
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
@@ -846,6 +856,8 @@ SCOPE_SPECS = {
                # describing it -- so moving either number plays it.
                "tests/server/high_seats.spec.luau"),
     "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
+              # Task 223: `POINTS.KIND` grew three rows and `SCENE.ANIMAL_SCALES` three more.
+              "tests/server/deer.spec.luau",
               # Task 218: `ForestTest.Markers` raises a seated stand's post onto a deck and
               # `ForestTest.standArea` carries its `minY`, both read by the drive and its fire gate.
               "tests/server/high_seats.spec.luau",
@@ -917,7 +929,9 @@ SCOPE_SPECS = {
     "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau"),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).
-    "assets": ("tests/server/assets_seam.spec.luau", "tests/server/boar_model.spec.luau"),
+    "assets": ("tests/server/assets_seam.spec.luau", "tests/server/boar_model.spec.luau",
+               # Task 223: three deer model rows and eleven declared clip keys.
+               "tests/server/deer.spec.luau"),
     # The game's light (task 215): the Designer's numbers as data, the pure flag boundary and the
     # adopt-don't-duplicate writer -- plus the lobby's own specs, because the three lodge lamp
     # numbers this scope asserts live in `Lobby.CONFIG.LODGE` and `lobby.spec` is what counts the
@@ -968,7 +982,9 @@ SCOPE_SPECS = {
     # payload is built in `HitLog.recordHit` -- and `src/shared/Report/` and `src/server/HitLog/` are
     # exactly the two paths that resolve to this scope. A change to either MUST play them.
     "report": ("tests/server/report_silhouette.spec.luau", "tests/client/report_panel.spec.luau",
-               "tests/server/hit_card.spec.luau", "tests/client/hit_card.spec.luau"),
+               "tests/server/hit_card.spec.luau", "tests/client/hit_card.spec.luau",
+               # Task 223: the deer silhouettes, the calf scale and the stag's trophy word.
+               "tests/server/deer.spec.luau"),
     "input": ("tests/client/input_driving.spec.luau",),
     "sync": ("tests/server/sync.spec.luau", "tests/client/client_env.spec.luau"),
 }

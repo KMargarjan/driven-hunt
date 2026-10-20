@@ -764,8 +764,15 @@ return function()
 			-- AND THE SCENE'S OWN FALLBACK TABLE STILL AGREES WITH THE ANIMAL, which is what keeps
 			-- the grey-box branch and the model branch showing one size: `Match` must not require
 			-- `Boar`, so the numbers are copied -- and copied numbers need a case that compares them.
+			-- BOAR KINDS ONLY SINCE TASK 223, and that is the trap this loop would otherwise walk
+			-- straight into: a DEER's `KINDS[kind].scale` is against the STAG's 7.05 studs, while
+			-- every row of `ANIMAL_SCALES` is against the boar male's 5.5. The two numbers for one
+			-- deer are different ON PURPOSE. What they must agree about is the BAKED LENGTH, and
+			-- `tests/server/deer.spec.luau` asserts exactly that, for all seven kinds.
 			for kind, scale in pairs(Match.CONFIG.SCENE.ANIMAL_SCALES) do
-				expect(math.abs(scale - CONFIG.KINDS[kind].scale) < EPSILON).to.equal(true)
+				if CONFIG.KINDS[kind].species == nil then
+					expect(math.abs(scale - CONFIG.KINDS[kind].scale) < EPSILON).to.equal(true)
+				end
 			end
 
 			(male :: Model):Destroy();
@@ -869,8 +876,15 @@ return function()
 
 			-- 6. THE GATHERING lays it out 35 % longer than the males beside it, and the scene's own
 			--    scales are the same four numbers the boar config holds.
+			-- BOAR KINDS ONLY SINCE TASK 223, and that is the trap this loop would otherwise walk
+			-- straight into: a DEER's `KINDS[kind].scale` is against the STAG's 7.05 studs, while
+			-- every row of `ANIMAL_SCALES` is against the boar male's 5.5. The two numbers for one
+			-- deer are different ON PURPOSE. What they must agree about is the BAKED LENGTH, and
+			-- `tests/server/deer.spec.luau` asserts exactly that, for all seven kinds.
 			for kind, scale in pairs(Match.CONFIG.SCENE.ANIMAL_SCALES) do
-				expect(math.abs(scale - CONFIG.KINDS[kind].scale) < EPSILON).to.equal(true)
+				if CONFIG.KINDS[kind].species == nil then
+					expect(math.abs(scale - CONFIG.KINDS[kind].scale) < EPSILON).to.equal(true)
+				end
 			end
 			expect(Match.CONFIG.SCENE.ANIMAL_SCALES.legendary).to.equal(1.35)
 

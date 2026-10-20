@@ -85,24 +85,65 @@ local CLIP_KEYS = {
 	digWalk = Assets.KEYS.boarDigWalk,
 }
 
+-- ...AND THE DEER'S ELEVEN (task 223). A SECOND TABLE AND NOT A MERGED ONE, because `idle`, `walk`,
+-- `trot`, `run`, `turnLeft`, `turnRight`, `deathLeft`, `deathRight`, `hitFront`, `hitBack` and
+-- `smell` are clip names in BOTH species: one flat table would have one of them win, and the loser's
+-- animals would play the other animal's published ids on their own rig. `CLIPS_BY_SPECIES` below is
+-- what the lookup is keyed by.
+local DEER_CLIP_KEYS = {
+	idle = Assets.KEYS.deerIdle,
+	walk = Assets.KEYS.deerWalk,
+	trot = Assets.KEYS.deerTrot,
+	run = Assets.KEYS.deerRun,
+	turnLeft = Assets.KEYS.deerTurnLeft,
+	turnRight = Assets.KEYS.deerTurnRight,
+	deathLeft = Assets.KEYS.deerDeathLeft,
+	deathRight = Assets.KEYS.deerDeathRight,
+	hitFront = Assets.KEYS.deerHitFront,
+	hitBack = Assets.KEYS.deerHitBack,
+	smell = Assets.KEYS.deerSmell,
+}
+
+-- WHICH CLIP TABLE A SPECIES READS, and which `MODEL` its clip NAMES come out of. `"boar"` is the
+-- key `Boar.Body.create` falls back to for every kind with no `species` field, so the four boar
+-- rows reach exactly the table they always reached.
+local CLIPS_BY_SPECIES = {
+	boar = { keys = CLIP_KEYS, model = Boar.CONFIG.MODEL },
+	reddeer = { keys = DEER_CLIP_KEYS, model = Boar.CONFIG.SPECIES.reddeer.MODEL },
+}
+
 -- A CLIP NAME WITH NO KEY IS A TYPO, AND IT FAILS HERE RATHER THAN BY NOT ANIMATING. Both tables are
 -- frozen data edited in git, so a mismatch between them is a mistake somebody just made and not a
 -- state the game can reach.
-for name in pairs(Boar.CONFIG.MODEL.CLIPS) do
-	assert(
-		CLIP_KEYS[name] ~= nil,
-		string.format(
-			"BoarAssetsBoot: Boar.CONFIG.MODEL.CLIPS has a clip %q that CLIP_KEYS does not name."
-				.. " Add it to both, or to neither (src/server/BoarAssetsBoot.server.luau).",
-			name
+--
+-- BOTH LOOPS RUN PER SPECIES (task 223), so the deer's eleven are held to exactly the same standard
+-- as the boar's nineteen. This script's own history is why that matters: task 219 added a field to
+-- `KINDS` and the loop below it asserted on it, so **this script died at its own assert,
+-- `setModelSource` was never called, and not one boar in the game was ever dressed** -- which no
+-- spec saw, because no spec runs a boot script. `tests/server/assets_seam.spec.luau` asserts the
+-- same data where a spec CAN see it.
+for species, entry in pairs(CLIPS_BY_SPECIES) do
+	for name in pairs(entry.model.CLIPS) do
+		assert(
+			entry.keys[name] ~= nil,
+			string.format(
+				"BoarAssetsBoot: the %s MODEL.CLIPS has a clip %q that its key table does not name."
+					.. " Add it to both, or to neither (src/server/BoarAssetsBoot.server.luau).",
+				species,
+				name
+			)
 		)
-	)
-end
-for name, key in pairs(CLIP_KEYS) do
-	assert(
-		Boar.CONFIG.MODEL.CLIPS[name] ~= nil and type(key) == "string",
-		string.format("BoarAssetsBoot: CLIP_KEYS names a clip %q that Boar.CONFIG.MODEL.CLIPS has not.", name)
-	)
+	end
+	for name, key in pairs(entry.keys) do
+		assert(
+			entry.model.CLIPS[name] ~= nil and type(key) == "string",
+			string.format(
+				"BoarAssetsBoot: the %s key table names a clip %q that its MODEL.CLIPS has not.",
+				species,
+				name
+			)
+		)
+	end
 end
 
 -- ...AND THE ONE MAPPING FROM A MODEL NAME TO ITS ASSET KEY (task 119), here for the same reason:
@@ -117,6 +158,12 @@ local MODEL_KEYS = {
 	male = Assets.KEYS.boarMale,
 	female = Assets.KEYS.boarFemale,
 	cub = Assets.KEYS.boarCub,
+	-- THE DEER (task 223). Three kinds, three models, and no row is shared the way the legendary
+	-- shares the male's: a stag, a hind and a calf are three different uploads off one bought
+	-- package.
+	stag = Assets.KEYS.deerStag,
+	hind = Assets.KEYS.deerHind,
+	calf = Assets.KEYS.deerCalf,
 }
 
 -- A KIND WHOSE MODEL HAS NO ASSET KEY IS A TYPO, AND IT FAILS HERE rather than by standing in the
@@ -150,8 +197,14 @@ Boar.setModelSource(function(kind: string): Instance?
 	-- (docs/design/asset-pipeline.md 5.2). nil means "stay a grey box", not "fail".
 	local template = Loader.template(MODEL_KEYS[kind] or Assets.KEYS.boarMale)
 	return template
-end, function(name: string): number?
-	local row = Assets.byKey(CLIP_KEYS[name])
+end, function(species: string, name: string): number?
+	-- THE SPECIES COMES FIRST (task 223, design section 6.4) and it is a GUARD, not an ordering
+	-- preference: a stale one-argument caller then hands the species where the name was expected,
+	-- `entry.keys[species]` is nil, and the answer is nil -- "no clip", which is "the animal stands
+	-- still", which is the safe and tested state. With the species second, that same stale caller
+	-- would get the BOAR's id for a deer clip and a deer would walk with a boar's legs.
+	local entry = CLIPS_BY_SPECIES[species]
+	local row = if entry ~= nil then Assets.byKey(entry.keys[name]) else nil
 	if row == nil or row.kind ~= "animation" then
 		return nil
 	end
@@ -166,6 +219,13 @@ end)
 -- superseded row, and -- since task 115 -- never a row of a kind the loader cannot insert, so the ten
 -- animation rows are not asked of `InsertService` (`Assets.INSERTABLE`).
 local reports = Loader.preload(Assets.keysFor("boar"))
+-- A SECOND CALL FOR THE DEER (task 223), and the separate scope is the point: `preload` is bounded
+-- by `Loader.CONFIG.PRELOAD_BUDGET_S`, so one call for six skinned meshes would let a slow deer cost
+-- a boar its coat. Two calls, two budgets. A deer born before its template lands is a grey box that
+-- puts its coat on within a second (`_modelTemplate`'s `ASK_EVERY_SECONDS`) -- late is not lost.
+for _, loaded in ipairs(Loader.preload(Assets.keysFor("deer"))) do
+	table.insert(reports, loaded)
+end
 for _, loaded in ipairs(reports) do
 	if loaded.ok then
 		print(

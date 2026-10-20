@@ -225,19 +225,34 @@ Shop.ROWS = {
 	} :: Row,
 	[Shop.ITEM.RED_STAG] = {
 		id = Shop.ITEM.RED_STAG,
-		label = "RED STAG CARD",
+		-- RENAMED FROM "RED STAG CARD" (task 223), AND THE RENAME IS THE HONEST HALF OF KAREN'S
+		-- RULE. 2026-10-20, verbatim: *"deer also will be possible to shoot if you have purchased
+		-- deer license"* -- one licence, one species, and the species is three animals. A card
+		-- called RED STAG that also lets you shoot a hind and a calf would be the shop telling the
+		-- player something untrue about what he bought, which is `rowsOk`'s I3 spirit applied to
+		-- prose rather than to data.
+		--
+		-- THE ID DOES NOT MOVE. `Shop.ITEM.RED_STAG` is still `"licence.reddeer"` and the grant is
+		-- still `reddeer`: those are KEYS, they are what a saved purchase is stored under, and
+		-- renaming one would un-own the card for everybody who already has it.
+		label = "DEER LICENCE",
 		category = "licence",
-		blurb = "Permission to shoot red stag. Coming with the animal: you cannot buy it yet.",
-		-- THE PRICE IS SHOWN SO A PLAYER CAN PLAN, beside a row already tagged SOON whose refusal
-		-- already reads "NOT IN THE GAME YET". A plan, not a promise (design section 9.1).
+		-- 101 CHARACTERS, against `PANEL.BLURB_MAX` of 135, which is the Designer's measured box
+		-- and does not move. It names all three animals, because that is what the card covers.
+		blurb = "Permission to shoot red deer: stag, hind and calf. A calf costs you points, "
+			.. "exactly as a piglet does.",
+		-- 750 COINS, UNCHANGED FROM TASK 221, because it was Karen's figure and the animal arriving
+		-- is not a reason to re-price it. At `Economy.CONFIG.COINS_PER_POINT = 2` a 20-point stag
+		-- pays 40 coins, so the card is about nineteen stags: a licence is a season, not a
+		-- transaction.
 		price = 750,
 		hunts = 0,
-		-- `sale = false`, AND IT IS FORCED RATHER THAN CHOSEN. `Licences.ROWS.reddeer.shipped` is
-		-- false -- there is no red stag in this game -- and `rowsOk`'s I3a refuses a row that is for
-		-- sale and grants a licence for a species nothing publishes. This is what `sale` was kept
-		-- for when task 196 removed the last row that used it: *"A rung announced before it ships is
-		-- one row with `sale = false` again"*. NEVER SELL WHAT DOES NOT WORK.
-		sale = false,
+		-- `sale = true` SINCE TASK 223, AND IT IS FORCED RATHER THAN CHOSEN IN EXACTLY THE SAME WAY
+		-- `sale = false` WAS. `rowsOk`'s I3a refuses a row that is for sale and grants a licence for
+		-- a species nothing publishes; `Licences.ROWS.reddeer.shipped` went true in this same commit
+		-- because `Boar.CONFIG.KINDS` now has a stag, a hind and a calf that publish
+		-- `Species = "reddeer"`. The invariant did not weaken, it was satisfied.
+		sale = true,
 		grants = { licence = "reddeer" },
 	} :: Row,
 	[Shop.ITEM.UNLIMITED_AMMO] = {

@@ -141,7 +141,7 @@ return function()
 				end
 				else nil,
 			if ids
-				then function(name: string)
+				then function(_species: string, name: string)
 					return ids[name]
 				end
 				else nil
@@ -398,7 +398,7 @@ return function()
 			local ready = false
 			runtime:setModelSource(function()
 				return if ready then template else nil
-			end, function(name: string)
+			end, function(_species: string, name: string)
 				return FAKE_IDS[name]
 			end)
 			local handle = runtime:spawn(Vector3.new(0, GROUND_Y, 30))
@@ -853,7 +853,7 @@ return function()
 			local template = makeTemplate()
 			runtime:setModelSource(function()
 				return template
-			end, function(name: string)
+			end, function(_species: string, name: string)
 				return FAKE_IDS[name]
 			end)
 
@@ -923,7 +923,7 @@ return function()
 			local template = makeTemplate()
 			runtime:setModelSource(function()
 				return template
-			end, function(name: string)
+			end, function(_species: string, name: string)
 				return ids[name]
 			end)
 
@@ -950,7 +950,7 @@ return function()
 			local ready = false
 			runtime:setModelSource(function()
 				return if ready then template else nil
-			end, function(name: string)
+			end, function(_species: string, name: string)
 				return FAKE_IDS[name]
 			end)
 			local handle = runtime:spawn(Vector3.new(40, GROUND_Y, -20))

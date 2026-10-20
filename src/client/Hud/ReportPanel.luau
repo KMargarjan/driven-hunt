@@ -541,9 +541,16 @@ function ReportPanel.listCellsFor(rank: number, row: any, points: number?): { [s
 		-- card, and it is COUNTED here -- rather than falling through all three count columns and
 		-- showing a player who shot one `MALE 0 FEM 0 CUB 0 KILLS 1`, which reads as broken.
 		-- A column of its own is queued, not smuggled in.
-		male = tostring((kinds.male or 0) + (kinds.unknown or 0) + (kinds.legendary or 0)),
-		female = tostring(kinds.female or 0),
-		cub = tostring(kinds.cub or 0),
+		--
+		-- ...AND THE THREE RED DEER FOLD IN THE SAME WAY (task 223), which is the same decision
+		-- applied rather than a new one. These column heads are MALE / FEM / CUB -- sex and age
+		-- words, not species words -- so a stag in MALE and a hind in FEM are TRUE, and the
+		-- alternative is a player who shot a stag reading `MALE 0 FEM 0 CUB 0 KILLS 1`. The deer is
+		-- NAMED where there is room for it: `STAG` / `HIND` / `CALF` in the detail page's ANIMAL
+		-- column and `RED STAG` on the hit card's plate. No column moves and no pixel moves.
+		male = tostring((kinds.male or 0) + (kinds.unknown or 0) + (kinds.legendary or 0) + (kinds.stag or 0)),
+		female = tostring((kinds.female or 0) + (kinds.hind or 0)),
+		cub = tostring((kinds.cub or 0) + (kinds.calf or 0)),
 		kills = tostring((row and row.kills) or 0),
 		lost = tostring((row and row.lost) or 0),
 		-- AN UNKNOWN IS NOT DRAWN AT ALL rather than `-` (§3.12): points come from `Match`, joined

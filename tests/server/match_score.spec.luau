@@ -23,7 +23,11 @@ local Score = Match.Score
 local CONFIG = {
 	POINTS = {
 		-- `cub = -10` SINCE TASK 170: Karen, 2026-10-12, shooting a piglet is a penalty.
-		KIND = { male = 10, female = 6, cub = -10, legendary = 25, unknown = 6 },
+		-- THE THREE RED DEER (task 223): a stag is two males, a hind is exactly the sow's price,
+		-- and a calf is the piglet's penalty to the point. This table is production's mirror and
+		-- the case below fails in BOTH directions, so a kind priced without being asserted here
+		-- is a number Karen never saw.
+		KIND = { male = 10, female = 6, cub = -10, legendary = 25, stag = 20, hind = 6, calf = -10, unknown = 6 },
 		ASSIST = 3,
 		ASSIST_MIN_DAMAGE = 25,
 		BEATER_PUSH = 3,

@@ -615,10 +615,13 @@ return function()
 					expect(wire.afford).to.equal(false)
 					expect(wire.buyable).to.equal(false)
 				elseif wire.id == Shop.ITEM.RED_STAG then
-					-- SHOWN AND NOT BUYABLE (task 221): there is no red stag in this game. He can
-					-- see it and afford it and it is still refused.
-					expect(wire.sale).to.equal(false)
-					expect(wire.afford).to.equal(false)
+					-- ON SALE SINCE TASK 223, AND THAT IS THE SAME INVARIANT, SATISFIED. Task 221
+					-- shipped this row `sale = false` because `Licences.ROWS.reddeer.shipped` was
+					-- false -- there was no deer. Karen bought one on 2026-10-20 and the stag, the
+					-- hind and the calf publish `Species = "reddeer"`, so the row went on sale in
+					-- the same commit as the animal. `shop.spec` still drives the refused arm with
+					-- a hand-made table.
+					expect(wire.sale).to.equal(true)
 					expect(wire.buyable).to.equal(false)
 				elseif wire.id == Shop.ITEM.ALWAYS_HUNTER then
 					-- 30 hunts is EXACTLY its gate, so what stops him is the money and not the gate.
@@ -677,10 +680,12 @@ return function()
 				return Economy.balanceOf(402) ~= nil
 			end)).to.equal(true)
 
-			-- THE RED STAG CARD: there is no red stag, so no path in this repository hands it over.
-			local stag = Economy.grant(402, Shop.ITEM.RED_STAG, Economy.SOURCE.ROBUX)
-			expect(stag.ok).to.equal(false)
-			expect(stag.refused).to.equal(Shop.REASON.NOT_SALE)
+			-- THE DEER LICENCE: the animal arrived in task 223, so `NOT_SALE` no longer refuses it
+			-- -- which is what that reason was protecting until the deer existed. It is granted to
+			-- a DIFFERENT player here, because this case's last two assertions are that 402 bought
+			-- nothing and that nothing was saved.
+			local stag = Economy.grant(403, Shop.ITEM.RED_STAG, Economy.SOURCE.ROBUX)
+			expect(stag.refused).never.to.equal(Shop.REASON.NOT_SALE)
 
 			-- A RETIRED ROW: Karen took the red hat off the shelf, so it cannot be granted either --
 			-- `ShopData.row` answers only what is for sale.
@@ -821,9 +826,10 @@ return function()
 					highest = math.max(highest, item.hunts)
 				end
 			end
-			expect(total).to.equal(11495)
+			-- 11495 + 750 SINCE TASK 223: the DEER LICENCE is buyable now, so it counts.
+			expect(total).to.equal(12245)
 			expect(highest).to.equal(30)
-			expect(Economy.CONFIG.TEST_GRANT.coins).to.equal(12000)
+			expect(Economy.CONFIG.TEST_GRANT.coins).to.equal(12750)
 			expect(Economy.CONFIG.TEST_GRANT.coins >= total).to.equal(true)
 			-- EXACTLY the highest gate, not above it: every rung is unlocked and nothing is bought
 			-- FOR her, so she still presses every button and sees every state.
