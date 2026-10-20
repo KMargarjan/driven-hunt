@@ -531,7 +531,9 @@ return function()
 
 			-- ...AND THE LINES THOSE TWO NUMBERS GO INTO.
 			expect(Shop.noticeFor(Shop.REASON.LOCKED, 5)).to.equal("LOCKED: 5 HUNTS")
-			expect(Shop.noticeFor(Shop.REASON.POOR, 100)).to.equal("YOU NEED 100 COINS")
+			-- `%s` AND `Money.text` SINCE TASK 221: the notice the server sends is filled in ONE
+			-- place, so the line the panel prints and the price the till charges read the same way.
+			expect(Shop.noticeFor(Shop.REASON.POOR, 100)).to.equal("YOU NEED $100")
 			expect(Shop.noticeFor(Shop.REASON.OWNED)).to.equal("YOU OWN IT")
 			expect(Shop.noticeFor("not-a-reason")).to.equal(nil)
 			-- Every reason has a line, and the order names every reason exactly once.

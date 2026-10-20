@@ -257,15 +257,19 @@ return function()
 			-- no sentence to format and `TEXT.BALANCE` is gone.
 			expect(Panel.walletText()).to.equal("$300|30")
 
-			-- THE SHELVES, IN THE DIRECTOR'S OWN ORDER: Weapons, Ammo, Licences, Clothing.
+			-- THE SHELVES, IN THE DIRECTOR'S OWN ORDER, and FIVE drawn of six declared since task
+			-- 221: CLOTHING holds only the RETIRED red hat, and `Shop.groups` drops an empty shelf
+			-- rather than drawing a header with nothing under it.
 			-- ...AND THEY ARE LETTER-SPACED, because Roblox `TextLabel` has no tracking property and
 			-- the Designer's 10 px uppercase labels need it: `spaced("WEAPONS")` is "W E A P O N S".
 			local shelves = Panel.headerText()
-			expect(#shelves).to.equal(4)
+			expect(#shelves).to.equal(5)
 			expect(shelves[1]).to.equal(Panel.spaced("WEAPONS"))
 			expect(shelves[2]).to.equal(Panel.spaced("AMMO"))
 			expect(shelves[3]).to.equal(Panel.spaced("LICENCES"))
-			expect(shelves[4]).to.equal(Panel.spaced("CLOTHING"))
+			expect(shelves[4]).to.equal(Panel.spaced("ACCESS"))
+			-- PACKAGES LAST, which is Karen's own *"we can ALSO make a few packages"*.
+			expect(shelves[5]).to.equal(Panel.spaced("PACKAGES"))
 			expect(Panel.spaced("AMMO")).to.equal("A M M O")
 
 			local lines = Panel.rowText()
@@ -333,11 +337,11 @@ return function()
 			Panel.select(Shop.ITEM.RIFLE)
 			local second = Panel.detailText()
 			expect(second.name).to.equal("RIFLE, SCOPED")
-			expect(second.price).to.equal("1500")
+			expect(second.price).to.equal("$1500")
 			expect(second.blurb).to.equal(Shop.ROWS[Shop.ITEM.RIFLE].blurb)
 			-- 300 coins against 1500, and the button says the SHORTFALL rather than "no coins":
 			-- *"the number he is short is the only number that helps"*.
-			expect(second.button).to.equal(string.format(Shop.CONFIG.TEXT.POOR_BUTTON, 1200))
+			expect(second.button).to.equal(string.format(Shop.CONFIG.TEXT.POOR_BUTTON, Money.text(1200)))
 			expect(second.amount).to.equal("")
 		end)
 
@@ -364,13 +368,15 @@ return function()
 			-- BUYABLE: the word, and the price INSIDE the button (the Designer's spec, 4).
 			Panel.onState(statePayload({ owned = {}, coins = 300, hunts = 30 }))
 			Panel.setOpen(true)
-			Panel.select(Shop.ITEM.HIGH_SEAT)
+			-- THE SLUG, because $300 buys it and HIGH SEAT ACCESS is $600: this case is about the
+			-- BUYABLE state, and an item he cannot afford would be testing the other one.
+			Panel.select(Shop.ITEM.SLUG)
 			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.BUY)
-			expect(Panel.detailText().amount).to.equal("80")
+			expect(Panel.detailText().amount).to.equal("$120")
 			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.BLAZE)
 
 			-- OWNED: "IN YOUR KIT", the pine fill, and no amount -- a thing you have has no price.
-			Panel.onState(statePayload({ owned = { [Shop.ITEM.HIGH_SEAT] = true }, coins = 300, hunts = 30 }))
+			Panel.onState(statePayload({ owned = { [Shop.ITEM.SLUG] = true }, coins = 300, hunts = 30 }))
 			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.OWNED_BUTTON)
 			expect(Panel.detailText().amount).to.equal("")
 			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.PINE_DARK)
@@ -472,8 +478,8 @@ return function()
 
 			-- ONE MODEL AT A TIME: selecting another item destroys the first rather than stacking
 			-- every item the player has ever clicked inside the viewport.
-			Panel.select(Shop.ITEM.HIGH_SEAT)
-			expect(Panel.pictureId()).to.equal(Shop.ITEM.HIGH_SEAT)
+			Panel.select(Shop.ITEM.BEATER_LICENCE)
+			expect(Panel.pictureId()).to.equal(Shop.ITEM.BEATER_LICENCE)
 			expect((model :: Model).Parent).to.equal(nil)
 			local models = 0
 			for _, child in ipairs((frame :: ViewportFrame):GetChildren()) do
@@ -487,7 +493,7 @@ return function()
 		it("turns the picture while the panel is open and stands still while it is shut", function()
 			Panel.onState(statePayload())
 			Panel.setOpen(true)
-			Panel.select(Shop.ITEM.HIGH_SEAT)
+			Panel.select(Shop.ITEM.BEATER_LICENCE)
 			local camera = (Panel.viewportFrame() :: ViewportFrame).CurrentCamera :: Camera
 			Panel.step(0)
 			local first = camera.CFrame.Position
@@ -591,7 +597,8 @@ return function()
 			Panel.onState(statePayload({ owned = { [Shop.ITEM.SLUG] = true }, coins = 300, hunts = 30 }))
 			Panel.setOpen(true)
 			local before = Panel.stats().sent
-			Panel.select(Shop.ITEM.HIGH_SEAT)
+			-- THE BEATER LICENCE: $250 of his $300, and 30 hunts past its gate of 3.
+			Panel.select(Shop.ITEM.BEATER_LICENCE)
 			expect(Panel.pressSelected()).to.equal(true)
 			expect(Panel.stats().sent).to.equal(before + 1)
 			-- The slug is already owned: nothing is sent and the panel says why, out of the SAME wire

@@ -325,12 +325,17 @@ return function()
 			return state
 		end
 
+		-- EQUIPPED, because `apply` refuses every action on a gun nobody is holding
+		-- (`"not-equipped"`) -- the idiom every other case in this file uses.
 		local function boundless()
-			return StateMachine.initial(ROW, {
-				ammo = "Buck",
-				reserve = table.clone(ROW.START_RESERVE),
-				unlimited = { Buck = true },
-			})
+			return StateMachine.setEquipped(
+				StateMachine.initial(ROW, {
+					ammo = "Buck",
+					reserve = table.clone(ROW.START_RESERVE),
+					unlimited = { Buck = true },
+				}),
+				true
+			)
 		end
 
 		it("never empties the pocket it is bought for, and never refuses for want of one", function()
@@ -347,11 +352,14 @@ return function()
 			expect(two.barrels[2]).to.equal("Live")
 			-- ...AND A POCKET AT ZERO STILL LOADS, which is the whole of what was bought: the
 			-- `"no-reserve"` refusal is skipped rather than worked around.
-			local empty = StateMachine.initial(ROW, {
-				ammo = "Buck",
-				reserve = { Buck = 0, Slug = 0 },
-				unlimited = { Buck = true },
-			})
+			local empty = StateMachine.setEquipped(
+				StateMachine.initial(ROW, {
+					ammo = "Buck",
+					reserve = { Buck = 0, Slug = 0 },
+					unlimited = { Buck = true },
+				}),
+				true
+			)
 			local openEmpty = ok(StateMachine.apply(empty, { kind = "Break" }, 100, ROW))
 			local loaded, reason = StateMachine.apply(openEmpty, { kind = "Load" }, 200, ROW)
 			expect(reason).to.equal(nil)
@@ -368,7 +376,7 @@ return function()
 			local broken = ok(StateMachine.apply(state, { kind = "Break" }, 100, ROW))
 			expect(broken.reserve.Buck).to.equal(pocket)
 			-- ...AND A LIMITED POCKET STILL DOES, which is the rule this does not change.
-			local plain = StateMachine.initial(ROW, nil)
+			local plain = StateMachine.setEquipped(StateMachine.initial(ROW, nil), true)
 			local plainBroken = ok(StateMachine.apply(plain, { kind = "Break" }, 100, ROW))
 			expect(plainBroken.reserve[plain.ammo]).to.equal(plain.reserve[plain.ammo] + #plain.barrels)
 		end)
@@ -387,7 +395,7 @@ return function()
 
 		it("is today's game for every state written before it existed", function()
 			-- nil ALLOWANCE IS NO UNLIMITED POCKETS, which is every caller before the entitlement.
-			local plain = StateMachine.initial(ROW, nil)
+			local plain = StateMachine.setEquipped(StateMachine.initial(ROW, nil), true)
 			expect(next(plain.unlimited)).to.equal(nil)
 			local broken = ok(StateMachine.apply(plain, { kind = "Break" }, 100, ROW))
 			local loaded = ok(StateMachine.apply(broken, { kind = "Load" }, 200, ROW))
