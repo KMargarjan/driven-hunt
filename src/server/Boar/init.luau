@@ -72,6 +72,10 @@ Boar.stepSoundFor = Body.stepSoundFor
 -- Pure, and exported for the same reason: a spec can ask what SoundId a config row turns into
 -- without a boar, a sound or a world (task 126).
 Boar.soundUri = Body.soundUri
+-- ...and the row those two read, exported in round 3 so a spec can ask "does this kind have a voice
+-- at all" rather than only "what pitch does it come out at" -- which is the question the fourth kind
+-- failed (`boar_legendary.spec`, the voice case).
+Boar.voiceRow = Body.voiceRow
 Boar.voicePitch = Body.voicePitch
 Boar.voiceIds = Body.voiceIds
 Boar.farScale = Body.farScale

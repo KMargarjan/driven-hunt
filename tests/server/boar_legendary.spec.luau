@@ -136,6 +136,97 @@ return function()
 			)
 		end)
 
+		it("has a VOICE -- and so does every kind, which is the omission this task made three times", function()
+			-- ROUND 2'S BLOCKING FINDING. `SOUND.VOICE` named male, female and cub; the fourth kind
+			-- was added to `KINDS` and not to it, so `Body.voiceRow` answered nil and the biggest,
+			-- oldest boar in the game cried, grunted and DIED on the generic samples at pitch **1.0**
+			-- -- a sow's voice, higher than an ordinary male's 0.8. Against Karen's own words on that
+			-- very table: *"pown should sqeen differen, male differen female different"*.
+			--
+			-- **THIS IS THE THIRD TIME THIS TASK SHIPPED THE SAME OMISSION**: a table keyed by kind
+			-- that did not learn the fourth one. `BoarAssetsBoot`'s `pairs(KINDS)` killed the boot;
+			-- `HitLog`'s `byKind` counted the trophy as an `unknown`; this one made it sound wrong.
+			-- Finding the first two did not make me go looking for the rest -- so this case walks
+			-- **every kind in `ORDER`** rather than naming the one that was missed, and it is the
+			-- case that fails if a FIFTH kind arrives with no voice.
+			local kinds = CONFIG.KINDS
+			local voice = CONFIG.SOUND.VOICE
+			local generic = CONFIG.SOUND.DEATH.ids
+			for _, kind in ipairs(kinds.ORDER) do
+				for _, cue in ipairs({ "cry", "death", "grunt" }) do
+					local row = Boar.voiceRow(cue, kind, on)
+					-- A ROW, NOT NIL: nil is the generic set, which is what "sounds like a sow" was.
+					expect(row).to.be.ok()
+					local ids = Boar.voiceIds(cue, kind, { ids = generic, pitch = 1 }, on)
+					expect(type(ids)).to.equal("table")
+					expect(#ids > 0).to.equal(true)
+					-- ...AND IT IS THE ANIMAL'S OWN SET, not the module-level default it falls back
+					-- to. Asserted as "not the generic list", because that IS the defect's signature.
+					local same = #ids == #generic
+					if same then
+						for index, id in ipairs(ids) do
+							if id ~= generic[index] then
+								same = false
+								break
+							end
+						end
+					end
+					if kind ~= "female" then
+						-- The sow's own `cry`/`death` ARE the generic pair by design (hers is "the
+						-- sample set the config carried before any of this"), so she is the one kind
+						-- this comparison cannot speak for -- said out loud rather than skipped
+						-- silently.
+						expect(same).to.equal(false)
+					end
+				end
+			end
+
+			-- THE FALLBACK ARM, which is what makes this robust rather than one more hand-written
+			-- row (L-093: a branch-adding change needs a case per arm). `Body.voiceRow` resolves a
+			-- kind with no voice of its own through its `model`, exactly as `Runtime:_modelTemplate`
+			-- resolves its asset key -- so ANY future kind built on the male sounds like the male
+			-- instead of like a sow, without anybody remembering to add a row.
+			local borrowed = table.clone(on)
+			local borrowedKinds = table.clone(on.KINDS)
+			borrowedKinds.ORDER = { "male", "female", "cub", "legendary", "elder" }
+			borrowedKinds.elder = table.clone(on.KINDS.legendary)
+			borrowedKinds.elder.name = "elder"
+			borrowedKinds.elder.model = "male" -- a new kind on the male's asset, with NO voice row
+			borrowed.KINDS = borrowedKinds
+			expect(CONFIG.SOUND.VOICE.elder).to.equal(nil) -- there is genuinely no row for it
+			local elderRow = Boar.voiceRow("death", "elder", borrowed)
+			expect(elderRow).to.be.ok()
+			expect(elderRow).to.equal(voice.male) -- the MALE's, through `model`
+			expect(Boar.voicePitch("death", "elder", { ids = generic, pitch = 1 }, borrowed)).to.equal(voice.male.pitch)
+
+			-- ...AND A KIND THAT IS NOT A KIND AT ALL still answers nil, so an unknown string gets
+			-- the generic voice it always got rather than the male's by accident.
+			expect(Boar.voiceRow("death", "wildebeest", on)).to.equal(nil)
+			expect(Boar.voiceRow("death", nil, on)).to.equal(nil)
+			-- ...and a cue that is not a voice is still not one (hooves, breath, the sniff).
+			expect(Boar.voiceRow("step", "legendary", on)).to.equal(nil)
+
+			-- THE TROPHY IS DEEPER THAN THE MALE, which is the one thing it should NOT borrow. 0.72
+			-- against his 0.8 is a tenth lower -- audibly a bigger animal, and still clearly the same
+			-- beast-like scream rather than a new sample nobody has heard.
+			local legendary = Boar.voiceRow("death", "legendary", on)
+			expect(legendary).to.be.ok()
+			expect(legendary.pitch).to.equal(0.72)
+			expect(legendary.pitch < voice.male.pitch).to.equal(true)
+			expect(voice.male.pitch < voice.female.pitch).to.equal(true)
+			expect(voice.female.pitch < voice.cub.pitch).to.equal(true)
+			expect(Boar.voicePitch("death", "legendary", { ids = generic, pitch = 1 }, on)).to.equal(0.72)
+			TestKit.note(
+				string.format(
+					"boar-legendary: pitches legendary %.2f < male %.2f < female %.2f < cub %.2f",
+					legendary.pitch,
+					voice.male.pitch,
+					voice.female.pitch,
+					voice.cub.pitch
+				)
+			)
+		end)
+
 		it("carries a coat tint, and no other animal does", function()
 			-- THE COAT IS MULTIPLIED on the `SurfaceAppearance` the bought asset already carries --
 			-- measured: it has exactly one, and its `Color` reads (1, 1, 1). A `MeshPart.Color` write
