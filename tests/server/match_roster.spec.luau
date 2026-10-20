@@ -312,4 +312,182 @@ return function()
 			expect(Match.CONFIG.MAX_PLAYERS).to.equal(16)
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- the bought place (task 221)
+	--
+	-- KAREN, 2026-10-20: *"Posibility to be a hunter always"*. A strong PREFERENCE and not an
+	-- exemption: a drive with eight hunters and no beaters is not a drive, so `Roster.assign`'s
+	-- balance rule still wins -- and when it does, the man who paid is TOLD WHY.
+	describe("always-hunter", function()
+		local CONFIG = Match.CONFIG
+
+		it("is the game before this task when nobody bought it", function()
+			-- BY IDENTITY, which IS the flag-off story: the same table comes back, not a copy of
+			-- it, so nothing is allocated and nothing can differ.
+			local owed = { [1] = "Shooters" }
+			expect(Roster.owedWith(owed, nil)).to.equal(owed)
+			expect(Roster.owedWith(owed, {})).to.equal(owed)
+			expect(Roster.owedWith(nil, nil)).to.equal(nil)
+			expect(#Roster.overruled({ [1] = "Drivers" }, nil)).to.equal(0)
+			expect(#Roster.overruled({ [1] = "Drivers" }, {})).to.equal(0)
+		end)
+
+		it("writes the hunter's place over whatever turn he was owed", function()
+			local owed = { [1] = "Drivers", [2] = "Drivers" }
+			local wanted = Roster.owedWith(owed, { [1] = true })
+			expect(wanted).never.to.equal(owed)
+			expect((wanted :: any)[1]).to.equal("Shooters")
+			-- ...AND LEAVES EVERYBODY ELSE'S TURN ALONE.
+			expect((wanted :: any)[2]).to.equal("Drivers")
+			-- NEITHER INPUT IS WRITTEN: `owed` is the economy's frozen memo.
+			expect(owed[1]).to.equal("Drivers")
+			-- IT DOES NOT INVERT. The inversion is `previousFrom`'s and lives only there.
+			expect(Roster.owedWith(nil, { [7] = true })[7]).to.equal("Shooters")
+		end)
+
+		it("beats the stored turn, which is what being bought means", function()
+			-- HIS TURN SAID DRIVE AND HE PAID NOT TO. The turn arrives as the synthetic previous
+			-- (task 217) and the privilege arrives as `always` (task 221 round 3); the privilege is
+			-- placed first, so it wins.
+			local previous = { [1] = "Drivers", [2] = "Drivers", [3] = "Shooters", [4] = "Shooters" }
+			local always = { [1] = true }
+			local synthetic = Roster.previousFrom(previous, { [1] = "Drivers" })
+			expect(Roster.assign({ 1, 2, 3, 4 }, synthetic, CONFIG)[1]).to.equal("Drivers")
+			local assignment = Roster.assign({ 1, 2, 3, 4 }, synthetic, CONFIG, always)
+			expect(assignment[1]).to.equal("Shooters")
+			-- THE SPLIT IS STILL BALANCED: a privilege that unbalanced the drive would be the thing
+			-- the balance rule exists to refuse.
+			local counts = Roster.counts(assignment)
+			expect(math.abs((counts.Drivers or 0) - (counts.Shooters or 0)) <= 1).to.equal(true)
+			-- ...AND NOBODY WAS OVERRULED, because the teams came out even.
+			expect(#Roster.overruled(assignment, always)).to.equal(0)
+		end)
+
+		-- THE DIRECTOR OVERRULED THE SEAM ON 2026-10-20 (task 221 round 3): *"ALWAYS-HUNTER MUST
+		-- WORK when bought ... a paid privilege that is overruled 'every time' on even rosters is a
+		-- broken product"*. Round 2 measured exactly that: folding the privilege into the synthetic
+		-- `previous` moved the SWAPPED counts by two, `Roster.assign` discarded the whole swap, and
+		-- the plain split put a low userId on the beaters every drive. So `assign` places the men who
+		-- bought it FIRST and the rotation fills what is left.
+		it("gives every always-hunter the hunters' side on an even roster", function()
+			local always = { [1] = true }
+			-- THE CASE ROUND 2 FAILED: he already held `Shooters`, and the swap would have taken it
+			-- away. Now he keeps it and the teams are still even.
+			local previous = { [1] = "Shooters", [2] = "Shooters", [3] = "Drivers", [4] = "Drivers" }
+			local assignment = Roster.assign({ 1, 2, 3, 4 }, previous, CONFIG, always)
+			expect(assignment[1]).to.equal("Shooters")
+			local counts = Roster.counts(assignment)
+			expect(counts.Shooters).to.equal(2)
+			expect(counts.Drivers).to.equal(2)
+			-- NOBODY IS OVERRULED, so nobody is told anything.
+			expect(#Roster.overruled(assignment, always)).to.equal(0)
+			-- ...AND THE ROTATION STILL ROTATES OVER WHAT IS LEFT: of the other three, the two who
+			-- DROVE last drive are the ones owed the hunters' side, and there is one slot for them.
+			expect(assignment[2]).to.equal("Drivers") -- he shot last drive
+			expect(assignment[3] == "Shooters" or assignment[4] == "Shooters").to.equal(true)
+			-- HE KEEPS IT DRIVE AFTER DRIVE, which is the whole of what Karen is selling.
+			local second = Roster.assign({ 1, 2, 3, 4 }, assignment, CONFIG, always)
+			expect(second[1]).to.equal("Shooters")
+			local third = Roster.assign({ 1, 2, 3, 4 }, second, CONFIG, always)
+			expect(third[1]).to.equal("Shooters")
+		end)
+
+		it("gives every always-hunter the hunters' side on an odd roster too", function()
+			-- FIVE PLAYERS AND `ODD_PLAYER_TEAM` IS `Shooters`, so there are three hunter slots. Two
+			-- men bought the place and both get it, with one slot left for the rotation.
+			local always = { [2] = true, [4] = true }
+			local previous = { [1] = "Shooters", [2] = "Shooters", [3] = "Shooters", [4] = "Drivers", [5] = "Drivers" }
+			local assignment = Roster.assign({ 1, 2, 3, 4, 5 }, previous, CONFIG, always)
+			expect(assignment[2]).to.equal("Shooters")
+			expect(assignment[4]).to.equal("Shooters")
+			local counts = Roster.counts(assignment)
+			expect(counts.Shooters).to.equal(3)
+			expect(counts.Drivers).to.equal(2)
+			expect(#Roster.overruled(assignment, always)).to.equal(0)
+			-- THE LAST HUNTER SLOT GOES TO A MAN THE ROTATION OWES ONE -- player 5 drove last drive,
+			-- and 1 and 3 shot.
+			expect(assignment[5]).to.equal("Shooters")
+			expect(assignment[1]).to.equal("Drivers")
+			expect(assignment[3]).to.equal("Drivers")
+		end)
+
+		it("overrules only when the paid men outnumber the hunter slots, and takes turns doing it", function()
+			-- ALL FOUR BOUGHT IT AND THERE ARE TWO SLOTS, so two must drive -- a drive with four
+			-- hunters and no beaters is not a drive. THE ONES WHO JUST HAD IT YIELD.
+			local always = { [1] = true, [2] = true, [3] = true, [4] = true }
+			local previous = { [1] = "Shooters", [2] = "Shooters", [3] = "Drivers", [4] = "Drivers" }
+			local first = Roster.assign({ 1, 2, 3, 4 }, previous, CONFIG, always)
+			local counts = Roster.counts(first)
+			expect(counts.Shooters).to.equal(2)
+			expect(counts.Drivers).to.equal(2)
+			-- 1 and 2 shot last drive, so they yield; 3 and 4 drove, so it is their turn.
+			expect(first[3]).to.equal("Shooters")
+			expect(first[4]).to.equal("Shooters")
+			expect(first[1]).to.equal("Drivers")
+			expect(first[2]).to.equal("Drivers")
+			-- ...AND THE TWO WHO YIELDED ARE THE TWO WHO ARE TOLD WHY.
+			local told = Roster.overruled(first, always)
+			expect(#told).to.equal(2)
+			expect(told[1]).to.equal(1)
+			expect(told[2]).to.equal(2)
+
+			-- IT CANNOT STARVE, and that is the whole reason the yield order is by RECENCY rather than
+			-- by a count of drives served: a man who yields is a DRIVER, so next drive he is the one
+			-- whose turn it is. Four drives, and every man gets it twice.
+			local served = { [1] = 0, [2] = 0, [3] = 0, [4] = 0 }
+			local state = previous
+			for _ = 1, 4 do
+				state = Roster.assign({ 1, 2, 3, 4 }, state, CONFIG, always)
+				for userId, team in pairs(state) do
+					if team == "Shooters" then
+						served[userId] += 1
+					end
+				end
+			end
+			for userId = 1, 4 do
+				expect(served[userId]).to.equal(2)
+			end
+		end)
+
+		it("is the game before this task when nobody bought the place, at every roster size", function()
+			-- THE IDENTITY, and it is what lets `assign` be rewritten at all: with `always` nil or
+			-- empty, not one branch of the new code runs and every answer is the old function's.
+			for n = 2, 16 do
+				local roster = ids(n)
+				local plain = Roster.assign(roster, nil, CONFIG)
+				expect(Roster.assign(roster, nil, CONFIG, nil)).never.to.equal(nil)
+				for _, userId in ipairs(roster) do
+					expect(Roster.assign(roster, nil, CONFIG, {})[userId]).to.equal(plain[userId])
+				end
+				-- ...AND WITH A PREVIOUS SPLIT, which is the swap path rather than the plain one.
+				local swapped = Roster.assign(roster, plain, CONFIG)
+				for _, userId in ipairs(roster) do
+					expect(Roster.assign(roster, plain, CONFIG, {})[userId]).to.equal(swapped[userId])
+				end
+			end
+		end)
+
+		it("counts the hunter slots the way the plain split does", function()
+			-- THE SAME ARITHMETIC NAMED ONCE: the always-hunter pass has to know the number before it
+			-- deals anybody, and two copies of "how many hunters fit" is how the two halves of this
+			-- function would come to disagree.
+			for n = 0, 16 do
+				local slots = Roster.shooterSlots(n, CONFIG)
+				expect(slots).to.equal(math.ceil(n / 2)) -- ODD_PLAYER_TEAM is Shooters
+				expect(math.abs((n - slots) - slots) <= 1).to.equal(true)
+			end
+			local driversOdd = config({ ODD_PLAYER_TEAM = "Drivers" })
+			expect(Roster.shooterSlots(5, driversOdd)).to.equal(2)
+		end)
+
+		it("reaches a man who walks onto a truck pad mid-drive", function()
+			-- SINCE TASKS 177 AND 209 THIS IS THE NORMAL WAY INTO A DRIVE, so the privilege has to
+			-- reach it -- and `joinTeam`'s own rule still holds: the owed team wins only off a tie,
+			-- so the balance still beats the privilege here as well.
+			local wanted = Roster.owedWith(nil, { [5] = true })
+			expect(Roster.joinTeam({ Drivers = 2, Shooters = 2 }, (wanted :: any)[5], CONFIG)).to.equal("Shooters")
+			-- OFF A TIE THE SMALLER SIDE WINS AND THE PRIVILEGE IS SIMPLY NOT CONSUMED.
+			expect(Roster.joinTeam({ Drivers = 1, Shooters = 3 }, (wanted :: any)[5], CONFIG)).to.equal("Drivers")
+		end)
+	end)
 end

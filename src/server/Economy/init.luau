@@ -119,10 +119,16 @@ Economy.CONFIG = {
 	-- and afford nothing she is meant to try. A drive is 300 seconds and pays ~20-60 coins, so
 	-- earning the 1500-coin rifle in a playtest is forty drives.
 	--
-	-- 2000 COINS buys the whole catalogue that is for sale (80 + 120 + 250 + 1500 = 1950) with fifty
-	-- to spare, and 25 HUNTS is exactly the highest gate (the scoped rifle's), so every rung is
-	-- unlocked and nothing is bought FOR her -- she still presses every button and sees every state.
-	TEST_GRANT = { coins = 2000, hunts = 25 },
+	-- 12,000 BUYS THE WHOLE CATALOGUE THAT IS FOR SALE (task 221): the items are
+	-- 120 + 250 + 600 + 900 + 1500 + 2000 = 5,370 and the packages 575 + 1800 + 3750 = 6,125, so
+	-- everything for sale is $11,495 and this covers it with $505 over. The RED STAG CARD is not
+	-- counted -- it cannot be bought. 30 HUNTS is exactly the highest gate in the catalogue (ALWAYS
+	-- HUNTER and THE FULL SEASON), so every rung is unlocked and nothing is bought FOR her -- she
+	-- still presses every button and sees every state.
+	--
+	-- `economy.spec` ASSERTS BOTH NUMBERS AGAINST THE CATALOGUE rather than against themselves, so
+	-- the grant cannot fall behind a row somebody adds later without the harness saying so.
+	TEST_GRANT = { coins = 12000, hunts = 30 },
 }
 Drive.deepFreeze(Economy.CONFIG)
 
@@ -166,6 +172,21 @@ local owedFrozen: { [number]: string }? = nil
 
 local function invalidateOwed()
 	owedFrozen = nil
+end
+
+-- WHO BOUGHT THE HUNTER'S PLACE (task 221), as a FROZEN MEMO, for `owedTeams`' own measured reason:
+-- `Match.dispatch` asks for it on EVERY event, and while TASKS.md 214a(a) is open that dispatch is
+-- stepped at ~15x `MATCH_STEP_HZ` -- so asking `ownedOf` per participant per event would be ~16
+-- clone-and-freezes about sixty times a second.
+--
+-- IT IS A PROJECTION OF A PROFILE THIS OWNER ALREADY HOLDS, through the pure
+-- `ShopData.grantsAlwaysHunter`: no new owner, no new fact and no second store. REBUILT AND NEVER
+-- MUTATED by `invalidateAlways`, which every writer of `ownedSets` calls -- so a reader still
+-- holding the previous table holds a correct snapshot of the moment it asked.
+local alwaysFrozen: { [number]: boolean }? = nil
+
+local function invalidateAlways()
+	alwaysFrozen = nil
 end
 -- THE DOUBLE-PAY GUARD. A belt over the brace of the phase edge in `Match`'s dispatch, and it is
 -- justified: `Match.start` resets `driveNumber` to 0, so two worlds in one process both count from 1
@@ -221,6 +242,12 @@ local stats = {
 	purchases = 0,
 	purchasesRefused = 0,
 	coinsSpent = 0,
+	-- THE GRANT PATH (task 221), counted apart from the purchase that usually causes one: a grant
+	-- can also arrive from a Robux receipt (task 222), and "how many entitlements arrived by Robux"
+	-- is a number this report should be able to answer the day that door opens.
+	grants = 0,
+	grantsAlready = 0,
+	grantsBySource = {} :: { [string]: number },
 	refusedBy = {} :: { [string]: number },
 	-- The live store refused to be built and the memory one was taken instead, so this server saves
 	-- nothing. It is never non-zero in Studio, which never asks for the live store at all.
@@ -230,6 +257,7 @@ local stats = {
 function Economy.stats()
 	local out = table.clone(stats)
 	out.refusedBy = table.clone(stats.refusedBy)
+	out.grantsBySource = table.clone(stats.grantsBySource)
 	return out
 end
 
@@ -243,6 +271,7 @@ local function resetStats()
 		end
 	end
 	stats.refusedBy = {}
+	stats.grantsBySource = {}
 end
 
 -- ------------------------------------------------------------------------------- pure, exported
@@ -333,6 +362,30 @@ function Economy.owedTeams(): { [number]: TeamName }
 		owedFrozen = cached
 	end
 	return (cached :: any) :: { [number]: TeamName }
+end
+
+-- WHO IS OWED `Shooters` EVERY DRIVE BECAUSE HE PAID FOR IT (task 221). Karen, 2026-10-20:
+-- *"Posibility to be a hunter always"*.
+--
+-- FROZEN and MEMOISED for `owedTeams`' reason above, and derived from the owned sets this owner
+-- already holds -- so it cannot disagree with what he bought, and there is nothing extra to save.
+--
+-- EMPTY when the shop is off, when nobody owns the row and in every spec that starts no money,
+-- which is what makes `Roster.owedWith` answer BY IDENTITY and the game before this task bit for
+-- bit.
+function Economy.alwaysHunters(): { [number]: boolean }
+	local cached = alwaysFrozen
+	if cached == nil then
+		local built: { [number]: boolean } = {}
+		for userId, owned in pairs(ownedSets) do
+			if ShopData.grantsAlwaysHunter(owned) then
+				built[userId] = true
+			end
+		end
+		cached = table.freeze(built)
+		alwaysFrozen = cached
+	end
+	return (cached :: any) :: { [number]: boolean }
 end
 
 -- THE ONE WRITER OF `nextTeam`, AND IT DERIVES NOTHING. It is told each player's next team and it
@@ -550,9 +603,83 @@ export type PurchaseReceipt = {
 	price: number?,
 	balance: number?,
 	refused: string?, -- one of `Shop.REASON`
-	refusedNumber: number?, -- the number its line prints: coins short, or hunts short
+	refusedNumber: number?, -- the number its line prints: money short, or hunts short
+	-- HE ALREADY HAD IT (task 221). `ok = true` and NOTHING WAS WRITTEN -- the shape Roblox's
+	-- `ProcessReceipt` contract needs, because a refusal for an already-granted receipt would make
+	-- it retry for ever.
+	already: boolean?,
 }
 
+-- ---------------------------------------------------------------- the one grant path (task 221)
+--
+-- WHERE THE ENTITLEMENT CAME FROM. Karen will also sell these for Robux (task 222, which needs her
+-- Creator Dashboard), and the whole of what task 221 owes it is that a Robux receipt grants the
+-- same entitlement through the same owner by the same function.
+Economy.SOURCE = table.freeze({
+	MONEY = "money",
+	ROBUX = "robux",
+})
+
+-- THE ONE WRITER OF THE OWNED SET, EITHER IN MEMORY OR ON THE KEY, AND IT NEVER YIELDS.
+--
+-- IDEMPOTENT, AND THAT IS A CONTRACT RATHER THAN A CONVENIENCE: Roblox documents that
+-- `ProcessReceipt` is called AGAIN for a receipt that was not confirmed, including after a server
+-- restart, so a second call must be a SUCCESS and not a refusal -- a refusal would make Roblox
+-- retry for ever and the player would be charged with nothing to show for it. An entitlement SET
+-- is naturally idempotent, which is why no receipt-id ledger is kept: granting a row twice is the
+-- same set, and a second store of the same fact is the thing this owner exists to avoid.
+--
+-- WHAT IT CHECKS, AND NOTHING ELSE. It does NOT check the price, the hunt gate, the counter or the
+-- balance: those are `Economy.purchase`'s rules and Roblox's, and keeping them out of here is the
+-- whole point of the split.
+--
+-- A RETIRED ID CANNOT BE GRANTED and NEITHER CAN THE RED STAG CARD: `ShopData.row` answers only
+-- what is for sale, and `sale ~= true` is refused below -- so there is no path in this repository
+-- that hands over a row Karen has taken off the shelf or an animal that does not exist.
+function Economy.grant(userId: number, itemId: any, source: string): PurchaseReceipt
+	if not enabled then
+		return { ok = false, refused = ShopData.REASON.CLOSED }
+	end
+	if sessions[userId] == nil then
+		return { ok = false, refused = ShopData.REASON.NO_PROFILE }
+	end
+	local row = ShopData.row(itemId)
+	if row == nil then
+		return { ok = false, refused = ShopData.REASON.UNKNOWN }
+	end
+	if (row :: ShopData.Row).sale ~= true then
+		return { ok = false, refused = ShopData.REASON.NOT_SALE }
+	end
+	local id = (row :: ShopData.Row).id
+	-- ALREADY HIS: a SUCCESS, and nothing is written. `ShopData.owns` and NOT `ownedOrCovered` --
+	-- a bundle covering a row is not that row, and a receipt for that row must still write it.
+	if ShopData.owns(ownedSets[userId], id) then
+		stats.grantsAlready += 1
+		return { ok = true, item = id, balance = balances[userId], already = true }
+	end
+	-- THE SET, REPLACED WHOLE rather than written into (shop design section 9.1). `ownedOf` hands
+	-- out frozen copies and a reader may be holding one, and a replaced table is what makes "no
+	-- previous state can linger" provable -- `earnedThisDrive`'s own rule.
+	local nextOwned: { [string]: boolean } = {}
+	for owned in pairs(ownedSets[userId] or {}) do
+		nextOwned[owned] = true
+	end
+	nextOwned[id] = true
+	ownedSets[userId] = nextOwned
+	-- THE MEMO OF WHO IS OWED THE HUNTER'S PLACE IS NOW STALE (task 221). Every writer of
+	-- `ownedSets` calls this, which is the `invalidateOwed` discipline verbatim.
+	invalidateAlways()
+	stats.grants += 1
+	stats.grantsBySource[source] = (stats.grantsBySource[source] or 0) + 1
+	local current = store
+	if current then
+		-- TWO FIELDS, AND NOTHING DERIVED. A purchase is not a drive: `drivesPaid` is not touched,
+		-- which is hazard 2 closed. The balance is READ rather than passed in, so a Robux grant --
+		-- which debits nothing of ours -- saves the balance he already had.
+		current.save(userId, { coins = balances[userId], owned = nextOwned })
+	end
+	return { ok = true, item = id, balance = balances[userId] }
+end
 -- THE ONLY WRITER OF A PURCHASE, EITHER HALF OF IT, AND IT NEVER YIELDS (task 178).
 --
 -- TEST, THEN EXECUTE -- OpenTTD's `CommandCost` (docs/research/2026-10-14-the-shop.md section 2.3),
@@ -588,27 +715,17 @@ function Economy.purchase(userId: number, itemId: any, facts: { atCounter: boole
 	end
 	local row = ShopData.row(itemId) :: ShopData.Row
 	local before = balances[userId] or 0
-	-- HALF ONE: the coins. The floor is not reached here -- `ShopData.refuse` has already answered
-	-- `poor` for anything he cannot pay -- so this subtraction cannot go negative.
+	-- THE COINS. The floor is not reached here -- `ShopData.refuse` has already answered `poor` for
+	-- anything he cannot pay -- so this subtraction cannot go negative.
 	balances[userId] = before - row.price
-	-- HALF TWO: the set, REPLACED WHOLE rather than written into (design section 9.1). `ownedOf`
-	-- hands out frozen copies and a reader may be holding one, and a replaced table is what makes
-	-- "no previous state can linger" provable -- `earnedThisDrive`'s own rule.
-	local nextOwned: { [string]: boolean } = {}
-	for id in pairs(ownedSets[userId] or {}) do
-		nextOwned[id] = true
-	end
-	nextOwned[row.id] = true
-	ownedSets[userId] = nextOwned
 	stats.purchases += 1
 	stats.coinsSpent += row.price
-	local current = store
-	if current then
-		-- TWO FIELDS, AND NOTHING DERIVED. A purchase is not a drive: `drivesPaid` is not touched,
-		-- which is hazard 2 closed.
-		current.save(userId, { coins = balances[userId], owned = nextOwned })
-	end
-	return { ok = true, item = row.id, price = row.price, balance = balances[userId] }
+	-- ...AND THE SET, THROUGH THE ONE WRITER OF IT (task 221). `grant` is what performs the single
+	-- `store.save`, and it READS the live balance rather than being told it -- so the profile write
+	-- still happens once, with both fields, and nothing yields between the debit and it.
+	local receipt = Economy.grant(userId, itemId, Economy.SOURCE.MONEY)
+	receipt.price = row.price
+	return receipt
 end
 
 -- WHAT ONE PLAYER'S PANEL IS TOLD: his own wallet, and the catalogue already decided against it.
@@ -692,6 +809,8 @@ function Economy.load(player: Player)
 		local data = profile :: { [string]: any }
 		balances[userId] = if type(data.coins) == "number" then data.coins else 0
 		ownedSets[userId] = if type(data.owned) == "table" then table.clone(data.owned) else {}
+		-- THE ALWAYS-HUNTER MEMO IS STALE THE MOMENT A SET CHANGES (task 221).
+		invalidateAlways()
 		huntsCache[userId] = if type(data.drivesPaid) == "number" then data.drivesPaid else 0
 		earnedTotals[userId] = if type(data.coinsEarnedTotal) == "number" then data.coinsEarnedTotal else 0
 		-- THE TURN (task 217), the fifth projected field and the only one with a VALIDATOR rather
@@ -723,6 +842,7 @@ function Economy.release(userId: number)
 	balances[userId] = nil
 	earnedThisDrive[userId] = nil
 	ownedSets[userId] = nil
+	invalidateAlways()
 	huntsCache[userId] = nil
 	earnedTotals[userId] = nil
 	-- THE TURN'S ROW GOES WITH THE SESSION (task 217) AND THE KEY ON DISK KEEPS IT. A player who
@@ -786,6 +906,7 @@ function Economy.closeAll(): number
 	table.clear(sessions)
 	table.clear(balances)
 	table.clear(ownedSets)
+	invalidateAlways()
 	table.clear(huntsCache)
 	table.clear(earnedTotals)
 	table.clear(nextTeams)
@@ -815,6 +936,7 @@ export type View = {
 	-- (`Match.dispatch`, the `aliveBoars` idiom) to hand it to the pure roster as a SUGGESTION --
 	-- `Roster.assign`'s balance rule may discard it entirely, and nothing is consumed when it does.
 	owedTeams: () -> { [number]: TeamName },
+	alwaysHunters: () -> { [number]: boolean },
 	-- ...AND THE ONE NAMED WRITE, in `payDrive`'s shape and not a setter: the drive is the only thing
 	-- that knows who played which role, so it has to be able to say so. It names no profile field --
 	-- this owner chooses that -- and it DERIVES NOTHING: the rotation rule is pure and lives at the
@@ -840,6 +962,10 @@ function Economy.view(): View
 		enabled = Economy.isEnabled,
 		ownedOf = Economy.ownedOf,
 		owedTeams = Economy.owedTeams,
+		-- WHO BOUGHT THE HUNTER'S PLACE (task 221). A read-only projection, like every other member
+		-- here: the drive still cannot open a session, write a balance, name a profile field or buy
+		-- anything through this table.
+		alwaysHunters = Economy.alwaysHunters,
 		noteNextTeams = function(teams: { [number]: any })
 			Economy.noteNextTeams(teams)
 		end,
@@ -884,6 +1010,7 @@ function Economy.start(injected: World?)
 	table.clear(sessions)
 	table.clear(inFlight)
 	table.clear(ownedSets)
+	invalidateAlways()
 	table.clear(huntsCache)
 	table.clear(earnedTotals)
 	table.clear(nextTeams)
@@ -945,6 +1072,7 @@ function Economy.start(injected: World?)
 		-- table is exactly what dropping the row prevents -- and the readers then see nil, which is
 		-- "nobody answered" and leaves his gun as it was (design section 7.1).
 		ownedSets[userId] = nil
+		invalidateAlways()
 		huntsCache[userId] = nil
 		earnedTotals[userId] = nil
 		-- ...AND THE TURN'S ROW (task 217), for the same sentence: a `Store.save` into a dead table
@@ -1014,6 +1142,7 @@ function Economy.stop()
 	table.clear(sessions)
 	table.clear(inFlight)
 	table.clear(ownedSets)
+	invalidateAlways()
 	table.clear(huntsCache)
 	table.clear(earnedTotals)
 	table.clear(nextTeams)

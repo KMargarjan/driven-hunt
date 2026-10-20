@@ -84,6 +84,18 @@ export type StandArea = {
 	centre: Vector3,
 	radius: number,
 	minY: number?,
+	-- MAY *THIS* PLAYER USE THE PLATFORM AT THIS STAND (task 221 round 3, the Director's decision
+	-- of 2026-10-20)? The high seats became a thing a player BUYS, and the placement only decides
+	-- where he STARTS: in the Forest Test he picks his stand by walking to it, so without this he
+	-- could pick a seated one, climb the engine's own ladder and shoot from a deck he never paid
+	-- for. *"The deck counts as a stand only for an entitled hunter or the one assigned there."*
+	--
+	-- nil IS "NOTHING SAID", which is every ground stand, the DEV arena, every world with no seats
+	-- and every build with the shop off -- and nothing said means no rule, the call
+	-- `Rules.outsideStand`'s nil area and `Rules.driveClosed`'s nil already make for the same
+	-- stated reason: a gate that refused on an unwired world would make a mis-wiring look exactly
+	-- like Karen's rule working.
+	seatPaid: boolean?,
 }
 
 -- The closed set, so the owner, the client and the specs can name them. They are wire values: the
@@ -93,6 +105,8 @@ Rules.REASON = table.freeze({
 	OFF_STAND = "off-stand",
 	-- HE IS IN HIS CIRCLE BUT NOT UP ON HIS HIGH SEAT (task 218).
 	OFF_PLATFORM = "off-platform",
+	-- HE IS UP ON A HIGH SEAT HE HAS NOT BOUGHT (task 221 round 3).
+	UNPAID_PLATFORM = "unpaid-platform",
 	LICENCE = "no-licence",
 	-- THE DRIVE IS NOT ON (task 174). KAREN, 2026-10-13 ~09:35: *"for hunter once hunt over (drive)
 	-- horn anounce then I can; shoot anymore"*.
@@ -107,6 +121,12 @@ Rules.NOTICE = table.freeze({
 	-- The one thing he can do about it, in the Hud's own voice. 19 characters: one shorter than
 	-- `"THE DRIVE IS OVER"` plus its row, so no Hud measurement moves.
 	[Rules.REASON.OFF_PLATFORM] = "CLIMB TO YOUR STAND",
+	-- THE ONE THING HE CAN DO ABOUT IT, in the Hud's own voice. THE DIRECTOR ASKED FOR *"BUY TREE
+	-- STAND ACCESS"* and that is 21 characters: this row is capped at 20 (`weapon_rules.spec`, and
+	-- the cap is measured -- the readout already carries the glyphs, the ammo word and the pocket).
+	-- So it is Karen's own product words without the noun that does not fit: *"Access to tree
+	-- stand"*, as an instruction, in 14.
+	[Rules.REASON.UNPAID_PLATFORM] = "BUY TREE STAND",
 	[Rules.REASON.LICENCE] = "NO LICENCE",
 	[Rules.REASON.DRIVE_OVER] = "THE DRIVE IS OVER",
 })
@@ -179,6 +199,12 @@ function Rules.belowPlatform(position: Vector3?, area: StandArea?): boolean
 	if type(area.minY) ~= "number" then
 		return false
 	end
+	-- A STAND HE HAS NOT PAID FOR IS A GROUND STAND TO HIM (task 221 round 3), so there is no
+	-- height rule and nothing to climb to. Without this he would be told to CLIMB TO YOUR STAND on
+	-- the ground and then refused for being on the deck once he did -- a trap with no way out.
+	if area.seatPaid == false then
+		return false
+	end
 	return position.Y < (area.minY :: number)
 end
 
@@ -229,13 +255,45 @@ end
 -- 500 studs from his stand would be told to climb. It comes before `BEATER` for the reason
 -- `OFF_STAND` already does: a refused shot hits nobody, so no safety answer is lost, and the
 -- instruction he can act on wins.
+-- `UNPAID_PLATFORM` SITS BEFORE `OFF_PLATFORM` AND AFTER `OFF_STAND`, and the order is the rule:
+-- first he has to be in his circle at all, then "this deck is not yours" has to be answered before
+-- "climb onto your deck", or a man on an unpaid platform would be told to climb the thing he is
+-- already standing on. The two can never both fire -- `belowPlatform` stands down entirely for a
+-- stand he has not paid for (see it) -- but the ORDER is what makes that a rule rather than a
+-- coincidence of two predicates.
 Rules.ORDER = table.freeze({
 	Rules.REASON.DRIVE_OVER,
 	Rules.REASON.OFF_STAND,
+	Rules.REASON.UNPAID_PLATFORM,
 	Rules.REASON.OFF_PLATFORM,
 	Rules.REASON.BEATER,
 	Rules.REASON.LICENCE,
 })
+
+-- IS HE UP ON A HIGH SEAT HE HAS NOT BOUGHT? (task 221 round 3, the Director's decision of
+-- 2026-10-20: *"an unentitled hunter on a high-seat DECK cannot shoot"*.)
+--
+-- THE EXACT COMPLEMENT OF `belowPlatform`, and deliberately so: that one refuses a man BELOW the
+-- deck he is entitled to, this one refuses a man AT OR ABOVE a deck he is not. `>=` and not `>`,
+-- because `minY` IS the deck's top face and standing on it is being on it -- the same comparison
+-- `belowPlatform` makes from the other side, so between them there is no sliver of height that is
+-- neither.
+--
+-- NO AREA, NO POSITION, NO `minY` OR NO ANSWER ABOUT THE ENTITLEMENT MEANS NO RULE. `seatPaid`
+-- must be exactly `false`: nil is "nobody answered", which is every world that has no seats and
+-- every build with the shop off.
+function Rules.onUnpaidPlatform(position: Vector3?, area: StandArea?): boolean
+	if position == nil or area == nil then
+		return false
+	end
+	if type(area.minY) ~= "number" then
+		return false
+	end
+	if area.seatPaid ~= false then
+		return false
+	end
+	return position.Y >= (area.minY :: number)
+end
 
 -- RULE 3. IS HE SHOOTING AT SOMETHING HE HAS NO LICENCE FOR? The table is `Licences.ROWS` and this
 -- is only the question; `rows` is a parameter so a spec can drive a species the game does not ship.
@@ -267,6 +325,10 @@ function Rules.refuse(context: Context): string?
 	for _, reason in ipairs(Rules.ORDER) do
 		if reason == Rules.REASON.OFF_STAND then
 			if Rules.outsideStand(context.position, context.stand) then
+				return reason
+			end
+		elseif reason == Rules.REASON.UNPAID_PLATFORM then
+			if Rules.onUnpaidPlatform(context.position, context.stand) then
 				return reason
 			end
 		elseif reason == Rules.REASON.OFF_PLATFORM then

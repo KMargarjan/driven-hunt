@@ -1826,7 +1826,12 @@ end
 -- ITS Y IS ADVISORY SINCE TASK 192 (the rule above): `Body.place` snaps whatever this returns onto
 -- the ground measured at that x, z. The post-top arithmetic stays because it is the right ANSWER in
 -- both worlds -- a post sits on the ground -- and because a spec reads it with no Workspace at all.
-function Body.placementFor(markers, team: TeamName, index: number, config): CFrame?
+-- `_line` IS READ BY NOBODY HERE, AND THAT IS THE POINT (task 221). The placement seam grew a
+-- fifth argument -- the whole team's line and which of them paid for a high seat -- because the
+-- FOREST deals seated stands and a per-player rule could not do it without collisions. This is the
+-- DEV place's answer and the DEV place has no high seats, so it is byte-identical: the arity grows
+-- by one unread parameter and `match_place.spec` is untouched.
+function Body.placementFor(markers, team: TeamName, index: number, config, _line: any?): CFrame?
 	if team == "Shooters" then
 		local posts = markers.posts
 		if #posts == 0 then

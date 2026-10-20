@@ -36,6 +36,8 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+-- THE ONE FORMATTER OF MONEY (task 221): the symbol, the word and how a negative reads.
+local Money = require(ReplicatedStorage:WaitForChild("Money"))
 -- Which world this is, so the compass knows whether anybody has said where the drive comes from
 -- (task 125). Read, never written: `Map.EXPECTED_WORLD` is a commit, not a flag.
 local Map = require(ReplicatedStorage:WaitForChild("Map"))
@@ -609,11 +611,18 @@ Hud.BOARD = {
 	MAX_VISIBLE_ROWS = 14,
 	-- x, width and alignment of every column, inside the padded body (488 px at 520 wide).
 	COLUMNS = {
-		rank = { x = 0, w = 20, right = true },
-		name = { x = 28, w = 186, right = false },
-		kills = { x = 214, w = 74, right = true },
-		points = { x = 292, w = 78, right = true },
-		coins = { x = 374, w = 66, right = true },
+		-- `head` IS THE WORD THE COLUMN PRINTS (task 221). It used to be `string.upper(key)` -- the
+		-- literal FIELD NAME -- with a special case for `#`, which meant the board said COINS
+		-- because the snapshot's field is called `coins`. The field keeps its name (nothing
+		-- persisted is renamed) and the WORD is declared here, which is `Drive.CONFIG`'s own rule
+		-- (*"every word the panel draws is written down"*) applied to the one place in this file
+		-- that broke it.
+		rank = { x = 0, w = 20, right = true, head = "#" },
+		name = { x = 28, w = 186, right = false, head = "NAME" },
+		kills = { x = 214, w = 74, right = true, head = "KILLS" },
+		points = { x = 292, w = 78, right = true, head = "POINTS" },
+		coins = { x = 374, w = 66, right = true, head = Money.WORD },
+		-- never drawn as a head: the badge column has no title.
 		badge = { x = 448, w = 40, right = false },
 	},
 }
@@ -1543,7 +1552,7 @@ local function build(): ScreenGui
 		end
 		local cell = Style.cell(boardHead, key, viewX, column.x, column.w, column.right, "MICRO")
 		cell.TextColor3 = Style.LOOK.FIELD_MUTED
-		cell.Text = Style.spaced(if key == "rank" then "#" else string.upper(key))
+		cell.Text = Style.spaced(column.head or "")
 		sized(cell, "MICRO")
 	end
 
@@ -2567,6 +2576,16 @@ end
 -- says `Slug` for both guns because `Boar.Wound.damageFor` branches on that string, and a rifle
 -- printing "SLUG" would be a lie on screen. `row.AMMO_LABEL` is the one mapping, here in the one
 -- module that draws. nil is the shotgun's own words, which is every caller before the rifle.
+-- WHAT THE POCKET READS: the count, or the weapon's word for a pocket that does not go down
+-- (task 221). PURE and exported, because the readout line and the ammo chip both print it and two
+-- answers to "how many shells have I got" is the drift this repo is named after.
+function Hud.pocketTextFor(state: Shotgun.WeaponSnapshot): string
+	if state.unlimited ~= nil and state.unlimited[state.ammo] == true then
+		return Shotgun.CONFIG.POCKET_UNLIMITED_TEXT
+	end
+	return tostring(state.reserve[state.ammo] or 0)
+end
+
 local function textFor(state: Shotgun.WeaponSnapshot, row: any?): string
 	local resolvedRow = row or Weapons.row(state.weapon)
 	local glyphs = ""
@@ -2590,11 +2609,14 @@ local function textFor(state: Shotgun.WeaponSnapshot, row: any?): string
 	local busyMark = if state.busyFor > 0 then " R" else ""
 	-- Shells are carried per type, so the count shown is the pocket the next load comes from, and
 	-- the server's one-line notice ("NO BUCK") is what tells the player why X did nothing.
-	local pocket = state.reserve[state.ammo] or 0
+	-- ...AND A POCKET THAT DOES NOT GO DOWN PRINTS A WORD INSTEAD OF A NUMBER (task 221). Karen:
+	-- *"Unlimited amunition"*. The word is the WEAPON's (`Shotgun.CONFIG.POCKET_UNLIMITED_TEXT`),
+	-- three ASCII characters in the slot the two-digit count already occupies.
+	local pocket = Hud.pocketTextFor(state)
 	local notice = if state.notice then " " .. state.notice else ""
 	local resolved = resolvedRow
 	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[state.ammo]) or string.upper(state.ammo)
-	return string.format("%s %s %d%s%s", glyphs, label, pocket, busyMark, notice)
+	return string.format("%s %s %s%s%s", glyphs, label, pocket, busyMark, notice)
 end
 
 -- PURE, AND EXPORTED (task 112, round 3). The readout case could only ever ask the LIVE text, and
@@ -2636,9 +2658,9 @@ local Rank = Drive.Rank
 -- data: a leaver is not paid (`Economy.Coins.forDrive` skips `row.left`), and the `LEFT` tag beside
 -- his row is what says why -- a `--` in the coins column was the same fact said twice and badly.
 local function scoreCellsFor(rank: number, row): { [string]: string }
-	local coins = if type(row.earned) == "number"
-		then string.format(Drive.CONFIG.SCORE_EARNED_FORMAT, row.earned)
-		else ""
+	-- `Money.signed` (task 221): "+$34" and "-$20". The `$` exists in one module, so this cell and
+	-- the top bar and the shop cannot print money three ways.
+	local coins = if type(row.earned) == "number" then Money.signed(row.earned) else ""
 	return {
 		rank = tostring(rank),
 		name = string.sub(tostring(row.name or "?"), 1, 18),
@@ -2763,11 +2785,10 @@ function Hud.coinsText(snapshot, userId: number?): string
 	end
 	for _, row in ipairs(rows) do
 		if row.userId == userId then
-			local value = row.coins
-			if type(value) == "number" then
-				return string.format("%s %d", Drive.CONFIG.SCORE_COINS_LABEL, value)
-			end
-			return string.format("%s %s", Drive.CONFIG.SCORE_COINS_LABEL, Drive.CONFIG.SCORE_COINS_UNKNOWN)
+			-- THE VALUE ALONE (task 221), with no label in front of it. The chip owns its own
+			-- caption (`Money.WORD`), and this answering "COINS 2000" is what forced the caller to
+			-- split the string back apart with a pattern -- two formats for one fact.
+			return Money.text(row.coins)
 		end
 	end
 	return ""
@@ -3392,15 +3413,15 @@ local function renderDrive(MatchSystem)
 	local coins = Hud.coinsText(snapshot, Players.LocalPlayer.UserId)
 	local dropCoins = Style.isPhone(viewX) and phase == "Running"
 	if coins ~= "" and not dropCoins then
-		-- `Hud.coinsText` answers "COINS 2000" -- the LABEL first -- and the chip wants the number
-		-- and the word apart, with the number leading (§3.9: *"the caption sits AFTER the number"*).
-		-- AN UNKNOWN BALANCE DRAWS NO CHIP AT ALL rather than `--`, which is §3.9's own rule and is
-		-- the one behaviour change here: the old bar printed `COINS --`.
-		local amount = string.match(coins, "(%S+)$")
-		if amount == Drive.CONFIG.SCORE_COINS_UNKNOWN then
+		-- `Hud.coinsText` ANSWERS THE NUMBER ALONE SINCE TASK 221 ("$2000"), so the pattern that
+		-- used to split "COINS 2000" back apart is gone: there is one format and the chip supplies
+		-- its own caption (§3.9: *"the caption sits AFTER the number"*).
+		-- AN UNKNOWN BALANCE DRAWS NO CHIP AT ALL rather than `--`, which is §3.9's own rule.
+		local amount: string? = coins
+		if amount == Money.UNKNOWN then
 			amount = nil
 		end
-		chip("Coins", amount, Drive.CONFIG.SCORE_COINS_LABEL, Style.LOOK.COIN_TEXT)
+		chip("Coins", amount, Money.WORD, Style.LOOK.COIN_TEXT)
 	else
 		chip("Coins", nil, nil)
 	end
@@ -4014,6 +4035,10 @@ function Hud.ammoChipFor(
 	pips: { string },
 	selected: number?,
 	pocket: number,
+	-- WHAT THE CHIP ACTUALLY PRINTS (task 221): the count as a string, or `INF` for a pocket that
+	-- does not go down. `pocket` keeps its type and its meaning -- a NUMBER a caller can compare --
+	-- so nothing that reads it has to learn about a word.
+	pocketText: string,
 	label: string,
 	glyph: string?,
 	busy: boolean,
@@ -4050,6 +4075,7 @@ function Hud.ammoChipFor(
 		pips = pips,
 		selected = selected,
 		pocket = state.reserve[state.ammo] or 0,
+		pocketText = Hud.pocketTextFor(state),
 		label = label,
 		glyph = glyph,
 		busy = state.busyFor > 0,
@@ -4157,7 +4183,7 @@ function Hud.renderCorner(Weapon)
 		end
 	end
 	if ammoValue then
-		(ammoValue :: TextLabel).Text = tostring(data.pocket)
+		(ammoValue :: TextLabel).Text = data.pocketText
 	end
 	-- THE SHELL AND THE WORD SAY THE SAME THING (task 204): one glyph visible, and the word in that
 	-- load's own hull colour. A row with no `AMMO_GLYPH` -- the rifle's -- shows neither shell and
@@ -4462,6 +4488,10 @@ function Hud.renderObjective(CameraSystem)
 			holdLeft = matchSystem.holdSecondsLeft(),
 			goAge = matchSystem.goAgeSeconds(),
 			through = matchSystem.isThrough(),
+			-- ...AND WHETHER HIS BOUGHT HUNTER'S PLACE WAS OVERRULED (task 221). Resolved from a
+			-- userId list exactly as `through` is, so only the man it happened to reads the
+			-- sentence.
+			roleOverruled = matchSystem.isRoleOverruled and matchSystem.isRoleOverruled(),
 		}
 		else nil
 	Objective.render({

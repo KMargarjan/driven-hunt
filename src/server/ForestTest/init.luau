@@ -44,6 +44,9 @@ local Markers = require(script.Markers)
 -- nothing else, it requires this module back in no way at all, and its two ground readers are
 -- injected at the bottom of this file beside `Markers`'.
 local Seats = require(script.Seats)
+-- THE FROZEN SEAT DATA (task 221). `ForestTest.seatedStands` is the one place this layout
+-- name is applied to it, so the stand DEAL and the seats `Seats.ensure` builds read one table.
+local Plan = require(ReplicatedStorage:WaitForChild("HighSeats"))
 
 local ForestTest = {}
 ForestTest.Data = Data
@@ -993,11 +996,36 @@ end
 -- says why the default is permissive). The role is NOT asked here: `Match.standAreaFor` has already
 -- refused anybody who is not a hunter, which is the same split as `ForestTest.boundary`'s `role`
 -- parameter -- the caller holds the `Player`, this module keys by `userId`.
+-- MAY THIS PLAYER USE A HIGH SEAT? (task 221 round 3.) INJECTED, exactly as
+-- `Weapon.setEntitlementProvider` and `Body.setLookProvider` are, so this world module learns
+-- nothing about a shop, an item id or a price -- it asks one boolean of whatever the composition
+-- root wired. nil provider is nil answer, which is "nothing said", which is no rule.
+local seatProvider: ((number) -> boolean?)? = nil
+
+function ForestTest.setSeatProvider(provider: ((number) -> boolean?)?)
+	seatProvider = provider
+end
+
+local function seatPaidFor(userId: number): boolean?
+	local ask = seatProvider
+	if ask == nil then
+		return nil
+	end
+	-- THROUGH `pcall`, the discipline every injected provider in this repo is asked through: a
+	-- provider that throws must leave the game as it was and not refuse every shot in the drive.
+	local ok, answer = pcall(ask, userId)
+	if not ok or type(answer) ~= "boolean" then
+		return nil
+	end
+	return answer
+end
+
 function ForestTest.standArea(userId: number)
 	local pick = ForestTest.pickOf(userId)
 	if pick == nil or (pick :: any).lockedAt == nil then
 		return nil
 	end
+	local deck = Seats.deckTopY(pick.index)
 	return {
 		centre = Data.standPosition(pick.index, chosen.layout),
 		radius = Data.PICK.standRadiusStuds,
@@ -1005,7 +1033,11 @@ function ForestTest.standArea(userId: number)
 		-- and every other world (task 218, design section 5.2). Read off the SEAT THE WORLD BUILT,
 		-- so "where may he shoot" and "what is he standing on" are one fact asked once: a stand
 		-- whose seat was refused answers nil here and is a ground stand in every respect.
-		minY = Seats.deckTopY(pick.index),
+		minY = deck,
+		-- ...AND WHETHER THIS MAN MAY USE IT (task 221 round 3). Only asked where there IS a seat:
+		-- a ground stand has nothing to pay for, and answering `false` there would be a rule about
+		-- a platform that does not exist.
+		seatPaid = if deck ~= nil then seatPaidFor(userId) else nil,
 	}
 end
 
@@ -3075,6 +3107,37 @@ function ForestTest.standIndexFor(index: number): number
 	-- (`Match.CONFIG.BOTS.TARGET.hunters` is 4), reachable with six real hunters. A clamp is the
 	-- honest answer: the outside of the walk is the end of the line, and there is no stand past it.
 	return math.clamp(middle + step * side, 1, count)
+end
+
+-- `ForestTest.standIndexFor`'s OWN SEQUENCE, AS A LIST (task 221). PURE.
+--
+-- `{ standIndexFor(1), standIndexFor(2), ... standIndexFor(standCount) }`, which is the centre-out
+-- order over every stand of this layout: `5, 4, 6, 3, 7, 2, 8, 1, 9` on the road.
+--
+-- IT IS DERIVED AND NOT RE-IMPLEMENTED, and that is the point: `HighSeats.dealLine` needs the walk
+-- as a list in order to deal the whole line at once, and a second hand-written copy of the
+-- centre-out arithmetic would be exactly the two-pieces-of-code-disagreeing failure this project is
+-- named after. `forest_stand.spec` already pins the permutation `standIndexFor` produces, so this
+-- is pinned with it.
+function ForestTest.standWalk(): { number }
+	local out: { number } = {}
+	for index = 1, chosen.layout.standCount do
+		table.insert(out, ForestTest.standIndexFor(index))
+	end
+	return out
+end
+
+-- WHICH OF THIS LAYOUT'S STANDS CARRY A HIGH SEAT, as a SET keyed by stand index (task 221).
+--
+-- `ReplicatedStorage.HighSeats` is the frozen data and this is the one place the live layout's name
+-- is applied to it, so the deal and the thing `Seats.ensure` actually builds read one table. It is
+-- NOT a second record of where the seats are: `Seats.ensure` builds from the same `standsFor`.
+function ForestTest.seatedStands(): { [number]: boolean }
+	local out: { [number]: boolean } = {}
+	for _, index in ipairs(Plan.standsFor(chosen.name)) do
+		out[index] = true
+	end
+	return out
 end
 
 -- WHICH ENTRY OF `markers.posts` IS STAND `index`. PURE.

@@ -157,6 +157,20 @@ return function()
 			expect(#markers.boarSpawns).to.equal(4)
 		end)
 
+		-- TASK 221, the Reviewer's round-1 finding 2: `roleOverruled` is DERIVED from the live
+		-- assignment and is ABSENT when there is no economy view -- the `stands` / `coinsOn` idiom
+		-- (*"ABSENT means the server never sent it"*). The harness runs with no economy, so this is
+		-- the flag-off half of the field, asserted against the real running drive.
+		it("leaves roleOverruled absent when no economy is wired", function()
+			local snapshot = Match.snapshot()
+			expect(snapshot).to.be.ok()
+			-- ABSENT, not an empty array: a client that never heard of the field reads exactly what
+			-- it always did, and `Match.isRoleOverruled` answers false off `or {}`.
+			expect(snapshot.roleOverruled).to.equal(nil)
+			-- ...and the two fields it copies that idiom from behave the same way here.
+			expect(snapshot.coinsOn).to.equal(nil)
+		end)
+
 		it("publishes a snapshot that is frozen all the way down", function()
 			local snapshot = Match.snapshot()
 			expect(snapshot).to.be.ok()

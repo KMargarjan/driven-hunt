@@ -122,6 +122,42 @@ return function()
 			expect(Objective.text("Running", "Shooters")).never.to.equal(Objective.text("Running", "Drivers"))
 		end)
 
+		-- ---------------------------------------------------------------- the overrule (task 221)
+		--
+		-- THE REVIEWER'S ROUND-1 FINDING 2: the one thing that tells a man who paid $2,000 why he is
+		-- driving shipped with no test anywhere -- delete the field, the branch and the sentence and
+		-- the harness still passed. `docs/design/economy-v1.md` section 12 named this file for it.
+		it("tells an overruled always-hunter why, in place of his countdown", function()
+			local words = CONFIG.TEXT
+			-- THE DRIVER'S `Assigning` LINE IS THE COUNTDOWN, which is what it was before this task.
+			local plain = Objective.text("Assigning", "Drivers", { secondsLeft = 7 })
+			expect(plain).to.equal(string.format(words.DriverCountdown, 7))
+			-- ...AND FOR THE MAN THE BALANCE OVERRULED IT IS THE OTHER SENTENCE, carrying the SAME
+			-- number: it REPLACES the countdown rather than adding a second surface, which is why
+			-- one message is up at a time by construction.
+			local told = Objective.text("Assigning", "Drivers", { secondsLeft = 7, roleOverruled = true })
+			expect(told).to.equal(string.format(words.DriverOverruled, 7))
+			expect(told).never.to.equal(plain)
+			-- IT SAYS WHY. A sentence that did not mention the teams would leave him guessing.
+			expect(string.find(string.upper(told), "EVEN", 1, true) ~= nil).to.equal(true)
+			-- THE SAME COUNTDOWN NUMBER IS IN BOTH, so the overrule costs him no information.
+			expect(string.find(told, "7", 1, true) ~= nil).to.equal(true)
+
+			-- `false` AND nil READ THE SAME: only an explicit `true` changes the line, so a client
+			-- that never heard of the field reads exactly what it always did.
+			expect(Objective.text("Assigning", "Drivers", { secondsLeft = 7, roleOverruled = false })).to.equal(plain)
+
+			-- IT IS THE `Assigning` LINE AND NOT A BANNER: in `Running` the driver is told to push,
+			-- overruled or not, so the sentence can never collide with the drive's own instruction.
+			local running = Objective.text("Running", "Drivers", { roleOverruled = true, holdLeft = 0, goAge = 3 })
+			expect(running).never.to.equal(words.DriverOverruled)
+
+			-- ...AND A HUNTER IS NEVER TOLD IT, because it never happened to him.
+			expect(Objective.text("Assigning", "Shooters", { secondsLeft = 7, roleOverruled = true })).to.equal(
+				Objective.text("Assigning", "Shooters", { secondsLeft = 7 })
+			)
+		end)
+
 		it("says NOTHING with no team, in every phase", function()
 			-- The design's own ruling: a player with no team has no objective, and a sentence would be
 			-- an instruction nobody gave. `Hud.roleWord` answers "" for the same case.

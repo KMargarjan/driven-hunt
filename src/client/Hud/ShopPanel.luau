@@ -72,6 +72,8 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
+-- THE ONE FORMATTER OF MONEY (task 221): the symbol, the word and how a negative reads.
+local Money = require(ReplicatedStorage:WaitForChild("Money"))
 local ShopDisplay = require(script.Parent.ShopDisplay)
 -- THE ONE SOURCE for every colour, face, size, radius and duration (task 201, the Designer's
 -- design system, 2026-10-17 §1). This file's `LOOK`, `FONT` and `spaced` are now aliases of it.
@@ -588,7 +590,9 @@ function ShopPanel.rowNameFor(row: any): string
 end
 
 function ShopPanel.rowPriceFor(row: any): string
-	return if row == nil then "" else string.format("%d", row.price)
+	-- `Money.text` (task 221): one formatter, so the price the window prints and the number the
+	-- till charges are the same string rule.
+	return if row == nil then "" else Money.text(row.price)
 end
 
 -- THE TAG A ROW WEARS, and the kind of thing it is. A row answers *"can I buy this?"* without being
@@ -621,7 +625,7 @@ end
 function ShopPanel.tagTextFor(row: any, hunts: number?, balance: number?): (string, string)
 	local text, kind = ShopPanel.tagFor(row, hunts)
 	if kind == "poor" then
-		return string.format(TEXT.ROW_POOR_TAG, math.max(row.price - (balance or 0), 0)), kind
+		return string.format(TEXT.ROW_POOR_TAG, Money.text(math.max(row.price - (balance or 0), 0))), kind
 	end
 	return text, kind
 end
@@ -636,7 +640,7 @@ function ShopPanel.buttonStateFor(row: any, hunts: number?, balance: number?): B
 		return { kind = "none", word = TEXT.PICK }
 	end
 	if row.buyable == true then
-		return { kind = "buy", word = TEXT.BUY, amount = string.format("%d", row.price) }
+		return { kind = "buy", word = TEXT.BUY, amount = Money.text(row.price) }
 	end
 	if row.owned == true then
 		return { kind = "owned", word = TEXT.OWNED_BUTTON }
@@ -655,14 +659,15 @@ function ShopPanel.buttonStateFor(row: any, hunts: number?, balance: number?): B
 			progress = if row.hunts > 0 then math.clamp(walked / row.hunts, 0, 1) else 1,
 		}
 	end
-	return { kind = "poor", word = string.format(TEXT.POOR_BUTTON, math.max(row.price - (balance or 0), 0)) }
+	return { kind = "poor", word = string.format(TEXT.POOR_BUTTON, Money.text(math.max(row.price - (balance or 0), 0))) }
 end
 
 -- THE WALLET'S TWO NUMBERS. `--` AND NOT `0` for a player with no open profile, which is
 -- `Economy.balanceOf`'s own rule: nil is not the same fact as a balance of zero.
 function ShopPanel.coinsTextFor(state: any): string
-	local coins = state and state.balance
-	return if type(coins) == "number" then string.format("%d", coins) else "--"
+	-- `Money.text` ANSWERS BOTH HALVES (task 221): "$1240" for a number and `Money.UNKNOWN` for a
+	-- nil, which is the `--` this function used to write out by hand.
+	return Money.text(state and state.balance)
 end
 
 function ShopPanel.huntsTextFor(state: any): string
@@ -871,7 +876,7 @@ local function buildHeader(root: Frame)
 	local disc = coin(coinsPill, "Disc", 14, 4)
 	disc.LayoutOrder = 1
 	local coinsCaption = coinsPill:FindFirstChild("Caption") :: TextLabel
-	coinsCaption.Text = spaced(TEXT.COINS_CAP)
+	coinsCaption.Text = spaced(TEXT.MONEY_CAP)
 	coinsValue = coinsText
 
 	local huntsPill, huntsText = pill("Hunts", 2)
@@ -1411,7 +1416,10 @@ local function buildDetail(root: Frame)
 	(priceLabel :: TextLabel).Size = UDim2.fromOffset(0, 26);
 	(priceLabel :: TextLabel).TextYAlignment = Enum.TextYAlignment.Center
 	priceCaption = label(priceRow, "Caption", SANS_SEMI, 10, LOOK.FAINT, 3);
-	(priceCaption :: TextLabel).Text = spaced(TEXT.COINS_CAP);
+	-- `PRICE_CAP` AND NOT THE WALLET'S CAPTION (task 221). This line and the wallet pill both read
+	-- `COINS_CAP` before, and they answer different questions -- *what this costs* and *how much he
+	-- has*. A caption reading MONEY over a price is the drift the split prevents.
+	(priceCaption :: TextLabel).Text = spaced(TEXT.PRICE_CAP);
 	(priceCaption :: TextLabel).LayoutOrder = 3
 	(priceCaption :: TextLabel).AutomaticSize = Enum.AutomaticSize.X;
 	(priceCaption :: TextLabel).Size = UDim2.fromOffset(0, 14);
