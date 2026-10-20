@@ -2818,7 +2818,16 @@ upward as a decision.
 was added for -- a yearling behind its mother is never the trophy -- and a lone-male release, which
 is most of them, still carries one. Nothing needs to change in `Match.Phase`.
 
-## 2026-10-20 -- Task 219 round 3: NEEDS TEST2 219 f71d403db167251eab86818163e531ed04176ea9
+## 2026-10-20 -- Task 219 round 3: NEEDS TEST2 219 f71d403db167251eab86818163e531ed04176ea9 -- **RESOLVED**
+
+**RESOLVED 2026-10-20.** The Director ran it at the code commit, first try:
+`[harness2] PASS: 35/35 checks @ f71d403db167251eab86818163e531ed04176ea9 (clean tree)`. Both lines are in
+`reviews/task-219/REQUEST.md` and the round-3 review has been run. The entry below is kept unedited
+because the question it asks -- whether finding 2's frames belonged in this task or in a new one --
+is the Director's to answer and a review verdict does not settle it.
+
+---
+
 
 **For the Director.** Round 2's BOTH blocking findings are closed and the gate is green at a new code
 commit, so round 2's `[harness2] PASS @ ebc9710` no longer covers the code.

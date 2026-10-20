@@ -321,8 +321,16 @@ BOTH LINES, at the same commit, on a clean tree:
 
 ```
 [harness]  PASS: 33/33 checks @ f71d403db167251eab86818163e531ed04176ea9 (clean tree) scope=all
-[harness2] <NEEDED at this commit -- round 2's was at ebc9710 and is superseded>
+[harness2] PASS: 35/35 checks @ f71d403db167251eab86818163e531ed04176ea9 (clean tree)
 ```
+
+Both at the SAME commit, both on a clean tree. The two-player line is the **Director's** (2026-10-20,
+first try); `test2` needs a human click StudioMCP cannot make, and `ESCALATE.md`'s round-3 entry
+records that stop as resolved. **What I can check of it I have** (L-034): the sha it names is this
+round's `f71d403`, not round 2's `ebc9710`, so it is not that pairing reused -- and `test2` is a
+DEV-place mode by construction (`HARNESS_PLACE_ID`, plus its own `[<side>] report comes from the DEV
+place` check on both sides), so there is no Forest Test leg it could have silently fallen back from.
+**What I cannot check is that he ran it, and I do not claim to have.**
 
 ROUND 2's PAIR, superseded by the commit above:
 ```
