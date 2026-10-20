@@ -296,9 +296,11 @@ return function()
 			withSemiAutoDrawn(function()
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAt(0, 1), semiConfig)
 				expect(Camera.Viewmodel.weaponId()).to.equal("semiauto")
-				-- NO OPTICS AT ALL on this row, so nothing can hide the gun.
-				expect(semiConfig.VIEWMODEL_SCOPE).to.equal(nil)
+				-- NO OPTICS AT ALL on this row, so nothing can hide the gun: `Viewmodel.hiddenByScope`
+				-- requires an `optics.eyepiece`, and this row carries no `scope` block to build one
+				-- from. `Camera.scope()` is the live answer to "is a sight picture up".
 				expect(Weapons.ROWS.semiauto.scope).to.equal(nil)
+				expect(Camera.scope()).to.equal(nil)
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				expect(clone).to.be.ok()
 				-- THE GUN AND BOTH GLOVES ARE STILL DRAWN AND STILL UNDER THE CAMERA.
@@ -307,7 +309,12 @@ return function()
 				expect(right).to.be.ok()
 				expect(left).to.be.ok()
 				expect(clone:IsDescendantOf(Workspace.CurrentCamera)).to.equal(true)
-				expect(clone.Transparency < 1).to.equal(true)
+				-- THE GUN IS VISIBLE, and that is asked of a PIECE and not of the clone: the clone
+				-- IS the Handle, which is the invisible envelope every gun here is built around
+				-- (`HANDLE_TRANSPARENCY = 1`). Asking it of the Handle is asking the wrong part.
+				local body = clone:FindFirstChild("Action") :: BasePart
+				expect(body).to.be.ok()
+				expect(body.Transparency < 1).to.equal(true)
 				-- ...AND THE AIMED HOLD IS A DIFFERENT HOLD FROM THE HIP, which is what proves the
 				-- aimed pose was actually solved rather than falling through to a default.
 				local aimed = Camera.Mode.viewmodelOffset(stateAt(0, 1), Camera.Viewmodel.sight(), semiConfig)
