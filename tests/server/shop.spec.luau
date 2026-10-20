@@ -86,11 +86,11 @@ return function()
 			expect(Shop.ORDER[2]).to.equal(Shop.ITEM.BEATER_LICENCE)
 			expect(Shop.ORDER[3]).to.equal(Shop.ITEM.BUNDLE_HIDE)
 			expect(Shop.ORDER[4]).to.equal(Shop.ITEM.HIGH_SEAT)
-			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.RED_STAG)
-			expect(Shop.ORDER[6]).to.equal(Shop.ITEM.UNLIMITED_AMMO)
-			-- TASK 224: the lever rifle at 650 lands between UNLIMITED AMMO's 900 and the scoped
-			-- rifle's 1500 in the DECLARED order, which is the wire's and the panel's.
-			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.LEVER)
+			-- TASK 224: the lever rifle at 650 lands between the high seat's 600 and the deer
+			-- licence's 750, because `Shop.ORDER` is cheapest-first and the case below asserts it.
+			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.LEVER)
+			expect(Shop.ORDER[6]).to.equal(Shop.ITEM.RED_STAG)
+			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.UNLIMITED_AMMO)
 			expect(Shop.ORDER[8]).to.equal(Shop.ITEM.RIFLE)
 			expect(Shop.ORDER[9]).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
 			expect(Shop.ORDER[10]).to.equal(Shop.ITEM.ALWAYS_HUNTER)
@@ -493,8 +493,10 @@ return function()
 			-- these counts are the catalogue's shape and not just its length.
 			-- slug: its own row + THE HIDE + THE FULL SEASON.
 			expect(kinds.ammo).to.equal(3)
-			-- rifle: its own row + THE MARKSMAN + THE FULL SEASON.
-			expect(kinds.weapon).to.equal(3)
+			-- the two rifles: each one's own row, + THE MARKSMAN and THE FULL SEASON, which both
+			-- cover the SCOPED one. Four since task 224, and the lever is in no package (a bundle
+			-- covering both rifles would make `mergedGrants` conflict on a single-valued field).
+			expect(kinds.weapon).to.equal(4)
 			-- the beater licence: its own row + THE FULL SEASON.
 			expect(kinds.driveGun).to.equal(2)
 			-- the high seat: its own row + THE HIDE + THE FULL SEASON.

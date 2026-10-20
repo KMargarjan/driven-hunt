@@ -477,11 +477,12 @@ Shop.ORDER = table.freeze({
 	Shop.ITEM.BEATER_LICENCE,
 	Shop.ITEM.BUNDLE_HIDE,
 	Shop.ITEM.HIGH_SEAT,
+	-- 650 SITS BETWEEN THE HIGH SEAT'S 600 AND THE DEER LICENCE'S 750, and `Shop.ORDER` IS
+	-- CHEAPEST-FIRST -- `shop.spec` asserts the whole list is ascending, so this is a position and
+	-- not a preference.
+	Shop.ITEM.LEVER,
 	Shop.ITEM.RED_STAG,
 	Shop.ITEM.UNLIMITED_AMMO,
-	-- 650 sits between the high seat's 600 and the deer licence's 750, which is where the panel's
-	-- cheapest-first ordering puts it.
-	Shop.ITEM.LEVER,
 	Shop.ITEM.RIFLE,
 	Shop.ITEM.BUNDLE_MARKSMAN,
 	Shop.ITEM.ALWAYS_HUNTER,
