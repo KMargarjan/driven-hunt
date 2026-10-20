@@ -1,5 +1,96 @@
 # Escalations
 
+## 2026-10-20 - Task 221 round 4: the test2 regression is REAL and NOT YET FOUND
+
+**I did not find the cause, and I am not going to pretend otherwise.** What follows is what the
+evidence rules IN and what it rules OUT, and the one instrument that will name it on the next
+two-player run.
+
+### It is ours, and it is not a flake
+
+`test2` history on this machine: `t219c`, `t219b`, `t219`, `t217`, `t210-3/-2/-1`, `t209d`, `t209c`,
+`t205c` -- **35/35 on every one**. `t221` is `31/35`. Task 221 broke it.
+
+### What the log actually says, and it is not what the failing lines suggest
+
+```
+[harness2] driver reported after 6 s
+[harness2] shooter reported after 299 s
+[harness2] server reported after 300 s
+```
+
+against a **300 s bound**, and the phase breakdown against the last clean run:
+
+| phase | t219c | t221 |
+|---|---|---|
+| replaying the input scenarios | 59.5 s | **60.1 s** |
+| reading all three reports | 103.9 s | **300.6 s** |
+
+**The input replay is unchanged.** The shooter's client suite ran into the deadline, and every
+failing assertion is a cue or a frame that never arrived because of it --
+`zz_drive_boundary`'s *"a client never reported"* is the server waiting for that shooter. So the
+six failures are **one stall with six symptoms**, not six defects. The driver finished in 6 s.
+
+### Two hypotheses MEASURED AND ELIMINATED
+
+Both were plausible enough to ship a "fix" on. Neither survived contact with a number.
+
+1. **"My new `shop_panel.spec` case builds ten display models and that is the cost."** Measured in a
+   live DEV client: **all ten models, 319 parts, 3.9 ms.** Not it.
+2. **"The `WaitForChild(\"Money\")` I added at the Hud's module scope blocks on a cold client."**
+   This one I believed. Measured in a live client:
+   `Money wait=0ms require=0ms | Drive wait=0ms | Shotgun wait=0ms | Weapons require=5ms |
+   Shop wait=0ms | Flags wait=0ms | TestKit wait=0ms | Hud require=36ms`. **Not it.**
+
+### What the new instrument already found
+
+`TestKit` now times every spec's `require` -- a spec's top-level runs inside that loop, so a stall
+there blocks the whole suite **before TestEZ starts** and nothing upstream says which file. First
+run with it, one player, reproducible across two runs:
+
+```
+note [client] spec load, slowest three: weapon_client.spec 17116 ms, report_panel.spec 39 ms, gun_client.spec 21 ms
+```
+
+**`weapon_client.spec` costs 17.1 s at LOAD with one player** -- three orders of magnitude above
+everything else, and it is the shooter's gun spec. **That is the thing to watch.** If task 221
+delayed the shooter's gun in a two-player session, that 17 s becomes the ~290 s the log shows, and
+the driver -- who has no gun -- is unaffected at 6 s. It fits every number above. **I could not
+confirm it, because confirming it needs `test2` and `test2` needs the human Start click.**
+
+### What I changed this round, and why each stands on its own
+
+Nothing here is a speculative fix for the stall. Two are corrections I can justify without it:
+
+* **`StateMachine`: `state.unlimited[...]` was a bare index** in `Load` and `Magazine`, and
+  `next.unlimited[...]` in `Break`. Every state this module makes carries the field -- but a bare
+  index turns any state assembled elsewhere into *attempt to index nil* **in the one code path a
+  hunter uses every few seconds**. They read through a frozen shared `EMPTY` now.
+* **`money.spec`'s `WaitForChild` is bounded at 10 s with an assert**, so a module that has not
+  replicated is a named failure instead of a silent stall of the whole suite.
+* **`TestKit` times the spec loads** (the instrument above).
+
+### What the Director should do next
+
+1. **Run `test2` at `61ad71a`.** Whatever the result, the note now names the slowest three spec
+   loads **per client**. If the shooter's `weapon_client.spec` reads ~290 s, the stall is in that
+   file's top-level wait and the question becomes *what did 221 do to the shooter's gun* -- a much
+   smaller question than the one I started with.
+2. **Two consecutive clean runs before the gate is treated as satisfied** (L-033): this is
+   ordering-sensitive and one clean run would not be evidence.
+
+### Still not done, and not claimed
+
+The Forest Test proof -- the climb (218a(h)), the shop contact sheet, `$` on the bar and results,
+the live purchase, and smoke (rule A). **Rule 5 is not satisfied for this task.** I did not start
+them this round on purpose: the branch has an open two-player regression, so proving the look of a
+build that cannot pass its own gate would be work thrown away. One-player gate is clean --
+`[harness] PASS: 33/33 checks @ 61ad71a9eb3ae360ff73a5b0bb8ec652fdb1623e (clean tree) scope=all` --
+with only the DEV place open (two Studios, both asked `game.PlaceId`, both `136410205938347`).
+
+
+---
+
 ## 2026-10-20 - Task 221 round 3: `NEEDS KAREN` (open the Forest Test), then `NEEDS TEST2 221`
 
 ### HALF 1 -- `NEEDS KAREN`: the Forest Test place is not open, and four proofs need it
