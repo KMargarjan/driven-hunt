@@ -288,9 +288,17 @@ return function()
 			-- ...AND THE RED STAG CARD IS "SOON" (task 221): Karen asked for the row and there is no
 			-- red stag in this game, so it is shown and refused. Task 196 had left nothing in this
 			-- state, and `sale = false` is exactly what it was kept for.
+			expect(lineFor(Shop.ITEM.RED_STAG)).to.equal(
+				string.format("RED STAG CARD|$750|%s", Shop.CONFIG.TEXT.SOON_TAG)
+			)
+			-- ...AND IT IS THE ONLY ONE: nothing else in the catalogue is announced and unsellable.
+			local soon = 0
 			for _, line in ipairs(lines) do
-				expect(string.find(line, Shop.CONFIG.TEXT.SOON_TAG, 1, true)).to.equal(nil)
+				if string.find(line, Shop.CONFIG.TEXT.SOON_TAG, 1, true) ~= nil then
+					soon += 1
+				end
 			end
+			expect(soon).to.equal(1)
 			-- The scoped rifle: 30 hunts is enough, 300 coins is not, so the tag says HOW SHORT he is
 			-- -- *"the affordability signal is never colour alone"*.
 			expect(lineFor(Shop.ITEM.RIFLE)).to.equal(
