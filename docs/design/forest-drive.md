@@ -224,6 +224,36 @@ re-measured on the same two occasions a tagged world is re-read: once a second w
 once on entering `Assigning` (`markersStale`). **Budget:** ≤ 20 raycasts per read (two per post, two
 for the start), ≤ 1 read/s while `Waiting`, 1 per drive otherwise.
 
+#### 4.1.7 A stand's post may sit on a DECK, not on the terrain (task 218)
+
+**Since task 218 the stand is no longer always on the ground.** `docs/design/high-seats.md` puts a
+wooden high seat at some stands of each layout, and the hunter is placed **on its platform** through
+the seam this section already describes: `Body.placementFor` reads `post.Position` and `post.Size.Y`,
+so moving the marker part up 12.5 studs is the whole of it and **nothing in `Match` changes**.
+
+`Markers.build` gains one branch and one injected seam, `Markers.setSeatSource(fn)` — the
+`setReaders` shape, set at `src/server/ForestTest/init.luau`'s last lines to
+`ForestTest.Seats.deckTopY`:
+
+* **a stand with a seat:** the post's Y is the seat's own deck top, read off the `Deck` part the
+  seat owner built, and **the two ground readers are not asked for that stand at all**. They cannot
+  be: `Data.groundAt` casts from 600 studs up, would see the deck 12.5 studs over the terrain, and
+  `GROUND_TOLERANCE_STUDS` is 1 — so every seat stand would be refused and the drive would sit in
+  `WAITING forest:stands`. The column was already measured **once, on clean ground**, by the seat's
+  own owner, from an origin two studs above the terrain at each of five footprint samples
+  (`high-seats.md` §5.1).
+* **a stand with none:** §4.1.5 exactly, byte for byte. `tests/server/forest_markers.spec.luau`
+  asserts that identity.
+
+A seat stand contributes nothing to `stats.lastMaxDelta` and is never counted in `stats.refused`.
+**A seat is never a `missing` string**: a seat that could not be built leaves its stand a working
+ground stand, so nothing about §4.1.5's refusal path changes and no seat can hold the drive in
+`Waiting`.
+
+**The call order** (`high-seats.md` §9.3) is inside this section's own `world.markers` closure:
+promote the layout, then `ForestTest.Seats.ensure(layout)` — level-triggered on the layout's name, so
+it writes nothing and casts no ray on the once-a-second `Waiting` read — then `Markers.build`.
+
 ### 4.2 The per-world config
 
 `Match.CONFIG` is one module table, deep-frozen at require time (`Drive.deepFreeze(Match.CONFIG)`),

@@ -88,6 +88,15 @@ function Markers.setReaders(ground: ((number, number) -> number?)?, canopy: ((nu
 	defaultGround, defaultCanopy = ground, canopy
 end
 
+-- WHERE A STAND'S DECK IS, INJECTED (task 218). The `setReaders` shape and the same reason: this
+-- module is a child of `ForestTest` and requiring the parent from here would be a cyclic require.
+-- `nil` is "no seats in this world", which is every world but the Forest Test.
+local defaultSeats: ((number) -> number?)? = nil
+
+function Markers.setSeatSource(fn: ((number) -> number?)?)
+	defaultSeats = fn
+end
+
 local stats =
 	{ posts = 0, refused = 0, reads = 0, lastMaxDelta = 0, rings = 0, lastRingSegments = 0, lastRingFallbacks = 0 }
 
@@ -395,14 +404,20 @@ end
 -- `layout` IS THE SECOND, REQUIRED PARAMETER (task 179), and required on purpose: an un-updated
 -- caller then errors on `layout.centre` instead of silently measuring the road's nine stands into a
 -- drive that is being held on a five-stand ride 500 studs away.
+-- `seats` IS THE FIFTH AND OPTIONAL PARAMETER (task 218): "where is this stand's deck, or nil". A
+-- stand with a seat is measured ONCE, on clean ground, by the seat's own owner before this runs
+-- (`ForestTest.Seats.ensure`, design section 9.3), and its post goes ON THE DECK -- which is exactly
+-- what `Body.placementFor` needs and the whole reason `placementFor` needs no change at all.
 function Markers.build(
 	standX: number,
 	layout: any,
 	ground: ((number, number) -> number?)?,
-	canopy: ((number, number) -> number?)?
+	canopy: ((number, number) -> number?)?,
+	seats: ((number) -> number?)?
 ): Set
 	local groundReader = ground or defaultGround
 	local canopyReader = canopy or defaultCanopy
+	local seatSource = seats or defaultSeats
 
 	Markers.clear()
 	stats.reads += 1
@@ -416,7 +431,21 @@ function Markers.build(
 	-- always, so `ForestTest.standIndexFor` can name a stand by its index.
 	for index = 1, layout.standCount do
 		local stand = Data.standPosition(index, layout)
-		local y, delta = Markers.groundFor(stand.X, stand.Z, groundReader, canopyReader)
+		local y, delta
+		local deck = if seatSource ~= nil then seatSource(index) else nil
+		if deck ~= nil then
+			-- A STAND WITH A HIGH SEAT IS NOT MEASURED HERE, AND THAT IS THE WHOLE OF THE CALL
+			-- ORDER (design section 7.2). `Data.groundAt` asked from the sky would see the DECK
+			-- 12.5 studs over the terrain, disagree with the terrain reader by far more than
+			-- `GROUND_TOLERANCE_STUDS`, and refuse this stand -- `WAITING forest:stands (0 of n)`
+			-- for ever. The seat's owner measured this column once, on clean ground, before any
+			-- seat stood on it; the post goes ON THE DECK, which is what `Body.placementFor` reads.
+			-- Nothing here contributes to `lastMaxDelta` or to `refused`: there was no reading to
+			-- disagree about.
+			y = deck
+		else
+			y, delta = Markers.groundFor(stand.X, stand.Z, groundReader, canopyReader)
+		end
 		if delta ~= nil then
 			stats.lastMaxDelta = math.max(stats.lastMaxDelta, delta)
 		end

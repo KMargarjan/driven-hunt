@@ -219,6 +219,25 @@ is no run-time writer of a layout.
 
 ---
 
+#### 3.2.1 A layout's stands may carry a HIGH SEAT, and that is not a field either (task 218)
+
+Since task 218 some stands of every layout carry a wooden high seat (`docs/design/high-seats.md`).
+**The `Layout` record is unchanged** — `drive-places.md` §1.2.1's rule holds, and for the same
+reason: which stands carry a seat is a **second module that READS a layout**,
+`ReplicatedStorage.HighSeats`, whose `STANDS` table is keyed by layout **name**. The seam is one
+direction only: `HighSeats` requires nothing of `ForestTest` but its data, and nothing in
+`src/shared/ForestTest/` mentions `HighSeats`.
+
+It is **derived, not stored**, exactly as §3.2's other derived facts are: the seat's five footprint
+samples come from `standPosition(i, layout)` and `HighSeats.footprint()`, and its deck Y comes from
+the terrain measured under those five points. Adding a layout therefore adds **one row to
+`HighSeats.STANDS`** and nothing to the record.
+
+The caps are a rule rather than a taste: at most `ceil(standCount / 3)` seats per layout (road 3,
+edge 2, ride 2, track 2) and **never two adjacent stands**, so a hunter always has a ground
+neighbour and the line never reads as a row of towers. What is actually taken is a MEASUREMENT of
+Karen's world (`high-seats.md` §6.2), and six of the nine the caps allow cleared it.
+
 ## 4. The signatures, function by function
 
 **The rule, stated once.** In the **shared** module the layout is a **trailing optional** parameter
@@ -1014,6 +1033,9 @@ first. Out of scope here (brief §3) and stated in one sentence, as asked.
 * **`docs/design/forest-drive.md` §4.1.6** — amended by §6.2 of this document: the set is now really
   measured on the `Assigning` edge, which is what that section already said.
 * **`docs/design/forest-drive.md` §9.1** — `Match` gains `Match.driveNumber()`.
+* **Task 218, added by `docs/design/high-seats.md`** — a layout's stands may carry a high seat; the
+  table that says which lives in `ReplicatedStorage.HighSeats`, keyed by layout **name**, and the
+  `Layout` record is unchanged (§3.2.1 above).
 * **`docs/design/map-ui.md` §5.2 and §13** — `geometryFromForestTest(data, layout)` and
   `geometryFor(world, forestTest, map, layoutName)`; the bounds table in §5.2 becomes per layout
   (§3.2 here); §5.5's late-arrival door gains the attribute signal.
