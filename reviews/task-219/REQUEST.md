@@ -177,14 +177,28 @@ tracked -- the real server logged `shots=0, refused=0, badRequests=0`, which is 
 
 ## Harness
 
+BOTH LINES, at the same commit, on a clean tree:
+
 ```
-[harness] PASS: 33/33 checks @ 125926dc5925b9573d78e3de943bdd6ed3c3cf0d (clean tree) scope=all
+[harness]  PASS: 33/33 checks @ 125926dc5925b9573d78e3de943bdd6ed3c3cf0d (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 125926dc5925b9573d78e3de943bdd6ed3c3cf0d (clean tree)
 ```
 
-`scope=all`, so it is FULL evidence: `src/shared/Report/`, `src/server/HitLog/` and
-`src/shared/Drive/` map to no `BLAST_RADIUS` row, and `--scope auto` therefore ran the whole suite.
-The run before it (31/33 at `e13f015`) is what found two of this task's three faults, and the third
-was found by looking at a live server afterwards.
+The one-player line is mine; the **two-player line is the Director's** (2026-10-20, first try) --
+`test2` needs a human click that StudioMCP cannot make, which is what this task stopped for and what
+`ESCALATE.md`'s entry records as now resolved.
 
-`test2` is NOT run here: the change touches `src/server/Match/init.luau`, which IS in
-`TWO_PLAYER_PATHS`, so it is the Director's run. Stopped for it.
+`scope=all`, so the one-player line is FULL evidence rather than a review-round-only
+`scope=auto:...`: `src/shared/Report/`, `src/server/HitLog/` and `src/shared/Drive/` map to no
+`BLAST_RADIUS` row, so `--scope auto` ran the whole suite. The run before it (31/33 at `e13f015`) is
+what found two of this task's three faults; the third was found by looking at a live server
+afterwards.
+
+**Why `test2` was required at all:** the change touches `src/server/Match/init.luau`, which is in
+`TWO_PLAYER_PATHS`. **And why the DEV-fallback flake cannot apply to it** (the Learning Agent's
+L-055, raised against this task because it is a `Match`/`Score` case): `test2` is a DEV-place mode
+*by construction* -- `HARNESS_PLACE_ID` is the DEV id, and the mode's own check
+`[<side>] report comes from the DEV place` compares the report's `placeId` against it on both sides,
+so a run that had landed anywhere else would have failed rather than passed quietly. There is no
+Forest Test leg in `test2` to fall back from. What I verified is that semantics and that the sha and
+the clean-tree marker match the code commit; I did not run it, and say so.

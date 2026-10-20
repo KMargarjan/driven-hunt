@@ -2706,7 +2706,16 @@ Task 179 reached the 3-round cap (round 3: an unclaimed TargetWord label in MapU
 
 Karen was asked whether to use the parked 187 European lodge as the base for fixing the cabin's inside and answered "Use the 187 lodge" (2026-10-15 ~17:40), i.e. merge it. Round 3's finding was fixed in `681001e`. The Director authorises ONE extra round for **task 187, round 4**, run with `DIRECTOR_MAX_ROUNDS=4` in the environment (never committed).
 
-## 2026-10-20 -- Task 219: NEEDS TEST2 219 125926dc5925b9573d78e3de943bdd6ed3c3cf0d
+## 2026-10-20 -- Task 219: NEEDS TEST2 219 125926dc5925b9573d78e3de943bdd6ed3c3cf0d -- **RESOLVED**
+
+**RESOLVED 2026-10-20.** The Director ran it at the code commit, first try:
+`[harness2] PASS: 35/35 checks @ 125926dc5925b9573d78e3de943bdd6ed3c3cf0d (clean tree)`. Both lines
+are now pasted in `reviews/task-219/REQUEST.md` and the review has been run. The entry is kept
+below, unedited, because what it records -- why the stop happened and the two items it hands on --
+is still the honest account; see TASKS.md 219a for those two.
+
+---
+
 
 **For the Director.** Task 219 (the legendary boar) is built, gated and pushed, and it is STOPPED
 before the review exactly as the dispatch asked.
