@@ -1,6 +1,6 @@
 # Escalations
 
-## 2026-10-20 - Task 223 round 2: `NEEDS TEST2 223 5d47be4` -- one human click
+## 2026-10-20 - Task 223 round 2: `NEEDS TEST2 223 5d47be4` -- **RESOLVED**, first try
 
 Round 1's pair was clean at `113f3aa` and the Director ran `test2` there first try. **Round 2
 changed `src/server/Boar/init.luau`** (the flag-off gate, the spawn height, the avoid whisker, the
@@ -14,7 +14,14 @@ One-player line, in hand and clean:
 [harness] PASS: 33/33 checks @ 5d47be432ad330a97486aa007a32e3d279b63ade (clean tree) scope=all
 ```
 
-**What is needed:** `python tools/studio_mcp.py test2` at `5d47be4`.
+**RESOLVED, 2026-10-20.** The Director ran it at this round's code commit, first try:
+
+```
+[harness2] PASS: 35/35 checks @ 5d47be432ad330a97486aa007a32e3d279b63ade (clean tree)
+```
+
+Round 1's line was at `113f3aa` and is NOT reused: a two-player line is only evidence for
+the commit it names.
 
 
 ## 2026-10-20 - Task 223: `NEEDS TEST2 223 113f3aa` -- **RESOLVED**, the Director ran it first try
@@ -47,7 +54,9 @@ Both lines are in `reviews/task-223/REQUEST.md` and the review was opened on the
 ## 2026-10-20 - Task 223: `NEEDS KAREN` -- the ELEVEN animation publishes for the red deer
 
 **NOT A BLOCKER** (Director, 2026-10-20): this is follow-up **223c**, and task 223 merges
-without it.
+without it. The three live frames (the hit card, the gathering, a licensed/unlicensed drive)
+are deferred into the SAME follow-up, because they are the same dependency -- all three are
+photographed in a Play session and the animal in them stands still until these ids exist.
 
 **Nothing is broken and nothing is waiting on this to merge.** The deer ships with its models and
 no clips, which is exactly the state the boar was in between tasks 115 and 116: `Assets.byKey`

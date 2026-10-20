@@ -7,12 +7,21 @@ Code commit: 5d47be432ad330a97486aa007a32e3d279b63ade
 
 ```
 [harness] PASS: 33/33 checks @ 5d47be432ad330a97486aa007a32e3d279b63ade (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 5d47be432ad330a97486aa007a32e3d279b63ade (clean tree)
 ```
 
-**`[harness2]` IS NOT PASTED FOR THIS ROUND'S CODE COMMIT.** Round 1's pair was clean at `113f3aa`
-(`[harness] PASS: 33/33` and the Director's `[harness2] PASS: 35/35`), but round 2 changed
-`src/server/Boar/init.luau` and three spec files, so the two-player line has to be re-run at
-`5d47be4` and that needs a human click. `ESCALATE.md`: **`NEEDS TEST2 223 5d47be4`**.
+**BOTH LINES NAME THIS ROUND'S CODE COMMIT, `5d47be4`, ON A CLEAN TREE**, and the `[harness2]` one
+is the Director's, run first try on 2026-10-20. Round 1's pair was at `113f3aa` and is **not**
+reused here: round 2 changed `src/server/Boar/init.luau` and three spec files, and a two-player line
+is only evidence for the commit it names. **`NEEDS TEST2 223 5d47be4` is RESOLVED.**
+
+`src/server/Match/init.luau` (the three deer prices, three `SCENE.ANIMAL_SCALES` rows) and
+`tests/server/match_score.spec.luau` are what put this task on `TWO_PLAYER_PATHS`, and that was not
+worked around: moving the deer's prices out of `POINTS.KIND` to dodge the run would have created the
+second price table rule 3 exists to prevent, which is a worse trade than one click.
+
+**ONLY PAPERWORK FOLLOWS THE CODE COMMIT** (`git diff --name-only 5d47be4..HEAD`): `ESCALATE.md`,
+`TASKS.md` and this file.
 
 ## ROUND 2: the four findings, each fixed at its owner
 
@@ -99,21 +108,27 @@ that had drifted from their code (`boar_prep`'s selftest group count 11 to 12, t
 (223a(i)), `MARCH_RANK`'s three keys are still unasserted, the client arms of design section 13.3,
 and `deer.spec`'s two stale header sentences -- all of which are notes, not findings.
 
-**BOTH GATE LINES, AT THE CODE COMMIT, ON A CLEAN TREE.** The `[harness2]` line is the Director's,
-run first try on 2026-10-20 -- the change touches `src/server/Match/init.luau` (the three deer
-prices, three `SCENE.ANIMAL_SCALES` rows) and `tests/server/match_score.spec.luau`, both on
-`TWO_PLAYER_PATHS`. **`NEEDS TEST2 223` is RESOLVED.** It was not worked around: moving the deer's
-prices out of `POINTS.KIND` to dodge the run would have created the second price table rule 3
-exists to prevent, which is a worse trade than one click.
+## WHAT IS DEFERRED TO 223c, AND ON WHOSE WORD (Director, 2026-10-20)
 
-**THE ELEVEN ANIMATION PUBLISHES ARE A FOLLOW-UP (223c), NOT A BLOCKER** (Director, 2026-10-20).
-The deer ships with its three models and no clips, which is **exactly the state the boar was in
-between tasks 115 and 116**: `Assets.byKey` answers nil for every deer clip key, `Body.hasClip` is
-false, `trackFor` returns nil, and the animal stands and slides. That state is honest, it is the
-precedent, and it is *asserted* -- `deer.spec` checks all eleven keys are declared and all eleven
-have no row. An animation asset id can only be made by hand in Studio's Animation Editor, so this
-could never have been in the same commit as the code. `ESCALATE.md`'s `NEEDS KAREN 223` carries the
-eleven clicks in order.
+**The eleven animation publishes AND all three live frames go to 223c together.** They belong in one
+follow-up because they are one dependency: a hit card, a gathering and a licensed/unlicensed drive
+are all things you photograph in a Play session with `BOAR_MODEL` on, and the animal in them is
+standing still until its clips have ids -- which only Karen can make, by hand, in Studio's Animation
+Editor.
+
+**Until then the deer STANDS AND SLIDES, and that is the boar's own tested state between tasks 115
+and 116**, not a degraded one: `Assets.byKey` answers nil for every deer clip key, `Body.hasClip` is
+false, `trackFor` returns nil, and `deer.spec` asserts exactly that -- all eleven keys declared, all
+eleven with no row, all three MODEL rows present. The animal is visible, sized, shot, scored,
+licensed and counted; what it does not do yet is move its legs.
+
+**Merging without those frames is Karen's own standing decision** (2026-10-17): look tasks merge on
+the gates, the review and the Director's look, she looks afterwards, and anything she does not like
+becomes a new task. So this round does not claim the look was checked -- it says which frames were
+taken, which were not, and why the ones that were not are 223c's.
+
+**What WAS looked at** is in the unverified list below: two eye-height frames of the three deer and a
+boar standing on the ground, plus the silhouette overlays, frame by frame.
 
 ## What changed
 
