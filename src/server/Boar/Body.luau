@@ -1648,6 +1648,23 @@ end
 -- `voiceRow` is nil whenever the voice is off, the kind is unknown, or the cue is not one of the
 -- animal's own (hooves, breath and the sniff are the world, not the animal) -- and every caller
 -- then gets exactly what it got before task 120.
+--
+-- A KIND WITH NO VOICE OF ITS OWN BORROWS ITS `model`'s (task 219 round 2, finding 1), which is the
+-- same resolution `Runtime:_modelTemplate` makes for the asset key and for the same reason. The
+-- fourth kind was added to `KINDS` and not to `VOICE`, so this function answered nil for it and the
+-- biggest, oldest boar in the game cried, grunted and DIED on the module-level generic samples at
+-- pitch 1.0 -- a sow's voice, HIGHER than an ordinary male's 0.8, against Karen's own words on that
+-- table (*"pown should sqeen differen, male differen female different"*).
+--
+-- **IT IS A FALLBACK AND NOT A FOURTH ROW BECAUSE THIS TASK MADE THE SAME MISTAKE THREE TIMES** --
+-- `BoarAssetsBoot`'s `pairs(KINDS)` killed the boot, `HitLog`'s `byKind` counted the trophy as an
+-- `unknown`, and this one made it sound wrong. A row would have fixed the legendary and left the
+-- FIFTH kind to make it a fourth time. Resolving through `model` means any future animal built on
+-- the male's asset sounds like the male without anybody remembering anything.
+--
+-- THE LOOKUP IS ONE HOP, NOT A CHAIN: `KINDS[kind].model` names a kind that wears its own asset
+-- (`boar_legendary.spec` asserts exactly that, and `BoarAssetsBoot` asserts it at boot), so there is
+-- no cycle to guard against here.
 function Body.voiceRow(name: string, kind: string?, config)
 	local voice = config.SOUND.VOICE
 	if voice == nil or voice.ENABLED ~= true or kind == nil then
@@ -1656,7 +1673,17 @@ function Body.voiceRow(name: string, kind: string?, config)
 	if voice.APPLIES[name] ~= true then
 		return nil
 	end
-	return voice[kind]
+	local own = voice[kind]
+	if own ~= nil then
+		return own
+	end
+	local kinds = config.KINDS
+	local row = if type(kinds) == "table" then kinds[kind] else nil
+	local model = type(row) == "table" and row.model
+	if type(model) == "string" and model ~= kind then
+		return voice[model]
+	end
+	return nil
 end
 
 -- The CENTRE of the pitch jitter for one cue on one animal: the kind's own voice, or 1 (or the

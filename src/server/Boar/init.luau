@@ -1676,6 +1676,21 @@ Boar.CONFIG.SOUND = {
 			cry = { 9117369876, 9117370072 },
 			grunt = { 9117352464, 9117344600 }, -- "Pig Grunts 3 / 6"
 		},
+		-- DEEPER THAN THE MALE, and it is the ONE thing the trophy does not borrow from him (task
+		-- 219 round 2, finding 1). The fallback above would have given it his voice whole, which is
+		-- already right -- this row exists because a 35 % bigger animal should sound 35 % bigger
+		-- lower, and 0.72 is a tenth below his 0.8. It is his SAMPLES (the beast-like scream and the
+		-- two low grunts, which are the right ones), pitched down: a new sample nobody has heard
+		-- would be a second thing to judge, and Karen has heard these.
+		--
+		-- IT IS WRITTEN OUT RATHER THAN DERIVED (`male.pitch * 0.9`) so it stays Karen's dial: she
+		-- turns one number here, not a factor somewhere else.
+		legendary = {
+			pitch = 0.72,
+			death = { 9117361361 }, -- the male's "Pigs Beast-Like Screams 8"
+			cry = { 9117369876, 9117370072 },
+			grunt = { 9117357588, 9117352464 },
+		},
 		-- Higher and thinner: one squeal, played half again as fast, which also makes it shorter.
 		cub = {
 			pitch = 1.4,
