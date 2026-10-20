@@ -95,13 +95,15 @@ return function()
 			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.HIGH_SEAT)
 			-- TASK 224: the lever rifle at 650 lands between the high seat's 600 and the deer
 			-- licence's 750, because `Shop.ORDER` is cheapest-first and the case below asserts it.
-			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.LEVER)
-			expect(Shop.ORDER[6]).to.equal(Shop.ITEM.RED_STAG)
-			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.UNLIMITED_AMMO)
-			expect(Shop.ORDER[8]).to.equal(Shop.ITEM.RIFLE)
-			expect(Shop.ORDER[9]).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
-			expect(Shop.ORDER[10]).to.equal(Shop.ITEM.ALWAYS_HUNTER)
-			expect(Shop.ORDER[11]).to.equal(Shop.ITEM.BUNDLE_SEASON)
+			-- EVERY INDEX FROM HERE ON MOVED UP ONE IN TASK 225, which is what inserting a 500-coin
+			-- row into a cheapest-first list does.
+			expect(Shop.ORDER[6]).to.equal(Shop.ITEM.LEVER)
+			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.RED_STAG)
+			expect(Shop.ORDER[8]).to.equal(Shop.ITEM.UNLIMITED_AMMO)
+			expect(Shop.ORDER[9]).to.equal(Shop.ITEM.RIFLE)
+			expect(Shop.ORDER[10]).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
+			expect(Shop.ORDER[11]).to.equal(Shop.ITEM.ALWAYS_HUNTER)
+			expect(Shop.ORDER[12]).to.equal(Shop.ITEM.BUNDLE_SEASON)
 			expect((Shop.ITEM :: any).RIFLE_OPEN).to.equal(nil)
 			-- THE RED HAT IS OFF THE SHELF AND STILL IN THE BUILD (task 221).
 			expect(Shop.ROWS[Shop.ITEM.HAT_RED]).to.equal(nil)

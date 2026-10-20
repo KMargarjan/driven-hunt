@@ -266,15 +266,19 @@ return function()
 			-- Three shells fired, two go back in, and the fourth `Load` finds the tube full --
 			-- which is the refusal `Weapon.cycleRefusal` turns into "finish" rather than an error.
 			local state = equipped(ROW)
-			-- THE CLOCK MUST MOVE. `Fire` sets `busyUntil = now + BARREL_DELAY`, so three shots at
-			-- `now = 0` are one shot and two refusals -- which is what the first version of this
-			-- case did, leaving four in the tube and reading as though the reducer were wrong.
+			-- THE CLOCK MUST MOVE, AND IT MUST CLEAR EVERY STEP'S OWN WINDOW. `Fire` sets
+			-- `busyUntil = now + BARREL_DELAY`, `Break` adds its 0.12 and `Close` its 0.18 -- so
+			-- three shots at `now = 0` are one shot and two refusals, and three shots 0.5 s apart
+			-- are still two, because `Close` at +0.4 leaves the gun busy until +0.58 and the next
+			-- `Fire` at +0.5 is inside it. Both versions of this case left four in the tube and
+			-- read as though the reducer were wrong. A whole second between shots clears
+			-- everything with room to spare.
 			local at = 0
 			for _ = 1, 3 do
 				state = StateMachine.apply(state, { kind = "Fire" }, at, ROW)
-				state = StateMachine.apply(state, { kind = "Break" }, at + 0.2, ROW)
-				state = StateMachine.apply(state, { kind = "Close" }, at + 0.4, ROW)
-				at += 0.5
+				state = StateMachine.apply(state, { kind = "Break" }, at + 0.3, ROW)
+				state = StateMachine.apply(state, { kind = "Close" }, at + 0.6, ROW)
+				at += 1.0
 			end
 			expect(live(state)).to.equal(2)
 			local before = state.reserve.Buck
