@@ -256,9 +256,114 @@ identical to today** (with `entitled == nil`, pass 1 always takes `walk[index]`,
 
 ---
 
-## 6. What this note could not settle (rule 8)
+## 6. Round 3: the Director's four decisions, 2026-10-20
 
-1. **The always-hunter seam is weaker than the price implies, and it is measured.** The privilege is
+The four items section 6 below raised were put to the Director and all four were decided. Three
+are in code in this task; the fourth is a live check.
+
+### 6.1 Always-hunter must WORK when bought — `Roster.assign` is rewritten
+
+*"A paid privilege that is overruled 'every time' on even rosters is a broken product."* The
+function's own header argued against rewriting it (*"rewriting a pinned pure function to add a
+feature is a bigger change than the feature"*) and the Director overruled that argument with the
+measurement.
+
+**The new order of business.** The hunter slots are counted once (`Roster.shooterSlots`, the same
+arithmetic the plain split does); every always-hunter takes one; then everybody else fills the
+remaining hunter slots and the beaters' side, preferring the men the rotation owes a turn. **The
+result is balanced by construction**, which is the whole point — the old path could produce a
+3-to-1 swap and then throw the entire swap away.
+
+**The yield order, exactly, and it deviates from the dispatch's words on purpose.** When more men
+bought the place than there are hunter slots, somebody must drive. The dispatch said *"fewest
+drives as always-hunter yield first"*. **Taken literally that starves the man at the bottom**:
+yielding is precisely what stops him serving, so his count never rises and he is overruled for
+ever — which is the defect this whole change exists to remove. So the key is RECENCY, which is the
+same fairness without the trap:
+
+1. he held `Shooters` in the previous drive → **yields first** (he has just had it);
+2. he has no previous row at all (he just arrived) → yields next;
+3. he drove last drive → **yields last** (it is his turn);
+4. ties by userId, which is stable and total.
+
+**It cannot starve, and that is provable rather than hoped**: a man who yields is a DRIVER this
+drive, so next drive he is in group 3 with priority over everybody who just held it.
+`match_roster.spec` runs four consecutive drives with four always-hunters and two slots and shows
+**every man served exactly twice**.
+
+**No new state.** The key is `previous`, which `assign` already receives — the rotation's own
+memory already records who held what. So there is no new profile field, nothing added to
+`Phase.freezeState`, and no second store. **Join time is not used**: a pure function cannot see it,
+and carrying it would mean a new frozen-state field for a tie-break userId already settles.
+
+`Roster.owedWith` is no longer in the `Assigning` path — the privilege is its own argument now —
+and stays only on the mid-drive join branch, where `joinTeam`'s own rule applies.
+
+### 6.2 The walk-up hole is shut
+
+*"An unentitled hunter on a high-seat DECK cannot shoot."* `StandArea` gains `seatPaid`,
+`ForestTest.standArea` fills it from an injected provider (the `setEntitlementProvider` idiom, so
+the world module learns nothing about a shop), and `Rules.onUnpaidPlatform` is the one question
+asked about it. The refusal is `UNPAID_PLATFORM`, treated exactly like being off-stand.
+
+**`belowPlatform` stands down entirely for a stand he has not paid for**, and that is not a detail:
+without it he would be told `CLIMB TO YOUR STAND` on the ground and refused the moment he did — a
+trap with no way out. A stand he has not bought is a GROUND stand to him, and the spec sweeps every
+height from 20 studs below the deck to 20 above and asserts the two rules can never both fire.
+
+**The line is `"BUY TREE STAND"` and not the Director's `"BUY TREE STAND ACCESS"`**, because
+`weapon_rules.spec` caps every notice at 20 characters and that cap is a measurement: the readout
+already carries the glyphs, the ammo word and the pocket. 21 did not fit; Karen's own product words
+without the noun that does not fit are 14.
+
+### 6.3 Every row the shop sells has a picture
+
+`ShopDisplay.DRAW` knew four ids and six of the ten rows drew nothing. Six builders added, all from
+parts in the palette this file already has, no uploads: the high seat in miniature (legs, deck,
+rail on the three far faces, a ladder), an ammo crate with shells standing in it, the licence card
+with a stag silhouette, and a brass hunter's badge with the hunters' own orange band.
+
+**A package draws its own contents**, through `ShopDisplay.build` per covered row and laid along a
+shelf board — so there is one drawing per item, a package can never show something it does not
+contain, and a row that gains a picture gains it inside every package that covers it.
+
+**Measured live in the DEV place** (Play, a client probe over all ten rows): every row answers
+`knows = true`, with part counts of 20, 42, 37, 16, 54, 15, 5, 21, 5 and 104. **That is a count and
+not a look** — see section 7.
+
+### 6.4 The climb (218a(h)) — NOT DONE, and why
+
+It needs the Forest Test place, which is not open (see section 7).
+
+---
+
+## 7. What this task could NOT verify (rule 8)
+
+**Both Studios connected during this session are the DEV place** (`136410205938347`), asked
+directly rather than assumed. **The Forest Test (`130094961655666`) is not open**, and opening a
+place in Studio is a click only Karen or the Director can make. Four things therefore remain
+unproven, and none of them is claimed:
+
+1. **The climb check (218a(h))**, decision 4. The seats exist only in the Forest Test
+   (`ForestTestBoot` returns early anywhere else).
+2. **The shop frames.** The display models are *measured* (6.3) and not *looked at*. **Rule 5 is
+   not satisfied for this task.** A probe cannot stand in for the look: `execute_luau` has its own
+   module cache, so `require`-ing `ShopPanel` in a probe returns a FRESH module with no GUI built —
+   which is why `Panel.detailText()` came back empty from the live client, and why the frames need
+   the real panel, which needs the lodge, which is the Forest Test.
+3. **The live purchase with the test grant.** `Shop.withinReach` answers false with no counter, and
+   the DEV place has no lodge — *"a world with no lodge has no shop, which is exactly what the DEV
+   place is"* (shop design 10.4).
+4. **The smoke run** (standing rule A), which is specified in the place Karen will use.
+
+**So nobody should say "ready for Karen" on this branch.** `ESCALATE.md` carries the exact clicks.
+
+---
+
+## 8. What the earlier rounds could not settle (rule 8), and where each stands now
+
+1. **CLOSED in round 3 (section 6.1).** **The always-hunter seam was weaker than the price
+   implies, and it was measured.** The privilege is
    written into the **synthetic previous**, and `Roster.assign` keeps its swap only while
    `|Drivers − Shooters| <= 1`. Flipping one man's synthetic row moves the *swapped* counts by
    **two** — so on an even roster whose last split was even, honouring one always-hunter who already
@@ -267,14 +372,14 @@ identical to today** (with `entitled == nil`, pass 1 always takes `walk[index]`,
    a **low userId is overruled every time rather than occasionally**. `match_roster.spec` asserts
    exactly this, beside the case that shows what the privilege does buy. Whether a $2,000 purchase
    should be stronger than that is Karen's and the Director's.
-2. **Six of the ten rows have no picture.** `ShopDisplay.DRAW` names four ids and declares that an id
+2. **CLOSED in round 3 (section 6.3).** **Six of the ten rows had no picture.** `ShopDisplay.DRAW` names four ids and declares that an id
    it does not name draws nothing while the panel says PICK AN ITEM. That is a stated fallback and
    not a crash, and no line of the design or the dispatch asks for the art — but it is what Karen
    will see.
-3. **Task 218's high seats are inherited unproven.** TASKS.md row 218: *"NOT PROVEN: … the climb
+3. **STILL OPEN (section 7).** **Task 218's high seats are inherited unproven.** TASKS.md row 218: *"NOT PROVEN: … the climb
    itself, and TrussPart.Size read-back"* (218a(h)). Gating a privilege behind money does not make
    the privilege work.
-4. **The walk-up hole.** In the Forest Test the placement is only where a hunter STARTS; an
+4. **CLOSED in round 3 (section 6.2).** **The walk-up hole.** In the Forest Test the placement is only where a hunter STARTS; an
    unentitled hunter can still walk to a seated stand in the 15-second pick window and climb the
    engine's own ladder. The blurb is written to match the code (*"You are given one of the wooden
    high seats on the line when one is free"*), and gating `ForestTest.lockPick` is the Director's

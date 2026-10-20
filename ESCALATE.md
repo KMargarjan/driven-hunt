@@ -1,5 +1,105 @@
 # Escalations
 
+## 2026-10-20 - Task 221 round 3: `NEEDS KAREN` (open the Forest Test), then `NEEDS TEST2 221`
+
+### HALF 1 -- `NEEDS KAREN`: the Forest Test place is not open, and four proofs need it
+
+**Measured rather than assumed.** Both Studios connected to this machine during round 3 were asked
+`game.PlaceId` directly, and both answered **`136410205938347` -- the DEV place**. The Forest Test
+(`130094961655666`) is **not open**. Opening a place in Studio is a click no tool here can make.
+
+**THE EXACT CLICKS, in order:**
+
+1. In Roblox Studio, **File -> Open from Roblox** (or the Home tab's **My Games**) and open
+   **Driven Hunt Forest Test** (`130094961655666`). Leave the DEV place open too.
+2. In that Studio window, press the Rojo plugin's **Connect** button (`rojo serve` is already
+   running; a branch switch has not happened since).
+3. Leave it in **Edit** mode and say so.
+
+**What then becomes possible, and what each one is for:**
+
+| # | Proof | Why it needs that place |
+|---|---|---|
+| 1 | **The climb (decision 4, TASKS.md 218a(h))**: a hunter walks into the ladder and goes up | The seats exist ONLY there -- `ForestTestBoot` returns early anywhere else |
+| 2 | **The shop frames** (the contact sheet, rule 5) | The panel opens from the shopkeeper's prompt in the LODGE, and the DEV place has none |
+| 3 | **The live purchase with the test grant** | `Shop.withinReach` answers false with no counter: *"a world with no lodge has no shop, which is exactly what the DEV place is"* (shop design 10.4) |
+| 4 | **The smoke run** (standing rule A) | It is specified in the place Karen will use |
+
+**A probe cannot stand in for any of them, and that is measured too.** `execute_luau` has its own
+module cache (memory `studio-mcp-execute-luau-single-line`), so `require`-ing `ShopPanel` from a
+probe returns a **fresh** module with no GUI built -- which is exactly why
+`Panel.detailText()` came back EMPTY from the live DEV client while `ShopDisplay.build` (pure)
+answered fine. The frames need the real panel.
+
+**SO NOBODY SHOULD SAY "READY FOR KAREN" ON THIS BRANCH, and rule 5 is NOT satisfied for this
+task.** This entry is the record of that.
+
+**And the Learning Agent's standing warning applies to whoever does them:** `tools/flags.py`
+resolves the target Studio **by MODE, not by place** (TASKS.md 216b, still unfixed). With both
+places open, print what it resolved to and read the attribute back before trusting any result.
+
+### HALF 2 -- `NEEDS TEST2 221 <the final code commit>`
+
+`TWO_PLAYER_PATHS` is reached and more so than in round 2: round 3 rewrote `Roster.assign` itself.
+The one-player gate is in the task's row in `TASKS.md`; the Director runs
+
+```
+python tools/studio_mcp.py test2
+```
+
+in Edit with only DEV open, and wants
+
+```
+[harness2] PASS: n/n checks @ <the same sha> (clean tree)
+```
+
+---
+
+### What round 3 DID settle, so the Director does not have to re-read the code
+
+**Decision 1 -- always-hunter now works when bought.** `Roster.assign` is rewritten: the men who
+bought the place are placed FIRST and the rotation fills what is left, so the split is balanced by
+construction instead of by a check that could discard the whole swap. Overruled only when paid men
+outnumber the hunter slots.
+
+**The yield order deviates from the dispatch's words, deliberately, and this is the one thing to
+read.** *"Fewest drives as always-hunter yield first"* taken literally **starves** the man at the
+bottom: yielding is exactly what stops him serving, so his count never rises and he is overruled
+for ever -- the very defect decision 1 exists to remove. So the key is RECENCY, which is the same
+fairness without the trap:
+
+1. he held `Shooters` last drive -> yields FIRST;
+2. no previous row (he just arrived) -> next;
+3. he drove last drive -> yields LAST;
+4. ties by userId.
+
+It **cannot** starve, by construction: a man who yields is a DRIVER, so next drive it is his turn.
+`match_roster.spec` runs four consecutive drives with four always-hunters and two slots and shows
+**every man served exactly twice**. It uses `previous` alone -- no new state, no new profile field,
+nothing added to `Phase.freezeState`. **Join time is not used**: a pure function cannot see it and
+carrying it would mean a new frozen-state field for a tie-break userId already settles. **Say the
+word and the comparator inverts in one line.**
+
+**Decision 2 -- the walk-up hole is shut.** `StandArea.seatPaid`, `Rules.onUnpaidPlatform`, and
+`belowPlatform` standing down entirely for a stand he has not paid for -- without that he would be
+told to climb on the ground and refused once he did, a trap with no way out. A spec sweeps 40
+studs of height and proves the two rules can never both fire.
+
+**The line is `"BUY TREE STAND"`, not the Director's `"BUY TREE STAND ACCESS"`.**
+`weapon_rules.spec` caps every notice at 20 characters and that cap is a measurement of the readout
+(it already carries the glyphs, the ammo word and the pocket). 21 did not fit. The 14 that did are
+Karen's own product words.
+
+**Decision 3 -- every row the shop sells has a picture.** Six builders, all parts, no uploads: the
+high seat in miniature, an ammo crate, a stag card, a hunter's badge, and the packages drawn as
+their own contents through the per-item builder, so a package can never show something it does not
+contain. **Measured live in DEV** over all ten rows: every one answers `knows = true`, with part
+counts 20, 42, 37, 16, 54, 15, 5, 21, 5, 104. **That is a count, not a look** -- the look is item 2
+of half 1.
+
+
+---
+
 ## 2026-10-20 - Task 221: STOP -- `NEEDS TEST2 221 d0ea20a613be248113fce2c964184672b1e73e0c`
 
 Nothing is wrong and nothing is undecided. The dispatch ends with
