@@ -1349,6 +1349,13 @@ end
 -- WHICH WEAPON IS ON SCREEN, read off the TOOL the source handed us (task 140). The attribute is
 -- written by `Weapon.Hardware.build`, so the drawn gun follows the INSTANCE: a state replica that
 -- arrives a frame later can never make this draw the wrong gun.
+-- EXPORTED SO THE DRAWN GUN CAN BE TESTED (task 224, the Reviewer's finding 2). It is a PURE
+-- builder -- config, geometry and row in, a parentless Model out -- and `tests/client/
+-- lever_client.spec.luau` is the first caller that is not this module: a weapon that is
+-- `OWNED_ONLY` is never in a test session's hands, so the only way to assert what it draws is
+-- to build one. Nothing about the live path changes; `update` still calls the local.
+Viewmodel.buildNewGun = buildNewGun
+
 function Viewmodel.weaponId(): string?
 	local handle = cachedHandle
 	local tool = handle and handle.Parent

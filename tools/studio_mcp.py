@@ -810,7 +810,10 @@ SCOPE_SPECS = {
             # the spec that asserts that config has to be played by a scoped run over it.
             "tests/server/lever.spec.luau",
             "tests/server/weapon_state.spec.luau"),
-    "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau"),
+    # Task 224: the drawn lever -- its `"lever"` CYCLE_KIND branch, the fore-end glove and the
+    # shells gate -- is the viewmodel's, exactly as `gun_client.spec` is.
+    "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau",
+                  "tests/client/lever_client.spec.luau"),
     "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau"),
     "weapon": ("tests/server/ballistics.spec.luau",
                # Task 223: `src/shared/Licences` flipped `reddeer.shipped`, and this spec drives
@@ -825,6 +828,7 @@ SCOPE_SPECS = {
                # Task 224: the lever rifle drives `Weapon.cycleRefusal` and the reducer, which are
                # `src/server/Weapon/` -- this scope -- as well as its own numbers.
                "tests/server/lever.spec.luau",
+               "tests/client/lever_client.spec.luau",
                "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
                "tests/client/rifle_client.spec.luau",
                "tests/client/shoot_boar.spec.luau",
