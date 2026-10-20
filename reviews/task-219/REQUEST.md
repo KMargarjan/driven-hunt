@@ -1,13 +1,94 @@
 # Task 219 -- the legendary boar
 
 Task: 219
-Round: 1
+Round: 2
 Base: 43a7d3d
-Code commit: 125926d
+Code commit: __R2__
 
 Karen, 2026-10-10: *"Legendary animals: one or a few, e.g. a legendary boar"*, and 2026-10-11:
 *"legendary animals worth more"*. Task 160 wrote `POINTS.KIND.legendary = 25` as a price with no
 animal behind it. This is the animal, and the price did not move.
+
+## Round 2: the four blocking findings, and the Director's look
+
+Every finding is accepted; I argued with none of them. What follows is what changed and how to check
+it. The round-1 body below is kept because its claims are still the claims.
+
+**1. The roll is the WORLD'S.** `self._legendaryRng = world.legendaryRng or Random.new()`, and the
+specs that release a sounder with kinds ON pin `LEGENDARY.CHANCE_PER_DRIVE` to **0** -- which needs
+no stream at all, because `NextNumber` returns [0, 1) so 0 is never, exactly. My round-1 comment
+claimed *"no spec depends on it"*: true of the STREAM, false of the OUTCOME, and the Reviewer is
+right that a green gate was one sample of a random variable.
+*Blast radius checked rather than assumed (L-093):* eight specs call `spawnSounder`; exactly three
+enable `KINDS` -- `boar_behaviour_live`, `boar_shot` (three worlds) and `boar_legendary` -- and the
+other five cannot promote at all, because `_legendaryAllowed` returns false with the flag off. All
+five kinds-on worlds are pinned. `boar_behaviour_live`'s `wanted` table also gains the fourth kind,
+so if it ever did meet one it fails as a readable expectation instead of as nil arithmetic.
+Check: `boar_legendary.spec`, *"cannot surprise a spec that pinned the chance, which is what round 1
+could"* -- 0 and 1 are exact, and two runtimes built with the same `legendaryRng` seed answer the
+same thing.
+
+**...and the yearling (note 5), which is the same defect's other half.**
+`SOUNDER.MAKEUP.YOUNG_MALE` is ALSO `"male"` at a 0.25 chance, so "the first male in the release"
+picked a YEARLING walking behind its mother a quarter of the time. `Boar.promoteLegendary` now
+refuses any release containing a SOW, which makes the research note's *"a release of sows and
+piglets promotes NOBODY"* true as written. Check: *"NEVER promotes a yearling walking behind its
+mother"*.
+
+**2. The gathering.** `Body.displayCarcass` takes the kind's geometry and applies `Model:ScaleTo`
+and the `SurfaceAppearance` tint -- the same two operations `Body.attachVisual` performs on the live
+animal -- and `Runtime:displayCarcass` hands it in. Scaled BEFORE the pose, because
+`Body.lyingCFrame` reads the mesh's size. Check: `boar_legendary.spec`, *"is laid out at the
+gathering BIGGER AND DARKER, on the model branch"* -- it builds a runtime with `KINDS` and `MODEL`
+on and a template carrying a `SurfaceAppearance` exactly as the bought asset does, then asserts the
+drawn mesh is 1.35x the male's on two axes, that the trophy's coat is the tint and the male's is
+white, and that it still rests on the ground. It also compares `SCENE.ANIMAL_SCALES` against the
+boar's own scales, so the copied numbers the grey-box branch uses cannot drift from the animal.
+
+**3. The fade.** `setFade` now writes the `Trophy` label's `TextTransparency`, named beside `label`.
+It is a child of the CARD, not of an art frame, so the descendants walk could never reach it. Check:
+the clock case is driven with a **legendary** payload now (with `buckPayload()` the tag was hidden
+and empty, so the walk stepped over it -- which is why the defect this file was blocked for in round
+2 of task 198 recurred on the next child added), and it names the tag rather than trusting the class
+walk.
+
+**4. The tag is off the animal.** Round 1 put a 14 px tag at plate y 76..90 inside an art box
+spanning 8..88, in `BOAR_FILL` -- the animal's own ink -- above both the animal and the dots, and the
+derivation written beside it was arithmetically false. The card grew six pixels (`CARD.HEIGHT`
+138 -> 144) and the tag sits BELOW the plate, on the dark card, in the headline's own `LABEL_COLOR`.
+**The cost, said out loud: an ordinary card now carries six pixels of empty band under its plate.**
+Check: the hit-card case asserts the tag's top is at or below the art frame's bottom AND below every
+pellet dot, as rectangles, and measures the text against the label's OWN box (round 1, note 6)
+rather than the plate's width.
+
+### The Director's look: the tint
+
+He is right that `219-pair-lit2.png` is a flat black silhouette, and the number he offered instead
+would not have fixed it -- **the value is a MULTIPLIER on the artist's ColorMap, not a colour.**
+RGB(70, 58, 48) is x(0.275, 0.227, 0.188): a quarter of the coat's brightness, fur included.
+RGB(70, 62, 55) is x(0.275, 0.243, 0.216) -- the same quarter. The tint is now **RGB(150, 138, 125)
+= x(0.588, 0.541, 0.490)**: a little over half, warmed down and slightly desaturated.
+
+**Frame: `.screenshots/20261020T045958Z-219-r2-tint.png`**, the player's own first-person eye (root
+y 5.15 over ground y 2.00), sun on the side facing the camera. The bristled coat, the pale muzzle,
+the shoulder hump and the individual legs are all visible where round 1's frame had none of them.
+**Please verify this frame yourself (L-086)** -- it is the one thing in this round only I have
+looked at.
+
+**AND READ THE FRAME'S CAVEAT, because it is not the pair you asked for.** The sow guard added for
+note 5 means **DEV can no longer spawn a legendary at all**: its drive releases carry no composition,
+so `sounderKinds` always makes member 1 a SOW, and a sow-led release now promotes nobody. Round 1's
+DEV trophy *was* the yearling-in-a-nursery case, which is why it appeared then and cannot now. So
+the frame shows the two operations the code performs -- `ScaleTo(1.35)` and the new
+`SurfaceAppearance.Color` -- applied by hand to a live drawn animal beside an untinted one, and it
+answers the tint question and nothing else. **It is not a legendary spawned by the drive.**
+
+**THIS IS A REAL CONSEQUENCE AND IT NEEDS YOUR DECISION (queued as TASKS.md 219a(h)):** with the sow
+guard, only a male-GROUP release can carry the trophy. The Forest Test has those
+(`SOUNDER.COMPOSITIONS` rows 2 and 6 -- `{ males = 2 }` and the lone big male), so the real game
+still produces one; **DEV's unstructured releases never will.** The alternative is to let the drive
+release a lone male when a drive has drawn a trophy, which is a change to `Match.Phase`'s release
+schedule -- a different owner and not a findings round's work.
 
 ## What changed
 
