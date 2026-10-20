@@ -134,20 +134,21 @@ the shoulder hump and the individual legs are all visible where round 1's frame 
 **Please verify this frame yourself (L-086)** -- it is the one thing in this round only I have
 looked at.
 
-**AND READ THE FRAME'S CAVEAT, because it is not the pair you asked for.** The sow guard added for
-note 5 means **DEV can no longer spawn a legendary at all**: its drive releases carry no composition,
-so `sounderKinds` always makes member 1 a SOW, and a sow-led release now promotes nobody. Round 1's
-DEV trophy *was* the yearling-in-a-nursery case, which is why it appeared then and cannot now. So
-the frame shows the two operations the code performs -- `ScaleTo(1.35)` and the new
-`SurfaceAppearance.Color` -- applied by hand to a live drawn animal beside an untinted one, and it
-answers the tint question and nothing else. **It is not a legendary spawned by the drive.**
+**READ THE FRAME'S CAVEAT, because it is not the pair you asked for.** The frame shows the two
+operations the code performs -- `ScaleTo(1.35)` and the new `SurfaceAppearance.Color` -- applied by
+hand to a live drawn animal beside an untinted one. It answers the tint question and nothing else.
+**It is not a legendary spawned by the drive.**
 
-**THIS IS A REAL CONSEQUENCE AND IT NEEDS YOUR DECISION (queued as TASKS.md 219a(h)):** with the sow
-guard, only a male-GROUP release can carry the trophy. The Forest Test has those
-(`SOUNDER.COMPOSITIONS` rows 2 and 6 -- `{ males = 2 }` and the lone big male), so the real game
-still produces one; **DEV's unstructured releases never will.** The alternative is to let the drive
-release a lone male when a drive has drawn a trophy, which is a change to `Match.Phase`'s release
-schedule -- a different owner and not a findings round's work.
+> **~~THIS IS A REAL CONSEQUENCE AND IT NEEDS YOUR DECISION~~ -- RETRACTED, round 2.** This section
+> originally claimed that the sow guard meant *"DEV can no longer spawn a legendary at all"* and
+> asked the Director to decide what to do about it. **That was false and the claim is withdrawn.**
+> `Runtime:spawnSounder`'s `size == 1` path builds `{ MAKEUP.LONE }` -- one male, with no sow to
+> refuse -- and singles are MOST releases: `SOUNDER.SIZE_WEIGHTS = { 40, 20, 18, 12, 10 }` is 40 %,
+> and `Phase.sounderSize` returns 1 for every release while `SOUNDER.ENABLED` is off. DEV spawns
+> them normally. I generalised from a handful of sow-led releases in one session instead of reading
+> the size rule, and then sent it upward as a decision. `TASKS.md` 219a(h) is withdrawn and
+> `ESCALATE.md` carries the correction; **this paragraph is struck here too, because the round-3
+> review found it was the one place the retracted claim still read as current.**
 
 ## What changed
 
