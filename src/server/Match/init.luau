@@ -1075,7 +1075,14 @@ function Match.snapshot()
 		-- ABSENT, not an empty array, when there is no economy at all: the `stands` and `coinsOn`
 		-- idiom (*"ABSENT means the server never sent it"*), so a build with the flag off is
 		-- byte-identical to the one before this task.
-		roleOverruled = if economy and economy.alwaysHunters
+		-- IT IS GATED ON `coinsOn` AND NOT MERELY ON A WIRED VIEW (task 221, round 1 finding 2's own
+		-- new spec caught this): a view is wired in every world that has an economy at all, so
+		-- keying off its existence shipped an empty array to every client with the money switched
+		-- OFF. `coinsOn` is the same fact the row beside it keys off, and ABSENT is what a build
+		-- without money has always sent.
+		roleOverruled = if coinsOn
+				and economy
+				and economy.alwaysHunters
 			then Roster.overruled(state.assignment, economy.alwaysHunters())
 			else nil,
 	})
