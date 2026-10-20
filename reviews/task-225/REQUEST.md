@@ -1,19 +1,19 @@
 # Task 225 review request — the semi-automatic shotgun
 
 Task: 225
-Round: 2
+Round: 3
 Base: `2eb78b4e` (main, after task 224 merged)
-Code commit: `5211678e06476a3c88d62a18ef47dd339e7dae13`
+Code commit: `8168e2036e24f293737e78ec8a6c3670395946b4`
 
 ```
-[harness] PASS: 33/33 checks @ 5211678e06476a3c88d62a18ef47dd339e7dae13 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 8168e2036e24f293737e78ec8a6c3670395946b4 (clean tree) scope=all
 ```
 
 `test2` is **N/A**: nothing here is in `TWO_PLAYER_PATHS`, and `tools/agents.py` agreed in round 1
 ("24 code file(s) changed, 0 needing two players"). It touches no `Match/`, no `Drive/`, no
 `MatchBoot`, no `Role.luau` and none of the named match specs.
 
-CI: green at the code commit (run 39514243802, `Build and lint`).
+CI: green at the code commit (run 39516246755, `Build and lint`).
 
 ---
 
@@ -24,28 +24,36 @@ only by a player who owns it. Design `docs/design/semiauto-shotgun.md` (ARCHITEC
 `docs/research/2026-10-20-semiauto-shotgun.md`. Most of it is the lever rifle's shape again; three
 things are new, and one shipped behaviour improved.
 
-## Round 1's three findings, and what each cost
+## Rounds 1 and 2, and what each found
 
-**Finding 1 was a real defect and the Reviewer was right.** The drawn sight piece was named `Sight`,
-which is `Camera.Viewmodel.SIGHT_NAME` — the *Attachment* the eye is laid on — and
-`Hardware.SIGHT_NAME` on the world Tool as well. `Viewmodel.sight()` resolves it with
-`FindFirstChild` then `IsA("Attachment")`, so the **part** was found first, failed the class test,
-and the whole aimed pose fell back to `VIEWMODEL_AIM_OFFSET`: `eyeReliefStuds` and `cheekDeg` were
-dead and the red dot was never on the camera axis. **Claim 7 of round 1 was wrong in practice.** The
-fix took two goes, and the second was found by the case the Reviewer asked for: the first rename
-called the sight *mesh* `RedDot`, so the new case went looking for the dot, found the housing
-instead, and measured them **0.56 studs apart**. Two things now have two names — `Optic` is the
-uploaded housing, `Dot` is the drawn Neon ball — and the case measures **0.000000 studs**.
+**Round 1, finding 1 was a real defect.** The drawn sight piece was named `Sight`, which is
+`Camera.Viewmodel.SIGHT_NAME` — the *Attachment* the eye is laid on — and `Hardware.SIGHT_NAME` on
+the world Tool as well. `Viewmodel.sight()` resolves it with `FindFirstChild` then
+`IsA("Attachment")`, so the **part** was found first, failed the class test, and the aimed pose fell
+back to `VIEWMODEL_AIM_OFFSET`: `eyeReliefStuds` and `cheekDeg` were dead and the red dot was never
+on the camera axis. The fix took two goes — the first rename called the sight *mesh* `RedDot`, so the
+new case went looking for the dot, found the housing, and measured them **0.56 studs apart**. Two
+things, two names now: `Optic` is the uploaded housing, `Dot` is the drawn ball. The case measures
+**0.000000**.
 
-**Findings 2 and 3 are written and both enter their arm.** The aim is reached by parameter at blend
-1 and measures **0.9421 studs from the hip**, which is what proves the aimed pose is solved rather
-than falling through to a default; and `X` on a full tube reports
-`ammo=Slug but chamber=Buck, 5 live`, with the Hud printing `5/5 BUCK 10` and the chip `buck`.
+**Round 2, finding 1 is the sharpest catch of the task, and it was mine to make.** The
+`CYCLE_POSE_SHARE` assertions **could not fail**. This gun's `carry.gun` and `cycle.gun` are
+bit-identical in `poses.json`, so at blend 0 that `Lerp` is identity for every value of the share;
+the hands were worse still, because all three hand poses are identical and the hand frame is
+therefore constant across every state and every share. "The gloves held still" was asserting
+nothing. Both are driven at **blend 1** now, where the sight-solved aim is not `cycle.gun`, and each
+carries its **negative arm**: the same two frames with the share forced to 1 must MOVE the gun. They
+do — **0.000000 studs at share 0 and 1.5233 at share 1** on the server, **0.0000 and 0.9421** on the
+real instance. The hands get their own case saying plainly that the pose data holds them still and
+the share does not, which is the truth about a gas gun.
 
-Six of the notes are also fixed: both missing `SCOPE_SPECS` scopes, the duplicated `Gun.Group`
-comment, the `poseShare` helper that had been inserted into the middle of another function's doc
-comment, the 12 anchor triangles that explain 8,736 against 8,724, and a client booting mid-reload
-reading its first snapshot as a fed shell.
+**Round 2's other two.** `partCount` was *claimed* to be asserted and was not, by either number — it
+is pinned on the real build now (`10 gun part(s) plus 2 worn`). And `ammoChipFor` always returns a
+table, so the nil guard and the `to.be.ok()` could not fail; the case asserts the content
+(`5 pip(s), glyph=buck`).
+
+Ten of the twelve non-blocking notes are also fixed, including two overstated claims in my own spec
+comments that round 2 was right to call out.
 
 ## Claims
 
@@ -53,8 +61,9 @@ reading its first snapshot as a fed shell.
 *Verify:* `SemiAuto.Geometry.MESH_KEYS.Optic`, the piece named `Optic`, and the row's
 `MESH_NAMES` — the three must say one word, because `meshFor(piece.name)` looks the mesh up by piece
 name and `publishGunPiece` walks the keys. `semiauto_client.spec`'s dot case asserts the drawn `Dot`
-is within 1e-3 of `Viewmodel.sight()`'s attachment **and** that no part at all is named `Sight`; it
-names the edit that makes it fail.
+is within 1e-3 of `Viewmodel.sight()`'s attachment **and** that no DIRECT CHILD of the Handle is
+named `Sight` — which is exactly the lookup `Viewmodel.sight()` does, and round 2 was right that the
+wider wording overstated it. The case names the edit that makes it fail.
 
 **2. The bought file has no rig, so the split was read off the geometry — and looked at.** Measured
 two ways (Blender, and a stdlib parser of the FBX binary): no armature, no deformer, no skin weight,
@@ -82,10 +91,12 @@ own clock, and its ramp goes **up and back down** because a tray takes the next 
 `Geometry.lifterSwing` / `lifterTipOffset`, whose sign is falsifiable. The client spec measures the
 tray **+0.0553 in Y, turned 0.3420, with the bolt moving 0.0000**, and back to 0.0000 of rest.
 
-**6. The gun must NOT move when it cycles itself.** `cycle.poseShare`, read at the two sites that
-already blend on `openTilt`. **Absent means 1**, so the three shipped guns are bit-for-bit what they
-were — `semiauto.spec` asserts each of them still moves (1.7133 / 2.0481 / 2.1436 studs) while this
-one moves **0.000000**.
+**6. The gun must NOT move when it cycles itself, and the proof has a negative arm.**
+`cycle.poseShare`, read at the two sites that already blend on `openTilt`. **Absent means 1**, so the
+three shipped guns are bit-for-bit what they were — `semiauto.spec` asserts each still moves
+(1.7133 / 2.0481 / 2.1436 studs) while this one moves **0.000000**, *and* that forcing the share to 1
+moves it **1.5233**. Without that second half the case would pass against a `poseShare` nothing read,
+which is exactly what round 2 found.
 
 **7. The ammunition is the side-by-side's BY REFERENCE** — the opposite of the lever's rule, for the
 opposite reason: the two shotguns fire one cartridge. `AMMO_KINDS` / `AMMO_LABEL` / `AMMO_GLYPH` moved
@@ -106,8 +117,10 @@ two independent parts, both inside a millimetre.
 
 **10. Both hand anchors are bounded as LINES, and the poses were SOLVED onto them**
 (`pos = P − R·GRIP_STUDS`, not typed by eye). *Verify:* `semiauto.spec`'s two cases compute through
-`Mode.handOffsetAt` and report **0.0000 off both axes** at hip, aimed and cycle, against bounds
-0.0601 and 0.0768. The same solver reproduces the lever's shipped pose to 0.0000.
+`Mode.handOffsetAt` and report **0.0000 off both axes**, against bounds 0.0601 and 0.0768. The same
+solver reproduces the lever's shipped pose to 0.0000. **Said accurately this time:** hip, aimed and
+cycle are the same computation on this gun, because its three hand poses are identical — one pose
+checked three times, which is the Reviewer's round-2 note and is now written into the case itself.
 
 **Also:** `Camera.fedShell` reads the live-chamber count, already on the wire, so the gate voice
 fires **once per shell** instead of once per run — closing 224a(e) without the protocol change it was
@@ -126,8 +139,8 @@ design D-c, the Director's to refuse.
   `shop-closed` whatever the flag says. Handing the character a fabricated Tool *draws* the gun
   (which is how the carry frame exists) but binds no aim or fire, because it carries no server weapon
   state. **The behaviour those frames would show is measured instead**, on real instances — the
-  numbers are in claims 1, 4, 5 and 6, and the round-1 defect proves the measurement was worth more
-  than the picture would have been.
+  numbers are in claims 1, 4, 5 and 6 — and round 1's defect and round 2's vacuous assertions both
+  prove the measurement was worth more than the picture would have been.
 * **Karen's eye.** Nobody here has heard the three voices or felt the recoil, and **the carry pose is
   unconfirmed — as the lever's still is** (task 224 shipped with its carry pose unseen). Both guns
   now sit on the same pose system, so if she rejects the lever's hold, both weapons' pose data moves
