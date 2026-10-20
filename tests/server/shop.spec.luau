@@ -25,6 +25,9 @@ local Match = require(ServerScriptService:WaitForChild("Match"))
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
+-- WHICH ANIMALS THIS BUILD ACTUALLY SHIPS (task 221): `rowsOk`'s I3a reads it, and it is what holds
+-- the RED STAG CARD shut.
+local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
 
 local Body = Match.Body
 local Join = require(ServerScriptService:WaitForChild("Lobby")).Join
@@ -55,7 +58,7 @@ end
 
 local function ctx(over)
 	local base = {
-		itemId = Shop.ITEM.HAT_RED,
+		itemId = Shop.ITEM.SLUG,
 		coinsOn = true,
 		hasProfile = true,
 		atCounter = true,
@@ -71,17 +74,30 @@ end
 
 return function()
 	describe("the catalogue", function()
-		it("is Karen's ladder, frozen, cheapest first, and no row can be edited at run time", function()
-			-- HER THREE RUNGS PLUS THE COSMETIC, in `Shop.ORDER`'s own order. FOUR AND NOT FIVE SINCE
-			-- TASK 196: Karen removed the open-sighted rifle's row (*"remove rifle without scope soon
-			-- don't need"*), which was the only one that was shown and never sold.
-			expect(#Shop.ORDER).to.equal(4)
-			expect(Shop.ORDER[1]).to.equal(Shop.ITEM.HAT_RED)
-			expect(Shop.ORDER[2]).to.equal(Shop.ITEM.SLUG)
-			expect(Shop.ORDER[3]).to.equal(Shop.ITEM.BEATER_LICENCE)
-			expect(Shop.ORDER[4]).to.equal(Shop.ITEM.RIFLE)
+		it("is Karen's v1 list, frozen, cheapest first, and no row can be edited at run time", function()
+			-- KAREN, 2026-10-20: *"It will be for sale in v1: - Access to tree stand - Rifle -
+			-- Unlimited amunition - Red stag card - Beater can shoot in drive - Posibility to be a
+			-- hunter always - We can also make a few packages bundles"*. TEN ROWS: her seven items
+			-- plus three packages. The RED HAT is not one of them -- *"From shop remove red heat"* --
+			-- and it is in `Shop.RETIRED` instead, still granting to whoever bought one.
+			expect(#Shop.ORDER).to.equal(10)
+			expect(Shop.ORDER[1]).to.equal(Shop.ITEM.SLUG)
+			expect(Shop.ORDER[2]).to.equal(Shop.ITEM.BEATER_LICENCE)
+			expect(Shop.ORDER[3]).to.equal(Shop.ITEM.BUNDLE_HIDE)
+			expect(Shop.ORDER[4]).to.equal(Shop.ITEM.HIGH_SEAT)
+			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.RED_STAG)
+			expect(Shop.ORDER[6]).to.equal(Shop.ITEM.UNLIMITED_AMMO)
+			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.RIFLE)
+			expect(Shop.ORDER[8]).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
+			expect(Shop.ORDER[9]).to.equal(Shop.ITEM.ALWAYS_HUNTER)
+			expect(Shop.ORDER[10]).to.equal(Shop.ITEM.BUNDLE_SEASON)
 			expect((Shop.ITEM :: any).RIFLE_OPEN).to.equal(nil)
-			-- CHEAPEST FIRST, so a player with 80 coins sees something he can buy at the top.
+			-- THE RED HAT IS OFF THE SHELF AND STILL IN THE BUILD (task 221).
+			expect(Shop.ROWS[Shop.ITEM.HAT_RED]).to.equal(nil)
+			expect(Shop.anyRow(Shop.ITEM.HAT_RED)).to.be.ok()
+			expect(Shop.isRetired(Shop.ITEM.HAT_RED)).to.equal(true)
+			expect(Shop.isRetired(Shop.ITEM.SLUG)).to.equal(false)
+			-- CHEAPEST FIRST, so a player with $120 sees something he can buy at the top.
 			local previous = -1
 			for _, id in ipairs(Shop.ORDER) do
 				local row = Shop.ROWS[id]
@@ -89,16 +105,28 @@ return function()
 				previous = row.price
 			end
 			-- The prices Karen decides later, written down so a change to one of them fails here
-			-- rather than drifting (docs/research/2026-10-14-the-shop.md section 4).
-			expect(Shop.ROWS[Shop.ITEM.HAT_RED].price).to.equal(80)
+			-- rather than drifting (docs/design/economy-v1.md section 11).
 			expect(Shop.ROWS[Shop.ITEM.SLUG].price).to.equal(120)
 			expect(Shop.ROWS[Shop.ITEM.BEATER_LICENCE].price).to.equal(250)
 			expect(Shop.ROWS[Shop.ITEM.BEATER_LICENCE].hunts).to.equal(3)
+			expect(Shop.ROWS[Shop.ITEM.BUNDLE_HIDE].price).to.equal(575)
+			expect(Shop.ROWS[Shop.ITEM.HIGH_SEAT].price).to.equal(600)
+			expect(Shop.ROWS[Shop.ITEM.HIGH_SEAT].hunts).to.equal(5)
+			expect(Shop.ROWS[Shop.ITEM.RED_STAG].price).to.equal(750)
+			expect(Shop.ROWS[Shop.ITEM.UNLIMITED_AMMO].price).to.equal(900)
+			expect(Shop.ROWS[Shop.ITEM.UNLIMITED_AMMO].hunts).to.equal(10)
+			-- UNCHANGED BY TASK 221, and that is the assertion: Karen's *"has to play a lot it's not
+			-- few hunts"* is the rifle's gate and the Builder does not get to move it.
 			expect(Shop.ROWS[Shop.ITEM.RIFLE].price).to.equal(1500)
 			expect(Shop.ROWS[Shop.ITEM.RIFLE].hunts).to.equal(25)
+			expect(Shop.ROWS[Shop.ITEM.BUNDLE_MARKSMAN].price).to.equal(1800)
+			expect(Shop.ROWS[Shop.ITEM.ALWAYS_HUNTER].price).to.equal(2000)
+			expect(Shop.ROWS[Shop.ITEM.ALWAYS_HUNTER].hunts).to.equal(30)
+			expect(Shop.ROWS[Shop.ITEM.BUNDLE_SEASON].price).to.equal(3750)
 			-- The rules of the game are not writable at run time: the discipline every frozen table
 			-- in this repo follows, and `deepFreeze` is what makes it reach the rows.
 			expect(table.isfrozen(Shop.ROWS)).to.equal(true)
+			expect(table.isfrozen(Shop.RETIRED)).to.equal(true)
 			expect(table.isfrozen(Shop.CONFIG)).to.equal(true)
 			expect(function()
 				(Shop.ROWS[Shop.ITEM.RIFLE] :: any).price = 1
@@ -108,17 +136,55 @@ return function()
 			end).to.throw()
 		end)
 
-		-- I1, I2 AND I3 IN ONE CALL (design section 4.2). The third is the one that matters: a row
-		-- FOR SALE can actually be granted, which is what forces `rifle.open`'s `sale = false`
+		-- THE ONE ROW KAREN ASKED FOR THAT CANNOT BE BOUGHT, AND WHY IT CANNOT (task 221).
+		it("shows the red stag card and refuses to sell it, and the refusal is structural", function()
+			local row = Shop.ROWS[Shop.ITEM.RED_STAG]
+			expect(row.sale).to.equal(false)
+			expect(row.grants.licence).to.equal("reddeer")
+			-- THERE IS NO RED STAG IN THIS GAME, and that is the fact the shop reads.
+			expect(Licences.ROWS.reddeer.shipped).to.equal(false)
+			expect(Licences.ROWS.boar.shipped).to.equal(true)
+			-- THE DOOR REFUSES IT with the reason whose notice already reads NOT IN THE GAME YET.
+			expect(Shop.refuse(ctx({ itemId = Shop.ITEM.RED_STAG }))).to.equal(Shop.REASON.NOT_SALE)
+			-- ...AND I3a IS WHAT STOPS SOMEBODY FLIPPING `sale`. `Licences.ROWS` has known
+			-- `reddeer` since task 171, so a check that only asked *does the table know it* would
+			-- PASS -- which is why `shipped` exists. Driven against a pretend catalogue, because no
+			-- shipped row is in that state.
+			local pretend = {}
+			for id, existing in pairs(Shop.ROWS) do
+				local copy = table.clone(existing)
+				copy.grants = table.clone(existing.grants)
+				pretend[id] = copy
+			end
+			pretend[Shop.ITEM.RED_STAG].sale = true
+			local saved = Shop.ROWS;
+			(Shop :: any).ROWS = pretend
+			local broken = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS, Licences.ROWS);
+			(Shop :: any).ROWS = saved
+			expect(#broken).to.equal(1)
+			expect(string.find(broken[1], "reddeer") ~= nil).to.equal(true)
+		end)
+
+		-- I1, I2 AND I3 IN ONE CALL (design section 5.5). The third is the one that matters: a row
+		-- FOR SALE can actually be granted, which is what forces the red stag card's `sale = false`
 		-- rather than a comment asking for it.
-		it("is legal against the weapons this build ships, and every row in it is for sale", function()
-			local problems = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS)
+		it("is legal against the weapons and the animals this build ships", function()
+			local problems = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS, Licences.ROWS)
 			expect(#problems).to.equal(0)
 			expect(#Shop.ORDER <= Shop.CONFIG.MAX_ITEMS).to.equal(true)
-			-- SINCE TASK 196 NOTHING IS SHOWN AND UNSELLABLE: the one row that was, the open-sighted
-			-- rifle's, is gone at Karen's word and archived (rule 7).
+			-- EXACTLY ONE ROW IS SHOWN AND NOT SELLABLE, and it is the red stag card.
+			local notForSale = {}
 			for _, id in ipairs(Shop.ORDER) do
-				expect(Shop.ROWS[id].sale).to.equal(true)
+				if Shop.ROWS[id].sale ~= true then
+					table.insert(notForSale, id)
+				end
+			end
+			expect(#notForSale).to.equal(1)
+			expect(notForSale[1]).to.equal(Shop.ITEM.RED_STAG)
+			-- EVERY ROBUX PRODUCT ID IS nil IN THIS BUILD (task 221, I12): there are no products
+			-- yet, and a fabricated id is a shop window that lies. Task 222 is what fills them.
+			for _, id in ipairs(Shop.ALL_ORDER) do
+				expect(Shop.anyRow(id).robuxProductId).to.equal(nil)
 			end
 			-- ...AND THE INVARIANT IS STILL WHAT SAYS A ROW MAY NOT GRANT WHAT NO BUILD SHIPS. The
 			-- weapon `rifleOpen` was retired in task 148 and `Weapons.ROWS` has never had it back,
@@ -134,10 +200,155 @@ return function()
 			pretend[Shop.ITEM.RIFLE].grants = { weapon = "rifleOpen" }
 			local saved = Shop.ROWS;
 			(Shop :: any).ROWS = pretend
-			local broken = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS);
+			local broken = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS, Licences.ROWS);
 			(Shop :: any).ROWS = saved
-			expect(#broken).to.equal(1)
-			expect(string.find(broken[1], "rifleOpen") ~= nil).to.equal(true)
+			-- THE MARKSMAN AND THE FULL SEASON COVER THE RIFLE, so breaking its grant breaks their
+			-- merge too (I11) -- which is the bundle invariant doing its job, not noise.
+			expect(#broken >= 1).to.equal(true)
+			local named = false
+			for _, problem in ipairs(broken) do
+				if string.find(problem, "rifleOpen") ~= nil then
+					named = true
+				end
+			end
+			expect(named).to.equal(true)
+		end)
+
+		-- ---------------------------------------------------------------- the packages (task 221)
+
+		it("prices a package under its parts, gates it at the highest of them, and merges their grants", function()
+			for _, id in ipairs({ Shop.ITEM.BUNDLE_HIDE, Shop.ITEM.BUNDLE_MARKSMAN, Shop.ITEM.BUNDLE_SEASON }) do
+				local row = Shop.ROWS[id]
+				expect(row.category).to.equal(Shop.CATEGORY.BUNDLE)
+				expect(#row.covers >= 2).to.equal(true)
+				local sum, highest = 0, 0
+				for _, covered in ipairs(row.covers) do
+					local part = Shop.ROWS[covered]
+					expect(part).to.be.ok()
+					expect(part.covers).to.equal(nil) -- NO NESTING
+					expect(part.sale).to.equal(true)
+					sum += part.price
+					highest = math.max(highest, part.hunts)
+				end
+				-- I10: A PACKAGE THAT IS NOT CHEAPER THAN ITS PARTS IS NOT A PACKAGE.
+				expect(row.price < sum).to.equal(true)
+				-- I9: AND IT IS NOT THE WAY ROUND KAREN'S LADDER EITHER.
+				expect(row.hunts >= highest).to.equal(true)
+				-- I11: THE GRANTS ARE THE MERGE, not a hand-written copy of it.
+				local merged = Shop.mergedGrants(row.covers)
+				expect(merged).to.be.ok()
+				for _, field in ipairs(Shop.GRANT_FIELDS) do
+					expect((row.grants :: any)[field]).to.equal((merged :: any)[field])
+				end
+			end
+			-- THE MEASURED DISCOUNTS (design section 11).
+			expect(Shop.ROWS[Shop.ITEM.BUNDLE_HIDE].price).to.equal(575) -- 20% of 720
+			expect(Shop.ROWS[Shop.ITEM.BUNDLE_MARKSMAN].price).to.equal(1800) -- 25% of 2400
+			expect(Shop.ROWS[Shop.ITEM.BUNDLE_SEASON].price).to.equal(3750) -- 30% of 5370
+			-- A PACKAGE GRANTS WHAT ITS PARTS GRANT, through the readers that already existed.
+			local season = { [Shop.ITEM.BUNDLE_SEASON] = true }
+			expect(Shop.ownsWeapon(season, "rifle")).to.equal(true)
+			expect(Shop.grantsDriveGun(season)).to.equal(true)
+			expect(Shop.grantsHighSeat(season)).to.equal(true)
+			expect(Shop.grantsUnlimitedAmmo(season)).to.equal(true)
+			expect(Shop.grantsAlwaysHunter(season)).to.equal(true)
+			-- A CONFLICT IS REFUSED AND NEVER DECIDED BY `covers` ORDER.
+			local conflict, problem = Shop.mergedGrants({ Shop.ITEM.SLUG, Shop.ITEM.RED_STAG, Shop.ITEM.SLUG })
+			expect(conflict).to.be.ok() -- the same value twice is not a conflict
+			expect(problem).to.equal(nil)
+			expect(Shop.mergedGrants({ "no.such.row" })).to.equal(nil)
+			-- WHAT IS IN IT IS ON SCREEN: the composed blurb names every part, and it still fits.
+			local shown = Shop.blurbFor(Shop.ROWS[Shop.ITEM.BUNDLE_SEASON])
+			expect(#shown <= Shop.CONFIG.PANEL.BLURB_MAX).to.equal(true)
+			for _, covered in ipairs(Shop.ROWS[Shop.ITEM.BUNDLE_SEASON].covers) do
+				expect(string.find(shown, Shop.ROWS[covered].label, 1, true) ~= nil).to.equal(true)
+			end
+		end)
+
+		it("never charges twice for a thing a package already gave him", function()
+			local marksman = { [Shop.ITEM.BUNDLE_MARKSMAN] = true }
+			-- THE RIFLE IS HIS, so the till refuses it and the window says IN YOUR KIT.
+			expect(Shop.ownedOrCovered(marksman, Shop.ITEM.RIFLE)).to.equal(true)
+			expect(Shop.ownedOrCovered(marksman, Shop.ITEM.UNLIMITED_AMMO)).to.equal(true)
+			expect(Shop.ownedOrCovered(marksman, Shop.ITEM.SLUG)).to.equal(false)
+			expect(Shop.refuse(ctx({ owned = marksman, itemId = Shop.ITEM.RIFLE }))).to.equal(Shop.REASON.OWNED)
+			local wire = Shop.rowsFor(marksman, 10000, 100, true)
+			for _, row in ipairs(wire) do
+				if row.id == Shop.ITEM.RIFLE then
+					expect(row.owned).to.equal(true)
+					expect(row.buyable).to.equal(false)
+				end
+			end
+			-- ...AND A PACKAGE HE IS ALREADY FULLY COVERED FOR IS REFUSED TOO, which is the one case
+			-- `rowsOk` cannot see.
+			local parts = { [Shop.ITEM.RIFLE] = true, [Shop.ITEM.UNLIMITED_AMMO] = true }
+			expect(Shop.fullyCovered(parts, Shop.ITEM.BUNDLE_MARKSMAN)).to.equal(true)
+			expect(Shop.refuse(ctx({ owned = parts, itemId = Shop.ITEM.BUNDLE_MARKSMAN }))).to.equal(Shop.REASON.OWNED)
+			-- PARTIAL OVERLAP STAYS BUYABLE: the discount is still a discount.
+			local rifleOnly = { [Shop.ITEM.RIFLE] = true }
+			expect(Shop.fullyCovered(rifleOnly, Shop.ITEM.BUNDLE_MARKSMAN)).to.equal(false)
+			expect(Shop.refuse(ctx({ owned = rifleOnly, itemId = Shop.ITEM.BUNDLE_MARKSMAN }))).to.equal(nil)
+			-- `fullyCovered` IS FALSE FOR A ROW THAT IS NOT A PACKAGE: "every part of nothing" is a
+			-- vacuous truth and would refuse a row nobody owns.
+			expect(Shop.fullyCovered({}, Shop.ITEM.SLUG)).to.equal(false)
+		end)
+
+		it("keeps granting a row it no longer sells, and refuses to sell it", function()
+			-- KAREN, 2026-10-20: *"From shop remove red heat"*. The money was spent; the hat stays.
+			local wearer = { [Shop.ITEM.HAT_RED] = true }
+			expect(Shop.hatColorFor(wearer)).to.equal(Shop.RETIRED[Shop.ITEM.HAT_RED].grants.hatColor)
+			-- IT IS INVISIBLE TO THE PANEL...
+			for _, row in ipairs(Shop.rowsFor(wearer, 10000, 100, true)) do
+				expect(row.id).never.to.equal(Shop.ITEM.HAT_RED)
+			end
+			for _, id in ipairs(Shop.menuOrder(Shop.rowsFor(wearer, 10000, 100, true))) do
+				expect(id).never.to.equal(Shop.ITEM.HAT_RED)
+			end
+			-- ...AND UNBUYABLE AT THE DOOR, as an UNKNOWN item rather than as a new wire reason.
+			expect(Shop.row(Shop.ITEM.HAT_RED)).to.equal(nil)
+			expect(Shop.refuse(ctx({ itemId = Shop.ITEM.HAT_RED }))).to.equal(Shop.REASON.UNKNOWN)
+			-- I6: THE TWO TABLES ARE DISJOINT AND `ALL_ORDER` NAMES BOTH.
+			expect(#Shop.ALL_ORDER).to.equal(#Shop.ORDER + #Shop.RETIRED_ORDER)
+			local seen = {}
+			for _, id in ipairs(Shop.ALL_ORDER) do
+				expect(seen[id]).to.equal(nil)
+				seen[id] = true
+				expect(Shop.anyRow(id)).to.be.ok()
+			end
+		end)
+
+		it("knows every field its own rows grant", function()
+			-- BOTH DIRECTIONS (task 221). `grantsAnything` loops `GRANT_FIELDS`, and this is the
+			-- other half: a ninth field added to a row and not to the list fails here rather than
+			-- sitting invisible to every reader.
+			local known = {}
+			for _, field in ipairs(Shop.GRANT_FIELDS) do
+				known[field] = true
+			end
+			for _, id in ipairs(Shop.ALL_ORDER) do
+				for field in pairs(Shop.anyRow(id).grants) do
+					expect(known[field]).to.equal(true)
+				end
+			end
+			expect(Shop.grantsAnything({})).to.equal(false)
+			expect(Shop.grantsAnything(nil)).to.equal(false)
+			expect(Shop.grantsAnything({ highSeat = true })).to.equal(true)
+		end)
+
+		it("answers today's game for a set nobody filled in", function()
+			-- THE EIGHT NIL RULES (design section 5.6), and they are NOT the same boolean: an
+			-- un-wired world must arm no beater and put nobody on `Shooters`, but must still deal
+			-- the stands exactly as it does today.
+			expect(Shop.grantsHighSeat(nil)).to.equal(true)
+			expect(Shop.grantsHighSeat({})).to.equal(false)
+			expect(Shop.grantsUnlimitedAmmo(nil)).to.equal(false)
+			expect(Shop.grantsAlwaysHunter(nil)).to.equal(false)
+			expect(Shop.grantsDriveGun(nil)).to.equal(false)
+			expect(Shop.hatColorFor(nil)).to.equal(nil)
+			expect(Shop.licencesFor(nil)).to.equal(nil)
+			local held = Shop.licencesFor({ [Shop.ITEM.RED_STAG] = true })
+			expect(held).to.be.ok()
+			expect((held :: any).reddeer).to.equal(true)
 		end)
 
 		-- ---------------------------------------------------------------- the four shelves (task 196)
@@ -145,16 +356,23 @@ return function()
 		-- KAREN, 2026-10-15: *"side menu with click and then shows in right side image and explanation
 		-- what is that"*. The side menu is a pure function of what the server sent, so what it draws
 		-- is asserted here and not only on the screen.
-		it("sorts the catalogue onto four shelves, cheapest first inside each one", function()
+		it("sorts the catalogue onto its shelves, cheapest first inside each one", function()
 			local wire = Shop.rowsFor(nil, 1000, 30, true)
 			local groups = Shop.groups(wire)
-			-- FOUR SHELVES, IN THE ORDER THE PANEL DRAWS THEM, and no empty one.
-			expect(#groups).to.equal(4)
+			-- FIVE SHELVES DRAWN OF SIX DECLARED (task 221), in the order the panel draws them. The
+			-- sixth is CLOTHING, and it is drawn by nobody because its one row is RETIRED -- which
+			-- is `Shop.groups`' own rule (*"an EMPTY shelf is dropped rather than drawn as a header
+			-- with nothing under it"*) proving itself on the live catalogue.
+			expect(#Shop.CATEGORY_ORDER).to.equal(6)
+			expect(#groups).to.equal(5)
 			expect(groups[1].category).to.equal(Shop.CATEGORY.WEAPON)
 			expect(groups[1].label).to.equal("WEAPONS")
 			expect(groups[2].category).to.equal(Shop.CATEGORY.AMMO)
 			expect(groups[3].category).to.equal(Shop.CATEGORY.LICENCE)
-			expect(groups[4].category).to.equal(Shop.CATEGORY.CLOTHING)
+			expect(groups[4].category).to.equal(Shop.CATEGORY.ACCESS)
+			-- PACKAGES IS LAST, which is Karen's own *"we can ALSO make a few packages"*.
+			expect(groups[5].category).to.equal(Shop.CATEGORY.BUNDLE)
+			expect(groups[5].label).to.equal("PACKAGES")
 			for _, group in ipairs(groups) do
 				expect(#group.rows > 0).to.equal(true)
 			end
@@ -182,6 +400,13 @@ return function()
 			-- was written for comes back with the next weapon.
 			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.RIFLE)
 			expect(#groups[1].rows).to.equal(1)
+			-- ...AND A SHELF WITH THREE ROWS KEEPS THE WIRE'S CHEAPEST-FIRST ORDER, which is the
+			-- ordering the case above was written for and could not show with one row.
+			local packages = groups[5].rows
+			expect(#packages).to.equal(3)
+			expect(packages[1].id).to.equal(Shop.ITEM.BUNDLE_HIDE)
+			expect(packages[2].id).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
+			expect(packages[3].id).to.equal(Shop.ITEM.BUNDLE_SEASON)
 			-- NOTHING IN, NOTHING OUT.
 			expect(#Shop.groups(nil)).to.equal(0)
 			expect(#Shop.menuOrder(nil)).to.equal(0)
@@ -203,7 +428,7 @@ return function()
 				end
 				local saved = Shop.ROWS;
 				(Shop :: any).ROWS = pretend
-				local problems = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS);
+				local problems = Shop.rowsOk(Weapons.ROWS, SHOTGUN.AMMO_KINDS, Licences.ROWS);
 				(Shop :: any).ROWS = saved
 				return problems
 			end
@@ -212,7 +437,12 @@ return function()
 				local row = Shop.ROWS[id]
 				expect(Shop.CATEGORY_LABEL[row.category]).to.be.ok()
 				expect(#row.blurb >= 20).to.equal(true)
-				expect(#row.blurb <= Shop.CONFIG.PANEL.BLURB_MAX).to.equal(true)
+				-- THE COMPOSED STRING, which for a package is its sentence plus the parts it names
+				-- (task 221): a clipped INCLUDES line is a shop window that does not say what it
+				-- sells.
+				expect(#Shop.blurbFor(row) <= Shop.CONFIG.PANEL.BLURB_MAX).to.equal(true)
+				-- I2a: and the NAME fits the row it is drawn in.
+				expect(#row.label <= Shop.CONFIG.LABEL_MAX).to.equal(true)
 			end
 			local shelf = withRow(Shop.ITEM.SLUG, function(copy)
 				copy.category = "gear"
@@ -221,11 +451,11 @@ return function()
 			expect(string.find(shelf[1], "gear") ~= nil).to.equal(true)
 			-- ...and such a row is dropped by the menu, which is why it may not exist.
 			expect(#Shop.groups({ { id = "x", category = "gear" } :: any })).to.equal(0)
-			local silent = withRow(Shop.ITEM.HAT_RED, function(copy)
+			local silent = withRow(Shop.ITEM.SLUG, function(copy)
 				copy.blurb = ""
 			end)
 			expect(#silent).to.equal(1)
-			local windy = withRow(Shop.ITEM.HAT_RED, function(copy)
+			local windy = withRow(Shop.ITEM.SLUG, function(copy)
 				copy.blurb = string.rep("a", Shop.CONFIG.PANEL.BLURB_MAX + 1)
 			end)
 			expect(#windy).to.equal(1)
@@ -270,7 +500,7 @@ return function()
 			expect(refuseUnsellable(ctx({ itemId = Shop.ITEM.RIFLE }))).to.equal(Shop.REASON.NOT_SALE)
 			expect(Shop.refuse(ctx({ hasProfile = false }))).to.equal(Shop.REASON.NO_PROFILE)
 			expect(Shop.refuse(ctx({ atCounter = false }))).to.equal(Shop.REASON.TOO_FAR)
-			expect(Shop.refuse(ctx({ owned = { [Shop.ITEM.HAT_RED] = true } }))).to.equal(Shop.REASON.OWNED)
+			expect(Shop.refuse(ctx({ owned = { [Shop.ITEM.SLUG] = true } }))).to.equal(Shop.REASON.OWNED)
 
 			local locked, shortHunts = Shop.refuse(ctx({ itemId = Shop.ITEM.RIFLE, hunts = 20 }))
 			expect(locked).to.equal(Shop.REASON.LOCKED)
@@ -485,6 +715,24 @@ return function()
 			expect(bought.reserve.Slug).to.equal(SHOTGUN.START_RESERVE.Slug)
 			expect(bought.reserve.Buck).to.equal(SHOTGUN.START_RESERVE.Buck)
 
+			-- NOBODY HAS UNLIMITED SHELLS UNLESS HE BOUGHT THEM (task 221), and the ALLOWANCE is
+			-- `nil` rather than an empty table in that case -- so every caller written before the
+			-- entitlement hands `StateMachine.initial` exactly what it handed before.
+			expect(bare.unlimited).to.equal(nil)
+			expect(bought.unlimited).to.equal(nil)
+			local boundless = Shop.startFor(SHOTGUN, { [Shop.ITEM.UNLIMITED_AMMO] = true })
+			expect(boundless.unlimited).to.be.ok()
+			-- UNLIMITED BUCKSHOT WITHOUT THE SLUG STAYS UNLIMITED *BUCKSHOT*: the entitlement
+			-- cannot hand him a shell the ladder has not sold him.
+			expect((boundless.unlimited :: any).Buck).to.equal(true)
+			expect((boundless.unlimited :: any).Slug).to.equal(nil)
+			local both = Shop.startFor(SHOTGUN, { [Shop.ITEM.UNLIMITED_AMMO] = true, [Shop.ITEM.SLUG] = true })
+			expect((both.unlimited :: any).Slug).to.equal(true)
+			expect((both.unlimited :: any).Buck).to.equal(true)
+			-- ...AND A PACKAGE THAT CONTAINS IT DOES THE SAME, through the merged grants.
+			local season = Shop.startFor(SHOTGUN, { [Shop.ITEM.BUNDLE_SEASON] = true })
+			expect((season.unlimited :: any).Slug).to.equal(true)
+
 			-- nil: UNRESTRICTED, bit for bit the gun before this task.
 			local unrestricted = Shop.startFor(SHOTGUN, nil)
 			expect(unrestricted.ammo).to.equal(SHOTGUN.INITIAL_AMMO)
@@ -549,8 +797,10 @@ return function()
 		it("colours the hat only when a hat is bought", function()
 			expect(Shop.hatColorFor(nil)).to.equal(nil)
 			expect(Shop.hatColorFor({})).to.equal(nil)
+			-- THE HAT IS RETIRED SINCE TASK 221 and still answers, which is the whole of why
+			-- `Shop.RETIRED` exists.
 			local red = Shop.hatColorFor({ [Shop.ITEM.HAT_RED] = true })
-			expect(red).to.equal(Shop.ROWS[Shop.ITEM.HAT_RED].grants.hatColor)
+			expect(red).to.equal(Shop.RETIRED[Shop.ITEM.HAT_RED].grants.hatColor)
 			-- ...AND IT REACHES THE OUTFIT, through the one pure translator the dresser reads.
 			expect(Body.tintFor(Body.SLOTS.hat, { hatColor = red })).to.equal(red)
 			-- THE VEST IS NOT RECOLOURED: both roles wear safety orange in the field.

@@ -312,4 +312,115 @@ return function()
 			expect(Match.CONFIG.MAX_PLAYERS).to.equal(16)
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- the bought place (task 221)
+	--
+	-- KAREN, 2026-10-20: *"Posibility to be a hunter always"*. A strong PREFERENCE and not an
+	-- exemption: a drive with eight hunters and no beaters is not a drive, so `Roster.assign`'s
+	-- balance rule still wins -- and when it does, the man who paid is TOLD WHY.
+	describe("always-hunter", function()
+		local CONFIG = Match.CONFIG
+
+		it("is the game before this task when nobody bought it", function()
+			-- BY IDENTITY, which IS the flag-off story: the same table comes back, not a copy of
+			-- it, so nothing is allocated and nothing can differ.
+			local owed = { [1] = "Shooters" }
+			expect(Roster.owedWith(owed, nil)).to.equal(owed)
+			expect(Roster.owedWith(owed, {})).to.equal(owed)
+			expect(Roster.owedWith(nil, nil)).to.equal(nil)
+			expect(#Roster.overruled({ [1] = "Drivers" }, nil)).to.equal(0)
+			expect(#Roster.overruled({ [1] = "Drivers" }, {})).to.equal(0)
+		end)
+
+		it("writes the hunter's place over whatever turn he was owed", function()
+			local owed = { [1] = "Drivers", [2] = "Drivers" }
+			local wanted = Roster.owedWith(owed, { [1] = true })
+			expect(wanted).never.to.equal(owed)
+			expect((wanted :: any)[1]).to.equal("Shooters")
+			-- ...AND LEAVES EVERYBODY ELSE'S TURN ALONE.
+			expect((wanted :: any)[2]).to.equal("Drivers")
+			-- NEITHER INPUT IS WRITTEN: `owed` is the economy's frozen memo.
+			expect(owed[1]).to.equal("Drivers")
+			-- IT DOES NOT INVERT. The inversion is `previousFrom`'s and lives only there.
+			expect(Roster.owedWith(nil, { [7] = true })[7]).to.equal("Shooters")
+		end)
+
+		it("puts him on the hunters' side through the rotation that already existed", function()
+			-- THE WHOLE CHAIN: the privilege, the synthetic previous (which INVERTS), and the swap.
+			-- Four players, two a side; 1 bought always-hunter and drove last time.
+			local previous = { [1] = "Drivers", [2] = "Drivers", [3] = "Shooters", [4] = "Shooters" }
+			local always = { [1] = true }
+			local synthetic = Roster.previousFrom(previous, Roster.owedWith(nil, always))
+			local assignment = Roster.assign({ 1, 2, 3, 4 }, synthetic, CONFIG)
+			expect(assignment[1]).to.equal("Shooters")
+			-- THE SPLIT IS STILL BALANCED: a privilege that unbalanced the drive would be the thing
+			-- the balance rule exists to refuse.
+			local counts = Roster.counts(assignment)
+			expect(math.abs((counts.Drivers or 0) - (counts.Shooters or 0)) <= 1).to.equal(true)
+			-- ...AND NOBODY WAS OVERRULED, because the teams came out even.
+			expect(#Roster.overruled(assignment, always)).to.equal(0)
+		end)
+
+		it("keeps him a hunter drive after drive, where the rotation would have swapped him", function()
+			-- WITHOUT the privilege the swap alternates him; WITH it he stays. Two drives, same
+			-- roster, so the difference is the entitlement and nothing else.
+			local always = { [1] = true }
+			local plain = { [1] = "Shooters", [2] = "Shooters", [3] = "Drivers", [4] = "Drivers" }
+			local swapped = Roster.assign({ 1, 2, 3, 4 }, Roster.previousFrom(plain, nil), CONFIG)
+			expect(swapped[1]).to.equal("Drivers")
+			local kept = Roster.assign({ 1, 2, 3, 4 }, Roster.previousFrom(plain, Roster.owedWith(nil, always)), CONFIG)
+			expect(kept[1]).to.equal("Shooters")
+		end)
+
+		it("is beaten by the balance rule, and says so", function()
+			-- THE CASE KAREN IS SOLD ON AND THE ONE THE BLURB NAMES. Everybody bought it, so the
+			-- swap would put every man on `Shooters` -- which is not a drive. `Roster.assign`'s own
+			-- balance check discards the swap and falls through to a plain split, and
+			-- `Roster.overruled` is what names the men it happened to.
+			local roster = { 1, 2, 3, 4 }
+			local always = { [1] = true, [2] = true, [3] = true, [4] = true }
+			local previous = { [1] = "Shooters", [2] = "Shooters", [3] = "Shooters", [4] = "Shooters" }
+			local assignment =
+				Roster.assign(roster, Roster.previousFrom(previous, Roster.owedWith(nil, always)), CONFIG)
+			local counts = Roster.counts(assignment)
+			expect(math.abs((counts.Drivers or 0) - (counts.Shooters or 0)) <= 1).to.equal(true)
+			expect((counts.Drivers or 0) > 0).to.equal(true)
+			-- ...AND EVERY MAN WHO WAS PUT ON THE DRIVERS IS IN THE LIST, so his own screen can
+			-- tell him why he is holding a horn.
+			local told = Roster.overruled(assignment, always)
+			expect(#told).to.equal(counts.Drivers)
+			for _, userId in ipairs(told) do
+				expect(assignment[userId]).to.equal("Drivers")
+			end
+			-- SORTED, so the wire is a dense array -- the shape `tied` and `through` have.
+			for index = 2, #told do
+				expect(told[index] > told[index - 1]).to.equal(true)
+			end
+			-- A MAN WHO GOT WHAT HE PAID FOR IS NOT TOLD ANYTHING.
+			for userId, team in pairs(assignment) do
+				if team == "Shooters" then
+					local named = false
+					for _, id in ipairs(told) do
+						if id == userId then
+							named = true
+						end
+					end
+					expect(named).to.equal(false)
+				end
+			end
+			-- ...AND NEITHER IS A MAN WHO BOUGHT NOTHING AND IS DRIVING, which is most of the
+			-- roster most of the time.
+			expect(#Roster.overruled(assignment, { [1] = true })).to.equal(if assignment[1] == "Drivers" then 1 else 0)
+		end)
+
+		it("reaches a man who walks onto a truck pad mid-drive", function()
+			-- SINCE TASKS 177 AND 209 THIS IS THE NORMAL WAY INTO A DRIVE, so the privilege has to
+			-- reach it -- and `joinTeam`'s own rule still holds: the owed team wins only off a tie,
+			-- so the balance still beats the privilege here as well.
+			local wanted = Roster.owedWith(nil, { [5] = true })
+			expect(Roster.joinTeam({ Drivers = 2, Shooters = 2 }, (wanted :: any)[5], CONFIG)).to.equal("Shooters")
+			-- OFF A TIE THE SMALLER SIDE WINS AND THE PRIVILEGE IS SIMPLY NOT CONSUMED.
+			expect(Roster.joinTeam({ Drivers = 1, Shooters = 3 }, (wanted :: any)[5], CONFIG)).to.equal("Drivers")
+		end)
+	end)
 end

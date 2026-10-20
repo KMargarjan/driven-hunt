@@ -114,12 +114,12 @@ return function()
 			local world = started()
 			expect(world.on).to.equal(true)
 			local player = fakePlayer(1)
-			local receipt = Shop.onRequest(player, { kind = ShopData.KIND.BUY, item = ShopData.ITEM.HAT_RED }, 0)
+			local receipt = Shop.onRequest(player, { kind = ShopData.KIND.BUY, item = ShopData.ITEM.SLUG }, 0)
 			expect(receipt.ok).to.equal(true)
 			expect(world.economy.calls.purchase).to.equal(1)
 			-- THE DOOR MEASURED THE REACH AND HANDED IT OVER: the till never reads an Instance.
 			expect(world.economy.asked[1].atCounter).to.equal(true)
-			expect(world.economy.asked[1].itemId).to.equal(ShopData.ITEM.HAT_RED)
+			expect(world.economy.asked[1].itemId).to.equal(ShopData.ITEM.SLUG)
 			expect(#world.sent).to.equal(1)
 			expect(world.sent[1].userId).to.equal(1)
 			expect(Shop.stats().granted).to.equal(1)
@@ -142,10 +142,10 @@ return function()
 			local player = fakePlayer(3)
 			local at = 0
 			for _, payload in ipairs({
-				{ kind = "sell", item = ShopData.ITEM.HAT_RED },
+				{ kind = "sell", item = ShopData.ITEM.SLUG },
 				{ kind = ShopData.KIND.BUY },
 				{ kind = ShopData.KIND.BUY, item = 7 },
-				{ kind = ShopData.KIND.OPEN, item = ShopData.ITEM.HAT_RED },
+				{ kind = ShopData.KIND.OPEN, item = ShopData.ITEM.SLUG },
 				{ kind = ShopData.KIND.BUY, item = string.rep("x", ShopData.CONFIG.MAX_ID_CHARS + 1) },
 				-- A PRICE IS NOT A FIELD OF A REQUEST. `kind` is missing here, so the whole thing
 				-- is a bad request -- and even with a legal kind the price is simply never read.
@@ -204,7 +204,7 @@ return function()
 					return Vector3.new(500, 0, 500)
 				end,
 			})
-			local receipt = Shop.onRequest(fakePlayer(7), { kind = ShopData.KIND.BUY, item = ShopData.ITEM.HAT_RED }, 0)
+			local receipt = Shop.onRequest(fakePlayer(7), { kind = ShopData.KIND.BUY, item = ShopData.ITEM.SLUG }, 0)
 			expect(receipt.refused).to.equal(ShopData.REASON.TOO_FAR)
 			expect(world.economy.asked[1].atCounter).to.equal(false)
 			expect(Shop.stats().refusedBy[ShopData.REASON.TOO_FAR]).to.equal(1)
@@ -217,7 +217,7 @@ return function()
 					return nil
 				end,
 			})
-			local receipt = Shop.onRequest(fakePlayer(8), { kind = ShopData.KIND.BUY, item = ShopData.ITEM.HAT_RED }, 0)
+			local receipt = Shop.onRequest(fakePlayer(8), { kind = ShopData.KIND.BUY, item = ShopData.ITEM.SLUG }, 0)
 			expect(receipt.refused).to.equal(ShopData.REASON.TOO_FAR)
 			expect(world.economy.asked[1].atCounter).to.equal(false)
 		end)

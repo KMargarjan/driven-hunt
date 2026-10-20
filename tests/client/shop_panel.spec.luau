@@ -272,11 +272,13 @@ return function()
 			-- EVERY ROW IS ON SCREEN and each says its name and its price or its badge.
 			-- A ROW IS `NAME|PRICE|TAG`: the name, the number (the coin is a Frame beside it), and the
 			-- one tag that answers *"can I buy this?"* without a click.
-			expect(lineFor(Shop.ITEM.HAT_RED)).to.equal("RED HAT|80|")
+			-- THE PRICE CARRIES A `$` SINCE TASK 221, everywhere a player reads one.
+			expect(lineFor(Shop.ITEM.HIGH_SEAT)).to.equal("HIGH SEAT ACCESS|$600|")
 			-- The slug is owned, so it wears the OWNED chip.
-			expect(lineFor(Shop.ITEM.SLUG)).to.equal(string.format("SLUG SHELLS|120|%s", Shop.CONFIG.TEXT.OWNED_TAG))
-			-- NOTHING IS "SOON" ANY MORE (task 196): Karen removed the open-sighted rifle's row, which
-			-- was the only one in the catalogue that was shown and never sold.
+			expect(lineFor(Shop.ITEM.SLUG)).to.equal(string.format("SLUG SHELLS|$120|%s", Shop.CONFIG.TEXT.OWNED_TAG))
+			-- ...AND THE RED STAG CARD IS "SOON" (task 221): Karen asked for the row and there is no
+			-- red stag in this game, so it is shown and refused. Task 196 had left nothing in this
+			-- state, and `sale = false` is exactly what it was kept for.
 			for _, line in ipairs(lines) do
 				expect(string.find(line, Shop.CONFIG.TEXT.SOON_TAG, 1, true)).to.equal(nil)
 			end
@@ -361,13 +363,13 @@ return function()
 			-- BUYABLE: the word, and the price INSIDE the button (the Designer's spec, 4).
 			Panel.onState(statePayload({ owned = {}, coins = 300, hunts = 30 }))
 			Panel.setOpen(true)
-			Panel.select(Shop.ITEM.HAT_RED)
+			Panel.select(Shop.ITEM.HIGH_SEAT)
 			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.BUY)
 			expect(Panel.detailText().amount).to.equal("80")
 			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.BLAZE)
 
 			-- OWNED: "IN YOUR KIT", the pine fill, and no amount -- a thing you have has no price.
-			Panel.onState(statePayload({ owned = { [Shop.ITEM.HAT_RED] = true }, coins = 300, hunts = 30 }))
+			Panel.onState(statePayload({ owned = { [Shop.ITEM.HIGH_SEAT] = true }, coins = 300, hunts = 30 }))
 			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.OWNED_BUTTON)
 			expect(Panel.detailText().amount).to.equal("")
 			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.PINE_DARK)
@@ -469,8 +471,8 @@ return function()
 
 			-- ONE MODEL AT A TIME: selecting another item destroys the first rather than stacking
 			-- every item the player has ever clicked inside the viewport.
-			Panel.select(Shop.ITEM.HAT_RED)
-			expect(Panel.pictureId()).to.equal(Shop.ITEM.HAT_RED)
+			Panel.select(Shop.ITEM.HIGH_SEAT)
+			expect(Panel.pictureId()).to.equal(Shop.ITEM.HIGH_SEAT)
 			expect((model :: Model).Parent).to.equal(nil)
 			local models = 0
 			for _, child in ipairs((frame :: ViewportFrame):GetChildren()) do
@@ -484,7 +486,7 @@ return function()
 		it("turns the picture while the panel is open and stands still while it is shut", function()
 			Panel.onState(statePayload())
 			Panel.setOpen(true)
-			Panel.select(Shop.ITEM.HAT_RED)
+			Panel.select(Shop.ITEM.HIGH_SEAT)
 			local camera = (Panel.viewportFrame() :: ViewportFrame).CurrentCamera :: Camera
 			Panel.step(0)
 			local first = camera.CFrame.Position
@@ -566,7 +568,7 @@ return function()
 			Panel.onState(statePayload({ refused = Shop.REASON.POOR, refusedNumber = 1200 }), 100)
 			expect(Panel.statusText()).to.equal("YOU NEED 1200 COINS")
 			-- ...and a purchase says what it bought, by its own label.
-			Panel.onState(statePayload({ bought = Shop.ITEM.HAT_RED }), 100)
+			Panel.onState(statePayload({ bought = Shop.ITEM.HIGH_SEAT }), 100)
 			expect(Panel.statusText()).to.equal(string.format(Shop.CONFIG.TEXT.BOUGHT, "RED HAT"))
 			-- THE ONE MESSAGE SLOT TAKES ITS COLOUR FROM WHAT IT IS SAYING (the Designer's spec, 4):
 			-- green for the receipt, clay for the refusal, faint for the caveat.
@@ -588,7 +590,7 @@ return function()
 			Panel.onState(statePayload({ owned = { [Shop.ITEM.SLUG] = true }, coins = 300, hunts = 30 }))
 			Panel.setOpen(true)
 			local before = Panel.stats().sent
-			Panel.select(Shop.ITEM.HAT_RED)
+			Panel.select(Shop.ITEM.HIGH_SEAT)
 			expect(Panel.pressSelected()).to.equal(true)
 			expect(Panel.stats().sent).to.equal(before + 1)
 			-- The slug is already owned: nothing is sent and the panel says why, out of the SAME wire

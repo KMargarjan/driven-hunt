@@ -310,4 +310,110 @@ return function()
 			expect(bucket.count).to.equal(1)
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- the pocket that does not go
+	-- down (task 221)
+	--
+	-- KAREN, 2026-10-20: *"Unlimited amunition"*. It is the POCKET and not the gun: the barrels
+	-- still hold two and he still breaks and loads, because a reload that no longer costs a
+	-- keypress would change the FEEL of the weapon and that is Karen's to judge.
+	describe("unlimited ammunition", function()
+		-- `apply` answers `(state, reason)`; every case here expects the action to be legal, so a
+		-- refusal fails loudly with its own reason rather than as a confusing later assertion.
+		local function ok(state, reason)
+			expect(reason).to.equal(nil)
+			return state
+		end
+
+		local function boundless()
+			return StateMachine.initial(ROW, {
+				ammo = "Buck",
+				reserve = table.clone(ROW.START_RESERVE),
+				unlimited = { Buck = true },
+			})
+		end
+
+		it("never empties the pocket it is bought for, and never refuses for want of one", function()
+			local state = boundless()
+			local pocket = state.reserve.Buck
+			expect(pocket).to.equal(ROW.START_RESERVE.Buck)
+			-- BREAK, LOAD, LOAD: the two barrels are filled and the NUMBER DOES NOT MOVE.
+			local broken = ok(StateMachine.apply(state, { kind = "Break" }, 100, ROW))
+			local one = ok(StateMachine.apply(broken, { kind = "Load" }, 200, ROW))
+			expect(one.reserve.Buck).to.equal(pocket)
+			local two = ok(StateMachine.apply(one, { kind = "Load" }, 300, ROW))
+			expect(two.reserve.Buck).to.equal(pocket)
+			expect(two.barrels[1]).to.equal("Live")
+			expect(two.barrels[2]).to.equal("Live")
+			-- ...AND A POCKET AT ZERO STILL LOADS, which is the whole of what was bought: the
+			-- `"no-reserve"` refusal is skipped rather than worked around.
+			local empty = StateMachine.initial(ROW, {
+				ammo = "Buck",
+				reserve = { Buck = 0, Slug = 0 },
+				unlimited = { Buck = true },
+			})
+			local openEmpty = ok(StateMachine.apply(empty, { kind = "Break" }, 100, ROW))
+			local loaded, reason = StateMachine.apply(openEmpty, { kind = "Load" }, 200, ROW)
+			expect(reason).to.equal(nil)
+			expect(loaded.barrels[1]).to.equal("Live")
+			expect(loaded.reserve.Buck).to.equal(0)
+		end)
+
+		it("does not put an unfired shell back either, so the number never climbs", function()
+			-- `Break` returns a LIVE shell to its own pocket -- Karen, 2026-09-25: *"the unfired
+			-- shells of the old type go back to the reserve"*. Nothing was taken out of an
+			-- unlimited pocket, so putting one back would make the readout climb for ever.
+			local state = boundless()
+			local pocket = state.reserve.Buck
+			local broken = ok(StateMachine.apply(state, { kind = "Break" }, 100, ROW))
+			expect(broken.reserve.Buck).to.equal(pocket)
+			-- ...AND A LIMITED POCKET STILL DOES, which is the rule this does not change.
+			local plain = StateMachine.initial(ROW, nil)
+			local plainBroken = ok(StateMachine.apply(plain, { kind = "Break" }, 100, ROW))
+			expect(plainBroken.reserve[plain.ammo]).to.equal(plain.reserve[plain.ammo] + #plain.barrels)
+		end)
+
+		it("fills the magazine without spending one, and leaves the barrels alone", function()
+			local state = boundless()
+			local pocket = state.reserve.Buck
+			local fired = ok(StateMachine.apply(state, { kind = "Fire" }, 100, ROW))
+			local topped = ok(StateMachine.apply(fired, { kind = "Magazine" }, 200, ROW))
+			expect(topped.reserve.Buck).to.equal(pocket)
+			-- THE BARRELS ARE NOT TOUCHED BY ANY OF THIS: two chambers, and the gun is still a
+			-- break action that has to be reloaded.
+			expect(#topped.barrels).to.equal(ROW.BARRELS)
+			expect(ROW.BARRELS).to.equal(2)
+		end)
+
+		it("is today's game for every state written before it existed", function()
+			-- nil ALLOWANCE IS NO UNLIMITED POCKETS, which is every caller before the entitlement.
+			local plain = StateMachine.initial(ROW, nil)
+			expect(next(plain.unlimited)).to.equal(nil)
+			local broken = ok(StateMachine.apply(plain, { kind = "Break" }, 100, ROW))
+			local loaded = ok(StateMachine.apply(broken, { kind = "Load" }, 200, ROW))
+			-- Break put two live shells back and the load took one: the pocket moved, as it always
+			-- did.
+			expect(loaded.reserve[plain.ammo]).to.equal(plain.reserve[plain.ammo] + #plain.barrels - 1)
+			-- A REFILL WITH NO ALLOWANCE CLEARS IT, so a drive boundary cannot leave a pocket
+			-- boundless after the entitlement is gone.
+			local refilled = ok(StateMachine.apply(boundless(), { kind = "Refill" }, 300, ROW))
+			expect(next(refilled.unlimited)).to.equal(nil)
+			local kept = ok(StateMachine.apply(plain, { kind = "Refill", unlimited = { Buck = true } }, 300, ROW))
+			expect(kept.unlimited.Buck).to.equal(true)
+		end)
+
+		it("prints a word and not a number on the readout", function()
+			-- THE SNAPSHOT CARRIES IT ONLY WHEN THERE IS ONE, so a build where nobody bought it is
+			-- byte-identical to the one before this task.
+			local plain = Shotgun.snapshot(StateMachine.initial(ROW, nil), 0)
+			expect(plain.unlimited).to.equal(nil)
+			local rich = Shotgun.snapshot(boundless(), 0)
+			expect(rich.unlimited).to.be.ok()
+			expect((rich.unlimited :: any).Buck).to.equal(true)
+			expect(Shotgun.CONFIG.POCKET_UNLIMITED_TEXT).to.equal("INF")
+			-- ...AND IT IS NOT `--`, which in this repo means UNKNOWN. An unlimited pocket is the
+			-- opposite of unknown.
+			expect(Shotgun.CONFIG.POCKET_UNLIMITED_TEXT).never.to.equal("--")
+		end)
+	end)
 end

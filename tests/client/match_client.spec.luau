@@ -17,6 +17,7 @@ local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
+local Money = require(ReplicatedStorage:WaitForChild("Money"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -85,7 +86,7 @@ return function()
 			end
 			-- BY PATTERN AS WELL AS BY NAME, so a rate added later under a name nobody listed here
 			-- still fails: nothing in the client's contract may be called COIN-anything except the
-			-- words the panel draws (`SCORE_COINS_LABEL`, `SCORE_COINS_UNKNOWN`), which are strings.
+			-- words the panel draws (`Money.WORD`, `Money.UNKNOWN`), which are strings.
 			for key, value in pairs(Drive.CONFIG) do
 				if string.find(key, "COIN", 1, true) ~= nil then
 					expect(type(value)).to.equal("string")
@@ -660,18 +661,20 @@ return function()
 		end)
 
 		-- THE BALANCE, ON THE BAR, IN EVERY PHASE (task 170). Karen, 2026-10-11: *"get money"*.
-		it("puts the local player's balance on the drive bar, and `--` when it is unknown", function()
-			local label = Drive.CONFIG.SCORE_COINS_LABEL
-			expect(Hud.coinsText(scoring(), player.UserId)).to.equal(label .. " 1240")
+		it("puts the local player's balance on the drive bar in dollars, and `--` when it is unknown", function()
+			-- THE VALUE ALONE SINCE TASK 221, with the `$` in it and no label in front: the chip
+			-- owns its own caption, and this answering "COINS 2000" is what forced the caller to
+			-- split the string back apart with a pattern.
+			expect(Hud.coinsText(scoring(), player.UserId)).to.equal("$1240")
 			-- SOMEBODY ELSE'S ROW IS NOT MINE.
-			expect(Hud.coinsText(scoring(), player.UserId + 1)).to.equal(label .. " 141")
+			expect(Hud.coinsText(scoring(), player.UserId + 1)).to.equal("$141")
 			-- A ROW WITH NO BALANCE IN A BUILD THAT HAS MONEY READS `--`, NEVER `0`: his profile did not
 			-- open, and 0 would be the screen asserting he has no coins.
 			local unknown = {
 				coinsOn = true,
 				rows = { { userId = 7, name = "x", team = "Shooters", points = 0, kills = 0 } },
 			}
-			expect(Hud.coinsText(unknown, 7)).to.equal(label .. " " .. Drive.CONFIG.SCORE_COINS_UNKNOWN)
+			expect(Hud.coinsText(unknown, 7)).to.equal(Money.UNKNOWN)
 			-- ...and a row that is not his draws nothing even then.
 			expect(Hud.coinsText(unknown, 9)).to.equal("")
 			expect(Hud.coinsText({ coinsOn = true, rows = {} }, 7)).to.equal("")
@@ -736,8 +739,8 @@ return function()
 			expect(mine.coins).to.equal(nil)
 			local bar = Hud.driveBarText()
 			print("[match_client] flag-off drive bar: " .. bar)
-			expect(string.find(bar, Drive.CONFIG.SCORE_COINS_LABEL, 1, true)).to.equal(nil)
-			expect(string.find(bar, Drive.CONFIG.SCORE_COINS_UNKNOWN, 1, true)).to.equal(nil)
+			expect(string.find(bar, Money.WORD, 1, true)).to.equal(nil)
+			expect(string.find(bar, Money.UNKNOWN, 1, true)).to.equal(nil)
 			TestKit.note("match_client: COINS off -> the bar reads '" .. bar .. "'")
 		end)
 
@@ -754,7 +757,7 @@ return function()
 			-- the `LEFT` TAG beside the row is what says why he was not paid -- a `--` in the coins
 			-- column was the same fact said twice and badly.
 			expect((lines[2].cells :: any).coins).to.equal("")
-			expect(string.find(lines[2].text, Drive.CONFIG.SCORE_COINS_UNKNOWN, 1, true)).to.equal(nil)
+			expect(string.find(lines[2].text, Money.UNKNOWN, 1, true)).to.equal(nil)
 			expect(lines[2].left).to.equal(true)
 			expect(string.find(lines[2].text, "LEFT", 1, true) ~= nil).to.equal(true)
 		end)

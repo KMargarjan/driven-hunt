@@ -456,19 +456,19 @@ return function()
 			expect(waitUntil(2, function()
 				return Economy.balanceOf(201) ~= nil
 			end)).to.equal(true)
-			local receipt = Economy.purchase(201, Shop.ITEM.HAT_RED, { atCounter = true })
+			local receipt = Economy.purchase(201, Shop.ITEM.SLUG, { atCounter = true })
 			expect(receipt.ok).to.equal(true)
-			expect(receipt.price).to.equal(80)
-			expect(Economy.balanceOf(201)).to.equal(500 - 80)
-			expect(Economy.ownedOf(201)[Shop.ITEM.HAT_RED]).to.equal(true)
+			expect(receipt.price).to.equal(120)
+			expect(Economy.balanceOf(201)).to.equal(500 - 120)
+			expect(Economy.ownedOf(201)[Shop.ITEM.SLUG]).to.equal(true)
 			-- A FROZEN COPY, so no reader can write the set it was handed.
 			expect(table.isfrozen(Economy.ownedOf(201))).to.equal(true)
 			-- ONE `save`, AND IT IS NOT A NETWORK CALL (the store's own contract). Purchases per
 			-- DataStore request: 0.
 			expect(store.calls().save).to.equal(1)
 			local saved = store.peek(201)
-			expect(saved.coins).to.equal(420)
-			expect(saved.owned[Shop.ITEM.HAT_RED]).to.equal(true)
+			expect(saved.coins).to.equal(380)
+			expect(saved.owned[Shop.ITEM.SLUG]).to.equal(true)
 			-- A PURCHASE IS NOT A DRIVE: the hunt count is untouched, which is hazard 2 closed.
 			expect(saved.drivesPaid).to.equal(0)
 			expect(Economy.huntsOf(201)).to.equal(0)
@@ -482,8 +482,8 @@ return function()
 			expect(waitUntil(2, function()
 				return Economy.balanceOf(202) ~= nil
 			end)).to.equal(true)
-			expect(Economy.purchase(202, Shop.ITEM.HAT_RED, { atCounter = true }).ok).to.equal(true)
-			local again = Economy.purchase(202, Shop.ITEM.HAT_RED, { atCounter = true })
+			expect(Economy.purchase(202, Shop.ITEM.SLUG, { atCounter = true }).ok).to.equal(true)
+			local again = Economy.purchase(202, Shop.ITEM.SLUG, { atCounter = true })
 			expect(again.ok).to.equal(false)
 			expect(again.refused).to.equal(Shop.REASON.OWNED)
 			expect(Economy.balanceOf(202)).to.equal(420)
@@ -519,9 +519,7 @@ return function()
 			expect(Economy.purchase(203, "rifle.free", { atCounter = true }).refused).to.equal(Shop.REASON.UNKNOWN)
 			expect(Economy.purchase(203, "rifle.open", { atCounter = true }).refused).to.equal(Shop.REASON.UNKNOWN)
 			-- ...AND A MAN WHO IS NOT AT THE COUNTER.
-			expect(Economy.purchase(203, Shop.ITEM.HAT_RED, { atCounter = false }).refused).to.equal(
-				Shop.REASON.TOO_FAR
-			)
+			expect(Economy.purchase(203, Shop.ITEM.SLUG, { atCounter = false }).refused).to.equal(Shop.REASON.TOO_FAR)
 			expect(Economy.balanceOf(203)).to.equal(100)
 			expect(next(Economy.ownedOf(203))).to.equal(nil)
 			expect(store.calls().save).to.equal(0)
@@ -537,7 +535,7 @@ return function()
 			expect(waitUntil(2, function()
 				return Economy.stats().loadsRefused == 1
 			end)).to.equal(true)
-			local refused = Economy.purchase(204, Shop.ITEM.HAT_RED, { atCounter = true })
+			local refused = Economy.purchase(204, Shop.ITEM.SLUG, { atCounter = true })
 			expect(refused.refused).to.equal(Shop.REASON.NO_PROFILE)
 			expect(Economy.balanceOf(204)).to.equal(nil)
 			expect(Economy.ownedOf(204)).to.equal(nil)
@@ -551,16 +549,14 @@ return function()
 				return Economy.balanceOf(205) ~= nil
 			end)).to.equal(true)
 			Economy.release(205)
-			expect(Economy.purchase(205, Shop.ITEM.HAT_RED, { atCounter = true }).refused).to.equal(
-				Shop.REASON.NO_PROFILE
-			)
+			expect(Economy.purchase(205, Shop.ITEM.SLUG, { atCounter = true }).refused).to.equal(Shop.REASON.NO_PROFILE)
 			expect(store.calls().save).to.equal(0)
 		end)
 
 		it("refuses every purchase with the coins off, and reads the whole shop as closed", function()
 			started({ ids = { 206 }, enabled = false })
 			task.wait(0.1)
-			local receipt = Economy.purchase(206, Shop.ITEM.HAT_RED, { atCounter = true })
+			local receipt = Economy.purchase(206, Shop.ITEM.SLUG, { atCounter = true })
 			expect(receipt.refused).to.equal(Shop.REASON.CLOSED)
 			-- ...AND THE PANEL IS TOLD THE SAME THING IN ONE LINE rather than five refusals.
 			local state = Economy.shopStateFor(206, receipt)
@@ -582,7 +578,7 @@ return function()
 			-- ...and the total earned is the store's own number now, incremented where the DELTA is
 			-- known rather than inside `save`.
 			expect(store.peek(207).coinsEarnedTotal).to.equal(55)
-			Economy.purchase(207, Shop.ITEM.HAT_RED, { atCounter = true })
+			Economy.purchase(207, Shop.ITEM.SLUG, { atCounter = true })
 			expect(Economy.huntsOf(207)).to.equal(8)
 			expect(store.peek(207).drivesPaid).to.equal(8)
 			-- A SECOND DRIVE RAISES IT AGAIN; the same drive number does not (the double-pay guard).
@@ -610,17 +606,28 @@ return function()
 				if wire.id == Shop.ITEM.SLUG then
 					expect(wire.owned).to.equal(true)
 					expect(wire.buyable).to.equal(false)
-				elseif wire.id == Shop.ITEM.HAT_RED then
-					-- 300 coins, no hunt gate: the one he can buy.
+				elseif wire.id == Shop.ITEM.BEATER_LICENCE then
+					-- $250 of his $300, and 30 hunts past its gate of 3: the one he can buy.
 					expect(wire.buyable).to.equal(true)
 				elseif wire.id == Shop.ITEM.RIFLE then
-					-- 30 hunts is enough, 300 coins is not.
+					-- 30 hunts is enough, $300 is not.
 					expect(wire.locked).to.equal(false)
 					expect(wire.afford).to.equal(false)
 					expect(wire.buyable).to.equal(false)
+				elseif wire.id == Shop.ITEM.RED_STAG then
+					-- SHOWN AND NOT BUYABLE (task 221): there is no red stag in this game. He can
+					-- see it and afford it and it is still refused.
+					expect(wire.sale).to.equal(false)
+					expect(wire.afford).to.equal(false)
+					expect(wire.buyable).to.equal(false)
+				elseif wire.id == Shop.ITEM.ALWAYS_HUNTER then
+					-- 30 hunts is EXACTLY its gate, so what stops him is the money and not the gate.
+					expect(wire.locked).to.equal(false)
+					expect(wire.buyable).to.equal(false)
 				end
-				-- EVERY ROW ON THE WIRE IS FOR SALE since task 196 removed the one that was not.
-				expect(wire.sale).to.equal(true)
+				-- THE RED HAT IS NOT ON THE WIRE AT ALL (task 221): retired, and invisible to the
+				-- panel.
+				expect(wire.id).never.to.equal(Shop.ITEM.HAT_RED)
 			end
 			-- A SEEDED SET IS READ BACK, which is the whole load/save round trip for the new field.
 			expect(Economy.ownedOf(208)[Shop.ITEM.SLUG]).to.equal(true)
@@ -631,7 +638,7 @@ return function()
 			expect(waitUntil(2, function()
 				return Economy.balanceOf(209) ~= nil
 			end)).to.equal(true)
-			Economy.purchase(209, Shop.ITEM.HAT_RED, { atCounter = true })
+			Economy.purchase(209, Shop.ITEM.SLUG, { atCounter = true })
 			expect(Economy.ownedOf(209)).to.be.ok()
 			-- A SESSION ANOTHER SERVER TOOK: no further change may be made to that profile, so the
 			-- row goes -- and the readers then see nil, which is "nobody answered" and leaves his gun
@@ -670,18 +677,25 @@ return function()
 			-- harness refuses to run against.
 			expect(Economy.TEST_GRANT_ATTRIBUTE).to.equal("DHShopTestGrant")
 			expect(string.find(Economy.TEST_GRANT_ATTRIBUTE, "DHFlag_", 1, true)).to.equal(nil)
-			-- ...AND IT UNLOCKS THE WHOLE CATALOGUE WITHOUT BUYING ANY OF IT: 2000 coins covers
-			-- every row that is for sale and 25 hunts is the highest gate.
+			-- ...AND IT UNLOCKS THE WHOLE CATALOGUE WITHOUT BUYING ANY OF IT (task 221): $12,000
+			-- covers every row that is for sale and 30 hunts is the highest gate. ASSERTED AGAINST
+			-- THE CATALOGUE AND NOT AGAINST ITSELF, so the grant cannot fall behind a row somebody
+			-- adds later without the harness saying so.
 			local total, highest = 0, 0
 			for _, id in ipairs(Shop.ORDER) do
 				local item = Shop.ROWS[id]
 				if item.sale then
 					total += item.price
+					highest = math.max(highest, item.hunts)
 				end
-				highest = math.max(highest, item.hunts)
 			end
+			expect(total).to.equal(11495)
+			expect(highest).to.equal(30)
+			expect(Economy.CONFIG.TEST_GRANT.coins).to.equal(12000)
 			expect(Economy.CONFIG.TEST_GRANT.coins >= total).to.equal(true)
-			expect(Economy.CONFIG.TEST_GRANT.hunts >= highest).to.equal(true)
+			-- EXACTLY the highest gate, not above it: every rung is unlocked and nothing is bought
+			-- FOR her, so she still presses every button and sees every state.
+			expect(Economy.CONFIG.TEST_GRANT.hunts).to.equal(highest)
 		end)
 
 		it("tops a Studio session up without buying anything or saving anything", function()
@@ -990,7 +1004,7 @@ return function()
 			Economy.noteNextTeams({ [64] = "Drivers" })
 			Economy.payDrive(1, { row(64, "Shooters", 16) })
 			expect((store.peek :: any)(64).nextTeam).to.equal("Drivers")
-			local receipt = Economy.purchase(64, Shop.ITEM.HAT_RED, { atCounter = true })
+			local receipt = Economy.purchase(64, Shop.ITEM.SLUG, { atCounter = true })
 			expect(receipt.ok).to.equal(true)
 			expect((store.peek :: any)(64).nextTeam).to.equal("Drivers")
 			expect(Economy.owedTeams()[64]).to.equal("Drivers")

@@ -720,6 +720,10 @@ BLAST_RADIUS = (
     # ECONOMY and decided by the SHOP, so either side can break it.
     ("src/shared/Shop/", "shop"),
     ("src/server/Shop/", "shop"),
+    # THE MONEY A PLAYER SEES (task 221): the symbol, the word and the ONE formatter. It resolves to
+    # `shop` and not to a scope of its own -- the two readers are the shop's panel and the Hud, and
+    # `money.spec` is named in `hud` as well (the dual membership this table already uses).
+    ("src/shared/Money/", "shop"),
     # The lobby (task 177): its own owner with its own world, its own terrain rectangle and its own
     # pure rule -- so its own scope. `src/server/Match/` already resolves to `match`, which is what
     # covers the two doors the lobby calls (`enrol` / `dismissAll`) and the `unassign` effect.
@@ -775,15 +779,25 @@ SCOPE_SPECS = {
              "tests/client/shop_panel.spec.luau",
              # Task 201: the shop's palette IS the game's now, and this spec is what asserts the
              # alias rather than a second copy.
-             "tests/client/hud_style.spec.luau"),
+             "tests/client/hud_style.spec.luau",
+             # Task 221: the one formatter, and the two NEGATIVE assertions that keep it the only
+             # one -- no drawn string says COINS, and no string but Money's holds a `$`. It is in
+             # `hud` as well, because half the tables it walks are the Hud's.
+             "tests/client/money.spec.luau"),
     # ...AND `rifle.spec` AND `ballistics.spec` BELONG HERE TOO (task 185). `src/shared/Rifle/` and
     # `src/shared/Shotgun/` both resolve to `gun`, and both of those files are where every
     # ballistic number lives -- so a scoped run over a change to `Rifle.CONFIG` has to play the
     # spec that asserts that row. It did not: this tuple was the two drawn-gun specs alone, and
     # task 183 changed exactly that file. The dual membership is the idiom `zz_horn`, `boar_hit`,
     # `boar_shot` and `shoot_boar` already use.
+    # ...AND `weapon_state.spec` BELONGS HERE TOO (task 221), for the reason `rifle.spec` was
+    # added above: `src/shared/Shotgun/` resolves to `gun`, and task 221 puts
+    # `WeaponState.unlimited` and `POCKET_UNLIMITED_TEXT` in that file while the assertions about
+    # them live in `weapon_state.spec`. Without the dual membership a scoped run over a `Shotgun`
+    # change would not play the spec that tests the change.
     "gun": ("tests/server/gun.spec.luau", "tests/client/gun_client.spec.luau",
-            "tests/server/rifle.spec.luau", "tests/server/ballistics.spec.luau"),
+            "tests/server/rifle.spec.luau", "tests/server/ballistics.spec.luau",
+            "tests/server/weapon_state.spec.luau"),
     "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau"),
     "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau"),
     "weapon": ("tests/server/ballistics.spec.luau",
@@ -921,6 +935,9 @@ SCOPE_SPECS = {
     "hud": ("tests/client/hit_marker.spec.luau", "tests/client/report_panel.spec.luau",
             "tests/client/compass.spec.luau", "tests/client/hud_boot.spec.luau",
             "tests/client/map_ui.spec.luau",
+            # Task 221: the `$` on the bar and on the results board, and the board's declared
+            # column head. It is in `shop` as well -- half the tables it walks are the shop's.
+            "tests/client/money.spec.luau",
             # Task 165: the objective line, the waypoint and the button rail. It asserts the WHOLE
             # top band's rectangles -- the bar's and the banner's offsets (`src/shared/Drive/`), the
             # compass's TOP, the minimap's and the rail's -- so a band that moves anywhere plays it.
