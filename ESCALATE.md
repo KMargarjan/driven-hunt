@@ -2794,3 +2794,26 @@ and `test2` is needed again at `ebc9710`. The change still touches `src/server/M
 **And one gate fault of mine, reported rather than buried:** the first round-2 run was
 `FAIL: 31/33 @ 4707c2d (DIRTY TREE)`. Both failures were in the spec this round added, and the dirty
 tree was me editing the request mid-run. Fixed in `cb0d117`; the green line above is the rerun.
+
+## 2026-10-20 -- Task 219: **CORRECTION -- "DEV can no longer spawn a legendary" IS WRONG**
+
+**I wrote that in the round-2 entry above and in TASKS.md 219a(h), and asked the Director to decide
+on it. It is false, the round-2 Reviewer caught it, and I have checked the code myself rather than
+taking the finding on trust.**
+
+`Runtime:spawnSounder`'s `size == 1` path does not build a sow-led list at all -- with no
+composition it is `self._config.SOUNDER.MAKEUP.LONE`, i.e. `{ "male" }`, and
+`self:_promoteLegendary({ "male" })` has no sow to refuse. And singles are common, not rare:
+`Match.CONFIG.SOUNDER.SIZE_WEIGHTS = { 40, 20, 18, 12, 10 }` makes **40 % of releases singles**, and
+`Phase.sounderSize` returns **1 for every release** while `SOUNDER.ENABLED` is off. That is the path
+the code's own comment calls *"the release most likely to carry the trophy"* -- I wrote that comment
+in the same round I then claimed the opposite about.
+
+**Where the wrong claim came from:** I watched a handful of releases in one DEV session, every one of
+them a sow-led trio, and generalised from them instead of reading the size rule. That is exactly the
+mistake this project's rules exist to stop, and it is worse than a code defect because it was sent
+upward as a decision.
+
+**So 219a(h) is WITHDRAWN. There is no decision for the Director here.** The sow guard does what it
+was added for -- a yearling behind its mother is never the trophy -- and a lone-male release, which
+is most of them, still carries one. Nothing needs to change in `Match.Phase`.
