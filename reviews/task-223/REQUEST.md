@@ -108,14 +108,27 @@ The deer is **a species dimension on the animal runtime that already exists**, n
 
 * **No `[harness2]` line.** Two files on `TWO_PLAYER_PATHS` changed; the run needs a human click.
   `ESCALATE.md`: `NEEDS TEST2 223 113f3aa`.
-* **No screenshot yet (rule 5).** The three frames the design asks for -- the three deer standing
-  beside a boar at eye height, the hit card after a stag is shot, and the stag laid out at the
-  gathering -- have **not** been taken. All three need a Play session with `BOAR_MODEL` switched on,
-  and the task ran out of its time box at the gate. **This is the largest gap in this request and I
-  am naming it rather than implying the look was checked.** What HAS been looked at is the
-  silhouette work: the keyed PNGs and the box overlays were rendered and inspected frame by frame
-  (`<assets-dir>/deer/silhouettes/overlay-*.png`), which is how the fitted box was caught sliding
-  onto the torso and rejected.
+* **ONE of the three rule-5 frames was taken and LOOKED AT; the other two were not.**
+  `.screenshots/20261020T131819Z-t223-deer-eye-ground.png` (camera y = 7, i.e. **5 studs above the
+  measured ground**, the player's eye height) and
+  `.screenshots/20261020T131834Z-t223-deer-eye-flank.png` (the same height, side on) show all three
+  deer and a boar male standing on the DEV ground: hooves and shadows on the surface, nothing sunk,
+  nothing floating, no grey box, textures loaded, and the proportions reading as the measurements
+  say -- the stag plainly the biggest with full antlers, the hind about six sevenths of him, the
+  calf about half, and the boar lower and heavier than any of them.
+  **THE FIRST FRAME OF THIS PAIR WAS WRONG AND IS KEPT** (`...131753Z-t223-deer-eye-side.png`): the
+  hind and the calf were buried to the shoulder, because my staging plate's top was at y = 0 while
+  the DEV ground is at **y = 2.000** (measured by raycast, not assumed). That is a staging fault and
+  not a model fault, and it is exactly why the frame is taken.
+  **THE `gap = 0.0000` THIS STAGING PRINTS IS REPORTED AS SUSPECT, NOT AS A PASS** (standing rule
+  E): each animal was PLACED at `groundY + Size.Y/2`, so a zero gap is my own arithmetic restated
+  rather than a measurement of what Karen sees. The frames are the evidence; the number is not.
+  **STILL NOT TAKEN:** the hit card after a stag is shot (which is where task 205's decal trap
+  lives, so `ImageLabel.IsLoaded` must be probed there and has not been) and the stag laid out at
+  the gathering. Both need a Play session with `BOAR_MODEL` switched on. Queued as 223a(a).
+  What else HAS been looked at is the silhouette work: the keyed PNGs and the box overlays were
+  rendered and inspected frame by frame (`<assets-dir>/deer/silhouettes/overlay-*.png`), which is
+  how the fitted box was caught sliding onto the torso and rejected.
 * **No live drive with a licensed and an unlicensed shot.** The licence pair is proved in `deer.spec`
   against a real trunk and the real `Rules.refuse`, which is the same gate the live shot would reach
   -- but it is not the same as a shot fired in a session, and I am not claiming it is.
