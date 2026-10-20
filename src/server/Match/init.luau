@@ -236,7 +236,11 @@ Match.CONFIG = {
 		-- a require of `Boar.CONFIG.KINDS`, because the scene must not learn what a boar is -- and
 		-- they are the same three numbers that config holds (male 1.0, female 0.85, cub 0.45).
 		ANIMAL_SIZE = Vector3.new(1.6, 1.4, 4.0),
-		ANIMAL_SCALES = { male = 1.0, female = 0.85, cub = 0.45 },
+		-- ...and `legendary = 1.35` since task 219, for the same reason the other three are here: the
+		-- scene must not learn what a boar is, and these are the same four numbers
+		-- `Boar.CONFIG.KINDS` holds. A trophy laid out at the gathering is 35 % longer than the males
+		-- beside it, which is the whole point of having shot it.
+		ANIMAL_SCALES = { male = 1.0, female = 0.85, cub = 0.45, legendary = 1.35 },
 		ANIMAL_COLOR = Color3.fromRGB(58, 48, 42),
 		POST_SIZE = Vector3.new(0.6, 10, 0.6),
 		POST_COLOR = Color3.fromRGB(70, 60, 50),
@@ -336,6 +340,22 @@ Match.CONFIG = {
 	--
 	-- WHAT IS STILL NOT IN THE CODE: the shot is not REFUSED. A refusal is a weapon-side rule with
 	-- its own owner and its own task (TASKS.md row 158a); the price is this one.
+	-- `legendary` IS DELIBERATELY NOT IN THIS LIST (task 219), AND IT IS THE START CARD'S CEILING
+	-- THAT SAYS SO. This table is read by `Match.quarryRows` and by nothing else, and what it feeds
+	-- is the start card -- whose `Drive.CONFIG.START_CARD_ROWS_MAX` is **4**, with the Designer's own
+	-- reason on it: *"ONE IDEA PER LINE, AND FOUR LINES IS THE CEILING for a three-second read ...
+	-- which is why there is no fifth row and no second layout"*. Those four are male, female, piglet
+	-- and the PERSON row the Designer added (*"a tie to a tree is a real rule the card never
+	-- mentioned"*), on a card whose height is a fixed number. A fourth quarry kind would silently
+	-- push the person row off the card, which is a worse trade than not announcing the trophy.
+	--
+	-- SO THE TROPHY IS NAMED WHERE THERE IS ROOM FOR IT: `LEGENDARY BOAR` on the hit card's plate,
+	-- `LEGENDARY` in the TAB report's ANIMAL column, its own count on that report's wire, and 25
+	-- points. Announcing it on the start card needs a fifth row or a merged one, which is the
+	-- Designer's call and is queued, not smuggled in.
+	--
+	-- NOTHING ELSE READS THIS: a legendary is still a WILD BOAR to `Licences` and to
+	-- `Match.classifyTarget`, which learn the species from the animal and never from here.
 	QUARRY = {
 		{ species = "WILD BOAR", kinds = { "male", "female", "cub" } },
 	},
@@ -459,11 +479,14 @@ Match.CONFIG = {
 			-- `Economy.CONFIG.COINS_PER_POINT = 2` it costs him 20 coins as well. The old value and
 			-- its rollback are in backups/2026-10-13_task-170_cub-points-and-quarry-note.txt.
 			cub = -10, -- K
-			-- A DATA ROW WITH NO ANIMAL BEHIND IT (task 160, Karen: *"more legendary more"*).
-			-- `Boar.CONFIG.KINDS` has no "legendary", nothing spawns one and no spec asks for one in
-			-- the world: this is the price waiting for the animal, so that the day one exists the
-			-- scoring half is already done and reviewed. It is NOT dead code -- `Score.kill` reads
-			-- this table by key, so the row is live the instant a kind by that name dies.
+			-- THE ANIMAL ARRIVED (task 219). This row was task 160's price with nothing behind it --
+			-- *"the row is live the instant a kind by that name dies"* -- and `Boar.CONFIG.KINDS` now
+			-- has a `legendary`: one per drive, in one drive in four, 35 % bigger, twice as hard to
+			-- kill anywhere but the vitals, and warier. **THE NUMBER DID NOT MOVE**, because it was
+			-- Karen's (*"first place ofc more legendary more ect"*) and 2.5 males is what she
+			-- approved; what changed is that something can now die and claim it. At
+			-- `Economy.CONFIG.COINS_PER_POINT` it pays 50 coins, through the same rule as every other
+			-- kill and with no second price anywhere.
 			legendary = 25, -- K
 			-- An unnamed kind: never free, and counted by the owner as `stats().unknownKindKills`.
 			-- A kind typo must show up as a NUMBER rather than as an animal that quietly scores

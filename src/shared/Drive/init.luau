@@ -324,6 +324,11 @@ Drive.CONFIG = {
 		male = "Male boar",
 		female = "Female boar",
 		cub = "Piglet - leave them",
+		-- THERE IS NO `legendary` ROW HERE (task 219) because there is no legendary ROW on the card:
+		-- `START_CARD_ROWS_MAX` is 4 and the four are these three plus the person, which is the
+		-- Designer's own ceiling two fields below. `Match.CONFIG.QUARRY` carries the whole reason.
+		-- The day a fifth row exists, the word is "Legendary boar" -- not `Report.kindWord`'s
+		-- "legendary", which names a rarity and not an animal.
 	},
 	-- THE ROW THE DESIGNER ADDED, and the only one whose price is not quarry: a tie to a tree and
 	-- `SAFETY_PENALTY` were a real rule the card never mentioned, and the beaters are walking

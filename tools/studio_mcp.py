@@ -811,6 +811,10 @@ SCOPE_SPECS = {
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
              "tests/server/boar_shot.spec.luau", "tests/server/boar_sounder.spec.luau",
              "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",
+             # Task 219: the legendary boar -- its geometry, its armour, its wariness, its rarity
+             # and the per-drive cap. Its SCREENS are the hit card's and the report's, which are
+             # already in `hud`; what is here is the animal.
+             "tests/server/boar_legendary.spec.luau",
              "tests/server/forest_line.spec.luau", "tests/server/forest_stand.spec.luau",
              "tests/server/boar_move.spec.luau", "tests/server/hitlog.spec.luau",
              "tests/server/report_silhouette.spec.luau",

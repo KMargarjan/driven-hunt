@@ -93,7 +93,11 @@ export type HunterRow = {
 	lost: number,
 	hits: number,
 	animals: number,
-	byKind: { male: number, female: number, cub: number, unknown: number },
+	-- ...AND `legendary` SINCE TASK 219, because `unknown` means a kind TYPO and is counted so a
+	-- typo shows up as a number rather than as an animal that quietly scores nothing. A legendary
+	-- falling into that bucket would have destroyed exactly that signal -- and it would have been
+	-- invisible, because the list table already adds `unknown` into its MALE column.
+	byKind: { male: number, female: number, cub: number, legendary: number, unknown: number },
 }
 
 export type ListPayload = {
@@ -445,6 +449,20 @@ Report.CONFIG = {
 		RING_COLOR = Color3.fromHex("F6F1E6"),
 		RING_THICKNESS = 1,
 		DOT_PIXELS = 7,
+		-- THE TROPHY TAG (task 219): a second micro-label, on the PLATE, drawn only when
+		-- `Report.trophyWord` answers -- which is only for a legendary. It sits at the plate's bottom
+		-- left, inside `ART_PAD`, where the animal's own drawing never reaches (the art box is
+		-- 148 x 80 inside a 164 x 96 plate, so there are 8 px of bone all round it and the boar's
+		-- feet stop above this line). MEASURED: `LEGENDARY BOAR` spaced is 104.0 px at this size,
+		-- inside the plate's 164.
+		--
+		-- IT IS THE INK COLOUR AND NOT THE CARD'S LABEL COLOUR: the plate is bone (`PLATE_COLOR`) and
+		-- `LABEL_COLOR` is the pale text that sits on the dark card, which on bone would be invisible.
+		-- The animal's own fill is what is already printed on this plate, so the tag is printed in it
+		-- too -- one ink on one paper.
+		TROPHY_SIZE = 10,
+		TROPHY_PAD = 6,
+		TROPHY_HEIGHT = 14,
 		-- The label: BuilderSans Bold, letter-spaced, 10 px -- the house style's micro-label.
 		LABEL_SIZE = 10,
 		LABEL_COLOR = Color3.fromHex("E8E2D6"),
@@ -588,6 +606,34 @@ end
 -- `cub` IS A DATA STRING AND `piglet` IS THE WORD (the Designer's start-card spec, 2026-10-18,
 -- section 1.3: *"the player-facing word is piglet everywhere"*). This function takes the data
 -- string; nothing here prints either.
+--
+-- `legendary` NEEDS NO ROW HERE AND THAT IS DELIBERATE (task 219): the rule above -- *"an unknown
+-- kind is returned as it came"* -- already answers `legendary`, which is the right word, so the
+-- drive report's ANIMAL column prints `LEGENDARY` with nothing added to this function. The start
+-- card says "Legendary boar" instead, out of `Drive.CONFIG.START_CARD_QUARRY_WORDS`, because a card
+-- read before a player's first drive has to name the ANIMAL and not the rarity; and the hit card
+-- says `LEGENDARY BOAR` out of `Report.trophyWord`. Three screens, one word each, none of them
+-- guessing.
+-- THE WORD A TROPHY PUTS ON THE HIT CARD, or `nil` for every animal that is not one (task 219).
+-- PURE, and the one place that decision is made, so the card cannot say "legendary" for a sow.
+--
+-- IT IS A SECOND LABEL ON THE PLATE AND NOT PART OF THE HEADLINE, and that is a MEASUREMENT.
+-- `Report.cardLabel` writes `HIT - BUCKSHOT 4/9`, which `Style.spaced` doubles the length of;
+-- measured with `TextService:GetTextBoundsAsync` in the card's own face (BuilderSans Bold 10) against
+-- the label's own 164 px box:
+--
+--     HIT - BUCKSHOT 4/9        117.0 px      LEGENDARY - BUCKSHOT 4/9    167.0 px   <- does not fit
+--     LEGENDARY BOAR            104.0 px      LEGENDARY BOAR - SLUG       147.0 px
+--
+-- So the headline keeps its job and the animal is named on the bone plate it is printed on, where
+-- 104 px sits inside 164 with room. Every other shot's card is drawn exactly as it was.
+function Report.trophyWord(kind: string?): string?
+	if string.lower(tostring(kind or "")) == "legendary" then
+		return "LEGENDARY BOAR"
+	end
+	return nil
+end
+
 function Report.boarImage(kind: string?): { id: string, box: any, scale: number }
 	local word = string.lower(tostring(kind or ""))
 	local art = Report.CONFIG.BOAR_IMAGE

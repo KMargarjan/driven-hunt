@@ -242,6 +242,54 @@ return function()
 			TestKit.note("hit_card: male " .. male.id .. " female " .. female.id)
 		end)
 
+		-- TASK 219. Karen, 2026-10-10: *"Legendary animals: one or a few, e.g. a legendary boar"*. The
+		-- card draws the MALE's silhouette for a trophy -- it IS a male boar and there is no third
+		-- picture -- so without a word on it, the one animal in four drives looks exactly like the
+		-- ones beside it.
+		it("names the LEGENDARY BOAR on the plate, and nothing else wears that tag", function()
+			-- THE WORD IS A PURE DECISION in one place, so the card cannot say "legendary" for a sow.
+			expect(Report.trophyWord("legendary")).to.equal("LEGENDARY BOAR")
+			for _, kind in ipairs({ "male", "female", "cub" }) do
+				expect(Report.trophyWord(kind)).to.equal(nil)
+			end
+			expect(Report.trophyWord(nil)).to.equal(nil)
+
+			-- ...AND THE SCREEN FOLLOWS, which is the half a data table cannot promise (L-093, from
+			-- task 205's two art frames that both drew `kind = "male"`).
+			Card.show(payloadFor("legendary"))
+			local plate = Card.frame() :: Frame
+			local tag = plate:FindFirstChild("Trophy", true) :: TextLabel
+			expect(tag).to.be.ok()
+			expect(tag.Visible).to.equal(true)
+			expect(Hud.Style.unspaced(tag.Text)).to.equal("LEGENDARY BOAR")
+
+			-- IT IS NOT IN THE HEADLINE, and that is a MEASUREMENT and not a preference: spaced,
+			-- `LEGENDARY - BUCKSHOT 4/9` is 167 px in a 164 px label, so the headline keeps saying
+			-- what the SHOT was and the plate says what the ANIMAL was.
+			expect(string.find(Card.labelText(), "L E G E N D", 1, true)).to.equal(nil)
+			local params = Instance.new("GetTextBoundsParams")
+			params.Text = tag.Text
+			params.Font = tag.FontFace
+			params.Size = tag.TextSize
+			params.Width = 10000
+			local measured = game:GetService("TextService"):GetTextBoundsAsync(params)
+			expect(measured.X <= Report.CONFIG.CARD.PLATE_WIDTH).to.equal(true)
+			TestKit.note(
+				string.format(
+					"hit_card: the trophy tag measures %.1f px on a %d px plate",
+					measured.X,
+					Report.CONFIG.CARD.PLATE_WIDTH
+				)
+			)
+
+			-- ...AND IT IS GONE ON THE NEXT ORDINARY SHOT. A tag that survived one card would label
+			-- the next animal a trophy, which is worse than never drawing it.
+			Card.show(payloadFor("male"))
+			local after = (Card.frame() :: Frame):FindFirstChild("Trophy", true) :: TextLabel
+			expect(after.Visible).to.equal(false)
+			expect(after.Text).to.equal("")
+		end)
+
 		it("SPREADS pellets that landed in the same place, so every hit is visible", function()
 			-- KAREN, 2026-10-17: *"if same place spread if not same show spread"*. A buckshot
 			-- pattern puts up to eighteen pellets inside a hand's width of animal and at this scale

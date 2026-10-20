@@ -174,9 +174,10 @@ function Shape.hunterRows(drive, cap: number): ({ Report.HunterRow }, boolean)
 				lost = 0,
 				hits = 0,
 				animals = 0,
-				-- ALL FOUR KEYS, ALWAYS, AS NUMBERS: a dictionary with a hole does not survive the
-				-- wire faithfully (`Drive`'s own rule for `ScoreRow`).
-				byKind = { male = 0, female = 0, cub = 0, unknown = 0 },
+				-- ALL FIVE KEYS, ALWAYS, AS NUMBERS: a dictionary with a hole does not survive the
+				-- wire faithfully (`Drive`'s own rule for `ScoreRow`). `legendary` is the fifth
+				-- (task 219).
+				byKind = { male = 0, female = 0, cub = 0, legendary = 0, unknown = 0 },
 			}
 			byUser[userId] = row
 			table.insert(order, userId)
@@ -203,8 +204,13 @@ function Shape.hunterRows(drive, cap: number): ({ Report.HunterRow }, boolean)
 			if animal.result == "down" and animal.killedByUserId ~= nil then
 				local row = rowFor(animal.killedByUserId, nil)
 				row.kills += 1
+				-- `legendary` IS A COUNTED KIND AND NOT AN `unknown` (task 219). `unknown` exists to
+				-- make a kind TYPO show up as a number -- the same discipline the retired
+				-- `KILL.unknown` kept for zones -- so letting the trophy fall into it would have
+				-- destroyed that signal silently, and silently is the word: the list table already
+				-- adds `unknown` into its MALE column, so the count would have looked right.
 				local kind = animal.kind
-				if kind == "male" or kind == "female" or kind == "cub" then
+				if kind == "male" or kind == "female" or kind == "cub" or kind == "legendary" then
 					row.byKind[kind] += 1
 				else
 					row.byKind.unknown += 1

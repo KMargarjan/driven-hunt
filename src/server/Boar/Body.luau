@@ -123,6 +123,12 @@ function Body.kindGeometry(kind: string?, config)
 		clipScale = row.clipScale,
 		model = row.model,
 		bodySize = config.BODY_SIZE * scale,
+		-- HOW MUCH THE DRAWN RIG IS SCALED WHEN IT IS WELDED ON, and `nil`/1 for every kind whose
+		-- scale is BAKED into its own upload -- the male, the sow and the cub (task 219). It travels
+		-- with the geometry because that is what it is: the drawn half of the same `scale`.
+		meshScale = row.meshScale or 1,
+		-- ...AND WHAT COLOUR THE COAT IS MULTIPLIED BY, or `nil` for the coat as the artist drew it.
+		tint = row.tint,
 		zones = zones,
 		-- HOW FAR THIS ANIMAL'S CARCASS HAS TO BE PUT BACK UP (task 120), travelling with the rest
 		-- of its geometry because that is what it is. Measured per kind; the derivation and the
@@ -173,7 +179,20 @@ function Body.gaitBands(clipScale: number?, config)
 		-- "the ceiling is above everything the game can ask for" is its own derivation -- and what
 		-- the game asks of a cub is its stride's worth more.
 		minRate = model.MIN_RATE,
-		maxRate = model.MAX_RATE / scale,
+		-- ...AND DIVIDING IS ONLY SAFE BELOW 1 (task 219). The worst rate the game can ask for is the
+		-- TROT clip at the top of its own band, and that ask is scale-INVARIANT, because the band
+		-- edge scales with the stride too: `RUN_FROM * s / (10.244 * s)` is 2.733 for every `s`. So
+		-- for a bigger animal `MAX_RATE / s` would fall BELOW the ask -- at the legendary's 1.35 the
+		-- ceiling would be 2.074 against 2.733, a third of its feet sliding at the top of the trot
+		-- band -- while the cub's case this formula was written for needs the division because what
+		-- the game asks of a CUB is the male's world speeds, which do not scale at all.
+		--
+		-- `math.min(scale, 1)` is both of those sentences: every kind that existed before this task
+		-- keeps its exact number (male 2.8, female 3.27, cub 6.40), and anything BIGGER than the male
+		-- gets the male's own 2.8, which is the rail he already clears 2.733 with.
+		-- `tests/server/boar_kinds.spec.luau` sweeps every animal at every speed the Brain can ask
+		-- for and fails if any of them sits on either rail.
+		maxRate = model.MAX_RATE / math.min(scale, 1),
 	}
 end
 
@@ -569,11 +588,49 @@ function Body.attachVisual(handle, template: Instance, config): boolean
 		drawn.Anchored = false -- an anchored part welded into an assembly anchors the whole boar
 	end
 	cloneMesh.CastShadow = true
+	model.PrimaryPart = cloneMesh
+
+	-- THE LEGENDARY IS THE MALE'S OWN RIG, SCALED (task 219), and it is `Model:ScaleTo` -- never
+	-- `MeshPart.Size`. MEASURED in the DEV place on the real published male, reading every
+	-- `Bone.WorldPosition` in the mesh's own object space: `mesh.Size = Size * 1.35` took the drawn
+	-- mesh to 4.3974 studs tall and left the lowest bone at **-1.6264**, exactly where it was, while
+	-- `model:ScaleTo(1.35)` moved it to **-2.1957** -- a ratio of exactly 1.3500, and `hoof_f.L`'s Z
+	-- went -0.7206 -> -0.9728, the same 1.3500. So `Size` is the tear this file's header warns about
+	-- and `ScaleTo` takes the skeleton with it. The clips scale too (measured in Play, where a clip
+	-- actually loads: the walk clip's hoof travel went 1.6409 -> 2.2152, 1.3500 again), which is why
+	-- `KINDS.legendary.clipScale` is 1.35 and not 1.
+	--
+	-- BEFORE THE `CFrame` BELOW, because `Body.visualOffset` reads `cloneMesh.Size`: scaled first,
+	-- the SAME expression stands the bigger animal's feet on the bigger animal's box with no second
+	-- number anywhere. And before the welds further down, which are made against the final size.
+	--
+	-- 1 FOR EVERY OTHER KIND, so this is a no-op for the male, the sow, the cub and the whole
+	-- flag-off world: their scale is baked into their own upload by `tools/boar_prep.py`.
+	local meshScale = (handle.geometry and handle.geometry.meshScale) or 1
+	if meshScale ~= 1 then
+		model:ScaleTo(meshScale)
+	end
+
+	-- ...AND THE COAT IS MULTIPLIED, on the `SurfaceAppearance` THE ASSET ALREADY CARRIES. MEASURED:
+	-- the loaded mesh has exactly one (`ColorMap` rbxassetid://140199537340988) and its `Color`
+	-- property exists and reads (1, 1, 1). It has to be that property and not `MeshPart.Color`, which
+	-- a `SurfaceAppearance` ignores -- so a write there would have looked like a no-op nobody could
+	-- explain. `nil` for every other kind, which leaves the coat as the artist drew it.
+	local tint = handle.geometry and handle.geometry.tint
+	if tint ~= nil then
+		for _, drawn in ipairs(parts) do
+			for _, child in ipairs(drawn:GetChildren()) do
+				if child:IsA("SurfaceAppearance") then
+					child.Color = tint
+				end
+			end
+		end
+	end
+
 	-- THE KIND'S OWN BOX (task 119): the offset is worked out from the template's measured height
 	-- against the box this animal actually has, so a cub's feet land on a cub's box.
 	local boxSize = (handle.geometry and handle.geometry.bodySize) or config.BODY_SIZE
 	cloneMesh.CFrame = trunk.CFrame * CFrame.new(Body.visualOffset(cloneMesh.Size, boxSize))
-	model.PrimaryPart = cloneMesh
 	model.Parent = trunk
 
 	-- EVERY DRAWN PART IS WELDED, not only the mesh (review round 2, note). The loop above forces

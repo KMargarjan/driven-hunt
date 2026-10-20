@@ -47,7 +47,7 @@ local function listPayload()
 				lost = 1,
 				hits = 5,
 				animals = 4,
-				byKind = { male = 2, female = 1, cub = 0, unknown = 0 },
+				byKind = { male = 2, female = 1, cub = 0, legendary = 0, unknown = 0 },
 			},
 			{
 				userId = 777,
@@ -56,7 +56,7 @@ local function listPayload()
 				lost = 0,
 				hits = 1,
 				animals = 1,
-				byKind = { male = 0, female = 0, cub = 1, unknown = 0 },
+				byKind = { male = 0, female = 0, cub = 1, legendary = 0, unknown = 0 },
 			},
 		},
 	}
@@ -326,6 +326,64 @@ return function()
 			expect(detailPayload().rows[2].kind).to.equal("cub") -- the RECORD is unchanged
 			expect(string.find(rows[2], "PIGLET", 1, true)).to.be.ok()
 			expect(string.find(rows[2], "CUB", 1, true)).to.equal(nil)
+		end)
+
+		it("names the LEGENDARY boar in the ANIMAL column, and the word fits the cell", function()
+			-- TASK 219. `Report.kindWord` returns an unknown kind as it came, so this column needed no
+			-- new mapping -- but "no change was needed" is a claim about BEHAVIOUR, so it gets a case
+			-- that actually enters the legendary arm (L-093's lesson, from task 205's two art frames
+			-- that both drew `kind = "male"`).
+			local payload = detailPayload()
+			payload.rows[1].kind = "legendary"
+			Panel.render(payload)
+			local rows = Panel.rowText()
+			expect(string.find(rows[1], "LEGENDARY", 1, true)).to.be.ok()
+
+			-- ...AND IT IS NOT TRUNCATED, which is the defect no other case here could see:
+			-- `Style.cell` sets `TextTruncate = AtEnd`, so an animal word wider than its column is
+			-- drawn as `LEGEND...` and every spec still passes. MEASURED with
+			-- `TextService:GetTextBoundsAsync` in this cell's own face -- Oswald Medium 17 --
+			-- `LEGENDARY` is 55.0 px, which is why the column went from 56 to 78.
+			local column = nil
+			for _, entry in ipairs(Panel.DETAIL_COLUMNS) do
+				if entry.key == "kind" then
+					column = entry
+				end
+			end
+			expect(column).to.be.ok()
+			local params = Instance.new("GetTextBoundsParams")
+			params.Text = "LEGENDARY"
+			params.Font = Hud.Style.FONT.OSWALD_MD
+			params.Size = Hud.Style.SIZE.HEADING[1]
+			params.Width = 10000
+			local measured = game:GetService("TextService"):GetTextBoundsAsync(params)
+			expect(measured.X <= (column :: any).w).to.equal(true)
+			TestKit.note(
+				string.format(
+					"report-panel: LEGENDARY measures %.1f px in a %d px ANIMAL column",
+					measured.X,
+					(column :: any).w
+				)
+			)
+		end)
+
+		it("counts a legendary in the MALE column, because it is a male boar", function()
+			-- TASK 219, and it is a DECISION rather than an oversight: a fourth count column does not
+			-- fit the 584 px well without taking 44 px off NAME, and a trophy that fell through all
+			-- three columns would show a player who shot one `MALE 0 FEM 0 CUB 0 KILLS 1`, which
+			-- reads as broken. It is NAMED on the detail page, on the hit card and on the start card.
+			local cells = Panel.listCellsFor(1, {
+				userId = 1,
+				name = "Karen",
+				kills = 2,
+				lost = 0,
+				byKind = { male = 1, female = 0, cub = 0, legendary = 1, unknown = 0 },
+			}, 35)
+			expect(cells.male).to.equal("2")
+			expect(cells.female).to.equal("0")
+			expect(cells.cub).to.equal("0")
+			expect(cells.kills).to.equal("2")
+			expect(cells.points).to.equal("35")
 		end)
 
 		it("puts one dot per hit at the (u, v) the record measured", function()
