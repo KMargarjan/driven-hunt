@@ -1,5 +1,87 @@
 # Escalations
 
+## 2026-10-20 - Task 223: `NEEDS TEST2 223 113f3aa` -- the two-player gate, one human click
+
+The red deer touches **two files on `TWO_PLAYER_PATHS`** and there is no way around it:
+
+* `src/server/Match/init.luau` -- `POINTS.KIND` gained the three deer prices and
+  `SCENE.ANIMAL_SCALES` gained three rows;
+* `tests/server/match_score.spec.luau` -- matches `tests/server/match_*.spec.luau`.
+
+**This is accepted rather than worked around** (design section 13.4). What a kill is worth is the
+match's data -- `Score.kill` prices off `POINTS.KIND` and nothing else -- and there is exactly one
+such table. Moving the deer's three prices out of it to dodge a harness run would create the second
+price table rule 3 exists to prevent, and that is a worse trade than one click.
+
+**The one-player line is in hand and is clean:**
+
+```
+[harness] PASS: 33/33 checks @ 113f3aa480bb16fe382b1a82ceac035a5356b054 (clean tree) scope=all
+```
+
+**What is needed:** `python tools/studio_mcp.py test2` at `113f3aa`, which asks for the second Play
+client Karen or the Director has to start. The review cannot be opened without that line
+(`tools/agents.py` refuses the request), so the Builder has stopped here rather than running a review
+it knows will be refused.
+
+## 2026-10-20 - Task 223: `NEEDS KAREN` -- the ELEVEN animation publishes for the red deer
+
+**Nothing is broken and nothing is waiting on this to merge.** The deer ships with its models and
+no clips, which is exactly the state the boar was in between tasks 115 and 116: `Assets.byKey`
+answers nil for every deer clip key, `Body.hasClip` is false, `trackFor` returns nil, and the animal
+**stands and slides**. It is honest, it is tested (`tests/server/deer.spec.luau` asserts every one of
+the eleven keys has no row) and it is the precedent.
+
+**Why only Karen can do it.** An animation asset id can only be made inside Studio. Open Cloud's
+Assets API takes an Animation only as a `.rbxm`/`.rbxmx` *"edited inside Roblox Studio"*, which
+nothing outside Studio can write, and `AssetService:CreateAssetAsync` answered *"not available yet"*
+when it was tried here on 2026-10-03. There is no API behind the Animation Editor
+(`docs/research/2026-10-03-boar-skinned-model.md`, source 1: *"It is clicks, per clip"*).
+
+**ONE clip set serves all three deer.** MEASURED on 2026-10-20 in headless Blender: the stag, the
+hind and the calf all carry `Arm_Deer`, 42 bones, with identical bone names -- the same situation as
+`Arm_Boar` across the male, the sow and the cub. So this is **eleven publishes, not thirty-three.**
+
+### The clicks, in order
+
+The eleven FBX files are in `<assets-dir>/deer/prep-stag/clips/`. Use the STAG's; the hind
+and the calf play the same ids.
+
+For each file:
+
+1. In Studio (any place), **Avatar -> Animation Editor**.
+2. Select the loaded stag rig in the Explorer when it asks for one.
+3. In the Animation Editor's **...** menu -> **Import -> From .FBX Animation**.
+4. Pick the file, e.g. `Walk_F_IP.fbx`.
+5. **...** -> **Publish to Roblox...**, name it `DrivenHunt Deer <clip>`, publish.
+6. Copy the asset id it hands back and paste it into the task's reply, one line per clip:
+   `walk = <id>`.
+
+The eleven, with the `Assets.KEYS` name each id belongs to:
+
+| file | key |
+|---|---|
+| `Idle_1.fbx` | `deer.anim.idle` |
+| `Walk_F_IP.fbx` | `deer.anim.walk` |
+| `Trot_F_IP.fbx` | `deer.anim.trot` |
+| `Run_F_IP.fbx` | `deer.anim.run` |
+| `Turn_L_IP.fbx` | `deer.anim.turn.left` |
+| `Turn_R_IP.fbx` | `deer.anim.turn.right` |
+| `Death_L.fbx` | `deer.anim.death.left` |
+| `Death_R.fbx` | `deer.anim.death.right` |
+| `Hit_Front.fbx` | `deer.anim.hit.front` |
+| `Hit_Back.fbx` | `deer.anim.hit.back` |
+| `Idle_5.fbx` | `deer.anim.calm.smell` |
+
+**Set `Loop = true` in the Animation Editor** for `idle`, `walk`, `trot`, `run`, the two turns and
+`smell`, and leave it off for the two deaths and the two flinches -- that is what
+`Boar.CONFIG.SPECIES.reddeer.MODEL.CLIPS[name].looped` already says about each.
+
+Once the ids exist, the follow-up is a small data commit: the eleven `Assets.ROWS` animation rows,
+and then `deathLiftStuds` for the three kinds -- which can ONLY be measured once a death clip exists
+to freeze (design section 7.5), and is 0 until then.
+
+
 ## 2026-10-20 - Task 221 round 5: `NEEDS KAREN` -- the Forest Test is running PRE-221 CODE
 
 **STOP, one click.** The Forest Test place is open, but it is **not Rojo-Connected to this branch**,
