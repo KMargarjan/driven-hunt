@@ -121,10 +121,12 @@ Rules.NOTICE = table.freeze({
 	-- The one thing he can do about it, in the Hud's own voice. 19 characters: one shorter than
 	-- `"THE DRIVE IS OVER"` plus its row, so no Hud measurement moves.
 	[Rules.REASON.OFF_PLATFORM] = "CLIMB TO YOUR STAND",
-	-- THE ONE THING HE CAN DO ABOUT IT, in the Hud's own voice and in the Director's own words. 21
-	-- characters against `"CLIMB TO YOUR STAND"`'s 19 and `"YOUR ACCOUNT IS NOT LOADED"`'s 26, both
-	-- of which this row already draws, so no Hud measurement moves.
-	[Rules.REASON.UNPAID_PLATFORM] = "BUY TREE STAND ACCESS",
+	-- THE ONE THING HE CAN DO ABOUT IT, in the Hud's own voice. THE DIRECTOR ASKED FOR *"BUY TREE
+	-- STAND ACCESS"* and that is 21 characters: this row is capped at 20 (`weapon_rules.spec`, and
+	-- the cap is measured -- the readout already carries the glyphs, the ammo word and the pocket).
+	-- So it is Karen's own product words without the noun that does not fit: *"Access to tree
+	-- stand"*, as an instruction, in 14.
+	[Rules.REASON.UNPAID_PLATFORM] = "BUY TREE STAND",
 	[Rules.REASON.LICENCE] = "NO LICENCE",
 	[Rules.REASON.DRIVE_OVER] = "THE DRIVE IS OVER",
 })

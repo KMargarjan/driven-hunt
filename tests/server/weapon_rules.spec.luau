@@ -150,10 +150,14 @@ return function()
 			-- ...AND `OFF_PLATFORM` IS IMMEDIATELY INSIDE `OFF_STAND` SINCE TASK 218: the same rule
 			-- one step further in. "NOT IN YOUR STAND" to a man outside his circle AND on the ground
 			-- sends him to the right place; "CLIMB TO YOUR STAND" then tells him the one thing left.
-			expect(Rules.ORDER[3]).to.equal(Rules.REASON.OFF_PLATFORM)
-			expect(Rules.ORDER[4]).to.equal(Rules.REASON.BEATER)
-			expect(Rules.ORDER[5]).to.equal(Rules.REASON.LICENCE)
-			expect(#Rules.ORDER).to.equal(5)
+			-- ...AND `UNPAID_PLATFORM` SITS BETWEEN THEM SINCE TASK 221: "this deck is not yours"
+			-- has to be answered before "climb onto your deck", or a man standing on an unpaid
+			-- platform would be told to climb the thing he is already on.
+			expect(Rules.ORDER[3]).to.equal(Rules.REASON.UNPAID_PLATFORM)
+			expect(Rules.ORDER[4]).to.equal(Rules.REASON.OFF_PLATFORM)
+			expect(Rules.ORDER[5]).to.equal(Rules.REASON.BEATER)
+			expect(Rules.ORDER[6]).to.equal(Rules.REASON.LICENCE)
+			expect(#Rules.ORDER).to.equal(6)
 			expect(table.isfrozen(Rules.ORDER)).to.equal(true)
 
 			local area = { centre = Vector3.new(0, 0, 0), radius = 12 }
@@ -352,7 +356,7 @@ return function()
 				expect(#(line :: string) <= 20).to.equal(true)
 				seen += 1
 			end
-			expect(seen).to.equal(5)
+			expect(seen).to.equal(6)
 			expect(Rules.noticeFor("not-a-reason")).to.equal(nil)
 			expect(Rules.noticeFor(nil)).to.equal(nil)
 			-- The reasons are wire values the client and the Hud key on, so they are pinned here.
@@ -734,7 +738,9 @@ return function()
 			expect(Rules.onUnpaidPlatform(at(DECK), area(false))).to.equal(true)
 			expect(Rules.onUnpaidPlatform(at(DECK + 4), area(false))).to.equal(true)
 			expect(Rules.refuse({ position = at(DECK), stand = area(false) })).to.equal(Rules.REASON.UNPAID_PLATFORM)
-			expect(Rules.noticeFor(Rules.REASON.UNPAID_PLATFORM)).to.equal("BUY TREE STAND ACCESS")
+			-- 14 CHARACTERS AND NOT THE DIRECTOR'S FULL *"BUY TREE STAND ACCESS"*: this row is
+			-- capped at 20 by the case above, and the cap is a measurement of the readout.
+			expect(Rules.noticeFor(Rules.REASON.UNPAID_PLATFORM)).to.equal("BUY TREE STAND")
 			-- `>=` AND NOT `>`: `minY` IS the deck's top face, and standing on it is being on it.
 			-- Between this and `belowPlatform` there is no sliver of height that is neither.
 			expect(Rules.onUnpaidPlatform(at(DECK - 0.01), area(false))).to.equal(false)
