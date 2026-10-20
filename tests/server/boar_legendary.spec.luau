@@ -296,12 +296,17 @@ return function()
 
 		it("promotes exactly ONE male, and nobody in a nursery", function()
 			-- A LEGENDARY IS A MATURE LONE BOAR: `SOUNDER.MAKEUP.LONE` is already "male" and
-			-- `COMPOSITIONS` row 6 is *"a lone big male"*. So the promotion takes the FIRST male and
-			-- no one else -- never a sow, never a piglet.
-			local herd = { "female", "cub", "male", "male", "cub" }
+			-- `COMPOSITIONS` row 6 is *"a lone big male"*. So the promotion takes the FIRST male of a
+			-- MALE GROUP and no one else.
+			--
+			-- THIS CASE USED TO LEAD WITH A SOW (`{ "female", "cub", "male", "male", "cub" }`) and
+			-- expect the third member promoted -- which is exactly the yearling-behind-its-mother
+			-- that round 1's note 5 is about, written down as an expectation. The guard refuses that
+			-- release now, so the herd here is the one a trophy actually comes out of.
+			local herd = { "male", "cub", "male" }
 			local promoted, index = Boar.promoteLegendary(herd, true, always)
-			expect(index).to.equal(3)
-			expect(promoted[3]).to.equal("legendary")
+			expect(index).to.equal(1)
+			expect(promoted[1]).to.equal("legendary")
 			-- EXACTLY ONE: the second male is still a male. "At most one per drive" starts here, in
 			-- the shape of the function, rather than in a counter two code paths could disagree on.
 			local count = 0
@@ -311,12 +316,13 @@ return function()
 				end
 			end
 			expect(count).to.equal(1)
-			expect(promoted[4]).to.equal("male")
+			expect(promoted[3]).to.equal("male")
 			-- ...AND IT NEVER MUTATES ITS INPUT, so a caller can compare before with after.
-			expect(herd[3]).to.equal("male")
+			expect(herd[1]).to.equal("male")
 
-			-- A RELEASE OF SOWS AND PIGLETS PROMOTES NOBODY, and the permission is therefore NOT
-			-- spent -- which is what lets the next release of the same drive carry the trophy.
+			-- A RELEASE WITH A SOW IN IT PROMOTES NOBODY, and the permission is therefore NOT spent
+			-- -- which is what lets the next release of the same drive carry the trophy. Her young
+			-- are not the trophy whether or not one of them is a yearling male.
 			local nursery, none = Boar.promoteLegendary({ "female", "cub", "cub" }, true, always)
 			expect(none).to.equal(nil)
 			expect(table.concat(nursery, ",")).to.equal("female,cub,cub")
@@ -595,6 +601,12 @@ return function()
 				local coat = Instance.new("SurfaceAppearance")
 				coat.Parent = mesh
 				mesh.Parent = model
+				-- PARENTED, and that is not tidiness: `Runtime:_modelTemplate` only reuses a held
+				-- template while `held.Parent ~= nil`, and re-asking is rate-limited to once a second
+				-- per key (`MODEL.ASK_EVERY_SECONDS`). An unparented fake therefore answered the
+				-- FIRST call and nil to the second -- which is how the first draft of this case
+				-- failed, on the trophy, for a reason that had nothing to do with the trophy.
+				model.Parent = holder
 				return model
 			end
 
