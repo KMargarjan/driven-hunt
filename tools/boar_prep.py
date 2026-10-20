@@ -1071,9 +1071,9 @@ def run_selftest(_args):
 
     for failure in failures:
         print("FAIL " + failure)
-    # 11 groups since task 223: 1, 1b, 1c, 1d, 2, 2b, 3, 4, 5, 5b, 6, 7 -- counted as the
+    # 12 groups since task 223: 1, 1b, 1c, 1d, 2, 2b, 3, 4, 5, 5b, 6, 7 -- counted as the
     # numbered blocks above, so a block that is deleted shows up as a number that moved.
-    total = 11
+    total = 12
     if failures:
         print("[boar-prep] selftest FAIL: %d problem(s) over %d groups" % (len(failures), total))
         return 1

@@ -2486,9 +2486,10 @@ Boar.CONFIG.SPECIES = {
 		-- `KINDS[kind].scale`:
 		--   width   the trunk is x +-0.88 -> 1.76, and the widest non-antler part of the whole
 		--           animal is 1.8. 1.8 is taken.
-		--   height  the back line is 4.85 studs above the hooves (1.36 m: a red stag stands about
-		--           that at the withers). The box top IS the back and the head, neck and antlers
-		--           stand above it, exactly as the boar's 3.0 sits under its own 3.26.
+		--   height  the back line measures 4.85 studs above the hooves (1.36 m: a red stag stands
+		--           about that at the withers) and the BOX IS 4.8 -- a twentieth of a stud under
+		--           it, exactly as the boar's 3.0 sits under its own measured 3.26. The box top
+		--           is the back; the head, the neck and the antlers stand above it.
 		--   length  7.05, which is the length the model was BAKED to, and the mesh measures
 		--           7.050 on the nose (`EXPECTED IN STUDIO` from the prep run).
 		--
@@ -2641,8 +2642,10 @@ end
 -- writes; `KINDS[key]` is what makes a kind name legal beside them, and a key that is neither is
 -- ignored exactly as an unknown key always was.
 --
--- `weight` IS SKIPPED BY NAME, because a `RELEASE.COMPOSITIONS` row carries its draw weight beside
--- its counts and that number is not an animal.
+-- `weight` IS SKIPPED BECAUSE IT IS NOT A KIND NAME, which is worth saying plainly: a
+-- `RELEASE.COMPOSITIONS` row carries its draw weight beside its counts, and the walk below only
+-- ever asks about the three legacy words and the names in `KINDS.ORDER`. No line mentions
+-- `weight`, and none needs to.
 local COMPOSITION_LEGACY = { females = "SOW", cubs = "YOUNG", males = "LONE" }
 
 local function compositionCounts(composition, config): { { kind: string, count: number } }
@@ -2811,22 +2814,41 @@ end
 -- counter, for the reason `Runtime:_legendaryAllowed` gives for its own cap: there is ONE list of
 -- live animals and it is the answer, so two code paths cannot disagree about it.
 function Boar.deerGroupsAllowed(liveKinds: { string }, config): boolean
+	local kinds = config.KINDS
+	-- THE FLAG FIRST, and it is not only belt-and-braces: this function is the deer's own question,
+	-- and with `BOAR_MODEL` off there are no kinds, so there is no deer and nothing to allow
+	-- (round 1, finding 1 -- it did not read the flag at all and answered `true` on every release
+	-- of the default build).
+	if type(kinds) ~= "table" or kinds.ENABLED ~= true then
+		return false
+	end
 	local species = config.SPECIES
 	local release = type(species) == "table" and species.reddeer and species.reddeer.RELEASE
 	if type(release) ~= "table" then
 		return false
 	end
-	local kinds = config.KINDS or {}
-	for _, kind in ipairs(liveKinds) do
+	-- IT COUNTS GROUPS AND NOT ANIMALS, which round 1 did not (note: it returned
+	-- `MAX_GROUPS_ALIVE > 1` on the first live deer, so the dial worked only at 1 and capped nothing
+	-- at 2). A GROUP IS A SOUNDER: every member of one release shares a sounder id, and a lone deer
+	-- has none -- so the groups alive are the distinct sounder ids among the live deer, plus one for
+	-- each deer that belongs to no sounder.
+	local groups, seen = 0, {}
+	for _, entry in ipairs(liveKinds) do
+		local kind = if type(entry) == "table" then entry.kind else entry
 		local row = kinds[kind]
 		if type(row) == "table" and row.species == "reddeer" then
-			-- ONE GROUP AT A TIME: a drive is six live animals and a group is up to three, so two
-			-- groups could be half the drive and the animal Karen called rare would be in front of
-			-- every shooter.
-			return (release.MAX_GROUPS_ALIVE or 1) > 1
+			local sounder = if type(entry) == "table" then entry.sounder else nil
+			if sounder == nil then
+				groups += 1
+			elseif not seen[sounder] then
+				seen[sounder] = true
+				groups += 1
+			end
 		end
 	end
-	return true
+	-- ONE GROUP AT A TIME: a drive is six live animals and a group is up to three, so two groups
+	-- could be half the drive and the animal Karen called rare would be in front of every shooter.
+	return groups < (release.MAX_GROUPS_ALIVE or 1)
 end
 
 function Boar.wantsLegendary(roll: number, config): boolean
@@ -3400,7 +3422,7 @@ local moduleAnimationIdFor: ((string, string) -> number?)? = nil
 function Boar.setModelSource(
 	templateFor: ((string) -> Instance?)?,
 	animationIdFor: ((string, string) -> number?)?
-): (((string) -> Instance?)?, ((string) -> number?)?)
+): (((string) -> Instance?)?, ((string, string) -> number?)?)
 	local previousTemplate, previousId = moduleTemplateFor, moduleAnimationIdFor
 	moduleTemplateFor = templateFor
 	moduleAnimationIdFor = animationIdFor
@@ -3460,13 +3482,19 @@ end
 -- `model` whatever the flag says, the legendary gets `"male"`, and a kind with NO row falls through
 -- to its own name -- so an unknown kind still reaches a source that has no row for it and still
 -- answers nothing, which is the grey box, and the runtime still invents no kind.
--- THE KINDS THAT ARE ALIVE RIGHT NOW (task 223), which is what the deer cap is answered from. One
+-- THE ANIMALS THAT ARE ALIVE RIGHT NOW (task 223), which is what the deer cap is answered from. One
 -- list, read once per release; no counter and nothing to keep in step.
-function Runtime:_liveKinds(): { string }
+--
+-- EACH ROW CARRIES ITS SOUNDER ID as well as its kind (round 1, note), because the cap is on
+-- GROUPS and not on animals: a release of a stag and two hinds is ONE group, and counting animals
+-- would make `MAX_GROUPS_ALIVE = 1` mean "one deer in the drive". A lone deer has no sounder and
+-- counts as its own group. `Boar.deerGroupsAllowed` also accepts a plain list of kind strings, so
+-- a spec can drive it without building a runtime.
+function Runtime:_liveKinds(): { any }
 	local out = {}
 	for _, entry in ipairs(self._boars) do
 		if entry.kind ~= nil then
-			table.insert(out, entry.kind)
+			table.insert(out, { kind = entry.kind, sounder = entry.sounderId })
 		end
 	end
 	return out
@@ -4707,11 +4735,26 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?,
 	assert(not self._destroyed, "Boar runtime is destroyed")
 	-- IS THIS RELEASE A DEER GROUP (task 223)? ONLY WHEN THE CALLER NAMED NO COMPOSITION, so the
 	-- Forest Test's own named waves -- and every spec that asks for one -- are untouched. Two rolls
-	-- off the runtime's own `Random`: whether, and which group. `Boar.deerComposition` draws nothing
-	-- at all with `BOAR_MODEL` off, so the stream every existing spec was written against is
-	-- unchanged in that world.
-	if composition == nil and Boar.deerGroupsAllowed(self:_liveKinds(), self._config) then
-		composition = Boar.deerComposition(self._rng:NextNumber(), self._rng:NextNumber(), self._config)
+	-- off the runtime's own `Random`: whether, and which group.
+	--
+	-- **THE FLAG IS TESTED HERE, IN FRONT OF THE CALL, AND ROUND 1 GOT THIS WRONG.** It read
+	-- `if composition == nil and Boar.deerGroupsAllowed(...) then composition =
+	-- Boar.deerComposition(self._rng:NextNumber(), self._rng:NextNumber(), ...) end`, with the flag
+	-- test INSIDE `deerComposition` -- and the two rolls are that function's ARGUMENTS, which Lua
+	-- evaluates before it is ever entered. So the default build, where `BOAR_MODEL` is OFF, drew two
+	-- numbers on every composition-less release and **shifted the runtime's `Random` stream**: the
+	-- `phase` of the next formation and its `COLUMN_CHANCE` draw came out different from every value
+	-- the specs written before this task were written against. The gate inside `deerComposition`
+	-- stays (it is that function's own rule, and a spec drives it directly); this one is what makes
+	-- "no number is drawn" true of the caller.
+	--
+	-- It is the shape `Runtime:_legendaryAllowed` and the `rolls` loop sixty lines below already
+	-- have, for exactly this reason, and it is now asserted by `deer.spec`'s flag-off case, which
+	-- counts the draws a release makes against a baseline runtime that never asks for a deer.
+	if composition == nil and self._config.KINDS ~= nil and self._config.KINDS.ENABLED == true then
+		if Boar.deerGroupsAllowed(self:_liveKinds(), self._config) then
+			composition = Boar.deerComposition(self._rng:NextNumber(), self._rng:NextNumber(), self._config)
+		end
 	end
 	-- A COMPOSITION IS ALSO THE SIZE (task 123 round 8), and it is read through `Boar.compositionSize`
 	-- rather than added up here, so there is one place that knows what a composition weighs.
@@ -4744,6 +4787,13 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?,
 	-- THE RING IS AS BIG AS THE GROUP NEEDS (task 123 round 2), then clamped inside the pad: members
 	-- are spaced `SPAWN_SPACING` body lengths of ARC apart, which for 5 is the 10-stud ring it always
 	-- was and for 20 is 21 studs instead of a pile.
+	-- THE RING IS THE BOAR'S BODY LENGTH AND STAYS THE BOAR'S, deliberately (task 223 round 2, the
+	-- sweep finding 2 asked for). It is a property of the PAD and the release, not of one animal,
+	-- and it is computed HERE -- before `kinds` is drawn twenty lines down -- so there is no animal
+	-- to ask yet. Reordering it to find out would move `self._rng` draws relative to `phase`, which
+	-- is the exact stream shift finding 1 was about. The visible cost is that a three-deer release
+	-- starts on a ring sized for boars, i.e. about a stud and a half tighter per member than its own
+	-- body length; they walk apart in the first second. Queued, not smuggled in.
 	local spacing = config.BODY_SIZE.Z * (sounderConfig.SPAWN_SPACING or 1)
 	local needed = spacing * size / (2 * math.pi)
 	local radius = math.max(
@@ -4921,7 +4971,22 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 			groundHere = asked
 		end
 	end
-	at = Vector3.new(at.X, groundHere + config.BODY_SIZE.Y / 2 + config.SPAWN_CLEARANCE, at.Z)
+	--
+	-- **THE ANIMAL'S OWN HALF-HEIGHT, NOT THE BOAR'S, AND ROUND 1 GOT THIS WRONG** (finding 2). Every
+	-- other line of this function moved to `animalConfig`; this one did not, so it still dropped a
+	-- STAG from the male's `BODY_SIZE.Y / 2` of 1.5 while the stag's own box is 4.8 tall. His box
+	-- bottom therefore started `2.4 - 1.5 - 0.5 = 0.4` studs UNDER the surface and a hind's 0.053
+	-- under -- which is precisely the state `SPAWN_CLEARANCE`'s own comment exists to prevent
+	-- (*"so it settles instead of starting embedded"*) and the state task 119 measured killing every
+	-- cub in the drive: *"a fully embedded part is ejected, not settled"*.
+	--
+	-- `math.max` KEEPS THE MALE'S FLOOR, which is the half of task 119's fix that must not be lost:
+	-- a CUB's box is 1.35 studs tall and the map's real surface can sit 2 studs above `groundY`, so
+	-- a small animal dropped from its own half-height would start entirely below the surface. The
+	-- taller of the two is the one that clears both, and for every boar kind it IS the male's number,
+	-- so nothing about a boar's release moved.
+	local halfHeight = math.max(config.BODY_SIZE.Y, animalConfig.BODY_SIZE.Y) / 2
+	at = Vector3.new(at.X, groundHere + halfHeight + config.SPAWN_CLEARANCE, at.Z)
 
 	self._nextId += 1
 	local id = string.format("Boar%d", self._nextId)
@@ -5539,7 +5604,13 @@ function Runtime:step(dt: number)
 				-- costing one forward sweep plus up to `AVOID_CASTS` of the fan, and the answer is
 				-- carried on the entry in between -- so the deflection is steady for an eighth of a
 				-- second instead of being re-drawn every frame.
-				whisker.clearDeg = self:_avoidTurnFor(entry, position, nose, config)
+				-- `entry.config` AND NOT `config` (task 223 round 2, the sweep finding 2 asked for).
+				-- `_avoidTurnFor` casts its whisker from `BODY_SIZE.Y / 2` -- *"the eye is the
+				-- body's middle"* -- and a stag's middle is 2.4 studs up where a boar's is 1.5. On
+				-- the runtime's config a deer would have swept for obstacles at knee height and
+				-- turned away from every root it could have stepped over. For every boar
+				-- `entry.config` IS `config` by reference.
+				whisker.clearDeg = self:_avoidTurnFor(entry, position, nose, entry.config or config)
 			end
 		end
 

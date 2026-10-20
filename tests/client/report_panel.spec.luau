@@ -597,4 +597,59 @@ return function()
 			expect(Weapon.Input.isHeld()).to.equal(false)
 		end)
 	end)
+	-- THE RED DEER FOLDS INTO THE THREE COLUMNS THAT ALREADY EXIST (task 223 round 2, finding 4).
+	--
+	-- Round 1 added `+ (kinds.stag or 0)`, `+ (kinds.hind or 0)` and `+ (kinds.calf or 0)` to
+	-- `listCellsFor` and left them UNREACHED: every `byKind` fixture in this file was five-key, so
+	-- the three new terms could be deleted and nothing here would notice.
+	--
+	-- THE FOLD IS THE DECISION TASK 219 TOOK, APPLIED: the column heads are MALE / FEM / CUB --
+	-- SEX AND AGE words, not species words -- so a stag in MALE and a hind in FEM are true, and the
+	-- alternative is a player who shot a stag reading `MALE 0 FEM 0 CUB 0 KILLS 1`, which reads as
+	-- broken. No column moves and no pixel moves.
+	describe("the red deer on the board", function()
+		local function cellsFor(byKind)
+			return Panel.listCellsFor(1, { name = "Karen", kills = 1, lost = 0, byKind = byKind }, 20)
+		end
+
+		it("folds a stag into MALE, a hind into FEM and a calf into CUB", function()
+			-- ONE CASE PER KIND (L-093), each entering its own new term.
+			local stag =
+				cellsFor({ male = 0, female = 0, cub = 0, legendary = 0, stag = 1, hind = 0, calf = 0, unknown = 0 })
+			expect(stag.male).to.equal("1")
+			expect(stag.female).to.equal("0")
+			expect(stag.cub).to.equal("0")
+			local hind =
+				cellsFor({ male = 0, female = 0, cub = 0, legendary = 0, stag = 0, hind = 1, calf = 0, unknown = 0 })
+			expect(hind.female).to.equal("1")
+			expect(hind.male).to.equal("0")
+			expect(hind.cub).to.equal("0")
+			local calf =
+				cellsFor({ male = 0, female = 0, cub = 0, legendary = 0, stag = 0, hind = 0, calf = 1, unknown = 0 })
+			expect(calf.cub).to.equal("1")
+			expect(calf.male).to.equal("0")
+			expect(calf.female).to.equal("0")
+		end)
+
+		it("never shows a hunter who shot a stag an empty row", function()
+			-- DESIGN SECTION 1.1 MUST-6, as the sentence it is written as: *"no column that reads
+			-- MALE 0 FEM 0 CUB 0 KILLS 1"*.
+			local cells =
+				cellsFor({ male = 0, female = 0, cub = 0, legendary = 0, stag = 1, hind = 0, calf = 0, unknown = 0 })
+			local counted = tonumber(cells.male) + tonumber(cells.female) + tonumber(cells.cub)
+			expect(counted).to.equal(1)
+			expect(cells.kills).to.equal("1")
+		end)
+
+		it("adds the deer to the boars beside them rather than replacing them", function()
+			local mixed =
+				cellsFor({ male = 2, female = 1, cub = 1, legendary = 1, stag = 1, hind = 2, calf = 3, unknown = 1 })
+			-- male 2 + unknown 1 + legendary 1 + stag 1
+			expect(mixed.male).to.equal("5")
+			-- female 1 + hind 2
+			expect(mixed.female).to.equal("3")
+			-- cub 1 + calf 3
+			expect(mixed.cub).to.equal("4")
+		end)
+	end)
 end

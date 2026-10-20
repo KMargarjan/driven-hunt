@@ -192,6 +192,65 @@ return function()
 	end)
 
 	describe("the hunters' rows", function()
+		-- THE RED DEER'S THREE COUNTS (task 223 round 2, finding 4). Round 1 added `stag`, `hind`
+		-- and `calf` to the seeded table and rewrote the `if` that chooses a key, and NOTHING
+		-- asserted either: the deer could be deleted from this file's owner and the harness still
+		-- passed 33/33.
+		--
+		-- WHAT IT ACTUALLY PROTECTS is the `unknown` signal. `unknown` exists so a kind TYPO shows
+		-- up as a number, and `ReportPanel.listCellsFor` folds `unknown` into the MALE column --
+		-- so a stag falling through to it would LOOK right on the board while the one thing that
+		-- catches a typo was silently gone. That is the fault task 219 shipped and fixed for the
+		-- legendary, and this is the same fault's three new doors.
+		--
+		-- ONE CASE PER KIND (L-093): each of the three enters its OWN branch of that `if`.
+		it("counts each deer kind under its own key and never as an unknown", function()
+			for index, kind in ipairs({ "stag", "hind", "calf" }) do
+				HitLog.openDrive(900 + index, 900.0)
+				local animal = fakeBoar("Deer" .. index, kind)
+				HitLog.recordHit(report(animal, 223, "Karen", "chest", 901.0))
+				HitLog.recordDown({
+					id = "Deer" .. index,
+					kind = kind,
+					killedByUserId = 223,
+					killingZone = "chest",
+					at = 901.0,
+					wounds = { { zone = "chest", at = 901.0 } },
+				})
+				local drive = HitLog.currentDrive()
+				HitLog.closeDrive(920.0)
+				local rows = Shape.hunterRows(drive, Report.CONFIG.HUNTERS_LISTED or 8)
+				expect(#rows).to.equal(1)
+				expect(rows[1].byKind[kind]).to.equal(1)
+				expect(rows[1].byKind.unknown).to.equal(0)
+				-- ...and it went nowhere else: no other key moved.
+				for name, count in pairs(rows[1].byKind) do
+					expect(count).to.equal(if name == kind then 1 else 0)
+				end
+			end
+		end)
+
+		it("still counts a kind nobody named as an unknown", function()
+			-- THE OTHER ARM, and it is what makes the case above mean something: the `if` must
+			-- still refuse a name the table has no key for, or it is not a filter at all.
+			HitLog.openDrive(940, 940.0)
+			local animal = fakeBoar("Mystery", "wolf")
+			HitLog.recordHit(report(animal, 223, "Karen", "chest", 941.0))
+			HitLog.recordDown({
+				id = "Mystery",
+				kind = "wolf",
+				killedByUserId = 223,
+				killingZone = "chest",
+				at = 941.0,
+				wounds = { { zone = "chest", at = 941.0 } },
+			})
+			local drive = HitLog.currentDrive()
+			HitLog.closeDrive(960.0)
+			local rows = Shape.hunterRows(drive, Report.CONFIG.HUNTERS_LISTED or 8)
+			expect(rows[1].byKind.unknown).to.equal(1)
+			expect(rows[1].byKind.stag).to.equal(0)
+		end)
+
 		it("counts a hunter's kills and the ones he hit and lost", function()
 			HitLog.openDrive(5, 400)
 			local down = fakeBoar("Boar10", "female")

@@ -345,4 +345,161 @@ return function()
 			expect(trunk.AssemblyRootPart).to.equal(trunk)
 		end)
 	end)
+
+	-- ==================================================================================
+	-- THE RED DEER'S FOUR ZONE BOXES (task 223 round 2, finding 3).
+	--
+	-- The design calls these *"the biggest single piece of work in the task"* and names THIS spec's
+	-- method as their acceptance test: *"twelve real rays fired from outside at each deer kind, each
+	-- returning the zone the geometry says it should"*. Round 1 shipped the boxes with no ray at
+	-- all -- which is the precise defect class this whole file exists for, quoted at the top of it:
+	-- *"a spec that called takeHit with zone = 'head' directly would pass happily"* while no player
+	-- could ever land a head shot.
+	--
+	-- EVERY KIND GETS ITS OWN RAYS (L-093), and they have to: a stag, a hind and a calf are the same
+	-- boxes times 1.0, 0.8553 and 0.495, and a scale is exactly the thing that can push a box
+	-- through the surface it was proud of at full size.
+	--
+	-- THE POINTS ARE IN THE ANIMAL'S OWN FRACTIONS and not in studs, so one table drives all three:
+	-- a fraction of its own `BODY_SIZE` is the same place on every size of the same animal.
+	describe("the red deer's zones, with real rays, at every size", function()
+		local DEER_PROBES = {
+			-- { name, local point as a fraction of the deer's own box, from, want }
+			{ "the skull from the front", Vector3.new(0, 0.566, -0.388), Vector3.new(0, 0, -1), "head" },
+			{ "the skull from the flank", Vector3.new(0, 0.566, -0.388), Vector3.new(1, 0, 0), "head" },
+			{ "the skull from above", Vector3.new(0, 0.566, -0.388), Vector3.new(0, 1, 0), "head" },
+			{ "the chest from the near flank", Vector3.new(0, 0.255, -0.142), Vector3.new(1, 0, 0), "chest" },
+			{ "the chest from the far flank", Vector3.new(0, 0.255, -0.142), Vector3.new(-1, 0, 0), "chest" },
+			{ "the chest from above", Vector3.new(0, 0.255, -0.142), Vector3.new(0, 1, 0), "chest" },
+			{ "the rump from the near flank", Vector3.new(0, 0.231, 0.353), Vector3.new(1, 0, 0), "rear" },
+			{ "the rump from the far flank", Vector3.new(0, 0.231, 0.353), Vector3.new(-1, 0, 0), "rear" },
+			{ "the rump from behind", Vector3.new(0, 0.231, 0.353), Vector3.new(0, 0, 1), "rear" },
+			{ "the rump from above", Vector3.new(0, 0.231, 0.353), Vector3.new(0, 1, 0), "rear" },
+			{ "the legs from the near flank", Vector3.new(0, -0.302, 0.028), Vector3.new(1, 0, 0), "legs" },
+			{ "the legs from the far flank", Vector3.new(0, -0.302, 0.028), Vector3.new(-1, 0, 0), "legs" },
+		}
+
+		for _, kind in ipairs({ "stag", "hind", "calf" }) do
+			describe("a " .. kind, function()
+				local holder, runtime, handle, trunk, disconnect
+				local spawnBottom, plateTop
+
+				-- THIS FILE'S OWN `zoneAt`, because the boar's is local to its describe. Same
+				-- method, and the method is the point: cast from OUTSIDE the animal the way the
+				-- weapon does, read `HitZone` off whatever the engine returns, and measure how far
+				-- the zone part beat the bare trunk by -- so a part that is merely FLUSH fails
+				-- instead of passing on a tie.
+				local function zoneAt(localPoint: Vector3, fromDirection: Vector3, distance: number)
+					local cf = trunk.CFrame
+					local target = cf:PointToWorldSpace(localPoint)
+					local offset = cf:VectorToWorldSpace(fromDirection.Unit) * distance
+					local origin = target + offset
+					local params = RaycastParams.new()
+					params.FilterType = Enum.RaycastFilterType.Include
+					params.FilterDescendantsInstances = { trunk }
+					local result = Workspace:Raycast(origin, -offset * 2, params)
+					if not result then
+						return nil, nil, 0
+					end
+					local _, zone = Weapon.Hits.targetOf(result.Instance)
+					local bare = RaycastParams.new()
+					bare.FilterType = Enum.RaycastFilterType.Exclude
+					bare.FilterDescendantsInstances = trunk:GetChildren()
+					local behind = Workspace:Raycast(origin, -offset * 2, bare)
+					local clearance = math.huge
+					if behind and behind.Instance == trunk then
+						clearance = behind.Distance - result.Distance
+					end
+					return zone, result.Instance, clearance
+				end
+
+				beforeAll(function()
+					holder = Instance.new("Folder")
+					holder.Name = "DeerZonesSpec_" .. kind
+					local plate = Instance.new("Part")
+					plate.Name = "Plate"
+					plate.Size = Vector3.new(120, 4, 120)
+					plate.Position = Vector3.new(0, GROUND_Y - 2, 0)
+					plate.Anchored = true
+					plate.Parent = holder
+					holder.Parent = Workspace
+					runtime = Boar.newRuntime({
+						field = FIELD,
+						parent = holder,
+						folderName = "Deer",
+						rng = Random.new(223),
+						config = { KINDS = { ENABLED = true } },
+						threats = function()
+							return {}
+						end,
+						probe = function()
+							return false
+						end,
+						requestPath = function(_id, _from, _to, done)
+							done(nil)
+						end,
+						releasePath = function() end,
+					})
+					handle = runtime:spawn(Vector3.new(0, GROUND_Y, 20), kind)
+					trunk = handle.part
+					-- WHERE IT WAS PUT, read BEFORE the step loop starts and before physics has
+					-- settled anything: finding 2 is about the position the spawn line CHOOSES,
+					-- and a body that has already been ejected upward would hide it.
+					spawnBottom = trunk.Position.Y - trunk.Size.Y / 2
+					plateTop = plate.Position.Y + plate.Size.Y / 2
+					disconnect = runtime:run()
+				end)
+
+				afterAll(function()
+					if disconnect then
+						disconnect()
+					end
+					runtime:destroy()
+					holder:Destroy()
+				end)
+
+				it("is built from the DEER's own boxes and not from a scaled boar", function()
+					local row = CONFIG.KINDS[kind]
+					local want = CONFIG.SPECIES.reddeer.BODY_SIZE * row.scale
+					expect((trunk.Size - want).Magnitude < 0.01).to.equal(true)
+					-- ...and it is NOT the boar's box at the same scale, which is the thing a
+					-- single length assertion cannot tell apart.
+					local boarBox = CONFIG.BODY_SIZE * row.scale
+					expect((trunk.Size - boarBox).Magnitude > 0.5).to.equal(true)
+				end)
+
+				it("answers twelve real rays with the zone its geometry claims", function()
+					local box = trunk.Size
+					for _, probe in ipairs(DEER_PROBES) do
+						local point = Vector3.new(probe[2].X * box.X, probe[2].Y * box.Y, probe[2].Z * box.Z)
+						local zone, _instance, clearance = zoneAt(point, probe[3], 20)
+						-- Named in the failure, so a red line says WHICH ray on WHICH animal.
+						if zone ~= probe[4] then
+							error(
+								string.format("%s: %s answered %s, wanted %s", kind, probe[1], tostring(zone), probe[4]),
+								0
+							)
+						end
+						expect(zone).to.equal(probe[4])
+						-- PROUD, not flush: two coincident faces at one ray distance is a coin
+						-- toss, which is the fault round 2 of task 116 removed on the boar.
+						expect(clearance > 0).to.equal(true)
+					end
+				end)
+
+				it("starts ON the ground and not inside it", function()
+					-- FINDING 2, AND IT IS READ FROM THE PLATE AND NOT FROM THE SPAWN LINE (L-086).
+					-- The ground is the plate's own measured top -- an independent source -- and
+					-- the animal's lowest point is its real `Position.Y - Size.Y / 2`. Round 1
+					-- dropped every animal from the BOAR's half-height, so a stag's box bottom
+					-- started 0.40 studs under this plate and a hind's 0.053 under.
+					expect(spawnBottom >= plateTop - 1e-3).to.equal(true)
+					-- ...and it is not thrown absurdly high either: `SPAWN_CLEARANCE` is half a
+					-- stud and the male's floor is what a small animal keeps, so the worst honest
+					-- gap is the male's half-height.
+					expect(spawnBottom - plateTop <= CONFIG.BODY_SIZE.Y / 2 + CONFIG.SPAWN_CLEARANCE).to.equal(true)
+				end)
+			end)
+		end
+	end)
 end

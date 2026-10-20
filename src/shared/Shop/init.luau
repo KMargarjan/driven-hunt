@@ -237,8 +237,8 @@ Shop.ROWS = {
 		-- renaming one would un-own the card for everybody who already has it.
 		label = "DEER LICENCE",
 		category = "licence",
-		-- 120 CHARACTERS, against `PANEL.BLURB_MAX` of 135, which is the Designer's measured box and
-		-- does not move. It names all three animals, because that is what the card covers.
+		-- 101 CHARACTERS, against `PANEL.BLURB_MAX` of 135, which is the Designer's measured box
+		-- and does not move. It names all three animals, because that is what the card covers.
 		blurb = "Permission to shoot red deer: stag, hind and calf. A calf costs you points, "
 			.. "exactly as a piglet does.",
 		-- 750 COINS, UNCHANGED FROM TASK 221, because it was Karen's figure and the animal arriving

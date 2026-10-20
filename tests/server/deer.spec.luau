@@ -326,12 +326,97 @@ return function()
 				expect(Boar.deerComposition(0, 0, configWith(false))).to.equal(nil)
 			end)
 
-			it("refuses a second deer group while one is alive", function()
+			it("refuses a second deer group while one is alive, and counts GROUPS", function()
 				local config = configWith(true)
 				expect(Boar.deerGroupsAllowed({}, config)).to.equal(true)
 				expect(Boar.deerGroupsAllowed({ "male", "female", "cub" }, config)).to.equal(true)
 				expect(Boar.deerGroupsAllowed({ "male", "hind" }, config)).to.equal(false)
 				expect(Boar.deerGroupsAllowed({ "stag" }, config)).to.equal(false)
+				-- ROUND 1 DID NOT COUNT ANYTHING (Reviewer's note): it answered
+				-- `MAX_GROUPS_ALIVE > 1` on the FIRST live deer, so the dial worked only at 1 and at
+				-- 2 it capped nothing at all. Three members of ONE release share a sounder id and
+				-- are ONE group, so at a cap of 2 they still leave room for a second.
+				local two = configWith(true)
+				two.SPECIES = table.clone(Boar.CONFIG.SPECIES)
+				two.SPECIES.reddeer = table.clone(Boar.CONFIG.SPECIES.reddeer)
+				two.SPECIES.reddeer.RELEASE = table.clone(Boar.CONFIG.SPECIES.reddeer.RELEASE)
+				two.SPECIES.reddeer.RELEASE.MAX_GROUPS_ALIVE = 2
+				local oneHerd = {
+					{ kind = "stag", sounder = "S1" },
+					{ kind = "hind", sounder = "S1" },
+					{ kind = "hind", sounder = "S1" },
+				}
+				expect(Boar.deerGroupsAllowed(oneHerd, two)).to.equal(true)
+				local twoHerds = {
+					{ kind = "stag", sounder = "S1" },
+					{ kind = "hind", sounder = "S2" },
+				}
+				expect(Boar.deerGroupsAllowed(twoHerds, two)).to.equal(false)
+				-- ...and at the shipped cap of 1 that same single herd already fills it.
+				expect(Boar.deerGroupsAllowed(oneHerd, config)).to.equal(false)
+			end)
+
+			-- FINDING 1. THE FLAG-OFF STREAM, COUNTED AGAINST A BASELINE ------------------------
+			--
+			-- ROUND 1 SHIPPED THE BUG THIS CASE EXISTS FOR. The two rolls were the ARGUMENTS to
+			-- `Boar.deerComposition`, and Lua evaluates arguments before it enters a function, so
+			-- the gate INSIDE it could not stop them being drawn: the default build, where
+			-- `BOAR_MODEL` is off, consumed two extra numbers on every composition-less release and
+			-- every later draw -- the formation's `phase`, its `COLUMN_CHANCE` -- came out
+			-- different from the values every spec written before task 223 was written against.
+			--
+			-- IT IS COUNTED, NOT INSPECTED. The runtime's `Random` is handed in, so a counting
+			-- wrapper records exactly how many numbers one release asks for. The BASELINE is a
+			-- release that cannot possibly want a deer -- a NAMED composition, which
+			-- `spawnSounder` never offers the deer draw -- and the flag-off release must ask for
+			-- the same count. Nothing here asserts a magic number: it asserts two runs agree.
+			it("draws NOT ONE extra number with BOAR_MODEL off", function()
+				local function releaseDraws(flagOn: boolean, composition): number
+					local holder = Instance.new("Folder")
+					holder.Name = "DeerStreamSpec"
+					holder.Parent = Workspace
+					local drawn = 0
+					local real = Random.new(2231)
+					local counting = {
+						NextNumber = function(_self, ...)
+							drawn += 1
+							return real:NextNumber(...)
+						end,
+						NextInteger = function(_self, ...)
+							drawn += 1
+							return real:NextInteger(...)
+						end,
+					}
+					local runtime = Boar.newRuntime({
+						field = FIELD,
+						parent = holder,
+						folderName = "Stream",
+						rng = counting :: any,
+						config = { KINDS = { ENABLED = flagOn }, maxBoars = 12 },
+						threats = function()
+							return {}
+						end,
+						probe = function()
+							return false
+						end,
+						requestPath = function(_id, _from, _to, done)
+							done(nil)
+						end,
+						releasePath = function() end,
+					})
+					runtime:spawnSounder(Vector3.new(0, 10, 0), 3, 20, composition)
+					runtime:destroy()
+					holder:Destroy()
+					return drawn
+				end
+
+				-- The baseline: a NAMED composition of three boars. `spawnSounder` never consults
+				-- the deer draw when the caller named one, with the flag on or off, so this is the
+				-- release that cannot want a deer in either world.
+				local named = releaseDraws(false, { females = 1, cubs = 2 })
+				-- The one that round 1 broke: no composition, flag OFF. Same release, same size.
+				local blind = releaseDraws(false, nil)
+				expect(blind).to.equal(named)
 			end)
 		end)
 
