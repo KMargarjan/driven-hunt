@@ -29,6 +29,9 @@ local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local cameraScripts = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera")
 local Config = require(cameraScripts:WaitForChild("Config"))
 local Mode = require(cameraScripts:WaitForChild("Mode"))
+-- THE HUD IS THE PLAYER'S PATH for the readout and the ammo chip, and like `Camera` above
+-- it lives in StarterPlayerScripts -- a TEMPLATE, read here the same way.
+local Hud = require(StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Hud"))
 
 local StateMachine = Weapon.StateMachine
 local Shapes = Weapon.Shapes
@@ -319,6 +322,57 @@ return function()
 			-- ...AND `Weapon.cycleRefusal` CALLS THAT A FINISH, which is what makes the sequence end
 			-- cleanly instead of taking the error path.
 			expect(Weapon.cycleRefusal("Load", refusal)).to.equal("finish")
+		end)
+	end)
+
+	describe("X on a tube gun: the first magazine readout with two loads", function()
+		it("changes the NEXT load without touching a full tube, and the shot flies as what is in it", function()
+			-- THE ARM NOTHING ELSE IN THE GAME CAN ENTER (design 15.1 case 9, section 6.4): this is
+			-- the first weapon with `READOUT = "magazine"` AND two `AMMO_KINDS` AND
+			-- `CYCLE_EJECTS = "spent"`. The side-by-side has two kinds and a per-chamber readout; both
+			-- rifles have a magazine readout and one kind.
+			local state = equipped(ROW)
+			expect(state.ammo).to.equal("Buck")
+			expect(live(state)).to.equal(5)
+			local switched = StateMachine.apply(state, { kind = "SelectAmmo", ammo = "Slug" }, 0, ROW)
+			-- THE TUBE IS UNTOUCHED -- five buckshot shells are still in it -- and only the NEXT load
+			-- changed. That is honest and it is what a real tube gun does.
+			expect(switched.ammo).to.equal("Slug")
+			expect(live(switched)).to.equal(5)
+			for index = 1, #switched.loaded do
+				expect(switched.loaded[index]).to.equal("Buck")
+			end
+			-- ...SO A SHOT FROM THAT STATE FLIES AS BUCK, because `onFireRequest` reads
+			-- `state.loaded[state.selected]` and not `state.ammo`.
+			expect(switched.loaded[switched.selected]).to.equal("Buck")
+			TestKit.note(
+				string.format(
+					"task225 X on a full tube: ammo=%s but chamber=%s, %d live",
+					switched.ammo,
+					switched.loaded[switched.selected],
+					live(switched)
+				)
+			)
+		end)
+
+		it("prints rounds over capacity, with the NEXT load's word and five pips", function()
+			-- Design 15.1 case 19, on the player's path: the Hud's own readout and ammo chip for THIS
+			-- row, rather than the shape being traced in prose.
+			local state = equipped(ROW)
+			local line = Hud.readoutFor(Shotgun.snapshot(state, 0, nil, ROW.id), ROW)
+			TestKit.note(string.format("task225 readout: %s", tostring(line)))
+			expect(type(line)).to.equal("string")
+			-- ROUNDS OVER CAPACITY, not one glyph per chamber -- which is what `READOUT = "magazine"`
+			-- buys and what five chambers make unreadable otherwise.
+			expect(string.find(line, "5/5", 1, true)).to.be.ok()
+			expect(string.find(line, "BUCK", 1, true)).to.be.ok()
+			-- ...AND THE CHIP DRAWS THIS SHELL'S OWN GLYPH, which only exists because the row carries
+			-- `AMMO_GLYPH` (the wire word is `Slug` on all four guns).
+			if Hud.ammoChipFor ~= nil then
+				local chip = Hud.ammoChipFor(Shotgun.snapshot(state, 0, nil, ROW.id), ROW)
+				TestKit.note(string.format("task225 chip: %s", tostring(chip and chip.glyph or chip)))
+				expect(chip).to.be.ok()
+			end
 		end)
 	end)
 

@@ -36,10 +36,10 @@ local semiConfig = (function()
 	return table.freeze(out)
 end)()
 
-local function stateAt(openTilt: number)
+local function stateAt(openTilt: number, blend: number?)
 	local made = table.clone(Camera.Mode.initial(Camera.Config)) :: any
-	made.mode = "Third"
-	made.blend = 0
+	made.blend = blend or 0
+	made.mode = if made.blend > 0 then "Aiming" else "Third"
 	made.openTilt = openTilt
 	return table.freeze(made)
 end
@@ -245,6 +245,65 @@ return function()
 					)
 				)
 				expect((trayBack.Position - trayRest.Position).Magnitude < 1e-3).to.equal(true)
+			end)
+		end)
+
+		it("PUTS THE DOT ON THE SIGHT PLANE the aim is solved from -- one expression, not two", function()
+			-- THE CASE THAT WOULD HAVE CAUGHT ROUND 1'S FINDING 1, and it is written the way the
+			-- design asks (15.3 case 3): the DRAWN dot and the ATTACHMENT the eye is laid on must be
+			-- the same point, because they come from one expression (`Geometry.beadOffset`).
+			--
+			-- THE DEFECT IT CATCHES IS A NAME, not a number. `Viewmodel.sight()` resolves the
+			-- attachment with `FindFirstChild("Sight")` and then `IsA("Attachment")` -- so a PART
+			-- named `Sight` is found first, fails the class test, and the whole aimed pose silently
+			-- falls back to `VIEWMODEL_AIM_OFFSET` with `eyeReliefStuds` and `cheekDeg` doing nothing.
+			-- TO SEE IT FAIL: rename this gun's sight piece back to `"Sight"` in
+			-- `SemiAuto.Geometry.MESH_KEYS` and `pieces`. `Viewmodel.sight()` then answers nil and the
+			-- first assertion below fails.
+			withSemiAutoDrawn(function()
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAt(0), semiConfig)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				local sight = Camera.Viewmodel.sight()
+				expect(sight).to.be.ok()
+				local dot = clone:FindFirstChild("RedDot") :: BasePart
+				expect(dot).to.be.ok()
+				-- ...AND NO PART MAY TAKE THE ATTACHMENT'S NAME, on this gun or any other.
+				local named = clone:FindFirstChild("Sight")
+				expect(named == nil or named:IsA("Attachment")).to.equal(true)
+				local at = clone.CFrame * (sight :: CFrame)
+				local miss = (dot.Position - at.Position).Magnitude
+				TestKit.note(string.format("task225 dot vs the sight attachment: %.6f studs apart", miss))
+				expect(miss < 1e-3).to.equal(true)
+			end)
+		end)
+
+		it("AIMS WITHOUT A SCOPE: no mask, and the gun and both gloves stay in the view", function()
+			-- Design 15.3 case 2. The arm is `scope = nil` with `SIGHT = "reddot"`, which is what
+			-- makes aiming the side-by-side's path rather than the Rigby's full-screen mask -- and it
+			-- is reached by PARAMETER, at blend 1, rather than by holding a mouse button.
+			withSemiAutoDrawn(function()
+				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAt(0, 1), semiConfig)
+				expect(Camera.Viewmodel.weaponId()).to.equal("semiauto")
+				-- NO OPTICS AT ALL on this row, so nothing can hide the gun.
+				expect(semiConfig.VIEWMODEL_SCOPE).to.equal(nil)
+				expect(Weapons.ROWS.semiauto.scope).to.equal(nil)
+				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
+				expect(clone).to.be.ok()
+				-- THE GUN AND BOTH GLOVES ARE STILL DRAWN AND STILL UNDER THE CAMERA.
+				local right = clone:FindFirstChild(HandAssets.RIGHT) :: BasePart
+				local left = clone:FindFirstChild(HandAssets.LEFT) :: BasePart
+				expect(right).to.be.ok()
+				expect(left).to.be.ok()
+				expect(clone:IsDescendantOf(Workspace.CurrentCamera)).to.equal(true)
+				expect(clone.Transparency < 1).to.equal(true)
+				-- ...AND THE AIMED HOLD IS A DIFFERENT HOLD FROM THE HIP, which is what proves the
+				-- aimed pose was actually solved rather than falling through to a default.
+				local aimed = Camera.Mode.viewmodelOffset(stateAt(0, 1), Camera.Viewmodel.sight(), semiConfig)
+				local hip = Camera.Mode.viewmodelOffset(stateAt(0, 0), Camera.Viewmodel.sight(), semiConfig)
+				TestKit.note(
+					string.format("task225 aim vs hip: %.4f studs apart", (aimed.Position - hip.Position).Magnitude)
+				)
+				expect((aimed.Position - hip.Position).Magnitude > 0.05).to.equal(true)
 			end)
 		end)
 

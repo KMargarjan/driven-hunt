@@ -667,10 +667,6 @@ local function lerpHand(a: HandFrame, b: HandFrame, t: number): HandFrame
 	}
 end
 
--- WHERE ONE HAND IS THIS FRAME, in the gun's own frame. `side` is "right" or "left", the two keys
--- every pose in `poses.json` carries.
---
--- The path is the same one the gun takes: carry -> the raise's mid keyframes -> aim, at the eased
 -- HOW MUCH OF THE ACTION POSE THIS GUN ACTUALLY TAKES (task 225). `openTilt` says how far through
 -- its action the gun is; this says how much of that the GUN AND THE HANDS are allowed to show.
 --
@@ -689,6 +685,10 @@ local function poseShare(config): number
 	return math.clamp((config and config.CYCLE_POSE_SHARE) or 1, 0, 1)
 end
 
+-- WHERE ONE HAND IS THIS FRAME, in the gun's own frame. `side` is "right" or "left", the two keys
+-- every pose in `poses.json` carries.
+--
+-- The path is the same one the gun takes: carry -> the raise's mid keyframes -> aim, at the eased
 -- blend, and then toward the reloading hand by `openTilt`. A mid keyframe that does NOT name a hand
 -- takes whatever the plain carry-to-aim blend gives at its own `t`, so adding a keyframe to move the
 -- GUN alone cannot silently move a hand.

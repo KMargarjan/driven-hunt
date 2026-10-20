@@ -185,7 +185,13 @@ if weaponModule then
 	-- THE PREVIOUS SNAPSHOT, kept so `Camera.fedShell` can see a chamber go Live (task 225). It is
 	-- NOT `lastClosed`: that one deliberately remembers the last SHUT gun, and a shell going into a
 	-- tube gun never shuts anything.
+	-- ...AND IT STARTS "NOT YET SEEN" RATHER THAN nil-AS-EMPTY. `fedShell` counts Live chambers
+	-- and `live(nil)` is 0, so a client that boots in the middle of somebody's reload would read
+	-- its FIRST snapshot as a shell going in -- one spurious click and one spurious tray lift.
+	-- `seen` makes the first snapshot establish the baseline instead of being compared to a gun
+	-- with no chambers at all (the Reviewer's round-1 note).
 	local lastSnapshot: any = nil
+	local seenSnapshot = false
 	Camera.setBreakSource({
 		state = function()
 			local snapshot = Weapon.get()
@@ -224,7 +230,7 @@ if weaponModule then
 			--
 			-- THE SIDE-BY-SIDE IS STILL DELIBERATELY SILENT here: its row carries no `SOUND` block,
 			-- so `voiceFor` answers nil and nothing plays, which is exactly what it did before.
-			local fed = Camera.fedShell(lastSnapshot, snapshot)
+			local fed = seenSnapshot and Camera.fedShell(lastSnapshot, snapshot)
 			if fed then
 				local voiced = Weapons.row(snapshot ~= nil and snapshot.weapon or nil)
 				if Weapon.Sound.voiceFor(voiced, "load") ~= nil then
@@ -239,6 +245,7 @@ if weaponModule then
 				end
 			end
 			lastSnapshot = snapshot
+			seenSnapshot = true
 			wasAction = nowAction
 			-- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142). The SERVER SAYS WHICH STEP IT
 			-- IS RUNNING (`snapshot.action`) and `busyFor` is that step's own clock, so this is a

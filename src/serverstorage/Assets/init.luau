@@ -2416,6 +2416,11 @@ Assets.ROWS = {
 	-- size and one origin and assemble at ONE CFrame with no measured per-piece offset. That is why
 	-- every row below has the same `sizeStuds`, the same zero offset and the same rotation.
 	--
+	-- THE SIX `trisDeclared` SUM TO 8,736 AND THE MODEL HAS 8,724, and the 12 are not a
+	-- discrepancy: `gltf_split` adds TWO anchor triangles to every group (the whole gun's
+	-- bounding box, which is what lets all six import at one size and one origin). Six groups,
+	-- two each. `trisDeclared` is what the FILE holds, so it counts them.
+	--
 	-- SIX AND NOT THE LEVER'S THREE, and not one of the six is a preference. THREE of the splits are
 	-- forced by MATERIAL -- this model carries three where the Marlin carried one, and `gltf_split`
 	-- refuses a group spanning two because one MeshPart is one material. TWO are forced by MOTION:

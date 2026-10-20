@@ -825,7 +825,10 @@ SCOPE_SPECS = {
                   # Task 225: the drawn semi-auto -- its `"straight"` bolt, its SECOND moving group
                   # and the pose share that keeps the gun still -- is the viewmodel's too.
                   "tests/client/semiauto_client.spec.luau"),
-    "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau"),
+    # Task 225: `CYCLE_POSE_SHARE` is read in `Camera.Mode`, and the spec that asserts both of
+    # its arms is the semi-auto's -- so a scoped run over that file has to play them.
+    "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau",
+               "tests/server/semiauto.spec.luau", "tests/client/semiauto_client.spec.luau"),
     "weapon": ("tests/server/ballistics.spec.luau",
                # Task 223: `src/shared/Licences` flipped `reddeer.shipped`, and this spec drives
                # the fire gate from a REAL deer trunk rather than from the stub.
@@ -839,8 +842,10 @@ SCOPE_SPECS = {
                # Task 224: the lever rifle drives `Weapon.cycleRefusal` and the reducer, which are
                # `src/server/Weapon/` -- this scope -- as well as its own numbers.
                "tests/server/lever.spec.luau",
-               # Task 225: the semi-auto drives the same two, plus `Weapon.ShapeSemiAuto`.
+               # Task 225: the semi-auto drives the same two, plus `Weapon.ShapeSemiAuto` --
+               # and its client spec drives the drawn weapon through the real seam.
                "tests/server/semiauto.spec.luau",
+               "tests/client/semiauto_client.spec.luau",
                "tests/client/lever_client.spec.luau",
                "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
                "tests/client/rifle_client.spec.luau",

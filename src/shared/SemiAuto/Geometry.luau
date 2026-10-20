@@ -119,7 +119,19 @@ Geometry.MESH_KEYS = table.freeze({
 	Stock = "semiauto.stock",
 	Bolt = "semiauto.bolt",
 	Lifter = "semiauto.lifter",
-	Sight = "semiauto.sight",
+	-- `RedDot` AND NOT `Sight`, AND THE NAME IS LOAD-BEARING. `"Sight"` is already taken twice
+	-- over: `Camera.Viewmodel`'s `SIGHT_NAME` is the ATTACHMENT `buildNewGun` puts on the
+	-- Handle to mark where the eye is laid, and `Weapon.Hardware.SIGHT_NAME` is the same name
+	-- on the world Tool. `Viewmodel.sight()` resolves it with `FindFirstChild(SIGHT_NAME)` and
+	-- then `IsA("Attachment")` -- so a PART of that name is found first, fails the class test,
+	-- and the function answers nil. The aimed pose then falls back to
+	-- `VIEWMODEL_AIM_OFFSET` and the dot is never put on the camera axis: `eyeReliefStuds` and
+	-- `cheekDeg` become dead numbers. MEASURED by the Reviewer, round 1, finding 1.
+	--
+	-- The piece name, this key and the row's `MESH_NAMES` entry must all say the same word:
+	-- `meshFor(piece.name)` looks the published mesh up BY PIECE NAME and `publishGunPiece`
+	-- walks this table's keys.
+	RedDot = "semiauto.sight",
 })
 
 -- THE RED DOT'S OWN PLANE, measured on the sight's optical path: its rear glass centres at
@@ -458,9 +470,11 @@ function Geometry.pieces(config): { Piece }
 			shape = Enum.PartType.Block,
 		},
 		{
-			name = "Sight",
+			-- NOT `"Sight"`: that name is the aim ATTACHMENT's, on this gun and on the world Tool
+			-- alike. See `MESH_KEYS` above for what happens when a part takes it.
+			name = "RedDot",
 			group = "body" :: Gun.Group,
-			meshKey = Geometry.MESH_KEYS.Sight,
+			meshKey = Geometry.MESH_KEYS.RedDot,
 			meshOffset = meshAt,
 			size = at.sight.size,
 			offset = CFrame.new(at.sight.at),
