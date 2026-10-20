@@ -2917,8 +2917,21 @@ end
 -- asked before. The LEGENDARY's key is `"male"`: it is the same bought asset, so it costs no second
 -- fetch and no second asset id, and `_heldTemplate` is keyed by the KEY so the two share one
 -- template rather than loading it twice.
+--
+-- THE ROW IS READ BY NAME AND NOT THROUGH `Body.kindRow`, AND THE HARNESS IS WHY. `kindRow` answers
+-- the DEFAULT row for a kind it does not know AND for every kind while `KINDS.ENABLED` is false --
+-- which is exactly right for GEOMETRY (with the kinds off every animal is the male-sized box) and
+-- exactly wrong here: it made this function ask for `"male"` for every kind in a MODEL-on,
+-- KINDS-off world, so `Runtime:displayCarcass` drew a male for a dead sow and for a dead piglet.
+-- `boar_model.spec`'s *"draws each kind from its OWN asset, at its own size"* caught it on the first
+-- run. Reading `KINDS[kind]` directly keeps all three answers right: a known kind gets its own
+-- `model` whatever the flag says, the legendary gets `"male"`, and a kind with NO row falls through
+-- to its own name -- so an unknown kind still reaches a source that has no row for it and still
+-- answers nothing, which is the grey box, and the runtime still invents no kind.
 function Runtime:_modelTemplate(kind: string, now: number): Instance?
-	local key = Body.kindRow(kind, self._config).model or kind
+	local kinds = self._config.KINDS
+	local row = if type(kinds) == "table" then kinds[kind] else nil
+	local key = (type(row) == "table" and row.model) or kind
 	local held = self._heldTemplate[key]
 	if held ~= nil and held.Parent ~= nil then
 		return held

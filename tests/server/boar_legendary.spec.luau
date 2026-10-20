@@ -16,6 +16,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local ServerStorage = game:GetService("ServerStorage")
+local Workspace = game:GetService("Workspace")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
@@ -206,9 +207,13 @@ return function()
 			-- than a pure function: four releases of a drive whose chance is 1, and exactly one
 			-- animal in the world is the trophy. `clear` is the drive boundary -- `Match` calls it at
 			-- every drive's end -- so the next drive rolls again and may have its own.
+			-- IN WORKSPACE, because `Body.create` calls `SetNetworkOwner` and the engine refuses it
+			-- on a part that is not a descendant of Workspace ("Can only call Network Ownership API
+			-- on a part that is descendent of Workspace" -- what the first run of this file said).
+			-- Nothing here steps, so no boar moves; the folder is destroyed at the end of the case.
 			local holder = Instance.new("Folder")
 			holder.Name = "BoarLegendarySpec"
-			holder.Parent = ServerStorage
+			holder.Parent = Workspace
 			local runtime = Boar.newRuntime({
 				field = FIELD,
 				parent = holder,
@@ -263,7 +268,7 @@ return function()
 		it("puts NONE in a drive whose roll said no", function()
 			local holder = Instance.new("Folder")
 			holder.Name = "BoarLegendaryNoneSpec"
-			holder.Parent = ServerStorage
+			holder.Parent = Workspace
 			local runtime = Boar.newRuntime({
 				field = FIELD,
 				parent = holder,
