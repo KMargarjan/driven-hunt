@@ -7,12 +7,24 @@ Code commit: 113f3aa480bb16fe382b1a82ceac035a5356b054
 
 ```
 [harness] PASS: 33/33 checks @ 113f3aa480bb16fe382b1a82ceac035a5356b054 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 113f3aa480bb16fe382b1a82ceac035a5356b054 (clean tree)
 ```
 
-**`[harness2]` IS NOT PASTED AND THIS REQUEST IS NOT YET REVIEWABLE.** The change touches
-`src/server/Match/init.luau` and `tests/server/match_score.spec.luau`, both on `TWO_PLAYER_PATHS`, so
-the gate asks for a two-player line and that run needs a human click. `ESCALATE.md` carries
-**`NEEDS TEST2 223 113f3aa`** with the reason it was not worked around.
+**BOTH GATE LINES, AT THE CODE COMMIT, ON A CLEAN TREE.** The `[harness2]` line is the Director's,
+run first try on 2026-10-20 -- the change touches `src/server/Match/init.luau` (the three deer
+prices, three `SCENE.ANIMAL_SCALES` rows) and `tests/server/match_score.spec.luau`, both on
+`TWO_PLAYER_PATHS`. **`NEEDS TEST2 223` is RESOLVED.** It was not worked around: moving the deer's
+prices out of `POINTS.KIND` to dodge the run would have created the second price table rule 3
+exists to prevent, which is a worse trade than one click.
+
+**THE ELEVEN ANIMATION PUBLISHES ARE A FOLLOW-UP (223c), NOT A BLOCKER** (Director, 2026-10-20).
+The deer ships with its three models and no clips, which is **exactly the state the boar was in
+between tasks 115 and 116**: `Assets.byKey` answers nil for every deer clip key, `Body.hasClip` is
+false, `trackFor` returns nil, and the animal stands and slides. That state is honest, it is the
+precedent, and it is *asserted* -- `deer.spec` checks all eleven keys are declared and all eleven
+have no row. An animation asset id can only be made by hand in Studio's Animation Editor, so this
+could never have been in the same commit as the code. `ESCALATE.md`'s `NEEDS KAREN 223` carries the
+eleven clicks in order.
 
 ## What changed
 
@@ -106,8 +118,15 @@ The deer is **a species dimension on the animal runtime that already exists**, n
 
 ## What I could not verify (rule 8)
 
-* **No `[harness2]` line.** Two files on `TWO_PLAYER_PATHS` changed; the run needs a human click.
-  `ESCALATE.md`: `NEEDS TEST2 223 113f3aa`.
+* **A STALE SENTENCE IN `tests/server/deer.spec.luau`'s OWN HEADER, and I am naming it rather than
+  letting the Reviewer find it.** Two lines of that file's comment block still say the licence cases
+  build *"a REAL trunk built by `Body.create`"* and that the second impure case is *"the per-drive
+  cap"*. Neither is true of the file as it shipped: `Body` is private, so the block was rewritten to
+  spawn through `Boar.newRuntime`/`Runtime:spawn` -- the public door, which is how the drive makes an
+  animal -- and the cap case is pure. **The code is right and the comment above it is behind it.**
+  It is a comment-only inaccuracy in `tests/`, this round is paperwork-only by the Director's
+  instruction, and fixing it would move the code commit, so it is queued as 223a(h) rather than
+  smuggled in.
 * **ONE of the three rule-5 frames was taken and LOOKED AT; the other two were not.**
   `.screenshots/20261020T131819Z-t223-deer-eye-ground.png` (camera y = 7, i.e. **5 studs above the
   measured ground**, the player's eye height) and
@@ -130,8 +149,9 @@ The deer is **a species dimension on the animal runtime that already exists**, n
   rendered and inspected frame by frame (`<assets-dir>/deer/silhouettes/overlay-*.png`), which is
   how the fitted box was caught sliding onto the torso and rejected.
 * **No live drive with a licensed and an unlicensed shot.** The licence pair is proved in `deer.spec`
-  against a real trunk and the real `Rules.refuse`, which is the same gate the live shot would reach
-  -- but it is not the same as a shot fired in a session, and I am not claiming it is.
+  against a trunk the boar runtime really built and the real `Rules.refuse`, which is the same gate
+  the live shot would reach -- but it is not the same as a shot fired in a session, and I am not
+  claiming it is.
 * **No smoke run (standing rule A).** I am therefore **not** saying this is ready for Karen to play.
 * **The hit card's box is honest and incomplete.** The deer's `box` is the picture's own measured
   geometry (nose / rump / back line / hooves), which is what `HitLog.Shape.dot` normalises against.

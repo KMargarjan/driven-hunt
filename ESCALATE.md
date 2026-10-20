@@ -1,6 +1,6 @@
 # Escalations
 
-## 2026-10-20 - Task 223: `NEEDS TEST2 223 113f3aa` -- the two-player gate, one human click
+## 2026-10-20 - Task 223: `NEEDS TEST2 223 113f3aa` -- **RESOLVED**, the Director ran it first try
 
 The red deer touches **two files on `TWO_PLAYER_PATHS`** and there is no way around it:
 
@@ -19,12 +19,18 @@ price table rule 3 exists to prevent, and that is a worse trade than one click.
 [harness] PASS: 33/33 checks @ 113f3aa480bb16fe382b1a82ceac035a5356b054 (clean tree) scope=all
 ```
 
-**What is needed:** `python tools/studio_mcp.py test2` at `113f3aa`, which asks for the second Play
-client Karen or the Director has to start. The review cannot be opened without that line
-(`tools/agents.py` refuses the request), so the Builder has stopped here rather than running a review
-it knows will be refused.
+**RESOLVED, 2026-10-20.** The Director ran it at the code commit, first try:
+
+```
+[harness2] PASS: 35/35 checks @ 113f3aa480bb16fe382b1a82ceac035a5356b054 (clean tree)
+```
+
+Both lines are in `reviews/task-223/REQUEST.md` and the review was opened on them.
 
 ## 2026-10-20 - Task 223: `NEEDS KAREN` -- the ELEVEN animation publishes for the red deer
+
+**NOT A BLOCKER** (Director, 2026-10-20): this is follow-up **223c**, and task 223 merges
+without it.
 
 **Nothing is broken and nothing is waiting on this to merge.** The deer ships with its models and
 no clips, which is exactly the state the boar was in between tasks 115 and 116: `Assets.byKey`
