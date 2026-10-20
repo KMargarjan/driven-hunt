@@ -2083,9 +2083,23 @@ Boar.CONFIG.SENSE = {
 --   tint       THE COAT, MULTIPLIED. The loaded mesh carries exactly one `SurfaceAppearance` (its
 --              `ColorMap` is rbxassetid://140199537340988) whose `Color` exists and reads (1, 1, 1)
 --              -- measured, because a `MeshPart.Color` write is IGNORED when a SurfaceAppearance is
---              present, and an overlay part would be a second thing to weld. RGB(70, 58, 48) is a
---              dark warm brown: about a quarter of the bought coat brightness and slightly off its
---              red, which is what an old grizzled keiler reads as. **Karen dial.**
+--              present, and an overlay part would be a second thing to weld.
+--
+--              IT IS A MULTIPLIER AND NOT A COLOUR, AND THAT IS WHAT ROUND 1 GOT WRONG. The value
+--              was RGB(70, 58, 48), which as a multiply is (0.275, 0.227, 0.188) -- it takes the
+--              artist's coat to a QUARTER of its brightness, and the Director's frame
+--              (`219-pair-lit2.png`) showed the result: *"a FLAT BLACK silhouette -- no fur, no
+--              detail"*. He is right, and the number he offered instead (70, 62, 55) is 0.275 /
+--              0.243 / 0.216 -- the same quarter, so it would not have fixed what he saw. Said here
+--              because the arithmetic is the whole point: at 255 the coat is untouched, and every
+--              step down multiplies the FUR as well as the colour.
+--
+--              RGB(150, 138, 125) is (0.588, 0.541, 0.490): a little over half brightness, warmed
+--              down and very slightly desaturated, so the animal reads clearly darker than the males
+--              beside it while the ColorMap's bristles, highlights and the pale tusks all survive.
+--              **Karen's dial, and the floor is the thing to keep: below about 0.35 the fur stops
+--              being visible at all, which `boar_legendary.spec` now asserts rather than leaving to
+--              the next person's eye.**
 --              THE TUSKS COULD NOT BE DONE and that is said out loud: the rig is one skinned mesh
 --              with no separate tusk geometry and the tusks are painted into the ColorMap, so "paler
 --              and a bit longer" needs a second mesh or a reworked upload -- an asset task. They are
@@ -2118,7 +2132,7 @@ Boar.CONFIG.KINDS = {
 		model = "male", -- THE SAME BOUGHT ASSET. No upload, no new id
 		deathLiftStuds = 0,
 		meshScale = 1.35,
-		tint = Color3.fromRGB(70, 58, 48),
+		tint = Color3.fromRGB(150, 138, 125),
 		toughness = 2.0,
 		wary = { noticeScale = 1.4, runScale = 1.12 },
 	},
@@ -2389,12 +2403,20 @@ end
 -- caller spending a single permission rather than a counter that two code paths could disagree
 -- about.
 --
--- IT IS ALWAYS A MALE. A legendary is a mature lone boar: `SOUNDER.MAKEUP.LONE` is already `"male"`
--- and `SOUNDER.COMPOSITIONS` row 6 is *"a lone big male, which is what a mature boar actually is"*.
--- So this promotes the FIRST male in the release and nobody else. **A release of sows and piglets
--- promotes NOBODY and the permission is not spent**, so the next release of the same drive that
--- carries a male carries the trophy -- which is why the caller must not treat "I asked" as "I
--- spent".
+-- IT IS ALWAYS A MALE, AND NEVER A MALE INSIDE A NURSERY (round 1, note 5). A legendary is a mature
+-- lone boar: `SOUNDER.MAKEUP.LONE` is already `"male"` and `SOUNDER.COMPOSITIONS` row 6 is *"a lone
+-- big male, which is what a mature boar actually is"*.
+--
+-- SO A RELEASE WITH A SOW IN IT PROMOTES NOBODY, and that is the half round 1 missed.
+-- `SOUNDER.MAKEUP.YOUNG_MALE` is ALSO `"male"` at `YOUNG_MALE_CHANCE` 0.25, so "the first male in
+-- the release" picked, a quarter of the time, a YEARLING walking behind its mother -- and the
+-- trophy would have been three times the size of the piglets beside it, in the one group the design
+-- says it is never in. The note claimed *"a release of sows and piglets promotes NOBODY"*; that was
+-- true only of a release with no yearling in it. One `if` makes it true as written.
+--
+-- **THE PERMISSION IS NOT SPENT** when nobody is promoted, so the next release of the same drive
+-- that is actually a male group carries the trophy -- which is why the caller must not treat "I
+-- asked" as "I spent".
 function Boar.promoteLegendary(kinds: { string }, allowed: boolean, config): ({ string }, number?)
 	local out = table.clone(kinds)
 	if allowed ~= true then
@@ -2404,9 +2426,14 @@ function Boar.promoteLegendary(kinds: { string }, allowed: boolean, config): ({ 
 	if row == nil or config.KINDS.ENABLED ~= true then
 		return out, nil
 	end
-	local lone = config.SOUNDER.MAKEUP.LONE
+	local makeup = config.SOUNDER.MAKEUP
+	for _, kind in ipairs(out) do
+		if kind == makeup.SOW then
+			return out, nil -- a sow leads this one: her young are not the trophy
+		end
+	end
 	for index, kind in ipairs(out) do
-		if kind == lone then
+		if kind == makeup.LONE then
 			out[index] = row.name
 			return out, index
 		end
@@ -2708,15 +2735,27 @@ function Boar.newRuntime(world)
 	-- `Runtime:clear`, which `Match` already calls at the end of every drive.
 	self._legendaryInDrive = nil :: boolean?
 	self._legendaryDrawn = 0
-	-- ...AND THE ROLL COMES OUT OF ITS OWN STREAM, deliberately. `self._rng` is the stream every spec
-	-- written before this task was written against -- the formation draw and the sounder's per-member
-	-- rolls both take from it, and both are GATED on `BOAR_MODEL` for exactly this reason ("the
-	-- runtime's `Random` stream is bit-for-bit the one every existing spec was written against").
-	-- One more draw per drive out of that stream would shift every number after it. This one is
-	-- separate, and no spec depends on it: `CHANCE_PER_DRIVE` of 0 and 1 are EXACT (`NextNumber`
-	-- returns [0, 1)), so every case in this task is driven at one of those two or by the forcing
-	-- attribute.
-	self._legendaryRng = Random.new()
+	-- ...AND THE ROLL COMES OUT OF ITS OWN STREAM, WHICH THE WORLD SUPPLIES (round 1, finding 1).
+	--
+	-- IT IS A SEPARATE STREAM because `self._rng` is the one every spec written before this task was
+	-- written against -- the formation draw and the per-member rolls both take from it, and both are
+	-- GATED on `BOAR_MODEL` for exactly that reason -- so one more draw per drive out of it would
+	-- shift every number after it.
+	--
+	-- BUT SEPARATE IS NOT ENOUGH, AND ROUND 1 SHIPPED THE HALF THAT WAS. It was `Random.new()` with
+	-- no seed and no way for a world to supply one, and the comment here claimed "no spec depends on
+	-- it". That is true of the STREAM and FALSE OF THE OUTCOME: `SOUNDER.MAKEUP.YOUNG_MALE` is
+	-- `"male"` at a 0.25 chance, so a sow-led release can contain a male for `Boar.promoteLegendary`
+	-- to take, and a spec that then looks a promoted animal up in a three-kind table gets nil.
+	-- `boar_behaviour_live.spec` did exactly that (`wanted[handle.kind]`), so a green gate was ONE
+	-- SAMPLE OF A RANDOM VARIABLE rather than evidence. A harness run has to be reproducible.
+	--
+	-- SO THE WORLD OWNS IT, exactly as it owns `rng` one line up: a spec hands in a stream it can
+	-- pin, and the three specs that release a sounder with kinds ON now pin the CHANCE to 0 or 1 --
+	-- which needs no stream at all, because `NextNumber` returns [0, 1) and so 0 is never and 1 is
+	-- always, exactly. Production passes nothing and gets a fresh stream, which is what "one drive in
+	-- four" has to be.
+	self._legendaryRng = world.legendaryRng or Random.new()
 	-- EVERY STIMULUS'S MEASURED SPEED (task 118, design section 4.6), written here and nowhere else:
 	-- id -> { position, speed }. A character's own `AssemblyLinearVelocity` is network-owned by that
 	-- character's client, so a client that wants to be unnoticed could simply report nothing; a
@@ -4128,7 +4167,12 @@ function Runtime:displayCarcass(kind: string?, cframe: CFrame): Model?
 	-- off the step loop, and `_modelTemplate`'s once-a-second gate only ever delays a FIRST ask --
 	-- a template already held (which is the case for any kind this drive drew) comes back at once.
 	local template = self:_modelTemplate(kind or self._config.KINDS.DEFAULT, os.clock())
-	return Body.displayCarcass(template, cframe, self._config)
+	-- ...AND THE KIND'S OWN GEOMETRY WITH IT (round 1, finding 2). Without this the trophy was laid
+	-- out at the gathering as an ordinary male -- the male's length in the male's coat -- in the ONLY
+	-- branch a world with `BOAR_MODEL` on ever takes. `Body.kindGeometry` is the one answer to "how
+	-- big is this animal and what colour is it", and it is the same call `Runtime:spawn` makes.
+	local geometry = Body.kindGeometry(kind or self._config.KINDS.DEFAULT, self._config)
+	return Body.displayCarcass(template, cframe, self._config, geometry)
 end
 
 -- ALL OR NOTHING: it creates the whole sounder or nothing at all, so a half sounder cannot exist

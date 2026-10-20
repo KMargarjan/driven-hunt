@@ -184,30 +184,35 @@ local function build(frame: Frame)
 	artNear = art("Art", false)
 	artFar = art("ArtMirrored", true)
 
-	-- THE TROPHY TAG, ON THE PLATE (task 219). Karen, 2026-10-10: *"Legendary animals: one or a few,
-	-- e.g. a legendary boar"* -- and a card that draws the same boar picture for a male and for the
-	-- one animal in four drives has not told the player which he shot. The headline cannot carry the
-	-- word: measured, `LEGENDARY - BUCKSHOT 4/9` spaced is 167 px in a 164 px label. So it goes on the
-	-- plate, where `LEGENDARY BOAR` is 104 px inside 164, in the animal's own ink on its own paper.
+	-- THE TROPHY TAG, UNDER THE PLATE (task 219). Karen, 2026-10-10: *"Legendary animals: one or a
+	-- few, e.g. a legendary boar"* -- and a card that draws the same boar picture for a male and for
+	-- the one animal in four drives has not told the player which he shot. The headline cannot carry
+	-- the word: measured, `LEGENDARY - BUCKSHOT 4/9` spaced is 167 px in a 164 px label.
+	--
+	-- ROUND 1 PUT IT ON THE PLATE AND IT LANDED ON THE ANIMAL (round 1, finding 4): the art box spans
+	-- plate y 8..88 and the tag sat at 76..90, in `BOAR_FILL` -- the animal's own ink -- above both
+	-- the animal and the dots, and no frame of it had ever been taken. It is below the plate now, on
+	-- the dark card, in the headline's own `LABEL_COLOR`, in a band the card grew by six pixels to
+	-- hold (`Report.CONFIG.CARD.HEIGHT` 138 -> 144). It cannot cover the animal or a pellet dot,
+	-- which is the one thing this card exists to show.
 	--
 	-- BUILT ONCE AND HIDDEN, exactly as the two art frames are: `show` writes its `Visible`, so a
-	-- normal shot's card is the card Karen has already seen, pixel for pixel.
+	-- normal shot's card is the card Karen has already seen, bar the six pixels.
 	local tag = Instance.new("TextLabel")
 	tag.Name = "Trophy"
 	tag.BackgroundTransparency = 1
 	tag.FontFace = ShopPanel.FONT.SANS_BOLD
 	tag.TextSize = CONFIG.TROPHY_SIZE
-	tag.TextColor3 = CONFIG.BOAR_FILL
+	tag.TextColor3 = CONFIG.LABEL_COLOR
 	tag.TextXAlignment = Enum.TextXAlignment.Left
 	tag.TextYAlignment = Enum.TextYAlignment.Center
-	tag.Position = UDim2.fromOffset(CONFIG.TROPHY_PAD, CONFIG.PLATE_HEIGHT - CONFIG.TROPHY_PAD - CONFIG.TROPHY_HEIGHT)
-	tag.Size = UDim2.fromOffset(CONFIG.PLATE_WIDTH - 2 * CONFIG.TROPHY_PAD, CONFIG.TROPHY_HEIGHT)
+	tag.Position = UDim2.fromOffset(CONFIG.LABEL_X, CONFIG.ART_TOP + CONFIG.PLATE_HEIGHT + CONFIG.TROPHY_GAP)
+	tag.Size = UDim2.fromOffset(CONFIG.WIDTH - 2 * CONFIG.LABEL_X, CONFIG.TROPHY_HEIGHT)
 	tag.Text = ""
 	tag.Visible = false
-	-- ONE STEP ABOVE THE ANIMAL, which is drawn at `Z + 2`, for `Hud.build`'s own rule: a label at a
-	-- ZIndex at or below the thing behind it is text drawn behind that thing.
-	tag.ZIndex = Z + 3
-	tag.Parent = ground
+	-- The same step above the card as the headline (`Z + 1`): it sits on the card, not on the plate.
+	tag.ZIndex = Z + 1
+	tag.Parent = frame
 	trophy = tag
 
 	frame.Visible = false
@@ -276,6 +281,15 @@ local function setFade(fade: number)
 	end
 	if label ~= nil then
 		label.TextTransparency = at
+	end
+	-- ...AND THE TROPHY TAG, WHICH ROUND 1 LEFT OUT (round 1, finding 3) -- the exact defect this
+	-- file was blocked for in round 2 of task 198, and the one `fadeInk`'s own header predicts for
+	-- *"the next child type added to this card -- an icon, a TAG, a stroke"*. It is a child of the
+	-- CARD and not of an art frame, so the walk below could never reach it: for the whole
+	-- `FADE_SECONDS` it stayed at full strength over the world and then snapped away with
+	-- `card.Visible`. Named here beside `label`, which is the other label this card owns directly.
+	if trophy ~= nil then
+		trophy.TextTransparency = at
 	end
 	if plate ~= nil then
 		plate.BackgroundTransparency = at

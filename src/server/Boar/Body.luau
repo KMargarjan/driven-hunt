@@ -36,9 +36,14 @@
 -- `HitZone`. So the physics, the raycasts, the wounds and the sounders are the same code over the
 -- same Instances as before it, and the flag's two states differ by exactly what is DRAWN.
 --   Skinned meshes      https://create.roblox.com/docs/art/modeling/rigging
---     Bones are descendants of the MeshPart, so moving the MeshPart moves the whole rig, and the
---     scale has to be baked into the upload: `Size` and `Model:ScaleTo` move the mesh and not the
---     bones, which tears the animal as soon as a clip plays.
+--     Bones are descendants of the MeshPart, so moving the MeshPart moves the whole rig.
+--     **`MeshPart.Size` moves the mesh and NOT the bones**, which tears the animal as soon as a clip
+--     plays -- so a DIFFERENT animal (the sow, the cub) has its scale baked into its own upload.
+--     **`Model:ScaleTo` DOES take the bones with it**, and that half of this sentence was wrong here
+--     for five tasks: measured on the real published male (task 219), `Size * 1.35` left the lowest
+--     bone at -1.6264 where it already was, and `ScaleTo(1.35)` moved it to -2.1957 -- exactly
+--     1.3500, as did `hoof_f.L`'s Z. That is what lets the LEGENDARY be the male's own asset at
+--     another size with no upload; see `Boar.CONFIG.KINDS` and `Body.attachVisual`.
 --   AnimationController + Animator  https://create.roblox.com/docs/reference/engine/classes/AnimationController
 --     The rig root is the controller's PARENT, which is why the controller is a child of the cloned
 --     Model rather than of the trunk. `Animator:LoadAnimation` on the SERVER replicates the track to
@@ -787,7 +792,18 @@ end
 -- nil means "the caller keeps its grey box", and it is the same refusal `Body.attachVisual` makes
 -- for the same reason: a template that is not one mesh is a different asset than the row describes,
 -- and the honest answer to that is the box (`soleMesh`).
-function Body.displayCarcass(template: Instance?, ground: CFrame, config): Model?
+--
+-- `geometry` IS THE KIND'S OWN, AND ROUND 1 DID NOT PASS IT (round 1, finding 2). The display is
+-- what the player walks up to at the end of the drive, and without this the LEGENDARY he just shot
+-- was laid out at the male's 5.5 studs in the male's coat -- the trophy, indistinguishable from the
+-- animals beside it, in the only branch the live game takes. `Match.CONFIG.SCENE.ANIMAL_SCALES` is
+-- read ONLY on the grey-box fallback, so the one world that honoured 1.35 was the one with no model
+-- in it. Everything needed was already one call away: `Runtime:displayCarcass` knows the kind and
+-- `Body.kindGeometry` answers both numbers.
+--
+-- IT IS OPTIONAL, so every caller written before this still gets exactly what it got: nil geometry
+-- means scale 1 and no tint, which is the male.
+function Body.displayCarcass(template: Instance?, ground: CFrame, config, geometry): Model?
 	if template == nil then
 		return nil
 	end
@@ -820,6 +836,30 @@ function Body.displayCarcass(template: Instance?, ground: CFrame, config): Model
 			table.insert(parts, descendant)
 		end
 	end
+	-- THE KIND'S OWN SIZE AND COAT (round 1, finding 2), and it is the SAME two operations
+	-- `Body.attachVisual` performs on the live animal -- `Model:ScaleTo`, which was MEASURED to take
+	-- a skinned rig's bones with it, and the `SurfaceAppearance.Color` the bought asset already
+	-- carries. Done BEFORE the pose below, because `Body.lyingCFrame` reads `cloneMesh.Size`: scaled
+	-- first, the same expression rests the bigger animal on the ground with no second number.
+	--
+	-- A nil `geometry`, or a kind whose scale is baked into its own upload, is scale 1 and no tint --
+	-- so the male, the sow and the cub are laid out exactly as they were before this.
+	model.PrimaryPart = cloneMesh
+	local meshScale = (geometry and geometry.meshScale) or 1
+	if meshScale ~= 1 then
+		model:ScaleTo(meshScale)
+	end
+	local tint = geometry and geometry.tint
+	if tint ~= nil then
+		for _, drawn in ipairs(parts) do
+			for _, child in ipairs(drawn:GetChildren()) do
+				if child:IsA("SurfaceAppearance") then
+					child.Color = tint
+				end
+			end
+		end
+	end
+
 	for _, drawn in ipairs(parts) do
 		-- ANCHORED, because this is scenery: nothing may shove it, nothing may drop it, and there is
 		-- no assembly for it to anchor by accident (the hazard `attachVisual` guards against is a
@@ -860,7 +900,8 @@ function Body.displayCarcass(template: Instance?, ground: CFrame, config): Model
 	for drawn, offset in pairs(offsets) do
 		drawn.CFrame = cloneMesh.CFrame * offset
 	end
-	model.PrimaryPart = cloneMesh
+	-- `PrimaryPart` was set further up, before `Model:ScaleTo` (task 219 round 2): the scale is taken
+	-- about the model's PIVOT, so the mesh has to be the pivot before it is scaled, not after.
 	return model
 end
 

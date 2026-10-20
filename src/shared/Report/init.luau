@@ -13,8 +13,8 @@
 --
 -- THE TYPES ARE DENSE ARRAYS OR PURE DICTIONARIES AND NOTHING ELSE, which is the rule
 -- `src/shared/Drive/init.luau` states for `ScoreRow`: "a table that is neither a dense array nor a
--- pure dictionary does not survive the wire faithfully". `byKind` therefore always carries all four
--- keys as numbers, never nil.
+-- pure dictionary does not survive the wire faithfully". `byKind` therefore always carries all FIVE
+-- keys as numbers, never nil (`legendary` is the fifth, task 219).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Report = {}
@@ -408,7 +408,10 @@ Report.CONFIG = {
 		MARGIN_LEFT = 16,
 		FEED_GAP = 8,
 		WIDTH = 188,
-		HEIGHT = 138, -- ART_TOP + PLATE_HEIGHT + a bottom margin equal to ART_INSET_X
+		-- ART_TOP + PLATE_HEIGHT + the trophy band (task 219 round 2: 30 + 96 + 2 + 14 + 2 = 144).
+		-- It was 138 -- the plate plus a bottom margin equal to `ART_INSET_X` -- until the tag needed
+		-- a band of its own that is not on top of the animal; see `TROPHY_HEIGHT`.
+		HEIGHT = 144,
 		-- The surface ladder of the house style (the Designer's `shop-design-spec.md` section 8.1):
 		-- panel `#1C1915` corner 16, and a thing that sits on it one step lighter and one step less
 		-- round. Near-opaque, because this is read for three seconds over a sunlit wood.
@@ -449,20 +452,31 @@ Report.CONFIG = {
 		RING_COLOR = Color3.fromHex("F6F1E6"),
 		RING_THICKNESS = 1,
 		DOT_PIXELS = 7,
-		-- THE TROPHY TAG (task 219): a second micro-label, on the PLATE, drawn only when
-		-- `Report.trophyWord` answers -- which is only for a legendary. It sits at the plate's bottom
-		-- left, inside `ART_PAD`, where the animal's own drawing never reaches (the art box is
-		-- 148 x 80 inside a 164 x 96 plate, so there are 8 px of bone all round it and the boar's
-		-- feet stop above this line). MEASURED: `LEGENDARY BOAR` spaced is 104.0 px at this size,
-		-- inside the plate's 164.
+		-- THE TROPHY TAG (task 219): a second micro-label, drawn only when `Report.trophyWord`
+		-- answers -- which is only for a legendary.
 		--
-		-- IT IS THE INK COLOUR AND NOT THE CARD'S LABEL COLOUR: the plate is bone (`PLATE_COLOR`) and
-		-- `LABEL_COLOR` is the pale text that sits on the dark card, which on bone would be invisible.
-		-- The animal's own fill is what is already printed on this plate, so the tag is printed in it
-		-- too -- one ink on one paper.
+		-- IT IS UNDER THE PLATE, ON THE CARD, AND ROUND 1 PUT IT ON TOP OF THE ANIMAL (round 1,
+		-- finding 4). The derivation written here then was arithmetically FALSE and nobody had looked
+		-- at a frame of it: the art box is `ART_PAD` 8 + `ART_HEIGHT` 80, so it spans plate y 8..88,
+		-- and a 14 px tag at `PLATE_HEIGHT - 6 - 14` sits at y 76..90 -- twelve pixels INSIDE the
+		-- picture, in `BOAR_FILL`, which is the ink the animal itself is printed in, above both the
+		-- animal and the dots. There are only 8 px of bone below the art; a 14 px tag can never be
+		-- clear of it.
+		--
+		-- SO THE CARD GREW BY SIX PIXELS AND THE TAG WENT BELOW THE PLATE. `HEIGHT` 138 -> 144: the
+		-- plate ends at `ART_TOP` 30 + `PLATE_HEIGHT` 96 = 126, the tag takes y 128..142 and the
+		-- card's own bottom margin is the 2 px left. That band is DARK CARD, not bone, so the tag is
+		-- `LABEL_COLOR` like the headline above it -- and it can never cover the animal or a pellet
+		-- dot, which is the one thing this card exists to show. The card's bottom is pinned to the
+		-- feed, so the six pixels come off its top.
+		--
+		-- IT IS DRAWN ONLY FOR A LEGENDARY, so an ordinary card has six pixels of empty card under
+		-- its plate. That is the price, and it is said out loud rather than discovered in a frame.
+		-- MEASURED: `LEGENDARY BOAR` spaced is 104.0 px, inside the tag's own box of
+		-- `WIDTH - 2 * LABEL_X` = 164.
 		TROPHY_SIZE = 10,
-		TROPHY_PAD = 6,
 		TROPHY_HEIGHT = 14,
+		TROPHY_GAP = 2, -- between the plate's bottom edge and the tag
 		-- The label: BuilderSans Bold, letter-spaced, 10 px -- the house style's micro-label.
 		LABEL_SIZE = 10,
 		LABEL_COLOR = Color3.fromHex("E8E2D6"),
@@ -609,11 +623,12 @@ end
 --
 -- `legendary` NEEDS NO ROW HERE AND THAT IS DELIBERATE (task 219): the rule above -- *"an unknown
 -- kind is returned as it came"* -- already answers `legendary`, which is the right word, so the
--- drive report's ANIMAL column prints `LEGENDARY` with nothing added to this function. The start
--- card says "Legendary boar" instead, out of `Drive.CONFIG.START_CARD_QUARRY_WORDS`, because a card
--- read before a player's first drive has to name the ANIMAL and not the rarity; and the hit card
--- says `LEGENDARY BOAR` out of `Report.trophyWord`. Three screens, one word each, none of them
--- guessing.
+-- drive report's ANIMAL column prints `LEGENDARY` with nothing added to this function. The hit card
+-- says `LEGENDARY BOAR` instead, out of `Report.trophyWord`. TWO screens, one word each, neither of
+-- them guessing. **The start card names it on NEITHER**, and that is not an oversight: its row cap
+-- is four and the four are spoken for, so `Drive.CONFIG.START_CARD_QUARRY_WORDS` has no `legendary`
+-- row and `boar_legendary.spec` asserts the absence. (An earlier draft of this paragraph claimed
+-- the start card said "Legendary boar"; it never did -- round 1, note 2.)
 -- THE WORD A TROPHY PUTS ON THE HIT CARD, or `nil` for every animal that is not one (task 219).
 -- PURE, and the one place that decision is made, so the card cannot say "legendary" for a sow.
 --

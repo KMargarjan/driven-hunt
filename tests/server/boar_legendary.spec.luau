@@ -145,11 +145,32 @@ return function()
 			for _, kind in ipairs({ "male", "female", "cub" }) do
 				expect(Boar.kindGeometry(kind, on).tint).to.equal(nil)
 			end
-			-- IT IS DARKER THAN THE GREY BOX'S OWN COLOUR, which is the whole ask (*"darker,
-			-- grizzled"*): a tint that was not darker would be a number nobody could see.
+			-- IT IS A MULTIPLIER, AND IT HAS A CEILING **AND A FLOOR** (round 1, the Director's look:
+			-- *"the legendary reads as a FLAT BLACK silhouette -- no fur, no detail"*). Round 1
+			-- compared this value against `CONFIG.BODY_COLOR`, which is a category error -- that is
+			-- the GREY BOX's albedo and this is a factor the artist's ColorMap is multiplied by -- and
+			-- the comparison happily passed a value of (0.275, 0.227, 0.188) that crushed the fur to
+			-- black. So the assertion is the thing a frame actually shows:
+			--   * every channel BELOW 1, or the animal is not darker than the males beside it;
+			--   * every channel ABOVE `FUR_FLOOR`, or the ColorMap's bristles and the pale tusks stop
+			--     being visible at all and the trophy is a silhouette.
+			-- 0.35 is the floor because 0.275 is what was measured as flat; it leaves the number
+			-- Karen's to turn and the failure mode named.
+			local FUR_FLOOR = 0.35
 			local tint = Boar.kindGeometry("legendary", on).tint :: Color3
-			local box = CONFIG.BODY_COLOR
-			expect(tint.R < box.R and tint.G < box.G and tint.B < box.B).to.equal(true)
+			for _, channel in ipairs({ tint.R, tint.G, tint.B }) do
+				expect(channel < 1).to.equal(true)
+				expect(channel > FUR_FLOOR).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"boar-legendary: the coat is multiplied by (%.3f, %.3f, %.3f) -- below 1 and clear of the %.2f fur floor",
+					tint.R,
+					tint.G,
+					tint.B,
+					FUR_FLOOR
+				)
+			)
 		end)
 
 		it("plays the male's clips at the male's stride times 1.35, inside its own rate rails", function()
@@ -212,6 +233,65 @@ return function()
 			expect(CONFIG.KINDS.LEGENDARY.CHANCE_PER_DRIVE).to.equal(0.25)
 			expect(Boar.wantsLegendary(0.24, configWith(true))).to.equal(true)
 			expect(Boar.wantsLegendary(0.26, configWith(true))).to.equal(false)
+		end)
+
+		it("NEVER promotes a yearling walking behind its mother (round 1, note 5)", function()
+			-- `SOUNDER.MAKEUP.YOUNG_MALE` is ALSO "male", at `YOUNG_MALE_CHANCE` 0.25, so "the first
+			-- male in the release" used to pick a YEARLING inside a sow-led sounder a quarter of the
+			-- time -- a trophy three times the size of the piglets beside it, in the one group the
+			-- design says it is never in. The research note claimed "a release of sows and piglets
+			-- promotes NOBODY"; that was only true of a release with no yearling in it.
+			expect(CONFIG.SOUNDER.MAKEUP.YOUNG_MALE).to.equal(CONFIG.SOUNDER.MAKEUP.LONE) -- the trap
+			local nursery = { "female", "cub", "male", "cub" } -- a sow, her piglets, and a yearling
+			local out, index = Boar.promoteLegendary(nursery, true, always)
+			expect(index).to.equal(nil)
+			expect(table.concat(out, ",")).to.equal("female,cub,male,cub")
+			-- ...AND THE SAME ANIMALS WITHOUT THE SOW ARE A MALE GROUP, which IS the trophy's.
+			local bachelors = { "male", "male" }
+			local promoted, where = Boar.promoteLegendary(bachelors, true, always)
+			expect(where).to.equal(1)
+			expect(table.concat(promoted, ",")).to.equal("legendary,male")
+		end)
+
+		it("cannot surprise a spec that pinned the chance, which is what round 1 could", function()
+			-- ROUND 1'S FLAKE, AS A CASE. The roll was `Random.new()` with no seed and no way for a
+			-- world to supply one, so `boar_behaviour_live.spec` -- which releases a sounder with
+			-- kinds ON and then looks each animal up in a THREE-kind table -- did arithmetic on nil
+			-- whenever that run's draw promoted somebody. A green gate was one sample.
+			--
+			-- Both halves are held here: the chance is EXACT at 0 and 1 (so a spec needs no stream at
+			-- all), and a world may hand in its own stream when it wants one.
+			expect(Boar.wantsLegendary(0, never)).to.equal(false)
+			expect(Boar.wantsLegendary(0.999999, never)).to.equal(false)
+			expect(Boar.wantsLegendary(0, always)).to.equal(true)
+			expect(Boar.wantsLegendary(0.999999, always)).to.equal(true)
+
+			-- AND THE WORLD'S OWN STREAM IS USED WHEN IT IS GIVEN. Two runtimes, same seed, same
+			-- answer -- which is what "a harness run is reproducible" means.
+			local holder = Instance.new("Folder")
+			holder.Name = "BoarLegendarySeedSpec"
+			holder.Parent = Workspace
+			local function drew(seed: number): boolean
+				local runtime = Boar.newRuntime({
+					field = FIELD,
+					parent = holder,
+					folderName = "Seed" .. tostring(seed) .. "_" .. tostring(math.random(1, 1e6)),
+					rng = Random.new(219),
+					legendaryRng = Random.new(seed),
+					config = { KINDS = { ENABLED = true, LEGENDARY = CONFIG.KINDS.LEGENDARY }, maxBoars = 8 },
+					threats = function()
+						return {}
+					end,
+				})
+				runtime:spawnSounder(Vector3.new(0, FIELD.groundY, 0), 1, nil, { males = 1 })
+				local trophy = runtime:stats().legendariesSpawned > 0
+				runtime:destroy()
+				return trophy
+			end
+			for _, seed in ipairs({ 1, 2, 3, 7 }) do
+				expect(drew(seed)).to.equal(drew(seed)) -- the SAME seed answers the same thing twice
+			end
+			holder:Destroy()
 		end)
 
 		it("promotes exactly ONE male, and nobody in a nursery", function()
@@ -490,6 +570,114 @@ return function()
 	end)
 
 	describe("the legendary boar: what it is worth, and what the screens are told", function()
+		it("is laid out at the gathering BIGGER AND DARKER, on the model branch (round 1, finding 2)", function()
+			-- ROUND 1 SHIPPED THE COMMENT AND NOT THE BEHAVIOUR. `Match.CONFIG.SCENE.ANIMAL_SCALES`
+			-- gained `legendary = 1.35` and a comment saying the trophy is laid out 35 % longer than
+			-- the males beside it -- but `Scene.build` reads that table ONLY on the grey-box fallback
+			-- branch (`if display ~= nil then ... else local size = Scene.animalSize(...)`). The model
+			-- branch goes `Match.displayAnimal` -> `Runtime:displayCarcass` -> `Body.displayCarcass`,
+			-- which took no kind at all. So in the only world a live game ever runs -- `BOAR_MODEL`
+			-- ON -- the animal the player just shot lay in the results scene at the male's length in
+			-- the male's coat, and the one world that honoured 1.35 was the one with no model in it.
+			--
+			-- THIS CASE IS ON THE MODEL BRANCH, with a template that carries a `SurfaceAppearance`
+			-- exactly as the bought asset does, so it fails if either half is dropped again.
+			local holder = Instance.new("Folder")
+			holder.Name = "BoarLegendaryDisplaySpec"
+			holder.Parent = Workspace
+
+			local MESH = Vector3.new(1.4011, 3.2573, 5.5) -- the male's own, measured off the asset
+			local function template(): Model
+				local model = Instance.new("Model")
+				local mesh = Instance.new("MeshPart")
+				mesh.Size = MESH
+				mesh.Anchored = true
+				local coat = Instance.new("SurfaceAppearance")
+				coat.Parent = mesh
+				mesh.Parent = model
+				return model
+			end
+
+			local kindsOn = table.clone(CONFIG.KINDS)
+			kindsOn.ENABLED = true
+			local modelOn = table.clone(CONFIG.MODEL)
+			modelOn.ENABLED = true
+			local runtime = Boar.newRuntime({
+				field = FIELD,
+				parent = holder,
+				folderName = "Display",
+				rng = Random.new(219),
+				config = { KINDS = kindsOn, MODEL = modelOn },
+				threats = function()
+					return {}
+				end,
+			})
+			local held = {}
+			runtime:setModelSource(function(key: string): Instance?
+				-- ONE TEMPLATE PER ASSET KEY, as the live source does. The trophy's key is "male",
+				-- which is the whole of "no upload, no new asset id".
+				if held[key] == nil then
+					held[key] = template()
+				end
+				return held[key]
+			end, nil)
+
+			local ground = CFrame.new(0, FIELD.groundY, 0)
+			local male = runtime:displayCarcass("male", ground)
+			local trophy = runtime:displayCarcass("legendary", ground)
+			expect(male).to.be.ok()
+			expect(trophy).to.be.ok()
+
+			-- BIGGER, on the drawn mesh and not in a config table.
+			local maleMesh = (male :: Model).PrimaryPart :: BasePart
+			local trophyMesh = (trophy :: Model).PrimaryPart :: BasePart
+			expect(math.abs(trophyMesh.Size.Z / maleMesh.Size.Z - 1.35) < 1e-3).to.equal(true)
+			expect(math.abs(trophyMesh.Size.Y / maleMesh.Size.Y - 1.35) < 1e-3).to.equal(true)
+
+			-- ...AND DARKER, on the coat the asset carries.
+			local function coatOf(model: Model): Color3?
+				for _, d in ipairs(model:GetDescendants()) do
+					if d:IsA("SurfaceAppearance") then
+						return d.Color
+					end
+				end
+				return nil
+			end
+			local trophyCoat = coatOf(trophy :: Model)
+			expect(trophyCoat).to.be.ok()
+			expect(trophyCoat :: Color3).to.equal(CONFIG.KINDS.legendary.tint)
+			-- The male's is untouched: white, i.e. the artist's ColorMap as drawn.
+			expect(coatOf(male :: Model)).to.equal(Color3.new(1, 1, 1))
+
+			-- ...AND IT STILL LIES ON THE GROUND. `Body.lyingCFrame` reads the mesh's size, so
+			-- scaling BEFORE the pose is what keeps the bigger animal resting on the grass rather
+			-- than sunk a third of the way into it.
+			local half = Boar.lyingHalfHeight(trophyMesh.Size, CONFIG.MODEL.DISPLAY_ROLL_DEG)
+			expect(math.abs((trophyMesh.Position.Y - half) - FIELD.groundY) < 1e-3).to.equal(true)
+			TestKit.note(
+				string.format(
+					"boar-legendary: the display is %.2f studs against the male's %.2f, coat x(%.2f, %.2f, %.2f)",
+					trophyMesh.Size.Z,
+					maleMesh.Size.Z,
+					(trophyCoat :: Color3).R,
+					(trophyCoat :: Color3).G,
+					(trophyCoat :: Color3).B
+				)
+			)
+
+			-- AND THE SCENE'S OWN FALLBACK TABLE STILL AGREES WITH THE ANIMAL, which is what keeps
+			-- the grey-box branch and the model branch showing one size: `Match` must not require
+			-- `Boar`, so the numbers are copied -- and copied numbers need a case that compares them.
+			for kind, scale in pairs(Match.CONFIG.SCENE.ANIMAL_SCALES) do
+				expect(math.abs(scale - CONFIG.KINDS[kind].scale) < EPSILON).to.equal(true)
+			end
+
+			(male :: Model):Destroy();
+			(trophy :: Model):Destroy()
+			runtime:destroy()
+			holder:Destroy()
+		end)
+
 		it("carries kind = legendary on the kill record", function()
 			-- THE ONE FIELD EVERY SCREEN AND THE WHOLE PRICE DEPEND ON. `Wound.killRecord` has
 			-- carried `kind` since task 120 (*"WHICH ANIMAL DIED"*), and this is the case that says a

@@ -367,7 +367,20 @@ return function()
 				parent = holder,
 				folderName = "Family",
 				rng = Random.new(119),
-				config = { KINDS = { ENABLED = true }, maxBoars = 8 },
+				config = {
+					KINDS = {
+						ENABLED = true,
+						-- NO TROPHY IN THIS SPEC'S DRIVES (task 219 round 1, finding 1). The per-drive
+						-- roll is `KINDS.LEGENDARY.CHANCE_PER_DRIVE`, and `NextNumber` returns [0, 1),
+						-- so **0 is never, exactly** -- no stream, no seed, no chance of a surprise
+						-- fourth kind. Before this pin a sow-led release could contain a yearling
+						-- (`MAKEUP.YOUNG_MALE` is "male" at 0.25), `Boar.promoteLegendary` took it, and
+						-- a case here looked the promoted animal up in a three-kind table and did
+						-- arithmetic on nil -- so a green run was a SAMPLE and not evidence.
+						LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 },
+					},
+					maxBoars = 8,
+				},
 				threats = function()
 					return {}
 				end,
@@ -402,7 +415,12 @@ return function()
 			end
 
 			-- THE BOX IS THE ANIMAL'S OWN. 0.85 and 0.45 of the male's 5.5 studs.
-			local wanted = { male = 5.5, female = 4.675, cub = 2.475 }
+			-- EVERY KIND THE CONFIG HAS, not the three this case was written against (task 219
+			-- round 1, finding 1). The world above pins the trophy out of this spec's drives, so
+			-- `legendary` cannot appear here -- but a table that simply HAS no row for a kind fails
+			-- as `nil` arithmetic rather than as a readable expectation, which is exactly how the
+			-- flake presented. Belt and braces: pinned so it cannot happen, and readable if it does.
+			local wanted = { male = 5.5, female = 4.675, cub = 2.475, legendary = 5.5 * 1.35 }
 			for _, handle in ipairs(handles) do
 				expect(math.abs(handle.part.Size.Z - wanted[handle.kind]) < 1e-3).to.equal(true)
 				-- ...and its hit zones with it: a cub's chest is a cub's chest.
@@ -458,7 +476,20 @@ return function()
 				parent = holder,
 				folderName = "Carcasses",
 				rng = Random.new(120),
-				config = { KINDS = { ENABLED = true }, maxBoars = 8 },
+				config = {
+					KINDS = {
+						ENABLED = true,
+						-- NO TROPHY IN THIS SPEC'S DRIVES (task 219 round 1, finding 1). The per-drive
+						-- roll is `KINDS.LEGENDARY.CHANCE_PER_DRIVE`, and `NextNumber` returns [0, 1),
+						-- so **0 is never, exactly** -- no stream, no seed, no chance of a surprise
+						-- fourth kind. Before this pin a sow-led release could contain a yearling
+						-- (`MAKEUP.YOUNG_MALE` is "male" at 0.25), `Boar.promoteLegendary` took it, and
+						-- a case here looked the promoted animal up in a three-kind table and did
+						-- arithmetic on nil -- so a green run was a SAMPLE and not evidence.
+						LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 },
+					},
+					maxBoars = 8,
+				},
 				threats = function()
 					return {}
 				end,
