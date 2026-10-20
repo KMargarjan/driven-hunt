@@ -283,7 +283,14 @@ return function()
 			local backpack = player:FindFirstChildOfClass("Backpack") :: Backpack
 			local character = player.Character :: Model
 			local both = Weapons.loadoutFor(true)
-			expect(#both).to.equal(#Weapons.ORDER)
+			-- NOT `#Weapons.ORDER` ANY MORE (task 224). This case needs MORE THAN ONE Tool, and it
+			-- used to say so by tying the free loadout to the whole table -- which was true while
+			-- every weapon in the table was also handed out free. The lever rifle is `OWNED_ONLY`:
+			-- it is in `Weapons.ORDER` and it is NOT in the unrestricted loadout, by the Director's
+			-- rule of 2026-10-20. So the case asserts what it actually needs, and the next weapon
+			-- lands in it the same way whether or not it is bought.
+			expect(#both > 1).to.equal(true)
+			expect(#both <= #Weapons.ORDER).to.equal(true)
 
 			type Arrival = { where: string, name: string, at: number }
 			local order: { Arrival } = {}
@@ -534,8 +541,10 @@ return function()
 				error("no player with a character: this case needs the harness's own player", 0)
 			end
 			local armed = Weapons.loadoutFor(true)
-			expect(#armed).to.equal(#Weapons.ORDER)
-			expect(#armed > 1).to.equal(true) -- the case is about MORE THAN ONE Tool
+			-- See the sibling case above: the free loadout is no longer the whole table, because a
+			-- row may be `OWNED_ONLY` (task 224). The case is about MORE THAN ONE Tool and says so.
+			expect(#armed > 1).to.equal(true)
+			expect(#armed <= #Weapons.ORDER).to.equal(true)
 			local mine = realGunOf(player)
 			local detached = Instance.new("Backpack")
 

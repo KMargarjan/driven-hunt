@@ -1485,6 +1485,43 @@ return function()
 							if #timeline > 0 then " | " .. table.concat(timeline, " | ") else ""
 						)
 					)
+					-- WHICH GUN THIS WINDOW WAS ACTUALLY WATCHING (task 224). The window reads
+					-- `Weapon.get()`, which answers for the weapon whose newest snapshot claimed the
+					-- hand -- so with a third weapon in the loadout it can be watching a gun this
+					-- spec never equipped, and the assertions below would then be about somebody
+					-- else's gun. Printed rather than assumed.
+					do
+						local character = player.Character
+						local inHand = {}
+						if character ~= nil then
+							for _, child in ipairs(character:GetChildren()) do
+								if child:IsA("Tool") then
+									table.insert(inHand, child.Name)
+								end
+							end
+						end
+						local bag = {}
+						local backpack = player:FindFirstChildOfClass("Backpack")
+						if backpack ~= nil then
+							for _, child in ipairs(backpack:GetChildren()) do
+								if child:IsA("Tool") then
+									table.insert(bag, child.Name)
+								end
+							end
+						end
+						TestKit.note(
+							string.format(
+								"weapon_client: exploit window watched weapon=%s drawn=%s; character holds [%s]; backpack [%s]",
+								tostring(after.weapon),
+								tostring((function()
+									local view = cameraView()
+									return view and view.Viewmodel and view.Viewmodel.weaponId()
+								end)()),
+								table.concat(inHand, ", "),
+								table.concat(bag, ", ")
+							)
+						)
+					end
 					expect(after.open).to.equal(before.open)
 					expect(after.reserve.Slug).to.equal(before.reserve.Slug)
 					expect(after.reserve.Buck).to.equal(before.reserve.Buck)

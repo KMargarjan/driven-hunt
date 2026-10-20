@@ -1280,13 +1280,52 @@ end
 -- TWO: working the bolt after a shot (`CYCLE` -- back, forward) and changing the magazine
 -- (`RELOAD` -- the box, then a bolt cycle to chamber the first round). The shotgun has one, so its
 -- row carries no `RELOAD` and both callers get the same four steps they always did.
+-- WHAT A REFUSED STEP MEANS, AS A PURE RULE WITH THREE ANSWERS (task 224). `runCycle` used to carry
+-- one hard-coded boolean -- `step.kind == "Load" and reason == "no-reserve"` -- and a third case
+-- arrived with the lever rifle's tube magazine.
+--
+--   "walk"   keep going. An EMPTY POCKET: closing a gun with fewer rounds in it, or none, is correct.
+--   "finish" the magazine is FULL: skip every remaining `Load` and run the sequence's last step.
+--   "abort"  anything else. The world moved under it -- today's recovery path, unchanged.
+--
+-- WHY `barrel-full` IS NOT SIMPLY ANOTHER `walk`. A partial top-up -- three in a tube of five, press
+-- R -- makes the fourth `Load` answer `barrel-full`. As a `walk` the unused steps still burn their
+-- 0.42 s each, so putting TWO rounds in would take the same 2.90 s as putting in five. As a `finish`
+-- it is 0.40 + 2 * 0.42 + 0.40 = 1.64 s and the `Close` is a real published, timed, voiced step.
+--
+-- IT CHANGES NOTHING FOR EITHER SHIPPED GUN, and that is provable rather than hoped: the shotgun's
+-- `Break` ejects `"all"`, so both its chambers are always `Empty` when its two `Load`s run, and the
+-- rifle's reload uses `Magazine`, which fills every chamber at once and whose own `barrel-full` is a
+-- `Magazine` refusal and not a `Load` one. `tests/server/lever.spec.luau` drives all three answers
+-- and asserts that neither gun can reach the new one.
+--
+-- PURE AND EXPORTED precisely so those cases need no session, no player and no Tool.
+--
+-- Design: docs/design/lever-rifle.md (section 6.3)
+function Weapon.cycleRefusal(kind: string?, reason: string?): string
+	if kind == "Load" then
+		if reason == "no-reserve" then
+			return "walk"
+		elseif reason == "barrel-full" then
+			return "finish"
+		end
+	end
+	return "abort"
+end
+
 function runCycle(player: Player, id: string, epoch: number, steps: { any }?)
 	local row = Weapons.row(id) or Weapons.ROWS[Weapons.PRIMARY]
 	local sequence = steps or row.CYCLE
+	-- SET WHEN THE MAGAZINE FILLED EARLY (task 224): every later `Load` is skipped and the rest of
+	-- the sequence -- the `Close` -- still runs. See `Weapon.cycleRefusal`.
+	local filled = false
 	for _, step in ipairs(sequence) do
 		local state = stateOf(player, id)
 		if not state or state.epoch ~= epoch then
 			return -- the player respawned, was revoked, or left: abandon the sequence
+		end
+		if filled and step.kind == "Load" then
+			continue
 		end
 		-- THE SEQUENCE GOES WITH THE STEP (task 184). `Break` and `Close` are in both of the rifle's
 		-- lists and no longer with the same waits, so the reducer is told which list this step came
@@ -1295,7 +1334,14 @@ function runCycle(player: Player, id: string, epoch: number, steps: { any }?)
 		-- An empty pocket is the ONE rejection this sequence walks past: closing a gun with one
 		-- shell, or none, is correct. Any other reason means the world moved under it (round 1
 		-- note), so it stops and republishes rather than closing a gun the player did not ask for.
-		if reason and not (step.kind == "Load" and reason == "no-reserve") then
+		local verdict = if reason then Weapon.cycleRefusal(step.kind, reason) else "walk"
+		if verdict == "finish" then
+			-- THE TUBE IS FULL. Nothing was written and nothing is owed: skip the remaining `Load`s
+			-- and let the loop reach the sequence's last step, which closes the action.
+			filled = true
+			continue
+		end
+		if reason and verdict == "abort" then
 			-- A REFUSAL AFTER `Break` USED TO LEAVE THE GUN OPEN FOR EVER (TASKS.md 24a(a)): every
 			-- later Reload is refused with "is-open" and every Fire with the same, so the player is
 			-- carrying a brick until they respawn. Close it before giving up. The player asked for a

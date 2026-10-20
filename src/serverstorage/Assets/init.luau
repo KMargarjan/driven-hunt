@@ -34,6 +34,7 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- piece is on that gun. The gun decides the scale, so the manifest does not carry a second copy
 -- of it -- the rule `Gun.beadOffset` and `Shape.beadOffset` already follow one layer over.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+local LeverGeometry = require(ReplicatedStorage:WaitForChild("Lever"):WaitForChild("Geometry"))
 local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 -- THE HORN'S OWN GEOMETRY (task 169), for the four numbers that say how big the uploaded horn is,
 -- which way round it goes and where in the hand it sits. They live in the horn's own data file for
@@ -377,6 +378,35 @@ local MODEL_B_LICENCE = {
 -- trademarks printed on it. The scope's maker name, its "Made in Austria" line and serial, its two
 -- bird logos and the stock's gold double-R monogram were painted out of the base colour atlas before
 -- anything was uploaded. `CREDITS.md` records exactly what was changed, as the licence asks.
+-- THE LEVER RIFLE'S LICENCE (task 224), AND IT IS THE BOAR'S WORD FOR WORD with a new attribution:
+-- Karen bought this model on Fab exactly as she bought the boar and the red deer, so it is used
+-- under the same grant and this row records it the same way (Director decision, 2026-10-20).
+--
+-- THE TIER IS NOT NAMED, AND THAT IS DELIBERATE. The dispatch said "Standard Licence (Personal
+-- tier)"; neither the boar's row nor the deer's names a tier, the download Karen handed over ships
+-- NO licence file at all (checked: the FBX, the OBJ and every entry of `additional_files.zip`), and
+-- nothing this machine can reach is Karen's purchase record. So this row says what the other two
+-- say and no more -- a tier written down because it was dictated would be a record of a sentence
+-- rather than a record of a purchase.
+--
+-- THE SAME CAVEAT IS INHERITED VERBATIM, for the reason the boar's row gives: **fab.com/eula answers
+-- 403 to this machine's fetch tool**, so the quote came through a web search on 2026-10-03 and says
+-- so rather than pretending the page was read. The two conditions that matter are met either way:
+-- the binary is never committed (`.rbxm` is banned outright) and nothing is distributed standalone
+-- -- what reaches Roblox is three meshes inside Karen's own account, used by her own place.
+local LEVER_LICENCE = {
+	basis = "fab-standard",
+	quote = 'A "Standard License" grants you a non-exclusive and non-transferable license to '
+		.. "privately use, reproduce, display, perform, and modify the Content in accordance with "
+		.. "the terms of this Agreement. [...] you may not Distribute Content on a standalone basis "
+		.. "to third parties except to your collaborators",
+	quotedFrom = "fab.com/eula, read through a web search on 2026-10-03; the page itself answers 403 "
+		.. "to this machine (see `BOAR_LICENCE`'s own comment below)",
+	readOn = "2026-10-20",
+	attribution = 'Lever-action rifle model: "Lever action rifle" by Jeick, bought on Fab '
+		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-20",
+}
+
 local RIGBY_LICENCE = {
 	basis = "cc-by-4.0",
 	quote = "Model License: license type: CC-BY-4.0 "
@@ -2259,6 +2289,111 @@ Assets.ROWS = {
 			.. "four whose preview reads exactly like the real thing. Every maker's mark it carried -- "
 			.. "the name, the 'Made in Austria' line, the serial and both bird logos -- is painted out "
 			.. "of the atlas; the magnification numerals are generic and were kept.",
+	},
+	-- ------------------------------------------------- the lever rifle (task 224)
+	--
+	-- THREE GROUPS OF ONE GUN, and every one of them carries the WHOLE gun's bounding box: the anchor
+	-- triangles `tools/gltf_split.py` adds at the model's opposite corners, so all three import at one
+	-- size and one origin and assemble at ONE CFrame with no measured per-piece offset. That is why
+	-- every row below has the same `sizeStuds`, the same zero offset and the same rotation.
+	--
+	-- THREE AND NOT THE RIGBY'S FOUR, because there is no scope to take off: this rifle's sights are
+	-- iron, they are on its Picatinny rail, and the rail and both sights are inside the `action`
+	-- group. Nothing is drawn by the geometry to make up for a missing part -- which is the first
+	-- time that has been true of a gun in this repo.
+	--
+	-- 4.0 STUDS, not the other two guns' 4.4: a Marlin 1895 is about 40.5 inches where a Rigby and a
+	-- Beretta 486 are both about 45. `naturalSizeStuds` is the split report's own box at 100x.
+	--
+	-- THE SAME TWO TURNS EVERY GROUP NEEDS (`Gun.MESH_ROTATION_DEG`): the splitter writes the muzzle
+	-- at the file's +X and the Blender export plus the Roblox import reverse the model along its own
+	-- long axis (task 107, measured on screen).
+	{
+		key = "lever.action",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 125504731571254,
+		displayName = "Driven Hunt lever rifle action r1",
+		fileName = "model.fbx",
+		sourceSha256 = "d6eec2651ad84939776b6ab31619884a08c13a4802c839a0daa5503a0e4ec598",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = LEVER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 8258,
+		texturePx = 1024,
+		sizeStuds = LeverGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(400.0, 81.75, 20.92),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, LeverGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The receiver, the barrel, the Picatinny rail with BOTH IRON SIGHTS on it, the "
+			.. "magazine tube and its cap, the fore-end, both sling swivels, the trigger, the hammer, "
+			.. "the breech bolt and the loading gate -- everything that does not move. Looked at "
+			.. "before it was called done (render_side.png, render_three-quarter.png): a stainless "
+			.. "receiver with a long thin barrel, the tube under it, the rail's slots legible and a "
+			.. "brass front bead at the muzzle. DECIMATED 13,705 -> 8,258, which is the Rigby action's "
+			.. "own count -- the rail slots and the receiver's panel lines survive it (looked at). The "
+			.. "artist's four maps at 1024, the packed metal/rough split into the two single-channel "
+			.. "maps Roblox reads, metalness written down to 0.10 and roughness to 0.47 so the steel "
+			.. "does not mirror the sky; NO base colour was recoloured.",
+	},
+	{
+		key = "lever.stock",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 95062328289891,
+		displayName = "Driven Hunt lever rifle stock r1",
+		fileName = "model.fbx",
+		sourceSha256 = "7f72ea204fcf65287954329937865d4df51632ea98ad8a9f4de03192a3c47278",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = LEVER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 3208,
+		texturePx = 1024,
+		sizeStuds = LeverGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(400.0, 81.75, 20.92),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, LeverGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The butt stock, its butt plate and the rear sling swivel, in one piece, near-native "
+			.. "at 3,208 triangles. Looked at (render_three-quarter.png): GREY LAMINATE with its "
+			.. "layering visible, which is what an 1895 SBL wears -- not walnut. That is also why "
+			.. "asset_prep classified the whole group as `steel` and reported `wood 0`: the pixels are "
+			.. "below the recipe's saturation floor, so the shine written was metalness 0.10 and "
+			.. "roughness 0.54 instead of wood's 0.00 and 0.22 -- LESS shine, not more.",
+	},
+	{
+		key = "lever.lever",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 85657989123623,
+		displayName = "Driven Hunt lever rifle lever r1",
+		fileName = "model.fbx",
+		sourceSha256 = "f42f273bbddc886c7ec0499f4c981f9b7c03a7abd4a24f7ed48859cf08bfd1a5",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = LEVER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 578,
+		texturePx = 1024,
+		sizeStuds = LeverGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(400.0, 81.75, 20.92),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, LeverGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "THE PIECE THAT MOVES: the large-loop finger lever, which on a Marlin IS the trigger "
+			.. "guard -- which is why the bought file has no separate guard node. Which node that was "
+			.. "is a MEASUREMENT and not a name: the file calls it `Trigger frame` and calls the "
+			.. "breech bolt `Bolt action`, and the geometry settles it (the loop hangs 0.41 studs "
+			.. "below the receiver and sweeps back under the wrist). Looked at "
+			.. "(render_three-quarter.png): unmistakably a large-loop lever with its pivot plate. Its "
+			.. "own previews are otherwise near-blank, because a 0.66-stud part inside a 4.0-stud "
+			.. "anchor box is a speck -- so this group is judged in Studio, not here.",
 	},
 	-- ------------------------------------------------- the beater kit (task 151, round 2)
 	--

@@ -826,10 +826,10 @@ return function()
 					highest = math.max(highest, item.hunts)
 				end
 			end
-			-- 11495 + 750 SINCE TASK 223: the DEER LICENCE is buyable now, so it counts.
-			expect(total).to.equal(12245)
+			-- 11495 + 750 SINCE TASK 223 (the DEER LICENCE), + 650 SINCE TASK 224 (the LEVER RIFLE).
+			expect(total).to.equal(12895)
 			expect(highest).to.equal(30)
-			expect(Economy.CONFIG.TEST_GRANT.coins).to.equal(12750)
+			expect(Economy.CONFIG.TEST_GRANT.coins).to.equal(13000)
 			expect(Economy.CONFIG.TEST_GRANT.coins >= total).to.equal(true)
 			-- EXACTLY the highest gate, not above it: every rung is unlocked and nothing is bought
 			-- FOR her, so she still presses every button and sees every state.

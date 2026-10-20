@@ -162,6 +162,21 @@ function Sound.magazine(config, row: any?): boolean
 	return play("magazine", config, voice and voice.id, volume and volume.close, voice)
 end
 
+-- ONE CARTRIDGE THROUGH A LOADING GATE (task 224), and the key is NEW rather than borrowed. None of
+-- the three that existed fits: `Camera.breakSound` has only the open and close edges, and the only
+-- per-step hook was the rising edge of `action == "Magazine"`. Reusing the `magazine` key would put
+-- the word *magazine* on a gun that has none, which is the naming drift this repo keeps paying for.
+--
+-- BOTH SHIPPED GUNS ARE SILENT HERE and nothing about them changes: the shotgun's row has no `SOUND`
+-- block at all and the Rigby's has no `load` key, so `voiceFor` answers nil -- the rule `SOUND_SHOT_ID`
+-- set and `Sound.bolt` above already keeps. The volume is the OPEN click's, because a round going
+-- past a spring cover is that class of noise.
+function Sound.load(config, row: any?): boolean
+	local volume = config ~= nil and config.FIRE ~= nil and config.FIRE.volume or nil
+	local voice = Sound.voiceFor(row, "load")
+	return play("load", config, voice and voice.id, volume and volume.open, voice)
+end
+
 -- THE TRIGGER THAT DID NOTHING (task 171). The gun is loaded, closed and not busy, and the server
 -- refused the shot -- a beater in the line, a hunter off his stand, a species with no licence -- so
 -- what the player hears is the one sound that says "nothing happened": a dry click. The volume is

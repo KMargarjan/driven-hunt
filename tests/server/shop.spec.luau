@@ -80,17 +80,21 @@ return function()
 			-- hunter always - We can also make a few packages bundles"*. TEN ROWS: her seven items
 			-- plus three packages. The RED HAT is not one of them -- *"From shop remove red heat"* --
 			-- and it is in `Shop.RETIRED` instead, still granting to whoever bought one.
-			expect(#Shop.ORDER).to.equal(10)
+			-- ELEVEN SINCE TASK 224: the lever rifle's row.
+			expect(#Shop.ORDER).to.equal(11)
 			expect(Shop.ORDER[1]).to.equal(Shop.ITEM.SLUG)
 			expect(Shop.ORDER[2]).to.equal(Shop.ITEM.BEATER_LICENCE)
 			expect(Shop.ORDER[3]).to.equal(Shop.ITEM.BUNDLE_HIDE)
 			expect(Shop.ORDER[4]).to.equal(Shop.ITEM.HIGH_SEAT)
-			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.RED_STAG)
-			expect(Shop.ORDER[6]).to.equal(Shop.ITEM.UNLIMITED_AMMO)
-			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.RIFLE)
-			expect(Shop.ORDER[8]).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
-			expect(Shop.ORDER[9]).to.equal(Shop.ITEM.ALWAYS_HUNTER)
-			expect(Shop.ORDER[10]).to.equal(Shop.ITEM.BUNDLE_SEASON)
+			-- TASK 224: the lever rifle at 650 lands between the high seat's 600 and the deer
+			-- licence's 750, because `Shop.ORDER` is cheapest-first and the case below asserts it.
+			expect(Shop.ORDER[5]).to.equal(Shop.ITEM.LEVER)
+			expect(Shop.ORDER[6]).to.equal(Shop.ITEM.RED_STAG)
+			expect(Shop.ORDER[7]).to.equal(Shop.ITEM.UNLIMITED_AMMO)
+			expect(Shop.ORDER[8]).to.equal(Shop.ITEM.RIFLE)
+			expect(Shop.ORDER[9]).to.equal(Shop.ITEM.BUNDLE_MARKSMAN)
+			expect(Shop.ORDER[10]).to.equal(Shop.ITEM.ALWAYS_HUNTER)
+			expect(Shop.ORDER[11]).to.equal(Shop.ITEM.BUNDLE_SEASON)
 			expect((Shop.ITEM :: any).RIFLE_OPEN).to.equal(nil)
 			-- THE RED HAT IS OFF THE SHELF AND STILL IN THE BUILD (task 221).
 			expect(Shop.ROWS[Shop.ITEM.HAT_RED]).to.equal(nil)
@@ -396,12 +400,13 @@ return function()
 			expect(#order).to.equal(#Shop.ORDER)
 			expect(order[1]).to.equal(groups[1].rows[1].id)
 			-- INSIDE A SHELF THE WIRE'S OWN ORDER SURVIVES, and the wire is `Shop.ORDER`: cheapest
-			-- first. THE WEAPONS SHELF HAS HELD ONE ROW SINCE TASK 196 -- Karen, 2026-10-16:
-			-- *"remove rifle without scope soon don't need"* -- so what the assertion below proves
-			-- today is that the shelf's single row is the one the wire names, and the ordering it
-			-- was written for comes back with the next weapon.
-			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.RIFLE)
-			expect(#groups[1].rows).to.equal(1)
+			-- first. THE WEAPONS SHELF HELD ONE ROW FROM TASK 196 TO TASK 224 -- and the case's own
+			-- comment then said *"the ordering it was written for comes back with the next weapon"*.
+			-- It has: the lever rifle is 650 and the scoped rifle is 1500, so the shelf is two rows
+			-- cheapest-first and this assertion is doing the job it was written for again.
+			expect(#groups[1].rows).to.equal(2)
+			expect(groups[1].rows[1].id).to.equal(Shop.ITEM.LEVER)
+			expect(groups[1].rows[2].id).to.equal(Shop.ITEM.RIFLE)
 			-- ...AND A SHELF WITH THREE ROWS KEEPS THE WIRE'S CHEAPEST-FIRST ORDER, which is the
 			-- ordering the case above was written for and could not show with one row.
 			local packages = groups[5].rows
@@ -488,8 +493,10 @@ return function()
 			-- these counts are the catalogue's shape and not just its length.
 			-- slug: its own row + THE HIDE + THE FULL SEASON.
 			expect(kinds.ammo).to.equal(3)
-			-- rifle: its own row + THE MARKSMAN + THE FULL SEASON.
-			expect(kinds.weapon).to.equal(3)
+			-- the two rifles: each one's own row, + THE MARKSMAN and THE FULL SEASON, which both
+			-- cover the SCOPED one. Four since task 224, and the lever is in no package (a bundle
+			-- covering both rifles would make `mergedGrants` conflict on a single-valued field).
+			expect(kinds.weapon).to.equal(4)
 			-- the beater licence: its own row + THE FULL SEASON.
 			expect(kinds.driveGun).to.equal(2)
 			-- the high seat: its own row + THE HIDE + THE FULL SEASON.
@@ -702,6 +709,9 @@ return function()
 			-- nil IS UNRESTRICTED: today's list, which is what every world that wired no provider
 			-- gets -- including every weapon spec.
 			local unrestricted = Weapons.loadoutFor(true, nil)
+			-- STILL TWO AFTER TASK 224: the accepted cost shop design 7.1 names (*"a player who owns
+			-- nothing is handed the rifle for one drive"*) is unchanged for the rifle, and the lever
+			-- rifle is `OWNED_ONLY` so it is not in this list at all.
 			expect(#unrestricted).to.equal(2)
 			expect(unrestricted[1]).to.equal("shotgun")
 			expect(unrestricted[2]).to.equal("rifle")

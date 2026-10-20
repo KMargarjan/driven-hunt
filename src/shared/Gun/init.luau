@@ -162,6 +162,13 @@ Gun.SHELL_KEY = "gun.shell"
 -- is Rojo-owned and a folder parked there in Edit would be deleted at the next Connect.
 Gun.FOLDER_NAME = "ViewmodelGun"
 Gun.SHELL_TEMPLATE_NAME = "Shell"
+-- DOES THIS GUN PUT LOOSE ROUNDS IN THE PLAYER'S HANDS? (task 224.) YES, and it is the only gun
+-- in this game that does: a break action is cracked over the arm and fed two shells by hand, which
+-- is what `Viewmodel.loadingAt` and `Viewmodel.shells` draw. Both of those used to be gated on
+-- `config.MAGAZINE_SWAP ~= nil` -- a field that answers *"does this gun swap a box"* and was
+-- standing in for this question, which is a borrowed predicate answering something it was not
+-- asked. The two agree on the two guns that shipped before the lever rifle and disagree on it.
+Gun.HAND_FED_SHELLS = true
 
 -- HOW A GROUP MESH IS TURNED to lie on this gun, AND IT IS TWO TURNS, NOT ONE (task 107).
 --

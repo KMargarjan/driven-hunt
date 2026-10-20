@@ -359,7 +359,9 @@ function Viewmodel.validate(data: any): { string }
 	-- reaches through: a require back the other way is a cycle. The cost of the literal is that a
 	-- new weapon adds a line here. Task 143 added `rifle_open` and task 148 took it out again,
 	-- because Karen asked for the open-sighted rifle to wait.
-	for _, id in ipairs({ "shotgun", "rifle" }) do
+	-- EVERY WEAPON THE GAME SHIPS MUST HAVE A POSE SET, and this literal is what makes a missing one
+	-- a named failure rather than a gun drawn at the origin. `lever` joined it in task 224.
+	for _, id in ipairs({ "shotgun", "rifle", "lever" }) do
 		if type(data.weapons[id]) ~= "table" then
 			table.insert(problems, "weapons." .. id .. " is missing")
 		end
