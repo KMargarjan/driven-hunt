@@ -7,19 +7,11 @@ Code commit: `1af2cf6075996db4abebfe437cd6b5b52ced3bba`
 
 ```
 [harness] PASS: 33/33 checks @ 1af2cf6075996db4abebfe437cd6b5b52ced3bba (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 1af2cf6075996db4abebfe437cd6b5b52ced3bba (clean tree)
 ```
 
-The `[harness2]` pair below is the Director's at `61ad71a`, the round-1 code commit. **It is NOT
-evidence for this commit** and is reproduced only to say where the two-player gate last stood; this
-round changed `Match`, `Economy` and `Objective`, so `test2` is needed again at
-`1af2cf6` and the Builder stops for it:
-
-```
-[harness2] PASS: 35/35 checks @ 61ad71a9eb3ae360ff73a5b0bb8ec652fdb1623e (clean tree)
-[harness2] PASS: 35/35 checks @ 61ad71a9eb3ae360ff73a5b0bb8ec652fdb1623e (clean tree)
-```
-
-Only paperwork has been committed after the code commit.
+Both lines name this round's code commit. The `[harness2]` line is the Director's, first try. Only
+paperwork has been committed after the code commit.
 
 Karen, 2026-10-20 ~08:30: *"We need to change coins to actual money $ / From shop remove red heat /
 It will be for sale in v1: - Access to tree stand - Rifle - Unlimited amunition - Red stag card -
@@ -169,6 +161,33 @@ that still said `Roster.assign` was untouched.
   `ShopPanel` in a probe returns a fresh module with no GUI). **Rule 5 is therefore NOT satisfied
   for the shop panel.**
 * **Smoke (standing rule A) was not run**, so nothing here says "ready for Karen".
+
+## Finding 1 (rule 5): the Director's own look, and his authorisation
+
+**THE DIRECTOR LOOKED AT THE FIVE NEW MODELS HIMSELF** -- not the session being checked, which is
+the half of rule 5 that had gone unexecuted. His frame is
+`.screenshots/20261020T112017Z-dir221-models-b.png` (built with `ShopDisplay.build` in DEV Edit,
+photographed front-on, removed after). **Recorded verbatim, as he asked:**
+
+> FINDING 1's frames -- the Director took and looked at the five new display models himself (built
+> with ShopDisplay.build in DEV Edit, photographed front-on, removed after):
+> `.screenshots/20261020T112017Z-dir221-models-b.png` -- the ammo crate with four red shells reads
+> right; the deer/stag licence card reads as a real card (green header, photo, stamp, silhouette);
+> the always-hunter badge reads as a gold shield with the green/orange band; the high seat in
+> miniature reads as a wooden stand (partly in frame); the bundles draw their contents through the
+> same builder. With your shop frames (221-shop-weapons, 221-shop-packages, 221-bar-dollar,
+> 221-shop-open), the Director AUTHORISES merging the remaining unphotographed bits (THE FULL
+> SEASON's INCLUDES line, the results-board MONEY head, the INF chip, the climb) as
+> UNPROVEN-BY-PICTURE, recorded here: they are specced, and Karen approved merging looks unseen
+> (2026-10-17).
+
+So **finding 1 is answered**: the five new models ARE looked at, by the Director's own camera; and
+the four remaining visual bits are merged **unproven by picture, on his recorded authorisation**,
+not quietly. Each of them is specced -- the `INCLUDES:` line by `rowsOk`'s composed-blurb bound and
+`shop.spec`, the `MONEY` head by `money.spec`, the `INF` chip by `weapon_state.spec` and
+`money.spec`, and the climb's geometry by `high_seats.spec`.
+
+---
 
 ## What IS proven live, with frames I looked at
 
