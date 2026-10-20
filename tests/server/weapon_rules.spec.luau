@@ -77,7 +77,7 @@ return function()
 		end)
 	end)
 
-	describe("the three fire rules", function()
+	describe("the five fire rules", function()
 		it("refuses a shot whose aim ray would hit a beater, and nothing else", function()
 			expect(Rules.beaterInLine({ beater = true })).to.equal(true)
 			-- A BEATER WITH A SPECIES ATTRIBUTE IS STILL A BEATER: the man wins over the animal,
@@ -141,15 +141,19 @@ return function()
 		-- THE ORDER, ASSERTED (task 171, after the Director's two-player run at `8b2bb40`: a probe aimed
 		-- straight at a beater came back `off-stand`, because the shooter had walked 525 studs from
 		-- his post to reach him. Both answers were true and nothing said which should win).
-		it("asks the four rules in one declared order, and names the winner", function()
+		it("asks the five rules in one declared order, and names the winner", function()
 			-- ...AND `DRIVE_OVER` IS FIRST SINCE TASK 174: a fact about the DRIVE outranks every fact
 			-- about the shooter, because it is the one thing he cannot fix by moving or by aiming
 			-- somewhere else.
 			expect(Rules.ORDER[1]).to.equal(Rules.REASON.DRIVE_OVER)
 			expect(Rules.ORDER[2]).to.equal(Rules.REASON.OFF_STAND)
-			expect(Rules.ORDER[3]).to.equal(Rules.REASON.BEATER)
-			expect(Rules.ORDER[4]).to.equal(Rules.REASON.LICENCE)
-			expect(#Rules.ORDER).to.equal(4)
+			-- ...AND `OFF_PLATFORM` IS IMMEDIATELY INSIDE `OFF_STAND` SINCE TASK 218: the same rule
+			-- one step further in. "NOT IN YOUR STAND" to a man outside his circle AND on the ground
+			-- sends him to the right place; "CLIMB TO YOUR STAND" then tells him the one thing left.
+			expect(Rules.ORDER[3]).to.equal(Rules.REASON.OFF_PLATFORM)
+			expect(Rules.ORDER[4]).to.equal(Rules.REASON.BEATER)
+			expect(Rules.ORDER[5]).to.equal(Rules.REASON.LICENCE)
+			expect(#Rules.ORDER).to.equal(5)
 			expect(table.isfrozen(Rules.ORDER)).to.equal(true)
 
 			local area = { centre = Vector3.new(0, 0, 0), radius = 12 }
@@ -240,6 +244,103 @@ return function()
 			expect(Rules.noticeFor(Rules.REASON.DRIVE_OVER)).to.equal("THE DRIVE IS OVER")
 		end)
 
+		-- RULE 5 (task 218). KAREN, 2026-10-10: *"maybe will add towers where they can stand"*. At a
+		-- stand that carries a high seat the PLATFORM is the stand, so the flat circle gains a floor
+		-- -- and `outsideStand` is untouched, because every ground stand in the game depends on its
+		-- answer not moving.
+		it("refuses a hunter who is in his circle but not up on his platform (task 218)", function()
+			local ground = { centre = Vector3.new(100, 50, -200), radius = 12 }
+			local seat = { centre = Vector3.new(100, 50, -200), radius = 12, minY = 155.5 }
+
+			-- NO `minY` MEANS NO RULE, which is every ground stand and every world with no seats.
+			expect(Rules.belowPlatform(Vector3.new(100, 20, -200), ground)).to.equal(false)
+			expect(Rules.belowPlatform(nil, seat)).to.equal(false)
+			expect(Rules.belowPlatform(Vector3.new(100, 20, -200), nil)).to.equal(false)
+			-- A MIS-WIRED PROVIDER IS NOT KAREN'S RULE WORKING: a `minY` that is not a number must
+			-- not silence every gun in the wood, the same call `outsideStand` makes for its centre.
+			expect(Rules.belowPlatform(Vector3.new(100, 20, -200), { centre = seat.centre, radius = 12, minY = "up" })).to.equal(
+				false
+			)
+
+			-- A man standing on the DECK: his root is `STAND_HEIGHT_STUDS` above it, so he is 3.5
+			-- studs clear of the line and he may shoot.
+			expect(Rules.belowPlatform(Vector3.new(100, 159, -200), seat)).to.equal(false)
+			-- A man on the GROUND DIRECTLY BELOW: his root is 12 studs under the line, and the top
+			-- of a 7.2-stud jump still leaves him 1.8 under it.
+			expect(Rules.belowPlatform(Vector3.new(100, 143.5, -200), seat)).to.equal(true)
+			expect(Rules.belowPlatform(Vector3.new(100, 143.5 + 7.2, -200), seat)).to.equal(true)
+			-- THE EDGE IS THE DECK'S OWN FACE and `<` is the comparison: standing exactly on the
+			-- line is on the platform, which is the same `<=`-shaped call `outsideStand` makes.
+			expect(Rules.belowPlatform(Vector3.new(100, 155.5, -200), seat)).to.equal(false)
+
+			expect(Rules.noticeFor(Rules.REASON.OFF_PLATFORM)).to.equal("CLIMB TO YOUR STAND")
+		end)
+
+		it("sends a man to his circle before it sends him up the ladder (task 218)", function()
+			local seat = { centre = Vector3.new(0, 0, 0), radius = 12, minY = 155.5 }
+			-- OUTSIDE AND BELOW: "NOT IN YOUR STAND" wins, because climbing a ladder 500 studs away
+			-- is not the thing he can do about it.
+			expect(Rules.refuse({ position = Vector3.new(500, 0, 0), stand = seat, driveOpen = true })).to.equal(
+				Rules.REASON.OFF_STAND
+			)
+			-- INSIDE AND BELOW, aimed at a beater he has no licence for: the platform wins, because
+			-- a refused shot hits nobody and the instruction he can act on is the useful answer.
+			expect(Rules.refuse({
+				position = Vector3.new(3, 0, 3),
+				stand = seat,
+				target = { beater = true, species = "reddeer" },
+				licences = nil,
+				rows = SPECIES,
+				driveOpen = true,
+			})).to.equal(Rules.REASON.OFF_PLATFORM)
+			-- ...and the drive being over still outranks it.
+			expect(Rules.refuse({
+				position = Vector3.new(3, 0, 3),
+				stand = seat,
+				driveOpen = false,
+			})).to.equal(Rules.REASON.DRIVE_OVER)
+			-- UP ON THE PLATFORM, with nothing else wrong: the shot is allowed.
+			expect(Rules.refuse({
+				position = Vector3.new(3, 159, 3),
+				stand = seat,
+				target = { species = "boar" },
+				licences = nil,
+				rows = SPECIES,
+				driveOpen = true,
+			})).to.equal(nil)
+		end)
+
+		it("leaves every ground stand exactly as it was (task 218)", function()
+			-- THE SAME FOUR ANSWERS, re-driven with an area that carries no `minY` -- which is what
+			-- every stand in the game had before this task and what every stand without a seat has
+			-- after it. The fifth rule is an ADDITION, not a reordering.
+			local area = { centre = Vector3.new(0, 0, 0), radius = 12 }
+			local inside = Vector3.new(3, 0, 0)
+			expect(Rules.refuse({ position = inside, stand = area, driveOpen = false })).to.equal(
+				Rules.REASON.DRIVE_OVER
+			)
+			expect(Rules.refuse({ position = Vector3.new(40, 0, 0), stand = area, driveOpen = true })).to.equal(
+				Rules.REASON.OFF_STAND
+			)
+			expect(Rules.refuse({ position = inside, stand = area, target = { beater = true }, driveOpen = true })).to.equal(
+				Rules.REASON.BEATER
+			)
+			expect(Rules.refuse({
+				position = inside,
+				stand = area,
+				target = { species = "reddeer" },
+				licences = nil,
+				rows = SPECIES,
+				driveOpen = true,
+			})).to.equal(Rules.REASON.LICENCE)
+			expect(Rules.refuse({
+				position = inside,
+				stand = area,
+				target = { species = "boar" },
+				driveOpen = true,
+			})).to.equal(nil)
+		end)
+
 		it("has one short line for every reason and no reason without one", function()
 			local seen = 0
 			for _, reason in pairs(Rules.REASON) do
@@ -251,12 +352,13 @@ return function()
 				expect(#(line :: string) <= 20).to.equal(true)
 				seen += 1
 			end
-			expect(seen).to.equal(4)
+			expect(seen).to.equal(5)
 			expect(Rules.noticeFor("not-a-reason")).to.equal(nil)
 			expect(Rules.noticeFor(nil)).to.equal(nil)
 			-- The reasons are wire values the client and the Hud key on, so they are pinned here.
 			expect(Rules.REASON.BEATER).to.equal("beater-in-line")
 			expect(Rules.REASON.OFF_STAND).to.equal("off-stand")
+			expect(Rules.REASON.OFF_PLATFORM).to.equal("off-platform")
 			expect(Rules.REASON.LICENCE).to.equal("no-licence")
 			expect(Rules.REASON.DRIVE_OVER).to.equal("drive-over")
 		end)

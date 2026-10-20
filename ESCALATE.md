@@ -1,5 +1,59 @@
 # Escalations
 
+## 2026-10-20 - Task 218: STOP -- `NEEDS TEST2 218 c21429f` (by the dispatch) and NEEDS KAREN (her look)
+
+Nothing is wrong and nothing is undecided. The dispatch ends with
+*"TWO_PLAYER_PATHS (Match stand rules) -> STOP `NEEDS TEST2 218 <sha>` before the review"*, so this
+is that stop. It has **two halves and they are not the same thing**.
+
+**HALF 1 -- `test2`, and by the paths it is NOT ACTUALLY REQUIRED.** The dispatch's reason was that
+the ruling on the placement snap *may* reach `src/server/Match/`. **It does not.** The Architect's
+design (`docs/design/high-seats.md` sections 7.3 and 11.4) rules that the hunter reaches the deck
+through `Body.placementFor` + `Body.onGround` with **no new arithmetic in `Match`**, because
+`ForestTest.Markers` raises that stand's marker to the deck top and `placementFor` reads
+`post.Position` and nothing else. `git diff d297ebb..c21429f --name-only` names no file under
+`src/server/Match/`, `src/client/Match/`, `src/shared/Drive/`, `tests/client/Role.luau` or any spec
+in `TWO_PLAYER_PATHS`, so `tools/agents.py` will not ask for a `[harness2]` line and the merge gate
+does not want one either. **The Director decides whether to want it anyway**; if so, the sha is
+`c21429f67fe3dd11f7a6b20fef669b2a774f1a45`.
+
+**HALF 2 -- NEEDS KAREN, and this is the one that matters.** This task ships a **new visible model**
+that she judges by eye against her own ref-7, and lesson L-008 is that the gate and the review
+should not be spent before she has seen it. The frames are in `<runs-dir>`:
+
+* `218-edge-seat2.png` -- **the seat from the ground at a player's eye height**: four posts, the
+  truss ladder centred on the south face, the cross-bracing, the deck overhead, the legs standing in
+  the grass with no daylight under them.
+* `218-edge-platform.png` -- **from his eye on the platform**, looking north over the field at the
+  far tree line.
+* `218-edge-ground.png` -- from the ground inside his own circle, with a leg and the stand ring.
+
+**The Builder's own note on the look, having looked:** the timber reads **much darker than ref-7**
+-- almost black in the shade of its own deck, against bright grass -- because `TIMBER` is the
+lodge's `LOG_COLOR_ALT` (`#58432D`) and a weathered Drueckjagdbock is a grey-brown. That is two
+lines in `HighSeats.COLORS` if she wants it lighter (design section 13, open decision 2). The other
+open decisions she can answer from the same frames: the rail height (section 13.1), whether nine
+seats across four places is the right *"some"* (13.3), a bench (13.4), and whether the climb feels
+right at 12.5 studs (13.5).
+
+**WHAT IS BUILT AND PROVEN** is in `reviews/task-218/REQUEST.md` (round 1, ready to run). Code
+commit `c21429f`, full `test` **PASS: 33/33 (clean tree) scope=all**, SMOKE PASS 90 s, CI green.
+
+**WHAT IS NOT PROVEN, in one place:** no hit card (both shots from the platform missed at 145-158
+studs, and no boar came inside the 55-stud window of a later run); frames for `road`, `ride` and
+`track`; and the `"CLIMB TO YOUR STAND"` text on screen -- the refusal is proven by the **shell
+count** instead (12 to 10 from the deck, 10 to 10 from the ground below), which is the stronger
+fact anyway, since a refused shot is defined by spending nothing.
+
+**A HARNESS FAULT, REPORTED UNDER RULE 6 AND NOT WORKED AROUND.** With both Studios connected --
+DEV and the Forest Test -- `python tools/studio_mcp.py test` ran against the **Forest Test**: the run
+at `0931819` printed `FAIL Studio has the DEV place open (130094961655666 vs 136410205938347)` and
+`FAIL No flag override appeared during the run (DHFlag_COINS=true, ...)` -- which are the Forest
+Test's own place attributes, not overrides -- with **no `[harness] N Studios connected` line above
+them**, so `_choose_default_studio` had pinned nothing. Closing the Forest Test Studio fixed it and
+every later run passed. It is a real hazard: the harness can report a PASS or a FAIL about the wrong
+place, and the clean-tree PASS that gates a merge is exactly the thing that must not be able to.
+
 ## 2026-10-19 - Task 210: RESOLVED -- NO CLICK WAS NEEDED; `run-test2.sh` presses F7 itself
 
 **RESOLVED by the Director, 2026-10-19, with this line: `run-test2.sh` presses F7 itself, no click

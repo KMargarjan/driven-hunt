@@ -736,6 +736,14 @@ BLAST_RADIUS = (
     # LAYOUT: move a stand line and the lane rule is what breaks.
     ("src/shared/Places/", "places"),
     ("src/server/Places/", "places"),
+    # KAREN'S HIGH SEATS (task 218): which stands carry a wooden Hochsitz, its dimensions and the
+    # pure arithmetic of standing one on rolling ground. It resolves to `match` and NOT to a scope
+    # of its own: the one writer of `Workspace.HighSeats` is `src/server/ForestTest/Seats.luau`,
+    # which the `src/server/ForestTest/` row above already maps to `match`, and the platform rule it
+    # feeds is read by the drive's own fire gate. `high_seats.spec` is in `places` as well (the dual
+    # membership this table already uses), because the lane rule is what keeps a seat's footprint
+    # clear of trees and that spec asserts the identity rather than describing it.
+    ("src/shared/HighSeats/", "match"),
     ("src/server/Boar/", "boar"),
     ("src/server/BoarAssetsBoot.server.luau", "boar"),
     ("src/shared/Map/", "map"),
@@ -814,8 +822,15 @@ SCOPE_SPECS = {
     # `src/server/Match/` and `src/server/ForestTest/` are what either of them can break.
     # Task 193: the four places' own plan -- where every tree goes, and that not one of them is in
     # a shooting lane. `places.spec` is the whole scope, and it is in `match` too (below).
-    "places": ("tests/server/places.spec.luau", "tests/server/forest_stand.spec.luau"),
+    "places": ("tests/server/places.spec.luau", "tests/server/forest_stand.spec.luau",
+               # Task 218: the lane rule is what keeps a high seat's footprint clear, and this spec
+               # asserts `Places.LANE_STUDS >= HighSeats.footprintRadiusStuds()` rather than
+               # describing it -- so moving either number plays it.
+               "tests/server/high_seats.spec.luau"),
     "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
+              # Task 218: `ForestTest.Markers` raises a seated stand's post onto a deck and
+              # `ForestTest.standArea` carries its `minY`, both read by the drive and its fire gate.
+              "tests/server/high_seats.spec.luau",
               # Task 193: the dressing of each place is planned from a LAYOUT, so a change to the
               # layouts or to the drive plays it.
               "tests/server/places.spec.luau",

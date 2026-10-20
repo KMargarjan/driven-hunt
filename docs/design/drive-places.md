@@ -59,10 +59,23 @@ text for the Builder to paste**, because the Architect script writes only this o
    layout** (`src/shared/Places`), and the seam between them is one direction only: `Places` requires
    `ForestTest`; `ForestTest` never requires `Places`. (Already true: `src/shared/Places/init.luau`
    requires `ReplicatedStorage.ForestTest` and nothing in `src/shared/ForestTest/init.luau` mentions
-   `Places`.)
+   `Places`.) **Task 218 is the second system to follow this rule rather than bend it**:
+   `ReplicatedStorage.HighSeats` keys its table by layout NAME for exactly this reason
+   (`docs/design/high-seats.md` section 3, `drive-layouts.md` section 3.2.1).
 2. **Must not move, re-parent, scale, re-colour or destroy anything in `Workspace.OurForest`,
    `Workspace.Session` or `Workspace.LobbyAssets`.** Clone only (BRIEF D7, rule 7). The one thing this
    system may destroy is **its own** folder, `Workspace.DrivePlaces`.
+   **THIS WORLD NOW OWNS A SECOND BUILT FOLDER (task 218): `Workspace.HighSeats`**, whose one writer
+   is `src/server/ForestTest/Seats.luau`. `Places` must not create, move, re-colour or destroy
+   anything in it, and `Seats` must not touch `Workspace.DrivePlaces`. **The lane rule already clears
+   it and no new rule is needed:** nothing is planted within `halfStripStuds + LANE_STUDS` of any
+   place's line, `LANE_STUDS` is 12, and a seat's footprint radius is **5.1 studs** about a stand
+   point that is on the line -- so the clear ground is 6.9 studs wider than the widest seat and no
+   tree can be planted through one. `tests/server/high_seats.spec.luau` asserts
+   `Places.LANE_STUDS >= HighSeats.footprintRadiusStuds()` rather than describing it.
+   **`Workspace.HighSeats` is deliberately NOT in `ForestTest.GROUND_IGNORE`** (which `Places.FOLDER`
+   **is**, section 10.1): a deck is a thing a body stands on, and the world's one ground reader must
+   say so or there are two answers. `high_seats.spec` asserts that absence.
 3. **Must not carve terrain, and must not change terrain HEIGHT anywhere.** Painting a surface
    material is in scope (§7); `Terrain:FillBlock`, `WriteVoxels` and any height write are not. The
    measured relief is 29–37 studs along a 700-stud stand line (BRIEF M8), and a flat slab over that

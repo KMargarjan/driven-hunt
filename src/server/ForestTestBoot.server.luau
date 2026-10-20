@@ -795,6 +795,17 @@ Match.start({
 		-- in `ForestTest`; the composition root only hands it the two things it cannot reach --
 		-- `Match`'s drive number and the Director's override.
 		ForestTest.layoutForDrive(Match.driveNumber(), ServerStorage:GetAttribute(Data.LAYOUT_OVERRIDE_ATTRIBUTE))
+		-- THE HIGH SEATS, BEFORE THE MARKERS, AND THE ORDER IS THE WHOLE OF TASK 218 (design
+		-- section 9.3). `Seats.ensure` is LEVEL-TRIGGERED on the layout's name: a folder already
+		-- stamped with this layout costs a `FindFirstChild` and casts no ray, so the once-a-second
+		-- `Waiting` read churns nothing; any other state is rebuilt, so a rotation cannot leave the
+		-- road's seats standing in the ride. It runs FIRST because `Markers.build` then asks the
+		-- seat where its deck is instead of reading that column from the sky and refusing the stand.
+		--
+		-- IT IS HERE AND NOT ON THE `Assigning` EDGE on purpose: an edge handler would be a SECOND
+		-- place that decides when seats exist, and this closure already runs at that edge. One call
+		-- site, level-triggered, cannot be missed, cannot fire twice and cannot be ordered wrongly.
+		ForestTest.Seats.ensure(ForestTest.layout())
 		return ForestTest.Markers.build(ForestTest.hunterStandX(), ForestTest.layout())
 	end,
 	placement = placement,
@@ -1145,6 +1156,14 @@ Match.PhaseChanged:Connect(function(_before, phase)
 			stats.reads
 		)
 	)
+	-- ...AND WHAT THE HIGH SEATS MEASURED (task 218). `Seats` never prints: this is the composition
+	-- root, the same division `Markers.stats` and the line above already follow. The worst foot gap
+	-- IS the rule E claim as a number -- the worst of five footprint samples of every seat standing
+	-- -- so the thing Karen looks at and the thing the console says are the same measurement.
+	local seatLine = ForestTest.Seats.takeLine()
+	if seatLine ~= nil then
+		print(seatLine)
+	end
 end)
 
 -- WHAT EACH PLAYER WAS WHEN HIS BODY LAST STOOD STILL (task 214), by UserId: the character, and the

@@ -40,6 +40,10 @@ local Line = require(script.Line)
 -- `Workspace.ForestMarkers` and nothing else, and it requires this module back in no way at all --
 -- its two ground readers are injected at the bottom of this file.
 local Markers = require(script.Markers)
+-- THE HIGH SEATS (task 218). The third child of this shape: it writes `Workspace.HighSeats` and
+-- nothing else, it requires this module back in no way at all, and its two ground readers are
+-- injected at the bottom of this file beside `Markers`'.
+local Seats = require(script.Seats)
 
 local ForestTest = {}
 ForestTest.Data = Data
@@ -994,7 +998,15 @@ function ForestTest.standArea(userId: number)
 	if pick == nil or (pick :: any).lockedAt == nil then
 		return nil
 	end
-	return { centre = Data.standPosition(pick.index, chosen.layout), radius = Data.PICK.standRadiusStuds }
+	return {
+		centre = Data.standPosition(pick.index, chosen.layout),
+		radius = Data.PICK.standRadiusStuds,
+		-- WHERE HIS PLATFORM'S FLOOR IS, or nil for "no height rule" -- which is every ground stand
+		-- and every other world (task 218, design section 5.2). Read off the SEAT THE WORLD BUILT,
+		-- so "where may he shoot" and "what is he standing on" are one fact asked once: a stand
+		-- whose seat was refused answers nil here and is a ground stand in every respect.
+		minY = Seats.deckTopY(pick.index),
+	}
 end
 
 -- ---------------------------------------------------------------- which role, in this world only
@@ -3392,6 +3404,15 @@ ForestTest.Line = Line
 -- its parent is a cycle -- and a third copy of the two rays would be two definitions of "where is
 -- the ground", which is this project's named failure mode. One home, passed once.
 Markers.setReaders(ForestTest.terrainYAt, Data.groundAt)
+
+-- THE HIGH SEATS (task 218), composed here for exactly the same two reasons: `Seats` is a child of
+-- this module and cannot require it, and its ground readings must be THE SAME TWO FUNCTIONS -- a
+-- seat that stood on a third opinion of the ground would be a seat the stand under it disagreed
+-- with. `Markers` then asks the seat where its deck is instead of reading that column itself
+-- (design section 7.2), which is why this line comes before `ForestTest.Markers` is exported.
+Seats.setReaders(ForestTest.terrainYAt, Data.groundAt)
+Markers.setSeatSource(Seats.deckTopY)
+ForestTest.Seats = Seats
 ForestTest.Markers = Markers
 
 return ForestTest

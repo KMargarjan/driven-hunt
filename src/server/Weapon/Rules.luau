@@ -3,7 +3,8 @@
 -- `Player`, no `Random`; every fact is a parameter. The owner (`Weapon.onFireRequest`) asks these
 -- questions in its own order and is the only thing that writes.
 --
--- FOUR RULES OF ONE SHAPE (three in task 171, the fourth in 174): the trigger does nothing and NOTHING IS TAKEN AWAY.
+-- FIVE RULES OF ONE SHAPE (three in task 171, the fourth in 174, the fifth in 218): the trigger does
+-- nothing and NOTHING IS TAKEN AWAY.
 -- Karen, 2026-10-11, about beaters: *"No penalty now we need simplify scope, thye just can't shoot
 -- them"*; 2026-10-12, about a hunter who is not in his stand circle: he *"CAN'T SHOOT until he steps
 -- in"*, with no punishment; 2026-10-10, about a red deer with no licence: *"they can aim but no
@@ -32,7 +33,7 @@
 -- `zz_tie_to_a_tree.spec` stages both: the probe aimed at him (refused, ties nobody) and the real
 -- replayed click aimed `BESIDE_STUDS` = 5 studs off his body (fired, ties the shooter).
 --
--- THE THREE ARE ASKED IN ONE DECLARED ORDER -- `Rules.ORDER`, off-stand first -- and that too was
+-- THEY ARE ASKED IN ONE DECLARED ORDER -- `Rules.ORDER`, off-stand first -- and that too was
 -- forced by a measurement rather than chosen on paper: in the Director's run at `8b2bb40` the probe
 -- aimed straight at a beater answered `off-stand`, because the shooter had walked 525 studs from his
 -- post to reach him. Both answers were correct; nothing said which should win. See `Rules.ORDER`.
@@ -73,9 +74,16 @@ export type Target = {
 -- WHERE A HUNTER MAY STAND AND STILL SHOOT: task 166's circle, as data. nil from the provider means
 -- "this player has no stand", which is a beater, a player between drives, and a hunter whose pick
 -- has not locked -- none of whom is OUTSIDE anything.
+--
+-- `minY` IS THE HIGH SEAT'S DECK (task 218). Karen, 2026-10-10: *"maybe will add towers where they
+-- can stand"*, and 2026-10-12: a tree stand *"count[s] as part of the stand"*. At a stand that
+-- carries one, the PLATFORM is the stand -- so the circle keeps its flat rule and gains a FLOOR.
+-- nil is "no height rule", which is every ground stand, the DEV arena and every world that has no
+-- seats; `ForestTest.standArea` fills it in from the seat the world actually built.
 export type StandArea = {
 	centre: Vector3,
 	radius: number,
+	minY: number?,
 }
 
 -- The closed set, so the owner, the client and the specs can name them. They are wire values: the
@@ -83,6 +91,8 @@ export type StandArea = {
 Rules.REASON = table.freeze({
 	BEATER = "beater-in-line",
 	OFF_STAND = "off-stand",
+	-- HE IS IN HIS CIRCLE BUT NOT UP ON HIS HIGH SEAT (task 218).
+	OFF_PLATFORM = "off-platform",
 	LICENCE = "no-licence",
 	-- THE DRIVE IS NOT ON (task 174). KAREN, 2026-10-13 ~09:35: *"for hunter once hunt over (drive)
 	-- horn anounce then I can; shoot anymore"*.
@@ -94,6 +104,9 @@ Rules.REASON = table.freeze({
 Rules.NOTICE = table.freeze({
 	[Rules.REASON.BEATER] = "NOT AT A BEATER",
 	[Rules.REASON.OFF_STAND] = "NOT IN YOUR STAND",
+	-- The one thing he can do about it, in the Hud's own voice. 19 characters: one shorter than
+	-- `"THE DRIVE IS OVER"` plus its row, so no Hud measurement moves.
+	[Rules.REASON.OFF_PLATFORM] = "CLIMB TO YOUR STAND",
 	[Rules.REASON.LICENCE] = "NO LICENCE",
 	[Rules.REASON.DRIVE_OVER] = "THE DRIVE IS OVER",
 })
@@ -142,6 +155,33 @@ function Rules.outsideStand(position: Vector3?, area: StandArea?): boolean
 	return flat.Magnitude > area.radius
 end
 
+-- RULE 5. IS HE BELOW HIS PLATFORM? (task 218.) KAREN, 2026-10-10: *"maybe will add towers where
+-- they can stand"*. At a stand that carries a high seat the PLATFORM is the stand, so the rule the
+-- circle already makes gains a floor -- and it is a SEPARATE FUNCTION rather than a second clause
+-- inside `outsideStand`, because `outsideStand` answers the FLAT question and every ground stand in
+-- the game depends on that answer not moving. `Match.Penalty`'s own warning: four questions in one
+-- predicate is how "one predicate answered two unrelated questions" happened in the previous
+-- project.
+--
+-- `minY` IS THE DECK'S OWN TOP FACE, with no margin, and that is arithmetic rather than caution: a
+-- Roblox character jumps `StarterPlayer.CharacterJumpHeight` = 7.2 studs (MEASURED in Karen's place,
+-- 2026-10-20), so a man standing on the ground under the seat reaches `ground + 3.5 + 7.2` at his
+-- apex, which is 1.8 studs under a deck that sits 12.5 up -- while a man standing ON the deck is
+-- 3.5 studs above it. `HighSeats.minYFor` is where that number is decided; this only asks.
+--
+-- NO AREA, NO POSITION OR NO `minY` MEANS NO RULE -- the same call `outsideStand` and
+-- `beaterInLine` already make, and for the same reason: a mis-wired provider must not look exactly
+-- like Karen's rule working.
+function Rules.belowPlatform(position: Vector3?, area: StandArea?): boolean
+	if area == nil or position == nil then
+		return false
+	end
+	if type(area.minY) ~= "number" then
+		return false
+	end
+	return position.Y < (area.minY :: number)
+end
+
 -- RULE 4. IS THE DRIVE OVER -- OR NOT YET BEGUN? (task 174.) KAREN, 2026-10-13 ~09:35: *"for hunter
 -- once hunt over (drive) horn anounce then I can; shoot anymore"*. THE SIGNALS ARE THE RULES: the
 -- start horn opens the drive and the end horn closes it, so the window in which a gun may fire is
@@ -159,7 +199,7 @@ function Rules.driveClosed(driveOpen: boolean?): boolean
 	return driveOpen == false
 end
 
--- THE ORDER THE FOUR ARE ASKED IN, DECLARED AND TESTABLE (task 171, after the Director's
+-- THE ORDER THE FIVE ARE ASKED IN, DECLARED AND TESTABLE (task 171, after the Director's
 -- two-player run at `8b2bb40`: the probe aimed at a beater came back `off-stand`, because the
 -- shooter had walked out of his own circle, and nothing in the repo said which answer was meant to
 -- win). It is here rather than in the owner because an ORDER is a rule, and a rule nobody can assert
@@ -182,9 +222,17 @@ end
 -- he points at, so it is the one thing he cannot fix by moving or by aiming somewhere else. "NOT IN
 -- YOUR STAND" to a man whose drive is over would send him walking back to a circle that will not let
 -- him shoot either.
+--
+-- ...AND `OFF_PLATFORM` SITS IMMEDIATELY INSIDE `OFF_STAND` (task 218), by the same rule one step
+-- further in. "NOT IN YOUR STAND" to a man who is both outside his circle AND on the ground sends
+-- him to the right place; "CLIMB TO YOUR STAND" then tells him the one thing left. Reversed, a man
+-- 500 studs from his stand would be told to climb. It comes before `BEATER` for the reason
+-- `OFF_STAND` already does: a refused shot hits nobody, so no safety answer is lost, and the
+-- instruction he can act on wins.
 Rules.ORDER = table.freeze({
 	Rules.REASON.DRIVE_OVER,
 	Rules.REASON.OFF_STAND,
+	Rules.REASON.OFF_PLATFORM,
 	Rules.REASON.BEATER,
 	Rules.REASON.LICENCE,
 })
@@ -208,7 +256,7 @@ end
 -- two unrelated questions -- this one answers "which of the three", which is one question.
 export type Context = {
 	position: Vector3?, -- where the shooter is standing
-	stand: StandArea?, -- his stand's circle, or nil for "he has none"
+	stand: StandArea?, -- his stand's circle (and its platform's floor), or nil for "he has none"
 	target: Target?, -- what the aim ray hit
 	licences: { [string]: boolean }?, -- what he holds
 	rows: any?, -- the licence table, for a spec that wants its own
@@ -219,6 +267,10 @@ function Rules.refuse(context: Context): string?
 	for _, reason in ipairs(Rules.ORDER) do
 		if reason == Rules.REASON.OFF_STAND then
 			if Rules.outsideStand(context.position, context.stand) then
+				return reason
+			end
+		elseif reason == Rules.REASON.OFF_PLATFORM then
+			if Rules.belowPlatform(context.position, context.stand) then
 				return reason
 			end
 		elseif reason == Rules.REASON.BEATER then

@@ -21,6 +21,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
+local HighSeats = require(ReplicatedStorage:WaitForChild("HighSeats"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
@@ -261,6 +262,133 @@ return function()
 			)
 			-- Facing +Z: north, up the drive. (`ForestTest.DRIVE_BEARING_DEG` is 0.)
 			expect((cframe :: CFrame).LookVector.Z > 0.99).to.equal(true)
+		end)
+
+		-- ---------------------------------------------------------------- the high seats (task 218)
+		--
+		-- `seats` IS THE FIFTH PARAMETER AND IT IS A FUNCTION, so every case here is driven with
+		-- hand-written numbers: no seat, no forest and no Workspace. What it asserts is the one
+		-- thing the whole of task 218's call order exists for -- a stand with a deck is NOT measured
+		-- by the two ground readers, because from the sky they would see the deck 12.5 studs over
+		-- the terrain, disagree by more than `GROUND_TOLERANCE_STUDS`, and refuse the stand for ever.
+		it("puts a seated stand's post ON its deck, and does not read that column at all", function()
+			local reads = 0
+			local counting = function(_x: number, _z: number): number?
+				reads += 1
+				return FLAT_Y
+			end
+			local DECK = FLAT_Y + 12.5
+			local seats = function(index: number): number?
+				return if index == 3 then DECK else nil
+			end
+			local layout = Data.ROAD_LAYOUT
+			local set = Markers.build(Data.standX(5), layout, counting, counting, seats)
+
+			expect(#set.posts).to.equal(layout.standCount)
+			expect(set.posts[3].Position.Y).to.equal(DECK)
+			for index, post in ipairs(set.posts) do
+				if index ~= 3 then
+					expect(post.Position.Y).to.equal(FLAT_Y)
+				end
+			end
+			-- TWO READS PER STAND EXCEPT THE SEATED ONE, plus the line's own and the beater pad's:
+			-- eight stands x 2, and 2 + 2 for the line and the pad.
+			expect(reads).to.equal((layout.standCount - 1) * 2 + 4)
+		end)
+
+		it("never refuses a seated stand, whatever the ground readers say about it", function()
+			-- THE DEFECT THIS CASE EXISTS FOR, stated as the readers that would cause it: a canopy
+			-- reader answering 12 studs above the terrain at every column. Without the seat branch
+			-- stand 3 would be refused and `lastMaxDelta` would carry its disagreement.
+			local DECK = FLAT_Y + 12.5
+			local high = function(_x: number, _z: number): number?
+				return FLAT_Y + 12
+			end
+			local seats = function(index: number): number?
+				return if index == 3 then DECK else nil
+			end
+			local layout = Data.ROAD_LAYOUT
+			local set = Markers.build(Data.standX(5), layout, flat, high, seats)
+			expect(set.posts[1].Name).to.equal("Stand3")
+			expect(#set.posts).to.equal(1)
+			expect(set.posts[1].Position.Y).to.equal(DECK)
+			-- Every OTHER stand was refused by the disagreement, which is today's rule untouched.
+			expect(Markers.stats().refused).to.equal(layout.standCount - 1)
+		end)
+
+		-- THE DEFECT THE FIRST LIVE RUN OF TASK 218 FOUND, as a case. The drive line is read at
+		-- `layout.centre.X`, and for an ODD stand count that x IS the middle stand's -- so on the
+		-- `edge` layout, whose stand 3 carries a seat, the canopy reader hit the DECK at 193.26
+		-- against the terrain's 179.89 and the set came back `WAITING forest:line`. The design
+		-- exempted the stand column and not the line's own point.
+		it("reads the drive line's ground through the terrain when a seat stands over it", function()
+			local layout = Data.ROAD_LAYOUT
+			-- The middle stand of an odd count is exactly the line's own x.
+			local middle = math.floor(layout.standCount / 2) + 1
+			expect(math.abs(Data.standX(middle, layout) - layout.centre.X) < 1e-6).to.equal(true)
+
+			local DECK = FLAT_Y + 12.5
+			local deckFromTheSky = function(_x: number, _z: number): number?
+				return DECK
+			end
+			local seats = function(index: number): number?
+				return if index == middle then DECK else nil
+			end
+			-- `flat` is the terrain (it cannot see a deck); `deckFromTheSky` is the canopy reader
+			-- answering the deck at every column, which is what the live place did at this one.
+			local set = Markers.build(Data.standX(5), layout, flat, deckFromTheSky, seats)
+			expect(set.line).to.be.ok()
+			expect((set.line :: any).position.Y).to.equal(FLAT_Y)
+			expect(hasMissing(set, "forest:line")).to.equal(false)
+		end)
+
+		it("still refuses a drive line the two readers disagree about away from a seat", function()
+			-- ...and the refusal it is there for is untouched: a canopy over the line, with no seat
+			-- anywhere near it, is still `forest:line`.
+			local layout = Data.ROAD_LAYOUT
+			local high = function(_x: number, _z: number): number?
+				return FLAT_Y + 12
+			end
+			local noSeats = function(_index: number): number?
+				return nil
+			end
+			local set = Markers.build(Data.standX(5), layout, flat, high, noSeats)
+			expect(set.line).to.equal(nil)
+			expect(hasMissing(set, "forest:line")).to.equal(true)
+		end)
+
+		it("covers the whole of a seat's own footprint", function()
+			-- The radius `seatCovers` uses must reach every part of a seat, or a reading just off
+			-- the stand point would still be taken through a leg.
+			expect(Markers.SEAT_COVER_STUDS >= HighSeats.footprintRadiusStuds()).to.equal(true)
+			expect(Markers.seatCovers(100, 200, { Vector3.new(100, 0, 200) })).to.equal(true)
+			expect(Markers.seatCovers(100 + Markers.SEAT_COVER_STUDS + 0.1, 200, { Vector3.new(100, 0, 200) })).to.equal(
+				false
+			)
+			expect(Markers.seatCovers(100, 200, nil)).to.equal(false)
+			expect(Markers.seatCovers(100, 200, {})).to.equal(false)
+		end)
+
+		it("is byte-for-byte today's set in a world with no seats", function()
+			-- A SEAT THAT WAS REFUSED, AND A WORLD THAT HAS NONE, MUST BE THE SAME THING. `Seats`
+			-- answers nil for a stand whose ground it could not measure, and the drive must then see
+			-- exactly the set it saw before task 218 existed -- never a `missing` string, never a
+			-- `WAITING`.
+			local layout = Data.ROAD_LAYOUT
+			local without = Markers.build(Data.standX(5), layout, flat, flat)
+			local refusedCount = Markers.stats().refused
+			local nothingSeated = function(_index: number): number?
+				return nil
+			end
+			local with = Markers.build(Data.standX(5), layout, flat, flat, nothingSeated)
+			expect(#with.posts).to.equal(#without.posts)
+			expect(with.complete).to.equal(without.complete)
+			expect(#with.missing).to.equal(#without.missing)
+			expect(with.lineParts).to.equal(without.lineParts)
+			expect(Markers.stats().refused).to.equal(refusedCount)
+			for index, post in ipairs(with.posts) do
+				expect(post.Position.Y).to.equal(without.posts[index].Position.Y)
+			end
 		end)
 
 		it("ties a punished hunter to the nearest stand, because there are no tagged trunks", function()
