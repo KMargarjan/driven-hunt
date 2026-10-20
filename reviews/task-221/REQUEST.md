@@ -1,12 +1,20 @@
 # Task 221 -- money in dollars, and the v1 shop catalogue
 
 Task: 221
-Round: 1
+Round: 2
 Base: main (`2ca8bdd`)
-Code commit: `61ad71a9eb3ae360ff73a5b0bb8ec652fdb1623e`
+Code commit: `1af2cf6075996db4abebfe437cd6b5b52ced3bba`
 
 ```
-[harness] PASS: 33/33 checks @ 61ad71a9eb3ae360ff73a5b0bb8ec652fdb1623e (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 1af2cf6075996db4abebfe437cd6b5b52ced3bba (clean tree) scope=all
+```
+
+The `[harness2]` pair below is the Director's at `61ad71a`, the round-1 code commit. **It is NOT
+evidence for this commit** and is reproduced only to say where the two-player gate last stood; this
+round changed `Match`, `Economy` and `Objective`, so `test2` is needed again at
+`1af2cf6` and the Builder stops for it:
+
+```
 [harness2] PASS: 35/35 checks @ 61ad71a9eb3ae360ff73a5b0bb8ec652fdb1623e (clean tree)
 [harness2] PASS: 35/35 checks @ 61ad71a9eb3ae360ff73a5b0bb8ec652fdb1623e (clean tree)
 ```
@@ -104,6 +112,47 @@ actually holds; the walk-up hole shut; a display model for every row.
 
 ---
 
+## Round 2: the three findings
+
+**Finding 2 -- `roleOverruled` had no test.** Added, and **shown failing first** (L-028):
+`tests/client/hud_clarity.spec.luau` asserts the overrule sentence REPLACES the driver's countdown
+and carries the same number, that `false` and nil read the same, that it is the `Assigning` line
+only, and that a hunter is never told it; `tests/server/match_live.spec.luau` asserts the field is
+ABSENT with no money in the build.
+
+**That new case found a real behaviour bug on its first run.** `roleOverruled` keyed off
+`economy.alwaysHunters` EXISTING, and a view is wired in every world that has an economy at all --
+so an empty array shipped to every client with the money switched off. It is gated on `coinsOn`
+now, the same fact the row beside it keys off. The spec was right and the code was not, which is
+precisely what the Reviewer said the missing test would have caught.
+
+**Finding 3 -- `Economy.grant` and `alwaysHunters` had no test.** Added to
+`tests/server/economy.spec.luau`: `grant` called DIRECTLY (the door task 222's `ProcessReceipt`
+comes through), a second delivery answering `ok = true, already = true` with **nothing written**
+and `store.calls().save` still 1, `grantsAlready` and `grantsBySource` counted per source, the red
+stag and a retired id refused by that door too, and `alwaysHunters()` asserted frozen, memoised,
+**rebuilt** (not mutated) after a grant, counted through a package's merged grants, and emptied by
+`release`/`stop`.
+
+**Shown failing first, all three at once, with the seams deliberately broken:**
+
+```
+failed [server] economy.spec:663     Expected "true", got "false"
+failed [server] match_live.spec:169  Expected "nil", got "table: ..."
+failed [client] Expected "TEAMS MUST BE EVEN - you beat this drive. 7", got "drive starts in 7"
+```
+
+Each new case failed on its own target and nothing else did; then reverted.
+
+**The notes**: the `dealLine` nil-index on an empty `walk` closed (a real one); `BUNDLES`
+deep-frozen like its siblings; the `Money` comment corrected to what the code does; the licence
+provider restored in `weapon_rules.spec` now that the seam is wired; and the two stale sentences
+that still said `Roster.assign` was untouched.
+
+**Finding 1 -- the frames: PARTLY done, and I am not calling it closed.** See below.
+
+---
+
 ## What I could NOT verify (rule 8) -- please weigh these as unproven, not as passing
 
 * **The climb (TASKS.md 218a(h)) is STILL NOT PROVEN, and I am not calling it a failure either.**
@@ -124,15 +173,37 @@ actually holds; the walk-up hole shut; a display model for every row.
 
 ## What IS proven live, with frames I looked at
 
-* **`$` on the top bar, in a drive**: `.screenshots/221-bar-dollar.png`, camera at the player's eye
-  (Y 144.7, root Y 143.2) -- the chip reads **`$12000 MONEY`**, beside `DRIVE 1`, `4:01 TIME`,
-  `HUNTER`, and the ammo chip `12 BUCK`.
-* **The drive paid out in dollars**: `.screenshots/221-shop-open.png`, same session after the drive
-  ended -- the chip reads **`$12010 MONEY`** ($10 participation on top of the $12,000 test grant).
-  (That frame was shot for the shop panel, which is why it also shows the panel NOT open.)
-* `ReplicatedStorage.Money` resolves live in the Forest Test: a client probe returned
-  `money1240=$1240`.
+The panel was opened **the way the prompt does** -- standing in range with line of sight and the
+prompt's own `Triggered` -- not by a probe reaching into the module.
 
-The Forest Test's attributes were **read before and after and not changed by me**
-(`DHShopTestGrant=true, DHFlag_SHOP=true, DHFlag_COINS=true` both times). I did not use
-`tools/flags.py`, because it resolves the target Studio by MODE and not by place (TASKS.md 216b).
+1. **`.screenshots/221-shop-weapons.png`** -- the REAL panel, camera at the player's eye (Y 157.9,
+   root Y 157.4). WEAPONS / AMMO / LICENCES / ACCESS shelves; `RIFLE, SCOPED $1500`,
+   `SLUG SHELLS $120`, `UNLIMITED AMMO $900`, `BEATER LICENCE $250`, **`RED STAG CARD $750` with
+   the `SOON` tag**, `HIGH SEAT ACCESS $600`, `ALWAYS HUNTER $2000`; wallet `$12000 MONEY` and
+   `30 HUNTS`; the detail pane's `$1500 PRICE` (the `MONEY_CAP` / `PRICE_CAP` split) and
+   `BUY | $1500`. Every number carries its `$`.
+2. **`.screenshots/221-shop-packages.png`** -- the **PACKAGES** shelf: `THE HIDE $575`,
+   `THE MARKSMAN $1800`, `THE FULL SEASON $3750`.
+3. **`.screenshots/221-bar-dollar.png`** -- `$12000 MONEY` on the top bar IN A DRIVE, camera at the
+   player's eye (Y 144.7, root Y 143.2), beside `DRIVE 1`, `4:01 TIME`, `HUNTER` and `12 BUCK`.
+4. **`.screenshots/221-shop-open.png`** -- the same bar after the drive ended, reading
+   **`$12010 MONEY`**: the drive paid out $10 in dollars on top of the grant.
+
+**NOT obtained, and not claimed:**
+
+* **THE FULL SEASON's `INCLUDES:` line in the detail pane.** The panel's row selection does not
+  respond to synthetic mouse clicks (tried at both the raw `AbsolutePosition` and with Roblox's
+  36 px topbar inset); the detail pane stayed on `RIFLE, SCOPED`. `ShopPanel.select` is not a seam
+  a probe can reach, because `execute_luau` has its own module cache.
+* **The five NEW display models individually** (high seat, ammo crate, stag card, badge, package).
+  I built them with the pure `ShopDisplay.build` and stood them in the world to photograph, but the
+  camera was inside the lodge and they were occluded. **So the Reviewer's specific point -- that
+  five new built models have never been looked at -- still stands**, and 218's pylon lesson still
+  applies to them.
+* **Smoke (standing rule A) was not run**, so nothing here says "ready for Karen".
+* **The climb (218a(h))** remains not proven; the Director authorised recording it rather than
+  blocking.
+
+The Forest Test's attributes were read **before and after** and are unchanged by me
+(`DHShopTestGrant=true, DHFlag_SHOP=true, DHFlag_COINS=true` both times). `tools/flags.py` was not
+used, because it resolves the target Studio by MODE and not by place (TASKS.md 216b).
