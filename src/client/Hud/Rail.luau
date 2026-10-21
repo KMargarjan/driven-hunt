@@ -66,6 +66,13 @@ Rail.CONFIG = {
 	-- (`Rail.topFor`), not from a constant, because that diameter is 150 on a screen and 96 on a phone
 	-- (`MapUi.diameterFor`) -- a fixed top would either overlap the disc or leave a hole.
 	TOP_GAP = 8,
+	-- HOW MANY COLUMNS THIS RAIL MAY FOLD INTO (task 220). One, until the viewport cannot hold one.
+	-- MEASURED, and this is why it is 2 rather than a shrunken gap: at 800 x 400 -- a landscape
+	-- phone, which is how phones play -- the free right-edge column under the minimap is y 236..384,
+	-- which is 148 px, and four 48 px buttons are 192 px with NO gaps at all. Shrinking the gap
+	-- cannot save it. Before this, `topFor(96, 140)` + `heightFor(4)` put the rail's bottom at 510
+	-- on a 400 px screen and RELOAD and AMMO were simply off the bottom of the phone.
+	MAX_COLUMNS = 2,
 	LABEL_SIZE = 11,
 	KEY_SIZE = 9,
 	-- A GHOST CONTROL OVER THE WORLD IS A QUIET SLATE (the system §3.5 "Ghost"): the charcoal every
@@ -127,35 +134,141 @@ function Rail.topFor(minimapDiameterPx: number, minimapTopPx: number): number
 	return minimapTopPx + minimapDiameterPx + Rail.CONFIG.TOP_GAP
 end
 
--- HOW TALL THE WHOLE COLUMN IS, for however many buttons are showing.
-function Rail.heightFor(count: number): number
-	local config = Rail.CONFIG
+-- HOW MANY ROWS A GIVEN NUMBER OF BUTTONS NEEDS IN A GIVEN NUMBER OF COLUMNS.
+local function rowsFor(count: number, columns: number): number
 	if count <= 0 then
 		return 0
 	end
-	return count * config.BUTTON_PX + (count - 1) * config.GAP
+	return math.ceil(count / math.max(1, columns))
+end
+
+-- HOW TALL THE WHOLE BLOCK IS, for however many buttons are showing and however many columns they
+-- are folded into. `columns` is optional and defaults to 1, so every caller written before task 220
+-- -- and every existing case in `hud_clarity.spec` -- gets the same answer it always got.
+function Rail.heightFor(count: number, columns: number?): number
+	local config = Rail.CONFIG
+	local rows = rowsFor(count, columns or 1)
+	if rows <= 0 then
+		return 0
+	end
+	return rows * config.BUTTON_PX + (rows - 1) * config.GAP
+end
+
+-- HOW WIDE IT IS, which used to be one button and now depends on the fold.
+function Rail.widthFor(columns: number): number
+	local config = Rail.CONFIG
+	local n = math.max(1, columns)
+	return n * config.BUTTON_PX + (n - 1) * config.GAP
+end
+
+-- THE WHOLE COLUMN THE REST OF THE HUD MUST KEEP OUT OF (the design system 4.3 rule 2): the
+-- buttons, their right margin and 8 px of air. `MapUi.CONFIG.RAIL_COLUMN_PX` is `columnPx(1)`, and
+-- `MapUi` is TOLD this number now rather than holding its own copy (`MapUi.setRailColumn`), so a
+-- folded rail actually reserves the width it occupies instead of letting the full map run under it.
+function Rail.columnPx(columns: number): number
+	return Rail.widthFor(columns) + Rail.CONFIG.MARGIN + Rail.CONFIG.TOP_GAP
+end
+
+-- WHERE A GIVEN VISIBLE BUTTON SITS INSIDE THE FRAME: x, y, in the frame's own offsets.
+--
+-- `index` is 0-based AMONG THE VISIBLE BUTTONS, which is what keeps `applyVisibility`'s *"PACKED,
+-- NOT PARKED"* rule true through the fold: a hidden RELOAD must not leave a 48 px hole. Filling is
+-- top-to-bottom and then the NEXT COLUMN TO THE LEFT, so the column nearest the screen edge -- the
+-- one a right thumb reaches first -- is always the one that is full.
+--
+-- IT TAKES `count` as well as `columns` (a small deviation from the design's two-argument
+-- signature, section 5.6): how many rows there are depends on how many buttons are SHOWING, and two
+-- visible buttons in two columns is one row, not two.
+function Rail.slotFor(index: number, columns: number, count: number): (number, number)
+	local config = Rail.CONFIG
+	local n = math.max(1, columns)
+	local rows = math.max(1, rowsFor(count, n))
+	local column = math.floor(index / rows)
+	local row = index % rows
+	-- COLUMN 0 IS THE RIGHTMOST one, because the frame is anchored to the right edge.
+	return (n - 1 - column) * (config.BUTTON_PX + config.GAP), row * (config.BUTTON_PX + config.GAP)
+end
+
+-- HOW FAR DOWN THE SCREEN THE RAIL MAY REACH. The bottom margin, raised above anything already
+-- drawn in the column the rail would occupy -- today the ammo / horn chip and the touch cluster,
+-- both handed in as rectangles so this function reads nothing and stays pure.
+--
+-- THE WORST-CASE COLUMN IS USED (`columnPx(MAX_COLUMNS)`), deliberately: the floor is an input to
+-- the decision about how many columns there are, so it must not depend on that decision.
+function Rail.floorFor(viewport: Vector2, blockers: { { x: number, y: number, w: number, h: number } }?): number
+	local config = Rail.CONFIG
+	local floorY = viewport.Y - config.MARGIN
+	local columnLeft = viewport.X - Rail.columnPx(config.MAX_COLUMNS)
+	for _, box in ipairs(blockers or {}) do
+		if box.x + box.w > columnLeft and box.x < viewport.X and box.y - config.GAP < floorY then
+			floorY = box.y - config.GAP
+		end
+	end
+	return floorY
+end
+
+-- THE FEWEST COLUMNS THE WHOLE RAIL FITS IN, or `MAX_COLUMNS` when it fits in none of them.
+--
+-- `#Rail.BUTTONS` AND NOT THE VISIBLE COUNT, on purpose: the column this rail reserves must not
+-- change width the moment a player picks up a gun, or the full map would jump sideways under him.
+--
+-- IT TAKES NO VIEWPORT, which is a deviation from the design's four-argument signature (section
+-- 5.6): the viewport decides only how far DOWN the rail may reach, and that is already `floorY`.
+-- A parameter nothing reads is a parameter that will one day be passed wrong.
+function Rail.columnsFor(minimapDiameterPx: number, minimapTopPx: number, floorY: number): number
+	local top = Rail.topFor(minimapDiameterPx, minimapTopPx)
+	for columns = 1, Rail.CONFIG.MAX_COLUMNS do
+		if top + Rail.heightFor(#Rail.BUTTONS, columns) <= floorY then
+			return columns
+		end
+	end
+	return Rail.CONFIG.MAX_COLUMNS
+end
+
+-- THE WHOLE LAYOUT IN ONE PURE ANSWER: x, y, width, height, columns.
+function Rail.layoutFor(
+	viewport: Vector2,
+	minimapDiameterPx: number,
+	minimapTopPx: number,
+	count: number,
+	floorY: number?
+): (number, number, number, number, number)
+	local config = Rail.CONFIG
+	local columns = if floorY == nil then 1 else Rail.columnsFor(minimapDiameterPx, minimapTopPx, floorY :: number)
+	local width = Rail.widthFor(columns)
+	return viewport.X - config.MARGIN - width,
+		Rail.topFor(minimapDiameterPx, minimapTopPx),
+		width,
+		Rail.heightFor(count, columns),
+		columns
 end
 
 -- THE COLUMN'S RECTANGLE: x, y, width, height. PURE AND EXPORTED, for the reason
 -- `Objective.lineRect` is: the existing overlap case measures `AbsolutePosition` at whatever size the
 -- Studio window happens to be, and the claim Karen is being asked to believe is about 400 x 800.
+--
+-- `floorY` IS OPTIONAL AND nil IS TODAY'S ANSWER (task 220): one column, one button wide, exactly
+-- the four numbers this function has always returned. Pass the floor and it folds.
 function Rail.rect(
 	viewport: Vector2,
 	minimapDiameterPx: number,
 	minimapTopPx: number,
-	count: number
+	count: number,
+	floorY: number?
 ): (number, number, number, number)
-	local config = Rail.CONFIG
-	return viewport.X - config.MARGIN - config.BUTTON_PX,
-		Rail.topFor(minimapDiameterPx, minimapTopPx),
-		config.BUTTON_PX,
-		Rail.heightFor(count)
+	local x, y, w, h = Rail.layoutFor(viewport, minimapDiameterPx, minimapTopPx, count, floorY)
+	return x, y, w, h
 end
 
 -- ---------------------------------------------------------------- state: one writer, this module
 
 local frame: Frame? = nil
 local nodes: { [string]: TextButton } = {}
+-- THE FOLD THIS RAIL IS CURRENTLY DRAWN AT (task 220), written only by `Rail.applyLayout` and read
+-- only by `Rail.applyVisibility`. One until something tells it otherwise, so a world that never
+-- calls `applyLayout` is pixel-identical to the rail before this task.
+local layoutColumns = 1
+local layoutViewport: Vector2? = nil
 local started = false
 local hasWeapon = false
 local suppressed = false
@@ -217,6 +330,7 @@ function Rail.applyVisibility()
 	box.Visible = Rail.visible(touchEnabled) and not suppressed and not covered
 	local on = box.Visible
 	local index = 0
+	local visible = 0
 	for _, button in ipairs(Rail.BUTTONS) do
 		local node = nodes[button.id]
 		if node == nil then
@@ -225,14 +339,56 @@ function Rail.applyVisibility()
 		local show = on and Rail.buttonVisible(button, hasWeapon)
 		node.Visible = show
 		if show then
-			-- PACKED, NOT PARKED. A hidden RELOAD must not leave a 48 px hole in the middle of the
-			-- column, so the buttons that ARE drawn are laid out in order from the top.
-			local config = Rail.CONFIG
-			node.Position = UDim2.fromOffset(0, index * (config.BUTTON_PX + config.GAP))
+			visible += 1
+		end
+	end
+	-- PACKED, NOT PARKED. A hidden RELOAD must not leave a 48 px hole in the middle of the column,
+	-- so the buttons that ARE drawn are laid out in order -- down the rightmost column first, then
+	-- the next one to its left (`Rail.slotFor`). TWO PASSES SINCE TASK 220, because a slot's row
+	-- depends on how many buttons are showing in total, which the first pass is what counts.
+	for _, button in ipairs(Rail.BUTTONS) do
+		local node = nodes[button.id]
+		if node ~= nil and node.Visible then
+			local slotX, slotY = Rail.slotFor(index, layoutColumns, visible)
+			node.Position = UDim2.fromOffset(slotX, slotY)
 			index += 1
 		end
 	end
-	box.Size = UDim2.fromOffset(Rail.CONFIG.BUTTON_PX, Rail.heightFor(index))
+	box.Size = UDim2.fromOffset(Rail.widthFor(layoutColumns), Rail.heightFor(index, layoutColumns))
+end
+
+-- THE ONE WRITER OF THIS FRAME'S POSITION, AND OF THE FOLD (task 220). `MapUi.applyLayout` used to
+-- write `rail.Position` from its own copy of `MINIMAP_TOP + diameter + 8`; those three lines are
+-- gone (`backups/2026-10-21_mapui-rail-position.md`) and this is where they live now. That is a
+-- SECOND WRITER REMOVED rather than one added: the clamp cannot live in two places, and the module
+-- that owns the rail is the one that must decide how many columns it has.
+--
+-- Returns the columns it settled on, so the caller can tell `MapUi` what to reserve without
+-- recomputing it.
+function Rail.applyLayout(viewport: Vector2, minimapDiameterPx: number, minimapTopPx: number, floorY: number?): number
+	local holder = frame
+	local _x, y, _w, _h, columns = Rail.layoutFor(viewport, minimapDiameterPx, minimapTopPx, #Rail.BUTTONS, floorY)
+	if holder == nil then
+		return columns
+	end
+	local box = holder :: Frame
+	-- EDGE-TRIGGERED on everything that can move it, so a per-frame caller costs comparisons and
+	-- never a write -- `Rail.setCovered`'s own discipline.
+	if layoutColumns ~= columns or layoutViewport ~= viewport then
+		layoutColumns = columns
+		layoutViewport = viewport
+		-- The frame is anchored (1, 0), so this offset is where its RIGHT edge goes: the margin,
+		-- whatever the fold. `MapUi.CONFIG.MINIMAP_MARGIN` is the same 12, which is why the disc and
+		-- the column have always shared one edge line.
+		box.Position = UDim2.new(1, -Rail.CONFIG.MARGIN, 0, y)
+		Rail.applyVisibility()
+	end
+	return columns
+end
+
+-- WHAT THE RAIL IS FOLDED TO RIGHT NOW, for a spec.
+function Rail.columns(): number
+	return layoutColumns
 end
 
 function Rail.setWeapon(next_: boolean)

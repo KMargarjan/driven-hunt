@@ -100,6 +100,10 @@ local MapUi = require(script.MapUi)
 -- it will be clear to understand what happening / could be buttons on the side for M - map ect"*.
 local Objective = require(script.Objective)
 local Rail = require(script.Rail)
+-- THE TOUCH ACTION CLUSTER (task 220). Karen's v1 plan: *"world: ... MOBILE controls"*. `Rail` owns
+-- the right-edge column; `Touch` owns the four buttons a thumb needs that the rail does not have --
+-- FIRE, AIM, SWAP and BLOW -- down beside the engine's jump button, where a thumb can reach.
+local Touch = require(script.Touch)
 -- ...AND THE SHOP PANEL (task 178), in the same shape: the Hud builds the frame and `ShopPanel` is
 -- the one writer of everything inside it. It follows `MapUi` rather than the compass in the one
 -- respect that matters -- it owns its own `Visible` -- because whether the shop is open is a thing
@@ -250,6 +254,10 @@ local waypointWord: TextLabel? = nil
 -- its fade, exactly as it is of the word inside it.
 local waypointSlateFrame: Frame? = nil
 local railFrame: Frame? = nil
+local touchFrame: Frame? = nil
+-- THE VIEWPORT THE BOTTOM-RIGHT CHIP WAS LAST POSITIONED FOR (task 220), so `Hud.renderCorner`
+-- writes its `Position` on a resize and never on a frame where nothing moved.
+local cornerViewport: Vector2? = nil
 -- WHERE THE WORLD SAYS THE DRIVE IS, resolved once by the closure in `Hud.start` and read every
 -- frame by `Hud.renderObjective`. Module-level because the per-frame pass is now the ONE writer of
 -- the compass's bearing and the map's push arrow -- see `Hud.renderObjective`.
@@ -672,6 +680,37 @@ Hud.STATUS = {
 --
 -- IT IS THE MAXIMUM AND NOT THE DRAWN WIDTH. The slate is `AutomaticSize.X` and is the size of its
 -- chips; this is the box it may never grow past, so an overlap test against it is conservative.
+-- THE TOAST FEED'S WIDTH, NAMED (task 220). It was a literal 440 in `Hud.build` and is now the one
+-- number both that frame and `Hud.leftStackRight` read. Nothing moved.
+Hud.FEED = { WIDTH = 440 }
+
+-- HOW FAR RIGHT THE BOTTOM-LEFT STACK REACHES: the toast feed and the hit card, whichever is wider.
+-- PURE, and handed to `Touch.placement` as a parameter -- `Touch` may not require this module, and
+-- the touch cluster must not be placed on top of the feed.
+function Hud.leftStackRight(_viewport: Vector2): number
+	return math.max(
+		Drive.CONFIG.FEED_LEFT_OFFSET + Hud.FEED.WIDTH,
+		Report.CONFIG.CARD.MARGIN_LEFT + Report.CONFIG.CARD.WIDTH
+	)
+end
+
+-- THE BOTTOM-RIGHT CHIP'S CEILING (task 220). The chip is `AutomaticSize.X`, so this is the box it
+-- may never grow past and an overlap test against it is CONSERVATIVE -- `Hud.statusRect`'s own
+-- rule, stated two functions down. 200 is the widest row this chip can build: slate padding 24, a
+-- shell glyph 16, three chamber pips, a two-digit pocket at `STAT` and a spaced `MICRO` load word,
+-- with the horn's `THROUGH` / `WAIT` row shorter again. `touch_controls.spec` asserts the LIVE
+-- `AbsoluteSize.X` against it, so the ceiling is a measurement and not a guess.
+Hud.CORNER = { MAX_WIDTH_PX = 200 }
+
+-- WHERE THE AMMO / HORN CHIP SITS, given how much room the touch cluster has asked for
+-- (`Touch.reserved`). PURE AND EXPORTED, for `Hud.statusRect`'s reason. `(0, 0)` of reserve is
+-- exactly where the chip has always sat.
+function Hud.cornerRect(viewport: Vector2, rightPx: number, bottomPx: number): (number, number, number, number)
+	local height = if Style.isPhone(viewport.X) then 42 else 46
+	local width = Hud.CORNER.MAX_WIDTH_PX
+	return viewport.X - Style.MARGIN - rightPx - width, viewport.Y - Style.MARGIN - bottomPx - height, width, height
+end
+
 function Hud.statusRect(viewport: Vector2): (number, number, number, number)
 	local config = Hud.STATUS
 	local inset = if Style.isPhone(viewport.X) then config.SIDE_INSET_PHONE else config.SIDE_INSET
@@ -863,12 +902,20 @@ function Hud.waypointSlate(): Frame?
 	return waypointSlateFrame
 end
 
+-- THE TOUCH CLUSTER'S FRAME (task 220), so a spec never walks `PlayerGui` by name.
+function Hud.touchCluster(): Frame?
+	return touchFrame
+end
+
 function Hud.rail(): Frame?
 	return railFrame
 end
 
 Hud.Objective = Objective
 Hud.Rail = Rail
+-- The cluster, published where the Hud starts it -- the `Hud.Rail` / `Hud.Compass` shape, so a
+-- spec reaches it without walking `PlayerGui` by name.
+Hud.Touch = Touch
 -- THE ONE SOURCE, published where the Hud starts it (task 201), the `Hud.Compass` / `Hud.Rail`
 -- shape: a spec reads the tokens off the Hud rather than walking `PlayerScripts` for a sibling.
 Hud.Style = Style
@@ -1489,7 +1536,7 @@ local function build(): ScreenGui
 	feed.BackgroundTransparency = 1
 	feed.AnchorPoint = Vector2.new(0, 1)
 	feed.Position = UDim2.new(0, Drive.CONFIG.FEED_LEFT_OFFSET, 1, -Drive.CONFIG.FEED_BOTTOM_OFFSET)
-	feed.Size = UDim2.fromOffset(440, Hud.feedHeight())
+	feed.Size = UDim2.fromOffset(Hud.FEED.WIDTH, Hud.feedHeight())
 	feed.ZIndex = Hud.STATUS.Z_INDEX
 	feed.Parent = screen
 	local feedStack = Instance.new("UIListLayout")
@@ -2261,6 +2308,23 @@ local function build(): ScreenGui
 	rail.Visible = false
 	rail.Parent = screen
 
+	-- ...AND THE TOUCH ACTION CLUSTER (task 220), down beside the engine's jump button. Created
+	-- EMPTY and never written inside again: `Hud.Touch` builds the four buttons and is the one
+	-- writer of every one of them, of this frame's `Size` and of its `Visible`. Its `Position` is
+	-- written by `Touch.applyLayout` from the live viewport, because where it goes depends on
+	-- whether the bottom band is wide enough to put it beside the jump button or only above it.
+	local cluster = Instance.new("Frame")
+	cluster.Name = "TouchCluster"
+	cluster.BackgroundTransparency = 1
+	cluster.AnchorPoint = Vector2.new(0, 0)
+	do
+		local clusterW, clusterH = Touch.clusterSize()
+		cluster.Size = UDim2.fromOffset(clusterW, clusterH)
+	end
+	cluster.ZIndex = Touch.CONFIG.Z_INDEX
+	cluster.Visible = false
+	cluster.Parent = screen
+
 	-- ---------------------------------------------------------------- the corner (surfaces 6 and 7)
 	--
 	-- BOTTOM RIGHT, AND ONLY ONE OF THE TWO IS EVER DRAWN (§4.3: *"BOTTOM RIGHT ammo chip OR horn
@@ -2517,6 +2581,7 @@ local function build(): ScreenGui
 	waypointWord = waypointLabel
 	waypointSlateFrame = waypointSlate
 	railFrame = rail
+	touchFrame = cluster
 	return screen
 end
 
@@ -3821,6 +3886,11 @@ function Hud.renderScope(CameraSystem)
 		-- with four buttons floating in it is the picture task 141 exists to prevent.
 		Objective.setSuppressed(scoped)
 		Rail.setSuppressed(scoped)
+		-- ...AND THE TOUCH CLUSTER (task 220), for the rail's reason, doubled: at 400 x 800 the
+		-- eyepiece spans y 200..600 and the cluster sits at y 480..640, so it is inside the glass --
+		-- and it is a TRIGGER, which must not be reachable through a sight picture it is drawn on
+		-- top of.
+		Touch.setSuppressed(scoped)
 	end
 	if reticle ~= nil then
 		local visible = Hud.reticleVisible(mode, optics, blend)
@@ -4117,6 +4187,29 @@ function Hud.renderCorner(Weapon)
 	horn.Visible = showHorn
 	ammo.Visible = showAmmo
 
+	-- WHERE THE CHIP SITS, AND THIS FUNCTION IS STILL THE ONE WRITER OF IT (task 220). The touch
+	-- cluster takes the bottom-right corner on a phone, so the chip moves up and LEFT, its
+	-- bottom-right corner becoming the cluster's top-right corner 8 px above it. `Touch.reserved`
+	-- answers how far; it answers `(0, 0)` whenever the cluster is not drawn, so on a desktop the
+	-- chip does not move by one pixel.
+	--
+	-- IT IS WRITTEN HERE AND NOT IN `Hud.applyViewportLayout`, because that function is keyed on
+	-- `viewX` alone (`if viewX == lastViewportX then return`) and the reserve depends on the
+	-- viewport's HEIGHT. Edge-triggered on the whole viewport, so it costs one comparison a frame.
+	local camera = Workspace.CurrentCamera
+	if camera ~= nil then
+		local viewport = (camera :: Camera).ViewportSize
+		if cornerViewport ~= viewport then
+			cornerViewport = viewport
+			local leftStackRight = Hud.leftStackRight(viewport)
+			local reserveX, reserveY =
+				Touch.reserved(viewport, Touch.shown(UserInputService.TouchEnabled), leftStackRight)
+			local where = UDim2.new(1, -(Style.MARGIN + reserveX), 1, -(Style.MARGIN + reserveY))
+			ammo.Position = where
+			horn.Position = where
+		end
+	end
+
 	if showHorn then
 		local word, caption, tint = "HORN", "READY", Style.LOOK.PAPER
 		-- A BAR THAT IS FULL MEANS "YOU MAY BLOW IT". It empties the instant the server accepts a
@@ -4242,7 +4335,27 @@ local function render(Weapon, CameraSystem)
 	-- ...AND THE RAIL LEARNS WHETHER THERE IS A GUN FROM THE SAME READ (task 165). One reader of the
 	-- weapon state in this file; the rail is told and reads nothing. A button whose action cannot run
 	-- is not drawn, which is the dispatch's "no dead buttons".
-	Rail.setWeapon(state ~= nil and state.equipped == true)
+	local hasGun = state ~= nil and state.equipped == true
+	Rail.setWeapon(hasGun)
+	-- ...AND SO DOES THE TOUCH CLUSTER, FROM THE SAME READ (task 220). One reader of the weapon
+	-- state in this file; both columns are TOLD and read nothing.
+	Touch.setWeapon(hasGun)
+	-- THE AIM BUTTON WEARS THE CAMERA'S ANSWER AND NOT THE WEAPON'S AIM FLAG, which is this
+	-- function's own rule twenty lines up: *"the CAMERA, which is the state, not the weapon's aim
+	-- flag, which is the request"*. A lit AIM button over an unshouldered gun would be a number
+	-- that measured right and looked wrong.
+	Touch.setAiming(CameraSystem ~= nil and CameraSystem.getMode() == "Aiming")
+	-- ...AND WHAT HE IS CARRYING, which is SWAP's and BLOW's condition. ONE walk of the Backpack and
+	-- the character per frame, inside `Input` (which already walks that tree for its bindings), and
+	-- both setters are edge-triggered, so a frame in which nothing changed costs two comparisons.
+	--
+	-- TWO ANSWERS TO "IS THERE A HORN", AND THEY ARE TWO QUESTIONS. `Hud.renderCorner` asks whether
+	-- one is IN THE HAND, because that is the chip's rule. This asks whether he CARRIES one,
+	-- because that is the button's rule -- the button equips it first. Neither derives from the
+	-- other, and both read the same tree.
+	local carried = Weapon.Input.carriedSummary()
+	Touch.setCarried(carried.count)
+	Touch.setHorn(carried.hasHorn)
 end
 -- ONE KILL, ONE LINE. The replica hears the server and fires `Killed`; this draws it. A NAMED
 -- handler rather than a closure, exactly as `Hud.onHitMarker` is, so the client half of the kill log
@@ -4410,6 +4523,47 @@ function Hud.renderObjective(CameraSystem)
 	-- `Rail.applyVisibility` stays the one place `Visible` is written.
 	local screen = Workspace.CurrentCamera
 	Rail.setCovered(screen ~= nil and ShopPanel.hidesRail(screen.ViewportSize.X))
+	-- ...AND THE TOUCH CLUSTER IS COVERED BY MORE THAN THE SHOP (task 220). Its `covered` set is
+	-- WIDER than the rail's on purpose: the rail must survive a panel, because on a phone its
+	-- buttons are the only way to CLOSE one, while the cluster is a trigger and there is nothing to
+	-- shoot through a panel. The score panel is in this set and not in the rail's for the same
+	-- reason -- nobody aims in `Scoring`, and REPORT still has to be reachable.
+	--
+	-- EDGE-TRIGGERED INSIDE `Touch`, so this costs one comparison a frame and `applyVisibility`
+	-- stays the one place `Visible` is written -- the fault task 196 round 1 found in the rail.
+	if screen ~= nil then
+		local viewport = (screen :: Camera).ViewportSize
+		Touch.setCovered(
+			MapUi.isOpen() or ReportPanel.isOpen() or ShopPanel.hidesRail(viewport.X) or Hud.isScorePanelVisible()
+		)
+		-- WHERE THE TWO COLUMNS GO, both edge-triggered on the viewport inside their own owners.
+		--
+		-- THE ORDER MATTERS AND IS NOT ALPHABETICAL: the cluster is placed first because the RAIL's
+		-- floor is raised above it, and the chip's reserve is read from the cluster too. One
+		-- evaluation, three consumers, no second answer.
+		local leftStackRight = Hud.leftStackRight(viewport)
+		Touch.applyLayout(viewport, leftStackRight)
+		local clusterShown = Touch.shown(UserInputService.TouchEnabled)
+		local reserveX, reserveY = Touch.reserved(viewport, clusterShown, leftStackRight)
+		local chipX, chipY, chipW, chipH = Hud.cornerRect(viewport, reserveX, reserveY)
+		local blockers = { { x = chipX, y = chipY, w = chipW, h = chipH } }
+		if clusterShown then
+			local cx, cy, cw, ch = Touch.rect(viewport, leftStackRight)
+			table.insert(blockers, { x = cx, y = cy, w = cw, h = ch })
+		end
+		-- THE RAIL CLAMPS ITSELF INSIDE THE VIEWPORT (task 220). Before this, at 800 x 400 --
+		-- a landscape phone, which is how phones play -- its bottom landed at 510 on a 400 px
+		-- screen and RELOAD and AMMO were simply off the bottom of the phone.
+		local columns = Rail.applyLayout(
+			viewport,
+			MapUi.diameterFor(viewport.X, viewport.Y),
+			MapUi.CONFIG.MINIMAP_TOP,
+			Rail.floorFor(viewport, blockers)
+		)
+		-- ...AND THE FULL MAP RESERVES THE COLUMN THE RAIL ACTUALLY OCCUPIES, which is 124 when it
+		-- has folded into two and 68 when it has not. `MapUi` used to hold its own constant.
+		MapUi.setRailColumn(Rail.columnPx(columns))
+	end
 	-- ...AND WHETHER A TRUCK PAD IS ASKING HIM HOW MANY (task 182). ONE server-measured fact, read
 	-- here for `setNear`'s own stated reason -- this function is already *"THE ONE EVALUATION"* --
 	-- and the panel is TOLD. `setAsk` is edge-triggered inside it, so this costs four memoised part
@@ -4712,7 +4866,9 @@ function Hud.start()
 			-- used to be this field is gone -- it is `Hud.Rail`'s first button now
 			-- (`backups/2026-10-12_mapui-touch-button.txt`).
 			legend = mapLegendFrame,
-			rail = railFrame,
+			-- NO `rail` SINCE TASK 220: `Rail.applyLayout` writes its own position now, because it
+			-- also has to clamp and fold itself inside a landscape phone's viewport and a clamp
+			-- cannot live in two modules (`backups/2026-10-21_mapui-rail-position.md`).
 			-- THE MODAL'S SCRIM (task 201 E), handed over with the frames for the same reason the
 			-- legend is: `MapUi.applyVisibility` is already the one writer of what the map shows,
 			-- and the scrim is part of what the map shows.
@@ -4863,6 +5019,20 @@ function Hud.start()
 		-- it every time the weapon changes; this is the first answer.
 		local state = Weapon.get()
 		Rail.setWeapon(state ~= nil and state.equipped == true)
+	end
+	-- ...AND THE TOUCH CLUSTER, next to it and in the same shape (task 220). `Weapon.Input` is the
+	-- one collaborator: every button on it is a second door onto a function that module already
+	-- has, so a missing one means that button is not built at all.
+	if touchFrame ~= nil then
+		Touch.start(touchFrame :: Frame, {
+			Input = Weapon.Input,
+			touchEnabled = UserInputService.TouchEnabled,
+		})
+		local state = Weapon.get()
+		Touch.setWeapon(state ~= nil and state.equipped == true)
+		local carried = Weapon.Input.carriedSummary()
+		Touch.setCarried(carried.count)
+		Touch.setHorn(carried.hasHorn)
 	end
 
 	-- ONE CONNECTION, OUTSIDE EVERY `if`, for the reason task 141 gives for the scope's own: a thing

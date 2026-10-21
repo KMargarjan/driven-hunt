@@ -424,14 +424,18 @@ end
 -- THE PANEL'S RENDERED rectangle: built at a fixed size, fitted with one `UIScale`, centred in the
 -- room left after the rail's column -- the same three lines `layoutFor` performs, so a change to one
 -- shows up in the other's spec.
-function MapUi.fullMapRect(viewport: Vector2): (number, number, number, number)
+--
+-- `railColumnPx` IS OPTIONAL AND nil IS THE CONSTANT (task 220), so every caller written before the
+-- fold gets the answer it always got. A folded rail is 124 wide and the panel must clear THAT.
+function MapUi.fullMapRect(viewport: Vector2, railColumnPx_: number?): (number, number, number, number)
 	local config = MapUi.CONFIG
-	local roomX = viewport.X - config.FULL_SIDE_INSET - config.RAIL_COLUMN_PX
+	local column = railColumnPx_ or MapUi.railColumn()
+	local roomX = viewport.X - config.FULL_SIDE_INSET - column
 	local roomY = viewport.Y - config.FULL_TOP - config.FULL_BOTTOM_INSET
 	local scale = math.max(0.1, math.min(1, roomX / config.FULL_MAX_WIDTH_PX, roomY / config.FULL_MAX_HEIGHT_PX))
 	local width = config.FULL_MAX_WIDTH_PX * scale
 	local height = config.FULL_MAX_HEIGHT_PX * scale
-	return viewport.X / 2 - math.round(config.RAIL_COLUMN_PX / 2) - width / 2, config.FULL_TOP, width, height
+	return viewport.X / 2 - math.round(column / 2) - width / 2, config.FULL_TOP, width, height
 end
 
 -- WHAT THE LEGEND SAYS, as data. Six rows, in the order they are drawn. `shape` is "line" for the
@@ -731,15 +735,24 @@ end
 
 local miniFrame: Frame? = nil
 local fullFrame: Frame? = nil
--- THE LEGEND AND THE RAIL (task 165). The legend is this module's to fill; the RAIL is not -- only
--- its POSITION is, because the rail hangs under the minimap and this is the one function that knows
--- the minimap's rendered diameter (`layoutFor`). `Hud.Rail` is the one writer of everything inside
--- it, and this module never reads it.
+-- THE LEGEND, which is this module's to fill.
+--
+-- THE RAIL IS NO LONGER HERE AT ALL (task 220). Until this task `layoutFor` wrote the rail frame's
+-- POSITION, because this module knows the minimap's rendered diameter and the rail hangs under it.
+-- The rail now has to CLAMP itself inside a landscape phone's viewport and fold into two columns,
+-- and a clamp cannot live in two modules -- so `Rail.applyLayout` writes its own position and this
+-- module is TOLD how wide the resulting column is. One writer removed, not one added. The three
+-- lines are archived in `backups/2026-10-21_mapui-rail-position.md` (rule 7).
 local legendFrame: Frame? = nil
 -- The modal's full-screen scrim (task 201 E). `Hud.build` creates it; `applyVisibility` is its one
 -- writer, and it is written from the PANEL's own answer so the two cannot part company.
 local scrimFrame: Frame? = nil
-local railFrame: Frame? = nil
+-- HOW WIDE A COLUMN THE RAIL IS ACTUALLY OCCUPYING (task 220), told by the Hud through
+-- `MapUi.setRailColumn`. It used to be the constant `CONFIG.RAIL_COLUMN_PX` and could only ever be
+-- one button wide; a rail that FOLDS into two columns on a landscape phone occupies 124, and a
+-- panel centred against the old 68 would run under it. The constant is still the default and the
+-- answer for every viewport that does not fold.
+local railColumnPx = nil :: number?
 local miniScale: UIScale? = nil
 local fullScale: UIScale? = nil
 
@@ -1161,17 +1174,10 @@ local function layoutFor(viewport: Vector2)
 		miniUiScale.Scale = diameter / config.MINIMAP_DIAMETER_PX
 	end
 
-	-- THE BUTTON RAIL HANGS UNDER THE DISC, AND ITS TOP COMES FROM THE RENDERED DIAMETER (task 165)
-	-- -- which is what `diameter` is now that the `UIScale` is the one writer of it. 150 on a screen
-	-- and 96 on a phone, so a FIXED top would either sit on the disc or leave a hole. This writes the
-	-- rail's POSITION only; `Hud.Rail` is the one writer of everything inside it, including its size.
-	--
-	-- (This is where the old touch button's two lines were. Same arithmetic, one node further down
-	-- the screen -- see `backups/2026-10-12_mapui-touch-button.txt`.)
-	local rail = railFrame
-	if rail ~= nil then
-		rail.Position = UDim2.new(1, -config.MINIMAP_MARGIN, 0, config.MINIMAP_TOP + diameter + 8)
-	end
+	-- THE BUTTON RAIL IS NOT WRITTEN HERE ANY MORE (task 220). `Rail.applyLayout` owns its position
+	-- and its fold, from `Rail.topFor(diameter, MINIMAP_TOP)` -- the same arithmetic these three
+	-- lines performed by hand, now in the module that also has to clamp it inside the viewport.
+	-- Archived in `backups/2026-10-21_mapui-rail-position.md` (rule 7).
 
 	-- THE PANEL IS BUILT AT A FIXED SIZE AND SCALED TO FIT, so one number handles a phone and
 	-- nothing inside it moves.
@@ -1180,8 +1186,10 @@ local function layoutFor(viewport: Vector2)
 	local panelHeight = wanted.Y.Offset
 	-- THE RAIL'S COLUMN IS RESERVED (task 165). The panel is CENTRED, so without this it runs under
 	-- the rail at a phone's width -- measured in `CONFIG.RAIL_COLUMN_PX`'s own comment. One number,
-	-- in the one function that already writes both `UIScale`s.
-	local roomX = viewport.X - config.FULL_SIDE_INSET - config.RAIL_COLUMN_PX
+	-- in the one function that already writes both `UIScale`s. Since task 220 it is the column the
+	-- rail SAYS it is occupying, because a folded rail is 124 wide and not 68.
+	local column = MapUi.railColumn()
+	local roomX = viewport.X - config.FULL_SIDE_INSET - column
 	local roomY = viewport.Y - config.FULL_TOP - config.FULL_BOTTOM_INSET
 	local scale = 1
 	if panelWidth > 0 and panelHeight > 0 then
@@ -1192,7 +1200,7 @@ local function layoutFor(viewport: Vector2)
 		fullUiScale.Scale = math.max(0.1, scale)
 	end
 	-- SHIFTED LEFT BY HALF THE COLUMN, so the panel stays centred in the room it actually has.
-	full.Position = UDim2.new(0.5, -math.round(config.RAIL_COLUMN_PX / 2), 0, config.FULL_TOP)
+	full.Position = UDim2.new(0.5, -math.round(column / 2), 0, config.FULL_TOP)
 
 	-- THE LEGEND GOES WITH THE PANEL'S SCALE, so it is hidden when no font inside the panel could be
 	-- read (`legendVisible`). It is positioned once here rather than per tick: it says nothing that
@@ -1504,6 +1512,23 @@ end
 -- `nil` IS "NOWHERE RIGHT NOW" and then no mark is drawn. A hunter standing on his own stand has
 -- arrived, so there is nothing to point at -- which is the same answer `Objective.arrived` gives the
 -- chevron and the compass, from one evaluation.
+-- HOW WIDE THE RAIL'S COLUMN IS RIGHT NOW: what the Hud last told this module, or the constant.
+function MapUi.railColumn(): number
+	return railColumnPx or MapUi.CONFIG.RAIL_COLUMN_PX
+end
+
+-- THE HUD TELLS, THIS MODULE WRITES -- the `setPush` / `setTarget` shape, and for their reason:
+-- `Hud.renderObjective` is the one evaluation and `MapUi.luau` may not require `init.luau`.
+-- Edge-triggered, so a per-frame caller costs one comparison and never a relayout.
+function MapUi.setRailColumn(px: number?)
+	local next_ = if type(px) == "number" and px > 0 then px else nil
+	if railColumnPx == next_ then
+		return
+	end
+	railColumnPx = next_
+	MapUi.applyLayout()
+end
+
 function MapUi.setTarget(point: Vector2?, word: string?)
 	targetPoint = point
 	targetWord = if point == nil then nil else (word or "GO")
@@ -1827,10 +1852,7 @@ function MapUi.setGeometry(next_: MapGeometry?)
 	MapUi.render()
 end
 
-function MapUi.start(
-	frames: { miniMap: Frame, fullMap: Frame, legend: Frame?, rail: Frame?, scrim: Frame? },
-	collaborators: any
-)
+function MapUi.start(frames: { miniMap: Frame, fullMap: Frame, legend: Frame?, scrim: Frame? }, collaborators: any)
 	if started then
 		return
 	end
@@ -1838,10 +1860,7 @@ function MapUi.start(
 	miniFrame = frames.miniMap
 	fullFrame = frames.fullMap
 	legendFrame = frames.legend
-	-- THE RAIL'S FRAME, FOR ITS POSITION ONLY (task 165). This module knows the minimap's rendered
-	-- diameter and the rail hangs under it, so `layoutFor` writes where the column starts -- and
-	-- nothing else about it. `Hud.Rail` is the one writer of its buttons.
-	railFrame = frames.rail
+	-- NO `rail` FIELD SINCE TASK 220: `Rail.applyLayout` writes its own position.
 	scrimFrame = frames.scrim
 	CameraSystem = collaborators and collaborators.Camera
 	ReportSystem = collaborators and collaborators.Report

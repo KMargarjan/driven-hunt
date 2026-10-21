@@ -23,6 +23,11 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
+-- THE HORN'S NAME, AND NOTHING ELSE FROM IT (task 220). `Input.blowHorn` has to find a Tool called
+-- `Horn.TOOL_NAME` among the ones the player carries, and the literal "Horn" in a second file is
+-- how two modules come to disagree about one Tool. `src/client/Hud/init.luau` already requires this
+-- same module, `Horn` requires only `Shotgun`, and there is no cycle.
+local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
@@ -102,15 +107,39 @@ local function remotes()
 	return Shotgun.remotes()
 end
 
+-- THE SHOT, AS A PUBLIC FUNCTION, SO A BUTTON AND A MOUSE RUN ONE IMPLEMENTATION (task 220). This
+-- is `Input.reload`'s shape applied to the trigger, and for the same reason task 165 gave: a thumb
+-- has no MouseButton1, and mobile is in Karen's v1 plan. `Hud.Touch`'s FIRE button calls THIS
+-- function -- not a copy of it, and not a second remote -- so there is exactly ONE firer of
+-- `FireRequest` in the client and the touch door has nothing to drift from
+-- (`tests/client/touch_controls.spec.luau` asserts the identity `Touch.actionFor("FIRE") ==
+-- Input.fire`).
+--
 -- The camera ray: the client sends {origin, direction} and NOTHING else. There is no claimed
 -- target, so there is nothing for the server to reconcile (design section 5.7).
+--
+-- THE HOLD IS CHECKED HERE and not in the caller, which is the point of moving it: a player must
+-- not be able to shoot by tapping a button through an open report panel. Returns whether the
+-- request actually went, so a caller can tell "refused" from "sent"; the key path ignores it,
+-- exactly as it ignored the old `if`.
+--
+-- Design: docs/design/mobile-controls.md section 8.1
+function Input.fire(): boolean
+	if Input.isHeld() then
+		return false
+	end
+	local camera = Workspace.CurrentCamera
+	if camera == nil then
+		return false
+	end
+	local cframe = camera.CFrame
+	remotes().FireRequest:FireServer({ origin = cframe.Position, direction = cframe.LookVector.Unit })
+	return true
+end
+
 local function onFire(_name: string, state: Enum.UserInputState)
-	if state == Enum.UserInputState.Begin and not Input.isHeld() then
-		local camera = Workspace.CurrentCamera
-		if camera then
-			local cframe = camera.CFrame
-			remotes().FireRequest:FireServer({ origin = cframe.Position, direction = cframe.LookVector.Unit })
-		end
+	if state == Enum.UserInputState.Begin then
+		Input.fire()
 	end
 	return Enum.ContextActionResult.Pass
 end
@@ -150,6 +179,164 @@ function Input.selectAmmo(): boolean
 	return true
 end
 
+-- ---------------------------------------------------------------- the thumb's two doors (task 220)
+--
+-- A PHONE HAS NO HOTBAR WORTH THE NAME AND NO CLICK ON A HELD TOOL. Everything below is a SECOND
+-- DOOR onto something the engine already does for a desktop player, and neither door adds a remote:
+-- both engine facts were MEASURED in a live DEV session on 2026-10-21 rather than remembered, and
+-- the measurements are in `reviews/task-220/BRIEF.md` section 0.
+--
+--   M1  `tool:Activate()` from a LocalScript fires the SERVER's `Tool.Activated` -- two calls in,
+--       `SERVER activated=2` out. That is the whole of BLOW: `Weapon.Horn.grant` connects
+--       `tool.Activated` on the server and that connection is the one accepted blast path.
+--   M2  `Humanoid:EquipTool(tool)` from a LocalScript moves the Tool into the CHARACTER on the
+--       server (`parentBefore=Backpack`, `toolInCharacter=true`). That is the whole of SWAP.
+--
+--   Tool:Activate       https://create.roblox.com/docs/reference/engine/classes/Tool#Activate
+--   Humanoid:EquipTool  https://create.roblox.com/docs/reference/engine/classes/Humanoid#EquipTool
+--
+-- Design: docs/design/mobile-controls.md section 8.2
+-- Note:   docs/research/2026-10-20-mobile-controls.md
+
+-- WHICH TOOL COMES NEXT, PURE, so a spec drives the order with no Tools and no character at all.
+-- `names` is sorted ascending; the answer is the one after `current`, wrapping; the FIRST when
+-- `current` is nil or is not in the list; nil when there are fewer than two names.
+function Input.nextToolName(names: { string }, current: string?): string?
+	if #names < 2 then
+		return nil
+	end
+	if current ~= nil then
+		for index, name in ipairs(names) do
+			if name == current then
+				return names[if index == #names then 1 else index + 1]
+			end
+		end
+	end
+	return names[1]
+end
+
+-- WHAT THIS PLAYER IS CARRYING, in ONE walk of the Backpack and the character. Every Tool, by name,
+-- SORTED -- and sorted is the point: the engine's own child order moves every time a Tool is
+-- equipped (it crosses from the Backpack to the character and back), so an order read off the tree
+-- would put a different gun under the same button on two consecutive taps.
+--
+-- IT READS THE TREE AND NOT `Weapons.ORDER`, AND NOT ANY OWNERSHIP SET (design section 2.2). The
+-- server already decided which guns this player carries -- `Weapons.loadout` applied `OWNED_ONLY`
+-- when it granted them (tasks 224 and 225) -- so the Tools in his hands ARE the owned-only answer,
+-- delivered as Instances. A second consultation here would be a second answer to "which guns are
+-- his", which is the fault CLAUDE.md rule 3 exists for.
+--
+-- EVERY Tool, not only a gun: the beater's horn is a Tool he carries and SWAP must reach it.
+function Input.carriedSummary(): { count: number, hasHorn: boolean, equipped: string?, names: { string } }
+	local player = Players.LocalPlayer
+	local names: { string } = {}
+	local hasHorn = false
+	local equipped: string? = nil
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if backpack ~= nil then
+		for _, child in ipairs((backpack :: Backpack):GetChildren()) do
+			if child:IsA("Tool") then
+				table.insert(names, child.Name)
+				hasHorn = hasHorn or Horn.isToolName(child.Name)
+			end
+		end
+	end
+	local character = player.Character
+	if character ~= nil then
+		for _, child in ipairs((character :: Model):GetChildren()) do
+			if child:IsA("Tool") then
+				table.insert(names, child.Name)
+				hasHorn = hasHorn or Horn.isToolName(child.Name)
+				-- A Tool parented to the CHARACTER is an equipped one -- that is how Roblox equips,
+				-- and it is the same test `equippedWeapon()` below makes.
+				equipped = child.Name
+			end
+		end
+	end
+	table.sort(names)
+	return { count = #names, hasHorn = hasHorn, equipped = equipped, names = names }
+end
+
+-- THE TOOL ITSELF, by name, from the same two containers. Private: the two functions below are its
+-- only callers, and nothing outside this module should be handed an Instance it might keep.
+local function carriedTool(name: string): Tool?
+	local player = Players.LocalPlayer
+	local character = player.Character
+	if character ~= nil then
+		local found = (character :: Model):FindFirstChild(name)
+		if found ~= nil and found:IsA("Tool") then
+			return found :: Tool
+		end
+	end
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if backpack ~= nil then
+		local found = (backpack :: Backpack):FindFirstChild(name)
+		if found ~= nil and found:IsA("Tool") then
+			return found :: Tool
+		end
+	end
+	return nil
+end
+
+-- NEXT WEAPON, ONE TAP. Refused while something holds input, for `Input.reload`'s reason: a player
+-- must not change guns by tapping through an open report panel.
+--
+-- `UnequipTools()` FIRST, and that is not tidiness. M2 measured `EquipTool` from a LocalScript with
+-- the Tool in the BACKPACK and nothing in the hand; "EquipTool while another Tool is held" was NOT
+-- measured, so this puts the swap into exactly the state that was. The live spec case proves the
+-- outcome in the gate either way.
+function Input.swap(): boolean
+	if Input.isHeld() then
+		return false
+	end
+	local summary = Input.carriedSummary()
+	local wanted = Input.nextToolName(summary.names, summary.equipped)
+	if wanted == nil then
+		return false
+	end
+	local character = Players.LocalPlayer.Character
+	local humanoid = if character ~= nil then (character :: Model):FindFirstChildOfClass("Humanoid") else nil
+	if humanoid == nil then
+		return false
+	end
+	local tool = carriedTool(wanted :: string)
+	if tool == nil then
+		return false
+	end
+	(humanoid :: Humanoid):UnequipTools();
+	(humanoid :: Humanoid):EquipTool(tool :: Tool)
+	return true
+end
+
+-- A BLAST, ONE TAP. It equips the horn first and then activates it, which is precisely the two
+-- steps a desktop beater performs (the hotbar, then a click) -- and both halves are measured, so
+-- neither is a capability the mouse door lacks.
+--
+-- THE COOLDOWN IS NOT RE-IMPLEMENTED HERE. `Horn.blow` holds it on the server and refuses a tap
+-- inside it exactly as it refuses a click; the chip draws the readiness bar from the attribute the
+-- server stamps. A client-side gate would be a second answer to "is this horn ready".
+function Input.blowHorn(): boolean
+	if Input.isHeld() then
+		return false
+	end
+	local tool = carriedTool(Horn.TOOL_NAME)
+	if tool == nil then
+		return false
+	end
+	local character = Players.LocalPlayer.Character
+	if character ~= nil and (tool :: Tool).Parent ~= character then
+		local humanoid = (character :: Model):FindFirstChildOfClass("Humanoid")
+		if humanoid ~= nil then
+			(humanoid :: Humanoid):UnequipTools();
+			(humanoid :: Humanoid):EquipTool(tool :: Tool)
+		end
+	end
+	-- M1 additionally showed `Activate()` reaching the server with the Tool still in the Backpack,
+	-- so a blast is not lost if the equip has not settled in this frame.
+	(tool :: Tool):Activate()
+	return true
+end
+
 local function onReload(_name: string, state: Enum.UserInputState)
 	if state == Enum.UserInputState.Begin then
 		Input.reload()
@@ -164,17 +351,41 @@ local function onSelectAmmo(_name: string, state: Enum.UserInputState)
 	return Enum.ContextActionResult.Pass
 end
 
--- Nothing visible happens in this task: the flag and the signal are the whole of it, and the stock
+-- THE AIM FLAG, AS A PUBLIC FUNCTION THAT TAKES THE VALUE (task 220). The mouse's Begin and End
+-- are `setAim(true)` and `setAim(false)`; the thumb's one tap is `toggleAim()`. ONE flag, ONE
+-- signal, two callers with different arguments -- so a touch AIM cannot drift from a mouse AIM,
+-- because there is nothing for it to drift from. `Input.AimChanged` is unchanged, so `CameraBoot`'s
+-- `setAimSource` sees a toggle and a hold as the same fact and the ADS path needs no edit.
+--
+-- WHY THE TWO DOORS BEHAVE DIFFERENTLY, and it is the one place in this task that they do: on a
+-- phone the right thumb IS the camera (the drag is the only look control), so a HELD aim would pin
+-- the one finger that aims and leave none for the trigger. A toggle costs one tap and frees the
+-- thumb. Karen's to overrule (design section 16, K-6).
+--
+-- HELD MEANS "NOT SHOULDERED", not "frozen": a Begin that arrives while a panel is open is dropped,
+-- and `requestHold` has already cleared any aim that was live when it opened.
+--
+-- Design: docs/design/mobile-controls.md section 8.1
+function Input.setAim(on: boolean): boolean
+	if Input.isHeld() then
+		return false
+	end
+	if on ~= aiming then
+		aiming = on
+		signal:Fire(aiming)
+	end
+	return true
+end
+
+function Input.toggleAim(): boolean
+	return Input.setAim(not aiming)
+end
+
+-- Nothing visible happens in this module: the flag and the signal are the whole of it, and the
 -- camera keeps doing what it does while the button is held.
 local function onAim(_name: string, state: Enum.UserInputState)
-	-- HELD MEANS "NOT SHOULDERED", not "frozen": a Begin that arrives while the panel is open is
-	-- dropped, and `requestHold` has already cleared any aim that was live when it opened.
-	if (state == Enum.UserInputState.Begin or state == Enum.UserInputState.End) and not Input.isHeld() then
-		local next = state == Enum.UserInputState.Begin
-		if next ~= aiming then
-			aiming = next
-			signal:Fire(aiming)
-		end
+	if state == Enum.UserInputState.Begin or state == Enum.UserInputState.End then
+		Input.setAim(state == Enum.UserInputState.Begin)
 	end
 	return Enum.ContextActionResult.Pass
 end
