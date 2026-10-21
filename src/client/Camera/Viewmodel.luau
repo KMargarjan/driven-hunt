@@ -103,6 +103,11 @@ local hornScale: number? = nil
 --
 -- One flag, cleared when the rebuild happens.
 local stale = false
+-- THE PIECES THAT GET OUT OF THE SIGHT LINE AS THE EYE ARRIVES (task 227), collected once per build
+-- from `Gun.Piece.clearFromBlend` rather than walked for every frame: one gun has one such piece and
+-- a per-frame `GetDescendants` to find it would be a search for something the builder already knew.
+-- Cleared by `Viewmodel.clear` and refilled by `buildNewGun`, exactly as `builtMeshes` is.
+local clearParts: { { part: BasePart, from: number } } = {}
 -- HOW MANY MESH PIECES THE GUN WAS BUILT WITH. MEASURED: the server loads Karen's model through
 -- `InsertService` and publishes it about 1.6 s into a session, and the viewmodel has usually built
 -- its gun before that -- so the first build takes the measured-box fallback and, with nothing to
@@ -501,6 +506,7 @@ end
 
 function Viewmodel.clear()
 	magazineLocal = nil
+	table.clear(clearParts) -- task 227: the parts are about to be destroyed with the model
 	if model then
 		model:Destroy()
 		model = nil
@@ -1341,6 +1347,7 @@ local function buildNewGun(config, geometry, row): Model
 	-- the real model is on the gun that is on screen", which is a fact about THIS build.
 	stats.meshesDrawn = 0
 	stats.meshesWaiting = 0
+	table.clear(clearParts) -- task 227: refilled below, per build, like `builtMeshes`
 	for _, piece in ipairs(geometry.pieces(row)) do
 		local mesh = if piece.meshKey ~= nil then meshFor(piece.name) else nil
 		-- PUBLISHED IS NOT DOWNLOADED (task 133). A mesh this client has not got renders as nothing,
@@ -1384,6 +1391,9 @@ local function buildNewGun(config, geometry, row): Model
 			parent = lift :: BasePart
 		end
 		part.Parent = parent
+		if piece.clearFromBlend ~= nil then
+			table.insert(clearParts, { part = part, from = piece.clearFromBlend :: number })
+		end
 	end
 
 	-- WHERE THE REST OF THE SYSTEM LOOKS. `Mode.aimOffset` solves the aimed pose from `Sight`, and
@@ -1765,6 +1775,33 @@ local function updateHorn(camCFrame: CFrame, handle: BasePart, cam: Camera?, con
 	return true
 end
 
+-- HOW MUCH OF A LOOK-THROUGH PIECE IS LEFT, at this state (task 227). PURE, public, and a number
+-- rather than a boolean, so the housing dissolves with the raise instead of blinking out on one
+-- frame -- the rule `Mode.ease` and the eyepiece's `atBlend` already follow.
+--
+-- ONLY WHILE AIMING. In every other mode the eye is not behind the glass and the sight is just part
+-- of the gun, so it is drawn solid: carry, third person, the shop card and another player's rifle
+-- are untouched. `from` nil is every piece of every other gun and answers 0 -- nothing fades.
+function Viewmodel.clearAtAim(state: Mode.State, from: number?): number
+	if from == nil or state.mode ~= "Aiming" then
+		return 0
+	end
+	if from >= 1 then
+		return if state.blend >= 1 then 1 else 0
+	end
+	return math.clamp((state.blend - from) / (1 - from), 0, 1)
+end
+
+-- ...AND THE ONE PLACE IT IS WRITTEN. `Camera.Viewmodel` is the one writer of the drawn gun (rule
+-- 3), so the transparency is set here and by nothing else.
+local function applyClear(state: Mode.State)
+	for _, entry in ipairs(clearParts) do
+		if entry.part.Parent ~= nil then
+			entry.part.LocalTransparencyModifier = Viewmodel.clearAtAim(state, entry.from)
+		end
+	end
+end
+
 -- `optics` IS THE FOURTH ARGUMENT AND IT IS OPTIONAL (task 141): every caller that does not have a
 -- scope passes three, exactly as they did, and nil optics can never hide a gun.
 function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: any?)
@@ -1917,6 +1954,9 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 		(box :: BasePart).CFrame = gun * (magazineLocal :: CFrame) * CFrame.new(0, -away, 0)
 	end
 	Viewmodel.poseHands(gun, barrels, state, config)
+	-- ...AND THE SIGHT THE PLAYER IS LOOKING THROUGH (task 227), last, because it is a property of
+	-- the drawn pieces and not part of the pose.
+	applyClear(state)
 end
 
 -- THE SHELL LIFTER (task 225): the second moving group, and the first one in this repo that is not

@@ -29,6 +29,10 @@ local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 local cameraScripts = StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Camera")
 local Config = require(cameraScripts:WaitForChild("Config"))
 local Mode = require(cameraScripts:WaitForChild("Mode"))
+-- THE DRAWN GUN'S OWN MODULE (task 227), for `clearAtAim` alone -- the pure decision that takes the
+-- red dot's housing out of the sight line. Requiring it on the server is safe for the reason
+-- `camera_mode.spec` already states: its top level only calls `GetService` and `require`.
+local Viewmodel3D = require(cameraScripts:WaitForChild("Viewmodel"))
 -- THE HUD IS THE PLAYER'S PATH for the readout and the ammo chip, and like `Camera` above
 -- it lives in StarterPlayerScripts -- a TEMPLATE, read here the same way.
 local Hud = require(StarterPlayer:WaitForChild("StarterPlayerScripts"):WaitForChild("Hud"))
@@ -581,6 +585,60 @@ return function()
 			expect(SemiAutoGeometry.sight(ROW).Position).to.equal(SemiAutoGeometry.beadOffset(ROW))
 			-- ...and it sits ABOVE the bore, where a sight on a rail is.
 			expect(SemiAutoGeometry.beadOffset(ROW).Y > 0.12).to.equal(true)
+		end)
+
+		it("THE SIGHT PICTURE: the dot is on the screen's centre and the housing clears it", function()
+			-- TASK 227, KAREN'S OWN DEFECT: *"Semi auto aiming cant see true that red it has to be
+			-- visible and dot in the middle"*. MEASURED in a live DEV session before the fix
+			-- (`.screenshots/227-before-semiauto-aim.png`, and the same frame against the sky): the
+			-- sight's window reads a flat opaque (96, 36, 0) with no sky through it, and the screen
+			-- centre -- where the shot goes -- reads pure black, because the drawn `Dot` is INSIDE
+			-- the housing mesh.
+			local view = Viewmodel.view(Viewmodel.DATA, "semiauto")
+			local aimConfig = { EYE_RELIEF_STUDS = view.EYE_RELIEF_STUDS, ADS_CHEEK_DEG = view.ADS_CHEEK_DEG }
+			local gun = Mode.aimOffset(SemiAutoGeometry.sight(ROW), aimConfig)
+			local p = gun:PointToWorldSpace(SemiAutoGeometry.beadOffset(ROW))
+			local depth = -p.Z
+			local off = math.deg(math.atan2(math.sqrt(p.X * p.X + p.Y * p.Y), math.max(depth, 1e-9)))
+			TestKit.note(string.format("task227 semiauto: dot depth %.4f off %.6f deg", depth, off))
+			expect(depth > 0.2).to.equal(true) -- in front of the eye
+			expect(off < 0.05).to.equal(true) -- and on the centre, where the shot goes
+			-- THE HOUSING SAYS IT GETS OUT OF THE WAY, and it is the Optic that says it and nothing
+			-- else: a piece list where some other piece carried the field would fade the wrong thing.
+			local optic, cleared = nil, 0
+			for _, piece in ipairs(SemiAutoGeometry.pieces(ROW)) do
+				if piece.clearFromBlend ~= nil then
+					cleared += 1
+					optic = piece
+				end
+			end
+			expect(cleared).to.equal(1)
+			expect(optic.name).to.equal("Optic")
+			expect(optic.meshKey).to.equal(SemiAutoGeometry.MESH_KEYS.Optic)
+			-- ...AND THE DECISION ITSELF, driven at both ends with its negative arms. Fully aimed it
+			-- is gone; at the carry, mid-raise and in third person it is solid, so the sight the
+			-- player bought is still on the gun everywhere he can see it.
+			local function aimState(mode: string, blend: number)
+				local st = table.clone(Mode.initial(Config)) :: any
+				st.mode = mode
+				st.blend = blend
+				return table.freeze(st)
+			end
+			local from = optic.clearFromBlend
+			expect(Viewmodel3D.clearAtAim(aimState("Aiming", 1), from)).to.equal(1)
+			expect(Viewmodel3D.clearAtAim(aimState("Aiming", from), from)).to.equal(0)
+			expect(Viewmodel3D.clearAtAim(aimState("Third", 1), from)).to.equal(0)
+			expect(Viewmodel3D.clearAtAim(aimState("Aiming", 1), nil)).to.equal(0)
+			-- ...and it is not a step: half way past the threshold it is half gone.
+			local half = (from + 1) / 2
+			expect(math.abs(Viewmodel3D.clearAtAim(aimState("Aiming", half), from) - 0.5) < 1e-6).to.equal(true)
+			-- NO OTHER GUN IS TOUCHED: the shotgun, the Rigby and the lever carry no such piece.
+			for _, id in ipairs({ "shotgun", "rifle", "lever" }) do
+				local row = Weapons.ROWS[id]
+				for _, piece in ipairs(Weapons.geometry(id).pieces(row)) do
+					expect(piece.clearFromBlend).to.equal(nil)
+				end
+			end
 		end)
 
 		it("is dropped for a sight that is not this one, through task 143's filter", function()

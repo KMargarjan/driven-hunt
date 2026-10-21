@@ -75,7 +75,7 @@
     "lever": {
       "aim": {
         "cheekDeg": 0.0,
-        "eyeReliefStuds": 0.9,
+        "eyeReliefStuds": 2.85,
         "left": {
           "pos": {
             "x": -0.0052,

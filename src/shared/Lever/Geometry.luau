@@ -83,24 +83,44 @@ Geometry.MESH_KEYS = table.freeze({
 -- THE SIGHTS ARE THE MODEL'S OWN, AND THEY MEASURE LEVEL. This is the whole difference from the
 -- Rigby, whose twelve nodes carry no sight node at all and whose bead is therefore DRAWN
 -- (`Rifle.Geometry`'s `BEAD_DIAMETER` block). This rifle is sold with ghost-ring irons on a rail and
--- they are inside the `action` upload:
+-- they are inside the `action` upload. RE-MEASURED in task 227, by
+-- `driven-hunt-runs/227-sights.py`, which imports `tools/gltf_split.py` and uses its frame -- the
+-- same one frame task 224 used:
 --
---   the rear notch floor   y +0.1901   at z +0.3182   (`Sights`, on the rail's top face)
---   the front blade tip    y +0.1903   at z -1.9211   (`Front sight`, at the muzzle)
+--   the rear notch SHOULDERS  y +0.2301  at z +0.3174  (`Sights`, the tops of the two ears)
+--   the rear notch FLOOR      y +0.2226  at z +0.3174  (the slot cut between them, 0.0075 deep)
+--   the front blade TIP       y +0.1903  at z -1.9135  (`Front sight`, at the muzzle)
 --
--- A rise of +0.00021 studs over 2.2318 of separation: **0.0055 degrees from level**, sitting 0.0701
--- above the bore. So nothing here is tuned by eye -- the gun's own sights define the aim, which is
--- Karen's *"aiming true nozzle"* with a real sight picture behind it.
+-- TASK 224 MEASURED THE REAR SIGHT WRONG AND THIS IS WHAT IT COST (Karen, 2026-10-21: *"Aiming with
+-- lever i terrible and broken"*). `t224/measure.py` took `min(y)` over the whole `Sights` node and
+-- labelled it "the rear notch floor": `min(y)` is where the sight assembly SITS ON THE RAIL, not
+-- the notch. That put the rear reference at y +0.1901 -- 0.0400 studs below the shoulders -- and
+-- since the front blade's TIP happens to sit at +0.1903, the two numbers agreed to 0.0002 and the
+-- header claimed **0.0055 degrees from level**. Two different features of two different parts,
+-- level with each other by coincidence. The real line is the one below.
 --
--- THE FRONT BLADE IS WHAT `Geometry.sight` ANSWERS, and it is placed ON THE GUN'S CENTRE LINE
+-- THE SIGHT LINE IS THE SHOULDERS TO THE BLADE TIP, which is how an open sight is actually used:
+-- the top of the front post is levelled with the tops of the rear notch's ears and centred in the
+-- slot. Measured: -0.03983 studs over 2.2309 of separation = **-1.0229 degrees**, nose-down from
+-- the gun's own Z axis. It is NOT level, and that is a fact about this bought model rather than an
+-- error -- which is exactly why `Geometry.sight` below answers a ROTATED frame instead of a
+-- position: the eye is laid ON that line and looks ALONG it, so both sights land on the camera axis
+-- whatever the model's own slope is. Aligning the eye with the notch FLOOR instead was tried and
+-- photographed (`.screenshots/227-...`): the blade tip then hides exactly behind the notch's bottom
+-- edge, because floor and tip project to the same point.
+--
+-- THE FRONT BLADE IS WHERE `Geometry.sight` LAYS THE EYE, and it is placed ON THE GUN'S CENTRE LINE
 -- (x = 0) rather than at the blade's measured x of -0.0014, because the bullet leaves at x = 0
 -- (`Lever.CONFIG.MUZZLE_OFFSET`) and a sight that disagrees with the bore is a sight that lies.
 -- That 0.3 mm is the MESH sitting off-centre in the Handle, not an aiming error -- the rule
 -- `Rifle.Geometry.beadOffset` already states.
 local SIGHT_FRONT_Y = 0.1903
-local SIGHT_FRONT_Z = -1.9211
-local SIGHT_REAR_Y = 0.1901
-local SIGHT_REAR_Z = 0.3182
+local SIGHT_FRONT_Z = -1.9135
+-- The SHOULDERS, not the floor: see the block above. The floor is kept beside them because the slot
+-- is what the blade sits IN, and a spec that wants to know the notch is open needs its depth.
+local SIGHT_REAR_Y = 0.2301
+local SIGHT_REAR_Z = 0.3174
+local SIGHT_NOTCH_FLOOR_Y = 0.2226
 
 -- THE LEVER'S PIVOT: the boss where the loop pins into the receiver, taken as the centroid of the
 -- lever node's forward-most 8% in z that also lies in its upper half -- which is the material around
@@ -168,6 +188,7 @@ function Geometry.layout(config)
 		sightFrontZ = SIGHT_FRONT_Z * k,
 		sightRearY = SIGHT_REAR_Y * k,
 		sightRearZ = SIGHT_REAR_Z * k,
+		sightNotchFloorY = SIGHT_NOTCH_FLOOR_Y * k,
 		gateAt = GATE_AT * k,
 		stock = { size = Vector3.new(stockW, stockH, stockL), at = Vector3.new(stockX, stockY, stockZ) },
 		action = { size = Vector3.new(actionW, actionH, actionL), at = Vector3.new(actionX, actionY, actionZ) },
@@ -199,12 +220,27 @@ function Geometry.beadOffset(config): Vector3
 	return Vector3.new(0, at.sightFrontY, at.sightFrontZ)
 end
 
--- WHERE THE EYE IS LAID. Identity rotation: (0, 0, -1) is already the muzzle direction in this frame
--- and the blade is on the gun's centre line, so the sight looks exactly where the barrel points --
--- and the model's own rear notch sits 0.0002 studs off that line over 2.23 studs, which is why
--- nothing has to be corrected for.
+-- WHERE THE EYE IS LAID, AND WHICH WAY IT LOOKS (task 227). NOT identity rotation, and that is the
+-- whole fix: `Mode.aimOffset` puts this frame on the camera's axis and turns the gun so that THIS
+-- FRAME's -Z runs down the screen's centre. So a frame whose -Z is the gun's own SIGHT LINE --
+-- rear notch shoulders to front blade tip -- lands both sights on the screen centre, by
+-- construction, with no cheek angle and nothing tuned by eye. A frame with identity rotation
+-- instead lands the BLADE on the centre and leaves the notch wherever the model's -1.02 degrees of
+-- slope puts it, which is 1.02 degrees high: the picture Karen called broken.
+--
+-- IT ANSWERS A LINE, NOT A POINT, and `eyeReliefStuds` then says how far back along that line the
+-- eye sits. `poses.json` carries 2.85 for this gun: 2.2313 of it is blade-to-notch, so the eye is
+-- 0.619 studs (about 16 cm at this gun's scale) behind the notch -- far enough back that the right
+-- glove, posed at z +1.203, stays behind the lens instead of filling it (measured at 3.15, which
+-- put the glove 0.03 studs IN FRONT of the eye).
+--
+-- The up vector is the default (0, 1, 0) and the line lies in the gun's own YZ plane, so the frame
+-- carries no roll: the rifle is not tilted.
 function Geometry.sight(config): CFrame
-	return CFrame.new(Geometry.beadOffset(config))
+	local at = Geometry.layout(config)
+	local front = Geometry.beadOffset(config)
+	local rear = Vector3.new(0, at.sightRearY, at.sightRearZ)
+	return CFrame.lookAt(front, front + (front - rear).Unit)
 end
 
 function Geometry.muzzle(config): CFrame

@@ -89,6 +89,20 @@ export type Piece = {
 	-- drift apart. Both nil on every piece of the shotgun, which has one sight and always had.
 	skipFor: string?,
 	onlyFor: string?,
+	-- FROM WHAT AIM BLEND THIS PIECE STOPS BLOCKING THE SIGHT LINE (task 227). A sight the player
+	-- looks THROUGH is the only kind of piece that needs it, and it exists because one bought model
+	-- cannot be split: the semi-automatic's `semiauto.sight` upload is ONE MeshPart whose glass is a
+	-- solid amber face -- photographed against the sky in `.screenshots/227-before-semiauto-aim.png`,
+	-- where the window reads a flat (96, 36, 0) and no sky comes through, and the screen centre,
+	-- where the shot goes, reads pure black. Karen, 2026-10-21: *"Semi auto aiming cant see true
+	-- that red it has to be visible and dot in the middle"*.
+	--
+	-- SO THE HOUSING FADES AS THE EYE COMES TO IT and the gun's own `Dot` -- which is drawn at the
+	-- optical centre and was simply buried inside the mesh -- becomes the sight picture. nil on
+	-- every other piece of every other gun: a piece that says nothing is drawn as it always was.
+	-- The day the glass is split into its own group this number comes off the housing and goes on
+	-- the glass, and nothing else changes.
+	clearFromBlend: number?,
 }
 
 -- ---------------------------------------------------------------- the numbers
