@@ -490,4 +490,218 @@ return function()
 			expect(Roster.joinTeam({ Drivers = 1, Shooters = 3 }, (wanted :: any)[5], CONFIG)).to.equal("Drivers")
 		end)
 	end)
+
+	-- ----------------------------------------------------------- THE ROLE SWITCH (task 229)
+	--
+	-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always
+	-- hunter maybe sometimes I want to be a beater we need to find a way to do that"*.
+	--
+	-- REPRODUCED FIRST (rule H, and L-028: show the failing assertion before the fix). These two
+	-- cases are the defect itself: the fifth argument is the only input by which an owner could ask
+	-- to beat, and today `Roster.assign` does not have one -- Lua discards it, the privilege pass
+	-- runs unchanged, and the man who asked is dealt the hunter's side at every roster size.
+	describe("a one-drive BEATER wish", function()
+		local CONFIG = config()
+
+		it("seats the man who asked on the beaters' side, at every size from 2 to 16", function()
+			for n = 2, 16 do
+				local roster = ids(n)
+				local him = roster[1]
+				local always = { [him] = true }
+				local wishes = { [him] = true }
+				local assignment = Roster.assign(roster, nil, CONFIG, always, wishes)
+				expect(assignment[him]).to.equal("Drivers")
+				-- ...AND THE SIDES ARE STILL LEVEL, which is the whole of why this is a fifth
+				-- argument and not a filtered `always` (design section 7.1's proof).
+				local counts = countOf(assignment)
+				expect(math.abs(counts.Drivers - counts.Shooters) <= 1).to.equal(true)
+			end
+		end)
+
+		it("is not honoured for a roster of one, because no bot shoots", function()
+			-- `docs/design/bots.md` fills both sides with rigs and says twice that no bot shoots, so
+			-- a solo beater is a drive in which nothing can be shot. `ODD_PLAYER_TEAM` is Shooters,
+			-- so `driverSlots` is 0 at one player and this is ARITHMETIC rather than a branch.
+			local assignment = Roster.assign({ 7 }, nil, CONFIG, { [7] = true }, { [7] = true })
+			expect(assignment[7]).to.equal("Shooters")
+		end)
+
+		it("is the game before this task when nobody has asked, at every roster size", function()
+			-- THE IDENTITY, and it is what lets `assign` be rewritten at all: with `beaters` nil or
+			-- empty the `wishers` list is empty, `holders` is today's `holders`, and every branch
+			-- below is the line it was before this task.
+			for n = 2, 16 do
+				local roster = ids(n)
+				local always = { [roster[1]] = true, [roster[n]] = true }
+				for _, previous in ipairs({ false, true }) do
+					local prev = if previous then Roster.assign(roster, nil, CONFIG, always) else nil
+					local was = Roster.assign(roster, prev, CONFIG, always)
+					for _, wishes in ipairs({ "nil", "empty" }) do
+						local now = Roster.assign(roster, prev, CONFIG, always, if wishes == "nil" then nil else {})
+						for _, userId in ipairs(roster) do
+							expect(now[userId]).to.equal(was[userId])
+						end
+					end
+				end
+			end
+		end)
+
+		it("hands `owed` back BY IDENTITY when nobody has asked", function()
+			-- RAW TABLE EQUALITY, which is stronger than a deep compare and is the whole claim:
+			-- nothing is allocated at all. `Roster.previousFrom` and `Roster.owedWith` use the same
+			-- device for the same reason.
+			local owed = table.freeze({ [1] = "Shooters" }) :: any
+			expect(Roster.wishedWith(owed, nil)).to.equal(owed)
+			expect(Roster.wishedWith(owed, {})).to.equal(owed)
+			expect(Roster.wishedWith(nil, nil)).to.equal(nil)
+			-- ...AND IT WRITES NEITHER INPUT, both of which arrive frozen in production (the lobby's
+			-- memo and the economy's). A write would throw rather than fail.
+			local wishes = table.freeze({ [1] = true }) :: any
+			local out = Roster.wishedWith(owed, wishes) :: any
+			expect(out).never.to.equal(owed)
+			expect(out[1]).to.equal("Drivers")
+			expect(owed[1]).to.equal("Shooters")
+		end)
+
+		it("beats the place he bought, which is what asking for it means", function()
+			-- THE THREE FACTS STACK IN THE ORDER THAT READS AS A SENTENCE: the stored TURN is what
+			-- the rotation owes him, the bought PLACE beats that, and his own WISH beats the thing he
+			-- bought -- because he is the one who bought it.
+			local owed = { [1] = "Drivers" } -- the rotation says he drives
+			local withPlace = Roster.owedWith(owed, { [1] = true }) :: any
+			expect(withPlace[1]).to.equal("Shooters") -- ...the place he paid for says he shoots
+			local withWish = Roster.wishedWith(withPlace, { [1] = true }) :: any
+			expect(withWish[1]).to.equal("Drivers") -- ...and his own ask says he beats
+		end)
+
+		it("gives the hunters' side to a wisher the driver slots cannot hold", function()
+			-- MORE MEN ASKED THAN THERE ARE DRIVER PLACES. The overflow is NOT left without a side
+			-- and is NOT dealt at random: he owns the hunter's place and did not get what he asked
+			-- for, so he gets what he PAID for. At two players there is one driver place.
+			local always = { [1] = true, [2] = true }
+			local wishes = { [1] = true, [2] = true }
+			local assignment = Roster.assign({ 1, 2 }, nil, CONFIG, always, wishes)
+			local counts = countOf(assignment)
+			expect(counts.Drivers).to.equal(1)
+			expect(counts.Shooters).to.equal(1)
+			-- BY USER ID, which is deterministic and total -- this module's own tie-break everywhere.
+			expect(assignment[1]).to.equal("Drivers")
+			expect(assignment[2]).to.equal("Shooters")
+		end)
+
+		it("keeps the sides level with any mix of places, wishes and turns, at every size", function()
+			-- THE BALANCE IS BY CONSTRUCTION AND NOT BY A CHECK THAT CAN THROW THE SPLIT AWAY, which
+			-- is the measured reason this is a fifth argument rather than a filtered `always`
+			-- (`Roster.assign`'s own header, the Director's overrule of 2026-10-20). So it is
+			-- asserted over a sweep rather than at one roster size.
+			for n = 2, 16 do
+				local roster = ids(n)
+				local always, wishes = {}, {}
+				for index, userId in ipairs(roster) do
+					if index % 2 == 1 then
+						always[userId] = true
+					end
+					if index % 3 == 0 then
+						wishes[userId] = true
+					end
+				end
+				local assignment = Roster.assign(roster, nil, CONFIG, always, wishes)
+				local counts = countOf(assignment)
+				expect(counts.Drivers + counts.Shooters).to.equal(n)
+				expect(math.abs(counts.Drivers - counts.Shooters) <= 1).to.equal(true)
+				-- ...AND EVERY MAN HAS EXACTLY ONE SIDE.
+				for _, userId in ipairs(roster) do
+					expect(assignment[userId] == "Drivers" or assignment[userId] == "Shooters").to.equal(true)
+				end
+			end
+		end)
+
+		it("never tells a man who ASKED to beat that the balance overruled him", function()
+			-- A WISHER IS IN `always` AND FINISHES ON `Drivers`, so without the third argument his
+			-- name would go on the wire and his own Hud would tell him the balance rule beat the
+			-- place he paid for -- when in fact he asked for it. The whole point of that list is to
+			-- say WHY, so a wrong why is worse than no list.
+			local always = { [1] = true, [2] = true }
+			local wishes = { [1] = true }
+			local assignment = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG, always, wishes)
+			expect(assignment[1]).to.equal("Drivers")
+			local told = Roster.overruled(assignment, always, wishes)
+			expect(#told).to.equal(0)
+			-- ...AND WITH NO WISHES IT IS TODAY'S ANSWER, which is what keeps the task-221 list true
+			-- for a man the balance really did beat.
+			expect(#Roster.overruled(assignment, always, nil)).to.equal(1)
+			expect(Roster.overruled(assignment, always, nil)[1]).to.equal(1)
+			expect(#Roster.overruled(assignment, nil, nil)).to.equal(0)
+		end)
+
+		it("still does not name him one scan later, when his wish has been SPENT", function()
+			-- REVIEW ROUND 1, FINDING 1, AS THE SEQUENCE THAT PRODUCED IT. The wish is spent by the
+			-- very assignment it is about: `Lobby.wishFor` answers HUNTER the moment
+			-- `Match.assignmentOf` names a team, so the LIVE memo is empty within one lobby scan
+			-- (0.1 s) of `enterAssigning` -- while `roleOverruled` is rebuilt on every dispatch for
+			-- the whole 15 s intermission. Reading it live told the man who had just pressed BEATER
+			-- *"TEAMS MUST BE EVEN - you beat this drive"* for almost all of it.
+			local assignment = { [1] = "Drivers", [2] = "Shooters" }
+			local always = { [1] = true }
+
+			-- AT THE ASSIGNMENT the memo still holds him, and that is the one instant it does.
+			local record: { [number]: boolean } = {}
+			Roster.recordSeated(record, { [1] = true }, assignment)
+			expect(record[1]).to.equal(true)
+
+			-- ONE SCAN LATER THE MEMO IS EMPTY -- and THIS is the input the snapshot used to read.
+			-- It names him, which is the defect, stated as the arithmetic that produced it.
+			expect(#Roster.overruled(assignment, always, {})).to.equal(1)
+			expect(Roster.overruled(assignment, always, {})[1]).to.equal(1)
+
+			-- THE RECORD DOES NOT, and it is not emptied by the empty memo either.
+			Roster.recordSeated(record, {}, assignment)
+			expect(record[1]).to.equal(true)
+			expect(#Roster.overruled(assignment, always, record)).to.equal(0)
+		end)
+
+		it("records only the wishes an assignment actually SEATED, and only ever adds", function()
+			local record: { [number]: boolean } = {}
+			-- A MAN THE ROSTER HAS NOT DEALT YET is not somebody anything can say was or was not
+			-- overruled, so he is not recorded.
+			Roster.recordSeated(record, { [9] = true }, { [1] = "Drivers" })
+			expect(record[9]).to.equal(nil)
+			-- ...AND A MID-DRIVE JOIN ADDS WITHOUT ERASING. The joiner's memo no longer holds the
+			-- wishes already spent at `enterAssigning`, so a rule that REPLACED the record would
+			-- hand every earlier wisher back to `Roster.overruled` one scan later.
+			Roster.recordSeated(record, { [1] = true }, { [1] = "Drivers" })
+			Roster.recordSeated(record, { [5] = true }, { [1] = "Drivers", [5] = "Drivers" })
+			expect(record[1]).to.equal(true)
+			expect(record[5]).to.equal(true)
+			-- `wishes` nil OR EMPTY WRITES NOTHING, which is every build with no lobby.
+			local empty: { [number]: boolean } = {}
+			expect(Roster.recordSeated(empty, nil, { [1] = "Drivers" })).to.equal(empty)
+			expect(next(empty)).to.equal(nil)
+			Roster.recordSeated(empty, {}, { [1] = "Drivers" })
+			expect(next(empty)).to.equal(nil)
+			-- IT IS THE CALLER'S TABLE, WRITTEN IN PLACE AND HANDED BACK -- no allocation per event.
+			expect(Roster.recordSeated(record, nil, {})).to.equal(record)
+		end)
+
+		it("reaches a man who walks onto a truck pad mid-drive, off a tie and not otherwise", function()
+			-- SINCE TASKS 177 AND 209 THIS IS THE NORMAL WAY INTO A DRIVE. `joinTeam`'s own rule is
+			-- unchanged, so the wish -- exactly like the turn and the privilege before it -- wins
+			-- only off a TIE, and the balance still beats all three.
+			local wanted = Roster.wishedWith(Roster.owedWith(nil, { [5] = true }), { [5] = true }) :: any
+			expect(wanted[5]).to.equal("Drivers")
+			expect(Roster.joinTeam({ Drivers = 2, Shooters = 2 }, wanted[5], CONFIG)).to.equal("Drivers")
+			expect(Roster.joinTeam({ Drivers = 3, Shooters = 1 }, wanted[5], CONFIG)).to.equal("Shooters")
+		end)
+
+		it("does not read a wish from a man who owns nothing", function()
+			-- `Roster` IS PURE AND KEYS BY USER ID: whether a man owns `ALWAYS HUNTER` is a fact only
+			-- the server's own door can measure (`Lobby.onRoleRequest` check 4), so a wish that
+			-- reached here for a non-owner must change nothing at all.
+			local plain = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG)
+			local withStray = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG, nil, { [1] = true, [3] = true })
+			for userId = 1, 4 do
+				expect(withStray[userId]).to.equal(plain[userId])
+			end
+		end)
+	end)
 end

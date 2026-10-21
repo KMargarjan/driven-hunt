@@ -2061,8 +2061,16 @@ local function build(): ScreenGui
 	padDialog.BackgroundColor3 = PadPanel.LOOK.PANEL_COLOR
 	padDialog.BackgroundTransparency = 0
 	padDialog.BorderSizePixel = 0
-	padDialog.AnchorPoint = Vector2.new(0.5, 0.5)
-	padDialog.Position = UDim2.fromScale(0.5, 0.5)
+	-- SEEDED FROM THE PANEL'S OWN PURE FUNCTIONS AND REWRITTEN BY `PadPanel.relayout` (task 229),
+	-- which is the arrangement the shop already has: `Hud.build` sets `shop.Size =
+	-- ShopPanel.panelSize()` and that panel's `relayout` owns it from then on. The dialog's height
+	-- now depends on whether the role block is shown, and only `PadPanel` knows that.
+	--
+	-- THE ANCHOR IS THE BOTTOM EDGE, not the centre: the block grows UPWARD so the dialog's bottom
+	-- stays where a 368-tall centred dialog's bottom was -- which is what keeps task 209's measured
+	-- banner band (`LEAVING.Y_SCALE`) correct without touching it.
+	padDialog.AnchorPoint = PadPanel.anchorPoint()
+	padDialog.Position = PadPanel.positionFor()
 	padDialog.Size = UDim2.fromOffset(PadPanel.widthFor(), PadPanel.heightFor())
 	padDialog.ZIndex = PadPanel.zIndex()
 	padDialog.Visible = false
@@ -4648,6 +4656,24 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 
 	local camera = Workspace.CurrentCamera
 	local viewport = if camera then camera.ViewportSize else Vector2.new(1280, 720)
+	-- ...AND WHICH ROLE HE HAS ASKED FOR, FOR THE NEXT DRIVE (task 229). KAREN, 2026-10-21: *"we
+	-- also need to have posibility to choose once you have a card always hunter maybe sometimes I
+	-- want to be a beater we need to find a way to do that"*.
+	--
+	-- ONE ATTRIBUTE READ A FRAME, TWO PANELS TOLD. This function is already *"THE ONE EVALUATION"*
+	-- and that rule is stated two reads above for `asking`: *"read ONCE a frame and used by three
+	-- things ... Two reads would be two answers to one question."* `DHRoleWish` absent means he does
+	-- not own `ALWAYS HUNTER` -- or there is no lobby, no shop and no economy in this build -- and
+	-- then neither panel draws anything at all.
+	--
+	-- THE OTHER TWO FACTS THE CAPTIONS NEED ARE ALREADY IN THIS FUNCTION and nothing new is read for
+	-- them: `team` (what side the drive has given him, from `matchSystem.myTeam()` at the top) and,
+	-- inside `PadPanel`, the size this client has already asked for. `Player.Team` is nil between
+	-- drives -- task 177's `applyUnassign` hands a team back -- so "no drive has him" is what makes
+	-- the control usable.
+	local roleWish = if lobbyData then Players.LocalPlayer:GetAttribute(lobbyData.ROLE_WISH_ATTRIBUTE) else nil
+	PadPanel.setRoleWish(roleWish, team, viewport.Y)
+	ShopPanel.setRoleWish(roleWish, team)
 	-- THE ORIENTATION FROM THE CAMERA SYSTEM AND THE ANGLE FROM THE PROPERTY, and the asymmetry is
 	-- deliberate: `Rig.apply` counts FOREIGN WRITES to `CurrentCamera.CFrame` and has warned about one
 	-- since task 123, so the engine's CFrame is not reliably ours and `Camera.viewCFrame()`
@@ -5102,6 +5128,12 @@ function Hud.start()
 			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
 			Input = Weapon.Input,
 			remotes = Shop.remotes(),
+			-- THE ROLE ASK (task 229) GOES OUT THROUGH THE PAD PANEL, which is this client's one
+			-- door onto `ReplicatedStorage.Lobby.Remotes` -- so there is ONE sender on the client and
+			-- the shop panel holds no lobby remote at all. It is a FUNCTION and not a remote, which
+			-- also keeps the require graph as it is: `PadPanel` requires `ShopPanel` for the house
+			-- style, and the reverse edge would be a cycle.
+			roleAsk = PadPanel.sendRoleWish,
 		})
 	end
 

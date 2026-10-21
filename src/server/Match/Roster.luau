@@ -165,6 +165,84 @@ function Roster.owedWith(owed: { [number]: TeamName }?, always: { [number]: bool
 	return out
 end
 
+-- ------------------------------------------------------- the one-drive opt-out (task 229)
+--
+-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always hunter
+-- maybe sometimes I want to be a beater we need to find a way to do that"*.
+--
+-- PURE. The team each player WANTS, with a ONE-DRIVE `BEATER` wish written over the privilege.
+--
+-- IT IS THE MIRROR OF `Roster.owedWith` AND IS APPLIED AFTER IT, so the three facts stack in the
+-- order that reads as a sentence: the stored TURN is what the rotation owes him, the bought PLACE
+-- beats that, and his own WISH beats the thing he bought -- because he is the one who bought it.
+--
+--   * `wishes` nil or EMPTY -> `owed` is returned BY IDENTITY. Nothing is allocated and the game is
+--     bit-for-bit what it was before this task, which IS the switch-off story (design section 12):
+--     the same device `Roster.previousFrom` and `Roster.owedWith` already use, and a spec asserts
+--     the raw table equality rather than a deep compare.
+--   * otherwise -> a NEW table: `owed`'s rows with `Drivers` written over every wisher. `owed` may
+--     be nil, and then the result holds only the wishers' rows.
+--
+-- IT DOES NOT CHECK OWNERSHIP, and it must not: this is `Roster`, which is pure and keys by userId,
+-- and whether a man owns `ALWAYS HUNTER` is a fact only the server's own door can measure
+-- (`Lobby.onRoleRequest` check 4). A wish for a man who owns nothing simply never reaches here.
+--
+-- IT DOES NOT INVERT, for `owedWith`'s own stated reason: the inversion is `previousFrom`'s and
+-- stays there.
+function Roster.wishedWith(owed: { [number]: TeamName }?, wishes: { [number]: boolean }?): { [number]: TeamName }?
+	if wishes == nil or next(wishes) == nil then
+		return owed
+	end
+	local out: { [number]: TeamName } = table.clone(owed or {})
+	for userId, asked in pairs(wishes) do
+		if asked == true then
+			out[userId] = DRIVERS
+		end
+	end
+	return out
+end
+
+-- PURE. WHICH OF THESE WISHES THE ASSIGNMENT ACTUALLY SEATED, folded into what is already recorded.
+--
+-- IT EXISTS BECAUSE THE WISH IS SPENT BY THE VERY ASSIGNMENT IT IS ABOUT (review round 1, finding
+-- 1). `Lobby.wishFor` answers `HUNTER` the moment `Match.assignmentOf` names a team, so the live
+-- memo is EMPTY one lobby scan (0.1 s) after `enterAssigning` -- while `Roster.overruled` is asked
+-- again on every dispatch for the whole 15 s intermission. Reading the live memo there told the man
+-- who had just pressed BEATER *"TEAMS MUST BE EVEN - you beat this drive"*, which is the exact
+-- opposite of what the third argument is for.
+--
+-- SO THE ANSWER IS PINNED TO THE ASSIGNMENT IT IS ABOUT, and the rule is here rather than in the
+-- owner because it is pure and because a spec can then drive the one sequence that matters: seat
+-- him while the memo still holds him, then hand it the EMPTY memo and see the record stand.
+--
+-- IT IS WRITTEN IN PLACE AND RETURNED. `Match.dispatch` calls it on every event, which while
+-- TASKS.md 214a(a) is open can be ~15x `MATCH_STEP_HZ`, so a new table per call would be the churn
+-- `Economy.alwaysHunters`' memo exists to avoid. The caller owns the table's LIFETIME (one drive);
+-- this owns only what goes in it.
+--
+-- IT ONLY EVER ADDS, and that is the point: a mid-drive `join` assigns ONE man off a memo that no
+-- longer holds the wishes already spent at `enterAssigning`, so a rule that replaced the record
+-- would hand every earlier wisher back to `Roster.overruled` one scan later.
+--
+-- `wishes` nil or EMPTY ADDS NOTHING, so a build with no lobby never writes a row.
+function Roster.recordSeated(
+	record: { [number]: boolean },
+	wishes: { [number]: boolean }?,
+	assignment: Assignment
+): { [number]: boolean }
+	if wishes == nil then
+		return record
+	end
+	for userId, asked in pairs(wishes) do
+		-- SEATED, not merely asked: a wisher the roster has not dealt yet is not a man anything can
+		-- say was or was not overruled.
+		if asked == true and assignment[userId] ~= nil then
+			record[userId] = true
+		end
+	end
+	return record
+end
+
 -- PURE. WHOSE PRIVILEGE THE BALANCE RULE OVERRULED: the always-hunters whose FINAL team is
 -- `Drivers`.
 --
@@ -174,13 +252,25 @@ end
 -- disagree with the team he is on.
 --
 -- A LIST, SORTED, so the wire is a dense array -- the shape `tied` and `through` already have.
-function Roster.overruled(assignment: Assignment, always: { [number]: boolean }?): { number }
+--
+-- `wishes` IS THE MEN WHO ASKED TO BEAT (task 229), AND IT IS A CORRECTION THIS FEATURE WOULD
+-- OTHERWISE HAVE NEEDED LATER. A wisher is in `always` and finishes on `Drivers`, so without this
+-- argument his name would go on the wire and his own Hud would tell him the balance rule beat the
+-- place he paid for -- when in fact he asked for it, on this screen, half a minute ago. The whole
+-- point of this list is to say WHY, so a wrong why is worse than no list.
+--
+-- `wishes` nil answers today's question BY IDENTITY, which is the switch-off story again.
+function Roster.overruled(
+	assignment: Assignment,
+	always: { [number]: boolean }?,
+	wishes: { [number]: boolean }?
+): { number }
 	local out: { number } = {}
 	if always == nil then
 		return out
 	end
 	for userId, bought in pairs(always) do
-		if bought == true and assignment[userId] == DRIVERS then
+		if bought == true and assignment[userId] == DRIVERS and not (wishes ~= nil and wishes[userId] == true) then
 			table.insert(out, userId)
 		end
 	end
@@ -276,20 +366,75 @@ end
 -- `always` nil or EMPTY TAKES THE OLD PATH, UNTOUCHED, and that is the identity `match_roster.spec`
 -- pins at every roster size from 2 to 16: a build where nobody bought it is the game before this
 -- task, line for line.
-function Roster.assign(userIds: { number }, previous: Assignment?, config, always: { [number]: boolean }?): Assignment
+function Roster.assign(
+	userIds: { number },
+	previous: Assignment?,
+	config,
+	always: { [number]: boolean }?,
+	beaters: { [number]: boolean }?
+): Assignment
 	local ids = sorted(userIds)
 	local assignment: Assignment = {}
 
 	-- ---------------------------------------------------------------- the bought place (task 221)
+	--
+	-- ...AND THE ONE-DRIVE OPT-OUT (task 229), WHICH IS A FIFTH ARGUMENT AND NOT A FILTERED
+	-- `always`, for two measured reasons (design section 7):
+	--   * FILTERING ALONE IS NOT THE FEATURE. Drop a wisher out of `always` and he lands in `rest`
+	--     below, ordered by `owedRank` -- the ordinary rotation, which seats him as a hunter about
+	--     half the time. *"One without the other is not the feature."*
+	--   * FILTERING PLUS A SYNTHETIC `owed` ROW INHERITS A DEFECT THIS FILE ALREADY RECORDS. The
+	--     header above carries the Director's 2026-10-20 overrule: folding the privilege into the
+	--     synthetic `previous` moved the SWAPPED counts by two, the balance check discarded the whole
+	--     swap, and a low userId drove every drive. A wish fed through `owed` is the same device.
+	-- A fifth argument deals against the same `Roster.shooterSlots` arithmetic the fourth does, so
+	-- the result is balanced BY CONSTRUCTION. The proof is in the design, and `match_roster.spec`
+	-- asserts `|Drivers - Shooters| <= 1` at every size from 2 to 16 rather than trusting it.
 	local holders: { number } = {}
+	local wishers: { number } = {}
 	if always ~= nil then
 		for _, userId in ipairs(ids) do
 			if always[userId] == true then
-				table.insert(holders, userId)
+				-- A WISHER IS AN OWNER WHO ASKED, so he leaves the privilege pass entirely and is
+				-- dealt a driver's place first instead. A wish from a man who owns nothing is not
+				-- read here at all: he is in neither list and takes the rotation's own path.
+				if beaters ~= nil and beaters[userId] == true then
+					table.insert(wishers, userId)
+				else
+					table.insert(holders, userId)
+				end
 			end
 		end
 	end
-	if #holders > 0 then
+	-- `beaters` nil or EMPTY MAKES THIS LIST EMPTY AND `holders` TODAY'S `holders`, so every branch
+	-- below is the line it was before this task, value for value -- the identity
+	-- `match_roster.spec` pins at every roster size.
+	if #wishers > 0 then
+		local driverSlots = #ids - Roster.shooterSlots(#ids, config)
+		-- THE WISHERS TAKE DRIVER PLACES FIRST, up to the number of driver places there are. By
+		-- userId, which is deterministic and total -- this module's own tie-break everywhere else.
+		--
+		-- A WISHER BEYOND `driverSlots` IS NOT HONOURED and goes back into `holders`: he owns the
+		-- hunter's place and did not get what he asked for, so he gets what he PAID for. No second
+		-- branch, and no man is ever left without a side.
+		--
+		-- AT ONE PLAYER `driverSlots` IS 0 (`ODD_PLAYER_TEAM` is `Shooters`), so nobody is honoured
+		-- and the solo man is a hunter. That is the whole of the `1 / 1` rule and it is ARITHMETIC
+		-- rather than a guard: `docs/design/bots.md` fills both sides with rigs but says twice that
+		-- no bot shoots, so a solo beater is a drive in which nothing can be shot.
+		for index, userId in ipairs(wishers) do
+			if index <= driverSlots then
+				assignment[userId] = DRIVERS
+			else
+				table.insert(holders, userId)
+			end
+		end
+		table.sort(holders)
+	end
+	-- EITHER LIST IS ENOUGH TO TAKE THIS BRANCH (task 229), and it has to be: with ONE owner who has
+	-- asked to beat, `holders` is empty and `wishers` is not -- and falling through to the plain
+	-- split below would deal every id again and clobber the driver's place he was just given.
+	if #holders > 0 or #wishers > 0 then
 		local slots = Roster.shooterSlots(#ids, config)
 		local order = Roster.yieldOrder(holders, previous)
 		local keep = math.min(#order, slots)

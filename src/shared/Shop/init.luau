@@ -763,6 +763,83 @@ Shop.CONFIG = {
 		CLOSE_PX = 44,
 		TAG_PX = 19,
 		SCROLLBAR_PX = 3,
+		-- ---------------- THE ROLE SWITCH (task 229), the Designer's spec section 3.4 and 3.5
+		--
+		-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always
+		-- hunter maybe sometimes I want to be a beater we need to find a way to do that"*.
+		--
+		-- THE OWNED `ALWAYS HUNTER` ROW IS BUILT AT 124 INSTEAD OF `ROW_PX` 64, and one row taller
+		-- than the rest is the point: *"it marks the thing you own as a thing you OPERATE"*. The
+		-- price line is gone from it -- *"the price of a thing you own is not news"*, this panel's
+		-- own existing rule for an owned card -- so the `OWNED` chip moves up to the name line on
+		-- this row and on no other.
+		ROW_SWITCH_PX = 124,
+		-- ON A PHONE THE 108 px CARD HAS NO ROOM, so the switch lives in the DETAIL pane instead:
+		-- the 14 px status row is replaced by `eyebrow 12 / 6 / track 34 / 6 / caption 12` = 70,
+		-- sitting directly above the `OWNED` button. **The switch appears once, on whichever surface
+		-- the item has** (`ShopPanel.switchSurfaceFor` is that rule, as a function).
+		DETAIL_SWITCH_PX = 70,
+		-- THE TRACK INSIDE THE ROW: 186 wide (`rowWidth - 14 - 12`) and 34 tall, at y 60, with the
+		-- name at 11 and the caption at 100. 34 is UNDER the house 44 px touch minimum and is the one
+		-- documented exception: it sits INSIDE a 212 x 124 row that is itself the target, so a miss
+		-- selects the item rather than doing nothing. **Do not let that spread.**
+		SWITCH_TRACK_PX = 34,
+		SWITCH_NAME_Y = 11,
+		SWITCH_EYEBROW_Y = 42,
+		SWITCH_TRACK_Y = 60,
+		SWITCH_CAPTION_Y = 100,
+		SWITCH_LEFT = 14,
+		SWITCH_RIGHT = 12,
+		-- THE WORD'S SIZE on each half: 12 on a desktop, 11 on a phone (spec 3.3).
+		SWITCH_WORD_PX = 12,
+		SWITCH_WORD_TALL_PX = 11,
+		-- ---------------- THE CONTROL ITSELF, WHICH IS THE HOUSE STYLE'S AND NOT THIS PANEL'S
+		--
+		-- It is drawn on TWO surfaces -- this panel's owned row and the truck-pad dialog -- and the
+		-- numbers are here for the reason every colour and every face in that dialog is read out of
+		-- this module: *"The shop sets the house style. Anything built after it follows these, and
+		-- nothing else needs deciding"* (the Designer's spec section 8). `ShopPanel.buildRoleSwitch`
+		-- is the one builder and `ShopPanel.paintRoleSwitch` the one painter, so the two surfaces
+		-- cannot disagree about what "selected" looks like.
+		ROLE_SWITCH = {
+			-- THE TRACK: `UIPadding` 3 on all four sides and a `UIListLayout` with `Padding` 3, so
+			-- the two halves are `(track - 2*PAD - GAP) / 2` wide and `track - 2*PAD` tall and the
+			-- pair of them plus the one gap exactly fill the padded interior.
+			--
+			-- **The Designer's drawing says 141 x 32 for a 288-wide track while the formula beside
+			-- it says `(track - 9) / 2` = 139.5: the drawing forgot the 3 px between the halves. The
+			-- FORMULA is what is built, because it is the one that adds up**, and
+			-- `PadPanel.layoutFor` reports the same number so a spec asserts the arithmetic rather
+			-- than the picture.
+			TRACK_PAD = 3,
+			TRACK_GAP = 3,
+			TRACK_CORNER = 11,
+			HALF_CORNER = 9,
+			-- THE 2 px UNDERLINE at the selected half's bottom inside edge, inset each side. It is
+			-- the ONLY piece of chrome this control has, and it is what makes "selected" crisp on a
+			-- slab tinted to 0.80 -- which is itself deliberate: *"the only loud thing on either
+			-- screen is the one primary button, and a solid orange slab here would fight the BUY
+			-- button three inches below it"*.
+			UNDERLINE_PX = 2,
+			UNDERLINE_INSET = 10,
+			FILL_TRANSPARENCY = 0.8,
+			STROKE_TRANSPARENCY = 0.4,
+			-- THE WHOLE TRACK AT 0.5 WITH BOTH WORDS `FAINT` is "you cannot use this right now", and
+			-- the caption beside it says why. It is never silent: that is the half of Xonotic's
+			-- team menu this repository inverts (`docs/research/2026-10-21-the-role-switch.md` 2.2).
+			DIM_TRANSPARENCY = 0.5,
+			-- THE PRESS, AT ITS ROLE COLOUR, FOR ONE TWEEN. It is the ONLY feedback a press gets
+			-- before the server answers, and that is deliberate: there is no optimistic redraw --
+			-- the lit half is the server's word and a client that lit itself would be holding an
+			-- opinion about a value whose whole security is that it does not. A press with NO
+			-- feedback at all would read as a dead button (`docs/design/role-switch.md` section 20,
+			-- Karen item 1), so the tint is what fills the one network hop.
+			PRESS_TRANSPARENCY = 0.68,
+			-- 0.12 s ON `BackgroundColor3` AND `TextColor3` ONLY. Nothing slides: there is no
+			-- travelling thumb, because `design-system.md` section 1.4 is *"A HUD that moves is a
+			-- HUD you cannot read while aiming"*, and the selected half simply IS the lit one.
+			TWEEN_SECONDS = 0.12,
+		},
 		-- The scrim over the whole screen behind the panel (spec 2).
 		SCRIM_TRANSPARENCY = 0.42,
 		-- HOW LONG AN EXPLANATION MAY BE. 135 still, and the Designer checked it against the new box:
@@ -796,6 +873,23 @@ Shop.CONFIG = {
 		-- THE ROW'S TAGS. A row answers *"can I buy this?"* without being clicked (spec 0.3), and
 		-- the affordability signal is never colour alone: a row you cannot afford says SHORT.
 		OWNED_TAG = "OWNED",
+		-- THE ROLE SWITCH'S OWN WORDS (task 229). The Designer's, verbatim, and rows rather than
+		-- literals because *"words are Karen's to rewrite"*. They are the SAME four captions
+		-- `Lobby.CONFIG.PADS.PANEL.ROLE` carries -- two tables, because each panel reads its own
+		-- data table and neither requires the other's, which is the arrangement every word in this
+		-- Hud already has.
+		ROLE_TITLE = "NEXT DRIVE",
+		ROLE_HUNTER = "HUNTER",
+		ROLE_BEATER = "BEATER",
+		ROLE_HUNTING = "A STAND ON THE LINE",
+		ROLE_BEATING = "WALKING THE DRIVE",
+		-- THE SHOP HAS NO PAD AND NO PARTY SIZE, so it can never say "no beaters this drive" -- the
+		-- row is here because the two tables are one vocabulary and a reader comparing them should
+		-- find no gap. `ShopPanel.roleCaptionFor` has two rows, and the spec asserts it.
+		ROLE_SOLO = "NO BEATERS THIS DRIVE",
+		-- THE DRIVE ALREADY HAS HIM, so the ask is in and the control is a RECEIPT rather than a
+		-- choice. It is the same sentence the pad dialog uses for the same fact.
+		ROLE_ASKED = "ASKED FOR ALREADY",
 		SOON_TAG = "SOON",
 		ROW_LOCK_TAG = "%d / %d",
 		-- `%s` AND NOT `%d` SINCE TASK 221: the number is money and `Money.text` is the one thing that

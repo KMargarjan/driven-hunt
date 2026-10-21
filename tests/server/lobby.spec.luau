@@ -3633,4 +3633,122 @@ return function()
 			expect(PANEL.Z_INDEX < 16).to.equal(true)
 		end)
 	end)
+
+	-- ----------------------------------------------------------- THE ROLE SWITCH (task 229)
+	--
+	-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always
+	-- hunter maybe sometimes I want to be a beater we need to find a way to do that"*.
+	--
+	-- THE PURE HALF ONLY: the whitelist and the level rule, with no world, no player and no clock.
+	-- The DOOR, the bucket, the reset on the scan and the frozen memo are driven against fakes in
+	-- `tests/server/lobby_live.spec.luau`, which is the spec that starts this owner.
+	-- Design: docs/design/role-switch.md (sections 3, 6, 15.3)
+	describe("the role a man asks for, for one drive", function()
+		it("knows exactly two words", function()
+			-- ONE WHITELIST, asked by the server's door and by the client's sender, so *"which words
+			-- are legal"* has one answer -- `Pads.sizeAllowed`'s rule applied to a string.
+			expect(Data.roleAllowed(Data.ROLE_WISH.HUNTER)).to.equal(true)
+			expect(Data.roleAllowed(Data.ROLE_WISH.BEATER)).to.equal(true)
+			for _, bad in ipairs({
+				"HUNTER",
+				"Beater",
+				"shooter",
+				"drivers",
+				"",
+				" hunter",
+			}) do
+				expect(Data.roleAllowed(bad)).to.equal(false)
+			end
+			for _, bad in ipairs({ 1, true, {} }) do
+				expect(Data.roleAllowed(bad)).to.equal(false)
+			end
+			expect(Data.roleAllowed(nil)).to.equal(false)
+			-- THE TWO WORDS ARE FROZEN AND ARE DISTINCT, and the attribute's name is one string
+			-- beside `DHPadMine` -- `Lobby` is the only writer of either.
+			expect(table.isfrozen(Data.ROLE_WISH)).to.equal(true)
+			expect(Data.ROLE_WISH.HUNTER).never.to.equal(Data.ROLE_WISH.BEATER)
+			expect(Data.ROLE_WISH_ATTRIBUTE).to.equal("DHRoleWish")
+			expect(Data.ROLE_REQUEST_REMOTE).to.equal("RoleRequest")
+			expect(Data.ROLE_REQUEST_REMOTE).never.to.equal(Data.PAD_REQUEST_REMOTE)
+		end)
+
+		it("is ABSENT for a man who owns nothing, which is what hides both controls", function()
+			-- NOT GREYED, NOT LOCKED -- absent. *"A control for a thing you do not have is an
+			-- advertisement, and this shop already has a shop for that."* It is also the switch-off
+			-- story: with the shop off nobody owns the row, so this branch is every build today.
+			expect(Lobby.wishFor(nil, false, nil)).to.equal(nil)
+			expect(Lobby.wishFor(Data.ROLE_WISH.BEATER, false, nil)).to.equal(nil)
+			expect(Lobby.wishFor(Data.ROLE_WISH.BEATER, false, "Drivers")).to.equal(nil)
+		end)
+
+		it("defaults to HUNTER for an owner who has not touched it", function()
+			expect(Lobby.wishFor(nil, true, nil)).to.equal(Data.ROLE_WISH.HUNTER)
+			-- ...AND A STORED VALUE THIS SYSTEM DOES NOT KNOW IS HUNTER TOO, never a third state.
+			expect(Lobby.wishFor("nonsense", true, nil)).to.equal(Data.ROLE_WISH.HUNTER)
+		end)
+
+		it("stands while no drive has given him a side", function()
+			expect(Lobby.wishFor(Data.ROLE_WISH.BEATER, true, nil)).to.equal(Data.ROLE_WISH.BEATER)
+		end)
+
+		it("is SPENT by an assignment and by nothing else", function()
+			-- THE SINGLE MOST IMPORTANT RULE IN THE DESIGN: *"a man who beat once and forgot would
+			-- quietly stop being a hunter for ever, which is the opposite of the thing he paid 2000
+			-- for"*. The control says NEXT DRIVE and means exactly one.
+			--
+			-- AND IT IS KEYED ON THE TEAM, NOT ON "IS HE IN A DRIVE": `Lobby.depart` -> `Match.enrol`
+			-- makes him a participant immediately, while the assignment that READS the wish happens
+			-- on a later `Match` step -- so a reset keyed on the earlier fact would clear the wish
+			-- before the assignment it was meant to change.
+			for _, side in ipairs({ "Drivers", "Shooters" }) do
+				expect(Lobby.wishFor(Data.ROLE_WISH.BEATER, true, side)).to.equal(Data.ROLE_WISH.HUNTER)
+			end
+		end)
+
+		it("can only ever CLEAR, so a spent wish cannot come back", function()
+			-- THE RECONCILIATION NEVER INVENTS ONE: feed its own answer back in and the only fixed
+			-- points are nil (he owns nothing) and HUNTER (the default). BEATER is reachable only
+			-- from a stored ask, which only the door writes.
+			local once = Lobby.wishFor(Data.ROLE_WISH.BEATER, true, "Drivers")
+			expect(once).to.equal(Data.ROLE_WISH.HUNTER)
+			expect(Lobby.wishFor(once, true, nil)).to.equal(Data.ROLE_WISH.HUNTER)
+			expect(Lobby.wishFor(once, true, "Shooters")).to.equal(Data.ROLE_WISH.HUNTER)
+		end)
+
+		it("has its own words and its own pixels, and the block adds up to BLOCK_PX", function()
+			local ROLE = CFG.PADS.PANEL.ROLE
+			-- EVERY WORD IS A ROW, because words are Karen's to rewrite, and no two of the four
+			-- captions are the same sentence.
+			for _, key in ipairs({
+				"EYEBROW",
+				"HUNTER",
+				"BEATER",
+				"NOTE_HUNTER",
+				"NOTE_BEATER",
+				"NOTE_NONE",
+				"NOTE_SENT",
+			}) do
+				expect(type(ROLE[key])).to.equal("string")
+				expect(#ROLE[key] > 0).to.equal(true)
+			end
+			local seen: { [string]: boolean } = {}
+			for _, key in ipairs({ "NOTE_HUNTER", "NOTE_BEATER", "NOTE_NONE", "NOTE_SENT" }) do
+				expect(seen[ROLE[key]]).to.equal(nil)
+				seen[ROLE[key]] = true
+			end
+			-- THE NINE ROWS SUM TO THE ONE NUMBER BOTH THE LAYOUT AND THE CLIENT SPEC READ, so a part
+			-- that changes without the whole fails here rather than drawing 1 px wrong in silence.
+			local sum = ROLE.LEAD_PX
+				+ ROLE.EYEBROW_PX
+				+ ROLE.GAP_PX
+				+ ROLE.TRACK_PX
+				+ ROLE.NOTE_GAP
+				+ ROLE.NOTE_PX
+				+ ROLE.RULE_GAP
+				+ ROLE.RULE_PX
+				+ ROLE.TRAIL_PX
+			expect(sum).to.equal(ROLE.BLOCK_PX)
+			expect(ROLE.BLOCK_PX).to.equal(119)
+		end)
+	end)
 end

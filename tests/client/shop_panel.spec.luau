@@ -38,9 +38,17 @@
 -- Design: docs/design/shop.md (sections 5, 12.2)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- THE LIVE SCREEN, for the one guard that must be this machine's mode and not a constant (review
+-- round 2, finding 2): `ShopPanel.layoutFor(0, 0)` is always `TALL`, because the width clamps up to
+-- `MIN_WIDTH` 300 and that is under `WIDE_AT` 520.
+local Workspace = game:GetService("Workspace")
 
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Money = require(ReplicatedStorage:WaitForChild("Money"))
+-- `TestKit.note` ONLY, for task 229's measured line: the owned row is judged by eye by Karen, and
+-- until she has looked at it the honest substitute is a NUMBER in the report rather than a passing
+-- assertion nobody can picture.
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -238,19 +246,32 @@ return function()
 
 			-- EVERY BUTTON ACTUALLY BUILT IS A TOUCH TARGET, including the close box.
 			local frame = Hud.shopPanel() :: Frame
-			local rows, buys = 0, 0
+			local rows, buys, halves = 0, 0, 0
 			for _, child in ipairs(frame:GetDescendants()) do
 				if child:IsA("TextButton") then
 					if child.Name == "Close" then
 						expect(child.Size.Y.Offset).to.equal(Shop.CONFIG.PANEL.CLOSE_PX)
 					elseif child.Name == "Buy" then
 						buys += 1
+					elseif child.Name == "Hunter" or child.Name == "Beater" then
+						-- THE ROLE SWITCH'S TWO HALVES (task 229) AND THE ONE DOCUMENTED EXCEPTION TO
+						-- THE 44 px FLOOR, which the Designer's spec 3.3 writes out: in the shop's row
+						-- a half is `SWITCH_TRACK_PX - 2 * TRACK_PAD` = 28 high, and *"it sits INSIDE
+						-- a 212 x 124 row that is itself a 212 x 124 target, so a miss selects the
+						-- item rather than doing nothing. State that in the code comment; do not let
+						-- it spread."* Counted here so it is EXPLICIT rather than filtered away: four
+						-- halves exist, two in the owned row and two in the phone's detail pane, and a
+						-- fifth would fail this case.
+						halves += 1
+						expect(child.Size.Y.Offset).to.equal(0)
+						expect(child.Size.Y.Scale).to.equal(1)
 					else
 						rows += 1
 						expect(child.Size.Y.Offset >= 48).to.equal(true)
 					end
 				end
 			end
+			expect(halves).to.equal(4)
 			-- ONE ROW AND ONE CARD PER CATALOGUE ITEM -- both layouts are built once and one of them
 			-- is shown -- and ONE buy button for the whole panel.
 			expect(rows).to.equal(2 * #Shop.ORDER)
@@ -1110,6 +1131,269 @@ return function()
 			expect(Panel.hidesRail(1920)).to.equal(false)
 			Panel.setOpen(false)
 			expect(Panel.hidesRail(400)).to.equal(false)
+
+			-- --------------------------------------------------- THE ROLE SWITCH (task 229)
+			--
+			-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always
+			-- hunter maybe sometimes I want to be a beater we need to find a way to do that"*.
+			--
+			-- THE SECONDARY SURFACE -- *"the minute you buy the thing is the minute you must learn it is
+			-- a choice"*. The PRIMARY is the truck-pad dialog and its cases are in `pad_panel.spec`.
+			-- Design: docs/design/role-switch.md (sections 9, 10.8, 15.5)
+			it("puts the switch on exactly one surface, which is what `never both` means", function()
+				-- ONE RULE AS A FUNCTION RATHER THAN AS A CONVENTION: a function can be asserted over
+				-- every combination, and a convention cannot.
+				local HUNTER = Panel.ROLE.HUNTER
+				local ALWAYS = Shop.ITEM.ALWAYS_HUNTER
+				expect(Panel.switchSurfaceFor("WIDE", HUNTER, ALWAYS)).to.equal("row")
+				-- IN WIDE THE ROW IS THERE WHATEVER IS SELECTED: the switch is ON the item's own row.
+				expect(Panel.switchSurfaceFor("WIDE", HUNTER, Shop.ITEM.SHOTGUN)).to.equal("row")
+				expect(Panel.switchSurfaceFor("WIDE", HUNTER, nil)).to.equal("row")
+				-- IN TALL THE 108 px CARD HAS NO ROOM, so it rides the SELECTED item's detail pane.
+				expect(Panel.switchSurfaceFor("TALL", HUNTER, ALWAYS)).to.equal("detail")
+				expect(Panel.switchSurfaceFor("TALL", HUNTER, Shop.ITEM.SHOTGUN)).to.equal("none")
+				expect(Panel.switchSurfaceFor("TALL", HUNTER, nil)).to.equal("none")
+				-- AND NOWHERE AT ALL FOR A MAN WHO OWNS NOTHING -- absent, not greyed, not locked.
+				for _, mode in ipairs({ "WIDE", "TALL" }) do
+					expect(Panel.switchSurfaceFor(mode, nil, ALWAYS)).to.equal("none")
+					expect(Panel.switchSurfaceFor(mode, "shooter", ALWAYS)).to.equal("none")
+				end
+			end)
+
+			it("builds the owned row 124 tall and moves nothing above it", function()
+				local PANEL = Shop.CONFIG.PANEL
+				local was = Panel.layoutFor(1280, 720)
+				local now = Panel.layoutFor(1280, 720, "row")
+				expect(now.switchRowHeight).to.equal(PANEL.ROW_SWITCH_PX)
+				expect(PANEL.ROW_SWITCH_PX).to.equal(124)
+				expect(was.switchRowHeight).to.equal(PANEL.ROW_PX)
+				-- NOTHING ABOVE IT MOVES, and in WIDE nothing at all does: the well is a `UIListLayout`,
+				-- so one row growing pushes only what is BELOW it, and the detail column is untouched.
+				for _, key in ipairs({
+					"width",
+					"height",
+					"wellY",
+					"wellWidth",
+					"wellHeight",
+					"rowWidth",
+					"detailX",
+					"detailY",
+					"caseHeight",
+					"statusY",
+					"buttonY",
+				}) do
+					expect((now :: any)[key]).to.equal((was :: any)[key])
+				end
+				-- `surface` nil IS TODAY'S ANSWER, which is what makes `Hud.build`'s `panelSize` and every
+				-- existing case unchanged by construction.
+				expect(was.switchSurface).to.equal("none")
+				expect(was.switchBlock).to.equal(0)
+				-- THE TRACK IS THE ROW LESS ITS TWO INSETS: 186 at 1280 x 720, the Designer's own number.
+				expect(now.switchTrackWidth).to.equal(now.rowWidth - PANEL.SWITCH_LEFT - PANEL.SWITCH_RIGHT)
+				expect(now.switchTrackWidth).to.equal(186)
+				-- ...AND THE TWO HALVES PLUS ONE GAP EXACTLY FILL THE PADDED INTERIOR (the FORMULA, not
+				-- the Designer's drawing, which forgot the 3 px between them).
+				local ROLE = PANEL.ROLE_SWITCH
+				expect(2 * now.switchHalfWidth + ROLE.TRACK_GAP + 2 * ROLE.TRACK_PAD).to.equal(now.switchTrackWidth)
+				TestKit.note(
+					string.format(
+						"task229 shop row: %d -> %d px at 1280x720, track %dx%d, halves %.1fx%d, name y=%d,"
+							.. " eyebrow y=%d, track y=%d, caption y=%d; phone detail block %d px, blurb %d line(s)",
+						was.switchRowHeight,
+						now.switchRowHeight,
+						now.switchTrackWidth,
+						PANEL.SWITCH_TRACK_PX,
+						now.switchHalfWidth,
+						PANEL.SWITCH_TRACK_PX - 2 * ROLE.TRACK_PAD,
+						PANEL.SWITCH_NAME_Y,
+						PANEL.SWITCH_EYEBROW_Y,
+						PANEL.SWITCH_TRACK_Y,
+						PANEL.SWITCH_CAPTION_Y,
+						Panel.layoutFor(400, 800, "detail").switchBlock,
+						Panel.layoutFor(400, 800, "detail").blurbLines
+					)
+				)
+			end)
+
+			it("gives the phone's detail pane 70 px for it and still holds three blurb lines", function()
+				local PANEL = Shop.CONFIG.PANEL
+				local was = Panel.layoutFor(400, 800)
+				local now = Panel.layoutFor(400, 800, "detail")
+				expect(now.mode).to.equal("TALL")
+				expect(now.switchBlock).to.equal(PANEL.DETAIL_SWITCH_PX)
+				expect(PANEL.DETAIL_SWITCH_PX).to.equal(70)
+				-- THE BLOCK REPLACES THE STATUS ROW, directly above the button, and the BUTTON does not
+				-- move: *"the blurb box absorbs the difference, exactly as `layoutFor` already absorbs
+				-- everything else"*.
+				expect(now.buttonY).to.equal(was.buttonY)
+				expect(was.statusY - now.statusY).to.equal(PANEL.DETAIL_SWITCH_PX)
+				-- ...AND THE THREE LINES AND THE CASE FLOOR BOTH SURVIVE IT, which is the whole of what
+				-- the absorption may not cost.
+				expect(now.blurbLines >= 3).to.equal(true)
+				expect(now.caseHeight >= PANEL.CASE_MIN_PX).to.equal(true)
+			end)
+
+			it("hides both surfaces for a man who owns nothing, and shows one when he does", function()
+				-- OFF THE BUILT INSTANCES, because *"absent"* is a claim about what is on the screen.
+				local frame = Hud.shopPanel() :: Frame
+				local menu = frame:FindFirstChild("Menu") :: ScrollingFrame
+				local row = menu:FindFirstChild("Item_" .. Shop.ITEM.ALWAYS_HUNTER) :: TextButton
+				expect(row).to.be.ok()
+				local block = row:FindFirstChild("RoleBlock") :: Frame
+				expect(block).to.be.ok()
+				Panel.setRoleWish(nil, nil)
+				expect(block.Visible).to.equal(false)
+				expect(Panel.roleLit()).to.equal(nil)
+				expect(#Panel.switchText()).to.equal(0)
+				-- AND NO OTHER ROW EVER GREW ONE.
+				local blocks = 0
+				for _, child in ipairs(menu:GetChildren()) do
+					if child:IsA("GuiObject") and child:FindFirstChild("RoleBlock") ~= nil then
+						blocks += 1
+						expect(child.Name).to.equal("Item_" .. Shop.ITEM.ALWAYS_HUNTER)
+					end
+				end
+				expect(blocks).to.equal(1)
+
+				-- ...AND IT SHOWS WHEN HE DOES OWN IT (review round 1, note 7): the hiding half was the
+				-- only one asserted, so "shows one" was in the case's name and nowhere else.
+				Panel.setRoleWish(Panel.ROLE.HUNTER, nil)
+				Panel.relayout()
+				-- ON A DESKTOP THE SURFACE IS THE ROW; on a phone-sized viewport it is the detail pane and
+				-- this row stays 64 px. Either way EXACTLY ONE surface carries it, which is what
+				-- `switchSurfaceFor` decides -- and the built instances are what this reads.
+				expect(Panel.switchSurfaceFor("WIDE", Panel.ROLE.HUNTER, Shop.ITEM.ALWAYS_HUNTER)).to.equal("row")
+				-- THE MODE IS THIS SCREEN'S. `layoutFor(0, 0)` is a CONSTANT `TALL` -- the width clamps
+				-- up to `MIN_WIDTH` 300, which is under `WIDE_AT` 520 -- so the round-2 version of this
+				-- guard asserted NOTHING on any machine. That is how finding 1 got past a case written
+				-- to catch exactly it.
+				local view = Workspace.CurrentCamera and (Workspace.CurrentCamera :: Camera).ViewportSize
+				local mode = Panel.layoutFor(if view then view.X else 1280, if view then view.Y else 720).mode
+				if mode == "WIDE" then
+					expect(block.Visible).to.equal(true)
+					-- ...AND THE CONTROL IS ACTUALLY RENDERED (review round 2, finding 1): the block is
+					-- only the holder, the two halves live inside the TRACK, and the track was built
+					-- `Visible = false` with nothing anywhere writing it true -- so the switch was
+					-- positioned, painted and never drawn.
+					local track = block:FindFirstChild("RoleSwitch") :: Frame
+					expect(track).to.be.ok()
+					expect(track.Visible).to.equal(true)
+					expect((track:FindFirstChild("Beater") :: TextButton).Visible).to.equal(true)
+					expect(Panel.roleLit()).to.equal(Panel.ROLE.HUNTER)
+					expect(#Panel.switchText()).to.equal(4)
+				end
+				Panel.setRoleWish(nil, nil)
+				Panel.relayout()
+				expect(block.Visible).to.equal(false)
+				expect((block:FindFirstChild("RoleSwitch") :: Frame).Visible).to.equal(false)
+			end)
+
+			it("drives the rectangle when a SELECTION moves the switch's surface", function()
+				-- REVIEW ROUND 2, FINDING 2. On a phone the 108 px card has no room, so the switch rides
+				-- the SELECTED item's detail pane -- which makes the selection an input to a RECTANGLE,
+				-- and `relayout` is the one writer of those. `select` did not drive it, and `setOpen`
+				-- relayouts BEFORE it picks a first row off `firstId()`, which prefers a BUYABLE row --
+				-- and an owner's `ALWAYS HUNTER` row is not one. So for exactly the man this feature is
+				-- for, the surface was always "none" and tapping his row changed nothing.
+				--
+				-- THE SURFACE RULE IS PURE, so the TALL half is asserted here whatever this machine's
+				-- screen is; what the live panel adds below is that `select` actually DRIVES it.
+				expect(Panel.switchSurfaceFor("TALL", Panel.ROLE.HUNTER, Shop.ITEM.ALWAYS_HUNTER)).to.equal("detail")
+				expect(Panel.switchSurfaceFor("TALL", Panel.ROLE.HUNTER, Shop.ITEM.SLUG)).to.equal("none")
+				expect(Panel.switchSurfaceFor("TALL", nil, Shop.ITEM.ALWAYS_HUNTER)).to.equal("none")
+
+				local was = Panel.selectedId()
+				Panel.setRoleWish(Panel.ROLE.HUNTER, nil)
+				Panel.select(Shop.ITEM.SLUG)
+				local quiet = Panel.stats().layouts
+				Panel.select(Shop.ITEM.ALWAYS_HUNTER)
+				local after = Panel.stats().layouts
+				local view = Workspace.CurrentCamera and (Workspace.CurrentCamera :: Camera).ViewportSize
+				local mode = Panel.layoutFor(if view then view.X else 1280, if view then view.Y else 720).mode
+				if mode == "TALL" then
+					-- THE SURFACE MOVED, so the one rectangle writer ran, and the pane is drawn.
+					expect(after > quiet).to.equal(true)
+					local detail = (Hud.shopPanel() :: Frame):FindFirstChild("Detail") :: Frame
+					local pane = detail:FindFirstChild("RoleBlock") :: Frame
+					expect(pane).to.be.ok()
+					expect(pane.Visible).to.equal(true)
+					expect((pane:FindFirstChild("RoleSwitch") :: Frame).Visible).to.equal(true)
+				else
+					-- IN WIDE THE SWITCH IS ON THE ROW WHATEVER IS SELECTED, so a selection moves no
+					-- surface and must NOT relayout -- the other half of "edge-triggered".
+					expect(after).to.equal(quiet)
+				end
+				Panel.setRoleWish(nil, nil)
+				if was ~= nil then
+					Panel.select(was)
+				end
+				Panel.relayout()
+			end)
+
+			it("puts the two halves above the row's own children, so a press reaches a half", function()
+				-- THE HIT TEST, AS ARITHMETIC OVER THE BAND THIS PANEL ALREADY OCCUPIES: the row is a
+				-- `TextButton` at `Z + 2`, its name/price/tag are at `Z + 3`, and the halves are at
+				-- `Z + 4` -- which the header's wallet and the buy button already use, and the two well
+				-- fade masks sit at `Z + 6` with `Active = false` so they never swallow a press.
+				local frame = Hud.shopPanel() :: Frame
+				local menu = frame:FindFirstChild("Menu") :: ScrollingFrame
+				local row = menu:FindFirstChild("Item_" .. Shop.ITEM.ALWAYS_HUNTER) :: TextButton
+				local block = row:FindFirstChild("RoleBlock") :: Frame
+				local track = block:FindFirstChild("RoleSwitch") :: Frame
+				expect(track).to.be.ok()
+				local name = row:FindFirstChild("Name") :: TextLabel
+				for _, which in ipairs({ "Hunter", "Beater" }) do
+					local half = track:FindFirstChild(which) :: TextButton
+					expect(half).to.be.ok()
+					expect(half.ZIndex > name.ZIndex).to.equal(true)
+					expect(half.ZIndex > row.ZIndex).to.equal(true)
+					expect(half:FindFirstChild("Word")).to.be.ok()
+				end
+				for _, side in ipairs({ "FadeTop", "FadeBottom" }) do
+					local mask = frame:FindFirstChild(side) :: Frame
+					expect(mask.Active).to.equal(false)
+				end
+			end)
+
+			it("asks through the one sender it is handed, and never decides anything", function()
+				-- THIS PANEL IS NOT THE SENDER. `Hud.PadPanel` is this client's one door onto
+				-- `ReplicatedStorage.Lobby.Remotes`, so the function is handed in at `start` -- which
+				-- keeps ONE sender and adds no `ShopPanel` -> `PadPanel` require edge (a cycle).
+				-- `ShopPanel.start` IS IDEMPOTENT AND HAS ALREADY RUN IN THE REAL CLIENT, so this case
+				-- cannot re-wire the panel's sender and does not pretend to: it drives `askRole`,
+				-- which is the seam, and the SENDER's own contract -- one message, one word and
+				-- nothing else on the wire -- is asserted in `pad_panel.spec` against a fake remote.
+				Panel.setRoleWish(Panel.ROLE.HUNTER, nil)
+				local before = Panel.stats().roleBlocked + Panel.stats().roleSent
+				Panel.askRole(Panel.ROLE.BEATER)
+				expect(Panel.stats().roleBlocked + Panel.stats().roleSent).to.equal(before + 1)
+				-- ...AND ONCE THE DRIVE HAS HIM IT IS REFUSED, which is the state the caption explains.
+				Panel.setRoleWish(Panel.ROLE.HUNTER, "Shooters")
+				expect(Panel.roleUsable(Panel.ROLE.HUNTER, "Shooters")).to.equal(false)
+				local was = Panel.stats().roleBlocked
+				expect(Panel.askRole(Panel.ROLE.BEATER)).to.equal(false)
+				expect(Panel.stats().roleBlocked).to.equal(was + 1)
+				Panel.setRoleWish(nil, nil)
+			end)
+
+			it("says its two sentences, and never the pad's third", function()
+				-- THE SHOP HAS NO PAD AND NO PARTY SIZE, so it can never say `NO BEATERS THIS DRIVE`.
+				-- That row exists in both tables because the two are ONE vocabulary and a reader
+				-- comparing them should find no gap.
+				local TEXT = Shop.CONFIG.TEXT
+				expect(Panel.roleCaptionFor(Panel.ROLE.HUNTER, nil)).to.equal(TEXT.ROLE_HUNTING)
+				expect(Panel.roleCaptionFor(Panel.ROLE.BEATER, nil)).to.equal(TEXT.ROLE_BEATING)
+				expect(Panel.roleCaptionFor(Panel.ROLE.BEATER, "Drivers")).to.equal(TEXT.ROLE_ASKED)
+				expect(Panel.roleCaptionFor(nil, nil)).to.equal("")
+				-- THE WORDS ARE THE SAME SENTENCES THE PAD'S TABLE CARRIES, so the two surfaces read as
+				-- one control rather than as two features.
+				local PADS = require(ReplicatedStorage:WaitForChild("Lobby")).CONFIG.PADS
+				expect(TEXT.ROLE_HUNTING).to.equal(PADS.PANEL.ROLE.NOTE_HUNTER)
+				expect(TEXT.ROLE_BEATING).to.equal(PADS.PANEL.ROLE.NOTE_BEATER)
+				expect(TEXT.ROLE_SOLO).to.equal(PADS.PANEL.ROLE.NOTE_NONE)
+				expect(TEXT.ROLE_ASKED).to.equal(PADS.PANEL.ROLE.NOTE_SENT)
+				expect(TEXT.ROLE_TITLE).to.equal(PADS.PANEL.ROLE.EYEBROW)
+			end)
 		end)
 	end)
 end

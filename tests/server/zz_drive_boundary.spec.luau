@@ -28,6 +28,11 @@ local Workspace = game:GetService("Workspace")
 -- A PLAYER'S COINS (task 170), read here for one claim: the drive paid, on this edge, exactly once.
 local Economy = require(ServerScriptService:WaitForChild("Economy"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
+-- THE LOBBY, READ-ONLY AND ONLY TO ASK WHAT IT IS HOLDING (task 229). In the DEV place this owner is
+-- never started (`ForestTestBoot` returns immediately and `Lobby.anchorFor("map:v1")` is nil), so
+-- `Lobby.beaterWishes()` is the empty frozen table -- which is the switch-off story said as a read
+-- rather than as a comment.
+local Lobby = require(ServerScriptService:WaitForChild("Lobby"))
 local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 -- One fact, for one question: is the Tool in this player's hands a GUN? (task 152)
@@ -733,6 +738,50 @@ return function()
 			for _, award in ipairs(safety) do
 				expect(award.points).to.equal(Match.CONFIG.POINTS.SAFETY_PENALTY)
 			end
+		end)
+
+		it("ran this drive with no role wish in it at all, which is OFF measured (task 229)", function()
+			-- THE ONE BOUNDARY THAT COULD BREAK THE SWITCH-OFF STORY. The DEV place, where the
+			-- harness runs, has NO LOBBY (`Lobby.anchorFor("map:v1")` is nil and `MatchBoot` passes
+			-- no `roleWishes` field at all), so the drive that just ran is the drive this repository
+			-- shipped before this task -- not "a drive with an empty wish table", but one where the
+			-- field never reached the event.
+			--
+			-- IT IS A NEGATIVE ASSERTION ON PURPOSE. Everything POSITIVE about the feature is
+			-- unreachable here and is proved by parameter instead (`match_roster.spec` at every
+			-- roster size, `lobby_live.spec` against fakes), because `test` and `test2` both REFUSE
+			-- to start while a `DHFlag_` override is set -- so no harness run can have `SHOP` or
+			-- `COINS` on, and the production ON path's evidence is Karen's own Forest Test.
+			expect(Lobby.beaterWishes()).to.be.ok()
+			expect(next(Lobby.beaterWishes())).to.equal(nil)
+			-- ...AND NO ROW ON THE WIRE NAMES A MAN THE BALANCE OVERRULED, which is the absent-field
+			-- idiom task 221 round 1 established: with no money in the build the field is ABSENT and
+			-- not an empty array.
+			local sent = Match.lastSent()
+			expect(sent).to.be.ok()
+			if not Economy.isEnabled() then
+				expect(sent.roleOverruled).to.equal(nil)
+			end
+			-- ...AND EVERY MAN IN THE DRIVE HAS EXACTLY ONE SIDE, with the sides level to within one:
+			-- the roster's own rule, unchanged by a field it never saw.
+			-- READ OFF `Match.assignmentOf`, which is the drive's own answer per player -- the
+			-- snapshot carries the score rows and not the roster table.
+			local seats: { [number]: any } = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				local side = Match.assignmentOf(player.UserId)
+				if side ~= nil then
+					seats[player.UserId] = side
+				end
+			end
+			local counts = Match.Roster.counts(seats)
+			TestKit.note(
+				string.format(
+					"zz_drive_boundary: no lobby here, so no role wish reached the drive -- %d driver(s), %d hunter(s)",
+					counts.Drivers or 0,
+					counts.Shooters or 0
+				)
+			)
+			expect(math.abs((counts.Drivers or 0) - (counts.Shooters or 0)) <= 1).to.equal(true)
 		end)
 
 		it("counted the test time it was given, and nothing else moved the clock", function()

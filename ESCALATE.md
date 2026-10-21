@@ -1,5 +1,446 @@
 # Escalations
 
+## 2026-10-21 - Task 229: **CLOSED. Reviewer PASS at round 3.** Nothing is outstanding.
+
+Round 3 passed (`reviews/task-229/RESULT.md` line 1 = `PASS` at `8b64034b`), after the Director
+looked at all four frames and confirmed they match the Designer's `shop2-role.png`. Both gates are
+green at one commit:
+
+```
+[harness]  PASS: 33/33 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree)
+```
+
+**Three rounds, four blocking findings, all fixed:** the live wish memo read after the assignment
+had spent it (round 1); the control built and never rendered, and the phone surface that never
+appeared (round 2). Round 3 found none.
+
+**The look item that was open since round 1 is closed too.** The two surfaces were photographed in
+the Forest Test, the Director inspected them, and the place was left exactly as found -- attributes
+read first and last and identical, no attribute written, nothing persistent written by the purchase,
+Play stopped, Edit, window closed.
+
+**Six non-blocking notes are queued, not fixed** (rule 10): `229g` the Director's own compass-bar
+overlap, `229h` the nineteen client cases nested inside another case's body, `229i` three
+assertions weaker than their names, `229j` the two tracks sized from one width. **229h is the one I
+would do first** -- those cases run today only because a TestEZ `it` inherits its enclosing node's
+environment, and the day that changes they stop running with the suite still green.
+
+**The residual gap the frames do NOT close, carried forward rather than papered over:** frame 3's
+panel was opened by a probe, because a headless session cannot trigger a `ProximityPrompt`; and no
+frame shows a half being PRESSED -- the asks went through the same remote the half fires, so the
+`Activated` connection itself is proved by neither a spec nor a picture. It is the limit
+`PadPanel.press` and `ShopPanel.press` have always carried, and it is written into
+`reviews/task-229/REQUEST.md` section 0 where the Reviewer read it.
+
+## `test2` -- CLOSED. Both gates green at one commit
+
+```
+[harness]  PASS: 33/33 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree)
+```
+
+`<runs-dir>/test-t229-r3b.log` (DEV confirmed in the log) and `<runs-dir>/test2-t229f.log`.
+
+### The frames, and the one thing I am NOT doing without you
+
+Four frames, each at the real screen size, each inspected by me, all matching the Designer's
+`shop2-role.png`:
+
+| # | File | What it shows |
+|---|---|---|
+| 1 | `.screenshots/229-frame1-pad-dialog.png` | the pad dialog with `NEXT DRIVE`, HUNTER lit, `A STAND ON THE LINE` |
+| 2 | `.screenshots/229-frame2c-beater-lit.png` | BEATER lit in the blue, caption `WALKING THE DRIVE` |
+| 3 | `.screenshots/229-frame3d-shop-row.png` | the shop's 124 px owned row with the switch on it |
+| 4 | `.screenshots/229-frame4b-nonowner-pad.png` | a non-owner's pad: no switch at all |
+
+The live run also proved, on the real path: the buy refused `too-far` from 765 studs and accepted at
+the counter (`$13500 -> $11500`), the attribute written on ownership, the ask accepted when free and
+**refused `in-a-drive` once the truck had him**, **the wish reset to `hunter` one scan after the
+drive seated him**, and a clean console. Details are in `reviews/task-229/REQUEST.md` section 0,
+including the two things the frames do NOT show.
+
+**I HAVE STOPPED BEFORE RUNNING THE ROUND-3 REVIEW, deliberately.** Your reply accepted item 2 as
+*"we look before the last review round"* -- and if I inspect my own four frames and then immediately
+spend the last round, the only person who has looked at this switch is the one who built it, which
+is the thing I asked you to prevent. **Round 3 is the last round**: if it is spent and something in
+these frames is wrong, we are at `MAX_ROUNDS` with an escalation instead of a fix.
+
+So: **look at the four frames. Then say go, and I run the review in the next message** -- everything
+else is done and the request is written. If you would rather I had just run it, say so and I will;
+the cost of asking is one message and the cost of being wrong is the last round.
+
+### The Forest Test was left exactly as found
+
+Read first and read again at the end, identical:
+`DHFlag_BOAR_MODEL/COINS/DRIVE_BOTS/LOBBY/SHOP=true, DHForestStartRole=hunter, DHShopTestGrant=true`.
+**No attribute was written**, Play stopped, the place left in Edit and its window closed -- so
+exactly one Studio, DEV, was open for the gate. **Nothing persistent was written by the purchase**:
+every `Play` began at `$13500` again.
+
+## 1. `NEEDS DIRECTOR: test2 for task 229 at the branch head`
+
+Just run it on the branch as it stands. Round 2's Reviewer found two blocking defects, both right,
+and the fix touches `src/client/Hud/` -- so the line is needed again, and round 2's line was for a
+different commit.
+
+The last commit to touch `src/`, `tests/` or `tools/` is **`929270d8`**, green there on the clean
+tree (`<runs-dir>/test-t229-r3.log`):
+
+```
+[harness] PASS: 33/33 checks @ 929270d859ccf962ab4887540629fece394adce0 (clean tree) scope=all
+```
+
+Same order as last round, for the same reason (both lines must name one commit, and every commit
+that writes a sha down moves the head): **you run `test2`; I then run `test` at that same head, fill
+both lines in, and run the review.**
+
+**Round 3 is the last round.** If its review finds anything blocking, that is the `MAX_ROUNDS` cap
+and it comes back here as an escalation rather than a fourth round.
+
+### 2. **NEEDS KAREN -- and round 2 is the argument for it**
+
+Round 2's finding 1 was that **the switch was never rendered at all**: built, positioned, painted,
+hit-tested by the specs through `ZIndex`, and `Visible = false` the whole time. A player would have
+seen `NEXT DRIVE` and `A STAND ON THE LINE` around an empty gap. Every number I measured was right;
+the control was not on screen.
+
+**That is exactly what one frame would have caught in a second**, and I could not take one -- the
+DEV place has no lobby, no truck pads and no shop counter, so neither surface can be put on screen
+there, and the StudioMCP thread cannot `require`, so no probe can open a panel. I said so in rounds
+1 and 2; round 2 is what that gap costs.
+
+So this is no longer only Karen's taste question. **Somebody has to look at these two screens in
+the Forest Test before this merges**, and the clicks are the Director's because the task's dispatch
+says DEV only:
+
+1. open Studio on **Driven Hunt Forest Test**, in Edit;
+2. `python tools/flags.py` FIRST and write down what is set -- those flags are Karen's playtest
+   setup, not ours (L-056) -- then set `SHOP` and `COINS` on for that place;
+3. grant `ALWAYS HUNTER` to the test player, start Play, walk onto a truck pad: the dialog should be
+   487 px tall with `NEXT DRIVE`, the two halves, and `A STAND ON THE LINE` between the header and
+   the four size rows;
+4. walk into the lodge and open the shop: `ALWAYS HUNTER` should be the one 124 px row with the
+   switch ON it;
+5. capture both, **restore the flags exactly as they were**.
+
+Her three feel questions are queued as `TASKS.md` 229d. The question I asked last round and am
+asking again, because round 3 is the last one: **does her look happen before this is treated as
+done, or does it merge on the gates and the review with her look as a follow-up?** Either is
+defensible under `feedback-merge-unseen-ok` -- but after round 2 I would not merge this one unseen,
+and that is my recommendation rather than my decision.
+
+## 1. `test2` -- CLOSED, no Director action left
+
+Both gates are green on the clean tree at **one** commit, `c1084110`:
+
+```
+[harness]  PASS: 33/33 checks @ c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2 (clean tree)
+```
+
+`<runs-dir>/test-t229-r2c.log`, `<runs-dir>/test2-t229e.log` (server 1981/0, shooter 514/0, driver
+508/0). The round-1 blocking finding is fixed and the seven notes with it.
+
+**One flake on the way, recorded as `TASKS.md` 229f rather than buried.** The first `test` at this
+commit failed `camera_client.spec:1504` (the task-93 claim that the left hand's place on the BARRELS
+does not change when the gun breaks open): 0.2695 studs against a `< 1e-3` claim, where every other
+observation of this identical tree reads `0.0000`. Not reachable from this branch -- 229 changes no
+camera, viewmodel, pose or gun file at all -- and this very sha had already passed `test2` with
+shooter 514/0, which runs that spec. The re-run was 33/33.
+
+### 2. **NEEDS KAREN -- she has not seen either surface, and round 3 is the last one**
+
+**This is the item that must not fall off the end** (L-011, L-008: she looks, THEN it is done).
+Task 229 is a UI task as much as a logic one -- a segmented switch on two screens -- and **no frame
+of either surface has ever been taken**, by me or by anyone.
+
+The reason is structural and unchanged: the DEV place has **no lobby, no truck pads and no shop
+counter**, so the pad dialog's visibility rule (`DHPadFirst` on a pad part) and the shop panel's
+prompt are both missing and neither control can be put on screen there; and the StudioMCP thread
+cannot `require`, so no probe can open a panel either. **Only the Forest Test has both**, and this
+task's dispatch said DEV only.
+
+What exists instead: the Designer's own picture of both surfaces and all seven states
+(`<runs-dir>/design/shop2-role.png`), and every number the build produced measured into the harness
+report and matching it --
+
+```
+task229 pad block: dialog 368 -> 487 px, block 119, track 292x38 at y=96, halves 141.5x32
+task229 shop row:  64 -> 124 px, track 186x34, phone detail block 70 px, blurb 3 line(s)
+```
+
+That is a strong statement about PIXELS and no statement at all about how it LOOKS.
+
+**The clicks, which are the Director's to make because they need the Forest Test:**
+
+1. open Studio on **Driven Hunt Forest Test**, in Edit;
+2. `python tools/flags.py` FIRST and write down what is set -- the Forest Test's flags are Karen's
+   playtest setup, not ours (L-056) -- then set `SHOP` and `COINS` on for that place;
+3. grant `ALWAYS HUNTER` to the test player, start Play, walk onto a truck pad: the dialog is 487 px
+   tall with `NEXT DRIVE / HUNTER | BEATER / A STAND ON THE LINE` between the header and the four
+   size rows;
+4. walk into the lodge and open the shop: `ALWAYS HUNTER` is the one 124 px row, with the switch on
+   it;
+5. capture both, **restore the flags exactly as they were**.
+
+**The question for you, since the round-2 dispatch did not say:** does Karen look BEFORE round 3 is
+treated as done, or does the branch merge on the gates and the review with her look as a follow-up?
+Either is defensible -- `feedback-merge-unseen-ok` says look tasks may merge on gates + review and
+her feedback becomes a new task -- but it is your call and not mine, and silence would make it
+mine by default. Her three feel questions are already queued as `TASKS.md` 229d.
+
+## Why no sha is written into the request yet, and why that is the cheaper order
+
+`tools/agents.py`'s `pasted()` only accepts a harness line whose sha PREFIXES the request's
+`Code commit:`, so the `[harness]` and `[harness2]` lines must name the SAME commit (L-034, which
+cost an extra run last round). But every commit I make to write a sha down MOVES the head, so there
+is no commit I can name in advance that `test2` will also name -- it is a fixed point I cannot
+reach from here.
+
+**So the order is: you run, then I write.**
+
+1. `python tools/studio_mcp.py test2` on the branch as it stands, clean tree. Whatever HEAD is then
+   is the code commit -- call it `H`.
+2. I run `python tools/studio_mcp.py test` at that same `H`, so the one-player line names it too.
+3. I fill both lines and `Code commit: H` into `reviews/task-229/REQUEST.md` and commit that --
+   paperwork after the code commit, which the gate allows -- and run the review.
+
+That is one `test` run after yours and no wasted one before it. If you would rather I pre-ran it,
+the alternative is to pin `0bcb12c6` and run `test2` with HEAD detached there, which risks the
+Rojo branch-switch crash this repo has already lost a session to -- not worth it for one run.
+
+### What round 1 found, and why it mattered
+
+`Match.snapshot` computed `roleOverruled` against the **live** wish memo -- but the wish is SPENT by
+the very assignment the field is about. `Lobby.wishFor` answers `HUNTER` the moment
+`Match.assignmentOf` names a team, so `Lobby.beaterWishes()` is empty within one 10 Hz lobby scan of
+`enterAssigning`, while the snapshot is rebuilt on every dispatch for the whole 15 s intermission.
+From that point the man who had just pressed BEATER was told
+**"TEAMS MUST BE EVEN - you beat this drive"** (`Objective.CONFIG.TEXT.DriverOverruled`) for almost
+all of it -- the shop's promise contradicted by the screen, and design hazard 8 inverted.
+
+Fixed by pinning the answer to the assignment it is about (`Match.seatedWishes`, with the rule pure
+and exported as `Roster.recordSeated`). The seven non-blocking notes were fixed in the same round
+rather than queued, since the code was open anyway.
+
+**What I could not do for this one, said plainly:** I could not produce a red-then-green run the way
+task 220's spec defect was demonstrated. The branch needs `coinsOn` true -- a wired economy and a
+lobby -- and `test` / `test2` both refuse to start while a `DHFlag_` override is set, so no harness
+run can have `SHOP` or `COINS` on. What the harness does exercise is the nil path, on every dispatch
+of every run.
+
+
+## 2026-10-21 - Task 229: `test2` - **CLOSED.** Passed twice at `9d03e712`
+
+**RESOLVED. No Director action is left on this entry.** The Director ran `test2` twice on the clean
+tree at `9d03e712de2ac3dbad86e2f20251a9e9be65ce74`:
+
+```
+[harness2] PASS: 35/35 checks @ 9d03e712de2ac3dbad86e2f20251a9e9be65ce74 (clean tree)
+```
+
+both runs server 1979/0, shooter 514/0, driver 508/0. Logs: `<runs-dir>/test2-t229c.log`,
+`<runs-dir>/test2-t229d.log`. The one-player line was re-run at the same commit so the two name one
+sha (`<runs-dir>/test-t229-9d03e712.log`):
+
+```
+[harness] PASS: 33/33 checks @ 9d03e712de2ac3dbad86e2f20251a9e9be65ce74 (clean tree) scope=all
+```
+
+### What the two earlier `test2` failures turned out to be
+
+**(a) `touch_controls.spec:564` -- a TASK 220 spec defect. FIXED at the root, and the fix is what
+the two green runs ran against.** The case has never run under two players before (it arrived with
+task 220 on 2026-10-21; the two most recent `[harness2]` lines before this were at `1af2cf60` and
+`449e0120`, where the file does not exist). It differenced an absolute Tool count across three
+`Heartbeat`s while the server legitimately removed the shooter's gun: `zz_tie_to_a_tree.spec` is a
+two-player-only spec, the tie runs `refreshArmingFor`, and `src/server/Match/init.luau` says it in
+its own comment -- *"mayCarryWeapon now says no, so the Tool goes."* The count is now pinned to the
+LIVE TREE, which is strictly stronger than the delta it replaced. L-028 was demonstrated both ways:
+30 frames (the whole budget) with the per-frame tell removed, 1 frame on healthy code.
+
+**(b) The driver's five failures in run 2 -- INTERMITTENT, AND THE CAUSE IS NOT IN THIS BRANCH. NOT
+FIXED, and deliberately not recorded as fixed.** Nothing was changed for it, and the two green runs
+do **not** clear it: they settle only that it is not a one-off of this branch's code. L-033 is the
+rule being applied here -- two clean runs at one sha are evidence about REPRODUCIBILITY, not about a
+cause, and the cause of a timing defect that did not fire is not observable in a run where it did
+not fire.
+
+What is actually known, and it is all in the logs rather than in a feeling:
+
+1. **Four runs at two shas, three green drivers and one red.** `278febdb` run 1: driver 508/0 at
+   19 s. `278febdb` run 2: 498 passed, 10 failed, at 69 s. `9d03e712` twice: 508/0.
+2. **`camera_client.spec:648` is not an input assertion at all** -- it is
+   `waitUntil(5, ... lookAtLanded > before)`, *"it does count, once a frame goes by"*. It is a claim
+   that **a frame rendered within 5 s**, so all five failures are one cause: the driver's client
+   rendered nothing for a stretch. `input_driving`'s own `ARRIVE_TIMEOUT` is 45 s, and the 69 s
+   report is startup plus that timeout.
+3. **The harness SENT every step in every run** (`ok [input] replayed every step of 6 scenario(s)`),
+   and the driver's viewport and every other driver note are byte-identical across the logs.
+4. `input_driving.spec` already says the condition in its own words: *"in a two-player local test
+   this client is a background window rendering at about 15 fps"*.
+
+**It is queued as `TASKS.md` 229e, open, harness-side.** The next time `test2` goes red on the
+driver with that signature, 229e is the task to dispatch -- not this one to re-open.
+
+### The one thing still outstanding, and it is not a blocker
+
+A preview frame of each of the two surfaces cannot be taken in DEV: that place has no lobby, no
+truck pads and no shop counter, so neither panel can be put on screen there, and the StudioMCP
+thread cannot `require`, so no probe can open one. Karen already has the Designer's own
+`shop2-role.png`, and every number the build produced is measured into the harness report and
+matches it. The Forest Test clicks, if the frames are wanted before she plays, are in `TASKS.md`
+229d's row and in this file's history.
+
+## What the first two `test2` runs found, and what was done about it
+
+**(a) `touch_controls.spec:564` -- a TASK 220 spec defect, not a 229 regression. FIXED at the root.**
+
+That case has **never run under two players before**: it arrived with task 220 on 2026-10-21, and
+the two most recent `[harness2]` lines in `TASKS.md` are at `1af2cf60` (task 221) and `449e0120`
+(task 201) -- `git cat-file -e` says the file does not exist at either commit.
+
+The cause is in the product code's own comment. The case remembered `Touch.state().carried` and then
+asserted `before.carried + 1`, which assumes **the server does not touch his other Tools while the
+case runs**. With one player that holds; with two it does not, deterministically:
+
+* `zz_tie_to_a_tree.spec` exists only in a two-player run -- with one player it prints *"one player,
+  so no beater to refuse a shot at; probe not fired"*. It makes the shooter fire beside the driver,
+  the server ties him, and `src/server/Match/init.luau` then runs `refreshArmingFor` under its own
+  comment: *"The weapon still decides and still writes: mayCarryWeapon now says no, so the Tool
+  goes."* **His gun is removed.**
+* and at the next drive the roster swaps him to the beaters, which takes the gun and grants a real
+  horn (`zz_drive_boundary` note, run 1: *"at drive 2's countdown -- Player1 team=Drivers"*).
+
+Measured, both runs: `before.carried` was 1 (the gun), the gun went inside the three `Heartbeat`s,
+and the live tree then held exactly one Tool -- the fake horn. `hasHorn` passed on the line above;
+only the arithmetic was wrong.
+
+**The fix pins the count to the LIVE TREE instead of to a remembered number**, which is strictly
+stronger than the delta it replaces: the old form only checked that the number moved by one, the new
+one checks that *what the cluster was TOLD is what the tree actually holds*. The second half's
+`hasHorn == false` goes the same way, with the one-player reading kept as a conditional.
+
+**L-028, demonstrated rather than asserted.** With the per-frame tell removed from
+`Hud.renderObjective` -- which IS the regression this case was written for -- the NEW form fails:
+`touch_controls.spec:618 Expected true, got false`, after spending its whole 30-frame budget
+(`task229 touch: the cluster matched the tree after 30 frame(s)`). Log:
+`<runs-dir>/l028-probe-t229.log`; the probe was reverted. On healthy code the same note reads
+**1 frame**.
+
+**(b) The driver's five failures in run 2 -- NOT the code, and NOT fixed. Evidence, not a feeling:**
+
+1. **Same commit, opposite outcomes.** Run 1: driver 508 passed, 0 failed, reported at **19 s**.
+   Run 2: 498 passed, 10 failed, reported at **69 s**. A deterministic code defect cannot do that.
+2. **`camera_client.spec:648` is not an input assertion at all.** It is
+   `waitUntil(5, ... lookAtLanded > before)` -- *"it does count, once a frame goes by"*. It is a
+   claim that **a frame rendered within 5 s**.
+3. So all five are one cause: **the driver's client was starved of frames for a stretch.**
+   `input_driving`'s own `ARRIVE_TIMEOUT` is 45 s, and 69 s is startup plus that timeout.
+   `input_driving.spec` already says so in its own words: *"in a two-player local test this client
+   is a background window rendering at about 15 fps"*.
+4. **The harness sent the input in both runs**: `ok [input] replayed every step of 6 scenario(s)
+   (31 steps sent to 2 client(s))`, in run 1 and in run 2 alike.
+5. **The driver's environment was identical**: viewport 971x712 and every other driver note is
+   byte-for-byte the same in the two logs.
+6. **229 is not on that path.** On the driver it adds one cached `Player` attribute read per frame
+   (`DHRoleWish`, which in the DEV place is never written at all -- there is no lobby) and two tells
+   that compare three values and return. Nothing it changed touches `ContextActionService`,
+   `UserInputService`, `ClientTests.InputReady`, the scenario file or the camera.
+
+**So I have not changed anything for (b)**, per *"fix only if it is the code"*. It is queued as
+`TASKS.md` 229e. **L-033 applies to you as well as to me:** if run 3 is green, that is one pass, and
+the honest reading of (b) is still *"intermittent, cause not in this branch"* rather than *"fixed"*.
+If it fails again the same way, 229e is the task to dispatch, not this one to re-open.
+
+### Still open from the first escalation, unchanged
+
+A preview frame of each of the two surfaces still cannot be taken in DEV -- that place has no lobby,
+no truck pads and no shop counter, so neither panel can be put on screen there, and the StudioMCP
+thread cannot `require`, so no probe can open one. The clicks for the Forest Test are listed in the
+previous entry's history. Karen already has the Designer's own `shop2-role.png`, and every number the
+build produced is measured into the harness report and matches it.
+
+## 1. `NEEDS DIRECTOR: test2 for task 229 at f2d5d725b04afeca0ea34f4916df605a7c85f2ad`
+
+The one-player gate is green on the clean tree at that commit:
+
+```
+[harness] PASS: 33/33 checks @ f2d5d725b04afeca0ea34f4916df605a7c85f2ad (clean tree) scope=all
+```
+
+`tools/agents.py` asks for the `[harness2]` line as well, and it is right to: six changed files are
+in `TWO_PLAYER_PATHS`.
+
+```
+needs two player: ['src/server/Match/Phase.luau', 'src/server/Match/Roster.luau',
+                   'src/server/Match/init.luau', 'tests/server/match_phase.spec.luau',
+                   'tests/server/match_roster.spec.luau', 'tests/server/zz_drive_boundary.spec.luau']
+```
+
+`test2` needs one Studio and a human click, and the dispatch says to stop here rather than run it.
+
+**The exact command, at that commit, with the tree clean:**
+
+```
+python tools/studio_mcp.py test2
+```
+
+and the line it must print is `[harness2] PASS: n/n checks @ f2d5d725b04afeca0ea34f4916df605a7c85f2ad
+(clean tree)`. Close the Forest Test window first; `python tools/flags.py clear` if any override is
+set (both runs refuse to start while one is).
+
+**What a second player actually adds here, stated so the run is not a ritual:** exactly one claim --
+a wisher and a non-wisher on the same LIVE roster end on OPPOSITE sides with the sides still level.
+Everything else is proved with one client or with none: the roster rule at every size from 2 to 16
+(`match_roster.spec`, pure), the reset and the door (`lobby_live.spec`, against fakes), both
+layouts (`pad_panel.spec`, `shop_panel.spec`), and the switch-off identity on the real production
+drive (`zz_drive_boundary.spec`).
+
+### 2. NEEDS KAREN (through the Director) - a preview frame of each of the two surfaces
+
+L-011 asks for a preview of both on-screen surfaces before the task is called finished, and I could
+not take either one. **The reason is structural, not an omission:**
+
+* the **DEV place has no lobby** (`Lobby.anchorFor("map:v1")` is nil), so there is no truck pad, no
+  `DHPadFirst` and no shop counter -- the pad dialog's whole visibility rule and the shop panel's
+  prompt are both missing, so neither control can be put on screen there at all;
+* the StudioMCP thread **cannot `require` any ModuleScript** (`tools/studio_mcp.py`'s own docstring,
+  measured 2026-10-01), so no probe can open a panel either;
+* the only place both surfaces exist is Karen's **Forest Test**, and this dispatch says *"Studio:
+  DEV only (never the Forest Test)"*.
+
+**What exists instead, and it is not nothing.** Karen already has the Designer's own picture of both
+surfaces and all seven states: `<runs-dir>/design/shop2-role.png`. Every number the build produced
+is measured into the harness report and matches it:
+
+```
+task229 pad block: dialog 368 -> 487 px, block 119, track 292x38 at y=96, halves 141.5x32,
+                   caption y=140, rule y=168, first row y=64 -> 183
+task229 shop row:  64 -> 124 px at 1280x720, track 186x34, halves 88.5x28, name y=11,
+                   eyebrow y=42, track y=60, caption y=100; phone detail block 70 px, blurb 3 line(s)
+```
+
+**The clicks, if the Director wants the frames before Karen plays** (they need the Forest Test, so
+they are the Director's to make, not mine):
+
+1. open Studio on **Driven Hunt Forest Test**, in Edit;
+2. `python tools/flags.py` first, and WRITE DOWN what is set -- the Forest Test's flags are Karen's
+   playtest setup, not ours (L-056) -- then set `SHOP` and `COINS` on for that place;
+3. grant `ALWAYS HUNTER` to the test player, start Play, walk onto a truck pad: the dialog is 487 px
+   tall with `NEXT DRIVE / HUNTER | BEATER / A STAND ON THE LINE` between the header and the four
+   size rows;
+4. walk into the lodge and open the shop: `ALWAYS HUNTER` is the one 124 px row, with the switch on it;
+5. capture both, **restore the flags exactly as they were**.
+
+### What is NOT being asked for here
+
+Nothing about this task is blocked on a decision. The design's own open questions are queued as
+`TASKS.md` 229b (should the pad publish its party size), 229c (should an unhonoured wish be told to
+the man) and 229d (Karen's three feel questions). None of them changes a line of what was built.
+
+
 ## 2026-10-21 - Task 220: the rail FOLD widens its overlap with the engine's jump button
 
 **For the Director and Karen. Not blocking the merge** -- the Reviewer passed round 2 and raised

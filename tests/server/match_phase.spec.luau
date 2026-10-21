@@ -2299,4 +2299,137 @@ return function()
 			expect(countKind(effects, "assignTeams")).to.equal(1)
 		end)
 	end)
+
+	-- ----------------------------------------------------------- THE ROLE SWITCH (task 229)
+	--
+	-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always
+	-- hunter maybe sometimes I want to be a beater we need to find a way to do that"*.
+	--
+	-- WHAT IS PROVED HERE AND NOWHERE ELSE: that the field actually REACHES the two readers --
+	-- `enterAssigning` and the `join` branch -- and that nothing in this machine stores or spends a
+	-- wish. The ROSTER RULE itself is `match_roster.spec`'s, at every size from 2 to 16.
+	--
+	-- `event.beaterWishes` IS A FROZEN TABLE IN PRODUCTION (the lobby's memo), so every case freezes
+	-- it -- which also means a machine that tried to write one would throw rather than pass.
+	-- Design: docs/design/role-switch.md (sections 7, 10.4, 15.2)
+	describe("the role a player has ASKED for, arriving on the event", function()
+		it("moves the side of a man who owns the place and asked to beat", function()
+			local cfg = config({ MIN_PLAYERS = 4 })
+			local state = ready(cfg)
+			local always = table.freeze({ [1] = true })
+			local wishes = table.freeze({ [1] = true })
+			for userId = 1, 4 do
+				state = (
+					Phase.step(state, {
+						kind = "join",
+						userId = userId,
+						name = "p" .. userId,
+						alwaysShooters = always,
+						beaterWishes = wishes,
+					}, 0, cfg)
+				)
+			end
+			expect(state.phase).to.equal("Assigning")
+			expect(state.assignment[1]).to.equal("Drivers")
+			local counts = Match.Roster.counts(state.assignment)
+			expect(math.abs(counts.Drivers - counts.Shooters) <= 1).to.equal(true)
+		end)
+
+		it("and with no wish the same roster puts him on the hunters' side", function()
+			-- THE PAIR IS THE EVIDENCE, and that is deliberate: *"he beat a drive"* proves nothing on
+			-- its own, because the rotation alone makes a man a beater every other drive
+			-- (`SWAP_TEAMS_EACH_DRIVE`). The same roster, with the wish and without it, landing on
+			-- opposite sides is what can only be this feature.
+			local cfg = config({ MIN_PLAYERS = 4 })
+			local state = ready(cfg)
+			local always = table.freeze({ [1] = true })
+			for userId = 1, 4 do
+				state = (
+					Phase.step(
+						state,
+						{ kind = "join", userId = userId, name = "p" .. userId, alwaysShooters = always },
+						0,
+						cfg
+					)
+				)
+			end
+			expect(state.assignment[1]).to.equal("Shooters")
+		end)
+
+		it("stores nothing: the wish is read on the event and never kept in the state", function()
+			-- NOTHING IN `Phase.State` HOLDS A WISH, which is what makes the lobby the one owner of
+			-- it -- and `freezeState` is untouched, so a field would have had to be added here.
+			local cfg = config({ MIN_PLAYERS = 1 })
+			local state = ready(cfg)
+			state = (
+				Phase.step(state, {
+					kind = "join",
+					userId = 1,
+					name = "Karen",
+					alwaysShooters = table.freeze({ [1] = true }),
+					beaterWishes = table.freeze({ [1] = true }),
+				}, 0, cfg)
+			)
+			expect((state :: any).beaterWishes).to.equal(nil)
+			expect((state :: any).roleWish).to.equal(nil)
+			-- A SOLO ROSTER IS NOT HONOURED, because no bot shoots: `driverSlots` is 0 at one player.
+			expect(state.assignment[1]).to.equal("Shooters")
+		end)
+
+		it("reaches a mid-drive joiner, off a tie, and the balance still beats it", function()
+			local cfg = config({ MIN_PLAYERS = 2 })
+			local state = ready(cfg)
+			local always = table.freeze({ [9] = true })
+			local wishes = table.freeze({ [9] = true })
+			for userId = 1, 2 do
+				state = (Phase.step(state, { kind = "join", userId = userId, name = "p" .. userId }, 0, cfg))
+			end
+			-- ONE A SIDE: the sides are level, so the wish costs the balance nothing and wins.
+			local counts = Match.Roster.counts(state.assignment)
+			expect(counts.Drivers).to.equal(1)
+			expect(counts.Shooters).to.equal(1)
+			state = (
+				Phase.step(state, {
+					kind = "join",
+					userId = 9,
+					name = "late",
+					alwaysShooters = always,
+					beaterWishes = wishes,
+				}, 1, cfg)
+			)
+			expect(state.assignment[9]).to.equal("Drivers")
+		end)
+
+		it("is beaten by a `team` request for THIS drive, and neither swallows the other", function()
+			-- THE STUDIO SWITCH STILL WINS FOR ITS OWN DRIVE (`docs/design/forest-drive.md` 5.2), and
+			-- `Match.requestTeam` is deliberately *"NOT A STICKY PREFERENCE"* -- the wish is read at
+			-- the assignment and the switch moves a live drive, so the rule needs no change.
+			local cfg = config({ MIN_PLAYERS = 1 })
+			local state = ready(cfg)
+			local always = table.freeze({ [1] = true })
+			local wishes = table.freeze({ [1] = true })
+			state = (
+				Phase.step(state, {
+					kind = "join",
+					userId = 1,
+					name = "Karen",
+					alwaysShooters = always,
+					beaterWishes = wishes,
+				}, 0, cfg)
+			)
+			-- A SOLO ROSTER: he is a hunter whatever he asked.
+			expect(state.assignment[1]).to.equal("Shooters")
+			local effects
+			state, effects = Phase.step(state, {
+				kind = "team",
+				userId = 1,
+				name = "Karen",
+				team = "Drivers",
+				alwaysShooters = always,
+				beaterWishes = wishes,
+			}, 1, cfg)
+			expect(state.assignment[1]).to.equal("Drivers")
+			expect(countKind(effects, "assignTeams")).to.equal(1)
+		end)
+	end)
 end
