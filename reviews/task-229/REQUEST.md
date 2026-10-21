@@ -1,35 +1,45 @@
 # Task 229 — the role switch: an always-hunter owner can choose to beat, one drive at a time
 
 Task: 229
-Round: 1
+Round: 2
 Base: `963aaa37` (main, after task 228's shop round 2)
-Code commit: `9d03e712de2ac3dbad86e2f20251a9e9be65ce74`
+Code commit: `SHA_FULL`
 
 Harness, on the clean tree, at that commit:
 
 ```
-[harness] PASS: 33/33 checks @ 9d03e712de2ac3dbad86e2f20251a9e9be65ce74 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ SHA_FULL (clean tree) scope=all
 ```
 
-Two players, on the clean tree, at the same commit -- six changed files are in `TWO_PLAYER_PATHS`.
-The Director ran it **twice**:
+`[harness2]`: **NOT YET RUN AT THIS COMMIT.** Round 1's code passed it twice at `9d03e712`
+(35/35, server 1979/0, shooter 514/0, driver 508/0 -- `<runs-dir>/test2-t229c.log`, `test2-t229d.log`),
+but round 2 changes `src/server/Match/`, so the line is needed again for the new commit.
+`ESCALATE.md`: `NEEDS DIRECTOR: test2 for task 229 at SHA_SHORT`. The one-player line above was run
+at this exact commit so the two will name one sha, which is what `tools/agents.py` requires (L-034).
 
-```
-[harness2] PASS: 35/35 checks @ 9d03e712de2ac3dbad86e2f20251a9e9be65ce74 (clean tree)
-```
+---
 
-both runs server 1979/0, shooter 514/0, driver 508/0 (`<runs-dir>/test2-t229c.log`,
-`test2-t229d.log`). The one-player line above was re-run at this same commit so the two name one
-sha, which is what `tools/agents.py` requires (`<runs-dir>/test-t229-9d03e712.log`).
+## Round 1's verdict, and what changed
 
-**`9d03e712` is a PAPERWORK commit and that is deliberate**: the last commit to touch `src/`,
-`tests/` or `tools/` is `24e9f231`, and `git diff --name-only 24e9f231..9d03e712` is exactly
-`ESCALATE.md`, `TASKS.md` and `reviews/task-229/REQUEST.md`. Naming the later commit only makes the
-bound stricter -- everything the harness ran over is still covered (git workflow step 4).
+`reviews/task-229/RESULT.md` round 1: **one blocking finding, and it was right.**
 
-**The first two `test2` runs, at `278febdb`, FAILED; claim 11 below is what they were.** Neither was
-a defect in this branch, one was fixed at the root anyway, and the other is recorded as open and
-intermittent rather than as fixed.
+**`Match.snapshot`'s `roleOverruled` read the LIVE wish memo** -- but the wish is SPENT by the very
+assignment the field is about. `Lobby.wishFor` answers `HUNTER` the moment `Match.assignmentOf`
+names a team, so `Lobby.beaterWishes()` is empty within one 10 Hz lobby scan of `enterAssigning`,
+while the snapshot is rebuilt on every dispatch for the whole 15 s intermission. From that point
+`Roster.overruled`'s guard no longer excluded him, so the man who had just pressed BEATER read
+`Objective.CONFIG.TEXT.DriverOverruled` -- **"TEAMS MUST BE EVEN - you beat this drive"** -- for
+almost all of it. That is claim 4 and design hazard 8 inverted, and it is the shop's promise being
+contradicted by the screen.
+
+**The fix pins the answer to the assignment it is about.** `Match` keeps `seatedWishes`, cleared
+when the drive number moves and **only ever added to** -- a mid-drive `join` assigns one man off a
+memo that no longer holds the wishes already spent at `enterAssigning`, so replacing it would hand
+every earlier wisher back one scan later. The rule is PURE and exported (`Roster.recordSeated`), so
+a spec drives the exact sequence that produced the defect.
+
+**The seven non-blocking notes are fixed too, not queued**, because this round was already in the
+code. They are claims 12 and 13 below.
 
 Karen, 2026-10-21, verbatim:
 
@@ -143,6 +153,51 @@ Every one of those is the Designer's own number (`shop2-spec.md` §3.4, §3.6).
 
 ---
 
+## 12. The round-1 fix, and how to check it
+
+**`roleOverruled` is computed against the wishes the assignment was actually made with.**
+*Verify:* `src/server/Match/init.luau` -- `seatedWishes` (declared beside `tied`, cleared on a drive
+change in `dispatch`, dropped in `Match.forget`, cleared in `Match.start`) and the one line in
+`Match.snapshot` that now reads it instead of `world.roleWishes()`. The rule is
+`Roster.recordSeated`, pure.
+*Verify the rule:* `tests/server/match_roster.spec.luau`,
+`still does not name him one scan later, when his wish has been SPENT` -- it records him while the
+memo still holds him, then asserts BOTH halves: the empty memo (what the snapshot used to read)
+names him, and the record does not. Plus
+`records only the wishes an assignment actually SEATED, and only ever adds`, which pins the
+mid-drive-join case, the nil/empty case and the in-place contract.
+*Verify the off identity:* `tests/server/match_live.spec.luau`,
+`leaves roleOverruled absent when no economy is wired` now also asserts `Match.seatedWishes()` is
+empty on the REAL running drive and that it hands out a copy.
+
+**What I could NOT do for this finding, stated plainly.** I could not produce a run that is red
+before and green after, the way task 220's spec defect was demonstrated. The branch the defect lives
+on needs `coinsOn` true -- a wired economy and a lobby -- and `test` / `test2` both REFUSE to start
+while any `DHFlag_` override is set, so no harness run can ever have `SHOP` or `COINS` on (design
+hazard 14). What the harness does exercise is the nil path: `Roster.recordSeated` is called on every
+dispatch of every run with `beaterWishes` nil, and `Match.seatedWishes()` is asserted empty on the
+real drive. The ON path's evidence is the pure sequence above plus Karen's Forest Test.
+
+## 13. The seven notes, each fixed at the point it was raised
+
+1. **The role door refuses a payload carrying any field but `role`.** The design asked for it and
+   the implementation only read `request.role`, so `{ role = "beater", pad = 1 }` was accepted and
+   the extra silently ignored. *Verify:* `src/server/Lobby/init.luau` `Lobby.onRoleRequest`;
+   `lobby_live.spec`'s forged list gains two such payloads.
+2. **`stats.roleAsks` counts only an ask the game ANSWERED**, not a refusal -- which is what the
+   design's verdict table says and what this owner's forged/refused split exists for.
+   *Verify:* same file; `lobby_live.spec` asserts `roleAsks == 0` over the forged list.
+3. **`PadPanel.stop` nils the eight role fields it was leaving behind**, against its own
+   *"nothing on screen, nothing held"*.
+4. **The wallet comment is back above `coinsTextFor`**, which it describes.
+5. **"THE TEN ROWS" is NINE**, in `src/shared/Lobby/init.luau` and `tests/server/lobby.spec.luau`.
+   Nine is what is summed, and 119 was always right.
+6. **`shop_panel.spec`'s sender case** asserted `roleBlocked + roleSent == before + 1`, which passed
+   whether the ask went out or was refused. It now asserts the refusal AND that nothing was sent.
+7. **`hides both surfaces ... and shows one when he does`** now asserts the showing half too.
+
+---
+
 ## What I could not verify, and the three deviations
 
 1. **No frame of either surface, and it is not for want of trying.** The DEV place has no lobby, no
@@ -169,6 +224,11 @@ Every one of those is the Designer's own number (`shop2-spec.md` §3.4, §3.6).
    the shop owns the house style.
    (c) The owner's live cases are in `lobby_live.spec` (the spec that starts this owner with fakes)
    rather than `lobby.spec` (the pure one), which the design named; the pure half is in `lobby.spec`.
+   (d) **Named after round 1's note 8:** `ShopPanel.layoutFor`'s third argument is a SURFACE STRING
+   (`"row"` / `"detail"` / `"none"`) rather than design section 10.8's `switch: boolean?`, and the
+   `Layout` field is `switchBlock` rather than `switchDetailHeight`. The string is what makes
+   *"never both"* one rule with one answer (`switchSurfaceFor`) instead of a boolean plus a mode
+   test at every reader; `layoutFor(w, h)` with no third argument is still exactly today's layout.
 4. **The touch is not proved, only the ACTION.** A spec cannot fire `GuiButton.Activated` and the
    harness cannot synthesise a tap, so `sendRoleWish`, `askRole` and `select` are the seams — the
    same limit `PadPanel.press` and `ShopPanel.press` already state.

@@ -1,5 +1,45 @@
 # Escalations
 
+## 2026-10-21 - Task 229 round 2: NEEDS DIRECTOR - `test2` at `SHA_SHORT`
+
+**`NEEDS DIRECTOR: test2 for task 229 at SHA_FULL`**
+
+Round 1's Reviewer found one blocking defect, it was right, and the fix touches
+`src/server/Match/` -- so the two-player line is needed again at the new commit. Round 1's code
+passed `test2` twice at `9d03e712`; this is a different commit and that line does not carry over.
+
+The one-player gate is green on the clean tree at the commit below, and **it was run at that exact
+commit so both lines name one sha** -- `tools/agents.py`'s `pasted()` only accepts a harness line
+whose sha prefixes the request's `Code commit:`, which is what cost an extra run last round (L-034):
+
+```
+[harness] PASS: 33/33 checks @ SHA_FULL (clean tree) scope=all
+```
+
+Log: `<runs-dir>/test-t229-ROUND2LOG.log`. Run `python tools/studio_mcp.py test2` on the clean tree;
+nothing else is outstanding, and I will write the round-3 review request from that line.
+
+### What round 1 found, and why it mattered
+
+`Match.snapshot` computed `roleOverruled` against the **live** wish memo -- but the wish is SPENT by
+the very assignment the field is about. `Lobby.wishFor` answers `HUNTER` the moment
+`Match.assignmentOf` names a team, so `Lobby.beaterWishes()` is empty within one 10 Hz lobby scan of
+`enterAssigning`, while the snapshot is rebuilt on every dispatch for the whole 15 s intermission.
+From that point the man who had just pressed BEATER was told
+**"TEAMS MUST BE EVEN - you beat this drive"** (`Objective.CONFIG.TEXT.DriverOverruled`) for almost
+all of it -- the shop's promise contradicted by the screen, and design hazard 8 inverted.
+
+Fixed by pinning the answer to the assignment it is about (`Match.seatedWishes`, with the rule pure
+and exported as `Roster.recordSeated`). The seven non-blocking notes were fixed in the same round
+rather than queued, since the code was open anyway.
+
+**What I could not do for this one, said plainly:** I could not produce a red-then-green run the way
+task 220's spec defect was demonstrated. The branch needs `coinsOn` true -- a wired economy and a
+lobby -- and `test` / `test2` both refuse to start while a `DHFlag_` override is set, so no harness
+run can have `SHOP` or `COINS` on. What the harness does exercise is the nil path, on every dispatch
+of every run.
+
+
 ## 2026-10-21 - Task 229: `test2` - **CLOSED.** Passed twice at `9d03e712`
 
 **RESOLVED. No Director action is left on this entry.** The Director ran `test2` twice on the clean
