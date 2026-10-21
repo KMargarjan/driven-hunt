@@ -294,13 +294,25 @@ Economy.start()
 --   snapshotFor  `Economy.shopStateFor` -- one player's own payload, built by the pure
 --                `Shop.rowsFor`, so `buyable` is decided once and on this side.
 --   counterAt    nil IN THIS WORLD. `Lobby.ANCHORS` has no `map:v1` row, so this place has no lodge
---                and no counter -- `Shop.withinReach` is then false and every purchase here is
---                refused `too-far`. That is not a defect (design section 10.4): the DEV place is
---                where the harness runs, and no check in it can change that answer.
+--                and no counter. That is not a defect (design section 10.4): the DEV place is where
+--                the harness runs, and no check in it can change that answer.
+--
+-- SO `shopOn` IS FALSE HERE EVEN THOUGH `SHOP` IS A V1 DEFAULT SINCE TASK 233b. `Shop.start`
+-- answers `false` for a world whose `counterAt` is nil, and that is this world -- so the three
+-- providers below stay unwired, every reader answers nil, and the DEV place is today's game by
+-- every branch (design section 7.1). The decision is made ONCE, in `Shop.start`, and this root
+-- reads it from the one `shopOn` below; nothing here asks the flag.
+--
+-- WHY IT IS NOT ENOUGH TO LET THE DOOR REFUSE EVERY PURCHASE `too-far` (task 233b): the door was
+-- always right about that, but the KIT is decided somewhere else. A wired world hands an un-owning
+-- player buckshot and the shotgun alone (`Shop.BASE_AMMO.shotgun`), and in a world with no counter
+-- he cannot buy his way off that rung -- so wiring it here takes the game away and gives nothing
+-- back. Task 233 measured the cost: five server and fifteen client cases red (`ESCALATE.md`
+-- 2026-10-21 item 2).
 --
 -- `Weapon.setEntitlementProvider` AND `Body.setLookProvider` ARE THE TRANSLATION, and this root is
 -- where it belongs: both seams take a `Player` and `Economy` *"must not hold a Player"* (its own
--- header). With the shop OFF neither is wired at all, and then every reader answers nil -- which is
+-- header). With the shop off neither is wired at all, and then every reader answers nil -- which is
 -- today's game by every branch (docs/design/shop.md section 7.1).
 local shopOn = Shop.start({
 	purchase = Economy.purchase,

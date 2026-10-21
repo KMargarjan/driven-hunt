@@ -41,8 +41,12 @@ local Shop = {}
 Shop.Data = Data
 
 -- THE ONE FLAG READ AT THIS OWNER'S BOUNDARY, passed inward through `start`'s `world.enabled` --
--- the only permitted shape (CLAUDE.md, feature flags). Both branches stay reachable BY PARAMETER
--- while the row sits at `false`.
+-- the only permitted shape (CLAUDE.md, feature flags). Both branches stay reachable BY PARAMETER,
+-- which is what every case in `shop_door.spec` drives now the row is LIT (task 233b).
+--
+-- THE FLAG IS NOT THE WHOLE ANSWER, AND `Shop.start` IS. It is `and`-ed with one more fact -- does
+-- this world have a counter at all -- and what the composition root branches on is `start`'s return
+-- value, never `Shop.ENABLED` and never `Data.isOn()`. See the gate in `start`.
 Shop.ENABLED = Data.isOn()
 
 local started = false
@@ -223,7 +227,36 @@ function Shop.start(injected: World?): boolean
 		-- OFF CONNECTS NOTHING AND READS NOTHING, so the game is task 177's game bit for bit: no
 		-- inbound remote, no profile field written, the hunter keeps his rifle and his twelve slugs
 		-- and a beater carries nothing.
-		print("[shop] off (born dark, task 178): the counter sells nothing and no ownership is read")
+		print("[shop] off (flag): the counter sells nothing and no ownership is read")
+		return false
+	end
+	-- ...AND A WORLD WITH NO COUNTER IS OFF TOO, WHICHEVER WAY THE FLAG SITS (task 233b). THIS IS
+	-- THE ONE DECISION, MADE ONCE, AND EVERY OWNER THE SHOP GATES READS IT FROM `start`'s ANSWER:
+	-- the composition root hangs five providers off `shopOn` -- the entitlement, the licence, the
+	-- look, the high seat and the always-hunter -- and with `false` not one of them is wired, so
+	-- every reader answers nil, which is today's game by every branch (design section 7.1).
+	--
+	-- WHY IT IS A REFUSAL AND NOT A SHOP THAT REFUSES EVERY PURCHASE `too-far`: the second is what
+	-- task 178 built and it is not wrong about the DOOR -- nothing can be bought at a counter that
+	-- does not exist either way -- but it is wrong about the KIT. `Shop.BASE_AMMO.shotgun` is
+	-- `{ Buck = true }` and the slug is *"the ladder's first rung"* (120 coins), so a wired world
+	-- hands an un-owning player BUCKSHOT AND THE SHOTGUN ALONE. In a world with no counter he cannot
+	-- buy his way off that rung, so wiring it there takes the game away and gives nothing back. That
+	-- world is the DEV place (`MatchBoot` passes `counterAt = nil`; design section 10.4), which is
+	-- where the harness runs, and task 233 measured what the unconditional wiring cost it: five
+	-- server and fifteen client cases red (`ESCALATE.md` 2026-10-21 item 2, option A).
+	--
+	-- THE PREDICATE IS THE SEAM AND NOT ITS ANSWER -- `world.counterAt == nil`, not
+	-- `world.counterAt() == nil`. It is a fact about how the world was COMPOSED, decided before any
+	-- part exists and the same for the life of the server, and the root is where a world says
+	-- whether it has a lodge (`ForestTestBoot` passes the lobby's own `lobbyOn` through it). A
+	-- SUPPLIED reader that happens to answer nil right now is a different thing -- a lodge not built
+	-- yet, a part destroyed -- and `Shop.atCounter` already answers `false` for it, which keeps
+	-- `shop_door.spec`'s *"refuses every purchase in a world with no counter at all"* exactly as it
+	-- was.
+	if world.counterAt == nil then
+		print("[shop] off (no counter): this world has no lodge, so nothing in it could be bought")
+		enabled = false
 		return false
 	end
 	-- EVERY REQUIRED SEAM IS NAMED, the rule `Lobby.start` states and enforces: a boot that forgot

@@ -20,8 +20,10 @@
 -- the model on the right, every button state comes from the server's own `WireRow`, and a state that
 -- arrives while the panel is open redraws the big button without anybody clicking again.
 --
--- AND IT PROVES THE DARK PATH, which is the state this work merges in: with `SHOP` off,
--- `ShopPanel.setNear(true)` opens nothing and an injected prompt opens nothing.
+-- AND IT PROVES THE DARK PATH, DRIVEN BY PARAMETER: with the panel disabled, `ShopPanel.setNear(true)`
+-- opens nothing and an injected prompt opens nothing. It was *"the state this work merges in"* until
+-- `SHOP` became a v1 default on 2026-10-22 (task 233b); the build now ships LIT, so `afterEach`
+-- restores `true` and the off arm is the one a case asks for.
 --
 -- WHAT NO SPEC HERE CAN DO, reported rather than papered over:
 --   * TAP OR CLICK A BUTTON. `GuiButton.Activated` cannot be synthesised, so `ShopPanel.select`,
@@ -146,9 +148,10 @@ return function()
 	describe("the shop panel", function()
 		afterEach(function()
 			Panel.setOpen(false)
-			-- ...AND THE FLAG GOES BACK TO THE BUILD'S OWN VALUE. Two tests drive it ON by parameter,
-			-- and a failing `expect` aborts an `it` where it stands -- so restoring it inside the
-			-- test would leave the next one running against a lit flag it never asked for.
+			-- ...AND THE FLAG GOES BACK TO THE BUILD'S OWN VALUE, which since task 233b is LIT. A
+			-- failing `expect` aborts an `it` where it stands, so restoring it inside the test would
+			-- leave the next one running against whatever that test last set -- and every direction
+			-- of that matters now the build's value is `true`: one case drives it OFF.
 			Panel.setEnabled(Shop.isOn())
 			Panel.setNear(false)
 			Panel.setPrompt(nil)
@@ -1091,15 +1094,20 @@ return function()
 			Panel.setNear(false)
 			expect(Panel.isOpen()).to.equal(false)
 			Panel.setPrompt(nil)
-			-- BACK TO THE BUILD THIS MERGES IN, so no later spec in this file inherits a lit flag.
+			-- BACK TO THE BUILD'S OWN VALUE, so no later spec in this file inherits a flag it never
+			-- asked for. Since task 233b that value is LIT -- `SHOP` is a v1 default -- so this
+			-- restores `true`, and the DARK path is the one a case now has to ask for.
 			Panel.setEnabled(Shop.isOn())
-			expect(Panel.isEnabled()).to.equal(false)
+			expect(Panel.isEnabled()).to.equal(true)
 		end)
 
-		-- THE DARK PATH, AND IT IS THE STATE THIS WORK MERGES IN. With `SHOP` off the panel is never
-		-- opened by the counter and no prompt opens it.
+		-- THE DARK PATH, DRIVEN BY PARAMETER (task 233b). It was *"the state this work merges in"*
+		-- until `SHOP` became a v1 default on 2026-10-22; the flag now ships lit, so the only honest
+		-- way to state what OFF does is to ask for it -- CLAUDE.md's own rule, *"a flagged path must
+		-- be reachable by parameter as well as by flag"*, and `afterEach` puts the build's value back.
 		it("opens nothing at the counter while the flag is off", function()
-			expect(Shop.isOn()).to.equal(false)
+			Panel.setEnabled(false)
+			expect(Panel.isEnabled()).to.equal(false)
 			Panel.setNear(true)
 			expect(Panel.isNear()).to.equal(false)
 			expect(Panel.isOpen()).to.equal(false)

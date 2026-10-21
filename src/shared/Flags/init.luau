@@ -58,14 +58,16 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- without touching this line, and that is the Director's call (docs/design/shop.md section 16
 -- item 8), not this task's.
 --
--- LIT (11): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
---           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233).
--- DARK (3): QUICK_TEST, DRIVE_BOTS, SHOP.
+-- LIT (12): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
+--           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b).
+-- DARK (2): QUICK_TEST, DRIVE_BOTS.
 --
--- `SHOP` IS STILL DARK AND IT WAS MEANT TO BE LIT IN THE SAME TASK. It took the gate red -- an
--- un-owning player's kit is buckshot and the shotgun alone, and the input-replay and camera client
--- specs do not hold still under it -- so it was reverted and put to the Director (`ESCALATE.md`,
--- 2026-10-21). `COINS` being lit without it means a player EARNS money he cannot yet spend.
+-- `SHOP` IS LIT SINCE TASK 233b, and what made that safe is NOT this row: it is that a world with
+-- no counter does not wire a shop at all (`Shop.start`'s own gate). Task 233's flip lit the shop in
+-- the DEV place, which has no lodge and so no counter -- an un-owning player's kit became buckshot
+-- and the shotgun alone in the one world where nothing can ever be bought -- and that took the gate
+-- red. The flag now lights the shop for every world that HAS a counter, which is every world it was
+-- designed for, and `COINS` is no longer lit over a shop nobody can reach.
 Flags.MAX_FLAGS = 14
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
@@ -381,7 +383,24 @@ Flags.DEFAULTS = {
 		-- BORN OFF (CLAUDE.md, feature flags). OFF is task 177's game bit for bit: no panel, no
 		-- inbound remote connected, no profile field written, the hunter keeps the rifle and his
 		-- twelve slugs, and a beater carries nothing.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-22 (task 233b, "v1 default"). Karen's v1 is the lodge with a
+		-- counter in it: a drive pays coins and the counter is what they are for, so `COINS` lit
+		-- without this row meant a player earned money he could not spend (`ESCALATE.md` item 3,
+		-- 2026-10-21).
+		--
+		-- WHAT MAKES IT SAFE IS A SECOND FACT AND NOT THIS ONE: **a world with no counter wires no
+		-- shop at all**. `Shop.start` answers `false` when `world.counterAt` is nil, so the five
+		-- providers the composition root hangs off `shopOn` -- the entitlement, the licence, the
+		-- look, the high seat and the always-hunter -- stay unwired in such a world and every reader
+		-- answers nil, which is today's game by every branch (docs/design/shop.md section 7.1).
+		-- `MatchBoot` passes `counterAt = nil` (`Lobby.ANCHORS` has no `map:v1` row, so the DEV place
+		-- has no lodge), so THE HARNESS'S PLAYER PATH IS UNCHANGED BY THIS ROW. Task 233's own flip
+		-- did not have that gate: it lit the shop in the DEV place, where an un-owning player's kit
+		-- became buckshot and the shotgun alone in the one world where nothing can ever be bought,
+		-- and five server and fifteen client cases went red (`ESCALATE.md` item 2, which is where the
+		-- Director chose this fix over re-baselining the client suite).
+		default = true,
 		-- THE FLAG'S NAME LIVES IN THE SHARED MODULE as `Shop.FLAG`, and `Shop.isOn()` is the one
 		-- read -- `RIFLE`'s shape (`owner = "ReplicatedStorage.Weapons"`) and `HORN`'s. Each owner
 		-- calls it ONCE at its own boundary (`ServerScriptService.Shop.ENABLED`,

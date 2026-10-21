@@ -18,6 +18,11 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Shop = require(ServerScriptService:WaitForChild("Shop"))
 local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
+-- THE KIT THE GATE BELOW DECIDES (task 233b). `Weapons` is the one owner of what guns exist and
+-- `ShopData.startFor` of what shells they are issued, and both take the ownership set BY PARAMETER --
+-- so the second half of "a world with no counter wires nothing" can be stated here, next to the
+-- boolean the composition root branches on, instead of in a third file.
+local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
 -- A PLAYER THIS SPEC OWNS: a userId, a Parent that can be taken away, and nothing else. The
 -- `fakePlayers` idiom every owner's spec here uses -- no `Players` service is touched.
@@ -95,9 +100,14 @@ return function()
 				enabled = opts.enabled ~= false,
 				purchase = if opts.noPurchase then nil else economy.purchase,
 				snapshotFor = economy.snapshotFor,
-				counterAt = opts.counterAt or function()
-					return Vector3.new(0, 0, 0)
-				end,
+				-- `noCounter` IS NOT `counterAt = nil` SPELT TWICE (task 233b): `opts.counterAt or
+				-- <default>` cannot express "the root supplied no reader at all", which is the fact
+				-- `Shop.start`'s gate reads, so the case has to say it in a field of its own.
+				counterAt = if opts.noCounter
+					then nil
+					else opts.counterAt or function()
+						return Vector3.new(0, 0, 0)
+					end,
 				rootOf = opts.rootOf or function()
 					return Vector3.new(0, 0, 0)
 				end,
@@ -228,6 +238,69 @@ return function()
 			Shop.onRequest(gone, { kind = ShopData.KIND.OPEN }, 0)
 			expect(#world.sent).to.equal(0)
 			expect(Shop.stats().repliesDropped).to.equal(1)
+		end)
+
+		-- ---------------------------------------------------------------- the counter gate (task 233b)
+		--
+		-- `SHOP` IS A V1 DEFAULT SINCE TASK 233b, so the flag is no longer the only gate and this is
+		-- the other one. THE DECISION IS MADE ONCE, in `Shop.start`, and the composition root
+		-- branches on its return value: `if shopOn then` is the one line in `MatchBoot` and
+		-- `ForestTestBoot` that wires the entitlement, the licence, the look, the high seat and the
+		-- always-hunter. So the boolean below IS the wiring, and both arms are driven BY PARAMETER.
+		--
+		-- WHAT THE SPEC CANNOT DO is run a composition root, so the KIT each arm produces is stated
+		-- against the two pure owners of it rather than through a live `setEntitlementProvider`:
+		-- unwired means the provider answers `nil`, and `nil` is the full loadout and the weapon's
+		-- own shells (`Weapon.setEntitlementProvider`'s own header, design section 7.1).
+		local SHOTGUN = (Weapons.ROWS :: any).shotgun
+		local function kitFor(owned: { [string]: boolean }?)
+			return Weapons.loadoutFor(true, owned), ShopData.startFor(SHOTGUN, owned)
+		end
+
+		it("wires nothing in a world with no counter, so that world keeps today's kit", function()
+			local off = started({ noCounter = true })
+			-- THE ROOT'S `if shopOn then` IS FALSE, so not one provider is wired.
+			expect(off.on).to.equal(false)
+			expect(Shop.isEnabled()).to.equal(false)
+			-- ...AND THE DOOR IS NOT EVEN LISTENING: nothing was started, so a forged packet is not
+			-- answered at all rather than answered `too-far`.
+			expect(Shop.onRequest(fakePlayer(20), { kind = ShopData.KIND.BUY, item = ShopData.ITEM.SLUG }, 0)).to.equal(
+				nil
+			)
+			expect(#off.sent).to.equal(0)
+			expect(off.economy.calls.purchase).to.equal(0)
+			-- THE KIT IS TODAY'S GAME, which is what the DEV place keeps: the whole loadout, and the
+			-- shotgun's own shells with the slug in them.
+			local loadout, start = kitFor(nil)
+			expect(#loadout).to.equal(#Weapons.loadoutFor(true, nil))
+			expect(#loadout > 1).to.equal(true)
+			expect(start.ammo).to.equal(SHOTGUN.INITIAL_AMMO)
+			expect(start.reserve.Slug).to.equal(SHOTGUN.START_RESERVE.Slug)
+		end)
+
+		it("wires the shop in a world that has one, and an un-owning player then has buckshot", function()
+			local on = started({
+				counterAt = function()
+					return Vector3.new(0, 0, 0)
+				end,
+			})
+			expect(on.on).to.equal(true)
+			expect(Shop.isEnabled()).to.equal(true)
+			-- THE OTHER ARM OF THE SAME `if`: the provider IS wired, so a player who has bought
+			-- nothing is an EMPTY ownership set and not nil -- buckshot and the shotgun alone, with
+			-- the slug as the ladder's first rung (120 coins).
+			local loadout, start = kitFor({})
+			expect(#loadout).to.equal(1)
+			expect(loadout[1]).to.equal(Weapons.PRIMARY)
+			expect(start.ammo).to.equal("Buck")
+			-- AN EMPTY POCKET AND NOT AN ABSENT ONE, so the readout stays honest.
+			expect(start.reserve.Slug).to.equal(0)
+			expect(start.reserve.Buck).to.equal(SHOTGUN.START_RESERVE.Buck)
+			-- ...AND HE CAN BUY HIS WAY OFF IT, which is the whole difference from the case above:
+			-- there is a counter here, so the purchase is taken rather than refused `too-far`.
+			local receipt = Shop.onRequest(fakePlayer(21), { kind = ShopData.KIND.BUY, item = ShopData.ITEM.SLUG }, 0)
+			expect(receipt.ok).to.equal(true)
+			expect(on.economy.asked[1].atCounter).to.equal(true)
 		end)
 
 		it("stays shut with the flag off, and shut when a seam is missing", function()
