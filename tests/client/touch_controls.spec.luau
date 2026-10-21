@@ -161,9 +161,19 @@ end
 -- task set out to fix -- before it, the rail's bottom was at 510 on a 400 px screen and RELOAD and
 -- AMMO were OFF the phone entirely -- and a real landscape layout for the top band and the right
 -- column is the Designer's, named as out of scope in the design (section 14.4) and queued.
+-- Keyed on the two names SORTED, so the list cannot depend on the order the boxes happen to be
+-- built in -- which is what made the first attempt at this miss ("jump/rail" against "rail/jump").
 local ALLOWED_TO_TOUCH = {
-	["800x400 rail/jump"] = true,
+	["800x400 jump|rail"] = true,
 }
+
+local function pairKey(viewport: Vector2, a: string, b: string): string
+	local first, second = a, b
+	if first > second then
+		first, second = b, a
+	end
+	return string.format("%.0fx%.0f %s|%s", viewport.X, viewport.Y, first, second)
+end
 
 return function()
 	describe("the touch cluster's shape and placement", function()
@@ -272,7 +282,7 @@ return function()
 						-- A button is INSIDE the cluster by construction; that is the one pair the
 						-- argument is not about.
 						local nested = a.name == "cluster" or b.name == "cluster"
-						local pair = string.format("%.0fx%.0f %s/%s", viewport.X, viewport.Y, a.name, b.name)
+						local pair = pairKey(viewport, a.name, b.name)
 						if
 							not nested
 							and not ALLOWED_TO_TOUCH[pair]
