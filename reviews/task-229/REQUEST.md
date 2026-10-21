@@ -75,6 +75,14 @@ with the panel's own container set visible from a client probe, and the well scr
 where `relayout` put them -- but the opening itself was not photographed. Frames 1, 2 and 4 are the
 untouched path: walk onto the pad, the server asks, the dialog opens.
 
+**The Director looked at all four and found one thing, which is QUEUED AND NOT FIXED HERE.** At
+487 px the owner's dialog reaches up over the **compass bar** -- the strip shows at its left and
+right edges behind the dialog -- where a non-owner's 368 px dialog leaves it clear. That is the cost
+of the bottom edge being invariant (section 14.1): the block had to grow upward, because a centred
+487 px dialog would put 26 px of its hint band under task 209's loading banner. It is a choice
+between two overlaps and wants the Designer's eye, so it is `TASKS.md` 229g rather than a change in
+this round.
+
 **The frames do not show the switch being PRESSED.** A spec cannot fire `GuiButton.Activated` and
 the harness cannot synthesise a tap, so the asks above went through the same remote the half fires
 (`RoleRequest:FireServer({ role = ... })`). What is unproven by a frame is the `Activated`
