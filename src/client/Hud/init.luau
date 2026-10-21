@@ -4551,6 +4551,12 @@ function Hud.renderObjective(CameraSystem)
 			local cx, cy, cw, ch = Touch.rect(viewport, leftStackRight)
 			table.insert(blockers, { x = cx, y = cy, w = cw, h = ch })
 		end
+		-- ...AND THE ENGINE'S OWN JUMP BUTTON, but only on a device that HAS one. A keep-out is a
+		-- claim about where a thumb will land, so on a desktop it is not a rectangle at all.
+		if UserInputService.TouchEnabled then
+			local jx, jy, jw, jh = Touch.jumpKeepOut(viewport)
+			table.insert(blockers, { x = jx, y = jy, w = jw, h = jh })
+		end
 		-- THE RAIL CLAMPS ITSELF INSIDE THE VIEWPORT (task 220). Before this, at 800 x 400 --
 		-- a landscape phone, which is how phones play -- its bottom landed at 510 on a 400 px
 		-- screen and RELOAD and AMMO were simply off the bottom of the phone.
