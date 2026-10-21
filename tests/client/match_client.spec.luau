@@ -1105,6 +1105,79 @@ return function()
 			end
 		end)
 
+		-- THE RED DEER ON THE CARD (task 234). Karen, 2026-10-21, having played: *"I didnt see deer
+		-- red tag why ?"* / *"I want to see a deer"*. The deer have been licensed quarry since task
+		-- 223 and the one screen that answers *"what may I shoot"* never mentioned them.
+		--
+		-- THE WIRE HERE IS THE SHAPE `Match.quarryRows` REALLY SENDS, `licence` included -- so this
+		-- case is about the LAYOUT and nothing about the rule, which stays the server's.
+		it("names a licensed species ONCE, with its licence, above its own kinds", function()
+			local wire = {
+				phase = "Assigning",
+				driveNumber = 1,
+				safetyPenalty = -10,
+				quarry = {
+					{ species = "WILD BOAR", kind = "male", points = 10, licence = false },
+					{ species = "WILD BOAR", kind = "female", points = 6, licence = false },
+					{ species = "WILD BOAR", kind = "cub", points = -10, licence = false },
+					{ species = "RED DEER", kind = "stag", points = 20, licence = true },
+					{ species = "RED DEER", kind = "hind", points = 6, licence = true },
+					{ species = "RED DEER", kind = "calf", points = -10, licence = true },
+				},
+			}
+			local rows = Hud.startCardRows(wire, "Shooters", false)
+			local words = {}
+			for _, row in ipairs(rows) do
+				table.insert(words, row.text)
+			end
+			TestKit.note("task234 start card: " .. table.concat(words, " | "))
+			expect(#rows).to.equal(8)
+			-- THE BOAR GET NO HEAD and the deer get exactly one: `Male boar` names its animal in
+			-- the words and `Stag` cannot, which is the whole rule.
+			expect(rows[1].text).to.equal("Male boar")
+			expect(rows[4].text).to.equal("RED DEER")
+			expect(rows[4].tag).to.equal("NEEDS LICENCE")
+			expect(rows[4].value).to.equal(nil) -- a head is not a price
+			expect(rows[5].text).to.equal("Stag")
+			expect(rows[5].value).to.equal("+20")
+			expect(rows[6].text).to.equal("Hind")
+			expect(rows[7].text).to.equal("Calf - leave them")
+			expect(rows[7].value).to.equal("-10")
+			expect(rows[7].glyph).to.equal("cross") -- a penalty is never a tick
+			expect(rows[8].text).to.equal("A person")
+			-- ...AND ONE HEAD, NOT THREE. TO SEE IT FAIL: drop the `entry.species ~= species`
+			-- clause -- a `RED DEER` row then appears over the hind and the calf as well, the card
+			-- runs to eleven rows and the person falls off the bottom silently.
+			local heads = 0
+			for _, row in ipairs(rows) do
+				if row.text == "RED DEER" then
+					heads += 1
+				end
+			end
+			expect(heads).to.equal(1)
+			-- THE CEILING HOLDS THE WHOLE LIST: eight rows is what the card draws and what it is
+			-- tall enough for.
+			expect(#rows).to.equal(Drive.CONFIG.START_CARD_ROWS_MAX)
+			expect(Hud.startCardHeight(1280, #rows) > Hud.startCardHeight(1280, 4)).to.equal(true)
+		end)
+
+		it("gives an UNLICENSED species no head row at all, so the boar card is the card it was", function()
+			-- The beater's card and the boar-only hunter's card must be untouched by task 234, and
+			-- "untouched" is asserted rather than assumed: four rows, the same four words, and the
+			-- same height the Designer measured.
+			local rows = Hud.startCardRows(starting(), "Shooters", false)
+			expect(#rows).to.equal(4)
+			expect(rows[1].text).to.equal("Male boar")
+			expect(rows[4].text).to.equal("A person")
+			for _, row in ipairs(rows) do
+				expect(row.tag).to.equal(nil)
+			end
+			expect(Hud.startCardHeight(1280, #rows)).to.equal(Drive.CONFIG.START_CARD_HEIGHT)
+			local beater = Hud.startCardRows(starting(), "Drivers", false)
+			expect(#beater).to.equal(4)
+			expect(Hud.startCardHeight(1280, #beater)).to.equal(Drive.CONFIG.START_CARD_HEIGHT)
+		end)
+
 		-- THE PHONE DROPS THE BEATER'S TWO RIGHT-HAND CELLS, and only his (the spec's amendment 2
 		-- and rule 2): at 264 wide the row text wins the width, the same way the status bar drops a
 		-- whole chip rather than squeezing one.

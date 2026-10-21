@@ -567,7 +567,7 @@
     "semiauto": {
       "aim": {
         "cheekDeg": 0.0,
-        "eyeReliefStuds": 0.9,
+        "eyeReliefStuds": 0.35,
         "left": {
           "pos": {
             "x": -0.0052,

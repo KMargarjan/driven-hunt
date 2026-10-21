@@ -73,6 +73,18 @@ export type State = {
 	-- flag-off schedule the same schedule as before this task (design, "the sounder release").
 	boarsReleased: number,
 	soundersReleased: number,
+	-- HAS THIS DRIVE ALREADY ASKED FOR ITS DEER (task 234)? Karen, 2026-10-21: *"we need all a time
+	-- in drive deer"* and *"I want to see a deer"*. Exactly one release of every drive carries the
+	-- ask, and this latch is what makes it exactly one.
+	--
+	-- IT LIVES HERE AND NOT IN THE BOAR RUNTIME, which is the whole reason this half of the feature
+	-- is in `Phase` at all: `MatchBoot` builds ONE runtime for the whole server and it outlives
+	-- every drive, so it has no drive boundary to latch against. This state IS the drive -- it is
+	-- reset beside `boarsReleased` in `enterAssigning` -- and it already emits the release.
+	--
+	-- It is handed BACK by `Phase.releaseFailed` with the release it rode on, exactly as the
+	-- sounder count and the boar budget are, so a refused release cannot spend the drive's deer.
+	deerReleased: boolean,
 	-- Consecutive hold-backs of the sounder currently due: a stall made visible instead of
 	-- folkloric (SOUNDER.HOLDBACK_WARN). Reset by a release that happens.
 	holdbacks: number,
@@ -174,6 +186,10 @@ export type Effect = {
 	userIds: { number }?,
 	position: Vector3?,
 	size: number?, -- "spawnSounder": how many animals this release is
+	-- "spawnSounder": THIS release is the drive's red deer (task 234). The owner passes it to the
+	-- boar runtime, which skips its own chance roll and still decides WHICH deer come -- so the
+	-- schedule says WHEN and the animal's own table says WHO, and neither learns the other's job.
+	deer: boolean?,
 	entry: any?,
 }
 
@@ -209,6 +225,7 @@ function Phase.initial(config): State
 		quickSpawn = nil,
 		boarsReleased = 0,
 		soundersReleased = 0,
+		deerReleased = false,
 		holdbacks = 0,
 		nextReleaseAt = math.huge,
 		boarsAccounted = 0,
@@ -384,6 +401,12 @@ function Phase.beatersThrough(event: Event, config): boolean
 	return (event.beatersAcross or 0) >= beaters
 end
 
+-- THE INDEX THE DEER'S ORDINAL IS DRAWN AT (task 234). It is a constant and a LARGE one, because
+-- the other two users of this hash index it by the sounder COUNT (1, 2, 3 ...): a small constant
+-- would make the drive's deer ordinal the same number as one of its jitters or sizes, which is not
+-- wrong but is the kind of coincidence that makes a spec look like it proves something it does not.
+local DEER_HASH_INDEX = 9001
+
 -- ONE HASH IN THIS MODULE, and everything drawn is drawn from it: the jitter on the rhythm and the
 -- size of a sounder. A Random here would make a bug report unreproducible, which is the whole reason
 -- Roster has none either -- and two hashes would be two answers to "is this drive reproducible".
@@ -442,6 +465,50 @@ function Phase.sounderSize(state: State, config): number
 		end
 	end
 	return math.max(1, math.min(size, sounder.MAX_SIZE, remaining))
+end
+
+-- HOW MANY RELEASES THIS DRIVE EXPECTS TO MAKE. Not a new rule: it is `releaseGap`'s own
+-- `releasesLeft` arithmetic read at the START of a drive instead of in the middle of one, so the two
+-- cannot disagree about what a drive is. Off the sounder flag every release is one animal, so it is
+-- the budget itself.
+function Phase.expectedReleases(config): number
+	local sounder = config.SOUNDER
+	if not (sounder and sounder.ENABLED) then
+		return math.max(1, config.BOARS_PER_DRIVE)
+	end
+	return math.max(1, math.round(config.BOARS_PER_DRIVE / math.max(1, sounder.EXPECTED_SIZE)))
+end
+
+-- IS THE RELEASE ABOUT TO BE MADE THE DRIVE'S RED DEER (task 234)? PURE, so the guarantee is a spec
+-- case and not a playtest. Karen, 2026-10-21: *"we need all a time in drive deer"*.
+--
+-- THREE CLAUSES, AND THE THIRD IS THE ONE THAT MAKES IT A GUARANTEE:
+--
+--   1. a drive asks ONCE. `state.deerReleased` latches, and `releaseFailed` hands it back.
+--   2. WHICH release is drawn from the drive's own seed through `Phase.unitHash` -- the one hash in
+--      this module -- so it is not always the first and a drive is still reproducible.
+--   3. ...AND IF THAT ORDINAL IS NEVER REACHED, THE LAST RELEASE CARRIES IT. Without this it is
+--      only a better chance: `sounderSize` draws sizes per release, so a drive that happens to draw
+--      three fours makes four releases and an ordinal of 5 would never come up. `size` is the
+--      release being decided, so `boarsReleased + size >= BOARS_PER_DRIVE` IS "this is the last
+--      one" -- `maybeRelease` has already refused to go past the budget.
+--
+-- IT SAYS NOTHING ABOUT WHETHER DEER EXIST. With `BOAR_MODEL` off there are no deer kinds at all,
+-- and `Boar.deerComposition` answers nil to this ask exactly as it does to a chance roll. The
+-- schedule's job is WHEN; whether there is an animal is the animal's own table's.
+function Phase.deerRelease(state: State, size: number, config): boolean
+	if state.deerReleased then
+		return false
+	end
+	if (config.BOARS_PER_DRIVE or 0) <= 0 then
+		return false
+	end
+	if state.boarsReleased + size >= config.BOARS_PER_DRIVE then
+		return true -- the last release of the drive, and nothing has carried it yet
+	end
+	local expected = Phase.expectedReleases(config)
+	local ordinal = math.floor(Phase.unitHash(state.seed + state.driveNumber, DEER_HASH_INDEX) * expected) + 1
+	return state.soundersReleased + 1 >= math.min(ordinal, expected)
 end
 
 -- HOW LONG UNTIL THE NEXT ONE. Off the flag this is the fixed 90-second rhythm, unchanged. On it,
@@ -535,6 +602,7 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	state.driveNumber += 1
 	state.boarsReleased = 0
 	state.soundersReleased = 0
+	state.deerReleased = false
 	state.holdbacks = 0
 	state.boarsAccounted = 0
 	state.nextReleaseAt = math.huge
@@ -787,10 +855,18 @@ local function maybeRelease(state: State, effects: { Effect }, now: number, even
 	if config.QUICK_TEST and state.soundersReleased == 0 and state.quickSpawn then
 		position, spread = state.quickSpawn, config.QUICK_TEST_SPREAD_STUDS
 	end
+	-- ASKED BEFORE THE COUNTS MOVE (task 234), because `Phase.deerRelease` reads them: `size` is the
+	-- release being decided, and "is this the last one" is `boarsReleased + size >= BOARS_PER_DRIVE`
+	-- against the budget BEFORE this release is in it.
+	local deer = Phase.deerRelease(state, size, config)
 	state.soundersReleased += 1
 	state.boarsReleased += size
+	state.deerReleased = state.deerReleased or deer
 	state.holdbacks = 0
-	table.insert(effects, { kind = "spawnSounder", position = position, size = size, spread = spread })
+	table.insert(
+		effects,
+		{ kind = "spawnSounder", position = position, size = size, spread = spread, deer = deer or nil }
+	)
 	state.nextReleaseAt = now
 		+ Phase.releaseGap(state, size, now, config)
 		+ Phase.jitter(state.seed + state.driveNumber, state.soundersReleased + 1, config.RELEASE_JITTER_SECONDS)
@@ -799,13 +875,21 @@ end
 -- The owner could not perform a release this machine committed to. Give it back WHOLE: one sounder
 -- and `size` boars, with the next release due now -- so the SAME sounder (the same hash index, and
 -- therefore the same size) is retried on the next step rather than lost.
-function Phase.releaseFailed(state: State, now: number, size: number?): State
+-- `deer` IS THE RELEASE'S OWN FLAG, HANDED BACK WITH IT (task 234): a release the owner could not
+-- perform must not spend the drive's one deer, or a refusal at the wrong moment would be a drive
+-- with no deer in it -- which is the whole defect this guarantee exists for. The caller passes what
+-- the effect carried; a caller that passes nothing leaves the latch where it was, which is what
+-- every call before task 234 meant.
+function Phase.releaseFailed(state: State, now: number, size: number?, deer: boolean?): State
 	if state.soundersReleased <= 0 then
 		return state
 	end
 	local next_ = copy(state)
 	next_.soundersReleased -= 1
 	next_.boarsReleased = math.max(0, next_.boarsReleased - math.max(1, size or 1))
+	if deer == true then
+		next_.deerReleased = false
+	end
 	next_.holdbacks += 1
 	next_.nextReleaseAt = now
 	return freezeState(next_)

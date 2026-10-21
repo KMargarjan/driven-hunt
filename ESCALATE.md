@@ -1,5 +1,60 @@
 # Escalations
 
+## 2026-10-22 - Task 234: **NEEDS KAREN (one click): `test2` for the merge.** The one-player gate is green at the code commit; the two-player one cannot be started by a tool.
+
+### NEEDS KAREN
+
+`tools/agents.py`'s `TWO_PLAYER_PATHS` catches this task: it changes `src/server/Match/`,
+`src/shared/Drive/`, `tests/server/match_*.spec.luau` and `tests/client/match_client.spec.luau`, so
+the PR to `main` needs an `[harness2]` line at the code commit (git workflow step 4). `test2` refused
+on its own terms, and the refusal is the harness telling the truth rather than a fault:
+
+```
+[harness2] NEEDS KAREN, once, in Studio -- StudioMCP CANNOT start this test itself:
+[harness2]   start_stop_play takes `is_start` and `studio_id` and NOTHING else, so there is no way
+[harness2]   to ask for a player count.
+[harness2] FAIL: 12/13 checks @ d99686b26a1e780a96c3877af55ec59069151adc (clean tree)
+[harness2] NEEDS KAREN: nobody pressed Start. Nothing was run and nothing is claimed.
+```
+
+**The exact clicks, in order:**
+
+1. Studio, on **Driven Hunt DEV**, in Edit mode (nothing else open).
+2. Run `python tools/studio_mcp.py test2` from the repo.
+3. When it asks: **Test tab -> Clients and Servers -> Players: 2 -> Start.**
+4. Leave the windows alone. It waits 180 s for them and opens its own gate.
+5. When it says so, press **Cleanup** in the Test tab.
+
+The expected line is
+`[harness2] PASS: n/n checks @ d99686b26a1e780a96c3877af55ec59069151adc (clean tree)`.
+
+### THE FULL ONE-PLAYER RUN, FOR THE MERGE
+
+```
+[harness] PASS: 34/34 checks @ d99686b26a1e780a96c3877af55ec59069151adc (clean tree) scope=all
+```
+
+It lives HERE and not in `reviews/task-234/REQUEST.md` on purpose: `tools/agents.py` reads a full
+line beside a scoped one as *"you have the whole suite"* and then asks for the `[harness2]` line
+this entry is about, so a request carrying both cannot be reviewed at all. The Director needs this
+line and the `test2` one together for the merge; the review round needs the scoped one.
+
+### THE REVIEW IS NOT WAITING ON IT
+
+Task 113's scoped lane covers the review round: every path this task changes maps to a named scope,
+so `test --scope auto` came back `scope=auto:...` at the same commit, and `tools/agents.py` asks for
+no `[harness2]` line behind a scoped one. Both lines are in `reviews/task-234/REQUEST.md`. **The
+MERGE gate is unchanged and still needs the click above.**
+
+### AND ONE THING FOR THE DIRECTOR TO WEIGH
+
+The two-player run is the only thing that can answer the one question this task raises on that side:
+the drive now carries a RED DEER group in every drive, and the start card now draws EIGHT rows for a
+hunter and four for a beater. A second player is the only way to see the BEATER's card beside the
+hunter's in the same drive -- `match_client.spec` asserts both lists, but only the hunter's is
+photographed (`.screenshots/234-card-live.png`).
+
+
 ## 2026-10-21 - Task 233: **ROUND 1's BLOCKING ITEM FIXED; BOTH GATES GREEN AT `e2d41773`.** Four of five v1 defaults are lit; `SHOP` is task 233b.
 
 ### 1b. ~~NEEDS DIRECTOR: `test2` for round 2~~ -- **CLOSED, 2026-10-21. Both lines name `e2d41773`.**

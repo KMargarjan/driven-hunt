@@ -294,10 +294,17 @@ Drive.CONFIG = {
 	-- a 440-wide panel of four 24 px lines in `Enum.Font.Code` over `Color3.fromRGB(16, 18, 20)` --
 	-- is in `backups/2026-10-18_task-201-3_quarry-lines.txt`.
 	--
-	-- THE CARD IS 274 TALL AND NOT "auto, max 220" (the spec's amendment 1 to the system's section
-	-- 4.1): eight children will not live in 220 at this type scale. It is up ONLY in `Assigning`,
-	-- when every player is being placed and nobody is aiming, which is the same argument that
-	-- exempts the results board from section 4.3's *"the centre 240 x 240 is never covered"*.
+	-- THE CARD IS 274 TALL AT FOUR ROWS AND NOT "auto, max 220" (the spec's amendment 1 to the
+	-- system's section 4.1): eight children will not live in 220 at this type scale. It is up ONLY
+	-- in `Assigning`, when every player is being placed and nobody is aiming, which is the same
+	-- argument that exempts the results board from section 4.3's *"the centre 240 x 240 is never
+	-- covered"*.
+	--
+	-- SINCE TASK 234 THE HEIGHT FOLLOWS THE ROW COUNT: `Hud.startCardHeight(viewX, rows)` is
+	-- `chrome + rows * rowH`, and 274 is what that answers at four rows -- so a BEATER'S card is
+	-- the card he has today, to the pixel, and only the hunter's grows for the deer. The number
+	-- below is kept as that four-row figure because it is the Designer's own measurement and the
+	-- live geometry (`Hud.START_CARD`) is checked against it.
 	START_CARD_WIDTH = 440,
 	START_CARD_HEIGHT = 274,
 	START_CARD_TOP = 150,
@@ -309,9 +316,18 @@ Drive.CONFIG = {
 	START_CARD_HEIGHT_PHONE = 239,
 	START_CARD_TOP_PHONE = 124,
 	START_CARD_LEFT_PHONE = 16,
-	-- ONE IDEA PER LINE, AND FOUR LINES IS THE CEILING for a three-second read (the spec's section
-	-- 1.4). Both roles fit it, which is why there is no fifth row and no second layout.
-	START_CARD_ROWS_MAX = 4,
+	-- ONE IDEA PER LINE. The Designer's section 1.4 made FOUR LINES the ceiling for a three-second
+	-- read, and **task 234 raised it to eight, which is a real cost and is written down rather than
+	-- smuggled**: Karen, 2026-10-21, *"I didnt see deer red tag why ?"* / *"I want to see a deer"*.
+	-- A hunter's card is now three boar rows, a `RED DEER` head carrying the licence, three deer
+	-- rows and the person -- eight -- and eight lines is not a three-second read. The alternative
+	-- was leaving the licensed quarry off the one screen that answers *"what may I shoot"*, which
+	-- is the defect she reported. Whether eight rows is still a CARD is the Designer's call and is
+	-- queued.
+	--
+	-- A BEATER STILL HAS FOUR and his card is unchanged by identity: `START_CARD_BEATER_ROWS` has
+	-- four entries and the card's height follows the rows it draws (`Hud.startCardHeight`).
+	START_CARD_ROWS_MAX = 8,
 	START_CARD_ROW_H = 24,
 	START_CARD_ROW_H_PHONE = 21,
 
@@ -336,6 +352,17 @@ Drive.CONFIG = {
 		male = "Male boar",
 		female = "Female boar",
 		cub = "Piglet - leave them",
+		-- THE RED DEER (task 234). Three words that do NOT name their animal -- which is exactly
+		-- why the deer get a species HEAD row above them and the boar do not: `Male boar` says what
+		-- it is and `Hind` does not. `Report.kindWord` is still the fallback for a kind with no row
+		-- here, so nothing is ever printed as a raw data word.
+		--
+		-- `Calf - leave them` IS `cub`'S OWN SENTENCE, deliberately word for word: Karen's rule of
+		-- 2026-10-12 is that shooting the young is a penalty, `POINTS.KIND.calf` is the identical
+		-- -10, and two different instructions for one rule would be two rules.
+		stag = "Stag",
+		hind = "Hind",
+		calf = "Calf - leave them",
 		-- THERE IS NO `legendary` ROW HERE (task 219) because there is no legendary ROW on the card:
 		-- `START_CARD_ROWS_MAX` is 4 and the four are these three plus the person, which is the
 		-- Designer's own ceiling two fields below. `Match.CONFIG.QUARRY` carries the whole reason.
@@ -346,6 +373,18 @@ Drive.CONFIG = {
 	-- `SAFETY_PENALTY` were a real rule the card never mentioned, and the beaters are walking
 	-- TOWARD the hunter while this card is up. Drawn only when the server sent the number.
 	START_CARD_PERSON = "A person",
+
+	-- THE SPECIES HEAD ROW, AND IT IS DRAWN ONLY OVER A SPECIES THAT NEEDS A LICENCE (task 234).
+	-- Not a style: `Male boar` / `Female boar` / `Piglet` each name their animal in the words, and
+	-- `Stag` / `Hind` / `Calf` cannot without three long labels -- so the deer need a line that
+	-- says what they are, and that line is also the only place the LICENCE can be said. The
+	-- right-hand cell is one slot and a row that shows `+20` cannot also show a tag.
+	--
+	-- The words are the SERVER's (`Match.quarryRows` sends the label off `Licences.ROWS`), and so
+	-- is whether a licence is needed. This is the glyph and the tag only, and `NEEDS LICENCE` is
+	-- the same amber tag the beater's first row already wears.
+	START_CARD_SPECIES_GLYPH = "chevron",
+	START_CARD_LICENCE_TAG = "NEEDS LICENCE",
 
 	-- THE BEATER'S FOUR ROWS, in his own order. He asks "what may I shoot" too, so the answer is in
 	-- the same slot on his card -- and the amber tag says WHY rather than "never": the licence is

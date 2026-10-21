@@ -297,13 +297,61 @@ return function()
 				local clone = (Camera.Viewmodel.current() :: Model).PrimaryPart :: BasePart
 				local sight = Camera.Viewmodel.sight()
 				expect(sight).to.be.ok()
-				-- `Dot` IS THE LIT BALL; `Optic` IS THE SIGHT'S UPLOADED HOUSING. Two names on
+				-- `Dot` IS THE LIT BALL; the HOUSING is DRAWN since task 234 -- a hood of boxes, a
+				-- lens and a mount -- where it used to be the bought `Optic` mesh. Two names on
 				-- purpose: the first cut of this case asked for the housing and measured the two
 				-- 0.56 studs apart, which is the housing's mesh offset and not a defect in the aim.
 				local dot = clone:FindFirstChild("Dot") :: BasePart
 				expect(dot).to.be.ok()
 				expect(dot.Material).to.equal(Enum.Material.Neon)
-				expect(clone:FindFirstChild("Optic")).to.be.ok()
+				-- THE DRAWN SIGHT IS REALLY ON THE INSTANCE, not just in the piece list: a hood, a
+				-- lens you can see through, and a mount. TO SEE IT FAIL: drop the hood block out of
+				-- `SemiAuto.Geometry.pieces`; `hoodParts` comes back 0 against a geometry that
+				-- still says how many there should be.
+				local wanted = 0
+				for _, piece in ipairs(SemiAutoGeometry.pieces(ROW)) do
+					if string.sub(piece.name, 1, 9) == "SightHood" then
+						wanted += 1
+					end
+				end
+				local hoodParts, glass = 0, nil
+				for _, found in ipairs(clone:GetDescendants()) do
+					if string.sub(found.Name, 1, 9) == "SightHood" then
+						hoodParts += 1
+					elseif found.Name == "SightGlass" then
+						glass = found :: BasePart
+					end
+				end
+				expect(wanted >= 20).to.equal(true)
+				expect(hoodParts).to.equal(wanted)
+				expect(clone:FindFirstChild("SightMount")).to.be.ok()
+				expect(glass).to.be.ok()
+				expect((glass :: BasePart).Transparency > 0.8).to.equal(true)
+				-- ...AND THE BOUGHT OPTIC IS NOT WORN BY THE VIEWMODEL ANY MORE. Its glass is one
+				-- opaque amber face on a mesh that cannot be split, so drawn at all it sits between
+				-- the eye and everything the hood frames -- which is the defect Karen reported.
+				expect(clone:FindFirstChild("Optic")).to.equal(nil)
+				-- THE DOT IS INSIDE THE RING, measured on the instances in the Handle's own frame:
+				-- its distance from the sight AXIS is under the hood's inner radius, while every
+				-- hood part sits out on the ring.
+				local axis = SemiAutoGeometry.beadOffset(ROW)
+				local function offAxis(part: BasePart): number
+					local l = clone.CFrame:PointToObjectSpace(part.Position)
+					return (Vector2.new(l.X, l.Y) - Vector2.new(axis.X, axis.Y)).Magnitude
+				end
+				local inner = SemiAutoGeometry.layout(ROW).hoodInnerRadius
+				local ring = offAxis(clone:FindFirstChild("SightHood1") :: BasePart)
+				TestKit.note(
+					string.format(
+						"task234 drawn sight: %d hood parts, ring %.4f off the axis, dot %.4f, inner radius %.4f",
+						hoodParts,
+						ring,
+						offAxis(dot),
+						inner
+					)
+				)
+				expect(offAxis(dot) < inner).to.equal(true)
+				expect(ring > inner).to.equal(true)
 				-- ...AND NO DIRECT CHILD OF THE HANDLE MAY TAKE THE ATTACHMENT'S NAME, which is
 				-- exactly the lookup `Viewmodel.sight()` does (`FindFirstChild`, not recursive).
 				local named = clone:FindFirstChild("Sight")

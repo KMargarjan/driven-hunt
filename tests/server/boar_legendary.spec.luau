@@ -20,6 +20,7 @@ local Workspace = game:GetService("Workspace")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
+local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local Wound = Boar.Wound
@@ -853,26 +854,39 @@ return function()
 			expect(Report.boarImage("legendary").scale).to.equal(1)
 
 			-- 4. THE START CARD DOES **NOT** NAME IT, and that is asserted rather than left to
-			--    chance -- because the failure would be invisible: the card's row cap is 4 and its
-			--    height is a fixed number, so a fourth quarry kind would push the PERSON row (the
-			--    Designer's own addition) off the card and nothing would error. The reason lives on
-			--    `Match.CONFIG.QUARRY`; this is the case that holds it in place.
+			--    chance -- because the failure would be invisible: a quarry kind the card has no
+			--    room for silently pushes the PERSON row (the Designer's own addition) off the
+			--    bottom and nothing errors. The reason lives on `Match.CONFIG.QUARRY`; this is the
+			--    case that holds it in place.
+			--
+			--    THE CEILING MOVED IN TASK 234 AND THE RULE DID NOT. It was 4 -- three boar kinds
+			--    plus the person -- and the red deer took it to 8: three boar, a `RED DEER` head
+			--    carrying the licence, three deer, the person. So this asserts what the card must
+			--    HOLD rather than a literal: every quarry kind, plus one head per licensed species,
+			--    plus the person, all fit -- and the trophy is still not among them.
 			expect(Drive.CONFIG.START_CARD_QUARRY_WORDS.legendary).to.equal(nil)
-			expect(Drive.CONFIG.START_CARD_ROWS_MAX).to.equal(4)
-			local quarryKinds = 0
+			local quarryKinds, heads = 0, 0
 			for _, row in ipairs(Match.CONFIG.QUARRY) do
+				if Licences.required(row.species) then
+					heads += 1
+				end
 				for _, kind in ipairs(row.kinds) do
 					quarryKinds += 1
 					expect(kind ~= "legendary").to.equal(true)
 				end
 			end
-			expect(quarryKinds + 1).to.equal(Drive.CONFIG.START_CARD_ROWS_MAX)
+			expect(quarryKinds + heads + 1).to.equal(Drive.CONFIG.START_CARD_ROWS_MAX)
 
 			-- 5. ...AND IT IS STILL A WILD BOAR TO THE RULES. Nothing but the card reads `QUARRY`;
 			--    the licence and `Match.classifyTarget` learn the species from the ANIMAL, so the
 			--    trophy needs no licence of its own and cannot be shot by somebody who may not shoot
 			--    a boar.
-			expect(Match.CONFIG.QUARRY[1].species).to.equal("WILD BOAR")
+			--    `QUARRY` NAMES THE SPECIES **KEY** SINCE TASK 234 and `Match.quarryRows` turns it
+			--    into the printed label through `Licences.ROWS`, so the words a player reads and
+			--    the rule the weapon enforces come from one row.
+			expect(Match.CONFIG.QUARRY[1].species).to.equal("boar")
+			expect(Licences.ROWS.boar.label).to.equal("WILD BOAR")
+			expect(Match.quarryRows(Match.CONFIG)[1].species).to.equal("WILD BOAR")
 
 			-- 6. THE GATHERING lays it out 35 % longer than the males beside it, and the scene's own
 			--    scales are the same four numbers the boar config holds.

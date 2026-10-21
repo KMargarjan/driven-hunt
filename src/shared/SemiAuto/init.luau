@@ -153,6 +153,13 @@ SemiAuto.CONFIG = {
 		bolt = Color3.fromRGB(190, 191, 192),
 		lifter = Color3.fromRGB(160, 160, 160),
 		sight = Color3.fromRGB(69, 70, 70),
+		-- THE DRAWN HOOD AND ITS MOUNT (task 234), and it is ITS OWN KEY rather than `sight`
+		-- because it is a different thing: `sight` is the fallback box for the bought HOUSING, and
+		-- this is the ring the player looks through. Karen's two references show a hood that reads
+		-- near-black against both a bright sky and a dark bank, and the first frame at `sight`'s
+		-- RGB(69,70,70) came back with its sunlit inner faces as a pale grey annulus washing out
+		-- the picture (`.screenshots/234-a2-aim.png`). A sight body is blackened steel.
+		hood = Color3.fromRGB(28, 29, 32),
 		-- WALNUT. The row's `HANDLE_COLOR` reads this key, as both other rifles' do, so the name is
 		-- the slot rather than a claim about the material -- but on this gun it is also true.
 		wood = Color3.fromRGB(111, 73, 60),

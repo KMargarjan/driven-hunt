@@ -2629,7 +2629,35 @@ Boar.CONFIG.SPECIES = {
 		-- is the one that carries the PENALTY, and a -10 a player meets once a session is a trap
 		-- while one he meets most drives is a rule he learns.
 		RELEASE = {
+			-- KAREN'S DIAL, AND SINCE TASK 234 IT ONLY DECIDES THE **EXTRA** DEER. Karen,
+			-- 2026-10-21: *"we need all a time in drive deer"* and *"I want to see a deer"* -- and
+			-- `0.8^6 = 26 %` of drives carried none, which is what a probability buys however high
+			-- it is set. The GUARANTEE is the drive's, not the dice's: `Match.Phase` marks exactly
+			-- one release of every drive as the deer's and asks for it by name
+			-- (`Phase.deerRelease` -> the effect's `deer` -> `wantDeer` below), because `MatchBoot`
+			-- builds ONE runtime for the whole server and a runtime therefore has no drive
+			-- boundary to latch against.
+			--
+			-- So the arithmetic now reads: one group guaranteed, plus about 1.2 more by this dial,
+			-- so a drive carries about 2.2 deer groups and ~4 animals against `BOARS_PER_DRIVE`
+			-- = 6 boars. If that is too many for an animal Karen called rare, this is the number.
 			CHANCE_PER_RELEASE = 0.2, -- K's dial
+			-- HOW A DEER GROUP MOVES (task 234). Karen, 2026-10-21: *"we need all a time in drive
+			-- deer and could be also lines and how they behav"*, and "yes" to deer walking one
+			-- after another in a row.
+			--
+			-- IT IS A DECLARED FACT AND NOT A SECOND MOVEMENT WRITER. `"column"` is the formation
+			-- this game has had since task 118 -- a leader, `Boar.marchOrder` behind him (which
+			-- already ranks `hind = 1, calf = 2, stag = 3`, task 223) and slots at
+			-- `(0, 0, (i-1) * SOUNDER.COLUMN_SPACING_STUDS)` in the leader's frame. A boar sounder
+			-- DRAWS between that and the wedge at `COLUMN_CHANCE`; a deer group does not draw, it
+			-- declares, and `Boar.compositionFormation` is the one function that answers it.
+			--
+			-- 9 STUDS IS THE RIGHT GAP FOR THESE ANIMALS AND THAT WAS CHECKED: the three deer were
+			-- measured at stag 7.05, hind 6.03 and calf 3.49 studs long (`KINDS`, prepped
+			-- 2026-10-20), so the longest of them has about two studs of daylight to the animal in
+			-- front. Nothing is retuned here; the check is why it is not.
+			FORMATION = "column",
 			-- ONE GROUP AT A TIME. A drive is 6 live animals and a group is up to 3, so two groups
 			-- could be half the drive and the animal Karen called rare would be in front of every
 			-- shooter. Answered by COUNTING THE LIVE ENTRIES, not by a counter two paths could
@@ -2820,7 +2848,12 @@ end
 --
 -- `roll` and `pick` are both in [0, 1), so `CHANCE_PER_RELEASE` of 0 and 1 are EXACT: at 0 nothing
 -- is ever a deer, at 1 everything is.
-function Boar.deerComposition(roll: number, pick: number, config): { [string]: number }?
+-- `wanted` IS THE DRIVE SAYING "THIS RELEASE IS THE DEER" (task 234), and it skips the CHANCE and
+-- nothing else: the group is still drawn from `COMPOSITIONS` with `pick`, by the same weighted walk,
+-- so WHICH deer come is still this function's own decision and the SCHEDULE never learns the
+-- vocabulary. A caller that passes nothing gets exactly the behaviour every case before task 234
+-- was written against.
+function Boar.deerComposition(roll: number, pick: number, config, wanted: boolean?): { [string]: number }?
 	local kinds = config.KINDS
 	if type(kinds) ~= "table" or kinds.ENABLED ~= true then
 		return nil
@@ -2830,7 +2863,7 @@ function Boar.deerComposition(roll: number, pick: number, config): { [string]: n
 	if type(release) ~= "table" then
 		return nil
 	end
-	if roll >= (release.CHANCE_PER_RELEASE or 0) then
+	if wanted ~= true and roll >= (release.CHANCE_PER_RELEASE or 0) then
 		return nil
 	end
 	local rows = release.COMPOSITIONS or {}
@@ -2899,6 +2932,47 @@ function Boar.deerGroupsAllowed(liveKinds: { string }, config): boolean
 	-- ONE GROUP AT A TIME: a drive is six live animals and a group is up to three, so two groups
 	-- could be half the drive and the animal Karen called rare would be in front of every shooter.
 	return groups < (release.MAX_GROUPS_ALIVE or 1)
+end
+
+-- WHAT FORMATION THIS RELEASE MARCHES IN, WHEN ITS COMPOSITION DECIDES (task 234). Pure, and nil
+-- for every composition in this game before it -- so a boar sounder still DRAWS, exactly as it did.
+--
+-- IT ASKS THE COMPOSITION AND NOT THE DRAWN KINDS, and the reason is the stream: `spawnSounder`
+-- builds the sounder record -- and draws its formation out of `self._rng` -- BEFORE it draws who the
+-- members are, and reordering those two would move every later number the runtime takes. That is
+-- the exact defect task 223's round 1 shipped and its review caught. A composition names its kinds
+-- directly (`{ hind = 1, calf = 1 }`), so it can be asked first.
+--
+-- EVERY NAMED KIND MUST AGREE, which is what makes this a fact about the GROUP: a composition that
+-- mixed a species which marches in file with one that does not has no one answer, so it gets none.
+-- `weight` is skipped because it is not a kind name -- `Boar.compositionSize`'s own rule.
+function Boar.compositionFormation(composition, config): string?
+	if type(composition) ~= "table" or type(config) ~= "table" then
+		return nil
+	end
+	local kinds = config.KINDS
+	local species = config.SPECIES
+	if type(kinds) ~= "table" or kinds.ENABLED ~= true or type(species) ~= "table" then
+		return nil
+	end
+	local answer: string? = nil
+	for key, count in pairs(composition) do
+		if key ~= "weight" and type(count) == "number" and count > 0 then
+			local row = kinds[key]
+			local name = if type(row) == "table" then row.species else nil
+			local block = if type(name) == "string" then species[name] else nil
+			local release = if type(block) == "table" then block.RELEASE else nil
+			local want = if type(release) == "table" then release.FORMATION else nil
+			if type(want) ~= "string" then
+				return nil -- one member with no opinion is the whole group with no opinion
+			end
+			if answer ~= nil and answer ~= want then
+				return nil -- two opinions are no opinion
+			end
+			answer = want
+		end
+	end
+	return answer
 end
 
 function Boar.wantsLegendary(roll: number, config): boolean
@@ -4781,7 +4855,7 @@ end
 -- and the drive's budget arithmetic can never disagree with the world. A size of 1 is exactly
 -- Runtime:spawn and creates NO sounder record -- which is why the flag-OFF world has no group code
 -- running anywhere: obs.sounder is nil and every existing path applies unchanged.
-function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?, composition)
+function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?, composition, wantDeer: boolean?)
 	assert(not self._destroyed, "Boar runtime is destroyed")
 	-- IS THIS RELEASE A DEER GROUP (task 223)? ONLY WHEN THE CALLER NAMED NO COMPOSITION, so the
 	-- Forest Test's own named waves -- and every spec that asks for one -- are untouched. Two rolls
@@ -4803,7 +4877,7 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?,
 	-- counts the draws a release makes against a baseline runtime that never asks for a deer.
 	if composition == nil and self._config.KINDS ~= nil and self._config.KINDS.ENABLED == true then
 		if Boar.deerGroupsAllowed(self:_liveKinds(), self._config) then
-			composition = Boar.deerComposition(self._rng:NextNumber(), self._rng:NextNumber(), self._config)
+			composition = Boar.deerComposition(self._rng:NextNumber(), self._rng:NextNumber(), self._config, wantDeer)
 		end
 	end
 	-- A COMPOSITION IS ALSO THE SIZE (task 123 round 8), and it is read through `Boar.compositionSize`
@@ -4858,6 +4932,12 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?,
 	local phase = self._rng:NextNumber(0, math.pi * 2)
 
 	self._nextSounderId += 1
+	-- DRAWN BEFORE THE RECORD AND ALWAYS, so the stream is bit-for-bit what it was: see
+	-- `record.formation` below for why a declared formation overrides this rather than replacing
+	-- the draw. The flag is tested FIRST so that with it off no number is drawn at all.
+	local drawnFormation = (
+		if config.SENSE.ENABLED and self._rng:NextNumber() < sounderConfig.COLUMN_CHANCE then "column" else "wedge"
+	)
 	local record = {
 		id = string.format("Sounder%d", self._nextSounderId),
 		leaderId = nil :: string?,
@@ -4869,13 +4949,14 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?,
 		memberIds = {},
 		scatterFor = 0,
 		bornAt = os.clock(),
-		-- SINGLE FILE OR A LOOSE GROUP, DRAWN ONCE AND NEVER WRITTEN AGAIN (task 118, section 5.1).
-		-- Karen: "they usually do one line each after another or mixed like in real life". The flag
-		-- is tested FIRST so that with it off no number is drawn at all and the runtime's `Random`
-		-- stream is bit-for-bit the one every existing spec was written against.
-		formation = (if config.SENSE.ENABLED and self._rng:NextNumber() < sounderConfig.COLUMN_CHANCE
-			then "column"
-			else "wedge"),
+		-- SINGLE FILE OR A LOOSE GROUP, DECIDED ONCE AND NEVER WRITTEN AGAIN (task 118, section
+		-- 5.1). Karen: "they usually do one line each after another or mixed like in real life".
+		-- ...AND A COMPOSITION THAT DECLARES ITS OWN BEATS THE DRAW (task 234). The draw is still
+		-- MADE -- `drawnFormation` above, unconditionally -- and then overridden, because skipping
+		-- it would move `self._rng`'s stream and change every formation and `phase` drawn after it
+		-- in the drive. `Boar.compositionFormation` is nil for every composition this game had
+		-- before task 234, so a boar sounder reads exactly as it did.
+		formation = Boar.compositionFormation(composition, config) or drawnFormation,
 		-- Whether a panic is already spreading through this sounder (section 5.2).
 		alarmed = false,
 	}
