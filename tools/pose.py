@@ -6,6 +6,9 @@
     python tools/pose.py set <path> <value>           e.g. `set aim.eyeReliefStuds 4.2`
     python tools/pose.py save                         write the effective values into poses.json
     python tools/pose.py clear                        drop every override
+    ... --place dev|forest|<place id>                 WHICH place `clear` cleans the EDIT
+                                                      side of. Default: the DEV place, the
+                                                      one the harness refuses to start over
     python tools/pose.py inspect <pose> [left-front|below|right-rear] [--client <name>]
                                                       LOOK AT THE HANDS FROM OUTSIDE. The viewmodel
                                                       is drawn at the camera, so it follows the lens
@@ -62,8 +65,15 @@ override into a live session that `Camera.Poses` applies on the next frame. Chan
 When a pose is right, `save` writes it back into the file; that commit needs the gate like any other
 `src/` change, but the twenty tries before it need nothing at all.
 
-ONE WRITER. The override is a single JSON string in the attribute `DHPose` on
-ReplicatedStorage.Viewmodel, and this tool is the only thing that writes it (GAME_DESIGN.md owners).
+ONE WRITER, AND ONE PLACE (Task 226). The override is a single JSON string in the attribute
+`DHPose` on ReplicatedStorage.Viewmodel, and this tool is the only thing that writes it
+(GAME_DESIGN.md owners). `clear` also cleans the EDIT place, because that is the one the harness
+refuses to start over, and it finds that place by `game.PlaceId` -- read live out of each connected
+Studio -- rather than by taking "the first Studio in Edit mode". That resolver cleared four of the
+six DHFlag_* attributes out of Karen's Forest Test place on 2026-10-21 (see `studio_for_place` in
+tools/studio_mcp.py): with two places open both of them are editors. Every write prints the place
+it read from the process it addressed, and dumps that place's attributes to <runs-dir>/attr-*.log
+first so a restore has a BEFORE picture.
 `tools/studio_mcp.py` holds the Luau and the transport -- the same split `tools/flags.py` has -- and
 the one check that belongs to the harness: `test` and `test2` both REFUSE to start while an override
 is set in the Edit place, and print this tool's `clear` line.
@@ -198,6 +208,13 @@ def running(studio, role):
     editor. The mode is what tells them apart, so it is asked every time."""
     studio_id, why = studio_mcp.studio_for_role(studio, role)
     if studio_id is None:
+        # TASK 226: the resolver's one-entry shortcut now refuses an EDIT-mode Studio for a Play
+        # role itself, so the sentence that says WHY a session is needed is carried over to it
+        # rather than left stranded in the branch below.
+        if "Edit mode" in why:
+            why += (". Start a Play session first: the camera reads the override every frame, so a "
+                    "write with nothing rendering changes nothing -- and an override written into "
+                    "the EDIT place would be saved with the place and published.")
         return None, None, why
     try:
         mode = studio.mode(studio_id=studio_id)
@@ -1449,6 +1466,11 @@ def main(argv):
     # who carries no gun at all -- so the default (the first client that answered) photographs an
     # empty screen half the time. Measured 2026-10-02 on the task 99 break-open capture.
     client = "client"
+    # WHICH PLACE A WRITE GOES TO (Task 226). Only `clear` reaches the EDIT place -- the one the
+    # harness refuses to start over -- and it is pinned to DEV unless the Director names another.
+    # `set`, `save` and the rest address the RUNNING session, whose place is printed from a live
+    # read of the process they addressed.
+    place_arg = "dev"
     rest = []
     index = 0
     while index < len(args):
@@ -1470,6 +1492,9 @@ def main(argv):
         elif args[index] == "--settle" and index + 1 < len(args):
             settle = max(0.0, float(args[index + 1]))
             index += 2
+        elif args[index] == "--place" and index + 1 < len(args):
+            place_arg = args[index + 1]
+            index += 2
         else:
             rest.append(args[index])
             index += 1
@@ -1481,6 +1506,7 @@ def main(argv):
         print(__doc__)
         return 2
 
+    place_id, place_label = studio_mcp.place_choice(place_arg)
     data = read_poses()
     studio = studio_mcp.Studio()
     try:
@@ -1526,10 +1552,28 @@ def main(argv):
             if server_id is not None:
                 _, problem = write_override(studio, server_id, datamodel, {})
                 cleared.append("the running session" if not problem else f"session FAILED: {problem}")
-            edit_id, edit_why = studio_mcp.studio_for_role(studio, "edit")
+            # BY PLACE ID, NEVER "THE FIRST STUDIO IN EDIT" (Task 226). This line used to be
+            # `studio_for_role(studio, "edit")` -- the same resolver that cleared four of Karen's
+            # flag attributes out of the Forest Test on 2026-10-21, because with two places open
+            # both of them are editors and the listing decides which one answers first.
+            edit_id, edit_name, edit_why = studio_mcp.studio_for_place(studio, place_id)
             if edit_id is None:
-                cleared.append(f"edit place SKIPPED: {edit_why}")
+                # NOT A FAILURE WHILE PLAY RUNS, and it is the usual case: Studio does not expose
+                # the Edit DataModel during a session, so the place cannot be read out of it and
+                # the override being cleared was never in the edit place anyway (`set` refuses Edit
+                # mode outright). Any OTHER reason is reported as it came back.
+                if "not available in Play mode" in edit_why:
+                    cleared.append("edit place SKIPPED: it is not reachable while Play runs; "
+                                   "run `pose.py clear` again after the session ends")
+                else:
+                    cleared.append(f"edit place ({place_label}) SKIPPED: {edit_why}")
             else:
+                print("[pose] clearing the EDIT place %s (%s), Studio %s -- read live from that "
+                      "Studio, not assumed" % (place_id, edit_name, edit_id[:8]))
+                before = studio_mcp.attr_log(studio, edit_id, f"pose-clear-{place_arg}")
+                if before:
+                    print("[pose] the attributes BEFORE this clear are in "
+                          + os.path.basename(before) + " under <runs-dir>")
                 _, problem = write_override(studio, edit_id, "Edit", {})
                 if not problem:
                     cleared.append("the edit place")
@@ -1552,6 +1596,13 @@ def main(argv):
             print("[pose] no running session (" + why + "), so these are the file's own values")
             overrides = {}
         else:
+            # THE PLACE THE SESSION IS IN, read live from the process being addressed (Task 226).
+            # A number tuned into one world and saved as if it came from another is the same class
+            # of mistake as a flag cleared in the wrong one.
+            at, at_name, place_why = studio_mcp.place_of(studio, server_id, datamodel)
+            print("[pose] session %s, Studio %s"
+                  % (f"place {at} ({at_name or 'unnamed'})" if at
+                     else f"in a place that did not answer ({place_why})", server_id[:8]))
             overrides, problem = read_override(studio, server_id, datamodel)
             if problem:
                 print("[pose] " + problem)
@@ -1579,6 +1630,10 @@ def main(argv):
                 return 2
             wanted = dict(overrides)
             wanted[path] = value
+            before = studio_mcp.attr_log(studio, server_id, "pose-set-session", datamodel)
+            if before:
+                print("[pose] the attributes BEFORE this write are in "
+                      + os.path.basename(before) + " under <runs-dir>")
             _, problem = write_override(studio, server_id, datamodel, wanted)
             if problem:
                 print("[pose] " + problem)
@@ -1601,6 +1656,10 @@ def main(argv):
             return 2
         write_poses(effective)
         changed = [p for p, v in paths_of(effective).items() if abs(v - paths_of(data)[p]) > 1e-12]
+        before = studio_mcp.attr_log(studio, server_id, "pose-save-session", datamodel)
+        if before:
+            print("[pose] the attributes BEFORE the override was dropped are in "
+                  + os.path.basename(before) + " under <runs-dir>")
         _, problem = write_override(studio, server_id, datamodel, {})
         print(f"[pose] wrote {os.path.relpath(POSES_FILE, REPO)}: "
               + ", ".join(f"{p} = {paths_of(effective)[p]:g}" for p in sorted(changed)))
