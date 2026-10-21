@@ -1,12 +1,12 @@
 # Task 220 — review request: the game plays on a phone (touch controls)
 
 Task: 220
-Round: 1
+Round: 2
 Base: `4e0f4f7d` (origin/main)
-Code commit: `ca3394cb5d05543a42fa54ad50e7a65b9ea3bc03`
+Code commit: `fc05663474161f5e6d07356acf3c93a8e546ce02`
 
 ```
-[harness] PASS: 33/33 checks @ ca3394cb5d05543a42fa54ad50e7a65b9ea3bc03 (clean tree) scope=all
+[harness] PASS: 33/33 checks @ fc05663474161f5e6d07356acf3c93a8e546ce02 (clean tree) scope=all
 ```
 
 `test2` is **N/A**: nothing changed under `TWO_PLAYER_PATHS`. The changed code paths are
@@ -88,12 +88,47 @@ fits on a landscape phone. **Zero new remotes, flags or ScreenGuis.**
    exactly `Touch.reserved` = **(144, 168)**. Frame: `<runs-dir>/t220-touch-landscape.png`,
    **inspected** (rule 5).
 
-10. **The gate found three real faults and they are fixed, not worked around.** Commit `9f7f8902`:
-    the spec left the player holding the wrong Tool (`blowHorn` equips the horn, and
+10. **ROUND 1's BLOCKING FINDING IS FIXED, AND IT WAS RIGHT.** `Touch.setCarried` / `setHorn` were
+    driven from `render`, which runs on `Weapon.Changed` — a signal fired from the server's
+    `publish`, **which never runs for a player who has no gun**. That player is a BEATER, and BLOW
+    is his button: his horn arriving after `Hud.start` told `Touch` nothing. The two tells moved
+    into `Hud.renderObjective`, the one pass that runs every frame and already calls
+    `Touch.setCovered` / `Touch.applyLayout`; it takes the Weapon module as an optional second
+    argument. **A case that would have caught it** adds a Tool named `Horn.TOOL_NAME` to the
+    **Backpack** — never equipping it, so `Weapon.Changed` does not fire and only a per-frame
+    reader can see it — and asserts `Touch.state().hasHorn` goes true and then false.
+    *Verify:* commit `cfd7df72`; the case *"sees a horn arrive and leave, without any weapon state
+    changing"*; `Touch.state` exists because the drawing cannot show this on a desktop, where the
+    whole cluster is hidden.
+
+11. **Four of round 1's notes are fixed in the same commit, because each was a comment telling a
+    lie rather than a preference:** the rail's pre-fold bottom was **460**, not 510 (510 is the
+    same arithmetic at the desktop step's 150 px minimap — both are off a 400 px screen, and the
+    comment now says which is which, in `Rail.luau` and in the backups note);
+    `MapUi.fullMapRect` defaulted to the **told** column, which would have made a pure exported
+    rectangle answer differently in a folded session than in an unfolded one for the same
+    arguments — it defaults to the constant now, as the design said; `Hud.build`'s rail comment
+    still named `MapUi.applyLayout` as the writer of its `Position`; and `MapUi.railColumn` /
+    `setRailColumn` had been inserted between `MapUi.setTarget`'s doc comment and `setTarget`
+    itself. The remaining notes are queued as **220a**.
+
+12. **The earlier gate rounds found three real faults, fixed not worked around.** Commit
+    `9f7f8902`: the spec left the player holding the wrong Tool (`blowHorn` equips the horn, and
     `weapon_client.spec` asserts four bound actions that exist only with a gun in hand — it failed
     with 0); the spec modelled a different rail floor from the renderer; and the 800 × 400
     rail/jump collision is claim 8. Commit `ca3394cb`: the exclusion key was order-sensitive.
-    *Verify:* those two commit messages, and `493 passed, 0 failed` on the client.
+
+## Three gate runs I wasted, reported because they look exactly like a code defect (rule 8)
+
+Between rounds, **I left Studio's Device Simulator on**. The click I believed exited it in fact
+switched the profile to **Meta Quest 3**, and the next three gate runs played the client in a
+VR-emulated viewport where the client runner never reported at all — consuming its whole 300 s
+budget and then failing `zz_drive_boundary` on the **server** with its own note, *"a client never
+reported"*. One stall, two red lines, and neither was the code: a bisect that removed the new case
+failed identically, and a screenshot of the DEV window showed the device bar reading *Meta Quest
+3*. **The Device Simulator is Studio state that outlives the session that set it and the harness
+cannot see it.** With it off the gate is 33/33 in 204 s again. Worth a harness check, queued as
+**220b** beside the `capture` fault below.
 
 ## What I could not verify (rules 6 and 8)
 
