@@ -920,10 +920,19 @@ return function()
 			end).to.throw()
 		end)
 
-		it("is born behind a flag that is off, so nothing is written until Karen says so", function()
+		it("was born behind a flag that was off, and since task 233 that flag is LIT", function()
+			-- FLIPPED ON 2026-10-21 (task 233, "v1 default"): Karen's v1 decisions put money in the
+			-- game, so a server without her place attributes has to pay a drive. `owner` is asserted
+			-- unchanged beside the flip, so a row somebody rewrote cannot pass as one somebody lit.
+			--
+			-- THE LINE THAT MATTERS MOST IS THE LAST ONE, and it is unchanged: the module's
+			-- `ENABLED` is the flag and nothing else, read ONCE at the boundary. Every case in this
+			-- file still drives both branches by parameter (`enabled = true` / `false` through
+			-- `Economy.start`'s world), because no harness run may set a `DHFlag_` override at all --
+			-- so the flip changes which branch the LIVE build takes and no case's coverage.
 			local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 			expect(Flags.DEFAULTS.COINS).to.be.ok()
-			expect(Flags.DEFAULTS.COINS.default).to.equal(false)
+			expect(Flags.DEFAULTS.COINS.default).to.equal(true)
 			expect(Flags.DEFAULTS.COINS.owner).to.equal("ServerScriptService.Economy")
 			expect(Economy.CONFIG.ENABLED).to.equal(Flags.isOn("COINS"))
 		end)

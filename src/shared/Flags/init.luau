@@ -58,9 +58,9 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- without touching this line, and that is the Director's call (docs/design/shop.md section 16
 -- item 8), not this task's.
 --
--- LIT (9): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
---          BOAR_MODEL (task 230), BOAR_BEHAVIOUR and HORN (task 233).
--- DARK (5): QUICK_TEST, DRIVE_BOTS, COINS, SHOP, LOBBY.
+-- LIT (10): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
+--           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN and COINS (task 233).
+-- DARK (4): QUICK_TEST, DRIVE_BOTS, SHOP, LOBBY.
 Flags.MAX_FLAGS = 14
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
@@ -340,14 +340,27 @@ Flags.DEFAULTS = {
 		-- also the kill switch and the rollback. The three rates (`COINS_PER_POINT`, `PARTICIPATION`,
 		-- `FIRST_PLACE`) are feel numbers and are Karen's after one drive, which is the ordinary
 		-- reason as well.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-21 (task 233, "v1 default"). Karen's v1 decision that day puts
+		-- money in the game in dollars, with the shop and its v1 list, so a server without her place
+		-- attributes has to pay a drive. THE KILL SWITCH IS NOT GONE, it has only changed sides: one
+		-- line back to `false` opens no session and writes no key, and `Economy.start`'s
+		-- `world.enabled` keeps both branches reachable BY PARAMETER -- which is what every case in
+		-- `economy.spec` drives, because no harness run may set an override at all. IN STUDIO NOTHING
+		-- REACHES A LIVE DATASTORE EITHER WAY: `Economy.Store` takes the in-memory implementation
+		-- whenever `RunService:IsStudio()`, so a playtest and a harness run write no key even with
+		-- *Enable Studio Access to API Services* on.
+		default = true,
 		-- The owner is the module that READS it at its boundary (`Economy.CONFIG.ENABLED`) and passes
 		-- it inward through `Economy.start`'s `world.enabled` -- the only permitted shape, and what
 		-- keeps both branches reachable by parameter while the flag sits at one of them. `Match`
 		-- never reads this flag: it is handed a view whose `payDrive` is a no-op when it is off.
 		owner = "ServerScriptService.Economy",
 		born = "2026-10-13 task 170",
-		expires = "2026-11-03", -- 21 days: the ceiling in feature-flags.md section 12
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, for the reason `BOAR_MODEL`, `BOAR_BEHAVIOUR`
+		-- and `HORN` do not: the ceiling in feature-flags.md section 12 is what stops a DARK path
+		-- living for ever, and from today this path is LIT.
+		expires = "2026-12-31",
 		-- WHAT OFF REALLY LEAVES, corrected in round 2 of the gate. The old sentence claimed *"the
 		-- score panel is task 159's one-table board"*, and that was never true: the SPLIT into hunters
 		-- and beaters is Karen's own decision (2026-10-12) and is not about money, so it is there in
