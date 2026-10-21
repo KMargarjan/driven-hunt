@@ -149,6 +149,10 @@ local title: TextLabel? = nil
 local coinsValue: TextLabel? = nil
 local huntsValue: TextLabel? = nil
 local well: ScrollingFrame? = nil
+-- THE WELL'S TWO FADE MASKS (task 228, shop2 spec 1.5): a row scrolling under the top or bottom
+-- inside edge dissolves instead of being cut off square.
+local wellFadeTop: Frame? = nil
+local wellFadeBottom: Frame? = nil
 local strip: ScrollingFrame? = nil
 local stripFade: Frame? = nil
 local detail: Frame? = nil
@@ -991,7 +995,10 @@ local function buildWell(root: Frame)
 	local stack = Instance.new("UIListLayout")
 	stack.FillDirection = Enum.FillDirection.Vertical
 	stack.SortOrder = Enum.SortOrder.LayoutOrder
-	stack.Padding = UDim.new(0, 0)
+	-- TASK 228, AND IT IS THE SINGLE LINE THE SHOP2 SPEC CALLS *"most of the fix"* (section 1.2).
+	-- Karen, 2026-10-21: *"cards on left side is cluttered a bit"*. At `Padding` 0 the eight rows
+	-- SHARE THEIR EDGES and read as one striped slab; at 8 they read as eight things.
+	stack.Padding = UDim.new(0, PANEL.ROW_GAP)
 	stack.Parent = column
 	well = column
 
@@ -1003,26 +1010,39 @@ local function buildWell(root: Frame)
 	-- the discipline every panel in this Hud keeps.
 	for index, group in ipairs(ShopData.groups(ShopData.rowsFor(nil, nil, nil, true))) do
 		order += 1
+		-- THE SHELF HEAD AND ITS TWO KINDS OF AIR (task 228, shop2 spec 1.4). `SHELF_LEAD` is the air
+		-- ABOVE the head and is 0 for the first one in the list; `SHELF_TRAIL` is the air between the
+		-- head's own band and its first row, given as this frame's `PaddingBottom` so the rows stay a
+		-- plain `UIListLayout` sequence. One `SHELF_GAP` used to answer both and answered neither:
+		-- the head sat 9 px under the row above it and 0 px over the row it names.
+		-- THE STACK'S OWN `ROW_GAP` IS ALREADY BETWEEN THIS FRAME AND ITS NEIGHBOURS, so each side's
+		-- padding carries only the REST of the air the spec asks to SEE. Without that subtraction
+		-- the head would sit 28 px under the row above it and 18 over the row it names, and the
+		-- canvas arithmetic the spec's fold is measured with (1.5: 1078 in a 480 viewport, five
+		-- whole rows and one whole head above the fold) would be 72 px out.
+		local lead = if index > 1 then PANEL.SHELF_LEAD - PANEL.ROW_GAP else 0
+		local trail = PANEL.SHELF_TRAIL - PANEL.ROW_GAP
 		local shelf = frame(column, string.format("Shelf_%s", group.category), 2)
 		shelf.BackgroundTransparency = 1
 		shelf.LayoutOrder = order
-		shelf.Size = UDim2.new(1, 0, 0, PANEL.SHELF_PX)
-		if index > 1 then
-			local gap = Instance.new("UIPadding")
-			gap.PaddingTop = UDim.new(0, PANEL.SHELF_GAP)
-			gap.Parent = shelf
-			shelf.Size = UDim2.new(1, 0, 0, PANEL.SHELF_PX + PANEL.SHELF_GAP)
-		end
+		shelf.Size = UDim2.new(1, 0, 0, lead + PANEL.SHELF_PX + trail)
+		local band = Instance.new("UIPadding")
+		band.PaddingTop = UDim.new(0, lead)
+		band.PaddingBottom = UDim.new(0, trail)
+		band.Parent = shelf
 		local text = label(shelf, "ShelfText", SANS_BOLD, 10, LOOK.FAINT, 3)
 		text.Text = spaced(group.label)
 		text.AutomaticSize = Enum.AutomaticSize.X
 		text.Size = UDim2.fromOffset(0, PANEL.SHELF_PX)
 		text.TextYAlignment = Enum.TextYAlignment.Center
-		-- A LABEL ON THE LEFT AND A RULE FILLING THE REST (spec 3.3). One hairline, never a box.
+		-- A LABEL ON THE LEFT AND A RULE FILLING THE REST (spec 3.3). One hairline, never a box. It
+		-- is centred in the head's OWN 20 px band, which the padding above has already made the
+		-- frame's whole interior -- so there is no half-gap to add back by hand any more.
 		local rule = frame(shelf, "ShelfRule", 3)
 		rule.BackgroundColor3 = LOOK.LINE
+		rule.BackgroundTransparency = 0.55
 		rule.AnchorPoint = Vector2.new(1, 0.5)
-		rule.Position = UDim2.new(1, 0, 0.5, if index > 1 then math.floor(PANEL.SHELF_GAP / 2) else 0)
+		rule.Position = UDim2.fromScale(1, 0.5)
 		rule.Size = UDim2.new(1, -(#group.label * 7 + 16), 0, 1)
 		table.insert(shelves, text)
 
@@ -1055,17 +1075,27 @@ local function buildWell(root: Frame)
 					ColorSequenceKeypoint.new(1, LOOK.BLAZE_LO),
 				})
 			)
+			-- ONE ROW, INSIDE (task 228, shop2 spec 1.3). Left inset 14, right inset 12, and the
+			-- interior air is 11 top / 6 between the two lines / 11 bottom -- it was 10 / 2 / 12,
+			-- and *"the 6 is what makes a row look like two facts instead of one lump"*.
+			--
+			-- THE NAME LINE STAYS CLEAR: no tag, no chip, no second number on it, ever. That rule is
+			-- what buys the row its calm. The truncate is insurance and not a plan -- the longest
+			-- name in the catalogue, `SEMI-AUTO SHOTGUN`, measures 118 px of the 190 it has.
 			local name = label(made, "Name", OSWALD_MD, 16, LOOK.PAPER, 3)
-			name.Position = UDim2.fromOffset(14, 10)
-			name.Size = UDim2.new(1, -25, 0, 19)
+			name.Position = UDim2.fromOffset(14, 11)
+			name.Size = UDim2.new(1, -26, 0, 19)
+			name.TextTruncate = Enum.TextTruncate.AtEnd
 			local disc = coin(made, "PriceCoin", 11, 3)
-			disc.Position = UDim2.fromOffset(14, 34)
+			disc.Position = UDim2.fromOffset(14, 39)
 			local price = label(made, "Price", OSWALD_MD, 14, LOOK.COIN_TEXT, 3)
-			price.Position = UDim2.fromOffset(31, 31)
+			price.Position = UDim2.fromOffset(31, 36)
 			price.Size = UDim2.fromOffset(90, 17)
+			-- THE TAG'S 19 PX BAND (35..54) IS CENTRED ON THE PRICE'S 17 PX BAND (36..53). Both used
+			-- to be written at y 31 and sat 1 px out.
 			local chip = tagChip(made, 3)
 			chip.AnchorPoint = Vector2.new(1, 0)
-			chip.Position = UDim2.new(1, -9, 0, 31)
+			chip.Position = UDim2.new(1, -12, 0, 35)
 			-- THE ID IS CLOSED OVER AND NOTHING ELSE IS. A click SELECTS; it never buys and never
 			-- reads a price, so a row drawing a different item after a redraw cannot buy the one it
 			-- used to show.
@@ -1084,6 +1114,31 @@ local function buildWell(root: Frame)
 				end
 			end)
 			table.insert(menu, { id = id, row = made })
+		end
+	end
+
+	-- THE TWO FADE MASKS (task 228, shop2 spec 1.5), so a row scrolling under the well's top edge
+	-- DISSOLVES instead of being guillotined. They are children of the well's PARENT and not of the
+	-- `ScrollingFrame`, or they would scroll with the rows they are masking; they are placed by
+	-- `relayout`, which is the one writer of every rectangle in this panel; and they are never
+	-- pressable (`Active = false`), so a press over the top row still reaches the row.
+	for _, side in ipairs({ { name = "FadeTop", rotation = 0 }, { name = "FadeBottom", rotation = 180 } }) do
+		local mask = frame(root, side.name, 6)
+		mask.Name = side.name
+		mask.BackgroundColor3 = LOOK.COLUMN
+		mask.Active = false
+		mask.Visible = false
+		local paint = Instance.new("UIGradient")
+		paint.Rotation = 90 + side.rotation
+		paint.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		paint.Parent = mask
+		if side.name == "FadeTop" then
+			wellFadeTop = mask
+		else
+			wellFadeBottom = mask
 		end
 	end
 end
@@ -1110,14 +1165,48 @@ local function buildStrip(root: Frame)
 	local row = Instance.new("UIListLayout")
 	row.FillDirection = Enum.FillDirection.Horizontal
 	row.SortOrder = Enum.SortOrder.LayoutOrder
-	row.Padding = UDim.new(0, PANEL.CARD_GAP)
+	-- EVERY GAP IN THIS STRIP IS A SPACER FRAME AND NOT THE LAYOUT'S PADDING (task 228, shop2 spec
+	-- 1.6), because the two gaps are different widths: 10 between two cards in a category and 18
+	-- across a category boundary. A layout padding applies on BOTH sides of a spacer, so a padding
+	-- of 10 could never produce a boundary of 18 -- the spacer would have to be -2 wide. With the
+	-- padding at 0, each gap is exactly the frame that is in it, and the boundary's frame is the one
+	-- that carries the hairline.
+	row.Padding = UDim.new(0, 0)
 	row.Parent = rail
 	strip = rail
 
+	-- ONE GAP BETWEEN TWO CARDS. `rule` is true at a category boundary, where the gap is wider and
+	-- has a 1 px hairline down its middle -- *"the strip has no room for a word; a rule is the
+	-- honest version of a shelf head"*. The player still learns the category from the eyebrow over
+	-- the item's name in the detail pane, which already says WEAPONS / AMMO / LICENCES / ACCESS /
+	-- PACKAGES.
+	local function spacer(name: string, order: number, width: number, rule: boolean)
+		local gap = frame(rail, name, 2)
+		gap.BackgroundTransparency = 1
+		gap.LayoutOrder = order
+		gap.Size = UDim2.fromOffset(width, PANEL.STRIP_PX)
+		if rule then
+			local hair = frame(gap, "GroupRule", 3)
+			hair.BackgroundColor3 = LOOK.LINE
+			hair.BackgroundTransparency = 0.55
+			hair.AnchorPoint = Vector2.new(0.5, 0)
+			hair.Position = UDim2.fromScale(0.5, 0)
+			hair.Size = UDim2.new(0, 1, 1, 0)
+		end
+	end
+
 	table.clear(cards)
 	local order = 0
-	for _, group in ipairs(ShopData.groups(ShopData.rowsFor(nil, nil, nil, true))) do
-		for _, wireRow in ipairs(group.rows) do
+	for groupIndex, group in ipairs(ShopData.groups(ShopData.rowsFor(nil, nil, nil, true))) do
+		if groupIndex > 1 then
+			order += 1
+			spacer(string.format("GroupGap_%s", group.category), order, PANEL.CARD_GROUP_GAP, true)
+		end
+		for cardIndex, wireRow in ipairs(group.rows) do
+			if cardIndex > 1 then
+				order += 1
+				spacer(string.format("CardGap_%s_%d", group.category, cardIndex), order, PANEL.CARD_GAP, false)
+			end
 			order += 1
 			local id = wireRow.id
 			local card = Instance.new("TextButton")
@@ -1139,23 +1228,31 @@ local function buildStrip(root: Frame)
 			cardPad.PaddingTop = UDim.new(0, 9)
 			cardPad.PaddingRight = UDim.new(0, 9)
 			cardPad.Parent = card
-			local category = label(card, "Category", SANS_BOLD, 8, LOOK.FAINT, 3)
-			category.Text = spaced(group.label)
-			category.Size = UDim2.new(1, 0, 0, 10)
-			local name = label(card, "Name", OSWALD_MD, 13, LOOK.PAPER, 3)
-			name.Position = UDim2.fromOffset(0, 13)
-			name.Size = UDim2.new(1, 0, 0, 28)
+			-- INSIDE A CARD (task 228, shop2 spec 1.6): the tag top-right, the name at the BOTTOM and
+			-- the price under it, with the top of the card left as the picture slot. THE CATEGORY
+			-- WORD IS GONE from the card -- the rule between two groups says it now, and the
+			-- eyebrow over the name in the detail pane says it in words.
+			--
+			-- NOTHING DRAWS IN THE PICTURE SLOT YET, and that is deliberate: a `ViewportFrame` per
+			-- card would be ten cameras in a strip, which is exactly the count `Hud.ReportPanel`
+			-- refused one for. The slot is the air the tag sits in.
+			local name = label(card, "Name", SANS_SEMI, 11, LOOK.PAPER, 3)
+			name.AnchorPoint = Vector2.new(0, 1)
+			name.Position = UDim2.new(0, 0, 1, -26)
+			name.Size = UDim2.new(1, 0, 0, 26)
 			name.TextWrapped = true
+			name.TextTruncate = Enum.TextTruncate.AtEnd
+			name.TextYAlignment = Enum.TextYAlignment.Bottom
 			local disc = coin(card, "PriceCoin", 10, 3)
 			disc.AnchorPoint = Vector2.new(0, 1)
 			disc.Position = UDim2.new(0, 0, 1, -11)
-			local price = label(card, "Price", OSWALD_MD, 13, LOOK.COIN_TEXT, 3)
+			local price = label(card, "Price", OSWALD_MD, 12, LOOK.COIN_TEXT, 3)
 			price.AnchorPoint = Vector2.new(0, 1)
 			price.Position = UDim2.new(0, 15, 1, -6)
 			price.Size = UDim2.new(1, -15, 0, 16)
 			local chip = tagChip(card, 3)
-			chip.AnchorPoint = Vector2.new(0, 1)
-			chip.Position = UDim2.new(0, 0, 1, -4)
+			chip.AnchorPoint = Vector2.new(1, 0)
+			chip.Position = UDim2.fromScale(1, 0)
 			card.Activated:Connect(function()
 				ShopPanel.select(id)
 			end)
@@ -1536,6 +1633,20 @@ function ShopPanel.relayout()
 		(well :: ScrollingFrame).Visible = wide;
 		(well :: ScrollingFrame).Position = UDim2.fromOffset(layout.wellX, layout.wellY);
 		(well :: ScrollingFrame).Size = UDim2.fromOffset(layout.wellWidth, layout.wellHeight)
+	end
+	-- THE FADES SIT INSIDE THE WELL'S OWN PADDING, over its top and bottom inside edge: 12 px in from
+	-- each side so they stop at the rows' own width, and `WELL_FADE` tall.
+	local fadeInset = PANEL.WELL_PAD
+	if wellFadeTop then
+		(wellFadeTop :: Frame).Visible = wide;
+		(wellFadeTop :: Frame).Position = UDim2.fromOffset(layout.wellX + fadeInset, layout.wellY + 1);
+		(wellFadeTop :: Frame).Size = UDim2.fromOffset(layout.rowWidth, PANEL.WELL_FADE)
+	end
+	if wellFadeBottom then
+		(wellFadeBottom :: Frame).Visible = wide;
+		(wellFadeBottom :: Frame).Position =
+			UDim2.fromOffset(layout.wellX + fadeInset, layout.wellY + layout.wellHeight - PANEL.WELL_FADE - 1);
+		(wellFadeBottom :: Frame).Size = UDim2.fromOffset(layout.rowWidth, PANEL.WELL_FADE)
 	end
 	if strip then
 		(strip :: ScrollingFrame).Visible = not wide;

@@ -693,18 +693,45 @@ Shop.CONFIG = {
 		-- WIDE: the side-menu well and the detail column beside it (spec 3.3).
 		WELL_X = 16,
 		WELL_Y = 72,
-		WELL_WIDTH = 228,
+		-- TASK 228, AND THE WHOLE OF THIS BLOCK IS THE SHOP2 SPEC'S SECTION 1.2. Karen, 2026-10-21:
+		-- *"in menu need more space between items now cards on left side is cluttered a bit"*. The
+		-- Designer measured what was wrong off `.screenshots/221-shop-weapons.png`: eight rows
+		-- sharing their edges (`ROW_GAP` was not a key, the list layout's padding was 0), 2 px
+		-- between a row's name and its price, and a shelf head closer to the row ABOVE it than to
+		-- the rows it names. *"The fix is air, not rearrangement"* -- nothing moves sideways.
+		--   `<runs-dir>/design/shop2-spec.md` section 1.2, which supersedes
+		--   `shop-design-spec.md` 3.3's `ROW_PX 60`, `SHELF_PX 24`, `SHELF_GAP 9`, `WELL_WIDTH 228`,
+		--   `WELL_PAD 10` and the zero row gap, and 3.4's `STRIP_PX 82` / `CARD_WIDTH 104` /
+		--   `CARD_GAP 8`.
+		WELL_WIDTH = 236,
 		WELL_BOTTOM = 24,
-		WELL_PAD = 10,
+		-- 12 AND NOT 10: the spacing scale's next step, and it is also the gutter the 3 px scrollbar
+		-- lives in, so the bar never touches a row.
+		WELL_PAD = 12,
 		DETAIL_GAP = 16,
-		ROW_PX = 60,
-		SHELF_PX = 24,
-		SHELF_GAP = 9,
-		-- TALL: the horizontal strip of cards under the header (spec 3.4).
+		ROW_PX = 64,
+		-- THE ONE LINE THAT IS MOST OF THE FIX: `stack.Padding`. At 0 the rows share their edges and
+		-- eight near-identical dark rectangles read as one striped slab rather than as eight things.
+		ROW_GAP = 8,
+		-- 20 AND NOT 24: a 10 px word needs 20. The head is a SIGNPOST, not a heading.
+		SHELF_PX = 20,
+		-- `SHELF_GAP` 9 IS GONE, SPLIT IN TWO, because "air before" and "air after" are different
+		-- questions and one number answered neither: the head sat 9 px under the row above it and
+		-- 0 px over the first row it names, so the brass hairline touched that row's corner.
+		SHELF_LEAD = 20, -- above a shelf head. 0 for the FIRST head in the list.
+		SHELF_TRAIL = 10, -- between the head's band and its first row.
+		-- THE FADE MASK at the top and bottom inside edge of the well, so a row scrolling under the
+		-- edge dissolves instead of being guillotined (spec 1.5).
+		WELL_FADE = 10,
+		-- TALL: the horizontal strip of cards under the header (spec 3.4, amended by shop2 1.6).
 		STRIP_Y = 74,
-		STRIP_PX = 82,
-		CARD_WIDTH = 104,
-		CARD_GAP = 8,
+		STRIP_PX = 88,
+		CARD_WIDTH = 108,
+		CARD_GAP = 10,
+		-- BETWEEN TWO CATEGORIES in the strip, with a 1 px rule down its middle. *"The strip has no
+		-- room for a word; a rule is the honest version of a shelf head"* -- the player still learns
+		-- the category from the eyebrow over the name in the detail pane.
+		CARD_GROUP_GAP = 18,
 		STRIP_PAD = 16,
 		-- 44 AND NOT 26 (task 196 part 3f). At 26 the hint was too narrow to read as "there is more"
 		-- and the last card still looked CHOPPED -- which is what the Director read off the 400-wide
