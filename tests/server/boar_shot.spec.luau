@@ -170,6 +170,18 @@ return function()
 				-- `KINDS.ENABLED` on themselves -- so the pin belongs here, where every world is
 				-- built, rather than at each of them.
 				SPECIES = noDeer(),
+				-- ...AND NO SENSE MODEL IN ANY OF THEM EITHER (task 233, `SENSE.ENABLED = false`).
+				-- `BOAR_BEHAVIOUR` became a v1 default on 2026-10-21. This file is about the SHOT --
+				-- the wound, the voice, the footstep ration -- and its drivers exist only to make
+				-- animals MOVE, so that a footstep ceiling is measured on animals that have
+				-- footsteps to make. The sense model reads those same drivers differently: the crowd
+				-- case's driver stands 18 studs off (inside `NOTICE_STANDING` 25, outside
+				-- `FLUSH_STUDS` 15, so AVOID rather than FLEE) and the loose case's stands 38.5
+				-- (outside 25, so NOT NOTICED AT ALL and every animal goes on grazing). A ration
+				-- measured on a standing world proves nothing, which is the reason the `threats`
+				-- above exist at all. The sense model's own voices are
+				-- `boar_behaviour_live.spec`'s *"sprints the boar inside the audible radius"*.
+				SENSE = { ENABLED = false },
 				-- THE FLAG AS A PARAMETER, the one permitted shape (docs/design/feature-flags.md
 				-- section 13.3). A clone, so the runtime never writes into the module's own table.
 				MODEL = (function()
@@ -933,7 +945,16 @@ return function()
 			world.threats = function()
 				-- INSIDE `DETECT_RADIUS`, or nothing runs and a footstep cap proves nothing: the
 				-- sounder is dropped at z -10 and the driver stands 18 studs up-field of it.
-				return { { position = Vector3.new(0, GROUND_Y, 8), kind = "driver" } }
+				--
+				-- `id` IS PART OF THE SEAM AND WAS MISSING FROM ALL THREE PROVIDERS IN THIS FILE
+				-- (task 233). `docs/design/boar-behaviour.md` writes it `world.threats()` ->
+				-- `{ { id, position } }`, and every production provider sets it
+				-- (`Match.Body.boarStimuli`, `ForestTest.boarThreats`). Nothing read it while
+				-- `BOAR_BEHAVIOUR` was off; `Runtime:_measureMotion` indexes by it, so the first gate
+				-- run after the flip died here with **"ServerScriptService.Boar:3681: table index is
+				-- nil"** on three cases. The fake now matches the contract, so the file cannot turn
+				-- the sense model on one day and crash on a fake nobody had finished.
+				return { { id = "crowd-driver", position = Vector3.new(0, GROUND_Y, 8), kind = "driver" } }
 			end
 			world.config.KINDS = {
 				ENABLED = true,
@@ -1029,7 +1050,7 @@ return function()
 				-- footstep ceiling proves nothing: the farthest animal below stands 38.5 studs from
 				-- this. They start at z 20 rather than 0 so six seconds of fleeing cannot carry any
 				-- of them over the plate's exit line at z -40.
-				return { { position = Vector3.new(0, GROUND_Y, 40), kind = "driver" } }
+				return { { id = "loose-driver", position = Vector3.new(0, GROUND_Y, 40), kind = "driver" } }
 			end
 			-- ROOM FOR TWELVE (task 129). `Boar.CONFIG.maxBoars` is 8 -- the drive's own ceiling,
 			-- because a real drive releases a sounder at a time -- and a WORLD-WIDE voice ration only
@@ -1203,7 +1224,7 @@ return function()
 			-- the cool-down does, step once, and it is back.
 			local world = buildWorld(true, "BoarsLoopBack")
 			world.threats = function()
-				return { { position = Vector3.new(0, GROUND_Y, 30), kind = "driver" } }
+				return { { id = "breath-driver", position = Vector3.new(0, GROUND_Y, 30), kind = "driver" } }
 			end
 			local runtime = Boar.newRuntime(world)
 			local template = makeTemplate()

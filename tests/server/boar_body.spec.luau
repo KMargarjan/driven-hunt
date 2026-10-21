@@ -103,6 +103,18 @@ return function()
 			parent = testRoot,
 			folderName = "Boars",
 			rng = Random.new(11),
+			-- THE OLD FLUSH, BY PARAMETER (task 233). `BOAR_BEHAVIOUR` became a v1 default on
+			-- 2026-10-21, and this file is Milestone 1.2's BODY: the sprint ramp, the distance
+			-- gained, the uprightness and the despawn at the exit edge -- all of them measured on a
+			-- body that has already decided to run. It reaches that decision through the one 40-stud
+			-- `DETECT_RADIUS`, and its threat stands 20 studs behind, which under the sense model is
+			-- inside `NOTICE_STANDING` (25) but OUTSIDE `FLUSH_STUDS` (15): the boar reads it as
+			-- AVOID and never enters FLEE at all. MEASURED on the flip's own gate run: *"sprints
+			-- away from a threat"* failed at `expect(sensed).to.equal(true)`, and the two cases that
+			-- follow it (the distance gained, the despawn) failed with it. Pinning the flag here is
+			-- what keeps the OFF branch tested now that it sits at the other one; the sense model's
+			-- own physical boar is `boar_behaviour_live.spec`.
+			config = { SENSE = { ENABLED = false } },
 			threats = function()
 				if not threatPosition then
 					return {}
@@ -558,7 +570,18 @@ return function()
 				-- sounder machinery in the world the game actually runs is worth more than asserting
 				-- it in the one it used to. What they cannot survive is a release that silently
 				-- becomes THREE DEER -- which is what turned four cases here red.
-				config = { SPECIES = noDeer() },
+				-- ...AND THE OLD FLUSH PINNED IN, BY PARAMETER (task 233, `SENSE.ENABLED = false`).
+				-- `BOAR_BEHAVIOUR` became a v1 default on 2026-10-21, and this file is Milestone
+				-- 1.2's BODY: what the herd case measures is five bodies running together, upright
+				-- and fast, once the decision to run has been made. It reaches that decision through
+				-- the one 40-stud `DETECT_RADIUS`, and its threat stands 25 studs behind -- which
+				-- under the sense model is `NOTICE_STANDING` and NOT `FLUSH_STUDS` (15), so the
+				-- sounder reads it as AVOID and trots instead of running. MEASURED on the flip's own
+				-- gate run: *"runs as a group when a driver appears"* failed at
+				-- `expect(fast >= 0.4 * CONFIG.SPRINT_SPEED)`. The sense model's own live herd --
+				-- panic spread, both formations, the sprint -- is asserted in
+				-- `boar_behaviour_live.spec`, which turns the flag ON by parameter.
+				config = { SPECIES = noDeer(), SENSE = { ENABLED = false } },
 				threats = function()
 					if not herdThreat then
 						return {}
