@@ -1,18 +1,29 @@
 # Escalations
 
-## 2026-10-21 - Task 233: **REVIEW ROUND 1 FOUND ONE BLOCKING ITEM, FIXED; `test2` NEEDED AGAIN.** Four of five v1 defaults are lit; `SHOP` is task 233b.
+## 2026-10-21 - Task 233: **ROUND 1's BLOCKING ITEM FIXED; BOTH GATES GREEN AT `e2d41773`.** Four of five v1 defaults are lit; `SHOP` is task 233b.
 
-### 1b. NEEDS DIRECTOR: `test2` AGAIN, for round 2, at the branch head of `task-233-v1-defaults`
+### 1b. ~~NEEDS DIRECTOR: `test2` for round 2~~ -- **CLOSED, 2026-10-21. Both lines name `e2d41773`.**
 
-The Reviewer's round-1 verdict had one blocking finding and it was right (`match_teams.spec`'s
-COINS-on arm asserted nothing). Fixing it changed THREE `TWO_PLAYER_PATHS` specs --
-`tests/server/match_teams.spec.luau`, `tests/client/match_client.spec.luau` and
-`tests/server/zz_drive_boundary.spec.luau` -- so the `[harness2] PASS @ 8d5e1859` below no longer
-covers the code, and `tools/agents.py` will refuse round 2 until there is a new one.
+```
+[harness]  PASS: 34/34 checks @ e2d41773fcce0017a750e7446b2121f92f1f113f (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ e2d41773fcce0017a750e7446b2121f92f1f113f (clean tree)
+```
 
-**Run it at the branch head** (`git rev-parse HEAD` on `task-233-v1-defaults` after the push; the
-Builder's report names the sha). The one-player line for that head is in the request. As last time,
-the Builder will re-run `test` at whatever sha the click lands on, so both lines name one commit.
+Round 2 fixed the Reviewer's one blocking finding, which changed three `TWO_PLAYER_PATHS` specs; the
+Director's run (`test2-t233c.log`) is green at the same commit the one-player line names.
+
+**ONE THING FOR THE DIRECTOR TO WEIGH BEFORE MERGING (Learning Agent L-033).** The case this round
+fixed guards a stale-mirror / session-timing hazard in the same `Economy` write-and-read path task
+214 paid for -- a RACE-CLASS defect -- and there is exactly ONE clean two-player run at this head.
+L-033 asks for a second consecutive one before a race-class change merges. The Builder cannot run
+`test2`; this is the Director's call, and it is cheap compared with what task 214 cost.
+
+**A STABILITY OBSERVATION, not a blocker.** Three one-off client failures appeared across this
+task's eleven one-player runs and none reproduced: `camera_client.spec:376` (on `main`'s own tree,
+before any change in this task), `boar_body.spec:743` (`pathFailures` under load), and
+`camera_client.spec:1618` (at `e2d41773`, whose Luau is byte-identical to `e14105a0`'s, which had
+just passed 34/34 -- the immediate re-run passed). Worth a look some time; nothing in task 233
+depends on it.
 
 ### 1. ~~NEEDS DIRECTOR: `test2`~~ -- **ROUND 1: CLOSED, 2026-10-21. Both gate lines named one commit.**
 

@@ -3,29 +3,20 @@
 Task: 233
 Round: 2
 Base: `main` at `3558c177` (the merge of task 231)
-Code commit: `e14105a006b406b5fff59f3ab4ef38c73b13c0f7`
+Code commit: `e2d41773fcce0017a750e7446b2121f92f1f113f`
 
 ```
-[harness]  PASS: 34/34 checks @ e14105a006b406b5fff59f3ab4ef38c73b13c0f7 (clean tree) scope=all
-```
-Round 1's two-player line, which this round's spec changes made stale:
-```
-[harness2] PASS: 36/36 checks @ 8d5e1859ca088d94bbba7fe5d581c7dc386ee840 (clean tree)
+[harness]  PASS: 34/34 checks @ e2d41773fcce0017a750e7446b2121f92f1f113f (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ e2d41773fcce0017a750e7446b2121f92f1f113f (clean tree)
 ```
 One player: 1983 server + 517 client assertions, 65 server spec files, 25 client. Two players
-(the Director's run, `test2-t233b.log`): server 1983/0, shooter 517/0, driver 511/0.
-
-**ROUND 2 CHANGES THREE `TWO_PLAYER_PATHS` SPECS, so the `[harness2]` line above is STALE and a
-new one is needed before this round can be judged.** The round-1 verdict's one blocking finding is
-fixed in claim 15, and three of its four notes are taken; what changed is
-`tests/server/match_teams.spec.luau`, `tests/client/match_client.spec.luau` and
-`tests/server/zz_drive_boundary.spec.luau` -- all three in that list -- so `tools/agents.py` will
-refuse this round until the Director has run `test2` at the new head. `ESCALATE.md` carries it.
+(the Director's run, `test2-t233c.log`): server 1983/0, shooter 517/0, driver 511/0.
 
 **`test2` IS IN THIS GATE BY THE DIRECTOR'S DECISION, not by `TWO_PLAYER_PATHS`**: `HORN` and
-`LOBBY` change the drive and enrolment. **Its round 1 ran at `6ade841d` and FAILED 32/36**; both
-failures are diagnosed in claims 11 and 12, both are spec fixes and neither was a defect, and the
-line above is round 2 passing at this request's own code commit.
+`LOBBY` change the drive and enrolment. It has run three times on this branch -- FAILED 32/36 at
+`6ade841d` (both failures diagnosed in claims 11 and 12, both spec fixes, neither a defect), PASSED
+at `8d5e1859`, and PASSED again at this request's own code commit after round 2's three
+`TWO_PLAYER_PATHS` specs changed.
 
 ## What changed, and why
 
@@ -214,6 +205,25 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
     goes stale, this fails. *Verify:* the `Economy.isEnabled()` arm of *"agrees with the team the
     drive gave him"*; `Economy.noteNextTeams` and `Economy.owedTeams`; `Match`'s write edge 1.
 
+    **AND IT IS SHOWN FAILING ON BROKEN CODE, not only argued (L-028).** `Economy.noteNextTeams`
+    was stubbed to `return 0` and write nothing -- the Reviewer's own words, *"delete
+    `Economy.noteNextTeams`' body"* -- and the suite run against that tree:
+
+    ```
+    [harness] FAIL: 32/34 checks @ e2d41773 (DIRTY TREE (1 paths) - NOT valid evidence) scope=all
+      1973 passed, 10 failed
+      ServerStorage.Tests.match_teams.spec:366        <- expect(written).to.equal(withSession)
+      ServerStorage.Tests.zz_drive_boundary.spec:462
+      ServerStorage.Tests.economy.spec:1012, 1030, 1054, 1075, 1087, 1101, 1157, 1198
+    ```
+
+    **The matching half of the pair is a real run, not a mutation:** at `8d5e1859` the record was
+    genuinely empty -- `match_teams: ... 0 player(s), 1 had no row yet` -- and the OLD case PASSED
+    inside a green `34/34` gate. Same condition, old assertion green, new assertion red at line 366.
+    The stub was never committed (`git checkout -- src/server/Economy/init.luau`), and the clean
+    tree at the same sha is green again, which is the `[harness] PASS` line at the top of this
+    request.
+
 16. **Three of the four non-blocking notes are taken in this round, and the fourth is queued.**
     Note 2: the sentence in claim 2 above was false and now says which rows it means and names
     `AUTUMN_LIGHT` as the lit row that does not carry 2026-12-31. Note 3: `match_client.spec`'s
@@ -238,10 +248,15 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
   270 to 570 studs away by the time the shutter falls. Four attempts, four empty fields. The two
   traces are in `TASKS.md` and the task report; frame (b), the `$0 MONEY` drive bar, is in all four
   frames and was inspected.
-- **The round-2 fix to `match_teams.spec` has not been through `test2`.** Its ON arm needs a drive
-  with players in it, and the two-player run is where that arm is most worth seeing (two rows rather
-  than one). The one-player gate at this round's code commit exercises it; the Director's run is
-  what will show it with two.
+- **One client case flaked once at this code commit and did not reproduce.** The first clean run at
+  `e2d41773` failed `camera_client.spec:1618` (*"Expected true, got false"*, re-raised from inside
+  that case's `pcall`, before its own note printed -- so one of the hands-follow-the-gun tolerances
+  at 1515/1548/1549/1571). The Luau at `e2d41773` is byte-identical to `e14105a0`, which had just
+  passed 34/34, and the immediate re-run passed 34/34 with the note printing normally. I did not
+  change that case and I cannot explain it beyond "it did not reproduce"; it is the THIRD one-off
+  client failure this task has seen (`camera_client.spec:376` on `main`'s own tree before any
+  change, and `boar_body.spec:743` on `pathFailures` under load), which is worth the Director's
+  attention as a stability question even though nothing here depends on it.
 - **`camera_client.spec:438`'s driver branch cannot be executed by a one-player run at all** -- with
   one player there is no driver client -- so everything I claim about it rests on the Director's
   two-player runs: the failure at `6ade841d` and the passing note at `8d5e1859`. I did not run
