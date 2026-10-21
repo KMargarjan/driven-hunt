@@ -1,5 +1,89 @@
 # Escalations
 
+## 2026-10-21 - Task 229: NEEDS DIRECTOR - `test2` for task 229 at `f2d5d725`, and the two preview frames
+
+**NEEDS DIRECTOR.** Two things, both of which need a Studio I was told not to use or a run I cannot
+make, and neither of which is a defect.
+
+### 1. `NEEDS DIRECTOR: test2 for task 229 at f2d5d725b04afeca0ea34f4916df605a7c85f2ad`
+
+The one-player gate is green on the clean tree at that commit:
+
+```
+[harness] PASS: 33/33 checks @ f2d5d725b04afeca0ea34f4916df605a7c85f2ad (clean tree) scope=all
+```
+
+`tools/agents.py` asks for the `[harness2]` line as well, and it is right to: six changed files are
+in `TWO_PLAYER_PATHS`.
+
+```
+needs two player: ['src/server/Match/Phase.luau', 'src/server/Match/Roster.luau',
+                   'src/server/Match/init.luau', 'tests/server/match_phase.spec.luau',
+                   'tests/server/match_roster.spec.luau', 'tests/server/zz_drive_boundary.spec.luau']
+```
+
+`test2` needs one Studio and a human click, and the dispatch says to stop here rather than run it.
+
+**The exact command, at that commit, with the tree clean:**
+
+```
+python tools/studio_mcp.py test2
+```
+
+and the line it must print is `[harness2] PASS: n/n checks @ f2d5d725b04afeca0ea34f4916df605a7c85f2ad
+(clean tree)`. Close the Forest Test window first; `python tools/flags.py clear` if any override is
+set (both runs refuse to start while one is).
+
+**What a second player actually adds here, stated so the run is not a ritual:** exactly one claim --
+a wisher and a non-wisher on the same LIVE roster end on OPPOSITE sides with the sides still level.
+Everything else is proved with one client or with none: the roster rule at every size from 2 to 16
+(`match_roster.spec`, pure), the reset and the door (`lobby_live.spec`, against fakes), both
+layouts (`pad_panel.spec`, `shop_panel.spec`), and the switch-off identity on the real production
+drive (`zz_drive_boundary.spec`).
+
+### 2. NEEDS KAREN (through the Director) - a preview frame of each of the two surfaces
+
+L-011 asks for a preview of both on-screen surfaces before the task is called finished, and I could
+not take either one. **The reason is structural, not an omission:**
+
+* the **DEV place has no lobby** (`Lobby.anchorFor("map:v1")` is nil), so there is no truck pad, no
+  `DHPadFirst` and no shop counter -- the pad dialog's whole visibility rule and the shop panel's
+  prompt are both missing, so neither control can be put on screen there at all;
+* the StudioMCP thread **cannot `require` any ModuleScript** (`tools/studio_mcp.py`'s own docstring,
+  measured 2026-10-01), so no probe can open a panel either;
+* the only place both surfaces exist is Karen's **Forest Test**, and this dispatch says *"Studio:
+  DEV only (never the Forest Test)"*.
+
+**What exists instead, and it is not nothing.** Karen already has the Designer's own picture of both
+surfaces and all seven states: `<runs-dir>/design/shop2-role.png`. Every number the build produced
+is measured into the harness report and matches it:
+
+```
+task229 pad block: dialog 368 -> 487 px, block 119, track 292x38 at y=96, halves 141.5x32,
+                   caption y=140, rule y=168, first row y=64 -> 183
+task229 shop row:  64 -> 124 px at 1280x720, track 186x34, halves 88.5x28, name y=11,
+                   eyebrow y=42, track y=60, caption y=100; phone detail block 70 px, blurb 3 line(s)
+```
+
+**The clicks, if the Director wants the frames before Karen plays** (they need the Forest Test, so
+they are the Director's to make, not mine):
+
+1. open Studio on **Driven Hunt Forest Test**, in Edit;
+2. `python tools/flags.py` first, and WRITE DOWN what is set -- the Forest Test's flags are Karen's
+   playtest setup, not ours (L-056) -- then set `SHOP` and `COINS` on for that place;
+3. grant `ALWAYS HUNTER` to the test player, start Play, walk onto a truck pad: the dialog is 487 px
+   tall with `NEXT DRIVE / HUNTER | BEATER / A STAND ON THE LINE` between the header and the four
+   size rows;
+4. walk into the lodge and open the shop: `ALWAYS HUNTER` is the one 124 px row, with the switch on it;
+5. capture both, **restore the flags exactly as they were**.
+
+### What is NOT being asked for here
+
+Nothing about this task is blocked on a decision. The design's own open questions are queued as
+`TASKS.md` 229b (should the pad publish its party size), 229c (should an unhonoured wish be told to
+the man) and 229d (Karen's three feel questions). None of them changes a line of what was built.
+
+
 ## 2026-10-21 - Task 220: the rail FOLD widens its overlap with the engine's jump button
 
 **For the Director and Karen. Not blocking the merge** -- the Reviewer passed round 2 and raised
