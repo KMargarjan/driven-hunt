@@ -752,8 +752,13 @@ return function()
 				-- rule (*"an unknown balance is not a zero one"*), and a profile that has not answered
 				-- yet is exactly when the row carries no `coins` -- so the honest assertion is that
 				-- the piece says one of the two and that the Hud and the row agree about which.
+				--
+				-- THE LINE ABOVE IS THE WHOLE CLAIM (the Reviewer's round-1 note 3). It used to be
+				-- followed by `expect(mine.coins == nil or type(mine.coins) == "number")`, which
+				-- could only fail if the field were a string, a boolean or a table -- the arm's
+				-- force is `Money.text` agreeing with the row, and a redundant line beside it reads
+				-- as a second claim where there is one.
 				expect(Hud.coinsText(snapshot, player.UserId)).to.equal(Money.text(mine.coins))
-				expect(mine.coins == nil or type(mine.coins) == "number").to.equal(true)
 				TestKit.note(
 					string.format(
 						"match_client: COINS on -> the bar reads '%s', my row's balance is %s",

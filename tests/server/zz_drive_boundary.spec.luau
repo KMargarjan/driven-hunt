@@ -406,6 +406,13 @@ return function()
 					+ (moneyAfter.skippedLeft - moneyBefore.skippedLeft)
 					+ (moneyAfter.skippedNoProfile - moneyBefore.skippedNoProfile)
 				expect(earnedRows).to.equal(moneyAfter.rowsPaid - moneyBefore.rowsPaid)
+				-- THE TWO ROW SETS ARE ONE LIST, which is what makes this line about MONEY and not
+				-- about bookkeeping (the Reviewer's round-1 note 4): `Match` pays
+				-- `economy.payDrive(state.driveNumber, Score.leaderboard(board))` and builds the
+				-- snapshot's rows from `Score.leaderboard(board)` on the same board in the same
+				-- edge, so the counters below were fed exactly the rows that went on the wire. If
+				-- those two ever stop being the same call this case goes red for a reason that is
+				-- not about money, and that is the sentence to come back to.
 				expect(earnedRows + refused).to.equal(#sent.rows)
 				-- ...AND A BALANCE WITHOUT AN EARNING IS ALLOWED, which is the Studio case itself: a
 				-- session opens for a negative id (`Economy.load` asks no such question), so the row
