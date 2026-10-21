@@ -127,6 +127,29 @@ export type AssetRow = {
 	-- id is read ONCE through the harness when the row is written and kept here like every other
 	-- measured fact about an upload.
 	textureId: string?,
+	-- WHAT THE COLOUR MAP IS MULTIPLIED BY ON ITS WAY TO THE SCREEN (task 231). `nil` -- every row
+	-- but the lever's three -- is "draw the artist's map as it is", which is what every upload before
+	-- this one wanted.
+	--
+	-- MEASURED, IN A LIVE DEV SESSION, AND IT IS NOT TASK 99's FAULT. `TASKS.md` 227a(a) says the
+	-- lever's receiver renders near-white because of the white glove -- `AlphaMode.Overlay` over a
+	-- map with no alpha, which draws the part's `Color` instead of the map. Three probes say that is
+	-- NOT what is happening here (2026-10-21, .screenshots/231-probe-*):
+	--   1. every gun mesh in this manifest arrives the same way -- one `SurfaceAppearance`,
+	--      `AlphaMode.Overlay`, `Color` at Roblox's default (163, 162, 165) -- and the Rigby and the
+	--      model B shotgun look right, so the setup alone cannot be the fault;
+	--   2. painting the drawn clone PURE RED changed not one pixel of the receiver
+	--      (231-probe-lever-red-overlay.png reads (102, 139, 158) at the same point as the frame
+	--      before it) -- so the part's `Color` is IGNORED, which means the ColorMap IS drawing;
+	--   3. `Material` makes no difference either (Fabric and SmoothPlastic both read (102, 139, 158)),
+	--      because a `SurfaceAppearance`'s maps own the response.
+	-- What IS pale is the ALBEDO: this is a stainless 1895 SBL and `tools/asset_prep.py` recoloured
+	-- NO base colour for it (the row's own notes say so), where model B's barrels were re-prepped to
+	-- a blued (34, 36, 42) for exactly this reason -- task 105's *"the albedo had to carry the
+	-- darkness the reflection used to"*. So the one write that reaches a part whose map draws is the
+	-- map's own tint, which is what `src/server/Boar/Body.luau` already does for the boar's coat
+	-- (*"a MeshPart.Color write is IGNORED when a SurfaceAppearance is present"*).
+	tint: Color3?,
 	-- THE CONSUMER MUST NOT WRITE `Size` ON THIS ONE (task 115). Design 6.1's rule is "the consumer
 	-- sets Size, always", and for a SKINNED mesh that rule is wrong: `Size` (and `Model:ScaleTo`)
 	-- scales the mesh and NOT the bones, so the model tears the moment a clip plays -- measured by
@@ -398,6 +421,18 @@ local MODEL_B_LICENCE = {
 -- so rather than pretending the page was read. The two conditions that matter are met either way:
 -- the binary is never committed (`.rbxm` is banned outright) and nothing is distributed standalone
 -- -- what reaches Roblox is three meshes inside Karen's own account, used by her own place.
+-- THE LEVER RIFLE'S ONE TINT, shared by its three groups (task 231). It multiplies the artist's own
+-- colour map on its way to the screen -- see the `tint` field on `Row` for WHY a tint is the only
+-- write that reaches this gun at all.
+--
+-- 0.60 OF THE MAP, PICKED BY SWEEPING IT ON SCREEN rather than by taste. At the aimed eye the
+-- receiver's flank reads (102, 139, 158) untinted, (76, 111, 131) at 0.85, (58, 90, 111) at 0.75,
+-- (32, 59, 78) at 0.60 and (10, 29, 43) at 0.45: pale ice-blue, then steel, then nearly black
+-- (.screenshots/231-tint-strip.png, five frames, looked at). All THREE groups carry the SAME number
+-- because they are one gun out of one set of maps -- a tinted receiver beside a white stock is a
+-- worse picture than either of them. Karen's to retune: it is one field and no upload.
+local LEVER_TINT = Color3.fromRGB(153, 153, 153)
+
 local LEVER_LICENCE = {
 	basis = "fab-standard",
 	quote = 'A "Standard License" grants you a non-exclusive and non-transferable license to '
@@ -2345,6 +2380,7 @@ Assets.ROWS = {
 		offsetStuds = Vector3.zero,
 		rotationDeg = Vector3.new(0, LeverGeometry.MESH_ROTATION_DEG, 0),
 		renderFidelity = "Automatic",
+		tint = LEVER_TINT, -- the measured darkening; see LEVER_TINT
 		notes = "The receiver, the barrel, the Picatinny rail with BOTH IRON SIGHTS on it, the "
 			.. "magazine tube and its cap, the fore-end, both sling swivels, the trigger, the hammer, "
 			.. "the breech bolt and the loading gate -- everything that does not move. Looked at "
@@ -2376,6 +2412,7 @@ Assets.ROWS = {
 		offsetStuds = Vector3.zero,
 		rotationDeg = Vector3.new(0, LeverGeometry.MESH_ROTATION_DEG, 0),
 		renderFidelity = "Automatic",
+		tint = LEVER_TINT, -- the measured darkening; see LEVER_TINT
 		notes = "The butt stock, its butt plate and the rear sling swivel, in one piece, near-native "
 			.. "at 3,208 triangles. Looked at (render_three-quarter.png): GREY LAMINATE with its "
 			.. "layering visible, which is what an 1895 SBL wears -- not walnut. That is also why "
@@ -2403,6 +2440,7 @@ Assets.ROWS = {
 		offsetStuds = Vector3.zero,
 		rotationDeg = Vector3.new(0, LeverGeometry.MESH_ROTATION_DEG, 0),
 		renderFidelity = "Automatic",
+		tint = LEVER_TINT, -- the measured darkening; see LEVER_TINT
 		notes = "THE PIECE THAT MOVES: the large-loop finger lever, which on a Marlin IS the trigger "
 			.. "guard -- which is why the bought file has no separate guard node. Which node that was "
 			.. "is a MEASUREMENT and not a name: the file calls it `Trigger frame` and calls the "
