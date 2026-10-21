@@ -58,9 +58,14 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- without touching this line, and that is the Director's call (docs/design/shop.md section 16
 -- item 8), not this task's.
 --
--- LIT (10): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
---           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN and COINS (task 233).
--- DARK (4): QUICK_TEST, DRIVE_BOTS, SHOP, LOBBY.
+-- LIT (11): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
+--           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233).
+-- DARK (3): QUICK_TEST, DRIVE_BOTS, SHOP.
+--
+-- `SHOP` IS STILL DARK AND IT WAS MEANT TO BE LIT IN THE SAME TASK. It took the gate red -- an
+-- un-owning player's kit is buckshot and the shotgun alone, and the input-replay and camera client
+-- specs do not hold still under it -- so it was reverted and put to the Director (`ESCALATE.md`,
+-- 2026-10-21). `COINS` being lit without it means a player EARNS money he cannot yet spend.
 Flags.MAX_FLAGS = 14
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
@@ -405,7 +410,21 @@ Flags.DEFAULTS = {
 		-- nothing is built, no terrain is written, `Match` is started with no `enrol` field and
 		-- `watchPlayer` takes the line it has always taken. The DEV place, where the harness runs,
 		-- keeps this default, so no harness check can change its answer.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-21 (task 233, "v1 default"). Karen's v1 is the lodge in the
+		-- fields: a player joins, stands in the circle beside the truck and a hunt starts. The row
+		-- stays as the rollback, and `Lobby.start`'s `world.enabled` keeps both branches reachable BY
+		-- PARAMETER -- which is what `lobby_live.spec` drives, since it names both `enabled` and
+		-- `world` in its own fakes.
+		--
+		-- IT IS A NO-OP IN THE DEV PLACE, MEASURED RATHER THAN HOPED (task 233). `MatchBoot` NEVER
+		-- CALLS `Lobby.start` AT ALL -- the only caller in `src/` is `ForestTestBoot` -- and even if
+		-- it did, `Data.anchorFor("map:v1")` is nil and `start` answers `false` without building
+		-- anything or writing a stud of terrain (*"NOT A FAILURE: a world with no row has no lobby,
+		-- which is how the DEV place keeps today's behaviour without a second switch"*). So the
+		-- harness's player path is byte-identical with this row either way, and the two full runs
+		-- across this flip say so: 34/34 before and after.
+		default = true,
 		-- The owner is the module that READS it at its boundary (`Lobby.ENABLED`) and passes it
 		-- inward through `Lobby.start`'s `world.enabled` -- the only permitted shape, and what keeps
 		-- both branches reachable by parameter while the row sits at `false`. `Match` never reads
@@ -413,7 +432,10 @@ Flags.DEFAULTS = {
 		-- said it had actually built itself.
 		owner = "ServerScriptService.Lobby",
 		born = "2026-10-13 task 177",
-		expires = "2026-11-03", -- 21 days: the ceiling in feature-flags.md section 12
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, for the reason the lit rows above do not: the
+		-- ceiling in feature-flags.md section 12 is what stops a DARK path living for ever, and from
+		-- today this path is LIT.
+		expires = "2026-12-31",
 		why = "The player starts at a hunting lodge in the fields beside the forest and starts a hunt "
 			.. "by standing in the marked circle beside the truck; at the end of a drive he is back "
 			.. "at the lodge. OFF is the game before task 177: joining the server joins the drive, "
