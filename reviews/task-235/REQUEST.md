@@ -26,6 +26,10 @@ round-2 `PASS`, which rule 7 forbids overwriting -- so this is `task-235`, the n
 as task 149b became task 150 for the same reason (`8194b0b8`, *"the review folder takes a numeric
 id"*). The Director may renumber the `TASKS.md` row; nothing in the code depends on it.
 
+CI green on the branch: `Build and lint`, run 39695600861 (at `daede335`, the request's own
+commit; this line is a later one-line edit to the same paperwork, so its own CI run is the
+one the Director and the Reviewer should read off the PR head).
+
 ## What changed
 
 `ESCALATE.md` 2026-10-21 item 2, **option A**, which the Director accepted: *"Do not wire a shop in
