@@ -490,6 +490,13 @@ function Geometry.pieces(config): { Piece }
 			color = look.sight,
 			material = STEEL_MATERIAL,
 			shape = Enum.PartType.Block,
+			-- IT GETS OUT OF THE SIGHT LINE AS THE EYE ARRIVES (task 227). See `Gun.Piece`'s
+			-- `clearFromBlend` for the measurement and the reason: this upload's glass is an opaque
+			-- amber face, so with the housing drawn there is no sight picture at all -- the screen
+			-- centre is black and the dot inside it is never seen. 0.6 is where `Mode.ease` has the
+			-- raise most of the way up, so the housing is solid for the carry, through the swing and
+			-- in third person, and only the last of the raise takes it out of the way.
+			clearFromBlend = 0.6,
 		},
 		{
 			-- THE DOT. Lit all the time, which is what a red dot is -- and `Neon` is a MATERIAL that

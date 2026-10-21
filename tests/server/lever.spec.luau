@@ -363,6 +363,61 @@ return function()
 			expect(sight.Position.Z > ROW.MUZZLE_OFFSET.Z).to.equal(true)
 		end)
 
+		it("THE SIGHT PICTURE: both sights land on the screen's centre at aim", function()
+			-- TASK 227, AND IT IS KAREN'S OWN DEFECT: *"Aiming with lever i terrible and broken"*.
+			-- The shot goes down the camera's own axis, so an aimed open-sighted rifle is right only
+			-- if the REAR NOTCH and the FRONT BLADE both project to the screen centre AND BOTH ARE
+			-- IN FRONT OF THE EYE. This asserts exactly that, on the shipped data, through the
+			-- production maths: `Mode.aimOffset` with this weapon's own `Geometry.sight` and its own
+			-- `poses.json` numbers.
+			local view = Viewmodel.view(Viewmodel.DATA, "lever")
+			local aimConfig = { EYE_RELIEF_STUDS = view.EYE_RELIEF_STUDS, ADS_CHEEK_DEG = view.ADS_CHEEK_DEG }
+			local at = LeverGeometry.layout(ROW)
+			local rear = Vector3.new(0, at.sightRearY, at.sightRearZ)
+			local front = Vector3.new(0, at.sightFrontY, at.sightFrontZ)
+			-- The gun's Handle, in the CAMERA's frame, at full aim.
+			local gun = Mode.aimOffset(LeverGeometry.sight(ROW), aimConfig)
+			-- `-Z` is forward in the camera's frame, so `depth` positive is "in front of the eye".
+			local function seen(point: Vector3): (number, number)
+				local p = gun:PointToWorldSpace(point)
+				local depth = -p.Z
+				if depth <= 0 then
+					return depth, math.huge -- behind the eye: it is not in the picture at all
+				end
+				return depth, math.deg(math.atan2(math.sqrt(p.X * p.X + p.Y * p.Y), depth))
+			end
+			local rearDepth, rearOff = seen(rear)
+			local frontDepth, frontOff = seen(front)
+			TestKit.note(
+				string.format(
+					"task227 lever sight picture: rear depth %.4f off %.4f deg; blade depth %.4f off %.4f deg",
+					rearDepth,
+					rearOff,
+					frontDepth,
+					frontOff
+				)
+			)
+			-- BOTH IN FRONT OF THE EYE. Before this task the rear notch was 1.34 studs BEHIND it:
+			-- the eye sat a stud back from the muzzle with the whole rifle behind the player's head.
+			expect(rearDepth > 0.2).to.equal(true)
+			expect(frontDepth > rearDepth).to.equal(true)
+			-- ...AND BOTH ON THE CENTRE, inside a quarter of a degree, which at this gun's 50-degree
+			-- aimed field of view is under 4 pixels on a 785-high viewport.
+			expect(rearOff < 0.25).to.equal(true)
+			expect(frontOff < 0.25).to.equal(true)
+			-- THE NEGATIVE ARM, so the case cannot pass by accident. Identity rotation on the sight
+			-- frame is what shipped, and it is the whole defect: the blade still lands on the centre
+			-- (it IS the point the eye is laid on) and the notch misses it by the model's own slope.
+			local flat = Mode.aimOffset(CFrame.new(front), aimConfig)
+			local p = flat:PointToWorldSpace(rear)
+			local flatOff = math.deg(math.atan2(math.sqrt(p.X * p.X + p.Y * p.Y), math.max(-p.Z, 1e-9)))
+			TestKit.note(string.format("task227 lever, sight frame unrotated: notch %.4f deg off centre", flatOff))
+			expect(flatOff > 0.9).to.equal(true)
+			-- ...AND THE SHIPPED-BEFORE EYE RELIEF, which put the notch behind the eye entirely.
+			local near = Mode.aimOffset(LeverGeometry.sight(ROW), { EYE_RELIEF_STUDS = 0.9, ADS_CHEEK_DEG = 0 })
+			expect(-near:PointToWorldSpace(rear).Z < 0).to.equal(true)
+		end)
+
 		it("THE LOOP SWINGS DOWN AND FORWARD, and at rest it has not moved", function()
 			-- THE SIGN CASE. This is the one task 188 bought: a lift written with the wrong sign
 			-- buried the Rigby's bolt handle inside the gun for a whole cycle and no number saw it.
