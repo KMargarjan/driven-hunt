@@ -7,7 +7,7 @@
 --
 -- THE FINDING THE NOTE OPENS WITH, because it is the whole reason this file exists: EVERYTHING ON
 -- SCREEN BEFORE THIS TASK WAS A FACT AND NOTHING WAS AN INSTRUCTION. The drive bar says
--- `DRIVE 1   04:51   BOARS 6   SHOOTER` and never says *stay on your stand*; the compass says the
+-- `DRIVE 1   04:51   ANIMALS 6   SHOOTER` and never says *stay on your stand*; the compass says the
 -- drive is north and never says *that is 400 m away and this is the way you walk*. The start card
 -- (task 158) is the only element that ever instructed, and it is up for ten seconds in one phase.
 --
@@ -165,12 +165,18 @@ Objective.CONFIG = {
 	TEXT = {
 		Shooters = {
 			Assigning = "get to your stand",
-			Running = "stay on your stand, boars coming",
+			-- `animals`, NOT `boars` (task 231): since task 230 a drive carries red deer as well.
+			-- `stay on your stand, animals coming` is 34 characters and the bound this table is
+			-- measured against is 33 (`hud_clarity.spec`, `TextFits` at a 400 px frame), so the
+			-- sentence loses `your` rather than the bound being raised for the third time.
+			Running = "stay on stand, animals coming",
 			Scoring = "drive over",
 		},
 		Drivers = {
 			Assigning = "wait for the horn",
-			Running = "walk to the road, push the boars",
+			-- ...and the beater's, by the same rule and the same arithmetic: `push the animals` is 34
+			-- and `push animals` is 30.
+			Running = "walk to the road, push animals",
 			Scoring = "drive over",
 		},
 		-- THE BEATER'S FOUR TASK-168 LINES, and every one of them is a sentence Karen asked for in

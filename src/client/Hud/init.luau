@@ -1450,7 +1450,7 @@ local function build(): ScreenGui
 	table.clear(statusChips)
 	table.clear(statusDividers)
 	-- THE ORDER THEY ARE DRAWN IN, left to right, and it is the mockup's: which drive, the phase
-	-- while there is one, the clock, how many boars are left, who you are, what you have.
+	-- while there is one, the clock, how many animals are left, who you are, what you have.
 	local order = { "Drive", "Phase", "Clock", "Boars", "Role", "Coins" }
 	for index, name in ipairs(order) do
 		if index > 1 then
@@ -3452,7 +3452,18 @@ local function renderDrive(MatchSystem)
 			Style.LOOK.PAPER
 		)
 	end
-	chip("Boars", if snapshot.boarsLeft ~= nil then tostring(snapshot.boarsLeft) else nil, "BOARS", Style.LOOK.PAPER)
+	-- `ANIMALS` AND NOT `BOARS` (task 231). THE NUMBER ALREADY COUNTED BOTH, measured before it was
+	-- changed: `Match.snapshot`'s `boarsLeft` is `BOARS_PER_DRIVE - state.boarsAccounted`, and
+	-- `Phase.step` counts `boarsAccounted` up on every `kill` or `gone` event whatever species it
+	-- was -- `Match.onDowned` / `onDespawned` read the record and never the species. So since task
+	-- 230 this chip has been counting red deer down under the word BOARS, which is the only thing
+	-- that was wrong with it.
+	--
+	-- THE CHIP'S KEY STAYS `Boars`, like `DividerBoars` and `Drive.Snapshot.boarsLeft`: the repo's
+	-- own rule for `cub` -> `piglet` is that the DATA STRING stays where it is a key and only the
+	-- drawn word moves (`Report.kindWord`'s header -- *"renaming the key would be renaming the
+	-- rule"*). What a player reads is the caption.
+	chip("Boars", if snapshot.boarsLeft ~= nil then tostring(snapshot.boarsLeft) else nil, "ANIMALS", Style.LOOK.PAPER)
 
 	-- THE ROLE PILL. `Hud.roleBadge` is the one place the word is decided; the colour beside it is
 	-- `Style.teamColor`'s, which is the one place a team becomes a colour.
@@ -3512,17 +3523,22 @@ end
 -- something similar"*, and her shape: who, which animal, where it was hit, how far.
 --
 --     KAREN         MALE BOAR   chest   42 m
---     <name,-12>    <KIND> BOAR <zone>  <metres> m
+--     <name,-12>    <ANIMAL>    <zone>  <metres> m
 --
--- `animalKind == nil` -- which is what a world with `KINDS` off sends -- reads `BOAR` with no kind
+-- `animalKind == nil` -- which is what a world with `KINDS` off sends -- reads `ANIMAL` with no kind
 -- word rather than `NIL BOAR`.
+--
+-- THE NOUN IS `Report.animalWord`'S SINCE TASK 231, and it is not a tidy-up: this line built it as
+-- `string.upper(kind) .. " BOAR"`, so with red deer in every drive since task 230 a stag was
+-- reported as **"STAG BOAR"**. One place decides what an animal is called, for the same reason
+-- `Report.kindWord` exists.
 --
 -- Exported and pure so a spec can assert the shape with no wire, no drive and no kill: the same
 -- reason `Hud.crosshairVisible` and `Hud.renderScore`'s predicate are exported.
 function Hud.killLineText(event): string
 	local who = tostring((event and event.name) or (event and event.userId) or "?")
 	local kind = event and event.animalKind
-	local animal = if type(kind) == "string" and kind ~= "" then string.upper(kind) .. " BOAR" else "BOAR"
+	local animal = Report.animalWord(if type(kind) == "string" then kind else nil)
 	local zone = tostring((event and event.zone) or "?")
 	-- ...AND WHICH GUN (task 140). The WIRE carries the weapon's id and the SCREEN carries its word:
 	-- `Weapons.row(id).label`, the same split `AMMO_LABEL` has. A record from before the rifle has
@@ -3547,7 +3563,10 @@ function Hud.feedTextFor(entry): string?
 		-- TWO_PLAYER_PATHS and not in this task's blast radius.
 		return nil
 	elseif entry.kind == "escape" then
-		return "a boar got away"
+		-- "AN ANIMAL", NOT "A BOAR" (task 231): since task 230 a drive carries red deer as well, and
+		-- this line is drawn for every escape whatever ran out -- the Match feed's `gone` event
+		-- carries no species at all. The general word is the only true one here.
+		return "an animal got away"
 	elseif entry.kind == "violation" then
 		return string.format("%s tied to a tree", who)
 	elseif entry.kind == "join" then

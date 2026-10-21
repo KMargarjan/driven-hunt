@@ -546,15 +546,37 @@ return function()
 			expect(Hud.feedTextFor({ kind = "violation", name = "Anna" })).to.be.ok()
 		end)
 
-		it("names the animal when it knows its kind, and never says NIL BOAR", function()
+		it("names the animal when it knows its kind, and never says NIL BOAR or STAG BOAR", function()
 			local named = Hud.killLineText({ name = "Anna", animalKind = "female", zone = "chest", distance = 40 })
 			expect(string.find(named, "FEMALE BOAR", 1, true)).to.be.ok()
 			expect(string.find(named, "Anna", 1, true)).to.be.ok()
 			expect(string.find(named, "chest", 1, true)).to.be.ok()
-			-- WITHOUT A KIND IT IS STILL A BOAR. A kill event whose `animalKind` never arrived used to
-			-- be the next reader's "NIL BOAR" waiting to happen.
+			-- A DEER IS NOT A BOAR (task 231). This line built its noun as `upper(kind) .. " BOAR"`,
+			-- so with red deer in every drive since task 230 a stag was reported as "STAG BOAR".
+			-- `Report.animalWord` is the one place the noun is decided now, and the three deer kinds
+			-- are their own nouns -- a stag IS a deer, and "STAG DEER" is not English.
+			local stag = Hud.killLineText({ name = "Anna", animalKind = "stag", zone = "chest", distance = 40 })
+			expect(string.find(stag, "STAG", 1, true)).to.be.ok()
+			expect(string.find(stag, "BOAR", 1, true)).to.equal(nil)
+			for _, kind in ipairs({ "stag", "hind", "calf" }) do
+				expect(Report.animalWord(kind)).to.equal(string.upper(kind))
+			end
+			for _, kind in ipairs({ "male", "female", "cub", "legendary" }) do
+				expect(Report.animalWord(kind)).to.equal(string.upper(kind) .. " BOAR")
+			end
+			-- WITHOUT A KIND IT IS AN ANIMAL, not a boar (task 231): naming the species of an animal
+			-- nobody identified is a guess, and a drive now carries two of them. A kill event whose
+			-- `animalKind` never arrived used to be the next reader's "NIL BOAR" waiting to happen.
 			local plain = Hud.killLineText({ name = "Anna", zone = "rear", distance = 40 })
-			expect(string.find(plain, "BOAR", 1, true)).to.be.ok()
+			expect(string.find(plain, "ANIMAL", 1, true)).to.be.ok()
+			expect(string.find(plain, "BOAR", 1, true)).to.equal(nil)
+			expect(Report.animalWord(nil)).to.equal("ANIMAL")
+			expect(Report.animalWord("")).to.equal("ANIMAL")
+			-- ...AND THE DRIVE REPORT'S ANIMAL COLUMN takes the same decision for the same reason:
+			-- a row whose `kind` never arrived used to print `BOAR` over an unidentified animal.
+			expect(Panel.detailCellsFor({}).kind).to.equal("ANIMAL")
+			expect(Panel.detailCellsFor({ kind = "stag" }).kind).to.equal("STAG")
+			expect(Panel.detailCellsFor({ kind = "cub" }).kind).to.equal("PIGLET")
 			expect(string.find(plain, "NIL", 1, true)).to.equal(nil)
 			-- ...and an event with nothing in it at all draws a line rather than raising.
 			expect(type(Hud.killLineText({}))).to.equal("string")

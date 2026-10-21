@@ -827,6 +827,18 @@ return function()
 				expect(#text > 0).to.equal(true)
 			end
 			TestKit.note("hud_style: status bar reads " .. string.format("%q", text))
+			-- THE QUARRY CHIP SAYS `ANIMALS` AND NEVER `BOARS` (task 231). The number it carries has
+			-- always counted every animal the drive accounted for -- `Phase.step` adds one on any
+			-- `kill` or `gone` whatever the species -- and since task 230 a drive carries red deer,
+			-- so the word was the only wrong part. Asserted on the LIVE bar, in whatever phase this
+			-- run is in: the chip is hidden in `Waiting`, so the claim is "if it is drawn it says
+			-- ANIMALS", which is what a player can ever read.
+			expect(string.find(text, "BOARS", 1, true)).to.equal(nil)
+			local quarry = (Hud.gui() :: ScreenGui):FindFirstChild("DriveBar", true)
+			local chip = quarry and quarry:FindFirstChild("Boars")
+			if chip ~= nil and (chip :: Frame).Visible then
+				expect(string.find(text, "ANIMALS", 1, true)).to.be.ok()
+			end
 		end)
 
 		it("maps a feed entry to one meaning, and the dot and the words take it together", function()
