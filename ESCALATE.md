@@ -2,18 +2,43 @@
 
 ## 2026-10-21 - Task 233: **NEEDS DIRECTOR.** Four of five v1 defaults are lit; `SHOP` took the gate red and is reverted.
 
-### 1. NEEDS DIRECTOR: `test2` for task 233 at `2fc9b20385a69b52b4008915dc0b01ebe9183b9b`
+### 1. NEEDS DIRECTOR: `test2` for task 233 at `8c4292da736920aa74834605849f2fdf28939f5d`
 
-The dispatch asks for it by decision rather than by `TWO_PLAYER_PATHS`, because `HORN` and `LOBBY`
-change the drive and enrolment. The one-player gate is green at that commit:
+**Round 2 of the two-player gate.** Round 1 ran at `6ade841d` and FAILED 32/36 with two cases; both
+are traced to their flip, both are fixed, and the one-player gate is green at the new commit:
 
 ```
-[harness] PASS: 34/34 checks @ 2fc9b20385a69b52b4008915dc0b01ebe9183b9b (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 8c4292da736920aa74834605849f2fdf28939f5d (clean tree) scope=all
 ```
+
+**CHECK OUT THAT LITERAL SHA FOR THE CLICK, not the branch tip** (Learning Agent L-034): round 1 was
+run at `6ade841d`, which was a paperwork commit on top of the clean-tree sha the request named, and
+the paperwork for THIS round lands on top of `8c4292da` in the same way. `git checkout 8c4292da`
+(or confirm `git rev-parse HEAD` is that sha) before Test -> Clients and Servers -> Players: 2.
+
+**What the two failures were, and which flip caused each:**
+
+| failure | flip | cause |
+|---|---|---|
+| `zz_drive_boundary.spec:364` *"Expected number, got nil"* on `earned` | **COINS** | a Studio test client gets a **NEGATIVE UserId** (`-1`, `-2`), and `Coins.forDrive` refuses any id that is not a positive integer (`isPlayerId`), counting it `skippedNotAPlayer`. **Not a defect** -- a live server has no negative ids |
+| `camera_client.spec:438` *"Expected false, got true"* on the DRIVER | **HORN** | a beater now carries the Horn Tool and since task 176 the horn has its own viewmodel branch, so a parented clone is the CORRECT answer. The branch was written when a beater carried nothing |
+
+Neither needed a code change. Both specs now assert MORE than they did: the first ties the wire to
+`Economy.stats()`'s own paid/refused accounting (an identity that holds in both worlds and catches a
+silently dropped row, which the old line could not), and the second NAMES what the driver is holding
+and asserts it is the horn and never a weapon -- the sentence the old line only implied.
+
+**The one thing the one-player gate cannot check** is `camera_client.spec:438` itself: with one
+player there is no driver client, so that branch does not execute at all. Its components are proved
+in the same file (`HeldTool.drawsFirstPerson(realHorn)` is asserted and passes); the live wiring is
+what your `test2` will show.
 
 The Builder stopped before the review, as the dispatch says, whatever `tools/agents.py` says.
 
-### 2. `SHOP` is still DARK, and the decision is not the Builder's
+### 2. `SHOP` is still DARK -- **ACCEPTED BY THE DIRECTOR AS TASK 233b**, and not touched here
+
+The Director's word, 2026-10-21: *"your ESCALATE item 2 is accepted as a SEPARATE task, 233b. Not
+in this task: do not touch SHOP here."* The measurement below is kept as that task's input.
 
 Flipped, measured over three full gate runs, reverted (commit `1a685ef1`). It is **not** a
 paperwork change: it changes the DEFAULT PLAYER'S KIT. `Shop.BASE_AMMO.shotgun` is `{ Buck = true }`
