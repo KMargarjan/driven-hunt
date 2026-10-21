@@ -1,8 +1,20 @@
 # Escalations
 
-## 2026-10-21 - Task 233: **BOTH GATES GREEN at `8d5e1859`; awaiting the review.** Four of five v1 defaults are lit; `SHOP` is task 233b.
+## 2026-10-21 - Task 233: **REVIEW ROUND 1 FOUND ONE BLOCKING ITEM, FIXED; `test2` NEEDED AGAIN.** Four of five v1 defaults are lit; `SHOP` is task 233b.
 
-### 1. ~~NEEDS DIRECTOR: `test2`~~ -- **CLOSED, 2026-10-21. Both gate lines name one commit.**
+### 1b. NEEDS DIRECTOR: `test2` AGAIN, for round 2, at the branch head of `task-233-v1-defaults`
+
+The Reviewer's round-1 verdict had one blocking finding and it was right (`match_teams.spec`'s
+COINS-on arm asserted nothing). Fixing it changed THREE `TWO_PLAYER_PATHS` specs --
+`tests/server/match_teams.spec.luau`, `tests/client/match_client.spec.luau` and
+`tests/server/zz_drive_boundary.spec.luau` -- so the `[harness2] PASS @ 8d5e1859` below no longer
+covers the code, and `tools/agents.py` will refuse round 2 until there is a new one.
+
+**Run it at the branch head** (`git rev-parse HEAD` on `task-233-v1-defaults` after the push; the
+Builder's report names the sha). The one-player line for that head is in the request. As last time,
+the Builder will re-run `test` at whatever sha the click lands on, so both lines name one commit.
+
+### 1. ~~NEEDS DIRECTOR: `test2`~~ -- **ROUND 1: CLOSED, 2026-10-21. Both gate lines named one commit.**
 
 ```
 [harness]  PASS: 34/34 checks @ 8d5e1859ca088d94bbba7fe5d581c7dc386ee840 (clean tree) scope=all

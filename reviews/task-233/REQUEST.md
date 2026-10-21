@@ -1,7 +1,7 @@
 # Task 233 -- v1 defaults: four of five flags lit, `SHOP` reverted and put to the Director
 
 Task: 233
-Round: 1
+Round: 2
 Base: `main` at `3558c177` (the merge of task 231)
 Code commit: `8d5e1859ca088d94bbba7fe5d581c7dc386ee840`
 
@@ -11,6 +11,13 @@ Code commit: `8d5e1859ca088d94bbba7fe5d581c7dc386ee840`
 ```
 One player: 1983 server + 517 client assertions, 65 server spec files, 25 client. Two players
 (the Director's run, `test2-t233b.log`): server 1983/0, shooter 517/0, driver 511/0.
+
+**ROUND 2 CHANGES THREE `TWO_PLAYER_PATHS` SPECS, so the `[harness2]` line above is STALE and a
+new one is needed before this round can be judged.** The round-1 verdict's one blocking finding is
+fixed in claim 15, and three of its four notes are taken; what changed is
+`tests/server/match_teams.spec.luau`, `tests/client/match_client.spec.luau` and
+`tests/server/zz_drive_boundary.spec.luau` -- all three in that list -- so `tools/agents.py` will
+refuse this round until the Director has run `test2` at the new head. `ESCALATE.md` carries it.
 
 **`test2` IS IN THIS GATE BY THE DIRECTOR'S DECISION, not by `TWO_PLAYER_PATHS`**: `HORN` and
 `LOBBY` change the drive and enrolment. **Its round 1 ran at `6ade841d` and FAILED 32/36**; both
@@ -46,8 +53,11 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
 2. **The four `expires` moves were required, not cosmetic.** `BOAR_BEHAVIOUR` sat at 2026-10-25 --
    four days out -- and `tests/server/flags.spec.luau`'s rot tripwire fails the harness on the day
    after, which blocks whatever gate runs that day. `HORN` (2026-10-31), `COINS` and `LOBBY`
-   (2026-11-03) are the same bomb further out. 2026-12-31 is what every accepted row already carries
-   and what task 230 moved `BOAR_MODEL` to. *Verify:* the four `expires` comments; `flags.spec`'s
+   (2026-11-03) are the same bomb further out. 2026-12-31 is what the four rows this table calls
+   accepted-and-settled carry -- `TIE_UNTIL_DRIVE_END`, `BOAR_SOUNDERS`, `ORANGE_OUTFITS`, `RIFLE`
+   and `FIRST_PERSON` -- and what task 230 moved `BOAR_MODEL` to. **It is NOT true of every lit
+   row** (the Reviewer's round-1 note 2): `AUTUMN_LIGHT` is lit and expires 2026-11-09, which is
+   task 215's own date and not this task's to move. *Verify:* the four `expires` comments; `flags.spec`'s
    expiry case; `Flags.problems`.
 
 3. **No assertion was weakened and nothing was skipped, in any of the eight spec files.** Every fix
@@ -173,6 +183,38 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
     `skippedNoProfile`, `drivesPaid` and `duplicatePayouts`, and `HeldTool.kindOf` / `HORN` /
     `WEAPON` / `drawsFirstPerson`. *Verify:* `git diff 8c4292da~1..8c4292da` touches `tests/` only.
 
+15. **ROUND 1's BLOCKING FINDING IS FIXED, and the Reviewer was right.** `match_teams.spec`'s
+    COINS-on arm -- the only arm the gate can now take -- asserted NOTHING: every per-player claim
+    sat behind `if owed[player.UserId] ~= nil`, and the case's own comment had MEASURED that the gate
+    is never satisfied in this suite, so deleting `Economy.noteNextTeams`' body would have left the
+    case green. **My claim 8 above was false where it said the hazard is *"asserted for every player
+    with no condition at all"*, and claim 3 was false for this file:** before the flip the else-arm
+    `expect(next(owed)).to.equal(nil)` did execute, and I replaced an executing assertion with a
+    skipped one. *The fix:* the arm drives the owner's OWN public writer --
+    `Economy.noteNextTeams(wanted)`, the exact call `Match` makes beside `Body.setTeam` at write
+    edge 1, with the exact value production writes (the team he is PLAYING) -- and then reads it
+    back through `Economy.owedTeams()`. It asserts `playing > 0` (the case cannot be vacuous for
+    want of a drive), waits for the sessions rather than sampling them (`Economy.load` runs on a
+    spawned thread and the two `afterAll` restarts re-open every session),
+    `written == withSession`, `after[userId] == team` for every one of them -- the stale-mirror
+    claim, which now EXECUTES -- and finally `agreed == written` and `agreed > 0`, which is the
+    finding answered in one line: **the case can no longer pass by asserting nothing.** Nothing is
+    simulated and no second copy of the rule is made here; if the writer stops writing or the read
+    goes stale, this fails. *Verify:* the `Economy.isEnabled()` arm of *"agrees with the team the
+    drive gave him"*; `Economy.noteNextTeams` and `Economy.owedTeams`; `Match`'s write edge 1.
+
+16. **Three of the four non-blocking notes are taken in this round, and the fourth is queued.**
+    Note 2: the sentence in claim 2 above was false and now says which rows it means and names
+    `AUTUMN_LIGHT` as the lit row that does not carry 2026-12-31. Note 3: `match_client.spec`'s
+    `expect(mine.coins == nil or type(mine.coins) == "number")` could only fail on a string, a
+    boolean or a table, so it is dropped and the line that carries the arm says so. Note 4:
+    `zz_drive_boundary.spec` now states that `payDrive`'s rows and the snapshot's rows are ONE list
+    (`Score.leaderboard(board)`, same board, same edge), so a future divergence is a sentence to
+    come back to rather than a red case about money. **Note 1 is queued as `TASKS.md` row 233c**, as
+    the Reviewer asked: two `boar_brain.spec` cases and `boar_shot.spec`'s pure `newBrain` still
+    build from the unpinned `Boar.CONFIG` and so moved to the flag's ON arm. They pass. *Verify:*
+    claim 2 above; the three spec files; `TASKS.md` row 233c.
+
 ## What I could not verify
 
 - **Frame (c), the horn in a beater's hand: not reachable in DEV.**
@@ -185,6 +227,10 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
   270 to 570 studs away by the time the shutter falls. Four attempts, four empty fields. The two
   traces are in `TASKS.md` and the task report; frame (b), the `$0 MONEY` drive bar, is in all four
   frames and was inspected.
+- **The round-2 fix to `match_teams.spec` has not been through `test2`.** Its ON arm needs a drive
+  with players in it, and the two-player run is where that arm is most worth seeing (two rows rather
+  than one). The one-player gate at this round's code commit exercises it; the Director's run is
+  what will show it with two.
 - **`camera_client.spec:438`'s driver branch cannot be executed by a one-player run at all** -- with
   one player there is no driver client -- so everything I claim about it rests on the Director's
   two-player runs: the failure at `6ade841d` and the passing note at `8d5e1859`. I did not run
