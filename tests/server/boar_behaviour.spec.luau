@@ -33,6 +33,29 @@ local FIELD = {
 }
 local START = Vector3.new(0, 0, 0)
 
+-- NO DEER IN THIS SPEC'S RELEASES (task 230). `BOAR_MODEL`'s default is `true` since that task, and
+-- with it on a composition-less `Runtime:spawnSounder` rolls for a RED DEER group BEFORE it places
+-- anything (`Boar.deerComposition`, task 223): the release then comes out the DEER's size rather
+-- than the one the caller named, and it makes a sounder record of its own. Cases here name a size
+-- and count sounders, so an unpinned deer draw would make a green run a SAMPLE and not evidence --
+-- the exact shape, and the exact reason, of the `LEGENDARY = { CHANCE_PER_DRIVE = 0 }` pin task 219
+-- added for the trophy. `CHANCE_PER_RELEASE = 0` is NEVER, exactly: `NextNumber` returns [0, 1) and
+-- the gate is `roll >= chance`. The deer's own release rules are asserted in
+-- tests/server/deer.spec.luau, which is where they belong.
+--
+-- THE WHOLE TABLE IS CLONED DOWN TO THE ONE NUMBER, because `Boar.newRuntime` merges only MODEL,
+-- SENSE and KINDS key by key: a bare `SPECIES = { ... }` would REPLACE the block and leave every
+-- deer measurement nil.
+local function noDeer()
+	local species = table.clone(CONFIG.SPECIES)
+	local reddeer = table.clone(species.reddeer)
+	local release = table.clone(reddeer.RELEASE)
+	release.CHANCE_PER_RELEASE = 0
+	reddeer.RELEASE = release
+	species.reddeer = reddeer
+	return species
+end
+
 -- The whole SENSE block with `ENABLED` set and anything else overridden, merged key by key -- the
 -- same merge `Boar.newRuntime` does, because a replaced block leaves every radius nil (case 14).
 local function configWith(on: boolean, overrides)
@@ -479,7 +502,17 @@ return function()
 			-- With `BOAR_MODEL` off `Boar.sounderKinds` gives every member the same kind, so the
 			-- rank is uniform and this is the "nearest the exit line, tie-broken by id" rule the DEV
 			-- drive has always used. That equality is what keeps the flag-OFF world unchanged.
-			local kinds = Boar.sounderKinds(4, {}, CONFIG)
+			--
+			-- THE FLAG AS A PARAMETER, SINCE TASK 230 (`boar_kinds.spec`'s own shape). This case
+			-- read the MODULE's `CONFIG`, and that silently meant "flag off" only while the default
+			-- was off: with `BOAR_MODEL` lit, `sounderKinds` answers a sow and her young here and
+			-- the uniform rank this case is about cannot occur. `kindsOff` says which world it means
+			-- instead of inheriting it.
+			local kindsOff = table.clone(CONFIG)
+			local kindsBlock = table.clone(CONFIG.KINDS)
+			kindsBlock.ENABLED = false
+			kindsOff.KINDS = kindsBlock
+			local kinds = Boar.sounderKinds(4, {}, kindsOff)
 			local rows = {}
 			for index, kind in ipairs(kinds) do
 				table.insert(rows, row(string.format("b%d", index), kind, 100 - index * 10))
@@ -1264,7 +1297,10 @@ return function()
 				parent = holder,
 				folderName = "AlarmProbe",
 				rng = Random.new(118),
-				config = { SENSE = { ENABLED = true } },
+				-- ...AND THE DEER PINNED OUT BY PARAMETER (task 230, `noDeer` above): this case asks
+				-- for a sounder of THREE and then counts how many of the three are panicked, and on
+				-- the flip's own gate run the release came back as ONE red deer instead.
+				config = { SENSE = { ENABLED = true }, SPECIES = noDeer() },
 				threats = function()
 					return {} -- nothing, ever: the panic has to end on its own or not at all
 				end,

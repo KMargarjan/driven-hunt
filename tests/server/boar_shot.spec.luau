@@ -41,6 +41,29 @@ local FIELD = {
 }
 local MESH_SIZE = Vector3.new(1.4011, 3.2573, 5.5) -- the real asset's, as boar_model.spec reads it
 
+-- NO DEER IN THIS SPEC'S RELEASES (task 230). `BOAR_MODEL`'s default is `true` since that task, and
+-- with it on a composition-less `Runtime:spawnSounder` rolls for a RED DEER group BEFORE it places
+-- anything (`Boar.deerComposition`, task 223): the release then comes out the DEER's size rather
+-- than the one the caller named, and it makes a sounder record of its own. Cases here name a size
+-- and count sounders, so an unpinned deer draw would make a green run a SAMPLE and not evidence --
+-- the exact shape, and the exact reason, of the `LEGENDARY = { CHANCE_PER_DRIVE = 0 }` pin task 219
+-- added for the trophy. `CHANCE_PER_RELEASE = 0` is NEVER, exactly: `NextNumber` returns [0, 1) and
+-- the gate is `roll >= chance`. The deer's own release rules are asserted in
+-- tests/server/deer.spec.luau, which is where they belong.
+--
+-- THE WHOLE TABLE IS CLONED DOWN TO THE ONE NUMBER, because `Boar.newRuntime` merges only MODEL,
+-- SENSE and KINDS key by key: a bare `SPECIES = { ... }` would REPLACE the block and leave every
+-- deer measurement nil.
+local function noDeer()
+	local species = table.clone(CONFIG.SPECIES)
+	local reddeer = table.clone(species.reddeer)
+	local release = table.clone(reddeer.RELEASE)
+	release.CHANCE_PER_RELEASE = 0
+	reddeer.RELEASE = release
+	species.reddeer = reddeer
+	return species
+end
+
 -- Every clip the boar can play, under a fake id: `Animator:LoadAnimation` on an id that does not
 -- exist still returns a usable track, so the sound and the twitch can be driven with no network.
 local FAKE_IDS = {
@@ -142,6 +165,11 @@ return function()
 			end,
 			releasePath = function() end,
 			config = {
+				-- NO DEER IN ANY RUNTIME THIS FILE BUILDS (task 230, `noDeer` above). Four cases
+				-- below release a composition-less sounder and name its size, and two of them turn
+				-- `KINDS.ENABLED` on themselves -- so the pin belongs here, where every world is
+				-- built, rather than at each of them.
+				SPECIES = noDeer(),
 				-- THE FLAG AS A PARAMETER, the one permitted shape (docs/design/feature-flags.md
 				-- section 13.3). A clone, so the runtime never writes into the module's own table.
 				MODEL = (function()

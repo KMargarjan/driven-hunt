@@ -11,9 +11,9 @@
 -- player holding the card and one not -- and the calf's penalty is a case of its own rather than a
 -- corollary of the stag's.
 --
--- MOSTLY PURE, for `boar_legendary.spec`'s stated reason: `BOAR_MODEL` sits at its OFF default in
--- every harness run (`test` refuses to start with an override set), so the only way both states are
--- reachable is to drive the config by parameter. The two cases that are not pure are the two that
+-- MOSTLY PURE, for `boar_legendary.spec`'s stated reason: `BOAR_MODEL` sits at its DEFAULT in every
+-- harness run (`test` refuses to start with an override set) -- `true` since task 230 -- so the only
+-- way both states are reachable is to drive the config by parameter. The two cases that are not pure are the two that
 -- cannot be: a REAL trunk built by `Body.create` reaching the REAL fire gate, and the per-drive cap,
 -- which is runtime state across two releases.
 --

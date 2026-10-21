@@ -41,6 +41,23 @@ local function specWound()
 	return wound
 end
 
+-- THIS FILE IS THE GREY BOX'S DEATH, AND SINCE TASK 230 IT HAS TO SAY SO (the flag as a parameter,
+-- the one permitted shape -- docs/design/feature-flags.md section 13.3). `BOAR_MODEL`'s default is
+-- now `true`, so `BoarAssetsBoot` wires the module-wide model source and EVERY runtime that does not
+-- say otherwise is handed the real animal. That changes this file's subject: `Body.boxFalls` is
+-- `not hasVisual or not hasDeathTrack`, so with a drawn animal on the box the DEATH CLIP lays it
+-- down and `Body.collapse` deliberately keeps `Upright` ON -- and "the carcass TOPPLED", which this
+-- file asserts, is the BOX's half of that decision and is false of the drawn animal by design.
+-- The drawn animal's own death is `boar_model.spec`'s subject and is asserted there.
+local function specModel()
+	local model = table.clone(Boar.CONFIG.MODEL)
+	model.ENABLED = false
+	-- The ids table is filled at run time, so it is cloned for the same reason `Boar.newRuntime`
+	-- clones it: a runtime must never write into the module's own.
+	model.ANIMATION_IDS = table.clone(Boar.CONFIG.MODEL.ANIMATION_IDS)
+	return model
+end
+
 local function waitUntil(timeout: number, predicate: () -> boolean): boolean
 	local started = os.clock()
 	while os.clock() - started < timeout do
@@ -62,7 +79,7 @@ return function()
 				parent = testRoot,
 				folderName = "Boars",
 				rng = Random.new(5),
-				config = { WOUND = specWound() },
+				config = { WOUND = specWound(), MODEL = specModel() },
 				threats = function()
 					return {}
 				end,
@@ -345,7 +362,7 @@ return function()
 				parent = testRoot,
 				folderName = "Boars",
 				rng = Random.new(9),
-				config = { WOUND = specWound() },
+				config = { WOUND = specWound(), MODEL = specModel() },
 				threats = function()
 					return {}
 				end,

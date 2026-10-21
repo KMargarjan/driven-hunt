@@ -312,7 +312,9 @@ return function()
 		end)
 
 		it("with the FLAG off, an idle boar is exactly the boar it was before task 117", function()
-			-- `CALM.ENABLED` is `Flags.isOn("BOAR_MODEL")`, whose default is false -- the live game.
+			-- `CALM.ENABLED` is `Flags.isOn("BOAR_MODEL")`, whose default has been TRUE since task 230,
+			-- so this case is the one the live game no longer takes -- which is exactly why it is driven
+			-- by parameter, and why it is still here: the OFF branch is the row's rollback.
 			-- Then `_stepCalm` returns the old wander/graze answer and nothing publishes an activity.
 			local off = configWith(false, withCalmIds().MODEL.ANIMATION_IDS)
 			expect(Boar.activityRow("graze", off)).to.equal(nil)

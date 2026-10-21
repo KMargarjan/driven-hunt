@@ -28,6 +28,29 @@ local FIELD = {
 	groundY = GROUND_Y,
 }
 
+-- NO DEER IN THIS SPEC'S RELEASES (task 230). `BOAR_MODEL`'s default is `true` since that task, and
+-- with it on a composition-less `Runtime:spawnSounder` rolls for a RED DEER group BEFORE it places
+-- anything (`Boar.deerComposition`, task 223): the release then comes out the DEER's size rather
+-- than the one the caller named, and it makes a sounder record of its own. Cases here name a size
+-- and count sounders, so an unpinned deer draw would make a green run a SAMPLE and not evidence --
+-- the exact shape, and the exact reason, of the `LEGENDARY = { CHANCE_PER_DRIVE = 0 }` pin task 219
+-- added for the trophy. `CHANCE_PER_RELEASE = 0` is NEVER, exactly: `NextNumber` returns [0, 1) and
+-- the gate is `roll >= chance`. The deer's own release rules are asserted in
+-- tests/server/deer.spec.luau, which is where they belong.
+--
+-- THE WHOLE TABLE IS CLONED DOWN TO THE ONE NUMBER, because `Boar.newRuntime` merges only MODEL,
+-- SENSE and KINDS key by key: a bare `SPECIES = { ... }` would REPLACE the block and leave every
+-- deer measurement nil.
+local function noDeer()
+	local species = table.clone(CONFIG.SPECIES)
+	local reddeer = table.clone(species.reddeer)
+	local release = table.clone(reddeer.RELEASE)
+	release.CHANCE_PER_RELEASE = 0
+	reddeer.RELEASE = release
+	species.reddeer = reddeer
+	return species
+end
+
 -- Counts the boar's OWN Heartbeat frames rather than wall-clock seconds, because Studio throttles
 -- physics when its frame rate falls and a claim written in seconds is then a race against whatever
 -- else the machine is doing (`boar_body.spec`, Task 36). A slow machine takes longer and asserts
@@ -75,7 +98,11 @@ return function()
 			rng = Random.new(118),
 			-- THE FLAG, AS A PARAMETER. `newRuntime` merges this over the default block key by key,
 			-- so every radius and timer below is the shipped number and only `ENABLED` differs.
-			config = { SENSE = { ENABLED = true }, maxBoars = 12 },
+			-- ...AND THE DEER PINNED OUT BY PARAMETER (task 230, `noDeer` above): the two cases that
+			-- release through this runtime ask for a sounder of THREE and then assert on all three
+			-- (panic spreading, and the formation a herd takes), neither of which survives a release
+			-- that silently came out a deer group of a different size.
+			config = { SENSE = { ENABLED = true }, maxBoars = 12, SPECIES = noDeer() },
 			threats = function()
 				local out = {}
 				for id, row in pairs(stimuli) do
@@ -356,8 +383,9 @@ return function()
 			-- or go out of bounds.
 			--
 			-- ITS OWN RUNTIME, because the kinds are behind `BOAR_MODEL` and a harness run only ever
-			-- sees that flag off: `config = { KINDS = { ENABLED = true } }` is merged key by key by
-			-- `newRuntime`, so every scale and model below is the shipped one.
+			-- sees that flag's DEFAULT: `config = { KINDS = { ENABLED = true } }` is merged key by key
+			-- by `newRuntime`, so every scale and model below is the shipped one whatever the row says.
+			-- Since task 230 the row says ON, and the pin is what keeps this case's answer its own.
 			local holder = Instance.new("Folder")
 			holder.Name = "BoarFamilySpec"
 			holder.Parent = testRoot
@@ -379,6 +407,11 @@ return function()
 						-- arithmetic on nil -- so a green run was a SAMPLE and not evidence.
 						LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 },
 					},
+					-- ...AND NO DEER EITHER (task 230, `noDeer` above), for the same reason one line
+					-- up and a flag later: with `BOAR_MODEL` lit, a composition-less release rolls
+					-- for a red deer group FIRST, and this case names a size of four and reads
+					-- `handles[1].kind` expecting the sow.
+					SPECIES = noDeer(),
 					maxBoars = 8,
 				},
 				threats = function()
@@ -488,6 +521,11 @@ return function()
 						-- arithmetic on nil -- so a green run was a SAMPLE and not evidence.
 						LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 },
 					},
+					-- ...AND NO DEER EITHER (task 230, `noDeer` above), for the same reason one line
+					-- up and a flag later: with `BOAR_MODEL` lit, a composition-less release rolls
+					-- for a red deer group FIRST, and this case names a size of four and reads
+					-- `handles[1].kind` expecting the sow.
+					SPECIES = noDeer(),
 					maxBoars = 8,
 				},
 				threats = function()

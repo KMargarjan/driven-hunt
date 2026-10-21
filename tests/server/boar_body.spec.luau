@@ -24,6 +24,29 @@ local FIELD = {
 	groundY = GROUND_Y,
 }
 
+-- NO DEER IN THIS SPEC'S RELEASES (task 230). `BOAR_MODEL`'s default is `true` since that task, and
+-- with it on a composition-less `Runtime:spawnSounder` rolls for a RED DEER group BEFORE it places
+-- anything (`Boar.deerComposition`, task 223): the release then comes out the DEER's size rather
+-- than the one the caller named, and it makes a sounder record of its own. Cases here name a size
+-- and count sounders, so an unpinned deer draw would make a green run a SAMPLE and not evidence --
+-- the exact shape, and the exact reason, of the `LEGENDARY = { CHANCE_PER_DRIVE = 0 }` pin task 219
+-- added for the trophy. `CHANCE_PER_RELEASE = 0` is NEVER, exactly: `NextNumber` returns [0, 1) and
+-- the gate is `roll >= chance`. The deer's own release rules are asserted in
+-- tests/server/deer.spec.luau, which is where they belong.
+--
+-- THE WHOLE TABLE IS CLONED DOWN TO THE ONE NUMBER, because `Boar.newRuntime` merges only MODEL,
+-- SENSE and KINDS key by key: a bare `SPECIES = { ... }` would REPLACE the block and leave every
+-- deer measurement nil.
+local function noDeer()
+	local species = table.clone(CONFIG.SPECIES)
+	local reddeer = table.clone(species.reddeer)
+	local release = table.clone(reddeer.RELEASE)
+	release.CHANCE_PER_RELEASE = 0
+	reddeer.RELEASE = release
+	species.reddeer = reddeer
+	return species
+end
+
 -- Waits until `predicate()` is true or `timeout` seconds pass. Returns whether it became true, and
 -- how long it took. Used instead of a fixed sleep so a fast machine does not wait needlessly.
 local function waitUntil(timeout: number, predicate: () -> boolean): (boolean, number)
@@ -529,6 +552,13 @@ return function()
 				parent = root,
 				folderName = "Boars",
 				rng = Random.new(5),
+				-- THE DEER PINNED OUT BY PARAMETER (task 230, `noDeer` above). The KINDS block is
+				-- deliberately left where the flag puts it, which is now ON: this block's cases ran
+				-- green on a sow-and-her-young sounder in the flip's own gate run, and asserting the
+				-- sounder machinery in the world the game actually runs is worth more than asserting
+				-- it in the one it used to. What they cannot survive is a release that silently
+				-- becomes THREE DEER -- which is what turned four cases here red.
+				config = { SPECIES = noDeer() },
 				threats = function()
 					if not herdThreat then
 						return {}
