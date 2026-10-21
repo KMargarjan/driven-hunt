@@ -772,11 +772,16 @@ return function()
 			expect(camera.CFrame.Position).to.equal(parked)
 		end)
 
-		-- THE LICENCE DOES NOT ORBIT, IT ROCKS, and that is an engine fact rather than a preference
+		-- A FLAT THING DOES NOT ORBIT, IT ROCKS, and that is an engine fact rather than a preference
 		-- (the Designer's spec, 6.4): *"a flat card on a full orbit goes edge-on twice a revolution
-		-- and disappears; a nine-second sway never does"*. 17 degrees either side of its own yaw.
-		it("rocks the flat card instead of turning it all the way round", function()
-			local card = Display.viewFor(Shop.ITEM.BEATER_LICENCE)
+		-- and disappears; a nine-second sway never does"*.
+		--
+		-- TWO ROCKS SINCE TASK 228, and the licences have the SLOWER one: a booklet's page is
+		-- PRINTED -- seven guilloche rules, two ink bars and a signature -- and 17 degrees in nine
+		-- seconds smears it. `BOOK_VIEW` is 15 in ten. `CARD_VIEW` is still 17 in nine and is what
+		-- the pin on its card wears.
+		it("rocks a flat thing instead of turning it all the way round", function()
+			local card = Display.viewFor(Shop.ITEM.ALWAYS_HUNTER)
 			expect(card.rockDegrees).to.equal(17)
 			expect(card.rockSeconds).to.equal(9)
 			-- A WHOLE PERIOD COMES BACK TO THE MIDDLE, and the quarter points are the extremes.
@@ -784,11 +789,22 @@ return function()
 			expect(Display.spinDegAt(9, card)).to.be.near(0, 0.001)
 			expect(Display.spinDegAt(2.25, card)).to.be.near(17, 0.001)
 			expect(Display.spinDegAt(6.75, card)).to.be.near(-17, 0.001)
-			-- IT NEVER GOES EDGE-ON: the card's own yaw is 15 degrees and the sway is 17, so the
-			-- camera is between 32 and -2 degrees off its face and never at 90.
-			for tenth = 0, 90 do
-				local yaw = card.yawDeg + Display.spinDegAt(tenth / 10, card)
-				expect(math.abs(yaw) < 60).to.equal(true)
+
+			local book = Display.viewFor(Shop.ITEM.BEATER_LICENCE)
+			expect(book.rockDegrees).to.equal(15)
+			expect(book.rockSeconds).to.equal(10)
+			expect(Display.spinDegAt(0, book)).to.be.near(0, 0.001)
+			expect(Display.spinDegAt(10, book)).to.be.near(0, 0.001)
+			expect(Display.spinDegAt(2.5, book)).to.be.near(15, 0.001)
+			expect(Display.spinDegAt(7.5, book)).to.be.near(-15, 0.001)
+
+			-- NEITHER EVER GOES EDGE-ON: the card's own yaw is 15 and its sway 17, the booklet's 13
+			-- and 15, so the camera is never more than 32 degrees off either face and never at 90.
+			for _, view in ipairs({ card, book }) do
+				for tenth = 0, 100 do
+					local yaw = view.yawDeg + Display.spinDegAt(tenth / 10, view)
+					expect(math.abs(yaw) < 60).to.equal(true)
+				end
 			end
 			-- ...AND A SOLID STILL ORBITS: a whole revolution in 18 seconds.
 			local box = Display.viewFor(Shop.ITEM.SLUG)
