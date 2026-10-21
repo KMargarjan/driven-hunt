@@ -3,18 +3,19 @@
 Task: 233
 Round: 1
 Base: `main` at `3558c177` (the merge of task 231)
-Code commit: `8c4292da736920aa74834605849f2fdf28939f5d`
+Code commit: `8d5e1859ca088d94bbba7fe5d581c7dc386ee840`
 
 ```
-[harness] PASS: 34/34 checks @ 8c4292da736920aa74834605849f2fdf28939f5d (clean tree) scope=all
+[harness]  PASS: 34/34 checks @ 8d5e1859ca088d94bbba7fe5d581c7dc386ee840 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 8d5e1859ca088d94bbba7fe5d581c7dc386ee840 (clean tree)
 ```
-(1983 server + 517 client assertions, 65 server spec files, 25 client.)
+One player: 1983 server + 517 client assertions, 65 server spec files, 25 client. Two players
+(the Director's run, `test2-t233b.log`): server 1983/0, shooter 517/0, driver 511/0.
 
-`test2`: **NOT N/A, and NOT the Builder's to run.** `HORN` and `LOBBY` change the drive and
-enrolment, so the Director runs it by decision rather than by `TWO_PLAYER_PATHS` -- the dispatch says
-so, and says to stop before the review whatever `tools/agents.py` says. **Round 1 of it ran at
-`6ade841d` and FAILED 32/36**; both failures are diagnosed and fixed in claims 11 and 12 below, and
-`ESCALATE.md` carries `NEEDS DIRECTOR: test2 for task 233 at 8c4292da` for round 2.
+**`test2` IS IN THIS GATE BY THE DIRECTOR'S DECISION, not by `TWO_PLAYER_PATHS`**: `HORN` and
+`LOBBY` change the drive and enrolment. **Its round 1 ran at `6ade841d` and FAILED 32/36**; both
+failures are diagnosed in claims 11 and 12, both are spec fixes and neither was a defect, and the
+line above is round 2 passing at this request's own code commit.
 
 ## What changed, and why
 
@@ -39,7 +40,7 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
    `BOAR_BEHAVIOUR`, `HORN`, `COINS` and `LOBBY`; `SHOP`, `QUICK_TEST` and `DRIVE_BOTS` are still
    `false`; `owner` and `born` are untouched on all fourteen rows, and `Flags.DEFAULTS` still holds
    fourteen. *Verify:* `src/shared/Flags/init.luau`;
-   `git diff 3558c177..8c4292da -- src/shared/Flags/init.luau` shows only `default`, `expires`,
+   `git diff 3558c177..8d5e1859 -- src/shared/Flags/init.luau` shows only `default`, `expires`,
    comments and the lit/dark line.
 
 2. **The four `expires` moves were required, not cosmetic.** `BOAR_BEHAVIOUR` sat at 2026-10-25 --
@@ -51,7 +52,7 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
 
 3. **No assertion was weakened and nothing was skipped, in any of the eight spec files.** Every fix
    either names the world the case means BY PARAMETER, or asks the build and asserts BOTH halves.
-   *Verify:* `git diff 3558c177..8c4292da -- tests/`; no `SKIP`, `FOCUS` or deleted `expect` in it
+   *Verify:* `git diff 3558c177..8d5e1859 -- tests/`; no `SKIP`, `FOCUS` or deleted `expect` in it
    (TestKit fails the run on a skip anyway).
 
 4. **`BOAR_BEHAVIOUR`: 30 server cases went red and each now says it means the OFF flush.** The flip
@@ -69,7 +70,7 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
 5. **...and the ON world keeps its own two files, so the flip did not take coverage away.**
    `boar_behaviour.spec` and `boar_behaviour_live.spec` turn `SENSE.ENABLED` on by parameter and are
    untouched: the notice radii, the AVOID turn, the panic spread, both formations and the live
-   sprint are asserted there. *Verify:* `git diff 3558c177..8c4292da --stat -- tests/` lists neither
+   sprint are asserted there. *Verify:* `git diff 3558c177..8d5e1859 --stat -- tests/` lists neither
    file; `config = { SENSE = { ENABLED = true } }` in `boar_behaviour_live.spec`'s header.
 
 6. **One real gap was closed, not papered over: `boar_shot.spec`'s threat fakes carried no `id`.**
@@ -147,11 +148,25 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
     always made (L-093). *Verify:* the `Role.isDriver()` branch; the empty-handed case's own
     `drawsFirstPerson` use further down the file; `HeldTool.kindOf`.
 
-13. **Both arms of claim 11 are entered, one per gate.** The one-player run at the code commit
-    entered the PAID arm and said so: `zz_drive_boundary: drive 1 sent 1 row(s) -- 1 paid, 0 refused
-    (notAPlayer 0, left 0, noProfile 0), 1 carrying a balance`. The Director's `test2` will enter the
-    REFUSED arm, and the same note will carry its numbers. *Verify:* the note in the one-player run's
-    output; the note's format string.
+13. **Both arms of claim 11 are entered, one per gate, and BOTH ARE MEASURED.** The note the fix
+    added carries the numbers, and the two runs at this one commit disagree about them exactly as the
+    diagnosis said they would:
+
+    ```
+    one player : zz_drive_boundary: drive 1 sent 1 row(s) -- 1 paid, 0 refused (notAPlayer 0, left 0, noProfile 0), 1 carrying a balance
+    two players: zz_drive_boundary: drive 1 sent 2 row(s) -- 0 paid, 2 refused (notAPlayer 2, left 0, noProfile 0), 2 carrying a balance
+    ```
+
+    The identity holds in both (`1 + 0 == 1`, `0 + 2 == 2`), `earnedRows` equals the `rowsPaid` delta
+    in both, and the two-player line is the "balance without an earning" case the comment describes:
+    two rows carry `coins` while the pay-out refused both, because `Economy.load` opens a session for
+    a negative id and `Coins.forDrive` will not pay one. *Verify:* the note in each run's output
+    (`test2-t233b.log` for the second); the note's format string.
+
+    **`camera_client.spec:438`'s ON arm is measured too, on the DRIVER client:**
+    `camera_client: the driver's first-person frame holds Horn, drawn as a horn and not a weapon` --
+    so the branch that failed round 1 now enters, names what is held and passes. *Verify:* the note
+    in `test2-t233b.log`; the `draws` branch in the spec.
 
 14. **No shared struct changed, so there is no enumerator to follow (L-030).** Both fixes only READ
     fields that already existed: `Economy.stats()`'s `rowsPaid`, `skippedNotAPlayer`, `skippedLeft`,
@@ -170,16 +185,10 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
   270 to 570 studs away by the time the shutter falls. Four attempts, four empty fields. The two
   traces are in `TASKS.md` and the task report; frame (b), the `$0 MONEY` drive bar, is in all four
   frames and was inspected.
-- **The fix for `camera_client.spec:438` cannot be executed by a one-player run at all.** With one
-  player there is no driver client, so `Role.isDriver()` is false and that branch never runs. Its
-  components are asserted in the same file and pass (`HeldTool.drawsFirstPerson(realHorn)`), and the
-  before-evidence is the Director's own run; the live wiring is what round 2 of `test2` will show.
-  The same is true of the two-player half of claim 11: its numbers there (2 rows, 0 paid, 2 refused
-  as notAPlayer) are a PREDICTION from the Edit measurement, not something I have run.
-- **`test2` round 2 has not been run.** The Director runs it, by the dispatch's own decision, and
-  **at the literal sha `8c4292da`** rather than at the branch tip (L-034): round 1 ran at `6ade841d`,
-  a paperwork commit on top of the sha the request named, and this round's paperwork lands the same
-  way.
+- **`camera_client.spec:438`'s driver branch cannot be executed by a one-player run at all** -- with
+  one player there is no driver client -- so everything I claim about it rests on the Director's
+  two-player runs: the failure at `6ade841d` and the passing note at `8d5e1859`. I did not run
+  either, and I cannot run `test2` at all.
 - **Karen has not seen any of this.** Nothing here was judged by eye for feel.
 - **Two flakes seen once each and not reproduced:** `camera_client.spec:376` failed in the session's
   very first run -- on `main`'s own tree, before any change -- and never again in nine later runs;

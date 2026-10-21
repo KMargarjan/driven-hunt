@@ -1,39 +1,32 @@
 # Escalations
 
-## 2026-10-21 - Task 233: **NEEDS DIRECTOR.** Four of five v1 defaults are lit; `SHOP` took the gate red and is reverted.
+## 2026-10-21 - Task 233: **BOTH GATES GREEN at `8d5e1859`; awaiting the review.** Four of five v1 defaults are lit; `SHOP` is task 233b.
 
-### 1. NEEDS DIRECTOR: `test2` for task 233 at `8c4292da736920aa74834605849f2fdf28939f5d`
-
-**Round 2 of the two-player gate.** Round 1 ran at `6ade841d` and FAILED 32/36 with two cases; both
-are traced to their flip, both are fixed, and the one-player gate is green at the new commit:
+### 1. ~~NEEDS DIRECTOR: `test2`~~ -- **CLOSED, 2026-10-21. Both gate lines name one commit.**
 
 ```
-[harness] PASS: 34/34 checks @ 8c4292da736920aa74834605849f2fdf28939f5d (clean tree) scope=all
+[harness]  PASS: 34/34 checks @ 8d5e1859ca088d94bbba7fe5d581c7dc386ee840 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 8d5e1859ca088d94bbba7fe5d581c7dc386ee840 (clean tree)
 ```
 
-**CHECK OUT THAT LITERAL SHA FOR THE CLICK, not the branch tip** (Learning Agent L-034): round 1 was
-run at `6ade841d`, which was a paperwork commit on top of the clean-tree sha the request named, and
-the paperwork for THIS round lands on top of `8c4292da` in the same way. `git checkout 8c4292da`
-(or confirm `git rev-parse HEAD` is that sha) before Test -> Clients and Servers -> Players: 2.
+Two-player round 1 ran at `6ade841d` and FAILED 32/36 with two cases. **Neither was a defect; both
+were specs that asserted the ONE-player world**, and each is traced to the flip that exposed it:
 
-**What the two failures were, and which flip caused each:**
-
-| failure | flip | cause |
+| failure | flip | cause, and why the code was right |
 |---|---|---|
-| `zz_drive_boundary.spec:364` *"Expected number, got nil"* on `earned` | **COINS** | a Studio test client gets a **NEGATIVE UserId** (`-1`, `-2`), and `Coins.forDrive` refuses any id that is not a positive integer (`isPlayerId`), counting it `skippedNotAPlayer`. **Not a defect** -- a live server has no negative ids |
-| `camera_client.spec:438` *"Expected false, got true"* on the DRIVER | **HORN** | a beater now carries the Horn Tool and since task 176 the horn has its own viewmodel branch, so a parented clone is the CORRECT answer. The branch was written when a beater carried nothing |
+| `zz_drive_boundary.spec:364` *"Expected number, got nil"* on `earned` | **COINS** | a Studio test client gets a **NEGATIVE UserId** (`-1`, `-2` -- this repository had already measured that, at `weapon_client.spec`'s `otherId`), and `Coins.forDrive` refuses any id that is not a positive integer, counting it `skippedNotAPlayer`. A live server has no negative ids |
+| `camera_client.spec:438` *"Expected false, got true"* on the DRIVER | **HORN** | a beater now carries the Horn Tool, and since task 176 the horn has its own viewmodel branch -- so a parented clone is the CORRECT answer. The branch was written when a beater carried nothing |
 
-Neither needed a code change. Both specs now assert MORE than they did: the first ties the wire to
-`Economy.stats()`'s own paid/refused accounting (an identity that holds in both worlds and catches a
-silently dropped row, which the old line could not), and the second NAMES what the driver is holding
-and asserts it is the horn and never a weapon -- the sentence the old line only implied.
+Both fixes assert MORE than the lines they replace, and the Director's passing run measured both
+new arms:
 
-**The one thing the one-player gate cannot check** is `camera_client.spec:438` itself: with one
-player there is no driver client, so that branch does not execute at all. Its components are proved
-in the same file (`HeldTool.drawsFirstPerson(realHorn)` is asserted and passes); the live wiring is
-what your `test2` will show.
+```
+one player : zz_drive_boundary: drive 1 sent 1 row(s) -- 1 paid, 0 refused (notAPlayer 0, left 0, noProfile 0), 1 carrying a balance
+two players: zz_drive_boundary: drive 1 sent 2 row(s) -- 0 paid, 2 refused (notAPlayer 2, left 0, noProfile 0), 2 carrying a balance
+two players: camera_client: the driver's first-person frame holds Horn, drawn as a horn and not a weapon
+```
 
-The Builder stopped before the review, as the dispatch says, whatever `tools/agents.py` says.
+Nothing is outstanding on this item.
 
 ### 2. `SHOP` is still DARK -- **ACCEPTED BY THE DIRECTOR AS TASK 233b**, and not touched here
 
