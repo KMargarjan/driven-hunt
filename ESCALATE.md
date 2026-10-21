@@ -1,24 +1,68 @@
 # Escalations
 
-## 2026-10-21 - Task 229 round 2: NEEDS DIRECTOR - `test2` at `<the branch head>`
+## 2026-10-21 - Task 229 round 2: `test2` CLOSED. **One item still open: KAREN HAS NOT LOOKED.**
 
-**`NEEDS DIRECTOR: test2 for task 229 at the branch head`** -- which is `2fcaf813` plus whatever
-paperwork commit carries this entry, i.e. **just run it on the branch as it stands.**
+### 1. `test2` -- CLOSED, no Director action left
 
-Round 1's Reviewer found one blocking defect, it was right, and the fix touches
-`src/server/Match/` -- so the two-player line is needed again. Round 1's code passed `test2` twice
-at `9d03e712`; this is a different commit and that line does not carry over.
-
-The last commit to touch `src/`, `tests/` or `tools/` is **`0bcb12c6`**, and the one-player gate was
-green there on the clean tree:
+Both gates are green on the clean tree at **one** commit, `c1084110`:
 
 ```
-[harness] PASS: 33/33 checks @ 0bcb12c6c62a2af9d760c505aa911b0a26fa7e47 (clean tree) scope=all
+[harness]  PASS: 33/33 checks @ c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2 (clean tree)
 ```
 
-Log: `<runs-dir>/test-t229-r2.log`.
+`<runs-dir>/test-t229-r2c.log`, `<runs-dir>/test2-t229e.log` (server 1981/0, shooter 514/0, driver
+508/0). The round-1 blocking finding is fixed and the seven notes with it.
 
-### Why no sha is written into the request yet, and why that is the cheaper order
+**One flake on the way, recorded as `TASKS.md` 229f rather than buried.** The first `test` at this
+commit failed `camera_client.spec:1504` (the task-93 claim that the left hand's place on the BARRELS
+does not change when the gun breaks open): 0.2695 studs against a `< 1e-3` claim, where every other
+observation of this identical tree reads `0.0000`. Not reachable from this branch -- 229 changes no
+camera, viewmodel, pose or gun file at all -- and this very sha had already passed `test2` with
+shooter 514/0, which runs that spec. The re-run was 33/33.
+
+### 2. **NEEDS KAREN -- she has not seen either surface, and round 3 is the last one**
+
+**This is the item that must not fall off the end** (L-011, L-008: she looks, THEN it is done).
+Task 229 is a UI task as much as a logic one -- a segmented switch on two screens -- and **no frame
+of either surface has ever been taken**, by me or by anyone.
+
+The reason is structural and unchanged: the DEV place has **no lobby, no truck pads and no shop
+counter**, so the pad dialog's visibility rule (`DHPadFirst` on a pad part) and the shop panel's
+prompt are both missing and neither control can be put on screen there; and the StudioMCP thread
+cannot `require`, so no probe can open a panel either. **Only the Forest Test has both**, and this
+task's dispatch said DEV only.
+
+What exists instead: the Designer's own picture of both surfaces and all seven states
+(`<runs-dir>/design/shop2-role.png`), and every number the build produced measured into the harness
+report and matching it --
+
+```
+task229 pad block: dialog 368 -> 487 px, block 119, track 292x38 at y=96, halves 141.5x32
+task229 shop row:  64 -> 124 px, track 186x34, phone detail block 70 px, blurb 3 line(s)
+```
+
+That is a strong statement about PIXELS and no statement at all about how it LOOKS.
+
+**The clicks, which are the Director's to make because they need the Forest Test:**
+
+1. open Studio on **Driven Hunt Forest Test**, in Edit;
+2. `python tools/flags.py` FIRST and write down what is set -- the Forest Test's flags are Karen's
+   playtest setup, not ours (L-056) -- then set `SHOP` and `COINS` on for that place;
+3. grant `ALWAYS HUNTER` to the test player, start Play, walk onto a truck pad: the dialog is 487 px
+   tall with `NEXT DRIVE / HUNTER | BEATER / A STAND ON THE LINE` between the header and the four
+   size rows;
+4. walk into the lodge and open the shop: `ALWAYS HUNTER` is the one 124 px row, with the switch on
+   it;
+5. capture both, **restore the flags exactly as they were**.
+
+**The question for you, since the round-2 dispatch did not say:** does Karen look BEFORE round 3 is
+treated as done, or does the branch merge on the gates and the review with her look as a follow-up?
+Either is defensible -- `feedback-merge-unseen-ok` says look tasks may merge on gates + review and
+her feedback becomes a new task -- but it is your call and not mine, and silence would make it
+mine by default. Her three feel questions are already queued as `TASKS.md` 229d.
+
+## Why no sha is written into the request yet, and why that is the cheaper order
 
 `tools/agents.py`'s `pasted()` only accepts a harness line whose sha PREFIXES the request's
 `Code commit:`, so the `[harness]` and `[harness2]` lines must name the SAME commit (L-034, which

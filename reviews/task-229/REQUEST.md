@@ -3,22 +3,29 @@
 Task: 229
 Round: 2
 Base: `963aaa37` (main, after task 228's shop round 2)
-Code commit: **not yet fixed -- see below. THIS REQUEST IS NOT READY FOR THE REVIEWER.**
+Code commit: `c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2`
 
-The last commit to touch `src/`, `tests/` or `tools/` is `0bcb12c6`, and the one-player gate is
-green there on the clean tree (`<runs-dir>/test-t229-r2.log`):
+Both gates, on the clean tree, at that one commit:
 
 ```
-[harness] PASS: 33/33 checks @ 0bcb12c6c62a2af9d760c505aa911b0a26fa7e47 (clean tree) scope=all
+[harness]  PASS: 33/33 checks @ c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2 (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2 (clean tree)
 ```
 
-**`[harness2]` is outstanding.** Round 1's code passed it twice at `9d03e712` (35/35; server
-1979/0, shooter 514/0, driver 508/0 -- `<runs-dir>/test2-t229c.log`, `test2-t229d.log`), but round 2
-changes `src/server/Match/`, so the line is needed again -- and `tools/agents.py` requires both
-lines to name ONE commit (L-034). Every commit that writes a sha down moves the head, so the sha is
-fixed in this order instead: **the Director runs `test2` on the branch as it stands; I then run
-`test` at that same head, fill both lines and `Code commit:` here, and run the review.**
-`ESCALATE.md` carries it as `NEEDS DIRECTOR: test2 for task 229 at the branch head`.
+`<runs-dir>/test-t229-r2c.log` and `<runs-dir>/test2-t229e.log` (server 1981/0, shooter 514/0,
+driver 508/0). `c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2` is a PAPERWORK commit: the last one to touch `src/`, `tests/` or `tools/` is
+`0bcb12c6`, and `git diff --name-only 0bcb12c6..c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2` is exactly `ESCALATE.md`, `TASKS.md` and
+`reviews/task-229/REQUEST.md`. Naming the later commit only makes the bound stricter.
+
+**One flake on the way, named rather than buried.** The first `test` at this commit came back
+`FAIL 31/33` on `camera_client.spec:1504` -- the task-93 case that claims the left hand's place on
+the BARRELS does not change when the gun breaks open. It measured 0.2695 studs against a `< 1e-3`
+claim; every other observation of this identical tree reads `0.0000`. It is not reachable from this
+branch: **229 changes no camera, viewmodel, pose or gun file at all**
+(`git diff --name-only 963aaa37...HEAD` has no such path), the same tree was 33/33 at `0bcb12c6`
+(paperwork-only delta), and this very sha passed `test2` with shooter 514/0 -- and that spec runs on
+the client, so the case passed at this commit in the Director's own run. The re-run was 33/33 with
+the note back at `0.0000`. Queued as `TASKS.md` 229f, with the log kept.
 
 ---
 
