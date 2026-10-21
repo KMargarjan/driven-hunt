@@ -490,4 +490,40 @@ return function()
 			expect(Roster.joinTeam({ Drivers = 1, Shooters = 3 }, (wanted :: any)[5], CONFIG)).to.equal("Drivers")
 		end)
 	end)
+
+	-- ----------------------------------------------------------- THE ROLE SWITCH (task 229)
+	--
+	-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always
+	-- hunter maybe sometimes I want to be a beater we need to find a way to do that"*.
+	--
+	-- REPRODUCED FIRST (rule H, and L-028: show the failing assertion before the fix). These two
+	-- cases are the defect itself: the fifth argument is the only input by which an owner could ask
+	-- to beat, and today `Roster.assign` does not have one -- Lua discards it, the privilege pass
+	-- runs unchanged, and the man who asked is dealt the hunter's side at every roster size.
+	describe("a one-drive BEATER wish", function()
+		local CONFIG = config()
+
+		it("seats the man who asked on the beaters' side, at every size from 2 to 16", function()
+			for n = 2, 16 do
+				local roster = ids(n)
+				local him = roster[1]
+				local always = { [him] = true }
+				local wishes = { [him] = true }
+				local assignment = Roster.assign(roster, nil, CONFIG, always, wishes)
+				expect(assignment[him]).to.equal("Drivers")
+				-- ...AND THE SIDES ARE STILL LEVEL, which is the whole of why this is a fifth
+				-- argument and not a filtered `always` (design section 7.1's proof).
+				local counts = countOf(assignment)
+				expect(math.abs(counts.Drivers - counts.Shooters) <= 1).to.equal(true)
+			end
+		end)
+
+		it("is not honoured for a roster of one, because no bot shoots", function()
+			-- `docs/design/bots.md` fills both sides with rigs and says twice that no bot shoots, so
+			-- a solo beater is a drive in which nothing can be shot. `ODD_PLAYER_TEAM` is Shooters,
+			-- so `driverSlots` is 0 at one player and this is ARITHMETIC rather than a branch.
+			local assignment = Roster.assign({ 7 }, nil, CONFIG, { [7] = true }, { [7] = true })
+			expect(assignment[7]).to.equal("Shooters")
+		end)
+	end)
 end
