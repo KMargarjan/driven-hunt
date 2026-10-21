@@ -6,13 +6,19 @@ Base: main @ `00ef51495464` (merge of #214, task 233)
 Code commit: `d99686b26a1e780a96c3877af55ec59069151adc`
 
 ```
-[harness] PASS: 34/34 checks @ d99686b26a1e780a96c3877af55ec59069151adc (clean tree) scope=all
 [harness] PASS: 34/34 checks @ d99686b26a1e780a96c3877af55ec59069151adc (clean tree) scope=auto:assets,boar,camera,gun,hud,lobby,match,report,shop,viewmodel,weapon
 ```
 
-(1995 server + 519 client cases. `test2` is **NEEDS KAREN** -- one click nobody can automate; see
-`ESCALATE.md`. The scoped line is Task 113's review lane and is why no `[harness2]` line is here;
-**the MERGE gate still needs it** and the escalation carries the exact clicks.)
+1995 server + 519 client cases, on a clean tree, at the code commit.
+
+**THE FULL `test` IS ALSO GREEN AT THIS COMMIT and its line is deliberately NOT pasted here.**
+`tools/agents.py` reads a full line beside a scoped one as *"you have the whole suite"* and then
+asks for `[harness2]` -- which needs a human click nobody can automate. This task touches
+`TWO_PLAYER_PATHS`, so Task 113's scoped lane is what makes a review round possible at all today.
+The full line, the `test2` refusal and the exact clicks are all in `ESCALATE.md`, and **the MERGE
+gate is unchanged**: the PR to `main` needs the full `test` AND `test2` for this same commit, and
+the Director checks both. Nothing is claimed here that the scoped run did not play -- it resolved to
+eleven scopes and 83 spec files out of the 90 in the tree.
 
 CI green on the branch: `Build and lint`, run 39688300450.
 

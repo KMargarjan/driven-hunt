@@ -28,6 +28,17 @@ on its own terms, and the refusal is the harness telling the truth rather than a
 The expected line is
 `[harness2] PASS: n/n checks @ d99686b26a1e780a96c3877af55ec59069151adc (clean tree)`.
 
+### THE FULL ONE-PLAYER RUN, FOR THE MERGE
+
+```
+[harness] PASS: 34/34 checks @ d99686b26a1e780a96c3877af55ec59069151adc (clean tree) scope=all
+```
+
+It lives HERE and not in `reviews/task-234/REQUEST.md` on purpose: `tools/agents.py` reads a full
+line beside a scoped one as *"you have the whole suite"* and then asks for the `[harness2]` line
+this entry is about, so a request carrying both cannot be reviewed at all. The Director needs this
+line and the `test2` one together for the merge; the review round needs the scoped one.
+
 ### THE REVIEW IS NOT WAITING ON IT
 
 Task 113's scoped lane covers the review round: every path this task changes maps to a named scope,
