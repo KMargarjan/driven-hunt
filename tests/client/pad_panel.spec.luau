@@ -32,6 +32,11 @@ local LobbyData = require(ReplicatedStorage:WaitForChild("Lobby"))
 local PlayerScripts = Players.LocalPlayer:WaitForChild("PlayerScripts")
 local Hud = require(PlayerScripts:WaitForChild("Hud"))
 
+-- `TestKit.note` ONLY, for the measured lines task 229's block prints: the two surfaces are judged
+-- by eye by Karen, and until she has looked at them the honest substitute is a NUMBER in the report
+-- rather than a passing assertion nobody can picture.
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+
 local PADS = LobbyData.CONFIG.PADS
 local PANEL = PADS.PANEL
 local LEAVING = PADS.LEAVING
@@ -606,6 +611,24 @@ return function()
 				expect(with.ruleY).to.equal(with.captionY + ROLE.NOTE_PX + ROLE.RULE_GAP)
 				-- THE RULE IS CLEAR OF THE FIRST SIZE ROW BY `TRAIL_PX`.
 				expect(with.rowY[1] - (with.ruleY + ROLE.RULE_PX)).to.equal(ROLE.TRAIL_PX)
+				TestKit.note(
+					string.format(
+						"task229 pad block: dialog %d -> %d px, block %d, track %dx%d at y=%d, halves %.1fx%d,"
+							.. " caption y=%d, rule y=%d, first row y=%d -> %d",
+						without.height,
+						with.height,
+						ROLE.BLOCK_PX,
+						with.trackWidth,
+						ROLE.TRACK_PX,
+						with.trackY,
+						with.halfWidth,
+						ROLE.TRACK_PX - 2 * Hud.Shop.ROLE_SWITCH.TRACK_PAD,
+						with.captionY,
+						with.ruleY,
+						without.rowY[1],
+						with.rowY[1]
+					)
+				)
 				-- THE TWO HALVES PLUS ONE GAP EXACTLY FILL THE PADDED INTERIOR -- the FORMULA, which is
 				-- what is built, and not the Designer's drawing, which forgot the 3 px between them.
 				local SWITCH = Hud.Shop.ROLE_SWITCH

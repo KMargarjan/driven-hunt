@@ -828,6 +828,13 @@ Shop.CONFIG = {
 			-- the caption beside it says why. It is never silent: that is the half of Xonotic's
 			-- team menu this repository inverts (`docs/research/2026-10-21-the-role-switch.md` 2.2).
 			DIM_TRANSPARENCY = 0.5,
+			-- THE PRESS, AT ITS ROLE COLOUR, FOR ONE TWEEN. It is the ONLY feedback a press gets
+			-- before the server answers, and that is deliberate: there is no optimistic redraw --
+			-- the lit half is the server's word and a client that lit itself would be holding an
+			-- opinion about a value whose whole security is that it does not. A press with NO
+			-- feedback at all would read as a dead button (`docs/design/role-switch.md` section 20,
+			-- Karen item 1), so the tint is what fills the one network hop.
+			PRESS_TRANSPARENCY = 0.68,
 			-- 0.12 s ON `BackgroundColor3` AND `TextColor3` ONLY. Nothing slides: there is no
 			-- travelling thumb, because `design-system.md` section 1.4 is *"A HUD that moves is a
 			-- HUD you cannot read while aiming"*, and the selected half simply IS the lit one.

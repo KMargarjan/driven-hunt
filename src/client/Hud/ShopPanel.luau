@@ -787,6 +787,18 @@ function ShopPanel.buildRoleSwitch(
 		-- THE WORD IS CLOSED OVER AND NOTHING ELSE IS, so a control redrawn for another state cannot
 		-- ask for the half it used to show (`buildWell`'s own rule for a row's id).
 		half.Activated:Connect(function()
+			-- THE PRESS TINT, AND IT IS THE ONLY THING A PRESS DRAWS. `paintRoleSwitch` puts the
+			-- half back the moment the server's word arrives, or on the next repaint if it never
+			-- does -- so this can never become a second opinion about which half is lit.
+			if out.usable ~= false then
+				half.BackgroundColor3 = roleColour(which)
+				half.BackgroundTransparency = ROLE.PRESS_TRANSPARENCY
+				task.delay(ROLE.TWEEN_SECONDS, function()
+					if half.Parent ~= nil then
+						ShopPanel.paintRoleSwitch(out, out.selected, out.usable)
+					end
+				end)
+			end
 			onPress(which)
 		end)
 		-- `MouseEnter` / `MouseLeave` fire for a mouse and never for a finger, which is right: a

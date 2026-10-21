@@ -41,6 +41,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Money = require(ReplicatedStorage:WaitForChild("Money"))
+-- `TestKit.note` ONLY, for task 229's measured line: the owned row is judged by eye by Karen, and
+-- until she has looked at it the honest substitute is a NUMBER in the report rather than a passing
+-- assertion nobody can picture.
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -1187,6 +1191,24 @@ return function()
 				-- the Designer's drawing, which forgot the 3 px between them).
 				local ROLE = PANEL.ROLE_SWITCH
 				expect(2 * now.switchHalfWidth + ROLE.TRACK_GAP + 2 * ROLE.TRACK_PAD).to.equal(now.switchTrackWidth)
+				TestKit.note(
+					string.format(
+						"task229 shop row: %d -> %d px at 1280x720, track %dx%d, halves %.1fx%d, name y=%d,"
+							.. " eyebrow y=%d, track y=%d, caption y=%d; phone detail block %d px, blurb %d line(s)",
+						was.switchRowHeight,
+						now.switchRowHeight,
+						now.switchTrackWidth,
+						PANEL.SWITCH_TRACK_PX,
+						now.switchHalfWidth,
+						PANEL.SWITCH_TRACK_PX - 2 * ROLE.TRACK_PAD,
+						PANEL.SWITCH_NAME_Y,
+						PANEL.SWITCH_EYEBROW_Y,
+						PANEL.SWITCH_TRACK_Y,
+						PANEL.SWITCH_CAPTION_Y,
+						Panel.layoutFor(400, 800, "detail").switchBlock,
+						Panel.layoutFor(400, 800, "detail").blurbLines
+					)
+				)
 			end)
 
 			it("gives the phone's detail pane 70 px for it and still holds three blurb lines", function()
