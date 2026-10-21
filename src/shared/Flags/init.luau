@@ -58,9 +58,9 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- without touching this line, and that is the Director's call (docs/design/shop.md section 16
 -- item 8), not this task's.
 --
--- LIT (10): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
---           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN and COINS (task 233).
--- DARK (4): QUICK_TEST, DRIVE_BOTS, SHOP, LOBBY.
+-- LIT (11): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
+--           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and SHOP (task 233).
+-- DARK (3): QUICK_TEST, DRIVE_BOTS, LOBBY.
 Flags.MAX_FLAGS = 14
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
@@ -376,14 +376,24 @@ Flags.DEFAULTS = {
 		-- BORN OFF (CLAUDE.md, feature flags). OFF is task 177's game bit for bit: no panel, no
 		-- inbound remote connected, no profile field written, the hunter keeps the rifle and his
 		-- twelve slugs, and a beater carries nothing.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-21 (task 233, "v1 default"). Karen's v1 decisions that day are
+		-- money in dollars AND the shop with its v1 items, so the counter has to be open on a server
+		-- without her place attributes. It needs `COINS` on as well, and `COINS` was lit in this same
+		-- task, one flip earlier. The row stays as the rollback, and `Shop.isOn()` is read ONCE per
+		-- owner at its own boundary, so both worlds stay reachable BY PARAMETER
+		-- (`ShopPanel.setEnabled(false)`, `ServerScriptService.Shop`'s `ENABLED`).
+		default = true,
 		-- THE FLAG'S NAME LIVES IN THE SHARED MODULE as `Shop.FLAG`, and `Shop.isOn()` is the one
 		-- read -- `RIFLE`'s shape (`owner = "ReplicatedStorage.Weapons"`) and `HORN`'s. Each owner
 		-- calls it ONCE at its own boundary (`ServerScriptService.Shop.ENABLED`,
 		-- `ShopPanel.start`'s `enabled`) and passes the value inward.
 		owner = "ReplicatedStorage.Shop",
 		born = "2026-10-14 task 178",
-		expires = "2026-11-04", -- 21 days: the ceiling in feature-flags.md section 12
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, for the reason the lit rows above do not: the
+		-- ceiling in feature-flags.md section 12 is what stops a DARK path living for ever, and from
+		-- today this path is LIT.
+		expires = "2026-12-31",
 		-- IT NEEDS `COINS` ON AS WELL, or the shop reads CLOSED: with the money off there is no
 		-- profile to charge and nothing to record (docs/design/shop.md section 3.1).
 		why = "A player walks up to the counter in the lodge and spends the money a drive paid him "

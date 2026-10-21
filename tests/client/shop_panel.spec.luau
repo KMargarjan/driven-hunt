@@ -1091,15 +1091,25 @@ return function()
 			Panel.setNear(false)
 			expect(Panel.isOpen()).to.equal(false)
 			Panel.setPrompt(nil)
-			-- BACK TO THE BUILD THIS MERGES IN, so no later spec in this file inherits a lit flag.
+			-- BACK TO THE BUILD'S OWN VALUE, so no later spec in this file inherits a flag it did not
+			-- ask for. It is ASSERTED to be the build's, not asserted to be `false`: `SHOP` became a
+			-- v1 default on 2026-10-21 (task 233) and this line read `expect(...).to.equal(false)`
+			-- until then, which failed in the flip's own gate run.
 			Panel.setEnabled(Shop.isOn())
-			expect(Panel.isEnabled()).to.equal(false)
+			expect(Panel.isEnabled()).to.equal(Shop.isOn())
 		end)
 
-		-- THE DARK PATH, AND IT IS THE STATE THIS WORK MERGES IN. With `SHOP` off the panel is never
+		-- THE DARK PATH, AND IT IS THE PATH THE ROLLBACK TAKES. With `SHOP` off the panel is never
 		-- opened by the counter and no prompt opens it.
+		--
+		-- DRIVEN OFF BY PARAMETER SINCE TASK 233, because the flag is lit now and a case that read
+		-- `expect(Shop.isOn()).to.equal(false)` was asserting the build rather than the branch -- it
+		-- failed in the flip's own gate run. `Panel.setEnabled(false)` is the same one permitted
+		-- shape the ON case above uses, so BOTH branches are now reachable whichever way the row
+		-- sits; the `afterEach` puts the build's own value back.
 		it("opens nothing at the counter while the flag is off", function()
-			expect(Shop.isOn()).to.equal(false)
+			Panel.setEnabled(false)
+			expect(Panel.isEnabled()).to.equal(false)
 			Panel.setNear(true)
 			expect(Panel.isNear()).to.equal(false)
 			expect(Panel.isOpen()).to.equal(false)
