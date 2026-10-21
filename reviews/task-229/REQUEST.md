@@ -3,22 +3,97 @@
 Task: 229
 Round: 3
 Base: `963aaa37` (main, after task 228's shop round 2)
-Code commit: **pending the Director's `test2` -- see below.**
+Code commit: `2c45793cdbb691c12fc2060c0fa5dac3b579d8db`
 
-The last commit to touch `src/`, `tests/` or `tools/` is **`929270d8`**, and the one-player gate is
-green there on the clean tree (`<runs-dir>/test-t229-r3.log`):
+Both gates, on the clean tree, at that one commit:
 
 ```
-[harness] PASS: 33/33 checks @ 929270d859ccf962ab4887540629fece394adce0 (clean tree) scope=all
+[harness]  PASS: 33/33 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree)
 ```
 
-`[harness2]` is needed again -- round 3 changes `src/client/Hud/`, and round 2's line was for a
-different commit. Both lines must name ONE commit (`tools/agents.py`'s `pasted()`, L-034), and every
-commit that writes a sha down moves the head, so the order is the one that worked last round:
-**the Director runs `test2` on the branch as it stands; I then run `test` at that same head, fill
-both lines and `Code commit:` here, and run the review.** `ESCALATE.md` carries it.
+`<runs-dir>/test-t229-r3b.log` (DEV place confirmed in the log: *"Studio has the DEV place open"*,
+and both reports *"come from the DEV place (136410205938347)"*) and `<runs-dir>/test2-t229f.log`
+(server 1981/0, shooter 515/0, driver 509/0). `2c45793cdbb691c12fc2060c0fa5dac3b579d8db` is a PAPERWORK commit; the last one to touch
+`src/`, `tests/` or `tools/` is `929270d8`, and the range between them is `ESCALATE.md`, `TASKS.md`
+and this file.
 
-Round 2's gates, for the record: `[harness] 33/33` and `[harness2] 35/35`, both at `c1084110`.
+---
+
+## 0. THE FRAMES. The two surfaces were finally photographed, on the player's path
+
+Rounds 1 and 2 were argued without a single picture of either screen, because the DEV place has no
+lobby, no truck pads and no shop counter. Round 2's finding 1 -- the control built, placed, painted
+and **never rendered** -- is what that cost. The Director opened the Forest Test for this step, so
+here is what is actually on screen. **Four frames, each at the real screen size, each inspected.**
+
+| # | File | What it shows |
+|---|---|---|
+| 1 | `.screenshots/229-frame1-pad-dialog.png` | the truck-pad dialog, owner: `TRUCK 2` / `HOW MANY PLAYERS?` / hairline / **`NEXT DRIVE`** / **HUNTER lit, BEATER muted** / **`A STAND ON THE LINE`** / the rule / the four size rows / the hint |
+| 2 | `.screenshots/229-frame2c-beater-lit.png` | the same dialog after asking to beat: **BEATER lit in the blue, HUNTER muted**, caption flipped to **`WALKING THE DRIVE`** |
+| 3 | `.screenshots/229-frame3d-shop-row.png` | the shop's owned row: **124 px**, `ALWAYS HUNTER` in the owned green with the **`OWNED` chip up on the name line** and no price line, `NEXT DRIVE`, the switch, `A STAND ON THE LINE` |
+| 4 | `.screenshots/229-frame4b-nonowner-pad.png` | a **non-owner's** pad: no eyebrow, no switch, no caption, no rule -- the header straight into the four size rows |
+
+**They match the Designer's `shop2-role.png`** panel for panel: panel 1 against frame 1, the
+`chose beater` state against frame 2, panel 2 against frame 3, and *"not owned: nothing"* against
+frame 4.
+
+**And the bottom edge really is invariant (design section 14.1), in two photographs rather than in
+arithmetic:** frame 1's dialog is 487 px and frame 4's is today's 368, and in both the hint
+`STEP OFF THE PAD TO CHANGE YOUR MIND` sits at the same height on the screen. The block grew
+upward.
+
+### What the live run proved besides the pictures
+
+Every step below is the real path, with `DHShopTestGrant` money spent through the shop's own remote:
+
+* **the buy is refused away from the counter** -- `refused=too-far` from 765 studs, the server's own
+  rule, measured before it was allowed;
+* **the purchase works at the counter**: `$13500 -> $11500`, `bought=role.alwayshunter`,
+  `ownedRow=true`, and the panel's status line reads `BOUGHT: ALWAYS HUNTER` (frame 3's own
+  screenshot carries it);
+* **the server writes the attribute the moment he owns it**: `DHRoleWish=hunter`, with no ask at all;
+* **the ask is accepted when he is free**: `wish=beater`;
+* **the ask is REFUSED once the truck has him** -- `in-a-drive` -- and the caption on his own screen
+  reads `ASKED FOR ALREADY`. That is design section 4's check 5 and section 3.7's state 7, live;
+* **THE RESET WORKS ON THE REAL PATH.** With `wish=beater` set, the truck took him, and one scan
+  after the drive seated him his attribute read **`wish=hunter`** again. The wish was spent by
+  exactly one assignment;
+* **and he was a HUNTER, from a party of one** -- `team=Shooters` -- which is section 8's rule
+  (`driverSlots` is 0 at one player, because no bot shoots) happening in the world rather than in a
+  spec;
+* **the whole live console carried no `Stack Begin`, no `attempt to`, no `invalid argument` and no
+  error line.**
+
+### What those frames are NOT, stated rather than implied
+
+**Frame 3's panel was opened by a probe, not by the prompt.** The shop opens from a
+`ProximityPrompt`, and a headless session cannot trigger one -- a synthetic `E` does not reach it
+and `InputHoldBegin`/`InputHoldEnd` fired without the panel opening. So that one frame was taken
+with the panel's own container set visible from a client probe, and the well scrolled to the row.
+**Everything inside it is the real panel** -- the row, its 124 px, the track and the two halves are
+where `relayout` put them -- but the opening itself was not photographed. Frames 1, 2 and 4 are the
+untouched path: walk onto the pad, the server asks, the dialog opens.
+
+**The frames do not show the switch being PRESSED.** A spec cannot fire `GuiButton.Activated` and
+the harness cannot synthesise a tap, so the asks above went through the same remote the half fires
+(`RoleRequest:FireServer({ role = ... })`). What is unproven by a frame is the `Activated`
+connection itself -- the same limit `PadPanel.press` and `ShopPanel.press` have always carried.
+
+### The Forest Test was left exactly as it was found
+
+Read first, read again at the end, identical both times:
+
+```
+placeId=130094961655666 DHFlag_BOAR_MODEL=true DHFlag_COINS=true DHFlag_DRIVE_BOTS=true
+DHFlag_LOBBY=true DHFlag_SHOP=true DHForestStartRole=hunter DHShopTestGrant=true
+```
+
+**No attribute was written.** Play was stopped, the place left in Edit, and its Studio window
+closed, so exactly one Studio -- DEV -- was open for the gate above.
+
+**Nothing persistent was written by the purchase.** Each `Play` began with `balanceBefore=13500`
+again, so the 2000 spent and the ownership did not survive the session.
 
 ---
 

@@ -1,8 +1,53 @@
 # Escalations
 
-## 2026-10-21 - Task 229 round 3: NEEDS DIRECTOR - `test2`. **And Karen still has not looked.**
+## 2026-10-21 - Task 229 round 3: the look HAPPENED. **Four frames are waiting for your eyes.**
 
-### 1. `NEEDS DIRECTOR: test2 for task 229 at the branch head`
+### `test2` -- CLOSED. Both gates green at one commit
+
+```
+[harness]  PASS: 33/33 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree)
+```
+
+`<runs-dir>/test-t229-r3b.log` (DEV confirmed in the log) and `<runs-dir>/test2-t229f.log`.
+
+### The frames, and the one thing I am NOT doing without you
+
+Four frames, each at the real screen size, each inspected by me, all matching the Designer's
+`shop2-role.png`:
+
+| # | File | What it shows |
+|---|---|---|
+| 1 | `.screenshots/229-frame1-pad-dialog.png` | the pad dialog with `NEXT DRIVE`, HUNTER lit, `A STAND ON THE LINE` |
+| 2 | `.screenshots/229-frame2c-beater-lit.png` | BEATER lit in the blue, caption `WALKING THE DRIVE` |
+| 3 | `.screenshots/229-frame3d-shop-row.png` | the shop's 124 px owned row with the switch on it |
+| 4 | `.screenshots/229-frame4b-nonowner-pad.png` | a non-owner's pad: no switch at all |
+
+The live run also proved, on the real path: the buy refused `too-far` from 765 studs and accepted at
+the counter (`$13500 -> $11500`), the attribute written on ownership, the ask accepted when free and
+**refused `in-a-drive` once the truck had him**, **the wish reset to `hunter` one scan after the
+drive seated him**, and a clean console. Details are in `reviews/task-229/REQUEST.md` section 0,
+including the two things the frames do NOT show.
+
+**I HAVE STOPPED BEFORE RUNNING THE ROUND-3 REVIEW, deliberately.** Your reply accepted item 2 as
+*"we look before the last review round"* -- and if I inspect my own four frames and then immediately
+spend the last round, the only person who has looked at this switch is the one who built it, which
+is the thing I asked you to prevent. **Round 3 is the last round**: if it is spent and something in
+these frames is wrong, we are at `MAX_ROUNDS` with an escalation instead of a fix.
+
+So: **look at the four frames. Then say go, and I run the review in the next message** -- everything
+else is done and the request is written. If you would rather I had just run it, say so and I will;
+the cost of asking is one message and the cost of being wrong is the last round.
+
+### The Forest Test was left exactly as found
+
+Read first and read again at the end, identical:
+`DHFlag_BOAR_MODEL/COINS/DRIVE_BOTS/LOBBY/SHOP=true, DHForestStartRole=hunter, DHShopTestGrant=true`.
+**No attribute was written**, Play stopped, the place left in Edit and its window closed -- so
+exactly one Studio, DEV, was open for the gate. **Nothing persistent was written by the purchase**:
+every `Play` began at `$13500` again.
+
+## 1. `NEEDS DIRECTOR: test2 for task 229 at the branch head`
 
 Just run it on the branch as it stands. Round 2's Reviewer found two blocking defects, both right,
 and the fix touches `src/client/Hud/` -- so the line is needed again, and round 2's line was for a
