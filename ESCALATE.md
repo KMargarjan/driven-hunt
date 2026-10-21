@@ -1,5 +1,111 @@
 # Escalations
 
+## 2026-10-22 - Task 235 (the Director's 233b): **TWO NEEDS DIRECTOR, and the review is blocked on the first.** `SHOP` is a v1 default and a world with no counter wires no shop; the one-player gate is green twice at the code commit.
+
+### 1. NEEDS DIRECTOR (one click): `test2` at the code commit -- **AND THE REVIEW CANNOT RUN WITHOUT IT**
+
+The dispatch asked for it (*"NEEDS DIRECTOR for test2 at the code commit (SHOP changes what a
+drive's players carry), then the review after the Director's test2 line"*), and `tools/agents.py`
+insists on it independently: this change touches `src/server/MatchBoot.server.luau`, which is in
+`TWO_PLAYER_PATHS`.
+
+**Task 113's scoped lane cannot be used here, and that is a measurement, not a preference.**
+`src/server/MatchBoot.server.luau` is in NO `BLAST_RADIUS` row, and an unmapped code path resolves
+to `all` by design -- so `test --scope auto` would produce `scope=all`, which is tagged as FULL
+evidence and makes `agents.py` ask for `[harness2]` anyway. (Mapping that one file to `match`, as
+`src/server/ForestTestBoot.server.luau` already is, would open the scoped lane for every future task
+that touches the DEV composition root. That is a `tools/studio_mcp.py` change and the Director's
+call; it is queued as a note, not done here.)
+
+`test2` refuses on its own terms, which is the harness telling the truth:
+
+```
+[harness2] NEEDS DIRECTOR, once, in Studio -- StudioMCP CANNOT start this test itself:
+[harness2]   start_stop_play takes `is_start` and `studio_id` and NOTHING else, so there is no way
+[harness2]   to ask for a player count.
+```
+
+**The exact clicks, in order:**
+
+1. Studio, on **Driven Hunt DEV**, in Edit mode, **and nothing else open** (the Forest Test is
+   already closed: `list_roblox_studios` answers one Studio, `136410205938347`).
+2. `git switch task-233b-shop-default` (the branch head is the code commit plus paperwork).
+3. Run `python tools/studio_mcp.py test2` from the repo.
+4. When it asks: **Test tab -> Clients and Servers -> Players: 2 -> Start.**
+5. Leave the windows alone. It waits 180 s for them and opens its own gate.
+6. When it says so, press **Cleanup** in the Test tab.
+
+The expected line is
+`[harness2] PASS: n/n checks @ 64011862741483b04ab28fda270cb98232f4be02 (clean tree)`.
+
+**What a second player can actually answer here, and it is one thing:** whether the OTHER player's
+kit is the same as this one's. `shopOn` is false in the DEV place (no counter), so the prediction is
+that nothing changes for either player and the numbers match task 234's two-player run. A different
+answer would mean a provider is reaching players through some path that is not the `if shopOn then`
+block, which is exactly what the run is for.
+
+### 2. NEEDS DIRECTOR: **open the Forest Test**, so the WIRED arm can be photographed
+
+The dispatch's item 3 -- *"Measure the player's path in the Forest Test ... frames: the hotbar and
+the ammo chip at the lodge and in the drive"* -- **is not done**, and the standing capture block
+says why it is the Director's: *"If the Forest Test is closed when you need it, write NEEDS DIRECTOR
+and the Director opens it."* It is closed. No attribute was read and none was written.
+
+That arm is the only live evidence of the half of this change the DEV gate cannot reach, because DEV
+has no counter by construction. When the place is open the capture is ~5 minutes and read-only:
+attributes read first with `ftq.py`, `ftplay.py` for Play, `lobby-go.luau` to enrol (rule I),
+attributes re-read and confirmed identical, then the window closed before any harness run.
+
+### 3. FOR KAREN, AND IT IS HERS TO JUDGE: what a brand-new player now carries
+
+Stated from the catalogue and the two pure owners of the kit, not from a frame -- see item 2.
+
+**With a counter (her Forest Test, and the release place):** a fresh player who has bought nothing
+carries **the shotgun alone, loaded with BUCKSHOT, with 12 buckshot in the pocket and 0 slugs**. No
+rifle. `Shop.BASE_AMMO.shotgun` is `{ Buck = true }` and the slug is the ladder's first rung.
+
+**He buys his way up out of drive money.** A drive pays `points x 2 + 10`, plus 25 for first place
+(`Economy.CONFIG`). The ladder, cheapest first:
+
+| | coins |
+|---|---|
+| SLUG SHELLS | 120 |
+| BEATER LICENCE | 250 |
+| SEMI-AUTO SHOTGUN | 500 |
+| THE HIDE (bundle) | 575 |
+| HIGH SEAT ACCESS | 600 |
+| LEVER RIFLE | 650 |
+| DEER LICENCE | 750 |
+| UNLIMITED AMMO | 900 |
+| RIFLE, SCOPED | 1500 |
+| THE MARKSMAN (bundle) | 1800 |
+| ALWAYS HUNTER | 2000 |
+| THE FULL SEASON (bundle) | 3750 |
+
+So slugs are about two or three drives, and the scoped rifle is a long way up. **This is the v1
+ladder as reviewed in tasks 178 and 221** -- nothing about it is new in this task -- but Karen has
+only ever played the Forest Test with her own place attributes and a granted profile, so she has
+not met it as a fresh player. If the first minute should feel richer than that, the fix is a price
+or a starting grant, both one-line data changes, and both hers to decide.
+
+**In a world with no counter (the DEV place) nothing changed at all:** the full loadout, the rifle
+beside the shotgun, slugs loaded, 12 and 12 in the pockets. That is the whole point of this task.
+
+### 4. A note, not a blocker: the design doc is now stricter than its own words
+
+`docs/design/shop.md` section 10.4 says every purchase in the DEV place *"is refused `too-far`"*.
+It is stronger than that now: the shop is not wired in that place at all, so nothing is refused
+because nothing is asked. The Architect owns `docs/design/`, so this is reported rather than edited.
+
+### 5. A stability observation, carried forward from task 233
+
+`camera_client.spec:1618` failed once in four runs at this commit and passed in the other three
+(runs 2 and 4 both 34/34). `ESCALATE.md` named that same line at `e2d41773` with the same
+behaviour -- one failure, immediate re-run green. The inner assertion is
+`handsMissing > missingBefore` after a cleared hand template and a `task.wait(0.3)`. It cannot reach
+this change (no provider is wired in DEV), and it was already flaking on `main`. Worth its own task
+some time; nothing here depends on it.
+
 ## 2026-10-22 - Task 234: **NEEDS KAREN (one click): `test2` for the merge.** The one-player gate is green at the code commit; the two-player one cannot be started by a tool.
 
 ### NEEDS KAREN
