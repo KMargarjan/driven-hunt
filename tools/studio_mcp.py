@@ -1155,10 +1155,14 @@ def resolve_scope(arg):
 
 # Read-only Luau queries. Keep every query here, read-only. Templated ones take JSON via luau_json().
 QUERY_PLACE_ID = "return tostring(game.PlaceId)"
-# THE SAME FACT PLUS THE LABEL (Task 226). An override write has to say WHERE it went in words a
-# person can check against the Studio title bar, and `game.PlaceId` alone is a number nobody reads
-# back. Both come from the Studio being addressed, in one round trip, so the id and the name can
-# never be a pairing this tool made up.
+# THE SAME FACT PLUS WHATEVER THE DATAMODEL CALLS ITSELF (Task 226). An override write has to say
+# WHERE it went, and `game.PlaceId` alone is a number nobody reads back.
+#
+# `game.Name` IS NOT THE PLACE'S NAME ONCE ROJO IS CONNECTED, and that was measured here rather
+# than assumed: before the Connect the DEV editor answered "Driven Hunt DEV", and the moment the
+# plugin attached it answered "DrivenHunt" -- the `name` field of default.project.json, which Rojo
+# writes onto the DataModel. So the id is the fact and this name is a hint; `PLACE_ALIASES` holds
+# the name a person can match against the Studio title bar.
 QUERY_PLACE_AND_NAME = 'return tostring(game.PlaceId) .. "|" .. tostring(game.Name)'
 QUERY_TOKEN = """
 local v = game:GetService("ReplicatedStorage"):FindFirstChild("TestSyncToken")
@@ -3725,7 +3729,12 @@ def studio_for_place(studio, place_id, datamodel="Edit", attempts=None, pause=No
             studio_id = entry.get("id")
             at, name, why = place_of(studio, studio_id, datamodel)
             if at == place_id:
-                return studio_id, name or ("place " + at), ""
+                # THE NAME A PERSON CAN CHECK, which is not always the one the DataModel gives:
+                # Rojo renames it to the project's name on connect (see QUERY_PLACE_AND_NAME). The
+                # id stays the thing that was matched; the label is only how it is read out.
+                known = PLACE_ALIASES.get(
+                    next((alias for alias, (pid, _) in PLACE_ALIASES.items() if pid == at), ""))
+                return studio_id, (known[1] if known else name) or ("place " + at), ""
             seen.append("%s=%s" % (studio_id[:8] if studio_id else "?",
                                    ("%s (%s)" % (at, name or "unnamed")) if at
                                    else "unreadable: " + why))
@@ -5466,7 +5475,8 @@ def selftest():
     ok("...and still returns the lone RIGHT-place Studio", got == DEV, f"{got!r}, {why!r}")
     got, name, why = studio_for_place(PlacedStudio(both_forest_first), FOREST_PLACE_ID)
     ok("studio_for_place finds the Forest Test by its id", got == FOREST, f"{got!r}, {why!r}")
-    ok("...and names it from the place's OWN answer", name == "Driven Hunt Forest Test", repr(name))
+    ok("...and reads it out by the name a person can match against the title bar",
+       name == "Driven Hunt Forest Test", repr(name))
 
     # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
