@@ -58,9 +58,9 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- without touching this line, and that is the Director's call (docs/design/shop.md section 16
 -- item 8), not this task's.
 --
--- LIT (8): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
---          BOAR_MODEL (task 230), BOAR_BEHAVIOUR (task 233).
--- DARK (6): QUICK_TEST, HORN, DRIVE_BOTS, COINS, SHOP, LOBBY.
+-- LIT (9): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
+--          BOAR_MODEL (task 230), BOAR_BEHAVIOUR and HORN (task 233).
+-- DARK (5): QUICK_TEST, DRIVE_BOTS, COINS, SHOP, LOBBY.
 Flags.MAX_FLAGS = 14
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
@@ -228,14 +228,26 @@ Flags.DEFAULTS = {
 		-- while `main` passes, and with no switch the only A/B available was an uncommitted edit.
 		-- OFF, the drive is bit-for-bit the game before this task -- nobody is granted anything --
 		-- so the flag is also the isolation experiment and the rollback.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-21 (task 233, "v1 default"): the beater is one of Karen's two v1
+		-- roles and the horn is what he carries, so a server without her place attributes has to
+		-- hand him one. The Forest Test has had it on unconditionally since task 152
+		-- (`ForestTestBoot`'s `local hornOn = true`), which is the world she plays in; this flip is
+		-- what gives the DEV drive, and every other default server, the same game. The row stays as
+		-- the rollback, and `Horn.carriesFor(on, team)` is pure, so both worlds stay reachable BY
+		-- PARAMETER.
+		default = true,
 		-- The owner is the module that READS it, at its boundary: each composition root resolves
 		-- `Horn.carryPolicy(...)` ONCE and hands the result to `Weapon.Horn.setCarryPolicy`. Nothing
 		-- in the horn reads a flag, and `Horn.carriesFor(on, team)` is pure, so both worlds are
 		-- reachable by parameter while the flag sits at one of them.
 		owner = "ReplicatedStorage.Horn",
 		born = "2026-10-11 task 152",
-		expires = "2026-10-31",
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, for the reason `BOAR_MODEL` and
+		-- `BOAR_BEHAVIOUR` above do not: the ceiling in feature-flags.md section 12 is what stops a
+		-- DARK path living for ever, and from today this path is LIT. Left at 2026-10-31 this row
+		-- fails `tests/server/flags.spec.luau`'s rot tripwire on 1 November.
+		expires = "2026-12-31",
 		why = "The beater's horn: the Tool, its voice and the blast that pushes boars away from the "
 			.. "beater who blew it. OFF is exactly the game before task 152 -- no beater carries "
 			.. "anything, and no blast reaches a boar.",
