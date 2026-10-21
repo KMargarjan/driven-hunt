@@ -1624,7 +1624,16 @@ local function buildHighSeat(parent: Model)
 	-- a `TrussPart`'s lattice is sized in STUDS, so at a seventh of full size it would render as a
 	-- solid block -- which is why a picture of it is two rails and its rungs, at the truss's own
 	-- 2-stud width and 2-stud rung pitch. Its foot is on the shelf and its top runs
-	-- `LADDER_OVER_DECK_STUDS` past the deck, exactly as the real one does.
+	-- `LADDER_OVER_DECK_STUDS` past the deck: that part is exactly the real one's.
+	--
+	-- ITS PLANE IS THE TRUSS'S OUTER FACE AND NOT ITS CENTRE, and that is a LOOK decision, not the
+	-- real seat's own number (Reviewer, round 1, and the note is right that the earlier comment
+	-- claimed otherwise). The real truss is 2 studs deep, spanning -3 to -5; a picture of it is one
+	-- plane, and the outer face is the one a climber's hands are on and the one the camera at yaw
+	-- 30 is looking at. BOTH WERE SHOT AT THE SAME PARKED YAW before this was settled:
+	-- `.screenshots/228-seat-outerface.png` stands the ladder clear of the near legs with the key
+	-- tag readable on it, and at the centre plane it crosses them and the whole stand reads as a
+	-- lattice of sticks.
 	local ladderTop = deckTop + dims.LADDER_OVER_DECK_STUDS
 	local ladderZ = dims.LADDER_OFFSET_STUDS - dims.LADDER_SIZE_STUDS / 2
 	local half = dims.LADDER_SIZE_STUDS / 2
@@ -1781,8 +1790,21 @@ local function buildBundle(parent: Model, id: string)
 	local lean = Vector3.new(0, math.sin(rad), -math.cos(rad))
 	local lidAt = Vector3.new(0, 0.3, -0.38) + lean * 0.31
 	local lidTurn = Vector3.new(LID_DEG, 0, 0)
-	local function onLid(d: number): Vector3
-		return lidAt + up * d
+	-- A POINT ON THE LID'S INNER FACE, IN THE LID'S OWN FRAME: `d` proud of that face, `dx` across
+	-- its width (which happens to be world `x`, because the lid only turns about X) and `dz` along
+	-- its DEPTH, which is `-lean` and is nothing like world `z`.
+	--
+	-- `dx`/`dz` EXIST BECAUSE THE SPEC'S OWN TWO INK LINES WERE NUDGED IN WORLD COORDINATES and one
+	-- of them vanished (Reviewer, task 228 round 1, and it is right). `CaseLidInk2`'s nudge
+	-- `(-0.16, -0.030, -0.010)` has a component of -0.019 ALONG `up`, so a piece written as
+	-- `onLid(0.058)` actually sat at 0.039 -- 0.008 BEHIND the label it is printed on, inside its
+	-- footprint, invisible. `CaseLidInk1`'s nudge happened to lean the other way, so one line showed
+	-- and the other did not. This is the failure this file's own comments twice exist to stop
+	-- (`buildHunterPin`: *"anything laid at 0.185 is half buried and renders as scribble"*), and
+	-- the fix is to stop mixing two frames: every offset on this lid is now in the lid's.
+	local acrossLid = -lean
+	local function onLid(d: number, dx: number?, dz: number?): Vector3
+		return lidAt + up * d + Vector3.new(dx or 0, 0, 0) + acrossLid * (dz or 0)
 	end
 
 	pieces(parent, {
@@ -1860,17 +1882,21 @@ local function buildBundle(parent: Model, id: string)
 			material = metal,
 			reflectance = 0.2,
 		},
+		-- THE TWO INK LINES CLEAR THE LABEL THEY ARE PRINTED ON, measured: the label's front face is
+		-- `0.048 + 0.012 / 2` = 0.054 along the lid's normal and the brass rule's is 0.062, so an
+		-- ink bar at 0.068 with a half-thickness of 0.007 has its front at 0.075 and its back at
+		-- 0.061 -- proud of both, from any angle the camera can reach.
 		{
 			name = "CaseLidInk1",
 			size = Vector3.new(0.5, 0.014, 0.045),
-			at = onLid(0.058) + Vector3.new(-0.09, 0.016, 0.005),
+			at = onLid(0.068, -0.09, 0.055),
 			rot = lidTurn,
 			color = INK,
 		},
 		{
 			name = "CaseLidInk2",
 			size = Vector3.new(0.36, 0.014, 0.034),
-			at = onLid(0.058) + Vector3.new(-0.16, -0.03, -0.01),
+			at = onLid(0.068, -0.16, -0.03),
 			rot = lidTurn,
 			color = FIELD,
 		},

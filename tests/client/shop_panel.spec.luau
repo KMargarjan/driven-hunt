@@ -711,10 +711,12 @@ return function()
 
 			-- THE HIGH SEAT IS OUR OWN OPEN STAND AND NOT THE SPEC'S CLOSED BOX BLIND (the
 			-- Director's override, 2026-10-21; Karen, 2026-10-20: *"we stay what you have
-			-- builded"*). It is read off `HighSeats.DIMS`, so the count is that module's own
-			-- `PARTS_PER_SEAT` arithmetic rather than a number typed here: four legs, one girt, two
-			-- braces, a deck, five rail boards, two ladder rails and seven rungs, plus the five of
-			-- the brass key tag that says what the row actually sells.
+			-- builded"*). Its STRUCTURE is read off `HighSeats.DIMS` -- the same numbers
+			-- `HighSeats.plan` lays the real stands with -- so this sum is the seat's own list and
+			-- not an envelope chosen here: four legs, one girt, two braces, a deck and five rail
+			-- boards (`HighSeats.PARTS_PER_SEAT`'s own 14, less the one truss it names), then two
+			-- ladder rails and seven rungs for that truss, plus the five of the brass key tag that
+			-- says what the row actually sells.
 			expect(partsOf(Shop.ITEM.HIGH_SEAT)).to.equal(4 + 1 + 2 + 1 + 5 + 2 + 7 + 5)
 
 			-- THE CAMERAS. The two licences get `BOOK_VIEW` -- more pitch than a flat card so you

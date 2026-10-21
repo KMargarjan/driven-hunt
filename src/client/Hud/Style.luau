@@ -642,7 +642,7 @@ end
 -- THEY ARE THE SAME SHELL WITH A DIFFERENT HEAD, which is what the two things actually are: one
 -- brass rim, one hull, and then either ONE SOLID LEAD NOSE or a CLUSTER OF FOUR PELLETS. The hull
 -- carries the load's own colour as well -- the game's shop already draws the slug box green
--- (`Hud.ShopDisplay`'s `buildShellBox`) and a red hull is what buckshot has looked like since
+-- (`Hud.ShopDisplay`'s `buildSlugCarton`) and a red hull is what buckshot has looked like since
 -- before anybody here was born -- so the two differ in SHAPE and in COLOUR, and a player who can
 -- see neither still has the word.
 Style.GLYPHS = { "tick", "cross", "chevron", "horn", "slug", "buck" }
