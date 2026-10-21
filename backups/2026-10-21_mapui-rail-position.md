@@ -30,8 +30,9 @@ local railFrame: Frame? = nil
 
 Task 220 makes the rail **fold into two columns** when a landscape phone's viewport cannot hold one
 (`Rail.columnsFor`, `Rail.floorFor`, `Rail.applyLayout`). Before the fold, at 800 × 400,
-`Rail.topFor(96, 140)` = 244 and `Rail.heightFor(4)` = 216 put the rail's bottom at **510 on a 400 px
-tall screen**: RELOAD and AMMO were simply off the bottom of the phone.
+`Rail.topFor(96, 140)` = 244 and `Rail.heightFor(4)` = 216 put the rail's bottom at **460 on a 400 px
+tall screen** (510 at the desktop step's 150 px minimap, which is what a landscape phone renders
+at today): RELOAD and AMMO were simply off the bottom of the phone.
 
 A clamp cannot live in two modules. `MapUi` knew the minimap's rendered diameter, so it wrote the
 rail's top; it did **not** know how far down the rail could reach, how many columns it needed, or
@@ -46,7 +47,7 @@ minimapTop, floorY)` performs the same arithmetic — `Rail.topFor(diameter, MIN
 folded rail (124 px) instead of the constant 68.
 
 `MapUi.CONFIG.RAIL_COLUMN_PX` stays, as the default and as the answer for every viewport that does
-not fold; `hud_clarity.spec`'s identity against `Rail` now reads `Rail.columnPx(1)`.
+not fold; `tests/client/touch_controls.spec.luau` asserts the identity `Rail.columnPx(1) == MapUi.CONFIG.RAIL_COLUMN_PX`; `hud_clarity.spec` is unchanged and still asserts the same number spelled out as `Rail.CONFIG.BUTTON_PX + Rail.CONFIG.MARGIN + 8`.
 
 ## How to bring it back
 

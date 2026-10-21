@@ -429,7 +429,11 @@ end
 -- fold gets the answer it always got. A folded rail is 124 wide and the panel must clear THAT.
 function MapUi.fullMapRect(viewport: Vector2, railColumnPx_: number?): (number, number, number, number)
 	local config = MapUi.CONFIG
-	local column = railColumnPx_ or MapUi.railColumn()
+	-- THE CONSTANT, AND NOT `MapUi.railColumn()` (the Reviewer, round 1). Defaulting to the told
+	-- value would make this function answer differently in a folded session than in an unfolded
+	-- one for the SAME arguments, which is exactly what a pure exported rectangle may not do -- and
+	-- `hud_clarity.spec` calls it with one argument. The renderer passes the live column in.
+	local column = railColumnPx_ or config.RAIL_COLUMN_PX
 	local roomX = viewport.X - config.FULL_SIDE_INSET - column
 	local roomY = viewport.Y - config.FULL_TOP - config.FULL_BOTTOM_INSET
 	local scale = math.max(0.1, math.min(1, roomX / config.FULL_MAX_WIDTH_PX, roomY / config.FULL_MAX_HEIGHT_PX))
@@ -1512,6 +1516,11 @@ end
 -- `nil` IS "NOWHERE RIGHT NOW" and then no mark is drawn. A hunter standing on his own stand has
 -- arrived, so there is nothing to point at -- which is the same answer `Objective.arrived` gives the
 -- chevron and the compass, from one evaluation.
+function MapUi.setTarget(point: Vector2?, word: string?)
+	targetPoint = point
+	targetWord = if point == nil then nil else (word or "GO")
+end
+
 -- HOW WIDE THE RAIL'S COLUMN IS RIGHT NOW: what the Hud last told this module, or the constant.
 function MapUi.railColumn(): number
 	return railColumnPx or MapUi.CONFIG.RAIL_COLUMN_PX
@@ -1527,11 +1536,6 @@ function MapUi.setRailColumn(px: number?)
 	end
 	railColumnPx = next_
 	MapUi.applyLayout()
-end
-
-function MapUi.setTarget(point: Vector2?, word: string?)
-	targetPoint = point
-	targetWord = if point == nil then nil else (word or "GO")
 end
 
 function MapUi.target(): (Vector2?, string?)

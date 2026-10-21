@@ -2295,8 +2295,9 @@ local function build(): ScreenGui
 
 	-- ...AND THE BUTTON RAIL, right edge, under the minimap. Karen: *"could be buttons on the side
 	-- for M - map ect"*. Created empty: `Rail` builds the buttons inside it and is the one writer of
-	-- every one of them. Its `Position` is rewritten by `MapUi.applyLayout`, because the rail hangs
-	-- below the minimap and the minimap's RENDERED diameter is 150 on a screen and 96 on a phone.
+	-- every one of them. Its `Position` is rewritten by `Rail.applyLayout` (it was `MapUi`'s until
+	-- task 220), because the rail hangs below the minimap, the minimap's RENDERED diameter is 150 on
+	-- a screen and 96 on a phone, and on a short screen the column has to fold to fit at all.
 	local rail = Instance.new("Frame")
 	rail.Name = "Rail"
 	rail.BackgroundTransparency = 1
@@ -4345,17 +4346,6 @@ local function render(Weapon, CameraSystem)
 	-- flag, which is the request"*. A lit AIM button over an unshouldered gun would be a number
 	-- that measured right and looked wrong.
 	Touch.setAiming(CameraSystem ~= nil and CameraSystem.getMode() == "Aiming")
-	-- ...AND WHAT HE IS CARRYING, which is SWAP's and BLOW's condition. ONE walk of the Backpack and
-	-- the character per frame, inside `Input` (which already walks that tree for its bindings), and
-	-- both setters are edge-triggered, so a frame in which nothing changed costs two comparisons.
-	--
-	-- TWO ANSWERS TO "IS THERE A HORN", AND THEY ARE TWO QUESTIONS. `Hud.renderCorner` asks whether
-	-- one is IN THE HAND, because that is the chip's rule. This asks whether he CARRIES one,
-	-- because that is the button's rule -- the button equips it first. Neither derives from the
-	-- other, and both read the same tree.
-	local carried = Weapon.Input.carriedSummary()
-	Touch.setCarried(carried.count)
-	Touch.setHorn(carried.hasHorn)
 end
 -- ONE KILL, ONE LINE. The replica hears the server and fires `Killed`; this draws it. A NAMED
 -- handler rather than a closure, exactly as `Hud.onHitMarker` is, so the client half of the kill log
@@ -4456,7 +4446,13 @@ end
 -- function, two callers, no second rule -- so the card and the objective line can never disagree
 -- about whether a card is up, which is what lets the LINE stand down while the card says
 -- `GET TO YOUR STAND` and the CHEVRON carry on (design section 5.4).
-function Hud.renderObjective(CameraSystem)
+-- `WeaponSystem` IS OPTIONAL AND IS THE SECOND ARGUMENT (task 220, the Reviewer's round-1 finding
+-- 1). This pass is the one that runs EVERY FRAME, which is why the touch cluster's "what is he
+-- carrying" answer has to be read here: `render`, where it was, runs on `Weapon.Changed`, and that
+-- signal is fired from the server's `publish`, which never runs for a player who has no gun -- so a
+-- BEATER would never be told his horn had arrived and his BLOW button would never appear. Optional
+-- so a spec that calls this with one argument still works, and nil simply skips the two tells.
+function Hud.renderObjective(CameraSystem, WeaponSystem)
 	local snapshot = if matchSystem then matchSystem.get() else nil
 	local phase = if snapshot then snapshot.phase else nil
 	-- `Player.Team` IS THE ONE REPRESENTATION OF THE TEAM (`Match.myTeam`'s own header says so), and
@@ -4543,6 +4539,31 @@ function Hud.renderObjective(CameraSystem)
 		-- evaluation, three consumers, no second answer.
 		local leftStackRight = Hud.leftStackRight(viewport)
 		Touch.applyLayout(viewport, leftStackRight)
+		-- ...AND WHAT HE IS CARRYING, which is SWAP's and BLOW's condition.
+		--
+		-- IT IS READ **HERE**, IN THE PER-FRAME PASS, AND NOT IN `render` -- and that is a
+		-- correctness point rather than a tidying one (the Reviewer, round 1, finding 1). `render`
+		-- runs on `Weapon.Changed` and `Camera.Changed`; `Weapon.Changed` is fired from the server's
+		-- `publish`, **which never runs for a player who has no gun**. A BEATER -- the only role
+		-- that carries a horn, and the role the BLOW button exists for -- would therefore never be
+		-- told his horn had arrived, and BLOW would stay hidden until some unrelated camera mode
+		-- change happened to run `render`. The gate cannot catch it, because
+		-- `Match.CONFIG.ODD_PLAYER_TEAM` is `"Shooters"` and the one-player gate is a hunter.
+		--
+		-- THE COST IS THE ONE THE DESIGN BUDGETED: one walk of the Backpack and the character
+		-- (`Input.carriedSummary`, in the module that already walks that tree for its bindings),
+		-- and both setters are edge-triggered, so a frame in which nothing changed costs two
+		-- comparisons and no write.
+		--
+		-- TWO ANSWERS TO "IS THERE A HORN", AND THEY ARE TWO QUESTIONS. `Hud.renderCorner` asks
+		-- whether one is IN THE HAND, because that is the chip's rule. This asks whether he CARRIES
+		-- one, because that is the button's rule -- the button equips it first. Neither derives
+		-- from the other, and both read the same tree.
+		if WeaponSystem ~= nil and WeaponSystem.Input ~= nil then
+			local carried = WeaponSystem.Input.carriedSummary()
+			Touch.setCarried(carried.count)
+			Touch.setHorn(carried.hasHorn)
+		end
 		local clusterShown = Touch.shown(UserInputService.TouchEnabled)
 		local reserveX, reserveY = Touch.reserved(viewport, clusterShown, leftStackRight)
 		local chipX, chipY, chipW, chipH = Hud.cornerRect(viewport, reserveX, reserveY)
@@ -5050,7 +5071,7 @@ function Hud.start()
 		-- engine has drawn a frame, when `Camera.ViewportSize` is still (1, 1), so the FIRST real
 		-- frame is what puts the whole screen on the right step of the scale.
 		Hud.applyViewportLayout(Hud.viewportX())
-		Hud.renderObjective(CameraSystem)
+		Hud.renderObjective(CameraSystem, Weapon)
 		-- THE BOTTOM-RIGHT CORNER IN THE SAME PASS (task 201): the reload bar and the horn's
 		-- readiness bar are CLOCKS, and a clock drawn on an event is a clock that stops.
 		Hud.renderCorner(Weapon)

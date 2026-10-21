@@ -320,6 +320,15 @@ function Touch.actionFor(id: string): (() -> any)?
 	return actions[id]
 end
 
+-- WHAT THIS MODULE HAS BEEN TOLD, for a spec. It exists because the thing that broke in round 1
+-- was not the drawing but the TELLING: `setCarried` / `setHorn` were driven from a signal that
+-- cannot fire for a player who has no gun, so a beater's horn never reached this module and
+-- BLOW was never drawn. `buttonIds()` cannot catch that on a desktop, where the whole cluster is
+-- hidden -- so the spec asserts the ANSWER rather than the pixels.
+function Touch.state(): { hasWeapon: boolean, carried: number, hasHorn: boolean }
+	return { hasWeapon = hasWeapon, carried = carried, hasHorn = hasHorn }
+end
+
 function Touch.isAimOn(): boolean
 	return aimOn
 end

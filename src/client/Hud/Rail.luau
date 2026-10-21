@@ -70,8 +70,11 @@ Rail.CONFIG = {
 	-- MEASURED, and this is why it is 2 rather than a shrunken gap: at 800 x 400 -- a landscape
 	-- phone, which is how phones play -- the free right-edge column under the minimap is y 236..384,
 	-- which is 148 px, and four 48 px buttons are 192 px with NO gaps at all. Shrinking the gap
-	-- cannot save it. Before this, `topFor(96, 140)` + `heightFor(4)` put the rail's bottom at 510
-	-- on a 400 px screen and RELOAD and AMMO were simply off the bottom of the phone.
+	-- cannot save it. Before this, `topFor(96, 140)` + `heightFor(4)` put the rail's bottom at
+	-- **460** on a 400 px screen, so RELOAD and AMMO were simply off the bottom of the phone. (The
+	-- brief's 510 is the same arithmetic at the DESKTOP step's 150 px minimap, `topFor(150, 136)`,
+	-- which is what a landscape phone renders at today -- `Style.isPhone` is keyed on WIDTH. Both
+	-- are off a 400 px screen; 460 is the one this file's own constants produce.)
 	MAX_COLUMNS = 2,
 	LABEL_SIZE = 11,
 	KEY_SIZE = 9,
