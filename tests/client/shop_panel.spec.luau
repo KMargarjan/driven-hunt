@@ -198,13 +198,22 @@ return function()
 				expect(layout.blurbLines >= 3).to.equal(true)
 			end
 
-			-- THE TWO MODES THE SPEC NAMES, with the exact rectangles it names them with.
+			-- THE TWO MODES THE SPEC NAMES, with the exact rectangles it names them with -- the
+			-- shop2 spec's section 1.2 since task 228 (`<runs-dir>/design/shop2-spec.md`).
 			local desktop = Panel.layoutFor(1280, 720)
 			expect(desktop.mode).to.equal("WIDE")
 			expect(desktop.width).to.equal(640)
 			expect(desktop.height).to.equal(576)
-			expect(desktop.wellWidth).to.equal(228)
-			expect(desktop.detailWidth).to.equal(364)
+			expect(desktop.wellWidth).to.equal(236)
+			-- 356 AND NOT THE SPEC'S DERIVED BLOCK'S 352, which is an arithmetic slip in that one
+			-- line: `640 - 268 - 16` is 356, and section 1.2's own prose says *"the display case
+			-- 356 x 200 at 1280 x 720 (was 364)"* -- 8 px off the case for the 8 px onto the well,
+			-- which is the whole of the change.
+			expect(desktop.detailWidth).to.equal(356)
+			expect(desktop.detailX).to.equal(268)
+			expect(desktop.rowWidth).to.equal(212)
+			expect(desktop.rowHeight).to.equal(64)
+			expect(desktop.wellHeight).to.equal(480)
 			expect(desktop.caseHeight).to.equal(200)
 			-- The side menu is a column beside the detail, and the two do not touch.
 			expect(desktop.detailX >= desktop.wellX + desktop.wellWidth).to.equal(true)
@@ -218,7 +227,11 @@ return function()
 			-- behind a back button; the whole shop is one screen"*.
 			expect(phone.stripY >= phone.headerHeight).to.equal(true)
 			expect(phone.detailY >= phone.stripY + phone.stripHeight).to.equal(true)
-			expect(phone.cardWidth).to.equal(104)
+			expect(phone.detailY).to.equal(172)
+			expect(phone.detailHeight).to.equal(456)
+			expect(phone.caseHeight).to.equal(178)
+			expect(phone.stripHeight).to.equal(88)
+			expect(phone.cardWidth).to.equal(108)
 			-- ...AND THE EXPLANATION STILL HOLDS THREE WHOLE LINES, which is the measurement
 			-- `Shop.CONFIG.PANEL.BLURB_MAX` is written against.
 			expect(phone.blurbLines >= 3).to.equal(true)
@@ -243,6 +256,116 @@ return function()
 			expect(rows).to.equal(2 * #Shop.ORDER)
 			expect(buys).to.equal(1)
 			expect(#Shop.ORDER <= Shop.CONFIG.MAX_ITEMS).to.equal(true)
+		end)
+
+		-- ---------------------------------------------------------------- task 228: room to breathe
+		--
+		-- KAREN, 2026-10-21: *"in menu need more space between items now cards on left side is
+		-- cluttered a bit"*. The Designer's answer is air, measured: a gap between rows, two kinds
+		-- of air round a shelf head, and a well whose canvas lands on a WHOLE head at the fold.
+		-- This case reads it off the BUILT instances rather than re-deriving it, so a row or a
+		-- shelf that is laid out by hand somewhere else cannot pass it.
+		it("spaces the list the way the shop2 spec measures it, and the fold lands on a whole head", function()
+			local PANEL = Shop.CONFIG.PANEL
+			local menu = (Hud.shopPanel() :: Frame):FindFirstChild("Menu") :: ScrollingFrame
+			expect(menu).to.be.ok()
+			local stack = menu:FindFirstChildOfClass("UIListLayout") :: UIListLayout
+			-- THE ONE LINE THAT IS MOST OF THE FIX. At 0 the rows share their edges.
+			expect(stack.Padding.Offset).to.equal(PANEL.ROW_GAP)
+			expect(PANEL.ROW_GAP > 0).to.equal(true)
+			local pad = menu:FindFirstChildOfClass("UIPadding") :: UIPadding
+			expect(pad.PaddingTop.Offset).to.equal(PANEL.WELL_PAD)
+
+			-- EVERY CHILD OF THE WELL, IN LAYOUT ORDER: a shelf head or a row, nothing else.
+			local ordered: { GuiObject } = {}
+			for _, child in ipairs(menu:GetChildren()) do
+				if child:IsA("GuiObject") then
+					table.insert(ordered, child)
+				end
+			end
+			table.sort(ordered, function(a, b)
+				return a.LayoutOrder < b.LayoutOrder
+			end)
+
+			-- THE CANVAS, ADDED UP THE WAY THE LAYOUT ADDS IT UP, and the FOLD it produces: the
+			-- spec's section 1.5 wants FIVE WHOLE ROWS AND ONE WHOLE SHELF HEAD above the bottom of
+			-- a 480 px well, with nothing cut in half -- *"a half-row at the fold reads as a bug, a
+			-- whole head at the fold reads as 'there is more, and it is called LICENCES'"*.
+			local viewport = Panel.layoutFor(1280, 720).wellHeight
+			local y = PANEL.WELL_PAD
+			local wholeRows, wholeHeads, firstCut = 0, 0, nil :: string?
+			for index, child in ipairs(ordered) do
+				local height = child.Size.Y.Offset
+				local shelf = string.sub(child.Name, 1, 6) == "Shelf_"
+				if shelf then
+					local band = child:FindFirstChildOfClass("UIPadding") :: UIPadding
+					-- THE HEAD'S OWN BAND IS `SHELF_PX`, and each side's padding carries only the
+					-- REST of the air the spec asks to SEE, because the stack's own `ROW_GAP` is
+					-- already between this frame and its neighbours.
+					expect(band.PaddingTop.Offset).to.equal(if index == 1 then 0 else PANEL.SHELF_LEAD - PANEL.ROW_GAP)
+					expect(band.PaddingBottom.Offset).to.equal(PANEL.SHELF_TRAIL - PANEL.ROW_GAP)
+					expect(height).to.equal(band.PaddingTop.Offset + PANEL.SHELF_PX + band.PaddingBottom.Offset)
+				else
+					expect(height).to.equal(PANEL.ROW_PX)
+				end
+				if y + height <= viewport then
+					if shelf then
+						wholeHeads += 1
+					else
+						wholeRows += 1
+					end
+				elseif firstCut == nil then
+					firstCut = child.Name
+				end
+				y += height + (if index < #ordered then PANEL.ROW_GAP else 0)
+			end
+			local canvas = y + PANEL.WELL_PAD
+			-- THE NUMBER THE SPEC NAMES. If the catalogue changes, this is the one to re-check --
+			-- which is exactly what this assertion is for.
+			expect(canvas).to.equal(1078)
+			expect(wholeRows).to.equal(5)
+			-- THE FIRST TWO HEADS AND THE THIRD: WEAPONS, AMMO, and the whole of LICENCES.
+			expect(wholeHeads).to.equal(3)
+			expect(firstCut).to.be.ok()
+			expect(string.sub(firstCut :: string, 1, 5)).to.equal("Item_")
+
+			-- THE TWO FADE MASKS, so a row scrolling under an edge dissolves instead of being
+			-- guillotined -- and NEITHER is pressable, or a press over the top row would hit a mask.
+			for _, name in ipairs({ "FadeTop", "FadeBottom" }) do
+				local mask = (Hud.shopPanel() :: Frame):FindFirstChild(name) :: Frame
+				expect(mask).to.be.ok()
+				expect(mask.Active).to.equal(false)
+				expect(mask.Size.Y.Offset).to.equal(PANEL.WELL_FADE)
+				expect(mask:FindFirstChildOfClass("UIGradient")).to.be.ok()
+			end
+
+			-- THE PHONE'S STRIP: 108 x 88 cards, a 10 px spacer between two cards in a category and
+			-- an 18 px one with a hairline down its middle between two categories. EVERY GAP IS A
+			-- FRAME, because the two gaps are different widths and a layout padding applies on both
+			-- sides of a spacer.
+			local strip = (Hud.shopPanel() :: Frame):FindFirstChild("Strip") :: ScrollingFrame
+			local stripStack = strip:FindFirstChildOfClass("UIListLayout") :: UIListLayout
+			expect(stripStack.Padding.Offset).to.equal(0)
+			local cards, cardGaps, groupGaps = 0, 0, 0
+			for _, child in ipairs(strip:GetChildren()) do
+				if child:IsA("TextButton") then
+					cards += 1
+					expect(child.Size.X.Offset).to.equal(PANEL.CARD_WIDTH)
+					expect(child.Size.Y.Offset).to.equal(PANEL.STRIP_PX)
+				elseif child:IsA("Frame") and string.sub(child.Name, 1, 8) == "CardGap_" then
+					cardGaps += 1
+					expect(child.Size.X.Offset).to.equal(PANEL.CARD_GAP)
+				elseif child:IsA("Frame") and string.sub(child.Name, 1, 9) == "GroupGap_" then
+					groupGaps += 1
+					expect(child.Size.X.Offset).to.equal(PANEL.CARD_GROUP_GAP)
+					expect(child:FindFirstChild("GroupRule")).to.be.ok()
+				end
+			end
+			expect(cards).to.equal(#Shop.ORDER)
+			-- ONE GAP BETWEEN EVERY NEIGHBOURING PAIR, and one of them per category boundary.
+			local groups = #Panel.headerText()
+			expect(groupGaps).to.equal(groups - 1)
+			expect(cardGaps).to.equal(#Shop.ORDER - groups)
 		end)
 
 		-- ---------------------------------------------------------------- the side menu
@@ -549,6 +672,70 @@ return function()
 			expect(Display.build("no.such.row")).to.equal(nil)
 		end)
 
+		-- TASK 228: the shop2 spec's section 2, counted. The LOOK is the screenshots
+		-- (`.screenshots/228-after-*.png`, rule 5) and Karen's own eye; what a spec can hold is that
+		-- each drawing is the one the spec names, at the part count it names, under the camera it
+		-- names -- so a builder that is quietly replaced or re-pointed fails here.
+		it("draws each item the shop2 spec's own model, under the spec's own camera", function()
+			local function partsOf(id: string): number
+				local model = Display.build(id) :: Model
+				local parts = 0
+				for _, descendant in ipairs(model:GetDescendants()) do
+					if descendant:IsA("BasePart") then
+						parts += 1
+					end
+				end
+				model:Destroy()
+				return parts
+			end
+			-- THE SHELL IS IDENTICAL IN BOTH LICENCES (34 parts) and the furniture is what differs:
+			-- the deer's crest, stag and antlers are 36, the beater's band and two horns are 33.
+			expect(partsOf(Shop.ITEM.RED_STAG)).to.equal(70)
+			expect(partsOf(Shop.ITEM.BEATER_LICENCE)).to.equal(67)
+			expect(partsOf(Shop.ITEM.RED_STAG) - partsOf(Shop.ITEM.BEATER_LICENCE)).to.equal(3)
+			-- THE CARTON: 12 of box and print, 40 of ten shells, 9 of lid, 5 of the loose one.
+			expect(partsOf(Shop.ITEM.SLUG)).to.equal(66)
+			-- THE BANDOLIER: 16 loops less the one under the buckle, five parts each, plus 7.
+			expect(partsOf(Shop.ITEM.UNLIMITED_AMMO)).to.equal(82)
+			-- ...AND 47 INSIDE A PACKAGE, which is the ONLY place a model knows it is in one.
+			local lite = Display.build(Shop.ITEM.UNLIMITED_AMMO, "lite") :: Model
+			local liteParts = 0
+			for _, descendant in ipairs(lite:GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					liteParts += 1
+				end
+			end
+			lite:Destroy()
+			expect(liteParts).to.equal(47)
+			expect(partsOf(Shop.ITEM.ALWAYS_HUNTER)).to.equal(25)
+
+			-- THE HIGH SEAT IS OUR OWN OPEN STAND AND NOT THE SPEC'S CLOSED BOX BLIND (the
+			-- Director's override, 2026-10-21; Karen, 2026-10-20: *"we stay what you have
+			-- builded"*). Its STRUCTURE is read off `HighSeats.DIMS` -- the same numbers
+			-- `HighSeats.plan` lays the real stands with -- so this sum is the seat's own list and
+			-- not an envelope chosen here: four legs, one girt, two braces, a deck and five rail
+			-- boards (`HighSeats.PARTS_PER_SEAT`'s own 14, less the one truss it names), then two
+			-- ladder rails and seven rungs for that truss, plus the five of the brass key tag that
+			-- says what the row actually sells.
+			expect(partsOf(Shop.ITEM.HIGH_SEAT)).to.equal(4 + 1 + 2 + 1 + 5 + 2 + 7 + 5)
+
+			-- THE CAMERAS. The two licences get `BOOK_VIEW` -- more pitch than a flat card so you
+			-- look DOWN INTO an open booklet, and a slower, shorter rock so the print never smears.
+			-- The high seat gets `TALL_VIEW`, whose 11 degrees is the whole point: at `SOLID_VIEW`'s
+			-- 25 the stand was photographed from above and read as a deck.
+			for _, id in ipairs({ Shop.ITEM.RED_STAG, Shop.ITEM.BEATER_LICENCE }) do
+				local view = Display.viewFor(id)
+				expect(view.pitchDeg).to.equal(14)
+				expect(view.rockDegrees).to.equal(15)
+				expect(view.rockSeconds).to.equal(10)
+			end
+			local seat = Display.viewFor(Shop.ITEM.HIGH_SEAT)
+			expect(seat.pitchDeg).to.equal(11)
+			expect(seat.rockDegrees).to.equal(nil)
+			-- A SOLID STILL ORBITS, which is what the carton and the belt want.
+			expect(Display.viewFor(Shop.ITEM.SLUG).rockDegrees).to.equal(nil)
+		end)
+
 		it("turns the picture while the panel is open and stands still while it is shut", function()
 			Panel.onState(statePayload())
 			Panel.setOpen(true)
@@ -587,11 +774,16 @@ return function()
 			expect(camera.CFrame.Position).to.equal(parked)
 		end)
 
-		-- THE LICENCE DOES NOT ORBIT, IT ROCKS, and that is an engine fact rather than a preference
+		-- A FLAT THING DOES NOT ORBIT, IT ROCKS, and that is an engine fact rather than a preference
 		-- (the Designer's spec, 6.4): *"a flat card on a full orbit goes edge-on twice a revolution
-		-- and disappears; a nine-second sway never does"*. 17 degrees either side of its own yaw.
-		it("rocks the flat card instead of turning it all the way round", function()
-			local card = Display.viewFor(Shop.ITEM.BEATER_LICENCE)
+		-- and disappears; a nine-second sway never does"*.
+		--
+		-- TWO ROCKS SINCE TASK 228, and the licences have the SLOWER one: a booklet's page is
+		-- PRINTED -- seven guilloche rules, two ink bars and a signature -- and 17 degrees in nine
+		-- seconds smears it. `BOOK_VIEW` is 15 in ten. `CARD_VIEW` is still 17 in nine and is what
+		-- the pin on its card wears.
+		it("rocks a flat thing instead of turning it all the way round", function()
+			local card = Display.viewFor(Shop.ITEM.ALWAYS_HUNTER)
 			expect(card.rockDegrees).to.equal(17)
 			expect(card.rockSeconds).to.equal(9)
 			-- A WHOLE PERIOD COMES BACK TO THE MIDDLE, and the quarter points are the extremes.
@@ -599,11 +791,22 @@ return function()
 			expect(Display.spinDegAt(9, card)).to.be.near(0, 0.001)
 			expect(Display.spinDegAt(2.25, card)).to.be.near(17, 0.001)
 			expect(Display.spinDegAt(6.75, card)).to.be.near(-17, 0.001)
-			-- IT NEVER GOES EDGE-ON: the card's own yaw is 15 degrees and the sway is 17, so the
-			-- camera is between 32 and -2 degrees off its face and never at 90.
-			for tenth = 0, 90 do
-				local yaw = card.yawDeg + Display.spinDegAt(tenth / 10, card)
-				expect(math.abs(yaw) < 60).to.equal(true)
+
+			local book = Display.viewFor(Shop.ITEM.BEATER_LICENCE)
+			expect(book.rockDegrees).to.equal(15)
+			expect(book.rockSeconds).to.equal(10)
+			expect(Display.spinDegAt(0, book)).to.be.near(0, 0.001)
+			expect(Display.spinDegAt(10, book)).to.be.near(0, 0.001)
+			expect(Display.spinDegAt(2.5, book)).to.be.near(15, 0.001)
+			expect(Display.spinDegAt(7.5, book)).to.be.near(-15, 0.001)
+
+			-- NEITHER EVER GOES EDGE-ON: the card's own yaw is 15 and its sway 17, the booklet's 13
+			-- and 15, so the camera is never more than 32 degrees off either face and never at 90.
+			for _, view in ipairs({ card, book }) do
+				for tenth = 0, 100 do
+					local yaw = view.yawDeg + Display.spinDegAt(tenth / 10, view)
+					expect(math.abs(yaw) < 60).to.equal(true)
+				end
 			end
 			-- ...AND A SOLID STILL ORBITS: a whole revolution in 18 seconds.
 			local box = Display.viewFor(Shop.ITEM.SLUG)
