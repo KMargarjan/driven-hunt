@@ -40,7 +40,7 @@ fits on a landscape phone. **Zero new remotes, flags or ScreenGuis.**
    functions, proved by identity"* in `tests/client/touch_controls.spec.luau`.
 
 3. **No new remote and no new flag anywhere in the task.**
-   *Verify:* `git diff 4e0f4f7d..ca3394cb -- src/` contains no `RemoteEvent`, no `FireServer` that
+   *Verify:* `git diff 4e0f4f7d..fc056634 -- src/` contains no `RemoteEvent`, no `FireServer` that
    is not already `Shotgun.remotes()`, and `src/shared/Flags/init.luau` is untouched.
 
 4. **The lobby interact gained NO button**, because M3 says the prompt is already tappable. The only
@@ -57,7 +57,9 @@ fits on a landscape phone. **Zero new remotes, flags or ScreenGuis.**
    *"...exactly where the design says..."* cases in `touch_controls.spec`.
 
 6. **The rail fits on a phone now, and nothing on a desktop moved.** Before: `Rail.topFor(96, 140)`
-   + `Rail.heightFor(4)` = **510 on a 400 px tall screen**, so RELOAD and AMMO were off the bottom.
+   + `Rail.heightFor(4)` = **460 on a 400 px tall screen** (510 at the desktop step's 150 px
+   minimap, which is what a landscape phone renders at today), so RELOAD and AMMO were off the
+   bottom either way.
    After: it folds to 2 × 2 at both phone viewports and stays **one column, pixel-identical** at
    800 × 600, 969 × 784 and 1920 × 1080.
    *Verify:* the cases *"folds into two columns on a phone and into one on every desktop"* and
