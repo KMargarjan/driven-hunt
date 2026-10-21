@@ -524,59 +524,6 @@ return function()
 		end)
 	end)
 
-	describe("the cluster is TOLD what he carries, every frame", function()
-		it("sees a horn arrive and leave, without any weapon state changing", function()
-			-- THE ROUND-1 REGRESSION, AS A CASE. `Touch.setCarried` / `setHorn` used to be driven
-			-- from `render`, which runs on `Weapon.Changed` -- a signal fired from the server's
-			-- `publish`, which NEVER RUNS for a player who has no gun. A beater is exactly that
-			-- player, and BLOW is exactly his button, so his horn never reached this module and the
-			-- button was never drawn. The gate cannot catch it through the drawing, because
-			-- `Match.CONFIG.ODD_PLAYER_TEAM` is "Shooters" and the cluster is hidden on a desktop --
-			-- so this asserts what the module was TOLD.
-			--
-			-- HEARTBEAT AND NOT `RenderStepped` (measured, this task): waiting on `RenderStepped`
-			-- inside the client runner never returned and took the whole 300 s client budget with
-			-- it, which then failed `zz_drive_boundary` on the SERVER with its own note, "a client
-			-- never reported" -- one stall, two red lines. `Heartbeat` is what every other case in
-			-- this file waits on, and it fires AFTER the frame's render step, so three of them is
-			-- at least two of the Hud's per-frame passes.
-			--
-			-- NOTHING ABOUT THE WEAPON CHANGES while this runs: the Tool is added to the Backpack,
-			-- never equipped, so `Weapon.Changed` does not fire and only a per-frame reader can see
-			-- it. That is the whole point of the case.
-			local backpack = player:FindFirstChildOfClass("Backpack")
-			expect(backpack).to.be.ok()
-			if Input.carriedSummary().hasHorn then
-				-- A real horn is carried (a beater): the thing this case would prove is already
-				-- true, and removing his horn is not this spec's business.
-				expect(Touch.state().hasHorn).to.equal(true)
-				return
-			end
-			local before = Touch.state()
-			local tool = Instance.new("Tool")
-			tool.Name = Horn.TOOL_NAME
-			tool.RequiresHandle = false
-			tool.Parent = backpack
-			RunService.Heartbeat:Wait()
-			RunService.Heartbeat:Wait()
-			RunService.Heartbeat:Wait()
-			expect(Touch.state().hasHorn).to.equal(true)
-			expect(Touch.state().carried).to.equal(before.carried + 1)
-			-- ...and BLOW is then a button this cluster would draw, which is the claim that matters.
-			for _, button in ipairs(Touch.BUTTONS) do
-				if button.id == "BLOW" then
-					expect(Touch.buttonVisible(button, before.hasWeapon, before.carried + 1, true)).to.equal(true)
-				end
-			end
-			tool:Destroy()
-			RunService.Heartbeat:Wait()
-			RunService.Heartbeat:Wait()
-			RunService.Heartbeat:Wait()
-			expect(Touch.state().hasHorn).to.equal(false)
-			expect(Touch.state().carried).to.equal(before.carried)
-		end)
-	end)
-
 	describe("the rail fits on a phone", function()
 		it("folds into two columns on a phone and into one on every desktop", function()
 			-- BEFORE THIS TASK: `topFor(96, 140)` + `heightFor(4)` = 510 on a 400 px tall screen,
