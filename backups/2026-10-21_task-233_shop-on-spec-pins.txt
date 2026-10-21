@@ -1,0 +1,139 @@
+diff --git a/src/server/Weapon/init.luau b/src/server/Weapon/init.luau
+index bb07db39..c154422b 100644
+--- a/src/server/Weapon/init.luau
++++ b/src/server/Weapon/init.luau
+@@ -251,8 +251,19 @@ end
+ -- UNWIRED MEANS nil, AND nil IS TODAY'S GAME: the full loadout and the weapon's own shells
+ -- (docs/design/shop.md section 7.1). A world with no shop -- the bare DEV place and every
+ -- `tests/server/weapon_*.spec.luau` -- is untouched by this task.
+-function Weapon.setEntitlementProvider(provider: ((Player) -> { [string]: boolean }?)?)
++--
++-- ...AND IT HANDS BACK THE ONE IT IS REPLACING (task 233), exactly as `Weapon.setArmingPolicy` has
++-- since task 150 and for the word-for-word same reason: *"a caller that needs the policy for the
++-- length of one test can put the real one back without knowing who installed it or what it was"*.
++-- `SHOP` became a v1 default on 2026-10-21, so a world with a shop is now the DEFAULT world and
++-- `nil` -- today's full loadout and the weapon's own shells -- is the one a case has to ASK for.
++-- `MatchBoot` and `ForestTestBoot` ignore the return and are unchanged.
++function Weapon.setEntitlementProvider(
++	provider: ((Player) -> { [string]: boolean }?)?
++): ((Player) -> { [string]: boolean }?)?
++	local previous = entitlementProvider
+ 	entitlementProvider = provider
++	return previous
+ end
+ 
+ -- WHETHER THE DRIVE IS BETWEEN ITS TWO SIGNALS (task 174). KAREN, 2026-10-13 ~09:35: *"for hunter
+diff --git a/tests/server/weapon_equip.spec.luau b/tests/server/weapon_equip.spec.luau
+index 6351cef9..7da22801 100644
+--- a/tests/server/weapon_equip.spec.luau
++++ b/tests/server/weapon_equip.spec.luau
+@@ -157,17 +157,36 @@ return function()
+ 	-- afterwards -- `Weapon.setArmingPolicy` hands back the one it replaced, so this restores whatever
+ 	-- the place installed without knowing which place it is. `zz_drive_boundary.spec` is where the
+ 	-- POLICY itself is tested, and it is untouched by this.
++	--
++	-- ...AND THE ENTITLEMENT IS UNWIRED FOR THE LENGTH OF EACH CASE, BY THE SAME ARGUMENT AND THE
++	-- SAME IDIOM (task 233). `SHOP` became a v1 default on 2026-10-21, so the composition root now
++	-- wires `Weapon.setEntitlementProvider` and an un-owning player's loadout is the SHOTGUN ALONE --
++	-- while every assertion in this file is `#Hardware.toolsOf(player) == #Weapons.loadout()`, the
++	-- MODULE's own answer, which takes no owner and is therefore the full loadout. The two stopped
++	-- agreeing and three cases went red in the flip's own gate run: lines 366, 486 and 603, all three
++	-- *"Expected true, got false"* on exactly that line.
++	--
++	-- WHICH ONE IS WRONG IS THE QUESTION, AND IT IS NEITHER: this file is about what the WEAPON OWNER
++	-- does to an armed player -- grant, equip, the bag-before-hand order, a respawn -- and none of
++	-- that is about which guns he has BOUGHT. `nil` is the owner's own documented "today's game"
++	-- (`setEntitlementProvider`'s header: *"UNWIRED MEANS nil, AND nil IS TODAY'S GAME: the full
++	-- loadout and the weapon's own shells"*), so asking for it is naming the world these cases
++	-- measure rather than weakening them. What a BOUGHT loadout is remains `shop.spec`'s and
++	-- `weapon_rules.spec`'s, by parameter.
+ 	local previousPolicy: ((Player) -> boolean)? = nil
++	local previousEntitlement: ((Player) -> { [string]: boolean }?)? = nil
+ 	local overridden = false
+ 	beforeEach(function()
+ 		previousPolicy = Weapon.setArmingPolicy(function()
+ 			return true
+ 		end)
++		previousEntitlement = Weapon.setEntitlementProvider(nil)
+ 		overridden = true
+ 	end)
+ 	afterEach(function()
+ 		if overridden then
+ 			Weapon.setArmingPolicy(previousPolicy)
++			Weapon.setEntitlementProvider(previousEntitlement)
+ 			overridden = false
+ 		end
+ 	end)
+diff --git a/tests/server/weapon_rules.spec.luau b/tests/server/weapon_rules.spec.luau
+index 4617ec99..8fb3a2dc 100644
+--- a/tests/server/weapon_rules.spec.luau
++++ b/tests/server/weapon_rules.spec.luau
+@@ -428,6 +428,17 @@ return function()
+ 				expect(Weapon.needsRefill(nil, 7)).to.equal(true)
+ 				return
+ 			end
++			-- THE ENTITLEMENT UNWIRED FOR THE LENGTH OF THIS CASE (task 233), and put back after it.
++			-- `SHOP` became a v1 default on 2026-10-21, so the composition root wires
++			-- `Weapon.setEntitlementProvider` and an un-owning player's shotgun pocket holds NO SLUG
++			-- at all (`Shop.BASE_AMMO.shotgun` is `{ Buck = true }`, and the slug is the ladder's
++			-- first rung). This case is about `refillForDrive` being ONCE PER DRIVE and about the
++			-- pocket it restores being the HELD GUN'S OWN -- neither of which is about what he has
++			-- bought -- and the flip's own gate run failed its last line with *"Expected 12, got 0"*.
++			-- `nil` is this owner's documented "today's game" (`setEntitlementProvider`'s header),
++			-- so asking for it names the world the case measures. What a BOUGHT pocket is belongs to
++			-- `shop.spec`, which drives `Shop.startFor` over owned sets by parameter.
++			local previousEntitlement = Weapon.setEntitlementProvider(nil)
+ 			-- A drive number no real drive has reached, so this cannot collide with the live one.
+ 			local filled = Weapon.refillForDrive(subject, 9001)
+ 			expect(filled >= 1).to.equal(true)
+@@ -449,6 +460,10 @@ return function()
+ 					(snapshot :: any).reserve.Slug
+ 				)
+ 			)
++			-- THE ENTITLEMENT GOES BACK FIRST, so no later spec in this session inherits a world with
++			-- no shop in it AND the put-back refill below hands him the pocket the BUILD entitles him
++			-- to rather than this case's loan.
++			Weapon.setEntitlementProvider(previousEntitlement)
+ 			-- PUT BACK: the live drive must be able to refill him again on its next transition, and
+ 			-- 9002 would otherwise sit above every drive number this session will reach.
+ 			Weapon.refillForDrive(subject, Match.snapshot().driveNumber or 1)
+diff --git a/tests/server/weapon_shot.spec.luau b/tests/server/weapon_shot.spec.luau
+index d28cbf91..2c68da44 100644
+--- a/tests/server/weapon_shot.spec.luau
++++ b/tests/server/weapon_shot.spec.luau
+@@ -415,9 +415,32 @@ return function()
+ 			-- and each segment starts where the previous one ended. Until task 185 every pellet cast
+ 			-- started at the muzzle, because every pellet was resolved in one cast; now the muzzle is
+ 			-- where the FIRST segment starts and the rest are the flight.
+-			for index = 3, #casts do
+-				local previousEnd = casts[index - 1].origin + casts[index - 1].vector
+-				expect((casts[index].origin - previousEnd).Magnitude < 1e-3).to.equal(true)
++			--
++			-- ...AND IT IS A ONE-PROJECTILE CLAIM, WHICH IS WHY IT ASKS WHAT IS LOADED (task 233).
++			-- `SHOP` became a v1 default on 2026-10-21 and the shotgun's free shell is BUCKSHOT
++			-- (`Shop.BASE_AMMO.shotgun` is `{ Buck = true }`; the slug is the ladder's first rung), so
++			-- the gun this case finds in the harness's hand fires NINE pellets and `casts[3]` is the
++			-- first segment of pellet two rather than the second segment of pellet one. The flip's own
++			-- gate run failed exactly this line. The chain is asserted for a single projectile, where
++			-- it is the claim it was written as, and the pellet count is asserted either way so the
++			-- branch taken is on the record rather than inferred.
++			local pellets = row.PELLETS[ammo] or 1
++			expect(pellets >= 1).to.equal(true)
++			if pellets == 1 then
++				for index = 3, #casts do
++					local previousEnd = casts[index - 1].origin + casts[index - 1].vector
++					expect((casts[index].origin - previousEnd).Magnitude < 1e-3).to.equal(true)
++				end
++			else
++				TestKit.note(
++					string.format(
++						"weapon_shot: %s fires %d pellet(s), so the per-pellet segment chain is not one chain"
++							.. " -- %d cast(s) recorded",
++						ammo,
++						pellets,
++						#casts
++					)
++				)
+ 			end
+ 
+ 			-- 3. ...AND EVERY PELLET IS AIMED AT THE AIM POINT. `idealAim` is the muzzle-to-aim-point

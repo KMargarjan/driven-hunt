@@ -719,11 +719,18 @@ return function()
 			expect(Hud.coinsText(stray, player.UserId)).to.equal("")
 		end)
 
-		-- ...AND ON THE REAL BAR, FROM THE REAL WIRE. `COINS` is born off, so the live snapshot in this
-		-- run is the flag-off state itself -- this player HAS a row on it, which is exactly the
-		-- condition that produced the dead `COINS --`. It is the one assertion here that needs no
-		-- fixture at all, and it fails on the code round 1 reviewed.
-		it("leaves no coins piece on the live drive bar while the economy is off", function()
+		-- ...AND ON THE REAL BAR, FROM THE REAL WIRE. This player HAS a row on the live snapshot, which
+		-- is exactly the condition that produced the dead `COINS --`. It is the one assertion here
+		-- that needs no fixture at all, and it fails on the code round 1 reviewed.
+		--
+		-- IT NOW READS THE BUILD INSTEAD OF ASSUMING ONE (task 233). `COINS` became a v1 default on
+		-- 2026-10-21, so the live wire in this run carries money and the case failed at
+		-- `expect(snapshot.coinsOn).to.equal(nil)` with *"Expected nil, got true"*. A harness run may
+		-- set no `DHFlag_` override at all, so the one branch reachable here is the DECLARED default
+		-- -- and both are written out, the same shape `match_live.spec` and `zz_drive_boundary.spec`
+		-- use, so flipping the row back stays measured rather than silently unasserted. The FIXTURE
+		-- case above is the flag-off coverage proper, by parameter, and it is untouched.
+		it("draws the coins piece on the live drive bar exactly as the build's money switch says", function()
 			local snapshot = Match.get()
 			expect(snapshot).to.be.ok()
 			local mine = nil
@@ -735,13 +742,37 @@ return function()
 			-- The precondition is stated rather than assumed: without a row for me the case would pass
 			-- for the wrong reason, which is how the claim it replaces came to be believed.
 			expect(mine).to.be.ok()
-			expect(snapshot.coinsOn).to.equal(nil)
-			expect(mine.coins).to.equal(nil)
 			local bar = Hud.driveBarText()
-			print("[match_client] flag-off drive bar: " .. bar)
-			expect(string.find(bar, Money.WORD, 1, true)).to.equal(nil)
-			expect(string.find(bar, Money.UNKNOWN, 1, true)).to.equal(nil)
-			TestKit.note("match_client: COINS off -> the bar reads '" .. bar .. "'")
+			print("[match_client] live drive bar: " .. bar)
+			if snapshot.coinsOn == true then
+				-- THE CHIP IS THERE, AND ITS CAPTION IS WHAT PROVES IT: `Hud.coinsText` answers the
+				-- VALUE alone, so the word comes from the chip the bar builds around it.
+				expect(string.find(bar, Money.WORD, 1, true)).never.to.equal(nil)
+				-- A NUMBER OR `--`, AND NOTHING ELSE. `Money.text(nil)` is `Money.UNKNOWN` by its own
+				-- rule (*"an unknown balance is not a zero one"*), and a profile that has not answered
+				-- yet is exactly when the row carries no `coins` -- so the honest assertion is that
+				-- the piece says one of the two and that the Hud and the row agree about which.
+				--
+				-- THE LINE ABOVE IS THE WHOLE CLAIM (the Reviewer's round-1 note 3). It used to be
+				-- followed by `expect(mine.coins == nil or type(mine.coins) == "number")`, which
+				-- could only fail if the field were a string, a boolean or a table -- the arm's
+				-- force is `Money.text` agreeing with the row, and a redundant line beside it reads
+				-- as a second claim where there is one.
+				expect(Hud.coinsText(snapshot, player.UserId)).to.equal(Money.text(mine.coins))
+				TestKit.note(
+					string.format(
+						"match_client: COINS on -> the bar reads '%s', my row's balance is %s",
+						bar,
+						tostring(mine.coins)
+					)
+				)
+			else
+				expect(snapshot.coinsOn).to.equal(nil)
+				expect(mine.coins).to.equal(nil)
+				expect(string.find(bar, Money.WORD, 1, true)).to.equal(nil)
+				expect(string.find(bar, Money.UNKNOWN, 1, true)).to.equal(nil)
+				TestKit.note("match_client: COINS off -> the bar reads '" .. bar .. "'")
+			end
 		end)
 
 		-- A LEAVER IS NOT PAID (`Economy.Coins.forDrive` skips `row.left`), so his row carries no

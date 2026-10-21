@@ -309,17 +309,104 @@ return function()
 			end)).to.equal(true)
 			local owed = Economy.owedTeams()
 			if Economy.isEnabled() then
-				local checked = 0
+				-- WHAT THE RECORD MAY AND MAY NOT SAY, DRIVEN THROUGH THE OWNER'S OWN WRITER (task
+				-- 233, the Reviewer's round-1 finding 1). `COINS` became a v1 default on 2026-10-21,
+				-- so this is now the only arm the gate can take, and the first version of it
+				-- asserted NOTHING: every per-player claim sat behind `if owed[userId] ~= nil`, and
+				-- that gate is never satisfied here, so deleting `Economy.noteNextTeams`' body would
+				-- have left the case green. A per-player assertion skipped for every player cannot
+				-- catch a stale mirror, which is the one hazard this case exists for.
+				--
+				-- WHY THE RECORD IS EMPTY WHEN THIS CASE RUNS, measured and not a defect: the
+				-- drive's own write happened at `enterAssigning` long before this file, and
+				-- `economy.spec`'s and `economy_store.spec`'s `afterAll` both run
+				-- `Economy.stop(); Economy.start()` on the production singleton -- they have to, their
+				-- cases drive both branches by parameter through that same module -- which clears
+				-- `nextTeams`, and `e` sorts before `m`. The next drive's write is a drive away.
+				--
+				-- SO THE CASE RE-ESTABLISHES IT THROUGH `Economy.noteNextTeams`, the owner's own
+				-- public writer and the exact call `Match` makes beside `Body.setTeam` (write edge
+				-- 1), with the exact value production would write -- the team he is PLAYING -- and
+				-- then reads it back. Nothing is simulated and no second copy of the rule is made
+				-- here: if the writer stops writing, `written` is 0 and the read is empty, and both
+				-- of the assertions below fail. The store write it performs is the in-memory one in
+				-- Studio, and the value is the one the drive itself would have left there.
+				local wanted: { [number]: string } = {}
+				local playing, withSession = 0, 0
 				for _, player in ipairs(Players:GetPlayers()) do
 					local team = Match.assignmentOf(player.UserId)
 					if team then
-						-- DURING a drive the owed team IS the team he is playing, which is what makes
-						-- a rejoin resume the drive he left rather than hand a beater a gun.
-						expect(owed[player.UserId]).to.equal(team)
-						checked += 1
+						wanted[player.UserId] = team
+						playing += 1
 					end
 				end
-				TestKit.note(string.format("match_teams: the record agrees with Player.Team for %d player(s)", checked))
+				-- THE PRECONDITION IS STATED RATHER THAN ASSUMED: with nobody in a drive the
+				-- assertions below would be vacuous, which is the defect this whole arm just had.
+				expect(playing > 0).to.equal(true)
+				-- A SESSION IS WAITED FOR, NOT SAMPLED. `Economy.load` runs on a spawned thread and
+				-- the restart above re-opens every session, so this case must not race it --
+				-- `economy.spec` waits the same way for the same reason. `Economy.balanceOf` is this
+				-- owner's own session read: nil exactly when no profile is open for him.
+				waitUntil(5, function()
+					for userId in pairs(wanted) do
+						if Economy.balanceOf(userId) == nil then
+							return false
+						end
+					end
+					return true
+				end)
+				for userId in pairs(wanted) do
+					if Economy.balanceOf(userId) ~= nil then
+						withSession += 1
+					end
+				end
+				local written = Economy.noteNextTeams(wanted)
+				-- EVERY PLAYER WITH AN OPEN PROFILE IS WRITTEN, and the ones without are the owner's
+				-- own documented skip (`nextTeamSkippedNoProfile`), not this spec's guess.
+				expect(written).to.equal(withSession)
+				expect(withSession > 0).to.equal(true)
+
+				local after = Economy.owedTeams()
+				-- ...AND THE READ AGREES WITH THE TEAM HE IS PLAYING, FOR EVERY ONE OF THEM. This is
+				-- the stale-mirror claim, and it now EXECUTES: a record that named the other team,
+				-- or no record at all, fails here. Task 214 paid for that failure in this same code
+				-- path.
+				local agreed = 0
+				for userId, team in pairs(wanted) do
+					if Economy.balanceOf(userId) ~= nil then
+						expect(after[userId]).to.equal(team)
+						agreed += 1
+					end
+				end
+				expect(agreed).to.equal(written)
+				-- THE CASE CANNOT PASS BY ASSERTING NOTHING, which is the finding in one line.
+				expect(agreed > 0).to.equal(true)
+				-- ...AND THE TABLE IS STILL FROZEN AND STILL A COPY, so re-reading it is safe and no
+				-- reader can write the record it was handed.
+				expect(table.isfrozen(after)).to.equal(true)
+				TestKit.note(
+					string.format(
+						"match_teams: COINS is on -- %d player(s) in the drive, %d with an open profile,"
+							.. " %d written through Economy.noteNextTeams, %d read back agreeing with"
+							.. " Player.Team; the record held %d row(s) before this case wrote;"
+							.. " skipped-no-profile=%d, loads=%d, refused=%d, failed=%d",
+						playing,
+						withSession,
+						written,
+						agreed,
+						(function()
+							local n = 0
+							for _ in pairs(owed) do
+								n += 1
+							end
+							return n
+						end)(),
+						Economy.stats().nextTeamSkippedNoProfile,
+						Economy.stats().loads,
+						Economy.stats().loadsRefused,
+						Economy.stats().loadsFailed
+					)
+				)
 			else
 				expect(next(owed)).to.equal(nil)
 				TestKit.note("match_teams: COINS is off, so no turn is stored and the roster alone assigns")

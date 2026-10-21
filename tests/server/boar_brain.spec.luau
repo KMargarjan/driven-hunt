@@ -36,8 +36,28 @@ local FIELD = {
 
 local START = Vector3.new(0, 0, 0)
 
+-- THE OLD FLUSH, BY PARAMETER (task 233). `BOAR_BEHAVIOUR` became a v1 default on 2026-10-21, and
+-- this file is Milestone 1.2's decision table: every case below is written against the ONE 40-stud
+-- `DETECT_RADIUS` and the `CALM_RADIUS`/`CALM_TIME` pair, which is exactly what the flag's OFF
+-- branch is (`Brain.step`'s `elseif sensing then` arm). Pinning it HERE is what keeps that branch
+-- tested now that the flag sits at the other one -- the same shape, and the same reason, as task
+-- 230's `MODEL.ENABLED = false` pin in `boar_hit.spec`. The sense model's own files are
+-- `boar_behaviour.spec` (pure) and `boar_behaviour_live.spec` (physical), which turn `SENSE.ENABLED`
+-- on by parameter.
+--
+-- THE WHOLE TABLE IS CLONED DOWN TO THE ONE FLAG, because `Brain.new` takes the config as given and
+-- `CONFIG` is frozen: a bare `CONFIG.SENSE.ENABLED = false` would throw, and sharing the SENSE
+-- block would let one spec's pin reach another's brain.
+local function senseOff()
+	local config = table.clone(CONFIG)
+	local sense = table.clone(CONFIG.SENSE)
+	sense.ENABLED = false
+	config.SENSE = sense
+	return config
+end
+
 local function newBrain(seed: number?)
-	return Brain.new(CONFIG, FIELD, START, Random.new(seed or 1))
+	return Brain.new(senseOff(), FIELD, START, Random.new(seed or 1))
 end
 
 local function obs(position: Vector3, threats, extra)

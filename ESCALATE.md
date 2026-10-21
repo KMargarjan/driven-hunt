@@ -1,5 +1,129 @@
 # Escalations
 
+## 2026-10-21 - Task 233: **ROUND 1's BLOCKING ITEM FIXED; BOTH GATES GREEN AT `e2d41773`.** Four of five v1 defaults are lit; `SHOP` is task 233b.
+
+### 1b. ~~NEEDS DIRECTOR: `test2` for round 2~~ -- **CLOSED, 2026-10-21. Both lines name `e2d41773`.**
+
+```
+[harness]  PASS: 34/34 checks @ e2d41773fcce0017a750e7446b2121f92f1f113f (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ e2d41773fcce0017a750e7446b2121f92f1f113f (clean tree)
+```
+
+Round 2 fixed the Reviewer's one blocking finding, which changed three `TWO_PLAYER_PATHS` specs; the
+Director's run (`test2-t233c.log`) is green at the same commit the one-player line names.
+
+**ONE THING FOR THE DIRECTOR TO WEIGH BEFORE MERGING (Learning Agent L-033).** The case this round
+fixed guards a stale-mirror / session-timing hazard in the same `Economy` write-and-read path task
+214 paid for -- a RACE-CLASS defect -- and there is exactly ONE clean two-player run at this head.
+L-033 asks for a second consecutive one before a race-class change merges. The Builder cannot run
+`test2`; this is the Director's call, and it is cheap compared with what task 214 cost.
+
+**A STABILITY OBSERVATION, not a blocker.** Three one-off client failures appeared across this
+task's eleven one-player runs and none reproduced: `camera_client.spec:376` (on `main`'s own tree,
+before any change in this task), `boar_body.spec:743` (`pathFailures` under load), and
+`camera_client.spec:1618` (at `e2d41773`, whose Luau is byte-identical to `e14105a0`'s, which had
+just passed 34/34 -- the immediate re-run passed). Worth a look some time; nothing in task 233
+depends on it.
+
+### 1. ~~NEEDS DIRECTOR: `test2`~~ -- **ROUND 1: CLOSED, 2026-10-21. Both gate lines named one commit.**
+
+```
+[harness]  PASS: 34/34 checks @ 8d5e1859ca088d94bbba7fe5d581c7dc386ee840 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 8d5e1859ca088d94bbba7fe5d581c7dc386ee840 (clean tree)
+```
+
+Two-player round 1 ran at `6ade841d` and FAILED 32/36 with two cases. **Neither was a defect; both
+were specs that asserted the ONE-player world**, and each is traced to the flip that exposed it:
+
+| failure | flip | cause, and why the code was right |
+|---|---|---|
+| `zz_drive_boundary.spec:364` *"Expected number, got nil"* on `earned` | **COINS** | a Studio test client gets a **NEGATIVE UserId** (`-1`, `-2` -- this repository had already measured that, at `weapon_client.spec`'s `otherId`), and `Coins.forDrive` refuses any id that is not a positive integer, counting it `skippedNotAPlayer`. A live server has no negative ids |
+| `camera_client.spec:438` *"Expected false, got true"* on the DRIVER | **HORN** | a beater now carries the Horn Tool, and since task 176 the horn has its own viewmodel branch -- so a parented clone is the CORRECT answer. The branch was written when a beater carried nothing |
+
+Both fixes assert MORE than the lines they replace, and the Director's passing run measured both
+new arms:
+
+```
+one player : zz_drive_boundary: drive 1 sent 1 row(s) -- 1 paid, 0 refused (notAPlayer 0, left 0, noProfile 0), 1 carrying a balance
+two players: zz_drive_boundary: drive 1 sent 2 row(s) -- 0 paid, 2 refused (notAPlayer 2, left 0, noProfile 0), 2 carrying a balance
+two players: camera_client: the driver's first-person frame holds Horn, drawn as a horn and not a weapon
+```
+
+Nothing is outstanding on this item.
+
+### 2. `SHOP` is still DARK -- **ACCEPTED BY THE DIRECTOR AS TASK 233b**, and not touched here
+
+The Director's word, 2026-10-21: *"your ESCALATE item 2 is accepted as a SEPARATE task, 233b. Not
+in this task: do not touch SHOP here."* The measurement below is kept as that task's input.
+
+Flipped, measured over three full gate runs, reverted (commit `1a685ef1`). It is **not** a
+paperwork change: it changes the DEFAULT PLAYER'S KIT. `Shop.BASE_AMMO.shotgun` is `{ Buck = true }`
+and the slug is *"the ladder's first rung"* (120), so an un-owning player gets **buckshot only and
+the shotgun alone** -- and in the DEV place `MatchBoot` passes `counterAt = nil` (`Lobby.ANCHORS` has
+no `map:v1` row), so **he can never buy anything there**. The harness runs in that world.
+
+**What went red at `f4c0375b`:**
+
+| side | cases | what they assert |
+|---|---|---|
+| server (5, stable across all three runs) | `weapon_equip.spec` x3 | `#Hardware.toolsOf(player) == #Weapons.loadout()` -- the module's own answer takes no owner, so it is the FULL loadout while the player now carries one gun |
+| | `weapon_rules.spec` | the refilled pocket: *"Expected 12, got 0"* |
+| | `weapon_shot.spec` | the per-pellet segment chain -- buckshot is NINE pellets, so `casts[3]` starts pellet two |
+| client (15 in two runs of three, 1 in the other) | `camera_client.spec` | the replayed right mouse never reached the weapon's aim action |
+| | `input_driving.spec` x3 | the replayed `F` key and `MouseButton1` never arrived at all |
+| | `weapon_client.spec` | a "full gun" is two Live barrels of **Slug** with 12 in the pocket |
+
+**The server half is solved and the work is kept.** `backups/2026-10-21_task-233_shop-on-spec-pins.txt`
+is the measured diff that takes the server side to **0 failures**: `Weapon.setEntitlementProvider`
+hands back the provider it replaced (the `setArmingPolicy` idiom of task 150), `weapon_equip.spec`
+unwires the entitlement in its existing `beforeEach`/`afterEach`, `weapon_rules.spec` does the same
+around its refill case, and `weapon_shot.spec` asks `row.PELLETS[ammo]` before claiming one chain.
+
+**The client half is not, and that is the finding.** The input-replay and camera half of the suite
+does not hold still under it -- 15 failures, then 1, then 15, with no code change between the first
+two. Those specs are the evidence for what Karen judges by feel.
+
+**Two ways out, and choosing between them is a design decision:**
+
+- **(A) Do not wire a shop in a world with no counter.** `MatchBoot` already says `counterAt = nil`
+  *"is not a defect"* for the DEV place; the step after that sentence is not to wire
+  `Weapon.setEntitlementProvider` there either. Then DEV keeps today's kit, the whole red list
+  disappears, no spec changes at all, and `SHOP` lights for the worlds that have a lodge -- which is
+  every world the shop was designed for. **This is the one I would do.**
+- **(B) Re-baseline the client suite** on "the default player has buckshot and one gun". That is
+  honest too, but it is a task of its own, it rewrites the assertions that protect the gun's feel,
+  and it should not ride inside a commit called "v1 defaults".
+
+**What Karen should see either way, because it is hers to judge:** with `SHOP` on, a brand-new
+player starts with buckshot and no rifle and buys slugs (120) and the scoped rifle out of drive
+money. That is `docs/design/shop.md`'s v1 ladder as reviewed in tasks 178 and 221 -- but she has
+played the Forest Test with her own place attributes, not a fresh server, so she has not met it.
+
+### 3. `COINS` is lit and `SHOP` is not, so a player earns money he cannot spend
+
+A consequence of stopping at flip 4, written down rather than left to be discovered. The lodge is
+coherent in this state -- `Lobby.Build` hangs a **disabled** prompt on the shopkeeper when the shop
+is not in the build, which is the case `lobby.spec` calls *"a Press E over a man who answers nothing
+is worse than no prompt"* -- and nothing is broken. It is simply a half-step, and item 2 is what
+closes it.
+
+### 4. Frame (c) could not be taken: there is no beater in a one-player DEV drive
+
+`Match.requestTeam(player, "Drivers")` returns **false** and the player stays `Shooters` -- the
+roster will not leave a one-player drive without a hunter. So no horn is carried in DEV and the
+dispatch's *"if a beater is reachable"* resolves to no. `HORN`'s evidence is `zz_horn.spec` (the
+carry policy both ways, by parameter) and the Forest Test, where `ForestTestBoot` has had
+`local hornOn = true` unconditionally since task 152.
+
+### 5. Harness note: a reacting animal cannot be photographed through `capture`
+
+Frame (a) is a measured TRACE and not a screenshot, and this is why. One `capture` round trip is
+~15 s; a boar that has reacted trots at 18 studs/s and sprints at 38, so it is 270 to 570 studs away
+by the time the shutter falls. Four attempts, four empty fields. It is logged as a limitation, not
+as a defect: the trace is stronger evidence for a transition than any single frame (Learning Agent
+L-022 says so in as many words), and the two traces are in the task report.
+
+
 ## 2026-10-21 - Task 229: **CLOSED. Reviewer PASS at round 3.** Nothing is outstanding.
 
 Round 3 passed (`reviews/task-229/RESULT.md` line 1 = `PASS` at `8b64034b`), after the Director

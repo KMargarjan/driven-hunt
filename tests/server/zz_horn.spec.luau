@@ -774,14 +774,20 @@ return function()
 			expect(HornTool.carryAction(false, false)).to.equal(nil)
 		end)
 
-		it("is born OFF, and both worlds are reachable by parameter", function()
+		it("was born OFF and since task 233 it is LIT, and both worlds are reachable by parameter", function()
 			-- A NEW FEEL-CRITICAL PATH IS BORN OFF (CLAUDE.md), and this one was not in round 1 --
 			-- which the Director's gate is what showed: `test2` fails on this branch where `main`
 			-- passes, and with no switch the only A/B available was an uncommitted edit. OFF, nobody
 			-- is granted anything and the drive is bit-for-bit the game before this task.
+			--
+			-- FLIPPED ON 2026-10-21 (task 233, "v1 default"): the beater is one of Karen's two v1
+			-- roles, so a default server has to hand him a horn. `owner` and `born` are asserted
+			-- UNCHANGED beside the flip, so a row somebody rewrote cannot pass as one somebody lit.
 			local row = Flags.DEFAULTS[Horn.FLAG]
 			expect(row).to.be.ok()
-			expect(row.default).to.equal(false)
+			expect(row.default).to.equal(true)
+			expect(row.owner).to.equal("ReplicatedStorage.Horn")
+			expect(row.born).to.equal("2026-10-11 task 152")
 			-- ...and the predicate the composition roots call is PURE in the flag, so the ON world is
 			-- testable while the flag sits at OFF -- the only permitted shape.
 			expect(Horn.carriesFor(true, Horn.TEAM)).to.equal(true)

@@ -15,6 +15,10 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Teams = game:GetService("Teams")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+-- ONE FACT, FOR ONE QUESTION: has the build that just ran a drive got money in it? (task 233)
+-- `Economy.isEnabled` is the owner's own boundary read of `COINS`, which is a v1 default from
+-- 2026-10-21, so the two economy fields on the live snapshot are asked of it rather than pinned.
+local Economy = require(ServerScriptService:WaitForChild("Economy"))
 local Flags = require(game:GetService("ReplicatedStorage"):WaitForChild("Flags"))
 local Map = require(game:GetService("ReplicatedStorage"):WaitForChild("Map"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
@@ -161,14 +165,31 @@ return function()
 		-- assignment and is ABSENT when there is no economy view -- the `stands` / `coinsOn` idiom
 		-- (*"ABSENT means the server never sent it"*). The harness runs with no economy, so this is
 		-- the flag-off half of the field, asserted against the real running drive.
-		it("leaves roleOverruled absent when no economy is wired", function()
+		it("ships roleOverruled and coinsOn exactly as the running build's money switch says", function()
 			local snapshot = Match.snapshot()
 			expect(snapshot).to.be.ok()
-			-- ABSENT, not an empty array: a client that never heard of the field reads exactly what
-			-- it always did, and `Match.isRoleOverruled` answers false off `or {}`.
-			expect(snapshot.roleOverruled).to.equal(nil)
-			-- ...and the two fields it copies that idiom from behave the same way here.
-			expect(snapshot.coinsOn).to.equal(nil)
+			-- BOTH HALVES, READ OFF THE BUILD (task 233). `COINS` became a v1 default on 2026-10-21,
+			-- so the drive that just ran in the DEV place HAS an economy -- which is the opposite of
+			-- what this case was written against, and it failed on both lines in the flip's own gate
+			-- run (`coinsOn` got `true` for `nil`). It is asked of `Economy.isEnabled()` rather than
+			-- pinned to either answer, exactly as `zz_drive_boundary.spec`'s own `roleOverruled`
+			-- case already asks, because a harness run may set no `DHFlag_` override at all: the one
+			-- branch it can take is the DECLARED default, and both are written out so that flipping
+			-- the row back is still measured here and not silently unasserted.
+			if Economy.isEnabled() then
+				expect(snapshot.coinsOn).to.equal(true)
+				-- PRESENT AND EMPTY. There is no lodge in the DEV place, so nobody can have bought
+				-- the hunter's place and nobody can have been overruled -- but the field is sent,
+				-- because the build has money in it.
+				expect(snapshot.roleOverruled).to.be.ok()
+				expect(#snapshot.roleOverruled).to.equal(0)
+			else
+				-- ABSENT, not an empty array: a client that never heard of the field reads exactly
+				-- what it always did, and `Match.isRoleOverruled` answers false off `or {}`.
+				expect(snapshot.roleOverruled).to.equal(nil)
+				-- ...and the two fields it copies that idiom from behave the same way here.
+				expect(snapshot.coinsOn).to.equal(nil)
+			end
 			-- TASK 229, review round 1 finding 1: the record `roleOverruled` is now computed
 			-- AGAINST -- the wishes the assignment was actually made with, rather than the live memo
 			-- the assignment itself empties. On the real running drive in the DEV place there is no

@@ -425,17 +425,62 @@ return function()
 				-- CARRIED, NOT SUMMONED: the gun is on screen at blend 0, which is the difference
 				-- VIEWMODEL_SHOW_BLEND makes in the other branch.
 				--
-				-- ROLE-AWARE, because a DRIVER carries no Tool at all
+				-- ROLE-AWARE, because a DRIVER carries no GUN
 				-- (`Match.CONFIG.DRIVERS_MAY_SHOOT = false`) and the viewmodel clones the Handle of
 				-- the Tool in the local character. "A driver has a gun in frame" would be the bug,
 				-- so it is asserted rather than skipped (TASKS.md row 34a).
+				--
+				-- NO GUN IS NOT THE SAME AS NO TOOL, SINCE `HORN` BECAME A V1 DEFAULT (task 233).
+				-- This branch read `expect(Camera.Viewmodel.isParented()).to.equal(false)` -- written
+				-- when a beater carried NOTHING -- and it failed in the Director's two-player gate,
+				-- `[harness2] FAIL: 32/36 @ 6ade841d`, *"Expected false, got true"* on the DRIVER
+				-- client. It was right to fail: that client really was holding
+				-- `Workspace.Player2.Horn.Handle` (the run's own note, from the case further down
+				-- this file), and since task 176 the horn has its own viewmodel branch and its own
+				-- poses, so a parented clone is the CORRECT answer for a beater.
+				--
+				-- WHAT THE CLAIM BECOMES IS STRICTLY MORE, NOT LESS. The original sentence -- a gun
+				-- in a driver's frame is the bug -- is now ASSERTED IN SO MANY WORDS rather than
+				-- implied by an empty screen: what he is holding is named, and it must be the HORN.
+				-- The question is asked of `HeldTool`, the one shared fact the viewmodel itself
+				-- keys off, exactly as the empty-handed case further down this file already does --
+				-- so this spec carries no second opinion about what draws.
+				--
+				-- BOTH ARMS STAY LIVE. With `HORN` off a beater carries nothing, `drawsFirstPerson`
+				-- is false and the `else` below is the assertion this branch always made; the
+				-- carry rule's own two states are proved by parameter in `zz_horn.spec`
+				-- (`Horn.carriesFor(on, team)`).
 				--
 				-- A SHOOTER IS WAITED FOR, NOT SAMPLED. The gun arrives when the drive arms him,
 				-- which is some way into the run and not at the moment this case happens to reach
 				-- here -- measured: this read false on the shooter's first `test2` pass.
 				if Role.isDriver() then
 					waitFrames(5)
-					expect(Camera.Viewmodel.isParented()).to.equal(false)
+					local driverSource = Camera.Viewmodel.getSource()
+					local driverHandle = if driverSource then driverSource() else nil
+					local driverTool = driverHandle and driverHandle.Parent
+					local draws = driverTool ~= nil and driverTool:IsA("Tool") and HeldTool.drawsFirstPerson(driverTool)
+					if draws then
+						-- THE HORN, AND NEVER A WEAPON. This is the old sentence, made explicit.
+						expect(HeldTool.kindOf(driverTool)).to.equal(HeldTool.HORN)
+						expect(HeldTool.kindOf(driverTool)).never.to.equal(HeldTool.WEAPON)
+						expect(Camera.Viewmodel.isParented()).to.equal(true)
+						TestKit.note(
+							string.format(
+								"camera_client: the driver's first-person frame holds %s, drawn as a %s and not a weapon",
+								(driverTool :: Tool).Name,
+								tostring(HeldTool.kindOf(driverTool))
+							)
+						)
+					else
+						expect(Camera.Viewmodel.isParented()).to.equal(false)
+						TestKit.note(
+							string.format(
+								"camera_client: the driver draws nothing in first person; he carries %s",
+								if driverTool ~= nil then (driverTool :: Instance).Name else "no Tool at all"
+							)
+						)
+					end
 				else
 					-- THE VIEWMODEL FOLLOWS THE EQUIPPED TOOL, and that is the claim -- not "the drive
 					-- has armed him by now", which is a fact about the drive's clock and not about

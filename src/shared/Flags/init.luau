@@ -51,14 +51,21 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- TASKS.md row 215a item (a); the arithmetic below is why it is paperwork and not a real breach.
 --
 -- The cap's own sentence is about DARK paths -- *"more than twelve dark paths means the stack problem moved, not
--- went away"* -- and it counts ROWS. Of the fourteen rows, SEVEN are LIT and accepted
--- (`TIE_UNTIL_DRIVE_END`, `BOAR_SOUNDERS`, `ORANGE_OUTFITS`, `RIFLE`, `FIRST_PERSON`,
--- `AUTUMN_LIGHT` and, since task 230, `BOAR_MODEL`: `default = true`, and three of them are queued
--- for retirement as TASKS.md 82b),
--- so the number the Director should see is SEVEN DARK, which is under the twelve the rule is
--- about -- task 215 added a row and no dark path at all, and task 230 lit one. Retiring those three brings the row count
--- back under 12 without touching this line, and that is the Director's call
--- (docs/design/shop.md section 16 item 8), not this task's.
+-- went away"* -- and it counts ROWS. Task 215 added a row and no dark path at all; task 230 lit one;
+-- task 233 lights the rest of what v1 keeps. THE RUNNING COUNT, which is the number the Director
+-- should see, is the one line below, and it is under the twelve the rule is about. Three of the lit
+-- rows are queued for retirement as TASKS.md 82b; retiring them brings the row count back under 12
+-- without touching this line, and that is the Director's call (docs/design/shop.md section 16
+-- item 8), not this task's.
+--
+-- LIT (11): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
+--           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233).
+-- DARK (3): QUICK_TEST, DRIVE_BOTS, SHOP.
+--
+-- `SHOP` IS STILL DARK AND IT WAS MEANT TO BE LIT IN THE SAME TASK. It took the gate red -- an
+-- un-owning player's kit is buckshot and the shotgun alone, and the input-replay and camera client
+-- specs do not hold still under it -- so it was reverted and put to the Director (`ESCALATE.md`,
+-- 2026-10-21). `COINS` being lit without it means a player EARNS money he cannot yet spend.
 Flags.MAX_FLAGS = 14
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
@@ -191,13 +198,25 @@ Flags.DEFAULTS = {
 		-- the drawn animal: every state, radius and timer is Brain/Runtime state and is fully
 		-- exercised on the grey box. The one drawn line this task adds (the head-up clip) sits
 		-- behind `BOAR_MODEL`, where it already is.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-21 (task 233, "v1 default"): everything v1 keeps is on without a
+		-- setting. The row stays, and one line back to `false` is the rollback; both branches are
+		-- still reachable BY PARAMETER (`config.SENSE.ENABLED`), which is what keeps the OFF world
+		-- tested now that the flag sits at the other one.
+		default = true,
 		-- The owner is the module that READS it at its boundary (`Boar.CONFIG.SENSE.ENABLED`) and
 		-- passes the value inward as `config` -- the only permitted shape, and what keeps both
 		-- branches reachable by parameter while the flag itself sits at one of them.
 		owner = "ServerScriptService.Boar",
 		born = "2026-10-04 task 118",
-		expires = "2026-10-25", -- 21 days: the ceiling in feature-flags.md section 12
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, exactly as `BOAR_MODEL`, `BOAR_SOUNDERS`,
+		-- `ORANGE_OUTFITS`, `RIFLE` and `FIRST_PERSON` do not: the ceiling in feature-flags.md
+		-- section 12 is what stops a DARK path living for ever, and from today this path is LIT. THE
+		-- MOVE IS NEEDED AND NOT COSMETIC: left at 2026-10-25 this row fails
+		-- `tests/server/flags.spec.luau`'s rot tripwire on the 26th -- five days from now -- which
+		-- fails the harness and blocks whatever gate runs that day, the same bomb task 149b defused
+		-- for `RIFLE` and `FIRST_PERSON` and task 230 for `BOAR_MODEL`.
+		expires = "2026-12-31",
 		why = "A boar notices a standing person at 25 studs and a moving one at 60, goes head-up, "
 			.. "turns away or runs, sprints at a shot, and panics through its sounder. OFF is the "
 			.. "40-stud drivers-only flush of Milestone 1.2.",
@@ -214,14 +233,26 @@ Flags.DEFAULTS = {
 		-- while `main` passes, and with no switch the only A/B available was an uncommitted edit.
 		-- OFF, the drive is bit-for-bit the game before this task -- nobody is granted anything --
 		-- so the flag is also the isolation experiment and the rollback.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-21 (task 233, "v1 default"): the beater is one of Karen's two v1
+		-- roles and the horn is what he carries, so a server without her place attributes has to
+		-- hand him one. The Forest Test has had it on unconditionally since task 152
+		-- (`ForestTestBoot`'s `local hornOn = true`), which is the world she plays in; this flip is
+		-- what gives the DEV drive, and every other default server, the same game. The row stays as
+		-- the rollback, and `Horn.carriesFor(on, team)` is pure, so both worlds stay reachable BY
+		-- PARAMETER.
+		default = true,
 		-- The owner is the module that READS it, at its boundary: each composition root resolves
 		-- `Horn.carryPolicy(...)` ONCE and hands the result to `Weapon.Horn.setCarryPolicy`. Nothing
 		-- in the horn reads a flag, and `Horn.carriesFor(on, team)` is pure, so both worlds are
 		-- reachable by parameter while the flag sits at one of them.
 		owner = "ReplicatedStorage.Horn",
 		born = "2026-10-11 task 152",
-		expires = "2026-10-31",
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, for the reason `BOAR_MODEL` and
+		-- `BOAR_BEHAVIOUR` above do not: the ceiling in feature-flags.md section 12 is what stops a
+		-- DARK path living for ever, and from today this path is LIT. Left at 2026-10-31 this row
+		-- fails `tests/server/flags.spec.luau`'s rot tripwire on 1 November.
+		expires = "2026-12-31",
 		why = "The beater's horn: the Tool, its voice and the blast that pushes boars away from the "
 			.. "beater who blew it. OFF is exactly the game before task 152 -- no beater carries "
 			.. "anything, and no blast reaches a boar.",
@@ -314,14 +345,27 @@ Flags.DEFAULTS = {
 		-- also the kill switch and the rollback. The three rates (`COINS_PER_POINT`, `PARTICIPATION`,
 		-- `FIRST_PLACE`) are feel numbers and are Karen's after one drive, which is the ordinary
 		-- reason as well.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-21 (task 233, "v1 default"). Karen's v1 decision that day puts
+		-- money in the game in dollars, with the shop and its v1 list, so a server without her place
+		-- attributes has to pay a drive. THE KILL SWITCH IS NOT GONE, it has only changed sides: one
+		-- line back to `false` opens no session and writes no key, and `Economy.start`'s
+		-- `world.enabled` keeps both branches reachable BY PARAMETER -- which is what every case in
+		-- `economy.spec` drives, because no harness run may set an override at all. IN STUDIO NOTHING
+		-- REACHES A LIVE DATASTORE EITHER WAY: `Economy.Store` takes the in-memory implementation
+		-- whenever `RunService:IsStudio()`, so a playtest and a harness run write no key even with
+		-- *Enable Studio Access to API Services* on.
+		default = true,
 		-- The owner is the module that READS it at its boundary (`Economy.CONFIG.ENABLED`) and passes
 		-- it inward through `Economy.start`'s `world.enabled` -- the only permitted shape, and what
 		-- keeps both branches reachable by parameter while the flag sits at one of them. `Match`
 		-- never reads this flag: it is handed a view whose `payDrive` is a no-op when it is off.
 		owner = "ServerScriptService.Economy",
 		born = "2026-10-13 task 170",
-		expires = "2026-11-03", -- 21 days: the ceiling in feature-flags.md section 12
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, for the reason `BOAR_MODEL`, `BOAR_BEHAVIOUR`
+		-- and `HORN` do not: the ceiling in feature-flags.md section 12 is what stops a DARK path
+		-- living for ever, and from today this path is LIT.
+		expires = "2026-12-31",
 		-- WHAT OFF REALLY LEAVES, corrected in round 2 of the gate. The old sentence claimed *"the
 		-- score panel is task 159's one-table board"*, and that was never true: the SPLIT into hunters
 		-- and beaters is Karen's own decision (2026-10-12) and is not about money, so it is there in
@@ -366,7 +410,21 @@ Flags.DEFAULTS = {
 		-- nothing is built, no terrain is written, `Match` is started with no `enrol` field and
 		-- `watchPlayer` takes the line it has always taken. The DEV place, where the harness runs,
 		-- keeps this default, so no harness check can change its answer.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-21 (task 233, "v1 default"). Karen's v1 is the lodge in the
+		-- fields: a player joins, stands in the circle beside the truck and a hunt starts. The row
+		-- stays as the rollback, and `Lobby.start`'s `world.enabled` keeps both branches reachable BY
+		-- PARAMETER -- which is what `lobby_live.spec` drives, since it names both `enabled` and
+		-- `world` in its own fakes.
+		--
+		-- IT IS A NO-OP IN THE DEV PLACE, MEASURED RATHER THAN HOPED (task 233). `MatchBoot` NEVER
+		-- CALLS `Lobby.start` AT ALL -- the only caller in `src/` is `ForestTestBoot` -- and even if
+		-- it did, `Data.anchorFor("map:v1")` is nil and `start` answers `false` without building
+		-- anything or writing a stud of terrain (*"NOT A FAILURE: a world with no row has no lobby,
+		-- which is how the DEV place keeps today's behaviour without a second switch"*). So the
+		-- harness's player path is byte-identical with this row either way, and the two full runs
+		-- across this flip say so: 34/34 before and after.
+		default = true,
 		-- The owner is the module that READS it at its boundary (`Lobby.ENABLED`) and passes it
 		-- inward through `Lobby.start`'s `world.enabled` -- the only permitted shape, and what keeps
 		-- both branches reachable by parameter while the row sits at `false`. `Match` never reads
@@ -374,7 +432,10 @@ Flags.DEFAULTS = {
 		-- said it had actually built itself.
 		owner = "ServerScriptService.Lobby",
 		born = "2026-10-13 task 177",
-		expires = "2026-11-03", -- 21 days: the ceiling in feature-flags.md section 12
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, for the reason the lit rows above do not: the
+		-- ceiling in feature-flags.md section 12 is what stops a DARK path living for ever, and from
+		-- today this path is LIT.
+		expires = "2026-12-31",
 		why = "The player starts at a hunting lodge in the fields beside the forest and starts a hunt "
 			.. "by standing in the marked circle beside the truck; at the end of a drive he is back "
 			.. "at the lodge. OFF is the game before task 177: joining the server joins the drive, "
