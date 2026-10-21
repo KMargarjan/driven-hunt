@@ -6,6 +6,19 @@
     python tools/flags.py clear                 remove every override
     python tools/flags.py live [role]           what a RUNNING session resolved
                                                 (role: server, client, client:<PlayerName>)
+    ... --place dev|forest|<place id>           WHICH PLACE. Default: the DEV place. `--place
+                                                forest` is the explicit way to write Karen's
+                                                playtest place on purpose
+
+EVERY WRITE IS PINNED TO A PLACE, AND SAYS WHICH ONE (Task 226). On 2026-10-21 a `clear` typed to
+clean the DEV place removed four of the six ServerStorage attributes from Karen's Forest Test
+place instead: the Studio was resolved as "the first one in Edit mode", StudioMCP's listing
+happened to hold only the Forest Test, and both open places are editors so the mode told nobody
+anything. `set`, `clear` and the table now resolve their Studio by game.PlaceId -- read live out of
+each connected Studio -- print the place id and name before touching it, REFUSE when the place
+asked for is not connected, and dump that place's whole attribute set to
+<runs-dir>/attr-flags-<action>-<place>-<timestamp>.log first, so a restore has something from
+BEFORE the write to diff against.
 
 Why it exists: feel-critical work used to wait for Karen's playtest before merging, so ten PRs
 stacked on one unmerged PR. A flagged path merges dark; the Director switches it on here; Karen
