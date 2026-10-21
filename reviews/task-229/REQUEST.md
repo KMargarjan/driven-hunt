@@ -3,19 +3,33 @@
 Task: 229
 Round: 1
 Base: `963aaa37` (main, after task 228's shop round 2)
-Code commit: `24e9f2318b3ebcb599aa0115bd0e4d7c52acda3d`
+Code commit: `9d03e712de2ac3dbad86e2f20251a9e9be65ce74`
 
 Harness, on the clean tree, at that commit:
 
 ```
-[harness] PASS: 33/33 checks @ 24e9f2318b3ebcb599aa0115bd0e4d7c52acda3d (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 9d03e712de2ac3dbad86e2f20251a9e9be65ce74 (clean tree) scope=all
 ```
 
-`[harness2]`: **RUN TWICE AT `278febdb` AND FAILED BOTH TIMES; THE CAUSE IS FIXED AND IT IS NOT YET
-RE-RUN.** `tools/agents.py` asks for the line (six changed files are in `TWO_PLAYER_PATHS`) and
-`test2` needs one Studio and a human click, so it is the Director's -- `ESCALATE.md`,
-`NEEDS DIRECTOR: test2 for task 229 at 24e9f231`. **This request is not final until that line
-exists.** What the two runs found is claim 11 below; neither finding was a defect in this branch.
+Two players, on the clean tree, at the same commit -- six changed files are in `TWO_PLAYER_PATHS`.
+The Director ran it **twice**:
+
+```
+[harness2] PASS: 35/35 checks @ 9d03e712de2ac3dbad86e2f20251a9e9be65ce74 (clean tree)
+```
+
+both runs server 1979/0, shooter 514/0, driver 508/0 (`<runs-dir>/test2-t229c.log`,
+`test2-t229d.log`). The one-player line above was re-run at this same commit so the two name one
+sha, which is what `tools/agents.py` requires (`<runs-dir>/test-t229-9d03e712.log`).
+
+**`9d03e712` is a PAPERWORK commit and that is deliberate**: the last commit to touch `src/`,
+`tests/` or `tools/` is `24e9f231`, and `git diff --name-only 24e9f231..9d03e712` is exactly
+`ESCALATE.md`, `TASKS.md` and `reviews/task-229/REQUEST.md`. Naming the later commit only makes the
+bound stricter -- everything the harness ran over is still covered (git workflow step 4).
+
+**The first two `test2` runs, at `278febdb`, FAILED; claim 11 below is what they were.** Neither was
+a defect in this branch, one was fixed at the root anyway, and the other is recorded as open and
+intermittent rather than as fixed.
 
 Karen, 2026-10-21, verbatim:
 
@@ -184,10 +198,15 @@ asserted:** with the per-frame tell removed from `Hud.renderObjective` the new f
 (`touch_controls.spec:618`, after its whole 30-frame budget); on healthy code the same note reads
 one frame. Logs: `<runs-dir>/l028-probe-t229.log` and `<runs-dir>/test-t229-24e9f231.log`.
 
-**The driver's five failures in run 2 are a starved client, not code, and nothing was changed for
-them.** Same commit, opposite outcomes (run 1: 508 passed, 0 failed, reported at 19 s; run 2: 498
-passed, 10 failed, at 69 s). `camera_client.spec:648` is not an input assertion at all -- it is
-`waitUntil(5, ... lookAtLanded > before)`, *"it does count, once a frame goes by"* -- so all five are
-one cause, and `input_driving`'s own `ARRIVE_TIMEOUT` is 45 s. The harness SENT every step in both
-runs, and the driver's viewport and every other note are byte-identical between the two logs. Queued
-as `TASKS.md` 229e.
+**The driver's five failures in run 2 are a starved client, not code. Nothing was changed for them,
+and they are recorded as OPEN AND INTERMITTENT rather than as fixed.** Four runs at two shas now:
+three green drivers (`278febdb` run 1, reported at 19 s, 508/0; `9d03e712` twice, 508/0) and one red
+(`278febdb` run 2, 498 passed / 10 failed, reported at 69 s). `camera_client.spec:648` is not an
+input assertion at all -- it is `waitUntil(5, ... lookAtLanded > before)`, *"it does count, once a
+frame goes by"* -- so all five are one cause: the driver's client rendered nothing for a stretch,
+and `input_driving`'s own `ARRIVE_TIMEOUT` is 45 s (69 s = startup + that timeout). The harness SENT
+every step in every run, and the driver's viewport and every other driver note are byte-identical
+across the logs; `input_driving.spec` already says in its own words that *"in a two-player local test
+this client is a background window rendering at about 15 fps"*. **The two green runs settle only
+that it is not a one-off of this branch's code; they do not clear the cause** (L-033), so it stays
+open as `TASKS.md` 229e, harness-side.

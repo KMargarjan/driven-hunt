@@ -1,18 +1,68 @@
 # Escalations
 
-## 2026-10-21 - Task 229: NEEDS DIRECTOR - `test2` for task 229 at `24e9f231` (the second ask)
+## 2026-10-21 - Task 229: `test2` - **CLOSED.** Passed twice at `9d03e712`
 
-**`NEEDS DIRECTOR: test2 for task 229 at 24e9f2318b3ebcb599aa0115bd0e4d7c52acda3d`**
-
-The one-player gate is green on the clean tree at that commit:
+**RESOLVED. No Director action is left on this entry.** The Director ran `test2` twice on the clean
+tree at `9d03e712de2ac3dbad86e2f20251a9e9be65ce74`:
 
 ```
-[harness] PASS: 33/33 checks @ 24e9f2318b3ebcb599aa0115bd0e4d7c52acda3d (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 9d03e712de2ac3dbad86e2f20251a9e9be65ce74 (clean tree)
 ```
 
-Log: `<runs-dir>/test-t229-24e9f231.log`. Run `python tools/studio_mcp.py test2` on the clean tree.
+both runs server 1979/0, shooter 514/0, driver 508/0. Logs: `<runs-dir>/test2-t229c.log`,
+`<runs-dir>/test2-t229d.log`. The one-player line was re-run at the same commit so the two name one
+sha (`<runs-dir>/test-t229-9d03e712.log`):
 
-### What the first two `test2` runs found, and what was done about it
+```
+[harness] PASS: 33/33 checks @ 9d03e712de2ac3dbad86e2f20251a9e9be65ce74 (clean tree) scope=all
+```
+
+### What the two earlier `test2` failures turned out to be
+
+**(a) `touch_controls.spec:564` -- a TASK 220 spec defect. FIXED at the root, and the fix is what
+the two green runs ran against.** The case has never run under two players before (it arrived with
+task 220 on 2026-10-21; the two most recent `[harness2]` lines before this were at `1af2cf60` and
+`449e0120`, where the file does not exist). It differenced an absolute Tool count across three
+`Heartbeat`s while the server legitimately removed the shooter's gun: `zz_tie_to_a_tree.spec` is a
+two-player-only spec, the tie runs `refreshArmingFor`, and `src/server/Match/init.luau` says it in
+its own comment -- *"mayCarryWeapon now says no, so the Tool goes."* The count is now pinned to the
+LIVE TREE, which is strictly stronger than the delta it replaced. L-028 was demonstrated both ways:
+30 frames (the whole budget) with the per-frame tell removed, 1 frame on healthy code.
+
+**(b) The driver's five failures in run 2 -- INTERMITTENT, AND THE CAUSE IS NOT IN THIS BRANCH. NOT
+FIXED, and deliberately not recorded as fixed.** Nothing was changed for it, and the two green runs
+do **not** clear it: they settle only that it is not a one-off of this branch's code. L-033 is the
+rule being applied here -- two clean runs at one sha are evidence about REPRODUCIBILITY, not about a
+cause, and the cause of a timing defect that did not fire is not observable in a run where it did
+not fire.
+
+What is actually known, and it is all in the logs rather than in a feeling:
+
+1. **Four runs at two shas, three green drivers and one red.** `278febdb` run 1: driver 508/0 at
+   19 s. `278febdb` run 2: 498 passed, 10 failed, at 69 s. `9d03e712` twice: 508/0.
+2. **`camera_client.spec:648` is not an input assertion at all** -- it is
+   `waitUntil(5, ... lookAtLanded > before)`, *"it does count, once a frame goes by"*. It is a claim
+   that **a frame rendered within 5 s**, so all five failures are one cause: the driver's client
+   rendered nothing for a stretch. `input_driving`'s own `ARRIVE_TIMEOUT` is 45 s, and the 69 s
+   report is startup plus that timeout.
+3. **The harness SENT every step in every run** (`ok [input] replayed every step of 6 scenario(s)`),
+   and the driver's viewport and every other driver note are byte-identical across the logs.
+4. `input_driving.spec` already says the condition in its own words: *"in a two-player local test
+   this client is a background window rendering at about 15 fps"*.
+
+**It is queued as `TASKS.md` 229e, open, harness-side.** The next time `test2` goes red on the
+driver with that signature, 229e is the task to dispatch -- not this one to re-open.
+
+### The one thing still outstanding, and it is not a blocker
+
+A preview frame of each of the two surfaces cannot be taken in DEV: that place has no lobby, no
+truck pads and no shop counter, so neither panel can be put on screen there, and the StudioMCP
+thread cannot `require`, so no probe can open one. Karen already has the Designer's own
+`shop2-role.png`, and every number the build produced is measured into the harness report and
+matches it. The Forest Test clicks, if the frames are wanted before she plays, are in `TASKS.md`
+229d's row and in this file's history.
+
+## What the first two `test2` runs found, and what was done about it
 
 **(a) `touch_controls.spec:564` -- a TASK 220 spec defect, not a 229 regression. FIXED at the root.**
 
