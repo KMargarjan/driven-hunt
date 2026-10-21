@@ -51,11 +51,12 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- TASKS.md row 215a item (a); the arithmetic below is why it is paperwork and not a real breach.
 --
 -- The cap's own sentence is about DARK paths -- *"more than twelve dark paths means the stack problem moved, not
--- went away"* -- and it counts ROWS. Of the fourteen rows, SIX are LIT and accepted
--- (`TIE_UNTIL_DRIVE_END`, `BOAR_SOUNDERS`, `ORANGE_OUTFITS`, `RIFLE`, `FIRST_PERSON` and now
--- `AUTUMN_LIGHT`: `default = true`, and three of them are queued for retirement as TASKS.md 82b),
--- so the number the Director should see is still EIGHT DARK, which is under the twelve the rule is
--- about -- task 215 added a row and no dark path at all. Retiring those three brings the row count
+-- went away"* -- and it counts ROWS. Of the fourteen rows, SEVEN are LIT and accepted
+-- (`TIE_UNTIL_DRIVE_END`, `BOAR_SOUNDERS`, `ORANGE_OUTFITS`, `RIFLE`, `FIRST_PERSON`,
+-- `AUTUMN_LIGHT` and, since task 230, `BOAR_MODEL`: `default = true`, and three of them are queued
+-- for retirement as TASKS.md 82b),
+-- so the number the Director should see is SEVEN DARK, which is under the twelve the rule is
+-- about -- task 215 added a row and no dark path at all, and task 230 lit one. Retiring those three brings the row count
 -- back under 12 without touching this line, and that is the Director's call
 -- (docs/design/shop.md section 16 item 8), not this task's.
 Flags.MAX_FLAGS = 14
@@ -140,7 +141,22 @@ Flags.DEFAULTS = {
 		-- animal. THE BOX ITSELF IS NO LONGER IDENTICAL, since task 119: with the flag ON a sounder
 		-- is a sow and her young, so a trunk and its zones are 0.85 or 0.45 of the male's. OFF,
 		-- every boar is the male-sized box Milestone 1.2 shipped.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-21 BY KAREN'S OK (task 230), which is step 6 of the lifecycle and
+		-- the three-line commit CLAUDE.md's "Feature flags" describes. Her word on the drawn boar was
+		-- *"looks good now"* (PLAYTEST.md, 2026-10-03, task 115) and on the shot and the death
+		-- *"I thin kwe good"* (same day, task 116); her word on the deer is *"add deer in a game"*
+		-- (2026-10-21), and the red deer is behind THIS row as well (`KINDS.ENABLED`, task 223/232).
+		-- So a fresh server now shows the drawn animals rather than grey boxes, and a drive can
+		-- release a red deer -- which is also what closes TASKS.md row 223b, where the $750 deer
+		-- licence was on sale for an animal the default build could never spawn.
+		--
+		-- THE ROW STAYS, AND THAT IS THE ROLLBACK: one line back to `false` returns the game to the
+		-- grey box, and every branch below is still reachable BY PARAMETER (`boar_kinds.spec`'s
+		-- `configWith`, `deer.spec`'s, `boar_calm.spec`'s), which is what keeps both states tested
+		-- now that the flag sits at the other one. Retiring the row -- archiving the grey-box branch
+		-- under `backups/` -- is a separate later task and is NOT done here.
+		default = true,
 		-- SINCE TASK 117 it also carries the calm repertoire -- what a boar does when nothing is
 		-- wrong: graze, root, lift its head to smell, stand, walk a few steps. OFF, an idle boar
 		-- wanders at `WANDER_SPEED` with the old graze pauses, exactly as before.
@@ -152,9 +168,17 @@ Flags.DEFAULTS = {
 		-- reachable by parameter while the flag sits at one of them.
 		owner = "ServerScriptService.Boar",
 		born = "2026-10-03 task 115",
-		expires = "2026-10-24", -- 21 days: the ceiling in feature-flags.md section 12
-		why = "The boar is a real animal that walks, trots, runs, flinches and falls over. OFF is the "
-			.. "grey box with its three tinted hit zones, exactly as before task 115.",
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, exactly as `BOAR_SOUNDERS`, `ORANGE_OUTFITS`,
+		-- `RIFLE` and `FIRST_PERSON` above and below do not: the ceiling in feature-flags.md section
+		-- 12 is what stops a DARK path living for ever, and from today this path is LIT. The date it
+		-- keeps is the retirement task's. THE MOVE IS NEEDED AND NOT COSMETIC: left at 2026-10-24
+		-- this row fails `tests/server/flags.spec.luau`'s rot tripwire on the 25th, which fails the
+		-- harness and blocks whatever gate runs that day -- the same bomb task 149b defused for
+		-- `RIFLE` and `FIRST_PERSON`.
+		expires = "2026-12-31",
+		why = "The boar is a real animal that walks, trots, runs, flinches and falls over, a sounder "
+			.. "is a sow and her young, and a drive can release red deer. OFF is the grey box with "
+			.. "its tinted hit zones and no deer at all, exactly as before task 115.",
 	} :: FlagRow,
 	BOAR_BEHAVIOUR = {
 		-- BORN OFF on 2026-10-04 (task 118). What a boar DOES about what it notices: it notices a

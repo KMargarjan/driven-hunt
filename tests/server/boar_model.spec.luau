@@ -185,17 +185,26 @@ return function()
 		end
 	end)
 
-	describe("the flag is declared as a dark path", function()
-		it("is born off, owned by the boar, and expires inside 21 days", function()
+	describe("the flag is declared, and since task 230 it is LIT", function()
+		it("is born off on 2026-10-03, owned by the boar, and is ON by default since task 230", function()
+			-- TASK 230 FLIPPED IT (Karen, 2026-10-21: "add deer in a game", on top of her OK of the
+			-- drawn boar in task 115 -- "looks good now"). Until then this case read
+			-- `default == false` and `expires == "2026-10-24"`, which is what a DARK path's row
+			-- looks like; what it asserts now is the LIT row, and the two halves that did not
+			-- change -- who owns it, and when it was born -- are still asserted, so the flip cannot
+			-- be mistaken for a row somebody rewrote.
 			local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 			local row = Flags.DEFAULTS.BOAR_MODEL
 			expect(row).to.be.ok()
-			expect(row.default).to.equal(false)
+			expect(row.default).to.equal(true)
 			expect(row.owner).to.equal("ServerScriptService.Boar")
-			-- 21 days from `born`. flags.spec already fails the harness on an expired row; this says
-			-- the ceiling was respected when it was written, which that cannot.
 			expect(row.born:find("2026%-10%-03")).to.be.ok()
-			expect(row.expires).to.equal("2026-10-24")
+			-- AN ACCEPTED FLAG DOES NOT KEEP A 21-DAY CEILING (`RIFLE`, `FIRST_PERSON`,
+			-- `BOAR_SOUNDERS` and `ORANGE_OUTFITS` all carry this same date for this same reason):
+			-- the ceiling is what stops a path nobody has judged living for ever, and this one is
+			-- judged. Left at 2026-10-24 the row would fail `flags.spec`'s rot tripwire -- and so
+			-- the whole harness -- on the 25th.
+			expect(row.expires).to.equal("2026-12-31")
 		end)
 
 		it("publishes the flag's own value at the boar's boundary", function()

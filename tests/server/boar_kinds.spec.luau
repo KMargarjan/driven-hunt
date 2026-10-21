@@ -15,7 +15,8 @@ local CONFIG = Boar.CONFIG
 local EPSILON = 1e-4
 
 -- The flag as a parameter, which is the one permitted shape: `test` refuses to start with an
--- override set, so a harness run only ever sees `BOAR_MODEL`'s OFF default.
+-- override set, so a harness run only ever sees `BOAR_MODEL`'s DEFAULT -- `true` since task 230,
+-- `false` before it. Which state it sits at is what the parameter makes irrelevant here.
 local function configWith(on: boolean)
 	local kinds = table.clone(CONFIG.KINDS)
 	kinds.ENABLED = on

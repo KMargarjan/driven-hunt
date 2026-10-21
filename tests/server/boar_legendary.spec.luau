@@ -34,8 +34,8 @@ local FIELD = {
 }
 
 -- THE FLAG AS A PARAMETER, which is the one permitted shape (`boar_kinds.spec`'s own helper): a
--- harness run only ever sees `BOAR_MODEL`'s OFF default, because `test` refuses to start with an
--- override set. `chance` is the drive roll, and 0 and 1 are EXACT -- `NextNumber` returns [0, 1) --
+-- harness run only ever sees `BOAR_MODEL`'s DEFAULT -- `true` since task 230 -- because `test`
+-- refuses to start with an override set, so the other state is reachable only like this. `chance` is the drive roll, and 0 and 1 are EXACT -- `NextNumber` returns [0, 1) --
 -- so a case never depends on a draw.
 local function configWith(on: boolean, chance: number?)
 	local rare = table.clone(CONFIG.KINDS.LEGENDARY)

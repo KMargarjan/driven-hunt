@@ -274,8 +274,10 @@ return function()
 		-- grade lift it -- so a ratio that holds here holds in the frame.
 		--
 		-- **THIS WHOLE BLOCK IS ABOUT THE GREY-BOX BOAR AND NOT THE MESH ONE** (round 2, note 3).
-		-- `Boar.CONFIG.BODY_COLOR` is what `Boar.Body` paints its parts, and `BOAR_MODEL` is still
-		-- `default = false`, so this is the animal a default server shows. The MESH boar the Forest
+		-- `Boar.CONFIG.BODY_COLOR` is what `Boar.Body` paints its parts. UNTIL TASK 230 that was also
+		-- the animal a default server showed; since the flip (`BOAR_MODEL` `default = true`) it is
+		-- the FALLBACK one -- the box a boar still is while its model has not loaded, and the whole
+		-- animal with the row rolled back. The MESH boar the Forest
 		-- Test loads is a dark brown texture that is DARKER than grass and always was -- measured
 		-- 0.73 : 1 before this task and 2.91 : 1 of separation after it (the request's claim 6).
 		-- Two different animals: this case covers the box one, the frames cover the mesh one, and
