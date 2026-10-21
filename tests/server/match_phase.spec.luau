@@ -1301,6 +1301,156 @@ return function()
 			TestKit.note(string.format("match_phase: 10000 steps in %.0f ms (budget 200 ms)", elapsed))
 			expect(elapsed < 200).to.equal(true)
 		end)
+
+		-- ---------------------------------------------------------- A DEER IN EVERY DRIVE (234)
+		--
+		-- Karen, 2026-10-21: *"we need all a time in drive deer"* and *"I want to see a deer"*.
+		-- The only door before this task was `SPECIES.reddeer.RELEASE.CHANCE_PER_RELEASE = 0.2`,
+		-- rolled per release -- about six releases a drive, so `0.8^6 = 26 %` of drives carried
+		-- NO deer. A probability is not a guarantee however high it is set, which is why the
+		-- schedule now asks for one by name.
+		--
+		-- THE SCHEDULE'S HALF IS WHAT IS PROVED HERE. Whether an animal exists at all is the
+		-- BOAR's (`Boar.deerComposition` answers nil with `BOAR_MODEL` off, asked or not) and
+		-- `deer.spec` drives that end.
+		it("EVERY drive asks for its red deer, on exactly one release, over 200 seeds", function()
+			local worst = { drives = 0, none = 0, many = 0 }
+			for seed = 1, 200 do
+				local cfg = liveConfig(true)
+				cfg.SEED = seed
+				local state = ready(cfg)
+				state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+				state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+				local started = cfg.INTERMISSION_SECONDS
+				local now, asks, releases = started, 0, 0
+				while now < started + cfg.DRIVE_SECONDS - 0.5 do
+					now += 0.25
+					local effects
+					state, effects = Phase.step(
+						state,
+						{ kind = "tick", aliveBoars = 0, boarEntries = 0, boarCapacity = 8 },
+						now,
+						cfg
+					)
+					for _, effect in ipairs(effects) do
+						if effect.kind == "spawnSounder" then
+							releases += 1
+							if effect.deer == true then
+								asks += 1
+							end
+						end
+					end
+				end
+				worst.drives += 1
+				if asks == 0 then
+					worst.none += 1
+				elseif asks > 1 then
+					worst.many += 1
+				end
+				expect(releases > 0).to.equal(true)
+				expect(state.deerReleased).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"task234: %d drives, %d with no deer ask, %d with more than one",
+					worst.drives,
+					worst.none,
+					worst.many
+				)
+			)
+			-- TO SEE IT FAIL: delete the "this is the last release" clause from
+			-- `Phase.deerRelease`. The ordinal is drawn against the EXPECTED number of releases and
+			-- a drive that draws big sounders makes fewer than that, so drives start coming back
+			-- with `asks == 0` -- which is the 26 % hole this feature exists to close.
+			expect(worst.none).to.equal(0)
+			expect(worst.many).to.equal(0)
+		end)
+
+		it("does not always ask on the FIRST release: which one is the drive's own seed", function()
+			-- A guarantee that always fired on release one would be a deer in front of the hunters
+			-- before the drive has started, every drive, for ever. The ordinal is drawn from the
+			-- drive's own seed through `Phase.unitHash` -- the one hash in this module -- so it
+			-- moves, and the drive is still reproducible.
+			local onFirst, total = 0, 0
+			for seed = 1, 60 do
+				local cfg = liveConfig(true)
+				cfg.SEED = seed
+				local state = ready(cfg)
+				total += 1
+				if Phase.deerRelease(state, 1, cfg) then
+					onFirst += 1
+				end
+			end
+			TestKit.note(string.format("task234: the deer rode release 1 in %d of %d drives", onFirst, total))
+			expect(onFirst < total).to.equal(true)
+			expect(onFirst > 0).to.equal(true) -- ...and it is not banned from the first one either
+		end)
+
+		it("the LAST release carries it when nothing earlier did, which is what makes it a guarantee", function()
+			local cfg = liveConfig(true)
+			-- A drive with its budget all but spent and nothing asked for yet: whatever the drawn
+			-- ordinal was, this release is the last one, so it must carry the deer.
+			local state = ready(cfg)
+			local late = table.clone(state) :: any
+			late.boarsReleased = cfg.BOARS_PER_DRIVE - 1
+			late.soundersReleased = 1 -- deliberately LOW, so the ordinal clause cannot be what answers
+			late.deerReleased = false
+			expect(Phase.deerRelease(late, 1, cfg)).to.equal(true)
+			-- ...and a drive that has already had one never asks again.
+			local spent = table.clone(late) :: any
+			spent.deerReleased = true
+			expect(Phase.deerRelease(spent, 1, cfg)).to.equal(false)
+			-- ...and a drive with no budget at all asks for nothing rather than erroring.
+			local empty = table.clone(late) :: any
+			expect(Phase.deerRelease(empty, 1, config({ BOARS_PER_DRIVE = 0 }))).to.equal(false)
+		end)
+
+		it("hands the deer BACK when the owner could not perform the release", function()
+			-- A refused release must not spend the drive's one deer, or a refusal at the wrong
+			-- moment would be a drive with no deer in it -- the whole defect this exists for. The
+			-- sounder count and the boar budget already go back whole; this goes with them.
+			local cfg = liveConfig(true)
+			local state = ready(cfg)
+			local after = table.clone(state) :: any
+			after.soundersReleased = 1
+			after.boarsReleased = 2
+			after.deerReleased = true
+			local back = Phase.releaseFailed(after, 100, 2, true)
+			expect(back.deerReleased).to.equal(false)
+			expect(back.soundersReleased).to.equal(0)
+			expect(back.boarsReleased).to.equal(0)
+			-- ...and a release that was NOT the deer leaves the latch alone, which is what every
+			-- call before task 234 meant.
+			expect(Phase.releaseFailed(after, 100, 2).deerReleased).to.equal(true)
+			expect(Phase.releaseFailed(after, 100, 2, false).deerReleased).to.equal(true)
+		end)
+
+		it("resets the latch with the rest of the drive, so the NEXT drive gets its own deer", function()
+			-- The one failure mode a latch has: a drive that forgets to clear it would be every
+			-- later drive on that server running with no guarantee at all.
+			local cfg = liveConfig(true)
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "Karen" }, 0, cfg))
+			local marked = table.clone(state) :: any
+			marked.deerReleased = true
+			local _, effects = Phase.step(marked, { kind = "tick" }, cfg.INTERMISSION_SECONDS * 3, cfg)
+			expect(#effects >= 0).to.equal(true)
+			-- `enterAssigning` is what resets it, and it is reached by the drive ENDING. Driven
+			-- through the public step rather than called directly: a reset that only a spec can
+			-- reach is not a reset.
+			local ended = marked
+			local now = 0
+			for _ = 1, 400 do
+				now += cfg.DRIVE_SECONDS / 8
+				ended = (Phase.step(ended, { kind = "tick", aliveBoars = 0 }, now, cfg))
+				if ended.phase == "Assigning" and ended.driveNumber >= 2 then
+					break
+				end
+			end
+			expect(ended.driveNumber >= 2).to.equal(true)
+			expect(ended.deerReleased).to.equal(false)
+			expect(ended.boarsReleased).to.equal(0)
+		end)
 	end)
 	---------------------------------------------------------------- the forest's drive (task 157)
 

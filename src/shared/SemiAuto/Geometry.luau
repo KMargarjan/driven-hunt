@@ -139,20 +139,108 @@ Geometry.MESH_KEYS = table.freeze({
 	Optic = "semiauto.sight",
 })
 
--- THE RED DOT'S OWN PLANE, measured on the sight's optical path: its rear glass centres at
--- (x -0.0032, y +0.2318, z +0.5894) and its front glass at (x -0.0033, y +0.2400, z +0.3776), so
--- the dot sits at the MIDDLE of the tube, which is where a reflex sight's dot appears to a shooter
--- looking through it. 0.1159 studs above the bore line.
+-- ---------------------------------------------------------------- THE RED-DOT SIGHT (task 234)
 --
--- IT IS DRAWN AT x = 0 rather than at the glass's measured -0.0032, because the shot leaves at
--- x = 0 (`SemiAuto.CONFIG.MUZZLE_OFFSET`) and a sight that disagrees with the bore is a sight that
--- lies. That 0.8 mm is the MESH sitting off-centre in the Handle, not an aiming error -- the rule
--- `Gun.beadOffset` and `Rifle.Geometry.beadOffset` already state.
-local DOT_Y = 0.2359
+-- KAREN, 2026-10-21, with a screenshot of the aimed gun: *"this aiming is not coirrect for semiauto
+-- / you know this type of aiming you look from that galss and there is a dot inside right ?"* and
+-- *"when we aim we need to see tru that and see that view not the dot"*. What she had was task
+-- 227's stopgap: the bought one-piece optic FADED OUT of the sight line (its glass is an opaque
+-- amber face that cannot be split out of the mesh in this repo), leaving a bare red ball over the
+-- receiver and nothing to look through. 227b queued the real fix; this is it.
+--
+-- SO THE SIGHT IS DRAWN, AND THE BOUGHT MESH IS NOT WORN BY THE VIEWMODEL (`Optic`'s
+-- `skipFor = "reddot"` below). It still dresses the WORLD gun through `ASSET_KEYS` -- what another
+-- player sees at thirty studs is the artist's sight, unchanged -- but the man looking THROUGH it
+-- gets a hood, a lens and a dot, because an opaque amber face between his eye and the wood is not
+-- a sight picture at any transparency.
+--
+-- Note:   docs/research/2026-10-21-red-dot-sight.md (sections 4 and 5: every number below, and the
+--         two parallax-free reticle implementations that were read and REFUSED -- the eye is LAID
+--         on this axis by `Mode.aimOffset`, measured, so there is no parallax to cancel)
+-- Design: docs/design/semiauto-shotgun.md (section 5.3)
+
+-- THE SIGHT LINE: where the eye is laid, where the dot is drawn, and where the hood is centred.
+-- ONE pair of numbers for all three, which is `Gun.beadOffset`'s own rule -- the point the eye is
+-- laid on and the thing the eye SEES must come from one expression.
+--
+-- `SIGHT_Y` IS 0.085 ABOVE THE RECEIVER'S TOP FACE (the action's measured +0.2130), AND THAT
+-- CLEARANCE IS THE WHOLE REASON THE SIGHT HAS A MOUNT. With the eye brought to the glass it sits
+-- INSIDE the receiver's z span, and Roblox clips at `NearPlaneZ = 0.1`: at the bottom edge of the
+-- frame (25 degrees below the axis at FOV 50) the receiver's top is 0.085/tan(25 deg) = 0.182 studs
+-- away, outside the clip, so there is no hole in the gun. Laid straight on the rail there would be.
+-- MEASURED, not assumed: research note section 6.
+--
+-- It was +0.2359 until this task -- the bought mesh's own measured glass centre -- and that number
+-- is kept in the note and in `backups/2026-10-21_task-234_semiauto-optic-fade.md` (rule 7).
+--
+-- x IS 0 rather than the glass's measured -0.0032, because the shot leaves at x = 0
+-- (`SemiAuto.CONFIG.MUZZLE_OFFSET`) and a sight that disagrees with the bore is a sight that lies.
+local SIGHT_Y = 0.298
 local DOT_Z = 0.4835
--- 3 mm. A real red dot's is 2-4 MOA, which at any range a hunter shoots is a dot and not a disc;
--- what this number has to be is "small enough to aim with and big enough to find".
-local DOT_DIAMETER = 0.012
+
+-- THE DOT, AND IT IS SMALLER THAN IT WAS ON PURPOSE. 0.006 studs is 1.7 mm at this repo's own
+-- 0.28 m/stud, which at the shipped eye relief subtends about ONE DEGREE. The Director's rule:
+-- *"sized so it reads at 1280x720 without hiding a deer at 50 m"* -- a stag is 2.1 m tall and
+-- subtends 2.4 degrees at 50 m, so a one-degree dot covers a third of him and never hides him.
+-- A real sight's 2 MOA is 0.033 degrees and would be half a pixel; 3 mm (this number until task
+-- 234) was 2 degrees and would have covered most of that stag.
+--
+-- `semiauto.spec` asserts the ANGLE, at the shipped relief, bounded at both ends -- so neither this
+-- number nor the relief can quietly destroy the sight picture.
+local DOT_DIAMETER = 0.006
+
+-- THE HOOD: an OPEN reflex sight's supporting loop, and `open` rather than a tube is arithmetic
+-- rather than taste (research note 4(a)). Looking into a TUBE from behind, the clear view is the
+-- FRONT aperture: a real Micro T-2 (18 mm aperture, 68.6 mm body) at a cheek weld gives a window of
+-- 7.4 degrees, against the 36-46 % of frame width Karen's two reference photographs show. An open
+-- hood has no tunnel, so its clear view IS its aperture.
+--
+-- THE TWO RADII WERE TUNED AGAINST KAREN'S OWN REFERENCE, MEASURED IN PIXELS ON BOTH SIDES
+-- (`<runs-dir>/234-ring.py`, which reads a capture and prints the window and the rim as a
+-- percentage of the frame width and in degrees):
+--
+--                        clear window        outer rim
+--   reddot-ref-1.png       31 %                38 %
+--   reddot-ref-2.png       37 %                46 %
+--   first try (0.0554 / wall 0.0183)   25.8 %  39.2 %   <- rim right, window too small
+--   SHIPPED (0.0617 / wall 0.0120)     32.4 %  39.2 %   <- ref-1, within a point
+--
+-- So the OUTER radius is what the first try got right and it did not move; the WALL came down from
+-- 5.1 mm to 3.4 mm, which is also what a real hood is. At this repo's 0.28 m/stud the sight is a
+-- 41 mm hood over a 35 mm window -- a large-window reflex (a Holosun 510C's is 42 x 27 mm), not a
+-- 20 mm Micro, and section 4(a) of the note is why: a Micro's aperture cannot fill a third of the
+-- frame at any eye relief a man can hold.
+local HOOD_INNER_RADIUS = 0.0617
+local HOOD_WALL = 0.012
+local HOOD_DEPTH = 0.05
+-- 24 SEGMENTS, because Roblox has no hollow primitive and no built-in torus, and a ring Decal would
+-- need an upload nobody has approved.
+--
+-- 16 WAS TRIED FIRST AND LOOKED LIKE A 16-GON (`.screenshots/234-a3-aim.png`), which is the sort of
+-- thing arithmetic said would be invisible and a frame said was not: the sagitta at 16 is
+-- R*(1-cos(11.25 deg)) = 0.0012 studs, 0.2 degrees, about 3 px of a 278 px window -- and 3 px of
+-- straight edge repeated sixteen times around a circle reads as a nut, not a hood. At 24 it is
+-- R*(1-cos(7.5 deg)) = 0.00053 studs, 0.086 degrees, about one pixel. Rule 5: the screen decided.
+local HOOD_SEGMENTS = 24
+-- THE LENS, 0.012 studs (3 mm) in front of the eye's side of the dot, so the player looks THROUGH
+-- it at a dot sitting inside the hood behind it. Lightly tinted, which is Karen's own word
+-- (*"verry similar just red light red and then dot acordingly to be visble"*) and her ref-1's
+-- blue-green cast; 0.86 is "clear glass with a tint", not a window you cannot see through.
+local GLASS_THICKNESS = 0.004
+local GLASS_AT_Z = 0.012 -- toward the EYE (+Z is backward in this frame)
+-- 0.87 AND A COOL TINT, WHICH IS THE THIRD VALUE TRIED AND THE FIRST ONE THAT IS GLASS. 0.86 over
+-- RGB(196,222,216) laid milk over the whole picture; 0.90 over RGB(168,200,194) could not be seen
+-- at all, which is a lens the player has no reason to believe is there. Karen asked to see the
+-- view THROUGH it, not past it.
+local GLASS_TRANSPARENCY = 0.87
+local GLASS_TINT = Color3.fromRGB(150, 196, 188)
+-- THE MOUNT, from the receiver's top face up to the hood's underside: the 0.085 of section 6, as a
+-- part. It sinks 0.010 into the rail so there is no hairline of daylight under a sight that is
+-- bolted down.
+local MOUNT_WIDTH = 0.048
+local MOUNT_LENGTH = 0.09
+local RAIL_TOP_Y = 0.213
+local MOUNT_SINK = 0.01
 
 -- THE LIFTER'S PIVOT: the centroid of the tray's REAR-most 8 % in z that also lies in its upper
 -- half -- the material around the pin and nothing else (26 vertices). The tray turns about this
@@ -236,9 +324,21 @@ function Geometry.layout(config)
 		muzzleZ = -total / 2,
 		meshCentreX = BORE_X * k,
 		meshCentreY = MESH_CENTRE_Y * k,
-		dotY = DOT_Y * k,
+		sightLineY = SIGHT_Y * k,
 		dotZ = DOT_Z * k,
 		dotDiameter = DOT_DIAMETER * k,
+		-- THE DRAWN SIGHT'S OWN BOX, scaled with everything else so a different `HANDLE_SIZE.Z`
+		-- moves the hood with the gun it is bolted to.
+		hoodInnerRadius = HOOD_INNER_RADIUS * k,
+		hoodOuterRadius = (HOOD_INNER_RADIUS + HOOD_WALL) * k,
+		hoodWall = HOOD_WALL * k,
+		hoodDepth = HOOD_DEPTH * k,
+		glassThickness = GLASS_THICKNESS * k,
+		glassAtZ = GLASS_AT_Z * k,
+		railTopY = RAIL_TOP_Y * k,
+		mountWidth = MOUNT_WIDTH * k,
+		mountLength = MOUNT_LENGTH * k,
+		mountSink = MOUNT_SINK * k,
 		boltTravelMax = Geometry.BOLT_TRAVEL_MAX * k,
 		action = { size = Vector3.new(actionW, actionH, actionL), at = Vector3.new(actionX, actionY, actionZ) },
 		barrel = { size = Vector3.new(barrelW, barrelH, barrelL), at = Vector3.new(barrelX, barrelY, barrelZ) },
@@ -272,7 +372,7 @@ end
 -- compares two copies. `Geometry.pieces` draws the dot here and `Geometry.sight` aims through here.
 function Geometry.beadOffset(config): Vector3
 	local at = Geometry.layout(config)
-	return Vector3.new(0, at.dotY, at.dotZ)
+	return Vector3.new(0, at.sightLineY, at.dotZ)
 end
 
 -- WHERE THE EYE IS LAID. Identity rotation: (0, 0, -1) is already the muzzle direction in this frame
@@ -424,21 +524,32 @@ end
 
 -- Every piece of the first-person semi-automatic shotgun, in build order. Pure.
 --
--- SIX MESHES AND ONE DRAWN PIECE. The six are the model's own groups; the one drawn is the DOT, and
--- it is drawn for a reason that is a fact about Roblox rather than a preference: `SurfaceAppearance`
--- has four channels -- ColorMap, NormalMap, MetalnessMap, RoughnessMap -- and NO emission, so the
--- artist's `M_Sight01_Emissive.png` renders as nothing at all. A red dot that is not emissive is not
--- a red dot.
+-- FIVE MESHES AND A DRAWN RED-DOT SIGHT (task 234). The five are the model's own groups minus its
+-- optic; the drawn sight is a MOUNT, a hood of `HOOD_SEGMENTS` segments, a LENS and the DOT.
 --
--- `onlyFor = "reddot"` IS TASK 143'S FILTER, kept on purpose when task 148 retired the row that
--- first used it (`backups/2026-10-10-rifle-open-sights.md`). A future row on this same geometry with
--- iron sights would drop the dot and change nothing else.
+-- WHY THE OPTIC IS DRAWN AND NOT WORN. Two facts about Roblox, neither of them a preference.
+-- First, `SurfaceAppearance` has four channels -- ColorMap, NormalMap, MetalnessMap, RoughnessMap --
+-- and NO emission, so the artist's `M_Sight01_Emissive.png` renders as nothing at all: a red dot
+-- that is not emissive is not a red dot, and that is why the DOT was already drawn before this task.
+-- Second, the upload is ONE MeshPart whose glass is a solid amber face and a mesh cannot be split in
+-- this repo, so there is no way to make that face transparent without making the whole housing
+-- transparent -- which is exactly what task 227 did, and what left Karen a bare ball floating over
+-- the receiver. The housing is therefore drawn too, and the bought mesh dresses the WORLD gun alone.
+--
+-- `onlyFor` / `skipFor` ARE TASK 143'S FILTER, and the whole sight now rides them: every drawn piece
+-- is `onlyFor = "reddot"` and the bought `Optic` is `skipFor = "reddot"`, so a future row on this
+-- same geometry with iron sights gets the artist's housing back and loses the hood, the lens and the
+-- dot, in one list, with nothing else changed.
 function Geometry.pieces(config): { Piece }
 	local at = Geometry.layout(config)
 	local meshAt = CFrame.new(at.meshCentreX, at.meshCentreY, 0)
 		* CFrame.Angles(0, math.rad(Geometry.MESH_ROTATION_DEG), 0)
 	local look = (config and config.LOOK) or SemiAuto.CONFIG.LOOK
 	local sight = Geometry.sightKind(config)
+	-- `or look.sight` IS A FALLBACK AND NOT A SECOND OPINION: a caller may pass a `LOOK` table
+	-- written before task 234 added the hood's own key (`ShapeSemiAuto` builds one inline), and a nil
+	-- `Color3` is an error at the drawer rather than a wrong colour. The shipped row carries both.
+	local hoodColor = look.hood or look.sight
 	local all: { Piece } = {
 		{
 			name = "Stock",
@@ -490,19 +601,66 @@ function Geometry.pieces(config): { Piece }
 			color = look.sight,
 			material = STEEL_MATERIAL,
 			shape = Enum.PartType.Block,
-			-- IT GETS OUT OF THE SIGHT LINE AS THE EYE ARRIVES (task 227). See `Gun.Piece`'s
-			-- `clearFromBlend` for the measurement and the reason: this upload's glass is an opaque
-			-- amber face, so with the housing drawn there is no sight picture at all -- the screen
-			-- centre is black and the dot inside it is never seen. 0.6 is where `Mode.ease` has the
-			-- raise most of the way up, so the housing is solid for the carry, through the swing and
-			-- in third person, and only the last of the raise takes it out of the way.
+			-- THE VIEWMODEL DOES NOT WEAR IT ON THE RED-DOT ROW (task 234), and that is the whole
+			-- shape of this fix. This upload's glass is an opaque amber face and cannot be split out
+			-- of the mesh in this repo, so between the eye and the wood it is a wall at any
+			-- transparency; task 227 FADED it (`clearFromBlend` below) and left the player a bare
+			-- ball floating over the receiver, which is the defect Karen reported
+			-- (`.screenshots/234-before-semiauto-aim.png`). The drawn hood, lens and dot below take
+			-- its place. `ASSET_KEYS` still carries `semiauto.sight`, so the WORLD gun -- what
+			-- another player sees at thirty studs -- wears the artist's sight exactly as before.
+			skipFor = "reddot",
+			-- ...AND THE FADE STAYS ON IT FOR ANY ROW THAT IS NOT THE RED DOT. See `Gun.Piece`'s
+			-- `clearFromBlend`: 0.6 is where `Mode.ease` has the raise most of the way up, so the
+			-- housing is solid for the carry, through the swing and in third person, and only the
+			-- last of the raise takes it out of the way. No shipped row takes this branch today --
+			-- the same standing `onlyFor` has had since task 148 -- and it is kept for the reason
+			-- the research note's section 7 gives.
 			clearFromBlend = 0.6,
+		},
+		{
+			-- THE MOUNT: from the receiver's top face up to the hood's underside, which is the
+			-- 0.085 studs of clearance the near plane needs (see `SIGHT_Y`). It sinks `MOUNT_SINK`
+			-- into the rail so a bolted-down sight has no hairline of daylight under it.
+			name = "SightMount",
+			group = "body" :: Gun.Group,
+			onlyFor = "reddot",
+			size = Vector3.new(
+				at.mountWidth,
+				(at.sightLineY - at.hoodOuterRadius) - (at.railTopY - at.mountSink),
+				at.mountLength
+			),
+			offset = CFrame.new(0, ((at.sightLineY - at.hoodOuterRadius) + (at.railTopY - at.mountSink)) / 2, at.dotZ),
+			color = hoodColor,
+			material = STEEL_MATERIAL,
+			shape = Enum.PartType.Block,
+		},
+		{
+			-- THE LENS. Clear, lightly tinted, and the one piece in this gun that is MEANT to be
+			-- looked through -- the same job the Rigby's scope glass has and the same answer
+			-- (`transparency`, which `Camera.Viewmodel.buildNewGun` writes onto the drawn part).
+			name = "SightGlass",
+			group = "body" :: Gun.Group,
+			onlyFor = "reddot",
+			-- A Cylinder's length runs along its OWN X, so it is laid onto the sight axis -- the
+			-- same quarter turn `Weapon.ShapeSemiAuto` gives the barrel.
+			size = Vector3.new(at.glassThickness, at.hoodInnerRadius * 2, at.hoodInnerRadius * 2),
+			offset = CFrame.new(0, at.sightLineY, at.dotZ + at.glassAtZ) * CFrame.Angles(0, math.pi / 2, 0),
+			color = GLASS_TINT,
+			-- `SmoothPlastic` AND NOT `Glass`, which is the Rigby's scope glass's own choice and
+			-- for the same reason `STEEL_MATERIAL` is not `Metal` on this gun: Roblox's `Glass`
+			-- reflects the sky and goes near-opaque at a glancing angle, which is the one thing a
+			-- sight the player looks THROUGH must never do.
+			material = STEEL_MATERIAL,
+			shape = Enum.PartType.Cylinder,
+			transparency = GLASS_TRANSPARENCY,
 		},
 		{
 			-- THE DOT. Lit all the time, which is what a red dot is -- and `Neon` is a MATERIAL that
 			-- renders bright, not a light source (Roblox emits light only from `PointLight` /
 			-- `SpotLight` / `SurfaceLight` instances), so an always-on dot costs the scene nothing.
-			-- If Karen looks and wants it off the hip it is a transparency write at one owner.
+			-- It sits INSIDE the hood, behind the lens, on the axis the eye is laid on -- which is
+			-- `Geometry.beadOffset` and not a second copy of it.
 			name = "Dot",
 			group = "body" :: Gun.Group,
 			onlyFor = "reddot",
@@ -539,6 +697,37 @@ function Geometry.pieces(config): { Piece }
 			shape = Enum.PartType.Block,
 		},
 	}
+	-- THE HOOD, AS A RING OF STRAIGHT SEGMENTS. Roblox has no hollow primitive and no torus, so an
+	-- annulus is N boxes on a circle; `HOOD_SEGMENTS` carries the measurement that says 16 is round
+	-- enough. Each box is `chord` across the tangent, `hoodWall` deep in the radius and `hoodDepth`
+	-- along the sight axis.
+	--
+	-- THE CHORD CIRCUMSCRIBES THE **OUTER** RADIUS -- 2*rOuter*tan(pi/N) -- AND THE FIRST TRY USED
+	-- THE MIDDLE ONE, WHICH IS A DIFFERENCE YOU CAN SEE. At the seam between two neighbours the
+	-- outermost covered point is at tangential offset `rOuter*sin(pi/N)`, so a chord sized on the
+	-- MIDDLE radius leaves 2.7 degrees of daylight at every one of the sixteen joints: the frame
+	-- came back a cog wheel (`.screenshots/234-a2-aim.png`). Sized on the outer radius the
+	-- neighbours touch exactly there and overlap everywhere inside it, and the only cost is that the
+	-- outer corners stand 1.9 % proud of the circle.
+	--
+	-- BUILT IN THE LOOP AND NOT TYPED OUT, because sixteen hand-written offsets are sixteen chances
+	-- to get one wrong and nothing in a frame would show which.
+	local hoodMid = (at.hoodInnerRadius + at.hoodOuterRadius) / 2
+	local hoodChord = 2 * at.hoodOuterRadius * math.tan(math.pi / HOOD_SEGMENTS)
+	for index = 1, HOOD_SEGMENTS do
+		local angle = (index - 1) * (2 * math.pi / HOOD_SEGMENTS)
+		table.insert(all, {
+			name = string.format("SightHood%d", index),
+			group = "body" :: Gun.Group,
+			onlyFor = "reddot",
+			size = Vector3.new(hoodChord, at.hoodWall, at.hoodDepth),
+			offset = CFrame.new(0, at.sightLineY, at.dotZ) * CFrame.Angles(0, 0, angle) * CFrame.new(0, hoodMid, 0),
+			color = hoodColor,
+			material = STEEL_MATERIAL,
+			shape = Enum.PartType.Block,
+		})
+	end
+
 	-- ONE LIST, FILTERED BY THE ROW'S SIGHT (task 143): `onlyFor` keeps a piece just for that sight
 	-- and `skipFor` drops one for it, so one geometry can draw this gun with the dot or without it.
 	local kept: { Piece } = {}
@@ -554,14 +743,17 @@ end
 
 -- WHAT `buildNewGun` ACTUALLY PARENTS UNDER THE CLONE, gloves excluded: every piece, plus the
 -- Handle, plus one invisible envelope per moving group. The other three guns have ONE moving group
--- and answer `#pieces + 2`; this gun has two, so it answers `+3` -- 7 + 3 = 10 at the shipped
--- sight, and 12 with the two gloves.
+-- and answer `#pieces + 2`; this gun has two, so it answers `+3`.
 --
--- THE DESIGN'S SECTION 14 SAYS 9 AND THAT IS AN ARITHMETIC SLIP IN THE DESIGN, not a different
--- convention: the same row writes the drawn total as "Handle + 2 envelopes + 7 pieces + 2 gloves =
--- 12", and 12 minus the 2 gloves is 10. `semiauto.spec` asserts this against the pieces the
--- geometry actually builds rather than against either number, so it cannot be satisfied by agreeing
--- with a document.
+-- AT THE SHIPPED SIGHT THAT IS NOW 5 meshes + mount + lens + dot + `HOOD_SEGMENTS` = 24 pieces,
+-- 27 parts, 29 with the two gloves. It was 7 + 3 = 10 before task 234 drew the sight, and the
+-- DESIGN'S SECTION 14 SAYS 9, which was an arithmetic slip in the design even then (its own row
+-- writes "Handle + 2 envelopes + 7 pieces + 2 gloves = 12", and 12 minus the 2 gloves is 10).
+-- `semiauto.spec` asserts this against the pieces the geometry actually builds rather than against
+-- any number in a document, so it cannot be satisfied by agreeing with one.
+--
+-- SIXTEEN SEGMENTS IS NOT A COST WORTH MINDING: this is built ONCE per gun change, not per frame,
+-- and the drawn ring is still fewer parts than one of the meshes it replaces has triangles.
 function Geometry.partCount(config): number
 	return #Geometry.pieces(config) + 3
 end

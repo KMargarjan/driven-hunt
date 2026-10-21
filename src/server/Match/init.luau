@@ -357,24 +357,30 @@ Match.CONFIG = {
 	--
 	-- WHAT IS STILL NOT IN THE CODE: the shot is not REFUSED. A refusal is a weapon-side rule with
 	-- its own owner and its own task (TASKS.md row 158a); the price is this one.
-	-- `legendary` IS DELIBERATELY NOT IN THIS LIST (task 219), AND IT IS THE START CARD'S CEILING
-	-- THAT SAYS SO. This table is read by `Match.quarryRows` and by nothing else, and what it feeds
-	-- is the start card -- whose `Drive.CONFIG.START_CARD_ROWS_MAX` is **4**, with the Designer's own
-	-- reason on it: *"ONE IDEA PER LINE, AND FOUR LINES IS THE CEILING for a three-second read ...
-	-- which is why there is no fifth row and no second layout"*. Those four are male, female, piglet
-	-- and the PERSON row the Designer added (*"a tie to a tree is a real rule the card never
-	-- mentioned"*), on a card whose height is a fixed number. A fourth quarry kind would silently
-	-- push the person row off the card, which is a worse trade than not announcing the trophy.
+	-- THE RED DEER IS ON THE CARD SINCE TASK 234, and the row NAMES THE SPECIES KEY rather than the
+	-- printed words. Karen, 2026-10-21, having played: *"I didnt see deer red tag why ?"* / *"I want
+	-- to see a deer"*. The deer have been licensed quarry since task 223 -- `POINTS.KIND` has
+	-- carried `stag 20, hind 6, calf -10` since that day and `Licences.ROWS.reddeer` has said
+	-- `licence = true` since task 171 -- and the one screen that answers *"what may I shoot"* has
+	-- never mentioned them.
 	--
-	-- SO THE TROPHY IS NAMED WHERE THERE IS ROOM FOR IT: `LEGENDARY BOAR` on the hit card's plate,
-	-- `LEGENDARY` in the TAB report's ANIMAL column, its own count on that report's wire, and 25
-	-- points. Announcing it on the start card needs a fifth row or a merged one, which is the
-	-- Designer's call and is queued, not smuggled in.
+	-- `species = "boar"` AND NOT `"WILD BOAR"`: the KEY, which `Match.quarryRows` turns into the
+	-- label through `Licences.ROWS`, so the words a player reads and the rule the weapon enforces
+	-- come from one row. A literal still passes through unchanged (`quarryRows` falls back to what
+	-- it was given), which is why every spec that hands this function its own table still reads the
+	-- same.
+	--
+	-- `legendary` IS STILL DELIBERATELY NOT IN THIS LIST (task 219): it is one of the MALES grown
+	-- old, not a fourth animal, and `Report.kindWord` names it where there is room -- the hit card's
+	-- plate, the TAB report's ANIMAL column. Task 219's reason was the start card's four-row
+	-- ceiling; task 234 raised that ceiling to eight for the deer, and the trophy's reason did not
+	-- change with it.
 	--
 	-- NOTHING ELSE READS THIS: a legendary is still a WILD BOAR to `Licences` and to
 	-- `Match.classifyTarget`, which learn the species from the animal and never from here.
 	QUARRY = {
-		{ species = "WILD BOAR", kinds = { "male", "female", "cub" } },
+		{ species = "boar", kinds = { "male", "female", "cub" } },
+		{ species = "reddeer", kinds = { "stag", "hind", "calf" } },
 	},
 	PLACE_TIMEOUT = 5,
 	STAND_HEIGHT_STUDS = 3.5, -- how far above a post's top face a character is put down
@@ -664,12 +670,29 @@ Match.WORLD_OVERRIDABLE = table.freeze({
 -- is sent with `points = nil` rather than with a wrong number, and the card then draws the row with
 -- no value cell -- the same discipline as the old label's *"THE WORD ONLY WHEN THERE IS A NUMBER
 -- UNDER IT"*.
-function Match.quarryRows(cfg): { { species: string, kind: string, points: number? } }
+-- ...AND SINCE TASK 234 EACH ROW ALSO CARRIES WHETHER SHOOTING IT NEEDS A LICENCE, off
+-- `Licences.ROWS` and no second copy of it. The card has to say *"NEEDS LICENCE"* over the deer and
+-- the client must not be the thing that knows which species those are: a second copy of *"a red
+-- deer needs a licence"* living on the client is exactly the two-correct-pieces-of-code failure
+-- `Licences`' own header refuses.
+--
+-- `species` ON THE WIRE IS STILL THE PRINTED LABEL -- `WILD BOAR`, `RED DEER` -- and `QUARRY`'s is
+-- now the KEY, so this is where one becomes the other. A `QUARRY` row whose species is not a
+-- licence key passes through UNCHANGED and carries `licence = false`, which is what makes every
+-- spec that hands this function a literal `"WILD BOAR"` read exactly as it did.
+function Match.quarryRows(cfg): { { species: string, kind: string, points: number?, licence: boolean } }
 	local rows = {}
 	local prices = (cfg.POINTS or {}).KIND or {}
 	for _, row in ipairs(cfg.QUARRY or {}) do
+		local licence = Licences.row(row.species)
+		local label = if licence ~= nil then licence.label else row.species
 		for _, kind in ipairs(row.kinds) do
-			table.insert(rows, { species = row.species, kind = kind, points = prices[kind] })
+			table.insert(rows, {
+				species = label,
+				kind = kind,
+				points = prices[kind],
+				licence = Licences.required(row.species),
+			})
 		end
 	end
 	return rows
@@ -1413,7 +1436,7 @@ local function applyRefreshArming(userIds: { number }?)
 	end
 end
 
-local function applySpawnSounder(position: Vector3?, size: number?, quickSpread: number?)
+local function applySpawnSounder(position: Vector3?, size: number?, quickSpread: number?, deer: boolean?)
 	if not (world and world.boars) then
 		return
 	end
@@ -1432,7 +1455,11 @@ local function applySpawnSounder(position: Vector3?, size: number?, quickSpread:
 	local spread = quickSpread or (markerSet and markerSet.spawnRadius)
 	local ok, handles = pcall(function()
 		if world.boars.spawnSounder then
-			return world.boars:spawnSounder(position, animals, spread)
+			-- THE FIFTH ARGUMENT IS THE DRIVE'S ONE DEER (task 234): the schedule says THIS release
+			-- is it, and the runtime still draws WHICH deer. `nil` on every other release is
+			-- exactly the call this owner made before, so a world whose runtime predates the
+			-- argument is unaffected.
+			return world.boars:spawnSounder(position, animals, spread, nil, deer)
 		end
 		-- A world without the sounder interface (an older spec's fake) still gets its one boar.
 		return { world.boars:spawn(position) }
@@ -1446,7 +1473,10 @@ local function applySpawnSounder(position: Vector3?, size: number?, quickSpread:
 		stats.boarsReleased += #handles
 	else
 		stats.releasesDeferred += 1
-		state = Phase.releaseFailed(state, now(), animals)
+		-- ...AND THE DEER GOES BACK WITH IT. A refused release must not spend the drive's one
+		-- guaranteed deer group (task 234), or the guarantee would be undone by exactly the case
+		-- `releaseFailed` exists for.
+		state = Phase.releaseFailed(state, now(), animals, deer)
 		snapshotCache = nil
 	end
 end
@@ -1697,7 +1727,7 @@ local function applyEffects(effects)
 		elseif kind == "refreshArming" then
 			applyRefreshArming(effect.userIds)
 		elseif kind == "spawnSounder" then
-			applySpawnSounder(effect.position, effect.size, effect.spread)
+			applySpawnSounder(effect.position, effect.size, effect.spread, effect.deer)
 		elseif kind == "clearBoars" then
 			applyClearBoars()
 		elseif kind == "freeze" then

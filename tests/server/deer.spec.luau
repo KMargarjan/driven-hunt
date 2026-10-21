@@ -448,6 +448,81 @@ return function()
 				expect(Boar.deerComposition(0, 0, configWith(false))).to.equal(nil)
 			end)
 
+			-- ------------------------------------------------ THE DRIVE ASKS FOR ONE (task 234)
+			it("GIVES A GROUP WHATEVER THE ROLL when the drive asks, and still picks WHICH", function()
+				-- Karen, 2026-10-21: *"we need all a time in drive deer"*. `CHANCE_PER_RELEASE` is
+				-- 0.2 and 0.8^6 = 26 % of drives carried none; the schedule now names one release.
+				--
+				-- THE ASK SKIPS THE CHANCE AND NOTHING ELSE: `pick` still chooses the group by the
+				-- same weighted walk, so WHICH deer come is still this function's own decision and
+				-- `Match.Phase` never learns the vocabulary.
+				local config = configWith(true)
+				expect(Boar.deerComposition(1.0, 0, config)).to.equal(nil) -- the roll that refuses
+				local asked = Boar.deerComposition(1.0, 0, config, true)
+				expect(asked).to.be.ok()
+				expect(asked.stag).to.equal(1)
+				expect(Boar.deerComposition(1.0, 0.5, config, true).hind).to.equal(1)
+				expect(Boar.deerComposition(1.0, 0.9, config, true).hind).to.equal(2)
+				-- ...AND IT CANNOT CONJURE AN ANIMAL THAT DOES NOT EXIST. With `BOAR_MODEL` off
+				-- there are no deer kinds, and an ask is refused exactly as a roll is -- which is
+				-- what keeps the schedule's half of this feature free of the flag.
+				expect(Boar.deerComposition(0, 0, configWith(false), true)).to.equal(nil)
+				-- ...and `false` is the behaviour every caller before task 234 had.
+				expect(Boar.deerComposition(1.0, 0, config, false)).to.equal(nil)
+			end)
+
+			-- ------------------------------------------------ THEY WALK IN FILE (task 234)
+			it("MARCHES A DEER GROUP IN SINGLE FILE, declared rather than drawn", function()
+				-- Karen, 2026-10-21: *"we need all a time in drive deer and could be also lines and
+				-- how they behav"*, and "yes" to deer walking one after another in a row.
+				--
+				-- `"column"` IS THE FORMATION THIS GAME ALREADY HAD (task 118): a leader,
+				-- `Boar.marchOrder` behind him, slots at `(0, 0, (i-1) * COLUMN_SPACING_STUDS)`.
+				-- Nothing here is a second movement writer -- the group simply declares what a
+				-- boar sounder draws.
+				local config = configWith(true)
+				expect(config.SPECIES.reddeer.RELEASE.FORMATION).to.equal("column")
+				for _, shape in ipairs(config.SPECIES.reddeer.RELEASE.COMPOSITIONS) do
+					expect(Boar.compositionFormation(shape, config)).to.equal("column")
+				end
+				-- A BOAR COMPOSITION HAS NO OPINION, so a boar sounder still draws between the
+				-- wedge and the column at `COLUMN_CHANCE` -- unchanged, which is the whole of
+				-- "no boar behaviour moved".
+				expect(Boar.compositionFormation({ females = 2, cubs = 3 }, config)).to.equal(nil)
+				expect(Boar.compositionFormation({ males = 1 }, config)).to.equal(nil)
+				-- ...AND A MIXED GROUP HAS NO ONE ANSWER, so it gets none rather than one of them.
+				expect(Boar.compositionFormation({ stag = 1, male = 1 }, config)).to.equal(nil)
+				-- `weight` IS NOT AN ANIMAL: a `COMPOSITIONS` row carries its draw weight beside
+				-- its counts, and reading it as a kind would answer nil for every real row.
+				expect(Boar.compositionFormation({ weight = 40, stag = 1 }, config)).to.equal("column")
+				-- With `BOAR_MODEL` off there are no kinds, so nothing declares anything.
+				expect(Boar.compositionFormation({ stag = 1 }, configWith(false))).to.equal(nil)
+				expect(Boar.compositionFormation(nil, config)).to.equal(nil)
+			end)
+
+			it("SPACES THE FILE wider than the longest deer in it", function()
+				-- The Director asked for "each follower on the leader's trail at a MEASURED
+				-- spacing". The three deer were measured at the prep (`KINDS`), and this is the
+				-- check that says 9 studs is the right gap for them rather than a number reused
+				-- from the boar because it was there. TO SEE IT FAIL: drop
+				-- `SOUNDER.COLUMN_SPACING_STUDS` to 6 -- a stag is 7.05 studs long and the file
+				-- becomes a stag standing inside the hind in front of him.
+				local config = configWith(true)
+				local gap = config.SOUNDER.COLUMN_SPACING_STUDS
+				local longest, which = 0, ""
+				for _, kind in ipairs({ "stag", "hind", "calf" }) do
+					local length = Boar.kindGeometry(kind, Boar.kindConfig(kind, config)).bodySize.Z
+					if length > longest then
+						longest, which = length, kind
+					end
+				end
+				TestKit.note(
+					string.format("task234 deer file: %.2f stud slots, longest deer %s at %.2f", gap, which, longest)
+				)
+				expect(longest > 0).to.equal(true)
+				expect(gap > longest).to.equal(true)
+			end)
+
 			it("refuses a second deer group while one is alive, and counts GROUPS", function()
 				local config = configWith(true)
 				expect(Boar.deerGroupsAllowed({}, config)).to.equal(true)

@@ -328,6 +328,10 @@ local startCardRowParts: { StartRowParts } = {}
 -- `Match.CONFIG.INTERMISSION_SECONDS` and the client is never told it, so the largest `secondsLeft`
 -- this card has seen IS the length, and the first frame is full by construction.
 local startCardFullSeconds = 0
+-- HOW MANY ROWS THE CARD IS DRAWING RIGHT NOW (task 234). Written by `Hud.renderStartCard` and read
+-- by `layoutStartCard`, which is the one writer of the card's size: the height follows the rows,
+-- and the two roles no longer draw the same number of them.
+local startCardRowCount = 0
 local started = false
 
 -- HOW WIDE THE SCREEN IS, ASKED ONCE AND IN ONE PLACE. Every size on this screen comes off the
@@ -381,10 +385,17 @@ local lastViewportX = 0
 -- WHY IT IS NOT CENTRED ON A PHONE (the spec's amendment 2): a 368-wide card centred on 400 px runs
 -- x 16..384, which buries the minimap (x 288..384) and sits under the rail that draws OVER it.
 -- 16..280 stops 8 px short of the map, so a hunter keeps the map he needs to find his stand.
+-- `chrome` IS THE CARD'S HEIGHT WITHOUT ITS ROWS (task 234), where this table carried a fixed
+-- `height` before. 178 and 155 are the Designer's own measured 274 and 239 less their four rows
+-- (4 x 24 and 4 x 21), so `Hud.startCardHeight(viewX, 4)` answers HIS numbers exactly -- and
+-- `hud_style.spec` asserts that against `Drive.CONFIG.START_CARD_HEIGHT` rather than against a
+-- comment. A fixed height stopped working when the hunter's card grew to eight rows for the deer
+-- and the beater's stayed at four: one number cannot be right for both, and the wrong half is
+-- either a card with 96 px of empty slate under it or one with its countdown cut off.
 Hud.START_CARD = {
 	{
 		width = 440,
-		height = 274,
+		chrome = 178,
 		pad = 14,
 		side = 16,
 		eyebrow = 12,
@@ -407,7 +418,7 @@ Hud.START_CARD = {
 	},
 	{
 		width = 264,
-		height = 239,
+		chrome = 155,
 		pad = 12,
 		side = 14,
 		eyebrow = 11,
@@ -432,6 +443,18 @@ Hud.START_CARD = {
 
 function Hud.startCardStep(viewX: number)
 	return if Style.isPhone(viewX) then Hud.START_CARD[2] else Hud.START_CARD[1]
+end
+
+-- HOW TALL THE CARD IS FOR THE ROWS IT IS DRAWING. PURE, so "a beater's card is the card he had"
+-- and "the hunter's eight rows fit" are both spec cases and neither needs a frame.
+--
+-- `rows` IS CLAMPED TO THE CEILING AND TO ZERO, because the renderer draws at most
+-- `START_CARD_ROWS_MAX` of them (it builds exactly that many and hides the rest) and a card is
+-- never shorter than its chrome.
+function Hud.startCardHeight(viewX: number, rows: number): number
+	local step = Hud.startCardStep(viewX)
+	local drawn = math.clamp(math.floor(rows or 0), 0, Drive.CONFIG.START_CARD_ROWS_MAX)
+	return step.chrome + drawn * step.rowH
 end
 
 -- THE CONTENT BOX'S WIDTH: the card less its own padding, which is what every cell inside is
@@ -461,7 +484,7 @@ local function layoutStartCard(viewX: number)
 		return
 	end
 	local step = Hud.startCardStep(viewX)
-	card.Size = UDim2.fromOffset(step.width, step.height)
+	card.Size = UDim2.fromOffset(step.width, Hud.startCardHeight(viewX, startCardRowCount))
 	if step.left ~= nil then
 		card.AnchorPoint = Vector2.new(0, 0)
 		card.Position = UDim2.fromOffset(step.left, step.top)
@@ -3161,12 +3184,29 @@ function Hud.startCardRows(snapshot, team: string?, phone: boolean?): { StartRow
 	end
 	-- THE HUNTER'S LIST IS THE WIRE'S, IN THE WIRE'S ORDER. A kind with no price is drawn with no
 	-- number rather than with a wrong one -- the retired `QUARRY_NOTE`'s own rule.
+	local species: string? = nil
 	for _, entry in ipairs((snapshot and snapshot.quarry) or {}) do
 		if #rows >= max then
 			break
 		end
 		local kind = tostring(entry.kind or "")
 		local points = entry.points
+		-- THE SPECIES HEAD, OVER A LICENSED SPECIES ONLY (task 234, and `Drive.CONFIG`'s
+		-- `START_CARD_SPECIES_GLYPH` carries the reason). It is the wire that says both the NAME
+		-- and whether a licence is needed, so this side decides nothing about the rule -- only
+		-- that a head is drawn when the species CHANGES, which is what stops a second `RED DEER`
+		-- appearing over the hind and the calf.
+		if entry.licence == true and entry.species ~= species then
+			table.insert(rows, {
+				glyph = Drive.CONFIG.START_CARD_SPECIES_GLYPH,
+				text = tostring(entry.species or ""),
+				tag = Drive.CONFIG.START_CARD_LICENCE_TAG,
+			})
+			if #rows >= max then
+				break
+			end
+		end
+		species = entry.species
 		local word = Drive.CONFIG.START_CARD_QUARRY_WORDS[kind]
 		if word == nil then
 			-- `Report.kindWord` IS THE ONE PLACE A DATA KIND BECOMES A NOUN, so even a kind this
@@ -3287,6 +3327,13 @@ function Hud.renderStartCard(snapshot, team: string?, secondsLeft: number?)
 		Style.ruleAfter(wordLabel, startCardSectionRule :: Frame, 9)
 	end
 	local rows = Hud.startCardRows(snapshot, team, Style.isPhone(viewX))
+	-- THE CARD IS AS TALL AS ITS ROWS (task 234), and the resize goes through `layoutStartCard`
+	-- because that is the one writer of this card's geometry -- not a `card.Size` written here
+	-- beside it. Only when the count CHANGES, so a card that is up for ten seconds is laid out once.
+	if #rows ~= startCardRowCount then
+		startCardRowCount = #rows
+		layoutStartCard(viewX)
+	end
 	for index, parts in ipairs(startCardRowParts) do
 		local row = rows[index]
 		parts.row.Visible = row ~= nil

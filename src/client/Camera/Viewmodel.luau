@@ -1779,11 +1779,19 @@ end
 -- rather than a boolean, so the housing dissolves with the raise instead of blinking out on one
 -- frame -- the rule `Mode.ease` and the eyepiece's `atBlend` already follow.
 --
--- ONLY WHILE AIMING. In every other mode the eye is not behind the glass and the sight is just part
--- of the gun, so it is drawn solid: carry, third person, the shop card and another player's rifle
--- are untouched. `from` nil is every piece of every other gun and answers 0 -- nothing fades.
-function Viewmodel.clearAtAim(state: Mode.State, from: number?): number
-	if from == nil or state.mode ~= "Aiming" then
+-- ONLY WHILE AIMING, AND ONLY ON THE FIRST-PERSON GUN. In every other mode the eye is not behind
+-- the glass and the sight is just part of the gun, so it is drawn solid: carry, third person, the
+-- shop card and another player's rifle are untouched. `from` nil is every piece of every other gun
+-- and answers 0 -- nothing fades.
+--
+-- `firstPerson` IS TASK 234 TAKING TASK 227'S REVIEW NOTE (a). The mode name alone is not enough:
+-- with `FIRST_PERSON` off, `Mode` still reaches `"Aiming"` and `Viewmodel.update` still draws the
+-- gun (past `VIEWMODEL_SHOW_BLEND`) over a THIRD-PERSON camera -- an eye a boom behind the
+-- shoulder, nowhere near the glass. A housing that dissolved there would be a sight that vanishes
+-- for no reason anyone can see. A caller that passes nothing gets the old answer, which is why
+-- every spec case written before this task still reads the same.
+function Viewmodel.clearAtAim(state: Mode.State, from: number?, firstPerson: boolean?): number
+	if from == nil or state.mode ~= "Aiming" or firstPerson == false then
 		return 0
 	end
 	if from >= 1 then
@@ -1794,10 +1802,10 @@ end
 
 -- ...AND THE ONE PLACE IT IS WRITTEN. `Camera.Viewmodel` is the one writer of the drawn gun (rule
 -- 3), so the transparency is set here and by nothing else.
-local function applyClear(state: Mode.State)
+local function applyClear(state: Mode.State, firstPerson: boolean)
 	for _, entry in ipairs(clearParts) do
 		if entry.part.Parent ~= nil then
-			entry.part.LocalTransparencyModifier = Viewmodel.clearAtAim(state, entry.from)
+			entry.part.LocalTransparencyModifier = Viewmodel.clearAtAim(state, entry.from, firstPerson)
 		end
 	end
 end
@@ -1956,7 +1964,7 @@ function Viewmodel.update(camCFrame: CFrame, state: Mode.State, config, optics: 
 	Viewmodel.poseHands(gun, barrels, state, config)
 	-- ...AND THE SIGHT THE PLAYER IS LOOKING THROUGH (task 227), last, because it is a property of
 	-- the drawn pieces and not part of the pose.
-	applyClear(state)
+	applyClear(state, config.FIRST_PERSON == true)
 end
 
 -- THE SHELL LIFTER (task 225): the second moving group, and the first one in this repo that is not

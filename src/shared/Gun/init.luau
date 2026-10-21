@@ -100,8 +100,14 @@ export type Piece = {
 	-- SO THE HOUSING FADES AS THE EYE COMES TO IT and the gun's own `Dot` -- which is drawn at the
 	-- optical centre and was simply buried inside the mesh -- becomes the sight picture. nil on
 	-- every other piece of every other gun: a piece that says nothing is drawn as it always was.
-	-- The day the glass is split into its own group this number comes off the housing and goes on
-	-- the glass, and nothing else changes.
+	--
+	-- **NO SHIPPED ROW USES IT SINCE TASK 234**, and it is kept on purpose -- the same standing
+	-- `onlyFor` has had since task 148 retired the row that first used it. That task built the
+	-- semi-automatic a drawn hood, lens and dot and stopped the viewmodel wearing the bought optic
+	-- at all, because a fade leaves the player a bare ball floating over the receiver, which is
+	-- what Karen reported. This stays because it is the one answer to *"this piece must stop
+	-- blocking the sight line"*, and the day a bought optic is split into its own glass group it is
+	-- what that glass reads. `semiauto.spec` enters its arm through the iron-sight row.
 	clearFromBlend: number?,
 }
 

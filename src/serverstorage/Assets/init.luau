@@ -2633,8 +2633,12 @@ Assets.ROWS = {
 		notes = "The red-dot sight on the rail. Its own material, which is one of the three reasons the split has "
 			.. "six groups. THE ARTIST'S EMISSIVE AND OPACITY MAPS ARE DELIBERATELY NOT UPLOADED: "
 			.. "`SurfaceAppearance` has four channels -- ColorMap, NormalMap, MetalnessMap, RoughnessMap -- and "
-			.. "NO emission, so an emissive map would render as nothing at all. The DOT is drawn instead, as a 3 "
-			.. "mm `Neon` ball at this sight's own measured optical centre (`SemiAuto.Geometry.beadOffset`).",
+			.. "NO emission, so an emissive map would render as nothing at all. SINCE TASK 234 THIS MESH "
+			.. "DRESSES THE WORLD GUN ONLY: its glass is a solid amber face and a mesh cannot be split in this "
+			.. "repo, so between the first-person eye and the wood it is a wall at any transparency -- the "
+			.. "viewmodel draws a hood, a lens and the dot instead (`SemiAuto.Geometry`, and "
+			.. "docs/research/2026-10-21-red-dot-sight.md). At thirty studs on somebody else's gun the artist's "
+			.. "sight is still what is seen.",
 	},
 	-- ------------------------------------------------- the beater kit (task 151, round 2)
 	--

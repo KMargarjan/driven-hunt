@@ -1428,16 +1428,36 @@ return function()
 		it("is the Designer's two measured layouts, and the phone one is anchored left", function()
 			-- Section 3 of the spec, and these numbers were MEASURED on `startcard-mockups.png`
 			-- rather than typed: 440 x 274 centred at y 150, or 264 x 239 at the left safe margin.
+			--
+			-- SINCE TASK 234 THE HEIGHT FOLLOWS THE ROWS (`Hud.startCardHeight`), because the
+			-- hunter's card grew to eight for the red deer and the beater's stayed at four -- and
+			-- one fixed number cannot be right for both. The Designer's own two figures are what it
+			-- must still answer AT FOUR ROWS, which is what pins `chrome` to a measurement instead
+			-- of to a comment.
 			local desktop = Hud.startCardStep(1280)
 			expect(desktop.width).to.equal(440)
-			expect(desktop.height).to.equal(274)
+			expect(Hud.startCardHeight(1280, 4)).to.equal(Drive.CONFIG.START_CARD_HEIGHT)
+			expect(Hud.startCardHeight(1280, 4)).to.equal(274)
 			expect(desktop.top).to.equal(150)
 			expect(desktop.left).to.equal(nil)
 			local phone = Hud.startCardStep(400)
 			expect(phone.width).to.equal(264)
-			expect(phone.height).to.equal(239)
+			expect(Hud.startCardHeight(400, 4)).to.equal(Drive.CONFIG.START_CARD_HEIGHT_PHONE)
+			expect(Hud.startCardHeight(400, 4)).to.equal(239)
 			expect(phone.top).to.equal(124)
 			expect(phone.left).to.equal(16)
+			-- ...AND A ROW IS WORTH EXACTLY ONE ROW HEIGHT, at both steps, so eight rows is four
+			-- rows plus four rows and the card can never cut its own countdown off.
+			for _, viewX in ipairs({ 1280, 400 }) do
+				local step = Hud.startCardStep(viewX)
+				expect(Hud.startCardHeight(viewX, 8) - Hud.startCardHeight(viewX, 4)).to.equal(4 * step.rowH)
+				expect(Hud.startCardHeight(viewX, 0)).to.equal(step.chrome)
+				-- the ceiling is a clamp, not a hope: nothing can ask for a taller card than the
+				-- renderer has rows to draw.
+				expect(Hud.startCardHeight(viewX, 99)).to.equal(
+					Hud.startCardHeight(viewX, Drive.CONFIG.START_CARD_ROWS_MAX)
+				)
+			end
 			-- 16..280 STOPS 8 px SHORT OF THE MINIMAP (x 288..384 on a 400 px screen), which is the
 			-- whole reason it is not centred.
 			expect(phone.left + phone.width).to.equal(280)
@@ -1445,7 +1465,18 @@ return function()
 			local frame = card()
 			local step = Hud.startCardStep(Hud.viewportX())
 			expect(frame.Size.X.Offset).to.equal(step.width)
-			expect(frame.Size.Y.Offset).to.equal(step.height)
+			-- ...AND AS TALL AS THE ROWS IT IS DRAWING (task 234). The renderer writes the count
+			-- and `layoutStartCard` is the one writer of the size, so what is on screen must be
+			-- `startCardHeight` of SOME legal row count -- and it must be one of them exactly,
+			-- which is what would catch a card sized from a stale constant again.
+			local matched = false
+			for rows = 0, Drive.CONFIG.START_CARD_ROWS_MAX do
+				if frame.Size.Y.Offset == Hud.startCardHeight(Hud.viewportX(), rows) then
+					matched = true
+				end
+			end
+			expect(matched).to.equal(true)
+			expect(frame.Size.Y.Offset >= step.chrome).to.equal(true)
 			TestKit.note(
 				string.format(
 					"hud_style: start card drawn %dx%d at viewport %d",

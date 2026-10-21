@@ -587,26 +587,157 @@ return function()
 			expect(SemiAutoGeometry.beadOffset(ROW).Y > 0.12).to.equal(true)
 		end)
 
-		it("THE SIGHT PICTURE: the dot is on the screen's centre and the housing clears it", function()
-			-- TASK 227, KAREN'S OWN DEFECT: *"Semi auto aiming cant see true that red it has to be
-			-- visible and dot in the middle"*. MEASURED in a live DEV session before the fix
-			-- (`.screenshots/227-before-semiauto-aim.png`, and the same frame against the sky): the
-			-- sight's window reads a flat opaque (96, 36, 0) with no sky through it, and the screen
-			-- centre -- where the shot goes -- reads pure black, because the drawn `Dot` is INSIDE
-			-- the housing mesh.
+		it("THE SIGHT PICTURE: a hood to look through, a lens, and the dot on the screen centre", function()
+			-- TASK 234, KAREN OWN DEFECT, REPRODUCED FIRST (rule H,
+			-- `.screenshots/234-before-semiauto-aim.png`): aimed, the player saw a bare red ball
+			-- over the receiver and nothing to look through. *"you know this type of aiming you
+			-- look from that galss and there is a dot inside right ?"* Task 227 had faded the
+			-- bought one-piece optic out of the sight line because its glass is an opaque amber
+			-- face; 227b queued the housing, and this is it.
+			--
+			-- EVERY BOUND BELOW IS IN DEGREES AT THE SHIPPED EYE RELIEF, which is the only unit the
+			-- picture actually has: studs say nothing about what fills the screen, and the research
+			-- note section 5 was tuned against Karen two reference photographs measured the same
+			-- way (`<runs-dir>/234-ring.py`).
 			local view = Viewmodel.view(Viewmodel.DATA, "semiauto")
 			local aimConfig = { EYE_RELIEF_STUDS = view.EYE_RELIEF_STUDS, ADS_CHEEK_DEG = view.ADS_CHEEK_DEG }
 			local gun = Mode.aimOffset(SemiAutoGeometry.sight(ROW), aimConfig)
 			local p = gun:PointToWorldSpace(SemiAutoGeometry.beadOffset(ROW))
 			local depth = -p.Z
 			local off = math.deg(math.atan2(math.sqrt(p.X * p.X + p.Y * p.Y), math.max(depth, 1e-9)))
-			TestKit.note(string.format("task227 semiauto: dot depth %.4f off %.6f deg", depth, off))
+			TestKit.note(string.format("task234 semiauto: dot depth %.4f off %.6f deg", depth, off))
 			expect(depth > 0.2).to.equal(true) -- in front of the eye
 			expect(off < 0.05).to.equal(true) -- and on the centre, where the shot goes
-			-- THE HOUSING SAYS IT GETS OUT OF THE WAY, and it is the Optic that says it and nothing
-			-- else: a piece list where some other piece carried the field would fade the wrong thing.
-			local optic, cleared = nil, 0
+
+			-- 1. THE HOOD IS A RING, AND IT IS ROUND. Every segment the same distance from the
+			--    sight line, every segment the same size, and enough of them that the polygon is
+			--    not a nut: 16 was tried and LOOKED like a 16-gon (`.screenshots/234-a3-aim.png`).
+			local at = SemiAutoGeometry.layout(ROW)
+			local centre = SemiAutoGeometry.beadOffset(ROW)
+			local hood, glass, mount = {}, nil, nil
 			for _, piece in ipairs(SemiAutoGeometry.pieces(ROW)) do
+				if string.sub(piece.name, 1, 9) == "SightHood" then
+					table.insert(hood, piece)
+				elseif piece.name == "SightGlass" then
+					glass = piece
+				elseif piece.name == "SightMount" then
+					mount = piece
+				end
+			end
+			expect(#hood >= 20).to.equal(true)
+			local mid = (at.hoodInnerRadius + at.hoodOuterRadius) / 2
+			for _, piece in ipairs(hood) do
+				local v = piece.offset.Position - centre
+				expect(math.abs(v.Z) < 1e-5).to.equal(true) -- on the lens plane
+				expect(math.abs(math.sqrt(v.X * v.X + v.Y * v.Y) - mid) < 1e-4).to.equal(true)
+				expect(piece.meshKey).to.equal(nil) -- drawn, not an upload
+			end
+
+			-- 2. ...AND THE SEGMENTS TOUCH. A chord sized on the MIDDLE radius leaves daylight at
+			--    every joint and the frame came back a cog wheel; the covering condition at the
+			--    seam is `halfChord >= rOuter * sin(pi/N)`, and this is that condition.
+			local seam = at.hoodOuterRadius * math.sin(math.pi / #hood)
+			TestKit.note(
+				string.format(
+					"task234 hood: %d segments, half-chord %.5f vs seam %.5f",
+					#hood,
+					hood[1].size.X / 2,
+					seam
+				)
+			)
+			expect(hood[1].size.X / 2 >= seam - 1e-6).to.equal(true)
+
+			-- 3. THE WINDOW IS WHAT KAREN REFERENCES SHOW. ref-1 measures 31 % of the frame width
+			--    clear with its rim out to 38 %; at FOV 50 on a 16:9 frame the horizontal field is
+			--    2*atan(tan(25 deg)*16/9) = 79.3 degrees, so those are 24.6 and 30.1 degrees. The
+			--    bounds below are deliberately WIDE either side of that -- this case exists to
+			--    catch a sight picture DESTROYED by a later change to the hood or the relief, not
+			--    to re-litigate a look Karen has to judge herself.
+			local relief = view.EYE_RELIEF_STUDS
+			local windowDeg = 2 * math.deg(math.atan(at.hoodInnerRadius / relief))
+			local rimDeg = 2 * math.deg(math.atan(at.hoodOuterRadius / relief))
+			TestKit.note(
+				string.format(
+					"task234 sight picture at relief %.3f: window %.1f deg, rim %.1f deg",
+					relief,
+					windowDeg,
+					rimDeg
+				)
+			)
+			expect(windowDeg > 12).to.equal(true) -- a window you can hunt through
+			expect(windowDeg < 32).to.equal(true) -- ...and a sight, not a porthole
+			expect(rimDeg > windowDeg).to.equal(true) -- the rim is IN VIEW around it
+			expect(rimDeg < 42).to.equal(true)
+
+			-- 4. THE DOT READS, AND IT DOES NOT HIDE A DEER AT 50 M. A stag is 2.1 m tall, which at
+			--    50 m is 2 * atan(1.05/50) = 2.4 degrees. The Director rule: it must be findable
+			--    at 1280 x 720 and must not blot the animal out.
+			local dotDeg = 2 * math.deg(math.atan(at.dotDiameter / 2 / relief))
+			local stagDeg = 2 * math.deg(math.atan(1.05 / 50))
+			TestKit.note(string.format("task234 dot: %.2f deg against a stag %.2f deg at 50 m", dotDeg, stagDeg))
+			expect(dotDeg > 0.4).to.equal(true) -- bigger than a real 2 MOA, which would be half a pixel
+			expect(dotDeg < stagDeg / 2).to.equal(true)
+			expect(dotDeg * 6 < windowDeg).to.equal(true) -- small inside its own window
+
+			-- 5. THE LENS IS CLEAR AND IT IS BETWEEN THE EYE AND THE DOT. +Z is backward in this
+			--    frame, so "toward the eye" is a LARGER z than the dot.
+			expect(glass).to.be.ok()
+			expect(glass.transparency ~= nil and glass.transparency > 0.8).to.equal(true)
+			expect(glass.transparency < 1).to.equal(true) -- a lens you can see, not an absent one
+			expect(glass.material).to.equal(Enum.Material.SmoothPlastic)
+			expect(glass.offset.Position.Z > centre.Z).to.equal(true)
+			-- ...AND IT FILLS THE WINDOW. Compared with a tolerance and not by identity: a
+			-- `Vector3` stores float32, so a float64 radius put into one and read back is near
+			-- rather than equal -- which is the whole of why this line needs an epsilon.
+			expect(math.abs(glass.size.Y - at.hoodInnerRadius * 2) < 1e-5).to.equal(true)
+
+			-- 6. THE NEAR PLANE. The eye lands inside the receiver z span at this relief, so the
+			--    reason there is no hole in the gun is the MOUNT height: at the bottom edge of the
+			--    frame (25 degrees below the axis at FOV 50) the receiver top must be further than
+			--    Roblox 0.1-stud clip. This is the arithmetic of research note section 6.
+			expect(mount).to.be.ok()
+			local aboveRail = centre.Y - at.railTopY
+			local atFrameEdge = aboveRail / math.tan(math.rad(25))
+			TestKit.note(
+				string.format(
+					"task234 near plane: sight line %.4f above the rail, %.4f studs away at the frame "
+						.. "bottom edge (clip 0.1)",
+					aboveRail,
+					atFrameEdge
+				)
+			)
+			expect(aboveRail > 0).to.equal(true)
+			expect(atFrameEdge > 0.1).to.equal(true)
+			-- ...and the mount is what holds that gap: it reaches the rail and the hood underside.
+			local mountTop = mount.offset.Position.Y + mount.size.Y / 2
+			expect(math.abs(mountTop - (centre.Y - at.hoodOuterRadius)) < 1e-4).to.equal(true)
+			expect(mount.offset.Position.Y - mount.size.Y / 2 < at.railTopY).to.equal(true)
+
+			-- 7. THE BOUGHT OPTIC IS NOT WORN BY THE VIEWMODEL ON THIS ROW, which is the whole
+			--    shape of the fix: its glass is one opaque face on a mesh that cannot be split, so
+			--    it would sit between the eye and everything the hood frames.
+			for _, piece in ipairs(SemiAutoGeometry.pieces(ROW)) do
+				expect(piece.name ~= "Optic").to.equal(true)
+				expect(piece.clearFromBlend).to.equal(nil)
+			end
+			-- ...but the WORLD gun still wears it, so another player sees the artist sight.
+			local wearsSight = false
+			for _, key in ipairs(SemiAutoGeometry.ASSET_KEYS) do
+				wearsSight = wearsSight or key == SemiAutoGeometry.MESH_KEYS.Optic
+			end
+			expect(wearsSight).to.equal(true)
+		end)
+
+		it("task 227 fade survives for a row that is not the red dot, and now knows first person", function()
+			-- `clearFromBlend` HAS NO SHIPPED USER SINCE TASK 234 -- the same standing `onlyFor`
+			-- has had since task 148 -- and it is kept because it is the one answer to "this piece
+			-- must stop blocking the sight line" (research note section 7). So its arm is entered
+			-- here through the filter that still reaches it: a row with iron sights gets the
+			-- artist housing back, and that housing still fades as the eye arrives.
+			local other = table.clone(C) :: any
+			other.SIGHT = "bead"
+			local optic, cleared = nil, 0
+			for _, piece in ipairs(SemiAutoGeometry.pieces(other)) do
 				if piece.clearFromBlend ~= nil then
 					cleared += 1
 					optic = piece
@@ -615,9 +746,7 @@ return function()
 			expect(cleared).to.equal(1)
 			expect(optic.name).to.equal("Optic")
 			expect(optic.meshKey).to.equal(SemiAutoGeometry.MESH_KEYS.Optic)
-			-- ...AND THE DECISION ITSELF, driven at both ends with its negative arms. Fully aimed it
-			-- is gone; at the carry, mid-raise and in third person it is solid, so the sight the
-			-- player bought is still on the gun everywhere he can see it.
+
 			local function aimState(mode: string, blend: number)
 				local st = table.clone(Mode.initial(Config)) :: any
 				st.mode = mode
@@ -632,6 +761,16 @@ return function()
 			-- ...and it is not a step: half way past the threshold it is half gone.
 			local half = (from + 1) / 2
 			expect(math.abs(Viewmodel3D.clearAtAim(aimState("Aiming", half), from) - 0.5) < 1e-6).to.equal(true)
+
+			-- TASK 227 REVIEW NOTE (a), TAKEN IN 234: the mode name alone is not enough. With
+			-- `FIRST_PERSON` off, `Mode` still reaches `"Aiming"` and the gun is still drawn, over
+			-- a camera a boom behind the shoulder -- so a housing that dissolved there would be a
+			-- sight that vanishes for no reason the player can see.
+			expect(Viewmodel3D.clearAtAim(aimState("Aiming", 1), from, false)).to.equal(0)
+			expect(Viewmodel3D.clearAtAim(aimState("Aiming", 1), from, true)).to.equal(1)
+			-- ...and a caller that says nothing gets the answer it always got.
+			expect(Viewmodel3D.clearAtAim(aimState("Aiming", 1), from)).to.equal(1)
+
 			-- NO OTHER GUN IS TOUCHED: the shotgun, the Rigby and the lever carry no such piece.
 			for _, id in ipairs({ "shotgun", "rifle", "lever" }) do
 				local row = Weapons.ROWS[id]

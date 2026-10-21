@@ -24,6 +24,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 -- the only side that can see both.
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
+local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 return function()
@@ -246,6 +247,61 @@ return function()
 		it("prices a person off SAFETY_PENALTY, which is the number the card draws", function()
 			expect(Match.CONFIG.POINTS.SAFETY_PENALTY < 0).to.equal(true)
 			expect(Match.CONFIG.POINTS.SAFETY_PENALTY).to.equal(-10)
+		end)
+
+		-- THE RED DEER IS ON THE CARD (task 234). Karen, 2026-10-21, having played: *"I didnt see
+		-- deer red tag why ?"* / *"I want to see a deer"*. The deer have been licensed quarry since
+		-- task 223 and the one screen that answers *"what may I shoot"* never mentioned them.
+		it("NAMES THE RED DEER, with its own prices, off the one table that holds them", function()
+			local rows = Match.quarryRows(Match.CONFIG)
+			local byKind = {}
+			for _, row in ipairs(rows) do
+				byKind[row.kind] = row
+			end
+			for _, kind in ipairs({ "stag", "hind", "calf" }) do
+				expect(byKind[kind]).to.be.ok()
+				expect(byKind[kind].species).to.equal("RED DEER")
+				-- OFF `POINTS.KIND` AND NOT A LITERAL: this is the same table the SCORE is paid
+				-- from, so the card cannot promise a number the kill does not pay.
+				expect(byKind[kind].points).to.equal(Match.CONFIG.POINTS.KIND[kind])
+			end
+			-- Karen's own order of worth: a stag is the prize, a hind is a sow, a calf is a piglet.
+			expect(byKind.stag.points > byKind.male.points).to.equal(true)
+			expect(byKind.hind.points).to.equal(byKind.female.points)
+			expect(byKind.calf.points).to.equal(byKind.cub.points)
+			expect(byKind.calf.points < 0).to.equal(true)
+		end)
+
+		it("SAYS WHICH ROWS NEED A LICENCE, off Licences and not off a second copy of it", function()
+			-- The card has to say `NEEDS LICENCE` over the deer, and the CLIENT must not be the
+			-- thing that knows which species those are -- *"a second copy of 'a red deer needs a
+			-- licence' living on the client is exactly the two-correct-pieces-of-code failure"*
+			-- (`Licences`' own header). So it rides the wire.
+			local rows = Match.quarryRows(Match.CONFIG)
+			local seen = {}
+			for _, row in ipairs(rows) do
+				seen[row.species] = row.licence
+				expect(type(row.licence)).to.equal("boolean")
+			end
+			expect(seen["WILD BOAR"]).to.equal(false)
+			expect(seen["RED DEER"]).to.equal(true)
+			-- ...AND IT IS THE SAME ANSWER THE WEAPON ENFORCES. TO SEE IT FAIL: flip
+			-- `Licences.ROWS.reddeer.licence` to false -- the gate stops refusing the shot AND this
+			-- row stops asking for the card, together, because there is one row.
+			expect(seen["RED DEER"]).to.equal(Licences.required("reddeer"))
+			expect(seen["WILD BOAR"]).to.equal(Licences.required("boar"))
+		end)
+
+		it("turns the species KEY into the printed label, and leaves a literal alone", function()
+			-- `QUARRY` names `boar` / `reddeer`; the wire carries `WILD BOAR` / `RED DEER`, which
+			-- is `Licences.ROWS[key].label` and nothing else. A row whose species is NOT a licence
+			-- key passes through unchanged with `licence = false` -- which is what keeps every case
+			-- above, written with literals, reading exactly as it did.
+			expect(Match.CONFIG.QUARRY[1].species).to.equal("boar")
+			expect(Match.CONFIG.QUARRY[2].species).to.equal("reddeer")
+			local rows = Match.quarryRows({ QUARRY = { { species = "GREY WOLF", kinds = { "dog" } } } })
+			expect(rows[1].species).to.equal("GREY WOLF")
+			expect(rows[1].licence).to.equal(false)
 		end)
 	end)
 
