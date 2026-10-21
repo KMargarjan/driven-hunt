@@ -642,6 +642,11 @@ return function()
 				local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame?
 				expect(block).to.be.ok()
 				expect((block :: Frame).Visible).to.equal(false)
+				-- ...AND THE TRACK GOES WITH IT, which is the other half of finding 1: it is shown and
+				-- hidden by the ONE writer of this dialog's rectangles, never left behind.
+				local hidden = (block :: Frame):FindFirstChild("RoleSwitch") :: Frame
+				expect(hidden).to.be.ok()
+				expect(hidden.Visible).to.equal(false)
 				expect(PadPanel.roleSelected(nil)).to.equal(nil)
 				expect(PadPanel.roleLit()).to.equal(nil)
 				expect(#PadPanel.switchText()).to.equal(0)
@@ -658,6 +663,20 @@ return function()
 				PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
 				local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame
 				expect(block.Visible).to.equal(true)
+				-- ...AND THE CONTROL ITSELF IS ACTUALLY RENDERED (review round 2, finding 1). The block is
+				-- only the HOLDER -- it carries the eyebrow and the caption, and the two halves live
+				-- inside the TRACK. `buildRoleSwitch` builds that track `Visible = false` and for two
+				-- rounds nothing wrote it true, so the switch was positioned, painted and never drawn: a
+				-- `GuiObject` at `Visible = false` is not rendered and takes no input however visible its
+				-- parent is. Asserting the holder could never catch that; this is what does.
+				local track = block:FindFirstChild("RoleSwitch") :: Frame
+				expect(track).to.be.ok()
+				expect(track.Visible).to.equal(true)
+				for _, name in ipairs({ "Hunter", "Beater" }) do
+					local half = track:FindFirstChild(name) :: TextButton
+					expect(half).to.be.ok()
+					expect(half.Visible).to.equal(true)
+				end
 				expect(PadPanel.roleLit()).to.equal(LobbyData.ROLE_WISH.HUNTER)
 				expect(PadPanel.switchText()).to.be.ok()
 				local words = PadPanel.switchText()

@@ -927,6 +927,11 @@ function PadPanel.relayout()
 		(switchEyebrow :: TextLabel).Position = UDim2.fromOffset(0, 0)
 	end
 	if roleSwitch ~= nil then
+		-- THE TRACK IS SHOWN WITH ITS BLOCK AND BY THE SAME WRITER (review round 2, finding 1).
+		-- `ShopPanel.buildRoleSwitch` builds it hidden -- `buildButton`'s own arrangement -- and
+		-- nothing wrote it true, so the two halves were positioned, painted and never rendered: the
+		-- eyebrow and the caption appeared around an empty gap.
+		roleSwitch.track.Visible = out.switchShown
 		roleSwitch.track.Position = UDim2.fromOffset(0, out.trackY - out.switchY)
 		roleSwitch.track.Size = UDim2.fromOffset(out.trackWidth, ROLE.TRACK_PX)
 	end

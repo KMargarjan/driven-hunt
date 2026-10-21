@@ -38,6 +38,10 @@
 -- Design: docs/design/shop.md (sections 5, 12.2)
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- THE LIVE SCREEN, for the one guard that must be this machine's mode and not a constant (review
+-- round 2, finding 2): `ShopPanel.layoutFor(0, 0)` is always `TALL`, because the width clamps up to
+-- `MIN_WIDTH` 300 and that is under `WIDE_AT` 520.
+local Workspace = game:GetService("Workspace")
 
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
 local Money = require(ReplicatedStorage:WaitForChild("Money"))
@@ -1259,14 +1263,71 @@ return function()
 				-- this row stays 64 px. Either way EXACTLY ONE surface carries it, which is what
 				-- `switchSurfaceFor` decides -- and the built instances are what this reads.
 				expect(Panel.switchSurfaceFor("WIDE", Panel.ROLE.HUNTER, Shop.ITEM.ALWAYS_HUNTER)).to.equal("row")
-				if Panel.layoutFor(0, 0).mode == "WIDE" then
+				-- THE MODE IS THIS SCREEN'S. `layoutFor(0, 0)` is a CONSTANT `TALL` -- the width clamps
+				-- up to `MIN_WIDTH` 300, which is under `WIDE_AT` 520 -- so the round-2 version of this
+				-- guard asserted NOTHING on any machine. That is how finding 1 got past a case written
+				-- to catch exactly it.
+				local view = Workspace.CurrentCamera and (Workspace.CurrentCamera :: Camera).ViewportSize
+				local mode = Panel.layoutFor(if view then view.X else 1280, if view then view.Y else 720).mode
+				if mode == "WIDE" then
 					expect(block.Visible).to.equal(true)
+					-- ...AND THE CONTROL IS ACTUALLY RENDERED (review round 2, finding 1): the block is
+					-- only the holder, the two halves live inside the TRACK, and the track was built
+					-- `Visible = false` with nothing anywhere writing it true -- so the switch was
+					-- positioned, painted and never drawn.
+					local track = block:FindFirstChild("RoleSwitch") :: Frame
+					expect(track).to.be.ok()
+					expect(track.Visible).to.equal(true)
+					expect((track:FindFirstChild("Beater") :: TextButton).Visible).to.equal(true)
 					expect(Panel.roleLit()).to.equal(Panel.ROLE.HUNTER)
 					expect(#Panel.switchText()).to.equal(4)
 				end
 				Panel.setRoleWish(nil, nil)
 				Panel.relayout()
 				expect(block.Visible).to.equal(false)
+				expect((block:FindFirstChild("RoleSwitch") :: Frame).Visible).to.equal(false)
+			end)
+
+			it("drives the rectangle when a SELECTION moves the switch's surface", function()
+				-- REVIEW ROUND 2, FINDING 2. On a phone the 108 px card has no room, so the switch rides
+				-- the SELECTED item's detail pane -- which makes the selection an input to a RECTANGLE,
+				-- and `relayout` is the one writer of those. `select` did not drive it, and `setOpen`
+				-- relayouts BEFORE it picks a first row off `firstId()`, which prefers a BUYABLE row --
+				-- and an owner's `ALWAYS HUNTER` row is not one. So for exactly the man this feature is
+				-- for, the surface was always "none" and tapping his row changed nothing.
+				--
+				-- THE SURFACE RULE IS PURE, so the TALL half is asserted here whatever this machine's
+				-- screen is; what the live panel adds below is that `select` actually DRIVES it.
+				expect(Panel.switchSurfaceFor("TALL", Panel.ROLE.HUNTER, Shop.ITEM.ALWAYS_HUNTER)).to.equal("detail")
+				expect(Panel.switchSurfaceFor("TALL", Panel.ROLE.HUNTER, Shop.ITEM.SLUG)).to.equal("none")
+				expect(Panel.switchSurfaceFor("TALL", nil, Shop.ITEM.ALWAYS_HUNTER)).to.equal("none")
+
+				local was = Panel.selectedId()
+				Panel.setRoleWish(Panel.ROLE.HUNTER, nil)
+				Panel.select(Shop.ITEM.SLUG)
+				local quiet = Panel.stats().layouts
+				Panel.select(Shop.ITEM.ALWAYS_HUNTER)
+				local after = Panel.stats().layouts
+				local view = Workspace.CurrentCamera and (Workspace.CurrentCamera :: Camera).ViewportSize
+				local mode = Panel.layoutFor(if view then view.X else 1280, if view then view.Y else 720).mode
+				if mode == "TALL" then
+					-- THE SURFACE MOVED, so the one rectangle writer ran, and the pane is drawn.
+					expect(after > quiet).to.equal(true)
+					local detail = (Hud.shopPanel() :: Frame):FindFirstChild("Detail") :: Frame
+					local pane = detail:FindFirstChild("RoleBlock") :: Frame
+					expect(pane).to.be.ok()
+					expect(pane.Visible).to.equal(true)
+					expect((pane:FindFirstChild("RoleSwitch") :: Frame).Visible).to.equal(true)
+				else
+					-- IN WIDE THE SWITCH IS ON THE ROW WHATEVER IS SELECTED, so a selection moves no
+					-- surface and must NOT relayout -- the other half of "edge-triggered".
+					expect(after).to.equal(quiet)
+				end
+				Panel.setRoleWish(nil, nil)
+				if was ~= nil then
+					Panel.select(was)
+				end
+				Panel.relayout()
 			end)
 
 			it("puts the two halves above the row's own children, so a press reaches a half", function()

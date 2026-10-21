@@ -713,6 +713,12 @@ function ShopPanel.buildRoleSwitch(
 ): RoleSwitch
 	local track = frame(parent, "RoleSwitch", zLift)
 	track.BackgroundColor3 = LOOK.SLATE
+	-- BUILT HIDDEN AND SHOWN BY THE ONE WRITER OF THIS SURFACE'S RECTANGLES -- `relayout`, in
+	-- whichever panel owns it -- which is `buildButton`'s own arrangement for its progress bar
+	-- (built `Visible = false`, flipped by the painter). **Review round 2, finding 1: nothing wrote
+	-- it true, so the two halves were positioned, painted and never rendered on either surface.**
+	-- A `GuiObject` at `Visible = false` is not drawn and takes no input however visible its parent
+	-- is, so showing only the HOLDER showed the eyebrow and the caption around an empty gap.
 	track.Visible = false
 	corner(track, ROLE.TRACK_CORNER)
 	stroke(track, LOOK.LINE, 0)
@@ -2100,6 +2106,8 @@ function ShopPanel.relayout()
 			block.Size = UDim2.fromOffset(layout.switchTrackWidth, PANEL.SWITCH_CAPTION_Y + 12 - PANEL.SWITCH_EYEBROW_Y)
 		end
 		if rowSwitch then
+			-- THE TRACK IS SHOWN WITH ITS HOLDER AND BY THE SAME WRITER (round 2, finding 1).
+			rowSwitch.track.Visible = tall
 			rowSwitch.track.Position = UDim2.fromOffset(0, PANEL.SWITCH_TRACK_Y - PANEL.SWITCH_EYEBROW_Y)
 			rowSwitch.track.Size = UDim2.fromOffset(layout.switchTrackWidth, PANEL.SWITCH_TRACK_PX)
 		end
@@ -2125,6 +2133,7 @@ function ShopPanel.relayout()
 		end
 	end
 	if detailSwitch then
+		detailSwitch.track.Visible = surface == "detail"
 		detailSwitch.track.Position = UDim2.fromOffset(0, 12 + 6)
 		detailSwitch.track.Size = UDim2.fromOffset(layout.switchTrackWidth, PANEL.SWITCH_TRACK_PX)
 	end
@@ -2476,8 +2485,32 @@ function ShopPanel.select(id: string?)
 	if id == nil or selected == id then
 		return
 	end
+	-- WHICH SURFACE THE SWITCH IS ON DEPENDS ON WHAT IS SELECTED (round 2, finding 2): on a phone
+	-- the 108 px card has no room, so the switch rides the SELECTED item's detail pane. The
+	-- selection is therefore an input to a RECTANGLE, and `relayout` is the one writer of those --
+	-- so a selection that can have moved the surface has to drive it.
+	--
+	-- WITHOUT THIS THE PHONE SURFACE NEVER APPEARED AT ALL on the player's path: `setOpen` relayouts
+	-- BEFORE it picks a first row, and `firstId()` prefers a BUYABLE row -- which an owner's
+	-- `ALWAYS HUNTER` row is not -- so the surface at relayout time was always "none" for exactly
+	-- the man this feature is for, and tapping his row afterwards changed nothing. In the other
+	-- direction a block shown by a resize stayed shown, with the status row still hidden, after the
+	-- selection moved on.
+	--
+	-- EDGE-TRIGGERED ON THE SURFACE AND NOT ON THE SELECTION, so the ordinary case -- moving between
+	-- two rows that are not `ALWAYS HUNTER` -- still costs one comparison and no relayout.
+	-- THE MODE IS THIS SCREEN'S, read the way `relayout` reads it. `layoutFor(0, 0)` would be a
+	-- CONSTANT `TALL` -- the width clamps up to `MIN_WIDTH` -- which is a trap this file has already
+	-- sprung once: the round-2 spec guarded its own assertions with `layoutFor(0, 0).mode == "WIDE"`
+	-- and so asserted nothing at all.
+	local size = screenSize()
+	local mode = ShopPanel.layoutFor(size.X, size.Y).mode
+	local was = ShopPanel.switchSurfaceFor(mode, roleWish, selected)
 	selected = id
 	stats.selects += 1
+	if ShopPanel.switchSurfaceFor(mode, roleWish, id) ~= was then
+		ShopPanel.relayout()
+	end
 	ShopPanel.showPicture(id)
 	ShopPanel.render()
 end
