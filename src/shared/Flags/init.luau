@@ -51,14 +51,16 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- TASKS.md row 215a item (a); the arithmetic below is why it is paperwork and not a real breach.
 --
 -- The cap's own sentence is about DARK paths -- *"more than twelve dark paths means the stack problem moved, not
--- went away"* -- and it counts ROWS. Of the fourteen rows, SEVEN are LIT and accepted
--- (`TIE_UNTIL_DRIVE_END`, `BOAR_SOUNDERS`, `ORANGE_OUTFITS`, `RIFLE`, `FIRST_PERSON`,
--- `AUTUMN_LIGHT` and, since task 230, `BOAR_MODEL`: `default = true`, and three of them are queued
--- for retirement as TASKS.md 82b),
--- so the number the Director should see is SEVEN DARK, which is under the twelve the rule is
--- about -- task 215 added a row and no dark path at all, and task 230 lit one. Retiring those three brings the row count
--- back under 12 without touching this line, and that is the Director's call
--- (docs/design/shop.md section 16 item 8), not this task's.
+-- went away"* -- and it counts ROWS. Task 215 added a row and no dark path at all; task 230 lit one;
+-- task 233 lights the rest of what v1 keeps. THE RUNNING COUNT, which is the number the Director
+-- should see, is the one line below, and it is under the twelve the rule is about. Three of the lit
+-- rows are queued for retirement as TASKS.md 82b; retiring them brings the row count back under 12
+-- without touching this line, and that is the Director's call (docs/design/shop.md section 16
+-- item 8), not this task's.
+--
+-- LIT (8): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
+--          BOAR_MODEL (task 230), BOAR_BEHAVIOUR (task 233).
+-- DARK (6): QUICK_TEST, HORN, DRIVE_BOTS, COINS, SHOP, LOBBY.
 Flags.MAX_FLAGS = 14
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
@@ -191,13 +193,25 @@ Flags.DEFAULTS = {
 		-- the drawn animal: every state, radius and timer is Brain/Runtime state and is fully
 		-- exercised on the grey box. The one drawn line this task adds (the head-up clip) sits
 		-- behind `BOAR_MODEL`, where it already is.
-		default = false,
+		--
+		-- FLIPPED **ON** ON 2026-10-21 (task 233, "v1 default"): everything v1 keeps is on without a
+		-- setting. The row stays, and one line back to `false` is the rollback; both branches are
+		-- still reachable BY PARAMETER (`config.SENSE.ENABLED`), which is what keeps the OFF world
+		-- tested now that the flag sits at the other one.
+		default = true,
 		-- The owner is the module that READS it at its boundary (`Boar.CONFIG.SENSE.ENABLED`) and
 		-- passes the value inward as `config` -- the only permitted shape, and what keeps both
 		-- branches reachable by parameter while the flag itself sits at one of them.
 		owner = "ServerScriptService.Boar",
 		born = "2026-10-04 task 118",
-		expires = "2026-10-25", -- 21 days: the ceiling in feature-flags.md section 12
+		-- AN ACCEPTED FLAG DOES NOT EXPIRE IN 21 DAYS, exactly as `BOAR_MODEL`, `BOAR_SOUNDERS`,
+		-- `ORANGE_OUTFITS`, `RIFLE` and `FIRST_PERSON` do not: the ceiling in feature-flags.md
+		-- section 12 is what stops a DARK path living for ever, and from today this path is LIT. THE
+		-- MOVE IS NEEDED AND NOT COSMETIC: left at 2026-10-25 this row fails
+		-- `tests/server/flags.spec.luau`'s rot tripwire on the 26th -- five days from now -- which
+		-- fails the harness and blocks whatever gate runs that day, the same bomb task 149b defused
+		-- for `RIFLE` and `FIRST_PERSON` and task 230 for `BOAR_MODEL`.
+		expires = "2026-12-31",
 		why = "A boar notices a standing person at 25 studs and a moving one at 60, goes head-up, "
 			.. "turns away or runs, sprints at a shot, and panics through its sounder. OFF is the "
 			.. "40-stud drivers-only flush of Milestone 1.2.",
