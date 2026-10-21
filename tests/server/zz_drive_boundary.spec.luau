@@ -300,7 +300,11 @@ return function()
 			before = Match.snapshot()
 			local tiedBefore = #before.tied
 			-- BEFORE the clock moves, so "it rose by exactly one" is a measurement and not a guess.
-			local paidBefore = Economy.stats().drivesPaid
+			-- THE WHOLE COUNTER TABLE, not just `drivesPaid` (task 233): the assertions below are
+			-- DELTAS over this edge, and `Economy.stats()` hands back a clone, so holding it across
+			-- the transition is safe.
+			local moneyBefore = Economy.stats()
+			local paidBefore = moneyBefore.drivesPaid
 			-- ...AND THE SIDE EACH PLAYER IS ACTUALLY PLAYING (task 217), for the same reason: the
 			-- turn this edge writes is `other(what he played)`, so the claim needs the BEFORE.
 			local playedBefore: { [number]: string } = {}
@@ -360,12 +364,66 @@ return function()
 				-- the effects would leave Karen reading `--` for up to STATE_HEARTBEAT seconds.
 				local sent = Match.lastSent()
 				expect(sent).to.be.ok()
+				-- THE WIRE IS TIED TO THE OWNER'S OWN ACCOUNTING, and it is not *"every row carries a
+				-- number"* any more (task 233). That older line was true of a ONE-player run and
+				-- false of the two-player gate, which is where it failed -- `[harness2] FAIL: 32/36
+				-- @ 6ade841d`, *"Expected number, got nil"* on `earned`.
+				--
+				-- THE CAUSE IS NOT A DEFECT AND THE PRODUCTION GUARD IS RIGHT. A Studio test client
+				-- gets a NEGATIVE UserId -- `-1` for the first and `-2` for the second, measured in
+				-- this repository's own two-player gate and written down at
+				-- `tests/client/weapon_client.spec.luau`'s `otherId` -- and `Coins.forDrive` refuses
+				-- any id that is not a positive integer (`isPlayerId`), counting it
+				-- `skippedNotAPlayer`. MEASURED here, in Edit, against the real module: two rows at
+				-- `(-1, -2)` produce **0** coin entries and `skippedNotAPlayer = 2`, and the same two
+				-- rows at real ids produce **2** entries and `skippedNotAPlayer = 0`. A live server
+				-- has no negative ids, so the guard costs the game nothing and this is the harness's
+				-- world showing through.
+				--
+				-- SO THE CLAIM IS THE IDENTITY INSTEAD, which is STRONGER than the line it replaces
+				-- and holds in BOTH worlds: every row on the wire was either PAID or REFUSED for one
+				-- of the three reasons this owner counts, and the two totals come from the owner
+				-- rather than from this spec's idea of how many players there are. A pay-out that
+				-- silently dropped a row would move one total and not the other, which the old line
+				-- could not see at all.
+				local earnedRows, coinRows = 0, 0
 				for _, scoreRow in ipairs(sent.rows) do
-					expect(type(scoreRow.earned)).to.equal("number")
-					expect(type(scoreRow.coins)).to.equal("number")
+					if type(scoreRow.earned) == "number" then
+						earnedRows += 1
+						-- PAID IMPLIES A BALANCE: `payDrive` writes `balances[userId]` in the same
+						-- branch that writes the earning, so a row that earned and carries no
+						-- balance would be the two halves of one write disagreeing.
+						expect(type(scoreRow.coins)).to.equal("number")
+					else
+						expect(scoreRow.earned).to.equal(nil)
+					end
+					if type(scoreRow.coins) == "number" then
+						coinRows += 1
+					end
 				end
+				local moneyAfter = Economy.stats()
+				local refused = (moneyAfter.skippedNotAPlayer - moneyBefore.skippedNotAPlayer)
+					+ (moneyAfter.skippedLeft - moneyBefore.skippedLeft)
+					+ (moneyAfter.skippedNoProfile - moneyBefore.skippedNoProfile)
+				expect(earnedRows).to.equal(moneyAfter.rowsPaid - moneyBefore.rowsPaid)
+				expect(earnedRows + refused).to.equal(#sent.rows)
+				-- ...AND A BALANCE WITHOUT AN EARNING IS ALLOWED, which is the Studio case itself: a
+				-- session opens for a negative id (`Economy.load` asks no such question), so the row
+				-- carries `coins` while the pay-out refused it. The other way round is not.
+				expect(coinRows >= earnedRows).to.equal(true)
 				TestKit.note(
-					string.format("zz_drive_boundary: drive %d paid %d row(s)", before.driveNumber, #sent.rows)
+					string.format(
+						"zz_drive_boundary: drive %d sent %d row(s) -- %d paid, %d refused"
+							.. " (notAPlayer %d, left %d, noProfile %d), %d carrying a balance",
+						before.driveNumber,
+						#sent.rows,
+						earnedRows,
+						refused,
+						moneyAfter.skippedNotAPlayer - moneyBefore.skippedNotAPlayer,
+						moneyAfter.skippedLeft - moneyBefore.skippedLeft,
+						moneyAfter.skippedNoProfile - moneyBefore.skippedNoProfile,
+						coinRows
+					)
 				)
 			else
 				expect(paidAfter).to.equal(0)
