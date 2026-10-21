@@ -34,6 +34,8 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 -- piece is on that gun. The gun decides the scale, so the manifest does not carry a second copy
 -- of it -- the rule `Gun.beadOffset` and `Shape.beadOffset` already follow one layer over.
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+local LeverGeometry = require(ReplicatedStorage:WaitForChild("Lever"):WaitForChild("Geometry"))
+local SemiAutoGeometry = require(ReplicatedStorage:WaitForChild("SemiAuto"):WaitForChild("Geometry"))
 local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 -- THE HORN'S OWN GEOMETRY (task 169), for the four numbers that say how big the uploaded horn is,
 -- which way round it goes and where in the hand it sits. They live in the horn's own data file for
@@ -223,6 +225,35 @@ Assets.KEYS = table.freeze({
 	-- ACCESSORIES, worn by the experience. See their rows for why that costs nobody anything.
 	outfitVest = "outfit.vest",
 	outfitCap = "outfit.cap",
+	-- THE RED DEER (task 223). Three skinned models, and ONE clip set for all three: the package's
+	-- stag, hind and calf share one armature (`Arm_Deer`, 42 bones, identical names -- MEASURED in
+	-- headless Blender on 2026-10-20), exactly as `Arm_Boar` is shared by the male, the sow and the
+	-- cub. So the eleven publishes below are 1x and not 3x.
+	deerStag = "deer.stag",
+	deerHind = "deer.hind",
+	deerCalf = "deer.calf",
+	-- THE ELEVEN CLIP KEYS HAVE NO ROWS YET, AND THAT IS NOT AN OVERSIGHT -- it is the same honest
+	-- state the boar's ten were in between tasks 115 and 116, for the same unchanged reason: an
+	-- animation asset id can ONLY be made inside Studio (see the boar's block above; Open Cloud's
+	-- Assets API takes an Animation only as a `.rbxm`/`.rbxmx` "edited inside Roblox Studio", and
+	-- `AssetService:CreateAssetAsync` answered "not available yet" when it was tried here on
+	-- 2026-10-03). `tools/boar_prep.py` wrote one FBX per clip under the prep run's `clips/`, which
+	-- is what the Animation Editor's "Import -> From FBX Animation" takes, one at a time.
+	--
+	-- `ESCALATE.md`'s **NEEDS KAREN 223** entry is those eleven clicks, in order. Until each lands,
+	-- `Assets.byKey` answers nil, `Body.hasClip` is false, `trackFor` returns nil, and the deer
+	-- STANDS AND SLIDES -- which is honest, is tested, and is the precedent.
+	deerIdle = "deer.anim.idle",
+	deerWalk = "deer.anim.walk",
+	deerTrot = "deer.anim.trot",
+	deerRun = "deer.anim.run",
+	deerTurnLeft = "deer.anim.turn.left",
+	deerTurnRight = "deer.anim.turn.right",
+	deerDeathLeft = "deer.anim.death.left",
+	deerDeathRight = "deer.anim.death.right",
+	deerHitFront = "deer.anim.hit.front",
+	deerHitBack = "deer.anim.hit.back",
+	deerSmell = "deer.anim.calm.smell",
 })
 
 -- WHICH KINDS `Loader` CAN TURN INTO AN INSTANCE, and therefore which ones `keysFor` may hand a boot
@@ -348,6 +379,48 @@ local MODEL_B_LICENCE = {
 -- trademarks printed on it. The scope's maker name, its "Made in Austria" line and serial, its two
 -- bird logos and the stock's gold double-R monogram were painted out of the base colour atlas before
 -- anything was uploaded. `CREDITS.md` records exactly what was changed, as the licence asks.
+-- THE LEVER RIFLE'S LICENCE (task 224), AND IT IS THE BOAR'S WORD FOR WORD with a new attribution:
+-- Karen bought this model on Fab exactly as she bought the boar and the red deer, so it is used
+-- under the same grant and this row records it the same way (Director decision, 2026-10-20).
+--
+-- THE TIER IS NOT NAMED, AND THAT IS DELIBERATE. The dispatch said "Standard Licence (Personal
+-- tier)"; neither the boar's row nor the deer's names a tier, the download Karen handed over ships
+-- NO licence file at all (checked: the FBX, the OBJ and every entry of `additional_files.zip`), and
+-- nothing this machine can reach is Karen's purchase record. So this row says what the other two
+-- say and no more -- a tier written down because it was dictated would be a record of a sentence
+-- rather than a record of a purchase.
+--
+-- THE SAME CAVEAT IS INHERITED VERBATIM, for the reason the boar's row gives: **fab.com/eula answers
+-- 403 to this machine's fetch tool**, so the quote came through a web search on 2026-10-03 and says
+-- so rather than pretending the page was read. The two conditions that matter are met either way:
+-- the binary is never committed (`.rbxm` is banned outright) and nothing is distributed standalone
+-- -- what reaches Roblox is three meshes inside Karen's own account, used by her own place.
+local LEVER_LICENCE = {
+	basis = "fab-standard",
+	quote = 'A "Standard License" grants you a non-exclusive and non-transferable license to '
+		.. "privately use, reproduce, display, perform, and modify the Content in accordance with "
+		.. "the terms of this Agreement. [...] you may not Distribute Content on a standalone basis "
+		.. "to third parties except to your collaborators",
+	quotedFrom = "fab.com/eula, read through a web search on 2026-10-03; the page itself answers 403 "
+		.. "to this machine (see `BOAR_LICENCE`'s own comment below)",
+	readOn = "2026-10-20",
+	attribution = 'Lever-action rifle model: "Lever action rifle" by Jeick, bought on Fab '
+		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-20",
+}
+
+local SEMIAUTO_LICENCE = {
+	basis = "fab-standard",
+	quote = 'A "Standard License" grants you a non-exclusive and non-transferable license to '
+		.. "privately use, reproduce, display, perform, and modify the Content in accordance with "
+		.. "the terms of this Agreement. [...] you may not Distribute Content on a standalone basis "
+		.. "to third parties except to your collaborators",
+	quotedFrom = "fab.com/eula, read through a web search on 2026-10-03; the page itself answers 403 "
+		.. "to this machine (see `BOAR_LICENCE`'s own comment below)",
+	readOn = "2026-10-20",
+	attribution = 'Semi-automatic shotgun model: "Semi-Automatic Shotgun" by PStudio, bought on Fab '
+		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-20",
+}
+
 local RIGBY_LICENCE = {
 	basis = "cc-by-4.0",
 	quote = "Model License: license type: CC-BY-4.0 "
@@ -417,6 +490,22 @@ local BOAR_LICENCE = {
 	readOn = "2026-10-03",
 	attribution = 'Wild boar models and animations: "Boar Family" by RedDeer, bought on Fab '
 		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-03",
+}
+
+-- THE RED DEER'S LICENCE (task 223), and it is the boar's one word for word with a new attribution:
+-- the same seller, the same shop, the same Fab Standard License, bought on 2026-10-20. The caveat is
+-- inherited verbatim and deliberately -- **fab.com/eula answers 403 to this machine's fetch tool**,
+-- so the quote below came through a web search on 2026-10-03 and says so rather than pretending the
+-- page was read. The two conditions that matter are met either way: the binary is never committed
+-- (`.rbxm` is banned outright) and nothing is distributed standalone -- what reaches Roblox is an
+-- asset inside Karen's own account, used by her own place.
+local DEER_LICENCE = {
+	basis = "fab-standard",
+	quote = BOAR_LICENCE.quote,
+	quotedFrom = BOAR_LICENCE.quotedFrom,
+	readOn = BOAR_LICENCE.readOn,
+	attribution = 'Red deer models and animations: "Red Deer Family" by RedDeer, bought on Fab '
+		.. "(https://www.fab.com) under the Fab Standard License on 2026-10-20",
 }
 
 Assets.ROWS = {
@@ -2215,6 +2304,297 @@ Assets.ROWS = {
 			.. "the name, the 'Made in Austria' line, the serial and both bird logos -- is painted out "
 			.. "of the atlas; the magnification numerals are generic and were kept.",
 	},
+	-- ------------------------------------------------- the lever rifle (task 224)
+	--
+	-- THREE GROUPS OF ONE GUN, and every one of them carries the WHOLE gun's bounding box: the anchor
+	-- triangles `tools/gltf_split.py` adds at the model's opposite corners, so all three import at one
+	-- size and one origin and assemble at ONE CFrame with no measured per-piece offset. That is why
+	-- every row below has the same `sizeStuds`, the same zero offset and the same rotation.
+	--
+	-- THREE AND NOT THE RIGBY'S FOUR, because there is no scope to take off: this rifle's sights are
+	-- iron, they are on its Picatinny rail, and the rail and both sights are inside the `action`
+	-- group. Nothing is drawn by the geometry to make up for a missing part -- which is the first
+	-- time that has been true of a gun in this repo.
+	--
+	-- 4.0 STUDS, not the other two guns' 4.4: a Marlin 1895 is about 40.5 inches where a Rigby and a
+	-- Beretta 486 are both about 45. `naturalSizeStuds` is the split report's own box at 100x.
+	--
+	-- THE SAME TWO TURNS EVERY GROUP NEEDS (`Gun.MESH_ROTATION_DEG`): the splitter writes the muzzle
+	-- at the file's +X and the Blender export plus the Roblox import reverse the model along its own
+	-- long axis (task 107, measured on screen).
+	{
+		key = "lever.action",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 125504731571254,
+		displayName = "Driven Hunt lever rifle action r1",
+		fileName = "model.fbx",
+		sourceSha256 = "d6eec2651ad84939776b6ab31619884a08c13a4802c839a0daa5503a0e4ec598",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = LEVER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 8258,
+		texturePx = 1024,
+		sizeStuds = LeverGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(400.0, 81.75, 20.92),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, LeverGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The receiver, the barrel, the Picatinny rail with BOTH IRON SIGHTS on it, the "
+			.. "magazine tube and its cap, the fore-end, both sling swivels, the trigger, the hammer, "
+			.. "the breech bolt and the loading gate -- everything that does not move. Looked at "
+			.. "before it was called done (render_side.png, render_three-quarter.png): a stainless "
+			.. "receiver with a long thin barrel, the tube under it, the rail's slots legible and a "
+			.. "brass front bead at the muzzle. DECIMATED 13,705 -> 8,258, which is the Rigby action's "
+			.. "own count -- the rail slots and the receiver's panel lines survive it (looked at). The "
+			.. "artist's four maps at 1024, the packed metal/rough split into the two single-channel "
+			.. "maps Roblox reads, metalness written down to 0.10 and roughness to 0.47 so the steel "
+			.. "does not mirror the sky; NO base colour was recoloured.",
+	},
+	{
+		key = "lever.stock",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 95062328289891,
+		displayName = "Driven Hunt lever rifle stock r1",
+		fileName = "model.fbx",
+		sourceSha256 = "7f72ea204fcf65287954329937865d4df51632ea98ad8a9f4de03192a3c47278",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = LEVER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 3208,
+		texturePx = 1024,
+		sizeStuds = LeverGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(400.0, 81.75, 20.92),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, LeverGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The butt stock, its butt plate and the rear sling swivel, in one piece, near-native "
+			.. "at 3,208 triangles. Looked at (render_three-quarter.png): GREY LAMINATE with its "
+			.. "layering visible, which is what an 1895 SBL wears -- not walnut. That is also why "
+			.. "asset_prep classified the whole group as `steel` and reported `wood 0`: the pixels are "
+			.. "below the recipe's saturation floor, so the shine written was metalness 0.10 and "
+			.. "roughness 0.54 instead of wood's 0.00 and 0.22 -- LESS shine, not more.",
+	},
+	{
+		key = "lever.lever",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 85657989123623,
+		displayName = "Driven Hunt lever rifle lever r1",
+		fileName = "model.fbx",
+		sourceSha256 = "f42f273bbddc886c7ec0499f4c981f9b7c03a7abd4a24f7ed48859cf08bfd1a5",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = LEVER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 578,
+		texturePx = 1024,
+		sizeStuds = LeverGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(400.0, 81.75, 20.92),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, LeverGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "THE PIECE THAT MOVES: the large-loop finger lever, which on a Marlin IS the trigger "
+			.. "guard -- which is why the bought file has no separate guard node. Which node that was "
+			.. "is a MEASUREMENT and not a name: the file calls it `Trigger frame` and calls the "
+			.. "breech bolt `Bolt action`, and the geometry settles it (the loop hangs 0.41 studs "
+			.. "below the receiver and sweeps back under the wrist). Looked at "
+			.. "(render_three-quarter.png): unmistakably a large-loop lever with its pivot plate. Its "
+			.. "own previews are otherwise near-blank, because a 0.66-stud part inside a 4.0-stud "
+			.. "anchor box is a speck -- so this group is judged in Studio, not here.",
+	},
+	-- ------------------------------------------------- the semi-automatic shotgun (task 225)
+	--
+	-- SIX GROUPS OF ONE GUN, and every one of them carries the WHOLE gun's bounding box: the anchor
+	-- triangles `tools/gltf_split.py` adds at the model's opposite corners, so all six import at one
+	-- size and one origin and assemble at ONE CFrame with no measured per-piece offset. That is why
+	-- every row below has the same `sizeStuds`, the same zero offset and the same rotation.
+	--
+	-- THE SIX `trisDeclared` SUM TO 8,736 AND THE MODEL HAS 8,724, and the 12 are not a
+	-- discrepancy: `gltf_split` adds TWO anchor triangles to every group (the whole gun's
+	-- bounding box, which is what lets all six import at one size and one origin). Six groups,
+	-- two each. `trisDeclared` is what the FILE holds, so it counts them.
+	--
+	-- SIX AND NOT THE LEVER'S THREE, and not one of the six is a preference. THREE of the splits are
+	-- forced by MATERIAL -- this model carries three where the Marlin carried one, and `gltf_split`
+	-- refuses a group spanning two because one MeshPart is one material. TWO are forced by MOTION:
+	-- the bolt cycles on a shot and the shell lifter rises on a reload, on two different sequences,
+	-- so neither can be welded into the body. The sixth is the stock, kept apart for its silhouette
+	-- exactly as both rifles keep theirs.
+	--
+	-- 4.9 STUDS, THE LONGEST GUN IN THE GAME, and it is a fact about the gun: the scale was anchored
+	-- on the 710 mm BARREL, which then put the overall length at 1254 mm against a published 1250
+	-- and the receiver at 37.7 mm against 38. `naturalSizeStuds` is the split report's own box at
+	-- 100x.
+	--
+	-- THE SAME TWO TURNS EVERY GROUP NEEDS (`Gun.MESH_ROTATION_DEG`): the splitter writes the muzzle
+	-- at the file's +X and the Blender export plus the Roblox import reverse the model along its own
+	-- long axis (task 107, measured on screen).
+	{
+		key = "semiauto.action",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 134412465352047,
+		displayName = "Driven Hunt semi-auto shotgun action r1",
+		fileName = "model.fbx",
+		sourceSha256 = "4699a5ddd97dcf53f46330714f524690fac859ae091c853ee17bcf8dca18f3d7",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 2402,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The receiver, the Picatinny rail, the trigger guard, the trigger and the bolt-release button -- "
+			.. "everything in the body that does not move. Worn as `Model`, so this is the piece that decides "
+			.. "whether the gun counts as dressed. Looked at before it was called done "
+			.. "(render_three-quarter.png): a blued receiver with the ejection port cut through it, the rail's "
+			.. "slots legible along the top and the guard hanging under it. Near-native at 2,402 triangles -- "
+			.. "NOTHING on this gun was decimated, because its worst group is 2,802 against the Rigby action's "
+			.. "8,258.",
+	},
+	{
+		key = "semiauto.barrel",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 82992193600284,
+		displayName = "Driven Hunt semi-auto shotgun barrel r1",
+		fileName = "model.fbx",
+		sourceSha256 = "e8f53ac3394d819464d79f4554c6a2191a0f23f53c9bf72fe0826aa64efa5eba",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 2804,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The barrel with its vent rib, the fore-end over the gas system, and the magazine cap. ONE GROUP "
+			.. "BECAUSE IT IS ONE MATERIAL: this model carries three where the Marlin carried one, and "
+			.. "`gltf_split` refuses a group that spans two -- one MeshPart is one material. Looked at "
+			.. "(render_three-quarter.png): a long blued tube with the rib visible down it and a WALNUT fore-end "
+			.. "under its rear half, which is the silhouette that separates this gun from the two rifles.",
+	},
+	{
+		key = "semiauto.stock",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 103838194748917,
+		displayName = "Driven Hunt semi-auto shotgun stock r1",
+		fileName = "model.fbx",
+		sourceSha256 = "8da1e3d3a813cd593b6969fddba2c9f70dff7ccf8ab7c3dd8b3f970719631e26",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 1064,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The butt stock, in one piece, near-native at 1,064 triangles. Looked at "
+			.. "(render_three-quarter.png): WALNUT with its grain visible, not the lever's grey laminate -- "
+			.. "which is why `SemiAuto.CONFIG.LOOK.wood` is a warm brown sampled off this preview where the "
+			.. "lever's is grey.",
+	},
+	{
+		key = "semiauto.bolt",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 115920287287204,
+		displayName = "Driven Hunt semi-auto shotgun bolt r1",
+		fileName = "model.fbx",
+		sourceSha256 = "478155cfab78abe31634eb22a0cae9f9ad35c946520acb8d1582bdb0a990be94",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 636,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "THE PIECE THAT MOVES ON A SHOT: the bolt and its charging handle. Which node that was is a "
+			.. "MEASUREMENT and not a name -- the bought file carries NO rig and no useful names at all (every "
+			.. "node is `shotgun.0NN`) -- so it was found by geometry and then confirmed by eye: it is the only "
+			.. "node visible from BOTH flanks, filling the ejection port on the right and seen from underneath "
+			.. "through the loading port. Looked at (render_three-quarter.png): BARE STEEL, much brighter than "
+			.. "the blued receiver it sits in, which is a gift -- this is the piece a player watches travel.",
+	},
+	{
+		key = "semiauto.lifter",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 86845514924224,
+		displayName = "Driven Hunt semi-auto shotgun lifter r1",
+		fileName = "model.fbx",
+		sourceSha256 = "9de9cb4245660b32f28eb515ae1140e903ee61889f2654b1e5a2f41dc7a89c5e",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 250,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "THE PIECE THAT MOVES ON A RELOAD: the shell lifter in the loading port, and the first SECOND "
+			.. "moving group any gun in this repo has had. Found by geometry like the bolt -- a tray 0.044 studs "
+			.. "thick at the receiver's floor, 0.34 long -- and confirmed from the underside frame, where it is "
+			.. "the tray in the port with the bolt visible above it. Its OWN previews are near-blank, because a "
+			.. "250-triangle part inside a 4.9-stud anchor box is a speck, so this group is judged in Studio and "
+			.. "not here.",
+	},
+	{
+		key = "semiauto.sight",
+		version = 1,
+		kind = "meshpart" :: Kind,
+		modelId = 119945589301201,
+		displayName = "Driven Hunt semi-auto shotgun sight r1",
+		fileName = "model.fbx",
+		sourceSha256 = "b88bfb93f7dbee86f4fdbaf0cc78779fc1d936cf4a5352dee25195549cd6eb7d",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = SEMIAUTO_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 1580,
+		texturePx = 1024,
+		sizeStuds = SemiAutoGeometry.MESH_SIZE_STUDS,
+		naturalSizeStuds = Vector3.new(490.0, 78.17, 21.65),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.new(0, SemiAutoGeometry.MESH_ROTATION_DEG, 0),
+		renderFidelity = "Automatic",
+		notes = "The red-dot sight on the rail. Its own material, which is one of the three reasons the split has "
+			.. "six groups. THE ARTIST'S EMISSIVE AND OPACITY MAPS ARE DELIBERATELY NOT UPLOADED: "
+			.. "`SurfaceAppearance` has four channels -- ColorMap, NormalMap, MetalnessMap, RoughnessMap -- and "
+			.. "NO emission, so an emissive map would render as nothing at all. The DOT is drawn instead, as a 3 "
+			.. "mm `Neon` ball at this sight's own measured optical centre (`SemiAuto.Geometry.beadOffset`).",
+	},
 	-- ------------------------------------------------- the beater kit (task 151, round 2)
 	--
 	-- THE FIRST TWO ROWS IN THIS MANIFEST THAT NOBODY UPLOADED AND NOBODY BOUGHT. They are ordinary
@@ -2373,6 +2753,114 @@ Assets.ROWS = {
 			.. "Roblox reads, metalness written down to 0.10 and roughness to 0.50 so it does not "
 			.. "mirror the sky; NO base colour was recoloured, and the two material slots over one "
 			.. "texture set were collapsed into one.",
+	},
+	-- ------------------------------------------------- the red deer (task 223)
+	--
+	-- KAREN, 2026-10-20: *"I will buy red tag deer"*, then the upload OK, verbatim `"yes"`, to *"may
+	-- I upload the Red Deer models and their animations to Roblox (your account, private use in this
+	-- game, never shared)?"*. Her words and the moderation state for all three are in
+	-- `assets/uploads.json`; the bought FBX, its 650 MB of textures and everything
+	-- `tools/boar_prep.py` wrote live OUTSIDE the repository and are never committed.
+	--
+	-- THREE MODELS, ONE RIG, ELEVEN CLIPS. All three carry `Arm_Deer` (42 bones, identical names),
+	-- so one published clip set serves all three kinds -- which is why there are three model rows
+	-- here and eleven clip KEYS with no rows, rather than thirty-three of anything.
+	--
+	-- MEASURED, not declared: every `sizeStuds` below was read off the LOADED asset in Studio on
+	-- 2026-10-20 and agrees with what `tools/boar_prep.py` re-measured on its own export to the
+	-- thousandth. Roblox's Y is the model's HEIGHT and its Z the LENGTH.
+	{
+		key = "deer.stag",
+		version = 1,
+		kind = "model" :: Kind,
+		-- ITS OWN SCOPE, NOT THE BOAR'S (design section 6.5). One `preload` call for six skinned
+		-- meshes would spend the boar's `Loader.CONFIG.PRELOAD_BUDGET_S` on the deer; two calls give
+		-- each scope its own budget, so a slow deer load cannot cost a boar its coat.
+		scope = "deer" :: string?,
+		modelId = 138123244438701,
+		displayName = "DrivenHunt Red Deer Stag",
+		fileName = "model.fbx",
+		sourceSha256 = "9ff480fe5898034f92d1313a0bc361e072a46a84e074e2e4f26e8cb8ef35d6dc",
+		source = "creator-store" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = DEER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 14652,
+		texturePx = 1024,
+		sizeStuds = Vector3.new(3.4670, 7.9200, 7.0500),
+		naturalSizeStuds = Vector3.new(3.4670, 7.9200, 7.0500),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "THE STAG, 7.05 STUDS FROM NOSE TO TAIL. His Y of 7.920 is ANTLER HEIGHT and not "
+			.. "length, and that is the one number that would silently have made him a 7.9-stud "
+			.. "animal: the FIRST prep run on 2026-10-20 took the tool's default longest-axis rule, "
+			.. "measured 2.2187 m on the antlers and baked the body to 6.275 instead. The run was "
+			.. "thrown away and tools/boar_prep.py's SPECIES row now PINS the length axis for the "
+			.. "deer, with its selftest asserting both directions.",
+	},
+	{
+		key = "deer.hind",
+		version = 1,
+		kind = "model" :: Kind,
+		-- ITS OWN SCOPE, NOT THE BOAR'S (design section 6.5). One `preload` call for six skinned
+		-- meshes would spend the boar's `Loader.CONFIG.PRELOAD_BUDGET_S` on the deer; two calls give
+		-- each scope its own budget, so a slow deer load cannot cost a boar its coat.
+		scope = "deer" :: string?,
+		modelId = 100004057120478,
+		displayName = "DrivenHunt Red Deer Hind",
+		fileName = "model.fbx",
+		sourceSha256 = "f63b9dd08b4d78e79399d5a0088dceae7540e15a2dc379ab06afc5b74a247761",
+		source = "creator-store" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = DEER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 12342,
+		texturePx = 1024,
+		sizeStuds = Vector3.new(2.0080, 5.1010, 6.0300),
+		naturalSizeStuds = Vector3.new(2.0080, 5.1010, 6.0300),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "THE HIND, 6.03 STUDS -- 0.8553 of the stag, which is the boar sow's own number "
+			.. "to four decimals and is a COINCIDENCE of two independent measurements rather than a "
+			.. "shared constant. Her clip ground speeds agree with the stag's to four decimals on "
+			.. "all four locomotion clips, so her stride is one number: clipScale 0.900.",
+	},
+	{
+		key = "deer.calf",
+		version = 1,
+		kind = "model" :: Kind,
+		-- ITS OWN SCOPE, NOT THE BOAR'S (design section 6.5). One `preload` call for six skinned
+		-- meshes would spend the boar's `Loader.CONFIG.PRELOAD_BUDGET_S` on the deer; two calls give
+		-- each scope its own budget, so a slow deer load cannot cost a boar its coat.
+		scope = "deer" :: string?,
+		modelId = 75215560041836,
+		displayName = "DrivenHunt Red Deer Calf",
+		fileName = "model.fbx",
+		sourceSha256 = "2e5157194cce19dc0335510f466e7c898acb3b4329e4725cedaea88ce4903f21",
+		source = "creator-store" :: Source,
+		creator = "8167651842", -- Karen, who is also the place owner: LoadAsset needs LoadOwnedAsset
+		licence = DEER_LICENCE,
+		added = "2026-10-20",
+		moderation = "approved" :: Moderation,
+		trisDeclared = 12200,
+		texturePx = 1024,
+		sizeStuds = Vector3.new(1.2340, 3.4810, 3.4900),
+		naturalSizeStuds = Vector3.new(1.2340, 3.4810, 3.4900),
+		offsetStuds = Vector3.zero,
+		rotationDeg = Vector3.zero,
+		renderFidelity = "Automatic",
+		bakedScale = true,
+		notes = "THE CALF, 3.49 STUDS. Shooting one is a PENALTY -- Match.CONFIG.POINTS.KIND.calf "
+			.. "is -10, the same rule the piglet has carried since task 170. Its clip ground speeds "
+			.. "do NOT scale uniformly against the stag's (walk 0.674, trot 0.610, run 1.029, turn "
+			.. "0.488): this package gave the calf its own bounding gallop. clipScale is the walk's, "
+			.. "because the gait bands are built on the walk clip; see Boar.CONFIG.KINDS.calf.",
 	},
 } :: { AssetRow }
 

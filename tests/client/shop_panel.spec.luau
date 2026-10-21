@@ -40,6 +40,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
+local Money = require(ReplicatedStorage:WaitForChild("Money"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -254,17 +255,21 @@ return function()
 			expect(Panel.titleText()).to.equal(Shop.CONFIG.TEXT.TITLE)
 			-- THE WALLET IS TWO NUMBERS IN TWO PILLS: the captions are their own labels, so there is
 			-- no sentence to format and `TEXT.BALANCE` is gone.
-			expect(Panel.walletText()).to.equal("300|30")
+			expect(Panel.walletText()).to.equal("$300|30")
 
-			-- THE SHELVES, IN THE DIRECTOR'S OWN ORDER: Weapons, Ammo, Licences, Clothing.
+			-- THE SHELVES, IN THE DIRECTOR'S OWN ORDER, and FIVE drawn of six declared since task
+			-- 221: CLOTHING holds only the RETIRED red hat, and `Shop.groups` drops an empty shelf
+			-- rather than drawing a header with nothing under it.
 			-- ...AND THEY ARE LETTER-SPACED, because Roblox `TextLabel` has no tracking property and
 			-- the Designer's 10 px uppercase labels need it: `spaced("WEAPONS")` is "W E A P O N S".
 			local shelves = Panel.headerText()
-			expect(#shelves).to.equal(4)
+			expect(#shelves).to.equal(5)
 			expect(shelves[1]).to.equal(Panel.spaced("WEAPONS"))
 			expect(shelves[2]).to.equal(Panel.spaced("AMMO"))
 			expect(shelves[3]).to.equal(Panel.spaced("LICENCES"))
-			expect(shelves[4]).to.equal(Panel.spaced("CLOTHING"))
+			expect(shelves[4]).to.equal(Panel.spaced("ACCESS"))
+			-- PACKAGES LAST, which is Karen's own *"we can ALSO make a few packages"*.
+			expect(shelves[5]).to.equal(Panel.spaced("PACKAGES"))
 			expect(Panel.spaced("AMMO")).to.equal("A M M O")
 
 			local lines = Panel.rowText()
@@ -272,18 +277,33 @@ return function()
 			-- EVERY ROW IS ON SCREEN and each says its name and its price or its badge.
 			-- A ROW IS `NAME|PRICE|TAG`: the name, the number (the coin is a Frame beside it), and the
 			-- one tag that answers *"can I buy this?"* without a click.
-			expect(lineFor(Shop.ITEM.HAT_RED)).to.equal("RED HAT|80|")
+			-- THE PRICE CARRIES A `$` SINCE TASK 221, everywhere a player reads one.
+			-- HIGH SEAT ACCESS is $600 and his wallet is $300, so the row says HOW SHORT he is --
+			-- *"the affordability signal is never colour alone"*.
+			expect(lineFor(Shop.ITEM.HIGH_SEAT)).to.equal(
+				string.format("HIGH SEAT ACCESS|$600|%s", string.format(Shop.CONFIG.TEXT.ROW_POOR_TAG, Money.text(300)))
+			)
 			-- The slug is owned, so it wears the OWNED chip.
-			expect(lineFor(Shop.ITEM.SLUG)).to.equal(string.format("SLUG SHELLS|120|%s", Shop.CONFIG.TEXT.OWNED_TAG))
-			-- NOTHING IS "SOON" ANY MORE (task 196): Karen removed the open-sighted rifle's row, which
-			-- was the only one in the catalogue that was shown and never sold.
+			expect(lineFor(Shop.ITEM.SLUG)).to.equal(string.format("SLUG SHELLS|$120|%s", Shop.CONFIG.TEXT.OWNED_TAG))
+			-- ...AND THE DEER LICENCE IS A ROW LIKE ANY OTHER SINCE TASK 223. It was "SOON" in task
+			-- 221 because there was no deer; Karen bought one on 2026-10-20, so the card went on
+			-- sale in the same commit as the animal and this player is $450 short of it.
+			expect(lineFor(Shop.ITEM.RED_STAG)).to.equal(
+				string.format("DEER LICENCE|$750|%s", string.format(Shop.CONFIG.TEXT.ROW_POOR_TAG, Money.text(450)))
+			)
+			-- ...AND NOTHING IS ANNOUNCED-AND-UNSELLABLE ANY MORE. `SOON_TAG` stays for the next
+			-- rung announced before it ships; `shop.spec` is what proves the mechanism still bites.
+			local soon = 0
 			for _, line in ipairs(lines) do
-				expect(string.find(line, Shop.CONFIG.TEXT.SOON_TAG, 1, true)).to.equal(nil)
+				if string.find(line, Shop.CONFIG.TEXT.SOON_TAG, 1, true) ~= nil then
+					soon += 1
+				end
 			end
+			expect(soon).to.equal(0)
 			-- The scoped rifle: 30 hunts is enough, 300 coins is not, so the tag says HOW SHORT he is
 			-- -- *"the affordability signal is never colour alone"*.
 			expect(lineFor(Shop.ITEM.RIFLE)).to.equal(
-				string.format("RIFLE, SCOPED|1500|%s", string.format(Shop.CONFIG.TEXT.ROW_POOR_TAG, 1200))
+				string.format("RIFLE, SCOPED|$1500|%s", string.format(Shop.CONFIG.TEXT.ROW_POOR_TAG, Money.text(1200)))
 			)
 			-- ...and the status line carries the caveat, while nothing has been refused.
 			expect(Panel.statusText()).to.equal(Shop.CONFIG.TEXT.HINT)
@@ -295,10 +315,10 @@ return function()
 			-- THE TAG IS A PROGRESS AND NOT A GATE (the Designer's spec, 5): `2 / 3` says both how
 			-- many he needs and how many he has walked.
 			expect(lineFor(Shop.ITEM.BEATER_LICENCE)).to.equal(
-				string.format("BEATER LICENCE|250|%s", string.format(Shop.CONFIG.TEXT.ROW_LOCK_TAG, 2, 3))
+				string.format("BEATER LICENCE|$250|%s", string.format(Shop.CONFIG.TEXT.ROW_LOCK_TAG, 2, 3))
 			)
 			expect(lineFor(Shop.ITEM.RIFLE)).to.equal(
-				string.format("RIFLE, SCOPED|1500|%s", string.format(Shop.CONFIG.TEXT.ROW_LOCK_TAG, 2, 25))
+				string.format("RIFLE, SCOPED|$1500|%s", string.format(Shop.CONFIG.TEXT.ROW_LOCK_TAG, 2, 25))
 			)
 		end)
 
@@ -316,7 +336,7 @@ return function()
 			expect(pane.name).to.equal("SLUG SHELLS")
 			-- THE PRICE IS A NUMBER AND THE UNIT IS ITS OWN CAPTION, which is what lets Oswald's
 			-- figures be the biggest thing on the line.
-			expect(pane.price).to.equal("120")
+			expect(pane.price).to.equal("$120")
 			-- THE EYEBROW IS THE SHELF IT CAME OFF, letter-spaced by the panel's own helper.
 			expect(pane.eyebrow).to.equal(Panel.spaced("AMMO"))
 			-- THE EXPLANATION IS THE SERVER'S OWN WORDS, verbatim: the panel does not write prose.
@@ -324,17 +344,17 @@ return function()
 			expect(#pane.blurb > 40).to.equal(true)
 			-- THE BUTTON CARRIES THE PRICE INSIDE IT: the word, a divider, a coin and the amount.
 			expect(pane.button).to.equal(Shop.CONFIG.TEXT.BUY)
-			expect(pane.amount).to.equal("120")
+			expect(pane.amount).to.equal("$120")
 
 			-- A SECOND CLICK MOVES THE WHOLE PAGE, not half of it.
 			Panel.select(Shop.ITEM.RIFLE)
 			local second = Panel.detailText()
 			expect(second.name).to.equal("RIFLE, SCOPED")
-			expect(second.price).to.equal("1500")
+			expect(second.price).to.equal("$1500")
 			expect(second.blurb).to.equal(Shop.ROWS[Shop.ITEM.RIFLE].blurb)
 			-- 300 coins against 1500, and the button says the SHORTFALL rather than "no coins":
 			-- *"the number he is short is the only number that helps"*.
-			expect(second.button).to.equal(string.format(Shop.CONFIG.TEXT.POOR_BUTTON, 1200))
+			expect(second.button).to.equal(string.format(Shop.CONFIG.TEXT.POOR_BUTTON, Money.text(1200)))
 			expect(second.amount).to.equal("")
 		end)
 
@@ -361,13 +381,15 @@ return function()
 			-- BUYABLE: the word, and the price INSIDE the button (the Designer's spec, 4).
 			Panel.onState(statePayload({ owned = {}, coins = 300, hunts = 30 }))
 			Panel.setOpen(true)
-			Panel.select(Shop.ITEM.HAT_RED)
+			-- THE SLUG, because $300 buys it and HIGH SEAT ACCESS is $600: this case is about the
+			-- BUYABLE state, and an item he cannot afford would be testing the other one.
+			Panel.select(Shop.ITEM.SLUG)
 			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.BUY)
-			expect(Panel.detailText().amount).to.equal("80")
+			expect(Panel.detailText().amount).to.equal("$120")
 			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.BLAZE)
 
 			-- OWNED: "IN YOUR KIT", the pine fill, and no amount -- a thing you have has no price.
-			Panel.onState(statePayload({ owned = { [Shop.ITEM.HAT_RED] = true }, coins = 300, hunts = 30 }))
+			Panel.onState(statePayload({ owned = { [Shop.ITEM.SLUG] = true }, coins = 300, hunts = 30 }))
 			expect(Panel.detailText().button).to.equal(Shop.CONFIG.TEXT.OWNED_BUTTON)
 			expect(Panel.detailText().amount).to.equal("")
 			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.PINE_DARK)
@@ -378,7 +400,7 @@ return function()
 			-- the row was clicked cannot go stale here. The button says the SHORTFALL, because the
 			-- number he is short is the only number that helps.
 			Panel.onState(statePayload({ owned = {}, coins = 10, hunts = 30 }))
-			expect(Panel.detailText().button).to.equal(string.format(Shop.CONFIG.TEXT.POOR_BUTTON, 70))
+			expect(Panel.detailText().button).to.equal(string.format(Shop.CONFIG.TEXT.POOR_BUTTON, Money.text(110)))
 			expect(buy.BackgroundColor3).to.equal(Panel.LOOK.CLAY_DARK)
 
 			-- LOCKED: the amber fill, the hunts still to walk, and the progress drawn along the
@@ -469,8 +491,8 @@ return function()
 
 			-- ONE MODEL AT A TIME: selecting another item destroys the first rather than stacking
 			-- every item the player has ever clicked inside the viewport.
-			Panel.select(Shop.ITEM.HAT_RED)
-			expect(Panel.pictureId()).to.equal(Shop.ITEM.HAT_RED)
+			Panel.select(Shop.ITEM.BEATER_LICENCE)
+			expect(Panel.pictureId()).to.equal(Shop.ITEM.BEATER_LICENCE)
 			expect((model :: Model).Parent).to.equal(nil)
 			local models = 0
 			for _, child in ipairs((frame :: ViewportFrame):GetChildren()) do
@@ -481,10 +503,59 @@ return function()
 			expect(models).to.equal(1)
 		end)
 
+		it("has a picture for every row it sells", function()
+			-- THE DIRECTOR, 2026-10-20: *"every row the shop sells gets a display model"*. Six of
+			-- the ten rows drew nothing before this round, which is a declared fallback and still
+			-- the wrong thing for a shop window.
+			for _, id in ipairs(Shop.ORDER) do
+				expect(Display.knows(id)).to.equal(true)
+				local model = Display.build(id)
+				expect(model).to.be.ok()
+				local parts = 0
+				for _, descendant in ipairs((model :: Model):GetDescendants()) do
+					if descendant:IsA("BasePart") then
+						parts += 1
+					end
+				end
+				-- A MODEL WITH ONE PART IS A BLOCK, not a drawing: every existing item is at least
+				-- three, and so is every new one.
+				expect(parts >= 3).to.equal(true)
+				expect((model :: Model).PrimaryPart).to.be.ok();
+				(model :: Model):Destroy()
+			end
+			-- A PACKAGE DRAWS ITS OWN CONTENTS, through the same per-item builder -- so it can
+			-- never show something it does not contain.
+			local season = Display.build(Shop.ITEM.BUNDLE_SEASON)
+			expect(season).to.be.ok()
+			local drawn = 0
+			for _, covered in ipairs(Shop.ROWS[Shop.ITEM.BUNDLE_SEASON].covers) do
+				if Display.knows(covered) then
+					drawn += 1
+				end
+			end
+			-- Every covered row is drawable, so the board carries one model each.
+			expect(drawn).to.equal(#Shop.ROWS[Shop.ITEM.BUNDLE_SEASON].covers)
+			local children = 0
+			for _, child in ipairs((season :: Model):GetChildren()) do
+				if child:IsA("Model") then
+					children += 1
+				end
+			end
+			expect(children).to.equal(drawn);
+			(season :: Model):Destroy()
+			-- ...AND AN ID THE CATALOGUE DOES NOT HAVE STILL DRAWS NOTHING, which is the stated
+			-- fallback and the reason the panel has words for it.
+			expect(Display.knows("no.such.row")).to.equal(false)
+			expect(Display.build("no.such.row")).to.equal(nil)
+		end)
+
 		it("turns the picture while the panel is open and stands still while it is shut", function()
 			Panel.onState(statePayload())
 			Panel.setOpen(true)
-			Panel.select(Shop.ITEM.HAT_RED)
+			-- THE SLUG BOX, because its view is the plain SPINNING one: the licence CARD rocks
+			-- instead (`ShopDisplay.viewFor`), and this case measures the spin against
+			-- `spinDegAt(t, nil)`.
+			Panel.select(Shop.ITEM.SLUG)
 			local camera = (Panel.viewportFrame() :: ViewportFrame).CurrentCamera :: Camera
 			Panel.step(0)
 			local first = camera.CFrame.Position
@@ -564,10 +635,10 @@ return function()
 		it("says what the server said about the last press, and then goes back to the hint", function()
 			Panel.setOpen(true)
 			Panel.onState(statePayload({ refused = Shop.REASON.POOR, refusedNumber = 1200 }), 100)
-			expect(Panel.statusText()).to.equal("YOU NEED 1200 COINS")
+			expect(Panel.statusText()).to.equal("YOU NEED $1200")
 			-- ...and a purchase says what it bought, by its own label.
-			Panel.onState(statePayload({ bought = Shop.ITEM.HAT_RED }), 100)
-			expect(Panel.statusText()).to.equal(string.format(Shop.CONFIG.TEXT.BOUGHT, "RED HAT"))
+			Panel.onState(statePayload({ bought = Shop.ITEM.HIGH_SEAT }), 100)
+			expect(Panel.statusText()).to.equal(string.format(Shop.CONFIG.TEXT.BOUGHT, "HIGH SEAT ACCESS"))
 			-- THE ONE MESSAGE SLOT TAKES ITS COLOUR FROM WHAT IT IS SAYING (the Designer's spec, 4):
 			-- green for the receipt, clay for the refusal, faint for the caveat.
 			expect(Panel.statusColorFor("BOUGHT: X", "bought", 100, 100)).to.equal(Panel.LOOK.PINE_TEXT)
@@ -588,7 +659,8 @@ return function()
 			Panel.onState(statePayload({ owned = { [Shop.ITEM.SLUG] = true }, coins = 300, hunts = 30 }))
 			Panel.setOpen(true)
 			local before = Panel.stats().sent
-			Panel.select(Shop.ITEM.HAT_RED)
+			-- THE BEATER LICENCE: $250 of his $300, and 30 hunts past its gate of 3.
+			Panel.select(Shop.ITEM.BEATER_LICENCE)
 			expect(Panel.pressSelected()).to.equal(true)
 			expect(Panel.stats().sent).to.equal(before + 1)
 			-- The slug is already owned: nothing is sent and the panel says why, out of the SAME wire

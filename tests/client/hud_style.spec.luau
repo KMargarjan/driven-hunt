@@ -28,6 +28,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- The drive's own contract, for the two strings this file asserts are NOT on the status bar.
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+local Money = require(ReplicatedStorage:WaitForChild("Money"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -818,7 +819,7 @@ return function()
 			-- the LIVE bar, so it is valid in whatever phase the run happens to be in -- the shape
 			-- `hud_clarity.spec`'s own live case uses, and the reason it needs no phase arranged.
 			local text = Hud.driveBarText()
-			expect(string.find(text, Drive.CONFIG.SCORE_COINS_UNKNOWN, 1, true)).to.equal(nil)
+			expect(string.find(text, Money.UNKNOWN, 1, true)).to.equal(nil)
 			expect(string.find(text, "nil", 1, true)).to.equal(nil)
 			-- ...and the words are the chips' own: whatever is drawn is in it, and nothing else is.
 			local bar = Hud.gui():FindFirstChild("DriveBar") :: Frame

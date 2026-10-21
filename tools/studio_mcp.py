@@ -500,8 +500,20 @@ Feature flags, and the two checks they add (Task 52)
                               from the server, or from a client with `client` / `client:Player2`,
                               through the same studio_for_role classification `capture` uses. This is
                               how the Director confirms the session is the intended one.
+    ... --place dev|forest|<id>  WHICH PLACE, for every one of them. Default: the DEV place.
   set/clear are Edit-only because the server resolves flags ONCE, at boot: a write into a running
   session would never be read, and an invisible write is a lie about what was tested.
+
+  AND EVERY WRITE IS PINNED TO A PLACE ID, NOT TO A MODE (Task 226). `set`, `clear` and the table
+  resolve their Studio with `studio_for_place` -- each connected Studio is asked for its
+  `game.PlaceId` and the answer must match -- print that id and the place's own name before
+  touching anything, REFUSE (exit 2, nothing written) when the place asked for is not connected,
+  and dump the whole attribute set of that place to <runs-dir>/attr-*.log first so a restore has a
+  BEFORE picture to diff against. It used to be `studio_for_role(studio, "edit")`, "the first
+  Studio in Edit mode", and on 2026-10-21 that cleared four of the six DHFlag_* attributes out of
+  Karen's Forest Test place: both open places are editors, so the mode distinguishes nothing, and
+  StudioMCP's listing happened to hold only hers. The full story is above `place_of`; `selftest`
+  case 9d drives all four cases against a scripted two-place StudioMCP.
 
   EVERY CALL AFTER THE CLICK IS SCOPED (Task 52, after a 2-player run whose every spec passed then
   died in verdict()). StudioMCP refuses any tool call that names no studio_id as soon as more than
@@ -513,8 +525,8 @@ Feature flags, and the two checks they add (Task 52)
   builds its own arguments) scopes anything that names nothing to the editor -- which is where
   every Edit-mode call in this file means to go. An explicit studio_id always wins, and
   `list_roblox_studios` is never scoped, because "which Studios exist" is not a question about one
-  of them. `flags` does the same through `studio_for_role(studio, "edit")`, since `flags clear` is
-  most wanted exactly while a session is still open.
+  of them. `flags` scopes the same way, since `flags clear` is most wanted exactly while a session
+  is still open -- but it resolves its editor BY PLACE ID (`studio_for_place`), never by mode.
 
   AND THE DEFAULT IS PINNED AT STARTUP FROM ANY LISTING THAT NAMES THE HARNESS PLACE, INCLUDING A
   ONE-ENTRY ONE (Task 156). Studio polls localhost every ~5 s and each open place attaches on its
@@ -626,6 +638,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -672,6 +685,14 @@ BLAST_RADIUS = (
     # The rifle (task 140): its numbers and its drawn geometry are a gun's, and the table that
     # holds BOTH weapons' rows is the weapon system's.
     ("src/shared/Rifle/", "gun"),
+    # The lever-action rifle (task 224): its numbers and its drawn geometry are a gun's, exactly as
+    # `src/shared/Rifle/` is, and for the same reason -- `lever.spec` is in `gun` as well as in
+    # `weapon` and `shop`, so a scoped run over `Lever.CONFIG` plays the spec that asserts it.
+    ("src/shared/Lever/", "gun"),
+    # The semi-automatic shotgun (task 225): the same reason again -- `semiauto.spec` is in `gun`
+    # as well as in `weapon` and `shop`, so a scoped run over `SemiAuto.CONFIG` plays the spec that
+    # asserts it.
+    ("src/shared/SemiAuto/", "gun"),
     ("src/shared/Weapons/", "weapon"),
     # The flight (task 185): the pure ballistics maths. It resolves to `weapon`, not `gun` -- `gun`
     # is the DRAWN gun's geometry (`gun.spec`, `gun_client.spec`) and has nothing to do with
@@ -720,6 +741,10 @@ BLAST_RADIUS = (
     # ECONOMY and decided by the SHOP, so either side can break it.
     ("src/shared/Shop/", "shop"),
     ("src/server/Shop/", "shop"),
+    # THE MONEY A PLAYER SEES (task 221): the symbol, the word and the ONE formatter. It resolves to
+    # `shop` and not to a scope of its own -- the two readers are the shop's panel and the Hud, and
+    # `money.spec` is named in `hud` as well (the dual membership this table already uses).
+    ("src/shared/Money/", "shop"),
     # The lobby (task 177): its own owner with its own world, its own terrain rectangle and its own
     # pure rule -- so its own scope. `src/server/Match/` already resolves to `match`, which is what
     # covers the two doors the lobby calls (`enrol` / `dismissAll`) and the `unassign` effect.
@@ -771,28 +796,70 @@ SCOPE_SPECS = {
     # The shop (task 178): the catalogue and the pure rules, the door against fakes, the panel, and
     # the ECONOMY's own spec -- because `Economy.purchase` is the only thing that writes a purchase.
     "shop": ("tests/server/shop.spec.luau", "tests/server/shop_door.spec.luau",
+             # Task 223: the RED STAG CARD became the DEER LICENCE and went on sale, which is
+             # `rowsOk`'s I3a satisfied rather than weakened.
+             "tests/server/deer.spec.luau",
              "tests/server/economy.spec.luau", "tests/server/economy_store.spec.luau",
              "tests/client/shop_panel.spec.luau",
+             # Task 224: the lever rifle's row, its grant and its place on the ladder.
+             "tests/server/lever.spec.luau",
+             # Task 225: the semi-auto's row, its grant, its free buckshot and its rung.
+             "tests/server/semiauto.spec.luau",
              # Task 201: the shop's palette IS the game's now, and this spec is what asserts the
              # alias rather than a second copy.
-             "tests/client/hud_style.spec.luau"),
+             "tests/client/hud_style.spec.luau",
+             # Task 221: the one formatter, and the two NEGATIVE assertions that keep it the only
+             # one -- no drawn string says COINS, and no string but Money's holds a `$`. It is in
+             # `hud` as well, because half the tables it walks are the Hud's.
+             "tests/client/money.spec.luau"),
     # ...AND `rifle.spec` AND `ballistics.spec` BELONG HERE TOO (task 185). `src/shared/Rifle/` and
     # `src/shared/Shotgun/` both resolve to `gun`, and both of those files are where every
     # ballistic number lives -- so a scoped run over a change to `Rifle.CONFIG` has to play the
     # spec that asserts that row. It did not: this tuple was the two drawn-gun specs alone, and
     # task 183 changed exactly that file. The dual membership is the idiom `zz_horn`, `boar_hit`,
     # `boar_shot` and `shoot_boar` already use.
+    # ...AND `weapon_state.spec` BELONGS HERE TOO (task 221), for the reason `rifle.spec` was
+    # added above: `src/shared/Shotgun/` resolves to `gun`, and task 221 puts
+    # `WeaponState.unlimited` and `POCKET_UNLIMITED_TEXT` in that file while the assertions about
+    # them live in `weapon_state.spec`. Without the dual membership a scoped run over a `Shotgun`
+    # change would not play the spec that tests the change.
     "gun": ("tests/server/gun.spec.luau", "tests/client/gun_client.spec.luau",
-            "tests/server/rifle.spec.luau", "tests/server/ballistics.spec.luau"),
-    "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau"),
-    "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau"),
+            "tests/server/rifle.spec.luau", "tests/server/ballistics.spec.luau",
+            # Task 224: `src/shared/Lever/` resolves to `gun` for `src/shared/Rifle/`'s reason, so
+            # the spec that asserts that config has to be played by a scoped run over it.
+            "tests/server/lever.spec.luau",
+            # Task 225: `src/shared/SemiAuto/` resolves to `gun` for the same reason.
+            "tests/server/semiauto.spec.luau",
+            "tests/server/weapon_state.spec.luau"),
+    # Task 224: the drawn lever -- its `"lever"` CYCLE_KIND branch, the fore-end glove and the
+    # shells gate -- is the viewmodel's, exactly as `gun_client.spec` is.
+    "viewmodel": ("tests/server/viewmodel_poses.spec.luau", "tests/client/gun_client.spec.luau",
+                  "tests/client/lever_client.spec.luau",
+                  # Task 225: the drawn semi-auto -- its `"straight"` bolt, its SECOND moving group
+                  # and the pose share that keeps the gun still -- is the viewmodel's too.
+                  "tests/client/semiauto_client.spec.luau"),
+    # Task 225: `CYCLE_POSE_SHARE` is read in `Camera.Mode`, and the spec that asserts both of
+    # its arms is the semi-auto's -- so a scoped run over that file has to play them.
+    "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau",
+               "tests/server/semiauto.spec.luau", "tests/client/semiauto_client.spec.luau"),
     "weapon": ("tests/server/ballistics.spec.luau",
+               # Task 223: `src/shared/Licences` flipped `reddeer.shipped`, and this spec drives
+               # the fire gate from a REAL deer trunk rather than from the stub.
+               "tests/server/deer.spec.luau",
                "tests/server/weapon_hits.spec.luau", "tests/server/weapon_look.spec.luau",
                "tests/server/weapon_rearm.spec.luau", "tests/server/weapon_shot.spec.luau",
                "tests/server/weapon_state.spec.luau", "tests/server/weapon_equip.spec.luau",
                "tests/server/boar_hit.spec.luau",
                "tests/server/boar_shot.spec.luau",
                "tests/server/rifle.spec.luau",
+               # Task 224: the lever rifle drives `Weapon.cycleRefusal` and the reducer, which are
+               # `src/server/Weapon/` -- this scope -- as well as its own numbers.
+               "tests/server/lever.spec.luau",
+               # Task 225: the semi-auto drives the same two, plus `Weapon.ShapeSemiAuto` --
+               # and its client spec drives the drawn weapon through the real seam.
+               "tests/server/semiauto.spec.luau",
+               "tests/client/semiauto_client.spec.luau",
+               "tests/client/lever_client.spec.luau",
                "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
                "tests/client/rifle_client.spec.luau",
                "tests/client/shoot_boar.spec.luau",
@@ -806,6 +873,10 @@ SCOPE_SPECS = {
                "tests/server/hit_card.spec.luau",
                "tests/server/zz_horn.spec.luau"),
     "boar": ("tests/server/boar_behaviour.spec.luau", "tests/server/boar_behaviour_live.spec.luau",
+             # Task 223: the red deer -- the species seam, the licence pair on a real trunk,
+             # the spawn mix and the calf penalty. It is in SIX scopes, because six owners'
+             # files can break it; the dual-membership idiom is `zz_horn` and `boar_hit`.
+             "tests/server/deer.spec.luau",
              "tests/server/boar_body.spec.luau", "tests/server/boar_brain.spec.luau",
              "tests/server/boar_calm.spec.luau", "tests/server/boar_kinds.spec.luau",
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
@@ -832,6 +903,8 @@ SCOPE_SPECS = {
                # describing it -- so moving either number plays it.
                "tests/server/high_seats.spec.luau"),
     "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
+              # Task 223: `POINTS.KIND` grew three rows and `SCENE.ANIMAL_SCALES` three more.
+              "tests/server/deer.spec.luau",
               # Task 218: `ForestTest.Markers` raises a seated stand's post onto a deck and
               # `ForestTest.standArea` carries its `minY`, both read by the drive and its fire gate.
               "tests/server/high_seats.spec.luau",
@@ -903,7 +976,9 @@ SCOPE_SPECS = {
     "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau"),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).
-    "assets": ("tests/server/assets_seam.spec.luau", "tests/server/boar_model.spec.luau"),
+    "assets": ("tests/server/assets_seam.spec.luau", "tests/server/boar_model.spec.luau",
+               # Task 223: three deer model rows and eleven declared clip keys.
+               "tests/server/deer.spec.luau"),
     # The game's light (task 215): the Designer's numbers as data, the pure flag boundary and the
     # adopt-don't-duplicate writer -- plus the lobby's own specs, because the three lodge lamp
     # numbers this scope asserts live in `Lobby.CONFIG.LODGE` and `lobby.spec` is what counts the
@@ -921,6 +996,9 @@ SCOPE_SPECS = {
     "hud": ("tests/client/hit_marker.spec.luau", "tests/client/report_panel.spec.luau",
             "tests/client/compass.spec.luau", "tests/client/hud_boot.spec.luau",
             "tests/client/map_ui.spec.luau",
+            # Task 221: the `$` on the bar and on the results board, and the board's declared
+            # column head. It is in `shop` as well -- half the tables it walks are the shop's.
+            "tests/client/money.spec.luau",
             # Task 165: the objective line, the waypoint and the button rail. It asserts the WHOLE
             # top band's rectangles -- the bar's and the banner's offsets (`src/shared/Drive/`), the
             # compass's TOP, the minimap's and the rail's -- so a band that moves anywhere plays it.
@@ -951,7 +1029,9 @@ SCOPE_SPECS = {
     # payload is built in `HitLog.recordHit` -- and `src/shared/Report/` and `src/server/HitLog/` are
     # exactly the two paths that resolve to this scope. A change to either MUST play them.
     "report": ("tests/server/report_silhouette.spec.luau", "tests/client/report_panel.spec.luau",
-               "tests/server/hit_card.spec.luau", "tests/client/hit_card.spec.luau"),
+               "tests/server/hit_card.spec.luau", "tests/client/hit_card.spec.luau",
+               # Task 223: the deer silhouettes, the calf scale and the stag's trophy word.
+               "tests/server/deer.spec.luau"),
     "input": ("tests/client/input_driving.spec.luau",),
     "sync": ("tests/server/sync.spec.luau", "tests/client/client_env.spec.luau"),
 }
@@ -1075,6 +1155,15 @@ def resolve_scope(arg):
 
 # Read-only Luau queries. Keep every query here, read-only. Templated ones take JSON via luau_json().
 QUERY_PLACE_ID = "return tostring(game.PlaceId)"
+# THE SAME FACT PLUS WHATEVER THE DATAMODEL CALLS ITSELF (Task 226). An override write has to say
+# WHERE it went, and `game.PlaceId` alone is a number nobody reads back.
+#
+# `game.Name` IS NOT THE PLACE'S NAME ONCE ROJO IS CONNECTED, and that was measured here rather
+# than assumed: before the Connect the DEV editor answered "Driven Hunt DEV", and the moment the
+# plugin attached it answered "DrivenHunt" -- the `name` field of default.project.json, which Rojo
+# writes onto the DataModel. So the id is the fact and this name is a hint; `PLACE_ALIASES` holds
+# the name a person can match against the Studio title bar.
+QUERY_PLACE_AND_NAME = 'return tostring(game.PlaceId) .. "|" .. tostring(game.Name)'
 QUERY_TOKEN = """
 local v = game:GetService("ReplicatedStorage"):FindFirstChild("TestSyncToken")
 return if v and v:IsA("StringValue") then v.Value else "<missing>"
@@ -1279,6 +1368,39 @@ QUERY_FLAG_OVERRIDES = (
     '  if string.sub(name, 1, 7) == "DHFlag_" then out[#out + 1] = name .. "=" .. tostring(value) end '
     "end table.sort(out) return table.concat(out, \",\")"
 )
+
+# EVERY ATTRIBUTE OF THE INSTANCES AN OVERRIDE LIVES ON, before anything is written to them
+# (Task 226, lesson L-101). Read-only.
+#
+# WHY A FULL DUMP AND NOT THE DHFlag_* NAMES. On 2026-10-21 `flags clear` removed four attributes
+# from Karen's Forest Test place, and what they had been was reconstructed from a transcript line
+# rather than read back from anything. A restore has to diff against the state BEFORE the write --
+# not against a read taken after it, which is the state the write produced. So the whole attribute
+# set of ServerStorage (the flag overrides), of ReplicatedStorage and of ReplicatedStorage.Viewmodel
+# (the pose override) is dumped to a file first, and the place id and name are in the same answer so
+# the file says which place it is a picture of.
+QUERY_ATTR_DUMP = """
+local HttpService = game:GetService("HttpService")
+local function dump(instance)
+    if instance == nil then
+        return nil
+    end
+    local attrs = {}
+    for name, value in pairs(instance:GetAttributes()) do
+        attrs[name] = tostring(value)
+    end
+    return attrs
+end
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local out = {
+    placeId = tostring(game.PlaceId),
+    placeName = tostring(game.Name),
+    ServerStorage = dump(game:GetService("ServerStorage")),
+    ReplicatedStorage = dump(ReplicatedStorage),
+    Viewmodel = dump(ReplicatedStorage:FindFirstChild("Viewmodel")),
+}
+return HttpService:JSONEncode(out)
+"""
 
 # A JSON MODULE'S SOURCE (Task 98, rewritten in Task 101). Read-only, and templated only with JSON.
 #
@@ -2062,6 +2184,35 @@ def git_state():
 # thing that is actually true -- the suite is about THIS place -- and the assertion below still
 # catches the real mistake, which is serving a place the harness then cannot find.
 HARNESS_PLACE_ID = "136410205938347"
+
+# KAREN'S PLAYTEST PLACE, named rather than described (Task 226). It is the place `flags.py set` is
+# FOR -- the playtest switch -- and it is the place `flags.py clear` must never reach by accident.
+# It is written here so "--place forest" can be a word the Director types, instead of an id typed
+# from memory next to a destructive command.
+FOREST_PLACE_ID = "130094961655666"
+
+# The only two places this repository is served to (`servePlaceIds` in default.project.json). An
+# override WRITE resolves its Studio through one of these ids and refuses when that place is not
+# connected; "the first Studio in Edit mode" is not an answer to "which place am I writing to".
+PLACE_ALIASES = {
+    "dev": (HARNESS_PLACE_ID, "Driven Hunt DEV"),
+    "forest": (FOREST_PLACE_ID, "Driven Hunt Forest Test"),
+}
+
+
+def place_choice(name):
+    """("dev"|"forest"|an id) -> (place_id, label). Exits with the known list on anything else.
+
+    A RAW ID IS ACCEPTED on purpose: a third place can be written to the day it exists without a
+    code change, and it is still an explicit place rather than a fallback. What is NOT accepted is
+    nothing at all -- the default is the DEV place, chosen by the caller, never by whichever Studio
+    answered first."""
+    if name in PLACE_ALIASES:
+        return PLACE_ALIASES[name]
+    if re.fullmatch(r"[0-9]{6,20}", name or ""):
+        return name, "place " + name
+    sys.exit("unknown place %r; give one of %s, or a numeric place id"
+             % (name, ", ".join(sorted(PLACE_ALIASES))))
 
 
 def expected_place_id():
@@ -3182,10 +3333,17 @@ def run_test(studio, scope=None):
         print("[harness] REFUSED: stop the playtest first (python tools/studio_mcp.py stop)")
         return verdict(2)
 
+    # BY PLACE, AND PINNED BY PLACE (Task 226). This used to read `game.PlaceId` through whatever
+    # Studio the default happened to be and compare it; it now RESOLVES the Studio from the place id
+    # and pins the default to it, so every later unnamed Edit call -- the flag guard, the pose
+    # guard, the "appeared during the run" checks in verdict() -- provably addresses the DEV place
+    # rather than whichever Studio answered the listing first. Same check, same name, stronger claim.
     place = expected_place_id()
-    actual_place = studio.query("Edit", QUERY_PLACE_ID)
-    if not check("Studio has the DEV place open", actual_place == place, f"{actual_place} vs {place}"):
+    editor, editor_name, place_why = studio_for_place(studio, place)
+    if not check("Studio has the DEV place open", editor is not None, place_why):
         return verdict()
+    studio.default_studio_id = editor
+    print(f"[harness] place {place} ({editor_name}), Studio {editor[:8]}: every unnamed call goes there")
 
     # BEFORE the token is written and before Play: a run against an overridden flag set is not
     # evidence for the reviewed build (docs/design/feature-flags.md section 7.1).
@@ -3499,9 +3657,150 @@ def probe_role(studio, studio_id, timeout=60):
         time.sleep(1)
 
 
-def studio_for_role(studio, role):
+# ---------------------------------------------------------------- WHICH PLACE (Task 226)
+#
+# THE INCIDENT, 2026-10-21 ~01:50. Karen's Forest Test place (130094961655666) lost four of its six
+# ServerStorage attributes -- DHFlag_COINS, DHFlag_DRIVE_BOTS, DHFlag_LOBBY, DHFlag_SHOP -- because
+# `flags.py clear`, typed during task 225 to clear the DEV place before a harness run, resolved its
+# Studio with `studio_for_role(studio, "edit")`: "the first Studio in Edit mode". StudioMCP's
+# listing is flaky (see `_choose_default_studio`) and at that moment held ONE entry, the Forest
+# Test, which the one-entry shortcut below returned with no place check and no mode check at all.
+# The clear went to Karen's place and printed "cleared: DHFlag_COINS, DHFlag_DRIVE_BOTS,
+# DHFlag_LOBBY, DHFlag_SHOP" on the same screen as a banner that said unscoped calls default to DEV.
+# It had happened once before, in task 201-4, and was queued as 216b.
+#
+# A ROLE IS NOT A PLACE. "Edit mode" says what a Studio is DOING; it says nothing about which world
+# it has open, and with two places served by the same Rojo project both of them are editors. So a
+# command that WRITES or CLEARS an override asks the question it actually means -- which place is
+# this -- by reading `game.PlaceId` out of each connected Studio, and refuses when the place it was
+# told to write to is not among them. There is no fallback: a destructive write to the wrong world
+# is strictly worse than a refusal the Director reads and retypes.
+
+
+def place_of(studio, studio_id, datamodel="Edit"):
+    """(place_id, place_name, why) for one Studio, READ LIVE from it. Never raises.
+
+    `datamodel` is "Edit" for an editor and "Server"/"Client" for a Play process, because the Edit
+    DataModel is not reachable while Play runs ("Edit datamodel is not available in Play mode") --
+    the same asymmetry `pose.py clear` has always had to live with.
+
+    A Studio that cannot answer gets ("", "", why), and every caller treats that as "this is not the
+    place you asked for", never as "near enough"."""
+    try:
+        answer = studio.query(datamodel, QUERY_PLACE_AND_NAME, studio_id=studio_id) or ""
+    except RuntimeError as problem:
+        return "", "", str(problem)
+    place, _, name = answer.strip().partition("|")
+    if not re.fullmatch(r"[0-9]+", place):
+        return "", "", f"it answered {answer.strip()[:80]!r} instead of a place id"
+    return place, name, ""
+
+
+# How hard `studio_for_place` tries before it refuses. Named so `selftest` can exercise the retry
+# loop with no sleep in it: the loop is the thing under test, the waiting is not.
+PLACE_RESOLVE_ATTEMPTS = 5
+PLACE_RESOLVE_PAUSE = 2
+
+
+def studio_for_place(studio, place_id, datamodel="Edit", attempts=None, pause=None):
+    """The studio_id whose LIVE game.PlaceId is `place_id` -> (studio_id, name, ""), else
+    (None, "", why).
+
+    THE ONE RESOLVER EVERY OVERRIDE WRITE USES. It has no shortcut and no fallback: not "the only
+    entry", not the listing's name, not the pinned default. Every connected Studio is asked what
+    place it has open and the answer must match, or this refuses and names what it found -- so the
+    worst case is a Director retyping a command, never a write into Karen's world.
+
+    IT RE-LISTS BEFORE IT REFUSES, and that is not politeness -- it is the same flakiness that
+    caused the incident, pointed the harmless way. Measured on this machine 2026-10-21, two `flags`
+    calls seconds apart with both places open: the first listing held ONLY the Forest Test, the
+    next held ONLY the DEV place. Studio polls localhost every ~5 s and each place attaches and
+    re-registers on its own clock (see `_choose_default_studio`). A single-shot resolver would
+    therefore refuse a perfectly good command about half the time, which teaches a Director to
+    retype `clear` until it goes through -- and the thing to make habitual is reading the place
+    line, not retrying. The guarantee is untouched: an answer still has to BE the place asked for."""
+    attempts = PLACE_RESOLVE_ATTEMPTS if attempts is None else attempts
+    pause = PLACE_RESOLVE_PAUSE if pause is None else pause
+    seen, listed = [], []
+    for attempt in range(max(1, attempts)):
+        listed = studio.studio_list()
+        seen = []
+        for entry in listed:
+            studio_id = entry.get("id")
+            at, name, why = place_of(studio, studio_id, datamodel)
+            if at == place_id:
+                # THE NAME A PERSON CAN CHECK, which is not always the one the DataModel gives:
+                # Rojo renames it to the project's name on connect (see QUERY_PLACE_AND_NAME). The
+                # id stays the thing that was matched; the label is only how it is read out.
+                known = PLACE_ALIASES.get(
+                    next((alias for alias, (pid, _) in PLACE_ALIASES.items() if pid == at), ""))
+                return studio_id, (known[1] if known else name) or ("place " + at), ""
+            seen.append("%s=%s" % (studio_id[:8] if studio_id else "?",
+                                   ("%s (%s)" % (at, name or "unnamed")) if at
+                                   else "unreadable: " + why))
+        if seen and all("not available in Play mode" in reason for reason in seen):
+            # A DEFINITE ANSWER, not a flake: Studio does not expose the Edit DataModel while Play
+            # runs, so no amount of re-listing will change it. `pose.py clear` hits this on every
+            # call made during a tuning session, and waiting eight seconds to be told something
+            # already known is the kind of cost that gets a safety check removed.
+            break
+        if attempt + 1 < max(1, attempts):
+            time.sleep(pause)
+    if not listed:
+        return None, "", ("no Studio is connected to StudioMCP (place %s was asked for). Open the "
+                          "place and enable Studio -> Assistant settings -> MCP server." % place_id)
+    return None, "", ("no connected Studio has place %s open; connected: %s"
+                      % (place_id, "; ".join(seen)))
+
+
+def runs_dir():
+    """<runs-dir>: the Director's folder BESIDE the repository, never inside it.
+
+    Derived from the repo's own location (and overridable with DH_RUN_DIR) rather than written down,
+    because an absolute user path in a tracked file is what `tools/privacy_scan.py` fails CI over."""
+    raw = os.environ.get("DH_RUN_DIR")
+    path = os.path.abspath(raw) if raw else os.path.join(os.path.dirname(REPO), "driven-hunt-runs")
+    try:
+        if os.path.commonpath([path, REPO]) == REPO:
+            raise RuntimeError("DH_RUN_DIR resolves INSIDE the repository: " + path)
+    except ValueError:
+        pass  # different drives, which is certainly outside
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def attr_log(studio, studio_id, label, datamodel="Edit"):
+    """Dump the addressed place's WHOLE attribute set to <runs-dir>/attr-<label>-<ts>.log -> path.
+
+    Called before every override write and every clear (lesson L-101). It is the only record of what
+    was there BEFORE, which is the thing a restore has to diff against -- a read taken afterwards is
+    a picture of the damage, not of the original. Returns the path, or "" plus a printed line if the
+    dump itself could not be taken; it never stops the command, because a command that refuses to
+    clear an override would leave the harness refusing to run with no way out."""
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "-", label)
+    try:
+        raw = studio.query(datamodel, QUERY_ATTR_DUMP, studio_id=studio_id)
+        decoded = json.loads(raw)
+        # AN EMPTY LUAU TABLE ENCODES AS `[]`, and these fields are maps: a restore file that says
+        # `"ServerStorage": []` reads as "a list of nothing" when what it means is "no attributes".
+        for key, value in list(decoded.items()):
+            if value == []:
+                decoded[key] = {}
+        path = os.path.join(runs_dir(), f"attr-{safe}-{stamp}.log")
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps(decoded, indent=2, sort_keys=True) + "\n")
+    except (RuntimeError, ValueError, OSError) as problem:
+        print(f"[attr] could NOT record the attributes before this write: "
+              f"{type(problem).__name__}: {problem}")
+        return ""
+    return path
+
+
+def studio_for_role(studio, role, place=None):
     """The studio_id to address for `role`, or (None, why). `role` is "edit", "server", "client", or
     "client:<LocalPlayer name>"; None means "let StudioMCP decide", which only works with one Studio.
+    `place` is a place id the answer must have open, checked by a LIVE read; None means any place.
 
     WHY THIS EXISTS (Task 41): every StudioMCP tool is refused with "This call is missing the required
     `studio_id` argument" as soon as more than one Studio is connected, and `capture` sent none -- so
@@ -3510,11 +3809,41 @@ def studio_for_role(studio, role):
 
     The EDIT studio is identified the way `test2` identifies everything else: by what it answers, not
     by its name. A test process answers `server` or `client` from RunService:IsServer(); the editor is
-    the one whose mode is Edit."""
+    the one whose mode is Edit.
+
+    THE ONE-ENTRY SHORTCUT NOW CHECKS SOMETHING (Task 226). It used to read
+    `if len(entries) == 1: return entries[0]["id"]` -- the lone entry, whatever place it had open and
+    whatever mode it was in -- and that is the line that deleted four of Karen's flag attributes on
+    2026-10-21: StudioMCP's listing held one entry, the Forest Test, and `flags clear` asked for
+    "edit" and was handed it. The shortcut is still here, because a lone Studio genuinely is the
+    answer and the full classification costs a role probe per entry, but it now answers the two
+    questions it skipped: is this the place the caller asked for, and is its mode consistent with
+    the role. No override write reaches this function at all any more -- those go through
+    `studio_for_place` -- so this is the second lock, not the only one."""
     entries = studio.studio_list()
-    if len(entries) == 1:
-        return entries[0]["id"], ""
     wanted, _, wanted_player = (role or "edit").partition(":")
+    if len(entries) == 1:
+        lone = entries[0]["id"]
+        if place is not None:
+            at, at_name, why = place_of(studio, lone)
+            if at != place:
+                return None, ("the only connected Studio is %s, not the place asked for (%s)"
+                              % (f"place {at} ({at_name or 'unnamed'})" if at
+                                 else f"unreadable ({why})", place))
+        if role:
+            # An EXPLICIT role is a claim about what the process is, so it is checked. role=None
+            # means "whatever is there" -- which is what `capture` wants, in Edit or during Play.
+            try:
+                mode = studio.mode(studio_id=lone)
+            except RuntimeError as problem:
+                mode = f"unreadable ({problem})"
+            if wanted == "edit" and mode != "Edit":
+                return None, (f"the only connected Studio is in {mode} mode, not Edit"
+                              " -- stop the playtest first (python tools/studio_mcp.py stop)")
+            if wanted in ("server", "client") and mode == "Edit":
+                return None, (f"the only connected Studio is in Edit mode, so there is no running "
+                              f"{wanted} to address")
+        return lone, ""
     found = []
     for entry in entries:
         studio_id = entry["id"]
@@ -3683,21 +4012,25 @@ def run_test2(studio, wait_seconds=180):
         print("[harness2] REFUSED: stop the playtest first (python tools/studio_mcp.py stop)")
         return verdict(2)
 
+    # BY PLACE (Task 226), exactly as `run_test` does it: the editor is the Studio that HAS the DEV
+    # place open, read live out of it, not the first entry of a listing.
     place = expected_place_id()
-    actual_place = studio.query("Edit", QUERY_PLACE_ID)
-    if not check("Studio has the DEV place open", actual_place == place, f"{actual_place} vs {place}"):
+    editor, editor_name, place_why = studio_for_place(studio, place)
+    if not check("Studio has the DEV place open", editor is not None, place_why):
         return verdict()
 
     before = studio.studio_list()
     check("One Studio instance before the test starts", len(before) == 1,
           "; ".join(f'{s["name"]}' for s in before))
-    if before:
+    if editor:
         # EVERY LATER CALL IS SCOPED FROM HERE (Task 52). The click adds three Studios that outlive
         # the session -- end_session stops their Play but cannot close them, only Karen's Cleanup
         # does -- so from the click onwards an unnamed call is refused, including the ones in
-        # verdict() that run last of all.
-        studio.default_studio_id = before[0]["id"]
-        print(f"[harness2] editor {before[0]['id'][:8]}: every later unnamed call is scoped to it")
+        # verdict() that run last of all. It is the PLACE-resolved editor since task 226: with two
+        # places open, `before[0]` was whichever one the listing put first.
+        studio.default_studio_id = editor
+        print(f"[harness2] editor {editor[:8]} ({editor_name}, place {place}): "
+              "every later unnamed call is scoped to it")
 
     # BEFORE the disk token is written and cleared, and therefore before Karen's click: refusing
     # after the click would waste the one human step in this mode.
@@ -3932,7 +4265,24 @@ def run_flags(studio, argv):
     `set` and `clear` are EDIT-ONLY. Resolution happens once at server boot, so a write into a
     running session would be invisible -- and an invisible write is a lie about what was tested.
     `live` is the opposite: it reads what a RUNNING process resolved, which is how the Director
-    confirms the session is the intended one before telling Karen to go."""
+    confirms the session is the intended one before telling Karen to go.
+
+    EVERY WRITE IS PINNED TO A PLACE ID (Task 226, after the 2026-10-21 incident at the top of
+    `studio_for_place`). `set` and `clear` address the DEV place unless `--place forest` (or a
+    numeric id) says otherwise, they refuse when that place is not connected, and they print the
+    place id and name they READ OUT OF the Studio they addressed before touching it. The reads
+    print it too, because "which place did that table come from" is the same question."""
+    argv = list(argv)
+    place_name = "dev"
+    place_explicit = "--place" in argv
+    if "--place" in argv:
+        at = argv.index("--place")
+        if at + 1 >= len(argv):
+            print("[flags] usage: --place dev|forest|<place id>")
+            return 2
+        place_name = argv[at + 1]
+        del argv[at:at + 2]
+    place_id, place_label = place_choice(place_name)
     action = argv[0] if argv else "show"
 
     if action == "live":
@@ -3942,6 +4292,17 @@ def run_flags(studio, argv):
             print(f"[flags] {why}")
             return 1
         datamodel = "Server" if role.startswith("server") else "Client"
+        # WHICH PLACE THIS SESSION IS, live from the process that answered: a `live` reading quoted
+        # without its place is how the wrong session gets declared ready for Karen.
+        at, at_name, place_why = place_of(studio, studio_id, datamodel)
+        print("[flags] reading %s in %s" % (role, f"place {at} ({at_name or 'unnamed'})" if at
+                                            else f"a place that did not answer ({place_why})"))
+        if place_explicit and at != place_id:
+            # --place IS NEVER IGNORED. A `live` reading quoted for the wrong session is how a
+            # playtest gets declared ready against a build nobody set up.
+            print(f"[flags] REFUSED: that session is in {at or 'an unreadable place'}, not the "
+                  f"place asked for ({place_id}, {place_label}).")
+            return 2
         answer, problem = process_call(
             lambda: studio.query(datamodel, QUERY_FLAG_LIVE, studio_id=studio_id), timeout=20)
         if problem:
@@ -3950,15 +4311,21 @@ def run_flags(studio, argv):
         print(f"[flags] {role}: {answer}")
         return 0
 
-    # SCOPE FIRST (Task 52). `flags set` or `flags clear` may well be typed while a two-player
-    # session is still open -- that is exactly when the Director wants to clear an override -- and
-    # every unnamed call would then be refused with StudioMCP's own message instead of this mode's.
-    # studio_for_role finds the editor the way test2 does: by what each Studio answers, not by name.
-    editor, why = studio_for_role(studio, "edit")
+    # SCOPE FIRST (Task 52), BY PLACE (Task 226). `flags set` or `flags clear` may well be typed
+    # while a two-player session is still open -- that is exactly when the Director wants to clear
+    # an override -- and every unnamed call would then be refused with StudioMCP's own message
+    # instead of this mode's. It used to pick "the first Studio in Edit mode", which on 2026-10-21
+    # was Karen's place; it now asks each connected Studio for its game.PlaceId and refuses if the
+    # wanted one is not there.
+    editor, editor_name, why = studio_for_place(studio, place_id)
     if editor is None:
-        print(f"[flags] {why}")
-        return 1
+        print(f"[flags] REFUSED: {why}")
+        print(f"[flags] nothing was written. The place asked for was {place_id} ({place_label}); "
+              "say which one with --place dev|forest.")
+        return 2
     studio.default_studio_id = editor
+    print("[flags] place %s (%s), Studio %s -- read live from that Studio, not assumed"
+          % (place_id, editor_name, editor[:8]))
 
     mode = studio.mode()
     if mode != "Edit":
@@ -3968,13 +4335,19 @@ def run_flags(studio, argv):
         return 2
 
     if action == "clear":
-        removed = [part for part in studio.query("Edit", QUERY_CLEAR_FLAGS).split(",") if part]
-        print("[flags] cleared: " + (", ".join(removed) if removed else "nothing was set"))
+        before = attr_log(studio, editor, f"flags-clear-{place_name}")
+        if before:
+            print("[flags] the attributes BEFORE this clear are in "
+                  + os.path.basename(before) + " under <runs-dir> -- restore from that file")
+        removed = [part for part in studio.query("Edit", QUERY_CLEAR_FLAGS, studio_id=editor).split(",")
+                   if part]
+        print("[flags] cleared in %s (%s): %s"
+              % (place_id, editor_name, ", ".join(removed) if removed else "nothing was set"))
         return 0
 
     if action == "set":
         if len(argv) != 3 or argv[2] not in ("on", "off"):
-            print("[flags] usage: flags set <NAME> on|off")
+            print("[flags] usage: flags set <NAME> on|off [--place dev|forest]")
             return 2
         name = argv[1]
         if not FLAG_NAME_RE.match(name) or len(name) > 40:
@@ -3989,20 +4362,24 @@ def run_flags(studio, argv):
             print(f"[flags] REFUSED: no such flag {name} in src/shared/Flags/init.luau")
             return 2
         quoted = json.dumps(name)
+        before = attr_log(studio, editor, f"flags-set-{place_name}")
+        if before:
+            print("[flags] the attributes BEFORE this write are in "
+                  + os.path.basename(before) + " under <runs-dir>")
         answer, problem = process_call(
             lambda: studio.query("Edit", QUERY_SET_FLAG
                                  % (FLAG_PREFIX, quoted, "true" if argv[2] == "on" else "false",
-                                    FLAG_PREFIX, quoted)), timeout=20)
+                                    FLAG_PREFIX, quoted), studio_id=editor), timeout=20)
         if problem:
             print(f"[flags] could not write the override: {problem}")
             return 2
-        print(f"[flags] override set: {name}={answer}")
+        print(f"[flags] override set in {place_id} ({editor_name}): {name}={answer}")
         print("[flags] the git tree is untouched. Clear it before the next harness run:")
         print("[flags]   python tools/flags.py clear")
         return 0
 
     if action != "show":
-        print("[flags] usage: flags [set <NAME> on|off | clear | live [role]]")
+        print("[flags] usage: flags [set <NAME> on|off | clear | live [role]] [--place dev|forest]")
         return 2
 
     # THE DECLARATIONS COME FROM THE FILE AND THE OVERRIDES FROM STUDIO (Task 101). The MCP thread
@@ -4014,7 +4391,7 @@ def run_flags(studio, argv):
     if not rows:
         print("[flags] no flags are declared in src/shared/Flags/init.luau")
         return 0
-    live, problem = process_call(lambda: flag_overrides(studio), timeout=20)
+    live, problem = process_call(lambda: flag_overrides(studio, studio_id=editor), timeout=20)
     if problem:
         print("[flags] could not read the overrides on ServerStorage: " + problem)
         return 1
@@ -4385,15 +4762,31 @@ def selftest():
             return "Edit"
 
         def query(self, datamodel, code, studio_id=None):
+            # IT IS THE DEV PLACE, and it says so (Task 226): what these cases are about is Studio
+            # failing at the FLAGS query, which is only reachable once the place has been resolved.
+            if code == QUERY_PLACE_AND_NAME:
+                return HARNESS_PLACE_ID + "|Driven Hunt DEV"
+            if code == QUERY_PLACE_ID:
+                return HARNESS_PLACE_ID
+            if code == QUERY_ATTR_DUMP:
+                return json.dumps({"placeId": HARNESS_PLACE_ID, "ServerStorage": {}})
             return self.answer
 
     def flags_says(answer, argv):
         buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer):
+        with tempfile.TemporaryDirectory() as box:
+            was = os.environ.get("DH_RUN_DIR")
+            os.environ["DH_RUN_DIR"] = box   # the attr log is <runs-dir>'s, never the repo's
             try:
-                code = run_flags(FailingStudio(answer), argv)
+                with contextlib.redirect_stdout(buffer):
+                    code = run_flags(FailingStudio(answer), argv)
             except Exception as why:  # noqa: BLE001 -- a traceback here IS the defect
                 return -1, f"raised {type(why).__name__}: {why}"
+            finally:
+                if was is None:
+                    os.environ.pop("DH_RUN_DIR", None)
+                else:
+                    os.environ["DH_RUN_DIR"] = was
         return code, buffer.getvalue()
 
     # SINCE TASK 101 `run_flags` ASKS STUDIO FOR ONE THING ONLY -- the DHFlag_* attributes -- and
@@ -4418,8 +4811,11 @@ def selftest():
        code == 2 and "no such flag NO_SUCH_FLAG" in output,
        f"exit {code}, said {output.strip()[:140]!r}")
     code, output = flags_says("true", ["set", "FIRST_PERSON", "on"])
-    ok("  set reports what it wrote", code == 0 and "override set: FIRST_PERSON=true" in output,
-       f"exit {code}, said {output.strip()[:140]!r}")
+    # ...and it reports WHERE as well as what (Task 226): a write that does not name its place is
+    # how four of Karen's flag attributes were removed with a DEV banner on the screen.
+    ok("  set reports what it wrote AND the place it wrote it in",
+       code == 0 and f"override set in {HARNESS_PLACE_ID} (Driven Hunt DEV): FIRST_PERSON=true" in output,
+       f"exit {code}, said {output.strip()[:200]!r}")
     # The harness check reads JSON answers through the one parser, so it degrades the same way.
     _, problem = json_answer(FailingStudio("REFUSED: no ReplicatedStorage.Flags"), "")
     ok("  the harness check gets a problem string, not an exception",
@@ -4935,6 +5331,153 @@ def selftest():
     ok("...and the retry named the harness place", late.default_studio_id == DEV,
        repr(late.default_studio_id))
 
+    # 9d. WHICH PLACE AN OVERRIDE WRITE GOES TO (Task 226). Four cases, driving the REAL `run_flags`
+    # against a scripted StudioMCP, because the thing that went wrong cannot be reproduced by a run:
+    # it needs two places connected at once and a listing that holds the wrong one.
+    #
+    # THE INCIDENT THESE ARE WRITTEN FROM. 2026-10-21 ~01:50, `flags.py clear` typed to clear the DEV
+    # place before a harness run, with Karen's Forest Test open beside it. The listing held one
+    # entry -- the Forest Test -- `studio_for_role(studio, "edit")`'s one-entry shortcut returned it
+    # unchecked, and four of her six ServerStorage attributes were removed.
+    #
+    # EACH CASE ASSERTS TWO THINGS: which Studio the write was addressed to, and that the output
+    # NAMES the place id it read out of that Studio. All four fail on the pre-226 commit (37dd0e1d):
+    # the "dev listed first" order wrote to the right place by luck and still printed no place at
+    # all, which is the bug stated exactly -- the answer depended on listing order.
+    FOREST = "forest-studio"
+    place_entries = {
+        "dev": {"id": DEV, "name": ""},                 # NAMELESS, as a just-ended session leaves it
+        "forest": {"id": FOREST, "name": "Forest Test"},
+    }
+    place_ids = {DEV: (HARNESS_PLACE_ID, "Driven Hunt DEV"),
+                 FOREST: (FOREST_PLACE_ID, "Driven Hunt Forest Test")}
+
+    class PlacedStudio:
+        """Two editors, both in Edit mode, each with its own place -- and a record of every write."""
+
+        def __init__(self, entries):
+            self.entries = entries
+            self.default_studio_id = None
+            self.cleared = []        # the studio_id each DHFlag_* clear was addressed to
+            self.listings = 0        # how many times it was asked which Studios exist
+
+        def studio_list(self):
+            self.listings += 1
+            return [dict(entry) for entry in self.entries]
+
+        def mode(self, studio_id=None):
+            return "Edit"
+
+        def query(self, datamodel, code, studio_id=None):
+            target = studio_id or self.default_studio_id
+            place, name = place_ids.get(target, ("", ""))
+            if code == QUERY_PLACE_AND_NAME:
+                return place + "|" + name
+            if code == QUERY_PLACE_ID:
+                return place
+            if code == QUERY_ATTR_DUMP:
+                return json.dumps({"placeId": place, "placeName": name,
+                                   "ServerStorage": {"DHFlag_COINS": "true"}})
+            if code == QUERY_CLEAR_FLAGS:
+                self.cleared.append(target)
+                return "DHFlag_COINS,DHFlag_LOBBY"
+            return ""
+
+    def clearing(entries, argv):
+        """(exit code, [studio_ids written to], output) for a real `flags clear` run.
+
+        THE RETRY LOOP RUNS, THE SLEEP DOES NOT. `studio_for_place` re-lists before it refuses,
+        because the listing really is flaky (see its docstring); the loop is what these cases are
+        about, so it is exercised with the pause set to zero rather than skipped."""
+        studio = PlacedStudio(entries)
+        buffer = io.StringIO()
+        global PLACE_RESOLVE_PAUSE
+        slept, PLACE_RESOLVE_PAUSE = PLACE_RESOLVE_PAUSE, 0
+        with tempfile.TemporaryDirectory() as box:
+            was = os.environ.get("DH_RUN_DIR")
+            os.environ["DH_RUN_DIR"] = box   # the attr log is <runs-dir>'s, never the repo's
+            try:
+                with contextlib.redirect_stdout(buffer):
+                    code = run_flags(studio, argv)
+            finally:
+                PLACE_RESOLVE_PAUSE = slept
+                if was is None:
+                    os.environ.pop("DH_RUN_DIR", None)
+                else:
+                    os.environ["DH_RUN_DIR"] = was
+        return code, studio.cleared, buffer.getvalue()
+
+    both_forest_first = [place_entries["forest"], place_entries["dev"]]
+    both_dev_first = [place_entries["dev"], place_entries["forest"]]
+
+    code, wrote, said = clearing(both_forest_first, ["clear"])
+    ok("the Forest Test listed FIRST: the clear still goes to DEV",
+       code == 0 and wrote == [DEV] and HARNESS_PLACE_ID in said,
+       f"exit {code}, wrote {wrote}, said {said.strip()[:160]!r}")
+    ok("...and it never touched the Forest Test", FOREST not in wrote, repr(wrote))
+
+    code, wrote, said = clearing(both_dev_first, ["clear"])
+    ok("DEV listed first: the same answer, and the place is PRINTED either way",
+       code == 0 and wrote == [DEV] and HARNESS_PLACE_ID in said,
+       f"exit {code}, wrote {wrote}, said {said.strip()[:160]!r}")
+
+    # THE INCIDENT ITSELF: a one-entry listing holding the place that was NOT asked for.
+    code, wrote, said = clearing([place_entries["forest"]], ["clear"])
+    ok("DEV absent, and the only Studio is Karen's place: REFUSED, nothing written",
+       code == 2 and wrote == [] and "REFUSED" in said and "nothing was written" in said,
+       f"exit {code}, wrote {wrote}, said {said.strip()[:200]!r}")
+    ok("...and the refusal names the place it wanted and the place it found",
+       HARNESS_PLACE_ID in said and FOREST_PLACE_ID in said, repr(said.strip()[:200]))
+
+    # THE RETRY IS REAL, measured rather than asserted from the source: a refusal asked for the
+    # listing again, because on this machine a single listing is the thing that cannot be trusted.
+    retried = PlacedStudio([place_entries["forest"]])
+    with tempfile.TemporaryDirectory() as box:
+        was, os.environ["DH_RUN_DIR"] = os.environ.get("DH_RUN_DIR"), box
+        slept, globals()["PLACE_RESOLVE_PAUSE"] = PLACE_RESOLVE_PAUSE, 0
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                run_flags(retried, ["clear"])
+        finally:
+            globals()["PLACE_RESOLVE_PAUSE"] = slept
+            if was is None:
+                os.environ.pop("DH_RUN_DIR", None)
+            else:
+                os.environ["DH_RUN_DIR"] = was
+    ok("a refusal re-listed before giving up, because one listing cannot be trusted",
+       retried.listings >= 2, f"{retried.listings} listing(s)")
+
+    # ...and no Studio at all is the same refusal, not a traceback.
+    code, wrote, said = clearing([], ["clear"])
+    ok("no Studio connected: REFUSED, nothing written",
+       code == 2 and wrote == [] and "REFUSED" in said,
+       f"exit {code}, wrote {wrote}, said {said.strip()[:160]!r}")
+
+    # --place forest: the explicit, named way to write Karen's place ON PURPOSE.
+    code, wrote, said = clearing(both_dev_first, ["clear", "--place", "forest"])
+    ok("--place forest writes the Forest Test, and only on being asked",
+       code == 0 and wrote == [FOREST] and FOREST_PLACE_ID in said,
+       f"exit {code}, wrote {wrote}, said {said.strip()[:160]!r}")
+    ok("...and it names the place by name as well as by id",
+       "Driven Hunt Forest Test" in said, repr(said.strip()[:200]))
+    ok("--place forest with no Forest Test connected is refused, not redirected to DEV",
+       clearing([place_entries["dev"]], ["clear", "--place", "forest"])[1] == [],
+       repr(clearing([place_entries["dev"]], ["clear", "--place", "forest"])))
+
+    # The resolver on its own, with the shortcut that caused it all: a lone Studio in the wrong place
+    # is not an answer to "the editor for the DEV place".
+    lone_forest = PlacedStudio([place_entries["forest"]])
+    got, why = studio_for_role(lone_forest, "edit", place=HARNESS_PLACE_ID)
+    ok("studio_for_role's one-entry shortcut no longer returns a lone wrong-place Studio",
+       got is None and FOREST_PLACE_ID in why, f"{got!r}, {why!r}")
+    got, why = studio_for_role(PlacedStudio([place_entries["dev"]]), "edit",
+                               place=HARNESS_PLACE_ID)
+    ok("...and still returns the lone RIGHT-place Studio", got == DEV, f"{got!r}, {why!r}")
+    got, name, why = studio_for_place(PlacedStudio(both_forest_first), FOREST_PLACE_ID)
+    ok("studio_for_place finds the Forest Test by its id", got == FOREST, f"{got!r}, {why!r}")
+    ok("...and reads it out by the name a person can match against the title bar",
+       name == "Driven Hunt Forest Test", repr(name))
+
     # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
         data = load_scenarios()
@@ -5042,9 +5585,16 @@ def main(argv):
             if not saved:
                 print(f"[capture] no image came back: {text}")
                 return 1
+            # THE PLACE IS NAMED, not implied (Task 226). A frame quoted as evidence for the
+            # DEV place that was actually shot in the Forest Test is the same class of mistake as a
+            # flag cleared in the wrong world, and it is read live from the Studio that took it.
+            mode_now = studio.mode(studio_id=studio_id)
+            at, at_name, _ = place_of(
+                studio, studio_id, "Edit" if mode_now == "Edit" else "Client")
             print(f"[capture] wrote {os.path.relpath(saved, REPO)} "
-                  f"(mode: {studio.mode(studio_id=studio_id)}, studio {studio_id[:8]}"
-                  f"{', role ' + role if role else ''}). "
+                  f"(mode: {mode_now}, studio {studio_id[:8]}"
+                  f"{', role ' + role if role else ''}, "
+                  f"place {at or '?'}{' ' + at_name if at_name else ''}). "
                   "Look at it before you claim what it shows (rule 5).")
             return 0
         if cmd == "studios":

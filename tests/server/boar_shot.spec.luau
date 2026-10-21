@@ -193,7 +193,7 @@ return function()
 					return template
 				end
 				else nil,
-			function(clip: string)
+			function(_species: string, clip: string)
 				return FAKE_IDS[clip]
 			end
 		)
@@ -926,7 +926,7 @@ return function()
 			local template = makeTemplate()
 			runtime:setModelSource(function()
 				return template
-			end, function(clip: string)
+			end, function(_species: string, clip: string)
 				return FAKE_IDS[clip]
 			end)
 			return runtime
@@ -1016,7 +1016,7 @@ return function()
 			local template = makeTemplate()
 			runtime:setModelSource(function()
 				return template
-			end, function(clip: string)
+			end, function(_species: string, clip: string)
 				return FAKE_IDS[clip]
 			end)
 			-- TWELVE IN A WORLD THAT ALLOWS TWELVE (task 129). `Boar.CONFIG.maxBoars` is 8 -- the
@@ -1077,7 +1077,7 @@ return function()
 			local template = makeTemplate()
 			runtime:setModelSource(function()
 				return template
-			end, function(clip: string)
+			end, function(_species: string, clip: string)
 				return FAKE_IDS[clip]
 			end)
 			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, 20), 6, 10)
@@ -1181,7 +1181,7 @@ return function()
 			local template = makeTemplate()
 			runtime:setModelSource(function()
 				return template
-			end, function(clip: string)
+			end, function(_species: string, clip: string)
 				return FAKE_IDS[clip]
 			end)
 			local handle = runtime:spawn(Vector3.new(0, GROUND_Y, 0))
@@ -1263,7 +1263,7 @@ return function()
 			local template = makeTemplate()
 			runtime:setModelSource(function()
 				return template
-			end, function(clip: string)
+			end, function(_species: string, clip: string)
 				return FAKE_IDS[clip]
 			end)
 			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, 0), 4, 8)
@@ -2086,7 +2086,7 @@ return function()
 			local sniffTemplate = makeTemplate()
 			runtime:setModelSource(function()
 				return sniffTemplate
-			end, function(clip: string)
+			end, function(_species: string, clip: string)
 				return FAKE_IDS[clip]
 			end)
 			local handle = runtime:spawn(Vector3.new(40, GROUND_Y, 0))

@@ -240,7 +240,24 @@ Match.CONFIG = {
 		-- scene must not learn what a boar is, and these are the same four numbers
 		-- `Boar.CONFIG.KINDS` holds. A trophy laid out at the gathering is 35 % longer than the males
 		-- beside it, which is the whole point of having shot it.
-		ANIMAL_SCALES = { male = 1.0, female = 0.85, cub = 0.45, legendary = 1.35 },
+		-- ...AND THE THREE RED DEER (task 223). **THEY ARE AGAINST THE BOAR MALE'S 5.5 STUDS LIKE
+		-- EVERY OTHER ROW HERE, AND THAT IS THE TRAP IN THIS LINE**: `Boar.CONFIG.KINDS[kind].scale`
+		-- for a deer is against the STAG's 7.05, because a deer's boxes are built from the deer's
+		-- own `BODY_SIZE`. The two numbers for one animal mean different things, so they are not the
+		-- same number and must never be "tidied" into each other. Written as the division that
+		-- produced them:
+		--   stag 7.05 / 5.5 = 1.2818   hind 6.03 / 5.5 = 1.0964   calf 3.49 / 5.5 = 0.6345
+		-- `tests/server/deer.spec.luau` asserts `ANIMAL_SCALES[kind] * 5.5` against each kind's
+		-- baked length for all SEVEN kinds, which turns this comment into arithmetic a spec checks.
+		ANIMAL_SCALES = {
+			male = 1.0,
+			female = 0.85,
+			cub = 0.45,
+			legendary = 1.35,
+			stag = 1.2818,
+			hind = 1.0964,
+			calf = 0.6345,
+		},
 		ANIMAL_COLOR = Color3.fromRGB(58, 48, 42),
 		POST_SIZE = Vector3.new(0.6, 10, 0.6),
 		POST_COLOR = Color3.fromRGB(70, 60, 50),
@@ -488,6 +505,31 @@ Match.CONFIG = {
 			-- `Economy.CONFIG.COINS_PER_POINT` it pays 50 coins, through the same rule as every other
 			-- kill and with no second price anywhere.
 			legendary = 25, -- K
+			-- THE RED DEER (task 223), AND THE PENALTY IS THE ROW. Karen bought a red deer family
+			-- on 2026-10-20 and made it licensed quarry: *"deer also will be possible to shoot if
+			-- you have purchased deer license"*.
+			--
+			--   stag 20   TWO MALES. Above a male boar because it is the licensed, rarer,
+			--             paid-for quarry -- the 750-coin DEER LICENCE is bought for this shot --
+			--             and BELOW the legendary boar's 25, which stays this game's ceiling
+			--             because that number is Karen's own (*"first place ofc more legendary more
+			--             ect"*) and because a legendary is a 1-in-4 trophy while a stag is in most
+			--             drives.
+			--   hind 6    EXACTLY THE SOW'S PRICE, and that is the point rather than a coincidence:
+			--             a hind and a sow are the same thing to a hunter -- the female of the
+			--             species -- so they cost the same and no gap has to be invented.
+			--   calf -10  A CALF IS A PIGLET. Karen's rule of 2026-10-12 is that shooting the young
+			--             is a penalty, and this is the identical figure `cub` carries and the one
+			--             `SAFETY_PENALTY` uses for the other thing you must not shoot.
+			--
+			-- **THERE IS NO SECOND MECHANISM FOR THE CALF.** `Score.kill` prices a kill off
+			-- `record.kind` and off nothing else, so a negative row IS the penalty -- the same way
+			-- `cub = -10` has been the piglet's penalty since task 170. Nothing in `Penalty`,
+			-- nothing in the weapon, no refusal: the price is the rule, and at
+			-- `Economy.CONFIG.COINS_PER_POINT = 2` it costs him 20 coins as well.
+			stag = 20, -- K's species, the Director's "stag > male boar"
+			hind = 6, -- K, the Director's "hind ~ female boar": the sow's own number
+			calf = -10, -- K, the piglet's rule applied to the piglet's equivalent
 			-- An unnamed kind: never free, and counted by the owner as `stats().unknownKindKills`.
 			-- A kind typo must show up as a NUMBER rather than as an animal that quietly scores
 			-- nothing -- the same discipline the retired `KILL.unknown` kept for zones.
@@ -1067,6 +1109,24 @@ function Match.snapshot()
 		-- finished (the server refuses the blast).
 		holdUntil = serverTimeAt(state.goFreeAt or math.huge),
 		through = Match.throughUserIds(),
+		-- WHO PAID FOR THE HUNTER'S PLACE AND IS DRIVING ANYWAY (task 221). DERIVED, never stored:
+		-- `Roster.overruled` reads the assignment that was actually made, so it cannot go stale
+		-- against it and no field is added to `state` -- which is why `Phase.freezeState` and every
+		-- `match_*.spec` are untouched.
+		--
+		-- ABSENT, not an empty array, when there is no economy at all: the `stands` and `coinsOn`
+		-- idiom (*"ABSENT means the server never sent it"*), so a build with the flag off is
+		-- byte-identical to the one before this task.
+		-- IT IS GATED ON `coinsOn` AND NOT MERELY ON A WIRED VIEW (task 221, round 1 finding 2's own
+		-- new spec caught this): a view is wired in every world that has an economy at all, so
+		-- keying off its existence shipped an empty array to every client with the money switched
+		-- OFF. `coinsOn` is the same fact the row beside it keys off, and ABSENT is what a build
+		-- without money has always sent.
+		roleOverruled = if coinsOn
+				and economy
+				and economy.alwaysHunters
+			then Roster.overruled(state.assignment, economy.alwaysHunters())
+			else nil,
 	})
 	return snapshotCache
 end
@@ -1215,6 +1275,41 @@ local function applyUnassign(userIds: { number }?)
 	end
 end
 
+-- WHO IS BEING PLACED ON THIS TEAM, AND WHICH OF THEM PAID FOR A HIGH SEAT (task 221).
+--
+-- IT EXISTS BECAUSE A PER-PLAYER RULE CANNOT BE COLLISION-FREE. The world places one man at a
+-- time, so two hunters independently skipping the same seat would land on the same ground stand.
+-- This hands the WHOLE LINE to `world.placement`, which deals it in one pass
+-- (`HighSeats.dealLine`).
+--
+-- WHAT `Match` LEARNS IS ONE BOOLEAN PER PLAYER, out of the economy view it already holds for
+-- `Match.mayCarryWeapon` and for the hat. It does NOT learn what a high seat is, where the seats
+-- are, or which stand anybody gets -- that is the world's, and `ReplicatedStorage.HighSeats` is
+-- required by the forest's closure and not by this file. The same boundary
+-- `Body.setAccessorySource` already is.
+--
+-- nil ALL THE WAY DOWN WITH NO ECONOMY: `entitled[i]` is left nil, and nil is "nobody answered",
+-- which `Shop.grantsHighSeat` and `HighSeats.dealLine` both read as entitled -- so a build with no
+-- economy deals exactly the line it dealt before this task.
+local function placementLine(team: TeamName): any
+	local ids = {}
+	for id, assigned in pairs(state.assignment) do
+		if assigned == team then
+			table.insert(ids, id)
+		end
+	end
+	table.sort(ids)
+	local economy = if world then world.economy else nil
+	local ownedOf = if economy then economy.ownedOf else nil
+	local entitled: { boolean? } = {}
+	if ownedOf ~= nil then
+		for index, userId in ipairs(ids) do
+			entitled[index] = Shop.grantsHighSeat(ownedOf(userId))
+		end
+	end
+	return { count = #ids, entitled = entitled }
+end
+
 local function indexWithinTeam(userId: number, team: TeamName): number
 	local ids = {}
 	for id, assigned in pairs(state.assignment) do
@@ -1240,10 +1335,16 @@ local function applyPlace(userIds: { number }?)
 		end
 		table.sort(targets)
 	end
+	-- ONCE PER CALL AND NOT PER PLAYER (task 221): the line is the same for everybody on a team,
+	-- and building it inside the loop would ask the economy once per man for one answer.
+	local lines: { [string]: any } = {}
 	for _, userId in ipairs(targets :: { number }) do
 		local player = playersService():GetPlayerByUserId(userId)
 		local team = state.assignment[userId]
 		if player and team and markerSet then
+			if lines[team] == nil then
+				lines[team] = placementLine(team)
+			end
 			-- WHERE a player of this team stands may be the WORLD's answer; putting him there is
 			-- still `Body`'s and only `Body`'s (design section 4.3.1). The default IS
 			-- `Body.placementFor`, with the same argument order, so a world that injects nothing
@@ -1252,7 +1353,7 @@ local function applyPlace(userIds: { number }?)
 			-- The Forest Test needs it because its road is a sine curve over ground that climbs 56
 			-- studs in 400: `placementFor`'s generic -Z look is up to 23 degrees off the push there.
 			local place = if world and world.placement then world.placement else Body.placementFor
-			local cframe = place(markerSet, team, indexWithinTeam(userId, team), config)
+			local cframe = place(markerSet, team, indexWithinTeam(userId, team), config, lines[team])
 			-- ONE LINE WHEN THERE IS NOWHERE TO PUT HIM, and it is here because the alternative is
 			-- what task 157 round 1 spent a measurement on: a player who spawns at the place's own
 			-- SpawnLocation looks exactly like a player whose pivot was overwritten, and neither the
@@ -1698,7 +1799,15 @@ local function syncBots()
 		-- order -- so a bot stands where this world says a player of that team stands, and there is
 		-- one answer to "where does a hunter stand" rather than two.
 		local place = if world.placement then world.placement else Body.placementFor
-		local slots = Match.botSlotsFor(markerSet, place, real, want, config)
+		-- THE HUNTERS' LINE, LENGTHENED BY THE BOTS (task 221). The real hunters keep indices 1..n
+		-- with their own `entitled` answers, and the bots take n+1 upward with none -- so an entitled
+		-- hunter always has first refusal of a seat and a bot can only ever take a leftover one.
+		local hunterLine = placementLine("Shooters")
+		local botLine = {
+			count = (real.hunters or 0) + (want.hunters or 0),
+			entitled = hunterLine.entitled,
+		}
+		local slots = Match.botSlotsFor(markerSet, place, real, want, config, botLine)
 		local made = bots.fill(slots, nil)
 		stats.botsFilled = made.hunters + made.beaters
 	end
@@ -1765,6 +1874,12 @@ local function dispatch(event)
 	-- consumed, because the only thing that ever WRITES a turn is the drive's end.
 	if filled.owed == nil and world and world.economy and world.economy.owedTeams then
 		filled.owed = world.economy.owedTeams()
+	end
+	-- WHO BOUGHT THE HUNTER'S PLACE (task 221), beside the turn and for the identical reasons: one
+	-- table read out of a memoised FROZEN table, no clone and no freeze, filled on EVERY event
+	-- because an assignment can happen on a join as well as on a tick.
+	if filled.alwaysShooters == nil and world and world.economy and world.economy.alwaysHunters then
+		filled.alwaysShooters = world.economy.alwaysHunters()
 	end
 	local endedEarlyBefore = state.endedEarly
 	local holdbacksBefore = state.holdbacks
@@ -2287,7 +2402,12 @@ function Match.standAreaOf(userId: number): any?
 		return nil
 	end
 	local place = if world and world.placement then world.placement else Body.placementFor
-	local cframe = place(markerSet, team, indexWithinTeam(userId, team), config)
+	-- THE SAME LINE THE PLACEMENT USED (task 221), or this would answer a circle round a stand he is
+	-- not standing on: the deal depends on the whole line, so asking for one man without it would be
+	-- a second opinion about where he is. This path is the DEV fallback -- the Forest Test answers
+	-- through `world.standArea` -- and the DEV place has no seats, so the two agree there trivially;
+	-- passing it is what keeps them agreeing if it ever does.
+	local cframe = place(markerSet, team, indexWithinTeam(userId, team), config, placementLine(team))
 	if cframe == nil then
 		return nil -- nowhere to put him means nowhere to hold him
 	end
@@ -2537,13 +2657,19 @@ function Match.botsNeedRebuild(phase: string, driveNumber: number, lastRebuilt: 
 	return phase == "Assigning" and lastRebuilt ~= driveNumber
 end
 
-function Match.botSlotsFor(markers, place, real, want, cfg): { any }
+--
+-- `line` IS THE HUNTERS' LINE (task 221), passed through unchanged so the bots are dealt out of
+-- the same walk the real hunters were. A bot has no userId and no profile, so its index carries no
+-- `entitled` answer -- nil, which is "nobody answered", which is entitled -- and a bot may take a
+-- LEFTOVER seat. The real hunters are dealt FIRST, because their indices are 1..n and the bots get
+-- n+1 upward, so an entitled hunter always has first refusal. Accepted and named.
+function Match.botSlotsFor(markers, place, real, want, cfg, hunterLine): { any }
 	local slots = {}
 	if place == nil then
 		return slots
 	end
 	for index = 1, (want.hunters or 0) do
-		local at = place(markers, "Shooters", (real.hunters or 0) + index, cfg)
+		local at = place(markers, "Shooters", (real.hunters or 0) + index, cfg, hunterLine)
 		if at ~= nil then
 			table.insert(slots, {
 				id = string.format("bot-hunter-%d", index),
@@ -2563,7 +2689,7 @@ function Match.botSlotsFor(markers, place, real, want, cfg): { any }
 		-- NO LINE MEANS NO WALK, NOT A WALK TO NOWHERE: `to = nil` makes a bot beater a stander on
 		-- the start line. A world whose markers have no drive line is a fact about the world, which
 		-- is the shape `applyPlace` and `applyScene` already have.
-		local from = place(markers, "Drivers", (real.beaters or 0) + lane, cfg)
+		local from = place(markers, "Drivers", (real.beaters or 0) + lane, cfg, nil)
 		if from ~= nil then
 			table.insert(slots, {
 				id = string.format("bot-beater-%d", lane),

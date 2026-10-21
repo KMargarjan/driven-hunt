@@ -14,10 +14,15 @@
 -- "a red deer needs a licence" living on the client is exactly the two-correct-pieces-of-code
 -- failure docs/PROJECT_CONTEXT.md names.
 --
--- NO DEER EXISTS YET. `reddeer` is in the table because Karen's rule is about one and because a rule
--- with no data is not a rule; `tests/server/weapon_rules.spec.luau` proves the gate with a STUB
--- target carrying `Species = "reddeer"`. The boar's own trunk publishes `Species = "boar"`
--- (`Boar.Body.create`), so the free row below is live today rather than dormant.
+-- THE DEER ARRIVED (task 223). This header used to say *"NO DEER EXISTS YET"* and that the
+-- `reddeer` row was proved only by a STUB in `tests/server/weapon_rules.spec.luau`. Karen bought a
+-- red deer family on 2026-10-20 and `Boar.CONFIG.KINDS` now has a stag, a hind and a calf, each
+-- carrying `species = "reddeer"`, which `Boar.Body.create` publishes on the trunk. So BOTH rows are
+-- live off real animals now: the boar's shot is allowed by the `licence = false` row and the deer's
+-- is refused by the `licence = true` one, through the same gate, with no new rule.
+--
+-- The stub spec stays and must stay green: it proves the GATE with no world at all, and
+-- `tests/server/deer.spec.luau` proves the same gate reached from a trunk `Body.create` built.
 --
 -- Note: docs/research/2026-10-13-the-rules.md
 local Licences = {}
@@ -32,17 +37,46 @@ export type Row = {
 	label: string, -- what a shop or a Hud would print
 	licence: boolean, -- does shooting one need a licence at all
 	price: number?, -- what it costs in coins, nil while nobody sells it
+	-- DOES AN ANIMAL OF THIS SPECIES EXIST IN THIS BUILD? (task 221). It is NOT a rule of the fire
+	-- gate -- `Licences.required` and `Licences.allows` do not read it, so every existing case is
+	-- untouched -- it is what makes the SHOP's refusal structural: `Shop.rowsOk`'s I3a refuses a
+	-- row that is for sale and grants a licence for a species nothing publishes, exactly as I3
+	-- already refuses one granting a weapon no build ships.
+	--
+	-- Without it a naive check (*does the licence table know this species*) would PASS for the red
+	-- stag -- the row below has existed since task 171 -- and nothing structural would stop someone
+	-- flipping `sale`. Karen's rule is that we never sell what does not work.
+	shipped: boolean,
 }
 
 Licences.ROWS = {
 	-- FREE, AND IT IS THE WHOLE GAME TODAY. Karen's quarry is wild boar and she has never asked for
 	-- a licence for one; the row exists so that "which species is this" has an answer for the only
 	-- animal in the drive, and so the gate is exercised by every real shot rather than by a spec.
-	boar = { species = "boar", label = "WILD BOAR", licence = false } :: Row,
-	-- THE ONE KAREN'S RULE IS ABOUT, and there is no deer in this game yet. 2026-10-10:
-	-- *"they can aim but no shooting happening"*. `price` is nil because the shop does not exist and
-	-- a number here would be a decision nobody has taken (it is Karen's, with the shop task).
-	reddeer = { species = "reddeer", label = "RED DEER", licence = true } :: Row,
+	-- `shipped = true`: `Boar.Body.create` publishes `Species = "boar"` on the trunk, so this row
+	-- describes an animal that is actually in the drive.
+	boar = { species = "boar", label = "WILD BOAR", licence = false, shipped = true } :: Row,
+	-- THE ONE KAREN'S RULE IS ABOUT. 2026-10-10: *"they can aim but no shooting happening"*, and
+	-- 2026-10-20, verbatim: *"deer also will be possible to shoot if you have purchased deer
+	-- license"*.
+	--
+	-- ONE ROW COVERS THE WHOLE FAMILY -- stag, hind AND calf -- because Karen's sentence says
+	-- "deer", not "stag". All three `Boar.CONFIG.KINDS` rows carry `species = "reddeer"`, so one
+	-- card is permission over the species and the shop's row is named `DEER LICENCE` for that
+	-- reason (`Shop.ROWS[licence.reddeer]`). The KEY stays `reddeer` and the shop item's id stays
+	-- `licence.reddeer`: renaming a key would be renaming the rule, which is `Report.kindWord`'s
+	-- own discipline.
+	--
+	-- `shipped = true` SINCE TASK 223, AND IT IS WHAT OPENS THE SHOP'S DOOR. Task 221 put the card
+	-- in the catalogue at Karen's word with `sale = false`, and `Shop.rowsOk`'s I3a is what made
+	-- that forced rather than chosen -- *"the day the animal lands, `shipped = true` and
+	-- `sale = true` go in the SAME commit as it"*. This is that commit: the three kinds, their
+	-- models, their prices and this flag are one change.
+	--
+	-- `price` STAYS nil, and that is not an omission. What costs 750 coins is the CARD, and the
+	-- card's price lives in the catalogue that sells it (`Shop.ROWS`), not here. A second number
+	-- here would be the second price table rule 3 exists to prevent.
+	reddeer = { species = "reddeer", label = "RED DEER", licence = true, shipped = true } :: Row,
 }
 
 -- DEEP-FROZEN, so neither the shop nor a spec can edit the rules of the game at run time.

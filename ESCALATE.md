@@ -1,5 +1,500 @@
 # Escalations
 
+## 2026-10-20 - Task 223 round 2: `NEEDS TEST2 223 5d47be4` -- **RESOLVED**, first try
+
+Round 1's pair was clean at `113f3aa` and the Director ran `test2` there first try. **Round 2
+changed `src/server/Boar/init.luau`** (the flag-off gate, the spawn height, the avoid whisker, the
+group count) **and three spec files**, so the two-player line has to be re-run at the new code
+commit -- `src/server/Match/init.luau` is still in this task's diff against main, and that is what
+puts it on `TWO_PLAYER_PATHS`.
+
+One-player line, in hand and clean:
+
+```
+[harness] PASS: 33/33 checks @ 5d47be432ad330a97486aa007a32e3d279b63ade (clean tree) scope=all
+```
+
+**RESOLVED, 2026-10-20.** The Director ran it at this round's code commit, first try:
+
+```
+[harness2] PASS: 35/35 checks @ 5d47be432ad330a97486aa007a32e3d279b63ade (clean tree)
+```
+
+Round 1's line was at `113f3aa` and is NOT reused: a two-player line is only evidence for
+the commit it names.
+
+
+## 2026-10-20 - Task 223: `NEEDS TEST2 223 113f3aa` -- **RESOLVED**, the Director ran it first try
+
+The red deer touches **two files on `TWO_PLAYER_PATHS`** and there is no way around it:
+
+* `src/server/Match/init.luau` -- `POINTS.KIND` gained the three deer prices and
+  `SCENE.ANIMAL_SCALES` gained three rows;
+* `tests/server/match_score.spec.luau` -- matches `tests/server/match_*.spec.luau`.
+
+**This is accepted rather than worked around** (design section 13.4). What a kill is worth is the
+match's data -- `Score.kill` prices off `POINTS.KIND` and nothing else -- and there is exactly one
+such table. Moving the deer's three prices out of it to dodge a harness run would create the second
+price table rule 3 exists to prevent, and that is a worse trade than one click.
+
+**The one-player line is in hand and is clean:**
+
+```
+[harness] PASS: 33/33 checks @ 113f3aa480bb16fe382b1a82ceac035a5356b054 (clean tree) scope=all
+```
+
+**RESOLVED, 2026-10-20.** The Director ran it at the code commit, first try:
+
+```
+[harness2] PASS: 35/35 checks @ 113f3aa480bb16fe382b1a82ceac035a5356b054 (clean tree)
+```
+
+Both lines are in `reviews/task-223/REQUEST.md` and the review was opened on them.
+
+## 2026-10-20 - Task 223: `NEEDS KAREN` -- the ELEVEN animation publishes for the red deer
+
+**NOT A BLOCKER** (Director, 2026-10-20): this is follow-up **223c**, and task 223 merges
+without it. The three live frames (the hit card, the gathering, a licensed/unlicensed drive)
+are deferred into the SAME follow-up, because they are the same dependency -- all three are
+photographed in a Play session and the animal in them stands still until these ids exist.
+
+**Nothing is broken and nothing is waiting on this to merge.** The deer ships with its models and
+no clips, which is exactly the state the boar was in between tasks 115 and 116: `Assets.byKey`
+answers nil for every deer clip key, `Body.hasClip` is false, `trackFor` returns nil, and the animal
+**stands and slides**. It is honest, it is tested (`tests/server/deer.spec.luau` asserts every one of
+the eleven keys has no row) and it is the precedent.
+
+**Why only Karen can do it.** An animation asset id can only be made inside Studio. Open Cloud's
+Assets API takes an Animation only as a `.rbxm`/`.rbxmx` *"edited inside Roblox Studio"*, which
+nothing outside Studio can write, and `AssetService:CreateAssetAsync` answered *"not available yet"*
+when it was tried here on 2026-10-03. There is no API behind the Animation Editor
+(`docs/research/2026-10-03-boar-skinned-model.md`, source 1: *"It is clicks, per clip"*).
+
+**ONE clip set serves all three deer.** MEASURED on 2026-10-20 in headless Blender: the stag, the
+hind and the calf all carry `Arm_Deer`, 42 bones, with identical bone names -- the same situation as
+`Arm_Boar` across the male, the sow and the cub. So this is **eleven publishes, not thirty-three.**
+
+### The clicks, in order
+
+The eleven FBX files are in `<assets-dir>/deer/prep-stag/clips/`. Use the STAG's; the hind
+and the calf play the same ids.
+
+For each file:
+
+1. In Studio (any place), **Avatar -> Animation Editor**.
+2. Select the loaded stag rig in the Explorer when it asks for one.
+3. In the Animation Editor's **...** menu -> **Import -> From .FBX Animation**.
+4. Pick the file, e.g. `Walk_F_IP.fbx`.
+5. **...** -> **Publish to Roblox...**, name it `DrivenHunt Deer <clip>`, publish.
+6. Copy the asset id it hands back and paste it into the task's reply, one line per clip:
+   `walk = <id>`.
+
+The eleven, with the `Assets.KEYS` name each id belongs to:
+
+| file | key |
+|---|---|
+| `Idle_1.fbx` | `deer.anim.idle` |
+| `Walk_F_IP.fbx` | `deer.anim.walk` |
+| `Trot_F_IP.fbx` | `deer.anim.trot` |
+| `Run_F_IP.fbx` | `deer.anim.run` |
+| `Turn_L_IP.fbx` | `deer.anim.turn.left` |
+| `Turn_R_IP.fbx` | `deer.anim.turn.right` |
+| `Death_L.fbx` | `deer.anim.death.left` |
+| `Death_R.fbx` | `deer.anim.death.right` |
+| `Hit_Front.fbx` | `deer.anim.hit.front` |
+| `Hit_Back.fbx` | `deer.anim.hit.back` |
+| `Idle_5.fbx` | `deer.anim.calm.smell` |
+
+**Set `Loop = true` in the Animation Editor** for `idle`, `walk`, `trot`, `run`, the two turns and
+`smell`, and leave it off for the two deaths and the two flinches -- that is what
+`Boar.CONFIG.SPECIES.reddeer.MODEL.CLIPS[name].looped` already says about each.
+
+Once the ids exist, the follow-up is a small data commit: the eleven `Assets.ROWS` animation rows,
+and then `deathLiftStuds` for the three kinds -- which can ONLY be measured once a death clip exists
+to freeze (design section 7.5), and is 0 until then.
+
+
+## 2026-10-20 - Task 221 round 5: `NEEDS KAREN` -- the Forest Test is running PRE-221 CODE
+
+**STOP, one click.** The Forest Test place is open, but it is **not Rojo-Connected to this branch**,
+so every proof the round asked for would have been shot against the OLD build. Measured, not
+assumed, from inside the running place:
+
+```
+placeId=130094961655666
+Money=false | Shop.BUNDLES=false order=4
+RS children: Ballistics,ClientTests,...,Licences,Lobby,Map,Places,Report,Rifle,Shop,Shotgun,...
+```
+
+* **`ReplicatedStorage.Money` does not exist there.** It is the module this whole task's `$` rests
+  on.
+* **`Shop.ORDER` has 4 entries, not 10**, and `Shop.BUNDLES` is nil -- that is the catalogue as it
+  stood BEFORE task 221 (hat, slug, beater licence, rifle).
+
+`servePlaceIds` in `default.project.json` already lists `130094961655666`, so `rojo serve` is
+willing to serve it; the Studio simply has not Connected (or connected before these files existed
+and has not reconciled). DEV is fine -- the one-player gate passes there.
+
+**Had I taken the frames anyway they would have shown the old four-row shop and no `$`, and been
+worse than no evidence.** That is why this round produced no contact sheet.
+
+### THE EXACT CLICK
+
+1. In the **Driven Hunt Forest Test** Studio window, press the Rojo plugin's **Connect**.
+2. Accept the reconcile dialog (it will list the additions -- `ReplicatedStorage.Money` among them).
+3. Leave it in **Edit** and say so.
+
+Then this round's proof runs: the shop contact sheet, `$` on the top bar and the results, the live
+purchase (flags are already right there -- read directly from the place, **`COINS=true SHOP=true`**;
+I did NOT use `tools/flags.py`, because it resolves by Studio MODE and not by place, TASKS.md 216b).
+
+### The climb (218a(h)): STILL NOT PROVEN, and it is NOT a "CLIMB FAILS"
+
+I will not call it a failure, because I could not get a trustworthy negative. What happened:
+
+* The seats are there: `Workspace.HighSeats` holds **3 seats** (the road layout's `{1,4,7}`), and
+  `Seat4`'s ladder is a real **`TrussPart`, 2.00 x 13.80 x 2.00**, foot at **Y 131.72**, deck top at
+  **Y 144.52** -- a 12.8-stud truss spanning foot to deck, which is the geometry the engine's
+  `Climbing` state needs. That much is evidenced.
+* I placed the hunter at the ladder's foot (**placedOff 0.00**, start Y 135.15, needing +9.37) with
+  the default control module **disabled**, and drove `Humanoid:Move` toward the truss for 13 s.
+  **Rise 0.00, and not one `StateChanged` event** -- not even Running to Freefall.
+* The probe environment is not the problem: a tick probe in the same context measured
+  **163 heartbeats over 3.27 s**, so frames really were advancing.
+
+So the character does not walk under `Humanoid:Move` from a probe, and **I cannot separate "the
+ladder does not work" from "my rig cannot walk him"**. A real climb needs replayed input (the
+harness's own scenario mechanism) or a human at the keyboard. **My first attempt also produced a
+FALSE PASS** -- it placed him at Y 143 against a deck top of 109 and duly reported `reached=true`;
+I caught it on the numbers and threw it away. Flagging that because a metric that passes trivially
+is exactly what rule E says to report as suspect.
+
+**218a(h) stands: the climb has still never been evidenced live.** Three rounds have now been asked
+for it and none has produced a route; the route I wrote this round
+(`driven-hunt-runs/221-climb-client.luau`) places him correctly and is reusable, but the walk is
+the missing half.
+
+### Where the branch stands
+
+* One-player gate: `[harness] PASS: 33/33 checks @ 61ad71a... (clean tree) scope=all`, only DEV open.
+* Two-player gate: the Director's `[harness2] PASS: 35/35 @ 61ad71a...`, **twice**.
+* CI green. No code changed this round -- the dispatch said proof without code changes, and none
+  was needed.
+* **Not done: the contact sheet, the `$` frames, the live purchase, smoke (rule A), and therefore
+  the review.** Rule 5 is still not satisfied. All of it is behind the one Connect click.
+
+### Queued as 221b (the Director's instruction), with the numbers
+
+Spec LOAD times, from the `TestKit` instrument added in round 4 -- these are top-level yields, not
+test time, and they block the whole suite before TestEZ starts:
+
+| run | file | load |
+|---|---|---|
+| two-player, shooter | `shoot_boar.spec` | **11.2 s / 9.8 s** |
+| two-player, driver | `weapon_client.spec` | **15.0 s** |
+| one-player | `weapon_client.spec` | **17.1 s** (reproduced twice) |
+
+Everything else in both suites loads in under 40 ms. Not a blocker now that test2 passes; worth a
+task because ~17 s of every run is one file's top-level wait.
+
+---
+
+## 2026-10-20 - Task 221 round 4: the test2 regression is REAL and NOT YET FOUND
+
+**I did not find the cause, and I am not going to pretend otherwise.** What follows is what the
+evidence rules IN and what it rules OUT, and the one instrument that will name it on the next
+two-player run.
+
+### It is ours, and it is not a flake
+
+`test2` history on this machine: `t219c`, `t219b`, `t219`, `t217`, `t210-3/-2/-1`, `t209d`, `t209c`,
+`t205c` -- **35/35 on every one**. `t221` is `31/35`. Task 221 broke it.
+
+### What the log actually says, and it is not what the failing lines suggest
+
+```
+[harness2] driver reported after 6 s
+[harness2] shooter reported after 299 s
+[harness2] server reported after 300 s
+```
+
+against a **300 s bound**, and the phase breakdown against the last clean run:
+
+| phase | t219c | t221 |
+|---|---|---|
+| replaying the input scenarios | 59.5 s | **60.1 s** |
+| reading all three reports | 103.9 s | **300.6 s** |
+
+**The input replay is unchanged.** The shooter's client suite ran into the deadline, and every
+failing assertion is a cue or a frame that never arrived because of it --
+`zz_drive_boundary`'s *"a client never reported"* is the server waiting for that shooter. So the
+six failures are **one stall with six symptoms**, not six defects. The driver finished in 6 s.
+
+### Two hypotheses MEASURED AND ELIMINATED
+
+Both were plausible enough to ship a "fix" on. Neither survived contact with a number.
+
+1. **"My new `shop_panel.spec` case builds ten display models and that is the cost."** Measured in a
+   live DEV client: **all ten models, 319 parts, 3.9 ms.** Not it.
+2. **"The `WaitForChild(\"Money\")` I added at the Hud's module scope blocks on a cold client."**
+   This one I believed. Measured in a live client:
+   `Money wait=0ms require=0ms | Drive wait=0ms | Shotgun wait=0ms | Weapons require=5ms |
+   Shop wait=0ms | Flags wait=0ms | TestKit wait=0ms | Hud require=36ms`. **Not it.**
+
+### What the new instrument already found
+
+`TestKit` now times every spec's `require` -- a spec's top-level runs inside that loop, so a stall
+there blocks the whole suite **before TestEZ starts** and nothing upstream says which file. First
+run with it, one player, reproducible across two runs:
+
+```
+note [client] spec load, slowest three: weapon_client.spec 17116 ms, report_panel.spec 39 ms, gun_client.spec 21 ms
+```
+
+**`weapon_client.spec` costs 17.1 s at LOAD with one player** -- three orders of magnitude above
+everything else, and it is the shooter's gun spec. **That is the thing to watch.** If task 221
+delayed the shooter's gun in a two-player session, that 17 s becomes the ~290 s the log shows, and
+the driver -- who has no gun -- is unaffected at 6 s. It fits every number above. **I could not
+confirm it, because confirming it needs `test2` and `test2` needs the human Start click.**
+
+### What I changed this round, and why each stands on its own
+
+Nothing here is a speculative fix for the stall. Two are corrections I can justify without it:
+
+* **`StateMachine`: `state.unlimited[...]` was a bare index** in `Load` and `Magazine`, and
+  `next.unlimited[...]` in `Break`. Every state this module makes carries the field -- but a bare
+  index turns any state assembled elsewhere into *attempt to index nil* **in the one code path a
+  hunter uses every few seconds**. They read through a frozen shared `EMPTY` now.
+* **`money.spec`'s `WaitForChild` is bounded at 10 s with an assert**, so a module that has not
+  replicated is a named failure instead of a silent stall of the whole suite.
+* **`TestKit` times the spec loads** (the instrument above).
+
+### What the Director should do next
+
+1. **Run `test2` at `61ad71a`.** Whatever the result, the note now names the slowest three spec
+   loads **per client**. If the shooter's `weapon_client.spec` reads ~290 s, the stall is in that
+   file's top-level wait and the question becomes *what did 221 do to the shooter's gun* -- a much
+   smaller question than the one I started with.
+2. **Two consecutive clean runs before the gate is treated as satisfied** (L-033): this is
+   ordering-sensitive and one clean run would not be evidence.
+
+### Still not done, and not claimed
+
+The Forest Test proof -- the climb (218a(h)), the shop contact sheet, `$` on the bar and results,
+the live purchase, and smoke (rule A). **Rule 5 is not satisfied for this task.** I did not start
+them this round on purpose: the branch has an open two-player regression, so proving the look of a
+build that cannot pass its own gate would be work thrown away. One-player gate is clean --
+`[harness] PASS: 33/33 checks @ 61ad71a9eb3ae360ff73a5b0bb8ec652fdb1623e (clean tree) scope=all` --
+with only the DEV place open (two Studios, both asked `game.PlaceId`, both `136410205938347`).
+
+
+---
+
+## 2026-10-20 - Task 221 round 3: `NEEDS KAREN` (open the Forest Test), then `NEEDS TEST2 221`
+
+### HALF 1 -- `NEEDS KAREN`: the Forest Test place is not open, and four proofs need it
+
+**Measured rather than assumed.** Both Studios connected to this machine during round 3 were asked
+`game.PlaceId` directly, and both answered **`136410205938347` -- the DEV place**. The Forest Test
+(`130094961655666`) is **not open**. Opening a place in Studio is a click no tool here can make.
+
+**THE EXACT CLICKS, in order:**
+
+1. In Roblox Studio, **File -> Open from Roblox** (or the Home tab's **My Games**) and open
+   **Driven Hunt Forest Test** (`130094961655666`). Leave the DEV place open too.
+2. In that Studio window, press the Rojo plugin's **Connect** button (`rojo serve` is already
+   running; a branch switch has not happened since).
+3. Leave it in **Edit** mode and say so.
+
+**What then becomes possible, and what each one is for:**
+
+| # | Proof | Why it needs that place |
+|---|---|---|
+| 1 | **The climb (decision 4, TASKS.md 218a(h))**: a hunter walks into the ladder and goes up | The seats exist ONLY there -- `ForestTestBoot` returns early anywhere else |
+| 2 | **The shop frames** (the contact sheet, rule 5) | The panel opens from the shopkeeper's prompt in the LODGE, and the DEV place has none |
+| 3 | **The live purchase with the test grant** | `Shop.withinReach` answers false with no counter: *"a world with no lodge has no shop, which is exactly what the DEV place is"* (shop design 10.4) |
+| 4 | **The smoke run** (standing rule A) | It is specified in the place Karen will use |
+
+**A probe cannot stand in for any of them, and that is measured too.** `execute_luau` has its own
+module cache (memory `studio-mcp-execute-luau-single-line`), so `require`-ing `ShopPanel` from a
+probe returns a **fresh** module with no GUI built -- which is exactly why
+`Panel.detailText()` came back EMPTY from the live DEV client while `ShopDisplay.build` (pure)
+answered fine. The frames need the real panel.
+
+**SO NOBODY SHOULD SAY "READY FOR KAREN" ON THIS BRANCH, and rule 5 is NOT satisfied for this
+task.** This entry is the record of that.
+
+**And the Learning Agent's standing warning applies to whoever does them:** `tools/flags.py`
+resolves the target Studio **by MODE, not by place** (TASKS.md 216b, still unfixed). With both
+places open, print what it resolved to and read the attribute back before trusting any result.
+
+### HALF 2 -- `NEEDS TEST2 221 <the final code commit>`
+
+`TWO_PLAYER_PATHS` is reached and more so than in round 2: round 3 rewrote `Roster.assign` itself.
+The one-player gate is in the task's row in `TASKS.md`; the Director runs
+
+```
+python tools/studio_mcp.py test2
+```
+
+in Edit with only DEV open, and wants
+
+```
+[harness2] PASS: n/n checks @ <the same sha> (clean tree)
+```
+
+---
+
+### What round 3 DID settle, so the Director does not have to re-read the code
+
+**Decision 1 -- always-hunter now works when bought.** `Roster.assign` is rewritten: the men who
+bought the place are placed FIRST and the rotation fills what is left, so the split is balanced by
+construction instead of by a check that could discard the whole swap. Overruled only when paid men
+outnumber the hunter slots.
+
+**The yield order deviates from the dispatch's words, deliberately, and this is the one thing to
+read.** *"Fewest drives as always-hunter yield first"* taken literally **starves** the man at the
+bottom: yielding is exactly what stops him serving, so his count never rises and he is overruled
+for ever -- the very defect decision 1 exists to remove. So the key is RECENCY, which is the same
+fairness without the trap:
+
+1. he held `Shooters` last drive -> yields FIRST;
+2. no previous row (he just arrived) -> next;
+3. he drove last drive -> yields LAST;
+4. ties by userId.
+
+It **cannot** starve, by construction: a man who yields is a DRIVER, so next drive it is his turn.
+`match_roster.spec` runs four consecutive drives with four always-hunters and two slots and shows
+**every man served exactly twice**. It uses `previous` alone -- no new state, no new profile field,
+nothing added to `Phase.freezeState`. **Join time is not used**: a pure function cannot see it and
+carrying it would mean a new frozen-state field for a tie-break userId already settles. **Say the
+word and the comparator inverts in one line.**
+
+**Decision 2 -- the walk-up hole is shut.** `StandArea.seatPaid`, `Rules.onUnpaidPlatform`, and
+`belowPlatform` standing down entirely for a stand he has not paid for -- without that he would be
+told to climb on the ground and refused once he did, a trap with no way out. A spec sweeps 40
+studs of height and proves the two rules can never both fire.
+
+**The line is `"BUY TREE STAND"`, not the Director's `"BUY TREE STAND ACCESS"`.**
+`weapon_rules.spec` caps every notice at 20 characters and that cap is a measurement of the readout
+(it already carries the glyphs, the ammo word and the pocket). 21 did not fit. The 14 that did are
+Karen's own product words.
+
+**Decision 3 -- every row the shop sells has a picture.** Six builders, all parts, no uploads: the
+high seat in miniature, an ammo crate, a stag card, a hunter's badge, and the packages drawn as
+their own contents through the per-item builder, so a package can never show something it does not
+contain. **Measured live in DEV** over all ten rows: every one answers `knows = true`, with part
+counts 20, 42, 37, 16, 54, 15, 5, 21, 5, 104. **That is a count, not a look** -- the look is item 2
+of half 1.
+
+
+---
+
+## 2026-10-20 - Task 221: STOP -- `NEEDS TEST2 221 d0ea20a613be248113fce2c964184672b1e73e0c`
+
+Nothing is wrong and nothing is undecided. The dispatch ends with
+*"TWO_PLAYER_PATHS -> STOP `NEEDS TEST2 221 <sha>` before the review"*, so this is that stop.
+
+**IT IS REQUIRED THIS TIME, and by the paths rather than by a guess.** Unlike task 218, this branch
+really does touch the two-player list: `src/server/Match/init.luau`, `src/server/Match/Phase.luau`,
+`src/server/Match/Roster.luau`, `src/server/Match/Body.luau`, `src/server/MatchBoot.server.luau`,
+`src/shared/Drive/init.luau`, `tests/server/match_roster.spec.luau` and
+`tests/client/match_client.spec.luau` are all in `TWO_PLAYER_PATHS` or in the specs that test them.
+And the thing they changed is exactly the class of question a second player answers: **who the
+OTHER player is.** The roster now folds a bought preference into the split, the snapshot now
+publishes WHICH players were overruled, and the placement seam now carries the whole hunter line.
+
+**What the Director runs, in Edit, with only DEV open:**
+
+```
+python tools/studio_mcp.py test2
+```
+
+and the line wanted is
+
+```
+[harness2] PASS: n/n checks @ d0ea20a613be248113fce2c964184672b1e73e0c (clean tree)
+```
+
+The one-player half is already done, at that same commit and on a clean tree:
+
+```
+[harness] PASS: 33/33 checks @ d0ea20a613be248113fce2c964184672b1e73e0c (clean tree) scope=all
+```
+
+1,824 server assertions and 446 client assertions, 0 failed, 0 errors. It took four rounds; the
+first three were the specs still reading the old catalogue, and the fourth found nothing.
+
+---
+
+### What is NOT done, said plainly rather than left for the Reviewer to find (rule 8)
+
+The dispatch's proof list is not complete. The task ran well past its 3.5 h box on the build and on
+four harness rounds, and these three are outstanding:
+
+1. **The frames.** No screenshot has been taken of the shop open on the v1 catalogue, of the `$` on
+   the top bar, or of the `$` on the results board. **Rule 5 is therefore not satisfied for this
+   task**, and nothing in the report claims it is.
+2. **The live purchase** of one item with the test grant in the Forest Test.
+3. **The smoke run** (standing rule A). **So nobody should say "ready for Karen" on this branch
+   yet**, and this entry is the record of that.
+
+They need Play with `SHOP` and `COINS` on, and the Learning Agent's own warning applies to doing
+them: `tools/flags.py` resolves the target Studio **by mode, not by place** (TASKS.md 216b,
+unfixed), and both DEV and the Forest Test have been connected during this session. Whoever does
+them captures, restores and **reads back** every attribute touched.
+
+---
+
+### Four things the Director should read before merging. All measured; none of them blocking by
+### themselves, and all of them Karen's or the Director's call rather than the Builder's.
+
+**(a) THE ALWAYS-HUNTER SEAM IS WEAKER THAN ITS $2,000 PRICE, and this is the one worth a decision.**
+
+The privilege is written into the **synthetic previous** (the seam task 217 built), and
+`Roster.assign` keeps its swap only while `|Drivers − Shooters| <= 1`. Flipping one man's synthetic
+row moves the **swapped** counts by **two**. So on an even roster whose last split was even,
+honouring one always-hunter who already held `Shooters` **always** unbalances the swap,
+`Roster.assign` discards the swap **whole**, and everybody falls through to the plain split — which
+is by sorted userId with `ODD_PLAYER_TEAM = "Shooters"`, so the first half lands on `Drivers`.
+
+**A low userId is therefore overruled every time rather than occasionally.** Measured, and
+`match_roster.spec` asserts it rather than hiding it, beside the case that shows what the privilege
+*does* buy (he drove last drive, so honouring it costs the balance nothing and he keeps the
+hunter's place).
+
+This is the design the Architect PASSed and the brief's own rule — *"the drive's balancing still
+wins when it must, and then he is told why"* — and the man **is** told why. But a player who pays
+$2,000 and is put on the beaters most drives will not read it as the rule working. Making it
+stronger means changing `Roster.assign` itself, which that function's own header argues against
+(*"rewriting a pinned pure function to add a feature is a bigger change than the feature"*) and
+which is a task of its own.
+
+**(b) SIX OF THE TEN ROWS HAVE NO PICTURE.** `ShopDisplay.DRAW` names four item ids — the rifle, the
+slug box, the hat and the licence card — and **declares** that an id it does not name draws nothing
+while the panel says `PICK AN ITEM`. That is a stated fallback and not a crash, and no line of the
+design or the dispatch asks for the art. But high-seat access, unlimited ammunition, the red stag
+card, always-hunter and the three packages will all show an empty display case, and that is what
+Karen will see. A Designer or Asset job.
+
+**(c) TASK 218's HIGH SEATS ARE INHERITED UNPROVEN.** TASKS.md row 218 reads *"NOT PROVEN: … the
+climb itself, and TrussPart.Size read-back"*, queued as 218a(h). Task 221 gates that feature behind
+money; **gating a privilege behind money does not make the privilege work.** What 221 proves is the
+DEAL — which hunter is given which stand, over four layouts, three stand counts, four entitlement
+patterns and every roster size to 16. What it inherits unproven is whether a hunter can climb the
+thing once he is on it.
+
+**(d) THE WALK-UP HOLE.** In the Forest Test the placement is only where a hunter **starts**:
+`ForestTest.lockPick` decides which stand the fire gate holds him to, and he picks it by walking to
+it in the 15-second window. So an unentitled hunter can still walk to a seated stand and climb the
+engine's own ladder. The shop's wording was written to match what is built — *"You are given one of
+the wooden high seats on the line when one is free"*, not *"only you may climb it"* — and gating
+the pick is the design's **D-2**, deliberately not in this task because refusing a pick risks the
+measured *"locked to a stand nowhere near his feet"* defect `Match.dispatch` already records.
+
+
+---
+
 ## 2026-10-20 - Task 218: STOP -- `NEEDS TEST2 218 c21429f` (by the dispatch) and NEEDS KAREN (her look)
 
 Nothing is wrong and nothing is undecided. The dispatch ends with

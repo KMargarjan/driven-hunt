@@ -50,6 +50,11 @@ Geometry.BODY_NAME = "RifleBody"
 -- which is what `CYCLE_KIND` tells `Camera.Viewmodel.hinge` (design 8.2).
 Geometry.CYCLE_GROUP_NAME = "Bolt"
 Geometry.CYCLE_KIND = "slide"
+-- NO LOOSE ROUNDS IN THE HANDS (task 224): this rifle's rounds come out of the box under the
+-- action and are never in anybody's fingers. `MAGAZINE_SWAP ~= nil` answered this correctly for
+-- this gun by coincidence -- it is the gun that has a box -- and `Viewmodel.handFeedsShells` now
+-- asks the question directly, so nothing about this weapon changes.
+Geometry.HAND_FED_SHELLS = false
 
 -- The same four keys the WORLD rifle wears (`Weapons.ROWS.rifle.ASSET_KEYS` -- the SCOPED row):
 -- unlike model B, which has a world gun and a viewmodel gun, this rifle is ONE model and both draw

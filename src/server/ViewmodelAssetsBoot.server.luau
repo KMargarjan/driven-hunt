@@ -32,6 +32,8 @@ local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Loader = require(ServerStorage.Assets:WaitForChild("Loader"))
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+local LeverGeometry = require(ReplicatedStorage:WaitForChild("Lever"):WaitForChild("Geometry"))
+local SemiAutoGeometry = require(ReplicatedStorage:WaitForChild("SemiAuto"):WaitForChild("Geometry"))
 local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 
 -- THE ONE PLACE A PUBLISHED TEMPLATE IS MADE TO SHOW ITS OWN COLOUR (task 99), for the hands and
@@ -101,6 +103,21 @@ gunFolder.Parent = ReplicatedStorage
 local rifleFolder = Instance.new("Folder")
 rifleFolder.Name = RifleGeometry.FOLDER_NAME
 rifleFolder.Parent = ReplicatedStorage
+
+-- ...AND THE LEVER RIFLE'S (task 224). Same rule again: one folder per weapon, named by that
+-- weapon's own geometry module. Three groups here rather than four, because this rifle has no scope
+-- to take off -- its iron sights are on its rail, inside the action group.
+local leverFolder = Instance.new("Folder")
+leverFolder.Name = LeverGeometry.FOLDER_NAME
+leverFolder.Parent = ReplicatedStorage
+
+-- ...AND THE SEMI-AUTOMATIC SHOTGUN'S (task 225). SIX groups, which is the most of any gun here:
+-- three of the splits are forced by MATERIAL (that model carries three where the Marlin carried
+-- one, and one MeshPart is one material) and two by MOTION -- the bolt cycles and the shell lifter
+-- rises, on two different sequences.
+local semiAutoFolder = Instance.new("Folder")
+semiAutoFolder.Name = SemiAutoGeometry.FOLDER_NAME
+semiAutoFolder.Parent = ReplicatedStorage
 
 local reports = Loader.preload(Assets.keysFor("viewmodel"))
 for _, loaded in ipairs(reports) do
@@ -218,3 +235,39 @@ for name, key in pairs(RifleGeometry.MESH_KEYS) do
 	end
 end
 print(string.format("[ViewmodelAssets] published %d of 4 rifle piece(s)", rifleParts))
+
+-- THE LEVER RIFLE (task 224), by the same rule as the rifle above and for the same reasons: its
+-- three keys are `runtime` ones (the WORLD Tool wears the same meshes), the folder is published
+-- whatever any flag says, and `Loader.preload` is idempotent.
+local leverParts = 0
+for _, loaded in ipairs(Loader.preload(LeverGeometry.ASSET_KEYS)) do
+	if not loaded.ok then
+		warn(string.format("[ViewmodelAssets] lever %s did not load (%s)", loaded.key, tostring(loaded.reason)))
+	end
+end
+for name, key in pairs(LeverGeometry.MESH_KEYS) do
+	local before = gunParts
+	publishGunPiece(name, key, leverFolder)
+	if gunParts > before then
+		leverParts += 1
+	end
+end
+print(string.format("[ViewmodelAssets] published %d of 3 lever piece(s)", leverParts))
+
+-- THE SEMI-AUTOMATIC SHOTGUN (task 225), by the same rule again: its six keys are `runtime` ones
+-- (the WORLD Tool wears the same meshes), the folder is published whatever any flag says, and
+-- `Loader.preload` is idempotent.
+local semiAutoParts = 0
+for _, loaded in ipairs(Loader.preload(SemiAutoGeometry.ASSET_KEYS)) do
+	if not loaded.ok then
+		warn(string.format("[ViewmodelAssets] semiauto %s did not load (%s)", loaded.key, tostring(loaded.reason)))
+	end
+end
+for name, key in pairs(SemiAutoGeometry.MESH_KEYS) do
+	local before = gunParts
+	publishGunPiece(name, key, semiAutoFolder)
+	if gunParts > before then
+		semiAutoParts += 1
+	end
+end
+print(string.format("[ViewmodelAssets] published %d of 6 semiauto piece(s)", semiAutoParts))

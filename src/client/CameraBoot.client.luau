@@ -182,6 +182,16 @@ if weaponModule then
 	-- `snapshot.action` IS the question, it has been on the wire since task 142, and the edge into
 	-- `"Magazine"` is exactly one magazine change.
 	local wasAction: string? = nil
+	-- THE PREVIOUS SNAPSHOT, kept so `Camera.fedShell` can see a chamber go Live (task 225). It is
+	-- NOT `lastClosed`: that one deliberately remembers the last SHUT gun, and a shell going into a
+	-- tube gun never shuts anything.
+	-- ...AND IT STARTS "NOT YET SEEN" RATHER THAN nil-AS-EMPTY. `fedShell` counts Live chambers
+	-- and `live(nil)` is 0, so a client that boots in the middle of somebody's reload would read
+	-- its FIRST snapshot as a shell going in -- one spurious click and one spurious tray lift.
+	-- `seen` makes the first snapshot establish the baseline instead of being compared to a gun
+	-- with no chambers at all (the Reviewer's round-1 note).
+	local lastSnapshot: any = nil
+	local seenSnapshot = false
 	Camera.setBreakSource({
 		state = function()
 			local snapshot = Weapon.get()
@@ -198,6 +208,48 @@ if weaponModule then
 				if Weapon.Sound.voiceFor(voiced, "magazine") ~= nil then
 					Weapon.Sound.magazine(Camera.poseConfig(), voiced)
 				end
+			end
+			-- ...AND THE EDGE INTO A GATE FEED (task 224), beside it and by exactly the same rule.
+			-- `Load` is one cartridge: the lever rifle's `RELOAD` is `Break`, five `Load`s and
+			-- `Close`, so this fires once per round that actually goes in. The SHOTGUN also runs
+			-- `Load` steps and is deliberately untouched -- its row carries no `SOUND` block, so
+			-- `voiceFor` answers nil and nothing plays, which is exactly today.
+			--
+			-- IT IS ONE PER SHELL SINCE TASK 225, AND IT USED TO BE ONE PER RUN. The edge above was
+			-- `nowAction == "Load" and wasAction ~= "Load"`, and the comment that stood here measured
+			-- and admitted the consequence: `runCycle` publishes the step name on EVERY step, so the
+			-- step before each `Load` after the first is that same `Load`, and the gate clicked on
+			-- the first round of a run and not on each of the five. That was queued as 224a(e)
+			-- against "a step SEQUENCE number on the wire", which would have been a protocol change.
+			--
+			-- IT DID NOT NEED ONE. `Camera.fedShell` reads the LIVE-CHAMBER COUNT, which has been on
+			-- the wire since the first snapshot: a shell that actually went in is a chamber that
+			-- actually went Live. The semi-automatic shotgun needs exactly this edge to raise its
+			-- shell lifter once per shell (task 225), and the voice now shares it -- ONE edge, two
+			-- readers -- so the lever's gate clicks five times for five cartridges as well.
+			--
+			-- THE SIDE-BY-SIDE IS STILL DELIBERATELY SILENT here: its row carries no `SOUND` block,
+			-- so `voiceFor` answers nil and nothing plays, which is exactly what it did before.
+			local fed = seenSnapshot and Camera.fedShell(lastSnapshot, snapshot)
+			if fed then
+				local voiced = Weapons.row(snapshot ~= nil and snapshot.weapon or nil)
+				if Weapon.Sound.voiceFor(voiced, "load") ~= nil then
+					Weapon.Sound.load(Camera.poseConfig(), voiced)
+				end
+				-- ...AND THE TRAY RISES ON THE SAME EDGE, for the one gun that has a tray. A pose
+				-- set without `LIFTER_SECONDS` starts no lift at all, which is every gun but this
+				-- one.
+				local lifterSeconds = (Camera.poseConfig() or {}).LIFTER_SECONDS
+				if lifterSeconds ~= nil then
+					Camera.Viewmodel.setLift(lifterSeconds)
+				end
+			end
+			-- A nil SNAPSHOT IS NOT A BASELINE EITHER. Remembering one and calling it seen left a
+			-- client that saw nil and then a mid-reload snapshot reading one spurious fed shell
+			-- (the Reviewer, round 2).
+			if snapshot ~= nil then
+				lastSnapshot = snapshot
+				seenSnapshot = true
 			end
 			wasAction = nowAction
 			-- HOW FAR THROUGH A MAGAZINE CHANGE THE GUN IS (task 142). The SERVER SAYS WHICH STEP IT

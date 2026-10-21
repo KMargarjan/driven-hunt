@@ -1,0 +1,281 @@
+# Task 223 -- the red deer: stag, hind and calf in the drive, behind a licence
+
+Task: 223
+Round: 2
+Base: fdf2317 (main)
+Code commit: 5d47be432ad330a97486aa007a32e3d279b63ade
+
+```
+[harness] PASS: 33/33 checks @ 5d47be432ad330a97486aa007a32e3d279b63ade (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 5d47be432ad330a97486aa007a32e3d279b63ade (clean tree)
+```
+
+**BOTH LINES NAME THIS ROUND'S CODE COMMIT, `5d47be4`, ON A CLEAN TREE**, and the `[harness2]` one
+is the Director's, run first try on 2026-10-20. Round 1's pair was at `113f3aa` and is **not**
+reused here: round 2 changed `src/server/Boar/init.luau` and three spec files, and a two-player line
+is only evidence for the commit it names. **`NEEDS TEST2 223 5d47be4` is RESOLVED.**
+
+`src/server/Match/init.luau` (the three deer prices, three `SCENE.ANIMAL_SCALES` rows) and
+`tests/server/match_score.spec.luau` are what put this task on `TWO_PLAYER_PATHS`, and that was not
+worked around: moving the deer's prices out of `POINTS.KIND` to dodge the run would have created the
+second price table rule 3 exists to prevent, which is a worse trade than one click.
+
+**ONLY PAPERWORK FOLLOWS THE CODE COMMIT** (`git diff --name-only 5d47be4..HEAD`): `ESCALATE.md`,
+`TASKS.md` and this file.
+
+## ROUND 2: the four findings, each fixed at its owner
+
+**AND THEY WERE NOT ALL THE SAME KIND OF THING, which is worth saying before the list.** Findings 1
+and 2 were **defects**: their new specs FAIL against `113f3aa`, and the failing output is pasted
+below. Findings 3 and 4 were **missing coverage**: those specs PASS against `113f3aa`, because the
+code was already right and nothing proved it. Reporting them as four identical repairs would be
+dressing up two holes as two bugs.
+
+### Measured failing at `113f3aa` (specs only, `src/` and `tools/` stashed back):
+
+```
+[tests:server] FAIL: 1873 passed, 4 failed, 0 skipped, 4 errors, 63 spec files
+  failed [server] deer.spec:419  Expected value "7" (number), got "9" (number) instead
+  failed [server] deer.spec:354  Expected value "false" (boolean), got "true" (boolean) instead
+  failed [server] boar_zones.spec:496 Expected value "true" (boolean), got "false" (boolean)
+  failed [server] boar_zones.spec:496 Expected value "true" (boolean), got "false" (boolean)
+```
+
+* `deer.spec:419` is **finding 1 with its magnitude**: a composition-less release drew **9** numbers
+  with `BOAR_MODEL` off against the baseline release's **7**. Two extra, every release, in the
+  shipped default build.
+* `boar_zones.spec:496` is **finding 2, failing twice and passing once** -- the stag and the hind
+  started under the plate, the calf did not. That is exactly the asymmetry the Reviewer derived from
+  the numbers (0.40 studs and 0.053 studs under; a cub-sized box clears on the male's floor).
+* `deer.spec:354` is the Reviewer's `deerGroupsAllowed` note: at a cap of 2 it capped nothing.
+
+### 1. The flag-off `Random` stream -- FIXED at `Runtime:spawnSounder` + `Boar.deerGroupsAllowed`
+
+The flag is now tested **in front of the call**, so no argument is evaluated at all when
+`BOAR_MODEL` is off, and `deerGroupsAllowed` reads `KINDS.ENABLED` itself rather than answering
+`true` on every release of the default build. The gate inside `deerComposition` stays -- it is that
+function's own rule and a spec drives it directly. It is now the shape `Runtime:_legendaryAllowed`
+and the `rolls` loop sixty lines below already had.
+**Verify:** `deer.spec`'s *"draws NOT ONE extra number with BOAR_MODEL off"* -- it wraps the
+runtime's `Random` in a counter and compares a flag-off composition-less release against a release
+with a NAMED composition, which `spawnSounder` never offers the deer draw. It asserts two runs
+agree; it hard-codes no count.
+
+### 2. Spawn height -- FIXED at `Runtime:spawn`, plus the sweep
+
+`math.max(config.BODY_SIZE.Y, animalConfig.BODY_SIZE.Y) / 2`, which puts a stag's own box bottom on
+the ground **and keeps task 119's male floor for the cub** -- a 1.35-stud box dropped from its own
+half-height would start entirely below a surface that sits 2 studs above `groundY`, which is the bug
+that killed every cub in the drive.
+**The sweep the Director asked for found one more of the same class:** `_avoidTurnFor` casts its
+obstacle whisker from `BODY_SIZE.Y / 2` (*"the eye is the body's middle"*) off the RUNTIME's config,
+so a deer swept at a boar's knee height and would have turned away from roots it could step over.
+Now `entry.config`. **One site was deliberately left as the boar's and is documented in place:** the
+spawn RING's `BODY_SIZE.Z` spacing, because it is computed *before* `kinds` is drawn and reordering
+it would move `self._rng` draws relative to `phase` -- the exact stream shift finding 1 was about.
+**Verify:** `boar_zones.spec`'s *"starts ON the ground and not inside it"*, per kind. **It reads the
+PLATE's own measured top and the trunk's real `Position`, not the `groundHere`/`BODY_SIZE` the spawn
+line just computed** (L-086), and it samples BEFORE `runtime:run()` so a body already ejected upward
+cannot hide the choice.
+
+### 3. The deer's zone boxes -- twelve real rays per kind
+
+`boar_zones.spec` gained a describe per deer kind: twelve rays from outside at the stag, the hind
+and the calf, each insisting on the zone the geometry claims **and** that the zone part stands
+PROUD of the trunk, so a merely flush part fails instead of passing on a tie. The probe points are
+fractions of each animal's own box, so one table drives all three sizes -- and a scale is precisely
+what can push a box through a surface it cleared at full size. Each also asserts its trunk is the
+DEER's box times its `scale` and is **not** the boar's box at the same scale, which a single length
+assertion cannot tell apart.
+
+### 4. The report-counting path -- one case per kind, on both owners
+
+`hitlog.spec` counts a stag, a hind and a calf kill under their own `byKind` keys and `unknown` at
+zero, with every other key asserted unmoved -- plus the other arm, a kind nobody named still landing
+in `unknown`, which is what makes the first case mean anything. `report_panel.spec` drives
+`listCellsFor` with an eight-key `byKind` per kind, asserts the fold (stag to MALE, hind to FEM,
+calf to CUB), asserts a stag-shooter never sees `MALE 0 FEM 0 CUB 0 KILLS 1` (design section 1.1
+must-6), and asserts the deer ADD to the boars beside them rather than replacing them.
+**Round 1's claim 10 was wrong about where these were verified and is corrected here.**
+
+### The Reviewer's notes, done in this round
+
+`deerGroupsAllowed` now counts **groups** by sounder id rather than returning on the first live deer
+(at `MAX_GROUPS_ALIVE = 2` it capped nothing); `Boar.setModelSource`'s return type; and four comments
+that had drifted from their code (`boar_prep`'s selftest group count 11 to 12, the blurb's 120 to
+101, the `weight`-is-skipped sentence, and `BODY_SIZE`'s 4.85-against-4.8).
+**Still queued, not done:** the twelve fakes in `boar_model.spec`/`boar_shot.spec` ignore the species
+(223a(i)), `MARCH_RANK`'s three keys are still unasserted, the client arms of design section 13.3,
+and `deer.spec`'s two stale header sentences -- all of which are notes, not findings.
+
+## WHAT IS DEFERRED TO 223c, AND ON WHOSE WORD (Director, 2026-10-20)
+
+**The eleven animation publishes AND all three live frames go to 223c together.** They belong in one
+follow-up because they are one dependency: a hit card, a gathering and a licensed/unlicensed drive
+are all things you photograph in a Play session with `BOAR_MODEL` on, and the animal in them is
+standing still until its clips have ids -- which only Karen can make, by hand, in Studio's Animation
+Editor.
+
+**Until then the deer STANDS AND SLIDES, and that is the boar's own tested state between tasks 115
+and 116**, not a degraded one: `Assets.byKey` answers nil for every deer clip key, `Body.hasClip` is
+false, `trackFor` returns nil, and `deer.spec` asserts exactly that -- all eleven keys declared, all
+eleven with no row, all three MODEL rows present. The animal is visible, sized, shot, scored,
+licensed and counted; what it does not do yet is move its legs.
+
+**Merging without those frames is Karen's own standing decision** (2026-10-17): look tasks merge on
+the gates, the review and the Director's look, she looks afterwards, and anything she does not like
+becomes a new task. So this round does not claim the look was checked -- it says which frames were
+taken, which were not, and why the ones that were not are 223c's.
+
+**What WAS looked at** is in the unverified list below: two eye-height frames of the three deer and a
+boar standing on the ground, plus the silhouette overlays, frame by frame.
+
+## What changed
+
+Karen bought RedDeer's "Red Deer Family" on 2026-10-20 and set the rule, verbatim: *"deer also will
+be possible to shoot if you have purchased deer license"*. Three animals -- stag, hind, calf -- are
+now released in drives alongside boars, priced, drawn, counted, and refused to anybody without the
+card. Design: `docs/design/red-deer.md` (Architect PASS, `reviews/task-223/ARCH_RESULT.md`).
+
+The deer is **a species dimension on the animal runtime that already exists**, not a second system.
+
+## Claims, and how to verify each
+
+1. **A deer is one string on a kind row, and every boar is untouched by reference.**
+   `Boar.CONFIG.KINDS` gained `stag`, `hind`, `calf`, each carrying `species = "reddeer"`; the four
+   boar rows were not edited. `Boar.speciesConfig` returns **the config table itself** for nil, for
+   `"boar"` and for an unknown species, and `Boar.kindConfig` composes it with the existing `wary`
+   scaling (whose arithmetic moved intact into `Boar.scaledByWary`). Verify: `deer.spec`, *"is the
+   IDENTITY for nil, for boar and for a species nobody ships"* and *"composes the species tables with
+   the kind's wary scaling"* -- both assert **by reference** (`to.equal(config)`), not field by field.
+
+2. **The licence rule is the gate that has existed since task 171; nothing in the weapon learned what
+   a deer is.** `Body.create` publishes `row.species or Licences.ROWS.boar.species`. What landed is
+   data: `Licences.ROWS.reddeer.shipped = true` and the catalogue row on sale. Verify: `deer.spec`'s
+   *"the fire gate, reached from a trunk the boar owner built"* -- it spawns all seven kinds through
+   `Boar.newRuntime`/`spawn` (not a stub), reads them back through `Match.classifyTarget`, and drives
+   **both arms** of the same real `Rules.refuse`: `REASON.LICENCE` for a player with no card and
+   `nil` for one holding it, on all three deer kinds, plus `nil` for all four boar kinds either way.
+   `tests/server/weapon_rules.spec.luau` is unchanged and still green.
+
+3. **The calf is a penalty through the price and through nothing else.** `POINTS.KIND.calf = -10`,
+   the identical figure `cub` carries. No refusal, no second mechanism. Verify: `deer.spec`'s
+   *"makes the CALF a penalty, through the price and through nothing else"* -- it drives the real
+   `Score.kill` and asserts the award's reason is `kill-calf`, i.e. the kind is **known** (a calf
+   falling into `unknown` would score **+6** and invert the rule silently).
+
+4. **The prices.** stag 20 (two males, below the legendary's 25), hind 6 (exactly the sow's).
+   Verify: `deer.spec` prices all three through `Score.kill` and asserts the relations, not just the
+   literals; `match_score.spec`'s mirror table gained the three rows and fails in **both** directions.
+
+5. **The boxes are MEASURED and could not be the boar's scaled.** `SPECIES.reddeer.BODY_SIZE` is
+   `(1.8, 4.8, 7.05)` and the four zone boxes are fitted to `Arm_Deer`'s own bones -- taken in
+   headless Blender off the prepped model and **cross-checked against the loaded asset in Studio**,
+   the two agreeing to 0.02 studs on every bone (e.g. the head bone at `(0, 1.135, -2.285)` in
+   Blender against `(0, 1.157, -2.290)` in Studio). A red stag carries his head a whole trunk-height
+   above a boar's: scaling the boar's `head` offset by 1.282 puts the box in empty air in front of
+   his chest, which is exactly task 119's bug on a new animal. Verify: the comments in
+   `Boar.CONFIG.SPECIES.reddeer` carry each number's derivation; `deer.spec`'s *"sizes a deer off
+   the DEER's trunk and not off a scaled boar"* asserts the live trunk is longer and **narrower**
+   than a boar's and equals the species' own `BODY_SIZE.Z`.
+
+6. **A deer can never be handed the boar's animation ids.** `SPECIES.reddeer.MODEL` is a clone of
+   `Boar.CONFIG.MODEL` with four named overrides, and `ANIMATION_IDS` is **its own empty table**.
+   Both tables are keyed by the semantic clip name, so sharing one would play boar clips on
+   `Arm_Deer` -- which no spec could see, because an `AnimationId` is a number and it would be set
+   correctly. `animationIdFor` took a **species argument FIRST**, deliberately: a stale one-argument
+   fake then receives the species where it expected the name and answers nil, which is "no clip",
+   which is the safe tested state. Verify: `deer.spec`'s *"gives the deer its own animation id
+   table"*; and the five fakes in `boar_model.spec` plus seven in `boar_shot.spec` had to be updated
+   -- they failed first with `tracks = 0`, which is that guard biting.
+
+7. **No animation asset id was faked.** Eleven keys are declared with **no rows**, because an
+   animation id can only be made by hand in Studio's Animation Editor. The deer stands and slides,
+   the boar's own state between tasks 115 and 116. Verify: `deer.spec` asserts each of the eleven
+   keys is declared **and** `Assets.byKey(key) == nil`, while all three MODEL rows exist with
+   `scope = "deer"`. `ESCALATE.md` carries the eleven clicks as `NEEDS KAREN 223`.
+
+8. **The spawn mix is two pure rolls and one dial, in the boar's owner.** `Boar.deerComposition`
+   draws whether (`CHANCE_PER_RELEASE = 0.2`) and which of three compositions (40/40/20: a stag
+   alone, a hind with her calf, a stag with hinds), and `Boar.deerGroupsAllowed` caps it at one
+   group alive by counting live entries rather than keeping a counter. **The gate is in front of the
+   roll**, so with `BOAR_MODEL` off no number is drawn at all and the runtime's `Random` stream is
+   bit-for-bit the one every existing spec was written against. Verify: `deer.spec`'s *"the deer
+   draw"* describe -- the exact boundaries at roll 0/0.1999/0.2/1.0, each composition at its weight
+   boundary, the cap both ways, and the flag-off case.
+
+9. **Composition keys were generalised, not duplicated.** A composition may now name a kind
+   (`{ hind = 1, calf = 1 }`) beside the legacy `females`/`cubs`/`males`; `Boar.compositionSize` and
+   `Boar.sounderKinds` walk **one** shared helper, so "how many animals is this wave" and "which
+   animals are they" cannot disagree -- which is the promise `compositionSize`'s header has made
+   since task 123 round 8, now kept by construction. Verify: `deer.spec`'s *"turns a named
+   composition into that composition's own kinds"* drives both vocabularies.
+
+10. **The screens, and task 205's trap.** `Report.boarImage` gained three branches (`calf` is the
+    hind's drawing at its own `CALF_SCALE`, not `PIGLET_SCALE` reused), `trophyWord("stag")` is
+    `RED STAG`, `byKind` went from five keys to eight, and `ReportPanel.listCellsFor` folds the deer
+    into the existing MALE/FEM/CUB columns -- **no column moves and no pixel moves**, which is task
+    219's decision applied. The ids written into config are the **Image** ids, resolved on the
+    server with `InsertService:LoadAsset(decalId).Texture` (108848438402547 -> 82382119550819 and
+    83171385137200 -> 134628251396589); the decal ids are what `assets/uploads.json` records.
+    Verify: `deer.spec`'s *"what the screens draw"*.
+
+## What I could not verify (rule 8)
+
+* **A STALE SENTENCE IN `tests/server/deer.spec.luau`'s OWN HEADER, and I am naming it rather than
+  letting the Reviewer find it.** Two lines of that file's comment block still say the licence cases
+  build *"a REAL trunk built by `Body.create`"* and that the second impure case is *"the per-drive
+  cap"*. Neither is true of the file as it shipped: `Body` is private, so the block was rewritten to
+  spawn through `Boar.newRuntime`/`Runtime:spawn` -- the public door, which is how the drive makes an
+  animal -- and the cap case is pure. **The code is right and the comment above it is behind it.**
+  It is a comment-only inaccuracy in `tests/`, this round is paperwork-only by the Director's
+  instruction, and fixing it would move the code commit, so it is queued as 223a(h) rather than
+  smuggled in.
+* **ONE of the three rule-5 frames was taken and LOOKED AT; the other two were not.**
+  `.screenshots/20261020T131819Z-t223-deer-eye-ground.png` (camera y = 7, i.e. **5 studs above the
+  measured ground**, the player's eye height) and
+  `.screenshots/20261020T131834Z-t223-deer-eye-flank.png` (the same height, side on) show all three
+  deer and a boar male standing on the DEV ground: hooves and shadows on the surface, nothing sunk,
+  nothing floating, no grey box, textures loaded, and the proportions reading as the measurements
+  say -- the stag plainly the biggest with full antlers, the hind about six sevenths of him, the
+  calf about half, and the boar lower and heavier than any of them.
+  **THE FIRST FRAME OF THIS PAIR WAS WRONG AND IS KEPT** (`...131753Z-t223-deer-eye-side.png`): the
+  hind and the calf were buried to the shoulder, because my staging plate's top was at y = 0 while
+  the DEV ground is at **y = 2.000** (measured by raycast, not assumed). That is a staging fault and
+  not a model fault, and it is exactly why the frame is taken.
+  **THE `gap = 0.0000` THIS STAGING PRINTS IS REPORTED AS SUSPECT, NOT AS A PASS** (standing rule
+  E): each animal was PLACED at `groundY + Size.Y/2`, so a zero gap is my own arithmetic restated
+  rather than a measurement of what Karen sees. The frames are the evidence; the number is not.
+  **STILL NOT TAKEN:** the hit card after a stag is shot (which is where task 205's decal trap
+  lives, so `ImageLabel.IsLoaded` must be probed there and has not been) and the stag laid out at
+  the gathering. Both need a Play session with `BOAR_MODEL` switched on. Queued as 223a(a).
+  What else HAS been looked at is the silhouette work: the keyed PNGs and the box overlays were
+  rendered and inspected frame by frame (`<assets-dir>/deer/silhouettes/overlay-*.png`), which is
+  how the fitted box was caught sliding onto the torso and rejected.
+* **No live drive with a licensed and an unlicensed shot.** The licence pair is proved in `deer.spec`
+  against a trunk the boar runtime really built and the real `Rules.refuse`, which is the same gate
+  the live shot would reach -- but it is not the same as a shot fired in a session, and I am not
+  claiming it is.
+* **No smoke run (standing rule A).** I am therefore **not** saying this is ready for Karen to play.
+* **The hit card's box is honest and incomplete.** The deer's `box` is the picture's own measured
+  geometry (nose / rump / back line / hooves), which is what `HitLog.Shape.dot` normalises against.
+  Scored against the BOAR's `SILHOUETTE` rectangles it reads low (0.48 / 0.76 / 0.54 / 0.14 against
+  the boar sow's 0.93) -- and that is `SILHOUETTE` being the boar's zones projected, not this box
+  being wrong: a deer's legs are thin and far apart and its head rides above its back. Validating it
+  against the DEER's own measured zones needs the hit-card frame above, and is queued with it.
+* **The calf's `clipScale` is one number where the measurements want four.** Its package clips do
+  not scale uniformly against the stag's (walk 0.674, trot 0.610, run 1.029, turn 0.488 -- its
+  `Run_F_IP` genuinely covers more ground per second than the stag's). The walk is taken, because
+  the gait bands are built on the walk clip. It is invisible today (no deer clip has an id) and is
+  queued with the commit that lands them.
+* **`deathLiftStuds` is 0 for all three** and can only be measured once a death clip exists to
+  freeze (design section 7.5).
+
+## What was measured going wrong, and fixed
+
+The **first** prep run of the stag took the tool's default "longest axis is the length" rule,
+measured 2.2187 m on his **antlers**, and baked the body to 6.275 studs instead of 7.05. The run was
+thrown away, `tools/boar_prep.py`'s new `SPECIES` table pins the deer's length axis, and `selftest`
+asserts both directions. The boar's row holds `DEFAULT_CLIPS` and `SYNTH_CLIPS` **by identity** and
+`selftest` asserts that with `is`, so this generalisation provably did not move a character of the
+recipe that made the boar in Karen's game.

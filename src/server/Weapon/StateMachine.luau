@@ -20,6 +20,10 @@ type Action = Shotgun.Action
 
 local StateMachine = {}
 
+-- THE EMPTY ANSWER for a state that has no `unlimited` of its own. Frozen and shared: it is
+-- only ever read, and one table beats one allocation per Load (task 221 round 4).
+local EMPTY: { [string]: boolean } = table.freeze({})
+
 -- THE ROW IS THE CONFIG (task 140). `initial` always read `BARRELS`, `INITIAL_AMMO` and
 -- `START_RESERVE` off whatever it was handed, and a weapon row carries all three -- so a two-barrel
 -- shotgun and a one-chamber rifle start from the same function with no branch in it.
@@ -27,7 +31,10 @@ local StateMachine = {}
 -- is what every caller written before the shop passes, so no weapon spec and no number moves.
 -- `Shop.startFor(row, owned)` is what produces it, and nothing about the ROW is edited: the pocket
 -- sizes are still `START_RESERVE`'s (docs/design/shop.md section 7.3).
-function StateMachine.initial(config, start: { ammo: string?, reserve: { [string]: number }? }?): WeaponState
+function StateMachine.initial(
+	config,
+	start: { ammo: string?, reserve: { [string]: number }?, unlimited: { [string]: boolean }? }?
+): WeaponState
 	local ammo = (start and start.ammo) or config.INITIAL_AMMO
 	local barrels, loaded = {}, {}
 	for index = 1, config.BARRELS do
@@ -36,6 +43,9 @@ function StateMachine.initial(config, start: { ammo: string?, reserve: { [string
 	end
 	-- A copy: CONFIG.START_RESERVE is deep-frozen, and this one is about to be spent.
 	local reserve = if start and start.reserve then table.clone(start.reserve) else table.clone(config.START_RESERVE)
+	-- WHICH POCKETS DO NOT GO DOWN (task 221). `{}` for every caller written before the shop, which
+	-- is the game as it was: `Shop.startFor` is the only thing that ever answers a non-empty one.
+	local unlimited = if start and start.unlimited then table.clone(start.unlimited) else {}
 	return Shotgun.deepFreeze({
 		equipped = false,
 		open = false,
@@ -44,6 +54,7 @@ function StateMachine.initial(config, start: { ammo: string?, reserve: { [string
 		selected = 1,
 		ammo = ammo,
 		reserve = reserve,
+		unlimited = unlimited,
 		busyUntil = 0,
 		epoch = 0,
 	})
@@ -55,6 +66,7 @@ local function draft(state: WeaponState)
 	copy.barrels = table.clone(state.barrels)
 	copy.loaded = table.clone(state.loaded)
 	copy.reserve = table.clone(state.reserve)
+	copy.unlimited = table.clone(state.unlimited or {})
 	return copy
 end
 
@@ -199,7 +211,10 @@ function StateMachine.apply(
 			-- of the old type go back to the reserve"); a spent case is gone. One rule, in the one
 			-- place that owns the action.
 			local loadedKind = next.loaded[index]
-			if chamber == "Live" and loadedKind ~= "None" then
+			if chamber == "Live" and loadedKind ~= "None" and not (next.unlimited or EMPTY)[loadedKind] then
+				-- ...AND AN UNLIMITED POCKET DOES NOT GO UP EITHER (task 221). Nothing was taken out
+				-- of it when the shell was loaded, so putting one back would make the number on
+				-- screen climb for ever.
 				next.reserve[loadedKind] = (next.reserve[loadedKind] or 0) + 1
 			end
 			next.barrels[index] = "Empty"
@@ -211,7 +226,13 @@ function StateMachine.apply(
 		if not state.open then
 			return state, "is-closed"
 		end
-		if (state.reserve[state.ammo] or 0) <= 0 then
+		-- AN UNLIMITED POCKET IS NEVER EMPTY (task 221): the refusal is skipped and the number below
+		-- is not written, so the readout holds still and `INF` is the truth rather than a label.
+		-- `or EMPTY` AND NOT A BARE INDEX: every state this module makes carries `unlimited`, but a
+		-- bare index would turn any state assembled elsewhere into *attempt to index nil* on the
+		-- shooter's gun -- a crash in the one code path a hunter uses every few seconds.
+		local boundless = (state.unlimited or EMPTY)[state.ammo] == true
+		if not boundless and (state.reserve[state.ammo] or 0) <= 0 then
 			return state, "no-reserve"
 		end
 		local target = nil
@@ -227,7 +248,9 @@ function StateMachine.apply(
 		local next = draft(state)
 		next.barrels[target] = "Live"
 		next.loaded[target] = state.ammo
-		next.reserve[state.ammo] = next.reserve[state.ammo] - 1
+		if not boundless then
+			next.reserve[state.ammo] = next.reserve[state.ammo] - 1
+		end
 		next.busyUntil = now + waitFor(row, "Load", steps)
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "Close" then
@@ -260,7 +283,13 @@ function StateMachine.apply(
 		if empty == 0 then
 			return state, "barrel-full"
 		end
-		local pocket = state.reserve[state.ammo] or 0
+		-- AN UNLIMITED POCKET FEEDS AS MANY AS THERE ARE CHAMBERS (task 221), and is not written
+		-- below: `pocket` stands in for "enough", so the loop fills every empty barrel.
+		-- `or EMPTY` AND NOT A BARE INDEX: every state this module makes carries `unlimited`, but a
+		-- bare index would turn any state assembled elsewhere into *attempt to index nil* on the
+		-- shooter's gun -- a crash in the one code path a hunter uses every few seconds.
+		local boundless = (state.unlimited or EMPTY)[state.ammo] == true
+		local pocket = if boundless then #state.barrels else (state.reserve[state.ammo] or 0)
 		if pocket <= 0 then
 			return state, "no-reserve"
 		end
@@ -278,7 +307,9 @@ function StateMachine.apply(
 				fed += 1
 			end
 		end
-		next.reserve[state.ammo] = pocket - fed
+		if not boundless then
+			next.reserve[state.ammo] = pocket - fed
+		end
 		-- The first live chamber is what the bolt will feed, so the selection follows it rather than
 		-- staying on whatever was fired last.
 		next.selected = nextLive(next.barrels, #next.barrels)
@@ -301,6 +332,10 @@ function StateMachine.apply(
 		-- `Validator.checkRequest` accepts only "Reload" and "SelectAmmo" over the wire, so no client
 		-- can send a `Refill` at all, let alone one carrying a reserve. nil is the weapon's own row.
 		next.reserve = if action.reserve then table.clone(action.reserve) else table.clone(config.START_RESERVE)
+		-- ...AND HIS ALLOWANCE WITH IT (task 221), carried on the same action for the same reason.
+		-- nil is the weapon's own, which is NO unlimited pockets, which is today's game -- so a
+		-- refill that never heard of this field puts the drive's twelve back exactly as it did.
+		next.unlimited = if action.unlimited then table.clone(action.unlimited) else {}
 		return Shotgun.deepFreeze(next), nil
 	elseif kind == "SelectAmmo" then
 		local ammo = action.ammo

@@ -99,6 +99,27 @@ function Match.isThrough(): boolean
 	return false
 end
 
+-- DID HE PAY FOR THE HUNTER'S PLACE AND GET A HORN ANYWAY? (task 221). Karen: *"Posibility to be a
+-- hunter always"* -- a strong preference, not an exemption, and `Roster.assign`'s balance rule
+-- still wins. The SERVER decides it (`Roster.overruled`, off the assignment it actually made);
+-- this is so his own screen can say why, and it is `Match.isThrough` right above it with another
+-- list of userIds.
+--
+-- FALSE when the field is absent, which is every build with no economy -- so a client that never
+-- heard of it reads exactly what it always did.
+function Match.isRoleOverruled(): boolean
+	local current = snapshot
+	if not current then
+		return false
+	end
+	for _, userId in ipairs(current.roleOverruled or {}) do
+		if userId == Players.LocalPlayer.UserId then
+			return true
+		end
+	end
+	return false
+end
+
 function Match.isTied(): boolean
 	local current = snapshot
 	if not current then

@@ -13,7 +13,7 @@
 --
 -- THE TYPES ARE DENSE ARRAYS OR PURE DICTIONARIES AND NOTHING ELSE, which is the rule
 -- `src/shared/Drive/init.luau` states for `ScoreRow`: "a table that is neither a dense array nor a
--- pure dictionary does not survive the wire faithfully". `byKind` therefore always carries all FIVE
+-- pure dictionary does not survive the wire faithfully". `byKind` therefore always carries all EIGHT
 -- keys as numbers, never nil (`legendary` is the fifth, task 219).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -97,7 +97,18 @@ export type HunterRow = {
 	-- typo shows up as a number rather than as an animal that quietly scores nothing. A legendary
 	-- falling into that bucket would have destroyed exactly that signal -- and it would have been
 	-- invisible, because the list table already adds `unknown` into its MALE column.
-	byKind: { male: number, female: number, cub: number, legendary: number, unknown: number },
+	-- EIGHT KEYS SINCE TASK 223 (the three red deer), and ALL of them always, as numbers: a
+	-- dictionary with a hole does not survive the wire faithfully.
+	byKind: {
+		male: number,
+		female: number,
+		cub: number,
+		legendary: number,
+		stag: number,
+		hind: number,
+		calf: number,
+		unknown: number,
+	},
 }
 
 export type ListPayload = {
@@ -227,10 +238,54 @@ Report.CONFIG = {
 	-- the image. Run on 2026-10-18: `80206901277832 -> rbxassetid://135789362198066` and
 	-- `108874258373849 -> rbxassetid://121961957713451`. Both decal ids stay in
 	-- `assets/uploads.json`, because that file records what was UPLOADED.
+	--
+	-- THE TWO RED DEER (task 223), through the same route and with the same trap avoided. Karen's
+	-- `male deer.jpg` and `famale deer.jpg`, upload OK verbatim `"yes"` on 2026-10-20 ~13:10, keyed
+	-- off their baked checkerboards by the identical rule (under luminance 60 opaque, over 150
+	-- clear, a ramp between) and cropped to the animal. The DECAL ids are in `assets/uploads.json`
+	-- (108848438402547 and 83171385137200); the ids below are the IMAGE ids those decals carry,
+	-- resolved on the server with `InsertService:LoadAsset(decalId).Texture` on 2026-10-20 --
+	-- 108848438402547 -> 82382119550819 and 83171385137200 -> 134628251396589.
+	--
+	-- **THE DEER'S `box` IS THE PICTURE'S OWN GEOMETRY AND NOT A FITTED COMPROMISE, AND THAT IS A
+	-- DEPARTURE FROM THE BOAR'S WORTH WRITING DOWN.** The unit square is the animal's own trunk box
+	-- -- `HitLog.Shape.dot` normalises every dot by it -- so it was MEASURED on the keyed pixels as
+	-- nose, rump, BACK LINE and hooves: the stag's back is row 288 of 758 (v0 = 0.380) and the
+	-- hind's row 183 of 662 (v0 = 0.276), with the antlers and the raised head standing ABOVE the
+	-- square exactly as they stand above the physics box.
+	--
+	-- A fitted box was tried first, maximising the same zone coverage task 205 maximised, and it was
+	-- REFUSED for the reason task 205 itself gives: it slid onto the torso (the stag's came back
+	-- spanning only the back to the belly, so a leg hit would have drawn a dot on the brisket) and
+	-- *"a head shot and a rump shot both drew inside the belly and the picture stopped meaning where
+	-- the shot landed"*. The overlays were rendered and LOOKED AT at every step
+	-- (`<assets-dir>/deer/silhouettes/overlay-*.png`).
+	--
+	-- **WHAT THIS BOX SCORES AGAINST THE BOAR'S `SILHOUETTE` RECTANGLES IS LOW AND IT IS REPORTED
+	-- RATHER THAN HIDDEN**: 0.48 / 0.76 / 0.54 / 0.14 for head / chest / rear / legs on the stag,
+	-- against the boar sow's 0.93 worst zone measured the same way. That is not this box being
+	-- wrong -- it is `SILHOUETTE` being the BOAR's zones, projected. A deer's legs are thin and far
+	-- apart where a boar's are stubby, and a deer holds its head above its back where a boar holds
+	-- it below. The rectangles a deer's dots really land in are
+	-- `Boar.CONFIG.SPECIES.reddeer.ZONES`, which are measured and are a different shape, and
+	-- `SILHOUETTE` is deliberately NOT species-aware (it is the boar's `ZONES` projected and
+	-- `report_silhouette.spec` asserts that by path). Validating this box against the DEER's zones
+	-- is queued with the screenshot that can show it.
 	BOAR_IMAGE = {
 		male = { id = "rbxassetid://135789362198066", box = { u0 = 0.100, u1 = 0.900, v0 = 0.230, v1 = 0.730 } },
 		female = { id = "rbxassetid://121961957713451", box = { u0 = 0.120, u1 = 0.920, v0 = 0.150, v1 = 0.650 } },
+		stag = { id = "rbxassetid://82382119550819", box = { u0 = 0.000, u1 = 1.000, v0 = 0.380, v1 = 1.000 } },
+		hind = { id = "rbxassetid://134628251396589", box = { u0 = 0.000, u1 = 1.000, v0 = 0.276, v1 = 1.000 } },
 	},
+
+	-- HOW SMALL A CALF IS DRAWN (task 223). The HIND's picture at 70 %, which is what a calf is
+	-- beside its mother and is honest about being the same drawing -- Karen has no third deer image
+	-- and did not ask for one.
+	--
+	-- IT IS ITS OWN ROW AND NOT `PIGLET_SCALE` REUSED, although both are 0.70: they are two
+	-- independent drawn choices about two different animals, and a change to how a piglet is drawn
+	-- must not silently move the calf.
+	CALF_SCALE = 0.70,
 
 	-- HOW SMALL A PIGLET IS DRAWN. Karen has no third image and did not ask for one: a piglet is the
 	-- SOW's silhouette at 70 %, which is about what a cub is beside its mother and is honest about
@@ -642,13 +697,25 @@ end
 --
 -- So the headline keeps its job and the animal is named on the bone plate it is printed on, where
 -- 104 px sits inside 164 with room. Every other shot's card is drawn exactly as it was.
+--
+-- `stag` SINCE TASK 223, AND ONLY THE STAG. A red stag IS the trophy of his species and the card has
+-- room for the word -- `RED STAG` is 8 characters against the measured `LEGENDARY BOAR`'s 104 px in
+-- a 164 px box. A hind and a calf get nothing, which is this function's own rule: *"nil for every
+-- animal that is not one"*, and a calf is a penalty.
 function Report.trophyWord(kind: string?): string?
-	if string.lower(tostring(kind or "")) == "legendary" then
+	local word = string.lower(tostring(kind or ""))
+	if word == "legendary" then
 		return "LEGENDARY BOAR"
+	elseif word == "stag" then
+		return "RED STAG"
 	end
 	return nil
 end
 
+--
+-- ...AND THE THREE DEER SINCE TASK 223, through the same three shapes: `stag` takes the stag's own
+-- picture, `hind` takes the hind's, and `calf` takes the HIND's at `CALF_SCALE` -- the piglet's
+-- pattern, said out loud rather than hidden in a renderer.
 function Report.boarImage(kind: string?): { id: string, box: any, scale: number }
 	local word = string.lower(tostring(kind or ""))
 	local art = Report.CONFIG.BOAR_IMAGE
@@ -656,6 +723,12 @@ function Report.boarImage(kind: string?): { id: string, box: any, scale: number 
 		return { id = art.female.id, box = art.female.box, scale = 1 }
 	elseif word == "cub" or word == "piglet" then
 		return { id = art.female.id, box = art.female.box, scale = Report.CONFIG.PIGLET_SCALE }
+	elseif word == "stag" then
+		return { id = art.stag.id, box = art.stag.box, scale = 1 }
+	elseif word == "hind" then
+		return { id = art.hind.id, box = art.hind.box, scale = 1 }
+	elseif word == "calf" then
+		return { id = art.hind.id, box = art.hind.box, scale = Report.CONFIG.CALF_SCALE }
 	end
 	return { id = art.male.id, box = art.male.box, scale = 1 }
 end

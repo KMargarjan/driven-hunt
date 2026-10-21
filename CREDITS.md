@@ -105,6 +105,42 @@ What was changed, and nothing else was:
   (1.25 studs over all) is set by the consumer at run time from `Horn.MESH.SIZE_STUDS`, not baked
   into the geometry.
 
+### Semi-Automatic Shotgun — PStudio (Fab Standard License)
+
+The semi-automatic shotgun since task 225 (2026-10-20): an MP-153-pattern gas-operated 12 gauge with
+a Picatinny rail and a red-dot sight, split by `tools/gltf_split.py` into six groups — the action,
+the barrel, the stock, the **bolt** and the **shell lifter**, which are the two groups that move, and
+the sight. The package also contains a 12-gauge shell model (a full round and a shorter spent hull),
+which is not used yet.
+
+> Semi-automatic shotgun model: *"Semi-Automatic Shotgun"* by **PStudio**, bought on
+> [Fab](https://www.fab.com) under the Fab Standard License on 2026-10-20.
+
+The licence permits private use, reproduction, display and modification inside this game, and
+forbids distributing the Content on a standalone basis. **The bought files are never committed to
+this repository and never redistributed**: the pipeline runs outside it and only the uploaded Roblox
+asset ids reach the game.
+
+### Lever action rifle — Jeick (Fab Standard License)
+
+The lever-action rifle since task 224 (2026-10-20): a Ruger-made Marlin 1895 SBL in .45-70, split
+into three published MeshParts — the action (receiver, barrel, Picatinny rail with both iron sights,
+magazine tube, fore-end, trigger, hammer, breech bolt and loading gate), the stock, and the finger
+lever, which is the one group that moves. The package also contains a .45-70 cartridge model, which
+this game does not use.
+
+> Lever-action rifle model: *"Lever action rifle"* by **Jeick**, bought on [Fab](https://www.fab.com)
+> under the Fab Standard License on 2026-10-20.
+
+The licence grant is the same one the boar is used under, quoted below, and with the same caveat:
+**read through a web search, not from the page** — `fab.com/eula` answers 403 to this machine. **The
+download itself ships no licence file**, which was checked (the FBX, the OBJ and every entry of
+`additional_files.zip`); no tier is claimed here, because none of the records this machine can reach
+names one. The two conditions that bear on this repository are met either way: the rifle is a
+component of a game that adds its own value, and it is never distributed on a standalone basis — the
+binary is never committed (`.rbxm` is banned outright) and what reaches Roblox is three meshes inside
+Karen's own account.
+
 ### Boar Family — RedDeer (Fab Standard License)
 
 The wild boar since task 115 (2026-10-03): the male's skinned mesh, its three colour maps and the ten

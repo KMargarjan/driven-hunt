@@ -25,6 +25,8 @@ local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
 local Viewmodel = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 -- ...for ONE name: the shell template, which is never worn (see the case below).
 local Gun = require(ReplicatedStorage:WaitForChild("Gun"))
+local LeverGeometry = require(ReplicatedStorage:WaitForChild("Lever"):WaitForChild("Geometry"))
+local RifleGeometry = require(ReplicatedStorage:WaitForChild("Rifle"):WaitForChild("Geometry"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 local Mode = Camera.Mode
@@ -543,20 +545,30 @@ return function()
 			-- `poses.json` (`{pos = ..., rot = ...}` per keyframe), and a hand-built table of CFrames
 			-- fails inside `loadStep` with "pos is not a valid member of CFrame" -- which is how the
 			-- first version of this case failed the gate rather than measuring anything.
+			--
+			-- WHAT DECIDES IT IS THE GUN'S OWN GEOMETRY SINCE TASK 224, not `MAGAZINE_SWAP`. That
+			-- field answers *"does this gun swap a box"* and was standing in for *"is this gun
+			-- hand-fed"*; the two agree on the shotgun and the Rigby and disagree on the lever
+			-- rifle, which has no magazine block and is not hand-fed either. So the two sides of
+			-- this case are now two GEOMETRIES, passed in by parameter -- which is also what keeps
+			-- the function pure, rather than answering differently depending on which Tool happens
+			-- to be in the hand while the spec runs.
 			local plain = firstPerson
 			expect((plain :: any).SHELL_LOAD).to.be.ok()
-			local magazine = table.clone(plain) :: any
-			magazine.MAGAZINE_SWAP =
-				{ outShare = 0.38, inShare = 0.4, dropStuds = 0.42, seconds = 1.35, hand = CFrame.new() }
-			table.freeze(magazine)
 			local ok, why = pcall(function()
 				Camera.Viewmodel.setReload({ open = true, spent = 1, loaded = { false, true } })
 				-- A BREAK ACTION IS MID-FEED HERE, which is what makes the case able to fail: the
-				-- weight is non-zero without the magazine block...
+				-- weight is non-zero for the hand-fed gun...
 				local now = os.clock() + (plain :: any).SHELL_LOAD.fetchSeconds * 0.5
-				expect((Camera.Viewmodel.loadingAt(plain, now)) > 0).to.equal(true)
-				-- ...and exactly zero with it, which is the whole fix.
-				expect((Camera.Viewmodel.loadingAt(magazine, now))).to.equal(0)
+				expect(Camera.Viewmodel.handFeedsShells(Gun)).to.equal(true)
+				expect((Camera.Viewmodel.loadingAt(plain, now, Gun)) > 0).to.equal(true)
+				-- ...and exactly zero for a magazine rifle, which is the whole fix.
+				expect(Camera.Viewmodel.handFeedsShells(RifleGeometry)).to.equal(false)
+				expect((Camera.Viewmodel.loadingAt(plain, now, RifleGeometry))).to.equal(0)
+				-- ...AND ZERO FOR THE LEVER RIFLE TOO (task 224), which is the gun that would have
+				-- flipped a red 12-gauge hull out of a .45-70 under the old predicate.
+				expect(Camera.Viewmodel.handFeedsShells(LeverGeometry)).to.equal(false)
+				expect((Camera.Viewmodel.loadingAt(plain, now, LeverGeometry))).to.equal(0)
 			end)
 			Camera.Viewmodel.setReload(before)
 			if not ok then

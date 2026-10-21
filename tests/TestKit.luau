@@ -133,15 +133,36 @@ function TestKit.run(side: string, token: string, specsFolder: Instance?)
 	-- Load every spec under pcall first. TestEZ's TestBootstrap requires specs unprotected, so a spec with
 	-- a syntax or runtime error would otherwise kill the runner with no summary. require caches, so
 	-- TestEZ gets the same function afterwards.
+	--
+	-- ...AND EACH ONE IS TIMED (task 221 round 4). A spec's top-level code runs HERE, inside this
+	-- `require` -- so an unbounded `WaitForChild` for something that has not replicated to this
+	-- client blocks the WHOLE suite before TestEZ has started, and the only symptom upstream is a
+	-- runner that reports at its deadline with no clue which file ate the time. That is exactly what
+	-- a two-player run showed at 606f83c: the driver reported after 6 s and the shooter after 299 s,
+	-- against a 300 s bound, with the input replay unchanged. Three numbers in a note cost nothing
+	-- and name the file next time.
+	local slowest: { { name: string, ms: number } } = {}
 	for _, module in specsFolder:GetDescendants() do
 		if module:IsA("ModuleScript") and string.match(module.Name, "%.spec$") then
 			table.insert(report.specs, module:GetFullName())
+			local startedAt = os.clock()
 			local ok, err = pcall(require, module)
+			table.insert(slowest, { name = module.Name, ms = (os.clock() - startedAt) * 1000 })
 			if not ok then
 				report.message = string.format("failed to load %s: %s", module:GetFullName(), tostring(err))
 				return finish()
 			end
 		end
+	end
+	table.sort(slowest, function(a, b)
+		return a.ms > b.ms
+	end)
+	local worst = {}
+	for index = 1, math.min(3, #slowest) do
+		table.insert(worst, string.format("%s %.0f ms", slowest[index].name, slowest[index].ms))
+	end
+	if #worst > 0 then
+		TestKit.note("spec load, slowest three: " .. table.concat(worst, ", "))
 	end
 
 	local ok, resultsOrErr = pcall(function()

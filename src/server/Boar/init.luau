@@ -162,7 +162,13 @@ end
 --
 -- WITH `KINDS` OFF EVERY ANIMAL IS THE SAME KIND, so the rank is uniform and this is exactly the
 -- "nearest the exit line, tie-broken by id" rule the DEV drive has always used.
-local MARCH_RANK = { female = 1, cub = 2, male = 3 }
+-- ...AND THE THREE DEER (task 223). Without them a hind, her calf and a stag would all fall through
+-- to the unknown-kind rank of 2 and march in distance order, which is not what a hind with a calf
+-- looks like. Three keys, no new mechanism.
+--
+-- THE REAR GUARD BELOW STAYS BOAR-ONLY and that is right rather than an omission: it counts
+-- `kind == "female"` and needs two of them, and a stag with hinds is not a nursery.
+local MARCH_RANK = { female = 1, cub = 2, male = 3, hind = 1, calf = 2, stag = 3 }
 
 function Boar.marchOrder(members: { { id: string, kind: string?, key: number } }, config): { string }
 	local order = table.clone(members)
@@ -1698,6 +1704,38 @@ Boar.CONFIG.SOUND = {
 			cry = { 9117369876, 9117370072 },
 			grunt = { 9117344600 }, -- "Pig Grunts 6"
 		},
+		-- THE THREE DEER (task 223), AND THESE ROWS EXIST BECAUSE THE ALTERNATIVE IS NOT SILENCE.
+		-- `Body.voiceRow` answers nil for a kind with no row and no matching `model`, and
+		-- `Body.voiceIds` then falls back to the generic spec's ids -- **which are pig squeals**. A
+		-- stag squealing like a sow is a defect Karen would hear in the first ten seconds, and
+		-- there is no way to silence a kind through this table.
+		--
+		-- SO IT IS THE SAMPLES SHE HAS ALREADY HEARD, PITCHED -- exactly the trade the legendary's
+		-- row makes and for the same stated reason: *"a new sample nobody has heard would be a
+		-- second thing to judge"*. A stag is a big animal, so 0.55 is well under the boar male's
+		-- 0.8; a hind is about a sow, so 0.90; a calf is small and thin, so 1.30.
+		--
+		-- A REAL DEER CUE SET -- a roar, a bark, a bleat -- IS NOT THIS TASK. It is a library id
+		-- Karen has to hear first, and it is queued. What these rows buy is that the deer does not
+		-- arrive sounding like a pig while that waits.
+		stag = {
+			pitch = 0.55,
+			death = { 9117361361 }, -- the male's "Pigs Beast-Like Screams 8", lowest thing in the set
+			cry = { 9117369876, 9117370072 },
+			grunt = { 9117357588, 9117352464 }, -- "Pig Grunts 2 / 3", the two low ones
+		},
+		hind = {
+			pitch = 0.9,
+			death = { 9117369876, 9117370072 },
+			cry = { 9117369876, 9117370072 },
+			grunt = { 9117352464, 9117344600 },
+		},
+		calf = {
+			pitch = 1.3,
+			death = { 9117369876 },
+			cry = { 9117369876, 9117370072 },
+			grunt = { 9117344600 },
+		},
 	},
 	-- TWENTY ANIMALS MUST NOT SOUND LIKE TWENTY ANIMALS --------------------------------------------
 	-- Karen, 2026-10-04: "we need also think about sound when there is several walking and several
@@ -2140,7 +2178,10 @@ Boar.CONFIG.SENSE = {
 Boar.CONFIG.KINDS = {
 	ENABLED = Flags.isOn("BOAR_MODEL"),
 	DEFAULT = "male",
-	ORDER = { "male", "female", "cub", "legendary" },
+	-- SEVEN KINDS SINCE TASK 223, AND THE LAST THREE ARE A DIFFERENT ANIMAL. `ORDER` is what
+	-- `BoarAssetsBoot` walks (not `pairs`), what the specs sweep and what the preload asks for, so a
+	-- kind missing from it is a kind nothing ever dresses.
+	ORDER = { "male", "female", "cub", "legendary", "stag", "hind", "calf" },
 	male = { name = "male", scale = 1.0, clipScale = 1.0, model = "male", deathLiftStuds = 0 },
 	female = { name = "female", scale = 0.85, clipScale = 0.8553, model = "female", deathLiftStuds = 0.205 },
 	cub = { name = "cub", scale = 0.45, clipScale = 0.4372, model = "cub", deathLiftStuds = 1.009 },
@@ -2154,6 +2195,87 @@ Boar.CONFIG.KINDS = {
 		tint = Color3.fromRGB(150, 138, 125),
 		toughness = 2.0,
 		wary = { noticeScale = 1.4, runScale = 1.12 },
+	},
+	-- ------------------------------------------------------------------ THE RED DEER (task 223)
+	--
+	-- `species` IS THE ONLY NEW FIELD AND IT IS A STRING. `Body.create` publishes `row.species or
+	-- "boar"`, so the four rows above are unchanged in meaning without one character being edited;
+	-- `Boar.speciesConfig` looks the string up in `Boar.CONFIG.SPECIES` for the tables a deer cannot
+	-- borrow. `ReplicatedStorage.Licences` is what turns that one string into "you need a card",
+	-- and this file never learns what a licence is.
+	--
+	-- `scale` IS AGAINST THE STAG, NOT AGAINST THE BOAR MALE, because `Body.kindGeometry` multiplies
+	-- `SPECIES.reddeer.BODY_SIZE` and `.ZONES` -- which are the STAG's measured boxes -- by it.
+	-- MEASURED off the three prepped models on 2026-10-20: stag 7.05, hind 6.03, calf 3.49 studs
+	-- long, so 1.0 / 0.8553 / 0.4950. (`Match.CONFIG.SCENE.ANIMAL_SCALES` holds a DIFFERENT number
+	-- for the same animals, against the boar male's 5.5; the two are not interchangeable and that
+	-- line says so.)
+	--
+	-- THE HIND'S 0.8553 IS THE BOAR SOW'S 0.8553 TO FOUR DECIMALS AND IT IS A COINCIDENCE. 6.03/7.05
+	-- and 4.675/5.5 happen to agree; they are two independent measurements of two animals. Written
+	-- down so nobody later "simplifies" one into the other.
+	--
+	-- `clipScale` IS THE STRIDE AND IT IS MEASURED, by `tools/boar_prep.py` on each animal's own
+	-- export (2026-10-20, studs/second at the baked length, against the stag's):
+	--
+	--                walk     trot      run     turn     ratio to the stag
+	--     stag      4.178   12.312   17.138    3.009     1.0000 by construction
+	--     hind      3.760   11.077   15.423    2.708     0.8999 / 0.8997 / 0.8999 / 0.9000
+	--     calf      2.814    7.513   17.642    1.469     0.6735 / 0.6102 / 1.0294 / 0.4882
+	--
+	-- THE HIND'S FOUR AGREE TO FOUR DECIMALS, so her stride is one number: 0.900. **THE CALF'S DO
+	-- NOT**, and that is the package's own animation rather than a measurement error -- its `Run_F_IP`
+	-- covers 4.932 m/s where the STAG's covers 4.801, so a calf's run clip is a bounding gallop with
+	-- a longer stride than its body. One `clipScale` cannot serve four gaits that disagree by 2:1,
+	-- and `Body.gaitBands` has exactly one. The walk is taken (0.6735) because the whole band
+	-- structure is built on it -- `MODEL.TROT_FROM` is derived from `CLIPS.walk.groundStudsPerSecond`
+	-- -- so a calf changes gait at the right speed for its own stride. **The cost is the run clip's
+	-- feet, and it is invisible today**: no deer animation id exists yet (see `Assets.KEYS`), so
+	-- nothing plays. It is a queued item for the commit that lands the ids, where it can be LOOKED at.
+	--
+	-- `deathLiftStuds` IS 0 FOR ALL THREE AND THAT IS THE HONEST VALUE, not a guess: it can only be
+	-- measured at the frame `Body.stepVisual` freezes the death at, and there is no death clip to
+	-- freeze until the eleven publishes land (design section 7.5). The boar's three were measured
+	-- the same way and were 0 until task 120.
+	stag = {
+		name = "stag",
+		species = "reddeer",
+		scale = 1.0,
+		clipScale = 1.0,
+		model = "stag",
+		deathLiftStuds = 0,
+		-- A STAG IS WARIER THAN A BOAR AND HIS HINDS ARE WARIER STILL (design section 5.2). `wary`
+		-- is the mechanism that already exists -- six radii and two speeds -- and no `Brain` state
+		-- is added. At 1.5 he notices a walking man at 90 studs against a boar's 60.
+		wary = { noticeScale = 1.5, runScale = 1.18 },
+	},
+	hind = {
+		name = "hind",
+		species = "reddeer",
+		scale = 0.8553,
+		clipScale = 0.9,
+		model = "hind",
+		deathLiftStuds = 0,
+		-- 1.8: a hind with a calf is the jumpiest thing in the wood, and because `Runtime:_stepAlarm`
+		-- spreads panic member by member, the jumpiest member is the group's trigger. She notices a
+		-- walking man at 108 studs -- 30 m. NOT more: the drive corridor is ~400 studs, so a
+		-- literature flight distance of 100 m would empty it before a beater was in sight, and no
+		-- player would ever see a deer. Recorded as a negative result in the research note.
+		wary = { noticeScale = 1.8, runScale = 1.18 },
+	},
+	calf = {
+		name = "calf",
+		species = "reddeer",
+		scale = 0.495,
+		clipScale = 0.6735,
+		model = "calf",
+		deathLiftStuds = 0,
+		-- THE SAME `runScale` AS HER MOTHER, AND IT IS A CORRECTNESS CONSTRAINT RATHER THAN TASTE:
+		-- `Brain:_runSpeed` answers PER ANIMAL, so two kinds in one group with different run speeds
+		-- drift apart, and `SOUNDER.BREAK_STUDS = 60` over `BREAK_SECONDS = 4` then dissolves the
+		-- group. A hind who outruns her own calf is not a hind with a calf. One species, one
+		-- `runScale`.
+		wary = { noticeScale = 1.8, runScale = 1.18 },
 	},
 	-- HOW RARE IT IS, and both halves are here because "one per drive" and "not every drive" are one
 	-- decision. Karen asked for *"one or a few"*. Reasoned from THIS game rather than from the genre,
@@ -2319,6 +2441,189 @@ Boar.CONFIG.MODEL = {
 	ASK_EVERY_SECONDS = 1,
 }
 
+-- THE RED DEER'S ELEVEN CLIPS (task 223), and the package's names are NOT the boar's: this rig has
+-- `Hit_Front`/`Hit_Back` where the boar has `Hit_F`/`Hit_B`. MEASURED by `tools/boar_prep.py` on the
+-- STAG's own export, 2026-10-20, at his baked 7.05 studs -- `seconds` is the clip's length and
+-- `groundStudsPerSecond` is how fast a planted hoof carries him. `clipScale` on the hind's and the
+-- calf's rows is what turns these into their own strides.
+--
+-- WHY ELEVEN AND NOT SIXTEEN. Every one is a HAND PUBLISH in Studio's Animation Editor -- there is
+-- no API (`Assets.KEYS`'s own block) -- so the grazing repertoire the boar has (`Eat_loop`,
+-- `EatDrink_start`/`_end`, `Eat_walk_IP`) and the third flinch (`Hit_Middle`) are out of v1 and
+-- queued. `smell` IS in, because `MODEL.ALERT_CLIP` reads it by name for every species and a deer
+-- standing head-up is what being noticed LOOKS like.
+--
+-- THE THREE AUTHORED CLIPS ARE NOT HERE EITHER (`deathPaddleLeft/Right`, `crippleDrag`).
+-- `Body.clipFor` then returns the fall and holds it and a crippled deer plays its gait, which is
+-- precisely the pre-task-116 behaviour and is tested.
+local DEER_CLIPS = {
+	idle = { clip = "Idle_1", seconds = 4.167, groundStudsPerSecond = 0, looped = true },
+	walk = { clip = "Walk_F_IP", seconds = 1.0, groundStudsPerSecond = 4.178, looped = true },
+	trot = { clip = "Trot_F_IP", seconds = 0.667, groundStudsPerSecond = 12.312, looped = true },
+	run = { clip = "Run_F_IP", seconds = 0.583, groundStudsPerSecond = 17.138, looped = true },
+	turnLeft = { clip = "Turn_L_IP", seconds = 0.667, groundStudsPerSecond = 3.009, looped = true },
+	turnRight = { clip = "Turn_R_IP", seconds = 0.667, groundStudsPerSecond = 3.009, looped = true },
+	deathLeft = { clip = "Death_L", seconds = 1.167, groundStudsPerSecond = 0, looped = false },
+	deathRight = { clip = "Death_R", seconds = 1.167, groundStudsPerSecond = 0, looped = false },
+	hitFront = { clip = "Hit_Front", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
+	hitBack = { clip = "Hit_Back", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
+	smell = { clip = "Idle_5", seconds = 4.167, groundStudsPerSecond = 0, looped = false },
+}
+
+-- WHAT A SPECIES BRINGS THAT IT CANNOT BORROW (task 223). `Boar.speciesConfig` reads this and
+-- replaces exactly these three tables; everything else about a drawn animal -- the fades, the
+-- paddle, the rate epsilon, the display roll, all thirty-odd of them -- is about HOW an animal is
+-- played and not WHICH animal it is, so the deer's `MODEL` is a CLONE with four named overrides
+-- rather than a second table written out. Two copies of thirty numbers is thirty chances to drift.
+--
+-- THERE IS NO `boar` ROW: `speciesConfig` is the identity for a species with no row, so the boar's
+-- tables stay the ones every reader and every spec already name (`Boar.CONFIG.ZONES` and so on).
+Boar.CONFIG.SPECIES = {
+	reddeer = {
+		-- THE TRUNK, MEASURED off the three prepped models in headless Blender on 2026-10-20, in
+		-- studs, with the vertices weighted to the spine and hips only -- no neck, no head, no
+		-- antlers, no legs. The stag's numbers, because every deer kind is this box times
+		-- `KINDS[kind].scale`:
+		--   width   the trunk is x +-0.88 -> 1.76, and the widest non-antler part of the whole
+		--           animal is 1.8. 1.8 is taken.
+		--   height  the back line measures 4.85 studs above the hooves (1.36 m: a red stag stands
+		--           about that at the withers) and the BOX IS 4.8 -- a twentieth of a stud under
+		--           it, exactly as the boar's 3.0 sits under its own measured 3.26. The box top
+		--           is the back; the head, the neck and the antlers stand above it.
+		--   length  7.05, which is the length the model was BAKED to, and the mesh measures
+		--           7.050 on the nose (`EXPECTED IN STUDIO` from the prep run).
+		--
+		-- IT CANNOT BE THE BOAR'S BOX SCALED, which is the thing worth writing down: 2 x 3 x 5.5
+		-- taken to 7.05 long is 2.56 x 3.85, a trunk 0.72 m wide where this animal is 0.49 and
+		-- 1.08 m tall where it stands 1.36. A deer is a leggier, narrower, taller animal than a
+		-- boar and no single multiplier makes one box into the other.
+		BODY_SIZE = Vector3.new(1.8, 4.8, 7.05), -- width, height, length; a Part's LookVector is -Z
+		-- THE FOUR HIT ZONES, MEASURED on the same probe and cross-checked against the LOADED model
+		-- in Studio (the two agree to 0.02 studs on every bone). Offsets are in the TRUNK's frame:
+		-- the box centre is the origin, +Y is up, and -Z is forward, so the nose is at -3.525 and
+		-- the tail at +3.525. The box bottom is -2.40 and that is the ground, because
+		-- `Body.visualOffset` stands the mesh's own bottom on it.
+		--
+		-- THE THREE RULES ARE THE BOAR'S OWN, and they are why this is not a scaled copy:
+		--   the -Z front face is PROUD by `PROTRUSION`, so a ray from the front meets the head and
+		--   not the trunk; the +Y top is PROUD, so a shot from above the skull is a head shot; and
+		--   +-X is NOT proud on the head (a pure flank is `body`), with head and chest meeting at an
+		--   INTERIOR boundary -- two coincident surfaces at one ray distance is a coin toss and not
+		--   a hit zone (task 116, review round 2).
+		--
+		-- WHY THE HEAD BOX IS WHERE IT IS, in the measurements: the nose reaches z -3.525, the skull
+		-- bone sits at (0, 2.72, -2.29), the mouth at (0, 2.81, -2.42) and the ear at y 3.11, while
+		-- `neck_01` -- the first bone that is NOT the head -- is back at z -1.21. So the skull is the
+		-- span z -3.59..-1.89 at y 2.17..3.27, and a red deer carries it A WHOLE TRUNK-HEIGHT ABOVE
+		-- the boar's. Scaling the boar's `offset (0, 1.0, -2.13)` by 1.282 would put this box at
+		-- y 1.28 -- inside the chest, under the animal's own neck -- which is task 119's bug
+		-- ("a box hanging in the air ... a shot at the animal's face landed on the trunk") on a new
+		-- animal.
+		ZONES = {
+			ORDER = { "head", "chest", "rear", "legs" },
+			ZONE_TINT = true,
+			PROTRUSION = 0.06,
+			head = {
+				part = "ZoneHead",
+				size = Vector3.new(1.0, 1.1, 1.7),
+				offset = Vector3.new(0, 2.72, -2.74), -- spans y 2.17..3.27, z -3.59..-1.89
+				tint = Color3.fromRGB(206, 120, 120),
+			},
+			-- HEART AND LUNGS, BEHIND THE SHOULDER. The front legs attach at z -0.53 (`hip_1_f`) and
+			-- -0.63 (`thigh_f`), the brisket is 0.05 above the box centre and the back 2.45, so the
+			-- vitals are the block from the base of the neck back to the shoulder.
+			chest = {
+				part = "ZoneChest",
+				size = Vector3.new(1.92, 2.45, 1.8),
+				offset = Vector3.new(0, 1.225, -1.0), -- spans x +-0.96, y 0.0..2.45, z -1.9..-0.1
+				tint = Color3.fromRGB(198, 150, 150),
+			},
+			-- THE HINDQUARTERS. `hip_b` is at z +2.79, `Spine_base` at +2.18 and the first tail bone
+			-- at +3.15; the trunk's rear face is +3.525 and this stands 0.15 proud of it, which is
+			-- the boar's own figure for the same face.
+			rear = {
+				part = "ZoneRear",
+				size = Vector3.new(1.92, 2.81, 2.38),
+				offset = Vector3.new(0, 1.11, 2.49), -- spans y -0.30..2.52, z +1.30..+3.68
+				tint = Color3.fromRGB(150, 150, 190),
+			},
+			-- A DEER IS MOSTLY LEGS, and this is the half of the measurement that is least like a
+			-- boar: the band runs from the ground (-2.40, the box bottom) to -0.50, which is 40 % of
+			-- the animal's height against the boar's third. 0.2 studs of clear air is left below
+			-- `rear`'s -0.30, because two zone parts meeting at one surface is the same coin toss.
+			legs = {
+				part = "ZoneLegs",
+				size = Vector3.new(1.92, 1.9, 6.4),
+				offset = Vector3.new(0, -1.45, 0.2), -- spans y -2.40..-0.50, the whole length
+				tint = Color3.fromRGB(150, 128, 104),
+			},
+		},
+		-- A CLONE WITH FOUR NAMED OVERRIDES, built below so the thirty numbers it keeps are the
+		-- SAME numbers and not a second copy of them.
+		MODEL = nil :: any, -- filled immediately after this table; see the block below
+		-- HOW OFTEN A RELEASE IS DEER AND WHO IS IN IT. Read ONCE, by `Boar.deerComposition`, which
+		-- `Runtime:spawnSounder` consults only when its caller named no composition -- so the Forest
+		-- Test's own named waves are untouched.
+		--
+		-- 0.2 IS KAREN'S DIAL AND HERE IS WHAT IT BUYS, so it is turned against a number rather than
+		-- a feeling. A drive is about 6 releases (`FIRST_RELEASE_SECONDS` 20 then
+		-- `RELEASE_INTERVAL_SECONDS` 90 over ten minutes), and a deer group averages
+		-- 0.4x1 + 0.4x2 + 0.2x3 = 1.8 animals, so a drive carries about 1.2 deer releases and 2.16
+		-- deer against `BOARS_PER_DRIVE` = 6 boars -- and 0.8^6 = 26 % of drives carry none at all.
+		-- Rarer than boar, and not folklore.
+		--
+		-- THE THREE SHAPES ARE THE DIRECTOR'S SENTENCE ("a stag alone or with hinds, a hind with a
+		-- calf") and they are also the Animal Diversity Web's account of Cervus elaphus: hinds with
+		-- their calves in matriarchal groups, stags solitary outside the rut, a stag holding hinds
+		-- in it. The WEIGHTS are reasoned from this game: the hind-and-calf group is 40 % because it
+		-- is the one that carries the PENALTY, and a -10 a player meets once a session is a trap
+		-- while one he meets most drives is a rule he learns.
+		RELEASE = {
+			CHANCE_PER_RELEASE = 0.2, -- K's dial
+			-- ONE GROUP AT A TIME. A drive is 6 live animals and a group is up to 3, so two groups
+			-- could be half the drive and the animal Karen called rare would be in front of every
+			-- shooter. Answered by COUNTING THE LIVE ENTRIES, not by a counter two paths could
+			-- disagree about -- the shape `Runtime:_legendaryAllowed` already uses for its cap.
+			MAX_GROUPS_ALIVE = 1,
+			COMPOSITIONS = {
+				{ weight = 40, stag = 1 },
+				{ weight = 40, hind = 1, calf = 1 },
+				{ weight = 20, stag = 1, hind = 2 },
+			},
+		},
+	},
+}
+
+do
+	-- THE DEER'S `MODEL`: `Boar.CONFIG.MODEL` with the four things that are about WHICH animal this
+	-- is. Everything else -- `FADE_SECONDS`, `PADDLE_HZ`, `DISPLAY_ROLL_DEG`, `MIN_RATE`,
+	-- `MAX_RATE`, all of them -- is shared by reference, so a change to how an animal is played
+	-- reaches both species and cannot drift.
+	local model = table.clone(Boar.CONFIG.MODEL)
+	model.CLIPS = DEER_CLIPS
+	-- ITS OWN, EMPTY, AND THIS LINE IS THE WHOLE POINT OF THE SEAM. `Body.hasClip` reads
+	-- `config.MODEL.ANIMATION_IDS[name]` and both tables are keyed by the SEMANTIC name (`idle`,
+	-- `walk`, `hitFront`). Sharing one table would hand a deer the BOAR's published ids -- boar
+	-- clips, measured for boar bone lengths, played on `Arm_Deer`, which shares most bone names and
+	-- differs on the neck -- so the tracks would partly apply and nothing in the suite could see it,
+	-- because an `AnimationId` is a number and it would be set correctly. `deer.spec` asserts the
+	-- two tables are not the same table.
+	model.ANIMATION_IDS = {}
+	-- THE BAND EDGE FOLLOWS THE MEASUREMENT rather than being a literal: where the walk clip runs
+	-- out at `WALK_MAX_RATE` is where the trot takes over, which for the stag is 4.178 x 1.8 = 7.52
+	-- against the boar's 5.13. `RUN_FROM` is NOT overridden: it is (TROT_SPEED + SPRINT_SPEED) / 2
+	-- off the base speeds and has nothing to do with the clips.
+	model.TROT_FROM = DEER_CLIPS.walk.groundStudsPerSecond * model.WALK_MAX_RATE
+	model.HIT_SECONDS = DEER_CLIPS.hitFront.seconds
+	-- `MAX_RATE` IS NOT OVERRIDDEN, AND THAT WAS CHECKED RATHER THAN ASSUMED (design section 7.4
+	-- left it open until the prep run reported the run clip's ground speed). The worst ask is the
+	-- RUN clip at `SPRINT_SPEED x runScale` = 44.84 studs/s: the stag asks 44.84 / 17.138 = 2.62
+	-- against his ceiling of 2.80, the hind 2.91 against hers of 3.11 (2.8 / 0.9) and the calf 3.88
+	-- against 4.16. The trot ask at the top of its own band is 2.27 for all three, because that one
+	-- is scale-invariant. Nothing sits on a rail, and `boar_kinds.spec` sweeps it.
+	Boar.CONFIG.SPECIES.reddeer.MODEL = model
+end
+
 -- Production implementations of everything the Runtime needs from the world. A spec passes its own.
 -- WHO A SOUNDER IS MADE OF (task 119). Pure: a size and a roll per member in, a list of kinds out,
 -- so the makeup is a spec case with no boar in the world. The first member is the SOW and the rest
@@ -2329,13 +2634,55 @@ Boar.CONFIG.MODEL = {
 -- the spawn, and never again. A sow that falls behind her cubs is still the sow.
 -- HOW MANY ANIMALS A NAMED COMPOSITION IS (task 123 round 8). Pure, and the only place the three
 -- counts are added up, so "the size of this wave" and "who is in it" can never disagree.
-function Boar.compositionSize(composition): number
+--
+-- ...AND SINCE TASK 223 A COMPOSITION MAY ALSO NAME A KIND DIRECTLY (`{ hind = 1, calf = 1 }`),
+-- because the deer has no "females / cubs / males": it has a stag, a hind and a calf, and inventing
+-- a second vocabulary for them -- "females = 1" meaning a hind -- would be a mapping that could go
+-- wrong in two files. The three legacy words are UNTOUCHED and are still what every existing caller
+-- writes; `KINDS[key]` is what makes a kind name legal beside them, and a key that is neither is
+-- ignored exactly as an unknown key always was.
+--
+-- `weight` IS SKIPPED BECAUSE IT IS NOT A KIND NAME, which is worth saying plainly: a
+-- `RELEASE.COMPOSITIONS` row carries its draw weight beside its counts, and the walk below only
+-- ever asks about the three legacy words and the names in `KINDS.ORDER`. No line mentions
+-- `weight`, and none needs to.
+local COMPOSITION_LEGACY = { females = "SOW", cubs = "YOUNG", males = "LONE" }
+
+local function compositionCounts(composition, config): { { kind: string, count: number } }
+	local out = {}
+	local makeup = (config and config.SOUNDER and config.SOUNDER.MAKEUP) or {}
+	-- THE LEGACY THREE FIRST AND IN THIS ORDER, because that is the order `sounderKinds` has always
+	-- emitted them in and the first member of a release is read as the group's own first animal.
+	for _, word in ipairs({ "females", "cubs", "males" }) do
+		local count = math.max(0, math.floor(tonumber(composition[word]) or 0))
+		if count > 0 then
+			out[#out + 1] = { kind = makeup[COMPOSITION_LEGACY[word]] or "male", count = count }
+		end
+	end
+	-- ...THEN ANY KIND NAMED OUTRIGHT, walked in `KINDS.ORDER` so two releases of the same
+	-- composition are the same list in the same order -- a list that reorders between two identical
+	-- releases is this project's "a marker wandering the screen" in a new place.
+	local kinds = config and config.KINDS
+	if type(kinds) == "table" then
+		for _, kind in ipairs(kinds.ORDER or {}) do
+			local count = math.max(0, math.floor(tonumber(composition[kind]) or 0))
+			if count > 0 then
+				out[#out + 1] = { kind = kind, count = count }
+			end
+		end
+	end
+	return out
+end
+
+function Boar.compositionSize(composition, config): number
 	if type(composition) ~= "table" then
 		return 0
 	end
-	return math.max(0, math.floor(composition.females or 0))
-		+ math.max(0, math.floor(composition.cubs or 0))
-		+ math.max(0, math.floor(composition.males or 0))
+	local total = 0
+	for _, row in ipairs(compositionCounts(composition, config or Boar.CONFIG)) do
+		total += row.count
+	end
+	return total
 end
 
 -- WHO IS IN A SOUNDER. With a `composition` it is a DECISION and no number is drawn at all -- the
@@ -2345,14 +2692,14 @@ function Boar.sounderKinds(size: number, rolls: { number }, config, composition)
 	local makeup = config.SOUNDER.MAKEUP
 	if type(composition) == "table" then
 		local named = {}
-		for _ = 1, math.max(0, math.floor(composition.females or 0)) do
-			table.insert(named, makeup.SOW)
-		end
-		for _ = 1, math.max(0, math.floor(composition.cubs or 0)) do
-			table.insert(named, makeup.YOUNG)
-		end
-		for _ = 1, math.max(0, math.floor(composition.males or 0)) do
-			table.insert(named, makeup.LONE)
+		-- ONE WALK OF THE SAME TABLE `Boar.compositionSize` COUNTS (task 223), so "how many animals
+		-- is this wave" and "which animals are they" cannot disagree -- which is the promise that
+		-- function's own header has made since task 123 round 8, now kept by construction rather
+		-- than by two lists being edited together.
+		for _, row in ipairs(compositionCounts(composition, config)) do
+			for _ = 1, row.count do
+				table.insert(named, row.kind)
+			end
 		end
 		-- WITH `KINDS` OFF EVERY ANIMAL IS STILL THE ONE BOX THIS GAME HAS ALWAYS SPAWNED, because
 		-- the kinds are what the flag turns on -- a composition asks for a shape, not for a flag.
@@ -2404,6 +2751,104 @@ function Boar.legendaryForced(rare): boolean
 		return ServerStorage:GetAttribute(name)
 	end)
 	return ok and value == true
+end
+
+-- WHICH DEER GROUP THIS RELEASE IS, or nil for "this release is boars" (task 223). PURE: one roll
+-- for WHETHER and one for WHICH, a composition out -- so "one release in five" is a spec case and
+-- not a probability a playtest has to measure.
+--
+-- IT LIVES IN THE BOAR'S OWNER AND NOT IN `Match`, and both halves of that are already written in
+-- this repo: *"who is in a flock is the boar system's fact"* (`src/server/ForestTest/init.luau`,
+-- where it reads `SOUNDER.COMPOSITIONS`), and `Match.applySpawnSounder` passes NO composition at
+-- all -- it asks for a position, a count and a spread, and the kinds are drawn in here.
+--
+-- GATED ON `KINDS.ENABLED`, EXACTLY AS `Boar.wantsLegendary` IS, and the gate is in front of the
+-- roll rather than behind it. With `BOAR_MODEL` off there are no kinds, so there is no deer -- and
+-- **NO NUMBER IS DRAWN**, which keeps the runtime's `Random` stream bit-for-bit the one every
+-- existing spec was written against. Behind the roll, the stream would shift and a dozen unrelated
+-- specs would start failing on a flag they never mention.
+--
+-- `roll` and `pick` are both in [0, 1), so `CHANCE_PER_RELEASE` of 0 and 1 are EXACT: at 0 nothing
+-- is ever a deer, at 1 everything is.
+function Boar.deerComposition(roll: number, pick: number, config): { [string]: number }?
+	local kinds = config.KINDS
+	if type(kinds) ~= "table" or kinds.ENABLED ~= true then
+		return nil
+	end
+	local species = config.SPECIES
+	local release = type(species) == "table" and species.reddeer and species.reddeer.RELEASE
+	if type(release) ~= "table" then
+		return nil
+	end
+	if roll >= (release.CHANCE_PER_RELEASE or 0) then
+		return nil
+	end
+	local rows = release.COMPOSITIONS or {}
+	local total = 0
+	for _, row in ipairs(rows) do
+		total += math.max(0, row.weight or 0)
+	end
+	if total <= 0 then
+		return nil
+	end
+	-- A WEIGHTED DRAW WALKED IN ORDER, so the same `pick` always gives the same row and a spec can
+	-- name a boundary (0.0 is the first row, 0.4 the second, 0.8 the third at 40/40/20).
+	local want = math.clamp(pick, 0, 0.999999) * total
+	local seen = 0
+	for _, row in ipairs(rows) do
+		seen += math.max(0, row.weight or 0)
+		if want < seen then
+			local out = {}
+			for key, value in pairs(row) do
+				if key ~= "weight" and type(value) == "number" then
+					out[key] = value
+				end
+			end
+			return out
+		end
+	end
+	return nil
+end
+
+-- IS THERE ALREADY A DEER GROUP OUT (task 223)? Pure, and it takes the live kinds rather than a
+-- counter, for the reason `Runtime:_legendaryAllowed` gives for its own cap: there is ONE list of
+-- live animals and it is the answer, so two code paths cannot disagree about it.
+function Boar.deerGroupsAllowed(liveKinds: { string }, config): boolean
+	local kinds = config.KINDS
+	-- THE FLAG FIRST, and it is not only belt-and-braces: this function is the deer's own question,
+	-- and with `BOAR_MODEL` off there are no kinds, so there is no deer and nothing to allow
+	-- (round 1, finding 1 -- it did not read the flag at all and answered `true` on every release
+	-- of the default build).
+	if type(kinds) ~= "table" or kinds.ENABLED ~= true then
+		return false
+	end
+	local species = config.SPECIES
+	local release = type(species) == "table" and species.reddeer and species.reddeer.RELEASE
+	if type(release) ~= "table" then
+		return false
+	end
+	-- IT COUNTS GROUPS AND NOT ANIMALS, which round 1 did not (note: it returned
+	-- `MAX_GROUPS_ALIVE > 1` on the first live deer, so the dial worked only at 1 and capped nothing
+	-- at 2). A GROUP IS A SOUNDER: every member of one release shares a sounder id, and a lone deer
+	-- has none -- so the groups alive are the distinct sounder ids among the live deer, plus one for
+	-- each deer that belongs to no sounder.
+	local groups, seen = 0, {}
+	for _, entry in ipairs(liveKinds) do
+		local kind = if type(entry) == "table" then entry.kind else entry
+		local row = kinds[kind]
+		if type(row) == "table" and row.species == "reddeer" then
+			local sounder = if type(entry) == "table" then entry.sounder else nil
+			if sounder == nil then
+				groups += 1
+			elseif not seen[sounder] then
+				seen[sounder] = true
+				groups += 1
+			end
+		end
+	end
+	-- ONE GROUP AT A TIME: a drive is six live animals and a group is up to three, so two groups
+	-- could be half the drive and the animal Karen called rare would be in front of every shooter.
+	return groups < (release.MAX_GROUPS_ALIVE or 1)
 end
 
 function Boar.wantsLegendary(roll: number, config): boolean
@@ -2486,12 +2931,61 @@ end
 --
 -- AN ALREADY-SPAWNED BOAR KEEPS THE CONFIG IT WAS BORN WITH, exactly as it keeps `self._field`
 -- (`Runtime:spawn`): this is handed to `Brain.new` once and never again.
-function Boar.kindConfig(kind: string?, config)
-	local row = Body.kindRow(kind, config)
-	local wary = row and row.wary
-	if type(wary) ~= "table" then
+-- WHICH SPECIES' TABLES AN ANIMAL LIVES BY (task 223). Pure, and it is the IDENTITY FUNCTION -- the
+-- config table itself, `==` by reference -- for nil, for `"boar"`, and for any species with no
+-- `SPECIES` row. So every boar kind, and the whole flag-off world, gets exactly the table it always
+-- got, and `tests/server/deer.spec.luau` asserts that BY REFERENCE rather than field by field.
+--
+-- WHY THREE TABLES AND NOT A FOURTH SCALE. `BODY_SIZE`, `ZONES` and `MODEL` are the three things a
+-- deer cannot borrow from a boar: the trunk (a deer is leggier, narrower and taller than any
+-- multiple of a boar's box), the hit zones (a red deer carries its head high on a long neck, and
+-- scaling the boar's head offset puts the box in empty air in front of the chest -- the exact bug
+-- task 119 fixed on the boar), and the clip table with its animation ids (section 3.6 of the
+-- design: sharing `MODEL` would play the BOAR's published ids on `Arm_Deer`, which no spec could
+-- see because an `AnimationId` is a number and it would be set correctly).
+--
+-- THERE IS NO `SPECIES.boar` ROW, DELIBERATELY: the boar's tables are `Boar.CONFIG.ZONES`,
+-- `.BODY_SIZE` and `.MODEL`, the ones every reader and every spec already name by that path
+-- (`tests/server/report_silhouette.spec.luau` asserts `Report.CONFIG.SILHOUETTE` against
+-- `Boar.CONFIG.ZONES` by exactly that path). A `boar` row here would be a second copy of them.
+function Boar.speciesConfig(species: string?, config)
+	local rows = config.SPECIES
+	local row = if type(rows) == "table" and type(species) == "string" then rows[species] else nil
+	if type(row) ~= "table" then
 		return config
 	end
+	local out = table.clone(config)
+	if row.BODY_SIZE ~= nil then
+		out.BODY_SIZE = row.BODY_SIZE
+	end
+	if row.ZONES ~= nil then
+		out.ZONES = row.ZONES
+	end
+	if row.MODEL ~= nil then
+		out.MODEL = row.MODEL
+	end
+	return out
+end
+
+-- ...AND `kindConfig` COMPOSES THE TWO (task 223): the species' tables first, then the kind's `wary`
+-- scaling ON TOP of whatever came back. The arithmetic below is untouched -- it reads `base` where
+-- it used to read `config`, and for every boar kind `base` IS `config` by reference, so every
+-- existing number is the number it was.
+function Boar.kindConfig(kind: string?, config)
+	local row = Body.kindRow(kind, config)
+	local base = Boar.speciesConfig(row and row.species, config)
+	local wary = row and row.wary
+	if type(wary) ~= "table" then
+		return base
+	end
+	return Boar.scaledByWary(base, wary)
+end
+
+-- THE `wary` ARITHMETIC, UNCHANGED AND UNMOVED IN MEANING (task 223 split it out of `kindConfig` so
+-- that the species step could sit in front of it without the parameter being reassigned). It takes
+-- the config an animal is already living by -- the species' for a deer, the base one for a boar --
+-- and scales the six radii and the two speeds. Every line below is the line it was.
+function Boar.scaledByWary(config, wary)
 	local notice = math.max(0, wary.noticeScale or 1)
 	local run = math.max(0, wary.runScale or 1)
 	local out = table.clone(config)
@@ -2715,7 +3209,7 @@ function Boar.newRuntime(world)
 	-- single slot would hand a cub the sow's coat. Keyed by the kind's own name.
 	self._heldTemplate = {} :: { [string]: Instance }
 	self._templateFor = nil :: ((string) -> Instance?)?
-	self._animationIdFor = nil :: ((string) -> number?)?
+	self._animationIdFor = nil :: ((string, string) -> number?)?
 	-- FALSE MEANS "USE THE MODULE'S", and once `Runtime:setModelSource` has been called it is true
 	-- for ever. Without this flag, `self._templateFor or moduleTemplateFor` would make "this runtime
 	-- has NO template" inexpressible -- a spec asking for the no-model branch would silently be
@@ -2900,7 +3394,9 @@ end
 --   `templateFor()`            -> the cached template Instance, or nil. MUST NOT YIELD: it is
 --                                 called from inside the step loop. `Assets.Loader.template` is
 --                                 exactly this shape and is documented never to yield.
---   `animationIdFor(clipName)` -> that clip's animation asset id, or nil.
+--   `animationIdFor(species, clipName)` -> that clip's animation asset id, or nil. THE SPECIES IS
+--   FIRST (task 223): `idle` is a clip name in two species now, and a stale one-argument fake
+--   then answers nil -- no clip, the animal stands still -- instead of the other species' id.
 -- Both are injected rather than required, so neither owner requires the other (the property
 -- docs/design/shotgun.md section 6.3 established and `WeaponBoot` already follows), and so a spec
 -- can drive both the "no model" and the "model" branch with no network at all.
@@ -2920,13 +3416,13 @@ end
 -- `CONFIG.MODEL.ANIMATION_IDS`. An id that appears later is not picked up, which is deliberate: a
 -- manifest is frozen data edited in git, so a row that was not there at boot was not there at all.
 local moduleTemplateFor: ((string) -> Instance?)? = nil
-local moduleAnimationIdFor: ((string) -> number?)? = nil
+local moduleAnimationIdFor: ((string, string) -> number?)? = nil
 
 -- Returns the pair it replaced, so a caller that must put it back can.
 function Boar.setModelSource(
 	templateFor: ((string) -> Instance?)?,
-	animationIdFor: ((string) -> number?)?
-): (((string) -> Instance?)?, ((string) -> number?)?)
+	animationIdFor: ((string, string) -> number?)?
+): (((string) -> Instance?)?, ((string, string) -> number?)?)
 	local previousTemplate, previousId = moduleTemplateFor, moduleAnimationIdFor
 	moduleTemplateFor = templateFor
 	moduleAnimationIdFor = animationIdFor
@@ -2959,7 +3455,7 @@ function Runtime:setField(field)
 	return previous
 end
 
-function Runtime:setModelSource(templateFor: ((string) -> Instance?)?, animationIdFor: ((string) -> number?)?)
+function Runtime:setModelSource(templateFor: ((string) -> Instance?)?, animationIdFor: ((string, string) -> number?)?)
 	self._templateFor = templateFor
 	self._animationIdFor = animationIdFor
 	self._modelSourceSet = true -- from here on this runtime ignores the module's, nil included
@@ -2986,6 +3482,24 @@ end
 -- `model` whatever the flag says, the legendary gets `"male"`, and a kind with NO row falls through
 -- to its own name -- so an unknown kind still reaches a source that has no row for it and still
 -- answers nothing, which is the grey box, and the runtime still invents no kind.
+-- THE ANIMALS THAT ARE ALIVE RIGHT NOW (task 223), which is what the deer cap is answered from. One
+-- list, read once per release; no counter and nothing to keep in step.
+--
+-- EACH ROW CARRIES ITS SOUNDER ID as well as its kind (round 1, note), because the cap is on
+-- GROUPS and not on animals: a release of a stag and two hinds is ONE group, and counting animals
+-- would make `MAX_GROUPS_ALIVE = 1` mean "one deer in the drive". A lone deer has no sounder and
+-- counts as its own group. `Boar.deerGroupsAllowed` also accepts a plain list of kind strings, so
+-- a spec can drive it without building a runtime.
+function Runtime:_liveKinds(): { any }
+	local out = {}
+	for _, entry in ipairs(self._boars) do
+		if entry.kind ~= nil then
+			table.insert(out, { kind = entry.kind, sounder = entry.sounderId })
+		end
+	end
+	return out
+end
+
 function Runtime:_modelTemplate(kind: string, now: number): Instance?
 	local kinds = self._config.KINDS
 	local row = if type(kinds) == "table" then kinds[kind] else nil
@@ -3007,11 +3521,24 @@ function Runtime:_modelTemplate(kind: string, now: number): Instance?
 		return nil
 	end
 	self._heldTemplate[key] = template
-	local ids = self._config.MODEL.ANIMATION_IDS
+	-- THE SPECIES' OWN ID TABLE, AND THE SPECIES' OWN CLIP NAMES (task 223). `Boar.kindConfig` is
+	-- what answers which `MODEL` this kind has; for every boar it is `self._config` by reference and
+	-- these two lines are what they were. A deer fills the DEER's `ANIMATION_IDS` with the DEER's
+	-- eleven names, which is the table `Body.hasClip` reads when that deer is drawn.
+	local animalConfig = Boar.kindConfig(kind, self._config)
+	local species = (type(row) == "table" and row.species) or "boar"
+	local ids = animalConfig.MODEL.ANIMATION_IDS
 	local lookup = if self._modelSourceSet then self._animationIdFor else moduleAnimationIdFor
 	if lookup then
-		for name in pairs(self._config.MODEL.CLIPS) do
-			local id = lookup(name)
+		for name in pairs(animalConfig.MODEL.CLIPS) do
+			-- THE SPECIES GOES FIRST, DELIBERATELY (design section 6.4). `idle` is now a clip name
+			-- in two species, so the lookup has to be told which -- and with the species FIRST a
+			-- stale one-argument fake (`function(name) return ids[name] end`) receives the species
+			-- where it expected the name and answers NIL, which is "no clip", which is "the animal
+			-- stands still": the safe, tested state. With the species second it would answer the
+			-- BOAR's id for a deer clip, which is the bug this seam exists to prevent arriving
+			-- through the test harness. The argument order IS the guard.
+			local id = lookup(species, name)
 			if type(id) == "number" and id > 0 then
 				ids[name] = id
 			end
@@ -4190,8 +4717,14 @@ function Runtime:displayCarcass(kind: string?, cframe: CFrame): Model?
 	-- out at the gathering as an ordinary male -- the male's length in the male's coat -- in the ONLY
 	-- branch a world with `BOAR_MODEL` on ever takes. `Body.kindGeometry` is the one answer to "how
 	-- big is this animal and what colour is it", and it is the same call `Runtime:spawn` makes.
-	local geometry = Body.kindGeometry(kind or self._config.KINDS.DEFAULT, self._config)
-	return Body.displayCarcass(template, cframe, self._config, geometry)
+	--
+	-- ...AND ITS SPECIES' TABLES WITH IT (task 223), for the same reason and through the same door:
+	-- `Boar.kindConfig` is the one answer to "which config does this animal live by", so a stag laid
+	-- out at the gathering is a stag's length in a stag's zones, not a big boar. For every boar kind
+	-- without a `wary` row this is `self._config` by reference.
+	local animalConfig = Boar.kindConfig(kind or self._config.KINDS.DEFAULT, self._config)
+	local geometry = Body.kindGeometry(kind or self._config.KINDS.DEFAULT, animalConfig)
+	return Body.displayCarcass(template, cframe, animalConfig, geometry)
 end
 
 -- ALL OR NOTHING: it creates the whole sounder or nothing at all, so a half sounder cannot exist
@@ -4200,10 +4733,33 @@ end
 -- running anywhere: obs.sounder is nil and every existing path applies unchanged.
 function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?, composition)
 	assert(not self._destroyed, "Boar runtime is destroyed")
+	-- IS THIS RELEASE A DEER GROUP (task 223)? ONLY WHEN THE CALLER NAMED NO COMPOSITION, so the
+	-- Forest Test's own named waves -- and every spec that asks for one -- are untouched. Two rolls
+	-- off the runtime's own `Random`: whether, and which group.
+	--
+	-- **THE FLAG IS TESTED HERE, IN FRONT OF THE CALL, AND ROUND 1 GOT THIS WRONG.** It read
+	-- `if composition == nil and Boar.deerGroupsAllowed(...) then composition =
+	-- Boar.deerComposition(self._rng:NextNumber(), self._rng:NextNumber(), ...) end`, with the flag
+	-- test INSIDE `deerComposition` -- and the two rolls are that function's ARGUMENTS, which Lua
+	-- evaluates before it is ever entered. So the default build, where `BOAR_MODEL` is OFF, drew two
+	-- numbers on every composition-less release and **shifted the runtime's `Random` stream**: the
+	-- `phase` of the next formation and its `COLUMN_CHANCE` draw came out different from every value
+	-- the specs written before this task were written against. The gate inside `deerComposition`
+	-- stays (it is that function's own rule, and a spec drives it directly); this one is what makes
+	-- "no number is drawn" true of the caller.
+	--
+	-- It is the shape `Runtime:_legendaryAllowed` and the `rolls` loop sixty lines below already
+	-- have, for exactly this reason, and it is now asserted by `deer.spec`'s flag-off case, which
+	-- counts the draws a release makes against a baseline runtime that never asks for a deer.
+	if composition == nil and self._config.KINDS ~= nil and self._config.KINDS.ENABLED == true then
+		if Boar.deerGroupsAllowed(self:_liveKinds(), self._config) then
+			composition = Boar.deerComposition(self._rng:NextNumber(), self._rng:NextNumber(), self._config)
+		end
+	end
 	-- A COMPOSITION IS ALSO THE SIZE (task 123 round 8), and it is read through `Boar.compositionSize`
 	-- rather than added up here, so there is one place that knows what a composition weighs.
 	if type(composition) == "table" then
-		size = Boar.compositionSize(composition)
+		size = Boar.compositionSize(composition, self._config)
 	end
 	size = math.floor(tonumber(size) or 0)
 	if size < 1 or #self._boars + size > self._config.maxBoars then
@@ -4231,6 +4787,13 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?,
 	-- THE RING IS AS BIG AS THE GROUP NEEDS (task 123 round 2), then clamped inside the pad: members
 	-- are spaced `SPAWN_SPACING` body lengths of ARC apart, which for 5 is the 10-stud ring it always
 	-- was and for 20 is 21 studs instead of a pile.
+	-- THE RING IS THE BOAR'S BODY LENGTH AND STAYS THE BOAR'S, deliberately (task 223 round 2, the
+	-- sweep finding 2 asked for). It is a property of the PAD and the release, not of one animal,
+	-- and it is computed HERE -- before `kinds` is drawn twenty lines down -- so there is no animal
+	-- to ask yet. Reordering it to find out would move `self._rng` draws relative to `phase`, which
+	-- is the exact stream shift finding 1 was about. The visible cost is that a three-deer release
+	-- starts on a ring sized for boars, i.e. about a stud and a half tighter per member than its own
+	-- body length; they walk apart in the first second. Queued, not smuggled in.
 	local spacing = config.BODY_SIZE.Z * (sounderConfig.SPAWN_SPACING or 1)
 	local needed = spacing * size / (2 * math.pi)
 	local radius = math.max(
@@ -4369,7 +4932,15 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 	local config = self._config
 	-- WHICH ANIMAL (task 119). A lone boar is a male -- `SOUNDER.MAKEUP.LONE` -- and a member of a
 	-- sounder is told which one it is by `spawnSounder`.
-	local geometry = Body.kindGeometry(kind or config.SOUNDER.MAKEUP.LONE, config)
+	--
+	-- ...AND SINCE TASK 223 THE CONFIG COMES FIRST (design section 3.5). `Boar.kindConfig` is now
+	-- what answers "which species' trunk, zones and clips is this animal", so it has to be asked
+	-- BEFORE the geometry is measured off it rather than after. For every boar kind with no `wary`
+	-- row -- the male, the sow, the cub, and the whole flag-off world -- `animalConfig` IS `config`
+	-- by reference, so every line below is the line it was.
+	local wanted = kind or config.SOUNDER.MAKEUP.LONE
+	local animalConfig = Boar.kindConfig(wanted, config)
+	local geometry = Body.kindGeometry(wanted, animalConfig)
 	local at = position or config.spawnPoint
 	-- DROPPED FROM THE MALE'S HEIGHT, WHATEVER THE ANIMAL IS, and that is MEASURED and not tidy
 	-- (task 119, 2026-10-04). `field.groundY` is the FIELD's ground and the map's real surface is not
@@ -4400,16 +4971,32 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 			groundHere = asked
 		end
 	end
-	at = Vector3.new(at.X, groundHere + config.BODY_SIZE.Y / 2 + config.SPAWN_CLEARANCE, at.Z)
+	--
+	-- **THE ANIMAL'S OWN HALF-HEIGHT, NOT THE BOAR'S, AND ROUND 1 GOT THIS WRONG** (finding 2). Every
+	-- other line of this function moved to `animalConfig`; this one did not, so it still dropped a
+	-- STAG from the male's `BODY_SIZE.Y / 2` of 1.5 while the stag's own box is 4.8 tall. His box
+	-- bottom therefore started `2.4 - 1.5 - 0.5 = 0.4` studs UNDER the surface and a hind's 0.053
+	-- under -- which is precisely the state `SPAWN_CLEARANCE`'s own comment exists to prevent
+	-- (*"so it settles instead of starting embedded"*) and the state task 119 measured killing every
+	-- cub in the drive: *"a fully embedded part is ejected, not settled"*.
+	--
+	-- `math.max` KEEPS THE MALE'S FLOOR, which is the half of task 119's fix that must not be lost:
+	-- a CUB's box is 1.35 studs tall and the map's real surface can sit 2 studs above `groundY`, so
+	-- a small animal dropped from its own half-height would start entirely below the surface. The
+	-- taller of the two is the one that clears both, and for every boar kind it IS the male's number,
+	-- so nothing about a boar's release moved.
+	local halfHeight = math.max(config.BODY_SIZE.Y, animalConfig.BODY_SIZE.Y) / 2
+	at = Vector3.new(at.X, groundHere + halfHeight + config.SPAWN_CLEARANCE, at.Z)
 
 	self._nextId += 1
 	local id = string.format("Boar%d", self._nextId)
-	local body = Body.create(config, self._folder, id, at, geometry.kind)
-	-- THE CONFIG THIS ANIMAL LIVES BY (task 219), and for every kind but the legendary it IS
-	-- `config` -- `Boar.kindConfig` returns the table itself when there is no `wary` row, so this
-	-- line is the identity it has always been. A boar keeps the config it was born with, exactly as
-	-- it keeps `self._field` two arguments along.
-	local brain = Brain.new(Boar.kindConfig(geometry.kind, config), self._field, at, self._rng)
+	local body = Body.create(animalConfig, self._folder, id, at, geometry.kind)
+	-- THE CONFIG THIS ANIMAL LIVES BY (task 219, and its species' tables since task 223), and for
+	-- every kind but the legendary and the three deer it IS `config` -- `Boar.kindConfig` returns
+	-- the table itself when there is no `wary` row and no `SPECIES` row, so this line is the
+	-- identity it has always been. A boar keeps the config it was born with, exactly as it keeps
+	-- `self._field` two arguments along.
+	local brain = Brain.new(animalConfig, self._field, at, self._rng)
 
 	local handle = {
 		id = id,
@@ -4434,6 +5021,11 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 		body = body,
 		brain = brain,
 		handle = handle,
+		-- THE CONFIG THIS ANIMAL WAS BORN WITH (task 223), so the step loop can hand `Body` the
+		-- SPECIES' clip table instead of the runtime's. For every boar it is `self._config` itself
+		-- by reference. An already-spawned animal keeps it, which is the rule `Runtime:spawn`
+		-- already states for `self._field` and for `kindConfig`.
+		config = animalConfig,
 		-- WHICH ANIMAL THIS IS (task 123 round 3). The handle already carried it; the entry needs it
 		-- too, because `Boar.marchOrder` ranks a sounder by kind and the record only holds ids.
 		kind = body.kind,
@@ -5012,7 +5604,13 @@ function Runtime:step(dt: number)
 				-- costing one forward sweep plus up to `AVOID_CASTS` of the fan, and the answer is
 				-- carried on the entry in between -- so the deflection is steady for an eighth of a
 				-- second instead of being re-drawn every frame.
-				whisker.clearDeg = self:_avoidTurnFor(entry, position, nose, config)
+				-- `entry.config` AND NOT `config` (task 223 round 2, the sweep finding 2 asked for).
+				-- `_avoidTurnFor` casts its whisker from `BODY_SIZE.Y / 2` -- *"the eye is the
+				-- body's middle"* -- and a stag's middle is 2.4 studs up where a boar's is 1.5. On
+				-- the runtime's config a deer would have swept for obstacles at knee height and
+				-- turned away from every root it could have stepped over. For every boar
+				-- `entry.config` IS `config` by reference.
+				whisker.clearDeg = self:_avoidTurnFor(entry, position, nose, entry.config or config)
 			end
 		end
 
@@ -5061,7 +5659,10 @@ function Runtime:step(dt: number)
 		-- itself follows. With the flag off neither line runs and nothing differs from before task 115.
 		local visualTemplate = visualTemplates[entry.body.kind or config.KINDS.DEFAULT]
 		if config.MODEL.ENABLED and visualTemplate ~= nil and entry.body.visual == nil then
-			Body.attachVisual(entry.body, visualTemplate, config)
+			-- `entry.config` AND NOT `config` (task 223), because `attachVisual` reads
+			-- `MODEL.NAME`, `MODEL.HIDE_BOX` and the kind's mesh scale, and a deer's `MODEL` is its
+			-- own table. For every boar `entry.config` IS `config` by reference.
+			Body.attachVisual(entry.body, visualTemplate, entry.config or config)
 		end
 
 		-- ALERT AND AVOID, COUNTED ON THE EDGE (task 118): one per transition, so a stat says how
@@ -5160,7 +5761,13 @@ function Runtime:step(dt: number)
 				-- every other state hands `Body` the nil it handed before.
 				activity = intent.activity,
 				activityDraw = intent.activityDraw,
-			}, config)
+				-- `entry.config` AND NOT `config` (task 223) -- THIS IS THE ONE LINE THAT MAKES A
+				-- DEER PLAY DEER CLIPS. `stepVisual` resolves a semantic clip name through
+				-- `config.MODEL.CLIPS` and its id through `config.MODEL.ANIMATION_IDS`, and the
+				-- deer has its own pair of those tables. Handing it the runtime's would play the
+				-- BOAR's published ids on `Arm_Deer` (design section 3.6). For every boar
+				-- `entry.config` IS `config` by reference, so nothing about a boar changed.
+			}, entry.config or config)
 			-- The same speed drives the sound, so the hooves keep time with the legs: the gait and
 			-- the rate `Body.stepSoundFor` picks are the arithmetic `Body.clipFor` just used.
 			-- WHAT THE CROWD ALLOWS IT (task 120, per layer since task 123), and the slot it books

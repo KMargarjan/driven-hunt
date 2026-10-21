@@ -52,10 +52,16 @@ local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Gun = {}
 
--- WHICH GROUP A PIECE BELONGS TO, and it is the whole of the break-open. "body" is bolted to the
--- action and never moves; "barrels" swings down about the hinge, and everything in it goes with it
--- -- the two tubes, the forend and the bead, exactly as on a real gun.
-export type Group = "body" | "barrels"
+-- WHICH MOVING GROUP A PIECE BELONGS TO. `"body"` is everything that holds still, `"barrels"` is
+-- the group that moves on a SHOT whatever the gun calls it (the side-by-side's barrels, the Rigby's
+-- bolt, the lever's loop, the semi-auto's bolt), and `"lift"` is the group that moves on a RELOAD
+-- -- which until task 225 no gun had. `buildNewGun` reads this and nothing else to decide which
+-- envelope a piece is parented to, so a gun with no `"lift"` piece builds exactly as it did.
+--
+-- ON THE BREAK-OPEN THIS TYPE WAS WRITTEN FOR, that reads: "body" is bolted to the action and never
+-- moves; "barrels" swings down about the hinge and everything in it goes with it -- the two tubes,
+-- the forend and the bead, exactly as on a real gun.
+export type Group = "body" | "barrels" | "lift"
 
 export type Piece = {
 	name: string,
@@ -162,6 +168,13 @@ Gun.SHELL_KEY = "gun.shell"
 -- is Rojo-owned and a folder parked there in Edit would be deleted at the next Connect.
 Gun.FOLDER_NAME = "ViewmodelGun"
 Gun.SHELL_TEMPLATE_NAME = "Shell"
+-- DOES THIS GUN PUT LOOSE ROUNDS IN THE PLAYER'S HANDS? (task 224.) YES, and it is the only gun
+-- in this game that does: a break action is cracked over the arm and fed two shells by hand, which
+-- is what `Viewmodel.loadingAt` and `Viewmodel.shells` draw. Both of those used to be gated on
+-- `config.MAGAZINE_SWAP ~= nil` -- a field that answers *"does this gun swap a box"* and was
+-- standing in for this question, which is a borrowed predicate answering something it was not
+-- asked. The two agree on the two guns that shipped before the lever rifle and disagree on it.
+Gun.HAND_FED_SHELLS = true
 
 -- HOW A GROUP MESH IS TURNED to lie on this gun, AND IT IS TWO TURNS, NOT ONE (task 107).
 --

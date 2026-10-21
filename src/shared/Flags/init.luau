@@ -323,9 +323,10 @@ Flags.DEFAULTS = {
 		expires = "2026-11-04", -- 21 days: the ceiling in feature-flags.md section 12
 		-- IT NEEDS `COINS` ON AS WELL, or the shop reads CLOSED: with the money off there is no
 		-- profile to charge and nothing to record (docs/design/shop.md section 3.1).
-		why = "A player walks up to the counter in the lodge and buys slug shells, a scoped rifle, "
-			.. "a beater's licence to shoot in a drive or a coloured hat, with the coins the drive "
-			.. "paid him. Needs COINS on too.",
+		why = "A player walks up to the counter in the lodge and spends the money a drive paid him "
+			.. "on Karen's v1 list: slug shells, high-seat access, unlimited ammunition, the scoped "
+			.. "rifle, a beater's licence, the hunter's place every drive, or one of three "
+			.. "packages. Needs COINS on too.",
 	} :: FlagRow,
 	LOBBY = {
 		-- BORN OFF on 2026-10-13 (task 177). Karen, that evening: *"I think after this fixes we need

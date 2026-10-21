@@ -456,24 +456,24 @@ return function()
 			expect(waitUntil(2, function()
 				return Economy.balanceOf(201) ~= nil
 			end)).to.equal(true)
-			local receipt = Economy.purchase(201, Shop.ITEM.HAT_RED, { atCounter = true })
+			local receipt = Economy.purchase(201, Shop.ITEM.SLUG, { atCounter = true })
 			expect(receipt.ok).to.equal(true)
-			expect(receipt.price).to.equal(80)
-			expect(Economy.balanceOf(201)).to.equal(500 - 80)
-			expect(Economy.ownedOf(201)[Shop.ITEM.HAT_RED]).to.equal(true)
+			expect(receipt.price).to.equal(120)
+			expect(Economy.balanceOf(201)).to.equal(500 - 120)
+			expect(Economy.ownedOf(201)[Shop.ITEM.SLUG]).to.equal(true)
 			-- A FROZEN COPY, so no reader can write the set it was handed.
 			expect(table.isfrozen(Economy.ownedOf(201))).to.equal(true)
 			-- ONE `save`, AND IT IS NOT A NETWORK CALL (the store's own contract). Purchases per
 			-- DataStore request: 0.
 			expect(store.calls().save).to.equal(1)
 			local saved = store.peek(201)
-			expect(saved.coins).to.equal(420)
-			expect(saved.owned[Shop.ITEM.HAT_RED]).to.equal(true)
+			expect(saved.coins).to.equal(380)
+			expect(saved.owned[Shop.ITEM.SLUG]).to.equal(true)
 			-- A PURCHASE IS NOT A DRIVE: the hunt count is untouched, which is hazard 2 closed.
 			expect(saved.drivesPaid).to.equal(0)
 			expect(Economy.huntsOf(201)).to.equal(0)
 			expect(Economy.stats().purchases).to.equal(1)
-			expect(Economy.stats().coinsSpent).to.equal(80)
+			expect(Economy.stats().coinsSpent).to.equal(120)
 		end)
 
 		-- THE DOUBLE CLICK: the first charges, the second is refused and NOTHING is written.
@@ -482,11 +482,11 @@ return function()
 			expect(waitUntil(2, function()
 				return Economy.balanceOf(202) ~= nil
 			end)).to.equal(true)
-			expect(Economy.purchase(202, Shop.ITEM.HAT_RED, { atCounter = true }).ok).to.equal(true)
-			local again = Economy.purchase(202, Shop.ITEM.HAT_RED, { atCounter = true })
+			expect(Economy.purchase(202, Shop.ITEM.SLUG, { atCounter = true }).ok).to.equal(true)
+			local again = Economy.purchase(202, Shop.ITEM.SLUG, { atCounter = true })
 			expect(again.ok).to.equal(false)
 			expect(again.refused).to.equal(Shop.REASON.OWNED)
-			expect(Economy.balanceOf(202)).to.equal(420)
+			expect(Economy.balanceOf(202)).to.equal(380)
 			expect(Economy.stats().purchases).to.equal(1)
 			expect(Economy.stats().refusedBy[Shop.REASON.OWNED]).to.equal(1)
 		end)
@@ -519,9 +519,7 @@ return function()
 			expect(Economy.purchase(203, "rifle.free", { atCounter = true }).refused).to.equal(Shop.REASON.UNKNOWN)
 			expect(Economy.purchase(203, "rifle.open", { atCounter = true }).refused).to.equal(Shop.REASON.UNKNOWN)
 			-- ...AND A MAN WHO IS NOT AT THE COUNTER.
-			expect(Economy.purchase(203, Shop.ITEM.HAT_RED, { atCounter = false }).refused).to.equal(
-				Shop.REASON.TOO_FAR
-			)
+			expect(Economy.purchase(203, Shop.ITEM.SLUG, { atCounter = false }).refused).to.equal(Shop.REASON.TOO_FAR)
 			expect(Economy.balanceOf(203)).to.equal(100)
 			expect(next(Economy.ownedOf(203))).to.equal(nil)
 			expect(store.calls().save).to.equal(0)
@@ -537,7 +535,7 @@ return function()
 			expect(waitUntil(2, function()
 				return Economy.stats().loadsRefused == 1
 			end)).to.equal(true)
-			local refused = Economy.purchase(204, Shop.ITEM.HAT_RED, { atCounter = true })
+			local refused = Economy.purchase(204, Shop.ITEM.SLUG, { atCounter = true })
 			expect(refused.refused).to.equal(Shop.REASON.NO_PROFILE)
 			expect(Economy.balanceOf(204)).to.equal(nil)
 			expect(Economy.ownedOf(204)).to.equal(nil)
@@ -551,16 +549,14 @@ return function()
 				return Economy.balanceOf(205) ~= nil
 			end)).to.equal(true)
 			Economy.release(205)
-			expect(Economy.purchase(205, Shop.ITEM.HAT_RED, { atCounter = true }).refused).to.equal(
-				Shop.REASON.NO_PROFILE
-			)
+			expect(Economy.purchase(205, Shop.ITEM.SLUG, { atCounter = true }).refused).to.equal(Shop.REASON.NO_PROFILE)
 			expect(store.calls().save).to.equal(0)
 		end)
 
 		it("refuses every purchase with the coins off, and reads the whole shop as closed", function()
 			started({ ids = { 206 }, enabled = false })
 			task.wait(0.1)
-			local receipt = Economy.purchase(206, Shop.ITEM.HAT_RED, { atCounter = true })
+			local receipt = Economy.purchase(206, Shop.ITEM.SLUG, { atCounter = true })
 			expect(receipt.refused).to.equal(Shop.REASON.CLOSED)
 			-- ...AND THE PANEL IS TOLD THE SAME THING IN ONE LINE rather than five refusals.
 			local state = Economy.shopStateFor(206, receipt)
@@ -582,7 +578,7 @@ return function()
 			-- ...and the total earned is the store's own number now, incremented where the DELTA is
 			-- known rather than inside `save`.
 			expect(store.peek(207).coinsEarnedTotal).to.equal(55)
-			Economy.purchase(207, Shop.ITEM.HAT_RED, { atCounter = true })
+			Economy.purchase(207, Shop.ITEM.SLUG, { atCounter = true })
 			expect(Economy.huntsOf(207)).to.equal(8)
 			expect(store.peek(207).drivesPaid).to.equal(8)
 			-- A SECOND DRIVE RAISES IT AGAIN; the same drive number does not (the double-pay guard).
@@ -610,20 +606,168 @@ return function()
 				if wire.id == Shop.ITEM.SLUG then
 					expect(wire.owned).to.equal(true)
 					expect(wire.buyable).to.equal(false)
-				elseif wire.id == Shop.ITEM.HAT_RED then
-					-- 300 coins, no hunt gate: the one he can buy.
+				elseif wire.id == Shop.ITEM.BEATER_LICENCE then
+					-- $250 of his $300, and 30 hunts past its gate of 3: the one he can buy.
 					expect(wire.buyable).to.equal(true)
 				elseif wire.id == Shop.ITEM.RIFLE then
-					-- 30 hunts is enough, 300 coins is not.
+					-- 30 hunts is enough, $300 is not.
 					expect(wire.locked).to.equal(false)
 					expect(wire.afford).to.equal(false)
 					expect(wire.buyable).to.equal(false)
+				elseif wire.id == Shop.ITEM.RED_STAG then
+					-- ON SALE SINCE TASK 223, AND THAT IS THE SAME INVARIANT, SATISFIED. Task 221
+					-- shipped this row `sale = false` because `Licences.ROWS.reddeer.shipped` was
+					-- false -- there was no deer. Karen bought one on 2026-10-20 and the stag, the
+					-- hind and the calf publish `Species = "reddeer"`, so the row went on sale in
+					-- the same commit as the animal. `shop.spec` still drives the refused arm with
+					-- a hand-made table.
+					expect(wire.sale).to.equal(true)
+					expect(wire.buyable).to.equal(false)
+				elseif wire.id == Shop.ITEM.ALWAYS_HUNTER then
+					-- 30 hunts is EXACTLY its gate, so what stops him is the money and not the gate.
+					expect(wire.locked).to.equal(false)
+					expect(wire.buyable).to.equal(false)
 				end
-				-- EVERY ROW ON THE WIRE IS FOR SALE since task 196 removed the one that was not.
-				expect(wire.sale).to.equal(true)
+				-- THE RED HAT IS NOT ON THE WIRE AT ALL (task 221): retired, and invisible to the
+				-- panel.
+				expect(wire.id).never.to.equal(Shop.ITEM.HAT_RED)
 			end
 			-- A SEEDED SET IS READ BACK, which is the whole load/save round trip for the new field.
 			expect(Economy.ownedOf(208)[Shop.ITEM.SLUG]).to.equal(true)
+		end)
+
+		-- ------------------------------------------------------ the grant path (task 221, round 1 finding 3)
+		--
+		-- THE REVIEWER: *"the task's two new `Economy` seams have no test ... the idempotent branch
+		-- is unreachable through `purchase` -- `ShopData.refuse` answers `OWNED` first -- so
+		-- `already = true`, the documented `ProcessReceipt` contract this task exists to leave for
+		-- 222, is never executed"*. Right on both counts. These cases call `grant` DIRECTLY, which
+		-- is exactly the door task 222's `ProcessReceipt` will come through.
+		it("grants once, answers the second delivery as a success, and writes nothing twice", function()
+			local _, store = started({ ids = { 401 }, seed = { [401] = { coins = 5000 } } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(401) ~= nil
+			end)).to.equal(true)
+
+			-- FIRST DELIVERY: the set is written and the profile saved once.
+			local first = Economy.grant(401, Shop.ITEM.RIFLE, Economy.SOURCE.ROBUX)
+			expect(first.ok).to.equal(true)
+			expect(first.item).to.equal(Shop.ITEM.RIFLE)
+			expect(first.already).to.equal(nil)
+			expect(Economy.ownedOf(401)[Shop.ITEM.RIFLE]).to.equal(true)
+			expect(store.calls().save).to.equal(1)
+			-- A ROBUX GRANT DEBITS NOTHING OF OURS: the balance is untouched, which is the whole
+			-- reason `grant` is not `purchase`.
+			expect(Economy.balanceOf(401)).to.equal(5000)
+
+			-- SECOND DELIVERY OF THE SAME RECEIPT: a SUCCESS, and nothing written. A refusal here
+			-- would make Roblox retry for ever (the documented contract, research note source 1).
+			local again = Economy.grant(401, Shop.ITEM.RIFLE, Economy.SOURCE.ROBUX)
+			expect(again.ok).to.equal(true)
+			expect(again.already).to.equal(true)
+			expect(store.calls().save).to.equal(1)
+			expect(Economy.stats().grantsAlready).to.equal(1)
+			expect(Economy.stats().grants).to.equal(1)
+
+			-- WHERE EACH ONE CAME FROM, so "how many arrived by Robux" is a number the day 222 lands.
+			expect(Economy.stats().grantsBySource[Economy.SOURCE.ROBUX]).to.equal(1)
+			expect(Economy.stats().grantsBySource[Economy.SOURCE.MONEY]).to.equal(nil)
+		end)
+
+		it("refuses to grant what nobody may own, by either door", function()
+			local _, store = started({ ids = { 402 }, seed = { [402] = { coins = 5000 } } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(402) ~= nil
+			end)).to.equal(true)
+
+			-- THE DEER LICENCE: the animal arrived in task 223, so `NOT_SALE` no longer refuses it
+			-- -- which is what that reason was protecting until the deer existed. It is granted to
+			-- a DIFFERENT player here, because this case's last two assertions are that 402 bought
+			-- nothing and that nothing was saved.
+			local stag = Economy.grant(403, Shop.ITEM.RED_STAG, Economy.SOURCE.ROBUX)
+			expect(stag.refused).never.to.equal(Shop.REASON.NOT_SALE)
+
+			-- A RETIRED ROW: Karen took the red hat off the shelf, so it cannot be granted either --
+			-- `ShopData.row` answers only what is for sale.
+			local hat = Economy.grant(402, Shop.ITEM.HAT_RED, Economy.SOURCE.ROBUX)
+			expect(hat.ok).to.equal(false)
+			expect(hat.refused).to.equal(Shop.REASON.UNKNOWN)
+
+			-- A FORGED ID, and a man with no open session.
+			expect(Economy.grant(402, "no.such.row", Economy.SOURCE.ROBUX).refused).to.equal(Shop.REASON.UNKNOWN)
+			expect(Economy.grant(999, Shop.ITEM.RIFLE, Economy.SOURCE.ROBUX).refused).to.equal(Shop.REASON.NO_PROFILE)
+
+			expect(next(Economy.ownedOf(402))).to.equal(nil)
+			expect(store.calls().save).to.equal(0)
+		end)
+
+		it("is the one writer, so a purchase goes through it and saves once", function()
+			local _, store = started({ ids = { 403 }, seed = { [403] = { coins = 5000 } } })
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(403) ~= nil
+			end)).to.equal(true)
+			local receipt = Economy.purchase(403, Shop.ITEM.SLUG, { atCounter = true })
+			expect(receipt.ok).to.equal(true)
+			expect(receipt.price).to.equal(120)
+			expect(Economy.balanceOf(403)).to.equal(5000 - 120)
+			-- ONE SAVE WITH BOTH HALVES, not one per half.
+			expect(store.calls().save).to.equal(1)
+			local saved = store.peek(403)
+			expect(saved.coins).to.equal(5000 - 120)
+			expect(saved.owned[Shop.ITEM.SLUG]).to.equal(true)
+			-- ...AND IT WAS COUNTED AS A GRANT FROM THE MONEY DOOR.
+			expect(Economy.stats().grants).to.equal(1)
+			expect(Economy.stats().grantsBySource[Economy.SOURCE.MONEY]).to.equal(1)
+		end)
+
+		-- ------------------------------------------------------ who bought the hunter's place (221)
+		it("projects the always-hunters off the profiles, frozen, and rebuilds when one changes", function()
+			local _, store = started({
+				ids = { 404, 405 },
+				seed = {
+					[404] = { coins = 9000 },
+					-- HE ALREADY OWNS IT, so the projection has something to find at load.
+					[405] = { coins = 100, owned = { [Shop.ITEM.ALWAYS_HUNTER] = true } },
+				},
+			})
+			local _ = store
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(404) ~= nil and Economy.balanceOf(405) ~= nil
+			end)).to.equal(true)
+
+			local first = Economy.alwaysHunters()
+			expect(first[405]).to.equal(true)
+			expect(first[404]).to.equal(nil)
+			-- FROZEN, so no reader can write the table it was handed -- `owedTeams`' own discipline.
+			expect(table.isfrozen(first)).to.equal(true)
+			-- MEMOISED: the same table comes back until something invalidates it.
+			expect(Economy.alwaysHunters()).to.equal(first)
+
+			-- A GRANT INVALIDATES IT, and the memo is REBUILT rather than mutated -- so a reader
+			-- still holding `first` holds a correct snapshot of the moment it asked.
+			Economy.grant(404, Shop.ITEM.ALWAYS_HUNTER, Economy.SOURCE.ROBUX)
+			local second = Economy.alwaysHunters()
+			expect(second).never.to.equal(first)
+			expect(second[404]).to.equal(true)
+			expect(first[404]).to.equal(nil)
+
+			-- ...AND A PACKAGE THAT COVERS IT COUNTS, because the projection reads the merged grants.
+			Economy.grant(404, Shop.ITEM.SLUG, Economy.SOURCE.MONEY)
+			expect(Economy.alwaysHunters()[404]).to.equal(true)
+
+			-- THE ROW GOES WITH THE SESSION: a released player is not owed anything.
+			Economy.release(405)
+			expect(Economy.alwaysHunters()[405]).to.equal(nil)
+			Economy.stop()
+			expect(next(Economy.alwaysHunters())).to.equal(nil)
+		end)
+
+		it("answers an empty set with the shop off, which is the game before this task", function()
+			started({ ids = { 406 }, enabled = false })
+			expect(next(Economy.alwaysHunters())).to.equal(nil)
+			expect(table.isfrozen(Economy.alwaysHunters())).to.equal(true)
+			-- ...and nothing can be granted either.
+			expect(Economy.grant(406, Shop.ITEM.RIFLE, Economy.SOURCE.ROBUX).refused).to.equal(Shop.REASON.CLOSED)
 		end)
 
 		it("drops the set, the hunts and the balance together when a session is lost or stopped", function()
@@ -631,7 +775,7 @@ return function()
 			expect(waitUntil(2, function()
 				return Economy.balanceOf(209) ~= nil
 			end)).to.equal(true)
-			Economy.purchase(209, Shop.ITEM.HAT_RED, { atCounter = true })
+			Economy.purchase(209, Shop.ITEM.SLUG, { atCounter = true })
 			expect(Economy.ownedOf(209)).to.be.ok()
 			-- A SESSION ANOTHER SERVER TOOK: no further change may be made to that profile, so the
 			-- row goes -- and the readers then see nil, which is "nobody answered" and leaves his gun
@@ -670,18 +814,30 @@ return function()
 			-- harness refuses to run against.
 			expect(Economy.TEST_GRANT_ATTRIBUTE).to.equal("DHShopTestGrant")
 			expect(string.find(Economy.TEST_GRANT_ATTRIBUTE, "DHFlag_", 1, true)).to.equal(nil)
-			-- ...AND IT UNLOCKS THE WHOLE CATALOGUE WITHOUT BUYING ANY OF IT: 2000 coins covers
-			-- every row that is for sale and 25 hunts is the highest gate.
+			-- ...AND IT UNLOCKS THE WHOLE CATALOGUE WITHOUT BUYING ANY OF IT (task 221): $12,000
+			-- covers every row that is for sale and 30 hunts is the highest gate. ASSERTED AGAINST
+			-- THE CATALOGUE AND NOT AGAINST ITSELF, so the grant cannot fall behind a row somebody
+			-- adds later without the harness saying so.
 			local total, highest = 0, 0
 			for _, id in ipairs(Shop.ORDER) do
 				local item = Shop.ROWS[id]
 				if item.sale then
 					total += item.price
+					highest = math.max(highest, item.hunts)
 				end
-				highest = math.max(highest, item.hunts)
 			end
+			-- 11495 + 750 SINCE TASK 223 (the DEER LICENCE), + 650 SINCE TASK 224 (the LEVER RIFLE),
+			-- + 500 SINCE TASK 225 (the SEMI-AUTOMATIC SHOTGUN).
+			expect(total).to.equal(13395)
+			expect(highest).to.equal(30)
+			-- ...AND THE TEST GRANT HAD TO MOVE WITH IT, which is what this pair of assertions is
+			-- for: the grant exists so Karen can buy EVERY rung and see every state, and at 13000
+			-- against a 13395 catalogue she would have been 395 short of the last one.
+			expect(Economy.CONFIG.TEST_GRANT.coins).to.equal(13500)
 			expect(Economy.CONFIG.TEST_GRANT.coins >= total).to.equal(true)
-			expect(Economy.CONFIG.TEST_GRANT.hunts >= highest).to.equal(true)
+			-- EXACTLY the highest gate, not above it: every rung is unlocked and nothing is bought
+			-- FOR her, so she still presses every button and sees every state.
+			expect(Economy.CONFIG.TEST_GRANT.hunts).to.equal(highest)
 		end)
 
 		it("tops a Studio session up without buying anything or saving anything", function()
@@ -990,7 +1146,7 @@ return function()
 			Economy.noteNextTeams({ [64] = "Drivers" })
 			Economy.payDrive(1, { row(64, "Shooters", 16) })
 			expect((store.peek :: any)(64).nextTeam).to.equal("Drivers")
-			local receipt = Economy.purchase(64, Shop.ITEM.HAT_RED, { atCounter = true })
+			local receipt = Economy.purchase(64, Shop.ITEM.SLUG, { atCounter = true })
 			expect(receipt.ok).to.equal(true)
 			expect((store.peek :: any)(64).nextTeam).to.equal("Drivers")
 			expect(Economy.owedTeams()[64]).to.equal("Drivers")
@@ -1009,6 +1165,9 @@ return function()
 				enabled = true,
 				ownedOf = true,
 				owedTeams = true,
+				-- WHO BOUGHT THE HUNTER'S PLACE (task 221): the eighth read-only member, and still
+				-- nothing the drive can write through.
+				alwaysHunters = true,
 				noteNextTeams = true,
 			}
 			local seen = 0
@@ -1017,7 +1176,7 @@ return function()
 				expect(type(value)).to.equal("function")
 				seen += 1
 			end
-			expect(seen).to.equal(7)
+			expect(seen).to.equal(8)
 		end)
 
 		it("and that view reads and writes the turn the owner holds", function()

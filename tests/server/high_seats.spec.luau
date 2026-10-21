@@ -357,4 +357,181 @@ return function()
 			end
 		end)
 	end)
+
+	-- ---------------------------------------------------------------- the paid seat (task 221)
+	--
+	-- KAREN, 2026-10-20: *"Access to tree stand"*. The seats became a thing a player BUYS, so the
+	-- deal has to put the men who paid on them and everybody else on the ground -- without ever
+	-- putting two men on one stand, and without leaving anybody off the line.
+	describe("dealing the line when a seat is paid for", function()
+		local LAYOUTS = { "road", "edge", "ride", "track" }
+
+		-- The centre-out walk of a layout with `count` stands, which is `standIndexFor`'s sequence
+		-- written out here so this spec needs no world: 5, 4, 6, 3, 7, ... for nine.
+		local function walkOf(count: number): { number }
+			local out = {}
+			local middle = math.floor(count / 2) + 1
+			for index = 1, count do
+				local zero = (index - 1) % count
+				local step = math.ceil(zero / 2)
+				local side = if zero % 2 == 1 then -1 else 1
+				table.insert(out, math.clamp(middle + step * side, 1, count))
+			end
+			return out
+		end
+
+		local function seatedOf(layout: string): { [number]: boolean }
+			local out: { [number]: boolean } = {}
+			for _, index in ipairs(HighSeats.standsFor(layout)) do
+				out[index] = true
+			end
+			return out
+		end
+
+		it("is today's game, exactly, when nobody has been asked", function()
+			-- REQUIREMENT 4, AS AN IDENTITY AND NOT AS A DESCRIPTION. With `entitled == nil` -- an
+			-- un-wired world, a build with no economy, every spec written before this task -- pass
+			-- 1 always takes the first untaken stand in the walk, which IS `walk[index]`, which is
+			-- `standIndexFor(index)`. Past the end of the line, pass 3 wraps on the same modulo.
+			for _, count in ipairs({ 5, 6, 9 }) do
+				local walk = walkOf(count)
+				local deal = HighSeats.dealLine(walk, { [walk[1]] = true }, nil, 16)
+				for index = 1, 16 do
+					expect(deal[index]).to.equal(walk[((index - 1) % count) + 1])
+				end
+			end
+		end)
+
+		it("never puts two hunters on one stand, whoever paid", function()
+			-- REQUIREMENT 2. A stand may be dealt twice ONLY from pass 3, and pass 3 fires only
+			-- when every stand in the walk is taken -- which is `index > #walk`, exactly today's
+			-- wrap. Driven over every layout, every roster size a drive can hold, and four
+			-- entitlement patterns including "nobody paid", which is the live case today.
+			for _, layout in ipairs(LAYOUTS) do
+				local stands = HighSeats.standsFor(layout)
+				expect(#stands > 0).to.equal(true)
+				for _, count in ipairs({ 5, 6, 9 }) do
+					local walk = walkOf(count)
+					local seated: { [number]: boolean } = {}
+					for _, index in ipairs(stands) do
+						if index <= count then
+							seated[index] = true
+						end
+					end
+					for _, pattern in ipairs({ "none", "all", "first", "alternate" }) do
+						for roster = 1, 16 do
+							local entitled: { boolean? } = {}
+							for index = 1, roster do
+								if pattern == "none" then
+									entitled[index] = false
+								elseif pattern == "all" then
+									entitled[index] = true
+								elseif pattern == "first" then
+									entitled[index] = index == 1
+								else
+									entitled[index] = index % 2 == 1
+								end
+							end
+							local deal = HighSeats.dealLine(walk, seated, entitled, roster)
+							expect(#deal).to.equal(roster)
+							-- UP TO THE WRAP, EVERY STAND IS DIFFERENT.
+							local seen: { [number]: boolean } = {}
+							local upTo = math.min(roster, count)
+							for index = 1, upTo do
+								expect(deal[index] >= 1).to.equal(true)
+								expect(deal[index] <= count).to.equal(true)
+								expect(seen[deal[index]]).to.equal(nil)
+								seen[deal[index]] = true
+							end
+							-- REQUIREMENT 3: NOBODY IS OFF THE LINE, wrap or no wrap.
+							for index = 1, roster do
+								expect(type(deal[index])).to.equal("number")
+							end
+						end
+					end
+				end
+			end
+		end)
+
+		it("keeps an unpaid hunter off a seat while any ground stand is free", function()
+			-- THE RULE ITSELF. Nine stands with seats on 1, 4 and 7 (the road's own table): a line
+			-- of unentitled hunters takes the ground stands and leaves the three seats standing.
+			local walk = walkOf(9)
+			local seated = { [1] = true, [4] = true, [7] = true }
+			local none: { boolean? } = {}
+			for index = 1, 6 do
+				none[index] = false
+			end
+			local deal = HighSeats.dealLine(walk, seated, none, 6)
+			for index = 1, 6 do
+				expect(seated[deal[index]]).to.equal(nil)
+			end
+			-- ...AND A MAN WHO PAID GETS ONE WHEN IT IS HIS TURN IN THE WALK.
+			local paid: { boolean? } = { false, true, false, false }
+			local mixed = HighSeats.dealLine(walk, seated, paid, 4)
+			-- Hunter 2's own place in the walk is stand 4, which IS a seat: he paid, so he keeps it.
+			expect(mixed[2]).to.equal(4)
+			expect(seated[mixed[1]]).to.equal(nil)
+			expect(seated[mixed[3]]).to.equal(nil)
+			expect(seated[mixed[4]]).to.equal(nil)
+		end)
+
+		it("gives the seat away rather than share a stand, when the line is full", function()
+			-- PASS 2, AND IT EXISTS FOR EXACTLY THIS. MEASURED: five unentitled hunters on a
+			-- five-stand line whose seat is stand 3 get 2, 4, 1, 5, 3 -- the fifth man is given the
+			-- seat, because the alternative is two men on stand 5. Without pass 2 the deal was
+			-- 2, 4, 1, 5, 5, which is a stand shared where today all five fit.
+			local walk = walkOf(5)
+			local seated = { [3] = true }
+			local none: { boolean? } = { false, false, false, false, false }
+			local deal = HighSeats.dealLine(walk, seated, none, 5)
+			expect(deal[1]).to.equal(2)
+			expect(deal[2]).to.equal(4)
+			expect(deal[3]).to.equal(1)
+			expect(deal[4]).to.equal(5)
+			expect(deal[5]).to.equal(3)
+		end)
+
+		it("still gives a solo hunter the stand the drive aims every wave at", function()
+			-- THE DEFECT TASK 123 ROUND 8 MEASURED MUST NOT COME BACK. On the road `standIndexFor(1)`
+			-- is 5 and the seats are on 1, 4 and 7 -- so stand 5 is NOT a seat, and a solo hunter
+			-- gets it whether he paid or not.
+			local walk = walkOf(9)
+			local seated = { [1] = true, [4] = true, [7] = true }
+			expect(walk[1]).to.equal(5)
+			expect(HighSeats.dealLine(walk, seated, nil, 1)[1]).to.equal(5)
+			expect(HighSeats.dealLine(walk, seated, { false }, 1)[1]).to.equal(5)
+			expect(HighSeats.dealLine(walk, seated, { true }, 1)[1]).to.equal(5)
+		end)
+
+		it("is deterministic", function()
+			-- REQUIREMENT 1: same roster, same entitlements, same layout -- same stands. There is no
+			-- `Random` in it and the loops are in index order, so this is a check that nobody adds
+			-- one.
+			local walk = walkOf(9)
+			local seated = { [1] = true, [4] = true, [7] = true }
+			local entitled: { boolean? } = { true, false, false, true, false, false, true, false }
+			local first = HighSeats.dealLine(walk, seated, entitled, 8)
+			local again = HighSeats.dealLine(walk, seated, entitled, 8)
+			for index = 1, 8 do
+				expect(first[index]).to.equal(again[index])
+			end
+		end)
+
+		it("names `edge` as the one layout whose seat is also its first-dealt stand", function()
+			-- MEASURED AND DECLARED RATHER THAN DISCOVERED (design section 6.4): `edge`'s seat is
+			-- stand 3 and its walk starts at 3, so an unentitled solo hunter there starts one
+			-- spacing west. The other three layouts are clear. `edge` is ALREADY the declared
+			-- relief exception in `HighSeats.STANDS`, and re-measuring it is 218a(h)'s, not this
+			-- task's -- so this asserts the state of affairs rather than hiding it.
+			expect(HighSeats.standsFor("edge")[1]).to.equal(3)
+			expect(walkOf(5)[1]).to.equal(3)
+			local deal = HighSeats.dealLine(walkOf(5), seatedOf("edge"), { false }, 1)
+			expect(deal[1]).to.equal(2)
+			-- ...AND THE OTHER THREE ARE CLEAR: the first-dealt stand carries no seat.
+			expect(seatedOf("road")[walkOf(9)[1]]).to.equal(nil)
+			expect(seatedOf("ride")[walkOf(5)[1]]).to.equal(nil)
+			expect(seatedOf("track")[walkOf(6)[1]]).to.equal(nil)
+		end)
+	end)
 end

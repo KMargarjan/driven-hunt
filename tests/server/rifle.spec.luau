@@ -31,14 +31,18 @@ end
 
 return function()
 	describe("the weapon table", function()
-		it("holds exactly the two weapons, in hotbar order, frozen all the way down", function()
+		it("holds exactly the four weapons, in hotbar order, frozen all the way down", function()
 			local ids = Weapons.ids()
-			-- TWO AGAIN SINCE TASK 148. Task 143 added a third -- the same rifle with the glass off,
-			-- on slot 3 -- and Karen took it out: *"please remove rifle without scope so we don't
-			-- implement now"*. The ORDER is the hotbar's (task 141).
-			expect(#ids).to.equal(2)
+			-- FOUR SINCE TASK 225. It was two from task 148 -- Karen took the open-sighted Rigby out
+			-- (*"please remove rifle without scope so we don't implement now"*) -- slot 3 was
+			-- re-occupied by the LEVER-ACTION rifle in task 224, and slot 4 is the SEMI-AUTOMATIC
+			-- SHOTGUN. The ORDER is the hotbar's (task 141), and slot 4 was APPENDED rather than
+			-- inserted: a slot a player already knows must not move under him.
+			expect(#ids).to.equal(4)
 			expect(ids[1]).to.equal("shotgun")
 			expect(ids[2]).to.equal("rifle")
+			expect(ids[3]).to.equal("lever")
+			expect(ids[4]).to.equal("semiauto")
 			expect(Weapons.row("rifle_open")).to.equal(nil)
 			expect(Weapons.row("nope")).to.equal(nil)
 			expect(Weapons.row(nil)).to.equal(nil)
@@ -58,8 +62,13 @@ return function()
 			expect(#off).to.equal(1)
 			expect(off[1]).to.equal("shotgun")
 			local on = Weapons.loadoutFor(true)
-			-- TWO AGAIN SINCE TASK 148: the flag carries the scoped rifle and nothing else.
+			-- STILL TWO AFTER TASK 224, AND THAT IS THE POINT OF `OWNED_ONLY`. The table holds three
+			-- weapons now, but the FREE PATH -- no ownership set, which is every un-wired world and
+			-- every weapon spec -- is bit-for-bit what it was before the lever rifle existed. The
+			-- Director's rule, 2026-10-20: *"a player who has NOT bought the lever rifle must never
+			-- hold it"*.
 			expect(#on).to.equal(2)
+			expect(on[1]).to.equal("shotgun")
 			expect(on[2]).to.equal("rifle")
 			expect(Weapons.FLAG).to.equal("RIFLE")
 		end)
