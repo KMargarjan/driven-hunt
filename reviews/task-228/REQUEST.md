@@ -1,12 +1,12 @@
 # Task 228 — the shop, round 2: room to breathe and better goods
 
 Task: 228
-Round: 1
+Round: 2
 Base: bce5177f (main)
-Code commit: 1fc8f820a5b0d713b3f4bbe4e1c23ee86b0f0ada
+Code commit: b686b342f71b480722a13c3e06d81bfebadc5f69
 
 ```
-[harness] PASS: 33/33 checks @ 1fc8f820a5b0d713b3f4bbe4e1c23ee86b0f0ada (clean tree) scope=all
+[harness] PASS: 33/33 checks @ b686b342f71b480722a13c3e06d81bfebadc5f69 (clean tree) scope=all
 ```
 
 `test2` is **N/A**: nothing here is in `TWO_PLAYER_PATHS` (`tools/agents.py`). The change is
@@ -88,24 +88,38 @@ horn).
 (the old stag is invisible inside its own panel) beside `.screenshots/228-after-licence-reddeer.png`
 and `-licence-beater.png`.
 
-**7. Every printed face is on the wall the camera is actually on.** `SOLID_VIEW` (yaw 34) and
-`TALL_VIEW` (yaw 30) look from `+x / +z`, so the carton's label is on `WallNear` at `z = +0.40`, the
-case's strap and plate are on `+z`, and the case's lid is hinged at `−z` so the camera sees its
-inside. The `buildAmmoCrate` this replaces stencilled `−z`.
-*Verify:* `buildSlugCarton`'s `NearLabel`/`NearRule`/`NearBar`, `buildBundle`'s `Strap`/`Plate` and
-its `lidAt`/`onLid` derivation; `.screenshots/228-after-ammo-slug` is in the list frame
-(`228-after-list.png`), `.screenshots/228-after-bundle-marksman.png`.
+**7. Every printed face is on the wall the camera is on, and every offset on the lid is in the
+lid's own frame.** `SOLID_VIEW` (yaw 34) and `TALL_VIEW` (yaw 30) look from `+x / +z`, so the
+carton's label is on `WallNear` at `z = +0.40`, the case's strap and plate are on `+z`, and the
+case's lid is hinged at `−z` so the camera sees its inside. The `buildAmmoCrate` this replaces
+stencilled `−z`.
+`onLid(d, dx, dz)` takes ALL THREE offsets on the lid's own axes: `d` along its normal, `dx` across
+its width, `dz` along `-lean`, its depth. The spec's own section 2.9 nudges the two ink lines in
+WORLD coordinates off a lid turned 72° about X, and `CaseLidInk2`'s `(−0.16, −0.030, −0.010)` has a
+component of −0.019 along that normal — the piece written as `onLid(0.058)` sat at 0.039, which is
+0.008 BEHIND the label it is printed on and inside its footprint. Both inks are now at `d` 0.068,
+whose back face at 0.061 clears the label's front at 0.054 and the brass rule's at 0.062.
+*Verify:* `buildSlugCarton`'s `NearLabel`/`NearRule`/`NearBar`; `buildBundle`'s `lidAt`, `acrossLid`
+and `onLid`, and the two `CaseLidInk*` rows; `.screenshots/228-after-bundle-marksman.png` (parked at
+the view's base yaw, so it is comparable frame to frame — `SOLID_VIEW` orbits).
 
-**8. The high seat is OUR open stand, read off `HighSeats`, not the spec's closed box blind.** The
-Director's override, 2026-10-21 (Karen, 2026-10-20: *"we stay what you have builded"*). Every
-dimension comes from `HighSeats.DIMS` and every colour from `HighSeats.COLORS` — the same module
-`ForestTest.Seats` plans the real stands from — times one scale, `SEAT_TALL_STUDS / (DECK_RISE +
-RAIL_RISE)`. `seatAt`/`seatSize` turn it a quarter about Y so the ladder (the real seat's south
-face) faces `+x`, where `TALL_VIEW`'s camera is. The roof, walls, window cut-outs and dark interior
-of spec 2.8 are dropped; its brass key tag is kept, because what the row grants is access.
+**8. The high seat is OUR open stand, and its STRUCTURE is read off `HighSeats`.** The Director's
+override, 2026-10-21 (Karen, 2026-10-20: *"we stay what you have builded"*) against spec 2.8's
+closed box blind. Legs, girt, braces, deck and the five rail boards with their stub arithmetic all
+come from `HighSeats.DIMS`, and every colour from `HighSeats.COLORS` — the module `ForestTest.Seats`
+plans the real stands from — times one scale, `SEAT_TALL_STUDS / (DECK_RISE + RAIL_RISE)`.
+`seatAt`/`seatSize` turn it a quarter about Y so the ladder (the real seat's south face) faces `+x`,
+where `TALL_VIEW`'s camera is. The roof, walls, window cut-outs and dark interior are dropped; the
+spec's brass key tag is kept, because what the row grants is access.
+**Four numbers in it are NOT the real seat's and say so**: `SEAT_TALL_STUDS` 2.28 (the spec's
+envelope), the ladder rails' 0.3 section, the rungs' 0.22, and the key tag. **And one is a LOOK
+decision**: the ladder is drawn in the plane of the truss's OUTER face (−5) and not its centre
+(−4). Both were shot at the same parked yaw before it was settled — at the centre the ladder crosses
+the near legs and the stand reads as a lattice of sticks.
 *Verify:* `buildHighSeat` in `ShopDisplay` against `HighSeats.plan` in `src/shared/HighSeats/`; the
 part-count assertion `4 + 1 + 2 + 1 + 5 + 2 + 7 + 5`; `.screenshots/228-before-access-highseat.png`
-(a table seen from above at `SOLID_VIEW`'s 25°) beside `.screenshots/228-after-access-highseat.png`.
+(a table seen from above at `SOLID_VIEW`'s 25°), `.screenshots/228-after-access-highseat.png`, and
+`.screenshots/228-seat-outerface.png` for the plane comparison.
 
 **9. A model knows it is inside a package in exactly one place.** `ShopDisplay.build` gains an
 optional `detail`, and `buildBundle` is the only caller that passes it — `"lite"` for the bandolier,
@@ -154,7 +168,13 @@ band's 0.10 is 0.
   (`.screenshots/228-after-bundle-season.png`). The spec predicts exactly this and calls it *"the
   honest picture of a six-item package"*, with *"if the Director wants them bigger, the lever is
   `covers`, not this file"*. Reported, not changed.
+* **Section 2.9's two ink lines are nudged in the wrong frame in the spec itself** (claim 7). Found
+  by the Reviewer in round 1, fixed in code, and queued for the Designer as `TASKS.md` 228b with the
+  other two slips.
 * **Nothing about what the goods DO was checked.** This task redraws rows; it does not price them or
   change what they grant. The Learning Agent's standing note (L-100) that task 221's rows were
   proven by `knows = true` rather than by a player performing what they unlock is still open and is
   not addressed here.
+* **Round 1's other notes are queued, not fixed** (`TASKS.md` 228a). The one worth naming: in
+  `deerFurniture` the stag's front face clears the guilloche rules by **0.001 of a stud**. It does
+  clear and the live frame reads clean, but both numbers are the spec's and that is not a margin.
