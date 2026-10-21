@@ -329,6 +329,18 @@ return function()
 				-- when no profile is open for him (*"`nil`, NOT `0`, for a player with no open
 				-- profile"*). The numbers go in the note, so a run where NOBODY got a row is visible
 				-- rather than silently green.
+				--
+				-- AND IN THIS SUITE NOBODY DOES, WHICH IS MEASURED AND IS NOT A DEFECT. The flip's
+				-- gate run reported *"0 player(s), 1 had no row yet (1 with an open profile);
+				-- skipped-no-profile=0, loads=1, written=0"* -- no write was skipped because no write
+				-- was ATTEMPTED since the drive began: `economy.spec`'s `afterAll` runs
+				-- `Economy.stop(); Economy.start()` on the production singleton (it has to -- its
+				-- cases drive both branches by parameter through that same module), which clears
+				-- `nextTeams` and the stats and re-opens the session, and `e` sorts before `m`. The
+				-- drive's own assignment is long past by then and the next one is a drive away. So
+				-- the POSITIVE row is proved by parameter in `economy.spec`'s *"the role a player is
+				-- owed"* block, and what is left for the live drive is the invariant above: whatever
+				-- the record says, it never names the other team.
 				local agreed, missing, withSession = 0, 0, 0
 				for _, player in ipairs(Players:GetPlayers()) do
 					local team = Match.assignmentOf(player.UserId)
