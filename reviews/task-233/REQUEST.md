@@ -3,10 +3,13 @@
 Task: 233
 Round: 2
 Base: `main` at `3558c177` (the merge of task 231)
-Code commit: `8d5e1859ca088d94bbba7fe5d581c7dc386ee840`
+Code commit: `e14105a006b406b5fff59f3ab4ef38c73b13c0f7`
 
 ```
-[harness]  PASS: 34/34 checks @ 8d5e1859ca088d94bbba7fe5d581c7dc386ee840 (clean tree) scope=all
+[harness]  PASS: 34/34 checks @ e14105a006b406b5fff59f3ab4ef38c73b13c0f7 (clean tree) scope=all
+```
+Round 1's two-player line, which this round's spec changes made stale:
+```
 [harness2] PASS: 36/36 checks @ 8d5e1859ca088d94bbba7fe5d581c7dc386ee840 (clean tree)
 ```
 One player: 1983 server + 517 client assertions, 65 server spec files, 25 client. Two players
@@ -177,6 +180,14 @@ touch SHOP here."*), so nothing here touches it. `ESCALATE.md` item 2 is that ta
     `camera_client: the driver's first-person frame holds Horn, drawn as a horn and not a weapon` --
     so the branch that failed round 1 now enters, names what is held and passes. *Verify:* the note
     in `test2-t233b.log`; the `draws` branch in the spec.
+
+    **...and the round-2 fix's own arm is measured too, at this round's code commit:**
+    `match_teams: COINS is on -- 1 player(s) in the drive, 1 with an open profile, 1 written through
+    Economy.noteNextTeams, 1 read back agreeing with Player.Team; the record held 0 row(s) before
+    this case wrote`. *"0 row(s) before this case wrote"* is the finding's own measurement, now
+    printed by the case that answers it: the record really is empty when this file runs, which is
+    why the old gated assertion never executed and why the write-and-read-back is what makes the
+    claim executable at all.
 
 14. **No shared struct changed, so there is no enumerator to follow (L-030).** Both fixes only READ
     fields that already existed: `Economy.stats()`'s `rowsPaid`, `skippedNotAPlayer`, `skippedLeft`,
