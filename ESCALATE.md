@@ -89,7 +89,9 @@ price table rule 3 exists to prevent, and that is a worse trade than one click.
 
 Both lines are in `reviews/task-223/REQUEST.md` and the review was opened on them.
 
-## 2026-10-20 - Task 223: `NEEDS KAREN` -- the ELEVEN animation publishes for the red deer
+## 2026-10-20 - Task 223: `NEEDS KAREN` -- the ELEVEN animation publishes for the red deer -- **CLOSED 2026-10-21**
+
+**DONE.** The Director published all eleven in DEV's Animation Editor on 2026-10-21, each track checked in a screenshot, on the rest pose "Imported Rig". Task 232 wrote the ids into `Assets.ROWS` and measured the three `deathLiftStuds` the clips made knowable. All eleven were loaded back with `AnimationClipProvider:GetAnimationClipAsync` before being written down and every length agrees with what `tools/boar_prep.py` measured. The "stands and slides" state below is the state task 232 ENDED; it is kept here as the record of what it looked like.
 
 **NOT A BLOCKER** (Director, 2026-10-20): this is follow-up **223c**, and task 223 merges
 without it. The three live frames (the hit card, the gathering, a licensed/unlicensed drive)

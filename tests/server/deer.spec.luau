@@ -28,6 +28,7 @@ local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
@@ -43,6 +44,37 @@ local FIELD = {
 	bounds = { minX = -200, maxX = 200, minZ = -200, maxZ = 200 },
 	exitZ = -190,
 	groundY = 0,
+}
+
+-- THE CLIP NAME -> ASSET KEY MAPS, ONE PER SPECIES, written out as LITERAL key strings for the
+-- reason `boar_model.spec`'s own `KEY_OF` is: reading them out of `Assets.KEYS` would assert that
+-- the manifest agrees with itself. The ELEVEN names are the deer's own; the boar's table is here
+-- only so the case below can prove the two species' ids are different numbers.
+local DEER_CLIP_KEY = {
+	idle = "deer.anim.idle",
+	walk = "deer.anim.walk",
+	trot = "deer.anim.trot",
+	run = "deer.anim.run",
+	turnLeft = "deer.anim.turn.left",
+	turnRight = "deer.anim.turn.right",
+	deathLeft = "deer.anim.death.left",
+	deathRight = "deer.anim.death.right",
+	hitFront = "deer.anim.hit.front",
+	hitBack = "deer.anim.hit.back",
+	smell = "deer.anim.calm.smell",
+}
+local BOAR_CLIP_KEY = {
+	idle = "boar.anim.idle",
+	walk = "boar.anim.walk",
+	trot = "boar.anim.trot",
+	run = "boar.anim.run",
+	turnLeft = "boar.anim.turn.left",
+	turnRight = "boar.anim.turn.right",
+	deathLeft = "boar.anim.death.left",
+	deathRight = "boar.anim.death.right",
+	hitFront = "boar.anim.hit.front",
+	hitBack = "boar.anim.hit.back",
+	smell = "boar.anim.calm.smell",
 }
 
 -- THE FLAG AS A PARAMETER, the one permitted shape (`boar_kinds.spec`'s own helper). A deep-enough
@@ -242,38 +274,128 @@ return function()
 			expect(count).to.equal(11)
 			expect(deerModel.CLIPS.grazeLoop).to.equal(nil)
 			expect(deerModel.CLIPS.crippleDrag).to.equal(nil)
-			-- NO DEER ANIMATION ROW EXISTS YET (the eleven publishes are Karen's clicks), so every
-			-- deer clip is honestly absent, `Body.hasClip` is false and the animal stands and
-			-- slides -- the boar's own state between tasks 115 and 116.
-			--
-			-- IT IS THE MANIFEST THAT IS ASSERTED AND NOT THE LIVE `ANIMATION_IDS` TABLE, which is
-			-- a real lesson from the first run of this spec: `_modelTemplate` FILLS that table from
-			-- whatever source is wired, so another spec's fake id function had already written
-			-- `20009` into it by the time this case ran. The manifest is the fact; the live table
-			-- is session state.
-			for _, key in ipairs({
-				Assets.KEYS.deerIdle,
-				Assets.KEYS.deerWalk,
-				Assets.KEYS.deerTrot,
-				Assets.KEYS.deerRun,
-				Assets.KEYS.deerTurnLeft,
-				Assets.KEYS.deerTurnRight,
-				Assets.KEYS.deerDeathLeft,
-				Assets.KEYS.deerDeathRight,
-				Assets.KEYS.deerHitFront,
-				Assets.KEYS.deerHitBack,
-				Assets.KEYS.deerSmell,
-			}) do
-				expect(key).to.be.ok() -- the KEY is declared...
-				expect(Assets.byKey(key)).to.equal(nil) -- ...and has no row until Karen publishes it
-			end
-			-- ...while all three MODELS do have rows, which is what makes a deer visible at all.
+			-- ALL THREE MODELS HAVE ROWS, which is what makes a deer visible at all.
 			for _, key in ipairs({ Assets.KEYS.deerStag, Assets.KEYS.deerHind, Assets.KEYS.deerCalf }) do
 				local row = Assets.byKey(key)
 				expect(row).to.be.ok()
 				expect(row.kind).to.equal("model")
 				expect(row.scope).to.equal("deer")
 			end
+		end)
+
+		-- 6b. THE ELEVEN PUBLISHED CLIPS (task 232) ----------------------------------------------
+		--
+		-- IT IS THE MANIFEST THAT IS ASSERTED AND NOT THE LIVE `ANIMATION_IDS` TABLE, which is a
+		-- real lesson from the first run of this spec: `_modelTemplate` FILLS that table from
+		-- whatever source is wired, so another spec's fake id function had already written `20009`
+		-- into it by the time this case ran. The manifest is the fact; the live table is session
+		-- state.
+		it("has a published animation row for every one of the deer's eleven clips", function()
+			local model = CONFIG.SPECIES.reddeer.MODEL
+			-- NAMED, NOT COUNTED: "3 missing" sends the next reader looking for which three.
+			local missing, sharedWithBoar = {}, {}
+			for name in pairs(model.CLIPS) do
+				local key = DEER_CLIP_KEY[name]
+				expect(key).to.be.ok()
+				local row = Assets.byKey(key)
+				if row == nil or row.kind ~= "animation" or row.modelId <= 0 then
+					table.insert(missing, name)
+				else
+					-- ...AND IT IS NOT THE BOAR'S ID. The seam exists to stop a deer playing boar
+					-- clips on `Arm_Deer`, and an `AnimationId` is a number, so nothing downstream
+					-- could tell. This is where it is caught.
+					local boarRow = Assets.byKey(BOAR_CLIP_KEY[name])
+					if boarRow ~= nil and boarRow.modelId == row.modelId then
+						table.insert(sharedWithBoar, name)
+					end
+				end
+			end
+			table.sort(missing)
+			table.sort(sharedWithBoar)
+			expect(table.concat(missing, ", ")).to.equal("")
+			expect(table.concat(sharedWithBoar, ", ")).to.equal("")
+		end)
+
+		it("agrees with the manifest about how long each deer clip is", function()
+			-- The two copies of one measurement: `clipSeconds` was read back off the published
+			-- asset with `AnimationClipProvider:GetAnimationClipAsync`, `clip.seconds` is what the
+			-- deer plays by. `BoarAssetsBoot` warns at boot; this fails the build, which is the
+			-- half that stops it being merged. Half a frame at 24 fps is the tolerance.
+			local model = CONFIG.SPECIES.reddeer.MODEL
+			local worst, worstName = 0, "none"
+			for name, clip in pairs(model.CLIPS) do
+				local row = Assets.byKey(DEER_CLIP_KEY[name])
+				expect(row.clipSeconds).to.be.ok()
+				local drift = math.abs(row.clipSeconds - clip.seconds)
+				if drift > worst then
+					worst, worstName = drift, name
+				end
+			end
+			TestKit.note(string.format("deer: worst clip-length drift %.4f s (%s)", worst, worstName))
+			expect(worst <= 1 / 48).to.equal(true)
+		end)
+
+		it("never asks InsertService to load a deer animation", function()
+			-- An animation is a number on an `Animation.AnimationId`, not an Instance you insert.
+			-- A boot script handed one would spend a network load that can only fail, and delay the
+			-- model that does need it -- which for the deer is its own `preload` budget.
+			for _, key in ipairs(Assets.keysFor("deer")) do
+				expect(Assets.byKey(key).kind).never.to.equal("animation")
+			end
+			expect(#Assets.keysFor("deer-animation")).to.equal(0)
+		end)
+
+		-- BOTH LOOPED STATES, ENTERED, AND NOT ONE CASE THAT HAPPENS TO BE IN FRONT OF THE WRITER
+		-- (L-093). The deer's assets are the boar's case INVERTED -- only `Walk_F_IP` was published
+		-- `Loop = true` -- so `looped` cannot be taken off the asset, and both arms are stated.
+		it("loops the deer's gaits and plays its deaths and flinches ONCE", function()
+			local clips = CONFIG.SPECIES.reddeer.MODEL.CLIPS
+			local looping, once = {}, {}
+			for name, clip in pairs(clips) do
+				table.insert(if clip.looped then looping else once, name)
+			end
+			table.sort(looping)
+			table.sort(once)
+			-- Named on both sides, so a clip that moves from one arm to the other fails here.
+			expect(table.concat(looping, ", ")).to.equal("idle, run, smell, trot, turnLeft, turnRight, walk")
+			expect(table.concat(once, ", ")).to.equal("deathLeft, deathRight, hitBack, hitFront")
+			-- A LOOPING DEATH WOULD STAND THE CARCASS BACK UP, in front of the player who just
+			-- shot it; a one-shot GAIT would freeze a running deer mid-stride.
+			expect(clips.deathLeft.looped).to.equal(false)
+			expect(clips.deathRight.looped).to.equal(false)
+			expect(clips.walk.looped).to.equal(true)
+			expect(clips.run.looped).to.equal(true)
+			-- `smell` LOOPS ON THE DEER AND NOT ON THE BOAR, deliberately: the calm activity runs
+			-- it for exactly its own length, and a frame past the end drops a one-shot track --
+			-- and the animal -- into the bind pose. The boar's row is untouched, which is the
+			-- other half of this assertion.
+			expect(clips.smell.looped).to.equal(true)
+			expect(CONFIG.MODEL.CLIPS.smell.looped).to.equal(false)
+		end)
+
+		-- EACH KIND ENTERS ITS OWN BRANCH (L-093), because `deathLiftStuds` is per kind and a
+		-- single case would prove one of three.
+		it("carries a MEASURED death lift for each of the three deer kinds", function()
+			local config = configWith(true)
+			local measured = { stag = 0.011, hind = 0.185, calf = 1.325 }
+			for kind, expected in pairs(measured) do
+				-- Through `Boar.kindGeometry`, which is what the live carcass reads, so the number
+				-- is asserted where it is USED and not only where it is written.
+				local geometry = Boar.kindGeometry(kind, config)
+				expect(geometry.kind).to.equal(kind)
+				expect(geometry.deathLift).to.be.near(expected, EPSILON)
+			end
+			-- THE CALF'S IS THE BIG ONE and it is the whole point of the field: the three kinds
+			-- play the STAG's published clips on geometry baked smaller, so the smaller the animal
+			-- the further its fall overshoots. A calf with no lift is 1.32 studs under the floor.
+			local stag = Boar.kindGeometry("stag", config).deathLift
+			local hind = Boar.kindGeometry("hind", config).deathLift
+			local calf = Boar.kindGeometry("calf", config).deathLift
+			expect(calf > hind).to.equal(true)
+			expect(hind > stag).to.equal(true)
+			-- ...AND WITH `KINDS` OFF EVERY ANIMAL IS THE MALE-SIZED GREY BOX, lift 0, so the
+			-- flag-OFF world is arithmetically untouched.
+			expect(Boar.kindGeometry("calf", configWith(false)).deathLift).to.equal(0)
 		end)
 
 		-- 7 + 8. THE SPAWN MIX -------------------------------------------------------------------

@@ -249,48 +249,60 @@ for _, loaded in ipairs(reports) do
 	end
 end
 
--- HOW MANY CLIPS THIS SERVER ACTUALLY HAS, said once at boot. Until the ten animations have been
--- published out of Studio's Animation Editor (the only way to make an animation asset id -- see
--- `Assets.KEYS`, the boar block, and `ESCALATE.md`) this prints 0 of 10, and that is the honest
--- state: the boar is welded, textured and standing still. A silent 0 is how a missing asset becomes
--- a bug report about animation code.
-local have, want = 0, 0
-for name, clip in pairs(Boar.CONFIG.MODEL.CLIPS) do
-	want += 1
-	local row = Assets.byKey(CLIP_KEYS[name])
-	if row and row.kind == "animation" and row.modelId > 0 then
-		have += 1
-		-- THE TWO COPIES OF ONE MEASUREMENT, COMPARED IN THE ONE PLACE THAT SEES BOTH. The clip's
-		-- length is a fact about the published asset (`row.clipSeconds`, read back out of Roblox)
-		-- and also a number the boar plays by (`clip.seconds`, which sets how long a flinch lasts).
-		-- Neither owner may require the other, so nothing but this composition root can notice them
-		-- drifting apart -- and they already did once, by exactly one frame on all ten clips, when
-		-- the lengths were frame counts rather than measurements. Half a frame at 24 fps is the
-		-- tolerance: anything smaller is rounding, anything larger is a different clip.
-		local published = row.clipSeconds
-		if published ~= nil and math.abs(published - clip.seconds) > 1 / 48 then
-			warn(
-				string.format(
-					"[BoarAssetsBoot] %s: the manifest says the clip is %.3f s and Boar plays it as"
-						.. " %.3f s. One of the two was not measured off the published asset.",
-					name,
-					published,
-					clip.seconds
+-- HOW MANY CLIPS THIS SERVER ACTUALLY HAS, PER SPECIES, said once at boot. Until an animation has
+-- been published out of Studio's Animation Editor (the only way to make an animation asset id --
+-- see `Assets.KEYS` and `ESCALATE.md`) its species prints "0 of n", and that is the honest state:
+-- the animal is welded, textured and standing still. A silent 0 is how a missing asset becomes a
+-- bug report about animation code.
+--
+-- IT WALKS `CLIPS_BY_SPECIES` AND NOT THE BOAR'S TABLE ALONE (task 232). Both loops ABOVE were made
+-- per species when the deer arrived in task 223 and this one was not, so for two tasks the deer's
+-- eleven clips were neither counted nor length-checked here -- the boot line said "all 19 boar clips
+-- have an animation asset id" on a server where every deer clip was missing, which is the silent 0
+-- this block exists to prevent. That is the hand-written enumeration task 219 paid for three times
+-- in this very file; the fix is the same one, to walk the table that IS the list.
+for species, entry in pairs(CLIPS_BY_SPECIES) do
+	local have, want = 0, 0
+	for name, clip in pairs(entry.model.CLIPS) do
+		want += 1
+		local row = Assets.byKey(entry.keys[name])
+		if row and row.kind == "animation" and row.modelId > 0 then
+			have += 1
+			-- THE TWO COPIES OF ONE MEASUREMENT, COMPARED IN THE ONE PLACE THAT SEES BOTH. The
+			-- clip's length is a fact about the published asset (`row.clipSeconds`, read back out
+			-- of Roblox) and also a number the animal plays by (`clip.seconds`, which sets how long
+			-- a flinch lasts). Neither owner may require the other, so nothing but this composition
+			-- root can notice them drifting apart -- and they already did once, by exactly one frame
+			-- on all ten boar clips, when the lengths were frame counts rather than measurements.
+			-- Half a frame at 24 fps is the tolerance: anything smaller is rounding, anything larger
+			-- is a different clip.
+			local published = row.clipSeconds
+			if published ~= nil and math.abs(published - clip.seconds) > 1 / 48 then
+				warn(
+					string.format(
+						"[BoarAssetsBoot] %s %s: the manifest says the clip is %.3f s and Boar plays"
+							.. " it as %.3f s. One of the two was not measured off the published asset.",
+						species,
+						name,
+						published,
+						clip.seconds
+					)
 				)
-			)
+			end
 		end
 	end
-end
-if have < want then
-	warn(
-		string.format(
-			"[BoarAssetsBoot] %d of %d boar clips have an animation asset id. The rest are NOT"
-				.. " published yet (Studio -> Animation Editor -> Publish to Roblox; see ESCALATE.md)."
-				.. " The boar is drawn and welded; it does not move its legs.",
-			have,
-			want
+	if have < want then
+		warn(
+			string.format(
+				"[BoarAssetsBoot] %d of %d %s clips have an animation asset id. The rest are NOT"
+					.. " published yet (Studio -> Animation Editor -> Publish to Roblox; see ESCALATE.md)."
+					.. " The animal is drawn and welded; it does not move its legs.",
+				have,
+				want,
+				species
+			)
 		)
-	)
-else
-	print(string.format("[BoarAssetsBoot] all %d boar clips have an animation asset id.", want))
+	else
+		print(string.format("[BoarAssetsBoot] all %d %s clips have an animation asset id.", want, species))
+	end
 end
