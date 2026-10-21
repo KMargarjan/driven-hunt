@@ -624,6 +624,15 @@ local lobbyOn = Lobby.start({
 	dismissAll = Match.dismissAll,
 	inDrive = Match.isParticipant,
 	isHeld = Match.isHeld,
+	--   assignedTeam WHICH SIDE THE DRIVE HAS ACTUALLY GIVEN HIM, or nil (task 229). It is the ONE
+	--                fact that spends a role wish, and it is a THIRD reader of the drive rather than
+	--                a reuse of `inDrive` for a measured reason: `Lobby.depart` -> `Match.enrol`
+	--                makes him a participant immediately, while the assignment that reads the wish
+	--                happens on a LATER `Match` step -- so a wish cleared on `inDrive` would be gone
+	--                before the assignment it was meant to change (`Lobby.wishFor`'s header).
+	--                It is OPTIONAL in `Lobby.start`, like `depart` and `remotes`: a world that
+	--                injects nothing never spends a wish, which is a world with no drive.
+	assignedTeam = Match.assignmentOf,
 	place = function(player, cframe)
 		Body.place(player, cframe, Match.CONFIG)
 	end,
@@ -797,6 +806,19 @@ if shopOn then
 	ForestTest.setSeatProvider(function(userId)
 		return ShopData.grantsHighSeat(Economy.ownedOf(userId))
 	end)
+	-- ...AND WHO BOUGHT THE HUNTER'S PLACE (task 229). It is the gate on the whole role switch: with
+	-- this reader unwired `Lobby.wishFor` answers nil for everybody, the `DHRoleWish` attribute is
+	-- never written, neither control is built and no wish can reach the roster -- which is today's
+	-- game by every branch, exactly as the four providers above are (docs/design/shop.md 7.1).
+	--
+	-- A SETTER AND NOT A `Lobby.start` FIELD, because `Lobby.start` runs 150 lines above this one and
+	-- `Shop.start` decides `shopOn` here -- `ForestTest.setSeatProvider`'s own arrangement.
+	--
+	-- `Economy.alwaysHunters` AND NOT `Economy.ownedOf`, and the difference is measured in that file:
+	-- `ownedOf` does `table.freeze(table.clone(set))` PER CALL, so one call per player per scan would
+	-- be ~160 clones a second at sixteen players; `alwaysHunters` is the frozen memo *"rebuilt and
+	-- never mutated"*, so the lobby's scan costs one table read.
+	Lobby.setAlwaysHunters(Economy.alwaysHunters)
 	Body.setLookProvider(function(player)
 		local color = ShopData.hatColorFor(Economy.ownedOf(player.UserId))
 		return if color then { hatColor = color } else nil
@@ -811,6 +833,14 @@ Match.start({
 	-- `Scoring` edge, before its own effects -- and reads two tables when it builds a snapshot. It
 	-- owns no balance and no session.
 	economy = Economy.view(),
+	-- WHO HAS ASKED TO BEAT THIS ONE DRIVE (task 229): a BARE FUNCTION and not a view, because there
+	-- is exactly one thing to read and nothing to write -- `placement`'s and `groundAt`'s own shape.
+	-- `Match` requires no lobby and learns only a function; this root is what joins the two owners.
+	-- WITH THE LOBBY OR THE SHOP OFF IT ANSWERS AN EMPTY FROZEN TABLE -- the door is closed and the
+	-- ownership reader is unwired, so nothing can ever be in it -- and an empty table is what makes
+	-- `Roster.assign` answer by identity. `MatchBoot` (the DEV place, which has no lobby at all)
+	-- passes no such field, which is the same answer by the other branch.
+	roleWishes = Lobby.beaterWishes,
 	boars = ForestTest.readOnlyBoars(runtime),
 	-- THE BOTS THAT FILL THIS DRIVE (task 161): a read-only view, the same one `MatchBoot` hands over.
 	bots = Bots.view(),

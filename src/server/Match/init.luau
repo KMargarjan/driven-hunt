@@ -1125,7 +1125,14 @@ function Match.snapshot()
 		roleOverruled = if coinsOn
 				and economy
 				and economy.alwaysHunters
-			then Roster.overruled(state.assignment, economy.alwaysHunters())
+			-- THE WISHERS ARE PASSED IN AND ARE NEVER NAMED HERE (task 229): a man who ASKED to
+			-- beat was not overruled, and telling him he was would be the screen contradicting the
+			-- button he pressed. `world.roleWishes` absent answers today's list by identity.
+			then Roster.overruled(
+				state.assignment,
+				economy.alwaysHunters(),
+				if world and world.roleWishes then world.roleWishes() else nil
+			)
 			else nil,
 	})
 	return snapshotCache
@@ -1880,6 +1887,17 @@ local function dispatch(event)
 	-- because an assignment can happen on a join as well as on a tick.
 	if filled.alwaysShooters == nil and world and world.economy and world.economy.alwaysHunters then
 		filled.alwaysShooters = world.economy.alwaysHunters()
+	end
+	-- ...AND WHO HAS ASKED TO BEAT THIS ONE DRIVE (task 229), beside the other two and for the
+	-- identical reasons: one read of a memoised FROZEN table, no clone and no freeze, filled on
+	-- EVERY event because an assignment can happen on a join as well as on a tick.
+	--
+	-- `world.roleWishes` IS A BARE INJECTED FUNCTION AND NOT A VIEW, because there is exactly one
+	-- thing to read and nothing to write -- `world.placement` / `world.groundAt` / `world.standArea`'s
+	-- own shape. This owner requires no lobby and learns only a function; the composition root is
+	-- what hands it over (`ForestTestBoot`), and a world that injects nothing gets today's game.
+	if filled.beaterWishes == nil and world and world.roleWishes then
+		filled.beaterWishes = world.roleWishes()
 	end
 	local endedEarlyBefore = state.endedEarly
 	local holdbacksBefore = state.holdbacks

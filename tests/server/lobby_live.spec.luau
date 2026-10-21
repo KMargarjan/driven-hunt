@@ -85,6 +85,10 @@ local function fakes(bin: Instance)
 		held = {} :: { [number]: boolean },
 		ground = SHELF :: any,
 		dressed = 0,
+		-- TASK 229: who the DRIVE has given a side to (the reset's fact), and who OWNS
+		-- `ALWAYS HUNTER` (the gate on the whole feature). Both are sets a case writes.
+		assigned = {} :: { [number]: string },
+		owners = {} :: { [number]: boolean },
 	}
 	return seen,
 		{
@@ -143,6 +147,11 @@ local function fakes(bin: Instance)
 				return true
 			end,
 			dressConfig = { fake = true },
+			-- WHICH SIDE THE DRIVE HAS GIVEN HIM (task 229), from a set a case can write -- which is
+			-- what lets the reset be stated at all, and lets it be told apart from `inDrive`.
+			assignedTeam = function(userId: number): string?
+				return seen.assigned[userId]
+			end,
 			terrain = {
 				FillBlock = function()
 					seen.fills += 1
@@ -996,6 +1005,245 @@ return function()
 			Lobby.forget(41)
 			-- And a step after a stop does nothing at all rather than erroring.
 			Lobby.step(2000, { player })
+		end)
+	end)
+
+	-- ----------------------------------------------------------- THE ROLE SWITCH (task 229)
+	--
+	-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always
+	-- hunter maybe sometimes I want to be a beater we need to find a way to do that"*.
+	--
+	-- THE OWNER, DRIVEN BY HAND: the door and its five verdicts, its own rate bucket, the level
+	-- reset on this owner's own scan, the frozen memo the drive reads, and the teardown. The PURE
+	-- half (`Lobby.roleAllowed`, `Lobby.wishFor`) is in `tests/server/lobby.spec.luau`; the ROSTER
+	-- rule is `match_roster.spec`'s.
+	-- Design: docs/design/role-switch.md (sections 4, 6, 15.3)
+	describe("the role a man asks for, for one drive", function()
+		-- THE OWNERSHIP READER IS A SETTER AND NOT A `start` FIELD, because in production
+		-- `Lobby.start` runs before `Shop.start` decides whether there is a shop at all.
+		local function owning(seen: any, ...)
+			local ids = { ... }
+			for _, userId in ipairs(ids) do
+				seen.owners[userId] = true
+			end
+			Lobby.setAlwaysHunters(function()
+				return seen.owners
+			end)
+		end
+
+		afterEach(function()
+			-- THE READER IS MODULE STATE, so it is handed back after every case -- otherwise one
+			-- case's owner would be the next case's.
+			Lobby.setAlwaysHunters(nil)
+		end)
+
+		it("refuses a payload that is not one of the two words, and tells nobody what would work", function()
+			local seen = fresh(bin)
+			owning(seen, 7)
+			local man = occupant(7, padAt(1), bin)
+			for _, forged in ipairs({
+				{},
+				{ role = "Drivers" },
+				{ role = "HUNTER" },
+				{ role = 1 },
+				{ role = true },
+				{ pad = 1, size = 1 },
+				"beater",
+				42,
+			}) do
+				local reply = Lobby.onRoleRequest(man, forged, 1000)
+				expect(reply.ok).to.equal(false)
+				expect(reply.refused).to.equal("bad-request")
+			end
+			expect(Lobby.stats().badRequests >= 8).to.equal(true)
+			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(nil)
+		end)
+
+		it("refuses a man who does not own the place, and counts it APART from a forgery", function()
+			-- `Lobby.stats`' OWN SPLIT, written in that file: *"a FORGED payload is a different fact
+			-- from a legal request the game said no to, because counting it as a bad request would
+			-- hide a mis-wired provider inside the forgery counter"*. A build where
+			-- `setAlwaysHunters` was never called would otherwise read as an attack.
+			local seen = fresh(bin)
+			owning(seen, 7)
+			local stranger = occupant(8, padAt(2), bin)
+			local reply = Lobby.onRoleRequest(stranger, { role = Data.ROLE_WISH.BEATER }, 1000)
+			expect(reply.ok).to.equal(false)
+			expect(reply.refused).to.equal("not-an-owner")
+			expect(Lobby.stats().refusedBy["not-an-owner"]).to.equal(1)
+			expect(Lobby.stats().badRequests).to.equal(0)
+			expect(stranger:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(nil)
+			expect(next(Lobby.beaterWishes())).to.equal(nil)
+		end)
+
+		it("refuses every ask when no ownership reader was wired at all", function()
+			-- THE SWITCH-OFF STORY, BY PARAMETER: with the shop off `ForestTestBoot` never calls
+			-- `setAlwaysHunters`, so nothing can be asked, nothing is written and no control is built.
+			fresh(bin)
+			local man = occupant(7, padAt(1), bin)
+			local reply = Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.BEATER }, 1000)
+			expect(reply.refused).to.equal("not-an-owner")
+			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(nil)
+		end)
+
+		it("writes the wish inside the call, so what he waits for is one network hop", function()
+			local seen = fresh(bin)
+			owning(seen, 7)
+			local man = occupant(7, padAt(1), bin)
+			local reply = Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.BEATER }, 1000)
+			expect(reply.ok).to.equal(true)
+			expect(reply.role).to.equal(Data.ROLE_WISH.BEATER)
+			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.BEATER)
+			expect(Lobby.beaterWishes()[7]).to.equal(true)
+			expect(Lobby.stats().roleAsks).to.equal(1)
+			-- ...AND ASKING FOR HUNTER AGAIN DROPS THE ROW rather than storing a second state.
+			expect(Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.HUNTER }, 1001).ok).to.equal(true)
+			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.HUNTER)
+			expect(next(Lobby.beaterWishes())).to.equal(nil)
+		end)
+
+		it("refuses a change of mind once the truck has him", function()
+			-- THE DOOR USES THE EARLIER FACT ON PURPOSE -- *may he still change his mind* -- and the
+			-- reset uses the later one. `inDrive` becomes true first, so the two cannot contradict.
+			local seen = fresh(bin)
+			owning(seen, 7)
+			local man = occupant(7, padAt(1), bin)
+			seen.inDrive[7] = true
+			local reply = Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.BEATER }, 1000)
+			expect(reply.refused).to.equal("in-a-drive")
+			expect(Lobby.stats().refusedBy["in-a-drive"]).to.equal(1)
+			expect(next(Lobby.beaterWishes())).to.equal(nil)
+		end)
+
+		it("has its own rate bucket, so a role ask never costs him his size pick", function()
+			-- SHARING THE PAD'S BUCKET WOULD MAKE "press BEATER, then press 1 / 1" LOSE THE PICK,
+			-- because `Lobby.padRateLimited` writes its row on every accepted call. One number, two
+			-- buckets.
+			local seen = fresh(bin)
+			owning(seen, 7)
+			local man = occupant(7, padAt(1), bin)
+			expect(Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.BEATER }, 2000).ok).to.equal(true)
+			expect(Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.HUNTER }, 2000.05)).to.equal(nil)
+			expect(Lobby.stats().roleRateLimited).to.equal(1)
+			-- THE WISH IS UNCHANGED by a refused ask.
+			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.BEATER)
+			-- ...AND THE PAD STILL ANSWERS IN THE SAME 1/10 s. The pad must be in `sizing` with him
+			-- first on it, which one scan with him standing there arranges.
+			Lobby.step(2000, { man })
+			expect(Lobby.padOf(1).state).to.equal(Pads.SIZING)
+			expect(Lobby.onPadRequest(man, { pad = 1, size = 2 }, 2000.06).ok).to.equal(true)
+		end)
+
+		it("clears the wish ONE SCAN after the drive has given him a side, and not before", function()
+			local seen = fresh(bin)
+			owning(seen, 7)
+			local man = occupant(7, padAt(1), bin)
+			expect(Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.BEATER }, 3000).ok).to.equal(true)
+			-- ENROLLED BUT NOT YET ASSIGNED: `inDrive` is true and `assignedTeam` is nil, which is
+			-- the state `Lobby.depart` -> `Match.enrol` leaves for at least one `Match` step. A reset
+			-- keyed on `inDrive` would clear the wish HERE -- before the assignment that is supposed
+			-- to spend it -- and the feature would silently do nothing.
+			seen.inDrive[7] = true
+			Lobby.step(3001, { man })
+			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.BEATER)
+			expect(Lobby.beaterWishes()[7]).to.equal(true)
+			-- THE DRIVE HAS SEATED HIM: one scan later it reads HUNTER.
+			seen.assigned[7] = "Drivers"
+			Lobby.step(3002, { man })
+			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.HUNTER)
+			expect(next(Lobby.beaterWishes())).to.equal(nil)
+			-- ...AND IT STAYS CLEARED. The reconciliation can only ever clear: nothing re-invents a
+			-- wish, through a dismissal or a second drive or anything else.
+			seen.assigned[7] = nil
+			seen.inDrive[7] = false
+			Lobby.step(3003, { man })
+			Lobby.step(3004, { man })
+			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.HUNTER)
+			expect(next(Lobby.beaterWishes())).to.equal(nil)
+		end)
+
+		it("keeps the wish of a party that cancelled before any assignment", function()
+			-- CORRECT, AND IT FALLS OUT OF THE READER CHOICE RATHER THAN NEEDING A RULE: a man who
+			-- enrolled and was dismissed before any assignment never got the drive he asked for.
+			local seen = fresh(bin)
+			owning(seen, 7)
+			local man = occupant(7, padAt(1), bin)
+			expect(Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.BEATER }, 4000).ok).to.equal(true)
+			seen.inDrive[7] = true
+			Lobby.step(4001, { man })
+			seen.inDrive[7] = false
+			Lobby.step(4002, { man })
+			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.BEATER)
+		end)
+
+		it("writes the attribute once per CHANGE and not once per scan", function()
+			-- `clearLeaveAt`'s AND `setPadMine`'s DISCIPLINE: the rule is asked every scan and
+			-- written only when it differs, so this is one replicated write per change and not ten a
+			-- second. A `roleWrites` that climbed with `scans` would mean it had stopped being
+			-- edge-triggered.
+			local seen = fresh(bin)
+			owning(seen, 7)
+			local man = occupant(7, padAt(1), bin)
+			expect(Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.BEATER }, 5000).ok).to.equal(true)
+			local writes = Lobby.stats().roleWrites
+			local scans = Lobby.stats().scans
+			for index = 1, 10 do
+				Lobby.step(5000 + index, { man })
+			end
+			expect(Lobby.stats().scans > scans).to.equal(true)
+			expect(Lobby.stats().roleWrites).to.equal(writes)
+		end)
+
+		it("hands the drive a FROZEN memo, the same table until something changes", function()
+			-- `Economy.alwaysHunters`' OWN DEVICE AND ITS OWN STATED REASON: the drive fills this on
+			-- EVERY event, so a clone per call would be ~60 table builds a second for a table that
+			-- changes at most twice a drive.
+			local seen = fresh(bin)
+			owning(seen, 7)
+			local man = occupant(7, padAt(1), bin)
+			expect(Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.BEATER }, 6000).ok).to.equal(true)
+			local first = Lobby.beaterWishes()
+			expect(table.isfrozen(first)).to.equal(true)
+			expect(Lobby.beaterWishes()).to.equal(first)
+			expect(function()
+				(first :: any)[99] = true
+			end).to.throw()
+			-- ...AND A DIFFERENT TABLE ONCE THE VALUE MOVES, so a reader can never be handed a stale
+			-- answer that happens to be the same object.
+			expect(Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.HUNTER }, 6001).ok).to.equal(true)
+			expect(Lobby.beaterWishes()).never.to.equal(first)
+			expect(next(Lobby.beaterWishes())).to.equal(nil)
+		end)
+
+		it("forgets a man who leaves, and hands the attribute back when it stops", function()
+			-- THE TEARDOWN ASSERTION EVERY OWNER'S SPEC IN THIS REPOSITORY MAKES. A logout is also
+			-- what makes *"nothing is persisted"* true without a rule: the wish dies with him.
+			local seen = fresh(bin)
+			owning(seen, 7, 8)
+			local man = occupant(7, padAt(1), bin)
+			local other = occupant(8, padAt(2), bin)
+			expect(Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.BEATER }, 7000).ok).to.equal(true)
+			expect(Lobby.onRoleRequest(other, { role = Data.ROLE_WISH.BEATER }, 7000).ok).to.equal(true)
+			Lobby.forget(7)
+			expect(Lobby.beaterWishes()[7]).to.equal(nil)
+			expect(Lobby.beaterWishes()[8]).to.equal(true)
+			-- ...AND HIS BUCKET WENT WITH HIM, so a re-join is not rate-limited by his last session.
+			expect(Lobby.roleRateLimited(7, 7000.01)).to.equal(false)
+			Lobby.stop()
+			expect(other:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(nil)
+			expect(next(Lobby.beaterWishes())).to.equal(nil)
+		end)
+
+		it("asks nothing of a man who owns nothing, on any scan", function()
+			-- THE ATTRIBUTE IS NEVER WRITTEN FOR A NON-OWNER, which is what makes *"invisible to a
+			-- non-owner"* structural: there is no value for either panel to draw from.
+			local seen = fresh(bin)
+			owning(seen, 7)
+			local man = occupant(7, padAt(1), bin)
+			local stranger = occupant(8, padAt(2), bin)
+			Lobby.step(8000, { man, stranger })
+			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.HUNTER)
+			expect(stranger:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(nil)
 		end)
 	end)
 end

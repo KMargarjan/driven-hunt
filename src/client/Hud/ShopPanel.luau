@@ -78,6 +78,12 @@ local ShopDisplay = require(script.Parent.ShopDisplay)
 -- THE ONE SOURCE for every colour, face, size, radius and duration (task 201, the Designer's
 -- design system, 2026-10-17 §1). This file's `LOOK`, `FONT` and `spaced` are now aliases of it.
 local Style = require(script.Parent.Style)
+-- THE TWO ROLE WORDS, FROM THE MODULE THAT PUTS ONE OF THEM ON THE WIRE (task 229). The server
+-- writes `Lobby.ROLE_WISH.BEATER` into the `DHRoleWish` attribute and this panel compares against
+-- it, so there is ONE spelling of "beater" in the repository and a typo cannot make a switch that
+-- never lights. A read of two frozen strings; `ReplicatedStorage.Lobby` requires nothing of this
+-- module back, so there is no cycle.
+local LobbyData = require(ReplicatedStorage:WaitForChild("Lobby"))
 
 local ShopPanel = {}
 
@@ -85,6 +91,8 @@ local CONFIG = ShopData.CONFIG
 local PANEL = CONFIG.PANEL
 local TEXT = CONFIG.TEXT
 local Z = PANEL.Z_INDEX
+-- THE ROLE SWITCH'S OWN GEOMETRY (task 229): the house style's, in this module's own data table.
+local ROLE = PANEL.ROLE_SWITCH
 
 -- THIS MODULE BINDS NO KEY AT ALL SINCE TASK 181, and `E` belongs to the shopkeeper's prompt
 -- (`Lobby.CONFIG.LODGE.KEEPER.PROMPT.KEYBOARD_KEY`), which is the one owner of it.
@@ -152,6 +160,18 @@ local well: ScrollingFrame? = nil
 -- THE WELL'S TWO FADE MASKS (task 228, shop2 spec 1.5): a row scrolling under the top or bottom
 -- inside edge dissolves instead of being cut off square.
 local wellFadeTop: Frame? = nil
+-- ---------------- THE ROLE SWITCH (task 229)
+--
+-- `roleWish` IS THE SERVER'S WORD and this panel's only opinion about it is which half is lit. It is
+-- TOLD by the Hud's one evaluation off the `DHRoleWish` attribute; nil means he does not own
+-- `ALWAYS HUNTER` and nothing is drawn on either surface.
+local roleWish: string? = nil
+local roleTeam: string? = nil
+local roleAsk: ((string) -> ())? = nil
+local rowSwitch: any = nil
+local rowBlock: Frame? = nil
+local detailSwitch: any = nil
+local detailBlock: Frame? = nil
 local wellFadeBottom: Frame? = nil
 local strip: ScrollingFrame? = nil
 local stripFade: Frame? = nil
@@ -206,6 +226,11 @@ local stats = {
 	selects = 0,
 	pictures = 0,
 	layouts = 0,
+	-- TASK 229: a press this panel sent on, and a press it refused (an unusable control, or no
+	-- sender wired). `layouts` above is what proves the owned row's HEIGHT is written once per
+	-- CHANGE and not once per render.
+	roleSent = 0,
+	roleBlocked = 0,
 }
 
 function ShopPanel.stats()
@@ -407,9 +432,36 @@ export type Layout = {
 	statusY: number,
 	buttonY: number,
 	buttonHeight: number,
+	-- THE ROLE SWITCH (task 229): "row" in WIDE, "detail" in TALL, "none" when he does not own
+	-- `ALWAYS HUNTER`. `switchRowHeight` is `ROW_SWITCH_PX` for the one owned row and `ROW_PX` for
+	-- every other; `switchBlock` is the 70 px the detail pane's status row becomes on a phone.
+	switchSurface: string,
+	switchRowHeight: number,
+	switchBlock: number,
+	switchTrackWidth: number,
+	switchHalfWidth: number,
 }
 
-function ShopPanel.layoutFor(screenWidth: number, screenHeight: number): Layout
+-- WHERE THE ROLE SWITCH GOES (task 229). PURE, and it is ONE rule rather than a convention: *"the
+-- switch appears once, on whichever surface the item has. WIDE -> the row. TALL -> the detail pane.
+-- **Never both.**"* (the Designer's spec section 3.5). A function can be asserted; a convention
+-- cannot.
+--
+--   "row"    WIDE, and he owns it: the one `ALWAYS HUNTER` row is built 124 tall instead of 64
+--   "detail" TALL, he owns it, AND that row is the SELECTED item -- the 108 px card has no room,
+--            so on a phone the switch rides the detail pane's status block
+--   "none"   he does not own it (the attribute is absent), so nothing is drawn anywhere
+function ShopPanel.switchSurfaceFor(mode: string, wish: string?, id: string?): string
+	if wish ~= ShopPanel.ROLE.HUNTER and wish ~= ShopPanel.ROLE.BEATER then
+		return "none"
+	end
+	if mode == "WIDE" then
+		return "row"
+	end
+	return if id == ShopData.ITEM.ALWAYS_HUNTER then "detail" else "none"
+end
+
+function ShopPanel.layoutFor(screenWidth: number, screenHeight: number, surface: string?): Layout
 	local margin = PANEL.MARGIN
 	local width = math.clamp(screenWidth - 2 * margin, PANEL.MIN_WIDTH, PANEL.MAX_WIDTH)
 	local height = math.clamp(math.floor(screenHeight * PANEL.HEIGHT_FRACTION), PANEL.MIN_HEIGHT, PANEL.MAX_HEIGHT)
@@ -428,13 +480,24 @@ function ShopPanel.layoutFor(screenWidth: number, screenHeight: number): Layout
 	-- three lines -- which is the spec's *"the blurb box absorbs the remainder"* read the other way
 	-- round, and the floor under the case is the spec's 110.
 	local buttonY = detailY + detailHeight - PANEL.BUTTON_PX
-	local statusY = buttonY - PANEL.STATUS_GAP
+	-- THE STATUS ROW BECOMES THE SWITCH BLOCK ON A PHONE (task 229, spec 3.5): 70 px instead of 14,
+	-- sitting directly above the `OWNED` button, and *"the blurb box absorbs the difference, exactly
+	-- as `layoutFor` already absorbs everything else"* -- which is the `room` subtraction below,
+	-- unchanged, because `statusY` is what it reads.
+	local block = if surface == "detail" then PANEL.DETAIL_SWITCH_PX else 0
+	local statusY = buttonY - PANEL.STATUS_GAP - block
 	local below = PANEL.EYEBROW_GAP + PANEL.NAME_GAP + PANEL.PRICE_GAP + PANEL.RULE_GAP + PANEL.BLURB_GAP
 	local minBlurb = 3 * PANEL.LINE_PX
 	local wanted = if wide then PANEL.CASE_WIDE_PX else PANEL.CASE_TALL_PX
 	local room = (statusY - PANEL.EYEBROW_GAP) - detailY - below - minBlurb
 	local caseHeight = math.floor(math.clamp(math.min(wanted, room), PANEL.CASE_MIN_PX, wanted))
 
+	-- THE TRACK'S WIDTH ON WHICHEVER SURFACE IT IS ON: the row less its two insets in WIDE
+	-- (`rowWidth - 14 - 12` = 186 at 1280 x 720, the Designer's own number), the detail column less
+	-- nothing in TALL -- the pane is already inset.
+	local trackWidth = if surface == "detail"
+		then detailWidth
+		else (wellWidth - 2 * PANEL.WELL_PAD) - PANEL.SWITCH_LEFT - PANEL.SWITCH_RIGHT
 	local caseY = detailY
 	local eyebrowY = caseY + caseHeight + PANEL.EYEBROW_GAP
 	local nameY = eyebrowY + PANEL.NAME_GAP
@@ -477,6 +540,16 @@ function ShopPanel.layoutFor(screenWidth: number, screenHeight: number): Layout
 		statusY = statusY,
 		buttonY = buttonY,
 		buttonHeight = PANEL.BUTTON_PX,
+		-- TASK 229. `surface` nil answers exactly today's layout, so every existing caller --
+		-- `Hud.build`'s `panelSize`, every spec that calls `layoutFor(w, h)` -- is unchanged by
+		-- construction.
+		switchSurface = surface or "none",
+		switchRowHeight = if surface == "row" then PANEL.ROW_SWITCH_PX else PANEL.ROW_PX,
+		switchBlock = block,
+		switchTrackWidth = trackWidth,
+		-- `(track - 2*PAD - GAP) / 2`: the formula, not the Designer's drawing, which forgot the
+		-- 3 px between the halves (`Shop.CONFIG.PANEL.ROLE_SWITCH`).
+		switchHalfWidth = (trackWidth - 2 * ROLE.TRACK_PAD - ROLE.TRACK_GAP) / 2,
 	}
 end
 
@@ -584,6 +657,190 @@ local function verticalGradient(instance: Instance, colors: ColorSequence): UIGr
 	return paint
 end
 
+-- ---------------------------------------------------------------- the two-way switch (task 229)
+--
+-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always hunter
+-- maybe sometimes I want to be a beater we need to find a way to do that"*.
+--
+-- THE CONTROL IS BUILT AND PAINTED HERE, AND PLACED BY WHOEVER OWNS THE RECTANGLE IT SITS IN. It is
+-- drawn on two surfaces -- this panel's owned `ALWAYS HUNTER` row and `Hud.PadPanel`'s truck-pad
+-- dialog -- and *"The shop sets the house style. Anything built after it follows these"* (the
+-- Designer's spec section 8) is why the two of them are ONE control and not two. `PadPanel` already
+-- requires this module for `LOOK`, `FONT` and `spaced`, so there is no new require edge and no
+-- cycle; what each panel keeps is its own `relayout`, which stays the one writer of every rectangle
+-- it owns.
+--
+-- A SEGMENTED SWITCH AND NOT A CHECKBOX (spec 3.3): the two sides are equal and both have to be
+-- NAMED, because a checkbox would read *"be a beater?"* and make HUNTER the absence of something --
+-- and HUNTER is the thing he bought.
+--
+-- NOTHING SLIDES. There is no travelling thumb (`design-system.md` section 1.4 -- *"A HUD that moves
+-- is a HUD you cannot read while aiming"*): the selected half simply IS the lit one, and the 2 px
+-- underline at full opacity is the only chrome the control has, because it is what makes "selected"
+-- crisp on a slab tinted to 0.80.
+export type RoleSwitch = {
+	track: Frame,
+	halves: { [string]: TextButton },
+	words: { [string]: TextLabel },
+	bars: { [string]: Frame },
+	rims: { [string]: UIStroke },
+	selected: string?,
+	hovered: string?,
+	usable: boolean?,
+}
+
+-- THE TWO WORDS, AND THEY ARE `ReplicatedStorage.Lobby`'S (`Lobby.ROLE_WISH`): the server writes one
+-- of them into the attribute both panels read, so there is one spelling of "beater" in the
+-- repository and a typo cannot make a switch that never lights.
+ShopPanel.ROLE = LobbyData.ROLE_WISH
+-- ...AND THE CONTROL'S GEOMETRY, re-exported for `Hud.PadPanel` beside `LOOK`, `FONT` and `spaced`:
+-- it is the house style, so the other surface reads it from here rather than keeping a second copy.
+ShopPanel.ROLE_SWITCH = ROLE
+
+local function roleColour(role: string): Color3
+	return if role == ShopPanel.ROLE.BEATER then LOOK.BEATER else LOOK.HUNTER
+end
+
+-- THE INSTANCES, BUILT ONCE. `words` carries the label to write, `zLift` the band to sit in, and
+-- `onPress` the one thing a press does -- which is never "decide": it ASKS, and the server answers
+-- by writing the attribute both panels are told.
+function ShopPanel.buildRoleSwitch(
+	parent: Instance,
+	zLift: number,
+	wordSize: number,
+	words: { [string]: string },
+	onPress: (string) -> ()
+): RoleSwitch
+	local track = frame(parent, "RoleSwitch", zLift)
+	track.BackgroundColor3 = LOOK.SLATE
+	track.Visible = false
+	corner(track, ROLE.TRACK_CORNER)
+	stroke(track, LOOK.LINE, 0)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, ROLE.TRACK_PAD)
+	pad.PaddingBottom = UDim.new(0, ROLE.TRACK_PAD)
+	pad.PaddingLeft = UDim.new(0, ROLE.TRACK_PAD)
+	pad.PaddingRight = UDim.new(0, ROLE.TRACK_PAD)
+	pad.Parent = track
+	local row = Instance.new("UIListLayout")
+	row.FillDirection = Enum.FillDirection.Horizontal
+	row.SortOrder = Enum.SortOrder.LayoutOrder
+	row.Padding = UDim.new(0, ROLE.TRACK_GAP)
+	row.Parent = track
+
+	local out: RoleSwitch = {
+		track = track,
+		halves = {},
+		words = {},
+		bars = {},
+		rims = {},
+		selected = nil,
+		hovered = nil,
+		usable = true,
+	}
+	for order, which in ipairs({ ShopPanel.ROLE.HUNTER, ShopPanel.ROLE.BEATER }) do
+		local half = Instance.new("TextButton")
+		half.Name = if which == ShopPanel.ROLE.BEATER then "Beater" else "Hunter"
+		half.AutoButtonColor = false
+		-- THE HALF CARRIES NO TEXT OF ITS OWN: the word is a centred child label, which is this
+		-- panel's own big-button arrangement and the only way to set a face, a size and a letter
+		-- spacing in one control.
+		half.Text = ""
+		half.BackgroundColor3 = roleColour(which)
+		half.BackgroundTransparency = 1
+		half.BorderSizePixel = 0
+		half.LayoutOrder = order
+		-- HALF THE PADDED INTERIOR, LESS HALF THE ONE GAP BETWEEN THEM, as a SCALE -- so the two
+		-- halves and their gap exactly fill whatever width the owner's `relayout` gives the track,
+		-- at every screen size, with no second copy of the arithmetic.
+		--
+		-- **The Designer's drawing says 141 x 32 for a 288-wide track and the formula beside it says
+		-- `(track - 9) / 2` = 139.5: the drawing forgot the 3 px between the halves. The FORMULA is
+		-- what is built, because it is the one that adds up** -- and `PadPanel.layoutFor` reports
+		-- the same number so a spec asserts the arithmetic rather than the picture.
+		half.Size = UDim2.new(0.5, -ROLE.TRACK_GAP / 2, 1, 0)
+		-- ABOVE THE BLOCK'S OWN LABELS, so Roblox routes a press to the half and not to what is
+		-- under it. In the shop's row that is the whole point, because the row is a `TextButton` too.
+		half.ZIndex = Z + zLift + 2
+		half.ClipsDescendants = true
+		corner(half, ROLE.HALF_CORNER)
+		local rim = stroke(half, roleColour(which), 1)
+		rim.Name = "Rim"
+		local word = label(half, "Word", SANS_BOLD, wordSize, LOOK.MUTED, zLift + 3)
+		word.Size = UDim2.fromScale(1, 1)
+		word.TextXAlignment = Enum.TextXAlignment.Center
+		word.TextYAlignment = Enum.TextYAlignment.Center
+		word.Text = spaced(words[which] or "")
+		-- THE 2 px UNDERLINE at the half's bottom inside edge, inset each side (spec 3.3).
+		local bar = frame(half, "Underline", zLift + 3)
+		bar.AnchorPoint = Vector2.new(0.5, 1)
+		bar.Position = UDim2.fromScale(0.5, 1)
+		bar.Size = UDim2.new(1, -2 * ROLE.UNDERLINE_INSET, 0, ROLE.UNDERLINE_PX)
+		bar.BackgroundColor3 = roleColour(which)
+		bar.Visible = false
+		corner(bar, 1)
+		half.Parent = track
+		out.halves[which] = half
+		out.words[which] = word
+		out.bars[which] = bar
+		out.rims[which] = rim
+		-- THE WORD IS CLOSED OVER AND NOTHING ELSE IS, so a control redrawn for another state cannot
+		-- ask for the half it used to show (`buildWell`'s own rule for a row's id).
+		half.Activated:Connect(function()
+			onPress(which)
+		end)
+		-- `MouseEnter` / `MouseLeave` fire for a mouse and never for a finger, which is right: a
+		-- finger has no hover.
+		half.MouseEnter:Connect(function()
+			if out.hovered ~= which then
+				out.hovered = which
+				ShopPanel.paintRoleSwitch(out, out.selected, out.usable)
+			end
+		end)
+		half.MouseLeave:Connect(function()
+			if out.hovered == which then
+				out.hovered = nil
+				ShopPanel.paintRoleSwitch(out, out.selected, out.usable)
+			end
+		end)
+	end
+	return out
+end
+
+-- WHICH HALF IS LIT, AND WHETHER EITHER MAY BE PRESSED. The ONE painter, so the two surfaces cannot
+-- disagree about what "selected" looks like.
+--
+-- 0.12 s ON `BackgroundColor3` AND `TextColor3` ONLY (spec 3.3). The transparencies, the rim and the
+-- underline are written directly: a tween on a transparency would make the control FADE rather than
+-- change, and nothing here animates a position at all.
+function ShopPanel.paintRoleSwitch(switch: RoleSwitch, lit: string?, usable: boolean?)
+	switch.selected = lit
+	switch.usable = usable ~= false
+	local dim = usable == false
+	switch.track.BackgroundTransparency = if dim then ROLE.DIM_TRANSPARENCY else 0
+	for which, half in pairs(switch.halves) do
+		local on = which == lit
+		local hover = (not dim) and switch.hovered == which and not on
+		local colour = if on and not dim then roleColour(which) else LOOK.ROW_HOVER
+		local wordColour = if dim
+			then LOOK.FAINT
+			else (if on then roleColour(which) else (if hover then LOOK.BODY else LOOK.MUTED))
+		half.BackgroundTransparency = if on
+			then (if dim then ROLE.DIM_TRANSPARENCY else ROLE.FILL_TRANSPARENCY)
+			else (if hover then 0 else 1)
+		switch.rims[which].Transparency = if on and not dim then ROLE.STROKE_TRANSPARENCY else 1
+		switch.bars[which].Visible = on and not dim
+		local word = switch.words[which]
+		local tween = TweenInfo.new(ROLE.TWEEN_SECONDS, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		if half.BackgroundColor3 ~= colour then
+			TweenService:Create(half, tween, { BackgroundColor3 = colour }):Play()
+		end
+		if word.TextColor3 ~= wordColour then
+			TweenService:Create(word, tween, { TextColor3 = wordColour }):Play()
+		end
+	end
+end
+
 -- ---------------------------------------------------------------- the words, pure and exported
 --
 -- PURE and exported for `ReportPanel.listRowText`'s reason: what the panel SAYS has to be a spec
@@ -668,6 +925,28 @@ end
 
 -- THE WALLET'S TWO NUMBERS. `--` AND NOT `0` for a player with no open profile, which is
 -- `Economy.balanceOf`'s own rule: nil is not the same fact as a balance of zero.
+-- WHAT THE SWITCH'S CAPTION SAYS ON THIS SURFACE, or "" when there is no switch. PURE, two rows and
+-- a receipt, out of `Shop.CONFIG.TEXT` so the words are Karen's to rewrite (task 229).
+--
+-- THE SHOP HAS NO PAD AND NO PARTY SIZE, so it can never say `NO BEATERS THIS DRIVE` -- that row
+-- exists in both tables because the two are one vocabulary, and a reader comparing them should find
+-- no gap.
+function ShopPanel.roleCaptionFor(wish: string?, side: string?): string
+	if wish ~= ShopPanel.ROLE.HUNTER and wish ~= ShopPanel.ROLE.BEATER then
+		return ""
+	end
+	if side ~= nil then
+		return TEXT.ROLE_ASKED
+	end
+	return if wish == ShopPanel.ROLE.BEATER then TEXT.ROLE_BEATING else TEXT.ROLE_HUNTING
+end
+
+-- MAY EITHER HALF BE PRESSED? PURE. False in exactly the state the caption explains, so the dimming
+-- and the words can never disagree: once the drive has given him a side the ask is in.
+function ShopPanel.roleUsable(wish: string?, side: string?): boolean
+	return (wish == ShopPanel.ROLE.HUNTER or wish == ShopPanel.ROLE.BEATER) and side == nil
+end
+
 function ShopPanel.coinsTextFor(state: any): string
 	-- `Money.text` ANSWERS BOTH HALVES (task 221): "$1240" for a number and `Money.UNKNOWN` for a
 	-- nil, which is the `--` this function used to write out by hand.
@@ -1096,6 +1375,46 @@ local function buildWell(root: Frame)
 			local chip = tagChip(made, 3)
 			chip.AnchorPoint = Vector2.new(1, 0)
 			chip.Position = UDim2.new(1, -12, 0, 35)
+			-- THE ROLE SWITCH LIVES IN ONE ROW AND IN NO OTHER (task 229, spec 3.4). The row is
+			-- built at `ROW_SWITCH_PX` 124 instead of 64 by `relayout`, and one row taller than the
+			-- rest is the point: *"it marks the thing you own as a thing you OPERATE"*.
+			--
+			-- HIDDEN UNTIL THE SERVER SAYS HE OWNS IT. A man who owns nothing never sees it --
+			-- absent, not greyed and not locked.
+			if id == ShopData.ITEM.ALWAYS_HUNTER then
+				local block = frame(made, "RoleBlock", 3)
+				block.BackgroundTransparency = 1
+				block.Visible = false
+				rowBlock = block
+				local brow = label(block, "RoleEyebrow", SANS_BOLD, 10, LOOK.FAINT, 4)
+				brow.Name = "RoleEyebrow"
+				brow.Text = spaced(TEXT.ROLE_TITLE)
+				brow.Size = UDim2.new(1, 0, 0, 12)
+				local note = label(block, "RoleCaption", SANS_BOLD, 10, LOOK.FAINT, 4)
+				note.Name = "RoleCaption"
+				note.Size = UDim2.new(1, 0, 0, 12)
+				note.TextTruncate = Enum.TextTruncate.AtEnd
+				-- THE HALVES SIT AT `Z + 4` OVER THE ROW'S `Z + 2` and its children's `Z + 3`, so
+				-- Roblox routes a press to a half rather than to the row under it -- and the row IS
+				-- a `TextButton`, so that is the whole of the hit test. The band is one this panel
+				-- already occupies (the header's wallet and the buy button are at `Z + 4`, the two
+				-- well fade masks at `Z + 6`).
+				--
+				-- A PRESS ALSO SELECTS THE ROW, and the order is select-then-ask: *"a clumsy tap
+				-- never does nothing, and the case swings round to the pin you just set"*. `select`
+				-- is a no-op when the row is already selected, so a second press costs one message
+				-- and no redraw.
+				rowSwitch = ShopPanel.buildRoleSwitch(
+					block,
+					4,
+					PANEL.SWITCH_WORD_PX,
+					{ [ShopPanel.ROLE.HUNTER] = TEXT.ROLE_HUNTER, [ShopPanel.ROLE.BEATER] = TEXT.ROLE_BEATER },
+					function(which: string)
+						ShopPanel.select(id)
+						ShopPanel.askRole(which)
+					end
+				)
+			end
 			-- THE ID IS CLOSED OVER AND NOTHING ELSE IS. A click SELECTS; it never buys and never
 			-- reads a price, so a row drawing a different item after a redraw cannot buy the one it
 			-- used to show.
@@ -1540,6 +1859,33 @@ local function buildDetail(root: Frame)
 	(statusLabel :: TextLabel).Position = UDim2.fromOffset(12, 0);
 	(statusLabel :: TextLabel).Size = UDim2.new(1, -12, 0, 14)
 
+	-- THE PHONE'S SURFACE (task 229, spec 3.5). The 108 px card has no room for a switch, so on a
+	-- phone it rides the detail pane: the 14 px status row becomes a 70 px block
+	-- (`eyebrow 12 / 6 / track 34 / 6 / caption 12`) directly above the `OWNED` button, and the
+	-- blurb box absorbs the difference exactly as `layoutFor` already absorbs everything else.
+	--
+	-- **ONE RULE, BOTH MODES: the switch appears once, on whichever surface the item has**, and
+	-- `ShopPanel.switchSurfaceFor` is that rule as a function rather than as a convention.
+	local pane = frame(column, "RoleBlock", 2)
+	pane.BackgroundTransparency = 1
+	pane.Visible = false
+	detailBlock = pane
+	local paneBrow = label(pane, "RoleEyebrow", SANS_BOLD, 10, LOOK.FAINT, 3)
+	paneBrow.Text = spaced(TEXT.ROLE_TITLE)
+	paneBrow.Size = UDim2.new(1, 0, 0, 12)
+	local paneNote = label(pane, "RoleCaption", SANS_BOLD, 10, LOOK.FAINT, 3)
+	paneNote.Size = UDim2.new(1, 0, 0, 12)
+	paneNote.TextTruncate = Enum.TextTruncate.AtEnd
+	detailSwitch = ShopPanel.buildRoleSwitch(
+		pane,
+		3,
+		PANEL.SWITCH_WORD_TALL_PX,
+		{ [ShopPanel.ROLE.HUNTER] = TEXT.ROLE_HUNTER, [ShopPanel.ROLE.BEATER] = TEXT.ROLE_BEATER },
+		function(which: string)
+			ShopPanel.askRole(which)
+		end
+	)
+
 	buildButton(column)
 end
 
@@ -1589,7 +1935,11 @@ function ShopPanel.relayout()
 	stats.layouts += 1
 	local size = screenSize()
 	screenWas = size
-	local layout = ShopPanel.layoutFor(size.X, size.Y)
+	-- WHICH SURFACE THE ROLE SWITCH IS ON (task 229), decided ONCE here by the one pure rule and
+	-- never twice: `switchSurfaceFor` is what makes *"never both"* an assertion.
+	local wideNow = math.clamp(size.X - 2 * PANEL.MARGIN, PANEL.MIN_WIDTH, PANEL.MAX_WIDTH) >= PANEL.WIDE_AT
+	local surface = ShopPanel.switchSurfaceFor(if wideNow then "WIDE" else "TALL", roleWish, selected)
+	local layout = ShopPanel.layoutFor(size.X, size.Y, surface)
 	local wide = layout.mode == "WIDE"
 	root.Size = UDim2.fromOffset(layout.width, layout.height)
 
@@ -1703,6 +2053,178 @@ function ShopPanel.relayout()
 	local status = if detail then (detail :: Frame):FindFirstChild("Status") :: Frame? else nil
 	put(status, layout.statusY, PANEL.STATUS_PX)
 	put(buyButton, layout.buttonY, layout.buttonHeight)
+
+	-- ---------------- THE ROLE SWITCH'S TWO SURFACES (task 229)
+	--
+	-- THE OWNED `ALWAYS HUNTER` ROW, IN WIDE. It is built at `ROW_SWITCH_PX` 124 instead of 64, and
+	-- **nothing above it moves**: the well is a `UIListLayout`, so one row growing pushes only what
+	-- is BELOW it, which is what `shop_panel.spec` asserts against `layoutFor(1280, 720)`.
+	--
+	-- THE PRICE LINE GOES, AND THE `OWNED` CHIP MOVES UP TO THE NAME LINE ON THIS ROW ONLY: *"the
+	-- price of a thing you own is not news"* is this panel's own existing rule for an owned card,
+	-- applied here because this row has no price line left for the chip to sit on.
+	for _, entry in ipairs(menu) do
+		if entry.id ~= ShopData.ITEM.ALWAYS_HUNTER then
+			continue
+		end
+		local tall = surface == "row"
+		entry.row.Size = UDim2.new(1, 0, 0, if tall then PANEL.ROW_SWITCH_PX else PANEL.ROW_PX)
+		local disc = entry.row:FindFirstChild("PriceCoin") :: Frame?
+		local price = entry.row:FindFirstChild("Price") :: TextLabel?
+		if disc then
+			disc.Visible = not tall
+		end
+		if price then
+			price.Visible = not tall
+		end
+		local chip = entry.row:FindFirstChild("Tag") :: Frame?
+		if chip then
+			chip.Position = UDim2.new(1, -PANEL.SWITCH_RIGHT, 0, if tall then PANEL.SWITCH_NAME_Y else 35)
+		end
+		if rowBlock then
+			local block = rowBlock :: Frame
+			block.Visible = tall
+			block.Position = UDim2.fromOffset(PANEL.SWITCH_LEFT, PANEL.SWITCH_EYEBROW_Y)
+			block.Size = UDim2.fromOffset(layout.switchTrackWidth, PANEL.SWITCH_CAPTION_Y + 12 - PANEL.SWITCH_EYEBROW_Y)
+		end
+		if rowSwitch then
+			rowSwitch.track.Position = UDim2.fromOffset(0, PANEL.SWITCH_TRACK_Y - PANEL.SWITCH_EYEBROW_Y)
+			rowSwitch.track.Size = UDim2.fromOffset(layout.switchTrackWidth, PANEL.SWITCH_TRACK_PX)
+		end
+		if rowBlock then
+			local note = (rowBlock :: Frame):FindFirstChild("RoleCaption") :: TextLabel?
+			if note then
+				note.Position = UDim2.fromOffset(0, PANEL.SWITCH_CAPTION_Y - PANEL.SWITCH_EYEBROW_Y)
+			end
+		end
+	end
+
+	-- ...AND THE DETAIL PANE, IN TALL. 70 px: eyebrow 12 / 6 / track 34 / 6 / caption 12, with its
+	-- top where the 14 px status row's top now is -- `layout.statusY` already has the block
+	-- subtracted, so the two cannot drift.
+	if detailBlock then
+		local pane = detailBlock :: Frame
+		pane.Visible = surface == "detail"
+		pane.Position = UDim2.fromOffset(0, layout.statusY - top)
+		pane.Size = UDim2.new(1, 0, 0, PANEL.DETAIL_SWITCH_PX)
+		local note = pane:FindFirstChild("RoleCaption") :: TextLabel?
+		if note then
+			note.Position = UDim2.fromOffset(0, 12 + 6 + PANEL.SWITCH_TRACK_PX + 6)
+		end
+	end
+	if detailSwitch then
+		detailSwitch.track.Position = UDim2.fromOffset(0, 12 + 6)
+		detailSwitch.track.Size = UDim2.fromOffset(layout.switchTrackWidth, PANEL.SWITCH_TRACK_PX)
+	end
+	-- THE STATUS LINE AND THE SWITCH ARE NEVER BOTH UP IN THE DETAIL PANE: the block replaces that
+	-- row, which is what the 70 px is.
+	if status then
+		status.Visible = surface ~= "detail"
+	end
+	ShopPanel.renderRole()
+end
+
+-- ---------------------------------------------------------------- the role switch (task 229)
+
+-- WHICH ROLE THE SERVER SAYS HE HAS ASKED FOR, and what side the drive has given him. TOLD, both of
+-- them, out of the one evaluation the Hud already runs -- `setPrompt`'s and `Rail.setWeapon`'s rule
+-- -- so this panel reads no attribute and holds no opinion about who owns what.
+--
+-- EDGE-TRIGGERED, and `relayout` is called only when the SURFACE can have changed: a row's height is
+-- a rectangle, and `relayout` is this panel's one writer of every rectangle. A `team` that changes
+-- repaints and never re-lays-out.
+function ShopPanel.setRoleWish(wish: string?, side: string?)
+	if type(wish) ~= "string" or (wish ~= ShopPanel.ROLE.HUNTER and wish ~= ShopPanel.ROLE.BEATER) then
+		wish = nil
+	end
+	if type(side) ~= "string" then
+		side = nil
+	end
+	if roleWish == wish and roleTeam == side then
+		return
+	end
+	local was = roleWish
+	roleWish = wish
+	roleTeam = side
+	if (was == nil) ~= (wish == nil) then
+		ShopPanel.relayout()
+	else
+		ShopPanel.renderRole()
+	end
+end
+
+-- THE LIT HALF AND THE CAPTION, on whichever surface is up. `ShopPanel.paintRoleSwitch` is the one
+-- painter of the control itself, so the row and the pad dialog cannot disagree about what
+-- "selected" looks like.
+function ShopPanel.renderRole()
+	local lit = if roleWish == ShopPanel.ROLE.BEATER then ShopPanel.ROLE.BEATER else ShopPanel.ROLE.HUNTER
+	if roleWish == nil then
+		lit = nil
+	end
+	local usable = ShopPanel.roleUsable(roleWish, roleTeam)
+	local words = spaced(ShopPanel.roleCaptionFor(roleWish, roleTeam))
+	for _, pair in ipairs({ { rowSwitch, rowBlock }, { detailSwitch, detailBlock } }) do
+		local switch, holder = pair[1], pair[2]
+		if switch ~= nil then
+			ShopPanel.paintRoleSwitch(switch, lit, usable)
+		end
+		if holder ~= nil then
+			local note = (holder :: Frame):FindFirstChild("RoleCaption") :: TextLabel?
+			if note ~= nil and note.Text ~= words then
+				note.Text = words
+			end
+		end
+	end
+end
+
+-- ONE PRESS, ONE MESSAGE, AND THIS PANEL IS NOT THE SENDER. `Hud.PadPanel` is *"this client's one
+-- door onto `ReplicatedStorage.Lobby.Remotes`"*, so it is handed in at `start` as `roleAsk` --
+-- exactly as `Cursor` and `Input` are -- which keeps ONE sender on the client and adds no require
+-- edge (and in particular no `ShopPanel` -> `PadPanel` edge, which would be a cycle).
+function ShopPanel.askRole(which: string): boolean
+	if not ShopPanel.roleUsable(roleWish, roleTeam) or roleAsk == nil then
+		stats.roleBlocked += 1
+		return false
+	end
+	(roleAsk :: (string) -> ())(which)
+	stats.roleSent += 1
+	return true
+end
+
+function ShopPanel.roleWish(): string?
+	return roleWish
+end
+
+-- WHICH HALF IS LIT, off the BUILT control rather than off the value it was told -- so a spec can
+-- tell "the panel knows" from "the panel drew it". The row's surface first, the detail pane's
+-- second; nil when neither is up.
+function ShopPanel.roleLit(): string?
+	if rowBlock ~= nil and (rowBlock :: Frame).Visible and rowSwitch ~= nil then
+		return rowSwitch.selected
+	end
+	if detailBlock ~= nil and (detailBlock :: Frame).Visible and detailSwitch ~= nil then
+		return detailSwitch.selected
+	end
+	return nil
+end
+
+-- WHAT THE BLOCK SAYS, for a spec and for a console probe -- `rowText`'s own seam.
+function ShopPanel.switchText(): { string }
+	local holder: Frame? = if rowBlock ~= nil and (rowBlock :: Frame).Visible
+		then rowBlock
+		else (if detailBlock ~= nil and (detailBlock :: Frame).Visible then detailBlock else nil)
+	if holder == nil then
+		return {}
+	end
+	local switch = if holder == rowBlock then rowSwitch else detailSwitch
+	local brow = (holder :: Frame):FindFirstChild("RoleEyebrow") :: TextLabel?
+	local note = (holder :: Frame):FindFirstChild("RoleCaption") :: TextLabel?
+	return {
+		if brow then brow.Text else "",
+		switch.words[ShopPanel.ROLE.HUNTER].Text,
+		switch.words[ShopPanel.ROLE.BEATER].Text,
+		if note then note.Text else "",
+	}
 end
 
 -- ---------------------------------------------------------------- drawing
@@ -2165,6 +2687,11 @@ function ShopPanel.start(root: Frame, collaborators: any)
 	Cursor = collaborators and collaborators.Cursor
 	WeaponInput = collaborators and collaborators.Input
 	remotes = collaborators and collaborators.remotes
+	-- THE ONE CLIENT SENDER OF A ROLE ASK (task 229), handed in like `Cursor` and `Input` and never
+	-- captured: `Hud.start` binds it to `PadPanel.sendRoleWish`, which is this client's one door onto
+	-- `ReplicatedStorage.Lobby.Remotes`. nil means no sender, and then a press is counted and
+	-- discarded rather than throwing.
+	roleAsk = collaborators and collaborators.roleAsk
 	-- THE FLAG, READ AT THIS BOUNDARY AND PASSED INWARD (CLAUDE.md, feature flags). `enabled = false`
 	-- means `setNear` never opens anything, which is the game before task 178 -- and both branches
 	-- stay reachable by parameter, which is what a spec drives.

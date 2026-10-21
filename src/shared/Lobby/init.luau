@@ -163,10 +163,61 @@ function Lobby.padLoading(state: string?): boolean
 	return state == Lobby.PAD_STATE.FILLING or state == Lobby.PAD_STATE.COUNTDOWN or state == Lobby.PAD_STATE.LEAVING
 end
 
+-- WHICH ROLE THIS PLAYER HAS ASKED FOR, FOR ONE DRIVE (task 229). Karen, 2026-10-21: *"we also need
+-- to have posibility to choose once you have a card always hunter maybe sometimes I want to be a
+-- beater we need to find a way to do that"*.
+--
+-- ONE MORE ATTRIBUTE ON THE `Player`, beside `DHPadMine`, written by `ServerScriptService.Lobby` and
+-- nothing else, and read on the client by `Hud.renderObjective`'s one evaluation.
+--
+-- THREE STATES, AND THE ABSENT ONE IS THE GATE:
+--   * absent -> he does not own `ALWAYS HUNTER` -- or there is no shop, no economy and no lobby in
+--     this build. NOTHING is drawn: no block on the pad dialog, no taller shop row, no halves. *"A
+--     control for a thing you do not have is an advertisement, and this shop already has a shop for
+--     that"* (the Designer's spec section 3.2);
+--   * `"hunter"` -> he owns it and wants his stand (the default);
+--   * `"beater"` -> he owns it and has asked to beat the NEXT drive.
+--
+-- ONE ATTRIBUTE ANSWERS BOTH QUESTIONS -- *does he own it* and *what did he ask for* -- and that is
+-- a ruling rather than a shortcut (`docs/design/role-switch.md` section 3): the two facts are never
+-- needed apart, because a non-owner's control is ABSENT, and two attributes would have a window in
+-- which they disagree. It also has to be this way round: `Shop.Remotes.ShopState` is fired ONLY in
+-- reply to a request, so a man standing on a pad who never opened the shop has no wire answer at
+-- all, and `WireRow.owned` cannot reach him.
+--
+-- IT IS A STATE WORD AND NOT A BOOLEAN, for `DHPadMine`'s own stated reason one block up: three
+-- states, and a boolean would need a second attribute to tell them apart.
+Lobby.ROLE_WISH_ATTRIBUTE = "DHRoleWish"
+
+-- THE TWO WORDS, HERE because they cross the wire: the server writes one into the attribute and both
+-- panels compare against it, so there is ONE spelling of "beater" in the repository and a typo
+-- cannot make a switch that never lights. `Lobby.PAD_STATE`'s arrangement exactly.
+Lobby.ROLE_WISH = table.freeze({
+	HUNTER = "hunter",
+	BEATER = "beater",
+})
+
+-- IS THIS A WORD THIS SYSTEM KNOWS? PURE, and it is the ONE whitelist: the server's door asks it of
+-- a payload and the client's sender asks it of its own argument, so *"which words are legal"* has
+-- one answer -- `Pads.sizeAllowed`'s rule, applied to a string.
+function Lobby.roleAllowed(wish: any): boolean
+	return wish == Lobby.ROLE_WISH.HUNTER or wish == Lobby.ROLE_WISH.BEATER
+end
+
 -- THE PADS' REMOTE (task 182), AND IT IS THE FIRST INBOUND DOOR THIS SYSTEM HAS EVER HAD. Task 177's
 -- lobby had none at all, and said so in capitals: standing somewhere is not a message. A dialog is.
 Lobby.REMOTES_NAME = "Remotes"
 Lobby.PAD_REQUEST_REMOTE = "PadRequest"
+
+-- ...AND THE SECOND INBOUND DOOR (task 229), on the same folder. `PadRequest` is NOT extended and
+-- the reason is the one `docs/PROJECT_CONTEXT.md` names: every field of its payload is about a pad
+-- and it refuses everything else as `bad-request`, so carrying a role on it would make one handler
+-- answer two questions. The shop's folder gains nothing at all -- `Shop.onRequest`'s owner *"NEVER
+-- WRITES A LOADOUT, A POCKET, A TEAM, A TOOL, A CHARACTER OR ANYTHING DRAWN"*, and a role wish is
+-- team-shaped.
+--
+-- ONE WIRE IN, NONE OUT, which is this system's own rule: the attribute above is the answer.
+Lobby.ROLE_REQUEST_REMOTE = "RoleRequest"
 
 -- ---------------------------------------------------------------- where the lobby is
 
@@ -1580,6 +1631,55 @@ Lobby.CONFIG = {
 			BUTTON_PX = 60,
 			-- THE HINT'S OWN BAND under the last row.
 			HINT_PX = 26,
+			-- ---------------- THE ROLE SWITCH (task 229), the Designer's spec section 3.6
+			--
+			-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card
+			-- always hunter maybe sometimes I want to be a beater we need to find a way to do that"*.
+			--
+			-- THE BLOCK GOES BETWEEN THE HEADER'S HAIRLINE AND THE FOUR SIZE ROWS, *"because the role
+			-- is a fact about the drive you read BEFORE you choose a party size, and because anything
+			-- placed after four 60 px buttons is placed below the thing the player came to press"*.
+			--
+			-- EVERY WORD AND EVERY PIXEL HERE IS THE DESIGNER'S, verbatim, and the words are rows
+			-- because words are Karen's to rewrite (every TEXT table in this repository).
+			ROLE = {
+				EYEBROW = "NEXT DRIVE",
+				HUNTER = "HUNTER",
+				BEATER = "BEATER",
+				-- THE FOUR CAPTIONS, ONE PER STATE. A refusal with no words is a dead button: that
+				-- is the half of Xonotic's `TeamBalance_CheckAllowedTeams` this repository inverts
+				-- (`docs/research/2026-10-21-the-role-switch.md` section 2.2 -- it refuses by
+				-- returning `false` with nothing said to the player), and the half of ioquake3's
+				-- `SetTeam` it adopts (*"Red team has too many players"*, printed).
+				NOTE_HUNTER = "A STAND ON THE LINE",
+				NOTE_BEATER = "WALKING THE DRIVE",
+				NOTE_NONE = "NO BEATERS THIS DRIVE",
+				NOTE_SENT = "ASKED FOR ALREADY",
+				LEAD_PX = 12, -- air under the header's hairline
+				EYEBROW_PX = 12,
+				GAP_PX = 8, -- eyebrow -> track
+				TRACK_PX = 38,
+				NOTE_GAP = 6,
+				NOTE_PX = 12,
+				RULE_GAP = 16, -- caption -> the rule
+				RULE_PX = 1,
+				TRAIL_PX = 14, -- the rule -> the first size row
+				-- THE SUM OF THE TEN ROWS ABOVE, NAMED ONCE. `PadPanel.layoutFor` is the one thing
+				-- that turns the parts into rectangles and `pad_panel.spec` asserts
+				-- `heightFor(n, true) - heightFor(n, false) == BLOCK_PX`, so the parts cannot drift
+				-- from the whole in silence: a part that changes without this number fails the spec.
+				BLOCK_PX = 119,
+				-- THE INSET OF THE 1 px RULE under the caption, each side.
+				RULE_INSET = 16,
+				-- THE CONTROL'S OWN GEOMETRY IS NOT HERE. The track's padding, its corners, the
+				-- underline, the four transparencies and the 0.12 s tween are the HOUSE STYLE's and
+				-- live in `Shop.CONFIG.PANEL.ROLE_SWITCH`, because the shop sets the house style and
+				-- `Hud.ShopPanel` is the one builder of this control on both surfaces (the
+				-- Designer's spec section 8). What is here is the PAD DIALOG'S BLOCK: its words, and
+				-- the ten pixel rows above that only this dialog has.
+				-- THE WORD'S SIZE on each half, for this surface: 12 (spec 3.3).
+				WORD_SIZE = 12,
+			},
 			-- `Report.CONFIG.PANEL_Z_INDEX`'s band. `Rail.CONFIG.Z_INDEX` is 16 and stays pressable
 			-- over this dialog -- the `Shop.CONFIG.PANEL` arrangement.
 			Z_INDEX = 15,
@@ -2046,7 +2146,12 @@ function Lobby.remotes(): any
 		return cached
 	end
 	local folder = ReplicatedStorage:WaitForChild("Lobby"):WaitForChild(Lobby.REMOTES_NAME)
-	local built = { PadRequest = folder:WaitForChild(Lobby.PAD_REQUEST_REMOTE) :: RemoteEvent }
+	local built = {
+		PadRequest = folder:WaitForChild(Lobby.PAD_REQUEST_REMOTE) :: RemoteEvent,
+		-- TASK 229. Found by the same `WaitForChild`, so a client that loads before the folder has
+		-- replicated waits for both rather than racing one of them.
+		RoleRequest = folder:WaitForChild(Lobby.ROLE_REQUEST_REMOTE) :: RemoteEvent,
+	}
 	remotes = built
 	return built
 end

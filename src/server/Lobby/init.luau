@@ -110,6 +110,28 @@ local arrived: { [number]: { pad: number, since: number } } = {}
 -- ONE NUMBER PER PLAYER, the door's forgery guard. `forget` and `stop` empty it (`Shop`'s
 -- round-1 note: a bucket with no pruner grows for the life of the server).
 local lastPadRequestAt: { [number]: number } = {}
+-- WHICH ROLE EACH MAN HAS ASKED FOR, FOR ONE DRIVE (task 229). Karen, 2026-10-21: *"we also need to
+-- have posibility to choose once you have a card always hunter maybe sometimes I want to be a beater
+-- we need to find a way to do that"*.
+--
+-- ONE ROW PER PLAYER WHO HAS ASKED FOR SOMETHING OTHER THAN THE DEFAULT, and `Lobby.wishFor`'s
+-- answer of `HUNTER` drops the row -- so the table holds only the men who have actually asked to
+-- beat, it is empty in every build where nobody owns `ALWAYS HUNTER`, and the reconciliation can
+-- only ever CLEAR. `forget` and `stop` empty it, beside the bucket above.
+local roleWish: { [number]: string } = {}
+-- THE FROZEN MEMO THE DRIVE READS, rebuilt by the one writer and never mutated -- so a reader still
+-- holding the previous table holds a correct snapshot of the moment it asked. `Economy.owedTeams`'
+-- and `Economy.alwaysHunters`' own device, and its own stated reason: `Match.dispatch` fills this on
+-- EVERY event, which while TASKS.md 214a(a) is open can be ~15x `MATCH_STEP_HZ`.
+local wishFrozen: { [number]: boolean }? = nil
+-- THE ROLE DOOR'S OWN FORGERY GUARD, and it is its OWN bucket rather than the pad's. Sharing one
+-- would make "press BEATER, then press 1 / 1" lose the size pick, because `Lobby.padRateLimited`
+-- writes its row on every accepted call. One number (`PADS.REQUEST_MIN_INTERVAL`), two buckets, both
+-- pruned by `forget` and `stop`.
+local lastRoleRequestAt: { [number]: number } = {}
+-- WHO OWNS `ALWAYS HUNTER`, injected AFTER `Shop.start` and never required. nil = nobody owns
+-- anything = today's game, in every branch.
+local alwaysHunters: (() -> { [number]: boolean })? = nil
 local returnedAt: { [number]: number } = {}
 local spawnIndex: { [number]: number } = {}
 local nextSpawnIndex = 0
@@ -131,6 +153,13 @@ local stats = {
 	fillCalls = 0,
 	grassCalls = 0,
 	enrolments = 0,
+	-- THE ROLE DOOR (task 229), counted apart from the pad's: `roleAsks` is every well-formed ask
+	-- that got past the rate bucket, `roleWrites` is the ones that actually CHANGED the value, and
+	-- `roleRateLimited` is the guard firing. A `roleWrites` that climbs with `scans` would mean the
+	-- reconciliation had stopped being edge-triggered, which is what the spec asserts it does not.
+	roleAsks = 0,
+	roleWrites = 0,
+	roleRateLimited = 0,
 	-- A PAD THAT EMPTIED, which since task 182 is what a cancel IS: the countdown belongs to the pad
 	-- and not to a player, so "he stepped out" is "the pad lost its last man".
 	cancels = 0,
@@ -385,6 +414,98 @@ local function setPadMine(player: any, state: string?)
 	end
 end
 
+-- ---------------------------------------------------------------- the role wish (task 229)
+
+-- THE ONE WRITER of the wish AND of the `DHRoleWish` attribute that mirrors it. Private: the door
+-- and the scan are its only callers, so there is no way for anything else in this repository to
+-- write a man's wish (CLAUDE.md rule 3).
+--
+-- `clearLeaveAt`'s and `setPadMine`'s discipline exactly: WRITTEN ONLY WHEN IT DIFFERS, so it is one
+-- replicated write per change and not ten a second.
+--
+-- THE TABLE HOLDS ONLY THE MEN WHO ASKED TO BEAT. `HUNTER` is the default, so it is stored as the
+-- ABSENCE of a row -- which is what makes `beaterWishes()` empty in every build where nobody has
+-- asked, and what makes the reconciliation below able only to clear.
+--
+-- THE MEMO IS DROPPED ON EVERY CHANGE and rebuilt by the next reader, never mutated.
+local function setRoleWish(player: any, wish: string?)
+	local userId = player.UserId
+	local stored: string? = roleWish[userId]
+	local asked = if wish == Data.ROLE_WISH.BEATER then wish else nil
+	if stored ~= asked then
+		roleWish[userId] = asked
+		wishFrozen = nil
+		stats.roleWrites += 1
+	end
+	if player:GetAttribute(Data.ROLE_WISH_ATTRIBUTE) ~= wish then
+		player:SetAttribute(Data.ROLE_WISH_ATTRIBUTE, wish)
+		touched[userId] = player
+	end
+end
+
+-- PURE and exported. WHAT THIS MAN'S ATTRIBUTE MUST SAY RIGHT NOW -- the level rule, asked every
+-- scan (design section 6). It is `Join.needsReturn`'s shape and its stated reason: *"there are four
+-- ways to end up standing in the wrong place and only one of them is a phase change"*, and a wish
+-- is spent by five different things (a departure, a dismissal between drives, a
+-- `Scoring -> Assigning`, a leave, a Reset). One level rule covers all of them; five handlers cover
+-- four of them and the fifth is the bug (Learning Agent L-029).
+--
+--   * he does not own `ALWAYS HUNTER`  -> nil      -- no control is built anywhere
+--   * the drive has given him a side   -> HUNTER   -- the wish has been SPENT
+--   * otherwise                        -> what he asked for, or HUNTER
+--
+-- `assigned` IS THE DRIVE'S OWN TEAM AND NOT "IS HE IN A DRIVE", and that is the whole correctness
+-- of the reset. `Lobby.depart` -> `Match.enrol` makes him a participant IMMEDIATELY, while the
+-- assignment that reads the wish happens on a LATER `Match` step; the lobby's next scan is 0.1 s
+-- away, so a wish cleared on `inDrive` would be gone before the assignment it was supposed to
+-- change. `Lobby.onRoleRequest` uses the OTHER fact on purpose -- *may he still change his mind*,
+-- which ends when the truck has him -- and since `inDrive` becomes true first, the two can never
+-- contradict.
+function Lobby.wishFor(stored: string?, owns: boolean, assigned: string?): string?
+	if not owns then
+		return nil
+	end
+	if assigned ~= nil then
+		return Data.ROLE_WISH.HUNTER
+	end
+	return if stored == Data.ROLE_WISH.BEATER then Data.ROLE_WISH.BEATER else Data.ROLE_WISH.HUNTER
+end
+
+-- WHO HAS ASKED TO BEAT, as a FROZEN MEMO: userId -> true. This is what the drive reads, through the
+-- bare function the composition root hands to `Match.start`.
+--
+-- FROZEN AND MEMOISED for `Economy.alwaysHunters`' own stated reason, quoted in that file: the drive
+-- fills it on EVERY event, and while TASKS.md 214a(a) is open that dispatch is stepped at ~15x
+-- `MATCH_STEP_HZ` -- so a clone here would be ~60 table builds a second for a table that changes at
+-- most twice a drive. One table read, no clone and no freeze per call.
+--
+-- EMPTY when nobody owns the item, when the shop is off and in every spec that starts no money,
+-- which is what makes `Roster.assign` answer BY IDENTITY and the game before this task bit for bit.
+function Lobby.beaterWishes(): { [number]: boolean }
+	local cached = wishFrozen
+	if cached == nil then
+		local built: { [number]: boolean } = {}
+		for userId, wish in pairs(roleWish) do
+			if wish == Data.ROLE_WISH.BEATER then
+				built[userId] = true
+			end
+		end
+		cached = table.freeze(built)
+		wishFrozen = cached
+	end
+	return (cached :: any) :: { [number]: boolean }
+end
+
+-- WHO OWNS THE HUNTER'S PLACE, injected at the composition root. A SETTER and not a `start` field,
+-- for `ForestTest.setSeatProvider`'s stated reason: `Lobby.start` runs BEFORE `Shop.start`, so an
+-- ownership read cannot be in the table `start` is handed.
+--
+-- nil = NOBODY OWNS ANYTHING = today's game: `wishFor` answers nil for everybody, the attribute is
+-- never written and neither control is ever built.
+function Lobby.setAlwaysHunters(reader: (() -> { [number]: boolean })?)
+	alwaysHunters = if type(reader) == "function" then reader else nil
+end
+
 -- WRITTEN ONLY WHEN IT DIFFERS, so it is one write per change and not one per scan.
 local function setRespawn(player: any, to: BasePart?)
 	if player.RespawnLocation ~= to then
@@ -415,9 +536,33 @@ end
 -- belongs back at the lodge. `padIndex` is which pad he is standing on, measured once for everybody
 -- by `occupancy` below and handed in -- a second measurement here would be a second answer to "where
 -- is he".
-local function stepPlayer(player: any, now: number, padIndex: number?, serverNow: number)
+local function stepPlayer(
+	player: any,
+	now: number,
+	padIndex: number?,
+	serverNow: number,
+	owners: { [number]: boolean }?
+)
 	local userId = player.UserId
 	local inDrive = world.inDrive(userId) == true
+	-- THE ROLE WISH, RECONCILED FIRST AND ON EVERY SCAN (task 229), **before** the `inDrive` return
+	-- below: a man the drive already has is exactly the man whose wish has to be spent, and a rule
+	-- that ran only for men standing in the lobby would never clear one.
+	--
+	-- IT IS LEVEL-TRIGGERED AND ONLY EVER CLEARS: `Lobby.wishFor` returns `HUNTER` once the drive has
+	-- given him a side, and `setRoleWish` drops the row for `HUNTER` -- so a spent wish cannot come
+	-- back, and nothing here can invent one.
+	--
+	-- `world.assignedTeam` IS OPTIONAL. A world with no drive answers nil, nothing is ever spent, and
+	-- the lobby still works -- which is why it is not in `start`'s six-name required list.
+	setRoleWish(
+		player,
+		Lobby.wishFor(
+			roleWish[userId],
+			owners ~= nil and owners[userId] == true,
+			if world.assignedTeam ~= nil then world.assignedTeam(userId) else nil
+		)
+	)
 	if inDrive then
 		-- HE IS IN THE HUNT. Nothing of the lobby's applies to him: no deadline on his screen, and no
 		-- respawn point at the lodge -- `Match.Body` owns where he stands now.
@@ -759,6 +904,82 @@ function Lobby.onPadRequest(player: any, request: any, now: number?): any
 	return { ok = true, size = size }
 end
 
+-- ---------------------------------------------------------------- the role door (task 229)
+
+-- IS HE ASKING TOO OFTEN? `Lobby.padRateLimited`'s shape and its number
+-- (`PADS.REQUEST_MIN_INTERVAL`, four a second), in a bucket OF ITS OWN -- see `lastRoleRequestAt`'s
+-- own comment for why sharing the pad's would cost him his size pick.
+function Lobby.roleRateLimited(userId: number, now: number): boolean
+	local last = lastRoleRequestAt[userId]
+	if last ~= nil and now - last < cfg.PADS.REQUEST_MIN_INTERVAL then
+		return true
+	end
+	lastRoleRequestAt[userId] = now
+	return false
+end
+
+-- THE SECOND INBOUND HANDLER (task 229). KAREN, 2026-10-21: *"we also need to have posibility to
+-- choose once you have a card always hunter maybe sometimes I want to be a beater we need to find a
+-- way to do that"*.
+--
+-- PUBLIC, for `onPadRequest`'s own stated reason: `OnServerEvent` can only be raised by a client
+-- (task 80), so a spec must be able to drive it by parameter.
+--
+-- EVERY FACT IS MEASURED HERE AND NOTHING IS TAKEN FROM THE PAYLOAD BUT ITS ONE WORD. Whether the
+-- word is legal is `Data.roleAllowed`, the one whitelist both sides read; whether he owns
+-- `ALWAYS HUNTER` is the server's own frozen memo; whether the truck already has him is the drive's
+-- own answer. A client that could decide any of the three would be a client that could put itself on
+-- either side of a drive.
+--
+-- IT RETURNS ITS OWN DECISION -- `{ ok = true, role = r }`, `{ ok = false, refused = "<reason>" }`,
+-- or nil for a request that was not answered at all -- so a spec gets a per-call answer instead of
+-- inferring one from a counter (task 80 round 2's correction).
+--
+-- THERE IS NO REPLY REMOTE, which is this system's own rule: the `DHRoleWish` attribute IS the
+-- answer, and every refusal below is a state the client could already see.
+function Lobby.onRoleRequest(player: any, request: any, now: number?): any
+	if not started then
+		return nil
+	end
+	local at = now or os.clock()
+	local wish = if type(request) == "table" then (request :: any).role else nil
+	if not Data.roleAllowed(wish) then
+		-- NOTHING IS SENT BACK and nothing is changed: the client that forged it is not told what
+		-- shape would have worked (`onPadRequest`'s rule).
+		stats.badRequests += 1
+		return { ok = false, refused = "bad-request" }
+	end
+	if Lobby.roleRateLimited(player.UserId, at) then
+		stats.roleRateLimited += 1
+		return nil
+	end
+	stats.roleAsks += 1
+	-- HE DOES NOT OWN THE THING HE IS ASKING ABOUT, AND THAT IS **NOT** A FORGERY. It is this
+	-- module's own split, written in `stats`: a forged payload is a different fact from a legal
+	-- request the game said no to, *"because counting it as a bad request would hide a mis-wired
+	-- provider inside the forgery counter"* -- and a build where `setAlwaysHunters` was never called
+	-- would otherwise read as an attack.
+	local owners = if alwaysHunters ~= nil then alwaysHunters() else nil
+	if owners == nil or owners[player.UserId] ~= true then
+		count("not-an-owner")
+		return { ok = false, refused = "not-an-owner" }
+	end
+	-- THE TRUCK ALREADY HAS HIM, SO HE MAY NOT CHANGE HIS MIND. This is the door's fact and it is
+	-- deliberately NOT the reset's: `inDrive` becomes true at enrolment, one scan before the
+	-- assignment that spends the wish, so the reset asks `world.assignedTeam` instead (see
+	-- `Lobby.wishFor`). Asking the earlier fact here is what closes the window the later one leaves
+	-- open.
+	if world.inDrive ~= nil and world.inDrive(player.UserId) == true then
+		count("in-a-drive")
+		return { ok = false, refused = "in-a-drive" }
+	end
+	-- THE SERVER WRITES IT, INSIDE THIS CALL and not on the next scan, so what a player waits for is
+	-- one network hop and not a tenth of a second of scan. The scan's own call is what keeps it
+	-- honest afterwards -- `onPadRequest`'s own arrangement with `Build.setTruck`.
+	setRoleWish(player, wish)
+	return { ok = true, role = wish }
+end
+
 -- ---------------------------------------------------------------- the entry points
 
 -- IT RECORDS AND DOES NOT ACT. `Match` fires `PhaseChanged` at the end of `dispatch`, and `Match:step`'s
@@ -841,8 +1062,14 @@ function Lobby.step(now: number, players: { any }?)
 	-- ONE READING OF THE SERVER CLOCK FOR THE WHOLE SCAN, so every member of one party is handed
 	-- the same deadline to count down.
 	local serverNow = Workspace:GetServerTimeNow()
+	-- ...AND ONE READING OF WHO OWNS THE HUNTER'S PLACE (task 229), for the identical reason the
+	-- clock above is read once: sixteen members would otherwise ask sixteen times. It is
+	-- `Economy.alwaysHunters` -- the frozen MEMO, one table read -- and deliberately not
+	-- `Economy.ownedOf`, which does `table.freeze(table.clone(set))` PER CALL and would be ~160
+	-- clones a second at sixteen players.
+	local owners: { [number]: boolean }? = if alwaysHunters ~= nil then alwaysHunters() else nil
 	for _, player in ipairs(occupants) do
-		stepPlayer(player, now, padOf[player.UserId], serverNow)
+		stepPlayer(player, now, padOf[player.UserId], serverNow, owners)
 	end
 
 	-- WHO THE SHOPKEEPER LOOKS AT (task 181): the nearest man to him, decided HERE and written by
@@ -913,6 +1140,10 @@ function Lobby.start(injected: any?): boolean
 	table.clear(padAt)
 	table.clear(arrived)
 	table.clear(lastPadRequestAt)
+	-- TASK 229: the wish table, its bucket and the memo over it, beside the four above.
+	table.clear(roleWish)
+	table.clear(lastRoleRequestAt)
+	wishFrozen = nil
 	table.clear(returnedAt)
 	table.clear(spawnIndex)
 	table.clear(touched)
@@ -934,6 +1165,17 @@ function Lobby.start(injected: any?): boolean
 	if world.remotes ~= nil and world.remotes.PadRequest ~= nil then
 		local connection = world.remotes.PadRequest.OnServerEvent:Connect(function(player: Player, payload: any)
 			Lobby.onPadRequest(player, payload)
+		end)
+		if connection ~= nil then
+			table.insert(connections, connection)
+		end
+	end
+	-- ...AND THE ROLE DOOR (task 229), guarded the same way and for the same measured reason: a
+	-- `RemoteEvent` double whose `Connect` returns nil is a legal stand-in, because every spec drives
+	-- `Lobby.onRoleRequest` by parameter.
+	if world.remotes ~= nil and world.remotes.RoleRequest ~= nil then
+		local connection = world.remotes.RoleRequest.OnServerEvent:Connect(function(player: Player, payload: any)
+			Lobby.onRoleRequest(player, payload)
 		end)
 		if connection ~= nil then
 			table.insert(connections, connection)
@@ -966,6 +1208,9 @@ function Lobby.stop()
 	table.clear(padAt)
 	table.clear(arrived)
 	table.clear(lastPadRequestAt)
+	table.clear(roleWish)
+	table.clear(lastRoleRequestAt)
+	wishFrozen = nil
 	-- EXACTLY WHAT IT WROTE AND NOTHING ELSE: the players this module actually touched, not every
 	-- player on the server.
 	for _, player in pairs(touched) do
@@ -973,12 +1218,17 @@ function Lobby.stop()
 			player.Parent ~= nil
 			or player:GetAttribute(Data.LEAVE_AT_ATTRIBUTE) ~= nil
 			or player:GetAttribute(Data.PAD_MINE_ATTRIBUTE) ~= nil
+			or player:GetAttribute(Data.ROLE_WISH_ATTRIBUTE) ~= nil
 		then
 			player:SetAttribute(Data.LEAVE_AT_ATTRIBUTE, nil)
 			-- ...AND THE LOADING BANNER (task 197). It is the same teardown claim as the deadline
 			-- beside it: an owner that stopped must leave nothing on anybody's screen, and this
 			-- attribute is the banner's whole visibility rule.
 			player:SetAttribute(Data.PAD_MINE_ATTRIBUTE, nil)
+			-- ...AND THE ROLE SWITCH (task 229). Same claim again: with this owner stopped nobody
+			-- owns anything as far as this module can tell, and the attribute's absence is what makes
+			-- both controls disappear rather than go stale.
+			player:SetAttribute(Data.ROLE_WISH_ATTRIBUTE, nil)
 			player.RespawnLocation = nil
 		end
 	end
@@ -999,6 +1249,13 @@ function Lobby.forget(userId: number)
 	-- that are.
 	arrived[userId] = nil
 	lastPadRequestAt[userId] = nil
+	-- TASK 229: his wish and its bucket. A logout is what clears a wish without any rule at all --
+	-- which is the whole of "nothing is persisted".
+	if roleWish[userId] ~= nil then
+		roleWish[userId] = nil
+		wishFrozen = nil
+	end
+	lastRoleRequestAt[userId] = nil
 	returnedAt[userId] = nil
 	spawnIndex[userId] = nil
 	touched[userId] = nil

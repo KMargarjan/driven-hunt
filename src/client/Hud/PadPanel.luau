@@ -97,6 +97,12 @@ local PADS = LobbyData.CONFIG.PADS
 local PANEL = PADS.PANEL
 local LEAVING = PADS.LEAVING
 
+-- THE PAD DIALOG'S OWN ROLE BLOCK (task 229): its words and the ten pixel rows only this dialog
+-- has. The CONTROL's own geometry is the house style's and lives in `Shop.CONFIG.PANEL.ROLE_SWITCH`,
+-- read here as `SWITCH` -- one control, two surfaces, one set of numbers.
+local ROLE = PANEL.ROLE
+local SWITCH = ShopPanel.ROLE_SWITCH
+
 local LOOK = ShopPanel.LOOK
 local FONT = ShopPanel.FONT
 local spaced = ShopPanel.spaced
@@ -166,6 +172,23 @@ local bannerFill: Frame? = nil
 local remotes: any = nil
 local Cursor: any = nil
 local WeaponInput: any = nil
+-- ---------------- THE ROLE SWITCH (task 229)
+--
+-- `wish` IS THE SERVER'S WORD AND THIS MODULE'S ONLY OPINION ABOUT IT IS WHICH HALF IS LIT. It is
+-- TOLD by the Hud's one evaluation off the `DHRoleWish` attribute (`setRoleWish`), exactly as
+-- `loading` is told off `DHPadMine`; nil means he does not own `ALWAYS HUNTER` and the block is not
+-- drawn at all.
+local wish: string? = nil
+-- WHAT SIDE THE DRIVE HAS GIVEN HIM, told with it: the caption's own fact, and it is `Player.Team`
+-- read ONCE a frame by the Hud rather than a second read here.
+local team: string? = nil
+local screenHeight: number? = nil
+local switchBlock: Frame? = nil
+local switchEyebrow: TextLabel? = nil
+local switchCaption: TextLabel? = nil
+local switchRule: Frame? = nil
+local roleSwitch: any = nil
+local hint: TextLabel? = nil
 
 -- `optimistic` IS ONE PER CLICK THAT RAISED THE BANNER BEFORE THE SERVER ANSWERED (task 209), which
 -- is what makes *"it shows immediately"* a number a probe can read rather than a claim.
@@ -179,6 +202,13 @@ local stats = {
 	leavingCloses = 0,
 	barWrites = 0,
 	optimistic = 0,
+	-- THE ROLE SWITCH (task 229). `roleSent` is a message that left; `roleBlocked` is a press this
+	-- module refused to send (an unknown word, or a control that is not usable); `relayouts` is how
+	-- many times every rectangle in this dialog was rewritten, which has to stay ONE PER CHANGE and
+	-- not one per frame -- `pad_panel.spec` asserts exactly that.
+	roleSent = 0,
+	roleBlocked = 0,
+	relayouts = 0,
 }
 
 function PadPanel.stats()
@@ -323,10 +353,152 @@ end
 -- spec and not a screenshot -- `ShopPanel.panelSize`'s rule, and `Hud.build` sizes the frame with it
 -- so ONE number decides both the rows and the box (the Reviewer's task-178 round-1 note: they used to
 -- be two, and a sixth row would have been drawn outside the frame in silence).
-function PadPanel.heightFor(count: number?): number
+function PadPanel.heightFor(count: number?, withSwitch: boolean?): number
 	local rows = count or #PADS.SIZES
 	local body = if rows <= 0 then 0 else rows * PANEL.ROW_PX + (rows - 1) * PANEL.GAP
-	return PANEL.HEADER_PX + body + PANEL.HINT_PX + PAD
+	-- `withSwitch` nil or false IS TODAY'S NUMBER, so every existing caller of this function is
+	-- unchanged by construction (task 229).
+	local block = if withSwitch == true then ROLE.BLOCK_PX else 0
+	return PANEL.HEADER_PX + block + body + PANEL.HINT_PX + PAD
+end
+
+-- ---------------------------------------------------------------- the role switch, pure (task 229)
+--
+-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always hunter
+-- maybe sometimes I want to be a beater we need to find a way to do that"*.
+
+-- IS THERE ROOM FOR THE BLOCK ON THIS SCREEN? PURE.
+--
+-- The dialog is 487 tall with the block, and at 400 px -- *"a landscape phone, which is how phones
+-- play"* (`docs/design/camera.md`, task 220) -- it does not fit: today's 368 already leaves only
+-- 16 px of margin there. So the pad surface DROPS the block rather than drawing it off the bottom,
+-- and the feature is still reachable because the SHOP's panel scales
+-- (`ShopPanel.layoutFor`'s own `clamp(floor(screenH * 0.8), 300, 640)`) -- which is why there are
+-- two surfaces at all.
+--
+-- A nil HEIGHT ANSWERS false: the small guess, which is `ShopPanel.screenSize`'s own stated rule
+-- (*"a layout that guessed big would overflow a phone"*).
+function PadPanel.switchFitsIn(height: number?): boolean
+	if type(height) ~= "number" then
+		return false
+	end
+	return (height :: number) >= PadPanel.heightFor(nil, true) + 2 * LEAVING.MARGIN_PX
+end
+
+-- WHICH HALF IS LIT, or nil for "there is no block at all". PURE.
+function PadPanel.roleSelected(next_: string?): string?
+	if next_ == LobbyData.ROLE_WISH.BEATER then
+		return LobbyData.ROLE_WISH.BEATER
+	end
+	if next_ == LobbyData.ROLE_WISH.HUNTER then
+		return LobbyData.ROLE_WISH.HUNTER
+	end
+	return nil
+end
+
+-- WHY THE SWITCH CANNOT BE USED, or "" when it can. PURE, and it is the ONE rule: four rows, no
+-- string literal in this module, and the words come out of `PANEL.ROLE` so they are Karen's to
+-- rewrite.
+--
+--   * the drive has given him a side  -> he is in it; the wish is spent and the control is a receipt
+--   * he has asked for a party of ONE -> `NO BEATERS THIS DRIVE`. `docs/design/bots.md` fills both
+--     sides with rigs but says twice that no bot shoots, so a solo beater is a drive in which
+--     nothing can be shot, and `Roster.assign` honours nobody at one player. **This client cannot
+--     know the party size any other way**: `DHPadSize` and `DHPadCount` were *"considered and
+--     refused"* (`src/shared/Lobby/init.luau`), and `sent` is the only size fact this client holds
+--     -- so before a press the control is AVAILABLE, and that limit is stated rather than hidden.
+--   * a size has been pressed        -> `ASKED FOR ALREADY`. The block is DISABLED and not hidden:
+--     hiding it would make the dialog jump 119 px under the player's thumb while the truck is
+--     loading, *"which is the one thing a dialog must never do"*.
+function PadPanel.roleCaptionFor(next_: string?, side: string?, size: number?): string
+	local words = PANEL.ROLE
+	if PadPanel.roleSelected(next_) == nil then
+		return ""
+	end
+	if size ~= nil then
+		return if size <= 1 then words.NOTE_NONE else words.NOTE_SENT
+	end
+	if side ~= nil then
+		return words.NOTE_SENT
+	end
+	return if next_ == LobbyData.ROLE_WISH.BEATER then words.NOTE_BEATER else words.NOTE_HUNTER
+end
+
+-- MAY EITHER HALF BE PRESSED? PURE. It is false in exactly the two states the caption explains
+-- above, so the dimming and the words can never disagree.
+function PadPanel.roleUsable(next_: string?, side: string?, size: number?): boolean
+	return PadPanel.roleSelected(next_) ~= nil and size == nil and side == nil
+end
+
+export type Layout = {
+	height: number,
+	switchShown: boolean,
+	switchY: number,
+	trackY: number,
+	trackWidth: number,
+	halfWidth: number,
+	captionY: number,
+	ruleY: number,
+	rowY: { number },
+	hintY: number,
+}
+
+-- EVERY RECTANGLE IN THIS DIALOG, FROM THE DATA PLUS TWO FACTS. PURE, which is
+-- `ShopPanel.layoutFor`'s own rule and task 165's lesson: *"asserted ARITHMETICALLY rather than by a
+-- screenshot"*.
+--
+-- IT EXISTS BECAUSE OF THE ONE REAL COST OF THIS TASK, and that cost is named rather than hidden:
+-- the four size rows' Y and the hint's Y used to be written ONCE in `build`, so a block inserted
+-- under the header would have left all five where they were. `relayout` is now the one writer of
+-- every rectangle in this dialog and this function is where the numbers come from.
+function PadPanel.layoutFor(count: number?, next_: string?, height: number?): Layout
+	local rows = count or #PADS.SIZES
+	local shown = PadPanel.roleSelected(next_) ~= nil and PadPanel.switchFitsIn(height)
+	local block = if shown then ROLE.BLOCK_PX else 0
+	local switchY = PANEL.HEADER_PX + ROLE.LEAD_PX
+	local trackY = switchY + ROLE.EYEBROW_PX + ROLE.GAP_PX
+	local captionY = trackY + ROLE.TRACK_PX + ROLE.NOTE_GAP
+	local trackWidth = PANEL.WIDTH - 2 * PAD
+	local rowTop = PANEL.HEADER_PX + block
+	local rowY = {}
+	for index = 1, rows do
+		table.insert(rowY, rowTop + (index - 1) * (PANEL.ROW_PX + PANEL.GAP))
+	end
+	return {
+		height = PadPanel.heightFor(rows, shown),
+		switchShown = shown,
+		switchY = switchY,
+		trackY = trackY,
+		trackWidth = trackWidth,
+		-- `(track - 2*PAD - GAP) / 2`: the formula, not the Designer's drawing, which forgot the
+		-- 3 px between the halves (see `Shop.CONFIG.PANEL.ROLE_SWITCH`).
+		halfWidth = (trackWidth - 2 * SWITCH.TRACK_PAD - SWITCH.TRACK_GAP) / 2,
+		captionY = captionY,
+		ruleY = captionY + ROLE.NOTE_PX + ROLE.RULE_GAP,
+		rowY = rowY,
+		hintY = PadPanel.heightFor(rows, shown) - PANEL.HINT_PX,
+	}
+end
+
+-- WHERE THE DIALOG SITS, AND ITS BOTTOM EDGE IS INVARIANT. PURE, and this is a correction made in
+-- advance rather than a preference (`docs/design/role-switch.md` section 14.1).
+--
+-- `LEAVING.Y_SCALE`'s own comment carries the band task 209 round 2 measured off a 368-tall CENTRED
+-- dialog: `0.5 + 240/H <= Y_SCALE <= 1 - 56/H`, which is [0.8334, 0.9222] at 720 and holds 0.88.
+-- With the block the dialog is 487, so a centred one's lower bound becomes `0.5 + 299.5/H` = 0.916
+-- at 720 -- ABOVE 0.88 -- and the dialog's bottom would land at 603.5 with the banner's top at
+-- 577.6: **26 px of the dialog's hint band under the banner**, which is the exact defect, in the
+-- exact place, that round 2 was spent on. (The two ARE up together: since task 209
+-- `PadPanel.press` raises the banner optimistically while the dialog is still open.)
+--
+-- SO THE BLOCK GROWS UPWARD. `AnchorPoint` is the bottom edge and the position is fixed off TODAY'S
+-- height, so the whole of the 209 band arithmetic holds unchanged and `Y_SCALE` is not touched.
+function PadPanel.anchorPoint(): Vector2
+	return Vector2.new(0.5, 1)
+end
+
+function PadPanel.positionFor(): UDim2
+	return UDim2.new(0.5, 0, 0.5, PadPanel.heightFor() / 2)
 end
 
 function PadPanel.widthFor(): number
@@ -438,6 +610,55 @@ local function build(frame: Frame)
 
 	hairline(frame, PANEL.HEADER_PX - HAIRLINE_PX, 1)
 
+	-- THE ROLE BLOCK (task 229), BUILT ONCE AND PLACED BY `relayout`, between the header's hairline
+	-- and the four size rows -- *"because the role is a fact about the drive you read BEFORE you
+	-- choose a party size, and because anything placed after four 60 px buttons is placed below the
+	-- thing the player came to press"* (the Designer's spec section 3.6).
+	--
+	-- IT IS HIDDEN UNTIL THE SERVER SAYS HE OWNS `ALWAYS HUNTER`. A man who owns nothing never sees
+	-- it: absent, not greyed and not locked, because *"a control for a thing you do not have is an
+	-- advertisement, and this shop already has a shop for that"*.
+	local block = Instance.new("Frame")
+	block.Name = "RoleBlock"
+	block.BackgroundTransparency = 1
+	block.BorderSizePixel = 0
+	block.ZIndex = PANEL.Z_INDEX + 2
+	block.Visible = false
+	block.Parent = frame
+	switchBlock = block
+
+	switchEyebrow = label(block, "RoleEyebrow", FONT.SANS_BOLD, EYEBROW_SIZE + 1, LOOK.FAINT, 3);
+	(switchEyebrow :: TextLabel).Text = spaced(ROLE.EYEBROW);
+	(switchEyebrow :: TextLabel).Size = UDim2.new(1, 0, 0, ROLE.EYEBROW_PX)
+
+	-- THE CONTROL ITSELF IS `ShopPanel`'S, built and painted there (task 229): it is drawn on two
+	-- surfaces and *"the shop sets the house style"*. What stays here is WHERE it goes, which is
+	-- this module's own rectangle to write.
+	roleSwitch = ShopPanel.buildRoleSwitch(
+		block,
+		3,
+		ROLE.WORD_SIZE,
+		{ [LobbyData.ROLE_WISH.HUNTER] = ROLE.HUNTER, [LobbyData.ROLE_WISH.BEATER] = ROLE.BEATER },
+		function(which: string)
+			PadPanel.sendRoleWish(which)
+		end
+	)
+
+	switchCaption = label(block, "RoleCaption", FONT.SANS_BOLD, HINT_SIZE, LOOK.FAINT, 3);
+	(switchCaption :: TextLabel).Size = UDim2.new(1, 0, 0, ROLE.NOTE_PX);
+	(switchCaption :: TextLabel).TextTruncate = Enum.TextTruncate.AtEnd
+
+	-- THE 1 px RULE under the caption, inset each side, which is what separates the role from the
+	-- four sizes. ONE hairline, never a box (spec 8.2).
+	local rule = Instance.new("Frame")
+	rule.Name = "RoleRule"
+	rule.BorderSizePixel = 0
+	rule.BackgroundColor3 = LOOK.LINE
+	rule.BackgroundTransparency = 0.55
+	rule.ZIndex = PANEL.Z_INDEX + 3
+	rule.Parent = block
+	switchRule = rule
+
 	table.clear(buttons)
 	table.clear(notes)
 	for index, row in ipairs(PADS.SIZES) do
@@ -450,7 +671,10 @@ local function build(frame: Frame)
 		-- the shop's big-button arrangement (its spec section 4) and the only way to set two faces at
 		-- two sizes in one control.
 		button.Text = ""
-		button.Position = UDim2.fromOffset(PAD, PANEL.HEADER_PX + (index - 1) * (PANEL.ROW_PX + PANEL.GAP))
+		-- NO POSITION HERE ANY MORE (task 229). `PadPanel.relayout` is the one writer of every
+		-- rectangle in this dialog, because the role block is inserted ABOVE these rows: a Y written
+		-- once at build time would have left all five of them where they were when the block
+		-- appeared (`docs/design/role-switch.md` hazard 10).
 		-- AN OFFSET AND NOT A SCALE, so `pad_panel.spec`'s *"none of them is wider than the panel"*
 		-- stays a real comparison: against a scale it would read -28 against 320 and pass by accident.
 		button.Size = UDim2.fromOffset(PANEL.WIDTH - 2 * PAD, PANEL.BUTTON_PX)
@@ -514,11 +738,14 @@ local function build(frame: Frame)
 
 	-- THE ONE MESSAGE LINE (spec 8.8), and this dialog's caveat is its own way out: there is no close
 	-- button on purpose, so the other exit has to be written down somewhere.
-	local hint = label(frame, "Hint", FONT.SANS_BOLD, HINT_SIZE, LOOK.FAINT, 1)
-	hint.Position = UDim2.fromOffset(PAD, PadPanel.heightFor() - PANEL.HINT_PX)
-	hint.Size = UDim2.new(1, -2 * PAD, 0, PANEL.HINT_PX)
-	hint.Text = spaced(PANEL.HINT)
-	hint.TextTruncate = Enum.TextTruncate.AtEnd
+	local line = label(frame, "Hint", FONT.SANS_BOLD, HINT_SIZE, LOOK.FAINT, 1)
+	line.Size = UDim2.new(1, -2 * PAD, 0, PANEL.HINT_PX)
+	line.Text = spaced(PANEL.HINT)
+	line.TextTruncate = Enum.TextTruncate.AtEnd
+	hint = line
+
+	-- ...AND EVERY RECTANGLE IS WRITTEN ONCE, HERE, by the one function that writes them all.
+	PadPanel.relayout()
 end
 
 -- THE LOADING BANNER. KAREN: *"we need clear message that game is loading once clicked 1/1 or other
@@ -610,6 +837,9 @@ function PadPanel.setAsk(next_: number?)
 	if ask ~= nil then
 		sentAt = nil
 	end
+	-- A NEW PAD IS A NEW QUESTION FOR THE ROLE BLOCK TOO (task 229): `sent` has just been cleared
+	-- above, so the switch is usable again and its caption has to say so.
+	PadPanel.renderRole()
 	if ask ~= nil and not wasOpen then
 		stats.opens += 1
 		-- THE MOUSE AND THE TRIGGER, through the two doors that already exist: `Cursor.requestFree`
@@ -665,6 +895,153 @@ function PadPanel.setLeaving(state: string?, secondsLeft: number?, now: number?)
 		stats.leavingCloses += 1
 	end
 	PadPanel.renderLeaving()
+end
+
+-- ---------------------------------------------------------------- the role switch (task 229)
+
+-- THE ONE WRITER OF EVERY RECTANGLE IN THIS DIALOG, from the pure `layoutFor` --
+-- `ShopPanel.relayout`'s arrangement. `build` writes no position at all, so there is exactly one
+-- place that can put a row in the wrong place.
+function PadPanel.relayout()
+	local frame = panel
+	if frame == nil then
+		return
+	end
+	stats.relayouts += 1
+	local out = PadPanel.layoutFor(#PADS.SIZES, wish, screenHeight)
+	-- THE BOTTOM EDGE DOES NOT MOVE (section 14.1 of the design): the anchor is the bottom, the
+	-- position is fixed off TODAY'S height, and the block is added at the top. So the whole of task
+	-- 209's banner-overlap arithmetic holds and `LEAVING.Y_SCALE` is not touched.
+	frame.AnchorPoint = PadPanel.anchorPoint()
+	frame.Position = PadPanel.positionFor()
+	frame.Size = UDim2.fromOffset(PANEL.WIDTH, out.height)
+	if switchBlock ~= nil then
+		local block = switchBlock :: Frame
+		block.Visible = out.switchShown
+		block.Position = UDim2.fromOffset(PAD, out.switchY)
+		block.Size = UDim2.fromOffset(PANEL.WIDTH - 2 * PAD, out.ruleY + ROLE.RULE_PX - out.switchY)
+	end
+	-- EVERY CHILD'S Y IS RELATIVE TO THE BLOCK, so the block is the only thing that moves when the
+	-- dialog grows and the four numbers inside it are the Designer's own table, unchanged.
+	if switchEyebrow ~= nil then
+		(switchEyebrow :: TextLabel).Position = UDim2.fromOffset(0, 0)
+	end
+	if roleSwitch ~= nil then
+		roleSwitch.track.Position = UDim2.fromOffset(0, out.trackY - out.switchY)
+		roleSwitch.track.Size = UDim2.fromOffset(out.trackWidth, ROLE.TRACK_PX)
+	end
+	if switchCaption ~= nil then
+		(switchCaption :: TextLabel).Position = UDim2.fromOffset(0, out.captionY - out.switchY)
+	end
+	if switchRule ~= nil then
+		local rule = switchRule :: Frame
+		rule.Position = UDim2.fromOffset(ROLE.RULE_INSET, out.ruleY - out.switchY)
+		rule.Size = UDim2.new(1, -2 * ROLE.RULE_INSET, 0, ROLE.RULE_PX)
+	end
+	for index, button in ipairs(buttons) do
+		button.Position = UDim2.fromOffset(PAD, out.rowY[index] or 0)
+	end
+	if hint ~= nil then
+		(hint :: TextLabel).Position = UDim2.fromOffset(PAD, out.hintY)
+	end
+end
+
+-- WHICH ROLE THE SERVER SAYS HE HAS ASKED FOR, what side the drive has given him, and how tall the
+-- screen is. TOLD, all three, out of the one evaluation the Hud already runs -- `setLeaving`'s and
+-- `Rail.setWeapon`'s rule (*"`hasWeapon` is TOLD to this module by the Hud, never read here"*) -- so
+-- this module reads no attribute and holds no opinion about who owns what.
+--
+-- EDGE-TRIGGERED ON ALL THREE, and `relayout` is called only when the RECTANGLE can have changed:
+-- the wish appearing or disappearing, or the screen crossing `switchFitsIn`. A `team` that changes
+-- repaints and never re-lays-out, because the caption's words do not move anything.
+function PadPanel.setRoleWish(next_: string?, side: string?, height: number?)
+	if type(next_) ~= "string" or not LobbyData.roleAllowed(next_) then
+		next_ = nil
+	end
+	if type(side) ~= "string" then
+		side = nil
+	end
+	-- A nil HEIGHT IS "NO NEW READING", not "zero": the Hud hands one over every frame, and a spec
+	-- that drives the wish alone must not un-set the screen it just described.
+	local nextHeight = if type(height) == "number" then height else screenHeight
+	if wish == next_ and team == side and screenHeight == nextHeight then
+		return
+	end
+	local wasShown = PadPanel.layoutFor(#PADS.SIZES, wish, screenHeight).switchShown
+	wish = next_
+	team = side
+	screenHeight = nextHeight
+	if PadPanel.layoutFor(#PADS.SIZES, wish, screenHeight).switchShown ~= wasShown then
+		PadPanel.relayout()
+	end
+	PadPanel.renderRole()
+end
+
+-- THE LIT HALF AND THE CAPTION, painted from the three facts this module was told plus the one it
+-- holds (`sent`). `ShopPanel.paintRoleSwitch` is the one painter of the control itself, so the two
+-- surfaces cannot disagree about what "selected" looks like.
+function PadPanel.renderRole()
+	if roleSwitch == nil then
+		return
+	end
+	local usable = PadPanel.roleUsable(wish, team, sent)
+	ShopPanel.paintRoleSwitch(roleSwitch, PadPanel.roleSelected(wish), usable)
+	if switchCaption ~= nil then
+		local want = spaced(PadPanel.roleCaptionFor(wish, team, sent))
+		if (switchCaption :: TextLabel).Text ~= want then
+			(switchCaption :: TextLabel).Text = want
+		end
+	end
+end
+
+-- THE ONE CLIENT SENDER (design section 4.1). This module is already *"this client's one door onto
+-- `ReplicatedStorage.Lobby.Remotes`"*, so the shop panel is handed this function rather than a
+-- remote -- which keeps one sender and adds no require edge.
+--
+-- IT SENDS NOTHING FOR A WORD THAT IS NOT IN `Lobby.ROLE_WISH`, and nothing at all while the control
+-- is not usable: the server refuses both anyway (`bad-request`, counted as a forgery), and a client
+-- that sent one would be this client telling the server a lie about its own catalogue.
+--
+-- NO OPTIMISTIC REDRAW, and that is deliberate rather than an omission. Task 209's banner exists
+-- because a MEASURED 3.65 s of silence followed a click -- the pad's own `sizing -> filling` round
+-- trip through a 10 Hz scan. Here the server writes the attribute INSIDE `Lobby.onRoleRequest`, so
+-- the round trip is one network hop; and a half that lit itself would be a client holding an opinion
+-- about a value whose whole security is that it does not.
+function PadPanel.sendRoleWish(which: string): boolean
+	if not LobbyData.roleAllowed(which) or not PadPanel.roleUsable(wish, team, sent) then
+		stats.roleBlocked += 1
+		return false
+	end
+	if remotes ~= nil and remotes.RoleRequest ~= nil then
+		remotes.RoleRequest:FireServer({ role = which })
+		stats.roleSent += 1
+		return true
+	end
+	stats.roleBlocked += 1
+	return false
+end
+
+-- WHAT THE BLOCK SAYS, for a spec and for a console probe -- `rowText`'s own seam.
+function PadPanel.switchText(): { string }
+	if roleSwitch == nil or switchBlock == nil or not (switchBlock :: Frame).Visible then
+		return {}
+	end
+	return {
+		(switchEyebrow :: TextLabel).Text,
+		roleSwitch.words[LobbyData.ROLE_WISH.HUNTER].Text,
+		roleSwitch.words[LobbyData.ROLE_WISH.BEATER].Text,
+		(switchCaption :: TextLabel).Text,
+	}
+end
+
+function PadPanel.roleWish(): string?
+	return wish
+end
+
+-- WHICH HALF IS LIT, off the BUILT control rather than off the value it was told -- so a spec can
+-- tell "the panel knows" from "the panel drew it".
+function PadPanel.roleLit(): string?
+	return if roleSwitch == nil then nil else roleSwitch.selected
 end
 
 function PadPanel.render()
@@ -767,6 +1144,11 @@ function PadPanel.press(size: number): boolean
 	stats.optimistic += 1
 	PadPanel.renderLeaving()
 	PadPanel.render()
+	-- ...AND THE ROLE BLOCK GOES DIM WITH THE ROWS (task 229), because `sent` is exactly what makes
+	-- the switch unusable: `ASKED FOR ALREADY` for a party of two or more, `NO BEATERS THIS DRIVE`
+	-- for a party of one. **DISABLED AND NOT HIDDEN**: hiding it here would make the dialog jump
+	-- 119 px under the player's thumb while the truck is loading.
+	PadPanel.renderRole()
 	return true
 end
 
