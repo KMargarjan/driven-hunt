@@ -360,6 +360,89 @@ return function()
 			expect(Assets.byKey("x", { { key = "x", version = 1, moderation = "rejected" } :: any })).to.equal(nil)
 		end)
 
+		-- ---------------------------------------------------------------- task 231: the pale receiver
+		--
+		-- THE LEVER'S RECEIVER RENDERED NEAR-WHITE AT THE LENS (TASKS.md 227a(a)), and the cause was
+		-- MEASURED before anything was changed: the part's `Color` is ignored (a pure-red clone drew
+		-- not one red pixel), so the artist's ColorMap IS drawing and the ALBEDO is what is pale --
+		-- a stainless 1895 SBL whose prep recoloured no base colour. So the fix is the map's own
+		-- tint, which is the one write that reaches such a part (`Boar.Body`'s coat, same fact).
+		it("gives the lever rifle's three groups ONE measured tint, and no other row a tint at all", function()
+			local lever = { "lever.action", "lever.stock", "lever.lever" }
+			local first = nil
+			for _, key in ipairs(lever) do
+				local row = Assets.byKey(key)
+				expect(row).to.be.ok()
+				expect(row.tint).to.be.ok()
+				first = first or row.tint
+				-- ONE GUN, ONE NUMBER: a tinted receiver beside a white stock is a worse picture
+				-- than either of them, which is why this is asserted and not merely intended.
+				expect(row.tint).to.equal(first)
+			end
+			-- ...AND IT IS A DARKENING, not a recolour: the three channels are equal and below 1, so
+			-- it multiplies the map's own colour instead of painting over it.
+			expect((first :: Color3).R).to.equal((first :: Color3).G)
+			expect((first :: Color3).G).to.equal((first :: Color3).B)
+			expect((first :: Color3).R < 1 and (first :: Color3).R > 0).to.equal(true)
+			-- NO OTHER ROW IS TINTED. The Rigby and the model B shotgun arrive with exactly the same
+			-- `SurfaceAppearance` / `AlphaMode.Overlay` setup and look right, so a blanket tint would
+			-- be this fix breaking two guns to mend one.
+			local tinted = {}
+			for _, row in ipairs(Assets.ROWS) do
+				if (row :: any).tint ~= nil then
+					table.insert(tinted, row.key)
+				end
+			end
+			table.sort(tinted)
+			expect(table.concat(tinted, ",")).to.equal("lever.action,lever.lever,lever.stock")
+		end)
+
+		-- ...AND WHAT THE BOOT DID WITH IT, read off the published template rather than off the code:
+		-- `ViewmodelAssetsBoot` is a boot script and cannot be required, so this reads the Instances
+		-- it left in `ReplicatedStorage` -- and says in its own name when the upload did not land in
+		-- this session, which is the rule every other live asset case here follows.
+		it("publishes the lever's pieces with that tint on the SurfaceAppearance, not on the part", function()
+			local folder = ReplicatedStorage:FindFirstChild("ViewmodelLever")
+			if folder == nil then
+				TestKit.note("assets_seam: ViewmodelLever is not published in this place")
+				return
+			end
+			local row = Assets.byKey("lever.action")
+			expect(row).to.be.ok()
+			local seen, checked = {}, 0
+			for _, part in ipairs(folder:GetChildren()) do
+				if part:IsA("BasePart") then
+					local appearance = part:FindFirstChildOfClass("SurfaceAppearance")
+					table.insert(seen, part.Name .. (if appearance then "+SA" else "-SA"))
+					if appearance then
+						expect(appearance.Color).to.equal(row.tint)
+						checked += 1
+					else
+						-- `showItsOwnColour` destroyed the appearance (no row here does, today), and
+						-- then the tint is drawn through `Color`, which is what a TextureID tints.
+						expect(part.Color).to.equal(row.tint)
+						checked += 1
+					end
+				end
+			end
+			-- AN EMPTY FOLDER IS THE DOCUMENTED FAILURE PATH, not a defect: `ViewmodelAssetsBoot`
+			-- publishes the folder BEFORE the load and leaves it empty when `InsertService:LoadAsset`
+			-- does not reach the network, which is most gate runs in Studio (design 5.3, and the
+			-- reason every other live asset case here is written the same way). It is NOTED with the
+			-- count rather than skipped silently, so a request can say whether this ran.
+			TestKit.note(
+				string.format(
+					"assets_seam: lever pieces tinted %d of [%s]%s",
+					checked,
+					table.concat(seen, " "),
+					if checked == 0 then " -- nothing was published, so the tint was NOT read back here" else ""
+				)
+			)
+			if checked == 0 then
+				expect(#folder:GetChildren()).to.equal(0)
+			end
+		end)
+
 		it("is frozen, all the way down", function()
 			expect(function()
 				(Assets.ROWS :: any)[1] = nil

@@ -758,6 +758,50 @@ return function()
 	end)
 
 	describe("the keep-outs", function()
+		-- ---------------------------------------------------------------- task 231: measured at last
+		--
+		-- 220a(a) said "REMEASURE THE KEEP-OUT FIRST -- 140 x 140 is OUR guess". It was measured on
+		-- 2026-10-21 in Studio's Device Simulator (iPhone 17 Pro landscape, viewport 750 x 381,
+		-- `TouchEnabled` TRUE) and the engine's jump button is **70 x 70 at screen (655, 291)** --
+		-- half the size of the guess. `Touch.CONFIG.MEASURED` carries that rectangle, and this case
+		-- is the thing that keeps the two honest: our keep-out may be LARGER than the real control
+		-- (conservative, which is the safe direction) and may never be smaller, so a future shrink
+		-- below the real button fails the suite instead of a playtest.
+		it("contains the jump button that was actually measured, at the viewport it was measured at", function()
+			local measured = Touch.CONFIG.MEASURED
+			local viewport = measured.AT_VIEWPORT
+			local jx, jy, jw, jh = Touch.jumpKeepOut(viewport)
+			local real = measured.JUMP_BUTTON
+			expect(jx <= real.x).to.equal(true)
+			expect(jy <= real.y).to.equal(true)
+			expect(jx + jw >= real.x + real.w).to.equal(true)
+			expect(jy + jh >= real.y + real.h).to.equal(true)
+			-- ...AND THE THUMBSTICK'S DRAWN RING, the same way. The engine will take a drag anywhere
+			-- in a 400 x 315 region, which no keep-out of ours could contain and which is why the
+			-- RING is what is compared -- said out loud rather than quietly compared to the easy one.
+			local stick = measured.THUMBSTICK_RING
+			local sx, sy, sw, sh = Touch.thumbstickKeepOut(viewport)
+			expect(sx <= stick.x).to.equal(true)
+			expect(sy <= stick.y).to.equal(true)
+			expect(sx + sw >= stick.x + stick.w).to.equal(true)
+			expect(sy + sh >= stick.y + stick.h).to.equal(true)
+			TestKit.note(
+				string.format(
+					"[touch] measured at %dx%d: jump %dx%d @(%d,%d) inside our %dx%d @(%d,%d)",
+					viewport.X,
+					viewport.Y,
+					real.w,
+					real.h,
+					real.x,
+					real.y,
+					jw,
+					jh,
+					jx,
+					jy
+				)
+			)
+		end)
+
 		it("reads the real TouchGui only on a touch device, and says so when it did not", function()
 			-- A CASE THAT SILENTLY SKIPS IS A FALSE-PASS PATH. `Touch.CONFIG.JUMP` and
 			-- `.THUMBSTICK` are OUR rectangles -- Roblox states the two zones and publishes no size

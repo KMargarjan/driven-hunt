@@ -372,6 +372,12 @@ function Rail.applyLayout(viewport: Vector2, minimapDiameterPx: number, minimapT
 	local holder = frame
 	local _x, y, _w, _h, columns = Rail.layoutFor(viewport, minimapDiameterPx, minimapTopPx, #Rail.BUTTONS, floorY)
 	if holder == nil then
+		-- 220a(d): THE ANSWER IS RECORDED EVEN WITH NO FRAME. It used to return `columns` and leave
+		-- `layoutColumns` at 1, so a world with no rail told `MapUi` to reserve 124 px while
+		-- `Rail.columns()` still said 1 -- two readings of one fact, which is the shape of defect
+		-- `docs/PROJECT_CONTEXT.md` opens with. `layoutViewport` is deliberately NOT written here,
+		-- so the edge trigger below still fires the first time a frame exists.
+		layoutColumns = columns
 		return columns
 	end
 	local box = holder :: Frame

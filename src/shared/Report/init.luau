@@ -667,6 +667,33 @@ function Report.kindWord(kind: string?): string
 	return word
 end
 
+-- THE THREE RED DEER KINDS, named once (task 223's `stag` / `hind` / `calf`). `Report.boarImage`
+-- branches on the same three words and cannot read this set -- it hands each kind a DIFFERENT
+-- picture, which is a mapping and not a membership test -- so this is a set beside a map rather than
+-- a second copy of a list: anything added here has to be added there as well, and `deer.spec` walks
+-- both.
+local DEER_KINDS = { stag = true, hind = true, calf = true }
+
+-- WHAT THE KILL LINE CALLS THE ANIMAL, IN CAPITALS. PURE, and the one place a kind becomes the
+-- SPECIES noun -- `Report.kindWord` answers "what is this kind called" and this answers "what is this
+-- animal called", which are two questions and were one string inside `Hud.killLineText`.
+--
+-- WHY IT EXISTS (task 231). Since task 230 red deer are in every drive, and the kill line built its
+-- noun as `string.upper(kind) .. " BOAR"` -- so a hunter who shot a stag read **"STAG BOAR"**, and a
+-- kill whose kind never arrived read "BOAR" about an animal nobody had identified. A boar kind still
+-- says BOAR (the Director's rule: a string about a boar specifically stays as it is); a deer kind is
+-- its own noun, because a stag IS a deer and "STAG DEER" is not English; and an unknown kind is the
+-- general word, which is ANIMAL.
+function Report.animalWord(kind: string?): string
+	local word = string.lower(tostring(kind or ""))
+	if word == "" then
+		return "ANIMAL"
+	elseif DEER_KINDS[word] then
+		return string.upper(word)
+	end
+	return string.upper(word) .. " BOAR"
+end
+
 -- WHICH IMAGE AN ANIMAL GETS, AND HOW BIG. PURE, and the one place the record's `kind` becomes a
 -- picture -- so the hit card and the drive report cannot show a player two different animals for
 -- one shot. `male` and anything unknown take the boar; `female` takes the sow; `cub` takes the sow

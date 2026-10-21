@@ -3823,3 +3823,67 @@ the cap for nothing. **No code was written for it**: the two frames are in the r
 If you would rather it had been a separate task, say so and I will move the frames out -- but they
 cost nothing and they are what a PASS needs.
 
+
+---
+
+## 2026-10-21 -- Task 231 fix 3: the landscape phone's right column, MEASURED. **A DESIGN DECISION IS NEEDED**
+
+**For the Director and the Designer.** 220a(a) asked for the keep-out to be remeasured first, and
+then for *"the smallest layout change that gives a >=44 px clear band"*. The first half is done and
+it answers the second half with a NO: there is no such change inside `Hud.Rail`.
+
+**What was measured** (Studio's Device Simulator, iPhone 17 Pro landscape, viewport **750 x 381**,
+`UserInputService.TouchEnabled` TRUE; read off the engine's own `TouchGui`; screen y =
+`AbsolutePosition` y + 58):
+
+| rectangle | measured | our constant |
+|---|---|---|
+| `JumpButton` | **70 x 70** @ screen (655, 291) | 140 x 140 @ (610, 241) |
+| `ThumbstickStart` (the drawn ring) | 74 x 74 @ screen (29, 288) | 180 x 180 @ (0, 201) |
+| `DynamicThumbstickFrame` (the drag region) | 400 x 315 | -- |
+
+So the real jump button is **half** the size of our rectangle, and our rectangle CONTAINS it --
+conservative in the safe direction. `Touch.CONFIG.MEASURED` now carries what was read and
+`touch_controls.spec` asserts the containment, so a future shrink below the real control fails the
+suite instead of a playtest.
+
+**The overlap is real, and it is worse than 220a(a)'s estimate.** The folded rail is
+`(634..738, 244..348)` and the real button is `(655..725, 291..361)`: the rail covers the **top 57 px
+of a 70 px button** and leaves **13 px**, not 32. Photographed:
+`.screenshots/231-before-rail-jump-750x381.png` -- RELOAD / MAP / AMMO / REPORT sit exactly where the
+jump button is and the button cannot be seen at all.
+
+**And no fold can clear it.** `leftStackRight` is 456 (the toast feed), so `Touch.placement` is
+`above-jump` below 784 px wide and `left-of-jump` above it, and the three viewports that matter give
+three different answers:
+
+- **750 x 381** (a real phone): a single row of four at `(522..738, 244..292)` WOULD clear the button
+  by 69 px, and the cluster is at `(566..734, 61..221)`, so it would miss it. But `Rail.columnsFor`
+  can only reach 4 columns through its *"fits in none of them"* fallback, and at
+- **800 x 400** that same fallback draws the 216 px row at `(572..788, 244..292)` straight over the
+  **AIM** button at `(576..640, 224..288)` -- a worse defect than the one being fixed. Bounding the
+  fold by the free width instead caps it at 2 columns at BOTH viewports (the jump keep-out itself is
+  in the band), so it fixes nothing;
+- **896 x 414** (a Pro Max) already clears the real button by 46 px and needs nothing at all.
+
+**The right column at 750 x 381 is TRIPLE-booked, which is the real finding.** The cluster
+`(566..734, 61..221)` already overlaps the minimap `(642..738, 140..236)` today -- measured in the
+same session, and the minimap is not visible in the frame at all -- so the jump button is one of
+three overlaps, not one. Every way out is vertical and belongs to another owner:
+
+1. **A short-screen top band** -- the minimap smaller or absent under ~420 px of height. `MapUi` owns
+   `diameterFor` and `MINIMAP_TOP`, and the rail's top is derived from them, so the rail follows for
+   free. With no minimap the rail runs `148..252` in two columns and clears the real button by 39 px,
+   or `148..196` in one row and clears it by 95.
+2. **Separating "how far down" from "how far left"** in the rail's blocker list: the jump button is a
+   FLOOR and the cluster is a WIDTH, and `Rail.floorFor` is handed one undifferentiated list today
+   (it is also raised by a blocker ABOVE the rail, which is how the current fold is reached at all).
+   That is an interface change the Architect owns.
+
+Both are bigger than this task, and `docs/design/mobile-controls.md` section 14.4 already names the
+landscape top band and right column as out of scope. **Nothing is smuggled in:** task 231 ships the
+measurement, the containment assertion and 220a(c)/(d), and leaves the layout where it is. Queued as
+**231b**.
+
+**Karen has not seen a phone frame of any of this.** Nothing here blocks the merge: before task 220
+those two rail buttons were not on the screen at all.

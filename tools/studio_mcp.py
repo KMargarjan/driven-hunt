@@ -51,7 +51,7 @@ Usage:
   python tools/studio_mcp.py studios        # list the Studio instances StudioMCP can see (read-only)
   python tools/studio_mcp.py flags [...]    # the feature-flag switch; `tools/flags.py` is the wrapper
   python tools/studio_mcp.py manifest       # after `wally install`: rewrite the package .sha256 pins (commit)
-  python tools/studio_mcp.py capture <name> [x,y,z] [x,y,z]   # save a screenshot as rule-5 evidence
+  python tools/studio_mcp.py capture <name> [x,y,z] [x,y,z] [--place dev|forest]  # rule-5 evidence
 
 Exit codes of `test` and `test2`: 0 PASS on a clean tree · 1 FAIL · 2 REFUSED (Studio not in Edit
 mode) · 3 PASS on a dirty tree (flagged: not valid evidence).
@@ -592,6 +592,30 @@ Screenshots as evidence (Task 7)
   `role` picks the window: `edit` (the default), `server`, `client`, or `client:<LocalPlayer name>`
   such as `client:Player2`. The editor is recognised by its mode being Edit and a test process by
   asking it, through the same `probe_role` `test2` classifies with -- never by name.
+
+  AND IT IS PINNED TO A PLACE, EXACTLY AS `flags` IS SINCE TASK 226 (Task 231, 220a(b)): the DEV
+  place unless `--place dev|forest|<id>` says otherwise, resolved by a LIVE `game.PlaceId` read, and
+  the id it actually shot is printed beside the one that was asked for. Until this, the role was the
+  only filter -- so with Karen's Forest Test open beside DEV both answered as `edit` and the frame
+  came from whichever the listing named first. It did: tasks 220 and 230 both quoted a DEV frame
+  that was shot in her playtest world, while every other call in the same session went to DEV. A
+  Studio that is PLAYING cannot answer in the Edit DataModel, so the place is read in whichever one
+  the process has (`probe_role`'s own answer), which is what keeps a capture DURING a playtest --
+  most of them -- working.
+
+The Device Simulator guard (Task 231, 220a(b))
+  Studio's Device Simulator is state that OUTLIVES the session that set it, and a run against an
+  emulated device looks exactly like a code defect: task 220 lost three gate runs to a leftover
+  Meta Quest 3 profile, where the client runner never reported at all and `zz_drive_boundary` then
+  failed on the SERVER with "a client never reported". `test` and `test2` now REFUSE to start while
+  a device profile is active, beside the flag and pose guards and for the same reason.
+
+  MEASURED, in the EDIT DataModel, 2026-10-21: simulator OFF reports touch=false, keyboard=true,
+  mouse=true; simulator ON reports touch=true, keyboard=false, mouse=false. The viewport changes too
+  (791x322 -> 750x381) but is NOT used, because it is also whatever the Studio window happens to be.
+  "A touchscreen AND no keyboard" is the emulated device; a touchscreen laptop running Studio still
+  reports a keyboard. There is no API to turn it off -- it is a UI toggle, Test -> Device Simulator
+  -- so the guard refuses and says where the toggle is, exactly as the pose-editor guard does.
 
 Client-side testing (camera, input, cursor, UI)
   Client specs run inside the real player client and can assert camera, input, cursor and UI state,
@@ -1467,6 +1491,28 @@ return if type(value) == "string" then value else ""
 QUERY_POSE_EDITOR = """
 local found = workspace:FindFirstChild("DHPoseEditor")
 return if found then found:GetFullName() else ""
+"""
+
+# IS STUDIO EMULATING A DEVICE? (220a(b), Task 231.) Studio's Device Simulator is state that
+# OUTLIVES the session that set it, the harness could not see it, and a run against an emulated
+# device looks exactly like a code defect: task 220 lost THREE gate runs to a leftover Meta Quest 3
+# profile, where the client runner never reported at all and `zz_drive_boundary` then failed on the
+# SERVER with "a client never reported".
+#
+# MEASURED, in the EDIT DataModel, 2026-10-21 (which is what makes this a guard and not a guess):
+#
+#     simulator OFF   touch=false  mouse=true   keyboard=true   viewport 791x322 (the editor window)
+#     simulator ON    touch=true   mouse=false  keyboard=false  viewport 750x381 (the DEVICE)
+#
+# So the engine's own answer distinguishes them, in Edit, before Play is ever started. The viewport
+# is NOT used -- it is also whatever the Studio window happens to be -- and "touch" alone is not
+# either: a real touchscreen laptop running Studio would report TouchEnabled with a keyboard as well.
+# The emulated device is the one that reports a touchscreen AND NO KEYBOARD.
+QUERY_EMULATED_DEVICE = """
+local uis = game:GetService("UserInputService")
+local cam = workspace.CurrentCamera
+return string.format("%s|%s|%s|%s", tostring(uis.TouchEnabled), tostring(uis.KeyboardEnabled),
+    tostring(uis.MouseEnabled), if cam then tostring(cam.ViewportSize) else "?")
 """
 
 # Set or clear it. The JSON text is passed as a Luau STRING LITERAL built by json.dumps, so this
@@ -2911,6 +2957,40 @@ def pose_override(studio, studio_id=None):
     return studio.query("Edit", QUERY_POSE_OVERRIDE, studio_id=studio_id).strip()
 
 
+def emulated_device(studio, studio_id=None):
+    """What the EDIT DataModel says about the input devices -> "" when nothing is emulated, else a
+    description of what the Device Simulator is pretending to be. Never raises: a Studio that cannot
+    answer is reported as "" rather than as an emulated device, because refusing a run on a failed
+    probe would be worse than the thing the probe is for."""
+    try:
+        answer = str(studio.query("Edit", QUERY_EMULATED_DEVICE, studio_id=studio_id) or "").strip()
+    except RuntimeError:
+        return ""
+    touch, _, rest = answer.partition("|")
+    keyboard, _, rest = rest.partition("|")
+    mouse, _, viewport = rest.partition("|")
+    if touch == "true" and keyboard == "false":
+        return f"touch={touch} keyboard={keyboard} mouse={mouse} viewport={viewport}"
+    return ""
+
+
+def check_no_emulated_device(studio, check, label):
+    """The Device Simulator's guard (220a(b)), the same rule and the same refusal as the flag and
+    pose guards one layer up: state that outlives a session and silently invalidates a run.
+
+    REFUSE, DO NOT TURN IT OFF. There is no API for it -- it is a Studio UI toggle, Test -> Device
+    Simulator -- so the harness could not undo it even if undoing someone else's Studio were the
+    right thing to do."""
+    found = emulated_device(studio)
+    ok = check("Studio is not emulating a device (Test -> Device Simulator is OFF)", not found,
+               found or "the editor reports a keyboard, so no device profile is active")
+    if not ok:
+        print(f"[{label}] Studio's DEVICE SIMULATOR is on, so the client would play in an emulated "
+              "viewport and may never report at all (task 220 lost three runs to exactly this).")
+        print(f"[{label}]   turn it off: Studio menu Test -> Device Simulator, then run again")
+    return ok
+
+
 def pose_editor(studio, studio_id=None):
     """The hand editor's rig in the EDIT DataModel, by full name, or "" when there is none."""
     return studio.query("Edit", QUERY_POSE_EDITOR, studio_id=studio_id).strip()
@@ -3362,6 +3442,8 @@ def run_test(studio, scope=None):
     if not check_no_pose_override(studio, check, "harness"):
         return verdict()
     if not check_no_pose_editor(studio, check, "harness"):
+        return verdict()
+    if not check_no_emulated_device(studio, check, "harness"):
         return verdict()
 
     scenarios = load_scenarios()
@@ -3835,7 +3917,14 @@ def studio_for_role(studio, role, place=None):
     if len(entries) == 1:
         lone = entries[0]["id"]
         if place is not None:
-            at, at_name, why = place_of(studio, lone)
+            # IN WHICHEVER DATAMODEL IT CAN ANSWER (Task 231). The Edit DataModel is not reachable
+            # while Play runs, so asking for it was the same as refusing every capture taken during
+            # a playtest -- which is what `capture` is mostly for. The MODE decides which to ask.
+            try:
+                lone_mode = studio.mode(studio_id=lone)
+            except RuntimeError:
+                lone_mode = ""
+            at, at_name, why = place_of(studio, lone, "Edit" if lone_mode == "Edit" else "Client")
             if at != place:
                 return None, ("the only connected Studio is %s, not the place asked for (%s)"
                               % (f"place {at} ({at_name or 'unnamed'})" if at
@@ -3862,19 +3951,36 @@ def studio_for_role(studio, role, place=None):
         except RuntimeError:
             mode = ""
         if mode == "Edit":
-            found.append(("edit", "", studio_id))
+            found.append(("edit", "", studio_id, "Edit"))
             continue
         # A Play process: ask it what it is, exactly as classify_studios does.
-        got, player, _, _ = probe_role(studio, studio_id, timeout=20)
-        found.append((got or "unknown", player, studio_id))
-    for got, player, studio_id in found:
+        got, player, datamodel, _ = probe_role(studio, studio_id, timeout=20)
+        found.append((got or "unknown", player, studio_id, datamodel or "Client"))
+    wrong_place = []
+    for got, player, studio_id, datamodel in found:
         if got != wanted:
             continue
         if wanted_player and player != wanted_player:
             continue
+        # THE PLACE IS CHECKED HERE TOO (Task 231), and until then it was NOT -- which is the whole
+        # of the `capture` fault 220a(b) reports: with Karen's Forest Test open beside DEV, two
+        # Studios answer as `edit` and this loop returned whichever the listing named first, so a
+        # frame quoted as DEV evidence was shot in her playtest world (tasks 220 and 230). It is the
+        # same class task 226 fixed for `flags.py`, in the other resolver. The DataModel comes from
+        # the probe above -- the Edit DataModel is unreachable while Play runs -- so this works for
+        # a capture taken DURING a playtest, which is most of them.
+        if place is not None:
+            at, at_name, why = place_of(studio, studio_id, datamodel)
+            if at != place:
+                wrong_place.append("%s=%s" % (studio_id[:8], ("%s (%s)" % (at, at_name or "unnamed"))
+                                              if at else "unreadable: " + why))
+                continue
         return studio_id, ""
     shape = ", ".join(f"{got}{'/' + player if player and player != 'nil' else ''}={sid[:8]}"
-                      for got, player, sid in found)
+                      for got, player, sid, _ in found)
+    if wrong_place:
+        return None, ("every Studio that answered as %r has another place open (%s); place %s was "
+                      "asked for" % (role, "; ".join(wrong_place), place))
     return None, f"no Studio answered as {role!r}; connected: {shape}"
 
 
@@ -4049,6 +4155,8 @@ def run_test2(studio, wait_seconds=180):
     if not check_no_pose_override(studio, check, "harness2"):
         return verdict()
     if not check_no_pose_editor(studio, check, "harness2"):
+        return verdict()
+    if not check_no_emulated_device(studio, check, "harness2"):
         return verdict()
 
     scenarios = load_scenarios()
@@ -5488,6 +5596,50 @@ def selftest():
     ok("...and reads it out by the name a person can match against the title bar",
        name == "Driven Hunt Forest Test", repr(name))
 
+    # 9e. CAPTURE'S OWN RESOLUTION (Task 231, 220a(b)). TWO editors, both answering as `edit`: the
+    # role alone cannot tell them apart, which is why tasks 220 and 230 quoted a DEV frame that was
+    # shot in the Forest Test. These drive the resolver `capture` now calls, both orders, so a
+    # listing order can never be what makes it pass.
+    for label, entries in (("the Forest Test listed FIRST", both_forest_first),
+                           ("DEV listed first", both_dev_first)):
+        got, why = studio_for_role(PlacedStudio(entries), None, place=HARNESS_PLACE_ID)
+        ok(f"capture with two editors, {label}: the DEV place is chosen", got == DEV,
+           f"{got!r}, {why!r}")
+        got, why = studio_for_role(PlacedStudio(entries), None, place=FOREST_PLACE_ID)
+        ok(f"...and --place forest with {label} is chosen on being asked", got == FOREST,
+           f"{got!r}, {why!r}")
+    got, why = studio_for_role(PlacedStudio(both_dev_first), None, place="999999999")
+    ok("capture asked for a place nobody has open is REFUSED, not given the first editor",
+       got is None and "999999999" in why, f"{got!r}, {why!r}")
+    # ...and the refusal says what it DID find, which is the difference between a dead end and a fix.
+    ok("...and the refusal names the places it found instead",
+       got is None and (HARNESS_PLACE_ID in why or FOREST_PLACE_ID in why), repr(why))
+    # The OLD behaviour, pinned so it cannot come back: with no place asked for, the first editor is
+    # still the answer -- that is what every other caller of this function relies on.
+    got, _ = studio_for_role(PlacedStudio(both_forest_first), None)
+    ok("with no place asked for, the listing's first editor is still the answer", got == FOREST,
+       repr(got))
+
+    # 9f. THE DEVICE SIMULATOR GUARD (Task 231, 220a(b)), against the answers MEASURED on 2026-10-21.
+    class InputStudio:
+        def __init__(self, answer):
+            self.answer = answer
+
+        def query(self, datamodel, code, studio_id=None):
+            if code == QUERY_EMULATED_DEVICE:
+                return self.answer
+            raise RuntimeError("unexpected query")
+
+    ok("the Device Simulator OFF (touch false, keyboard true) is not an emulated device",
+       emulated_device(InputStudio("false|true|true|791, 322")) == "", "off reads as on")
+    ok("the Device Simulator ON (touch true, keyboard false) IS one, and says what it saw",
+       "touch=true" in emulated_device(InputStudio("true|false|false|750, 381")),
+       repr(emulated_device(InputStudio("true|false|false|750, 381"))))
+    ok("a touchscreen laptop (touch AND keyboard) is NOT refused",
+       emulated_device(InputStudio("true|true|true|1920, 1080")) == "", "a real touchscreen refused")
+    ok("a Studio that cannot answer is not called an emulated device",
+       emulated_device(InputStudio(None)) == "", "an unreadable probe refused the run")
+
     # 10. The scenario file the replay is made of still parses and still refuses what it refused.
     if os.path.exists(SCENARIO_FILE):
         data = load_scenarios()
@@ -5540,9 +5692,21 @@ def main(argv):
         if rest:
             sys.exit("usage: python tools/studio_mcp.py test [--scope auto|all|"
                      + "|".join(sorted(SCOPE_SPECS)) + "]")
+    # `capture [... ] [--place dev|forest|<id>]` (Task 231). Parsed off the END, before the count is
+    # checked, so every existing form keeps working unchanged.
+    capture_place = None
+    if argv[1] == "capture":
+        rest = list(argv[2:])
+        if "--place" in rest:
+            at = rest.index("--place")
+            if at + 1 >= len(rest):
+                sys.exit("[capture] usage: --place dev|forest|<place id>")
+            capture_place = rest[at + 1]
+            del rest[at:at + 2]
+        argv = argv[:2] + rest
     if argv[1] == "capture" and not 3 <= len(argv) <= 6:
         sys.exit("usage: python tools/studio_mcp.py capture <name> [camera x,y,z] [look-at x,y,z] "
-                 "[edit|server|client|client:<PlayerName>]")
+                 "[edit|server|client|client:<PlayerName>] [--place dev|forest|<place id>]")
     if argv[1] == "selftest":
         # No Studio, no network, no place -- the helpers, plus the real run_flags and replay_input
         # against a scripted Studio. See the docstring's `selftest` paragraph.
@@ -5587,9 +5751,16 @@ def main(argv):
             look_at = parse_vector(rest[1]) if len(rest) > 1 else None
             if (camera is None) != (look_at is None):
                 sys.exit("give both a camera and a look-at position, or neither")
-            studio_id, why = studio_for_role(studio, role)
+            # THE PLACE IS CHOSEN BY THE CALLER, NEVER BY WHICHEVER STUDIO ANSWERED FIRST
+            # (Task 231, 220a(b)). This resolved the Studio by ROLE alone, so with Karen's Forest
+            # Test open beside DEV two Studios answered as `edit` and the frame was shot in
+            # whichever the listing named first -- it went to the Forest Test in tasks 220 and 230
+            # while every other call in the same session went to DEV. Same rule as `flags.py` since
+            # task 226: the DEV place unless `--place` says otherwise.
+            place_id, place_label = place_choice(capture_place or "dev")
+            studio_id, why = studio_for_role(studio, role, place=place_id)
             if studio_id is None:
-                print(f"[capture] {why}")
+                print(f"[capture] {place_label} ({place_id}): {why}")
                 return 1
             saved, text = studio.capture(path, camera, look_at, studio_id=studio_id)
             if not saved:
@@ -5604,8 +5775,14 @@ def main(argv):
             print(f"[capture] wrote {os.path.relpath(saved, REPO)} "
                   f"(mode: {mode_now}, studio {studio_id[:8]}"
                   f"{', role ' + role if role else ''}, "
-                  f"place {at or '?'}{' ' + at_name if at_name else ''}). "
+                  f"place {at or '?'}{' ' + at_name if at_name else ''}, asked for {place_id}). "
                   "Look at it before you claim what it shows (rule 5).")
+            if at and at != place_id:
+                # BELT BESIDE THE BRACES: the resolver already refuses a Studio with another place
+                # open, so this can only fire if the place changed under the call. A frame quoted
+                # for the wrong world is the fault this whole paragraph exists to stop.
+                print(f"[capture] WARNING: that frame came from place {at}, not {place_id}.")
+                return 1
             return 0
         if cmd == "studios":
             # The one command that answers "can this harness ever drive two players?" (Task 30).

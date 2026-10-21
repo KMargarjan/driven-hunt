@@ -1529,13 +1529,18 @@ end
 -- THE HUD TELLS, THIS MODULE WRITES -- the `setPush` / `setTarget` shape, and for their reason:
 -- `Hud.renderObjective` is the one evaluation and `MapUi.luau` may not require `init.luau`.
 -- Edge-triggered, so a per-frame caller costs one comparison and never a relayout.
-function MapUi.setRailColumn(px: number?)
+-- 220a(c): IT MUST NOT CLEAR A PINNED VIEWPORT. `MapUi.applyLayout(nil)` means *"follow the real
+-- screen"* -- it writes `viewportOverride` -- so calling it with no argument from here threw away a
+-- viewport a spec (or a measurement pass) had pinned, and the layout snapped back to the Studio
+-- window mid-case. The pin is read back and handed in again, so this function changes the COLUMN and
+-- nothing else.
+function MapUi.setRailColumn(px: number?, viewportOverrideNow: Vector2?)
 	local next_ = if type(px) == "number" and px > 0 then px else nil
 	if railColumnPx == next_ then
 		return
 	end
 	railColumnPx = next_
-	MapUi.applyLayout()
+	MapUi.applyLayout(viewportOverrideNow or viewportOverride)
 end
 
 function MapUi.target(): (Vector2?, string?)

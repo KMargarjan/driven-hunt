@@ -196,6 +196,26 @@ local function publishGunPiece(name: string, key: string, into: Folder?)
 	if row.textureId ~= nil or row.fallbackColor ~= nil then
 		showItsOwnColour(worn, row, worn.Material)
 	end
+	-- ...AND THE ROW'S TINT, IF IT HAS ONE (task 231). ONE PASS FOR EVERY GUN PIECE, keyed on the
+	-- manifest -- not a patch on the one mesh that was complained about -- because the next pale
+	-- upload will arrive the same way: a row says what its map must be multiplied by, and this is
+	-- the only place that multiplication happens.
+	--
+	-- IT GOES ON THE `SurfaceAppearance` AND NOT ON THE PART. Measured, and it is the whole reason
+	-- the field exists: with a `SurfaceAppearance` present a `MeshPart.Color` write is IGNORED
+	-- (painting the lever's drawn clone pure red changed not one pixel -- the `tint` field's own
+	-- comment carries the three probes), which is the fact `src/server/Boar/Body.luau` already
+	-- writes the boar's coat through. A part whose appearance `showItsOwnColour` has just destroyed
+	-- has no map left to multiply, so there the tint lands on `Color`, which is what a `TextureID`
+	-- is drawn through.
+	if row.tint ~= nil then
+		local appearance = worn:FindFirstChildOfClass("SurfaceAppearance")
+		if appearance then
+			appearance.Color = row.tint
+		else
+			worn.Color = row.tint
+		end
+	end
 	worn.Anchored = true
 	worn.CanCollide = false
 	worn.CanQuery = false

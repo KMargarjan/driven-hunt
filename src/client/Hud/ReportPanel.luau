@@ -571,7 +571,11 @@ function ReportPanel.detailCellsFor(row: any): { [string]: string }
 		-- THE PLAYER'S WORD AND NOT THE WIRE'S KEY (`Report.kindWord`, task 201 part 3): this column
 		-- printed `CUB` while the start card said `piglet`, which is fault 2 of the Designer's
 		-- start-card spec -- *"a new player reads them as two animals"*.
-		kind = string.upper(Report.kindWord((row and row.kind) or "boar")),
+		-- ...AND A ROW WITH NO KIND SAYS `ANIMAL`, NOT `BOAR` (task 231): since task 230 a drive
+		-- carries red deer too, so naming the species of an animal whose kind never arrived is this
+		-- column guessing. `Report.kindWord` returns an unknown word as it came, which is why the
+		-- fallback is the only place this decision is made.
+		kind = string.upper(Report.kindWord((row and row.kind) or "animal")),
 		-- THE SCREEN'S WORD AND NOT THE WIRE'S. The record says "down" / "wounded"; the board used
 		-- to print `LOST` and the mockup (board 4) says `WOUNDED`, which is Karen's own
 		-- *"wounded-lost"* -- an animal somebody hit that the drive never accounted for. ONE word,
