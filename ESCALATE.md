@@ -1,8 +1,39 @@
 # Escalations
 
-## 2026-10-21 - Task 229 round 3: the look HAPPENED. **Four frames are waiting for your eyes.**
+## 2026-10-21 - Task 229: **CLOSED. Reviewer PASS at round 3.** Nothing is outstanding.
 
-### `test2` -- CLOSED. Both gates green at one commit
+Round 3 passed (`reviews/task-229/RESULT.md` line 1 = `PASS` at `8b64034b`), after the Director
+looked at all four frames and confirmed they match the Designer's `shop2-role.png`. Both gates are
+green at one commit:
+
+```
+[harness]  PASS: 33/33 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree) scope=all
+[harness2] PASS: 35/35 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree)
+```
+
+**Three rounds, four blocking findings, all fixed:** the live wish memo read after the assignment
+had spent it (round 1); the control built and never rendered, and the phone surface that never
+appeared (round 2). Round 3 found none.
+
+**The look item that was open since round 1 is closed too.** The two surfaces were photographed in
+the Forest Test, the Director inspected them, and the place was left exactly as found -- attributes
+read first and last and identical, no attribute written, nothing persistent written by the purchase,
+Play stopped, Edit, window closed.
+
+**Six non-blocking notes are queued, not fixed** (rule 10): `229g` the Director's own compass-bar
+overlap, `229h` the nineteen client cases nested inside another case's body, `229i` three
+assertions weaker than their names, `229j` the two tracks sized from one width. **229h is the one I
+would do first** -- those cases run today only because a TestEZ `it` inherits its enclosing node's
+environment, and the day that changes they stop running with the suite still green.
+
+**The residual gap the frames do NOT close, carried forward rather than papered over:** frame 3's
+panel was opened by a probe, because a headless session cannot trigger a `ProximityPrompt`; and no
+frame shows a half being PRESSED -- the asks went through the same remote the half fires, so the
+`Activated` connection itself is proved by neither a spec nor a picture. It is the limit
+`PadPanel.press` and `ShopPanel.press` have always carried, and it is written into
+`reviews/task-229/REQUEST.md` section 0 where the Reviewer read it.
+
+## `test2` -- CLOSED. Both gates green at one commit
 
 ```
 [harness]  PASS: 33/33 checks @ 2c45793cdbb691c12fc2060c0fa5dac3b579d8db (clean tree) scope=all
