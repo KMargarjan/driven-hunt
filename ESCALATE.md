@@ -1,23 +1,42 @@
 # Escalations
 
-## 2026-10-21 - Task 229 round 2: NEEDS DIRECTOR - `test2` at `SHA_SHORT`
+## 2026-10-21 - Task 229 round 2: NEEDS DIRECTOR - `test2` at `<the branch head>`
 
-**`NEEDS DIRECTOR: test2 for task 229 at SHA_FULL`**
+**`NEEDS DIRECTOR: test2 for task 229 at the branch head`** -- which is `2fcaf813` plus whatever
+paperwork commit carries this entry, i.e. **just run it on the branch as it stands.**
 
 Round 1's Reviewer found one blocking defect, it was right, and the fix touches
-`src/server/Match/` -- so the two-player line is needed again at the new commit. Round 1's code
-passed `test2` twice at `9d03e712`; this is a different commit and that line does not carry over.
+`src/server/Match/` -- so the two-player line is needed again. Round 1's code passed `test2` twice
+at `9d03e712`; this is a different commit and that line does not carry over.
 
-The one-player gate is green on the clean tree at the commit below, and **it was run at that exact
-commit so both lines name one sha** -- `tools/agents.py`'s `pasted()` only accepts a harness line
-whose sha prefixes the request's `Code commit:`, which is what cost an extra run last round (L-034):
+The last commit to touch `src/`, `tests/` or `tools/` is **`0bcb12c6`**, and the one-player gate was
+green there on the clean tree:
 
 ```
-[harness] PASS: 33/33 checks @ SHA_FULL (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 0bcb12c6c62a2af9d760c505aa911b0a26fa7e47 (clean tree) scope=all
 ```
 
-Log: `<runs-dir>/test-t229-ROUND2LOG.log`. Run `python tools/studio_mcp.py test2` on the clean tree;
-nothing else is outstanding, and I will write the round-3 review request from that line.
+Log: `<runs-dir>/test-t229-r2.log`.
+
+### Why no sha is written into the request yet, and why that is the cheaper order
+
+`tools/agents.py`'s `pasted()` only accepts a harness line whose sha PREFIXES the request's
+`Code commit:`, so the `[harness]` and `[harness2]` lines must name the SAME commit (L-034, which
+cost an extra run last round). But every commit I make to write a sha down MOVES the head, so there
+is no commit I can name in advance that `test2` will also name -- it is a fixed point I cannot
+reach from here.
+
+**So the order is: you run, then I write.**
+
+1. `python tools/studio_mcp.py test2` on the branch as it stands, clean tree. Whatever HEAD is then
+   is the code commit -- call it `H`.
+2. I run `python tools/studio_mcp.py test` at that same `H`, so the one-player line names it too.
+3. I fill both lines and `Code commit: H` into `reviews/task-229/REQUEST.md` and commit that --
+   paperwork after the code commit, which the gate allows -- and run the review.
+
+That is one `test` run after yours and no wasted one before it. If you would rather I pre-ran it,
+the alternative is to pin `0bcb12c6` and run `test2` with HEAD detached there, which risks the
+Rojo branch-switch crash this repo has already lost a session to -- not worth it for one run.
 
 ### What round 1 found, and why it mattered
 

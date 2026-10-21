@@ -3,19 +3,22 @@
 Task: 229
 Round: 2
 Base: `963aaa37` (main, after task 228's shop round 2)
-Code commit: `SHA_FULL`
+Code commit: **not yet fixed -- see below. THIS REQUEST IS NOT READY FOR THE REVIEWER.**
 
-Harness, on the clean tree, at that commit:
+The last commit to touch `src/`, `tests/` or `tools/` is `0bcb12c6`, and the one-player gate is
+green there on the clean tree (`<runs-dir>/test-t229-r2.log`):
 
 ```
-[harness] PASS: 33/33 checks @ SHA_FULL (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 0bcb12c6c62a2af9d760c505aa911b0a26fa7e47 (clean tree) scope=all
 ```
 
-`[harness2]`: **NOT YET RUN AT THIS COMMIT.** Round 1's code passed it twice at `9d03e712`
-(35/35, server 1979/0, shooter 514/0, driver 508/0 -- `<runs-dir>/test2-t229c.log`, `test2-t229d.log`),
-but round 2 changes `src/server/Match/`, so the line is needed again for the new commit.
-`ESCALATE.md`: `NEEDS DIRECTOR: test2 for task 229 at SHA_SHORT`. The one-player line above was run
-at this exact commit so the two will name one sha, which is what `tools/agents.py` requires (L-034).
+**`[harness2]` is outstanding.** Round 1's code passed it twice at `9d03e712` (35/35; server
+1979/0, shooter 514/0, driver 508/0 -- `<runs-dir>/test2-t229c.log`, `test2-t229d.log`), but round 2
+changes `src/server/Match/`, so the line is needed again -- and `tools/agents.py` requires both
+lines to name ONE commit (L-034). Every commit that writes a sha down moves the head, so the sha is
+fixed in this order instead: **the Director runs `test2` on the branch as it stands; I then run
+`test` at that same head, fill both lines and `Code commit:` here, and run the review.**
+`ESCALATE.md` carries it as `NEEDS DIRECTOR: test2 for task 229 at the branch head`.
 
 ---
 
