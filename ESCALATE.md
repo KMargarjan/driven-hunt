@@ -1,8 +1,60 @@
 # Escalations
 
-## 2026-10-21 - Task 229 round 2: `test2` CLOSED. **One item still open: KAREN HAS NOT LOOKED.**
+## 2026-10-21 - Task 229 round 3: NEEDS DIRECTOR - `test2`. **And Karen still has not looked.**
 
-### 1. `test2` -- CLOSED, no Director action left
+### 1. `NEEDS DIRECTOR: test2 for task 229 at the branch head`
+
+Just run it on the branch as it stands. Round 2's Reviewer found two blocking defects, both right,
+and the fix touches `src/client/Hud/` -- so the line is needed again, and round 2's line was for a
+different commit.
+
+The last commit to touch `src/`, `tests/` or `tools/` is **`929270d8`**, green there on the clean
+tree (`<runs-dir>/test-t229-r3.log`):
+
+```
+[harness] PASS: 33/33 checks @ 929270d859ccf962ab4887540629fece394adce0 (clean tree) scope=all
+```
+
+Same order as last round, for the same reason (both lines must name one commit, and every commit
+that writes a sha down moves the head): **you run `test2`; I then run `test` at that same head, fill
+both lines in, and run the review.**
+
+**Round 3 is the last round.** If its review finds anything blocking, that is the `MAX_ROUNDS` cap
+and it comes back here as an escalation rather than a fourth round.
+
+### 2. **NEEDS KAREN -- and round 2 is the argument for it**
+
+Round 2's finding 1 was that **the switch was never rendered at all**: built, positioned, painted,
+hit-tested by the specs through `ZIndex`, and `Visible = false` the whole time. A player would have
+seen `NEXT DRIVE` and `A STAND ON THE LINE` around an empty gap. Every number I measured was right;
+the control was not on screen.
+
+**That is exactly what one frame would have caught in a second**, and I could not take one -- the
+DEV place has no lobby, no truck pads and no shop counter, so neither surface can be put on screen
+there, and the StudioMCP thread cannot `require`, so no probe can open a panel. I said so in rounds
+1 and 2; round 2 is what that gap costs.
+
+So this is no longer only Karen's taste question. **Somebody has to look at these two screens in
+the Forest Test before this merges**, and the clicks are the Director's because the task's dispatch
+says DEV only:
+
+1. open Studio on **Driven Hunt Forest Test**, in Edit;
+2. `python tools/flags.py` FIRST and write down what is set -- those flags are Karen's playtest
+   setup, not ours (L-056) -- then set `SHOP` and `COINS` on for that place;
+3. grant `ALWAYS HUNTER` to the test player, start Play, walk onto a truck pad: the dialog should be
+   487 px tall with `NEXT DRIVE`, the two halves, and `A STAND ON THE LINE` between the header and
+   the four size rows;
+4. walk into the lodge and open the shop: `ALWAYS HUNTER` should be the one 124 px row with the
+   switch ON it;
+5. capture both, **restore the flags exactly as they were**.
+
+Her three feel questions are queued as `TASKS.md` 229d. The question I asked last round and am
+asking again, because round 3 is the last one: **does her look happen before this is treated as
+done, or does it merge on the gates and the review with her look as a follow-up?** Either is
+defensible under `feedback-merge-unseen-ok` -- but after round 2 I would not merge this one unseen,
+and that is my recommendation rather than my decision.
+
+## 1. `test2` -- CLOSED, no Director action left
 
 Both gates are green on the clean tree at **one** commit, `c1084110`:
 

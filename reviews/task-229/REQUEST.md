@@ -1,31 +1,63 @@
 # Task 229 — the role switch: an always-hunter owner can choose to beat, one drive at a time
 
 Task: 229
-Round: 2
+Round: 3
 Base: `963aaa37` (main, after task 228's shop round 2)
-Code commit: `c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2`
+Code commit: **pending the Director's `test2` -- see below.**
 
-Both gates, on the clean tree, at that one commit:
+The last commit to touch `src/`, `tests/` or `tools/` is **`929270d8`**, and the one-player gate is
+green there on the clean tree (`<runs-dir>/test-t229-r3.log`):
 
 ```
-[harness]  PASS: 33/33 checks @ c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2 (clean tree) scope=all
-[harness2] PASS: 35/35 checks @ c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2 (clean tree)
+[harness] PASS: 33/33 checks @ 929270d859ccf962ab4887540629fece394adce0 (clean tree) scope=all
 ```
 
-`<runs-dir>/test-t229-r2c.log` and `<runs-dir>/test2-t229e.log` (server 1981/0, shooter 514/0,
-driver 508/0). `c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2` is a PAPERWORK commit: the last one to touch `src/`, `tests/` or `tools/` is
-`0bcb12c6`, and `git diff --name-only 0bcb12c6..c1084110500d3d06d0a9d0d5ed6d5ddaf1ab93d2` is exactly `ESCALATE.md`, `TASKS.md` and
-`reviews/task-229/REQUEST.md`. Naming the later commit only makes the bound stricter.
+`[harness2]` is needed again -- round 3 changes `src/client/Hud/`, and round 2's line was for a
+different commit. Both lines must name ONE commit (`tools/agents.py`'s `pasted()`, L-034), and every
+commit that writes a sha down moves the head, so the order is the one that worked last round:
+**the Director runs `test2` on the branch as it stands; I then run `test` at that same head, fill
+both lines and `Code commit:` here, and run the review.** `ESCALATE.md` carries it.
 
-**One flake on the way, named rather than buried.** The first `test` at this commit came back
-`FAIL 31/33` on `camera_client.spec:1504` -- the task-93 case that claims the left hand's place on
-the BARRELS does not change when the gun breaks open. It measured 0.2695 studs against a `< 1e-3`
-claim; every other observation of this identical tree reads `0.0000`. It is not reachable from this
-branch: **229 changes no camera, viewmodel, pose or gun file at all**
-(`git diff --name-only 963aaa37...HEAD` has no such path), the same tree was 33/33 at `0bcb12c6`
-(paperwork-only delta), and this very sha passed `test2` with shooter 514/0 -- and that spec runs on
-the client, so the case passed at this commit in the Director's own run. The re-run was 33/33 with
-the note back at `0.0000`. Queued as `TASKS.md` 229f, with the log kept.
+Round 2's gates, for the record: `[harness] 33/33` and `[harness2] 35/35`, both at `c1084110`.
+
+---
+
+## Round 2's verdict, and what changed
+
+`reviews/task-229/RESULT.md` round 2: **two blocking findings, both right, and both at the one
+thing this task has never been able to photograph.**
+
+**Finding 1 -- the control was never rendered, on either surface.**
+`ShopPanel.buildRoleSwitch` built the track `Visible = false` (`buildButton`'s own arrangement for
+its progress bar) and **nothing in the repository ever wrote it true**. The two halves live inside
+that track, and a `GuiObject` at `Visible = false` is not drawn and takes no input however visible
+its parent is -- so on both surfaces the switch was positioned, painted, and hit-tested by the specs
+through `ZIndex`, while a player would have seen `NEXT DRIVE` and `A STAND ON THE LINE` around an
+**empty gap**. Fixed where it belongs: the one writer of each surface's rectangles -- `relayout`, in
+both modules -- now writes the track's `Visible` beside the holder's.
+
+**Finding 2 -- the phone's surface never appeared at all.** `ShopPanel.select` never drove
+`relayout`, but the SELECTED item is an input to `switchSurfaceFor`: on a phone the 108 px card has
+no room, so the switch rides the selected item's detail pane. `setOpen` relayouts BEFORE it picks a
+first row, and `firstId()` prefers a BUYABLE row -- which an owner's `ALWAYS HUNTER` row is not --
+so for exactly the man this feature is for the surface was always `"none"`, and tapping his row
+changed nothing. `select` now drives the rectangle writer, edge-triggered on the SURFACE.
+
+**Why the specs missed finding 1, which is the worse half.** The round-2 case guarded its own
+assertions with `layoutFor(0, 0).mode == "WIDE"` -- and `layoutFor(0, 0)` is a **constant `TALL`**,
+because the width clamps up to `MIN_WIDTH` 300, under `WIDE_AT` 520. That block asserted nothing on
+any machine. Both the spec and `select` now take the mode from the live screen.
+
+**L-028, demonstrated:** with the three `Visible` writes removed, the new assertions go red --
+`pad_panel.spec:674` and `shop_panel.spec:1280`, both *"Expected true, got false"*
+(`<runs-dir>/l028-probe-t229-r2.log`). The probe was reverted.
+
+*Verify:* `src/client/Hud/ShopPanel.luau` (`buildRoleSwitch`'s comment, `relayout`'s two
+`track.Visible` writes, `select`), `src/client/Hud/PadPanel.luau` (`relayout`'s one);
+`tests/client/pad_panel.spec.luau` (`lights the half the SERVER chose` now asserts the TRACK and
+both halves are visible, and `draws nothing at all` asserts the track is hidden with its block),
+`tests/client/shop_panel.spec.luau` (the same for the row, plus
+`drives the rectangle when a SELECTION moves the switch's surface`).
 
 ---
 
