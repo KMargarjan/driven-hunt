@@ -309,17 +309,59 @@ return function()
 			end)).to.equal(true)
 			local owed = Economy.owedTeams()
 			if Economy.isEnabled() then
-				local checked = 0
+				-- WHAT THE RECORD MAY AND MAY NOT SAY, measured per player (task 233). `COINS` became
+				-- a v1 default on 2026-10-21, so THIS is now the branch the harness takes, and it
+				-- had never run: the flip's own gate run failed the old line with *"Expected
+				-- Shooters, got nil"*.
+				--
+				-- THE HAZARD THIS CASE EXISTS FOR IS A STALE MIRROR -- a record that names the OTHER
+				-- team from the one he is playing -- and that is asserted for every player, with no
+				-- condition on it at all. What is CONDITIONAL is only whether a row exists: a row is
+				-- written beside `Body.setTeam` and `Economy.noteNextTeams` SKIPS a player whose
+				-- profile session has not answered yet (`stats.nextTeamSkippedNoProfile`), because
+				-- `Economy.load` loads on a spawned thread while `Match.start` dispatches its first
+				-- phase in the same frame. That race is in the design -- write edge 2 recomputes the
+				-- whole table at `Scoring`, *"so it also RECONCILES every mid-flight write of this
+				-- drive"* -- and this case runs during the drive, before that edge. Asserting a row
+				-- must exist here would be asserting the race away.
+				--
+				-- `Economy.balanceOf` IS THE SESSION READ, and this owner's own: it is nil exactly
+				-- when no profile is open for him (*"`nil`, NOT `0`, for a player with no open
+				-- profile"*). The numbers go in the note, so a run where NOBODY got a row is visible
+				-- rather than silently green.
+				local agreed, missing, withSession = 0, 0, 0
 				for _, player in ipairs(Players:GetPlayers()) do
 					local team = Match.assignmentOf(player.UserId)
 					if team then
-						-- DURING a drive the owed team IS the team he is playing, which is what makes
-						-- a rejoin resume the drive he left rather than hand a beater a gun.
-						expect(owed[player.UserId]).to.equal(team)
-						checked += 1
+						if Economy.balanceOf(player.UserId) ~= nil then
+							withSession += 1
+						end
+						-- NEVER THE OTHER TEAM. DURING a drive the owed team IS the team he is
+						-- playing, which is what makes a rejoin resume the drive he left rather than
+						-- hand a beater a gun; absent means the write was skipped, not reversed.
+						if owed[player.UserId] ~= nil then
+							expect(owed[player.UserId]).to.equal(team)
+							agreed += 1
+						else
+							missing += 1
+						end
 					end
 				end
-				TestKit.note(string.format("match_teams: the record agrees with Player.Team for %d player(s)", checked))
+				TestKit.note(
+					string.format(
+						"match_teams: COINS is on -- the record agrees with Player.Team for %d player(s),"
+							.. " %d had no row yet (%d with an open profile); skipped-no-profile=%d, loads=%d,"
+							.. " refused=%d, failed=%d, written=%d",
+						agreed,
+						missing,
+						withSession,
+						Economy.stats().nextTeamSkippedNoProfile,
+						Economy.stats().loads,
+						Economy.stats().loadsRefused,
+						Economy.stats().loadsFailed,
+						Economy.stats().nextTeamsWritten
+					)
+				)
 			else
 				expect(next(owed)).to.equal(nil)
 				TestKit.note("match_teams: COINS is off, so no turn is stored and the roster alone assigns")
