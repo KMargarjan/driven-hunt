@@ -544,6 +544,31 @@ return function()
 			-- NOTHING ABOUT THE WEAPON CHANGES while this runs: the Tool is added to the Backpack,
 			-- never equipped, so `Weapon.Changed` does not fire and only a per-frame reader can see
 			-- it. That is the whole point of the case.
+			-- TASK 229, AFTER THE FIRST TWO-PLAYER RUN THIS CASE EVER HAD. It used to remember
+			-- `Touch.state().carried` and then assert `before.carried + 1`, which assumes **the
+			-- server does not touch his other Tools while the case runs**. That is true with one
+			-- player and FALSE with two, deterministically:
+			--
+			--   * `zz_tie_to_a_tree.spec` exists only in a two-player run (with one player it prints
+			--     *"one player, so no beater to refuse a shot at; probe not fired"*). It makes the
+			--     shooter fire beside the driver, the server ties him, and
+			--     `src/server/Match/init.luau` then says in its own comment: *"The weapon still
+			--     decides and still writes: mayCarryWeapon now says no, so the Tool goes."* **His
+			--     gun is removed.**
+			--   * and at the next drive the roster swaps him to the beaters, which takes the gun and
+			--     grants a real horn.
+			--
+			-- Measured, `test2` at `278febdb`, both runs: `before.carried` was 1 (the gun), the tie
+			-- removed it inside the three `Heartbeat`s, and the live tree then held exactly one Tool
+			-- -- the fake horn. `hasHorn` passed on the line above; only the arithmetic was wrong.
+			--
+			-- SO THE COUNT IS PINNED TO THE LIVE TREE INSTEAD OF TO A REMEMBERED NUMBER, and that is
+			-- STRICTLY STRONGER than the delta it replaces: the old form only checked that the
+			-- number moved by one, this checks that **what the cluster was TOLD is what the tree
+			-- actually holds**. The regression it was written for -- `setCarried` / `setHorn` driven
+			-- from `render`, which runs on `Weapon.Changed`, a signal that never fires for a player
+			-- with no gun -- fails it exactly as before: a stale `Touch.state()` neither sees the
+			-- horn nor matches the count.
 			local backpack = player:FindFirstChildOfClass("Backpack")
 			expect(backpack).to.be.ok()
 			if Input.carriedSummary().hasHorn then
@@ -552,28 +577,71 @@ return function()
 				expect(Touch.state().hasHorn).to.equal(true)
 				return
 			end
-			local before = Touch.state()
 			local tool = Instance.new("Tool")
 			tool.Name = Horn.TOOL_NAME
 			tool.RequiresHandle = false
 			tool.Parent = backpack
-			RunService.Heartbeat:Wait()
-			RunService.Heartbeat:Wait()
-			RunService.Heartbeat:Wait()
+
+			-- A BOUNDED SETTLE RATHER THAN EXACTLY THREE FRAMES, for the reason this file already
+			-- states about a two-player run: *"this client is a background window rendering at about
+			-- 15 fps"*. `FRAMES` is still a small number of frames and the case REPORTS how many it
+			-- actually took, so *"within a few frames"* stays a measurement and not a hope.
+			local FRAMES = 30
+			local frames = 0
+			local function agrees(): boolean
+				local live = Input.carriedSummary()
+				local told = Touch.state()
+				return told.hasHorn == live.hasHorn and told.carried == live.count
+			end
+			while frames < FRAMES and not (Touch.state().hasHorn and agrees()) do
+				RunService.Heartbeat:Wait()
+				frames += 1
+			end
+			local live = Input.carriedSummary()
+			TestKit.note(
+				string.format(
+					"task229 touch: the cluster matched the tree after %d frame(s); carried %d, horn %s",
+					frames,
+					live.count,
+					tostring(live.hasHorn)
+				)
+			)
+			-- THE HORN REALLY IS IN THE TREE, so the two assertions under it cannot pass by both
+			-- sides being empty -- this is what stops the new form being vacuous.
+			expect(live.hasHorn).to.equal(true)
+			local named = false
+			for _, name in ipairs(live.names) do
+				named = named or Horn.isToolName(name)
+			end
+			expect(named).to.equal(true)
+			-- ...AND THE CLUSTER WAS TOLD IT, within those frames, with no weapon state changing.
 			expect(Touch.state().hasHorn).to.equal(true)
-			expect(Touch.state().carried).to.equal(before.carried + 1)
+			expect(Touch.state().carried).to.equal(live.count)
 			-- ...and BLOW is then a button this cluster would draw, which is the claim that matters.
 			for _, button in ipairs(Touch.BUTTONS) do
 				if button.id == "BLOW" then
-					expect(Touch.buttonVisible(button, before.hasWeapon, before.carried + 1, true)).to.equal(true)
+					expect(Touch.buttonVisible(button, Touch.state().hasWeapon, live.count, true)).to.equal(true)
 				end
 			end
+
 			tool:Destroy()
-			RunService.Heartbeat:Wait()
-			RunService.Heartbeat:Wait()
-			RunService.Heartbeat:Wait()
-			expect(Touch.state().hasHorn).to.equal(false)
-			expect(Touch.state().carried).to.equal(before.carried)
+			-- AND IT SEES ONE LEAVE. `false` IS THE WRONG ASSERTION HERE and was the second half of
+			-- the same one-player assumption: by the second drive the server has made him a beater
+			-- and given him a REAL horn, so destroying this spec's fake one leaves a horn behind.
+			-- What must hold either way is that the cluster still TRACKS the tree.
+			frames = 0
+			while frames < FRAMES and not agrees() do
+				RunService.Heartbeat:Wait()
+				frames += 1
+			end
+			local after = Input.carriedSummary()
+			expect(Touch.state().hasHorn).to.equal(after.hasHorn)
+			expect(Touch.state().carried).to.equal(after.count)
+			-- ...AND WITH NO REAL HORN CARRIED THAT VALUE IS false, which is the one-player reading
+			-- of the line this replaces, kept rather than dropped.
+			if not after.hasHorn then
+				expect(Touch.state().hasHorn).to.equal(false)
+			end
 		end)
 	end)
 
