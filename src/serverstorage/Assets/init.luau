@@ -232,17 +232,20 @@ Assets.KEYS = table.freeze({
 	deerStag = "deer.stag",
 	deerHind = "deer.hind",
 	deerCalf = "deer.calf",
-	-- THE ELEVEN CLIP KEYS HAVE NO ROWS YET, AND THAT IS NOT AN OVERSIGHT -- it is the same honest
-	-- state the boar's ten were in between tasks 115 and 116, for the same unchanged reason: an
-	-- animation asset id can ONLY be made inside Studio (see the boar's block above; Open Cloud's
-	-- Assets API takes an Animation only as a `.rbxm`/`.rbxmx` "edited inside Roblox Studio", and
-	-- `AssetService:CreateAssetAsync` answered "not available yet" when it was tried here on
-	-- 2026-10-03). `tools/boar_prep.py` wrote one FBX per clip under the prep run's `clips/`, which
-	-- is what the Animation Editor's "Import -> From FBX Animation" takes, one at a time.
+	-- THE ELEVEN CLIP KEYS, AND SINCE TASK 232 ALL ELEVEN HAVE ROWS. Between tasks 223 and 232 they
+	-- had none, which was the honest state the boar's ten were in between tasks 115 and 116 and for
+	-- the same unchanged reason: an animation asset id can ONLY be made inside Studio (see the
+	-- boar's block above; Open Cloud's Assets API takes an Animation only as a `.rbxm`/`.rbxmx`
+	-- "edited inside Roblox Studio", and `AssetService:CreateAssetAsync` answered "not available
+	-- yet" when it was tried here on 2026-10-03). `tools/boar_prep.py` wrote one FBX per clip under
+	-- the prep run's `clips/`, which is what the Animation Editor's "Import -> From FBX Animation"
+	-- takes, one at a time, and the Director published all eleven on 2026-10-21.
 	--
-	-- `ESCALATE.md`'s **NEEDS KAREN 223** entry is those eleven clicks, in order. Until each lands,
-	-- `Assets.byKey` answers nil, `Body.hasClip` is false, `trackFor` returns nil, and the deer
-	-- STANDS AND SLIDES -- which is honest, is tested, and is the precedent.
+	-- WHAT THE EMPTY STATE LOOKED LIKE, measured on the real path in DEV before the rows were
+	-- written (task 232): `Assets.byKey` answered nil, `Body.hasClip` was false, `trackFor` returned
+	-- nil, and a released CALF travelled 18.20 studs/s with ZERO animation tracks playing -- the
+	-- bind pose, sliding. The boars in the same server were playing `digWalk`, `grazeLoop`, `smell`
+	-- and `turnRight` at the same instant, which is what made the contrast unambiguous.
 	deerIdle = "deer.anim.idle",
 	deerWalk = "deer.anim.walk",
 	deerTrot = "deer.anim.trot",
@@ -2861,6 +2864,313 @@ Assets.ROWS = {
 			.. "do NOT scale uniformly against the stag's (walk 0.674, trot 0.610, run 1.029, turn "
 			.. "0.488): this package gave the calf its own bounding gallop. clipScale is the walk's, "
 			.. "because the gait bands are built on the walk clip; see Boar.CONFIG.KINDS.calf.",
+	},
+	-- ---------------------------- the red deer's eleven clips (task 232, published 2026-10-21)
+	--
+	-- WHERE THESE IDS CAME FROM, and it is the one part of this task no tool could do -- the boar's
+	-- own block above says why, and nothing about it has changed: Open Cloud takes an `Animation`
+	-- only as a `.rbxm`/`.rbxmx` "edited inside Roblox Studio", and `AssetService:CreateAssetAsync`
+	-- answered "not available yet" when it was tried here. So the DIRECTOR imported each clip's own
+	-- FBX -- `tools/boar_prep.py` writes one per clip for exactly this -- into Studio's Animation
+	-- Editor, on the rest pose "Imported Rig", and published it by hand. `fileName` and
+	-- `sourceSha256` are the STAG's own export of that clip, so each id is tied to the bytes it was
+	-- made from.
+	--
+	-- ELEVEN AND NOT THIRTY-THREE: all three kinds carry `Arm_Deer` (42 bones, identical names), so
+	-- one clip set serves the stag, the hind and the calf, and `KINDS[kind].clipScale` is what turns
+	-- the stag's measured stride into each animal's own. That is the boar's arrangement exactly.
+	--
+	-- EVERY ID WAS LOADED BACK BEFORE IT WAS WRITTEN DOWN (2026-10-21), through
+	-- `AnimationClipProvider:GetAnimationClipAsync` in Edit: all eleven resolve, and `clipSeconds` is
+	-- the last keyframe's `Time` -- not the frame count, because N frames at 24 fps span N-1
+	-- intervals. All eleven agree with the number `Boar.CONFIG.SPECIES.reddeer.MODEL.CLIPS` already
+	-- carried from `tools/boar_prep.py`'s own measurement, to the last decimal the config states;
+	-- `BoarAssetsBoot` and `deer.spec` compare the two copies so they cannot drift.
+	--
+	-- THE PUBLISHED `Loop` FLAG IS THE BOAR'S CASE INVERTED, AND IT IS MEASURED. The boar's ten all
+	-- arrived `Loop = true` ("the Animation Editor's dialog does not ask"); of these eleven only
+	-- `Walk_F_IP` did, and the other ten read `Loop = false`. So on this rig the hazard runs the
+	-- other way -- an un-looped WALK would play once and stop, leaving a walking deer frozen
+	-- mid-stride -- and the fix is the one that was already there: `Boar.Body` writes
+	-- `AnimationTrack.Looped` from `MODEL.CLIPS` immediately before every `Play`, which is why that
+	-- is a property write and not a hope about the asset. Each row records what its asset says, and
+	-- nothing reads it.
+	--
+	-- THE GEOMETRY FIELDS ARE ZERO BECAUSE AN ANIMATION HAS NO GEOMETRY, exactly as the boar's are:
+	-- `NO_GEOMETRY` and `NO_FIDELITY` say "this row is not a thing you can see" in one word each.
+	-- `Assets.INSERTABLE` keeps an animation out of `keysFor`, so `InsertService` is never asked for
+	-- one -- and the SCOPE is `"deer-animation"` beside the boar's `"boar-animation"` for the same
+	-- reason the models' scope is `"deer"` and not `"boar"`: it is a label a reader can sort by, and
+	-- `keysFor` answers nothing for either.
+	{
+		key = Assets.KEYS.deerIdle,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 136204534846792,
+		displayName = "Arm_Deer|Idle_1",
+		fileName = "Idle_1.fbx",
+		sourceSha256 = "349e2b0db56b31daa89d798ec4517c8ac4d6cf142763c2b64aa7ae99e842c764",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 4.167,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "Standing, breathing, the odd ear flick. What a deer does when nothing is pushing it. Published Loop "
+			.. "= false, read back off the asset; Body writes AnimationTrack.Looped from CLIPS immediately before "
+			.. "every Play, so the row's own flag decides nothing.",
+	},
+	{
+		key = Assets.KEYS.deerWalk,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 136273095901832,
+		displayName = "Arm_Deer|Walk_F_IP",
+		fileName = "Walk_F_IP.fbx",
+		sourceSha256 = "2852bc244c8474c9be28d6bc30a0a0899e872b109cfbe68d5fd778b782c727cb",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 1.000,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A grazing walk. Hooves travel 4.178 studs/s at rate 1 on the stag, which is what MODEL.TROT_FROM is "
+			.. "derived from; the hind's and the calf's own strides are their KINDS.clipScale. Published Loop = "
+			.. "true, read back off the asset; Body writes AnimationTrack.Looped from CLIPS immediately before every "
+			.. "Play, so the row's own flag decides nothing.",
+	},
+	{
+		key = Assets.KEYS.deerTrot,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 133923553824296,
+		displayName = "Arm_Deer|Trot_F_IP",
+		fileName = "Trot_F_IP.fbx",
+		sourceSha256 = "d8845b29eaa8d19ebeb4e8cb8a6ab306518214b0fa114fbf702767cf92aac8fb",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.667,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The travelling gait: 12.312 studs/s on the stag. Published Loop = false, read back off the asset; "
+			.. "Body writes AnimationTrack.Looped from CLIPS immediately before every Play, so the row's own flag "
+			.. "decides nothing.",
+	},
+	{
+		key = Assets.KEYS.deerRun,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 113134617381510,
+		displayName = "Arm_Deer|Run_F_IP",
+		fileName = "Run_F_IP.fbx",
+		sourceSha256 = "f7475115f0eaed051a09eb56ab8aff0328cd9f99e1d389a0e1b2361efa6e7ad7",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.583,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The flight gallop: 17.138 studs/s on the stag. The CALF's own run clip covers MORE ground than the "
+			.. "stag's (17.642), which is why its clipScale is the walk's and not the run's -- "
+			.. "Boar.CONFIG.KINDS.calf carries the four numbers and the reason. Published Loop = false, read back "
+			.. "off the asset; Body writes AnimationTrack.Looped from CLIPS immediately before every Play, so the "
+			.. "row's own flag decides nothing.",
+	},
+	{
+		key = Assets.KEYS.deerTurnLeft,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 124688879119274,
+		displayName = "Arm_Deer|Turn_L_IP",
+		fileName = "Turn_L_IP.fbx",
+		sourceSha256 = "a76d6c1c338a406e530c5b8c739d4995fe05f3f9ba57766aee293d5ded81e91a",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.667,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "Swinging round to the left on the spot, hooves travelling 3.009 studs/s. Published Loop = false, "
+			.. "read back off the asset; Body writes AnimationTrack.Looped from CLIPS immediately before every Play, "
+			.. "so the row's own flag decides nothing.",
+	},
+	{
+		key = Assets.KEYS.deerTurnRight,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 99798138055596,
+		displayName = "Arm_Deer|Turn_R_IP",
+		fileName = "Turn_R_IP.fbx",
+		sourceSha256 = "3f036e0351290ba3b11d43be5f986e88f063819b97336e40f88dba128f3ebbff",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.667,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The mirror of Turn_L_IP, and the same 3.009 studs/s. Published Loop = false, read back off the "
+			.. "asset; Body writes AnimationTrack.Looped from CLIPS immediately before every Play, so the row's own "
+			.. "flag decides nothing.",
+	},
+	{
+		key = Assets.KEYS.deerDeathLeft,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 90698126097935,
+		displayName = "Arm_Deer|Death_L",
+		fileName = "Death_L.fbx",
+		sourceSha256 = "932e659c68ca89db9f2c52421084dffe77e032b77df947903663fbead245ef5f",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 1.167,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "Going down on the left side. Held at its last frame by Body.stepVisual, which is the pose "
+			.. "KINDS.deathLiftStuds was measured at. Published Loop = false, read back off the asset; Body writes "
+			.. "AnimationTrack.Looped from CLIPS immediately before every Play, so the row's own flag decides "
+			.. "nothing.",
+	},
+	{
+		key = Assets.KEYS.deerDeathRight,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 137231010993280,
+		displayName = "Arm_Deer|Death_R",
+		fileName = "Death_R.fbx",
+		sourceSha256 = "c77d6a0efdf1b9be235dbe2f518dcbaebd43b32b84ee89afba17df56ec8ee116",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 1.167,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The mirror of Death_L, and its held pose measures the same lift to 0.0001 studs on all three kinds "
+			.. "-- which is what makes one number per kind honest. Published Loop = false, read back off the asset; "
+			.. "Body writes AnimationTrack.Looped from CLIPS immediately before every Play, so the row's own flag "
+			.. "decides nothing.",
+	},
+	{
+		key = Assets.KEYS.deerHitFront,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 114345439062479,
+		displayName = "Arm_Deer|Hit_Front",
+		fileName = "Hit_Front.fbx",
+		sourceSha256 = "83803aa65876aaa729b9d095547493d9b4f7e7822e6025f6ad25bd910b012a59",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.833,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The flinch from a shot in front. The package names it Hit_Front where the boar's is Hit_F. Published "
+			.. "Loop = false, read back off the asset; Body writes AnimationTrack.Looped from CLIPS immediately "
+			.. "before every Play, so the row's own flag decides nothing.",
+	},
+	{
+		key = Assets.KEYS.deerHitBack,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 89636256373552,
+		displayName = "Arm_Deer|Hit_Back",
+		fileName = "Hit_Back.fbx",
+		sourceSha256 = "c8c927499fb8df5fd36e3c4471ec8195dac4ba64552ca0286a395875adccba27",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 0.833,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "The flinch from a shot behind. Hit_Back, not the boar's Hit_B. Published Loop = false, read back off "
+			.. "the asset; Body writes AnimationTrack.Looped from CLIPS immediately before every Play, so the row's "
+			.. "own flag decides nothing.",
+	},
+	{
+		key = Assets.KEYS.deerSmell,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 139419567827122,
+		displayName = "Arm_Deer|Idle_5",
+		fileName = "Idle_5.fbx",
+		sourceSha256 = "5939b610d03d7377151f67fedae31c9215a4d45d4f10eb9c3ba6036b4facca27",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-21",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 4.167,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "Head up, nose into the wind: MODEL.ALERT_CLIP reads this row by name, so it is what a deer that has "
+			.. "winded somebody stands in. Published Loop = false, read back off the asset; Body writes "
+			.. "AnimationTrack.Looped from CLIPS immediately before every Play, so the row's own flag decides "
+			.. "nothing.",
 	},
 } :: { AssetRow }
 

@@ -2233,17 +2233,49 @@ Boar.CONFIG.KINDS = {
 	-- feet, and it is invisible today**: no deer animation id exists yet (see `Assets.KEYS`), so
 	-- nothing plays. It is a queued item for the commit that lands the ids, where it can be LOOKED at.
 	--
-	-- `deathLiftStuds` IS 0 FOR ALL THREE AND THAT IS THE HONEST VALUE, not a guess: it can only be
-	-- measured at the frame `Body.stepVisual` freezes the death at, and there is no death clip to
-	-- freeze until the eleven publishes land (design section 7.5). The boar's three were measured
-	-- the same way and were 0 until task 120.
+	-- `deathLiftStuds` IS MEASURED SINCE TASK 232, and until then it was 0 for all three because it
+	-- COULD not be measured: it is read at the frame `Body.stepVisual` freezes the death at, and
+	-- there was no death clip to freeze until the eleven publishes landed (design section 7.5). The
+	-- boar's three were 0 the same way until task 120.
+	--
+	-- MEASURED 2026-10-21 in a PLAY session -- `AnimationTrack.Length` is 0 in Edit, because the
+	-- asset is never fetched there -- on the real published `Death_L` (90698126097935) and
+	-- `Death_R` (137231010993280), held at `length - HOLD_EPSILON` exactly as `stepVisual` holds
+	-- them, reading every `Bone.WorldPosition` in the mesh's own object space against the rig's
+	-- bottom plane. That plane is `-meshSize.Y / 2`, which is the plane `Body.visualOffset` puts on
+	-- the trunk's bottom, i.e. the ground:
+	--
+	--                at rest      Death_L      Death_R      lowest bone when dead
+	--     stag        -0.0110      -0.0110      -0.0110     root_bone
+	--     hind        -0.0029      -0.1847      -0.1847     hoof_b.L / hoof_b.R
+	--     calf        -0.0038      -1.3246      -1.3247     hoof_b.L / hoof_b.R
+	--
+	-- The two death clips agree to 0.0001 studs on every kind, which is what makes ONE number per
+	-- kind honest rather than a side-dependent pair. The shape is the boar's: the clips' bone
+	-- TRANSLATIONS are absolute studs and all three kinds play the stag's published clips on
+	-- geometry `tools/boar_prep.py` baked smaller, so the smaller the animal the further the fall
+	-- overshoots -- a calf lands 1.32 studs under the floor, which is task 120's cub again.
+	--
+	-- THE STAG'S 0.011 IS THE RIG AND NOT THE FALL, which is why it is written as 0.011 rather than
+	-- rounded away: `root_bone` sits 0.011 under the plane in the REST pose too and never moves
+	-- (the boar's `root_bone` sat at +0.002 for its whole clip, the same way), so the DEATH CLIP
+	-- costs a stag 0.0000 studs. The number is kept because the field's rule is "write what was
+	-- measured", and 0.011 studs is 3 mm on a 7-stud animal -- below anything a player can see
+	-- either way, which the frames confirm.
+	--
+	-- AND IT WAS LOOKED AT, NOT ONLY COUNTED (rule E). All three were staged dead on flat DEV
+	-- ground with these lifts applied and photographed from a standing player's eye height:
+	-- `.screenshots/` 232-three-lift.png (stag, hind and calf together, lying on the grass) and
+	-- 232-calf-lift.png (the calf close up, the extreme case). With the lifts the lowest bone of
+	-- each sits within 0.0004 studs of the ground; without them the calf's hooves are 1.32 studs
+	-- under it.
 	stag = {
 		name = "stag",
 		species = "reddeer",
 		scale = 1.0,
 		clipScale = 1.0,
 		model = "stag",
-		deathLiftStuds = 0,
+		deathLiftStuds = 0.011,
 		-- A STAG IS WARIER THAN A BOAR AND HIS HINDS ARE WARIER STILL (design section 5.2). `wary`
 		-- is the mechanism that already exists -- six radii and two speeds -- and no `Brain` state
 		-- is added. At 1.5 he notices a walking man at 90 studs against a boar's 60.
@@ -2255,7 +2287,7 @@ Boar.CONFIG.KINDS = {
 		scale = 0.8553,
 		clipScale = 0.9,
 		model = "hind",
-		deathLiftStuds = 0,
+		deathLiftStuds = 0.185,
 		-- 1.8: a hind with a calf is the jumpiest thing in the wood, and because `Runtime:_stepAlarm`
 		-- spreads panic member by member, the jumpiest member is the group's trigger. She notices a
 		-- walking man at 108 studs -- 30 m. NOT more: the drive corridor is ~400 studs, so a
@@ -2269,7 +2301,7 @@ Boar.CONFIG.KINDS = {
 		scale = 0.495,
 		clipScale = 0.6735,
 		model = "calf",
-		deathLiftStuds = 0,
+		deathLiftStuds = 1.325,
 		-- THE SAME `runScale` AS HER MOTHER, AND IT IS A CORRECTNESS CONSTRAINT RATHER THAN TASTE:
 		-- `Brain:_runSpeed` answers PER ANIMAL, so two kinds in one group with different run speeds
 		-- drift apart, and `SOUNDER.BREAK_STUDS = 60` over `BREAK_SECONDS = 4` then dissolves the
@@ -2456,6 +2488,24 @@ Boar.CONFIG.MODEL = {
 -- THE THREE AUTHORED CLIPS ARE NOT HERE EITHER (`deathPaddleLeft/Right`, `crippleDrag`).
 -- `Body.clipFor` then returns the fall and holds it and a crippled deer plays its gait, which is
 -- precisely the pre-task-116 behaviour and is tested.
+--
+-- `looped` IS THE ONE FIELD THE PUBLISHED ASSETS DO NOT DECIDE, and on this rig that matters in the
+-- direction the boar's never did (task 232). Read back off the eleven assets on 2026-10-21, only
+-- `Walk_F_IP` carries `Loop = true`; the other ten -- idle, trot, run, both turns and smell among
+-- them -- were published `Loop = false`, where the boar's ten were all `Loop = true`. So an asset
+-- flag taken at face value would leave a RUNNING deer frozen on its last frame. `Boar.Body` writes
+-- `AnimationTrack.Looped` from this column immediately before every `Play`, which is why that is a
+-- property write and not a hope about the asset, and it is this column that is the truth.
+--
+-- `smell` LOOPS HERE AND DOES NOT ON THE BOAR, which is a deliberate difference and not a slip
+-- (Director's dispatch, 2026-10-21). `MODEL.ALERT_CLIP` names it and `ALERT_SECONDS` is 2.5, well
+-- inside the clip's 4.167, so for an alert the two values are indistinguishable. Where they are not
+-- is the CALM activity, whose `smell` runs for `minSeconds = maxSeconds = 4.167` -- the clip's own
+-- length to the last decimal: a frame of jitter past the end stops a one-shot track, and a stopped
+-- track drops the animal into its BIND POSE, in front of whoever was watching it. Looping cannot do
+-- that. Nothing else about `smell` changes, because the head-up pose is the clip's first act and a
+-- second pass only repeats it. The boar's row is left exactly as task 117 shipped it: the same
+-- change there is a change to an animal Karen has already accepted, and it is queued, not taken.
 local DEER_CLIPS = {
 	idle = { clip = "Idle_1", seconds = 4.167, groundStudsPerSecond = 0, looped = true },
 	walk = { clip = "Walk_F_IP", seconds = 1.0, groundStudsPerSecond = 4.178, looped = true },
@@ -2467,7 +2517,7 @@ local DEER_CLIPS = {
 	deathRight = { clip = "Death_R", seconds = 1.167, groundStudsPerSecond = 0, looped = false },
 	hitFront = { clip = "Hit_Front", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
 	hitBack = { clip = "Hit_Back", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
-	smell = { clip = "Idle_5", seconds = 4.167, groundStudsPerSecond = 0, looped = false },
+	smell = { clip = "Idle_5", seconds = 4.167, groundStudsPerSecond = 0, looped = true },
 }
 
 -- WHAT A SPECIES BRINGS THAT IT CANNOT BORROW (task 223). `Boar.speciesConfig` reads this and
