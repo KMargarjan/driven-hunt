@@ -1,5 +1,43 @@
 # Escalations
 
+## 2026-10-21 - Task 220: the rail FOLD widens its overlap with the engine's jump button
+
+**For the Director and Karen. Not blocking the merge** -- the Reviewer passed round 2 and raised
+this twice as a note, asking for an `ESCALATE.md` line rather than only a queue entry, because it
+is a change to what a phone player can actually press.
+
+**The measurement, at 800 x 400 (a landscape phone, which is how phones play):**
+
+| | the rail's rectangle | inside the JUMP keep-out (`x 660..800, y 260..400`) |
+|---|---|---|
+| before task 220 | `x 740..788`, **48 px** wide, bottom at 460 -- **off a 400 px screen** | 48 px |
+| after task 220 | `x 684..788`, **104 px** wide, `y 244..348` -- **on screen** | **104 px** |
+
+So the fold did what the task set out to do -- RELOAD and AMMO are reachable at all, where before
+they were simply off the bottom of the phone -- and in doing it the column now sits over **more** of
+the engine's jump button than it used to. What is left clear of that button at this viewport is a
+band of about **32 px**, which is under this design's own **44 px** floor (WCAG 2.2 SC 2.5.5).
+
+**Why it is not fixed in this task.** It is arithmetic, not a bug: the minimap's bottom is y 236 and
+the keep-out's top is y 260, so a landscape phone has **24 px** of free right-edge column and the
+smallest button in this design system is 48. No fold escapes it -- more columns move the rail's
+LEFT edge left and leave its right edge at the margin, inside the jump button's x-range whatever
+happens. The only ways out are vertical: a smaller minimap on a short screen, a top band that
+knows about landscape, or a rail that is not right-anchored there. **All three are the Designer's**,
+and the design already names a real landscape layout for the top band and the right column as out
+of scope (`docs/design/mobile-controls.md` section 14.4).
+
+**What a decision would look like.** Either (a) the Designer takes the landscape phone layout as its
+own task, or (b) `Hud.Touch`'s JUMP keep-out is REMEASURED against a live `TouchGui` first -- it is
+still OUR guess at 140 x 140 (Roblox states the two zones and publishes no size), and a smaller real
+button could make the whole question go away. (b) is cheap and should come first: one emulated
+session reads the rectangles, and task 220 already proved the Device Simulator can be driven from
+tools and does set `UserInputService.TouchEnabled`.
+
+Queued as **220a**. Nothing here stops the merge: before this task those two buttons were not on the
+screen at all.
+
+
 ## 2026-10-20 - Task 223 round 2: `NEEDS TEST2 223 5d47be4` -- **RESOLVED**, first try
 
 Round 1's pair was clean at `113f3aa` and the Director ran `test2` there first try. **Round 2

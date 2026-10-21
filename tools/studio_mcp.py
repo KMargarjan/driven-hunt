@@ -858,6 +858,11 @@ SCOPE_SPECS = {
                # Task 225: the semi-auto drives the same two, plus `Weapon.ShapeSemiAuto` --
                # and its client spec drives the drawn weapon through the real seam.
                "tests/server/semiauto.spec.luau",
+               # Task 220: a touch FIRE goes through `Weapon.Input.fire` -- the SAME function the
+               # mouse calls -- and SWAP and BLOW are `Input.swap` / `Input.blowHorn`. The spec
+               # asserts those by IDENTITY, so any edit to `src/client/Weapon/` must play it. It is
+               # in `hud` as well, where its geometry lives.
+               "tests/client/touch_controls.spec.luau",
                "tests/client/semiauto_client.spec.luau",
                "tests/client/lever_client.spec.luau",
                "tests/client/weapon_client.spec.luau", "tests/client/hit_marker.spec.luau",
@@ -1003,6 +1008,11 @@ SCOPE_SPECS = {
             # top band's rectangles -- the bar's and the banner's offsets (`src/shared/Drive/`), the
             # compass's TOP, the minimap's and the rail's -- so a band that moves anywhere plays it.
             "tests/client/hud_clarity.spec.luau",
+            # Task 220: the touch action cluster, the rail's FOLD and the bottom-right chip's new
+            # position. The geometry is the Hud's -- `Hud.Touch`, `Hud.Rail`, `Hud.MapUi` and
+            # `Hud.cornerRect` -- and the INPUT behind every button is the weapon's, so it is in
+            # `weapon` as well: the dual membership `shoot_boar` and `zz_horn` already use.
+            "tests/client/touch_controls.spec.luau",
             # Task 178: the shop panel. `src/client/Hud/` already resolves to this scope, so only the
             # spec is named here -- the dual membership `shoot_boar` and `zz_horn` already use.
             "tests/client/shop_panel.spec.luau",

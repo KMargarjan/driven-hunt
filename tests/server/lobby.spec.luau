@@ -2854,6 +2854,13 @@ return function()
 			expect(p.MaxActivationDistance).to.equal(8) -- the Director's number, written twice on purpose
 			expect(p.HoldDuration).to.equal(0) -- a tap, not a hold
 			expect(p.RequiresLineOfSight).to.equal(true)
+			-- A THUMB CAN REACH IT (task 220). `ProximityPrompt.ClickablePrompt` defaults to TRUE
+			-- and `Build.shopPrompt` never sets it -- MEASURED on 2026-10-21, a fresh
+			-- `Instance.new("ProximityPrompt")` in DEV Edit, which is what let the mobile task build
+			-- NO interact button at all. Asserted here on the prompt the real `Build` makes in the
+			-- real place rather than on a remembered default: one property is all that stands
+			-- between a phone player and the shop.
+			expect(p.ClickablePrompt).to.equal(true)
 			expect(p.ActionText).to.equal("Shop")
 			expect(p.ObjectText).to.equal("Press E")
 			expect(p.Enabled).to.equal(true)
