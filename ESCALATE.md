@@ -1,5 +1,88 @@
 # Escalations
 
+## 2026-10-21 - Task 233: **NEEDS DIRECTOR.** Four of five v1 defaults are lit; `SHOP` took the gate red and is reverted.
+
+### 1. NEEDS DIRECTOR: `test2` for task 233 at `2fc9b20385a69b52b4008915dc0b01ebe9183b9b`
+
+The dispatch asks for it by decision rather than by `TWO_PLAYER_PATHS`, because `HORN` and `LOBBY`
+change the drive and enrolment. The one-player gate is green at that commit:
+
+```
+[harness] PASS: 34/34 checks @ 2fc9b20385a69b52b4008915dc0b01ebe9183b9b (clean tree) scope=all
+```
+
+The Builder stopped before the review, as the dispatch says, whatever `tools/agents.py` says.
+
+### 2. `SHOP` is still DARK, and the decision is not the Builder's
+
+Flipped, measured over three full gate runs, reverted (commit `1a685ef1`). It is **not** a
+paperwork change: it changes the DEFAULT PLAYER'S KIT. `Shop.BASE_AMMO.shotgun` is `{ Buck = true }`
+and the slug is *"the ladder's first rung"* (120), so an un-owning player gets **buckshot only and
+the shotgun alone** -- and in the DEV place `MatchBoot` passes `counterAt = nil` (`Lobby.ANCHORS` has
+no `map:v1` row), so **he can never buy anything there**. The harness runs in that world.
+
+**What went red at `f4c0375b`:**
+
+| side | cases | what they assert |
+|---|---|---|
+| server (5, stable across all three runs) | `weapon_equip.spec` x3 | `#Hardware.toolsOf(player) == #Weapons.loadout()` -- the module's own answer takes no owner, so it is the FULL loadout while the player now carries one gun |
+| | `weapon_rules.spec` | the refilled pocket: *"Expected 12, got 0"* |
+| | `weapon_shot.spec` | the per-pellet segment chain -- buckshot is NINE pellets, so `casts[3]` starts pellet two |
+| client (15 in two runs of three, 1 in the other) | `camera_client.spec` | the replayed right mouse never reached the weapon's aim action |
+| | `input_driving.spec` x3 | the replayed `F` key and `MouseButton1` never arrived at all |
+| | `weapon_client.spec` | a "full gun" is two Live barrels of **Slug** with 12 in the pocket |
+
+**The server half is solved and the work is kept.** `backups/2026-10-21_task-233_shop-on-spec-pins.txt`
+is the measured diff that takes the server side to **0 failures**: `Weapon.setEntitlementProvider`
+hands back the provider it replaced (the `setArmingPolicy` idiom of task 150), `weapon_equip.spec`
+unwires the entitlement in its existing `beforeEach`/`afterEach`, `weapon_rules.spec` does the same
+around its refill case, and `weapon_shot.spec` asks `row.PELLETS[ammo]` before claiming one chain.
+
+**The client half is not, and that is the finding.** The input-replay and camera half of the suite
+does not hold still under it -- 15 failures, then 1, then 15, with no code change between the first
+two. Those specs are the evidence for what Karen judges by feel.
+
+**Two ways out, and choosing between them is a design decision:**
+
+- **(A) Do not wire a shop in a world with no counter.** `MatchBoot` already says `counterAt = nil`
+  *"is not a defect"* for the DEV place; the step after that sentence is not to wire
+  `Weapon.setEntitlementProvider` there either. Then DEV keeps today's kit, the whole red list
+  disappears, no spec changes at all, and `SHOP` lights for the worlds that have a lodge -- which is
+  every world the shop was designed for. **This is the one I would do.**
+- **(B) Re-baseline the client suite** on "the default player has buckshot and one gun". That is
+  honest too, but it is a task of its own, it rewrites the assertions that protect the gun's feel,
+  and it should not ride inside a commit called "v1 defaults".
+
+**What Karen should see either way, because it is hers to judge:** with `SHOP` on, a brand-new
+player starts with buckshot and no rifle and buys slugs (120) and the scoped rifle out of drive
+money. That is `docs/design/shop.md`'s v1 ladder as reviewed in tasks 178 and 221 -- but she has
+played the Forest Test with her own place attributes, not a fresh server, so she has not met it.
+
+### 3. `COINS` is lit and `SHOP` is not, so a player earns money he cannot spend
+
+A consequence of stopping at flip 4, written down rather than left to be discovered. The lodge is
+coherent in this state -- `Lobby.Build` hangs a **disabled** prompt on the shopkeeper when the shop
+is not in the build, which is the case `lobby.spec` calls *"a Press E over a man who answers nothing
+is worse than no prompt"* -- and nothing is broken. It is simply a half-step, and item 2 is what
+closes it.
+
+### 4. Frame (c) could not be taken: there is no beater in a one-player DEV drive
+
+`Match.requestTeam(player, "Drivers")` returns **false** and the player stays `Shooters` -- the
+roster will not leave a one-player drive without a hunter. So no horn is carried in DEV and the
+dispatch's *"if a beater is reachable"* resolves to no. `HORN`'s evidence is `zz_horn.spec` (the
+carry policy both ways, by parameter) and the Forest Test, where `ForestTestBoot` has had
+`local hornOn = true` unconditionally since task 152.
+
+### 5. Harness note: a reacting animal cannot be photographed through `capture`
+
+Frame (a) is a measured TRACE and not a screenshot, and this is why. One `capture` round trip is
+~15 s; a boar that has reacted trots at 18 studs/s and sprints at 38, so it is 270 to 570 studs away
+by the time the shutter falls. Four attempts, four empty fields. It is logged as a limitation, not
+as a defect: the trace is stronger evidence for a transition than any single frame (Learning Agent
+L-022 says so in as many words), and the two traces are in the task report.
+
+
 ## 2026-10-21 - Task 229: **CLOSED. Reviewer PASS at round 3.** Nothing is outstanding.
 
 Round 3 passed (`reviews/task-229/RESULT.md` line 1 = `PASS` at `8b64034b`), after the Director
