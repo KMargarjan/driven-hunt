@@ -534,6 +534,13 @@ return function()
 			-- `Match.CONFIG.ODD_PLAYER_TEAM` is "Shooters" and the cluster is hidden on a desktop --
 			-- so this asserts what the module was TOLD.
 			--
+			-- HEARTBEAT AND NOT `RenderStepped` (measured, this task): waiting on `RenderStepped`
+			-- inside the client runner never returned and took the whole 300 s client budget with
+			-- it, which then failed `zz_drive_boundary` on the SERVER with its own note, "a client
+			-- never reported" -- one stall, two red lines. `Heartbeat` is what every other case in
+			-- this file waits on, and it fires AFTER the frame's render step, so three of them is
+			-- at least two of the Hud's per-frame passes.
+			--
 			-- NOTHING ABOUT THE WEAPON CHANGES while this runs: the Tool is added to the Backpack,
 			-- never equipped, so `Weapon.Changed` does not fire and only a per-frame reader can see
 			-- it. That is the whole point of the case.
@@ -550,9 +557,9 @@ return function()
 			tool.Name = Horn.TOOL_NAME
 			tool.RequiresHandle = false
 			tool.Parent = backpack
-			RunService.RenderStepped:Wait()
-			RunService.RenderStepped:Wait()
-			RunService.RenderStepped:Wait()
+			RunService.Heartbeat:Wait()
+			RunService.Heartbeat:Wait()
+			RunService.Heartbeat:Wait()
 			expect(Touch.state().hasHorn).to.equal(true)
 			expect(Touch.state().carried).to.equal(before.carried + 1)
 			-- ...and BLOW is then a button this cluster would draw, which is the claim that matters.
@@ -562,9 +569,9 @@ return function()
 				end
 			end
 			tool:Destroy()
-			RunService.RenderStepped:Wait()
-			RunService.RenderStepped:Wait()
-			RunService.RenderStepped:Wait()
+			RunService.Heartbeat:Wait()
+			RunService.Heartbeat:Wait()
+			RunService.Heartbeat:Wait()
 			expect(Touch.state().hasHorn).to.equal(false)
 			expect(Touch.state().carried).to.equal(before.carried)
 		end)
