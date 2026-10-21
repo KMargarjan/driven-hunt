@@ -3,17 +3,19 @@
 Task: 229
 Round: 1
 Base: `963aaa37` (main, after task 228's shop round 2)
-Code commit: `f2d5d725b04afeca0ea34f4916df605a7c85f2ad`
+Code commit: `24e9f2318b3ebcb599aa0115bd0e4d7c52acda3d`
 
 Harness, on the clean tree, at that commit:
 
 ```
-[harness] PASS: 33/33 checks @ f2d5d725b04afeca0ea34f4916df605a7c85f2ad (clean tree) scope=all
+[harness] PASS: 33/33 checks @ 24e9f2318b3ebcb599aa0115bd0e4d7c52acda3d (clean tree) scope=all
 ```
 
-`[harness2]`: **NOT YET RUN.** `tools/agents.py` asks for it (six changed files are in
-`TWO_PLAYER_PATHS`), and `test2` needs one Studio and a human click, so it is the Director's --
-`ESCALATE.md`, `NEEDS DIRECTOR: test2 for task 229 at f2d5d725`.
+`[harness2]`: **RUN TWICE AT `278febdb` AND FAILED BOTH TIMES; THE CAUSE IS FIXED AND IT IS NOT YET
+RE-RUN.** `tools/agents.py` asks for the line (six changed files are in `TWO_PLAYER_PATHS`) and
+`test2` needs one Studio and a human click, so it is the Director's -- `ESCALATE.md`,
+`NEEDS DIRECTOR: test2 for task 229 at 24e9f231`. **This request is not final until that line
+exists.** What the two runs found is claim 11 below; neither finding was a defect in this branch.
 
 Karen, 2026-10-21, verbatim:
 
@@ -162,3 +164,30 @@ Every one of those is the Designer's own number (`shop2-spec.md` §3.4, §3.6).
    `setRoleWish(…)`); the production ON path's evidence is Karen's Forest Test.
 6. **`tools/agents.py` selftest and `tools/studio_mcp.py` selftest both pass** (rule G); no new spec
    file, so `SCOPE_SPECS` and `BLAST_RADIUS` are untouched.
+
+---
+
+## 11. What the two failed `test2` runs found, and why neither is this branch
+
+**`touch_controls.spec:564` was a TASK 220 spec defect, and it is fixed at the root.** That case has
+never run under two players: it arrived with task 220 on 2026-10-21, and the two most recent
+`[harness2]` lines in `TASKS.md` are at `1af2cf60` and `449e0120`, where `git cat-file -e` says the
+file does not exist. It remembered `Touch.state().carried` and asserted `before.carried + 1`, which
+assumes the server does not touch his other Tools while the case runs -- true with one player, false
+with two: `zz_tie_to_a_tree.spec` (a two-player-only spec) gets the shooter TIED, and the tie runs
+`refreshArmingFor` under `src/server/Match/init.luau`'s own comment, *"mayCarryWeapon now says no, so
+the Tool goes"*. The fix pins the count to the LIVE TREE, which is strictly stronger than the delta
+it replaces.
+*Verify:* `tests/client/touch_controls.spec.luau`,
+`sees a horn arrive and leave, without any weapon state changing`. **L-028 is demonstrated, not
+asserted:** with the per-frame tell removed from `Hud.renderObjective` the new form fails
+(`touch_controls.spec:618`, after its whole 30-frame budget); on healthy code the same note reads
+one frame. Logs: `<runs-dir>/l028-probe-t229.log` and `<runs-dir>/test-t229-24e9f231.log`.
+
+**The driver's five failures in run 2 are a starved client, not code, and nothing was changed for
+them.** Same commit, opposite outcomes (run 1: 508 passed, 0 failed, reported at 19 s; run 2: 498
+passed, 10 failed, at 69 s). `camera_client.spec:648` is not an input assertion at all -- it is
+`waitUntil(5, ... lookAtLanded > before)`, *"it does count, once a frame goes by"* -- so all five are
+one cause, and `input_driving`'s own `ARRIVE_TIMEOUT` is 45 s. The harness SENT every step in both
+runs, and the driver's viewport and every other note are byte-identical between the two logs. Queued
+as `TASKS.md` 229e.

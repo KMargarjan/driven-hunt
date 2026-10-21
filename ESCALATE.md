@@ -1,11 +1,87 @@
 # Escalations
 
-## 2026-10-21 - Task 229: NEEDS DIRECTOR - `test2` for task 229 at `f2d5d725`, and the two preview frames
+## 2026-10-21 - Task 229: NEEDS DIRECTOR - `test2` for task 229 at `24e9f231` (the second ask)
 
-**NEEDS DIRECTOR.** Two things, both of which need a Studio I was told not to use or a run I cannot
-make, and neither of which is a defect.
+**`NEEDS DIRECTOR: test2 for task 229 at 24e9f2318b3ebcb599aa0115bd0e4d7c52acda3d`**
 
-### 1. `NEEDS DIRECTOR: test2 for task 229 at f2d5d725b04afeca0ea34f4916df605a7c85f2ad`
+The one-player gate is green on the clean tree at that commit:
+
+```
+[harness] PASS: 33/33 checks @ 24e9f2318b3ebcb599aa0115bd0e4d7c52acda3d (clean tree) scope=all
+```
+
+Log: `<runs-dir>/test-t229-24e9f231.log`. Run `python tools/studio_mcp.py test2` on the clean tree.
+
+### What the first two `test2` runs found, and what was done about it
+
+**(a) `touch_controls.spec:564` -- a TASK 220 spec defect, not a 229 regression. FIXED at the root.**
+
+That case has **never run under two players before**: it arrived with task 220 on 2026-10-21, and
+the two most recent `[harness2]` lines in `TASKS.md` are at `1af2cf60` (task 221) and `449e0120`
+(task 201) -- `git cat-file -e` says the file does not exist at either commit.
+
+The cause is in the product code's own comment. The case remembered `Touch.state().carried` and then
+asserted `before.carried + 1`, which assumes **the server does not touch his other Tools while the
+case runs**. With one player that holds; with two it does not, deterministically:
+
+* `zz_tie_to_a_tree.spec` exists only in a two-player run -- with one player it prints *"one player,
+  so no beater to refuse a shot at; probe not fired"*. It makes the shooter fire beside the driver,
+  the server ties him, and `src/server/Match/init.luau` then runs `refreshArmingFor` under its own
+  comment: *"The weapon still decides and still writes: mayCarryWeapon now says no, so the Tool
+  goes."* **His gun is removed.**
+* and at the next drive the roster swaps him to the beaters, which takes the gun and grants a real
+  horn (`zz_drive_boundary` note, run 1: *"at drive 2's countdown -- Player1 team=Drivers"*).
+
+Measured, both runs: `before.carried` was 1 (the gun), the gun went inside the three `Heartbeat`s,
+and the live tree then held exactly one Tool -- the fake horn. `hasHorn` passed on the line above;
+only the arithmetic was wrong.
+
+**The fix pins the count to the LIVE TREE instead of to a remembered number**, which is strictly
+stronger than the delta it replaces: the old form only checked that the number moved by one, the new
+one checks that *what the cluster was TOLD is what the tree actually holds*. The second half's
+`hasHorn == false` goes the same way, with the one-player reading kept as a conditional.
+
+**L-028, demonstrated rather than asserted.** With the per-frame tell removed from
+`Hud.renderObjective` -- which IS the regression this case was written for -- the NEW form fails:
+`touch_controls.spec:618 Expected true, got false`, after spending its whole 30-frame budget
+(`task229 touch: the cluster matched the tree after 30 frame(s)`). Log:
+`<runs-dir>/l028-probe-t229.log`; the probe was reverted. On healthy code the same note reads
+**1 frame**.
+
+**(b) The driver's five failures in run 2 -- NOT the code, and NOT fixed. Evidence, not a feeling:**
+
+1. **Same commit, opposite outcomes.** Run 1: driver 508 passed, 0 failed, reported at **19 s**.
+   Run 2: 498 passed, 10 failed, reported at **69 s**. A deterministic code defect cannot do that.
+2. **`camera_client.spec:648` is not an input assertion at all.** It is
+   `waitUntil(5, ... lookAtLanded > before)` -- *"it does count, once a frame goes by"*. It is a
+   claim that **a frame rendered within 5 s**.
+3. So all five are one cause: **the driver's client was starved of frames for a stretch.**
+   `input_driving`'s own `ARRIVE_TIMEOUT` is 45 s, and 69 s is startup plus that timeout.
+   `input_driving.spec` already says so in its own words: *"in a two-player local test this client
+   is a background window rendering at about 15 fps"*.
+4. **The harness sent the input in both runs**: `ok [input] replayed every step of 6 scenario(s)
+   (31 steps sent to 2 client(s))`, in run 1 and in run 2 alike.
+5. **The driver's environment was identical**: viewport 971x712 and every other driver note is
+   byte-for-byte the same in the two logs.
+6. **229 is not on that path.** On the driver it adds one cached `Player` attribute read per frame
+   (`DHRoleWish`, which in the DEV place is never written at all -- there is no lobby) and two tells
+   that compare three values and return. Nothing it changed touches `ContextActionService`,
+   `UserInputService`, `ClientTests.InputReady`, the scenario file or the camera.
+
+**So I have not changed anything for (b)**, per *"fix only if it is the code"*. It is queued as
+`TASKS.md` 229e. **L-033 applies to you as well as to me:** if run 3 is green, that is one pass, and
+the honest reading of (b) is still *"intermittent, cause not in this branch"* rather than *"fixed"*.
+If it fails again the same way, 229e is the task to dispatch, not this one to re-open.
+
+### Still open from the first escalation, unchanged
+
+A preview frame of each of the two surfaces still cannot be taken in DEV -- that place has no lobby,
+no truck pads and no shop counter, so neither panel can be put on screen there, and the StudioMCP
+thread cannot `require`, so no probe can open one. The clicks for the Forest Test are listed in the
+previous entry's history. Karen already has the Designer's own `shop2-role.png`, and every number the
+build produced is measured into the harness report and matches it.
+
+## 1. `NEEDS DIRECTOR: test2 for task 229 at f2d5d725b04afeca0ea34f4916df605a7c85f2ad`
 
 The one-player gate is green on the clean tree at that commit:
 
