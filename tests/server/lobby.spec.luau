@@ -3736,7 +3736,7 @@ return function()
 				expect(seen[ROLE[key]]).to.equal(nil)
 				seen[ROLE[key]] = true
 			end
-			-- THE TEN ROWS SUM TO THE ONE NUMBER BOTH THE LAYOUT AND THE CLIENT SPEC READ, so a part
+			-- THE NINE ROWS SUM TO THE ONE NUMBER BOTH THE LAYOUT AND THE CLIENT SPEC READ, so a part
 			-- that changes without the whole fails here rather than drawing 1 px wrong in silence.
 			local sum = ROLE.LEAD_PX
 				+ ROLE.EYEBROW_PX

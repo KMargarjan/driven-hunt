@@ -169,6 +169,14 @@ return function()
 			expect(snapshot.roleOverruled).to.equal(nil)
 			-- ...and the two fields it copies that idiom from behave the same way here.
 			expect(snapshot.coinsOn).to.equal(nil)
+			-- TASK 229, review round 1 finding 1: the record `roleOverruled` is now computed
+			-- AGAINST -- the wishes the assignment was actually made with, rather than the live memo
+			-- the assignment itself empties. On the real running drive in the DEV place there is no
+			-- lobby, so nothing can ever be in it, and a COPY is what this owner hands out.
+			local seated = Match.seatedWishes()
+			expect(seated).to.be.ok()
+			expect(next(seated)).to.equal(nil)
+			expect(Match.seatedWishes()).never.to.equal(seated)
 		end)
 
 		it("publishes a snapshot that is frozen all the way down", function()

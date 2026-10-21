@@ -943,7 +943,20 @@ function Lobby.onRoleRequest(player: any, request: any, now: number?): any
 	end
 	local at = now or os.clock()
 	local wish = if type(request) == "table" then (request :: any).role else nil
-	if not Data.roleAllowed(wish) then
+	-- ONE FIELD, AND NOTHING ELSE ON THE WIRE (review round 1, note 1). `{ role = "beater" }` is the
+	-- whole payload; a packet carrying anything more is not a client of this build, and accepting it
+	-- while silently ignoring the extra is how a second field gets read by accident later.
+	-- `Shop.checkRequest`'s own rule: *"an argument nobody reads is an argument nobody checked"*.
+	local onlyRole = type(request) == "table"
+	if onlyRole then
+		for key in pairs(request :: any) do
+			if key ~= "role" then
+				onlyRole = false
+				break
+			end
+		end
+	end
+	if not onlyRole or not Data.roleAllowed(wish) then
 		-- NOTHING IS SENT BACK and nothing is changed: the client that forged it is not told what
 		-- shape would have worked (`onPadRequest`'s rule).
 		stats.badRequests += 1
@@ -953,7 +966,6 @@ function Lobby.onRoleRequest(player: any, request: any, now: number?): any
 		stats.roleRateLimited += 1
 		return nil
 	end
-	stats.roleAsks += 1
 	-- HE DOES NOT OWN THE THING HE IS ASKING ABOUT, AND THAT IS **NOT** A FORGERY. It is this
 	-- module's own split, written in `stats`: a forged payload is a different fact from a legal
 	-- request the game said no to, *"because counting it as a bad request would hide a mis-wired
@@ -976,6 +988,10 @@ function Lobby.onRoleRequest(player: any, request: any, now: number?): any
 	-- THE SERVER WRITES IT, INSIDE THIS CALL and not on the next scan, so what a player waits for is
 	-- one network hop and not a tenth of a second of scan. The scan's own call is what keeps it
 	-- honest afterwards -- `onPadRequest`'s own arrangement with `Build.setTruck`.
+	-- COUNTED HERE AND NOT AT THE TOP (review round 1, note 2): `roleAsks` is an ask the game
+	-- ANSWERED, so a refusal belongs in `refusedBy` and in nothing else -- which is what the design's
+	-- own verdict table says and what `stats`' forged/refused split exists for.
+	stats.roleAsks += 1
 	setRoleWish(player, wish)
 	return { ok = true, role = wish }
 end

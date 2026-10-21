@@ -1210,6 +1210,19 @@ function PadPanel.stop()
 	sent = nil
 	loading = nil
 	left = nil
+	-- ...AND THE ROLE BLOCK (task 229, review round 1 note 3). This function's own contract is
+	-- *"nothing on screen, nothing held"*, and a stale `wish` would make the first `setRoleWish`
+	-- after a restart early-return and skip the first `renderRole` -- a block drawn from a value
+	-- this module was told before it was stopped.
+	wish = nil
+	team = nil
+	screenHeight = nil
+	switchBlock = nil
+	switchEyebrow = nil
+	switchCaption = nil
+	switchRule = nil
+	roleSwitch = nil
+	hint = nil
 	table.clear(buttons)
 	table.clear(notes)
 	empty(panel)

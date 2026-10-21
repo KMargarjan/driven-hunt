@@ -935,8 +935,6 @@ function ShopPanel.buttonStateFor(row: any, hunts: number?, balance: number?): B
 	return { kind = "poor", word = string.format(TEXT.POOR_BUTTON, Money.text(math.max(row.price - (balance or 0), 0))) }
 end
 
--- THE WALLET'S TWO NUMBERS. `--` AND NOT `0` for a player with no open profile, which is
--- `Economy.balanceOf`'s own rule: nil is not the same fact as a balance of zero.
 -- WHAT THE SWITCH'S CAPTION SAYS ON THIS SURFACE, or "" when there is no switch. PURE, two rows and
 -- a receipt, out of `Shop.CONFIG.TEXT` so the words are Karen's to rewrite (task 229).
 --
@@ -959,6 +957,8 @@ function ShopPanel.roleUsable(wish: string?, side: string?): boolean
 	return (wish == ShopPanel.ROLE.HUNTER or wish == ShopPanel.ROLE.BEATER) and side == nil
 end
 
+-- THE WALLET'S TWO NUMBERS. `--` AND NOT `0` for a player with no open profile, which is
+-- `Economy.balanceOf`'s own rule: nil is not the same fact as a balance of zero.
 function ShopPanel.coinsTextFor(state: any): string
 	-- `Money.text` ANSWERS BOTH HALVES (task 221): "$1240" for a number and `Money.UNKNOWN` for a
 	-- nil, which is the `--` this function used to write out by hand.

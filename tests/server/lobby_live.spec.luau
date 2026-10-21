@@ -1048,6 +1048,12 @@ return function()
 				{ role = 1 },
 				{ role = true },
 				{ pad = 1, size = 1 },
+				-- ONE FIELD AND NOTHING ELSE (review round 1, note 1). A packet carrying a legal word
+				-- PLUS anything more is not a client of this build, and accepting it while silently
+				-- ignoring the extra is how a second field comes to be read by accident later --
+				-- `Shop.checkRequest`'s *"an argument nobody reads is an argument nobody checked"*.
+				{ role = Data.ROLE_WISH.BEATER, pad = 1 },
+				{ role = Data.ROLE_WISH.HUNTER, size = 4 },
 				"beater",
 				42,
 			}) do
@@ -1055,7 +1061,10 @@ return function()
 				expect(reply.ok).to.equal(false)
 				expect(reply.refused).to.equal("bad-request")
 			end
-			expect(Lobby.stats().badRequests >= 8).to.equal(true)
+			expect(Lobby.stats().badRequests >= 10).to.equal(true)
+			-- A REFUSED PAYLOAD IS NOT AN ASK: `roleAsks` counts only the ones the game ANSWERED (review
+			-- round 1, note 2).
+			expect(Lobby.stats().roleAsks).to.equal(0)
 			expect(man:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(nil)
 		end)
 

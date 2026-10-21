@@ -634,6 +634,55 @@ return function()
 			expect(#Roster.overruled(assignment, nil, nil)).to.equal(0)
 		end)
 
+		it("still does not name him one scan later, when his wish has been SPENT", function()
+			-- REVIEW ROUND 1, FINDING 1, AS THE SEQUENCE THAT PRODUCED IT. The wish is spent by the
+			-- very assignment it is about: `Lobby.wishFor` answers HUNTER the moment
+			-- `Match.assignmentOf` names a team, so the LIVE memo is empty within one lobby scan
+			-- (0.1 s) of `enterAssigning` -- while `roleOverruled` is rebuilt on every dispatch for
+			-- the whole 15 s intermission. Reading it live told the man who had just pressed BEATER
+			-- *"TEAMS MUST BE EVEN - you beat this drive"* for almost all of it.
+			local assignment = { [1] = "Drivers", [2] = "Shooters" }
+			local always = { [1] = true }
+
+			-- AT THE ASSIGNMENT the memo still holds him, and that is the one instant it does.
+			local record: { [number]: boolean } = {}
+			Roster.recordSeated(record, { [1] = true }, assignment)
+			expect(record[1]).to.equal(true)
+
+			-- ONE SCAN LATER THE MEMO IS EMPTY -- and THIS is the input the snapshot used to read.
+			-- It names him, which is the defect, stated as the arithmetic that produced it.
+			expect(#Roster.overruled(assignment, always, {})).to.equal(1)
+			expect(Roster.overruled(assignment, always, {})[1]).to.equal(1)
+
+			-- THE RECORD DOES NOT, and it is not emptied by the empty memo either.
+			Roster.recordSeated(record, {}, assignment)
+			expect(record[1]).to.equal(true)
+			expect(#Roster.overruled(assignment, always, record)).to.equal(0)
+		end)
+
+		it("records only the wishes an assignment actually SEATED, and only ever adds", function()
+			local record: { [number]: boolean } = {}
+			-- A MAN THE ROSTER HAS NOT DEALT YET is not somebody anything can say was or was not
+			-- overruled, so he is not recorded.
+			Roster.recordSeated(record, { [9] = true }, { [1] = "Drivers" })
+			expect(record[9]).to.equal(nil)
+			-- ...AND A MID-DRIVE JOIN ADDS WITHOUT ERASING. The joiner's memo no longer holds the
+			-- wishes already spent at `enterAssigning`, so a rule that REPLACED the record would
+			-- hand every earlier wisher back to `Roster.overruled` one scan later.
+			Roster.recordSeated(record, { [1] = true }, { [1] = "Drivers" })
+			Roster.recordSeated(record, { [5] = true }, { [1] = "Drivers", [5] = "Drivers" })
+			expect(record[1]).to.equal(true)
+			expect(record[5]).to.equal(true)
+			-- `wishes` nil OR EMPTY WRITES NOTHING, which is every build with no lobby.
+			local empty: { [number]: boolean } = {}
+			expect(Roster.recordSeated(empty, nil, { [1] = "Drivers" })).to.equal(empty)
+			expect(next(empty)).to.equal(nil)
+			Roster.recordSeated(empty, {}, { [1] = "Drivers" })
+			expect(next(empty)).to.equal(nil)
+			-- IT IS THE CALLER'S TABLE, WRITTEN IN PLACE AND HANDED BACK -- no allocation per event.
+			expect(Roster.recordSeated(record, nil, {})).to.equal(record)
+		end)
+
 		it("reaches a man who walks onto a truck pad mid-drive, off a tie and not otherwise", function()
 			-- SINCE TASKS 177 AND 209 THIS IS THE NORMAL WAY INTO A DRIVE. `joinTeam`'s own rule is
 			-- unchanged, so the wish -- exactly like the turn and the privilege before it -- wins

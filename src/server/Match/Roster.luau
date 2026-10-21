@@ -202,6 +202,47 @@ function Roster.wishedWith(owed: { [number]: TeamName }?, wishes: { [number]: bo
 	return out
 end
 
+-- PURE. WHICH OF THESE WISHES THE ASSIGNMENT ACTUALLY SEATED, folded into what is already recorded.
+--
+-- IT EXISTS BECAUSE THE WISH IS SPENT BY THE VERY ASSIGNMENT IT IS ABOUT (review round 1, finding
+-- 1). `Lobby.wishFor` answers `HUNTER` the moment `Match.assignmentOf` names a team, so the live
+-- memo is EMPTY one lobby scan (0.1 s) after `enterAssigning` -- while `Roster.overruled` is asked
+-- again on every dispatch for the whole 15 s intermission. Reading the live memo there told the man
+-- who had just pressed BEATER *"TEAMS MUST BE EVEN - you beat this drive"*, which is the exact
+-- opposite of what the third argument is for.
+--
+-- SO THE ANSWER IS PINNED TO THE ASSIGNMENT IT IS ABOUT, and the rule is here rather than in the
+-- owner because it is pure and because a spec can then drive the one sequence that matters: seat
+-- him while the memo still holds him, then hand it the EMPTY memo and see the record stand.
+--
+-- IT IS WRITTEN IN PLACE AND RETURNED. `Match.dispatch` calls it on every event, which while
+-- TASKS.md 214a(a) is open can be ~15x `MATCH_STEP_HZ`, so a new table per call would be the churn
+-- `Economy.alwaysHunters`' memo exists to avoid. The caller owns the table's LIFETIME (one drive);
+-- this owns only what goes in it.
+--
+-- IT ONLY EVER ADDS, and that is the point: a mid-drive `join` assigns ONE man off a memo that no
+-- longer holds the wishes already spent at `enterAssigning`, so a rule that replaced the record
+-- would hand every earlier wisher back to `Roster.overruled` one scan later.
+--
+-- `wishes` nil or EMPTY ADDS NOTHING, so a build with no lobby never writes a row.
+function Roster.recordSeated(
+	record: { [number]: boolean },
+	wishes: { [number]: boolean }?,
+	assignment: Assignment
+): { [number]: boolean }
+	if wishes == nil then
+		return record
+	end
+	for userId, asked in pairs(wishes) do
+		-- SEATED, not merely asked: a wisher the roster has not dealt yet is not a man anything can
+		-- say was or was not overruled.
+		if asked == true and assignment[userId] ~= nil then
+			record[userId] = true
+		end
+	end
+	return record
+end
+
 -- PURE. WHOSE PRIVILEGE THE BALANCE RULE OVERRULED: the always-hunters whose FINAL team is
 -- `Drivers`.
 --

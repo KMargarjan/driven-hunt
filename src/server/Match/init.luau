@@ -731,6 +731,12 @@ local names: { [number]: string } = {} -- userId -> name, for the feed and the b
 -- and the release effect empties it. The pure machine does not track it -- two writers of one fact is
 -- the failure docs/PROJECT_CONTEXT.md names three times.
 local tied: { [number]: { tree: BasePart, at: number } } = {}
+-- WHO ASKED TO BEAT AND WAS SEATED ON THIS DRIVE (task 229, review round 1 finding 1). The same
+-- shape as `tied` above and for the same reason: `Roster.overruled` has to be able to tell a
+-- privilege the BALANCE beat from one its owner GAVE UP, and the man's own wish is SPENT by the
+-- very assignment it is about -- `Lobby.beaterWishes()` is empty one lobby scan later. So the pure
+-- machine decides it and this is the one table that remembers it, for exactly one drive.
+local seatedWishes: { [number]: boolean } = {}
 -- WHO IS HELD STILL, AND THERE ARE TWO OCCASIONS NOW: the beaters at the start line for the length
 -- of the countdown (task 158), and EVERYBODY at the results scene for the length of Scoring (task
 -- 159). The same shape as `tied` above and for the same reason: the pure machine SAYS who must be
@@ -920,6 +926,13 @@ end
 -- a caller cannot write the drive's record.
 function Match.driveKills(): { any }
 	return table.clone(driveKills)
+end
+
+-- WHO ASKED TO BEAT AND WAS SEATED ON THIS DRIVE (task 229, review round 1 finding 1). A COPY, so
+-- nothing outside this owner can write the record `roleOverruled` is computed against -- the
+-- `driveKills` rule above. EMPTY in every build with no lobby, which is every harness run.
+function Match.seatedWishes(): { [number]: boolean }
+	return table.clone(seatedWishes)
 end
 
 -- THE TEST SEAM: THE DRIVE'S OWN CLOCK, MOVED FORWARD (TASKS.md 38a(i)).
@@ -1127,12 +1140,15 @@ function Match.snapshot()
 				and economy.alwaysHunters
 			-- THE WISHERS ARE PASSED IN AND ARE NEVER NAMED HERE (task 229): a man who ASKED to
 			-- beat was not overruled, and telling him he was would be the screen contradicting the
-			-- button he pressed. `world.roleWishes` absent answers today's list by identity.
-			then Roster.overruled(
-				state.assignment,
-				economy.alwaysHunters(),
-				if world and world.roleWishes then world.roleWishes() else nil
-			)
+			-- button he pressed.
+			--
+			-- `seatedWishes` AND NOT `world.roleWishes()` (review round 1, finding 1). The live memo
+			-- is EMPTY within 0.1 s of the assignment, because the assignment is exactly what spends
+			-- the wish -- so reading it here named the man who had just pressed BEATER for the whole
+			-- intermission. This is the set recorded AT the assignment, beside `state.assignment`,
+			-- which is the other half of the same one-drive fact. Empty in every build without a
+			-- lobby, so the answer is today's list by identity.
+			then Roster.overruled(state.assignment, economy.alwaysHunters(), seatedWishes)
 			else nil,
 	})
 	return snapshotCache
@@ -1906,6 +1922,29 @@ local function dispatch(event)
 		stats.drivesEndedByBeaters += 1
 	end
 	snapshotCache = nil
+	-- WHO ASKED TO BEAT **AT THE MOMENT HE WAS SEATED** (task 229, review round 1, finding 1).
+	--
+	-- THE SNAPSHOT CANNOT READ THE LIVE MEMO, and that is the defect this records against. The wish
+	-- is SPENT by the assignment: `Lobby.wishFor` answers `HUNTER` as soon as `Match.assignmentOf`
+	-- names a team, so `Lobby.beaterWishes()` is EMPTY within one lobby scan (0.1 s) of
+	-- `enterAssigning` -- while `roleOverruled` is rebuilt on every dispatch for the whole 15 s
+	-- intermission. Reading it live therefore told the man who had just PRESSED BEATER
+	-- *"TEAMS MUST BE EVEN - you beat this drive"* (`Objective.CONFIG.TEXT.DriverOverruled`) for
+	-- almost all of it -- the exact opposite of what `Roster.overruled`'s third argument exists for
+	-- (`docs/design/role-switch.md` section 7 and hazard 8).
+	--
+	-- SO THE ANSWER IS PINNED TO THE ASSIGNMENT IT IS ABOUT. `Roster.overruled` reads
+	-- `state.assignment`, which is a fact about one drive; this is the other half of that same fact,
+	-- recorded in the same place and with the same lifetime.
+	--
+	-- IT IS CLEARED WHEN THE DRIVE NUMBER MOVES and only ever ADDED TO within one drive, because a
+	-- mid-drive `join` assigns ONE man off a memo that no longer holds the wishes already spent at
+	-- `enterAssigning` -- so replacing it wholesale on a join would hand every earlier wisher back to
+	-- `roleOverruled`, which is the same defect one scan later.
+	if state.driveNumber ~= driveBefore then
+		table.clear(seatedWishes)
+	end
+	Roster.recordSeated(seatedWishes, filled.beaterWishes, state.assignment)
 
 	-- A STALL IS VISIBLE, not folkloric: every hold-back is counted, and crossing HOLDBACK_WARN
 	-- warns ONCE (on the crossing tick, not on every one after it).
@@ -3177,6 +3216,9 @@ function Match.forget(player: Player)
 	-- The hold goes with the player, exactly as the rope does: `Body.forget` below drops his saved
 	-- WalkSpeed row, so leaving this set would hold a userId nothing can ever free (task 158).
 	heldStill[userId] = nil
+	-- ...AND HIS SEATED WISH (task 229), for the same reason: no table in this owner may be keyed by
+	-- a man who has gone.
+	seatedWishes[userId] = nil
 	if tied[userId] then
 		-- The rope outlives nobody: the Instance goes with the player (design section 4.4).
 		untie(userId)
@@ -3218,6 +3260,7 @@ function Match.start(injected)
 	board = Score.new()
 	table.clear(names)
 	table.clear(tied)
+	table.clear(seatedWishes)
 	table.clear(characterWatch)
 	table.clear(pushCredit)
 	snapshotCache = nil

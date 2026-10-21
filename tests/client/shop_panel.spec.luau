@@ -1250,6 +1250,23 @@ return function()
 					end
 				end
 				expect(blocks).to.equal(1)
+
+				-- ...AND IT SHOWS WHEN HE DOES OWN IT (review round 1, note 7): the hiding half was the
+				-- only one asserted, so "shows one" was in the case's name and nowhere else.
+				Panel.setRoleWish(Panel.ROLE.HUNTER, nil)
+				Panel.relayout()
+				-- ON A DESKTOP THE SURFACE IS THE ROW; on a phone-sized viewport it is the detail pane and
+				-- this row stays 64 px. Either way EXACTLY ONE surface carries it, which is what
+				-- `switchSurfaceFor` decides -- and the built instances are what this reads.
+				expect(Panel.switchSurfaceFor("WIDE", Panel.ROLE.HUNTER, Shop.ITEM.ALWAYS_HUNTER)).to.equal("row")
+				if Panel.layoutFor(0, 0).mode == "WIDE" then
+					expect(block.Visible).to.equal(true)
+					expect(Panel.roleLit()).to.equal(Panel.ROLE.HUNTER)
+					expect(#Panel.switchText()).to.equal(4)
+				end
+				Panel.setRoleWish(nil, nil)
+				Panel.relayout()
+				expect(block.Visible).to.equal(false)
 			end)
 
 			it("puts the two halves above the row's own children, so a press reaches a half", function()

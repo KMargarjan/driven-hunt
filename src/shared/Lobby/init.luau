@@ -1664,7 +1664,7 @@ Lobby.CONFIG = {
 				RULE_GAP = 16, -- caption -> the rule
 				RULE_PX = 1,
 				TRAIL_PX = 14, -- the rule -> the first size row
-				-- THE SUM OF THE TEN ROWS ABOVE, NAMED ONCE. `PadPanel.layoutFor` is the one thing
+				-- THE SUM OF THE NINE ROWS ABOVE, NAMED ONCE. `PadPanel.layoutFor` is the one thing
 				-- that turns the parts into rectangles and `pad_panel.spec` asserts
 				-- `heightFor(n, true) - heightFor(n, false) == BLOCK_PX`, so the parts cannot drift
 				-- from the whole in silence: a part that changes without this number fails the spec.
