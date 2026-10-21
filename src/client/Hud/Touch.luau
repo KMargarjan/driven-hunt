@@ -72,19 +72,44 @@ Touch.CONFIG = {
 	BLOW_PX = 72,
 	GAP = 8,
 	MARGIN = Style.MARGIN,
-	-- THE TWO KEEP-OUTS ARE OURS, AND THEY ARE A GUESS WITH A COMMENT ON IT. Roblox states that
-	-- *"the default controls occupy a portion of the bottom-left and bottom-right corners"* and
-	-- gives NO rectangle for either, so these are our constants -- built from two numbers each so a
-	-- remeasurement moves two numbers and nothing else. The engine's jump button is visibly larger
-	-- than this repo's 48 px rail button and is inset from both edges; the dynamic thumbstick's ring
-	-- is larger again.
+	-- THE TWO KEEP-OUTS ARE OURS. Roblox states that *"the default controls occupy a portion of the
+	-- bottom-left and bottom-right corners"* and gives NO rectangle for either, so these are our
+	-- constants -- built from two numbers each so a remeasurement moves two numbers and nothing else.
 	--
-	-- UNVERIFIED AGAINST A LIVE `TouchGui` (design section 13.5): the harness has no Device Emulator
-	-- command, so a PERSON must open Test -> Device, and `touch_controls.spec` carries a case that
-	-- reads the real control frames when `TouchEnabled` is true and SAYS IN ITS OWN NAME when it did
-	-- not run. A keep-out nobody measured is a guess; one nobody admits is guessing is worse.
+	-- **MEASURED AT LAST (task 231), in Studio's Device Simulator, iPhone 17 Pro landscape, viewport
+	-- 750 x 381, `UserInputService.TouchEnabled` TRUE** -- which is what 220a(a) asked for before
+	-- anything else ("REMEASURE THE KEEP-OUT FIRST"). Read off the engine's own `TouchGui`, in its
+	-- `AbsolutePosition` frame (the GUI inset puts screen y = AbsolutePosition y + 58):
+	--
+	--     TouchControlFrame        750 x 323 @ (0, 0)
+	--     JumpButton                70 x  70 @ (655, 233)   -> screen x 655..725, y 291..361
+	--     DynamicThumbstickFrame   400 x 315 @ (-100, 107)  -- the invisible DRAG REGION
+	--     ThumbstickStart           74 x  74 @ (29, 230)     -> the drawn ring
+	--     ThumbstickEnd             36 x  36 @ (48, 249)
+	--
+	-- SO THE REAL JUMP BUTTON IS 70 x 70 WITH A 20 px BOTTOM AND 25 px RIGHT INSET -- half the size
+	-- of this guess -- and the thumbstick's drawn ring is 74, inside a 400 x 315 region the engine
+	-- will accept a drag anywhere in.
+	--
+	-- **THE CONSTANTS ARE KEPT AT 120 / 160 ANYWAY, and that is a decision rather than neglect.**
+	-- They are conservative in the SAFE direction (our rectangle contains the real control, which
+	-- `touch_controls.spec` now asserts at the measured viewport), and shrinking `JUMP` to the real
+	-- size moves the CLUSTER: `Touch.placement` flips from `above-jump` to `left-of-jump` at every
+	-- viewport from 750 to 783 px wide, which is a landscape phone layout change -- and the landscape
+	-- top band and right column are `docs/design/mobile-controls.md` section 14.4's own out-of-scope
+	-- item. What the measurement is FOR is the decision in `ESCALATE.md` (2026-10-21), where it
+	-- settles 220a(a): the overlap is real and no fold inside `Hud.Rail` can clear it.
 	JUMP = { BUTTON_PX = 120, INSET_PX = 20 },
 	THUMBSTICK = { RING_PX = 160, INSET_PX = 20 },
+	-- WHAT WAS MEASURED, kept beside the guess so the next person starts from a fact instead of
+	-- re-opening the simulator: the rectangle the engine actually drew, at the viewport it was read
+	-- at. `touch_controls.spec` asserts that `jumpKeepOut` CONTAINS it -- so a future shrink below
+	-- the real control fails the suite instead of a playtest.
+	MEASURED = {
+		AT_VIEWPORT = Vector2.new(750, 381),
+		JUMP_BUTTON = { x = 655, y = 291, w = 70, h = 70 },
+		THUMBSTICK_RING = { x = 29, y = 288, w = 74, h = 74 },
+	},
 	-- Source A's own code sample places a custom button 20 px to the left of the jump button.
 	JUMP_CLEAR_PX = 20,
 	-- ABOVE EVERY FIELD SURFACE (<= 9) AND BELOW THE SCOPE'S MASK (11-13), every modal panel (15)

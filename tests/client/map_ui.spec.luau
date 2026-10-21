@@ -30,6 +30,9 @@ local scripts = player:WaitForChild("PlayerScripts")
 local Hud = require(scripts:WaitForChild("Hud"))
 
 local MapUi = Hud.MapUi
+-- THE RAIL IS READ FOR ONE NUMBER ONLY (task 231): `Rail.columnPx`, so the column this spec hands to
+-- `MapUi.setRailColumn` is the one the Hud really hands it rather than a literal beside it.
+local Rail = Hud.Rail
 local Compass = Hud.Compass
 -- THE ONE SOURCE FOR EVERY COLOUR ON THIS MAP since task 201 E, read off the Hud exactly as
 -- `hud_style.spec` reads it.
@@ -229,6 +232,30 @@ return function()
 					MapUi.diameterFor(1920, 1080)
 				)
 			)
+		end)
+
+		-- 220a(c), task 231: `MapUi.setRailColumn` used to call `MapUi.applyLayout()` with NO
+		-- argument, and that argument is not decoration -- `nil` means *"follow the real screen"* and
+		-- writes `viewportOverride`. So telling the map how wide the rail had folded to threw away a
+		-- pinned viewport, and the layout snapped back to the Studio window in the middle of whatever
+		-- had pinned it. It changes the COLUMN and nothing else now.
+		it("keeps a pinned viewport when it is told the rail's column", function()
+			MapUi.applyLayout(Vector2.new(800, 400))
+			task.wait()
+			expect(MapUi.pinnedViewport()).to.equal(Vector2.new(800, 400))
+			-- A value it does not already hold, so the early return cannot be what passes this.
+			local wide = Rail.columnPx(2)
+			local narrow = Rail.columnPx(1)
+			MapUi.setRailColumn(if MapUi.railColumn() == wide then narrow else wide)
+			task.wait()
+			expect(MapUi.pinnedViewport()).to.equal(Vector2.new(800, 400))
+			-- ...and an explicit override still wins, which is how the Hud could pin it from outside.
+			MapUi.setRailColumn(nil, Vector2.new(400, 800))
+			task.wait()
+			expect(MapUi.pinnedViewport()).to.equal(Vector2.new(400, 800))
+			MapUi.applyLayout(nil)
+			task.wait()
+			expect(MapUi.pinnedViewport()).to.equal(nil)
 		end)
 	end)
 
