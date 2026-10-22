@@ -1,10 +1,13 @@
 # Escalations
 
-## 2026-10-22 - Task 238 (the licence popup): **THREE NEEDS DIRECTOR, none of them blocking.** The work is complete and the gate is green at `33158586`; each item below is a decision the Builder took under a stated assumption, and each is one line to reverse.
+## 2026-10-22 - Task 238 (the licence popup): **THREE NEEDS DIRECTOR, none of them blocking.** The work is complete, the Reviewer passed it in round 2, and the gate is green at `74718912`; each item below is a decision the Builder took under a stated assumption, and each is one line to reverse.
 
 ```
-[harness] PASS: 34/34 checks @ 33158586ce30045afa6cf54cee65b8afc84398dc (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 74718912d0416e7c039634f33759e43a5ccf176a (clean tree) scope=all
 ```
+
+(Round 1's line, `PASS: 34/34 @ 33158586`, is superseded: round 2 fixed three blocking findings and
+the gate was re-run. The Reviewer's round-2 note 9 caught this block still carrying the old one.)
 
 `test2` is **N/A**: no changed path is in `TWO_PLAYER_PATHS` (`tools/agents.py`). The change is the
 weapon, the Hud, the shop and the economy -- the exact list the Director's 2026-10-03 decision puts

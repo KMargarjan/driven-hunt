@@ -122,22 +122,22 @@ case also names which arm ran in its note, so the fallback cannot be read as the
    `robux receipts=6 granted=2 already=1 unknown=3 notProcessed=1` and
    `the ONE prompt in this run went to the spec's stub, not to Roblox -- prompted=1, sent=2`.
 
-11. **A world where nothing can be bought gets no card, and the FLAG is not what says so**
-    (round 2). `onAdvice` suppresses on having no `WireRow` (`suppressedNoWallet`), which is exactly
+9. **A world where nothing can be bought gets no card, and the FLAG is not what says so**
+   (round 2). `onAdvice` suppresses on having no `WireRow` (`suppressedNoWallet`), which is exactly
     the DEV place: `Shop.start` returns false without setting `started`, so no `ShopState` is ever
     sent. *Verify:* `tests/client/licence_card.spec.luau`, *"stays down for a man who already owns
     the card, and in a world with no shop"* — four aims past the cooldown, `shown == 0`,
     `suppressedNoWallet == 4`, one `ask` — and *"waits for the wallet, then goes up on the reply
     with the real price"* for the other half, including the `PENDING_SECONDS` timeout.
 
-9. **No `PurchaseId` ledger, and the limit is stated.** The entitlement SET is the record — already
+10. **No `PurchaseId` ledger, and the limit is stated.** The entitlement SET is the record — already
    `docs/design/economy-v1.md`'s reviewed decision, and strictly stronger for a non-consumable,
    because there is no window between the grant and the record of the grant. The note's §3.5 and
    `Economy.processReceipt`'s header both say in as many words that this holds for non-consumables
    ONLY and that a coin pack would need the ledger; no row grants one (`Shop.GRANT_FIELDS` has no
    `coins` field, and I13 is what keeps the `anywhere` half of that true).
 
-10. **Born dark, and both arms reachable.** `LICENCE_POPUP` `default = false`, expires 2026-11-12,
+11. **Born dark, and both arms reachable.** `LICENCE_POPUP` `default = false`, expires 2026-11-12,
     read once at `LicenceCard.ENABLED` and overridable by `start`'s `enabled`. *Verify:*
     `tests/client/licence_card.spec.luau`, *"is born OFF in git, and the ON arm is reachable by
     parameter"*. The server half is deliberately NOT behind it, and the module header says why.
