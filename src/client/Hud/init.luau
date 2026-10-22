@@ -2743,7 +2743,11 @@ local function textFor(state: Shotgun.WeaponSnapshot, row: any?): string
 	local pocket = Hud.pocketTextFor(state)
 	local notice = if state.notice then " " .. state.notice else ""
 	local resolved = resolvedRow
-	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[state.ammo]) or string.upper(state.ammo)
+	-- THE SHELL THAT WILL FIRE, exactly as the chip's own word is (task 244, round 1 note): this
+	-- line IS the chip's content as one string, so a second answer here would be the same lie in a
+	-- quieter place. `Hud.chamberedAmmo` is the server's own expression, asked once.
+	local shell = Hud.chamberedAmmo(state)
+	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[shell]) or string.upper(shell)
 	return string.format("%s %s %s%s%s", glyphs, label, pocket, busyMark, notice)
 end
 
@@ -4196,14 +4200,6 @@ Hud.AMMO_ACCENT = {
 	buck = Style.SHELL.buck.hull,
 }
 
--- WHAT THE AMMO CHIP SHOWS, AS DATA (§3.10 chamber pips). PURE and exported for the reason
--- `Hud.readoutFor` is: a spec can hand it a state it owns and assert the shape with no gun in the
--- world. `pips` is one entry per chamber -- "live", "spent" or "empty" -- `selected` is which one
--- the next trigger pull uses, `pocket` is the reserve the next load comes from, and `label` is the
--- shell's own word.
---
--- A MAGAZINE RIFLE IS NOT TWO BARRELS AND IS NOT DRAWN AS THEM (task 142's own lesson): its pips
--- are one per round the magazine holds, lit for the rounds actually in it, and nothing is selected.
 -- WHICH SHELL THE NEXT TRIGGER PULL SENDS. PURE, and it is THE SERVER'S OWN EXPRESSION, copied
 -- deliberately and asserted against it: `Weapon.onFireRequest` reads `state.loaded[state.selected]`
 -- and nothing else, so the readout and the shot have one answer between them (task 244).
@@ -4223,6 +4219,14 @@ function Hud.chamberedAmmo(state: Shotgun.WeaponSnapshot): string
 	return state.ammo
 end
 
+-- WHAT THE AMMO CHIP SHOWS, AS DATA (§3.10 chamber pips). PURE and exported for the reason
+-- `Hud.readoutFor` is: a spec can hand it a state it owns and assert the shape with no gun in the
+-- world. `pips` is one entry per chamber -- "live", "spent" or "empty" -- `selected` is which one
+-- the next trigger pull uses, `pocket` is the reserve the next load comes from, and `label` is the
+-- shell's own word -- the CHAMBERED one since task 244, which is `Hud.chamberedAmmo` above.
+--
+-- A MAGAZINE RIFLE IS NOT TWO BARRELS AND IS NOT DRAWN AS THEM (task 142's own lesson): its pips
+-- are one per round the magazine holds, lit for the rounds actually in it, and nothing is selected.
 function Hud.ammoChipFor(
 	state: Shotgun.WeaponSnapshot,
 	row: any?
@@ -4270,8 +4274,8 @@ function Hud.ammoChipFor(
 	-- pull sent buckshot. The semi-auto makes it worse, because its tube is loaded a shell at a
 	-- time and can hold a MIX -- so there is no single selection that describes it at all.
 	--
-	-- `Hud.chamberedAmmo` IS THE SAME EXPRESSION THE SERVER FIRES, and `weapon_client.spec` asserts
-	-- the identity rather than describing it. The POCKET below is still the SELECTION's, and that
+	-- `Hud.chamberedAmmo` IS THE SAME EXPRESSION THE SERVER FIRES, and `hud_style.spec` asserts the
+	-- identity rather than describing it. The POCKET below is still the SELECTION's, and that
 	-- is right: it is the pocket the next load comes out of, which is a question about the
 	-- selection and not about the chamber.
 	local shell = Hud.chamberedAmmo(state)

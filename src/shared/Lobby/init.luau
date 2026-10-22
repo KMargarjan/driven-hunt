@@ -1846,6 +1846,14 @@ Lobby.CONFIG = {
 				-- key nobody can see is a key nobody presses. The WORDS are Karen's to rewrite; the
 				-- key itself is the client's and lives beside the binding.
 				KEY_HINT = "%s TO SWITCH",
+				-- HOW MUCH OF THE EYEBROW'S ROW THE CHIP TAKES, in pixels off the row's right edge
+				-- (task 244, round 1 note). Both labels were full-width at the same Y with
+				-- `TextTruncate.AtEnd`, which HIDES a collision rather than preventing one -- and
+				-- `spaced()` makes both of them long: "N E X T  D R I V E" against
+				-- "T  T O  S W I T C H". The row is split instead, so neither can reach the other
+				-- and `pad_panel.spec` asserts the two rectangles are disjoint AND that neither
+				-- word is truncated at its own measured `TextBounds`.
+				KEY_PX = 116,
 				LEAD_PX = 12, -- air under the header's hairline
 				EYEBROW_PX = 12,
 				GAP_PX = 8, -- eyebrow -> track

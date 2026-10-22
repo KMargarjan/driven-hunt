@@ -616,7 +616,38 @@ return function()
 			Panel.setOpen(false)
 		end)
 
-		it("asks for every gun's meshes when it opens, and retries a failed fetch (task 244)", function()
+		it("asks again for a fetch the engine CALLED failed, once, and not four times a second", function()
+			-- ROUND 1'S NOTE, TAKEN: the first version of this claim rested on counters that start
+			-- at 0 and only climb, so it could not go red with the re-arm deleted. The whole
+			-- decision is a pure function now (`ShopDisplay.nextAsk`) and this is its table.
+			local S = Enum.AssetFetchStatus
+			local RETRY = Display.RETRY_SECONDS
+			expect(RETRY > 0).to.equal(true)
+			-- THE ENGINE HAS IT: draw the real mesh, whatever anyone asked.
+			expect(Display.nextAsk(S.Success, false, nil, 100)).to.equal("ready")
+			expect(Display.nextAsk(S.Success, true, 0, 100)).to.equal("ready")
+			-- NOBODY HAS ASKED: ask, for every status that is not `Success`.
+			for _, status in ipairs({ S.None, S.Loading, S.Failure, S.TimedOut }) do
+				expect(Display.nextAsk(status, false, nil, 100)).to.equal("ask")
+			end
+			-- IT IS IN FLIGHT: wait, for ever if need be. Asking again for bytes already coming is
+			-- a second request for the same bytes.
+			for _, status in ipairs({ S.None, S.Loading }) do
+				expect(Display.nextAsk(status, true, 0, 1e6)).to.equal("wait")
+			end
+			-- IT FAILED: ask again, but only once the cool-down has run out -- `ShopPanel.step`
+			-- rebuilds every `PICTURE_RETRY` while the word is up, so without this a mesh that
+			-- fails for good draws four `PreloadAsync` calls a second per piece.
+			for _, status in ipairs({ S.Failure, S.TimedOut }) do
+				expect(Display.nextAsk(status, true, 100, 100)).to.equal("wait")
+				expect(Display.nextAsk(status, true, 100, 100 + RETRY - 0.01)).to.equal("wait")
+				expect(Display.nextAsk(status, true, 100, 100 + RETRY)).to.equal("ask")
+			end
+			-- AND THE COOL-DOWN IS LONGER THAN THE REBUILD IT BOUNDS, which is the whole point.
+			expect(RETRY > Panel.PICTURE_RETRY).to.equal(true)
+		end)
+
+		it("asks for every gun's meshes when it opens (task 244)", function()
 			-- A PLAYER WHO HAS ONLY EVER CARRIED THE SHOTGUN HAS NEVER ASKED for the lever's or the
 			-- Rigby's meshes, so until task 244 the first thing that asked was the DRAW, one piece
 			-- at a time, as Karen looked at it. `warm` asks for all three guns at once, through the
@@ -633,13 +664,12 @@ return function()
 			for _, geometry in ipairs(Display.WARM_GEOMETRIES) do
 				expect(type(geometry.FOLDER_NAME)).to.equal("string")
 			end
-			-- ...AND THE COUNTERS EXIST, so *"it retries"* is a number rather than a sentence. A
-			-- retry is only ever recorded for a fetch the engine has called FAILED or TIMED OUT, so
-			-- a run in which nothing failed reads zero and that is the honest answer.
+			-- ...AND THE COUNTERS ARE READABLE, which is what makes the live run's asks and retries
+			-- a number in a probe rather than a sentence. What the RULE is, is the case above.
 			local fetch = Display.fetchStats()
-			expect(fetch.retries >= 0).to.equal(true)
-			expect(fetch.imageRetries >= 0).to.equal(true)
-			expect(fetch.asks >= 0).to.equal(true)
+			expect(type(fetch.asks)).to.equal("number")
+			expect(type(fetch.retries)).to.equal("number")
+			expect(type(fetch.imageRetries)).to.equal("number")
 			Panel.setOpen(false)
 		end)
 

@@ -43,7 +43,8 @@ local Build = Lobby.Build
 
 local CFG = Data.CONFIG
 
--- A TERRAIN THAT RECORDS AND WRITES NOTHING. One method, because `Field.fill` calls exactly one.
+-- A TERRAIN THAT RECORDS AND WRITES NOTHING. TWO methods since task 244, because `Field.fill` calls
+-- exactly two: the blocks, and the scrub that follows the air cut.
 local function fakeTerrain()
 	local calls = {}
 	-- TASK 244: the fake answers the WHOLE contract, `ReplaceMaterial` included. `Field.fill` calls

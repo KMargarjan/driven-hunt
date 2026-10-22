@@ -226,12 +226,45 @@ local fetchStats = { asks = 0, retries = 0, imageAsks = 0, imageRetries = 0, war
 -- answers, not slow ones, so the only way out of them is to ask once more.
 --   Enum.AssetFetchStatus https://create.roblox.com/docs/reference/engine/enums/AssetFetchStatus
 --
--- IT IS NOT A LOOP: `asked[id]` is cleared on the failure, and the next CALL -- a rebuild, which
--- `ShopPanel.step` runs at most a few times a second while the case is waiting -- asks again. A
--- fetch that keeps failing keeps the loading state up, which is the honest picture and is what
--- Karen asked for instead of *"all weapons looks like parts"*.
+-- ...AND NOT FOUR TIMES A SECOND (round 1 note). `ShopPanel.step` rebuilds the picture every
+-- `PICTURE_RETRY` while the case is waiting, so a mesh that fails for good would have drawn a
+-- `PreloadAsync` per piece per rebuild for as long as the shop was open. The ask is on a
+-- COOL-DOWN per id: three seconds is far longer than any fetch that is merely slow and far shorter
+-- than a player's patience with a blank case.
+ShopDisplay.RETRY_SECONDS = 3
+
+-- WHEN EACH ID WAS LAST ASKED FOR, beside `asked` rather than inside it, so "has it been asked"
+-- and "how long ago" stay two readable facts.
+local askedAt: { [string]: number } = {}
+
+-- **WHAT TO DO ABOUT ONE MESH, AS A PURE RULE** (round 1 note: the retry has to be assertable where
+-- it can FAIL, not only through a counter that cannot go down). `meshReady` is the one caller and
+-- this is the whole of its decision, so deleting the re-arm means changing THIS function and
+-- `shop_panel.spec`'s table of statuses goes red.
+--
+--   "ready"  the engine has it; draw the real mesh
+--   "ask"    nobody has asked, or the last ask FAILED and the cool-down has run out
+--   "wait"   it is in flight, or it failed and the cool-down has not run out yet
+--
+-- `Loading` AND `None` ARE NEVER RETRYABLE: one is in flight and the other has not been asked for,
+-- and asking again for bytes that are already coming is a second request for the same bytes.
+function ShopDisplay.nextAsk(status: any, askedAlready: boolean, since: number?, now: number): string
+	if status == Enum.AssetFetchStatus.Success then
+		return "ready"
+	end
+	if not askedAlready then
+		return "ask"
+	end
+	local terminal = status == Enum.AssetFetchStatus.Failure or status == Enum.AssetFetchStatus.TimedOut
+	if terminal and now - (since or 0) >= ShopDisplay.RETRY_SECONDS then
+		return "ask"
+	end
+	return "wait"
+end
+
 local function askFor(id: string, holder: Instance)
 	asked[id] = true
+	askedAt[id] = os.clock()
 	fetchStats.asks += 1
 	task.spawn(function()
 		pcall(function()
@@ -261,16 +294,12 @@ local function meshReady(part: Instance): boolean
 		arrived[id] = true
 		return true
 	end
-	-- THE TWO TERMINAL FAILURES RE-ARM THE ASK. `Loading` and `None` are still "wait": one is in
-	-- flight and the other has not been asked for yet, and asking again for an id that is already
-	-- downloading would be a second request for the same bytes.
-	if status == Enum.AssetFetchStatus.Failure or status == Enum.AssetFetchStatus.TimedOut then
+	-- THE WHOLE DECISION IS `ShopDisplay.nextAsk`'s, and this is the one line that acts on it.
+	local verdict = ShopDisplay.nextAsk(status, asked[id] == true, askedAt[id], os.clock())
+	if verdict == "ask" then
 		if asked[id] then
 			fetchStats.retries += 1
 		end
-		asked[id] = false
-	end
-	if not asked[id] then
 		askFor(id, part)
 	end
 	return false
@@ -446,17 +475,22 @@ local askedImage: { [string]: boolean } = {}
 -- fetch failed drew NOTHING -- a blank green wall on a carton -- for the rest of the session. The
 -- status is read before the ask, exactly as it is for a mesh, and only the two TERMINAL answers
 -- re-arm it.
+local askedImageAt: { [string]: number } = {}
+
 local function preloadImage(holder: Instance, image: string)
 	if askedImage[image] then
 		local ok, status = pcall(function()
 			return ContentProvider:GetAssetFetchStatus(image)
 		end)
-		if not ok or (status ~= Enum.AssetFetchStatus.Failure and status ~= Enum.AssetFetchStatus.TimedOut) then
+		-- THE SAME RULE AS A MESH'S, asked through the same function, so there is ONE answer to
+		-- *"may this be asked for again"* in this file and not two that can drift.
+		if not ok or ShopDisplay.nextAsk(status, true, askedImageAt[image], os.clock()) ~= "ask" then
 			return
 		end
 		fetchStats.imageRetries += 1
 	end
 	askedImage[image] = true
+	askedImageAt[image] = os.clock()
 	fetchStats.imageAsks += 1
 	task.spawn(function()
 		pcall(function()

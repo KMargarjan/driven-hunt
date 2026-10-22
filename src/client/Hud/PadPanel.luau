@@ -654,7 +654,10 @@ local function build(frame: Frame)
 
 	switchEyebrow = label(block, "RoleEyebrow", FONT.SANS_BOLD, EYEBROW_SIZE + 1, LOOK.FAINT, 3);
 	(switchEyebrow :: TextLabel).Text = spaced(ROLE.EYEBROW);
-	(switchEyebrow :: TextLabel).Size = UDim2.new(1, 0, 0, ROLE.EYEBROW_PX)
+	-- THE ROW IS SPLIT, NOT SHARED (task 244, round 1 note): the eyebrow takes everything the key
+	-- chip does not, so the two rectangles are disjoint by construction and `TextTruncate` is never
+	-- asked to hide a collision.
+	(switchEyebrow :: TextLabel).Size = UDim2.new(1, -ROLE.KEY_PX, 0, ROLE.EYEBROW_PX)
 
 	-- THE KEY CHIP, ON THE EYEBROW'S OWN ROW AND RIGHT-ALIGNED (task 244). A key nobody can see is
 	-- a key nobody presses -- `LicenceCard`'s `HINT` line said it first, and this is the same line
@@ -662,7 +665,8 @@ local function build(frame: Frame)
 	-- `%s` is the binding's own `KeyCode.Name`, so the chip and the key cannot drift apart.
 	switchKeyChip = label(block, "RoleKey", FONT.SANS_BOLD, EYEBROW_SIZE, LOOK.FAINT, 3);
 	(switchKeyChip :: TextLabel).Text = spaced(string.format(ROLE.KEY_HINT, SWITCH_KEY.Name));
-	(switchKeyChip :: TextLabel).Size = UDim2.new(1, 0, 0, ROLE.EYEBROW_PX);
+	(switchKeyChip :: TextLabel).AnchorPoint = Vector2.new(1, 0);
+	(switchKeyChip :: TextLabel).Size = UDim2.fromOffset(ROLE.KEY_PX, ROLE.EYEBROW_PX);
 	(switchKeyChip :: TextLabel).TextXAlignment = Enum.TextXAlignment.Right;
 	(switchKeyChip :: TextLabel).TextTruncate = Enum.TextTruncate.AtEnd
 
@@ -968,10 +972,11 @@ function PadPanel.relayout()
 	if switchEyebrow ~= nil then
 		(switchEyebrow :: TextLabel).Position = UDim2.fromOffset(0, 0)
 	end
-	-- THE KEY CHIP SHARES THE EYEBROW'S ROW (task 244): same Y, full width, right-aligned -- so it
-	-- adds no row, `ROLE.BLOCK_PX` does not move, and the four numbers below it are untouched.
+	-- THE KEY CHIP SHARES THE EYEBROW'S ROW (task 244): same Y, the right `ROLE.KEY_PX` of it -- so
+	-- it adds no row, `ROLE.BLOCK_PX` does not move, and the four numbers below it are untouched.
+	-- Anchored at its right edge, so it is the block's right margin whatever the block is wide.
 	if switchKeyChip ~= nil then
-		(switchKeyChip :: TextLabel).Position = UDim2.fromOffset(0, 0)
+		(switchKeyChip :: TextLabel).Position = UDim2.fromScale(1, 0)
 	end
 	if roleSwitch ~= nil then
 		-- THE TRACK IS SHOWN WITH ITS BLOCK AND BY THE SAME WRITER (review round 2, finding 1).

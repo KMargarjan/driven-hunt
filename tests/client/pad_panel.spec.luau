@@ -818,30 +818,61 @@ return function()
 		-- must not un-tell what `setRemotes` told it. The click proof is a frame plus a live
 		-- attribute read, in the review request.
 		it("never lets `start` un-tell the remotes `setRemotes` already gave it (task 244)", function()
+			-- **IT DRIVES A REAL `start`, IN THE HUD'S OWN ORDER** (round 1, finding 1). The first
+			-- version of this case asserted the rule where it could not fail: `PadPanel.start` opens
+			-- with `if started then return end` and the live panel is already started, so the changed
+			-- line never ran and the case passed with the fix reverted. The Reviewer is right, and the
+			-- fix is to stop the panel first -- which is what the mouse-and-trigger case above already
+			-- does, and it puts the live one back the same way.
 			local sent: { any } = {}
-			PadPanel.setRemotes({
+			local fake = {
 				RoleRequest = {
 					FireServer = function(_self, payload: any)
 						table.insert(sent, payload)
 					end,
 				},
-			})
-			-- A SECOND `start` ON THE LIVE PANEL IS REFUSED (`if started then return end`), so the
-			-- rule is asserted where it can be: the module is told, and a start-shaped call with a
-			-- bag carrying no `remotes` leaves the telling alone. `PadPanel.start` is idempotent, so
-			-- this is the real function and not a stand-in for it.
+			}
+
+			-- THE HUD'S ORDER, AND IT IS THE WHOLE DEFECT: `Hud.start` resolves `ReplicatedStorage.Lobby`
+			-- through `Hud.whenReady` -- which calls its callback SYNCHRONOUSLY for a module that has
+			-- already replicated, and it always has -- so `setRemotes` lands BEFORE `start`, and the bag
+			-- `Hud.start` passes carries no `remotes` key at all.
+			PadPanel.stop()
+			PadPanel.setRemotes(fake)
 			PadPanel.start(Hud.padPanel() :: Frame, { leaving = Hud.padLeaving() })
 			PadPanel.setAsk(2)
 			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
 			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(true)
 			expect(#sent).to.equal(1)
 			expect(sent[1].role).to.equal(LobbyData.ROLE_WISH.BEATER)
+
+			-- ...AND A BAG THAT BRINGS ONE STILL WINS, so every caller written before this is unchanged.
+			PadPanel.stop()
 			PadPanel.setRemotes(nil)
-			-- ...AND WITH NO WIRE AT ALL IT REFUSES RATHER THAN PRETENDING. That is the state Karen
-			-- was in, and the counter is what tells the two apart from outside.
+			PadPanel.start(Hud.padPanel() :: Frame, { remotes = fake, leaving = Hud.padLeaving() })
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
+			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(true)
+			expect(#sent).to.equal(2)
+
+			-- ...AND WITH NO WIRE AT ALL IT REFUSES rather than pretending. That is the state Karen was
+			-- in, and the counter is what tells the two apart from outside.
+			PadPanel.setRemotes(nil)
 			local was = PadPanel.stats().roleBlocked
 			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(false)
 			expect(PadPanel.stats().roleBlocked).to.equal(was + 1)
+
+			-- THE LIVE PANEL GOES BACK, because this case took it over -- the restore the
+			-- mouse-and-trigger case makes, for its reason, and asserted rather than assumed.
+			PadPanel.stop()
+			PadPanel.start(Hud.padPanel() :: Frame, { remotes = nil, leaving = Hud.padLeaving() })
+			local rebuilt = 0
+			for _, child in ipairs((Hud.padPanel() :: Frame):GetChildren()) do
+				if child:IsA("TextButton") then
+					rebuilt += 1
+				end
+			end
+			expect(rebuilt).to.equal(#PADS.SIZES)
 		end)
 
 		it("offers a KEY as well as a click, and says which key on the control (task 244)", function()
@@ -883,8 +914,31 @@ return function()
 			-- IT SHARES THE EYEBROW'S ROW rather than taking one, which is what keeps `BLOCK_PX`
 			-- the same number it was.
 			local brow = block:FindFirstChild("RoleEyebrow") :: TextLabel
-			expect(chip.Position).to.equal(brow.Position)
+			expect(chip.AbsolutePosition.Y).to.equal(brow.AbsolutePosition.Y)
 			expect(PadPanel.heightFor(4, true) - PadPanel.heightFor(4, false)).to.equal(PANEL.ROLE.BLOCK_PX)
+
+			-- **AND THE TWO RECTANGLES ARE DISJOINT** (round 1 note). Both labels were full-width at
+			-- the same Y with `TextTruncate.AtEnd`, which HIDES a collision rather than preventing
+			-- one -- and `spaced()` makes both of them long. The row is split now, and this is the
+			-- arithmetic rather than a screenshot.
+			local browRight = brow.AbsolutePosition.X + brow.AbsoluteSize.X
+			expect(chip.AbsolutePosition.X >= browRight).to.equal(true)
+			expect(chip.AbsoluteSize.X).to.equal(PANEL.ROLE.KEY_PX)
+			-- ...AND NEITHER WORD IS ACTUALLY TRUNCATED at the size it is drawn, which is the claim
+			-- `TextTruncate` would otherwise be covering up. `TextBounds` is what the engine
+			-- measured for the text that is really in the label.
+			expect(chip.TextBounds.X <= chip.AbsoluteSize.X).to.equal(true)
+			expect(brow.TextBounds.X <= brow.AbsoluteSize.X).to.equal(true)
+			TestKit.note(
+				string.format(
+					"pad_panel: eyebrow %.0f px of %.0f, key chip %.0f px of %.0f, gap %.0f",
+					brow.TextBounds.X,
+					brow.AbsoluteSize.X,
+					chip.TextBounds.X,
+					chip.AbsoluteSize.X,
+					chip.AbsolutePosition.X - browRight
+				)
+			)
 			PadPanel.setRemotes(nil)
 		end)
 
