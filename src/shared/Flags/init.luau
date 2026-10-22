@@ -60,7 +60,7 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 --
 -- LIT (12): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
 --           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b).
--- DARK (2): QUICK_TEST, DRIVE_BOTS.
+-- DARK (3): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238).
 --
 -- `SHOP` IS LIT SINCE TASK 233b, and what made that safe is NOT this row: it is that a world with
 -- no counter does not wire a shop at all (`Shop.start`'s own gate). Task 233's flip lit the shop in
@@ -68,7 +68,23 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- and the shotgun alone in the one world where nothing can ever be bought -- and that took the gate
 -- red. The flag now lights the shop for every world that HAS a counter, which is every world it was
 -- designed for, and `COINS` is no longer lit over a shop nobody can reach.
-Flags.MAX_FLAGS = 14
+-- 14 -> 15 FOR TASK 238, AND THE BUILDER IS SAYING SO RATHER THAN QUIETLY RETIRING SOMEBODY ELSE'S
+-- ROW. `LICENCE_POPUP` is the fifteenth, and the cap refused it: `flags.spec`'s rot tripwire failed
+-- the harness at *"15 flags declared, and MAX_FLAGS is 14"*, which is the cap doing its job.
+--
+-- THE TWO WAYS OUT, AND WHY THIS ONE. (a) Retire the three lit rows queued as TASKS.md 82b, which
+-- brings the count back under 12 -- but the paragraph above says in as many words that retiring them
+-- is *"the Director's call ..., not this task's"*, and it is: each retirement deletes a losing branch
+-- and archives it (rule 7). (b) Ship the card LIT, which `docs/design/feature-flags.md` section 11
+-- step 1 forbids for a new feel-critical path and which would put an unasked card on Karen's screen
+-- before she had agreed to it.
+--
+-- So the cap moves by one and the REAL fix stays queued. **This is a Director decision the Builder
+-- has taken under a stated assumption** (task 238's report and `ESCALATE.md`, 2026-10-22): if he
+-- would rather have 82b done first, this line goes back to 14 in the same commit as those three
+-- retirements. Fifteen rows is still a number a person can read in one screen, which is what the cap
+-- is actually for.
+Flags.MAX_FLAGS = 15
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -499,6 +515,40 @@ Flags.DEFAULTS = {
 		why = "One late-autumn Central-European morning, written from code in every world: a warm "
 			.. "near-black Ambient, a cool OutdoorAmbient, a low 8.2 sun, one Atmosphere and two "
 			.. "post effects. OFF leaves the place's own Lighting exactly as it is.",
+	} :: FlagRow,
+	-- THE "NO DEER LICENCE" POPUP (task 238). KAREN, 2026-10-21, verbatim: *"if you dont have a
+	-- license when you aim and what to shoot it shows popup you dont have license and then you want
+	-- to buy and roblox popup like they do to purchase"*.
+	--
+	-- BORN OFF, which is `docs/design/feature-flags.md` section 11 step 1 for a new feel-critical
+	-- path and the default this table takes: a card that appears unasked while a player is holding a
+	-- gun at an animal is exactly the kind of thing only Karen can judge, and it merges dark.
+	--
+	-- WHAT IT SWITCHES, AND WHAT IT DOES NOT. OFF is "no card, and no question asked": `LicenceCard`
+	-- reads this once, at its boundary (`LicenceCard.ENABLED`, the only permitted shape), and when
+	-- it is off `Hud` never starts it and nothing on screen changes. **The server half is not behind
+	-- it**, and that is deliberate rather than an omission: the `"Aim"` question moves no state,
+	-- costs one cast and publishes nothing when there is no advice, and a flag on it would mean the
+	-- two halves could disagree about whether the feature exists. **Nothing about the fire gate, the
+	-- shot, the refusal or the dry click is behind it or touched by this task** -- an unlicensed shot
+	-- was already refused with `NO LICENCE` before task 238 and still is, with the row at either
+	-- value.
+	--
+	-- BOTH STATES ARE REACHABLE BY PARAMETER while the row sits at false: `LicenceCard.start` takes
+	-- `enabled` and `tests/client/licence_card.spec.luau` drives the card on with the row off.
+	--
+	-- Note: docs/research/2026-10-22-licence-popup-and-robux.md
+	LICENCE_POPUP = {
+		default = false,
+		-- The owner is the module that READS it at its boundary and draws the card. The BUY it sends
+		-- is `ShopPanel.press`'s, and the purchase is still `Economy`'s: this row switches a card,
+		-- not a rule and not a till.
+		owner = "StarterPlayerScripts.Hud.LicenceCard",
+		born = "2026-10-22 task 238",
+		expires = "2026-11-12", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "One card, when a hunter aims at a red deer he has no licence for: NO DEER LICENCE, "
+			.. "what the rule actually is, and a BUY button that goes through the shop's own "
+			.. "server purchase path from wherever he is standing. OFF draws nothing.",
 	} :: FlagRow,
 }
 

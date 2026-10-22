@@ -40,6 +40,11 @@
 -- Note:   docs/research/2026-10-13-coins-persistence.md, docs/research/2026-10-20-role-rotation.md
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- THE ROBUX DOOR'S SERVICE (task 238), and the only reference to it on the server. `ProcessReceipt`
+-- is installed by `Economy.start` OUTSIDE STUDIO ONLY (see it), so no harness run and no spec ever
+-- writes this service; the function it installs, `Economy.processReceipt`, is driven by parameter
+-- instead, which is the whole reason it answers a string rather than an Enum.
+local MarketplaceService = game:GetService("MarketplaceService")
 local RunService = game:GetService("RunService")
 -- For ONE read, once, in `Economy.start`: the Studio-only test grant's attribute (task 178, the
 -- Director). `ServerStorage` is server-only and never replicates, which is the same door
@@ -260,6 +265,17 @@ local stats = {
 	grants = 0,
 	grantsAlready = 0,
 	grantsBySource = {} :: { [string]: number },
+	-- THE ROBUX DOOR (task 238). `receipts` is every call of `Economy.processReceipt`;
+	-- `receiptsGranted` the ones that answered `GRANTED`; `receiptsAlready` the subset of those that
+	-- were a REDELIVERY of a receipt already granted, which is the number that says the idempotency
+	-- is being exercised for real; `receiptsUnknown` a malformed receipt or a product no row
+	-- carries; `receiptsNotProcessed` a grant that was refused (no session, closed, unknown row).
+	-- All 0 in this build and in every harness run: no developer product exists (`rowsOk`'s I12).
+	receipts = 0,
+	receiptsGranted = 0,
+	receiptsAlready = 0,
+	receiptsUnknown = 0,
+	receiptsNotProcessed = 0,
 	refusedBy = {} :: { [string]: number },
 	-- The live store refused to be built and the memory one was taken instead, so this server saves
 	-- nothing. It is never non-zero in Studio, which never asks for the live store at all.
@@ -740,6 +756,125 @@ function Economy.purchase(userId: number, itemId: any, facts: { atCounter: boole
 	return receipt
 end
 
+-- ----------------------------------------------------- the Robux door (task 238; planned by 222)
+--
+-- `MarketplaceService.ProcessReceipt`'s BODY, AND THE ONLY PLACE A ROBUX PURCHASE IS GRANTED.
+-- Karen, 2026-10-21: *"and then you want to buy and roblox popup like they do to purchase"*.
+--
+-- `docs/design/economy-v1.md` section 11 wrote this function's shape before it existed: *"The Robux
+-- door (task 222) will be `ProcessReceipt` -> `grant(..., Economy.SOURCE.ROBUX)`"*. That is all it
+-- is. It writes nothing itself, holds no state and keeps no ledger: `Economy.grant` above is still
+-- the one writer of the owned set and still performs the one `store.save`.
+--
+-- PURE OF ROBLOX, AND THAT IS WHY IT IS TESTABLE. It takes the `receiptInfo` table and ANSWERS A
+-- STRING -- `"granted"` or `"not-processed"` -- rather than an `Enum.ProductPurchaseDecision`, so a
+-- spec drives both branches with a hand-written table and no MarketplaceService at all. The boot
+-- line that installs the callback is the one place the string becomes the enum
+-- (`Economy.DECISION`), which is the seam `Weapon.onFireRequest` and `Shop.onRequest` already are.
+--
+-- IDEMPOTENT, AND **NOT** BY A `PurchaseId` LEDGER. Roblox documents that the callback is retried
+-- *"until it returns `Enum.ProductPurchaseDecision.PurchaseGranted`"*, including on the player's
+-- next join, so the same `PurchaseId` arrives twice; its own sample answers that with a per-player
+-- DataStore list of receipt ids. **This repository refuses that list**, for the reason already
+-- written in `Economy.grant`'s header and in the design: *"an entitlement SET is naturally
+-- idempotent... a second store of the same fact is the thing this owner exists to avoid"*.
+--
+-- For a NON-CONSUMABLE that is strictly stronger rather than a shortcut. A redelivered receipt
+-- reaches `grant`, which finds the row already in the set and answers `{ok = true, already = true}`
+-- having written nothing -- a SUCCESS, so Roblox stops retrying, with no second charge, no second
+-- write and no window between the grant and the record of the grant. The ledger's own two famous
+-- failures are exactly that window (the note's source 2: the sample has shipped both *"the same
+-- paid items with every server join"* and a version that ate the charge).
+--
+-- **THE LIMIT, AND IT IS THE ONE THING THAT WOULD MAKE THIS WRONG LATER (the note's section 3.5):
+-- this holds for non-consumables ONLY.** The day a COIN PACK is sold for Robux, granting twice
+-- really does double the goods, the set stops being the record, and a `PurchaseId` ledger becomes
+-- necessary. No row in this catalogue grants a consumable -- `Shop.GRANT_FIELDS` has no `coins`
+-- entry, so no row CAN -- and the invariant holding the line today is `rowsOk`'s **I12**, which
+-- refuses any non-nil `robuxProductId` outright. (I13 is the `anywhere` rule and reads no product
+-- id; an earlier draft of this paragraph named it here and the Reviewer caught it.) The day a
+-- consumable is sold for Robux, I12 comes off and the ledger goes on in the same commit.
+--
+--   ProcessReceipt  https://create.roblox.com/docs/reference/engine/classes/MarketplaceService
+--
+-- Note: docs/research/2026-10-22-licence-popup-and-robux.md sections 3.4 and 3.5
+Economy.DECISION = table.freeze({
+	GRANTED = "granted",
+	NOT_PROCESSED = "not-processed",
+})
+
+-- THE ONE PLACE A DECISION STRING BECOMES ROBLOX'S ENUM. Two lines, so the Enum appears exactly
+-- once in the repository and `Economy.processReceipt` stays drivable with no engine types at all.
+function Economy.decisionEnum(decision: string?): Enum.ProductPurchaseDecision
+	return if decision == Economy.DECISION.GRANTED
+		then Enum.ProductPurchaseDecision.PurchaseGranted
+		else Enum.ProductPurchaseDecision.NotProcessedYet
+end
+
+-- IS THE ROBUX DOOR INSTALLED IN THIS ENVIRONMENT? PURE, so both answers are a case rather than an
+-- `if` nobody can reach (`Economy.storeKindFor`'s own shape, and for the same reason).
+--
+-- NOT IN STUDIO. A receipt cannot arrive there -- there is no developer product in this build at all
+-- (`Shop.rowsOk`'s I12) -- and writing a service callback from a harness run would make every spec
+-- that calls `Economy.start` a writer of `MarketplaceService`. `given == false` refuses it
+-- outright, which is what a spec that wants the OFF branch passes.
+function Economy.installsReceiptHandler(given: any, isStudio: boolean): boolean
+	if given == false then
+		return false
+	end
+	if given ~= nil then
+		return true
+	end
+	return not isStudio
+end
+
+function Economy.processReceipt(receiptInfo: any, rows: any?): string
+	stats.receipts += 1
+	if type(receiptInfo) ~= "table" then
+		stats.receiptsUnknown += 1
+		return Economy.DECISION.NOT_PROCESSED
+	end
+	local userId = (receiptInfo :: any).PlayerId
+	local productId = (receiptInfo :: any).ProductId
+	if type(userId) ~= "number" then
+		stats.receiptsUnknown += 1
+		return Economy.DECISION.NOT_PROCESSED
+	end
+	-- WHICH ROW THIS PRODUCT IS, through the one pure reverse lookup. nil for a product no row
+	-- carries -- a stale id of Karen's, or two rows sharing one -- and then NOT the player's fault:
+	-- `NOT_PROCESSED` leaves Roblox holding the charge and retrying, which is the honest answer to
+	-- "I do not know what you just bought". Granting nothing and answering `GRANTED` would take his
+	-- Robux for nothing.
+	local itemId = ShopData.itemForProduct(productId, rows)
+	if itemId == nil then
+		stats.receiptsUnknown += 1
+		warn(
+			string.format(
+				"[economy] a Robux receipt for product %s matches no catalogue row: it is left unprocessed "
+					.. "and Roblox will redeliver it.",
+				tostring(productId)
+			)
+		)
+		return Economy.DECISION.NOT_PROCESSED
+	end
+	-- THE ONE WRITER, and `SOURCE.ROBUX` is already in the enum with `grantsBySource` already
+	-- counting it (task 221 built both for this day). A refusal here is `NO_PROFILE` (his session is
+	-- not open on this server -- he just joined, or another server holds his lock) or `CLOSED` or
+	-- `UNKNOWN`; every one of them is a reason to RETRY rather than to confirm.
+	local receipt = Economy.grant(userId, itemId :: string, Economy.SOURCE.ROBUX)
+	if receipt.ok ~= true then
+		stats.receiptsNotProcessed += 1
+		return Economy.DECISION.NOT_PROCESSED
+	end
+	stats.receiptsGranted += 1
+	if receipt.already == true then
+		-- THE REDELIVERY, counted apart because it is the number that says the idempotency is
+		-- actually being exercised in a live server rather than only in a spec.
+		stats.receiptsAlready += 1
+	end
+	return Economy.DECISION.GRANTED
+end
+
 -- WHAT ONE PLAYER'S PANEL IS TOLD: his own wallet, and the catalogue already decided against it.
 -- A WALLET IS ONE PLAYER'S BUSINESS, so it goes out by `FireClient` and never in a broadcast.
 --
@@ -994,6 +1129,11 @@ export type World = {
 	-- attribute says, nil to ask the two production facts. Every spec passes one of the first two,
 	-- which is what keeps both branches reachable while the attribute is set in one Studio only.
 	testGrant: any?,
+	-- WHERE `ProcessReceipt` IS INSTALLED (task 238). nil asks the production fact (is this Studio);
+	-- `false` installs nothing whatever the environment says; a table is a stand-in a spec can read
+	-- the installed callback back off. Every spec written before task 238 passes nil and installs
+	-- nothing, because the harness runs in Studio.
+	marketplace: any?,
 }
 
 -- NOTHING HAPPENS ON REQUIRE. `injected.enabled` is what makes both branches of the flag reachable
@@ -1036,6 +1176,29 @@ function Economy.start(injected: World?)
 		store = nil
 		print("[economy] coins=off (born dark, task 170): no session is opened and no key is written")
 		return
+	end
+
+	-- THE ROBUX DOOR (task 238). ONE assignment, in the owner that performs the grant, so a grep for
+	-- `ProcessReceipt` under `src/` finds this line and `Economy.processReceipt` and nothing else.
+	--
+	-- IT IS INSTALLED EVEN THOUGH NOTHING CAN ARRIVE THROUGH IT, and that is the point: the moment
+	-- Karen puts a `robuxProductId` on a row, `ShopPanel.press` will prompt Roblox for real money,
+	-- and a prompt with no `ProcessReceipt` behind it charges the player and retries for ever with
+	-- nothing granted. Wiring the door in the same task as the prompt is what makes that state
+	-- unreachable rather than documented.
+	--
+	-- WHERE THAT STOPS, SAID PLAINLY (the Reviewer's round-1 note): this sits BELOW the `not enabled`
+	-- return above, so with `COINS` off no handler is installed. Harmless today -- no row carries a
+	-- product id, so nothing can prompt -- and it is the honest place for it: a build with the money
+	-- switched off has no purchases of any currency. The day a row carries an id, `COINS` being off
+	-- must also mean the shop is off, which `Shop.start`'s own gate already says.
+	if Economy.installsReceiptHandler(world.marketplace, RunService:IsStudio()) then
+		local service = if world.marketplace ~= nil and world.marketplace ~= false
+			then world.marketplace
+			else MarketplaceService
+		service.ProcessReceipt = function(receiptInfo)
+			return Economy.decisionEnum(Economy.processReceipt(receiptInfo))
+		end
 	end
 
 	if world.store then

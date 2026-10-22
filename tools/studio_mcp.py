@@ -835,7 +835,14 @@ SCOPE_SPECS = {
              # Task 221: the one formatter, and the two NEGATIVE assertions that keep it the only
              # one -- no drawn string says COINS, and no string but Money's holds a `$`. It is in
              # `hud` as well, because half the tables it walks are the Hud's.
-             "tests/client/money.spec.luau"),
+             "tests/client/money.spec.luau",
+             # Task 238: the licence popup's two halves. `licence_popup.spec` drives `Row.anywhere`
+             # (the reach exception), invariant I13, the `ROBUX_ONLY` refusal and
+             # `Economy.processReceipt`; `licence_card.spec` drives `ShopPanel.payWith` -- the $ /
+             # Robux switch on the client -- and the card's own BUY through `ShopPanel.press`. Both
+             # are in more than one scope, the dual membership this table already uses.
+             "tests/server/licence_popup.spec.luau",
+             "tests/client/licence_card.spec.luau"),
     # ...AND `rifle.spec` AND `ballistics.spec` BELONG HERE TOO (task 185). `src/shared/Rifle/` and
     # `src/shared/Shotgun/` both resolve to `gun`, and both of those files are where every
     # ballistic number lives -- so a scoped run over a change to `Rifle.CONFIG` has to play the
@@ -854,6 +861,11 @@ SCOPE_SPECS = {
             "tests/server/lever.spec.luau",
             # Task 225: `src/shared/SemiAuto/` resolves to `gun` for the same reason.
             "tests/server/semiauto.spec.luau",
+            # Task 238: `WeaponSnapshot.advice` and `Shotgun.snapshot`'s seventh argument live in
+            # `src/shared/Shotgun/`, which resolves to this scope -- and the case that asserts the
+            # aim answer never shares a field with the refusal is in this spec. The same reason
+            # `weapon_state.spec` is here.
+            "tests/server/licence_popup.spec.luau",
             "tests/server/weapon_state.spec.luau"),
     # Task 224: the drawn lever -- its `"lever"` CYCLE_KIND branch, the fore-end glove and the
     # shells gate -- is the viewmodel's, exactly as `gun_client.spec` is.
@@ -900,6 +912,11 @@ SCOPE_SPECS = {
                # target, and this spec is what drives that grouping with hand-written impacts. Dual
                # membership with `report`: the data is the weapon's, the picture is the report's.
                "tests/server/hit_card.spec.luau",
+               # Task 238: the aim question -- the `"Aim"` kind on `Validator.checkRequest`'s
+               # whitelist, the ONE ray `lookAhead` casts for the trigger and for the question, and
+               # the live `Weapon.onActionRequest` handler. It is in `shop` and `economy` too,
+               # because the BUY it offers is theirs.
+               "tests/server/licence_popup.spec.luau",
                "tests/server/zz_horn.spec.luau"),
     "boar": ("tests/server/boar_behaviour.spec.luau", "tests/server/boar_behaviour_live.spec.luau",
              # Task 223: the red deer -- the species seam, the licence pair on a real trunk,
@@ -1001,7 +1018,11 @@ SCOPE_SPECS = {
                 # -- and `match_live.spec` is what asserts the real session's teams. The dual
                 # membership this table already uses (`zz_horn`, `boar_hit`, `boar_shot`,
                 # `shoot_boar`); `match`'s own tuple names it too.
-                "tests/server/match_live.spec.luau"),
+                "tests/server/match_live.spec.luau",
+                # Task 238: `Economy.processReceipt` -- the Robux door -- plus the live
+                # `Economy.purchase` with `atCounter = false`, which is what the licence popup's BUY
+                # does. Both are this owner's, so an Economy-only change must play them.
+                "tests/server/licence_popup.spec.luau"),
     "map": ("tests/server/map_contract.spec.luau", "tests/server/test_arena.spec.luau"),
     # `boar_model.spec` reads the manifest's `boar.male` rows and the `BOAR_MODEL` row, so a change
     # to either reaches it (task 115).
@@ -1019,7 +1040,11 @@ SCOPE_SPECS = {
               # asserts its owner reads it at a boundary -- so a flags change plays it too.
               "tests/server/light.spec.luau",
               "tests/server/boar_model.spec.luau", "tests/server/boar_shot.spec.luau",
-              "tests/server/boar_calm.spec.luau"),
+              "tests/server/boar_calm.spec.luau",
+              # Task 238: `LICENCE_POPUP` is a row in the same table, and this spec is what asserts
+              # its owner reads it at a boundary and that both arms are reachable by parameter --
+              # the arrangement `light.spec` has for `AUTUMN_LIGHT`.
+              "tests/client/licence_card.spec.luau"),
     # The map (task 155) is a module under the Hud -- `src/client/Hud/MapUi.luau` -- so
     # `src/client/Hud/` already resolves to this scope and only the spec has to be named.
     "hud": ("tests/client/hit_marker.spec.luau", "tests/client/report_panel.spec.luau",
@@ -1028,6 +1053,10 @@ SCOPE_SPECS = {
             # Task 221: the `$` on the bar and on the results board, and the board's declared
             # column head. It is in `shop` as well -- half the tables it walks are the shop's.
             "tests/client/money.spec.luau",
+            # Task 238: the "NO DEER LICENCE" card -- a module under the Hud, built by `Hud.build`
+            # and started by `Hud.start`, so a `src/client/Hud/` change plays it. It is in `shop`
+            # as well, because the BUY it sends is the shop's.
+            "tests/client/licence_card.spec.luau",
             # Task 165: the objective line, the waypoint and the button rail. It asserts the WHOLE
             # top band's rectangles -- the bar's and the banner's offsets (`src/shared/Drive/`), the
             # compass's TOP, the minimap's and the rail's -- so a band that moves anywhere plays it.

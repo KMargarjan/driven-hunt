@@ -67,6 +67,19 @@ export type WeaponSnapshot = {
 	-- the state exactly as it was, which is also what the replica sees when nobody pulled the trigger
 	-- at all. The client turns it into one dry click; `notice` is the line on the readout.
 	refused: string?,
+	-- THE GATE THAT **WOULD** REFUSE HIM, ASKED BECAUSE HE AIMED (task 238) -- one of
+	-- `Weapon.Rules.REASON`, or nil, which is almost always.
+	--
+	-- IT IS A DIFFERENT FACT FROM `refused` ABOVE AND MUST NEVER SHARE ITS FIELD. `refused` is *"the
+	-- trigger you pulled did nothing"*, and `CameraBoot.client.luau` is already wired to play one
+	-- dry click on every arriving snapshot that carries one. `advice` is *"if you pulled the trigger
+	-- now, this is what would stop you"* -- nobody pulled anything, so nothing clicks, nothing is
+	-- spent and the readout's `notice` stays empty. Putting the aim answer in `refused` would click
+	-- the gun dry for merely looking at a deer.
+	--
+	-- Karen, 2026-10-21: *"if you dont have a license when you aim and what to shoot it shows popup
+	-- you dont have license"*. Note: docs/research/2026-10-22-licence-popup-and-robux.md section 3.2
+	advice: string?,
 	-- WHICH WEAPON THIS STATE BELONGS TO (task 140). The readout follows the STATE, and the drawn
 	-- gun follows the Instance -- the two routes and the boundary between them are design 5.2.
 	weapon: string?,
@@ -155,11 +168,15 @@ function Shotgun.snapshot(
 	notice: string?,
 	weapon: string?,
 	action: string?,
-	refused: string?
+	refused: string?,
+	-- LAST, so every call written before task 238 is unchanged and passes nil (see `advice` on
+	-- `WeaponSnapshot`).
+	advice: string?
 ): WeaponSnapshot
 	return Shotgun.deepFreeze({
 		action = action,
 		refused = refused,
+		advice = advice,
 		equipped = state.equipped,
 		open = state.open,
 		barrels = table.clone(state.barrels),

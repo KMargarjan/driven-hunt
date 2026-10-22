@@ -1,5 +1,86 @@
 # Escalations
 
+## 2026-10-22 - Task 238 (the licence popup): **THREE NEEDS DIRECTOR, none of them blocking.** The work is complete, the Reviewer passed it in round 2, and the gate is green at `74718912`; each item below is a decision the Builder took under a stated assumption, and each is one line to reverse.
+
+```
+[harness] PASS: 34/34 checks @ 74718912d0416e7c039634f33759e43a5ccf176a (clean tree) scope=all
+```
+
+(Round 1's line, `PASS: 34/34 @ 33158586`, is superseded: round 2 fixed three blocking findings and
+the gate was re-run. The Reviewer's round-2 note 9 caught this block still carrying the old one.)
+
+`test2` is **N/A**: no changed path is in `TWO_PLAYER_PATHS` (`tools/agents.py`). The change is the
+weapon, the Hud, the shop and the economy -- the exact list the Director's 2026-10-03 decision puts
+on the one-player line, after Karen: *"we dont need 2 player test now we just working on weapon and
+animal next"*.
+
+### 1. NEEDS DIRECTOR: the dispatch's premise contradicts the shipped, twice-Karen-approved rule (Learning Agent L-073)
+
+The dispatch asks for the popup's second line to read *"shooting a deer without it costs points"*,
+and says *"Never block shooting: it is advice"*.
+
+**MEASURED, and neither sentence describes the game.** In `src/server/Weapon/init.luau`'s
+`onFireRequest`, a non-nil `refused` publishes `state` and **not** `fired` and returns **before**
+`setState`. Its own comment: *"no shell spent, no barrel moved, no bolt started, no `ShotFired`, no
+pellet cast, no `SafetyViolated`, no hit"*, and then, in as many words:
+
+> **No punishment -- Karen asked for none, twice.**
+
+So an unlicensed shot at a deer is **already a hard server refusal**: the gun dry-clicks, the
+readout says `NO LICENCE`, and **it costs nothing**. There is no points penalty anywhere in the
+repository -- `grep` for `Rules.REASON.LICENCE` finds no score write and no `Match.Penalty` call.
+
+**WHAT THE BUILDER DID.** Built the card with copy that says what the game DOES -- *"You cannot
+shoot red deer without it. The gun will not fire at one."* -- and changed **nothing** about the fire
+gate, the refusal, the dry click or the score. Writing the dispatch's sentence would be the shop
+window lying, which is the failure `Shop.Row.blurb`'s own header refuses; changing the RULE to match
+it would overturn a mechanic Karen asked for twice, which is not a Builder's call.
+
+**The half of *"it is advice"* that IS true was honoured and is tested**: the card takes no input
+focus, grabs no cursor, calls no `Input.requestHold` and binds nothing modal, so a player who
+ignores it keeps aiming and keeps pulling the trigger. `licence_card.spec` asserts `Input.isHeld()`
+is false while it is open.
+
+**THE DECISION THE DIRECTOR OWNS:** did he mean (a) the copy should match the shipped rule -- which
+is what shipped -- or (b) Karen has changed her mind and an unlicensed deer shot should now FIRE and
+cost points? (b) is a different task: it would un-block a shot in `Rules.refuse`, add a penalty to
+`Match.Penalty` and need Karen's word, because she asked for no punishment twice.
+
+### 2. NEEDS DIRECTOR: `Flags.MAX_FLAGS` went 14 -> 15, and retiring somebody else's rows is his call
+
+`LICENCE_POPUP` is the fifteenth flag and the cap refused it: `flags.spec`'s rot tripwire failed the
+harness at *"15 flags declared, and MAX_FLAGS is 14"*. The cap doing its job.
+
+The two ways out, and why the cap moved instead:
+
+* **Retire the three lit rows queued as TASKS.md 82b**, which brings the count back under twelve.
+  `Flags.MAX_FLAGS`'s own paragraph says in as many words that this is *"the Director's call
+  (docs/design/shop.md section 16 item 8), not this task's"* -- and it is: each retirement deletes a
+  losing branch and archives it under `backups/` with a note (rule 7).
+* **Ship the card LIT**, which `docs/design/feature-flags.md` section 11 step 1 forbids for a new
+  feel-critical path, and which would put an unasked card on Karen's screen before she agreed to it.
+
+So the cap moved by one, the real fix stays queued, and the reason is written into the file above the
+line. **If the Director would rather have 82b done first, `Flags.MAX_FLAGS` goes back to 14 in the
+same commit as those three retirements.**
+
+### 3. NEEDS DIRECTOR (one click, if he wants the frame): the price on the card can only be photographed in the Forest Test
+
+The DEV frames are `.screenshots/20261022T010608Z-238-card-dev.png` (before the three fixes rule 5
+caught) and `.screenshots/20261022T011316Z-238-card-dev-after.png` (after). Both were looked at.
+
+**The button in them reads `BUY  ...` and not a price, and that is the truth about DEV rather than a
+defect.** Task 235 (L-095): `Shop.start` answers `false` in a world with no counter, so the DEV place
+wires no shop at all and no `ShopState` ever reaches the client -- the card has no price to print, so
+it prints the word and no amount rather than a guessed number. The only world with a counter is
+Karen's Forest Test, and only one Studio was open (DEV).
+
+**Not blocking.** The price path is proved by parameter in `licence_card.spec` (*"prints the
+server's own price and never a guessed one"*, `BUY  $750` off the server's own `WireRow`) and the
+`$750` itself is `Shop.ROWS[licence.reddeer].price`, asserted in the same case. If the Director wants
+the picture with the number in it, he opens the Forest Test and the Builder captures it read-only
+under the standing block.
+
 ## 2026-10-22 - Task 235 (the Director's 233b): **BOTH NEEDS DIRECTOR CLOSED.** `SHOP` is a v1 default and a world with no counter wires no shop; both gates green at `f7716249`.
 
 ```
