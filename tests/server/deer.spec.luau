@@ -553,6 +553,59 @@ return function()
 				expect(Boar.deerGroupsAllowed(oneHerd, config)).to.equal(false)
 			end)
 
+			-- --------------------------------- THE SAME CAP, ASKED FROM OUTSIDE (task 239)
+			--
+			-- THE FOREST TEST NEVER REACHES `spawnSounder`. Its drive releases a wave as a FILE:
+			-- `Runtime:spawn` one animal at a time, then `Runtime:formSounder` -- so the deer door
+			-- inside `spawnSounder`, and the cap it consults, are not on that path at all. The
+			-- forest therefore asks `Runtime:deerAllowed`, and this case is what says that is the
+			-- SAME answer and not a second one: a live runtime with a real deer group out, checked
+			-- against the pure rule over the same animals.
+			it("answers the live cap through one door, for a caller that never spawns a sounder", function()
+				local holder = Instance.new("Folder")
+				holder.Name = "DeerAllowedSpec"
+				holder.Parent = Workspace
+				local runtime = Boar.newRuntime({
+					field = FIELD,
+					parent = holder,
+					folderName = "Allowed",
+					config = { KINDS = { ENABLED = true }, maxBoars = 12 },
+					threats = function()
+						return {}
+					end,
+					probe = function()
+						return false
+					end,
+					requestPath = function(_id, _from, _to, done)
+						done(nil)
+					end,
+					releasePath = function() end,
+				})
+				-- An empty world allows one.
+				expect(runtime:deerAllowed()).to.equal(true)
+				-- A BOAR IS NOT A DEER: the cap is the deer's and nothing else fills it.
+				runtime:spawn(Vector3.new(0, FIELD.groundY, 0), "male")
+				runtime:spawn(Vector3.new(6, FIELD.groundY, 0), "female")
+				expect(runtime:deerAllowed()).to.equal(true)
+				-- ...and one hind does, at `MAX_GROUPS_ALIVE` of 1.
+				local hind = runtime:spawn(Vector3.new(12, FIELD.groundY, 0), "hind")
+				expect(hind).to.be.ok()
+				expect(runtime:deerAllowed()).to.equal(false)
+				-- IT DRAWS NO NUMBER, which is what lets the forest ask it before deciding
+				-- anything: the same question twice is the same answer twice.
+				expect(runtime:deerAllowed()).to.equal(false)
+				-- ...AND IT IS THE PURE RULE, not a second count. `Boar.deerGroupsAllowed` over
+				-- the same three animals must agree, which is the whole claim.
+				local live = {
+					{ kind = "male", sounder = nil },
+					{ kind = "female", sounder = nil },
+					{ kind = "hind", sounder = nil },
+				}
+				expect(Boar.deerGroupsAllowed(live, configWith(true))).to.equal(false)
+				runtime:destroy()
+				holder:Destroy()
+			end)
+
 			-- FINDING 1. THE FLAG-OFF STREAM, COUNTED AGAINST A BASELINE ------------------------
 			--
 			-- ROUND 1 SHIPPED THE BUG THIS CASE EXISTS FOR. The two rolls were the ARGUMENTS to

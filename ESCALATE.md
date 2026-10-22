@@ -1,5 +1,47 @@
 # Escalations
 
+## 2026-10-22 - Task 239 (red deer in the Forest Test): **ONE `NEEDS DIRECTOR`, not blocking.** The work is complete and the gate is green at `7c1d5aff`.
+
+```
+[harness] PASS: 34/34 checks @ 7c1d5aff5f3590611309b505ddd132eb8166deef (clean tree) scope=all
+```
+
+`test2` is **N/A**: not one changed path is in `TWO_PLAYER_PATHS` (`tools/agents.py`) -- the change
+is `src/server/Boar/`, `src/server/ForestTest/` and their specs -- and a deer answers the same
+question with one player as with two. `src/server/Match/` is deliberately untouched; the request
+says why.
+
+**NEEDS DIRECTOR: task 234's own open question, carried forward verbatim rather than re-baked.**
+The Learning Agent's L-095 is right that this task copies `CHANCE_PER_RELEASE = 0.2` into a second
+world while the question task 234 raised about it has never been put to Karen. Task 234's result
+recorded it as:
+
+> Needs Karen (3): whether ~2.2 deer groups a drive is too many for an animal she called rare
+
+**That is still unanswered, and in THIS world the arithmetic is different and worse on paper.** A
+Forest Test drive is 300 s at one wave per 20, so **15 release chances** against the DEV drive's
+~6. One group is guaranteed and the dial buys 0.2 of each remaining wave, so the paper expectation
+is **1 + ~2.8 = ~3.8 groups a drive**, not 2.2.
+
+**MEASURED, IT IS NOT THAT, AND THE CAP IS WHY.** Over a 330 s run on the player's own path the
+drive carried **2 groups and 5 animals** (a guaranteed `hind+calf` on wave 1, a chance
+`stag+hind+hind` on wave 10) against 97 boars. `SPECIES.reddeer.RELEASE.MAX_GROUPS_ALIVE = 1`
+refuses every roll made while a group is still on its feet, and a group takes most of a minute to
+cross and leave -- so the cap, not the dial, is what sets the rate. The Builder reports the paper
+number and the measured one rather than choosing between them: one run is one run.
+
+**THE KNOBS, IF KAREN SAYS IT IS TOO MANY**, and neither needs new code:
+- `Boar.CONFIG.SPECIES.reddeer.RELEASE.CHANCE_PER_RELEASE` (0.2). At **0** the drive carries
+  EXACTLY ONE group, always -- the guarantee alone, which is the literal reading of *"we need all a
+  time in drive deer"*. This is the Builder's recommendation if she wants them rarer, because it
+  removes the variance rather than shrinking it.
+- `MAX_GROUPS_ALIVE` (1) is what actually throttles this world; raising it would make the dial bite
+  for the first time, and nobody has asked for that.
+
+Both are one line in the animal owner's own table and reach BOTH worlds, which is the point of
+their living there.
+
+
 ## 2026-10-22 - Task 236 (a lighter hunt): **ONE `NEEDS DIRECTOR`, not blocking.** The work is complete, the Reviewer passed it in round 1 at `40ed9688`, CI is green and the gate is green at `c7731e86`.
 
 ```

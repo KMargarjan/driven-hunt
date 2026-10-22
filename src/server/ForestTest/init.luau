@@ -419,6 +419,61 @@ function ForestTest.waveAt(index: number)
 	return cycle[((index - 1) % #cycle) + 1]
 end
 
+-- ------------------------------------------------------- THE DRIVE'S RED DEER (task 239)
+--
+-- KAREN, 2026-10-21: *"we need all a time in drive deer"* and *"I want to see a deer"*. Task 234
+-- gave the DEV drive that guarantee and proved it there; the Director measured a whole drive of the
+-- PLACE SHE PLAYS on 2026-10-22 and counted cub, male and female only -- not one stag, hind or calf
+-- in 80 animals. This world's waves never asked.
+--
+-- WHAT IS REUSED AND WHAT IS NEW, said plainly because rule 3 is one owner per system:
+--   the ANIMAL's own owner answers everything about the deer -- whether there may be one
+--   (`Runtime:deerAllowed`, the same `MAX_GROUPS_ALIVE` cap `spawnSounder` consults), who is in the
+--   group (`Boar.deerComposition`, including `CHANCE_PER_RELEASE` for the extra ones) and how they
+--   march (`Boar.MARCH_RANK`). Nothing about a deer is decided in this file.
+--   the DRIVE's own owner answers WHEN, exactly as it already answers when every other wave goes.
+--
+-- ...AND IT IS NOT `Match.Phase.deerRelease`, WHICH IS THE OBVIOUS THING TO REUSE. That rule is
+-- three clauses over a RELEASE BUDGET -- `BOARS_PER_DRIVE`, `expectedReleases` from the sounder
+-- size, and "this is the last release because `boarsReleased + size >= BOARS_PER_DRIVE`". This
+-- world has no budget: its drive is a 20-second metronome that runs until the clock ends the drive,
+-- and `Match` releases nothing here at all (`match_phase.spec`: *"0 spawnSounder"* in the forest).
+-- Every input that rule reads is absent, so sharing it would mean inventing values to feed it.
+-- The two below are the same SHAPE -- one drive, one guaranteed group, drawn rather than fixed --
+-- in this world's own terms.
+
+-- HOW MANY WAVES A DRIVE OF THIS WORLD RELEASES. Pure, and it is the metronome's own arithmetic
+-- rather than a number: 300 seconds at one wave per 20 is 15.
+function ForestTest.wavesPerDrive(driveSeconds: number?, intervalSeconds: number?): number
+	local seconds = driveSeconds or Data.DRIVE.seconds
+	local gap = math.max(1, intervalSeconds or Data.SCHEDULE.intervalSeconds)
+	return math.max(1, math.floor(seconds / gap))
+end
+
+-- WHICH WAVE OF A DRIVE CARRIES THE DEER. Pure: a unit draw in, an ordinal out.
+--
+-- IT IS DRAWN FROM THE FIRST THIRD OF THE DRIVE, AND THAT IS WHAT MAKES IT A GUARANTEE RATHER THAN
+-- A BETTER CHANCE. `Match.Phase.deerRelease` draws over the whole drive and needs a third clause --
+-- *"and if that ordinal is never reached, the last release carries it"* -- because its release
+-- count is itself drawn. Here the ordinal is only ever reached: a 300-second drive runs 15 waves
+-- and the window is five, so the deer are out inside the first 100 seconds whatever else happens.
+-- It is not always wave 1 either, which a fixed "the first wave of every drive" would have been.
+function ForestTest.deerWaveOf(pick: number, waves: number): number
+	local window = math.max(1, math.floor(math.max(1, waves) / 3))
+	return math.clamp(math.floor(math.clamp(pick, 0, 0.999999) * window) + 1, 1, window)
+end
+
+-- IS THIS WAVE THE ONE? Pure, and `>=` and not `==` on purpose: a wave that could not carry the
+-- deer -- the cap said no, there was no room, the flag is off -- must not spend the drive's
+-- guarantee, so the next wave picks it up. `done` is the latch, and it is set only once a group has
+-- actually been placed.
+function ForestTest.deerWanted(driveWave: number, deerWave: number?, done: boolean): boolean
+	if done or deerWave == nil then
+		return false
+	end
+	return driveWave >= (deerWave :: number)
+end
+
 -- IS THIS POSITION INSIDE THE STAND'S CIRCLE? Pure, so the boundary is one rule and not one rule
 -- per caller. FLAT: the Y is ignored, because a hunter standing on his post is a stud above the
 -- ground he picked it from and that is not leaving the stand.
@@ -486,6 +541,14 @@ local state = {
 	startedAt = 0,
 	nextWaveAt = 0,
 	waveIndex = 0,
+	-- THE DRIVE'S RED DEER (task 239), and all three are ABOUT ONE DRIVE, so `newDrive` resets them.
+	-- `waveIndex` above counts the SESSION's waves and is what the console lines are numbered by;
+	-- `driveWave` counts this drive's, which is what the ordinal is drawn against. `deerWave` is nil
+	-- until the drive's first wave draws it -- lazily, because `newDrive` is also called by a spec
+	-- and by `start` before `state.rng` means anything.
+	driveWave = 0,
+	deerWave = nil :: number?,
+	deerDone = false,
 	active = {} :: { { centre: Vector3, handles: { any }, at: number, turnsBack: boolean, id: string } },
 	picks = {} :: { [number]: { index: number, lockedAt: number? } },
 	-- WHICH ROLE A PLAYER HAS ASKED FOR AND NOT YET BEEN GIVEN, in Karen's own words (task 151,
@@ -537,6 +600,13 @@ function ForestTest.stats()
 		-- the stocked wood are still on their feet -- the two numbers the staged encounter is proved
 		-- with, and the second is why the wood is never re-stocked.
 		noticed = state.noticed or 0,
+		-- TASK 239: which wave of THIS drive carries the red deer, how far through the drive the
+		-- metronome is, and whether the group has gone. Three numbers rather than a boolean,
+		-- because "no deer yet" and "no deer due yet" are different answers and a probe watching a
+		-- drive has to be able to tell them apart.
+		driveWave = state.driveWave or 0,
+		deerWave = state.deerWave,
+		deerDone = state.deerDone == true,
 		restStocked = state.restStocked == true,
 		restAlive = ForestTest.restAlive(),
 		active = #state.active,
@@ -1958,6 +2028,14 @@ function ForestTest.newDrive()
 	state.latched = {}
 	state.noticedAt = {}
 	state.restTrace = {}
+	-- ...AND A NEW DRIVE IS A NEW DEER (task 239). Karen: *"we need all a time in drive deer"* -- so
+	-- the guarantee is spent per DRIVE, which means it is handed back here and nowhere else, exactly
+	-- as `Match.Phase` hands `deerReleased` back at its own drive boundary. The ordinal is cleared
+	-- rather than redrawn: `releaseLine` draws it on this drive's first wave, where `state.rng`
+	-- certainly exists.
+	state.driveWave = 0
+	state.deerWave = nil
+	state.deerDone = false
 end
 
 -- ---------------------------------------------------------------- CHOOSING A LAYOUT (task 179)
@@ -2351,6 +2429,10 @@ function ForestTest.step(now: number): string?
 		end
 		state.nextWaveAt = now + Data.SCHEDULE.intervalSeconds
 		state.waveIndex += 1
+		-- ...AND THIS DRIVE'S OWN COUNT (task 239), which is what the deer ordinal is drawn against.
+		-- Two counters and not one: `waveIndex` numbers the console lines for the whole session and
+		-- must not restart, and an ordinal drawn against it would mean "wave 3 of the session".
+		state.driveWave = (state.driveWave or 0) + 1
 		return ForestTest.releaseLine(now) or flush
 	end
 
@@ -2595,6 +2677,39 @@ function ForestTest.releaseLine(now: number): string?
 	local pace = ForestTest.paceFor(rng:NextNumber(), lineData.paceMix)
 	local speed = ForestTest.paceSpeed(pace, boar)
 
+	-- IS THIS WAVE THE DRIVE'S RED DEER (task 239)? The whole decision, and every part of it that is
+	-- about the ANIMAL is asked of the animal's owner:
+	--   `Runtime:deerAllowed` is `MAX_GROUPS_ALIVE`, the same answer `spawnSounder`'s own door gets.
+	--   `Boar.deerComposition` is whether (`CHANCE_PER_RELEASE`, or the drive's ask) and who.
+	-- The only thing decided here is WHEN, which is this drive's own business -- see `deerWaveOf`.
+	--
+	-- THE ORDINAL IS DRAWN ON THE DRIVE'S FIRST WAVE and not in `newDrive`, because `newDrive` is
+	-- also called by a spec and by `start`, where `state.rng` is not yet this drive's.
+	if state.deerWave == nil then
+		state.deerWave = ForestTest.deerWaveOf(rng:NextNumber(), ForestTest.wavesPerDrive())
+	end
+	local composition = nil
+	-- WAS IT THE DRIVE'S OWN, OR ONE OF THE EXTRAS `CHANCE_PER_RELEASE` BUYS? Kept so the console
+	-- line can say which, because a reader counting deer in a playtest has to be able to tell the
+	-- guarantee from the dial -- the first run after this change released a guaranteed hind-and-calf
+	-- on wave 1 and a chance stag-and-hinds on wave 10, and without this they read identically.
+	local guaranteed = false
+	-- A VIEW WITHOUT THE DOOR IS A WORLD WITH NO DEER, not an error: `forest_stand.spec` drives this
+	-- module with a hand-written runtime, and an older one has no `deerAllowed`.
+	if type(runtime.deerAllowed) == "function" and runtime:deerAllowed() then
+		guaranteed = ForestTest.deerWanted(state.driveWave or 0, state.deerWave, state.deerDone == true)
+		composition = Boar.deerComposition(rng:NextNumber(), rng:NextNumber(), boar, guaranteed)
+	end
+	if composition ~= nil then
+		-- A COMPOSITION IS ALSO THE SIZE, read through the one function that knows what a
+		-- composition weighs -- `Runtime:spawnSounder`'s own line, for its own reason.
+		count = Boar.compositionSize(composition, boar)
+		-- ONE FILE. A deer group is one to three animals and `SPECIES.reddeer.RELEASE.FORMATION` is
+		-- `"column"`; splitting two animals into two parallel files is not a column, and
+		-- `Boar.compositionFormation` is what declares that for the sounder path.
+		lines = 1
+	end
+
 	-- THE ROUTES FIRST, BEFORE A SINGLE ANIMAL EXISTS, and that ordering is the whole of a bug this
 	-- round paid for. MEASURED: `releaseLine` reported `placed=9 routes made=0` every wave, while the
 	-- same call from a bare console answered `Success, 32 waypoints`. The difference was the nine
@@ -2641,7 +2756,10 @@ function ForestTest.releaseLine(now: number): string?
 	for index = 1, count do
 		rolls[index] = rng:NextNumber()
 	end
-	local kinds = Boar.sounderKinds(count, rolls, boar, nil)
+	-- ...AND THE COMPOSITION IS HANDED IN SINCE TASK 239. `nil` is every wave this world released
+	-- before it -- a sow and her young drawn from `SOUNDER.MAKEUP` -- and a deer group names its own
+	-- kinds, so the same function answers both and this file never writes the word "stag".
+	local kinds = Boar.sounderKinds(count, rolls, boar, composition)
 
 	-- THE MARCHING ORDER IS DECIDED BEFORE ANYBODY IS PLACED, AND THE FILE IS LAID OUT BEHIND ITS
 	-- LEADER (task 127 round 2, the Reviewer's blocking finding -- and it is why the line never
@@ -2664,7 +2782,10 @@ function ForestTest.releaseLine(now: number): string?
 	for index = 1, count do
 		table.insert(order, { kind = kinds[index] })
 	end
-	local plans = Line.split(Line.order(order), lines)
+	-- THE MARCH IS THE ANIMAL OWNER'S FACT (task 239): `Boar.MARCH_RANK` ranks the deer as well as
+	-- the boars, so a hind leads her calf and a harem's stag walks last. Without it `Line.order`'s
+	-- own default knows three words and all three deer tie at the unknown rank.
+	local plans = Line.split(Line.order(order, Boar.MARCH_RANK), lines)
 
 	local groups = {}
 	for which, plan in ipairs(plans) do
@@ -2750,19 +2871,39 @@ function ForestTest.releaseLine(now: number): string?
 		return nil
 	end
 	state.released += made
+	-- THE GUARANTEE IS SPENT ONLY ONCE A GROUP IS ON THE GROUND (task 239). Every early return
+	-- above -- no route, nobody placed -- leaves the latch alone, so a deer wave that could not be
+	-- released hands the drive's one group to the next wave rather than losing it. `deerWanted`'s
+	-- `>=` is the other half of that.
+	-- ...AND ANY GROUP SPENDS IT, not only the guaranteed one: a drive that has already shown her a
+	-- stag has met *"I want to see a deer"*, and asking again on the ordinal would put a second
+	-- group out for no reason. `MAX_GROUPS_ALIVE` caps what is ALIVE at once; this caps the ASK.
+	if composition ~= nil then
+		state.deerDone = true
+	end
 	return string.format(
 		-- MADE *OF SPAWNED*, because the two can only differ if an animal was left behind by a line
 		-- that was not released -- which is the orphan the Reviewer found and this round closed. A
 		-- wave that reads "5 of 5 animal(s) in 1 of 2 line(s)" is the case: one route failed, one
 		-- line was released, and nobody was spawned for the line that could not be walked.
-		"line %d: %d of %d animal(s) in %d of %d line(s) at a %s, crossing %+d studs from the stand",
+		-- ...AND WHAT WAS IN IT, when it was not boars (task 239): the console is where Karen and
+		-- the Director see that the drive's deer actually went, and "6 animals" does not say it.
+		"line %d: %d of %d animal(s) in %d of %d line(s) at a %s, crossing %+d studs from the stand%s",
 		state.waveIndex,
 		made,
 		#members,
 		lines,
 		asked,
 		pace,
-		offset
+		offset,
+		if composition ~= nil
+			then string.format(
+				" -- RED DEER (%s), %s, on this drive's wave %d",
+				table.concat(kinds, "+"),
+				if guaranteed then string.format("the drive's own, due on wave %d", state.deerWave or 0) else "an extra",
+				state.driveWave or 0
+			)
+			else ""
 	)
 end
 

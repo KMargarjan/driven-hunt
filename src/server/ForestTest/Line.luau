@@ -248,11 +248,24 @@ end
 --
 -- `members` is `{ id, kind }`; the answer is the same list, ordered. Stable: ties keep their input
 -- order, so the same wave always forms the same line.
-function Line.order(members: { { id: string, kind: string? } }): { { id: string, kind: string? } }
-	local rank = { female = 1, cub = 2, male = 3 }
+--
+-- `rank` IS HANDED IN SINCE TASK 239, AND THE DEFAULT IS ONLY FOR A SPEC. This file is pure by
+-- construction -- no Instance, no clock, no runtime, so no `require` of `Boar` -- and the three
+-- words below were the boar half of `Boar.MARCH_RANK` written out a second time. When the red deer
+-- joined that table they did not join this one, so a stag, a hind and her calf all fell through to
+-- the unknown-kind rank of 2 and marched in SPAWN order: for the harem composition
+-- (`{ stag = 1, hind = 2 }`) that is a stag at the head, which is not what a harem looks like.
+-- `ForestTest.releaseLine` -- the one production caller -- now passes `Boar.MARCH_RANK`, so the
+-- march is the animal owner's fact in both worlds and this default is what a spec with no `Boar`
+-- gets.
+function Line.order(
+	members: { { id: string, kind: string? } },
+	rank: { [string]: number }?
+): { { id: string, kind: string? } }
+	local ranks = rank or { female = 1, cub = 2, male = 3 }
 	local indexed = {}
 	for index, member in ipairs(members) do
-		table.insert(indexed, { member = member, index = index, rank = rank[member.kind or ""] or 2 })
+		table.insert(indexed, { member = member, index = index, rank = ranks[member.kind or ""] or 2 })
 	end
 	table.sort(indexed, function(a, b)
 		if a.rank ~= b.rank then
