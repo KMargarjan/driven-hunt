@@ -498,9 +498,11 @@ return function()
 			Panel.setMarketplace(nil)
 			TestKit.note(
 				string.format(
-					"licence_card: %d catalogue rows, all priced in coins; prompted=%d",
+					"licence_card: %d catalogue rows, every one priced in coins (I12); the ONE prompt in "
+						.. "this run went to the spec's stub, not to Roblox -- prompted=%d, sent=%d",
 					#Shop.ALL_ORDER,
-					Panel.stats().prompted
+					Panel.stats().prompted,
+					Panel.stats().sent
 				)
 			)
 		end)
