@@ -2812,6 +2812,19 @@ local function camo(root: Instance, index: number, cfg): number
 			piece.Color = spec.RIM
 			piece.Reflectance = 0
 			painted += 1
+		elseif skin == "light" and not Build.isTruckLamp(piece.Name, piece.Material, piece.Size, cfg) then
+			-- **A "LIGHT" TOO BIG TO BE A LAMP IS A PROP** (task 243). `truckSkinOf` calls anything
+			-- `Neon` or named "light" a light, which is right for the paint rule it was written for;
+			-- `isTruckLamp` adds the SIZE, which is what stops `truckRig` hanging a SpotLight inside
+			-- the chassis. Between the two there was a gap, and Karen photographed it: a 6.74-stud
+			-- `Neon` bar at 255,89,89 on the rear quarter that neither the painter nor the rig
+			-- touched. It is painted the model's own near-black trim, in the body's own material, so
+			-- it stops glowing as well as stops being pink. The six real lamps are small and are
+			-- `truckRig`'s -- this branch cannot reach them.
+			piece.Color = spec.TRIM
+			piece.Material = spec.BODY_MATERIAL
+			piece.Reflectance = 0
+			painted += 1
 		end
 	end
 	return painted
@@ -3075,72 +3088,56 @@ local function truck(container: Instance, at: Vector3, cfg, name: string): Insta
 	folder.Name = name
 	local green = cfg.TRUCK.COLOR
 	local dark = Color3.fromRGB(26, 28, 26)
-	-- IT POINTS SOUTH (-Z), down the track and out of the yard: a truck that is about to leave.
-	local bedZ = at.Z + 4
-	part("Bed", Vector3.new(7, 3.4, 8), CFrame.new(at.X, at.Y + 4.4, bedZ), green, Enum.Material.Metal, true, folder)
-	for index, dx in ipairs({ -3.4, 3.4 }) do
+	-- **IT POINTS WEST (-x) SINCE TASK 243**, and it pointed SOUTH (-z) before that. The row turned
+	-- ninety degrees (Karen: *"there has to be cars but looking at me"*), and this branch has to turn
+	-- with it or the harness's own lobby parks a truck across four bays and off the gravel.
+	--
+	-- IT IS WRITTEN IN THE TRUCK'S OWN FRAME AND TURNED ONCE, which is how the numbers stay readable
+	-- against task 177's table: `across` is the width, `up` is the height and `along` runs from the
+	-- NOSE at -9.6 to the TAILGATE at +8.2. `spot` and `box` are the only two places the quarter turn
+	-- is applied -- `along` becomes world x and `across` becomes world -z -- so nothing below mixes
+	-- the two frames the way `onLid` once did in `ShopDisplay`.
+	local function spot(across: number, up: number, along: number): CFrame
+		return CFrame.new(at.X + along, at.Y + up, at.Z - across)
+	end
+	local function box(wide: number, high: number, long: number): Vector3
+		return Vector3.new(long, high, wide)
+	end
+	local bedAlong = 4
+	part("Bed", box(7, 3.4, 8), spot(0, 4.4, bedAlong), green, Enum.Material.Metal, true, folder)
+	for index, across in ipairs({ -3.4, 3.4 }) do
 		part(
 			string.format("BedSide%d", index),
-			Vector3.new(0.4, 2.6, 8),
-			CFrame.new(at.X + dx, at.Y + 7.3, bedZ),
+			box(0.4, 2.6, 8),
+			spot(across, 7.3, bedAlong),
 			green,
 			Enum.Material.Metal,
 			false,
 			folder
 		)
 	end
-	part(
-		"BedTail",
-		Vector3.new(7, 2.6, 0.4),
-		CFrame.new(at.X, at.Y + 7.3, bedZ + 4),
-		green,
-		Enum.Material.Metal,
-		false,
-		folder
-	)
-	part(
-		"Cab",
-		Vector3.new(7, 6.5, 6),
-		CFrame.new(at.X, at.Y + 5.9, at.Z - 2.4),
-		green,
-		Enum.Material.Metal,
-		true,
-		folder
-	)
+	part("BedTail", box(7, 2.6, 0.4), spot(0, 7.3, bedAlong + 4), green, Enum.Material.Metal, false, folder)
+	part("Cab", box(7, 6.5, 6), spot(0, 5.9, -2.4), green, Enum.Material.Metal, true, folder)
 	part(
 		"Windscreen",
-		Vector3.new(6.2, 3, 0.4),
-		CFrame.new(at.X, at.Y + 7.4, at.Z - 5.3),
+		box(6.2, 3, 0.4),
+		spot(0, 7.4, -5.3),
 		Color3.fromRGB(42, 52, 56),
 		Enum.Material.Glass,
 		false,
 		folder
 	)
-	part(
-		"Bonnet",
-		Vector3.new(7, 2.8, 4),
-		CFrame.new(at.X, at.Y + 4.4, at.Z - 7.4),
-		green,
-		Enum.Material.Metal,
-		true,
-		folder
-	)
-	part(
-		"Bumper",
-		Vector3.new(7.4, 1.2, 0.8),
-		CFrame.new(at.X, at.Y + 2.9, at.Z - 9.6),
-		dark,
-		Enum.Material.Metal,
-		false,
-		folder
-	)
+	part("Bonnet", box(7, 2.8, 4), spot(0, 4.4, -7.4), green, Enum.Material.Metal, true, folder)
+	part("Bumper", box(7.4, 1.2, 0.8), spot(0, 2.9, -9.6), dark, Enum.Material.Metal, false, folder)
 	for index = 1, cfg.TRUCK.WHEELS do
-		local dx = if index % 2 == 0 then 3.6 else -3.6
-		local dz = if index <= 2 then -6 else 4
+		local across = if index % 2 == 0 then 3.6 else -3.6
+		local along = if index <= 2 then -6 else 4
+		-- **A `Cylinder`'S AXIS IS ITS X AXIS**, so a wheel whose axle runs ACROSS the truck has to
+		-- be turned with everything else: a quarter about y takes that axis to world z.
 		local wheel = part(
 			string.format("Wheel%d", index),
 			Vector3.new(2.2, 5, 5),
-			CFrame.new(at.X + dx, at.Y + 2.5, at.Z + dz),
+			spot(across, 2.5, along) * CFrame.Angles(0, math.pi / 2, 0),
 			dark,
 			Enum.Material.Rubber,
 			false,
@@ -3184,13 +3181,15 @@ end
 -- EVERY LAMP OF ONE TRUCK, SPLIT INTO HEADS AND TAILS, and WHICH WAY THE TRUCK FACES.
 --
 -- THE WHITE PAIR *IS* THE FRONT, whichever end of the box it sits on, and that is the one thing in
--- this task that could not be taken from a comment. `CONFIG.TRUCK`'s own header says the free model
--- *"is delivered pointing along its own +X"* and is given a quarter turn because *"the yard wants it
--- pointing SOUTH"* -- but the lamps measure the other way round: the headlights are at the model's
--- local **-X**, so after `YAW_RADIANS` they look NORTH, up the yard, and `Build.truck`'s fallback
--- (bonnet at `at.Z - 7.4`) looks SOUTH. Two branches, two fronts. So nothing here reads a config
+-- this task that could not be taken from a comment. `CONFIG.TRUCK`'s own header SAID the free model
+-- *"is delivered pointing along its own +X"* from task 180 until task 243, and was wrong: the lamps
+-- measure the other way round, and task 243 measured them again on a built truck -- the headlights
+-- are at the model's local **-X**, so at `YAW_RADIANS` 0 they look WEST, at the pads. (`Build.truck`'s
+-- fallback is built nose-west too, and ITS branch asserts that heading rather than measuring it,
+-- because this file builds that geometry itself twenty lines below.) So nothing here reads a config
 -- heading at all: the direction is measured from the truck's own centre out through its own white
--- lamps, and both branches come out right by construction.
+-- lamps, and both branches come out right by construction -- which is why the config row being wrong
+-- for three tasks cost nothing but a comment.
 --
 -- A TAIL IS A LAMP ON THE FAR HALF FROM THE HEADS, which is a POSITION test and not a colour test.
 -- The model's amber indicators are the same hue family as its tail lights and sit at the FRONT; a
@@ -3316,24 +3315,41 @@ local function truckRig(model: Instance, cfg): TruckRig
 	local heads, tails, facing = lampsOf(model, cfg)
 
 	if facing == nil then
-		-- NO LAMPS: build four. `Build.truck`'s fallback points its bonnet at `at.Z - 7.4`, so this
-		-- branch's front is -Z -- the one place in this file a heading is asserted rather than
-		-- measured, and it is asserted about geometry THIS FILE builds twenty lines up.
-		facing = Vector3.new(0, 0, -1)
+		-- NO LAMPS: build four. `Build.truck`'s fallback points its bonnet at `at.X - 7.4` **since
+		-- task 243 turned the row west**, so this branch's front is `-X` -- the one place in this
+		-- file a heading is asserted rather than measured, and it is asserted about geometry THIS
+		-- FILE builds twenty lines up.
+		--
+		-- **IT WAS `(0, 0, -1)` UNTIL TASK 243 AND THAT WAS THE WHOLE OF ROUND 1's FINDING 1.** The
+		-- fallback truck turned and its rig did not, which put its headlamps on its SOUTH FLANK,
+		-- aimed its beams sideways across the bays and -- through `lengthHalf`, which reads
+		-- `|look.X| * half.X + |look.Z| * half.Z` -- hung its exhaust and its engine off the wrong
+		-- half of the box. So nothing below names an axis any more: the lenses are placed ALONG
+		-- `facing` and ACROSS its perpendicular, out of the box's own extents on those two
+		-- directions, and the next turn of the yard needs this constant changed and nothing else.
+		facing = Vector3.new(-1, 0, 0)
+		local look = facing :: Vector3
+		local across = Vector3.new(-look.Z, 0, look.X)
+		local lengthHalf = math.abs(look.X) * half.X + math.abs(look.Z) * half.Z
+		local widthHalf = math.abs(across.X) * half.X + math.abs(across.Z) * half.Z
 		local y = centre.Y - half.Y + 2 * half.Y * spec.LENS_HEIGHT_FRACTION
 		for _, row in ipairs({
-			{ name = "HeadLamp", at = facing, colour = spec.HEAD_OFF_COLOR, head = true },
-			{ name = "TailLamp", at = -facing, colour = spec.TAIL_OFF_COLOR, head = false },
+			{ name = "HeadLamp", sign = 1, colour = spec.HEAD_OFF_COLOR, head = true },
+			{ name = "TailLamp", sign = -1, colour = spec.TAIL_OFF_COLOR, head = false },
 		}) do
 			for index, way in ipairs({ -1, 1 }) do
+				local along = look * (row.sign * (lengthHalf + spec.LENS_STUDS.Z / 2))
+				local side = across * (way * widthHalf * spec.LENS_SIDE_FRACTION)
+				local at = Vector3.new(centre.X + along.X + side.X, y, centre.Z + along.Z + side.Z)
+				-- **THE LENS IS TURNED WITH THE TRUCK TOO.** `LENS_STUDS` is written depth-last --
+				-- its `Z` is the depth along the truck's length -- and a part built with a bare
+				-- `CFrame.new` would lay that depth along WORLD z whichever way the truck points.
+				-- `CFrame.lookAt` puts a part's own `-Z` face on the direction it is given, which
+				-- is the one place in this file that mapping has to be written.
 				local lens = part(
 					string.format("%s%d", row.name, index),
 					spec.LENS_STUDS,
-					CFrame.new(
-						centre.X + way * half.X * spec.LENS_SIDE_FRACTION,
-						y,
-						centre.Z + row.at.Z * (half.Z + spec.LENS_STUDS.Z / 2)
-					),
+					CFrame.lookAt(at, at + look),
 					row.colour,
 					Enum.Material.Neon,
 					false,
@@ -3567,14 +3583,16 @@ local function trucks(
 	-- reason and out of the same row.
 	local floorY = anchor.Y + cfg.ROAD.THICK_STUDS
 	for index = 1, cfg.TRUCK.COUNT do
-		-- THE BAY STEPS EAST AND THE TRUCK STANDS `BACK_STUDS` SOUTH OF IT (task 209, Karen: *"car
-		-- has to be moved back ... so I can easy access enter to game"*). The bay centre itself is
-		-- unmoved, so the pad (`Pads.centreFor`), the yard's x and the billboards are where they
-		-- were and nothing but the parked body shifts; -z is away from the pad, which is north of
-		-- it. This is the ONE reader of `BACK_STUDS`.
+		-- **THE BAY STEPS SOUTH AND THE TRUCK STANDS `BACK_STUDS` EAST OF IT** (task 243; it stepped
+		-- east with the truck `BACK_STUDS` south until this task). Karen, 2026-10-22: *"there has to
+		-- be cars but looking at me ... but not close to house there has to be distance"*. The bay
+		-- centre itself is still the one anchor everything else is derived from -- the pad
+		-- (`Pads.centreFor`), the yard and the billboards -- and nothing but the parked body is
+		-- shifted by `BACK_STUDS`; `+x` is away from the pad, which is west of it. This is the ONE
+		-- reader of `BACK_STUDS`, and task 209's eight studs are untouched: only the axis turned.
 		local at = anchor
 			+ cfg.TRUCK.OFFSET
-			+ Vector3.new((index - 1) * cfg.TRUCK.BAY_GAP_STUDS, 0, -cfg.TRUCK.BACK_STUDS)
+			+ Vector3.new(cfg.TRUCK.BACK_STUDS, 0, -(index - 1) * cfg.TRUCK.BAY_GAP_STUDS)
 		local name = string.format(Data.TRUCK_NAME, index)
 		local made = clone(templates, Data.TEMPLATE.TRUCK, name, model.SCALE, at, model.YAW_RADIANS, folder, false)
 		if made == nil then
@@ -3756,6 +3774,59 @@ local function pad(
 		)
 	end
 
+	-- **THE BAY'S NUMBER, PAINTED ON THE DECK** (task 243, the Designer's `lobby-yard-spec.md`
+	-- section 3b). TWO INDEPENDENT MARKS, ON PURPOSE: the board above carries the LIVE COUNT, which
+	-- has to float; this carries the IDENTITY, which does not. A numeral lying on the ground cannot
+	-- be occluded by another pad's board, it is readable from directly above while you are standing
+	-- on it, and it is one instance per pad. If the two ever disagree the DECK is right -- it is
+	-- painted from `index` here and nothing writes to it afterwards, while `Build.setPad` rewrites
+	-- the board ten times a second.
+	--
+	-- A `SurfaceGui` ON THE `Top` FACE, which is the one face of a deck a man walking the yard can
+	-- see. `PixelsPerStud` is what makes the numeral a SIZE IN STUDS rather than a size in pixels:
+	-- unlike the billboard above it, this mark DOES shrink with distance, because it is painted on
+	-- the ground rather than hung over it.
+	--
+	-- THE FACE IS OSWALD SEMIBOLD, WRITTEN OUT RATHER THAN REQUIRED. `Hud.Style.FONT.OSWALD_SB` is
+	-- the one this mirrors and the house face for every NUMBER in this game (`Style.faceFor`), but
+	-- `Style` is a CLIENT module and this is the server's builder -- so the two cannot share a
+	-- value without this file reaching across that boundary for a font.
+	local deckBoard = Instance.new("SurfaceGui")
+	deckBoard.Name = "Deck"
+	deckBoard.Face = Enum.NormalId.Top
+	deckBoard.Adornee = deck
+	deckBoard.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	deckBoard.PixelsPerStud = config.DECK.PIXELS_PER_STUD
+	deckBoard.AlwaysOnTop = false
+	deckBoard.LightInfluence = 0
+	deckBoard.Parent = deck
+
+	local numeral = Instance.new("TextLabel")
+	numeral.Name = "Numeral"
+	numeral.BackgroundTransparency = 1
+	numeral.Size = UDim2.fromScale(1, 1)
+	numeral.FontFace = Font.new("rbxasset://fonts/families/Oswald.json", Enum.FontWeight.SemiBold)
+	numeral.TextSize = config.DECK.NUMERAL_STUDS * config.DECK.PIXELS_PER_STUD / config.DECK.CAP_FRACTION
+	numeral.TextColor3 = colour
+	numeral.TextTransparency = config.DECK.TRANSPARENCY
+	-- **THE GLYPH'S TOP POINTS AWAY FROM THE MAN WALKING UP TO IT.** A `SurfaceGui` on a `Top` face
+	-- draws with its own up pointing WEST -- toward the man walking out of the lodge, which draws
+	-- the numeral upside down to him -- so it is turned a HALF (`DECK.ROTATION_DEGREES`, which
+	-- carries the measurement). Looked at at 0, 90 and 180 in the live place before it was written.
+	numeral.Rotation = config.DECK.ROTATION_DEGREES
+	numeral.Text = tostring(index)
+	-- THE SAME BLACK OUTLINE EVERY LABEL IN THIS GAME WEARS (`ShopPanel.label`, `boardLabel` below),
+	-- and here it is load-bearing rather than house style: the numeral is the PAD'S OWN COLOUR on
+	-- the pad's own coloured deck, which is a green glyph on a green rectangle. MEASURED, 2026-10-22
+	-- in the live Forest Test: without the stroke the numeral came out as a pale smudge from the
+	-- porch, 47 studs away. A document that cannot be read is worse than no document
+	-- (`ShopDisplay.LICENCE.MIN_WIDTH_PX`'s own rule, on a different surface).
+	local edge = Instance.new("UIStroke")
+	edge.Thickness = config.DECK.STROKE_PX
+	edge.Color = Color3.new(0, 0, 0)
+	edge.Parent = numeral
+	numeral.Parent = deckBoard
+
 	-- THE BOARD OVER IT -- the community pad's own arrangement (note section 2c): the count and the
 	-- state are drawn where the man walking across the yard can read them, in the WORLD, and not on
 	-- his screen. The Hud owns the screen (`docs/design/hud-clarity.md`) and this is the one thing in
@@ -3908,19 +3979,33 @@ end
 -- spruce ends up standing on a queue pad, which is this repository's named failure mode
 -- (`docs/PROJECT_CONTEXT.md`). One function, two callers.
 --
--- z IS DERIVED FROM WHAT THE YARD HAS TO CARRY rather than from a round number: the trucks' south
--- end (the bay, less `BACK_STUDS`, less half the model's length) and the pads' north edge
--- (`PAD_BEHIND_STUDS` plus the pad's own depth), each with `YARD_LIP_STUDS` of gravel beyond it. The
--- old literal 44 was 22 either side of the bay, which already fell 2 studs short of the pads before
--- this task moved them.
+-- **THE TWO MARGINS KEEP THEIR VALUES AND SWAP AXES IN TASK 243** (the Designer's
+-- `lobby-yard-spec.md` section 2d), because the row turned: `YARD_END_STUDS` is now the gravel past
+-- the two ends of the row in **z**, and `YARD_LIP_STUDS` the gravel past the trucks' east end and
+-- past the pads' west edge in **x**.
+--
+-- **THE WEST EDGE IS THE ROAD'S EAST VERGE AND NOT ITS CENTRE LINE**, and that is a correction this
+-- task had to make rather than a translation: written to `ROAD.CENTRE_X`, the old rectangle put half
+-- the lane inside the yard. At the verge the two surfaces abut and the lane stays a lane. `road()`
+-- draws Lane, then Verges, then Yard -- **do not reorder those three**, or the verge paints over the
+-- gravel at the seam.
+--
+-- **THE EAST EDGE IS BOUNDED, NOT CHOSEN** (section 2e). `treeLine` SKIPS any tree that lands inside
+-- this rectangle, so pushing the yard further out at "the trees" punches a hole in the tree line
+-- directly behind the trucks: at bay x 70 the gravel reaches 91.2 and the arc's own x over the
+-- yard's z band runs 80.8 .. 89.1 -- ALL of it inside, a hundred studs of missing wood. At bay 58
+-- the east edge is 79.23, the ceiling is 80.8, and not one tree is lost. The rule, for whoever
+-- retunes this next: `OFFSET.X + BACK_STUDS + LENGTH/2 + YARD_LIP` must stay BELOW
+-- `TREELINE.RADIUS_STUDS * sin(a)` for every bearing `a` whose `RADIUS * cos(a)` falls in the band
+-- -- and `lobby.spec` asserts it rather than leaving it in this paragraph.
 function Build.yardRect(anchor: Vector3, cfg): (number, number, number, number)
 	local bays = (cfg.TRUCK.COUNT - 1) * cfg.TRUCK.BAY_GAP_STUDS
-	local midX = anchor.X + (cfg.ROAD.CENTRE_X + cfg.TRUCK.OFFSET.X + bays) / 2
-	local halfX = (math.abs(cfg.TRUCK.OFFSET.X - cfg.ROAD.CENTRE_X) + bays + cfg.ROAD.YARD_END_STUDS) / 2
 	local lip = cfg.ROAD.YARD_LIP_STUDS
-	local south = -(cfg.TRUCK.BACK_STUDS + cfg.TRUCK.MODEL.LENGTH_STUDS / 2 + lip)
-	local north = cfg.TRUCK.PAD_BEHIND_STUDS + cfg.PADS.SIZE.Z + lip
-	return midX, halfX, anchor.Z + cfg.TRUCK.OFFSET.Z + (south + north) / 2, (north - south) / 2
+	local west = cfg.ROAD.CENTRE_X + cfg.ROAD.WIDTH_STUDS / 2 + cfg.ROAD.VERGE_STUDS
+	local east = cfg.TRUCK.OFFSET.X + cfg.TRUCK.BACK_STUDS + cfg.TRUCK.MODEL.LENGTH_STUDS / 2 + lip
+	local north = cfg.TRUCK.OFFSET.Z + cfg.ROAD.YARD_END_STUDS / 2
+	local south = cfg.TRUCK.OFFSET.Z - bays - cfg.ROAD.YARD_END_STUDS / 2
+	return anchor.X + (west + east) / 2, (east - west) / 2, anchor.Z + (north + south) / 2, (north - south) / 2
 end
 
 -- THE ROAD TO THE LODGE. Karen, 2026-10-14: *"place could be a bit more nicer like road going to
@@ -4706,7 +4791,13 @@ function Build.build(
 	spawn.Duration = 0
 	spawn.Color = Color3.fromRGB(86, 96, 74)
 	spawn.Material = Enum.Material.Slate
-	spawn.Transparency = 0.6
+	-- **INVISIBLE SINCE TASK 243** (the Designer's `lobby-yard-spec.md` section 4.3). At 0.6 it was
+	-- 12 x 6 studs of slate showing as a grey stain on the grass, right where the player lands --
+	-- one of the five things on her *"clean a bit lobby"* list. A `SpawnLocation` has to EXIST, not
+	-- to be seen: the porch is the visible arrival place and the lodge is the landmark. Everything
+	-- else about it is untouched, and that matters -- `Neutral`, `AllowTeamChangeOnTouch = false`,
+	-- `Duration = 0` and `CanQuery = false` are each a rule with its own reason above.
+	spawn.Transparency = 1
 	spawn.CanQuery = false
 	spawn.Parent = folder
 	stats.parts += 1

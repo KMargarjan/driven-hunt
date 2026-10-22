@@ -92,7 +92,14 @@ export type View = {
 
 local RIFLE_VIEW: View = { yawDeg = 96, pitchDeg = 16 }
 local SOLID_VIEW: View = { yawDeg = 34, pitchDeg = 25 }
-local CARD_VIEW: View = { yawDeg = 15, pitchDeg = 9, pad = 1.18, rockDegrees = 17, rockSeconds = 9 }
+-- **`CARD_VIEW` IS GONE (task 243)**, with the hunter's pin it was the last reader of: yaw 15,
+-- pitch 9, pad 1.18, rocking 17 degrees in nine seconds. It framed the one flat THING left in the
+-- viewport, and section 8.1 of `goods-spec.md` turns that thing into a flat IMAGE over the case --
+-- so all three documents this shop sells are now `ImageLabel`s that do not move at all, and a view
+-- nothing points at would be a number waiting to be believed. `View.rockDegrees` and
+-- `ShopDisplay.spinDegAt`'s rock branch STAY: they are the contract a `DOC_VIEW` would come back
+-- on (`goods-spec.md` section 4), and `shop_panel.spec` holds the arithmetic to it directly.
+--
 -- `TALL_VIEW` is for the high seat (task 228) -- the thing is 2.3 studs tall and about 1 wide, and
 -- `SOLID_VIEW`'s 25 degrees of pitch would squash it into a deck seen from above, which is exactly
 -- what `.screenshots/228-before-access-highseat.png` shows.
@@ -402,10 +409,8 @@ end
 -- ---------------------------------------------------------------- the palette
 --
 -- EVERY ITEM IN THIS SHOP IS WOOD, BRASS, CARD OR CLOTH, and these are the hexes it is made of.
--- The first nine are task 196's and task 221's; everything from `BURGUNDY` down is the shop2 spec's
+-- The first six are task 196's and task 221's; `BURGUNDY` below them is the shop2 spec's
 -- section 2.2 (the Designer, 2026-10-21, `<runs-dir>/design/shop2-spec.md`).
-local INK = Color3.fromHex("2C2A26")
-local FIELD = Color3.fromHex("9A9384")
 local CREAM = Color3.fromHex("EDE4CE")
 local LODEN = Color3.fromHex("27452E")
 local BRASS = Color3.fromHex("C8A258")
@@ -418,15 +423,13 @@ local TIMBER_DARK = Color3.fromHex("6B5E47")
 local BLAZE = Color3.fromHex("E2641B")
 
 -- TASK 228: the shop2 spec's section 2.2. **WHAT IS LEFT OF IT**, after task 241 replaced the two
--- booklet licences, the ten-round tray and the bandolier with the Designer's `goods-spec.md`: the
--- cover cloths that still dress a package's strap and the pin's inset, and the pin's own enamel.
--- The twenty-one hexes that went with the deleted builders -- the paper, the guilloche, the stag,
--- the horn's brass, the beater's orange, the bandolier's leather, the old hull and head and the
--- carton's shadowed wall -- are in `backups/2026-10-22_task-241_*`, with the drawings they were
--- mixed for. The ammunition's own colours are the Designer's new ones, in section 2.5.
+-- booklet licences, the ten-round tray and the bandolier with the Designer's `goods-spec.md`, and
+-- task 243 replaced the hunter's pin and the package's lid label with section 8: one cover cloth,
+-- which dresses a package's strap and its lid panel. `INK`, `FIELD`, `LODEN_DARK` and `ENAMEL` went
+-- with the pin and the two lid ink bars, and are in `backups/2026-10-22_task-243_*` with the
+-- drawings they were mixed for -- as the twenty-one hexes of task 241 are in its own backup. The
+-- ammunition's own colours are the Designer's, in section 2.5.
 local BURGUNDY = Color3.fromHex("6E1F22") -- the deer licence's cover cloth
-local LODEN_DARK = Color3.fromHex("1B3220") -- the pin card's inset
-local ENAMEL = Color3.fromHex("1E4A2A") -- the pin's green
 
 -- ---------------------------------------------------------------- 2.4 the goods' own printed art
 --
@@ -459,12 +462,13 @@ local ENAMEL = Color3.fromHex("1E4A2A") -- the pin's green
 -- `src/shared/Report/init.luau` records the measurement that found it (task 205: three labels on one
 -- plate, every one `IsLoaded = false`, and the card had been drawing no animal at all). The route out
 -- is the same one: on the SERVER, `InsertService:LoadAsset(decalId)` returns a model holding a
--- `Decal` whose `.Texture` is the image. Resolved in DEV on 2026-10-22, all four `AssetTypeId 13`:
+-- `Decal` whose `.Texture` is the image. Resolved in DEV on 2026-10-22, all five `AssetTypeId 13`:
 --
 --   108290190291718 -> 124539390037781   goods-slugbox-face.png     1024 x 716
 --   116011941064732 -> 95181634568725    goods-slugbox-end.png       468 x 1024
 --   104459454968931 -> 118221829977446   goods-licence-beater.png   1024 x 572, alpha
 --   92868335129939  -> 118076983085725   goods-licence-deer.png     1024 x 572, alpha
+--   111542606757761 -> 78477647971930    goods2-hunter-card.png     1024 x 572, alpha  (task 243)
 --
 -- The DECAL ids stay in `assets/uploads.json`, because that file records what was UPLOADED.
 --
@@ -480,6 +484,11 @@ local ART = {
 	SLUGBOX_END = "rbxassetid://95181634568725",
 	LICENCE_BEATER = "rbxassetid://118221829977446",
 	LICENCE_DEER = "rbxassetid://118076983085725",
+	-- TASK 243 (`goods-spec.md` section 8.1): `ALWAYS HUNTER` was an enamelled lapel pin with NO
+	-- WORDS ON IT -- two blank cream slabs where the print should be -- and the one thing a standing
+	-- has to tell you is WHICH standing. It is a standing hunter's card now, the same 1024 x 572 as
+	-- the two licences, so section 3.5's one placement rule covers it with nothing added.
+	HUNTER_CARD = "rbxassetid://78477647971930",
 }
 
 -- ---------------------------------------------------------------- the licence rule (spec 3.5)
@@ -729,10 +738,41 @@ local STACK_X = { -1.52, -0.50, 0.52 }
 local STACK_BASE_Y = { 0.12, 0.83 }
 local STACK_Z = -0.26
 
+-- ---------------- THE SAME STACK, PACKED (task 243, `goods-spec.md` section 8.2c)
+--
+-- THE SHIPPING STACK IS 3.9 STUDS WIDE AND NO PACKAGE CASE IS: the Designer's two cases are 3.30
+-- and 4.60 outside, which is 3.14 and 4.44 of inner shelf, and `THE FULL SEASON` has to fit a tower,
+-- a slug carton, a gun and two documents on the same shelf. So the stack has a PACKED arrangement,
+-- and that is what `IN_PACKAGE` is for -- *am I a thumbnail* -- rather than the packager reaching
+-- in and re-placing another row's cartons.
+--
+-- **IT IS THE SAME CARTON AT THE SAME SIZE**, which is the rule section 8.2b states and this is the
+-- place it could most easily have been broken: three of the shipped seven, no shipping slab and no
+-- loose rounds, two staggered on the floor and one across their joint. 2.02 studs wide and 1.40
+-- high, so it fits BOTH cases and still stands well proud of the 0.22 rim.
+--
+-- WHY THREE AND NOT THE SHEET'S FIVE. Section 8.2c draws five in `THE MARKSMAN` and three in `THE
+-- FULL SEASON`; five is 3.04 wide, and in the large case the back row would then be 3.04 + 1.34 of
+-- slug + 0.68 of tower = 5.06 against 4.44 of shelf. One arrangement that fits both beats two that
+-- need the packager to know how many cartons a package wants.
+local PACKED_X = { -0.51, 0.51 }
+local PACKED_TOP_X = 0
+local PACKED_BASE_Y = { 0, 0.70 }
+
 -- **BOTTOM COURSE BEFORE TOP, AND LEFT TO RIGHT INSIDE EACH COURSE** (the Designer's own note): at
 -- yaw 34 the camera sees each carton's `+X` end, so a carton comes before the neighbour that covers
--- that end. **27 parts and 14 `Decal`s**, all reusing two uploaded images.
-local function buildAmmoStack(parent: Model)
+-- that end. **27 parts and 14 `Decal`s** in the case, 6 and 3 packed, all reusing two uploaded
+-- images.
+local function buildAmmoStack(parent: Model, detail: string?)
+	if detail == IN_PACKAGE then
+		local packed: { Piece } = {}
+		for index, x in ipairs(PACKED_X) do
+			carton(packed, string.format("Carton%d", index), Vector3.new(x, PACKED_BASE_Y[1] + CARTON_SIZE.Y / 2, 0))
+		end
+		carton(packed, "Carton3", Vector3.new(PACKED_TOP_X, PACKED_BASE_Y[2] + CARTON_SIZE.Y / 2, 0))
+		pieces(parent, packed)
+		return
+	end
 	local rows: { Piece } = {
 		{
 			name = "Flat",
@@ -755,28 +795,34 @@ local function buildAmmoStack(parent: Model)
 	pieces(parent, rows)
 end
 
--- ---------------------------------------------------------------- 2.7 a licence INSIDE a package
+-- ---------------------------------------------------------------- 2.7 a document INSIDE a package
 --
--- THE TWO LICENCES ARE FLAT IMAGES OVER THE CASE AND HAVE NO VIEWPORT MODEL -- but `THE FULL SEASON`
--- covers the beater licence, and a package draws `ShopDisplay.build` per covered row. Drawing nothing
--- there would leave a HOLE in a shipped surface, so this is the one place a licence still has
--- geometry: a single thin card carrying the SAME uploaded image.
+-- ALL THREE DOCUMENTS THIS SHOP SELLS -- the beater licence, the deer licence and, since task 243,
+-- the hunter's card -- are flat images over the case and have NO viewport model. But `THE FULL
+-- SEASON` covers two of them, and a package draws `ShopDisplay.build` per covered row. Drawing
+-- nothing there would leave a HOLE in a shipped surface, so this is the one place a document still
+-- has geometry: a single thin card carrying the SAME uploaded image.
 --
 -- IT IS `goods-spec.md` SECTION 4's OWN SHAPE, which the Designer wrote out and then refused for the
 -- display case -- *"even at pitch 62 the body type loses about half its height"*. That objection is
--- about READING the document, and inside a package the item is a 1.42-stud thumbnail nobody reads:
--- what it has to say is *a document*, which a card with real print on it says and a blank rectangle
--- does not. Refused for the case, right for the thumbnail.
+-- about READING the document, and inside a package the item is a thumbnail nobody reads: what it has
+-- to say is *a document*, which a card with real print on it says and a blank rectangle does not.
+-- Refused for the case, right for the thumbnail.
 --
--- **ITS HEIGHT IS THE ART'S ASPECT AND NOT SECTION 4's ROUNDED `1.00`.** The image is 1024 x 572
--- (1.79 : 1) and a `Decal` stretches to its face, so a 1.42 x 1.00 card would squeeze every letter --
--- the same rule section 2.5 states for the carton's two faces, applied here.
+-- **IT LIES FLAT NOW, AND THAT IS SECTION 8.2b's `FLAT` SLOT** (task 243). Until this task it STOOD,
+-- leaning back 18 degrees, because everything in a package stood at a uniform 1.42 studs and a
+-- document lying among them read as one that had fallen over. Nothing stands at a uniform height
+-- any more -- the case is fixed and each thing is fitted in by its SHAPE -- and the shape of a
+-- document in a packed case is FLAT, at the front where the lid does not cover it. So the decal
+-- moves from the `Back` face (`+z`, the wall the camera was on) to the **`Top`** face, which is the
+-- one the camera on `+x / +z` at 25 degrees of pitch is now looking at.
 --
--- IT STANDS, LEANING BACK 18 DEGREES, rather than lying flat: everything else in a package stands on
--- the lining at about 1.42 studs, and a document lying flat beside them reads as one that fell over.
--- `Rx(-18)` tips the `+Z` face's normal up by 18 degrees while it still faces `+Z`, which is the wall
--- the camera is on -- the same `Back`-not-`Front` answer as the carton's.
-local LICENCE_CARD_SIZE = Vector3.new(1.42, 1.42 / (1024 / 572), 0.012)
+-- **ITS PROPORTIONS ARE THE ART'S AND NOT A ROUNDED PAIR.** The image is 1024 x 572 (1.79 : 1) and a
+-- `Decal` stretches to its face, so the depth is the width divided by that ratio -- the same rule
+-- section 2.5 states for the carton's two faces, applied here. 1.04 across gives 0.581 deep, which
+-- is section 8.2b's own `1.04 x 0.58` to the millimetre.
+local LICENCE_CARD_WIDTH = 1.04
+local LICENCE_CARD_SIZE = Vector3.new(LICENCE_CARD_WIDTH, 0.016, LICENCE_CARD_WIDTH / ShopDisplay.LICENCE.ASPECT)
 local LICENCE_CARD_EDGE = Color3.fromHex("D8D2C2")
 
 local function buildLicenceCard(parent: Model, image: string)
@@ -785,164 +831,10 @@ local function buildLicenceCard(parent: Model, image: string)
 			name = "Licence",
 			size = LICENCE_CARD_SIZE,
 			at = Vector3.new(0, LICENCE_CARD_SIZE.Y / 2, 0),
-			rot = Vector3.new(-18, 0, 0),
 			color = LICENCE_CARD_EDGE,
-			decals = { [Enum.NormalId.Back] = image },
+			decals = { [Enum.NormalId.Top] = image },
 		},
 	})
-end
--- ---------------------------------------------------------------- 2.7 the hunter's pin
---
--- WHAT IT IS. `ALWAYS HUNTER` is a STANDING and not an object, so what is sold is the TOKEN of a
--- standing: an enamelled lapel pin, still pinned through the little loden card it came on, the way
--- a pin is actually sold. A pin is small, jewelled and personal; the badge it replaces read as a
--- flag for a team, which is the wrong idea now that the thing is a CHOICE. 25 parts (spec 2.7).
---
--- `z = 0.215` IS NOT ARBITRARY. The enamel is an ellipsoid: its surface at the stag's height is at
--- `z` about 0.19, so anything laid at 0.185 is half buried and renders as scribble. Every motif on a
--- curved face has to clear that face's OWN BULGE at the point it sits -- measure it, do not guess it.
-local PIN_STAG: { { name: string, w: number, h: number, x: number, y: number, rz: number? } } = {
-	{ name = "PinSkull", w = 0.145, h = 0.22, x = 0, y = 0.83 },
-	{ name = "PinMuzzle", w = 0.1, h = 0.1, x = 0, y = 0.695 },
-	{ name = "PinEarL", w = 0.085, h = 0.05, x = -0.1, y = 0.89, rz = 26 },
-	{ name = "PinEarR", w = 0.085, h = 0.05, x = 0.1, y = 0.89, rz = -26 },
-	{ name = "PinBeamL", w = 0.036, h = 0.26, x = -0.1, y = 1, rz = 22 },
-	{ name = "PinBeamR", w = 0.036, h = 0.26, x = 0.1, y = 1, rz = -22 },
-	{ name = "PinTineL1", w = 0.03, h = 0.12, x = -0.18, y = 1.01, rz = 58 },
-	{ name = "PinTineL2", w = 0.028, h = 0.095, x = -0.175, y = 1.11, rz = 42 },
-	{ name = "PinTineR1", w = 0.03, h = 0.12, x = 0.18, y = 1.01, rz = -58 },
-	{ name = "PinTineR2", w = 0.028, h = 0.095, x = 0.175, y = 1.11, rz = -42 },
-}
-
-local function buildHunterPin(parent: Model)
-	local metal = Enum.Material.Metal
-	local fabric = Enum.Material.Fabric
-	local rows: { Piece } = {
-		{
-			name = "Card",
-			size = Vector3.new(1.02, 1.3, 0.05),
-			at = Vector3.new(0, 0.65, 0),
-			color = LODEN,
-			material = fabric,
-		},
-		{
-			name = "CardEdge",
-			size = Vector3.new(0.9, 1.18, 0.014),
-			at = Vector3.new(0, 0.65, 0.031),
-			color = LODEN_DARK,
-			material = fabric,
-		},
-		{
-			name = "CardRule",
-			size = Vector3.new(0.94, 0.012, 0.016),
-			at = Vector3.new(0, 1.2, 0.033),
-			color = BRASS,
-			material = metal,
-			reflectance = 0.2,
-		},
-		{
-			name = "CardRule2",
-			size = Vector3.new(0.94, 0.012, 0.016),
-			at = Vector3.new(0, 0.18, 0.033),
-			color = BRASS,
-			material = metal,
-			reflectance = 0.2,
-		},
-		{ name = "CardInk1", size = Vector3.new(0.56, 0.042, 0.016), at = Vector3.new(0, 0.112, 0.033), color = CREAM },
-		{ name = "CardInk2", size = Vector3.new(0.34, 0.028, 0.016), at = Vector3.new(0, 0.058, 0.033), color = FIELD },
-		{
-			name = "PinSlot1",
-			size = Vector3.new(0.05, 0.016, 0.018),
-			at = Vector3.new(-0.22, 0.37, 0.034),
-			color = Color3.fromHex("14200F"),
-			material = fabric,
-		},
-		{
-			name = "PinSlot2",
-			size = Vector3.new(0.05, 0.016, 0.018),
-			at = Vector3.new(0.22, 0.37, 0.034),
-			color = Color3.fromHex("14200F"),
-			material = fabric,
-		},
-		-- THE PIN. Note the `z` ladder: the ENAMEL FACE STANDS PROUD OF THE BRASS RIM, so the brass
-		-- shows as a border at the silhouette and nowhere else. `PartType.Ball` with an unequal size
-		-- is an ellipsoid, which is how the oval is round without a mesh.
-		{
-			name = "PinStem",
-			shape = Enum.PartType.Cylinder,
-			size = Vector3.new(0.46, 0.035, 0.035),
-			at = Vector3.new(0, 0.5, 0.012),
-			rot = Vector3.new(0, 0, 90),
-			color = BRASS,
-			material = metal,
-			reflectance = 0.2,
-		},
-		{
-			name = "PinClasp",
-			size = Vector3.new(0.14, 0.09, 0.05),
-			at = Vector3.new(0, 0.3, 0.01),
-			color = BRASS,
-			material = metal,
-			reflectance = 0.2,
-		},
-		{
-			name = "PinRim",
-			shape = Enum.PartType.Ball,
-			size = Vector3.new(0.88, 1.04, 0.19),
-			at = Vector3.new(0, 0.75, 0.08),
-			color = BRASS,
-			material = metal,
-			reflectance = 0.22,
-		},
-		{
-			name = "PinFace",
-			shape = Enum.PartType.Ball,
-			size = Vector3.new(0.8, 0.96, 0.17),
-			at = Vector3.new(0, 0.75, 0.105),
-			color = ENAMEL,
-			-- 0.06 AND NOT THE SPEC'S 0.30, MEASURED (rule 5, `.screenshots/228-after-role-
-			-- alwayshunter.png` at 0.30): a `ViewportFrame` has no sky to reflect, so `Reflectance`
-			-- blends the colour toward the frame's own light -- and at 0.30 the dark green enamel
-			-- came out TAN, the same tone as the brass rim and the brass stag standing on it, so
-			-- the whole pin read as one flat disc. The glint is worth 0.06 and nothing more. The
-			-- BRASS pieces are unaffected: brass blended toward a warm light still reads as brass,
-			-- which is why every `Metal` reflectance in this file is the spec's.
-			reflectance = 0.06,
-		},
-		{
-			name = "PinBand",
-			size = Vector3.new(0.5, 0.145, 0.07),
-			at = Vector3.new(0, 0.495, 0.168),
-			color = BLAZE,
-			-- 0 for the same reason: at 0.10 the blaze band came out salmon.
-		},
-		{
-			name = "PinBandEdge",
-			size = Vector3.new(0.5, 0.02, 0.072),
-			at = Vector3.new(0, 0.578, 0.17),
-			color = Color3.fromHex("8E3F0C"),
-		},
-	}
-	-- THE STAG'S HEAD ON THE ENAMEL -- the same crest the deer licence's cover carries, so the two
-	-- read as one house.
-	for _, row in ipairs(PIN_STAG) do
-		rows[#rows + 1] = {
-			name = row.name,
-			size = Vector3.new(row.w, row.h, 0.03),
-			at = Vector3.new(row.x, row.y, 0.215),
-			rot = if row.rz ~= nil then Vector3.new(0, 0, row.rz) else nil,
-			color = BRASS,
-			material = metal,
-			reflectance = 0.22,
-		}
-	end
-	rows[#rows + 1] = {
-		name = "PinEye",
-		size = Vector3.new(0.034, 0.034, 0.034),
-		at = Vector3.new(-0.042, 0.865, 0.232),
-		color = ENAMEL,
-	}
-	pieces(parent, rows)
 end
 
 -- 6.3 THE RED HAT. The crown colour is the ROW'S OWN `grants.hatColor` and is read, never
@@ -1272,33 +1164,195 @@ local function buildHighSeat(parent: Model)
 	pieces(parent, rows)
 end
 
--- ---------------------------------------------------------------- 2.9 the packages
+-- ---------------------------------------------------------------- 2.9 the packages (spec 8.2)
 --
--- KEEP THE RULE AND CHANGE THE STAGING. The rule is right and stays: a package draws
--- `ShopDisplay.build(covered)` for each of its contents, so there is ONE drawing per item, a package
--- can never show something it does not contain, and a row that gains a picture gains it inside every
--- package that covers it. What changes is what the goods stand ON -- a bare board says INVENTORY and
--- a lined wooden case with its lid open says A PACKAGE (spec 2.9).
+-- KAREN, 2026-10-22, on the shipped build: *"package The hide has to be improved now is broke n /
+-- package marksman also broken / the full season also broken"*.
 --
--- THE LID IS HINGED AT THE BACK (`-z`) AND LEANS AWAY FROM THE CAMERA AT 72 DEGREES, so the camera
--- on `+x / +z` is looking at its INSIDE, which is where the label is. Hinge it at the front and you
--- have built a door that hides the goods.
+-- **THE CASE IS A FIXED BOX AND THE GOODS ARE FITTED INTO IT; AND WHERE A THING GOES IS DECIDED BY
+-- ITS SHAPE, WHICH THE CODE ALREADY KNOWS** (the Designer's `goods-spec.md` section 8.2). That one
+-- sentence answers all three of her faults:
 --
--- THE STRAP IS THE PACKAGE'S ONE SIGNATURE, so the three are told apart before you read the name.
-local BUNDLE_SPREAD = 1.62
-local BUNDLE_ITEM_STUDS = 1.42
-local LID_DEG = 72
+--   A. THE CASE USED TO GROW WITH THE CONTENTS and only the WINDOW was fixed -- `w = #drawable *
+--      BUNDLE_SPREAD + 0.4` -- so six items made a 10.12-stud trough drawn at 34.7 px per stud
+--      against 71.3 for a two-item package. The same shop drew its packages at half scale and
+--      twice, and the season's was the half: a footbridge seen from above with six crumbs on it.
+--   B. `BUNDLE_ITEM_STUDS` 1.42 MADE EVERY ITEM A CUBE whatever it really was. A scoped rifle is
+--      about eight times as long as it is deep; squeezed into a 1.42-stud cell and laid flat in a
+--      0.76-deep trough it became a dark stick on dark wood -- which is why the row whose blurb
+--      says *"the long gun"* CONTAINED NO GUN YOU COULD FIND.
+--   C. THE BRIGHTEST OBJECT IN ALL THREE PICTURES WAS A BLANK LABEL: `CaseLidLabel`, 0.78 x 0.38 of
+--      cream carrying two ink bars, which is section 0's own fault on a third surface.
+--
+-- WHAT DOES NOT CHANGE IS THE RULE THAT MATTERS: a package still calls `ShopDisplay.build(covered)`
+-- once per covered row, so it cannot show something it does not contain and a row that gains a
+-- picture gains it inside every package that covers it. What changed is the STAGING.
+--
+-- **THE ONE PLACE THIS FILE DEPARTS FROM THE DESIGNER'S SHEET, AND WHY.** Section 8.2c stages each
+-- package's sub-pieces by hand -- five cartons in `THE MARKSMAN`, three in `THE FULL SEASON`, the
+-- slug's two loose rounds re-placed around its own box. A packager that did that would be writing a
+-- second copy of another row's geometry, which is exactly the rule above. So the SLOT is this
+-- module's and the ARRANGEMENT INSIDE A ROW is that row's: `buildAmmoStack` has one compact
+-- in-package stack (section 8.2c's own three cartons, the count that fits BOTH cases), and it is
+-- drawn in both packages. Everything else -- the two case sizes, the low rim, the slot per shape,
+-- the chocks, the document step -- is the sheet's, to the decimal where the sheet gives one.
+local CASE_SMALL = Vector2.new(3.30, 1.70) -- 2-3 items: THE HIDE, THE MARKSMAN
+local CASE_LARGE = Vector2.new(4.60, 1.85) -- 4-6 items: THE FULL SEASON
+local CASE_LARGE_FROM = 4
 
+-- THE BOX ITSELF, in the case's own frame: y 0 is the bottom of the case and +z is the wall the
+-- camera is on. The goods stand on `CASE_FLOOR_TOP`.
+local CASE_WALL = 0.08
+local CASE_FLOOR_TOP = 0.08
+local CASE_LINING = 0.016 -- the cloth, which IS the top of the floor rather than a sheet laid on it
+-- **THE RIM IS 0.22 AND THAT IS A MEASUREMENT, NOT A TASTE** (section 8.2a). At pitch 25 a wall of
+-- height `t` hides everything below `t - dz * tan 25` for a thing `dz` studs behind it. At the old
+-- 0.30 the front wall hid the rifle COMPLETELY -- 0.30 - 0.43 * 0.466 = 0.10, and a gun on the
+-- lining tops out at 0.11. At 0.22 nothing in the case is hidden by its own box, and this file
+-- MEASURES that rather than trusting it: the documents are laid at the z where the sight line from
+-- their own top clears the front rim (`RIM_SIGHT` below).
+local CASE_RIM_TOP = 0.22
+local LID_DEG = 78
+local LID_DEEP = 0.40
+local LID_THICK = 0.055
+-- THE LID IS A TIMBER FRAME WITH A CLOTH PANEL INSET, in the package's own strap colour -- and it
+-- carries NO LABEL, NO INK BARS AND NO IMAGE (section 8.3). The widest a plate could be on the lid
+-- is about 2.6 studs, which at 54.3 px per stud is 141 px on screen; `THE FULL SEASON` is fifteen
+-- characters, so 9 px a letter -- and the panel already prints the same words at 29 px eleven
+-- pixels under the case. A plate would say a thing worse, directly below where it is said well.
+local LID_PANEL_INSET = 0.22
+
+-- WHAT TELLS THE THREE APART IN THE PICTURE: what is in them, and the strap and lid colour -- loden,
+-- burgundy, blaze, one each. That is the signature `buildBundle` already had, and Karen can read it
+-- before a word.
 local STRAP_COLOR: { [string]: Color3 } = {
 	[ShopData.ITEM.BUNDLE_HIDE] = LODEN,
 	[ShopData.ITEM.BUNDLE_MARKSMAN] = BURGUNDY,
 	[ShopData.ITEM.BUNDLE_SEASON] = BLAZE,
 }
+-- THE HIDE'S LID CLOTH IS TWO STEPS LIGHTER THAN ITS LINING, or it vanishes into it: the lining is
+-- `LODEN` and the lid is the Designer's `35603D`. The other two straps already read against loden.
+local LID_PANEL_COLOR: { [string]: Color3 } = {
+	[ShopData.ITEM.BUNDLE_HIDE] = Color3.fromHex("35603D"),
+	[ShopData.ITEM.BUNDLE_MARKSMAN] = BURGUNDY,
+	[ShopData.ITEM.BUNDLE_SEASON] = BLAZE,
+}
+
+-- ---------------- WHERE A THING GOES: a rule, not a table per package (section 8.2b)
+--
+-- EACH SLOT'S TEST USES SOMETHING THIS MODULE ALREADY HAS -- `imageFor`, `viewFor` and the model's
+-- own extents -- so nothing here is a second opinion about what an item IS.
+ShopDisplay.SLOT = {
+	-- any document: it lies flat at the front, where the lid does not cover it
+	FLAT = "flat",
+	-- the high seat: it stands at the back, because nothing else in this shop is tall
+	TALL = "tall",
+	-- the scoped rifle: it lies on its left side on two chocks, across the front
+	LONG = "long",
+	-- the cartons and the stack: they stand on the floor along the back, at their own size
+	SOLID = "solid",
+}
+-- HOW LONG / HOW TALL / HOW WIDE EACH FITTED SLOT IS, in studs. `SOLID` is absent on purpose: **the
+-- cartons are NOT scaled.** A slug box is 1.00 x 0.70 x 0.32 (section 3.1) and it stays that in
+-- every package, so the same object is the same size everywhere in the shop. `BUNDLE_ITEM_STUDS`
+-- -- the 1.42-stud cell that made a rifle a cube -- is deleted.
+ShopDisplay.SLOT_STUDS = {
+	flat = 1.04, -- across; the depth follows the art's 1.79 : 1
+	tall = 1.50, -- high
+	long = 2.80, -- along the barrel
+}
+
+-- WHICH SLOT AN ITEM TAKES. PURE and exported, so `shop_panel.spec` can hold each shipped row to the
+-- slot the Designer's sheet names instead of trusting this to stay true.
+--
+-- **THE LONG TEST IS ON THE LONGEST HORIZONTAL EXTENT AND NOT ON `x`**, which is the one line of
+-- section 8.2b that had to be translated rather than copied: the sheet is drawn in the Designer's
+-- own frame, and in THIS repository a gun is built along **z** (`Rifle.Geometry`'s `muzzleZ`, which
+-- is why `RIFLE_VIEW` stands the camera at yaw 96 to photograph its side). Written against `x` the
+-- rifle would have failed its own test and come out SOLID.
+--
+-- THE ORDER IS FLAT, TALL, LONG, SOLID, and it is not alphabetical: a document is 1.79 : 1 and
+-- 0.016 thick, so the LONG test would claim it, and the high seat's ladder makes its base wide
+-- enough that a future seat could trip the same test. The two tests that read an IDENTITY come
+-- before the one that reads a shape.
+function ShopDisplay.slotFor(id: string, size: Vector3): string
+	if ShopDisplay.imageFor(id) ~= nil then
+		return ShopDisplay.SLOT.FLAT
+	end
+	if ShopDisplay.viewFor(id) == TALL_VIEW then
+		return ShopDisplay.SLOT.TALL
+	end
+	if math.max(size.X, size.Z) >= 2 * size.Y then
+		return ShopDisplay.SLOT.LONG
+	end
+	return ShopDisplay.SLOT.SOLID
+end
+
+-- HOW MUCH TO SHRINK AN ITEM TO FIT ITS SLOT, or 1 for a `SOLID`. PURE. A zero extent answers 1
+-- rather than dividing by it -- a model with no parts is `build`'s own nil case, not this one's.
+function ShopDisplay.fitScale(slot: string, size: Vector3): number
+	local want = (ShopDisplay.SLOT_STUDS :: any)[slot]
+	if want == nil then
+		return 1
+	end
+	local have = if slot == ShopDisplay.SLOT.TALL then size.Y else math.max(size.X, size.Z)
+	if have <= 1e-4 then
+		return 1
+	end
+	return math.clamp(want / have, 0.05, 4)
+end
+
+-- THE WORLD EXTENTS OF A BOX THAT HAS BEEN TURNED. PURE -- each world axis takes the absolute share
+-- of each of the box's three sides -- and it is `halfExtents`' arithmetic over all three axes at
+-- once. The rifle is the one caller: it is built along `z` and lands lying along `x`, so its height
+-- and depth swap and a placer that read the UNTURNED box would stand it 0.6 studs into the lid.
+function ShopDisplay.turnedSize(size: Vector3, rot: Vector3): Vector3
+	local cf = CFrame.Angles(math.rad(rot.X), math.rad(rot.Y), math.rad(rot.Z))
+	local right, up, look = cf.RightVector, cf.UpVector, cf.LookVector
+	return Vector3.new(
+		math.abs(right.X) * size.X + math.abs(up.X) * size.Y + math.abs(look.X) * size.Z,
+		math.abs(right.Y) * size.X + math.abs(up.Y) * size.Y + math.abs(look.Y) * size.Z,
+		math.abs(right.Z) * size.X + math.abs(up.Z) * size.Y + math.abs(look.Z) * size.Z
+	)
+end
+
+-- **A GUN IN A CASE LIES ON ITS LEFT SIDE, AND THAT IS THE WHOLE DIFFERENCE.** From above you then
+-- see the butt, the comb, the grip, the trigger guard, the action, the scope and the barrel -- the
+-- shape that says RIFLE. Drawn in plan it is 0.065 of its length across and reads as a stick, which
+-- is what the first cut of this picture came out as.
+--
+-- `(90, 90, 0)` IS `Rx(90) * Ry(90)` and it is TWO turns for two reasons. The yaw lays the barrel
+-- (local `+z`) along the case's long axis `+x`; the roll takes the gun's own UP to `+z`, the wall
+-- the camera is on, which puts its RIGHT side uppermost -- so it is lying on its LEFT, and the bolt
+-- handle and the scope are the two things the camera sees first.
+local LONG_TURN = Vector3.new(90, 90, 0)
+-- WHERE THE GUN'S BELLY SITS: on two chocks, 0.055 above the floor, which is what a cased gun really
+-- lies on and what lifts the barrel clear of the near rim.
+local CHOCK_SIZE = Vector3.new(0.10, 0.055, 0.34)
+local LONG_BOTTOM_Y = CASE_FLOOR_TOP + CHOCK_SIZE.Y
+-- AT A TENTH AND FIVE SIXTHS OF ITS OWN LENGTH -- under the butt and under the fore-end, the
+-- Designer's own x -1.27 and +0.76 against a butt at -1.55 and a 2.80-stud gun.
+local CHOCK_ALONG = { 0.10, 0.825 }
+-- HOW FAR THE GUN STANDS OFF THE FRONT WALL.
+local LONG_FRONT_CLEAR = 0.20
+-- HOW FAR A THING IN THE BACK ROW STANDS OFF THE BACK WALL.
+local BACK_CLEAR = 0.04
+-- THE DOCUMENTS OVERLAP ON PURPOSE -- the hunter's card lies across the corner of the beater
+-- licence, 0.022 studs proud of it so they never z-fight -- and they step toward the front-right
+-- corner, 0.40 across and 0.22 forward each.
+local DOC_STEP = Vector3.new(0.40, 0.022, 0.22)
+local DOC_EDGE = 0.04
+-- THE SIGHT LINE OVER THE NEAR RIM, which is the one number that decides how far forward a FLAT
+-- thing may be laid: a thing whose top is `y` at depth `z` is hidden by a rim of height `T` at the
+-- inner wall `Zw` when `y + RIM_SIGHT * (Zw - z) < T`. A document is 0.016 thick, so it is the one
+-- item in the case this can actually swallow -- which is why the Designer's own z of 0.53 is
+-- MEASURED here instead of copied: at 0.53 the near two fifths of the card are behind the rim.
+local RIM_SIGHT = math.tan(math.rad(SOLID_VIEW.pitchDeg))
 
 -- THE MODEL'S WORLD-ALIGNED BOX, computed over its own parts. `Model:GetBoundingBox` returns a box
--- in the PRIMARY PART'S basis, and several of these models' first part is a rotated one (a strap on
--- the bandolier's ring, a yawed licence leaf) -- so that box is neither axis-aligned nor the one a
--- shelf has to stand the thing on. PURE.
+-- in the PRIMARY PART'S basis, and several of these models' first part is a rotated one (a round on
+-- its side, a yawed scope) -- so that box is neither axis-aligned nor the one a shelf has to stand
+-- the thing on. PURE.
 local function worldBox(model: Model): (Vector3, Vector3)
 	local lo = Vector3.new(math.huge, math.huge, math.huge)
 	local hi = Vector3.new(-math.huge, -math.huge, -math.huge)
@@ -1328,6 +1382,22 @@ local function worldBox(model: Model): (Vector3, Vector3)
 	return (lo + hi) / 2, hi - lo
 end
 
+-- PUT A MODEL'S BOX WHERE IT IS WANTED, turned about that box's own centre. Moved by its BOX and
+-- never by its pivot: the pivot is whichever part happened to be made first, which for a leaning
+-- round or a stack of cartons is neither the model's centre nor its foot.
+local function placeByBox(model: Model, at: Vector3, rot: Vector3?)
+	local centre = worldBox(model)
+	local turn = rot or Vector3.zero
+	model:PivotTo(
+		CFrame.new(at)
+			* CFrame.Angles(math.rad(turn.X), math.rad(turn.Y), math.rad(turn.Z))
+			* CFrame.new(-centre)
+			* model:GetPivot()
+	)
+end
+
+type Fitted = { id: string, model: Model, slot: string, size: Vector3 }
+
 local function buildBundle(parent: Model, id: string)
 	local row = ShopData.anyRow(id)
 	local covers = (row and row.covers) or {}
@@ -1337,193 +1407,246 @@ local function buildBundle(parent: Model, id: string)
 			table.insert(drawable, covered)
 		end
 	end
-	local w = math.max(1.5, #drawable * BUNDLE_SPREAD + 0.4)
+
+	-- ---------------- the case: a fixed box in two sizes (section 8.2a)
+	local box = if #drawable >= CASE_LARGE_FROM then CASE_LARGE else CASE_SMALL
+	local w, d = box.X, box.Y
 	local wood = Enum.Material.Wood
 	local planks = Enum.Material.WoodPlanks
-	local fabric = Enum.Material.Fabric
 	local metal = Enum.Material.Metal
 	local strap = STRAP_COLOR[id] or LODEN
+	local panel = LID_PANEL_COLOR[id] or LODEN
 
-	-- THE LID'S OWN FRAME. `rot = (72, 0, 0)` takes the lid's local `+y` -- its inner face's normal
-	-- -- to `(0, cos 72, sin 72)`, which points up and TOWARD the camera, and its local `-z` to
-	-- `(0, sin 72, -cos 72)`, which is the way it leans back from the hinge.
+	-- THE LID IS HINGED AT THE BACK RIM AND LEANS AWAY FROM THE CAMERA, so the camera on `+x / +z`
+	-- looks at its INSIDE. Hinge it at the front and you have built a door that hides the goods.
+	--
+	-- `rot = (78, 0, 0)` takes the lid's local `+y` -- its inner face's normal -- to
+	-- `(0, cos 78, sin 78)`, which points up and TOWARD the camera, and its local `-z` to
+	-- `(0, sin 78, -cos 78)`, which is the way it leans back from the hinge. The hinge is the back
+	-- rim, `(y 0.22, z -d/2)`, and the lid's far edge therefore lands at y 0.611 -- which is the
+	-- Designer's own number for both cases, because only the hinge's z differs.
 	local rad = math.rad(LID_DEG)
 	local up = Vector3.new(0, math.cos(rad), math.sin(rad))
 	local lean = Vector3.new(0, math.sin(rad), -math.cos(rad))
-	local lidAt = Vector3.new(0, 0.3, -0.38) + lean * 0.31
+	local hinge = Vector3.new(0, CASE_RIM_TOP, -d / 2)
+	local lidAt = hinge + lean * (LID_DEEP / 2)
 	local lidTurn = Vector3.new(LID_DEG, 0, 0)
-	-- A POINT ON THE LID'S INNER FACE, IN THE LID'S OWN FRAME: `d` proud of that face, `dx` across
-	-- its width (which happens to be world `x`, because the lid only turns about X) and `dz` along
-	-- its DEPTH, which is `-lean` and is nothing like world `z`.
-	--
-	-- `dx`/`dz` EXIST BECAUSE THE SPEC'S OWN TWO INK LINES WERE NUDGED IN WORLD COORDINATES and one
-	-- of them vanished (Reviewer, task 228 round 1, and it is right). `CaseLidInk2`'s nudge
-	-- `(-0.16, -0.030, -0.010)` has a component of -0.019 ALONG `up`, so a piece written as
-	-- `onLid(0.058)` actually sat at 0.039 -- 0.008 BEHIND the label it is printed on, inside its
-	-- footprint, invisible. `CaseLidInk1`'s nudge happened to lean the other way, so one line showed
-	-- and the other did not. This is the failure this file's own comments twice exist to stop
-	-- (`buildHunterPin`: *"anything laid at 0.185 is half buried and renders as scribble"*), and
-	-- the fix is to stop mixing two frames: every offset on this lid is now in the lid's.
-	local acrossLid = -lean
-	local function onLid(d: number, dx: number?, dz: number?): Vector3
-		return lidAt + up * d + Vector3.new(dx or 0, 0, 0) + acrossLid * (dz or 0)
-	end
 
+	local floorTop = CASE_FLOOR_TOP - CASE_LINING
+	local wallHigh = CASE_RIM_TOP - floorTop
+	local wallY = floorTop + wallHigh / 2
 	pieces(parent, {
 		{
 			name = "CaseFloor",
-			size = Vector3.new(w, 0.08, 0.76),
-			at = Vector3.new(0, 0.04, 0),
+			size = Vector3.new(w, floorTop, d),
+			at = Vector3.new(0, floorTop / 2, 0),
 			color = TIMBER_DARK,
 			material = planks,
 		},
+		-- THE LINING **IS** THE TOP OF THE FLOOR and not a sheet laid on it, so the goods stand at
+		-- `CASE_FLOOR_TOP` exactly and nothing is 0.016 studs inside the cloth it stands on.
+		--
+		-- **IT IS `SmoothPlastic` AND NOT `Fabric`, AND THAT WAS PHOTOGRAPHED** (rule 5,
+		-- `.screenshots/243-goods-marksman.png` before and after). `Fabric`'s own weave is a
+		-- speckle, and at a 356 x 200 case the whole floor of the box came out as mottled dark
+		-- STONE rather than cloth -- the biggest single area in the picture, under a gun this task
+		-- exists to make findable. It is the same measurement `TRUCK.CAMO.BODY_MATERIAL` records
+		-- (*"the shot came back with four BLACK trucks ... `Fabric`'s own weave is dark enough to
+		-- swallow an olive at this scale"*) and task 228's own note on this file.
+		--
+		-- **AND THE STRAP AND THE LID PANEL WENT THE SAME WAY, IN THE SAME PAIR OF FRAMES.** The strap
+		-- is named in this file as the package's ONE SIGNATURE -- the thing that tells the three apart
+		-- before a word is read -- and in burgundy `Fabric` it came out MOTTLED PURPLE across the whole
+		-- front rim. A signature that reads as noise is not a signature. So **nothing in this case is
+		-- `Fabric` any more**: not the lining, not the strap, not the lid's cloth panel and not the
+		-- chocks. The panel is still a cloth panel in a timber frame -- that is what the inset and the
+		-- two colours say -- it is simply painted rather than woven, because at 356 x 200 the weave is
+		-- not texture, it is dirt.
 		{
 			name = "CaseLining",
-			size = Vector3.new(w - 0.18, 0.016, 0.62),
-			at = Vector3.new(0, 0.088, 0),
+			size = Vector3.new(w - 2 * CASE_WALL, CASE_LINING, d - 2 * CASE_WALL),
+			at = Vector3.new(0, floorTop + CASE_LINING / 2, 0),
 			color = LODEN,
-			material = fabric,
 		},
 		{
 			name = "CaseNear",
-			size = Vector3.new(w, 0.3, 0.07),
-			at = Vector3.new(0, 0.23, 0.38),
+			size = Vector3.new(w, wallHigh, CASE_WALL),
+			at = Vector3.new(0, wallY, d / 2 - CASE_WALL / 2),
 			color = TIMBER,
 			material = wood,
 		},
 		{
 			name = "CaseBack",
-			size = Vector3.new(w, 0.3, 0.07),
-			at = Vector3.new(0, 0.23, -0.38),
+			size = Vector3.new(w, wallHigh, CASE_WALL),
+			at = Vector3.new(0, wallY, -d / 2 + CASE_WALL / 2),
 			color = TIMBER,
 			material = wood,
 		},
 		{
 			name = "CaseLeft",
-			size = Vector3.new(0.07, 0.3, 0.76),
-			at = Vector3.new(-w / 2 + 0.035, 0.23, 0),
+			size = Vector3.new(CASE_WALL, wallHigh, d - 2 * CASE_WALL),
+			at = Vector3.new(-w / 2 + CASE_WALL / 2, wallY, 0),
 			color = TIMBER_DARK,
 			material = wood,
 		},
 		{
 			name = "CaseRight",
-			size = Vector3.new(0.07, 0.3, 0.76),
-			at = Vector3.new(w / 2 - 0.035, 0.23, 0),
+			size = Vector3.new(CASE_WALL, wallHigh, d - 2 * CASE_WALL),
+			at = Vector3.new(w / 2 - CASE_WALL / 2, wallY, 0),
 			color = TIMBER_DARK,
 			material = wood,
 		},
 		{
 			name = "CaseLid",
-			size = Vector3.new(w, 0.055, 0.62),
+			size = Vector3.new(w, LID_THICK, LID_DEEP),
 			at = lidAt,
 			rot = lidTurn,
 			color = TIMBER,
 			material = wood,
 		},
+		-- FILLED EDGE TO EDGE WITH ONE HUE A LID READS AS A PAINTED WALL; the frame is what makes it
+		-- a lid. So the panel is inset and the timber shows all round it, and it is `SmoothPlastic`
+		-- like everything else in this case -- `CaseLining` above carries the frames that decided it.
 		{
-			name = "CaseLidLining",
-			size = Vector3.new(w - 0.16, 0.014, 0.54),
-			at = onLid(0.036),
+			name = "CaseLidPanel",
+			size = Vector3.new(w - LID_PANEL_INSET, 0.014, LID_DEEP - LID_PANEL_INSET / 2),
+			at = lidAt + up * (LID_THICK / 2 + 0.007),
 			rot = lidTurn,
-			color = LODEN,
-			material = fabric,
+			color = panel,
 		},
-		{
-			name = "CaseLidLabel",
-			size = Vector3.new(0.78, 0.012, 0.38),
-			at = onLid(0.048),
-			rot = lidTurn,
-			color = CREAM,
-		},
-		{
-			name = "CaseLidRule",
-			size = Vector3.new(0.74, 0.012, 0.014),
-			at = onLid(0.056),
-			rot = lidTurn,
-			color = BRASS,
-			material = metal,
-			reflectance = 0.2,
-		},
-		-- THE TWO INK LINES CLEAR THE LABEL THEY ARE PRINTED ON, measured: the label's front face is
-		-- `0.048 + 0.012 / 2` = 0.054 along the lid's normal and the brass rule's is 0.062, so an
-		-- ink bar at 0.068 with a half-thickness of 0.007 has its front at 0.075 and its back at
-		-- 0.061 -- proud of both, from any angle the camera can reach.
-		{
-			name = "CaseLidInk1",
-			size = Vector3.new(0.5, 0.014, 0.045),
-			at = onLid(0.068, -0.09, 0.055),
-			rot = lidTurn,
-			color = INK,
-		},
-		{
-			name = "CaseLidInk2",
-			size = Vector3.new(0.36, 0.014, 0.034),
-			at = onLid(0.068, -0.16, -0.03),
-			rot = lidTurn,
-			color = FIELD,
-		},
-		-- THE STRAP AND THE PLATE ARE ON THE `+z` WALL for the same reason the carton's print is:
-		-- that is the wall the camera is on.
+		-- THE STRAP IS ON THE `+z` WALL for the same reason the carton's print is: that is the wall
+		-- the camera is on.
 		{
 			name = "Strap",
 			size = Vector3.new(w + 0.06, 0.105, 0.03),
-			at = Vector3.new(0, 0.23, 0.418),
+			at = Vector3.new(0, wallY, d / 2 + 0.015),
 			color = strap,
-			material = fabric,
 		},
 		{
-			name = "StrapBuckle",
-			size = Vector3.new(0.11, 0.15, 0.045),
-			at = Vector3.new(w / 4, 0.23, 0.432),
+			name = "Escutcheon",
+			size = Vector3.new(0.14, 0.12, 0.022),
+			at = Vector3.new(0, wallY, d / 2 + 0.036),
+			color = BRASS,
+			material = metal,
+			reflectance = 0.22,
+		},
+		{
+			name = "CornerLeft",
+			size = Vector3.new(0.12, wallHigh + 0.014, 0.12),
+			at = Vector3.new(-w / 2 + 0.05, wallY, d / 2 - 0.05),
 			color = BRASS,
 			material = metal,
 			reflectance = 0.18,
 		},
 		{
-			name = "PlateBed",
-			size = Vector3.new(0.48, 0.16, 0.016),
-			at = Vector3.new(-w / 4, 0.23, 0.424),
-			color = LODEN,
-			material = fabric,
-		},
-		{
-			name = "Plate",
-			size = Vector3.new(0.42, 0.115, 0.018),
-			at = Vector3.new(-w / 4, 0.23, 0.43),
+			name = "CornerRight",
+			size = Vector3.new(0.12, wallHigh + 0.014, 0.12),
+			at = Vector3.new(w / 2 - 0.05, wallY, d / 2 - 0.05),
 			color = BRASS,
 			material = metal,
-			reflectance = 0.22,
+			reflectance = 0.18,
 		},
 	})
 
-	-- THE CONTENTS, THROUGH `ShopDisplay.build` exactly as before -- so a package draws EXACTLY the
-	-- model that row draws on its own page. It cannot recurse: `rowsOk` I7 refuses a package that
-	-- covers a package. What is new is that they stand ON THE LINING, each a little yawed so the row
-	-- is not a parade, and at 1.42 studs rather than 1.15 so the GOODS are the picture and the case
-	-- is the frame.
+	-- ---------------- the goods, one `ShopDisplay.build` per covered row (section 8.2b)
 	--
-	-- EVERY COVERED ROW IS NOW TOLD IT IS IN A PACKAGE (task 241), where before only the bandolier
-	-- was. The bandolier is gone and `IN_PACKAGE` has one meaning left, which is the one its name
-	-- says -- so the question each builder answers is *"am I a thumbnail"* rather than *"am I the
-	-- one item with a cheap mode"*, and a licence can use it to draw a card where it draws nothing
-	-- in the case.
-	local span = (#drawable - 1) * BUNDLE_SPREAD
+	-- EVERY COVERED ROW IS TOLD IT IS IN A PACKAGE, and `IN_PACKAGE` has the one meaning its name
+	-- says: *am I a thumbnail*. A document draws its card there and nothing in the case; the ammo
+	-- stack draws its compact three-carton course instead of the seven-carton shipping stack, which
+	-- is 3.9 studs wide and does not fit any case this shop can draw.
+	local backRow: { Fitted } = {}
+	local docs: { Fitted } = {}
+	local long: Fitted? = nil
 	for index, covered in ipairs(drawable) do
-		local piece = ShopDisplay.build(covered, IN_PACKAGE)
-		if piece ~= nil then
-			piece.Name = string.format("Part%d", index)
-			local _, before = worldBox(piece)
-			local tallest = math.max(before.X, before.Y, before.Z)
-			local scale = if tallest > 0 then math.clamp(BUNDLE_ITEM_STUDS / tallest, 0.05, 1) else 1
-			piece:ScaleTo(scale)
-			-- MEASURED AGAIN AFTER THE SCALE, and moved by its BOX and not by its pivot: the pivot
-			-- is whichever part happened to be made first, which for a leaning licence card or a
-			-- stack of cartons is neither the model's centre nor its foot.
-			local centre, size = worldBox(piece)
-			local at = Vector3.new(-span / 2 + (index - 1) * BUNDLE_SPREAD, 0.096 + size.Y / 2, 0)
-			local yaw = math.rad(if index % 2 == 0 then 14 else -11)
-			piece:PivotTo(CFrame.new(at) * CFrame.Angles(0, yaw, 0) * CFrame.new(-centre) * piece:GetPivot())
-			piece.Parent = parent
+		local model = ShopDisplay.build(covered, IN_PACKAGE)
+		if model ~= nil then
+			model.Name = string.format("Part%d", index)
+			local _, raw = worldBox(model)
+			local slot = ShopDisplay.slotFor(covered, raw)
+			local scale = ShopDisplay.fitScale(slot, raw)
+			if math.abs(scale - 1) > 1e-4 then
+				model:ScaleTo(scale)
+			end
+			local _, fitted = worldBox(model)
+			local item: Fitted = { id = covered, model = model, slot = slot, size = fitted }
+			if slot == ShopDisplay.SLOT.FLAT then
+				table.insert(docs, item)
+			elseif slot == ShopDisplay.SLOT.LONG and long == nil then
+				long = item
+			else
+				-- A SECOND LONG THING WOULD HAVE NO SECOND FRONT TO LIE ACROSS, so it stands in the
+				-- back row with the cartons. No package covers two guns today; this is what happens
+				-- if one ever does, said here rather than left to a nil.
+				table.insert(backRow, item)
+			end
+			model.Parent = parent
+		end
+	end
+
+	local innerLeft, innerRight = -w / 2 + CASE_WALL, w / 2 - CASE_WALL
+	local innerBack, innerFront = -d / 2 + CASE_WALL, d / 2 - CASE_WALL
+
+	-- THE BACK ROW, left to right in the CATALOGUE'S OWN ORDER, with the slack shared evenly: n
+	-- things make n + 1 gaps, so the row is centred and the end gaps match the ones between. The
+	-- Designer's sheet lands within 0.12 studs of this everywhere it gives a number.
+	local total = 0
+	for _, item in ipairs(backRow) do
+		total += item.size.X
+	end
+	local gap = math.max(0, (innerRight - innerLeft - total) / (#backRow + 1))
+	local cursor = innerLeft + gap
+	for _, item in ipairs(backRow) do
+		placeByBox(
+			item.model,
+			Vector3.new(
+				cursor + item.size.X / 2,
+				CASE_FLOOR_TOP + item.size.Y / 2,
+				innerBack + BACK_CLEAR + item.size.Z / 2
+			)
+		)
+		cursor += item.size.X + gap
+	end
+
+	-- THE DOCUMENTS, FROM THE FRONT-RIGHT CORNER BACKWARD. The LAST one is laid as far forward as it
+	-- can be SEEN -- the sight line from its own top, over the near rim -- and the ones before it
+	-- step back, lower and to the left, so each is visible by construction rather than by hope.
+	local lastFront = innerFront
+	if #docs > 0 then
+		local topY = CASE_FLOOR_TOP + (#docs - 1) * DOC_STEP.Y + docs[#docs].size.Y
+		lastFront = math.min(innerFront, innerFront - (CASE_RIM_TOP - topY) / RIM_SIGHT)
+	end
+	for order, item in ipairs(docs) do
+		local behind = #docs - order
+		placeByBox(
+			item.model,
+			Vector3.new(
+				innerRight - DOC_EDGE - item.size.X / 2 - behind * DOC_STEP.X,
+				CASE_FLOOR_TOP + (order - 1) * DOC_STEP.Y + item.size.Y / 2,
+				lastFront - item.size.Z / 2 - behind * DOC_STEP.Z
+			)
+		)
+	end
+
+	-- THE GUN, ACROSS THE FRONT, CENTRED IN WHAT THE DOCUMENTS LEAVE. In `THE MARKSMAN` that is the
+	-- whole inner width; in `THE FULL SEASON` it is everything west of the first document, which
+	-- puts the butt at -2.14 against the Designer's -2.12.
+	if long ~= nil then
+		local item = long :: Fitted
+		local turned = ShopDisplay.turnedSize(item.size, LONG_TURN)
+		local room = innerRight
+		if #docs > 0 then
+			room = innerRight - DOC_EDGE - docs[1].size.X - (#docs - 1) * DOC_STEP.X
+		end
+		local centreX = (innerLeft + room) / 2
+		local centreZ = innerFront - LONG_FRONT_CLEAR - turned.Z / 2
+		placeByBox(item.model, Vector3.new(centreX, LONG_BOTTOM_Y + turned.Y / 2, centreZ), LONG_TURN)
+		for index, along in ipairs(CHOCK_ALONG) do
+			place(parent, {
+				name = string.format("Chock%d", index),
+				size = CHOCK_SIZE,
+				at = Vector3.new(centreX - turned.X / 2 + along * turned.X, CASE_FLOOR_TOP + CHOCK_SIZE.Y / 2, centreZ),
+				color = LODEN,
+			})
 		end
 	end
 end
@@ -1605,8 +1728,8 @@ local DRAW: { [string]: Drawing } = {
 	},
 	[ShopData.ITEM.UNLIMITED_AMMO] = {
 		view = SOLID_VIEW,
-		build = function(model: Model, _id: string, _detail: string?)
-			buildAmmoStack(model)
+		build = function(model: Model, _id: string, detail: string?)
+			buildAmmoStack(model, detail)
 		end,
 	},
 	[ShopData.ITEM.RED_STAG] = {
@@ -1618,10 +1741,21 @@ local DRAW: { [string]: Drawing } = {
 			end
 		end,
 	},
+	-- **TASK 243: THE THIRD DOCUMENT** (`goods-spec.md` section 8.1). KAREN, 2026-10-22: *"always
+	-- hunter card has to be replaced into nice design like you did with deer license"*. It was an
+	-- enamelled lapel pin -- 25 parts, a brass stag on a green ellipsoid, and TWO BLANK CREAM SLABS
+	-- where the print should be, which is section 0's fault exactly: *"a bar is a bar at every size;
+	-- a line of real type resolves"*. The one thing a standing has to tell you is WHICH standing,
+	-- and a badge could not say it. It is a standing hunter's card now, drawn like the two licences
+	-- and shown like them -- so `ShopDisplay.dressLicenceImage` needed no edit at all and the row
+	-- inherits upright, `Fit`, opaque, centred for free. Twenty-five parts out, one `ImageLabel` in.
 	[ShopData.ITEM.ALWAYS_HUNTER] = {
-		view = CARD_VIEW,
-		build = function(model: Model, _id: string, _detail: string?)
-			buildHunterPin(model)
+		view = SOLID_VIEW,
+		image = ART.HUNTER_CARD,
+		build = function(model: Model, _id: string, detail: string?)
+			if detail == IN_PACKAGE then
+				buildLicenceCard(model, ART.HUNTER_CARD)
+			end
 		end,
 	},
 	-- THE PACKAGES DRAW THEIR OWN CONTENTS, through `ShopDisplay.build` per covered row -- so there

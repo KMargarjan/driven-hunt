@@ -293,13 +293,17 @@ return function()
 		-- Measured on her own path first again (rule H): the built gaps were 18.74 / 18.77 / 18.77 /
 		-- 18.41 -- a truck's whole length of gravel between her rectangle and her truck.
 		--
+		-- **THE AXIS TURNED IN TASK 243 AND THE GAP DID NOT.** The row steps SOUTH now and the truck
+		-- faces WEST, so the gap is between the pad's EAST edge and the truck's drawn NOSE -- 3.77
+		-- studs, the same number task 213 settled, on x instead of z.
+		--
 		-- THE RULE IS A BAND IN THE DATA (`TRUCK.PAD_GAP_STUDS`) AND NOT A LITERAL HERE, because the
 		-- gap is EMERGENT: `PAD_BEHIND_STUDS`, `BACK_STUDS` and `MODEL.LENGTH_STUDS` each move it, and
 		-- a retune of any one of them could walk it out of *"closer"* with nothing to catch it. It
 		-- replaces task 209's *"at least two truck-widths"*, which is the same sentence with her older
 		-- number in it: the truck did not move in 213, the pad did.
 		--
-		-- EVERY BAY, NOT THE ONE IN THE SCREENSHOT (L-093): each pair is measured at its own x, and bay
+		-- EVERY BAY, NOT THE ONE IN THE SCREENSHOT (L-093): each pair is measured at its own z, and bay
 		-- 4's truck is the one the hill tilts.
 		it("leaves one short step -- not a walk -- between every pad and its own truck (task 213)", function()
 			local anchor = Vector3.new(0, 100, 0)
@@ -311,18 +315,18 @@ return function()
 			expect(band.MAX > band.MIN).to.equal(true)
 			for index = 1, CFG.TRUCK.COUNT do
 				local centre = Pads.centreFor(anchor, index, CFG)
-				local bayZ = anchor.Z + CFG.TRUCK.OFFSET.Z
-				-- the parked body's own north face: half its length, brought back by `BACK_STUDS`
-				local tailZ = bayZ + model.LENGTH_STUDS / 2 - CFG.TRUCK.BACK_STUDS
-				local gap = (centre.Z - SIZE.Z / 2) - tailZ
+				local bayX = anchor.X + CFG.TRUCK.OFFSET.X
+				-- the parked body's own west face: half its length, pushed east by `BACK_STUDS`
+				local noseX = bayX + CFG.TRUCK.BACK_STUDS - model.LENGTH_STUDS / 2
+				local gap = noseX - (centre.X + SIZE.X / 2)
 				expect(gap >= band.MIN).to.equal(true)
 				expect(gap <= band.MAX).to.equal(true)
 				-- ...AND SAID THE OTHER WAY ROUND: the pad and the parked body never share a stud, which
 				-- is the half of it a player feels rather than measures.
 				expect(gap > 0).to.equal(true)
-				-- THE TRUCK IS STILL SOUTH OF ITS PAD AND NOT THE OTHER WAY, so "closer" never becomes
+				-- THE TRUCK IS STILL EAST OF ITS PAD AND NOT THE OTHER WAY, so "closer" never becomes
 				-- "through", and `Camera.faceTowards` still turns a man on the pad toward a truck.
-				expect(tailZ < centre.Z - SIZE.Z / 2).to.equal(true)
+				expect(noseX > centre.X + SIZE.X / 2).to.equal(true)
 			end
 		end)
 
@@ -334,11 +338,13 @@ return function()
 			local midX, halfX, midZ, halfZ = Build.yardRect(anchor, CFG)
 			local model = CFG.TRUCK.MODEL
 			for index = 1, CFG.TRUCK.COUNT do
-				local bayX = anchor.X + CFG.TRUCK.OFFSET.X + (index - 1) * CFG.TRUCK.BAY_GAP_STUDS
-				local truckZ = anchor.Z + CFG.TRUCK.OFFSET.Z - CFG.TRUCK.BACK_STUDS
+				-- **THE BAY STEPS SOUTH AND THE TRUCK STANDS EAST OF IT** (task 243). The truck's
+				-- LENGTH is along x now and its WIDTH along z, which is the whole of what changed.
+				local bayZ = anchor.Z + CFG.TRUCK.OFFSET.Z - (index - 1) * CFG.TRUCK.BAY_GAP_STUDS
+				local truckX = anchor.X + CFG.TRUCK.OFFSET.X + CFG.TRUCK.BACK_STUDS
 				-- the truck's four corners
-				expect(math.abs(bayX - midX) + model.WIDTH_STUDS / 2 <= halfX).to.equal(true)
-				expect(math.abs(truckZ - midZ) + model.LENGTH_STUDS / 2 <= halfZ).to.equal(true)
+				expect(math.abs(truckX - midX) + model.LENGTH_STUDS / 2 <= halfX).to.equal(true)
+				expect(math.abs(bayZ - midZ) + model.WIDTH_STUDS / 2 <= halfZ).to.equal(true)
 				-- ...and the pad's
 				local centre = Pads.centreFor(anchor, index, CFG)
 				expect(math.abs(centre.X - midX) + SIZE.X / 2 <= halfX).to.equal(true)
@@ -346,39 +352,47 @@ return function()
 			end
 		end)
 
-		it("puts one pad behind each bay, clear of the lodge, the tailgates, the trees and the field", function()
+		it("puts one pad in front of each bay, clear of the lodge, the noses, the trees and the field", function()
 			-- EVERY CLEARANCE IN `docs/design/truck-pads.md` SECTION 4.1, AS ARITHMETIC OVER THE
 			-- CONFIG AND NEVER A LITERAL -- so a retune of `SIZE` or `BAY_GAP_STUDS` that breaks one
 			-- fails the harness instead of looking wrong in a screenshot.
+			--
+			-- **TASK 243 TURNED EVERY ONE OF THESE NINETY DEGREES AND CHANGED NO VALUE.** The pad is
+			-- WEST of its bay (it was north), the row steps SOUTH (it stepped east), and the pad is
+			-- 12 deep by 9 wide (it was 9 by 12). The lodge bounds below are the ones that moved
+			-- FURTHEST clear: pad 1's west face stood 3.5 studs off the lodge's east wall and now
+			-- stands 23.
 			local anchor = Vector3.new(0, 100, 0)
 			local half = CFG.FIELD.SPAN_STUDS / 2
-			local lastEast = -math.huge
+			local lastSouth = math.huge
 			for index = 1, CFG.TRUCK.COUNT do
 				local centre = Pads.centreFor(anchor, index, CFG)
-				-- x: THE BAY'S OWN x, the same expression `Build.trucks` steps with.
-				expect(centre.X).to.equal(anchor.X + CFG.TRUCK.OFFSET.X + (index - 1) * CFG.TRUCK.BAY_GAP_STUDS)
-				-- z: `PAD_BEHIND_STUDS` from the BAY CENTRE to the pad's NEAR edge.
-				local nearEdge = centre.Z - SIZE.Z / 2
-				expect(nearEdge).to.equal(anchor.Z + CFG.TRUCK.OFFSET.Z + CFG.TRUCK.PAD_BEHIND_STUDS)
-				-- ...WHICH CLEARS BOTH TAILGATES. The parts truck's `BedTail` face is at
-				-- `OFFSET.Z + 8.2`; the free model is `MODEL`-yawed and 18.46 long, so 9.23 -- and
-				-- since task 209 it is parked `BACK_STUDS` SOUTH of the bay, so both come back by
-				-- that much.
-				local bayZ = anchor.Z + CFG.TRUCK.OFFSET.Z
-				expect(nearEdge > bayZ + 8.2 - CFG.TRUCK.BACK_STUDS).to.equal(true)
-				expect(nearEdge > bayZ + CFG.TRUCK.MODEL.LENGTH_STUDS / 2 - CFG.TRUCK.BACK_STUDS).to.equal(true)
+				-- z: THE BAY'S OWN z, the same expression `Build.trucks` steps with.
+				expect(centre.Z).to.equal(anchor.Z + CFG.TRUCK.OFFSET.Z - (index - 1) * CFG.TRUCK.BAY_GAP_STUDS)
+				-- x: `PAD_BEHIND_STUDS` from the BAY CENTRE to the pad's NEAR edge, which is its
+				-- EAST edge now -- the edge the truck is on.
+				local nearEdge = centre.X + SIZE.X / 2
+				expect(nearEdge).to.equal(anchor.X + CFG.TRUCK.OFFSET.X - CFG.TRUCK.PAD_BEHIND_STUDS)
+				-- ...WHICH CLEARS BOTH NOSES. The parts truck's `Bumper` face is at `-10.0` of its
+				-- own frame; the free model is 18.46 long, so 9.23 -- and both are parked
+				-- `BACK_STUDS` EAST of the bay, so both come forward by that much.
+				local bayX = anchor.X + CFG.TRUCK.OFFSET.X
+				expect(nearEdge < bayX + CFG.TRUCK.BACK_STUDS - 10.0).to.equal(true)
+				expect(nearEdge < bayX + CFG.TRUCK.BACK_STUDS - CFG.TRUCK.MODEL.LENGTH_STUDS / 2).to.equal(true)
 				-- THE TREE LINE'S YARD EXCLUSION IS `Build.yardRect` PLUS FOUR STUDS (it was the
-				-- literal z +44 until task 209 derived the rectangle), so the far edge has to stay
-				-- inside it or a tree can stand on a pad.
-				local _, _, yardMidZ, yardHalfZ = Build.yardRect(anchor, CFG)
+				-- literal z +44 until task 209 derived the rectangle), so the pad has to stay
+				-- inside it on BOTH axes or a tree can stand on a pad.
+				local yardMidX, yardHalfX, yardMidZ, yardHalfZ = Build.yardRect(anchor, CFG)
+				expect(centre.X - SIZE.X / 2 >= yardMidX - yardHalfX - 4).to.equal(true)
+				expect(centre.Z - SIZE.Z / 2 >= yardMidZ - yardHalfZ - 4).to.equal(true)
 				expect(centre.Z + SIZE.Z / 2 <= yardMidZ + yardHalfZ + 4).to.equal(true)
 				-- EVERY CORNER IS ON THE FIELD.
 				expect(math.abs(centre.X - anchor.X) + SIZE.X / 2 <= half).to.equal(true)
 				expect(math.abs(centre.Z - anchor.Z) + SIZE.Z / 2 <= half).to.equal(true)
 				-- THE FOUR RECTANGLES ARE DISJOINT, which is what lets `Pads.indexAt` return on its
-				-- first match.
-				expect(centre.X - SIZE.X / 2 > lastEast).to.equal(true)
-				lastEast = centre.X + SIZE.X / 2
+				-- first match. They step SOUTH, so each one's north edge is south of the last one's.
+				expect(centre.Z + SIZE.Z / 2 < lastSouth).to.equal(true)
+				lastSouth = centre.Z - SIZE.Z / 2
 				-- THE SLAB IS SUNK: its TOP is above the yard's own road-thick surface and its BOTTOM
 				-- is below the shelf, so nothing floats and nothing can hide inside a slab (task
 				-- 177's round-1 finding, closed in advance).
@@ -397,8 +411,7 @@ return function()
 			expect(Pads.centreFor(anchor, 1, CFG).X - SIZE.X / 2 >= wallX).to.equal(true)
 			-- ...AND ITS ROOF AND ITS PORCH, WHICH IS A NEW BOUND SINCE TASK 213 AND NOT A SPARE ONE.
 			-- The pads used to sit at z +38..+50, north of the porch entirely; at `PAD_BEHIND_STUDS` 5
-			-- they sit at +5..+17, which is the porch's own z band (the deck hangs `PORCH.DEPTH` plus its
-			-- steps off the lodge's south wall), so pad 1's west face now has to clear the two things
+			-- they sat in the porch's own z band, so pad 1's west face has to clear the two things
 			-- that overhang furthest on the lodge's EAST side rather than only the wall below them:
 			--   * the main roof's gable overhang, `SIZE.X / 2 + ROOF.GABLE_STUDS` (`Build.roof`'s own
 			--     expression; `EAVE_STUDS` is the z overhang and the chimney is on the WEST end), and
@@ -414,6 +427,114 @@ return function()
 			-- PAD 1 IS STILL `TruckSpot`, which is what `Lobby.spotPart`, the Hud's chevron and the
 			-- Director's own `smoke.sh` find it by.
 			expect(Data.padPartName(1)).to.equal(Data.SPOT_NAME)
+		end)
+
+		-- **TASK 243: THE FOUR THINGS THE TURNED YARD HAS TO KEEP TRUE**, which are the Designer's
+		-- own "what a spec should assert, so none of this drifts back" (`lobby-yard-spec.md`
+		-- section 5). Each one is a thing that was WRONG in the shipped build and that nothing but a
+		-- picture would have caught.
+		it("keeps the turned yard off the fence, off the grove and inside the tree line (task 243)", function()
+			local anchor = Vector3.new(0, 100, 0)
+			local midX, halfX, midZ, halfZ = Build.yardRect(anchor, CFG)
+
+			-- **1. THE GRAVEL STARTS AT THE ROAD'S EAST VERGE, NOT AT ITS CENTRE LINE.** Written to
+			-- `ROAD.CENTRE_X` the rectangle put half the lane inside the yard; at the verge the two
+			-- surfaces abut and the lane stays a lane.
+			expect(midX - halfX).to.be.near(
+				anchor.X + CFG.ROAD.CENTRE_X + CFG.ROAD.WIDTH_STUDS / 2 + CFG.ROAD.VERGE_STUDS,
+				1e-6
+			)
+
+			-- **2. NO `LODGE_TREES` TRUNK IS INSIDE THE GRAVEL.** `lodgeTrees` plants exactly what
+			-- that table says and NO exclusion reads it -- the `yardRect` guard belongs to
+			-- `treeLine`'s procedural arc -- so a birch in the middle of the truck yard would be a
+			-- ROW and not a bug to be caught downstream.
+			--
+			-- **AND IT IS ASSERTED IN THE LODGE'S FRAME, WHICH IS THE ONE `Build.lodgeTrees` PLANTS
+			-- IN.** `lobby-yard-spec.md` section 2f asks for rows 5 and 7 to move because *"both
+			-- fall inside the new gravel"*; read in the lodge's frame -- `anchor + LODGE.OFFSET +
+			-- (x, z)`, and the lodge stands at z +46 -- they sit 27 and 33 studs north of the
+			-- gravel's edge and have not moved. This case is what makes that answerable either way.
+			for _, row in ipairs(CFG.LODGE_TREES) do
+				local x = anchor.X + CFG.LODGE.OFFSET.X + row.x
+				local z = anchor.Z + CFG.LODGE.OFFSET.Z + row.z
+				local inside = math.abs(x - midX) <= halfX and math.abs(z - midZ) <= halfZ
+				expect(inside).to.equal(false)
+			end
+
+			-- **3. THE YARD'S EAST EDGE IS UNDER THE TREE ARC'S OWN CEILING.** `treeLine` SKIPS any
+			-- tree that lands inside this rectangle, so a yard pushed further out at "the trees"
+			-- punches a hole in the wood directly behind the trucks: at bay x 70 the gravel reaches
+			-- 91.2 and the arc's own x over the yard's z band runs 80.8 .. 89.1, ALL of it inside.
+			-- The ceiling is the SMALLEST `RADIUS * sin(a)` over every bearing whose
+			-- `RADIUS * cos(a)` falls in the band, and the yard has to stay below it.
+			-- **THE ARC IS SAMPLED AT ITS INNERMOST RADIUS**, `RADIUS_STUDS - JITTER_STUDS`, because
+			-- the jitter is what actually decides which trunks the exclusion can reach -- the
+			-- Designer's own 80.8 is that number and not the nominal arc's 89.9. `treeLine`'s own
+			-- `+ 4` exclusion margin is deliberately NOT folded in: it is slack the guard has always
+			-- carried, and the live build still plants 27 ring trees, the same count as before the
+			-- row turned.
+			local ceiling = math.huge
+			local steps = 2000
+			local spec = CFG.TREELINE
+			local inner = spec.RADIUS_STUDS - spec.JITTER_STUDS
+			for step = 0, steps do
+				local angle = spec.FROM_RADIANS + (spec.TO_RADIANS - spec.FROM_RADIANS) * (step / steps)
+				local z = anchor.Z + math.cos(angle) * inner
+				local x = anchor.X + math.sin(angle) * inner
+				if x > anchor.X and math.abs(z - midZ) <= halfZ then
+					ceiling = math.min(ceiling, x)
+				end
+			end
+			expect(ceiling < math.huge).to.equal(true)
+			expect(midX + halfX < ceiling).to.equal(true)
+			TestKit.note(
+				string.format(
+					"lobby: the yard's east edge is %.2f against the tree arc's own ceiling of %.2f",
+					midX + halfX,
+					ceiling
+				)
+			)
+
+			-- **4. THE FENCE STOPS SOUTH OF THE GRAVEL**, by at least the yard's own lip. Forty
+			-- studs of post-and-rail stood inside the new yard until `FENCE.TO_Z` came south with
+			-- it -- and `CONFIG.FENCE`'s own comment had always asked for this; only the number was
+			-- pinned to the old rectangle.
+			expect(CFG.FENCE.TO_Z <= midZ - halfZ - CFG.ROAD.YARD_LIP_STUDS).to.equal(true)
+
+			-- **5. THE BLADE-FREE BLOCK COVERS THE WHOLE OF THE GRAVEL PLUS ITS LIP.** A slab laid
+			-- on grass does not hide the grass: Roblox draws a `Grass` material's blades on the
+			-- terrain surface, which is why the first road came back as *"a field and NO ROAD"*.
+			local yard = nil
+			for _, pad in ipairs(CFG.FIELD.PADS) do
+				if pad.NAME == "Yard" then
+					yard = pad
+				end
+			end
+			expect(yard).to.be.ok()
+			local lip = CFG.ROAD.YARD_LIP_STUDS
+			local blockX, blockZ = anchor.X + (yard :: any).OFFSET.X, anchor.Z + (yard :: any).OFFSET.Z
+			local blockHalf = (yard :: any).SIZE
+			expect(blockX - blockHalf.X / 2 <= midX - halfX - lip).to.equal(true)
+			expect(blockX + blockHalf.X / 2 >= midX + halfX + lip).to.equal(true)
+			expect(blockZ - blockHalf.Z / 2 <= midZ - halfZ - lip).to.equal(true)
+			expect(blockZ + blockHalf.Z / 2 >= midZ + halfZ + lip).to.equal(true)
+
+			-- **6. ...AND ITS FOUR EDGES LAND ON THE 4-STUD VOXEL GRID.** `Terrain:FillBlock` writes
+			-- 4-stud voxels on a grid anchored at the world origin, and task 191 measured two grass
+			-- voxels surviving at a misaligned edge. This is asserted at the REAL anchor and not at
+			-- the test's (0, 100, 0), because the grid is a property of where the block falls in the
+			-- world -- which is exactly the trap the Designer's own step 8 warns about.
+			local real = Data.anchorFor("forest-test")
+			expect(real).to.be.ok()
+			for _, edge in ipairs({
+				(real :: any).x + (yard :: any).OFFSET.X - blockHalf.X / 2,
+				(real :: any).x + (yard :: any).OFFSET.X + blockHalf.X / 2,
+				(real :: any).z + (yard :: any).OFFSET.Z - blockHalf.Z / 2,
+				(real :: any).z + (yard :: any).OFFSET.Z + blockHalf.Z / 2,
+			}) do
+				expect(math.abs(edge % 4) < 1e-6).to.equal(true)
+			end
 		end)
 
 		it("answers which pad a position is on, and nil for the gap, the field and no character", function()
@@ -778,8 +899,12 @@ return function()
 				Pads.centreFor(anchor, 1, CFG),
 				Pads.centreFor(anchor, CFG.TRUCK.COUNT, CFG),
 				anchor + CFG.SPAWN.OFFSET,
-				-- the far truck bay, which the 80 x 60 yard of task 177 did not reach
-				anchor + CFG.TRUCK.OFFSET + Vector3.new((CFG.TRUCK.COUNT - 1) * CFG.TRUCK.BAY_GAP_STUDS, 0, 0),
+				-- THE FAR TRUCK BAY, which the 80 x 60 yard of task 177 did not reach -- and since
+				-- task 243 the bays step SOUTH and the parked body stands `BACK_STUDS` EAST, so this
+				-- is the far corner of the block in BOTH directions at once.
+				anchor
+					+ CFG.TRUCK.OFFSET
+					+ Vector3.new(CFG.TRUCK.BACK_STUDS, 0, -(CFG.TRUCK.COUNT - 1) * CFG.TRUCK.BAY_GAP_STUDS),
 				-- both ends of the road, on its centre line
 				Vector3.new(anchor.X + CFG.ROAD.CENTRE_X, 0, anchor.Z + CFG.ROAD.FROM_Z - 1),
 				Vector3.new(anchor.X + CFG.ROAD.CENTRE_X, 0, anchor.Z + CFG.ROAD.TO_Z + 1),
@@ -986,8 +1111,11 @@ return function()
 			for index = 1, CFG.TRUCK.COUNT do
 				local at = Pads.centreFor(anchor, index, CFG)
 				expect(east < at.X - CFG.PADS.SIZE.X / 2).to.equal(true)
-				local bayX = anchor.X + CFG.TRUCK.OFFSET.X + (index - 1) * CFG.TRUCK.BAY_GAP_STUDS
-				expect(east < bayX - CFG.TRUCK.SIZE.X / 2).to.equal(true)
+				-- EVERY BAY SHARES ONE x SINCE TASK 243 -- the row steps south -- so this is the
+				-- same bound four times, and it stays a loop because the thing being asserted is
+				-- that NO bay is east of the gathering yard rather than that the first one is not.
+				local bayX = anchor.X + CFG.TRUCK.OFFSET.X
+				expect(east < bayX - CFG.TRUCK.MODEL.LENGTH_STUDS / 2).to.equal(true)
 			end
 		end)
 
@@ -2207,21 +2335,83 @@ return function()
 			templates:Destroy()
 		end)
 
+		-- **THE ROW STEPS SOUTH SINCE TASK 243 AND THE TRUCKS STAND `BACK_STUDS` EAST OF THEIR BAYS**
+		-- (Karen: *"there has to be cars but looking at me ... but not close to house there has to be
+		-- distance"*). Same two facts as before, on the other axis: bay 1 is where it says it is, and
+		-- every bay after it is exactly one `BAY_GAP_STUDS` from the last.
 		it("parks the trucks in a row, a bay apart, starting where 177's one truck stood", function()
 			local templates = fakeTemplates()
 			local folder = Build.build(container, anchor, CFG, templates)
 			local previous = 0
 			for index = 1, CFG.TRUCK.COUNT do
 				local made = folder:FindFirstChild(string.format("Truck%d", index), true) :: Model
-				local x = made:GetPivot().Position.X
+				local at = made:GetPivot().Position
+				-- ONE x FOR THE WHOLE ROW, and it is the bay's own x pushed east by `BACK_STUDS`.
+				expect(math.abs(at.X - (anchor.X + CFG.TRUCK.OFFSET.X + CFG.TRUCK.BACK_STUDS)) < 0.01).to.equal(true)
 				if index == 1 then
-					expect(math.abs(x - (anchor.X + CFG.TRUCK.OFFSET.X)) < 0.01).to.equal(true)
+					expect(math.abs(at.Z - (anchor.Z + CFG.TRUCK.OFFSET.Z)) < 0.01).to.equal(true)
 				else
-					expect(math.abs((x - previous) - CFG.TRUCK.BAY_GAP_STUDS) < 0.01).to.equal(true)
+					expect(math.abs((previous - at.Z) - CFG.TRUCK.BAY_GAP_STUDS) < 0.01).to.equal(true)
 				end
-				previous = x
+				previous = at.Z
 			end
 			templates:Destroy()
+		end)
+
+		-- **ROUND 1'S BLOCKING FINDING 1, AS A CASE THAT FAILS WITHOUT THE FIX.** Task 243 turned the
+		-- parts-built fallback truck to face WEST and left `truckRig`'s no-lamp branch asserting
+		-- `facing = (0, 0, -1)`, so on that branch -- which is the one EVERY spec and every world
+		-- without `Workspace.LobbyAssets.Truck` takes -- the headlamps were built on the truck's
+		-- south FLANK, the beams were aimed sideways across the bays, and `lengthHalf` read the
+		-- WIDTH half and hung the exhaust and the engine off the wrong end.
+		--
+		-- IT IS ASSERTED AGAINST THE TRUCK'S OWN BONNET and never against an axis named here, so the
+		-- next turn of the yard cannot let the two drift apart again: the direction is measured from
+		-- the built `Bumper` out of the built box, and the head lenses have to be on that side of
+		-- the centre and the tail lenses on the other.
+		it("builds the fallback truck's own lamps at its own bonnet, not at a named axis", function()
+			local folder = Build.build(container, anchor, CFG, nil)
+			local made = folder:FindFirstChild("Truck1", true)
+			expect(made).to.be.ok()
+			local centre = Build.worldBoxOf(made :: Instance)
+			local bumper = (made :: Instance):FindFirstChild("Bumper") :: BasePart
+			expect(bumper).to.be.ok()
+			-- THE NOSE, as a direction, out of the geometry `Build.truck` actually built.
+			local nose = ((bumper.Position - centre) * Vector3.new(1, 0, 1)).Unit
+			local heads, tails = 0, 0
+			for _, descendant in ipairs((made :: Instance):GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					local piece = descendant :: BasePart
+					local ahead = nose:Dot((piece.Position - centre) * Vector3.new(1, 0, 1))
+					if string.match(piece.Name, "^HeadLamp%d$") then
+						heads += 1
+						expect(ahead > 0).to.equal(true)
+						-- ...AND IT IS OUT AT THE NOSE rather than merely on the right half: past
+						-- the bumper's own reach, which is where a lens belongs.
+						expect(ahead >= nose:Dot((bumper.Position - centre) * Vector3.new(1, 0, 1)) - 0.01).to.equal(
+							true
+						)
+						-- ...AND THE PART IS TURNED WITH THE TRUCK: a lens is written depth-last, so
+						-- its own `-Z` face has to be on the nose and not on world `-z`.
+						expect(piece.CFrame.LookVector:Dot(nose) > 0.99).to.equal(true)
+					elseif string.match(piece.Name, "^TailLamp%d$") then
+						tails += 1
+						expect(ahead < 0).to.equal(true)
+					end
+				end
+			end
+			-- TWO OF EACH, and `Build.isHeadLamp` still tells them apart by colour alone.
+			expect(heads).to.equal(2)
+			expect(tails).to.equal(2)
+			-- THE TWO HEAD LENSES ARE A PAIR ACROSS THE TRUCK, which is the other half of "at the
+			-- nose": one lamp in the middle of the bonnet would pass every test above.
+			local across = Vector3.new(-nose.Z, 0, nose.X)
+			local lensA = (made :: Instance):FindFirstChild("HeadLamp1") :: BasePart
+			local lensB = (made :: Instance):FindFirstChild("HeadLamp2") :: BasePart
+			local sideA = across:Dot((lensA.Position - centre) * Vector3.new(1, 0, 1))
+			local sideB = across:Dot((lensB.Position - centre) * Vector3.new(1, 0, 1))
+			expect(sideA * sideB < 0).to.equal(true)
+			expect(math.abs(sideA - sideB) > 1).to.equal(true)
 		end)
 
 		it("stands every free model ON the shelf, not in it and not over it", function()
@@ -2662,12 +2852,17 @@ return function()
 			-- the spawn pad at knee height. Nothing bounded it: the field rectangle is 110 studs away.
 			--
 			-- The bound is the YARD'S southern edge, because everything the fence must not reach --
-			-- the yard, the circle, the porch, the spawn, the lodge -- is north of it.
+			-- the yard, the circle, the porch, the spawn, the lodge -- is north of it. **IT IS ASKED
+			-- OF `Build.yardRect` SINCE TASK 243** and not written as `OFFSET.Z - 22`: that literal
+			-- was the old east-stepping yard's half-depth, and when the row turned south the real
+			-- edge went from z +2 to z -44, leaving the bound 46 studs out of step with the sentence
+			-- above it.
 			for _, withModels in ipairs({ true, false }) do
 				local templates = if withModels then fakeTemplates() else nil
 				local folder = Build.build(container, anchor, CFG, templates)
 				local room = Build.roomFor(anchor, CFG)
-				local yardSouth = anchor.Z + CFG.TRUCK.OFFSET.Z - 22
+				local _, _, yardMidZ, yardHalfZ = Build.yardRect(anchor, CFG)
+				local yardSouth = yardMidZ - yardHalfZ
 				local fences = folder:FindFirstChild("Fences")
 				expect(fences).to.be.ok()
 				local pieces = 0
