@@ -237,8 +237,21 @@ return function()
 			end
 			expect(loads).to.equal(ROW.MAGAZINE)
 			expect(math.abs(sum - (ROW.RELOAD_TOTAL :: number)) < 1e-9).to.equal(true)
-			-- Filling a tube one round at a time is SLOWER than swapping a box: the trade.
-			expect((ROW.RELOAD_TOTAL :: number) > (Rifle.CONFIG.RELOAD_TOTAL :: number)).to.equal(true)
+			-- KAREN'S CUT (task 242, 2026-10-22: *"and lever weapon need to reload much faster"*).
+			-- Task 224's claim here was that filling a tube is SLOWER than swapping a box, and it
+			-- asserted this gun against the Rigby's 1.97. She has played it and overruled the trade,
+			-- so the assertion is the new fact and not the old one: 1.59, which is 45 % off 2.90.
+			expect(ROW.RELOAD_TOTAL).to.equal(1.59)
+			expect((ROW.RELOAD_TOTAL :: number) < (Rifle.CONFIG.RELOAD_TOTAL :: number)).to.equal(true)
+			-- ...AND IT IS STILL LONGER THAN ONE LEVER THROW, which is the relation that has to hold
+			-- whatever the dial says: five cartridges through a gate cannot cost less than one cycle
+			-- of the action, or the reload is reading as free.
+			expect((ROW.RELOAD_TOTAL :: number) > (ROW.CYCLE_TOTAL :: number)).to.equal(true)
+			-- EVERY STEP IS SCALED AND NONE IS SKIPPED: the list is still Break + five Loads + Close
+			-- (asserted above), and every wait is a real window the pose player is driven by.
+			for _, step in ipairs(reload) do
+				expect(step.wait > 0.2).to.equal(true)
+			end
 		end)
 
 		it("charges each sequence its OWN Break window", function()

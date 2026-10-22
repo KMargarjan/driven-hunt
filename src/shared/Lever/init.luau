@@ -129,24 +129,41 @@ Lever.CONFIG = {
 	-- which is precisely one cartridge through one gate. The shape is the shotgun's own reload with
 	-- the tube's count instead of two barrels.
 	--
-	-- 2.90 s AGAINST THE RIFLE'S 1.97 s MAGAZINE CHANGE, AND THAT IS THE TRADE. Filling a tube one
-	-- round at a time is slow; that is the price of carrying five instead of three. A PARTIAL top-up
-	-- is correspondingly shorter -- `Weapon.cycleRefusal` answers `"finish"` when the tube fills, so
-	-- two rounds cost 0.40 + 2 * 0.42 + 0.40 = 1.64 s rather than the full 2.90.
+	-- 1.59 s, WHICH IS 45 % OFF THE 2.90 IT SHIPPED AT. KAREN, 2026-10-22, verbatim: *"and lever
+	-- weapon need to reload much faster"*. Task 224 argued that *"filling a tube one round at a time
+	-- is slow; that is the price of carrying five instead of three"* and made this gun the slowest
+	-- thing to reload in the game -- slower than the Rigby's 1.97 s magazine change. She has now
+	-- played it, and a trade a player experiences as waiting is not a trade she took.
 	--
-	-- `Break` IS 0.40 HERE AND 0.46 IN `CYCLE`, DELIBERATELY: thumbing the gate open is not throwing
+	-- EVERY STEP IS SCALED, NOT SKIPPED, and that is what keeps the animation coherent: five
+	-- cartridges still go through the gate one at a time, the hand still opens the gate and still
+	-- closes it, and the pose player is driven by these same waits (`StateMachine.waitFor`), so the
+	-- motion compresses instead of cutting. 0.40 -> 0.22, 0.42 -> 0.23, 0.40 -> 0.22, which is
+	-- 0.55 x each to a hundredth.
+	--
+	-- MEASURED BOTH WAYS, because the partial top-up is what a hunter actually does:
+	--
+	--                        before      after     cut
+	--   five rounds          2.90 s      1.59 s    45.2 %
+	--   one round            1.22 s      0.67 s    45.1 %
+	--
+	-- A PARTIAL TOP-UP IS SHORTER STILL -- `Weapon.cycleRefusal` answers `"finish"` when the tube
+	-- fills, so two rounds now cost 0.22 + 2 * 0.23 + 0.22 = 0.90 s where they cost 1.64.
+	--
+	-- `Break` IS 0.22 HERE AND 0.46 IN `CYCLE`, DELIBERATELY: thumbing the gate open is not throwing
 	-- the lever. `StateMachine.waitFor` is told which list is being run (task 184), so each sequence
-	-- is charged its own window.
+	-- is charged its own window -- and the gap between the two is now wider, not narrower, which is
+	-- right: a lever throw is a whole-arm motion and thumbing a round in is a thumb.
 	RELOAD = {
-		{ kind = "Break" :: Shotgun.ActionKind, wait = 0.40 },
-		{ kind = "Load" :: Shotgun.ActionKind, wait = 0.42 },
-		{ kind = "Load" :: Shotgun.ActionKind, wait = 0.42 },
-		{ kind = "Load" :: Shotgun.ActionKind, wait = 0.42 },
-		{ kind = "Load" :: Shotgun.ActionKind, wait = 0.42 },
-		{ kind = "Load" :: Shotgun.ActionKind, wait = 0.42 },
-		{ kind = "Close" :: Shotgun.ActionKind, wait = 0.40 },
+		{ kind = "Break" :: Shotgun.ActionKind, wait = 0.22 },
+		{ kind = "Load" :: Shotgun.ActionKind, wait = 0.23 },
+		{ kind = "Load" :: Shotgun.ActionKind, wait = 0.23 },
+		{ kind = "Load" :: Shotgun.ActionKind, wait = 0.23 },
+		{ kind = "Load" :: Shotgun.ActionKind, wait = 0.23 },
+		{ kind = "Load" :: Shotgun.ActionKind, wait = 0.23 },
+		{ kind = "Close" :: Shotgun.ActionKind, wait = 0.22 },
 	} :: { CycleStep },
-	RELOAD_TOTAL = 2.90,
+	RELOAD_TOTAL = 1.59,
 	-- AN EMPTY RIFLE FILLS ITSELF, like the bolt gun. A dial, because a reload nobody asked for is
 	-- the kind of thing that is right until it is not.
 	AUTO_RELOAD_WHEN_EMPTY = true,
