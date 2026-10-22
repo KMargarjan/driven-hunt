@@ -122,6 +122,41 @@ local SIGHT_REAR_Y = 0.2301
 local SIGHT_REAR_Z = 0.3174
 local SIGHT_NOTCH_FLOOR_Y = 0.2226
 
+-- THE FRONT BEAD, DRAWN ON THE BLADE (task 242). KAREN, 2026-10-22, verbatim: *"also aiming improved
+-- a bit"*, after the two sentences about the semi-automatic's red dot.
+--
+-- TASK 227'S ALIGNMENT IS NOT WHAT IS WRONG, AND IT WAS MEASURED BEFORE ANYTHING WAS CHANGED: in the
+-- Forest Test, aimed, the front blade tip and the rear notch shoulders BOTH project to (473.5, 392.5)
+-- on a 947 x 785 frame whose centre is (473.5, 392.5) -- zero pixels of error, in the place Karen
+-- plays (`.screenshots/242-4-before-lever.png`, `driven-hunt-runs/242-sight.luau`). The gun is not
+-- low, it is not canted, and the right hand is 0.640 studs BEHIND the eye, so no glove is in the way.
+--
+-- WHAT IS WRONG IS THAT THERE IS NOTHING TO FIND. Read off that same frame, row by row: the notch
+-- opens about 14 px and the blade inside it is 3 px -- both of them dark steel, against a wood of
+-- trees that is also dark. The sight picture is CORRECT and INVISIBLE, which on a screen is the same
+-- complaint as a broken one.
+--
+-- SO THE BLADE GETS A BEAD, which is what the real rifle has: a Marlin 1895 SBL ships with an ORANGE
+-- FIBRE-OPTIC front sight for exactly this reason, and this repo already draws one on the Rigby for
+-- a neighbouring reason (`Rifle.Geometry`'s `BEAD_DIAMETER`: the model has a band and no bead). That
+-- is the pattern borrowed, at its second instance, rather than anything invented (rule 2).
+--
+-- 0.020 STUDS IS SIZED AGAINST THE NOTCH IT HAS TO SIT IN, not picked. At the shipped 2.85-stud
+-- relief it subtends 2*atan(0.010/2.85) = 0.40 degrees, which is 6.3 px of that 785-px frame at
+-- FOV 50 -- a little under half the 14 px the notch opens, so there is daylight on BOTH sides of it,
+-- which is the whole of how an open sight is read. Bigger fills the notch and the picture stops
+-- being a picture.
+--
+-- IT IS CENTRED ON `beadOffset` AND THAT IS THE POINT: the eye is laid on that line by
+-- `Mode.aimOffset`, so the bright thing the eye finds IS the point the shot leaves on. One
+-- expression, which is this file's rule for the front sight already.
+--
+-- `Neon` IS A MATERIAL THAT RENDERS BRIGHT AND NOT A LIGHT SOURCE (Roblox emits light only from
+-- `PointLight`/`SpotLight`/`SurfaceLight`), which is the semi-automatic's dot's own note: it costs
+-- the scene nothing and it reads in shade, which is where a fibre sight earns its keep.
+local BEAD_DIAMETER = 0.020
+local BEAD_COLOR = Color3.fromRGB(255, 122, 24)
+
 -- THE LEVER'S PIVOT: the boss where the loop pins into the receiver, taken as the centroid of the
 -- lever node's forward-most 8% in z that also lies in its upper half -- which is the material around
 -- the pin and nothing else (72 vertices). The loop turns about this point and about nothing else.
@@ -189,6 +224,7 @@ function Geometry.layout(config)
 		sightRearY = SIGHT_REAR_Y * k,
 		sightRearZ = SIGHT_REAR_Z * k,
 		sightNotchFloorY = SIGHT_NOTCH_FLOOR_Y * k,
+		beadDiameter = BEAD_DIAMETER * k,
 		gateAt = GATE_AT * k,
 		stock = { size = Vector3.new(stockW, stockH, stockL), at = Vector3.new(stockX, stockY, stockZ) },
 		action = { size = Vector3.new(actionW, actionH, actionL), at = Vector3.new(actionX, actionY, actionZ) },
@@ -334,16 +370,31 @@ end
 
 -- Every piece of the first-person lever rifle, in build order. Pure.
 --
--- THREE MESHES AND NOTHING DRAWN. The Rigby draws a bead (its model has no sight node) and a
--- magazine (its model has no box); this gun's sights are on its rail and its magazine is a tube
--- under its barrel, both inside the `action` upload. So there is nothing this geometry has to invent
--- -- which is the best case the pipeline has produced, and it is why there is no `skipFor`/`onlyFor`
--- filter here. That filter stays where it is, on the Rigby, for the Rigby's next sight.
+-- THREE MESHES AND ONE DRAWN BEAD (task 242). The three uploads carry everything this rifle is --
+-- its sights are on its rail and its magazine is a tube under its barrel, both inside the `action`
+-- group -- so nothing about the GUN is invented here. What is drawn is the one thing a screen needs
+-- and a model cannot give: a bright front bead, for the reason measured at `BEAD_DIAMETER` above.
+-- The Rigby draws one too, and for a neighbouring reason (its model has a band and no bead).
 function Geometry.pieces(config): { Piece }
 	local at = Geometry.layout(config)
 	local meshAt = CFrame.new(0, at.meshCentreY, 0) * CFrame.Angles(0, math.rad(Geometry.MESH_ROTATION_DEG), 0)
 	local look = (config and config.LOOK) or Lever.CONFIG.LOOK
-	return {
+	local sight = Geometry.sightKind(config)
+	-- ONE LIST, FILTERED BY THE ROW'S SIGHT (task 143), AT ITS THIRD INSTANCE -- the Rigby's and the
+	-- semi-automatic's `pieces` are the same eight lines. It arrives with the bead (task 242), and
+	-- NOT before it: until this task nothing in this list was sight-specific, so a filter would have
+	-- been a field nobody read -- *"an argument nobody reads is an argument nobody checked"*.
+	local function wanted(piece): boolean
+		if piece.skipFor ~= nil and piece.skipFor == sight then
+			return false
+		end
+		if piece.onlyFor ~= nil and piece.onlyFor ~= sight then
+			return false
+		end
+		return true
+	end
+	local kept: { Piece } = {}
+	for _, piece in ipairs({
 		{
 			name = "Stock",
 			group = "body" :: Gun.Group,
@@ -375,6 +426,24 @@ function Geometry.pieces(config): { Piece }
 			shape = Enum.PartType.Block,
 		},
 		{
+			-- THE FRONT BEAD. Drawn, bright, and centred on `beadOffset` -- the ONE expression that
+			-- says where the front sight is, so the thing the eye finds and the point the eye is laid
+			-- on cannot drift apart.
+			--
+			-- `onlyFor = "bead"` IS THIS GUN'S WHOLE SIGHT CONFIGURATION TODAY (`Geometry.sightKind`
+			-- answers `"bead"` and no shipped row says otherwise), and it is written anyway, in task
+			-- 143's own filter: the day a lever row carries a scope, the bead goes with the irons in
+			-- one list and nothing else changes.
+			name = "Bead",
+			group = "body" :: Gun.Group,
+			onlyFor = "bead",
+			size = Vector3.new(at.beadDiameter, at.beadDiameter, at.beadDiameter),
+			offset = CFrame.new(Geometry.beadOffset(config)),
+			color = BEAD_COLOR,
+			material = Enum.Material.Neon,
+			shape = Enum.PartType.Ball,
+		},
+		{
 			-- THE PIECE THAT MOVES: the large-loop finger lever, which on a Marlin IS the trigger
 			-- guard -- which is why the bought file has no separate guard node. `Gun.Group`'s second
 			-- value is the moving group whatever the gun calls it.
@@ -388,7 +457,12 @@ function Geometry.pieces(config): { Piece }
 			material = STEEL_MATERIAL,
 			shape = Enum.PartType.Block,
 		},
-	}
+	}) do
+		if wanted(piece) then
+			table.insert(kept, piece :: any)
+		end
+	end
+	return kept
 end
 
 function Geometry.partCount(config): number
