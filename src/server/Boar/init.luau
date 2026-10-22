@@ -1295,7 +1295,16 @@ Boar.CONFIG.MOVE = {
 	-- HOW WIDE THE SWEPT BODY IS. `BODY_SIZE` is 2 x 3 x 5.5, so 1 stud is its own half-width and
 	-- the remaining 0.6 is the clearance it keeps: a ray from the centre of an animal that wide
 	-- cannot answer "will my body fit", and this is the one cast shape that can.
+	--
+	-- IT IS A FLOOR NOW, NOT THE ANSWER (task 240). `Boar.avoidRadius` widens it for an animal that
+	-- is DRAWN wider than it collides -- which is the stag and only the stag -- and every boar kind
+	-- still comes out at exactly this 1.6, because `BODY_SIZE.X / 2 + AVOID_CLEARANCE_STUDS` IS
+	-- 1.6. So this number keeps meaning what task 167 measured it to mean.
 	AVOID_RADIUS_STUDS = 1.6,
+	-- ...AND THE 0.6 INSIDE IT, SAID OUT LOUD (task 240), because an animal that is drawn wider than
+	-- its box has to be able to ask for its own half-width plus the same clearance. Changing this
+	-- changes every animal; changing a kind's `drawnWidthStuds` changes one.
+	AVOID_CLEARANCE_STUDS = 0.6,
 	-- THE CANDIDATE HEADINGS, smallest first. A 2-stud trunk 20 studs ahead needs about 11 degrees
 	-- to pass with a body's clearance and one 6 studs ahead needs about 40 -- so the fan is dense
 	-- where the answers are and coarse where they are desperate. The last one is near a right angle,
@@ -1713,37 +1722,91 @@ Boar.CONFIG.SOUND = {
 			cry = { 9117369876, 9117370072 },
 			grunt = { 9117344600 }, -- "Pig Grunts 6"
 		},
-		-- THE THREE DEER (task 223), AND THESE ROWS EXIST BECAUSE THE ALTERNATIVE IS NOT SILENCE.
-		-- `Body.voiceRow` answers nil for a kind with no row and no matching `model`, and
-		-- `Body.voiceIds` then falls back to the generic spec's ids -- **which are pig squeals**. A
-		-- stag squealing like a sow is a defect Karen would hear in the first ten seconds, and
-		-- there is no way to silence a kind through this table.
+		-- THE THREE DEER, AND NOT ONE PIG SAMPLE AMONG THEM (task 240) ----------------------------
 		--
-		-- SO IT IS THE SAMPLES SHE HAS ALREADY HEARD, PITCHED -- exactly the trade the legendary's
-		-- row makes and for the same stated reason: *"a new sample nobody has heard would be a
-		-- second thing to judge"*. A stag is a big animal, so 0.55 is well under the boar male's
-		-- 0.8; a hind is about a sow, so 0.90; a calf is small and thin, so 1.30.
+		-- KAREN, 2026-10-22, after playing the Forest Test: *"deer sound has to bee when hit now it
+		-- seems it's pig sound when I hit deer"*. She is describing exactly what task 223 shipped
+		-- and wrote down as a known compromise: the three rows below held the BOAR's pig squeals,
+		-- pitched. A pig squeal is the most recognisable noise in the whole sound set and pitching
+		-- it does not stop it being one -- so `deer.spec` now asserts, kind by kind, that no deer
+		-- cue shares an id with any boar cue, and this table cannot drift back.
 		--
-		-- A REAL DEER CUE SET -- a roar, a bark, a bleat -- IS NOT THIS TASK. It is a library id
-		-- Karen has to hear first, and it is queued. What these rows buy is that the deer does not
-		-- arrive sounding like a pig while that waits.
+		-- THERE IS NO RED DEER IN THE ROBLOX AUDIO LIBRARY, AND THAT WAS MEASURED, NOT ASSUMED
+		-- (`docs/research/2026-10-22-deer-voice.md`). Fourteen keyword searches of
+		-- `toolbox-service/v1/marketplace/3` ("deer", "elk", "stag", "deer grunt", "elk bugle",
+		-- "stag roar", "red deer roar", "deer bark", "fawn", "goat", "goat bleat", "calf",
+		-- "antelope", "moose") returned, from the three creators whose audio plays in anybody's
+		-- experience (ProSoundEffects, Audioscape, Roblox), NOT ONE row named deer or elk: the
+		-- library's "Mammals - Wild" category is bull, lion, tiger, elephant, coyote and the farm
+		-- one is sheep, lamb, goat, steer and pig. Everything the catalogue DOES return for "deer"
+		-- is user-uploaded ("99 nights deer scream", "Deer grunt", "deer screech") and therefore
+		-- private to its own uploader's experiences since Roblox's 2022 audio-privacy change --
+		-- which is the same negative result task 126 recorded for footsteps.
+		--
+		-- SO THE SPECIES IS CHOSEN FROM WHAT A RED DEER ACTUALLY SOUNDS LIKE, which the literature
+		-- states in the two sentences that decide this whole table:
+		--   * the stag's rut call is *"very similar to the bellow of a bull"*
+		--     (countydeerstalking.co.uk, "Deer Vocalisations"), and he *"will give a loud warning
+		--     bark if it senses danger"*;
+		--   * the hind answers her calf with *"a louder nasal bleat, NOT DISSIMILAR TO THAT
+		--     PRODUCED BY SHEEP"*, and the calf's own call is *"a softer bleat"*
+		--     (wildlifeonline.me.uk, "Red Deer Breeding Biology").
+		-- A bull bellow and a lamb bleat are therefore not two convenient near-misses: they are the
+		-- two animals the sources themselves compare a red deer to. The boar's pig squeal is not.
+		--
+		-- EVERY ID BELOW WAS LOADED AND TIMED IN A LIVE PLAY SESSION OF THE FOREST TEST on
+		-- 2026-10-22 -- `ContentProvider:PreloadAsync` on the client, then `Sound.IsLoaded` and
+		-- `Sound.TimeLength` read back (`<runs-dir>/240-audio.txt`): all nineteen candidates
+		-- answered `loaded=true` with a real length, so these are assets that really play in THIS
+		-- experience rather than ids that merely exist.
+		--
+		-- THE CRY IS SHORT ON PURPOSE. `SOUND.DEATH` carries `cut = 0.6`, so a death is the first
+		-- 0.6 s of its sample whatever the sample is; `SOUND.CRY` carries no cut, so the reaction
+		-- plays whole and `CROWD.SQUEAL_SECONDS` books 1.2 s of the world's two voices. Every `cry`
+		-- id below is under that and the measured lengths are written beside them.
+		--
+		-- THE STAG'S CRY AND GRUNT ARE "Bull Breaths" AND THE BOAR'S OWN BREATH ROW IS THE SAME
+		-- LIBRARY FAMILY -- and that costs nothing, because `SOUND.BREATH.enabled` is FALSE and has
+		-- been since task 123 round 4 ("the only sound a boar makes now is the one it makes when it
+		-- is shot"). They are different samples either way; this is written down so that whoever
+		-- turns the breath back on checks it against a stag's bark rather than discovering it.
+		--
+		-- A CC-LICENSED RECORDING OF A REAL RED DEER IS AN UPLOAD AND IT IS KAREN'S CALL: three
+		-- candidates with their licences are in `ESCALATE.md` under `NEEDS KAREN`. Nothing here has
+		-- to change for one to land -- each cue is one data row of ids.
+		--
+		-- THE PITCHES ARE AGAINST THE NEW SAMPLES and move the opposite way from task 223's, which
+		-- is the point: a bull is three times a stag's weight so his bellow goes UP for a stag
+		-- (1.15), and a big lamb is a third of a hind's so her bleat comes DOWN (0.80) while her
+		-- calf's goes slightly up (1.25). Karen's dials.
 		stag = {
-			pitch = 0.55,
-			death = { 9117361361 }, -- the male's "Pigs Beast-Like Screams 8", lowest thing in the set
-			cry = { 9117369876, 9117370072 },
-			grunt = { 9117357588, 9117352464 }, -- "Pig Grunts 2 / 3", the two low ones
+			pitch = 1.15,
+			-- "Bull Bellows 3" (2.66 s) and "Bull Bellows 7" (2.76 s): the catalogue calls them
+			-- "Isolated Roars, Anxious, Uneasy, Panicked" and "Anxious Cries". `SOUND.DEATH.cut`
+			-- takes the first 0.6 s, which is a roar's onset.
+			death = { 9113626273, 9113626628 },
+			-- The warning bark, and it has to fit inside `SQUEAL_SECONDS`: "Bull Breaths 4"
+			-- (0.87 s) and "Bull Breaths 9" (0.93 s), "Bestial Grunts, Bellowing".
+			cry = { 9113629809, 9113629973 },
+			-- "Bull Breaths 2" (1.28 s) and "Bull Breaths 18" (1.50 s): the low muttering a stag
+			-- does when nothing is wrong.
+			grunt = { 9113629667, 9113630441 },
 		},
 		hind = {
-			pitch = 0.9,
-			death = { 9117369876, 9117370072 },
-			cry = { 9117369876, 9117370072 },
-			grunt = { 9117352464, 9117344600 },
+			pitch = 0.8,
+			-- "Lamb Big Lamb 4" (1.12 s), "Deep Baa's, Big Lamb, Groggy" -- the nasal bleat the
+			-- source compares to a sheep, pitched down for an animal three times a lamb's size.
+			death = { 9116205537 },
+			cry = { 9116205537, 9116205675 }, -- + "Lamb Big Lamb 6" (1.59 s)
+			grunt = { 9116205675 },
 		},
 		calf = {
-			pitch = 1.3,
-			death = { 9117369876 },
-			cry = { 9117369876, 9117370072 },
-			grunt = { 9117344600 },
+			pitch = 1.25,
+			death = { 9116205537 },
+			-- "Lamb Big Lamb 4" (1.12 s) and "Lamb Big Lamb 13" (1.97 s, "CU Bah ... Distant
+			-- Birds"): the softer, thinner bleat, played a quarter faster, which also shortens it.
+			cry = { 9116205537, 9116204275 },
+			grunt = { 9116205537 },
 		},
 	},
 	-- TWENTY ANIMALS MUST NOT SOUND LIKE TWENTY ANIMALS --------------------------------------------
@@ -2184,6 +2247,26 @@ Boar.CONFIG.SENSE = {
 --   wary       TWO MULTIPLIERS, read by `Boar.kindConfig` and by nothing else: `noticeScale` on
 --              every radius at which the animal reacts to a person, and `runScale` on the one
 --              function that answers how fast it runs when it is frightened.
+--   drawnWidthStuds
+--              HOW WIDE THE ANIMAL A PLAYER SEES IS (task 240), which is NOT its collision box and
+--              for the stag is nearly twice it. MEASURED in a live Forest Test drive off each
+--              kind's own loaded `MeshPart.Size.X` (`<runs-dir>/240-before3.txt`):
+--                       drawn    collision box X   drawn / box
+--                male    1.40          2.00           0.70
+--                female  1.20          2.00           0.60
+--                cub     0.62          2.00           0.31
+--                legend. 1.89          2.00           0.95   (the male's mesh x `meshScale` 1.35)
+--                stag    3.47          1.80           1.93   <- the antlers
+--                hind    2.01          1.80           1.12
+--                calf    1.23          1.80           0.68
+--              EVERY BOAR IS DRAWN NARROWER THAN THE BOX IT COLLIDES WITH, so its box meets a
+--              trunk before the model does and nobody ever sees a boar inside one. A STAG IS NOT:
+--              his box clears a trunk by 0.7 studs and his antlers are 0.84 studs INSIDE it, which
+--              is Karen's *"seems it hitting trees"*. `Boar.avoidRadius` is the one reader -- it
+--              widens the swept avoidance cast to whichever of the two is wider -- and for all four
+--              boar kinds that is the box, so their number is the one task 167 measured, unchanged.
+--              The collision box is deliberately NOT widened to match: it decides where a shot
+--              lands and how animals pack, and antlers are not either of those things.
 Boar.CONFIG.KINDS = {
 	ENABLED = Flags.isOn("BOAR_MODEL"),
 	DEFAULT = "male",
@@ -2191,15 +2274,30 @@ Boar.CONFIG.KINDS = {
 	-- `BoarAssetsBoot` walks (not `pairs`), what the specs sweep and what the preload asks for, so a
 	-- kind missing from it is a kind nothing ever dresses.
 	ORDER = { "male", "female", "cub", "legendary", "stag", "hind", "calf" },
-	male = { name = "male", scale = 1.0, clipScale = 1.0, model = "male", deathLiftStuds = 0 },
-	female = { name = "female", scale = 0.85, clipScale = 0.8553, model = "female", deathLiftStuds = 0.205 },
-	cub = { name = "cub", scale = 0.45, clipScale = 0.4372, model = "cub", deathLiftStuds = 1.009 },
+	male = { name = "male", scale = 1.0, clipScale = 1.0, model = "male", deathLiftStuds = 0, drawnWidthStuds = 1.4 },
+	female = {
+		name = "female",
+		scale = 0.85,
+		clipScale = 0.8553,
+		model = "female",
+		deathLiftStuds = 0.205,
+		drawnWidthStuds = 1.2,
+	},
+	cub = {
+		name = "cub",
+		scale = 0.45,
+		clipScale = 0.4372,
+		model = "cub",
+		deathLiftStuds = 1.009,
+		drawnWidthStuds = 0.62,
+	},
 	legendary = {
 		name = "legendary",
 		scale = 1.35,
 		clipScale = 1.35,
 		model = "male", -- THE SAME BOUGHT ASSET. No upload, no new id
 		deathLiftStuds = 0,
+		drawnWidthStuds = 1.89, -- the male's 1.40 mesh x `meshScale`; still inside the 2.0 box
 		meshScale = 1.35,
 		tint = Color3.fromRGB(150, 138, 125),
 		toughness = 2.0,
@@ -2285,6 +2383,31 @@ Boar.CONFIG.KINDS = {
 		clipScale = 1.0,
 		model = "stag",
 		deathLiftStuds = 0.011,
+		drawnWidthStuds = 3.47, -- MEASURED off the loaded mesh; the stag is 1.93x his own box
+		-- A FIFTH MORE PUNISHMENT THAN A BOAR OF THE SAME SIZE (task 240). KAREN, 2026-10-22:
+		-- *"deer need more hits before die a bit more like 20% more"*. `toughness` is the mechanism
+		-- that already exists for exactly this (task 219's legendary) and 1.2 is her sentence
+		-- arithmetically: `Wound.damageFor` divides a NON-VITAL hit's points by it, so every
+		-- non-vital point is worth 1 / 1.2 = 83.3 % and it takes 20 % more of them to reach
+		-- `MORTAL` or `LETHAL`. One number per kind, and all three carry the same one because she
+		-- asked about "deer", not about a stag.
+		--
+		-- THE VITALS ARE STILL NOT ARMOURED, which is `Wound.damageFor`'s own rule and the hunting
+		-- rule behind it: take the chamber or the head. A chest slug still drops a stag outright,
+		-- exactly as it drops a 2.0-tough legendary. What 1.2 changes is the rump, the legs and
+		-- every pattern of buckshot that is not on the chamber.
+		--
+		-- WHAT IT COSTS, SHOT BY SHOT (buckshot is 9 pellets of `rear` 11 / `legs` 6; a slug is one
+		-- of `rear` 55 / `legs` 30; MORTAL 50, LETHAL 100; `Wound.damageFor` has NO range term, so
+		-- these are the same at 20 m and at 40 m and what range changes is how many pellets land):
+		--   rear, slug    1 -> mortal / 2 -> lethal   BECOMES   2 -> mortal / 3 -> lethal
+		--   rear, buck    5 pellets mortal / 10 lethal          6 pellets mortal / 11 lethal
+		--   legs, slug    2 -> mortal / 4 -> lethal              2 -> mortal / 4 -> lethal
+		--   legs, buck    9 pellets mortal / 17 lethal          10 pellets mortal / 20 lethal
+		-- The one that is more than a fifth is the RUMP SLUG, and that is quantisation rather than
+		-- a second decision: 55 points was five points over MORTAL, so taking a sixth off it drops
+		-- below the line and the second slug is needed. If that is too much it is this number.
+		toughness = 1.2,
 		-- A STAG IS WARIER THAN A BOAR AND HIS HINDS ARE WARIER STILL (design section 5.2). `wary`
 		-- is the mechanism that already exists -- six radii and two speeds -- and no `Brain` state
 		-- is added. At 1.5 he notices a walking man at 90 studs against a boar's 60.
@@ -2297,6 +2420,8 @@ Boar.CONFIG.KINDS = {
 		clipScale = 0.9,
 		model = "hind",
 		deathLiftStuds = 0.185,
+		drawnWidthStuds = 2.01, -- MEASURED off the loaded mesh; no antlers, so barely over the box
+		toughness = 1.2, -- task 240, Karen's "20% more": see the stag's row above
 		-- 1.8: a hind with a calf is the jumpiest thing in the wood, and because `Runtime:_stepAlarm`
 		-- spreads panic member by member, the jumpiest member is the group's trigger. She notices a
 		-- walking man at 108 studs -- 30 m. NOT more: the drive corridor is ~400 studs, so a
@@ -2311,6 +2436,8 @@ Boar.CONFIG.KINDS = {
 		clipScale = 0.6735,
 		model = "calf",
 		deathLiftStuds = 1.325,
+		drawnWidthStuds = 1.23, -- MEASURED off the loaded mesh; well inside the stag-sized box
+		toughness = 1.2, -- task 240, Karen's "20% more": see the stag's row above
 		-- THE SAME `runScale` AS HER MOTHER, AND IT IS A CORRECTNESS CONSTRAINT RATHER THAN TASTE:
 		-- `Brain:_runSpeed` answers PER ANIMAL, so two kinds in one group with different run speeds
 		-- drift apart, and `SOUNDER.BREAK_STUDS = 60` over `BREAK_SECONDS = 4` then dissolves the
@@ -2682,26 +2809,56 @@ Boar.CONFIG.SPECIES = {
 }
 
 do
-	-- THE DEER'S `MODEL`: `Boar.CONFIG.MODEL` with the four things that are about WHICH animal this
-	-- is. Everything else -- `FADE_SECONDS`, `PADDLE_HZ`, `DISPLAY_ROLL_DEG`, `MIN_RATE`,
-	-- `MAX_RATE`, all of them -- is shared by reference, so a change to how an animal is played
-	-- reaches both species and cannot drift.
+	-- THE DEER'S `MODEL`, AS A DELTA AND NOT AS A COPY (task 240) ---------------------------------
+	--
+	-- `MODEL_OVERRIDES` is the WHOLE of what the deer brings: its clip table, its own id table, the
+	-- band edge those clips imply, and its flinch length. `Boar.speciesConfig` lays exactly these
+	-- keys over whatever `MODEL` the WORLD is running, so everything else -- `FADE_SECONDS`,
+	-- `PADDLE_HZ`, `MIN_RATE`, `MAX_RATE`, `ENABLED`, `RUN_FROM`, all thirty-odd -- is the world's
+	-- own number and cannot be a stale module default.
+	--
+	-- WHY THIS CHANGED, MEASURED IN KAREN'S PLACE (task 240) -- KAREN, 2026-10-22: *"deer running is
+	-- a bit odd"*. `SPECIES.reddeer.MODEL` used to be a CLONE of the module's `MODEL`, replaced
+	-- wholesale, so a world that tuned `MODEL` tuned it for boars only. `ForestTestBoot` lowers
+	-- `RUN_FROM` from 28 to `(TROT_SPEED + PACE.RUN_SPEED) / 2` = 21 with its own reason written on
+	-- it (*"an animal bolting at 24 would be DRAWN trotting"*) -- and the deer never got it. A stag
+	-- bolts at `PACE.RUN_SPEED x runScale` = 24 x 1.18 = **28.3 studs/s** against a band edge of
+	-- **28.0**: three tenths of a stud a second of margin, so he flickered between the trot clip
+	-- (played at 28.3 / 12.312 = 2.3, a blur) and the run clip at every wobble in his speed.
+	-- MEASURED over two 70 s windows of real drives: **8 of 13 and 8 of 68 of the stag's samples at
+	-- 20 studs/s or more were drawn TROTTING or WALKING** (62 % and 12 %), against 2 to 3 % for
+	-- every boar kind and for the hind and the calf -- whose own edges, 25.2 and 18.9, sit well
+	-- below 28.3 because they scale by `clipScale`. The stag was the one animal sitting on its own
+	-- rail, which is exactly what "a bit odd" looks like.
+	--
+	-- `SPECIES.reddeer.MODEL` IS STILL THERE and is still the module's `MODEL` with these four keys
+	-- over it: `BoarAssetsBoot`'s `CLIPS_BY_SPECIES` and `deer.spec` both name it by that path, and
+	-- it is built from the same `MODEL_OVERRIDES` table below, so the two can never disagree.
+	local overrides = {
+		CLIPS = DEER_CLIPS,
+		-- ITS OWN, EMPTY, AND THIS LINE IS THE WHOLE POINT OF THE SEAM. `Body.hasClip` reads
+		-- `config.MODEL.ANIMATION_IDS[name]` and both tables are keyed by the SEMANTIC name
+		-- (`idle`, `walk`, `hitFront`). Sharing one table would hand a deer the BOAR's published
+		-- ids -- boar clips, measured for boar bone lengths, played on `Arm_Deer`, which shares most
+		-- bone names and differs on the neck -- so the tracks would partly apply and nothing in the
+		-- suite could see it, because an `AnimationId` is a number and it would be set correctly.
+		-- `deer.spec` asserts the two tables are not the same table. It is ONE table for the life of
+		-- the server, by design: `Runtime:_modelTemplate` fills it in place when the first deer is
+		-- dressed, and `speciesConfig` copies the REFERENCE, so every deer config sees those ids.
+		ANIMATION_IDS = {},
+		-- THE BAND EDGE FOLLOWS THE MEASUREMENT rather than being a literal: where the walk clip
+		-- runs out at `WALK_MAX_RATE` is where the trot takes over, which for the stag is
+		-- 4.178 x 1.8 = 7.52 against the boar's 5.13. `RUN_FROM` is deliberately NOT here: it is
+		-- `(TROT_SPEED + SPRINT_SPEED) / 2` off the WORLD's base speeds, it has nothing to do with
+		-- the clips, and the whole fix above is that it must therefore be the world's.
+		TROT_FROM = DEER_CLIPS.walk.groundStudsPerSecond * Boar.CONFIG.MODEL.WALK_MAX_RATE,
+		HIT_SECONDS = DEER_CLIPS.hitFront.seconds,
+	}
+	Boar.CONFIG.SPECIES.reddeer.MODEL_OVERRIDES = overrides
 	local model = table.clone(Boar.CONFIG.MODEL)
-	model.CLIPS = DEER_CLIPS
-	-- ITS OWN, EMPTY, AND THIS LINE IS THE WHOLE POINT OF THE SEAM. `Body.hasClip` reads
-	-- `config.MODEL.ANIMATION_IDS[name]` and both tables are keyed by the SEMANTIC name (`idle`,
-	-- `walk`, `hitFront`). Sharing one table would hand a deer the BOAR's published ids -- boar
-	-- clips, measured for boar bone lengths, played on `Arm_Deer`, which shares most bone names and
-	-- differs on the neck -- so the tracks would partly apply and nothing in the suite could see it,
-	-- because an `AnimationId` is a number and it would be set correctly. `deer.spec` asserts the
-	-- two tables are not the same table.
-	model.ANIMATION_IDS = {}
-	-- THE BAND EDGE FOLLOWS THE MEASUREMENT rather than being a literal: where the walk clip runs
-	-- out at `WALK_MAX_RATE` is where the trot takes over, which for the stag is 4.178 x 1.8 = 7.52
-	-- against the boar's 5.13. `RUN_FROM` is NOT overridden: it is (TROT_SPEED + SPRINT_SPEED) / 2
-	-- off the base speeds and has nothing to do with the clips.
-	model.TROT_FROM = DEER_CLIPS.walk.groundStudsPerSecond * model.WALK_MAX_RATE
-	model.HIT_SECONDS = DEER_CLIPS.hitFront.seconds
+	for key, value in pairs(overrides) do
+		model[key] = value
+	end
 	-- `MAX_RATE` IS NOT OVERRIDDEN, AND THAT WAS CHECKED RATHER THAN ASSUMED (design section 7.4
 	-- left it open until the prep run reported the run clip's ground speed). The worst ask is the
 	-- RUN clip at `SPRINT_SPEED x runScale` = 44.84 studs/s: the stag asks 44.84 / 17.138 = 2.62
@@ -3051,6 +3208,42 @@ function Boar.toughnessFor(kind: string?, config): number?
 	return toughness
 end
 
+-- HOW WIDE A SWEPT AVOIDANCE CAST HAS TO BE FOR THIS ANIMAL (task 240). Pure, so `boar_move.spec`
+-- can sweep all seven kinds with no world at all.
+--
+-- KAREN, 2026-10-22: *"deer running is a bit odd and seems it hitting trees"*. MEASURED in her own
+-- place: the stag is DRAWN 3.47 studs wide and COLLIDES as a 1.80-wide box, so the box clears a
+-- trunk by 0.70 studs while the antlers are 0.84 studs inside it -- and the sweep that is supposed
+-- to keep him off trunks was 1.60 studs, narrower than his own drawn half-width of 1.735. Every
+-- boar is drawn NARROWER than its box (male 1.40 against 2.00), which is why this has never been
+-- a boar problem and why no boar number moves here.
+--
+-- THE WIDER OF THE TWO WIDTHS DECIDES, plus the clearance the 1.6 always contained:
+--   male / female / cub / legendary   max(drawn, 2.00) / 2 + 0.6 = 1.600   (exactly today's value)
+--   stag                              max(3.47, 1.80) / 2 + 0.6 = 2.335
+--   hind                              max(2.01, 1.80) / 2 + 0.6 = 1.605
+--   calf                              max(1.23, 1.80) / 2 + 0.6 = 1.500 -> floored at 1.600
+--
+-- `BODY_SIZE` IS THE SPECIES' BOX AND IS NOT SCALED BY THE KIND, which is how `_avoidTurnFor` has
+-- always read it: a cub avoids on the male's box and a calf on the stag's. That is left alone --
+-- the error is conservative (a small animal turns a little earlier than it needs to), and making it
+-- per-kind would change how the boar's cubs move, which nobody asked for.
+--
+-- THE FLOOR IS `AVOID_RADIUS_STUDS`, so this can only ever widen the cast task 167 measured, never
+-- narrow it.
+function Boar.avoidRadius(kind: string?, config): number
+	local move = config.MOVE
+	if move == nil then
+		return 0
+	end
+	local floor = move.AVOID_RADIUS_STUDS or 0
+	local kinds = config.KINDS
+	local row = if type(kinds) == "table" and type(kind) == "string" then kinds[kind] else nil
+	local drawn = if type(row) == "table" and type(row.drawnWidthStuds) == "number" then row.drawnWidthStuds else 0
+	local box = if config.BODY_SIZE ~= nil then config.BODY_SIZE.X else 0
+	return math.max(floor, math.max(drawn, box) / 2 + (move.AVOID_CLEARANCE_STUDS or 0))
+end
+
 -- THE CONFIG ONE ANIMAL LIVES BY (task 219). Pure. For every kind with no `wary` row it returns the
 -- config TABLE ITSELF and not a copy, so for the male, the sow, the cub and the whole flag-off world
 -- this is the IDENTITY FUNCTION and nothing can drift -- which is the only way to add a per-animal
@@ -3068,6 +3261,10 @@ end
 -- config table itself, `==` by reference -- for nil, for `"boar"`, and for any species with no
 -- `SPECIES` row. So every boar kind, and the whole flag-off world, gets exactly the table it always
 -- got, and `tests/server/deer.spec.luau` asserts that BY REFERENCE rather than field by field.
+--
+-- SINCE TASK 240 THE `MODEL` STEP IS AN OVERLAY: see `MODEL_OVERRIDES` below and the block that
+-- builds it. The other two tables are still replaced whole, because a box and a set of hit zones
+-- have no "the world's version" to inherit from.
 --
 -- WHY THREE TABLES AND NOT A FOURTH SCALE. `BODY_SIZE`, `ZONES` and `MODEL` are the three things a
 -- deer cannot borrow from a boar: the trunk (a deer is leggier, narrower and taller than any
@@ -3094,7 +3291,26 @@ function Boar.speciesConfig(species: string?, config)
 	if row.ZONES ~= nil then
 		out.ZONES = row.ZONES
 	end
-	if row.MODEL ~= nil then
+	-- THE SPECIES' `MODEL` IS A DELTA OVER THE WORLD'S, NOT A REPLACEMENT FOR IT (task 240).
+	--
+	-- It used to be `out.MODEL = row.MODEL`, and `row.MODEL` is a clone of the MODULE's table -- so
+	-- every number a world tuned on `MODEL` reached boars and never deer. `ForestTestBoot` lowers
+	-- `RUN_FROM` 28 -> 21 so a bolting animal is drawn RUNNING; the stag kept 28 against a bolt
+	-- speed of 28.3 and flickered between a 2.3x trot and the run (MEASURED: 62 % and 12 % of his
+	-- fast samples drawn at the wrong gait, against 2-3 % for every boar). It also sets
+	-- `MODEL.ENABLED = true`, which the deer only ever got because the live flag happened to be on.
+	--
+	-- `MODEL_OVERRIDES` NAMES EXACTLY WHAT A DEER BRINGS -- its clips, its id table, the band edge
+	-- those clips imply and its flinch length -- and nothing else is copied, so the world owns the
+	-- rest. A species row with no `MODEL_OVERRIDES` falls back to whole-table replacement, which is
+	-- what every reader that names `SPECIES.<x>.MODEL` still gets.
+	if row.MODEL_OVERRIDES ~= nil then
+		local model = table.clone(config.MODEL)
+		for key, value in pairs(row.MODEL_OVERRIDES) do
+			model[key] = value
+		end
+		out.MODEL = model
+	elseif row.MODEL ~= nil then
 		out.MODEL = row.MODEL
 	end
 	return out
@@ -5600,7 +5816,11 @@ function Runtime:_avoidTurnFor(entry, position: Vector3, nose: Vector3, config):
 	-- would catch every root and ridge the animal walks over.
 	local eye = position + Vector3.new(0, config.BODY_SIZE.Y / 2, 0)
 	local reach = math.clamp(speed * move.AVOID_SECONDS, move.AVOID_MIN_STUDS, move.AVOID_MAX_STUDS)
-	local radius = move.AVOID_RADIUS_STUDS
+	-- THE SWEEP IS AS WIDE AS THE ANIMAL A PLAYER SEES (task 240), not as wide as its collision box:
+	-- `Boar.avoidRadius` answers `move.AVOID_RADIUS_STUDS` for all four boar kinds and widens it to
+	-- 2.335 for the stag, whose antlers are 3.47 studs across a 1.80-stud box. `entry.body.kind` is
+	-- the animal's own kind, fixed at birth, and `config` here is already `entry.config`.
+	local radius = Boar.avoidRadius(entry.body.kind, config)
 	local sweep = self._world.sweep
 	self._stats.avoidCasts += 1
 	if sweep(eye, nose, reach, radius) ~= true then

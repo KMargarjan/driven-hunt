@@ -233,10 +233,81 @@ return function()
 				expect(deer).never.to.equal(config)
 				expect(deer.BODY_SIZE).to.equal(CONFIG.SPECIES.reddeer.BODY_SIZE)
 				expect(deer.ZONES).to.equal(CONFIG.SPECIES.reddeer.ZONES)
-				expect(deer.MODEL).to.equal(CONFIG.SPECIES.reddeer.MODEL)
+				-- THE `MODEL` IS AN OVERLAY SINCE TASK 240 and so is NOT the module's table by
+				-- reference any more -- it is the WORLD's `MODEL` with `MODEL_OVERRIDES` laid over
+				-- it. Asserted as the property rather than as an identity: every override wins, and
+				-- `ANIMATION_IDS` is still the SAME TABLE the boot script fills, because a copy
+				-- would leave every deer with an empty id table and no clips at all.
+				expect(deer.MODEL).never.to.equal(CONFIG.SPECIES.reddeer.MODEL)
+				for key, value in pairs(CONFIG.SPECIES.reddeer.MODEL_OVERRIDES) do
+					expect(deer.MODEL[key]).to.equal(value)
+				end
+				expect(deer.MODEL.ANIMATION_IDS).to.equal(CONFIG.SPECIES.reddeer.MODEL.ANIMATION_IDS)
+				expect(deer.MODEL.CLIPS).to.equal(CONFIG.SPECIES.reddeer.MODEL.CLIPS)
 				-- The deer is longer than the boar and NOT a multiple of its box.
 				expect(deer.BODY_SIZE.Z > config.BODY_SIZE.Z).to.equal(true)
 				expect(deer.BODY_SIZE.X < config.BODY_SIZE.X).to.equal(true)
+			end)
+
+			-- 5b. THE WORLD'S OWN `MODEL` NUMBERS REACH THE DEER (task 240) ----------------------
+			--
+			-- KAREN, 2026-10-22: *"deer running is a bit odd"*. `ForestTestBoot` lowers
+			-- `MODEL.RUN_FROM` from 28 to `(TROT_SPEED + PACE.RUN_SPEED) / 2` = 21 so an animal
+			-- bolting at 24 is DRAWN running rather than trotting -- and until this task the deer
+			-- kept the module's 28 while bolting at `24 x runScale 1.18` = 28.3, three tenths of a
+			-- stud a second over its own band edge. MEASURED in two 70 s windows of real drives:
+			-- 8 of 13 and 8 of 68 of the stag's samples at 20 studs/s or more were drawn TROTTING
+			-- or WALKING, against 2-3 % for every boar kind and for the hind and the calf.
+			--
+			-- IT IS DRIVEN BY PARAMETER, as the whole file is: a world table with RUN_FROM moved,
+			-- exactly the shape `ForestTestBoot` builds, and then the deer's own band read back
+			-- through `Body.gaitBands` -- the function `Body.clipFor` picks a gait with.
+			it("takes the WORLD's gait band, not the module's, so a bolting stag is drawn running", function()
+				local config = configWith(true)
+				local world = table.clone(config)
+				world.MODEL = table.clone(config.MODEL)
+				world.MODEL.RUN_FROM = 21 -- the Forest Test's own number
+				world.MODEL.ENABLED = true
+
+				local stag = Boar.kindConfig("stag", world)
+				expect(stag.MODEL.RUN_FROM).to.equal(21)
+				expect(stag.MODEL.ENABLED).to.equal(true)
+				-- ...and the four overrides still win over the world's values.
+				expect(stag.MODEL.CLIPS).to.equal(CONFIG.SPECIES.reddeer.MODEL.CLIPS)
+				expect(stag.MODEL.TROT_FROM).to.be.near(
+					CONFIG.SPECIES.reddeer.MODEL.CLIPS.walk.groundStudsPerSecond * config.MODEL.WALK_MAX_RATE,
+					EPSILON
+				)
+
+				-- THE BAND, PER KIND, AGAINST THE SPEED EACH ONE ACTUALLY BOLTS AT. One case per
+				-- arm (L-093): the stag was the only kind on its rail, and a case that only
+				-- entered his would not notice if the hind's or the calf's regressed.
+				for _, kind in ipairs(DEER_KINDS) do
+					local animal = Boar.kindConfig(kind, world)
+					local bands = Boar.gaitBands(CONFIG.KINDS[kind].clipScale, animal)
+					local bolt = animal.PACE.RUN_SPEED
+					expect(bolt > bands.runFrom).to.equal(true)
+					-- A FIFTH OF MARGIN, not three tenths of a stud: below this the clip flickers
+					-- between the trot and the run at every wobble in the animal's speed.
+					expect((bolt - bands.runFrom) / bolt > 0.2).to.equal(true)
+					TestKit.note(
+						string.format(
+							"deer-240: %s bolts at %.2f studs/s, run band from %.2f (margin %.0f%%)",
+							kind,
+							bolt,
+							bands.runFrom,
+							100 * (bolt - bands.runFrom) / bolt
+						)
+					)
+				end
+
+				-- AND WITHOUT THE WORLD'S NUMBER THE STAG IS BACK ON THE RAIL, which is the state
+				-- Karen played: the two states have to be reachable by parameter or neither is
+				-- tested. 28.32 against 28.0 is 1.1 % of margin.
+				local onTheRail = Boar.kindConfig("stag", config)
+				local railBands = Boar.gaitBands(1.0, onTheRail)
+				expect(railBands.runFrom).to.equal(config.MODEL.RUN_FROM)
+				expect((onTheRail.PACE.RUN_SPEED - railBands.runFrom) / railBands.runFrom < 0.05).to.equal(true)
 			end)
 
 			it("composes the species tables with the kind's wary scaling", function()
@@ -253,6 +324,240 @@ return function()
 				-- ...and a boar with no `wary` row is still the config itself, by reference.
 				expect(Boar.kindConfig("male", config)).to.equal(config)
 			end)
+		end)
+
+		-- 5c. THE DEER'S VOICE IS NOT A PIG'S (task 240) -----------------------------------------
+		--
+		-- KAREN, 2026-10-22, after playing the Forest Test: *"deer sound has to bee when hit now it
+		-- seems it's pig sound when I hit deer"*. Task 223 shipped the three deer rows holding the
+		-- BOAR's pig squeals, pitched, and wrote that down as a known compromise. A pig squeal is
+		-- the most recognisable noise in the whole set and pitching it does not stop it being one.
+		--
+		-- ONE CASE PER KIND AND PER CUE (L-093): the fix is a three-armed branch -- stag, hind,
+		-- calf -- and a single generic "the deer does not sound like a pig" assertion would pass
+		-- with two of the three arms still holding pig ids. That exact defect class cost task 219
+		-- three review rounds.
+		--
+		-- IT IS ASSERTED AS A DISJOINTNESS and not as a list of expected ids: "the stag's death is
+		-- 9113626273" would have to be edited by anybody who swaps a sample, which is the one thing
+		-- this table is meant to make cheap. What may never happen is a deer and a boar sharing a
+		-- sample, or a deer borrowing the module-level generic set (which IS the pig squeals).
+		describe("the deer's voice", function()
+			it("shares no sample with any boar cue, kind by kind and cue by cue", function()
+				local on = configWith(true)
+				local voice = CONFIG.SOUND.VOICE
+				local sound = CONFIG.SOUND
+
+				-- EVERY ID A BOAR CAN MAKE, including the module-level generic rows a kind with no
+				-- voice falls back to -- because falling back IS how the deer got pig squeals.
+				local boarIds: { [number]: string } = {}
+				local function collect(ids, where: string)
+					if type(ids) ~= "table" then
+						return
+					end
+					for _, id in ipairs(ids) do
+						boarIds[id] = where
+					end
+				end
+				collect(sound.CRY.ids, "SOUND.CRY")
+				collect(sound.DEATH.ids, "SOUND.DEATH")
+				collect(sound.GRUNTS.ids, "SOUND.GRUNTS")
+				for _, kind in ipairs(BOAR_KINDS) do
+					local row = voice[kind]
+					expect(row).to.be.ok()
+					for _, cue in ipairs({ "cry", "death", "grunt" }) do
+						collect(row[cue], kind .. "." .. cue)
+					end
+				end
+
+				local clashes = {}
+				for _, kind in ipairs(DEER_KINDS) do
+					for _, cue in ipairs({ "cry", "death", "grunt" }) do
+						-- THROUGH THE REAL RESOLVER, not by reading the table: `Body.voiceIds` is
+						-- what `playOneShot` calls, and its fallback to `spec.ids` is the path that
+						-- produced the pig sound in the first place.
+						local spec = if cue == "cry"
+							then sound.CRY
+							elseif cue == "death" then sound.DEATH
+							else sound.GRUNTS
+						local ids = Boar.voiceIds(cue, kind, spec, on)
+						expect(ids).to.equal(voice[kind][cue]) -- its OWN list, never the generic one
+						expect(#ids > 0).to.equal(true)
+						for _, id in ipairs(ids) do
+							if boarIds[id] ~= nil then
+								table.insert(
+									clashes,
+									string.format("%s.%s id %d is also %s", kind, cue, id, boarIds[id])
+								)
+							end
+						end
+					end
+				end
+				table.sort(clashes)
+				expect(table.concat(clashes, " | ")).to.equal("")
+			end)
+
+			it("gives each deer kind its own pitch, ordered stag below hind below calf", function()
+				-- A STAG IS THE BIGGEST AND A CALF THE SMALLEST, so the order is the animal's and
+				-- not a preference -- the same relation `boar_shot.spec` holds the boar's three in.
+				local voice = CONFIG.SOUND.VOICE
+				expect(voice.stag.pitch > voice.hind.pitch).to.equal(true)
+				expect(voice.calf.pitch > voice.stag.pitch).to.equal(true)
+				-- ...AND THE TWO FEMALES ARE NOT THE SAME ANIMAL: a hind bleats and a sow squeals,
+				-- so if the two rows ever converge on one sample set the deer is a pig again.
+				expect(voice.hind.death).never.to.equal(voice.female.death)
+			end)
+
+			it("keeps a deer death inside the world's squeal budget", function()
+				-- `SOUND.CRY` carries no `cut`, so a reaction plays its whole sample while
+				-- `CROWD.SQUEAL_SECONDS` books 1.2 s of the world's two voices. The measured sample
+				-- lengths are in the config's comments; this is the relation that makes them matter.
+				expect(CONFIG.SOUND.DEATH.cut).to.be.ok()
+				expect(CONFIG.SOUND.DEATH.cut < CONFIG.SOUND.CROWD.SQUEAL_SECONDS).to.equal(true)
+				expect(CONFIG.SOUND.CRY.cut).to.equal(nil)
+			end)
+		end)
+
+		-- 5d. TWENTY PER CENT MORE HITS (task 240) ------------------------------------------------
+		--
+		-- KAREN, 2026-10-22: *"deer need more hits before die a bit more like 20% more"*.
+		-- `toughness` is the mechanism task 219 built for the legendary and 1.2 is her sentence
+		-- arithmetically: `Wound.damageFor` divides a NON-VITAL hit by it, so each point is worth
+		-- 83.3 % and it takes 20 % more of them. One case per kind (L-093), because three rows were
+		-- edited and a case that only entered the stag's would not see a missing one.
+		describe("how much a deer takes", function()
+			local Wound = Boar.Wound
+			local WOUND = CONFIG.WOUND
+
+			it("is a fifth tougher than it was, on every one of the three kinds", function()
+				local on = configWith(true)
+				for _, kind in ipairs(DEER_KINDS) do
+					expect(Boar.toughnessFor(kind, on)).to.be.near(1.2, EPSILON)
+				end
+				-- ...and the boars are untouched: only the legendary has ever had armour.
+				expect(Boar.toughnessFor("male", on)).to.equal(nil)
+				expect(Boar.toughnessFor("female", on)).to.equal(nil)
+				expect(Boar.toughnessFor("cub", on)).to.equal(nil)
+				expect(Boar.toughnessFor("legendary", on)).to.be.near(2.0, EPSILON)
+				-- WITH THE KINDS OFF NOTHING IS ARMOURED, which is the flag-off world unchanged.
+				for _, kind in ipairs(DEER_KINDS) do
+					expect(Boar.toughnessFor(kind, configWith(false))).to.equal(nil)
+				end
+			end)
+
+			it("leaves the head and the chest unarmoured and charges the rump and legs a fifth more", function()
+				local tough = Boar.toughnessFor("stag", configWith(true))
+				-- THE VITALS ARE NEVER ARMOURED -- `Wound.damageFor`'s own rule and the hunting rule
+				-- behind it: take the chamber or the head. A chest slug still drops a stag.
+				for _, zone in ipairs({ "head", "chest" }) do
+					expect(Wound.damageFor(zone, "Slug", 1, WOUND, tough)).to.equal(
+						Wound.damageFor(zone, "Slug", 1, WOUND, nil)
+					)
+					expect(Wound.damageFor(zone, "Slug", 1, WOUND, tough) >= WOUND.LETHAL).to.equal(true)
+				end
+				-- ...AND EVERYTHING ELSE IS WORTH FIVE SIXTHS.
+				for _, zone in ipairs({ "rear", "legs" }) do
+					for _, ammo in ipairs({ "Slug", "Pellet" }) do
+						local before = Wound.damageFor(zone, ammo, 1, WOUND, nil)
+						local after = Wound.damageFor(zone, ammo, 1, WOUND, tough)
+						expect(after).to.be.near(before / 1.2, EPSILON)
+					end
+				end
+			end)
+
+			it("names the hits to kill, before and after", function()
+				-- THE NUMBERS IN THE REPORT, COMPUTED RATHER THAN TYPED. `Wound.damageFor` has no
+				-- range term, so these are the same at 20 m and at 40 m; what range changes is how
+				-- many pellets land, and buckshot's own `RANGE_STUDS` is 100 studs (28 m), so at
+				-- 40 m none of them do.
+				local function hitsTo(zone: string, ammo: string, target: number, tough: number?): number
+					local each = Wound.damageFor(zone, ammo, 1, WOUND, tough)
+					expect(each > 0).to.equal(true)
+					return math.ceil(target / each)
+				end
+				local tough = Boar.toughnessFor("stag", configWith(true))
+				local lines = {}
+				for _, zone in ipairs({ "rear", "legs" }) do
+					for _, ammo in ipairs({ "Slug", "Pellet" }) do
+						local wasMortal = hitsTo(zone, ammo, WOUND.MORTAL, nil)
+						local wasLethal = hitsTo(zone, ammo, WOUND.LETHAL, nil)
+						local isMortal = hitsTo(zone, ammo, WOUND.MORTAL, tough)
+						local isLethal = hitsTo(zone, ammo, WOUND.LETHAL, tough)
+						-- IT MAY NEVER GET EASIER, which is the only direction this can be wrong in.
+						expect(isMortal >= wasMortal).to.equal(true)
+						expect(isLethal >= wasLethal).to.equal(true)
+						table.insert(
+							lines,
+							string.format(
+								"%s/%s mortal %d to %d, lethal %d to %d",
+								zone,
+								ammo,
+								wasMortal,
+								isMortal,
+								wasLethal,
+								isLethal
+							)
+						)
+					end
+				end
+				-- ...AND IT REALLY IS HARDER SOMEWHERE, so a `toughness` of 1.0 could not pass this.
+				local softLethal = hitsTo("rear", "Pellet", WOUND.LETHAL, nil)
+				local hardLethal = hitsTo("rear", "Pellet", WOUND.LETHAL, tough)
+				expect(hardLethal > softLethal).to.equal(true)
+				TestKit.note("deer-240 hits to kill: " .. table.concat(lines, " | "))
+			end)
+		end)
+
+		-- 5e. THE SWEEP IS AS WIDE AS THE ANTLERS (task 240) --------------------------------------
+		--
+		-- KAREN, 2026-10-22: *"deer running is a bit odd and seems it hitting trees"*. MEASURED in
+		-- her own place off each kind's loaded mesh: a stag is DRAWN 3.47 studs wide and COLLIDES as
+		-- a 1.80-wide box, so his box clears a trunk by 0.70 studs while his antlers are 0.84 studs
+		-- inside it -- and the swept avoidance cast that is supposed to keep him off trunks was
+		-- 1.60, narrower than his own drawn half-width of 1.735. Every BOAR is drawn NARROWER than
+		-- its box (male 1.40 against 2.00), which is why no boar number may move.
+		it("sweeps for trunks as wide as the animal a player SEES, and leaves every boar at 1.6", function()
+			local on = configWith(true)
+			local move = CONFIG.MOVE
+			expect(move.AVOID_CLEARANCE_STUDS).to.be.ok()
+
+			-- EVERY BOAR KIND IS THE NUMBER TASK 167 MEASURED, to the last decimal.
+			for _, kind in ipairs(BOAR_KINDS) do
+				expect(Boar.avoidRadius(kind, on)).to.be.near(move.AVOID_RADIUS_STUDS, EPSILON)
+			end
+			expect(Boar.avoidRadius(nil, on)).to.be.near(move.AVOID_RADIUS_STUDS, EPSILON)
+			expect(Boar.avoidRadius("wildebeest", on)).to.be.near(move.AVOID_RADIUS_STUDS, EPSILON)
+
+			-- ...AND EACH DEER KIND ENTERS ITS OWN ARM (L-093), through the config it really lives
+			-- by, because `_avoidTurnFor` is handed `entry.config` and that is the SPECIES box.
+			local widths = {}
+			for _, kind in ipairs(DEER_KINDS) do
+				local animal = Boar.kindConfig(kind, on)
+				local row = CONFIG.KINDS[kind]
+				expect(row.drawnWidthStuds).to.be.ok()
+				local radius = Boar.avoidRadius(kind, animal)
+				local widest = math.max(row.drawnWidthStuds, animal.BODY_SIZE.X)
+				expect(radius).to.be.near(
+					math.max(move.AVOID_RADIUS_STUDS, widest / 2 + move.AVOID_CLEARANCE_STUDS),
+					EPSILON
+				)
+				-- THE PROPERTY THAT MATTERS: the cast is never narrower than the thing a player
+				-- watches go past a trunk.
+				expect(radius >= row.drawnWidthStuds / 2).to.equal(true)
+				table.insert(widths, string.format("%s drawn %.2f, radius %.3f", kind, row.drawnWidthStuds, radius))
+			end
+
+			-- THE STAG IS THE ONE THAT MOVES, and it moves UP: a case that only asserted the
+			-- formula would pass with every number unchanged.
+			local stag = Boar.avoidRadius("stag", Boar.kindConfig("stag", on))
+			expect(stag > move.AVOID_RADIUS_STUDS).to.equal(true)
+			expect(stag).to.be.near(3.47 / 2 + move.AVOID_CLEARANCE_STUDS, EPSILON)
+			-- EVERY KIND HAS THE MEASUREMENT, so a new animal cannot arrive without one.
+			for _, kind in ipairs(ALL_KINDS) do
+				expect(type(CONFIG.KINDS[kind].drawnWidthStuds)).to.equal("number")
+				expect(CONFIG.KINDS[kind].drawnWidthStuds > 0).to.equal(true)
+			end
+			TestKit.note("deer-240 avoid radius: " .. table.concat(widths, " | "))
 		end)
 
 		-- 6. THE CLIP TABLES ARE NOT SHARED ------------------------------------------------------
