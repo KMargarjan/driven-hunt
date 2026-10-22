@@ -1,0 +1,11 @@
+PASS
+
+## Notes (non-blocking)
+- `docs/research/2026-10-19-one-owner-for-the-lighting.md` §6.3 bullet 2 — the reason clause is inverted: *"because the ground lifts faster than the animal"*, when its own parenthesis gives flank 6.56 → 13.20 (x2.01) against ground 17.44 → 29.00 (x1.66). The ground lifts **slower**, which is why the ratio narrows, and which is what `Light.CONFIG`'s own comment says: *"(the ground lifts slower than the animal)"*. Swap the word in the note so the two agree.
+- Same file, §6 opening — *"One row of §5's table moves and nothing else does"*. §5 is "The numeric targets", which holds no `ExposureCompensation` row and whose rows did not move; the row that moved is in `Light.CONFIG.LIGHTING` (the Designer's spec §1). §6.3's bare *"of §2"* and *"§6's conditional"* have the same problem — inside this document those read as the note's own §2 (the live readings table) and its own §6 (this new section), while §5's table and `hud_style.spec` correctly attribute the conditional to *the lighting spec's* §6 and the `#B4CFE4` ground to design-system §2. Name the document at both mentions.
+- Same file, §6.2 — the script list is `shoot.py`, `reshoot.py`, `boar.py`, `measure.py`, `boarmeasure.py`, but the request's claim 9 rests on `<runs-dir>/t236/confirm.py`, which the list omits. One list, in both places.
+- `REQUEST.md` claim 6 / note §6.1 — *"60.0 fps both, mean 16.666 ms against 16.665 ms"* is a vsync-capped sample, so it evidences "no frame drop", not a cost measured against §5's ≤ 0.6 ms budget; anything under the headroom reads identically. The conclusion is right for a single multiply in the tonemap, but "measured ... free" claims more than the sample can see.
+- `src/client/Hud/Style.luau` — the superseded paragraph still ends on the flat assertion *"The new lighting makes the sky dimmer, not brighter, so §6's trigger is not met"*, and the retraction is only in the paragraph after it. A reader who stops at `Style.SLATE_T` after that sentence gets the wrong answer; a "(superseded by task 236, below)" on that sentence is one line.
+
+---
+REVIEWER verdict on commit `40ed96882ab16466d8439bf96a176a9466779e72` (round 1) · 2026-10-22 02:19 UTC · session cost $1.86, 25 turns · written by tools/agents.py
