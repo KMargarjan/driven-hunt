@@ -201,9 +201,15 @@ end
 -- MUTATED by `invalidateAlways`, which every writer of `ownedSets` calls -- so a reader still
 -- holding the previous table holds a correct snapshot of the moment it asked.
 local alwaysFrozen: { [number]: boolean }? = nil
+-- ...AND WHO MAY CHOOSE HIS SIDE (task 242), the same projection through `ShopData.grantsRoleChoice`
+-- and invalidated by the same call, because both are read off `ownedSets` and nothing else can make
+-- either stale. Two memos and not one: they answer different questions and `Roster.assign` takes
+-- them as two arguments.
+local chooserFrozen: { [number]: boolean }? = nil
 
 local function invalidateAlways()
 	alwaysFrozen = nil
+	chooserFrozen = nil
 end
 -- THE DOUBLE-PAY GUARD. A belt over the brace of the phase edge in `Match`'s dispatch, and it is
 -- justified: `Match.start` resets `driveNumber` to 0, so two worlds in one process both count from 1
@@ -412,6 +418,32 @@ function Economy.alwaysHunters(): { [number]: boolean }
 		end
 		cached = table.freeze(built)
 		alwaysFrozen = cached
+	end
+	return (cached :: any) :: { [number]: boolean }
+end
+
+-- WHO MAY CHOOSE WHICH SIDE HE IS ON (task 242). Karen, 2026-10-22: *"in nex drive I can't select
+-- beater but I have this license fix it"*.
+--
+-- `alwaysHunters`' twin, line for line, over `ShopData.grantsRoleChoice` instead -- so the rule
+-- about WHICH cards buy a say lives in the shared catalogue (one place) and this owner only
+-- projects the profiles it already holds. Frozen and memoised for the same measured reason: the
+-- lobby asks for it once per scan at `SCAN_HZ`, and the drive reads it through the wish.
+--
+-- EMPTY when the shop is off, when nobody owns either card and in every spec that starts no money,
+-- which is what keeps `Lobby.wishFor` answering nil for everybody and the game before task 229 bit
+-- for bit.
+function Economy.roleChoosers(): { [number]: boolean }
+	local cached = chooserFrozen
+	if cached == nil then
+		local built: { [number]: boolean } = {}
+		for userId, owned in pairs(ownedSets) do
+			if ShopData.grantsRoleChoice(owned) then
+				built[userId] = true
+			end
+		end
+		cached = table.freeze(built)
+		chooserFrozen = cached
 	end
 	return (cached :: any) :: { [number]: boolean }
 end

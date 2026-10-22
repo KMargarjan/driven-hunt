@@ -839,6 +839,23 @@ return function()
 			).to.equal(true)
 		end)
 
+		it("lets a man choose his side with EITHER card, and with neither he cannot (task 242)", function()
+			-- KAREN, 2026-10-22, verbatim: *"in nex drive I can't select beater but I have this
+			-- license fix it"*. She owned `licence.beater` and the truck pad offered her no choice,
+			-- because task 229 asked about ONE card. The rule is DERIVED from the two `grants` fields
+			-- that are already about a side, so there is no ninth field and no second place to write
+			-- it: this case fails the moment either half is dropped.
+			expect(Shop.grantsRoleChoice(nil)).to.equal(false)
+			expect(Shop.grantsRoleChoice({})).to.equal(false)
+			expect(Shop.grantsRoleChoice({ [Shop.ITEM.BEATER_LICENCE] = true })).to.equal(true)
+			expect(Shop.grantsRoleChoice({ [Shop.ITEM.ALWAYS_HUNTER] = true })).to.equal(true)
+			-- A CARD THAT IS ABOUT NEITHER SIDE BUYS NO SAY. The slug is ammunition.
+			expect(Shop.grantsRoleChoice({ [Shop.ITEM.SLUG] = true })).to.equal(false)
+			-- ...AND A BUNDLE THAT COVERS ONE OF THEM DOES, through the merged grants every other
+			-- reader here already goes through.
+			expect(Shop.grantsRoleChoice({ [Shop.ITEM.BUNDLE_SEASON] = true })).to.equal(true)
+		end)
+
 		it("colours the hat only when a hat is bought", function()
 			expect(Shop.hatColorFor(nil)).to.equal(nil)
 			expect(Shop.hatColorFor({})).to.equal(nil)

@@ -518,12 +518,56 @@ return function()
 			end
 		end)
 
-		it("is not honoured for a roster of one, because no bot shoots", function()
-			-- `docs/design/bots.md` fills both sides with rigs and says twice that no bot shoots, so
-			-- a solo beater is a drive in which nothing can be shot. `ODD_PLAYER_TEAM` is Shooters,
-			-- so `driverSlots` is 0 at one player and this is ARITHMETIC rather than a branch.
+		it("IS honoured for a roster of one, because there is nothing to balance (task 242)", function()
+			-- KAREN, 2026-10-22: *"in nex drive I can't select beater but I have this license fix
+			-- it"*, and the `1 / 1` bot drive is where she stood. Task 229 read `driverSlots == 0`
+			-- at one player and called the refusal *"the whole of the 1/1 rule"*; the premise was
+			-- wrong, not the arithmetic. A roster of ONE cannot make `|Drivers - Shooters|` exceed 1
+			-- whichever side he takes, so the balance rule has no opinion to enforce.
 			local assignment = Roster.assign({ 7 }, nil, CONFIG, { [7] = true }, { [7] = true })
-			expect(assignment[7]).to.equal("Shooters")
+			expect(assignment[7]).to.equal("Drivers")
+			local counts = countOf(assignment)
+			expect(math.abs(counts.Drivers - counts.Shooters) <= 1).to.equal(true)
+			-- ...AND THE LONE MAN WHO ASKS FOR NOTHING IS STILL A HUNTER, which is the `1 / 1` drive
+			-- everybody else gets and the Director's decision F / audit-003 must-fix 1.
+			expect(Roster.assign({ 7 }, nil, CONFIG, { [7] = true })[7]).to.equal("Shooters")
+			expect(Roster.assign({ 7 }, nil, CONFIG)[7]).to.equal("Shooters")
+		end)
+
+		it("reads a wish from a man who owns no hunter's place at all (task 242)", function()
+			-- THE DEFECT KAREN REPORTED, AT THE ONE FUNCTION THAT DEALS THE SIDES. She owned
+			-- `licence.beater` and not `role.alwayshunter`, and until this task a wish was read only
+			-- out of `always` -- so her ask reached here and was dropped on the floor. Whether she was
+			-- ALLOWED to ask is `Lobby.onRoleRequest`'s question (`Economy.roleChoosers`); this
+			-- function is pure and keys by userId, so a wish that arrives is a wish the server
+			-- measured.
+			local assignment = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG, nil, { [1] = true })
+			expect(assignment[1]).to.equal("Drivers")
+			local counts = countOf(assignment)
+			expect(counts.Drivers).to.equal(2)
+			expect(counts.Shooters).to.equal(2)
+			-- ...AND A WISHER THE DRIVER PLACES CANNOT HOLD, WHO OWNS NOTHING, IS NOT HANDED THE
+			-- HUNTER'S SIDE AS A PRIZE: he falls into the ordinary rotation with everybody else. At
+			-- two players there is one driver place and two men asked.
+			local crowded = Roster.assign({ 1, 2 }, nil, CONFIG, nil, { [1] = true, [2] = true })
+			expect(crowded[1]).to.equal("Drivers")
+			expect(crowded[2]).to.equal("Shooters")
+			-- EVERY MAN STILL HAS A SIDE, at every size, with nobody owning anything.
+			for n = 2, 16 do
+				local roster = ids(n)
+				local wishes = {}
+				for index, userId in ipairs(roster) do
+					if index % 3 == 0 then
+						wishes[userId] = true
+					end
+				end
+				local out = Roster.assign(roster, nil, CONFIG, nil, wishes)
+				for _, userId in ipairs(roster) do
+					expect(out[userId] == "Drivers" or out[userId] == "Shooters").to.equal(true)
+				end
+				local level = countOf(out)
+				expect(math.abs(level.Drivers - level.Shooters) <= 1).to.equal(true)
+			end
 		end)
 
 		it("is the game before this task when nobody has asked, at every roster size", function()

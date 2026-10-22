@@ -1026,7 +1026,7 @@ return function()
 			for _, userId in ipairs(ids) do
 				seen.owners[userId] = true
 			end
-			Lobby.setAlwaysHunters(function()
+			Lobby.setRoleChoosers(function()
 				return seen.owners
 			end)
 		end
@@ -1034,7 +1034,7 @@ return function()
 		afterEach(function()
 			-- THE READER IS MODULE STATE, so it is handed back after every case -- otherwise one
 			-- case's owner would be the next case's.
-			Lobby.setAlwaysHunters(nil)
+			Lobby.setRoleChoosers(nil)
 		end)
 
 		it("refuses a payload that is not one of the two words, and tells nobody what would work", function()
@@ -1072,7 +1072,7 @@ return function()
 			-- `Lobby.stats`' OWN SPLIT, written in that file: *"a FORGED payload is a different fact
 			-- from a legal request the game said no to, because counting it as a bad request would
 			-- hide a mis-wired provider inside the forgery counter"*. A build where
-			-- `setAlwaysHunters` was never called would otherwise read as an attack.
+			-- `setRoleChoosers` was never called would otherwise read as an attack.
 			local seen = fresh(bin)
 			owning(seen, 7)
 			local stranger = occupant(8, padAt(2), bin)
@@ -1087,7 +1087,7 @@ return function()
 
 		it("refuses every ask when no ownership reader was wired at all", function()
 			-- THE SWITCH-OFF STORY, BY PARAMETER: with the shop off `ForestTestBoot` never calls
-			-- `setAlwaysHunters`, so nothing can be asked, nothing is written and no control is built.
+			-- `setRoleChoosers`, so nothing can be asked, nothing is written and no control is built.
 			fresh(bin)
 			local man = occupant(7, padAt(1), bin)
 			local reply = Lobby.onRoleRequest(man, { role = Data.ROLE_WISH.BEATER }, 1000)
