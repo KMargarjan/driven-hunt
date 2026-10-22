@@ -642,7 +642,15 @@ local lobbyOn = Lobby.start({
 	--   shopOn       the `SHOP` flag, read ONCE here and passed inward (CLAUDE.md, feature flags).
 	--                It decides one thing: whether the keeper's prompt is live. With the shop off
 	--                his panel is dead, and a "Press E" over a man who answers nothing is worse
-	--                than no prompt at all. `Shop.start` below reads the same flag for the door.
+	--                than no prompt at all.
+	--
+	--                IT CANNOT DISAGREE WITH `Shop.start`'s ANSWER BELOW, and the reason is the
+	--                ORDER (task 233b). `Shop.start` is off when the flag is off or when this world
+	--                has no counter -- and the counter is a part of the lodge this very call builds,
+	--                so inside the build "there is a counter" is true by construction. The nil-counter
+	--                arm is the arm where `Lobby.Build` never ran at all, and then there is no keeper
+	--                to hang a prompt on. The flag cannot be read from `Shop.start` here instead:
+	--                that call is 130 lines below, because it needs the counter this one makes.
 	dress = Body.dress,
 	dressConfig = Match.CONFIG,
 	shopOn = ShopData.isOn(),
@@ -772,17 +780,25 @@ end
 --   snapshotFor  `Economy.shopStateFor` -- one player's own payload, built by the pure
 --                `Shop.rowsFor`, so `buyable` is decided once and on this side.
 --   counterAt    `Lobby.Data.counterPosition` -- the ONE definition of where the counter is: the part
---                the server built, found by name. A world with no lodge answers nil and every
---                purchase in it is refused `too-far`.
+--                the server built, found by name -- **and only when the lobby actually built one**.
+--
+-- WHETHER THIS WORLD HAS A COUNTER IS THE LOBBY'S OWN ANSWER (task 233b), so it is `lobbyOn` and not
+-- a second predicate: the counter is a part of the lodge, and `Lobby.start` is the one thing that
+-- builds a lodge. `if lobbyOn then ... else nil` is this file's own idiom for exactly this -- `enrol`
+-- and `gatherSpot` in the `Match.start` call below are written the same way, *"a lobby that did not
+-- build"*. With a lodge, `Shop.start` answers true and the five providers below are wired; without
+-- one it answers false, not one of them is wired, every reader answers nil and this world is
+-- today's game by every branch (docs/design/shop.md section 7.1). `SHOP` is a v1 default since task
+-- 233b and that is what makes the second half matter: the flag can no longer be the only gate.
 --
 -- `Weapon.setEntitlementProvider` AND `Body.setLookProvider` ARE THE TRANSLATION, and this root is
 -- where it belongs: both seams take a `Player` and `Economy` *"must not hold a Player"* (its own
--- header). With the shop OFF neither is wired at all, and then every reader answers nil -- which is
+-- header). With the shop off neither is wired at all, and then every reader answers nil -- which is
 -- today's game by every branch (docs/design/shop.md section 7.1).
 local shopOn = Shop.start({
 	purchase = Economy.purchase,
 	snapshotFor = Economy.shopStateFor,
-	counterAt = Lobby.Data.counterPosition,
+	counterAt = if lobbyOn then Lobby.Data.counterPosition else nil,
 	remotes = ShopData.remotes(),
 })
 if shopOn then
