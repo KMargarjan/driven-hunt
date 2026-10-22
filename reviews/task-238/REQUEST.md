@@ -1,12 +1,12 @@
 # Task 238 — the "NO DEER LICENCE" popup, buying from it, and the Robux switch
 
 Task: 238
-Round: 1
+Round: 2
 Base: `ffb4dfed` (merge of PR #216, task 235)
-Code commit: `33158586ce30045afa6cf54cee65b8afc84398dc`
+Code commit: `74718912d0416e7c039634f33759e43a5ccf176a`
 
 ```
-[harness] PASS: 34/34 checks @ 33158586ce30045afa6cf54cee65b8afc84398dc (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 74718912d0416e7c039634f33759e43a5ccf176a (clean tree) scope=all
 ```
 
 `[harness2]` is **N/A**: no changed path is in `TWO_PLAYER_PATHS` (`tools/agents.py`). The change is
@@ -26,6 +26,43 @@ purchase path from anywhere; and the Robux switch built and not live. Note:
 an unlicensed shot was already a hard server refusal costing nothing, so the card's copy says that,
 and nothing here un-blocks a shot or adds a penalty.
 
+## Round 1's three blocking findings, and what each cost
+
+All three were right, and all three were the same class of fault: **a gate that no test could
+reach, with a comment claiming it could.**
+
+1. **`ROBUX_ONLY` was driven by nothing, and the comment promised a seam that did not exist.**
+   `Shop.Context` now HAS `rows` — resolved in one new local, `rowFor` — and no production caller
+   passes one, so every shipped path still reads the frozen catalogue through `Shop.row`. New case:
+   *"really refuses a coin BUY for a Robux row, and only for one"* — the same row with and without a
+   product id, beating every money question and losing to `NOT_SALE` above it.
+
+2. **The "world with no shop" guard did not work, in the one world it mattered.**
+   `ShopPanel.isEnabled()` reads the `SHOP` FLAG — a lit v1 default since 233b — so it answers
+   `true` in DEV, where `Shop.start` returned `false` for want of a counter. The card would have
+   shown with no price and a BUY reaching a `Shop.onRequest` that returns nil. **The fact that IS
+   true of such a world is that no `ShopState` ever arrives**: `Shop.start` returns false *without
+   setting `started`*, so the door replies to nothing. The card now shows only once it holds a
+   `WireRow`; an advice with no wallet asks once and is picked up by `onShopState` within
+   `PENDING_SECONDS` (4 s), so a player who has never visited the lodge still gets the card on the
+   aim that asked for it, with the real price on it.
+
+3. **The client Robux arm spent real money and was undrivable, and `payWith` had no caller.**
+   `ShopPanel.press` now ASKS `payWith` — one pure answer to "which currency", one caller — both
+   take the same optional `rows`, and the service is injected through `ShopPanel.setMarketplace`
+   (the seam `Economy.start`'s `world.marketplace` already is). New case drives the **real `press`**
+   down the Robux arm and asserts it prompts with THIS player and THAT product **and that no coin
+   BUY went with it**.
+
+Four of the non-blocking notes were comments that said more than the code did, and are corrected
+rather than queued, because a false comment is the same defect in prose: `lookAhead`'s header named
+an `onAimRequest` that never existed; the note and `Economy.processReceipt` credited I13 with
+guarding `robuxProductId` when **I12** is what does; the Hud claimed `Weapon.Changed` fires exactly
+once per arriving snapshot, when the payload is the HELD weapon so an unequip can re-deliver it
+(harmless — `REPEAT_SECONDS` bounds it, and `suppressedRepeat` counts it); and the `ProcessReceipt`
+install sits below the `not enabled` return, which is now said where the limit is. The live handler
+case also names which arm ran in its note, so the fallback cannot be read as the real one.
+
 ## Claims
 
 1. **ONE targeting path, and the trigger now shares it.** `Weapon.lookAhead` is the single cast plus
@@ -44,8 +81,10 @@ and nothing here un-blocks a shot or adds a penalty.
 3. **The aim question moves nothing, and it is driven live.** `tests/server/licence_popup.spec.luau`,
    *"advises an unlicensed aim at a deer, stays silent for a licensed one, and spends nothing"*,
    drives `Weapon.onActionRequest` — the function `Weapon.start` connects to the remote — and asserts
-   the barrel, `open`, `shots` and `refused` are unchanged. Harness note:
-   `licence_popup: Alhamdulilah824 questions +2 advised +1 shots +0; barrel Live -> Live`.
+   the barrel, `open`, `shots` and `refused` are unchanged. The case has a fallback arm for a run
+   where nobody holds a loaded gun, and since round 2 **the note names which arm ran**, so the
+   fallback cannot be read as the real one. This run: `licence_popup: LIVE HANDLER DRIVEN --
+   Alhamdulilah824 questions +2 advised +1 shots +0; barrel Live -> Live`.
 
 4. **It asks the licence question only.** `Rules.unlicensed`, not `Rules.refuse` — so no aim can
    produce `OFF_STAND`, `BEATER`, `DRIVE_OVER` or either platform answer. *Verify:* the `"Aim"`
@@ -75,10 +114,21 @@ and nothing here un-blocks a shot or adds a penalty.
    pure and take `rows`; `ShopPanel.payWith` is the client branch; `Economy.processReceipt` is the
    grant, through `Economy.grant(..., SOURCE.ROBUX)`, installed on `MarketplaceService.ProcessReceipt`
    by `Economy.start` **outside Studio only**, so no spec writes the service; `Shop.REASON.ROBUX_ONLY`
-   shuts the coin till on a Robux row, before every money question. *Verify:* the five cases under
-   *"the Robux switch"* and *"the Robux switch, on the client"*, including the redelivered receipt
-   answering `GRANTED` with `store.calls().save == 1`. Harness note:
-   `robux receipts=6 granted=2 already=1 unknown=3 notProcessed=1`.
+   shuts the coin till on a Robux row, before every money question. *Verify:* the cases under *"the
+   Robux switch"* and *"the Robux switch, on the client"* — including the redelivered receipt
+   answering `GRANTED` with `store.calls().save == 1`, the round-2 case that drives the refusal
+   itself through `Shop.Context.rows`, and the round-2 case that drives the real `ShopPanel.press`
+   down the prompt arm. Harness notes:
+   `robux receipts=6 granted=2 already=1 unknown=3 notProcessed=1` and
+   `the ONE prompt in this run went to the spec's stub, not to Roblox -- prompted=1, sent=2`.
+
+11. **A world where nothing can be bought gets no card, and the FLAG is not what says so**
+    (round 2). `onAdvice` suppresses on having no `WireRow` (`suppressedNoWallet`), which is exactly
+    the DEV place: `Shop.start` returns false without setting `started`, so no `ShopState` is ever
+    sent. *Verify:* `tests/client/licence_card.spec.luau`, *"stays down for a man who already owns
+    the card, and in a world with no shop"* — four aims past the cooldown, `shown == 0`,
+    `suppressedNoWallet == 4`, one `ask` — and *"waits for the wallet, then goes up on the reply
+    with the real price"* for the other half, including the `PENDING_SECONDS` timeout.
 
 9. **No `PurchaseId` ledger, and the limit is stated.** The entitlement SET is the record — already
    `docs/design/economy-v1.md`'s reviewed decision, and strictly stronger for a non-consumable,
@@ -113,12 +163,14 @@ Return, four arrows and four gamepad buttons) **only while it is up**, unbound b
 
 ## What could not be verified
 
-* **The price on the card, in a picture.** Both frames read `BUY  ...`. That is the truth about DEV
-  rather than a defect: task 235 (L-095) means a world with no counter wires no shop, so no
-  `ShopState` ever reaches a DEV client and the card prints the word and no amount rather than a
-  guessed number. The price path is proved by parameter (`BUY  $750`, off the server's own
-  `WireRow`, in *"prints the server's own price and never a guessed one"*). `ESCALATE.md` item 3
-  offers the Forest Test capture if the Director wants the picture with the number in it.
+* **The price on the card, in a picture.** Both frames read `BUY  ...` — and **since round 2 that
+  state is not reachable on screen at all**: no `WireRow` now means no card, which is finding 2's
+  fix. The frames were taken before it, by a plain property write, and they are still the evidence
+  for the LOOK (the panel, the title, the sentence, the button, the close, the hint); the amount on
+  the button is the one thing in them that the shipped code would no longer draw that way. **No
+  frame of the card with a price exists**, because the only world with a counter is Karen's Forest
+  Test and only DEV was open. The price path is proved by parameter (`BUY  $750`, off the server's
+  own `WireRow`). `ESCALATE.md` item 3 offers the Forest Test capture if the Director wants it.
 * **A tap or a click.** `GuiButton.Activated` cannot be synthesised and the harness cannot fake a
   tap, so `LicenceCard.press` is the seam — `ShopPanel.press` and `Rail.press`'s own stated limit.
   What is proved is the ACTION, not the touch.
