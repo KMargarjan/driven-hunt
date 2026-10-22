@@ -1,6 +1,29 @@
 # Escalations
 
-## 2026-10-22 - Task 242 (four fixes from Karen's test, CORRECTED): **`NEEDS DIRECTOR` -- the two-player run.**
+## 2026-10-22 - Task 242 (four fixes from Karen's test, CORRECTED): **CLOSED -- the two-player run is green.**
+
+**CLOSED the same day.** The Director ran it twice at the branch head and both were clean
+(`<runs-dir>/test2-t242a.log`, `test2-t242b.log`), which is the two consecutive runs L-033 asked for:
+
+```
+[harness2] PASS: 36/36 checks @ 151b259470c8173706133a4cef4e47442087f60e (clean tree)
+```
+
+both runs server 2031/0, shooter 537/0, driver 531/0. The Builder then ran the one-player gate on
+the clean tree at that same commit, so both lines name it:
+
+```
+[harness] PASS: 34/34 checks @ 151b259470c8173706133a4cef4e47442087f60e (clean tree) scope=all
+```
+
+`151b2594` is therefore the request's `Code commit:`. It is a PAPERWORK commit sitting after the
+last code commit (`ec195488`), which git workflow step 4 allows in as many words -- *"naming a later
+paperwork commit is allowed and is often unavoidable ... it only makes the bound stricter"*.
+
+**The Builder may now run `test2` itself** (`bash <runs-dir>/run-test2.sh <label>`), which answers
+the offer this entry made. Nothing below blocks anything; it is kept for the record.
+
+### What the entry said while it was open
 
 **Supersedes this task's earlier entry, which named the commit `bba4763d`.** Karen clarified the role
 rule after the first cut was built, the Director stopped the session, and item 1 was reverted and
