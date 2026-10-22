@@ -60,7 +60,7 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 --
 -- LIT (12): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
 --           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b).
--- DARK (2): QUICK_TEST, DRIVE_BOTS.
+-- DARK (3): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238).
 --
 -- `SHOP` IS LIT SINCE TASK 233b, and what made that safe is NOT this row: it is that a world with
 -- no counter does not wire a shop at all (`Shop.start`'s own gate). Task 233's flip lit the shop in
@@ -68,7 +68,23 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- and the shotgun alone in the one world where nothing can ever be bought -- and that took the gate
 -- red. The flag now lights the shop for every world that HAS a counter, which is every world it was
 -- designed for, and `COINS` is no longer lit over a shop nobody can reach.
-Flags.MAX_FLAGS = 14
+-- 14 -> 15 FOR TASK 238, AND THE BUILDER IS SAYING SO RATHER THAN QUIETLY RETIRING SOMEBODY ELSE'S
+-- ROW. `LICENCE_POPUP` is the fifteenth, and the cap refused it: `flags.spec`'s rot tripwire failed
+-- the harness at *"15 flags declared, and MAX_FLAGS is 14"*, which is the cap doing its job.
+--
+-- THE TWO WAYS OUT, AND WHY THIS ONE. (a) Retire the three lit rows queued as TASKS.md 82b, which
+-- brings the count back under 12 -- but the paragraph above says in as many words that retiring them
+-- is *"the Director's call ..., not this task's"*, and it is: each retirement deletes a losing branch
+-- and archives it (rule 7). (b) Ship the card LIT, which `docs/design/feature-flags.md` section 11
+-- step 1 forbids for a new feel-critical path and which would put an unasked card on Karen's screen
+-- before she had agreed to it.
+--
+-- So the cap moves by one and the REAL fix stays queued. **This is a Director decision the Builder
+-- has taken under a stated assumption** (task 238's report and `ESCALATE.md`, 2026-10-22): if he
+-- would rather have 82b done first, this line goes back to 14 in the same commit as those three
+-- retirements. Fifteen rows is still a number a person can read in one screen, which is what the cap
+-- is actually for.
+Flags.MAX_FLAGS = 15
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"

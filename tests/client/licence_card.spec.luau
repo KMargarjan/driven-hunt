@@ -89,9 +89,15 @@ end
 -- RESTART THE LIVE CARD WITH THIS CASE'S OWN COLLABORATORS, on the frame `Hud.build` already made.
 -- `afterAll` puts the production wiring back, which is this suite's own rule: a spec that walked
 -- away would leave the real card holding a stub.
+--
+-- `assert` AND NOT `expect`, AND THE REASON IS MEASURED (this spec's first run, 2026-10-22): TestEZ
+-- 0.4.1 installs `describe`, `it` and `expect` into the environment of the function the module
+-- RETURNS, not of the module chunk -- so a module-level helper like this one sees `expect` as nil
+-- and every case that called it failed with *"attempt to call a nil value"*. Every `expect` in this
+-- file is inside an `it`, which is where TestEZ puts it.
 local function restart(options: any?): any
 	local frame = Hud.licenceCard()
-	expect(frame).to.be.ok()
+	assert(frame ~= nil, "Hud.licenceCard() is nil: Hud.build did not make the card's frame")
 	local world = fakeShop(options)
 	Card.stop()
 	Card.start(frame :: Frame, {
@@ -133,7 +139,11 @@ return function()
 			expect(Card.CONFIG.WIDTH <= 400 - 2 * 16).to.equal(true)
 			-- NOT OVER THE RETICLE: the card sits in the upper third, and the reticle is at 0.5.
 			expect(Card.CONFIG.Y_SCALE < 0.5).to.equal(true)
-			expect((frame :: Frame).Position.Y.Scale).to.equal(Card.CONFIG.Y_SCALE)
+			-- WITHIN A FLOAT, NOT EQUAL TO ONE. `UDim2` stores its scales as float32, so 0.27 reads
+			-- back as 0.27000001072883606 and an exact comparison fails (measured on this spec's
+			-- first run). The claim is "the card is where the Hud was told to put it", and 1e-5 is
+			-- a thousand times tighter than one pixel on any screen this game draws.
+			expect(math.abs((frame :: Frame).Position.Y.Scale - Card.CONFIG.Y_SCALE) < 1e-5).to.equal(true)
 		end)
 
 		it("is born OFF in git, and the ON arm is reachable by parameter", function()

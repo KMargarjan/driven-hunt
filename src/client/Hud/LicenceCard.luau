@@ -117,6 +117,11 @@ local stats = {
 
 local enabled = false
 local root: Frame? = nil
+-- THE CARD THIS MODULE BUILT INSIDE `root`, so `stop` can take it away again. Without it a restart
+-- -- which is what every case in `licence_card.spec` does -- would stack a second card on the first
+-- inside the Hud's own frame, and the spec would walk away leaving a pile of them in the live
+-- player's screen.
+local built: Frame? = nil
 local titleLabel: TextLabel? = nil
 local whyLabel: TextLabel? = nil
 local buyButton: TextButton? = nil
@@ -288,6 +293,7 @@ local function build(frame: Frame)
 	close.Size = UDim2.fromOffset(24, 24)
 	close.ZIndex = card.ZIndex + 2
 
+	built = card
 	titleLabel = title
 	whyLabel = why
 	buyButton = buy
@@ -473,6 +479,15 @@ function LicenceCard.start(frame: Frame, collaborators: any)
 end
 
 function LicenceCard.stop()
+	-- WHAT THIS MODULE MADE, AND ONLY THAT. `root` is the Hud's frame and is NOT destroyed -- this
+	-- module did not create it and `Hud.build` is its one owner (`ShopPanel.start`'s own division).
+	if root ~= nil then
+		(root :: Frame).Visible = false
+	end
+	if built ~= nil then
+		(built :: Frame):Destroy()
+	end
+	built = nil
 	root = nil
 	titleLabel = nil
 	whyLabel = nil
