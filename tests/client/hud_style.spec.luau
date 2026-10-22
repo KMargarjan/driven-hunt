@@ -191,6 +191,11 @@ return function()
 			-- (luma 176.9) against that `#B4CFE4` (201.3). The change is kept because it is
 			-- strictly safer -- `BLAZE_HI`, the tightest colour, goes 4.66 : 1 -> 5.18 : 1 over
 			-- §2's own tested ground -- and reverting it is one line in `Style.luau` and this one.
+			--
+			-- SINCE TASK 236 THE TRIGGER IS MET AND THE INSURANCE IS WHAT COVERS IT: +0.40 EV for
+			-- Karen's lighter hunt takes the brightest sky to `#C7E1E2` (217.3), over that
+			-- `#B4CFE4`, and `BLAZE_HI` measures 5.01 : 1 there against the floor of 4.5. The
+			-- value does not move; what moved is why it is right.
 			expect(Style.SLATE_T).to.equal(0.14)
 			expect(Style.SLATE_QUIET_T).to.equal(0.08)
 			expect(Style.CARD_T).to.equal(0.06)

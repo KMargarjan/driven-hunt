@@ -165,6 +165,14 @@ local LOOK = Style.LOOK
 -- It is 0.14 anyway because the Director asked for it and it is strictly safer: over §2's own
 -- tested `#B4CFE4` the tightest colour, `BLAZE_HI`, goes from **4.66 : 1 to 5.18 : 1**, and every
 -- other colour gains with it. Reverting it is this one line.
+--
+-- AND SINCE TASK 236 THAT INSURANCE IS WHAT IS HOLDING THE TABLE UP, so the paragraph above is now
+-- history and not the live reading. Karen asked for a lighter hunt (2026-10-21) and
+-- `Light.CONFIG.LIGHTING.ExposureCompensation` went 0.15 -> 0.55, +0.40 EV. The brightest sky over
+-- three DEV frames goes `#B5D1D4` (luma 201.0) -> `#C7E1E2` (217.3): **over** the `#B4CFE4` (201.3)
+-- §6 names, so its trigger IS met now, and the slate it asks for is the 0.14 already sitting here.
+-- Measured at that sky, `BLAZE_HI` is **5.01 : 1** against the floor of 4.5 (`<runs-dir>/t236/`,
+-- `measure.py`). This line is still the one knob if a later lift stops clearing it.
 Style.SLATE_T = 0.14
 Style.SLATE_QUIET_T = 0.08 -- a surface holding 9-11 px type: the compass band, a rail button
 Style.CARD_T = 0.06 -- a floating card: the hit card, the start card, the results board

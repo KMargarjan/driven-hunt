@@ -48,7 +48,12 @@ return function()
 			expect(CFG.LIGHTING.EnvironmentSpecularScale).to.equal(0.2)
 			expect(CFG.LIGHTING.ClockTime).to.equal(8.2)
 			expect(CFG.LIGHTING.GeographicLatitude).to.equal(50)
-			expect(CFG.LIGHTING.ExposureCompensation).to.equal(0.15)
+			-- 0.55 SINCE TASK 236, AND THE SPEC'S OWN NUMBER WAS 0.15. Karen, 2026-10-21: *"make a
+			-- bit lighter when hunting now is a bit to dark"*. +0.40 EV, the middle of the
+			-- dispatched range, measured in DEV over three scenes on the player's path: the mean
+			-- luma of the frame +16 %, the darkest tenth of the wood frame +64 %. It is the only
+			-- row of the spec this game has changed, and the reason is beside it in `Light.CONFIG`.
+			expect(CFG.LIGHTING.ExposureCompensation).to.equal(0.55)
 			expect(CFG.LIGHTING.ShadowSoftness).to.equal(0.35)
 			expect(CFG.LIGHTING.GlobalShadows).to.equal(true)
 			-- §3.
