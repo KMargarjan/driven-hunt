@@ -178,16 +178,24 @@ Geometry.MESH_KEYS = table.freeze({
 local SIGHT_Y = 0.298
 local DOT_Z = 0.4835
 
--- THE DOT, AND IT IS SMALLER THAN IT WAS ON PURPOSE. 0.006 studs is 1.7 mm at this repo's own
--- 0.28 m/stud, which at the shipped eye relief subtends about ONE DEGREE. The Director's rule:
--- *"sized so it reads at 1280x720 without hiding a deer at 50 m"* -- a stag is 2.1 m tall and
--- subtends 2.4 degrees at 50 m, so a one-degree dot covers a third of him and never hides him.
--- A real sight's 2 MOA is 0.033 degrees and would be half a pixel; 3 mm (this number until task
--- 234) was 2 degrees and would have covered most of that stag.
+-- THE DOT, HALVED AGAIN AT KAREN'S WORD (task 242). 2026-10-22, verbatim: *"circle is to big and
+-- dot is to big"*, with a frame of the aimed gun. 0.003 studs is 0.84 mm at this repo's own
+-- 0.28 m/stud, which at the shipped 0.35-stud relief subtends 0.49 degrees against the 0.98 it
+-- subtended before -- exactly her "about half", because the dot is small enough that the angle
+-- follows the diameter. MEASURED on screen either side of the change by `driven-hunt-runs/234-ring.py`,
+-- which finds the reddest blob near the axis: 16 px (1.02 deg) then 9 px (0.57 deg), both centred on
+-- the frame's own centre to half a pixel. Same place, same camera, geometry stashed between them.
+--
+-- IT IS STILL BIGGER THAN A REAL SIGHT AND STILL READS AT 720p: 0.49 degrees is ~7.7 px of a 785-px
+-- frame at FOV 50, where a real 2 MOA would be 0.033 degrees and half a pixel. The Director's rule
+-- *"sized so it reads at 1280x720 without hiding a deer at 50 m"* is only easier to keep: a stag is
+-- 2.1 m tall and subtends 2.4 degrees at 50 m, so the dot now covers a FIFTH of him where task 234's
+-- covered two fifths. 0.006 was task 234's number and 3 mm the one before it (2 degrees, most of
+-- that stag); both are kept here because the series is the argument.
 --
 -- `semiauto.spec` asserts the ANGLE, at the shipped relief, bounded at both ends -- so neither this
 -- number nor the relief can quietly destroy the sight picture.
-local DOT_DIAMETER = 0.006
+local DOT_DIAMETER = 0.003
 
 -- THE HOOD: an OPEN reflex sight's supporting loop, and `open` rather than a tube is arithmetic
 -- rather than taste (research note 4(a)). Looking into a TUBE from behind, the clear view is the
@@ -210,8 +218,44 @@ local DOT_DIAMETER = 0.006
 -- 41 mm hood over a 35 mm window -- a large-window reflex (a Holosun 510C's is 42 x 27 mm), not a
 -- 20 mm Micro, and section 4(a) of the note is why: a Micro's aperture cannot fill a third of the
 -- frame at any eye relief a man can hold.
-local HOOD_INNER_RADIUS = 0.0617
-local HOOD_WALL = 0.012
+--
+-- ...AND THEN KAREN LOOKED THROUGH IT AND SAID THE RING WAS TOO BIG (task 242, 2026-10-22, verbatim:
+-- *"circle is to big and dot is to big"*). The reference photographs are of a sight on a bench, not
+-- of a man trying to find a boar through one, and at 39 % of frame width the hood was eating the
+-- picture it is supposed to frame. The Director's number is ABOUT 30 % SMALLER IN SCREEN SIZE, and
+-- the outer radius carries it:
+--
+--                                      clear window      outer rim    (at relief 0.35, FOV 50)
+--   task 234, SHIPPED (0.0617 / 0.0120)   20.0 deg        23.8 deg
+--   task 242           (0.0430 / 0.0074)  14.0 deg        16.4 deg    <- 31 % off the rim
+--
+-- THOSE ARE THE ANGLES THE CONSTANTS GIVE, and `semiauto.spec` asserts them both rather than
+-- trusting them. THE SCREEN AGREES, on a pair taken at the same spot with the same camera, the
+-- geometry stashed and restored between them (`.screenshots/242-2-before-semiauto-paired.png` and
+-- `242-2-after-semiauto.png`, 947 x 785). Measured on ONE row 58 px below the sight line -- the row
+-- where BOTH frames have grass behind the hood on both sides, which is what makes an edge findable
+-- at all -- the hood's outer radius is 192 px and then 131: 32 % smaller, against 31 % predicted.
+--
+-- A RIM EDGE CANNOT BE READ OFF THE SIGHT LINE'S OWN ROW by `driven-hunt-runs/234-ring.py`, and that
+-- is a note for whoever measures this next: the hood is black, the wood behind it is black on one
+-- side and sunlit white on the other, so the tool's outward scan merges the hood into the trees. The
+-- DOT can be read anywhere, because it is the only red thing on the screen: 16 px then 9 px,
+-- 1.02 then 0.57 degrees, both centred on the frame's own centre to half a pixel.
+--
+-- THE RIM IS THINNED AS WELL AS SHRUNK, and that is what keeps the view-through: taken in proportion
+-- the window would have fallen to 13.8 degrees, so the wall comes down from 3.4 mm to 2.1 mm -- which
+-- is still a real hood's rim, and buys back a fifth of a degree of glass. The sight is now a 28 mm
+-- hood over a 24 mm window at this repo's 0.28 m/stud: a compact reflex rather than a Holosun 510C,
+-- which is the trade Karen asked for.
+--
+-- THE ALIGNMENT IS UNTOUCHED, which is the one thing task 234 bought that must not be spent:
+-- `SIGHT_Y`, `DOT_Z` and `eyeReliefStuds` are the same three numbers, so the eye is laid in the same
+-- place and the dot sits on the same axis. Nothing moves in z, so the near plane is where it was --
+-- the receiver's top is still 0.085 below the sight line and still 0.182 studs away at the bottom
+-- edge of the frame, against Roblox's 0.1 clip. Shrinking a ring that is 0.325 studs from the eye
+-- only ever moves it FURTHER from the clip.
+local HOOD_INNER_RADIUS = 0.043
+local HOOD_WALL = 0.0074
 local HOOD_DEPTH = 0.05
 -- 24 SEGMENTS, because Roblox has no hollow primitive and no built-in torus, and a ring Decal would
 -- need an upload nobody has approved.

@@ -668,6 +668,11 @@ return function()
 			expect(windowDeg < 32).to.equal(true) -- ...and a sight, not a porthole
 			expect(rimDeg > windowDeg).to.equal(true) -- the rim is IN VIEW around it
 			expect(rimDeg < 42).to.equal(true)
+			-- ...AND THE CEILING KAREN SET HERSELF (task 242, 2026-10-22: *"circle is to big"*). The
+			-- bounds above are the WIDE ones task 234 wrote to catch a destroyed sight picture; this
+			-- one is narrow on purpose, because a ring that creeps back over 18 degrees is the
+			-- complaint coming back. Shipped: 16.4 against task 234's 23.8.
+			expect(rimDeg < 18).to.equal(true)
 
 			-- 4. THE DOT READS, AND IT DOES NOT HIDE A DEER AT 50 M. A stag is 2.1 m tall, which at
 			--    50 m is 2 * atan(1.05/50) = 2.4 degrees. The Director rule: it must be findable
@@ -677,6 +682,9 @@ return function()
 			TestKit.note(string.format("task234 dot: %.2f deg against a stag %.2f deg at 50 m", dotDeg, stagDeg))
 			expect(dotDeg > 0.4).to.equal(true) -- bigger than a real 2 MOA, which would be half a pixel
 			expect(dotDeg < stagDeg / 2).to.equal(true)
+			-- ...AND KAREN'S OWN CEILING AGAIN (task 242: *"dot is to big"*). Shipped 0.49 against
+			-- task 234's 0.98, which is the halving she asked for; 0.6 is where it stops being that.
+			expect(dotDeg < 0.6).to.equal(true)
 			expect(dotDeg * 6 < windowDeg).to.equal(true) -- small inside its own window
 
 			-- 5. THE LENS IS CLEAR AND IT IS BETWEEN THE EYE AND THE DOT. +Z is backward in this
