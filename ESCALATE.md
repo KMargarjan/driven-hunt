@@ -1,5 +1,63 @@
 # Escalations
 
+## 2026-10-22 - Task 240 (the red deer feel right): **ONE `NEEDS KAREN`, not blocking.** The work is complete and shipped with the best voice the Roblox audio library actually has.
+
+**`NEEDS KAREN`: a real red-deer recording is an UPLOAD, and the licence is her call.**
+
+Karen, 2026-10-22: *"deer sound has to bee when hit now it seems it's pig sound when I hit deer"*.
+That is fixed and merged without an upload -- a hit stag now bellows and a hit hind bleats, proved
+on a real shot in her own place -- so **nothing below blocks anything**. What follows is the
+better-than-ours option, with the one problem that stops the Builder taking it.
+
+**THERE IS NO RED DEER IN THE ROBLOX AUDIO LIBRARY AND THAT WAS MEASURED, NOT ASSUMED.** Fourteen
+keyword searches of `apis.roblox.com/toolbox-service/v1/marketplace/3` ("deer", "elk", "stag", "deer
+grunt", "elk bugle", "stag roar", "red deer roar", "deer bark", "fawn", "goat", "goat bleat",
+"calf", "antelope", "moose"), filtered to the three creators whose audio plays in anybody's
+experience (ProSoundEffects, Audioscape, Roblox), return **not one row named deer or elk**. The
+library's `Mammals - Wild` category is bull, lion, tiger, elephant and coyote; `Mammals - Farm` is
+sheep, lamb, goat, steer and pig. Everything the catalogue DOES return for "deer" is user-uploaded
+("99 nights deer scream", "Deer grunt", "deer screech") and therefore private to its own uploader's
+experiences since Roblox's 2022 audio-privacy change. That is task 126's negative result for
+footsteps, re-measured today because a year-old negative is not evidence.
+
+**WHAT SHIPPED INSTEAD**, from what the sources say a red deer sounds like rather than from what was
+convenient: the stag's rut call is *"very similar to the bellow of a bull"* and his alarm is *"a loud
+warning bark"* (countydeerstalking.co.uk), and the hind answers her calf with *"a louder nasal bleat,
+**not dissimilar to that produced by sheep**"* (wildlifeonline.me.uk). So the stag got **Bull
+Bellows** and **Bull Breaths**, pitched up to 1.15; the hind and the calf got **Lamb "Deep Baa's"**,
+pitched to 0.80 and 1.25. Every id was loaded and timed in a live Play session before it was written
+down. No pig sample is left on any deer, and a spec now forbids one.
+
+**THE THREE CANDIDATES, WITH THEIR LICENCES READ OFF THE PAGE. NONE OF THEM IS CC0.** The dispatch
+asked for CC0 and the honest answer is that no CC0 red-deer recording was found:
+
+| # | Candidate | Licence, quoted | Length |
+|---|---|---|---|
+| 1 | [Freesound 757773, "Red Deer Stag Bellowing" by naturenotesuk](https://freesound.org/people/naturenotesuk/sounds/757773/) | **"Attribution 4.0"** (CC BY 4.0) | 2:28.610, 96 kHz, mono. Bedfords Park, Essex, during the rut |
+| 2 | [Freesound 104608, "20100910.deer.rut.wav" by dobroide](https://freesound.org/people/dobroide/sounds/104608/) | **"Attribution 4.0"** (CC BY 4.0) | 1:40.236. Donana, S Spain, stags summoning hinds |
+| 3 | [Pixabay "red deer" sound effects](https://pixabay.com/sound-effects/search/red%20deer/), e.g. "The call of Red Stag_Animal Sound" by NickyPe | **Pixabay Content Licence**: royalty-free, no attribution required, but you may not redistribute the file as a standalone download | short, MP3 |
+
+**THE PROBLEM, AND IT IS ONE THIS REPO HAS ALREADY MEASURED ONCE.**
+`docs/research/2026-09-26-asset-pipeline.md` read both licences for the Meshy decision and found that
+**CC BY 4.0 is not sublicensable** (clause 2(a)(5)(A), "No sublicensing") while Roblox's Creator
+Terms demand a **sublicensable** grant. That was recorded then as *"Karen's decision"* and it is
+Karen's decision again. Options 1 and 2 carry it; option 3 avoids the sublicensing clause but carries
+its own no-redistribution wording.
+
+**WHAT THE DIRECTOR / KAREN HAS TO DO IF SHE WANTS ONE:**
+
+1. Say which candidate (or none -- what shipped is fine and she may simply prefer it).
+2. Say **upload OK** for it, the way she did for the CC0 footsteps on 2026-10-05 and the boar
+   silhouette.
+3. The Asset agent trims it (a stag's roar wants about 2 s, cut to 0.6 s by `SOUND.DEATH.cut`), and
+   `tools/roblox_upload.py` puts it through Open Cloud with the attribution recorded in
+   `assets/uploads.json`.
+4. The Builder then changes **one data row** -- `Boar.CONFIG.SOUND.VOICE.stag.death` and friends in
+   `src/server/Boar/init.luau` -- and nothing else. The per-kind voice was wired for exactly this:
+   each cue is a list of ids and no code reads a sample.
+
+Note: `docs/research/2026-10-22-deer-voice-and-run.md`, sections 2B and 2C.
+
 ## 2026-10-22 - Task 239 (red deer in the Forest Test): **ONE `NEEDS DIRECTOR`, not blocking.** The work is complete and the gate is green at `7c1d5aff`.
 
 ```
