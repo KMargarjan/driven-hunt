@@ -638,8 +638,8 @@ return function()
 
 			-- ONE MODEL AT A TIME: selecting another item destroys the first rather than stacking
 			-- every item the player has ever clicked inside the viewport.
-			Panel.select(Shop.ITEM.BEATER_LICENCE)
-			expect(Panel.pictureId()).to.equal(Shop.ITEM.BEATER_LICENCE)
+			Panel.select(Shop.ITEM.SLUG)
+			expect(Panel.pictureId()).to.equal(Shop.ITEM.SLUG)
 			expect((model :: Model).Parent).to.equal(nil)
 			local models = 0
 			for _, child in ipairs((frame :: ViewportFrame):GetChildren()) do
@@ -648,27 +648,165 @@ return function()
 				end
 			end
 			expect(models).to.equal(1)
+
+			-- ...AND A LICENCE EMPTIES IT ALTOGETHER (task 241): an item has a viewport model OR a
+			-- flat image, never both, so selecting one leaves NO model behind the glass. This is the
+			-- half a screenshot cannot prove -- the case looks right either way if the old model is
+			-- still sitting under the new picture.
+			Panel.select(Shop.ITEM.BEATER_LICENCE)
+			expect(Panel.pictureId()).to.equal(Shop.ITEM.BEATER_LICENCE)
+			expect(Panel.pictureModel()).to.equal(nil)
+			local left = 0
+			for _, child in ipairs((frame :: ViewportFrame):GetChildren()) do
+				if child:IsA("Model") then
+					left += 1
+				end
+			end
+			expect(left).to.equal(0)
+		end)
+
+		-- TASK 241. KAREN, 2026-10-22: *"All things like beater license Deer license has to be clear
+		-- and nice"* and *"licenses keep clear as you have now everywhere aligned then we good"*.
+		-- The LOOK is the frames beside `goods-mockups.png` (rule 5); what a spec holds is that the
+		-- document is the ONE uploaded image, placed by the ONE rule, with no second opinion.
+		it("shows a licence as a flat image over the case, by the Designer's one placement rule", function()
+			Panel.onState(statePayload({ owned = {}, coins = 5000, hunts = 30 }))
+			Panel.setOpen(true)
+			local sheet = Panel.documentImage()
+			expect(sheet).to.be.ok()
+			-- IT LIVES IN THE CASE and not loose on the panel, so the case's own gradient is its
+			-- ground and the case's layout carries it.
+			expect((sheet :: ImageLabel):IsDescendantOf(Panel.viewportFrame() :: Instance)).to.equal(false)
+
+			-- A GUN IS A MODEL AND SHOWS NO DOCUMENT.
+			Panel.select(Shop.ITEM.RIFLE)
+			expect((sheet :: ImageLabel).Image).to.equal("")
+			expect((sheet :: ImageLabel).Visible).to.equal(false)
+
+			-- EACH LICENCE SHOWS ITS OWN ART, and the two are different images -- the failure mode
+			-- where one id is pasted into both rows draws the same card twice and reads as correct.
+			Panel.select(Shop.ITEM.BEATER_LICENCE)
+			local beater = (sheet :: ImageLabel).Image
+			expect(beater).to.equal(Display.imageFor(Shop.ITEM.BEATER_LICENCE))
+			expect(#beater > 0).to.equal(true)
+			Panel.select(Shop.ITEM.RED_STAG)
+			local deer = (sheet :: ImageLabel).Image
+			expect(deer).to.equal(Display.imageFor(Shop.ITEM.RED_STAG))
+			expect(deer).never.to.equal(beater)
+
+			-- THE WHOLE OF SECTION 3.5, ON THE REAL CONTROL. Upright (the tilt and the shadow are
+			-- PAINTED INTO the artwork, and a second tilt makes it a sticker), `Fit` so a container
+			-- that is not 1.79 : 1 letterboxes instead of squeezing, FULLY OPAQUE even though this
+			-- row is unaffordable, and centred on both axes.
+			expect((sheet :: ImageLabel).Rotation).to.equal(0)
+			expect((sheet :: ImageLabel).ScaleType).to.equal(Enum.ScaleType.Fit)
+			expect((sheet :: ImageLabel).ImageTransparency).to.equal(0)
+			expect((sheet :: ImageLabel).BackgroundTransparency).to.equal(1)
+			expect((sheet :: ImageLabel).ResampleMode).to.equal(Enum.ResamplerMode.Default)
+			expect((sheet :: ImageLabel).AnchorPoint).to.equal(Vector2.new(0.5, 0.5))
+			expect((sheet :: ImageLabel).Position).to.equal(UDim2.fromScale(0.5, 0.5))
+
+			-- ...AND THE RULE IS A FUNCTION AND NOT A PARAGRAPH, so the next screen to show a
+			-- licence inherits all of it. A label dressed by hand is what makes two screens drift.
+			local other = Instance.new("ImageLabel")
+			other.Rotation = 17
+			other.ScaleType = Enum.ScaleType.Crop
+			other.ImageTransparency = 0.5
+			Display.dressLicenceImage(other)
+			expect(other.Rotation).to.equal(0)
+			expect(other.ScaleType).to.equal(Enum.ScaleType.Fit)
+			expect(other.ImageTransparency).to.equal(0)
+			other:Destroy()
+
+			-- **NEVER BELOW 150 px WIDE**: below that the title is the last thing still resolving
+			-- and the rest is texture, so the row's words are shown and the image is not. PURE, so
+			-- the rule is a number rather than an impression -- and a width of zero is "the engine
+			-- has not drawn a frame yet", not "too small".
+			expect(Display.licenceFits(Display.LICENCE.MIN_WIDTH_PX)).to.equal(true)
+			expect(Display.licenceFits(Display.LICENCE.MIN_WIDTH_PX - 1)).to.equal(false)
+			expect(Display.licenceFits(0)).to.equal(true)
+			-- THE SHOP CASE ITSELF CLEARS IT at the size it is actually drawn, which is the claim
+			-- that matters: the Designer measured 326 x 182 inside a 356 x 200 case.
+			local box = (sheet :: ImageLabel).AbsoluteSize
+			if box.X > 1 then
+				expect(box.X >= Display.LICENCE.MIN_WIDTH_PX).to.equal(true)
+				expect((sheet :: ImageLabel).Visible).to.equal(true)
+			end
+			-- THE INSET IS THE DESIGNER'S, as an inset and not as two fixed numbers.
+			expect((sheet :: ImageLabel).Size.X.Offset).to.equal(-2 * Display.LICENCE.INSET_X)
+			expect((sheet :: ImageLabel).Size.Y.Offset).to.equal(-2 * Display.LICENCE.INSET_Y)
+			expect((sheet :: ImageLabel).Size.X.Scale).to.equal(1)
+			expect((sheet :: ImageLabel).Size.Y.Scale).to.equal(1)
+		end)
+
+		-- **THE FOUR IDS ARE THE IMAGES' AND NOT THE DECALS'.** An Open Cloud upload of a PNG
+		-- creates a Decal (`AssetTypeId 13`) and returns the DECAL's id, which neither an
+		-- `ImageLabel` nor a `Decal.Texture` can draw -- the trap that cost task 205 a whole round,
+		-- with the hit card drawing no animal at all while `Image` was a correctly-set string.
+		-- A spec cannot make the engine fetch an asset, so what it CAN guard is the SHAPE: that
+		-- each id is the one `InsertService:LoadAsset` answered with, and that none of them is the
+		-- decal id `assets/uploads.json` records. That it RESOLVES is the Play frame's job.
+		it("points at the IMAGE behind each upload, not the decal", function()
+			local wanted = {
+				[Shop.ITEM.BEATER_LICENCE] = "rbxassetid://118221829977446",
+				[Shop.ITEM.RED_STAG] = "rbxassetid://118076983085725",
+			}
+			for id, image in pairs(wanted) do
+				expect(Display.imageFor(id)).to.equal(image)
+			end
+			-- THE CARTON'S TWO, read off the parts rather than off a table, so a swap in the
+			-- builder cannot leave this passing.
+			local seen: { [string]: boolean } = {}
+			local box = Display.build(Shop.ITEM.SLUG) :: Model
+			for _, descendant in ipairs(box:GetDescendants()) do
+				if descendant:IsA("Decal") then
+					seen[descendant.Texture] = true
+				end
+			end
+			box:Destroy()
+			expect(seen["rbxassetid://124539390037781"]).to.equal(true)
+			expect(seen["rbxassetid://95181634568725"]).to.equal(true)
+			-- NOT ONE OF THE FOUR DECAL IDS APPEARS ANYWHERE.
+			local decals = { "108290190291718", "116011941064732", "104459454968931", "92868335129939" }
+			local all = { Display.imageFor(Shop.ITEM.BEATER_LICENCE), Display.imageFor(Shop.ITEM.RED_STAG) }
+			for texture in pairs(seen) do
+				table.insert(all, texture)
+			end
+			for _, texture in ipairs(all) do
+				for _, decal in ipairs(decals) do
+					expect(string.find(texture :: string, decal, 1, true)).to.equal(nil)
+				end
+			end
 		end)
 
 		it("has a picture for every row it sells", function()
 			-- THE DIRECTOR, 2026-10-20: *"every row the shop sells gets a display model"*. Six of
 			-- the ten rows drew nothing before this round, which is a declared fallback and still
 			-- the wrong thing for a shop window.
+			-- ...AND SINCE TASK 241 A PICTURE IS ONE OF TWO THINGS: a model under the case's camera,
+			-- or a flat image over the case. EXACTLY one, never both and never neither -- which is
+			-- the structural half of *"an item either has a viewport model or an image"*.
 			for _, id in ipairs(Shop.ORDER) do
 				expect(Display.knows(id)).to.equal(true)
+				local image = Display.imageFor(id)
 				local model = Display.build(id)
-				expect(model).to.be.ok()
-				local parts = 0
-				for _, descendant in ipairs((model :: Model):GetDescendants()) do
-					if descendant:IsA("BasePart") then
-						parts += 1
+				if image ~= nil then
+					expect(#image > 0).to.equal(true)
+					expect(model).to.equal(nil)
+				else
+					expect(model).to.be.ok()
+					local parts = 0
+					for _, descendant in ipairs((model :: Model):GetDescendants()) do
+						if descendant:IsA("BasePart") then
+							parts += 1
+						end
 					end
+					-- A MODEL WITH ONE PART IS A BLOCK, not a drawing: every existing item is at
+					-- least three, and so is every new one.
+					expect(parts >= 3).to.equal(true)
+					expect((model :: Model).PrimaryPart).to.be.ok();
+					(model :: Model):Destroy()
 				end
-				-- A MODEL WITH ONE PART IS A BLOCK, not a drawing: every existing item is at least
-				-- three, and so is every new one.
-				expect(parts >= 3).to.equal(true)
-				expect((model :: Model).PrimaryPart).to.be.ok();
-				(model :: Model):Destroy()
 			end
 			-- A PACKAGE DRAWS ITS OWN CONTENTS, through the same per-item builder -- so it can
 			-- never show something it does not contain.
@@ -690,10 +828,22 @@ return function()
 			end
 			expect(children).to.equal(drawn);
 			(season :: Model):Destroy()
+			-- **AND EVERY COVERED ROW OF EVERY PACKAGE DRAWS SOMETHING INSIDE ONE** (task 241).
+			-- The two licences draw NOTHING in the case, so without this the beater licence inside
+			-- `THE FULL SEASON` would be a hole on a shipped surface and the count above would
+			-- still pass -- it counts what was parented, not what was asked for.
+			for _, bundle in ipairs({ Shop.ITEM.BUNDLE_HIDE, Shop.ITEM.BUNDLE_MARKSMAN, Shop.ITEM.BUNDLE_SEASON }) do
+				for _, covered in ipairs(Shop.ROWS[bundle].covers) do
+					local piece = Display.build(covered, "lite")
+					expect(piece).to.be.ok();
+					(piece :: Model):Destroy()
+				end
+			end
 			-- ...AND AN ID THE CATALOGUE DOES NOT HAVE STILL DRAWS NOTHING, which is the stated
 			-- fallback and the reason the panel has words for it.
 			expect(Display.knows("no.such.row")).to.equal(false)
 			expect(Display.build("no.such.row")).to.equal(nil)
+			expect(Display.imageFor("no.such.row")).to.equal(nil)
 		end)
 
 		-- TASK 228: the shop2 spec's section 2, counted. The LOOK is the screenshots
@@ -712,26 +862,104 @@ return function()
 				model:Destroy()
 				return parts
 			end
-			-- THE SHELL IS IDENTICAL IN BOTH LICENCES (34 parts) and the furniture is what differs:
-			-- the deer's crest, stag and antlers are 36, the beater's band and two horns are 33.
-			expect(partsOf(Shop.ITEM.RED_STAG)).to.equal(70)
-			expect(partsOf(Shop.ITEM.BEATER_LICENCE)).to.equal(67)
-			expect(partsOf(Shop.ITEM.RED_STAG) - partsOf(Shop.ITEM.BEATER_LICENCE)).to.equal(3)
-			-- THE CARTON: 12 of box and print, 40 of ten shells, 9 of lid, 5 of the loose one.
-			expect(partsOf(Shop.ITEM.SLUG)).to.equal(66)
-			-- THE BANDOLIER: 16 loops less the one under the buckle, five parts each, plus 7.
-			expect(partsOf(Shop.ITEM.UNLIMITED_AMMO)).to.equal(82)
-			-- ...AND 47 INSIDE A PACKAGE, which is the ONLY place a model knows it is in one.
-			local lite = Display.build(Shop.ITEM.UNLIMITED_AMMO, "lite") :: Model
-			local liteParts = 0
-			for _, descendant in ipairs(lite:GetDescendants()) do
-				if descendant:IsA("BasePart") then
-					liteParts += 1
+			-- **TASK 241: THE TWO AMMO ITEMS ARE THE DESIGNER'S `goods-spec.md`, COUNTED.**
+			-- THE CARTON (section 3.1): one closed five-round box, its lid band and two loose
+			-- rounds of six cylinders each. 66 parts of open tray became 14.
+			expect(partsOf(Shop.ITEM.SLUG)).to.equal(1 + 1 + 2 * 6)
+			-- THE STACK (section 3.2), which is Karen's *"package smae with unlimited ammo"*: the
+			-- shipping slab, seven of the SAME carton with their seven lid bands, and the same two
+			-- rounds. 82 parts of bandolier became 27.
+			expect(partsOf(Shop.ITEM.UNLIMITED_AMMO)).to.equal(1 + 7 + 7 + 2 * 6)
+			expect(partsOf(Shop.ITEM.ALWAYS_HUNTER)).to.equal(25)
+			-- THE TWO LICENCES DRAW NO MODEL AT ALL in the case -- they are flat images (section
+			-- 3.3, 3.4) -- and exactly ONE part inside a package, which is the one place a hole
+			-- would show (section 4's card, at the art's own 1.79 : 1).
+			for _, id in ipairs({ Shop.ITEM.RED_STAG, Shop.ITEM.BEATER_LICENCE }) do
+				expect(Display.build(id)).to.equal(nil)
+				local card = Display.build(id, "lite") :: Model
+				local cardParts = 0
+				for _, descendant in ipairs(card:GetDescendants()) do
+					if descendant:IsA("BasePart") then
+						cardParts += 1
+					end
+				end
+				card:Destroy()
+				expect(cardParts).to.equal(1)
+			end
+
+			-- **THE PRINT IS A `Decal` AND IT IS ON THE WALL THE CAMERA IS ON.** Roblox's
+			-- `NormalId.Front` is `-z`; `SOLID_VIEW` stands the camera at yaw 34, so it looks from
+			-- `+x / +z` and the wall it sees is `+z` = `Back`, with `+x` = `Right` as the end. The
+			-- `buildAmmoCrate` of two tasks ago stencilled `-z` and nobody ever saw it -- which is
+			-- a fault no screenshot of the FRONT can show, and the reason this is a spec.
+			local faces: { [string]: number } = {}
+			local carton = Display.build(Shop.ITEM.SLUG) :: Model
+			for _, descendant in ipairs(carton:GetDescendants()) do
+				if descendant:IsA("Decal") then
+					faces[descendant.Face.Name] = (faces[descendant.Face.Name] or 0) + 1
+					-- AN EMPTY TEXTURE IS A BLANK WALL, and `Image` is a string that is always set
+					-- correctly -- task 205's whole round. The id is at least asserted non-empty
+					-- here; that it RESOLVES is the Play frame's job, not this spec's.
+					expect(#descendant.Texture > 0).to.equal(true)
 				end
 			end
-			lite:Destroy()
-			expect(liteParts).to.equal(47)
-			expect(partsOf(Shop.ITEM.ALWAYS_HUNTER)).to.equal(25)
+			carton:Destroy()
+			expect(faces.Back).to.equal(1)
+			expect(faces.Right).to.equal(1)
+			expect(faces.Front).to.equal(nil)
+			expect(faces.Left).to.equal(nil)
+			-- ...AND THE STACK REUSES THE SAME TWO IMAGES SEVEN TIMES, which is section 3.2's whole
+			-- point -- *"the same carton, the same label"* -- and why it needed no new upload.
+			local stack = Display.build(Shop.ITEM.UNLIMITED_AMMO) :: Model
+			local textures: { [string]: number } = {}
+			for _, descendant in ipairs(stack:GetDescendants()) do
+				if descendant:IsA("Decal") then
+					textures[descendant.Texture] = (textures[descendant.Texture] or 0) + 1
+				end
+			end
+			stack:Destroy()
+			local distinct = 0
+			for _, count in pairs(textures) do
+				distinct += 1
+				expect(count).to.equal(7)
+			end
+			expect(distinct).to.equal(2)
+
+			-- **A `Cylinder`'S AXIS IS ITS X AXIS**, so each round is six coaxial discs aimed by a
+			-- rotation -- and getting that backwards gives you six discs facing the wrong way, which
+			-- is the same mesh-frame mistake tasks 188-190 made. MEASURED on the drawn parts: the
+			-- standing round's sections all share one `x`/`z` and climb in `y`; the lying one's all
+			-- share one `y` and run along yaw 186.
+			local box = Display.build(Shop.ITEM.SLUG) :: Model
+			local standing = box:FindFirstChild("ShellAHull") :: BasePart
+			local crimp = box:FindFirstChild("ShellACrimpTop") :: BasePart
+			local primer = box:FindFirstChild("ShellAPrimer") :: BasePart
+			expect(standing).to.be.ok()
+			expect(standing.Shape).to.equal(Enum.PartType.Cylinder)
+			-- THE AXIS IS `+y`: the part's own `RightVector` -- its X axis -- points straight up.
+			expect(standing.CFrame.RightVector.Y).to.be.near(1, 0.001)
+			-- CRIMP UP, PRIMER DOWN, and the crimp is BRIGHTER than the hull. That last one is the
+			-- whole fix for *"slugs itself looks odd"*: a flat disc facing a key light from above
+			-- is the brightest part of the round, and drawing it DARKER is how you draw the mouth
+			-- of an open tube.
+			expect(crimp.Position.Y > standing.Position.Y).to.equal(true)
+			expect(primer.Position.Y < standing.Position.Y).to.equal(true)
+			local hullLum = standing.Color.R + standing.Color.G + standing.Color.B
+			local crimpLum = crimp.Color.R + crimp.Color.G + crimp.Color.B
+			expect(crimpLum > hullLum).to.equal(true)
+			-- THE LYING ROUND IS YAW 186 AND ITS HEAD IS THE END YOU SEE: the axis runs AWAY from
+			-- a camera on `+x / +z`, so the rim, the brass and the primer face the lens. At -16 the
+			-- camera saw a blank crimp, which is what the Designer measured and rejected.
+			local lying = box:FindFirstChild("ShellBHull") :: BasePart
+			local lyingRim = box:FindFirstChild("ShellBRim") :: BasePart
+			local lyingCrimp = box:FindFirstChild("ShellBCrimpTop") :: BasePart
+			expect(lying).to.be.ok()
+			expect(math.abs(lying.CFrame.RightVector.Y) < 0.001).to.equal(true)
+			local toCamera = Vector3.new(math.sin(math.rad(34)), 0, math.cos(math.rad(34)))
+			expect(lyingRim.Position:Dot(toCamera) > lyingCrimp.Position:Dot(toCamera)).to.equal(true)
+			-- ...AND IT LIES ON THE SHELF: its centre is one radius up, not buried and not floating.
+			expect(lying.Position.Y).to.be.near(0.181 / 2, 0.001)
+			box:Destroy()
 
 			-- THE HIGH SEAT IS OUR OWN OPEN STAND AND NOT THE SPEC'S CLOSED BOX BLIND (the
 			-- Director's override, 2026-10-21; Karen, 2026-10-20: *"we stay what you have
@@ -743,16 +971,13 @@ return function()
 			-- says what the row actually sells.
 			expect(partsOf(Shop.ITEM.HIGH_SEAT)).to.equal(4 + 1 + 2 + 1 + 5 + 2 + 7 + 5)
 
-			-- THE CAMERAS. The two licences get `BOOK_VIEW` -- more pitch than a flat card so you
-			-- look DOWN INTO an open booklet, and a slower, shorter rock so the print never smears.
-			-- The high seat gets `TALL_VIEW`, whose 11 degrees is the whole point: at `SOLID_VIEW`'s
-			-- 25 the stand was photographed from above and read as a deck.
-			for _, id in ipairs({ Shop.ITEM.RED_STAG, Shop.ITEM.BEATER_LICENCE }) do
-				local view = Display.viewFor(id)
-				expect(view.pitchDeg).to.equal(14)
-				expect(view.rockDegrees).to.equal(15)
-				expect(view.rockSeconds).to.equal(10)
-			end
+			-- THE CAMERAS. The high seat gets `TALL_VIEW`, whose 11 degrees is the whole point: at
+			-- `SOLID_VIEW`'s 25 the stand was photographed from above and read as a deck.
+			--
+			-- TASK 241 TOOK `BOOK_VIEW` AWAY WITH THE BOOKLETS IT FRAMED. A licence has no camera
+			-- at all now, and `viewFor` answers `SOLID_VIEW` for it the way it answers for any id it
+			-- has no opinion about -- which is honest rather than a special case, because nothing
+			-- ever reads it: `ShopPanel.aim` returns before it looks, there being no model.
 			local seat = Display.viewFor(Shop.ITEM.HIGH_SEAT)
 			expect(seat.pitchDeg).to.equal(11)
 			expect(seat.rockDegrees).to.equal(nil)
@@ -802,10 +1027,12 @@ return function()
 		-- (the Designer's spec, 6.4): *"a flat card on a full orbit goes edge-on twice a revolution
 		-- and disappears; a nine-second sway never does"*.
 		--
-		-- TWO ROCKS SINCE TASK 228, and the licences have the SLOWER one: a booklet's page is
-		-- PRINTED -- seven guilloche rules, two ink bars and a signature -- and 17 degrees in nine
-		-- seconds smears it. `BOOK_VIEW` is 15 in ten. `CARD_VIEW` is still 17 in nine and is what
-		-- the pin on its card wears.
+		-- ONE ROCK AGAIN SINCE TASK 241. `BOOK_VIEW`'s slower 15-in-ten belonged to the booklet
+		-- licences and went with them; `CARD_VIEW` is still 17 in nine and is what the pin on its
+		-- card wears, which is now the only flat THING in the viewport. **The two licences are
+		-- flat IMAGES over the case and do not move at all**, and that is the Designer's section
+		-- 3.5 rather than an omission: the tilt and the shadow are painted into the artwork, so a
+		-- second motion on top reads as a loose sticker.
 		it("rocks a flat thing instead of turning it all the way round", function()
 			local card = Display.viewFor(Shop.ITEM.ALWAYS_HUNTER)
 			expect(card.rockDegrees).to.equal(17)
@@ -816,21 +1043,17 @@ return function()
 			expect(Display.spinDegAt(2.25, card)).to.be.near(17, 0.001)
 			expect(Display.spinDegAt(6.75, card)).to.be.near(-17, 0.001)
 
-			local book = Display.viewFor(Shop.ITEM.BEATER_LICENCE)
-			expect(book.rockDegrees).to.equal(15)
-			expect(book.rockSeconds).to.equal(10)
-			expect(Display.spinDegAt(0, book)).to.be.near(0, 0.001)
-			expect(Display.spinDegAt(10, book)).to.be.near(0, 0.001)
-			expect(Display.spinDegAt(2.5, book)).to.be.near(15, 0.001)
-			expect(Display.spinDegAt(7.5, book)).to.be.near(-15, 0.001)
-
-			-- NEITHER EVER GOES EDGE-ON: the card's own yaw is 15 and its sway 17, the booklet's 13
-			-- and 15, so the camera is never more than 32 degrees off either face and never at 90.
-			for _, view in ipairs({ card, book }) do
-				for tenth = 0, 100 do
-					local yaw = view.yawDeg + Display.spinDegAt(tenth / 10, view)
-					expect(math.abs(yaw) < 60).to.equal(true)
-				end
+			-- IT NEVER GOES EDGE-ON: its own yaw is 15 and its sway 17, so the camera is never more
+			-- than 32 degrees off its face and never at 90.
+			for tenth = 0, 100 do
+				local yaw = card.yawDeg + Display.spinDegAt(tenth / 10, card)
+				expect(math.abs(yaw) < 60).to.equal(true)
+			end
+			-- **A LICENCE DOES NOT ROCK AT ALL** (task 241): it is an `ImageLabel`, which cannot go
+			-- edge-on and must not tilt, and `Rotation = 0` is asserted on the real control above.
+			for _, id in ipairs({ Shop.ITEM.RED_STAG, Shop.ITEM.BEATER_LICENCE }) do
+				expect(Display.imageFor(id)).to.be.ok()
+				expect(Display.build(id)).to.equal(nil)
 			end
 			-- ...AND A SOLID STILL ORBITS: a whole revolution in 18 seconds.
 			local box = Display.viewFor(Shop.ITEM.SLUG)

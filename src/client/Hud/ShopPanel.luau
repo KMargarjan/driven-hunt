@@ -194,6 +194,11 @@ local strip: ScrollingFrame? = nil
 local stripFade: Frame? = nil
 local detail: Frame? = nil
 local caseFrame: Frame? = nil
+-- THE FLAT DOCUMENT OVER THE CASE (task 241): one `ImageLabel`, built once and hidden, shown only
+-- for an item whose drawing is an IMAGE rather than a model -- the two licences. `ShopDisplay` owns
+-- what it looks like (`dressLicenceImage`, the Designer's section 3.5); this file owns WHEN it is
+-- on screen and how big it is, which is this panel's business and nothing else's.
+local caseDocument: ImageLabel? = nil
 local viewport: ViewportFrame? = nil
 local viewportCamera: Camera? = nil
 local viewportModel: Model? = nil
@@ -402,6 +407,12 @@ end
 
 function ShopPanel.viewportFrame(): ViewportFrame?
 	return viewport
+end
+
+-- THE LICENCE IMAGE OVER THE CASE (task 241), for a spec to read rather than to walk the PlayerGui
+-- for -- the arrangement every other handle on this panel already has.
+function ShopPanel.documentImage(): ImageLabel?
+	return caseDocument
 end
 
 -- THE BOX THE PICTURE'S CAMERA IS AIMED AT: the model's own bounding centre and size, measured once
@@ -1051,6 +1062,22 @@ end
 
 -- ---------------------------------------------------------------- the picture
 
+-- IS THE CASE WIDE ENOUGH FOR THE DOCUMENT TO BE READ AT ALL? The Designer's section 3.5:
+-- *"Never render either licence below 150 px wide... Below that, show the row's text label and no
+-- image at all -- a green or red smear that cannot be read is worse than a word."* The rule itself
+-- is `ShopDisplay.licenceFits`, so this is the one line that applies it; the words it falls back to
+-- are the detail pane's name and blurb, which are already on screen beside the case.
+--
+-- IT IS ASKED AFTER EVERY LAYOUT AND AFTER EVERY SELECTION, and never per frame: the case's width
+-- changes only when the screen does.
+function ShopPanel.fitDocument()
+	local sheet = caseDocument
+	if sheet == nil then
+		return
+	end
+	sheet.Visible = sheet.Image ~= "" and ShopDisplay.licenceFits(sheet.AbsoluteSize.X)
+end
+
 function ShopPanel.showPicture(id: string?)
 	local box = viewport
 	if box == nil then
@@ -1060,14 +1087,26 @@ function ShopPanel.showPicture(id: string?)
 		(viewportModel :: Model):Destroy()
 		viewportModel = nil
 	end
-	viewportId = nil
+	-- THE FLAT HALF FIRST (task 241). An item has a viewport model OR an image, never both, so this
+	-- one assignment clears the document for every model item and sets it for the two licences --
+	-- which is why the early `return` below cannot leave the last licence hanging over a rifle.
+	if caseDocument ~= nil then
+		(caseDocument :: ImageLabel).Image = ShopDisplay.imageFor(id) or ""
+		ShopPanel.fitDocument()
+	end
+	-- `viewportId` IS WHAT THE CASE IS SHOWING AND NOT "WHAT MODEL IS IN THE VIEWPORT", and since
+	-- task 241 those are two different questions: a licence fills the case and puts nothing in the
+	-- viewport. It is set for both kinds, so `setOpen`'s *"is the case already showing the selected
+	-- row"* stays one comparison and cannot go on rebuilding a picture that is already there. An id
+	-- this module does not draw still leaves it nil, which is the old behaviour and the honest one:
+	-- the case is showing nothing, and the panel says so in words.
+	viewportId = if ShopDisplay.knows(id) then id else nil
 	local model = ShopDisplay.build(id)
 	if model == nil then
 		return
 	end
 	model.Parent = box
 	viewportModel = model
-	viewportId = id
 	pictureCentre, pictureSize = ShopDisplay.frameOf(model)
 	viewportBuiltAt = os.clock()
 	stats.pictures += 1
@@ -1676,6 +1715,25 @@ local function buildCase(parent: Frame)
 	})
 	soft.Parent = shadow
 
+	-- THE DOCUMENT (task 241, `goods-spec.md` sections 3.3 and 3.4): *"an `ImageLabel`, not a
+	-- viewport model"*, parented to the case, ABOVE the gradient and BELOW the brass shelf line.
+	--
+	-- THAT ORDER IS THE REASON IT IS CREATED HERE AND NOT AT THE END. `ScreenGui.ZIndexBehavior` is
+	-- `Sibling` (`Hud.Style`'s own note), under which siblings at the SAME `ZIndex` are ordered by
+	-- the order they were made -- so the top light, the shelf shadow and this label all sit at
+	-- `Z + 2` and the picture reads bottom-to-top exactly as it is written: light, shadow, document,
+	-- brass line, and the 3-D viewport above all of it at `Z + 3`.
+	--
+	-- EVERY LOOK PROPERTY COMES FROM `ShopDisplay.dressLicenceImage` and none of them is written
+	-- here, so a second screen showing the same card cannot drift from this one.
+	local sheet = Instance.new("ImageLabel")
+	sheet.Name = "Document"
+	sheet.ZIndex = Z + 2
+	sheet.Visible = false
+	ShopDisplay.dressLicenceImage(sheet)
+	sheet.Parent = box
+	caseDocument = sheet
+
 	local shelfLine = frame(box, "ShelfLine", 2)
 	shelfLine.BackgroundColor3 = LOOK.BRASS
 	shelfLine.AnchorPoint = Vector2.new(0.5, 1)
@@ -2073,7 +2131,17 @@ function ShopPanel.relayout()
 			line.Position = UDim2.new(0.5, 0, 1, -30)
 			line.Size = UDim2.new(1, -60, 0, 1)
 		end
+		-- THE DOCUMENT'S INSET (task 241, `goods-spec.md` section 3.5): 9 px top and bottom, 11 px
+		-- left and right, which is the Designer's measured 326 x 182 inside the 356 x 200 case. It
+		-- is written as an INSET and not as two numbers, so the case shrinking on a phone takes the
+		-- document with it instead of overflowing it.
+		local sheet = caseDocument
+		if sheet ~= nil then
+			sheet.Size = UDim2.new(1, -2 * ShopDisplay.LICENCE.INSET_X, 1, -2 * ShopDisplay.LICENCE.INSET_Y)
+		end
 	end
+	-- ...AND THEN THE SIZE RULE IS RE-ASKED, because the case has just changed width.
+	ShopPanel.fitDocument()
 	local function put(instance: GuiObject?, y: number, height: number)
 		if instance ~= nil then
 			instance.Position = UDim2.fromOffset(0, y - top)
