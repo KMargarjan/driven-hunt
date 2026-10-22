@@ -3,32 +3,43 @@
 Task: 235
 Round: 1
 Base: main @ `cd3cb8be5603` (merge of #215, task 234)
-Code commit: `64011862741483b04ab28fda270cb98232f4be02`
+Code commit: `f771624961b0438b2ddb8bee68706ef8bb39bca9`
 
 ```
-[harness] PASS: 34/34 checks @ 64011862741483b04ab28fda270cb98232f4be02 (clean tree) scope=all
+[harness]  PASS: 34/34 checks @ f771624961b0438b2ddb8bee68706ef8bb39bca9 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ f771624961b0438b2ddb8bee68706ef8bb39bca9 (clean tree)
 ```
 
-1997 server + 519 client cases on a clean tree at the code commit, including the two new
-`shop_door.spec` cases this task adds.
+One player: 1997 server + 519 client cases. Two players: server 1997/0, shooter 519/0, driver 513/0.
+Both on a clean tree, **both naming the same commit** (L-034; this feature's two harness lines drifted
+apart in task 66 and in task 179 round 3). The two-player run is the Director's
+(`<runs-dir>/test2-t235.log`); the one-player run is this session's, at the same commit, after it
+(`<runs-dir>/test-f7716249.log`, exit 0).
 
-**`[harness2]` IS PENDING THE DIRECTOR AND THE REVIEW CANNOT RUN WITHOUT IT.** This change touches
-`src/server/MatchBoot.server.luau`, which is in `TWO_PLAYER_PATHS`, and the line above is a FULL
-`scope=all` line, so Task 113's scoped lane does not apply: `tools/agents.py` asks for `[harness2]`
-and is right to. That lane is not reachable here either -- `src/server/MatchBoot.server.luau` is in
-no `BLAST_RADIUS` row, so `test --scope auto` resolves to the whole suite and is tagged `scope=all`
--- and the Director's dispatch asked for `test2` on its own merits anyway (*"SHOP changes what a
-drive's players carry"*). The exact clicks are in `ESCALATE.md`.
+**THE CODE COMMIT IS A PAPERWORK COMMIT, DELIBERATELY.** The last commit that changed `src/` or
+`tests/` is `64011862`; `f7716249` is two paperwork commits later, and it is the commit BOTH harness
+lines name. CLAUDE.md git workflow step 4 allows exactly this -- *"naming a later paperwork commit is
+allowed and is often unavoidable ... it only makes the bound stricter"* -- and it is the stricter
+bound here, because the harness ran over everything `64011862` contained plus the paperwork.
+`git diff f7716249..HEAD` is `REQUEST.md`, `ESCALATE.md` and `TASKS.md` and nothing else.
 
-**THE TASK NUMBER.** The Director dispatched this as **233b**. The review folder takes a numeric id
-(`tools/agents.py` matches `task-` plus digits), and `reviews/task-233/` already holds task 233's
-round-2 `PASS`, which rule 7 forbids overwriting -- so this is `task-235`, the next free id, exactly
-as task 149b became task 150 for the same reason (`8194b0b8`, *"the review folder takes a numeric
-id"*). The Director may renumber the `TASKS.md` row; nothing in the code depends on it.
+**THE TASK NUMBER IS 235, by the Director's word of 2026-10-22:** *"keep 235 for this task. The
+licence popup the Director had called 235 is now 238."* The review folder needed a numeric id
+(`tools/agents.py` matches `task-` plus digits) and `reviews/task-233/` already holds task 233's
+round-2 `PASS`, which rule 7 forbids overwriting -- the same renumbering task 149b took to become
+task 150 (`8194b0b8`).
 
-CI green on the branch: `Build and lint`, run 39695600861 (at `daede335`, the request's own
-commit; this line is a later one-line edit to the same paperwork, so its own CI run is the
-one the Director and the Reviewer should read off the PR head).
+**THE SCREENSHOT IS WAIVED FOR THIS ROUND BY THE DIRECTOR** (2026-10-22): *"The Forest Test stays
+closed tonight. I will check the fresh player's kit on the player's path in my morning smoke and
+report it to Karen."* So rule 5's frame for the WIRED arm -- the hotbar and the ammo chip on a fresh
+player at the lodge and in the drive -- is not in this round, and it is not a gap this request
+papers over: it is the Director's next step, and what a fresh player carries is stated from the data
+in `ESCALATE.md` and in the report. The DEV place cannot stand in for it, because DEV has no counter
+by construction and that is the whole point of the change.
+
+CI green on the branch: `Build and lint`, run 39695695009 at `f7716249` (and 39695600861 before it).
+This fill is a later paperwork commit, so the Director and the Reviewer should read CI off the PR
+head rather than off this line.
 
 ## What changed
 
@@ -83,7 +94,11 @@ spec was re-baselined to hide them. The probe was reverted with `git checkout` a
    wired -- the entitlement, the licence, the look. Every reader then answers nil, which is today's
    game by every branch (`docs/design/shop.md` section 7.1).
    *Verify:* the `Shop.start` call and the `if shopOn then` block in
-   `src/server/MatchBoot.server.luau`; and the gate line above -- 34/34 with the row lit.
+   `src/server/MatchBoot.server.luau`; and the two gate lines above -- 34/34 one player and 36/36
+   two players, with the row lit. **The two-player run is what shuts the one hole a one-player run
+   leaves here**: a provider reaching players by some path that is not that `if` would show as a
+   different kit on the OTHER client, and the driver's 513/0 and the shooter's 519/0 are the same
+   numbers task 233's green two-player run gave with the row DARK.
 
 5. **Both arms are reachable BY PARAMETER and both are specced.** `shop_door.spec` gains
    *"wires nothing in a world with no counter, so that world keeps today's kit"* (the door is not
@@ -100,8 +115,9 @@ spec was re-baselined to hide them. The probe was reverted with `git checkout` a
    half of each arm is asserted against the two pure owners of it (`Weapons.loadoutFor` and
    `Shop.startFor`), not through a live `setEntitlementProvider`. What ties them is
    `setEntitlementProvider`'s own documented contract -- unwired means the provider answers nil, and
-   nil is the full loadout and the weapon's own shells. The end-to-end evidence is the DEV gate (the
-   unwired arm, 34/34) and the Forest Test (the wired arm), which is NEEDS DIRECTOR in `ESCALATE.md`.
+   nil is the full loadout and the weapon's own shells. The end-to-end evidence for the UNWIRED arm
+   is the DEV gate, both runs; for the WIRED arm it is the Forest Test, which the Director has taken
+   into the morning smoke (see the waiver above). Nothing in this request claims a frame.
 
 6. **The Forest Test says whether it has a counter the way it says everything else about its
    lobby.** `counterAt = if lobbyOn then Lobby.Data.counterPosition else nil` -- the counter is a
@@ -149,17 +165,20 @@ spec was re-baselined to hide them. The probe was reverted with `git checkout` a
 
 ## What I could not verify
 
-* **`test2`.** The Builder cannot run it. `ESCALATE.md` carries the NEEDS DIRECTOR with the clicks.
-* **The Forest Test, which is the whole WIRED arm's live evidence.** Its Studio is not open
-  (`list_roblox_studios` answers one Studio, DEV / `136410205938347`), and the Director's standing
-  capture block says the Director opens it. So the dispatch's item 3 -- the hotbar and the ammo chip
-  on a fresh player at the lodge and in the drive -- is NOT measured here. What a fresh player
-  carries is stated from the data instead, in the report and in `ESCALATE.md`, and it is exact: one
-  weapon (the shotgun), `ammo = "Buck"`, pockets `Buck 12 / Slug 0`, against `Slug 12 / Buck 12` and
-  a rifle beside it in a world with no counter.
+* **The WIRED arm on a live player's path.** The Forest Test Studio stayed closed and the Director
+  **waived the frame for this round**, taking it into the morning smoke (quoted above). So no claim
+  here rests on a picture of a fresh player's hotbar or ammo chip. What he carries is stated from the
+  data and it is exact: one weapon (the shotgun), `ammo = "Buck"`, pockets `Buck 12 / Slug 0` --
+  against `Slug 12 / Buck 12` and a rifle beside it in a world with no counter. The DEV place cannot
+  stand in: it has no counter, which is the arm the gate DOES cover.
 * **Whether Karen wants that first-minute experience.** It is the v1 ladder as reviewed in tasks 178
   and 221, but she has played the Forest Test with her own place attributes and a granted profile,
-  never as a fresh player. It is hers to judge and it is in the report.
+  never as a fresh player. It is hers to judge; the Director is reporting it to her.
 * **The design doc.** `docs/design/shop.md` section 10.4 still says every purchase in the DEV place
   is *"refused `too-far`"*; it is now stricter than that -- the shop is not wired there at all. The
   Architect owns `docs/design/`, so the delta is reported, not written.
+* **One thing I deliberately did NOT do** (L-041, and it is the Director's call): mapping
+  `src/server/MatchBoot.server.luau` to `match` in `BLAST_RADIUS` would have opened Task 113's
+  scoped lane and dropped the `[harness2]` requirement. That gate has now PASSED, so editing the map
+  in this closeout round could only serve to dodge a gate that already answered. The observation
+  stays an observation.

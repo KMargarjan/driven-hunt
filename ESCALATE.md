@@ -1,8 +1,18 @@
 # Escalations
 
-## 2026-10-22 - Task 235 (the Director's 233b): **TWO NEEDS DIRECTOR, and the review is blocked on the first.** `SHOP` is a v1 default and a world with no counter wires no shop; the one-player gate is green twice at the code commit.
+## 2026-10-22 - Task 235 (the Director's 233b): **BOTH NEEDS DIRECTOR CLOSED.** `SHOP` is a v1 default and a world with no counter wires no shop; both gates green at `f7716249`.
 
-### 1. NEEDS DIRECTOR (one click): `test2` at the code commit -- **AND THE REVIEW CANNOT RUN WITHOUT IT**
+```
+[harness]  PASS: 34/34 checks @ f771624961b0438b2ddb8bee68706ef8bb39bca9 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ f771624961b0438b2ddb8bee68706ef8bb39bca9 (clean tree)
+```
+
+Two players: server 1997/0, shooter 519/0, driver 513/0 -- the same numbers task 233's green
+two-player run gave with the row DARK, which is the prediction this run existed to test. Both lines
+name ONE commit (L-034). Logs: `<runs-dir>/test2-t235.log` (the Director's) and
+`<runs-dir>/test-f7716249.log` (this session's, exit 0, run after it on the same clean tree).
+
+### 1. ~~NEEDS DIRECTOR (one click): `test2` at the code commit~~ -- **CLOSED, 2026-10-22.** The Director ran it; the line is above and in the request. The original entry is kept below as the record.
 
 The dispatch asked for it (*"NEEDS DIRECTOR for test2 at the code commit (SHOP changes what a
 drive's players carry), then the review after the Director's test2 line"*), and `tools/agents.py`
@@ -44,7 +54,15 @@ that nothing changes for either player and the numbers match task 234's two-play
 answer would mean a provider is reaching players through some path that is not the `if shopOn then`
 block, which is exactly what the run is for.
 
-### 2. NEEDS DIRECTOR: **open the Forest Test**, so the WIRED arm can be photographed
+### 2. ~~NEEDS DIRECTOR: open the Forest Test~~ -- **WAIVED FOR THIS ROUND BY THE DIRECTOR, 2026-10-22**
+
+*"SCREENSHOT: waived for this round by the Director. The Forest Test stays closed tonight. I will check
+the fresh player's kit on the player's path in my morning smoke and report it to Karen."* So the
+wired arm's frame is the Director's next step, not a hole this round pretends is filled. **Nothing
+in `reviews/task-235/REQUEST.md` claims a picture**, and item 3 below is what the morning smoke
+should find. The original entry is kept below as the record.
+
+#### The original entry
 
 The dispatch's item 3 -- *"Measure the player's path in the Forest Test ... frames: the hotbar and
 the ammo chip at the lodge and in the drive"* -- **is not done**, and the standing capture block
