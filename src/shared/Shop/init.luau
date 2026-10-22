@@ -904,7 +904,8 @@ Shop.CONFIG = {
 		ROLE_HUNTING = "A STAND ON THE LINE",
 		ROLE_BEATING = "WALKING THE DRIVE",
 		-- THERE IS NO `ROLE_SOLO` SINCE TASK 242. It mirrored the pad's `NO BEATERS THIS DRIVE`,
-		-- which was the party-of-one refusal; a solo wisher now beats, so both rows are archived in
+		-- which was the party-of-one refusal; an `ALWAYS HUNTER` owner who picks BEATER on a `1 / 1`
+		-- pad now beats, so both rows are archived in
 		-- `backups/2026-10-22_task-242_no-beaters-this-drive.md` (rule 7). The two tables are still
 		-- one vocabulary and `shop_panel.spec` still compares them row for row.
 		-- THE DRIVE ALREADY HAS HIM, so the ask is in and the control is a RECEIPT rather than a
@@ -1924,31 +1925,6 @@ function Shop.grantsAlwaysHunter(owned: { [string]: boolean }?): boolean
 		end
 	end
 	return false
-end
-
--- MAY HE CHOOSE WHICH SIDE HE IS ON? (task 242.) KAREN, 2026-10-22, verbatim: *"in nex drive I
--- can't select beater but I have this license fix it"*.
---
--- IT IS DERIVED AND NOT A NINTH `Grants` FIELD, which is this file's own discipline one block up
--- (*"ownership is a set the loadout reads"*): the two cards that give a man a say about his side are
--- already in the table and already say what they do -- `ALWAYS HUNTER` (`alwaysHunter`: he is owed
--- `Shooters` every drive) and the `BEATER LICENCE` (`driveGun`: he paid to beat WITH A GUN). A ninth
--- field would be a second place for the same fact to be written, and `rowsOk` would then have to
--- police it.
---
--- WHY THE BEATER'S CARD COUNTS. Task 229 built the switch for the man who had bought his way OUT of
--- beating, because that was the only card that mentioned a side. Karen bought the card that says
--- *"a beater may carry a gun in the drive"*, found no way to be a beater, and called it a defect:
--- a licence to beat with a gun is worth nothing in a game that never deals you the beater's side.
---
--- FALSE for nil and FALSE for `{}`, with `grantsAlwaysHunter`'s own reason: today nobody chooses,
--- so an un-wired world -- every spec that starts no money -- writes no attribute and builds no
--- control, and the game is what it was.
-function Shop.grantsRoleChoice(owned: { [string]: boolean }?): boolean
-	if owned == nil then
-		return false
-	end
-	return Shop.grantsAlwaysHunter(owned) or Shop.grantsDriveGun(owned)
 end
 
 -- WHICH SPECIES HE HOLDS A CARD FOR, as the set `Licences.allows` takes (task 221).

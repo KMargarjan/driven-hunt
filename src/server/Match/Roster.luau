@@ -363,9 +363,10 @@ end
 --      men the rotation owes a turn -- whoever DROVE last drive goes first.
 -- The result is balanced BY CONSTRUCTION rather than by a check that can discard the whole thing.
 --
--- `always` AND `beaters` nil or EMPTY TAKE THE OLD PATH, UNTOUCHED, and that is the identity
--- `match_roster.spec` pins at every roster size from 2 to 16: a build where nobody bought anything
--- is the game before task 221, line for line.
+-- `always` nil or EMPTY TAKES THE OLD PATH, UNTOUCHED, and that is the identity `match_roster.spec`
+-- pins at every roster size from 2 to 16: a build where nobody bought it is the game before task
+-- 221, line for line -- and that path is the ALTERNATION Karen named as the default on 2026-10-22,
+-- which `Roster.previousFrom` + the swap below already make strict.
 function Roster.assign(
 	userIds: { number },
 	previous: Assignment?,
@@ -392,36 +393,41 @@ function Roster.assign(
 	-- asserts `|Drivers - Shooters| <= 1` at every size from 2 to 16 rather than trusting it.
 	local holders: { number } = {}
 	local wishers: { number } = {}
-	-- A WISH IS READ WHOEVER MADE IT (task 242). KAREN, 2026-10-22: *"in nex drive I can't select
-	-- beater but I have this license fix it"*. Until this task a wish was read ONLY out of `always`,
-	-- so the man who had bought the BEATER LICENCE -- the card that is about beating -- could ask and
-	-- be ignored by the one function that deals the sides. `Lobby.onRoleRequest` is the door that
-	-- decides whether he was allowed to ask at all (`Economy.roleChoosers`); this is pure and keys by
-	-- userId, exactly as `wishedWith`'s header already says, so a wish that reaches here is a wish the
-	-- server measured.
-	--
-	-- THE TWO LISTS ARE DISJOINT AND A WISH WINS: an owner who asked leaves the privilege pass and is
-	-- dealt a driver's place instead, and a wisher who owns nothing is in `wishers` alone.
-	if always ~= nil or beaters ~= nil then
+	if always ~= nil then
 		for _, userId in ipairs(ids) do
-			if beaters ~= nil and beaters[userId] == true then
-				table.insert(wishers, userId)
-			elseif always ~= nil and always[userId] == true then
-				table.insert(holders, userId)
+			if always[userId] == true then
+				-- A WISHER IS AN OWNER WHO ASKED, so he leaves the privilege pass entirely and is
+				-- dealt a driver's place first instead. A wish from a man who owns nothing is not
+				-- read here at all: he is in neither list and takes the rotation's own path.
+				--
+				-- THE CARD IS WHAT BUYS THE CHOICE, AND THAT IS KAREN'S OWN RULE (2026-10-22,
+				-- verbatim): *"when you have a card always hunter technically you can choose to be
+				-- what you ant eather beater or hunter / so it give you an option to select
+				-- othervise by default if you don't have once time you hunter one time beater"*.
+				-- The first cut of task 242 let the BEATER LICENCE buy the switch too; she ruled
+				-- otherwise and that cut is archived in
+				-- `backups/2026-10-22_task-242_beater-licence-buys-the-choice.md` (rule 7). A man
+				-- with no card is not refused a side -- he ALTERNATES, which is the `previous` swap
+				-- below and the block that documents it.
+				if beaters ~= nil and beaters[userId] == true then
+					table.insert(wishers, userId)
+				else
+					table.insert(holders, userId)
+				end
 			end
 		end
 	end
-	-- `always` AND `beaters` BOTH nil or EMPTY MAKE BOTH LISTS EMPTY, so every branch below is the
-	-- line it was before task 221, value for value -- the identity `match_roster.spec` pins at every
-	-- roster size.
+	-- `beaters` nil or EMPTY MAKES THIS LIST EMPTY AND `holders` TODAY'S `holders`, so every branch
+	-- below is the line it was before task 229, value for value -- the identity `match_roster.spec`
+	-- pins at every roster size.
 	if #wishers > 0 then
 		-- AT ONE PLAYER THERE IS NOTHING TO BALANCE, AND THAT IS WHY THE SOLO BEATER IS HONOURED
 		-- (task 242). `#ids - Roster.shooterSlots(1, config)` is 0 (`ODD_PLAYER_TEAM` is `Shooters`),
 		-- which is what made task 229 hand the lone man the hunter's side and call it *"the whole of
-		-- the `1 / 1` rule"*. Karen then bought the beater's licence, stood on the pad alone, and
-		-- found she could not beat -- so the premise is what was wrong, not the arithmetic: a roster
-		-- of one cannot make `|Drivers - Shooters|` exceed 1 whichever side he takes, so the balance
-		-- rule has no opinion and the man's own choice is the only fact in the room.
+		-- the `1 / 1` rule"*. Karen owned `ALWAYS HUNTER`, stood on the pad alone, chose BEATER and
+		-- was dealt a stand -- so the premise is what was wrong, not the arithmetic: a roster of one
+		-- cannot make `|Drivers - Shooters|` exceed 1 whichever side he takes, so the balance rule
+		-- has no opinion and the man's own choice is the only fact in the room.
 		--
 		-- AND THE DRIVE STILL HAPPENS, which is the thing task 229 doubted (*"a solo beater is a
 		-- drive in which nothing can be shot"*). MEASURED, not argued: `Bots.Fill.counts` fills each
@@ -434,14 +440,13 @@ function Roster.assign(
 		-- THE WISHERS TAKE DRIVER PLACES FIRST, up to the number of driver places there are. By
 		-- userId, which is deterministic and total -- this module's own tie-break everywhere else.
 		--
-		-- A WISHER BEYOND `driverSlots` IS NOT HONOURED. If he OWNS the hunter's place he goes back
-		-- into `holders` -- he did not get what he asked for, so he gets what he PAID for. If he owns
-		-- nothing he is left unassigned and falls into `rest` below, the ordinary rotation: a man who
-		-- bought a licence to beat bought no claim on the hunter's side.
+		-- A WISHER BEYOND `driverSlots` IS NOT HONOURED and goes back into `holders`: he owns the
+		-- hunter's place and did not get what he asked for, so he gets what he PAID for. No second
+		-- branch, and no man is ever left without a side.
 		for index, userId in ipairs(wishers) do
 			if index <= driverSlots then
 				assignment[userId] = DRIVERS
-			elseif always ~= nil and always[userId] == true then
+			else
 				table.insert(holders, userId)
 			end
 		end

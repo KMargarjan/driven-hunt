@@ -116,12 +116,12 @@ local lastPadRequestAt: { [number]: number } = {}
 --
 -- ONE ROW PER PLAYER WHO HAS ASKED FOR SOMETHING OTHER THAN THE DEFAULT, and `Lobby.wishFor`'s
 -- answer of `HUNTER` drops the row -- so the table holds only the men who have actually asked to
--- beat, it is empty in every build where nobody has bought a say in his side, and the reconciliation can
+-- beat, it is empty in every build where nobody owns `ALWAYS HUNTER`, and the reconciliation can
 -- only ever CLEAR. `forget` and `stop` empty it, beside the bucket above.
 local roleWish: { [number]: string } = {}
 -- THE FROZEN MEMO THE DRIVE READS, rebuilt by the one writer and never mutated -- so a reader still
 -- holding the previous table holds a correct snapshot of the moment it asked. `Economy.owedTeams`'
--- and `Economy.roleChoosers`' own device, and its own stated reason: `Match.dispatch` fills this on
+-- and `Economy.alwaysHunters`' own device, and its own stated reason: `Match.dispatch` fills this on
 -- EVERY event, which while TASKS.md 214a(a) is open can be ~15x `MATCH_STEP_HZ`.
 local wishFrozen: { [number]: boolean }? = nil
 -- THE ROLE DOOR'S OWN FORGERY GUARD, and it is its OWN bucket rather than the pad's. Sharing one
@@ -129,15 +129,15 @@ local wishFrozen: { [number]: boolean }? = nil
 -- writes its row on every accepted call. One number (`PADS.REQUEST_MIN_INTERVAL`), two buckets, both
 -- pruned by `forget` and `stop`.
 local lastRoleRequestAt: { [number]: number } = {}
--- WHO MAY CHOOSE WHICH SIDE HE IS ON, injected AFTER `Shop.start` and never required. nil = nobody
--- owns anything = today's game, in every branch.
+-- WHO OWNS `ALWAYS HUNTER`, injected AFTER `Shop.start` and never required. nil = nobody owns
+-- anything = today's game, in every branch.
 --
--- IT WAS `alwaysHunters` UNTIL TASK 242, and the rename IS the fix. Karen, 2026-10-22, verbatim:
--- *"in nex drive I can't select beater but I have this license fix it"*. Task 229 asked the
--- composition root for the owners of ONE card, which made that card the rule; what the switch is
--- actually about is whether this man has bought a say in his side at all, and `Shop.grantsRoleChoice`
--- is where the list of such cards belongs. This module asks the question and never decides it.
-local roleChoosers: (() -> { [number]: boolean })? = nil
+-- IT IS THE CARD AND NOT A WIDER RULE, and that is KAREN'S OWN WORD of 2026-10-22, verbatim: *"when
+-- you have a card always hunter technically you can choose to be what you ant eather beater or
+-- hunter"*. The first cut of task 242 widened this to anyone holding the BEATER LICENCE as well;
+-- she ruled otherwise, and that cut is archived in
+-- `backups/2026-10-22_task-242_beater-licence-buys-the-choice.md` (rule 7).
+local alwaysHunters: (() -> { [number]: boolean })? = nil
 local returnedAt: { [number]: number } = {}
 local spawnIndex: { [number]: number } = {}
 local nextSpawnIndex = 0
@@ -456,7 +456,7 @@ end
 -- `Scoring -> Assigning`, a leave, a Reset). One level rule covers all of them; five handlers cover
 -- four of them and the fifth is the bug (Learning Agent L-029).
 --
---   * he may not choose his side       -> nil      -- no control is built anywhere
+--   * he does not own `ALWAYS HUNTER`  -> nil      -- no control is built anywhere
 --   * the drive has given him a side   -> HUNTER   -- the wish has been SPENT
 --   * otherwise                        -> what he asked for, or HUNTER
 --
@@ -480,7 +480,7 @@ end
 -- WHO HAS ASKED TO BEAT, as a FROZEN MEMO: userId -> true. This is what the drive reads, through the
 -- bare function the composition root hands to `Match.start`.
 --
--- FROZEN AND MEMOISED for `Economy.roleChoosers`' own stated reason, quoted in that file: the drive
+-- FROZEN AND MEMOISED for `Economy.alwaysHunters`' own stated reason, quoted in that file: the drive
 -- fills it on EVERY event, and while TASKS.md 214a(a) is open that dispatch is stepped at ~15x
 -- `MATCH_STEP_HZ` -- so a clone here would be ~60 table builds a second for a table that changes at
 -- most twice a drive. One table read, no clone and no freeze per call.
@@ -502,18 +502,14 @@ function Lobby.beaterWishes(): { [number]: boolean }
 	return (cached :: any) :: { [number]: boolean }
 end
 
--- WHO MAY CHOOSE WHICH SIDE HE IS ON, injected at the composition root. A SETTER and not a `start`
--- field, for `ForestTest.setSeatProvider`'s stated reason: `Lobby.start` runs BEFORE `Shop.start`, so
--- an ownership read cannot be in the table `start` is handed.
---
--- IT WAS `setAlwaysHunters` UNTIL TASK 242. The composition root now hands over
--- `Economy.roleChoosers`, which is the SAME projection of the same profiles over a wider rule --
--- `Shop.grantsRoleChoice` -- so the beater's own licence buys the switch it is a licence for.
+-- WHO OWNS THE HUNTER'S PLACE, injected at the composition root. A SETTER and not a `start` field,
+-- for `ForestTest.setSeatProvider`'s stated reason: `Lobby.start` runs BEFORE `Shop.start`, so an
+-- ownership read cannot be in the table `start` is handed.
 --
 -- nil = NOBODY OWNS ANYTHING = today's game: `wishFor` answers nil for everybody, the attribute is
 -- never written and neither control is ever built.
-function Lobby.setRoleChoosers(reader: (() -> { [number]: boolean })?)
-	roleChoosers = if type(reader) == "function" then reader else nil
+function Lobby.setAlwaysHunters(reader: (() -> { [number]: boolean })?)
+	alwaysHunters = if type(reader) == "function" then reader else nil
 end
 
 -- WRITTEN ONLY WHEN IT DIFFERS, so it is one write per change and not one per scan.
@@ -936,9 +932,9 @@ end
 -- (task 80), so a spec must be able to drive it by parameter.
 --
 -- EVERY FACT IS MEASURED HERE AND NOTHING IS TAKEN FROM THE PAYLOAD BUT ITS ONE WORD. Whether the
--- word is legal is `Data.roleAllowed`, the one whitelist both sides read; whether he has bought a
--- say in his side is the server's own frozen memo (`Economy.roleChoosers`, task 242); whether the
--- truck already has him is the drive's own answer. A client that could decide any of the three would be a client that could put itself on
+-- word is legal is `Data.roleAllowed`, the one whitelist both sides read; whether he owns
+-- `ALWAYS HUNTER` is the server's own frozen memo; whether the truck already has him is the drive's
+-- own answer. A client that could decide any of the three would be a client that could put itself on
 -- either side of a drive.
 --
 -- IT RETURNS ITS OWN DECISION -- `{ ok = true, role = r }`, `{ ok = false, refused = "<reason>" }`,
@@ -979,9 +975,9 @@ function Lobby.onRoleRequest(player: any, request: any, now: number?): any
 	-- HE DOES NOT OWN THE THING HE IS ASKING ABOUT, AND THAT IS **NOT** A FORGERY. It is this
 	-- module's own split, written in `stats`: a forged payload is a different fact from a legal
 	-- request the game said no to, *"because counting it as a bad request would hide a mis-wired
-	-- provider inside the forgery counter"* -- and a build where `setRoleChoosers` was never called
+	-- provider inside the forgery counter"* -- and a build where `setAlwaysHunters` was never called
 	-- would otherwise read as an attack.
-	local owners = if roleChoosers ~= nil then roleChoosers() else nil
+	local owners = if alwaysHunters ~= nil then alwaysHunters() else nil
 	if owners == nil or owners[player.UserId] ~= true then
 		count("not-an-owner")
 		return { ok = false, refused = "not-an-owner" }
@@ -1088,12 +1084,12 @@ function Lobby.step(now: number, players: { any }?)
 	-- ONE READING OF THE SERVER CLOCK FOR THE WHOLE SCAN, so every member of one party is handed
 	-- the same deadline to count down.
 	local serverNow = Workspace:GetServerTimeNow()
-	-- ...AND ONE READING OF WHO MAY CHOOSE HIS SIDE (task 229, widened in 242), for the identical
-	-- reason the clock above is read once: sixteen members would otherwise ask sixteen times. It is
-	-- `Economy.roleChoosers` -- the frozen MEMO, one table read -- and deliberately not
+	-- ...AND ONE READING OF WHO OWNS THE HUNTER'S PLACE (task 229), for the identical reason the
+	-- clock above is read once: sixteen members would otherwise ask sixteen times. It is
+	-- `Economy.alwaysHunters` -- the frozen MEMO, one table read -- and deliberately not
 	-- `Economy.ownedOf`, which does `table.freeze(table.clone(set))` PER CALL and would be ~160
 	-- clones a second at sixteen players.
-	local owners: { [number]: boolean }? = if roleChoosers ~= nil then roleChoosers() else nil
+	local owners: { [number]: boolean }? = if alwaysHunters ~= nil then alwaysHunters() else nil
 	for _, player in ipairs(occupants) do
 		stepPlayer(player, now, padOf[player.UserId], serverNow, owners)
 	end

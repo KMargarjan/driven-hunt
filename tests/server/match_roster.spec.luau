@@ -119,6 +119,56 @@ return function()
 			expect(math.abs(counts.Drivers - counts.Shooters) <= 1).to.equal(true)
 		end)
 
+		it("ALTERNATES every player, drive after drive, at one two and four, with and without a stored turn", function()
+			-- KAREN'S DEFAULT, 2026-10-22, verbatim: *"othervise by default if you don't have once
+			-- time you hunter one time beater"* -- and the Director asked for it MEASURED before
+			-- anything was built. This is that measurement, as a case that can fail.
+			--
+			-- IT DRIVES THE WHOLE DRIVE-TO-DRIVE CHAIN AND NOT ONE `assign` CALL, because the
+			-- alternation is a property of the chain and of nothing in it alone: `Phase.enterScoring`
+			-- writes `previousAssignment = assignment`, `Match` stores `Roster.invert(assignment)` as
+			-- the turn, and the next `enterAssigning` folds the two back together through
+			-- `Roster.previousFrom` before `assign`'s swap flips them. Six drives, because two prove
+			-- a swap and six prove an alternation.
+			--
+			-- SIZE ONE IS THE ONE THAT COULD HAVE BEEN WRONG, and it is why this case exists at all:
+			-- `ODD_PLAYER_TEAM` is `Shooters`, so a lone player's FIRST drive is a hunter's and the
+			-- plain split would hand him that side for ever. It does not -- the swap branch takes a
+			-- roster of one, because `|1 - 0| <= 1` -- but nothing said so until now.
+			local CONFIG = config()
+			for _, size in ipairs({ 1, 2, 4 }) do
+				for _, withTurn in ipairs({ false, true }) do
+					local roster = ids(size)
+					local previous: any = nil
+					local owed: any = nil
+					local first: any = nil
+					for drive = 1, 6 do
+						local assignment = Roster.assign(roster, Roster.previousFrom(previous, owed), CONFIG)
+						if drive == 1 then
+							first = assignment
+						else
+							-- EVERY player is on the OTHER side from the drive before.
+							for _, userId in ipairs(roster) do
+								expect(assignment[userId]).to.equal(Roster.other(previous[userId]))
+							end
+							-- ...and an EVEN drive is where he started, an ODD one the other side,
+							-- which is what "one time hunter one time beater" means over six.
+							for _, userId in ipairs(roster) do
+								local want = if drive % 2 == 1 then first[userId] else Roster.other(first[userId])
+								expect(assignment[userId]).to.equal(want)
+							end
+						end
+						local counts = countOf(assignment)
+						expect(math.abs(counts.Drivers - counts.Shooters) <= 1).to.equal(true)
+						previous = assignment
+						-- WHAT THE END OF A DRIVE STORES (`Match` calls exactly this), or nothing at
+						-- all in a build with no economy. Both chains must alternate, and they do.
+						owed = if withTurn then Roster.invert(assignment) else nil
+					end
+				end
+			end
+		end)
+
 		it("falls back to a plain split when the previous drive was lopsided", function()
 			-- Somebody left between drives, so swapping the survivors would carry the imbalance
 			-- forward. A 3-1 previous split must not become a 1-3 one.
@@ -519,10 +569,11 @@ return function()
 		end)
 
 		it("IS honoured for a roster of one, because there is nothing to balance (task 242)", function()
-			-- KAREN, 2026-10-22: *"in nex drive I can't select beater but I have this license fix
-			-- it"*, and the `1 / 1` bot drive is where she stood. Task 229 read `driverSlots == 0`
-			-- at one player and called the refusal *"the whole of the 1/1 rule"*; the premise was
-			-- wrong, not the arithmetic. A roster of ONE cannot make `|Drivers - Shooters|` exceed 1
+			-- KAREN, 2026-10-22, verbatim: *"when you have a card always hunter technically you can
+			-- choose to be what you ant eather beater or hunter"* -- and the `1 / 1` bot drive is
+			-- where she stood with that card and could not. Task 229 read `driverSlots == 0` at one
+			-- player and called the refusal *"the whole of the 1/1 rule"*; the premise was wrong,
+			-- not the arithmetic. A roster of ONE cannot make `|Drivers - Shooters|` exceed 1
 			-- whichever side he takes, so the balance rule has no opinion to enforce.
 			local assignment = Roster.assign({ 7 }, nil, CONFIG, { [7] = true }, { [7] = true })
 			expect(assignment[7]).to.equal("Drivers")
@@ -534,39 +585,22 @@ return function()
 			expect(Roster.assign({ 7 }, nil, CONFIG)[7]).to.equal("Shooters")
 		end)
 
-		it("reads a wish from a man who owns no hunter's place at all (task 242)", function()
-			-- THE DEFECT KAREN REPORTED, AT THE ONE FUNCTION THAT DEALS THE SIDES. She owned
-			-- `licence.beater` and not `role.alwayshunter`, and until this task a wish was read only
-			-- out of `always` -- so her ask reached here and was dropped on the floor. Whether she was
-			-- ALLOWED to ask is `Lobby.onRoleRequest`'s question (`Economy.roleChoosers`); this
-			-- function is pure and keys by userId, so a wish that arrives is a wish the server
-			-- measured.
-			local assignment = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG, nil, { [1] = true })
-			expect(assignment[1]).to.equal("Drivers")
-			local counts = countOf(assignment)
-			expect(counts.Drivers).to.equal(2)
-			expect(counts.Shooters).to.equal(2)
-			-- ...AND A WISHER THE DRIVER PLACES CANNOT HOLD, WHO OWNS NOTHING, IS NOT HANDED THE
-			-- HUNTER'S SIDE AS A PRIZE: he falls into the ordinary rotation with everybody else. At
-			-- two players there is one driver place and two men asked.
-			local crowded = Roster.assign({ 1, 2 }, nil, CONFIG, nil, { [1] = true, [2] = true })
-			expect(crowded[1]).to.equal("Drivers")
-			expect(crowded[2]).to.equal("Shooters")
-			-- EVERY MAN STILL HAS A SIDE, at every size, with nobody owning anything.
-			for n = 2, 16 do
-				local roster = ids(n)
-				local wishes = {}
-				for index, userId in ipairs(roster) do
-					if index % 3 == 0 then
-						wishes[userId] = true
-					end
-				end
-				local out = Roster.assign(roster, nil, CONFIG, nil, wishes)
-				for _, userId in ipairs(roster) do
-					expect(out[userId] == "Drivers" or out[userId] == "Shooters").to.equal(true)
-				end
-				local level = countOf(out)
-				expect(math.abs(level.Drivers - level.Shooters) <= 1).to.equal(true)
+		it("does not read a wish from a man who owns nothing, and he ALTERNATES instead", function()
+			-- `Roster` IS PURE AND KEYS BY USER ID: whether a man owns `ALWAYS HUNTER` is a fact only
+			-- the server's own door can measure (`Lobby.onRoleRequest` check 4), so a wish that
+			-- reached here for a non-owner must change nothing at all.
+			--
+			-- TASK 242 TRIED THE OPPOSITE FIRST and Karen ruled it out, 2026-10-22, verbatim: *"when
+			-- you have a card always hunter technically you can choose to be what you ant eather
+			-- beater or hunter / so it give you an option to select othervise by default if you
+			-- don't have once time you hunter one time beater"*. The card buys the CHOICE; without
+			-- it the default is not "hunter" and not "random" -- it is the ALTERNATION the case
+			-- below measures. The archived cut is
+			-- `backups/2026-10-22_task-242_beater-licence-buys-the-choice.md` (rule 7).
+			local plain = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG)
+			local withStray = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG, nil, { [1] = true, [3] = true })
+			for userId = 1, 4 do
+				expect(withStray[userId]).to.equal(plain[userId])
 			end
 		end)
 
@@ -735,31 +769,6 @@ return function()
 			expect(wanted[5]).to.equal("Drivers")
 			expect(Roster.joinTeam({ Drivers = 2, Shooters = 2 }, wanted[5], CONFIG)).to.equal("Drivers")
 			expect(Roster.joinTeam({ Drivers = 3, Shooters = 1 }, wanted[5], CONFIG)).to.equal("Shooters")
-		end)
-
-		it("DOES read a wish from a man who owns nothing, because the door is what measures him", function()
-			-- THIS CASE SAID THE OPPOSITE UNTIL TASK 242, and the reversal is Karen's defect: *"in
-			-- nex drive I can't select beater but I have this license fix it"*. She owned
-			-- `licence.beater`, not `role.alwayshunter`, so under the old rule her ask reached this
-			-- function and changed nothing at all.
-			--
-			-- `Roster` IS PURE AND KEYS BY USER ID: whether a man may ask at all is a fact only the
-			-- server's own door can measure (`Lobby.onRoleRequest` check 4, now over
-			-- `Economy.roleChoosers`). What arrives here has already been measured, so reading it is
-			-- right and refusing it was the bug.
-			local plain = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG)
-			local withWishes = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG, nil, { [1] = true, [3] = true })
-			expect(withWishes[1]).to.equal("Drivers")
-			expect(withWishes[3]).to.equal("Drivers")
-			local moved = 0
-			for userId = 1, 4 do
-				if withWishes[userId] ~= plain[userId] then
-					moved += 1
-				end
-			end
-			expect(moved > 0).to.equal(true)
-			local counts = countOf(withWishes)
-			expect(math.abs(counts.Drivers - counts.Shooters) <= 1).to.equal(true)
 		end)
 	end)
 end

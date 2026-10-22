@@ -403,11 +403,11 @@ end
 --   * the drive has given him a side  -> he is in it; the wish is spent and the control is a receipt
 --   * a size has been pressed        -> `ASKED FOR ALREADY`, WHATEVER THE SIZE (task 242). A party
 --     of ONE used to get its own row, `NO BEATERS THIS DRIVE`, because `Roster.assign` honoured
---     nobody at one player; Karen bought the beater's licence, stood on the pad alone and asked to
---     beat, and that rule is gone -- a solo wisher is now dealt the beaters' side with bot hunters
---     on the stands. The row went with it (`backups/2026-10-22_task-242_no-beaters-this-drive.md`,
---     rule 7), because a caption that is no longer true is worse than no caption. The block is
---     DISABLED and not hidden:
+--     nobody at one player; Karen held `ALWAYS HUNTER`, stood on the pad alone, asked to beat and
+--     was dealt a stand, and that rule is gone -- a solo wisher is now dealt the beaters' side with
+--     bot hunters on the stands. The row went with it
+--     (`backups/2026-10-22_task-242_no-beaters-this-drive.md`, rule 7), because a caption that is no
+--     longer true is worse than no caption. The block is DISABLED and not hidden:
 --     hiding it would make the dialog jump 119 px under the player's thumb while the truck is
 --     loading, *"which is the one thing a dialog must never do"*.
 function PadPanel.roleCaptionFor(next_: string?, side: string?, size: number?): string

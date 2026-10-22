@@ -830,16 +830,11 @@ if shopOn then
 	-- A SETTER AND NOT A `Lobby.start` FIELD, because `Lobby.start` runs 150 lines above this one and
 	-- `Shop.start` decides `shopOn` here -- `ForestTest.setSeatProvider`'s own arrangement.
 	--
-	-- `Economy.roleChoosers` AND NOT `Economy.ownedOf`, and the difference is measured in that file:
+	-- `Economy.alwaysHunters` AND NOT `Economy.ownedOf`, and the difference is measured in that file:
 	-- `ownedOf` does `table.freeze(table.clone(set))` PER CALL, so one call per player per scan would
-	-- be ~160 clones a second at sixteen players; `roleChoosers` is the frozen memo *"rebuilt and
+	-- be ~160 clones a second at sixteen players; `alwaysHunters` is the frozen memo *"rebuilt and
 	-- never mutated"*, so the lobby's scan costs one table read.
-	--
-	-- IT WAS `Economy.alwaysHunters` UNTIL TASK 242, and that is the whole of Karen's *"in nex drive
-	-- I can't select beater but I have this license fix it"*: the switch was wired to the owners of
-	-- ONE card. `roleChoosers` is the same projection of the same profiles over `Shop.grantsRoleChoice`,
-	-- which is where the list of cards that buy a say in your side belongs.
-	Lobby.setRoleChoosers(Economy.roleChoosers)
+	Lobby.setAlwaysHunters(Economy.alwaysHunters)
 	Body.setLookProvider(function(player)
 		local color = ShopData.hatColorFor(Economy.ownedOf(player.UserId))
 		return if color then { hatColor = color } else nil

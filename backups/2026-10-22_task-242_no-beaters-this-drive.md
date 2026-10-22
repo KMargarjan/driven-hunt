@@ -36,8 +36,10 @@ switch was going to refuse, it had to say why.
 
 ## Why it went (task 242)
 
-KAREN, 2026-10-22, verbatim: *"in nex drive I can't select beater but I have
-this license fix it"*. She owns the BEATER LICENCE and plays SOLO.
+KAREN, 2026-10-22, verbatim: *"when you have a card always hunter technically
+you can choose to be what you ant eather beater or hunter"*. She owns the
+`ALWAYS HUNTER` card and plays SOLO -- and on a `1 / 1` pad the switch refused
+her.
 
 The premise was wrong, not the arithmetic. A roster of ONE cannot make
 `|Drivers - Shooters|` exceed 1 whichever side he takes, so the balance rule has
@@ -46,6 +48,11 @@ independently -- so a solo beater gets bot hunters on the stands and walks the
 wood with the horn. Measured in the Forest Test on her own path: team=Drivers,
 Horn in the character, 4 bot hunters and 3 bot beaters built, the HUD reading
 BEATER (`.screenshots/242-1-after-beating.png`).
+
+(That first measurement was taken through the BEATER LICENCE, which was task
+242's first cut and is itself archived in
+`2026-10-22_task-242_beater-licence-buys-the-choice.md`. The solo rule it proved
+is unchanged; only the card that reaches it is.)
 
 So the refusal is gone, and with it the sentence that explained it. A party of
 one now reads `ASKED FOR ALREADY` like any other party once a size is pressed.

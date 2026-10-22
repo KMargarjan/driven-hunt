@@ -762,54 +762,10 @@ return function()
 			expect(next(Economy.alwaysHunters())).to.equal(nil)
 		end)
 
-		it("projects WHO MAY CHOOSE HIS SIDE off the same profiles, over the wider rule (task 242)", function()
-			-- KAREN, 2026-10-22: *"in nex drive I can't select beater but I have this license fix
-			-- it"*. The beater's own licence now buys the switch, and this is the projection the
-			-- lobby reads. It is `alwaysHunters`' twin, so the three claims are the same three:
-			-- frozen, memoised, and rebuilt rather than mutated.
-			started({
-				ids = { 414, 415 },
-				seed = {
-					-- THE CARD KAREN ACTUALLY OWNED. Before this task he was in no list at all.
-					[414] = { coins = 100, owned = { [Shop.ITEM.BEATER_LICENCE] = true } },
-					[415] = { coins = 100 },
-				},
-			})
-			expect(waitUntil(2, function()
-				return Economy.balanceOf(414) ~= nil and Economy.balanceOf(415) ~= nil
-			end)).to.equal(true)
-
-			local first = Economy.roleChoosers()
-			expect(first[414]).to.equal(true)
-			expect(first[415]).to.equal(nil)
-			-- ...AND HE IS STILL NOT OWED THE HUNTER'S PLACE, which is the whole point of two memos:
-			-- a licence to beat is not a claim on the hunter's side.
-			expect(Economy.alwaysHunters()[414]).to.equal(nil)
-			expect(table.isfrozen(first)).to.equal(true)
-			expect(Economy.roleChoosers()).to.equal(first)
-
-			-- THE SAME INVALIDATION SERVES BOTH, because both read `ownedSets` and nothing else can
-			-- make either stale.
-			Economy.grant(415, Shop.ITEM.ALWAYS_HUNTER, Economy.SOURCE.ROBUX)
-			local second = Economy.roleChoosers()
-			expect(second).never.to.equal(first)
-			expect(second[415]).to.equal(true)
-			expect(first[415]).to.equal(nil)
-
-			Economy.release(414)
-			expect(Economy.roleChoosers()[414]).to.equal(nil)
-			Economy.stop()
-			expect(next(Economy.roleChoosers())).to.equal(nil)
-		end)
-
 		it("answers an empty set with the shop off, which is the game before this task", function()
 			started({ ids = { 406 }, enabled = false })
 			expect(next(Economy.alwaysHunters())).to.equal(nil)
 			expect(table.isfrozen(Economy.alwaysHunters())).to.equal(true)
-			-- ...AND SO IS THE ROLE-CHOICE PROJECTION (task 242): with no shop nobody chooses, which
-			-- is what keeps `Lobby.wishFor` answering nil and builds no control anywhere.
-			expect(next(Economy.roleChoosers())).to.equal(nil)
-			expect(table.isfrozen(Economy.roleChoosers())).to.equal(true)
 			-- ...and nothing can be granted either.
 			expect(Economy.grant(406, Shop.ITEM.RIFLE, Economy.SOURCE.ROBUX).refused).to.equal(Shop.REASON.CLOSED)
 		end)
