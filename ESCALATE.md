@@ -1,5 +1,36 @@
 # Escalations
 
+## 2026-10-22 - Task 236 (a lighter hunt): **ONE `NEEDS DIRECTOR`, not blocking.** The work is complete, the Reviewer passed it in round 1 at `40ed9688`, CI is green and the gate is green at `c7731e86`.
+
+```
+[harness] PASS: 34/34 checks @ c7731e8600313b942a94fd4b3728c9b58472790a (clean tree) scope=all
+```
+
+`test2` is **N/A**: no changed path is in `TWO_PLAYER_PATHS` (`tools/agents.py`), and an exposure
+stop looks the same to one player as to two.
+
+**NEEDS DIRECTOR: two frames in the Forest Test, at the morning smoke.** The dispatch closed the
+Forest Test for the night and named DEV frames plus the luminance numbers as this task's evidence,
+so nothing here is missing from the gate. Two things, though, can only be *looked at* in the place
+Karen plays, and the Builder has said so in the research note rather than implying otherwise:
+
+1. **The lodge.** `ExposureCompensation` is ONE table written in EVERY world, so the lodge task 215
+   warmed gets the same +0.40 EV. Exposure has no hue term, so its warm/orange character cannot
+   change and only its level moves, by the same ~16 % as everything else -- but that is an argument,
+   not a frame, and DEV has no lodge to photograph. **If it reads too bright, the knobs are the
+   lodge's own** (`Lobby.CONFIG.LODGE`'s `LANTERN` and `FIRE_LIGHT`), a different owner and a
+   different task; the hunt's exposure should not be traded back for it.
+2. **The forest's sky.** The brightest sky in DEV goes `#B5D1D4` (201.0) -> `#C7E1E2` (217.3), over
+   the `#B4CFE4` design-system.md section 2 tested, and the slate's 0.14 covers it at 5.01 : 1
+   against a floor of 4.5. The Forest Test's sky measured `#94B9D3` (176.9) in task 215, darker, so
+   the same lift should land it near 205 with more room than DEV has. **That number is an
+   interpolation from this task's own scaling, not a measurement.**
+
+**To nudge the look, it is one number** and no code reasoning changes with it:
+`Light.CONFIG.LIGHTING.ExposureCompensation`. 0.45 is a third less lift (+12 % mean), 0.55 is what
+shipped (+16 %), 0.65 is a quarter more (+20 %). Everything in between interpolates.
+
+
 ## 2026-10-22 - Task 238 (the licence popup): **THREE NEEDS DIRECTOR, none of them blocking.** The work is complete, the Reviewer passed it in round 2, and the gate is green at `74718912`; each item below is a decision the Builder took under a stated assumption, and each is one line to reverse.
 
 ```
