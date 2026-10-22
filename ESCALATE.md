@@ -1,6 +1,50 @@
 # Escalations
 
-## 2026-10-22 - Task 245 item 3(b): **NEEDS DIRECTOR -- ONE animation publish, and it is the only thing that blocks the road leap.** Items 1, 2 and 3(a) do not wait on it.
+## 2026-10-23 - Task 245b (the leap, wired): **ONE `NEEDS DIRECTOR`, not blocking.** The work is complete and the one-player gate is green.
+
+**NEEDS DIRECTOR: open the Forest Test, for ONE frame of a deer in the air over Karen's road.**
+
+Everything this task can prove without her place is proved and is in
+`reviews/task-245b/REQUEST.md`: the clip fires on the tick a running deer enters the road band and
+for exactly `LEAP.SECONDS` (measured live), and a stag frozen at the peak of its bound over the DEV
+map's own road is photographed at the player's eye height
+(`.screenshots/20261022T234849Z-245b-leap-dev2.png`).
+
+**What is missing is the Forest Test's own frame**, and it is missing for one reason: the place is
+not open. The Builder closed it at the end of task 245 because the standing block says to
+(*"CLOSE its window ... before ANY harness run"*), and this dispatch assumed it was still up. The
+standing block's own answer applies: *"If the Forest Test is closed when you need it, write NEEDS
+DIRECTOR and the Director opens it."*
+
+The clicks, when it is open:
+
+```
+python tools/flags.py --place forest set DEER_ROAD_LEAP on    # for the proof only
+<runs-dir>/ftq.py Edit attrs-id.luau                          # read all the attributes first
+ftplay.py start ; ftplay.py server lobby-go.luau              # rule I
+...wait for a deer wave (they come on waves 2-4 of a drive)
+python tools/flags.py --place forest clear DEER_ROAD_LEAP     # exactly that one flag
+<runs-dir>/ftq.py Edit attrs-id.luau                          # identical to the first read
+```
+
+**It is also the switch Karen's morning test needs**, so the Director was going to turn this flag on
+in her place anyway: `DEER_ROAD_LEAP`, born off, `Boar.CONFIG.MODEL.LEAP.ENABLED` the one reader.
+
+---
+
+## 2026-10-22 - Task 245 item 3(b): ~~**NEEDS DIRECTOR -- ONE animation publish**~~ -- **CLOSED, 2026-10-23.** The Director published it from the stag's file, looked at mid-clip (*"the stag in the air with its legs tucked"*), and it is ONE id for all three kinds exactly as the measurement said:
+
+```
+deer.anim.leap = 126500539626404   ("DrivenHunt Deer Leap")
+rest pose "Imported Rig", track Jump_Run_IP_Arm_Deer|Jump_Run_IP
+from <assets-dir>/deer/prep-stag-jump/clips/Jump_Run_IP.fbx
+```
+
+The row is in `Assets.ROWS` with `clipSeconds = 2.0`, measured two independent ways in Play. The
+original entry is kept below as the record.
+
+### What the entry said while it was open
+
 
 **THE CLICK.** Studio -> Avatar -> Animation Editor -> Import -> **From FBX Animation**, then
 "Publish to Roblox", exactly as the eleven of task 232:
