@@ -237,14 +237,31 @@ return function()
 			end
 			expect(loads).to.equal(ROW.MAGAZINE)
 			expect(math.abs(sum - (ROW.RELOAD_TOTAL :: number)) < 1e-9).to.equal(true)
-			-- Filling a tube one round at a time is SLOWER than swapping a box: the trade.
-			expect((ROW.RELOAD_TOTAL :: number) > (Rifle.CONFIG.RELOAD_TOTAL :: number)).to.equal(true)
+			-- KAREN'S CUT (task 242, 2026-10-22: *"and lever weapon need to reload much faster"*).
+			-- Task 224's claim here was that filling a tube is SLOWER than swapping a box, and it
+			-- asserted this gun against the Rigby's 1.97. She has played it and overruled the trade,
+			-- so the assertion is the new fact and not the old one: 1.59, which is 45 % off 2.90.
+			expect(ROW.RELOAD_TOTAL).to.equal(1.59)
+			expect((ROW.RELOAD_TOTAL :: number) < (Rifle.CONFIG.RELOAD_TOTAL :: number)).to.equal(true)
+			-- ...AND IT IS STILL LONGER THAN ONE LEVER THROW, which is the relation that has to hold
+			-- whatever the dial says: five cartridges through a gate cannot cost less than one cycle
+			-- of the action, or the reload is reading as free.
+			expect((ROW.RELOAD_TOTAL :: number) > (ROW.CYCLE_TOTAL :: number)).to.equal(true)
+			-- EVERY STEP IS SCALED AND NONE IS SKIPPED: the list is still Break + five Loads + Close
+			-- (asserted above) and every wait is still a real window. What those windows do NOT do is
+			-- drive the drawn swing -- that is `poses.json`'s `lever.cycle`, and the case "draws the
+			-- throw and the close faster than the server performs them, IN BOTH LISTS" is where the
+			-- two are held together (review round 1, finding 1).
+			for _, step in ipairs(reload) do
+				expect(step.wait > 0.2).to.equal(true)
+			end
 		end)
 
 		it("charges each sequence its OWN Break window", function()
 			-- The defect task 184 measured: `Break` is in both lists with different waits, so the
 			-- reducer must be told which list the step came from. LEVER-ONLY: this gun's two lists
-			-- disagree about `Break` by 0.06 s.
+			-- disagree about `Break` by 0.24 s since task 242 (0.46 against 0.22), where they
+			-- disagreed by 0.06 before it. The assertion is `~=`, so the number is the comment's.
 			expect(ROW.CYCLE[1].wait ~= (ROW.RELOAD :: any)[1].wait).to.equal(true)
 			local base = equipped(ROW)
 			local now = 0
@@ -363,6 +380,54 @@ return function()
 			expect(sight.Position.Z > ROW.MUZZLE_OFFSET.Z).to.equal(true)
 		end)
 
+		it("draws a BRIGHT front bead on the blade, small enough to leave light in the notch", function()
+			-- TASK 242. KAREN, 2026-10-22: *"also aiming improved a bit"*. Task 227's alignment was
+			-- MEASURED before anything changed and is perfect -- the case below asserts it on the
+			-- shipped data -- so what was wrong is that both sights are dark steel against a dark
+			-- wood: on the frame this task started from the notch opens about 14 px and the blade in
+			-- it is 3 px. A Marlin 1895 SBL carries an orange fibre-optic front sight for exactly
+			-- this reason, and the Rigby already draws a bead here (`Rifle.Geometry`).
+			local bead: any = nil
+			for _, piece in ipairs(LeverGeometry.pieces(ROW)) do
+				if piece.name == "Bead" then
+					bead = piece
+				end
+			end
+			expect(bead).to.be.ok()
+			expect(bead.material).to.equal(Enum.Material.Neon)
+			expect(bead.meshKey).to.equal(nil) -- drawn: there is no bead in the upload to wear
+			expect(bead.shape).to.equal(Enum.PartType.Ball)
+			-- ON THE ONE EXPRESSION THAT SAYS WHERE THE FRONT SIGHT IS, so the bright thing the eye
+			-- finds and the point the eye is LAID on cannot drift apart.
+			expect(bead.offset.Position).to.equal(LeverGeometry.beadOffset(ROW))
+			expect(bead.offset.Position.X).to.equal(0) -- the shot leaves at x = 0
+			-- IT IS SIZED AGAINST THE NOTCH IT SITS IN. At the shipped relief it must be a bead and
+			-- not a plug: big enough to find, and well under the ~0.83 degrees the notch opens, so
+			-- there is daylight on both sides of it.
+			local at = LeverGeometry.layout(ROW)
+			local relief = Viewmodel.view(Viewmodel.DATA, "lever").EYE_RELIEF_STUDS
+			local beadDeg = 2 * math.deg(math.atan(at.beadDiameter / 2 / relief))
+			TestKit.note(string.format("task242 lever bead: %.2f deg at relief %.2f", beadDeg, relief))
+			expect(beadDeg > 0.25).to.equal(true)
+			expect(beadDeg < 0.55).to.equal(true)
+			-- ...AND IT IS BRIGHT AGAINST THE STEEL IT SITS ON, which is the whole of the fix: the
+			-- action's own colour is a grey whose channels are within a hair of each other. THE
+			-- COLOUR IS THE ROW'S (`LOOK.bead`), which is the knob Karen is being asked to judge --
+			-- the geometry's literal is only a fallback for a `LOOK` written before task 242.
+			expect(ROW.LOOK.bead).to.be.ok()
+			expect(bead.color).to.equal(ROW.LOOK.bead)
+			local action = ROW.LOOK.action
+			expect(bead.color.R > action.R + 0.3).to.equal(true)
+			expect(bead.color.R - bead.color.B > 0.5).to.equal(true)
+			-- A ROW WITH ANOTHER SIGHT LOSES IT IN ONE LIST (task 143's filter, at its third gun).
+			local scoped = table.clone(ROW :: any)
+			scoped.SIGHT = "scope"
+			for _, piece in ipairs(LeverGeometry.pieces(scoped)) do
+				expect(piece.name ~= "Bead").to.equal(true)
+			end
+			expect(LeverGeometry.partCount(scoped) + 1).to.equal(LeverGeometry.partCount(ROW))
+		end)
+
 		it("THE SIGHT PICTURE: both sights land on the screen's centre at aim", function()
 			-- TASK 227, AND IT IS KAREN'S OWN DEFECT: *"Aiming with lever i terrible and broken"*.
 			-- The shot goes down the camera's own axis, so an aimed open-sighted rifle is right only
@@ -466,19 +531,42 @@ return function()
 			expect(set.cycle.magazine).to.equal(nil)
 		end)
 
-		it("draws the throw and the close faster than the server performs them", function()
+		it("draws the throw and the close faster than the server performs them, IN BOTH LISTS", function()
+			-- ONE PAIR OF SWING TIMES DRIVES TWO SEQUENCES, and until task 242 only one of them was
+			-- asserted. `Mode.step` ramps `openTilt` at `dt / config.BREAK_OPEN_SECONDS`, which
+			-- `Viewmodel.view` fills from `poses.json`'s `lever.cycle` (`data.reload or data.cycle`,
+			-- and this gun has no `reload` block) -- and `Camera`'s `breaking` is true for the
+			-- RELOAD list's `Break` exactly as it is for `CYCLE`'s. So the drawn swing must fit
+			-- inside the SHORTEST window that drives it, or the gun becomes fireable with its action
+			-- visibly open.
+			--
+			-- IT DID NOT, AND THAT IS REVIEW ROUND 1'S FINDING 1: with `closeSeconds` 0.58 inside a
+			-- 0.22 s reload `Close`, the loop was still 37 of its 60 degrees open at the instant the
+			-- reload reported done. The pose data came down with the windows (0.40 -> 0.18,
+			-- 0.58 -> 0.20) and this case now asserts BOTH lists, which is `viewmodel_poses.spec`'s
+			-- own discipline for the shotgun (`SET.reload.openSeconds < Shotgun.CONFIG.RELOAD_BREAK`).
 			local set = Viewmodel.DATA.weapons.lever
+			local reload = ROW.RELOAD :: any
 			TestKit.note(
 				string.format(
-					"task224 drawn: open %.2f s vs server %.2f; close %.2f vs %.2f",
+					"task242 drawn: open %.2f s vs cycle %.2f / reload %.2f; close %.2f vs %.2f / %.2f",
 					set.cycle.openSeconds,
 					ROW.CYCLE[1].wait,
+					reload[1].wait,
 					set.cycle.closeSeconds,
-					ROW.CYCLE[2].wait
+					ROW.CYCLE[2].wait,
+					reload[#reload].wait
 				)
 			)
 			expect(set.cycle.openSeconds < ROW.CYCLE[1].wait).to.equal(true)
 			expect(set.cycle.closeSeconds < ROW.CYCLE[2].wait).to.equal(true)
+			-- THE RELOAD'S OWN TWO WINDOWS, which are the shorter pair and therefore the binding one.
+			expect(set.cycle.openSeconds < reload[1].wait).to.equal(true)
+			expect(set.cycle.closeSeconds < reload[#reload].wait).to.equal(true)
+			-- ...AND THE DEGREES THAT COSTS, so a reader sees what the inequality is protecting: the
+			-- loop must reach 0 before the window ends, not 37 of 60 degrees open.
+			local leftOpen = math.max(0, 1 - reload[#reload].wait / set.cycle.closeSeconds)
+			expect(leftOpen).to.equal(0)
 		end)
 
 		it("holds the WRIST with the right hand, inside the gun's own two bounds", function()

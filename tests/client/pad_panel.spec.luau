@@ -697,8 +697,12 @@ return function()
 				local ROLE = PANEL.ROLE
 				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.HUNTER, nil, nil)).to.equal(ROLE.NOTE_HUNTER)
 				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, nil)).to.equal(ROLE.NOTE_BEATER)
-				-- A PARTY OF ONE: no bot shoots, so a solo beater is a drive nothing can be shot in.
-				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 1)).to.equal(ROLE.NOTE_NONE)
+				-- A PARTY OF ONE READS LIKE ANY OTHER SINCE TASK 242 (Karen, 2026-10-22). It used to
+				-- say `NO BEATERS THIS DRIVE`, because `Roster.assign` honoured nobody at one player;
+				-- she held the `ALWAYS HUNTER` card -- the card that buys the choice, and the ONLY
+				-- one that does -- stood on the pad alone and asked to beat, and a solo wisher is
+				-- now dealt the beaters' side with bot hunters on the stands.
+				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 1)).to.equal(ROLE.NOTE_SENT)
 				-- A PARTY OF TWO OR MORE, ALREADY ASKED FOR.
 				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 2)).to.equal(ROLE.NOTE_SENT)
 				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 4)).to.equal(ROLE.NOTE_SENT)
@@ -726,7 +730,7 @@ return function()
 				expect(PadPanel.press(1)).to.equal(true)
 				expect(block.Visible).to.equal(true)
 				expect((Hud.padPanel() :: Frame).Size.Y.Offset).to.equal(tall)
-				expect(PadPanel.switchText()[4]).to.equal(Hud.Shop.spaced(PANEL.ROLE.NOTE_NONE))
+				expect(PadPanel.switchText()[4]).to.equal(Hud.Shop.spaced(PANEL.ROLE.NOTE_SENT))
 				-- ...AND A PRESS ON A HALF IS REFUSED FROM HERE ON, counted and not sent.
 				local blocked = PadPanel.stats().roleBlocked
 				expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.HUNTER)).to.equal(false)

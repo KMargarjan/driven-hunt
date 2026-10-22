@@ -3717,22 +3717,25 @@ return function()
 
 		it("has its own words and its own pixels, and the block adds up to BLOCK_PX", function()
 			local ROLE = CFG.PADS.PANEL.ROLE
-			-- EVERY WORD IS A ROW, because words are Karen's to rewrite, and no two of the four
-			-- captions are the same sentence.
+			-- EVERY WORD IS A ROW, because words are Karen's to rewrite, and no two of the THREE
+			-- captions are the same sentence. There were four until task 242: `NOTE_NONE`, the
+			-- party-of-one refusal, went when the solo wisher started being honoured
+			-- (`backups/2026-10-22_task-242_no-beaters-this-drive.md`), and it is asserted ABSENT
+			-- below so a reader cannot bring the sentence back without reading why it left.
 			for _, key in ipairs({
 				"EYEBROW",
 				"HUNTER",
 				"BEATER",
 				"NOTE_HUNTER",
 				"NOTE_BEATER",
-				"NOTE_NONE",
 				"NOTE_SENT",
 			}) do
 				expect(type(ROLE[key])).to.equal("string")
 				expect(#ROLE[key] > 0).to.equal(true)
 			end
+			expect(ROLE.NOTE_NONE).to.equal(nil)
 			local seen: { [string]: boolean } = {}
-			for _, key in ipairs({ "NOTE_HUNTER", "NOTE_BEATER", "NOTE_NONE", "NOTE_SENT" }) do
+			for _, key in ipairs({ "NOTE_HUNTER", "NOTE_BEATER", "NOTE_SENT" }) do
 				expect(seen[ROLE[key]]).to.equal(nil)
 				seen[ROLE[key]] = true
 			end

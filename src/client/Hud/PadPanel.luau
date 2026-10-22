@@ -396,18 +396,18 @@ function PadPanel.roleSelected(next_: string?): string?
 	return nil
 end
 
--- WHY THE SWITCH CANNOT BE USED, or "" when it can. PURE, and it is the ONE rule: four rows, no
--- string literal in this module, and the words come out of `PANEL.ROLE` so they are Karen's to
--- rewrite.
+-- WHY THE SWITCH CANNOT BE USED, or "" when it can. PURE, and it is the ONE rule: THREE rows since
+-- task 242 (`NOTE_NONE` went with the party-of-one refusal), no string literal in this module, and
+-- the words come out of `PANEL.ROLE` so they are Karen's to rewrite.
 --
 --   * the drive has given him a side  -> he is in it; the wish is spent and the control is a receipt
---   * he has asked for a party of ONE -> `NO BEATERS THIS DRIVE`. `docs/design/bots.md` fills both
---     sides with rigs but says twice that no bot shoots, so a solo beater is a drive in which
---     nothing can be shot, and `Roster.assign` honours nobody at one player. **This client cannot
---     know the party size any other way**: `DHPadSize` and `DHPadCount` were *"considered and
---     refused"* (`src/shared/Lobby/init.luau`), and `sent` is the only size fact this client holds
---     -- so before a press the control is AVAILABLE, and that limit is stated rather than hidden.
---   * a size has been pressed        -> `ASKED FOR ALREADY`. The block is DISABLED and not hidden:
+--   * a size has been pressed        -> `ASKED FOR ALREADY`, WHATEVER THE SIZE (task 242). A party
+--     of ONE used to get its own row, `NO BEATERS THIS DRIVE`, because `Roster.assign` honoured
+--     nobody at one player; Karen held `ALWAYS HUNTER`, stood on the pad alone, asked to beat and
+--     was dealt a stand, and that rule is gone -- a solo wisher is now dealt the beaters' side with
+--     bot hunters on the stands. The row went with it
+--     (`backups/2026-10-22_task-242_no-beaters-this-drive.md`, rule 7), because a caption that is no
+--     longer true is worse than no caption. The block is DISABLED and not hidden:
 --     hiding it would make the dialog jump 119 px under the player's thumb while the truck is
 --     loading, *"which is the one thing a dialog must never do"*.
 function PadPanel.roleCaptionFor(next_: string?, side: string?, size: number?): string
@@ -415,10 +415,10 @@ function PadPanel.roleCaptionFor(next_: string?, side: string?, size: number?): 
 	if PadPanel.roleSelected(next_) == nil then
 		return ""
 	end
-	if size ~= nil then
-		return if size <= 1 then words.NOTE_NONE else words.NOTE_SENT
-	end
-	if side ~= nil then
+	-- ONE CONDITION AND NOT TWO (review round 1, note): a size pressed and a side already dealt are
+	-- different FACTS, but since task 242 they are the same SENTENCE, and writing it twice invites
+	-- the two copies to drift.
+	if size ~= nil or side ~= nil then
 		return words.NOTE_SENT
 	end
 	return if next_ == LobbyData.ROLE_WISH.BEATER then words.NOTE_BEATER else words.NOTE_HUNTER

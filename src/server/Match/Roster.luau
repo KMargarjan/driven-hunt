@@ -364,8 +364,9 @@ end
 -- The result is balanced BY CONSTRUCTION rather than by a check that can discard the whole thing.
 --
 -- `always` nil or EMPTY TAKES THE OLD PATH, UNTOUCHED, and that is the identity `match_roster.spec`
--- pins at every roster size from 2 to 16: a build where nobody bought it is the game before this
--- task, line for line.
+-- pins at every roster size from 2 to 16: a build where nobody bought it is the game before task
+-- 221, line for line -- and that path is the ALTERNATION Karen named as the default on 2026-10-22,
+-- which `Roster.previousFrom` + the swap below already make strict.
 function Roster.assign(
 	userIds: { number },
 	previous: Assignment?,
@@ -398,6 +399,16 @@ function Roster.assign(
 				-- A WISHER IS AN OWNER WHO ASKED, so he leaves the privilege pass entirely and is
 				-- dealt a driver's place first instead. A wish from a man who owns nothing is not
 				-- read here at all: he is in neither list and takes the rotation's own path.
+				--
+				-- THE CARD IS WHAT BUYS THE CHOICE, AND THAT IS KAREN'S OWN RULE (2026-10-22,
+				-- verbatim): *"when you have a card always hunter technically you can choose to be
+				-- what you ant eather beater or hunter / so it give you an option to select
+				-- othervise by default if you don't have once time you hunter one time beater"*.
+				-- The first cut of task 242 let the BEATER LICENCE buy the switch too; she ruled
+				-- otherwise and that cut is archived in
+				-- `backups/2026-10-22_task-242_beater-licence-buys-the-choice.md` (rule 7). A man
+				-- with no card is not refused a side -- he ALTERNATES, which is the `previous` swap
+				-- below and the block that documents it.
 				if beaters ~= nil and beaters[userId] == true then
 					table.insert(wishers, userId)
 				else
@@ -407,21 +418,31 @@ function Roster.assign(
 		end
 	end
 	-- `beaters` nil or EMPTY MAKES THIS LIST EMPTY AND `holders` TODAY'S `holders`, so every branch
-	-- below is the line it was before this task, value for value -- the identity
-	-- `match_roster.spec` pins at every roster size.
+	-- below is the line it was before task 229, value for value -- the identity `match_roster.spec`
+	-- pins at every roster size.
 	if #wishers > 0 then
-		local driverSlots = #ids - Roster.shooterSlots(#ids, config)
+		-- AT ONE PLAYER THERE IS NOTHING TO BALANCE, AND THAT IS WHY THE SOLO BEATER IS HONOURED
+		-- (task 242). `#ids - Roster.shooterSlots(1, config)` is 0 (`ODD_PLAYER_TEAM` is `Shooters`),
+		-- which is what made task 229 hand the lone man the hunter's side and call it *"the whole of
+		-- the `1 / 1` rule"*. Karen owned `ALWAYS HUNTER`, stood on the pad alone, chose BEATER and
+		-- was dealt a stand -- so the premise is what was wrong, not the arithmetic: a roster of one
+		-- cannot make `|Drivers - Shooters|` exceed 1 whichever side he takes, so the balance rule
+		-- has no opinion and the man's own choice is the only fact in the room.
+		--
+		-- AND THE DRIVE STILL HAPPENS, which is the thing task 229 doubted (*"a solo beater is a
+		-- drive in which nothing can be shot"*). MEASURED, not argued: `Bots.Fill.counts` fills each
+		-- side to its own target independently of the other, so with `real = { hunters = 0,
+		-- beaters = 1 }` it builds `TARGET.hunters` bot hunters on the free stands and
+		-- `TARGET.beaters - 1` bot beaters beside her. She walks the wood with the horn and the line
+		-- ends the drive, which is what she asked to be able to do. That nothing is shot is HER
+		-- choice to make for one drive, and the one she asked for.
+		local driverSlots = if #ids <= 1 then #ids else #ids - Roster.shooterSlots(#ids, config)
 		-- THE WISHERS TAKE DRIVER PLACES FIRST, up to the number of driver places there are. By
 		-- userId, which is deterministic and total -- this module's own tie-break everywhere else.
 		--
 		-- A WISHER BEYOND `driverSlots` IS NOT HONOURED and goes back into `holders`: he owns the
 		-- hunter's place and did not get what he asked for, so he gets what he PAID for. No second
 		-- branch, and no man is ever left without a side.
-		--
-		-- AT ONE PLAYER `driverSlots` IS 0 (`ODD_PLAYER_TEAM` is `Shooters`), so nobody is honoured
-		-- and the solo man is a hunter. That is the whole of the `1 / 1` rule and it is ARITHMETIC
-		-- rather than a guard: `docs/design/bots.md` fills both sides with rigs but says twice that
-		-- no bot shoots, so a solo beater is a drive in which nothing can be shot.
 		for index, userId in ipairs(wishers) do
 			if index <= driverSlots then
 				assignment[userId] = DRIVERS

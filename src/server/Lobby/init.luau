@@ -131,6 +131,12 @@ local wishFrozen: { [number]: boolean }? = nil
 local lastRoleRequestAt: { [number]: number } = {}
 -- WHO OWNS `ALWAYS HUNTER`, injected AFTER `Shop.start` and never required. nil = nobody owns
 -- anything = today's game, in every branch.
+--
+-- IT IS THE CARD AND NOT A WIDER RULE, and that is KAREN'S OWN WORD of 2026-10-22, verbatim: *"when
+-- you have a card always hunter technically you can choose to be what you ant eather beater or
+-- hunter"*. The first cut of task 242 widened this to anyone holding the BEATER LICENCE as well;
+-- she ruled otherwise, and that cut is archived in
+-- `backups/2026-10-22_task-242_beater-licence-buys-the-choice.md` (rule 7).
 local alwaysHunters: (() -> { [number]: boolean })? = nil
 local returnedAt: { [number]: number } = {}
 local spawnIndex: { [number]: number } = {}
