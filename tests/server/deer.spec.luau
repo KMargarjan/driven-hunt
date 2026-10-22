@@ -791,7 +791,9 @@ return function()
 			table.sort(once)
 			-- Named on both sides, so a clip that moves from one arm to the other fails here.
 			expect(table.concat(looping, ", ")).to.equal("idle, run, smell, trot, turnLeft, turnRight, walk")
-			expect(table.concat(once, ", ")).to.equal("deathLeft, deathRight, hitBack, hitFront")
+			-- `leap` joined the once-only arm in task 245b: a looping bound would have a deer
+			-- jumping on the spot all the way across the lane.
+			expect(table.concat(once, ", ")).to.equal("deathLeft, deathRight, hitBack, hitFront, leap")
 			-- A LOOPING DEATH WOULD STAND THE CARCASS BACK UP, in front of the player who just
 			-- shot it; a one-shot GAIT would freeze a running deer mid-stride.
 			expect(clips.deathLeft.looped).to.equal(false)
@@ -1271,14 +1273,20 @@ return function()
 				for name in pairs(config.MODEL.CLIPS) do
 					config.MODEL.ANIMATION_IDS[name] = 20000
 				end
+				-- `Body.clipFor` reads `hitFor` and `deadFor` without guarding them -- every call
+				-- site in the game is `stepVisual`, which always has both -- so the helper fills
+				-- in the resting values rather than each case repeating them.
 				local function clip(info)
 					info.speed = info.speed or 28
 					info.clipScale = 1
+					info.hitFor = info.hitFor or 0
+					info.deadFor = info.deadFor or 0
 					return (Boar.clipFor(info, config))
 				end
 				-- A running deer on the road bounds instead of galloping, at rate 1.
 				expect(clip({ leaping = true })).to.equal("leap")
-				local name, rate = Boar.clipFor({ leaping = true, speed = 28, clipScale = 1 }, config)
+				local name, rate =
+					Boar.clipFor({ leaping = true, speed = 28, clipScale = 1, hitFor = 0, deadFor = 0 }, config)
 				expect(name).to.equal("leap")
 				expect(rate).to.equal(1)
 				-- ...and without the Brain's fact it gallops, which is the game as it shipped.
@@ -1299,7 +1307,9 @@ return function()
 				config.MODEL = table.clone(CONFIG.SPECIES.reddeer.MODEL)
 				config.MODEL.ANIMATION_IDS = {}
 				expect(Boar.hasClip("leap", config)).to.equal(false)
-				expect((Boar.clipFor({ leaping = true, speed = 28, clipScale = 1 }, config))).to.equal("run")
+				expect((Boar.clipFor({ leaping = true, speed = 28, clipScale = 1, hitFor = 0, deadFor = 0 }, config))).to.equal(
+					"run"
+				)
 			end)
 
 			it("has a leap clip whose length is the asset's and whose rate is never divided", function()
