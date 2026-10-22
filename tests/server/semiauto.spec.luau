@@ -260,12 +260,17 @@ return function()
 			end
 			expect(loads).to.equal(C.MAGAZINE)
 			expect(math.abs(sum - C.RELOAD_TOTAL) < 1e-6).to.equal(true)
-			-- SLOWER THAN THE SIDE-BY-SIDE'S, which is the price of five rounds -- and QUICKER
-			-- than the lever's 2.90, because a shotgun's port is a bigger hole than a rifle's
-			-- gate. The design's section 6.2 calls this "the slowest reload in the game"; it is
-			-- not, and this case is what measured that.
+			-- SLOWER THAN THE SIDE-BY-SIDE'S, which is the price of five rounds.
 			expect(C.RELOAD_TOTAL > Shotgun.CONFIG.RELOAD_TOTAL).to.equal(true)
-			expect(C.RELOAD_TOTAL < Lever.CONFIG.RELOAD_TOTAL).to.equal(true)
+			-- IT USED TO BE QUICKER THAN THE LEVER'S 2.90 as well, *"because a shotgun's port is a
+			-- bigger hole than a rifle's gate"*, and task 242 reversed that: Karen asked for the
+			-- lever to reload *"much faster"* and it now fills five rounds in 1.59. So this gun IS
+			-- the slowest reload in the game, which is what the design's section 6.2 claimed all
+			-- along and what this case used to disprove. The relation is asserted in the new
+			-- direction rather than deleted, so nobody re-derives the old one from the comment --
+			-- and whether 2.60 should follow the lever down is Karen's ear, not this file's
+			-- (TASKS.md 242a).
+			expect(C.RELOAD_TOTAL > Lever.CONFIG.RELOAD_TOTAL).to.equal(true)
 		end)
 
 		it("tops a PART-EMPTY tube up and finishes early", function()

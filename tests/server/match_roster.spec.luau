@@ -737,15 +737,29 @@ return function()
 			expect(Roster.joinTeam({ Drivers = 3, Shooters = 1 }, wanted[5], CONFIG)).to.equal("Shooters")
 		end)
 
-		it("does not read a wish from a man who owns nothing", function()
-			-- `Roster` IS PURE AND KEYS BY USER ID: whether a man owns `ALWAYS HUNTER` is a fact only
-			-- the server's own door can measure (`Lobby.onRoleRequest` check 4), so a wish that
-			-- reached here for a non-owner must change nothing at all.
+		it("DOES read a wish from a man who owns nothing, because the door is what measures him", function()
+			-- THIS CASE SAID THE OPPOSITE UNTIL TASK 242, and the reversal is Karen's defect: *"in
+			-- nex drive I can't select beater but I have this license fix it"*. She owned
+			-- `licence.beater`, not `role.alwayshunter`, so under the old rule her ask reached this
+			-- function and changed nothing at all.
+			--
+			-- `Roster` IS PURE AND KEYS BY USER ID: whether a man may ask at all is a fact only the
+			-- server's own door can measure (`Lobby.onRoleRequest` check 4, now over
+			-- `Economy.roleChoosers`). What arrives here has already been measured, so reading it is
+			-- right and refusing it was the bug.
 			local plain = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG)
-			local withStray = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG, nil, { [1] = true, [3] = true })
+			local withWishes = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG, nil, { [1] = true, [3] = true })
+			expect(withWishes[1]).to.equal("Drivers")
+			expect(withWishes[3]).to.equal("Drivers")
+			local moved = 0
 			for userId = 1, 4 do
-				expect(withStray[userId]).to.equal(plain[userId])
+				if withWishes[userId] ~= plain[userId] then
+					moved += 1
+				end
 			end
+			expect(moved > 0).to.equal(true)
+			local counts = countOf(withWishes)
+			expect(math.abs(counts.Drivers - counts.Shooters) <= 1).to.equal(true)
 		end)
 	end)
 end

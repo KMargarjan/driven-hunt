@@ -1651,9 +1651,11 @@ Lobby.CONFIG = {
 				-- (`docs/research/2026-10-21-the-role-switch.md` section 2.2 -- it refuses by
 				-- returning `false` with nothing said to the player), and the half of ioquake3's
 				-- `SetTeam` it adopts (*"Red team has too many players"*, printed).
+				-- THREE SINCE TASK 242, not four: `NOTE_NONE` ("NO BEATERS THIS DRIVE") was the
+				-- party-of-one row, and a solo wisher is now honoured. Archived with its reason in
+				-- `backups/2026-10-22_task-242_no-beaters-this-drive.md` (rule 7).
 				NOTE_HUNTER = "A STAND ON THE LINE",
 				NOTE_BEATER = "WALKING THE DRIVE",
-				NOTE_NONE = "NO BEATERS THIS DRIVE",
 				NOTE_SENT = "ASKED FOR ALREADY",
 				LEAD_PX = 12, -- air under the header's hairline
 				EYEBROW_PX = 12,

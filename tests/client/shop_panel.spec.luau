@@ -1621,7 +1621,10 @@ return function()
 				local PADS = require(ReplicatedStorage:WaitForChild("Lobby")).CONFIG.PADS
 				expect(TEXT.ROLE_HUNTING).to.equal(PADS.PANEL.ROLE.NOTE_HUNTER)
 				expect(TEXT.ROLE_BEATING).to.equal(PADS.PANEL.ROLE.NOTE_BEATER)
-				expect(TEXT.ROLE_SOLO).to.equal(PADS.PANEL.ROLE.NOTE_NONE)
+				-- NEITHER TABLE CARRIES THE PARTY-OF-ONE ROW SINCE TASK 242, and the pair is asserted
+				-- absent so the two vocabularies cannot drift back apart one at a time.
+				expect(TEXT.ROLE_SOLO).to.equal(nil)
+				expect(PADS.PANEL.ROLE.NOTE_NONE).to.equal(nil)
 				expect(TEXT.ROLE_ASKED).to.equal(PADS.PANEL.ROLE.NOTE_SENT)
 				expect(TEXT.ROLE_TITLE).to.equal(PADS.PANEL.ROLE.EYEBROW)
 			end)

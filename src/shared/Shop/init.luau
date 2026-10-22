@@ -903,10 +903,10 @@ Shop.CONFIG = {
 		ROLE_BEATER = "BEATER",
 		ROLE_HUNTING = "A STAND ON THE LINE",
 		ROLE_BEATING = "WALKING THE DRIVE",
-		-- THE SHOP HAS NO PAD AND NO PARTY SIZE, so it can never say "no beaters this drive" -- the
-		-- row is here because the two tables are one vocabulary and a reader comparing them should
-		-- find no gap. `ShopPanel.roleCaptionFor` has two rows, and the spec asserts it.
-		ROLE_SOLO = "NO BEATERS THIS DRIVE",
+		-- THERE IS NO `ROLE_SOLO` SINCE TASK 242. It mirrored the pad's `NO BEATERS THIS DRIVE`,
+		-- which was the party-of-one refusal; a solo wisher now beats, so both rows are archived in
+		-- `backups/2026-10-22_task-242_no-beaters-this-drive.md` (rule 7). The two tables are still
+		-- one vocabulary and `shop_panel.spec` still compares them row for row.
 		-- THE DRIVE ALREADY HAS HIM, so the ask is in and the control is a RECEIPT rather than a
 		-- choice. It is the same sentence the pad dialog uses for the same fact.
 		ROLE_ASKED = "ASKED FOR ALREADY",

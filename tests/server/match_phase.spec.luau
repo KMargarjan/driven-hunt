@@ -2522,8 +2522,10 @@ return function()
 			)
 			expect((state :: any).beaterWishes).to.equal(nil)
 			expect((state :: any).roleWish).to.equal(nil)
-			-- A SOLO ROSTER IS NOT HONOURED, because no bot shoots: `driverSlots` is 0 at one player.
-			expect(state.assignment[1]).to.equal("Shooters")
+			-- A SOLO ROSTER IS HONOURED SINCE TASK 242 (Karen, 2026-10-22, on the `1 / 1` bot drive).
+			-- One man cannot make the sides uneven by more than one, so the balance rule has nothing
+			-- to say and `Roster.assign` deals him the side he asked for.
+			expect(state.assignment[1]).to.equal("Drivers")
 		end)
 
 		it("reaches a mid-drive joiner, off a tie, and the balance still beats it", function()
@@ -2567,18 +2569,21 @@ return function()
 					beaterWishes = wishes,
 				}, 0, cfg)
 			)
-			-- A SOLO ROSTER: he is a hunter whatever he asked.
-			expect(state.assignment[1]).to.equal("Shooters")
+			-- A SOLO ROSTER: since task 242 he beats, because that is what he asked for.
+			expect(state.assignment[1]).to.equal("Drivers")
+			-- ...AND THE SWITCH MOVES HIM OFF IT, which is what this case is for. The direction is
+			-- the OPPOSITE of the one it tested before task 242, and it has to be: the wish and the
+			-- switch now agree at one player, so asking for `Drivers` would prove nothing.
 			local effects
 			state, effects = Phase.step(state, {
 				kind = "team",
 				userId = 1,
 				name = "Karen",
-				team = "Drivers",
+				team = "Shooters",
 				alwaysShooters = always,
 				beaterWishes = wishes,
 			}, 1, cfg)
-			expect(state.assignment[1]).to.equal("Drivers")
+			expect(state.assignment[1]).to.equal("Shooters")
 			expect(countKind(effects, "assignTeams")).to.equal(1)
 		end)
 	end)
