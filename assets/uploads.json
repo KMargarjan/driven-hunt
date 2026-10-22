@@ -1038,5 +1038,25 @@
     "pollSeconds": 4.4,
     "polls": 2,
     "karenOk": "2026-10-22 Karen said \"ok\" when the Director asked to upload exactly these four images: goods-slugbox-face.png, goods-slugbox-end.png, goods-licence-beater.png, goods-licence-deer.png (our own art, Designer goods-spec.md section 5)"
+  },
+  {
+    "tool": "roblox-upload/1",
+    "at": "2026-10-22T15:14:30Z",
+    "assetId": "111542606757761",
+    "assetType": "Decal",
+    "displayName": "Driven Hunt always hunter card r1",
+    "description": "Driven Hunt: the standing hunter's card shown in the shop case. Our own art, drawn from scratch; bearer name and serials are placeholders.",
+    "creatorUserId": "8167651842",
+    "file": "goods2-hunter-card.png",
+    "sourceFolder": "design",
+    "bytes": 316215,
+    "sha256": "bb68fe29b62c8a04af731af7c8c2fc5d512926a3712e753a9581cbfc02a62ce7",
+    "contentType": "image/png",
+    "operation": "operations/076a55d7-0f44-49a8-b9a3-6a9d828bf744",
+    "moderationState": "Approved",
+    "moderationStateFrom": "response.moderationResult.moderationState",
+    "pollSeconds": 4.4,
+    "polls": 2,
+    "karenOk": "2026-10-22 Karen chose \"B\" when the Director asked: \"I check them against your notes. If they're good, I build and upload right away (our own art, no real names)\" -- goods-spec.md section 8.3 upload 6, goods2-hunter-card.png"
   }
 ]

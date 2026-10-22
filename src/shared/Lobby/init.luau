@@ -291,11 +291,26 @@ Lobby.CONFIG = {
 		-- and `lobby.spec` holds all of them to the same rectangle the two big blocks are held to.
 		PADS = {
 			-- THE YARD: under the lodge, its porch, the spawn, the circle and all four truck bays. It
-			-- grew with the bays in task 180 (80 x 60 held one truck).
+			-- grew with the bays in task 180 (80 x 60 held one truck), and TURNED WITH THEM in task
+			-- 243: the row now steps SOUTH, so the blade-free block is 124 deep against 90 and the
+			-- gravel's own rectangle (`Build.yardRect`, z -44 .. +41) sits inside it with
+			-- `ROAD.YARD_LIP_STUDS` to spare at both ends.
+			--
+			-- **THE OFFSET IS 28 / 12 AND NOT THE PLAN'S 26 / 14, AND THAT IS THE PLAN'S OWN STEP 8**
+			-- (`lobby-yard-spec.md` section 5: *"Measure the block's ABSOLUTE edges, not its offsets,
+			-- and nudge the offset -- never the size -- until all four land on the grid"*).
+			-- `Terrain:FillBlock` writes 4-STUD VOXELS on a grid anchored at the world origin, and
+			-- task 191 measured two grass voxels surviving at a misaligned edge. The anchor is
+			-- (2850, -2950), so 26 / 14 puts all four edges on an ODD multiple of 2 -- 2806, 2946,
+			-- -2998, -2874 -- and 28 / 12 puts them on 2808, 2948, -3000, -2876, every one a
+			-- multiple of 4. The SIZE is untouched, and the block still covers the gravel plus the
+			-- lip on all four sides (x -42 .. +98 against 29 .. 83.2; z -50 .. +74 against -48 ..
+			-- +45). `FIELD`'s own 220-stud grass block is already aligned this way, which is how the
+			-- convention was read rather than guessed.
 			{
 				NAME = "Yard",
-				OFFSET = Vector3.new(26, 0, 30),
-				SIZE = Vector3.new(140, 6, 90),
+				OFFSET = Vector3.new(28, 0, 12),
+				SIZE = Vector3.new(140, 6, 124),
 				MATERIAL = Enum.Material.Ground,
 			},
 			-- THE ROAD CORRIDOR: the lane, both verges and a stud either side, from the lodge's front
@@ -965,7 +980,27 @@ Lobby.CONFIG = {
 	--
 	-- "Walk to a car" (Karen). The truck is parked on the track, east of the lodge's front.
 	TRUCK = {
-		OFFSET = Vector3.new(26, 0, 18),
+		-- **BAY 1, AND SINCE TASK 243 THE ROW STEPS SOUTH FROM IT RATHER THAN EAST.** KAREN,
+		-- 2026-10-22, with a frame of the yard: *"I think we need to change car position / clean a
+		-- bit lobby / so once I go out from shop on right there has to be cars but looking at me so
+		-- they will be straig to me but not close to house there has to be distance / when I look
+		-- now (image) it has to be where trees starts there has to be those rectangles to enter
+		-- game and behind trucks / so there is a space"*.
+		--
+		-- WHAT SHE WAS LOOKING AT, MEASURED (the Designer's `lobby-yard-spec.md` section 1, from
+		-- `karen-lobby-trucks-2026-10-22.png`): from the foot of the porch steps at (0, 20.2) the
+		-- four pads bore 71.3, 78.4, 81.7 and 83.5 degrees -- **1.8 degrees between the third pad
+		-- and the fourth**. A row whose far end is under two degrees from its middle is a row seen
+		-- END-ON, which is why her frame shows one truck filling it and three coloured slivers. And
+		-- pad 1's west edge stood at x 21.5 against the lodge's east wall at x 18: three and a half
+		-- studs of "distance".
+		--
+		-- 58 / 24 TURNS THE ROW NINETY DEGREES AND MOVES IT OUT TO THE TREES. The bays step south,
+		-- the trucks are yawed a HALF turn so their noses face west at the player, and the walk from
+		-- the steps to pad 1 goes from 27.0 studs to 47.2. Everything the pads and the yard are
+		-- derived from -- `BAY_GAP_STUDS`, `BACK_STUDS`, `PAD_BEHIND_STUDS` -- KEEPS ITS VALUE and
+		-- changes only the axis it applies to.
+		OFFSET = Vector3.new(58, 0, 24),
 		SIZE = Vector3.new(7, 7, 16),
 		WHEELS = 4,
 		COLOR = Color3.fromRGB(46, 62, 44), -- hunting green
@@ -974,6 +1009,10 @@ Lobby.CONFIG = {
 		-- east from it, so task 177's single-truck geometry is still the first bay and the truck spot
 		-- still sits beside it -- 177's flow is unchanged until 182 replaces the spot with pads.
 		COUNT = 4,
+		-- 17, AND IT IS THE SAME 17 AS BEFORE TASK 243: the step is in **z** now, not x. The gap it
+		-- leaves between neighbouring trucks is `17 - WIDTH_STUDS` = 8.30 studs and between
+		-- neighbouring pads `17 - 9` = 8.00 -- both identical to what the east-stepping row left,
+		-- because the trucks were 17 apart and 8.70 wide on that axis too.
 		BAY_GAP_STUDS = 17,
 		-- THE FREE MODEL: "PickUp Truck (Prop)" by **RedWood Roleplay GROUP**, Creator Store
 		-- 8891351929, free: 76 parts, **no script of any kind**, no VehicleSeat, 18.5 x 7.0 x 8.7
@@ -981,8 +1020,22 @@ Lobby.CONFIG = {
 		-- parts, against 937 for the prettiest candidate and 617 for the next. Credited in
 		-- `CREDITS.md`.
 		--
-		-- IT IS DELIVERED POINTING ALONG ITS OWN +X, and the yard wants it pointing SOUTH down the
-		-- track, so a quarter turn. Written as a number for the same reason as the lodge's.
+		-- **IT FACES WEST NOW, AND THE TURN IS ZERO** -- KAREN'S OWN SENTENCE: *"there has to be cars
+		-- but looking at me so they will be straig to me"*. Walking out of the shop she turns right
+		-- and meets four NOSES instead of four flanks.
+		--
+		-- **THE MODEL IS DELIVERED POINTING ALONG ITS OWN -X, NOT +X, AND THAT IS MEASURED.** This
+		-- row's comment said `+X` from task 180 until task 243 and the Designer's plan inherited it,
+		-- asking for `pi` to put the nose west. Built at `pi` and measured in the live Forest Test on
+		-- 2026-10-22 -- the white 248,248,248 lamps against each truck's own box centre -- the
+		-- HEADLIGHTS came out at **dx +7.8 (EAST)** on all four and the tails at dx -8.6: the noses
+		-- pointed away from the lodge, which is the opposite of what she asked for. Task 197 had
+		-- already found the same thing from the other end (*"the headlights are at the model's local
+		-- -X, so after YAW_RADIANS they look NORTH"* with the old quarter turn) and that measurement
+		-- is the one to believe: `Build.lampsOf` derives a truck's facing from its own white lamps
+		-- precisely so no config heading has to be trusted. At **0** the nose looks west, down the
+		-- pad, and the drawn nose lands at x 56.77 -- which is the Designer's own section 2b number.
+		-- Written as a number for the same reason as the lodge's.
 		--
 		-- `WIDTH_STUDS` AND `LENGTH_STUDS` ARE THE MODEL'S OWN DRAWN FOOTPRINT, and they are DATA
 		-- since task 209 rather than a sentence in the comment above, because the clearance rule
@@ -995,7 +1048,11 @@ Lobby.CONFIG = {
 		-- what the rule is written against, and `lobby_live.spec` is what holds the built ones to
 		-- it.) The 18.5 x 7.0 x 8.7 in the paragraph above is the Creator Store's own rounding of
 		-- the same box.
-		MODEL = { SCALE = 1, YAW_RADIANS = 1.5707963, WIDTH_STUDS = 8.7, LENGTH_STUDS = 18.46 },
+		-- `WIDTH_STUDS` AND `LENGTH_STUDS` KEEP THEIR MEASURED VALUES AND SWAP AXES with the yaw:
+		-- length is along **x** now (nose to tailgate, pointing west) and width along **z** (across
+		-- the bays). They are the same two numbers off the same measured model -- a half turn from a
+		-- quarter turn is still a quarter turn of the box.
+		MODEL = { SCALE = 1, YAW_RADIANS = 0, WIDTH_STUDS = 8.7, LENGTH_STUDS = 18.46 },
 		-- ---------------- HOW FAR THE TRUCK STANDS FROM ITS PAD (tasks 209 and 213)
 		--
 		-- KAREN, 2026-10-18 ~14:20, with a screenshot of the trucks:
@@ -1016,7 +1073,8 @@ Lobby.CONFIG = {
 		-- The before frames are in the task-209 review request.
 		--
 		-- TWO ROWS AND NOT ONE, because the pad and the truck move SEPARATELY:
-		--   * `BACK_STUDS` moves the TRUCK south, away from its pad, inside its own bay. Nothing else
+		--   * `BACK_STUDS` moves the TRUCK **east** since task 243 (it was south), away from its pad,
+		--     inside its own bay -- the axis turned with the row and the VALUE did not. Nothing else
 		--     reads it -- the bay, the pad, the yard's x and the billboards are all still the bay
 		--     centre's -- so "where is bay 3" still has one answer. Eight studs, and it is HERS: it is
 		--     also what keeps the trucks on the yard slab, which sixteen studs of truck alone would
@@ -1052,6 +1110,8 @@ Lobby.CONFIG = {
 		-- WHERE TASK 182'S PAD WENT, said once, here. From the BAY CENTRE to the pad's NEAR edge
 		-- (`Pads.centreFor`), which is a measurement and not a tailgate -- its own comment says why.
 		-- It was 12 until task 209 (Karen's 2.77-stud gap), and 20 until task 213 (her 18.77-stud one).
+		-- TASK 243 KEEPS THE VALUE AND TURNS THE AXIS: it is measured **west** from the bay centre
+		-- now, toward the player, which is the same "between the man and the bumper" it always meant.
 		PAD_BEHIND_STUDS = 5,
 		-- WHAT THAT ROW HAS TO LEAVE, AS DATA RATHER THAN AS A LITERAL INSIDE A SPEC. The gap is
 		-- EMERGENT -- three rows make it (`PAD_BEHIND_STUDS`, `BACK_STUDS` and `MODEL.LENGTH_STUDS`) --
@@ -1141,6 +1201,25 @@ Lobby.CONFIG = {
 			-- that would still say "road car".
 			TYRE = Color3.fromRGB(24, 24, 24),
 			RIM = Color3.fromRGB(54, 56, 48),
+			-- **THE PROPS THE LAMP RULE CANNOT BE DRIVING** (task 243, the Designer's
+			-- `lobby-yard-spec.md` section 4.1). KAREN'S FRAME, 2026-10-22: a hot-pink panel on
+			-- truck 1's rear quarter, *"the single loudest wrong thing"* in it.
+			--
+			-- MEASURED IN THE LIVE FOREST TEST, 2026-10-22, over a BUILT truck: six parts were still
+			-- loud after `camo` ran, and the one she photographed is `Light`, `Neon`, **255,89,89**,
+			-- **6.74 studs long**, at the truck's own rear (local x +5.8). `Build.truckSkinOf` calls
+			-- anything `Neon` a "light" and `camo` leaves every light alone; `ENGINE.LAMP_MAX_STUDS`
+			-- is 2.5, so this is far too big for `truckRig` to drive either. It belonged to NOBODY,
+			-- and sat at the free model's own shipped neon pink. The same measurement caught the
+			-- 5.74-stud amber bar across the nose, the 3.48-stud blue `Interior4` panel and the
+			-- 17.65-stud grey CHASSIS, which is also named `Light`.
+			--
+			-- SO A "LIGHT" TOO BIG TO BE A LAMP IS A PROP, and a prop gets the trim the model already
+			-- dresses its own bumpers, grilles and mirrors in -- near-black, which is what a military
+			-- truck's trim is anyway, and the colour `camo`'s own header names as the reason it
+			-- leaves "keep" parts alone. The six real lamps are untouched: they are small, and
+			-- `truckRig` owns them.
+			TRIM = Color3.fromRGB(26, 26, 26),
 		},
 		-- ---------------- THE TRUCK STARTS (task 197)
 		--
@@ -1298,10 +1377,10 @@ Lobby.CONFIG = {
 			-- (a start IS louder than an idle) with the idle clearly there under it. Karen's dials.
 			START_VOLUME = 0.45,
 			IDLE_VOLUME = 1,
-			-- HOW FAR THE ENGINE CARRIES. 90 studs: audible from the lodge porch (46 studs from the
-			-- bays) and gone from the far corners of a 220-stud field -- `BILLBOARD.MAX_DISTANCE_STUDS`
-			-- 160's own reasoning, one step tighter because a sound crosses a wall and a billboard
-			-- does not.
+			-- HOW FAR THE ENGINE CARRIES. 90 studs: audible from the lodge porch (**66 studs** from
+			-- the bays since task 243 turned the row out to the tree line; it was 46) and gone from
+			-- the far corners of a 220-stud field -- `BILLBOARD.MAX_DISTANCE_STUDS` 160's own
+			-- reasoning, one step tighter because a sound crosses a wall and a billboard does not.
 			ROLL_OFF_MIN_STUDS = 14,
 			ROLL_OFF_MAX_STUDS = 90,
 		},
@@ -1361,9 +1440,12 @@ Lobby.CONFIG = {
 	FENCE = {
 		SPACING_STUDS = 18,
 		FROM_Z = -98,
-		-- The yard slab reaches z -4 (`TRUCK.OFFSET.Z` 18 less half of its 44-stud depth), so -8
-		-- leaves it four studs clear and the last rail ends there too.
-		TO_Z = -8,
+		-- The yard slab reaches z **-44** since task 243 turned the row south (`Build.yardRect`:
+		-- `OFFSET.Z` 24 less three bay gaps less half of `YARD_END_STUDS`), so -48 leaves it four
+		-- studs clear -- `ROAD.YARD_LIP_STUDS` again -- and the last rail ends there too. It was -8
+		-- against a slab that reached -4, which is the same sentence against the old yard: only the
+		-- number was pinned to it. Forty studs of fence stood inside the new yard until this moved.
+		TO_Z = -48,
 		OFF_ROAD_STUDS = 18, -- how far either side of the road's centre the line runs
 		POST = Vector3.new(0.9, 5, 0.9),
 		RAIL_Y = { 1.6, 3.4 },
@@ -1455,6 +1537,18 @@ Lobby.CONFIG = {
 		{ kind = "birch", x = -35, z = 17, scale = 0.8, yaw = 102 },
 		{ kind = "birch", x = -42, z = -2, scale = 0.72, yaw = 124 },
 		{ kind = "birch", x = -32, z = 27, scale = 0.88, yaw = 103 },
+		-- **THE TWO ROWS THE PLAN ASKED TO MOVE ARE UNMOVED, AND THAT IS A MEASUREMENT** (task 243).
+		-- `lobby-yard-spec.md` section 2f asks for rows 5 and 7 -- `(35, 22)` and `(41, 28)` -- to go
+		-- to `(36, 48)` and `(44, 54)` because *"both fall inside the new gravel"*. They do not:
+		-- **this table is in the LODGE'S frame** (its own header above says so, and `Build.lodgeTrees`
+		-- plants at `anchor + LODGE.OFFSET + (x, z)`), and the lodge stands at z +46. So row 5 is at
+		-- anchor-relative z **+68** and row 7 at **+74**, while the gravel's north edge is at +41 --
+		-- 27 and 33 studs clear of it. The plan read the two numbers as anchor-relative, which is the
+		-- one frame mistake this file's own comments exist to catch. Moved as asked, they would have
+		-- landed at anchor-relative z +94 and +100 -- inside `Workspace.OurForest`, whose southern
+		-- edge is 54 studs north of the anchor, and 35 studs behind a house they are meant to stand
+		-- beside. `lobby.spec` now asserts the FACT the plan was reaching for -- no `LODGE_TREES`
+		-- trunk inside `Build.yardRect` -- in the frame the builder actually plants in.
 		{ kind = "birch", x = 35, z = 22, scale = 0.9, yaw = 117 },
 		{ kind = "birch", x = 28, z = 31, scale = 0.76, yaw = 47 },
 		{ kind = "birch", x = 41, z = 28, scale = 0.84, yaw = 345 },
@@ -1500,7 +1594,12 @@ Lobby.CONFIG = {
 		-- blade-free terrain north of z +40), so its TOP is `shelfY + ROAD.THICK_STUDS + LIFT_STUDS`
 		-- = +0.58, above every slab, and its BOTTOM is `shelfY - 0.12`, below the terrain top. One
 		-- number, both failures closed: nothing floats and nothing can hide inside a slab.
-		SIZE = Vector3.new(9, 0.7, 12),
+		-- **x AND z SWAPPED IN TASK 243**, and nothing else about it did: 108 square studs either
+		-- way. The pad's DEPTH -- the 12 studs you walk across to reach the truck -- is along **x**
+		-- now, because the truck is west-facing and the pad is west of it; its 9-stud WIDTH is along
+		-- z, which is the axis the bays step down. `BAY_GAP_STUDS` 17 still leaves 8 studs between
+		-- neighbouring pads, so four parties still read as four places and not as one stripe.
+		SIZE = Vector3.new(12, 0.7, 9),
 		LIFT_STUDS = 0.08, -- `SPOT.RING.LIFT_STUDS`'s number, kept: it is what stops z-fighting
 		RIM_STUDS = 0.5, -- the glowing border's width: `SPOT.RING.THICKNESS_STUDS`'s number
 		RIM_HEIGHT_STUDS = 0.12, -- `SPOT.RING.HEIGHT_STUDS`'s number
@@ -1579,18 +1678,61 @@ Lobby.CONFIG = {
 		-- `COUNT_UNSET` IS `%d / -` AND NOT `%d / 0`, because nobody having picked yet is not a party
 		-- of nought.
 		--
-		-- `MAX_DISTANCE_STUDS` 160 IS MEASURED AGAINST THE LOBBY: the porch is 46 studs from the
-		-- bays, so a pad is readable from the lodge door, and the field is 220 across, so the boards
-		-- are gone from the far corners rather than hanging over the whole world.
+		-- `MAX_DISTANCE_STUDS` 160 IS MEASURED AGAINST THE LOBBY: the porch is **66 studs** from the
+		-- bays since task 243 turned the row out to the tree line (it was 46, and 47 to a pad), so a
+		-- pad is still readable from the lodge door, and the field is 220 across, so the boards are
+		-- gone from the far corners rather than hanging over the whole world.
+		--
+		-- **`OFFSET_STUDS` IS 7.5 AND NOT 6, AND SO IS THE DECK NUMERAL** (the Designer's
+		-- `lobby-yard-spec.md` section 3). A Roblox character is about five studs tall: at 6 the
+		-- board sat at head height and the first man onto the pad hid it from the second. Everything
+		-- else here is MEASURED AND APPROVED and must not be retuned to fix an overlap the layout
+		-- has already fixed -- the pile-up in Karen's frame was an ANGLE, not a size. `SIZE_PX` is a
+		-- PIXEL size, so a `BillboardGui` does not shrink with distance; from the foot of the steps
+		-- the narrowest pair of boards was 23 px apart against 75 px of `TRUCK n`, and broadside it
+		-- is 155 px apart against the same 75.
 		BILLBOARD = {
 			TRUCK = "TRUCK %d",
 			COUNT = "%d / %d",
 			COUNT_UNSET = "%d / -",
-			OFFSET_STUDS = 6,
+			OFFSET_STUDS = 7.5,
 			SIZE_PX = Vector2.new(180, 64),
 			TRUCK_PX = 22,
 			COUNT_PX = 30,
 			MAX_DISTANCE_STUDS = 160,
+		},
+		-- ---------------- THE BAY'S NUMBER, PAINTED ON THE DECK (task 243, spec section 3b)
+		--
+		-- **TWO INDEPENDENT MARKS, ON PURPOSE.** The board carries the LIVE COUNT, which has to
+		-- float over the pad; the deck carries the IDENTITY, which does not. A numeral lying on the
+		-- ground is never occluded by another pad's board, it is readable from directly above while
+		-- you are standing on it, and it costs one instance per pad. If the two ever disagree the
+		-- DECK is right: it is painted from `index` and nothing writes to it after the build.
+		--
+		-- `TRANSPARENCY` 0.35 -- the numeral is a STAIN on a stain, like the deck itself
+		-- (`PADS.TRANSPARENCY` 0.45), not a sign standing on it.
+		DECK = {
+			NUMERAL_STUDS = 6, -- about two thirds of the pad's 9-stud width
+			PIXELS_PER_STUD = 20,
+			TRANSPARENCY = 0.35,
+			-- **A HALF TURN, AND IT WAS MEASURED RATHER THAN DERIVED.** A `SurfaceGui` on a `Top`
+			-- face draws with its canvas's long axis along the part's **x** (measured live,
+			-- 2026-10-22: a 12 x 9 deck gives a 180 x 240 canvas, so gui-x is the pad's 9-stud axis)
+			-- and its own up pointing **west**, toward the man walking out of the lodge -- which
+			-- draws the numeral UPSIDE DOWN to him. Half a turn puts its top away from him, which is
+			-- how a number painted on a road or a parking bay is always laid. Looked at at 0, 90 and
+			-- 180 in the live Forest Test before this row was written (rule 5).
+			ROTATION_DEGREES = 180,
+			-- **THE DRAWN CAP IS ABOUT 0.705 OF THE EM**, so a 6-stud numeral is set at 8.5 studs of
+			-- `TextSize`. MEASURED in the live place: at `TextSize = NUMERAL_STUDS * PIXELS_PER_STUD`
+			-- the glyph came out under three studs tall and read as a smudge from the porch. A
+			-- fraction rather than a second size, so `NUMERAL_STUDS` keeps meaning WHAT YOU SEE.
+			CAP_FRACTION = 0.705,
+			-- THE BLACK OUTLINE. The numeral is the pad's own colour ON the pad's own coloured deck;
+			-- without a stroke it measured as a pale smudge from the porch (2026-10-22, live), and
+			-- it is SOLID while the numeral itself is a stain -- the same arrangement every label in
+			-- this game wears over a sunlit field.
+			STROKE_PX = 5,
 		},
 		-- THE DIALOG'S PIXELS AND ITS TITLE, here rather than in the panel for `Shop.CONFIG.PANEL`'s
 		-- stated reason: both sides read them -- `Hud.build` sizes the frame and `Hud.PadPanel` fills

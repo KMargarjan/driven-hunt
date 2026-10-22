@@ -739,7 +739,7 @@ return function()
 			expect((sheet :: ImageLabel).Size.Y.Scale).to.equal(1)
 		end)
 
-		-- **THE FOUR IDS ARE THE IMAGES' AND NOT THE DECALS'.** An Open Cloud upload of a PNG
+		-- **THE FIVE IDS ARE THE IMAGES' AND NOT THE DECALS'.** An Open Cloud upload of a PNG
 		-- creates a Decal (`AssetTypeId 13`) and returns the DECAL's id, which neither an
 		-- `ImageLabel` nor a `Decal.Texture` can draw -- the trap that cost task 205 a whole round,
 		-- with the hit card drawing no animal at all while `Image` was a correctly-set string.
@@ -750,6 +750,8 @@ return function()
 			local wanted = {
 				[Shop.ITEM.BEATER_LICENCE] = "rbxassetid://118221829977446",
 				[Shop.ITEM.RED_STAG] = "rbxassetid://118076983085725",
+				-- TASK 243: the standing hunter's card, the third document.
+				[Shop.ITEM.ALWAYS_HUNTER] = "rbxassetid://78477647971930",
 			}
 			for id, image in pairs(wanted) do
 				expect(Display.imageFor(id)).to.equal(image)
@@ -766,9 +768,14 @@ return function()
 			box:Destroy()
 			expect(seen["rbxassetid://124539390037781"]).to.equal(true)
 			expect(seen["rbxassetid://95181634568725"]).to.equal(true)
-			-- NOT ONE OF THE FOUR DECAL IDS APPEARS ANYWHERE.
-			local decals = { "108290190291718", "116011941064732", "104459454968931", "92868335129939" }
-			local all = { Display.imageFor(Shop.ITEM.BEATER_LICENCE), Display.imageFor(Shop.ITEM.RED_STAG) }
+			-- NOT ONE OF THE FIVE DECAL IDS APPEARS ANYWHERE.
+			local decals =
+				{ "108290190291718", "116011941064732", "104459454968931", "92868335129939", "111542606757761" }
+			local all = {
+				Display.imageFor(Shop.ITEM.BEATER_LICENCE),
+				Display.imageFor(Shop.ITEM.RED_STAG),
+				Display.imageFor(Shop.ITEM.ALWAYS_HUNTER),
+			}
 			for texture in pairs(seen) do
 				table.insert(all, texture)
 			end
@@ -870,11 +877,28 @@ return function()
 			-- shipping slab, seven of the SAME carton with their seven lid bands, and the same two
 			-- rounds. 82 parts of bandolier became 27.
 			expect(partsOf(Shop.ITEM.UNLIMITED_AMMO)).to.equal(1 + 7 + 7 + 2 * 6)
-			expect(partsOf(Shop.ITEM.ALWAYS_HUNTER)).to.equal(25)
-			-- THE TWO LICENCES DRAW NO MODEL AT ALL in the case -- they are flat images (section
-			-- 3.3, 3.4) -- and exactly ONE part inside a package, which is the one place a hole
-			-- would show (section 4's card, at the art's own 1.79 : 1).
-			for _, id in ipairs({ Shop.ITEM.RED_STAG, Shop.ITEM.BEATER_LICENCE }) do
+			-- **TASK 243: THE PACKED STACK IS THE SAME CARTON, THREE TIMES** (section 8.2c). The
+			-- shipping stack is 3.9 studs wide and no case this shop draws is, so a package gets a
+			-- compact course -- and what a spec has to hold is that it is the SAME carton at the
+			-- SAME size and not a shrunken one: three boxes, three lid bands, no slab, no rounds.
+			local packed = Display.build(Shop.ITEM.UNLIMITED_AMMO, "lite") :: Model
+			local packedParts = 0
+			for _, descendant in ipairs(packed:GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					packedParts += 1
+					if string.match(descendant.Name, "^Carton%d+$") then
+						local off = (descendant :: BasePart).Size - Vector3.new(1.00, 0.70, 0.32)
+						expect(off.Magnitude < 1e-3).to.equal(true)
+					end
+				end
+			end
+			packed:Destroy()
+			expect(packedParts).to.equal(3 + 3)
+			-- **ALL THREE DOCUMENTS DRAW NO MODEL AT ALL in the case** -- they are flat images
+			-- (sections 3.3, 3.4 and, since task 243, 8.1) -- and exactly ONE part inside a package,
+			-- which is the one place a hole would show (section 4's card, at the art's own
+			-- 1.79 : 1). `ALWAYS HUNTER` was 25 parts of enamelled pin with no word on it.
+			for _, id in ipairs({ Shop.ITEM.RED_STAG, Shop.ITEM.BEATER_LICENCE, Shop.ITEM.ALWAYS_HUNTER }) do
 				expect(Display.build(id)).to.equal(nil)
 				local card = Display.build(id, "lite") :: Model
 				local cardParts = 0
@@ -985,6 +1009,184 @@ return function()
 			expect(Display.viewFor(Shop.ITEM.SLUG).rockDegrees).to.equal(nil)
 		end)
 
+		-- **TASK 243: THE CASE STOPS GROWING WITH THE CONTENTS** (the Designer's `goods-spec.md`
+		-- section 8.2). KAREN, 2026-10-22: *"package The hide has to be improved now is broke n /
+		-- package marksman also broken / the full season also broken"*.
+		--
+		-- WHAT A SPEC CAN HOLD HERE IS THE ARITHMETIC THE PICTURE IS MADE OF, and all four of the
+		-- faults she was looking at are arithmetic:
+		--   * the case grew with the contents, so the season was drawn at half its neighbours' scale;
+		--   * every item was crushed into a 1.42-stud cell, so the row that sells *"the long gun"*
+		--     had no gun you could find;
+		--   * the brightest thing in the picture was a blank cream label on the lid;
+		--   * and nothing checked that a thing in the case could actually be SEEN over its own rim.
+		-- The LOOK is the Forest Test frames beside `goods2-mockups.png` (rule 5).
+		it("fits every package into one fixed case, by shape", function()
+			local SMALL, LARGE = Vector2.new(3.30, 1.70), Vector2.new(4.60, 1.85)
+			local FLOOR_TOP, RIM_TOP = 0.08, 0.22
+			-- THE SIGHT LINE OVER THE NEAR RIM, which is `SOLID_VIEW`'s own 25 degrees of pitch.
+			local RIM_SIGHT = math.tan(math.rad(25))
+
+			-- THE WORLD-ALIGNED BOX OF A THING, OVER ITS OWN PARTS. **Not `GetExtentsSize`**: that
+			-- measures in the PRIMARY PART's basis, and the rifle in a package is turned twice --
+			-- so the one model this case exists to measure is the one that answer would be wrong
+			-- about. `ShopDisplay`'s own `worldBox` does the same thing for the same reason.
+			local function boxOf(thing: Instance): (Vector3, Vector3)
+				local lo = Vector3.new(math.huge, math.huge, math.huge)
+				local hi = Vector3.new(-math.huge, -math.huge, -math.huge)
+				local all = thing:GetDescendants()
+				table.insert(all, thing)
+				for _, found in ipairs(all) do
+					if found:IsA("BasePart") then
+						local piece = found :: BasePart
+						local cf, size = piece.CFrame, piece.Size
+						local reach = Vector3.new(
+							math.abs(cf.RightVector.X * size.X)
+								+ math.abs(cf.UpVector.X * size.Y)
+								+ math.abs(cf.LookVector.X * size.Z),
+							math.abs(cf.RightVector.Y * size.X)
+								+ math.abs(cf.UpVector.Y * size.Y)
+								+ math.abs(cf.LookVector.Y * size.Z),
+							math.abs(cf.RightVector.Z * size.X)
+								+ math.abs(cf.UpVector.Z * size.Y)
+								+ math.abs(cf.LookVector.Z * size.Z)
+						) / 2
+						lo = lo:Min(cf.Position - reach)
+						hi = hi:Max(cf.Position + reach)
+					end
+				end
+				return lo, hi
+			end
+
+			-- THE SLOT EACH COVERED ROW TAKES, named once here against the Designer's section 8.2b,
+			-- so a drawing that quietly changes shape fails the harness instead of looking wrong.
+			local WANTED_SLOT = {
+				[Shop.ITEM.HIGH_SEAT] = Display.SLOT.TALL,
+				[Shop.ITEM.SLUG] = Display.SLOT.SOLID,
+				[Shop.ITEM.UNLIMITED_AMMO] = Display.SLOT.SOLID,
+				[Shop.ITEM.RIFLE] = Display.SLOT.LONG,
+				[Shop.ITEM.BEATER_LICENCE] = Display.SLOT.FLAT,
+				[Shop.ITEM.ALWAYS_HUNTER] = Display.SLOT.FLAT,
+			}
+			for id, slot in pairs(WANTED_SLOT) do
+				local piece = Display.build(id, "lite") :: Model
+				expect(piece).to.be.ok()
+				local low, high = boxOf(piece)
+				expect(Display.slotFor(id, high - low)).to.equal(slot)
+				piece:Destroy()
+			end
+
+			for _, bundle in ipairs({ Shop.ITEM.BUNDLE_HIDE, Shop.ITEM.BUNDLE_MARKSMAN, Shop.ITEM.BUNDLE_SEASON }) do
+				local made = Display.build(bundle) :: Model
+				expect(made).to.be.ok()
+				local covers = Shop.ROWS[bundle].covers
+				local want = if #covers >= 4 then LARGE else SMALL
+
+				-- THE CASE IS A BOX OF ONE OF TWO SIZES, and which one is decided by HOW MANY has to
+				-- go in and by nothing else. `w = #drawable * 1.62 + 0.4` is what this replaces.
+				local floor = made:FindFirstChild("CaseFloor") :: BasePart
+				expect(floor).to.be.ok()
+				expect(floor.Size.X).to.be.near(want.X, 0.001)
+				expect(floor.Size.Z).to.be.near(want.Y, 0.001)
+				-- THE RIM IS LOW AND IT IS A MEASUREMENT: a tall rim hides what is lying in front of
+				-- it, which is how the old 0.30 wall hid the whole rifle.
+				local near = made:FindFirstChild("CaseNear") :: BasePart
+				expect(near.Position.Y + near.Size.Y / 2).to.be.near(RIM_TOP, 0.001)
+				-- NO LABEL, NO RULE, NO INK BARS ON THE LID. The package's name is already printed
+				-- at 29 px directly under the case; inside it, it would land at 9 px a letter.
+				for _, gone in ipairs({ "CaseLidLabel", "CaseLidRule", "CaseLidInk1", "CaseLidInk2" }) do
+					expect(made:FindFirstChild(gone)).to.equal(nil)
+				end
+
+				local innerLeft, innerRight = -want.X / 2 + 0.08, want.X / 2 - 0.08
+				local innerBack, innerFront = -want.Y / 2 + 0.08, want.Y / 2 - 0.08
+				local drawn = 0
+				for _, child in ipairs(made:GetChildren()) do
+					if child:IsA("Model") then
+						drawn += 1
+						local low, high = boxOf(child)
+						-- **EVERYTHING IS IN THE CASE.** This is the claim the old packager could
+						-- not make at all: `228-after-bundle-season.png` is clipped by the panel's
+						-- own right edge because the board grew past it.
+						expect(low.X >= innerLeft - 0.01).to.equal(true)
+						expect(high.X <= innerRight + 0.01).to.equal(true)
+						expect(low.Z >= innerBack - 0.01).to.equal(true)
+						expect(high.Z <= innerFront + 0.01).to.equal(true)
+						-- ...AND NOTHING IS INSIDE THE FLOOR IT STANDS ON.
+						expect(low.Y >= FLOOR_TOP - 0.01).to.equal(true)
+						-- ...AND NOTHING IS HIDDEN BY THE NEAR RIM. The sight line from a thing's
+						-- own TOP, at 25 degrees, has to clear the rim at the inner front wall --
+						-- which is the one test the two 0.016-thick documents can actually fail.
+						expect(high.Y + RIM_SIGHT * (innerFront - high.Z) >= RIM_TOP).to.equal(true)
+					end
+				end
+				expect(drawn).to.equal(#covers)
+
+				-- **THE GUN IS A GUN AGAIN.** 2.80 studs of it, lying along the case's own long
+				-- axis on two chocks, with its belly 0.055 above the floor -- against 1.42 studs
+				-- laid flat in a 0.76-deep trough, dark on dark wood.
+				local hasGun = false
+				for _, covered in ipairs(covers) do
+					if covered == Shop.ITEM.RIFLE then
+						hasGun = true
+					end
+				end
+				if hasGun then
+					local chockA = made:FindFirstChild("Chock1") :: BasePart
+					local chockB = made:FindFirstChild("Chock2") :: BasePart
+					expect(chockA).to.be.ok()
+					expect(chockB).to.be.ok()
+					expect(chockA.Position.Y + chockA.Size.Y / 2).to.be.near(0.135, 0.001)
+					local gun: Model? = nil
+					for _, child in ipairs(made:GetChildren()) do
+						if child:IsA("Model") then
+							local low, high = boxOf(child)
+							if high.X - low.X > 2.5 then
+								gun = child :: Model
+							end
+						end
+					end
+					expect(gun).to.be.ok()
+					local low, high = boxOf(gun :: Model)
+					expect(high.X - low.X).to.be.near(2.80, 0.05)
+					-- IT LIES ON ITS SIDE: along x it is 2.80, and it is TALLER THAN IT IS WIDE in
+					-- neither of the other two axes -- a gun on its side is a flat thing, so its
+					-- height is its barrel's own width and not its scope's height.
+					expect(high.Y - low.Y < high.Z - low.Z).to.equal(true)
+					expect(low.Y).to.be.near(0.135, 0.02)
+				end
+
+				-- **THE DOCUMENTS LIE FLAT AND THEY OVERLAP**, 0.022 proud of each other so they
+				-- never z-fight -- and each is still visible over the rim, which the loop above has
+				-- already asserted for every model in the case.
+				local flats: { Model } = {}
+				for index, covered in ipairs(covers) do
+					if Display.imageFor(covered) ~= nil then
+						local child = made:FindFirstChild(string.format("Part%d", index))
+						expect(child).to.be.ok()
+						table.insert(flats, child :: Model)
+					end
+				end
+				for order, sheet in ipairs(flats) do
+					local low, high = boxOf(sheet)
+					expect(high.Y - low.Y).to.be.near(0.016, 0.002)
+					expect(low.Y).to.be.near(FLOOR_TOP + (order - 1) * 0.022, 0.002)
+				end
+				made:Destroy()
+			end
+
+			-- **AND THE TWO SMALL CASES ARE THE SAME CASE.** Two items or three, the box does not
+			-- move -- which is the whole of *"the case stops growing with the contents"*, and what
+			-- makes the three packages read as one family at comparable scale.
+			local hide = Display.build(Shop.ITEM.BUNDLE_HIDE) :: Model
+			local marksman = Display.build(Shop.ITEM.BUNDLE_MARKSMAN) :: Model
+			local a = (hide:FindFirstChild("CaseFloor") :: BasePart).Size
+			local b = (marksman:FindFirstChild("CaseFloor") :: BasePart).Size
+			expect((a - b).Magnitude < 1e-3).to.equal(true)
+			hide:Destroy()
+			marksman:Destroy()
+		end)
+
 		it("turns the picture while the panel is open and stands still while it is shut", function()
 			Panel.onState(statePayload())
 			Panel.setOpen(true)
@@ -1027,16 +1229,16 @@ return function()
 		-- (the Designer's spec, 6.4): *"a flat card on a full orbit goes edge-on twice a revolution
 		-- and disappears; a nine-second sway never does"*.
 		--
-		-- ONE ROCK AGAIN SINCE TASK 241. `BOOK_VIEW`'s slower 15-in-ten belonged to the booklet
-		-- licences and went with them; `CARD_VIEW` is still 17 in nine and is what the pin on its
-		-- card wears, which is now the only flat THING in the viewport. **The two licences are
-		-- flat IMAGES over the case and do not move at all**, and that is the Designer's section
-		-- 3.5 rather than an omission: the tilt and the shadow are painted into the artwork, so a
-		-- second motion on top reads as a loose sticker.
+		-- **NO SHIPPED ROW ROCKS ANY MORE (task 243), AND THAT IS THE CLAIM.** `CARD_VIEW` went with
+		-- the hunter's pin, which was the last flat THING in the viewport; all three documents this
+		-- shop sells are flat IMAGES over the case now, and the Designer's section 3.5 says an image
+		-- does not move at all -- the tilt and the shadow are painted into the artwork, so a second
+		-- motion on top reads as a loose sticker. So this case holds TWO things: that the rock
+		-- arithmetic still obeys its contract for a view that asks for one (`goods-spec.md` section
+		-- 4's `DOC_VIEW` is what would come back on it), and that no row in the shipped catalogue
+		-- asks for one.
 		it("rocks a flat thing instead of turning it all the way round", function()
-			local card = Display.viewFor(Shop.ITEM.ALWAYS_HUNTER)
-			expect(card.rockDegrees).to.equal(17)
-			expect(card.rockSeconds).to.equal(9)
+			local card = { yawDeg = 15, pitchDeg = 9, rockDegrees = 17, rockSeconds = 9 }
 			-- A WHOLE PERIOD COMES BACK TO THE MIDDLE, and the quarter points are the extremes.
 			expect(Display.spinDegAt(0, card)).to.be.near(0, 0.001)
 			expect(Display.spinDegAt(9, card)).to.be.near(0, 0.001)
@@ -1049,9 +1251,11 @@ return function()
 				local yaw = card.yawDeg + Display.spinDegAt(tenth / 10, card)
 				expect(math.abs(yaw) < 60).to.equal(true)
 			end
-			-- **A LICENCE DOES NOT ROCK AT ALL** (task 241): it is an `ImageLabel`, which cannot go
-			-- edge-on and must not tilt, and `Rotation = 0` is asserted on the real control above.
-			for _, id in ipairs({ Shop.ITEM.RED_STAG, Shop.ITEM.BEATER_LICENCE }) do
+			-- **NOT ONE SHIPPED ROW ROCKS**, and the three documents draw no model at all.
+			for _, id in ipairs(Shop.ORDER) do
+				expect(Display.viewFor(id).rockDegrees).to.equal(nil)
+			end
+			for _, id in ipairs({ Shop.ITEM.RED_STAG, Shop.ITEM.BEATER_LICENCE, Shop.ITEM.ALWAYS_HUNTER }) do
 				expect(Display.imageFor(id)).to.be.ok()
 				expect(Display.build(id)).to.equal(nil)
 			end

@@ -108,15 +108,20 @@ end
 -- expression (`anchor + cfg.SPOT.OFFSET`) in TWO files -- `Build.spot` and `Lobby.tryBuild` -- and
 -- this closes that.
 --
--- x IS THE BAY'S OWN x: `TRUCK.OFFSET.X` stepped by `BAY_GAP_STUDS`, the same expression
+-- **THE TWO AXES SWAPPED IN TASK 243 AND NOTHING ELSE ABOUT THIS DID** (the Designer's
+-- `lobby-yard-spec.md` section 2b). The row used to step EAST with the pad NORTH of its bay; it
+-- steps SOUTH now with the pad WEST of its bay, because the trucks face west at the player. Each
+-- of the three rows below reads the same config row it always read.
+--
+-- z IS THE BAY'S OWN z: `TRUCK.OFFSET.Z` stepped SOUTH by `BAY_GAP_STUDS`, the same expression
 -- `Build.trucks` uses, so a pad cannot drift away from its truck.
 --
--- z READS `PAD_BEHIND_STUDS` AS "FROM THE BAY CENTRE TO THE PAD'S NEAR EDGE", and that is a
+-- x READS `PAD_BEHIND_STUDS` AS "FROM THE BAY CENTRE TO THE PAD'S NEAR EDGE", and that is a
 -- measurement rather than a reading of task 180's words. Task 180 wrote *"12 studs behind the
 -- tailgate"* -- but there are TWO tailgates: the parts truck's `BedTail` face is at `+8.2` and the
--- free model is 18.5 studs long yawed a quarter turn, so its tail is at `+9.25`. A pad defined off
+-- free model is 18.5 studs long yawed a half turn, so its tail is at `+9.23`. A pad defined off
 -- "the tailgate" would therefore MOVE when a model is swapped. From the bay centre it does not, and
--- it clears the tighter of the two by 3.8 studs.
+-- it clears the tighter of the two by 3.77 studs -- task 213's own number, to the decimal.
 --
 -- y SINKS THE SLAB, AND THAT IS TASK 177'S ROUND-1 FINDING CLOSED IN ADVANCE. Its TOP is
 -- `shelfY + ROAD.THICK_STUDS + LIFT_STUDS`, above every yard slab the pad straddles; its BOTTOM, at
@@ -125,17 +130,18 @@ end
 function Pads.centreFor(anchor: Vector3, index: number, cfg): Vector3
 	return anchor
 		+ Vector3.new(
-			cfg.TRUCK.OFFSET.X + (index - 1) * cfg.TRUCK.BAY_GAP_STUDS,
+			cfg.TRUCK.OFFSET.X - cfg.TRUCK.PAD_BEHIND_STUDS - cfg.PADS.SIZE.X / 2,
 			cfg.ROAD.THICK_STUDS + cfg.PADS.LIFT_STUDS - cfg.PADS.SIZE.Y / 2,
-			cfg.TRUCK.OFFSET.Z + cfg.TRUCK.PAD_BEHIND_STUDS + cfg.PADS.SIZE.Z / 2
+			cfg.TRUCK.OFFSET.Z - (index - 1) * cfg.TRUCK.BAY_GAP_STUDS
 		)
 end
 
 -- WHICH PAD THIS POSITION IS ON, or nil. The owner's one question per player per scan.
 --
--- THE PADS ARE 8 STUDS APART ON A 9-STUD SPAN (`BAY_GAP_STUDS` 17 less `SIZE.X` 9), so a man cannot
--- be inside two and the first match is the only match -- which is why this returns on the first hit
--- rather than measuring a distance to each.
+-- THE PADS ARE 8 STUDS APART ON A 9-STUD SPAN (`BAY_GAP_STUDS` 17 less `SIZE.Z` 9 -- it was `SIZE.X`
+-- until task 243 swapped the pad's two axes, and the 8 is unchanged), so a man cannot be inside two
+-- and the first match is the only match -- which is why this returns on the first hit rather than
+-- measuring a distance to each.
 --
 -- nil POSITION -> nil. A player with no character -- joining, or mid-respawn -- is standing nowhere,
 -- and ABSENT IS NOT OUTSIDE: `Join.needsReturn`'s rule and `MapUi.pointsFor`'s.
