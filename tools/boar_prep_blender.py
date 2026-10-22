@@ -186,6 +186,44 @@ def lowest_hoof(track):
     return min(lows), sum(lows) / len(lows)
 
 
+def vertical_rise(track):
+    """How far the highest point of this track climbs above its own lowest, in metres.
+
+    A LEAP IS A VERTICAL MEASUREMENT AND NOTHING ELSE HERE MEASURES ONE (task 245). Every clip this
+    tool has prepped so far is a gait, a flinch or a death, and for all of those the number that
+    matters is horizontal (`ground_speed`) or a floor (`lowest_hoof`). `Jump_Run_IP` is a bound: the
+    animal leaves the ground, and whether it actually does is the difference between a leap and a
+    running animal flapping its legs. Reported for every clip, because the comparison -- a run's
+    rise against a leap's -- is what makes the leap's number mean something.
+    """
+    rise = 0.0
+    for positions in track.values():
+        if positions:
+            heights = [point[2] for point in positions]
+            rise = max(rise, max(heights) - min(heights))
+    return rise
+
+
+def hoof_floor_per_frame(track):
+    """The lowest of the four hooves AT EACH FRAME, in metres: the clip's own floor, frame by frame.
+
+    `lowest_hoof` answers one number for the whole clip, which is the right question for a gait (do
+    the feet reach the ground at all) and the wrong one for a LEAP (task 245). `Jump_Run_IP` is
+    authored with the root pinned -- MEASURED on the stag: `root_bone` rise 0.0000 m -- so the whole
+    arc is expressed as the body going up and the legs reaching down, and a hind hoof gets 0.465 m
+    BELOW where it rests. Played as it is, a leaping deer puts its back legs through the ground.
+    This curve is what the drawing layer cancels that with: the lift at any phase of the clip is how
+    far below its own resting floor the lowest hoof has got, and nothing else. One number per frame,
+    so the shape of the arc is the ANIMATOR's and not a curve this project invented.
+    """
+    frames = max((len(positions) for positions in track.values()), default=0)
+    floor = []
+    for index in range(frames):
+        lows = [positions[index][2] for positions in track.values() if index < len(positions)]
+        floor.append(min(lows) if lows else 0.0)
+    return floor
+
+
 def ground_speed(track, fps, contact_fraction):
     """How fast the ground slides under this clip, in metres per second, at playback rate 1.0.
 
@@ -519,6 +557,14 @@ def main():
             # Where the feet are, not just how fast they move: see `lowest_hoof`.
             "lowestHoofMetres": floor_m,
             "meanLowestHoofMetres": mean_floor_m,
+            # HOW FAR OFF THE GROUND IT GETS (task 245): see `vertical_rise`. Two numbers, because
+            # a bound lifts the body and the feet by different amounts and the body is what a player
+            # sees clear the road.
+            "hoofRiseMetres": vertical_rise(track),
+            "rootRiseMetres": vertical_rise({recipe["rootBone"]: root}),
+            # THE FLOOR FRAME BY FRAME (task 245): see `hoof_floor_per_frame`. The leap needs it;
+            # every other clip's is flat and costs a few dozen numbers in a file nothing loads.
+            "hoofFloorMetresPerFrame": hoof_floor_per_frame(track),
         }
         say(
             "%-16s %3d keys  %.3f s  ground %.3f m/s -> %.3f studs/s  lowest hoof %.3f m"

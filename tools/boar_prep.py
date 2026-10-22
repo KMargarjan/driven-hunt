@@ -164,7 +164,8 @@ DEFAULT_CLIPS = (
     "Dig_walk_IP",
 )
 
-# THE ELEVEN CLIPS THE RED DEER ASKS FOR (task 223), and the whole list of reasons -- which is
+# THE TWELVE CLIPS THE RED DEER ASKS FOR (task 223, and the leap in task 245), and the whole list
+# of reasons -- which is
 # `docs/design/red-deer.md` section 6.2, table by table. The names are NOT the boar's: this package
 # has `Hit_Front`/`Hit_Back`/`Hit_Middle` where the boar has `Hit_F`/`Hit_B`, ONE `Eat_loop` where
 # the boar has two, and `Eat_walk_IP`/`EatDig_loop` where the boar has `Dig_walk_IP`. Measured with
@@ -181,8 +182,18 @@ DEFAULT_CLIPS = (
 #   Idle_5          MODEL.ALERT_CLIP -- head up. The single most characteristic thing a deer does,
 #                   and the one the ALERT state already asks for by name, which is why it is the one
 #                   piece of the calm repertoire that is in v1 (design section 6.3).
+#   Jump_Run_IP     THE LEAP OVER THE ROAD (task 245). Karen, 2026-10-22: *"they usually jump when
+#                   is cross road so can we do that"*. A running bound, in place like every other
+#                   clip here, so the body keeps crossing at its own speed while the mesh leaves the
+#                   ground -- see `Body.clipFor`'s leap branch.
 #
-# EVERY ONE OF THESE IS A HAND PUBLISH IN STUDIO'S ANIMATION EDITOR -- eleven of Karen's clicks --
+# `Jump_Run_IP` IS IN ALL THREE FILES AND `Run_Jump_F_IP` IS IN ONE. MEASURED 2026-10-22 by reading
+# the `AnimStack` names out of the three `*_anim_IP.fbx` directly: the stag and the Doe ship 77 clips
+# each and the Calf 80, and the Calf's three extras are exactly `Run_Jump_F_IP`, `Run_Jump_L_IP` and
+# `Run_Jump_R_IP`. So the dispatch's second name would have been a stag run that refused; the one
+# name that serves all three kinds is `Jump_Run_IP`, and that is what is taken.
+#
+# EVERY ONE OF THESE IS A HAND PUBLISH IN STUDIO'S ANIMATION EDITOR -- twelve of Karen's clicks --
 # which is the whole reason the grazing four (`Eat_loop`, `EatDrink_start`, `EatDrink_end`,
 # `Eat_walk_IP`) and `Hit_Middle` are out of v1 rather than "free to add".
 DEER_CLIPS = (
@@ -197,6 +208,7 @@ DEER_CLIPS = (
     "Hit_Front",
     "Hit_Back",
     "Idle_5",
+    "Jump_Run_IP",
 )
 
 # THE THREE CLIPS THE PACKAGE DOES NOT HAVE, AUTHORED OUT OF THE ONES IT DOES (task 116).
@@ -897,11 +909,20 @@ def run_selftest(_args):
         "Hit_Back",
         # The one piece of the calm repertoire that is in v1: MODEL.ALERT_CLIP, the head-up look.
         "Idle_5",
+        # The leap over the road (task 245), the only clip here that is neither a gait nor a
+        # reaction: it is asked for by WHERE the animal is, not by what it is doing.
+        "Jump_Run_IP",
     )
     check("every deer clip asked for is in the tuple", sorted(set(deer_wanted) - set(DEER_CLIPS)), [])
     check("and nothing else is", sorted(set(DEER_CLIPS) - set(deer_wanted)), [])
     check("no duplicate deer clip", len(set(DEER_CLIPS)), len(DEER_CLIPS))
-    check("eleven deer clips, eleven clicks", len(DEER_CLIPS), 11)
+    check("twelve deer clips, twelve clicks", len(DEER_CLIPS), 12)
+    # THE LEAP'S NAME IS THE ONE ALL THREE PACKAGES SHARE (task 245). `Run_Jump_F_IP` exists only in
+    # the Calf's file -- measured, see the tuple's comment -- so asking for it would refuse a stag
+    # run, and the two names must never be swapped by a reader who met the other one first.
+    check("the leap is Jump_Run_IP", "Jump_Run_IP" in DEER_CLIPS, True)
+    check("and not Run_Jump_F_IP", "Run_Jump_F_IP" in DEER_CLIPS, False)
+    check("the boar does not leap", "Jump_Run_IP" in DEFAULT_CLIPS, False)
 
     # 1c. THE DIFFERENCE BETWEEN THE TWO LISTS, by name. Nine clip names are in BOTH packages under
     #     the same spelling (the three gaits, the two turns, the two deaths, `Idle_1`, `Idle_5`), so

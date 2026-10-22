@@ -1,5 +1,82 @@
 # Escalations
 
+## 2026-10-22 - Task 245 item 3(b): **NEEDS DIRECTOR -- ONE animation publish, and it is the only thing that blocks the road leap.** Items 1, 2 and 3(a) do not wait on it.
+
+**THE CLICK.** Studio -> Avatar -> Animation Editor -> Import -> **From FBX Animation**, then
+"Publish to Roblox", exactly as the eleven of task 232:
+
+```
+file   <assets-dir>/deer/prep-stag-jump/clips/Jump_Run_IP.fbx
+track  Arm_Deer|Jump_Run_IP          (the Animation Editor shows the package's own name)
+sha256 ada7d22e3d24172d8fd0ca35018363320d97bd23d225404894ae65d6d7d8e5c4
+Loop   false -- it is one bound, not a cycle. `Body` writes `AnimationTrack.Looped` from
+       `MODEL.CLIPS` before every Play, so the asset's own flag decides nothing either way.
+```
+
+`<assets-dir>` is the assets folder beside the repo. The key the row will carry is
+`deer.anim.leap` (`Assets.KEYS.deerLeap`), scope `"deer-animation"`, beside the other eleven.
+
+### ONE publish, not three, and that is measured rather than assumed
+
+The dispatch asked for an export per kind and all three are written (item 3(a)). **But the game needs
+ONE id**: all three deer kinds share the armature `Arm_Deer` -- 42 bones, identical names -- which is
+why `Assets.ROWS` carries ONE `modelId` per clip for the eleven and `Assets/init.luau`'s own comment
+says *"the eleven publishes below are 1x and not 3x"*. A second id for the hind and a third for the
+calf would be two more rows playing the same motion on the same skeleton.
+
+The three exports still earn their keep: each kind's own clip was MEASURED, which is how the number
+the drawing layer needs came out (below), and the hind's and the calf's files are there if the
+Director would rather publish three.
+
+### The other two paths, if he wants them
+
+```
+<assets-dir>/deer/prep-hind-jump/clips/Jump_Run_IP.fbx   sha256 d756747efb2da00b133e405306b1e8056f8cebc03eb29c82cb5500c53f82b16c
+<assets-dir>/deer/prep-calf-jump/clips/Jump_Run_IP.fbx   sha256 b4fd1de861e843f4d256a19ee6caddc105cc1ae99427c70f8a76a0c8abf176f2
+```
+
+### `Run_Jump_F_IP` IS NOT IN THE STAG'S FILE, and the dispatch offered it as an alternative name
+
+MEASURED 2026-10-22 by reading the `AnimStack` names straight out of the three `*_anim_IP.fbx`: the
+stag and the Doe ship **77** clips each and the Calf **80**, and the Calf's three extras are exactly
+`Run_Jump_F_IP`, `Run_Jump_L_IP` and `Run_Jump_R_IP`. So `Run_Jump_F_IP` exists on ONE of the three
+kinds, and asking for it on a stag run is a refusal. **`Jump_Run_IP` is the one name all three have**
+and it is what `tools/boar_prep.py`'s `DEER_CLIPS` now asks for.
+
+### What the clip actually is, measured -- because it changes what item 3(c) has to build
+
+```
+stag Jump_Run_IP   49 keys   2.000 s   root_bone rise 0.0000 m   hoof rise 1.1107 m
+     lowest hoof  -0.3324 m  against the run clip's resting +0.1327 m
+stag Run_F_IP      15 keys   0.583 s   root_bone rise 0.0000 m   hoof rise 0.4811 m
+```
+
+**The clip does not lift the animal off the ground; it lifts its BODY and reaches its LEGS DOWN.**
+`root_bone` does not move a millimetre (it is an `_IP` clip, like every other one here), the chest
+(`Spine_01`) rises 0.267 m and the rump (`Spine_base`) 0.865 m, while a hind hoof goes **0.465 m --
+1.66 studs -- below the plane it rests on**. Played as it arrives, a leaping stag puts its back legs
+through the road.
+
+So the leap needs a vertical LIFT while it plays, and the lift is the clip's own arc rather than
+anything invented: `tools/boar_prep_blender.py` now measures `hoofFloorMetresPerFrame`, the lowest of
+the four hooves frame by frame, and the lift at any phase is how far below its resting floor that has
+got. The stag's curve, in studs, is zero for frames 1-10, then **0.76, 1.52, 1.66, 1.52, 1.24, 0.88,
+0.50, 0.11** over frames 11-19, then zero again (with a 0.46-stud secondary hop at frames 29-34).
+
+**The bound is 0.33 s long inside a 2.0 s clip** -- frames 11 to 19 at 24 fps -- which is what makes
+it fit the road: the Forest Test's lane is 40 studs across (`ForestTest.SHAPE.halfWidthStuds = 20`)
+and a bolting deer crosses it in about 1.3 s, so a leap started at the north verge peaks 12-22 studs
+in, over the middle of the road. Item 3(c) plays the leading 0.79 s and hands the gait back, rather
+than the whole 2 s whose last 1.25 s is a recovery that would slide.
+
+**The per-kind lift cannot come from these Blender numbers and will be measured live.** The game
+plays the STAG's published clip on geometry `boar_prep` baked smaller, and a clip's bone translations
+are absolute studs -- which is exactly why `deathLiftStuds` is 0.011 for the stag, 0.185 for the hind
+and 1.325 for the calf (task 232 measured those in a PLAY session off the real asset, because
+`AnimationTrack.Length` is 0 in Edit). The leap's lift per kind gets the same treatment, in the same
+way, once the id exists.
+
+
 ## 2026-10-22 - Task 242 (four fixes from Karen's test, CORRECTED): **CLOSED -- the two-player run is green.**
 
 **CLOSED the same day.** The Director ran it twice at the branch head and both were clean
