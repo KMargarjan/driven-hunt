@@ -27,6 +27,7 @@
 --
 -- Pattern: TestEZ describe/it/expect (https://roblox.github.io/testez/api-reference/).
 -- Note: docs/research/2026-10-22-licence-popup-and-robux.md
+local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -41,6 +42,9 @@ local Hud = require(scripts:WaitForChild("Hud"))
 local WeaponSystem = require(scripts:WaitForChild("Weapon"))
 
 local Card = Hud.LicenceCard
+-- The key the card binds while it is up, by name, read off the card's own config so this file holds
+-- no second copy of it.
+local LicenceCard_KEY_NAME = Card.CONFIG.BUY_KEY.Name
 local Panel = Hud.Shop
 local Input = WeaponSystem.Input
 
@@ -166,11 +170,32 @@ return function()
 			expect(parts.buy).to.be.ok()
 			expect(parts.close).to.be.ok()
 			expect((parts.title :: TextLabel).Text).to.equal("NO DEER LICENCE")
+			-- THE CLOSE IS NOT IN THE LIST FLOW, AND THE FRAME OF 2026-10-22 IS WHY THIS CASE EXISTS:
+			-- a `UIListLayout` positions every GuiObject SIBLING, so a close button parented beside
+			-- the rows was laid out as a fifth row and drew over the title in the top LEFT. The flow
+			-- lives on an inner `Body`; the close sits on the card.
+			local body = (parts.title :: TextLabel).Parent :: Instance
+			expect(body.Name).to.equal("Body")
+			expect(body:FindFirstChildOfClass("UIListLayout")).to.be.ok()
+			expect((parts.close :: TextButton).Parent).never.to.equal(body)
+			expect((parts.close :: TextButton).Parent).to.equal(body.Parent)
+			expect((parts.close :: TextButton).Parent:FindFirstChildOfClass("UIListLayout")).to.equal(nil)
+			-- ...AND IT REALLY IS IN THE TOP-RIGHT CORNER.
+			expect((parts.close :: TextButton).AnchorPoint.X).to.equal(1)
+			expect((parts.close :: TextButton).Position.X.Scale).to.equal(1)
+			expect((parts.close :: TextButton).Position.Y.Offset).to.equal(0)
 			-- WHAT THE RULE ACTUALLY IS, and it says so. The dispatch asked for "costs points";
 			-- measured, the shot is REFUSED and costs nothing (this spec's header).
 			local why = (parts.why :: TextLabel).Text
 			expect(string.find(why, "cannot shoot") ~= nil).to.equal(true)
 			expect(string.find(why, "point")).to.equal(nil)
+			-- THE HINT SAYS WHAT IS TRUE, and the first version did not: it read "Esc or wait", and
+			-- **Escape is not bound and cannot be** -- it belongs to the Roblox menu, which
+			-- `ReportPanel.bind`'s own comment states. It now names the key that IS bound, from the
+			-- same constant the binding uses, so the chip and the action cannot drift.
+			local hint = Hud.Style.unspaced((parts.hint :: TextLabel).Text)
+			expect(string.find(hint, LicenceCard_KEY_NAME, 1, true) ~= nil).to.equal(true)
+			expect(string.find(hint, "Esc")).to.equal(nil)
 			-- EVERY FACE IS ONE OF THE DESIGN SYSTEM'S TWO, so this card cannot introduce a third.
 			local faces = {}
 			for _, face in pairs(Hud.Style.FONT) do
@@ -246,6 +271,39 @@ return function()
 			expect(Card.expired(nil, 999)).to.equal(false)
 			expect(Card.expired(0, Card.CONFIG.SHOW_SECONDS)).to.equal(true)
 			expect(Card.expired(0, Card.CONFIG.SHOW_SECONDS - 0.01)).to.equal(false)
+		end)
+
+		it("holds the B key only while it is up, and gives it straight back", function()
+			-- IN FIRST PERSON `Camera.Cursor` LOCKS THE MOUSE TO THE CENTRE, so a `GuiButton`
+			-- receives no click at all -- which is why `Hud.Rail`'s buttons each carry a key chip and
+			-- why `MapUi` is `M`. The button still works wherever the cursor is free; the key works
+			-- always. This case is what says the key exists and does not outlive the card.
+			local function bound(): boolean
+				for _, entry in pairs(ContextActionService:GetAllBoundActionInfo()) do
+					for _, input in ipairs((entry :: any).inputTypes or {}) do
+						if input == Card.CONFIG.BUY_KEY then
+							return true
+						end
+					end
+				end
+				return false
+			end
+			restart()
+			-- DOWN: the key is the player's.
+			expect(bound()).to.equal(false)
+			expect(Card.onAdvice("no-licence", 450)).to.equal(true)
+			expect(bound()).to.equal(true)
+			Card.hide()
+			expect(bound()).to.equal(false)
+			-- ...AND `stop` GIVES IT BACK TOO, whatever state the card was in: a module that stopped
+			-- holding a binding would leave `B` dead for the rest of the session.
+			restart()
+			expect(Card.onAdvice("no-licence", 460)).to.equal(true)
+			expect(bound()).to.equal(true)
+			Card.stop()
+			expect(bound()).to.equal(false)
+			-- AND `B` IS THE CARD'S ALONE: nothing else in the game binds it.
+			expect(Card.CONFIG.BUY_KEY).to.equal(Enum.KeyCode.B)
 		end)
 
 		it("blocks nothing: the trigger is as free while it is open as it was before", function()

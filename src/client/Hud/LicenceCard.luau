@@ -41,6 +41,7 @@
 -- Design: the Designer's design system, 2026-10-17 (`Hud.Style` is the one source for every colour,
 --         face and size below; this file hard-codes none)
 -- Note:   docs/research/2026-10-22-licence-popup-and-robux.md
+local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
@@ -62,6 +63,15 @@ LicenceCard.ITEM = ShopData.ITEM.RED_STAG
 -- `tests/server/licence_popup.spec.luau` asserts the two are the same string from the server's side.
 LicenceCard.ADVICE = "no-licence"
 
+-- THE ACTION THIS MODULE BINDS, AND THE PREFIX IS RESERVED TO IT -- `Weapon.Input`'s own rule
+-- (*"a grep for `DrivenHunt.Weapon.` finds every binding it owns, and no other system may use it"*),
+-- applied to the Hud's. `MapUi` binds `M` and `ReportPanel` binds Tab and five more, so a Hud module
+-- binding its own key is this repository's pattern rather than a new one.
+--
+-- **IT IS BOUND ONLY WHILE THE CARD IS UP AND UNBOUND THE MOMENT IT COMES DOWN**, so `B` is the
+-- player's own key for every other second of the game.
+local BUY_ACTION = "DrivenHunt.Hud.LicenceBuy"
+
 -- READ ONCE, AT THE BOUNDARY, exactly as `docs/design/feature-flags.md` section 11 step 2 requires
 -- (`TIE_UNTIL_DRIVE_END = Flags.isOn(...)` is the shape it names). `LicenceCard.start` takes the
 -- value as a parameter, so both states are reachable while the row sits at false.
@@ -82,6 +92,13 @@ LicenceCard.CONFIG = table.freeze({
 	-- told once rather than nagged; short enough that the next drive's first deer tells him again.
 	-- Source 4 of the note has no number; this is ours, and Karen's to retune.
 	REPEAT_SECONDS = 12,
+	-- `B` FOR BUY, AND THE KEY IS WHY THE BUTTON IS USABLE AT ALL. In first person `Camera.Cursor`
+	-- locks the mouse to the centre of the screen, so a `GuiButton` receives no click -- which is
+	-- exactly why `Hud.Rail`'s on-screen buttons each carry a key chip and why `MapUi` is `M`. The
+	-- button still works wherever the cursor is free (a phone's tap, and any unlocked state), and
+	-- the key works always. `B` is free: the fifteen `Enum.KeyCode`s bound anywhere in `src/` are
+	-- Backspace, E, M, R, Tab, X, Return, the four arrows and four gamepad buttons.
+	BUY_KEY = Enum.KeyCode.B,
 	-- 7 s AND THEN IT LEAVES BY ITSELF. It is ADVICE: it must not need a click to go away, and the
 	-- hit card's own order of magnitude is the house rate for a card that fades.
 	SHOW_SECONDS = 7,
@@ -101,7 +118,11 @@ LicenceCard.TEXT = table.freeze({
 	-- The shop said no. Its own line is printed instead (`Shop.NOTICE`), so the voice stays in one
 	-- table and this card invents no refusal of its own.
 	BOUGHT = "LICENCE BOUGHT",
-	HINT = "Esc or wait",
+	-- WHAT IS ACTUALLY TRUE OF THE CARD, and the first version of this line was not: it read
+	-- *"Esc or wait"*, and **Escape is not bound and cannot be** -- it belongs to the Roblox menu,
+	-- which `ReportPanel.bind`'s own comment says. The frame of 2026-10-22 is what caught it.
+	-- `%s` is `CONFIG.BUY_KEY`'s own name, so the chip and the binding cannot drift.
+	HINT = "%s to buy, or wait",
 })
 
 local stats = {
@@ -233,13 +254,26 @@ local function build(frame: Frame)
 	card.AutomaticSize = Enum.AutomaticSize.Y
 	card.ZIndex = frame.ZIndex + 1
 
+	-- THE LIST LIVES ON AN INNER FRAME, NOT ON THE CARD, AND THE FRAME OF 2026-10-22 IS WHY. A
+	-- `UIListLayout` positions EVERY GuiObject sibling, so the close button -- which must sit in the
+	-- top-right corner -- was laid out as a fifth row and drew over the title in the top LEFT. One
+	-- box for the flow, one corner for the control that is not in it.
+	local body = Instance.new("Frame")
+	body.Name = "Body"
+	body.BackgroundTransparency = 1
+	body.BorderSizePixel = 0
+	body.Size = UDim2.fromScale(1, 0)
+	body.AutomaticSize = Enum.AutomaticSize.Y
+	body.ZIndex = card.ZIndex + 1
+	body.Parent = card
+
 	local list = Instance.new("UIListLayout")
 	list.FillDirection = Enum.FillDirection.Vertical
 	list.SortOrder = Enum.SortOrder.LayoutOrder
 	list.Padding = UDim.new(0, Style.SPACE.S)
-	list.Parent = card
+	list.Parent = body
 
-	local title = Style.label(card, "Title", "HEADING", viewX)
+	local title = Style.label(body, "Title", "HEADING", viewX)
 	title.LayoutOrder = 1
 	title.Size = UDim2.new(1, -Style.SPACE.XXL, 0, Style.sizeFor("HEADING", viewX) + 4)
 	title.TextXAlignment = Enum.TextXAlignment.Left
@@ -248,7 +282,7 @@ local function build(frame: Frame)
 	title.TextColor3 = Style.LOOK.BLAZE_HI
 	title.Text = LicenceCard.TEXT.TITLE
 
-	local why = Style.label(card, "Why", "BODY", viewX)
+	local why = Style.label(body, "Why", "BODY", viewX)
 	why.LayoutOrder = 2
 	why.Size = UDim2.fromScale(1, 0)
 	why.AutomaticSize = Enum.AutomaticSize.Y
@@ -267,10 +301,10 @@ local function build(frame: Frame)
 	buy.BorderSizePixel = 0
 	buy.LayoutOrder = 3
 	buy.Size = UDim2.new(1, 0, 0, Style.rowHeight(viewX) + Style.SPACE.M)
-	buy.ZIndex = card.ZIndex + 1
+	buy.ZIndex = body.ZIndex + 1
 	Style.corner(buy, Style.RADIUS.ROW)
 	Style.stroke(buy, Style.LOOK.BLAZE_EDGE, 0)
-	buy.Parent = card
+	buy.Parent = body
 
 	local word = Style.label(buy, "Word", "LABEL", viewX)
 	word.Size = UDim2.fromScale(1, 1)
@@ -278,20 +312,31 @@ local function build(frame: Frame)
 	word.TextColor3 = Style.LOOK.PAPER
 	word.Text = LicenceCard.buttonTextFor(nil)
 
-	local hint = Style.label(card, "Hint", "MICRO", viewX)
+	local hint = Style.label(body, "Hint", "MICRO", viewX)
 	hint.LayoutOrder = 4
 	hint.Size = UDim2.new(1, 0, 0, Style.sizeFor("MICRO", viewX) + 2)
 	hint.TextXAlignment = Enum.TextXAlignment.Left
 	hint.TextColor3 = Style.LOOK.FAINT
-	hint.Text = Style.spaced(LicenceCard.TEXT.HINT)
+	hint.Text = Style.spaced(string.format(LicenceCard.TEXT.HINT, LicenceCard.CONFIG.BUY_KEY.Name))
 
-	-- THE CLOSE, THE HOUSE ONE. Top right, over the title's reserved gutter -- which is why the
-	-- title's width is `1, -XXL` and not `1, 0`.
+	-- THE CLOSE, THE HOUSE ONE. On the CARD and not in `body`, so the list layout above leaves it
+	-- alone: top right, over the title's reserved gutter -- which is why the title's width is
+	-- `1, -XXL` and not `1, 0`.
 	local close = Style.closeButton(card, "Close")
 	close.AnchorPoint = Vector2.new(1, 0)
 	close.Position = UDim2.fromScale(1, 0)
 	close.Size = UDim2.fromOffset(24, 24)
 	close.ZIndex = card.ZIndex + 2
+
+	-- THE TWO CONTROLS, WIRED. Both go through the SAME public functions a spec drives, so what the
+	-- spec proves and what a tap does are one code path -- `Rail`'s own rule (*"`Activated` is still
+	-- the only thing that RUNS anything"*).
+	buy.Activated:Connect(function()
+		LicenceCard.press()
+	end)
+	close.Activated:Connect(function()
+		LicenceCard.hide()
+	end)
 
 	built = card
 	titleLabel = title
@@ -340,10 +385,31 @@ function LicenceCard.render()
 	end
 end
 
+-- THE KEY IS BOUND ONLY WHILE THE CARD IS UP. Two call sites, `show` and `hide`, which are the two
+-- places its visibility changes -- so `B` belongs to the player again the instant the card leaves,
+-- and a card that never appeared never took a key at all.
+local function bindBuyKey(on: boolean)
+	if on then
+		ContextActionService:BindAction(BUY_ACTION, function(_name, state)
+			if state == Enum.UserInputState.Begin then
+				LicenceCard.press()
+			end
+			-- `Pass`, DELIBERATELY, and it is `Weapon.Input`'s own rule applied here: this card must
+			-- not swallow an input, because swallowing one is how an advisory card would start
+			-- blocking something. Nothing else binds `B`, so passing costs nothing today and is the
+			-- safe answer the day something does.
+			return Enum.ContextActionResult.Pass
+		end, false, LicenceCard.CONFIG.BUY_KEY)
+	else
+		ContextActionService:UnbindAction(BUY_ACTION)
+	end
+end
+
 function LicenceCard.hide()
 	local node = root
 	shownAt = nil
 	message = nil
+	bindBuyKey(false)
 	if node == nil or node.Visible == false then
 		return
 	end
@@ -363,6 +429,7 @@ function LicenceCard.show(now: number?)
 	message = nil
 	LicenceCard.render()
 	node.Visible = true
+	bindBuyKey(true)
 end
 
 -- THE ONE DOOR THE SNAPSHOT COMES IN BY. `Hud` hands it `snapshot.advice` on every arriving weapon
@@ -479,6 +546,9 @@ function LicenceCard.start(frame: Frame, collaborators: any)
 end
 
 function LicenceCard.stop()
+	-- THE KEY GOES BACK TO THE PLAYER FIRST, whatever state the card was in: a module that stopped
+	-- holding a binding would leave `B` dead for the rest of the session.
+	bindBuyKey(false)
 	-- WHAT THIS MODULE MADE, AND ONLY THAT. `root` is the Hud's frame and is NOT destroyed -- this
 	-- module did not create it and `Hud.build` is its one owner (`ShopPanel.start`'s own division).
 	if root ~= nil then
@@ -518,7 +588,14 @@ function LicenceCard.parts(): {
 	hint: TextLabel?,
 	close: TextButton?,
 }
-	return { title = titleLabel, why = whyLabel, buy = buyButton, word = buyWord, hint = hintLabel, close = closeNode }
+	return {
+		title = titleLabel,
+		why = whyLabel,
+		buy = buyButton,
+		word = buyWord,
+		hint = hintLabel,
+		close = closeNode,
+	}
 end
 
 return LicenceCard
