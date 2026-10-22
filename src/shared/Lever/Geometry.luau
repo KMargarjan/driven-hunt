@@ -154,8 +154,13 @@ local SIGHT_NOTCH_FLOOR_Y = 0.2226
 -- `Neon` IS A MATERIAL THAT RENDERS BRIGHT AND NOT A LIGHT SOURCE (Roblox emits light only from
 -- `PointLight`/`SpotLight`/`SurfaceLight`), which is the semi-automatic's dot's own note: it costs
 -- the scene nothing and it reads in shade, which is where a fibre sight earns its keep.
+--
+-- THE COLOUR IS THE ROW'S AND NOT THIS MODULE'S, which is `Rifle.Geometry`'s own arrangement for
+-- its bead (`look.bead or ...`): Karen's question about this fix is *"is it the right orange"*, and
+-- the knob she would turn has to be in the `LOOK` table she can read. The literal below is the
+-- FALLBACK for a `LOOK` written before this task, exactly as `hoodColor` is on the semi-automatic.
 local BEAD_DIAMETER = 0.020
-local BEAD_COLOR = Color3.fromRGB(255, 122, 24)
+local BEAD_FALLBACK_COLOR = Color3.fromRGB(255, 122, 24)
 
 -- THE LEVER'S PIVOT: the boss where the loop pins into the receiver, taken as the centroid of the
 -- lever node's forward-most 8% in z that also lies in its upper half -- which is the material around
@@ -241,8 +246,8 @@ function Geometry.layout(config)
 end
 
 -- WHICH SIGHT THIS ROW CARRIES. This gun has exactly one configuration -- iron sights, on the rail,
--- inside the action upload -- so the default is `"bead"` where the Rigby's is `"scope"`, and no
--- piece is filtered on it. The function is here because the function SET is the contract: a caller
+-- inside the action upload -- so the default is `"bead"` where the Rigby's is `"scope"`. ONE PIECE
+-- IS FILTERED ON IT SINCE TASK 242: the drawn `Bead`, which a row carrying a scope loses. The function is here because the function SET is the contract: a caller
 -- that asks all three geometries the same question must get an answer from each.
 function Geometry.sightKind(config): string
 	return (config and config.SIGHT) or "bead"
@@ -439,7 +444,7 @@ function Geometry.pieces(config): { Piece }
 			onlyFor = "bead",
 			size = Vector3.new(at.beadDiameter, at.beadDiameter, at.beadDiameter),
 			offset = CFrame.new(Geometry.beadOffset(config)),
-			color = BEAD_COLOR,
+			color = look.bead or BEAD_FALLBACK_COLOR,
 			material = Enum.Material.Neon,
 			shape = Enum.PartType.Ball,
 		},

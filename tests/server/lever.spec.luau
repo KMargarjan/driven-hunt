@@ -248,7 +248,10 @@ return function()
 			-- of the action, or the reload is reading as free.
 			expect((ROW.RELOAD_TOTAL :: number) > (ROW.CYCLE_TOTAL :: number)).to.equal(true)
 			-- EVERY STEP IS SCALED AND NONE IS SKIPPED: the list is still Break + five Loads + Close
-			-- (asserted above), and every wait is a real window the pose player is driven by.
+			-- (asserted above) and every wait is still a real window. What those windows do NOT do is
+			-- drive the drawn swing -- that is `poses.json`'s `lever.cycle`, and the case "draws the
+			-- throw and the close faster than the server performs them, IN BOTH LISTS" is where the
+			-- two are held together (review round 1, finding 1).
 			for _, step in ipairs(reload) do
 				expect(step.wait > 0.2).to.equal(true)
 			end
@@ -257,7 +260,8 @@ return function()
 		it("charges each sequence its OWN Break window", function()
 			-- The defect task 184 measured: `Break` is in both lists with different waits, so the
 			-- reducer must be told which list the step came from. LEVER-ONLY: this gun's two lists
-			-- disagree about `Break` by 0.06 s.
+			-- disagree about `Break` by 0.24 s since task 242 (0.46 against 0.22), where they
+			-- disagreed by 0.06 before it. The assertion is `~=`, so the number is the comment's.
 			expect(ROW.CYCLE[1].wait ~= (ROW.RELOAD :: any)[1].wait).to.equal(true)
 			local base = equipped(ROW)
 			local now = 0
@@ -407,7 +411,11 @@ return function()
 			expect(beadDeg > 0.25).to.equal(true)
 			expect(beadDeg < 0.55).to.equal(true)
 			-- ...AND IT IS BRIGHT AGAINST THE STEEL IT SITS ON, which is the whole of the fix: the
-			-- action's own colour is a grey whose channels are within a hair of each other.
+			-- action's own colour is a grey whose channels are within a hair of each other. THE
+			-- COLOUR IS THE ROW'S (`LOOK.bead`), which is the knob Karen is being asked to judge --
+			-- the geometry's literal is only a fallback for a `LOOK` written before task 242.
+			expect(ROW.LOOK.bead).to.be.ok()
+			expect(bead.color).to.equal(ROW.LOOK.bead)
 			local action = ROW.LOOK.action
 			expect(bead.color.R > action.R + 0.3).to.equal(true)
 			expect(bead.color.R - bead.color.B > 0.5).to.equal(true)
@@ -523,19 +531,42 @@ return function()
 			expect(set.cycle.magazine).to.equal(nil)
 		end)
 
-		it("draws the throw and the close faster than the server performs them", function()
+		it("draws the throw and the close faster than the server performs them, IN BOTH LISTS", function()
+			-- ONE PAIR OF SWING TIMES DRIVES TWO SEQUENCES, and until task 242 only one of them was
+			-- asserted. `Mode.step` ramps `openTilt` at `dt / config.BREAK_OPEN_SECONDS`, which
+			-- `Viewmodel.view` fills from `poses.json`'s `lever.cycle` (`data.reload or data.cycle`,
+			-- and this gun has no `reload` block) -- and `Camera`'s `breaking` is true for the
+			-- RELOAD list's `Break` exactly as it is for `CYCLE`'s. So the drawn swing must fit
+			-- inside the SHORTEST window that drives it, or the gun becomes fireable with its action
+			-- visibly open.
+			--
+			-- IT DID NOT, AND THAT IS REVIEW ROUND 1'S FINDING 1: with `closeSeconds` 0.58 inside a
+			-- 0.22 s reload `Close`, the loop was still 37 of its 60 degrees open at the instant the
+			-- reload reported done. The pose data came down with the windows (0.40 -> 0.18,
+			-- 0.58 -> 0.20) and this case now asserts BOTH lists, which is `viewmodel_poses.spec`'s
+			-- own discipline for the shotgun (`SET.reload.openSeconds < Shotgun.CONFIG.RELOAD_BREAK`).
 			local set = Viewmodel.DATA.weapons.lever
+			local reload = ROW.RELOAD :: any
 			TestKit.note(
 				string.format(
-					"task224 drawn: open %.2f s vs server %.2f; close %.2f vs %.2f",
+					"task242 drawn: open %.2f s vs cycle %.2f / reload %.2f; close %.2f vs %.2f / %.2f",
 					set.cycle.openSeconds,
 					ROW.CYCLE[1].wait,
+					reload[1].wait,
 					set.cycle.closeSeconds,
-					ROW.CYCLE[2].wait
+					ROW.CYCLE[2].wait,
+					reload[#reload].wait
 				)
 			)
 			expect(set.cycle.openSeconds < ROW.CYCLE[1].wait).to.equal(true)
 			expect(set.cycle.closeSeconds < ROW.CYCLE[2].wait).to.equal(true)
+			-- THE RELOAD'S OWN TWO WINDOWS, which are the shorter pair and therefore the binding one.
+			expect(set.cycle.openSeconds < reload[1].wait).to.equal(true)
+			expect(set.cycle.closeSeconds < reload[#reload].wait).to.equal(true)
+			-- ...AND THE DEGREES THAT COSTS, so a reader sees what the inequality is protecting: the
+			-- loop must reach 0 before the window ends, not 37 of 60 degrees open.
+			local leftOpen = math.max(0, 1 - reload[#reload].wait / set.cycle.closeSeconds)
+			expect(leftOpen).to.equal(0)
 		end)
 
 		it("holds the WRIST with the right hand, inside the gun's own two bounds", function()

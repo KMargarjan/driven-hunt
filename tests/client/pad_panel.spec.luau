@@ -699,8 +699,9 @@ return function()
 				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, nil)).to.equal(ROLE.NOTE_BEATER)
 				-- A PARTY OF ONE READS LIKE ANY OTHER SINCE TASK 242 (Karen, 2026-10-22). It used to
 				-- say `NO BEATERS THIS DRIVE`, because `Roster.assign` honoured nobody at one player;
-				-- she bought the beater's licence, stood on the pad alone and asked to beat, and a
-				-- solo wisher is now dealt the beaters' side with bot hunters on the stands.
+				-- she held the `ALWAYS HUNTER` card -- the card that buys the choice, and the ONLY
+				-- one that does -- stood on the pad alone and asked to beat, and a solo wisher is
+				-- now dealt the beaters' side with bot hunters on the stands.
 				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 1)).to.equal(ROLE.NOTE_SENT)
 				-- A PARTY OF TWO OR MORE, ALREADY ASKED FOR.
 				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 2)).to.equal(ROLE.NOTE_SENT)

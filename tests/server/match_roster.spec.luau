@@ -594,8 +594,8 @@ return function()
 			-- you have a card always hunter technically you can choose to be what you ant eather
 			-- beater or hunter / so it give you an option to select othervise by default if you
 			-- don't have once time you hunter one time beater"*. The card buys the CHOICE; without
-			-- it the default is not "hunter" and not "random" -- it is the ALTERNATION the case
-			-- below measures. The archived cut is
+			-- it the default is not "hunter" and not "random" -- it is the ALTERNATION measured by
+			-- "ALTERNATES every player, drive after drive", in the swap block ABOVE. The archived cut is
 			-- `backups/2026-10-22_task-242_beater-licence-buys-the-choice.md` (rule 7).
 			local plain = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG)
 			local withStray = Roster.assign({ 1, 2, 3, 4 }, nil, CONFIG, nil, { [1] = true, [3] = true })

@@ -396,9 +396,9 @@ function PadPanel.roleSelected(next_: string?): string?
 	return nil
 end
 
--- WHY THE SWITCH CANNOT BE USED, or "" when it can. PURE, and it is the ONE rule: four rows, no
--- string literal in this module, and the words come out of `PANEL.ROLE` so they are Karen's to
--- rewrite.
+-- WHY THE SWITCH CANNOT BE USED, or "" when it can. PURE, and it is the ONE rule: THREE rows since
+-- task 242 (`NOTE_NONE` went with the party-of-one refusal), no string literal in this module, and
+-- the words come out of `PANEL.ROLE` so they are Karen's to rewrite.
 --
 --   * the drive has given him a side  -> he is in it; the wish is spent and the control is a receipt
 --   * a size has been pressed        -> `ASKED FOR ALREADY`, WHATEVER THE SIZE (task 242). A party
@@ -415,10 +415,10 @@ function PadPanel.roleCaptionFor(next_: string?, side: string?, size: number?): 
 	if PadPanel.roleSelected(next_) == nil then
 		return ""
 	end
-	if size ~= nil then
-		return words.NOTE_SENT
-	end
-	if side ~= nil then
+	-- ONE CONDITION AND NOT TWO (review round 1, note): a size pressed and a side already dealt are
+	-- different FACTS, but since task 242 they are the same SENTENCE, and writing it twice invites
+	-- the two copies to drift.
+	if size ~= nil or side ~= nil then
 		return words.NOTE_SENT
 	end
 	return if next_ == LobbyData.ROLE_WISH.BEATER then words.NOTE_BEATER else words.NOTE_HUNTER

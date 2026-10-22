@@ -135,11 +135,28 @@ Lever.CONFIG = {
 	-- thing to reload in the game -- slower than the Rigby's 1.97 s magazine change. She has now
 	-- played it, and a trade a player experiences as waiting is not a trade she took.
 	--
-	-- EVERY STEP IS SCALED, NOT SKIPPED, and that is what keeps the animation coherent: five
-	-- cartridges still go through the gate one at a time, the hand still opens the gate and still
-	-- closes it, and the pose player is driven by these same waits (`StateMachine.waitFor`), so the
-	-- motion compresses instead of cutting. 0.40 -> 0.22, 0.42 -> 0.23, 0.40 -> 0.22, which is
-	-- 0.55 x each to a hundredth.
+	-- EVERY STEP IS SCALED, NOT SKIPPED: five cartridges still go through the gate one at a time,
+	-- and the hand still opens the gate and still closes it. 0.40 -> 0.22, 0.42 -> 0.23,
+	-- 0.40 -> 0.22, which is 0.55 x each to a hundredth.
+	--
+	-- THESE WAITS DO NOT DRIVE THE SWING, AND THE FIRST CUT OF THIS TASK SAID THEY DID (review round
+	-- 1, finding 1). `Mode.step` ramps `openTilt` at `dt / config.BREAK_OPEN_SECONDS`, which
+	-- `Viewmodel.view` fills from `poses.json`'s `lever.cycle` -- ONE pair per weapon, for BOTH this
+	-- list and `CYCLE` -- so a shorter window here does not compress the motion, it CUTS it: at
+	-- `closeSeconds` 0.58 inside a 0.22 s `Close` the loop was still 37 of its 60 degrees open at the
+	-- instant the gun became fireable. (It already overran by 19 degrees at 0.40, before this task.)
+	--
+	-- SO THE POSE DATA CAME DOWN WITH THE WINDOWS: `lever.cycle.openSeconds` 0.40 -> 0.18 and
+	-- `closeSeconds` 0.58 -> 0.20, both now under the SHORTEST window that drives them, which is
+	-- this list's 0.22. `lever.spec` asserts that relation for BOTH lists -- the shotgun's own
+	-- discipline in `viewmodel_poses.spec` -- so a window cut past the swing fails rather than
+	-- shipping an open action.
+	--
+	-- THE COST IS STATED RATHER THAN DISCOVERED, AND IT IS KAREN'S TO JUDGE: inside `CYCLE`'s longer
+	-- 0.46 / 0.64 windows the loop now reaches full throw in 0.18 s and WAITS, where before it was
+	-- moving for almost the whole cycle. It is one line of pose data to retune (the content lane),
+	-- and the fix that would need neither compromise -- a swing time per LIST rather than per weapon
+	-- -- is queued with these numbers in TASKS.md 242a(e).
 	--
 	-- MEASURED BOTH WAYS, because the partial top-up is what a hunter actually does:
 	--
@@ -195,6 +212,10 @@ Lever.CONFIG = {
 		-- "wood" by name, grey laminate in fact: the row's `HANDLE_COLOR` reads this key, as the
 		-- rifle's does, so the name is the slot rather than a claim about the material.
 		wood = Color3.fromRGB(76, 74, 72),
+		-- THE FRONT BEAD (task 242), and it is a ROW value because it is the one number Karen is
+		-- being asked to judge: an 1895 SBL's fibre-optic front sight is orange. `Lever.Geometry`
+		-- carries the same value as its fallback, for a `LOOK` written before this task.
+		bead = Color3.fromRGB(255, 122, 24),
 	},
 
 	-- THE MANIFEST KEYS ARE NOT HERE, and that is deliberate -- the Reviewer's round-1 note on the
