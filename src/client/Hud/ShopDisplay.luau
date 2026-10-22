@@ -215,6 +215,64 @@ local asked: { [string]: boolean } = {}
 local arrived: { [string]: boolean } = {}
 local waiting = 0
 
+-- HOW MANY FETCHES THIS SESSION HAS ASKED FOR AND HOW MANY IT ASKED FOR A SECOND TIME, so "it
+-- retries" is a number a probe can read rather than a sentence in a comment (task 244).
+local fetchStats = { asks = 0, retries = 0, imageAsks = 0, imageRetries = 0, warms = 0 }
+
+-- **A FAILED FIRST FETCH IS ASKED FOR AGAIN (task 244).** `asked[id]` used to be set once and never
+-- cleared, so an id whose first `PreloadAsync` FAILED -- a dropped packet, a cold CDN, a client that
+-- joined before the asset was replicated -- was never asked for again and the grey fallback stood
+-- for the rest of the session. `Enum.AssetFetchStatus.Failure` and `.TimedOut` are terminal
+-- answers, not slow ones, so the only way out of them is to ask once more.
+--   Enum.AssetFetchStatus https://create.roblox.com/docs/reference/engine/enums/AssetFetchStatus
+--
+-- ...AND NOT FOUR TIMES A SECOND (round 1 note). `ShopPanel.step` rebuilds the picture every
+-- `PICTURE_RETRY` while the case is waiting, so a mesh that fails for good would have drawn a
+-- `PreloadAsync` per piece per rebuild for as long as the shop was open. The ask is on a
+-- COOL-DOWN per id: three seconds is far longer than any fetch that is merely slow and far shorter
+-- than a player's patience with a blank case.
+ShopDisplay.RETRY_SECONDS = 3
+
+-- WHEN EACH ID WAS LAST ASKED FOR, beside `asked` rather than inside it, so "has it been asked"
+-- and "how long ago" stay two readable facts.
+local askedAt: { [string]: number } = {}
+
+-- **WHAT TO DO ABOUT ONE MESH, AS A PURE RULE** (round 1 note: the retry has to be assertable where
+-- it can FAIL, not only through a counter that cannot go down). `meshReady` is the one caller and
+-- this is the whole of its decision, so deleting the re-arm means changing THIS function and
+-- `shop_panel.spec`'s table of statuses goes red.
+--
+--   "ready"  the engine has it; draw the real mesh
+--   "ask"    nobody has asked, or the last ask FAILED and the cool-down has run out
+--   "wait"   it is in flight, or it failed and the cool-down has not run out yet
+--
+-- `Loading` AND `None` ARE NEVER RETRYABLE: one is in flight and the other has not been asked for,
+-- and asking again for bytes that are already coming is a second request for the same bytes.
+function ShopDisplay.nextAsk(status: any, askedAlready: boolean, since: number?, now: number): string
+	if status == Enum.AssetFetchStatus.Success then
+		return "ready"
+	end
+	if not askedAlready then
+		return "ask"
+	end
+	local terminal = status == Enum.AssetFetchStatus.Failure or status == Enum.AssetFetchStatus.TimedOut
+	if terminal and now - (since or 0) >= ShopDisplay.RETRY_SECONDS then
+		return "ask"
+	end
+	return "wait"
+end
+
+local function askFor(id: string, holder: Instance)
+	asked[id] = true
+	askedAt[id] = os.clock()
+	fetchStats.asks += 1
+	task.spawn(function()
+		pcall(function()
+			ContentProvider:PreloadAsync({ holder })
+		end)
+	end)
+end
+
 local function meshReady(part: Instance): boolean
 	if not part:IsA("MeshPart") then
 		return true
@@ -236,13 +294,13 @@ local function meshReady(part: Instance): boolean
 		arrived[id] = true
 		return true
 	end
-	if not asked[id] then
-		asked[id] = true
-		task.spawn(function()
-			pcall(function()
-				ContentProvider:PreloadAsync({ part })
-			end)
-		end)
+	-- THE WHOLE DECISION IS `ShopDisplay.nextAsk`'s, and this is the one line that acts on it.
+	local verdict = ShopDisplay.nextAsk(status, asked[id] == true, askedAt[id], os.clock())
+	if verdict == "ask" then
+		if asked[id] then
+			fetchStats.retries += 1
+		end
+		askFor(id, part)
 	end
 	return false
 end
@@ -252,6 +310,56 @@ end
 -- when the server's folder appears late.
 function ShopDisplay.rebuildWanted(): boolean
 	return waiting > 0
+end
+
+-- HOW MANY PIECES OF THE SELECTED ITEM ARE STILL MISSING, which is the same question with a number
+-- on it: `ShopPanel` draws a LOADING state instead of the fallback while this is not zero, and a
+-- probe can read it (task 244).
+function ShopDisplay.waitingCount(): number
+	return waiting
+end
+
+-- THE FETCH COUNTERS, for the reason every `stats` table in this Hud exists: *"it retries"* has to
+-- be a number rather than a sentence.
+function ShopDisplay.fetchStats()
+	return table.clone(fetchStats)
+end
+
+-- ---------------------------------------------------------------- ASK EARLY (task 244)
+--
+-- KAREN, 2026-10-22, with a screenshot of the lever rifle drawn as a grey slab: *"on first load all
+-- weapons looks like parts fix it when it loads only show weapon not boxes"*.
+--
+-- WHY THE SHOP IS THE WORST PLACE IN THE GAME FOR THIS, and `meshReady`'s own header says it: a
+-- player who has only ever carried the shotgun has NEVER ASKED for the lever's meshes, so their
+-- status is `None` until something asks -- and until task 244 the first thing that asked was the
+-- draw itself, one piece at a time, as she looked at it.
+--
+-- SO THE PANEL ASKS WHEN IT OPENS, for every gun in the case at once, and the case shows a quiet
+-- LOADING state until they land. It costs one `PreloadAsync` per mesh per session and it is the
+-- SAME door the draw uses -- `meshReady`, which is what records `asked`/`arrived` -- so there is no
+-- second asking mechanism to disagree with the first.
+--
+-- IT IS SAFE TO CALL AT ANY TIME AND COSTS NOTHING AFTER THE FIRST: `arrived[id]` short-circuits
+-- every piece that has landed, and a world whose folders have not replicated yet simply finds
+-- nothing and is asked again on the next open.
+ShopDisplay.WARM_GEOMETRIES = { LeverGeometry, SemiAutoGeometry, RifleGeometry }
+
+function ShopDisplay.warm(): number
+	local asks = 0
+	for _, geometry in ipairs(ShopDisplay.WARM_GEOMETRIES) do
+		local folder = ReplicatedStorage:FindFirstChild(geometry.FOLDER_NAME)
+		if folder == nil then
+			continue
+		end
+		for _, piece in ipairs(folder:GetChildren()) do
+			if piece:IsA("MeshPart") and not meshReady(piece) then
+				asks += 1
+			end
+		end
+	end
+	fetchStats.warms += 1
+	return asks
 end
 
 -- ONE RIFLE, FROM THE ONE PIECE LIST. `config.SIGHT` is still what tells `Geometry.pieces` whether
@@ -362,11 +470,28 @@ type Piece = {
 -- here waits for it, and the engine draws the image the moment it lands.
 local askedImage: { [string]: boolean } = {}
 
+-- ...AND A FAILED IMAGE IS ASKED FOR AGAIN TOO (task 244), which is `meshReady`'s fix in the one
+-- form a texture has: `askedImage[image]` was set once and never cleared, so a `Decal` whose first
+-- fetch failed drew NOTHING -- a blank green wall on a carton -- for the rest of the session. The
+-- status is read before the ask, exactly as it is for a mesh, and only the two TERMINAL answers
+-- re-arm it.
+local askedImageAt: { [string]: number } = {}
+
 local function preloadImage(holder: Instance, image: string)
 	if askedImage[image] then
-		return
+		local ok, status = pcall(function()
+			return ContentProvider:GetAssetFetchStatus(image)
+		end)
+		-- THE SAME RULE AS A MESH'S, asked through the same function, so there is ONE answer to
+		-- *"may this be asked for again"* in this file and not two that can drift.
+		if not ok or ShopDisplay.nextAsk(status, true, askedImageAt[image], os.clock()) ~= "ask" then
+			return
+		end
+		fetchStats.imageRetries += 1
 	end
 	askedImage[image] = true
+	askedImageAt[image] = os.clock()
+	fetchStats.imageAsks += 1
 	task.spawn(function()
 		pcall(function()
 			ContentProvider:PreloadAsync({ holder })

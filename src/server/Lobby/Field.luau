@@ -29,6 +29,14 @@
 -- Note:   docs/research/2026-10-13-lobby-and-the-truck.md (section 6)
 local Field = {}
 
+-- THE ENGINE'S TERRAIN VOXEL, and the only value `Terrain:ReplaceMaterial` accepts (task 244).
+--
+-- NAMED TWICE IN THIS REPOSITORY ON PURPOSE: `Places.Ground.RESOLUTION` is the same engine fact,
+-- and the two systems must not require each other -- a lobby that pulled in a drive place would be
+-- a require edge between two owners that have nothing to say to one another. `lobby.spec` asserts
+-- the two agree, so the duplication is CHECKED rather than trusted.
+Field.RESOLUTION = 4
+
 -- PURE. The CFrame and Size of the GRASS block: a solid slab whose TOP IS THE SHELF and whose bottom
 -- reaches `DEPTH_STUDS` below it, so it meets undisturbed ground even on the lowest corner.
 function Field.grassBlock(anchor: Vector3, shelfY: number, cfg): (CFrame, Vector3)
@@ -58,6 +66,27 @@ end
 function Field.padBlock(anchor: Vector3, shelfY: number, pad): (CFrame, Vector3)
 	local centre = anchor + pad.OFFSET
 	return CFrame.new(centre.X, shelfY - pad.SIZE.Y / 2, centre.Z), pad.SIZE
+end
+
+-- PURE. THE PAD'S OWN RECTANGLE AS A `Region3`, ON THE 4-STUD VOXEL GRID -- the box whose grass is
+-- scrubbed back to the pad's material after the hill has been cut off (task 244).
+--
+-- IT IS THE PAD'S FOOTPRINT AND NOT A NEW ONE: the same x and z the block above is laid on, so
+-- "where is the yard" keeps one answer. Only the Y differs, and it is the one thing this box is
+-- for -- `pad.SIZE.Y` below the shelf, which is the block itself, and `PAD_SKIN_ABOVE_STUDS` above
+-- it, which is the voxel band the shelf falls inside and the hill therefore survives in.
+--
+-- `ExpandToGrid(4)` IS THE ENGINE'S OWN REQUIREMENT, not a rounding of ours: `Terrain:ReplaceMaterial`
+-- takes a region aligned to its voxel grid, and expanding OUTWARD is the only direction that cannot
+-- leave a sliver of the pad unscrubbed.
+--   Terrain:ReplaceMaterial https://create.roblox.com/docs/reference/engine/classes/Terrain#ReplaceMaterial
+--   Region3:ExpandToGrid    https://create.roblox.com/docs/reference/engine/datatypes/Region3#ExpandToGrid
+function Field.padRegion(anchor: Vector3, shelfY: number, pad, cfg): Region3
+	local centre = anchor + pad.OFFSET
+	local above = cfg.FIELD.PAD_SKIN_ABOVE_STUDS
+	local min = Vector3.new(centre.X - pad.SIZE.X / 2, shelfY - pad.SIZE.Y, centre.Z - pad.SIZE.Z / 2)
+	local max = Vector3.new(centre.X + pad.SIZE.X / 2, shelfY + above, centre.Z + pad.SIZE.Z / 2)
+	return Region3.new(min, max):ExpandToGrid(Field.RESOLUTION)
 end
 
 -- IS EVERY CORNER OF THIS BOX INSIDE THE FIELD'S OWN RECTANGLE? PURE, and it is the rule
@@ -104,7 +133,7 @@ end
 --
 -- Returns how many `FillBlock` calls it made and how many of them were grass, so "which path it
 -- took" is a number in `Lobby.stats()` and not a belief (design section 18 item 1).
-function Field.fill(terrain: any, anchor: Vector3, shelfY: number, cfg): (number, number)
+function Field.fill(terrain: any, anchor: Vector3, shelfY: number, cfg): (number, number, number)
 	local chunk = cfg.FIELD.CHUNK_STUDS
 	local calls, grassCalls = 0, 0
 	local grassAt, grassSize = Field.grassBlock(anchor, shelfY, cfg)
@@ -127,7 +156,37 @@ function Field.fill(terrain: any, anchor: Vector3, shelfY: number, cfg): (number
 		terrain:FillBlock(piece.at, piece.size, Enum.Material.Air)
 		calls += 1
 	end
-	return calls, grassCalls
+	-- ...AND LAST, THE MATERIAL THE FILL COULD NOT REACH (task 244, Karen: *"move all trucks to
+	-- right so it not going to be on grass"*). Every pad above declares itself blade-free, and
+	-- until this line three of the four truck bays were not: the shelf falls INSIDE a 4-stud voxel
+	-- band, so a pad block whose top is the shelf writes only part of that voxel and the hill's
+	-- grass keeps its MATERIAL; the air block then trims the height and leaves the material alone.
+	-- `PAD_SKIN_ABOVE_STUDS`' own comment carries the measurement and why filling higher is the
+	-- wrong fix (it lifts the yard and buries the road).
+	--
+	-- AFTER THE AIR AND NOT BEFORE IT, for the reason the pad is after the grass: the air is what
+	-- decides which voxels are still there at all, and scrubbing first would scrub a hill that is
+	-- about to be cut away and miss the one voxel that survives.
+	--
+	-- IT CHANGES A MATERIAL AND NOTHING ELSE -- no occupancy, no height, no part -- and only
+	-- `FIELD.MATERIAL` is replaced, so a rock or a path laid in this rectangle by anything else is
+	-- untouched.
+	--
+	-- UNGUARDED, exactly as the three `FillBlock` loops above are: `terrain` is injected so that no
+	-- spec can write the DEV place's terrain, not so that a fake may answer half the contract. A
+	-- stand-in without this method is a stand-in that would hide the defect this line fixes, and it
+	-- fails loudly on the first build instead.
+	local replaced = 0
+	for _, pad in ipairs(cfg.FIELD.PADS) do
+		terrain:ReplaceMaterial(
+			Field.padRegion(anchor, shelfY, pad, cfg),
+			Field.RESOLUTION,
+			cfg.FIELD.MATERIAL,
+			pad.MATERIAL
+		)
+		replaced += 1
+	end
+	return calls, grassCalls, replaced
 end
 
 return Field

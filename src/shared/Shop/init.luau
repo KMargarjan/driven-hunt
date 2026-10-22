@@ -911,6 +911,11 @@ Shop.CONFIG = {
 		-- THE DRIVE ALREADY HAS HIM, so the ask is in and the control is a RECEIPT rather than a
 		-- choice. It is the same sentence the pad dialog uses for the same fact.
 		ROLE_ASKED = "ASKED FOR ALREADY",
+		-- WHAT THE DISPLAY CASE SAYS WHILE A GUN'S MESHES ARE STILL COMING DOWN (task 244). KAREN,
+		-- 2026-10-22: *"on first load all weapons looks like parts fix it when it loads only show
+		-- weapon not boxes"*. The case shows THIS and nothing else until every piece has landed --
+		-- never the measured-box fallback, which is what she photographed as a grey slab.
+		CASE_LOADING = "LOADING",
 		SOON_TAG = "SOON",
 		ROW_LOCK_TAG = "%d / %d",
 		-- `%s` AND NOT `%d` SINCE TASK 221: the number is money and `Money.text` is the one thing that

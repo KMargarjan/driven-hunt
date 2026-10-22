@@ -199,11 +199,18 @@ local caseFrame: Frame? = nil
 -- what it looks like (`dressLicenceImage`, the Designer's section 3.5); this file owns WHEN it is
 -- on screen and how big it is, which is this panel's business and nothing else's.
 local caseDocument: ImageLabel? = nil
+-- THE CASE'S LOADING WORD (task 244): shown INSTEAD of a picture while any piece of the selected
+-- item is still coming down, so the measured-box fallback never reaches the glass.
+local caseLoading: TextLabel? = nil
 local viewport: ViewportFrame? = nil
 local viewportCamera: Camera? = nil
 local viewportModel: Model? = nil
 local viewportId: string? = nil
 local viewportBuiltAt = -math.huge
+-- IS THE CASE WAITING FOR MESHES RIGHT NOW? It is a separate fact from `viewportModel == nil`,
+-- which is also true for a licence (an image) and for an id this module does not draw -- and
+-- `ShopPanel.step` has to go on retrying for exactly one of the three.
+local viewportWaiting = false
 local pictureCentre = Vector3.zero
 local pictureSize = Vector3.one
 local screenWas = Vector2.zero
@@ -257,7 +264,17 @@ local stats = {
 	-- CHANGE and not once per render.
 	roleSent = 0,
 	roleBlocked = 0,
+	-- TASK 244: how many times the case put its LOADING word up instead of a picture, and how many
+	-- times a wait ended with the real model in the glass. The second is what makes *"it shows the
+	-- gun in the end"* a number instead of a hope.
+	loadingShown = 0,
+	loadingCleared = 0,
 }
+
+-- HOW LONG THE CASE WAITS BEFORE IT TRIES TO BUILD THE PICTURE AGAIN while its LOADING word is up
+-- (task 244). A few frames: the player is looking at an empty case, and a rebuild is a dozen parts
+-- whose meshes are a table lookup once they have arrived.
+ShopPanel.PICTURE_RETRY = 0.25
 
 function ShopPanel.stats()
 	return table.clone(stats)
@@ -403,6 +420,13 @@ end
 
 function ShopPanel.pictureModel(): Model?
 	return viewportModel
+end
+
+-- IS THE CASE SHOWING ITS LOADING WORD INSTEAD OF A PICTURE (task 244)? Read off the BUILT label
+-- rather than off the flag it was set from, so a spec can tell *"the panel knows"* from *"the panel
+-- drew it"* -- `PadPanel.roleLit`'s own rule.
+function ShopPanel.caseLoadingShown(): boolean
+	return caseLoading ~= nil and (caseLoading :: TextLabel).Visible
 end
 
 function ShopPanel.viewportFrame(): ViewportFrame?
@@ -1101,14 +1125,42 @@ function ShopPanel.showPicture(id: string?)
 	-- this module does not draw still leaves it nil, which is the old behaviour and the honest one:
 	-- the case is showing nothing, and the panel says so in words.
 	viewportId = if ShopDisplay.knows(id) then id else nil
+	local wasWaiting = viewportWaiting
 	local model = ShopDisplay.build(id)
+	viewportBuiltAt = os.clock()
+	-- **THE FALLBACK NEVER REACHES THE GLASS (task 244).** KAREN, 2026-10-22, with a frame of the
+	-- lever rifle drawn as a grey slab: *"on first load all weapons looks like parts fix it when it
+	-- loads only show weapon not boxes"*.
+	--
+	-- `ShopDisplay.build` still DRAWS the measured box for a piece whose mesh has not arrived --
+	-- that fallback is right in the player's HANDS, where a hole would be worse -- and it counts
+	-- what it had to fall back on (`rebuildWanted`). In a shop WINDOW the honest answer is
+	-- different: a photograph of the wrong thing is worse than no photograph, so the GLASS goes
+	-- dark, the word comes up, and `ShopPanel.step` builds it again until every piece is real. The
+	-- ask itself has already gone out -- `meshReady` asks on the first look and `setOpen` asks for
+	-- all three guns at once -- so this is a wait, not a refusal.
+	viewportWaiting = model ~= nil and ShopDisplay.rebuildWanted()
+	-- THE GLASS GOES DARK AND THE WORD COMES UP, and the model stays where it is: a `GuiObject` at
+	-- `Visible = false` is not DRAWN and neither are its descendants, so the measured-box fallback
+	-- is off the screen without this function having to reach inside the drawing and change it.
+	-- The model is still there to aim at, to frame, and to replace on the next rebuild -- which is
+	-- what keeps `pictureModel`, `pictureBall` and the one-model-at-a-time rule exactly as they
+	-- were.
+	box.Visible = not viewportWaiting
+	if caseLoading ~= nil then
+		(caseLoading :: TextLabel).Visible = viewportWaiting
+	end
+	if viewportWaiting then
+		stats.loadingShown += 1
+	elseif wasWaiting then
+		stats.loadingCleared += 1
+	end
 	if model == nil then
 		return
 	end
 	model.Parent = box
 	viewportModel = model
 	pictureCentre, pictureSize = ShopDisplay.frameOf(model)
-	viewportBuiltAt = os.clock()
 	stats.pictures += 1
 	ShopPanel.aim(0)
 end
@@ -1143,9 +1195,18 @@ function ShopPanel.step(now: number?)
 	local clock = now or os.clock()
 	-- WHERE A LATE MESH LANDS: the rifle's meshes are only downloaded when something asks for them,
 	-- and a player who has only ever carried the shotgun has never asked. Task 133's
-	-- stale-and-rebuild path, once a second until the real gun is in the case.
-	if ShopDisplay.rebuildWanted() and clock - viewportBuiltAt >= 1 then
+	-- stale-and-rebuild path, until the real gun is in the case.
+	--
+	-- QUICKER WHILE THE WORD IS UP (task 244): a second was the right rate for swapping a drawn
+	-- fallback for the real gun, and it is the wrong one for a blank case -- the player is looking
+	-- at nothing and waiting. `PICTURE_RETRY` is a few frames; a rebuild is a dozen parts and the
+	-- meshes it re-checks are a table lookup once they have arrived (`arrived[id]`).
+	local due = if viewportWaiting then ShopPanel.PICTURE_RETRY else 1
+	if (viewportWaiting or ShopDisplay.rebuildWanted()) and clock - viewportBuiltAt >= due then
 		ShopPanel.showPicture(viewportId)
+	end
+	if viewportModel == nil then
+		return
 	end
 	ShopPanel.aim(ShopDisplay.spinDegAt(clock, ShopDisplay.viewFor(viewportId)))
 end
@@ -1759,6 +1820,18 @@ local function buildCase(parent: Frame)
 	glass.Ambient = ShopDisplay.AMBIENT
 	glass.Parent = box
 	viewport = glass
+
+	-- THE LOADING WORD, OVER THE GLASS AND ABOVE EVERYTHING IN THE CASE (task 244). It is the ONLY
+	-- thing the case shows while a piece of the selected item is still coming down -- see
+	-- `ShopPanel.showPicture` for why a shop window answers this differently from a pair of hands.
+	-- Centred on both axes, muted, and spaced like every other caption on this surface.
+	local word = label(box, "Loading", SANS_BOLD, 12, LOOK.FAINT, 4)
+	word.Size = UDim2.fromScale(1, 1)
+	word.TextXAlignment = Enum.TextXAlignment.Center
+	word.TextYAlignment = Enum.TextYAlignment.Center
+	word.Text = spaced(TEXT.CASE_LOADING)
+	word.Visible = false
+	caseLoading = word
 
 	local camera = Instance.new("Camera")
 	camera.Name = "PictureCamera"
@@ -2620,6 +2693,13 @@ function ShopPanel.setOpen(next_: boolean)
 	end
 	if open then
 		stats.opens += 1
+		-- **ASK FOR EVERY GUN'S MESHES NOW, NOT WHEN THE PLAYER LOOKS AT ONE (task 244).** KAREN,
+		-- 2026-10-22: *"on first load all weapons looks like parts"*. A player who has only ever
+		-- carried the shotgun has never asked for the lever's or the Rigby's meshes, so until this
+		-- line the first thing that asked was the DRAW -- one piece at a time, as she looked at it.
+		-- The case still shows its LOADING word until they land; this is what makes that word
+		-- short. Idempotent and free after the first open (`ShopDisplay.warm`'s own header).
+		ShopDisplay.warm()
 		-- THE SCREEN MAY HAVE CHANGED SIZE WHILE THE PANEL WAS SHUT: the cheapest place to find out.
 		ShopPanel.relayout()
 		-- THE MOUSE AND THE TRIGGER, through the two doors that already exist: `Cursor.requestFree`

@@ -287,6 +287,39 @@ Lobby.CONFIG = {
 		-- not hide them -- so the road corridor gets its own blade-free block, and `Build.road` lifts
 		-- the slab to sit ON the shelf instead of half inside it.
 		--
+		-- HOW FAR ABOVE THE SHELF A PAD'S OWN RECTANGLE IS SCRUBBED OF GRASS (task 244).
+		--
+		-- KAREN, 2026-10-22, with a screenshot of the yard: *"move all trucks to right so it not
+		-- going to be on grass"*. MEASURED in the live Forest Test the same evening, before a line
+		-- of this was written -- a raycast grid over the yard, 2.5 studs apart, reading the MATERIAL
+		-- and the surface height under each sample:
+		--     Ground (the blade-free fill)   exactly 150.00 everywhere
+		--     Grass  (what was left standing) 150.36 .. 151.27, in a DIAGONAL band across the bays
+		-- and under the trucks' own sixteen wheels: bay 1 none, bay 2 one, bay 3 two, **bay 4 all
+		-- four**. The band is a CONTOUR OF THE OLD HILL, not an edge of any rectangle: the pad's
+		-- own footprint (x 2808..2948, z -3000..-2876) contains every truck with ~20 studs to
+		-- spare, so the rectangle was never the problem.
+		--
+		-- WHY THE FILL LEAVES IT. The pad block's TOP IS THE SHELF (`Field.padBlock`) and
+		-- `Terrain:FillBlock` works on 4-stud voxels: the shelf at 149.248 falls INSIDE the voxel
+		-- band 148..152, so the pad writes only part of that voxel and the grass the hill had put
+		-- there keeps the voxel's MATERIAL. The air block above then trims the HEIGHT and leaves the
+		-- material alone -- which is why the ground is flat and green instead of flat and grey. It
+		-- is task 186's defect one layer over: *"THEY ARE LAID ON THE GROUND THAT IS MEASURED, NOT
+		-- ON THE SHELF THE ARITHMETIC PREDICTS"*, said about a material instead of a height.
+		--
+		-- WHY NOT SIMPLY FILL HIGHER: MEASURED TOO, and it is the obvious fix that does not work.
+		-- A pad block raised 4 studs above the shelf scrubbed every grass voxel -- and LIFTED THE
+		-- WHOLE YARD to 151.27, because the air block's own bottom lands on the same voxel band, so
+		-- it could not cut back what the pad had just added. The road slabs and all four truck pads
+		-- sit at `shelfY + THICK/2` = 149.50 and would have been buried under 1.77 studs of it.
+		-- `Terrain:ReplaceMaterial` changes the material of a voxel and NOTHING ELSE, which is
+		-- exactly the one fact that is wrong here.
+		--
+		-- 4 STUDS ABOVE: one voxel, and the measured worst case is 1.27. It is a CEILING on what is
+		-- scrubbed and never a target -- the region is a footprint, and a grass voxel more than a
+		-- voxel above the shelf is a BANK and not a yard.
+		PAD_SKIN_ABOVE_STUDS = 4,
 		-- A LIST, so a third pad is a row and not a third code path. Every entry's TOP is the shelf,
 		-- and `lobby.spec` holds all of them to the same rectangle the two big blocks are held to.
 		PADS = {
@@ -1807,6 +1840,20 @@ Lobby.CONFIG = {
 				NOTE_HUNTER = "A STAND ON THE LINE",
 				NOTE_BEATER = "WALKING THE DRIVE",
 				NOTE_SENT = "ASKED FOR ALREADY",
+				-- THE KEY CHIP ON THE EYEBROW ROW (task 244). `%s` is the `Enum.KeyCode`'s own
+				-- `.Name`, filled in by `Hud.PadPanel`, so the chip and the binding cannot drift --
+				-- `Hud.LicenceCard.TEXT.HINT`'s arrangement exactly, and for its stated reason: a
+				-- key nobody can see is a key nobody presses. The WORDS are Karen's to rewrite; the
+				-- key itself is the client's and lives beside the binding.
+				KEY_HINT = "%s TO SWITCH",
+				-- HOW MUCH OF THE EYEBROW'S ROW THE CHIP TAKES, in pixels off the row's right edge
+				-- (task 244, round 1 note). Both labels were full-width at the same Y with
+				-- `TextTruncate.AtEnd`, which HIDES a collision rather than preventing one -- and
+				-- `spaced()` makes both of them long: "N E X T  D R I V E" against
+				-- "T  T O  S W I T C H". The row is split instead, so neither can reach the other
+				-- and `pad_panel.spec` asserts the two rectangles are disjoint AND that neither
+				-- word is truncated at its own measured `TextBounds`.
+				KEY_PX = 116,
 				LEAD_PX = 12, -- air under the header's hairline
 				EYEBROW_PX = 12,
 				GAP_PX = 8, -- eyebrow -> track

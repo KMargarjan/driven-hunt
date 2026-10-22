@@ -81,6 +81,7 @@ local function fakes(bin: Instance)
 		dismissed = 0,
 		placed = {} :: { { userId: number, cframe: CFrame } },
 		fills = 0,
+		scrubs = 0,
 		inDrive = {} :: { [number]: boolean },
 		held = {} :: { [number]: boolean },
 		ground = SHELF :: any,
@@ -155,6 +156,13 @@ local function fakes(bin: Instance)
 			terrain = {
 				FillBlock = function()
 					seen.fills += 1
+				end,
+				-- TASK 244: `Field.fill` scrubs each pad's own rectangle back to its own material
+				-- after the air cut (`Terrain:ReplaceMaterial`), and it calls it UNGUARDED for the
+				-- reason it calls `FillBlock` unguarded -- so this stand-in answers the whole
+				-- contract or the lobby cannot build at all.
+				ReplaceMaterial = function()
+					seen.scrubs += 1
 				end,
 			},
 			now = os.clock,

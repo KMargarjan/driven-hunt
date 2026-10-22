@@ -201,7 +201,14 @@ function StateMachine.apply(
 		-- and everything in it comes out. `"spent"` is a magazine rifle: working the bolt throws the
 		-- FIRED CASE and leaves the rest of the magazine where it is -- and without this the rifle's
 		-- own auto-cycle would have dumped two live rounds on the ground after every shot.
-		local ejects = config.CYCLE_EJECTS or "all"
+		-- THE ACTION MAY OVERRIDE THE WEAPON'S RULE FOR THIS ONE `Break` (task 244), and exactly
+		-- one caller does: the reload a SHELL-TYPE SWAP runs (`Weapon.onActionRequest`'s
+		-- `SelectAmmo` branch). A bolt worked after a shot throws the fired case and leaves the
+		-- magazine alone; a man changing from buckshot to slugs empties the gun first. Without it
+		-- the semi-auto's tube, which is never empty when it is full of live buck, took no slug at
+		-- all: every `Load` answered `barrel-full`, the gun kept firing buck, and the readout said
+		-- SLUG. MEASURED on Karen's own path, 2026-10-22.
+		local ejects = action.ejects or config.CYCLE_EJECTS or "all"
 		for index = 1, #next.barrels do
 			local chamber = next.barrels[index]
 			if ejects == "spent" and chamber ~= "Spent" then

@@ -158,6 +158,7 @@ local stats = {
 	parts = 0,
 	fillCalls = 0,
 	grassCalls = 0,
+	scrubCalls = 0,
 	enrolments = 0,
 	-- THE ROLE DOOR (task 229), counted apart from the pad's: `roleAsks` is every well-formed ask
 	-- that got past the rate bucket, `roleWrites` is the ones that actually CHANGED the value, and
@@ -319,9 +320,13 @@ local function tryBuild(): boolean
 	-- THE TERRAIN FIRST, THEN THE PARTS: the shelf is what everything stands on, and a lodge placed
 	-- before the hill above it was cut would be built inside that hill for as long as the fill took.
 	if world.terrain ~= nil then
-		local calls, grassCalls = Field.fill(world.terrain, seat, shelf :: number, cfg)
+		local calls, grassCalls, scrubbed = Field.fill(world.terrain, seat, shelf :: number, cfg)
 		stats.fillCalls = calls
 		stats.grassCalls = grassCalls
+		-- HOW MANY PAD RECTANGLES WERE SCRUBBED BACK TO THEIR OWN MATERIAL (task 244): one per row
+		-- in `FIELD.PADS`, so "which path it took" stays a number in `Lobby.stats()` and not a
+		-- belief -- the rule `grassCalls` was added for (design section 18 item 1).
+		stats.scrubCalls = scrubbed
 	end
 
 	-- THE FREE MODELS, FOUND ONCE, AT THE OWNER'S BOUNDARY (task 180). `Workspace.LobbyAssets` is

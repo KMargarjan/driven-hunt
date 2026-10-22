@@ -35,17 +35,30 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Join = Lobby.Join
 local Pads = Lobby.Pads
 local Field = Lobby.Field
+-- TASK 244: the ONE other system in this repository that calls `Terrain:ReplaceMaterial`, read here
+-- only so the engine's voxel resolution is asserted to be ONE number named twice rather than two
+-- numbers that happen to agree. The two owners do not -- and must not -- require each other.
+local Ground = require(ServerScriptService:WaitForChild("Places"):WaitForChild("Ground"))
 local Build = Lobby.Build
 
 local CFG = Data.CONFIG
 
--- A TERRAIN THAT RECORDS AND WRITES NOTHING. One method, because `Field.fill` calls exactly one.
+-- A TERRAIN THAT RECORDS AND WRITES NOTHING. TWO methods since task 244, because `Field.fill` calls
+-- exactly two: the blocks, and the scrub that follows the air cut.
 local function fakeTerrain()
 	local calls = {}
+	-- TASK 244: the fake answers the WHOLE contract, `ReplaceMaterial` included. `Field.fill` calls
+	-- it unguarded for the reason it calls `FillBlock` unguarded -- `terrain` is injected so that no
+	-- spec can write the DEV place's terrain, not so a stand-in may answer half of it.
+	local replacements = {}
 	return {
 		calls = calls,
+		replacements = replacements,
 		FillBlock = function(_self, at: CFrame, size: Vector3, material: Enum.Material)
 			table.insert(calls, { at = at, size = size, material = material })
+		end,
+		ReplaceMaterial = function(_self, region: Region3, resolution: number, from: Enum.Material, to: Enum.Material)
+			table.insert(replacements, { region = region, resolution = resolution, from = from, to = to })
 		end,
 	}
 end
@@ -1000,6 +1013,88 @@ return function()
 			expect(seen.grass).to.equal(grassCalls)
 			expect(seen.pad > 0).to.equal(true)
 			expect(seen.air > 0).to.equal(true)
+		end)
+
+		-- ======================================================= TASK 244: A PAD IS ACTUALLY GRAVEL
+		--
+		-- KAREN, 2026-10-22, with a frame of the truck yard: *"move all trucks to right so it not
+		-- going to be on grass"*.
+		--
+		-- MEASURED IN THE LIVE FOREST TEST BEFORE A LINE OF THIS WAS WRITTEN (rule H): a raycast
+		-- grid 2.5 studs apart over the yard read `Ground` at exactly 150.00 and `Grass` at
+		-- 150.36..151.27 in a DIAGONAL band across the bays -- a CONTOUR OF THE OLD HILL, inside the
+		-- pad's own rectangle, which contains every truck with ~20 studs to spare. Under the four
+		-- trucks' sixteen wheels: bay 1 none on grass, bay 2 one, bay 3 two, bay 4 ALL FOUR.
+		--
+		-- THE CAUSE IS THE VOXEL GRID, not the rectangle: the pad block's top IS the shelf and the
+		-- shelf (149.248) falls inside the 148..152 voxel band, so the block writes only part of
+		-- that voxel and the hill's grass keeps the voxel's MATERIAL. `PAD_SKIN_ABOVE_STUDS`' own
+		-- comment carries the measurement and why filling higher is the wrong fix -- it was tried,
+		-- and it lifted the whole yard 1.27 studs and buried the road.
+		it("scrubs every pad's own rectangle back to its own material (task 244)", function()
+			local fake = fakeTerrain()
+			local calls, _grassCalls, scrubbed = Field.fill(fake, anchor, shelf, CFG)
+			expect(scrubbed).to.equal(#CFG.FIELD.PADS)
+			expect(#fake.replacements).to.equal(scrubbed)
+			expect(calls).to.equal(#fake.calls)
+			for index, pad in ipairs(CFG.FIELD.PADS) do
+				local done = fake.replacements[index]
+				-- GRASS TO THE PAD'S OWN MATERIAL, and nothing else is touched: a rock or a path
+				-- laid in this rectangle by anything else keeps what it is.
+				expect(done.from).to.equal(CFG.FIELD.MATERIAL)
+				expect(done.to).to.equal(pad.MATERIAL)
+				-- THE ENGINE'S OWN RESOLUTION. `Terrain:ReplaceMaterial` takes 4 and nothing else,
+				-- and `Places.Ground.RESOLUTION` is the same engine fact named in the one other
+				-- system that calls this API -- so the duplication is CHECKED and not trusted.
+				expect(done.resolution).to.equal(Field.RESOLUTION)
+				expect(Field.RESOLUTION).to.equal(4)
+				expect(Field.RESOLUTION).to.equal(Ground.RESOLUTION)
+				local region = Field.padRegion(anchor, shelf, pad, CFG)
+				expect(done.region.CFrame.Position).to.equal(region.CFrame.Position)
+				expect(done.region.Size).to.equal(region.Size)
+				-- IT IS THE PAD'S OWN FOOTPRINT, expanded OUTWARD to the grid -- the only direction
+				-- that cannot leave a sliver of the pad unscrubbed.
+				local centre = anchor + pad.OFFSET
+				local min = region.CFrame.Position - region.Size / 2
+				local max = region.CFrame.Position + region.Size / 2
+				expect(min.X <= centre.X - pad.SIZE.X / 2).to.equal(true)
+				expect(max.X >= centre.X + pad.SIZE.X / 2).to.equal(true)
+				expect(min.Z <= centre.Z - pad.SIZE.Z / 2).to.equal(true)
+				expect(max.Z >= centre.Z + pad.SIZE.Z / 2).to.equal(true)
+				-- ...AND IT REACHES THE VOXEL BAND THE SHELF FALLS INSIDE, which is the whole point.
+				expect(min.Y <= shelf - pad.SIZE.Y).to.equal(true)
+				expect(max.Y >= shelf + CFG.FIELD.PAD_SKIN_ABOVE_STUDS).to.equal(true)
+				-- EVERY EDGE ON THE 4-STUD GRID.
+				for _, value in ipairs({ min.X, min.Y, min.Z, max.X, max.Y, max.Z }) do
+					expect(value % 4).to.equal(0)
+				end
+				-- AND IT STAYS INSIDE THE FIELD, exactly as the three blocks do.
+				expect(Field.insideField(anchor, region.CFrame, region.Size, CFG)).to.equal(true)
+			end
+			-- AFTER THE AIR AND NEVER BEFORE IT: the air decides which voxels are still there at
+			-- all, and scrubbing first would scrub a hill that is about to be cut away.
+			expect(fake.calls[#fake.calls].material).to.equal(Enum.Material.Air)
+			-- EVERY TRUCK BAY IS INSIDE THE YARD PAD'S RECTANGLE, which is why the rectangle was
+			-- never the problem and the material was. The bays run from the first to the last,
+			-- `BAY_GAP_STUDS` apart, and the truck stands `BACK_STUDS` east of its bay centre.
+			local yard = nil
+			for _, pad in ipairs(CFG.FIELD.PADS) do
+				if pad.NAME == "Yard" then
+					yard = pad
+				end
+			end
+			expect(yard).to.be.ok()
+			local centre = anchor + (yard :: any).OFFSET
+			local truck = CFG.TRUCK
+			local half = truck.MODEL.LENGTH_STUDS / 2
+			for bay = 0, truck.COUNT - 1 do
+				local x = anchor.X + truck.OFFSET.X + truck.BACK_STUDS
+				local z = anchor.Z + truck.OFFSET.Z - bay * truck.BAY_GAP_STUDS
+				expect(x - half >= centre.X - (yard :: any).SIZE.X / 2).to.equal(true)
+				expect(x + half <= centre.X + (yard :: any).SIZE.X / 2).to.equal(true)
+				expect(z >= centre.Z - (yard :: any).SIZE.Z / 2).to.equal(true)
+				expect(z <= centre.Z + (yard :: any).SIZE.Z / 2).to.equal(true)
+			end
 		end)
 	end)
 

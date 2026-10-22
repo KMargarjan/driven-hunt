@@ -84,6 +84,7 @@
 -- Note:   docs/research/2026-10-14-truck-pads.md (section 5.4)
 -- Note:   docs/research/2026-10-17-the-pad-menu-and-the-truck.md (task 197)
 -- Style:  the designer's shop spec section 8, outside the repo (`shop-design-spec.md`)
+local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LobbyData = require(ReplicatedStorage:WaitForChild("Lobby"))
@@ -102,6 +103,23 @@ local LEAVING = PADS.LEAVING
 -- read here as `SWITCH` -- one control, two surfaces, one set of numbers.
 local ROLE = PANEL.ROLE
 local SWITCH = ShopPanel.ROLE_SWITCH
+
+-- ---------------- THE KEY ON THE ROLE SWITCH (task 244)
+--
+-- KAREN, 2026-10-22: *"I still can't select before game who I want to be"*. The CAUSE was a dead
+-- wire (see `PadPanel.start`), and the key is the belt to that fix's braces: `Hud.LicenceCard`'s
+-- own reasoning, measured rather than assumed -- *"in first person `Camera.Cursor` locks the mouse
+-- to the centre of the screen, so a `GuiButton` receives no click"*. This dialog frees the cursor
+-- while it is open (`Cursor.requestFree("padsize")`), so the halves ARE clickable here; a key
+-- costs one binding and answers the whole class of reasons a press can go missing.
+--
+-- `T` FOR TEAM, AND IT IS FREE: the sixteen `Enum.KeyCode`s bound anywhere in `src/` are
+-- Backspace, B, E, M, R, Tab, X, Return, the four arrows and four gamepad buttons.
+--
+-- ONE KEY AND NOT TWO, because the control has exactly two states and a toggle is the only shape
+-- that needs no second chip. The chip says so in Karen's own words (`ROLE.KEY_HINT`).
+local SWITCH_KEY = Enum.KeyCode.T
+local SWITCH_ACTION = "DrivenHuntPadRoleSwitch"
 
 local LOOK = ShopPanel.LOOK
 local FONT = ShopPanel.FONT
@@ -185,6 +203,13 @@ local team: string? = nil
 local screenHeight: number? = nil
 local switchBlock: Frame? = nil
 local switchEyebrow: TextLabel? = nil
+-- THE KEY CHIP ON THE EYEBROW ROW (task 244), right-aligned beside `NEXT DRIVE`. It shares the row
+-- rather than taking one, so `ROLE.BLOCK_PX` does not move and `heightFor`'s arithmetic is
+-- untouched -- which is what `pad_panel.spec`'s `heightFor(n, true) - heightFor(n, false)` asserts.
+local switchKeyChip: TextLabel? = nil
+-- IS THE KEY BOUND RIGHT NOW? One boolean, so `bindSwitchKey` is idempotent and a double open
+-- cannot leave a second action behind (`LicenceCard.bindBuyKey`'s shape).
+local switchKeyBound = false
 local switchCaption: TextLabel? = nil
 local switchRule: Frame? = nil
 local roleSwitch: any = nil
@@ -629,7 +654,21 @@ local function build(frame: Frame)
 
 	switchEyebrow = label(block, "RoleEyebrow", FONT.SANS_BOLD, EYEBROW_SIZE + 1, LOOK.FAINT, 3);
 	(switchEyebrow :: TextLabel).Text = spaced(ROLE.EYEBROW);
-	(switchEyebrow :: TextLabel).Size = UDim2.new(1, 0, 0, ROLE.EYEBROW_PX)
+	-- THE ROW IS SPLIT, NOT SHARED (task 244, round 1 note): the eyebrow takes everything the key
+	-- chip does not, so the two rectangles are disjoint by construction and `TextTruncate` is never
+	-- asked to hide a collision.
+	(switchEyebrow :: TextLabel).Size = UDim2.new(1, -ROLE.KEY_PX, 0, ROLE.EYEBROW_PX)
+
+	-- THE KEY CHIP, ON THE EYEBROW'S OWN ROW AND RIGHT-ALIGNED (task 244). A key nobody can see is
+	-- a key nobody presses -- `LicenceCard`'s `HINT` line said it first, and this is the same line
+	-- in the one place this control has room for it. The WORD is Karen's (`ROLE.KEY_HINT`) and the
+	-- `%s` is the binding's own `KeyCode.Name`, so the chip and the key cannot drift apart.
+	switchKeyChip = label(block, "RoleKey", FONT.SANS_BOLD, EYEBROW_SIZE, LOOK.FAINT, 3);
+	(switchKeyChip :: TextLabel).Text = spaced(string.format(ROLE.KEY_HINT, SWITCH_KEY.Name));
+	(switchKeyChip :: TextLabel).AnchorPoint = Vector2.new(1, 0);
+	(switchKeyChip :: TextLabel).Size = UDim2.fromOffset(ROLE.KEY_PX, ROLE.EYEBROW_PX);
+	(switchKeyChip :: TextLabel).TextXAlignment = Enum.TextXAlignment.Right;
+	(switchKeyChip :: TextLabel).TextTruncate = Enum.TextTruncate.AtEnd
 
 	-- THE CONTROL ITSELF IS `ShopPanel`'S, built and painted there (task 229): it is drawn on two
 	-- surfaces and *"the shop sets the house style"*. What stays here is WHERE it goes, which is
@@ -852,6 +891,12 @@ function PadPanel.setAsk(next_: number?)
 		if WeaponInput ~= nil then
 			WeaponInput.requestHold("padsize")
 		end
+		-- ...AND THE ROLE SWITCH'S KEY, on the same edge and released on the same one (task 244).
+		-- It is bound whether or not the block is SHOWN: `toggleRoleWish` answers nil for a man
+		-- with no wish and `sendRoleWish` refuses an unusable switch, so the key can never do
+		-- something the control would not -- and binding it on the dialog's own edge keeps the two
+		-- call sites down to the two this module already has.
+		PadPanel.bindSwitchKey(true)
 	elseif ask == nil and wasOpen then
 		stats.closes += 1
 		if Cursor ~= nil then
@@ -860,6 +905,7 @@ function PadPanel.setAsk(next_: number?)
 		if WeaponInput ~= nil then
 			WeaponInput.releaseHold("padsize")
 		end
+		PadPanel.bindSwitchKey(false)
 	end
 	PadPanel.render()
 end
@@ -925,6 +971,12 @@ function PadPanel.relayout()
 	-- dialog grows and the four numbers inside it are the Designer's own table, unchanged.
 	if switchEyebrow ~= nil then
 		(switchEyebrow :: TextLabel).Position = UDim2.fromOffset(0, 0)
+	end
+	-- THE KEY CHIP SHARES THE EYEBROW'S ROW (task 244): same Y, the right `ROLE.KEY_PX` of it -- so
+	-- it adds no row, `ROLE.BLOCK_PX` does not move, and the four numbers below it are untouched.
+	-- Anchored at its right edge, so it is the block's right margin whatever the block is wide.
+	if switchKeyChip ~= nil then
+		(switchKeyChip :: TextLabel).Position = UDim2.fromScale(1, 0)
 	end
 	if roleSwitch ~= nil then
 		-- THE TRACK IS SHOWN WITH ITS BLOCK AND BY THE SAME WRITER (review round 2, finding 1).
@@ -1026,6 +1078,69 @@ function PadPanel.sendRoleWish(which: string): boolean
 	return false
 end
 
+-- THE OTHER HALF OF THE SWITCH. PURE, so the key, a spec and a probe all ask the same question and
+-- this module keeps no second opinion about what "the other one" means.
+--
+-- nil IN, nil OUT: a man with no wish has no block on screen and nothing to toggle.
+function PadPanel.otherRole(next_: string?): string?
+	local lit = PadPanel.roleSelected(next_)
+	if lit == nil then
+		return nil
+	end
+	return if lit == LobbyData.ROLE_WISH.BEATER then LobbyData.ROLE_WISH.HUNTER else LobbyData.ROLE_WISH.BEATER
+end
+
+-- THE KEY'S ONE ACTION (task 244): ask for the half that is NOT lit. It goes through
+-- `sendRoleWish`, which is this client's one sender -- so the key and a press are one code path and
+-- every guard is asked once (`Hud.Rail`'s rule: *"`Activated` is still the only thing that RUNS
+-- anything"*, said the other way round).
+function PadPanel.toggleRoleWish(): boolean
+	local other = PadPanel.otherRole(wish)
+	if other == nil then
+		stats.roleBlocked += 1
+		return false
+	end
+	return PadPanel.sendRoleWish(other)
+end
+
+-- THE KEY IS BOUND ONLY WHILE THE DIALOG IS UP, which is `LicenceCard.bindBuyKey`'s arrangement and
+-- its stated reason: `T` belongs to the player again the instant he steps off the pad, and a dialog
+-- that never opened never took a key at all. Idempotent, so the two call sites cannot stack two
+-- actions on one key.
+--
+-- PUBLIC, and for one reason only: its two callers -- `setAsk` and `stop` -- are written ABOVE it
+-- in this file, and a `PadPanel.` call is resolved when it RUNS. A forward-declared local would do
+-- the same job and read worse. `switchKeyBound()` below is what a spec asserts.
+function PadPanel.bindSwitchKey(on: boolean)
+	if on == switchKeyBound then
+		return
+	end
+	switchKeyBound = on
+	if on then
+		ContextActionService:BindAction(SWITCH_ACTION, function(_name, state)
+			if state == Enum.UserInputState.Begin then
+				PadPanel.toggleRoleWish()
+			end
+			-- `Pass`, DELIBERATELY, and it is `LicenceCard`'s rule applied again: this dialog must
+			-- not swallow an input. Nothing else binds `T`, so passing costs nothing today and is
+			-- the safe answer the day something does.
+			return Enum.ContextActionResult.Pass
+		end, false, SWITCH_KEY)
+	else
+		ContextActionService:UnbindAction(SWITCH_ACTION)
+	end
+end
+
+-- WHETHER THE KEY IS BOUND RIGHT NOW, for a spec and for a probe: the binding is the claim, so it
+-- has to be readable rather than believed.
+function PadPanel.switchKeyBound(): boolean
+	return switchKeyBound
+end
+
+function PadPanel.switchKeyName(): string
+	return SWITCH_KEY.Name
+end
+
 -- WHAT THE BLOCK SAYS, for a spec and for a console probe -- `rowText`'s own seam.
 function PadPanel.switchText(): { string }
 	if roleSwitch == nil or switchBlock == nil or not (switchBlock :: Frame).Visible then
@@ -1033,6 +1148,7 @@ function PadPanel.switchText(): { string }
 	end
 	return {
 		(switchEyebrow :: TextLabel).Text,
+		(switchKeyChip :: TextLabel).Text,
 		roleSwitch.words[LobbyData.ROLE_WISH.HUNTER].Text,
 		roleSwitch.words[LobbyData.ROLE_WISH.BEATER].Text,
 		(switchCaption :: TextLabel).Text,
@@ -1174,7 +1290,27 @@ function PadPanel.start(frame: Frame, collaborators: any)
 	local bag = collaborators or {}
 	Cursor = bag.Cursor
 	WeaponInput = bag.Input
-	remotes = bag.remotes
+	-- **THE BAG MAY NOT UN-TELL WHAT `setRemotes` ALREADY TOLD (task 244, and it is Karen's defect
+	-- of 2026-10-22: *"I still can't select before game who I want to be"*).** `Hud.start` resolves
+	-- `ReplicatedStorage.Lobby` through `Hud.whenReady` BEFORE it starts this panel, and
+	-- `whenReady` calls its callback SYNCHRONOUSLY when the module is already there -- which it
+	-- always is, because Rojo replicates it with the place. So `PadPanel.setRemotes(Lobby.remotes())`
+	-- ran at line 1 and this line then wrote `nil` over it, because the Hud's bag carries no
+	-- `remotes` key: the dialog's ONE outbound door has been shut since task 182 built it.
+	--
+	-- MEASURED on Karen's own path in the live Forest Test, 2026-10-22, with a wiretap on
+	-- `Lobby.Remotes` and a REAL OS mouse click on the BEATER half: the half took the click (its
+	-- press tint was drawn, `BackgroundTransparency` 0.68 = `ROLE.PRESS_TRANSPARENCY`), and
+	-- `RoleRequest` never reached the server. A real click on the `1 / 1` row sent no `PadRequest`
+	-- either -- that half of it was INVISIBLE because the pad falls back to the default size after
+	-- `PADS.PICK_TIMEOUT_SECONDS`, so a dead button and a slow one look the same from the outside.
+	--
+	-- `setRemotes` IS THE ONE WRITER, and `start` now only seeds it for a caller that brought one
+	-- (`pad_panel.spec` passes `remotes = nil` deliberately and still gets a dialog that sends
+	-- nothing).
+	if bag.remotes ~= nil then
+		remotes = bag.remotes
+	end
 	build(frame)
 	frame.Visible = false
 	-- THE BANNER'S FRAME IS OPTIONAL, for the reason every collaborator in this Hud is: a spec that
@@ -1222,8 +1358,13 @@ function PadPanel.stop()
 	wish = nil
 	team = nil
 	screenHeight = nil
+	-- ...AND THE KEY (task 244). `setAsk(nil)` above releases it on the dialog's own edge; this is
+	-- the belt for a `stop` called while no dialog was up, so no restart can leave `T` bound to a
+	-- panel that no longer exists -- *"nothing on screen, nothing held"*, and a bound key is held.
+	PadPanel.bindSwitchKey(false)
 	switchBlock = nil
 	switchEyebrow = nil
+	switchKeyChip = nil
 	switchCaption = nil
 	switchRule = nil
 	roleSwitch = nil

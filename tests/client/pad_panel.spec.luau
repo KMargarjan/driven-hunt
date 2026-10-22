@@ -529,282 +529,465 @@ return function()
 			expect(PadPanel.bannerLineFor(nil, nil, true)).to.equal(LEAVING.SENT)
 			expect(PadPanel.bannerLineFor(nil, nil, false)).to.equal("")
 			expect(LobbyData.padLoading(LEAVING.SENT)).to.equal(false)
+		end)
 
-			-- --------------------------------------------------- THE ROLE SWITCH (task 229)
-			--
-			-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always
-			-- hunter maybe sometimes I want to be a beater we need to find a way to do that"*.
-			--
-			-- THE PRIMARY SURFACE. Every claim here is either ARITHMETIC off the pure `layoutFor` or a
-			-- read of the LIVE instances `Hud.build` made -- never a screenshot. What it cannot prove is
-			-- the TOUCH: a spec cannot fire `GuiButton.Activated` and the harness cannot synthesise a
-			-- tap, so `sendRoleWish` is the seam, exactly as `press` already is.
-			-- Design: docs/design/role-switch.md (sections 10.7, 14, 15.4)
-			it("adds exactly BLOCK_PX to the dialog, and nothing when he owns nothing", function()
-				local ROLE = PANEL.ROLE
-				expect(PadPanel.heightFor(4, true) - PadPanel.heightFor(4, false)).to.equal(ROLE.BLOCK_PX)
-				-- `withSwitch` nil IS TODAY'S NUMBER, which is what makes every existing caller unchanged
-				-- by construction -- `Hud.build` among them.
-				expect(PadPanel.heightFor(4)).to.equal(PadPanel.heightFor(4, false))
-				expect(PadPanel.heightFor()).to.equal(
-					PANEL.HEADER_PX + 4 * PANEL.ROW_PX + 3 * PANEL.GAP + PANEL.HINT_PX + 14
+		-- ======================================================= THE ROLE SWITCH (task 229)
+		--
+		-- **THESE ELEVEN CASES HAD NEVER RUN (task 244).** They were written INSIDE the body of the
+		-- case above -- an `it()` inside a running `it()` -- so TestEZ registered nothing and the
+		-- suite still read green. Task 229 and task 242 both signed off the role switch on them, and
+		-- what they did not catch is the defect Karen reported on 2026-10-22: the dialog's one
+		-- outbound door was nil, so neither half nor any size row could send anything at all.
+		-- The Learning Agent queued the nesting as 229h on 2026-10-21 and nothing had moved it.
+		-- The `end)` above is the whole fix; everything below it is the same eleven cases, de-dented
+		-- by one tab, plus task 244's own.
+		-- --------------------------------------------------- THE ROLE SWITCH (task 229)
+		--
+		-- KAREN, 2026-10-21: *"we also need to have posibility to choose once you have a card always
+		-- hunter maybe sometimes I want to be a beater we need to find a way to do that"*.
+		--
+		-- THE PRIMARY SURFACE. Every claim here is either ARITHMETIC off the pure `layoutFor` or a
+		-- read of the LIVE instances `Hud.build` made -- never a screenshot. What it cannot prove is
+		-- the TOUCH: a spec cannot fire `GuiButton.Activated` and the harness cannot synthesise a
+		-- tap, so `sendRoleWish` is the seam, exactly as `press` already is.
+		-- Design: docs/design/role-switch.md (sections 10.7, 14, 15.4)
+		it("adds exactly BLOCK_PX to the dialog, and nothing when he owns nothing", function()
+			local ROLE = PANEL.ROLE
+			expect(PadPanel.heightFor(4, true) - PadPanel.heightFor(4, false)).to.equal(ROLE.BLOCK_PX)
+			-- `withSwitch` nil IS TODAY'S NUMBER, which is what makes every existing caller unchanged
+			-- by construction -- `Hud.build` among them.
+			expect(PadPanel.heightFor(4)).to.equal(PadPanel.heightFor(4, false))
+			expect(PadPanel.heightFor()).to.equal(
+				PANEL.HEADER_PX + 4 * PANEL.ROW_PX + 3 * PANEL.GAP + PANEL.HINT_PX + 14
+			)
+		end)
+
+		it("grows UPWARD: the dialog's bottom edge is the same pixel in both states", function()
+			-- A CORRECTION MADE IN ADVANCE. `LEAVING.Y_SCALE`'s own comment carries the band task 209
+			-- round 2 measured off a 368-tall CENTRED dialog; a centred 487 px dialog would put 26 px
+			-- of its hint band under the loading banner at 1280 x 720 -- the exact defect, in the
+			-- exact place, that round 2 was spent on. So the block is added at the TOP.
+			local dialog = Hud.padPanel() :: Frame
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(nil, nil, 720)
+			local _, bottomWithout = bandOf(dialog, 720)
+			local withoutTall = dialog.Size.Y.Offset
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
+			local _, bottomWith = bandOf(dialog, 720)
+			expect(dialog.Size.Y.Offset - withoutTall).to.equal(PANEL.ROLE.BLOCK_PX)
+			expect(math.abs(bottomWith - bottomWithout) < 0.01).to.equal(true)
+			-- ...AND THE BANNER STILL CANNOT CROSS IT at the taller height, which is the whole point
+			-- of the bottom edge being invariant (the two ARE up together since task 209).
+			local banner = Hud.padLeaving() :: Frame
+			local dialogTop, dialogBottom = bandOf(dialog, 720)
+			local bannerTop, bannerBottom = bandOf(banner, 720)
+			expect(bannerTop >= dialogBottom or bannerBottom <= dialogTop).to.equal(true)
+			expect(dialogTop >= 0).to.equal(true)
+		end)
+
+		it("is dropped on a screen too short for it, and the shop is the way in there", function()
+			-- 487 + 24 = 511. A LANDSCAPE PHONE (800 x 400, *"which is how phones play"*) does not
+			-- clear it, and today's 368 already leaves only 16 px of margin there. The feature is
+			-- still reachable because the shop's panel scales -- which is why there are two surfaces.
+			expect(PadPanel.switchFitsIn(720)).to.equal(true)
+			expect(PadPanel.switchFitsIn(800)).to.equal(true)
+			expect(PadPanel.switchFitsIn(1080)).to.equal(true)
+			expect(PadPanel.switchFitsIn(511)).to.equal(true)
+			expect(PadPanel.switchFitsIn(510)).to.equal(false)
+			expect(PadPanel.switchFitsIn(400)).to.equal(false)
+			-- A nil HEIGHT ANSWERS false: the small guess (`ShopPanel.screenSize`'s own rule).
+			expect(PadPanel.switchFitsIn(nil)).to.equal(false)
+			local short = PadPanel.layoutFor(4, LobbyData.ROLE_WISH.BEATER, 400)
+			expect(short.switchShown).to.equal(false)
+			expect(short.height).to.equal(PadPanel.heightFor(4))
+		end)
+
+		it("moves every row and the hint by exactly BLOCK_PX, and nothing else", function()
+			-- THE ONE REAL COST OF THIS TASK, NAMED: the four rows' Y and the hint's Y used to be
+			-- written once in `build`, so a block inserted under the header would have left all five
+			-- where they were. `relayout` is now the one writer of every rectangle in this dialog.
+			local without = PadPanel.layoutFor(4, nil, 720)
+			local with = PadPanel.layoutFor(4, LobbyData.ROLE_WISH.BEATER, 720)
+			expect(without.switchShown).to.equal(false)
+			expect(with.switchShown).to.equal(true)
+			for index = 1, 4 do
+				expect(with.rowY[index] - without.rowY[index]).to.equal(PANEL.ROLE.BLOCK_PX)
+			end
+			expect(with.hintY - without.hintY).to.equal(PANEL.ROLE.BLOCK_PX)
+			-- ...AND THE BLOCK'S OWN FOUR BANDS ARE THE DESIGNER'S TABLE, in order, under the header.
+			local ROLE = PANEL.ROLE
+			expect(with.switchY).to.equal(PANEL.HEADER_PX + ROLE.LEAD_PX)
+			expect(with.trackY).to.equal(with.switchY + ROLE.EYEBROW_PX + ROLE.GAP_PX)
+			expect(with.captionY).to.equal(with.trackY + ROLE.TRACK_PX + ROLE.NOTE_GAP)
+			expect(with.ruleY).to.equal(with.captionY + ROLE.NOTE_PX + ROLE.RULE_GAP)
+			-- THE RULE IS CLEAR OF THE FIRST SIZE ROW BY `TRAIL_PX`.
+			expect(with.rowY[1] - (with.ruleY + ROLE.RULE_PX)).to.equal(ROLE.TRAIL_PX)
+			TestKit.note(
+				string.format(
+					"task229 pad block: dialog %d -> %d px, block %d, track %dx%d at y=%d, halves %.1fx%d,"
+						.. " caption y=%d, rule y=%d, first row y=%d -> %d",
+					without.height,
+					with.height,
+					ROLE.BLOCK_PX,
+					with.trackWidth,
+					ROLE.TRACK_PX,
+					with.trackY,
+					with.halfWidth,
+					ROLE.TRACK_PX - 2 * Hud.Shop.ROLE_SWITCH.TRACK_PAD,
+					with.captionY,
+					with.ruleY,
+					without.rowY[1],
+					with.rowY[1]
 				)
-			end)
+			)
+			-- THE TWO HALVES PLUS ONE GAP EXACTLY FILL THE PADDED INTERIOR -- the FORMULA, which is
+			-- what is built, and not the Designer's drawing, which forgot the 3 px between them.
+			local SWITCH = Hud.Shop.ROLE_SWITCH
+			expect(2 * with.halfWidth + SWITCH.TRACK_GAP + 2 * SWITCH.TRACK_PAD).to.equal(with.trackWidth)
+		end)
 
-			it("grows UPWARD: the dialog's bottom edge is the same pixel in both states", function()
-				-- A CORRECTION MADE IN ADVANCE. `LEAVING.Y_SCALE`'s own comment carries the band task 209
-				-- round 2 measured off a 368-tall CENTRED dialog; a centred 487 px dialog would put 26 px
-				-- of its hint band under the loading banner at 1280 x 720 -- the exact defect, in the
-				-- exact place, that round 2 was spent on. So the block is added at the TOP.
-				local dialog = Hud.padPanel() :: Frame
-				PadPanel.setAsk(2)
-				PadPanel.setRoleWish(nil, nil, 720)
-				local _, bottomWithout = bandOf(dialog, 720)
-				local withoutTall = dialog.Size.Y.Offset
+		it("draws nothing at all for a man who does not own the place", function()
+			-- ABSENT, NOT GREYED AND NOT LOCKED. The attribute's absence is the whole gate.
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(nil, nil, 720)
+			local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame?
+			expect(block).to.be.ok()
+			expect((block :: Frame).Visible).to.equal(false)
+			-- ...AND THE TRACK GOES WITH IT, which is the other half of finding 1: it is shown and
+			-- hidden by the ONE writer of this dialog's rectangles, never left behind.
+			local hidden = (block :: Frame):FindFirstChild("RoleSwitch") :: Frame
+			expect(hidden).to.be.ok()
+			expect(hidden.Visible).to.equal(false)
+			expect(PadPanel.roleSelected(nil)).to.equal(nil)
+			expect(PadPanel.roleLit()).to.equal(nil)
+			expect(#PadPanel.switchText()).to.equal(0)
+			expect(PadPanel.roleCaptionFor(nil, nil, nil)).to.equal("")
+			-- ...AND A WORD THIS SYSTEM DOES NOT KNOW IS NOT A THIRD STATE.
+			PadPanel.setRoleWish("shooter", nil, 720)
+			expect(PadPanel.roleWish()).to.equal(nil)
+			expect((block :: Frame).Visible).to.equal(false)
+		end)
+
+		it("lights the half the SERVER chose, and the words are the data's", function()
+			local ROLE = PANEL.ROLE
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
+			local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame
+			expect(block.Visible).to.equal(true)
+			-- ...AND THE CONTROL ITSELF IS ACTUALLY RENDERED (review round 2, finding 1). The block is
+			-- only the HOLDER -- it carries the eyebrow and the caption, and the two halves live
+			-- inside the TRACK. `buildRoleSwitch` builds that track `Visible = false` and for two
+			-- rounds nothing wrote it true, so the switch was positioned, painted and never drawn: a
+			-- `GuiObject` at `Visible = false` is not rendered and takes no input however visible its
+			-- parent is. Asserting the holder could never catch that; this is what does.
+			local track = block:FindFirstChild("RoleSwitch") :: Frame
+			expect(track).to.be.ok()
+			expect(track.Visible).to.equal(true)
+			for _, name in ipairs({ "Hunter", "Beater" }) do
+				local half = track:FindFirstChild(name) :: TextButton
+				expect(half).to.be.ok()
+				expect(half.Visible).to.equal(true)
+			end
+			expect(PadPanel.roleLit()).to.equal(LobbyData.ROLE_WISH.HUNTER)
+			expect(PadPanel.switchText()).to.be.ok()
+			local words = PadPanel.switchText()
+			-- FIVE SINCE TASK 244, not four: the key chip rides the eyebrow's own row.
+			expect(#words).to.equal(5)
+			expect(words[1]).to.equal(Hud.Shop.spaced(ROLE.EYEBROW))
+			expect(words[2]).to.equal(Hud.Shop.spaced(string.format(ROLE.KEY_HINT, PadPanel.switchKeyName())))
+			expect(words[3]).to.equal(Hud.Shop.spaced(ROLE.HUNTER))
+			expect(words[4]).to.equal(Hud.Shop.spaced(ROLE.BEATER))
+			expect(words[5]).to.equal(Hud.Shop.spaced(ROLE.NOTE_HUNTER))
+			-- THE OTHER HALF, AND THE CAPTION FOLLOWS IT.
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.BEATER, nil, 720)
+			expect(PadPanel.roleLit()).to.equal(LobbyData.ROLE_WISH.BEATER)
+			expect(PadPanel.switchText()[5]).to.equal(Hud.Shop.spaced(ROLE.NOTE_BEATER))
+		end)
+
+		it("says WHY it cannot be used, in four rows and never in silence", function()
+			-- THE HALF OF XONOTIC'S TEAM MENU THIS REPOSITORY INVERTS: it refuses by returning
+			-- `false` with nothing said to the player, and Karen reads a silent no-op as broken.
+			local ROLE = PANEL.ROLE
+			expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.HUNTER, nil, nil)).to.equal(ROLE.NOTE_HUNTER)
+			expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, nil)).to.equal(ROLE.NOTE_BEATER)
+			-- A PARTY OF ONE READS LIKE ANY OTHER SINCE TASK 242 (Karen, 2026-10-22). It used to
+			-- say `NO BEATERS THIS DRIVE`, because `Roster.assign` honoured nobody at one player;
+			-- she held the `ALWAYS HUNTER` card -- the card that buys the choice, and the ONLY
+			-- one that does -- stood on the pad alone and asked to beat, and a solo wisher is
+			-- now dealt the beaters' side with bot hunters on the stands.
+			expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 1)).to.equal(ROLE.NOTE_SENT)
+			-- A PARTY OF TWO OR MORE, ALREADY ASKED FOR.
+			expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 2)).to.equal(ROLE.NOTE_SENT)
+			expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 4)).to.equal(ROLE.NOTE_SENT)
+			-- THE DRIVE ALREADY HAS HIM.
+			expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.HUNTER, "Shooters", nil)).to.equal(ROLE.NOTE_SENT)
+			-- AND THE DIMMING AND THE WORDS CANNOT DISAGREE, because one predicate decides both.
+			expect(PadPanel.roleUsable(LobbyData.ROLE_WISH.HUNTER, nil, nil)).to.equal(true)
+			expect(PadPanel.roleUsable(LobbyData.ROLE_WISH.BEATER, nil, 1)).to.equal(false)
+			expect(PadPanel.roleUsable(LobbyData.ROLE_WISH.BEATER, nil, 4)).to.equal(false)
+			expect(PadPanel.roleUsable(LobbyData.ROLE_WISH.BEATER, "Drivers", nil)).to.equal(false)
+			expect(PadPanel.roleUsable(nil, nil, nil)).to.equal(false)
+		end)
+
+		it("goes dim WITH the rows once a size is pressed, and is not hidden", function()
+			-- HIDING IT AT THAT MOMENT WOULD MAKE THE DIALOG JUMP 119 px UNDER THE PLAYER'S THUMB
+			-- while the truck is loading, *"which is the one thing a dialog must never do"*.
+			PadPanel.setRemotes({
+				PadRequest = { FireServer = function() end },
+				RoleRequest = { FireServer = function() end },
+			})
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.BEATER, nil, 720)
+			local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame
+			local tall = (Hud.padPanel() :: Frame).Size.Y.Offset
+			expect(PadPanel.press(1)).to.equal(true)
+			expect(block.Visible).to.equal(true)
+			expect((Hud.padPanel() :: Frame).Size.Y.Offset).to.equal(tall)
+			expect(PadPanel.switchText()[5]).to.equal(Hud.Shop.spaced(PANEL.ROLE.NOTE_SENT))
+			-- ...AND A PRESS ON A HALF IS REFUSED FROM HERE ON, counted and not sent.
+			local blocked = PadPanel.stats().roleBlocked
+			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.HUNTER)).to.equal(false)
+			expect(PadPanel.stats().roleBlocked).to.equal(blocked + 1)
+			PadPanel.setRemotes(nil)
+		end)
+
+		it("sends one message per press, and nothing for a word it does not know", function()
+			local sent: { any } = {}
+			PadPanel.setRemotes({
+				PadRequest = { FireServer = function() end },
+				RoleRequest = {
+					FireServer = function(_self, payload: any)
+						table.insert(sent, payload)
+					end,
+				},
+			})
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
+			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(true)
+			expect(#sent).to.equal(1)
+			expect(sent[1].role).to.equal(LobbyData.ROLE_WISH.BEATER)
+			-- NOTHING BUT THE ONE WORD IS ON THE WIRE: the server measures every other fact itself.
+			local keys = 0
+			for _ in pairs(sent[1]) do
+				keys += 1
+			end
+			expect(keys).to.equal(1)
+			-- A WORD THIS SYSTEM DOES NOT KNOW IS NOT SENT: the server refuses it anyway, and a
+			-- client that sent one would be telling the server a lie about its own catalogue.
+			expect(PadPanel.sendRoleWish("Drivers")).to.equal(false)
+			expect(#sent).to.equal(1)
+			-- NO OPTIMISTIC REDRAW: the lit half is still the server's last word, not the press.
+			expect(PadPanel.roleLit()).to.equal(LobbyData.ROLE_WISH.HUNTER)
+			-- ...AND WITH NO REMOTE AT ALL IT RETURNS RATHER THAN THROWING.
+			PadPanel.setRemotes(nil)
+			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(false)
+		end)
+
+		it("writes every rectangle once per CHANGE, not once per frame", function()
+			-- `relayout` IS THE ONE WRITER, and it must stay edge-triggered: a dialog re-laid-out
+			-- every frame would be a second writer of what `render` paints.
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
+			local was = PadPanel.stats().relayouts
+			for _ = 1, 10 do
 				PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
-				local _, bottomWith = bandOf(dialog, 720)
-				expect(dialog.Size.Y.Offset - withoutTall).to.equal(PANEL.ROLE.BLOCK_PX)
-				expect(math.abs(bottomWith - bottomWithout) < 0.01).to.equal(true)
-				-- ...AND THE BANNER STILL CANNOT CROSS IT at the taller height, which is the whole point
-				-- of the bottom edge being invariant (the two ARE up together since task 209).
-				local banner = Hud.padLeaving() :: Frame
-				local dialogTop, dialogBottom = bandOf(dialog, 720)
-				local bannerTop, bannerBottom = bandOf(banner, 720)
-				expect(bannerTop >= dialogBottom or bannerBottom <= dialogTop).to.equal(true)
-				expect(dialogTop >= 0).to.equal(true)
-			end)
+			end
+			expect(PadPanel.stats().relayouts).to.equal(was)
+			-- THE WORD CHANGING REPAINTS AND DOES NOT MOVE ANYTHING, because the rectangle is the
+			-- same: only the wish APPEARING or DISAPPEARING changes the dialog's height.
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.BEATER, nil, 720)
+			expect(PadPanel.stats().relayouts).to.equal(was)
+			PadPanel.setRoleWish(nil, nil, 720)
+			expect(PadPanel.stats().relayouts).to.equal(was + 1)
+		end)
 
-			it("is dropped on a screen too short for it, and the shop is the way in there", function()
-				-- 487 + 24 = 511. A LANDSCAPE PHONE (800 x 400, *"which is how phones play"*) does not
-				-- clear it, and today's 368 already leaves only 16 px of margin there. The feature is
-				-- still reachable because the shop's panel scales -- which is why there are two surfaces.
-				expect(PadPanel.switchFitsIn(720)).to.equal(true)
-				expect(PadPanel.switchFitsIn(800)).to.equal(true)
-				expect(PadPanel.switchFitsIn(1080)).to.equal(true)
-				expect(PadPanel.switchFitsIn(511)).to.equal(true)
-				expect(PadPanel.switchFitsIn(510)).to.equal(false)
-				expect(PadPanel.switchFitsIn(400)).to.equal(false)
-				-- A nil HEIGHT ANSWERS false: the small guess (`ShopPanel.screenSize`'s own rule).
-				expect(PadPanel.switchFitsIn(nil)).to.equal(false)
-				local short = PadPanel.layoutFor(4, LobbyData.ROLE_WISH.BEATER, 400)
-				expect(short.switchShown).to.equal(false)
-				expect(short.height).to.equal(PadPanel.heightFor(4))
-			end)
+		-- ======================================================= TASK 244: THE DEAD WIRE
+		--
+		-- KAREN, 2026-10-22, with a frame of the dialog and her cursor ON the BEATER half: *"I still
+		-- can't select before game who I want to be"*.
+		--
+		-- WHAT THE DEFECT ACTUALLY WAS, measured on her path in the live Forest Test with a wiretap
+		-- on `Lobby.Remotes` and a REAL OS mouse click: the half TOOK the click -- its press tint was
+		-- drawn -- and `RoleRequest` never reached the server. `Hud.start` tells this module its
+		-- remotes through `PadPanel.setRemotes` BEFORE it calls `PadPanel.start`, because
+		-- `Hud.whenReady` runs its callback synchronously for a module that has already replicated;
+		-- `start` then wrote `bag.remotes` -- nil, the Hud passes no such key -- straight over it.
+		-- Every size row was dead the same way, hidden behind the pad's 8-second default.
+		--
+		-- A SPEC CANNOT FIRE `Activated`, so what it CAN hold is the one thing that broke: `start`
+		-- must not un-tell what `setRemotes` told it. The click proof is a frame plus a live
+		-- attribute read, in the review request.
+		it("never lets `start` un-tell the remotes `setRemotes` already gave it (task 244)", function()
+			-- **IT DRIVES A REAL `start`, IN THE HUD'S OWN ORDER** (round 1, finding 1). The first
+			-- version of this case asserted the rule where it could not fail: `PadPanel.start` opens
+			-- with `if started then return end` and the live panel is already started, so the changed
+			-- line never ran and the case passed with the fix reverted. The Reviewer is right, and the
+			-- fix is to stop the panel first -- which is what the mouse-and-trigger case above already
+			-- does, and it puts the live one back the same way.
+			local sent: { any } = {}
+			local fake = {
+				RoleRequest = {
+					FireServer = function(_self, payload: any)
+						table.insert(sent, payload)
+					end,
+				},
+			}
 
-			it("moves every row and the hint by exactly BLOCK_PX, and nothing else", function()
-				-- THE ONE REAL COST OF THIS TASK, NAMED: the four rows' Y and the hint's Y used to be
-				-- written once in `build`, so a block inserted under the header would have left all five
-				-- where they were. `relayout` is now the one writer of every rectangle in this dialog.
-				local without = PadPanel.layoutFor(4, nil, 720)
-				local with = PadPanel.layoutFor(4, LobbyData.ROLE_WISH.BEATER, 720)
-				expect(without.switchShown).to.equal(false)
-				expect(with.switchShown).to.equal(true)
-				for index = 1, 4 do
-					expect(with.rowY[index] - without.rowY[index]).to.equal(PANEL.ROLE.BLOCK_PX)
+			-- THE HUD'S ORDER, AND IT IS THE WHOLE DEFECT: `Hud.start` resolves `ReplicatedStorage.Lobby`
+			-- through `Hud.whenReady` -- which calls its callback SYNCHRONOUSLY for a module that has
+			-- already replicated, and it always has -- so `setRemotes` lands BEFORE `start`, and the bag
+			-- `Hud.start` passes carries no `remotes` key at all.
+			PadPanel.stop()
+			PadPanel.setRemotes(fake)
+			PadPanel.start(Hud.padPanel() :: Frame, { leaving = Hud.padLeaving() })
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
+			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(true)
+			expect(#sent).to.equal(1)
+			expect(sent[1].role).to.equal(LobbyData.ROLE_WISH.BEATER)
+
+			-- ...AND A BAG THAT BRINGS ONE STILL WINS, so every caller written before this is unchanged.
+			PadPanel.stop()
+			PadPanel.setRemotes(nil)
+			PadPanel.start(Hud.padPanel() :: Frame, { remotes = fake, leaving = Hud.padLeaving() })
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
+			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(true)
+			expect(#sent).to.equal(2)
+
+			-- ...AND WITH NO WIRE AT ALL IT REFUSES rather than pretending. That is the state Karen was
+			-- in, and the counter is what tells the two apart from outside.
+			PadPanel.setRemotes(nil)
+			local was = PadPanel.stats().roleBlocked
+			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(false)
+			expect(PadPanel.stats().roleBlocked).to.equal(was + 1)
+
+			-- THE LIVE PANEL GOES BACK, because this case took it over -- the restore the
+			-- mouse-and-trigger case makes, for its reason, and asserted rather than assumed.
+			PadPanel.stop()
+			PadPanel.start(Hud.padPanel() :: Frame, { remotes = nil, leaving = Hud.padLeaving() })
+			local rebuilt = 0
+			for _, child in ipairs((Hud.padPanel() :: Frame):GetChildren()) do
+				if child:IsA("TextButton") then
+					rebuilt += 1
 				end
-				expect(with.hintY - without.hintY).to.equal(PANEL.ROLE.BLOCK_PX)
-				-- ...AND THE BLOCK'S OWN FOUR BANDS ARE THE DESIGNER'S TABLE, in order, under the header.
-				local ROLE = PANEL.ROLE
-				expect(with.switchY).to.equal(PANEL.HEADER_PX + ROLE.LEAD_PX)
-				expect(with.trackY).to.equal(with.switchY + ROLE.EYEBROW_PX + ROLE.GAP_PX)
-				expect(with.captionY).to.equal(with.trackY + ROLE.TRACK_PX + ROLE.NOTE_GAP)
-				expect(with.ruleY).to.equal(with.captionY + ROLE.NOTE_PX + ROLE.RULE_GAP)
-				-- THE RULE IS CLEAR OF THE FIRST SIZE ROW BY `TRAIL_PX`.
-				expect(with.rowY[1] - (with.ruleY + ROLE.RULE_PX)).to.equal(ROLE.TRAIL_PX)
-				TestKit.note(
-					string.format(
-						"task229 pad block: dialog %d -> %d px, block %d, track %dx%d at y=%d, halves %.1fx%d,"
-							.. " caption y=%d, rule y=%d, first row y=%d -> %d",
-						without.height,
-						with.height,
-						ROLE.BLOCK_PX,
-						with.trackWidth,
-						ROLE.TRACK_PX,
-						with.trackY,
-						with.halfWidth,
-						ROLE.TRACK_PX - 2 * Hud.Shop.ROLE_SWITCH.TRACK_PAD,
-						with.captionY,
-						with.ruleY,
-						without.rowY[1],
-						with.rowY[1]
-					)
+			end
+			expect(rebuilt).to.equal(#PADS.SIZES)
+		end)
+
+		it("offers a KEY as well as a click, and says which key on the control (task 244)", function()
+			-- THE OTHER HALF, PURE: one rule, so the key, a press and a probe cannot disagree about
+			-- what *"the other one"* means.
+			expect(PadPanel.otherRole(LobbyData.ROLE_WISH.HUNTER)).to.equal(LobbyData.ROLE_WISH.BEATER)
+			expect(PadPanel.otherRole(LobbyData.ROLE_WISH.BEATER)).to.equal(LobbyData.ROLE_WISH.HUNTER)
+			-- A MAN WITH NO WISH HAS NO BLOCK AND NOTHING TO TOGGLE.
+			expect(PadPanel.otherRole(nil)).to.equal(nil)
+			expect(PadPanel.otherRole("rabbit")).to.equal(nil)
+
+			local sent: { any } = {}
+			PadPanel.setRemotes({
+				RoleRequest = {
+					FireServer = function(_self, payload: any)
+						table.insert(sent, payload)
+					end,
+				},
+			})
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
+			-- THE KEY GOES THROUGH THE ONE SENDER, so every guard is asked once and the key cannot
+			-- do something the control would not.
+			expect(PadPanel.toggleRoleWish()).to.equal(true)
+			expect(#sent).to.equal(1)
+			expect(sent[1].role).to.equal(LobbyData.ROLE_WISH.BEATER)
+			-- ...AND IT IS REFUSED IN EXACTLY THE STATES THE CONTROL IS: a side already dealt.
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, "Shooters", 720)
+			expect(PadPanel.toggleRoleWish()).to.equal(false)
+			expect(#sent).to.equal(1)
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
+
+			-- THE CHIP SAYS THE KEY'S OWN NAME, so the words and the binding cannot drift.
+			local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame
+			local chip = block:FindFirstChild("RoleKey") :: TextLabel
+			expect(chip).to.be.ok()
+			expect(chip.Text).to.equal(Hud.Style.spaced(string.format(PANEL.ROLE.KEY_HINT, PadPanel.switchKeyName())))
+			expect(chip.TextXAlignment).to.equal(Enum.TextXAlignment.Right)
+			-- IT SHARES THE EYEBROW'S ROW rather than taking one, which is what keeps `BLOCK_PX`
+			-- the same number it was.
+			local brow = block:FindFirstChild("RoleEyebrow") :: TextLabel
+			expect(chip.AbsolutePosition.Y).to.equal(brow.AbsolutePosition.Y)
+			expect(PadPanel.heightFor(4, true) - PadPanel.heightFor(4, false)).to.equal(PANEL.ROLE.BLOCK_PX)
+
+			-- **AND THE TWO RECTANGLES ARE DISJOINT** (round 1 note). Both labels were full-width at
+			-- the same Y with `TextTruncate.AtEnd`, which HIDES a collision rather than preventing
+			-- one -- and `spaced()` makes both of them long.
+			--
+			-- ASSERTED OFF THE DECLARED `UDim2`s AND NOT OFF `AbsoluteSize`, because those three
+			-- values are written synchronously by `build` and `relayout` while an absolute is a
+			-- LAYOUT'S answer and is stale until the engine has run one. Together they prove the
+			-- split for any block width: the eyebrow spans `[0, W - KEY_PX]` from the left edge and
+			-- the chip spans `[W - KEY_PX, W]` from the right, whatever `W` turns out to be.
+			expect(brow.Position).to.equal(UDim2.fromOffset(0, 0))
+			expect(brow.Size).to.equal(UDim2.new(1, -PANEL.ROLE.KEY_PX, 0, PANEL.ROLE.EYEBROW_PX))
+			expect(chip.AnchorPoint).to.equal(Vector2.new(1, 0))
+			expect(chip.Position).to.equal(UDim2.fromScale(1, 0))
+			expect(chip.Size).to.equal(UDim2.fromOffset(PANEL.ROLE.KEY_PX, PANEL.ROLE.EYEBROW_PX))
+
+			-- ...AND NEITHER WORD IS ACTUALLY TRUNCATED at the size it is drawn, which is the claim
+			-- `TextTruncate` would otherwise be covering up. `TextBounds` and `AbsoluteSize` are
+			-- both the LAYOUT's answers, so the frame is waited for rather than assumed: the block
+			-- went visible in this same case, and reading them before the engine has laid it out
+			-- answers 0 -- which is how this read failed once and passed twice.
+			task.wait()
+			task.wait()
+			local browRight = brow.AbsolutePosition.X + brow.AbsoluteSize.X
+			expect(brow.AbsoluteSize.X > 0).to.equal(true)
+			expect(chip.AbsolutePosition.X >= browRight).to.equal(true)
+			expect(chip.AbsoluteSize.X).to.equal(PANEL.ROLE.KEY_PX)
+			expect(chip.TextBounds.X <= chip.AbsoluteSize.X).to.equal(true)
+			expect(brow.TextBounds.X <= brow.AbsoluteSize.X).to.equal(true)
+			TestKit.note(
+				string.format(
+					"pad_panel: eyebrow %.0f px of %.0f, key chip %.0f px of %.0f, gap %.0f",
+					brow.TextBounds.X,
+					brow.AbsoluteSize.X,
+					chip.TextBounds.X,
+					chip.AbsoluteSize.X,
+					chip.AbsolutePosition.X - browRight
 				)
-				-- THE TWO HALVES PLUS ONE GAP EXACTLY FILL THE PADDED INTERIOR -- the FORMULA, which is
-				-- what is built, and not the Designer's drawing, which forgot the 3 px between them.
-				local SWITCH = Hud.Shop.ROLE_SWITCH
-				expect(2 * with.halfWidth + SWITCH.TRACK_GAP + 2 * SWITCH.TRACK_PAD).to.equal(with.trackWidth)
-			end)
+			)
+			PadPanel.setRemotes(nil)
+		end)
 
-			it("draws nothing at all for a man who does not own the place", function()
-				-- ABSENT, NOT GREYED AND NOT LOCKED. The attribute's absence is the whole gate.
-				PadPanel.setAsk(2)
-				PadPanel.setRoleWish(nil, nil, 720)
-				local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame?
-				expect(block).to.be.ok()
-				expect((block :: Frame).Visible).to.equal(false)
-				-- ...AND THE TRACK GOES WITH IT, which is the other half of finding 1: it is shown and
-				-- hidden by the ONE writer of this dialog's rectangles, never left behind.
-				local hidden = (block :: Frame):FindFirstChild("RoleSwitch") :: Frame
-				expect(hidden).to.be.ok()
-				expect(hidden.Visible).to.equal(false)
-				expect(PadPanel.roleSelected(nil)).to.equal(nil)
-				expect(PadPanel.roleLit()).to.equal(nil)
-				expect(#PadPanel.switchText()).to.equal(0)
-				expect(PadPanel.roleCaptionFor(nil, nil, nil)).to.equal("")
-				-- ...AND A WORD THIS SYSTEM DOES NOT KNOW IS NOT A THIRD STATE.
-				PadPanel.setRoleWish("shooter", nil, 720)
-				expect(PadPanel.roleWish()).to.equal(nil)
-				expect((block :: Frame).Visible).to.equal(false)
-			end)
+		it("binds the key only while the dialog is up, and hands it back (task 244)", function()
+			-- `T` BELONGS TO THE PLAYER AGAIN THE INSTANT HE STEPS OFF THE PAD, which is
+			-- `LicenceCard.bindBuyKey`'s rule and its stated reason.
+			PadPanel.setAsk(nil)
+			expect(PadPanel.switchKeyBound()).to.equal(false)
+			PadPanel.setAsk(2)
+			expect(PadPanel.switchKeyBound()).to.equal(true)
+			-- A SECOND OPEN BINDS NOTHING TWICE.
+			PadPanel.setAsk(3)
+			expect(PadPanel.switchKeyBound()).to.equal(true)
+			PadPanel.setAsk(nil)
+			expect(PadPanel.switchKeyBound()).to.equal(false)
+		end)
 
-			it("lights the half the SERVER chose, and the words are the data's", function()
-				local ROLE = PANEL.ROLE
-				PadPanel.setAsk(2)
-				PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
-				local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame
-				expect(block.Visible).to.equal(true)
-				-- ...AND THE CONTROL ITSELF IS ACTUALLY RENDERED (review round 2, finding 1). The block is
-				-- only the HOLDER -- it carries the eyebrow and the caption, and the two halves live
-				-- inside the TRACK. `buildRoleSwitch` builds that track `Visible = false` and for two
-				-- rounds nothing wrote it true, so the switch was positioned, painted and never drawn: a
-				-- `GuiObject` at `Visible = false` is not rendered and takes no input however visible its
-				-- parent is. Asserting the holder could never catch that; this is what does.
-				local track = block:FindFirstChild("RoleSwitch") :: Frame
-				expect(track).to.be.ok()
-				expect(track.Visible).to.equal(true)
-				for _, name in ipairs({ "Hunter", "Beater" }) do
-					local half = track:FindFirstChild(name) :: TextButton
-					expect(half).to.be.ok()
-					expect(half.Visible).to.equal(true)
-				end
-				expect(PadPanel.roleLit()).to.equal(LobbyData.ROLE_WISH.HUNTER)
-				expect(PadPanel.switchText()).to.be.ok()
-				local words = PadPanel.switchText()
-				expect(#words).to.equal(4)
-				expect(words[1]).to.equal(Hud.Shop.spaced(ROLE.EYEBROW))
-				expect(words[2]).to.equal(Hud.Shop.spaced(ROLE.HUNTER))
-				expect(words[3]).to.equal(Hud.Shop.spaced(ROLE.BEATER))
-				expect(words[4]).to.equal(Hud.Shop.spaced(ROLE.NOTE_HUNTER))
-				-- THE OTHER HALF, AND THE CAPTION FOLLOWS IT.
-				PadPanel.setRoleWish(LobbyData.ROLE_WISH.BEATER, nil, 720)
-				expect(PadPanel.roleLit()).to.equal(LobbyData.ROLE_WISH.BEATER)
-				expect(PadPanel.switchText()[4]).to.equal(Hud.Shop.spaced(ROLE.NOTE_BEATER))
-			end)
-
-			it("says WHY it cannot be used, in four rows and never in silence", function()
-				-- THE HALF OF XONOTIC'S TEAM MENU THIS REPOSITORY INVERTS: it refuses by returning
-				-- `false` with nothing said to the player, and Karen reads a silent no-op as broken.
-				local ROLE = PANEL.ROLE
-				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.HUNTER, nil, nil)).to.equal(ROLE.NOTE_HUNTER)
-				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, nil)).to.equal(ROLE.NOTE_BEATER)
-				-- A PARTY OF ONE READS LIKE ANY OTHER SINCE TASK 242 (Karen, 2026-10-22). It used to
-				-- say `NO BEATERS THIS DRIVE`, because `Roster.assign` honoured nobody at one player;
-				-- she held the `ALWAYS HUNTER` card -- the card that buys the choice, and the ONLY
-				-- one that does -- stood on the pad alone and asked to beat, and a solo wisher is
-				-- now dealt the beaters' side with bot hunters on the stands.
-				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 1)).to.equal(ROLE.NOTE_SENT)
-				-- A PARTY OF TWO OR MORE, ALREADY ASKED FOR.
-				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 2)).to.equal(ROLE.NOTE_SENT)
-				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.BEATER, nil, 4)).to.equal(ROLE.NOTE_SENT)
-				-- THE DRIVE ALREADY HAS HIM.
-				expect(PadPanel.roleCaptionFor(LobbyData.ROLE_WISH.HUNTER, "Shooters", nil)).to.equal(ROLE.NOTE_SENT)
-				-- AND THE DIMMING AND THE WORDS CANNOT DISAGREE, because one predicate decides both.
-				expect(PadPanel.roleUsable(LobbyData.ROLE_WISH.HUNTER, nil, nil)).to.equal(true)
-				expect(PadPanel.roleUsable(LobbyData.ROLE_WISH.BEATER, nil, 1)).to.equal(false)
-				expect(PadPanel.roleUsable(LobbyData.ROLE_WISH.BEATER, nil, 4)).to.equal(false)
-				expect(PadPanel.roleUsable(LobbyData.ROLE_WISH.BEATER, "Drivers", nil)).to.equal(false)
-				expect(PadPanel.roleUsable(nil, nil, nil)).to.equal(false)
-			end)
-
-			it("goes dim WITH the rows once a size is pressed, and is not hidden", function()
-				-- HIDING IT AT THAT MOMENT WOULD MAKE THE DIALOG JUMP 119 px UNDER THE PLAYER'S THUMB
-				-- while the truck is loading, *"which is the one thing a dialog must never do"*.
-				PadPanel.setRemotes({
-					PadRequest = { FireServer = function() end },
-					RoleRequest = { FireServer = function() end },
-				})
-				PadPanel.setAsk(2)
-				PadPanel.setRoleWish(LobbyData.ROLE_WISH.BEATER, nil, 720)
-				local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame
-				local tall = (Hud.padPanel() :: Frame).Size.Y.Offset
-				expect(PadPanel.press(1)).to.equal(true)
-				expect(block.Visible).to.equal(true)
-				expect((Hud.padPanel() :: Frame).Size.Y.Offset).to.equal(tall)
-				expect(PadPanel.switchText()[4]).to.equal(Hud.Shop.spaced(PANEL.ROLE.NOTE_SENT))
-				-- ...AND A PRESS ON A HALF IS REFUSED FROM HERE ON, counted and not sent.
-				local blocked = PadPanel.stats().roleBlocked
-				expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.HUNTER)).to.equal(false)
-				expect(PadPanel.stats().roleBlocked).to.equal(blocked + 1)
-				PadPanel.setRemotes(nil)
-			end)
-
-			it("sends one message per press, and nothing for a word it does not know", function()
-				local sent: { any } = {}
-				PadPanel.setRemotes({
-					PadRequest = { FireServer = function() end },
-					RoleRequest = {
-						FireServer = function(_self, payload: any)
-							table.insert(sent, payload)
-						end,
-					},
-				})
-				PadPanel.setAsk(2)
-				PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
-				expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(true)
-				expect(#sent).to.equal(1)
-				expect(sent[1].role).to.equal(LobbyData.ROLE_WISH.BEATER)
-				-- NOTHING BUT THE ONE WORD IS ON THE WIRE: the server measures every other fact itself.
-				local keys = 0
-				for _ in pairs(sent[1]) do
-					keys += 1
-				end
-				expect(keys).to.equal(1)
-				-- A WORD THIS SYSTEM DOES NOT KNOW IS NOT SENT: the server refuses it anyway, and a
-				-- client that sent one would be telling the server a lie about its own catalogue.
-				expect(PadPanel.sendRoleWish("Drivers")).to.equal(false)
-				expect(#sent).to.equal(1)
-				-- NO OPTIMISTIC REDRAW: the lit half is still the server's last word, not the press.
-				expect(PadPanel.roleLit()).to.equal(LobbyData.ROLE_WISH.HUNTER)
-				-- ...AND WITH NO REMOTE AT ALL IT RETURNS RATHER THAN THROWING.
-				PadPanel.setRemotes(nil)
-				expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(false)
-			end)
-
-			it("writes every rectangle once per CHANGE, not once per frame", function()
-				-- `relayout` IS THE ONE WRITER, and it must stay edge-triggered: a dialog re-laid-out
-				-- every frame would be a second writer of what `render` paints.
-				PadPanel.setAsk(2)
-				PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
-				local was = PadPanel.stats().relayouts
-				for _ = 1, 10 do
-					PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
-				end
-				expect(PadPanel.stats().relayouts).to.equal(was)
-				-- THE WORD CHANGING REPAINTS AND DOES NOT MOVE ANYTHING, because the rectangle is the
-				-- same: only the wish APPEARING or DISAPPEARING changes the dialog's height.
-				PadPanel.setRoleWish(LobbyData.ROLE_WISH.BEATER, nil, 720)
-				expect(PadPanel.stats().relayouts).to.equal(was)
-				PadPanel.setRoleWish(nil, nil, 720)
-				expect(PadPanel.stats().relayouts).to.equal(was + 1)
-			end)
-
-			it("puts the two halves above the block's own labels, so a press reaches them", function()
-				PadPanel.setAsk(2)
-				PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
-				local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame
-				local track = block:FindFirstChild("RoleSwitch") :: Frame
-				expect(track).to.be.ok()
-				local brow = block:FindFirstChild("RoleEyebrow") :: TextLabel
-				for _, name in ipairs({ "Hunter", "Beater" }) do
-					local half = track:FindFirstChild(name) :: TextButton
-					expect(half).to.be.ok()
-					expect(half.ZIndex > brow.ZIndex).to.equal(true)
-					expect(half.AutoButtonColor).to.equal(false)
-					-- THE HALF CARRIES NO TEXT OF ITS OWN: the word is a centred child label.
-					expect(half.Text).to.equal("")
-					expect(half:FindFirstChild("Word")).to.be.ok()
-				end
-			end)
+		it("puts the two halves above the block's own labels, so a press reaches them", function()
+			PadPanel.setAsk(2)
+			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
+			local block = (Hud.padPanel() :: Frame):FindFirstChild("RoleBlock") :: Frame
+			local track = block:FindFirstChild("RoleSwitch") :: Frame
+			expect(track).to.be.ok()
+			local brow = block:FindFirstChild("RoleEyebrow") :: TextLabel
+			for _, name in ipairs({ "Hunter", "Beater" }) do
+				local half = track:FindFirstChild(name) :: TextButton
+				expect(half).to.be.ok()
+				expect(half.ZIndex > brow.ZIndex).to.equal(true)
+				expect(half.AutoButtonColor).to.equal(false)
+				-- THE HALF CARRIES NO TEXT OF ITS OWN: the word is a centred child label.
+				expect(half.Text).to.equal("")
+				expect(half:FindFirstChild("Word")).to.be.ok()
+			end
 		end)
 	end)
 end
