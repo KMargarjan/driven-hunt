@@ -397,24 +397,140 @@ return function()
 				expect(table.concat(clashes, " | ")).to.equal("")
 			end)
 
-			it("gives each deer kind its own pitch, ordered stag below hind below calf", function()
-				-- A STAG IS THE BIGGEST AND A CALF THE SMALLEST, so the order is the animal's and
-				-- not a preference -- the same relation `boar_shot.spec` holds the boar's three in.
+			it("gives each deer kind a pitch of its own, measured against ITS OWN sample", function()
+				-- THE THREE NUMBERS ARE NOT IN SIZE ORDER AND MUST NOT BE READ AS IF THEY WERE
+				-- (round 1's note). The boar's three are one sample set, so their ratio IS which
+				-- animal sounds deeper; the deer's are not -- the stag's 1.15 multiplies a BULL
+				-- bellow (pitched UP, a stag being about a third of a bull) and the hind's 0.80 a
+				-- LAMB bleat (pitched DOWN, a hind being about three lambs). Comparing 1.15 with
+				-- 0.80 says nothing about either animal.
+				--
+				-- SO WHAT IS ASSERTED IS WHAT IS TRUE: three distinct pitches, none of them task
+				-- 223's pig-era numbers, and the hind not sharing the sow's samples.
 				local voice = CONFIG.SOUND.VOICE
-				expect(voice.stag.pitch > voice.hind.pitch).to.equal(true)
-				expect(voice.calf.pitch > voice.stag.pitch).to.equal(true)
+				local seen = {}
+				for _, kind in ipairs(DEER_KINDS) do
+					expect(type(voice[kind].pitch)).to.equal("number")
+					expect(voice[kind].pitch > 0).to.equal(true)
+					expect(seen[voice[kind].pitch]).to.equal(nil)
+					seen[voice[kind].pitch] = kind
+				end
+				-- THE CALF IS THE THIN ONE AND THE HIND IS NOT, within the one sample set they share.
+				expect(voice.calf.pitch > voice.hind.pitch).to.equal(true)
 				-- ...AND THE TWO FEMALES ARE NOT THE SAME ANIMAL: a hind bleats and a sow squeals,
 				-- so if the two rows ever converge on one sample set the deer is a pig again.
 				expect(voice.hind.death).never.to.equal(voice.female.death)
 			end)
 
-			it("keeps a deer death inside the world's squeal budget", function()
-				-- `SOUND.CRY` carries no `cut`, so a reaction plays its whole sample while
-				-- `CROWD.SQUEAL_SECONDS` books 1.2 s of the world's two voices. The measured sample
-				-- lengths are in the config's comments; this is the relation that makes them matter.
-				expect(CONFIG.SOUND.DEATH.cut).to.be.ok()
-				expect(CONFIG.SOUND.DEATH.cut < CONFIG.SOUND.CROWD.SQUEAL_SECONDS).to.equal(true)
-				expect(CONFIG.SOUND.CRY.cut).to.equal(nil)
+			-- ROUND 1, FINDING 2'S REPLACEMENT. The case that stood here named no deer and would have
+			-- passed with every line of this task reverted: it asserted `DEATH.cut`, `SQUEAL_SECONDS`
+			-- and `CRY.cut == nil`, all three of which predate the task. It also failed to catch
+			-- round 1's finding 1 -- that the hind's and the calf's bleats are LONGER than the budget
+			-- the world books for them.
+			--
+			-- THIS ONE ASSERTS THE RELATION ON THE DEER'S OWN ROWS, off MEASURED lengths
+			-- (`VOICE.LENGTHS`, read back from `Sound.TimeLength` in a live session), so an id added
+			-- without a measurement fails the suite and an id that is too long fails it too.
+			it("cannot hold a voice slot it has already given back, on any deer kind or cue", function()
+				local on = configWith(true)
+				local sound = CONFIG.SOUND
+				local voice = sound.VOICE
+				local crowd = sound.CROWD
+				local specOf = { cry = sound.CRY, death = sound.DEATH, grunt = sound.GRUNTS }
+
+				-- EVERY ID IN THE TABLE HAS A MEASURED LENGTH, boar ids included, because the bound
+				-- below is a comparison and an unmeasured id would silently skip it.
+				local unmeasured = {}
+				local function check(ids, where: string)
+					for _, id in ipairs(ids) do
+						local length = voice.LENGTHS[id]
+						if type(length) ~= "number" or length <= 0 then
+							table.insert(unmeasured, string.format("%s id %d", where, id))
+						end
+					end
+				end
+				for _, cue in ipairs({ "cry", "death", "grunt" }) do
+					check(specOf[cue].ids, "SOUND." .. cue)
+					for _, kind in ipairs(CONFIG.KINDS.ORDER) do
+						check(voice[kind][cue], kind .. "." .. cue)
+					end
+				end
+				table.sort(unmeasured)
+				expect(table.concat(unmeasured, ", ")).to.equal("")
+
+				-- ...AND NO DEER CUE SOUNDS FOR LONGER THAN THE WORLD BOOKS IT FOR. A sample plays
+				-- for `length / pitch` seconds and `Body.voiceCut` bounds that; the booking is
+				-- `SQUEAL_SECONDS` for a cry or a death (`Runtime:_claimSqueal`) and
+				-- `GRUNT_GAP_SECONDS` for a grunt (the gap before another may START).
+				local tooLong, lines = {}, {}
+				for _, kind in ipairs(DEER_KINDS) do
+					local pitch = voice[kind].pitch
+					for _, cue in ipairs({ "cry", "death", "grunt" }) do
+						local spec = specOf[cue]
+						local cut = Boar.voiceCut(cue, kind, spec, on)
+						local budget = if cue == "grunt" then crowd.GRUNT_GAP_SECONDS else crowd.SQUEAL_SECONDS
+						for _, id in ipairs(Boar.voiceIds(cue, kind, spec, on)) do
+							local whole = voice.LENGTHS[id] / pitch
+							local sounds = if cut ~= nil then math.min(whole, cut) else whole
+							if sounds >= budget then
+								table.insert(
+									tooLong,
+									string.format(
+										"%s.%s id %d sounds %.2f s against %.2f",
+										kind,
+										cue,
+										id,
+										sounds,
+										budget
+									)
+								)
+							end
+							table.insert(lines, string.format("%s.%s %.2fs", kind, cue, sounds))
+						end
+					end
+				end
+				table.sort(tooLong)
+				expect(table.concat(tooLong, " | ")).to.equal("")
+				TestKit.note("deer-240 cue lengths: " .. table.concat(lines, " "))
+			end)
+
+			-- ...AND THE OTHER HALF OF THE SAME FIX: the cut is on the DEER's rows and nowhere else,
+			-- so the boar makes exactly the noise Karen signed off (*"animal react sound is good"*).
+			it("cuts only the deer, and never lengthens a death", function()
+				local on = configWith(true)
+				local sound = CONFIG.SOUND
+				local specOf = { cry = sound.CRY, death = sound.DEATH, grunt = sound.GRUNTS }
+				-- ONE ARM PER BOAR KIND (L-093): a case that only entered the male's would not see a
+				-- `cut` smuggled onto the legendary.
+				for _, kind in ipairs(BOAR_KINDS) do
+					expect(CONFIG.SOUND.VOICE[kind].cut).to.equal(nil)
+					for _, cue in ipairs({ "cry", "death", "grunt" }) do
+						expect(Boar.voiceCut(cue, kind, specOf[cue], on)).to.equal(specOf[cue].cut)
+					end
+				end
+				-- ...AND ONE PER DEER KIND: the cry and the grunt take the row's, the DEATH keeps the
+				-- 0.6 s Karen asked for, because `voiceCut` takes the SMALLER of the two.
+				for _, kind in ipairs(DEER_KINDS) do
+					local own = CONFIG.SOUND.VOICE[kind].cut
+					expect(own).to.be.ok()
+					expect(own).to.be.near(CONFIG.SOUND.VOICE.CUE_CUT_SECONDS, EPSILON)
+					expect(Boar.voiceCut("cry", kind, sound.CRY, on)).to.be.near(own, EPSILON)
+					expect(Boar.voiceCut("grunt", kind, sound.GRUNTS, on)).to.be.near(own, EPSILON)
+					expect(Boar.voiceCut("death", kind, sound.DEATH, on)).to.be.near(sound.DEATH.cut, EPSILON)
+					expect(sound.DEATH.cut < own).to.equal(true)
+				end
+				-- A CUT CUE MUST BE ABLE TO END RATHER THAN BE CHOPPED, which is what `fade` is for
+				-- and what `Body.cutVolume` reads. The two cues the deer newly cuts had none.
+				expect(sound.CRY.fade).to.be.ok()
+				expect(sound.GRUNTS.fade).to.be.ok()
+				expect(sound.CRY.fade < CONFIG.SOUND.VOICE.CUE_CUT_SECONDS).to.equal(true)
+				-- ...and with the voice OFF nothing is cut that was not cut before.
+				local off = table.clone(on)
+				local offSound = table.clone(CONFIG.SOUND)
+				offSound.VOICE = table.clone(CONFIG.SOUND.VOICE)
+				offSound.VOICE.ENABLED = false
+				off.SOUND = offSound
+				expect(Boar.voiceCut("cry", "stag", sound.CRY, off)).to.equal(sound.CRY.cut)
 			end)
 		end)
 
@@ -552,8 +668,11 @@ return function()
 			local stag = Boar.avoidRadius("stag", Boar.kindConfig("stag", on))
 			expect(stag > move.AVOID_RADIUS_STUDS).to.equal(true)
 			expect(stag).to.be.near(3.47 / 2 + move.AVOID_CLEARANCE_STUDS, EPSILON)
-			-- EVERY KIND HAS THE MEASUREMENT, so a new animal cannot arrive without one.
-			for _, kind in ipairs(ALL_KINDS) do
+			-- EVERY KIND HAS THE MEASUREMENT, so a new animal cannot arrive without one -- and it
+			-- walks `KINDS.ORDER` and not this file's own literal (round 1's note), because `ORDER`
+			-- is what `BoarAssetsBoot` walks and what a new kind is really added to.
+			expect(#CONFIG.KINDS.ORDER).to.equal(#ALL_KINDS)
+			for _, kind in ipairs(CONFIG.KINDS.ORDER) do
 				expect(type(CONFIG.KINDS[kind].drawnWidthStuds)).to.equal("number")
 				expect(CONFIG.KINDS[kind].drawnWidthStuds > 0).to.equal(true)
 			end

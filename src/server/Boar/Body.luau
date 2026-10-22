@@ -1713,6 +1713,35 @@ function Body.voiceIds(name: string, kind: string?, spec, config)
 	return spec.ids
 end
 
+-- HOW LONG THIS ANIMAL'S OWN SAMPLES MAY SOUND, in seconds of sound (task 240). Pure.
+--
+-- THE ROW MAY ONLY CUT ITS SAMPLES SHORTER, NEVER LONGER -- `math.min` and not "the row wins" --
+-- because `SOUND.DEATH.cut` is Karen's *"when die last sqeek need short one"* (0.6 s) and a voice
+-- row that could override it upward would quietly give one animal a longer death than she accepted.
+--
+-- WHY IT EXISTS (task 240, review round 1, finding 1). `SOUND.CRY` and `SOUND.GRUNTS` carry no
+-- `cut`, so a reaction and a grunt play WHOLE -- and `CROWD.SQUEAL_SECONDS` (1.2) is a BOOKING
+-- against `MAX_SQUEALS`, not a length limit, so a sample longer than it frees the world's slot while
+-- it is still sounding and Karen's *"when they close one pack make one sound max 2 not more"* can be
+-- exceeded. The deer's bleats are 1.12 to 1.97 s and would have done exactly that.
+--
+-- IT IS ON THE VOICE ROW AND NOT ON `SOUND.CRY`, deliberately: the boar's own 2.54 s squeal is the
+-- sound Karen signed off (*"animal react sound is good"*), and cutting it would be a change to an
+-- animal nobody asked about. `Body.voiceCut` answers `spec.cut` -- which is nil for `CRY` and
+-- `GRUNTS` and 0.6 for `DEATH` -- for every boar kind, so no boar makes a different noise than it
+-- made before this task, and `deer.spec` asserts that kind by kind.
+function Body.voiceCut(name: string, kind: string?, spec, config): number?
+	local row = Body.voiceRow(name, kind, config)
+	local own = row and row.cut
+	if type(own) ~= "number" or own <= 0 then
+		return spec.cut
+	end
+	if type(spec.cut) == "number" and spec.cut > 0 then
+		return math.min(own, spec.cut)
+	end
+	return own
+end
+
 -- HOW LOUD A VOICE IS AT `distance` FROM THE NEAREST HUNTER (task 120). 1 inside `FAR_STUDS`, down
 -- to `FAR_VOLUME` over the `FAR_FADE_STUDS` beyond it, and never below. Pure, and it is a fraction
 -- of the sound's own volume rather than a replacement for it -- the roll-off still does its work;
@@ -1833,8 +1862,11 @@ function Body.playOneShot(handle, name: string, spec, config, rng: Random)
 		* Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
 	-- A CUT CUE ENDS ON TIME (task 120): "when die last sqeek need short one". The countdown is
 	-- stepped in `stepSound`, which runs for a carcass too, and the fade is `Body.cutVolume`.
-	if spec.cut then
-		handle.cutIn[name] = { left = spec.cut, spec = spec }
+	-- ...AND THE ANIMAL'S OWN VOICE MAY ASK FOR A SHORTER ONE (task 240): `Body.voiceCut` is
+	-- `spec.cut` for every boar kind and every cue, so this line is what it was for a boar.
+	local cut = Body.voiceCut(name, handle.kind, spec, config)
+	if cut then
+		handle.cutIn[name] = { left = cut, spec = spec }
 	end
 	-- HOW MANY TIMES THIS BOAR HAS REALLY MADE THIS NOISE (task 120). `warmAssets` plays every sound
 	-- at volume 0 and does NOT come through here, so this counts the ones somebody can hear -- which

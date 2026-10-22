@@ -78,6 +78,7 @@ Boar.soundUri = Body.soundUri
 Boar.voiceRow = Body.voiceRow
 Boar.voicePitch = Body.voicePitch
 Boar.voiceIds = Body.voiceIds
+Boar.voiceCut = Body.voiceCut
 Boar.farScale = Body.farScale
 Boar.cutVolume = Body.cutVolume
 Boar.heardAt = Body.heardAt
@@ -1578,7 +1579,10 @@ Boar.CONFIG.SOUND = {
 		-- ...and it re-arms only once the group has gone properly away again: a little over twice
 		-- `CLOSE_STUDS`, so an animal loitering at 55 studs cannot re-trigger it by drifting.
 		REARM_STUDS = 110,
-		ids = { 9117357588, 9117352464, 9117344600 }, -- "Pig Grunts 2 / 3 / 6"
+		ids = { 9117357588, 9117352464, 9117344600 }, -- "Pig Grunts 2 / 3 / 6", 0.89 / 2.66 / 2.40 s
+		-- INERT FOR EVERY BOAR, exactly as `CRY.fade` is: read only when a voice row cuts this cue,
+		-- and no boar row does (task 240).
+		fade = 0.15,
 		volume = 0.8,
 		audibleStuds = 160,
 		nearStuds = 60, -- its own roll-off plateau: the one cue that has to carry
@@ -1650,7 +1654,12 @@ Boar.CONFIG.SOUND = {
 		audibleStuds = 90,
 	},
 	-- THE REACTION STAYS AS IT IS: "animal react sound is good". Only its VOICE changes, below.
-	CRY = { ids = { 9117369876, 9117370072 }, volume = 0.9, audibleStuds = 110 }, -- "Pig Squeals 1 / 3"
+	-- "Pig Squeals 1 / 3", 2.54 s and 1.78 s. `fade` is INERT FOR EVERY BOAR and is read only when
+	-- something cuts this cue -- which nothing does for a boar, because `Body.voiceCut` answers this
+	-- row's own `cut` (nil) for every boar kind. The deer's rows ask for one (task 240), and without
+	-- a fade a cut cry would be CHOPPED rather than ended, which is the fault task 120 fixed on the
+	-- death. `deer.spec` asserts the boar side is untouched.
+	CRY = { ids = { 9117369876, 9117370072 }, volume = 0.9, audibleStuds = 110, fade = 0.15 },
 	-- A DEATH IS ONE SHORT SQUEAL NOW: "when it dies could be sqeeck sound short". It was
 	-- "Pigs Beast-Like Screams 8", a long scream; it is the squeal samples, CUT at 0.6 s with a
 	-- 0.15 s fade so it ends rather than stops. `VOICE` gives the male his own rougher sample back.
@@ -1732,7 +1741,7 @@ Boar.CONFIG.SOUND = {
 		-- cue shares an id with any boar cue, and this table cannot drift back.
 		--
 		-- THERE IS NO RED DEER IN THE ROBLOX AUDIO LIBRARY, AND THAT WAS MEASURED, NOT ASSUMED
-		-- (`docs/research/2026-10-22-deer-voice.md`). Fourteen keyword searches of
+		-- (`docs/research/2026-10-22-deer-voice-and-run.md`). Fourteen keyword searches of
 		-- `toolbox-service/v1/marketplace/3` ("deer", "elk", "stag", "deer grunt", "elk bugle",
 		-- "stag roar", "red deer roar", "deer bark", "fawn", "goat", "goat bleat", "calf",
 		-- "antelope", "moose") returned, from the three creators whose audio plays in anybody's
@@ -1760,16 +1769,62 @@ Boar.CONFIG.SOUND = {
 		-- answered `loaded=true` with a real length, so these are assets that really play in THIS
 		-- experience rather than ids that merely exist.
 		--
-		-- THE CRY IS SHORT ON PURPOSE. `SOUND.DEATH` carries `cut = 0.6`, so a death is the first
-		-- 0.6 s of its sample whatever the sample is; `SOUND.CRY` carries no cut, so the reaction
-		-- plays whole and `CROWD.SQUEAL_SECONDS` books 1.2 s of the world's two voices. Every `cry`
-		-- id below is under that and the measured lengths are written beside them.
+		-- EVERY DEER ROW CARRIES ITS OWN `cut`, AND THAT IS A CORRECTION (review round 1, finding 1).
+		--
+		-- `SOUND.DEATH` has carried `cut = 0.6` since task 120 -- Karen's *"when die last sqeek need
+		-- short one"* -- so a death is 0.6 s whatever sample it plays. `SOUND.CRY` and `SOUND.GRUNTS`
+		-- carry NO cut, so a reaction and a grunt play WHOLE, and `CROWD.SQUEAL_SECONDS` (1.2) is a
+		-- **BOOKING** against `MAX_SQUEALS`, not a length limit: a sample longer than it frees the
+		-- world's slot while it is still sounding, and Karen's *"when they close one pack make one
+		-- sound max 2 not more"* can then be exceeded. The deer's bleats are 1.12 to 1.97 s long and
+		-- would have done exactly that -- a hind and her calf crying together is the common case.
+		--
+		-- SO EACH DEER ROW ASKS FOR `cut = CUE_CUT_SECONDS`, which is under the booking with room for
+		-- the 0.15 s fade inside it. `Body.voiceCut` takes the SMALLER of the row's and the cue's, so
+		-- a death is still 0.6 and never 1.05. **No boar row has a `cut`**, so `Body.voiceCut`
+		-- answers `spec.cut` for every boar kind and not one boar makes a different noise than it
+		-- made before this task -- which is deliberate: the 2.54 s pig squeal is the sound Karen
+		-- signed off (*"animal react sound is good"*). `deer.spec` asserts both halves, and
+		-- `LENGTHS` below is what lets it assert them on MEASURED numbers rather than on a comment.
+		--
+		-- IT ALSO BOUNDS THE GRUNT, which the same review noted: the deer's grunts are 1.28 to
+		-- 1.59 s against `CROWD.GRUNT_GAP_SECONDS` = 1.2, so two approach grunts could overlap where
+		-- the boar's 0.89 s sample could not. One number fixes both.
 		--
 		-- THE STAG'S CRY AND GRUNT ARE "Bull Breaths" AND THE BOAR'S OWN BREATH ROW IS THE SAME
 		-- LIBRARY FAMILY -- and that costs nothing, because `SOUND.BREATH.enabled` is FALSE and has
 		-- been since task 123 round 4 ("the only sound a boar makes now is the one it makes when it
 		-- is shot"). They are different samples either way; this is written down so that whoever
 		-- turns the breath back on checks it against a stag's bark rather than discovering it.
+		--
+		-- HOW LONG EVERY SAMPLE IN THIS TABLE ACTUALLY IS, in seconds, MEASURED (not declared) in a
+		-- live Play session on 2026-10-22: a `Sound` per id, `ContentProvider:PreloadAsync` on the
+		-- client, then `Sound.TimeLength` read back (`<runs-dir>/240-audio2.txt`). It is DATA and not
+		-- a comment because `deer.spec` asserts the budget on it -- an id added without a row here
+		-- fails the suite, which is the check that would have caught round 1's finding.
+		--
+		-- A SAMPLE SOUNDS FOR `LENGTHS[id] / pitch` SECONDS, and the `cut` above bounds that.
+		LENGTHS = {
+			[9117369876] = 2.54, -- "Pig Squeals 1"
+			[9117370072] = 1.78, -- "Pig Squeals 3"
+			[9117361361] = 3.43, -- "Pigs Beast-Like Screams 8"
+			[9117357588] = 0.89, -- "Pig Grunts 2"
+			[9117352464] = 2.66, -- "Pig Grunts 3"
+			[9117344600] = 2.40, -- "Pig Grunts 6"
+			[9113626273] = 2.66, -- "Bull Bellows 3"
+			[9113626628] = 2.76, -- "Bull Bellows 7"
+			[9113629809] = 0.87, -- "Bull Breaths 4"
+			[9113629973] = 0.93, -- "Bull Breaths 9"
+			[9113629667] = 1.28, -- "Bull Breaths 2"
+			[9113630441] = 1.50, -- "Bull Breaths 18"
+			[9116205537] = 1.12, -- "Lamb Big Lamb 4"
+			[9116205675] = 1.59, -- "Lamb Big Lamb 6"
+			[9116204275] = 1.97, -- "Lamb Big Lamb 13"
+		},
+		-- WHAT A DEER ROW CUTS ITS SAMPLES TO. Under `CROWD.SQUEAL_SECONDS` (1.2) and under
+		-- `CROWD.GRUNT_GAP_SECONDS` (1.2) with the 0.15 s fade inside it, so a deer can never hold a
+		-- voice slot it has already given back. Karen's dial; one number for all three kinds.
+		CUE_CUT_SECONDS = 1.05,
 		--
 		-- A CC-LICENSED RECORDING OF A REAL RED DEER IS AN UPLOAD AND IT IS KAREN'S CALL: three
 		-- candidates with their licences are in `ESCALATE.md` under `NEEDS KAREN`. Nothing here has
@@ -1781,6 +1836,7 @@ Boar.CONFIG.SOUND = {
 		-- calf's goes slightly up (1.25). Karen's dials.
 		stag = {
 			pitch = 1.15,
+			cut = 1.05, -- `CUE_CUT_SECONDS`; written out per row so Karen can turn one kind
 			-- "Bull Bellows 3" (2.66 s) and "Bull Bellows 7" (2.76 s): the catalogue calls them
 			-- "Isolated Roars, Anxious, Uneasy, Panicked" and "Anxious Cries". `SOUND.DEATH.cut`
 			-- takes the first 0.6 s, which is a roar's onset.
@@ -1794,6 +1850,7 @@ Boar.CONFIG.SOUND = {
 		},
 		hind = {
 			pitch = 0.8,
+			cut = 1.05, -- 1.12 s at pitch 0.80 sounds for 1.40 s, which is OVER the 1.2 s booking
 			-- "Lamb Big Lamb 4" (1.12 s), "Deep Baa's, Big Lamb, Groggy" -- the nasal bleat the
 			-- source compares to a sheep, pitched down for an animal three times a lamb's size.
 			death = { 9116205537 },
@@ -1802,6 +1859,7 @@ Boar.CONFIG.SOUND = {
 		},
 		calf = {
 			pitch = 1.25,
+			cut = 1.05, -- the 1.97 s "Lamb Big Lamb 13" sounds for 1.58 s at this pitch
 			death = { 9116205537 },
 			-- "Lamb Big Lamb 4" (1.12 s) and "Lamb Big Lamb 13" (1.97 s, "CU Bah ... Distant
 			-- Birds"): the softer, thinner bleat, played a quarter faster, which also shortens it.
@@ -3208,8 +3266,8 @@ function Boar.toughnessFor(kind: string?, config): number?
 	return toughness
 end
 
--- HOW WIDE A SWEPT AVOIDANCE CAST HAS TO BE FOR THIS ANIMAL (task 240). Pure, so `boar_move.spec`
--- can sweep all seven kinds with no world at all.
+-- HOW WIDE A SWEPT AVOIDANCE CAST HAS TO BE FOR THIS ANIMAL (task 240). Pure, so `deer.spec` can
+-- sweep all seven kinds with no world at all.
 --
 -- KAREN, 2026-10-22: *"deer running is a bit odd and seems it hitting trees"*. MEASURED in her own
 -- place: the stag is DRAWN 3.47 studs wide and COLLIDES as a 1.80-wide box, so the box clears a
@@ -3231,6 +3289,13 @@ end
 --
 -- THE FLOOR IS `AVOID_RADIUS_STUDS`, so this can only ever widen the cast task 167 measured, never
 -- narrow it.
+--
+-- IT READS `KINDS[kind]` DIRECTLY and not through `Body.kindRow`, which is `Runtime:_modelTemplate`'s
+-- own arrangement and for its reason: `kindRow` answers the DEFAULT row for every kind while
+-- `KINDS.ENABLED` is false, which is right for GEOMETRY (with the kinds off every animal is the
+-- male-sized box) and wrong for a question about the DRAWN animal -- and with the flag off no body
+-- is ever born a `"stag"`, so `entry.body.kind` cannot reach this with a deer name. A kind with no
+-- row contributes 0 and falls through to the box plus the clearance, which is the floor.
 function Boar.avoidRadius(kind: string?, config): number
 	local move = config.MOVE
 	if move == nil then
