@@ -96,7 +96,14 @@ export type ActionKind = "Fire" | "Break" | "Load" | "Close" | "SelectAmmo" | "M
 -- `StateMachine.apply`. It is safe at the wire BY CONSTRUCTION: `Validator.checkRequest` accepts
 -- only "Reload" and "SelectAmmo" from a client, so no client can send a `Refill` at all, let alone
 -- one naming its own reserve. nil means the weapon's own `START_RESERVE`.
-export type Action = { kind: ActionKind, ammo: AmmoKind?, reserve: { [string]: number }? }
+-- `ejects` OVERRIDES `CYCLE_EJECTS` FOR ONE `Break` (task 244), and it exists for exactly one
+-- caller: the reload that a SHELL-TYPE SWAP runs. Working the bolt after a shot throws the fired
+-- case and leaves the rest of the magazine alone (`"spent"`); deliberately CHANGING the
+-- ammunition has to empty the gun of the old kind first, or a tube already full of buckshot takes
+-- no slugs and the gun goes on firing buck with SLUG on the readout -- which is Karen's
+-- 2026-10-22 defect, measured in `weapon_ammo.spec`. nil keeps the weapon's own rule, which is
+-- every caller written before this.
+export type Action = { kind: ActionKind, ammo: AmmoKind?, reserve: { [string]: number }?, ejects: ("all" | "spent")? }
 export type RequestKind = "Reload" | "SelectAmmo"
 export type ShotRequest = { origin: Vector3, direction: Vector3 }
 

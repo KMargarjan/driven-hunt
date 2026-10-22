@@ -1354,7 +1354,11 @@ function Weapon.cycleRefusal(kind: string?, reason: string?): string
 	return "abort"
 end
 
-function runCycle(player: Player, id: string, epoch: number, steps: { any }?)
+-- `ejects` IS CARRIED THROUGH THE WHOLE SEQUENCE AND READ BY ONE STEP (task 244). Only the `Break`
+-- branch of the reducer looks at it, and only one caller sends one: the reload a SHELL-TYPE SWAP
+-- runs, which must empty the gun of the old shell before it can load the new one. Every caller
+-- written before this passes four arguments and behaves bit for bit as it did.
+function runCycle(player: Player, id: string, epoch: number, steps: { any }?, ejects: string?)
 	local row = Weapons.row(id) or Weapons.ROWS[Weapons.PRIMARY]
 	local sequence = steps or row.CYCLE
 	-- SET WHEN THE MAGAZINE FILLED EARLY (task 224): every later `Load` is skipped and the rest of
@@ -1371,7 +1375,8 @@ function runCycle(player: Player, id: string, epoch: number, steps: { any }?)
 		-- THE SEQUENCE GOES WITH THE STEP (task 184). `Break` and `Close` are in both of the rifle's
 		-- lists and no longer with the same waits, so the reducer is told which list this step came
 		-- from rather than left to guess from a fixed search order.
-		local next, reason = StateMachine.apply(state, { kind = step.kind }, os.clock(), row, sequence)
+		local next, reason =
+			StateMachine.apply(state, { kind = step.kind, ejects = ejects :: any }, os.clock(), row, sequence)
 		-- An empty pocket is the ONE rejection this sequence walks past: closing a gun with one
 		-- shell, or none, is correct. Any other reason means the world moved under it (round 1
 		-- note), so it stops and republishes rather than closing a gun the player did not ask for.
@@ -1534,7 +1539,16 @@ local function onActionRequest(player: Player, kind: any, ammo: any, aim: any): 
 		local swapped = StateMachine.apply(state, { kind = "SelectAmmo", ammo = ammo }, now, row)
 		setState(player, id, swapped)
 		publish(player, id, swapped, true)
-		task.spawn(runCycle, player, id, swapped.epoch, row.RELOAD)
+		-- **IT EMPTIES THE GUN OF THE OLD SHELL FIRST (task 244).** KAREN, 2026-10-22: *"be sure
+		-- when I shoot slugs it will be slug and when buck it will be buck on bot weapons"*. The
+		-- side-by-side already did, because its own `CYCLE_EJECTS` is `"all"` -- you crack it over
+		-- your arm and everything comes out. The SEMI-AUTO's is `"spent"`, which is right for the
+		-- bolt after a shot and wrong for a man changing ammunition: a tube of five live buckshot
+		-- has no empty chamber, so all five `Load`s answered `barrel-full`, the shells stayed buck,
+		-- and `state.ammo` -- the SELECTION -- said Slug. MEASURED in the live Forest Test on her
+		-- own path. `"all"` here is the hand that empties the magazine, and the unfired shells go
+		-- back to their own pocket exactly as the side-by-side's already do.
+		task.spawn(runCycle, player, id, swapped.epoch, row.RELOAD, "all")
 		return nil -- the swap was accepted
 	end
 

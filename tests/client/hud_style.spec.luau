@@ -1098,6 +1098,77 @@ return function()
 			expect(magazine.busy).to.equal(true)
 		end)
 
+		-- ---------------------------------------------------------------- the shell that FIRES (244)
+		--
+		-- KAREN, 2026-10-22: *"be sure when I shoot slugs it will be slug and when buck it will be
+		-- buck on bot weapons"*.
+		--
+		-- THE CHIP PRINTED `state.ammo` -- the SELECTION, which is what the next LOAD uses -- and the
+		-- server fires `state.loaded[state.selected]`, the shell in the chamber. On the semi-auto
+		-- those two can differ for a whole magazine, because its tube is loaded a shell at a time
+		-- and can hold a MIX: there is no single selection that describes it at all.
+		it("names the shell in the CHAMBER, which is the one the server fires (task 244)", function()
+			local function stateOf(loaded: { string }, selected: number, selection: string): any
+				local barrels = {}
+				for index, kind in ipairs(loaded) do
+					barrels[index] = if kind == "None" then "Empty" else "Live"
+				end
+				return {
+					equipped = true,
+					barrels = barrels,
+					loaded = loaded,
+					selected = selected,
+					ammo = selection,
+					reserve = { Slug = 5, Buck = 5 },
+					busyFor = 0,
+					weapon = "shotgun",
+				}
+			end
+
+			-- THE EXPRESSION ITSELF, which is the server's own: `state.loaded[state.selected]`.
+			local mixed = stateOf({ "Buck", "Slug", "Buck" }, 3, "Slug")
+			expect(Hud.chamberedAmmo(mixed)).to.equal("Buck")
+			expect(Hud.chamberedAmmo(mixed)).to.equal(mixed.loaded[mixed.selected])
+			-- AN EMPTY CHAMBER FALLS BACK TO THE SELECTION, because what happens next is a load.
+			local empty = stateOf({ "None", "None" }, 1, "Buck")
+			expect(Hud.chamberedAmmo(empty)).to.equal("Buck")
+
+			-- ...AND THE CHIP FOLLOWS IT, WORD AND GLYPH. This is Karen's defect written as an
+			-- assertion: SLUG selected, buckshot in the gun, and the readout used to say SLUG.
+			local lying = Hud.ammoChipFor(stateOf({ "Buck", "Buck" }, 1, "Slug"))
+			expect(lying.label).to.equal("BUCK")
+			expect(lying.glyph).to.equal("buck")
+			-- THE POCKET IS STILL THE SELECTION'S, and that is a DIFFERENT fact rather than an
+			-- oversight: it is the pocket the next load comes out of.
+			expect(lying.pocket).to.equal(5)
+
+			-- THE MIXED MAGAZINE, SHELL BY SHELL: the word changes as the chamber does, which is the
+			-- only honest readout a tube that holds two kinds can have.
+			local tube = { "Slug", "Buck", "Slug" }
+			local words = {}
+			for index = 1, #tube do
+				table.insert(words, Hud.ammoChipFor(stateOf(tube, index, "Slug")).label)
+			end
+			expect(table.concat(words, ",")).to.equal("SLUG,BUCK,SLUG")
+
+			-- A GUN WITH ONE LOAD IS UNTOUCHED: the rifle's chip is exactly the chip it had.
+			local rifle = Hud.ammoChipFor(
+				{
+					equipped = true,
+					barrels = { "Live", "Live", "Empty" },
+					loaded = { "Slug", "Slug", "None" },
+					selected = 1,
+					ammo = "Slug",
+					reserve = { Slug = 12 },
+					busyFor = 0,
+					weapon = "rifle",
+				} :: any,
+				{ READOUT = "magazine", MAGAZINE = 3, AMMO_LABEL = { Slug = ".416" } }
+			)
+			expect(rifle.label).to.equal(".416")
+			expect(rifle.glyph).to.equal(nil)
+		end)
+
 		-- ---------------------------------------------------------------- the shell (task 204)
 		--
 		-- Karen, 2026-10-18: *"please diferenciate slug from shells"*. Her frame of the chip, and

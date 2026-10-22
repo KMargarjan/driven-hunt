@@ -226,6 +226,62 @@ return function()
 			expect(closed.open).to.equal(false)
 		end)
 
+		-- ======================================================= TASK 244: SLUG IS SLUG, BUCK IS BUCK
+		--
+		-- KAREN, 2026-10-22: *"be sure when I shoot slugs it will be slug and when buck it will be
+		-- buck on bot weapons"*. TWO FACTS had come apart, and the two cases below are one each.
+		it("empties a TUBE of the old shell when the type is swapped (task 244)", function()
+			-- THE SEMI-AUTO IS THE GUN THIS BROKE ON, and its own `CYCLE_EJECTS` is why: `"spent"`
+			-- is right for the bolt after a shot -- it throws the fired hull and leaves the
+			-- magazine -- and wrong for a man changing ammunition. A tube of five LIVE buckshot has
+			-- no empty chamber, so every `Load` of the swap answered `barrel-full`, the shells
+			-- stayed buck, and `state.ammo` said Slug.
+			local AUTO = Weapons.ROWS.semiauto
+			expect(AUTO.CYCLE_EJECTS).to.equal("spent")
+			local full = StateMachine.setEquipped(StateMachine.initial(AUTO), true)
+			for index = 1, #full.barrels do
+				expect(full.loaded[index]).to.equal(full.ammo)
+			end
+
+			-- WITHOUT THE OVERRIDE, which is the defect written down: the weapon's own rule throws
+			-- nothing, the gun is still full, and a `Load` has nowhere to go.
+			local kept = StateMachine.apply(full, { kind = "Break" }, 0, AUTO, AUTO.RELOAD)
+			expect(kept.barrels[1]).to.equal("Live")
+			local _, refused = StateMachine.apply(kept, { kind = "Load" }, 1, AUTO, AUTO.RELOAD)
+			expect(refused).to.equal("barrel-full")
+
+			-- WITH IT -- and `Weapon.onActionRequest`'s `SelectAmmo` branch is the ONE caller that
+			-- sends it -- the gun empties, the unfired shells go back to their own pocket, and the
+			-- new kind goes in.
+			local other = if full.ammo == "Slug" then "Buck" else "Slug"
+			local swapped = StateMachine.apply(full, { kind = "SelectAmmo", ammo = other }, 0, AUTO)
+			local opened = StateMachine.apply(swapped, { kind = "Break", ejects = "all" }, 1, AUTO, AUTO.RELOAD)
+			local held = #full.barrels
+			for index = 1, held do
+				expect(opened.barrels[index]).to.equal("Empty")
+				expect(opened.loaded[index]).to.equal("None")
+			end
+			expect(opened.reserve[full.ammo]).to.equal((swapped.reserve[full.ammo] or 0) + held)
+			local filled = opened
+			for step = 1, held do
+				filled = StateMachine.apply(filled, { kind = "Load" }, 1 + step, AUTO, AUTO.RELOAD)
+			end
+			local closed = StateMachine.apply(filled, { kind = "Close" }, 20, AUTO, AUTO.RELOAD)
+			for index = 1, held do
+				expect(closed.loaded[index]).to.equal(other)
+			end
+			-- ...AND NOTHING MOVES FOR THE SIDE-BY-SIDE, whose own rule is already `"all"`: the
+			-- override names the value the weapon would have chosen, so this is the old behaviour
+			-- asserted rather than a new one.
+			expect(ROW.CYCLE_EJECTS).to.equal(nil)
+			local pair = StateMachine.setEquipped(StateMachine.initial(ROW), true)
+			local a = StateMachine.apply(pair, { kind = "Break" }, 0, ROW)
+			local b = StateMachine.apply(pair, { kind = "Break", ejects = "all" }, 0, ROW)
+			expect(a.barrels[1]).to.equal(b.barrels[1])
+			expect(a.loaded[1]).to.equal(b.loaded[1])
+			expect(a.reserve.Slug).to.equal(b.reserve.Slug)
+		end)
+
 		it("cannot load a type the player has none of", function()
 			local state = StateMachine.setEquipped(StateMachine.initial(ROW), true)
 			local drained = table.clone(state) :: any

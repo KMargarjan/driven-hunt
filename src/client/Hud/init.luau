@@ -4204,6 +4204,25 @@ Hud.AMMO_ACCENT = {
 --
 -- A MAGAZINE RIFLE IS NOT TWO BARRELS AND IS NOT DRAWN AS THEM (task 142's own lesson): its pips
 -- are one per round the magazine holds, lit for the rounds actually in it, and nothing is selected.
+-- WHICH SHELL THE NEXT TRIGGER PULL SENDS. PURE, and it is THE SERVER'S OWN EXPRESSION, copied
+-- deliberately and asserted against it: `Weapon.onFireRequest` reads `state.loaded[state.selected]`
+-- and nothing else, so the readout and the shot have one answer between them (task 244).
+--
+-- AN EMPTY CHAMBER FALLS BACK TO THE SELECTION, and that is the honest word rather than a blank: a
+-- gun with nothing in it is about to be loaded, and what it will be loaded with is `state.ammo`.
+-- `"None"` is `StateMachine`'s own word for an empty chamber (`next.loaded[index] = "None"`), so it
+-- is spelled once here and read nowhere else in this file.
+Hud.NO_LOAD = "None"
+
+function Hud.chamberedAmmo(state: Shotgun.WeaponSnapshot): string
+	local loaded = state.loaded
+	local inChamber = if loaded ~= nil then loaded[state.selected] else nil
+	if type(inChamber) == "string" and inChamber ~= Hud.NO_LOAD then
+		return inChamber :: string
+	end
+	return state.ammo
+end
+
 function Hud.ammoChipFor(
 	state: Shotgun.WeaponSnapshot,
 	row: any?
@@ -4242,11 +4261,25 @@ function Hud.ammoChipFor(
 		end
 		selected = state.selected
 	end
-	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[state.ammo]) or string.upper(state.ammo)
+	-- **THE WORD IS THE SHELL THAT WILL FIRE, NOT THE ONE THE NEXT RELOAD WILL USE (task 244).**
+	-- KAREN, 2026-10-22: *"be sure when I shoot slugs it will be slug and when buck it will be buck
+	-- on bot weapons"*. `state.ammo` is the SELECTION -- what `Load` puts in the gun -- and the
+	-- server fires `state.loaded[state.selected]`, the shell actually in the chamber. Those are two
+	-- different facts and this chip printed the wrong one: select SLUG with two buckshot shells
+	-- already in the barrels and the chip said SLUG, drew the slug's hull, and the next trigger
+	-- pull sent buckshot. The semi-auto makes it worse, because its tube is loaded a shell at a
+	-- time and can hold a MIX -- so there is no single selection that describes it at all.
+	--
+	-- `Hud.chamberedAmmo` IS THE SAME EXPRESSION THE SERVER FIRES, and `weapon_client.spec` asserts
+	-- the identity rather than describing it. The POCKET below is still the SELECTION's, and that
+	-- is right: it is the pocket the next load comes out of, which is a question about the
+	-- selection and not about the chamber.
+	local shell = Hud.chamberedAmmo(state)
+	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[shell]) or string.upper(shell)
 	-- WHICH SHELL THIS LOAD IS (task 204), off the WEAPON'S row and not off the wire word: the wire
 	-- says `Slug` for both guns, and the rifle's row names no glyph at all, so its chip is exactly
 	-- the chip it has always had. nil is "draw no shell", never a wrong one.
-	local glyph = if resolved ~= nil and resolved.AMMO_GLYPH ~= nil then resolved.AMMO_GLYPH[state.ammo] else nil
+	local glyph = if resolved ~= nil and resolved.AMMO_GLYPH ~= nil then resolved.AMMO_GLYPH[shell] else nil
 	return {
 		pips = pips,
 		selected = selected,
