@@ -170,6 +170,15 @@ end
 -- `kind == "female"` and needs two of them, and a stag with hinds is not a nursery.
 local MARCH_RANK = { female = 1, cub = 2, male = 3, hind = 1, calf = 2, stag = 3 }
 
+-- ...AND IT IS PUBLISHED, BECAUSE A SECOND COPY OF IT ALREADY EXISTED (task 239).
+-- `ForestTest.Line.order` -- the file the playtest world actually walks -- carried its own
+-- `{ female = 1, cub = 2, male = 3 }`, which is this table minus the three deer. So the first red
+-- deer file released in that world would have put a STAG at the head of a harem, because all three
+-- deer fell through to the unknown-kind rank of 2 and marched in spawn order. One rank table, read
+-- by both, rather than the same six words written twice. Frozen: a reader must not be able to
+-- retune the march from outside the owner.
+Boar.MARCH_RANK = table.freeze(table.clone(MARCH_RANK))
+
 function Boar.marchOrder(members: { { id: string, kind: string?, key: number } }, config): { string }
 	local order = table.clone(members)
 	table.sort(order, function(a, b)
@@ -3624,6 +3633,20 @@ function Runtime:_liveKinds(): { any }
 	return out
 end
 
+-- IS THERE ROOM FOR ANOTHER DEER GROUP RIGHT NOW (task 239)? The SAME question `spawnSounder`'s own
+-- deer door asks, and the same answer -- `Boar.deerGroupsAllowed` over `_liveKinds`, nothing else.
+--
+-- IT EXISTS BECAUSE THE FOREST TEST NEVER REACHES THAT DOOR. Its drive releases a wave as a FILE
+-- (`ForestTest.releaseLine`): the animals are placed one at a time with `Runtime:spawn` and made
+-- into a sounder afterwards with `Runtime:formSounder`, so `spawnSounder` -- where the cap is
+-- consulted -- is not called at all. Without this the forest would have had to count live deer
+-- itself, which is a second answer to `MAX_GROUPS_ALIVE` and exactly the kind of disagreement
+-- `_liveKinds`' own comment exists to prevent. PURE OF SIDE EFFECTS: it draws no number, so a
+-- caller may ask it before deciding anything.
+function Runtime:deerAllowed(): boolean
+	return Boar.deerGroupsAllowed(self:_liveKinds(), self._config)
+end
+
 function Runtime:_modelTemplate(kind: string, now: number): Instance?
 	local kinds = self._config.KINDS
 	local row = if type(kinds) == "table" then kinds[kind] else nil
@@ -4876,7 +4899,9 @@ function Runtime:spawnSounder(center: Vector3, size: number, maxSpread: number?,
 	-- have, for exactly this reason, and it is now asserted by `deer.spec`'s flag-off case, which
 	-- counts the draws a release makes against a baseline runtime that never asks for a deer.
 	if composition == nil and self._config.KINDS ~= nil and self._config.KINDS.ENABLED == true then
-		if Boar.deerGroupsAllowed(self:_liveKinds(), self._config) then
+		-- `Runtime:deerAllowed` is this same line, named, so the Forest Test's file path can ask the
+		-- cap without reaching this door (task 239). The call is unchanged in every other respect.
+		if self:deerAllowed() then
 			composition = Boar.deerComposition(self._rng:NextNumber(), self._rng:NextNumber(), self._config, wantDeer)
 		end
 	end

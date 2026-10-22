@@ -12,6 +12,7 @@
 -- Note:   docs/research/2026-10-05-sounder-movement.md (section 4: a chain cannot orbit)
 local ServerScriptService = game:GetService("ServerScriptService")
 
+local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
 local Line = ForestTest.Line
 -- The world's own data (the road curve, the stands, the push line), for the drive-line case
@@ -271,6 +272,174 @@ return function()
 			local swing = math.deg(math.atan(Data.ROAD_LAYOUT.amplitudeStuds / Data.SHAPE.wavelengthDivisor))
 			expect(swing < HALF).to.equal(true)
 			TestKit.note(string.format("forest-line: the road's tangent swings %.1f degrees", swing))
+		end)
+	end)
+	-- ------------------------------------------- THE DRIVE'S RED DEER, ON THE PATH SHE PLAYS (239)
+	--
+	-- THE DEFECT THIS BLOCK REPRODUCES, measured by the Director in the Forest Test on 2026-10-22
+	-- and again here before a line of it was changed: a drive's worth of waves carried cub, male
+	-- and female only -- 80 animals over 240 seconds, 13 waves, NOT ONE stag, hind or calf. Karen
+	-- saw none on 2026-10-21 either, and she had asked for *"we need all a time in drive deer"*.
+	--
+	-- THE CAUSE IS THE FIRST CASE BELOW, AND IT IS NOT THE ONE THE DISPATCH NAMED. `ForestTest`
+	-- releases every wave of this world as a FILE (`releaseLine`, because `Data.LINE.enabled` is
+	-- true): the animals are placed one at a time with `Runtime:spawn` and their kinds come from
+	-- `Boar.sounderKinds(count, rolls, config, nil)`, which draws from `SOUNDER.MAKEUP` and has no
+	-- deer in it at any roll. `Runtime:spawnSounder` -- where task 223's deer door lives -- is not
+	-- reached on this path at all, so that door's `composition == nil` test never comes into it.
+	describe("the drive's red deer (task 239)", function()
+		local function configWith(on: boolean)
+			local config = table.clone(Boar.CONFIG)
+			config.KINDS = table.clone(Boar.CONFIG.KINDS)
+			config.KINDS.ENABLED = on
+			return config
+		end
+
+		local function deerIn(kinds: { string }): number
+			local found = 0
+			for _, kind in ipairs(kinds) do
+				local row = Boar.CONFIG.KINDS[kind]
+				if type(row) == "table" and row.species == "reddeer" then
+					found += 1
+				end
+			end
+			return found
+		end
+
+		it("REPRODUCES IT: the file path's own kind draw can never make a deer", function()
+			-- The call `releaseLine` made before this task, with the world's real config (`KINDS`
+			-- on, which is what `BOAR_MODEL` is in the Forest Test) and REAL rolls -- swept rather
+			-- than sampled once, because the claim is "at no roll".
+			local config = configWith(true)
+			local rng = Random.new(2390)
+			local drawn, deer = 0, 0
+			for _ = 1, 400 do
+				local count = rng:NextInteger(4, 9)
+				local rolls = {}
+				for index = 1, count do
+					rolls[index] = rng:NextNumber()
+				end
+				local kinds = Boar.sounderKinds(count, rolls, config, nil)
+				drawn += #kinds
+				deer += deerIn(kinds)
+			end
+			expect(drawn > 1000).to.equal(true)
+			expect(deer).to.equal(0)
+			TestKit.note(string.format("forest-deer: %d animals drawn with no composition, %d deer", drawn, deer))
+		end)
+
+		it("counts a drive's waves from the metronome rather than from a number", function()
+			expect(ForestTest.wavesPerDrive(300, 20)).to.equal(15)
+			expect(ForestTest.wavesPerDrive(100, 20)).to.equal(5)
+			-- The live pair, so a retune of either number is a retune of this answer.
+			expect(ForestTest.wavesPerDrive()).to.equal(math.floor(Data.DRIVE.seconds / Data.SCHEDULE.intervalSeconds))
+			-- A drive shorter than one interval still has a wave to put the deer in.
+			expect(ForestTest.wavesPerDrive(5, 20)).to.equal(1)
+		end)
+
+		it("draws the deer's wave inside the first third of the drive, and varies it", function()
+			-- THE WINDOW IS WHAT MAKES THIS A GUARANTEE INSTEAD OF A BETTER CHANCE: a 15-wave drive
+			-- picks from 1..5, so the ordinal is always reached.
+			local waves = ForestTest.wavesPerDrive(300, 20)
+			local window = math.floor(waves / 3)
+			local seen = {}
+			for step = 0, 100 do
+				local which = ForestTest.deerWaveOf(step / 100, waves)
+				expect(which >= 1).to.equal(true)
+				expect(which <= window).to.equal(true)
+				seen[which] = true
+			end
+			local distinct = 0
+			for _ in pairs(seen) do
+				distinct += 1
+			end
+			expect(distinct).to.equal(window)
+			-- The boundaries, exactly, at a window of five.
+			expect(ForestTest.deerWaveOf(0, waves)).to.equal(1)
+			expect(ForestTest.deerWaveOf(0.999999, waves)).to.equal(5)
+			-- ...and a pick outside [0, 1) can still only answer inside the window.
+			expect(ForestTest.deerWaveOf(1.5, waves)).to.equal(5)
+			expect(ForestTest.deerWaveOf(-1, waves)).to.equal(1)
+			-- A one-wave drive puts them in the only wave it has.
+			expect(ForestTest.deerWaveOf(0.5, 1)).to.equal(1)
+		end)
+
+		it("asks on its wave, keeps asking until it lands, and asks once per drive", function()
+			-- The latch.
+			expect(ForestTest.deerWanted(1, 3, false)).to.equal(false)
+			expect(ForestTest.deerWanted(3, 3, false)).to.equal(true)
+			expect(ForestTest.deerWanted(3, 3, true)).to.equal(false)
+			-- `>=` AND NOT `==`: a wave that could not carry the deer -- no route, no room, the cap
+			-- -- must hand the drive's one group to the next wave rather than lose it.
+			expect(ForestTest.deerWanted(4, 3, false)).to.equal(true)
+			expect(ForestTest.deerWanted(12, 3, false)).to.equal(true)
+			-- Before the drive's first wave has drawn an ordinal there is nothing to want.
+			expect(ForestTest.deerWanted(9, nil, false)).to.equal(false)
+		end)
+
+		it("GUARANTEES a group inside every drive, at the roll that refuses one", function()
+			-- The whole rule, walked over a drive, with `Boar.deerComposition`'s chance roll pinned
+			-- at 1.0 -- the value that draws NOTHING. So what this case proves is the GUARANTEE and
+			-- not the dial: every drive carries deer even when the dice never would.
+			local config = configWith(true)
+			local waves = ForestTest.wavesPerDrive(300, 20)
+			local window = math.floor(waves / 3)
+			local rng = Random.new(2391)
+			for _ = 1, 50 do
+				local ordinal = ForestTest.deerWaveOf(rng:NextNumber(), waves)
+				local done, at, group = false, nil, nil
+				for wave = 1, waves do
+					if ForestTest.deerWanted(wave, ordinal, done) then
+						local composition = Boar.deerComposition(1.0, rng:NextNumber(), config, true)
+						expect(composition).to.be.ok()
+						done, at, group = true, wave, composition
+					end
+				end
+				expect(done).to.equal(true)
+				expect(at).to.equal(ordinal)
+				expect(at <= window).to.equal(true)
+				-- ...and it is a real group of real deer, named by the animal's own owner.
+				local size = Boar.compositionSize(group, config)
+				expect(size >= 1).to.equal(true)
+				expect(deerIn(Boar.sounderKinds(size, {}, config, group))).to.equal(size)
+			end
+		end)
+
+		it("marches a deer file by the animal owner's rank, not by spawn order", function()
+			-- THE HAREM IS THE CASE: `{ stag = 1, hind = 2 }` is dealt stag-first by `KINDS.ORDER`,
+			-- and a stag at the head of his hinds is not what a harem looks like.
+			local config = configWith(true)
+			local dealt = Boar.sounderKinds(3, {}, config, { stag = 1, hind = 2 })
+			local members = {}
+			for index, kind in ipairs(dealt) do
+				table.insert(members, { id = string.format("Deer%d", index), kind = kind })
+			end
+			-- `Line.order`'s own default knows the three BOAR words only, so all three deer tie at
+			-- the unknown rank of 2 and the file keeps the order it was dealt in.
+			expect(Line.order(members)[1].kind).to.equal(dealt[1])
+			-- The one owner's table ranks them: hind 1, calf 2, stag 3.
+			local marched = Line.order(members, Boar.MARCH_RANK)
+			expect(marched[1].kind).to.equal("hind")
+			expect(marched[2].kind).to.equal("hind")
+			expect(marched[3].kind).to.equal("stag")
+			-- A hind leads her calf for the same reason.
+			local nursery = {
+				{ id = "A", kind = "calf" },
+				{ id = "B", kind = "hind" },
+			}
+			expect(Line.order(nursery, Boar.MARCH_RANK)[1].kind).to.equal("hind")
+			-- ...AND THE BOARS ARE UNTOUCHED, which is what makes this a de-duplication rather than
+			-- a retune: the three words the default knew answer the same in the owner's table.
+			local sounder = {
+				{ id = "A", kind = "male" },
+				{ id = "B", kind = "cub" },
+				{ id = "C", kind = "female" },
+			}
+			local byDefault = Line.order(sounder)
+			local byOwner = Line.order(sounder, Boar.MARCH_RANK)
+			for index = 1, #sounder do
+				expect(byOwner[index].kind).to.equal(byDefault[index].kind)
+			end
 		end)
 	end)
 end
