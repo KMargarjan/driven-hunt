@@ -60,7 +60,7 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 --
 -- LIT (12): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
 --           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b).
--- DARK (3): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238).
+-- DARK (4): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b).
 --
 -- `SHOP` IS LIT SINCE TASK 233b, and what made that safe is NOT this row: it is that a world with
 -- no counter does not wire a shop at all (`Shop.start`'s own gate). Task 233's flip lit the shop in
@@ -84,7 +84,16 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- would rather have 82b done first, this line goes back to 14 in the same commit as those three
 -- retirements. Fifteen rows is still a number a person can read in one screen, which is what the cap
 -- is actually for.
-Flags.MAX_FLAGS = 15
+-- 15 -> 16 FOR TASK 245b, AND THE SAME SENTENCE TASK 238 WROTE APPLIES WORD FOR WORD: the Builder
+-- is saying so rather than quietly retiring somebody else's row. `DEER_ROAD_LEAP` is the sixteenth,
+-- the cap refused it the same way (`flags.spec`'s rot tripwire), and the two ways out are still the
+-- two task 238 listed -- retire the lit rows queued as TASKS.md 82b, which is the Director's call
+-- and deletes a losing branch per retirement, or ship a new feel-critical path LIT, which
+-- `docs/design/feature-flags.md` section 11 step 1 forbids. So the cap moves by one again and the
+-- real fix stays queued. **This is a Director decision taken under a stated assumption** (task
+-- 245b's report): if he would rather have 82b done first, this line goes back to 15 in the same
+-- commit as those retirements.
+Flags.MAX_FLAGS = 16
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -549,6 +558,40 @@ Flags.DEFAULTS = {
 		why = "One card, when a hunter aims at a red deer he has no licence for: NO DEER LICENCE, "
 			.. "what the rule actually is, and a BUY button that goes through the shop's own "
 			.. "server purchase path from wherever he is standing. OFF draws nothing.",
+	} :: FlagRow,
+	-- THE DEER'S LEAP OVER THE ROAD (task 245b). KAREN, 2026-10-22, verbatim: *"they usually jump
+	-- when is cross road so can we do that ?"*.
+	--
+	-- BORN OFF, which is `docs/design/feature-flags.md` section 11 step 1 for a new feel-critical
+	-- path and the default this table takes. A bound is the most conspicuous thing an animal in this
+	-- game does and it is pure feel: how often, how fast, and whether it reads as a deer or as a
+	-- glitch is Karen's to judge, so it merges dark and the Director switches it on for her.
+	--
+	-- WHAT IT SWITCHES. OFF is the game as it shipped: `Brain` never sets `_leapFor`, `intent.leaping`
+	-- is false for every animal on every tick, `Body.clipFor` never reaches its leap branch, and a
+	-- deer crosses the road running exactly as it does today. ON, a deer that ENTERS the road band
+	-- above `MODEL.RUN_FROM` plays `Jump_Run_IP` once per crossing. It is read ONCE, at
+	-- `Boar.CONFIG.MODEL.LEAP.ENABLED` -- the only permitted shape -- and passed inward from there.
+	--
+	-- BOTH STATES ARE REACHABLE BY PARAMETER while the row sits at false: `Brain.leapStarts` takes
+	-- the leap table as an argument and `tests/server/deer.spec.luau` drives it on with the row off.
+	--
+	-- NOTHING ELSE IS BEHIND IT. The published animation id, its `Assets.ROWS` row and its
+	-- `MODEL.CLIPS` entry are NOT flagged: a row that exists and a clip nothing asks for cost
+	-- nothing, and flagging data as well as behaviour would be two switches for one feature.
+	--
+	-- Note: docs/research/2026-10-23-deer-road-leap.md
+	DEER_ROAD_LEAP = {
+		default = false,
+		-- The owner is the module that READS it at its boundary. The TRIGGER is `Brain`'s and the
+		-- DRAWING is `Body`'s, and both are inside `ServerScriptService.Boar`, which is the one
+		-- owner of what an animal does and what it looks like.
+		owner = "ServerScriptService.Boar",
+		born = "2026-10-23 task 245b",
+		expires = "2026-11-13", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "A red deer bounds across the road instead of running flat over it: one leap per "
+			.. "crossing, at the clip's own speed, for an animal already running. OFF is the "
+			.. "crossing this game has always drawn.",
 	} :: FlagRow,
 }
 

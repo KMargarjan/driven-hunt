@@ -24,6 +24,8 @@ local Workspace = game:GetService("Workspace")
 
 local Assets = require(game:GetService("ServerStorage"):WaitForChild("Assets"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
+local ForestTest = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
@@ -31,6 +33,8 @@ local ShopData = require(ReplicatedStorage:WaitForChild("Shop"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+
+local Brain = Boar.Brain
 
 local Rules = Weapon.Rules
 local Score = Match.Score
@@ -62,6 +66,7 @@ local DEER_CLIP_KEY = {
 	hitFront = "deer.anim.hit.front",
 	hitBack = "deer.anim.hit.back",
 	smell = "deer.anim.calm.smell",
+	leap = "deer.anim.leap", -- the twelfth, task 245b
 }
 local BOAR_CLIP_KEY = {
 	idle = "boar.anim.idle",
@@ -690,12 +695,12 @@ return function()
 			-- The deer asks for its OWN package's clip names, not the boar's.
 			expect(deerModel.CLIPS.hitFront.clip).to.equal("Hit_Front")
 			expect(CONFIG.MODEL.CLIPS.hitFront.clip).to.equal("Hit_F")
-			-- Eleven, and none of the boar's grazing four.
+			-- Twelve since task 245b added the leap, and none of the boar's grazing four.
 			local count = 0
 			for _ in pairs(deerModel.CLIPS) do
 				count += 1
 			end
-			expect(count).to.equal(11)
+			expect(count).to.equal(12)
 			expect(deerModel.CLIPS.grazeLoop).to.equal(nil)
 			expect(deerModel.CLIPS.crippleDrag).to.equal(nil)
 			-- ALL THREE MODELS HAVE ROWS, which is what makes a deer visible at all.
@@ -707,14 +712,14 @@ return function()
 			end
 		end)
 
-		-- 6b. THE ELEVEN PUBLISHED CLIPS (task 232) ----------------------------------------------
+		-- 6b. THE TWELVE PUBLISHED CLIPS (task 232, and the leap in 245b) ----------------------------------------------
 		--
 		-- IT IS THE MANIFEST THAT IS ASSERTED AND NOT THE LIVE `ANIMATION_IDS` TABLE, which is a
 		-- real lesson from the first run of this spec: `_modelTemplate` FILLS that table from
 		-- whatever source is wired, so another spec's fake id function had already written `20009`
 		-- into it by the time this case ran. The manifest is the fact; the live table is session
 		-- state.
-		it("has a published animation row for every one of the deer's eleven clips", function()
+		it("has a published animation row for every one of the deer's twelve clips", function()
 			local model = CONFIG.SPECIES.reddeer.MODEL
 			-- NAMED, NOT COUNTED: "3 missing" sends the next reader looking for which three.
 			local missing, sharedWithBoar = {}, {}
@@ -728,7 +733,11 @@ return function()
 					-- ...AND IT IS NOT THE BOAR'S ID. The seam exists to stop a deer playing boar
 					-- clips on `Arm_Deer`, and an `AnimationId` is a number, so nothing downstream
 					-- could tell. This is where it is caught.
-					local boarRow = Assets.byKey(BOAR_CLIP_KEY[name])
+					-- A CLIP THE BOAR DOES NOT HAVE HAS NO BOAR KEY TO COLLIDE WITH, which is the
+					-- leap (task 245b): `BOAR_CLIP_KEY.leap` is nil on purpose and there is nothing
+					-- to compare it against.
+					local boarKey = BOAR_CLIP_KEY[name]
+					local boarRow = if boarKey ~= nil then Assets.byKey(boarKey) else nil
 					if boarRow ~= nil and boarRow.modelId == row.modelId then
 						table.insert(sharedWithBoar, name)
 					end
@@ -1176,6 +1185,167 @@ return function()
 				expect(Report.kindWord("calf")).to.equal("calf")
 				-- The piglet's rename is untouched.
 				expect(Report.kindWord("cub")).to.equal("piglet")
+			end)
+		end)
+
+		-- 12. THE LEAP OVER THE ROAD (task 245b) -------------------------------------------------
+		--
+		-- KAREN, 2026-10-22: *"they usually jump when is cross road so can we do that ?"*.
+		--
+		-- EVERY CASE DRIVES THE FEATURE **ON BY PARAMETER** while `Flags.DEFAULTS.DEER_ROAD_LEAP`
+		-- sits at false, which is what `docs/design/feature-flags.md` section 11 asks of a flagged
+		-- path: *"a flagged path must be reachable by parameter as well as by flag, or its two
+		-- states cannot be tested while the flag sits at one of them"*.
+		describe("the leap over the road", function()
+			local ROAD = {
+				halfWidthStuds = 20,
+				zAt = function(_: number)
+					return 0
+				end,
+			}
+			local SINE = {
+				halfWidthStuds = 20,
+				zAt = function(x: number)
+					return 30 * math.sin(x / 70)
+				end,
+			}
+			local ON = { ENABLED = true, SECONDS = 0.75 }
+			local OFF = { ENABLED = false, SECONDS = 0.75 }
+
+			it("is BORN OFF, with an owner, a birthday and an expiry inside 21 days", function()
+				local row = Flags.DEFAULTS.DEER_ROAD_LEAP
+				expect(row).to.be.ok()
+				expect(row.default).to.equal(false)
+				expect(row.owner).to.equal("ServerScriptService.Boar")
+				expect(row.born).to.equal("2026-10-23 task 245b")
+				expect(row.expires).to.equal("2026-11-13")
+				expect(#row.why > 0).to.equal(true)
+			end)
+
+			it("reads the flag at ONE boundary and passes it inward", function()
+				-- `Boar.CONFIG.MODEL.LEAP.ENABLED` is the only place in the game that asks, and with
+				-- the row at its default it is false -- so the shipped game draws no leap.
+				expect(CONFIG.MODEL.LEAP.ENABLED).to.equal(Flags.isOn("DEER_ROAD_LEAP"))
+				expect(CONFIG.MODEL.LEAP.ENABLED).to.equal(false)
+			end)
+
+			it("knows the road band, and a world without one has none", function()
+				expect(Brain.onRoad(Vector3.new(0, 0, 0), ROAD)).to.equal(true)
+				expect(Brain.onRoad(Vector3.new(500, 0, 19.9), ROAD)).to.equal(true)
+				expect(Brain.onRoad(Vector3.new(500, 0, -19.9), ROAD)).to.equal(true)
+				expect(Brain.onRoad(Vector3.new(0, 0, 20.1), ROAD)).to.equal(false)
+				expect(Brain.onRoad(Vector3.new(0, 0, -20.1), ROAD)).to.equal(false)
+				-- THE WHOLE FEATURE IS INERT IN A WORLD WITH NO ROAD, which is the DEV map: nil in,
+				-- false out, and `leapStarts` can then never be true.
+				expect(Brain.onRoad(Vector3.new(0, 0, 0), nil)).to.equal(false)
+				expect(Brain.onRoad(Vector3.new(0, 0, 0), {})).to.equal(false)
+				expect(Brain.onRoad(Vector3.new(0, 0, 0), { zAt = ROAD.zAt, halfWidthStuds = 0 })).to.equal(false)
+			end)
+
+			it("FOLLOWS THE SINE, which is why the road is a function and not a number", function()
+				-- At x = 70 * pi / 2 the ride is at its crest, z = +30. A constant-z band would have
+				-- this animal 30 studs off the lane, and would catch one that is 30 studs off it.
+				local crestX = 70 * math.pi / 2
+				expect(Brain.onRoad(Vector3.new(crestX, 0, 30), SINE)).to.equal(true)
+				expect(Brain.onRoad(Vector3.new(crestX, 0, 0), SINE)).to.equal(false)
+				expect(Brain.onRoad(Vector3.new(0, 0, 0), SINE)).to.equal(true)
+			end)
+
+			it("leaps only when it is ON the road, ARMED, RUNNING and switched ON", function()
+				local runFrom = 21
+				expect(Brain.leapStarts(true, true, 28, runFrom, ON)).to.equal(true)
+				-- ...and each condition removed on its own.
+				expect(Brain.leapStarts(false, true, 28, runFrom, ON)).to.equal(false)
+				expect(Brain.leapStarts(true, false, 28, runFrom, ON)).to.equal(false)
+				expect(Brain.leapStarts(true, true, 20.9, runFrom, ON)).to.equal(false)
+				expect(Brain.leapStarts(true, true, 28, runFrom, OFF)).to.equal(false)
+				expect(Brain.leapStarts(true, true, 28, runFrom, nil)).to.equal(false)
+				-- The edge is inclusive: an animal exactly at the band edge is running.
+				expect(Brain.leapStarts(true, true, 21, runFrom, ON)).to.equal(true)
+			end)
+
+			it("draws the leap above every gait and below every reaction", function()
+				local config = table.clone(CONFIG)
+				config.MODEL = table.clone(CONFIG.SPECIES.reddeer.MODEL)
+				config.MODEL.ANIMATION_IDS = table.clone(config.MODEL.ANIMATION_IDS)
+				for name in pairs(config.MODEL.CLIPS) do
+					config.MODEL.ANIMATION_IDS[name] = 20000
+				end
+				local function clip(info)
+					info.speed = info.speed or 28
+					info.clipScale = 1
+					return (Boar.clipFor(info, config))
+				end
+				-- A running deer on the road bounds instead of galloping, at rate 1.
+				expect(clip({ leaping = true })).to.equal("leap")
+				local name, rate = Boar.clipFor({ leaping = true, speed = 28, clipScale = 1 }, config)
+				expect(name).to.equal("leap")
+				expect(rate).to.equal(1)
+				-- ...and without the Brain's fact it gallops, which is the game as it shipped.
+				expect(clip({ leaping = false })).to.equal("run")
+				-- A DEATH AND A FLINCH BOTH BEAT IT: a deer shot mid-bound flinches, and one that
+				-- dies mid-bound falls.
+				expect(clip({ leaping = true, collapsed = true, deadFor = 0 })).to.equal("deathLeft")
+				expect(clip({ leaping = true, hitFor = config.MODEL.HIT_SECONDS, speed = 0 })).to.equal("hitFront")
+			end)
+
+			it("draws NOTHING with no published leap, which is every boar", function()
+				-- `Body.hasClip` is the one owner of "is there anything to play", so a world where
+				-- the id is missing draws the gait it always drew -- and a BOAR has no `leap` entry
+				-- in its CLIPS at all, so the branch is unreachable for one.
+				expect(CONFIG.MODEL.CLIPS.leap).to.equal(nil)
+				expect(Boar.hasClip("leap", CONFIG)).to.equal(false)
+				local config = table.clone(CONFIG)
+				config.MODEL = table.clone(CONFIG.SPECIES.reddeer.MODEL)
+				config.MODEL.ANIMATION_IDS = {}
+				expect(Boar.hasClip("leap", config)).to.equal(false)
+				expect((Boar.clipFor({ leaping = true, speed = 28, clipScale = 1 }, config))).to.equal("run")
+			end)
+
+			it("has a leap clip whose length is the asset's and whose rate is never divided", function()
+				local clip = CONFIG.SPECIES.reddeer.MODEL.CLIPS.leap
+				expect(clip).to.be.ok()
+				expect(clip.clip).to.equal("Jump_Run_IP")
+				expect(clip.looped).to.equal(false)
+				-- A bound is played at rate 1, so the field every gait divides by is 0 here and
+				-- nothing can quietly start rating it.
+				expect(clip.groundStudsPerSecond).to.equal(0)
+				-- 2.0000 s, measured two ways in Play and recorded on the manifest row; only
+				-- `LEAP.SECONDS` of it is played.
+				expect(math.abs(clip.seconds - 2.0) < EPSILON).to.equal(true)
+				expect(CONFIG.MODEL.LEAP.SECONDS < clip.seconds).to.equal(true)
+			end)
+
+			it("carries the measured sink for all three kinds, inside the clip", function()
+				-- The numbers nothing reads yet (see `MODEL.LEAP.LIFT_STUDS`), pinned so the
+				-- follow-up cannot start from a different measurement.
+				local leap = CONFIG.MODEL.LEAP
+				for _, kind in ipairs(DEER_KINDS) do
+					expect(leap.LIFT_STUDS[kind] > 1).to.equal(true)
+					expect(leap.LIFT_STUDS[kind] < 1.5).to.equal(true)
+				end
+				-- It grows as the animal gets smaller, which is the `deathLiftStuds` shape: all
+				-- three play the STAG's clip and bone translations are absolute studs.
+				expect(leap.LIFT_STUDS.stag < leap.LIFT_STUDS.hind).to.equal(true)
+				expect(leap.LIFT_STUDS.hind < leap.LIFT_STUDS.calf).to.equal(true)
+				-- The bound is inside the window that is played.
+				expect(leap.LIFT_FROM_SECONDS < leap.LIFT_TO_SECONDS).to.equal(true)
+				expect(leap.LIFT_TO_SECONDS <= leap.SECONDS).to.equal(true)
+			end)
+
+			it("gives the Forest Test's field a road that IS ForestTest.roadZ", function()
+				local field = ForestTest.fieldFor()
+				expect(field.road).to.be.ok()
+				expect(field.road.halfWidthStuds).to.equal(ForestTest.SHAPE.halfWidthStuds)
+				-- Not "a road exists" -- the SAME curve the map is built on, at four points across
+				-- it, so a second answer to where the lane runs cannot appear.
+				for _, x in ipairs({ -400, 0, 137, 2800 }) do
+					expect(math.abs(field.road.zAt(x) - ForestTest.roadZ(x)) < EPSILON).to.equal(true)
+				end
+				-- ...and the animal's owner agrees that a point on it is on it.
+				local onIt = Vector3.new(137, 0, ForestTest.roadZ(137))
+				expect(Brain.onRoad(onIt, field.road)).to.equal(true)
+				expect(Brain.onRoad(onIt + Vector3.new(0, 0, 25), field.road)).to.equal(false)
 			end)
 		end)
 	end)

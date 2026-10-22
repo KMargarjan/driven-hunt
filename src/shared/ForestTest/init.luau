@@ -966,9 +966,11 @@ end
 -- time: a drive on the ride has to swap the field when the layout is promoted, or `Brain.insideField`
 -- clamps every animal to the road's rectangle 500 studs away.
 --
--- `fieldFor(ROAD_LAYOUT)` IS BIT-FOR-BIT THE TABLE THE BOOT USED TO BUILD, and that is asserted
+-- EVERY NUMBER IN `fieldFor(ROAD_LAYOUT)` IS THE ONE THE BOOT USED TO BUILD, and that is asserted
 -- rather than claimed (`forest_stand.spec`): bounds 2230..3830 by -2477..-1197, exit -2377, ground
--- 138. That identity is how "the road layout is unchanged" is checked (design 10.1).
+-- 138. That identity is how "the road layout is unchanged" is checked (design 10.1). Task 245b adds
+-- a `road` KEY beside them for the deer's leap -- where the lane runs, which is the same kind of
+-- fact about this world's geometry -- and changes none of the four.
 function ForestTest.boundsOf(layout: Layout?): { minX: number, maxX: number, minZ: number, maxZ: number }
 	local resolved = layout or ForestTest.ROAD_LAYOUT
 	return {
@@ -989,6 +991,25 @@ function ForestTest.fieldFor(layout: Layout?)
 		-- would put `Brain:_outcome`'s fall floor at 135 on an edge drive, and this wood goes down to
 		-- 99.
 		groundY = ForestTest.GROUND_Y,
+		-- WHERE THE ROAD RUNS, for the deer's leap (task 245b). It is on the FIELD because that is
+		-- already this world's geometry as the animals' owner sees it -- `bounds` and `exitZ` are
+		-- the same kind of fact -- and because the field is what a `Brain` is born with, so an
+		-- animal cannot be handed a road its world does not have.
+		--
+		-- A FUNCTION AND NOT A NUMBER, because this ride is a SINE: `roadZ` swings by
+		-- `amplitudeStuds` over the map's length, so a constant z would put the band in the trees at
+		-- one end and off the lane at the other. The layout is captured here, so an animal born on
+		-- one layout keeps reading that layout's road even if the next drive picks another.
+		--
+		-- THE DEV MAP'S FIELD HAS NO `road` and nothing adds one, which is what makes the leap inert
+		-- in that world: `Brain.onRoad` answers false for a nil road, so the DEV harness measures the
+		-- same game it measured before this task.
+		road = {
+			halfWidthStuds = ForestTest.SHAPE.halfWidthStuds,
+			zAt = function(x: number): number
+				return ForestTest.roadZ(x, resolved)
+			end,
+		},
 	}
 end
 

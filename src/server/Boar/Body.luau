@@ -1078,6 +1078,26 @@ function Body.clipFor(info, config): (string?, number)
 		return (if info.hitFromBehind then "hitBack" else "hitFront"), 1
 	end
 
+	-- A BOUND OVER THE ROAD (task 245b). KAREN, 2026-10-22: *"they usually jump when is cross road"*.
+	--
+	-- WHERE IT SITS IN THE ORDER IS THE WHOLE RULE. Below the death, the cripple and the flinch,
+	-- because none of those is an animal choosing to jump -- a deer shot mid-bound flinches, and one
+	-- that dies mid-bound falls. Above the gaits and above the calm activities, because a leaping
+	-- animal is not trotting and is certainly not grazing.
+	--
+	-- RATE 1, NOT `speed / groundStudsPerSecond`. A bound is not a cycle whose feet have to keep up
+	-- with the ground: it is one authored motion with a takeoff and a landing, and scrubbing it by
+	-- speed would make a fast deer's leap a twitch. `CLIPS.leap.groundStudsPerSecond` is 0 for that
+	-- reason and the literal here is what reads it.
+	--
+	-- `Body.hasClip` IS ASKED HERE AND NOWHERE ELSE, which is what keeps every world that has no
+	-- published leap -- every boar, and every deer before 2026-10-23 -- drawing exactly what it drew
+	-- before: the Brain publishes `leaping` whatever happens, and this line is the only thing that
+	-- turns it into a clip.
+	if info.leaping == true and Body.hasClip("leap", config) then
+		return "leap", 1
+	end
+
 	-- A CALM BOAR DRAWS WHAT IT IS DOING (task 117), and only a calm one: the Brain publishes
 	-- `activity` while IDLE and nothing else, so a fleeing, wounded or dead animal reaches this with
 	-- nil and every line below is the code it was. It sits after the death, the cripple and the
@@ -1410,6 +1430,10 @@ function Body.stepVisual(handle, dt: number, info, config)
 		exitFor = handle.exitFor,
 		hitFor = handle.hitFor,
 		hitFromBehind = handle.hitFromBehind,
+		-- MID-BOUND OVER THE ROAD (task 245b). The Brain owns "is it crossing", `Body` owns "what
+		-- does that look like", and this is the one wire between them -- the same shape `crippled`
+		-- and `alert` above already have.
+		leaping = info.leaping == true,
 		speed = info.speed,
 		-- THIS ANIMAL'S OWN STRIDE, AND IT WAS NEVER PASSED (task 139 round 3). `Body.clipFor` has
 		-- asked for `info.clipScale` since task 119 -- `gaitBands` divides every rate by it, because
