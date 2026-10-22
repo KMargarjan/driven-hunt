@@ -500,6 +500,40 @@ Flags.DEFAULTS = {
 			.. "near-black Ambient, a cool OutdoorAmbient, a low 8.2 sun, one Atmosphere and two "
 			.. "post effects. OFF leaves the place's own Lighting exactly as it is.",
 	} :: FlagRow,
+	-- THE "NO DEER LICENCE" POPUP (task 238). KAREN, 2026-10-21, verbatim: *"if you dont have a
+	-- license when you aim and what to shoot it shows popup you dont have license and then you want
+	-- to buy and roblox popup like they do to purchase"*.
+	--
+	-- BORN OFF, which is `docs/design/feature-flags.md` section 11 step 1 for a new feel-critical
+	-- path and the default this table takes: a card that appears unasked while a player is holding a
+	-- gun at an animal is exactly the kind of thing only Karen can judge, and it merges dark.
+	--
+	-- WHAT IT SWITCHES, AND WHAT IT DOES NOT. OFF is "no card, and no question asked": `LicenceCard`
+	-- reads this once, at its boundary (`LicenceCard.ENABLED`, the only permitted shape), and when
+	-- it is off `Hud` never starts it and nothing on screen changes. **The server half is not behind
+	-- it**, and that is deliberate rather than an omission: the `"Aim"` question moves no state,
+	-- costs one cast and publishes nothing when there is no advice, and a flag on it would mean the
+	-- two halves could disagree about whether the feature exists. **Nothing about the fire gate, the
+	-- shot, the refusal or the dry click is behind it or touched by this task** -- an unlicensed shot
+	-- was already refused with `NO LICENCE` before task 238 and still is, with the row at either
+	-- value.
+	--
+	-- BOTH STATES ARE REACHABLE BY PARAMETER while the row sits at false: `LicenceCard.start` takes
+	-- `enabled` and `tests/client/licence_card.spec.luau` drives the card on with the row off.
+	--
+	-- Note: docs/research/2026-10-22-licence-popup-and-robux.md
+	LICENCE_POPUP = {
+		default = false,
+		-- The owner is the module that READS it at its boundary and draws the card. The BUY it sends
+		-- is `ShopPanel.press`'s, and the purchase is still `Economy`'s: this row switches a card,
+		-- not a rule and not a till.
+		owner = "StarterPlayerScripts.Hud.LicenceCard",
+		born = "2026-10-22 task 238",
+		expires = "2026-11-12", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "One card, when a hunter aims at a red deer he has no licence for: NO DEER LICENCE, "
+			.. "what the rule actually is, and a BUY button that goes through the shop's own "
+			.. "server purchase path from wherever he is standing. OFF draws nothing.",
+	} :: FlagRow,
 }
 
 -- deepFreeze, REQUIRED and not copied: table.freeze is shallow, and this repo has already paid for

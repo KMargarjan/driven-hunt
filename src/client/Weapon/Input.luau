@@ -39,6 +39,9 @@ local SELECT_AMMO = "DrivenHunt.Weapon.SelectAmmo"
 local AIM = "DrivenHunt.Weapon.Aim"
 
 local aiming = false
+-- WHEN THE AIM QUESTION WAS LAST ASKED (task 238), and nil for "never this session". One number, in
+-- the one firer of `ActionRequest`.
+local lastAimAskedAt: number? = nil
 local bound = false
 local started = false
 local connections: { RBXScriptConnection } = {}
@@ -373,12 +376,70 @@ function Input.setAim(on: boolean): boolean
 	if on ~= aiming then
 		aiming = on
 		signal:Fire(aiming)
+		-- THE AIM QUESTION, ON THE RISING EDGE ONLY (task 238). Here and not in a subscriber of
+		-- `AimChanged`, because this function is already the ONE owner of the flag and the one
+		-- place a real edge is known -- a second subscriber would be a second edge detector, and
+		-- `Input.setAim`'s own header is about there being nothing for the two doors to drift from.
+		-- The mouse's hold and the thumb's toggle therefore ask in exactly the same way.
+		if aiming then
+			Input.askAimAdvice()
+		end
 	end
 	return true
 end
 
 function Input.toggleAim(): boolean
 	return Input.setAim(not aiming)
+end
+
+-- ------------------------------------------------------- the aim question (task 238)
+--
+-- HOW OFTEN THE CLIENT MAY ASK THE SERVER *"what would stop me shooting this"*. 1.5 s: longer than
+-- any deliberate double-tap of the aim button, shorter than the time to swing onto a new animal. At
+-- worst 0.67 requests a second against `Shotgun.CONFIG.ACTION_RATE_LIMIT` (10), so it cannot crowd
+-- out a reload -- which is the whole reason there is a cooldown on THIS side as well as a rate limit
+-- on the server's (docs/research/2026-10-22-licence-popup-and-robux.md section 5).
+Input.AIM_ADVICE_COOLDOWN = 1.5
+
+-- PURE, so the cooldown is drivable with two numbers and no clock -- the shape `Limits.allow` and
+-- `Weapon.needsRefill` already have. nil `last` is "never asked", which is always due.
+function Input.aimAdviceDue(last: number?, now: number, cooldown: number?): boolean
+	if type(now) ~= "number" then
+		return false
+	end
+	if last == nil then
+		return true
+	end
+	return now - last >= (cooldown or Input.AIM_ADVICE_COOLDOWN)
+end
+
+-- THE QUESTION, SENT. `Input` is already the only firer of `ActionRequest` (see this file's header),
+-- so this lives here rather than in the Hud that draws the answer: the Hud reads `Weapon.Input`
+-- and `Input` has no reference to the Hud, which is the direction `Input.reload` set.
+--
+-- IT SENDS THE CAMERA RAY AND NOTHING ELSE, byte-identical to `Input.fire`'s payload -- same origin,
+-- same unit direction -- because the server validates it with the SAME `Validator.checkShot`. There
+-- is no claimed target, so there is nothing for the server to reconcile (design section 5.7).
+--
+-- Returns whether a request actually went, so a caller and a spec can tell "sent" from "too soon".
+function Input.askAimAdvice(now: number?): boolean
+	local at = now or os.clock()
+	if Input.isHeld() then
+		return false
+	end
+	if not Input.aimAdviceDue(lastAimAskedAt, at) then
+		return false
+	end
+	local camera = Workspace.CurrentCamera
+	if camera == nil then
+		return false
+	end
+	-- THE CLOCK MOVES ONLY WHEN A REQUEST REALLY GOES, so a frame with no camera does not spend the
+	-- cooldown and leave the player un-advised for 1.5 s for a reason he cannot see.
+	lastAimAskedAt = at
+	local cframe = camera.CFrame
+	remotes().ActionRequest:FireServer("Aim", nil, { origin = cframe.Position, direction = cframe.LookVector.Unit })
+	return true
 end
 
 -- Nothing visible happens in this module: the flag and the signal are the whole of it, and the

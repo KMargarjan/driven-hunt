@@ -67,6 +67,18 @@
 --
 -- Design: docs/design/shop.md (section 5)
 -- Note:   docs/research/2026-10-14-the-shop.md, docs/research/2026-10-15-shop-window.md
+-- THE ROBUX PROMPT (task 238), and the ONLY reference to this service in the repository: Karen,
+-- 2026-10-21, *"and then you want to buy and roblox popup like they do to purchase"*. It is called
+-- from the CLIENT because that is where Roblox's own sample calls it (the note's source 1), and the
+-- GRANT is nowhere near here -- it happens in `Economy.processReceipt` on the server and nothing
+-- this file does can hand a player anything.
+--
+-- UNREACHABLE IN THIS BUILD, BY CONSTRUCTION: every catalogue row's `robuxProductId` is nil
+-- (`Shop.rowsOk`'s I12 asserts it), so `ShopPanel.payWith` answers "coins" for every id that exists
+-- and the branch below is never taken until Karen makes a product in her Creator Dashboard.
+--   PromptProductPurchase  https://create.roblox.com/docs/reference/engine/classes/MarketplaceService
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
@@ -168,6 +180,8 @@ local wellFadeTop: Frame? = nil
 local roleWish: string? = nil
 local roleTeam: string? = nil
 local roleAsk: ((string) -> ())? = nil
+-- See `ShopPanel.start`: who else is told what the server said (task 238).
+local stateListener: ((any) -> ())? = nil
 local rowSwitch: any = nil
 local rowBlock: Frame? = nil
 local detailSwitch: any = nil
@@ -219,6 +233,10 @@ local stats = {
 	asks = 0,
 	presses = 0,
 	sent = 0,
+	-- THE ROBUX BRANCH (task 238): a press that went to Roblox's prompt instead of to our own door,
+	-- and one that could not (no local player). Both 0 in this build and in every harness run.
+	prompted = 0,
+	promptFailed = 0,
 	states = 0,
 	renders = 0,
 	prompts = 0,
@@ -2665,9 +2683,42 @@ end
 -- PUBLIC AND NAMED, for `Rail.press`'s stated reason: a spec cannot fire `GuiButton.Activated` and
 -- the harness cannot synthesise a tap, so this is the seam that makes the buttons testable at all --
 -- and what it proves is the ACTION, not the touch. That limit is reported, not papered over.
+-- WHICH CURRENCY A PRESS PAYS IN. PURE, and it is the whole of the Robux switch on this side: a row
+-- with a `robuxProductId` is paid for in Robux and a row without one in coins. `rows` is a parameter
+-- so BOTH branches are drivable with no product in the catalogue, which is the only way either can
+-- be tested while `rowsOk`'s I12 holds every shipped id at nil (the note's section 3.4).
+--
+-- nil FOR "NEITHER", which is a press on something that is not an item id at all.
+function ShopPanel.payWith(id: any, rows: any?): string?
+	if type(id) ~= "string" then
+		return nil
+	end
+	return if ShopData.robuxProductFor(id, rows) ~= nil then "robux" else "coins"
+end
+
 function ShopPanel.press(id: string?): boolean
 	stats.presses += 1
-	if type(id) ~= "string" or remotes == nil then
+	if type(id) ~= "string" then
+		return false
+	end
+	-- THE SWITCH, ASKED BEFORE THE REMOTE, because the Robux branch needs no remote of ours at all.
+	-- `Shop.REASON.ROBUX_ONLY` is what shuts our own door on the same row from the server's side, so
+	-- the two currencies can never both be open for one item.
+	local product = ShopData.robuxProductFor(id)
+	if product ~= nil then
+		local player = Players.LocalPlayer
+		if player == nil then
+			stats.promptFailed += 1
+			return false
+		end
+		stats.prompted += 1
+		-- NO `pcall`: a prompt that throws is a bug in the product id, and swallowing it would make
+		-- a dead BUY button look like a cancelled purchase. Nothing of ours has changed when it does
+		-- -- no coins moved, no state was sent -- so there is nothing to undo.
+		MarketplaceService:PromptProductPurchase(player, product)
+		return true
+	end
+	if remotes == nil then
 		return false
 	end
 	stats.sent += 1
@@ -2722,6 +2773,14 @@ function ShopPanel.onState(state: any, now: number?)
 		ShopPanel.select(firstId())
 	end
 	ShopPanel.render(now)
+	-- PASSED ON LAST, so this panel has already stored the payload: a listener that asks
+	-- `ShopPanel.rowFor` from inside the call sees the NEW state and not the one before it.
+	local listener = stateListener
+	if listener ~= nil then
+		-- `pcall`, the rule every injected collaborator in this repo follows: a listener that threw
+		-- must not stop the shop panel drawing its own answer.
+		pcall(listener :: any, state)
+	end
 end
 
 function ShopPanel.start(root: Frame, collaborators: any)
@@ -2737,6 +2796,12 @@ function ShopPanel.start(root: Frame, collaborators: any)
 	-- `ReplicatedStorage.Lobby.Remotes`. nil means no sender, and then a press is counted and
 	-- discarded rather than throwing.
 	roleAsk = collaborators and collaborators.roleAsk
+	-- WHO ELSE WANTS TO HEAR WHAT THE SERVER SAID (task 238), handed in like `roleAsk` and for the
+	-- same reason: this panel stays the ONE subscriber of `ShopState` and the one owner of the
+	-- payload, and `Hud.start` -- the composition root that knows both owners -- binds this to
+	-- `LicenceCard.onShopState`. A second `OnClientEvent` connection on the same remote would be a
+	-- second reader of one wallet, which is how a card and a panel come to disagree about it.
+	stateListener = collaborators and collaborators.stateListener
 	-- THE FLAG, READ AT THIS BOUNDARY AND PASSED INWARD (CLAUDE.md, feature flags). `enabled = false`
 	-- means `setNear` never opens anything, which is the game before task 178 -- and both branches
 	-- stay reachable by parameter, which is what a spec drives.

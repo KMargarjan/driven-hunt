@@ -112,6 +112,10 @@ local ShopPanel = require(script.ShopPanel)
 -- THE TRUCK PADS' SIZE DIALOG (task 182), in the same shape as the shop panel: this file builds the
 -- frame and that module fills it and owns its `Visible`.
 local PadPanel = require(script.PadPanel)
+-- THE "NO DEER LICENCE" CARD (task 238), in the same shape again: this file builds the frame and
+-- hands the module the two things it cannot see for itself -- the shop panel (for the price, whether
+-- he owns the card, and the press) and the weapon snapshot's `advice`. It owns its own `Visible`.
+local LicenceCard = require(script.LicenceCard)
 
 local Hud = {}
 
@@ -216,6 +220,7 @@ local reportFrame: Frame? = nil
 local reportScrimFrame: Frame? = nil
 local mapScrimFrame: Frame? = nil
 local hitCardFrame: Frame? = nil
+local licenceCardFrame: Frame? = nil
 -- THE SHOP PANEL'S FRAME (task 178): created here, filled by `Hud.ShopPanel`, and that module --
 -- not this one -- writes its `Visible`.
 local shopFrame: Frame? = nil
@@ -876,9 +881,16 @@ function Hud.hitCard(): Frame?
 	return hitCardFrame
 end
 
+function Hud.licenceCard(): Frame?
+	return licenceCardFrame
+end
+
 -- The panel module itself, for the same reason: the Hud starts it, so the Hud is where it is found.
 Hud.Report = ReportPanel
 Hud.HitCard = HitCard
+-- THE LICENCE CARD (task 238), published here the way every other sibling module is: the Hud starts
+-- it, so the Hud is where a spec finds it rather than walking PlayerScripts.
+Hud.LicenceCard = LicenceCard
 -- THE ONE BUILDER OF THE BOAR PICTURE AND THE ONE PLACER OF A DOT ON IT (task 198), published here
 -- the way every other sibling module is -- a spec reads it off the Hud rather than walking
 -- PlayerScripts. Task 205 made its spread rule pure, and that is what a case asks.
@@ -2099,6 +2111,24 @@ local function build(): ScreenGui
 	padDialog.Visible = false
 	padDialog.Parent = screen
 
+	-- THE "NO DEER LICENCE" CARD (task 238). KAREN, 2026-10-21: *"if you dont have a license when you
+	-- aim and what to shoot it shows popup you dont have license"*. 300 wide so it fits the 400 px
+	-- phone `hud_clarity.spec` measures -- `PadPanel`'s own width, not a new number -- and in the
+	-- UPPER THIRD rather than the centre, because the centre is where the reticle of the gun he is
+	-- aiming sits. Empty and hidden until `LicenceCard.start` fills it; after `build` that module is
+	-- the only writer of its `Visible`, and the HEIGHT is the card's own `AutomaticSize`.
+	local licenceCard = Instance.new("Frame")
+	licenceCard.Name = "LicenceCard"
+	licenceCard.BackgroundTransparency = 1
+	licenceCard.BorderSizePixel = 0
+	licenceCard.AnchorPoint = Vector2.new(0.5, 0)
+	licenceCard.Position = UDim2.fromScale(0.5, LicenceCard.CONFIG.Y_SCALE)
+	licenceCard.Size = UDim2.fromOffset(LicenceCard.CONFIG.WIDTH, 0)
+	licenceCard.AutomaticSize = Enum.AutomaticSize.Y
+	licenceCard.ZIndex = LicenceCard.CONFIG.Z_INDEX
+	licenceCard.Visible = false
+	licenceCard.Parent = screen
+
 	-- ...AND THE LOADING BANNER (task 197). KAREN, 2026-10-15: *"we need clear message that game is
 	-- loading once clicked 1/1 or other now is delay"*. The same division as the dialog above it:
 	-- this file creates the box, `Hud.PadPanel` fills it and owns its `Visible`, and the two can never
@@ -2578,6 +2608,7 @@ local function build(): ScreenGui
 	reportFrame = report
 	reportScrimFrame = reportScrim
 	hitCardFrame = hitCard
+	licenceCardFrame = licenceCard
 	shopFrame = shop
 	padFrame = padDialog
 	padLeavingFrame = padLeaving
@@ -5167,6 +5198,10 @@ function Hud.start()
 		-- THE BOTTOM-RIGHT CORNER IN THE SAME PASS (task 201): the reload bar and the horn's
 		-- readiness bar are CLOCKS, and a clock drawn on an event is a clock that stops.
 		Hud.renderCorner(Weapon)
+		-- ...AND THE LICENCE CARD'S OWN CLOCK (task 238), for exactly that reason: the card leaves
+		-- by itself after `SHOW_SECONDS` and nothing else is going to tick it. It returns at once
+		-- when the card is down, which is almost always.
+		LicenceCard.step()
 	end)
 
 	if compassFrame then
@@ -5200,6 +5235,10 @@ function Hud.start()
 			-- also keeps the require graph as it is: `PadPanel` requires `ShopPanel` for the house
 			-- style, and the reverse edge would be a cycle.
 			roleAsk = PadPanel.sendRoleWish,
+			-- THE LICENCE CARD HEARS WHAT THE SERVER SAID (task 238) through the panel that owns the
+			-- payload, not through a second connection to `ShopState`. This file is the composition
+			-- root that knows both owners, which is `CameraBoot`'s own arrangement.
+			stateListener = LicenceCard.onShopState,
 		})
 	end
 
@@ -5218,6 +5257,26 @@ function Hud.start()
 		HitCard.start(hitCardFrame :: Frame, { Report = ReportSystem })
 	end
 
+	-- THE LICENCE CARD (task 238), handed the ONE collaborator it has: the shop panel. Three
+	-- functions off it -- the price and whether he owns the card (`rowFor`, the server's own
+	-- `WireRow`), the press (`press`, the client's one firer of `ShopRequest`, which also holds the
+	-- $ / Robux switch), and whether the shop is wired in this world at all (`isEnabled`). The card
+	-- reads the flag itself, at its own boundary.
+	--
+	-- IT IS STARTED EVEN WITH THE FLAG OFF, and that is deliberate: `LicenceCard.onAdvice` answers
+	-- false and counts `suppressedOff`, so the OFF build is provable rather than assumed, and
+	-- nothing is drawn (`frame.Visible = false` and no show).
+	if licenceCardFrame then
+		LicenceCard.start(licenceCardFrame :: Frame, {
+			Shop = {
+				rowFor = ShopPanel.rowFor,
+				press = ShopPanel.press,
+				isEnabled = ShopPanel.isEnabled,
+				ask = ShopPanel.ask,
+			},
+		})
+	end
+
 	if reportFrame then
 		ReportPanel.start(reportFrame, {
 			Report = ReportSystem,
@@ -5231,8 +5290,16 @@ function Hud.start()
 		})
 	end
 
-	Weapon.Changed:Connect(function()
+	Weapon.Changed:Connect(function(snapshot)
 		render(Weapon, CameraSystem)
+		-- THE AIM ANSWER (task 238), ON THE SIGNAL AND NOT IN THE PER-FRAME PASS, for the reason
+		-- `CameraBoot`'s own `refused` reader states: *"an edge detector reading it every frame
+		-- would either miss it or repeat it"*. `advice` is a fact about ONE publish, the server sets
+		-- it on exactly the aim-question publish, and `Weapon.Changed` fires exactly once per
+		-- arriving snapshot -- so one aim at a deer is one card.
+		if type(snapshot) == "table" and type((snapshot :: any).advice) == "string" then
+			LicenceCard.onAdvice((snapshot :: any).advice)
+		end
 	end)
 	if CameraSystem then
 		CameraSystem.Changed:Connect(function()

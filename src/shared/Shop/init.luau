@@ -113,6 +113,20 @@ export type Row = {
 	-- THE ROBUX PRICE IS NOT HERE and will not be: Roblox is where a product's price can be changed
 	-- without a deploy, so a price in this table is a price that will one day be wrong.
 	robuxProductId: number?,
+	-- MAY THIS ROW BE BOUGHT AWAY FROM THE COUNTER? (task 238.) nil on every row but one, and the
+	-- ONE is `licence.reddeer`: Karen, 2026-10-21, wants the deer card buyable from the popup that
+	-- tells a hunter mid-drive that he has none, and the lodge is 700 studs behind him.
+	--
+	-- IT IS A FIELD OF THE ROW AND NOT A FLAG ON THE REQUEST, which is the whole of why this is
+	-- safe: a client cannot forge a row. `Shop.refuse`'s `TOO_FAR` branch is the ONE reader, so the
+	-- reach question keeps exactly one owner, and **I13 below refuses `anywhere` on any row that
+	-- grants anything but a licence** -- a licence is permission and hands the player no Tool, no
+	-- ammo, no hat, no seat and no roster place, so there is nothing a mid-drive purchase could make
+	-- appear in his hands. Every other rule (`sale`, the profile, `OWNED`, the hunt gate, the price)
+	-- is still asked, by this same pure function, on the server.
+	--
+	-- Note: docs/research/2026-10-22-licence-popup-and-robux.md section 3.3
+	anywhere: boolean?,
 }
 
 -- `grants` IS THE ONE INVENTED THING IN THIS FILE and rule 2 wants the reason: no source has this
@@ -261,6 +275,12 @@ Shop.ROWS = {
 		-- because `Boar.CONFIG.KINDS` now has a stag, a hind and a calf that publish
 		-- `Species = "reddeer"`. The invariant did not weaken, it was satisfied.
 		sale = true,
+		-- BUYABLE AWAY FROM THE COUNTER, AND IT IS THE ONLY ROW THAT IS (task 238; I13). Karen,
+		-- 2026-10-21: *"if you dont have a license when you aim and what to shoot it shows popup you
+		-- dont have license and then you want to buy"* -- the popup is shown to a hunter standing in
+		-- his stand with a deer in front of him, and a button that answered STAND AT THE COUNTER
+		-- would be a shop window offering a thing it will not sell. See `Row.anywhere`.
+		anywhere = true,
 		grants = { licence = "reddeer" },
 	} :: Row,
 	[Shop.ITEM.UNLIMITED_AMMO] = {
@@ -975,6 +995,90 @@ function Shop.anyRow(id: any): Row?
 	return (Shop.RETIRED :: any)[id]
 end
 
+-- ---------------------------------------------------------------- the Robux switch (task 238)
+--
+-- WHICH CURRENCY A ROW IS SOLD IN, ASKED IN ONE PLACE AND ANSWERED FROM THE ROW. Karen, 2026-10-21:
+-- *"and then you want to buy and roblox popup like they do to purchase"*.
+--
+-- THE SWITCH IS THE PRESENCE OF AN ID AND NOTHING ELSE: nil means coins (`ShopPanel.press` sends
+-- the BUY the counter sends), a positive integer means Robux (`ShopPanel.press` calls
+-- `MarketplaceService:PromptProductPurchase` and sends no BUY at all, and
+-- `Economy.processReceipt` is the only thing that grants). `Shop.REASON.ROBUX_ONLY` is what shuts
+-- the coin door on a row that has one, so the two can never both be open.
+--
+-- `rows` IS A PARAMETER ON BOTH, and that is not decoration: every row in this build carries nil
+-- (`rowsOk`'s I12 asserts it), so the Robux branch is unreachable from the shipped catalogue and
+-- would be untestable without one. It is `Licences.required(species, rows)`'s own idiom.
+--
+-- BOTH ASK `anyRow` AND NOT `row`: a RETIRED row Karen had priced in Robux must still be recognised
+-- as a Robux row, or a redelivered receipt for one would map to nothing. It is the call
+-- `Shop.licencesFor` and the other seven readers of what ownership GIVES already make.
+--
+-- Note: docs/research/2026-10-22-licence-popup-and-robux.md section 3.4
+function Shop.robuxProductFor(id: any, rows: any?): number?
+	local row: any = nil
+	if rows ~= nil then
+		row = if type(id) == "string" then (rows :: any)[id] else nil
+	else
+		row = Shop.anyRow(id)
+	end
+	if row == nil then
+		return nil
+	end
+	local product = row.robuxProductId
+	-- THE SAME SHAPE I12 ASSERTS, RE-ASKED HERE, because `rows` may be a spec's own table and this
+	-- function's answer is fed to `PromptProductPurchase`: a non-integer product id is not a
+	-- product, and answering nil for one is answering "coins", which is the safe half.
+	if type(product) ~= "number" or product <= 0 or product % 1 ~= 0 then
+		return nil
+	end
+	return product
+end
+
+-- WHICH ROW A RECEIPT IS FOR -- the reverse lookup `Economy.processReceipt` makes, and the only one.
+-- `receiptInfo.ProductId` is a number from Roblox and this turns it into an item id or nil.
+--
+-- A DUPLICATE PRODUCT ID ANSWERS nil RATHER THAN PICKING ONE (and `rowsOk` cannot see it today,
+-- because every id is nil): two rows sharing a product would make a receipt ambiguous, and granting
+-- the row that `pairs` happened to reach first is the "two correct pieces of code disagreeing"
+-- failure `docs/PROJECT_CONTEXT.md` names. `Economy.processReceipt` answers `NotProcessedYet` for a
+-- nil, so Roblox retries and nobody is charged for nothing.
+function Shop.itemForProduct(productId: any, rows: any?): string?
+	if type(productId) ~= "number" then
+		return nil
+	end
+	local table_: any = rows
+	local found: string? = nil
+	if table_ == nil then
+		-- EVERY ROW THIS BUILD KNOWS, FOR SALE OR RETIRED, in `ALL_ORDER` so the walk is stable.
+		for _, id in ipairs(Shop.ALL_ORDER) do
+			if Shop.robuxProductFor(id) == productId then
+				if found ~= nil then
+					return nil
+				end
+				found = id
+			end
+		end
+		return found
+	end
+	-- A SPEC'S OWN TABLE: sorted, so two rows sharing a product are found in a stable order and the
+	-- ambiguity above is detected rather than depending on hash order.
+	local ids: { string } = {}
+	for id in pairs(table_) do
+		table.insert(ids, tostring(id))
+	end
+	table.sort(ids)
+	for _, id in ipairs(ids) do
+		if Shop.robuxProductFor(id, table_) == productId then
+			if found ~= nil then
+				return nil
+			end
+			found = id
+		end
+	end
+	return found
+end
+
 -- IS THIS A ROW THAT USED TO BE SOLD? `ServerScriptService.Shop` counts one of these apart from a
 -- forged packet -- the split `Weapon` makes between `stats.refused` and `stats.badRequests` and
 -- states the reason for: *"a stale client after a catalogue change is a different fact from a
@@ -1081,6 +1185,56 @@ end
 -- structural. It FORCED `rifle.open`'s `sale = false` until task 196 removed that row at Karen's
 -- word, and since task 221 its licence half (I3a) is what holds the RED STAG CARD shut: the animal
 -- does not exist, so the row cannot go on sale, and that is arithmetic rather than a promise.
+-- I13 (task 238): MAY THIS ROW BE BOUGHT AWAY FROM THE COUNTER AT ALL? PURE, one row in, a list of
+-- problems out -- the shape `Shop.rowsOk` is built from, and its own function for `Rules`'s stated
+-- reason: *"each question still lives in its own function and is still tested on its own"*. The
+-- shipped catalogue is legal, so a spec can only reach this invariant with a row it owns.
+--
+-- THE RULE: `anywhere` is `true` or absent, and a row that carries it GRANTS A LICENCE AND NOTHING
+-- ELSE. That is what makes the reach exception structural rather than a habit somebody copies onto
+-- a second row. A licence is permission -- `grants.licence` is read by `Shop.licencesFor` ->
+-- `Weapon.setLicenceProvider` -> `Rules.unlicensed` and hands over no Tool, no ammo, no hat, no
+-- seat and no roster place -- so a purchase made 700 studs from the lodge cannot make anything
+-- appear in a player's hands mid-drive. Every other `GRANT_FIELDS` entry does exactly that.
+--
+-- A PACKAGE IS REFUSED TOO, even one whose parts are all licences: `covers` means the grants are the
+-- MERGE of other rows', so a bundle that may be bought anywhere would be an exception that grows
+-- whenever one of its parts does.
+--
+-- IT IS ALSO WHAT KEEPS THE ROBUX HALF HONEST (the note's section 3.5): no row in this catalogue
+-- grants a CONSUMABLE, and `Economy.processReceipt`'s idempotency is the entitlement set rather than
+-- a `PurchaseId` ledger -- which is true only of non-consumables.
+--
+-- Note: docs/research/2026-10-22-licence-popup-and-robux.md section 3.3
+function Shop.anywhereProblems(id: any, row: any): { string }
+	local problems: { string } = {}
+	if type(row) ~= "table" or (row :: any).anywhere == nil then
+		return problems
+	end
+	local name = tostring(id)
+	if (row :: any).anywhere ~= true then
+		table.insert(problems, string.format("%s carries anywhere = %s", name, tostring((row :: any).anywhere)))
+		return problems
+	end
+	local grants = (row :: any).grants
+	if type(grants) ~= "table" then
+		table.insert(problems, string.format("%s may be bought anywhere and grants nothing", name))
+		return problems
+	end
+	for _, field in ipairs(Shop.GRANT_FIELDS) do
+		if field ~= "licence" and (grants :: any)[field] ~= nil then
+			table.insert(problems, string.format("%s may be bought anywhere and grants %s", name, field))
+		end
+	end
+	if (grants :: any).licence == nil then
+		table.insert(problems, string.format("%s may be bought anywhere and grants no licence", name))
+	end
+	if (row :: any).covers ~= nil then
+		table.insert(problems, string.format("%s may be bought anywhere and is a package", name))
+	end
+	return problems
+end
+
 function Shop.rowsOk(weaponRows: any, ammoKinds: { string }?, licenceRows: any?): { string }
 	local problems = {}
 	local seen: { [string]: boolean } = {}
@@ -1171,6 +1325,14 @@ function Shop.rowsOk(weaponRows: any, ammoKinds: { string }?, licenceRows: any?)
 				problems,
 				string.format("%s carries the Robux product id %s", id, tostring(row.robuxProductId))
 			)
+		end
+		-- I13 (task 238): A ROW THAT MAY BE BOUGHT AWAY FROM THE COUNTER GRANTS A LICENCE AND
+		-- NOTHING ELSE. The question lives in its own pure function above -- the discipline
+		-- `Weapon.Rules` follows (*"each question still lives in its own function and is still tested
+		-- on its own"*) -- because the shipped catalogue is legal, so the only way to drive the
+		-- invariant is with a row a spec owns.
+		for _, problem in ipairs(Shop.anywhereProblems(id, row)) do
+			table.insert(problems, problem)
 		end
 		-- I7/I8 (task 221): THE BUNDLE. Its parts are real, sellable and flat; it covers at least
 		-- two; and only a bundle sits on the bundle shelf.
@@ -1333,6 +1495,15 @@ Shop.REASON = table.freeze({
 	CLOSED = "shop-closed", -- there is no money in this build at all
 	UNKNOWN = "unknown-item", -- no such row: a forged or stale id
 	NOT_SALE = "not-for-sale", -- in the catalogue, `sale = false`
+	-- KAREN PRICED THIS ROW IN ROBUX, SO THE COIN TILL MAY NOT SELL IT (task 238). It refuses a BUY
+	-- for a row that carries a `robuxProductId`: that row's door is `PromptProductPurchase` and its
+	-- grant is `Economy.processReceipt`, and without this reason BOTH doors would be open the day
+	-- she sets an id -- a player could pay the $ price for a thing she had moved to Robux.
+	--
+	-- UNREACHABLE IN THIS BUILD, AND THAT IS THE POINT: every row's `robuxProductId` is nil
+	-- (`rowsOk`'s I12), so nothing is refused today. It is driven BY PARAMETER instead
+	-- (`Shop.refuse`'s `rows`), which is `Licences.required(species, rows)`'s own idiom.
+	ROBUX_ONLY = "robux-only",
 	NO_PROFILE = "no-profile", -- no open ProfileStore session for him
 	TOO_FAR = "too-far", -- he is not at the counter
 	OWNED = "owned", -- he already has it. THE DOUBLE-CLICK GUARD
@@ -1347,6 +1518,10 @@ Shop.NOTICE = table.freeze({
 	[Shop.REASON.CLOSED] = "THE SHOP IS CLOSED",
 	[Shop.REASON.UNKNOWN] = "NO SUCH ITEM",
 	[Shop.REASON.NOT_SALE] = "NOT IN THE GAME YET",
+	-- IT IS NOT A REFUSAL THE PLAYER SHOULD EVER READ -- the button that reaches a Robux row calls
+	-- Roblox's own prompt and sends no BUY at all -- so this line is what a FORGED request is told,
+	-- in the register the rest of the table is written in.
+	[Shop.REASON.ROBUX_ONLY] = "THIS ONE IS SOLD FOR ROBUX",
 	[Shop.REASON.NO_PROFILE] = "YOUR ACCOUNT IS NOT LOADED",
 	[Shop.REASON.TOO_FAR] = "STAND AT THE COUNTER",
 	[Shop.REASON.OWNED] = "YOU OWN IT",
@@ -1387,6 +1562,11 @@ Shop.ORDER_OF_REFUSAL = table.freeze({
 	Shop.REASON.CLOSED,
 	Shop.REASON.UNKNOWN,
 	Shop.REASON.NOT_SALE,
+	-- IMMEDIATELY AFTER `NOT_SALE` AND BEFORE EVERY MONEY QUESTION (task 238), and the position is
+	-- the rule: "this row is not sold for coins" is a fact about the ITEM, like the two above it,
+	-- and it must be answered before his profile, his balance or where he is standing -- a man told
+	-- YOU NEED $750 for a row priced in Robux has been told something false about the shop.
+	Shop.REASON.ROBUX_ONLY,
 	Shop.REASON.NO_PROFILE,
 	Shop.REASON.TOO_FAR,
 	Shop.REASON.OWNED,
@@ -1436,8 +1616,19 @@ function Shop.refuse(context: Context): (string?, number?)
 			if context.hasProfile == false then
 				return reason, nil
 			end
+		elseif reason == Shop.REASON.ROBUX_ONLY then
+			-- THE ROW'S OWN FIELD AND NOTHING THE CALLER SAID (task 238): the catalogue decides what
+			-- a row is sold for, exactly as it decides the price. `row` cannot be nil here --
+			-- `UNKNOWN` above has already returned for that -- which is the call `NOT_SALE` makes.
+			if (row :: Row).robuxProductId ~= nil then
+				return reason, nil
+			end
 		elseif reason == Shop.REASON.TOO_FAR then
-			if context.atCounter == false then
+			-- `anywhere` IS THE ONE EXCEPTION TO THE REACH RULE (task 238), read HERE and nowhere
+			-- else, so "is he close enough" keeps exactly one owner. A row that says it may be
+			-- bought anywhere skips this question and NO other: `OWNED`, `LOCKED` and `POOR` are
+			-- still asked below, and `NOT_SALE` and the profile above. See `Row.anywhere` and I13.
+			if context.atCounter == false and (row :: Row).anywhere ~= true then
 				return reason, nil
 			end
 		elseif reason == Shop.REASON.OWNED then

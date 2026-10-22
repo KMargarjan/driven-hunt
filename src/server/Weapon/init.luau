@@ -116,6 +116,12 @@ local stats = {
 	reports = 0,
 	rateDropped = 0,
 	badRequests = 0,
+	-- THE AIM QUESTION (task 238). `aimQuestions` is every `"Aim"` that got as far as a cast;
+	-- `aimAdvised` the ones that answered with a gate -- today only `no-licence` -- and so published.
+	-- The difference between them is how often a player shouldered at something he may already shoot,
+	-- which is the number that says the cooldown is not costing a message per shoulder for nothing.
+	aimQuestions = 0,
+	aimAdvised = 0,
 	granted = 0,
 	grantsMissed = 0, -- a tool built for a player with no Backpack: nothing recorded, tried again later
 	revoked = 0,
@@ -697,7 +703,11 @@ local function publish(
 	-- because the client cannot infer it: a refused shot leaves the state EXACTLY as it was, so the
 	-- replica sees a loaded, closed, un-busy gun -- which is also what it sees when nobody pulled
 	-- the trigger at all. `CameraBoot` turns it into one dry click; the Hud prints `notice`.
-	refused: string?
+	refused: string?,
+	-- WHAT WOULD STOP THE NEXT TRIGGER PULL (task 238), answered because the player AIMED and not
+	-- because he fired. A DIFFERENT FIELD FROM `refused` ON PURPOSE: see `WeaponSnapshot.advice`.
+	-- Nothing clicks, nothing is spent, and the readout's notice stays empty.
+	advice: string?
 )
 	local now = os.clock()
 	if not force or bucket ~= nil then
@@ -710,7 +720,7 @@ local function publish(
 		end
 	end
 	local channel = remotes or Shotgun.remotes()
-	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice, id, action, refused))
+	channel.StateChanged:FireClient(player, Shotgun.snapshot(state, now, notice, id, action, refused, advice))
 end
 
 local function setState(player: Player, id: string, state: WeaponState)
@@ -997,6 +1007,31 @@ local function ignoreFor(player: Player): { Instance }
 	return ignore
 end
 
+-- WHAT IS IN FRONT OF THE GUN: ONE RAY, ONE IMPLEMENTATION, TWO CALLERS (task 238).
+--
+-- The trigger (`onFireRequest`) and the aim question (`onAimRequest`) both ask this and nothing
+-- else, which is the whole of how task 238 avoided *"a second targeting path"*. Before it there was
+-- exactly one cast in the game and it lived inline in the fire flow; the popup needed the same
+-- answer at a different moment, and a client-side ray would have been a second answer to "what is
+-- the player looking at" -- `docs/PROJECT_CONTEXT.md`'s named failure (*"Two systems wrote the
+-- creature's position"*).
+--
+-- IT RETURNS BOTH, because the two callers need different halves of one cast: the trigger needs the
+-- IMPACT (its position is where the shot is aimed, `Hits` groups off it), and both need the TARGET
+-- (`askTarget`, the provider `Boar` installs, which is what knows a species from an Instance).
+-- Returning the target alone would make the fire path cast twice.
+--
+-- Note: docs/research/2026-10-22-licence-popup-and-robux.md section 3.1
+local function lookAhead(
+	player: Player,
+	origin: Vector3,
+	direction: Vector3,
+	range: number
+): (Rules.Target?, Shotgun.Impact?)
+	local impact = castFn(origin, direction * range, ignoreFor(player))
+	return askTarget(if impact then impact.instance else nil), impact
+end
+
 -- The whole server flow for one FireRequest (design section 5.5).
 --
 -- IT RETURNS ITS OWN DECISION (Task 80, round 2): nil when the shot was taken, otherwise the reason
@@ -1093,8 +1128,10 @@ local function onFireRequest(player: Player, req: any): string?
 	end
 
 	local range = row.RANGE_STUDS[ammo]
-	local ignore = ignoreFor(player)
-	local aimImpact = castFn(req.origin, req.direction * range, ignore)
+	-- ONE CAST, AND IT IS THE ONE THE AIM QUESTION MAKES TOO (task 238). `aimTarget` is handed
+	-- straight to `Rules.refuse` below, where `askTarget(aimImpact.instance)` used to be computed a
+	-- second time at the call site.
+	local aimTarget, aimImpact = lookAhead(player, req.origin, req.direction, range)
 	local aimPoint = if aimImpact then aimImpact.position else req.origin + req.direction * range
 
 	local toAim = aimPoint - muzzle
@@ -1128,7 +1165,7 @@ local function onFireRequest(player: Player, req: any): string?
 	local refused = Rules.refuse({
 		position = rootPositionOf(player),
 		stand = askStand(player),
-		target = askTarget(if aimImpact then aimImpact.instance else nil),
+		target = aimTarget,
 		licences = askLicences(player),
 		-- ...AND WHETHER THE DRIVE IS ON AT ALL (task 174), which `Rules.ORDER` asks FIRST.
 		driveOpen = askDriveOpen(),
@@ -1188,7 +1225,10 @@ local function onFireRequest(player: Player, req: any): string?
 		weapon = id,
 		ammo = ammo,
 		muzzle = muzzle,
-		ignore = ignore,
+		-- THE SAME LIST THE AIM CAST USED, asked again rather than kept in a local: `lookAhead` owns
+		-- the cast now (task 238) and `ignoreFor` is a pure build from the player's character, so
+		-- asking twice in one frame answers the same thing and nothing is passed around to go stale.
+		ignore = ignoreFor(player),
 		rangeStuds = range,
 		-- THE TIME OF THE SHOT, which becomes `HitReport.at`. Not the arrival's: `HitLog.recordHit`
 		-- asks "when in this drive was this shot taken", and a report with two clocks in it is worse
@@ -1388,7 +1428,10 @@ end
 
 -- Same contract as `onFireRequest` above, and the same reason for it: nil when the request was
 -- acted on, otherwise the reason it was not.
-local function onActionRequest(player: Player, kind: any, ammo: any): string?
+-- `aim` IS THE THIRD ARGUMENT AND ONLY `"Aim"` SENDS ONE (task 238): `{origin, direction}`, the same
+-- shape `FireRequest` carries and validated by the same `Validator.checkShot`. Every caller written
+-- before task 238 passes two arguments and is unchanged.
+local function onActionRequest(player: Player, kind: any, ammo: any, aim: any): string?
 	local now = os.clock()
 	local allowed, bucket = Limits.allow(registry:bucket(player, "action"), now, CONFIG.ACTION_RATE_LIMIT)
 	registry:setBucket(player, "action", bucket)
@@ -1411,6 +1454,66 @@ local function onActionRequest(player: Player, kind: any, ammo: any): string?
 		stats.badRequests += 1
 		publish(player, id, state)
 		return why or "bad-request"
+	end
+
+	-- ----------------------------------------------------------------- THE AIM QUESTION (task 238)
+	--
+	-- KAREN, 2026-10-21: *"if you dont have a license when you aim and what to shoot it shows popup
+	-- you dont have license"*. The client sends this ONCE on the rising edge of ADS, behind its own
+	-- cooldown (`Input.aimAdviceDue`), and this answers *"what would stop you shooting the thing in
+	-- front of you"* in the snapshot's `advice` field.
+	--
+	-- IT MOVES NOTHING. No reducer call, no `setState`, no shell, no `ShotFired`, no `SafetyViolated`
+	-- and no hit -- it is a READ of the world plus one pure predicate. `state` is published exactly
+	-- as it already was, which is why it cannot cost the player anything whatever he does with it.
+	--
+	-- IT ASKS `Rules.unlicensed` AND NOT `Rules.refuse`, and that is a decision. `Rules.refuse` walks
+	-- all six questions in `Rules.ORDER`, and five of them -- the drive being over, his stand, his
+	-- platform, a beater in the line -- have nothing to do with a licence and nothing on screen is
+	-- built to receive them. Asking ONE question keeps this a narrow answer rather than a second
+	-- reader of an order `Rules.ORDER` owns. Widening it later is one line here and a card there.
+	--
+	-- THE RANGE IS THE NEXT SHOT'S. The loaded shell when the gun is loaded, and the SELECTED kind
+	-- when it is empty -- so the advice is about the shot he is about to take, and an empty gun still
+	-- answers (a man who has just emptied it at a deer is exactly who needs telling).
+	--
+	-- Note: docs/research/2026-10-22-licence-popup-and-robux.md section 3.1
+	if kind == "Aim" then
+		local okRay, whyRay = Validator.checkShot(aim, rootPositionOf(player), CONFIG)
+		if not okRay then
+			-- THE SAME VALIDATOR THE TRIGGER'S RAY GETS, so a forged origin is refused here on the
+			-- same terms. Counted as a forgery, and NOTHING is published: a bad packet gets no
+			-- answer at all.
+			stats.badRequests += 1
+			return whyRay or "bad-request"
+		end
+		local ammoAhead = state.loaded[state.selected] or state.ammo
+		local range = row.RANGE_STUDS[ammoAhead]
+		if type(range) ~= "number" then
+			-- A DATA FAULT, NOT AN ANSWER. Every shipped row carries every kind's range; answering
+			-- "nothing would stop you" off a missing number would be a popup that never appeared
+			-- for a reason nobody could see.
+			stats.badRequests += 1
+			return "no-range"
+		end
+		local target = lookAhead(player, aim.origin, aim.direction, range)
+		local advice: string? = nil
+		if Rules.unlicensed(target, askLicences(player)) then
+			advice = Rules.REASON.LICENCE
+		end
+		stats.aimQuestions += 1
+		if advice ~= nil then
+			stats.aimAdvised += 1
+			-- FORCED PAST THE PUBLISH LIMITER, for the reason the refusal publish gives: an answer
+			-- the client never hears is a question that did nothing for no visible reason. `notice`
+			-- is nil -- the readout is not where this is said -- and `refused` is nil, so no dry
+			-- click.
+			publish(player, id, state, true, nil, nil, nil, nil, advice)
+		end
+		-- NOTHING IS PUBLISHED WHEN THERE IS NO ADVICE, which is the common case by far: he is
+		-- licensed, or he is looking at a boar, a tree or the sky. A snapshot per aim-on carrying
+		-- nothing would be one message per shoulder for every player in the drive.
+		return nil
 	end
 
 	-- X, since Karen's playtest of 2026-09-25: switching the type RELOADS to it. Break returns the

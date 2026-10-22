@@ -3,8 +3,10 @@
 -- here touches an Instance, a service or a clock.
 --
 -- checkRequest is the whitelist that makes the reducer's primitives unreachable from a client
--- (design section 2.1 defect d): only "Reload" and "SelectAmmo" cross the wire; Break, Load, Close
--- and Fire are server-side ActionKinds and are not in the accepted set at all.
+-- (design section 2.1 defect d): only "Reload", "SelectAmmo" and -- since task 238 -- "Aim" cross
+-- the wire; Break, Load, Close and Fire are server-side ActionKinds and are not in the accepted set
+-- at all. "Aim" is not a reducer primitive and moves no state: it is a QUESTION, answered in the
+-- snapshot's `advice` field (docs/research/2026-10-22-licence-popup-and-robux.md section 3.1).
 --
 -- Design: docs/design/shotgun.md (section 5.3)
 -- Note:   docs/research/2026-09-24-shotgun.md
@@ -55,6 +57,17 @@ end
 -- caller written before two weapons existed expects.
 function Validator.checkRequest(kind: unknown, ammo: unknown, row: any?): (boolean, string?)
 	if kind == "Reload" then
+		if ammo ~= nil then
+			return false, "bad-request"
+		end
+		return true, nil
+	end
+	-- THE AIM QUESTION (task 238), and it carries no ammo: *"what would stop me shooting the thing
+	-- in front of me"*. Its RAY is validated by `Validator.checkShot` -- the same function, the same
+	-- origin tolerance and the same unit check the trigger's ray gets -- so there is one validator
+	-- for one kind of payload. Being on this whitelist is what makes the kind reachable at all: the
+	-- `return false, "bad-request"` at the bottom is what every other string still gets.
+	if kind == "Aim" then
 		if ammo ~= nil then
 			return false, "bad-request"
 		end
