@@ -885,8 +885,12 @@ return function()
 				Pads.centreFor(anchor, 1, CFG),
 				Pads.centreFor(anchor, CFG.TRUCK.COUNT, CFG),
 				anchor + CFG.SPAWN.OFFSET,
-				-- the far truck bay, which the 80 x 60 yard of task 177 did not reach
-				anchor + CFG.TRUCK.OFFSET + Vector3.new((CFG.TRUCK.COUNT - 1) * CFG.TRUCK.BAY_GAP_STUDS, 0, 0),
+				-- THE FAR TRUCK BAY, which the 80 x 60 yard of task 177 did not reach -- and since
+				-- task 243 the bays step SOUTH and the parked body stands `BACK_STUDS` EAST, so this
+				-- is the far corner of the block in BOTH directions at once.
+				anchor
+					+ CFG.TRUCK.OFFSET
+					+ Vector3.new(CFG.TRUCK.BACK_STUDS, 0, -(CFG.TRUCK.COUNT - 1) * CFG.TRUCK.BAY_GAP_STUDS),
 				-- both ends of the road, on its centre line
 				Vector3.new(anchor.X + CFG.ROAD.CENTRE_X, 0, anchor.Z + CFG.ROAD.FROM_Z - 1),
 				Vector3.new(anchor.X + CFG.ROAD.CENTRE_X, 0, anchor.Z + CFG.ROAD.TO_Z + 1),
@@ -1093,8 +1097,11 @@ return function()
 			for index = 1, CFG.TRUCK.COUNT do
 				local at = Pads.centreFor(anchor, index, CFG)
 				expect(east < at.X - CFG.PADS.SIZE.X / 2).to.equal(true)
-				local bayX = anchor.X + CFG.TRUCK.OFFSET.X + (index - 1) * CFG.TRUCK.BAY_GAP_STUDS
-				expect(east < bayX - CFG.TRUCK.SIZE.X / 2).to.equal(true)
+				-- EVERY BAY SHARES ONE x SINCE TASK 243 -- the row steps south -- so this is the
+				-- same bound four times, and it stays a loop because the thing being asserted is
+				-- that NO bay is east of the gathering yard rather than that the first one is not.
+				local bayX = anchor.X + CFG.TRUCK.OFFSET.X
+				expect(east < bayX - CFG.TRUCK.MODEL.LENGTH_STUDS / 2).to.equal(true)
 			end
 		end)
 
@@ -2314,19 +2321,25 @@ return function()
 			templates:Destroy()
 		end)
 
+		-- **THE ROW STEPS SOUTH SINCE TASK 243 AND THE TRUCKS STAND `BACK_STUDS` EAST OF THEIR BAYS**
+		-- (Karen: *"there has to be cars but looking at me ... but not close to house there has to be
+		-- distance"*). Same two facts as before, on the other axis: bay 1 is where it says it is, and
+		-- every bay after it is exactly one `BAY_GAP_STUDS` from the last.
 		it("parks the trucks in a row, a bay apart, starting where 177's one truck stood", function()
 			local templates = fakeTemplates()
 			local folder = Build.build(container, anchor, CFG, templates)
 			local previous = 0
 			for index = 1, CFG.TRUCK.COUNT do
 				local made = folder:FindFirstChild(string.format("Truck%d", index), true) :: Model
-				local x = made:GetPivot().Position.X
+				local at = made:GetPivot().Position
+				-- ONE x FOR THE WHOLE ROW, and it is the bay's own x pushed east by `BACK_STUDS`.
+				expect(math.abs(at.X - (anchor.X + CFG.TRUCK.OFFSET.X + CFG.TRUCK.BACK_STUDS)) < 0.01).to.equal(true)
 				if index == 1 then
-					expect(math.abs(x - (anchor.X + CFG.TRUCK.OFFSET.X)) < 0.01).to.equal(true)
+					expect(math.abs(at.Z - (anchor.Z + CFG.TRUCK.OFFSET.Z)) < 0.01).to.equal(true)
 				else
-					expect(math.abs((x - previous) - CFG.TRUCK.BAY_GAP_STUDS) < 0.01).to.equal(true)
+					expect(math.abs((previous - at.Z) - CFG.TRUCK.BAY_GAP_STUDS) < 0.01).to.equal(true)
 				end
-				previous = x
+				previous = at.Z
 			end
 			templates:Destroy()
 		end)
