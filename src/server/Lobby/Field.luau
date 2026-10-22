@@ -29,6 +29,14 @@
 -- Note:   docs/research/2026-10-13-lobby-and-the-truck.md (section 6)
 local Field = {}
 
+-- THE ENGINE'S TERRAIN VOXEL, and the only value `Terrain:ReplaceMaterial` accepts (task 244).
+--
+-- NAMED TWICE IN THIS REPOSITORY ON PURPOSE: `Places.Ground.RESOLUTION` is the same engine fact,
+-- and the two systems must not require each other -- a lobby that pulled in a drive place would be
+-- a require edge between two owners that have nothing to say to one another. `lobby.spec` asserts
+-- the two agree, so the duplication is CHECKED rather than trusted.
+Field.RESOLUTION = 4
+
 -- PURE. The CFrame and Size of the GRASS block: a solid slab whose TOP IS THE SHELF and whose bottom
 -- reaches `DEPTH_STUDS` below it, so it meets undisturbed ground even on the lowest corner.
 function Field.grassBlock(anchor: Vector3, shelfY: number, cfg): (CFrame, Vector3)
@@ -78,7 +86,7 @@ function Field.padRegion(anchor: Vector3, shelfY: number, pad, cfg): Region3
 	local above = cfg.FIELD.PAD_SKIN_ABOVE_STUDS
 	local min = Vector3.new(centre.X - pad.SIZE.X / 2, shelfY - pad.SIZE.Y, centre.Z - pad.SIZE.Z / 2)
 	local max = Vector3.new(centre.X + pad.SIZE.X / 2, shelfY + above, centre.Z + pad.SIZE.Z / 2)
-	return Region3.new(min, max):ExpandToGrid(4)
+	return Region3.new(min, max):ExpandToGrid(Field.RESOLUTION)
 end
 
 -- IS EVERY CORNER OF THIS BOX INSIDE THE FIELD'S OWN RECTANGLE? PURE, and it is the rule
@@ -170,7 +178,12 @@ function Field.fill(terrain: any, anchor: Vector3, shelfY: number, cfg): (number
 	-- fails loudly on the first build instead.
 	local replaced = 0
 	for _, pad in ipairs(cfg.FIELD.PADS) do
-		terrain:ReplaceMaterial(Field.padRegion(anchor, shelfY, pad, cfg), 4, cfg.FIELD.MATERIAL, pad.MATERIAL)
+		terrain:ReplaceMaterial(
+			Field.padRegion(anchor, shelfY, pad, cfg),
+			Field.RESOLUTION,
+			cfg.FIELD.MATERIAL,
+			pad.MATERIAL
+		)
 		replaced += 1
 	end
 	return calls, grassCalls, replaced

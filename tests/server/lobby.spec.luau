@@ -35,6 +35,10 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Join = Lobby.Join
 local Pads = Lobby.Pads
 local Field = Lobby.Field
+-- TASK 244: the ONE other system in this repository that calls `Terrain:ReplaceMaterial`, read here
+-- only so the engine's voxel resolution is asserted to be ONE number named twice rather than two
+-- numbers that happen to agree. The two owners do not -- and must not -- require each other.
+local Ground = require(ServerScriptService:WaitForChild("Places"):WaitForChild("Ground"))
 local Build = Lobby.Build
 
 local CFG = Data.CONFIG
@@ -1038,8 +1042,12 @@ return function()
 				-- laid in this rectangle by anything else keeps what it is.
 				expect(done.from).to.equal(CFG.FIELD.MATERIAL)
 				expect(done.to).to.equal(pad.MATERIAL)
-				-- THE ENGINE'S OWN RESOLUTION. `Terrain:ReplaceMaterial` takes 4 and nothing else.
-				expect(done.resolution).to.equal(4)
+				-- THE ENGINE'S OWN RESOLUTION. `Terrain:ReplaceMaterial` takes 4 and nothing else,
+				-- and `Places.Ground.RESOLUTION` is the same engine fact named in the one other
+				-- system that calls this API -- so the duplication is CHECKED and not trusted.
+				expect(done.resolution).to.equal(Field.RESOLUTION)
+				expect(Field.RESOLUTION).to.equal(4)
+				expect(Field.RESOLUTION).to.equal(Ground.RESOLUTION)
 				local region = Field.padRegion(anchor, shelf, pad, CFG)
 				expect(done.region.CFrame.Position).to.equal(region.CFrame.Position)
 				expect(done.region.Size).to.equal(region.Size)
