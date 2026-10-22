@@ -1,13 +1,59 @@
 # Review request — Task 244: four defects from Karen's evening test
 
 Task: 244
-Round: 1
+Round: 2
 Base: `d63f2535` (main, the merge of task 243 — PR #223)
-Code commit: `aa4cd7f5ce8c498d47d2259c02305b939df1ce93`
+Code commit: `0b72b550eea4c781a9a26813a5789cf00f092975`
 
 ```
-[harness] PASS: 34/34 checks @ aa4cd7f5ce8c498d47d2259c02305b939df1ce93 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 0b72b550eea4c781a9a26813a5789cf00f092975 (clean tree) scope=all
 ```
+
+## Round 1's blocking finding, and the Reviewer is right about every step of it
+
+**The case offered as proof of the headline fix never executed the changed line.** `PadPanel.start`
+opens with `if started then return end`, the live panel is already started, and the case passed
+verbatim with the fix reverted — so claim 1 below was, as written, unsupported by the suite. It
+drives a REAL start now, in `Hud.start`'s own order and the one that broke: `PadPanel.stop()`, then
+`setRemotes(fake)`, then `start(frame, { leaving = … })` with no `remotes` key in the bag — and
+`sendRoleWish` must send. Restoring `remotes = bag.remotes` turns it red. It asserts the other
+direction too (a bag that BRINGS remotes still wins, so every caller written before this is
+unchanged) and puts the live panel back, which the case above it already does for its own reason.
+
+**Five of the seven non-blocking notes are taken in the same commit**, because each is a comment or
+a claim that contradicts its own code:
+
+* `textFor` (`Hud.readoutFor`) still named the SELECTION where the chip names the CHAMBER. That
+  line IS the chip's content as one string, so a second answer there is the same lie in a quieter
+  place; it reads `Hud.chamberedAmmo` now.
+* the `ammoChipFor` comment named `weapon_client.spec`; the assertion is in `hud_style.spec`.
+* `Hud.NO_LOAD` and `chamberedAmmo` had been inserted INSIDE `ammoChipFor`'s doc block, leaving
+  that function with no header. Moved above it.
+* `lobby.spec`'s `fakeTerrain` still said *"One method"*; it answers two.
+* **THE RETRY IS A PURE RULE NOW** — `ShopDisplay.nextAsk(status, asked, since, now)`, one function
+  that `meshReady` and `preloadImage` both ask, with a table of every `AssetFetchStatus` in
+  `shop_panel.spec`. Deleting the re-arm turns that table red instead of leaving a counter that
+  cannot go down. **And it brought a real defect with it**, which is the Reviewer's sixth note: a
+  mesh that fails for good drew a `PreloadAsync` per piece per rebuild — four a second for as long
+  as the shop was open. The ask is on a per-id cool-down (`ShopDisplay.RETRY_SECONDS` = 3),
+  asserted longer than the `PICTURE_RETRY` it bounds.
+* **the key chip and the eyebrow were both FULL WIDTH at the same Y** with `TextTruncate.AtEnd`,
+  which hides a collision rather than preventing one. The row is split (`ROLE.KEY_PX` = 116) and
+  the spec asserts the two rectangles are disjoint — off the DECLARED `UDim2`s, which are written
+  synchronously, not off an absolute that a layout has not produced yet — and that neither word is
+  truncated at its measured `TextBounds`. MEASURED in the run: eyebrow 67 px of 176, key chip 68 px
+  of 116, gap 0.
+
+The two notes NOT taken are queued for the Director as 244a: `shop_panel.spec`'s *"never shows the
+glass"* exercises only the arm the DEV client's cache happens to be in (the invariant is what it
+asserts, and the fail-able half is the `Loading` label, its text and the `PICTURE_RETRY` bounds),
+and the `missing > 0` arm needs a client that can be made cold.
+
+**One more thing the gate found, and it is reported rather than hidden:** the first run after these
+fixes had ONE client failure and the next two had none. It was my own new case reading
+`AbsoluteSize` and `TextBounds` in the frame it had made the block visible in — both are a
+LAYOUT's answers, so they read 0 and `68 <= 0` is false. The disjoint claim moved to the declared
+rectangles and the not-truncated claim waits for its frame. Three clean runs since.
 
 `test2` is **N/A**: nothing this task touches is in `TWO_PLAYER_PATHS`. The files are
 `src/client/Hud/` (the pad dialog, the shop window, the readout), `src/{server,shared}/Lobby/`
@@ -17,7 +63,7 @@ five spec files changed is in that list either. The one-player line above is the
 review round **and** for the PR to `main`.
 
 `studio_mcp selftest`, `agents selftest` and `privacy_scan selftest` + `scan` all pass. `poses.json`
-is untouched, so `pose.py selftest` is not in play. CI green on the pushed head: run 39839143254,
+is untouched, so `pose.py selftest` is not in play. CI green on the pushed head: run 39844533710,
 `success`.
 
 **Everything below was measured on Karen's own path in the live Forest Test** (rule H), before any
