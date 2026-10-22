@@ -36,9 +36,19 @@ WHAT IS HERE, in order:
      own frame and turned a quarter to face WEST. The numbers are unchanged -- nose at -9.6,
      tailgate at +8.2, wheels at -6 and +4 -- only the axis they are laid on.
 
+THE FIVE VALUES THAT WENT WITH THESE BLOCKS AND ARE WRITTEN NOWHERE ELSE, quoted here for the same
+reason task 241's backup quotes its twenty-one hexes -- a drawing that has to be rolled back has
+nothing to roll back to otherwise:
+
+  CARD_VIEW  = { yawDeg = 15, pitchDeg = 9, pad = 1.18, rockDegrees = 17, rockSeconds = 9 }
+  INK        = Color3.fromHex("2C2A26")   the two lid ink bars' darker line
+  FIELD      = Color3.fromHex("9A9384")   the lid's second line, and the pin card's `CardInk2`
+  LODEN_DARK = Color3.fromHex("1B3220")   the pin card's inset
+  ENAMEL     = Color3.fromHex("1E4A2A")   the pin's green, at reflectance 0.06 (0.30 came out TAN)
+
 ROLLBACK: paste 1-3 back into `src/client/Hud/ShopDisplay.luau` and 4 into
-`src/server/Lobby/Build.luau`, restore `CARD_VIEW`, `INK`, `FIELD`, `LODEN_DARK` and `ENAMEL`, and
-point `ALWAYS_HUNTER`'s row back at `buildHunterPin` with `view = CARD_VIEW` and no `image`.
+`src/server/Lobby/Build.luau`, restore the five values above, and point `ALWAYS_HUNTER`'s row back at
+`buildHunterPin` with `view = CARD_VIEW` and no `image`.
 
 ================================================================================
 1 + 2: the standing licence card and the hunter's pin (ShopDisplay, section 2.7)

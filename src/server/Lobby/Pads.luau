@@ -118,8 +118,8 @@ end
 --
 -- x READS `PAD_BEHIND_STUDS` AS "FROM THE BAY CENTRE TO THE PAD'S NEAR EDGE", and that is a
 -- measurement rather than a reading of task 180's words. Task 180 wrote *"12 studs behind the
--- tailgate"* -- but there are TWO tailgates: the parts truck's `BedTail` face is at `+8.2` and the
--- free model is 18.5 studs long yawed a half turn, so its tail is at `+9.23`. A pad defined off
+-- tailgate"* -- but there are TWO tailgates: the parts truck's `BedTail` face is at `+8.2` of its
+-- own frame and the free model is 18.46 studs long, so its tail is at `+9.23`. A pad defined off
 -- "the tailgate" would therefore MOVE when a model is swapped. From the bay centre it does not, and
 -- it clears the tighter of the two by 3.77 studs -- task 213's own number, to the decimal.
 --

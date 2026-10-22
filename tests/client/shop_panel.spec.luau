@@ -1117,7 +1117,12 @@ return function()
 						-- ...AND NOTHING IS HIDDEN BY THE NEAR RIM. The sight line from a thing's
 						-- own TOP, at 25 degrees, has to clear the rim at the inner front wall --
 						-- which is the one test the two 0.016-thick documents can actually fail.
-						expect(high.Y + RIM_SIGHT * (innerFront - high.Z) >= RIM_TOP).to.equal(true)
+						-- THE SAME EPSILON AS EVERY OTHER BOUND IN THIS CASE, and here it is
+						-- load-bearing rather than tidy: `buildBundle` derives the LAST document's z
+						-- from exactly this expression, so without a tolerance the assertion lands
+						-- on float32 equality and any retune of `LICENCE.ASPECT`, the case sizes or
+						-- `SOLID_VIEW.pitchDeg` decides it at 1e-8.
+						expect(high.Y + RIM_SIGHT * (innerFront - high.Z) >= RIM_TOP - 0.01).to.equal(true)
 					end
 				end
 				expect(drawn).to.equal(#covers)
@@ -1252,7 +1257,10 @@ return function()
 				expect(math.abs(yaw) < 60).to.equal(true)
 			end
 			-- **NOT ONE SHIPPED ROW ROCKS**, and the three documents draw no model at all.
+			-- GATED ON `knows`, so a row dropped out of `DRAW` cannot silence this: `viewFor` answers
+			-- `SOLID_VIEW` for an id it has no opinion about, which would pass vacuously.
 			for _, id in ipairs(Shop.ORDER) do
+				expect(Display.knows(id)).to.equal(true)
 				expect(Display.viewFor(id).rockDegrees).to.equal(nil)
 			end
 			for _, id in ipairs({ Shop.ITEM.RED_STAG, Shop.ITEM.BEATER_LICENCE, Shop.ITEM.ALWAYS_HUNTER }) do

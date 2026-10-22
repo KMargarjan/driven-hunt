@@ -468,19 +468,33 @@ return function()
 			-- 91.2 and the arc's own x over the yard's z band runs 80.8 .. 89.1, ALL of it inside.
 			-- The ceiling is the SMALLEST `RADIUS * sin(a)` over every bearing whose
 			-- `RADIUS * cos(a)` falls in the band, and the yard has to stay below it.
+			-- **THE ARC IS SAMPLED AT ITS INNERMOST RADIUS**, `RADIUS_STUDS - JITTER_STUDS`, because
+			-- the jitter is what actually decides which trunks the exclusion can reach -- the
+			-- Designer's own 80.8 is that number and not the nominal arc's 89.9. `treeLine`'s own
+			-- `+ 4` exclusion margin is deliberately NOT folded in: it is slack the guard has always
+			-- carried, and the live build still plants 27 ring trees, the same count as before the
+			-- row turned.
 			local ceiling = math.huge
 			local steps = 2000
 			local spec = CFG.TREELINE
+			local inner = spec.RADIUS_STUDS - spec.JITTER_STUDS
 			for step = 0, steps do
 				local angle = spec.FROM_RADIANS + (spec.TO_RADIANS - spec.FROM_RADIANS) * (step / steps)
-				local z = anchor.Z + math.cos(angle) * spec.RADIUS_STUDS
-				local x = anchor.X + math.sin(angle) * spec.RADIUS_STUDS
+				local z = anchor.Z + math.cos(angle) * inner
+				local x = anchor.X + math.sin(angle) * inner
 				if x > anchor.X and math.abs(z - midZ) <= halfZ then
 					ceiling = math.min(ceiling, x)
 				end
 			end
 			expect(ceiling < math.huge).to.equal(true)
 			expect(midX + halfX < ceiling).to.equal(true)
+			TestKit.note(
+				string.format(
+					"lobby: the yard's east edge is %.2f against the tree arc's own ceiling of %.2f",
+					midX + halfX,
+					ceiling
+				)
+			)
 
 			-- **4. THE FENCE STOPS SOUTH OF THE GRAVEL**, by at least the yard's own lip. Forty
 			-- studs of post-and-rail stood inside the new yard until `FENCE.TO_Z` came south with
@@ -2344,6 +2358,62 @@ return function()
 			templates:Destroy()
 		end)
 
+		-- **ROUND 1'S BLOCKING FINDING 1, AS A CASE THAT FAILS WITHOUT THE FIX.** Task 243 turned the
+		-- parts-built fallback truck to face WEST and left `truckRig`'s no-lamp branch asserting
+		-- `facing = (0, 0, -1)`, so on that branch -- which is the one EVERY spec and every world
+		-- without `Workspace.LobbyAssets.Truck` takes -- the headlamps were built on the truck's
+		-- south FLANK, the beams were aimed sideways across the bays, and `lengthHalf` read the
+		-- WIDTH half and hung the exhaust and the engine off the wrong end.
+		--
+		-- IT IS ASSERTED AGAINST THE TRUCK'S OWN BONNET and never against an axis named here, so the
+		-- next turn of the yard cannot let the two drift apart again: the direction is measured from
+		-- the built `Bumper` out of the built box, and the head lenses have to be on that side of
+		-- the centre and the tail lenses on the other.
+		it("builds the fallback truck's own lamps at its own bonnet, not at a named axis", function()
+			local folder = Build.build(container, anchor, CFG, nil)
+			local made = folder:FindFirstChild("Truck1", true)
+			expect(made).to.be.ok()
+			local centre = Build.worldBoxOf(made :: Instance)
+			local bumper = (made :: Instance):FindFirstChild("Bumper") :: BasePart
+			expect(bumper).to.be.ok()
+			-- THE NOSE, as a direction, out of the geometry `Build.truck` actually built.
+			local nose = ((bumper.Position - centre) * Vector3.new(1, 0, 1)).Unit
+			local heads, tails = 0, 0
+			for _, descendant in ipairs((made :: Instance):GetDescendants()) do
+				if descendant:IsA("BasePart") then
+					local piece = descendant :: BasePart
+					local ahead = nose:Dot((piece.Position - centre) * Vector3.new(1, 0, 1))
+					if string.match(piece.Name, "^HeadLamp%d$") then
+						heads += 1
+						expect(ahead > 0).to.equal(true)
+						-- ...AND IT IS OUT AT THE NOSE rather than merely on the right half: past
+						-- the bumper's own reach, which is where a lens belongs.
+						expect(ahead >= nose:Dot((bumper.Position - centre) * Vector3.new(1, 0, 1)) - 0.01).to.equal(
+							true
+						)
+						-- ...AND THE PART IS TURNED WITH THE TRUCK: a lens is written depth-last, so
+						-- its own `-Z` face has to be on the nose and not on world `-z`.
+						expect(piece.CFrame.LookVector:Dot(nose) > 0.99).to.equal(true)
+					elseif string.match(piece.Name, "^TailLamp%d$") then
+						tails += 1
+						expect(ahead < 0).to.equal(true)
+					end
+				end
+			end
+			-- TWO OF EACH, and `Build.isHeadLamp` still tells them apart by colour alone.
+			expect(heads).to.equal(2)
+			expect(tails).to.equal(2)
+			-- THE TWO HEAD LENSES ARE A PAIR ACROSS THE TRUCK, which is the other half of "at the
+			-- nose": one lamp in the middle of the bonnet would pass every test above.
+			local across = Vector3.new(-nose.Z, 0, nose.X)
+			local lensA = (made :: Instance):FindFirstChild("HeadLamp1") :: BasePart
+			local lensB = (made :: Instance):FindFirstChild("HeadLamp2") :: BasePart
+			local sideA = across:Dot((lensA.Position - centre) * Vector3.new(1, 0, 1))
+			local sideB = across:Dot((lensB.Position - centre) * Vector3.new(1, 0, 1))
+			expect(sideA * sideB < 0).to.equal(true)
+			expect(math.abs(sideA - sideB) > 1).to.equal(true)
+		end)
+
 		it("stands every free model ON the shelf, not in it and not over it", function()
 			local templates = fakeTemplates()
 			local folder = Build.build(container, anchor, CFG, templates)
@@ -2782,12 +2852,17 @@ return function()
 			-- the spawn pad at knee height. Nothing bounded it: the field rectangle is 110 studs away.
 			--
 			-- The bound is the YARD'S southern edge, because everything the fence must not reach --
-			-- the yard, the circle, the porch, the spawn, the lodge -- is north of it.
+			-- the yard, the circle, the porch, the spawn, the lodge -- is north of it. **IT IS ASKED
+			-- OF `Build.yardRect` SINCE TASK 243** and not written as `OFFSET.Z - 22`: that literal
+			-- was the old east-stepping yard's half-depth, and when the row turned south the real
+			-- edge went from z +2 to z -44, leaving the bound 46 studs out of step with the sentence
+			-- above it.
 			for _, withModels in ipairs({ true, false }) do
 				local templates = if withModels then fakeTemplates() else nil
 				local folder = Build.build(container, anchor, CFG, templates)
 				local room = Build.roomFor(anchor, CFG)
-				local yardSouth = anchor.Z + CFG.TRUCK.OFFSET.Z - 22
+				local _, _, yardMidZ, yardHalfZ = Build.yardRect(anchor, CFG)
+				local yardSouth = yardMidZ - yardHalfZ
 				local fences = folder:FindFirstChild("Fences")
 				expect(fences).to.be.ok()
 				local pieces = 0

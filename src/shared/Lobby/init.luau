@@ -996,11 +996,19 @@ Lobby.CONFIG = {
 		-- studs of "distance".
 		--
 		-- 58 / 24 TURNS THE ROW NINETY DEGREES AND MOVES IT OUT TO THE TREES. The bays step south,
-		-- the trucks are yawed a HALF turn so their noses face west at the player, and the walk from
+		-- the trucks' noses face WEST at the player (`MODEL.YAW_RADIANS` 0 -- see its own row, which
+		-- carries the measurement that says why the turn is zero), and the walk from
 		-- the steps to pad 1 goes from 27.0 studs to 47.2. Everything the pads and the yard are
 		-- derived from -- `BAY_GAP_STUDS`, `BACK_STUDS`, `PAD_BEHIND_STUDS` -- KEEPS ITS VALUE and
 		-- changes only the axis it applies to.
 		OFFSET = Vector3.new(58, 0, 24),
+		-- **THE PARTS-BUILT FALLBACK TRUCK'S NOMINAL BOX, AND NOTHING ELSE READS IT.** `Build.truck`
+		-- does not read it either -- that function's own numbers are task 177's -- and the free model
+		-- the lobby actually parks is `MODEL.WIDTH_STUDS` x `MODEL.LENGTH_STUDS`, which is what every
+		-- clearance in this file and in `lobby.spec` is written against. Its z-long shape is the row's
+		-- OLD axis and task 243 did not turn it, because turning a number nothing reads would be a
+		-- second answer to "how long is a truck". Kept rather than deleted (rule 7): it is the box
+		-- task 177 drew its one truck to, and the fallback is still built to those proportions.
 		SIZE = Vector3.new(7, 7, 16),
 		WHEELS = 4,
 		COLOR = Color3.fromRGB(46, 62, 44), -- hunting green
@@ -1050,8 +1058,8 @@ Lobby.CONFIG = {
 		-- the same box.
 		-- `WIDTH_STUDS` AND `LENGTH_STUDS` KEEP THEIR MEASURED VALUES AND SWAP AXES with the yaw:
 		-- length is along **x** now (nose to tailgate, pointing west) and width along **z** (across
-		-- the bays). They are the same two numbers off the same measured model -- a half turn from a
-		-- quarter turn is still a quarter turn of the box.
+		-- the bays). They are the same two numbers off the same measured model -- from a quarter
+		-- turn to none is still a quarter turn OF THE BOX, which is all these two describe.
 		MODEL = { SCALE = 1, YAW_RADIANS = 0, WIDTH_STUDS = 8.7, LENGTH_STUDS = 18.46 },
 		-- ---------------- HOW FAR THE TRUCK STANDS FROM ITS PAD (tasks 209 and 213)
 		--

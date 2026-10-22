@@ -1452,9 +1452,16 @@ local function buildBundle(parent: Model, id: string)
 		-- STONE rather than cloth -- the biggest single area in the picture, under a gun this task
 		-- exists to make findable. It is the same measurement `TRUCK.CAMO.BODY_MATERIAL` records
 		-- (*"the shot came back with four BLACK trucks ... `Fabric`'s own weave is dark enough to
-		-- swallow an olive at this scale"*) and task 228's own note on this file. The STRAP and the
-		-- LID PANEL keep `Fabric`: they are narrow bands where the weave reads as texture rather
-		-- than as noise, and a strap is the one thing in the case that should look woven.
+		-- swallow an olive at this scale"*) and task 228's own note on this file.
+		--
+		-- **AND THE STRAP AND THE LID PANEL WENT THE SAME WAY, IN THE SAME PAIR OF FRAMES.** The strap
+		-- is named in this file as the package's ONE SIGNATURE -- the thing that tells the three apart
+		-- before a word is read -- and in burgundy `Fabric` it came out MOTTLED PURPLE across the whole
+		-- front rim. A signature that reads as noise is not a signature. So **nothing in this case is
+		-- `Fabric` any more**: not the lining, not the strap, not the lid's cloth panel and not the
+		-- chocks. The panel is still a cloth panel in a timber frame -- that is what the inset and the
+		-- two colours say -- it is simply painted rather than woven, because at 356 x 200 the weave is
+		-- not texture, it is dirt.
 		{
 			name = "CaseLining",
 			size = Vector3.new(w - 2 * CASE_WALL, CASE_LINING, d - 2 * CASE_WALL),
@@ -1498,7 +1505,8 @@ local function buildBundle(parent: Model, id: string)
 			material = wood,
 		},
 		-- FILLED EDGE TO EDGE WITH ONE HUE A LID READS AS A PAINTED WALL; the frame is what makes it
-		-- a lid. So the cloth is inset and the timber shows all round it.
+		-- a lid. So the panel is inset and the timber shows all round it, and it is `SmoothPlastic`
+		-- like everything else in this case -- `CaseLining` above carries the frames that decided it.
 		{
 			name = "CaseLidPanel",
 			size = Vector3.new(w - LID_PANEL_INSET, 0.014, LID_DEEP - LID_PANEL_INSET / 2),

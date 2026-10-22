@@ -3181,13 +3181,15 @@ end
 -- EVERY LAMP OF ONE TRUCK, SPLIT INTO HEADS AND TAILS, and WHICH WAY THE TRUCK FACES.
 --
 -- THE WHITE PAIR *IS* THE FRONT, whichever end of the box it sits on, and that is the one thing in
--- this task that could not be taken from a comment. `CONFIG.TRUCK`'s own header says the free model
--- *"is delivered pointing along its own +X"* and is given a quarter turn because *"the yard wants it
--- pointing SOUTH"* -- but the lamps measure the other way round: the headlights are at the model's
--- local **-X**, so after `YAW_RADIANS` they look NORTH, up the yard, and `Build.truck`'s fallback
--- (bonnet at `at.Z - 7.4`) looks SOUTH. Two branches, two fronts. So nothing here reads a config
+-- this task that could not be taken from a comment. `CONFIG.TRUCK`'s own header SAID the free model
+-- *"is delivered pointing along its own +X"* from task 180 until task 243, and was wrong: the lamps
+-- measure the other way round, and task 243 measured them again on a built truck -- the headlights
+-- are at the model's local **-X**, so at `YAW_RADIANS` 0 they look WEST, at the pads. (`Build.truck`'s
+-- fallback is built nose-west too, and ITS branch asserts that heading rather than measuring it,
+-- because this file builds that geometry itself twenty lines below.) So nothing here reads a config
 -- heading at all: the direction is measured from the truck's own centre out through its own white
--- lamps, and both branches come out right by construction.
+-- lamps, and both branches come out right by construction -- which is why the config row being wrong
+-- for three tasks cost nothing but a comment.
 --
 -- A TAIL IS A LAMP ON THE FAR HALF FROM THE HEADS, which is a POSITION test and not a colour test.
 -- The model's amber indicators are the same hue family as its tail lights and sit at the FRONT; a
@@ -3313,24 +3315,41 @@ local function truckRig(model: Instance, cfg): TruckRig
 	local heads, tails, facing = lampsOf(model, cfg)
 
 	if facing == nil then
-		-- NO LAMPS: build four. `Build.truck`'s fallback points its bonnet at `at.Z - 7.4`, so this
-		-- branch's front is -Z -- the one place in this file a heading is asserted rather than
-		-- measured, and it is asserted about geometry THIS FILE builds twenty lines up.
-		facing = Vector3.new(0, 0, -1)
+		-- NO LAMPS: build four. `Build.truck`'s fallback points its bonnet at `at.X - 7.4` **since
+		-- task 243 turned the row west**, so this branch's front is `-X` -- the one place in this
+		-- file a heading is asserted rather than measured, and it is asserted about geometry THIS
+		-- FILE builds twenty lines up.
+		--
+		-- **IT WAS `(0, 0, -1)` UNTIL TASK 243 AND THAT WAS THE WHOLE OF ROUND 1's FINDING 1.** The
+		-- fallback truck turned and its rig did not, which put its headlamps on its SOUTH FLANK,
+		-- aimed its beams sideways across the bays and -- through `lengthHalf`, which reads
+		-- `|look.X| * half.X + |look.Z| * half.Z` -- hung its exhaust and its engine off the wrong
+		-- half of the box. So nothing below names an axis any more: the lenses are placed ALONG
+		-- `facing` and ACROSS its perpendicular, out of the box's own extents on those two
+		-- directions, and the next turn of the yard needs this constant changed and nothing else.
+		facing = Vector3.new(-1, 0, 0)
+		local look = facing :: Vector3
+		local across = Vector3.new(-look.Z, 0, look.X)
+		local lengthHalf = math.abs(look.X) * half.X + math.abs(look.Z) * half.Z
+		local widthHalf = math.abs(across.X) * half.X + math.abs(across.Z) * half.Z
 		local y = centre.Y - half.Y + 2 * half.Y * spec.LENS_HEIGHT_FRACTION
 		for _, row in ipairs({
-			{ name = "HeadLamp", at = facing, colour = spec.HEAD_OFF_COLOR, head = true },
-			{ name = "TailLamp", at = -facing, colour = spec.TAIL_OFF_COLOR, head = false },
+			{ name = "HeadLamp", sign = 1, colour = spec.HEAD_OFF_COLOR, head = true },
+			{ name = "TailLamp", sign = -1, colour = spec.TAIL_OFF_COLOR, head = false },
 		}) do
 			for index, way in ipairs({ -1, 1 }) do
+				local along = look * (row.sign * (lengthHalf + spec.LENS_STUDS.Z / 2))
+				local side = across * (way * widthHalf * spec.LENS_SIDE_FRACTION)
+				local at = Vector3.new(centre.X + along.X + side.X, y, centre.Z + along.Z + side.Z)
+				-- **THE LENS IS TURNED WITH THE TRUCK TOO.** `LENS_STUDS` is written depth-last --
+				-- its `Z` is the depth along the truck's length -- and a part built with a bare
+				-- `CFrame.new` would lay that depth along WORLD z whichever way the truck points.
+				-- `CFrame.lookAt` puts a part's own `-Z` face on the direction it is given, which
+				-- is the one place in this file that mapping has to be written.
 				local lens = part(
 					string.format("%s%d", row.name, index),
 					spec.LENS_STUDS,
-					CFrame.new(
-						centre.X + way * half.X * spec.LENS_SIDE_FRACTION,
-						y,
-						centre.Z + row.at.Z * (half.Z + spec.LENS_STUDS.Z / 2)
-					),
+					CFrame.lookAt(at, at + look),
 					row.colour,
 					Enum.Material.Neon,
 					false,
@@ -3791,8 +3810,9 @@ local function pad(
 	numeral.TextColor3 = colour
 	numeral.TextTransparency = config.DECK.TRANSPARENCY
 	-- **THE GLYPH'S TOP POINTS AWAY FROM THE MAN WALKING UP TO IT.** A `SurfaceGui` on a `Top` face
-	-- draws with its own up along the part's `-z`; the walk to a pad comes from the WEST, so the
-	-- numeral is turned a quarter to read upright from there rather than side-on.
+	-- draws with its own up pointing WEST -- toward the man walking out of the lodge, which draws
+	-- the numeral upside down to him -- so it is turned a HALF (`DECK.ROTATION_DEGREES`, which
+	-- carries the measurement). Looked at at 0, 90 and 180 in the live place before it was written.
 	numeral.Rotation = config.DECK.ROTATION_DEGREES
 	numeral.Text = tostring(index)
 	-- THE SAME BLACK OUTLINE EVERY LABEL IN THIS GAME WEARS (`ShopPanel.label`, `boardLabel` below),

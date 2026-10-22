@@ -641,7 +641,8 @@ end
 -- empty.
 --
 -- ONE PASS AND NOT ONE PER PAD: each man is tested until a pad matches, and `BAY_GAP_STUDS` 17
--- against `SIZE.X` 9 leaves 8 studs between them, so he cannot be inside two and the first match is
+-- against `SIZE.Z` 9 leaves 8 studs between them -- it was `SIZE.X` until task 243 swapped the
+-- pad's two axes, and the 8 is unchanged -- so he cannot be inside two and the first match is
 -- the only match.
 --
 -- `arrived` IS MAINTAINED HERE because this is the one place that knows he has just stepped on. It
