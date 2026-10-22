@@ -1,20 +1,53 @@
 # Review request — Task 243: the last shop goods and the lobby truck yard
 
 Task: 243
-Round: 1
+Round: 2
 Base: `3a4d7e43` (main, the merge of task 242 — PR #222)
-Code commit: `94f2aa7d5450a9038d4c015576cfae1a9dee5702`
+Code commit: `f15e64255016060c9c21a8d1fada39625293ff0f`
 
 ```
-[harness] PASS: 34/34 checks @ 94f2aa7d5450a9038d4c015576cfae1a9dee5702 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ f15e64255016060c9c21a8d1fada39625293ff0f (clean tree) scope=all
 ```
+
+(`f15e6425` is the commit that committed round 1's verdict; the last commit that changed `src/`
+or `tests/` is `f12dc481` and the only thing between them is `reviews/task-243/RESULT.md`.)
 
 `test2` is **N/A**: nothing this task touches is in `TWO_PLAYER_PATHS` (`src/shared/Lobby/`,
 `src/server/Lobby/`, `src/client/Hud/ShopDisplay.luau` and their two specs — the lobby, the shop
 window and the yard, none of which is the match, the drive, the tie or the teams). The one-player
 line above is the whole gate for a review round and for the PR to `main`. `studio_mcp`, `agents` and
 `privacy_scan` selftests all pass; `poses.json` is untouched, so `pose.py selftest` is not in play.
-CI run 39814662336.
+CI green: runs 39814662336 and 39815040767, both `success`.
+
+## Round 1's two blocking findings, and what they cost
+
+**Finding 1 was a real defect and the Reviewer is right about every step of it.** Task 243 turned
+`Build.truck` -- the parts-built FALLBACK, which is the branch every spec and every world without
+`Workspace.LobbyAssets.Truck` takes -- and left `truckRig`'s no-lamp branch asserting
+`facing = (0, 0, -1)`. So on that branch the headlamps were built on the truck's south FLANK, the
+beams were aimed sideways across the bays, and `lengthHalf` read the WIDTH half of the box and hung
+the exhaust and the engine off the wrong end. Fixed, and **nothing below that constant names an axis
+any more**: the lenses are placed ALONG `facing` and ACROSS its perpendicular out of the box's own
+extents, and each lens is turned with `CFrame.lookAt` so its depth lies along the nose rather than
+along world z. The case the Reviewer asked for is `lobby.spec`, *"builds the fallback truck's own
+lamps at its own bonnet, not at a named axis"* -- written against the built `Bumper` and never
+against an axis named in the test, so the two cannot drift apart again.
+
+**Finding 2 was a comment that contradicted its own code**, and the code was right: in burgundy
+`Fabric` the strap came out MOTTLED PURPLE across the whole front rim. `CaseLining`'s paragraph now
+says what shipped -- nothing in this case is `Fabric` any more -- and claim 5 below says the same.
+
+**Nine of the eleven non-blocking notes are taken in the same commit**, because every one is a
+comment or a literal that contradicts the code it sits on, and leaving those to a later round is how
+the next reader is misled: `lampsOf`'s two-generations-stale header, three rows still calling the
+yaw a HALF turn, the deck numeral's "quarter", `TRUCK.SIZE` (now readerless -- kept under rule 7 and
+said to be the fallback's nominal box), the pad-scan header's `SIZE.X`, the fence case's `-22`
+literal (derived from `Build.yardRect` now), the tree-arc ceiling (sampled at the arc's INNERMOST
+radius, so the bound is the one the comment claims), the rim-sight assertion's missing epsilon, and
+the rock case gated on `knows`. The archive now quotes the five values it is the only record of.
+**The two left are queued**, in `TASKS.md` as 243a: `docs/design/truck-pads.md` and
+`docs/design/lobby.md` both contradict the shipped yard wholesale, and the Builder does not write
+designs (task 242a(d)'s settled rule) -- one Architect run covers both.
 
 ## What changed
 
@@ -79,15 +112,17 @@ never a shrunken one.
 *Verify:* the spec asserts `Display.build(UNLIMITED_AMMO, "lite")` is 3 + 3 parts and that every
 `Carton%d` is exactly 1.00 × 0.70 × 0.32. `buildAmmoStack`'s own comment carries the arithmetic.
 
-**5. `Fabric` leaves the package case, and that was photographed.**
-The lining, the strap and the lid cloth were `Fabric`. At the real 356 × 200 the lining came out as
-mottled dark STONE and the burgundy strap as mottled purple — the same measurement
-`TRUCK.CAMO.BODY_MATERIAL` already records for this game's materials (*"the shot came back with four
-BLACK trucks"*). It is the biggest area in the picture, under a gun this task exists to make
-findable.
-*Verify:* the before/after pair is `.screenshots/243-goods-marksman.png` (the first cut of it is
-described in `CaseLining`'s comment); the chocks lost `Fabric` with them and `local fabric` is gone
-from the function.
+**5. NOTHING IN THE PACKAGE CASE IS `Fabric` ANY MORE, and that was photographed.**
+The lining, the strap, the lid's cloth panel and the chocks were all `Fabric`. At the real 356 × 200
+the lining came out as mottled dark STONE and the burgundy strap as mottled purple — the same
+measurement `TRUCK.CAMO.BODY_MATERIAL` already records for this game's materials (*"the shot came
+back with four BLACK trucks"*). The lining is the biggest area in the picture, under a gun this task
+exists to make findable; the strap is the package's ONE SIGNATURE, the thing that tells the three
+apart before a word is read.
+*Verify:* `local fabric` is gone from `buildBundle` and no row in it carries a `material` but the
+timber ones. The before/after pair is `.screenshots/243-goods-marksman.png`, and `CaseLining`'s
+header carries both halves of the decision — round 1 found that paragraph asserting the opposite of
+its own code, which is finding 2.
 
 **6. The yard turns ninety degrees and SIX config rows keep their value.**
 `TRUCK.OFFSET` `(26, 0, 18)` → `(58, 0, 24)`; the bays step SOUTH (`Build.trucks`), the pads sit WEST
@@ -139,8 +174,13 @@ the real anchor (2850, −2950) the four absolute edges then land on 2808 / 2948
 one a multiple of 4, where `Terrain:FillBlock` writes 4-stud voxels and task 191 measured two grass
 voxels surviving at a misaligned edge. The SIZE is untouched.
 *Verify:* `lobby.spec`, `"keeps the turned yard off the fence, off the grove and inside the tree
-line (task 243)"` — all six, including the voxel grid asserted at the REAL anchor. Live: 27 ring
-trees and 12 grove trees, the same counts as before the move.
+line (task 243)"` — all six, including the voxel grid asserted at the REAL anchor. The ceiling is
+sampled at the arc's INNERMOST radius (`RADIUS_STUDS - JITTER_STUDS`), which is what decides which
+trunks the exclusion can actually reach, and the case prints the pair it measured:
+`lobby: the yard's east edge is 79.23 against the tree arc's own ceiling of 79.75`. **That is 0.52
+studs of margin and it is the tightest number in this task** — a bay moved three studs further east
+would start deleting wood from behind the trucks. Live: 27 ring trees and 12 grove trees, the same
+counts as before the move.
 
 **10. "Clean a bit lobby": the five things, and the one that needed finding.**
 The hot-pink panel on each truck's rear quarter is painted out; the spawn pad is invisible
