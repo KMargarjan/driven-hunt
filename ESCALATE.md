@@ -1,5 +1,52 @@
 # Escalations
 
+## 2026-10-22 - Task 242 (four fixes from Karen's test): **`NEEDS DIRECTOR` -- the two-player run.**
+
+**The code is done, committed and pushed, and the one-player gate is green on the code commit:**
+
+```
+[harness] PASS: 34/34 checks @ bba4763d34ab3ba83d08edaf58754f52a81d6392 (clean tree) scope=all
+```
+
+**Why it stops here.** Item 1 (the beater choice) changes `src/server/Match/Roster.luau`, which is in
+`TWO_PLAYER_PATHS`, so `tools/agents.py` refuses the review round itself until the request pastes a
+`[harness2] PASS` line for that same commit. A `--scope auto` run would not help: `src/shared/Shop/`
+and `src/server/Economy/` are not in `BLAST_RADIUS`, so an auto scope resolves to `all` and is
+tagged `scope=all`, which is full evidence and therefore still asks for `[harness2]`. The dispatch
+says so in as many words: *"This touches the match and the teams, so test2 is needed: stop with
+NEEDS DIRECTOR for it."*
+
+**The exact steps, in order:**
+
+1. `git switch task-242-play-fixes && git pull` in `<repo>` -- the branch head is `bba4763d` plus
+   this paperwork commit, and both are paperwork-only after the code commit, which is what the merge
+   gate bounds.
+2. DEV Studio open on `Driven Hunt DEV`, in **Edit**, Rojo connected. The Forest Test window is
+   CLOSED -- this session closed it before the gate, and the harness log says DEV.
+3. `python tools/studio_mcp.py test2`
+4. When it asks: **F7** (Test -> Server and Clients; Karen's saved setting is 2 players) and, at the
+   end, **End Session** in the `Server - ...` window. `<runs-dir>/studio-key.ps1 F7` and
+   `<runs-dir>/studio-key.ps1 EndSession` do both without a human.
+5. Paste the `[harness2] PASS: n/m checks @ bba4763d34ab3ba83d08edaf58754f52a81d6392 (clean tree)`
+   line back to the Builder, which writes `reviews/task-242/REQUEST.md` with both lines in it and
+   runs `tools/review.sh 242`.
+
+**The Builder can do steps 3-4 itself** with `studio-key.ps1`, exactly as the task 36 dispatch told
+it to. It did not, because this dispatch said to stop. One word either way.
+
+**What the two-player run is actually for here**, so the result can be read rather than just
+counted: the roster. `match_roster.spec` and `match_phase.spec` assert the new rule purely at every
+size from 1 to 16, and the Forest Test proved the SOLO path end to end on Karen's own path -- she
+bought the licence, pressed BEATER, picked 1 / 1, and beat the drive with four bot hunters on the
+stands. What one player cannot answer is what the drive does with a SECOND man when one of them has
+asked to beat, which is the one question `test2` exists for.
+
+**One honest caveat, also queued as TASKS.md 242a(c):** the client suite is INTERMITTENT on this
+branch -- four runs of the SAME commit gave PASS, FAIL, PASS, FAIL. The one failure that could be
+identified is `camera_client.spec:1618` (task 93, hand templates), and nothing on this branch touches
+hands, hand templates or the camera. If `test2` comes back red, read the failing case before reading
+it as this task's.
+
 ## 2026-10-22 - Task 240 (the red deer feel right): **ONE `NEEDS KAREN`, not blocking.** The work is complete and shipped with the best voice the Roblox audio library actually has.
 
 **`NEEDS KAREN`: a real red-deer recording is an UPLOAD, and the licence is her call.**
