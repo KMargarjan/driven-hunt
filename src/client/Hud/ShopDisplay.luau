@@ -10,9 +10,17 @@
 --
 --   ViewportFrame  https://create.roblox.com/docs/reference/engine/classes/ViewportFrame
 --     A `ViewportFrame` renders its own descendant parts through its own `CurrentCamera`, with its
---     own light direction and ambient colour. Mesh parts, colours and materials render; Terrain,
---     particles and `SurfaceGui` do NOT -- which is why the licence card below is drawn out of
---     coloured blocks rather than out of text on a surface.
+--     own light direction and ambient colour. Mesh parts, colours and materials render, and so do
+--     `Decal`s; Terrain, particles and `SurfaceGui` do NOT.
+--
+-- **TASK 241: THE PRINT IS ART NOW.** Karen, 2026-10-22: *"Slug shells has to be more releastic and
+-- package smae with unlimited ammo / All things like beater license Deer license has to be clear and
+-- nice"*. Every printed line in this file used to be a 3-px `Part`, because a `SurfaceGui` does not
+-- render in a `ViewportFrame` -- but a `Decal` does. So the ammo keeps its real label on a real
+-- carton, and the two licences leave the viewport altogether and become flat images over the case,
+-- because a document has to be READ. The split, the geometry and the readability proofs are the
+-- Designer's `goods-spec.md` (2026-10-22, `<runs-dir>/design/`), and section 3.5 of it is one
+-- function here: `ShopDisplay.dressLicenceImage`.
 --
 -- THIS REPO HAS TWICE DECIDED AGAINST A `ViewportFrame` AND NEITHER REASON APPLIES HERE.
 -- `Hud.MapUi` refused one because *"a `ViewportFrame` cannot render Terrain"* and a map is terrain;
@@ -85,12 +93,16 @@ export type View = {
 local RIFLE_VIEW: View = { yawDeg = 96, pitchDeg = 16 }
 local SOLID_VIEW: View = { yawDeg = 34, pitchDeg = 25 }
 local CARD_VIEW: View = { yawDeg = 15, pitchDeg = 9, pad = 1.18, rockDegrees = 17, rockSeconds = 9 }
--- TASK 228 (shop2 spec 2.3). `BOOK_VIEW` is for the two licences: a shade more pitch than
--- `CARD_VIEW` so you LOOK DOWN INTO an open booklet, and a slower, shorter rock so the print never
--- smears. `TALL_VIEW` is for the high seat -- the thing is 2.3 studs tall and about 1 wide, and
+-- `TALL_VIEW` is for the high seat (task 228) -- the thing is 2.3 studs tall and about 1 wide, and
 -- `SOLID_VIEW`'s 25 degrees of pitch would squash it into a deck seen from above, which is exactly
 -- what `.screenshots/228-before-access-highseat.png` shows.
-local BOOK_VIEW: View = { yawDeg = 13, pitchDeg = 14, pad = 1.14, rockDegrees = 15, rockSeconds = 10 }
+--
+-- **`BOOK_VIEW` IS GONE (task 241)**, with the open-booklet licences it was written for: yaw 13,
+-- pitch 14, pad 1.14, rocking 15 degrees in ten seconds. A licence is a flat image over the case
+-- now and has no camera at all, so a view nothing points at would be a number waiting to be
+-- believed. It is in `backups/2026-10-22_task-241_*` with the drawing it framed, and
+-- `goods-spec.md` section 4 carries the `DOC_VIEW` that would replace it if the licences ever go
+-- back into the viewport.
 local TALL_VIEW: View = { yawDeg = 30, pitchDeg = 11, pad = 1.12 }
 
 -- HOW BIG THE ITEM IS AS THE CAMERA SEES IT: half its width and half its height on the camera's own
@@ -331,7 +343,29 @@ type Piece = {
 	-- TASK 228 (shop2 spec 2.1): three lines, and *"it is the difference between enamel and
 	-- plastic"*. Enamel, glass and brass want it; everything else leaves it at 0.
 	reflectance: number?,
+	-- TASK 241: ONE `Decal` PER FACE, keyed by Roblox's OWN `NormalId` and not by a word of ours --
+	-- so the `Back`-is-`+z` trap section 2.5 writes out is read straight off the key. This is how a
+	-- line of real type gets into a `ViewportFrame` at all: a `SurfaceGui` does not render in one.
+	decals: { [Enum.NormalId]: string }?,
 }
+
+-- ASK FOR AN IMAGE ONCE PER SESSION, AND NEVER AGAIN. An unloaded `Decal` draws NOTHING, which on a
+-- carton is a blank green wall -- the same failure mode `meshReady` above exists for, in the one
+-- form a texture has. `ContentProvider:PreloadAsync` yields, so it goes on its own thread; nothing
+-- here waits for it, and the engine draws the image the moment it lands.
+local askedImage: { [string]: boolean } = {}
+
+local function preloadImage(holder: Instance, image: string)
+	if askedImage[image] then
+		return
+	end
+	askedImage[image] = true
+	task.spawn(function()
+		pcall(function()
+			ContentProvider:PreloadAsync({ holder })
+		end)
+	end)
+end
 
 local function place(parent: Model, piece: Piece)
 	local part = Instance.new("Part")
@@ -344,6 +378,16 @@ local function place(parent: Model, piece: Piece)
 	part.Material = piece.material or Enum.Material.SmoothPlastic
 	part.Transparency = piece.transparency or 0
 	part.Reflectance = piece.reflectance or 0
+	if piece.decals ~= nil then
+		for face, image in pairs(piece.decals :: { [Enum.NormalId]: string }) do
+			local decal = Instance.new("Decal")
+			decal.Name = string.format("%s%s", piece.name, face.Name)
+			decal.Face = face
+			decal.Texture = image
+			decal.Parent = part
+			preloadImage(decal, image)
+		end
+	end
 	dress(part)
 	part.Parent = parent
 	return part
@@ -365,7 +409,6 @@ local FIELD = Color3.fromHex("9A9384")
 local CREAM = Color3.fromHex("EDE4CE")
 local LODEN = Color3.fromHex("27452E")
 local BRASS = Color3.fromHex("C8A258")
-local STAMP = Color3.fromHex("9B3A32")
 -- TASK 221's THREE: the weathered timber a high seat is built of (`HighSeats.COLORS`' own two, which
 -- were chosen against the lodge's logs and looked at in the live place), and the hunters' orange,
 -- which is `Style.LOOK.BLAZE` -- named here rather than required, because this module draws PARTS
@@ -374,861 +417,380 @@ local TIMBER = Color3.fromHex("8A7A5E")
 local TIMBER_DARK = Color3.fromHex("6B5E47")
 local BLAZE = Color3.fromHex("E2641B")
 
--- TASK 228: the shop2 spec's section 2.2.
+-- TASK 228: the shop2 spec's section 2.2. **WHAT IS LEFT OF IT**, after task 241 replaced the two
+-- booklet licences, the ten-round tray and the bandolier with the Designer's `goods-spec.md`: the
+-- cover cloths that still dress a package's strap and the pin's inset, and the pin's own enamel.
+-- The twenty-one hexes that went with the deleted builders -- the paper, the guilloche, the stag,
+-- the horn's brass, the beater's orange, the bandolier's leather, the old hull and head and the
+-- carton's shadowed wall -- are in `backups/2026-10-22_task-241_*`, with the drawings they were
+-- mixed for. The ammunition's own colours are the Designer's new ones, in section 2.5.
 local BURGUNDY = Color3.fromHex("6E1F22") -- the deer licence's cover cloth
-local OXBLOOD = Color3.fromHex("4A1416") -- its inset panel and its shadowed edge
-local LODEN_DARK = Color3.fromHex("1B3220") -- the beater licence's and the pin card's inset
-local PAPER_WARM = Color3.fromHex("F3EBD6") -- a licence's inner page
-local PAPER_TINT = Color3.fromHex("E3D9BE") -- the security tint a motif sits on
-local GUILLOCHE = Color3.fromHex("C9B98E") -- the fine ruled lines over that tint
-local STAG_HIDE = Color3.fromHex("7A4A26") -- the red stag, in silhouette
-local STAG_DARK = Color3.fromHex("5B3418") -- its antlers and legs
-local HORN_BRASS = Color3.fromHex("B8903F") -- the beater's horn
-local HORN_HI = Color3.fromHex("E0BE72")
-local VEST_ORANGE = Color3.fromHex("E8621A") -- beater orange: hotter than BLAZE on purpose
-local VEST_DEEP = Color3.fromHex("B9440C")
-local LEATHER = Color3.fromHex("6B4A2C") -- the bandolier's strap
-local LEATHER_DK = Color3.fromHex("4C341E")
-local LEATHER_HI = Color3.fromHex("8A6038")
-local HULL_RED = Color3.fromHex("A8352C") -- a slug hull
-local HULL_CRIMP = Color3.fromHex("8C2A22")
-local HEAD_BRASS = Color3.fromHex("B9892F") -- a cartridge head
-local STEEL = Color3.fromHex("7E8488")
-local STEEL_DK = Color3.fromHex("4A4F52")
+local LODEN_DARK = Color3.fromHex("1B3220") -- the pin card's inset
 local ENAMEL = Color3.fromHex("1E4A2A") -- the pin's green
-local WAX = Color3.fromHex("8E2118") -- a stamp's ink
-local CASE_GREEN = Color3.fromHex("1E3524") -- a carton's shadowed wall
 
--- ---------------------------------------------------------------- 2.4 the licences
+-- ---------------------------------------------------------------- 2.4 the goods' own printed art
 --
--- A EUROPEAN HUNTING LICENCE IS NOT A CARD, IT IS A SMALL STIFF-COVERED BOOKLET: cloth cover, a
--- crest, a brass eyelet for the lanyard, and inside a printed page with your animal on it and a
--- validating stamp. So it is ONE MODEL, standing open on the shelf, cover on the left and page on
--- the right, hinged at a spine in the middle (shop2 spec 2.4).
+-- THE ONE ENGINE FACT THIS WHOLE SECTION TURNS ON (the Designer's `goods-spec.md`, section 0):
 --
--- ONE FUNCTION, ONE ARGUMENT. The two licences are the SAME geometry with different furniture,
--- which is the older file's own rule -- *"a licence is a licence, and what tells them apart is the
--- animal"* -- extended with the colour of its cloth. Deer is burgundy and carries a red stag;
--- beater is loden and carries the horn and the orange band.
+--   > **A `Decal` / `Texture` renders inside a `ViewportFrame`. A `SurfaceGui` does not.**
 --
--- THE LEAVES ARE YAWED, AND IT IS THE ONE THING TO GET RIGHT (spec 2.4.1). The booklet stands open
--- at 160 degrees: the cover yaws +10 and the page yaws -10 about the spine. So *"0.034 studs proud
--- of the page"* is NOT a fixed `z` -- it is an offset along the leaf's OWN NORMAL. A flat world `z`
--- leaves the print sunk into the paper at one end of the page and floating off it at the other, and
--- the stag disappears behind its own tint block. The Designer built it that way first and the
--- screenshot is why that section exists; `.screenshots/228-before-licence-reddeer.png` is the same
--- failure in the model this one replaces, where the stag cannot be seen at all.
-local LEAF = {
-	cover = { yawDeg = 10, cx = -0.55 },
-	page = { yawDeg = -10, cx = 0.55 },
+-- That is a deliberate `ViewportFrame` limitation and not a bug
+-- (https://devforum.roblox.com/t/hey-is-it-possible-to-put-a-surfacegui-inside-a-viewport-frame/1999193,
+-- https://devforum.roblox.com/t/surface-guis-do-not-display-inside-a-viewport-frame/2097636), and
+-- it is why everything printed in this file used to be a 3-px `Part`. KAREN, 2026-10-22:
+-- *"Slug shells has to be more releastic and package smae with unlimited ammo / All things like
+-- beater license Deer license has to be clear and nice"*. A bar is a bar at every size; a line of
+-- real type resolves. So the print is ART now, and the split is principled:
+--
+--   * **things you HOLD** (the ammo) stay 3-D in the case, like the guns, and get their print from
+--     `Decal`s -- same camera, same light, same spin;
+--   * **things you are ISSUED** (the two licences) become FLAT IMAGES over the case. A document has
+--     to be READ, and at a 356 x 200 case a `Decal` on a part pitched 25 degrees cannot carry
+--     readable body type. `goods-spec.md` section 4 states the all-3-D alternative and refuses it.
+--
+-- EVERY ONE OF THE FOUR IS OUR OWN ART -- drawn from scratch, no traced mark, no maker's name, no
+-- borrowed asset -- so there is no licence question on any of them. The sources are the `.svg` files
+-- beside each `.png` in the Designer's folder. Karen's upload OK, 2026-10-22, covers exactly those
+-- four files and nothing else; `assets/uploads.json` carries her words verbatim against each id.
+--
+-- **THE ID BELOW IS THE IMAGE'S AND NOT THE DECAL'S, AND THAT TRAP HAS ALREADY COST THIS REPO A
+-- WHOLE ROUND.** An Open Cloud upload of a PNG creates a **Decal** (`AssetTypeId 13`) and the id it
+-- returns is the DECAL's -- which neither an `ImageLabel` nor a `Decal.Texture` can draw.
+-- `src/shared/Report/init.luau` records the measurement that found it (task 205: three labels on one
+-- plate, every one `IsLoaded = false`, and the card had been drawing no animal at all). The route out
+-- is the same one: on the SERVER, `InsertService:LoadAsset(decalId)` returns a model holding a
+-- `Decal` whose `.Texture` is the image. Resolved in DEV on 2026-10-22, all four `AssetTypeId 13`:
+--
+--   108290190291718 -> 124539390037781   goods-slugbox-face.png     1024 x 716
+--   116011941064732 -> 95181634568725    goods-slugbox-end.png       468 x 1024
+--   104459454968931 -> 118221829977446   goods-licence-beater.png   1024 x 572, alpha
+--   92868335129939  -> 118076983085725   goods-licence-deer.png     1024 x 572, alpha
+--
+-- The DECAL ids stay in `assets/uploads.json`, because that file records what was UPLOADED.
+--
+-- **THE ONE WORD A CALLER MAY SAY TO A BUILDER**, and since task 241 it has one meaning: *this is a
+-- thumbnail inside a package*. `buildBundle` is its only sender. It was `"lite"` for the bandolier
+-- alone -- 82 parts inside a 1.42-stud picture -- and the string stays what it always was so no
+-- caller or spec has to learn a new one; what changed is that the question is now about the
+-- CONTEXT and not about one item's cost.
+local IN_PACKAGE = "lite"
+
+local ART = {
+	SLUGBOX_FACE = "rbxassetid://124539390037781",
+	SLUGBOX_END = "rbxassetid://95181634568725",
+	LICENCE_BEATER = "rbxassetid://118221829977446",
+	LICENCE_DEER = "rbxassetid://118076983085725",
 }
-local LEAF_Y, LEAF_Z = 0.73, 0.1
 
--- A POINT ON A LEAF, IN THE LEAF'S OWN FRAME: `dx` across it, `dy` up it, `lift` proud of its centre
--- plane. `Ry(t)` takes the leaf's own across-axis to `(cos t, 0, -sin t)` and its own normal to
--- `(sin t, 0, cos t)`, which is the whole of this function.
-local function leaf(side: string, dx: number, dy: number, lift: number): Vector3
-	local t = math.rad(LEAF[side].yawDeg)
-	local c, s = math.cos(t), math.sin(t)
-	return Vector3.new(LEAF[side].cx + dx * c + lift * s, LEAF_Y + dy, LEAF_Z - dx * s + lift * c)
+-- ---------------------------------------------------------------- the licence rule (spec 3.5)
+--
+-- KAREN, 2026-10-22: *"licenses keep clear as you have now everywhere aligned then we good"*. So the
+-- placement is ONE FUNCTION and not a paragraph repeated per screen: every surface that ever shows a
+-- licence image calls `ShopDisplay.dressLicenceImage` and inherits the whole of the Designer's
+-- section 3.5 -- upright, `Fit`, opaque, centred -- with no second chance to disagree.
+--
+-- TODAY THERE IS EXACTLY ONE CALLER, AND THAT IS MEASURED RATHER THAN ASSUMED: the shop's display
+-- case. `Hud.LicenceCard` (task 238's no-licence popup) is a title, a sentence and two buttons and
+-- holds no image at all; the start card's licence row is a drawn GLYPH plus text plus a tag
+-- (`Drive.CONFIG.START_CARD_SPECIES_GLYPH` / `START_CARD_LICENCE_TAG`), also with no image. So
+-- "the same everywhere" is true of one place today, and will be true of the second one for free.
+ShopDisplay.LICENCE = {
+	-- THE ART IS 1024 x 572 (**1.79 : 1**), and a container that is not 1.79 : 1 must LETTERBOX --
+	-- which is what `ScaleType.Fit` does and what `Stretch` and `Crop` do not.
+	ASPECT = 1024 / 572,
+	-- THE SHOP CASE'S OWN INSET, measured by the Designer against the 356 x 200 case: 326 x 182
+	-- rendered. Another container keeps the inset PROPORTIONAL rather than copying these two.
+	INSET_X = 11,
+	INSET_Y = 9,
+	-- **NEVER RENDER EITHER LICENCE BELOW THIS WIDE.** `goods-readable-*.png` is the proof at 326 px;
+	-- at roughly 150 the title is the last thing still resolving and everything else has become
+	-- texture. Below it, show the row's words and NO image -- a green or red smear that cannot be
+	-- read is worse than a word.
+	MIN_WIDTH_PX = 150,
+}
+
+-- EVERY PROPERTY OF SECTION 3.5, IN ONE PLACE. It writes the RULE and not the picture: the caller
+-- still owns `Image`, `Visible` and where the label sits, because those are that screen's business.
+--
+-- `Rotation = 0` IS THE RULE AND NOT AN OMISSION. The tilt, the shadow and the paper edge are
+-- PAINTED INTO the artwork; a second tilt on top makes the document read as a loose sticker, and two
+-- different tilts on two screens is exactly the "not aligned" Karen called out. It overrides the
+-- optional breath the Designer offered in sections 3.3 and 3.4.
+--
+-- `ImageTransparency = 0` IS ALSO THE RULE: full opacity even when the row is locked or
+-- unaffordable. Dim the row, the price or the button around it -- a half-faded document just looks
+-- like a rendering bug.
+function ShopDisplay.dressLicenceImage(label: ImageLabel)
+	label.Rotation = 0
+	label.ScaleType = Enum.ScaleType.Fit
+	label.ImageTransparency = 0
+	label.BackgroundTransparency = 1
+	label.BorderSizePixel = 0
+	-- `Pixelated` SHREDS THE HAIRLINE RULES at every size below 400 px, and the whole point of this
+	-- art is that its hairlines read as print.
+	label.ResampleMode = Enum.ResamplerMode.Default
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Position = UDim2.fromScale(0.5, 0.5)
 end
 
-type LeafOpts = {
-	shape: Enum.PartType?,
-	rot: Vector3?,
+-- IS A CONTAINER THIS WIDE BIG ENOUGH TO SHOW A LICENCE AT ALL? PURE, so the rule above is drivable
+-- with a number. A width of zero or one is "the engine has not drawn a frame yet" and NOT "too
+-- small" -- the same distinction `Style.MIN_SENSIBLE_PX` already makes, and for the same reason: the
+-- panel is built before anything has been rendered.
+function ShopDisplay.licenceFits(widthPx: number): boolean
+	return widthPx <= 1 or widthPx >= ShopDisplay.LICENCE.MIN_WIDTH_PX
+end
+
+-- ---------------------------------------------------------------- 2.5 the slug carton (spec 3.1)
+--
+-- REAL SLUG AMMUNITION COMES **FIVE TO A BOX, IN A SMALL CLOSED CARTON** (Brenneke K.O. and Classic
+-- Magnum, Rottweil Extra Line -- the Designer's section 1). A ten-round open tray is a CRATE, and a
+-- crate made of bricks is a toy. That tray, the lid lying flat behind it and its 66 parts are what
+-- this replaces.
+--
+-- THE CARTON IS THE ESTATE'S OWN and carries no real brand, mark or trade dress: a loden-green box
+-- with a cream label and the same hunting-horn roundel the beater's licence wears, so the shop reads
+-- as ONE supplier rather than four unrelated props.
+local CARTON_GREEN = Color3.fromHex("2F4231")
+local SHIPPING_CARD = Color3.fromHex("A4874F") -- the slab the stack is shipped on
+local RIM_BRASS = Color3.fromHex("8E6E2C")
+local HEAD_BRASS = Color3.fromHex("B08C3E")
+local HULL_RED = Color3.fromHex("9E3127")
+local CRIMP_LIP = Color3.fromHex("9A3026")
+local CRIMP_TOP = Color3.fromHex("C25240")
+local PRIMER_NICKEL = Color3.fromHex("A7A194")
+
+local CARTON_SIZE = Vector3.new(1.00, 0.70, 0.32)
+local LID_BAND_SIZE = Vector3.new(0.92, 0.012, 0.19)
+-- THE LID BAND'S OFFSET FROM THE CARTON'S CENTRE, which is the Designer's two rows read against each
+-- other: 0.006 proud of the 0.70-high top, and 0.03 back from the front wall. Written as an OFFSET
+-- rather than as a second absolute position, so moving a carton can never leave its band behind.
+local LID_BAND_AT = Vector3.new(0, 0.356, -0.03)
+
+-- **THE `Back`/`Front` TRAP, WHICH THIS FILE HAS ALREADY FALLEN INTO ONCE.** Roblox's
+-- `Enum.NormalId.Front` is **-Z**. `SOLID_VIEW` stands the camera at yaw 34, so it looks from
+-- `+x / +z` and the wall it sees is **+Z = `Back`**. The `buildAmmoCrate` of two tasks ago
+-- stencilled `-z` and nobody ever saw it. The end the camera also catches is **+X = `Right`**.
+--
+-- **WHY `Decal` AND NOT `Texture`.** A `Decal` stretches to fill its whole face; a `Texture` tiles at
+-- `StudsPerTileU/V`. One label filling one face is a `Decal`.
+--
+-- **AND WHY THE ART IS 1024 x 716 WHILE THE END IS 468 x 1024.** A `Decal` stretches to whatever face
+-- it lands on, so THE ART'S ASPECT MUST BE THE FACE'S ASPECT or every letter is silently squeezed.
+-- Front face `1.00 x 0.70` -> 1.43 : 1 -> 1024 x 716. End face `0.32 x 0.70` -> 0.457 : 1 ->
+-- 468 x 1024. Change the carton's proportions and the art has to be re-cut.
+local function carton(rows: { Piece }, prefix: string, centre: Vector3)
+	rows[#rows + 1] = {
+		name = prefix,
+		size = CARTON_SIZE,
+		at = centre,
+		color = CARTON_GREEN,
+		decals = {
+			[Enum.NormalId.Back] = ART.SLUGBOX_FACE,
+			[Enum.NormalId.Right] = ART.SLUGBOX_END,
+		},
+	}
+	rows[#rows + 1] = {
+		name = prefix .. "LidBand",
+		size = LID_BAND_SIZE,
+		at = centre + LID_BAND_AT,
+		color = CREAM,
+	}
+end
+
+-- ONE ROW OF THE ROUND, ALONG ITS OWN AXIS. `at` is measured from the HEAD FACE.
+type Section = {
+	name: string,
+	length: number,
+	diameter: number,
+	at: number,
 	color: Color3,
 	material: Enum.Material?,
-	transparency: number?,
 	reflectance: number?,
 }
 
--- ONE PART ON A LEAF. `rz` is the IN-PLANE turn; the leaf's own yaw is added for you, and the order
--- is right because `CFrame.Angles(0, yaw, rz)` is `Ry(yaw) * Rz(rz)` -- the in-plane turn first,
--- then the leaf. `opts.rot` overrides both, for the pieces (the eyelet, a horn's bell) that are
--- Cylinders and have to point along an axis of their own.
-local function onLeaf(
-	side: string,
-	name: string,
-	size: Vector3,
-	dx: number,
-	dy: number,
-	lift: number,
-	rz: number?,
-	opts: LeafOpts
-): Piece
-	return {
-		name = name,
-		shape = opts.shape,
-		size = size,
-		at = leaf(side, dx, dy, lift),
-		rot = opts.rot or Vector3.new(0, LEAF[side].yawDeg, rz or 0),
-		color = opts.color,
-		material = opts.material,
-		transparency = opts.transparency,
-		reflectance = opts.reflectance,
-	}
-end
-
--- A HUNTING HORN IN A LEAF'S OWN FRAME, centred at `(cx, cy)`, `r` studs across (spec 2.4.4).
+-- ONE ROUND = SIX COAXIAL CYLINDERS, and every number is real. Anchored on Karen's own *"about 70 mm
+-- long, about 20 mm across"*: body and head 0.800-0.809 in = 20.4 mm, rim 0.886 in max = 22.5 mm
+-- (SAAMI, as quoted on the cartridge-collectors forum), a 209 primer 6.2 mm, high brass 20 mm. One
+-- stud = 112.9 mm falls out of 70 mm = 0.620 studs.
 --
--- A CRESCENT AND NOT A RING. Roblox has no torus, and a CLOSED ring with a cord across it reads as
--- a PROHIBITION SIGN -- the Designer drew that first. So the horn is nine bars on a 200-degree arc
--- that THICKENS as it sweeps, then a three-disc bell, a mouthpiece and ONE cord. Two cords across
--- the coil is the prohibition sign again.
-local function horn(rows: { Piece }, prefix: string, side: string, cx: number, cy: number, lift: number, r: number)
-	local RR, A0, A1, N = r * 0.38, 190, -10, 9
-	-- THE TUBE: nine bars swept clockwise from the mouthpiece at 9 o'clock over the top to the bell
-	-- at 5 o'clock. `rz = a` makes a bar tangent to the arc.
-	for i = 0, N - 1 do
-		local t = i / (N - 1)
-		local a = A0 + (A1 - A0) * t
-		local w = r * (0.065 + 0.085 * t)
-		rows[#rows + 1] = onLeaf(
-			side,
-			string.format("%sTube%d", prefix, i + 1),
-			Vector3.new(w, r * 0.195, w),
-			cx + math.cos(math.rad(a)) * RR,
-			cy + math.sin(math.rad(a)) * RR,
-			lift,
-			a,
-			{
-				color = if i > 5 then HORN_HI else HORN_BRASS,
-				material = Enum.Material.Metal,
-				reflectance = 0.14,
-			}
-		)
-	end
-	-- THE BELL: three discs continuing along the tangent at the arc's end, each wider than the last.
-	local tx, ty = math.sin(math.rad(A1)), -math.cos(math.rad(A1))
-	local ex, ey = cx + math.cos(math.rad(A1)) * RR, cy + math.sin(math.rad(A1)) * RR
-	local bd = { 0.3, 0.46, 0.66 }
-	for i = 1, 3 do
-		rows[#rows + 1] = onLeaf(
-			side,
-			string.format("%sBell%d", prefix, i),
-			Vector3.new(r * 0.105, r * bd[i], r * bd[i]),
-			ex + tx * r * 0.135 * i,
-			ey + ty * r * 0.135 * i,
-			lift,
-			nil,
-			{
-				shape = Enum.PartType.Cylinder,
-				rot = Vector3.new(0, LEAF[side].yawDeg, A1 - 90),
-				color = if i == 3 then HORN_HI else HORN_BRASS,
-				material = Enum.Material.Metal,
-				reflectance = 0.18,
-			}
-		)
-	end
-	-- THE MOUTHPIECE, back up the other end, and ONE cord at the throat.
-	local mx, my = math.sin(math.rad(A0)), -math.cos(math.rad(A0))
-	rows[#rows + 1] = onLeaf(
-		side,
-		prefix .. "Mouth",
-		Vector3.new(r * 0.15, r * 0.125, r * 0.125),
-		cx + math.cos(math.rad(A0)) * RR - mx * r * 0.14,
-		cy + math.sin(math.rad(A0)) * RR - my * r * 0.14,
-		lift,
-		nil,
-		{
-			shape = Enum.PartType.Cylinder,
-			rot = Vector3.new(0, LEAF[side].yawDeg, A0 - 90),
-			color = HORN_HI,
-			material = Enum.Material.Metal,
-			reflectance = 0.2,
-		}
-	)
-	rows[#rows + 1] = onLeaf(
-		side,
-		prefix .. "Cord",
-		Vector3.new(r * 0.085, r * 0.3, r * 0.06),
-		cx - RR * 0.4,
-		cy - RR * 0.6,
-		lift + r * 0.02,
-		16,
-		{ color = VEST_DEEP, material = Enum.Material.Fabric }
-	)
-	rows[#rows + 1] = onLeaf(
-		side,
-		prefix .. "CordTassel",
-		Vector3.new(r * 0.1, r * 0.1, r * 0.07),
-		cx - RR * 0.48,
-		cy - RR * 1,
-		lift + r * 0.02,
-		nil,
-		{ color = VEST_ORANGE, material = Enum.Material.Fabric }
-	)
-end
-
--- THE SHELL, IDENTICAL IN BOTH LICENCES: a spine with two brass bands, a cloth cover with an inset
--- panel, and a printed page -- head band, seven guilloche rules over a tint block, two field labels
--- with their ink, a signature in two strokes, a brass eyelet through the top outer corner and a wax
--- roundel over the bottom one. 34 parts.
+-- **THE CRIMP IS A ROLL CRIMP, NOT A STAR.** `RIFLED SLUG` on the box means a **Foster**, and
+-- *"unlike the Foster slug which is traditionally roll-crimped, the wad slug is fold-crimped"*
+-- (https://en.wikipedia.org/wiki/Shotgun_slug). Slug loads are roll-crimped so you can see at a
+-- glance that they are slugs (https://gundigest.com/gear-ammo/ammunition/12-gauge-slugs). A roll
+-- crimp is a FLAT CLOSED DISC SET JUST BELOW A ROLLED-OVER LIP; the six-petal star fold belongs on
+-- birdshot and must not appear here.
 --
--- THE STAMP'S TRANSPARENCY IS DELIBERATE: a stamp is ink ON paper, and a solid disc would look like
--- a sticker.
-local function licenceShell(rows: { Piece }, cover: Color3, coverDark: Color3, stampColor: Color3)
-	local metal = Enum.Material.Metal
-	local fabric = Enum.Material.Fabric
-	-- THE SPINE belongs to NEITHER leaf, so it is placed in world coordinates.
-	rows[#rows + 1] = {
-		name = "Spine",
-		size = Vector3.new(0.11, 1.46, 0.3),
-		at = Vector3.new(0, 0.73, 0),
-		color = coverDark,
-		material = fabric,
-	}
-	for _, band in ipairs({ { name = "SpineBandTop", y = 1.14 }, { name = "SpineBandLow", y = 0.32 } }) do
+-- **`CrimpTop` IS BRIGHTER THAN THE HULL (`C25240` against `9E3127`), AND THAT IS THE WHOLE FIX**
+-- (Karen, 22 Oct: *"slugs itself looks odd"*). It is a flat disc facing straight up into a key light
+-- that comes from above, so it is the brightest part of the round. Drawing it DARKER than the ring
+-- around it is precisely how you draw the mouth of an open TUBE -- which is what she was looking at.
+--
+-- **THE PRIMER IS NOT A DETAIL, IT IS THE WHOLE WORD.** One small nickel circle on the head is the
+-- difference between A CARTRIDGE and A LENGTH OF RED TUBE. Its `at` is NEGATIVE so that it stands
+-- 0.004 proud of the rim face and never z-fights.
+local ROUND: { Section } = {
+	{
+		name = "Rim",
+		length = 0.013,
+		diameter = 0.200,
+		at = 0,
+		color = RIM_BRASS,
+		material = Enum.Material.Metal,
+		reflectance = 0.18,
+	},
+	{
+		name = "Head",
+		length = 0.164,
+		diameter = 0.181,
+		at = 0.013,
+		color = HEAD_BRASS,
+		material = Enum.Material.Metal,
+		reflectance = 0.22,
+	},
+	{ name = "Hull", length = 0.427, diameter = 0.181, at = 0.177, color = HULL_RED },
+	{ name = "CrimpLip", length = 0.016, diameter = 0.181, at = 0.604, color = CRIMP_LIP },
+	{ name = "CrimpTop", length = 0.010, diameter = 0.151, at = 0.616, color = CRIMP_TOP },
+	{
+		name = "Primer",
+		length = 0.008,
+		diameter = 0.055,
+		at = -0.004,
+		color = PRIMER_NICKEL,
+		material = Enum.Material.Metal,
+		reflectance = 0.25,
+	},
+}
+
+-- WHICH WAY A ROUND POINTS, as a rotation `place` will build verbatim.
+--
+-- **A ROBLOX `Cylinder`'S AXIS IS ITS X AXIS**, so every `Size` above is `(length, diameter,
+-- diameter)` and a round is aimed by ROTATING that X axis -- not by changing which component is
+-- largest. Getting this backwards gives you six discs.
+--
+-- STANDING is `Rz(90)`, which takes the round's own X axis to world `+y`: rim and primer on the
+-- shelf, roll crimp up, and you read the crimp from above.
+--
+-- **LYING IS YAW 186 AND NOT -16**, and the Designer measured both: at -16 the round's head pointed
+-- AWAY and the camera saw a blank crimp; at 186 the head face is tilted toward the lens, so the rim,
+-- the brass and the primer are the end you see. The round still lies nearly flat across the shelf,
+-- so the silhouette keeps about 81 % of its length.
+local STANDING = Vector3.new(0, 0, 90)
+local LYING = Vector3.new(0, 186, 0)
+
+-- ONE ROUND, FROM ITS HEAD FACE OUTWARD. The direction each section steps along is read off THE VERY
+-- `CFrame` `place` will build from the same `rot` -- its `RightVector`, which IS the part's own X
+-- axis -- so there is no second copy of the trigonometry here to disagree with the drawing.
+local function shell(rows: { Piece }, prefix: string, headFace: Vector3, rot: Vector3)
+	local axis = CFrame.Angles(math.rad(rot.X), math.rad(rot.Y), math.rad(rot.Z)).RightVector
+	for _, section in ipairs(ROUND) do
 		rows[#rows + 1] = {
-			name = band.name,
-			size = Vector3.new(0.12, 0.05, 0.31),
-			at = Vector3.new(0, band.y, 0),
-			color = BRASS,
-			material = metal,
-			reflectance = 0.18,
+			name = prefix .. section.name,
+			shape = Enum.PartType.Cylinder,
+			size = Vector3.new(section.length, section.diameter, section.diameter),
+			at = headFace + axis * (section.at + section.length / 2),
+			rot = rot,
+			color = section.color,
+			material = section.material,
+			reflectance = section.reflectance,
 		}
 	end
-
-	-- THE COVER.
-	rows[#rows + 1] =
-		onLeaf("cover", "CoverL", Vector3.new(1.06, 1.46, 0.06), 0, 0, 0, nil, { color = cover, material = fabric })
-	rows[#rows + 1] = onLeaf(
-		"cover",
-		"CoverLInset",
-		Vector3.new(0.92, 1.3, 0.016),
-		0,
-		0,
-		0.034,
-		nil,
-		{ color = coverDark, material = fabric }
-	)
-	rows[#rows + 1] = onLeaf("cover", "CoverLRule", Vector3.new(0.96, 0.012, 0.018), 0, 0.59, 0.036, nil, {
-		color = BRASS,
-		material = metal,
-		reflectance = 0.2,
-	})
-
-	-- THE PAGE.
-	rows[#rows + 1] = onLeaf("page", "PageR", Vector3.new(1.06, 1.46, 0.05), 0, 0, 0, nil, { color = PAPER_WARM })
-	rows[#rows + 1] = onLeaf(
-		"page",
-		"PageRBack",
-		Vector3.new(1.06, 1.46, 0.016),
-		0,
-		0,
-		-0.028,
-		nil,
-		{ color = cover, material = fabric }
-	)
-	rows[#rows + 1] = onLeaf(
-		"page",
-		"PageEdgeTop",
-		Vector3.new(1.06, 0.014, 0.052),
-		0,
-		0.725,
-		0,
-		nil,
-		{ color = Color3.fromHex("D8CDAE") }
-	)
-	rows[#rows + 1] = onLeaf(
-		"page",
-		"HeadBand",
-		Vector3.new(1.06, 0.24, 0.02),
-		0,
-		0.6,
-		0.03,
-		nil,
-		{ color = cover, material = fabric }
-	)
-	rows[#rows + 1] = onLeaf("page", "HeadRule", Vector3.new(1.06, 0.015, 0.022), 0, 0.465, 0.032, nil, {
-		color = BRASS,
-		material = metal,
-		reflectance = 0.2,
-	})
-	rows[#rows + 1] = onLeaf(
-		"page",
-		"HeadInk1",
-		Vector3.new(0.62, 0.055, 0.022),
-		-0.13,
-		0.625,
-		0.034,
-		nil,
-		{ color = Color3.fromHex("EFE6D2") }
-	)
-	rows[#rows + 1] = onLeaf(
-		"page",
-		"HeadInk2",
-		Vector3.new(0.38, 0.032, 0.022),
-		-0.25,
-		0.542,
-		0.034,
-		nil,
-		{ color = Color3.fromHex("BFCBB8") }
-	)
-	rows[#rows + 1] =
-		onLeaf("page", "TintBlock", Vector3.new(0.9, 0.86, 0.016), 0, 0.09, 0.03, nil, { color = PAPER_TINT })
-	rows[#rows + 1] =
-		onLeaf("page", "FieldLabel1", Vector3.new(0.24, 0.032, 0.018), -0.33, -0.27, 0.034, nil, { color = FIELD })
-	rows[#rows + 1] =
-		onLeaf("page", "FieldInk1", Vector3.new(0.52, 0.042, 0.018), -0.19, -0.33, 0.034, nil, { color = INK })
-	rows[#rows + 1] =
-		onLeaf("page", "FieldLabel2", Vector3.new(0.19, 0.032, 0.018), -0.35, -0.43, 0.034, nil, { color = FIELD })
-	rows[#rows + 1] =
-		onLeaf("page", "FieldInk2", Vector3.new(0.38, 0.042, 0.018), -0.26, -0.49, 0.034, nil, { color = INK })
-	rows[#rows + 1] =
-		onLeaf("page", "SigRule", Vector3.new(0.46, 0.01, 0.018), -0.23, -0.61, 0.034, nil, { color = FIELD })
-	rows[#rows + 1] = onLeaf(
-		"page",
-		"Sig1",
-		Vector3.new(0.3, 0.026, 0.02),
-		-0.28,
-		-0.565,
-		0.038,
-		2,
-		{ color = Color3.fromHex("2A3E6B") }
-	)
-	rows[#rows + 1] = onLeaf(
-		"page",
-		"Sig2",
-		Vector3.new(0.19, 0.026, 0.02),
-		-0.34,
-		-0.595,
-		0.038,
-		-2,
-		{ color = Color3.fromHex("2A3E6B") }
-	)
-
-	-- THE EYELET. A `Cylinder`'s axis is X, so a disc LYING IN the leaf needs `rot = (0, leafYaw +
-	-- 90, 0)` -- given explicitly rather than through `rz`.
-	local pageYaw = LEAF.page.yawDeg
-	rows[#rows + 1] = onLeaf("page", "Eyelet", Vector3.new(0.055, 0.115, 0.115), 0.43, 0.6, 0.018, nil, {
-		shape = Enum.PartType.Cylinder,
-		rot = Vector3.new(0, pageYaw + 90, 0),
-		color = BRASS,
-		material = metal,
-		reflectance = 0.22,
-	})
-	rows[#rows + 1] = onLeaf("page", "EyeletHole", Vector3.new(0.07, 0.055, 0.055), 0.43, 0.6, 0.022, nil, {
-		shape = Enum.PartType.Cylinder,
-		rot = Vector3.new(0, pageYaw + 90, 0),
-		color = Color3.fromHex("211C13"),
-	})
-
-	-- SEVEN GUILLOCHE RULES across the tint block -- the fine security hatching that makes a
-	-- document look PRINTED rather than blank.
-	for i = 1, 7 do
-		rows[#rows + 1] = onLeaf(
-			"page",
-			string.format("Guilloche%d", i),
-			Vector3.new(0.84, 0.008, 0.018),
-			0,
-			-0.25 + i * 0.105,
-			0.033,
-			nil,
-			{ color = GUILLOCHE }
-		)
-	end
-
-	-- THE VALIDATING ROUNDEL, half on the print, which is exactly where a real one lands.
-	rows[#rows + 1] = onLeaf("page", "StampRing", Vector3.new(0.44, 0.44, 0.022), 0.29, -0.43, 0.035, nil, {
-		shape = Enum.PartType.Ball,
-		color = stampColor,
-		transparency = 0.12,
-	})
-	rows[#rows + 1] = onLeaf("page", "StampVoid", Vector3.new(0.33, 0.33, 0.023), 0.29, -0.43, 0.038, nil, {
-		shape = Enum.PartType.Ball,
-		color = PAPER_WARM,
-		transparency = 0.28,
-	})
-	rows[#rows + 1] = onLeaf("page", "StampBar", Vector3.new(0.4, 0.05, 0.02), 0.29, -0.43, 0.041, -16, {
-		color = stampColor,
-		transparency = 0.12,
-	})
-	rows[#rows + 1] = onLeaf("page", "StampDot", Vector3.new(0.09, 0.09, 0.02), 0.29, -0.31, 0.041, nil, {
-		shape = Enum.PartType.Ball,
-		color = stampColor,
-		transparency = 0.12,
-	})
 end
 
--- THE DEER LICENCE'S FURNITURE: a brass crest with a stag's head on the cover, and the WHOLE ANIMAL
--- in silhouette on the page -- standing, on the tint block, because the stag is what you are buying.
--- 12 + 14 + 10 = 36 parts (spec 2.4.3).
---
--- THE ANTLERS ARE THE DETAIL THAT MAKES IT A RED STAG AND NOT A ROE, and the crown reaching `dy`
--- 0.68 BREAKS INTO THE HEAD BAND on purpose: that is what makes it read as a crest rather than as a
--- drawing in a box.
-local DEER_CREST: { { name: string, w: number, h: number, dx: number, dy: number, rz: number? } } = {
-	{ name = "CrestSkull", w = 0.15, h = 0.22, dx = 0, dy = 0.15 },
-	{ name = "CrestMuzzle", w = 0.105, h = 0.095, dx = 0, dy = 0.025 },
-	{ name = "CrestEarL", w = 0.085, h = 0.05, dx = -0.105, dy = 0.2, rz = 26 },
-	{ name = "CrestEarR", w = 0.085, h = 0.05, dx = 0.105, dy = 0.2, rz = -26 },
-	{ name = "CrestAntlerL", w = 0.034, h = 0.27, dx = -0.105, dy = 0.325, rz = 24 },
-	{ name = "CrestAntlerR", w = 0.034, h = 0.27, dx = 0.105, dy = 0.325, rz = -24 },
-	{ name = "CrestTineL1", w = 0.028, h = 0.13, dx = -0.185, dy = 0.325, rz = 58 },
-	{ name = "CrestTineL2", w = 0.026, h = 0.1, dx = -0.185, dy = 0.425, rz = 44 },
-	{ name = "CrestTineR1", w = 0.028, h = 0.13, dx = 0.185, dy = 0.325, rz = -58 },
-	{ name = "CrestTineR2", w = 0.026, h = 0.1, dx = 0.185, dy = 0.425, rz = -44 },
-}
-
-local STAG_BODY: { { name: string, w: number, h: number, dx: number, dy: number, rz: number?, dark: boolean? } } = {
-	{ name = "StagBody", w = 0.46, h = 0.21, dx = -0.19, dy = -0.04 },
-	{ name = "StagRump", w = 0.17, h = 0.24, dx = -0.38, dy = -0.02 },
-	{ name = "StagChest", w = 0.16, h = 0.23, dx = -0.01, dy = -0.05 },
-	{ name = "StagNeck", w = 0.12, h = 0.26, dx = 0.09, dy = 0.1, rz = -22 },
-	{ name = "StagHead", w = 0.21, h = 0.1, dx = 0.19, dy = 0.24, rz = -10 },
-	{ name = "StagMuzzle", w = 0.085, h = 0.065, dx = 0.29, dy = 0.21, rz = -10, dark = true },
-	{ name = "StagEar", w = 0.08, h = 0.048, dx = 0.12, dy = 0.29, rz = 24, dark = true },
-	{ name = "StagTail", w = 0.06, h = 0.095, dx = -0.45, dy = 0.05, rz = 14, dark = true },
-	{ name = "LegFF", w = 0.048, h = 0.28, dx = -0.01, dy = -0.31, rz = 4, dark = true },
-	{ name = "LegFB", w = 0.045, h = 0.27, dx = -0.09, dy = -0.3, rz = -5, dark = true },
-	{ name = "LegRF", w = 0.048, h = 0.18, dx = -0.35, dy = -0.25, rz = -8, dark = true },
-	{ name = "LegRHock", w = 0.044, h = 0.16, dx = -0.38, dy = -0.38, rz = 7, dark = true },
-	{ name = "LegRB", w = 0.044, h = 0.16, dx = -0.29, dy = -0.37, rz = 3, dark = true },
-	{ name = "Ground", w = 0.72, h = 0.015, dx = -0.16, dy = -0.455, dark = true },
-}
-
-local STAG_ANTLER: { { name: string, w: number, h: number, dx: number, dy: number, rz: number } } = {
-	{ name = "BeamL", w = 0.034, h = 0.3, dx = 0.13, dy = 0.41, rz = 26 },
-	{ name = "BeamR", w = 0.034, h = 0.3, dx = 0.27, dy = 0.4, rz = -20 },
-	{ name = "TineL1", w = 0.028, h = 0.13, dx = 0.05, dy = 0.35, rz = 62 },
-	{ name = "TineL2", w = 0.028, h = 0.12, dx = 0.05, dy = 0.46, rz = 52 },
-	{ name = "TineL3", w = 0.026, h = 0.1, dx = 0.06, dy = 0.54, rz = 44 },
-	{ name = "TineL4", w = 0.024, h = 0.08, dx = 0.08, dy = 0.61, rz = 34 },
-	{ name = "TineR1", w = 0.028, h = 0.13, dx = 0.35, dy = 0.34, rz = -58 },
-	{ name = "TineR2", w = 0.028, h = 0.12, dx = 0.35, dy = 0.45, rz = -48 },
-	{ name = "TineR3", w = 0.026, h = 0.1, dx = 0.34, dy = 0.53, rz = -40 },
-	{ name = "TineR4", w = 0.024, h = 0.08, dx = 0.32, dy = 0.6, rz = -30 },
-}
-
-local function deerFurniture(rows: { Piece })
-	local metal = Enum.Material.Metal
-	local coverYaw = LEAF.cover.yawDeg
-	rows[#rows + 1] = onLeaf("cover", "CrestDisc", Vector3.new(0.02, 0.5, 0.5), 0, 0.19, 0.042, nil, {
-		shape = Enum.PartType.Cylinder,
-		rot = Vector3.new(0, coverYaw + 90, 0),
-		color = BRASS,
-		material = metal,
-		reflectance = 0.22,
-	})
-	rows[#rows + 1] = onLeaf("cover", "CrestField", Vector3.new(0.018, 0.4, 0.4), 0, 0.19, 0.052, nil, {
-		shape = Enum.PartType.Cylinder,
-		rot = Vector3.new(0, coverYaw + 90, 0),
-		color = OXBLOOD,
-		material = Enum.Material.Fabric,
-	})
-	for _, row in ipairs(DEER_CREST) do
-		rows[#rows + 1] = onLeaf("cover", row.name, Vector3.new(row.w, row.h, 0.022), row.dx, row.dy, 0.062, row.rz, {
-			color = BRASS,
-			material = metal,
-			reflectance = 0.22,
-		})
-	end
-	for _, row in ipairs(STAG_BODY) do
-		rows[#rows + 1] = onLeaf("page", row.name, Vector3.new(row.w, row.h, 0.018), row.dx, row.dy, 0.034, row.rz, {
-			color = if row.dark then STAG_DARK else STAG_HIDE,
-		})
-	end
-	for _, row in ipairs(STAG_ANTLER) do
-		rows[#rows + 1] = onLeaf(
-			"page",
-			row.name,
-			Vector3.new(row.w, row.h, 0.018),
-			row.dx,
-			row.dy,
-			0.035,
-			row.rz,
-			{ color = STAG_DARK }
-		)
-	end
-end
-
--- THE BEATER LICENCE'S FURNITURE: the orange band -- *"the one thing you see across the room, and
--- the same orange a beater wears"* -- and the horn twice, 0.80 across on the cover and 0.54 on the
--- page. 3 + 15 + 15 = 33 parts (spec 2.4.4).
---
--- `BandPage` IS A VERTICAL STRIPE down the page's inner edge: it is how the two licences differ at
--- a glance when the booklet is half-turned and the cover is edge-on.
-local function beaterFurniture(rows: { Piece })
-	local fabric = Enum.Material.Fabric
-	rows[#rows + 1] = onLeaf("cover", "BandCover", Vector3.new(1.06, 0.2, 0.018), 0, -0.33, 0.036, nil, {
-		color = VEST_ORANGE,
-		material = fabric,
-	})
-	rows[#rows + 1] = onLeaf("cover", "BandCoverEdge", Vector3.new(1.06, 0.022, 0.02), 0, -0.22, 0.038, nil, {
-		color = VEST_DEEP,
-		material = fabric,
-	})
-	rows[#rows + 1] = onLeaf("page", "BandPage", Vector3.new(0.09, 1.46, 0.018), -0.46, 0, 0.03, nil, {
-		color = VEST_ORANGE,
-		material = fabric,
-	})
-	horn(rows, "CoverHorn", "cover", 0, 0.22, 0.058, 0.8)
-	horn(rows, "PageHorn", "page", 0.09, 0.25, 0.04, 0.54)
-end
-
-local function buildLicence(parent: Model, kind: string)
-	local deer = kind == "deer"
-	local rows: { Piece } = {}
-	licenceShell(
-		rows,
-		if deer then BURGUNDY else LODEN,
-		if deer then OXBLOOD else LODEN_DARK,
-		if deer then WAX else VEST_DEEP
-	)
-	if deer then
-		deerFurniture(rows)
-	else
-		beaterFurniture(rows)
-	end
-	pieces(parent, rows)
-end
-
--- ---------------------------------------------------------------- 2.5 the slug carton
---
--- WHAT WAS WRONG: a CLOSED box with three shells in front of it. The box is the packaging, not the
--- goods, and the three strays read as spares (`.screenshots/228-before-ammo-slug.png`).
---
--- WHAT IT IS NOW: a shotshell carton with TEN SHELLS STANDING IN IT, two rows of five, brass up;
--- the lid off and lying FLAT behind it, label up; and one shell lying loose across the front with
--- its primer to the camera. 66 parts (spec 2.5).
---
--- THE LID LIES FLAT AND DOES NOT SIT ON THE BOX. A lid slid back along the top is the first thing
--- anyone draws and it cantilevers half a stud into thin air and buries the shells it is meant to be
--- revealing. Flat behind, it hides nothing and its printed face is the one `SOLID_VIEW`'s 25
--- degrees of pitch looks straight down at.
---
--- THE PRINT IS ON THE `+z` WALL AND NOT THE `-z` ONE. `SOLID_VIEW` stands the camera at yaw 34 /
--- pitch 25, so it looks from `+x / +z` and the `-z` wall is the BACK of the model from here. The
--- `buildAmmoCrate` this replaces stencilled `-z` and nobody ever saw it.
-local CARTON_X = { -0.52, -0.26, 0, 0.26, 0.52 }
-local CARTON_Z = { -0.19, 0.19 }
-
-local LID_PRINT: { Piece } = {
-	{ name = "Lid", size = Vector3.new(1.46, 0.055, 0.9), at = Vector3.new(-0.1, 0.028, -0.92), color = LODEN },
-	{
-		name = "LidLipL",
-		size = Vector3.new(1.46, 0.085, 0.045),
-		at = Vector3.new(-0.089, 0.07, -1.36),
-		color = CASE_GREEN,
-	},
-	{
-		name = "LidLipR",
-		size = Vector3.new(1.46, 0.085, 0.045),
-		at = Vector3.new(-0.111, 0.07, -0.48),
-		color = CASE_GREEN,
-	},
-	{ name = "LidLabel", size = Vector3.new(1.12, 0.012, 0.6), at = Vector3.new(-0.1, 0.058, -0.92), color = CREAM },
-	{ name = "LidBar", size = Vector3.new(0.72, 0.014, 0.12), at = Vector3.new(-0.16, 0.066, -1.07), color = STAMP },
-	{
-		name = "LidRule",
-		size = Vector3.new(1.08, 0.014, 0.016),
-		at = Vector3.new(-0.1, 0.066, -0.91),
-		color = BRASS,
-		material = Enum.Material.Metal,
-		reflectance = 0.2,
-	},
-	{ name = "LidInk1", size = Vector3.new(0.54, 0.014, 0.046), at = Vector3.new(-0.24, 0.066, -0.79), color = INK },
-	{ name = "LidInk2", size = Vector3.new(0.34, 0.014, 0.034), at = Vector3.new(-0.34, 0.066, -0.71), color = FIELD },
-	{ name = "LidSlug", size = Vector3.new(0.09, 0.014, 0.2), at = Vector3.new(0.36, 0.066, -0.9), color = STEEL_DK },
-}
-
-local LOOSE_SHELL: { Piece } = {
-	{
-		name = "LooseHull",
-		size = Vector3.new(0.34, 0.165, 0.165),
-		at = Vector3.new(-0.24, 0.085, 0.66),
-		color = HULL_RED,
-	},
-	{
-		name = "LooseCrimp",
-		size = Vector3.new(0.03, 0.158, 0.158),
-		at = Vector3.new(-0.41, 0.085, 0.705),
-		color = HULL_CRIMP,
-	},
-	{
-		name = "LooseHead",
-		size = Vector3.new(0.115, 0.178, 0.178),
-		at = Vector3.new(-0.02, 0.085, 0.605),
-		color = HEAD_BRASS,
-		material = Enum.Material.Metal,
-		reflectance = 0.16,
-	},
-	{
-		name = "LooseRim",
-		size = Vector3.new(0.022, 0.192, 0.192),
-		at = Vector3.new(0.045, 0.085, 0.588),
-		color = HEAD_BRASS,
-		material = Enum.Material.Metal,
-		reflectance = 0.16,
-	},
-	-- FIVE PARTS' WORTH OF DETAIL IN ONE: it is the one circle that says CARTRIDGE rather than TUBE.
-	{
-		name = "LoosePrimer",
-		size = Vector3.new(0.024, 0.07, 0.07),
-		at = Vector3.new(0.058, 0.085, 0.585),
-		color = STEEL,
-		material = Enum.Material.Metal,
-		reflectance = 0.2,
-	},
-}
-
--- ONE ROW OF A TABLE ABOVE, TURNED. The lid lies at -14 degrees so it is not square to the box and
--- the loose shell at -16 so it is not square to the shelf.
-local function turned(row: Piece, yawDeg: number, shape: Enum.PartType?): Piece
-	return {
-		name = row.name,
-		shape = shape,
-		size = row.size,
-		at = row.at,
-		rot = Vector3.new(0, yawDeg, 0),
-		color = row.color,
-		material = row.material,
-		transparency = row.transparency,
-		reflectance = row.reflectance,
-	}
-end
-
+-- ONE CLOSED FIVE-ROUND CARTON AND TWO LOOSE ROUNDS. **14 parts and 2 `Decal`s**, against the 66
+-- parts of the tray this replaces: better-looking and well under a quarter of the cost.
 local function buildSlugCarton(parent: Model)
-	local metal = Enum.Material.Metal
+	local rows: { Piece } = {}
+	carton(rows, "Carton", Vector3.new(0.04, 0.35, -0.04))
+	shell(rows, "ShellA", Vector3.new(-0.70, 0, 0.44), STANDING)
+	shell(rows, "ShellB", Vector3.new(0.44, 0.0905, 0.60), LYING)
+	pieces(parent, rows)
+end
+
+-- ---------------------------------------------------------------- 2.6 unlimited ammo (spec 3.2)
+--
+-- **KAREN'S INSTRUCTION, TAKEN LITERALLY**: *"package smae with unlimited ammo"*. The same carton,
+-- the same label, the same two rounds -- just a lot of them. No new art and no new upload: it reuses
+-- the two ids section 2.5 already has.
+--
+-- WHAT THIS REPLACES IS THE BANDOLIER, and the reason is her sentence and not taste: a ring of loops
+-- shares no colour, no shape and no label with the slug carton beside it, which is the clearest
+-- example in the shop of the "no family" fault she named.
+--
+-- **STACKED FACES-OUT, NOT STOOD ON END IN A CRATE.** The Designer built it both ways: stood on end
+-- with their narrow panels showing, cartons read as BOOKS ON A SHELF; laid the way they are actually
+-- stacked, every one shows the same label and the item says A LOT OF THIS EXACT AMMUNITION with no
+-- caption. It is also literally the same part seven times.
+--
+-- THE `y` VALUES BELOW ARE EACH COURSE'S **BASE** and the `x` its CENTRE, which is how the Designer's
+-- table reads against the carton's own 0.70 height: 0.12 is the top of the shipping slab, and 0.83 is
+-- 0.12 + 0.70 plus a hair.
+local STACK_X = { -1.52, -0.50, 0.52 }
+local STACK_BASE_Y = { 0.12, 0.83 }
+local STACK_Z = -0.26
+
+-- **BOTTOM COURSE BEFORE TOP, AND LEFT TO RIGHT INSIDE EACH COURSE** (the Designer's own note): at
+-- yaw 34 the camera sees each carton's `+X` end, so a carton comes before the neighbour that covers
+-- that end. **27 parts and 14 `Decal`s**, all reusing two uploaded images.
+local function buildAmmoStack(parent: Model)
 	local rows: { Piece } = {
-		{ name = "Base", size = Vector3.new(1.42, 0.07, 0.86), at = Vector3.new(0, 0.035, 0), color = LODEN },
-		{ name = "WallNear", size = Vector3.new(1.42, 0.4, 0.055), at = Vector3.new(0, 0.27, 0.4), color = LODEN },
-		{ name = "WallFar", size = Vector3.new(1.42, 0.4, 0.055), at = Vector3.new(0, 0.27, -0.4), color = LODEN },
 		{
-			name = "WallLeft",
-			size = Vector3.new(0.055, 0.4, 0.86),
-			at = Vector3.new(-0.68, 0.27, 0),
-			color = CASE_GREEN,
-		},
-		{
-			name = "WallRight",
-			size = Vector3.new(0.055, 0.4, 0.86),
-			at = Vector3.new(0.68, 0.27, 0),
-			color = CASE_GREEN,
-		},
-		{ name = "Divider", size = Vector3.new(1.3, 0.24, 0.03), at = Vector3.new(0, 0.19, 0), color = CASE_GREEN },
-		{
-			name = "NearLabel",
-			size = Vector3.new(1.1, 0.24, 0.016),
-			at = Vector3.new(-0.06, 0.26, 0.432),
-			color = CREAM,
-		},
-		{
-			name = "NearRule",
-			size = Vector3.new(1.06, 0.012, 0.018),
-			at = Vector3.new(-0.06, 0.335, 0.437),
-			color = BRASS,
-			material = metal,
-			reflectance = 0.2,
-		},
-		{ name = "NearBar", size = Vector3.new(0.6, 0.075, 0.018), at = Vector3.new(-0.26, 0.3, 0.437), color = STAMP },
-		{ name = "NearInk1", size = Vector3.new(0.44, 0.038, 0.018), at = Vector3.new(-0.33, 0.2, 0.437), color = INK },
-		{ name = "NearInk2", size = Vector3.new(0.26, 0.03, 0.018), at = Vector3.new(0.3, 0.2, 0.437), color = FIELD },
-		{
-			name = "NearSlug",
-			size = Vector3.new(0.085, 0.145, 0.018),
-			at = Vector3.new(0.42, 0.3, 0.437),
-			color = STEEL_DK,
+			name = "Flat",
+			size = Vector3.new(3.20, 0.12, 0.80),
+			at = Vector3.new(0, 0.06, 0.06),
+			color = SHIPPING_CARD,
 		},
 	}
-
-	-- TEN SHELLS, HEADS UP SO THE BRASS READS. Four parts each.
 	local index = 0
-	for _, z in ipairs(CARTON_Z) do
-		for _, x in ipairs(CARTON_X) do
+	for _, baseY in ipairs(STACK_BASE_Y) do
+		for _, x in ipairs(STACK_X) do
 			index += 1
-			rows[#rows + 1] = {
-				name = string.format("Hull%d", index),
-				shape = Enum.PartType.Cylinder,
-				size = Vector3.new(0.34, 0.165, 0.165),
-				at = Vector3.new(x, 0.24, z),
-				rot = Vector3.new(0, 0, 90),
-				color = HULL_RED,
-			}
-			rows[#rows + 1] = {
-				name = string.format("Crimp%d", index),
-				shape = Enum.PartType.Cylinder,
-				size = Vector3.new(0.03, 0.158, 0.158),
-				at = Vector3.new(x, 0.42, z),
-				rot = Vector3.new(0, 0, 90),
-				color = HULL_CRIMP,
-			}
-			rows[#rows + 1] = {
-				name = string.format("Head%d", index),
-				shape = Enum.PartType.Cylinder,
-				size = Vector3.new(0.115, 0.178, 0.178),
-				at = Vector3.new(x, 0.49, z),
-				rot = Vector3.new(0, 0, 90),
-				color = HEAD_BRASS,
-				material = metal,
-				reflectance = 0.16,
-			}
-			rows[#rows + 1] = {
-				name = string.format("Rim%d", index),
-				shape = Enum.PartType.Cylinder,
-				size = Vector3.new(0.022, 0.192, 0.192),
-				at = Vector3.new(x, 0.552, z),
-				rot = Vector3.new(0, 0, 90),
-				color = HEAD_BRASS,
-				material = metal,
-				reflectance = 0.16,
-			}
+			carton(rows, string.format("Carton%d", index), Vector3.new(x, baseY + CARTON_SIZE.Y / 2, STACK_Z))
 		end
 	end
-
-	for _, row in ipairs(LID_PRINT) do
-		rows[#rows + 1] = turned(row, -14, nil)
-	end
-	for _, row in ipairs(LOOSE_SHELL) do
-		rows[#rows + 1] = turned(row, -16, Enum.PartType.Cylinder)
-	end
+	-- THE SEVENTH, OFF THE STACK AND ON THE SHELF, so the item reads as a quantity and not a wall.
+	carton(rows, "Carton7", Vector3.new(-0.55, CARTON_SIZE.Y / 2, 0.52))
+	shell(rows, "ShellA", Vector3.new(1.26, 0, 0.42), STANDING)
+	shell(rows, "ShellB", Vector3.new(0.62, 0.0905, 0.92), LYING)
 	pieces(parent, rows)
 end
 
--- ---------------------------------------------------------------- 2.6 the bandolier
+-- ---------------------------------------------------------------- 2.7 a licence INSIDE a package
 --
--- WHY A BANDOLIER AND NOT A BIGGER CRATE. The crate this replaces was *"the SLUG box's own
--- vocabulary at a bigger size"* -- and that is the problem: on a shelf next to a slug carton it
--- reads as MORE SHELLS, which is a quantity and not an entitlement. A cartridge belt BUCKLED CLOSED
--- INTO A RING reads as NO END -- and it is a circle on a shelf of rectangles, the only silhouette
--- in this catalogue that is not a box (spec 2.6).
+-- THE TWO LICENCES ARE FLAT IMAGES OVER THE CASE AND HAVE NO VIEWPORT MODEL -- but `THE FULL SEASON`
+-- covers the beater licence, and a package draws `ShopDisplay.build` per covered row. Drawing nothing
+-- there would leave a HOLE in a shipped surface, so this is the one place a licence still has
+-- geometry: a single thin card carrying the SAME uploaded image.
 --
--- 16 LOOPS ON ITS OWN AND 10 INSIDE A PACKAGE. `THE FULL SEASON` covers six rows and one of them is
--- this; 82 parts inside a 1.42-stud thumbnail is six times the geometry for none of the picture.
--- THIS IS THE ONLY PLACE IN THIS FILE WHERE A MODEL KNOWS IT IS INSIDE A PACKAGE -- keep it that
--- way, and pass `nil` everywhere else.
-local BELT_RX, BELT_RZ = 0.72, 0.5
+-- IT IS `goods-spec.md` SECTION 4's OWN SHAPE, which the Designer wrote out and then refused for the
+-- display case -- *"even at pitch 62 the body type loses about half its height"*. That objection is
+-- about READING the document, and inside a package the item is a 1.42-stud thumbnail nobody reads:
+-- what it has to say is *a document*, which a card with real print on it says and a blank rectangle
+-- does not. Refused for the case, right for the thumbnail.
+--
+-- **ITS HEIGHT IS THE ART'S ASPECT AND NOT SECTION 4's ROUNDED `1.00`.** The image is 1024 x 572
+-- (1.79 : 1) and a `Decal` stretches to its face, so a 1.42 x 1.00 card would squeeze every letter --
+-- the same rule section 2.5 states for the carton's two faces, applied here.
+--
+-- IT STANDS, LEANING BACK 18 DEGREES, rather than lying flat: everything else in a package stands on
+-- the lining at about 1.42 studs, and a document lying flat beside them reads as one that fell over.
+-- `Rx(-18)` tips the `+Z` face's normal up by 18 degrees while it still faces `+Z`, which is the wall
+-- the camera is on -- the same `Back`-not-`Front` answer as the carton's.
+local LICENCE_CARD_SIZE = Vector3.new(1.42, 1.42 / (1024 / 572), 0.012)
+local LICENCE_CARD_EDGE = Color3.fromHex("D8D2C2")
 
--- THE BUCKLE, at `z = +0.50`: the front of the ring AND the side the camera is on. It is what turns
--- a crown into a belt.
-local BUCKLE: { Piece } = {
-	{
-		name = "BuckleTongueBed",
-		size = Vector3.new(0.42, 0.185, 0.17),
-		at = Vector3.new(0, 0.0925, 0.52),
-		color = LEATHER_HI,
-		material = Enum.Material.Fabric,
-	},
-	{
-		name = "BuckleFrameL",
-		size = Vector3.new(0.046, 0.23, 0.2),
-		at = Vector3.new(-0.17, 0.115, 0.53),
-		color = BRASS,
-		material = Enum.Material.Metal,
-		reflectance = 0.18,
-	},
-	{
-		name = "BuckleFrameR",
-		size = Vector3.new(0.046, 0.23, 0.2),
-		at = Vector3.new(0.17, 0.115, 0.53),
-		color = BRASS,
-		material = Enum.Material.Metal,
-		reflectance = 0.18,
-	},
-	{
-		name = "BuckleFrameT",
-		size = Vector3.new(0.39, 0.23, 0.044),
-		at = Vector3.new(0, 0.115, 0.615),
-		color = BRASS,
-		material = Enum.Material.Metal,
-		reflectance = 0.18,
-	},
-	{
-		name = "BuckleFrameB",
-		size = Vector3.new(0.39, 0.23, 0.044),
-		at = Vector3.new(0, 0.115, 0.445),
-		color = BRASS,
-		material = Enum.Material.Metal,
-		reflectance = 0.18,
-	},
-	{
-		name = "BucklePin",
-		shape = Enum.PartType.Cylinder,
-		size = Vector3.new(0.195, 0.04, 0.04),
-		at = Vector3.new(0, 0.115, 0.53),
-		rot = Vector3.new(0, 0, 90),
-		color = BRASS,
-		material = Enum.Material.Metal,
-		reflectance = 0.18,
-	},
-	{
-		name = "BuckleTip",
-		size = Vector3.new(0.22, 0.155, 0.135),
-		at = Vector3.new(0.31, 0.0925, 0.495),
-		rot = Vector3.new(0, 18, 0),
-		color = LEATHER_HI,
-		material = Enum.Material.Fabric,
-	},
-}
-
-local function buildBandolier(parent: Model, detail: string?)
-	local n = if detail == "lite" then 10 else 16
-	local metal = Enum.Material.Metal
-	local fabric = Enum.Material.Fabric
-	local rows: { Piece } = {}
-	for i = 1, n do
-		local deg = (i - 1) * (360 / n)
-		-- THE BUCKLE'S GAP, at the front of the ring. A loop under the buckle is a loop you drew
-		-- inside a brass frame.
-		if math.abs(((deg - 90) % 360 + 540) % 360 - 180) >= (360 / n) * 0.6 then
-			local a = math.rad(deg)
-			local x, z = math.cos(a) * BELT_RX, math.sin(a) * BELT_RZ
-			-- THE TANGENT, FROM THE OVAL'S OWN DERIVATIVE and not from the angle -- which would
-			-- leave every segment on the long sides turned a few degrees wrong.
-			local tan = math.deg(math.atan2(math.cos(a) * BELT_RZ, -math.sin(a) * BELT_RX))
-			local turn = Vector3.new(0, tan, 0)
-			local standing = Vector3.new(0, tan, 90)
-			rows[#rows + 1] = {
-				name = string.format("Strap%d", i),
-				size = Vector3.new(0.31, 0.205, 0.155),
-				at = Vector3.new(x, 0.1025, z),
-				rot = turn,
-				color = LEATHER,
-				material = fabric,
-			}
-			rows[#rows + 1] = {
-				name = string.format("Loop%d", i),
-				size = Vector3.new(0.09, 0.235, 0.175),
-				at = Vector3.new(x, 0.115, z),
-				rot = turn,
-				color = LEATHER_DK,
-				material = fabric,
-			}
-			rows[#rows + 1] = {
-				name = string.format("Hull%d", i),
-				shape = Enum.PartType.Cylinder,
-				size = Vector3.new(0.3, 0.15, 0.15),
-				at = Vector3.new(x, 0.3, z),
-				rot = standing,
-				color = HULL_RED,
-			}
-			rows[#rows + 1] = {
-				name = string.format("Head%d", i),
-				shape = Enum.PartType.Cylinder,
-				size = Vector3.new(0.115, 0.168, 0.168),
-				at = Vector3.new(x, 0.505, z),
-				rot = standing,
-				color = HEAD_BRASS,
-				material = metal,
-				reflectance = 0.16,
-			}
-			rows[#rows + 1] = {
-				name = string.format("Rim%d", i),
-				shape = Enum.PartType.Cylinder,
-				size = Vector3.new(0.02, 0.182, 0.182),
-				at = Vector3.new(x, 0.567, z),
-				rot = standing,
-				color = HEAD_BRASS,
-				material = metal,
-				reflectance = 0.16,
-			}
-		end
-	end
-	pieces(parent, rows)
-	pieces(parent, BUCKLE)
+local function buildLicenceCard(parent: Model, image: string)
+	pieces(parent, {
+		{
+			name = "Licence",
+			size = LICENCE_CARD_SIZE,
+			at = Vector3.new(0, LICENCE_CARD_SIZE.Y / 2, 0),
+			rot = Vector3.new(-18, 0, 0),
+			color = LICENCE_CARD_EDGE,
+			decals = { [Enum.NormalId.Back] = image },
+		},
+	})
 end
-
 -- ---------------------------------------------------------------- 2.7 the hunter's pin
 --
 -- WHAT IT IS. `ALWAYS HUNTER` is a STANDING and not an object, so what is sold is the TOKEN of a
@@ -1939,9 +1501,15 @@ local function buildBundle(parent: Model, id: string)
 	-- covers a package. What is new is that they stand ON THE LINING, each a little yawed so the row
 	-- is not a parade, and at 1.42 studs rather than 1.15 so the GOODS are the picture and the case
 	-- is the frame.
+	--
+	-- EVERY COVERED ROW IS NOW TOLD IT IS IN A PACKAGE (task 241), where before only the bandolier
+	-- was. The bandolier is gone and `IN_PACKAGE` has one meaning left, which is the one its name
+	-- says -- so the question each builder answers is *"am I a thumbnail"* rather than *"am I the
+	-- one item with a cheap mode"*, and a licence can use it to draw a card where it draws nothing
+	-- in the case.
 	local span = (#drawable - 1) * BUNDLE_SPREAD
 	for index, covered in ipairs(drawable) do
-		local piece = ShopDisplay.build(covered, if covered == ShopData.ITEM.UNLIMITED_AMMO then "lite" else nil)
+		local piece = ShopDisplay.build(covered, IN_PACKAGE)
 		if piece ~= nil then
 			piece.Name = string.format("Part%d", index)
 			local _, before = worldBox(piece)
@@ -1949,8 +1517,8 @@ local function buildBundle(parent: Model, id: string)
 			local scale = if tallest > 0 then math.clamp(BUNDLE_ITEM_STUDS / tallest, 0.05, 1) else 1
 			piece:ScaleTo(scale)
 			-- MEASURED AGAIN AFTER THE SCALE, and moved by its BOX and not by its pivot: the pivot
-			-- is whichever part happened to be made first, which for a yawed licence leaf or a
-			-- bandolier strap is neither the model's centre nor its foot.
+			-- is whichever part happened to be made first, which for a leaning licence card or a
+			-- stack of cartons is neither the model's centre nor its foot.
 			local centre, size = worldBox(piece)
 			local at = Vector3.new(-span / 2 + (index - 1) * BUNDLE_SPREAD, 0.096 + size.Y / 2, 0)
 			local yaw = math.rad(if index % 2 == 0 then 14 else -11)
@@ -1967,7 +1535,18 @@ end
 -- (`Shop.CONFIG.TEXT.PICK`) rather than showing an empty rectangle -- the refusal `HeldTool.kindOf`
 -- already makes for a Tool it does not name, and for the same reason: *"draw whatever is in the
 -- hand"* is what once drew a shotgun out of a horn.
-local DRAW: { [string]: { view: View, build: (Model, string, string?) -> () } } = {
+--
+-- **AN ITEM HAS A VIEWPORT MODEL OR AN IMAGE, NEVER BOTH** (task 241, `goods-spec.md` section 7
+-- step 4). A thing you HOLD is a model under the case's camera; a thing you are ISSUED is a flat
+-- image over the case, because a document has to be read and 25 degrees of pitch is a document you
+-- cannot. `knows` is still the one question the panel and a package ask -- both kinds answer it.
+type Drawing = {
+	view: View,
+	build: (Model, string, string?) -> (),
+	-- A LICENCE'S OWN ARTWORK. Set only for the two licences, and `ShopPanel` is its one reader.
+	image: string?,
+}
+local DRAW: { [string]: Drawing } = {
 	[ShopData.ITEM.SEMIAUTO] = {
 		view = RIFLE_VIEW,
 		build = function(model: Model, _id: string)
@@ -1998,12 +1577,22 @@ local DRAW: { [string]: { view: View, build: (Model, string, string?) -> () } } 
 			buildHat(model, id)
 		end,
 	},
-	-- THE TWO LICENCES ARE ONE BUILDER AND ONE ARGUMENT (task 228, spec 2.4): the same booklet in a
-	-- different cloth, with a different animal on it.
+	-- THE TWO LICENCES ARE FLAT IMAGES OVER THE CASE (task 241, `goods-spec.md` sections 3.3 and
+	-- 3.4), so their `build` draws NOTHING in the case and the `ViewportFrame` is left empty. The
+	-- one place they still have geometry is INSIDE A PACKAGE, where a hole would be worse than a
+	-- thumbnail (section 2.7 above) -- and `"lite"` is the one word that says so.
+	--
+	-- `view` IS NEVER READ FOR THESE TWO while they are the selected item (there is no model to
+	-- aim at, and `ShopPanel.aim` returns early), and inside a package it is the PACKAGE's view
+	-- that frames the board. It stays `SOLID_VIEW` so `viewFor` has an honest answer for every id
+	-- rather than a special case.
 	[ShopData.ITEM.BEATER_LICENCE] = {
-		view = BOOK_VIEW,
-		build = function(model: Model, _id: string, _detail: string?)
-			buildLicence(model, "beater")
+		view = SOLID_VIEW,
+		image = ART.LICENCE_BEATER,
+		build = function(model: Model, _id: string, detail: string?)
+			if detail == IN_PACKAGE then
+				buildLicenceCard(model, ART.LICENCE_BEATER)
+			end
 		end,
 	},
 	-- TASK 221: EVERY ROW THE SHOP SELLS HAS A PICTURE NOW (the Director, 2026-10-20). Six of the
@@ -2016,14 +1605,17 @@ local DRAW: { [string]: { view: View, build: (Model, string, string?) -> () } } 
 	},
 	[ShopData.ITEM.UNLIMITED_AMMO] = {
 		view = SOLID_VIEW,
-		build = function(model: Model, _id: string, detail: string?)
-			buildBandolier(model, detail)
+		build = function(model: Model, _id: string, _detail: string?)
+			buildAmmoStack(model)
 		end,
 	},
 	[ShopData.ITEM.RED_STAG] = {
-		view = BOOK_VIEW,
-		build = function(model: Model, _id: string, _detail: string?)
-			buildLicence(model, "deer")
+		view = SOLID_VIEW,
+		image = ART.LICENCE_DEER,
+		build = function(model: Model, _id: string, detail: string?)
+			if detail == IN_PACKAGE then
+				buildLicenceCard(model, ART.LICENCE_DEER)
+			end
 		end,
 	},
 	[ShopData.ITEM.ALWAYS_HUNTER] = {
@@ -2064,11 +1656,22 @@ function ShopDisplay.viewFor(id: string?): View
 	return if entry then entry.view else SOLID_VIEW
 end
 
--- THE MODEL FOR ONE ITEM, parentless, at the origin. nil for an id this module does not draw.
+-- THE FLAT ARTWORK FOR ONE ITEM, or nil if this item is drawn as a model instead (task 241). It is
+-- the OTHER half of `build`, and exactly one of the two answers for any id: a thing you HOLD has a
+-- model, a thing you are ISSUED has an image. `ShopPanel` is the only caller, and it reads this
+-- before it builds a picture.
+function ShopDisplay.imageFor(id: string?): string?
+	local entry = if id ~= nil then DRAW[id] else nil
+	return if entry then entry.image else nil
+end
+
+-- THE MODEL FOR ONE ITEM, parentless, at the origin. nil for an id this module does not draw AND
+-- for an id whose drawing is an IMAGE and not a model -- the two licences in the display case. A
+-- caller that wants to know which is which asks `imageFor` as well, and the panel does.
 --
--- `detail` IS THE ONE THING A CALLER MAY ASK FOR (task 228, spec 2.6): `"lite"` from `buildBundle`,
--- for the bandolier, whose 82 parts are six times the geometry for none of the picture inside a
--- 1.42-stud thumbnail. Every other caller passes nothing, and every other builder ignores it.
+-- `detail` IS THE ONE THING A CALLER MAY ASK FOR: `IN_PACKAGE` from `buildBundle`, meaning *this is
+-- a 1.42-stud thumbnail inside a package*. Every other caller passes nothing. Today one builder
+-- reads it -- a licence, which draws its card there and nothing in the case.
 function ShopDisplay.build(id: string?, detail: string?): Model?
 	local entry = if id ~= nil then DRAW[id] else nil
 	if entry == nil then
