@@ -99,6 +99,12 @@ LicenceCard.CONFIG = table.freeze({
 	-- the key works always. `B` is free: the fifteen `Enum.KeyCode`s bound anywhere in `src/` are
 	-- Backspace, E, M, R, Tab, X, Return, the four arrows and four gamepad buttons.
 	BUY_KEY = Enum.KeyCode.B,
+	-- HOW LONG AN ADVICE WAITS FOR A WALLET (round 1, finding 2). An aim that arrives before any
+	-- `ShopState` has reached this client cannot draw a BUY card -- there is no price and no answer
+	-- about what he owns -- so it ASKS and waits. 4 s: a `ShopRequest` round trip is tens of
+	-- milliseconds, so a reply that has not come in four seconds is a server that is not going to
+	-- send one, and in a world with no shop it never will (see `onShopState`).
+	PENDING_SECONDS = 4,
 	-- 7 s AND THEN IT LEAVES BY ITSELF. It is ADVICE: it must not need a click to go away, and the
 	-- hit card's own order of magnitude is the house rate for a card that fades.
 	SHOW_SECONDS = 7,
@@ -130,7 +136,15 @@ local stats = {
 	shown = 0,
 	suppressedRepeat = 0, -- within `REPEAT_SECONDS` of the last showing
 	suppressedOwned = 0, -- he already holds the card
-	suppressedOff = 0, -- the flag is off, or the shop is not wired in this world
+	suppressedOff = 0, -- the flag is off: there is no shop in this build at all
+	-- NO `ShopState` HAS EVER REACHED THIS CLIENT, so there is no price and no answer about what he
+	-- owns. **THIS IS THE COUNTER THAT STAYS AT THE WHOLE SESSION'S ADVICE COUNT IN A WORLD WITH NO
+	-- SHOP** (the DEV place), which is what round 1's finding 2 asked for: `Shop.start` answers
+	-- false there and never sets `started`, so `Shop.onRequest` returns nil and no reply is ever
+	-- sent. The card cannot appear.
+	suppressedNoWallet = 0,
+	-- The wallet arrived while an advice was still fresh, and the card went up on the reply.
+	shownOnWallet = 0,
 	presses = 0,
 	sent = 0,
 	hides = 0,
@@ -167,6 +181,8 @@ local shop: Shop? = nil
 -- HAS THIS CARD ASKED FOR A WALLET YET? Once per session, so a licensed player aiming at deer all
 -- afternoon sends one OPEN and not one per 12 s.
 local asked = false
+-- AN ADVICE THAT HAD NO WALLET YET, and when it arrived. `onShopState` is what picks it up.
+local pendingAt: number? = nil
 local shownAt: number? = nil -- when the card went up, or nil for "it is down"
 local lastShownAt: number? = nil -- when it last went up, kept after it comes down
 local message: string? = nil -- the shop's own last line, printed under the button
@@ -360,6 +376,12 @@ local function rowNow(): any
 	return if ok and type(row) == "table" then row else nil
 end
 
+-- IS THERE A SHOP IN THIS BUILD AT ALL? The FLAG, and only the flag -- `ShopPanel.isEnabled` reads
+-- `ShopData.isOn()` at its own boundary. It is **not** an answer to *"is a shop wired in this
+-- world"*: `SHOP` is a lit v1 default since task 233b, so this answers `true` in the DEV place,
+-- where `Shop.start` returned false because there is no counter. Round 1's finding 2 caught this
+-- file claiming otherwise. The question that IS answered correctly is *"has a wallet arrived"* --
+-- see `onAdvice` and `onShopState`.
 local function shopOn(): boolean
 	local current = shop
 	if current == nil or current.isEnabled == nil then
@@ -423,6 +445,7 @@ function LicenceCard.show(now: number?)
 		return
 	end
 	local at = now or os.clock()
+	pendingAt = nil
 	stats.shown += 1
 	shownAt = at
 	lastShownAt = at
@@ -442,28 +465,37 @@ function LicenceCard.onAdvice(advice: any, now: number?): boolean
 	end
 	stats.advices += 1
 	if not enabled or not shopOn() then
-		-- OFF, OR A WORLD WITH NO SHOP AT ALL (task 235: `Shop.start` answers false where there is
-		-- no counter, which is the DEV place). A card offering to sell a licence nothing can sell
-		-- would be the shop window lying.
+		-- THERE IS NO SHOP IN THIS BUILD AT ALL -- the card's own flag is off, or `SHOP` is. See
+		-- `shopOn` for what this does and does NOT answer.
 		stats.suppressedOff += 1
 		return false
 	end
 	local at = now or os.clock()
 	local row = rowNow()
 	if row == nil then
-		-- NO WALLET ON THIS SIDE YET, so no price. ASK FOR ONE, ONCE, and put the card up anyway
-		-- with the word and no amount: the reply lands in a few tens of milliseconds and
-		-- `onShopState` -> `render` fills the number in while he is still reading the title. A card
-		-- held back until the price arrived would be a card that never appeared at all for a player
-		-- who has never visited the lodge.
+		-- **NO WALLET HAS EVER REACHED THIS CLIENT, SO THERE IS NO CARD** (round 1, finding 2). A
+		-- BUY card with no price and no answer about what he owns is a shop window that cannot
+		-- sell: `rowFor` answers nil because no `ShopState` has arrived, and in a world with no
+		-- counter none ever will -- `Shop.start` returns false there WITHOUT setting `started`, so
+		-- `Shop.onRequest` returns nil to every request and sends no reply. That, and not the flag,
+		-- is what keeps the card off the screen in the DEV place.
+		--
+		-- SO IT ASKS, ONCE, AND REMEMBERS THE ADVICE. `Shop.onRequest`'s `OPEN` is not gated on the
+		-- counter (only `BUY` is), so asking from a drive is the door working as written. If a
+		-- wallet comes back inside `PENDING_SECONDS`, `onShopState` puts the card up on the reply --
+		-- so a player who has never visited the lodge still gets the card on the aim that asked for
+		-- it, with the real price on the button.
 		local current = shop
 		if not asked and current ~= nil and current.ask ~= nil then
 			asked = true
 			pcall(current.ask :: any)
 		end
+		pendingAt = at
+		stats.suppressedNoWallet += 1
+		return false
 	end
-	local owned = if type(row) == "table" then (row :: any).owned == true else nil
-	if owned == true then
+	local owned = (row :: any).owned == true
+	if owned then
 		stats.suppressedOwned += 1
 		return false
 	end
@@ -513,8 +545,34 @@ end
 --
 -- IT PRINTS THE SHOP'S OWN LINE AND NEVER ONE OF ITS OWN (`Shop.noticeFor`), so there is one voice
 -- for a refusal wherever it is read -- the register `Rules.NOTICE` set.
-function LicenceCard.onShopState(state: any)
-	if not LicenceCard.isVisible() or type(state) ~= "table" then
+function LicenceCard.onShopState(state: any, now: number?)
+	if type(state) ~= "table" then
+		return
+	end
+	-- THE WALLET THE LAST ADVICE WAS WAITING FOR (round 1, finding 2). The card went nowhere because
+	-- there was no price; this is the reply, so the aim that asked for it gets its card -- with the
+	-- real number on the button, because `rowNow` now has the server's own `WireRow`.
+	--
+	-- EVERY OTHER RULE IS STILL ASKED: he must not already own it, and the repeat cooldown still
+	-- applies, which is `LicenceCard.shouldShow` and not a second copy of it.
+	if not LicenceCard.isVisible() and pendingAt ~= nil then
+		local at = now or os.clock()
+		local waited = at - (pendingAt :: number)
+		if waited >= 0 and waited < LicenceCard.CONFIG.PENDING_SECONDS then
+			local row = rowNow()
+			local owned = if type(row) == "table" then (row :: any).owned == true else nil
+			if row ~= nil and LicenceCard.shouldShow(LicenceCard.ADVICE, owned, lastShownAt, at) then
+				pendingAt = nil
+				stats.shownOnWallet += 1
+				LicenceCard.show(at)
+				return
+			end
+		end
+		-- STALE, OR HE OWNS IT, OR IT IS INSIDE THE COOLDOWN: the advice is spent either way, so it
+		-- cannot be picked up by a wallet that arrives minutes later.
+		pendingAt = nil
+	end
+	if not LicenceCard.isVisible() then
 		return
 	end
 	local bought = (state :: any).bought
@@ -546,6 +604,7 @@ function LicenceCard.start(frame: Frame, collaborators: any)
 end
 
 function LicenceCard.stop()
+	pendingAt = nil
 	-- THE KEY GOES BACK TO THE PLAYER FIRST, whatever state the card was in: a module that stopped
 	-- holding a binding would leave `B` dead for the rest of the session.
 	bindBuyKey(false)

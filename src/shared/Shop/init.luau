@@ -1500,9 +1500,10 @@ Shop.REASON = table.freeze({
 	-- grant is `Economy.processReceipt`, and without this reason BOTH doors would be open the day
 	-- she sets an id -- a player could pay the $ price for a thing she had moved to Robux.
 	--
-	-- UNREACHABLE IN THIS BUILD, AND THAT IS THE POINT: every row's `robuxProductId` is nil
-	-- (`rowsOk`'s I12), so nothing is refused today. It is driven BY PARAMETER instead
-	-- (`Shop.refuse`'s `rows`), which is `Licences.required(species, rows)`'s own idiom.
+	-- UNREACHABLE FROM THE SHIPPED CATALOGUE, AND THAT IS THE POINT: every row's `robuxProductId`
+	-- is nil (`rowsOk`'s I12), so nothing is refused today. It is driven BY PARAMETER instead --
+	-- `Shop.Context.rows`, the seam added in round 1 of task 238 because the Reviewer found this
+	-- comment promising a field that did not exist. `Licences.required(species, rows)`'s own idiom.
 	ROBUX_ONLY = "robux-only",
 	NO_PROFILE = "no-profile", -- no open ProfileStore session for him
 	TOO_FAR = "too-far", -- he is not at the counter
@@ -1582,6 +1583,16 @@ export type Context = {
 	owned: { [string]: boolean }?,
 	balance: number?,
 	hunts: number?,
+	-- THE CATALOGUE TO JUDGE AGAINST, and nil means the game's own (round 1, finding 1). It exists
+	-- for ONE reason: `ROBUX_ONLY` is unreachable from the shipped catalogue, because `rowsOk`'s I12
+	-- holds every `robuxProductId` at nil -- so without this seam the one gate that stops a player
+	-- paying coins for a Robux-priced row could not be driven by any test at all. The comment on
+	-- `Shop.REASON.ROBUX_ONLY` promised this field before it existed; the Reviewer caught it.
+	--
+	-- IT IS THE IDIOM `Licences.required(species, rows)` AND `Shop.robuxProductFor(id, rows)` ALREADY
+	-- USE, and no production caller passes one: `Economy.purchase` builds its context without it, so
+	-- every shipped path still reads the frozen `Shop.ROWS` through `Shop.row`.
+	rows: any?,
 }
 
 -- PURE. The first question in `Shop.ORDER_OF_REFUSAL` that answers yes -- and the number its line
@@ -1597,8 +1608,24 @@ export type Context = {
 -- so the purchase may proceed": he is charged once, and the second click is refused `OWNED` off the
 -- set that was actually written. Every reader of what ownership GIVES makes the opposite call, and
 -- design section 7.1 is the table of why.
+-- WHICH ROW THIS CONTEXT IS ABOUT: the game's catalogue, or a table the caller owns. One place, so
+-- `refuse` below has exactly one answer to "what row is this" however it was asked.
+--
+-- `Shop.row` AND NOT `Shop.anyRow` FOR THE GAME'S OWN: a RETIRED row must answer `UNKNOWN`, which is
+-- what makes it unbuyable, and that is the call `refuse` has always made.
+local function rowFor(context: Context): Row?
+	if context.rows == nil then
+		return Shop.row(context.itemId)
+	end
+	if type(context.itemId) ~= "string" then
+		return nil
+	end
+	local row = (context.rows :: any)[context.itemId]
+	return if type(row) == "table" then row else nil
+end
+
 function Shop.refuse(context: Context): (string?, number?)
-	local row = Shop.row(context.itemId)
+	local row = rowFor(context)
 	for _, reason in ipairs(Shop.ORDER_OF_REFUSAL) do
 		if reason == Shop.REASON.CLOSED then
 			if context.coinsOn == false then

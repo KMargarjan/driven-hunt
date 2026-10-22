@@ -5295,8 +5295,15 @@ function Hud.start()
 		-- THE AIM ANSWER (task 238), ON THE SIGNAL AND NOT IN THE PER-FRAME PASS, for the reason
 		-- `CameraBoot`'s own `refused` reader states: *"an edge detector reading it every frame
 		-- would either miss it or repeat it"*. `advice` is a fact about ONE publish, the server sets
-		-- it on exactly the aim-question publish, and `Weapon.Changed` fires exactly once per
-		-- arriving snapshot -- so one aim at a deer is one card.
+		-- it on exactly the aim-question publish.
+		--
+		-- IT CAN ARRIVE MORE THAN ONCE PER AIM, AND THAT IS SAID RATHER THAN ASSUMED AWAY (the
+		-- Reviewer's round-1 note). `Weapon.Changed` fires once per arriving snapshot, but the
+		-- payload is `Weapon.get()` -- the HELD weapon -- so a later publish for a different,
+		-- unequipped weapon re-delivers the held one's last snapshot, `advice` and all. Nothing
+		-- shows twice: `LicenceCard.onAdvice` is edge-and-cooldown by `REPEAT_SECONDS` and counts
+		-- the extra as `suppressedRepeat`. The card's own rule is what makes one aim one card, not
+		-- this signal's delivery count.
 		if type(snapshot) == "table" and type((snapshot :: any).advice) == "string" then
 			LicenceCard.onAdvice((snapshot :: any).advice)
 		end

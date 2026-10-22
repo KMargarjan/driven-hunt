@@ -1009,7 +1009,8 @@ end
 
 -- WHAT IS IN FRONT OF THE GUN: ONE RAY, ONE IMPLEMENTATION, TWO CALLERS (task 238).
 --
--- The trigger (`onFireRequest`) and the aim question (`onAimRequest`) both ask this and nothing
+-- The trigger (`onFireRequest`) and the aim question (`onActionRequest`'s `"Aim"` branch -- there is
+-- no `onAimRequest`; the Reviewer caught this comment naming one) both ask this and nothing
 -- else, which is the whole of how task 238 avoided *"a second targeting path"*. Before it there was
 -- exactly one cast in the game and it lived inline in the fire flow; the popup needed the same
 -- answer at a different moment, and a client-side ray would have been a second answer to "what is

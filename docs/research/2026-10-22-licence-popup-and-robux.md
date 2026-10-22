@@ -192,10 +192,14 @@ with the set AS the record there is no window, and `Economy.grant` *"never yield
 **THE LIMIT, STATED: this holds for non-consumables only.** The day Karen sells a **coin pack** for
 Robux — a consumable, where granting twice really does double the goods — the set is no longer the
 record and a `PurchaseId` ledger becomes necessary. Nothing in this task sells one (`Shop.ITEM` has
-no coin pack and `Shop.GRANT_FIELDS` has no `coins`), and `I13`'s sibling check keeps it that way:
-**`robuxProductId` may only sit on a row whose grants are all non-consumable**, which today is every
-row. This is written here, in `Economy.processReceipt`'s header, and in the task report, because it
-is the one thing that would make this design wrong later.
+no coin pack and `Shop.GRANT_FIELDS` has no `coins` field at all, so no row CAN grant one), and the
+invariant that actually holds the line today is **I12**, which refuses any non-nil `robuxProductId`
+outright — so no row is sold for Robux in this build at all. (An earlier draft of this paragraph
+claimed I13 checked the product id; it does not — `Shop.anywhereProblems` reads `anywhere`, `grants`
+and `covers` and never `robuxProductId`. The Reviewer caught it, round 1.) This is written here, in
+`Economy.processReceipt`'s header, and in the task report, because it is the one thing that would
+make this design wrong later: **the day a consumable is sold for Robux, I12 has to come off, and the
+`PurchaseId` ledger has to go on in the same commit.**
 
 ## 4. One owner per system (rule 3)
 
@@ -227,10 +231,10 @@ is the one thing that would make this design wrong later.
 | 1 | the aim query clicks the gun dry | `advice` is a different field from `refused`; no reader of `refused` changes. `licence_popup.spec` asserts the advice publish carries `refused == nil` |
 | 2 | a forged `ActionRequest("Aim", …)` becomes a free targeting oracle | `Validator.checkRequest` whitelists the kind and `Validator.checkShot` validates the ray with the SAME origin tolerance the trigger uses; the answer it can get back is one of `Rules.REASON` about an animal already standing in plain sight, and it is spent against `ACTION_RATE_LIMIT` |
 | 3 | the popup takes the player's input and he cannot shoot | it never calls `Input.requestHold` and its button is not modal. `licence_card.spec` asserts `Input.isHeld()` is false while it is open |
-| 4 | coins are taken for a Robux row | `ROBUX_ONLY`, asked before the money questions in `Shop.ORDER_OF_REFUSAL` |
-| 5 | `ProcessReceipt` grants twice | `Economy.grant` is idempotent by the set and returns `already = true`; §3.5 states the non-consumable limit and I13's sibling check enforces it |
+| 4 | coins are taken for a Robux row | `ROBUX_ONLY`, asked before the money questions in `Shop.ORDER_OF_REFUSAL`, and driven by `Shop.Context.rows` in `licence_popup.spec` (the seam was added in round 1: the Reviewer found this gate reachable by no test) |
+| 5 | `ProcessReceipt` grants twice | `Economy.grant` is idempotent by the set and returns `already = true`; §3.5 states the non-consumable limit, and **I12** is what keeps it true today by refusing any non-nil product id at all |
 | 6 | the popup shows a price it invented | it draws `ShopPanel.rowFor(id).price`, the server's own `WireRow`, and shows no amount at all until one has arrived |
-| 7 | the popup appears in a build with no shop | it is born behind `LICENCE_POPUP` (default false) AND reads `ShopPanel.isEnabled()`; a world with no counter wires no shop at all since task 235 (L-095) |
+| 7 | the popup appears in a world where nothing can be bought | **The flag is not enough and round 1 proved it**: `ShopPanel.isEnabled()` reads the `SHOP` FLAG, which is a lit v1 default since task 233b, so it answers `true` in the DEV place where `Shop.start` returned false for want of a counter. The fact that IS true of such a world is that **no `ShopState` ever arrives** -- `Shop.start` returns false without setting `started`, so `Shop.onRequest` replies to nothing. The card therefore shows only once it holds a `WireRow`: no wallet, no card (`suppressedNoWallet`), and an advice that asked for one is picked up by `onShopState` within `PENDING_SECONDS` |
 
 ## 7. What this note does NOT cover
 

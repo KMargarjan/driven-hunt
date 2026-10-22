@@ -182,6 +182,9 @@ local roleTeam: string? = nil
 local roleAsk: ((string) -> ())? = nil
 -- See `ShopPanel.start`: who else is told what the server said (task 238).
 local stateListener: ((any) -> ())? = nil
+-- WHO IS ASKED TO TAKE ROBUX. nil is Roblox's own `MarketplaceService`; a spec hands in a stand-in
+-- (round 1, finding 3). The seam `Economy.start`'s `world.marketplace` already is, on this side.
+local marketplace: any = nil
 local rowSwitch: any = nil
 local rowBlock: Frame? = nil
 local detailSwitch: any = nil
@@ -2696,18 +2699,39 @@ function ShopPanel.payWith(id: any, rows: any?): string?
 	return if ShopData.robuxProductFor(id, rows) ~= nil then "robux" else "coins"
 end
 
-function ShopPanel.press(id: string?): boolean
+-- WHO TAKES THE ROBUX, injected. nil puts `MarketplaceService` back, which is production.
+--
+-- IT EXISTS BECAUSE THE BRANCH SPENDS REAL MONEY (round 1, finding 3): *"the client Robux branch
+-- that spends real money is untested and undrivable"*. With a stand-in and the `rows` below, a spec
+-- drives the arm that prompts and asserts that no `ShopRequest` went with it.
+function ShopPanel.setMarketplace(service: any?)
+	marketplace = service
+end
+
+-- `rows` IS THE SAME OPTIONAL CATALOGUE `ShopPanel.payWith` TAKES, and no production caller passes
+-- one: `LicenceCard.press` and the panel's own big button call this with an id alone, so the shipped
+-- path reads the frozen catalogue and every row in it is priced in coins (`rowsOk`'s I12).
+function ShopPanel.press(id: string?, rows: any?): boolean
 	stats.presses += 1
 	if type(id) ~= "string" then
 		return false
 	end
-	-- THE SWITCH, ASKED BEFORE THE REMOTE, because the Robux branch needs no remote of ours at all.
-	-- `Shop.REASON.ROBUX_ONLY` is what shuts our own door on the same row from the server's side, so
-	-- the two currencies can never both be open for one item.
-	local product = ShopData.robuxProductFor(id)
-	if product ~= nil then
+	-- THE SWITCH, ASKED THROUGH `ShopPanel.payWith` AND NOT BESIDE IT (round 1, finding 3: *"the
+	-- function the spec does drive is not the one the game runs"*). One pure answer to "which
+	-- currency", one caller of it, and no second reading of the row.
+	--
+	-- IT IS ASKED BEFORE THE REMOTE, because the Robux branch needs no remote of ours at all.
+	-- `Shop.REASON.ROBUX_ONLY` shuts our own door on the same row from the server's side, so the two
+	-- currencies can never both be open for one item.
+	if ShopPanel.payWith(id, rows) == "robux" then
+		local product = ShopData.robuxProductFor(id, rows)
 		local player = Players.LocalPlayer
-		if player == nil then
+		local service = marketplace or MarketplaceService
+		if player == nil or product == nil then
+			-- `payWith` ANSWERED "robux" AND THE ID IS GONE: impossible through the two functions as
+			-- they stand (both read the same row through the same pure function), counted rather
+			-- than assumed away, and NOTHING is sent -- a coin BUY here would charge him our price
+			-- for a thing Karen priced in Robux.
 			stats.promptFailed += 1
 			return false
 		end
@@ -2715,7 +2739,7 @@ function ShopPanel.press(id: string?): boolean
 		-- NO `pcall`: a prompt that throws is a bug in the product id, and swallowing it would make
 		-- a dead BUY button look like a cancelled purchase. Nothing of ours has changed when it does
 		-- -- no coins moved, no state was sent -- so there is nothing to undo.
-		MarketplaceService:PromptProductPurchase(player, product)
+		service:PromptProductPurchase(player, product)
 		return true
 	end
 	if remotes == nil then
@@ -2796,6 +2820,9 @@ function ShopPanel.start(root: Frame, collaborators: any)
 	-- `ReplicatedStorage.Lobby.Remotes`. nil means no sender, and then a press is counted and
 	-- discarded rather than throwing.
 	roleAsk = collaborators and collaborators.roleAsk
+	-- PRODUCTION PUTS `MarketplaceService` BACK (nil means it): a spec that injected a stand-in and
+	-- walked away must not leave the panel prompting into a table.
+	marketplace = collaborators and collaborators.marketplace
 	-- WHO ELSE WANTS TO HEAR WHAT THE SERVER SAID (task 238), handed in like `roleAsk` and for the
 	-- same reason: this panel stays the ONE subscriber of `ShopState` and the one owner of the
 	-- payload, and `Hud.start` -- the composition root that knows both owners -- binds this to

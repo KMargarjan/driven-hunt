@@ -790,7 +790,10 @@ end
 -- this holds for non-consumables ONLY.** The day a COIN PACK is sold for Robux, granting twice
 -- really does double the goods, the set stops being the record, and a `PurchaseId` ledger becomes
 -- necessary. No row in this catalogue grants a consumable -- `Shop.GRANT_FIELDS` has no `coins`
--- entry -- and `rowsOk`'s I13 is what keeps the `anywhere` half of that true structurally.
+-- entry, so no row CAN -- and the invariant holding the line today is `rowsOk`'s **I12**, which
+-- refuses any non-nil `robuxProductId` outright. (I13 is the `anywhere` rule and reads no product
+-- id; an earlier draft of this paragraph named it here and the Reviewer caught it.) The day a
+-- consumable is sold for Robux, I12 comes off and the ledger goes on in the same commit.
 --
 --   ProcessReceipt  https://create.roblox.com/docs/reference/engine/classes/MarketplaceService
 --
@@ -1183,6 +1186,12 @@ function Economy.start(injected: World?)
 	-- and a prompt with no `ProcessReceipt` behind it charges the player and retries for ever with
 	-- nothing granted. Wiring the door in the same task as the prompt is what makes that state
 	-- unreachable rather than documented.
+	--
+	-- WHERE THAT STOPS, SAID PLAINLY (the Reviewer's round-1 note): this sits BELOW the `not enabled`
+	-- return above, so with `COINS` off no handler is installed. Harmless today -- no row carries a
+	-- product id, so nothing can prompt -- and it is the honest place for it: a build with the money
+	-- switched off has no purchases of any currency. The day a row carries an id, `COINS` being off
+	-- must also mean the shop is off, which `Shop.start`'s own gate already says.
 	if Economy.installsReceiptHandler(world.marketplace, RunService:IsStudio()) then
 		local service = if world.marketplace ~= nil and world.marketplace ~= false
 			then world.marketplace

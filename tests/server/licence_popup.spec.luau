@@ -164,8 +164,11 @@ return function()
 						.. table.concat(roster, ", ")
 						.. "]"
 				)
-				-- NOT SILENT: the pure rule the handler would have asked.
+				-- NOT SILENT, AND THE REPORT SAYS WHICH ARM RAN (the Reviewer's round-1 note: the
+				-- fallback *"would pass with the whole `Aim` branch deleted"*). The pure rule the
+				-- handler would have asked is still checked, and the note above names the arm.
 				expect(Rules.unlicensed({ species = "reddeer" }, nil)).to.equal(true)
+				TestKit.note("licence_popup: LIVE HANDLER NOT DRIVEN -- the fallback arm ran")
 				return
 			end
 
@@ -242,7 +245,7 @@ return function()
 
 			TestKit.note(
 				string.format(
-					"licence_popup: %s questions +%d advised +%d shots +%d; barrel %s -> %s",
+					"licence_popup: LIVE HANDLER DRIVEN -- %s questions +%d advised +%d shots +%d; barrel %s -> %s",
 					subject.Name,
 					afterForged.aimQuestions - start.aimQuestions,
 					afterForged.aimAdvised - start.aimAdvised,
@@ -456,6 +459,48 @@ return function()
 				b = { id = "b", robuxProductId = 900 },
 			}
 			expect(ShopData.itemForProduct(900, shared)).to.equal(nil)
+		end)
+
+		it("really refuses a coin BUY for a Robux row, and only for one", function()
+			-- **THE GATE ITSELF, DRIVEN** (round 1, finding 1: *"the one gate that stops a player
+			-- paying coins for a Robux-priced row is driven by no test"*). `Shop.Context.rows` is
+			-- the seam that makes it reachable at all -- every shipped row's `robuxProductId` is nil
+			-- (I12), so no context built from the catalogue can ever take this branch.
+			local function row(product: any?): any
+				return {
+					[ShopData.ITEM.RED_STAG] = {
+						id = ShopData.ITEM.RED_STAG,
+						label = "DEER LICENCE",
+						category = ShopData.CATEGORY.LICENCE,
+						blurb = "A spec-owned copy of the row.",
+						price = 750,
+						hunts = 0,
+						sale = true,
+						anywhere = true,
+						robuxProductId = product,
+						grants = { licence = "reddeer" },
+					},
+				}
+			end
+			-- WITH A PRODUCT ID: the coin till refuses it, and says which rule.
+			expect(ShopData.refuse(clear({ rows = row(555) }))).to.equal(ShopData.REASON.ROBUX_ONLY)
+			-- THE SAME ROW WITHOUT ONE: nothing is refused. This is the pair that says the branch is
+			-- the product id and not the spec's table.
+			expect(ShopData.refuse(clear({ rows = row(nil) }))).to.equal(nil)
+			-- ...AND IT BEATS EVERY MONEY QUESTION, which is what its position in the order is for:
+			-- a man with no coins, no profile and no counter is told THIS and not `YOU NEED $750`.
+			expect(ShopData.refuse(clear({ rows = row(555), balance = 0, hasProfile = false, atCounter = false }))).to.equal(
+				ShopData.REASON.ROBUX_ONLY
+			)
+			-- ...BUT NOT THE ITEM QUESTIONS ABOVE IT: a row that is not for sale is still not for
+			-- sale, whatever currency Karen priced it in.
+			local notSale = row(555)
+			notSale[ShopData.ITEM.RED_STAG].sale = false
+			expect(ShopData.refuse(clear({ rows = notSale }))).to.equal(ShopData.REASON.NOT_SALE)
+			-- AND THE SEAM CHANGES NOTHING FOR A CONTEXT THAT DOES NOT PASS ONE, which is every
+			-- production caller: `Economy.purchase` builds its context without `rows`.
+			expect(ShopData.refuse(clear())).to.equal(nil)
+			expect(ShopData.refuse(clear({ rows = {} }))).to.equal(ShopData.REASON.UNKNOWN)
 		end)
 
 		it("shuts the coin till on a Robux row, before any money question", function()

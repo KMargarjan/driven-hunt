@@ -48,21 +48,33 @@ local LicenceCard_KEY_NAME = Card.CONFIG.BUY_KEY.Name
 local Panel = Hud.Shop
 local Input = WeaponSystem.Input
 
--- A SPEC-OWNED SHOP, so the card's three reads are this file's answers and no case depends on
--- whether the DEV place has a counter (it has none -- task 235: `Shop.start` answers false there, so
--- the live `ShopPanel.isEnabled` would suppress every card).
+-- A SPEC-OWNED SHOP, so the card's reads are this file's answers and no case depends on whether the
+-- DEV place has a counter (it has none -- task 235: `Shop.start` answers false there).
+--
+-- AN EARLIER VERSION OF THIS COMMENT SAID *"the live `ShopPanel.isEnabled` would suppress every
+-- card"* AND THAT WAS FALSE (round 1, finding 2): `ShopPanel.isEnabled` reads the `SHOP` FLAG, a lit
+-- v1 default since task 233b, so it answers `true` in DEV. What actually keeps the card off the
+-- screen there is that **no `ShopState` ever arrives** -- `Shop.start` returns false without setting
+-- `started`, so `Shop.onRequest` replies to nothing -- and the card shows only once it holds a
+-- `WireRow`. `row = false` below is that world.
 local function fakeShop(options: any?): any
 	local opts = options or {}
 	local sent = {}
 	local asks = 0
+	-- WHETHER A `WireRow` HAS ARRIVED YET, flippable mid-case: that is what a `ShopState` landing
+	-- looks like from the card's side, and the pending path needs both states in one case.
+	local hidden = opts.row == false
 	return {
 		sent = sent,
+		hideRow = function(on: boolean)
+			hidden = on
+		end,
 		askCount = function()
 			return asks
 		end,
 		Shop = {
 			rowFor = function(id: string?)
-				if opts.row == false then
+				if hidden then
 					return nil
 				end
 				if id ~= Shop.ITEM.RED_STAG then
@@ -243,12 +255,31 @@ return function()
 			expect(Card.stats().suppressedOwned).to.equal(1)
 			expect(Card.isVisible()).to.equal(false)
 
-			-- A WORLD WITH NO SHOP WIRED AT ALL -- which is the DEV place since task 235
-			-- (`Shop.start` answers false where there is no counter). A card offering to sell a
-			-- licence nothing can sell would be the shop window lying.
+			-- NO SHOP IN THE BUILD AT ALL (the flag off), which is what `shopOn` actually answers.
 			restart({ shopOff = true })
 			expect(Card.onAdvice("no-licence", 300)).to.equal(false)
 			expect(Card.stats().suppressedOff).to.equal(1)
+			expect(Card.isVisible()).to.equal(false)
+
+			-- **A WORLD WHERE NO WALLET EVER ARRIVES**, which is the DEV place since task 235:
+			-- `Shop.start` returns false for want of a counter WITHOUT setting `started`, so
+			-- `Shop.onRequest` replies to nothing and no `ShopState` is ever sent. Round 1's
+			-- finding 2: the flag does NOT answer this -- `SHOP` is a lit v1 default, so
+			-- `ShopPanel.isEnabled()` says true in exactly that world. What keeps the card off the
+			-- screen is that it has no `WireRow`.
+			local dry = restart({ row = false })
+			for index = 1, 4 do
+				-- EVERY AIM, not one: a guard that only held for the first would still put the card
+				-- up in a drive. Each is past `REPEAT_SECONDS`, so the cooldown is not what stops it.
+				expect(Card.onAdvice("no-licence", 300 + index * 20)).to.equal(false)
+			end
+			expect(Card.isVisible()).to.equal(false)
+			expect(Card.stats().suppressedNoWallet).to.equal(4)
+			expect(Card.stats().shown).to.equal(0)
+			-- ...AND IT ASKED FOR ONE, ONCE, which is the only thing it can do about it.
+			expect(dry.askCount()).to.equal(1)
+			-- A REPLY THAT NEVER CARRIES THE ROW CHANGES NOTHING, however long the player aims.
+			Card.onShopState({ refused = Shop.REASON.CLOSED }, 385)
 			expect(Card.isVisible()).to.equal(false)
 
 			-- ...AND WITH THE FLAG OFF, for the same counter: the OFF build draws nothing and says so.
@@ -324,19 +355,39 @@ return function()
 	end)
 
 	describe("the price and the button", function()
+		it("waits for the wallet, then goes up on the reply with the real price", function()
+			-- THE PENDING PATH (round 1, finding 2). The first aim finds no `WireRow`, so it asks
+			-- and shows NOTHING; the reply arrives inside `PENDING_SECONDS` and the card goes up
+			-- then -- so the aim that asked for it still gets its card, with the number on it.
+			local world = restart({ price = 750 })
+			world.hideRow(true)
+			expect(Card.onAdvice("no-licence", 600)).to.equal(false)
+			expect(Card.isVisible()).to.equal(false)
+			expect(world.askCount()).to.equal(1)
+			world.hideRow(false)
+			Card.onShopState({}, 600 + 0.2)
+			expect(Card.isVisible()).to.equal(true)
+			expect(Card.stats().shownOnWallet).to.equal(1)
+			expect((Card.parts().word :: TextLabel).Text).to.equal("BUY  " .. Money.text(750))
+
+			-- A WALLET THAT TAKES LONGER THAN `PENDING_SECONDS` IS TOO LATE: the advice is spent, so
+			-- a card cannot appear minutes after the player stopped aiming.
+			local late = restart({ price = 750 })
+			late.hideRow(true)
+			expect(Card.onAdvice("no-licence", 700)).to.equal(false)
+			late.hideRow(false)
+			Card.onShopState({}, 700 + Card.CONFIG.PENDING_SECONDS)
+			expect(Card.isVisible()).to.equal(false)
+			expect(Card.stats().shownOnWallet).to.equal(0)
+		end)
+
 		it("prints the server's own price and never a guessed one", function()
-			-- NO WALLET ON THIS SIDE YET: the word, and no amount.
-			local world = restart({ row = false })
+			-- THE PLACEHOLDER IS WHAT A BUTTON WITH NO ROW WOULD SAY. It is unreachable on screen
+			-- now -- no row means no card at all -- and the pure function is still the one place
+			-- that decides, so this is what says it never invents a number.
 			expect(Card.buttonTextFor(nil)).to.equal("BUY  ...")
-			expect(Card.onAdvice("no-licence", 600)).to.equal(true)
-			local parts = Card.parts()
-			expect((parts.word :: TextLabel).Text).to.equal("BUY  ...")
-			-- ...AND IT ASKED FOR ONE, ONCE. `Shop.onRequest`'s `OPEN` is not gated on the counter
-			-- (only `BUY` is), so asking from a drive is the door working as written.
-			expect(world.askCount()).to.equal(1)
-			Card.hide()
-			expect(Card.onAdvice("no-licence", 600 + Card.CONFIG.REPEAT_SECONDS)).to.equal(true)
-			expect(world.askCount()).to.equal(1)
+			expect(Card.buttonTextFor({})).to.equal("BUY  ...")
+			expect(Card.buttonTextFor({ price = "750" })).to.equal("BUY  ...")
 
 			-- WITH A PAYLOAD: the price the server sent, formatted by the ONE formatter (task 221),
 			-- so the `$` exists in exactly one module.
@@ -401,6 +452,50 @@ return function()
 			expect(Panel.payWith(42, rows)).to.equal(nil)
 			-- NOTHING PROMPTED ROBLOX IN THIS BUILD, and the counter says so.
 			expect(Panel.stats().prompted).to.equal(0)
+		end)
+
+		it("prompts Roblox for a Robux row and sends no coin BUY, driven through the real press", function()
+			-- **THE ARM THAT SPENDS REAL MONEY, DRIVEN** (round 1, finding 3: *"the client Robux
+			-- branch that spends real money is untested and undrivable, and the function the spec
+			-- does drive is not the one the game runs"*). `ShopPanel.press` now asks
+			-- `ShopPanel.payWith`, and both take the same optional `rows`; the service is injected,
+			-- the seam `Economy.start`'s `world.marketplace` already is on the server.
+			local prompts = {}
+			local stub = {
+				PromptProductPurchase = function(_self, who, productId)
+					table.insert(prompts, { player = who, productId = productId })
+				end,
+			}
+			local rows = {
+				[Shop.ITEM.RED_STAG] = { id = Shop.ITEM.RED_STAG, robuxProductId = 31337 },
+				[Shop.ITEM.SLUG] = { id = Shop.ITEM.SLUG },
+			}
+			local before = Panel.stats()
+			Panel.setMarketplace(stub)
+			-- THE ROBUX ROW: it prompts, with THIS player and THAT product.
+			expect(Panel.press(Shop.ITEM.RED_STAG, rows)).to.equal(true)
+			expect(#prompts).to.equal(1)
+			expect(prompts[1].player).to.equal(player)
+			expect(prompts[1].productId).to.equal(31337)
+			expect(Panel.stats().prompted).to.equal(before.prompted + 1)
+			-- ...AND **NO COIN BUY WENT WITH IT**, which is the half that matters: a prompt plus a
+			-- `ShopRequest` would charge him twice, in two currencies.
+			expect(Panel.stats().sent).to.equal(before.sent)
+
+			-- THE COIN ROW IN THE SAME TABLE takes the other arm: no prompt, and the request goes.
+			expect(Panel.press(Shop.ITEM.SLUG, rows)).to.equal(true)
+			expect(#prompts).to.equal(1)
+			expect(Panel.stats().sent).to.equal(before.sent + 1)
+			expect(Panel.stats().prompted).to.equal(before.prompted + 1)
+
+			-- AND THE SHIPPED CATALOGUE PROMPTS NOTHING, because every row's id is nil (I12).
+			expect(Panel.press(Shop.ITEM.RED_STAG)).to.equal(true)
+			expect(#prompts).to.equal(1)
+			expect(Panel.stats().sent).to.equal(before.sent + 2)
+
+			-- PUT THE REAL SERVICE BACK: a spec that walked away would leave the panel prompting
+			-- into a table for the rest of the session.
+			Panel.setMarketplace(nil)
 			TestKit.note(
 				string.format(
 					"licence_card: %d catalogue rows, all priced in coins; prompted=%d",
