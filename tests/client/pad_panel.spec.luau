@@ -919,14 +919,30 @@ return function()
 
 			-- **AND THE TWO RECTANGLES ARE DISJOINT** (round 1 note). Both labels were full-width at
 			-- the same Y with `TextTruncate.AtEnd`, which HIDES a collision rather than preventing
-			-- one -- and `spaced()` makes both of them long. The row is split now, and this is the
-			-- arithmetic rather than a screenshot.
+			-- one -- and `spaced()` makes both of them long.
+			--
+			-- ASSERTED OFF THE DECLARED `UDim2`s AND NOT OFF `AbsoluteSize`, because those three
+			-- values are written synchronously by `build` and `relayout` while an absolute is a
+			-- LAYOUT'S answer and is stale until the engine has run one. Together they prove the
+			-- split for any block width: the eyebrow spans `[0, W - KEY_PX]` from the left edge and
+			-- the chip spans `[W - KEY_PX, W]` from the right, whatever `W` turns out to be.
+			expect(brow.Position).to.equal(UDim2.fromOffset(0, 0))
+			expect(brow.Size).to.equal(UDim2.new(1, -PANEL.ROLE.KEY_PX, 0, PANEL.ROLE.EYEBROW_PX))
+			expect(chip.AnchorPoint).to.equal(Vector2.new(1, 0))
+			expect(chip.Position).to.equal(UDim2.fromScale(1, 0))
+			expect(chip.Size).to.equal(UDim2.fromOffset(PANEL.ROLE.KEY_PX, PANEL.ROLE.EYEBROW_PX))
+
+			-- ...AND NEITHER WORD IS ACTUALLY TRUNCATED at the size it is drawn, which is the claim
+			-- `TextTruncate` would otherwise be covering up. `TextBounds` and `AbsoluteSize` are
+			-- both the LAYOUT's answers, so the frame is waited for rather than assumed: the block
+			-- went visible in this same case, and reading them before the engine has laid it out
+			-- answers 0 -- which is how this read failed once and passed twice.
+			task.wait()
+			task.wait()
 			local browRight = brow.AbsolutePosition.X + brow.AbsoluteSize.X
+			expect(brow.AbsoluteSize.X > 0).to.equal(true)
 			expect(chip.AbsolutePosition.X >= browRight).to.equal(true)
 			expect(chip.AbsoluteSize.X).to.equal(PANEL.ROLE.KEY_PX)
-			-- ...AND NEITHER WORD IS ACTUALLY TRUNCATED at the size it is drawn, which is the claim
-			-- `TextTruncate` would otherwise be covering up. `TextBounds` is what the engine
-			-- measured for the text that is really in the label.
 			expect(chip.TextBounds.X <= chip.AbsoluteSize.X).to.equal(true)
 			expect(brow.TextBounds.X <= brow.AbsoluteSize.X).to.equal(true)
 			TestKit.note(
