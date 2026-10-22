@@ -180,3 +180,83 @@ volume, and no `Future` experiment. One setup, one morning, every world.
 unreadable the knob is `Ambient` → `54,49,43` (§2), **not** the boar's albedo and not
 `OutdoorAmbient`; if frames suffer the first and only cut is `Bloom` (§8); if the trophy reads black
 the fix is one mantel `PointLight` at `Brightness 0.5 / Range 9 / 255,196,132` (§5).
+
+---
+
+## 6. Task 236: +0.40 EV for the hunt (2026-10-22)
+
+**Karen, 2026-10-21:** *"make a bit lighter when hunting now is a bit to dark"*. One row of §5's
+table moves and nothing else does: `ExposureCompensation` 0.15 -> **0.55**.
+
+### 6.1 Why that property and not another
+
+Three rows of `Light.CONFIG` could make a frame lighter, and only one of them can do it *without
+changing the look*, which is the other half of what was asked:
+
+| knob | what it would do | why not |
+|---|---|---|
+| **`ExposureCompensation`** | scales the whole frame, in stops, before the grade | **chosen.** No hue term, no fog term, and it moves lit and shaded by the same factor, so the `Atmosphere`, the colours and the sun : sky balance all survive it. It is also free -- measured 60.0 fps at 0.15 and at 0.65, mean frame 16.666 ms against 16.665 ms |
+| `Brightness` | the sun alone | widens the 2.7 : 1 lit : shaded that §1 builds the morning's softness out of, and does nothing at all for the places Karen is complaining about, which are the shaded ones |
+| `Ambient` | sky-occluded surfaces | the spec's own named rescue knob (§2, `54,49,43`), and task 215 TRIED it live: the deep-shade boar goes 5.2 -> 5.8 luma while **losing** separation, 2.91 -> 2.65. It buys the least and costs the most |
+
+### 6.2 What was measured, and where
+
+DEV, 2026-10-22, **one Play session**: the camera is staged once per scene and all four exposure
+values are photographed from it **without moving it**, so a before/after pair differs in exactly one
+number -- the same spot, the same clock, the same eye height, the same framing and the same zoom,
+because it is the same camera between the two shutter releases (L-021, which this very system
+rediscovered in task 215 round 2). Scenes are the player's own path in a drive: **A** his stand
+(`ShooterPost1`) looking down the drive the boars come from, **B** the tie-tree belt he walks
+through, **C** the open field mid-drive, **D** a boar staged in open shade. Scripts and frames:
+`<runs-dir>/t236/` (`shoot.py`, `reshoot.py`, `boar.py`, `measure.py`, `boarmeasure.py`).
+
+Mean BT.601 luma of the **world band** of each frame -- the HUD's top and bottom bands are cut out,
+so a white glyph cannot be counted as sky nor the dark slate as shade:
+
+| scene | 0.15 (today) | 0.45 (+0.30 EV) | 0.55 (+0.40 EV) | 0.65 (+0.50 EV) |
+|---|---|---|---|---|
+| A, the stand | 113.71 | 127.73 (+12.3 %) | **132.40 (+16.4 %)** | 137.03 (+20.5 %) |
+| B, the tree belt | 109.99 | 123.47 (+12.3 %) | **127.95 (+16.3 %)** | 132.41 (+20.4 %) |
+| C, the field | 116.07 | 130.12 (+12.1 %) | **134.79 (+16.1 %)** | 139.42 (+20.1 %) |
+
+**The dark end is what "too dark" means**, and it moves more than the mean does. In the tree belt
+the darkest tenth of the frame goes **4.92 -> 8.09 (+64 %)** and the share of the frame under luma
+24 goes **12.14 % -> 8.96 %**. On the open scenes the darkest tenth goes 13.99 -> 16.41 and
+14.83 -> 17.34. Nothing is crushed that was not crushed before: a pixel at a true zero stays at
+zero under any exposure, and the one thing that proved was a first staging of scene B with the
+camera 6 studs from a trunk -- half that frame was literal black at every value. It was re-staged.
+
+**0.55 is the pick** -- the middle of the dispatched +0.30..+0.50 EV range, and the nudge is this
+one number in either direction.
+
+### 6.3 The two costs, measured and not argued
+
+1. **The sky passes design-system §2's tested ground for the first time.** Brightest sky (99th
+   percentile of 441k sky pixels across the three scenes) goes `#B5D1D4` luma **201.0** ->
+   `#C7E1E2` luma **217.3**, against the `#B4CFE4` (201.3) of §2. So §6's conditional -- *"if the
+   lighting pass makes the sky brighter than `#B4CFE4`, the ONE knob is `SLATE_T`"* -- is met, and
+   the slate is **already** at the 0.14 it asks for, because the Director took that insurance in
+   task 215 when the measurement did not ask for it. Measured over the new sky, the tightest HUD
+   colour `BLAZE_HI` is **5.01 : 1** against a floor of 4.5 (5.18 before). Nothing changes;
+   `Style.luau`'s comment is corrected to say which reading is live.
+2. **A boar in open shade separates slightly less from the ground it stands on**: **2.66 : 1 ->
+   2.20 : 1**, because the ground lifts faster than the animal (flank 6.56 -> 13.20 luma, the shaded
+   ground 17.44 -> 29.00). Against sunlit ground beyond the shadow edge it is 15.76 : 1 -> 9.61 : 1.
+   Both are far above the 1.5 : 1 of §5 and the sign never flips -- the boar stays the darker shape,
+   which is how it reads at all. It is still a real cost, and it is the first number to re-read if
+   anybody lifts further.
+
+### 6.4 What this section does NOT prove
+
+* **DEV is not the forest.** These are DEV frames, with DEV's grey-box tie-trees and DEV's own
+  `Sky`; the Forest Test was closed on the night of the change (Director's dispatch). The Forest
+  Test's sky measured `#94B9D3` (176.9) at 0.15 in task 215, darker than DEV's 201.0, so the same
+  +0.40 EV should land it near 205 -- just over §2's ground, with the same slate covering it. That
+  is an **estimate from this task's own scaling, not a measurement**, and the morning smoke is where
+  it gets looked at.
+* **The lodge is not photographed.** `ExposureCompensation` is one table written in every world, so
+  the lodge task 215 warmed gets the same +0.40 EV. Exposure has no hue term, so its warm/orange
+  character is unchanged and only its level moves, by the same ~16 % as everything else -- but DEV
+  has no lodge to photograph and the Forest Test was closed. If it reads too bright, the knobs are
+  the lodge's own, `Lobby.CONFIG.LODGE`'s `LANTERN` and `FIRE_LIGHT`, which belong to a different
+  owner and a different task.

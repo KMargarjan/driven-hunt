@@ -94,6 +94,25 @@ player had finished loading in.
 | 2026-09-25 | Task 24, the shotgun on the default camera (branch `task-24-shotgun`): fired both barrels, reloaded, pressed X, tried hitting the boar | **X only relabelled the ammo.** "No, it has to change to shells after X, so it reloads to shells." Hitting: "still too early to say" - no ADS and the boar does not react yet. Checks 1 (barrel delay), 2 (empty gun) and 3 (reload timing): no complaint | **Done in this task:** X switches the type AND reloads to it - break open, the unfired shells of the old type go back to their pocket, two of the new type in, close; same 2.0 s uninterruptible window as R, no firing during it; an empty pocket of the new type does nothing and the Hud says "NO BUCK". **Deferred by Karen:** hit feel, judged after the camera (1.4b) and hit zones (1.5) | 24 |
 | 2026-09-25 | First grey-box playtest (main after Task 22): walked at the boar, chased it, watched it idle, walked the 400×400 arena | Nothing. Flees at the right distance; speed OK; colour fine for now; the wander turns and reads like an animal; arena size and cover OK for v1 | Nothing. Boar AI and test arena accepted for Milestone 1 | 17, 18, 22 (recorded by the Director) |
 
+## 2026-10-21 — Karen, on the light during a drive (task 236)
+
+> *"make a bit lighter when hunting now is a bit to dark"*
+
+Transcribed by the Builder from the Director's task 236 dispatch, 2026-10-22; it arrived outside
+the repo. `feature-flags.md` section 11 step 4 is why it belongs in this file and not only in a
+`TASKS.md` row.
+
+**What was done:** `Light.CONFIG.LIGHTING.ExposureCompensation` 0.15 -> 0.55, **+0.40 EV**, the one
+knob in the lighting table that is literally an exposure stop — it has no hue term and no fog term,
+so the colours, the fog and the sun : sky balance are exactly as they were and only the level moved.
+Measured in DEV over three scenes on a player's own path: the mean luminance of the frame **+16 %**,
+and the dark end — which is what "too dark" means — **+64 %** in the tree belt.
+
+**What Karen still decides:** whether +0.40 EV is "a bit". It is a pick, not a measurement, and it
+is one number either way: 0.45 is a third less lift, 0.65 a quarter more. The lodge and the forest's
+own sky were not photographed (the Forest Test was closed that night) and are in `ESCALATE.md` for
+the morning smoke.
+
 ## 2026-10-16 ~21:30 and ~21:35 — Karen, after looking at the lodge (task 196 part 3d)
 
 Verbatim, ~21:30:

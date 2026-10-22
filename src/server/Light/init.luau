@@ -131,7 +131,42 @@ Light.CONFIG = {
 		GeographicLatitude = 50,
 		-- `ColorCorrection` adds contrast, which darkens midtones; this brings them back WITHOUT
 		-- raising the black point, which is what `Brightness` would have done.
-		ExposureCompensation = 0.15,
+		--
+		-- **0.55 SINCE TASK 236, AND IT WAS 0.15: +0.40 EV, THE MIDDLE OF THE RANGE KAREN'S WORD
+		-- WAS DISPATCHED AS.** Karen, 2026-10-21: *"make a bit lighter when hunting now is a bit to
+		-- dark"*. This property and no other, because it is the only knob in the table that is
+		-- literally an exposure stop: it scales the whole frame before the grade, so it has no hue
+		-- term and no fog term and CANNOT change the look the previous line of this table sets --
+		-- the colours, the `Atmosphere` and the shade/sun BALANCE all come out of it untouched,
+		-- only less dark. `Brightness` would have lifted the sun alone and widened the 2.7 : 1 the
+		-- spec's §1 builds the softness out of; `Ambient` is the spec's own named rescue knob for
+		-- deep shade (§2) and task 215 measured it LOSING boar separation (2.65 against 2.91), so
+		-- neither was touched.
+		--
+		-- MEASURED IN DEV, 2026-10-22, one Play session, one camera per scene, four values shot
+		-- from it without moving it (`<runs-dir>/t236/`, `measure.py`). Mean BT.601 luma of the
+		-- world band of the frame, over three scenes on the player's own path -- his stand looking
+		-- down the drive, the tree belt he walks through, the open field mid-drive:
+		--   0.15 -> 113.7 / 110.0 / 116.1      0.45 (+0.30 EV) -> +12.3 / +12.3 / +12.1 %
+		--   0.55 (+0.40 EV) -> +16.4 / +16.3 / +16.1 %      0.65 (+0.50 EV) -> +20.5 / +20.4 / +20.1 %
+		-- and the DARK END, which is what "too dark" actually means -- the mean of the darkest
+		-- tenth of the wood frame goes 4.92 -> 8.09 (+64 %) and the share of it under luma 24 goes
+		-- 12.14 % -> 8.96 %. **To nudge it: this one number.** 0.45 is a third less lift, 0.65 a
+		-- quarter more, and every figure above is linear enough in between to interpolate.
+		--
+		-- THE TWO THINGS IT COSTS, both measured rather than argued:
+		--   * the brightest sky goes `#B5D1D4` (201.0) -> `#C7E1E2` (217.3), which is OVER the
+		--     `#B4CFE4` (201.3) that design-system.md §2 tested, so §6's trigger for the slate is
+		--     met for the first time -- and the slate is ALREADY at the 0.14 that trigger asks for
+		--     (task 215, the Director's insurance). The tightest HUD colour, `BLAZE_HI`, lands at
+		--     **5.01 : 1 against a floor of 4.5**. Nothing to change; `Style.SLATE_T` is the knob if
+		--     it ever stops clearing it.
+		--   * a boar in open shade against the ground it stands on goes **2.66 : 1 -> 2.20 : 1**
+		--     (the ground lifts slower than the animal). Still well clear of the 1.5 : 1 this note's
+		--     §5 sets, and the sign never flips -- the boar stays the darker shape -- but it IS a
+		--     real cost and it is the first thing to re-read if the lift goes higher.
+		-- Note: docs/research/2026-10-19-one-owner-for-the-lighting.md section 6.
+		ExposureCompensation = 0.55,
 		-- ONLY HAS ANY EFFECT UNDER `Future`, and this game runs `ShadowMap`: recorded so the value
 		-- exists if that experiment is ever run, and INERT in the shipped setup. Lower than the 0.5
 		-- default because a soft sun plus soft shadows is mush.
