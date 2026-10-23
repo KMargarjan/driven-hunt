@@ -618,6 +618,128 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------------- TASK 250, ROUND 2: THE TIE'S OWN FIGURE
+	describe("the violation's money reaches the feed", function()
+		-- WHAT THESE CASES COVER, AND -- SAID PLAINLY -- WHAT THEY DO NOT.
+		--
+		-- THEY COVER THE MACHINE'S FORWARDING: `Phase.step` is handed a `violation` (or a `fine`)
+		-- event and the feed effect it builds is what is read, with PRODUCTION's config, including
+		-- the `Phase.isLive` gate. They also pin the ROW the producer reads.
+		--
+		-- **THEY DO NOT COVER THE PRODUCER**, and round 2's version of this comment claimed they
+		-- did -- which was the Reviewer's round-2 finding and was fair: `Match.onSafetyViolation`
+		-- is a local connected to `Weapon.SafetyViolated`, nothing in `tests/` fires that signal,
+		-- and case 1 below hands the machine the figure itself -- verbatim the flaw round 1's
+		-- comment accused `report_panel.spec` of. All five pass with the producer's two fields
+		-- deleted.
+		--
+		-- **THE PRODUCER IS COVERED IN `tests/client/zz_tie_to_a_tree.spec.luau`**, which fires a
+		-- REAL violating shot in a two-player run and asserts on the entry the SERVER published
+		-- over `MatchEvent` -- the one place in the repository that path is driven end to end.
+		local Phase = Match.Phase
+
+		local SPAWNS = { Vector3.new(-40, 0, 120), Vector3.new(40, 0, 120) }
+
+		local function liveState()
+			-- A `Running` drive, built the way `match_phase.spec` builds one -- `Phase.initial`,
+			-- markers, two joins, then a tick far past the `Assigning` deadline. The machine
+			-- refuses a violation outside a live drive (`Phase.isLive`), which is the branch these
+			-- cases must get past, and it is driven with PRODUCTION's config rather than a hand
+			-- table because what is being checked is the shipped rule.
+			local state = Phase.initial(Match.CONFIG)
+			state = Phase.step(state, {
+				kind = "markers",
+				complete = true,
+				missing = {},
+				boarSpawns = SPAWNS,
+			}, 0, Match.CONFIG)
+			state = Phase.step(state, { kind = "join", userId = SHOOTER, name = "s" }, 0, Match.CONFIG)
+			state = Phase.step(state, { kind = "join", userId = DRIVER, name = "d" }, 0, Match.CONFIG)
+			state = Phase.step(state, { kind = "tick", aliveBoars = 0 }, 1000, Match.CONFIG)
+			return state
+		end
+
+		local function feedOf(effects, kind: string)
+			for _, effect in ipairs(effects) do
+				if effect.kind == "feed" and effect.entry and effect.entry.kind == kind then
+					return effect.entry
+				end
+			end
+			return nil
+		end
+
+		it("carries the signed figure and the word a violation event was given", function()
+			local state = liveState()
+			expect(Phase.isLive(state)).to.equal(true)
+			local _, effects = Phase.step(state, {
+				kind = "violation",
+				userId = SHOOTER,
+				name = "s",
+				money = -1000,
+				text = "PERSON IN LINE",
+			}, 1001, Match.CONFIG)
+			local entry = feedOf(effects, "violation")
+			expect(entry).to.be.ok()
+			expect(entry.money).to.equal(-1000)
+			expect(entry.text).to.equal("PERSON IN LINE")
+		end)
+
+		it("carries nothing when the event carries nothing, so an older build is unchanged", function()
+			local state = liveState()
+			local _, effects =
+				Phase.step(state, { kind = "violation", userId = SHOOTER, name = "s" }, 1001, Match.CONFIG)
+			local entry = feedOf(effects, "violation")
+			expect(entry).to.be.ok()
+			expect(entry.money).to.equal(nil)
+			expect(entry.text).to.equal(nil)
+		end)
+
+		it("has a figure for the producer to put there, out of production's own config", function()
+			-- The other half of finding 1: `onSafetyViolation` reads `Score.fineForSafety(config)`
+			-- and puts `-money` on the event. This is what says the row it reads is really there,
+			-- and that the figure is the one the tie is supposed to cost -- so the two halves
+			-- cannot drift apart without one of these two cases failing.
+			local money, word = Match.Score.fineForSafety(Match.CONFIG)
+			expect(money).to.equal(1000)
+			expect(word).to.equal("PERSON IN LINE")
+			expect(money).to.equal(2 * (Match.Score.fineForKind("cub", Match.CONFIG) :: number))
+		end)
+
+		it("emits a `fine` line for a money penalty that is not a tie", function()
+			-- The piglet's own path, which has always worked: `onDowned` dispatches `fine` and the
+			-- machine turns it into one line. Asserted beside the tie's so the two shapes are one
+			-- pair of cases rather than two files.
+			local state = liveState()
+			local _, effects = Phase.step(state, {
+				kind = "fine",
+				userId = SHOOTER,
+				name = "s",
+				money = -500,
+				text = "PIGLET",
+			}, 1001, Match.CONFIG)
+			local entry = feedOf(effects, "fine")
+			expect(entry).to.be.ok()
+			expect(entry.money).to.equal(-500)
+			expect(entry.text).to.equal("PIGLET")
+		end)
+
+		it("says nothing about a fine outside a live drive", function()
+			-- A fine CHARGED in `Scoring` would be a fine for a shot that scored nothing, so the
+			-- branch is gated on `Phase.isLive` exactly as the kill it follows is. The drive's own
+			-- TOTAL is published by the owner on the `Scoring` edge instead, through `publishFeed`.
+			local state = Phase.initial(Match.CONFIG)
+			expect(Phase.isLive(state)).to.equal(false)
+			local _, effects = Phase.step(state, {
+				kind = "fine",
+				userId = SHOOTER,
+				name = "s",
+				money = -500,
+				text = "PIGLET",
+			}, 1, Match.CONFIG)
+			expect(feedOf(effects, "fine")).to.equal(nil)
+		end)
+	end)
+
 	describe("Score.violation -- what a violation costs", function()
 		it("takes SAFETY_PENALTY points, counts it, and lets the total go negative", function()
 			local board = Match.Score.new()

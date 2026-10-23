@@ -832,7 +832,11 @@ function Hud.feedMeaningFor(entry): string
 	local kind = entry and entry.kind
 	if kind == "kill" then
 		return "good"
-	elseif kind == "escape" or kind == "violation" or kind == "refusal" then
+	elseif kind == "escape" or kind == "violation" or kind == "refusal" or kind == "fine" then
+		-- A FINE IS A LOSS AND IT IS DRAWN AS ONE (task 250). `money` would make it the COIN colour,
+		-- which this file's own key reserves for *"money moved"* -- a sale, a pay-out, a balance.
+		-- Five hundred dollars off a man for shooting a piglet is the same class of thing as the
+		-- escape and the tie above it: *"you lost something"*.
 		return "bad"
 	elseif kind == "coins" then
 		return "money"
@@ -3849,7 +3853,30 @@ function Hud.feedTextFor(entry): string?
 		-- carries no species at all. The general word is the only true one here.
 		return "an animal got away"
 	elseif entry.kind == "violation" then
-		return string.format("%s tied to a tree", who)
+		-- ...AND WHAT IT COST HIM, ON THE SAME LINE (task 250). The tie and the fine are one event,
+		-- so they are one line: `"<name> tied to a tree  -$1000"`. Without the money the figure
+		-- would only ever be visible on the board at the end of the drive.
+		local line = string.format("%s tied to a tree", who)
+		if type(entry.money) == "number" and entry.money ~= 0 then
+			return string.format("%s  %s", line, Money.signed(entry.money))
+		end
+		return line
+	elseif entry.kind == "fine" then
+		-- THE FIGURE FIRST AND THE REASON AFTER IT (task 250), which is the Director's own wording:
+		-- *"-$500 · PIGLET"*. The money is the thing he has to see; the word is why.
+		--
+		-- NO MONEY, NO LINE. An entry with no figure is nothing to say, and `Hud.feedTextFor`'s
+		-- contract is already that nil draws nothing (the `signal` entry's own reason) -- so a
+		-- build whose `FINE` rows are gone publishes no event at all and, if one ever arrived
+		-- without a figure, it would still draw nothing rather than a bare word.
+		if type(entry.money) ~= "number" or entry.money == 0 then
+			return nil
+		end
+		local word = if type(entry.text) == "string" and entry.text ~= "" then entry.text else nil
+		if word == nil then
+			return Money.signed(entry.money)
+		end
+		return string.format(Drive.CONFIG.FEED_FINE_FORMAT, Money.signed(entry.money), word)
 	elseif entry.kind == "join" then
 		return string.format("%s joined", who)
 	elseif entry.kind == "leave" then

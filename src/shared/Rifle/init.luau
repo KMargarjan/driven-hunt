@@ -347,7 +347,62 @@ Rifle.CONFIG = {
 		-- NOBODY HERE HAS HEARD IT. The Builder cannot play audio. KAREN'S EARS DECIDE, and every
 		-- number in this line is one line: the Barrett is `9118173739` and the alternatives measured
 		-- beside this one are in the note.
-		shot = { id = "rbxassetid://9114725315", cut = 2.0, fade = 0.8, pitch = 0.88 },
+		--
+		-- ---------------------------------------------------------------- TASK 250
+		-- KAREN, 2026-10-23: *"we need to change rifle sound and make more damadge recoil and
+		-- sound"*. **THE RECORDING DID NOT CHANGE AND THE MEASUREMENT IS WHY.** The whole licensed
+		-- catalogue was swept again on 2026-10-23 (`apis.roblox.com/toolbox-service/v1/marketplace/
+		-- audio`, filtered to licensed partners) and every candidate measured in a Forest Test Play
+		-- session on the CLIENT -- `IsLoaded`, `TimeLength`, and a `PlaybackLoudness` peak per 0.1 s
+		-- bucket:
+		--
+		--        id               name                            len    peak   mean
+		--     9114725315   Gun Retort 1 (this)                    4.95   603.6   30.1
+		--     9118173739   Rifle Single Shots 1 (the Barrett)     3.36   257.7   11.4
+		--     9118174270   Rifle Single Shots 6                   3.68   250.6   11.8
+		--     9118174271   Rifle Single Shots 7                   3.70   260.3   14.4
+		--     9118174539   Rifle Single Shots 8                   3.40   258.5   22.5
+		--  128650101411844  AS_rifle_shot-01 (Audioscape)         0.35    86.4    7.3
+		--   86903016850225  AS_rifle_shot-03                      0.35    92.4    8.4
+		--   72333449737130  AS_rifle_shot-04                      0.35    77.4    6.8
+		--
+		-- **THIS SAMPLE IS 2.3x THE PEAK AND 1.3x THE LENGTH OF EVERY ALTERNATIVE IN THE
+		-- CATALOGUE.** Changing the recording would make the rifle QUIETER and SHORTER, which is the
+		-- opposite of what she asked for. So what changed is the three dials, and the biggest of
+		-- them is a measurement of this file's own mistake.
+		--
+		-- **THE CUT WAS THROWING AWAY HALF THE ROLL.** The loudness PROFILE of this clip, peak per
+		-- 0.1 s on the client, 2026-10-23:
+		--
+		--   t  0.0  0.1  0.2  0.3  0.4  0.5  0.6  0.8  1.0  1.2  1.5  1.8  2.1  2.4  2.8  2.9+
+		--   L  442  204   59   38   26   18   14   12   10    8    6    4    2    2    1    0
+		--
+		-- ONE BANG AT t=0 AND A SMOOTH DECAY TO 2.8 s. There is no doublet: the comment above
+		-- worried that *"Gun Shot*s*" and "Blast*s*" are a TAKE, not a round* and cut at 2.0 s
+		-- against it, and the profile says the worry was unfounded for THIS clip. At `pitch = 0.88`
+		-- a 2.0 s cut is 1.76 s OF SOURCE and the `fade = 0.8` starts at 1.06 s of source -- so the
+		-- rifle was fading its own roll out from loudness 11 and cutting it dead at 4. The last
+		-- 1.04 s of the report was never heard.
+		--
+		-- `cut = 3.45, fade = 0.55` AT `pitch = 0.82` plays ALL OF IT: 3.45 x 0.82 = 2.83 s of
+		-- source, which is the whole tail to the frame it goes silent, and the fade covers only the
+		-- last 0.45 s of source, where the clip is at loudness 2 of 442 -- half a per cent. So the
+		-- crack and its complete roll are heard, and nothing is faded that anybody could hear.
+		--
+		-- `pitch = 0.88 -> 0.82` IS THE CALIBRE, the same dial and the same argument as before:
+		-- dropping the sample another 1.2 semitones moves the whole report down, and a bigger bore
+		-- is a lower, slower bang.
+		--
+		-- `gain = 1.2` IS THE LOUDNESS, through the multiplier task 248 added for exactly this. It
+		-- is DELIBERATELY SMALL and that is a measurement too: at `fire.volume.shot = 1.5` against
+		-- a 604-peak sample this gun is already about ten times the side-by-side's perceived level
+		-- (0.95 against an 87-peak sample), so 1.2 is 20 % on top of the loudest thing in the game
+		-- rather than a free doubling. If Karen wants more it is this number, and `Sound.Volume`
+		-- tops out at 10.
+		--
+		-- NOBODY HERE HAS HEARD ANY OF IT. KAREN'S EARS DECIDE, and every number in this line is
+		-- one line.
+		shot = { id = "rbxassetid://9114725315", cut = 3.45, fade = 0.55, pitch = 0.82, gain = 1.2 },
 		-- "Ppsh Burp Gun 7 (SFX)", ProSoundEffects, "Cocking and Loading, Dull Metal Movements,
 		-- Clicks". loaded=true 2.45 s -- a bolt is a short hard clack, so it is cut hard and pitched
 		-- up a little.

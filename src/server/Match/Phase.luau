@@ -111,7 +111,8 @@ export type State = {
 }
 
 export type Event = {
-	kind: string, -- "tick" | "join" | "leave" | "dismiss" | "withdraw" | "kill" | "gone" | "violation" | "markers" | "team"
+	kind: string, -- "tick" | "join" | "leave" | "dismiss" | "withdraw" | "kill" | "gone" | "violation"
+	-- ...plus "fine" (task 250: a money penalty, which draws one feed line), "markers" and "team".
 	userId: number?,
 	name: string?,
 	-- "team": the side a world has asked this player to be on (task 157). Read by that branch only.
@@ -1071,6 +1072,29 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			})
 			table.insert(effects, { kind = "broadcast" })
 		end
+	elseif kind == "fine" and event.userId then
+		-- A MONEY FINE, AS ONE FEED LINE (task 250). KAREN, 2026-10-23: *"take big amount of
+		-- money"* -- and a charge she is not told about is a charge she will find on the board at
+		-- the end of the drive with no idea what it was for.
+		--
+		-- IT RIDES THE FEED AND ADDS NO WIRE, which is `signal`'s own decision (task 163):
+		-- `MatchEvent` already reaches every client once per event, and the Hud already has the
+		-- rule that an entry with no text draws nothing. The owner has decided everything -- which
+		-- animal, how much, and the word -- and this machine only says it must now be SAID.
+		--
+		-- ONLY INSIDE THE DRIVE, exactly as the kill it follows is: `Score.kill` scores nothing in
+		-- `Scoring`, so there is nothing to announce either. The drive's own TOTAL is published on
+		-- the `Scoring` edge instead (`enterScoring`), where the board goes up.
+		if Phase.isLive(next_) then
+			feed(effects, {
+				kind = "fine",
+				userId = event.userId,
+				name = event.name,
+				money = event.money,
+				text = event.text,
+				at = now,
+			})
+		end
 	elseif kind == "violation" and event.userId then
 		if Phase.isLive(next_) then
 			-- FREEZE BEFORE FEED AND BROADCAST, and the order is load-bearing: the owner's `tied` set
@@ -1079,7 +1103,17 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 			-- decided (phase is Running, this shooter is not tied yet, the grace is over, and
 			-- Penalty.judge said yes); this machine only says what must now happen.
 			table.insert(effects, { kind = "freeze", userId = event.userId })
-			feed(effects, { kind = "violation", userId = event.userId, name = event.name, at = now })
+			-- ...AND THE MONEY RIDES THE SAME LINE (task 250). `event.money` is the signed delta the
+			-- owner charged (`-FINE.SAFETY.money`), absent in a build where that row is gone -- so
+			-- the tie and the fine are ONE line about one shot, and two lines would read as two.
+			feed(effects, {
+				kind = "violation",
+				userId = event.userId,
+				name = event.name,
+				money = event.money,
+				text = event.text,
+				at = now,
+			})
 			table.insert(effects, { kind = "broadcast" })
 		end
 	end

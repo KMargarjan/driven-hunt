@@ -237,7 +237,18 @@ Lever.CONFIG = {
 		-- sample is the one dial that makes a recording sound like more gun than it was taken from.
 		-- `cut`/`fade` are the rifle's, because it is the rifle's 4.95 s sample and "Gun Shot*s*" is
 		-- a TAKE and not a round.
-		shot = { id = "rbxassetid://9114725315", cut = 2.0, fade = 0.8, pitch = 0.80 },
+		-- ...AND THE SAME THREE DIALS MOVED WITH IT IN TASK 250, because it is the same sample and
+		-- Karen's *"we need to change rifle sound"* is about the voice both rifles share. The
+		-- measured profile is in `Rifle.CONFIG.SOUND.shot`: one bang at t=0, a smooth decay, silent
+		-- from 2.8 s -- so the old `cut = 2.0` at `pitch = 0.80` played 1.60 s of source and faded
+		-- from 0.96 s, throwing away 1.2 s of the roll.
+		--
+		-- `cut = 3.7, fade = 0.6` AT `pitch = 0.76` is 2.81 s of source, the whole tail, with the
+		-- fade over the last 0.46 s where the clip is at loudness 2 of 442. `pitch` drops 0.80 ->
+		-- 0.76 for the reason this row already gave: a .45-70 is a bigger, slower, lower-pressure
+		-- bore than a .416, so it stays BELOW the Rigby's 0.82 by the same margin it was below its
+		-- 0.88. `gain = 1.2` is the Rigby's, for the same reason.
+		shot = { id = "rbxassetid://9114725315", cut = 3.7, fade = 0.6, pitch = 0.76, gain = 1.2 },
 		-- The rifle's clack, BELOW its own 1.15 and a hair longer: a lever throw is a heavier, duller
 		-- piece of steel moving further than a bolt handle. Played on both edges of the action by
 		-- `CameraBoot`, which is already how a weapon with a `bolt` voice is handled.

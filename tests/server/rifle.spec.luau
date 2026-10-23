@@ -13,7 +13,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
+local Lever = require(ReplicatedStorage:WaitForChild("Lever"))
 local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
+local SemiAuto = require(ReplicatedStorage:WaitForChild("SemiAuto"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Viewmodel = require(ReplicatedStorage:WaitForChild("Viewmodel"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
@@ -293,9 +295,30 @@ return function()
 			expect(voice.fade > 0 and voice.fade <= voice.cut).to.equal(true)
 			-- A BIGGER BORE IS A LOWER BANG: the pitch is what turns a sample into a calibre.
 			expect(voice.pitch < 1).to.equal(true)
+			-- ------------------------------------------------- TASK 250
+			-- KAREN, 2026-10-23: *"we need to change rifle sound and make more ... sound"*. THE
+			-- RECORDING DID NOT CHANGE, because the whole licensed catalogue was swept and measured
+			-- again and this sample is 2.3x the peak and 1.3x the length of every alternative -- so
+			-- what changed is the WINDOW and the LEVEL, and those are what this case now pins.
+			--
+			-- THE CUT COVERS THE WHOLE MEASURED TAIL. The clip is 4.95 s with ONE bang at t=0 and a
+			-- smooth decay that is silent from 2.8 s (PlaybackLoudness per 0.1 s on the client,
+			-- 2026-10-23). `cut * pitch` is the seconds OF SOURCE played, and it must reach 2.8.
+			expect(voice.cut * voice.pitch > 2.8).to.equal(true)
+			-- ...AND THE FADE MUST NOT EAT ANY OF IT: the last `fade * pitch` seconds of source are
+			-- going quiet, and that has to stay inside the dead part of the clip (from 2.35 s the
+			-- sample is at loudness 2 of 442, half a per cent).
+			expect((voice.cut - voice.fade) * voice.pitch > 2.3).to.equal(true)
+			-- IT ASKS FOR A GAIN, which is the one dial that makes it louder (task 248's mechanism).
+			expect(voice.gain > 1).to.equal(true)
 			local rifleView = Viewmodel.view(Viewmodel.DATA, "rifle")
 			local shotgunView = Viewmodel.view(Viewmodel.DATA, "shotgun")
 			expect(rifleView.FIRE.volume.shot > shotgunView.FIRE.volume.shot).to.equal(true)
+			-- AND THE SEMI-AUTO NO LONGER SHARES IT (task 250's item 1). This gun's voice is the
+			-- one both rifles use and nothing else: a third gun on this sample is the bug Karen
+			-- heard, and it is asserted from both ends.
+			expect(voice.id).to.equal(Lever.CONFIG.SOUND.shot.id)
+			expect(voice.id).never.to.equal(SemiAuto.CONFIG.SOUND.shot.id)
 			TestKit.note(
 				string.format(
 					"rifle voice: %s cut %.2f fade %.2f pitch %.2f, volume %.2f (shotgun %.2f)",

@@ -33,6 +33,9 @@ export type Row = {
 	userId: number,
 	team: string?,
 	points: number,
+	-- DOLLARS TAKEN OFF HIM THIS DRIVE (task 250), a positive total, absent on a board written
+	-- before the fines existed. `Match.Score.Row.fines` is the one producer.
+	fines: number?,
 	left: boolean?,
 }
 
@@ -59,15 +62,26 @@ local function freeze<T>(value: T): T
 	return value
 end
 
--- WHAT ONE ROW EARNS. `points * COINS_PER_POINT + PARTICIPATION + (FIRST_PLACE if first)`.
+-- WHAT ONE ROW EARNS. `points * COINS_PER_POINT + PARTICIPATION + (FIRST_PLACE if first) - fines`.
+--
+-- `fines` IS DOLLARS AND NOT POINTS (task 250), which is why it is subtracted at the END rather
+-- than folded into `points`: Karen's *"big amount of money"* is a FLAT charge, and multiplying it
+-- by `COINS_PER_POINT` would make its size depend on an exchange rate it has nothing to do with.
+-- `nil` is every board written before the fines existed and leaves this line arithmetically
+-- untouched.
 --
 -- NO CLAMP HERE, and that is deliberate: a drive's line may be negative, and it is the thing the
 -- results table prints as `-20`. The floor belongs to the balance and lives in exactly one place
--- (`Coins.credit`).
-function Coins.forRow(points: number, isFirst: boolean, config): number
+-- (`Coins.credit`), so a man who shoots two piglets earns nothing from the drive rather than
+-- going into debt -- `Economy.CONFIG.FLOOR`'s own stated rule, now with a much bigger number able
+-- to reach it.
+function Coins.forRow(points: number, isFirst: boolean, config, fines: number?): number
 	local coins = points * config.COINS_PER_POINT + config.PARTICIPATION
 	if isFirst then
 		coins += config.FIRST_PLACE
+	end
+	if type(fines) == "number" and fines > 0 then
+		coins -= fines
 	end
 	return coins
 end
@@ -129,7 +143,7 @@ function Coins.forDrive(rows: { Row }?, config): Breakdown
 				skippedLeft += 1
 			else
 				local isFirst = userId == firstHunter or userId == firstBeater
-				coins[userId] = Coins.forRow((row :: any).points or 0, isFirst, config)
+				coins[userId] = Coins.forRow((row :: any).points or 0, isFirst, config, (row :: any).fines)
 			end
 		end
 	end

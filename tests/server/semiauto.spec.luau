@@ -18,6 +18,7 @@ local StarterPlayer = game:GetService("StarterPlayer")
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local HandAssets = require(ReplicatedStorage:WaitForChild("HandAssets"))
 local Lever = require(ReplicatedStorage:WaitForChild("Lever"))
+local Rifle = require(ReplicatedStorage:WaitForChild("Rifle"))
 local SemiAuto = require(ReplicatedStorage:WaitForChild("SemiAuto"))
 local SemiAutoGeometry = require(ReplicatedStorage:WaitForChild("SemiAuto"):WaitForChild("Geometry"))
 local Shop = require(ReplicatedStorage:WaitForChild("Shop"))
@@ -920,6 +921,60 @@ return function()
 			-- THE LEVER IS UNTOUCHED, which is what makes this a fix for the gun she named rather
 			-- than a change to every reload in the game.
 			expect(Lever.CONFIG.SOUND.load.gain).to.equal(nil)
+		end)
+
+		-- ------------------------------------------------- TASK 250: IT IS A SHOTGUN
+		it("does not fire the rifle's sample, and this is the case that would have caught it", function()
+			-- KAREN, 2026-10-23: *"also semiauto same sound like rifle"*. It was literally true --
+			-- this row's id WAS `Rifle.CONFIG.SOUND.shot.id`, with a comment claiming it was the
+			-- side-by-side's. Three guns, one bang.
+			local mine = SemiAuto.CONFIG.SOUND.shot.id
+			expect(mine).never.to.equal(Rifle.CONFIG.SOUND.shot.id)
+			expect(mine).never.to.equal(Lever.CONFIG.SOUND.shot.id)
+			-- ...and it is not the side-by-side's EITHER, which is the other half: the same family,
+			-- a different take, so the two 12-gauges are plainly the same gauge without being the
+			-- same file. `Camera.Config.SOUND_SHOT_ID` is the side-by-side's, because that gun has
+			-- no `SOUND` block at all.
+			expect(mine).never.to.equal(Config.SOUND_SHOT_ID)
+			expect(string.match(mine, "^rbxassetid://%d+$")).to.be.ok()
+			-- NO CUT AND NO FADE on a 0.92 s clip whose tail is gone by 0.6 s (MEASURED in a Forest
+			-- Test Play session, 2026-10-23). The 2.0 s window that was here was the RIFLE's, for
+			-- the rifle's 4.95 s sample.
+			expect(SemiAuto.CONFIG.SOUND.shot.cut).to.equal(nil)
+			expect(SemiAuto.CONFIG.SOUND.shot.fade).to.equal(nil)
+			-- A LONGER BARREL AND A SOFTER GAS BLAST: a hair under the side-by-side's implicit 1.0.
+			expect(SemiAuto.CONFIG.SOUND.shot.pitch < 1).to.equal(true)
+			expect(SemiAuto.CONFIG.SOUND.shot.pitch > 0.9).to.equal(true)
+			TestKit.note(
+				string.format(
+					"semi-auto shot: %s pitch %.2f (rifle %s, side-by-side %s)",
+					mine,
+					SemiAuto.CONFIG.SOUND.shot.pitch,
+					Rifle.CONFIG.SOUND.shot.id,
+					Config.SOUND_SHOT_ID
+				)
+			)
+		end)
+
+		it("is as loud as the side-by-side and no longer louder than the rifle", function()
+			-- THE SECOND HALF OF WHY IT READ AS A RIFLE. `fire.volume.shot` was 1.6 against a
+			-- sample peaking at 603.6, where the side-by-side is 0.95 against one peaking at 85.3
+			-- (both MEASURED on the client, 2026-10-23) -- about ten times the perceived level. Same
+			-- shell, same gauge, same report: 1.0 against the double's 0.95.
+			local mine = Viewmodel.view(Viewmodel.DATA, "semiauto")
+			local double = Viewmodel.view(Viewmodel.DATA, "shotgun")
+			local rifle = Viewmodel.view(Viewmodel.DATA, "rifle")
+			expect(mine.FIRE.volume.shot < rifle.FIRE.volume.shot).to.equal(true)
+			expect(mine.FIRE.volume.shot >= double.FIRE.volume.shot).to.equal(true)
+			expect(mine.FIRE.volume.shot < double.FIRE.volume.shot * 1.25).to.equal(true)
+			TestKit.note(
+				string.format(
+					"shot volumes: semi-auto %.2f, side-by-side %.2f, rifle %.2f",
+					mine.FIRE.volume.shot,
+					double.FIRE.volume.shot,
+					rifle.FIRE.volume.shot
+				)
+			)
 		end)
 	end)
 end

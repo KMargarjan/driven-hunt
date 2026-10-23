@@ -106,6 +106,7 @@ local InputReady = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitFor
 -- shots inside one replayed scenario, which carries one click.
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Role = require(ReplicatedStorage:WaitForChild("ClientTests"):WaitForChild("Role"))
+local Money = require(ReplicatedStorage:WaitForChild("Money"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- One fact, for one question: is the Tool in this player's hands a GUN? (task 152)
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
@@ -951,6 +952,46 @@ return function()
 			-- announcement", and it is recorded as it arrives because the feed fades.
 			expect(#violations >= 1).to.equal(true)
 			expect(violations[1].userId).to.equal(player.UserId)
+
+			-- ...AND WHAT IT COST HIM, ON THE SERVER'S OWN ENTRY (task 250, round 3). KAREN,
+			-- 2026-10-23: *"same to person"* -- the tie now takes `FINE.SAFETY` as well as the
+			-- points, and the figure rides the SAME feed entry because one shot is one event.
+			--
+			-- **THIS IS THE ONLY CASE IN THE REPOSITORY THAT REACHES THE PRODUCER.** Round 2's five
+			-- cases in `match_safety.spec` drove `Phase.step` with the figure handed in, so they
+			-- passed with `Match.onSafetyViolation`'s two new fields deleted -- the Reviewer's
+			-- round-2 finding, and verbatim the flaw those cases' own comment accused
+			-- `report_panel.spec` of. `onSafetyViolation` is a local connected to
+			-- `Weapon.SafetyViolated` and nothing in `tests/` fires that signal; what DOES reach it
+			-- is this spec's REAL violating shot, and `violations` is the entry the server itself
+			-- published over `MatchEvent`. Delete the producer's `money` and this fails.
+			--
+			-- THE FIGURE IS NOT TYPED HERE. `Match.CONFIG` is the SERVER's and is deliberately kept
+			-- off the wire, so what this client can assert is the SHAPE the rule has to have: a
+			-- number, negative, with a word beside it. A retune of `FINE.SAFETY` therefore does not
+			-- break this case, and a DROPPED row does -- which is the right way round, because a
+			-- dropped row is the defect round 1 shipped.
+			local charged = violations[1].money
+			expect(type(charged)).to.equal("number")
+			expect((charged :: number) < 0).to.equal(true)
+			expect(violations[1].text).to.be.ok()
+			-- AND THE LINE KAREN READS CARRIES IT, through the one formatter and the one format:
+			-- `"<name> tied to a tree  -$1000"`. `Hud.feedTextFor` is the one place that decides
+			-- what a feed entry reads as, so this is the drawn string and not a reconstruction.
+			local line = Hud.feedTextFor(violations[1])
+			expect(line).to.be.ok()
+			expect(string.find(line :: string, "tied to a tree", 1, true)).to.be.ok()
+			expect(string.find(line :: string, Money.signed(charged :: number), 1, true)).to.be.ok()
+			-- NEVER `$-1000`, which is the one thing `Money`'s whole CurrencySpec borrowing exists
+			-- to prevent.
+			expect(string.find(line :: string, "$-", 1, true)).to.equal(nil)
+			TestKit.note(
+				string.format(
+					"task250 tie: the server's own entry carried %s -- %q",
+					Money.signed(charged :: number),
+					line
+				)
+			)
 
 			-- On this player's own screen, with every ancestor really there.
 			expect(waitUntil(5, function()

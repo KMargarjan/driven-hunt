@@ -811,12 +811,25 @@ BLAST_RADIUS = (
     # gate lives in `src/server/Weapon/`, which already resolves to `weapon` above -- so the one new
     # prefix is the shared table.
     ("src/shared/Licences/", "weapon"),
+    # THE AMBIENCE BED (task 250): the lodge's quiet birds and wind, the hunt bed, and the crossfade
+    # between them. Its own scope, because it is its own owner with its own clock and its own
+    # Instances -- and `ambience.spec` is named in `match` as well (the dual membership this table
+    # already uses), because `Ambience.bedFor` reads `Drive.TEAMS` and that spec asserts the
+    # identity rather than describing it: a team rename must play the spec that would catch it.
+    ("src/shared/Ambience/", "ambience"),
+    ("src/client/Ambience/", "ambience"),
+    ("src/client/AmbienceBoot.client.luau", "ambience"),
 )
 
 # Scope name -> the spec files it names. EVERY spec file in the repo belongs to at least one scope,
 # and `selftest` fails if one does not: a new spec nobody mapped would otherwise quietly shrink what
 # `--scope auto` considers covered.
 SCOPE_SPECS = {
+    # THE AMBIENCE BED (task 250): the pure state machine and the data invariants on the server, the
+    # Instances and the crossfade in the client. `ambience.spec` is in `match` as well, for the
+    # reason `BLAST_RADIUS` gives: it asserts that the two words the bed answers "hunt" for are
+    # exactly the keys of `Drive.TEAMS`.
+    "ambience": ("tests/server/ambience.spec.luau", "tests/client/ambience_client.spec.luau"),
     # The shop (task 178): the catalogue and the pure rules, the door against fakes, the panel, and
     # the ECONOMY's own spec -- because `Economy.purchase` is the only thing that writes a purchase.
     "shop": ("tests/server/shop.spec.luau", "tests/server/shop_door.spec.luau",
@@ -949,6 +962,10 @@ SCOPE_SPECS = {
                # describing it -- so moving either number plays it.
                "tests/server/high_seats.spec.luau"),
     "match": ("tests/server/match_config.spec.luau", "tests/server/forest_markers.spec.luau",
+              # Task 250: `Ambience.bedFor` reads `Drive.TEAMS`, and `src/shared/Drive/` resolves
+              # here -- so a team rename plays the spec that asserts the identity. The dual
+              # membership this table already uses.
+              "tests/server/ambience.spec.luau",
               # Task 223: `POINTS.KIND` grew three rows and `SCENE.ANIMAL_SCALES` three more.
               "tests/server/deer.spec.luau",
               # Task 218: `ForestTest.Markers` raises a seated stand's post onto a deck and

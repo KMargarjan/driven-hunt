@@ -186,10 +186,51 @@ SemiAuto.CONFIG = {
 	-- NOBODY HERE HAS HEARD ANY OF THEM. The Builder cannot play audio. KAREN'S EARS DECIDE, and
 	-- every number in these three lines is one line.
 	SOUND = {
-		-- THE SIDE-BY-SIDE'S OWN REPORT, because it is the same shell out of the same bore. Pitched
-		-- a hair DOWN from 1.0: a 710 mm barrel is longer than the double's and a gas gun's muzzle
-		-- blast is softer, which reads as a deeper report rather than a sharper one.
-		shot = { id = "rbxassetid://9114725315", cut = 2.0, fade = 0.8, pitch = 0.94 },
+		-- THE SIDE-BY-SIDE'S OWN REPORT -- AND UNTIL TASK 250 IT WAS THE RIFLE'S, which is the bug
+		-- Karen heard. 2026-10-23, verbatim: *"also semiauto same sound like rifle"*.
+		--
+		-- THE COMMENT HERE SAID *"the same shell out of the same bore"* AND THE ID SAID OTHERWISE.
+		-- `rbxassetid://9114725315` is "Gun Retort 1 (SFX)", Pro Sound Effects -- the SCOPED
+		-- RIFLE's voice (`Rifle.CONFIG.SOUND.shot`) and the LEVER's. The side-by-side does not use
+		-- it at all: that gun has no `SOUND` block, so it falls through to
+		-- `Camera.Config.SOUND_SHOT_ID`, which is "AS_shotgun_shot-01" by Audioscape. So this gun
+		-- was the only 12-gauge in the game firing a centre-fire rifle sample, and it shared it with
+		-- both rifles -- three guns, one bang.
+		--
+		-- SO IT IS NOW THE SIDE-BY-SIDE'S OWN FAMILY, A DIFFERENT TAKE: "AS_shotgun_shot-03",
+		-- `rbxassetid://106454770387605`, Audioscape, audioType SoundEffect -- the same pack, the
+		-- same mic and the same room as `SOUND_SHOT_ID`'s `-01`, so the two 12-gauges in this game
+		-- are plainly the same gauge without being bit-for-bit the same file.
+		--
+		-- MEASURED IN A FOREST TEST PLAY SESSION, 2026-10-23, `IsLoaded` and a `PlaybackLoudness`
+		-- peak per 0.1 s bucket on the CLIENT (on the server every loudness reads 0.0, which is how
+		-- the first run of this measurement was thrown away):
+		--
+		--        id                name                 len    peak   mean   profile
+		--   99008924129683   AS_shotgun_shot-01 (SbS)   0.92    85.3   19.2   one bang, tail to 0.6 s
+		--   82409501948316   AS_shotgun_shot-02         0.92    76.0   15.2   one bang, tail to 0.6 s
+		--  106454770387605   AS_shotgun_shot-03  <-     0.92    86.9   19.6   one bang, tail to 0.6 s
+		--   84039532799719   AS_shotgun_shot-04         0.92    84.3   19.1   one bang, tail to 0.6 s
+		--     9114725315   Gun Retort 1 (the rifle)     4.95   603.6   30.1   one bang, tail to 2.8 s
+		--
+		-- `-03` IS THE LOUDEST OF THE FOUR SHOTGUN TAKES and is not the one the side-by-side has.
+		-- It is also SEVEN TIMES quieter at the peak than the rifle sample this gun was firing,
+		-- which is most of why it read as a rifle -- and the other part of the fix is in
+		-- `poses.json`: `semiauto.fire.volume.shot` goes 1.6 -> 1.0, beside the side-by-side's 0.95,
+		-- because the same shell out of the same gauge is the same report.
+		--
+		-- NO `cut` AND NO `fade`: the whole clip is 0.92 s and its tail is gone by 0.6 s, so there
+		-- is nothing to cut -- which is exactly how the side-by-side plays it (a caller with no
+		-- voice gets no `cut` at all). The 2.0 s cut that was here was the RIFLE's window, for the
+		-- RIFLE's 4.95 s sample, and on a 0.92 s clip it did nothing but carry the wrong number.
+		--
+		-- `pitch = 0.96`: a hair DOWN from the side-by-side's 1.0, for the reason the old comment
+		-- gave and which is still true -- a 710 mm barrel is longer than the double's and a gas
+		-- gun's muzzle blast is softer, which reads as a deeper report rather than a sharper one.
+		--
+		-- NOBODY HERE HAS HEARD IT. The Builder cannot play audio. KAREN'S EARS DECIDE, and every
+		-- number in this line is one line: the other three takes are in the table above.
+		shot = { id = "rbxassetid://106454770387605", pitch = 0.96 },
 		-- THE BOLT SLAMMING HOME. The lever's clack, SHORTER and HIGHER than its 0.95, because a gas
 		-- bolt is a lighter, faster piece of steel travelling a shorter distance than a lever throw.
 		-- Played on both edges of the action by `CameraBoot`, which is already how a weapon with a

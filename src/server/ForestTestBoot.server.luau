@@ -272,6 +272,12 @@ Weapon.HitReported:Connect(function(report)
 			zone = report.zone,
 			zones = report.zones,
 			ammo = report.ammo,
+			-- WHICH GUN FIRED (task 250). `Weapon.Hits.group` has carried the weapon's row id on
+			-- every report since task 140 and this line is all that was missing for the boar's own
+			-- damage table to be able to tell a rifle bullet from a 12-gauge slug
+			-- (`Boar.CONFIG.WOUND.DAMAGE_BY_WEAPON`). nil for a shot that carried no weapon, which
+			-- charges the shared `DAMAGE` rows exactly as before.
+			weapon = report.weapon,
 			pellets = report.pellets,
 			at = report.at,
 			distance = report.nearest,
