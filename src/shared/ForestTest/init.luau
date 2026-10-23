@@ -1928,7 +1928,10 @@ ForestTest.SCHEDULE = {
 			-- drive, moved off its bed and decided that is enough.
 			holdStuds = 60,
 			pace = "walk",
-			keepAt = 9,
+			-- 13 AND NOT 9, and the gate caught it: the dial's own table says a QUIET drive has no
+			-- group that holds (`holdsPerDrive` 0), so this row belongs to `normal` with the stag and
+			-- the two refusals. At 9 it made a quiet drive ten groups instead of nine.
+			keepAt = 13,
 			note = "THE ONE THAT STAYS: moves 60 studs toward the road and lies up. It never comes",
 		},
 	},
@@ -1992,17 +1995,32 @@ function ForestTest.slotAt(slot: number, density: string?, schedule)
 		return nil
 	end
 	local index = math.floor(slot)
+	local want = ForestTest.groupsWanted(density, resolved)
 	if index > #rows then
 		local from = math.clamp(resolved.repeatFrom or 1, 1, #rows)
 		local to = math.clamp(resolved.repeatTo or #rows, from, #rows)
 		local span = to - from + 1
-		index = from + ((index - 1 - #rows) % span)
+		local at = from + ((index - 1 - #rows) % span)
+		-- ...AND IT WALKS PAST THE ROWS THIS DIAL SILENCES (the gate caught this). The window holds
+		-- the drive's own two silences and its refusals, so at `quiet` a repeated slot could land on
+		-- a row the dial had turned off -- and *"a drive that outlives its script can never run out
+		-- of animals"* would have been false at exactly the setting that has the fewest. It is
+		-- bounded by the window's own length: if the dial has silenced the whole window, the answer
+		-- is a silence rather than a loop.
+		for _ = 1, span do
+			local candidate = rows[at]
+			if candidate ~= nil and (candidate.keepAt or 1) <= want then
+				return candidate
+			end
+			at = from + ((at - from + 1) % span)
+		end
+		return nil
 	end
 	local row = rows[index]
 	if row == nil then
 		return nil
 	end
-	if (row.keepAt or 1) > ForestTest.groupsWanted(density, resolved) then
+	if (row.keepAt or 1) > want then
 		return nil
 	end
 	return row

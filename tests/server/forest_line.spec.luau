@@ -571,8 +571,11 @@ return function()
 				shallowest = math.min(shallowest, dz)
 				deepest = math.max(deepest, dz)
 			end
-			expect(shallowest).to.equal(85) -- zone A, the near holding
-			expect(deepest).to.equal(360) -- zone C, the one that holds
+			-- TO THE STUD, NOT TO THE BIT (the gate caught it at 85.0000603346607): `wavePoint` adds
+			-- `roadZ(x)`, which is a sine, and the dz is measured back off a second call at the same
+			-- x -- so the two differ in the last bits of a double.
+			expect(math.abs(shallowest - 85) < 1e-3).to.equal(true) -- zone A, the near holding
+			expect(math.abs(deepest - 360) < 1e-3).to.equal(true) -- zone C, the one that holds
 			expect(deepest - shallowest >= 250).to.equal(true)
 			TestKit.note(
 				string.format(
