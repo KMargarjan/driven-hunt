@@ -1,14 +1,39 @@
 # Task 250 — gun sounds, rifle punch, money penalties, lodge ambience
 
 Task: 250
-Round: 1
+Round: 2
 Base: `main` at `8970e4c3` (after #229)
-Code commit: `0760002acd462ef74c18f0695754743576397fc7`
+Code commit: `22abff81c0d0773a3e2fa9da16e7ae66d03be263`
 
 ```
-[harness]  PASS: 34/34 checks @ 0760002acd462ef74c18f0695754743576397fc7 (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ 0760002acd462ef74c18f0695754743576397fc7 (clean tree)
+[harness]  PASS: 34/34 checks @ 22abff81c0d0773a3e2fa9da16e7ae66d03be263 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 22abff81c0d0773a3e2fa9da16e7ae66d03be263 (clean tree)
 ```
+
+## Round 1's blocking finding, and what it cost
+
+**THE REVIEWER WAS RIGHT AND CLAIM 7 OVERCLAIMED.** The safety fine's FIGURE never reached the feed:
+`onSafetyViolation` was the ONE producer of a `violation` event in the whole of `src/` and it set
+neither `money` nor `text`, so `Phase.step` forwarded `nil` and `Hud.feedTextFor`'s new clause was
+dead on the player's path -- every tie line was the old `"<name> tied to a tree"`. The fine itself
+was charged all along (`Score.violation` -> `row.fines` -> `Coins.forRow`), so what was missing was
+the ANNOUNCEMENT, which is the half Karen would notice. `report_panel.spec` could not catch it,
+because that case hands the Hud the money itself.
+
+Fixed in `a25b712e`: `onSafetyViolation` reads `Score.fineForSafety(config)` -- it already had
+`config` in scope -- and puts the signed delta and the word on the dispatched event; the stats read
+moves beside it so the fine is read once. **Five new cases in `tests/server/match_safety.spec.luau`
+drive the SERVER path** with PRODUCTION's config through `Phase.step` in a live drive: the violation
+entry carries the figure and the word; an event with neither is bit for bit the old line; the row the
+producer reads really exists and is twice the piglet's; the piglet's own `fine` entry carries its
+figure; and a fine outside a live drive says nothing.
+
+**Three of the seven notes were fixed in the same commit, because they are factual errors in text I
+wrote** (the rest are queued under rule 10): `Drive.ScoreRow` gained the `fines` field the snapshot
+has been emitting since round 1; the `DAMAGE_BY_WEAPON` severity grid had two wrong cells -- deer
+body rigby is `100 / 1.2 = 83.3`, **mortal** and not lethal, and deer legs lever is `50 / 1.2 = 41.7`,
+**grazed** and not mortal -- now corrected with the arithmetic beside them, and claim 4's table below
+is corrected with them; and `Phase`'s `Event` kind list names `"fine"`.
 
 Karen, 2026-10-23, verbatim: *"any lobby music, like birds relax quuiet ? ... and also semiauto same
 sound like rifle / we need to change rifle sound and make more damadge recoil and sound / also we
@@ -107,6 +132,11 @@ ammo word is ~300 lines across 25 spec files) and the weapon gains no damage num
 | legs | 4 → **2** | 4 → **2** | 4 → **2** | 5 → **3** |
 | rear | 2 → 2 | 2 → 2 | 2 → 2 | 2 → 2 |
 | head / chest | 1 → 1 everywhere | | | |
+
+"Shots to kill" is to reach `LETHAL` **or** `MORTAL` -- a mortal animal dies on bleed-out after
+running `Wound.flightStuds`, it does not drop on the shot. The deer's `body, Rigby 3 → 1` is one
+shot to KILL and `100 / 1.2 = 83.3` is mortal, not lethal; round 1's severity grid in
+`src/server/Boar/init.luau` said lethal and the Reviewer caught it.
 
 The number this exists for: **a .416 through a stag's paunch was a GRAZE** (55 / 1.2 = 45.8, under
 `MORTAL`). `rear` stays short of lethal on both rifles ON PURPOSE, so task 116's crippling reaction
