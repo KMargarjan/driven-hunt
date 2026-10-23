@@ -2644,6 +2644,35 @@ function ForestTest.computeRoute(from: Vector3, crossing: Vector3, exit_: Vector
 	return ForestTest.computeRouteVia({ from, crossing, exit_ })
 end
 
+-- WHERE A STUCK LEADER IS RE-PINNED THROUGH. PURE -- a position and the file's own pins in, the
+-- `computeRouteVia` argument out, or **nil when there is nothing to pin through** -- for the reason
+-- every other rule in this file is pure: the case that used to crash the drive cannot be driven by a
+-- spec otherwise. It needs a live runtime, a wedged animal and three seconds of not moving, so the
+-- DECISION is here and the EFFECT stays in `stepLines`.
+--
+-- IT EXISTS BECAUSE OF ROUND 1'S BLOCKING FINDING, which was right: the repath used to be
+-- `computeRoute(position, line.crossing, <exit at line.crossing.X>)`, and `line.crossing` is nil for
+-- exactly the two new route words that never reach the road (`BREAK-BACK`, `HOLD` -- their rows carry
+-- no `crossOffset` at all). The first stuck leader on one of them would have raised "attempt to index
+-- nil" inside the drive's own un-pcalled Heartbeat connection and lost the rest of that tick --
+-- reports, player wiring, the stand boundary -- every stuck check, for the life of the line. A HOLD
+-- file stands still by design, which is exactly the case the stuck rule fires on.
+function ForestTest.repathVia(from: Vector3, pins: { Vector3 }?): { Vector3 }?
+	if typeof(from) ~= "Vector3" or type(pins) ~= "table" or #pins == 0 then
+		return nil
+	end
+	local via = { from }
+	for _, pin in ipairs(pins) do
+		if typeof(pin) == "Vector3" then
+			table.insert(via, pin)
+		end
+	end
+	if #via < 2 then
+		return nil
+	end
+	return via
+end
+
 -- THE ROUTE THROUGH N PINNED POINTS. Two or more; fewer is nil rather than a straight line, because
 -- a route that was not pinned through a crossing is a route that may cross anywhere.
 function ForestTest.computeRouteVia(via: { Vector3 }): { Vector3 }?
@@ -2818,9 +2847,14 @@ function ForestTest.releaseLine(now: number): string?
 		then Vector3.new((crossing :: Vector3).X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
 		else nil
 
-	-- HOW MANY FILES, AND AT WHAT PACE -- both the row's, both read and neither drawn. `paceMix` and
-	-- `twoLineChance` are still there and still the old wave path's; what this task changed is that
-	-- a SCRIPTED drive does not roll for the shape of its own groups.
+	-- HOW MANY FILES, AND AT WHAT PACE -- both the row's, both read and neither drawn. What this task
+	-- changed is that a SCRIPTED drive does not roll for the shape of its own groups.
+	--
+	-- `paceMix` IS STILL READ (the fallback below, for a row that names no pace); `LINE.twoLineChance`
+	-- IS NOW READ BY NOTHING and is dead data -- round 1's note, and it is right: `ForestTest.release`
+	-- never touched it either. It is left in place rather than deleted (rule 7) because the number it
+	-- carries is Karen's *"could be 2 i line"* and the rows above now say the same thing per group;
+	-- retiring it belongs with the next task that touches that table.
 	local lines = math.max(1, math.floor(row.files or 1))
 	local pace = if type(row.pace) == "string" then row.pace else ForestTest.paceFor(rng:NextNumber(), lineData.paceMix)
 	local speed = ForestTest.paceSpeed(pace, boar)
@@ -2963,7 +2997,20 @@ function ForestTest.releaseLine(now: number): string?
 		end
 		local made = ForestTest.computeRouteVia(via)
 		if made ~= nil then
-			table.insert(routes, { route = made, lateral = lateral, crossing = via[#via - 1] or via[#via] })
+			-- THE PINS ARE KEPT, AND THEY ARE WHAT A STUCK LEADER IS RE-PINNED THROUGH (round 1's
+			-- blocking finding, which was right). `stepLines` used to re-compute a stuck leader's
+			-- route through `line.crossing` -- fine while every wave had one, and a nil index the
+			-- moment a route word has none: a `BREAK-BACK` or a `HOLD` row carries no `crossOffset`
+			-- at all, so the first stuck leader on one of them would have raised "attempt to index
+			-- nil" inside the drive's own un-pcalled Heartbeat and taken the rest of that tick with
+			-- it. These are the points the DRIVE chose for this file -- the turn and the way home,
+			-- the hold point, or the crossing and the exit -- so re-pinning through them is right for
+			-- every route word and needs no second table of special cases.
+			local pins = {}
+			for index = 2, #via do
+				table.insert(pins, via[index])
+			end
+			table.insert(routes, { route = made, lateral = lateral, pins = pins })
 		end
 	end
 	if #routes == 0 then
@@ -3090,6 +3137,9 @@ function ForestTest.releaseLine(now: number): string?
 				pace = pace,
 				bornAt = now,
 				crossing = crossing,
+				-- ...AND THE POINTS IT WAS PINNED THROUGH, for the stuck-leader repath below. `crossing`
+				-- is kept beside them and is nil for a route that never reaches the road.
+				pins = routes[which].pins,
 				checked = false,
 				stuckFrom = {},
 				stuckAt = {},
@@ -3109,7 +3159,11 @@ function ForestTest.releaseLine(now: number): string?
 	-- an UNSCRIPTED drive needs, which is what `Match` runs in the DEV place. What task 239's
 	-- guarantee was for is met BY DATA now -- slot 2 is at t 30 s, inside the first third of the
 	-- drive, every drive, with nothing drawn at all.
-	if composition ~= nil then
+	-- ...AND ONLY A DEER GROUP SPENDS IT (round 1, note). `composition` is no longer deer-only --
+	-- the boar branch above fills it from `SOUNDER.COMPOSITIONS` -- so the old `composition ~= nil`
+	-- test set the latch on EVERY release, and `stats().deerDone` would have read "something went
+	-- out" rather than "the drive's deer went out".
+	if row.species == "reddeer" then
 		state.deerDone = true
 	end
 	return string.format(
@@ -3409,11 +3463,16 @@ function ForestTest.stepLines(now: number)
 					state.stuck += 1
 					line.repaths += 1
 					if rank == 1 then
-						local route = ForestTest.computeRoute(
-							member.status.position,
-							line.crossing,
-							Vector3.new(line.crossing.X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
-						)
+						-- RE-PINNED THROUGH THIS FILE'S OWN PINS (task 251 round 2), and never through
+						-- `line.crossing` alone: a `BREAK-BACK` file turns at the verge and goes home
+						-- north, and a `HOLD` file stops 300 studs short of the road, so neither has a
+						-- crossing to aim at and the old two-point call indexed a nil.
+						--
+						-- A LINE WITH NO PINS IS LEFT TO THE BRAIN rather than given a straight line:
+						-- the `freeUntil` window below is the half of this rule that actually frees a
+						-- wedged animal, and it is set either way.
+						local via = ForestTest.repathVia(member.status.position, line.pins)
+						local route = if via ~= nil then ForestTest.computeRouteVia(via) else nil
 						if route ~= nil then
 							line.route = route
 							line.leg = 1

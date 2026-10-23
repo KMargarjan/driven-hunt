@@ -1546,13 +1546,18 @@ end
 -- ONE DRIVE IS 300 SECONDS AND FIFTEEN SLOTS, TWENTY SECONDS APART (`DRIVE.seconds`,
 -- `SCHEDULE.intervalSeconds`; `ForestTest.wavesPerDrive` is that arithmetic). THIS TABLE IS ONE ROW
 -- PER SLOT, in three acts:
---   ACT I   (slots 1-5, zone A, 85-130 studs out) the near holding and the jumpy ones. The drive
+--   ACT I   (slots 1-4, zone A, 85-125 studs out) the near holding and the jumpy ones. The drive
 --           starts BEFORE the beaters do, because the noise of arrival moves the experienced animals
 --           (Livingactive, *Tipps und Tricks fuer die Drueckjagd*).
---   ACT II  (slots 6-10, zones B and D, 140-230) the body of it: the big sounders, the broadside
+--   ACT II  (slots 6-9, zones B and D, 145-210) the body of it: the big sounders, the broadside
 --           pass, the first refusal.
---   ACT III (slots 11-15, zone C, 260-390) the far wood and the late, pressed ones -- and THE STAG,
---           last, alone, a hundred studs deeper than anything else.
+--   ACT III (slots 11-15, zone C, 275-360) the far wood and the late, pressed ones -- and THE STAG,
+--           last, alone, deeper than anything else that comes.
+--   SLOTS 5 AND 10 ARE THE TWO SILENCES, and they are the one place the act numbers and the zones
+--           part company (round 1's note, which was right about the mismatch): each carries the row a
+--           BUSY drive puts there instead of the gap -- slot 5 a second broadside pass from the flank
+--           (zone D, 150), slot 10 two males out of the far wood (zone C, 265) -- so its ZONE belongs
+--           to what it would release and its `act` to where it sits in the drive.
 --
 -- WHAT THE NUMBERS COME OUT AT, with the dial at `normal` (and they are counted by
 -- `ForestTest.driveTally`, not by hand, so a changed row changes the count):
@@ -1560,7 +1565,10 @@ end
 --   10 groups cross the road -- one about every 25 seconds across the middle of the drive
 --   2 refuse at the verge and break back through the beaters, and 1 never comes at all
 --      (that last one is the PLOS ONE study's 32 % of animals that stay put, made visible)
---   3 leaping animals: the hind, her calf and the stag. NO BOAR EVER LEAPS.
+--   2 leaping GROUPS and 3 leaping ANIMALS -- the hind, her calf and the stag. NO BOAR EVER LEAPS.
+--      (`driveTally.leapingGroups` counts the rows and the spec adds the animals through the boar's
+--      own weigher. Round 1's note: the field was called `leapers` and answered 2 against a header
+--      that said 3.)
 --
 -- 59 AND NOT THE SPEC'S 57, AND THE DIFFERENCE IS HONEST. Rows 3, 11 and 15 are written in the spec
 -- as `{females = 1, cubs = 4}` and `{females = 2, cubs = 3, males = 1}`, which are NOT among the six
@@ -1575,7 +1583,8 @@ end
 -- EVERY FIELD, AND WHO OWNS THE FACT BEHIND IT:
 --   `slot`, `atSeconds`, `act`      this drive's own shape. `atSeconds` is DERIVED and asserted, not
 --                                   read: `slot * intervalSeconds - 10`. It is here so the table can
---                                   be read as a timeline.
+--                                   be read as a timeline, and `forest_line.spec` checks every row
+--                                   against `ForestTest.slotSeconds`.
 --   `species`                       "boar" or "reddeer".
 --   `party`                         for `reddeer` only: which of
 --                                   `SPECIES.reddeer.RELEASE.COMPOSITIONS`, BY NAME ("hinds",
@@ -1621,8 +1630,10 @@ end
 -- AND IT IS ONE RULE, NOT FIVE: a row fires when `row.keepAt <= groups`. The four rows at
 -- `keepAt = 13` are exactly the stag, the two refusals and the hold -- so the single number moves
 -- all five columns of that table at once, which is why there is no `refusalsPerDrive` to keep in
--- step with it. `ForestTest.slotAt` is the whole of it, pure, and `forest_stand.spec` asserts each
--- column of the table above against the rows rather than against a second copy of the numbers.
+-- step with it. `ForestTest.slotAt` is the whole of it, pure, and `forest_line.spec` asserts each
+-- column of the table above against the rows rather than against a second copy of the numbers
+-- (round 1's note: this used to cite `forest_stand.spec`, whose only change here is the
+-- `cycle` -> `drive` loop in task 168's "nothing behind the beaters" case).
 --
 -- WHAT PART 1 DOES NOT DO, said here rather than discovered in a playtest (rule 8). This is the
 -- FIRST half of task 251 (the Director's own split point: items 1 and 4 now, the stag's behaviour
@@ -1973,7 +1984,7 @@ end
 -- WHEN A SLOT IS DUE, in seconds from the drive's start. PURE, and DERIVED -- `slot * interval - 10`,
 -- so slot 1 is at 10 s and slot 15 at 290 -- which is what makes each row's own `atSeconds` an
 -- assertion (`forest_stand.spec` checks every row against this) instead of a second copy of the
--- clock that can drift away from `intervalSeconds`.
+-- clock that can drift away from `intervalSeconds`. `forest_line.spec` checks every row against it.
 function ForestTest.slotSeconds(slot: number, schedule): number
 	local resolved = schedule or ForestTest.SCHEDULE
 	local gap = math.max(1, resolved.intervalSeconds or 20)
@@ -2054,7 +2065,7 @@ function ForestTest.driveTally(density: string?, schedule)
 		holds = 0,
 		deerGroups = 0,
 		boarGroups = 0,
-		leapers = 0,
+		leapingGroups = 0,
 		rows = {},
 	}
 	for slot = 1, #rows do
@@ -2081,7 +2092,7 @@ function ForestTest.driveTally(density: string?, schedule)
 			out.boarGroups += 1
 		end
 		if row.leaps == true then
-			out.leapers += 1
+			out.leapingGroups += 1
 		end
 	end
 	return out

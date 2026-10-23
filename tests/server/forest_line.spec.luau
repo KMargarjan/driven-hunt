@@ -506,7 +506,18 @@ return function()
 			expect(normal.boarGroups).to.equal(11)
 			-- THREE LEAPING ANIMALS AND NO BOAR AMONG THEM. *"how many groups jumping over road"*:
 			-- the hind, her calf and the stag -- and `leaps` is only ever on a `reddeer` row.
-			expect(normal.leapers).to.equal(2) -- the hind party is ONE row of two animals, plus the stag
+			-- `leapingGroups` COUNTS GROUPS, and the field is named for it (round 1's note): the hind
+			-- party is ONE row of two animals, and the stag is the other -- so two ROWS and three
+			-- ANIMALS leap, and the animals are counted through the owner's weigher just below.
+			expect(normal.leapingGroups).to.equal(2)
+			local config3 = configOn()
+			local leaping = 0
+			for _, row in ipairs(normal.rows) do
+				if row.leaps == true then
+					leaping += Boar.compositionSize(Boar.deerComposition(0, 0, config3, row.party), config3)
+				end
+			end
+			expect(leaping).to.equal(3)
 			for _, row in ipairs(SCHEDULE.drive) do
 				if row.leaps == true then
 					expect(row.species).to.equal("reddeer")
@@ -755,7 +766,37 @@ return function()
 			-- be able to ask past it. This is the worst case the dial can produce, which is far more
 			-- than is ever on its feet at once (groups are released over five minutes and most are
 			-- gone within a minute of crossing).
-			expect(animalsAt("busy") <= Data.MAX_BOARS + 9).to.equal(true)
+			-- WHAT CAN BE ALIVE AT ONCE, which is the only thing `MAX_BOARS` is about -- not the
+			-- drive's total (round 1's note, which was right: `<= MAX_BOARS + 9` was 69 <= 69 and
+			-- asserted nothing). The worst case is the biggest window of CONSECUTIVE slots whose
+			-- animals could all still be on their feet: a group crosses and is gone well inside a
+			-- minute, which is three slots at this interval.
+			local config2 = configOn()
+			local sizes = {}
+			for slot = 1, #SCHEDULE.drive do
+				local row = Data.slotAt(slot, "busy", SCHEDULE)
+				local composition = if row == nil
+					then nil
+					elseif row.species == "reddeer" then Boar.deerComposition(0, 0, config2, row.party)
+					else config2.SOUNDER.COMPOSITIONS[row.composition]
+				sizes[slot] = if composition ~= nil then Boar.compositionSize(composition, config2) else 0
+			end
+			local worst = 0
+			for slot = 1, #sizes do
+				local window = 0
+				for ahead = slot, math.min(slot + 2, #sizes) do
+					window += sizes[ahead]
+				end
+				worst = math.max(worst, window)
+			end
+			expect(worst < Data.MAX_BOARS).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 251: the busiest three consecutive slots are %d animals against MAX_BOARS %d",
+					worst,
+					Data.MAX_BOARS
+				)
+			)
 			-- ...and no single group can fill the world by itself.
 			local config = configOn()
 			for _, row in ipairs(SCHEDULE.drive) do
@@ -769,6 +810,43 @@ return function()
 
 	-- ------------------------------------------------- THE ROUTE THROUGH N PINNED POINTS (task 251)
 	describe("the route builder", function()
+		it("RE-PINS A STUCK LEADER THROUGH ITS OWN PINS, and never through a crossing that is nil", function()
+			-- ROUND 1'S BLOCKING FINDING, AS A CASE. The repath used to be computed through
+			-- `line.crossing`, which this task made nil for exactly the two route words that never
+			-- reach the road -- so the first stuck leader of a `BREAK-BACK` or a `HOLD` file would have
+			-- indexed a nil inside the drive's own un-pcalled Heartbeat and lost the rest of that tick,
+			-- every stuck check, for the life of the line. A HOLD file stands still BY DESIGN, which
+			-- is the very case the stuck rule fires on.
+			local standX = Data.standX(5)
+			local here = Vector3.new(standX, 140, Data.roadZ(standX) + 120)
+			-- A ROUTE WITH NO CROSSING STILL HAS PINS: the turn and the way home for a refusal, the
+			-- hold point for the one that stays. Built the way `releaseLine` builds them.
+			for _, row in ipairs(Data.SCHEDULE.drive) do
+				local route = Data.slotRoute(row)
+				if route == "BREAK-BACK" then
+					local at = Data.wavePoint(standX, row)
+					local pins = {
+						Vector3.new(at.X, 140, Data.roadZ(at.X) + row.turnAtDz),
+						Vector3.new(at.X, 140, Data.roadZ(at.X) + Data.SCHEDULE.breakBackToDz),
+					}
+					local via = ForestTest.repathVia(here, pins)
+					expect(via).to.be.ok()
+					expect(#via).to.equal(3)
+					expect(via[1]).to.equal(here)
+					expect(via[3]).to.equal(pins[2])
+				end
+			end
+			-- ...AND NOTHING TO PIN THROUGH IS nil, NOT A STRAIGHT LINE. The leader is then left to the
+			-- Brain, which is what the `leaderFreeSeconds` window beside it is for -- and nothing is
+			-- indexed.
+			expect(ForestTest.repathVia(here, nil)).to.equal(nil)
+			expect(ForestTest.repathVia(here, {})).to.equal(nil)
+			expect(ForestTest.repathVia(nil :: any, { here })).to.equal(nil)
+			-- A pins list with one real point is a one-leg repath, which `computeRouteVia` accepts.
+			local one = ForestTest.repathVia(here, { Vector3.new(standX, 140, Data.roadZ(standX)) })
+			expect(#one).to.equal(2)
+		end)
+
 		it("refuses a route that is not pinned through at least two points", function()
 			-- A route that was not pinned through a crossing is a route that may cross anywhere,
 			-- which is what the two-leg shape has always existed to prevent.

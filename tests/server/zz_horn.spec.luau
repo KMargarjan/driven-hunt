@@ -199,7 +199,9 @@ return function()
 			-- behaviour: every config and every partial spec table written before this task.
 			expect(Horn.signalSpookStuds({ SPOOK_STUDS = 357, METRES_PER_STUD = 0.28 })).to.equal(357)
 			expect(Horn.signalSpookStuds({ SPOOK_M = 28, METRES_PER_STUD = 0.28 }) > 99).to.equal(true)
-			expect(Horn.signalSpookSeconds({ SPOOK_STUDS = 357 })).to.equal(0)
+			-- nil, NOT 0: the caller hands it to `Runtime:notice`, where 0 is a look that ends on the
+			-- frame it begins and nil is the animal's own default.
+			expect(Horn.signalSpookSeconds({ SPOOK_STUDS = 357 })).to.equal(nil)
 			-- ...and a world that overrides the SIGNAL's own studs means those.
 			expect(Horn.signalSpookStuds({ SIGNAL = { SPOOK_STUDS = 60 }, SPOOK_STUDS = 357 })).to.equal(60)
 		end)

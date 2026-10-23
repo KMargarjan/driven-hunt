@@ -826,16 +826,19 @@ function Horn.signalSpookStuds(config): number
 	return Horn.spookStuds(resolved)
 end
 
--- ...AND HOW LONG THE HEAD STAYS UP FOR IT. Same shape, same fallback reason; `Runtime:notice`'s
--- own default is what a nil means to the animal, so this answers 0 for a config without the row and
--- the caller passes nothing on.
-function Horn.signalSpookSeconds(config): number
+-- ...AND HOW LONG THE HEAD STAYS UP FOR IT, or **nil for "the animal's own default"**.
+--
+-- nil AND NOT 0 (round 1's note, which was right): the caller hands this straight to
+-- `Runtime:notice`, and 0 there is "look for zero seconds" -- a notice that ends on the frame it
+-- begins -- while nil is `Brain:notice`'s own length. A config written before this task has no row
+-- and must get the default, not a look that never happens.
+function Horn.signalSpookSeconds(config): number?
 	local resolved = config or Horn.CONFIG
 	local signal = resolved.SIGNAL
 	if type(signal) == "table" and type(signal.SPOOK_SECONDS) == "number" then
 		return signal.SPOOK_SECONDS
 	end
-	return 0
+	return nil
 end
 
 -- HOW LONG THE CLIP IS LEFT PLAYING, from `SOUND_START` to `SOUND_CUT`. PURE, and derived rather
