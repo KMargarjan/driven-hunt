@@ -434,6 +434,100 @@ return function()
 			expect(brain:check(1.5)).to.equal(false)
 			expect(brain:checking()).to.equal(false)
 		end)
+
+		it("LOOKS BACK 150 DEGREES OVER THE WHOLE CHECK AND NEVER REVERSES (task 251 part 2)", function()
+			-- ROUND 1'S BLOCKING FINDING, AND IT IS THE CASE THAT CATCHES IT. The pure helper
+			-- (`Brain.lookBack`, driven in `deer.spec`) was right and the COMPOSED path was not: the
+			-- branch measured its 150 degrees from `self._desired`, which is the field the turn-rate
+			-- slew at the bottom of `_step` rewrites every tick -- so the limit clamped one FRAME's
+			-- rotation, the angle shrank tick by tick, fell under 150, and the animal came right round
+			-- to stare at the man and then set off on that heading. At `PACE.WALK_TURN_DEG` 90 deg/s a
+			-- 180-degree reversal takes about 2 s, which is inside the stag's own 2-6 second check.
+			--
+			-- SO THIS CASE DRIVES A WHOLE CHECK, step by step, with the man DEAD ASTERN -- the worst
+			-- case, and the only one where a clamp at 150 is distinguishable from no clamp at all.
+			local config = moveConfig(true)
+			local move = table.clone(config.MOVE)
+			move.EDGE_LOOK_BACK_DEG = 150
+			-- The chance is forced so no seed hunting is needed: the claim is about the POSE, and the
+			-- roll is `deer.spec`'s and `boar_move`'s own case above.
+			move.EDGE_CHANCE = 1
+			config.MOVE = move
+
+			local brain = Brain.new(config, FIELD, START, Random.new(7))
+			-- IT ARRIVES WALKING SOUTH, which is what every line in this game does: the road is south
+			-- and `releaseLine` walks them at it. Two seconds of ordered walking settle `_desired` onto
+			-- that heading through the same slew, so the latch is taken from a real approach and not
+			-- from a hand-written vector.
+			local toward = Vector3.new(0, 0, -1)
+			local position = START
+			for _ = 1, math.ceil(2 / DT) do
+				brain:leadTo(Vector3.new(0, 0, -200), 4.5)
+				local intent = brain:step(DT, obs(position, {}))
+				position += intent.targetVelocity * DT
+			end
+			local arrived = brain:step(DT, obs(position, {})).facing.Unit
+			expect(arrived:Dot(toward) > 0.99).to.equal(true)
+
+			-- THE MAN IS BEHIND HIM, 30 studs north -- 180 degrees off the way he came.
+			local behind = { { id = "h", position = position + Vector3.new(0, 0, 30), kind = "shooter", speed = 0 } }
+			expect(brain:check(4)).to.equal(true)
+			local facing = arrived
+			for _ = 1, math.ceil(3.5 / DT) do
+				local intent = brain:step(DT, obs(position, behind))
+				-- IT REALLY IS STOPPED for the whole check, which is the other half of the claim: a
+				-- look back that walked would be a turn and not a stop.
+				expect(intent.targetVelocity.Magnitude < 0.001).to.equal(true)
+				if intent.facing.Magnitude > 1e-6 then
+					facing = intent.facing.Unit
+				end
+			end
+
+			-- IT CAME ROUND, and it came round to 150 degrees and stopped there. The dead band
+			-- (`PACE.TURN_DEADBAND_DEG`) is what the tolerance is for: the slew stops inside it.
+			local degrees = math.deg(math.acos(math.clamp(facing:Dot(arrived), -1, 1)))
+			local band = config.PACE.TURN_DEADBAND_DEG or 4
+			TestKit.note(
+				string.format(
+					"task251 look back: arrived on (%.2f, %.2f), ended %.1f deg off it (asked 150, dead band %.0f)",
+					arrived.X,
+					arrived.Z,
+					degrees,
+					band
+				)
+			)
+			expect(degrees > 150 - band - 1).to.equal(true)
+			-- **AND THIS IS THE ASSERTION THAT FAILS WITHOUT THE LATCH**: unclamped it reaches ~180
+			-- (the man's own direction) and keeps it.
+			expect(degrees < 150 + band + 1).to.equal(true)
+
+			-- ...AND A BOAR, WHICH CARRIES `EDGE_LOOK_BACK_DEG` 0, DOES NOT TURN AT ALL: the same
+			-- approach, the same man, the behaviour task 126 shipped. Without this the case would pass
+			-- for an animal that always looked back, which is not what any row asks for.
+			local plain = moveConfig(true)
+			local plainMove = table.clone(plain.MOVE)
+			plainMove.EDGE_CHANCE = 1
+			plain.MOVE = plainMove
+			expect(plainMove.EDGE_LOOK_BACK_DEG).to.equal(0)
+			local boar = Brain.new(plain, FIELD, START, Random.new(7))
+			local at = START
+			for _ = 1, math.ceil(2 / DT) do
+				boar:leadTo(Vector3.new(0, 0, -200), 4.5)
+				local intent = boar:step(DT, obs(at, {}))
+				at += intent.targetVelocity * DT
+			end
+			local boarArrived = boar:step(DT, obs(at, {})).facing.Unit
+			expect(boar:check(4)).to.equal(true)
+			local boarFacing = boarArrived
+			local boarBehind = { { id = "h", position = at + Vector3.new(0, 0, 30), kind = "shooter", speed = 0 } }
+			for _ = 1, math.ceil(3.5 / DT) do
+				local intent = boar:step(DT, obs(at, boarBehind))
+				if intent.facing.Magnitude > 1e-6 then
+					boarFacing = intent.facing.Unit
+				end
+			end
+			expect(math.deg(math.acos(math.clamp(boarFacing:Dot(boarArrived), -1, 1))) < 1).to.equal(true)
+		end)
 	end)
 
 	describe("the whisker's committed side (MOVE on)", function()

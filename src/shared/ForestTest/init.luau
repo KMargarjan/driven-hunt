@@ -492,10 +492,15 @@ end
 -- a CHECKED CONSEQUENCE (`forest_stand.spec`) rather than the reason.
 --
 --   (spawnNorthStuds 180 + behindLineStuds 400 + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS 20)
---     / Bots.CONFIG.WALK_SPEED 3.1  =  193.5 s flat, and ~209 s on the ground
+--     / Bots.CONFIG.WALK_SPEED 3.1  =  193.5 s flat, and ~210 s on the ground (MEASURED: 210.2 s and
+--     210.7 s over two live drives of task 251 part 2)
 --
 -- A BOT LINE IS WHAT ENDS A DRIVE HERE (`Match.beaterCrossing` counts bots into the line), so that
--- product IS the length of a drive, and `bots_lane.spec` asserts it against `DRIVE.seconds` (300).
+-- product IS the length of a drive. `bots_lane.spec` asserts it, and since part 2 it asserts it
+-- against the thing that matters -- that the walk outlasts the fifteen-slot script
+-- (`ForestTest.slotSeconds`) -- rather than against a literal 120 s, which is a figure somebody will
+-- keep moving. `forest_stand.spec` does the same per layout. **The old "120.0 s" in this header was
+-- the figure before part 2 and is kept nowhere: it is 193.5 s flat.**
 --
 -- **THIS NUMBER DID NOT MOVE IN TASK 251 PART 2 AND THE WALK DID**, which is worth writing down here
 -- because this is where the other half of the pair lives. The Director asked for a ~210 s drive
@@ -518,8 +523,12 @@ end
 --   * the pad column itself (x 3030): terrain 234.1, `groundAt` 234.1 (delta 0.00, so
 --     `Markers.groundFor` builds `BeaterStart` and the drive starts), `roomToStand` true at
 --     `clearStuds`, nearest trunk 12.4 studs -- in the trees, not inside one.
--- 700 WOULD ALSO FIT THE WOOD. It is not taken because the pair has to make 120 s and 580 is the
--- half of it that leaves the pace realistic (`Bots.CONFIG.WALK_SPEED`, 1.40 m/s).
+-- 700 WOULD ALSO FIT THE WOOD. It was not taken in task 162 because the pair had to make 120 s and
+-- 580 was the half of it that left the pace realistic -- and since task 251 part 2 the pace is the
+-- half that moved instead (`Bots.CONFIG.WALK_SPEED` 3.1, **0.87 m/s**, which is a beater LINE
+-- advancing and not a man walking; its own comment carries the source). 580 stays because the wood
+-- is what bounds it: 210 s at the old 5 studs/s would need 1,050 studs of travel and the trees run
+-- out at 775-850.
 ForestTest.BEATER = {
 	behindLineStuds = 400,
 	-- HOW CLOSE A TRUNK MAY BE to where she is put down. A Roblox character is 2 studs across, so 6

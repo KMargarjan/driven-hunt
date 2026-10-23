@@ -762,9 +762,17 @@ return function()
 			-- far wood, 401 studs from the stand, audible to 350"*. His holding is slot 13's own, so
 			-- the distance is arithmetic about two rows of one table and belongs in a case, not in a
 			-- comment -- otherwise a deeper stag silently goes out of earshot again.
+			--
+			-- IT IS THE FLAT DISTANCE, said plainly (review round 1, note): the emitter stands on
+			-- terrain this place measures about 50 studs higher at dz 360 than at the road, and a
+			-- `Sound`'s roll-off is measured in three dimensions -- so the real distance is a little
+			-- longer than this. 372 against 420 has 48 studs of margin and `sqrt(372^2 + 50^2)` is
+			-- 375, so the claim holds either way; the flat figure is used because it is the one the
+			-- two rows of the table actually state, and the Y is the terrain's and not the drive's.
 			local stag = Data.stagRow("normal", SCHEDULE)
 			local reach = math.sqrt((stag.northStuds + roar.deeperStuds) ^ 2 + stag.offsetX ^ 2)
 			expect(reach < roar.audibleStuds).to.equal(true)
+			expect(math.sqrt(reach ^ 2 + 60 ^ 2) < roar.audibleStuds).to.equal(true)
 			TestKit.note(
 				string.format("the roar sounds %.0f studs from the stand and carries %d", reach, roar.audibleStuds)
 			)

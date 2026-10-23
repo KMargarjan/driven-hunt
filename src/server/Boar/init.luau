@@ -6036,8 +6036,16 @@ function Runtime:check(id: string, seconds: number?): boolean
 				-- is false on `Boar.CONFIG.MOVE` and true only on the stag's and the hind's rows.
 				local animalConfig = Boar.kindConfig(entry.kind, self._config)
 				local move = animalConfig.MOVE
-				if move ~= nil and move.EDGE_BARKS == true and self:_claimSqueal() then
-					Body.playOneShot(entry.body, "cry", animalConfig.SOUND.CRY, animalConfig, self._rng)
+				if move ~= nil and move.EDGE_BARKS == true then
+					-- THE SLOT IS SPENT ONLY ON A BARK THAT WAS ACTUALLY PLAYED (review round 1, note).
+					-- `playOneShot` still answers false for an animal with no `cry` Sound built or for a
+					-- cue switched off by data, and claiming first would then book one of the world's
+					-- two squeals for silence. Asked in this order the claim cannot be wasted, and the
+					-- CHECK is unaffected either way: the animal stops and looks whether or not the
+					-- world had a voice to spare.
+					if Body.canPlayOneShot(entry.body, "cry", animalConfig.SOUND.CRY) and self:_claimSqueal() then
+						Body.playOneShot(entry.body, "cry", animalConfig.SOUND.CRY, animalConfig, self._rng)
+					end
 				end
 			end
 			return took

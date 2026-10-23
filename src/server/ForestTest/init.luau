@@ -3313,6 +3313,14 @@ function ForestTest.roarEmitter(): Sound?
 	if sound ~= nil and sound.Parent ~= nil then
 		return sound
 	end
+	-- ...AND THE OLD ONE GOES WITH IT (review round 1, note). Only reachable if something removed the
+	-- emitter from the world -- nothing does -- but a replacement that leaves the previous Part behind
+	-- is an orphan in Workspace, and this module built it.
+	if state.roarPart ~= nil then
+		(state.roarPart :: BasePart):Destroy()
+		state.roarPart = nil
+		state.roarSound = nil
+	end
 	local part = Instance.new("Part")
 	part.Name = roar.partName
 	part.Anchored = true

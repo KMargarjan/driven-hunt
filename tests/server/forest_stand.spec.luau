@@ -120,7 +120,7 @@ return function()
 			end
 		end)
 
-		it("gives every layout the SAME walk, because no layout carries that number", function()
+		it("gives every layout one walk, because no layout may carry a depth of its own", function()
 			-- WHAT THIS CASE IS ABOUT IS THAT EVERY LAYOUT GETS THE SAME NUMBER, and that is why the
 			-- quotient is asserted against `ForestTest.slotSeconds` rather than against a constant:
 			-- the figure was 120 s until task 251 part 2 and is 193.5 s after it (the Director's
