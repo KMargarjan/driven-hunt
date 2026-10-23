@@ -120,12 +120,32 @@ return function()
 			end
 		end)
 
-		it("gives every layout the same ~120 s walk, because no layout carries that number", function()
+		it("gives every layout the SAME walk, because no layout carries that number", function()
+			-- WHAT THIS CASE IS ABOUT IS THAT EVERY LAYOUT GETS THE SAME NUMBER, and that is why the
+			-- quotient is asserted against `ForestTest.slotSeconds` rather than against a constant:
+			-- the figure was 120 s until task 251 part 2 and is 193.5 s after it (the Director's
+			-- ~210-second drive, measured at 210.2 s and 210.7 s on the ground), and a case pinned to
+			-- a literal would have to be edited every time the Director turns the drive's length --
+			-- which is a dial Karen is expected to move.
 			local Bots = require(ServerScriptService:WaitForChild("Bots"))
 			local Match = require(ServerScriptService:WaitForChild("Match"))
 			local past = Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS
 			local seconds = (Data.beaterNorthStuds() + past) / Bots.CONFIG.WALK_SPEED
-			expect(math.abs(seconds - 120) < 0.1).to.equal(true)
+			-- THE WALK HAS TO OUTLAST THE SCRIPT, which is the whole of part 1's escalation: a drive
+			-- ends when the line arrives, so every one of the fifteen slots has to be due before it.
+			-- The flat quotient understates the real walk by the measured 1.081 (the hill, the trunks
+			-- and the side-steps), so asserting against the FLAT figure is the strict direction.
+			expect(seconds > Data.slotSeconds(#Data.SCHEDULE.drive)).to.equal(true)
+			-- ...AND IT IS THE SAME IN EVERY LAYOUT, which is this case's own claim, asserted by ASKING
+			-- EACH LAYOUT: `beaterNorthStuds` takes no layout argument -- that is the whole reason the
+			-- number cannot differ -- so what a per-layout check can still catch is a layout that grew
+			-- a depth of its own, which is exactly what the title warns about.
+			for _, name in ipairs(Data.LAYOUT_ORDER) do
+				local one = Data.layoutNamed(name) :: any
+				expect(one).to.be.ok()
+				expect(one.beaterNorthStuds).to.equal(nil)
+				expect(one.behindLineStuds).to.equal(nil)
+			end
 			expect(seconds < Data.DRIVE.seconds).to.equal(true)
 			TestKit.note(
 				string.format(

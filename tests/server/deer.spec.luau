@@ -319,7 +319,12 @@ return function()
 				local config = configWith(true)
 				local stag = Boar.kindConfig("stag", config)
 				expect(stag.BODY_SIZE).to.equal(CONFIG.SPECIES.reddeer.BODY_SIZE)
-				expect(stag.DETECT_RADIUS).to.be.near(config.DETECT_RADIUS * 1.5, EPSILON)
+				-- 1.5 -> 1.8 IN TASK 251 PART 2 (spec section 3.1, Karen OK'd): *"a lone stag has no jumpy
+				-- companion to trigger him, so he must be his own alarm"*, so he carries the hind's own
+				-- scale. The radius this case is about is unchanged in MEANING -- it is still the kind's
+				-- `wary` multiplier reaching `DETECT_RADIUS` through `scaledByWary` -- and what the stag
+				-- NOTICES at is the case in "the red stag's own behaviour" below.
+				expect(stag.DETECT_RADIUS).to.be.near(config.DETECT_RADIUS * 1.8, EPSILON)
 				expect(stag.SPRINT_SPEED).to.be.near(config.SPRINT_SPEED * 1.18, EPSILON)
 				local hind = Boar.kindConfig("hind", config)
 				expect(hind.DETECT_RADIUS).to.be.near(config.DETECT_RADIUS * 1.8, EPSILON)

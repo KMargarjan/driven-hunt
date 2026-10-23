@@ -592,15 +592,22 @@ return function()
 			expect(math.abs(clips.rate - nominal) < Rig.GAIT.RATE_EPSILON).to.equal(true)
 			expect(nominal < Rig.GAIT.MAX_RATE).to.equal(true) -- the slide: it used to be 1.000
 
-			-- HALF THE PACE OVER THE NEXT STEP -> half the rate. 0.5 studs in 0.2 s is 2.5 studs/s.
+			-- HALF THE PACE OVER THE NEXT STEP -> half the rate, and the DISTANCE IS DERIVED FROM THE
+			-- PACE rather than written down (task 251 part 2). It used to be a literal 0.5 studs,
+			-- which is half of 5 studs/s over 0.2 s -- so when the Director slowed the beater line to
+			-- 3.1 the two halves of this case stopped being halves of each other and `nominal / 2`
+			-- failed. `WALK_SPEED / 2` is still a walk at any pace this world will ever use
+			-- (`GAIT.WALK_ABOVE_STUDS` is 0.75), which is what makes the claim a claim about the rate
+			-- law and not about one number.
+			local halfPace = Bots.CONFIG.WALK_SPEED / 2
 			local here = Rig.positionOf(body) :: Vector3
-			Rig.place(body, CFrame.new(here + Vector3.new(0, 0, -0.5)), false)
+			Rig.place(body, CFrame.new(here + Vector3.new(0, 0, -halfPace * 0.2)), false)
 			Bots.step(0.2, 5000.2)
 			-- TO A TOLERANCE, not to the bit: the step measures 0.5 studs over 0.2 s of a float
 			-- clock, so 2.5 arrives as 2.4999999999999996 and the two divisions differ in the last
 			-- place. `RATE_EPSILON` is the resolution the owner itself acts on, so anything inside
 			-- it is the same rate as far as the Animator is ever told.
-			local _, half = Rig.gait(2.5, "walk")
+			local _, half = Rig.gait(halfPace, "walk")
 			local got = (Bots.clipsOf("bot-beater-1") :: any).rate
 			expect(math.abs(got - half) < Rig.GAIT.RATE_EPSILON).to.equal(true)
 			expect(math.abs(got - nominal / 2) < Rig.GAIT.RATE_EPSILON).to.equal(true)
