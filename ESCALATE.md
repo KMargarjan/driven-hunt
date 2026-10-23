@@ -1,5 +1,82 @@
 # Escalations
 
+## 2026-10-23 - Task 251 part 1 (the drive pattern): **A DECISION IS NEEDED. A FOREST TEST DRIVE IS ~130 SECONDS, NOT 300, SO SLOTS 6-15 OF THE DRIVE SCRIPT ALL BUT NEVER HAPPEN -- THE STAG INCLUDED.**
+
+**This is a design/feel decision (`CLAUDE.md` stop rule 3), and it is one number.** The code of part 1
+is built, gated and pushed; nothing is blocked on this except the half of the pattern Karen will
+actually see. **Karen decides, because what it changes is how often a group comes at her.**
+
+### What was measured, in her own place, on her own path
+
+One Play session in **Driven Hunt Forest Test** (placeId 130094961655666), enrolled at the truck pad
+(rule I), four drives, read off the server console:
+
+```
+[bots] drive 3 hunters, 4/4 beaters ... | 4 walking, 3 arrived in 130.8s | ...
+[bots] drive 4 hunters, 3/3 beaters ... | 3 walking, 3 arrived in 133.0s | ...
+[bots] drive 3 hunters, 4/4 beaters ... | 4 walking, 3 arrived in 125.3s | ...
+```
+
+and, between two `[report] drive N opened (300s windows)` lines, the drive got no further than
+**slot 5**:
+
+```
+[ForestTest] line 12: SLOT 1 act 1 STRAIGHT -- 1 of 1 animal(s) [male] ... crossing -70 studs ...
+[ForestTest] line 13: SLOT 2 act 1 STRAIGHT -- 2 of 2 animal(s) [hind+calf] ... crossing +55 studs ...
+[ForestTest] line 15: SLOT 3 act 1 STRAIGHT -- 6 of 6 animal(s) [female+cub+cub+cub+cub+male] in 2 of 2 file(s) ...
+[ForestTest] line 15: SLOT 4 act 1 STRAIGHT -- 2 of 2 animal(s) [male+male] ... crossing +20 studs ...
+[ForestTest] line 15: slot 5 of the drive is SILENT -- nothing released
+```
+
+**A drive in this world ENDS WHEN THE BEATER LINE ARRIVES, at 125-133 s** -- not at
+`ForestTest.DRIVE.seconds`, which is 300 and is only a ceiling. At `SCHEDULE.intervalSeconds` of 20
+that is **six or seven slots of fifteen**: the three measured drives of this run got to slot 5, and
+the session's FIRST drive -- which opened late, after the server had been up long enough to release
+two slots before it, and so ran longer -- got to slot 7. **The headline's "6-15" is what a normal
+drive never reaches; 6 and 7 are reachable only on a drive that opens late.** (Round 1's note was
+right that the two numbers read as a contradiction.)
+
+**So, at the dial Karen OK'd, she would never see:** the broadside pass (slot 6), the big sounder
+(7), **either refusal** (8 and 12), the big lone male (9), the split (11), **THE RED STAG (13)**, the
+last pair (14) or the one that holds (15). Act I is the whole drive. **The headline of her own
+question -- *"how many groups jumping over road red stags"* -- is the part that does not happen.**
+
+### Why the Builder did not just fix it
+
+The Designer's spec read `DRIVE.seconds = 300` off the code and built the timeline on it (its section
+6 appendix lists it as fact). That is true as DATA and false as BEHAVIOUR, and no number in the spec
+survives the difference: **13 groups cannot fit in 130 s at 20 s apart.** Every fix is a change to
+how the drive FEELS, which is Karen's call and not a Builder's:
+
+| # | the change | one line? | what Karen would notice |
+|---|---|---|---|
+| **A** | `SCHEDULE.intervalSeconds` **20 -> 9** | yes | all 13 groups, all three acts and the stag, in every drive -- but **a group every ~9 s instead of every ~20**. The counts she OK'd (13 groups / 59 animals per drive) are exactly preserved; the SPACING halves. Spec section 1.3's density goes from 10x a real drive to ~20x |
+| **B** | move the beaters back so the walk takes 300 s | no -- the wood is 580 studs deep and they walk it at ~4.4 studs/s, so 300 s needs ~1 300 studs. **Out of bounds** | nothing, if it were possible |
+| **C** | stop ending the drive when the line is through (`DRIVE.seconds` becomes the real length) | no -- it is the drive-end rule of this world since task 161, and the bots' arrival is what the end-of-drive report is written against | drives twice as long, with the beaters standing at the road for half of each |
+| **D** | cut the script to the ~6 slots that happen | yes | **not what she OK'd**: 6 groups, no stag, no refusal, no hold |
+| **E** | let the script run ACROSS drive boundaries instead of restarting at slot 1 | yes, two lines | she sees all fifteen slots, but *"the stag is last"* lands in the middle of the NEXT drive, so the three acts stop meaning anything |
+
+**The Builder's recommendation is A**, and it is two characters: the counts Karen read and approved
+are per DRIVE, and A is the only option that delivers all of them. The risk is that a pass every 9 s
+reads as a stampede rather than a drive; she is the only one who can say, and one playtest answers
+it. **Until she does, the shipped default is 20 s and acts II and III are dead data** -- which is why
+this is written down rather than left to be discovered.
+
+**What is NOT needed from anybody:** part 1's code is complete and green
+(`[harness] PASS: 34/34 checks @ 7ca781a1ec52eb64c51daf944bc955854cfe79cc (clean tree) scope=all`).
+`test2` is N/A (no `TWO_PLAYER_PATHS` file is touched). Part 2 -- the stag's own behaviour and his
+voice -- is the next session and does not depend on this.
+
+### The second thing the same run found, which the Builder DID fix
+
+`[ForestTest] line 4: slot 2 wanted the hinds and the deer cap refused -- nothing released`: a hind
+party released in the seconds before the drive opened was still on its feet, `MAX_GROUPS_ALIVE` is 1,
+and that whole drive then had no deer in it -- against Karen's *"we need all a time in drive deer"*.
+A refused deer party is now **held for the drive's next silence** (slots 5 and 10 are the drive's own
+slack, so no other group loses its slot and the timeline does not shift). Fixed in this task, with
+the measurement, in `ForestTest.releaseLine`.
+
+
 ## 2026-10-23 - Task 249 (six fixes from Karen's afternoon test): **CLOSED.** The Director ran `test2` twice at `12e62cda` (both PASS 36/36, logs `test2-t249a.log` / `test2-t249b.log`), the Builder ran it again himself at the round's own head `e2651bd4` (`test2-t249c.log`, PASS 36/36), and both gates are green at that commit. Nothing is outstanding. The entry below is kept as written (rule 7).
 
 **NEEDS DIRECTOR: `python tools/studio_mcp.py test2` at `dbf1f92626dd776637b589394b64f14a0c7b7625`.**

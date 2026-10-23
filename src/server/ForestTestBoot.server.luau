@@ -984,6 +984,37 @@ Match.PhaseChanged:Connect(function(_before, phase, driveNumber)
 		-- beater's second drive is an empty wood.
 		ForestTest.newDrive()
 		print(string.format("[report] drive %d opened (%ds windows)", driveNumber or 1, Data.DRIVE.seconds))
+	elseif phase == "Running" then
+		-- THE DRIVE IS OPENED, NOT FLUSHED (task 251, item 4). KAREN, 2026-10-23, through the plan she
+		-- OK'd: *"the opening horn gets its own 120-stud alert radius; the beater's hand horn keeps
+		-- its radius"*.
+		--
+		-- THIS EDGE IS THE SIGNAL. `Match.Phase.enterRunning` emits the `signal` feed entry whose
+		-- text is "start" at this instant (*Anblasen des Treibens*), and GO is the END of that
+		-- fanfare -- `Match.CONFIG.GO_HOLD_SECONDS` is `Horn.signalSeconds("start")`. So hooking the
+		-- phase is hooking the horn, and it is hooked HERE rather than in `Match.Phase` for two
+		-- reasons: how far a signal carries is the HORN's fact and which animals hear it is the
+		-- BOAR's, and this file is the one place those two are already joined (the `Weapon.Horn.Blown`
+		-- handler above). `src/server/Match/` also carries the two-player gate, and the opening of a
+		-- drive is not a question a second player answers.
+		--
+		-- IT IS THE SIGNAL'S OWN RADIUS AND READER (`Horn.signalSpookStuds`, 120 studs), NOT
+		-- `Horn.spookStuds` (357), which the hand-horn handler above still uses unchanged. Two
+		-- readers, two numbers, and neither can be got out of the other by accident.
+		local alerted, inRange = ForestTest.signalHeard(
+			HornData.signalSpookStuds(HornData.CONFIG),
+			HornData.signalSpookSeconds(HornData.CONFIG)
+		)
+		print(
+			string.format(
+				"[ForestTest] opening signal: %d of %d animal(s) within %.0f studs put their heads up"
+					.. " (the beater's hand horn still reaches %.0f)",
+				alerted,
+				inRange,
+				HornData.signalSpookStuds(HornData.CONFIG),
+				HornData.spookStuds(HornData.CONFIG)
+			)
+		)
 	elseif phase == "Scoring" then
 		HitLog.closeDrive(os.clock())
 		-- ONE LINE PER DRIVE SAYING WHAT THE BOTS DID (task 161), on the same channel and for the

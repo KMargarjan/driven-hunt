@@ -1677,7 +1677,10 @@ return function()
 			end
 			-- ...AND THE AMBIENT WAVES ARE IN FRONT OF HER TOO: they cross her front, so a wave
 			-- released behind her would walk the wrong way through the line.
-			for _, wave in ipairs(Data.SCHEDULE.cycle) do
+			-- `SCHEDULE.drive` SINCE TASK 251, and it is the same claim about a bigger table: the
+			-- six-row repeating `cycle` is archived (`backups/2026-10-23_task-251_schedule-cycle.md`)
+			-- and the fifteen-row drive script replaced it, whose deepest row starts at dz 360.
+			for _, wave in ipairs(Data.SCHEDULE.drive) do
 				local at = Data.wavePoint(standX, wave)
 				expect(at.Z - Data.roadZ(at.X) < startNorth).to.equal(true)
 			end
