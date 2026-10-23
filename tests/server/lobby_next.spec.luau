@@ -266,13 +266,17 @@ return function()
 
 	describe("the numbers", function()
 		it("waits the between-drive length the Director's brief names", function()
-			-- ASSERTED AGAINST THE THING THE BRIEF SAID TO REUSE, not against a literal (review
-			-- round 1, note 1): *"reuse the existing between-drive length"* is
-			-- `Match.CONFIG.SCORE_SECONDS`, which is 8 after Karen's *"make 8s max"* of 2026-10-18.
-			-- The old case read `equal(8)` on both sides of that sentence, so the two could have
-			-- drifted in silence.
+			-- THE TWO ARE NO LONGER THE SAME NUMBER, AND TASK 249 IS WHY. Task 246's brief said
+			-- *"reuse the existing between-drive length"*, so this card's wait was
+			-- `Match.CONFIG.SCORE_SECONDS` -- 8 and 8. Karen, 2026-10-23: *"a bit to long to wait
+			-- for game we need to reduce seconds"*, and the Director's 15-second budget splits
+			-- 4 + 6 + 5 across the three phases: this card keeps the BIGGEST share because the
+			-- role choice (`T`) and the way out (`Y`) are bound only while it is up, and the
+			-- results scene takes the deepest cut. So the relation asserted here is the one that
+			-- is still true and still load-bearing.
 			local Match = require(ServerScriptService:WaitForChild("Match"))
-			expect(CFG.SECONDS).to.equal(Match.CONFIG.SCORE_SECONDS)
+			expect(CFG.SECONDS).to.equal(6)
+			expect(CFG.SECONDS > Match.CONFIG.SCORE_SECONDS).to.equal(true)
 			-- ...AND INSIDE VALVE'S OWN CLAMP FOR THE SAME GAP (`mp_bonusroundtime`, 5..15), which is
 			-- the note's source B and the only external number this task has.
 			expect(CFG.SECONDS >= 5).to.equal(true)
