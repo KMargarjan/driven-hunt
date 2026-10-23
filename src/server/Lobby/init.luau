@@ -924,15 +924,26 @@ local function stepNextDrive(occupants: { any }, now: number)
 	if verdict == NextDrive.COUNTING and before == nil then
 		stats.nextArmed += 1
 		-- ...AND WHETHER IT WAS ARMED BY THE TIMEOUT INSTEAD OF BY THE PARTY BEING HOME (hazard 1).
-		-- It is derived from the one fact the state carries -- how long ago the party was collected
-		-- -- rather than from a second verdict, so the two can never disagree.
-		if next(held) ~= nil then
+		--
+		-- ASKED OF THE PARTY AND NOT OF THE SERVER (review round 1, note 4): `held` is built over
+		-- EVERY occupant, so a man held for some other reason -- tied to a tree in somebody else's
+		-- drive, standing in a results scene he is not in the party for -- would have reported
+		-- hazard 1 firing when the arming was in fact `home`. It is the same question `Next.step`
+		-- itself asks, of the same list.
+		local heldMembers = 0
+		for _, userId in ipairs(NextDrive.ids(state)) do
+			if held[userId] == true then
+				heldMembers += 1
+			end
+		end
+		if heldMembers > 0 then
 			stats.nextTimeouts += 1
 			warn(
 				string.format(
-					"[lobby] the next drive's countdown was armed by its %ds timeout with %d player(s)"
+					"[lobby] the next drive's countdown was armed by its %ds timeout with %d of %d member(s)"
 						.. " still held: the results scene did not let everybody go",
 					cfg.PADS.NEXT.ARM_TIMEOUT_SECONDS,
+					heldMembers,
 					#NextDrive.ids(state)
 				)
 			)

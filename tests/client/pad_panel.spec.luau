@@ -1205,6 +1205,61 @@ return function()
 				expect(with.height <= PadPanel.heightFor(#PADS.SIZES, true)).to.equal(true)
 			end)
 
+			-- ---------------- review round 1's two blocking findings, each as a case
+			it("leaves every BackgroundColor3 alone per frame, so a hover survives", function()
+				-- **FINDING 1.** `setNext` is called by the Hud's one evaluation EVERY FRAME. It used
+				-- to end in `PadPanel.render()`, which rewrites every size row's `BackgroundColor3`
+				-- unconditionally -- so the TRUCK PAD DIALOG'S hover tint (shipped behaviour this
+				-- task never set out to touch) was erased one frame after `MouseEnter` wrote it,
+				-- whether the card was up or not.
+				--
+				-- THE CASE IS THE HOVER ITSELF, written by hand because a spec cannot move a mouse:
+				-- paint the row and the button as `MouseEnter` does, then drive thirty frames of the
+				-- setter and see the colour still there.
+				PadPanel.setAsk(2)
+				local row = (Hud.padPanel() :: Frame):FindFirstChild("Size1") :: TextButton
+				local sit = (Hud.padNext() :: Frame):FindFirstChild("SitOut") :: TextButton
+				expect(row).to.be.ok()
+				expect(sit).to.be.ok()
+				PadPanel.setNext(NEXT.SECONDS, false)
+				row.BackgroundColor3 = PadPanel.LOOK.ROW_HOVER_COLOR
+				sit.BackgroundColor3 = PadPanel.LOOK.ROW_HOVER_COLOR
+				for frame = 1, 30 do
+					PadPanel.setNext(NEXT.SECONDS - frame * 0.2, false)
+				end
+				expect(row.BackgroundColor3).to.equal(PadPanel.LOOK.ROW_HOVER_COLOR)
+				expect(sit.BackgroundColor3).to.equal(PadPanel.LOOK.ROW_HOVER_COLOR)
+				-- ...AND THE RESTING TINT IS STILL WRITTEN WHEN THE STATE CHANGES, which is the half
+				-- that must not be lost in fixing the other: `MouseLeave` restores
+				-- `nextButtonTint()`, and `out` flipping repaints on that edge.
+				expect(PadPanel.nextButtonTint()).to.equal(PadPanel.LOOK.BUTTON_COLOR)
+				PadPanel.setNext(NEXT.SECONDS, true)
+				expect(PadPanel.nextButtonTint()).never.to.equal(PadPanel.LOOK.BUTTON_COLOR)
+				expect(sit.BackgroundColor3).to.equal(PadPanel.nextButtonTint())
+				PadPanel.setAsk(nil)
+			end)
+
+			it("keeps T bound when a man walks off a pad with the card up", function()
+				-- **FINDING 2.** Both surfaces bind `T`, and `bindSwitchKey` is one boolean with no
+				-- second requester -- so `setAsk`'s close branch unbinding it unconditionally killed
+				-- the key the CARD'S own chip was still advertising. Reachable on Karen's path:
+				-- `Hud.renderObjective` calls `setAsk(asking)` every frame, so one walk on and off a
+				-- pad during the 8 s did it.
+				PadPanel.setNext(NEXT.SECONDS, false)
+				expect(PadPanel.switchKeyBound()).to.equal(true)
+				PadPanel.setAsk(2)
+				expect(PadPanel.switchKeyBound()).to.equal(true)
+				PadPanel.setAsk(nil)
+				expect(PadPanel.switchKeyBound()).to.equal(true)
+				-- ...AND IT IS STILL RELEASED WHEN NEITHER SURFACE IS UP, which is the other half.
+				PadPanel.setNext(nil, false)
+				expect(PadPanel.switchKeyBound()).to.equal(false)
+				PadPanel.setAsk(2)
+				expect(PadPanel.switchKeyBound()).to.equal(true)
+				PadPanel.setAsk(nil)
+				expect(PadPanel.switchKeyBound()).to.equal(false)
+			end)
+
 			it("halves the switch by the formula both surfaces use", function()
 				local layout = PadPanel.nextLayoutFor(LobbyData.ROLE_WISH.BEATER, 1080)
 				local dialog = PadPanel.layoutFor(#PADS.SIZES, LobbyData.ROLE_WISH.BEATER, 1080)

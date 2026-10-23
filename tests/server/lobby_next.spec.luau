@@ -266,9 +266,15 @@ return function()
 
 	describe("the numbers", function()
 		it("waits the between-drive length the Director's brief names", function()
-			-- 8, which is `Match.CONFIG.SCORE_SECONDS` after Karen's *"make 8s max"* -- and inside
-			-- Valve's own clamp for the same gap (`mp_bonusroundtime`, 5..15).
-			expect(CFG.SECONDS).to.equal(8)
+			-- ASSERTED AGAINST THE THING THE BRIEF SAID TO REUSE, not against a literal (review
+			-- round 1, note 1): *"reuse the existing between-drive length"* is
+			-- `Match.CONFIG.SCORE_SECONDS`, which is 8 after Karen's *"make 8s max"* of 2026-10-18.
+			-- The old case read `equal(8)` on both sides of that sentence, so the two could have
+			-- drifted in silence.
+			local Match = require(ServerScriptService:WaitForChild("Match"))
+			expect(CFG.SECONDS).to.equal(Match.CONFIG.SCORE_SECONDS)
+			-- ...AND INSIDE VALVE'S OWN CLAMP FOR THE SAME GAP (`mp_bonusroundtime`, 5..15), which is
+			-- the note's source B and the only external number this task has.
 			expect(CFG.SECONDS >= 5).to.equal(true)
 			expect(CFG.SECONDS <= 15).to.equal(true)
 		end)

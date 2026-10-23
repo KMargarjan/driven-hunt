@@ -964,7 +964,12 @@ function PadPanel.setAsk(next_: number?)
 		if WeaponInput ~= nil then
 			WeaponInput.releaseHold("padsize")
 		end
-		PadPanel.bindSwitchKey(false)
+		-- `nextShown()` AND NOT `false` (review round 1, finding 2): the role switch is drawn on TWO
+		-- surfaces now and both bind `T`, so the question this branch has to ask is *"is the other
+		-- one still up"* -- exactly the question `setNext`'s close branch already asks of this one
+		-- (`bindSwitchKey(ask ~= nil)`). Without it, walking on and off a truck pad during the
+		-- 8-second countdown unbound the key the card's own chip was still advertising.
+		PadPanel.bindSwitchKey(PadPanel.nextShown())
 	end
 	PadPanel.render()
 end
@@ -1600,11 +1605,16 @@ local function buildNext(frame: Frame)
 	(nextKeyChip :: TextLabel).TextXAlignment = Enum.TextXAlignment.Right;
 	(nextKeyChip :: TextLabel).TextYAlignment = Enum.TextYAlignment.Center;
 	(nextKeyChip :: TextLabel).Text = spaced(string.format(NEXT.KEY_HINT, SIT_KEY.Name))
+	-- THE HOVER IS THE HANDLERS' AND THE RESTING TINT IS THE EDGE'S, AND THAT SPLIT IS REVIEW
+	-- ROUND 1'S FINDING 1 (and the size rows' own bug, one surface along): a renderer that rewrote
+	-- `BackgroundColor3` every frame erased the hover the instant `MouseEnter` wrote it. So nothing
+	-- per-frame touches this property at all -- `PadPanel.paintNextButton` writes it when `nextOut`
+	-- CHANGES, and `MouseLeave` restores the tint that state calls for rather than a literal.
 	button.MouseEnter:Connect(function()
 		button.BackgroundColor3 = PadPanel.LOOK.ROW_HOVER_COLOR
 	end)
 	button.MouseLeave:Connect(function()
-		button.BackgroundColor3 = PadPanel.LOOK.BUTTON_COLOR
+		button.BackgroundColor3 = PadPanel.nextButtonTint()
 	end)
 	button.Activated:Connect(function()
 		PadPanel.pressNext()
@@ -1674,6 +1684,8 @@ end
 -- them. Everything written from them compares first, inside `renderNext`.
 function PadPanel.setNext(secondsLeft: number?, out: boolean?)
 	local wasShown = PadPanel.nextShown()
+	local wasOut = nextOut
+	local edge = false
 	nextLeft = if type(secondsLeft) == "number" then secondsLeft else nil
 	nextOut = out == true
 	local isShown = PadPanel.nextShown()
@@ -1691,6 +1703,7 @@ function PadPanel.setNext(secondsLeft: number?, out: boolean?)
 		end
 		PadPanel.bindSitKey(true)
 		PadPanel.bindSwitchKey(true)
+		edge = true
 	elseif not isShown and wasShown then
 		stats.nextCloses += 1
 		if Cursor ~= nil then
@@ -1703,11 +1716,29 @@ function PadPanel.setNext(secondsLeft: number?, out: boolean?)
 		-- ...AND `T` GOES BACK ONLY IF NO PAD DIALOG IS UP, because that surface binds it too. One
 		-- boolean decides, which is why `bindSwitchKey` takes one rather than counting requests.
 		PadPanel.bindSwitchKey(ask ~= nil)
+		edge = true
 	end
 	PadPanel.renderNext()
-	-- THE DIALOG'S OWN VISIBILITY IS THIS CARD'S BUSINESS TOO, because the two share a rectangle:
-	-- `render` reads `dialogShown`, so the card appearing closes the dialog in the same frame.
-	PadPanel.render()
+	-- ...AND THE THREE THINGS THAT MAY ONLY BE WRITTEN ON AN EDGE (review round 1, finding 1).
+	--
+	-- `render()` WAS THE BUG AND IT IS WORTH NAMING: this setter is called by the Hud's one
+	-- evaluation EVERY FRAME, and `PadPanel.render` rewrites every size row's `BackgroundColor3`
+	-- unconditionally -- so calling it from here killed the TRUCK PAD DIALOG'S hover tint, shipped
+	-- behaviour this task never set out to touch, whether the card was up or not. Before this task
+	-- `render` had no per-frame caller at all (`setAsk` early-returns on an unchanged pad).
+	--
+	-- `paintNextButton` and `renderRole` are here for the same reason, one control each: the hover
+	-- tint on SIT OUT and the press flash on the card's role switch are both tweens a per-frame
+	-- write erases.
+	if edge or nextOut ~= wasOut then
+		PadPanel.paintNextButton()
+		PadPanel.renderRole()
+	end
+	if edge then
+		-- THE DIALOG'S OWN VISIBILITY IS THIS CARD'S BUSINESS, because the two share a rectangle:
+		-- `render` reads `dialogShown`, so the card appearing closes the dialog on the same edge.
+		PadPanel.render()
+	end
 end
 
 function PadPanel.renderNext()
@@ -1737,17 +1768,12 @@ function PadPanel.renderNext()
 	if nextNote ~= nil and (nextNote :: TextLabel).Text ~= note then
 		(nextNote :: TextLabel).Text = note
 	end
-	-- THE BUTTON WEARS THE ONE ORANGE THING ON THIS CARD ONLY WHEN HE IS OUT, because then coming
-	-- back is the thing that happens if he does anything at all -- the size rows' default-marker
-	-- argument (*"what the orange marks is the row that happens if you do nothing"*) read the other
-	-- way round. While he is IN, the button is a row at rest and the NUMBER is the orange thing.
-	if nextButton ~= nil then
-		local tint = if nextOut then LOOK.BLAZE_LO else PadPanel.LOOK.BUTTON_COLOR
-		if (nextButton :: TextButton).BackgroundColor3 ~= tint then
-			(nextButton :: TextButton).BackgroundColor3 = tint
-		end
-	end
-	PadPanel.renderRole()
+	-- **NOTHING HERE TOUCHES `BackgroundColor3`, AND NOTHING HERE PAINTS THE ROLE SWITCH** (review
+	-- round 1, finding 1 and its third note). This function runs EVERY FRAME, which the seconds
+	-- need; the two things a pointer tweens -- the button's hover tint and the switch's press flash
+	-- -- are written on EDGES instead (`PadPanel.paintNextButton` and `PadPanel.renderRole`, both
+	-- called from `setNext`'s edges), because a per-frame write erases a tween within one frame.
+	-- The text above is compared before it is written and nothing else reads it, so it fights nobody.
 end
 
 -- ONE PRESS, ONE MESSAGE. PUBLIC and named for `PadPanel.press`' stated reason: a spec cannot fire
@@ -1787,6 +1813,28 @@ function PadPanel.sendNext(which: string): boolean
 	end
 	stats.nextBlocked += 1
 	return false
+end
+
+-- WHAT THE SIT OUT BUTTON LOOKS LIKE AT REST. PURE, so `MouseLeave` and the edge writer below read
+-- ONE answer -- which is what stops a hover being restored to the wrong colour.
+--
+-- IT WEARS THE ONE ORANGE THING ON THIS CARD ONLY WHILE HE IS OUT, because then coming back is the
+-- thing that happens if he does anything at all -- the size rows' default-marker argument
+-- (*"what the orange marks is the row that happens if you do nothing"*) read the other way round.
+-- While he is IN, the button is a row at rest and the NUMBER is the orange thing.
+function PadPanel.nextButtonTint(): Color3
+	return if nextOut then LOOK.BLAZE_LO else PadPanel.LOOK.BUTTON_COLOR
+end
+
+-- ...AND THE ONE WRITER OF IT, CALLED ON AN EDGE AND NEVER PER FRAME (review round 1, finding 1).
+function PadPanel.paintNextButton()
+	if nextButton == nil then
+		return
+	end
+	local tint = PadPanel.nextButtonTint()
+	if (nextButton :: TextButton).BackgroundColor3 ~= tint then
+		(nextButton :: TextButton).BackgroundColor3 = tint
+	end
 end
 
 -- THE KEY IS BOUND ONLY WHILE THE CARD IS UP, which is `bindSwitchKey`'s arrangement and its stated
