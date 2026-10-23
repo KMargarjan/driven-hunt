@@ -296,25 +296,33 @@ return function()
 		end)
 
 		it("writes no SoundService property, across a whole crossfade", function()
-			-- SECTION 8's hardest rule, MEASURED rather than read out of the source: `AmbientReverb`
-			-- and `SoundService.Volume` are GLOBAL answers, so a bed that set them would change the
-			-- gun, the boar, the horn and the bugle, and "how loud is the game" would have a writer
-			-- that thinks it is only the lodge's birds.
+			-- SECTION 8's hardest rule, MEASURED rather than read out of the source: every property
+			-- on this service is a GLOBAL answer, so a bed that set one would change the gun, the
+			-- boar, the horn and the bugle, and "how loud is the game" would have a writer that
+			-- thinks it is only the lodge's birds.
+			--
+			-- **`SoundService.Volume` DOES NOT EXIST**, measured in round 1 of this task: the
+			-- engine answered *"Volume is not a valid member of SoundService"*. The service's
+			-- global dials are `AmbientReverb` and the three distance terms, which is what is
+			-- watched here -- and the design's prose naming a master volume was wrong about the
+			-- API, not about the rule.
 			--
 			-- **ASSERTED BY BEHAVIOUR AND NOT BY TEXT, and that is forced**: a game script cannot
 			-- read a script's `Source` (it needs `PluginOrOpenCloud`, which neither runner has --
 			-- measured in round 1 of this task). Behaviour is the better assertion anyway: it would
 			-- catch a write made through any spelling.
 			local reverb = SoundService.AmbientReverb
-			local master = SoundService.Volume
-			local rolloff = SoundService.DistanceFactor
+			local distance = SoundService.DistanceFactor
+			local rolloff = SoundService.RolloffScale
+			local doppler = SoundService.DopplerScale
 			Ambience.applyTeam(nil)
 			run(Shared.CONFIG.FADE_SECONDS + 0.5)
 			Ambience.applyTeam("Shooters")
 			run(Shared.CONFIG.FADE_SECONDS + 0.5)
 			expect(SoundService.AmbientReverb).to.equal(reverb)
-			expect(SoundService.Volume).to.equal(master)
-			expect(SoundService.DistanceFactor).to.equal(rolloff)
+			expect(SoundService.DistanceFactor).to.equal(distance)
+			expect(SoundService.RolloffScale).to.equal(rolloff)
+			expect(SoundService.DopplerScale).to.equal(doppler)
 		end)
 
 		it("is not a second writer of any Sound but its own", function()

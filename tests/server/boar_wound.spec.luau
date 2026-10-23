@@ -462,7 +462,22 @@ return function()
 			expect(Wound.severityFor(55 / 1.2, WOUND)).to.equal("grazed")
 			expect(Wound.damageFor("body", "Slug", 1, WOUND, 1.2, "rifle")).to.be.near(100 / 1.2, EPSILON)
 			expect(Wound.severityFor(100 / 1.2, WOUND)).to.equal("mortal")
-			expect(Wound.damageFor("chest", "Slug", 1, WOUND, 1.2, "rifle")).to.equal(100)
+			-- AND THE CHAMBER IS ASKED OF **PRODUCTION'S** CONFIG, not of this file's table, and that
+			-- is the honest version rather than a convenience: `Wound.damageFor` only skips the
+			-- armour where `Wound.hitClass` says the zone is `vital`, and `hitClass` reads
+			-- `config.CLASS` -- **which the table at the top of this file does not have**, so every
+			-- zone here is `nonVital` and a chest hit IS armoured in it. (Measured: this assertion
+			-- read 83.33 against the local table in round 1 of task 250.) Adding `CLASS` here would
+			-- change what every pre-existing `toughness` case in this file is asserting, so the one
+			-- case that needs the real table asks the real table.
+			local live = Boar.CONFIG.WOUND
+			expect(Wound.hitClass("chest", live)).to.equal("vital")
+			expect(Wound.hitClass("head", live)).to.equal("vital")
+			expect(Wound.hitClass("body", live)).to.equal("nonVital")
+			expect(Wound.damageFor("chest", "Slug", 1, live, 1.2, "rifle")).to.equal(100)
+			expect(Wound.damageFor("head", "Slug", 1, live, 1.2, "rifle")).to.equal(100)
+			-- ...and the rump IS armoured on a deer, out of the same real table
+			expect(Wound.damageFor("rear", "Slug", 1, live, 1.2, "rifle")).to.be.near(75 / 1.2, EPSILON)
 		end)
 
 		it("carries the weapon through apply onto the wound record", function()

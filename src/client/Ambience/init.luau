@@ -20,10 +20,14 @@
 -- one module where *"who last wrote this Sound's Volume"* has two answers.
 --
 -- WHAT IT IS NOT ALLOWED TO TOUCH, and both are owner boundaries rather than oversights:
---   * `SoundService.AmbientReverb` and `SoundService.Volume`. Nothing in `src/` writes a
---     `SoundService` property today and this module must not be the first: those are GLOBAL answers,
---     so a bed that set them would change the gun, the boar, the horn and the bugle, and "how loud
---     is the game" would have a writer that thinks it is only the lodge's birds.
+--   * ANY `SoundService` PROPERTY -- `AmbientReverb`, `DistanceFactor`, `RolloffScale`,
+--     `DopplerScale`. Nothing in `src/` writes one today and this module must not be the first:
+--     they are GLOBAL answers, so a bed that set one would change the gun, the boar, the horn and
+--     the bugle, and "how loud is the game" would have a writer that thinks it is only the lodge's
+--     birds. (`SoundService.Volume` is named in the design's section 8 and **does not exist**:
+--     measured in round 1 of task 250, the engine answers *"Volume is not a valid member of
+--     SoundService"*. The design was wrong about the API and right about the rule, and
+--     `ambience_client.spec` watches the four that are real.)
 --   * `Workspace.Ambience`. That is Karen's own STUDIO-MADE Sound in the Forest Test
 --     (`rbxassetid://4629533497`, `Volume 0.50`, looped, measured 2026-10-23), in a container Rojo
 --     does not own and which nothing in git names. Writing it would make this repository a second
