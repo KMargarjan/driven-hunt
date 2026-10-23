@@ -1,17 +1,17 @@
 # Task 246: the continuous drive loop
 
 Task: 246
-Round: 1
+Round: 2
 Base: main (`e437eaad`)
-Code commit: `98e498aadb4cface328afbae39c9587b5ffc3937`
+Code commit: `acc2ffd84bfdd1474aa9b919f98ee6f4fd3ebcf2`
 
 Gate, FULL run, at the code commit:
 
 ```
-[harness] PASS: 34/34 checks @ 98e498aadb4cface328afbae39c9587b5ffc3937 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ acc2ffd84bfdd1474aa9b919f98ee6f4fd3ebcf2 (clean tree) scope=all
 ```
 
-2078 server assertions (67 spec files) + 556 client assertions, 0 failed, 0 errors.
+2078 server assertions (67 spec files) + 558 client assertions, 0 failed, 0 errors.
 
 `[harness2]` **N/A, and the paths are why**: not one file this branch touches is in
 `TWO_PLAYER_PATHS` (`tools/agents.py`). The branch changes `src/server/Lobby/`, `src/shared/Lobby/`,
@@ -112,12 +112,35 @@ negative result).
    (`nextRoleLit() == roleLit()` in both states); `lobby_live.spec` *"still lets a man choose his
    role while he waits at the lodge"*.
 
-10. **THE NUMBERS.** `NEXT.SECONDS` 8 (the brief's *"reuse the existing between-drive length"* =
+10. **NOTHING PER-FRAME WRITES A PROPERTY A POINTER TWEENS** (round 1, finding 1). `setNext` is
+    called by the Hud's one evaluation every frame and now calls `render()` only on the
+    shown/hidden edge, and `paintNextButton()` / `renderRole()` only on that edge or when `out`
+    changes; `renderNext` touches no `BackgroundColor3` at all and paints no switch. `MouseLeave`
+    restores `PadPanel.nextButtonTint()`, which is pure, so the handlers and the edge writer read
+    one answer. Verify: `pad_panel.spec` *"leaves every BackgroundColor3 alone per frame, so a
+    hover survives"* -- it paints the hover by hand on BOTH the pad dialog's `Size1` row and the
+    card's `SitOut`, drives thirty frames of the setter and finds the colour still there, then
+    checks the resting tint is still written when `out` flips.
+
+11. **`T` IS BOUND WHILE EITHER SURFACE IS UP, AND NEITHER UNBINDS IT UNDER THE OTHER** (round 1,
+    finding 2). `setAsk`'s close branch asks `PadPanel.nextShown()`, the mirror of `setNext`'s
+    `bindSwitchKey(ask ~= nil)`. Verify: `pad_panel.spec` *"keeps T bound when a man walks off a
+    pad with the card up"*, which drives the order both ways round and still asserts the key is
+    released when neither surface is up.
+
+12. **THE NUMBERS.** `NEXT.SECONDS` 8 (the brief's *"reuse the existing between-drive length"* =
     `SCORE_SECONDS`, and inside Valve's own 5..15 clamp for the same gap);
     `ARM_TIMEOUT_SECONDS` 12 > `SCORE_SECONDS`. Verify: `lobby_next.spec`'s *"the numbers"* block,
     which asserts both against `Match.CONFIG` rather than restating them.
 
 ## What was measured in the live Forest Test, on Karen's path
+
+**AT `98e498aa`, WHICH IS THE ROUND-1 CODE COMMIT AND NOT THIS ONE, AND THAT IS SAID RATHER THAN
+GLOSSED.** The round-2 diff is `src/client/Hud/PadPanel.luau` (when three properties are written),
+one `warn` in `src/server/Lobby/init.luau` and three spec cases -- it changes no state, no wire, no
+rectangle and no number, so every measurement below still stands. What it COULD have broken is
+exactly what the two new spec cases assert (claims 10 and 11), and the Forest Test was closed before
+the gate as the standing block requires, so re-measuring it is for the Director or Karen.
 
 Place `130094961655666`, her attributes read before and after and **identical**
 (`DHFlag_BOAR_BEHAVIOUR/BOAR_MODEL/COINS/DEER_ROAD_LEAP/DRIVE_BOTS/HORN/LICENCE_POPUP/LOBBY/SHOP=true`,
@@ -197,16 +220,30 @@ everybody is home, or after 12s), sit-out door=true`.
 2. **`test2` WAS NOT RUN.** The dispatch asked for it; no file this branch touches is in
    `TWO_PLAYER_PATHS`, so `tools/agents.py` does not ask for it and the merge gate does not either.
    Named, not assumed.
-3. **FOUR DEFECTS OF MINE, ALL FOUND BY LOOKING OR BY THE GATE, ALL FIXED IN THEIR OWN COMMITS:**
+3. **ROUND 1'S TWO BLOCKING FINDINGS WERE BOTH REAL, BOTH MINE, AND BOTH FIXED AT THEIR OWNER.**
+   (a) `setNext` ended in `PadPanel.render()` and is called EVERY FRAME, and that renderer rewrites
+   every size row's `BackgroundColor3` unconditionally -- so the TRUCK PAD DIALOG'S hover tint,
+   shipped behaviour this task never set out to touch, was erased one frame after `MouseEnter` wrote
+   it, with or without the card up; the card had the same fault against its own button and
+   `renderNext -> renderRole` had it against the switch's press flash. Every property a pointer
+   tweens is now written on an EDGE and the per-frame renderer is left to the seconds (claim 10).
+   (b) `setAsk`'s close branch unbound `T` unconditionally while the card's own chip still
+   advertised it (claim 11). Two of the six notes were taken with them: the `SECONDS` assertion, and
+   `stats.nextTimeouts` asked of the party rather than of every occupant. **The other four notes are
+   for `TASKS.md`**: the `depart`-returns-zero retry, `docs/design/lobby.md` never extended for this
+   task (or for 182 and 229 before it), `nextRoleHeight`'s comment missing `ROLE.LEAD_PX` from the
+   43 px it accounts for, and the lit switch's missing frame.
+4. **FOUR DEFECTS OF MINE FOUND BEFORE THE REVIEW, BY LOOKING OR BY THE GATE, EACH FIXED IN ITS OWN
+   COMMIT:**
    `nextLayoutFor` read `SWITCH.TRACK_PX`, which does not exist, and **killed the whole client Hud at
    boot** (`PlayerGui` with no `HunterHud`) -- caught by looking at the running game, not by a
    number; `Lobby.Next` was invisible between drives, so a stall could not be told from "no party"
    (now one console line per verdict change); `setNextAt` compared two separately-converted clocks
    and wrote four times for one unchanged deadline (now `DHLobbyLeaveAt`'s own edge shape); and
    `pad_panel.spec`'s restores handed back two frames of three.
-4. **`lobby_live.spec`'s shared fake does not clear `inDrive` on `dismissAll`** (deliberately, for
+5. **`lobby_live.spec`'s shared fake does not clear `inDrive` on `dismissAll`** (deliberately, for
    task 182's own measured reason), so my describe patches that one seam to do what
    `Match.dismissAll` does. The patch is in the spec and said out loud there.
-5. **A pre-existing error, not mine and not fixed here:** `ServerScriptService.Boar:5435: Boar
+6. **A pre-existing error, not mine and not fixed here:** `ServerScriptService.Boar:5435: Boar
    runtime is at maxBoars` appeared in the Forest Test console during the long runs. It is the boar
    cap already queued; this branch touches no boar file.
