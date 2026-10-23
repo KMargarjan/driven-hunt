@@ -63,11 +63,13 @@
 --     whichever click comes after the probe is done -- the tie can no longer precede it.
 --
 -- AND THERE ARE TWO RULES ABOUT A SHOT NEAR A BEATER, SO IT STAGES BOTH -- which is the other half
--- of what this file carries and the reason the aim is five studs off his body:
+-- of what this file carries and the reason the aim is `BESIDE_STUDS` off his body (10 since task
+-- 248, and see that constant for why it moved):
 --   1. THE RAY WOULD HIT HIM -> THE SHOT IS REFUSED. `Weapon.Rules.beaterInLine`, Karen 2026-10-11:
 --      *"thye just can't shoot them"*. Nothing fires, nothing is spent, NOBODY IS TIED -- there is no
 --      shot to judge. Staged by the probe in `onCue` below, aimed dead at him.
---   2. THE RAY MISSES HIM BUT PASSES WITHIN `SAFETY_MISS_STUDS` -> THE SHOT FIRES AND TIES HIM.
+--   2. THE RAY MISSES HIM BY MORE THAN `SAFETY_LOCK_STUDS` AND PASSES WITHIN `SAFETY_MISS_STUDS`
+--      -> THE SHOT FIRES AND TIES HIM.
 --      That is what the arc is FOR: shooting dangerously close to the line of men
 --      (`Match.Penalty.judge`). Staged by the real replayed click, aimed `BESIDE_STUDS` to his side.
 -- THE TWO CANNOT BOTH HAPPEN TO ONE SHOT, and that is the whole of "no double handling": a refused
@@ -126,12 +128,18 @@ local TIE_TIMEOUT = 25 -- from the cue to the snapshot saying so
 local STAND_BEHIND = 25
 local DOWN_THE_DRIVE = 200 -- studs up +Z, for the one-player shot at nobody
 -- HOW FAR BESIDE HIM THE TIE SHOT IS AIMED (task 171). It has to clear his BODY -- an R15 character
--- is about two studs across, so five studs from the root centre passes him by a clear margin and the
--- aim ray hits the ground or nothing instead of a man -- and it has to stay well inside
--- `Match.CONFIG.SAFETY_MISS_STUDS` (12), which is what makes the shot a violation. At
--- `STAND_BEHIND` = 25 studs it is 11.3 degrees off the drive, deep inside the 45-degree half-arc
+-- is about two studs across -- and it has to stay inside `Match.CONFIG.SAFETY_MISS_STUDS` (12),
+-- which is what makes the shot a violation. At `STAND_BEHIND` = 25 studs ten studs off is 21.8
+-- degrees off the drive, still inside the 45-degree half-arc
 -- (`Shotgun.CONFIG.SAFETY_ARC_HALF_DEG`), so the arc still publishes it.
-local BESIDE_STUDS = 5
+--
+-- IT WAS 5 UNTIL TASK 248 AND THE SAFETY LOCK IS WHY IT MOVED. The lock refuses any shot whose line
+-- passes within `Match.CONFIG.SAFETY_LOCK_STUDS` (8) of ANY person, so at 5 studs this shot no
+-- longer fires at all and the tie this file is named for could never be reached: the case would have
+-- gone green on a REFUSAL and proved the wrong rule. 10 sits in the band between the two radii --
+-- outside the lock, inside the tie -- which is the band `Match.CONFIG.SAFETY_LOCK_STUDS`'s own note
+-- exists to defend. The lock's half is proved by the probe below, aimed straight at him.
+local BESIDE_STUDS = 10
 -- Seconds to wait for the server's answer to one probe shot. It is one round trip; the gun publishes
 -- on the refusal with `force`, so this is slack and not a guess.
 local PROBE_TIMEOUT = 3
@@ -612,8 +620,9 @@ local aiming = RunService.RenderStepped:Connect(function()
 	if theirs and not Role.isDriver() then
 		-- BESIDE HIM, NOT AT HIM (task 171) -- BUT ONLY ONCE THE PROBE HAS ANSWERED. Aimed at him the
 		-- shot is REFUSED before it exists (`Weapon.Rules.beaterInLine`) and there is nothing for the
-		-- safety rule to judge; aimed five studs to his side it is fired, it passes within
-		-- `SAFETY_MISS_STUDS` of him, and the arc and `Match.Penalty` do what this spec is named for.
+		-- safety rule to judge; aimed `BESIDE_STUDS` to his side it clears the SAFETY LOCK's 8 studs
+		-- (task 248) so it really fires, it still passes within `SAFETY_MISS_STUDS` of him, and the arc
+		-- and `Match.Penalty` do what this spec is named for.
 		--
 		-- THE ORDER IS THE POINT OF THE `probeDone` GUARD (`bac93d6`): the scenario clicks at 3.8 s
 		-- and 5.0 s after the cue and the probe cannot fire until the scenario's own reload has

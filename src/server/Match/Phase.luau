@@ -111,7 +111,7 @@ export type State = {
 }
 
 export type Event = {
-	kind: string, -- "tick" | "join" | "leave" | "dismiss" | "kill" | "gone" | "violation" | "markers" | "team"
+	kind: string, -- "tick" | "join" | "leave" | "dismiss" | "withdraw" | "kill" | "gone" | "violation" | "markers" | "team"
 	userId: number?,
 	name: string?,
 	-- "team": the side a world has asked this player to be on (task 157). Read by that branch only.
@@ -257,6 +257,19 @@ end
 
 function Phase.isLive(state: State): boolean
 	return state.phase == "Running"
+end
+
+-- IS THERE A DRIVE TO BE INSIDE OF? (task 248.) `Assigning` OR `Running` -- the countdown and the
+-- hunt -- which is not the same question as `Phase.isLive` (Running alone, *"a kill in Scoring is a
+-- shot at a carcass"*) and not the same as `Phase.driveOpen` (between the two horns).
+--
+-- IT EXISTS SO THE WITHDRAWAL RULE HAS ONE ANSWER. The `withdraw` branch below refuses outside it
+-- and the owner's respawn sweep does not ask outside it; written twice as an inline comparison, the
+-- two could disagree about whether a man who resets during the countdown is out of the drive -- and
+-- the answer is yes, he is, because he was in it. The `join` and `team` branches keep their own
+-- inline test, which this is deliberately not a refactor of (one task, one change).
+function Phase.insideDrive(state: State): boolean
+	return state.phase == "Running" or state.phase == "Assigning"
 end
 
 function Phase.participantCount(state: State): number
@@ -1001,6 +1014,44 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		table.clear(next_.participants)
 		table.clear(next_.assignment)
 		table.insert(effects, { kind = "broadcast" })
+	elseif kind == "withdraw" and event.userId then
+		-- ONE PLAYER, OUT OF THIS DRIVE, STILL ON THE SERVER (task 248). KAREN, 2026-10-23: *"when I
+		-- respown hunt should over then I can enter to next games"*.
+		--
+		-- IT IS `dismiss` FOR ONE MAN AND NOT `leave` FOR HIM, and the difference is what the other
+		-- players are told: he has not LEFT -- he is standing at the lodge -- so there is no feed
+		-- line, exactly as `dismiss` prints none (*"printing 'X left' about a man standing in front
+		-- of Karen would be a lie in the shape of a fact"*). What he gets instead is the lobby: the
+		-- roster no longer has him, so `Match.isParticipant` is false, `Join.needsReturn` walks him
+		-- home by its own level rule and the pads let him into the NEXT drive.
+		--
+		-- HIS RESULT FOR THIS DRIVE STANDS (the Director's rule). The board is the OWNER's and is
+		-- untouched here, exactly as `dismiss` leaves it: his points, his kills and his row stay in
+		-- the results table. What goes is his place in the drive.
+		--
+		-- ONLY FROM INSIDE A LIVE DRIVE. In `Waiting` and `Scoring` there is nothing to be taken out
+		-- of, and the roster for the next drive is `enterAssigning`'s business -- so a withdrawal
+		-- outside a drive changes nothing and emits nothing, which is the call the `team` branch
+		-- above already makes for the same reason.
+		if Phase.insideDrive(next_) and next_.participants[event.userId] ~= nil then
+			next_.participants[event.userId] = nil
+			next_.assignment[event.userId] = nil
+			-- THE TEAM GOES BACK, which `dismiss` leaves for one phase later and this cannot: a
+			-- dismissed player is standing in the results scene where the badges are still wanted,
+			-- and this one is walking into a lobby where he is not in the hunt at all. It is the
+			-- same effect the end of a drive uses (task 177), for one id.
+			table.insert(effects, { kind = "unassign", userIds = { event.userId } })
+			-- ...AND THE GUN GOES WITH IT. `Match.mayCarryWeapon` answers false for a man with no
+			-- assignment, so this is the sweep being told to ask again NOW rather than a second rule
+			-- about who carries what -- Karen's *"I respawn ... with weapons"* is exactly this
+			-- question being asked a drive too late.
+			table.insert(effects, { kind = "refreshArming", userIds = { event.userId } })
+			-- ...AND NOTHING HOLDS HIM. A beater taken out of the drive while the start line is
+			-- still held would otherwise walk home at `HELD_WALK_SPEED` or not at all (task 158's
+			-- freeze); `free` with one userId frees that one and nobody else.
+			table.insert(effects, { kind = "free", userIds = { event.userId } })
+			table.insert(effects, { kind = "broadcast" })
+		end
 	elseif kind == "leave" and event.userId then
 		next_.participants[event.userId] = nil
 		next_.assignment[event.userId] = nil

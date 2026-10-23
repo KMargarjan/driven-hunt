@@ -897,6 +897,30 @@ function Bots.beaters(): { { id: string, position: Vector3 } }
 	return out
 end
 
+-- EVERY BOT WITH A BODY, WHATEVER SIDE IT IS ON (task 248). KAREN, 2026-10-23: *"I still can shoot
+-- towards hunters and beaters"* -- BOTH, and `Bots.beaters` above answers only for the ones that
+-- WALK (`bot.to ~= nil`), so a rule built on it would have left every bot hunter standing on a post
+-- unprotected. That is half of what she reported, and it is why this is a SECOND function rather
+-- than a widening of that one: `Bots.beaters` answers *"how long is the beater line"* for
+-- `Match.beaterCrossing`, and a line that suddenly counted the hunters would end every drive at once.
+--
+-- THE SHAPE IS THE SAME ONE, so `Match.peoplePositions` reads both lists the same way; the `team`
+-- comes with each because the only cost is a field and a caller that wants to say *"a bot hunter"*
+-- should not have to ask a second function which side it was on.
+function Bots.people(): { { id: string, team: TeamName, position: Vector3 } }
+	local out = {}
+	for _, id in ipairs(order) do
+		local bot = bots[id]
+		if bot ~= nil then
+			local at = Rig.positionOf(bot.model)
+			if at ~= nil then
+				table.insert(out, { id = bot.id, team = bot.team, position = at })
+			end
+		end
+	end
+	return out
+end
+
 -- IS THIS INSTANCE ONE OF THE BEATERS? (task 171) The weapon's fire gate refuses a shot whose aim
 -- ray would hit a beater, and a bot beater is a man walking the drive exactly as a player one is --
 -- Karen: *"thye just can't shoot them"*, and she tests this world alone with a line of bots.
@@ -954,6 +978,9 @@ function Bots.view()
 		count = Bots.count,
 		desired = Bots.desired,
 		beaters = Bots.beaters,
+		-- ...AND EVERY BOT THERE IS, HUNTERS INCLUDED (task 248): the safety lock's own read, through
+		-- `Match.peoplePositions`. See `Bots.people` for why it is not `beaters` widened.
+		people = Bots.people,
 		-- ...AND WHETHER A PARTICULAR BODY IS ONE OF THEM (task 171), which is the question the
 		-- weapon's fire gate asks through `Match.classifyTarget`.
 		isBeaterPart = Bots.isBeaterPart,

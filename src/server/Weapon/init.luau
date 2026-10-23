@@ -213,6 +213,8 @@ local entitlementProvider: ((Player) -> { [string]: boolean }?)? = nil
 -- is not about either: the drive is on or it is not, for everybody at once. `Match.driveOpen` is
 -- what the composition roots hand over.
 local driveOpenProvider: (() -> boolean?)? = nil
+-- THE SAFETY LOCK'S PROVIDER (task 248): see `Weapon.setSafetyLineProvider`.
+local safetyLineProvider: ((Player, Vector3, Vector3, number) -> boolean?)? = nil
 
 function Weapon.setCast(cast: Shotgun.CastFn?)
 	castFn = cast or Cast.world
@@ -272,6 +274,24 @@ function Weapon.setDriveOpenProvider(provider: (() -> boolean?)?)
 	driveOpenProvider = provider
 end
 
+-- DOES THIS SHOT LINE PASS CLOSE TO A PERSON? (task 248.) KAREN, 2026-10-23: *"I still can shoot
+-- towards hunters and beaters"*. THE SIXTH injected provider on this owner, in the shape the five
+-- above have: the DRIVE measures it -- `Match.lineIsUnsafe`, over `Match.Penalty.judge`, which is
+-- the game's one definition of *"the shot passed close to a person"* and already judges the tie --
+-- and the WEAPON refuses and writes. It is handed four facts the weapon has at the trigger and
+-- nothing else: who is shooting, where the muzzle is, which way the pellets are going, and how far
+-- they get.
+--
+-- IT IS THE ONE PROVIDER WHOSE ANSWER IS SHOT-SPECIFIC, which is why it takes arguments where
+-- `driveOpenProvider` takes none: the question is about THIS line and not about the world.
+--
+-- Unwired means "no restriction", the default every provider here takes: `Rules.unsafeLine` refuses
+-- only on an explicit `true`, so every `tests/server/weapon_*.spec.luau` and a bare DEV place fire
+-- exactly as they did before this task.
+function Weapon.setSafetyLineProvider(provider: ((Player, Vector3, Vector3, number) -> boolean?)?)
+	safetyLineProvider = provider
+end
+
 -- EVERY PROVIDER IS CALLED THROUGH `pcall`, the rule `mayArm` already states: a provider that errors
 -- must not leave a player permanently unable to shoot AND must not silently remove the rule. It
 -- falls back to "no restriction", which is the weapon's own default and what a server with no Match
@@ -301,6 +321,18 @@ local function askDriveOpen(): boolean?
 	-- make, and the stronger one here -- a drive whose predicate errored must not leave every hunter
 	-- in the wood clicking a dead trigger with one line on screen blaming the drive.
 	return if ok and type(open) == "boolean" then open else nil
+end
+
+-- THE SAFETY LOCK, THROUGH A pcall LIKE EVERY OTHER PROVIDER HERE (task 248), and the fallback is
+-- the same one: nil, which `Rules.unsafeLine` reads as no restriction. A drive whose geometry threw
+-- must not leave every hunter in the wood clicking a dead trigger -- `askDriveOpen`'s own reason,
+-- and the stronger one here, because this provider is asked on every single trigger pull.
+local function askLineUnsafe(player: Player, muzzle: Vector3, aim: Vector3, stopAt: number): boolean?
+	if safetyLineProvider == nil then
+		return nil
+	end
+	local ok, unsafe = pcall(safetyLineProvider :: any, player, muzzle, aim, stopAt)
+	return if ok and type(unsafe) == "boolean" then unsafe else nil
 end
 
 local function askLicences(player: Player): { [string]: boolean }?
@@ -1137,6 +1169,12 @@ local function onFireRequest(player: Player, req: any): string?
 
 	local toAim = aimPoint - muzzle
 	local aim = if toAim.Magnitude < CONFIG.MIN_AIM_DISTANCE then req.direction else toAim.Unit
+	-- HOW FAR THIS SHOT GETS, COMPUTED ONCE AND READ TWICE (task 248). It was computed inside the
+	-- safety-arc block below, AFTER the shot had been committed; the SAFETY LOCK has to ask the same
+	-- question BEFORE it, and two expressions for "where the shot stopped" would be two answers to
+	-- the question `Match.Penalty.judge` is given. The distance from the muzzle to the AIM POINT, not
+	-- `report.nearest`: the reason is in the arc block's own comment below and has not changed.
+	local stopAt = if aimImpact then (aimPoint - muzzle).Magnitude else range
 
 	-- -------------------------------------------------------------- THE RULES (task 171)
 	--
@@ -1170,6 +1208,11 @@ local function onFireRequest(player: Player, req: any): string?
 		licences = askLicences(player),
 		-- ...AND WHETHER THE DRIVE IS ON AT ALL (task 174), which `Rules.ORDER` asks FIRST.
 		driveOpen = askDriveOpen(),
+		-- ...AND WHETHER THIS LINE PASSES CLOSE TO A PERSON (task 248): the SAFETY LOCK. The drive
+		-- measures it off the shot the player is actually about to take -- this muzzle, this
+		-- direction, this far -- so what is refused is what would have been fired, the rule
+		-- `SafetyArc` and `beaterInLine` already state for the same reason.
+		lineUnsafe = askLineUnsafe(player, muzzle, aim, stopAt),
 	})
 	if refused ~= nil then
 		stats.refused += 1
@@ -1246,16 +1289,16 @@ local function onFireRequest(player: Player, req: any): string?
 		local line = driveLineProvider()
 		-- `aim`, not the camera direction: a published violation must match where the pellets went.
 		if line and SafetyArc.isForbidden(aim, line, CONFIG.SAFETY_ARC_HALF_DEG) then
-			-- HOW FAR THE SHOT GOT, which is the fourth argument the drive needs (Task 35): without
-			-- it a clean kill on a boar 30 studs away ties the shooter because a driver stood 80
-			-- studs behind it, in line -- the pellets never got near him.
+			-- `stopAt` IS HOW FAR THE SHOT GOT, the fourth argument the drive needs (Task 35):
+			-- without it a clean kill on a boar 30 studs away ties the shooter because a driver
+			-- stood 80 studs behind it, in line -- the pellets never got near him. It is COMPUTED
+			-- ONCE, above the rules, and the SAFETY LOCK is given the same number (task 248).
 			--
 			-- It is the distance from the muzzle to the AIM POINT, not `report.nearest` as
 			-- docs/design/drive.md section 8.2 proposed (reviews/task-35/DESIGN_DELTA.md): with
 			-- buckshot the nearest impact of a nine-pellet pattern is whichever pellet clipped the
 			-- ground first, which at long range is a few studs out and would mask every violation.
 			-- The aim point is where the shot was actually going.
-			local stopAt = if aimImpact then (aimPoint - muzzle).Magnitude else range
 			safetySignal:Fire(player, aim, muzzle, stopAt)
 		end
 	end

@@ -210,6 +210,13 @@ Weapon.setStandProvider(Match.standAreaFor)
 -- beater's horn is gated on below and the bot line's walk (`Match.botsMayGo`): one source, no second
 -- clock.
 Weapon.setDriveOpenProvider(Match.driveOpen)
+-- ...AND THE SIXTH (task 248): DOES THE SHOT LINE PASS CLOSE TO A PERSON. KAREN, 2026-10-23: *"I
+-- still can shoot towards hunters and beaters"*. The drive measures it over EVERY person in the
+-- world -- human or bot, hunter or beater (`Match.peoplePositions`) -- with `Match.Penalty.judge`,
+-- the same closest-point rule that judges the tie, and the weapon refuses the trigger: `NOT SAFE`,
+-- a dry click, no shell and no shot. The tie is not retired and keeps the band between
+-- `SAFETY_LOCK_STUDS` and `SAFETY_MISS_STUDS`; see `Match.CONFIG.SAFETY_LOCK_STUDS`.
+Weapon.setSafetyLineProvider(Match.lineIsUnsafe)
 
 -- ...AND A THIRD, FOR THE HORN: who is a beater. `Match.Body.teamOf` reads `Player.Team` -- the same
 -- fact the outfit is chosen from -- so a beater's horn and a beater's vest can never disagree about

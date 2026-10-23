@@ -532,6 +532,92 @@ return function()
 		end)
 	end)
 
+	-- ---------------------------------------------------------------- THE SAFETY LOCK (task 248)
+	--
+	-- KAREN, 2026-10-23: *"I still can shoot towards hunters and beaters"*. The trigger does not fire
+	-- while the shot line passes within `SAFETY_LOCK_STUDS` of a person -- human or bot, hunter or
+	-- beater -- and the geometry is `Penalty.judge` above, asked again with the lock's own radius.
+	--
+	-- EVERY CASE HERE WOULD HAVE ERRORED BEFORE THIS TASK: `Match.lineUnsafeFor`,
+	-- `Match.lockConfigFrom` and `Match.CONFIG.SAFETY_LOCK_STUDS` did not exist, so none of them
+	-- could have passed on the old code (CLAUDE.md rule 6's own standard, and the Learning Agent's
+	-- L-028).
+	describe("the safety lock -- the trigger that does not fire (task 248)", function()
+		local LOCK = {
+			SAFETY_LOCK_ENABLED = true,
+			SAFETY_LOCK_STUDS = 8,
+			SAFETY_MISS_STUDS = 12,
+			SAFETY_RANGE_STUDS = 330,
+			SAFETY_BODY_STUDS = 4,
+		}
+
+		it("derives its config from the drive's, so the two radii cannot be written twice", function()
+			local derived = Match.lockConfigFrom(LOCK)
+			-- THE LOCK JUDGES AT ITS OWN RADIUS and keeps the penalty's other two numbers.
+			expect(derived.SAFETY_MISS_STUDS).to.equal(8)
+			expect(derived.SAFETY_RANGE_STUDS).to.equal(330)
+			expect(derived.SAFETY_BODY_STUDS).to.equal(4)
+			-- ...AND A CONFIG WITH NO LOCK RADIUS FALLS BACK TO THE PENALTY'S, which is what makes
+			-- the row optional for a world that never sets one.
+			expect(Match.lockConfigFrom({ SAFETY_MISS_STUDS = 12 }).SAFETY_MISS_STUDS).to.equal(12)
+		end)
+
+		it("refuses a shot whose line passes inside the lock radius", function()
+			-- Straight at him, 50 studs out: 0.0 of 8.
+			expect(Match.lineUnsafeFor(shotUpZ(100), { driverAt(DRIVER, 0, 50) }, LOCK)).to.equal(true)
+			-- Seven studs to the side of him: still inside.
+			expect(Match.lineUnsafeFor(shotUpZ(100), { driverAt(DRIVER, 7, 50) }, LOCK)).to.equal(true)
+		end)
+
+		it("lets a shot PAST him through, which is the band the tie still lives in", function()
+			-- 10 studs off: outside the lock's 8, inside the tie's 12 -- `zz_tie_to_a_tree.spec`'s
+			-- own `BESIDE_STUDS`, and this is the arithmetic that keeps that spec's tie reachable.
+			expect(Match.lineUnsafeFor(shotUpZ(100), { driverAt(DRIVER, 10, 50) }, LOCK)).to.equal(false)
+			expect(Penalty.judge(shotUpZ(100), { driverAt(DRIVER, 10, 50) }, CONFIG)).to.equal(true)
+			-- ...and 13 studs off is neither: a clear shot.
+			expect(Match.lineUnsafeFor(shotUpZ(100), { driverAt(DRIVER, 13, 50) }, LOCK)).to.equal(false)
+			expect(Penalty.judge(shotUpZ(100), { driverAt(DRIVER, 13, 50) }, CONFIG)).to.equal(false)
+		end)
+
+		it("counts a BOT, which has no userId at all", function()
+			-- THIS IS THE HALF KAREN COULD NEVER SEE WORKING. She plays alone with a line of bots;
+			-- `Penalty.DriverPos` demanded a userId, so a bot could not be in the list the rule
+			-- reads -- and `Match.playerDrivers` filters every non-numeric id out of the tie's list
+			-- by design. The lock's list carries them with no id and the self-exclusion still holds.
+			local bot = { position = Vector3.new(0, 0, 50) }
+			expect(Match.lineUnsafeFor(shotUpZ(100), { bot }, LOCK)).to.equal(true)
+			-- ...and the shooter is still never himself, even in a list that has no ids in it.
+			expect(Match.lineUnsafeFor(shotUpZ(100), { { userId = SHOOTER, position = Vector3.new(0, 0, 50) } }, LOCK)).to.equal(
+				false
+			)
+		end)
+
+		it("stands down entirely when the row is off, which is the game before this task", function()
+			local off = table.clone(LOCK)
+			off.SAFETY_LOCK_ENABLED = false
+			expect(Match.lineUnsafeFor(shotUpZ(100), { driverAt(DRIVER, 0, 50) }, off)).to.equal(false)
+		end)
+
+		it("ignores a person behind the muzzle and one past where the shot stopped", function()
+			expect(Match.lineUnsafeFor(shotUpZ(100), { driverAt(DRIVER, 0, -5) }, LOCK)).to.equal(false)
+			-- Stopped in a boar at 40 with a man at 60: the pellets never got near him, which is the
+			-- same answer the tie gives and for the same reason (`stopAt`).
+			expect(Match.lineUnsafeFor(shotUpZ(40), { driverAt(DRIVER, 0, 60) }, LOCK)).to.equal(false)
+		end)
+
+		it("ships a lock radius INSIDE the penalty's, or the tie could never fire again", function()
+			-- THE ONE DECISION OF THIS TASK WORTH ASSERTING. The lock's people list is a superset of
+			-- the tie's, so at an equal radius every shot the tie would punish would already have
+			-- been refused -- and Karen's tie would be retired without anybody saying so. See
+			-- `Match.CONFIG.SAFETY_LOCK_STUDS`.
+			expect(Match.CONFIG.SAFETY_LOCK_ENABLED).to.equal(true)
+			expect(Match.CONFIG.SAFETY_LOCK_STUDS).to.equal(8)
+			expect(Match.CONFIG.SAFETY_LOCK_STUDS < Match.CONFIG.SAFETY_MISS_STUDS).to.equal(true)
+			-- ...and the penalty's own radius is still the design's 12, read by one local.
+			expect(Match.CONFIG.SAFETY_MISS_STUDS).to.equal(CONFIG.SAFETY_MISS_STUDS)
+		end)
+	end)
+
 	describe("Score.violation -- what a violation costs", function()
 		it("takes SAFETY_PENALTY points, counts it, and lets the total go negative", function()
 			local board = Match.Score.new()

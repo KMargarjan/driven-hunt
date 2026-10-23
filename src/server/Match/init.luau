@@ -114,6 +114,12 @@ local function quickTestEnabled(flagOn: boolean, isStudio: boolean): boolean
 	return flagOn == true and isStudio == true
 end
 
+-- HOW CLOSE TO A PERSON A SHOT MAY PASS, AS ONE LOCAL READ BY TWO ROWS (task 248). A table literal
+-- cannot read its own field, and the SAFETY LOCK's radius is *measured from the existing Penalty
+-- config* (the Director's dispatch) rather than chosen again -- so the two rows below cannot drift
+-- apart by an edit to one of them. The idiom `Shotgun.CONFIG`'s own `DRIVE_SHELLS` already uses.
+local SAFETY_MISS_STUDS = 12
+
 -- Every number the drive has. K marks Karen's feel values. No magic number anywhere else in this
 -- system, and none of this is replicated: a client that knows the safety numbers can dodge the rule
 -- by eye (design section 3.4).
@@ -575,13 +581,50 @@ Match.CONFIG = {
 	-- the safety rule (design section 11.4). Karen's rule as written: tied to a tree until the drive
 	-- ends, visible to everyone, announced in the feed.
 	SAFETY_ENABLED = true,
-	SAFETY_MISS_STUDS = 12, -- K, ~3.4 m: a shot that passes within three metres of a person is a shot at them
+	SAFETY_MISS_STUDS = SAFETY_MISS_STUDS, -- K, ~3.4 m: a shot that passes within three metres of a person is a shot at them
 	SAFETY_RANGE_STUDS = 330, -- Shotgun.CONFIG.RANGE_STUDS.Slug; past it nothing arrives
 	-- The depth of a person, added to where the shot stopped. See Penalty.judge: without it a shot
 	-- that HITS a driver stops on his surface, a stud in front of his root, and would be judged
 	-- harmless. reviews/task-35/DESIGN_DELTA.md.
 	SAFETY_BODY_STUDS = 4,
 	SAFETY_GRACE_SECONDS = 0, -- K, no grace: the rule is the rule from the first second
+
+	-- ------------------------------------------------- THE SAFETY LOCK (task 248)
+	--
+	-- KAREN, 2026-10-23: *"I still can shoot towards hunters and beaters"*. The trigger does NOT
+	-- FIRE while the shot line passes within `SAFETY_LOCK_STUDS` of ANY person -- human or bot,
+	-- hunter or beater -- and what she gets instead is `NOT SAFE` and a dry click. The shot never
+	-- exists: no shell, no pellet, no penalty, which is the shape of every rule Karen has asked for
+	-- since task 171 (*"thye just can't shoot them"*, `Weapon.Rules`'s own header).
+	--
+	-- A DATA ROW SO IT CAN CHANGE (the Director's dispatch). `SAFETY_LOCK_ENABLED = false` is the
+	-- game before this task, bit for bit, and both states are reachable BY PARAMETER because
+	-- `Match.lineUnsafeFor` is pure and takes its config.
+	--
+	-- THE PENALTY IS NOT RETIRED AND THIS IS NOT DOUBLE HANDLING, for the reason
+	-- `Weapon.Rules`'s header already gives about the beater gate: a refused shot never fires
+	-- `SafetyViolated` at all, so the two can never both judge one shot. What is left for the
+	-- PENALTY is the shot that got through -- the man who walked into a line that was clear when
+	-- the trigger broke (the Director: *"moving targets"*) -- which is exactly the case a lock
+	-- measured at the trigger cannot see.
+	SAFETY_LOCK_ENABLED = true,
+	-- MEASURED FROM `SAFETY_MISS_STUDS` AND DELIBERATELY INSIDE IT, AND THIS IS THE ONE DECISION OF
+	-- THIS TASK THE DIRECTOR MAY WANT TO MOVE -- it is one line, which is why it is a data row.
+	--
+	-- The dispatch says *"measure the danger radius from the existing Penalty config"*, and the
+	-- arithmetic that follows from the two rules reading the SAME geometry is this: the lock's
+	-- people list (`Match.peoplePositions`, everybody) is a SUPERSET of the tie's
+	-- (`driverPositions`, players on the push team), so at an EQUAL radius every shot the tie would
+	-- punish is a shot the lock has already refused -- and both are measured in the same frame, from
+	-- the same muzzle, down the same segment. At 12 the tie would therefore never fire again, and a
+	-- rule that silently retires another rule has retired it without saying so. Karen's tie is her
+	-- own rule from her design doc; this task was not asked to end it.
+	--
+	-- So the lock is 8 studs (2.24 m, a man's width and some) and the tie is still 12: point the gun
+	-- within 8 studs of ANY person and the trigger does nothing, fire between 8 and 12 of a DRIVER
+	-- and you are tied to a tree. `zz_tie_to_a_tree.spec` stages both, which is what makes the band
+	-- real rather than a sentence here: `BESIDE_STUDS` is 10.
+	SAFETY_LOCK_STUDS = 8,
 	-- THE ONLY PERMITTED SHAPE for a flagged value: a read, never a literal beside a flag of the
 	-- same name. There is still one source of truth (Flags.DEFAULTS, reviewed in git) and
 	-- Match.CONFIG is still the one table the drive's DEFAULTS live in -- and this key is not on
@@ -784,6 +827,14 @@ local throughLine: { [string]: boolean } = {}
 -- (`Score`) is still the one answer to how the drive went. Cleared when a drive starts.
 local driveKills: { any } = {}
 local characterWatch: { [number]: RBXScriptConnection } = {}
+-- WHICH CHARACTER THE DRIVE GAVE THIS PLAYER (task 248). Written by `applyPlace` out of
+-- `Body.place`'s own `onCharacter`, which is the one place that knows; read by `respawnSweep` below,
+-- whose whole rule is *"the character he is in is not the character we gave him"*.
+--
+-- IT HOLDS A REFERENCE TO A MODEL AND THAT IS WHY IT IS CLEARED in `Match.forget`, in the sweep's
+-- own withdrawal and in `stop`: a destroyed character compares unequal to everything, which is
+-- correct for the rule and a leak if the row outlives the player.
+local placedCharacter: { [number]: Model } = {}
 local pushCredit: { [string]: { [number]: number } } = {} -- boarId -> userId -> last time near
 local accumulator = 0
 local sinceSample = 0
@@ -860,6 +911,12 @@ local stats = {
 	sceneBotsMoved = 0,
 	violations = 0,
 	safetySignalMissing = 0,
+	-- HOW MANY TRIGGER PULLS THE SAFETY LOCK REFUSED (task 248), and how many men a respawn took out
+	-- of a live drive. Two numbers rather than two beliefs: a session where `safetyLocked` stayed 0
+	-- is a lock Karen can shoot straight through, and one where `withdrawals` stayed 0 while she was
+	-- pressing Reset is her own bug still there under a different trigger.
+	safetyLocked = 0,
+	withdrawals = 0,
 	-- The release, counted three ways, because "six boars were released" can now mean two sounders
 	-- and one single, and a stall looks like nothing at all from the outside.
 	soundersReleased = 0,
@@ -1422,6 +1479,12 @@ local function applyPlace(userIds: { number }?)
 				if not ok then
 					stats.placementsMissed += 1
 				end
+			end, function(character)
+				-- THE DRIVE'S OWN RESPAWN, RECORDED (task 248). Everything after this line that
+				-- finds him in a DIFFERENT character knows he made that one himself -- by dying, or
+				-- by pressing Reset -- which is the whole of Karen's *"when I respawn I am in lobby
+				-- with weapons but I can't go to next hunt"*.
+				placedCharacter[userId] = character
 			end)
 		end
 	end
@@ -2555,6 +2618,104 @@ local function driverPositions(): { Penalty.DriverPos }
 	return Match.playerDrivers(Match.driverThreats())
 end
 
+-- ---------------------------------------------------------------- THE SAFETY LOCK (task 248)
+--
+-- KAREN, 2026-10-23: *"I still can shoot towards hunters and beaters"*. The trigger does not fire
+-- while the shot line passes within `SAFETY_LOCK_STUDS` of a PERSON, and this is the drive's half of
+-- it: the drive answers who the people are and whether this line is clear, the WEAPON decides and
+-- writes (`Weapon.setSafetyLineProvider` -> `Rules.unsafeLine`) -- the division `mayCarryWeapon`,
+-- `classifyTarget`, `standAreaFor` and `driveOpen` already are, so neither owner requires the other.
+--
+-- WHY IT IS THE DRIVE THAT ANSWERS AND NOT THE WEAPON: the geometry is `Penalty.judge`'s, the one
+-- definition of *"the shot passed close to a person"* in this game, and it lives here. A second
+-- closest-point formula inside the weapon would be two answers to one question.
+
+-- EVERY PERSON IN THIS WORLD WITH A BODY, EXCEPT THE SHOOTER -- human or bot, hunter or beater,
+-- in the drive or at the lodge. The widest list in this file, and deliberately: Karen's rule is
+-- about PEOPLE and not about rosters, so a man between drives standing in front of her muzzle is
+-- exactly as much a person as her team mate. `Match.playerDrivers`'s filter is the OPPOSITE read
+-- and stays as it is -- the penalty means "a driver who is a person", this means "anybody at all".
+--
+-- A BOT HAS NO userId AND NEEDS NONE (`Penalty.DriverPos`'s own note): nil is never equal to the
+-- shooter's id, so the self-exclusion costs no branch. `world.bots.people()` is the bots' own one
+-- answer to "who is standing in the wood", hunters included -- `Bots.beaters()` would have left
+-- every bot HUNTER unprotected, which is half of what she reported.
+function Match.peoplePositions(exceptUserId: number?): { Penalty.DriverPos }
+	local out: { Penalty.DriverPos } = {}
+	for _, player in ipairs(playersService():GetPlayers()) do
+		if player.UserId ~= exceptUserId then
+			local character = player.Character
+			local root = character and character.PrimaryPart
+			if root then
+				table.insert(out, { userId = player.UserId, position = root.Position })
+			end
+		end
+	end
+	if world and world.bots and world.bots.people then
+		local ok, people = pcall(world.bots.people)
+		if ok and type(people) == "table" then
+			for _, bot in ipairs(people) do
+				if typeof(bot.position) == "Vector3" then
+					table.insert(out, { position = bot.position })
+				end
+			end
+		end
+	end
+	return out
+end
+
+-- THE LOCK'S OWN CONFIG, DERIVED FROM THE DRIVE'S AND PURE (task 248). `Penalty.judge` reads three
+-- numbers off whatever config it is handed; the lock judges at `SAFETY_LOCK_STUDS` and the penalty at
+-- `SAFETY_MISS_STUDS`, and today those are the same number by the one local in `Match.CONFIG`. This
+-- is what lets the two radii be separate DATA ROWS without a second copy of the formula.
+function Match.lockConfigFrom(cfg): any
+	return {
+		SAFETY_MISS_STUDS = cfg.SAFETY_LOCK_STUDS or cfg.SAFETY_MISS_STUDS,
+		SAFETY_RANGE_STUDS = cfg.SAFETY_RANGE_STUDS,
+		SAFETY_BODY_STUDS = cfg.SAFETY_BODY_STUDS,
+	}
+end
+
+-- IS THIS LINE UNSAFE? PURE, every fact a parameter -- the shape `Match.mayCarryFor`,
+-- `Match.pushCreditable` and `Weapon.Rules` all have, and for the stated reason: a rule nobody can
+-- drive with hand-written numbers is a rule nobody can assert. `people` is `Match.peoplePositions`'s
+-- answer and `cfg` the drive's config; the geometry is `Penalty.judge` and nothing else.
+--
+-- `SAFETY_LOCK_ENABLED = false` ANSWERS false FOR EVERY SHOT, which is this game before task 248.
+function Match.lineUnsafeFor(shot: Penalty.Shot, people: { Penalty.DriverPos }, cfg): boolean
+	if not cfg.SAFETY_LOCK_ENABLED then
+		return false
+	end
+	local unsafe = Penalty.judge(shot, people, Match.lockConfigFrom(cfg))
+	return unsafe
+end
+
+-- THE DOOR THE WEAPON IS HANDED AT THE COMPOSITION ROOT. `stopAt` is how far the shot would have
+-- got -- the muzzle-to-aim-point distance, or the ammo's range when nothing is in the way -- which
+-- is the SAME number `onSafetyViolation` is given after the shot, so the lock and the penalty judge
+-- the same segment.
+--
+-- NOT GATED ON THE PHASE, and that is deliberate: a person in front of your muzzle is a person
+-- whether or not a drive is running, and the drive's own `driveOpen` rule already refuses every shot
+-- outside one. A phase gate here would be a second answer to a question `Rules.ORDER` already asks.
+function Match.lineIsUnsafe(player: Player, muzzle: Vector3, aim: Vector3, stopAt: number?): boolean
+	if typeof(muzzle) ~= "Vector3" or typeof(aim) ~= "Vector3" then
+		return false
+	end
+	local shot: Penalty.Shot = {
+		userId = player.UserId,
+		muzzle = muzzle,
+		aim = aim,
+		stopAt = stopAt or config.SAFETY_RANGE_STUDS,
+		at = now(),
+	}
+	local unsafe = Match.lineUnsafeFor(shot, Match.peoplePositions(player.UserId), config)
+	if unsafe then
+		stats.safetyLocked += 1
+	end
+	return unsafe
+end
+
 -- HOW MANY REAL BEATERS ARE IN THIS DRIVE, AND HOW MANY OF THEM ARE THROUGH THE HUNTERS' LINE (task
 -- 159). The owner's measurement; the RULE is `Phase.beatersThrough`, which only compares the two.
 --
@@ -3053,6 +3214,137 @@ local function readMarkers()
 	})
 end
 
+-- ---------------------------------------------------- A RESPAWN ENDS YOUR HUNT (task 248)
+--
+-- KAREN, 2026-10-23: *"we have a bug / when I respawn I am in lobby with weapons but I can't go to
+-- next hunt / so when I respown hunt should over then I can enter to next games"*.
+--
+-- WHAT WAS WRONG, in this owner's own words: a player who dies or presses Reset mid-drive is still
+-- in `state.participants`, so `Match.isParticipant` says yes, so the LOBBY leaves him alone
+-- entirely (`Lobby.stepPlayer`'s `inDrive` return: no respawn point, no pad countdown, no walk
+-- home) and `mayCarryWeapon` still answers true off his assignment -- which is a man standing at
+-- the lodge holding a shotgun with no way into the next drive. Both halves of what she reported,
+-- from one cause.
+--
+-- THE RULE IS A RECONCILIATION AND NOT A REACTION, and that is deliberate: the fact is *"the
+-- character he is in is not the character the drive gave him"*, which is TRUE UNTIL SOMETHING FIXES
+-- IT however he got there -- a death, the Reset button, a fall past
+-- `FallenPartsDestroyHeight`, a `LoadCharacter` from anything else. A `CharacterAdded` handler would
+-- have been one trigger among several, and the next way to respawn that this game grows would
+-- recreate Karen's bug under it.
+--
+-- IT IS ASKED AT `MATCH_STEP_HZ`, beside `Body.floorStep` -- the other level rule in this step, and
+-- the one that exists for the same reason (*"a player who pressed Reset has no edge"*,
+-- `Lobby.Join.needsReturn`).
+
+export type RespawnFacts = {
+	live: boolean?, -- is this drive in Assigning or Running
+	participant: boolean?, -- is he in its roster
+	placing: boolean?, -- is one of THIS owner's placements in flight for him (`Body.isPlacing`)
+	placed: Model?, -- the character the drive gave him
+	current: Model?, -- the character he is in now
+	lobbyWorld: boolean?, -- is there a lobby for him to go back to
+}
+
+-- PURE, AND EVERY FACT A PARAMETER -- the shape `Match.mayCarryFor` and `Match.pushCreditable`
+-- already have, for the reason the first of them states: a rule nobody can drive with hand-written
+-- values is a branch nobody can reach.
+--
+-- `placing` IS THE ONE THAT MAKES IT CORRECT. `Body.place` respawns the player itself, so during a
+-- placement the engine hands him a character this owner has not been told about yet, and a rule
+-- without this clause would throw every player out of the drive at the moment it placed him.
+-- `Body.isPlacing` is the one answer to *"did we ask for this"* and it is bounded by
+-- `PLACE_TIMEOUT`, so a placement that never completes cannot leave him exempt for ever.
+--
+-- `placed == nil` IS "WE HAVE NEVER PLACED HIM", which is a man who joined mid-drive before his
+-- placement landed and every spec that enrols nobody. Nothing is known, so nothing is decided.
+--
+-- `lobbyWorld` IS WHY THE DEV ARENA IS UNTOUCHED, and it is the same refusal `Match.dismissAll`
+-- makes with the same reason: in a world that enrols every arrival automatically there is no lobby
+-- to walk back to and nothing that would ever put him in the drive again, so taking him out would
+-- leave the drive short with no way to refill it. `autoEnrol == false` is the lobby's own switch
+-- (task 177), read at the boundary and passed in here.
+function Match.withdrawOnRespawn(facts: RespawnFacts): boolean
+	if facts.live ~= true or facts.participant ~= true or facts.lobbyWorld ~= true then
+		return false
+	end
+	if facts.placing == true then
+		return false
+	end
+	if facts.placed == nil or facts.current == nil then
+		return false
+	end
+	return facts.current ~= facts.placed
+end
+
+-- ONE PLAYER, OUT OF THIS DRIVE, AT THE LODGE, FREE FOR THE NEXT ONE. The third door of the lobby's
+-- seam beside `enrol` and `dismissAll` (design section 4.2), and it is callable by hand: the Forest
+-- Test's own proof and `match_live.spec` drive it directly.
+--
+-- WHAT THIS OWNER DOES BEFORE THE DISPATCH, because `Phase` writes no Instance and holds no rope:
+--   * THE ROPE COMES OFF. A tied man who resets is out of the drive, which is a heavier price than
+--     the rope -- he loses the rest of the hunt -- so leaving him anchored to a tree in a world he
+--     is no longer playing in would be a second punishment with no way out of it. The paragraph
+--     this replaces is `watchCharacter`'s (*"press Escape, Reset, and the penalty is over" is not a
+--     penalty*) and it is still true: the penalty is no longer the rope, it is the drive.
+--   * THE PLACED CHARACTER IS FORGOTTEN, or the sweep would fire again on the next tick for a man
+--     who is no longer a participant (harmless, but it would count a second withdrawal).
+-- AND `heldStill` IS DELIBERATELY NOT TOUCHED HERE, which is the opposite of what it looks like it
+-- should do: `applyFree` is what RESTORES his walk speed (`Body.untie`, *"a hold is a tie without
+-- the rope"*) and it only acts on a userId that is still in `heldStill` -- so clearing the row here
+-- would leave a withdrawn beater walking home at `HELD_WALK_SPEED` for ever. The untie above is
+-- what makes the `free` effect reach him at all, because `applyFree` skips a man who is tied.
+function Match.withdraw(player: Player): boolean
+	local userId = player.UserId
+	if state.participants[userId] == nil then
+		return false
+	end
+	if tied[userId] then
+		untie(userId)
+	end
+	placedCharacter[userId] = nil
+	stats.withdrawals += 1
+	dispatch({ kind = "withdraw", userId = userId, name = player.Name })
+	local out = state.participants[userId] == nil
+	if out then
+		print(string.format("[match] %s respawned mid-drive: out of this drive, free for the next", player.Name))
+	end
+	return out
+end
+
+-- THE SWEEP. Every participant, once a tick, through the pure rule above.
+--
+-- IT WALKS THE ROSTER AND NOT THE SERVER, which is the one difference from `Body.floorStep` beside
+-- it: a man who is not in the drive cannot be taken out of one.
+local function respawnSweep()
+	-- `insideDrive` AND NOT `isLive`: a man who presses Reset during the COUNTDOWN was in the drive
+	-- too, and `Phase`'s own `withdraw` branch refuses outside exactly this window -- one predicate,
+	-- so the sweep and the machine cannot disagree about it.
+	if not Phase.insideDrive(state) then
+		return
+	end
+	local lobbyWorld = autoEnrol == false
+	if not lobbyWorld then
+		return -- the DEV arena: see `Match.withdrawOnRespawn`
+	end
+	for userId in pairs(state.participants) do
+		local player = playersService():GetPlayerByUserId(userId)
+		if player ~= nil then
+			local withdraw = Match.withdrawOnRespawn({
+				live = true,
+				participant = true,
+				placing = Body.isPlacing(userId),
+				placed = placedCharacter[userId],
+				current = player.Character,
+				lobbyWorld = true,
+			})
+			if withdraw then
+				Match.withdraw(player)
+			end
+		end
+	end
+end
+
 function Match:step(dt: number)
 	if not started then
 		return
@@ -3103,6 +3395,10 @@ function Match:step(dt: number)
 	-- return and a man at the lodge is in no roster.
 	-- Note: docs/research/2026-10-15-one-placement-rule.md
 	stats.rescuedFromUnderGround += Body.floorStep(playersService())
+	-- ...AND A RESPAWN ENDS YOUR HUNT (task 248), beside it and for the same stated reason: there is
+	-- no edge to hang it on, so it is a level rule asked once a tick. KAREN, 2026-10-23: *"when I
+	-- respown hunt should over then I can enter to next games"*.
+	respawnSweep()
 	dispatch({ kind = "tick", aliveBoars = boarsAlive() })
 	if now() - lastBroadcast >= config.STATE_HEARTBEAT then
 		broadcast(true)
@@ -3112,6 +3408,12 @@ end
 -- A TIED PLAYER WHO RESPAWNS MUST NOT WALK AWAY FREE. Nothing damages players (shotgun design
 -- section 15 item C), but the Reset button exists, and "press Escape, Reset, and the penalty is over"
 -- is not a penalty. The tie is re-applied to the new character, at the same tree.
+--
+-- SINCE TASK 248 THAT RE-APPLIED TIE LASTS AT MOST ONE TICK IN A LOBBY WORLD, and that is not a
+-- contradiction: `respawnSweep` notices the same respawn and takes him OUT OF THE DRIVE, which
+-- unties him on the way (`Match.withdraw`). The sentence above still holds, because what he has
+-- bought with the Reset button is not his freedom -- it is the rest of his hunt. In a world with no
+-- lobby (the DEV arena) nothing withdraws anybody and the rope is still the whole of the penalty.
 local function watchCharacter(player: Player)
 	characterWatch[player.UserId] = player.CharacterAdded:Connect(function(character)
 		-- AND THE OUTFIT IS RE-APPLIED FIRST, tied or not (Task 82). `Body.place` dresses the
@@ -3249,6 +3551,9 @@ function Match.forget(player: Player)
 	-- ...AND HIS SEATED WISH (task 229), for the same reason: no table in this owner may be keyed by
 	-- a man who has gone.
 	seatedWishes[userId] = nil
+	-- ...AND THE CHARACTER THE DRIVE GAVE HIM (task 248), which is a reference to a Model and so is
+	-- the one row in this file whose leak would hold an Instance alive.
+	placedCharacter[userId] = nil
 	if tied[userId] then
 		-- The rope outlives nobody: the Instance goes with the player (design section 4.4).
 		untie(userId)
@@ -3292,6 +3597,7 @@ function Match.start(injected)
 	table.clear(tied)
 	table.clear(seatedWishes)
 	table.clear(characterWatch)
+	table.clear(placedCharacter)
 	table.clear(pushCredit)
 	snapshotCache = nil
 	botsRebuiltForDrive = nil

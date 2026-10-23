@@ -107,6 +107,20 @@ local settled = 0
 local PARENT_WAIT_SECONDS = 2
 local parentWaits = 0
 
+-- HOW MANY PLACEMENTS THIS MODULE HAS IN FLIGHT FOR A PLAYER (task 248). `Body.place` calls
+-- `Player:LoadCharacter`, which is a RESPAWN -- so the drive's own placement and the Reset button
+-- are the same engine event from the outside, and the owner's new rule ("a respawn during a drive
+-- takes you out of it") needs to tell them apart or it would throw every player out of the drive at
+-- the moment it placed him.
+--
+-- A COUNTER AND NOT A BOOLEAN, because `applyPlace` can place one man twice in a frame (a join
+-- followed by a team change) and a boolean cleared by the first would unmask the second.
+--
+-- IT IS CLEARED BY `finish`, WHICH IS CALLED EXACTLY ONCE PER PLACEMENT and is also what the
+-- `PLACE_TIMEOUT` calls -- so a placement whose character never arrives cannot leave a player
+-- permanently exempt from the rule.
+local placing: { [number]: number } = {}
+
 -- THE PROOF, NOT A FEELING (design section 5's last paragraph). If `strayCleared` stays 0 on every
 -- run and Karen sees green, the window caught nothing and its five seconds can be shortened or
 -- dropped -- which is a number to read, not an opinion to hold.
@@ -1900,17 +1914,36 @@ function Body.parentWaits(): number
 	return parentWaits
 end
 
+-- IS A PLACEMENT IN FLIGHT FOR THIS PLAYER? (task 248.) The one fact that tells the drive's own
+-- respawn apart from a player's -- see `placing` above. Read by `Match`'s respawn sweep and by
+-- nothing else.
+function Body.isPlacing(userId: number): boolean
+	return (placing[userId] or 0) > 0
+end
+
 -- Respawns `player` and puts them where `cframe` says. Returns a function the owner can call to give
 -- up waiting; `onPlaced(true/false)` is called exactly once.
-function Body.place(player: Player, cframe: CFrame?, config, onPlaced: ((boolean) -> ())?)
+-- `onCharacter` IS THE CHARACTER THIS PLACEMENT PRODUCED (task 248), called once, before anything
+-- that can yield: the owner needs to know WHICH character it gave him, because a character that is
+-- not that one is a character the player made himself by dying or pressing Reset.
+function Body.place(
+	player: Player,
+	cframe: CFrame?,
+	config,
+	onPlaced: ((boolean) -> ())?,
+	onCharacter: ((Model) -> ())?
+)
 	local finished = false
 	local connection: RBXScriptConnection? = nil
+	local userId = player.UserId
+	placing[userId] = (placing[userId] or 0) + 1
 
 	local function finish(ok: boolean)
 		if finished then
 			return
 		end
 		finished = true
+		placing[userId] = math.max(0, (placing[userId] or 1) - 1)
 		if connection then
 			connection:Disconnect()
 			connection = nil
@@ -1921,6 +1954,13 @@ function Body.place(player: Player, cframe: CFrame?, config, onPlaced: ((boolean
 	end
 
 	local function pivot(character: Model)
+		-- WHOSE CHARACTER THIS IS, TOLD FIRST AND BEFORE ANY YIELD (task 248): `dressWhenLoaded`
+		-- opens a window and `Body.onGround` can yield on a missed ray, and until the owner has been
+		-- told, its respawn sweep is looking at a character the drive asked for and cannot account
+		-- for. `finish` -- which clears `placing` -- cannot run before this line.
+		if onCharacter then
+			onCharacter(character)
+		end
 		-- DRESSED BEFORE THE EARLY RETURN, because a player who spawned with nowhere to stand is
 		-- still a player of a team (M2.8d). This handler is the design's first call site: it is the
 		-- one place that already knows a NEW character has arrived for a player whose team is set.
@@ -2542,6 +2582,10 @@ end
 -- After this, no table in this module is keyed by that user.
 function Body.forget(userId: number)
 	held[userId] = nil
+	-- ...AND ANY PLACEMENT IN FLIGHT (task 248): a table keyed by userId that nothing ever removes
+	-- from is a leak, and a man who left mid-placement must not leave a count behind that makes the
+	-- NEXT player with his id look like he is being placed.
+	placing[userId] = nil
 	-- AND THE APPEARANCE WINDOW (Task 151). A player who leaves inside the five seconds would
 	-- otherwise leave a connection held against a character that is gone -- `Body.appearanceWatching`
 	-- is the number that proves this line works.
