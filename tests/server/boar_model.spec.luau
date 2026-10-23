@@ -1763,6 +1763,9 @@ return function()
 				local stopped = { n = 0 }
 				handle.collapsed = true
 				handle.toppled = false
+				-- `deadFor` IS `stepVisual`'S CLOCK AND THE BACKSTOP NO LONGER READS IT (round 1,
+				-- finding 1): `collapsedFor` is `stepCarcass`'s own. Set here anyway, so a case
+				-- that leans on the old one would be caught rather than quietly pass.
 				handle.deadFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
 				handle.part.Anchored = false
 				handle.upright.Enabled = true
@@ -1783,10 +1786,63 @@ return function()
 				table.clear(bodies)
 			end)
 
+			-- ------------------------------ THE REAL SEQUENCE, AND ROUND 1 IS WHY (finding 2)
+			--
+			-- THE CASE BELOW HAND-WRITES `deadFor` PAST THE BACKSTOP AND `Anchored = false`, AND
+			-- THAT IS A STATE THE GAME DOES NOT REACH. The Reviewer: *"the production path reaches
+			-- `deadFor` 1.5 only while the body is still being moved, because
+			-- `stillFor >= CARCASS_STILL_SECONDS` (0.25) has anchored it long before"*. So it
+			-- could not fail on the defect it was written for.
+			--
+			-- THIS ONE STEPS THE CLOCK THE WAY THE RUNTIME DOES: one collapse, then
+			-- `Body.stepCarcass` over and over at a real `dt`, letting the function anchor the
+			-- body itself and letting its own `collapsedFor` carry the time. It asserts the
+			-- anchoring really happened -- the mechanism the finding names -- and then that the
+			-- carcass was laid down anyway.
+			it("lays the carcass down on the real sequence, through the anchoring (round 1, finding 1)", function()
+				local handle = newBody()
+				local stopped = deadWithTrack(handle, 0, 0)
+				-- FROM A FRESH COLLAPSE, not from a hand-written clock.
+				handle.collapsedFor = 0
+				handle.deadFor = 0
+				handle.stillFor = 0
+				handle.part.AssemblyLinearVelocity = Vector3.zero
+				local before = handle.part.CFrame
+				local anchoredOnTheWay = false
+				local steps = math.ceil((CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5) / 0.1)
+				for _ = 1, steps do
+					Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+					if handle.part.Anchored then
+						anchoredOnTheWay = true
+					end
+				end
+				-- THE MECHANISM THE FINDING NAMES, ASSERTED: a carcass nothing is moving IS
+				-- anchored inside a quarter of a second, long before the backstop is due.
+				expect(anchoredOnTheWay).to.equal(true)
+				-- ...AND IT WAS LAID DOWN ANYWAY. Run against the round-1 `stepCarcass` this case
+				-- reported `boar_model.spec:1824 Expected value "true" (boolean), got "false"
+				-- (boolean)` on the line below -- WITH the `anchoredOnTheWay` assertion above it
+				-- PASSING, which is the Reviewer's finding 1 reproduced by the suite: the body is
+				-- anchored on time and the carcass stands anyway.
+				expect(handle.toppled).to.equal(true)
+				expect(handle.backstopped).to.equal(true)
+				expect(handle.part.CFrame).never.to.equal(before)
+				expect(handle.upright.Enabled).to.equal(false)
+				expect(stopped.n).to.equal(1)
+				-- ...AND IT IS ANCHORED AGAIN once it has settled on its side, which is what the
+				-- anchor is for: the un-anchoring is a moment, not a new state.
+				for _ = 1, 40 do
+					handle.part.AssemblyLinearVelocity = Vector3.zero
+					Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				end
+				expect(handle.part.Anchored).to.equal(true)
+			end)
+
 			it("lays a standing carcass down when its death clip never advanced", function()
 				local handle = newBody()
 				local before = handle.part.CFrame
 				local stopped = deadWithTrack(handle, 0, 0)
+				handle.collapsedFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
 				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
 				-- THE BOX ROLLED, which is the one CFrame write that lets gravity do the rest.
 				expect(handle.toppled).to.equal(true)
@@ -1810,6 +1866,7 @@ return function()
 				local handle = newBody()
 				local before = handle.part.CFrame
 				local stopped = deadWithTrack(handle, 0.4, MODEL.CLIPS.deathLeft.seconds)
+				handle.collapsedFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
 				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
 				expect(handle.toppled).to.equal(false)
 				expect(handle.part.CFrame).to.equal(before)
@@ -1827,7 +1884,9 @@ return function()
 				local stopped = deadWithTrack(handle, 0, 0)
 				handle.toppled = true
 				handle.upright.Enabled = false
+				handle.collapsedFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
 				local before = handle.part.CFrame
+				handle.part.Anchored = true
 				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
 				expect(handle.part.CFrame).to.equal(before)
 				expect(stopped.n).to.equal(0)

@@ -673,9 +673,17 @@ Boar.CONFIG = {
 		-- 1.5 SECONDS, AND IT IS MEASURED AGAINST THE CLIP: `MODEL.CLIPS.deathLeft` is 1.167 s for
 		-- the boar and 1.167 for the deer, so a death that is really playing is well past its first
 		-- frame long before this -- and a death that has not advanced a single frame by then is not
-		-- going to. It is longer than `CARCASS_STILL_SECONDS` and far shorter than the six seconds
-		-- `CARCASS_REASSERT_SECONDS` waits, because a boar standing dead in front of the man who
-		-- shot it is the thing being fixed.
+		-- going to. Far shorter than the six seconds `CARCASS_REASSERT_SECONDS` waits, because a
+		-- boar standing dead in front of the man who shot it is the thing being fixed.
+		--
+		-- **IT IS LONGER THAN `CARCASS_STILL_SECONDS` (0.25) AND THAT IS A HAZARD, NOT A VIRTUE**
+		-- (round 1, finding 1). The first version of this said so as though it were a
+		-- reassurance, and it was the fact that made the whole backstop dead code: the carcass it
+		-- exists for is the one nothing moves, so `stepCarcass` anchored it at 0.25 s and then
+		-- returned early for ever. `Body.stepCarcass` now asks the backstop ABOVE that return and
+		-- un-anchors when it fires, so these two numbers no longer have to be ordered at all --
+		-- and that is where the reasoning lives, because it is a property of the SEQUENCE and not
+		-- of either number.
 		DEATH_BACKSTOP_SECONDS = 1.5,
 		CARCASS_FALLING_Y = 1.0, -- studs/s of downward speed that still counts as falling
 	},

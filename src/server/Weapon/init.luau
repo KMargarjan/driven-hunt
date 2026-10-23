@@ -1128,7 +1128,12 @@ local function onShotLanded(res: Flight.Resolution)
 		local materials = {}
 		for _, impact in ipairs(res.impacts) do
 			table.insert(points, impact.position)
-			table.insert(normals, impact.normal)
+			-- A PLACEHOLDER RATHER THAN A HOLE, in BOTH arrays (round 1, note). The three arrays
+			-- are read BY INDEX on the client, so one impact with no normal would shift every
+			-- later entry and stand a puff on another pellet's surface. `materials` already
+			-- substituted `""`; `Vector3.zero` is the normal's own "nothing was said", and
+			-- `Effects.impactFrame` reads it as world up.
+			table.insert(normals, if typeof(impact.normal) == "Vector3" then impact.normal else Vector3.zero)
 			table.insert(materials, if impact.material ~= nil then impact.material.Name else "")
 		end
 		local channel = remotes or Shotgun.remotes()

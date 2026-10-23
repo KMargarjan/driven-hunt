@@ -2109,11 +2109,14 @@ Lobby.CONFIG = {
 		-- (`PICK_TIMEOUT_SECONDS`, `REQUEST_MIN_INTERVAL`) and the look (`BILLBOARD`, `PANEL`)
 		-- of its half, so this keeps the two halves beside each other instead of in two places.
 		NEXT = {
-			-- HOW LONG THE PARTY WAITS AT THE LODGE between drives. **8**, which is the number
-			-- the Director's brief names (*"reuse the existing between-drive length"*):
-			-- `Match.CONFIG.SCORE_SECONDS` is 8 after Karen's *"make 8s max"* of 2026-10-18. It
-			-- is inside Valve's own clamp for the same gap -- `mp_bonusroundtime`, *"Time after
-			-- round win until round restarts"*, default 15, clamped 5..15
+			-- HOW LONG THE PARTY WAITS AT THE LODGE between drives. It was **8**, the number the
+			-- Director's task 246 brief named (*"reuse the existing between-drive length"*),
+			-- because `Match.CONFIG.SCORE_SECONDS` was 8 after Karen's *"make 8s max"* of
+			-- 2026-10-18. **That row is 4 since task 249 and these two are no longer the same
+			-- number** (round 1, note): the three phases now split one 15-second budget, and this
+			-- card keeps the biggest share for the reason written below. It is still inside
+			-- Valve's own clamp for the same gap -- `mp_bonusroundtime`, *"Time after round win
+			-- until round restarts"*, default 15, clamped 5..15
 			-- (`docs/research/2026-10-23-the-continuous-drive-loop.md` source B).
 			--
 			-- THE WHOLE GAP DRIVE TO DRIVE WAS 31 s: 8 results scene (`SCORE_SECONDS`) + 8 here +

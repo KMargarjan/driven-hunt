@@ -2429,23 +2429,44 @@ end
 -- SHOULD THE BOX LAY THIS ANIMAL DOWN AFTER ALL? PURE, and `false` for every carcass that is
 -- already on its side, every carcass the box toppled at the moment of death, and every carcass
 -- whose clip is running. `after == nil` is the pre-249 behaviour exactly: no backstop.
-function Body.shouldBackstopDeath(deadFor: number, armed: boolean, drawn: boolean, toppled: boolean, config): boolean
+-- `since` IS `handle.collapsedFor`, THE CARCASS STEP'S OWN CLOCK, and not `handle.deadFor`: that
+-- one belongs to `stepVisual`, which has its own reasons not to run, and a backstop that depends on
+-- the thing it is backstopping is not one (round 1, finding 1).
+function Body.shouldBackstopDeath(since: number, armed: boolean, drawn: boolean, toppled: boolean, config): boolean
 	local after = config.DEATH_BACKSTOP_SECONDS
 	if after == nil or toppled or not armed or drawn then
 		return false
 	end
-	return deadFor >= after
+	return since >= after
 end
 
 function Body.stepCarcass(handle, dt: number, config)
-	if not handle.collapsed or handle.part.Anchored then
+	if not handle.collapsed then
 		return
 	end
+	-- THE CLOCK AND THE BACKSTOP COME BEFORE THE ANCHOR'S OWN EARLY RETURN, AND ROUND 1 IS WHY
+	-- (task 249, the Reviewer's finding 1). Written below that return, the backstop could never
+	-- fire at all: the carcass it is FOR is the one nothing is moving -- `collapse` leaves
+	-- `Upright` on and no clip rolls it -- so it is still within a fraction of a second,
+	-- `stillFor` passes `CARCASS_STILL_SECONDS` (**0.25**) and this function anchors it, and from
+	-- the next frame it returned before `DEATH_BACKSTOP_SECONDS` (**1.5**) could ever be reached.
+	-- The config header even said *"it is longer than CARCASS_STILL_SECONDS"* as though that were
+	-- a virtue; it was the disqualifying fact. A dead boar stood anchored upright for the whole
+	-- `CARCASS_SECONDS` exactly as before, and the counter nominated as the proof read 0.
+	--
+	-- SO THE BACKSTOP UN-ANCHORS. An anchored carcass is one this function already decided was
+	-- finished moving, and if its death was never drawn that decision was wrong: the part goes
+	-- loose again, `stillFor` restarts, the constraint lets go and the box rolls -- and the
+	-- anchoring below re-anchors it a quarter of a second after it has settled on its side, which
+	-- is what the anchor is for.
 	handle.collapsedFor += dt
-	-- THE BACKSTOP `Body.topple`'S OWN COMMENT HAS PROMISED SINCE TASK 150 (task 249). KAREN,
-	-- 2026-10-23: *"bug with dead boar standing"*. It was never written: a grep for `Body.topple`
-	-- found ONE caller, `Body.collapse`, so a carcass whose death clip never ran stood on its feet
-	-- for the whole `CARCASS_SECONDS`.
+	-- THE BACKSTOP `Body.topple`'S OWN COMMENT HAS PROMISED SINCE TASK 150. KAREN, 2026-10-23:
+	-- *"bug with dead boar standing"*. It was never written: a grep for `Body.topple` found ONE
+	-- caller, `Body.collapse`, so a carcass whose death clip never ran was never laid down.
+	--
+	-- IT IS MEASURED ON `collapsedFor`, WHICH IS THIS FUNCTION'S OWN CLOCK, and not on
+	-- `handle.deadFor` -- that one is advanced by `stepVisual`, a different function with its own
+	-- reasons not to run, and a backstop that depends on the thing it is backstopping is not one.
 	--
 	-- THE UPRIGHT CONSTRAINT GOES FIRST AND THE ROLL SECOND, which is `collapse`'s own order for
 	-- the box-falls case: `AlignOrientation` would otherwise pull the body straight back up.
@@ -2456,17 +2477,22 @@ function Body.stepCarcass(handle, dt: number, config)
 	-- one behind its back.
 	local track = handle.deathTrack
 	local drawn = Body.deathDrawn(if track then track.TimePosition else nil, if track then track.Length else nil)
-	if Body.shouldBackstopDeath(handle.deadFor, track ~= nil, drawn, handle.toppled, config) then
+	if Body.shouldBackstopDeath(handle.collapsedFor, track ~= nil, drawn, handle.toppled, config) then
 		handle.deathTrack = nil
 		if track ~= nil then
 			track:Stop(0)
 		end
 		handle.upright.Enabled = false
+		handle.part.Anchored = false
+		handle.stillFor = 0
 		Body.topple(handle, config)
 		handle.backstopped = true
 	elseif drawn then
 		-- IT RAN. The promise is kept and nothing has to be watched any more.
 		handle.deathTrack = nil
+	end
+	if handle.part.Anchored then
+		return
 	end
 	local linear = handle.part.AssemblyLinearVelocity
 	local angular = handle.part.AssemblyAngularVelocity.Magnitude
