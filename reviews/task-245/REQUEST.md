@@ -1,13 +1,15 @@
 # Task 245b (filed as task 245, round 2) - the deer's road leap, wired behind DEER_ROAD_LEAP
 
 Task: 245
-Round: 2
+Round: 1
 
-**IT IS FILED UNDER 245 AND NOT 245b, AND THE ROUND IS 2.** `tools/agents.py` refuses a task number
-that is not digits, and the house convention for a lettered follow-up is the numeric folder --
-`reviews/task-233` holds 233b's paperwork the same way. Task 245's round-1 verdict is still in
-`reviews/task-245/RESULT.md` and is what the round counter counts from; its request is in git at
-`99f8fef3`.
+**IT IS FILED UNDER 245 AND NOT 245b.** `tools/agents.py` refuses a task number that is not digits,
+and the house convention for a lettered follow-up is the numeric folder -- `reviews/task-233` holds
+233b's paperwork the same way. **`Round: 1` is the tool's own answer**, not a reset: task 245's
+committed verdict is a PASS, and `agents.py` refuses anything but `Round: 1` after one ("this task's
+committed RESULT.md is round 1 (PASS), so this run must be `Round: 1`"). 245b is new work on a
+passed task, which is exactly that case. Task 245's round-1 verdict and its request are in git at
+`c03d386f` and `99f8fef3`; this run will overwrite `reviews/task-245/RESULT.md` with 245b's.
 Base: 92735a05 (main)
 Code commit: 76adac58f3885bc199695ac35078c22ef3a099bc
 
