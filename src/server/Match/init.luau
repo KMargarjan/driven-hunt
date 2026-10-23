@@ -620,11 +620,20 @@ Match.CONFIG = {
 	-- rule that silently retires another rule has retired it without saying so. Karen's tie is her
 	-- own rule from her design doc; this task was not asked to end it.
 	--
-	-- So the lock is 8 studs (2.24 m, a man's width and some) and the tie is still 12: point the gun
-	-- within 8 studs of ANY person and the trigger does nothing, fire between 8 and 12 of a DRIVER
+	-- So the lock is 6 studs (1.7 m, a man's width and some) and the tie is still 12: point the gun
+	-- within 6 studs of ANY person and the trigger does nothing, fire between 6 and 12 of a DRIVER
 	-- and you are tied to a tree. `zz_tie_to_a_tree.spec` stages both, which is what makes the band
 	-- real rather than a sentence here: `BESIDE_STUDS` is 10.
-	SAFETY_LOCK_STUDS = 8,
+	--
+	-- IT WAS 8 FOR ONE AFTERNOON AND THE TWO-PLAYER RUN IS WHY IT IS 6. At 8 the tie proof's own
+	-- shot -- 10 studs beside a driver 25 studs out, which that spec measures at `miss 9.3 of 12`
+	-- from the EYE -- came back `unsafe-line` twice in two runs (`test2-t248a.log`,
+	-- `test2-t248b.log`, identical): the lock measures from the MUZZLE down the server's own aim
+	-- ray, and a 1.3-stud margin is less than the difference between those two lines. A band whose
+	-- edges are closer together than the two ways of measuring it is not a band. At 6 the same shot
+	-- has 3.3 studs of margin above the lock and 2.7 below the tie, and both rules are provable in
+	-- one run.
+	SAFETY_LOCK_STUDS = 6,
 	-- THE ONLY PERMITTED SHAPE for a flagged value: a read, never a literal beside a flag of the
 	-- same name. There is still one source of truth (Flags.DEFAULTS, reviewed in git) and
 	-- Match.CONFIG is still the one table the drive's DEFAULTS live in -- and this key is not on

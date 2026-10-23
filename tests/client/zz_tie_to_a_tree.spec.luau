@@ -134,7 +134,7 @@ local DOWN_THE_DRIVE = 200 -- studs up +Z, for the one-player shot at nobody
 -- (`Shotgun.CONFIG.SAFETY_ARC_HALF_DEG`), so the arc still publishes it.
 --
 -- IT WAS 5 UNTIL TASK 248 AND THE SAFETY LOCK IS WHY IT MOVED. The lock refuses any shot whose line
--- passes within `Match.CONFIG.SAFETY_LOCK_STUDS` (8) of ANY person, so at 5 studs this shot no
+-- passes within `Match.CONFIG.SAFETY_LOCK_STUDS` (6) of ANY person, so at 5 studs this shot no
 -- longer fires at all and the tie this file is named for could never be reached: the case would have
 -- gone green on a REFUSAL and proved the wrong rule. 10 sits in the band between the two radii --
 -- outside the lock, inside the tie -- which is the band `Match.CONFIG.SAFETY_LOCK_STUDS`'s own note
@@ -620,7 +620,7 @@ local aiming = RunService.RenderStepped:Connect(function()
 	if theirs and not Role.isDriver() then
 		-- BESIDE HIM, NOT AT HIM (task 171) -- BUT ONLY ONCE THE PROBE HAS ANSWERED. Aimed at him the
 		-- shot is REFUSED before it exists (`Weapon.Rules.beaterInLine`) and there is nothing for the
-		-- safety rule to judge; aimed `BESIDE_STUDS` to his side it clears the SAFETY LOCK's 8 studs
+		-- safety rule to judge; aimed `BESIDE_STUDS` to his side it clears the SAFETY LOCK's 6 studs
 		-- (task 248) so it really fires, it still passes within `SAFETY_MISS_STUDS` of him, and the arc
 		-- and `Match.Penalty` do what this spec is named for.
 		--

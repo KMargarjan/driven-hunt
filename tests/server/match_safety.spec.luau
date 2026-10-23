@@ -545,7 +545,7 @@ return function()
 	describe("the safety lock -- the trigger that does not fire (task 248)", function()
 		local LOCK = {
 			SAFETY_LOCK_ENABLED = true,
-			SAFETY_LOCK_STUDS = 8,
+			SAFETY_LOCK_STUDS = 6,
 			SAFETY_MISS_STUDS = 12,
 			SAFETY_RANGE_STUDS = 330,
 			SAFETY_BODY_STUDS = 4,
@@ -554,7 +554,7 @@ return function()
 		it("derives its config from the drive's, so the two radii cannot be written twice", function()
 			local derived = Match.lockConfigFrom(LOCK)
 			-- THE LOCK JUDGES AT ITS OWN RADIUS and keeps the penalty's other two numbers.
-			expect(derived.SAFETY_MISS_STUDS).to.equal(8)
+			expect(derived.SAFETY_MISS_STUDS).to.equal(6)
 			expect(derived.SAFETY_RANGE_STUDS).to.equal(330)
 			expect(derived.SAFETY_BODY_STUDS).to.equal(4)
 			-- ...AND A CONFIG WITH NO LOCK RADIUS FALLS BACK TO THE PENALTY'S, which is what makes
@@ -563,14 +563,14 @@ return function()
 		end)
 
 		it("refuses a shot whose line passes inside the lock radius", function()
-			-- Straight at him, 50 studs out: 0.0 of 8.
+			-- Straight at him, 50 studs out: 0.0 of 6.
 			expect(Match.lineUnsafeFor(shotUpZ(100), { driverAt(DRIVER, 0, 50) }, LOCK)).to.equal(true)
-			-- Seven studs to the side of him: still inside.
-			expect(Match.lineUnsafeFor(shotUpZ(100), { driverAt(DRIVER, 7, 50) }, LOCK)).to.equal(true)
+			-- Five studs to the side of him: still inside.
+			expect(Match.lineUnsafeFor(shotUpZ(100), { driverAt(DRIVER, 5, 50) }, LOCK)).to.equal(true)
 		end)
 
 		it("lets a shot PAST him through, which is the band the tie still lives in", function()
-			-- 10 studs off: outside the lock's 8, inside the tie's 12 -- `zz_tie_to_a_tree.spec`'s
+			-- 10 studs off: outside the lock's 6, inside the tie's 12 -- `zz_tie_to_a_tree.spec`'s
 			-- own `BESIDE_STUDS`, and this is the arithmetic that keeps that spec's tie reachable.
 			expect(Match.lineUnsafeFor(shotUpZ(100), { driverAt(DRIVER, 10, 50) }, LOCK)).to.equal(false)
 			expect(Penalty.judge(shotUpZ(100), { driverAt(DRIVER, 10, 50) }, CONFIG)).to.equal(true)
@@ -611,7 +611,7 @@ return function()
 			-- been refused -- and Karen's tie would be retired without anybody saying so. See
 			-- `Match.CONFIG.SAFETY_LOCK_STUDS`.
 			expect(Match.CONFIG.SAFETY_LOCK_ENABLED).to.equal(true)
-			expect(Match.CONFIG.SAFETY_LOCK_STUDS).to.equal(8)
+			expect(Match.CONFIG.SAFETY_LOCK_STUDS).to.equal(6)
 			expect(Match.CONFIG.SAFETY_LOCK_STUDS < Match.CONFIG.SAFETY_MISS_STUDS).to.equal(true)
 			-- ...and the penalty's own radius is still the design's 12, read by one local.
 			expect(Match.CONFIG.SAFETY_MISS_STUDS).to.equal(CONFIG.SAFETY_MISS_STUDS)
