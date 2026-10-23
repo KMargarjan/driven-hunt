@@ -345,18 +345,40 @@ return function()
 	end)
 
 	describe("the shared half is data and arithmetic", function()
-		it("touches no Instance and no service but the two modules it requires", function()
-			-- SECTION 2, asserted as a negative: the cheap kind of assertion that keeps an owner
-			-- boundary from drifting across the next ten tasks.
-			local source = ReplicatedStorage:WaitForChild("Ambience") :: ModuleScript
-			local text = source.Source
-			expect(#text > 0).to.equal(true)
-			for _, banned in ipairs({ "SoundService", "Instance.new", "RunService", "Workspace", "TweenService" }) do
-				expect(string.find(text, banned, 1, true)).to.equal(nil)
+		-- SECTION 2, asserted as a NEGATIVE -- and asserted by BEHAVIOUR rather than by reading the
+		-- module's own text, because **a game script cannot read `Source`**: it needs the capability
+		-- `PluginOrOpenCloud`, which neither runner has (measured, round 1 of this task: the client
+		-- spec failed with *"The current thread cannot read 'Source'"*). Only
+		-- `tools/studio_mcp.py` can read a script's text, through the Assistant.
+		it("makes no Instance and owns no state: two calls agree, and nothing new appears", function()
+			local before = #game:GetService("SoundService"):GetChildren()
+			for _, word in ipairs(Ambience.BED_WORDS) do
+				Ambience.targetsFor(word)
+				Ambience.bedFor(word)
+				Ambience.stepGain(0, 1, 1 / 60, 2.5)
+				Ambience.volumeFor(0.5, 0.1)
 			end
-			-- it reads exactly two services' worth of world: ReplicatedStorage, for its two requires
-			local _, services = string.gsub(text, "game:GetService", "")
-			expect(services).to.equal(1)
+			expect(#game:GetService("SoundService"):GetChildren()).to.equal(before)
+		end)
+
+		it("is PURE: the same input gives the same answer, and no answer is a shared table", function()
+			-- A function that held state would drift across these two calls; a function that
+			-- returned its own table would let a caller edit the next caller's answer.
+			local first = Ambience.targetsFor("hunt")
+			local second = Ambience.targetsFor("hunt")
+			expect(first).never.to.equal(second) -- two tables, not one
+			expect(first.hunt).to.equal(second.hunt)
+			first.hunt = 0.5
+			expect(Ambience.targetsFor("hunt").hunt).to.equal(1)
+			expect(Ambience.stepGain(0.25, 1, 1 / 60, 2.5)).to.equal(Ambience.stepGain(0.25, 1, 1 / 60, 2.5))
+		end)
+
+		it("has no owner's half: no start, no stop, no step, no voices", function()
+			-- The shared module is DATA AND RULES. If a later hand moves the owner's writers in
+			-- here, this is what says so.
+			for _, name in ipairs({ "start", "stop", "step", "applyTeam", "voices", "gains" }) do
+				expect((Ambience :: any)[name]).to.equal(nil)
+			end
 		end)
 	end)
 end

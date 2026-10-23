@@ -295,32 +295,38 @@ return function()
 			expect(Ambience.gains().lodge).to.equal(held)
 		end)
 
-		it("touches nothing it is not the owner of", function()
-			-- SECTION 2 AND SECTION 8, each one `string.find` -- the cheap kind of assertion that
-			-- keeps an owner boundary from drifting across the next ten tasks.
-			local source = Players.LocalPlayer:WaitForChild("PlayerScripts"):WaitForChild("Ambience") :: ModuleScript
-			local text = source.Source
-			expect(#text > 0).to.equal(true)
-			for _, banned in ipairs({
-				"AmbientReverb",
-				"SoundService.Volume",
-				"Workspace",
-				".Magnitude",
-				"Vector3",
-				"Lobby",
-				"TweenService",
-				"RemoteEvent",
-				"EXPECTED_WORLD",
-			}) do
-				expect(string.find(text, banned, 1, true)).to.equal(nil)
-			end
-			-- ...AND IT IS NOT A SECOND WRITER OF KAREN'S OWN AMBIENCE. `Workspace.Ambience` is her
-			-- Studio-made Sound in the Forest Test and has no owner in git; this module may not
-			-- find it, reparent it or write its Volume. The DEV arena has none, so the assertion
-			-- that can be made everywhere is the one above -- the word does not appear at all.
+		it("writes no SoundService property, across a whole crossfade", function()
+			-- SECTION 8's hardest rule, MEASURED rather than read out of the source: `AmbientReverb`
+			-- and `SoundService.Volume` are GLOBAL answers, so a bed that set them would change the
+			-- gun, the boar, the horn and the bugle, and "how loud is the game" would have a writer
+			-- that thinks it is only the lodge's birds.
+			--
+			-- **ASSERTED BY BEHAVIOUR AND NOT BY TEXT, and that is forced**: a game script cannot
+			-- read a script's `Source` (it needs `PluginOrOpenCloud`, which neither runner has --
+			-- measured in round 1 of this task). Behaviour is the better assertion anyway: it would
+			-- catch a write made through any spelling.
+			local reverb = SoundService.AmbientReverb
+			local master = SoundService.Volume
+			local rolloff = SoundService.DistanceFactor
+			Ambience.applyTeam(nil)
+			run(Shared.CONFIG.FADE_SECONDS + 0.5)
+			Ambience.applyTeam("Shooters")
+			run(Shared.CONFIG.FADE_SECONDS + 0.5)
+			expect(SoundService.AmbientReverb).to.equal(reverb)
+			expect(SoundService.Volume).to.equal(master)
+			expect(SoundService.DistanceFactor).to.equal(rolloff)
+		end)
+
+		it("is not a second writer of any Sound but its own", function()
+			-- Every `Ambience_*` Sound in `SoundService` is one THIS module made, and every Sound it
+			-- made is an `Ambience_*` -- so it can neither adopt a stranger nor hide one of its own
+			-- under another name. In the Forest Test the stranger that matters is Karen's
+			-- `Workspace.Ambience`, which has no owner in git; the DEV arena has none, so what is
+			-- asserted everywhere is the correspondence itself.
 			local mine: { [string]: boolean } = {}
 			for _, word in ipairs(Shared.BED_WORDS) do
 				for _, sound in ipairs(Ambience.voices(word)) do
+					expect(string.sub(sound.Name, 1, #Shared.NAME_PREFIX)).to.equal(Shared.NAME_PREFIX)
 					mine[sound.Name] = true
 				end
 			end
@@ -329,6 +335,26 @@ return function()
 					expect(mine[child.Name]).to.equal(true)
 				end
 			end
+		end)
+
+		it("leaves every Sound it does not own alone, across a crossfade", function()
+			-- The one writer rule, measured: the gun's, the bugle's and the animal's Sounds are
+			-- somebody else's, and a bed that wrote one of them would be the second writer this
+			-- repo's whole rule 3 exists to prevent.
+			local before: { { sound: Sound, volume: number } } = {}
+			for _, child in ipairs(SoundService:GetChildren()) do
+				if child:IsA("Sound") and string.sub(child.Name, 1, #Shared.NAME_PREFIX) ~= Shared.NAME_PREFIX then
+					table.insert(before, { sound = child, volume = child.Volume })
+				end
+			end
+			Ambience.applyTeam(nil)
+			run(Shared.CONFIG.FADE_SECONDS + 0.5)
+			Ambience.applyTeam("Drivers")
+			run(Shared.CONFIG.FADE_SECONDS + 0.5)
+			for _, row in ipairs(before) do
+				expect(row.sound.Volume).to.equal(row.volume)
+			end
+			TestKit.note(string.format("[ambience] %d foreign Sound(s) watched, none written", #before))
 		end)
 	end)
 end
