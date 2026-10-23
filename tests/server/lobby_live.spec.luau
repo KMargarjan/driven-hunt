@@ -1085,9 +1085,13 @@ return function()
 			Lobby.onPhase("Scoring")
 			seen.inDrive[52] = false
 			Lobby.step(2004, men)
+			-- `Lobby.nextDrive()` IS A REPORT, NOT THE STATE: `members` is the sorted ARRAY of ids
+			-- (`Next.ids`), which is what the case below this one reads too.
 			local party = Lobby.nextDrive()
-			expect(Lobby.Next.has(party, 51)).to.equal(true)
-			expect(Lobby.Next.has(party, 52)).to.equal(true)
+			table.sort(party.members)
+			expect(#party.members).to.equal(2)
+			expect(party.members[1]).to.equal(51)
+			expect(party.members[2]).to.equal(52)
 			-- ...AND THE LINE COMES DOWN THE MOMENT A DRIVE HAS HIM AGAIN.
 			Lobby.onPhase("Assigning")
 			seen.inDrive[51] = true
