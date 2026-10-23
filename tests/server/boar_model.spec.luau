@@ -1709,6 +1709,132 @@ return function()
 			expect(Boar.shouldBackstopDeath(60, true, false, false, without)).to.equal(false)
 		end)
 
+		-- ------------------------------ AND THE BEHAVIOUR, NOT ONLY THE ARITHMETIC
+		--
+		-- THE THREE CASES ABOVE ARE PURE PREDICATES AND THAT IS NOT ENOUGH (Learning Agent L-028):
+		-- a predicate that answers correctly proves nothing about the carcass in the world unless
+		-- something calls it. This case drives the REAL `Body.stepCarcass` on a REAL body the
+		-- runtime spawned, with the one state that produced Karen's defect -- `collapsed`, the
+		-- upright constraint still ON because `boxFalls` answered false, and a death track that
+		-- never advances because its asset never arrived.
+		--
+		-- THE TRACK IS A STAND-IN AND IT HAS TO BE. The thing being reproduced is an asset that has
+		-- not downloaded; there is no way to ask Roblox for one on demand, and `trackFor` cannot
+		-- tell it from a loaded one -- which is the whole defect. A table with the two fields the
+		-- backstop reads IS that state, exactly.
+		--
+		-- IT WAS SHOWN FAILING ON THE CODE BEFORE THE FIX, AND THAT IS THE POINT OF IT (L-028).
+		-- The backstop block was taken back out of `Body.stepCarcass`, the suite re-run against the
+		-- live place, and this is what came back:
+		--
+		--   failed [server] boar_model.spec:1785 Expected value "true" (boolean), got "false"
+		--   failed [server] boar_model.spec:1814 Expected value "nil", got "table: ..."
+		--
+		-- Line 1785 is `expect(handle.toppled).to.equal(true)`: **the carcass stands**, which is
+		-- Karen's defect, reproduced by the suite rather than argued from a grep. The block was put
+		-- straight back (`git checkout`) and the same run goes green.
+		describe("the carcass in the world, not only the arithmetic", function()
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local bodies: { any } = {}
+
+			-- A REAL BODY, built by the real constructor into this spec's own folder -- the trunk,
+			-- its `Mover` and its `Upright` exactly as a spawned animal has them. `Body.create` is
+			-- what `Runtime:spawn` calls; `runtime:spawn` hands back a PUBLIC handle that has no
+			-- `upright` and no `collapsed`, so this takes the body itself.
+			local function newBody()
+				local made = Body.create(
+					Boar.kindConfig("male", CONFIG),
+					testRoot,
+					string.format("Carcass%d", #bodies + 1),
+					Vector3.new(30, GROUND_Y + 4, 30),
+					"male"
+				)
+				table.insert(bodies, made)
+				return made
+			end
+
+			-- THE ONE STATE THAT PRODUCED KAREN'S DEFECT: collapsed, the upright constraint still
+			-- ON because `Body.boxFalls` answered false, and a death track whose asset never
+			-- arrived. The track is a STAND-IN and it has to be -- there is no way to ask Roblox
+			-- for an asset that will not download, and `trackFor` cannot tell one from a loaded
+			-- one, which is the whole defect. A table with the two fields the backstop reads IS
+			-- that state.
+			local function deadWithTrack(handle, timePosition: number, length: number)
+				local stopped = { n = 0 }
+				handle.collapsed = true
+				handle.toppled = false
+				handle.deadFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
+				handle.part.Anchored = false
+				handle.upright.Enabled = true
+				handle.deathTrack = {
+					TimePosition = timePosition,
+					Length = length,
+					Stop = function(_self)
+						stopped.n += 1
+					end,
+				}
+				return stopped
+			end
+
+			afterEach(function()
+				for _, handle in ipairs(bodies) do
+					Body.destroy(handle)
+				end
+				table.clear(bodies)
+			end)
+
+			it("lays a standing carcass down when its death clip never advanced", function()
+				local handle = newBody()
+				local before = handle.part.CFrame
+				local stopped = deadWithTrack(handle, 0, 0)
+				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				-- THE BOX ROLLED, which is the one CFrame write that lets gravity do the rest.
+				expect(handle.toppled).to.equal(true)
+				expect(handle.part.CFrame).never.to.equal(before)
+				-- ...AND THE CONSTRAINT LET GO FIRST, or `AlignOrientation` would pull it straight
+				-- back upright -- `Body.collapse`'s own order for the box-falls case.
+				expect(handle.upright.Enabled).to.equal(false)
+				-- ...AND THE TRACK WAS STOPPED, so a late download cannot apply a second rotation
+				-- behind its back (task 150's buried-upside-down carcass).
+				expect(stopped.n).to.equal(1)
+				expect(handle.deathTrack).to.equal(nil)
+				expect(handle.backstopped).to.equal(true)
+				-- ONCE. A second step cannot roll the same carcass again and stand it back up.
+				local after = handle.part.CFrame
+				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				expect(handle.part.CFrame).to.equal(after)
+				expect(stopped.n).to.equal(1)
+			end)
+
+			it("leaves a carcass whose clip IS running completely alone", function()
+				local handle = newBody()
+				local before = handle.part.CFrame
+				local stopped = deadWithTrack(handle, 0.4, MODEL.CLIPS.deathLeft.seconds)
+				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				expect(handle.toppled).to.equal(false)
+				expect(handle.part.CFrame).to.equal(before)
+				-- THE CLIP IS DOING THE FALLING, so the constraint stays on exactly as
+				-- `Body.collapse` left it -- the two rotations must never compose.
+				expect(handle.upright.Enabled).to.equal(true)
+				expect(stopped.n).to.equal(0)
+				-- ...AND NOTHING IS WATCHED ANY MORE: the promise was kept.
+				expect(handle.deathTrack).to.equal(nil)
+				expect(handle.backstopped).to.equal(false)
+			end)
+
+			it("does not touch a carcass the box already toppled at the moment of death", function()
+				local handle = newBody()
+				local stopped = deadWithTrack(handle, 0, 0)
+				handle.toppled = true
+				handle.upright.Enabled = false
+				local before = handle.part.CFrame
+				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				expect(handle.part.CFrame).to.equal(before)
+				expect(stopped.n).to.equal(0)
+				expect(handle.backstopped).to.equal(false)
+			end)
+		end)
+
 		it("is shorter than the wait that says the pose again, and longer than the clip's first frame", function()
 			-- MEASURED AGAINST THE CLIP rather than chosen: `deathLeft` is 1.167 s, so a death that
 			-- is running has moved long before the backstop looks.
