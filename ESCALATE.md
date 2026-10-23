@@ -1,5 +1,40 @@
 # Escalations
 
+## 2026-10-23 - Task 249 (six fixes from Karen's afternoon test): **NEEDS DIRECTOR: test2 for task 249 at `dbf1f92626dd776637b589394b64f14a0c7b7625`.** Not blocking anything else; all six items are built and the one-player gate is green.
+
+**NEEDS DIRECTOR: `python tools/studio_mcp.py test2` at `dbf1f92626dd776637b589394b64f14a0c7b7625`.**
+
+`tools/agents.py` will refuse the review round without the `[harness2]` line for the code commit:
+`src/server/Match/init.luau`, `src/server/Lobby/init.luau` (through `tests/server/lobby_live.spec.luau`)
+and `tests/server/match_live.spec.luau` are inside `TWO_PLAYER_PATHS`.
+
+The one-player line IS taken, on a clean tree, at that commit:
+
+```
+[harness] PASS: 34/34 checks @ dbf1f92626dd776637b589394b64f14a0c7b7625 (clean tree) scope=all
+```
+
+**Why the Builder did not run it.** It needs the Test tab's Start click with the Players spinner at
+2 (`director-preflight-checklist` items 51 / 60 / 75) and the session was at its 2 h cap with the
+last item's frame just taken. `test2` was ATTEMPTED in the previous session and reported
+`FAIL A 2-player local test appeared within 180 s (0 new studio(s) beside the editor)` -- nobody
+pressed Start, nothing was run, and nothing was claimed.
+
+The clicks, in order:
+
+1. Only the DEV place is open (the Forest Test was closed with CloseMainWindow then Don't Save
+   before every harness run; confirmed, the harness log says DEV).
+2. DEV ribbon, Test tab, the Players spinner right of the mode dropdown: set it to **2**.
+3. `python tools/studio_mcp.py test2` in the repo, then press **Start** when it asks, and
+   **Cleanup** when it says so.
+4. Paste the `[harness2] PASS: n/n checks @ dbf1f926... (clean tree)` line into
+   `reviews/task-249/REQUEST.md` beside the one-player line, then run `tools/review.sh 249`.
+
+**A HARNESS FAULT TO CARRY WITH IT (rule 6).** `tests/client/camera_client.spec.luau`'s task-93
+*"no templates"* case (`handsMissing > missingBefore`) has now failed **5 of 9** harness runs across
+**six different commits**, in a file neither half of task 249 touched. It is flaky, not a defect of
+this branch -- the 34/34 line above is a run it passed. Queued as `TASKS.md` row 249a(d).
+
 ## 2026-10-23 - Task 245b (the leap, wired): **ONE `NEEDS DIRECTOR`, not blocking.** The work is complete and the one-player gate is green.
 
 **NEEDS DIRECTOR: open the Forest Test, for ONE frame of a deer in the air over Karen's road.**
