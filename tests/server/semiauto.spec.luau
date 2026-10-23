@@ -897,4 +897,29 @@ return function()
 			expect(Shop.ownsWeapon({}, "semiauto")).to.equal(false)
 		end)
 	end)
+	-- ------------------------------------------------- THE RELOAD'S VOICE (task 248)
+	describe("the voices, and the one Karen could not hear", function()
+		it("carries a shot, a bolt and a port click, and gives the last two their own level", function()
+			local sound = SemiAuto.CONFIG.SOUND
+			expect(sound.shot).to.be.ok()
+			expect(sound.bolt).to.be.ok()
+			-- ONE SHELL THROUGH THE PORT: the key every magazine and break-action gun written
+			-- before task 224 does not have, and the one Karen named.
+			expect(sound.load).to.be.ok()
+			-- `gain` IS WHY SHE COULD NOT HEAR IT. The three numbers in `fire.volume` are CLASSES of
+			-- noise -- shot, open click, close click -- and this gun's mechanism samples were
+			-- borrowing the open click's 0.35 against its own shot at 1.6 (MEASURED in her client,
+			-- 2026-10-23). The gain is per voice, so no other gun in the game moves.
+			expect(sound.load.gain).to.equal(2.6)
+			expect(sound.bolt.gain).to.equal(3.0)
+			-- THE BOLT IS THE LOUDER OF THE TWO: a gas bolt slamming home against a shell going
+			-- into a tube.
+			expect(sound.bolt.gain > sound.load.gain).to.equal(true)
+			-- ...AND THE SHOT ASKS FOR NO GAIN AT ALL, because its class is already the loud one.
+			expect(sound.shot.gain).to.equal(nil)
+			-- THE LEVER IS UNTOUCHED, which is what makes this a fix for the gun she named rather
+			-- than a change to every reload in the game.
+			expect(Lever.CONFIG.SOUND.load.gain).to.equal(nil)
+		end)
+	end)
 end

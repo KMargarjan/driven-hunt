@@ -432,5 +432,61 @@ return function()
 			-- ...and the OLD edge would have answered differently, which is why this one exists.
 			TestKit.note("task225 fedShell: 2 of 2 consecutive Load steps are edges (the old rule gave 1 of 2)")
 		end)
+		-- ------------------------------------------- THE RELOAD'S VOICE (task 248)
+		--
+		-- KAREN, 2026-10-23: *"when reloading semiauto we need sound"*. It was never silent -- the
+		-- edge above fires once per shell and the row has carried a `load` voice since task 224 --
+		-- it was INAUDIBLE, and that was measured in her own running client before anything was
+		-- changed (Forest Test, 2026-10-23): the shell going through the port reached the engine at
+		-- **Volume 0.35**, against this gun's shot at 1.6 and two ambience sounds at 3.00.
+		--
+		-- THIS CASE MEASURES THE SAME NUMBER THE PROBE DID, off the `Sound` the engine was actually
+		-- handed, and it could not have passed before this task: `gain` did not exist, so the
+		-- volume was 0.35 whatever the row said.
+		it("puts one shell through the port LOUD ENOUGH TO HEAR, and the bolt home louder", function()
+			local WeaponClient = require(scripts:WaitForChild("Weapon"))
+			local SoundService = game:GetService("SoundService")
+			local Sound = WeaponClient.Sound
+			-- THE SEMI-AUTO'S OWN POSE CONFIG, which is where the three volume CLASSES live.
+			local volume = semiConfig.FIRE.volume
+			expect(volume).to.be.ok()
+			local function newestSound(id: string): Sound?
+				local best: Sound? = nil
+				for _, child in ipairs(SoundService:GetChildren()) do
+					if child:IsA("Sound") and child.SoundId == id then
+						best = child
+					end
+				end
+				return best
+			end
+			local loadVoice = Sound.voiceFor(ROW, "load")
+			local boltVoice = Sound.voiceFor(ROW, "bolt")
+			expect(loadVoice).to.be.ok()
+			expect(boltVoice).to.be.ok()
+			expect(Sound.load(semiConfig, ROW)).to.equal(true)
+			expect(Sound.bolt(semiConfig, ROW)).to.equal(true)
+			local shell = newestSound((loadVoice :: any).id)
+			local bolt = newestSound((boltVoice :: any).id)
+			expect(shell).to.be.ok()
+			expect(bolt).to.be.ok()
+			-- THE VOLUME IS THE CLASS TIMES THE VOICE'S OWN GAIN, and nothing else.
+			expect((shell :: Sound).Volume).to.be.near(volume.open * (loadVoice :: any).gain, 1e-4)
+			expect((bolt :: Sound).Volume).to.be.near(volume.open * (boltVoice :: any).gain, 1e-4)
+			-- AND IT IS AUDIBLE AGAINST THIS GUN'S OWN SHOT: over half of it, under all of it.
+			expect((shell :: Sound).Volume > volume.shot * 0.5).to.equal(true)
+			expect((shell :: Sound).Volume < volume.shot).to.equal(true)
+			-- ...AND THE MEASURED "BEFORE" IS WHAT IT IS NO LONGER.
+			expect((shell :: Sound).Volume > 0.35).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task248 semiauto voice: shell %.2f, bolt %.2f (was 0.35 both), shot %.2f",
+					(shell :: Sound).Volume,
+					(bolt :: Sound).Volume,
+					volume.shot
+				)
+			);
+			(shell :: Sound):Destroy();
+			(bolt :: Sound):Destroy()
+		end)
 	end)
 end

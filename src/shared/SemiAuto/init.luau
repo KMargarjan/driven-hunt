@@ -194,12 +194,26 @@ SemiAuto.CONFIG = {
 		-- bolt is a lighter, faster piece of steel travelling a shorter distance than a lever throw.
 		-- Played on both edges of the action by `CameraBoot`, which is already how a weapon with a
 		-- `bolt` voice is handled.
-		bolt = { id = "rbxassetid://9117889191", cut = 0.28, fade = 0.08, pitch = 1.20 },
+		--
+		-- ...AT ITS OWN LEVEL SINCE TASK 248 (`gain`), and the number comes from a measurement in
+		-- Karen's own client rather than from taste: the bolt came out at **Volume 0.35** -- the
+		-- `fire.volume.open` class it borrows -- against this gun's shot at **1.6**. A gas bolt
+		-- slamming home is the loudest thing this gun does that is not a shot, so 3.0 puts it at
+		-- 1.05, two thirds of the report. NOBODY HERE HAS HEARD IT: Karen's ears decide, and this
+		-- is one number.
+		bolt = { id = "rbxassetid://9117889191", cut = 0.28, fade = 0.08, pitch = 1.20, gain = 3.0 },
 		-- ONE SHELL THROUGH THE PORT. The lever's gate click, which is already a shell-handling
 		-- sample ("Shotgun Handle 1 (SFX)", ProSoundEffects) -- and on this gun it is literally a
 		-- shotgun shell being handled. A row without this key is silent at the port, and both
 		-- break-action and magazine guns written before task 224 are exactly that.
-		load = { id = "rbxassetid://9119115171", cut = 0.30, fade = 0.08, pitch = 1.0 },
+		--
+		-- ...AND THIS IS THE ONE KAREN NAMED, 2026-10-23: *"when reloading semiauto we need sound"*.
+		-- It was already wired and already playing -- `Camera.fedShell`'s edge fires once per shell
+		-- that actually goes into the tube, the same edge the lever's gate click rides -- and it was
+		-- coming out at **Volume 0.35** against a 1.6 shot and 3.00 ambience. 2.6 puts one shell at
+		-- 0.91: clearly under the report and clearly over the wood. Five of them, 0.38 s apart, are
+		-- what a port reload sounds like. KAREN'S EARS DECIDE.
+		load = { id = "rbxassetid://9119115171", cut = 0.30, fade = 0.08, pitch = 1.0, gain = 2.6 },
 	},
 }
 

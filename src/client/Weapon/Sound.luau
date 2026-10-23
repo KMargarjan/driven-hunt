@@ -105,7 +105,22 @@ local function play(kind: string, config, id: string?, volume: number?, voice: a
 	end
 	local made = Instance.new("Sound")
 	made.SoundId = id
-	made.Volume = volume or 0.5
+	-- `gain` IS THE VOICE'S OWN LEVEL (task 248), and it is a multiplier rather than a volume: the
+	-- three numbers in `fire.volume` are the CLASSES of noise this gun makes -- the shot, the open
+	-- click, the close click -- and they are tuned live by the Director in `poses.json`. A weapon
+	-- whose own sample is quieter than the class it belongs to cannot be fixed by moving the class
+	-- without moving every other gun with it.
+	--
+	-- KAREN, 2026-10-23: *"when reloading semiauto we need sound"*, AND IT WAS MEASURED IN HER OWN
+	-- CLIENT before anything was changed (Forest Test, 2026-10-23): the shell going through the
+	-- port came out of this function at **Volume 0.35** -- `fire.volume.open`, the class it borrows
+	-- -- against a semi-auto shot at **1.6** and two ambience sounds sitting in `SoundService` at
+	-- **3.00**. It was never silent; it was inaudible, which is the same thing from where she sits.
+	--
+	-- NIL IS 1 AND 1 IS TODAY'S SOUND, so every voice in the game that does not ask for one is bit
+	-- for bit what it was.
+	local gain = if voice ~= nil and type(voice.gain) == "number" then voice.gain else 1
+	made.Volume = (volume or 0.5) * gain
 	local speed = pitch or (voice ~= nil and voice.pitch) or nil
 	if speed ~= nil then
 		made.PlaybackSpeed = speed
