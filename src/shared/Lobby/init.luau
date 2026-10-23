@@ -219,6 +219,59 @@ Lobby.PAD_REQUEST_REMOTE = "PadRequest"
 -- ONE WIRE IN, NONE OUT, which is this system's own rule: the attribute above is the answer.
 Lobby.ROLE_REQUEST_REMOTE = "RoleRequest"
 
+-- ---------------------------------------------------------------- the next drive (task 246)
+
+-- KAREN, 2026-10-23: *"we need continues game so after drive new drive imidiatly after same amount
+-- seconds"*.
+--
+-- WHEN THE NEXT DRIVE STARTS, as a server time, or nil for *"no drive is counting in"*. One more
+-- attribute on the `Player`, beside `DHLobbyLeaveAt` -- and it is deliberately the SAME shape and
+-- the SAME conversion (`Lobby.secondsLeft`), because it is the same kind of fact: a deadline the
+-- server owns and the client counts down locally.
+--
+-- IT IS NOT `DHLobbyLeaveAt` REUSED, and that is a ruling rather than a shortcut. That attribute
+-- means *"the truck you are standing on leaves then"* -- it is cleared by `clearLeaveAt` the moment
+-- a man steps off a pad, and `Objective` and the loading banner both read it as a PAD fact. A man
+-- waiting at the lodge for the next drive is on no pad, so writing it there would make two
+-- unrelated things true of one number, which is this project's named failure mode.
+Lobby.NEXT_AT_ATTRIBUTE = "DHNextDriveAt"
+
+-- ...AND WHETHER HE HAS ASKED TO MISS IT. Absent (the default) is *"he is in"*; `true` is *"he has
+-- pressed SIT OUT"*. The Director's brief: *"By default they are in."*
+--
+-- A SECOND ATTRIBUTE AND NOT A SIGN ON THE FIRST, because the two are independent facts: the
+-- countdown runs whether he is in or out -- that is the whole point of letting him change his mind
+-- -- so a single field could not carry both without one of them lying for a frame. `DHPadMine` and
+-- `DHLobbyLeaveAt` are the same pair of facts one system along.
+--
+-- THE SERVER WRITES IT AND THE CLIENT READS IT, like every other attribute in this file: the card
+-- lights the half the server says, never the half it asked for, which is Quake III's own
+-- arrangement (`cl->readyToExit` published outward as `STAT_CLIENTS_READY`;
+-- `docs/research/2026-10-23-the-continuous-drive-loop.md` source C).
+Lobby.NEXT_OUT_ATTRIBUTE = "DHNextDriveOut"
+
+-- THE TWO WORDS, HERE because they cross the wire -- `Lobby.ROLE_WISH`'s arrangement exactly, and
+-- for its stated reason: one spelling of "out" in the repository, so a typo cannot make a button
+-- that never works.
+Lobby.NEXT_WORD = table.freeze({
+	IN = "in",
+	OUT = "out",
+})
+
+-- IS THIS A WORD THIS SYSTEM KNOWS? PURE, and it is the ONE whitelist: the server's door asks it of
+-- a payload and the client's sender asks it of its own argument (`Lobby.roleAllowed`'s rule).
+function Lobby.nextAllowed(word: any): boolean
+	return word == Lobby.NEXT_WORD.IN or word == Lobby.NEXT_WORD.OUT
+end
+
+-- THE THIRD INBOUND DOOR (task 246), on the same folder as the other two. `RoleRequest` is NOT
+-- extended, for the reason task 229 gave for not extending `PadRequest`: every field of its payload
+-- is about a ROLE and it refuses everything else as `bad-request`, so carrying "am I in the next
+-- drive" on it would make one handler answer two questions.
+--
+-- ONE WIRE IN, NONE OUT, which is this system's own rule: the two attributes above are the answer.
+Lobby.NEXT_REQUEST_REMOTE = "NextRequest"
+
 -- ---------------------------------------------------------------- where the lobby is
 
 -- A WORLD HAS A LOBBY WHEN, AND ONLY WHEN, THERE IS A ROW FOR IT (design section 2).
@@ -1980,6 +2033,95 @@ Lobby.CONFIG = {
 			-- is 15 rather than 17).
 			Z_INDEX = 15,
 		},
+
+		-- ------------------------------------------------- the next drive's card (task 246)
+		--
+		-- KAREN, 2026-10-23: *"we need continues game so after drive new drive imidiatly after
+		-- same amount seconds and who has licesne can select who he can be next round if dont
+		-- then oposit previuos round"*.
+		--
+		-- IT IS DRAWN IN THE SIZE DIALOG'S OWN RECTANGLE and the two are never up together --
+		-- `PadPanel` owns both `Visible`s and refuses the dialog while this is up. That is a
+		-- design decision with a reason: **they are the same question** (*"which drive are you
+		-- going on"*), a man the next drive already has does not need to be asked how big a
+		-- party he wants, and reusing the rectangle means task 209's banner-overlap arithmetic
+		-- (`LEAVING.Y_SCALE`) holds with nothing re-measured and `hud_clarity.spec` gains no
+		-- band. It is `WIDTH`, `Z_INDEX` and the centred position of `PANEL` above, read from
+		-- there rather than copied.
+		-- IT IS A ROW OF `PADS` AND NOT A BLOCK OF ITS OWN because this and the four pads are
+		-- ONE subsystem -- *how a party is formed, and how it is re-formed* -- with two pure
+		-- state machines, `Lobby.Pads` and `Lobby.Next`. `PADS` already holds both the rules
+		-- (`PICK_TIMEOUT_SECONDS`, `REQUEST_MIN_INTERVAL`) and the look (`BILLBOARD`, `PANEL`)
+		-- of its half, so this keeps the two halves beside each other instead of in two places.
+		NEXT = {
+			-- HOW LONG THE PARTY WAITS AT THE LODGE between drives. **8**, which is the number
+			-- the Director's brief names (*"reuse the existing between-drive length"*):
+			-- `Match.CONFIG.SCORE_SECONDS` is 8 after Karen's *"make 8s max"* of 2026-10-18. It
+			-- is inside Valve's own clamp for the same gap -- `mp_bonusroundtime`, *"Time after
+			-- round win until round restarts"*, default 15, clamped 5..15
+			-- (`docs/research/2026-10-23-the-continuous-drive-loop.md` source B).
+			--
+			-- THE WHOLE GAP DRIVE TO DRIVE IS 31 s AND ONLY THIS ONE IS NEW: 8 results scene
+			-- (`SCORE_SECONDS`) + 8 here + 15 intermission (`INTERMISSION_SECONDS`, the seconds
+			-- the hunters walk to their stands with).
+			SECONDS = 8,
+			-- WHEN THE COUNTDOWN IS ARMED ANYWAY. The deadline is normally set on the first scan
+			-- on which the whole party is out of the drive and no longer held -- which is the
+			-- instant the results scene's `free` lands and the lodge's return rule fires, so the
+			-- player sees the lodge BEFORE the number, which is the order Karen asked for.
+			--
+			-- THIS IS THE BOUND ON THAT, and it exists because *"a countdown that never arms"*
+			-- is hazard 1 of the note: one member stuck `held` or still a participant -- a
+			-- character that never loads, a drive that never leaves `Scoring` -- would otherwise
+			-- stop the loop for everybody with nothing on screen to say so. 12 s is longer than
+			-- the whole results scene (8) plus a respawn, and shorter than a player's patience.
+			ARM_TIMEOUT_SECONDS = 12,
+			-- IS HE PRESSING TOO OFTEN? `PADS.REQUEST_MIN_INTERVAL`'s own number and its own
+			-- reason: a FORGERY guard, not a game rule, because a person cannot press a button
+			-- four times a second.
+			REQUEST_MIN_INTERVAL = 0.25,
+
+			EYEBROW = "THE HUNT GOES ON",
+			TITLE = "NEXT DRIVE IN",
+			-- THERE IS NO "NO NUMBER YET" WORD ON THIS CARD, AND THAT IS THE DESIGN. The card is
+			-- up EXACTLY while the countdown is armed: the window before that (`Next.WAITING` --
+			-- the party is collected and somebody is still walking home from the line) is
+			-- Karen's RESULTS SCENE, and a second card over her score table would be the
+			-- clutter, not the feature. So the number always exists while the card is drawn, and
+			-- there is no placeholder to keep honest (`Shop.checkRequest`'s rule: *"an argument
+			-- nobody reads is an argument nobody checked"*).
+			-- THE TWO STATES OF THE ONE BUTTON. Pressing it when he is IN asks to sit out;
+			-- pressing it when he is OUT asks back in -- one control, because *"a way out nobody
+			-- can see is not an exit"* (`PANEL.HINT`'s rule) and two buttons for one boolean
+			-- would be two answers to one question.
+			SIT_OUT = "SIT OUT",
+			SIT_IN = "I AM COMING",
+			-- ONE LINE UNDER THE BUTTON, saying which it is. The screen never claims to know
+			-- more than the server said (`Objective.CONFIG.TEXT`'s rule): these are written off
+			-- `DHNextDriveOut`, never off what this client sent.
+			NOTE_IN = "YOU ARE IN THE NEXT DRIVE",
+			NOTE_OUT = "STAYING AT THE LODGE",
+			-- THE KEY, on the button's own row, for `ROLE.KEY_HINT`'s stated reason: a key
+			-- nobody can see is a key nobody presses. The `%s` is the binding's own
+			-- `KeyCode.Name`, so the chip and the key cannot drift apart.
+			KEY_HINT = "%s",
+			-- ...AND THE WAY OUT OF THE WAY OUT, which this card needs for the dialog's reason:
+			-- it has no close button, because closing it would be hiding a countdown that is
+			-- still running.
+			HINT = "OR STEP ONTO A TRUCK PAD TO GO NOW",
+
+			-- THE GEOMETRY. One block, measured against `PANEL`'s own ladder so the two cards
+			-- read as one surface: 64 header (`PANEL.HEADER_PX`), the big number, the role block
+			-- when it is shown (`ROLE.BLOCK_PX`, the dialog's own), one 60 px button
+			-- (`PANEL.BUTTON_PX`), the note, and the hint.
+			COUNT_PX = 56, -- the big number's own row
+			COUNT_SIZE = 44, -- and its face size
+			BUTTON_PX = 60,
+			NOTE_PX = 14,
+			HINT_PX = 26,
+			GAP = 8,
+			KEY_PX = 44,
+		},
 	},
 	-- WHERE HE ARRIVES: in front of the porch, looking +Z (north) at the lodge with the forest
 	-- behind it, the truck and the ring to his right. Karen's *"house is in fields next to forrest"*
@@ -2350,6 +2492,8 @@ function Lobby.remotes(): any
 		-- TASK 229. Found by the same `WaitForChild`, so a client that loads before the folder has
 		-- replicated waits for both rather than racing one of them.
 		RoleRequest = folder:WaitForChild(Lobby.ROLE_REQUEST_REMOTE) :: RemoteEvent,
+		-- TASK 246, found by the same `WaitForChild` and for the same reason.
+		NextRequest = folder:WaitForChild(Lobby.NEXT_REQUEST_REMOTE) :: RemoteEvent,
 	}
 	remotes = built
 	return built

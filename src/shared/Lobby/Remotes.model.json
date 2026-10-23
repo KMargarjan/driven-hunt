@@ -2,6 +2,7 @@
   "className": "Folder",
   "children": [
     { "name": "PadRequest", "className": "RemoteEvent" },
-    { "name": "RoleRequest", "className": "RemoteEvent" }
+    { "name": "RoleRequest", "className": "RemoteEvent" },
+    { "name": "NextRequest", "className": "RemoteEvent" }
   ]
 }

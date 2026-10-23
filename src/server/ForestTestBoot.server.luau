@@ -741,6 +741,23 @@ local function reportLobby()
 		)
 	)
 
+	-- ...AND THE CONTINUOUS LOOP, ON ITS OWN LINE (task 246). KAREN, 2026-10-23: *"we need continues
+	-- game so after drive new drive imidiatly after same amount seconds"*.
+	--
+	-- IT IS A LINE RATHER THAN AN INSPECTION for `[lobby] trucks:`' own stated reason: the party
+	-- that goes again is invisible until a drive ends, so the three numbers that decide whether it
+	-- CAN go -- the wait, its timeout, and whether the SIT OUT door is wired -- belong on the console
+	-- at boot, where a playtest can read them before the first drive rather than after it.
+	print(
+		string.format(
+			"[lobby] the hunt goes on: %ds at the lodge between drives (armed when everybody is home,"
+				.. " or after %ds), sit-out door=%s",
+			Lobby.Data.CONFIG.PADS.NEXT.SECONDS,
+			Lobby.Data.CONFIG.PADS.NEXT.ARM_TIMEOUT_SECONDS,
+			tostring(Lobby.Data.remotes() ~= nil and Lobby.Data.remotes().NextRequest ~= nil)
+		)
+	)
+
 	-- THE TRUCKS, ON THEIR OWN LINE (task 186). Karen, 2026-10-14: *"car tyers are inside earth"* --
 	-- and the count that was already printed said four trucks built, because they WERE built: they
 	-- were built 0.75 studs under the terrain. So the number that goes on the console is the WORST

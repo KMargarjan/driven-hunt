@@ -357,8 +357,11 @@ return function()
 			local frame = Hud.padPanel()
 			expect(frame).to.be.ok()
 			-- THE BANNER'S FRAME GOES BACK WITH IT (task 197), or every later case -- and Karen --
-			-- would have a panel with no banner attached to it.
-			PadPanel.start(frame :: Frame, { remotes = nil, leaving = Hud.padLeaving() })
+			-- would have a panel with no banner attached to it. **AND THE NEXT DRIVE'S CARD SINCE
+			-- TASK 246, for the identical reason, which the first harness run spelled out in four
+			-- failures:** `PadPanel.stop` nils `nextCard`, so a restore that hands back only two of
+			-- the three frames leaves the card unbuilt for every case after it.
+			PadPanel.start(frame :: Frame, { remotes = nil, leaving = Hud.padLeaving(), nextDrive = Hud.padNext() })
 			local rebuilt = 0
 			for _, child in ipairs((frame :: Frame):GetChildren()) do
 				if child:IsA("TextButton") then
@@ -839,7 +842,7 @@ return function()
 			-- `Hud.start` passes carries no `remotes` key at all.
 			PadPanel.stop()
 			PadPanel.setRemotes(fake)
-			PadPanel.start(Hud.padPanel() :: Frame, { leaving = Hud.padLeaving() })
+			PadPanel.start(Hud.padPanel() :: Frame, { leaving = Hud.padLeaving(), nextDrive = Hud.padNext() })
 			PadPanel.setAsk(2)
 			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
 			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(true)
@@ -849,7 +852,10 @@ return function()
 			-- ...AND A BAG THAT BRINGS ONE STILL WINS, so every caller written before this is unchanged.
 			PadPanel.stop()
 			PadPanel.setRemotes(nil)
-			PadPanel.start(Hud.padPanel() :: Frame, { remotes = fake, leaving = Hud.padLeaving() })
+			PadPanel.start(
+				Hud.padPanel() :: Frame,
+				{ remotes = fake, leaving = Hud.padLeaving(), nextDrive = Hud.padNext() }
+			)
 			PadPanel.setAsk(2)
 			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
 			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(true)
@@ -865,7 +871,10 @@ return function()
 			-- THE LIVE PANEL GOES BACK, because this case took it over -- the restore the
 			-- mouse-and-trigger case makes, for its reason, and asserted rather than assumed.
 			PadPanel.stop()
-			PadPanel.start(Hud.padPanel() :: Frame, { remotes = nil, leaving = Hud.padLeaving() })
+			PadPanel.start(
+				Hud.padPanel() :: Frame,
+				{ remotes = nil, leaving = Hud.padLeaving(), nextDrive = Hud.padNext() }
+			)
 			local rebuilt = 0
 			for _, child in ipairs((Hud.padPanel() :: Frame):GetChildren()) do
 				if child:IsA("TextButton") then
@@ -988,6 +997,275 @@ return function()
 				expect(half.Text).to.equal("")
 				expect(half:FindFirstChild("Word")).to.be.ok()
 			end
+		end)
+		-- -------------------------------------------------- task 246: the next drive's card
+		--
+		-- KAREN, 2026-10-23: *"we need continues game so after drive new drive imidiatly after same
+		-- amount seconds and who has licesne can select who he can be next round if dont then
+		-- oposit previuos round"*.
+		--
+		-- THE SAME LIMIT AS EVERY CASE ABOVE, stated again rather than assumed: a spec cannot fire
+		-- `GuiButton.Activated`, so `PadPanel.pressNext` is the seam these cases drive and what they
+		-- prove is the ACTION behind the button. **The real OS-level click and the real key are in
+		-- the review request, with frames.**
+		describe("the next drive's card", function()
+			local NEXT = PADS.NEXT
+			-- THE HOUSE STYLE'S OWN LETTER SPACING, off the panel that SETS it, so these cases
+			-- compare against what the card really writes rather than against a second copy of it.
+			-- `Hud.Shop` is the shop panel's own export name here (`Hud.ShopPanel` does not exist,
+			-- which is what the first harness run said in one line).
+			local spaced = Hud.Shop.spaced
+
+			-- NOTHING LEFT ON KAREN'S SCREEN: a case that left a countdown up would leave her
+			-- reading `NEXT DRIVE IN 4` for the rest of the session.
+			local function clearNext()
+				PadPanel.setNext(nil, false)
+			end
+
+			beforeEach(clearNext)
+			afterEach(clearNext)
+
+			it("is built, hidden, and the size dialog's own rectangle", function()
+				local frame = Hud.padNext()
+				expect(frame).to.be.ok()
+				local card = frame :: Frame
+				expect(card.Visible).to.equal(false)
+				-- THE SAME WIDTH, THE SAME BOTTOM EDGE AND THE SAME Z as the dialog, from the
+				-- dialog's own three functions -- which is what makes task 209's banner-overlap
+				-- arithmetic hold with nothing re-measured.
+				expect(card.Size.X.Offset).to.equal(PadPanel.widthFor())
+				expect(card.ZIndex).to.equal(PadPanel.zIndex())
+				expect(card.AnchorPoint.Y).to.equal(PadPanel.anchorPoint().Y)
+				expect(card.Position.Y.Offset).to.equal(PadPanel.positionFor().Y.Offset)
+				expect(PadPanel.widthFor() <= 400).to.equal(true)
+			end)
+
+			it("counts the seconds up to the next whole one, and never below zero", function()
+				-- `math.ceil`, which is `Hud.startCardSecondsFor`'s own choice: a countdown that read
+				-- 0 for a whole second before it happened would have lied for a second.
+				expect(PadPanel.nextSecondsFor(8)).to.equal(8)
+				expect(PadPanel.nextSecondsFor(7.01)).to.equal(8)
+				expect(PadPanel.nextSecondsFor(0.2)).to.equal(1)
+				expect(PadPanel.nextSecondsFor(0)).to.equal(0)
+				expect(PadPanel.nextSecondsFor(-3)).to.equal(0)
+				expect(PadPanel.nextSecondsFor(nil)).to.equal(0)
+			end)
+
+			it("is up exactly while there is a countdown, and is down for the results scene", function()
+				expect(PadPanel.nextShown()).to.equal(false)
+				local opens = PadPanel.stats().nextOpens
+				PadPanel.setNext(NEXT.SECONDS, false)
+				expect(PadPanel.nextShown()).to.equal(true)
+				expect((Hud.padNext() :: Frame).Visible).to.equal(true)
+				expect(PadPanel.stats().nextOpens).to.equal(opens + 1)
+				-- THE NUMBER IS DRAWN, not merely held.
+				local text = PadPanel.nextText()
+				expect(text[3]).to.equal(tostring(NEXT.SECONDS))
+				-- nil SECONDS IS "THERE IS NO COUNTDOWN" AND NOT ZERO -- `Lobby.secondsLeft`'s own
+				-- contract, carried all the way to the screen. The window before the countdown is
+				-- armed is Karen's results scene, and this card is deliberately down for all of it.
+				local closes = PadPanel.stats().nextCloses
+				PadPanel.setNext(nil, false)
+				expect(PadPanel.nextShown()).to.equal(false)
+				expect((Hud.padNext() :: Frame).Visible).to.equal(false)
+				expect(PadPanel.stats().nextCloses).to.equal(closes + 1)
+				expect(#PadPanel.nextText()).to.equal(0)
+			end)
+
+			it("closes the size dialog while it is up, and gives it back after", function()
+				-- ONE RECTANGLE, SO ONE OF THEM YIELDS -- and it is the dialog, because a man the
+				-- next drive already has has answered its question already.
+				PadPanel.setAsk(2)
+				expect(PadPanel.dialogShown()).to.equal(true)
+				expect((Hud.padPanel() :: Frame).Visible).to.equal(true)
+				PadPanel.setNext(NEXT.SECONDS, false)
+				expect(PadPanel.dialogShown()).to.equal(false)
+				expect((Hud.padPanel() :: Frame).Visible).to.equal(false)
+				-- ...AND `isOpen` IS UNCHANGED: the server is still asking, and this client has not
+				-- forgotten which pad. Only the drawing yields.
+				expect(PadPanel.isOpen()).to.equal(true)
+				PadPanel.setNext(nil, false)
+				expect(PadPanel.dialogShown()).to.equal(true)
+				expect((Hud.padPanel() :: Frame).Visible).to.equal(true)
+				PadPanel.setAsk(nil)
+			end)
+
+			it("never draws over the click's banner, at either viewport step", function()
+				-- TASK 209 ROUND 2'S OWN CASE, applied to the third surface: the banner is raised on
+				-- a click and this card can be up at the same time (he pressed `1 / 1` and the pad
+				-- refused), so two opaque siblings at the same `ZIndex` must not touch.
+				PadPanel.setNext(NEXT.SECONDS, false)
+				PadPanel.setRoleWish(LobbyData.ROLE_WISH.BEATER, nil, 1080)
+				local card = Hud.padNext() :: Frame
+				local banner = Hud.padLeaving() :: Frame
+				for _, height in ipairs({ 720, 800, 1080 }) do
+					local cardTop, cardBottom = bandOf(card, height)
+					local bannerTop = (bandOf(banner, height))
+					expect(cardBottom <= bannerTop).to.equal(true)
+					expect(cardTop >= 0).to.equal(true)
+				end
+				PadPanel.setRoleWish(nil, nil, 720)
+			end)
+
+			it("says SIT OUT while he is in and I AM COMING while he is out, off the server's word", function()
+				-- ONE CONTROL, BECAUSE IT IS ONE BOOLEAN, and both words are Karen's to rewrite
+				-- (`PADS.NEXT`). The card says what the SERVER said and never what this client asked.
+				expect(PadPanel.nextButtonFor(false)).to.equal(NEXT.SIT_OUT)
+				expect(PadPanel.nextButtonFor(nil)).to.equal(NEXT.SIT_OUT)
+				expect(PadPanel.nextButtonFor(true)).to.equal(NEXT.SIT_IN)
+				expect(PadPanel.nextNoteFor(false)).to.equal(NEXT.NOTE_IN)
+				expect(PadPanel.nextNoteFor(true)).to.equal(NEXT.NOTE_OUT)
+				PadPanel.setNext(5, false)
+				local inText = PadPanel.nextText()
+				expect(inText[4]).to.equal(spaced(NEXT.SIT_OUT))
+				expect(inText[6]).to.equal(spaced(NEXT.NOTE_IN))
+				PadPanel.setNext(5, true)
+				local outText = PadPanel.nextText()
+				expect(outText[4]).to.equal(spaced(NEXT.SIT_IN))
+				expect(outText[6]).to.equal(spaced(NEXT.NOTE_OUT))
+			end)
+
+			it("asks OUT when he is in and IN when he is out, and nothing with no card up", function()
+				-- THE TOGGLE IS PURE, so which word a press carries is arithmetic rather than a
+				-- wiretap: it is read off the SERVER'S word, which is what makes a double press
+				-- in-out-in and never two OUTs.
+				expect(PadPanel.nextPressWord(false)).to.equal(LobbyData.NEXT_WORD.OUT)
+				expect(PadPanel.nextPressWord(nil)).to.equal(LobbyData.NEXT_WORD.OUT)
+				expect(PadPanel.nextPressWord(true)).to.equal(LobbyData.NEXT_WORD.IN)
+				local blocked = PadPanel.stats().nextBlocked
+				-- NOTHING AT ALL WITH NO COUNTDOWN: the server refuses it as `no-party` anyway, and
+				-- a client that sent one would be telling the server a lie about its own state.
+				expect(PadPanel.pressNext()).to.equal(false)
+				expect(PadPanel.stats().nextBlocked).to.equal(blocked + 1)
+				-- ...AND NOTHING FOR A WORD THIS SYSTEM DOES NOT KNOW, even with the card up.
+				PadPanel.setNext(5, false)
+				expect(PadPanel.sendNext("maybe")).to.equal(false)
+				expect(PadPanel.stats().nextBlocked).to.equal(blocked + 2)
+				-- A PRESS WITH THE CARD UP TAKES EXACTLY ONE DECISION -- sent, or refused for want of
+				-- a wire -- and the honest limit is stated rather than hidden: whether it LEAVES
+				-- depends on a remote this place may or may not have resolved, so the real round trip
+				-- is measured on Karen's path in the review request and this asserts the decision.
+				local decisions = PadPanel.stats().nextSent + PadPanel.stats().nextBlocked
+				PadPanel.pressNext()
+				expect(PadPanel.stats().nextSent + PadPanel.stats().nextBlocked).to.equal(decisions + 1)
+			end)
+
+			it("binds Y only while the card is up, and T on this surface as well", function()
+				-- A KEY NOBODY CAN SEE IS A KEY NOBODY PRESSES (`ROLE.KEY_HINT`'s rule), so the chip
+				-- carries the binding's own name and cannot drift from it.
+				expect(PadPanel.sitKeyBound()).to.equal(false)
+				PadPanel.setNext(NEXT.SECONDS, false)
+				expect(PadPanel.sitKeyBound()).to.equal(true)
+				-- ...AND THE ROLE SWITCH'S KEY TOO, because the control is on BOTH surfaces.
+				expect(PadPanel.switchKeyBound()).to.equal(true)
+				expect(PadPanel.nextText()[5]).to.equal(spaced(string.format(NEXT.KEY_HINT, PadPanel.sitKeyName())))
+				PadPanel.setNext(nil, false)
+				expect(PadPanel.sitKeyBound()).to.equal(false)
+				-- `T` GOES BACK ONLY IF NO PAD DIALOG IS UP, which is what one boolean decides.
+				expect(PadPanel.switchKeyBound()).to.equal(false)
+			end)
+
+			it("shows the role switch on the card, on the dialog's own condition, lit the same way", function()
+				-- KAREN'S THIRD SENTENCE: *"who has licesne can select who he can be next round"*.
+				-- The control is `ShopPanel`'s and so is its painter, which is what stops the three
+				-- surfaces disagreeing about which half is lit.
+				PadPanel.setNext(NEXT.SECONDS, false)
+				PadPanel.setRoleWish(nil, nil, 1080)
+				expect(PadPanel.nextLayoutFor(nil, 1080).switchShown).to.equal(false)
+				expect(PadPanel.nextRoleLit()).to.equal(nil)
+				PadPanel.setRoleWish(LobbyData.ROLE_WISH.BEATER, nil, 1080)
+				expect(PadPanel.nextLayoutFor(LobbyData.ROLE_WISH.BEATER, 1080).switchShown).to.equal(true)
+				expect(PadPanel.nextRoleLit()).to.equal(LobbyData.ROLE_WISH.BEATER)
+				-- THE SAME HALF AS THE PAD DIALOG'S, because there is one evaluation of each value.
+				expect(PadPanel.nextRoleLit()).to.equal(PadPanel.roleLit())
+				PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 1080)
+				expect(PadPanel.nextRoleLit()).to.equal(LobbyData.ROLE_WISH.HUNTER)
+				expect(PadPanel.nextRoleLit()).to.equal(PadPanel.roleLit())
+				PadPanel.setRoleWish(nil, nil, 720)
+			end)
+
+			it("grows upward for the role block and keeps its bottom edge", function()
+				-- THE DIALOG'S OWN RULE (task 229): the block grows the card UPWARD, so the bottom
+				-- stays where it was and the banner's band is untouched.
+				local without = PadPanel.nextLayoutFor(nil, 1080)
+				local with = PadPanel.nextLayoutFor(LobbyData.ROLE_WISH.BEATER, 1080)
+				expect(with.height > without.height).to.equal(true)
+				expect(with.buttonY > without.buttonY).to.equal(true)
+				expect(with.height - without.height).to.equal(with.buttonY - without.buttonY)
+				-- NOTHING OVERLAPS: each row starts at or after the previous one's bottom.
+				for _, layout in ipairs({ without, with }) do
+					expect(layout.countY >= PANEL.HEADER_PX).to.equal(true)
+					expect(layout.buttonY >= layout.countY + NEXT.COUNT_PX).to.equal(true)
+					expect(layout.noteY >= layout.buttonY + NEXT.BUTTON_PX).to.equal(true)
+					expect(layout.hintY >= layout.noteY + NEXT.NOTE_PX).to.equal(true)
+					expect(layout.height >= layout.hintY + NEXT.HINT_PX).to.equal(true)
+				end
+				-- THE CARD IS NEVER TALLER THAN THE DIALOG IT SHARES A RECTANGLE WITH, so the bottom
+				-- edge they share cannot push it off the top of a 720 px screen.
+				expect(with.height <= PadPanel.heightFor(#PADS.SIZES, true)).to.equal(true)
+			end)
+
+			-- ---------------- review round 1's two blocking findings, each as a case
+			it("leaves every BackgroundColor3 alone per frame, so a hover survives", function()
+				-- **FINDING 1.** `setNext` is called by the Hud's one evaluation EVERY FRAME. It used
+				-- to end in `PadPanel.render()`, which rewrites every size row's `BackgroundColor3`
+				-- unconditionally -- so the TRUCK PAD DIALOG'S hover tint (shipped behaviour this
+				-- task never set out to touch) was erased one frame after `MouseEnter` wrote it,
+				-- whether the card was up or not.
+				--
+				-- THE CASE IS THE HOVER ITSELF, written by hand because a spec cannot move a mouse:
+				-- paint the row and the button as `MouseEnter` does, then drive thirty frames of the
+				-- setter and see the colour still there.
+				PadPanel.setAsk(2)
+				local row = (Hud.padPanel() :: Frame):FindFirstChild("Size1") :: TextButton
+				local sit = (Hud.padNext() :: Frame):FindFirstChild("SitOut") :: TextButton
+				expect(row).to.be.ok()
+				expect(sit).to.be.ok()
+				PadPanel.setNext(NEXT.SECONDS, false)
+				row.BackgroundColor3 = PadPanel.LOOK.ROW_HOVER_COLOR
+				sit.BackgroundColor3 = PadPanel.LOOK.ROW_HOVER_COLOR
+				for frame = 1, 30 do
+					PadPanel.setNext(NEXT.SECONDS - frame * 0.2, false)
+				end
+				expect(row.BackgroundColor3).to.equal(PadPanel.LOOK.ROW_HOVER_COLOR)
+				expect(sit.BackgroundColor3).to.equal(PadPanel.LOOK.ROW_HOVER_COLOR)
+				-- ...AND THE RESTING TINT IS STILL WRITTEN WHEN THE STATE CHANGES, which is the half
+				-- that must not be lost in fixing the other: `MouseLeave` restores
+				-- `nextButtonTint()`, and `out` flipping repaints on that edge.
+				expect(PadPanel.nextButtonTint()).to.equal(PadPanel.LOOK.BUTTON_COLOR)
+				PadPanel.setNext(NEXT.SECONDS, true)
+				expect(PadPanel.nextButtonTint()).never.to.equal(PadPanel.LOOK.BUTTON_COLOR)
+				expect(sit.BackgroundColor3).to.equal(PadPanel.nextButtonTint())
+				PadPanel.setAsk(nil)
+			end)
+
+			it("keeps T bound when a man walks off a pad with the card up", function()
+				-- **FINDING 2.** Both surfaces bind `T`, and `bindSwitchKey` is one boolean with no
+				-- second requester -- so `setAsk`'s close branch unbinding it unconditionally killed
+				-- the key the CARD'S own chip was still advertising. Reachable on Karen's path:
+				-- `Hud.renderObjective` calls `setAsk(asking)` every frame, so one walk on and off a
+				-- pad during the 8 s did it.
+				PadPanel.setNext(NEXT.SECONDS, false)
+				expect(PadPanel.switchKeyBound()).to.equal(true)
+				PadPanel.setAsk(2)
+				expect(PadPanel.switchKeyBound()).to.equal(true)
+				PadPanel.setAsk(nil)
+				expect(PadPanel.switchKeyBound()).to.equal(true)
+				-- ...AND IT IS STILL RELEASED WHEN NEITHER SURFACE IS UP, which is the other half.
+				PadPanel.setNext(nil, false)
+				expect(PadPanel.switchKeyBound()).to.equal(false)
+				PadPanel.setAsk(2)
+				expect(PadPanel.switchKeyBound()).to.equal(true)
+				PadPanel.setAsk(nil)
+				expect(PadPanel.switchKeyBound()).to.equal(false)
+			end)
+
+			it("halves the switch by the formula both surfaces use", function()
+				local layout = PadPanel.nextLayoutFor(LobbyData.ROLE_WISH.BEATER, 1080)
+				local dialog = PadPanel.layoutFor(#PADS.SIZES, LobbyData.ROLE_WISH.BEATER, 1080)
+				expect(layout.trackWidth).to.equal(dialog.trackWidth)
+				expect(layout.halfWidth).to.equal(dialog.halfWidth)
+			end)
 		end)
 	end)
 end
