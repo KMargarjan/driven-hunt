@@ -547,6 +547,70 @@ Boar.CONFIG = {
 			-- could neither die nor escape would circle in the arena for ever.
 			rear = { Slug = 55, Pellet = 11 },
 		},
+
+		-- WHAT A CENTRE-FIRE RIFLE BULLET DOES THAT A SHOTGUN SLUG DOES NOT (task 250). KAREN,
+		-- 2026-10-23: *"we need to change rifle sound and make more damadge recoil and sound"*.
+		--
+		-- IT IS A SIBLING TABLE AND NOT A COLUMN IN THE ROWS ABOVE, keyed WEAPON -> ZONE -> points.
+		-- `DAMAGE` is keyed by the AMMO WORD (`Slug` / `Pellet`), and both rifles send `Slug` on the
+		-- wire exactly as the shotgun does -- `Rifle.CONFIG.AMMO_KINDS` is `{ "Slug" }` and so is
+		-- the lever's. So a bullet and a slug CANNOT be told apart by `hit.ammo`, and raising the
+		-- `Slug` column would have turned the shotgun into a rifle.
+		--
+		-- THE SELECTOR IS `hit.weapon`, WHICH ALREADY EXISTS AND COSTS NOTHING. `Weapon.Hits.group`
+		-- is the one constructor of a `HitReport` and has carried the weapon's row id since task
+		-- 140, with its own comment: *"A weapon is a property of the SHOT, exactly as `ammo` is"*.
+		-- `MatchBoot` and `ForestTestBoot` now forward it into the payload, one line each, and
+		-- `Wound.damageFor` looks here first. **NOTHING WAS RENAMED**: the alternative was to give
+		-- the two rifles their own ammo word, which is 27 rows in `Rifle`/`Lever` plus
+		-- `Shotgun.AmmoKind`, the shop's shells, the Hud's chip and ~300 lines across 25 spec
+		-- files -- a rename, in a task that is four items (CLAUDE.md rule 4, and standing rule B).
+		--
+		-- AND IT IS THE BOAR THAT DECIDES, which is the owner boundary `docs/design/hit-zones.md`
+		-- section 3.1 draws: *"The weapon must not gain a damage number, a zone table or a health
+		-- concept"*. It gains none -- this table is the ANIMAL's, in the animal's own config, and
+		-- the weapon only says which gun fired.
+		--
+		-- A WEAPON WITH NO ROW HERE IS UNCHANGED, BIT FOR BIT: `Wound.damageFor` falls through to
+		-- the `DAMAGE` rows above. That is the shotgun, the semi-auto, every spec hit written before
+		-- this task, and every hit that carries no weapon at all.
+		--
+		-- THE NUMBERS, AND WHAT THEY COST SHOT BY SHOT. `MORTAL` is 50 and `LETHAL` is 100;
+		-- `toughness` divides a NON-VITAL hit's points and the deer carry 1.2 (task 240), so the
+		-- deer column is the boar column over 1.2. A slug is one projectile.
+		--
+		--                       boar (toughness 1)              deer (toughness 1.2)
+		--   zone   slug  rigby  lever    slug ->  rigby  lever    slug  ->  rigby  lever
+		--   head    100   100    100     lethal   lethal lethal   lethal    lethal lethal
+		--   chest   100   100    100     lethal   lethal lethal   lethal    lethal lethal
+		--   body     55   100     80     mortal   LETHAL mortal   GRAZE     LETHAL mortal
+		--   rear     55    75     65     mortal   mortal mortal   mortal    mortal mortal
+		--   legs     30    60     50     graze    MORTAL MORTAL   graze     MORTAL MORTAL
+		--
+		-- SHOTS TO KILL, BEFORE AND AFTER, which is what the dispatch asked for:
+		--   body, Rigby:  boar 2 -> 1   deer 3 -> 1   (a .416 through the paunch was a GRAZE on a
+		--                                              stag: 55 / 1.2 = 45.8, under MORTAL. That
+		--                                              is the one number this task exists to fix)
+		--   body, lever:  boar 2 -> 2   deer 3 -> 2
+		--   legs, Rigby:  boar 4 -> 2   deer 4 -> 2   (one bullet now breaks the animal down)
+		--   legs, lever:  boar 4 -> 2   deer 5 -> 3
+		--   rear, Rigby:  boar 2 -> 2   deer 2 -> 2   (unchanged on purpose: see below)
+		--   head/chest:   unchanged everywhere -- one shot, any gun, and the vitals are never
+		--                 armoured (`Wound.damageFor`'s own rule)
+		--
+		-- `rear` IS DELIBERATELY SHORT OF LETHAL ON BOTH RIFLES, and that is Karen's own design
+		-- rather than a rounding: `WOUND.CLASS.rear` is `crippling` and task 116 is her
+		-- *"can be hit to back part start to do circles with first legs on"*. At 100 a rifle rump
+		-- shot would be instant death and the reaction she asked for would never happen with a
+		-- rifle in your hands. 75 and 65 are mortal on both species with a SHORTER flight (the
+		-- taper in `Wound.flightStuds` runs on the damage past MORTAL), so the animal still goes
+		-- down on its back end -- it just does not last as long.
+		--
+		-- Every one of these ten is one line. KAREN DECIDES whether a rifle should be this hard.
+		DAMAGE_BY_WEAPON = {
+			rifle = { head = 100, chest = 100, body = 100, legs = 60, rear = 75 },
+			lever = { head = 100, chest = 100, body = 80, legs = 50, rear = 65 },
+		},
 		-- Studs run before collapsing, from the worst zone hit. Validated against Stokke et al.
 		-- (2018): efd = 1.14*M^0.73 m and mfd = 4.92*M^0.73 m give 100 and 429 studs at 80 kg
 		-- (docs/research/2026-09-25-hit-zones.md source C).

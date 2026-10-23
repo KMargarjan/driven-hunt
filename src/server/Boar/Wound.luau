@@ -30,6 +30,9 @@ export type WoundRecord = {
 	at: number,
 	zone: string,
 	ammo: string,
+	-- WHICH GUN FIRED (task 250). Optional, because a hit may carry none and every record written
+	-- before this task did not.
+	weapon: string?,
 	pellets: number,
 	damage: number,
 	distance: number?,
@@ -129,6 +132,31 @@ local function row(config, zone: string)
 	return config.DAMAGE[zone] or config.DAMAGE[FALLBACK_ZONE]
 end
 
+-- WHAT ONE PROJECTILE OF THIS GUN DOES IN THIS ZONE, or nil when this gun has no say (task 250).
+-- PURE and exported, so a spec drives every branch -- a weapon with a row, a weapon without one, a
+-- zone the row does not name, a nil weapon, and an animal whose config has no table at all -- with
+-- no world and no hit.
+--
+-- THE ZONE IS NOT FALLEN BACK ON HERE, deliberately: `row` above maps an unknown zone onto `body`
+-- for the `DAMAGE` table, and doing the same with a per-weapon table would charge a typo'd zone at
+-- the rifle's BODY number. A zone this gun's row does not name answers nil and the shared table
+-- decides, which keeps the unknown-zone tally (`Runtime`'s `unknownZoneHits`) meaning what it means.
+function Wound.weaponPoints(zone: string, weapon: string?, config): number?
+	if type(weapon) ~= "string" then
+		return nil
+	end
+	local byWeapon = config.DAMAGE_BY_WEAPON
+	if type(byWeapon) ~= "table" then
+		return nil
+	end
+	local weaponRow = byWeapon[weapon]
+	if type(weaponRow) ~= "table" then
+		return nil
+	end
+	local points = weaponRow[zone]
+	return if type(points) == "number" then points else nil
+end
+
 -- Points for `pellets` projectiles of `ammo` in `zone`. A slug is one projectile charged at the
 -- Slug column; every buckshot pellet is charged separately at the Pellet column.
 --
@@ -149,9 +177,34 @@ end
 -- `Wound.flightStuds` tapers the run across the span `MORTAL..LETHAL`, so scaling the thresholds
 -- would ALSO change how far a wounded legendary runs for the same fraction of a mortal wound. Armour
 -- is the narrower change and it is the one that was asked for.
-function Wound.damageFor(zone: string, ammo: string, pellets: number, config, toughness: number?): number
+--
+-- `weapon` IS WHICH GUN FIRED, AND IT IS OPTIONAL (task 250). KAREN, 2026-10-23: the rifle needs
+-- *"more damadge"*. `config.DAMAGE_BY_WEAPON[weapon][zone]` is consulted FIRST and the `DAMAGE` rows
+-- are the fallback, so a weapon with no row -- the shotgun, the semi-auto, every hit written before
+-- this task and every hit that carries no weapon at all -- is bit for bit what it was.
+--
+-- WHY THE SELECTOR IS THE WEAPON AND NOT THE AMMO: both rifles send `Slug` on the wire, exactly as
+-- the shotgun does, so `ammo` cannot tell a .416 bullet from a 12-gauge slug. `hit.weapon` can, it
+-- has been on the `HitReport` since task 140, and the TABLE is the animal's. The weapon gains no
+-- damage number, which is `docs/design/hit-zones.md` section 3.1's boundary.
+--
+-- THE PER-WEAPON POINTS ARE STILL ARMOURED BY `toughness` THE SAME WAY, because the clause below is
+-- about the ZONE and not about where the number came from: a deer's non-vital hit is divided by 1.2
+-- whichever table the points were read out of.
+function Wound.damageFor(
+	zone: string,
+	ammo: string,
+	pellets: number,
+	config,
+	toughness: number?,
+	weapon: string?
+): number
 	local zoneRow = row(config, zone)
 	local each = if ammo == "Slug" then zoneRow.Slug else zoneRow.Pellet
+	local perWeapon = Wound.weaponPoints(zone, weapon, config)
+	if perWeapon ~= nil then
+		each = perWeapon
+	end
 	local points = each * math.max(0, pellets)
 	if type(toughness) == "number" and toughness > 1 and Wound.hitClass(zone, config) ~= "vital" then
 		return points / toughness
@@ -206,8 +259,13 @@ end
 -- what was fired, so the Runtime reads it off the animal's kind (`Boar.toughnessFor`) and hands it
 -- in. Putting it on `hit` would let a weapon decide how tough an animal is. `nil` is every caller
 -- written before this task.
+--
+-- `hit.weapon` IS WHICH GUN FIRED (task 250), and unlike `toughness` it IS on the hit, because it
+-- describes what was FIRED rather than what was shot -- the exact division the paragraph above
+-- draws. `nil` is every caller written before this task and leaves the arithmetic untouched.
 function Wound.apply(state: WoundState, hit, config, toughness: number?): (WoundState, Severity)
 	local ammo = hit.ammo or "Slug"
+	local weapon = if type(hit.weapon) == "string" then hit.weapon else nil
 	local pellets = if type(hit.pellets) == "number" then hit.pellets else 1
 	local byZone = table.clone(state.byZone)
 
@@ -226,7 +284,7 @@ function Wound.apply(state: WoundState, hit, config, toughness: number?): (Wound
 		-- Wound.chargedZone is the one answer, so the tally in Runtime:takeHit and the damage here
 		-- cannot drift apart (TASKS.md 28a(g)).
 		local key = Wound.chargedZone(zone, config)
-		local points = Wound.damageFor(zone, ammo, count, config, toughness)
+		local points = Wound.damageFor(zone, ammo, count, config, toughness, weapon)
 		byZone[key] = (byZone[key] or 0) + points
 		added += points
 	end
@@ -244,6 +302,10 @@ function Wound.apply(state: WoundState, hit, config, toughness: number?): (Wound
 		at = hit.at or 0,
 		zone = hit.zone or FALLBACK_ZONE,
 		ammo = ammo,
+		-- WHICH GUN DID IT (task 250), recorded beside the ammo for the same reason the ammo is
+		-- recorded: it is what decided the points, so a record that did not carry it could not
+		-- explain its own `damage`. nil for every hit that carried no weapon.
+		weapon = weapon,
 		pellets = pellets,
 		damage = added,
 		distance = hit.distance,

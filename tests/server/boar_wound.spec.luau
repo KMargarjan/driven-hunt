@@ -27,6 +27,12 @@ local WOUND = {
 		-- Task 116's hindquarters: pinned here with the rest, so a retune shows up in one place.
 		rear = { Slug = 55, Pellet = 11 },
 	},
+	-- TASK 250: what a centre-fire rifle bullet does that a 12-gauge slug does not. Pinned here
+	-- with everything else, and compared against production in the last describe.
+	DAMAGE_BY_WEAPON = {
+		rifle = { head = 100, chest = 100, body = 100, legs = 60, rear = 75 },
+		lever = { head = 100, chest = 100, body = 80, legs = 50, rear = 65 },
+	},
 	FLIGHT = { head = 0, chest = 0, body = 120, legs = 420, rear = 90 },
 	BLEED_OUT_MAX_SECONDS = 25,
 	WOUND_SPEED_START = 1.0,
@@ -384,6 +390,123 @@ return function()
 		end)
 	end)
 
+	describe("the rifle's own damage column (task 250)", function()
+		-- KAREN, 2026-10-23: the rifle needs *"more damadge"*. `DAMAGE_BY_WEAPON` is consulted by
+		-- WEAPON because both rifles send `Slug` on the wire exactly as the shotgun does, so the
+		-- ammo word cannot tell a .416 bullet from a 12-gauge slug.
+		it("gives the Rigby its own points and leaves the slug column alone", function()
+			expect(Wound.damageFor("body", "Slug", 1, WOUND, nil, "rifle")).to.equal(100)
+			expect(Wound.damageFor("legs", "Slug", 1, WOUND, nil, "rifle")).to.equal(60)
+			expect(Wound.damageFor("rear", "Slug", 1, WOUND, nil, "rifle")).to.equal(75)
+			expect(Wound.damageFor("body", "Slug", 1, WOUND)).to.equal(55)
+			expect(Wound.damageFor("legs", "Slug", 1, WOUND)).to.equal(30)
+			expect(Wound.damageFor("rear", "Slug", 1, WOUND)).to.equal(55)
+		end)
+
+		it("puts the lever between the slug and the Rigby", function()
+			expect(Wound.damageFor("body", "Slug", 1, WOUND, nil, "lever")).to.equal(80)
+			expect(Wound.damageFor("legs", "Slug", 1, WOUND, nil, "lever")).to.equal(50)
+			expect(Wound.damageFor("rear", "Slug", 1, WOUND, nil, "lever")).to.equal(65)
+		end)
+
+		it("leaves every gun without a row bit for bit what it was", function()
+			for _, weapon in ipairs({ "shotgun", "semiauto", "blunderbuss" }) do
+				for _, zone in ipairs({ "head", "chest", "body", "legs", "rear" }) do
+					expect(Wound.damageFor(zone, "Slug", 1, WOUND, nil, weapon)).to.equal(
+						Wound.damageFor(zone, "Slug", 1, WOUND)
+					)
+					expect(Wound.damageFor(zone, "Buck", 9, WOUND, nil, weapon)).to.equal(
+						Wound.damageFor(zone, "Buck", 9, WOUND)
+					)
+				end
+			end
+		end)
+
+		it("charges the per-weapon number PER PROJECTILE, as the shared table does", function()
+			-- No gun with a row here fires pellets (`Rifle.PELLETS` and `Lever.PELLETS` are both
+			-- `{ Slug = 1 }`), so this can only happen in a spec -- asserted so the shape is on the
+			-- record: the number is per projectile and the ammo word does not change it.
+			expect(Wound.damageFor("body", "Buck", 2, WOUND, nil, "rifle")).to.equal(200)
+		end)
+
+		it("falls through on a zone the gun's row does not name", function()
+			local config = {
+				LETHAL = 100,
+				MORTAL = 50,
+				DAMAGE = WOUND.DAMAGE,
+				DAMAGE_BY_WEAPON = { rifle = { head = 100 } },
+				FLIGHT = WOUND.FLIGHT,
+			}
+			-- the row has `head` and nothing else, so `body` is the shared table's 55 and NOT the
+			-- rifle's head number reached through an unknown-zone fallback
+			expect(Wound.damageFor("body", "Slug", 1, config, nil, "rifle")).to.equal(55)
+			expect(Wound.damageFor("head", "Slug", 1, config, nil, "rifle")).to.equal(100)
+		end)
+
+		it("survives an animal whose config has no per-weapon table at all", function()
+			local config = { LETHAL = 100, MORTAL = 50, DAMAGE = WOUND.DAMAGE, FLIGHT = WOUND.FLIGHT }
+			expect(Wound.damageFor("body", "Slug", 1, config, nil, "rifle")).to.equal(55)
+			expect(Wound.weaponPoints("body", "rifle", config)).to.equal(nil)
+		end)
+
+		it("answers nil for a nil weapon and for a non-string", function()
+			expect(Wound.weaponPoints("body", nil, WOUND)).to.equal(nil)
+			expect(Wound.weaponPoints("body", 7 :: any, WOUND)).to.equal(nil)
+			expect(Wound.weaponPoints("body", "rifle", WOUND)).to.equal(100)
+		end)
+
+		it("still armours a deer's non-vital hit, whichever table the points came from", function()
+			-- `toughness` 1.2 is the deer's (task 240) and the vitals are never armoured. This is
+			-- the number the whole item exists for: a .416 through a stag's paunch was a GRAZE.
+			expect(Wound.damageFor("body", "Slug", 1, WOUND, 1.2)).to.be.near(55 / 1.2, EPSILON)
+			expect(Wound.severityFor(55 / 1.2, WOUND)).to.equal("grazed")
+			expect(Wound.damageFor("body", "Slug", 1, WOUND, 1.2, "rifle")).to.be.near(100 / 1.2, EPSILON)
+			expect(Wound.severityFor(100 / 1.2, WOUND)).to.equal("mortal")
+			expect(Wound.damageFor("chest", "Slug", 1, WOUND, 1.2, "rifle")).to.equal(100)
+		end)
+
+		it("carries the weapon through apply onto the wound record", function()
+			local state, severity = Wound.apply(Wound.new(), hit("body", "Slug", 1, { weapon = "rifle" }), WOUND)
+			expect(severity).to.equal("lethal") -- 100 points, where a slug is 55 and mortal
+			expect(state.damage).to.equal(100)
+			expect(state.wounds[1].weapon).to.equal("rifle")
+			local plain = Wound.apply(Wound.new(), hit("body", "Slug"), WOUND)
+			expect(plain.damage).to.equal(55)
+			expect(plain.wounds[1].weapon).to.equal(nil)
+		end)
+
+		it("charges a per-zone tally at the gun's own numbers", function()
+			-- the tally door, which is the one real shots take: `hit.zones`, not `hit.zone`
+			local state = Wound.apply(
+				Wound.new(),
+				{ zone = "legs", zones = { legs = 1 }, ammo = "Slug", pellets = 1, at = 0, weapon = "rifle" },
+				WOUND
+			)
+			expect(state.damage).to.equal(60)
+			expect(state.byZone.legs).to.equal(60)
+			expect(Wound.severity(state, WOUND)).to.equal("mortal")
+		end)
+
+		it("is the shots-to-kill table the task reported", function()
+			local function shots(zone: string, weapon: string?, toughness: number?, target: number): number
+				local each = Wound.damageFor(zone, "Slug", 1, WOUND, toughness, weapon)
+				return math.ceil(target / each)
+			end
+			-- body: a slug needs two to kill a boar; the Rigby one
+			expect(shots("body", nil, nil, WOUND.LETHAL)).to.equal(2)
+			expect(shots("body", "rifle", nil, WOUND.LETHAL)).to.equal(1)
+			-- body on a DEER: a slug cannot even reach MORTAL in one; the Rigby is mortal in one
+			expect(shots("body", nil, 1.2, WOUND.MORTAL)).to.equal(2)
+			expect(Wound.severityFor(Wound.damageFor("body", "Slug", 1, WOUND, 1.2, "rifle"), WOUND)).to.equal("mortal")
+			-- legs: a slug is a graze, the Rigby is mortal in one
+			expect(Wound.severityFor(Wound.damageFor("legs", "Slug", 1, WOUND), WOUND)).to.equal("grazed")
+			expect(Wound.severityFor(Wound.damageFor("legs", "Slug", 1, WOUND, nil, "rifle"), WOUND)).to.equal("mortal")
+			-- rear stays SHORT of lethal on both rifles, so task 116's crippling reaction survives
+			expect(Wound.severityFor(Wound.damageFor("rear", "Slug", 1, WOUND, nil, "rifle"), WOUND)).to.equal("mortal")
+			expect(Wound.severityFor(Wound.damageFor("rear", "Slug", 1, WOUND, nil, "lever"), WOUND)).to.equal("mortal")
+		end)
+	end)
+
 	describe("the numbers this spec asserts", function()
 		it("are the numbers production actually ships", function()
 			-- Every other assertion here is against the table at the top of this file, so that a
@@ -396,6 +519,19 @@ return function()
 				expect(live.DAMAGE[zone].Slug).to.equal(row.Slug)
 				expect(live.DAMAGE[zone].Pellet).to.equal(row.Pellet)
 				expect(live.FLIGHT[zone]).to.equal(WOUND.FLIGHT[zone])
+			end
+			-- TASK 250's per-weapon table, BOTH WAYS: every row this spec asserts is production's,
+			-- and production has no weapon and no zone this spec does not know about.
+			for weapon, row in pairs(WOUND.DAMAGE_BY_WEAPON) do
+				for zone, points in pairs(row) do
+					expect(live.DAMAGE_BY_WEAPON[weapon][zone]).to.equal(points)
+				end
+				for zone in pairs(live.DAMAGE_BY_WEAPON[weapon]) do
+					expect(row[zone]).to.equal(live.DAMAGE_BY_WEAPON[weapon][zone])
+				end
+			end
+			for weapon in pairs(live.DAMAGE_BY_WEAPON) do
+				expect(WOUND.DAMAGE_BY_WEAPON[weapon] ~= nil).to.equal(true)
 			end
 			expect(live.BLEED_OUT_MAX_SECONDS).to.equal(WOUND.BLEED_OUT_MAX_SECONDS)
 			expect(live.LIMP_SCALE).to.equal(WOUND.LIMP_SCALE)
