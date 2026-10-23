@@ -5,7 +5,7 @@
 **NEEDS DIRECTOR: open the Forest Test, for ONE frame of a deer in the air over Karen's road.**
 
 Everything this task can prove without her place is proved and is in
-`reviews/task-245b/REQUEST.md`: the clip fires on the tick a running deer enters the road band and
+`reviews/task-245/REQUEST.md` (245b is filed as task 245 round 2: `agents.py` takes digits only, and `reviews/task-233` holds 233b's paperwork the same way): the clip fires on the tick a running deer enters the road band and
 for exactly `LEAP.SECONDS` (measured live), and a stag frozen at the peak of its bound over the DEV
 map's own road is photographed at the player's eye height
 (`.screenshots/20261022T234849Z-245b-leap-dev2.png`).
