@@ -28,6 +28,12 @@ function Cast.world(origin: Vector3, direction: Vector3, ignore: { Instance })
 		position = result.Position,
 		normal = result.Normal,
 		distance = result.Distance,
+		-- WHAT THE PELLET LANDED ON (task 249), so the client can draw soil off the floor and
+		-- splinters off a trunk rather than one glowing box for both. `RaycastResult.Material` is
+		-- the surface's own material -- the terrain's where it hit terrain, the part's where it hit
+		-- a part -- and it is the only thing this returns that is not geometry.
+		--   https://create.roblox.com/docs/reference/engine/classes/RaycastResult#Material
+		material = result.Material,
 	}
 end
 
