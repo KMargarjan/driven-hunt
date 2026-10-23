@@ -1001,6 +1001,35 @@ return function()
 			Lobby.setAlwaysHunters(nil)
 		end)
 
+		-- A WORLD WHOSE `dismissAll` EMPTIES THE ROSTER, which is what `Match.dismissAll` does and
+		-- what the shared fake deliberately does NOT: that fake's `enrol` sets `inDrive` and nothing
+		-- clears it, *"because a fake that recorded the call and left `inDrive` false made the lobby
+		-- hand a man it had just enrolled a lodge respawn again on the SAME scan"*. For the loop that
+		-- asymmetry is the wrong half: the party is collected from the men the drive HAS, so a
+		-- dismissal that leaves them in it drops every one of them on the same scan. **The first
+		-- harness run said so in nine failures.** One patch, in the one describe that needs it.
+		local function freshLoop(bin_: Instance, patch: ((any) -> ())?)
+			local captured: any = nil
+			local seen = (
+				fresh(bin_, function(world)
+					world.dismissAll = function(): number
+						local cleared = 0
+						for userId in pairs(captured.inDrive) do
+							captured.inDrive[userId] = nil
+							cleared += 1
+						end
+						captured.dismissed += 1
+						return cleared
+					end
+					if patch then
+						patch(world)
+					end
+				end)
+			)
+			captured = seen
+			return seen
+		end
+
 		-- EVERYBODY THE DRIVE HAS, AT THE LODGE, WITH THE SCENE OVER: the state the loop starts from.
 		-- `away` is 600 studs north, which is outside the field, so the return rule fires too -- and
 		-- it is the same spot the dismissal cases above use.
@@ -1023,7 +1052,7 @@ return function()
 		end
 
 		it("collects the whole roster, both sides, and waits for the results scene", function()
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			local men = drivenHome(seen, { 41, 42 })
 			-- THE DRIVE HAS BEEN EMPTIED and the party holds exactly who was in it. The fake's
 			-- `dismissAll` does not clear `inDrive`, so this spec does what production does: the
@@ -1042,7 +1071,7 @@ return function()
 		end)
 
 		it("arms the countdown when the scene lets everybody go, once, on the edge", function()
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			local men = drivenHome(seen, { 41, 42 })
 			for _, id in ipairs({ 41, 42 }) do
 				seen.inDrive[id] = false
@@ -1071,7 +1100,7 @@ return function()
 			-- claim *"one place a party leaves this lobby"* is what is asserted and not the enrolment.
 			local sent = {}
 			local taken = {}
-			local seen = fresh(bin, function(world)
+			local seen = freshLoop(bin, function(world)
 				world.depart = function(departure)
 					table.insert(sent, departure)
 					for _, player in ipairs(departure.members) do
@@ -1103,7 +1132,7 @@ return function()
 
 		it("enrols the party into this server's own drive when no seam is injected", function()
 			-- THE BUILT PATH, which is the one that ships: `Lobby.enrolHere` -> `world.enrol`.
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			local men = drivenHome(seen, { 41 })
 			seen.inDrive[41] = false
 			seen.held[41] = false
@@ -1120,7 +1149,7 @@ return function()
 		end)
 
 		it("leaves a man who sat out at the lodge, and sends the rest", function()
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			local men = drivenHome(seen, { 41, 42 })
 			for _, id in ipairs({ 41, 42 }) do
 				seen.inDrive[id] = false
@@ -1142,7 +1171,7 @@ return function()
 		end)
 
 		it("takes him back when he presses again", function()
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			local men = drivenHome(seen, { 41 })
 			seen.inDrive[41] = false
 			seen.held[41] = false
@@ -1156,7 +1185,7 @@ return function()
 		end)
 
 		it("ends the gap with nobody enrolled when the only man sits out", function()
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			local men = drivenHome(seen, { 41 })
 			seen.inDrive[41] = false
 			seen.held[41] = false
@@ -1173,7 +1202,7 @@ return function()
 		end)
 
 		it("refuses a forged payload, a flood and a man with no party, and tells them apart", function()
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			local stranger = occupant(49, padAt(2), bin)
 			Lobby.step(2000, { stranger })
 			-- A FORGERY: the wrong word, a second key, no table at all.
@@ -1200,7 +1229,7 @@ return function()
 			-- HAZARD 1, AT THE OWNER: one member held for ever -- a character that never loads -- and
 			-- the loop goes on without him rather than stopping for everybody. The warning is the
 			-- counter, so it can never be invisible.
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			local men = drivenHome(seen, { 41, 42 })
 			seen.inDrive[41] = false
 			seen.held[41] = false
@@ -1213,7 +1242,7 @@ return function()
 		end)
 
 		it("writes each attribute once per change and not once per scan", function()
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			local men = drivenHome(seen, { 41 })
 			seen.inDrive[41] = false
 			seen.held[41] = false
@@ -1234,7 +1263,7 @@ return function()
 		end)
 
 		it("hands both attributes back when the owner stops", function()
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			local men = drivenHome(seen, { 41 })
 			seen.inDrive[41] = false
 			seen.held[41] = false
@@ -1251,7 +1280,7 @@ return function()
 			-- KAREN'S THIRD SENTENCE: *"who has licesne can select who he can be next round"*. The
 			-- role door's own `in-a-drive` refusal is FALSE between drives -- the drive handed his
 			-- team back -- so the pick made on this card is the pick `Roster.assign` reads.
-			local seen = fresh(bin)
+			local seen = freshLoop(bin)
 			owning(seen, 41)
 			local men = drivenHome(seen, { 41 })
 			seen.inDrive[41] = false

@@ -1001,9 +1001,11 @@ return function()
 		-- the review request, with frames.**
 		describe("the next drive's card", function()
 			local NEXT = PADS.NEXT
-			-- THE HOUSE STYLE'S OWN LETTER SPACING, off the panel that sets it, so these cases
+			-- THE HOUSE STYLE'S OWN LETTER SPACING, off the panel that SETS it, so these cases
 			-- compare against what the card really writes rather than against a second copy of it.
-			local spaced = Hud.ShopPanel.spaced
+			-- `Hud.Shop` is the shop panel's own export name here (`Hud.ShopPanel` does not exist,
+			-- which is what the first harness run said in one line).
+			local spaced = Hud.Shop.spaced
 
 			-- NOTHING LEFT ON KAREN'S SCREEN: a case that left a countdown up would leave her
 			-- reading `NEXT DRIVE IN 4` for the rest of the session.
