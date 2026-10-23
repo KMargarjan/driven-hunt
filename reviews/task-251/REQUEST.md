@@ -1,209 +1,156 @@
-# Task 251 part 1: the drive pattern as a fifteen-slot script, and the opening horn's own reach
+# Task 251 part 2 — the drive's length, the red stag's behaviour and his voice
 
 Task: 251
-Round: 2
-Base: 4b6e1638 (main, the task-250 merge)
-Code commit: fdd7aff11b1c7d5261a24b38fd72027963a82cd8
+Round: 1
+Base: 2b47d3a7950eca334a8b9b2e2d699a80f485f52a (`main`, which carries part 1 through PR #231)
+Code commit: d238aeaa49172bb8733baff5d2b2134fe7e22ba9
 
 ```
-[harness] PASS: 34/34 checks @ fdd7aff11b1c7d5261a24b38fd72027963a82cd8 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ d238aeaa49172bb8733baff5d2b2134fe7e22ba9 (clean tree) scope=all
 ```
 
-(That sha is the paperwork commit at the branch head; the last commit that changed `src/` or `tests/`
-is `840db687`, and only `reviews/task-251/RESULT.md` and `ESCALATE.md` changed after it -- which is
-git workflow step 4's own case, and it only makes the bound stricter.)
+`test2` is **N/A**: no file in `TWO_PLAYER_PATHS` is touched (`git diff --name-only 2b47d3a7..HEAD`
+is `src/server/Boar/`, `src/server/Bots/`, `src/server/ForestTest*`, `src/shared/Flags`,
+`src/shared/ForestTest`, four server specs and two docs files).
 
-`[harness2]` is **N/A**: no file in `TWO_PLAYER_PATHS` is touched (the drive's data and release path,
-the boar's deer compositions, the horn's data, the Forest Test boot). Who the OTHER player is answers
-nothing about which group comes out of which zone.
+**Part 1 of this task passed review at round 2 and merged, so `tools/agents.py` expects `Round: 1`
+here** (`expected = 1 if ... prev_verdict == "PASS"`). This request is written fresh for part 2 and
+describes the final state, not a history.
 
-## What changed, and what it is NOT
+## What changed, in one paragraph
 
-KAREN, 2026-10-23: *"we need better saound and behaviour for red stag / and them patter with animals
-how many where they come how they come how many groups jumping over road red stags ect"*, then `"ok"`
-to the Designer's plan (`<runs-dir>/design/driveflow-spec.md`, with `driveflow-plan.png`).
+The Director answered part 1's interval escalation on 2026-10-24 (Karen's feel delegated for the
+night): **lengthen the drive to ~210 s by slowing the beater line, space the fifteen slots 13 s apart
+from 10 s, do not cut the script.** That is items 1. Item 2 is the **red stag's own behaviour** — his
+notice, his longer and likelier edge check, the 150-degree look back, the treeline sneak, and the
+bound **held dark behind a flag by instruction**. Item 3 is his **voice** — the distant rut roar and
+the alarm bark. Two full drives were then run in Karen's own place, which answered the Director's
+numbers and found two things: one is fixed here, and one is escalated because it is a design number.
 
-**This is PART 1 of a dispatch the Director allowed to be split: items 1 (the drive pattern) and 4
-(the opening horn's radius). Items 2 and 3 -- the stag's own behaviour and his voice, including the
-Freesound CC0 roar upload -- are the next session and nothing here claims them.** The stag's
-behaviour fields (`check`, `sneak`) are DATA declared by the script and honoured only as far as the
-EXISTING edge stop goes; a spec case pins exactly that boundary so the day part 2 reads them, the
-assertion is what changes.
+## Claims
 
-**The one thing the Director must read before anything else: `ESCALATE.md`, 2026-10-23, task 251.**
-A Forest Test drive ends when the beater line arrives, at a MEASURED 125-133 s, not at
-`DRIVE.seconds` 300 -- so at the 20-second interval only slots 1-5 of the fifteen ever happen, and
-the stag, both refusals and the hold do not. That is a feel decision (one number) and it is Karen's.
-It is not a defect in the code below, and it is not hidden: the escalation carries the console
-measurement, five options and a recommendation.
+**1. The drive is ~210 s and all fifteen slots play, measured twice in Karen's place.**
+`Bots.CONFIG.WALK_SPEED` is 3.1 (was 5) and `ForestTest.SCHEDULE` carries `intervalSeconds = 13`
+(was 20) plus a new `firstSlotSeconds = 10`. Verify: the two config rows and their comments; then
+`<runs-dir>/251b-console.txt` and `251b-console2.txt`, which are the server console of two Play
+sessions of the Forest Test. Both carry `SLOT 1` through `SLOT 15` in order, and
+`[bots] ... 3 arrived in 210.2s` / `210.7s`. `[ForestTestBoot] ... waves every 13s`. Part 1's
+measured drives reached slot 5.
 
-## The claims
+**2. `slotSeconds` is two data rows and the slot clock is based on the DRIVE, not the session.**
+`ForestTest.slotSeconds` is `firstSlotSeconds + (slot - 1) * intervalSeconds`, so slot 1 is at 10 and
+slot 15 at 192; every row's `atSeconds` is asserted against it and none is a second clock. And
+`ForestTest.newDrive(now)` now re-bases `state.nextWaveAt` (and the roar's window) on the drive
+boundary, where `ForestTestBoot`'s `Assigning` edge calls it. Verify: `slotSeconds`,
+`SCHEDULE.firstSlotSeconds`, `newDrive`, the `Assigning` handler in `ForestTestBoot`, and
+`forest_line.spec`'s "is fifteen slots of one drive". **Before this the table said 10 s and the world
+released at 20** — the old derivation pinned the first slot to `gap - gap/2`, which was 10 only
+because the gap was 20, while `start` set `nextWaveAt = now + intervalSeconds`.
 
-1. **The drive is fifteen rows of DATA, in three acts, and the six-row repeating `cycle` is gone.**
-   `ForestTest.SCHEDULE.drive` in `src/shared/ForestTest/init.luau`: one row per slot, carrying who
-   (`species`/`party`/`composition`), where (`zone`/`northStuds`/`offsetX`), when (`slot`/`atSeconds`/
-   `act`), how (`route`/`files`/`pace`/`crossOffset`) and the dial (`keepAt`).
-   *Verify:* read the table and its header; `tests/server/forest_line.spec.luau`, `describe("the drive
-   script (task 251)")`, case *"is fifteen slots of one drive..."* -- every row's `atSeconds` is
-   asserted to be `Data.slotSeconds`'s own arithmetic rather than a second clock, and the acts are
-   asserted to be five slots each. The old table is archived verbatim with its reason in
-   `backups/2026-10-23_task-251_schedule-cycle.md` (rule 7).
+**3. The realism band moved for a stated reason, not to make a number fit.**
+`bots_lane.spec`'s "walks at a real walking pace, in metres" asserted 1.2–1.5 m/s on the grounds that
+that is *"a real walking pace for a man working a wood"*. 3.1 studs/s is 0.87 m/s. The case is now
+"advances at a beater line's pace": a beater **line** does not walk, it advances — it stops in thick
+cover, beats it, and waits for its flanks so the line stays level (Livingactive, *Tipps und Tricks
+fuer die Drueckjagd*, the same source act I of the script rests on). The **ceiling did not move**, so
+the 2.52 m/s jog this shipped with in task 161 is still a failure. Verify: that case, the
+`WALK_SPEED` comment, and section 3 of the research note. Moving the line further back instead was
+refused with the 2026-10-12 measurement: 210 s at 5 studs/s needs 1,050 studs and the trees run out
+at 775–850.
 
-2. **Karen's counts come out of the rows, not out of a comment.** 13 groups, 59 animals, 10
-   crossings, 2 refusals, 1 that never comes, 2 deer groups, 2 silences.
-   *Verify:* `ForestTest.driveTally` (pure, `src/shared/ForestTest`) counts them off the rows and
-   counts NO animals -- how much a composition weighs is the boar system's fact. The spec case
-   *"answers Karen's counts at the dial she OK'd"* adds the animals through `Boar.compositionSize`
-   and `Boar.deerComposition`, so the number 59 cannot drift from the table.
+**4. The slower walk breaks nothing it touches, and the three things it could break are asserted.**
+`RECOVER_HOLD_SECONDS` went 2.2 → 3.4, which is the same arithmetic `bots_lane.spec` already asserts
+(`>= SIDE_STEP_STUDS / WALK_SPEED`). The gait rate is 0.46 at 3.1 studs/s, above `GAIT.MIN_RATE` and
+far above `WALK_ABOVE_STUDS`, so the feet do not slide — asserted in that same case now, not claimed
+in a comment. And `bots_live.spec`'s rate case had a literal "0.5 studs in 0.2 s", which is half of
+*five* studs/s: it is derived from `WALK_SPEED` now, at 0.75 and not 0.5, **because half of 3.1 is
+rate 0.23 and `MIN_RATE` is 0.30** — so `Rig.gait` clamps it, and the clamp is now asserted beside
+the law so nobody reads one as the other. Measured live: **0 stuck, worst pin 0.0 s, 0 recoveries**,
+twice.
 
-3. **59 and not the spec's 57, and the difference is written down rather than fudged.** Three rows
-   are written in the spec as `{females = 1, cubs = 4}` / `{females = 2, cubs = 3, males = 1}`, which
-   are not among the six `SOUNDER.COMPOSITIONS` rows -- while the spec's own sentence is *"not one new
-   composition is invented"*. Each takes composition 5, the nearest real row, which weighs 6 and not 5.
-   *Verify:* the `59 AND NOT THE SPEC'S 57` paragraph in the table's header; the spec case *"names
-   only crossings, compositions and parties that exist"* asserts every row's composition index and
-   every deer row's party name resolve through the animal's owner.
+**5. The stag's and the hind's edge checks are kind-level overrides laid over `MOVE`, and a boar is
+untouched by reference.** `Boar.edgeByKind(config, row.edge, row.spook)` is called from
+`Boar.kindConfig` after `scaledByWary` — the same place in the chain and the same shape. Stag:
+`{chance = 0.90, minSeconds = 2.0, maxSeconds = 6.0, lookBackDeg = 150, barks = true}`; hind
+`{0.75, 1.5, 4.0, 150, true}`; the calf has **no row**, with the spec's reason written on it. Verify:
+`Boar.edgeByKind`, the three `KINDS` rows, `MOVE`'s new `EDGE_LOOK_BACK_DEG` / `EDGE_BARKS`
+defaults, and `deer.spec`'s "checks the open likelier and longer than his hinds" — which asks the
+**composed** config, because `Brain:check` reads only `self._config.MOVE` and a case that asserted
+the `KINDS` rows alone would pass with `edgeByKind` never called. The delta case proves a world's
+own un-named keys survive and that two nil rows return the config **by reference**.
 
-4. **The quiet/normal/busy dial is ONE number and ONE rule.** `SCHEDULE.density` (default `normal`,
-   which is what Karen OK'd) and `row.keepAt <= groups`. The four rows at `keepAt = 13` ARE the stag,
-   the two refusals and the hold, so one number moves all five columns of the dial's table -- there is
-   no `refusalsPerDrive` to keep in step with it.
-   *Verify:* case *"moves all five of the dial's columns with ONE number"*: quiet 9 groups / 37
-   animals / 0 refusals / 0 holds / 1 deer group, normal 13 / 59 / 2 / 1 / 2, busy 15 / 69 / 2 / 1 / 2.
-   An unknown word is `normal` and not silence (`groupsWanted`), because a typo in a dial must not
-   empty the wood.
+**6. The look back is the turn-rate limiter and no new state.** `Brain.lookBack(travel, toward,
+maxDeg)` is `slew` with the angle in degrees; the check branch of `_step` calls it with
+`self._perception.nearest`, and the facing then goes through `TURN_RATE` like every other facing, so
+the head comes round over about a second. Verify: `Brain.lookBack`, the `elseif self._checkFor > 0`
+branch, and `deer.spec`'s "looks back at the nearest man, 150 degrees and never further" — which
+asserts the clamp at 180 (a man dead astern gives exactly 150), the un-clamped case, that Y is
+ignored, and **four ways out all answering the travel heading**, which is every boar in the game.
 
-5. **ROUND 1'S BLOCKING FINDING IS FIXED, AND IT WAS RIGHT.** `stepLines`' stuck-leader repath
-   read `line.crossing.X`, and this task made `line.crossing` nil for exactly the two route words
-   that never reach the road -- so the first stuck leader of a `BREAK-BACK` or `HOLD` file would have
-   raised "attempt to index nil" inside the drive's own un-pcalled Heartbeat connection, losing the
-   rest of that tick, every stuck check, for the life of the line. A `HOLD` file stands still BY
-   DESIGN, which is the case the stuck rule exists to catch.
-   The fix is the thing the review named: the per-file PINS the release computes (the turn and the
-   way home, the hold point, or the crossing and the exit) are now kept on the line, and
-   `ForestTest.repathVia` -- **pure**, so the case can be driven with no live runtime, no wedged
-   animal and no three seconds of not moving -- turns a position plus those pins into the
-   `computeRouteVia` argument, or **nil when there is nothing to pin through**, in which case the
-   leader is left to the Brain (which is what the `leaderFreeSeconds` window beside it is for).
-   *Verify:* `ForestTest.repathVia` and its header; the repath block in `ForestTest.stepLines`;
-   `tests/server/forest_line.spec.luau`, case *"RE-PINS A STUCK LEADER THROUGH ITS OWN PINS, and
-   never through a crossing that is nil"*, which builds a `BREAK-BACK` row's pins the way
-   `releaseLine` builds them and asserts the via list, and asserts nil for no pins at all.
+**7. The bound is dark by instruction, and both states are reachable by parameter.**
+`STAG_BOUND_ON_SPOOK` is born off, owner `ServerScriptService.Boar`, expires 2026-11-14, and is read
+at exactly one boundary: `KINDS.stag.spook.bound`. `Brain.boundStarts(bound, speed, fromSpeed, leap)`
+is pure and is called from `Brain:spook` **before** `BOLT_KICK` touches the speed — reading it after
+would make every bound impossible, which is the one ordering claim here. It also refuses when the
+road leap's own table is disabled, because the bound **is** that clip and therefore that clip's
+measured hoof sink (245c). Verify: the flag row, the kind row, `boundStarts`, its call site in
+`spook`, and `deer.spec`'s "bounds when spooked from a stand-still, and it is DARK by instruction",
+which drives every condition on and off with the row at false.
 
-6. **Five route types, all of them the same machinery.** `ForestTest.computeRoute` is now the
-   two-leg call of `ForestTest.computeRouteVia`, a chain of pathfinder legs pinned through points the
-   DRIVE chose -- the agent, the clearance and the `clearRoute` body sweep are untouched. STRAIGHT is
-   what every wave did; LATERAL walks `WAVE.lateralSpan` across her front at `WAVE.lateralDz` first;
-   **BREAK-BACK is new and is Karen's *"several go back"*, which has never been drawn** -- it comes to
-   `turnAtDz` of the road and goes home north to `SCHEDULE.breakBackToDz`, crossing nothing; SPLIT
-   gives the second file its own crossing `splitStuds` away; HOLD is a route that ends 300 studs
-   short of the verge, after which `CALM.ENABLED` takes the group over.
-   *Verify:* the `THE ROUTES, ONE PER ROUTE WORD` block in `ForestTest.releaseLine`; the spec cases
-   *"gives every route word a shape, and the one that never crosses no crossing"* and *"refuses a
-   route that is not pinned through at least two points"*. Measured live (claim 11): the LATERAL and
-   the two-file STRAIGHT rows both released and walked.
+**8. The sneak is two more pins through the one route machinery, and its direction is a pure rule.**
+Row 13 carries `sneakStuds = 120` and `sneakDz = 75` (single numbers, inside the spec's 80–160 and
+60–90 bands, because **a script draws nothing** — part 1's own principle). `releaseLine` inserts two
+via points when `row.sneak == true and route ~= "LATERAL"`, both at the row's `sneakDz` north of the
+road **at their own x**, because the lane is a sine. The entry x is `ForestTest.sneakEntryX`, pure:
+he enters on the side he came from, and 0 or a missing distance collapses to the STRAIGHT route part
+1 shipped. Verify: `sneakEntryX`, the `row.sneak` block in `releaseLine`, and `forest_line.spec`'s
+"WALKS the stag's sneak along the treeline" — which is part 1's own boundary case, flipped, as that
+case said it would have to be. The live log shows the new note: `SLOT 13 ... and he sneaks the
+treeline`.
 
-7. **`releaseLine` reads the row instead of drawing the drive.** The count (was 4-9 at random), the
-   crossing (was one of five at random), the pace (was `paceMix`) and the depth (was
-   `LINE.spawnNorthStuds`, one number for every wave) all now come from the slot.
-   *Verify:* `ForestTest.releaseLine`'s `THE SLOT (task 251)` block. **Both release paths read the
-   rows through ONE FUNCTION** -- `ForestTest.waveAt` -- so there is one reader of the table and not
-   two. Round 1's note is right that this is NOT "both paths agree about the drive": `release` asks
-   `waveAt(state.waveIndex + 1)` (session-wide) while `releaseLine` asks `waveAt(state.driveWave)`
-   (per drive), so they index the same rows at different slots, and a `reddeer` row on the wave path
-   has no `spec.composition` and would release one `"male"`. That path is unreachable while
-   `LINE.enabled = true` and this task does not fix it; the claim here is the reader, not the
-   agreement. A silence returns nil from both and **still costs its slot**, because the
-   shape is the fifteen rows in order and a skipped gap would pull act III forward by 40 s.
+**9. The rut roar is the drive's own emitter, and the spec's 350-stud range was wrong — measured.**
+`ForestTest.ROAR` holds four Roblox-library bull bellows (the spec's option A; there is no deer in
+the library and that was measured twice), its own pitch, volume, roll-off, window and cadence, and
+`ForestTest.stepRoar` / `roarNow` are the only writers of one Sound in the world. It is **not**
+`Boar.CONFIG.SOUND.VOICE`'s because it sounds **before the stag exists** — he is released at slot 13,
+t 166 s, and the roar is wanted in the first 90 — so it cannot be an animal's voice and a 5-second
+roar booking one of the world's two squeal slots would have silenced a dying boar to play it. **The
+first live drive printed `ROAR 1: the stag answers from the far wood, 401 studs from the stand,
+audible to 350`**: his holding is 343 studs out before `deeperStuds` is added, so the cue was out of
+earshot four times a drive with a console line claiming it was not. Now `audibleStuds = 420` and
+`deeperStuds = 30`, and `forest_line.spec` asserts the **reach against the row it sounds from**
+rather than a literal. Second drive: `372 studs from the stand, audible to 420`, five times.
 
-8. **A deer row names its PARTY, and the animal's owner still owns the vocabulary.**
-   `SPECIES.reddeer.RELEASE.COMPOSITIONS` rows gained a `name`, and `Boar.deerComposition`'s `wanted`
-   may be a string. A name that matches nothing is nil -- not a draw and not the first row. The
-   chance clause is skipped by a named ask too, so a `CHANCE_PER_RELEASE` of 0 cannot silently refuse
-   the drive's own scripted stag.
-   *Verify:* `tests/server/deer.spec.luau`, case *"GIVES THE PARTY THE DRIVE NAMED..."*; `name` is
-   stripped from the returned group exactly as `weight` is (asserted), and `compositionFormation`'s
-   own `type(count) == "number"` guard already skips it.
+**10. The alarm bark adds no asset id, and goes through the same voice ration as every other cry.**
+`Runtime:check` plays the animal's own `cry` row when `MOVE.EDGE_BARKS` is true and
+`self:_claimSqueal()` grants a slot — task 240 chose the stag's `cry` samples ("Bull Breaths 4 / 9",
+*"Bestial Grunts, Bellowing"*) **expressly as the warning bark** and wrote that down at the time. The
+check still happens whether or not a voice was free. Verify: `Runtime:check`, and `deer.spec`'s
+"barks when he takes the check, and a calf never does".
 
-9. **ITEM 4: the opening signal alerts, and the beater's hand horn is untouched.**
-   `Horn.SIGNAL.SPOOK_STUDS = 120` (33.6 m) for `SPOOK_SECONDS = 3`, read by the new
-   `Horn.signalSpookStuds` / `Horn.signalSpookSeconds`; `Horn.SPOOK_STUDS` stays 357 with its own
-   reader, so neither radius can be got out of the other by accident. It goes through
-   `Runtime:notice` (head up, faces the line) and **not** `Runtime:spook` (runs, and with `untilExit`
-   never stops). Wired at the composition root on the `Running` edge -- the instant `Match.Phase`
-   emits the `start` signal -- so `src/server/Match/` is untouched.
-   *Verify:* `tests/server/zz_horn.spec.luau`, cases *"gives the OPENING SIGNAL its own, much shorter
-   reach"* and *"falls back to the hand horn's reach for a config written before task 251"*;
-   `ForestTest.signalPoint` / `ForestTest.signalHeard` and the `Running` branch of
-   `ForestTestBoot.server.luau`.
+## What could not be verified, and the one thing that is escalated
 
-10. **ITEM 4, THE CORRECTION THE SPEC NEEDED (rule 8).** The spec says *"today any horn blast spooks
-   every animal within 357 studs ... so the opening signal currently empties most of the wood before
-   the drive starts"*. **It does not, and it never has.** The only thing that reached
-   `Runtime:hearHorn` was `Weapon.Horn.Blown`, the HAND horn; the opening signal is a `Match.Phase`
-   feed entry consumed by `Hud` on the CLIENT as a 2-D fanfare, and nothing on the server ever heard
-   it. So item 4 is a reach of **0 becoming 120**, not 357 becoming 120 -- and what the 120 protects
-   is the drive script, since a 357-stud signal would reach the far wood (dz 360) and move slot 15
-   before slot 1 was released.
-   *Verify:* grep `hearHorn` across `src/` -- two callers, both `Weapon.Horn.Blown` handlers (this
-   boot and `MatchBoot`); grep `"signal"` -- `Match/Phase.luau` emits it, `client/Hud` consumes it,
-   nothing else. The `WHAT WAS ACTUALLY THERE BEFORE THIS TASK` paragraph above
-   `ForestTest.signalPoint` says it in the code.
-
-11. **THE FOREST TEST PROOF, on Karen's path, and what it could NOT produce.** One Play session in
-    **Driven Hunt Forest Test** (130094961655666), enrolled at the truck pad (rule I), four drives.
-    Every slot released exactly as its row wrote it -- kinds, files, zone depth, offset, crossing,
-    route and the silence:
-
-    ```
-    line 1:  SLOT 1 act 1 STRAIGHT -- 1 of 1 animal(s) [male] in 1 of 1 file(s) at a trot, from dz 95 offset -150, crossing -70 studs from the stand
-    line 2:  SLOT 2 act 1 STRAIGHT -- 2 of 2 animal(s) [hind+calf] in 1 of 1 file(s) at a walk, from dz 125 offset +170, crossing +55 studs from the stand
-    line 5:  SLOT 3 act 1 STRAIGHT -- 6 of 6 animal(s) [female+cub+cub+cub+cub+male] in 2 of 2 file(s) at a trot, from dz 110 offset -215, crossing -35 studs
-    line 6:  SLOT 4 act 1 STRAIGHT -- 2 of 2 animal(s) [male+male] in 1 of 1 file(s) at a trot, from dz 85 offset +60, crossing +20 studs from the stand
-    line 7:  slot 5 of the drive is SILENT -- nothing released
-    line 8:  SLOT 6 act 2 LATERAL -- 8 of 8 animal(s) [female+female+female+male+male+male+male+male] in 1 of 1 file(s) at a trot, from dz 150 offset +235, crossing +20 studs
-    line 9:  SLOT 7 act 2 STRAIGHT -- 9 of 9 animal(s) [female+female+cub+cub+cub+cub+male+male+male] in 2 of 2 file(s) at a trot, from dz 170 offset -120, crossing -35 studs
-    ```
-
-    **The horn's two radii, measured there and not here** -- the opening signal on a drive whose wood
-    was stocked, beside the hand horn's own unchanged line from the same session:
-
-    ```
-    [ForestTest] opening signal: 9 of 9 animal(s) within 120 studs put their heads up (the beater's hand horn still reaches 357)
-    [ForestTest] horn blown at (3826, 222, -2905): 0 boar(s) pushed within 357 studs (100 m), 0 credited
-    ```
-
-    **WHAT IT COULD NOT PRODUCE, and why (rule 8):** the two frames the dispatch asks for -- the stag
-    stopping and looking back at the verge, and the hinds in file -- **were not taken.** The stag is
-    slot 13 and **no drive ever reached slot 6 or beyond** (`ESCALATE.md`: a drive ends at 125-133 s
-    when the beater line arrives; the slots above past 5 are from drive 1, which opened late and
-    ran longer). The hind party of slot 2 released and crossed in two of the four drives, but by the
-    time the session could be pointed at it the wood held 18 animals and none was a deer (measured,
-    `Boars` folder read). **No frame of either is claimed, and no frame was taken.** Part 2 owns the
-    stag; the frames belong with the decision in `ESCALATE.md`.
-
-    The place's attributes were read before anything (`placeId=130094961655666`,
-    `DHFlag_BOAR_BEHAVIOUR/BOAR_MODEL/COINS/DEER_ROAD_LEAP/DRIVE_BOTS/HORN/LICENCE_POPUP/LOBBY/SHOP=true`,
-    `DHForestStartRole=hunter`, `DHShopTestGrant=true`), **none was changed**, and the re-read at the
-    end is identical. Play was stopped, the place left in Edit and its window closed
-    (CloseMainWindow, Don't Save) before the harness ran; the harness log says DEV.
-
-## What could not be verified
-
-- **The second half of the pattern has never run.** Slots 8-15 -- both refusals, the split, the
-  stag, the last pair and the one that holds -- are proved only as DATA and as pure arithmetic. Their
-  ROUTES (`BREAK-BACK`, `SPLIT`, `HOLD`) have never been walked by an animal, because no drive got
-  that far. `ESCALATE.md` is the decision that unblocks them, and part 2's own Forest Test run is
-  where they would first be seen.
-- **The deer-party hold-over has not been seen working.** The run MEASURED the defect
-  (`slot 2 wanted the hinds and the deer cap refused -- nothing released`) and the fix is written and
-  gated, but a drive in which a refused party is then released at slot 5 has not been observed.
-- **Nothing about how any of it LOOKS.** No frame was taken in this session at all (see claim 11).
-- One client spec (`camera_client.spec:1618`, a `handsMissing` counter in a case this task touches no
-  part of) failed in the FIRST harness run of this task and passed in the two since, with no change
-  to any camera or viewmodel file between them. Reported as a flake rather than explained; it is not
-  in this task's blast radius and nothing was changed for it.
-- **Round 2 changed no behaviour that the live run covered**, so the Forest Test run above was NOT
-  repeated. What round 2 changed is the stuck-leader repath (a path the live run never reached, by
-  claim 11's own admission), the `deerDone` latch's condition, one `Horn` fallback that the shipped
-  config does not use, and comments. The gate ran again in full on the clean tree at the code commit.
+* **The stag's three new behaviours have NOT been seen firing from a Forest-Test-released stag**, and
+  the frame of him at the verge that the dispatch asked for is **not reachable at the Director's own
+  numbers**. This is `ESCALATE.md`, 2026-10-24, with the arithmetic: the beater line passes dz 330 at
+  96 s and the stag is released there at **166 s**, so act III is put down *behind* the line — slot
+  14's males were measured **north of their own spawn**, slot 12's nine ran 320 studs west and south,
+  and the stag was next seen **53 studs south of the road at a bolt**. Independently: his walk to the
+  verge is ~430 studs, **95 s**, and the drive gives him **44**. Five options with their arithmetic
+  are in the escalation; the recommendation is `intervalSeconds` 13 → 9. **Behaviour that is proved
+  is proved at the owner**, by the pure cases in claims 5, 6, 7 and 8.
+* **Nobody here can hear any of it.** What is proved is what reaches the engine — the Sound exists,
+  its id, its volume, its roll-off, the point it sounds from and the measured distance to the stand.
+  Whether a bull bellow at pitch 1.15 and 372 studs reads as a stag roaring across a valley is
+  **Karen's ears**.
+* **The real CC0 recording is not uploaded.** Freesound 653532 is verified CC0 on its page
+  (2026-10-24) and `tools/roblox_upload.py` implements Model and Decal and refuses Audio by name, so
+  it is `ESCALATE.md` **NEEDS DIRECTOR** with the file, the two cuts and the clicks. No asset id is
+  claimed for it.
+* **`camera_client.spec:1618` is flaky and is not this change's.** It failed on two runs and passed on
+  a third **at the same commit**, and this branch touches no file under `src/client/`. The PASS line
+  above is a clean-tree run with it green.
+* **The Forest Test cannot be probed in Edit mode**: every module in `ReplicatedStorage` there answers
+  *"Module code did not return exactly one value"* to a `require` from the Assistant, including ones
+  this branch never touches, while the same probe in DEV answers a table. So every Forest Test fact
+  above is read from the **server console and from live instances**, never from module state.

@@ -1,5 +1,140 @@
 # Escalations
 
+## 2026-10-24 - Task 251 part 2: **NEEDS DIRECTOR. THE REAL STAG ROAR IS VERIFIED CC0 AND READY, AND `tools/roblox_upload.py` CANNOT UPLOAD AUDIO.**
+
+**This is a human action (CLAUDE.md stop rule, last clause), and it is four clicks.** Nothing is
+blocked on it: the roar is in the game tonight on Roblox-library bull bellows (the spec's option A),
+and swapping in the real recording is **one `ids` row** afterwards.
+
+### The licence is checked, which is what the dispatch asked for first
+
+[Freesound 653532, *"Deer rut - Brame Cerf.wav"* by **L.Finck**](https://freesound.org/people/L.Finck/sounds/653532/)
+-- read on its own page on 2026-10-24: **"Creative Commons 0"**, *"copy, modify, distribute and
+perform the sound, even for commercial purposes, all without asking permission"*. 52.9 s, 48 kHz
+24-bit stereo, 14.5 MB wav, a binaural field recording of a real red stag in the rut, October 2022.
+
+**CC0 is the only outside-audio licence this project can use**, and the reason is specific: Roblox's
+Terms of Use take from an uploader a *"fully sublicensable and transferable"* licence, CC BY 4.0
+forbids sublicensing (clause 2(a)(5)(A)), CC BY-SA adds share-alike on top, and the $32 Sonniss
+*ROAR by Stags* pack says *"may not transfer, assign, share or sub-lease"*. So **money buys nothing
+here** -- the free CC0 recording is the legally cleanest option as well as the only free one.
+`docs/research/2026-10-24-stag-voice-and-the-drive-s-length.md` section 2 has every candidate, its
+licence and its link.
+
+**Karen's standing OK for free CC0 recordings is on the record** (2026-10-23, `"ok"`).
+
+### Why the Builder could not do it
+
+`tools/roblox_upload.py` implements **Model and Decal and refuses Audio by name**. Its own
+`CONTENT_TYPES` table is per type and `find_model(folder, ..., "Audio")` raises *"uploads Decal and
+Model only"* -- which its `selftest` asserts, so this is the tool working, not failing. Task 250
+recorded the same limit.
+
+### The clicks, in order
+
+1. Download https://freesound.org/people/L.Finck/sounds/653532/ (a Freesound account is needed to
+   download; the licence does not require attribution).
+2. Cut **two** clips out of it. Any editor; the spec's lengths:
+   - `roar.wav` -- **4 to 6 s** of the best single roar, fading in and out so it does not click. This
+     is the ambience cue.
+   - `bark.wav` -- **about 1 s**, if the recording carries a bark. Optional: the bark already works
+     on the samples task 240 chose for it.
+3. Studio (the DEV place is fine) -> **Asset Manager -> Audio -> Add Audio** -> pick the file ->
+   wait for moderation. Or create.roblox.com/dashboard/creations -> Audio -> Upload.
+4. Give the Builder the asset id. One row changes: `ForestTest.ROAR.ids` in
+   `src/shared/ForestTest/init.luau`. The four bull bellows stay as the fallback.
+
+### ...and then it has to be HEARD (Learning Agent L-094)
+
+An asset id is not a sound. Per `docs/research/2026-10-22-deer-voice-and-run.md`'s own method, the id
+must be **loaded and timed in a live Play session** -- `ContentProvider:PreloadAsync` on the client,
+then `Sound.IsLoaded == true` and `Sound.TimeLength > 0`, because Edit answers `Length = 0` for an
+asset nobody has fetched and a dead id passes a bench test. **And then Karen listens**, because
+nobody in this toolchain can hear it and whether it reads as a stag is her ear and not a number.
+
+
+## 2026-10-24 - Task 251 part 2: **A DECISION IS NEEDED, AND IT IS ONE NUMBER AGAIN. ACT III OF THE DRIVE SCRIPT IS RELEASED *BEHIND* THE ADVANCING BEATER LINE, SO THE STAG'S OWN BEHAVIOUR NEVER FIRES IN KAREN'S PLACE.**
+
+**The code of part 2 is built, gated and pushed** (`[harness] PASS: 34/34 checks @ d238aeaa (clean
+tree) scope=all`). What is escalated is a drive-shape number, which is the Director's and Karen's and
+not a Builder's -- the same class of decision as part 1's interval, and found the same way: by
+running the thing.
+
+### What was measured, in her own place, on her own path
+
+Two full Play sessions of **Driven Hunt Forest Test** (placeId 130094961655666), enrolled at the
+truck pad (rule I), the drive logged slot by slot off the server console
+(`<runs-dir>/251b-console.txt`, `251b-console2.txt`) and the live deer tracked by instance every 9 s
+(`251b-deer2.txt`).
+
+**The Director's three numbers all landed:**
+
+| asked for | measured |
+|---|---|
+| the line arrives at ~210 s | **210.2 s** and **210.7 s** |
+| slot 1 at 10 s, ~13 s apart | `[ForestTestBoot] ... waves every 13s`; `SLOT 1` 13.8 s after `[report] drive 1 opened`, every later slot one 9-second sample apart |
+| the last at ~192 s | `SLOT 15` at **193.6 s** after the drive opened |
+| all fifteen play | **`SLOT 1` .. `SLOT 15`, in order, both drives** -- against part 1's five |
+| the drive ends when the line arrives | unchanged |
+
+And the slowed line cost nothing it was feared to: **0 stuck, worst pin 0.0 s, 0 recoveries** over
+four bot beaters, twice.
+
+### ...AND THE STAG STILL DOES NOT DO WHAT PART 2 BUILT
+
+The beater line starts **580 studs** north of the road and advances at 3.1 studs/s from the end of
+the countdown. So it has already walked past act III's depths long before act III is released:
+
+| the row | its depth | the line passes that depth at | the row is released at |
+|---|---|---|---|
+| slot 11 | dz 275 | 113 s | 140 s |
+| slot 12 | dz 300 | 106 s | 153 s |
+| **slot 13 -- THE STAG** | **dz 330** | **96 s** | **166 s** |
+| slot 14 | dz 290 | 109 s | 179 s |
+| slot 15 | dz 360 | 86 s | 192 s |
+
+Every act III group is put down **30 to 106 seconds after the beaters have walked through where it
+starts** -- so it is released *behind* the line, meets it head-on when it starts for the road, and
+bolts. Measured, live:
+
+* slot 14's two males (dz 290) were **north of their own spawn**, dz 308 and 323, moments later;
+* slot 12's nine (dz 300) covered **320 studs west and south at a run** in 14 s;
+* and the stag, released at dz 330, was next seen **53 studs south of the road travelling at a
+  bolt** -- across, but driven by a fright, not by his own sneak.
+
+**There is a second, independent arithmetic that says the same thing.** At a walk (`PACE.WALK_SPEED`
+4.5) his route to the verge is 255 studs of approach + a 120-stud sneak + 50 to the verge =
+**about 430 studs, or 95 seconds**. Released at 166 s into a drive that ends at ~210, he has **44**.
+So even with the beaters out of the way he could not arrive.
+
+**What that costs:** the three behaviours part 2 is FOR -- the 0.90 edge check, the 150-degree look
+back and the treeline sneak -- all happen on a *walking approach to the verge*, and he never has one.
+They are built, they are covered by cases at the Boar/Brain owner, and **they have not been seen
+firing from a Forest-Test-released stag** (which is exactly what Learning Agent L-104 asks to be said
+out loud rather than glossed).
+
+### The options, each one line, with its arithmetic
+
+| # | the change | one line? | what Karen would notice |
+|---|---|---|---|
+| **A** | `SCHEDULE.intervalSeconds` **13 -> 9** | yes | slot 13 falls at 118 s and slot 15 at 142, so the stag has **92 s** before the line arrives and the whole of act III is released ahead of the beaters rather than behind them. A group every ~9 s instead of every ~13 -- which is part 1's escalation's own option A, and the risk is the same: it may read as a stampede |
+| **B** | act III's **depths** come in: slots 11-15 from dz 275-360 to about **dz 150-210** | no -- five rows | the far wood stops being far. It is the spec's *"the far wood and the late, pressed ones"* deleted, and the stag's *"100 studs deeper than the hinds"* with it |
+| **C** | the drive gets longer again -- `Bots.CONFIG.WALK_SPEED` **3.1 -> 2.2**, a ~295 s drive | yes | every slot keeps its spacing and the stag gets ~130 s. But the beater line then advances at **0.62 m/s**, which is slower than the sources support, and a real beater waits ~5 min |
+| **D** | the stag's row alone: `pace` **walk -> trot**, and his depth 330 -> 235 | yes (one row) | he arrives, but *"out of the far wood at a walk"* -- the thing that makes him read as careful rather than driven -- is what pays for it |
+| **E** | leave it, and the stag is a bolt across the road | yes (nothing) | part 2's behaviour is dead data in her place, exactly as acts II and III were before part 1's escalation was answered |
+
+**The Builder's recommendation is A**, for the reason the Director's own answer to part 1 gives: the
+counts Karen approved are per DRIVE, and the spacing is the only thing that can move without deleting
+something she read and said yes to. It is also the option the last escalation already put in front of
+her once, so she has seen the trade.
+
+**What is NOT needed from anybody:** part 2's code is complete and green. `test2` is N/A -- no
+`TWO_PLAYER_PATHS` file is touched.
+
+
+## 2026-10-24 - Task 251 part 1 (the drive pattern): **CLOSED. The interval was answered by the Director on 2026-10-24** and the numbers were implemented and measured in part 2: `SCHEDULE.intervalSeconds` 20 -> 13 with `firstSlotSeconds` 10, and `Bots.CONFIG.WALK_SPEED` 5 -> 3.1 for a ~210 s drive. **All fifteen slots now play, measured twice in Karen's place** (the line arrives at 210.2 s and 210.7 s; `SLOT 15` is due at 192 s and was logged at 193.6 s). The script was not cut -- option D was refused by name, and option A (halving the interval) is what the answer amounts to, two seconds either side. The entry below is kept as written (rule 7). **Its successor is the act III entry above**: the slots now all fire, and the deep ones fire behind the beater line.
+
+
 ## 2026-10-23 - Task 251 part 1 (the drive pattern): **A DECISION IS NEEDED. A FOREST TEST DRIVE IS ~130 SECONDS, NOT 300, SO SLOTS 6-15 OF THE DRIVE SCRIPT ALL BUT NEVER HAPPEN -- THE STAG INCLUDED.**
 
 **This is a design/feel decision (`CLAUDE.md` stop rule 3), and it is one number.** The code of part 1
