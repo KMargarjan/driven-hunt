@@ -622,13 +622,35 @@ return function()
 			return Forest.LINE.spawnNorthStuds + Forest.BEATER.behindLineStuds + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS
 		end
 
-		it("takes about two minutes at the bot pace, and that is Karen's number", function()
+		it("takes about three and a half minutes at the bot pace, and that is the Director's number", function()
 			local seconds = travelStuds() / Bots.CONFIG.WALK_SPEED
-			-- KAREN: *"need longer walk for beaters let's say 2 min"*. +-15 s is the tolerance on
-			-- "let's say", and it is deliberately not +-1: the pair is two round numbers and the
-			-- ground is a hill, so the exact quotient is not the thing being claimed.
-			expect(seconds > 105).to.equal(true)
-			expect(seconds < 135).to.equal(true)
+			-- KAREN (task 162): *"need longer walk for beaters let's say 2 min"*, and the band was
+			-- 105-135 s. THE DIRECTOR, 2026-10-24 (task 251 part 2, Karen having delegated the feel for
+			-- the night): *"lengthen the Forest Test drive to about 210 s by slowing the beater line"*,
+			-- because the drive script is fifteen slots and a 130-second drive only ever reached five of
+			-- them -- so the red stag at slot 13 never happened (`ESCALATE.md`, 2026-10-23).
+			--
+			-- THE BAND IS ON THE FLAT QUOTIENT AND THE TARGET IS ON THE GROUND, which is why it is
+			-- centred on 193 and not on 210: measured over three drives of part 1, the arrival is
+			-- **1.081x** the flat figure (130.8 / 133.0 / 125.3 s against a flat 120.0), so 193.5 flat
+			-- is ~209 s in Karen's place. +-20 s on the flat quotient, deliberately not +-1: the pair is
+			-- two numbers somebody will turn and the ground is a hill.
+			expect(seconds > 173).to.equal(true)
+			expect(seconds < 213).to.equal(true)
+			-- ...AND THE THING THE DRIVE IS FOR: every one of the fifteen slots is due before the line
+			-- arrives. This is the assertion part 1's escalation existed to get, and it reads the two
+			-- modules against each other rather than against a comment.
+			local lastSlot = Forest.slotSeconds(#Forest.SCHEDULE.drive)
+			expect(lastSlot < seconds * 1.081).to.equal(true)
+			TestKit.note(
+				string.format(
+					"slot %d (the last) is due at %.0f s and the bot line arrives at ~%.0f s: %.0f s to spare",
+					#Forest.SCHEDULE.drive,
+					lastSlot,
+					seconds * 1.081,
+					seconds * 1.081 - lastSlot
+				)
+			)
 			TestKit.note(
 				string.format(
 					"a bot beater walks %.0f studs at %.1f studs/s = %.1f s (flat; the measured ground path from the middle stand's pad is 612 studs, so ~%.0f s)",
@@ -652,13 +674,34 @@ return function()
 			expect(Forest.DRIVE.seconds - seconds > Forest.DRIVE.seconds / 3).to.equal(true)
 		end)
 
-		it("walks at a real walking pace, in metres", function()
+		it("advances at a beater line's pace, in metres", function()
 			-- `SPOOK.METRES_PER_STUD` is the one conversion in this world (0.28), the same number
-			-- `Horn.CONFIG`, `Report.CONFIG` and `Boar.CONFIG.SENSE` publish. A man working a wood
-			-- does 1.2-1.5 m/s; the 9 studs/s this shipped with was 2.52 m/s, which is a jog.
+			-- `Horn.CONFIG`, `Report.CONFIG` and `Boar.CONFIG.SENSE` publish. The 9 studs/s this
+			-- shipped with was 2.52 m/s, which is a jog, and that is still what the ceiling refuses.
+			--
+			-- THE FLOOR WENT 1.2 -> 0.8 IN TASK 251 PART 2, and the reason is a different claim rather
+			-- than a looser one. 1.2-1.5 m/s is what a MAN WALKING does, and 5 studs/s (1.40) sat inside
+			-- it. But a beater LINE does not walk, it ADVANCES: it stops in thick cover, beats it, waits
+			-- for the flanks so the line stays level, and moves on. 3.1 studs/s is 0.87 m/s, which is
+			-- that average -- a slow walk with stops in it -- and `Bots.CONFIG.WALK_SPEED`'s own comment
+			-- carries the source. The ceiling is untouched, so the jog is still a failure.
 			local metresPerSecond = Bots.CONFIG.WALK_SPEED * Forest.SPOOK.METRES_PER_STUD
-			expect(metresPerSecond >= 1.2).to.equal(true)
+			expect(metresPerSecond >= 0.8).to.equal(true)
 			expect(metresPerSecond <= 1.5).to.equal(true)
+			-- AND THE FEET STILL DO NOT SLIDE AT IT (task 161's gait law, asserted rather than claimed
+			-- in the config's comment): the walk clip plays at `speed / NATURAL_WALK_SPEED`, so the
+			-- slowed pace has to stay above the rate floor and above the clip's own walk threshold.
+			local _, rate = Rig.gait(Bots.CONFIG.WALK_SPEED, nil)
+			expect(rate > Rig.GAIT.MIN_RATE).to.equal(true)
+			expect(Bots.CONFIG.WALK_SPEED > Rig.GAIT.WALK_ABOVE_STUDS).to.equal(true)
+			TestKit.note(
+				string.format(
+					"a bot beater advances at %.1f studs/s = %.2f m/s, drawn at rate %.2f",
+					Bots.CONFIG.WALK_SPEED,
+					metresPerSecond,
+					rate
+				)
+			)
 		end)
 
 		it("keeps the aim point ahead of the bot between re-issues", function()

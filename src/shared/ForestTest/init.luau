@@ -492,10 +492,18 @@ end
 -- a CHECKED CONSEQUENCE (`forest_stand.spec`) rather than the reason.
 --
 --   (spawnNorthStuds 180 + behindLineStuds 400 + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS 20)
---     / Bots.CONFIG.WALK_SPEED 5  =  120.0 s
+--     / Bots.CONFIG.WALK_SPEED 3.1  =  193.5 s flat, and ~209 s on the ground
 --
 -- A BOT LINE IS WHAT ENDS A DRIVE HERE (`Match.beaterCrossing` counts bots into the line), so that
 -- product IS the length of a drive, and `bots_lane.spec` asserts it against `DRIVE.seconds` (300).
+--
+-- **THIS NUMBER DID NOT MOVE IN TASK 251 PART 2 AND THE WALK DID**, which is worth writing down here
+-- because this is where the other half of the pair lives. The Director asked for a ~210 s drive
+-- (2026-10-24, answering part 1's escalation) and 210 s at 5 studs/s needs 1,050 studs of travel --
+-- `behindLineStuds` would have to be about 850, and the measurement below says the trees run out at
+-- 775-850 studs. So the wood is what refused it, exactly as it refused keeping 9 studs/s in task 162,
+-- and `Bots.CONFIG.WALK_SPEED` went 5 -> 3.1 instead. Its own comment carries the reason a beater
+-- LINE advances slower than a man walks.
 --
 -- 580 IS WHAT THE WOOD HOLDS, MEASURED in this place on 2026-10-12 (`test`'s own Edit session, nine
 -- stand columns from x 2430 to 3630, sampled every 25 studs out to 1,000):
@@ -1082,6 +1090,99 @@ end
 -- accepted in task 123 and nothing asked for that.
 --
 -- 300 seconds is the Director's number: about fifteen waves at the 20 s interval.
+-- ------------------------------------------------- THE RED STAG'S RUT ROAR (task 251 part 2)
+--
+-- KAREN, 2026-10-23, verbatim: *"we need better saound and behaviour for red stag"*, and her "ok" to
+-- the plan (`<runs-dir>/design/driveflow-spec.md` section 4). October is the peak of the red deer rut
+-- and the stag's rut call is *"very similar to the bellow of a bull"*, *"a regular feature of dawn
+-- and dusk"* (countydeerstalking.co.uk, "Deer Vocalisations"; the same source task 240's whole deer
+-- voice table is built on). So in a drive that carries a stag you hear him ROARING IN THE DISTANCE
+-- before you ever see him, from his own holding in the far wood.
+--
+-- WHY IT LIVES HERE AND NOT IN `Boar.CONFIG.SOUND.VOICE` -- rule 3, and the spec says it in as many
+-- words: *"it is an AMBIENCE cue, not an animal's voice"*. A voice comes out of an animal somebody
+-- can see, is parented to that animal's trunk, dies with it and is rationed against
+-- `SOUND.CROWD.MAX_SQUEALS`. THIS SOUNDS BEFORE THE STAG EXISTS: he is released at slot 13, t 166 s,
+-- and the roar is wanted in the first 90. It is a fact about the WOOD this drive is happening in --
+-- which is this module's -- and a 5-second roar booking one of the world's two squeal slots would
+-- have silenced a dying boar to play it. **It is its own emitter with its own single slot**, exactly
+-- as the spec asks: `ForestTest.stepRoar` is the one writer and there is one Sound in the world.
+--
+-- THE IDS ARE THE ROBLOX LIBRARY'S, WHICH IS THE SPEC'S OPTION A, AND THE REAL RECORDING IS A
+-- DIRECTOR TASK. There is no deer in the library and that was measured twice (task 240's note, and
+-- again on 2026-10-23 for this spec: thirteen keywords, 95 rows from the three creators whose audio
+-- plays in anybody's experience, not one named deer or elk). These four are the longest clean
+-- isolated BULL BELLOWS in it -- which is what the literature says a stag sounds like -- and option A
+-- *"costs nothing, needs no upload, and is in the game the day the Builder writes four ids into a
+-- table"*. The real thing is Freesound 653532, *"Deer rut - Brame Cerf"* by L.Finck, **VERIFIED CC0
+-- on its own page on 2026-10-24** (52.9 s, 48 kHz 24-bit) -- and `tools/roblox_upload.py` implements
+-- Model and Decal and REFUSES Audio, so it needs a human upload through Studio or the Creator
+-- Dashboard. `ESCALATE.md` carries it as NEEDS DIRECTOR with the file and the clicks. When it lands
+-- it is this one `ids` row, changed.
+--
+-- WHAT IS PROVED AND WHAT IS NOT (rule 8): that these ids LOAD and have a real `TimeLength` in a live
+-- Play session of this place is measured, by the method this repo already uses (a `Sound` per id,
+-- `ContentProvider:PreloadAsync` on the client, then `IsLoaded` and `TimeLength` read back -- Edit
+-- answers 0 for an asset nobody has fetched, which is how a dead id passes a bench test). **NOBODY
+-- HERE CAN HEAR IT.** Whether a bull at pitch 1.15 and 350 studs reads as a stag roaring across a
+-- valley is KAREN'S EARS, and it is the one thing this row cannot claim.
+ForestTest.ROAR = {
+	enabled = true,
+	-- The four, longest first. `pitch` applies to all of them (`PlaybackSpeed`), so a 4.4 s bellow is
+	-- 3.8 s of roar; the lengths are what task 240's own catalogue read gave and are MEASURED in the
+	-- live run this task owes rather than declared here, because an id's length is a fact about the
+	-- asset and not a dial.
+	ids = {
+		9113626902, -- "Bull Bellows 13" -- "Anxious Cries, Slowed", the longest of all (~6.2 s)
+		9113625767, -- "Bull Bellows 3" -- "Isolated Roars, Complaining, Uneasy" (~4.4 s)
+		9119634882, -- "Steer Bellows 1" -- "Cry, Groaning", a held note rather than a cry (~4.0 s)
+		9113629096, -- "Bull Bellows 4" -- "Isolated Roars, Anxious, Panicked" (~3.6 s)
+	},
+	-- A BULL IS THREE TIMES A STAG'S WEIGHT, so his bellow goes UP for a stag. The same 1.15 the
+	-- stag's own `VOICE` row carries (task 240), and for the same reason -- one animal, one pitch.
+	pitch = 1.15,
+	-- NO CUT. The spec's cue table says so in the column: *"none -- a distant roar must be long"*.
+	-- Every other deer cue is cut to 1.05 s because it books a voice slot; this books nothing.
+	--
+	-- QUIET AND FAR, which is the whole of "in the distance", and `nearStuds` 90 is the plateau:
+	-- `InverseTapered` falls as `near / distance`, so a high plateau is what gives a long tail rather
+	-- than a loud middle. 0.35 against the voice's 0.9.
+	--
+	-- 350 -> 420, AND IT IS A MEASUREMENT AND NOT A PREFERENCE. The spec's cue table says *"heard at
+	-- 350 studs"*, and the FIRST live drive of this task printed the number that makes 350 wrong:
+	-- `ROAR 1: the stag answers from the far wood, 401 studs from the stand, audible to 350`. His
+	-- holding is slot 13's own (`northStuds` 330, `offsetX` -95), which is sqrt(330^2 + 95^2) = **343
+	-- studs** from the stand before `deeperStuds` is added at all -- so the spec's range was set
+	-- without the geometry of the row it was for, and at 350 Karen would have heard **nothing**,
+	-- four times a drive, with a console line each time claiming she had.
+	--
+	-- 420 IS 343 PLUS 77 STUDS OF MARGIN, which is what the stand being 150 studs from its
+	-- neighbour costs: she locks one of nine (`PICK.defaultIndex` 5 is only the default), and
+	-- `wavePoint` puts the row relative to the stand she took, so his bearing moves with her and the
+	-- distance does not. It is now the longest-carrying sound in this world -- past the hand horn's
+	-- 357 -- which is right for the one cue that is meant to come from somewhere she cannot see.
+	volume = 0.35,
+	nearStuds = 90,
+	audibleStuds = 420,
+	-- WHEN. The spec: *"t 0-90 s of a drive that carries a stag; then once at his release"*. 20 s
+	-- apart is four roars in the window, which is a stag answering himself across a wood rather than
+	-- a loop; the first is 8 s in, after the opening signal's own fanfare.
+	windowSeconds = 90,
+	firstAtSeconds = 8,
+	everySeconds = 20,
+	-- HOW FAR BEHIND HIS OWN HOLDING he roars from, in studs north of it. He has not moved yet -- the
+	-- script holds him at `northStuds` 330 until slot 13 -- and a roar from exactly his spawn point
+	-- would give his position away to the second.
+	--
+	-- 60 -> 30, FOR THE REASON `audibleStuds` MOVED: at 60 the measured distance from the stand was
+	-- **401 studs** and the whole cue was out of earshot. It is kept rather than zeroed because the
+	-- reason for it is still good -- a roar from exactly the spawn point is a map pin -- and 30 studs
+	-- is still a hundred feet of wood, which no hunter can resolve at 350.
+	deeperStuds = 30,
+	-- The instance's name in Workspace, so a reader looking for it can find it.
+	partName = "StagRoar",
+}
+
 ForestTest.DRIVE = { seconds = 300 }
 
 -- ONE SIDE TO THE OTHER, IN A LINE (task 127). Karen, 2026-10-05: *"imagine they have to go from one
@@ -1543,9 +1644,12 @@ end
 -- for this task -- it was ALREADY DORMANT in the world Karen plays, because `LINE.enabled` is true
 -- and `ForestTest.releaseLine` drew its own count, crossing and pace and never read it.
 --
--- ONE DRIVE IS 300 SECONDS AND FIFTEEN SLOTS, TWENTY SECONDS APART (`DRIVE.seconds`,
--- `SCHEDULE.intervalSeconds`; `ForestTest.wavesPerDrive` is that arithmetic). THIS TABLE IS ONE ROW
--- PER SLOT, in three acts:
+-- A DRIVE OF THIS WORLD IS ABOUT 210 SECONDS AND FIFTEEN SLOTS, THIRTEEN SECONDS APART, THE FIRST AT
+-- TEN (`SCHEDULE.firstSlotSeconds`, `SCHEDULE.intervalSeconds`; `ForestTest.slotSeconds` is that
+-- arithmetic). `DRIVE.seconds` is 300 and is only the CEILING -- what actually ends a drive here is
+-- the beater line arriving (`Match.beaterCrossing`), which is why part 2 moved the gap: see the two
+-- rows at the top of `SCHEDULE` and `ESCALATE.md`, 2026-10-23. THIS TABLE IS ONE ROW PER SLOT, in
+-- three acts:
 --   ACT I   (slots 1-4, zone A, 85-125 studs out) the near holding and the jumpy ones. The drive
 --           starts BEFORE the beaters do, because the noise of arrival moves the experienced animals
 --           (Livingactive, *Tipps und Tricks fuer die Drueckjagd*).
@@ -1562,7 +1666,7 @@ end
 -- WHAT THE NUMBERS COME OUT AT, with the dial at `normal` (and they are counted by
 -- `ForestTest.driveTally`, not by hand, so a changed row changes the count):
 --   13 groups, 59 animals (boar 11 groups / 56, red deer 2 / 3)
---   10 groups cross the road -- one about every 25 seconds across the middle of the drive
+--   10 groups cross the road -- one about every 16 seconds across the middle of the drive
 --   2 refuse at the verge and break back through the beaters, and 1 never comes at all
 --      (that last one is the PLOS ONE study's 32 % of animals that stay put, made visible)
 --   2 leaping GROUPS and 3 leaping ANIMALS -- the hind, her calf and the stag. NO BOAR EVER LEAPS.
@@ -1582,9 +1686,10 @@ end
 --
 -- EVERY FIELD, AND WHO OWNS THE FACT BEHIND IT:
 --   `slot`, `atSeconds`, `act`      this drive's own shape. `atSeconds` is DERIVED and asserted, not
---                                   read: `slot * intervalSeconds - 10`. It is here so the table can
---                                   be read as a timeline, and `forest_line.spec` checks every row
---                                   against `ForestTest.slotSeconds`.
+--                                   read: `firstSlotSeconds + (slot - 1) * intervalSeconds`. It is
+--                                   here so the table can be read as a timeline, and
+--                                   `forest_line.spec` checks every row against
+--                                   `ForestTest.slotSeconds`.
 --   `species`                       "boar" or "reddeer".
 --   `party`                         for `reddeer` only: which of
 --                                   `SPECIES.reddeer.RELEASE.COMPOSITIONS`, BY NAME ("hinds",
@@ -1613,6 +1718,8 @@ end
 --   `check`, `sneak`, `leaps`       the DEER's own behaviour at the verge, declared here and
 --                                   honoured by the ANIMAL's owner. See "WHAT PART 1 DOES NOT DO"
 --                                   below, which says exactly what each one does today.
+--   `sneakStuds`, `sneakDz`         for `sneak` only: how far he walks inside the treeline and how
+--                                   far north of the road that walk runs.
 --   `keepAt`                        the smallest density at which this row carries animals. THE DIAL.
 --   `note`                          what a reader should see happen.
 --
@@ -1643,17 +1750,38 @@ end
 --     (`ForestTest.stepLines`), at the Brain's own `MOVE.EDGE_CHANCE` of 0.55 and for 1-4 s. The
 --     deer's own longer, likelier, look-BACK check (0.90, 2-6 s, 150 deg) is spec section 3.2 and is
 --     part 2.
---   * `sneak = true` on row 13 is DECLARED AND NOT YET WALKED. The stag's two-leg route inside the
---     treeline is spec section 3.2 and part 2; today row 13 walks STRAIGHT from zone C like any
---     other row, which is 330 studs of approach -- so he is still last, still alone and still 55
---     studs deeper than the next-deepest group that comes. `forest_line.spec` asserts the field
---     exists and that no route is built from it yet, so the day part 2 reads it, that assertion is
---     the thing that changes.
+--   * `sneak = true` on row 13 IS WALKED SINCE PART 2, and the two numbers beside it
+--     (`sneakStuds` 120, `sneakDz` 75) are what it walks. `ForestTest.sneakEntryX` is the pure half
+--     and `releaseLine` pins the extra point. He is still last, still alone and still 55 studs
+--     deeper than the next-deepest group that comes.
 --   * `leaps` is the measured road leap, already built and already behind `DEER_ROAD_LEAP` (which is
 --     ON in Karen's place). The STAG'S BOUND WHEN SPOOKED (spec section 3.2 `BOUND_ON_SPOOK`) is
 --     part 2, and the spec itself holds it behind the leap's known hoof sink (TASKS.md 245c).
 ForestTest.SCHEDULE = {
-	intervalSeconds = 20,
+	-- ------------------------------------------------- THE LENGTH OF THE DRIVE (task 251 part 2)
+	--
+	-- 20 -> 13, AND 10 FOR THE FIRST SLOT: the two numbers that answer part 1's escalation
+	-- (`ESCALATE.md`, 2026-10-23 -- *"a Forest Test drive is ~130 seconds, not 300, so slots 6-15 all
+	-- but never happen -- the stag included"*). **THE DIRECTOR ANSWERED IT on 2026-10-24**, Karen
+	-- having delegated the feel for the night: lengthen the drive to about 210 s by slowing the beater
+	-- line, and space the fifteen slots so every one of them -- the stag's slot 13 included -- plays
+	-- before the line arrives. Slot 1 at 10 s, 13 s apart, slot 15 at 192 s.
+	--
+	-- SO THE SCRIPT IS UNCUT (the escalation's option D is refused by name) and the two halves are:
+	--   the DRIVE got longer: `Bots.CONFIG.WALK_SPEED` 5 -> 3.1, which is the other half of this and
+	--     lives there because the walk is that module's number (`bots_lane.spec` holds the relation);
+	--   the SLOTS got closer: 20 -> 13 here, which is this module's.
+	-- 10 + 14 x 13 = 192 s, and the line arrives at ~210: every slot plays, with ~18 s to spare.
+	--
+	-- BOTH ARE DATA ROWS AND KAREN MOVES THEM IN THE MORNING, which is the dispatch's own condition.
+	-- Nothing derives from them but `ForestTest.slotSeconds` and the metronome in `ForestTest.step`.
+	intervalSeconds = 13,
+	-- WHEN SLOT 1 IS DUE, measured from the drive's own start. It used to be `intervalSeconds` by
+	-- accident rather than by decision -- `ForestTest.start` set `nextWaveAt = now + intervalSeconds`
+	-- and the rows' own `atSeconds` read `slot * gap - gap / 2`, so the TABLE said 10 s and the WORLD
+	-- released at 20. Two numbers for one fact, differing by half a gap, and neither was wrong on its
+	-- own terms. Now it is one row, the derivation reads it, and the metronome is based on it.
+	firstSlotSeconds = 10,
 
 	-- HOW BUSY A DRIVE IS: "quiet", "normal" or "busy". Karen OK'd `normal`.
 	density = "normal",
@@ -1687,7 +1815,7 @@ ForestTest.SCHEDULE = {
 		},
 		{
 			slot = 2,
-			atSeconds = 30,
+			atSeconds = 23,
 			act = 1,
 			species = "reddeer",
 			party = "hinds", -- {hind = 1, calf = 1}
@@ -1705,7 +1833,7 @@ ForestTest.SCHEDULE = {
 		},
 		{
 			slot = 3,
-			atSeconds = 50,
+			atSeconds = 36,
 			act = 1,
 			species = "boar",
 			composition = 5, -- {females = 1, cubs = 4, males = 1}
@@ -1721,7 +1849,7 @@ ForestTest.SCHEDULE = {
 		},
 		{
 			slot = 4,
-			atSeconds = 70,
+			atSeconds = 49,
 			act = 1,
 			species = "boar",
 			composition = 2, -- {males = 2}
@@ -1739,7 +1867,7 @@ ForestTest.SCHEDULE = {
 			-- SILENCE AT quiet AND normal. A drive with no gaps in it is a shooting gallery; this is
 			-- the first of the two, and at `busy` it carries a second broadside pass.
 			slot = 5,
-			atSeconds = 90,
+			atSeconds = 62,
 			act = 1,
 			species = "boar",
 			composition = 3, -- {males = 5, females = 3}
@@ -1757,7 +1885,7 @@ ForestTest.SCHEDULE = {
 		-- ------------------------------------------------------------------ ACT II: the body of it
 		{
 			slot = 6,
-			atSeconds = 110,
+			atSeconds = 75,
 			act = 2,
 			species = "boar",
 			composition = 3, -- {males = 5, females = 3}
@@ -1774,7 +1902,7 @@ ForestTest.SCHEDULE = {
 		},
 		{
 			slot = 7,
-			atSeconds = 130,
+			atSeconds = 88,
 			act = 2,
 			species = "boar",
 			composition = 1, -- {females = 2, males = 3, cubs = 4}
@@ -1790,7 +1918,7 @@ ForestTest.SCHEDULE = {
 		},
 		{
 			slot = 8,
-			atSeconds = 150,
+			atSeconds = 101,
 			act = 2,
 			species = "boar",
 			composition = 5, -- {females = 1, cubs = 4, males = 1}
@@ -1806,7 +1934,7 @@ ForestTest.SCHEDULE = {
 		},
 		{
 			slot = 9,
-			atSeconds = 170,
+			atSeconds = 114,
 			act = 2,
 			species = "boar",
 			composition = 6, -- {males = 1}
@@ -1823,7 +1951,7 @@ ForestTest.SCHEDULE = {
 		{
 			-- THE SECOND SILENCE, and at `busy` a pair of males out of the far wood.
 			slot = 10,
-			atSeconds = 190,
+			atSeconds = 127,
 			act = 2,
 			species = "boar",
 			composition = 2, -- {males = 2}
@@ -1840,7 +1968,7 @@ ForestTest.SCHEDULE = {
 		-- ------------------------------------------------------ ACT III: the far wood, and the stag
 		{
 			slot = 11,
-			atSeconds = 210,
+			atSeconds = 140,
 			act = 3,
 			species = "boar",
 			composition = 5, -- {females = 1, cubs = 4, males = 1}
@@ -1869,7 +1997,7 @@ ForestTest.SCHEDULE = {
 		},
 		{
 			slot = 12,
-			atSeconds = 230,
+			atSeconds = 153,
 			act = 3,
 			species = "boar",
 			composition = 4, -- {females = 3, cubs = 6}
@@ -1890,7 +2018,7 @@ ForestTest.SCHEDULE = {
 			-- deer come *"lange nach Beginn des Treibens -- klammheimlich aus der Dickung"*) in one
 			-- row. The hinds came out at slot 2; he comes out 220 seconds later.
 			slot = 13,
-			atSeconds = 250,
+			atSeconds = 166,
 			act = 3,
 			species = "reddeer",
 			party = "stag", -- {stag = 1}
@@ -1902,14 +2030,25 @@ ForestTest.SCHEDULE = {
 			route = "STRAIGHT",
 			pace = "walk",
 			check = true,
+			-- THE SNEAK, WALKED SINCE PART 2 (spec section 3.2, Karen OK'd): *"ein Stueck innerhalb
+			-- des Waldrands ... ehe es das offene Feld annimmt"* -- he comes down to the band inside
+			-- the treeline, walks `sneakStuds` along it parallel to the road, and only then takes the
+			-- open at his crossing. It is the one two-leg route in the script and it is the same
+			-- machinery as every other (`computeRouteVia`, pinned through one extra point).
+			--
+			-- TWO NUMBERS AND NOT TWO RANGES, which is part 1's own principle and the reason this
+			-- table exists: a SCRIPT draws nothing. The spec's bands are 80-160 studs parallel at a
+			-- `dz` of 60-90, and these are the middle of each -- Karen's to move, one row, no code.
 			sneak = true,
+			sneakStuds = 120,
+			sneakDz = 75,
 			leaps = true,
 			keepAt = 13,
-			note = "THE RED STAG: last of the drive, alone, out of the far wood at a walk",
+			note = "THE RED STAG: last of the drive, alone, out of the far wood, and he sneaks the treeline",
 		},
 		{
 			slot = 14,
-			atSeconds = 270,
+			atSeconds = 179,
 			act = 3,
 			species = "boar",
 			composition = 2, -- {males = 2}
@@ -1925,7 +2064,7 @@ ForestTest.SCHEDULE = {
 		},
 		{
 			slot = 15,
-			atSeconds = 290,
+			atSeconds = 192,
 			act = 3,
 			species = "boar",
 			composition = 5, -- {females = 1, cubs = 4, males = 1}
@@ -1981,14 +2120,23 @@ function ForestTest.groupsWanted(density: string?, schedule): number
 	return if type(want) == "number" then want else #(resolved.drive or {})
 end
 
--- WHEN A SLOT IS DUE, in seconds from the drive's start. PURE, and DERIVED -- `slot * interval - 10`,
--- so slot 1 is at 10 s and slot 15 at 290 -- which is what makes each row's own `atSeconds` an
--- assertion (`forest_stand.spec` checks every row against this) instead of a second copy of the
--- clock that can drift away from `intervalSeconds`. `forest_line.spec` checks every row against it.
+-- WHEN A SLOT IS DUE, in seconds from the drive's start. PURE, and DERIVED -- `firstSlotSeconds +
+-- (slot - 1) * intervalSeconds`, so slot 1 is at 10 s and slot 15 at 192 -- which is what makes each
+-- row's own `atSeconds` an assertion (`forest_line.spec` checks every row against this) instead of a
+-- second copy of the clock that can drift away from the two numbers above.
+--
+-- IT USED TO BE `slot * gap - gap / 2` (task 251 part 1), which is the same arithmetic with the first
+-- slot pinned to `gap - gap / 2` -- 10 s only because the gap happened to be 20. It is spelled out as
+-- two rows now because part 2 moves the gap and NOT the first slot, and because the metronome in
+-- `ForestTest.step` is based on the same `firstSlotSeconds`, so the table and the world agree.
 function ForestTest.slotSeconds(slot: number, schedule): number
 	local resolved = schedule or ForestTest.SCHEDULE
 	local gap = math.max(1, resolved.intervalSeconds or 20)
-	return slot * gap - gap / 2
+	local first = resolved.firstSlotSeconds
+	if type(first) ~= "number" then
+		first = gap - gap / 2
+	end
+	return first + (slot - 1) * gap
 end
 
 -- WHICH ROW A SLOT RELEASES, or **nil for silence**. THE WHOLE OF THE DIAL IS THIS FUNCTION.
@@ -2035,6 +2183,48 @@ function ForestTest.slotAt(slot: number, density: string?, schedule)
 		return nil
 	end
 	return row
+end
+
+-- WHERE THE STAG ENTERS THE TREELINE BAND, so that walking `studs` along it brings him to his own
+-- crossing (task 251 part 2). PURE: three numbers in, one out, so the two-leg route is a spec case
+-- with no world, no layout and no pathfinder.
+--
+-- HE ENTERS ON THE SIDE HE CAME FROM, which is the whole rule and is why no new "which way" word is
+-- needed: slot 13 starts 95 studs west of the stand and crosses 35 studs west of it, so he is coming
+-- from the west, he enters the band at `crossX - studs` and walks EAST inside the trees to his
+-- crossing. Move his `offsetX` to the other side of his `crossOffset` and he sneaks the other way,
+-- with nothing else edited. `crossX == startX` takes the west, because a tie has to take something
+-- and the stag's own row is a westerly one.
+--
+-- 0 OR A MISSING NUMBER -> THE CROSSING ITSELF, which collapses the two legs into one and is exactly
+-- the STRAIGHT route part 1 shipped. So a row that declares `sneak` and no distance is not an error;
+-- it is the behaviour before this task.
+function ForestTest.sneakEntryX(startX: number, crossX: number, studs: number?): number
+	if type(studs) ~= "number" or studs <= 0 then
+		return crossX
+	end
+	local sign = if crossX >= startX then -1 else 1
+	return crossX + sign * studs
+end
+
+-- WHICH ROW OF THE SCRIPT CARRIES THE STAG at this density, or nil for a drive that has none (task
+-- 251 part 2). PURE, and it is read by exactly two things, both of which need "is there a stag in
+-- this drive, and where is he holding": his rut roar in the first 90 seconds (`ForestTest.ROAR`,
+-- which must sound from his own holding before he is released) and the proof that logs the drive.
+--
+-- IT ASKS `slotAt` AND NOT `pairs`, so the DIAL decides: at `quiet` the stag's row is `keepAt = 13`
+-- and does not fire, and this answers nil -- which is the right answer, because a quiet drive has no
+-- stag in it and a roar from an empty wood would be a lie.
+function ForestTest.stagRow(density: string?, schedule)
+	local resolved = schedule or ForestTest.SCHEDULE
+	local rows = resolved.drive or {}
+	for slot = 1, #rows do
+		local row = ForestTest.slotAt(slot, density, resolved)
+		if row ~= nil and row.species == "reddeer" and row.party == "stag" then
+			return row, slot
+		end
+	end
+	return nil, nil
 end
 
 -- WHAT THIS ROW DOES. One word, defaulted, so no caller writes `row.route or "STRAIGHT"` twice.

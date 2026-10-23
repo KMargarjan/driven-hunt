@@ -557,6 +557,24 @@ local state = {
 	driveWave = 0,
 	deerWave = nil :: number?,
 	deerDone = false,
+	-- A DEER PARTY THE CAP REFUSED, HELD FOR THIS DRIVE'S NEXT SILENCE (task 251 part 1). Declared
+	-- here beside the other two rather than springing into existence in `releaseLine`, which is this
+	-- table's own rule and which part 1's review noted it had broken (TASKS.md 251a(e)).
+	owedRow = nil :: any,
+	-- WHEN THIS DRIVE OPENED, and it is NOT `startedAt` (task 251 part 2). `startedAt` is the
+	-- SESSION's, and the roar's 90-second window and the slot metronome are both about one DRIVE --
+	-- which is why `newDrive(now)` sets this and why the metronome is re-based there. Before part 2
+	-- the metronome ran continuously from server start, so a drive that opened mid-interval got its
+	-- slots at an offset nobody could predict (`ESCALATE.md`, 2026-10-23: the session's first drive
+	-- *"got to slot 7"* where the next three got to 5).
+	driveOpenedAt = 0,
+	-- THE ROAR'S OWN EMITTER AND ITS CLOCK (task 251 part 2). ONE Sound in the world, made once and
+	-- moved; `ForestTest.stepRoar` is the only writer of either. See `Data.ROAR` for why the stag's
+	-- rut call is this module's and not `Boar.CONFIG.SOUND.VOICE`'s.
+	roarPart = nil :: BasePart?,
+	roarSound = nil :: Sound?,
+	nextRoarAt = nil :: number?,
+	roars = 0,
 	active = {} :: { { centre: Vector3, handles: { any }, at: number, turnsBack: boolean, id: string } },
 	picks = {} :: { [number]: { index: number, lockedAt: number? } },
 	-- WHICH ROLE A PLAYER HAS ASKED FOR AND NOT YET BEEN GIVEN, in Karen's own words (task 151,
@@ -2100,7 +2118,21 @@ end
 -- stocked, whether it has been, which animals have been latched, and which have been noticed. The
 -- COUNTERS (`flushed`, `noticed`, `released`) are the session's and are not touched -- they are what
 -- `stats()` publishes and what the `[rest]` lines count up.
-function ForestTest.newDrive()
+function ForestTest.newDrive(now: number?)
+	-- THE SLOT CLOCK IS RE-BASED ON THE DRIVE, NOT ON THE SESSION (task 251 part 2), and this is the
+	-- second half of the fix part 1's escalation asked for. The metronome used to be set once in
+	-- `start` and then advance for ever, so slot 1 of the SECOND drive fell wherever the session's
+	-- clock happened to be -- which is exactly why the measured first drive reached slot 7 and the
+	-- three after it reached 5, and why `atSeconds` (10) and the world (20) disagreed by half a gap.
+	--
+	-- `now` IS OPTIONAL and omitting it leaves the clock alone, because a spec calls this with no
+	-- world and no `os.clock` meaning anything (`forest_stand.spec`). Production always passes it.
+	if type(now) == "number" then
+		state.driveOpenedAt = now
+		state.nextWaveAt = now + Data.slotSeconds(1)
+		state.nextRoarAt = now + Data.ROAR.firstAtSeconds
+	end
+	state.roars = 0
 	state.rest = {}
 	state.restStocked = false
 	state.restTriedAt = nil
@@ -2408,7 +2440,6 @@ function ForestTest.start(runtime, now: number)
 	ForestTest.applyField(runtime)
 	state.started = true
 	state.startedAt = now
-	state.nextWaveAt = now + Data.SCHEDULE.intervalSeconds
 	state.waveIndex = 0
 	state.released = 0
 	state.active = {}
@@ -2428,7 +2459,10 @@ function ForestTest.start(runtime, now: number)
 	-- Karen, 2026-10-13: *"and again no boar behing comming after beater walk"* -- the re-stock was
 	-- the one source task 168 left open. ONE function resets all of it, and the boot calls the same
 	-- one on every drive boundary, so a server start and a new drive cannot drift apart.
-	ForestTest.newDrive()
+	-- ...AND IT OPENS THE FIRST DRIVE, WHICH IS WHAT BASES THE SLOT CLOCK (task 251 part 2). It used
+	-- to be set here as `now + intervalSeconds`; it is `newDrive`'s now, so a server start and a drive
+	-- boundary cannot put slot 1 at two different times.
+	ForestTest.newDrive(now)
 	state.noticed = 0
 end
 
@@ -2495,10 +2529,15 @@ function ForestTest.step(now: number): string?
 		-- meeting a resting sounder get the same rule -- see `ForestTest.spookNearBeaters`.
 		local spooked = ForestTest.spookNearBeaters(now)
 		ForestTest.stepLines(now)
+		-- THE RUT ROAR, BEFORE THE SCHEDULE AND BESIDE THE FLUSH (task 251 part 2): it is a sound and
+		-- nothing else -- it releases nothing, moves nothing and refuses nothing -- so it sits with
+		-- the other things that only have a line to say. `ForestTest.stepRoar` owns its own clock and
+		-- its own window, and answers nil on all but four ticks of a drive.
+		local roared = ForestTest.stepRoar(now)
 		-- ONE LINE PER FLUSH (task 153), through the channel this module already answers on: the
 		-- boot prints whatever `step` returns, and "the beater had no visible effect" is the kind of
 		-- claim that needs a number beside it.
-		local flush = ForestTest.takeFlushLine() or spooked
+		local flush = ForestTest.takeFlushLine() or spooked or roared
 		-- BEATER MODE HAS NO SCHEDULE (task 154). Karen walked the then 240 studs to the road in
 		-- about sixteen seconds and the first wave was still four seconds away: *"didn;t see any animals
 		-- probably need to wait 10s ?"*. So nothing is released on a timer while she is a beater --
@@ -2973,6 +3012,29 @@ function ForestTest.releaseLine(now: number): string?
 			local shift = if route == "SPLIT" and which > 1 then (row.splitStuds or 0) else 0
 			local acrossAt =
 				Vector3.new((crossing :: Vector3).X + lateral + shift, chosen.layout.centre.Y, (crossing :: Vector3).Z)
+			-- THE STAG'S SNEAK ALONG THE TREELINE (task 251 part 2, spec section 3.2). KAREN OK'd
+			-- *"ein Stueck innerhalb des Waldrands ... ehe es das offene Feld annimmt"*: he comes down
+			-- to the band inside the trees, walks `sneakStuds` ALONG it, and only then takes the open.
+			--
+			-- IT IS TWO PINS AND NO NEW MACHINERY, which is the whole of why the spec called this the
+			-- longest job and it was not: `computeRouteVia` already walks a chain of legs, so the
+			-- "two-leg route" is two more points in `via` and the pathfinder does the rest. The entry
+			-- x is the pure rule (`Data.sneakEntryX` -- he enters on the side he came from), and both
+			-- points sit at the row's own `sneakDz` north of the road AT THEIR OWN x, because the lane
+			-- is a sine in this world and a constant z would be in the trees at one end and on the
+			-- tarmac at the other.
+			--
+			-- IT IS TESTED BEFORE `LATERAL` AND THE TWO CANNOT BOTH FIRE: a row carrying both would
+			-- walk the lateral span and then double back along the treeline, which is not a sneak and
+			-- not a broadside pass. Only row 13 declares `sneak`, and `forest_line.spec` asserts that.
+			if row.sneak == true and route ~= "LATERAL" then
+				local entryX =
+					Data.sneakEntryX(start.X + lateral, (crossing :: Vector3).X + lateral + shift, row.sneakStuds)
+				local dz = row.sneakDz or 0
+				table.insert(via, Vector3.new(entryX, chosen.layout.centre.Y, Data.roadZ(entryX, chosen.layout) + dz))
+				local turnX = (crossing :: Vector3).X + lateral + shift
+				table.insert(via, Vector3.new(turnX, chosen.layout.centre.Y, Data.roadZ(turnX, chosen.layout) + dz))
+			end
 			if route == "LATERAL" then
 				local sign = ForestTest.lateralSign(row.lateral)
 				local walkTo = start.X + lateral + sign * ForestTest.WAVE.lateralSpan
@@ -3166,6 +3228,13 @@ function ForestTest.releaseLine(now: number): string?
 	if row.species == "reddeer" then
 		state.deerDone = true
 	end
+	-- ...AND THE STAG ANNOUNCES HIMSELF AS HE COMES (task 251 part 2). The spec's cue table:
+	-- *"t 0-90 s of a drive that carries a stag; THEN ONCE AT HIS RELEASE"*. From where he actually
+	-- is, this time, not from his holding -- he has started moving, and the point of this roar is that
+	-- the hunter hears him get closer. It is the same one emitter and the same "one at a time" rule.
+	if row.species == "reddeer" and row.party == "stag" then
+		ForestTest.roarNow(start, "his own line, moving")
+	end
 	return string.format(
 		-- WHAT THE SLOT ACTUALLY DID, and every field of it is read by the Forest Test proof this
 		-- task owes (slot by slot: the groups released, their kinds, their routes, the crossings,
@@ -3193,6 +3262,136 @@ function ForestTest.releaseLine(now: number): string?
 			elseif route == "HOLD" then string.format("HOLDING after %d studs", row.holdStuds or 0)
 			else "no crossing",
 		row.note or "--"
+	)
+end
+
+-- ======================================================= THE STAG'S RUT ROAR (task 251 part 2)
+--
+-- KAREN, 2026-10-23: *"we need better saound and behaviour for red stag"*, and her "ok" to the plan.
+-- In a drive that carries a stag you hear him roaring in the far wood before you ever see him.
+-- `Data.ROAR` is every number and the whole of the why -- including why an ambience cue that sounds
+-- BEFORE the animal exists cannot be `Boar.CONFIG.SOUND.VOICE`'s and is this module's.
+--
+-- THIS MODULE IS THE ONE WRITER OF THAT SOUND (rule 3), and it is ONE Sound in the world: made once
+-- per server, moved to the roar point before each play, never destroyed. A Sound per roar would be
+-- an Instance churn nobody needs and a second place that could play one.
+--
+-- WHERE HE ROARS FROM: his own holding, `deeperStuds` further back. The script holds him at slot 13's
+-- `northStuds` (330) until t 166 s, so his holding is a point the DRIVE knows and nothing else does
+-- -- which is the same split `signalPoint` and `checkAtTheEdge` already keep: the world says WHERE,
+-- and in this case the world also says what it sounds like, because no animal is involved.
+function ForestTest.roarPoint(): Vector3?
+	local row = Data.stagRow(Data.SCHEDULE.density, Data.SCHEDULE)
+	if row == nil then
+		return nil -- a drive with no stag in it: the dial, at `quiet`
+	end
+	local standX = ForestTest.hunterStandX()
+	local nominal = Data.wavePoint(standX, row, chosen.layout)
+	local x = nominal.X
+	-- FURTHER NORTH IS DEEPER INTO THE WOOD: `wavePoint` puts a row at `roadZ(x) + northStuds`, so
+	-- `+ deeperStuds` is `+ deeperStuds` and no second conversion is needed.
+	local z = nominal.Z + Data.ROAR.deeperStuds
+	-- SIX STUDS OFF THE GROUND, which is about a stag's own head height on the hill it is standing on
+	-- -- the sound is positional and a point sunk in the terrain is a point the rolloff measures from
+	-- the wrong side of a slope.
+	return Vector3.new(x, (Data.groundAt(x, z) or chosen.layout.centre.Y) + 6, z)
+end
+
+-- THE EMITTER, BUILT ONCE. An anchored, invisible, non-colliding part in Workspace with one Sound in
+-- it -- the same "a Sound inside a part is positional for free" `Boar.Body` relies on, and the reason
+-- there is no remote and no client-side mixer: every client hears it from the right direction.
+--
+-- WORKSPACE IS NOT ROJO-OWNED and that is deliberate and allowed: this is a runtime part and not a
+-- script, and the harness's rule is that nothing SCRIPT-LIKE exists outside Rojo's paths. It is the
+-- same thing `ForestTest.Markers` does for the stands.
+function ForestTest.roarEmitter(): Sound?
+	local roar = Data.ROAR
+	if roar.enabled ~= true or #roar.ids == 0 then
+		return nil
+	end
+	local sound = state.roarSound
+	if sound ~= nil and sound.Parent ~= nil then
+		return sound
+	end
+	local part = Instance.new("Part")
+	part.Name = roar.partName
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.Transparency = 1
+	part.Size = Vector3.new(1, 1, 1)
+	part.Parent = Workspace
+	local made = Instance.new("Sound")
+	made.Name = "Roar"
+	made.SoundId = Boar.soundUri(roar.ids[1])
+	made.Volume = roar.volume
+	made.PlaybackSpeed = roar.pitch
+	-- THE SAME ROLL-OFF EVERY ANIMAL SOUND IN THIS GAME USES, read from the boar's own config so
+	-- there is one answer to "how does sound fall off here" and not two (`Boar.CONFIG.SOUND.ROLL_OFF`,
+	-- `InverseTapered` since task 120).
+	made.RollOffMode = Enum.RollOffMode[boarConfig().SOUND.ROLL_OFF]
+	made.RollOffMinDistance = roar.nearStuds
+	made.RollOffMaxDistance = roar.audibleStuds
+	made.Parent = part
+	state.roarPart = part
+	state.roarSound = made
+	return made
+end
+
+-- ONE TICK OF THE ROAR, and it returns a console line when it sounded so the proof can log it.
+--
+-- THE WINDOW IS THE DRIVE'S OWN (`state.driveOpenedAt`, set by `newDrive`), which is why part 2 had
+-- to base that clock on the drive at all: a 90-second window measured from SERVER START would fire
+-- four roars in the first drive of a session and never again.
+--
+-- IT NEVER OVERLAPS ITSELF -- *"one at a time, server-wide"* (the spec's cue table). There is one
+-- Sound, so a second roar inside the first simply restarts it; `IsPlaying` is read so it does not.
+function ForestTest.stepRoar(now: number): string?
+	local roar = Data.ROAR
+	if roar.enabled ~= true or not state.started then
+		return nil
+	end
+	local due = state.nextRoarAt
+	if due == nil or now < due then
+		return nil
+	end
+	if now - state.driveOpenedAt > roar.windowSeconds then
+		return nil -- the window has closed; it opens again at the next drive
+	end
+	state.nextRoarAt = now + roar.everySeconds
+	local at = ForestTest.roarPoint()
+	if at == nil then
+		return nil
+	end
+	return ForestTest.roarNow(at, "the far wood")
+end
+
+-- SOUND IT, HERE, NOW. Split out because the spec asks for the roar twice -- through the window above
+-- and *"then once at his release"* -- and two callers of one Instance must not be two ways of playing
+-- it. Returns the console line, or nil when nothing could be played.
+function ForestTest.roarNow(at: Vector3, where: string): string?
+	local sound = ForestTest.roarEmitter()
+	local part = state.roarPart
+	if sound == nil or part == nil then
+		return nil
+	end
+	if sound.IsPlaying then
+		return nil -- one at a time, server-wide
+	end
+	local roar = Data.ROAR
+	part.Position = at
+	sound.SoundId = Boar.soundUri(roar.ids[state.rng:NextInteger(1, #roar.ids)])
+	sound.PlaybackSpeed = roar.pitch
+	sound.Volume = roar.volume
+	sound:Play()
+	state.roars += 1
+	return string.format(
+		"ROAR %d: the stag answers from %s, %.0f studs from the stand, audible to %d",
+		state.roars,
+		where,
+		(Vector3.new(at.X - ForestTest.hunterStandX(), 0, at.Z - Data.roadZ(at.X, chosen.layout))).Magnitude,
+		roar.audibleStuds
 	)
 end
 

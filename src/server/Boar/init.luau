@@ -66,6 +66,14 @@ Boar.shouldBackstopDeath = Body.shouldBackstopDeath
 -- ...and the one review round 1's finding 1 turns on: whether a clip that is already playing needs
 -- its rate rewritten. A HELD clip never does.
 Boar.shouldAdjustRate = Body.shouldAdjustRate
+-- ...and the one line that turns an asset id into a `SoundId` (task 251 part 2). Pure -- a number or
+-- a URI in, a URI out -- and it is re-exported for the reason the pair above was: the DRIVE owns one
+-- sound of its own now (the stag's rut roar sounds from his holding before any stag exists, so it
+-- cannot be an animal's voice; `ForestTest.ROAR` is the whole argument), and "a bare number is an
+-- asset id, anything with a scheme already is one" must have ONE answer in this game. The footstep
+-- rows are `rbxasset://` engine files and every other row is a number, which is exactly the trap
+-- this function exists for.
+Boar.soundUri = Body.soundUri
 -- ...and how wide the freeze window is this frame, which decides whether a death holds its last
 -- frame or runs past it into the rest pose.
 Boar.freezeReach = Body.freezeReach
@@ -1318,6 +1326,41 @@ Boar.CONFIG.MOVE = {
 	EDGE_CHANCE = 0.55,
 	EDGE_MIN_SECONDS = 1.0,
 	EDGE_MAX_SECONDS = 4.0,
+	-- ------------------------------------------- THE DEER'S OWN EDGE CHECK (task 251 part 2)
+	--
+	-- THESE THREE ARE THE DEFAULTS AND A KIND MAY OVERRIDE THEM. `Boar.CONFIG.KINDS.<kind>.edge` is
+	-- laid over this table by `Boar.edgeByKind`, which `Boar.kindConfig` calls -- the same shape
+	-- `wary` has had since task 223, for the same reason: *"a lone stag has no jumpy companion to
+	-- trigger him, so he must be his own alarm"* is a fact about a KIND and not about a species, and
+	-- the stag (0.90, 2-6 s) and the hind (0.75, 1.5-4 s) differ from each other.
+	-- `<runs-dir>/design/driveflow-spec.md` section 3.1 is the table, and Karen OK'd it.
+	--
+	-- A BOAR IS UNTOUCHED: no boar kind carries an `edge` row, so `edgeByKind` returns the config by
+	-- reference and the three numbers above are the three numbers task 126 shipped.
+	--
+	-- LOOK BACK, IN DEGREES, OR 0 FOR "LOOK THE WAY YOU ARE GOING". The spec: *"stand looking
+	-- back"* -- *"the one gesture that reads as wariness from 50 m"*. 150 and not 180, because a
+	-- stag looks over his shoulder; he does not reverse. It is a YAW ORDER AND NOT AN ANIMATION
+	-- (spec section 3.2 note 1): the check already holds a heading and a zero setpoint, so this only
+	-- changes WHICH heading it holds. No publish, no new clip, no new state.
+	EDGE_LOOK_BACK_DEG = 0,
+	-- DOES IT BARK WHEN IT TAKES THE CHECK? The spec's cue table, section 4.2: the alarm bark plays
+	-- *"once, at the edge-check, the instant he notices a hunter"* -- *"the sound that tells the
+	-- player he has been seen"*. It is the animal's own `cry` row (the stag's is already the two
+	-- "Bull Breaths" samples task 240 chose AS the warning bark), through the same
+	-- `Runtime:_claimSqueal` ration every other cry goes through, so two barking deer cannot be three
+	-- voices.
+	EDGE_BARKS = false,
+
+	-- ------------------------------------------- THE BOUND WHEN SPOOKED (task 251 part 2)
+	--
+	-- KAREN: *"a bound away when spooked"*. A red stag startled from a stand-still leaps once before
+	-- he runs. `BOUND_ON_SPOOK` is a kind's own switch (`KINDS.stag.spook.bound`, which is where the
+	-- `STAG_BOUND_ON_SPOOK` flag is read) and is false for every animal here; `BOUND_FROM_SPEED` is
+	-- the ceiling the spec names -- *"only from a stand-still or a walk; a running stag just runs"*.
+	-- `Brain.boundStarts` is the whole rule and it is pure.
+	BOUND_ON_SPOOK = false,
+	BOUND_FROM_SPEED = 6,
 
 	-- ---------------------------------------------------------------- the flight
 	--
@@ -2581,8 +2624,33 @@ Boar.CONFIG.KINDS = {
 		toughness = 1.2,
 		-- A STAG IS WARIER THAN A BOAR AND HIS HINDS ARE WARIER STILL (design section 5.2). `wary`
 		-- is the mechanism that already exists -- six radii and two speeds -- and no `Brain` state
-		-- is added. At 1.5 he notices a walking man at 90 studs against a boar's 60.
-		wary = { noticeScale = 1.5, runScale = 1.18 },
+		-- is added.
+		--
+		-- 1.5 -> 1.8 (task 251 part 2, spec section 3.1, Karen OK'd): *"a lone stag has no jumpy
+		-- companion to trigger him, so he must be his own alarm"*. At 1.8 he notices a walking man
+		-- at **108 studs** -- 30 m -- against 90 at 1.5 and a boar's 60. It is the hind's own
+		-- number, and that is the point: she is jumpy because her calf is with her and
+		-- `Runtime:_stepAlarm` spreads her panic through the group, while HE has nobody to spread
+		-- it from. Not more than 1.8 for the reason her row already records: the drive corridor is
+		-- ~400 studs, so the literature's 100 m flight distance would empty it before a beater was
+		-- in sight.
+		wary = { noticeScale = 1.8, runScale = 1.18 },
+		-- HIS OWN EDGE CHECK (task 251 part 2), laid over `MOVE`'s three defaults by
+		-- `Boar.edgeByKind`. Spec section 3.1, every number Karen OK'd:
+		--   0.90 against a boar's 0.55 -- *"a red deer reconnoitres the open; a boar marches
+		--     through"* (source 1);
+		--   2-6 s against 1-4 -- *"long enough that a hunter can mount the rifle, which is the whole
+		--     point of the stop"*;
+		--   150 degrees of look back, and the bark that goes with it.
+		edge = { chance = 0.90, minSeconds = 2.0, maxSeconds = 6.0, lookBackDeg = 150, barks = true },
+		-- AND THE BOUND, WHICH IS DARK AND IS MEANT TO BE. **This is the one line that reads
+		-- `STAG_BOUND_ON_SPOOK`** -- the boundary, passing the value inward, which is the only
+		-- permitted shape (CLAUDE.md, feature flags). The Director's dispatch, 2026-10-24: *"HOLD
+		-- the bound when spooked until 245c (the hoof sink) is fixed, behind a flag born off"*,
+		-- because the bound IS the road leap's clip and that clip's measured sink (up to 1.19 studs
+		-- of hind hoof below ground for 0.25 s) is hidden by tarmac and speed on the road and is not
+		-- hidden on flat ground in front of a standing hunter. The flag's own row says the rest.
+		spook = { bound = Flags.isOn("STAG_BOUND_ON_SPOOK") },
 	},
 	hind = {
 		name = "hind",
@@ -2599,6 +2667,12 @@ Boar.CONFIG.KINDS = {
 		-- literature flight distance of 100 m would empty it before a beater was in sight, and no
 		-- player would ever see a deer. Recorded as a negative result in the research note.
 		wary = { noticeScale = 1.8, runScale = 1.18 },
+		-- HER OWN EDGE CHECK (task 251 part 2), spec section 3.1: likelier than a boar's 0.55 and
+		-- less likely than the stag's 0.90, shorter than his 2-6 s, and she looks back too. SHE
+		-- BARKS AND THE CALF DOES NOT -- *"hinds bark when alarmed"*, and *"she barks, the file
+		-- bolts"*: her bark is already the group's trigger, because she leads the column
+		-- (`Boar.MARCH_RANK`) and the check is only ever offered to a line's leader.
+		edge = { chance = 0.75, minSeconds = 1.5, maxSeconds = 4.0, lookBackDeg = 150, barks = true },
 	},
 	calf = {
 		name = "calf",
@@ -2615,6 +2689,11 @@ Boar.CONFIG.KINDS = {
 		-- group. A hind who outruns her own calf is not a hind with a calf. One species, one
 		-- `runScale`.
 		wary = { noticeScale = 1.8, runScale = 1.18 },
+		-- NO `edge` ROW, AND THAT IS THE SPEC'S OWN ANSWER (section 3.1, the edge-check row for a
+		-- calf: *"follows her mother"*). She walks behind the hind in the column and a follower is
+		-- never offered the check at all -- `ForestTest.stepLines` asks the LEADER and nobody else --
+		-- so a row here could only ever fire for a calf that had lost its mother, which is not a
+		-- behaviour anybody asked for. It inherits `MOVE`'s three defaults like every boar.
 	},
 	-- HOW RARE IT IS, and both halves are here because "one per drive" and "not every drive" are one
 	-- decision. Karen asked for *"one or a few"*. Reasoned from THIS game rather than from the genre,
@@ -3639,10 +3718,66 @@ function Boar.kindConfig(kind: string?, config)
 	local row = Body.kindRow(kind, config)
 	local base = Boar.speciesConfig(row and row.species, config)
 	local wary = row and row.wary
-	if type(wary) ~= "table" then
-		return base
+	if type(wary) == "table" then
+		base = Boar.scaledByWary(base, wary)
 	end
-	return Boar.scaledByWary(base, wary)
+	-- ...AND THE KIND'S OWN EDGE CHECK AND BOUND GO ON LAST (task 251 part 2). Same place in the
+	-- chain as `wary` and the same rule: a kind with neither row gets `base` BY REFERENCE, so every
+	-- boar lives by the config it lived by before this task, byte for byte.
+	return Boar.edgeByKind(base, row and row.edge, row and row.spook)
+end
+
+-- THE KIND'S `edge` AND `spook` ROWS, LAID OVER `MOVE` (task 251 part 2). The stag checks the open
+-- longer and likelier than his hinds and they both check it longer and likelier than a boar
+-- (`<runs-dir>/design/driveflow-spec.md` section 3.1), and `Brain:check` reads exactly one table --
+-- `self._config.MOVE` -- so the per-kind difference has to arrive THERE and not as a second
+-- argument threaded through every caller.
+--
+-- IT IS A DELTA AND NOT A REPLACEMENT, which is the lesson `speciesConfig` paid for in task 240: a
+-- world that tunes `MOVE.EDGE_CHANCE` (none does today) must still tune it for the animals that do
+-- not override it, and the keys a row does not name are the world's own numbers.
+--
+-- `MOVE` IS CLONED ONLY WHEN THERE IS SOMETHING TO WRITE, so this is one `type` test per spawn for
+-- every boar in the game and no allocation at all.
+function Boar.edgeByKind(config, edge, spook)
+	local hasEdge = type(edge) == "table"
+	local hasSpook = type(spook) == "table"
+	if not hasEdge and not hasSpook then
+		return config
+	end
+	local move = config.MOVE
+	if type(move) ~= "table" then
+		return config
+	end
+	local out = table.clone(config)
+	local copy = table.clone(move)
+	if hasEdge then
+		if type(edge.chance) == "number" then
+			copy.EDGE_CHANCE = edge.chance
+		end
+		if type(edge.minSeconds) == "number" then
+			copy.EDGE_MIN_SECONDS = edge.minSeconds
+		end
+		if type(edge.maxSeconds) == "number" then
+			copy.EDGE_MAX_SECONDS = edge.maxSeconds
+		end
+		if type(edge.lookBackDeg) == "number" then
+			copy.EDGE_LOOK_BACK_DEG = edge.lookBackDeg
+		end
+		if type(edge.barks) == "boolean" then
+			copy.EDGE_BARKS = edge.barks
+		end
+	end
+	if hasSpook then
+		if type(spook.bound) == "boolean" then
+			copy.BOUND_ON_SPOOK = spook.bound
+		end
+		if type(spook.boundFromSpeed) == "number" then
+			copy.BOUND_FROM_SPEED = spook.boundFromSpeed
+		end
+	end
+	out.MOVE = copy
+	return out
 end
 
 -- THE `wary` ARITHMETIC, UNCHANGED AND UNMOVED IN MEANING (task 223 split it out of `kindConfig` so
@@ -5876,10 +6011,36 @@ end
 -- THE EDGE CHECK, through the same door `urge` and `spook` use (task 126). Karen: *"they can stop
 -- before entering the road"*. The world says WHICH animal and the Brain decides whether it stops, for
 -- how long, and whether it has already had its check on this approach.
+--
+-- ...AND THE ALARM BARK GOES WITH IT (task 251 part 2). Karen's spec, section 4.2: the bark plays
+-- *"once, at the edge-check"* -- *"the sound that tells the player he has been seen"*. It is here and
+-- not in `Brain` for the reason every other cue is here: `Brain` owns what an animal DECIDES and this
+-- module owns what it is HEARD to do, and a `Brain` that reached for a Sound would be a second writer
+-- of an animal's Instances.
+--
+-- IT IS THE ANIMAL'S OWN `cry` ROW AND NOT A NEW CUE. The stag's `VOICE.stag.cry` is already the two
+-- "Bull Breaths" samples task 240 chose expressly AS the warning bark, and the hind's is her bleat --
+-- so a kind that barks already has the right sample and the ids stay one data row Karen can swap.
+--
+-- AND IT GOES THROUGH `_claimSqueal` LIKE EVERY OTHER CRY, so Karen's *"when they close one pack make
+-- one sound max 2 not more"* still holds with a barking stag in the wood: a bark that cannot be heard
+-- is simply not heard, which is what `MAX_SQUEALS` has always meant. The CHECK still happens -- the
+-- animal stops and looks whether or not the world had a voice to spare.
 function Runtime:check(id: string, seconds: number?): boolean
 	for _, entry in ipairs(self._boars) do
 		if entry.id == id then
-			return entry.brain:check(seconds) == true
+			local took = entry.brain:check(seconds) == true
+			if took then
+				-- THE KIND'S OWN CONFIG, which is the one answer to "which numbers does this animal
+				-- live by" (`Boar.kindConfig`, the same call `Runtime:spawn` makes): `MOVE.EDGE_BARKS`
+				-- is false on `Boar.CONFIG.MOVE` and true only on the stag's and the hind's rows.
+				local animalConfig = Boar.kindConfig(entry.kind, self._config)
+				local move = animalConfig.MOVE
+				if move ~= nil and move.EDGE_BARKS == true and self:_claimSqueal() then
+					Body.playOneShot(entry.body, "cry", animalConfig.SOUND.CRY, animalConfig, self._rng)
+				end
+			end
+			return took
 		end
 	end
 	return false

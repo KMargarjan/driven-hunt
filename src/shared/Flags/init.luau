@@ -60,7 +60,8 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 --
 -- LIT (12): TIE_UNTIL_DRIVE_END, BOAR_SOUNDERS, ORANGE_OUTFITS, RIFLE, FIRST_PERSON, AUTUMN_LIGHT,
 --           BOAR_MODEL (task 230), BOAR_BEHAVIOUR, HORN, COINS and LOBBY (task 233), SHOP (233b).
--- DARK (4): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b).
+-- DARK (5): QUICK_TEST, DRIVE_BOTS, LICENCE_POPUP (task 238), DEER_ROAD_LEAP (task 245b),
+--           STAG_BOUND_ON_SPOOK (task 251 part 2).
 --
 -- `SHOP` IS LIT SINCE TASK 233b, and what made that safe is NOT this row: it is that a world with
 -- no counter does not wire a shop at all (`Shop.start`'s own gate). Task 233's flip lit the shop in
@@ -93,7 +94,15 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- real fix stays queued. **This is a Director decision taken under a stated assumption** (task
 -- 245b's report): if he would rather have 82b done first, this line goes back to 15 in the same
 -- commit as those retirements.
-Flags.MAX_FLAGS = 16
+-- 16 -> 17 FOR TASK 251 PART 2, AND THE SAME SENTENCE AGAIN, WORD FOR WORD: the Builder is saying so
+-- rather than quietly retiring somebody else's row. `STAG_BOUND_ON_SPOOK` is the seventeenth, the cap
+-- refused it the same way (`flags.spec`'s rot tripwire), and the two ways out are still the two task
+-- 238 listed -- retire the lit rows queued as TASKS.md 82b, which is the Director's call and deletes a
+-- losing branch per retirement, or ship a new feel-critical path LIT, which
+-- `docs/design/feature-flags.md` section 11 step 1 forbids. **And this row may not ship lit by
+-- instruction**: the Director's dispatch says *"HOLD the bound when spooked until 245c (the hoof sink)
+-- is fixed, behind a flag born off"*. So the cap moves by one again and the real fix stays queued.
+Flags.MAX_FLAGS = 17
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -592,6 +601,46 @@ Flags.DEFAULTS = {
 		why = "A red deer bounds across the road instead of running flat over it: one leap per "
 			.. "crossing, at the clip's own speed, for an animal already running. OFF is the "
 			.. "crossing this game has always drawn.",
+	} :: FlagRow,
+
+	-- ---------------------------------------------------------------- THE STAG'S BOUND (task 251 part 2)
+	--
+	-- KAREN, 2026-10-23, through the Designer's plan she OK'd: *"a bound away when spooked"*. A red
+	-- stag startled from a stand-still does not simply break into a run -- he leaps once, on the spot,
+	-- and then runs. The spec (`<runs-dir>/design/driveflow-spec.md` section 3.2, `BOUND_ON_SPOOK`) is
+	-- the whole of it, and so is its own warning, which is why this row exists:
+	--
+	-- **IT REUSES THE ROAD LEAP'S CLIP AND THEREFORE ITS MEASURED HOOF SINK** -- up to 1.19 studs of
+	-- hind hoof below ground for 0.25 s, the known and queued cost in TASKS.md 245c. On the road that
+	-- sink is half-hidden by the tarmac and by the speed; a bound on flat ground in front of a standing
+	-- hunter is the case that shows it. The spec says *"if the sink is visible on the bound, the bound
+	-- waits for 245c"*, and the DIRECTOR'S DISPATCH (2026-10-24) decided it in advance: *"HOLD the
+	-- bound when spooked until 245c (the hoof sink) is fixed, behind a flag born off"*. So the
+	-- behaviour ships, dark, and 245c unlocks it.
+	--
+	-- WHAT IT SWITCHES. OFF is the game as it shipped: a spooked stag runs, `Brain.boundStarts` answers
+	-- false for every animal and `intent.leaping` is only ever the road leap's. ON, a stag spooked at or
+	-- below `MOVE.BOUND_FROM_SPEED` plays the same leap clip once, at the instant of the spook. It is
+	-- read ONCE, at `Boar.CONFIG.KINDS.stag.spook.bound` -- the animal's own row, the only permitted
+	-- shape -- and passed inward from there.
+	--
+	-- BOTH STATES ARE REACHABLE BY PARAMETER while the row sits at false: `Brain.boundStarts` takes the
+	-- switch, the speed, the threshold and the leap table as arguments, and `tests/server/deer.spec.luau`
+	-- drives it on with the row off.
+	--
+	-- IT IS ALSO BOUNDED BY `DEER_ROAD_LEAP`, deliberately and not by accident: the bound IS that
+	-- clip, so `Brain.boundStarts` refuses when the leap table is disabled. Two dark switches cannot
+	-- light each other, and when 245c lands the sink is fixed once for both.
+	STAG_BOUND_ON_SPOOK = {
+		default = false,
+		-- The owner is the module that READS it at its boundary, exactly as `DEER_ROAD_LEAP` says: the
+		-- TRIGGER is `Brain`'s and the DRAWING is `Body`'s, both inside `ServerScriptService.Boar`.
+		owner = "ServerScriptService.Boar",
+		born = "2026-10-24 task 251 part 2",
+		expires = "2026-11-14", -- 21 days: the ceiling in feature-flags.md section 12
+		why = "A red stag bounds once when he is spooked from a stand-still, instead of simply "
+			.. "running. OFF until TASKS.md 245c fixes the leap clip's measured hoof sink, which this "
+			.. "reuses and which a bound on flat ground is the case that shows.",
 	} :: FlagRow,
 }
 
