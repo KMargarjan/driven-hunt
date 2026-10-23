@@ -121,6 +121,27 @@ local SWITCH = ShopPanel.ROLE_SWITCH
 local SWITCH_KEY = Enum.KeyCode.T
 local SWITCH_ACTION = "DrivenHuntPadRoleSwitch"
 
+-- ---------------- THE NEXT DRIVE'S CARD (task 246)
+--
+-- KAREN, 2026-10-23: *"we need continues game so after drive new drive imidiatly after same amount
+-- seconds and who has licesne can select who he can be next round if dont then oposit previuos
+-- round"*.
+--
+-- ITS WORDS AND ITS PIXELS, from the one table both sides read. This card is the THIRD surface this
+-- module owns, and it is this module's rather than a new one for `buildBanner`'s stated reason: it
+-- is the same question continued (*"which drive are you going on"*), it is driven by the same
+-- server-written attributes, it needs the same mouse and trigger doors released, and it already has
+-- the role switch -- a second module would be a second reader of the same facts.
+local NEXT = PADS.NEXT
+
+-- `Y` FOR THE WAY OUT, and the choice is `T`'s own argument one key along: `T` toggles the role on
+-- this same card, so the two next-drive controls are NEIGHBOURS on the keyboard rather than a
+-- memory test. It is free -- the keys bound anywhere in `src/` are Backspace, B, E, M, R, T, Tab, X,
+-- Return, the four arrows and four gamepad buttons -- and it is bound ONLY while this card is up
+-- (`bindSitKey`), so `Y` belongs to the player again the moment the drive takes him.
+local SIT_KEY = Enum.KeyCode.Y
+local SIT_ACTION = "DrivenHuntNextSitOut"
+
 local LOOK = ShopPanel.LOOK
 local FONT = ShopPanel.FONT
 local spaced = ShopPanel.spaced
@@ -215,6 +236,37 @@ local switchRule: Frame? = nil
 local roleSwitch: any = nil
 local hint: TextLabel? = nil
 
+-- ---------------- THE NEXT DRIVE'S CARD (task 246): four values, one writer
+--
+-- `nextLeft` IS THE SECONDS AND nil IS "THERE IS NO COUNTDOWN", which is the whole visibility rule
+-- of this card -- `Lobby.secondsLeft`'s own contract (*"nil in, nil out: 'there is no countdown' is
+-- not 'zero seconds left'"*), carried all the way to the screen. It is TOLD by the Hud's one
+-- evaluation off `DHNextDriveAt`, exactly as `loading` is told off `DHPadMine`.
+--
+-- `nextOut` IS THE SERVER'S WORD TOO (`DHNextDriveOut`) and this module holds no opinion about it:
+-- the button says what the server said and never what this client asked for, which is the arrangement
+-- `sendRoleWish` already argues for in capitals.
+local nextLeft: number? = nil
+local nextOut = false
+local nextCard: Frame? = nil
+local nextEyebrow: TextLabel? = nil
+local nextTitle: TextLabel? = nil
+local nextCount: TextLabel? = nil
+local nextButton: TextButton? = nil
+local nextButtonWord: TextLabel? = nil
+local nextKeyChip: TextLabel? = nil
+local nextNote: TextLabel? = nil
+local nextHint: TextLabel? = nil
+local nextRoleBlock: Frame? = nil
+local nextRoleEyebrow: TextLabel? = nil
+local nextRoleCaption: TextLabel? = nil
+-- THE SECOND ROLE SWITCH, BUILT BY THE SAME BUILDER AS THE FIRST (`ShopPanel.buildRoleSwitch`).
+-- The control is already drawn on two surfaces -- this dialog and the shop's row -- so a third is
+-- the established pattern and not a new one, and `ShopPanel.paintRoleSwitch` stays the one painter,
+-- which is what stops the three surfaces disagreeing about what "selected" looks like.
+local nextRoleSwitch: any = nil
+local sitKeyBound = false
+
 -- `optimistic` IS ONE PER CLICK THAT RAISED THE BANNER BEFORE THE SERVER ANSWERED (task 209), which
 -- is what makes *"it shows immediately"* a number a probe can read rather than a claim.
 local stats = {
@@ -234,6 +286,13 @@ local stats = {
 	roleSent = 0,
 	roleBlocked = 0,
 	relayouts = 0,
+	-- THE NEXT DRIVE'S CARD (task 246), on `roleSent`/`roleBlocked`'s own split: `nextOpens` and
+	-- `nextCloses` are the card itself, `nextSent` a message that left, `nextBlocked` a press this
+	-- module refused to send (no countdown is up, so there is no party to be in).
+	nextOpens = 0,
+	nextCloses = 0,
+	nextSent = 0,
+	nextBlocked = 0,
 }
 
 function PadPanel.stats()
@@ -1030,6 +1089,10 @@ function PadPanel.setRoleWish(next_: string?, side: string?, height: number?)
 	screenHeight = nextHeight
 	if PadPanel.layoutFor(#PADS.SIZES, wish, screenHeight).switchShown ~= wasShown then
 		PadPanel.relayout()
+		-- ...AND THE CARD WITH IT (task 246). Its role block is shown on the SAME condition, so the
+		-- one edge that moves the dialog's rows moves the card's button too -- one call, not a second
+		-- rule, which is what stops the two surfaces drifting apart.
+		PadPanel.relayoutNext()
 	end
 	PadPanel.renderRole()
 end
@@ -1038,15 +1101,26 @@ end
 -- holds (`sent`). `ShopPanel.paintRoleSwitch` is the one painter of the control itself, so the two
 -- surfaces cannot disagree about what "selected" looks like.
 function PadPanel.renderRole()
-	if roleSwitch == nil then
-		return
-	end
 	local usable = PadPanel.roleUsable(wish, team, sent)
-	ShopPanel.paintRoleSwitch(roleSwitch, PadPanel.roleSelected(wish), usable)
-	if switchCaption ~= nil then
-		local want = spaced(PadPanel.roleCaptionFor(wish, team, sent))
-		if (switchCaption :: TextLabel).Text ~= want then
-			(switchCaption :: TextLabel).Text = want
+	local selected = PadPanel.roleSelected(wish)
+	local caption = spaced(PadPanel.roleCaptionFor(wish, team, sent))
+	if roleSwitch ~= nil then
+		ShopPanel.paintRoleSwitch(roleSwitch, selected, usable)
+		if switchCaption ~= nil then
+			if (switchCaption :: TextLabel).Text ~= caption then
+				(switchCaption :: TextLabel).Text = caption
+			end
+		end
+	end
+	-- ...AND THE SAME THREE VALUES ON THE NEXT DRIVE'S CARD (task 246). THE SAME PAINTER, THE SAME
+	-- ARGUMENTS, COMPUTED ONCE: the two surfaces cannot disagree about which half is lit or about why
+	-- it is dimmed, because there is one evaluation of each and one `ShopPanel.paintRoleSwitch`.
+	if nextRoleSwitch ~= nil then
+		ShopPanel.paintRoleSwitch(nextRoleSwitch, selected, usable)
+		if nextRoleCaption ~= nil then
+			if (nextRoleCaption :: TextLabel).Text ~= caption then
+				(nextRoleCaption :: TextLabel).Text = caption
+			end
 		end
 	end
 end
@@ -1171,7 +1245,10 @@ function PadPanel.render()
 	if frame == nil then
 		return
 	end
-	frame.Visible = ask ~= nil
+	-- `dialogShown` AND NOT `ask ~= nil` SINCE TASK 246: the next drive's card is drawn in this
+	-- dialog's own rectangle, so one of the two has to yield -- and it is this one, because a man the
+	-- next drive already has has answered this dialog's question already.
+	frame.Visible = PadPanel.dialogShown()
 	if eyebrow ~= nil and ask ~= nil then
 		local want = spaced(string.format(PANEL.EYEBROW, ask :: number))
 		if (eyebrow :: TextLabel).Text ~= want then
@@ -1282,6 +1359,459 @@ function PadPanel.setRemotes(next_: any)
 	remotes = next_
 end
 
+-- ---------------------------------------------------------------- the next drive's card (task 246)
+--
+-- KAREN, 2026-10-23: *"we need continues game so after drive new drive imidiatly after same amount
+-- seconds and who has licesne can select who he can be next round if dont then oposit previuos
+-- round"*.
+--
+-- IT IS DRAWN IN THE SIZE DIALOG'S OWN RECTANGLE -- same width, same bottom edge, same `ZIndex`,
+-- the same three functions -- and the two are NEVER up together: `PadPanel.dialogShown` is false
+-- while this card is up, and this module owns both `Visible`s. The reason is stated in
+-- `Lobby.CONFIG.PADS.NEXT`'s own comment: they are the same question (*"which drive are you going
+-- on"*), a man the next drive already has does not need to be asked how big a party he wants, and
+-- reusing the rectangle means task 209's banner-overlap arithmetic holds with nothing re-measured
+-- and `hud_clarity.spec` gains no band.
+
+export type NextLayout = {
+	height: number,
+	countY: number,
+	switchShown: boolean,
+	switchY: number,
+	trackY: number,
+	trackWidth: number,
+	halfWidth: number,
+	captionY: number,
+	buttonY: number,
+	noteY: number,
+	hintY: number,
+}
+
+-- HOW TALL THE ROLE BLOCK IS ON THIS CARD. It is SHORTER than the dialog's `ROLE.BLOCK_PX` by the
+-- rule and the trailing air under it (`RULE_GAP`, `RULE_PX`, `TRAIL_PX`), and that is not a second
+-- set of numbers: the rule exists in the dialog to separate the role from the four size rows, and
+-- this card has no size rows to separate it from. Everything else is the same row, from the same
+-- table, so the control sits at the same height on both surfaces.
+local function nextRoleHeight(): number
+	return ROLE.EYEBROW_PX + ROLE.GAP_PX + SWITCH.TRACK_PX + ROLE.NOTE_GAP + ROLE.NOTE_PX
+end
+
+-- EVERY RECTANGLE ON THIS CARD, FROM THE DATA PLUS TWO FACTS. PURE, which is `PadPanel.layoutFor`'s
+-- own rule and task 165's lesson: *"asserted ARITHMETICALLY rather than by a screenshot"*.
+--
+-- THE SWITCH IS SHOWN ON EXACTLY THE SAME CONDITION AS THE DIALOG'S (`roleSelected` plus
+-- `switchFitsIn`), through the same two functions, so a man who sees the control on the pad sees it
+-- here too, and a 400 px phone that cannot fit it is told so once.
+function PadPanel.nextLayoutFor(next_: string?, height: number?): NextLayout
+	local shown = PadPanel.roleSelected(next_) ~= nil and PadPanel.switchFitsIn(height)
+	local countY = PANEL.HEADER_PX + NEXT.GAP
+	local afterCount = countY + NEXT.COUNT_PX
+	local switchY = afterCount + NEXT.GAP
+	local trackY = switchY + ROLE.EYEBROW_PX + ROLE.GAP_PX
+	local captionY = trackY + SWITCH.TRACK_PX + ROLE.NOTE_GAP
+	local afterRole = if shown then switchY + nextRoleHeight() else afterCount
+	local buttonY = afterRole + NEXT.GAP
+	local noteY = buttonY + NEXT.BUTTON_PX + 4
+	local hintY = noteY + NEXT.NOTE_PX + NEXT.GAP
+	local trackWidth = PANEL.WIDTH - 2 * PAD
+	return {
+		height = hintY + NEXT.HINT_PX + PAD,
+		countY = countY,
+		switchShown = shown,
+		switchY = switchY,
+		trackY = trackY,
+		trackWidth = trackWidth,
+		-- THE DIALOG'S OWN FORMULA, not a copy of its result: `(track - 2*PAD - GAP) / 2`, which is
+		-- the one that adds up (see `PadPanel.layoutFor`'s note about the Designer's drawing).
+		halfWidth = (trackWidth - 2 * SWITCH.TRACK_PAD - SWITCH.TRACK_GAP) / 2,
+		captionY = captionY,
+		buttonY = buttonY,
+		noteY = noteY,
+		hintY = hintY,
+	}
+end
+
+function PadPanel.nextHeightFor(next_: string?, height: number?): number
+	return PadPanel.nextLayoutFor(next_, height).height
+end
+
+-- WHAT THE BIG NUMBER SAYS. PURE. `math.ceil`, which is `Hud.startCardSecondsFor`'s own choice and
+-- its reason: a countdown that reads 0 for a whole second before it happens has lied for a second.
+function PadPanel.nextSecondsFor(secondsLeft: number?): number
+	return math.max(0, math.ceil(secondsLeft or 0))
+end
+
+-- WHAT THE ONE BUTTON SAYS, and what the line under it says. PURE, both of them, off the SERVER'S
+-- word and nothing else -- so the button a player presses and the sentence that explains it can
+-- never disagree. One control, because it is one boolean (`NEXT.SIT_OUT` / `NEXT.SIT_IN`).
+function PadPanel.nextButtonFor(out: boolean?): string
+	return if out == true then NEXT.SIT_IN else NEXT.SIT_OUT
+end
+
+function PadPanel.nextNoteFor(out: boolean?): string
+	return if out == true then NEXT.NOTE_OUT else NEXT.NOTE_IN
+end
+
+-- IS THE CARD UP? PURE AND SERVER-DECIDED: there is a countdown or there is not
+-- (`Lobby.secondsLeft`'s contract carried to the screen). The window BEFORE the countdown is armed
+-- -- the party collected, somebody still walking home from the line -- is Karen's results scene, and
+-- this card is deliberately DOWN for all of it.
+function PadPanel.nextShown(): boolean
+	return nextLeft ~= nil
+end
+
+-- ...AND THEREFORE WHETHER THE SIZE DIALOG IS. PURE, and it is the ONE rule, read by `render` and by
+-- the spec: the card wins, because a man the next drive already has has already answered the
+-- dialog's question.
+function PadPanel.dialogShown(): boolean
+	return ask ~= nil and not PadPanel.nextShown()
+end
+
+-- WHAT THE CARD SAYS, for a spec and for a console probe -- `switchText`'s own seam.
+function PadPanel.nextText(): { string }
+	if nextCard == nil or not (nextCard :: Frame).Visible then
+		return {}
+	end
+	return {
+		(nextEyebrow :: TextLabel).Text,
+		(nextTitle :: TextLabel).Text,
+		(nextCount :: TextLabel).Text,
+		(nextButtonWord :: TextLabel).Text,
+		(nextKeyChip :: TextLabel).Text,
+		(nextNote :: TextLabel).Text,
+		(nextHint :: TextLabel).Text,
+	}
+end
+
+function PadPanel.sittingOut(): boolean
+	return nextOut
+end
+
+function PadPanel.nextFrame(): Frame?
+	return nextCard
+end
+
+-- WHICH HALF IS LIT ON THE CARD'S OWN SWITCH, off the BUILT control -- `roleLit`'s rule, so a spec
+-- can tell "the panel knows" from "the panel drew it", on this surface as well as on the dialog.
+function PadPanel.nextRoleLit(): string?
+	return if nextRoleSwitch == nil then nil else nextRoleSwitch.selected
+end
+
+function PadPanel.sitKeyBound(): boolean
+	return sitKeyBound
+end
+
+function PadPanel.sitKeyName(): string
+	return SIT_KEY.Name
+end
+
+local function buildNext(frame: Frame)
+	nextCard = frame
+	frame.AnchorPoint = PadPanel.anchorPoint()
+	-- THE SAME BOTTOM EDGE AS THE DIALOG, from the dialog's own function, so the two surfaces are
+	-- one rectangle in one place and the banner's band arithmetic is untouched.
+	frame.Position = PadPanel.positionFor()
+	frame.ZIndex = PadPanel.zIndex()
+	corner(frame, CORNER_PANEL)
+	stroke(frame, LOOK.BRASS, 0.74)
+
+	nextEyebrow = label(frame, "Eyebrow", FONT.SANS_SEMI, EYEBROW_SIZE, LOOK.BRASS, 1);
+	(nextEyebrow :: TextLabel).Position = UDim2.fromOffset(PAD, 13);
+	(nextEyebrow :: TextLabel).Size = UDim2.new(1, -2 * PAD, 0, EYEBROW_SIZE + 3);
+	(nextEyebrow :: TextLabel).Text = spaced(NEXT.EYEBROW)
+
+	nextTitle = label(frame, "Title", FONT.OSWALD_SB, TITLE_SIZE, LOOK.PAPER, 1);
+	(nextTitle :: TextLabel).Position = UDim2.fromOffset(PAD, 27);
+	(nextTitle :: TextLabel).Size = UDim2.new(1, -2 * PAD, 0, TITLE_SIZE + 6);
+	(nextTitle :: TextLabel).Text = NEXT.TITLE
+
+	hairline(frame, PANEL.HEADER_PX - HAIRLINE_PX, 1)
+
+	-- THE ONE MOVING NUMBER ON THIS CARD, and it is the only thing on it that is allowed to move
+	-- (spec 8.9) because it is a VALUE and not decoration -- the banner's bar's own argument.
+	nextCount = label(frame, "Count", FONT.OSWALD_SB, NEXT.COUNT_SIZE, LOOK.BLAZE, 1);
+	(nextCount :: TextLabel).Size = UDim2.new(1, -2 * PAD, 0, NEXT.COUNT_PX);
+	(nextCount :: TextLabel).TextXAlignment = Enum.TextXAlignment.Center;
+	(nextCount :: TextLabel).TextYAlignment = Enum.TextYAlignment.Center;
+	(nextCount :: TextLabel).Text = ""
+
+	-- THE ROLE BLOCK, AGAIN, ON THE SURFACE WHERE KAREN ASKED FOR IT: *"who has licesne can select
+	-- who he can be next round"*. The control is `ShopPanel`'s, built and painted there -- it is
+	-- drawn on three surfaces now, and *"the shop sets the house style"*.
+	local block = Instance.new("Frame")
+	block.Name = "RoleBlock"
+	block.BackgroundTransparency = 1
+	block.BorderSizePixel = 0
+	block.ZIndex = PANEL.Z_INDEX + 2
+	block.Visible = false
+	block.Parent = frame
+	nextRoleBlock = block
+
+	nextRoleEyebrow = label(block, "RoleEyebrow", FONT.SANS_BOLD, EYEBROW_SIZE + 1, LOOK.FAINT, 3);
+	(nextRoleEyebrow :: TextLabel).Text = spaced(ROLE.EYEBROW);
+	(nextRoleEyebrow :: TextLabel).Size = UDim2.new(1, -ROLE.KEY_PX, 0, ROLE.EYEBROW_PX)
+
+	-- THE ROLE KEY'S CHIP, right-aligned on the eyebrow's own row -- the dialog's arrangement
+	-- exactly, and `T` is bound while THIS card is up as well (`bindSwitchKey`, from `setNext`).
+	local roleKey = label(block, "RoleKey", FONT.SANS_BOLD, EYEBROW_SIZE, LOOK.FAINT, 3)
+	roleKey.Text = spaced(string.format(ROLE.KEY_HINT, SWITCH_KEY.Name))
+	roleKey.AnchorPoint = Vector2.new(1, 0)
+	roleKey.Position = UDim2.fromScale(1, 0)
+	roleKey.Size = UDim2.fromOffset(ROLE.KEY_PX, ROLE.EYEBROW_PX)
+	roleKey.TextXAlignment = Enum.TextXAlignment.Right
+	roleKey.TextTruncate = Enum.TextTruncate.AtEnd
+
+	nextRoleSwitch = ShopPanel.buildRoleSwitch(
+		block,
+		3,
+		ROLE.WORD_SIZE,
+		{ [LobbyData.ROLE_WISH.HUNTER] = ROLE.HUNTER, [LobbyData.ROLE_WISH.BEATER] = ROLE.BEATER },
+		function(which: string)
+			PadPanel.sendRoleWish(which)
+		end
+	)
+
+	nextRoleCaption = label(block, "RoleCaption", FONT.SANS_BOLD, HINT_SIZE, LOOK.FAINT, 3);
+	(nextRoleCaption :: TextLabel).Size = UDim2.new(1, 0, 0, ROLE.NOTE_PX);
+	(nextRoleCaption :: TextLabel).TextTruncate = Enum.TextTruncate.AtEnd
+
+	-- THE WAY OUT. ONE button, because it is one boolean -- and it carries no text of its own for
+	-- the size rows' stated reason: the word and the key chip are child labels, which is the only
+	-- way to set two faces at two sizes in one control.
+	local button = Instance.new("TextButton")
+	button.Name = "SitOut"
+	button.AutoButtonColor = false
+	button.BackgroundColor3 = PadPanel.LOOK.BUTTON_COLOR
+	button.BorderSizePixel = 0
+	button.Text = ""
+	button.Size = UDim2.fromOffset(PANEL.WIDTH - 2 * PAD, NEXT.BUTTON_PX)
+	button.ZIndex = PANEL.Z_INDEX + 2
+	button.ClipsDescendants = true
+	corner(button, CORNER_ROW)
+	stroke(button, PadPanel.LOOK.RIM_COLOR, 0.15)
+	nextButtonWord = label(button, "Label", FONT.OSWALD_MD, LABEL_SIZE, LOOK.PAPER, 3);
+	(nextButtonWord :: TextLabel).Position = UDim2.fromOffset(PAD, 0);
+	(nextButtonWord :: TextLabel).Size = UDim2.new(1, -2 * PAD - NEXT.KEY_PX, 1, 0);
+	(nextButtonWord :: TextLabel).TextYAlignment = Enum.TextYAlignment.Center
+	nextKeyChip = label(button, "Key", FONT.SANS_BOLD, HINT_SIZE, LOOK.FAINT, 3);
+	(nextKeyChip :: TextLabel).AnchorPoint = Vector2.new(1, 0.5);
+	(nextKeyChip :: TextLabel).Position = UDim2.new(1, -PAD, 0.5, 0);
+	(nextKeyChip :: TextLabel).Size = UDim2.fromOffset(NEXT.KEY_PX, LABEL_SIZE);
+	(nextKeyChip :: TextLabel).TextXAlignment = Enum.TextXAlignment.Right;
+	(nextKeyChip :: TextLabel).TextYAlignment = Enum.TextYAlignment.Center;
+	(nextKeyChip :: TextLabel).Text = spaced(string.format(NEXT.KEY_HINT, SIT_KEY.Name))
+	button.MouseEnter:Connect(function()
+		button.BackgroundColor3 = PadPanel.LOOK.ROW_HOVER_COLOR
+	end)
+	button.MouseLeave:Connect(function()
+		button.BackgroundColor3 = PadPanel.LOOK.BUTTON_COLOR
+	end)
+	button.Activated:Connect(function()
+		PadPanel.pressNext()
+	end)
+	button.Parent = frame
+	nextButton = button
+
+	nextNote = label(frame, "Note", FONT.SANS_REG, NOTE_SIZE, LOOK.MUTED, 1);
+	(nextNote :: TextLabel).Size = UDim2.new(1, -2 * PAD, 0, NEXT.NOTE_PX);
+	(nextNote :: TextLabel).TextTruncate = Enum.TextTruncate.AtEnd
+
+	-- ...AND THIS CARD'S OTHER EXIT, written down for the dialog's own stated reason: there is no
+	-- close button, because closing a countdown that is still running would be hiding it.
+	nextHint = label(frame, "Hint", FONT.SANS_BOLD, HINT_SIZE, LOOK.FAINT, 1);
+	(nextHint :: TextLabel).Size = UDim2.new(1, -2 * PAD, 0, NEXT.HINT_PX);
+	(nextHint :: TextLabel).Text = spaced(NEXT.HINT);
+	(nextHint :: TextLabel).TextTruncate = Enum.TextTruncate.AtEnd
+
+	PadPanel.relayoutNext()
+end
+
+-- THE ONE WRITER OF EVERY RECTANGLE ON THIS CARD, from the pure `nextLayoutFor` -- `relayout`'s
+-- arrangement one surface along, and for its stated reason: `buildNext` writes the Ys that cannot
+-- move (the header's) and this writes every one that can, so there is exactly one place that can put
+-- a row in the wrong place.
+function PadPanel.relayoutNext()
+	local frame = nextCard
+	if frame == nil then
+		return
+	end
+	local layout = PadPanel.nextLayoutFor(wish, screenHeight)
+	frame.Size = UDim2.fromOffset(PadPanel.widthFor(), layout.height)
+	if nextCount ~= nil then
+		(nextCount :: TextLabel).Position = UDim2.fromOffset(PAD, layout.countY)
+	end
+	if nextRoleBlock ~= nil then
+		local block = nextRoleBlock :: Frame
+		block.Visible = layout.switchShown
+		block.Position = UDim2.fromOffset(PAD, layout.switchY)
+		block.Size = UDim2.fromOffset(layout.trackWidth, nextRoleHeight())
+	end
+	if nextRoleSwitch ~= nil then
+		nextRoleSwitch.track.Visible = layout.switchShown
+		nextRoleSwitch.track.Position = UDim2.fromOffset(0, layout.trackY - layout.switchY)
+		nextRoleSwitch.track.Size = UDim2.fromOffset(layout.trackWidth, SWITCH.TRACK_PX)
+	end
+	if nextRoleCaption ~= nil then
+		(nextRoleCaption :: TextLabel).Position = UDim2.fromOffset(0, layout.captionY - layout.switchY)
+	end
+	if nextButton ~= nil then
+		(nextButton :: TextButton).Position = UDim2.fromOffset(PAD, layout.buttonY)
+	end
+	if nextNote ~= nil then
+		(nextNote :: TextLabel).Position = UDim2.fromOffset(PAD, layout.noteY)
+	end
+	if nextHint ~= nil then
+		(nextHint :: TextLabel).Position = UDim2.fromOffset(PAD, layout.hintY)
+	end
+end
+
+-- WHEN THE NEXT DRIVE STARTS AND WHETHER HE HAS ASKED TO MISS IT. TOLD, both of them, out of the one
+-- evaluation the Hud already runs -- the seconds converted from `DHNextDriveAt` by the same
+-- `Lobby.secondsLeft` the pad's countdown goes through, and the boolean read straight off
+-- `DHNextDriveOut`. This module reads no attribute and holds no clock (`setLeaving`'s contract).
+--
+-- THE SECONDS ARE NOT EDGE-TRIGGERED AND CANNOT BE: they change every frame, which is the point of
+-- them. Everything written from them compares first, inside `renderNext`.
+function PadPanel.setNext(secondsLeft: number?, out: boolean?)
+	local wasShown = PadPanel.nextShown()
+	nextLeft = if type(secondsLeft) == "number" then secondsLeft else nil
+	nextOut = out == true
+	local isShown = PadPanel.nextShown()
+	if isShown and not wasShown then
+		stats.nextOpens += 1
+		-- THE MOUSE, THE TRIGGER AND THE TWO KEYS, through the doors that already exist, reason-keyed
+		-- so this releases exactly its own request (`setAsk`'s shape, tag `"nextdrive"`). The role
+		-- switch's `T` is bound here as well as on the pad, because the control is on BOTH surfaces
+		-- -- `bindSwitchKey` is idempotent, which is what makes two call sites safe.
+		if Cursor ~= nil then
+			Cursor.requestFree("nextdrive")
+		end
+		if WeaponInput ~= nil then
+			WeaponInput.requestHold("nextdrive")
+		end
+		PadPanel.bindSitKey(true)
+		PadPanel.bindSwitchKey(true)
+	elseif not isShown and wasShown then
+		stats.nextCloses += 1
+		if Cursor ~= nil then
+			Cursor.release("nextdrive")
+		end
+		if WeaponInput ~= nil then
+			WeaponInput.releaseHold("nextdrive")
+		end
+		PadPanel.bindSitKey(false)
+		-- ...AND `T` GOES BACK ONLY IF NO PAD DIALOG IS UP, because that surface binds it too. One
+		-- boolean decides, which is why `bindSwitchKey` takes one rather than counting requests.
+		PadPanel.bindSwitchKey(ask ~= nil)
+	end
+	PadPanel.renderNext()
+	-- THE DIALOG'S OWN VISIBILITY IS THIS CARD'S BUSINESS TOO, because the two share a rectangle:
+	-- `render` reads `dialogShown`, so the card appearing closes the dialog in the same frame.
+	PadPanel.render()
+end
+
+function PadPanel.renderNext()
+	local frame = nextCard
+	if frame == nil then
+		return
+	end
+	local shown = PadPanel.nextShown()
+	if frame.Visible ~= shown then
+		frame.Visible = shown
+	end
+	if not shown then
+		return
+	end
+	-- WRITTEN ONLY WHEN IT DIFFERS, every one of them: this renderer is called every frame, which is
+	-- what the seconds need, so the writes are edge-triggered INSIDE instead (`renderLeaving`'s
+	-- discipline, and `Lobby.setRespawn`'s on the server's side of the same system).
+	local count = tostring(PadPanel.nextSecondsFor(nextLeft))
+	if nextCount ~= nil and (nextCount :: TextLabel).Text ~= count then
+		(nextCount :: TextLabel).Text = count
+	end
+	local word = spaced(PadPanel.nextButtonFor(nextOut))
+	if nextButtonWord ~= nil and (nextButtonWord :: TextLabel).Text ~= word then
+		(nextButtonWord :: TextLabel).Text = word
+	end
+	local note = spaced(PadPanel.nextNoteFor(nextOut))
+	if nextNote ~= nil and (nextNote :: TextLabel).Text ~= note then
+		(nextNote :: TextLabel).Text = note
+	end
+	-- THE BUTTON WEARS THE ONE ORANGE THING ON THIS CARD ONLY WHEN HE IS OUT, because then coming
+	-- back is the thing that happens if he does anything at all -- the size rows' default-marker
+	-- argument (*"what the orange marks is the row that happens if you do nothing"*) read the other
+	-- way round. While he is IN, the button is a row at rest and the NUMBER is the orange thing.
+	if nextButton ~= nil then
+		local tint = if nextOut then LOOK.BLAZE_LO else PadPanel.LOOK.BUTTON_COLOR
+		if (nextButton :: TextButton).BackgroundColor3 ~= tint then
+			(nextButton :: TextButton).BackgroundColor3 = tint
+		end
+	end
+	PadPanel.renderRole()
+end
+
+-- ONE PRESS, ONE MESSAGE. PUBLIC and named for `PadPanel.press`' stated reason: a spec cannot fire
+-- `GuiButton.Activated` and the harness cannot synthesise a tap, so this is the seam that makes the
+-- button testable at all -- and what it proves is the ACTION, not the touch. That limit is reported
+-- in the review request, not papered over.
+--
+-- IT IS A TOGGLE off the SERVER'S word, so a double press is in-out-in and never two "out"s.
+--
+-- WHICH WORD THAT IS, AS A PURE FUNCTION, for `roleSelected`'s and `otherRole`'s stated reason: the
+-- decision is then arithmetic a spec asserts, rather than something a wiretap would have to catch.
+function PadPanel.nextPressWord(out: boolean?): string
+	return if out == true then LobbyData.NEXT_WORD.IN else LobbyData.NEXT_WORD.OUT
+end
+
+function PadPanel.pressNext(): boolean
+	return PadPanel.sendNext(PadPanel.nextPressWord(nextOut))
+end
+
+-- IT SENDS NOTHING FOR A WORD THAT IS NOT IN `Lobby.NEXT_WORD`, and nothing at all while no
+-- countdown is up: the server refuses both anyway (`bad-request` and `no-party`), and a client that
+-- sent one would be this client telling the server a lie about its own state.
+--
+-- NO OPTIMISTIC REDRAW, for `sendRoleWish`'s stated reason: the server writes the attribute INSIDE
+-- `Lobby.onNextRequest`, so the round trip is one network hop -- not the 3.65 s the pad's 10 Hz scan
+-- measured -- and a button that lit itself would be a client holding an opinion about a value whose
+-- whole security is that it does not.
+function PadPanel.sendNext(which: string): boolean
+	if not LobbyData.nextAllowed(which) or not PadPanel.nextShown() then
+		stats.nextBlocked += 1
+		return false
+	end
+	if remotes ~= nil and remotes.NextRequest ~= nil then
+		remotes.NextRequest:FireServer({ next = which })
+		stats.nextSent += 1
+		return true
+	end
+	stats.nextBlocked += 1
+	return false
+end
+
+-- THE KEY IS BOUND ONLY WHILE THE CARD IS UP, which is `bindSwitchKey`'s arrangement and its stated
+-- reason: `Y` belongs to the player again the instant the drive takes him, and a card that never
+-- appeared never took a key at all. Idempotent, so two call sites cannot stack two actions on it.
+function PadPanel.bindSitKey(on: boolean)
+	if on == sitKeyBound then
+		return
+	end
+	sitKeyBound = on
+	if on then
+		ContextActionService:BindAction(SIT_ACTION, function(_name, state)
+			if state == Enum.UserInputState.Begin then
+				PadPanel.pressNext()
+			end
+			-- `Pass`, DELIBERATELY, and it is `bindSwitchKey`'s rule applied again: this card must
+			-- not swallow an input. Nothing else binds `Y`, so passing costs nothing today and is
+			-- the safe answer the day something does.
+			return Enum.ContextActionResult.Pass
+		end, false, SIT_KEY)
+	else
+		ContextActionService:UnbindAction(SIT_ACTION)
+	end
+end
+
 function PadPanel.start(frame: Frame, collaborators: any)
 	if started then
 		return
@@ -1320,8 +1850,16 @@ function PadPanel.start(frame: Frame, collaborators: any)
 		buildBanner(bag.leaving);
 		(bag.leaving :: Frame).Visible = false
 	end
+	-- ...AND THE NEXT DRIVE'S CARD (task 246), optional for the same reason the banner is: a spec
+	-- that takes the panel over hands it one frame, and a module that threw without the third would
+	-- make the dialog untestable to add a card to it.
+	if bag.nextDrive ~= nil then
+		buildNext(bag.nextDrive);
+		(bag.nextDrive :: Frame).Visible = false
+	end
 	PadPanel.render()
 	PadPanel.renderLeaving()
+	PadPanel.renderNext()
 end
 
 -- THE TEARDOWN A CLIENT SPEC NEEDS: nothing on screen, nothing held, and the two doors handed back.
@@ -1369,12 +1907,31 @@ function PadPanel.stop()
 	switchRule = nil
 	roleSwitch = nil
 	hint = nil
+	-- ...AND THE NEXT DRIVE'S CARD (task 246). Same contract -- *"nothing on screen, nothing held"* --
+	-- and `Y` is held, so it is released here as well as on the card's own edge.
+	PadPanel.bindSitKey(false)
+	nextLeft = nil
+	nextOut = false
+	nextEyebrow = nil
+	nextTitle = nil
+	nextCount = nil
+	nextButton = nil
+	nextButtonWord = nil
+	nextKeyChip = nil
+	nextNote = nil
+	nextHint = nil
+	nextRoleBlock = nil
+	nextRoleEyebrow = nil
+	nextRoleCaption = nil
+	nextRoleSwitch = nil
 	table.clear(buttons)
 	table.clear(notes)
 	empty(panel)
 	empty(banner)
+	empty(nextCard)
 	panel = nil
 	banner = nil
+	nextCard = nil
 	eyebrow = nil
 	title = nil
 	bannerEyebrow = nil

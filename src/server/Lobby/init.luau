@@ -72,11 +72,17 @@ Lobby.Join = require(script.Join)
 -- in it is a table of cases in a spec, and a rule inside the owner is a thing somebody watches in a
 -- playtest.
 Lobby.Pads = require(script.Pads)
+-- ...AND THE PARTY THAT GOES AGAIN (task 246), PURE, re-exported for the specs exactly as `Join`,
+-- `Pads` and `Field` are, and a separate module for the identical reason: *"a rule with no world in
+-- it is a table of cases in a spec, and a rule inside the owner is a thing somebody watches in a
+-- playtest"*.
+Lobby.Next = require(script.Next)
 Lobby.Field = require(script.Field)
 Lobby.Build = require(script.Build)
 
 local Join = Lobby.Join
 local Pads = Lobby.Pads
+local NextDrive = Lobby.Next
 local Field = Lobby.Field
 local Build = Lobby.Build
 
@@ -96,6 +102,20 @@ local firstStepAt: number? = nil
 local degraded = false
 local phase: string? = nil
 local dismissPending = false
+-- THE PARTY THAT GOES AGAIN (task 246). ONE of them, held here because this owner is the one that
+-- owns WHO IS IN THE DRIVE (`world.enrol` / `world.dismissAll`) and the one that walks everybody
+-- back to the lodge -- so it is the only thing that can know when the party is home, which is when
+-- the countdown may start. FROZEN by `Next`'s own functions; this is the only variable that holds it.
+local nextDrive: any = NextDrive.initial()
+-- WHAT THE LAST `NextDrive.step` SAID. It is kept for exactly one reason -- the per-player attribute
+-- writes in `stepPlayer` need to know whether a deadline exists at all, and asking the state twice
+-- in one scan is two answers to one question -- and it is reported in `stats` so a playtest can see
+-- the machine is turning without a probe.
+local nextVerdict: string = NextDrive.IDLE
+-- ONE NUMBER PER PLAYER, the SIT OUT door's forgery guard. Its OWN bucket, beside the pad's and the
+-- role's, for `lastRoleRequestAt`'s stated reason: a shared bucket would make "press SIT OUT, then
+-- press BEATER" lose one of them. `forget` and `stop` empty it.
+local lastNextRequestAt: { [number]: number } = {}
 -- THE FOUR PADS (task 182), indexed by pad. `Pads.empty(index)` each, rebuilt by `start`.
 local pads: { [number]: any } = {}
 -- WHERE EACH PAD IS, computed ONCE at build time off `Pads.centreFor` -- the one place that
@@ -192,6 +212,25 @@ local stats = {
 	-- one party leaving is one `truckWrites` on and one off.
 	truckWrites = 0,
 	dismissals = 0,
+	-- THE CONTINUOUS LOOP (task 246). Five numbers, and each one is a different fact about the same
+	-- party, on `parties`/`departures`' own principle -- *"a party that forms and never goes is
+	-- visible as a gap between two numbers rather than as nothing at all"*:
+	--   nextParties   how many parties were COLLECTED when a drive ended;
+	--   nextArmed     how many of those got a deadline (so a party that never arms is a gap here);
+	--   nextDepartures how many actually went again;
+	--   nextCleared   how many ended without going -- everybody left, or everybody sat out;
+	--   nextTimeouts  how many were armed by `ARM_TIMEOUT_SECONDS` instead of by being home, which
+	--                 is hazard 1 firing and must never be invisible.
+	nextParties = 0,
+	nextArmed = 0,
+	nextDepartures = 0,
+	nextCleared = 0,
+	nextTimeouts = 0,
+	-- ...AND THE SIT OUT DOOR, counted exactly as the role door above is: `nextAsks` is every
+	-- well-formed ask that got past the bucket, `nextWrites` the ones that CHANGED the membership.
+	nextAsks = 0,
+	nextWrites = 0,
+	nextRateLimited = 0,
 	returns = 0,
 	degradedEnrolments = 0,
 	-- WHICH LODGE AND WHICH TRUCKS GOT BUILT (task 180): how many free-model templates were cloned
@@ -425,6 +464,42 @@ local function setPadMine(player: any, state: string?)
 	end
 end
 
+-- ---------------------------------------------------------------- the next drive (task 246)
+
+-- WHEN THE NEXT DRIVE STARTS, on this man's own `Player`, or nil. `setPadMine`'s discipline exactly
+-- -- WRITTEN ONLY WHEN IT DIFFERS, so it is one replicated write per change and not ten a second,
+-- and asked every scan so it is a LEVEL rule. That is what makes the card come down by itself when
+-- the party goes, when he sits out, when he walks onto a pad instead, and when he leaves.
+local function setNextAt(player: any, at: number?)
+	if player:GetAttribute(Data.NEXT_AT_ATTRIBUTE) ~= at then
+		player:SetAttribute(Data.NEXT_AT_ATTRIBUTE, at)
+		touched[player.UserId] = player
+	end
+end
+
+-- ...AND WHETHER HE HAS ASKED TO MISS IT. `true` or nil, never `false`: an attribute that exists
+-- and says `false` is a third state the card would have to understand, and absent already means
+-- *"he is in"* (`roleWish`'s own storage rule -- the default is the ABSENCE of a row).
+local function setNextOut(player: any, out: boolean)
+	local wanted = if out then true else nil
+	if player:GetAttribute(Data.NEXT_OUT_ATTRIBUTE) ~= wanted then
+		player:SetAttribute(Data.NEXT_OUT_ATTRIBUTE, wanted)
+		touched[player.UserId] = player
+	end
+end
+
+-- WHAT THE PARTY IS DOING, for the specs, the boot's log line and a console probe. A COPY of the
+-- lists and never the state itself, which is `Lobby.padOf`'s rule: nothing outside this owner may
+-- write a membership.
+function Lobby.nextDrive(): any
+	return {
+		verdict = nextVerdict,
+		at = nextDrive.at,
+		members = NextDrive.ids(nextDrive),
+		goers = NextDrive.goers(nextDrive),
+	}
+end
+
 -- ---------------------------------------------------------------- the role wish (task 229)
 
 -- THE ONE WRITER of the wish AND of the `DHRoleWish` attribute that mirrors it. Private: the door
@@ -556,6 +631,34 @@ local function stepPlayer(
 )
 	local userId = player.UserId
 	local inDrive = world.inDrive(userId) == true
+	-- THE NEXT DRIVE'S CARD, RECONCILED ON EVERY SCAN (task 246), **before** the `inDrive` return
+	-- below and for the role wish's own stated reason: a man the drive has just taken is exactly the
+	-- man whose card has to come DOWN, and a rule that ran only for men standing in the lobby would
+	-- leave a countdown on his screen for the whole drive.
+	--
+	-- THE DEADLINE IS THE PARTY'S, NOT HIS, which is `Lobby`'s existing arrangement one system
+	-- along: *"Task 177 gave every man a clock of his own; a party of four shares one"*. Everybody
+	-- in the party is handed the SAME `nextDrive.at`, so no two members can be watching two numbers.
+	--
+	-- THE DEADLINE IS THE ONE FACT, AND IT IS WHAT MAKES THE CARD VISIBLE. While the party is
+	-- collected and not yet home (`Next.WAITING`) `nextDrive.at` is nil and nothing is written, so
+	-- the card is DOWN for exactly as long as Karen's results scene is up -- which is the order she
+	-- asked for (*"back to lobby after hunt"*, and only then the next drive) and the reason there is
+	-- no "waiting" word on the card at all.
+	--
+	-- AND IT IS CONVERTED INTO THE SERVER'S OWN CLOCK HERE, exactly as the pad's deadline is and
+	-- with the same measured reason beside it: `Next` counts in the scan's `now`, the client counts
+	-- in `Workspace:GetServerTimeNow()`, and `serverNow` is read ONCE PER SCAN by the caller -- not
+	-- once per member -- because *"two men on one pad got deadlines four microseconds apart, because
+	-- each conversion called `GetServerTimeNow()` again"*. The two clocks advance together, so this
+	-- value does not drift and `setNextAt`'s comparison leaves it alone after the first write.
+	local mine = NextDrive.has(nextDrive, userId)
+	local deadline = nextDrive.at
+	setNextAt(player, if mine and deadline ~= nil then serverNow + math.max(0, deadline - now) else nil)
+	-- ...AND HIS OWN HALF OF IT, which is a SECOND attribute because the countdown runs whether he
+	-- is in or out -- that is the whole point of letting him change his mind. It is cleared for a
+	-- man with no party, so a SIT OUT cannot survive into the next gap.
+	setNextOut(player, mine and NextDrive.isOut(nextDrive, userId))
 	-- THE ROLE WISH, RECONCILED FIRST AND ON EVERY SCAN (task 229), **before** the `inDrive` return
 	-- below: a man the drive already has is exactly the man whose wish has to be spent, and a rule
 	-- that ran only for men standing in the lobby would never clear one.
@@ -735,6 +838,79 @@ local function stepPads(lists: { { any } }, occupants: { any }, now: number)
 	end
 end
 
+-- ---------------------------------------------------------------- the next drive (task 246)
+
+-- ONE SCAN OF THE PARTY THAT GOES AGAIN, and -- like `stepPads` -- it is the only other thing in
+-- this module that reaches the drive.
+--
+-- KAREN, 2026-10-23: *"we need continues game so after drive new drive imidiatly after same amount
+-- seconds"*.
+--
+-- THE THREE FACTS ARE MEASURED HERE AND THE RULE IS DECIDED IN `Lobby.Next`, which is `stepPads`'
+-- own division: this function knows what a `Player` is and the state machine does not. One pass over
+-- the occupants, which is the same pass `occupancy` already makes -- and it is a SEPARATE pass on
+-- purpose, because `occupancy` is about rectangles and this is about the drive.
+local function stepNextDrive(occupants: { any }, now: number)
+	local present: { [number]: boolean } = {}
+	local inDrive: { [number]: boolean } = {}
+	local held: { [number]: boolean } = {}
+	for _, player in ipairs(occupants) do
+		local userId = player.UserId
+		present[userId] = true
+		if world.inDrive(userId) == true then
+			inDrive[userId] = true
+		end
+		-- `isHeld` IS THE RESULTS SCENE, and it is what makes the countdown start AFTER the return
+		-- rather than at the instant the drive ended: `enterScoring` holds the whole roster for
+		-- `SCORE_SECONDS` and `enterWaiting`'s `free` lets them go, which is the same edge
+		-- `Join.needsReturn` begins walking them home on. It is OPTIONAL in `Lobby.start`, so a
+		-- world with no drive answers nothing and the party is home the moment it is collected.
+		if world.isHeld ~= nil and world.isHeld(userId) == true then
+			held[userId] = true
+		end
+	end
+
+	local before = nextDrive.at
+	local state, verdict, going =
+		NextDrive.step(nextDrive, { present = present, inDrive = inDrive, held = held }, now, cfg.PADS.NEXT)
+	nextDrive = state
+	nextVerdict = verdict
+
+	-- THE DEADLINE WAS JUST SET. Counted on the EDGE (`before == nil`), because `COUNTING` is the
+	-- verdict of every scan for the next eight seconds and a counter that climbed with the scans
+	-- would say nothing.
+	if verdict == NextDrive.COUNTING and before == nil then
+		stats.nextArmed += 1
+		-- ...AND WHETHER IT WAS ARMED BY THE TIMEOUT INSTEAD OF BY THE PARTY BEING HOME (hazard 1).
+		-- It is derived from the one fact the state carries -- how long ago the party was collected
+		-- -- rather than from a second verdict, so the two can never disagree.
+		if next(held) ~= nil then
+			stats.nextTimeouts += 1
+			warn(
+				string.format(
+					"[lobby] the next drive's countdown was armed by its %ds timeout with %d player(s)"
+						.. " still held: the results scene did not let everybody go",
+					cfg.PADS.NEXT.ARM_TIMEOUT_SECONDS,
+					#NextDrive.ids(state)
+				)
+			)
+		end
+	elseif verdict == NextDrive.GO then
+		-- THE PARTY GOES AGAIN, through the SAME seam a pad's party leaves through (design section
+		-- 9), so a published build that swaps `world.depart` for a reserved-server teleport keeps
+		-- working and there is exactly one place a party leaves this lobby.
+		--
+		-- `padIndex` IS NIL, AND THAT IS THE HONEST VALUE: no pad sent them. `Departure.padIndex` is
+		-- optional for this one caller and the field says so.
+		local went = Lobby.depart({ padIndex = nil, size = #going, members = Lobby.playersOf(going, occupants) })
+		if went > 0 then
+			stats.nextDepartures += 1
+		end
+	elseif verdict == NextDrive.CLEARED then
+		stats.nextCleared += 1
+	end
+end
+
 -- THE `Player` OBJECTS BEHIND A LIST OF userIds, out of the occupants this scan already walked -- so
 -- this module never asks `Players` for anybody and a spec's fake occupants work unchanged.
 --
@@ -756,8 +932,13 @@ end
 -- ---------------------------------------------------------------- the one place a party leaves
 
 -- WHAT LEFT, AND FROM WHERE.
+-- `padIndex` IS OPTIONAL SINCE TASK 246, and nil means *"no pad sent them"* -- the party that goes
+-- again after a drive (`stepNextDrive`). It is nil rather than 0 because a 0 would be an index, and
+-- an index that names no pad is the kind of value `LEAVING.EYEBROW`'s own comment was written about:
+-- *"the screen never claims to know more than the world said"*. Nothing in this repository reads it;
+-- it is here for the not-built reserved-server implementation and for a log line.
 export type Departure = {
-	padIndex: number,
+	padIndex: number?,
 	size: number?,
 	members: { any },
 }
@@ -1008,6 +1189,82 @@ function Lobby.onRoleRequest(player: any, request: any, now: number?): any
 	return { ok = true, role = wish }
 end
 
+-- ---------------------------------------------------------------- the SIT OUT door (task 246)
+
+-- IS HE PRESSING TOO OFTEN? Its OWN bucket, for `Lobby.roleRateLimited`'s stated reason: a shared
+-- one would make "press SIT OUT, then press BEATER" lose one of the two. Public so a spec drives it.
+function Lobby.nextRateLimited(userId: number, now: number): boolean
+	local last = lastNextRequestAt[userId]
+	if last ~= nil and now - last < cfg.PADS.NEXT.REQUEST_MIN_INTERVAL then
+		return true
+	end
+	lastNextRequestAt[userId] = now
+	return false
+end
+
+-- THE THIRD INBOUND DOOR. *"A player who wants to stop: give a SIT OUT control on the countdown
+-- card. By default they are in."* (the Director's brief, carrying Karen's *"continues game"*.)
+--
+-- PUBLIC, AND IT RETURNS ITS OWN DECISION, for `Lobby.onPadRequest`'s and `Lobby.onRoleRequest`'s
+-- stated reason: `OnServerEvent` can only be raised by a client, so a spec must be able to drive the
+-- seam a forged request arrives through, and a per-call answer beats inferring one from a counter.
+--
+-- EVERY FACT IS MEASURED HERE AND NOTHING IS TAKEN FROM THE PAYLOAD BUT ITS ONE WORD. Whether he is
+-- in a party at all is `Lobby.Next`'s membership, which this module wrote off a roster the SERVER
+-- read; whether the word is legal is `Data.nextAllowed`. **Nothing a client sends can put a man INTO
+-- a party** -- the most it can do is take him out of one he is already in, or put him back.
+--
+-- THERE IS NO REPLY REMOTE: the two attributes are the answer, exactly as the role door's one is.
+function Lobby.onNextRequest(player: any, request: any, now: number?): any
+	if not started then
+		return nil
+	end
+	local at = now or os.clock()
+	local word = if type(request) == "table" then (request :: any).next else nil
+	-- EXACTLY ONE KEY, AND NOTHING ELSE IS TOLERATED -- `Lobby.onRoleRequest`'s own check and its
+	-- reason: *"an argument nobody reads is an argument nobody checked"*.
+	local onlyWord = type(request) == "table"
+	if onlyWord then
+		for key in pairs(request :: any) do
+			if key ~= "next" then
+				onlyWord = false
+				break
+			end
+		end
+	end
+	if not onlyWord or not Data.nextAllowed(word) then
+		-- NOTHING IS SENT BACK and nothing is changed: the client that forged it is not told what
+		-- shape would have worked.
+		stats.badRequests += 1
+		return { ok = false, refused = "bad-request" }
+	end
+	if Lobby.nextRateLimited(player.UserId, at) then
+		stats.nextRateLimited += 1
+		return nil
+	end
+	-- HE IS NOT IN A PARTY. **NOT A FORGERY** -- this module's own split, and the same one the role
+	-- door makes for `not-an-owner`: a legal request the game said no to is a different fact from a
+	-- forged payload, *"because counting it as a bad request would hide a mis-wired provider inside
+	-- the forgery counter"*. It is the normal answer for a man who pressed the key with no card up.
+	if not NextDrive.has(nextDrive, player.UserId) then
+		count("no-party")
+		return { ok = false, refused = "no-party" }
+	end
+	stats.nextAsks += 1
+	local wanted = word == Data.NEXT_WORD.OUT
+	local before = nextDrive
+	nextDrive = NextDrive.sit(nextDrive, player.UserId, wanted)
+	if nextDrive ~= before then
+		stats.nextWrites += 1
+		-- THE SERVER WRITES THE ATTRIBUTE INSIDE THIS CALL and not on the next scan, so what the
+		-- player waits for is one network hop and not a tenth of a second of scan -- the role door's
+		-- own arrangement, and the reason task 209's banner had to be raised on the click. The scan's
+		-- own level rule is what keeps it honest afterwards.
+		setNextOut(player, wanted)
+	end
+	return { ok = true, next = word }
+end
+
 -- ---------------------------------------------------------------- the entry points
 
 -- IT RECORDS AND DOES NOT ACT. `Match` fires `PhaseChanged` at the end of `dispatch`, and `Match:step`'s
@@ -1071,9 +1328,30 @@ function Lobby.step(now: number, players: { any }?)
 
 	if dismissPending then
 		dismissPending = false
+		-- WHO WAS IN THE DRIVE THAT JUST ENDED, MEASURED BEFORE IT IS EMPTIED (task 246). It has to
+		-- be this side of `dismissAll`, because after it there is no roster left to read -- and it
+		-- is measured off `world.inDrive` over the occupants rather than asked for as a list,
+		-- because that reader already exists and a new `world.roster` door would be a second answer
+		-- to *"who is in this drive"*.
+		--
+		-- BOTH SIDES, AND THAT IS THE POINT OF KAREN'S FIRST SENTENCE (*"back to lobby after hunt to
+		-- have the same not saperate for beaters"*): this reads no team at all, so the hunters and
+		-- the beaters are one list, collected in one pass, at one instant.
+		local roster = {}
+		for _, player in ipairs(occupants) do
+			if world.inDrive(player.UserId) == true then
+				table.insert(roster, player.UserId)
+			end
+		end
 		local cleared = world.dismissAll()
 		if cleared > 0 then
 			stats.dismissals += 1
+		end
+		-- ...AND THEY ARE THE PARTY THAT GOES AGAIN. `Next.collect` clears every opt-out with it, so
+		-- *"by default they are in"* is true at the start of every gap.
+		nextDrive = NextDrive.collect(nextDrive, roster, now)
+		if #roster > 0 then
+			stats.nextParties += 1
 		end
 	end
 
@@ -1086,6 +1364,12 @@ function Lobby.step(now: number, players: { any }?)
 	-- their countdown back, rather than giving a man the drive already has a lodge spawn for a tenth
 	-- of a second.
 	stepPads(lists, occupants, now)
+
+	-- ...AND THEN THE PARTY THAT GOES AGAIN (task 246), in that order and for the pads' own stated
+	-- reason: a pad that departed inside the call above has just ENROLLED its men, so this step sees
+	-- `inDrive` true for them and drops them from the party on the same scan -- which is hazard 2 of
+	-- the note (*"two enrolments for one man"*) closed by an ordering rather than by a second check.
+	stepNextDrive(occupants, now)
 
 	-- ONE READING OF THE SERVER CLOCK FOR THE WHOLE SCAN, so every member of one party is handed
 	-- the same deadline to count down.
@@ -1172,6 +1456,12 @@ function Lobby.start(injected: any?): boolean
 	table.clear(roleWish)
 	table.clear(lastRoleRequestAt)
 	wishFrozen = nil
+	-- TASK 246: the party that goes again, its verdict and its own bucket. A fresh `Next.initial()`
+	-- rather than a `table.clear`, because the state is FROZEN -- which is the whole reason nothing
+	-- outside `Lobby.Next` can write a membership.
+	nextDrive = NextDrive.initial()
+	nextVerdict = NextDrive.IDLE
+	table.clear(lastNextRequestAt)
 	table.clear(returnedAt)
 	table.clear(spawnIndex)
 	table.clear(touched)
@@ -1209,6 +1499,15 @@ function Lobby.start(injected: any?): boolean
 			table.insert(connections, connection)
 		end
 	end
+	-- ...AND THE SIT OUT DOOR (task 246), guarded the same way and for the same measured reason.
+	if world.remotes ~= nil and world.remotes.NextRequest ~= nil then
+		local connection = world.remotes.NextRequest.OnServerEvent:Connect(function(player: Player, payload: any)
+			Lobby.onNextRequest(player, payload)
+		end)
+		if connection ~= nil then
+			table.insert(connections, connection)
+		end
+	end
 	return true
 end
 
@@ -1239,6 +1538,9 @@ function Lobby.stop()
 	table.clear(roleWish)
 	table.clear(lastRoleRequestAt)
 	wishFrozen = nil
+	nextDrive = NextDrive.initial()
+	nextVerdict = NextDrive.IDLE
+	table.clear(lastNextRequestAt)
 	-- EXACTLY WHAT IT WROTE AND NOTHING ELSE: the players this module actually touched, not every
 	-- player on the server.
 	for _, player in pairs(touched) do
@@ -1247,6 +1549,8 @@ function Lobby.stop()
 			or player:GetAttribute(Data.LEAVE_AT_ATTRIBUTE) ~= nil
 			or player:GetAttribute(Data.PAD_MINE_ATTRIBUTE) ~= nil
 			or player:GetAttribute(Data.ROLE_WISH_ATTRIBUTE) ~= nil
+			or player:GetAttribute(Data.NEXT_AT_ATTRIBUTE) ~= nil
+			or player:GetAttribute(Data.NEXT_OUT_ATTRIBUTE) ~= nil
 		then
 			player:SetAttribute(Data.LEAVE_AT_ATTRIBUTE, nil)
 			-- ...AND THE LOADING BANNER (task 197). It is the same teardown claim as the deadline
@@ -1257,6 +1561,11 @@ function Lobby.stop()
 			-- owns anything as far as this module can tell, and the attribute's absence is what makes
 			-- both controls disappear rather than go stale.
 			player:SetAttribute(Data.ROLE_WISH_ATTRIBUTE, nil)
+			-- ...AND THE NEXT DRIVE'S CARD (task 246). The same teardown claim a third time: an
+			-- owner that stopped must leave no countdown on anybody's screen, and these two
+			-- attributes are that card's whole visibility rule.
+			player:SetAttribute(Data.NEXT_AT_ATTRIBUTE, nil)
+			player:SetAttribute(Data.NEXT_OUT_ATTRIBUTE, nil)
 			player.RespawnLocation = nil
 		end
 	end
@@ -1284,6 +1593,12 @@ function Lobby.forget(userId: number)
 		wishFrozen = nil
 	end
 	lastRoleRequestAt[userId] = nil
+	-- TASK 246: his bucket. HIS MEMBERSHIP IS NOT TOUCHED HERE, and that is deliberate rather than
+	-- an omission: `Next.step` drops a man who is no longer `present` on the very next scan -- the
+	-- level recount, which is the whole pattern (Quake III's `CheckIntermissionExit`) -- so clearing
+	-- it here as well would be the same fact removed in two places, and the one that ran first would
+	-- decide. `Lobby.stats().nextCleared` is what shows the last member leaving.
+	lastNextRequestAt[userId] = nil
 	returnedAt[userId] = nil
 	spawnIndex[userId] = nil
 	touched[userId] = nil

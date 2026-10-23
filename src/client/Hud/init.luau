@@ -230,6 +230,11 @@ local padFrame: Frame? = nil
 -- THE LOADING BANNER'S FRAME (task 197): created here with the rest of the screen, filled by
 -- `Hud.PadPanel`, which also owns its `Visible` -- the dialog's own arrangement, one frame over.
 local padLeavingFrame: Frame? = nil
+-- THE NEXT DRIVE'S CARD (task 246): created here with the rest of the screen, filled by
+-- `Hud.PadPanel`, which also owns its `Visible` -- the dialog's and the banner's arrangement, a
+-- third frame over. KAREN, 2026-10-23: *"we need continues game so after drive new drive imidiatly
+-- after same amount seconds"*.
+local padNextFrame: Frame? = nil
 -- WHICH PAD THIS CLIENT HAS ALREADY TURNED TO FACE (task 197 part 2). One number, so the camera is
 -- asked ONCE per walk-on and not once a frame -- `ShopPanel.setNear`'s edge discipline.
 local facedPad: number? = nil
@@ -867,6 +872,10 @@ end
 
 function Hud.padLeaving(): Frame?
 	return padLeavingFrame
+end
+
+function Hud.padNext(): Frame?
+	return padNextFrame
 end
 
 function Hud.reportPanel(): Frame?
@@ -2146,6 +2155,27 @@ local function build(): ScreenGui
 	padLeaving.Visible = false
 	padLeaving.Parent = screen
 
+	-- ...AND THE NEXT DRIVE'S CARD (task 246). KAREN, 2026-10-23: *"we need continues game so after
+	-- drive new drive imidiatly after same amount seconds and who has licesne can select who he can
+	-- be next round"*.
+	--
+	-- IT IS THE PAD DIALOG'S OWN RECTANGLE -- the same width, the same bottom edge and the same
+	-- `ZIndex`, from the same three functions -- and the two are never up together, which
+	-- `PadPanel.dialogShown` decides and `PadPanel` enforces as the one writer of both `Visible`s.
+	-- Its HEIGHT is `PadPanel.relayoutNext`'s, because it depends on whether the role block is shown
+	-- and only that module knows (the dialog's own arrangement, task 229).
+	local padNext = Instance.new("Frame")
+	padNext.Name = "PadNext"
+	padNext.BackgroundColor3 = PadPanel.LOOK.PANEL_COLOR
+	padNext.BackgroundTransparency = 0
+	padNext.BorderSizePixel = 0
+	padNext.AnchorPoint = PadPanel.anchorPoint()
+	padNext.Position = PadPanel.positionFor()
+	padNext.Size = UDim2.fromOffset(PadPanel.widthFor(), PadPanel.nextHeightFor())
+	padNext.ZIndex = PadPanel.zIndex()
+	padNext.Visible = false
+	padNext.Parent = screen
+
 	-- THE MAP (task 155). Karen: *"small map in left or right corner circle like is on another
 	-- games"* and *"a map when click M"*. Two frames and a button, created empty and filled by
 	-- `MapUi` -- the same division the compass and the report panel already have.
@@ -2612,6 +2642,7 @@ local function build(): ScreenGui
 	shopFrame = shop
 	padFrame = padDialog
 	padLeavingFrame = padLeaving
+	padNextFrame = padNext
 	compassFrame = compass
 	scoreEyebrow = boardEyebrow
 	scoreTitle = boardTitle
@@ -4618,6 +4649,14 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 				Players.LocalPlayer:GetAttribute(lobbyData.LEAVE_AT_ATTRIBUTE),
 				Workspace:GetServerTimeNow()
 			),
+			-- ...AND HOW LONG UNTIL THE NEXT DRIVE (task 246), through the SAME pure conversion and
+			-- off the same clock: one function, two deadlines, so a countdown on the pad and a
+			-- countdown at the lodge can never be two different arithmetics. nil is *"there is no
+			-- countdown"*, which is this card's whole visibility rule.
+			nextSeconds = lobbyData.secondsLeft(
+				Players.LocalPlayer:GetAttribute(lobbyData.NEXT_AT_ATTRIBUTE),
+				Workspace:GetServerTimeNow()
+			),
 			-- EVERY TRUCK PAD (task 182), so the chevron points at the NEAREST one. Four memoised
 			-- part lookups and four `Position` reads -- the same order as the one subtraction
 			-- `ShopPanel.setNear` below already costs this function.
@@ -4780,6 +4819,16 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 		if lobbyData then Players.LocalPlayer:GetAttribute(lobbyData.PAD_MINE_ATTRIBUTE) else nil,
 		if lobby then lobby.secondsLeft else nil,
 		os.clock()
+	)
+	-- ...AND WHEN THE NEXT DRIVE STARTS (task 246). TWO server-measured facts again, read HERE for
+	-- `setAsk`'s own stated reason -- this function is already *"THE ONE EVALUATION"* -- and the
+	-- panel is TOLD both. The seconds go through the SAME `Lobby.secondsLeft` the pad's countdown
+	-- does (`lobby.nextSeconds`, converted beside it off the one `GetServerTimeNow()` this function
+	-- already takes), so the card's number and the pad's banner cannot be two different clocks. A
+	-- world with no lobby is counting nobody in.
+	PadPanel.setNext(
+		if lobby then lobby.nextSeconds else nil,
+		if lobbyData then Players.LocalPlayer:GetAttribute(lobbyData.NEXT_OUT_ATTRIBUTE) == true else false
 	)
 	local target = Objective.targetFor(team, phase, MapUi.geometry(), me, lobby)
 	local far = Objective.distanceStuds(target, me)
@@ -5287,6 +5336,8 @@ function Hud.start()
 			Cursor = if CameraSystem then CameraSystem.Cursor else nil,
 			Input = Weapon.Input,
 			leaving = padLeavingFrame,
+			-- TASK 246: the third frame, handed over the same way and optional for the same reason.
+			nextDrive = padNextFrame,
 		})
 	end
 

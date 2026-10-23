@@ -973,6 +973,303 @@ return function()
 		end)
 	end)
 
+	-- ---------------------------------------------------------------- task 246: the hunt goes on
+	--
+	-- KAREN, 2026-10-23: *"we need continues game so after drive new drive imidiatly after same
+	-- amount seconds"*.
+	--
+	-- THE OWNER'S HALF: the roster measured before it is emptied, the three facts handed to
+	-- `Lobby.Next`, the two attributes written as a LEVEL rule, the door against a forgery, and the
+	-- party handed to the SAME `depart` seam a pad's party leaves through. `Lobby.Next`'s own rules
+	-- are in `lobby_next.spec`, with no world in them at all.
+	describe("the next drive", function()
+		-- WHO OWNS `ALWAYS HUNTER`, injected the way the role block's own cases inject it -- a second
+		-- copy of four lines rather than a shared one, because `Lobby.setAlwaysHunters` is a SETTER
+		-- on the singleton and a helper shared across two `describe`s would leak a reader between
+		-- them. `afterEach` hands it back.
+		local function owning(seen: any, ...)
+			local ids = { ... }
+			for _, userId in ipairs(ids) do
+				seen.owners[userId] = true
+			end
+			Lobby.setAlwaysHunters(function()
+				return seen.owners
+			end)
+		end
+
+		afterEach(function()
+			Lobby.setAlwaysHunters(nil)
+		end)
+
+		-- EVERYBODY THE DRIVE HAS, AT THE LODGE, WITH THE SCENE OVER: the state the loop starts from.
+		-- `away` is 600 studs north, which is outside the field, so the return rule fires too -- and
+		-- it is the same spot the dismissal cases above use.
+		local function drivenHome(seen: any, ids: { number })
+			local away = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600)
+			local men = {}
+			for _, id in ipairs(ids) do
+				seen.inDrive[id] = true
+				table.insert(men, occupant(id, away, bin))
+			end
+			Lobby.step(2000, men)
+			-- THE DRIVE ENDS. `onPhase` records, the next scan acts.
+			Lobby.onPhase("Scoring")
+			-- STILL HELD: the results scene is up, so the party is collected and NOT counting yet.
+			for _, id in ipairs(ids) do
+				seen.held[id] = true
+			end
+			Lobby.step(2001, men)
+			return men
+		end
+
+		it("collects the whole roster, both sides, and waits for the results scene", function()
+			local seen = fresh(bin)
+			local men = drivenHome(seen, { 41, 42 })
+			-- THE DRIVE HAS BEEN EMPTIED and the party holds exactly who was in it. The fake's
+			-- `dismissAll` does not clear `inDrive`, so this spec does what production does: the
+			-- roster is read on THIS side of the call.
+			expect(seen.dismissed).to.equal(1)
+			local party = Lobby.nextDrive()
+			expect(#party.members).to.equal(2)
+			expect(party.members[1]).to.equal(41)
+			expect(Lobby.stats().nextParties).to.equal(1)
+			-- NO DEADLINE WHILE THE SCENE IS UP, and therefore no card: `DHNextDriveAt` is the card's
+			-- whole visibility rule, so Karen's score table is alone on the screen for its full 8 s.
+			expect(party.at).to.equal(nil)
+			expect(party.verdict).to.equal(Lobby.Next.WAITING)
+			expect(men[1]:GetAttribute(Data.NEXT_AT_ATTRIBUTE)).to.equal(nil)
+			expect(Lobby.stats().nextArmed).to.equal(0)
+		end)
+
+		it("arms the countdown when the scene lets everybody go, once, on the edge", function()
+			local seen = fresh(bin)
+			local men = drivenHome(seen, { 41, 42 })
+			for _, id in ipairs({ 41, 42 }) do
+				seen.inDrive[id] = false
+				seen.held[id] = false
+			end
+			Lobby.step(2002, men)
+			local party = Lobby.nextDrive()
+			expect(party.verdict).to.equal(Lobby.Next.COUNTING)
+			expect(party.at).to.equal(2002 + CFG.PADS.NEXT.SECONDS)
+			expect(Lobby.stats().nextArmed).to.equal(1)
+			-- EVERY MEMBER IS HANDED THE SAME DEADLINE, converted into the server's own clock ONCE
+			-- per scan -- the pad's measured rule (*"two men on one pad got deadlines four
+			-- microseconds apart"*), applied to this card.
+			local first = men[1]:GetAttribute(Data.NEXT_AT_ATTRIBUTE)
+			expect(type(first)).to.equal("number")
+			expect(men[2]:GetAttribute(Data.NEXT_AT_ATTRIBUTE)).to.equal(first)
+			-- AND NOT ARMED TWICE, however many scans arrive.
+			Lobby.step(2003, men)
+			Lobby.step(2004, men)
+			expect(Lobby.stats().nextArmed).to.equal(1)
+			expect(Lobby.nextDrive().at).to.equal(2002 + CFG.PADS.NEXT.SECONDS)
+		end)
+
+		it("sends the party again through the same depart seam, with no pad", function()
+			-- THE SEAM, RECORDED: a published build swaps this for a reserved-server teleport, so the
+			-- claim *"one place a party leaves this lobby"* is what is asserted and not the enrolment.
+			local sent = {}
+			local taken = {}
+			local seen = fresh(bin, function(world)
+				world.depart = function(departure)
+					table.insert(sent, departure)
+					for _, player in ipairs(departure.members) do
+						taken[player.UserId] = true
+					end
+					return #departure.members
+				end
+			end)
+			local men = drivenHome(seen, { 41, 42 })
+			for _, id in ipairs({ 41, 42 }) do
+				seen.inDrive[id] = false
+				seen.held[id] = false
+			end
+			Lobby.step(2002, men)
+			Lobby.step(2002 + CFG.PADS.NEXT.SECONDS, men)
+			expect(#sent).to.equal(1)
+			expect(#sent[1].members).to.equal(2)
+			-- NO PAD SENT THEM, and the field says so rather than naming a pad that did not exist.
+			expect(sent[1].padIndex).to.equal(nil)
+			expect(sent[1].size).to.equal(2)
+			expect(Lobby.stats().nextDepartures).to.equal(1)
+			expect(taken[41]).to.equal(true)
+			expect(taken[42]).to.equal(true)
+			-- ...AND THE CARD COMES DOWN ON THE SAME SCAN, because the party was cleared with the GO.
+			Lobby.step(2003 + CFG.PADS.NEXT.SECONDS, men)
+			expect(men[1]:GetAttribute(Data.NEXT_AT_ATTRIBUTE)).to.equal(nil)
+			expect(Lobby.nextDrive().verdict).to.equal(Lobby.Next.IDLE)
+		end)
+
+		it("enrols the party into this server's own drive when no seam is injected", function()
+			-- THE BUILT PATH, which is the one that ships: `Lobby.enrolHere` -> `world.enrol`.
+			local seen = fresh(bin)
+			local men = drivenHome(seen, { 41 })
+			seen.inDrive[41] = false
+			seen.held[41] = false
+			Lobby.step(2002, men)
+			Lobby.step(2002 + CFG.PADS.NEXT.SECONDS, men)
+			local enrolled = false
+			for _, id in ipairs(seen.enrolled) do
+				if id == 41 then
+					enrolled = true
+				end
+			end
+			expect(enrolled).to.equal(true)
+			expect(Lobby.stats().nextDepartures).to.equal(1)
+		end)
+
+		it("leaves a man who sat out at the lodge, and sends the rest", function()
+			local seen = fresh(bin)
+			local men = drivenHome(seen, { 41, 42 })
+			for _, id in ipairs({ 41, 42 }) do
+				seen.inDrive[id] = false
+				seen.held[id] = false
+			end
+			Lobby.step(2002, men)
+			local answer = Lobby.onNextRequest(men[1], { next = Data.NEXT_WORD.OUT }, 2002.5)
+			expect(answer.ok).to.equal(true)
+			-- THE SERVER WRITES THE ATTRIBUTE INSIDE THE CALL, not on the next scan: one network hop
+			-- instead of a tenth of a second of scan (the role door's own arrangement).
+			expect(men[1]:GetAttribute(Data.NEXT_OUT_ATTRIBUTE)).to.equal(true)
+			expect(Lobby.stats().nextAsks).to.equal(1)
+			expect(Lobby.stats().nextWrites).to.equal(1)
+			-- THE COUNTDOWN IS UNTOUCHED, which is what lets him change his mind.
+			expect(Lobby.nextDrive().at).to.equal(2002 + CFG.PADS.NEXT.SECONDS)
+			Lobby.step(2002 + CFG.PADS.NEXT.SECONDS, men)
+			expect(#seen.enrolled).to.equal(1)
+			expect(seen.enrolled[1]).to.equal(42)
+		end)
+
+		it("takes him back when he presses again", function()
+			local seen = fresh(bin)
+			local men = drivenHome(seen, { 41 })
+			seen.inDrive[41] = false
+			seen.held[41] = false
+			Lobby.step(2002, men)
+			Lobby.onNextRequest(men[1], { next = Data.NEXT_WORD.OUT }, 2002.5)
+			Lobby.onNextRequest(men[1], { next = Data.NEXT_WORD.IN }, 2003)
+			expect(men[1]:GetAttribute(Data.NEXT_OUT_ATTRIBUTE)).to.equal(nil)
+			Lobby.step(2002 + CFG.PADS.NEXT.SECONDS, men)
+			expect(#seen.enrolled).to.equal(1)
+			expect(seen.enrolled[1]).to.equal(41)
+		end)
+
+		it("ends the gap with nobody enrolled when the only man sits out", function()
+			local seen = fresh(bin)
+			local men = drivenHome(seen, { 41 })
+			seen.inDrive[41] = false
+			seen.held[41] = false
+			Lobby.step(2002, men)
+			Lobby.onNextRequest(men[1], { next = Data.NEXT_WORD.OUT }, 2002.5)
+			Lobby.step(2002 + CFG.PADS.NEXT.SECONDS, men)
+			expect(#seen.enrolled).to.equal(0)
+			expect(Lobby.stats().nextCleared).to.equal(1)
+			expect(Lobby.stats().nextDepartures).to.equal(0)
+			-- ...AND THE CARD IS GONE, so he is left standing in the lobby with the pads, which is
+			-- exactly the lobby before this task.
+			expect(men[1]:GetAttribute(Data.NEXT_AT_ATTRIBUTE)).to.equal(nil)
+			expect(men[1]:GetAttribute(Data.NEXT_OUT_ATTRIBUTE)).to.equal(nil)
+		end)
+
+		it("refuses a forged payload, a flood and a man with no party, and tells them apart", function()
+			local seen = fresh(bin)
+			local stranger = occupant(49, padAt(2), bin)
+			Lobby.step(2000, { stranger })
+			-- A FORGERY: the wrong word, a second key, no table at all.
+			expect(Lobby.onNextRequest(stranger, { next = "maybe" }, 2000.1).refused).to.equal("bad-request")
+			expect(Lobby.onNextRequest(stranger, { next = "out", pad = 1 }, 2000.4).refused).to.equal("bad-request")
+			expect(Lobby.onNextRequest(stranger, "out", 2000.7).refused).to.equal("bad-request")
+			local forged = Lobby.stats().badRequests
+			expect(forged >= 3).to.equal(true)
+			-- A LEGAL REQUEST THE GAME SAID NO TO IS A DIFFERENT FACT, and it is counted apart:
+			-- *"counting it as a bad request would hide a mis-wired provider inside the forgery
+			-- counter"*.
+			expect(Lobby.onNextRequest(stranger, { next = Data.NEXT_WORD.OUT }, 2001).refused).to.equal("no-party")
+			expect(Lobby.stats().badRequests).to.equal(forged)
+			expect(Lobby.stats().refusedBy["no-party"]).to.equal(1)
+			expect(Lobby.stats().nextAsks).to.equal(0)
+			-- THE FLOOD GUARD, and it is its OWN bucket: the role door's row must not be spent here.
+			expect(Lobby.nextRateLimited(49, 3000)).to.equal(false)
+			expect(Lobby.nextRateLimited(49, 3000.01)).to.equal(true)
+			expect(Lobby.roleRateLimited(49, 3000.01)).to.equal(false)
+			local _ = seen
+		end)
+
+		it("arms the countdown anyway when the scene never lets one man go", function()
+			-- HAZARD 1, AT THE OWNER: one member held for ever -- a character that never loads -- and
+			-- the loop goes on without him rather than stopping for everybody. The warning is the
+			-- counter, so it can never be invisible.
+			local seen = fresh(bin)
+			local men = drivenHome(seen, { 41, 42 })
+			seen.inDrive[41] = false
+			seen.held[41] = false
+			seen.inDrive[42] = false
+			Lobby.step(2002, men)
+			expect(Lobby.nextDrive().verdict).to.equal(Lobby.Next.WAITING)
+			Lobby.step(2001 + CFG.PADS.NEXT.ARM_TIMEOUT_SECONDS, men)
+			expect(Lobby.nextDrive().verdict).to.equal(Lobby.Next.COUNTING)
+			expect(Lobby.stats().nextTimeouts).to.equal(1)
+		end)
+
+		it("writes each attribute once per change and not once per scan", function()
+			local seen = fresh(bin)
+			local men = drivenHome(seen, { 41 })
+			seen.inDrive[41] = false
+			seen.held[41] = false
+			local writes = 0
+			local raw = men[1].SetAttribute
+			men[1].SetAttribute = function(self: any, name: string, value: any)
+				if name == Data.NEXT_AT_ATTRIBUTE or name == Data.NEXT_OUT_ATTRIBUTE then
+					writes += 1
+				end
+				raw(self, name, value)
+			end
+			Lobby.step(2002, men)
+			expect(writes).to.equal(1)
+			Lobby.step(2003, men)
+			Lobby.step(2004, men)
+			Lobby.step(2005, men)
+			expect(writes).to.equal(1)
+		end)
+
+		it("hands both attributes back when the owner stops", function()
+			local seen = fresh(bin)
+			local men = drivenHome(seen, { 41 })
+			seen.inDrive[41] = false
+			seen.held[41] = false
+			Lobby.step(2002, men)
+			Lobby.onNextRequest(men[1], { next = Data.NEXT_WORD.OUT }, 2002.5)
+			expect(men[1]:GetAttribute(Data.NEXT_AT_ATTRIBUTE) ~= nil).to.equal(true)
+			Lobby.stop()
+			expect(men[1]:GetAttribute(Data.NEXT_AT_ATTRIBUTE)).to.equal(nil)
+			expect(men[1]:GetAttribute(Data.NEXT_OUT_ATTRIBUTE)).to.equal(nil)
+			expect(#Lobby.nextDrive().members).to.equal(0)
+		end)
+
+		it("still lets a man choose his role while he waits at the lodge", function()
+			-- KAREN'S THIRD SENTENCE: *"who has licesne can select who he can be next round"*. The
+			-- role door's own `in-a-drive` refusal is FALSE between drives -- the drive handed his
+			-- team back -- so the pick made on this card is the pick `Roster.assign` reads.
+			local seen = fresh(bin)
+			owning(seen, 41)
+			local men = drivenHome(seen, { 41 })
+			seen.inDrive[41] = false
+			seen.held[41] = false
+			seen.assigned[41] = nil
+			Lobby.step(2002, men)
+			local answer = Lobby.onRoleRequest(men[1], { role = Data.ROLE_WISH.BEATER }, 2002.5)
+			expect(answer.ok).to.equal(true)
+			expect(Lobby.beaterWishes()[41]).to.equal(true)
+			-- ...AND IT SURVIVES THE WHOLE COUNTDOWN, because `Lobby.wishFor` only clears a wish the
+			-- drive has SPENT (`world.assignedTeam`), which is nil at the lodge.
+			Lobby.step(2003, men)
+			Lobby.step(2002 + CFG.PADS.NEXT.SECONDS - 0.1, men)
+			expect(Lobby.beaterWishes()[41]).to.equal(true)
+			expect(men[1]:GetAttribute(Data.ROLE_WISH_ATTRIBUTE)).to.equal(Data.ROLE_WISH.BEATER)
+		end)
+	end)
+
 	describe("the scan", function()
 		it("runs at SCAN_HZ and not once per call", function()
 			local _seen = fresh(bin)

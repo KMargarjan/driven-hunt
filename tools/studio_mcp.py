@@ -988,9 +988,16 @@ SCOPE_SPECS = {
               # enrolment switch, and the lobby's two specs are what drive the seam from the other
               # side -- so a `src/server/Match/` edit plays them too.
               "tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
+              # Task 246: the continuous loop re-enrols the party that just finished a drive, so a
+              # `src/server/Match/` edit plays the rule that decides who goes again (dual
+              # membership, the idiom this file already uses).
+              "tests/server/lobby_next.spec.luau",
               "tests/client/zz_tie_to_a_tree.spec.luau"),
     # The lobby (task 177): the pure rule and the geometry, and the owner against fakes.
     "lobby": ("tests/server/lobby.spec.luau", "tests/server/lobby_live.spec.luau",
+              # Task 246: the party that goes again -- `Lobby.Next`, pure, plus the owner cases in
+              # `lobby_live.spec` above.
+              "tests/server/lobby_next.spec.luau",
               # Task 215: the lodge's fire and lantern numbers are `Lobby.CONFIG.LODGE`'s and the
               # lighting spec asserts all three, so a lobby change plays it (the dual membership
               # above).
