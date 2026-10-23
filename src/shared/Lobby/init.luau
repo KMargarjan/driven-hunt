@@ -1609,6 +1609,42 @@ Lobby.CONFIG = {
 		-- covers the porch's own 14-stud width plus the view past its ends.
 		FRONT_HALF_WIDTH = 22,
 	},
+	-- ---------------- THE WORKING GROUND IS KEPT CLEAR (task 249)
+	--
+	-- KAREN, 2026-10-23, with a frame of a bush standing between her and TRUCK 4's pad: *"remove
+	-- this bush"*.
+	--
+	-- IT IS NOT ONE OF OUR TREES, AND THAT IS THE WHOLE REASON THIS TABLE EXISTS. Measured in her
+	-- own place before anything was written: every `Lobby.TreeLine` and `LODGE_TREES` trunk is 40
+	-- studs or more from the nearest pad, and the thing in the picture is
+	-- `Workspace.Session.Bush` -- a part of the BOUGHT FOREST the Forest Test place was built from,
+	-- standing at (2871, -2965), 12 studs west of the gravel's own edge and inside the road
+	-- corridor. `Build.treeLine` has always kept OUR wood off the yard; nothing has ever kept the
+	-- WORLD'S off it.
+	--
+	-- SO THE LOBBY CLEARS ITS OWN GROUND, and the rule is geometry rather than a list of names: an
+	-- instance of the world's foliage whose foot lands inside the yard, the road corridor or the
+	-- front of the house is taken away when the lobby is built. A name list would have to be
+	-- updated for every model a future map ships ("Bush", "Bush1", "Bush3", "Bush4", "Mesh Tree",
+	-- "Tree3", "Tree8", "Tree10" are what this one ships, counted 2026-10-23).
+	--
+	-- IT IS A RUNTIME REMOVAL AND NOT AN EDIT TO THE PLACE. `Build.build` runs on the server at
+	-- boot; the place file keeps its forest, and deleting this table puts the bush back on the next
+	-- server. backups/2026-10-23_task249_lobby-clearing.txt records what it removed.
+	CLEARING = {
+		-- WHICH FOLDERS HOLD THE WORLD'S OWN FOLIAGE. By NAME, because `Workspace` has TWO folders
+		-- called `Session` in this place (771 and 60 children) and a lookup would find one of them.
+		-- Nothing else in `Workspace` is searched: the lobby's own folder, the terrain, the boars
+		-- and the drive's markers are not the world's trees and must never be swept.
+		FOLDERS = table.freeze({ "Session", "OurForest", "Foliage" }),
+		-- HOW FAR BEYOND THE GRAVEL THE CLEARING REACHES. 12 studs is what it takes to catch the
+		-- bush Karen photographed (its foot is 12.0 studs west of `Build.yardRect`'s own edge) plus
+		-- nothing else: measured in her place, the rule removes exactly ONE instance today.
+		YARD_MARGIN_STUDS = 12,
+		-- ...AND HOW FAR IN FRONT OF THE PORCH. The lodge's own front, as `TREELINE.FRONT_HALF_WIDTH`
+		-- already measures it, carried this far out from the building's south face.
+		FRONT_STUDS = 24,
+	},
 	-- THE ALDER'S TWO COLOURS (spec 16b). Applied by name and material, the rule `Build.camo` already
 	-- proves for the trucks.
 	ALDER = {
@@ -2061,10 +2097,18 @@ Lobby.CONFIG = {
 			-- round win until round restarts"*, default 15, clamped 5..15
 			-- (`docs/research/2026-10-23-the-continuous-drive-loop.md` source B).
 			--
-			-- THE WHOLE GAP DRIVE TO DRIVE IS 31 s AND ONLY THIS ONE IS NEW: 8 results scene
-			-- (`SCORE_SECONDS`) + 8 here + 15 intermission (`INTERMISSION_SECONDS`, the seconds
-			-- the hunters walk to their stands with).
-			SECONDS = 8,
+			-- THE WHOLE GAP DRIVE TO DRIVE WAS 31 s: 8 results scene (`SCORE_SECONDS`) + 8 here +
+			-- 15 intermission (`INTERMISSION_SECONDS`, the seconds the hunters walk to their
+			-- stands with).
+			--
+			-- **IT IS 15 SINCE TASK 249, AND THIS ROW IS THE BIGGEST OF THE THREE.** KAREN,
+			-- 2026-10-23: *"a bit to long to wait for game we need to reduce seconds"*; the
+			-- Director's total is 15 and the split is 4 + 6 + 5. This one keeps 6 of them because
+			-- THE ROLE CHOICE IS ON THIS CARD -- `T` swaps hunter for beater and `Y` sits the
+			-- drive out -- and a control nobody has time to press is a control that is not there
+			-- (`ROLE.KEY_HINT`'s own rule). The results scene and the intermission carry the rest.
+			-- backups/2026-10-23_task249_between-drive-gap-31s.txt.
+			SECONDS = 6,
 			-- WHEN THE COUNTDOWN IS ARMED ANYWAY. The deadline is normally set on the first scan
 			-- on which the whole party is out of the drive and no longer held -- which is the
 			-- instant the results scene's `free` lands and the lodge's return rule fires, so the
@@ -2074,7 +2118,9 @@ Lobby.CONFIG = {
 			-- is hazard 1 of the note: one member stuck `held` or still a participant -- a
 			-- character that never loads, a drive that never leaves `Scoring` -- would otherwise
 			-- stop the loop for everybody with nothing on screen to say so. 12 s is longer than
-			-- the whole results scene (8) plus a respawn, and shorter than a player's patience.
+			-- the whole results scene (4 since task 249) plus a respawn, and shorter than a
+			-- player's patience. It is a BOUND and not a wait -- shortening the scene only makes
+			-- the margin bigger -- so the task 249 cut leaves it where it is.
 			ARM_TIMEOUT_SECONDS = 12,
 			-- IS HE PRESSING TOO OFTEN? `PADS.REQUEST_MIN_INTERVAL`'s own number and its own
 			-- reason: a FORGERY guard, not a game rule, because a person cannot press a button
