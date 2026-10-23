@@ -1393,7 +1393,7 @@ export type NextLayout = {
 -- this card has no size rows to separate it from. Everything else is the same row, from the same
 -- table, so the control sits at the same height on both surfaces.
 local function nextRoleHeight(): number
-	return ROLE.EYEBROW_PX + ROLE.GAP_PX + SWITCH.TRACK_PX + ROLE.NOTE_GAP + ROLE.NOTE_PX
+	return ROLE.EYEBROW_PX + ROLE.GAP_PX + ROLE.TRACK_PX + ROLE.NOTE_GAP + ROLE.NOTE_PX
 end
 
 -- EVERY RECTANGLE ON THIS CARD, FROM THE DATA PLUS TWO FACTS. PURE, which is `PadPanel.layoutFor`'s
@@ -1408,7 +1408,7 @@ function PadPanel.nextLayoutFor(next_: string?, height: number?): NextLayout
 	local afterCount = countY + NEXT.COUNT_PX
 	local switchY = afterCount + NEXT.GAP
 	local trackY = switchY + ROLE.EYEBROW_PX + ROLE.GAP_PX
-	local captionY = trackY + SWITCH.TRACK_PX + ROLE.NOTE_GAP
+	local captionY = trackY + ROLE.TRACK_PX + ROLE.NOTE_GAP
 	local afterRole = if shown then switchY + nextRoleHeight() else afterCount
 	local buttonY = afterRole + NEXT.GAP
 	local noteY = buttonY + NEXT.BUTTON_PX + 4
@@ -1649,7 +1649,7 @@ function PadPanel.relayoutNext()
 	if nextRoleSwitch ~= nil then
 		nextRoleSwitch.track.Visible = layout.switchShown
 		nextRoleSwitch.track.Position = UDim2.fromOffset(0, layout.trackY - layout.switchY)
-		nextRoleSwitch.track.Size = UDim2.fromOffset(layout.trackWidth, SWITCH.TRACK_PX)
+		nextRoleSwitch.track.Size = UDim2.fromOffset(layout.trackWidth, ROLE.TRACK_PX)
 	end
 	if nextRoleCaption ~= nil then
 		(nextRoleCaption :: TextLabel).Position = UDim2.fromOffset(0, layout.captionY - layout.switchY)

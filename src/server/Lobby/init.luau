@@ -871,10 +871,38 @@ local function stepNextDrive(occupants: { any }, now: number)
 	end
 
 	local before = nextDrive.at
+	local was = nextVerdict
 	local state, verdict, going =
 		NextDrive.step(nextDrive, { present = present, inDrive = inDrive, held = held }, now, cfg.PADS.NEXT)
 	nextDrive = state
 	nextVerdict = verdict
+
+	-- ONE CONSOLE LINE PER VERDICT CHANGE, and it is here for `[lobby] trucks:`' own stated reason:
+	-- this machine is INVISIBLE between drives -- no part, no billboard, and a probe cannot read it
+	-- (a fresh `require` in the command bar gets an unstarted module), so without this the only way
+	-- to tell *"the party is waiting for a man who is still held"* from *"there is no party"* is to
+	-- read the code. It is EDGE-TRIGGERED, so a drive's whole gap is four lines and not eighty.
+	--
+	-- IT PAID FOR ITSELF IMMEDIATELY: the first live run of this task sat at the lodge for three
+	-- minutes with `Phase=WAITING` and nothing on screen, and nothing in the console said which of
+	-- the five verdicts it was in.
+	if verdict ~= was then
+		local heldCount = 0
+		for _ in pairs(held) do
+			heldCount += 1
+		end
+		print(
+			string.format(
+				"[lobby] the next drive: %s -> %s, %d member(s), %d going, %d held, in %.1fs",
+				was,
+				verdict,
+				#NextDrive.ids(state),
+				#going,
+				heldCount,
+				if state.at ~= nil then math.max(0, (state.at :: number) - now) else -1
+			)
+		)
+	end
 
 	-- THE DEADLINE WAS JUST SET. Counted on the EDGE (`before == nil`), because `COUNTING` is the
 	-- verdict of every scan for the next eight seconds and a counter that climbed with the scans
