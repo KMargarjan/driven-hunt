@@ -1387,18 +1387,28 @@ return function()
 			expect(body >= deer.BODY_SIZE.X / 2 + deer.MOVE.AVOID_CLEARANCE_STUDS).to.equal(true)
 		end)
 
-		it("changes nothing for any animal that is not drawn wider than its box", function()
+		it("changes nothing measurable for any animal but the stag", function()
 			-- THE WHOLE BLAST RADIUS OF THE FIX, AS AN ASSERTION. The fallback can only ever run
-			-- when `bodyAvoidRadius < avoidRadius`, so every kind for which the two are EQUAL
-			-- reaches exactly the code it reached before task 249 -- which is every boar, the hind
-			-- and the calf.
+			-- when `bodyAvoidRadius` is SMALLER than `avoidRadius`, and the gap is what it buys.
+			--
+			-- FOR EVERY BOAR KIND THE TWO ARE THE SAME NUMBER -- none of them is drawn wider than
+			-- its 2.0-stud box -- so each reaches exactly the code it reached before task 249.
 			for _, kind in ipairs({ "male", "female", "cub", "legendary" }) do
 				local cfg = Boar.speciesConfig(kind, Boar.CONFIG)
 				expect(Boar.avoidRadius(kind, cfg)).to.equal(Boar.bodyAvoidRadius(cfg))
 			end
+			-- THE HIND AND THE CALF ARE NOT EXACTLY EQUAL AND THAT WAS MEASURED RATHER THAN
+			-- ASSUMED: the hind's drawn width is 2.01 against the deer box's 2.00, so her wide
+			-- radius is 1.605 and her narrow one 1.600 -- **five thousandths of a stud**. The
+			-- fallback is reachable for her in principle and can buy her nothing in practice: no
+			-- corridor in any wood is 0.01 studs wide. The stag's gap is 0.735, a hundred and
+			-- forty times hers, which is the whole point.
 			local deer = Boar.speciesConfig("hind", Boar.CONFIG)
-			expect(Boar.avoidRadius("hind", deer)).to.equal(Boar.bodyAvoidRadius(deer))
-			expect(Boar.avoidRadius("calf", deer)).to.equal(Boar.bodyAvoidRadius(deer))
+			local narrow = Boar.bodyAvoidRadius(deer)
+			expect(Boar.avoidRadius("hind", deer) - narrow < 0.01).to.equal(true)
+			expect(Boar.avoidRadius("calf", deer) <= narrow).to.equal(true)
+			local stagCfg = Boar.speciesConfig("stag", Boar.CONFIG)
+			expect(Boar.avoidRadius("stag", stagCfg) - Boar.bodyAvoidRadius(stagCfg) > 0.7).to.equal(true)
 		end)
 	end)
 end
