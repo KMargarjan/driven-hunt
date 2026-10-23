@@ -791,7 +791,7 @@
         "volume": {
           "close": 0.6,
           "open": 0.35,
-          "shot": 1.6
+          "shot": 1.0
         }
       },
       "raise": {
