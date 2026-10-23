@@ -466,12 +466,26 @@ end
 
 -- ---------------------------------------------------------------- the next drive (task 246)
 
--- WHEN THE NEXT DRIVE STARTS, on this man's own `Player`, or nil. `setPadMine`'s discipline exactly
--- -- WRITTEN ONLY WHEN IT DIFFERS, so it is one replicated write per change and not ten a second,
--- and asked every scan so it is a LEVEL rule. That is what makes the card come down by itself when
--- the party goes, when he sits out, when he walks onto a pad instead, and when he leaves.
+-- WHEN THE NEXT DRIVE STARTS, on this man's own `Player`, or nil. Asked every scan, so it is a
+-- LEVEL rule -- that is what makes the card come down by itself when the party goes, when he sits
+-- out, when he walks onto a pad instead, and when he leaves.
+--
+-- **IT IS `DHLobbyLeaveAt`'S OWN EDGE SHAPE AND NOT `setPadMine`'S COMPARISON, and that is a
+-- correction the harness made rather than a preference.** The value written is a SERVER time
+-- (`serverNow + (deadline - now)`) and the two clocks are read separately, so a comparison against
+-- what is already there is a comparison between two conversions -- which differ by whatever drifted
+-- between the readings. The first harness run measured it as **four writes on four scans** of one
+-- unchanged deadline (`lobby_live.spec`, *"writes each attribute once per change"*). The pad's own
+-- countdown solved this before this task existed, in the line beside it: write only when the
+-- attribute is ABSENT, and clear it when there is no deadline. One write per change by
+-- construction, with no clock in the comparison at all.
 local function setNextAt(player: any, at: number?)
-	if player:GetAttribute(Data.NEXT_AT_ATTRIBUTE) ~= at then
+	if at == nil then
+		if player:GetAttribute(Data.NEXT_AT_ATTRIBUTE) ~= nil then
+			player:SetAttribute(Data.NEXT_AT_ATTRIBUTE, nil)
+			touched[player.UserId] = player
+		end
+	elseif player:GetAttribute(Data.NEXT_AT_ATTRIBUTE) == nil then
 		player:SetAttribute(Data.NEXT_AT_ATTRIBUTE, at)
 		touched[player.UserId] = player
 	end

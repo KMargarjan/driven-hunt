@@ -357,8 +357,11 @@ return function()
 			local frame = Hud.padPanel()
 			expect(frame).to.be.ok()
 			-- THE BANNER'S FRAME GOES BACK WITH IT (task 197), or every later case -- and Karen --
-			-- would have a panel with no banner attached to it.
-			PadPanel.start(frame :: Frame, { remotes = nil, leaving = Hud.padLeaving() })
+			-- would have a panel with no banner attached to it. **AND THE NEXT DRIVE'S CARD SINCE
+			-- TASK 246, for the identical reason, which the first harness run spelled out in four
+			-- failures:** `PadPanel.stop` nils `nextCard`, so a restore that hands back only two of
+			-- the three frames leaves the card unbuilt for every case after it.
+			PadPanel.start(frame :: Frame, { remotes = nil, leaving = Hud.padLeaving(), nextDrive = Hud.padNext() })
 			local rebuilt = 0
 			for _, child in ipairs((frame :: Frame):GetChildren()) do
 				if child:IsA("TextButton") then
@@ -839,7 +842,7 @@ return function()
 			-- `Hud.start` passes carries no `remotes` key at all.
 			PadPanel.stop()
 			PadPanel.setRemotes(fake)
-			PadPanel.start(Hud.padPanel() :: Frame, { leaving = Hud.padLeaving() })
+			PadPanel.start(Hud.padPanel() :: Frame, { leaving = Hud.padLeaving(), nextDrive = Hud.padNext() })
 			PadPanel.setAsk(2)
 			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
 			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(true)
@@ -849,7 +852,10 @@ return function()
 			-- ...AND A BAG THAT BRINGS ONE STILL WINS, so every caller written before this is unchanged.
 			PadPanel.stop()
 			PadPanel.setRemotes(nil)
-			PadPanel.start(Hud.padPanel() :: Frame, { remotes = fake, leaving = Hud.padLeaving() })
+			PadPanel.start(
+				Hud.padPanel() :: Frame,
+				{ remotes = fake, leaving = Hud.padLeaving(), nextDrive = Hud.padNext() }
+			)
 			PadPanel.setAsk(2)
 			PadPanel.setRoleWish(LobbyData.ROLE_WISH.HUNTER, nil, 720)
 			expect(PadPanel.sendRoleWish(LobbyData.ROLE_WISH.BEATER)).to.equal(true)
@@ -865,7 +871,10 @@ return function()
 			-- THE LIVE PANEL GOES BACK, because this case took it over -- the restore the
 			-- mouse-and-trigger case makes, for its reason, and asserted rather than assumed.
 			PadPanel.stop()
-			PadPanel.start(Hud.padPanel() :: Frame, { remotes = nil, leaving = Hud.padLeaving() })
+			PadPanel.start(
+				Hud.padPanel() :: Frame,
+				{ remotes = nil, leaving = Hud.padLeaving(), nextDrive = Hud.padNext() }
+			)
 			local rebuilt = 0
 			for _, child in ipairs((Hud.padPanel() :: Frame):GetChildren()) do
 				if child:IsA("TextButton") then
