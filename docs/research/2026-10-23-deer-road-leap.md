@@ -129,10 +129,49 @@ idea where a road is, and not by `ForestTest`, which would be a second animal-be
 | When the bound happens | 0.42–0.79 s after the leap starts, so **12–22 studs** into the lane | The clip's own frames 11–19 at 28.3 studs/s |
 | Once per crossing | one leap per animal per road transit | Karen: *"they usually jump when is cross road"* — not a hop every stride |
 
+## 6b. Addendum, 2026-10-23: the numbers re-measured on the published asset, and they moved
+
+Section 3's figures are Blender's, taken on each kind's OWN export. The game plays the **stag's**
+published clip on all three rigs, and a clip's bone translations are absolute studs -- which is the
+whole `deathLiftStuds` lesson -- so every number the code uses was taken again in a **Play** session
+on the real id (126500539626404), loaded onto each kind's own published model, 49 samples across the
+clip, reading every `Bone.WorldPosition` in the mesh's object space against the rig's bottom plane
+(`-meshSize.Y / 2`, the plane `Body.visualOffset` stands the mesh on), with the rest pose's own gap
+subtracted. The Reviewer's round-1 note on task 245 asked for exactly this: the Blender pair that
+produced section 3 is not reachable by `boar_prep.py selftest`, so its arithmetic was unpinned.
+
+| | Blender, each kind's own export | **Live, the published id** |
+|---|---|---|
+| clip length | 2.000 s (49 keys at 24 fps) | **2.0000 s**, two ways: `KeyframeSequenceProvider` (49 keyframes, last at 2.0000) and `AnimationTrack.Length` on all three rigs |
+| worst sink, stag | 1.660 studs | **1.1863** |
+| worst sink, hind | 1.661 | **1.2563** |
+| worst sink, calf | 1.084 | **1.3358** |
+| when | frames 11-19 of 49 | t = 0.458 to 0.708, peak at **0.5417** |
+
+**The stag's figure moved by a quarter of a stud and the calf's by a third, in opposite
+directions**, and the live order is the one that makes sense: the sink GROWS as the animal gets
+smaller, which is `deathLiftStuds` (0.011 / 0.185 / 1.325) again. Section 3's numbers are left as
+they were -- they are a true measurement of a different thing -- and `Boar.CONFIG.MODEL.LEAP` carries
+the live ones.
+
+**Two of section 6's targets are corrected with them.** The time to cross a 40-stud lane at 28.3
+studs/s is **1.41 s**, not the "~1.3" that table printed (the Reviewer's note). And the window
+played is **0.75 s** -- the instant the hooves are back at the rig's own floor -- and not 0.792:
+section 3 took the bound's start as (11-1)/24 and its end as 19/24, which is two conventions in one
+sentence. The same slip is why that section lists eight lift samples over a nine-frame range.
+
+**And the lift is not applied in the first cut.** Cancelling the sink means moving the drawn mesh
+every frame of the bound, and `docs/design/boar-ai.md` section 6 forbids per-frame CFrame writing on
+the boar -- `Body.liftDrawn`, the one writer of that offset, toggles welds and is called ONCE, at the
+moment of death. A single lift held across the bound would pop the animal 0.9 studs at t = 0.458
+instead of hiding anything. So the clip is drawn as it is, the measured cost is **up to 1.19 studs
+of hind hoof below the road for 0.25 s** and nothing outside that window, and the per-kind numbers
+sit in `MODEL.LEAP.LIFT_STUDS` so the follow-up is a drawing change rather than another measurement
+session. Queued as TASKS.md 245c.
+
 ## 7. What is still open
 
-**The animation asset id.** `ESCALATE.md` carries it as a `NEEDS DIRECTOR`: one publish, from
-`<assets-dir>/deer/prep-stag-jump/clips/Jump_Run_IP.fbx`, track `Arm_Deer|Jump_Run_IP`. Until it
-exists `Assets.byKey` answers nil, `Body.hasClip("leap")` is false, and a crossing deer runs across
-exactly as it does today — which is the same honest empty state the boar's ten clips and the deer's
-eleven were in before their publishes, and it is tested.
+~~**The animation asset id.**~~ **CLOSED 2026-10-23**: the Director published it as
+`deer.anim.leap = 126500539626404`, one id for all three kinds exactly as the measurement said, and
+task 245b wired it. What is open now is the SINK (section 6b) and Karen's own look, which is what
+the `DEER_ROAD_LEAP` flag exists for.

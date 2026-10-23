@@ -622,6 +622,13 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- HAS IT PASSED THE GUNS? One way, set the first sense tick a threat is on the far side from the
 	-- exit, read by `_senseAware`'s row 10b (task 149b).
 	self._crossed = false
+	-- THE LEAP OVER THE ROAD (task 245b): how much of the clip is left to play, and whether this
+	-- crossing has had its bound yet. `_leapArmed` is Karen's *"once per crossing"* -- it goes false
+	-- on the leap and comes back only when the animal is clear of the road band again, so an animal
+	-- that dawdles on the lane does not bound every stride. Both are zero/true for every boar for
+	-- ever: `MODEL.CLIPS` has no `leap` and `field.road` is nil in the DEV world.
+	self._leapFor = 0
+	self._leapArmed = true
 	-- HAS IT HEARD A SHOT? One way, for the rest of its life here (task 150). Karen: *"once they
 	-- hear shoot they run and don't stop"*. Set by `spook` when the fright IS a bang; read by
 	-- `_flightActive`, `_settle`, `_senseAware`'s row 6b and the pace clamp, which between them are
@@ -1827,6 +1834,62 @@ function Brain:_senseAware(position: Vector3, obs, perception, follower: boolean
 	end
 end
 
+-- IS THIS ANIMAL ON THE ROAD? Pure, and it takes the road rather than reading one, so a spec asks
+-- it with two numbers and no world (task 245b).
+--
+-- `road` IS THE WORLD'S, AND A WORLD WITHOUT ONE HAS NO LEAP. It arrives on the field table beside
+-- `exitZ` and `bounds`, because where the road runs is the same kind of fact about a world's
+-- geometry that they are, and the field is already what a Brain is born with. `ForestTest.fieldFor`
+-- fills it in; the DEV map's field does not, so `onRoad` is false for every animal there and the
+-- whole feature is inert in that world -- which is what keeps the DEV harness measuring the same
+-- game it measured yesterday.
+--
+-- THE LANE IS A SINE IN THE FOREST TEST, which is why `zAt` is a function and not a number: the
+-- ride swings +-30 studs over its length, so a constant z would put the band in the trees at one
+-- end of the map and off the road at the other.
+function Brain.onRoad(position: Vector3, road): boolean
+	if type(road) ~= "table" or type(road.zAt) ~= "function" then
+		return false
+	end
+	local half = road.halfWidthStuds
+	if type(half) ~= "number" or half <= 0 then
+		return false
+	end
+	local centre = road.zAt(position.X)
+	if type(centre) ~= "number" then
+		return false
+	end
+	return math.abs(position.Z - centre) <= half
+end
+
+-- DOES A LEAP START THIS TICK? Pure: five plain values in, a boolean out, so every rule below is a
+-- test case with no animal in the world (task 245b).
+--
+-- THE FOUR CONDITIONS, AND EACH IS KAREN'S SENTENCE OR THE FLAG:
+--   the leap is switched on at all (`leap.ENABLED`, read once at `Boar.CONFIG.MODEL.LEAP` and
+--     passed in from there -- this function never reads a flag);
+--   the animal is ON the road band (*"when is cross road"*);
+--   it is ARMED -- it has been clear of the band since its last bound (*"they usually jump"*, once
+--     per crossing and not once per stride);
+--   it is RUNNING, at or above the speed this world already draws as a run (`MODEL.RUN_FROM`), so
+--     a deer ambling over the lane walks over it like anything else.
+--
+-- IT DOES NOT TEST FOR A CLIP. `Body.hasClip` is the owner of "is there anything to play", it is
+-- asked in `Body.clipFor`, and asking here as well would be two answers to one question -- the
+-- boar's own `leap`-less world would then depend on which of them ran first.
+function Brain.leapStarts(onRoad: boolean, armed: boolean, speed: number, runFrom: number, leap): boolean
+	if type(leap) ~= "table" or leap.ENABLED ~= true then
+		return false
+	end
+	if not onRoad or not armed then
+		return false
+	end
+	if type(runFrom) ~= "number" or runFrom <= 0 then
+		return false
+	end
+	return speed >= runFrom
+end
+
 function Brain:step(dt: number, obs)
 	local config = self._config
 	dt = math.clamp(dt, 0, config.DT_CLAMP)
@@ -1851,6 +1914,10 @@ function Brain:step(dt: number, obs)
 		-- and not of frames.
 		stuck = false,
 		wedged = false,
+		-- IS IT MID-BOUND OVER THE ROAD (task 245b)? `Body` turns it into a clip and nothing else reads
+		-- it, exactly as `activity` above. False on every tick for every boar, and for every animal in
+		-- a world whose field has no road.
+		leaping = false,
 	}
 
 	if self._state == "GONE" then
@@ -1895,6 +1962,27 @@ function Brain:step(dt: number, obs)
 	end
 	self._boltFor = math.max(0, self._boltFor - dt)
 	self._urgeFor = math.max(0, self._urgeFor - dt)
+	-- THE LEAP, counted down beside them and decided here (task 245b). It sits with the timers and
+	-- ahead of every mood below, because a bound is about WHERE the animal is and not about what it
+	-- has decided: a fleeing deer, a pushed one and a wandering one all cross the same road. Nothing
+	-- about the animal's movement changes -- the leap is a DRAWING, published on the intent, and the
+	-- speed, the heading and the path are whatever the rest of this step makes them.
+	self._leapFor = math.max(0, self._leapFor - dt)
+	-- `self._speed` IS THE SPEED THIS ANIMAL IS RUNNING AT, which is the only one this module has:
+	-- `obs` carries a position and no velocity, and the measured velocity is `Body`'s. It is last
+	-- tick's value here (the ramp below updates it), which at 60 Hz is a sixtieth of a second of lag
+	-- on a threshold the animal crosses once.
+	local leap = config.MODEL ~= nil and config.MODEL.LEAP or nil
+	local onRoad = Brain.onRoad(position, self._field.road)
+	if not onRoad then
+		self._leapArmed = true
+	elseif
+		Brain.leapStarts(onRoad, self._leapArmed, self._speed, config.MODEL and config.MODEL.RUN_FROM or 0, leap)
+	then
+		self._leapArmed = false
+		self._leapFor = leap.SECONDS
+	end
+	intent.leaping = self._leapFor > 0
 	-- TASK 126's three timers, counted with dt beside the others. With `MOVE.ENABLED` off none of
 	-- them is ever set, so this is three subtractions and nothing else.
 	self._flightFor = math.max(0, self._flightFor - dt)

@@ -102,6 +102,9 @@ local DEER_CLIP_KEYS = {
 	hitFront = Assets.KEYS.deerHitFront,
 	hitBack = Assets.KEYS.deerHitBack,
 	smell = Assets.KEYS.deerSmell,
+	-- The leap (task 245b), the deer's twelfth and the boar's none: a boar has no `leap` in its
+	-- `MODEL.CLIPS`, so the loop below never asks this table for one.
+	leap = Assets.KEYS.deerLeap,
 }
 
 -- WHICH CLIP TABLE A SPECIES READS, and which `MODEL` its clip NAMES come out of. `"boar"` is the

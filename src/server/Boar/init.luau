@@ -2665,6 +2665,61 @@ Boar.CONFIG.MODEL = {
 	-- grey box for its whole life; asking every frame would count a miss sixty times a second in
 	-- `Loader.stats`.
 	ASK_EVERY_SECONDS = 1,
+	-- ------------------------------------------------- THE LEAP OVER THE ROAD (task 245b)
+	--
+	-- KAREN, 2026-10-22: *"they usually jump when is cross road so can we do that ?"*.
+	--
+	-- IT LIVES ON `MODEL` AND NOT ON `SPECIES.reddeer`, although only a deer has the clip, because
+	-- `MODEL` is the WORLD's drawing config and `speciesConfig` overlays a species' own four keys on
+	-- top of it -- so a world that wants a different leap window tunes one table and every species
+	-- gets it (task 240's lesson: `RUN_FROM` was tuned on `MODEL` and reached boars only). A BOAR
+	-- CANNOT LEAP ANYWAY and it is not stopped here: `Boar.CONFIG.MODEL.CLIPS` has no `leap` entry,
+	-- so `Body.hasClip("leap", config)` is false for every boar and the branch is unreachable.
+	LEAP = {
+		-- THE ONE PLACE THE FLAG IS READ, which is the only permitted shape
+		-- (`docs/design/feature-flags.md` section 11). Everything below is passed inward as a
+		-- parameter from here, so both states are reachable with the row at false.
+		ENABLED = Flags.isOn("DEER_ROAD_LEAP"),
+		-- HOW MUCH OF THE CLIP IS PLAYED. The asset is 2.0000 s and its last 1.25 s is a landing and
+		-- a recovery at a ground speed of nothing while the animal is travelling at 28 studs/s --
+		-- which is a second of sliding feet, the exact complaint task 240 fixed. MEASURED on the
+		-- published id in Play: the hooves are below the rig's own floor only from t = 0.458 to
+		-- t = 0.708, so by t = 0.75 the bound is over and the animal is down. 0.75 is that instant.
+		SECONDS = 0.75,
+		-- HOW FAST IT HAS TO BE GOING. Karen's sentence is about an animal CROSSING, and a deer
+		-- ambling over the lane does not bound. `MODEL.RUN_FROM` is the speed this world already
+		-- calls running -- the band edge where the run clip takes over -- so the leap and the gait
+		-- under it agree by construction instead of by a second number that could drift.
+		FROM_RUN_FROM = true,
+		-- WHAT THE CLIP TAKES OFF EACH RIG, IN STUDS, and it is DATA THE DRAWING LAYER DOES NOT READ
+		-- YET. MEASURED 2026-10-23 in a PLAY session on the real published id (126500539626404),
+		-- loaded onto each kind's own published model, reading every `Bone.WorldPosition` in the
+		-- mesh's object space against the rig's bottom plane (`-meshSize.Y / 2`, the plane
+		-- `Body.visualOffset` stands the mesh on) at 49 samples across the clip, with the rest
+		-- pose's own gap subtracted:
+		--
+		--              rest gap   worst sink   at t      bone
+		--     stag      0.0110      1.1863     0.5417    hoof_b.L
+		--     hind      0.0029      1.2563     0.5417    hoof_b.L
+		--     calf      0.0038      1.3358     0.5417    hoof_b.L
+		--
+		-- The sink grows as the animal gets smaller, which is `deathLiftStuds` again (0.011 / 0.185
+		-- / 1.325): all three play the STAG's clip and a KeyframeSequence's bone translations are
+		-- absolute studs. It is non-zero only over samples 12-18 of 49, which is t 0.458..0.708.
+		--
+		-- **WHY NOTHING READS IT YET, and this is the honest part.** Cancelling the sink means
+		-- moving the drawn mesh every frame of the bound, and `docs/design/boar-ai.md` section 6
+		-- forbids per-frame CFrame writing on the boar -- `Body.liftDrawn`, the one writer of that
+		-- offset, works by toggling welds off and on and is called ONCE, at the moment of death.
+		-- A single lift held across the bound would pop the animal 0.9 studs at t = 0.458 instead.
+		-- So the first cut draws the clip as it is, the measured cost is **up to 1.19 studs of hind
+		-- hoof below the road for 0.25 s** at the peak of the bound (and nothing at all outside that
+		-- window), and the numbers are here so that the follow-up is a drawing change rather than
+		-- another measurement session. Queued in TASKS.md as 245c.
+		LIFT_STUDS = { stag = 1.1863, hind = 1.2563, calf = 1.3358 },
+		LIFT_FROM_SECONDS = 0.458,
+		LIFT_TO_SECONDS = 0.708,
+	},
 }
 
 -- THE RED DEER'S ELEVEN CLIPS (task 223), and the package's names are NOT the boar's: this rig has
@@ -2712,6 +2767,19 @@ local DEER_CLIPS = {
 	hitFront = { clip = "Hit_Front", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
 	hitBack = { clip = "Hit_Back", seconds = 0.833, groundStudsPerSecond = 0, looped = false },
 	smell = { clip = "Idle_5", seconds = 4.167, groundStudsPerSecond = 0, looped = true },
+	-- THE LEAP OVER THE ROAD (task 245b), and it is the only clip in this table that is neither a
+	-- gait nor a reaction: it is asked for by WHERE the animal is.
+	--
+	-- `seconds` IS THE WHOLE ASSET, 2.0000, measured two ways in Play and recorded on its `Assets`
+	-- row. Only the first `MODEL.LEAP.SECONDS` of it is ever played -- see that table.
+	--
+	-- `groundStudsPerSecond = 0`, LIKE THE DEATHS AND THE FLINCHES AND FOR THE SAME REASON: the rate
+	-- is 1 and `Body.clipFor` returns it as a literal, so nothing divides by this. The Blender prep
+	-- DOES report a number for it (4.354 studs/s on the stag) and that number is an artefact: the
+	-- measurement takes the lowest `contactFraction` of each hoof's height range as "planted" and a
+	-- bound has no planted foot, so it is measuring the air. Writing 4.354 here would invite a later
+	-- reader to rate the leap by it.
+	leap = { clip = "Jump_Run_IP", seconds = 2.0, groundStudsPerSecond = 0, looped = false },
 }
 
 -- WHAT A SPECIES BRINGS THAT IT CANNOT BORROW (task 223). `Boar.speciesConfig` reads this and
@@ -6198,6 +6266,9 @@ function Runtime:step(dt: number)
 				-- ...AND HEAD UP (task 118, section 3.6), the same shape and for the same reason: a
 				-- stopped animal and an alert one are both standing still, so speed cannot carry it.
 				alert = intent.state == "ALERT",
+				-- ...AND MID-BOUND OVER THE ROAD (task 245b), the same shape and for the same
+				-- reason: the Brain knows where the road is and `Body` does not.
+				leaping = intent.leaping == true,
 				-- WHAT A CALM BOAR IS DOING (task 117). Published by the Brain only while IDLE, so
 				-- every other state hands `Body` the nil it handed before.
 				activity = intent.activity,

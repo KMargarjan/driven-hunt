@@ -280,6 +280,10 @@ Assets.KEYS = table.freeze({
 	deerHitFront = "deer.anim.hit.front",
 	deerHitBack = "deer.anim.hit.back",
 	deerSmell = "deer.anim.calm.smell",
+	-- AND A TWELFTH, THE LEAP (task 245b). KAREN, 2026-10-22: *"they usually jump when is cross road
+	-- so can we do that ?"*. Published by the Director on 2026-10-23 from the stag's own export, and
+	-- ONE id for all three kinds for the reason the eleven above are 1x: `Arm_Deer` is shared.
+	deerLeap = "deer.anim.leap",
 })
 
 -- WHICH KINDS `Loader` CAN TURN INTO AN INSTANCE, and therefore which ones `keysFor` may hand a boot
@@ -3213,6 +3217,52 @@ Assets.ROWS = {
 			.. "winded somebody stands in. Published Loop = false, read back off the asset; Body writes "
 			.. "AnimationTrack.Looped from CLIPS immediately before every Play, so the row's own flag decides "
 			.. "nothing.",
+	},
+	{
+		-- THE LEAP OVER THE ROAD (task 245b), the twelfth and the only one of the deer's clips that
+		-- is asked for by WHERE the animal is rather than by what it is doing.
+		--
+		-- `clipSeconds` IS MEASURED TWO INDEPENDENT WAYS AND THEY AGREE (2026-10-23, in a PLAY
+		-- session, because the asset is never fetched in Edit):
+		--   `KeyframeSequenceProvider:GetKeyframeSequenceAsync` -> 49 keyframes, last at **2.0000 s**
+		--   `Animator:LoadAnimation(...).Length` on all three loaded rigs -> **2.0000**
+		-- The same pair was run over `deer.anim.run` (0.5833, against this file's 0.583) and
+		-- `deer.anim.death.left` (1.1667, against 1.167), so the method is checked against two rows
+		-- whose numbers were already reviewed.
+		--
+		-- WHAT THE CLIP DOES, measured on the loaded rigs rather than in Blender -- because the game
+		-- plays THIS id on geometry `boar_prep` baked smaller and a clip's bone translations are
+		-- absolute studs, which is the whole of the `deathLiftStuds` lesson. The animal's BODY rises
+		-- and its LEGS REACH DOWN: at the peak of the bound (t = 0.5417) the lowest hind hoof is
+		-- below the rig's own floor by **1.197 studs on the stag, 1.259 on the hind and 1.340 on the
+		-- calf**, and it is below it at all only from t = 0.458 to t = 0.708. Those numbers live in
+		-- `Boar.CONFIG.MODEL.LEAP.LIFT_STUDS`, which is DATA the drawing layer does not read yet --
+		-- see that table for why.
+		key = Assets.KEYS.deerLeap,
+		version = 1,
+		kind = "animation" :: Kind,
+		scope = "deer-animation" :: string?,
+		modelId = 126500539626404,
+		displayName = "Arm_Deer|Jump_Run_IP",
+		fileName = "Jump_Run_IP.fbx",
+		sourceSha256 = "ada7d22e3d24172d8fd0ca35018363320d97bd23d225404894ae65d6d7d8e5c4",
+		source = "creator-store" :: Source,
+		creator = "8167651842",
+		licence = DEER_LICENCE,
+		added = "2026-10-23",
+		moderation = "approved" :: Moderation,
+		clipSeconds = 2.0,
+		trisDeclared = 0,
+		sizeStuds = NO_GEOMETRY,
+		offsetStuds = NO_GEOMETRY,
+		rotationDeg = NO_GEOMETRY,
+		renderFidelity = NO_FIDELITY,
+		notes = "A running bound. `Jump_Run_IP` is the one name all three deer files carry -- the stag and the "
+			.. "Doe ship 77 clips each and the Calf 80, and `Run_Jump_F_IP` is one of the Calf's three extras, so "
+			.. "it would refuse on a stag run (measured, task 245). In place like every other clip here, so the "
+			.. "body keeps crossing at its own speed while the legs bound. Published Loop = false, read back off "
+			.. "the asset; Body writes AnimationTrack.Looped from CLIPS immediately before every Play, so the "
+			.. "row's own flag decides nothing.",
 	},
 } :: { AssetRow }
 

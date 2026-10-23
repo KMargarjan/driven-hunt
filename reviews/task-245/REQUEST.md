@@ -1,119 +1,138 @@
-# Task 245 - the deer's hit and death clips, a fast bolt at a sound, and a leap across the road
+# Task 245b (filed as task 245, round 2) - the deer's road leap, wired behind DEER_ROAD_LEAP
 
 Task: 245
-Round: 1
-Base: 747b8666 (main)
-Code commit: e69457740871b12293eb3c17ff0022883ec2a5df
+Round: 2
+
+**ROUND 2 FIXES ROUND 1'S ONE BLOCKING FINDING, AND IT WAS RIGHT.** The research note is not in
+the paperwork the merge gate allows after the code commit (`reviews/`, `ESCALATE.md`,
+`PLAYTEST.md`, `docs/architecture/audit-NNN.md`, the task's `TASKS.md` row), and section 6b landed
+in `57a625c6` -- after the commit the harness line named. The fix is the straightforward one: the
+gate was run again at a head that contains everything, and the `Code commit:` above is that head.
+No code changed between the two; `git diff 76adac58..5e6e73cd -- src tests tools` is empty.
+
+**IT IS FILED UNDER 245 AND NOT 245b.** `tools/agents.py` refuses a task number that is not digits,
+and the house convention for a lettered follow-up is the numeric folder -- `reviews/task-233` holds
+233b's paperwork the same way. **`Round: 1` is the tool's own answer**, not a reset: task 245's
+committed verdict is a PASS, and `agents.py` refuses anything but `Round: 1` after one ("this task's
+committed RESULT.md is round 1 (PASS), so this run must be `Round: 1`"). 245b is new work on a
+passed task, which is exactly that case. Task 245's round-1 verdict and its request are in git at
+`c03d386f` and `99f8fef3`; this run will overwrite `reviews/task-245/RESULT.md` with 245b's.
+Base: 92735a05 (main)
+Code commit: 5e6e73cdd2d7390dc810a2e1aa9e9e176736b0fa
 
 ```
-[harness] PASS: 34/34 checks @ e69457740871b12293eb3c17ff0022883ec2a5df (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 5e6e73cdd2d7390dc810a2e1aa9e9e176736b0fa (clean tree) scope=all
 ```
 
-`[harness2]`: **N/A.** Nothing this task changed is in `TWO_PLAYER_PATHS` -- the only code files are
-`tools/boar_prep.py` and `tools/boar_prep_blender.py`, and the rest is paperwork. The one-player run
-is the whole gate (CLAUDE.md, "Run / test").
+`[harness2]`: **N/A.** Nothing this task changed is in `TWO_PLAYER_PATHS` -- the files are
+`src/server/Boar/{init,Brain,Body}.luau`, `src/server/BoarAssetsBoot.server.luau`,
+`src/serverstorage/Assets/init.luau`, `src/shared/Flags/init.luau`, `src/shared/ForestTest/init.luau`
+and `tests/server/deer.spec.luau`. `tools/agents.py` agrees (it prints how many of the changed code
+files need two players).
 
-## What this task found, in one line
+## What this is
 
-**Karen asked three things and two of them were already true.** Items 1 and 2 needed no code: the
-hit and death clips play, and a deer already bolts at a shot and at a horn. Item 3's export is done
-and the leap itself is stopped at a `NEEDS DIRECTOR` publish, which is where the dispatch said to
-stop it.
-
-## What changed in code
-
-Two files, both tools, neither reachable from the game:
-
-* `tools/boar_prep.py` -- `DEER_CLIPS` asks for a twelfth clip, `Jump_Run_IP`; `selftest` gains four
-  cases and its count goes 11 -> 12.
-* `tools/boar_prep_blender.py` -- three new per-clip measurements: `hoofRiseMetres`,
-  `rootRiseMetres` and `hoofFloorMetresPerFrame`.
-
-Everything else is paperwork: `ESCALATE.md` (item 3(b)), `docs/research/2026-10-23-deer-road-leap.md`
-plus its INDEX row, and the task's status row in `TASKS.md`.
+The Director published the clip that task 245 stopped at (`deer.anim.leap = 126500539626404`, ONE
+id for all three kinds as measured), so item 3(c) could be built: **a running deer bounds once as it
+crosses the road**, behind a new flag, born off.
 
 ## Claims
 
-1. **A killed deer plays a death clip and stays down, on Karen's own path.** Measured live in the
-   Forest Test on a stag the drive released through `ForestTest.releaseLine` -> `Runtime:spawn`, shot
-   by the real `Shotgun.Remotes.FireRequest` with nine buckshot pellets in the chest at 53.3 studs:
-   `carcass=true` at t = 0.19 s with `deathLeft` at weight 1.00, the only track by t = 0.30, and held
-   at **speed 0** on the last frame (t = 1.15 of 1.21 s). The animation id was read off the live
-   track: **90698126097935**, which is `Assets.ROWS`' `deer.anim.death.left`
-   (`displayName` `Arm_Deer|Death_L`). Verify: the numbers are in the research note section 2 and in
-   the `TASKS.md` row; the id can be checked against `Assets.ROWS`.
-2. **A deer hit and not killed plays a flinch clip.** `hitFront` (**114345439062479**, length 0.83 s
-   read off the live track) reaches weight 1.00 **40 ms** after the hit, is the only track from
-   t = 0.13 to t = 0.27 s, and is then cross-faded into the gait -- which is `Body.flinchWindow`
-   shortening the flinch on an animal that is accelerating away, exactly as task 116 built it.
-   `hitBack` (**89636256373552**) was seen on a hit from the other side. **Honest limit, stated in
-   the note and below:** this one was measured through `Runtime:takeHit` -- the function `BoarBoot`
-   calls when the weapon reports a hit -- and not through a pellet. Verify: research note section 2.
-3. **A deer that hears a shot bolts, and it always did.** Two drive stags went **4.7 -> 28.4** and
-   **11.0 -> 28.6** studs/s inside half a second of the bang, cross-fading `trot` -> `run`
-   (113134617381510). 28.3 is `Boar.CONFIG.PACE.RUN_SPEED` 24 x the deer's `runScale` 1.18
-   (`Boar.CONFIG.KINDS.stag.wary`). Verify: read `Boar.scaledByWary` and the three deer rows.
-4. **A deer that hears a horn bolts harder.** A stag standing `IDLE` at a measured peak of **0.00**
-   studs/s, 40 studs from a blast at `Horn.spookStuds` = 357: `runtime:hearHorn(at, radius, true)` --
-   `ForestTestBoot`'s own line -- pushed both deer, the stag reached a peak of **44.92** studs/s in
-   state `FLEE` and moved from 40 to **89** studs from the blast in three seconds. 44.84 is
-   `SPRINT_SPEED` 38 x 1.18.
-5. **Why no code was needed for claims 3 and 4, and this is the reviewable part.**
-   `Boar.speciesConfig` replaces `BODY_SIZE`, `ZONES` and the `MODEL` overlay and **nothing else**,
-   so `SENSE` is the world's table for every species; `Runtime:hearShot` and `Runtime:hearHorn` both
-   walk `self._boars`, which is every live animal of every kind. Verify by reading those three
-   functions: there is no species test in any of them.
-6. **`Jump_Run_IP` is the clip, and the dispatch's alternative name is wrong.** Measured by reading
-   the `AnimStack` names straight out of the three `*_anim_IP.fbx`: the stag and the Doe ship **77**
-   clips each and the Calf **80**, and the Calf's three extras are exactly `Run_Jump_F_IP`,
-   `Run_Jump_L_IP` and `Run_Jump_R_IP`. So `Run_Jump_F_IP` would refuse on a stag run.
-   `tools/boar_prep.py selftest` asserts both names, in both directions, and that the boar does not
-   have the clip. Verify: `python tools/boar_prep.py selftest` (12 groups, PASS).
-7. **The clip does not lift the animal: it lifts its BODY and reaches its LEGS DOWN.** Measured on
-   the stag: `root_bone` rise **0.0000 m**, chest (`Spine_01`) +0.267, rump (`Spine_base`) +0.865,
-   and a hind hoof **0.465 m = 1.66 studs BELOW** the plane it rests on. Played as it arrives, a
-   leaping stag puts its back legs through the road. That is why `tools/boar_prep_blender.py` now
-   measures `hoofFloorMetresPerFrame`: the lift that keeps a leaping deer out of the road is the
-   clip's own arc inverted, not a curve this project invented. Verify: the new `vertical_rise` and
-   `hoof_floor_per_frame`, and research note section 3.
-8. **All three exports are written, outside the repo**, by the existing prep path:
-   `prep-{stag,hind,calf}-jump/clips/Jump_Run_IP.fbx`, each with its own measured ground speed
-   (stag 4.354, hind 10.202, calf 6.747 studs/s) beside its own `Run_F_IP` for comparison. The run
-   also re-proved every original input byte-for-byte (18 files hashed). Verify: the three
-   `recipe.json` / `measurements.json` in those folders.
-9. **Item 3(b) is `ESCALATE.md`, and it asks for ONE publish and not three**, because all three deer
-   kinds share `Arm_Deer` exactly as the other eleven clips do (`Assets/init.luau`: *"the eleven
-   publishes below are 1x and not 3x"*). The entry carries the file path, the track name, the sha256
-   and `Loop = false`.
-10. **Rule 1 is satisfied before the leap's code, not after:**
-    `docs/research/2026-10-23-deer-road-leap.md` has the six sources with licence and maintenance
-    status, what each is good and bad for, the pattern adopted (borrowed from this repo's own
-    `deathLiftStuds`, task 232) and the two rejected alternatives with their reasons, and the
-    numeric targets. INDEX row added.
+1. **Every number the code uses was measured on the PUBLISHED ASSET, in Play, and two of them moved.**
+   This is the Reviewer's own round-1 note on task 245: the Blender pair that produced the earlier
+   figures sits behind a `bpy` import that `boar_prep.py selftest` cannot reach, so its arithmetic
+   was unpinned -- and the game plays the STAG's clip on geometry baked smaller, where bone
+   translations are absolute studs. Live, on each kind's own published model, 49 samples across the
+   clip, reading every `Bone.WorldPosition` against the rig's bottom plane:
+
+   | | Blender (task 245) | **live, this task** |
+   |---|---|---|
+   | length | 2.000 s | **2.0000 s** |
+   | sink, stag | 1.660 studs | **1.1863** |
+   | sink, hind | 1.661 | **1.2563** |
+   | sink, calf | 1.084 | **1.3358** |
+
+   The live order is the one that makes sense -- the sink GROWS as the animal gets smaller, which is
+   `deathLiftStuds` (0.011 / 0.185 / 1.325) again. Verify: research note section 6b, and
+   `MODEL.LEAP.LIFT_STUDS`.
+2. **`clipSeconds = 2.0` was taken two independent ways and the method is checked against two rows
+   that were already reviewed.** `KeyframeSequenceProvider:GetKeyframeSequenceAsync` reports 49
+   keyframes with the last at **2.0000**, and `Animator:LoadAnimation(...).Length` reports 2.0000 on
+   all three rigs. The same pair over `deer.anim.run` gives **0.5833** (the manifest says 0.583) and
+   over `deer.anim.death.left` **1.1667** (1.167). Verify: `deer.spec`'s existing
+   "agrees with the manifest about how long each deer clip is" now covers the leap too.
+3. **The flag is read at exactly one place.** `Boar.CONFIG.MODEL.LEAP.ENABLED = Flags.isOn("DEER_ROAD_LEAP")`
+   and nothing else in the game asks. `Brain.leapStarts` takes the leap table as a **parameter**, so
+   both states are reachable with the row at false -- which is what
+   `docs/design/feature-flags.md` section 11 requires and what every new spec case does. Verify:
+   `grep -rn DEER_ROAD_LEAP src/` is the row plus that one line.
+4. **The row is born off, owned, dated and expires inside 21 days** (2026-10-23 -> 2026-11-13), and
+   `Flags.MAX_FLAGS` goes 15 -> 16 **with the reason written out**, exactly as task 238 did rather
+   than quietly retiring somebody else's row. 82b is still the real fix and still the Director's
+   call. Verify: the row's comment block and `deer.spec`'s "is BORN OFF" case.
+5. **Where the road is, is the WORLD's fact and it lives on the field.** `ForestTest.fieldFor` gains
+   `road = { halfWidthStuds, zAt }` beside `bounds`, `exitZ` and `groundY`, because where the lane
+   runs is the same kind of geometry those are and the field is already what a `Brain` is born with.
+   **`zAt` is a function because the ride is a SINE** -- it swings +-30 studs over the map's length,
+   so a constant z would put the band in the trees at one end. The four numbers
+   `forest_stand.spec` pins are untouched. Verify: `deer.spec`'s "gives the Forest Test's field a
+   road that IS ForestTest.roadZ", which checks the curve at four x values rather than checking that
+   a road merely exists.
+6. **The DEV world has no road and therefore no leap**, which is what keeps the DEV harness
+   measuring the game it measured yesterday: `Boar.CONFIG.field` has no `road` key, `Brain.onRoad`
+   answers false for nil, and `leapStarts` can then never be true. Verify: the `onRoad` case, and
+   `Boar.CONFIG.field`.
+7. **Two pure functions carry the whole rule.** `Brain.onRoad(position, road)` and
+   `Brain.leapStarts(onRoad, armed, speed, runFrom, leap)` -- plain values in, a boolean out. The
+   four conditions are Karen's sentence: switched on, on the band, **armed** (clear of the band
+   since the last bound -- her *"once per crossing"*), and running at or above `MODEL.RUN_FROM`, so
+   the leap and the gait under it agree by construction instead of by a second speed that could
+   drift. Verify: the two spec cases, which remove each condition on its own.
+8. **`Body.clipFor` gains one branch, below the death and the flinch and above every gait.** A deer
+   shot mid-bound flinches and one that dies mid-bound falls; a leaping animal is not trotting. Rate
+   is the literal **1** -- a bound is not a cycle whose feet must keep up -- which is why
+   `CLIPS.leap.groundStudsPerSecond` is 0. The prep DOES report 4.354 studs/s for this clip and that
+   number is an artefact: the contact heuristic calls the lowest fraction of a hoof's range
+   "planted", and a bound has no planted foot. Verify: "draws the leap above every gait and below
+   every reaction".
+9. **`Body.hasClip` is asked in exactly one place**, so a world with no published leap draws what it
+   always drew -- which is every boar, whose `MODEL.CLIPS` has no `leap` entry at all. Verify:
+   "draws NOTHING with no published leap, which is every boar".
+10. **MEASURED LIVE, with the flag driven on by parameter:** a stag pushed south crossed a 40-stud
+    band at **44.9 studs/s**; the clip became `leap` on the tick it entered the band (z - roadZ =
+    **+18.9**, inside +-20) and stayed for **46 samples -- 0.75 s at 60 Hz, which is `LEAP.SECONDS`**
+    -- once for the crossing, and the animal ran on to z - roadZ = -278 without a second one. The
+    probe also printed `shipped MODEL.LEAP.ENABLED = false`, so the row really is off.
+    **FRAME (rule 5 and rule F):** a stag frozen at the peak of its bound (t = 0.5417) over the DEV
+    map's own road, photographed from the player's eye height **y = 5.15**, 24 studs away:
+    `.screenshots/20261022T234849Z-245b-leap-dev2.png`. Looked at: legs tucked, antlers back, the
+    whole animal clear of the ground.
 
 ## What I could not verify
 
-* **No frame was produced for item 1, and that is a harness fault (rule 6).** `capture` during Play
-  came back as a photograph of the sky from three different camera positions, each verified first:
-  the client's own `WorldToViewportPoint` answered `onScreen=true` with the animal at screen centre
-  (485, 411) and the camera 18 studs away pointing at it. Three captures taken from three verified
-  positions have three different sha256s -- so they are fresh frames and not a stale buffer -- and
-  none of them contains the animal. The evidence for claims 1 and 2 is therefore the live
-  animation-track reads (id, weight, speed, `TimePosition`, `Length`), not a picture.
-* **Claim 2 went through `Runtime:takeHit` and not through a pellet.** Three things have to line up
-  at once on the drive path and they did not inside this session: the drive has to release a deer
-  (they come on waves 2-4 and then not again for the rest of a ~300 s drive), that deer has to cross
-  within a shotgun's reach of the stand the drive LOCKED (measured on two waves: **317** and **351**
-  studs), and the first shot has to be non-lethal before the animal bolts, because the flinch is
-  deliberately cut short on a running animal. The DEATH half (claim 1) did land through a real
-  pellet.
-* **Two refusals cost this task several rounds and are worth knowing**, because both show up only as
-  `impacts=NONE` and an animal that does not react: a shot at a red deer is refused
-  `no-licence` / **NO LICENCE** until the 750-coin `licence.reddeer` card is bought, and any shot
-  taken away from the player's own stand is refused `off-stand` / **NOT IN YOUR STAND**.
-* **One harness run in three FAILED** at this same commit, with the client side reporting 544 passed,
-  1 failed, 1 error, and I did not capture which spec -- the failure lines were truncated by my own
-  `tail` and the console had been cleared by the time I looked. The two runs after it both passed
-  34/34 at the same commit (the line at the top is the third). I am reporting it as a possible flake
-  rather than claiming it was one.
-* **Item 3(c) is not built.** It cannot be: there is no animation asset id yet.
+* **No frame on KAREN'S path, and it is a `NEEDS DIRECTOR` rather than a miss.** The Forest Test is
+  not open -- the Builder closed it at the end of task 245 because the standing block says to before
+  any harness run, and this dispatch assumed it was still up. The standing block's own answer is
+  what `ESCALATE.md` now carries. The flag was therefore never set in her place, and her attributes
+  were not read, not written and not restored: **nothing in the Forest Test was touched by this
+  task at all.**
+* **The sink is measured and deliberately NOT cancelled.** A hind hoof passes up to **1.19 studs**
+  (stag; 1.26 hind, 1.34 calf) below the rig's own floor for **0.25 s** at the peak of the bound,
+  and nothing outside t = 0.458..0.708. Cancelling it means moving the drawn mesh every frame and
+  `docs/design/boar-ai.md` section 6 forbids per-frame CFrame writing on the boar -- `Body.liftDrawn`
+  toggles welds and is called ONCE, at death -- while a single lift held across the bound would pop
+  the animal 0.9 studs. The per-kind numbers are in `MODEL.LEAP.LIFT_STUDS` with that reasoning on
+  them, and TASKS.md 245c queues it. **This is a judgement I took; it may be the wrong one.**
+* **The live fire check used a straight road and a probe's own runtime**, not
+  `ForestTest.releaseLine`: a probe gets a fresh module cache and can never reach a boot script's
+  runtime. What it proves is the trigger, the duration and the once-per-crossing latch. What it does
+  not prove is the sine road in the live world -- that is claim 5's spec, and the Forest Test frame
+  above.
+* **The staged frame's animal is anchored and frozen**, and its body was placed by the probe rather
+  than settled by physics, so **nothing about its height above the ground should be read off that
+  picture**. It is evidence of the POSE. The sink numbers come from the rig-local measurement in
+  claim 1.
+* **Task 245's own one-in-three harness flake is still unidentified** (544 passed, 1 failed, 1 error
+  at `e6945774`, no `.luau` in that commit). It did not recur here: this task's gate failed once
+  with three REAL failures, which are named in their own commit, and passed 34/34 after they were
+  fixed.
