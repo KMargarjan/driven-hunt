@@ -1,6 +1,6 @@
 # Escalations
 
-## 2026-10-23 - Task 251 part 1 (the drive pattern): **A DECISION IS NEEDED. A FOREST TEST DRIVE IS ~130 SECONDS, NOT 300, SO SLOTS 6-15 OF THE DRIVE SCRIPT NEVER HAPPEN -- THE STAG INCLUDED.**
+## 2026-10-23 - Task 251 part 1 (the drive pattern): **A DECISION IS NEEDED. A FOREST TEST DRIVE IS ~130 SECONDS, NOT 300, SO SLOTS 6-15 OF THE DRIVE SCRIPT ALL BUT NEVER HAPPEN -- THE STAG INCLUDED.**
 
 **This is a design/feel decision (`CLAUDE.md` stop rule 3), and it is one number.** The code of part 1
 is built, gated and pushed; nothing is blocked on this except the half of the pattern Karen will
@@ -30,7 +30,11 @@ and, between two `[report] drive N opened (300s windows)` lines, the drive got n
 
 **A drive in this world ENDS WHEN THE BEATER LINE ARRIVES, at 125-133 s** -- not at
 `ForestTest.DRIVE.seconds`, which is 300 and is only a ceiling. At `SCHEDULE.intervalSeconds` of 20
-that is **six or seven slots of fifteen**.
+that is **six or seven slots of fifteen**: the three measured drives of this run got to slot 5, and
+the session's FIRST drive -- which opened late, after the server had been up long enough to release
+two slots before it, and so ran longer -- got to slot 7. **The headline's "6-15" is what a normal
+drive never reaches; 6 and 7 are reachable only on a drive that opens late.** (Round 1's note was
+right that the two numbers read as a contradiction.)
 
 **So, at the dial Karen OK'd, she would never see:** the broadside pass (slot 6), the big sounder
 (7), **either refusal** (8 and 12), the big lone male (9), the split (11), **THE RED STAG (13)**, the
