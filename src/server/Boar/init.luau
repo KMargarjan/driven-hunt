@@ -3038,10 +3038,16 @@ Boar.CONFIG.SPECIES = {
 			-- shooter. Answered by COUNTING THE LIVE ENTRIES, not by a counter two paths could
 			-- disagree about -- the shape `Runtime:_legendaryAllowed` already uses for its cap.
 			MAX_GROUPS_ALIVE = 1,
+			-- `name` IS SO A DRIVE CAN ASK FOR A PARTICULAR PARTY (task 251) without learning this
+			-- table. KAREN, 2026-10-23, through the Designer's plan she OK'd: the HIND PARTY comes
+			-- early in the drive and THE STAG comes last, alone -- which is a fact about the drive's
+			-- shape, so the drive has to be able to name which of these three it wants. It names the
+			-- WORD; `Boar.deerComposition` is still the only thing that knows which row that is, and
+			-- the weights below still decide every draw that is not asked for by name.
 			COMPOSITIONS = {
-				{ weight = 40, stag = 1 },
-				{ weight = 40, hind = 1, calf = 1 },
-				{ weight = 20, stag = 1, hind = 2 },
+				{ name = "stag", weight = 40, stag = 1 },
+				{ name = "hinds", weight = 40, hind = 1, calf = 1 },
+				{ name = "harem", weight = 20, stag = 1, hind = 2 },
 			},
 		},
 	},
@@ -3258,7 +3264,7 @@ end
 -- so WHICH deer come is still this function's own decision and the SCHEDULE never learns the
 -- vocabulary. A caller that passes nothing gets exactly the behaviour every case before task 234
 -- was written against.
-function Boar.deerComposition(roll: number, pick: number, config, wanted: boolean?): { [string]: number }?
+function Boar.deerComposition(roll: number, pick: number, config, wanted: (boolean | string)?): { [string]: number }?
 	local kinds = config.KINDS
 	if type(kinds) ~= "table" or kinds.ENABLED ~= true then
 		return nil
@@ -3268,10 +3274,36 @@ function Boar.deerComposition(roll: number, pick: number, config, wanted: boolea
 	if type(release) ~= "table" then
 		return nil
 	end
-	if wanted ~= true and roll >= (release.CHANCE_PER_RELEASE or 0) then
+	-- THE CHANCE IS SKIPPED BY ANY ASK, not only by `true` (task 251). A drive that has NAMED the
+	-- party it wants has already decided this release is a deer release, and reading the chance first
+	-- would mean a `CHANCE_PER_RELEASE` of 0 silently refused the drive's own scripted stag.
+	if wanted ~= true and type(wanted) ~= "string" and roll >= (release.CHANCE_PER_RELEASE or 0) then
 		return nil
 	end
 	local rows = release.COMPOSITIONS or {}
+	-- ...AND A DRIVE MAY ASK FOR ONE BY NAME (task 251). `wanted` is `true` for *"this release is the
+	-- deer, draw one"* (task 234) and a STRING for *"this release is the hind party"* or *"...the
+	-- stag"*, which is what a scripted drive needs: `ForestTest.SCHEDULE.drive` puts the hinds in act
+	-- I and the stag last, and it cannot do that if which party comes is a weighted roll.
+	--
+	-- A NAME THAT MATCHES NOTHING IS nil -- NOT a draw and not the first row. A slot that asked for a
+	-- party this table does not have is a mistake in the drive script, and the honest answer to it is
+	-- "no deer, and the console says which word was not understood" rather than quietly releasing
+	-- whichever party happened to be first.
+	if type(wanted) == "string" then
+		for _, row in ipairs(rows) do
+			if row.name == wanted then
+				local out = {}
+				for key, value in pairs(row) do
+					if key ~= "weight" and key ~= "name" and type(value) == "number" then
+						out[key] = value
+					end
+				end
+				return out
+			end
+		end
+		return nil
+	end
 	local total = 0
 	for _, row in ipairs(rows) do
 		total += math.max(0, row.weight or 0)

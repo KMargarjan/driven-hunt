@@ -413,10 +413,18 @@ function ForestTest.driveIndexAt(startedAt: number, now: number, seconds: number
 	return index, length - (elapsed % length)
 end
 
--- WHICH WAVE IS DUE. The cycle repeats forever, so a playtest never runs out of action.
+-- WHICH SLOT OF THE DRIVE SCRIPT IS DUE (task 251), or **nil for one of the drive's two silences**.
+--
+-- IT USED TO BE `cycle[((index - 1) % #cycle) + 1]` -- six rows repeated for ever, so wave 7 was
+-- wave 1 again and the drive had no beginning and no end. The fifteen-row script replaced it
+-- (`Data.SCHEDULE.drive`; the old table is archived in
+-- `backups/2026-10-23_task-251_schedule-cycle.md`), and BOTH release paths read the same rows
+-- through this one function -- the `LINE` one Karen plays and the pre-task-127 wave path below it.
+--
+-- THE DENSITY IS THE WORLD'S, NOT THE CALLER'S: it is `Data.SCHEDULE.density`, so one dial moves
+-- every drive. `Data.slotAt` is the pure rule and its own comment is the why.
 function ForestTest.waveAt(index: number)
-	local cycle = Data.SCHEDULE.cycle
-	return cycle[((index - 1) % #cycle) + 1]
+	return Data.slotAt(index, Data.SCHEDULE.density, Data.SCHEDULE)
 end
 
 -- ------------------------------------------------------- THE DRIVE'S RED DEER (task 239)
@@ -840,6 +848,13 @@ end
 function ForestTest.release(now: number): (number, string)
 	local spec = ForestTest.waveAt(state.waveIndex + 1)
 	local runtime = state.runtime
+	-- A SILENCE IS A SLOT THAT RELEASES NOTHING (task 251), and it still COSTS its slot: the drive's
+	-- shape is the fifteen rows in order, so a gap that was skipped rather than waited out would pull
+	-- act III forward by forty seconds.
+	if spec == nil then
+		state.waveIndex += 1
+		return 0, string.format("wave %d: silence", state.waveIndex)
+	end
 	if runtime == nil then
 		-- A WAVE SLOT IS NOT BURNED BY A WORLD THAT CANNOT SPAWN (task 122 round 2). The counter used
 		-- to advance above this line, so a nil runtime walked the cycle forward and the wave that
@@ -927,7 +942,9 @@ function ForestTest.release(now: number): (number, string)
 			centre = centre,
 			handles = handles,
 			at = now,
-			turnsBack = spec.turnsBack == true,
+			-- `turnsBack` IS NOW THE ROW'S ROUTE WORD (task 251): `route = "BREAK-BACK"` is the same
+			-- fact the boolean used to carry, and `Data.slotRoute` is its one reader.
+			turnsBack = Data.slotRoute(spec) == "BREAK-BACK",
 			-- THE PASS ACROSS HER FRONT (task 123 round 8), and where it began measuring from:
 			-- `lateralFromX` is latched by `ForestTest.lateralTravel` the first time the herd reaches
 			-- the band, so the span is measured from where the walk STARTED.
@@ -1827,6 +1844,68 @@ function ForestTest.restAlive(): number
 	return alive
 end
 
+-- ---------------------------------------------- THE OPENING SIGNAL'S OWN REACH (task 251, item 4)
+--
+-- *ANBLASEN DES TREIBENS* ALERTS THE WOOD; IT DOES NOT EMPTY IT. The Designer's spec section 2.5
+-- proposed the number and `Horn.SIGNAL.SPOOK_STUDS` (120, 33.6 m) carries it, against the beater's
+-- hand-blown horn's unchanged 357 (100 m, `Horn.SPOOK_STUDS`).
+--
+-- WHAT WAS ACTUALLY THERE BEFORE THIS TASK, MEASURED BY READING THE WIRES RATHER THAN THE SPEC
+-- (rule 8, and it matters because it is NOT what the spec assumed). The spec says *"today any horn
+-- blast spooks every animal within 357 studs ... so the opening signal currently empties most of the
+-- wood before the drive starts"*. It does not: the only thing that reached `Runtime:hearHorn` was
+-- `Weapon.Horn.Blown`, the HAND horn, blown by a player or a bot beater. The drive's opening signal
+-- is a `Match.Phase` feed entry (`kind = "signal"`) consumed by `Hud` on the CLIENT as a 2-D
+-- fanfare, and NOTHING on the server ever heard it -- so no animal has ever reacted to the signal at
+-- all. So item 4 is not a radius being reduced from 357 to 120; it is a reach of 0 becoming 120, and
+-- the thing the 120 protects is the drive script above (a 357-stud signal would reach the far wood at
+-- dz 360 and move slot 15 before slot 1 was released).
+--
+-- WHERE IT IS SOUNDED FROM: the hunters' line, at the stand this drive is aimed at
+-- (`ForestTest.hunterStandX`, the same x every wave is aimed at). A real signal is blown by the hunt
+-- master AT the line, so a point on the road is where it belongs; and with one real hunter in this
+-- world it is the only line there is. It is a POINT and not a per-stand sweep for the reason this
+-- repo keeps saying: one answer to "how far did the signal carry" beats nine.
+function ForestTest.signalPoint(): Vector3
+	local standX = ForestTest.hunterStandX()
+	return Vector3.new(standX, chosen.layout.centre.Y, Data.roadZ(standX, chosen.layout))
+end
+
+-- THE SIGNAL SOUNDS, AND EVERY ANIMAL INSIDE `radiusStuds` PUTS ITS HEAD UP. Returns how many did
+-- and how many were in range, because "the signal had no visible effect" is the kind of claim that
+-- needs a number beside it -- and the two differ by exactly the animals `Brain:notice` refused.
+--
+-- THE RADIUS IS HANDED IN AND IS NEVER READ HERE, for the reason `Runtime:hearHorn`'s own comment
+-- gives: *"how far a signal carries is a property of the signal"*. This module does not require
+-- `Horn` and must not start: the composition root (`ForestTestBoot`) is where the horn's numbers and
+-- the boar's world are joined.
+--
+-- `Runtime:notice` AND NOT `Runtime:spook`, AND THAT IS THE WHOLE OF ITEM 4. The notice door
+-- (task 172, for a beater walking up) stops the animal, lifts its head and faces it at the thing it
+-- heard; the spook door makes it run and -- with `untilExit` -- never stop. A drive is opened, not
+-- flushed. `Brain:notice` decides which animals refuse (already running, already looking, dead,
+-- gone), exactly as it does for a beater, so this file does not answer that a second way.
+function ForestTest.signalHeard(radiusStuds: number, seconds: number?): (number, number)
+	local runtime = state.runtime
+	if runtime == nil or type(radiusStuds) ~= "number" or radiusStuds <= 0 then
+		return 0, 0
+	end
+	local at = ForestTest.signalPoint()
+	local inRange = 0
+	local alerted = 0
+	for _, handle in ipairs(runtime:boars()) do
+		local where = handle.position()
+		local away = Vector3.new(where.X - at.X, 0, where.Z - at.Z)
+		if away.Magnitude <= radiusStuds then
+			inRange += 1
+			if runtime:notice(handle.id, at, seconds) then
+				alerted += 1
+			end
+		end
+	end
+	return alerted, inRange
+end
+
 -- SHE WALKED UP ON THEM, SO THEY GO AND THEY DO NOT STOP.
 --
 -- ONE PASS OVER EVERY LIVE ANIMAL IN THE WORLD, resting or in a file, because "how close is too
@@ -2036,6 +2115,10 @@ function ForestTest.newDrive()
 	state.driveWave = 0
 	state.deerWave = nil
 	state.deerDone = false
+	-- ...AND A DEER PARTY HELD OVER BELONGS TO THE DRIVE THAT HELD IT (task 251). A drive opens with
+	-- its own slot 2 due; carrying the previous drive's held party across the boundary would put a
+	-- hind party out at the next silence of a drive that is about to release its own.
+	state.owedRow = nil
 end
 
 -- ---------------------------------------------------------------- CHOOSING A LAYOUT (task 179)
@@ -2551,7 +2634,22 @@ end
 -- TWO LEGS, NOT ONE. A single path from the forest to the exit would be free to cross the road
 -- wherever it liked; this one is pinned through the crossing point the drive chose, which is what
 -- makes "it crosses in front of the hunter" true rather than lucky.
+-- ...AND SINCE TASK 251 IT IS TWO LEGS OR MORE. The drive script's routes are not all "down and
+-- over": a LATERAL walks across the hunter's front before it turns for the road, and a BREAK-BACK
+-- comes to the verge and goes home NORTH without crossing at all. Both are the same thing this
+-- function already did -- a chain of pathfinder legs pinned through points the DRIVE chose -- so
+-- `computeRouteVia` is the general shape and `computeRoute` is the two-leg call every caller before
+-- this task made. Nothing about the agent, the clearance or the sweep below changed.
 function ForestTest.computeRoute(from: Vector3, crossing: Vector3, exit_: Vector3): { Vector3 }?
+	return ForestTest.computeRouteVia({ from, crossing, exit_ })
+end
+
+-- THE ROUTE THROUGH N PINNED POINTS. Two or more; fewer is nil rather than a straight line, because
+-- a route that was not pinned through a crossing is a route that may cross anywhere.
+function ForestTest.computeRouteVia(via: { Vector3 }): { Vector3 }?
+	if type(via) ~= "table" or #via < 2 then
+		return nil
+	end
 	local path = PathfindingService:CreatePath({
 		-- The boar's own half-width plus a margin: `Boar.CONFIG.BODY_SIZE` is 2 wide, so 1 is the
 		-- half-width and 2.5 leaves a body's worth of clearance past a trunk.
@@ -2572,7 +2670,11 @@ function ForestTest.computeRoute(from: Vector3, crossing: Vector3, exit_: Vector
 		WaypointSpacing = 8,
 	})
 	local points = {}
-	for _, leg in ipairs({ { from, crossing }, { crossing, exit_ } }) do
+	local legs = {}
+	for index = 2, #via do
+		table.insert(legs, { via[index - 1], via[index] })
+	end
+	for _, leg in ipairs(legs) do
 		local ok = pcall(function()
 			path:ComputeAsync(leg[1], leg[2])
 		end)
@@ -2657,82 +2759,211 @@ function ForestTest.releaseLine(now: number): string?
 	local rng = state.rng
 	local standX = ForestTest.hunterStandX()
 
-	-- WHERE IT CROSSES, and it is relative to the stand she locked (task 123 round 8): stands are
-	-- 150 studs apart, so a fixed x would be luck.
-	local offset = lineData.crossOffsets[rng:NextInteger(1, #lineData.crossOffsets)]
-	local crossX = standX + offset
-	local crossing = Vector3.new(crossX, chosen.layout.centre.Y, Data.roadZ(crossX, chosen.layout))
-	local startZ = crossing.Z + lineData.spawnNorthStuds
-	local start = Vector3.new(crossX, Data.groundAt(crossX, startZ) or chosen.layout.centre.Y, startZ)
+	-- ---------------------------------------------------------------- THE SLOT (task 251)
+	--
+	-- WHO, WHERE, WHEN AND HOW ARE NOW ALL ONE ROW OF DATA, and none of them is drawn. KAREN,
+	-- 2026-10-23: *"them patter with animals how many where they come how they come how many groups
+	-- jumping over road red stags ect"*. Before this task every one of those was a roll taken here --
+	-- the count 4 to 9, the crossing one of five at random, the pace off `paceMix`, the depth always
+	-- `spawnNorthStuds` -- so a drive had no pattern to see: fifteen waves out of the same 180-stud
+	-- band, with nothing early, nothing late, no refusals and nothing held back.
+	--
+	-- THE ROW IS `Data.SCHEDULE.drive[slot]` and its own comment is the whole plan
+	-- (`<runs-dir>/design/driveflow-spec.md`, which Karen OK'd). `ForestTest.waveAt` reads it, the
+	-- dial decides whether this slot carries animals at all, and a nil is one of the drive's two
+	-- deliberate SILENCES -- which still costs its slot, because the shape is the fifteen rows in
+	-- order and a skipped gap would pull act III forward by forty seconds.
+	local slot = state.driveWave or 1
+	local row = ForestTest.waveAt(slot)
+	-- A DEER PARTY THE CAP REFUSED TAKES THE DRIVE'S NEXT SILENCE (task 251, and it is MEASURED, not
+	-- defensive: the first live drive of this task's own Forest Test run printed *"slot 2 wanted the
+	-- hinds and the deer cap refused -- nothing released"*, because a hind party released in the
+	-- seconds BEFORE the drive opened was still on its feet and `MAX_GROUPS_ALIVE` is 1 -- so that
+	-- whole drive had no deer in it at all. Karen, 2026-10-21: *"we need all a time in drive deer"*.
+	--
+	-- THE SILENCES ARE THE DRIVE'S OWN SLACK, which is why the retry lands there and nowhere else:
+	-- slots 5 and 10 release nothing at the dial Karen OK'd, so a party held over costs no other
+	-- group its slot and the fifteen-slot timeline is not shifted by a second. If both silences pass
+	-- with the cap still closed, the party is lost for that drive and the console says so -- which is
+	-- the old `deerWanted` latch's own answer, one slot wider.
+	if row == nil and state.owedRow ~= nil then
+		row = state.owedRow
+	end
+	if row == nil then
+		return string.format("line %d: slot %d of the drive is SILENT -- nothing released", state.waveIndex, slot)
+	end
+	local route = Data.slotRoute(row)
+
+	-- WHERE IT STARTS: the row's own zone, through the one function that turns an `offsetX` and a
+	-- `northStuds` into a point on this layout (`Data.wavePoint`, which adds the stand she locked --
+	-- stands are 150 studs apart, so a fixed x would be luck).
+	local nominal = Data.wavePoint(standX, row, chosen.layout)
+	local start = Vector3.new(nominal.X, Data.groundAt(nominal.X, nominal.Z) or chosen.layout.centre.Y, nominal.Z)
+
+	-- WHERE IT CROSSES, and it is relative to the stand she locked (task 123 round 8). A
+	-- `BREAK-BACK` and a `HOLD` never cross, and `crossOffset` is nil on exactly those rows.
+	local offset = row.crossOffset
+	local crossing = nil :: Vector3?
+	if type(offset) == "number" then
+		local crossX = standX + offset
+		crossing = Vector3.new(crossX, chosen.layout.centre.Y, Data.roadZ(crossX, chosen.layout))
+	end
 	-- PAST THE DESPAWN LINE, NOT UP TO IT, and that was a measured bug: the route ended at
 	-- `EXIT_Z + 20`, which is twenty studs NORTH of the line `Brain:_outcome` despawns at -- so every
 	-- line walked its whole route, arrived, and then stood on the last waypoint for ever. The stuck
 	-- counter showed it as a cluster of animals all going still at 134-152 s, which is exactly how
 	-- long a 600-stud route takes. Ending ten studs PAST the line means the last thing they do is
 	-- cross it, which is Karen's *"once they in another side of road they run away"*.
-	local exitPoint = Vector3.new(crossX, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
+	local exitPoint = if crossing ~= nil
+		then Vector3.new((crossing :: Vector3).X, chosen.layout.centre.Y, Data.exitZOf(chosen.layout) - 10)
+		else nil
 
-	local count = rng:NextInteger(4, 9)
-	local lines = if rng:NextNumber() < lineData.twoLineChance then 2 else 1
-	local pace = ForestTest.paceFor(rng:NextNumber(), lineData.paceMix)
+	-- HOW MANY FILES, AND AT WHAT PACE -- both the row's, both read and neither drawn. `paceMix` and
+	-- `twoLineChance` are still there and still the old wave path's; what this task changed is that
+	-- a SCRIPTED drive does not roll for the shape of its own groups.
+	local lines = math.max(1, math.floor(row.files or 1))
+	local pace = if type(row.pace) == "string" then row.pace else ForestTest.paceFor(rng:NextNumber(), lineData.paceMix)
 	local speed = ForestTest.paceSpeed(pace, boar)
 
-	-- IS THIS WAVE THE DRIVE'S RED DEER (task 239)? The whole decision, and every part of it that is
-	-- about the ANIMAL is asked of the animal's owner:
-	--   `Runtime:deerAllowed` is `MAX_GROUPS_ALIVE`, the same answer `spawnSounder`'s own door gets.
-	--   `Boar.deerComposition` is whether (`CHANCE_PER_RELEASE`, or the drive's ask) and who.
-	-- The only thing decided here is WHEN, which is this drive's own business -- see `deerWaveOf`.
-	--
-	-- THE ORDINAL IS DRAWN ON THE DRIVE'S FIRST WAVE and not in `newDrive`, because `newDrive` is
-	-- also called by a spec and by `start`, where `state.rng` is not yet this drive's.
-	if state.deerWave == nil then
-		state.deerWave = ForestTest.deerWaveOf(rng:NextNumber(), ForestTest.wavesPerDrive())
-	end
+	-- WHO IS IN IT. Both halves are the ANIMAL owner's fact and neither is decided here:
+	--   a BOAR row names an index into `SOUNDER.COMPOSITIONS`, and the composition carries its size.
+	--   a REDDEER row names its PARTY BY NAME ("hinds", "stag"), and `Boar.deerComposition` is what
+	--     knows which of `SPECIES.reddeer.RELEASE.COMPOSITIONS` that is. The drive says which party
+	--     comes when; it never writes the word "stag" or counts a hind.
+	-- `Runtime:deerAllowed` IS STILL THE DOOR (task 223's `MAX_GROUPS_ALIVE`): a drive whose hind
+	-- party is somehow still on its feet at slot 13 does not get a second deer group, and this slot
+	-- then releases nothing rather than quietly becoming boars.
 	local composition = nil
-	-- WAS IT THE DRIVE'S OWN, OR ONE OF THE EXTRAS `CHANCE_PER_RELEASE` BUYS? Kept so the console
-	-- line can say which, because a reader counting deer in a playtest has to be able to tell the
-	-- guarantee from the dial -- the first run after this change released a guaranteed hind-and-calf
-	-- on wave 1 and a chance stag-and-hinds on wave 10, and without this they read identically.
-	local guaranteed = false
-	-- A VIEW WITHOUT THE DOOR IS A WORLD WITH NO DEER, not an error: `forest_stand.spec` drives this
-	-- module with a hand-written runtime, and an older one has no `deerAllowed`.
-	if type(runtime.deerAllowed) == "function" and runtime:deerAllowed() then
-		guaranteed = ForestTest.deerWanted(state.driveWave or 0, state.deerWave, state.deerDone == true)
-		composition = Boar.deerComposition(rng:NextNumber(), rng:NextNumber(), boar, guaranteed)
-	end
-	if composition ~= nil then
-		-- A COMPOSITION IS ALSO THE SIZE, read through the one function that knows what a
-		-- composition weighs -- `Runtime:spawnSounder`'s own line, for its own reason.
+	local count = 0
+	if row.species == "reddeer" then
+		if type(runtime.deerAllowed) == "function" and runtime:deerAllowed() then
+			composition = Boar.deerComposition(0, 0, boar, row.party)
+		end
+		if composition == nil then
+			-- HELD OVER, not lost: the next silence of this drive releases it (see the top of this
+			-- function). `owedRow` is the ROW and not the party, so it comes from its own zone, at its
+			-- own crossing, exactly as the script wrote it.
+			state.owedRow = row
+			return string.format(
+				"line %d: slot %d wanted the %s and the deer cap refused -- HELD for this drive's next silence",
+				state.waveIndex,
+				slot,
+				tostring(row.party)
+			)
+		end
+		-- ...AND IT IS SPENT WHEN IT IS RELEASED, whether it was due now or held over.
+		if state.owedRow == row then
+			state.owedRow = nil
+		end
 		count = Boar.compositionSize(composition, boar)
 		-- ONE FILE. A deer group is one to three animals and `SPECIES.reddeer.RELEASE.FORMATION` is
 		-- `"column"`; splitting two animals into two parallel files is not a column, and
 		-- `Boar.compositionFormation` is what declares that for the sounder path.
 		lines = 1
+	else
+		composition = boar.SOUNDER.COMPOSITIONS[row.composition]
+		count = if composition ~= nil then Boar.compositionSize(composition, boar) else 1
 	end
 
-	-- THE ROUTES FIRST, BEFORE A SINGLE ANIMAL EXISTS, and that ordering is the whole of a bug this
-	-- round paid for. MEASURED: `releaseLine` reported `placed=9 routes made=0` every wave, while the
-	-- same call from a bare console answered `Success, 32 waypoints`. The difference was the nine
-	-- boars: they are `CanCollide`, they had just been spawned ON the start point, and
+	-- ...AND THE CAP IS CHECKED BEFORE ANYTHING IS SPAWNED, for the reason `ForestTest.release`'s own
+	-- comment gives: `Runtime:spawn` ASSERTS at the ceiling rather than refusing, so asking past it
+	-- kills the heartbeat the whole drive runs on.
+	local ceiling = math.min(Data.MAX_BOARS, runtime:capacity())
+	local room = ceiling - runtime:count()
+	if room <= 0 then
+		return string.format(
+			"line %d: slot %d held -- %d of %d animals already out",
+			state.waveIndex,
+			slot,
+			runtime:count(),
+			ceiling
+		)
+	end
+	count = math.min(count, room)
+	if count <= 0 then
+		return nil
+	end
+
+	-- ---------------------------------------------------------------- THE ROUTES, ONE PER ROUTE WORD
+	--
+	-- EVERY ONE OF THEM IS THE SAME MACHINERY -- a chain of pathfinder legs pinned through points the
+	-- DRIVE chose (`ForestTest.computeRouteVia`) -- and the difference between them is which points.
+	-- That is the whole of spec section 2.3: *"one row per route type; the Builder reads them straight
+	-- across"*.
+	--
+	--   STRAIGHT    start -> the crossing -> past the exit. What every wave did before this task.
+	--   LATERAL     start -> down to `WAVE.lateralDz` and ACROSS her front for `WAVE.lateralSpan`
+	--               studs -> the crossing -> past the exit. `ForestTest.lateralSign` is the one
+	--               place her left and right are mapped to the world's axes.
+	--   BREAK-BACK  start -> the verge, `turnAtDz` short of the road -> home NORTH to
+	--               `SCHEDULE.breakBackToDz`, through the beaters. It never crosses. Karen asked for
+	--               this twice (*"several go back"*) and it has never been drawn: `wavePhase`'s
+	--               `turnsBack` only ever STOPPED a push, so the group settled where it stood.
+	--   SPLIT       two files, and the second one crosses `splitStuds` away from the first. The one
+	--               route type that differs per file, which is why the shift is per route below.
+	--   HOLD        start -> `holdStuds` toward the road, and no further order. It is a route that
+	--               ends 300 studs short of the verge, so `CALM.ENABLED` -- on in this world -- takes
+	--               the group over with the graze/stand/lie repertoire. The PLOS ONE study's 32 % of
+	--               animals that stay put, made visible.
+	--
+	-- THE ROUTES COME FIRST, BEFORE A SINGLE ANIMAL EXISTS, and that ordering is the whole of a bug
+	-- an earlier round paid for. MEASURED: `releaseLine` reported `placed=9 routes made=0` every wave,
+	-- while the same call from a bare console answered `Success, 32 waypoints`. The difference was the
+	-- nine boars: they are `CanCollide`, they had just been spawned ON the start point, and
 	-- `ComputeAsync` from inside a pile of colliders fails. Computing first also means a wave whose
 	-- route cannot be found never spawns anything, instead of leaving nine loose animals behind.
-	-- ONLY THE LINES THAT HAVE A ROUTE ARE RELEASED (task 122 round 2). With two lines and one
-	-- route, every animal used to be spawned and the group whose route was missing was led by
-	-- nobody, retired by nothing, and counted against `maxBoars` until it happened to wander past
-	-- `exitZ`. A line that cannot be walked is a line that is not released.
+	-- ONLY THE FILES THAT HAVE A ROUTE ARE RELEASED (task 122 round 2). With two files and one route,
+	-- every animal used to be spawned and the group whose route was missing was led by nobody,
+	-- retired by nothing, and counted against `maxBoars` until it happened to wander past `exitZ`.
 	--
 	-- EACH SURVIVOR KEEPS ITS OWN LATERAL OFFSET, so the animals are spawned on the route that was
 	-- actually computed rather than on the one its index would have had.
 	local routes = {}
 	for which = 1, lines do
 		local lateral = (which - 1 - (lines - 1) / 2) * lineData.lineGapStuds
-		local route = ForestTest.computeRoute(
-			start + Vector3.new(lateral, 0, 0),
-			crossing + Vector3.new(lateral, 0, 0),
-			exitPoint + Vector3.new(lateral, 0, 0)
-		)
-		if route ~= nil then
-			table.insert(routes, { route = route, lateral = lateral })
+		local side = Vector3.new(lateral, 0, 0)
+		local via = { start + side }
+		if route == "BREAK-BACK" then
+			local turnAt = row.turnAtDz or Data.SCHEDULE.turnBackStuds
+			local homeAt = Data.SCHEDULE.breakBackToDz
+			local x = start.X + lateral
+			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + turnAt))
+			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + homeAt))
+		elseif route == "HOLD" then
+			local x = start.X + lateral
+			local north = start.Z - Data.roadZ(start.X, chosen.layout) - (row.holdStuds or 60)
+			table.insert(via, Vector3.new(x, chosen.layout.centre.Y, Data.roadZ(x, chosen.layout) + north))
+		elseif crossing ~= nil and exitPoint ~= nil then
+			-- THE SPLINTER'S OWN CROSSING (`SPLIT`): file 1 keeps the row's crossing, every later
+			-- file takes `splitStuds` from it, so the group crosses in two places 40 studs apart.
+			local shift = if route == "SPLIT" and which > 1 then (row.splitStuds or 0) else 0
+			local acrossAt =
+				Vector3.new((crossing :: Vector3).X + lateral + shift, chosen.layout.centre.Y, (crossing :: Vector3).Z)
+			if route == "LATERAL" then
+				local sign = ForestTest.lateralSign(row.lateral)
+				local walkTo = start.X + lateral + sign * ForestTest.WAVE.lateralSpan
+				table.insert(
+					via,
+					Vector3.new(
+						walkTo,
+						chosen.layout.centre.Y,
+						Data.roadZ(walkTo, chosen.layout) + ForestTest.WAVE.lateralDz
+					)
+				)
+			end
+			table.insert(via, acrossAt)
+			table.insert(
+				via,
+				Vector3.new(
+					(exitPoint :: Vector3).X + lateral + shift,
+					chosen.layout.centre.Y,
+					(exitPoint :: Vector3).Z
+				)
+			)
+		end
+		local made = ForestTest.computeRouteVia(via)
+		if made ~= nil then
+			table.insert(routes, { route = made, lateral = lateral, crossing = via[#via - 1] or via[#via] })
 		end
 	end
 	if #routes == 0 then
@@ -2796,19 +3027,19 @@ function ForestTest.releaseLine(now: number): string?
 			local ground = Data.groundAt(at.X, at.Z)
 			local handle = runtime:spawn(Vector3.new(at.X, (ground or chosen.layout.centre.Y) + 2, at.Z), member.kind)
 			if handle ~= nil then
-				local row = { id = handle.id, kind = member.kind }
-				table.insert(groups[which], row)
-				table.insert(members, row)
+				local entry = { id = handle.id, kind = member.kind }
+				table.insert(groups[which], entry)
+				table.insert(members, entry)
 			end
 		end
 	end
 	if #members == 0 then
 		return nil
 	end
-	local made = 0
+	local placed = 0
 	for which, group in ipairs(groups) do
 		if #group > 0 then
-			local route = routes[which].route
+			local path = routes[which].route
 			-- THE TRAIL IS SEEDED WITH THE LINE ITSELF, and that is a measured fix rather than a
 			-- tidy-up. `Line.pointBack` answers nil until the leader has walked as far as the
 			-- station being asked for, so with an empty trail every follower was told "walk at
@@ -2849,7 +3080,7 @@ function ForestTest.releaseLine(now: number): string?
 			table.insert(state.lines, {
 				id = string.format("line-%d-%d", state.waveIndex, which),
 				members = group,
-				route = route,
+				route = path,
 				leg = 1,
 				trail = seeded,
 				speed = speed,
@@ -2864,46 +3095,50 @@ function ForestTest.releaseLine(now: number): string?
 				stuckAt = {},
 				repaths = 0,
 			})
-			made += #group
+			placed += #group
 		end
 	end
-	if made == 0 then
+	if placed == 0 then
 		return nil
 	end
-	state.released += made
-	-- THE GUARANTEE IS SPENT ONLY ONCE A GROUP IS ON THE GROUND (task 239). Every early return
-	-- above -- no route, nobody placed -- leaves the latch alone, so a deer wave that could not be
-	-- released hands the drive's one group to the next wave rather than losing it. `deerWanted`'s
-	-- `>=` is the other half of that.
-	-- ...AND ANY GROUP SPENDS IT, not only the guaranteed one: a drive that has already shown her a
-	-- stag has met *"I want to see a deer"*, and asking again on the ordinal would put a second
-	-- group out for no reason. `MAX_GROUPS_ALIVE` caps what is ALIVE at once; this caps the ASK.
+	state.released += placed
+	-- THE DEER LATCH IS STILL SET (task 239), AND SINCE TASK 251 IT IS A BELT AND NOT THE BRACE.
+	-- The SCRIPT now says which slots carry deer -- slot 2's hind party and slot 13's stag -- so the
+	-- drawn ordinal (`deerWaveOf`) and *"has the drive spent its one group"* (`deerWanted`) are no
+	-- longer what decides it here. Both pure rules are kept, exported and tested: they are the shape
+	-- an UNSCRIPTED drive needs, which is what `Match` runs in the DEV place. What task 239's
+	-- guarantee was for is met BY DATA now -- slot 2 is at t 30 s, inside the first third of the
+	-- drive, every drive, with nothing drawn at all.
 	if composition ~= nil then
 		state.deerDone = true
 	end
 	return string.format(
-		-- MADE *OF SPAWNED*, because the two can only differ if an animal was left behind by a line
-		-- that was not released -- which is the orphan the Reviewer found and this round closed. A
-		-- wave that reads "5 of 5 animal(s) in 1 of 2 line(s)" is the case: one route failed, one
-		-- line was released, and nobody was spawned for the line that could not be walked.
-		-- ...AND WHAT WAS IN IT, when it was not boars (task 239): the console is where Karen and
-		-- the Director see that the drive's deer actually went, and "6 animals" does not say it.
-		"line %d: %d of %d animal(s) in %d of %d line(s) at a %s, crossing %+d studs from the stand%s",
+		-- WHAT THE SLOT ACTUALLY DID, and every field of it is read by the Forest Test proof this
+		-- task owes (slot by slot: the groups released, their kinds, their routes, the crossings,
+		-- the turn-backs, and the stag last). "6 animals" does not say any of that.
+		-- PLACED *OF SPAWNED*, because the two can only differ if an animal was left behind by a file
+		-- that was not released -- a line that reads "5 of 5 animal(s) in 1 of 2 file(s)" is the
+		-- case: one route failed, one file was released, and nobody was spawned for the file that
+		-- could not be walked.
+		"line %d: SLOT %d act %d %s -- %d of %d animal(s) [%s] in %d of %d file(s) at a %s, from dz %d offset %+d, %s -- %s",
 		state.waveIndex,
-		made,
+		slot,
+		row.act or 0,
+		route,
+		placed,
 		#members,
+		table.concat(kinds, "+"),
 		lines,
 		asked,
 		pace,
-		offset,
-		if composition ~= nil
-			then string.format(
-				" -- RED DEER (%s), %s, on this drive's wave %d",
-				table.concat(kinds, "+"),
-				if guaranteed then string.format("the drive's own, due on wave %d", state.deerWave or 0) else "an extra",
-				state.driveWave or 0
-			)
-			else ""
+		row.northStuds or 0,
+		row.offsetX or 0,
+		if type(offset) == "number"
+			then string.format("crossing %+d studs from the stand", offset)
+			elseif route == "BREAK-BACK" then string.format("TURNING BACK at dz %d", row.turnAtDz or 0)
+			elseif route == "HOLD" then string.format("HOLDING after %d studs", row.holdStuds or 0)
+			else "no crossing",
+		row.note or "--"
 	)
 end
 

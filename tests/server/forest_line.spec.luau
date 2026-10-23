@@ -442,4 +442,336 @@ return function()
 			end
 		end)
 	end)
+	-- ---------------------------------------------------------------- THE DRIVE SCRIPT (task 251)
+	--
+	-- KAREN, 2026-10-23: *"them patter with animals how many where they come how they come how many
+	-- groups jumping over road red stags ect"*, and then *"ok"* to the Designer's plan
+	-- (`<runs-dir>/design/driveflow-spec.md`). Every case below is one sentence of her question
+	-- answered against the ROWS -- never against a second copy of the numbers, which is why the
+	-- counts are added through `Boar.compositionSize` and the times through `Data.slotSeconds`.
+	describe("the drive script (task 251)", function()
+		local SCHEDULE = Data.SCHEDULE
+
+		local function configOn()
+			local config = table.clone(Boar.CONFIG)
+			config.KINDS = table.clone(Boar.CONFIG.KINDS)
+			config.KINDS.ENABLED = true
+			return config
+		end
+
+		-- HOW MANY ANIMALS A DENSITY RELEASES, counted through the ANIMAL owner's own weigher. This
+		-- spec never writes a composition's size down.
+		local function animalsAt(density: string): number
+			local config = configOn()
+			local total = 0
+			for _, row in ipairs(Data.driveTally(density, SCHEDULE).rows) do
+				if row.species == "reddeer" then
+					local party = Boar.deerComposition(0, 0, config, row.party)
+					expect(party).to.be.ok()
+					total += Boar.compositionSize(party, config)
+				else
+					local composition = config.SOUNDER.COMPOSITIONS[row.composition]
+					expect(composition).to.be.ok()
+					total += Boar.compositionSize(composition, config)
+				end
+			end
+			return total
+		end
+
+		it("is fifteen slots of one drive, and every row names a slot the clock actually has", function()
+			expect(#SCHEDULE.drive).to.equal(ForestTest.wavesPerDrive(Data.DRIVE.seconds, SCHEDULE.intervalSeconds))
+			for index, row in ipairs(SCHEDULE.drive) do
+				expect(row.slot).to.equal(index)
+				-- `atSeconds` IS AN ASSERTION, NOT A SECOND CLOCK: it has to be the interval's own
+				-- arithmetic, or a changed `intervalSeconds` would leave fifteen stale timestamps.
+				expect(row.atSeconds).to.equal(Data.slotSeconds(index, SCHEDULE))
+				expect(row.act >= 1 and row.act <= 3).to.equal(true)
+				expect(type(row.note)).to.equal("string")
+			end
+			-- The three acts are five slots each, in order, which is what makes the drive read as a
+			-- beginning, a body and an end rather than as fifteen waves.
+			for index, row in ipairs(SCHEDULE.drive) do
+				expect(row.act).to.equal(math.floor((index - 1) / 5) + 1)
+			end
+		end)
+
+		it("answers Karen's counts at the dial she OK'd: 13 groups, 10 crossings, 2 back, 1 that holds", function()
+			local normal = Data.driveTally("normal", SCHEDULE)
+			expect(normal.groups).to.equal(13)
+			expect(normal.silent).to.equal(2)
+			expect(normal.crossings).to.equal(10)
+			expect(normal.refusals).to.equal(2)
+			expect(normal.holds).to.equal(1)
+			expect(normal.deerGroups).to.equal(2)
+			expect(normal.boarGroups).to.equal(11)
+			-- THREE LEAPING ANIMALS AND NO BOAR AMONG THEM. *"how many groups jumping over road"*:
+			-- the hind, her calf and the stag -- and `leaps` is only ever on a `reddeer` row.
+			expect(normal.leapers).to.equal(2) -- the hind party is ONE row of two animals, plus the stag
+			for _, row in ipairs(SCHEDULE.drive) do
+				if row.leaps == true then
+					expect(row.species).to.equal("reddeer")
+				end
+			end
+			-- ...and the animals, weighed by the animal's owner rather than written down here.
+			expect(animalsAt("normal")).to.equal(59)
+			TestKit.note(
+				string.format(
+					"task 251: one normal drive is %d groups / %d animals -- %d cross, %d break back, %d holds",
+					normal.groups,
+					animalsAt("normal"),
+					normal.crossings,
+					normal.refusals,
+					normal.holds
+				)
+			)
+		end)
+
+		it("moves all five of the dial's columns with ONE number", function()
+			-- The table in `SCHEDULE`'s own comment, asserted column by column. It is one rule --
+			-- `row.keepAt <= groups` -- and the whole point is that nothing else has to be kept in
+			-- step with it.
+			expect(Data.groupsWanted("quiet", SCHEDULE)).to.equal(9)
+			expect(Data.groupsWanted("normal", SCHEDULE)).to.equal(13)
+			expect(Data.groupsWanted("busy", SCHEDULE)).to.equal(15)
+
+			local quiet = Data.driveTally("quiet", SCHEDULE)
+			expect(quiet.groups).to.equal(9)
+			expect(quiet.refusals).to.equal(0)
+			expect(quiet.holds).to.equal(0)
+			expect(quiet.deerGroups).to.equal(1) -- the hinds only; no stag in a quiet drive
+			expect(animalsAt("quiet")).to.equal(37)
+
+			local busy = Data.driveTally("busy", SCHEDULE)
+			expect(busy.groups).to.equal(15)
+			expect(busy.silent).to.equal(0)
+			expect(busy.refusals).to.equal(2)
+			expect(busy.holds).to.equal(1)
+			expect(busy.deerGroups).to.equal(2)
+			expect(animalsAt("busy")).to.equal(69)
+
+			-- AN UNKNOWN WORD IS `normal`, not silence: a typo in the dial must not empty the wood.
+			expect(Data.groupsWanted("sideways", SCHEDULE)).to.equal(13)
+			expect(Data.groupsWanted(nil, SCHEDULE)).to.equal(13)
+			expect(SCHEDULE.density).to.equal("normal")
+		end)
+
+		it("comes from a different depth every slot, and ALL of it in front of the beaters", function()
+			-- THE OLD SIX-ROW CYCLE'S DEFECT, as a measurement: it released every wave from
+			-- `LINE.spawnNorthStuds` (180) whatever its row said, so the drive had one depth. The
+			-- script's own rows span the three zones.
+			local standX = Data.standX(5)
+			local startNorth = Data.beaterStart(standX, 0).Z - Data.roadZ(Data.beaterStart(standX, 0).X)
+			local shallowest, deepest = math.huge, -math.huge
+			for _, row in ipairs(SCHEDULE.drive) do
+				local at = Data.wavePoint(standX, row)
+				local dz = at.Z - Data.roadZ(at.X)
+				-- NOTHING IS SPAWNED BEHIND THE BEATERS' LINE (task 168's rule, which the script
+				-- must not break: an animal put behind the line would be walled on the wrong side).
+				expect(dz < startNorth).to.equal(true)
+				shallowest = math.min(shallowest, dz)
+				deepest = math.max(deepest, dz)
+			end
+			expect(shallowest).to.equal(85) -- zone A, the near holding
+			expect(deepest).to.equal(360) -- zone C, the one that holds
+			expect(deepest - shallowest >= 250).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 251: the script spans dz %.0f to %.0f; a beater starts at %.0f",
+					shallowest,
+					deepest,
+					startNorth
+				)
+			)
+		end)
+
+		it("names only crossings, compositions and parties that exist", function()
+			local config = configOn()
+			local offsets = {}
+			for _, offset in ipairs(Data.LINE.crossOffsets) do
+				offsets[offset] = true
+			end
+			local used = {}
+			for _, row in ipairs(SCHEDULE.drive) do
+				local route = Data.slotRoute(row)
+				if route == "BREAK-BACK" or route == "HOLD" then
+					-- A group that never reaches the road has no crossing, and must not pretend to.
+					expect(row.crossOffset).to.equal(nil)
+				else
+					-- EVERY CROSSING IS ONE OF THE FIVE THE GAME ALREADY HAS, and they are SHARED on
+					-- purpose: a *Wechsel* is a path, not a one-off.
+					expect(offsets[row.crossOffset]).to.equal(true)
+					used[row.crossOffset] = true
+				end
+				if row.species == "reddeer" then
+					-- The party is named, and the ANIMAL's owner is what knows the word.
+					expect(Boar.deerComposition(0, 0, config, row.party)).to.be.ok()
+					expect(row.composition).to.equal(nil)
+				else
+					expect(config.SOUNDER.COMPOSITIONS[row.composition]).to.be.ok()
+					expect(row.party).to.equal(nil)
+				end
+			end
+			-- ...and all five are used, so no stand's approach is dead ground.
+			local count = 0
+			for _ in pairs(used) do
+				count += 1
+			end
+			expect(count).to.equal(#Data.LINE.crossOffsets)
+		end)
+
+		it("puts the hinds early and the stag LAST, alone, and deeper than anything that comes", function()
+			-- THE ONE THING KAREN NAMED TWICE. *"red stags"* -- and the Rum finding is that a mature
+			-- stag keeps his own company outside the rut, while the Jaeger finding is that red deer
+			-- come long after the drive starts.
+			local hinds, stag = nil, nil
+			for _, row in ipairs(SCHEDULE.drive) do
+				if row.party == "hinds" then
+					hinds = row
+				elseif row.party == "stag" then
+					stag = row
+				end
+			end
+			expect(hinds).to.be.ok()
+			expect(stag).to.be.ok()
+			-- THE HINDS ARE INSIDE THE FIRST THIRD, which is the guarantee task 239 used to DRAW an
+			-- ordinal for (`deerWaveOf`) and the script now meets by data, every drive, with nothing
+			-- drawn at all.
+			expect(hinds.slot <= math.floor(#SCHEDULE.drive / 3)).to.equal(true)
+			-- HE IS THE LAST DEER, and 60 s and 100 studs clear of her (the spec's own two numbers).
+			expect(stag.slot > hinds.slot).to.equal(true)
+			expect(stag.atSeconds - hinds.atSeconds >= 60).to.equal(true)
+			expect(stag.northStuds - hinds.northStuds >= 100).to.equal(true)
+			-- ALONE: his party weighs one animal, and he is the only one of it.
+			local party = Boar.deerComposition(0, 0, configOn(), "stag")
+			expect(Boar.compositionSize(party, configOn())).to.equal(1)
+			expect(party.stag).to.equal(1)
+			-- AND NOTHING THAT COMES IS DEEPER. Slot 15 starts further out (360) and never comes;
+			-- of everything that crosses or turns back, he is the deepest.
+			for _, row in ipairs(Data.driveTally("normal", SCHEDULE).rows) do
+				if Data.slotRoute(row) ~= "HOLD" then
+					expect(row.northStuds <= stag.northStuds).to.equal(true)
+				end
+			end
+			-- ...and he is in act III, at a walk, and he is the last ANIMAL row of the drive that
+			-- a hunter at the stand ever sees come at him.
+			expect(stag.act).to.equal(3)
+			expect(stag.pace).to.equal("walk")
+		end)
+
+		it("walks the stag's SNEAK as a declared field and nothing more, which is part 2's boundary", function()
+			-- RULE 8, AS A CASE. Task 251 part 1 ships the pattern and the horn; the stag's own
+			-- behaviour (the 0.90 edge check, the look back, the treeline sneak, the bound) is part 2.
+			-- So `sneak` is DATA that no route reads yet, and the day part 2 reads it, THIS case is
+			-- the thing that has to change -- which is the opposite of discovering the gap in a
+			-- playtest.
+			local stag = nil
+			for _, row in ipairs(SCHEDULE.drive) do
+				if row.party == "stag" then
+					stag = row
+				end
+			end
+			expect(stag.sneak).to.equal(true)
+			expect(stag.check).to.equal(true)
+			-- The route it is actually released on today is the ordinary one.
+			expect(Data.slotRoute(stag)).to.equal("STRAIGHT")
+			-- ...and the existing edge stop is what honours `check` for now: every file's leader is
+			-- offered it inside this band, at the Brain's own chance.
+			expect(Data.LINE.checkWithinStuds > 0).to.equal(true)
+			expect(Boar.CONFIG.MOVE.EDGE_CHANCE > 0).to.equal(true)
+		end)
+
+		it("repeats the body of the drive when a drive outlives its script, and never a second stag", function()
+			-- A longer `DRIVE.seconds` must not run out of animals, and must not put a second stag
+			-- out: `MAX_GROUPS_ALIVE` would refuse him anyway, and "the stag comes last" is the row's
+			-- whole meaning.
+			local rows = #SCHEDULE.drive
+			for slot = rows + 1, rows + 40 do
+				local row = Data.slotAt(slot, "normal", SCHEDULE)
+				expect(row).to.be.ok()
+				expect(row.slot >= SCHEDULE.repeatFrom and row.slot <= SCHEDULE.repeatTo).to.equal(true)
+				expect(row.party).to.equal(nil)
+			end
+			-- The window wraps in order, so slot 16 is the first row of it.
+			expect(Data.slotAt(rows + 1, "normal", SCHEDULE).slot).to.equal(SCHEDULE.repeatFrom)
+			-- A slot before the first is nothing at all, rather than row 1 by accident.
+			expect(Data.slotAt(0, "normal", SCHEDULE)).to.equal(nil)
+			expect(Data.slotAt(-3, "normal", SCHEDULE)).to.equal(nil)
+		end)
+
+		it("is what BOTH release paths read, through one function", function()
+			-- ONE OWNER PER FACT (rule 3). `ForestTest.waveAt` is the only reader of the rows, so the
+			-- `LINE` path Karen plays and the pre-task-127 wave path cannot disagree about the drive.
+			for slot = 1, #SCHEDULE.drive do
+				expect(ForestTest.waveAt(slot)).to.equal(Data.slotAt(slot, SCHEDULE.density, SCHEDULE))
+			end
+			-- The two silences are nil from both, which is what makes a silence cost its slot.
+			local silent = 0
+			for slot = 1, #SCHEDULE.drive do
+				if ForestTest.waveAt(slot) == nil then
+					silent += 1
+				end
+			end
+			expect(silent).to.equal(2)
+		end)
+
+		it("gives every route word a shape, and the one that never crosses no crossing", function()
+			local seen = {}
+			for _, row in ipairs(SCHEDULE.drive) do
+				local route = Data.slotRoute(row)
+				seen[route] = (seen[route] or 0) + 1
+				if route == "LATERAL" then
+					-- A lateral pass must say which way it travels, or `lateralSign` answers 0 and
+					-- the "broadside" walk is a walk of nowhere.
+					expect(ForestTest.lateralSign(row.lateral) ~= 0).to.equal(true)
+				elseif route == "BREAK-BACK" then
+					-- It turns SHORT of the road and goes home past the beaters.
+					expect(row.turnAtDz > 0).to.equal(true)
+					expect(row.turnAtDz < row.northStuds).to.equal(true)
+					expect(SCHEDULE.breakBackToDz > row.northStuds).to.equal(true)
+				elseif route == "HOLD" then
+					-- It moves a little and lies up, well short of the verge.
+					expect(row.holdStuds > 0).to.equal(true)
+					expect(row.northStuds - row.holdStuds > Data.LINE.checkWithinStuds).to.equal(true)
+				elseif route == "SPLIT" then
+					expect(row.splitStuds ~= 0).to.equal(true)
+					expect(row.files >= 1).to.equal(true)
+				end
+			end
+			-- All five of the spec's route types are actually used by the drive.
+			expect(seen.STRAIGHT >= 1).to.equal(true)
+			expect(seen.LATERAL >= 1).to.equal(true)
+			expect(seen["BREAK-BACK"]).to.equal(2)
+			expect(seen.SPLIT).to.equal(1)
+			expect(seen.HOLD).to.equal(1)
+			-- An empty row is a silence and not a straight line, which is what `releaseLine` leans on.
+			expect(Data.slotRoute(nil)).to.equal("SILENT")
+		end)
+
+		it("stays well inside the world's ceiling even if the whole script were alive at once", function()
+			-- `MAX_BOARS` ASSERTS rather than refusing inside `Runtime:spawn`, so the script may never
+			-- be able to ask past it. This is the worst case the dial can produce, which is far more
+			-- than is ever on its feet at once (groups are released over five minutes and most are
+			-- gone within a minute of crossing).
+			expect(animalsAt("busy") <= Data.MAX_BOARS + 9).to.equal(true)
+			-- ...and no single group can fill the world by itself.
+			local config = configOn()
+			for _, row in ipairs(SCHEDULE.drive) do
+				local composition = if row.species == "reddeer"
+					then Boar.deerComposition(0, 0, config, row.party)
+					else config.SOUNDER.COMPOSITIONS[row.composition]
+				expect(Boar.compositionSize(composition, config) < Data.MAX_BOARS).to.equal(true)
+			end
+		end)
+	end)
+
+	-- ------------------------------------------------- THE ROUTE THROUGH N PINNED POINTS (task 251)
+	describe("the route builder", function()
+		it("refuses a route that is not pinned through at least two points", function()
+			-- A route that was not pinned through a crossing is a route that may cross anywhere,
+			-- which is what the two-leg shape has always existed to prevent.
+			expect(ForestTest.computeRouteVia({})).to.equal(nil)
+			expect(ForestTest.computeRouteVia({ Vector3.new(0, 0, 0) })).to.equal(nil)
+			expect(ForestTest.computeRouteVia(nil :: any)).to.equal(nil)
+		end)
+	end)
 end

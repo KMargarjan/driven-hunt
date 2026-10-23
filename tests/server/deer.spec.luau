@@ -906,6 +906,58 @@ return function()
 				expect(Boar.deerComposition(1.0, 0, config, false)).to.equal(nil)
 			end)
 
+			-- ------------------------------------- ...AND MAY ASK FOR ONE BY NAME (task 251)
+			it("GIVES THE PARTY THE DRIVE NAMED, and refuses a word this table does not have", function()
+				-- KAREN, 2026-10-23, through the plan she OK'd: the HIND PARTY comes early in the
+				-- drive and THE STAG comes last, alone. That is a fact about the drive's SHAPE, so
+				-- `ForestTest.SCHEDULE.drive` has to be able to name which party it wants -- and it
+				-- names the WORD, while this function stays the only thing that knows which row that
+				-- is.
+				local config = configWith(true)
+				local stag = Boar.deerComposition(0, 0, config, "stag")
+				expect(stag).to.be.ok()
+				expect(stag.stag).to.equal(1)
+				expect(stag.hind).to.equal(nil)
+				local hinds = Boar.deerComposition(0, 0, config, "hinds")
+				expect(hinds).to.be.ok()
+				expect(hinds.hind).to.equal(1)
+				expect(hinds.calf).to.equal(1)
+				expect(hinds.stag).to.equal(nil)
+				expect(Boar.deerComposition(0, 0, config, "harem").hind).to.equal(2)
+				-- THE NAME BEATS THE PICK, which is the whole point: at `pick` 0.9 the weighted walk
+				-- would answer the harem, and the ask answers what it asked for.
+				expect(Boar.deerComposition(0, 0.9, config, "hinds").calf).to.equal(1)
+				-- ...AND A NAME IT DOES NOT HAVE IS nil, not a draw and not the first row. A slot
+				-- that asked for a party this table has not got is a mistake in the drive script, and
+				-- "no deer, and the console says which word" is the honest answer to it.
+				expect(Boar.deerComposition(0, 0, config, "roedeer")).to.equal(nil)
+				expect(Boar.deerComposition(0, 0, config, "")).to.equal(nil)
+				-- THE CHANCE IS SKIPPED BY A NAMED ASK TOO, even at the roll that refuses -- and even
+				-- if `CHANCE_PER_RELEASE` were 0, which a drive's own scripted stag must survive.
+				expect(Boar.deerComposition(1.0, 0, config, "stag")).to.be.ok()
+				local noChance = configWith(true)
+				noChance.SPECIES = table.clone(noChance.SPECIES)
+				noChance.SPECIES.reddeer = table.clone(noChance.SPECIES.reddeer)
+				noChance.SPECIES.reddeer.RELEASE = table.clone(noChance.SPECIES.reddeer.RELEASE)
+				noChance.SPECIES.reddeer.RELEASE.CHANCE_PER_RELEASE = 0
+				expect(Boar.deerComposition(0, 0, noChance, "stag")).to.be.ok()
+				expect(Boar.deerComposition(0, 0, noChance)).to.equal(nil)
+				-- ...and it still cannot conjure a kind that does not exist.
+				expect(Boar.deerComposition(0, 0, configWith(false), "stag")).to.equal(nil)
+				-- EVERY ROW IS NAMED, so a drive can reach all three and no row is unreachable.
+				local names = {}
+				for _, row in ipairs(config.SPECIES.reddeer.RELEASE.COMPOSITIONS) do
+					expect(type(row.name)).to.equal("string")
+					expect(names[row.name]).to.equal(nil) -- and the names are unique
+					names[row.name] = true
+					expect(Boar.deerComposition(0, 0, config, row.name)).to.be.ok()
+				end
+				-- `name` IS NOT A MEMBER OF THE GROUP, which is the one way this could have gone
+				-- wrong: it is stripped exactly as `weight` is, so nothing tries to spawn a "name".
+				expect(stag.name).to.equal(nil)
+				expect(stag.weight).to.equal(nil)
+			end)
+
 			-- ------------------------------------------------ THEY WALK IN FILE (task 234)
 			it("MARCHES A DEER GROUP IN SINGLE FILE, declared rather than drawn", function()
 				-- Karen, 2026-10-21: *"we need all a time in drive deer and could be also lines and

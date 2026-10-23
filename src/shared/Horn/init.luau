@@ -358,6 +358,32 @@ Horn.CONFIG = {
 				CLIP_SECONDS = 2.843,
 			},
 		},
+
+		-- ------------------------------------------------- HOW FAR THE OPENING SIGNAL REACHES (251)
+		--
+		-- THE SIGNAL ALERTS; IT DOES NOT FLUSH. 120 studs is 33.6 m at `METRES_PER_STUD`, against the
+		-- hand-blown horn's `SPOOK_STUDS` of 357 (100 m), WHICH IS UNCHANGED.
+		--
+		-- WHY THE TWO MUST DIFFER, and it is the drive's own geometry: the deepest group of the drive
+		-- script starts 360 studs north of the road (`ForestTest.SCHEDULE.drive` slot 15) and the far
+		-- wood runs to 390. A signal carrying 357 studs would therefore reach almost every animal in
+		-- the wood AT THE INSTANT THE DRIVE OPENS -- and the fifteen-slot script only means anything
+		-- if the wood is still standing there when slot 1 is released. It is also what the signal IS:
+		-- *Anblasen des Treibens* tells the GUNS the drive has begun (load, do not leave the stand);
+		-- the BEATERS are what moves the game, which is why the beater's own horn keeps the long
+		-- reach. See `docs/research/2026-10-23-drive-pattern.md` and the Designer's spec section 2.5.
+		--
+		-- IT IS A NOTICE, NOT A FRIGHT, AND THAT IS THE OTHER HALF. Inside this radius an animal
+		-- stands up, lifts its head and faces the line (`Runtime:notice`, the door task 172 added for
+		-- a beater walking up); it does not bolt. Outside it, nothing happens at all.
+		--
+		-- SECONDS IS HOW LONG THE HEAD STAYS UP. `Boar.CONFIG.MOVE.EDGE_MAX_SECONDS` is 4 and a
+		-- fanfare is `Horn.signalSeconds("start")` = 2.18 s long, so 3 is about the length of the
+		-- signal itself -- long enough for Karen to see every head in front of her come up as the
+		-- bugle sounds, short enough that the drive is not standing still when slot 1 is released
+		-- ten seconds later.
+		SPOOK_STUDS = 120,
+		SPOOK_SECONDS = 3,
 	},
 
 	-- ---------------------------------------------------------------- the spook
@@ -781,6 +807,35 @@ function Horn.spookStuds(config): number
 		return resolved.SPOOK_STUDS
 	end
 	return resolved.SPOOK_M / resolved.METRES_PER_STUD
+end
+
+-- THE OPENING SIGNAL'S OWN RADIUS IN STUDS, and it is a SEPARATE READER on purpose (task 251):
+-- `Horn.spookStuds` answers for the beater's hand-blown horn and must keep answering 357, so a
+-- caller cannot get the signal's reach out of it by accident. The drive's two signal phrases are
+-- the only things this is for.
+--
+-- IT FALLS BACK TO THE HAND HORN'S REACH when `SIGNAL.SPOOK_STUDS` is absent, which is every config
+-- written before this task and every spec that hands in a partial table: the OLD behaviour, so a
+-- missing row can only ever be louder than intended and never silent.
+function Horn.signalSpookStuds(config): number
+	local resolved = config or Horn.CONFIG
+	local signal = resolved.SIGNAL
+	if type(signal) == "table" and type(signal.SPOOK_STUDS) == "number" then
+		return signal.SPOOK_STUDS
+	end
+	return Horn.spookStuds(resolved)
+end
+
+-- ...AND HOW LONG THE HEAD STAYS UP FOR IT. Same shape, same fallback reason; `Runtime:notice`'s
+-- own default is what a nil means to the animal, so this answers 0 for a config without the row and
+-- the caller passes nothing on.
+function Horn.signalSpookSeconds(config): number
+	local resolved = config or Horn.CONFIG
+	local signal = resolved.SIGNAL
+	if type(signal) == "table" and type(signal.SPOOK_SECONDS) == "number" then
+		return signal.SPOOK_SECONDS
+	end
+	return 0
 end
 
 -- HOW LONG THE CLIP IS LEFT PLAYING, from `SOUND_START` to `SOUND_CUT`. PURE, and derived rather

@@ -40,6 +40,9 @@ local Workspace = game:GetService("Workspace")
 local Assets = require(ServerStorage:WaitForChild("Assets"))
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
+-- The drive's own data, for the one claim that joins the signal's reach to how deep the drive is
+-- (task 251, item 4).
+local ForestData = require(ReplicatedStorage:WaitForChild("ForestTest"))
 local HeldTool = require(ReplicatedStorage:WaitForChild("HeldTool"))
 local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
@@ -147,6 +150,55 @@ return function()
 			-- audible radius.
 			expect(CONFIG.ROLLOFF_MAX_STUDS >= Boar.CONFIG.SENSE.SHOT_AUDIBLE_STUDS).to.equal(true)
 			expect(CONFIG.ROLLOFF_MIN_STUDS < CONFIG.ROLLOFF_MAX_STUDS).to.equal(true)
+		end)
+
+		it("gives the OPENING SIGNAL its own, much shorter reach (task 251, item 4)", function()
+			-- KAREN, 2026-10-23, through the plan she OK'd: *"the opening horn gets its own 120-stud
+			-- alert radius; the beater's hand horn keeps its radius"*.
+			--
+			-- THE TWO NUMBERS AND THE TWO READERS, so neither can be got out of the other by
+			-- accident. *Anblasen des Treibens* tells the GUNS the drive has begun; the BEATERS are
+			-- what moves the game, which is why the hand horn keeps 100 m.
+			expect(Horn.signalSpookStuds(CONFIG)).to.equal(120)
+			expect(Horn.spookStuds(CONFIG)).to.equal(357)
+			expect(Horn.signalSpookStuds(CONFIG) < Horn.spookStuds(CONFIG)).to.equal(true)
+			-- IT HAS TO BE SHORTER THAN THE DRIVE IS DEEP, which is the whole reason for the number:
+			-- the drive script's deepest row starts 360 studs north of the road, so a signal carrying
+			-- the hand horn's 357 would reach almost the whole wood at the instant the drive opened
+			-- and the fifteen-slot shape would be gone before slot 1 was released.
+			local deepest = 0
+			for _, row in ipairs(ForestData.SCHEDULE.drive) do
+				deepest = math.max(deepest, row.northStuds or 0)
+			end
+			expect(Horn.signalSpookStuds(CONFIG) < deepest).to.equal(true)
+			expect(Horn.spookStuds(CONFIG) > deepest).to.equal(true)
+			-- THE HEAD STAYS UP FOR ABOUT THE LENGTH OF THE FANFARE ITSELF, and no longer: a drive
+			-- standing still when slot 1 is released ten seconds later would be worse than one that
+			-- never looked up.
+			expect(Horn.signalSpookSeconds(CONFIG)).to.equal(3)
+			expect(Horn.signalSpookSeconds(CONFIG) >= Horn.signalSeconds("start", CONFIG)).to.equal(true)
+			expect(Horn.signalSpookSeconds(CONFIG) <= Boar.CONFIG.MOVE.EDGE_MAX_SECONDS).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 251: the opening signal alerts within %.0f studs (%.0f m) for %.1f s;"
+						.. " the beater's hand horn still flushes at %.0f studs; the drive is %.0f deep",
+					Horn.signalSpookStuds(CONFIG),
+					Horn.signalSpookStuds(CONFIG) * CONFIG.METRES_PER_STUD,
+					Horn.signalSpookSeconds(CONFIG),
+					Horn.spookStuds(CONFIG),
+					deepest
+				)
+			)
+		end)
+
+		it("falls back to the hand horn's reach for a config written before task 251", function()
+			-- A MISSING ROW CAN ONLY EVER BE LOUDER THAN INTENDED AND NEVER SILENT, which is the old
+			-- behaviour: every config and every partial spec table written before this task.
+			expect(Horn.signalSpookStuds({ SPOOK_STUDS = 357, METRES_PER_STUD = 0.28 })).to.equal(357)
+			expect(Horn.signalSpookStuds({ SPOOK_M = 28, METRES_PER_STUD = 0.28 }) > 99).to.equal(true)
+			expect(Horn.signalSpookSeconds({ SPOOK_STUDS = 357 })).to.equal(0)
+			-- ...and a world that overrides the SIGNAL's own studs means those.
+			expect(Horn.signalSpookStuds({ SIGNAL = { SPOOK_STUDS = 60 }, SPOOK_STUDS = 357 })).to.equal(60)
 		end)
 
 		it("resolves the radius from either unit", function()

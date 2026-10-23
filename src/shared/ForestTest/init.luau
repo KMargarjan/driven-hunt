@@ -1523,46 +1523,551 @@ function ForestTest.offLaneStuds(standX: number, spec, spot: Vector3): number
 	return math.abs(spot.X - (standX + (spec.laneOffset or 0)))
 end
 
+-- ---------------------------------------------------------------- THE DRIVE SCRIPT (task 251)
+--
+-- KAREN, 2026-10-23, verbatim: *"we need better saound and behaviour for red stag / and them patter
+-- with animals how many where they come how they come how many groups jumping over road red stags
+-- ect"*. She then read the Designer's plan and said *"ok"* to its defaults: ~57 animals per drive in
+-- 13 groups, 2 deer groups (the hind party early, the stag last).
+--
+-- THE SPEC IS `<runs-dir>/design/driveflow-spec.md` and the drawing beside it is
+-- `driveflow-plan.png`. Its section 2.2 table IS the fifteen rows below, row for row; its section 1
+-- is where the shape comes from -- the German hunting press on what a *Drueckjagd* does to each
+-- species (Jaeger, *Drueckjagdplanung*; waidwissen.com, *Drueckjagd*) and the GPS studies behind the
+-- counts (Bonnot et al., PLOS ONE 2020, open access: 68 % of hinds flee and 32 % STAY; the wild-boar
+-- drive-hunt papers for the sounder sizes).
+--
+-- THE SIX-ROW REPEATING `cycle` IS GONE and is archived with its reason in
+-- `backups/2026-10-23_task-251_schedule-cycle.md` (rule 7). It had no shape: wave 7 was wave 1
+-- again, every group came from the same two or three depths, and -- measured while reading the code
+-- for this task -- it was ALREADY DORMANT in the world Karen plays, because `LINE.enabled` is true
+-- and `ForestTest.releaseLine` drew its own count, crossing and pace and never read it.
+--
+-- ONE DRIVE IS 300 SECONDS AND FIFTEEN SLOTS, TWENTY SECONDS APART (`DRIVE.seconds`,
+-- `SCHEDULE.intervalSeconds`; `ForestTest.wavesPerDrive` is that arithmetic). THIS TABLE IS ONE ROW
+-- PER SLOT, in three acts:
+--   ACT I   (slots 1-5, zone A, 85-130 studs out) the near holding and the jumpy ones. The drive
+--           starts BEFORE the beaters do, because the noise of arrival moves the experienced animals
+--           (Livingactive, *Tipps und Tricks fuer die Drueckjagd*).
+--   ACT II  (slots 6-10, zones B and D, 140-230) the body of it: the big sounders, the broadside
+--           pass, the first refusal.
+--   ACT III (slots 11-15, zone C, 260-390) the far wood and the late, pressed ones -- and THE STAG,
+--           last, alone, a hundred studs deeper than anything else.
+--
+-- WHAT THE NUMBERS COME OUT AT, with the dial at `normal` (and they are counted by
+-- `ForestTest.driveTally`, not by hand, so a changed row changes the count):
+--   13 groups, 59 animals (boar 11 groups / 56, red deer 2 / 3)
+--   10 groups cross the road -- one about every 25 seconds across the middle of the drive
+--   2 refuse at the verge and break back through the beaters, and 1 never comes at all
+--      (that last one is the PLOS ONE study's 32 % of animals that stay put, made visible)
+--   3 leaping animals: the hind, her calf and the stag. NO BOAR EVER LEAPS.
+--
+-- 59 AND NOT THE SPEC'S 57, AND THE DIFFERENCE IS HONEST. Rows 3, 11 and 15 are written in the spec
+-- as `{females = 1, cubs = 4}` and `{females = 2, cubs = 3, males = 1}`, which are NOT among the six
+-- `Boar.CONFIG.SOUNDER.COMPOSITIONS` rows -- and the spec's own sentence is *"not one new
+-- composition is invented"*. So each takes composition 5, `{females = 1, cubs = 4, males = 1}`, the
+-- nearest real row, which weighs 6 instead of 5: three groups, one animal each, so 56 boar instead
+-- of 53, plus the 3 deer. Inventing a seventh composition to hit 57 would break rule 2.
+--
+-- `MAX_BOARS` IS 60 AND THIS NEVER APPROACHES IT: about five groups are on their feet at once in
+-- act II, ~25 animals, released across five minutes and most gone within a minute of crossing.
+--
+-- EVERY FIELD, AND WHO OWNS THE FACT BEHIND IT:
+--   `slot`, `atSeconds`, `act`      this drive's own shape. `atSeconds` is DERIVED and asserted, not
+--                                   read: `slot * intervalSeconds - 10`. It is here so the table can
+--                                   be read as a timeline.
+--   `species`                       "boar" or "reddeer".
+--   `party`                         for `reddeer` only: which of
+--                                   `SPECIES.reddeer.RELEASE.COMPOSITIONS`, BY NAME ("hinds",
+--                                   "stag"). The drive says which party; the ANIMAL's owner knows
+--                                   which row that is (`Boar.deerComposition`).
+--   `composition`                   for `boar` only: an index into `SOUNDER.COMPOSITIONS`, because
+--                                   who is in a flock is the boar system's fact and which flock
+--                                   comes next is the drive's. A composition carries its own SIZE.
+--   `zone`, `northStuds`, `offsetX` where it starts: `northStuds` is studs north of the road at that
+--                                   x, `offsetX` studs east (+) or west (-) of THE HUNTER'S OWN
+--                                   STAND (`ForestTest.wavePoint` adds it), so "150 studs west of
+--                                   me" means that wherever she stands. `zone` is the band's name,
+--                                   for reading.
+--   `files`                         1, or 2 for a sounder that comes down in two files.
+--   `crossOffset`                   which of `LINE.crossOffsets` it crosses at. Groups SHARE them on
+--                                   purpose: a *Wechsel* is a path, not a one-off, and waidwissen
+--                                   puts the guns *"an Wechseln und Paessen"* for exactly that
+--                                   reason.
+--   `route`                         STRAIGHT / LATERAL / BREAK-BACK / SPLIT / HOLD. What the group
+--                                   does; `ForestTest.slotRoute` is the one reader.
+--   `lateral`                       "LtoR" or "RtoL", for `route = "LATERAL"` only.
+--   `turnAtDz`                      for `BREAK-BACK`: how close to the road it comes before it
+--                                   refuses and goes home north.
+--   `pace`                          the pace at RELEASE ("walk" / "trot" / "run"); a shot, a beater
+--                                   or a hit overrides it, exactly as before.
+--   `check`, `sneak`, `leaps`       the DEER's own behaviour at the verge, declared here and
+--                                   honoured by the ANIMAL's owner. See "WHAT PART 1 DOES NOT DO"
+--                                   below, which says exactly what each one does today.
+--   `keepAt`                        the smallest density at which this row carries animals. THE DIAL.
+--   `note`                          what a reader should see happen.
+--
+-- THE DIAL IS ONE NUMBER (spec section 2.6), `SCHEDULE.density`, and `normal` is the default Karen
+-- OK'd:
+--
+--   | dial           | quiet | NORMAL | busy |
+--   |----------------|-------|--------|------|
+--   | groups         | 9     | 13     | 15   |
+--   | animals        | 37    | 59     | 69   |
+--   | deer groups    | 1     | 2      | 2    |
+--   | refusals       | 0     | 2      | 2    |
+--   | ones that hold | 0     | 1      | 1    |
+--
+-- AND IT IS ONE RULE, NOT FIVE: a row fires when `row.keepAt <= groups`. The four rows at
+-- `keepAt = 13` are exactly the stag, the two refusals and the hold -- so the single number moves
+-- all five columns of that table at once, which is why there is no `refusalsPerDrive` to keep in
+-- step with it. `ForestTest.slotAt` is the whole of it, pure, and `forest_stand.spec` asserts each
+-- column of the table above against the rows rather than against a second copy of the numbers.
+--
+-- WHAT PART 1 DOES NOT DO, said here rather than discovered in a playtest (rule 8). This is the
+-- FIRST half of task 251 (the Director's own split point: items 1 and 4 now, the stag's behaviour
+-- and his voice next). So today:
+--   * `check = true` on rows 2 and 13 is honoured by the EXISTING edge stop and nothing more: every
+--     line's leader is already offered `Runtime:check` as she comes inside `LINE.checkWithinStuds`
+--     (`ForestTest.stepLines`), at the Brain's own `MOVE.EDGE_CHANCE` of 0.55 and for 1-4 s. The
+--     deer's own longer, likelier, look-BACK check (0.90, 2-6 s, 150 deg) is spec section 3.2 and is
+--     part 2.
+--   * `sneak = true` on row 13 is DECLARED AND NOT YET WALKED. The stag's two-leg route inside the
+--     treeline is spec section 3.2 and part 2; today row 13 walks STRAIGHT from zone C like any
+--     other row, which is 330 studs of approach -- so he is still last, still alone and still 55
+--     studs deeper than the next-deepest group that comes. `forest_line.spec` asserts the field
+--     exists and that no route is built from it yet, so the day part 2 reads it, that assertion is
+--     the thing that changes.
+--   * `leaps` is the measured road leap, already built and already behind `DEER_ROAD_LEAP` (which is
+--     ON in Karen's place). The STAG'S BOUND WHEN SPOOKED (spec section 3.2 `BOUND_ON_SPOOK`) is
+--     part 2, and the spec itself holds it behind the leap's known hoof sink (TASKS.md 245c).
 ForestTest.SCHEDULE = {
 	intervalSeconds = 20,
-	cycle = {
-		-- Close, straight down across the road: 2 females, 3 males, 4 cubs.
-		{ offsetX = -55, northStuds = 95, composition = 1, turnsBack = false, note = "a mixed flock, close and west" },
-		-- Across her front, left to right, then over the road.
+
+	-- HOW BUSY A DRIVE IS: "quiet", "normal" or "busy". Karen OK'd `normal`.
+	density = "normal",
+	-- HOW MANY OF THE FIFTEEN SLOTS CARRY ANIMALS at each setting. The one number the dial is.
+	DENSITIES = { quiet = 9, normal = 13, busy = 15 },
+
+	-- A DRIVE THAT OUTLIVES ITS SCRIPT REPEATS THIS WINDOW -- the body of act II and act III, which
+	-- is the part of a drive that can bear repeating -- so a longer `DRIVE.seconds` can never run out
+	-- of animals. It deliberately EXCLUDES slot 13: a second stag in one drive is not a drive with a
+	-- stag in it, and `SPECIES.reddeer.RELEASE.MAX_GROUPS_ALIVE` would refuse him anyway.
+	repeatFrom = 6,
+	repeatTo = 12,
+
+	drive = {
+		-- ------------------------------------------------------------------ ACT I: the near holding
 		{
-			offsetX = 95,
-			northStuds = 115,
-			composition = 3,
-			lateral = "LtoR",
-			turnsBack = false,
-			note = "five males and three females, across the front left to right",
+			slot = 1,
+			atSeconds = 10,
+			act = 1,
+			species = "boar",
+			composition = 6, -- {males = 1}
+			zone = "A",
+			northStuds = 95,
+			offsetX = -150,
+			files = 1,
+			crossOffset = -70,
+			route = "STRAIGHT",
+			pace = "trot",
+			keepAt = 9,
+			note = "the first mover: one big lone male, west, out before the beaters are heard",
 		},
-		-- Far out on the east, so it is not always the same spot.
-		{ offsetX = 140, northStuds = 100, composition = 4, turnsBack = false, note = "sows and piglets, far east" },
-		-- Across her front the other way.
 		{
-			offsetX = -95,
-			northStuds = 115,
-			composition = 2,
+			slot = 2,
+			atSeconds = 30,
+			act = 1,
+			species = "reddeer",
+			party = "hinds", -- {hind = 1, calf = 1}
+			zone = "A",
+			northStuds = 125,
+			offsetX = 170,
+			files = 1, -- a deer group is a column, never two files (`RELEASE.FORMATION`)
+			crossOffset = 55,
+			route = "STRAIGHT",
+			pace = "walk",
+			check = true,
+			leaps = true,
+			keepAt = 9,
+			note = "the hind party, early and in file: she stops at the verge, then they leap",
+		},
+		{
+			slot = 3,
+			atSeconds = 50,
+			act = 1,
+			species = "boar",
+			composition = 5, -- {females = 1, cubs = 4, males = 1}
+			zone = "A",
+			northStuds = 110,
+			offsetX = -215,
+			files = 2,
+			crossOffset = -35,
+			route = "STRAIGHT",
+			pace = "trot",
+			keepAt = 9,
+			note = "a sow and her young, close and west, in two files",
+		},
+		{
+			slot = 4,
+			atSeconds = 70,
+			act = 1,
+			species = "boar",
+			composition = 2, -- {males = 2}
+			zone = "A",
+			northStuds = 85,
+			offsetX = 60,
+			files = 1,
+			crossOffset = 20,
+			route = "STRAIGHT",
+			pace = "trot",
+			keepAt = 9,
+			note = "the near pair, straight down the front of the stand",
+		},
+		{
+			-- SILENCE AT quiet AND normal. A drive with no gaps in it is a shooting gallery; this is
+			-- the first of the two, and at `busy` it carries a second broadside pass.
+			slot = 5,
+			atSeconds = 90,
+			act = 1,
+			species = "boar",
+			composition = 3, -- {males = 5, females = 3}
+			zone = "D",
+			northStuds = 150,
+			offsetX = -235,
+			files = 1,
+			crossOffset = -70,
+			route = "LATERAL",
 			lateral = "RtoL",
-			turnsBack = false,
-			note = "two males, across the front right to left",
+			pace = "trot",
+			keepAt = 15,
+			note = "silence -- unless the drive is busy, and then a second broadside pass, west",
 		},
-		-- Close again, and this one thinks better of it.
+		-- ------------------------------------------------------------------ ACT II: the body of it
 		{
-			offsetX = 45,
-			northStuds = 90,
-			composition = 5,
-			turnsBack = true,
-			note = "a sow and her young, close, and back",
+			slot = 6,
+			atSeconds = 110,
+			act = 2,
+			species = "boar",
+			composition = 3, -- {males = 5, females = 3}
+			zone = "D",
+			northStuds = 150,
+			offsetX = 235,
+			files = 1,
+			crossOffset = 20,
+			route = "LATERAL",
+			lateral = "LtoR",
+			pace = "trot",
+			keepAt = 9,
+			note = "the broadside pass: across her front left to right, then over the road",
 		},
-		-- The lone big male, close enough to be worth the barrel.
-		{ offsetX = -40, northStuds = 85, composition = 6, turnsBack = false, note = "one big lone male, close" },
+		{
+			slot = 7,
+			atSeconds = 130,
+			act = 2,
+			species = "boar",
+			composition = 1, -- {females = 2, males = 3, cubs = 4}
+			zone = "B",
+			northStuds = 170,
+			offsetX = -120,
+			files = 2,
+			crossOffset = -35,
+			route = "STRAIGHT",
+			pace = "trot",
+			keepAt = 9,
+			note = "the big sounder, nine of them in two files",
+		},
+		{
+			slot = 8,
+			atSeconds = 150,
+			act = 2,
+			species = "boar",
+			composition = 5, -- {females = 1, cubs = 4, males = 1}
+			zone = "B",
+			northStuds = 145,
+			offsetX = 115,
+			files = 1,
+			route = "BREAK-BACK",
+			turnAtDz = 40,
+			pace = "trot",
+			keepAt = 13,
+			note = "THE REFUSAL: she comes to 40 studs of the road, thinks better of it, and goes home",
+		},
+		{
+			slot = 9,
+			atSeconds = 170,
+			act = 2,
+			species = "boar",
+			composition = 6, -- {males = 1}
+			zone = "B",
+			northStuds = 210,
+			offsetX = -185,
+			files = 1,
+			crossOffset = -70,
+			route = "STRAIGHT",
+			pace = "walk",
+			keepAt = 9,
+			note = "the big lone male, slow, and worth the barrel",
+		},
+		{
+			-- THE SECOND SILENCE, and at `busy` a pair of males out of the far wood.
+			slot = 10,
+			atSeconds = 190,
+			act = 2,
+			species = "boar",
+			composition = 2, -- {males = 2}
+			zone = "C",
+			northStuds = 265,
+			offsetX = 85,
+			files = 1,
+			crossOffset = 55,
+			route = "STRAIGHT",
+			pace = "trot",
+			keepAt = 15,
+			note = "silence -- unless the drive is busy, and then two males out of the far wood",
+		},
+		-- ------------------------------------------------------ ACT III: the far wood, and the stag
+		{
+			slot = 11,
+			atSeconds = 210,
+			act = 3,
+			species = "boar",
+			composition = 5, -- {females = 1, cubs = 4, males = 1}
+			zone = "C",
+			northStuds = 275,
+			offsetX = 200,
+			crossOffset = 95,
+			files = 2,
+			route = "SPLIT",
+			-- WHERE THE SPLINTER GOES: the SECOND file takes its own crossing this far west of the
+			-- group's, so the group crosses in two places 40 studs apart and a hunter gets two
+			-- chances out of one sounder. `SOUNDER.BREAK_STUDS` already dissolves a stretched group;
+			-- this ASKS for it rather than inventing a rule.
+			--
+			-- WHO IS IN WHICH FILE IS `Line.split`'S, AND IT DEALS ALTERNATELY (rank 1, 3, 5 to the
+			-- first file and 2, 4, 6 to the second) after `Boar.MARCH_RANK` has put the sow at the
+			-- head. So the spec's *"the sow and cubs keep the crossing and the adult male takes
+			-- the other"* is NOT what happens -- it is three and three, led by the two highest ranks.
+			-- Said plainly rather than claimed: splitting a composition by KIND would be a new rule
+			-- in the file-dealing owner, and the thing Karen asked for (one sounder, two crossings)
+			-- is already true without it.
+			splitStuds = -40,
+			pace = "trot",
+			keepAt = 9,
+			note = "the pressed sounder, flushed from inside: it splits at the verge and crosses twice",
+		},
+		{
+			slot = 12,
+			atSeconds = 230,
+			act = 3,
+			species = "boar",
+			composition = 4, -- {females = 3, cubs = 6}
+			zone = "C",
+			northStuds = 300,
+			offsetX = -250,
+			files = 1,
+			route = "BREAK-BACK",
+			turnAtDz = 55,
+			pace = "trot",
+			keepAt = 13,
+			note = "the second refusal: nine of them turn at 55 studs and break back through the beaters",
+		},
+		{
+			-- THE STAG. Last, alone, and deeper than anything else that comes -- which is the Isle of
+			-- Rum finding (*"only 10 % to 20 % of mature stags associated with hinds outside the
+			-- rut"*, `docs/research/2026-10-21-deer-in-every-drive.md`) and the Jaeger finding (red
+			-- deer come *"lange nach Beginn des Treibens -- klammheimlich aus der Dickung"*) in one
+			-- row. The hinds came out at slot 2; he comes out 220 seconds later.
+			slot = 13,
+			atSeconds = 250,
+			act = 3,
+			species = "reddeer",
+			party = "stag", -- {stag = 1}
+			zone = "C",
+			northStuds = 330,
+			offsetX = -95,
+			files = 1,
+			crossOffset = -35,
+			route = "STRAIGHT",
+			pace = "walk",
+			check = true,
+			sneak = true,
+			leaps = true,
+			keepAt = 13,
+			note = "THE RED STAG: last of the drive, alone, out of the far wood at a walk",
+		},
+		{
+			slot = 14,
+			atSeconds = 270,
+			act = 3,
+			species = "boar",
+			composition = 2, -- {males = 2}
+			zone = "C",
+			northStuds = 290,
+			offsetX = 145,
+			files = 1,
+			crossOffset = 95,
+			route = "STRAIGHT",
+			pace = "run",
+			keepAt = 9,
+			note = "the last of them, running: the beaters are at their backs by now",
+		},
+		{
+			slot = 15,
+			atSeconds = 290,
+			act = 3,
+			species = "boar",
+			composition = 5, -- {females = 1, cubs = 4, males = 1}
+			zone = "C",
+			northStuds = 360,
+			offsetX = 265,
+			files = 1,
+			route = "HOLD",
+			-- HOW FAR IT MOVES BEFORE IT LIES UP. The PLOS ONE study's stayers net-displace 426 m
+			-- against a fleeing hind's 1 452; 60 studs is 17 m, which is a group that has heard the
+			-- drive, moved off its bed and decided that is enough.
+			holdStuds = 60,
+			pace = "walk",
+			keepAt = 9,
+			note = "THE ONE THAT STAYS: moves 60 studs toward the road and lies up. It never comes",
+		},
 	},
+
 	-- HOW FAR SHORT OF THE ROAD A TURNED-BACK GROUP STOPS before it goes home. Close enough for the
-	-- hunter to see it and raise the gun, which is the whole point of letting it refuse.
+	-- hunter to see it and raise the gun, which is the whole point of letting it refuse. It is the
+	-- FALLBACK for a `BREAK-BACK` row that names no `turnAtDz` of its own, and the old wave path's
+	-- `turnsBack` number unchanged.
 	turnBackStuds = 70,
+	-- HOW FAR NORTH A REFUSAL WALKS BEFORE IT IS LET GO OF. Past the beater line (`beaterStart` is
+	-- 580 studs north of the road) is where it is going; this is where the drive stops ordering it
+	-- and hands it back to the Brain, which is what `LINE.maxSeconds` would do anyway a few seconds
+	-- later. 420 is the spec's number (section 2.3).
+	breakBackToDz = 420,
 }
+
+-- ---------------------------------------------------- READING THE DRIVE SCRIPT (task 251)
+--
+-- FIVE PURE FUNCTIONS, and they are pure for the reason every other rule in this file is: a spec can
+-- drive the whole fifteen-slot script, at all three densities, from hand-written numbers and with no
+-- runtime, no world and no animal. `ForestTest.releaseLine` is then the only thing that needs a
+-- Studio to run.
+
+-- HOW MANY OF THE FIFTEEN SLOTS CARRY ANIMALS. The dial's word in, the one number out.
+--
+-- AN UNKNOWN WORD IS `normal`, not an error and not zero: a drive that released nothing because a
+-- typo reached this far would be a world with no animals in it, which is a worse answer than the
+-- default Karen OK'd.
+function ForestTest.groupsWanted(density: string?, schedule): number
+	local resolved = schedule or ForestTest.SCHEDULE
+	local dials = resolved.DENSITIES or {}
+	local want = if density ~= nil then dials[density] else nil
+	if type(want) ~= "number" then
+		want = dials.normal
+	end
+	return if type(want) == "number" then want else #(resolved.drive or {})
+end
+
+-- WHEN A SLOT IS DUE, in seconds from the drive's start. PURE, and DERIVED -- `slot * interval - 10`,
+-- so slot 1 is at 10 s and slot 15 at 290 -- which is what makes each row's own `atSeconds` an
+-- assertion (`forest_stand.spec` checks every row against this) instead of a second copy of the
+-- clock that can drift away from `intervalSeconds`.
+function ForestTest.slotSeconds(slot: number, schedule): number
+	local resolved = schedule or ForestTest.SCHEDULE
+	local gap = math.max(1, resolved.intervalSeconds or 20)
+	return slot * gap - gap / 2
+end
+
+-- WHICH ROW A SLOT RELEASES, or **nil for silence**. THE WHOLE OF THE DIAL IS THIS FUNCTION.
+--
+-- TWO RULES AND NOTHING ELSE:
+--   1. a slot past the end of the script repeats the window (`repeatFrom`..`repeatTo`), so a drive
+--      longer than `DRIVE.seconds` can never run out of animals. The window excludes the stag.
+--   2. a row fires only when `row.keepAt <= groups`. That is how one number moves all five columns
+--      of the dial's table at once: the four rows at `keepAt = 13` ARE the stag, the two refusals
+--      and the one that holds, and the two at `keepAt = 15` are the drive's two silences.
+function ForestTest.slotAt(slot: number, density: string?, schedule)
+	local resolved = schedule or ForestTest.SCHEDULE
+	local rows = resolved.drive or {}
+	if #rows == 0 or type(slot) ~= "number" or slot < 1 then
+		return nil
+	end
+	local index = math.floor(slot)
+	if index > #rows then
+		local from = math.clamp(resolved.repeatFrom or 1, 1, #rows)
+		local to = math.clamp(resolved.repeatTo or #rows, from, #rows)
+		local span = to - from + 1
+		index = from + ((index - 1 - #rows) % span)
+	end
+	local row = rows[index]
+	if row == nil then
+		return nil
+	end
+	if (row.keepAt or 1) > ForestTest.groupsWanted(density, resolved) then
+		return nil
+	end
+	return row
+end
+
+-- WHAT THIS ROW DOES. One word, defaulted, so no caller writes `row.route or "STRAIGHT"` twice.
+function ForestTest.slotRoute(row): string
+	if row == nil then
+		return "SILENT"
+	end
+	local route = row.route
+	return if type(route) == "string" then route else "STRAIGHT"
+end
+
+-- WHAT ONE DRIVE ADDS UP TO at a density: the counts Karen's question asks for, read OFF THE ROWS
+-- rather than written down a second time. *"how many where they come how they come how many groups
+-- jumping over road"*.
+--
+-- IT COUNTS NO ANIMALS, and that is deliberate: how many animals a composition weighs is the BOAR
+-- system's fact (`Boar.compositionSize`), and this module must not learn it. The spec, the request
+-- and `forest_stand.spec` get the animal count by adding this function's `groups` list through that
+-- one function.
+function ForestTest.driveTally(density: string?, schedule)
+	local resolved = schedule or ForestTest.SCHEDULE
+	local rows = resolved.drive or {}
+	local out = {
+		groups = 0,
+		silent = 0,
+		crossings = 0,
+		refusals = 0,
+		holds = 0,
+		deerGroups = 0,
+		boarGroups = 0,
+		leapers = 0,
+		rows = {},
+	}
+	for slot = 1, #rows do
+		local row = ForestTest.slotAt(slot, density, resolved)
+		if row == nil then
+			out.silent += 1
+			continue
+		end
+		out.groups += 1
+		table.insert(out.rows, row)
+		local route = ForestTest.slotRoute(row)
+		if route == "BREAK-BACK" then
+			out.refusals += 1
+		elseif route == "HOLD" then
+			out.holds += 1
+		else
+			-- STRAIGHT, LATERAL and SPLIT all end over the road. SPLIT crosses twice and is still
+			-- one group that got across, which is what this column counts.
+			out.crossings += 1
+		end
+		if row.species == "reddeer" then
+			out.deerGroups += 1
+		else
+			out.boarGroups += 1
+		end
+		if row.leaps == true then
+			out.leapers += 1
+		end
+	end
+	return out
+end
 
 -- WHERE THE GROUND IS, ASKED OF THE WORLD ITSELF.
 --
