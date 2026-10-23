@@ -1658,11 +1658,11 @@ local function applyFreeze(userId: number)
 	stats.violations += 1
 	-- AND THE MONEY IS COUNTED WHERE EVERY OTHER RULE THAT FIRES IS COUNTED (task 250), so "how
 	-- much did the safety rule take off people tonight" is a number in the harness report rather
-	-- than a feeling in a playtest.
-	local safetyFine = Score.fineForSafety(config)
-	if type(safetyFine) == "number" then
+	-- than a feeling in a playtest. `Score.violation` above is what CHARGED it; this counts it.
+	local charged = Score.fineForSafety(config)
+	if type(charged) == "number" then
 		stats.finesCharged += 1
-		stats.finesMoney += safetyFine
+		stats.finesMoney += charged
 	end
 
 	-- WITHOUT AN ANCHOR THE VIOLATION STILL HAPPENED, and everything that does not need a tree still
@@ -3113,7 +3113,28 @@ local function onSafetyViolation(player: Player, aim: Vector3, muzzle: Vector3, 
 	if not guilty then
 		return
 	end
-	dispatch({ kind = "violation", userId = player.UserId, name = player.Name, at = at })
+	-- ...AND WHAT IT COST HIM RIDES THE EVENT (round 1, finding 1). The Hud half of this shipped
+	-- and the server half that fills it did not, so `"Anna tied to a tree  -$1000"` could never be
+	-- drawn: `Phase.step` forwards `event.money` and `event.text`, and this was the ONE producer of
+	-- a `violation` event in the whole of `src/`, and it set neither. The fine itself was charged
+	-- all along -- `Score.violation` adds it to the row and `Coins.forRow` takes it off the
+	-- pay-out -- so what was missing was the ANNOUNCEMENT, which is the half Karen would notice.
+	--
+	-- IT IS READ HERE AND NOT IN `Phase`, because this is where the drive's config is the owner's
+	-- and `Score.fineForSafety` is the one definition of what the rule costs. The machine says
+	-- WHEN; this says WHAT IT WAS.
+	local safetyFine, safetyWord = Score.fineForSafety(config)
+	dispatch({
+		kind = "violation",
+		userId = player.UserId,
+		name = player.Name,
+		-- THE SIGNED DELTA, which is `Money.signed`'s own convention and the reason the sign is on
+		-- the wire rather than invented by the screen. `nil` in a build whose `FINE.SAFETY` row is
+		-- gone, and the Hud then draws exactly the line it drew before this task.
+		money = if type(safetyFine) == "number" then -safetyFine else nil,
+		text = safetyWord,
+		at = at,
+	})
 end
 
 -- Distance sampling, twice a second: which DRIVERS were near which boar, so a kill can pay the

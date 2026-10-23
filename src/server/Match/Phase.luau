@@ -111,7 +111,8 @@ export type State = {
 }
 
 export type Event = {
-	kind: string, -- "tick" | "join" | "leave" | "dismiss" | "withdraw" | "kill" | "gone" | "violation" | "markers" | "team"
+	kind: string, -- "tick" | "join" | "leave" | "dismiss" | "withdraw" | "kill" | "gone" | "violation"
+	-- ...plus "fine" (task 250: a money penalty, which draws one feed line), "markers" and "team".
 	userId: number?,
 	name: string?,
 	-- "team": the side a world has asked this player to be on (task 157). Read by that branch only.

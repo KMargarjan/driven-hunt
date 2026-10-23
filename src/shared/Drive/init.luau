@@ -65,6 +65,15 @@ export type ScoreRow = {
 	-- RESULTS, already computed on the server out of `Economy.CONFIG`, which is never replicated.
 	coins: number?, -- the BALANCE after this drive's pay-out. On screen in every phase
 	earned: number?, -- what THIS drive paid him. MAY BE NEGATIVE (a piglet costs points)
+	-- TASK 250, THE MONEY FINES. DOLLARS TAKEN OFF HIM THIS DRIVE, as a POSITIVE total, and ABSENT
+	-- -- not 0 -- when there were none, which is the same rule the two above it keep: absent means
+	-- "this did not happen" where 0 would be the server asserting a figure.
+	--
+	-- IT IS NOT A SECOND EARNING. `earned` is already NET of it (`Economy.Coins.forRow` subtracts
+	-- the fine flat), so a screen that drew both would be showing one loss twice. This field is so
+	-- a screen can say WHY the money column reads what it reads; today the drive's feed says it in
+	-- words and the results board draws the net.
+	fines: number?,
 }
 
 -- ONE KIND THE DRIVE ALLOWS, AND ITS PRICE. `kind` is the SERVER's data string (`male`, `female`,

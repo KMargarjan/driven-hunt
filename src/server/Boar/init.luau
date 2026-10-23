@@ -579,18 +579,30 @@ Boar.CONFIG = {
 		-- `toughness` divides a NON-VITAL hit's points and the deer carry 1.2 (task 240), so the
 		-- deer column is the boar column over 1.2. A slug is one projectile.
 		--
+		-- ...AND THE DEER COLUMN IS THE BOAR'S OVER 1.2 EVERYWHERE BUT THE VITALS, so a severity on
+		-- that side has to be read off the DIVIDED number and not off the row. Two cells of this
+		-- grid said otherwise in round 1 and the Reviewer caught both; they are corrected here with
+		-- the arithmetic beside them.
+		--
 		--                       boar (toughness 1)              deer (toughness 1.2)
 		--   zone   slug  rigby  lever    slug ->  rigby  lever    slug  ->  rigby  lever
 		--   head    100   100    100     lethal   lethal lethal   lethal    lethal lethal
 		--   chest   100   100    100     lethal   lethal lethal   lethal    lethal lethal
-		--   body     55   100     80     mortal   LETHAL mortal   GRAZE     LETHAL mortal
+		--   body     55   100     80     mortal   LETHAL mortal   GRAZE     mortal mortal
 		--   rear     55    75     65     mortal   mortal mortal   mortal    mortal mortal
-		--   legs     30    60     50     graze    MORTAL MORTAL   graze     MORTAL MORTAL
+		--   legs     30    60     50     graze    MORTAL MORTAL   graze     MORTAL graze
+		--
+		--   the two that were wrong, with the arithmetic:
+		--     deer body rigby   100 / 1.2 = 83.3   -- MORTAL (>= 50), not lethal (needs >= 100)
+		--     deer legs lever    50 / 1.2 = 41.7   -- GRAZED (< 50), not mortal
 		--
 		-- SHOTS TO KILL, BEFORE AND AFTER, which is what the dispatch asked for:
 		--   body, Rigby:  boar 2 -> 1   deer 3 -> 1   (a .416 through the paunch was a GRAZE on a
 		--                                              stag: 55 / 1.2 = 45.8, under MORTAL. That
-		--                                              is the one number this task exists to fix)
+		--                                              is the one number this task exists to fix.
+		--                                              The deer's "1" is ONE SHOT TO KILL and not
+		--                                              one shot to DROP: 83.3 is mortal, so the
+		--                                              stag runs out `Wound.flightStuds` first)
 		--   body, lever:  boar 2 -> 2   deer 3 -> 2
 		--   legs, Rigby:  boar 4 -> 2   deer 4 -> 2   (one bullet now breaks the animal down)
 		--   legs, lever:  boar 4 -> 2   deer 5 -> 3
