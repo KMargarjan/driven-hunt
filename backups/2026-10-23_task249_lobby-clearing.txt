@@ -1,0 +1,28 @@
+Task 249, 2026-10-23: what `Build.clearWorkingGround` removes from the Forest Test's own forest.
+
+KAREN, 2026-10-23, with a frame of a bush standing between her and TRUCK 4's pad: "remove this
+bush". Archived under rule 7, because this is the one place this repository removes an instance it
+did not make -- at RUN TIME, on the server, so the place file keeps its forest and deleting
+`Lobby.CONFIG.CLEARING` puts the bush back on the next server.
+
+MEASURED IN THE FOREST TEST (placeId 130094961655666) ON 2026-10-23, with the lobby BUILT:
+
+  Workspace.Session.Bush
+    a Part, 1.61 x 1.12 x 3.74 studs, Transparency 0.40, at (2871, 149, -2965)
+    -- it renders far larger than its own size, which is why it reads as a bush and not a twig
+
+  That is 12.0 studs west of `Build.yardRect`'s western edge and INSIDE the road corridor
+  (`ROAD.CENTRE_X` 20 +- `WIDTH_STUDS / 2 + VERGE_STUDS`, i.e. anchor-relative x 7 .. 33).
+
+AND NOTHING ELSE. The sweep was counted over all three folders named in `CLEARING.FOLDERS`
+(`Session` x2 -- this place has two folders of that name, 771 and 60 children -- `OurForest` with
+4819, and `Foliage` with 0): **1 instance removed**. The three `OurForest` ferns near the lodge
+(SM_Forest_Fern_Var02 at (2867, -2890), SM_Forest_Fern_Var03 at (2872, -2886), SM_Lady_Fern_Var03
+at (2900, -2894)) are BEHIND and BESIDE the house, not in front of it, and are left standing.
+
+WHAT WAS CHECKED BEFORE BLAMING THE WORLD: every `Lobby.TreeLine` trunk (Tree01..Tree30) and every
+`LODGE_TREES` row was measured against the four pads. The nearest is Tree10 at 40.3 studs from
+Pad4; none is a bush. The thing in Karen's frame is not one of ours.
+
+To restore the bush: delete `Lobby.CONFIG.CLEARING` and the `Build.clearWorkingGround` call in
+`Build.build`. Nothing else reads them.

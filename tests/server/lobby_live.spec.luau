@@ -1051,6 +1051,85 @@ return function()
 			return men
 		end
 
+		-- ------------------------------ HE RESPAWNED OUT OF THE DRIVE (task 249)
+		--
+		-- KAREN, 2026-10-23: *"still game wasant over when I respawn after while it was showing what
+		-- was shooted but I was free to walk, is it ok ?"*. It is -- task 248 made a respawn end your
+		-- hunt -- and the two things missing were that NOTHING SAID SO and that he was dropped from
+		-- the party his drive turned into.
+		it("marks the man a LIVE drive let go of, and takes him on the next one (task 249)", function()
+			local seen = freshLoop(bin)
+			local away = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600)
+			local men = { occupant(51, away, bin), occupant(52, away, bin) }
+			seen.inDrive[51] = true
+			seen.inDrive[52] = true
+			Lobby.onPhase("Running")
+			Lobby.step(2000, men)
+			expect(men[1]:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
+			-- HE PRESSES RESET. `Match.withdraw` takes him out of the roster mid-drive, which is the
+			-- ONLY thing this owner sees: `world.inDrive` goes true -> false while a drive is live.
+			seen.inDrive[51] = false
+			Lobby.step(2001, men)
+			expect(men[1]:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
+			expect(men[2]:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
+			expect(Lobby.stats().withdrawalsSeen).to.equal(1)
+			-- RECONCILED ON THE TICK, NOT FIRED ONCE (L-029): more scans do not count it twice and
+			-- do not lose it.
+			Lobby.step(2002, men)
+			Lobby.step(2003, men)
+			expect(men[1]:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
+			expect(Lobby.stats().withdrawalsSeen).to.equal(1)
+			-- ...AND HE GOES ON THE NEXT DRIVE WITH THE PARTY HE LEFT. The dispatch: *"keep her on
+			-- the next drive's countdown party by default"*. He is NOT `inDrive` any more, so
+			-- without this he would watch them leave and have to walk to a pad again.
+			--
+			-- THE ROSTER IS READ ON THIS SIDE OF `dismissAll`, which is `drivenHome`'s own order and
+			-- its own measured reason: in production the drive is emptied by that call, and the
+			-- fake does not clear `inDrive`, so 52 is still in the drive on the scan that collects.
+			Lobby.onPhase("Scoring")
+			Lobby.step(2004, men)
+			-- `Lobby.nextDrive()` IS A REPORT, NOT THE STATE: `members` is the sorted ARRAY of ids
+			-- (`Next.ids`), which is what the case below this one reads too.
+			local party = Lobby.nextDrive()
+			table.sort(party.members)
+			expect(#party.members).to.equal(2)
+			expect(party.members[1]).to.equal(51)
+			expect(party.members[2]).to.equal(52)
+			-- ...AND THE MAN WHO LEFT IS STILL IN IT once the drive has really let go of everybody,
+			-- which is the recount `Next.step` makes every scan.
+			seen.inDrive[52] = false
+			seen.held[51] = false
+			seen.held[52] = false
+			Lobby.step(2005, men)
+			expect(#Lobby.nextDrive().members).to.equal(2)
+			-- ...AND THE LINE COMES DOWN THE MOMENT A DRIVE HAS HIM AGAIN.
+			Lobby.onPhase("Assigning")
+			seen.inDrive[51] = true
+			Lobby.step(2006, men)
+			expect(men[1]:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
+		end)
+
+		it("does NOT mark the end of a drive as a withdrawal (task 249)", function()
+			-- `dismissAll` empties the roster one scan into `Scoring` and that is EVERYBODY at once.
+			-- If the latch read the edge alone, every player would read *"you left the drive"* after
+			-- every drive -- which is why the phase is part of the test.
+			local seen = freshLoop(bin)
+			local away = Vector3.new(ANCHOR.x, SHELF, ANCHOR.z + 600)
+			local men = { occupant(61, away, bin), occupant(62, away, bin) }
+			seen.inDrive[61] = true
+			seen.inDrive[62] = true
+			Lobby.onPhase("Running")
+			Lobby.step(2000, men)
+			Lobby.onPhase("Scoring")
+			seen.inDrive[61] = false
+			seen.inDrive[62] = false
+			Lobby.step(2001, men)
+			Lobby.step(2002, men)
+			expect(men[1]:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
+			expect(men[2]:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
+			expect(Lobby.stats().withdrawalsSeen).to.equal(0)
+		end)
+
 		it("collects the whole roster, both sides, and waits for the results scene", function()
 			local seen = freshLoop(bin)
 			local men = drivenHome(seen, { 41, 42 })

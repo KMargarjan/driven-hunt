@@ -59,6 +59,10 @@ Boar.carcassIsStill = Body.carcassIsStill
 Boar.shouldAnchorCarcass = Body.shouldAnchorCarcass
 Boar.boxFalls = Body.boxFalls
 Boar.shouldReassert = Body.shouldReassert
+-- ...AND THE TWO THE DEATH BACKSTOP IS MADE OF (task 249), re-exported for the same reason as the
+-- pair above: they are pure, and `boar_model.spec` asks them its questions with no boar in the world.
+Boar.deathDrawn = Body.deathDrawn
+Boar.shouldBackstopDeath = Body.shouldBackstopDeath
 -- ...and the one review round 1's finding 1 turns on: whether a clip that is already playing needs
 -- its rate rewritten. A HELD clip never does.
 Boar.shouldAdjustRate = Body.shouldAdjustRate
@@ -652,6 +656,35 @@ Boar.CONFIG = {
 		-- the animal is told to lie down. 6 s is past the end of both clips with half a second of
 		-- margin, and well inside the `CARCASS_SECONDS` 120 a player spends looking at the body.
 		CARCASS_REASSERT_SECONDS = 6.0,
+		-- HOW LONG A DEAD ANIMAL MAY STAND BEFORE THE BOX LAYS IT DOWN ITSELF (task 249). KAREN,
+		-- 2026-10-23: *"bug with dead boar standing"*, for the fourth time (L-010: boars x3, and
+		-- task 150's own count before it).
+		--
+		-- THE GAP IS THE BACKSTOP THAT WAS NEVER THERE. `Body.topple`'s own comment has said since
+		-- task 150 that it is called *"from exactly two places -- the collapse, and the backstop in
+		-- `stepCarcass`"*, and a grep for it finds **ONE** caller: `Body.collapse`. So when
+		-- `Body.boxFalls` answers false -- a visual exists AND `trackFor` handed back a track -- the
+		-- `AlignOrientation` is deliberately LEFT ON and the only thing that can lay the animal down
+		-- is that clip actually playing. `Animator:LoadAnimation` returns a track for an asset that
+		-- has not downloaded yet, so `trackFor` cannot tell *"there is a death clip"* from *"there
+		-- will be one, later"* -- and when the clip never runs, nothing in this system ever rolls
+		-- the box. The carcass stands on its feet for the whole `CARCASS_SECONDS` 120.
+		--
+		-- 1.5 SECONDS, AND IT IS MEASURED AGAINST THE CLIP: `MODEL.CLIPS.deathLeft` is 1.167 s for
+		-- the boar and 1.167 for the deer, so a death that is really playing is well past its first
+		-- frame long before this -- and a death that has not advanced a single frame by then is not
+		-- going to. Far shorter than the six seconds `CARCASS_REASSERT_SECONDS` waits, because a
+		-- boar standing dead in front of the man who shot it is the thing being fixed.
+		--
+		-- **IT IS LONGER THAN `CARCASS_STILL_SECONDS` (0.25) AND THAT IS A HAZARD, NOT A VIRTUE**
+		-- (round 1, finding 1). The first version of this said so as though it were a
+		-- reassurance, and it was the fact that made the whole backstop dead code: the carcass it
+		-- exists for is the one nothing moves, so `stepCarcass` anchored it at 0.25 s and then
+		-- returned early for ever. `Body.stepCarcass` now asks the backstop ABOVE that return and
+		-- un-anchors when it fires, so these two numbers no longer have to be ordered at all --
+		-- and that is where the reasoning lives, because it is a property of the SEQUENCE and not
+		-- of either number.
+		DEATH_BACKSTOP_SECONDS = 1.5,
 		CARCASS_FALLING_Y = 1.0, -- studs/s of downward speed that still counts as falling
 	},
 
@@ -3377,6 +3410,43 @@ function Boar.avoidRadius(kind: string?, config): number
 	return math.max(floor, math.max(drawn, box) / 2 + (move.AVOID_CLEARANCE_STUDS or 0))
 end
 
+-- ...AND THE WIDTH THE ANIMAL ACTUALLY COLLIDES AT (task 249). PURE, and it is `Boar.avoidRadius`
+-- with the DRAWN width taken out: the collision box's own half-width plus the same clearance, under
+-- the same floor. For every boar kind, for the hind and for the calf the two functions return the
+-- identical number, because none of them is drawn wider than its box.
+--
+-- KAREN, 2026-10-23: *"I can see redtag is stucking when walking in mountain,tree ect check that"*.
+-- MEASURED in her place before anything was written -- one 150-second window of a real drive,
+-- sampling every animal four times a second, "stuck" being *wants to move (its `Mover`'s
+-- `PlaneVelocity` is set) and is not moving (under 0.8 studs/s)*:
+--
+--   stag   337 samples   73 stuck   **21.7 %**   worst run 1.6 s
+--   cub    530 samples   22 stuck      4.2 %
+--   female 120 samples    5 stuck      4.2 %
+--   calf    98 samples    3 stuck      3.1 %
+--   hind    92 samples    2 stuck      2.2 %
+--   male    31 samples    0 stuck      0.0 %
+--
+-- ONE ANIMAL IS FIVE TO TEN TIMES AS STUCK AS EVERY OTHER, and it is the one animal whose avoidance
+-- is planned at a width it does not have: `Boar.avoidRadius` answers **2.335** for a stag (antlers
+-- 3.47 across) against **1.6** for everything else, so the fan hunts a 4.67-stud corridor through
+-- standing wood where the others need 3.2 -- and when it cannot find one it answers "boxed in" and
+-- the stag runs on into the trunk it just saw.
+--
+-- SO THE ANTLER WIDTH BECOMES A PREFERENCE AND THE BODY WIDTH STAYS THE RULE. The fan is run at
+-- `avoidRadius` first, exactly as task 240 wrote it (*"seems it hitting trees"* -- the antlers must
+-- not scrape a trunk); only when THAT finds nothing at either horizon is it run again at this
+-- narrower one, which is the width the animal can physically fit through. `Runtime:_avoidTurn` is
+-- the one caller of both.
+function Boar.bodyAvoidRadius(config): number
+	local move = config.MOVE
+	if move == nil then
+		return 0
+	end
+	local box = if config.BODY_SIZE ~= nil then config.BODY_SIZE.X else 0
+	return math.max(move.AVOID_RADIUS_STUDS or 0, box / 2 + (move.AVOID_CLEARANCE_STUDS or 0))
+end
+
 -- THE CONFIG ONE ANIMAL LIVES BY (task 219). Pure. For every kind with no `wary` row it returns the
 -- config TABLE ITSELF and not a copy, so for the male, the sow, the cub and the whole flag-off world
 -- this is the IDENTITY FUNCTION and nothing can drift -- which is the only way to add a per-animal
@@ -3812,6 +3882,16 @@ function Boar.newRuntime(world)
 		avoidCasts = 0,
 		avoidTurns = 0,
 		avoidBoxedIn = 0,
+		-- HOW OFTEN THE DRAWN WIDTH FOUND NOTHING AND THE COLLIDING ONE DID (task 249). It is the
+		-- stag's counter and nobody else's -- no other kind is drawn wider than its box -- and it is
+		-- the number that says Karen's *"redtag is stucking"* fix is doing anything at all: 0 with no
+		-- deer in the drive, 0 in open ground, and a climbing number in close wood.
+		avoidNarrowed = 0,
+		-- HOW MANY CARCASSES THE BOX HAD TO LAY DOWN ITSELF (task 249), because their death clip never
+		-- advanced a frame. Every one of these is an animal that would have STOOD DEAD in front of the
+		-- player who shot it -- Karen's report, for the fourth time -- so a number above 0 is the fix
+		-- working, and a number above 0 that keeps climbing is the animation assets, not this code.
+		deathBackstops = 0,
 		trunkContacts = 0,
 		runSeconds = 0,
 		-- ...and the two NOT-MOVING detectors' findings, counted so *"no new stuck events"* is a
@@ -5968,16 +6048,52 @@ function Runtime:_avoidTurnFor(entry, position: Vector3, nose: Vector3, config):
 	end
 	local turn, casts = Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, side, blockedAt(reach), move.AVOID_CASTS)
 	self._stats.avoidCasts += casts
+	-- THE NEARER HORIZON, hoisted out of the branch below because the task 249 fallback asks at the
+	-- same two distances and must not invent a third.
+	local near = reach * (move.AVOID_NEAR_SCALE or 0.5)
 	if turn == nil then
 		-- NOTHING AT THE FAR HORIZON: ask again at a nearer one. MEASURED -- a quarter of the first
 		-- run's evaluations were "boxed in" at the full reach, in wood where a 26-stud corridor does
 		-- not exist, and every one of those was an animal running on into what it had just seen.
-		local near = reach * (move.AVOID_NEAR_SCALE or 0.5)
 		local closer, moreCasts = Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, side, blockedAt(near), move.AVOID_CASTS)
 		self._stats.avoidCasts += moreCasts
 		turn = closer
 	end
 	if turn == nil then
+		-- NOTHING AT EITHER HORIZON FOR THE **DRAWN** ANIMAL: ask again for the one that collides
+		-- (task 249). Karen: *"I can see redtag is stucking when walking in mountain,tree ect"* --
+		-- and the stag is the only animal this branch can reach differently, because he is the only
+		-- one `Boar.avoidRadius` widens (2.335 against 1.6; see `Boar.bodyAvoidRadius` for the
+		-- measurement that found him 21.7 % stuck against 2-4 % for every other kind).
+		--
+		-- IT IS THE SAME FAN AT A NARROWER SWEEP, both horizons, and it runs ONLY when the wide one
+		-- gave up -- so an animal with room keeps task 240's antler clearance exactly, and one in
+		-- close wood is allowed through a gap his body fits even though his antlers do not. The
+		-- extra cost is at most `2 x AVOID_CASTS` casts, for one boxed-in stag, inside the same
+		-- `AVOID_HZ` window.
+		local bodyRadius = Boar.bodyAvoidRadius(config)
+		if bodyRadius < radius then
+			local function blockedNarrow(length: number)
+				return function(degrees: number)
+					return sweep(eye, turnFlat(nose, math.rad(degrees)), length, bodyRadius)
+				end
+			end
+			local narrow, narrowCasts =
+				Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, side, blockedNarrow(reach), move.AVOID_CASTS)
+			self._stats.avoidCasts += narrowCasts
+			if narrow == nil then
+				local nearer, nearerCasts =
+					Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, side, blockedNarrow(near), move.AVOID_CASTS)
+				self._stats.avoidCasts += nearerCasts
+				narrow = nearer
+			end
+			if narrow ~= nil then
+				self._stats.avoidNarrowed += 1
+				entry.avoidDeg = narrow
+				self._stats.avoidTurns += 1
+				return narrow
+			end
+		end
 		-- BOXED IN. Say so by leaving the whiskers to it: they turn harder when both sides are
 		-- blocked, and the wedge detector is what clears an animal that is really pinned. This
 		-- function never has to solve a dead end, only not to run into a trunk -- which is
@@ -6225,7 +6341,14 @@ function Runtime:step(dt: number)
 		-- unanchored physics body and the grey box has been shoveable since Task 28 (measured
 		-- 2026-10-03: 1.826 studs from one walking-speed impulse, with the flag OFF). It does
 		-- nothing until the body has stopped, and nothing at all once it has anchored.
+		local wasBackstopped = entry.body.backstopped
 		Body.stepCarcass(entry.body, dt, config.WOUND)
+		-- COUNTED, ONCE PER CARCASS (task 249). Karen: *"bug with dead boar standing"*. The edge and
+		-- not the flag, so one carcass is one count however many frames it is stepped for; a drive
+		-- in which every death clip ran reports 0, which is the number this fix is aiming at.
+		if entry.body.backstopped and not wasBackstopped then
+			self._stats.deathBackstops += 1
+		end
 
 		-- THE DRAWING AND THE SOUND ARE RATED BY WHAT THE BODY IS DOING (task 139 round 3 and the
 		-- Reviewer's finding 2 on it). Karen, 2026-10-09: *"sometimes boar stuck tree, hits and run

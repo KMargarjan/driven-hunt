@@ -4862,6 +4862,10 @@ function Hud.renderObjective(CameraSystem, WeaponSystem)
 			-- disagree about whether a panel is up.
 			asking = asking,
 			loading = Players.LocalPlayer:GetAttribute(lobbyData.PAD_MINE_ATTRIBUTE),
+			-- ...AND WHETHER A DRIVE LET GO OF HIM (task 249), so the objective line can say so.
+			-- The server's own attribute, read like the four above it: the screen never claims to
+			-- know more than the server said.
+			left = Players.LocalPlayer:GetAttribute(lobbyData.LEFT_DRIVE_ATTRIBUTE) == true,
 		}
 		else nil
 	-- IS HE AT THE SHOP COUNTER (task 178)? ONE EVALUATION, HERE, because this function is already

@@ -4044,4 +4044,85 @@ return function()
 			expect(ROLE.BLOCK_PX).to.equal(119)
 		end)
 	end)
+
+	-- -------------------------------------- THE LOBBY CLEARS ITS OWN GROUND (task 249)
+	--
+	-- KAREN, 2026-10-23, with a frame of a bush standing between her and TRUCK 4's pad: *"remove
+	-- this bush"*. It is not one of OUR trees -- measured in her place, every `TreeLine` and
+	-- `LODGE_TREES` trunk is 40 studs or more from the nearest pad -- it is
+	-- `Workspace.Session.Bush`, a piece of the BOUGHT forest the Forest Test place was built from,
+	-- standing at **(2871, -2965)**.
+	describe("the working ground is kept clear (task 249)", function()
+		local anchorXZ = Data.anchorFor("forest-test") :: any
+		local anchor = Vector3.new(anchorXZ.x, 150, anchorXZ.z)
+
+		it("says yes to the bush Karen photographed and no to the wood around it", function()
+			-- HER BUSH, BY ITS MEASURED COORDINATES. 12.0 studs west of `Build.yardRect`'s own
+			-- edge, which is why `CLEARING.YARD_MARGIN_STUDS` is 12.
+			expect(Build.onWorkingGround(2871, -2965, anchor, CFG)).to.equal(true)
+			-- THE GRAVEL ITSELF, and the four bays on it.
+			local yardX, _, yardZ = Build.yardRect(anchor, CFG)
+			expect(Build.onWorkingGround(yardX, yardZ, anchor, CFG)).to.equal(true)
+			-- ...AND THE WOOD. The ring of trees this lobby plants itself stands 40+ studs from the
+			-- nearest pad and must be left exactly where it is, so a point out there is NOT on the
+			-- working ground.
+			expect(Build.onWorkingGround(anchor.X - 200, anchor.Z - 200, anchor, CFG)).to.equal(false)
+			expect(Build.onWorkingGround(anchor.X + 200, anchor.Z + 200, anchor, CFG)).to.equal(false)
+			-- BEHIND THE HOUSE IS NOT THE FRONT OF IT. Karen's words are *"the yard and the lodge
+			-- front"*, and the alder grove in the hollow behind the lodge is ours and stays.
+			local lodge = anchor + CFG.LODGE.OFFSET
+			expect(Build.onWorkingGround(lodge.X, lodge.Z + CFG.LODGE.SIZE.Z, anchor, CFG)).to.equal(false)
+			-- ...AND THE FRONT IS. One `FRONT_STUDS` out from the south face, on the centre line.
+			expect(
+				Build.onWorkingGround(
+					lodge.X,
+					lodge.Z - CFG.LODGE.SIZE.Z / 2 - CFG.CLEARING.FRONT_STUDS / 2,
+					anchor,
+					CFG
+				)
+			).to.equal(true)
+		end)
+
+		it("takes the world's foliage off it, and counts what it took", function()
+			-- A WORLD OF THIS SPEC'S OWN, which is what keeps this case out of the DEV place's
+			-- Workspace entirely: one folder with one of the names `CLEARING.FOLDERS` holds, one
+			-- part standing where Karen's bush stands and one standing out in the wood.
+			local world = Instance.new("Folder")
+			local session = Instance.new("Folder")
+			session.Name = CFG.CLEARING.FOLDERS[1]
+			session.Parent = world
+			local bush = Instance.new("Part")
+			bush.Name = "Bush"
+			bush.Anchored = true
+			bush.Position = Vector3.new(2871, 149, -2965)
+			bush.Parent = session
+			local far = Instance.new("Part")
+			far.Name = "Tree3"
+			far.Anchored = true
+			far.Position = Vector3.new(anchor.X - 200, 149, anchor.Z - 200)
+			far.Parent = session
+			-- ...AND A FOLDER THAT IS NOT THE WORLD'S FOLIAGE, standing on the gravel. Nothing in
+			-- it may be touched, whatever it is or where it stands: the sweep is bounded by name.
+			local ours = Instance.new("Folder")
+			ours.Name = "Lobby"
+			ours.Parent = world
+			local pad = Instance.new("Part")
+			pad.Name = "TruckPad1"
+			pad.Anchored = true
+			pad.Position = Vector3.new(2871, 150, -2965)
+			pad.Parent = ours
+
+			expect(Build.clearWorkingGround(world, anchor, CFG)).to.equal(1)
+			expect(bush.Parent).to.equal(nil)
+			expect(far.Parent).to.equal(session)
+			expect(pad.Parent).to.equal(ours)
+			-- IDEMPOTENT: a second sweep over the same world takes nothing, so a rebuild cannot
+			-- keep eating the forest a model at a time.
+			expect(Build.clearWorkingGround(world, anchor, CFG)).to.equal(0)
+			-- ...AND NO WORLD AT ALL IS 0 AND NOT A THROW, which is every spec that drives
+			-- `Build.build` with a container of its own.
+			expect(Build.clearWorkingGround(nil, anchor, CFG)).to.equal(0)
+			world:Destroy()
+		end)
+	end)
 end

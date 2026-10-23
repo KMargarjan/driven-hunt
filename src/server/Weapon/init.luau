@@ -1110,11 +1110,39 @@ local function onShotLanded(res: Flight.Resolution)
 	-- no damage, no state. A shot that hit nothing sends nothing.
 	if #res.impacts > 0 then
 		local points = {}
+		-- ...AND WHAT IT LANDED ON (task 249). KAREN, 2026-10-23, with a frame: *"after shoot
+		-- remianing this ? what is that ?"* -- the client drew a `Neon` cube at each of these
+		-- points because a point is all it was ever given. Two more parallel arrays, nothing else:
+		-- the surface NORMAL, so the puff comes off the ground instead of out of it, and the
+		-- surface MATERIAL as a plain STRING, so the client picks soil or splinters.
+		--
+		-- STRINGS AND NOT `Enum.Material` VALUES, because an Enum crossing a RemoteEvent arrives as
+		-- an EnumItem the client would have to compare against its own enum anyway -- and the
+		-- client's own table (`Shotgun.CONFIG.IMPACT.WOOD`) is keyed by name. One representation,
+		-- at the one boundary.
+		--
+		-- THREE ARRAYS AND NOT ONE ARRAY OF TABLES: `impacts` is the field every client built
+		-- before this task reads, and it still carries exactly what it always did, so an older
+		-- client draws what it always drew rather than nothing.
+		local normals = {}
+		local materials = {}
 		for _, impact in ipairs(res.impacts) do
 			table.insert(points, impact.position)
+			-- A PLACEHOLDER RATHER THAN A HOLE, in BOTH arrays (round 1, note). The three arrays
+			-- are read BY INDEX on the client, so one impact with no normal would shift every
+			-- later entry and stand a puff on another pellet's surface. `materials` already
+			-- substituted `""`; `Vector3.zero` is the normal's own "nothing was said", and
+			-- `Effects.impactFrame` reads it as world up.
+			table.insert(normals, if typeof(impact.normal) == "Vector3" then impact.normal else Vector3.zero)
+			table.insert(materials, if impact.material ~= nil then impact.material.Name else "")
 		end
 		local channel = remotes or Shotgun.remotes()
-		channel.ShotLanded:FireAllClients({ shooterUserId = shot.shooterUserId, impacts = points })
+		channel.ShotLanded:FireAllClients({
+			shooterUserId = shot.shooterUserId,
+			impacts = points,
+			normals = normals,
+			materials = materials,
+		})
 	end
 end
 

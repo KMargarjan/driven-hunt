@@ -364,6 +364,68 @@ return function()
 			end
 		end)
 
+		-- ------------------------------------ the landing is a PUFF and not a cube (task 249)
+		--
+		-- KAREN, 2026-10-23, with a frame of a bright yellow box hanging over the grass where her
+		-- buckshot landed: *"after shoot remianing this ? what is that ?"*. MEASURED in her own
+		-- place before anything was written: nine `Impact` parts, each a 0.30-stud `Neon` BLOCK at
+		-- 255,170,90 with transparency 0, all at the one point a buck pattern lands on.
+		it("draws the landing as an unlit particle puff, never a Neon box (task 249)", function()
+			local Effects = Weapon.Effects
+			local folder = Effects.folder()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+			Effects.playLanded({
+				shooterUserId = 1,
+				impacts = { Vector3.new(4, 1, -9) },
+				normals = { Vector3.new(0, 1, 0) },
+				materials = { "Grass" },
+			})
+			local drawn = folder:GetChildren()[1] :: BasePart
+			expect(drawn).to.be.ok()
+			expect(drawn.Name).to.equal("Impact")
+			-- THE PART IS THE HOST AND NOT THE PICTURE: invisible, and nothing about it is `Neon`.
+			expect(drawn.Transparency).to.equal(1)
+			expect(drawn.Material).never.to.equal(Enum.Material.Neon)
+			local emitter = drawn:FindFirstChildWhichIsA("ParticleEmitter", true)
+			expect(emitter).to.be.ok()
+			local puff = emitter :: ParticleEmitter
+			-- NOT GLOWING, which is the other half of her complaint, and never a stream.
+			expect(puff.LightEmission).to.equal(Shotgun.CONFIG.IMPACT.LIGHT_EMISSION)
+			expect(puff.Enabled).to.equal(false)
+			-- SHORT: every grain is gone well inside the muzzle smoke's own life.
+			expect(puff.Lifetime.Max < Shotgun.CONFIG.SMOKE_LIFETIME).to.equal(true)
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+		end)
+
+		it("picks the puff off the surface, and stands it on the surface normal (task 249)", function()
+			local Effects = Weapon.Effects
+			local cfg = Shotgun.CONFIG.IMPACT
+			-- WOOD IS SPLINTERS AND EVERYTHING ELSE IS DUST, including an unknown material, an
+			-- empty string from a server older than this task, and nil.
+			expect(Effects.impactColor("Wood")).to.equal(cfg.WOOD_COLOR)
+			expect(Effects.impactColor("WoodPlanks")).to.equal(cfg.WOOD_COLOR)
+			expect(Effects.impactColor("Grass")).to.equal(cfg.DUST_COLOR)
+			expect(Effects.impactColor("LeafyGrass")).to.equal(cfg.DUST_COLOR)
+			expect(Effects.impactColor("")).to.equal(cfg.DUST_COLOR)
+			expect(Effects.impactColor(nil)).to.equal(cfg.DUST_COLOR)
+			-- THE HOST'S TOP FACE IS THE SURFACE NORMAL, because that is the face the emitter
+			-- fires along: grains come off a trunk sideways and off the floor upwards.
+			local where = Vector3.new(3, 2, 1)
+			local wall = Effects.impactFrame(where, Vector3.new(1, 0, 0))
+			expect((wall.Position - where).Magnitude < 1e-4).to.equal(true)
+			expect((wall.UpVector - Vector3.new(1, 0, 0)).Magnitude < 1e-4).to.equal(true)
+			-- A MISSING OR ZERO NORMAL IS WORLD UP, which is every landing point a server older
+			-- than this task sends.
+			expect((Effects.impactFrame(where, nil).UpVector - Vector3.new(0, 1, 0)).Magnitude < 1e-4).to.equal(true)
+			expect((Effects.impactFrame(where, Vector3.zero).UpVector - Vector3.new(0, 1, 0)).Magnitude < 1e-4).to.equal(
+				true
+			)
+		end)
+
 		it("refuses a malformed ShotLanded payload and caps what one shot can draw", function()
 			local Effects = Weapon.Effects
 			local folder = Effects.folder()

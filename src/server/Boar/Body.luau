@@ -393,6 +393,15 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		-- HAS THE BOX BEEN ROLLED? (task 150). One way, so the collapse and the backstop in
 		-- `stepCarcass` cannot roll the same carcass twice and stand it back up.
 		toppled = false,
+		-- THE DEATH THE CLIP PROMISED (task 249). `Body.collapse` puts the track it is trusting to
+		-- lay this animal down here, and `stepCarcass`'s backstop asks it one question: did you
+		-- ever actually move? nil means nothing was promised -- the box did the falling, or there
+		-- was no visual at all -- and the backstop is then not armed.
+		deathTrack = nil :: AnimationTrack?,
+		-- ...AND WHETHER THE BACKSTOP HAD TO FIRE, so "a dead animal standing" is a COUNTED fact and
+		-- not a thing somebody notices in a playtest. `Body.info` carries it out to the Runtime's
+		-- own counter.
+		backstopped = false,
 		collapsedFor = 0, -- seconds since it died; the carcass anchor reads it
 		stillFor = 0, -- seconds it has been at rest; likewise
 		bornAt = os.clock(),
@@ -2274,7 +2283,8 @@ function Body.collapse(handle, config, full)
 	-- model whose Animator never arrived and for an id that will not load, which is the case Karen
 	-- has been photographing -- a carcass with a model, an upright box and no clip on it, standing in
 	-- its bind pose. Asking here also LOADS the track, so the death below plays off the same one.
-	local hasTrack = full ~= nil and trackFor(handle, (Body.deathClips(full)), full) ~= nil
+	local deathTrack = if full ~= nil then trackFor(handle, (Body.deathClips(full)), full) else nil
+	local hasTrack = deathTrack ~= nil
 	local boxFalls = Body.boxFalls(handle.visual ~= nil, hasTrack)
 
 	-- THE UPRIGHT CONSTRAINT ONLY LETS GO WHEN THE BOX IS THE THING THAT FALLS (task 150). Until this
@@ -2294,6 +2304,10 @@ function Body.collapse(handle, config, full)
 		Body.topple(handle, config)
 		return
 	end
+	-- THE CLIP IS NOW THE ONLY THING THAT CAN LAY THIS ANIMAL DOWN, so the backstop is armed
+	-- (task 249). `stepCarcass` holds this track to its promise: a death that has not advanced a
+	-- frame by `DEATH_BACKSTOP_SECONDS` never will, and the box rolls after all.
+	handle.deathTrack = deathTrack
 
 	-- ...AND WHEN THERE IS SOMETHING DRAWN, THE CLIP THAT DOES THE FALLING OVERSHOOTS ON A SMALL
 	-- ANIMAL (task 120). Karen, 2026-10-04: "when shoot cub he is gone not remaining". The cub was
@@ -2395,11 +2409,91 @@ end
 -- touch `CanQuery`, `CanCollide`, `Damageable`, `HitZone` or the welded zone parts, so a dead boar
 -- answers a ray exactly as it did before; and it happens only AFTER the body has stopped, so the
 -- carcass still falls, still topples with the flag off, and still lands on the ground.
+-- DID THE DEATH CLIP ACTUALLY RUN? PURE, and it is the whole of the backstop's question (task 249).
+--
+-- `TimePosition` AND NOT `IsPlaying`. `Animator:LoadAnimation` hands back a track for an asset that
+-- has not downloaded yet and `AnimationTrack:Play` on it reports `IsPlaying = true` while applying
+-- nothing at all -- which is precisely the state that leaves a carcass standing. A track that has
+-- advanced its own clock is a track that is really driving the rig.
+--
+-- `length <= 0` IS THE SAME FACT SAID TWICE: an asset that has not arrived has no length. It is
+-- tested as well as the clock because a track can be at 0.000 on the frame it starts, and a
+-- carcass is not judged on one frame -- `deadFor` is.
+function Body.deathDrawn(timePosition: number?, length: number?): boolean
+	if type(length) == "number" and length <= 0 then
+		return false
+	end
+	return type(timePosition) == "number" and timePosition > 0
+end
+
+-- SHOULD THE BOX LAY THIS ANIMAL DOWN AFTER ALL? PURE, and `false` for every carcass that is
+-- already on its side, every carcass the box toppled at the moment of death, and every carcass
+-- whose clip is running. `after == nil` is the pre-249 behaviour exactly: no backstop.
+-- `since` IS `handle.collapsedFor`, THE CARCASS STEP'S OWN CLOCK, and not `handle.deadFor`: that
+-- one belongs to `stepVisual`, which has its own reasons not to run, and a backstop that depends on
+-- the thing it is backstopping is not one (round 1, finding 1).
+function Body.shouldBackstopDeath(since: number, armed: boolean, drawn: boolean, toppled: boolean, config): boolean
+	local after = config.DEATH_BACKSTOP_SECONDS
+	if after == nil or toppled or not armed or drawn then
+		return false
+	end
+	return since >= after
+end
+
 function Body.stepCarcass(handle, dt: number, config)
-	if not handle.collapsed or handle.part.Anchored then
+	if not handle.collapsed then
 		return
 	end
+	-- THE CLOCK AND THE BACKSTOP COME BEFORE THE ANCHOR'S OWN EARLY RETURN, AND ROUND 1 IS WHY
+	-- (task 249, the Reviewer's finding 1). Written below that return, the backstop could never
+	-- fire at all: the carcass it is FOR is the one nothing is moving -- `collapse` leaves
+	-- `Upright` on and no clip rolls it -- so it is still within a fraction of a second,
+	-- `stillFor` passes `CARCASS_STILL_SECONDS` (**0.25**) and this function anchors it, and from
+	-- the next frame it returned before `DEATH_BACKSTOP_SECONDS` (**1.5**) could ever be reached.
+	-- The config header even said *"it is longer than CARCASS_STILL_SECONDS"* as though that were
+	-- a virtue; it was the disqualifying fact. A dead boar stood anchored upright for the whole
+	-- `CARCASS_SECONDS` exactly as before, and the counter nominated as the proof read 0.
+	--
+	-- SO THE BACKSTOP UN-ANCHORS. An anchored carcass is one this function already decided was
+	-- finished moving, and if its death was never drawn that decision was wrong: the part goes
+	-- loose again, `stillFor` restarts, the constraint lets go and the box rolls -- and the
+	-- anchoring below re-anchors it a quarter of a second after it has settled on its side, which
+	-- is what the anchor is for.
 	handle.collapsedFor += dt
+	-- THE BACKSTOP `Body.topple`'S OWN COMMENT HAS PROMISED SINCE TASK 150. KAREN, 2026-10-23:
+	-- *"bug with dead boar standing"*. It was never written: a grep for `Body.topple` found ONE
+	-- caller, `Body.collapse`, so a carcass whose death clip never ran was never laid down.
+	--
+	-- IT IS MEASURED ON `collapsedFor`, WHICH IS THIS FUNCTION'S OWN CLOCK, and not on
+	-- `handle.deadFor` -- that one is advanced by `stepVisual`, a different function with its own
+	-- reasons not to run, and a backstop that depends on the thing it is backstopping is not one.
+	--
+	-- THE UPRIGHT CONSTRAINT GOES FIRST AND THE ROLL SECOND, which is `collapse`'s own order for
+	-- the box-falls case: `AlignOrientation` would otherwise pull the body straight back up.
+	--
+	-- ...AND THE CLIP CAN NEVER COMPOSE WITH IT, which is task 150's buried-upside-down carcass.
+	-- `stepVisual` returns early for a toppled carcass, so once this has fired no death clip is
+	-- ever played on this animal -- and the track is stopped here so a late download cannot apply
+	-- one behind its back.
+	local track = handle.deathTrack
+	local drawn = Body.deathDrawn(if track then track.TimePosition else nil, if track then track.Length else nil)
+	if Body.shouldBackstopDeath(handle.collapsedFor, track ~= nil, drawn, handle.toppled, config) then
+		handle.deathTrack = nil
+		if track ~= nil then
+			track:Stop(0)
+		end
+		handle.upright.Enabled = false
+		handle.part.Anchored = false
+		handle.stillFor = 0
+		Body.topple(handle, config)
+		handle.backstopped = true
+	elseif drawn then
+		-- IT RAN. The promise is kept and nothing has to be watched any more.
+		handle.deathTrack = nil
+	end
+	if handle.part.Anchored then
+		return
+	end
 	local linear = handle.part.AssemblyLinearVelocity
 	local angular = handle.part.AssemblyAngularVelocity.Magnitude
 	if Body.carcassIsStill(linear, angular, config) then

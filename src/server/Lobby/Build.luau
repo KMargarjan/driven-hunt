@@ -150,6 +150,12 @@ local stats = {
 	-- every wheel of three trucks and 2.017 under at the east bay, and a fix for that cannot be
 	-- something anybody has to take on trust from a screenshot. `trucksSettled` says how many were
 	-- measured at all, so a world with no ground reader is a counted state and not a silent one.
+	-- HOW MUCH OF THE WORLD'S OWN FOLIAGE THE LOBBY TOOK OFF ITS WORKING GROUND (task 249). Karen,
+	-- 2026-10-23, with a frame of a bush in front of TRUCK 4's pad: *"remove this bush"*. It is the
+	-- one counter in this file for instances this repository did NOT make, which is exactly why it
+	-- exists: a sweep that quietly took the whole forest and a sweep that quietly took nothing read
+	-- the same from a screenshot. Measured in her place on the day: **1**.
+	worldFoliageCleared = 0,
 	trucksSettled = 0,
 	truckGroundStuds = 0,
 	truckPainted = 0,
@@ -4008,6 +4014,85 @@ function Build.yardRect(anchor: Vector3, cfg): (number, number, number, number)
 	return anchor.X + (west + east) / 2, (east - west) / 2, anchor.Z + (north + south) / 2, (north - south) / 2
 end
 
+-- ---------------------------------------------------------- the lobby clears its own ground (249)
+
+-- IS THIS FOOT ON THE LOBBY'S WORKING GROUND? PURE -- two numbers in, a boolean out, no Instance and
+-- no world -- so `lobby.spec` can ask it about the bush's own coordinates, about a pad, and about a
+-- tree fifty studs out in the wood, with nothing built.
+--
+-- THREE RECTANGLES, AND EACH IS ALREADY A NUMBER THIS FILE OWNS:
+--   * THE GRAVEL, `Build.yardRect`, grown by `CLEARING.YARD_MARGIN_STUDS` -- the four bays, the
+--     four pads and the turning ground;
+--   * THE ROAD CORRIDOR, lane plus both verges, over the road's own run -- a bush standing in the
+--     road is wrong whoever put it there;
+--   * THE FRONT OF THE HOUSE, `TREELINE.FRONT_HALF_WIDTH` either side of the lodge's centre line
+--     and `CLEARING.FRONT_STUDS` out from its south face. Karen's words are *"keep the yard and the
+--     lodge front free"*; BEHIND and BESIDE the lodge is where our own grove stands and is left
+--     alone.
+function Build.onWorkingGround(x: number, z: number, anchor: Vector3, cfg): boolean
+	local clearing = cfg.CLEARING
+	local yardX, yardHX, yardZ, yardHZ = Build.yardRect(anchor, cfg)
+	local margin = clearing.YARD_MARGIN_STUDS
+	if math.abs(x - yardX) <= yardHX + margin and math.abs(z - yardZ) <= yardHZ + margin then
+		return true
+	end
+	local road = cfg.ROAD
+	local roadX = anchor.X + road.CENTRE_X
+	local roadHX = road.WIDTH_STUDS / 2 + road.VERGE_STUDS
+	local roadFar, roadNear = anchor.Z + road.TO_Z, anchor.Z + road.FROM_Z
+	if roadFar > roadNear then
+		roadFar, roadNear = roadNear, roadFar
+	end
+	if math.abs(x - roadX) <= roadHX and z >= roadFar and z <= roadNear then
+		return true
+	end
+	local house = anchor + cfg.LODGE.OFFSET
+	local front = cfg.LODGE.SIZE.Z / 2
+	return math.abs(x - house.X) <= cfg.TREELINE.FRONT_HALF_WIDTH
+		and z <= house.Z - front
+		and z >= house.Z - front - clearing.FRONT_STUDS
+end
+
+-- ...AND THE SWEEP THAT APPLIES IT. The ONE place this repository removes an instance it did not
+-- make, and it is bounded three ways: only the folders `CLEARING.FOLDERS` names, only their direct
+-- children, and only those standing on the working ground above.
+--
+-- `world` IS AN ARGUMENT, exactly like `container` and `templates`, so `lobby.spec` sweeps a folder
+-- it built itself and production passes `Workspace`. Returns how many it took, which is the number
+-- the console line prints and the number the spec asserts -- a sweep that silently removed nothing
+-- and a sweep that silently removed the forest would otherwise look the same.
+--
+-- BY NAME AND OVER EVERY MATCH, because this place has TWO folders called `Session`.
+function Build.clearWorkingGround(world: Instance?, anchor: Vector3, cfg): number
+	if world == nil then
+		return 0
+	end
+	local wanted = {}
+	for _, name in ipairs(cfg.CLEARING.FOLDERS) do
+		wanted[name] = true
+	end
+	local removed = 0
+	for _, folder in ipairs(world:GetChildren()) do
+		if folder:IsA("Folder") and wanted[folder.Name] then
+			for _, thing in ipairs(folder:GetChildren()) do
+				local at: Vector3? = nil
+				if thing:IsA("BasePart") then
+					at = thing.Position
+				elseif thing:IsA("Model") then
+					local box = thing:GetBoundingBox()
+					at = box.Position
+				end
+				if at ~= nil and Build.onWorkingGround(at.X, at.Z, anchor, cfg) then
+					thing:Destroy()
+					removed += 1
+				end
+			end
+		end
+	end
+	stats.worldFoliageCleared += removed
+	return removed
+end
+
 -- THE ROAD TO THE LODGE. Karen, 2026-10-14: *"place could be a bit more nicer like road going to
 -- that house and around fields and forrests"*.
 --
@@ -4723,6 +4808,7 @@ function Build.build(
 	stats.treesMoved = 0
 	stats.treesSeated = 0
 	stats.treesDropped = 0
+	stats.worldFoliageCleared = 0
 	stats.truckWrites = 0
 	stats.truckRigs = 0
 	-- THE OLD KEEPER WENT WITH THE OLD FOLDER. Dropped here rather than relied on, so a rebuild can
@@ -4738,6 +4824,15 @@ function Build.build(
 	table.clear(truckRigs)
 	local folder = Instance.new("Folder")
 	folder.Name = Data.FOLDER_NAME
+
+	-- THE WORLD'S OWN FOLIAGE OFF THE LOBBY'S GROUND, FIRST (task 249). Before the road and the
+	-- gravel are laid rather than after, so nothing this function builds can be in the sweep's way,
+	-- and so the removal has happened by the time anything is measured against the ground.
+	--
+	-- `container` IS THE WORLD HERE AND THAT IS THE SEAM: production passes `Workspace` into
+	-- `Build.build`, and a spec passes a Folder of its own -- whose children are its own fixtures,
+	-- in neither of this rule's three rectangles unless the spec put them there.
+	Build.clearWorkingGround(container, anchor, cfg)
 
 	road(folder, anchor, cfg)
 	fences(folder, anchor, cfg)

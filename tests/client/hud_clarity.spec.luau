@@ -310,6 +310,42 @@ return function()
 			expect(Objective.lineVisible("Waiting", nil, false, false, false, true, lobby)).to.equal(false)
 		end)
 
+		-- ---------------------------------------------- task 249: he respawned out of the drive
+		--
+		-- KAREN, 2026-10-23: *"still game wasant over when I respawn after while it was showing what
+		-- was shooted but I was free to walk, is it ok ?"*. It is -- a respawn ends your hunt -- and
+		-- the defect is that the screen said NOTHING: this function answered `""` for a man with no
+		-- team while a drive ran.
+		it("tells a man the drive let go of him, and tells nobody else that (task 249)", function()
+			local words = Objective.CONFIG.TEXT
+			local spot = Vector3.new(0, 0, 0)
+			-- HE LEFT: the line is up, in every phase a drive can be in.
+			for _, phase in ipairs({ "Assigning", "Running", "Scoring" }) do
+				expect(Objective.text(phase, nil, nil, { spot = spot, left = true })).to.equal(words.LobbyLeft)
+			end
+			-- A MAN WHO NEVER ENROLLED IS ALSO TEAMLESS AND MUST NOT READ IT. This is the whole
+			-- reason the fact comes from the server rather than from `team == nil`.
+			expect(Objective.text("Running", nil, nil, { spot = spot })).to.equal("")
+			expect(Objective.text("Running", nil, nil, { spot = spot, left = false })).to.equal("")
+			-- A SENTENCE THAT SAYS MORE STILL WINS. His own pad counting him into the next drive is
+			-- a NUMBER on screen; a panel being up is the task 197 part 2 rule.
+			expect(Objective.text("Waiting", nil, nil, { spot = spot, left = true, secondsLeft = 5 })).to.equal(
+				string.format(words.LobbyLeaving, 5)
+			)
+			expect(Objective.text("Running", nil, nil, { spot = spot, left = true, asking = 2 })).to.equal("")
+			expect(Objective.text("Running", nil, nil, { spot = spot, left = true, loading = "going" })).to.equal("")
+			-- ...AND A MAN THE DRIVE HAS IS READING HIS OWN INSTRUCTION, not this.
+			expect(Objective.text("Running", "Shooters", nil, { spot = spot, left = true })).to.equal(
+				words.Shooters.Running
+			)
+			-- THE LINE IS DRAWN, which is the other half of "she saw nothing": `lineVisible` calls
+			-- `text` itself, so a sentence that exists and a line that is shown are one answer.
+			expect(Objective.lineVisible("Running", nil, false, false, false, false, { spot = spot, left = true })).to.equal(
+				true
+			)
+			expect(Objective.lineVisible("Running", nil, false, false, false, false, { spot = spot })).to.equal(false)
+		end)
+
 		it("is ASCII, and never an em dash", function()
 			-- Everything drawn in this repo is ASCII (`Drive.CONFIG.TIED_TEXT`'s own rule). An em dash
 			-- is the one character a rewrite is likely to introduce, so it is named.
@@ -333,6 +369,9 @@ return function()
 				Objective.text("Running", "Drivers", { holdLeft = 2 }),
 				Objective.text("Running", "Drivers", { holdLeft = 0, goAge = 0 }),
 				Objective.text("Running", "Drivers", { through = true }),
+				-- ...AND THE LINE A RESPAWNED PLAYER READS (task 249). The dispatch asked for a
+				-- MIDDLE DOT in it; this is the case that would have caught it.
+				Objective.text("Running", nil, nil, { spot = Vector3.zero, left = true }),
 			}
 			for _, line in ipairs(extra) do
 				expect(#line > 0).to.equal(true)
@@ -406,11 +445,14 @@ return function()
 			-- *"step on a truck pad to hunt"* (27), because the Director's own 35-character sentence
 			-- would not fit a phone.
 			local SPOT = { spot = Vector3.new(0, 0, 0) }
+			-- ...AND THE THIRD (task 249), which is read in `Running` rather than `Waiting`: it is
+			-- the line a man who respawned out of a live drive stands at the lodge reading.
 			for _, case in ipairs({
-				{ name = "lobby", lobby = SPOT },
-				{ name = "leaving", lobby = { spot = SPOT.spot, secondsLeft = 5 } },
+				{ name = "lobby", phase = "Waiting", lobby = SPOT },
+				{ name = "leaving", phase = "Waiting", lobby = { spot = SPOT.spot, secondsLeft = 5 } },
+				{ name = "left", phase = "Running", lobby = { spot = SPOT.spot, left = true } },
 			}) do
-				local line = Objective.text("Waiting", nil, nil, case.lobby)
+				local line = Objective.text(case.phase, nil, nil, case.lobby)
 				longest = math.max(longest, #line)
 				node.Text = line
 				task.wait()

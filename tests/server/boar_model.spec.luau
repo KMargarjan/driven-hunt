@@ -1662,4 +1662,246 @@ return function()
 			expect(degOffUp(placed) > LYING_MIN_DEG).to.equal(true)
 		end)
 	end)
+
+	-- ------------------------------ THE BACKSTOP THAT WAS NEVER THERE (task 249)
+	--
+	-- KAREN, 2026-10-23: *"bug with dead boar standing"* -- the fourth time this has reached her
+	-- (L-010: boars x3, and task 150's own count before that).
+	--
+	-- THE CAUSE, FOUND BY GREP AND NOT BY GUESS: `Body.topple`'s comment has said since task 150
+	-- that it is called *"from exactly two places -- the collapse, and the backstop in
+	-- `stepCarcass`"*, and `grep -rn "Body.topple" src/` finds **one** caller. So when
+	-- `Body.boxFalls` answers false the `AlignOrientation` is left ON on purpose and the ONLY thing
+	-- that can lay the animal down is the death clip really playing -- and
+	-- `Animator:LoadAnimation` hands back a track for an asset that has not downloaded, which
+	-- `trackFor` cannot tell apart from a loaded one.
+	describe("a dead animal is laid down even when its clip never runs (task 249)", function()
+		local WOUND = CONFIG.WOUND
+
+		it("asks the one question that separates a clip that runs from one that does not", function()
+			-- `TimePosition` AND NOT `IsPlaying`: a track on an asset that has not arrived reports
+			-- `IsPlaying = true` and applies nothing.
+			expect(Boar.deathDrawn(0.4, 1.167)).to.equal(true)
+			expect(Boar.deathDrawn(0, 1.167)).to.equal(false)
+			-- NO LENGTH IS NO ASSET, whatever the clock says.
+			expect(Boar.deathDrawn(0.4, 0)).to.equal(false)
+			expect(Boar.deathDrawn(nil, nil)).to.equal(false)
+		end)
+
+		it("fires only for a carcass that is armed, still upright and past the wait", function()
+			expect(Boar.shouldBackstopDeath(2.0, true, false, false, WOUND)).to.equal(true)
+			-- THE CLIP RAN: nothing to rescue.
+			expect(Boar.shouldBackstopDeath(2.0, true, true, false, WOUND)).to.equal(false)
+			-- THE BOX ALREADY TOPPLED IT at the moment of death (`Body.boxFalls` true), and rolling
+			-- it a second time would stand it back up on its other side -- task 150's own defect.
+			expect(Boar.shouldBackstopDeath(2.0, true, false, true, WOUND)).to.equal(false)
+			-- NOTHING WAS PROMISED: no visual, or no track at all. `collapse` never arms it.
+			expect(Boar.shouldBackstopDeath(2.0, false, false, false, WOUND)).to.equal(false)
+			-- ...AND IT WAITS. A death that is really playing is well past its first frame by
+			-- `DEATH_BACKSTOP_SECONDS`, and nothing is rolled before then.
+			expect(Boar.shouldBackstopDeath(WOUND.DEATH_BACKSTOP_SECONDS - 0.01, true, false, false, WOUND)).to.equal(
+				false
+			)
+			expect(Boar.shouldBackstopDeath(WOUND.DEATH_BACKSTOP_SECONDS, true, false, false, WOUND)).to.equal(true)
+			-- A WORLD WITH NO BACKSTOP NUMBER IS THE BEHAVIOUR BEFORE THIS TASK, EXACTLY.
+			local without = table.clone(WOUND)
+			without.DEATH_BACKSTOP_SECONDS = nil
+			expect(Boar.shouldBackstopDeath(60, true, false, false, without)).to.equal(false)
+		end)
+
+		-- ------------------------------ AND THE BEHAVIOUR, NOT ONLY THE ARITHMETIC
+		--
+		-- THE THREE CASES ABOVE ARE PURE PREDICATES AND THAT IS NOT ENOUGH (Learning Agent L-028):
+		-- a predicate that answers correctly proves nothing about the carcass in the world unless
+		-- something calls it. This case drives the REAL `Body.stepCarcass` on a REAL body the
+		-- runtime spawned, with the one state that produced Karen's defect -- `collapsed`, the
+		-- upright constraint still ON because `boxFalls` answered false, and a death track that
+		-- never advances because its asset never arrived.
+		--
+		-- THE TRACK IS A STAND-IN AND IT HAS TO BE. The thing being reproduced is an asset that has
+		-- not downloaded; there is no way to ask Roblox for one on demand, and `trackFor` cannot
+		-- tell it from a loaded one -- which is the whole defect. A table with the two fields the
+		-- backstop reads IS that state, exactly.
+		--
+		-- IT WAS SHOWN FAILING ON THE CODE BEFORE THE FIX, AND THAT IS THE POINT OF IT (L-028).
+		-- The backstop block was taken back out of `Body.stepCarcass`, the suite re-run against the
+		-- live place, and this is what came back:
+		--
+		--   failed [server] boar_model.spec:1785 Expected value "true" (boolean), got "false"
+		--   failed [server] boar_model.spec:1814 Expected value "nil", got "table: ..."
+		--
+		-- Line 1785 is `expect(handle.toppled).to.equal(true)`: **the carcass stands**, which is
+		-- Karen's defect, reproduced by the suite rather than argued from a grep. The block was put
+		-- straight back (`git checkout`) and the same run goes green.
+		describe("the carcass in the world, not only the arithmetic", function()
+			local Body = require(ServerScriptService:WaitForChild("Boar"):WaitForChild("Body"))
+			local bodies: { any } = {}
+
+			-- A REAL BODY, built by the real constructor into this spec's own folder -- the trunk,
+			-- its `Mover` and its `Upright` exactly as a spawned animal has them. `Body.create` is
+			-- what `Runtime:spawn` calls; `runtime:spawn` hands back a PUBLIC handle that has no
+			-- `upright` and no `collapsed`, so this takes the body itself.
+			local function newBody()
+				local made = Body.create(
+					Boar.kindConfig("male", CONFIG),
+					testRoot,
+					string.format("Carcass%d", #bodies + 1),
+					Vector3.new(30, GROUND_Y + 4, 30),
+					"male"
+				)
+				table.insert(bodies, made)
+				return made
+			end
+
+			-- THE ONE STATE THAT PRODUCED KAREN'S DEFECT: collapsed, the upright constraint still
+			-- ON because `Body.boxFalls` answered false, and a death track whose asset never
+			-- arrived. The track is a STAND-IN and it has to be -- there is no way to ask Roblox
+			-- for an asset that will not download, and `trackFor` cannot tell one from a loaded
+			-- one, which is the whole defect. A table with the two fields the backstop reads IS
+			-- that state.
+			local function deadWithTrack(handle, timePosition: number, length: number)
+				local stopped = { n = 0 }
+				handle.collapsed = true
+				handle.toppled = false
+				-- `deadFor` IS `stepVisual`'S CLOCK AND THE BACKSTOP NO LONGER READS IT (round 1,
+				-- finding 1): `collapsedFor` is `stepCarcass`'s own. Set here anyway, so a case
+				-- that leans on the old one would be caught rather than quietly pass.
+				handle.deadFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
+				handle.part.Anchored = false
+				handle.upright.Enabled = true
+				handle.deathTrack = {
+					TimePosition = timePosition,
+					Length = length,
+					Stop = function(_self)
+						stopped.n += 1
+					end,
+				}
+				return stopped
+			end
+
+			afterEach(function()
+				for _, handle in ipairs(bodies) do
+					Body.destroy(handle)
+				end
+				table.clear(bodies)
+			end)
+
+			-- ------------------------------ THE REAL SEQUENCE, AND ROUND 1 IS WHY (finding 2)
+			--
+			-- THE CASE BELOW HAND-WRITES `deadFor` PAST THE BACKSTOP AND `Anchored = false`, AND
+			-- THAT IS A STATE THE GAME DOES NOT REACH. The Reviewer: *"the production path reaches
+			-- `deadFor` 1.5 only while the body is still being moved, because
+			-- `stillFor >= CARCASS_STILL_SECONDS` (0.25) has anchored it long before"*. So it
+			-- could not fail on the defect it was written for.
+			--
+			-- THIS ONE STEPS THE CLOCK THE WAY THE RUNTIME DOES: one collapse, then
+			-- `Body.stepCarcass` over and over at a real `dt`, letting the function anchor the
+			-- body itself and letting its own `collapsedFor` carry the time. It asserts the
+			-- anchoring really happened -- the mechanism the finding names -- and then that the
+			-- carcass was laid down anyway.
+			it("lays the carcass down on the real sequence, through the anchoring (round 1, finding 1)", function()
+				local handle = newBody()
+				local stopped = deadWithTrack(handle, 0, 0)
+				-- FROM A FRESH COLLAPSE, not from a hand-written clock.
+				handle.collapsedFor = 0
+				handle.deadFor = 0
+				handle.stillFor = 0
+				handle.part.AssemblyLinearVelocity = Vector3.zero
+				local before = handle.part.CFrame
+				local anchoredOnTheWay = false
+				local steps = math.ceil((CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5) / 0.1)
+				for _ = 1, steps do
+					Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+					if handle.part.Anchored then
+						anchoredOnTheWay = true
+					end
+				end
+				-- THE MECHANISM THE FINDING NAMES, ASSERTED: a carcass nothing is moving IS
+				-- anchored inside a quarter of a second, long before the backstop is due.
+				expect(anchoredOnTheWay).to.equal(true)
+				-- ...AND IT WAS LAID DOWN ANYWAY. Run against the round-1 `stepCarcass` this case
+				-- reported `boar_model.spec:1824 Expected value "true" (boolean), got "false"
+				-- (boolean)` on the line below -- WITH the `anchoredOnTheWay` assertion above it
+				-- PASSING, which is the Reviewer's finding 1 reproduced by the suite: the body is
+				-- anchored on time and the carcass stands anyway.
+				expect(handle.toppled).to.equal(true)
+				expect(handle.backstopped).to.equal(true)
+				expect(handle.part.CFrame).never.to.equal(before)
+				expect(handle.upright.Enabled).to.equal(false)
+				expect(stopped.n).to.equal(1)
+				-- ...AND IT IS ANCHORED AGAIN once it has settled on its side, which is what the
+				-- anchor is for: the un-anchoring is a moment, not a new state.
+				for _ = 1, 40 do
+					handle.part.AssemblyLinearVelocity = Vector3.zero
+					Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				end
+				expect(handle.part.Anchored).to.equal(true)
+			end)
+
+			it("lays a standing carcass down when its death clip never advanced", function()
+				local handle = newBody()
+				local before = handle.part.CFrame
+				local stopped = deadWithTrack(handle, 0, 0)
+				handle.collapsedFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
+				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				-- THE BOX ROLLED, which is the one CFrame write that lets gravity do the rest.
+				expect(handle.toppled).to.equal(true)
+				expect(handle.part.CFrame).never.to.equal(before)
+				-- ...AND THE CONSTRAINT LET GO FIRST, or `AlignOrientation` would pull it straight
+				-- back upright -- `Body.collapse`'s own order for the box-falls case.
+				expect(handle.upright.Enabled).to.equal(false)
+				-- ...AND THE TRACK WAS STOPPED, so a late download cannot apply a second rotation
+				-- behind its back (task 150's buried-upside-down carcass).
+				expect(stopped.n).to.equal(1)
+				expect(handle.deathTrack).to.equal(nil)
+				expect(handle.backstopped).to.equal(true)
+				-- ONCE. A second step cannot roll the same carcass again and stand it back up.
+				local after = handle.part.CFrame
+				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				expect(handle.part.CFrame).to.equal(after)
+				expect(stopped.n).to.equal(1)
+			end)
+
+			it("leaves a carcass whose clip IS running completely alone", function()
+				local handle = newBody()
+				local before = handle.part.CFrame
+				local stopped = deadWithTrack(handle, 0.4, MODEL.CLIPS.deathLeft.seconds)
+				handle.collapsedFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
+				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				expect(handle.toppled).to.equal(false)
+				expect(handle.part.CFrame).to.equal(before)
+				-- THE CLIP IS DOING THE FALLING, so the constraint stays on exactly as
+				-- `Body.collapse` left it -- the two rotations must never compose.
+				expect(handle.upright.Enabled).to.equal(true)
+				expect(stopped.n).to.equal(0)
+				-- ...AND NOTHING IS WATCHED ANY MORE: the promise was kept.
+				expect(handle.deathTrack).to.equal(nil)
+				expect(handle.backstopped).to.equal(false)
+			end)
+
+			it("does not touch a carcass the box already toppled at the moment of death", function()
+				local handle = newBody()
+				local stopped = deadWithTrack(handle, 0, 0)
+				handle.toppled = true
+				handle.upright.Enabled = false
+				handle.collapsedFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
+				local before = handle.part.CFrame
+				handle.part.Anchored = true
+				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				expect(handle.part.CFrame).to.equal(before)
+				expect(stopped.n).to.equal(0)
+				expect(handle.backstopped).to.equal(false)
+			end)
+		end)
+
+		it("is shorter than the wait that says the pose again, and longer than the clip's first frame", function()
+			-- MEASURED AGAINST THE CLIP rather than chosen: `deathLeft` is 1.167 s, so a death that
+			-- is running has moved long before the backstop looks.
+			expect(WOUND.DEATH_BACKSTOP_SECONDS > 0).to.equal(true)
+			expect(WOUND.DEATH_BACKSTOP_SECONDS < WOUND.CARCASS_REASSERT_SECONDS).to.equal(true)
+			expect(WOUND.DEATH_BACKSTOP_SECONDS < MODEL.CLIPS.deathLeft.seconds * 2).to.equal(true)
+			-- ...AND SHORTER THAN THE BODY IS THERE TO BE LOOKED AT, by a wide margin.
+			expect(WOUND.DEATH_BACKSTOP_SECONDS < WOUND.CARCASS_SECONDS / 10).to.equal(true)
+		end)
+	end)
 end

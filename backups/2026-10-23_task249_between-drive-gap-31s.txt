@@ -1,0 +1,27 @@
+Task 249, 2026-10-23: the gap between two drives, before it was cut from 31 s to 15 s.
+
+KAREN, 2026-10-23, verbatim: "a bit to long to wait for game we need to reduce seconds".
+The Director's dispatch: "Make the whole gap 15 s: results 5, the card 6, the remainder 4, or
+whatever split the code allows. Keep the role choice usable; say the final numbers."
+
+THE THREE ROWS AS THEY WERE (archived under rule 7, nothing deleted):
+
+  src/server/Match/init.luau      Match.CONFIG.SCORE_SECONDS         = 8    -- the results scene
+  src/shared/Lobby/init.luau      Lobby.CONFIG.PADS.NEXT.SECONDS     = 8    -- the next-drive card
+  src/server/Match/init.luau      Match.CONFIG.INTERMISSION_SECONDS  = 15   -- the start card / the
+                                                                           -- hunter's stand timer /
+                                                                           -- the beaters' hold
+  total 31 s
+
+AND AS THEY ARE NOW: 4 + 6 + 5 = 15 s.
+
+WHY THAT SPLIT RATHER THAN THE DISPATCH'S 5/6/4. The card keeps the 6 the dispatch names, because
+the ROLE CHOICE lives on it (`T` swaps hunter for beater, `Y` sits the drive out) and the dispatch
+asks for that to stay usable. The other two swap: the dispatch would leave 4 s on
+INTERMISSION_SECONDS, which is the ONE of the three the player does not spend waiting -- he is
+respawned, free, and walking to his stand through it, and it is the number Karen herself asked to be
+raised to 15 on 2026-10-12 ("for hunter a bit more time like 15s to find a place"). So the deep cut
+goes on the results scene, which is the wait she has now asked to shorten twice.
+
+The previous values of INTERMISSION_SECONDS are archived in
+backups/2026-10-11_task158_intermission_20s.txt and backups/2026-10-12_task163_intermission_10s.txt.

@@ -131,15 +131,24 @@ Match.CONFIG = {
 	-- within 10s"*, *"Beater start in line with others and countdown when drive starts"*. The start
 	-- card is up for this long, the hunter's stand timer counts this down, and the beaters are held
 	-- at their line for exactly it -- all three read `phaseEndsAt`, so they cannot disagree.
-	-- 20 -> 10 -> 15. The old 20 was "long enough to read the teams and walk to your post"; 10 was
-	-- the number Karen named in task 158; 15 is the number she named after playing it (2026-10-12
-	-- ~10:40: *"for hunter a bit more time like 15s to find a place"*).
+	-- 20 -> 10 -> 15 -> 5. The old 20 was "long enough to read the teams and walk to your post"; 10
+	-- was the number Karen named in task 158; 15 is the number she named after playing it
+	-- (2026-10-12 ~10:40: *"for hunter a bit more time like 15s to find a place"*).
 	-- IT IS STILL ONE NUMBER FOR ALL THREE, which is task 158's decision and nothing in her words
-	-- asks to split it: the hunter gets his 15 s to pick a stand, the start card is up for the same
-	-- 15 s (longer, so no less readable), and the beaters stand at their line 5 s longer -- against
-	-- the two-minute walk task 162 measured, that is 4% of a drive.
-	-- backups/2026-10-11_task158_intermission_20s.txt, backups/2026-10-12_task163_intermission_10s.txt.
-	INTERMISSION_SECONDS = 15, -- K
+	-- asks to split it: the hunter gets his seconds to pick a stand, the start card is up for the
+	-- same ones, and the beaters stand at their line for them.
+	--
+	-- **5 SINCE TASK 249, AND IT IS ONE THIRD OF A FIFTEEN-SECOND BUDGET.** KAREN, 2026-10-23: *"a
+	-- bit to long to wait for game we need to reduce seconds"*. The whole gap between two drives was
+	-- `SCORE_SECONDS` 8 + `Lobby.CONFIG.PADS.NEXT.SECONDS` 8 + this 15 = **31 s**, and the Director's
+	-- dispatch sets the new total at **15**. The three rows are 4 + 6 + 5 and they are split that way
+	-- on purpose: the two the player spends DOING NOTHING take the deep cut, and this one -- the only
+	-- one he spends respawned, free and walking -- keeps the largest share of what is left.
+	-- IT IS THE SMALLEST OF THE THREE ANYWAY, which is a change to what Karen asked for in task 163,
+	-- and it is hers to judge on the next playtest: one row moves it.
+	-- backups/2026-10-11_task158_intermission_20s.txt, backups/2026-10-12_task163_intermission_10s.txt,
+	-- backups/2026-10-23_task249_between-drive-gap-31s.txt.
+	INTERMISSION_SECONDS = 5, -- K's budget, the Director's split
 	-- HOW LONG THE RESULTS SCENE IS UP (task 159): the Scoring phase, unchanged in length. Karen's
 	-- scene -- the animals laid out, the four lights, everybody standing round them and the results
 	-- table on screen -- lasts exactly this, and then the next drive starts as it always did.
@@ -149,12 +158,14 @@ Match.CONFIG = {
 	-- scene, and that hold IS this row -- so it is the one wait between two drives that she spends
 	-- doing nothing at all.
 	--
-	-- THE OTHER WAIT IS `INTERMISSION_SECONDS` 15 AND IT IS DELIBERATELY LEFT ALONE, reported to the
-	-- Director rather than cut: that one is Karen's own (task 158, *"timer like 10s to find position
-	-- to stand"*), she is respawned, free and walking to her stand through it, and it is the
-	-- countdown the start card shows. Cutting the results hold is what she asked for; cutting her
-	-- stand timer is not.
-	SCORE_SECONDS = 8, -- K, 2026-10-18 ("make 8s max"); 25 from task 32 until then
+	-- ...AND 4 SINCE TASK 249, because the whole gap was still too long. KAREN, 2026-10-23: *"a bit
+	-- to long to wait for game we need to reduce seconds"*. 8 + 8 + 15 = 31 s became 4 + 6 + 5 = 15
+	-- (the Director's total), and THIS row takes the deepest cut of the three: the results scene is
+	-- the one wait she spends standing still with a table on the screen, which is exactly what she
+	-- has now asked to shorten twice. The table itself does not go away -- it is the drive's own
+	-- report and `Tab` still opens it whenever he likes.
+	-- backups/2026-10-23_task249_between-drive-gap-31s.txt.
+	SCORE_SECONDS = 4, -- K, 2026-10-23; 8 from 2026-10-18, 25 from task 32
 	-- THE SECOND WAY A DRIVE CAN END (task 159). Karen: *"Timer or when all beaters cross line of
 	-- hunters"*. The clock still ends every drive; this can only ever end one EARLIER, and only when
 	-- there is at least one real beater in it -- `Phase.beatersThrough` is the whole rule.

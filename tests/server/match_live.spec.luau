@@ -251,12 +251,16 @@ return function()
 	describe("the drive's own numbers", function()
 		it("are the ones the design fixed, and the 1.7b switches are off", function()
 			expect(Match.CONFIG.DRIVE_SECONDS).to.equal(600)
-			-- 20 -> 10 (task 158) -> 15 (task 163). Karen named 10 and then, after playing it,
-			-- named 15: *"for hunter a bit more time like 15s to find a place"*. It is the start
-			-- card's life, the hunter's stand timer and the beaters' hold, which are one deadline.
+			-- 20 -> 10 (task 158) -> 15 (task 163) -> 5 (task 249). Karen named 10 and then, after
+			-- playing it, named 15: *"for hunter a bit more time like 15s to find a place"*; on
+			-- 2026-10-23 she named the whole gap instead (*"a bit to long to wait for game we need
+			-- to reduce seconds"*) and the Director set that gap at 15 seconds for all three
+			-- phases. It is the start card's life, the hunter's stand timer and the beaters' hold,
+			-- which are one deadline.
 			-- backups/2026-10-11_task158_intermission_20s.txt,
-			-- backups/2026-10-12_task163_intermission_10s.txt.
-			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(15)
+			-- backups/2026-10-12_task163_intermission_10s.txt,
+			-- backups/2026-10-23_task249_between-drive-gap-31s.txt.
+			expect(Match.CONFIG.INTERMISSION_SECONDS).to.equal(5)
 			-- ...AND THE WAIT ON THE OTHER SIDE OF A DRIVE (task 209). Karen, 2026-10-18: *"time for
 			-- next rount is to long make 8s max"*. This is the number she was reading: the results
 			-- panel's footer says `NEXT DRIVE IN n` and counts THIS down, and it was 25 -- measured
@@ -264,7 +268,7 @@ return function()
 			-- `<=` and not an `==` is the rule she gave ("8s max"), so a later tune down cannot
 			-- quietly fail a spec that only pins a number.
 			expect(Match.CONFIG.SCORE_SECONDS <= 8).to.equal(true)
-			expect(Match.CONFIG.SCORE_SECONDS).to.equal(8)
+			expect(Match.CONFIG.SCORE_SECONDS).to.equal(4)
 			-- TASK 163: the drive signals, and the drive it is signalling is this one.
 			expect(Match.CONFIG.SIGNAL_ENABLED).to.equal(true)
 			expect(Match.CONFIG.BOARS_PER_DRIVE).to.equal(6)
@@ -272,6 +276,28 @@ return function()
 			expect(Match.CONFIG.SAFETY_ENABLED).to.equal(true) -- 1.7b: the penalty is live
 			expect(Match.CONFIG.TIE_UNTIL_DRIVE_END).to.equal(true) -- Karen's rule as written
 			expect(Match.CONFIG.END_ON_LAST_BOAR).to.equal(false)
+		end)
+
+		-- ---------------------------------------- the whole gap between two drives (task 249)
+		--
+		-- KAREN, 2026-10-23: *"a bit to long to wait for game we need to reduce seconds"*. The gap
+		-- is THREE phases in two modules and no single row says how long it is, which is how it
+		-- reached 31 seconds without anybody choosing 31. This case is that sum, written down:
+		-- cut any one of the three and the total moves, and this is the assertion that notices.
+		it("is 15 seconds from the end of one drive to the start of the next (task 249)", function()
+			local Lobby = require(game:GetService("ReplicatedStorage"):WaitForChild("Lobby"))
+			local results = Match.CONFIG.SCORE_SECONDS
+			local card = Lobby.CONFIG.PADS.NEXT.SECONDS
+			local walk = Match.CONFIG.INTERMISSION_SECONDS
+			expect(results).to.equal(4)
+			expect(card).to.equal(6)
+			expect(walk).to.equal(5)
+			expect(results + card + walk).to.equal(15)
+			-- ...AND THE CARD KEEPS THE BIGGEST SHARE, which is the Director's *"keep the role
+			-- choice usable"*: `T` swaps hunter for beater and `Y` sits the drive out, and both
+			-- are bound only while that card is up.
+			expect(card > results).to.equal(true)
+			expect(card > walk).to.equal(true)
 		end)
 
 		it("are the table the LIVE drive is running on, by identity (task 157)", function()

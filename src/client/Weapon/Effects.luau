@@ -97,6 +97,10 @@ function Effects.folder(): Folder
 	return made
 end
 
+-- ONE PUFF OF DUST, defined with the landing below and FORWARD-DECLARED here so `Effects.play`'s
+-- own impact branch draws the same thing. There is exactly one impact picture in this file.
+local puff: (Vector3, Vector3?, string?) -> BasePart
+
 local function part(
 	name: string,
 	size: Vector3,
@@ -187,20 +191,108 @@ function Effects.play(payload: any)
 			)
 			budget -= 1
 		end
-		part(
-			"Impact",
-			Vector3.new(0.3, 0.3, 0.3),
-			CFrame.new(position),
-			Color3.fromRGB(255, 170, 90),
-			config.IMPACT_LIFETIME
-		)
+		-- THE SAME PUFF THE LANDING DRAWS (task 249), and never the `Neon` cube again. This branch
+		-- is dead in production -- the server has sent `impacts = {}` on `ShotFired` since task 185
+		-- -- but a dead branch that can still draw a yellow box is one edit away from being alive.
+		puff(position, nil, nil)
 		budget -= 1
 	end
 end
 
--- WHERE THE DUST GOES, WHEN THE BULLET ARRIVES (task 185). `ShotLanded`'s payload, and nothing
--- else: one "Impact" Part per position, through the same `part()` helper, the same
--- `EFFECT_MAX_PER_SHOT` budget and the same `IMPACT_LIFETIME` as `play` has always used.
+-- ---------------------------------------------------------------- the landing (tasks 185, 249)
+
+-- WHICH PUFF A SURFACE GETS. PURE and exported, so `weapon_client.spec` can ask it about every
+-- material name without firing a shot. The argument is the plain STRING the server sends (see
+-- `Weapon.onShotLanded`); anything it does not recognise -- including nil, including "" from an
+-- older server -- is dust, which is the safe way round on a map that is grass, soil and rock.
+function Effects.impactColor(materialName: string?): Color3
+	local cfg = Shotgun.CONFIG.IMPACT
+	if type(materialName) == "string" and cfg.WOOD[materialName] then
+		return cfg.WOOD_COLOR
+	end
+	return cfg.DUST_COLOR
+end
+
+-- WHICH WAY A PUFF COMES OFF. PURE and exported for the same reason. The emitter fires along its
+-- host part's TOP face (`EmissionDirection`), so the host is built with its top ALONG the surface
+-- normal -- grains come off a trunk sideways and off the floor upwards, from one rule.
+--
+-- A ZERO OR ABSENT NORMAL IS WORLD UP, which is what every landing point sent before task 249
+-- carries: the puff still happens, it just always goes up.
+function Effects.impactFrame(position: Vector3, normal: Vector3?): CFrame
+	local up = if typeof(normal) == "Vector3" and normal.Magnitude > 1e-4 then normal.Unit else Vector3.yAxis
+	-- ANY right-hand vector that is not parallel to `up`: the emitter is radially symmetric about
+	-- its top face, so the roll about the normal changes nothing a player can see.
+	local reference = if math.abs(up.Y) > 0.99 then Vector3.xAxis else Vector3.yAxis
+	local right = reference:Cross(up)
+	if right.Magnitude < 1e-4 then
+		right = Vector3.new(0, 0, 1):Cross(up)
+	end
+	return CFrame.fromMatrix(position, right.Unit, up)
+end
+
+-- ONE PUFF, AS AN INSTANCE. Named "Impact" exactly as the cube was, because that name is what the
+-- `EFFECT_MAX_PER_SHOT` cap and the suite both count -- what changed is the picture, not the
+-- bookkeeping.
+--
+-- THE PART IS INVISIBLE AND THE PARTICLES ARE THE PICTURE. It is still handed to Debris like every
+-- other effect in this file, so nothing here can accumulate.
+function puff(position: Vector3, normal: Vector3?, materialName: string?): BasePart
+	local cfg = Shotgun.CONFIG.IMPACT
+	local host = Instance.new("Part")
+	host.Name = "Impact"
+	host.Size = Vector3.new(0.05, 0.05, 0.05)
+	host.CFrame = Effects.impactFrame(position, normal)
+	host.Transparency = 1
+	host.Anchored = true
+	host.CanCollide = false
+	host.CanQuery = false
+	host.CanTouch = false
+	host.CastShadow = false
+	host.Massless = true
+
+	local attachment = Instance.new("Attachment")
+	attachment.Parent = host
+
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Name = "Puff"
+	emitter.Texture = cfg.TEXTURE
+	emitter.Color = ColorSequence.new(Effects.impactColor(materialName))
+	emitter.LightEmission = cfg.LIGHT_EMISSION
+	emitter.Lifetime = NumberRange.new(cfg.LIFETIME[1], cfg.LIFETIME[2])
+	emitter.Speed = NumberRange.new(cfg.SPEED[1], cfg.SPEED[2])
+	emitter.SpreadAngle = Vector2.new(cfg.SPREAD_DEG, cfg.SPREAD_DEG)
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, cfg.SIZE[1]),
+		NumberSequenceKeypoint.new(1, cfg.SIZE[2]),
+	})
+	emitter.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, cfg.TRANSPARENCY[1]),
+		NumberSequenceKeypoint.new(1, cfg.TRANSPARENCY[2]),
+	})
+	emitter.Rotation = NumberRange.new(0, 360)
+	emitter.RotSpeed = NumberRange.new(-60, 60)
+	-- GRAVITY PULLS THE GRAINS BACK DOWN, which is what makes it read as dirt rather than smoke.
+	emitter.Acceleration = Vector3.new(0, -24, 0)
+	emitter.EmissionDirection = Enum.NormalId.Top
+	-- NEVER A STREAM. `Emit` below puts exactly `COUNT` grains in the air, once.
+	emitter.Enabled = false
+	emitter.Parent = attachment
+
+	host.Parent = Effects.folder()
+	emitter:Emit(cfg.COUNT)
+	Debris:AddItem(host, cfg.HOST_LIFETIME)
+	return host
+end
+
+-- WHERE THE DUST GOES, WHEN THE BULLET ARRIVES (tasks 185, 249). `ShotLanded`'s payload, and
+-- nothing else: one "Impact" per position, through `puff` above, under the same
+-- `EFFECT_MAX_PER_SHOT` budget `play` has always used.
+--
+-- NOTHING IS DRAWN IN THE AIR, AND THAT HAS ALWAYS BEEN TRUE HERE RATHER THAN BEING ADDED NOW: a
+-- pellet that hits nothing produces no `Weapon.Cast` result, so it reaches no `res.impacts` entry,
+-- so `Weapon.onShotLanded` sends no point for it -- *"A shot that hit nothing sends nothing"*, in
+-- that function's own words. Every position here is a surface a pellet really struck.
 --
 -- NO FLASH, NO SMOKE, NO TRACER, EVER. The bang was at the trigger and `Effects.play` drew it
 -- there; this is the bullet landing, up to 0.365 s later, and it is the one thing on screen that
@@ -216,18 +308,23 @@ function Effects.playLanded(payload: any)
 	if type(payload) ~= "table" or type(payload.impacts) ~= "table" then
 		return
 	end
+	-- THE TWO NEW ARRAYS ARE OPTIONAL AT EVERY INDEX (task 249), which is what lets every caller
+	-- written before this task -- the suite's own `playLanded({ impacts = { ... } })` included --
+	-- keep working: a missing normal is world up and a missing material is dust.
+	local normals = if type(payload.normals) == "table" then payload.normals else nil
+	local materials = if type(payload.materials) == "table" then payload.materials else nil
 	local budget = Shotgun.CONFIG.EFFECT_MAX_PER_SHOT
-	for _, position in ipairs(payload.impacts) do
+	for index, position in ipairs(payload.impacts) do
 		if budget <= 0 then
 			break
 		end
 		if typeof(position) == "Vector3" then
-			part(
-				"Impact",
-				Vector3.new(0.3, 0.3, 0.3),
-				CFrame.new(position),
-				Color3.fromRGB(255, 170, 90),
-				Shotgun.CONFIG.IMPACT_LIFETIME
+			local normal = if normals ~= nil then normals[index] else nil
+			local material = if materials ~= nil then materials[index] else nil
+			puff(
+				position,
+				if typeof(normal) == "Vector3" then normal else nil,
+				if type(material) == "string" then material else nil
 			)
 			budget -= 1
 		end

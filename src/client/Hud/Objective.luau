@@ -227,6 +227,22 @@ Objective.CONFIG = {
 		-- other way round. Reported to the Director.
 		Lobby = "step on a truck pad to hunt",
 		LobbyLeaving = "leaving for the hunt in %d",
+		-- ...AND THE THIRD (task 249). KAREN, 2026-10-23, after pressing Reset in the middle of a
+		-- drive: *"still game wasant over when I respawn after while it was showing what was
+		-- shooted but I was free to walk, is it ok ?"*. It IS ok -- a respawn ends your hunt, which
+		-- is task 248's rule and the Director's answer -- and the whole defect is that NOTHING SAID
+		-- SO: a man with no team while a drive runs fell through this function to `""`.
+		--
+		-- IT IS NOT THE DISPATCH'S SENTENCE, AND BOTH REASONS ARE THIS FILE'S OWN RULES. The
+		-- dispatch asks for *"YOU LEFT THE DRIVE - NEXT DRIVE STARTS SOON"* with a middle dot. That
+		-- is 42 characters against this table's bound of **33** (`hud_clarity.spec` measures every
+		-- row with the engine's own `TextFits` at a 400 px frame), and the middle dot is not ASCII
+		-- -- `Drive.CONFIG.TIED_TEXT`'s rule, which `hud_clarity.spec` also sweeps. The precedent
+		-- set two rows up is to shorten the sentence to the same meaning rather than raise the
+		-- bound a third time, so that is what this is: 30 characters, both halves kept -- you are
+		-- out of THIS drive, and there is another one coming. Reported to the Director, and the
+		-- words are Karen's to rewrite like every other row here.
+		LobbyLeft = "you left the drive - next soon",
 	},
 
 	-- THE THREE WORDS A TARGET CAN WEAR. `STAND` is a post the world has actually stated; `LINE` is
@@ -291,6 +307,10 @@ export type LobbyNow = {
 	-- this line can, so this line stands down -- see `Objective.text`.
 	asking: number?,
 	loading: string?,
+	-- DID THE DRIVE LET GO OF HIM? (task 249) The server's `Lobby.LEFT_DRIVE_ATTRIBUTE`, and the
+	-- one thing that tells a man who RESPAWNED out of a drive apart from a man who never enrolled
+	-- -- both are teamless, and only one of them left anything.
+	left: boolean?,
 	-- EVERY TRUCK PAD, IN PAD ORDER (task 182). nil or empty answers exactly as task 177 did, which
 	-- is `MapUi.pointsFor`'s rule: absent is not "nowhere".
 	pads: { Vector3 }?,
@@ -329,6 +349,17 @@ function Objective.text(phase: string?, team: string?, drive: DriveNow?, lobby: 
 				return string.format(words.LobbyLeaving, math.max(0, math.ceil(left :: number)))
 			end
 			return words.Lobby
+		end
+		-- HE WAS IN THIS DRIVE AND HE IS NOT ANY MORE (task 249). LAST of the lobby's rows, so
+		-- every sentence that says MORE still wins: a panel is up (above), or his own pad is
+		-- counting him down into the next drive (above) -- in which case *"next soon"* is a number
+		-- on screen already and this would be the vaguer of two messages, which is the duplication
+		-- task 197 part 2 removed.
+		--
+		-- AND IT IS A FACT FROM THE SERVER, NOT `team == nil`: a man who never enrolled is also
+		-- teamless, and he must not read that he left something.
+		if lobby ~= nil and lobby.left == true then
+			return words.LobbyLeft
 		end
 		return ""
 	end

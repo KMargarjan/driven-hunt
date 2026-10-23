@@ -137,7 +137,16 @@ export type ShotPayload = {
 
 export type DriveLine = { position: Vector3, normal: Vector3 }
 export type DriveLineProvider = () -> DriveLine?
-export type Impact = { instance: Instance, position: Vector3, normal: Vector3, distance: number }
+-- `material` IS THE SURFACE THE PELLET LANDED ON (task 249) and it is OPTIONAL, because a spec
+-- that hands `Flight` its own cast function has always built these tables by hand and must keep
+-- working unchanged.
+export type Impact = {
+	instance: Instance,
+	position: Vector3,
+	normal: Vector3,
+	distance: number,
+	material: Enum.Material?,
+}
 export type CastFn = (origin: Vector3, direction: Vector3, ignore: { Instance }) -> Impact?
 
 -- table.freeze is SHALLOW (Luau library reference): freezing CONFIG leaves CONFIG.SPREAD_FULL_DEG
@@ -515,6 +524,53 @@ Shotgun.CONFIG = {
 	-- cosmetics
 	TRACER_LIFETIME = 0.06,
 	IMPACT_LIFETIME = 1.0,
+	-- WHAT A BULLET LANDING LOOKS LIKE (task 249). KAREN, 2026-10-23, with a frame of it:
+	-- *"after shoot remianing this ? what is that ?"* -- a bright yellow cube hanging over the grass
+	-- where her buckshot landed. MEASURED in her own place before anything was written: nine
+	-- `Impact` parts, each a **0.30-stud `Neon` BLOCK at 255,170,90, transparency 0**, all at the
+	-- one point a buck pattern lands on -- so nine of them stacked and bloomed read as one glowing
+	-- box, for the whole `IMPACT_LIFETIME` second.
+	--
+	-- SO THE PART STOPS BEING THE PICTURE AND BECOMES THE HOST. It is invisible now, and what the
+	-- player sees is one short burst from a `ParticleEmitter` on it -- soft, matte, gone in under a
+	-- second, with no hard edge to read as a cube.
+	--   ParticleEmitter:Emit  https://create.roblox.com/docs/reference/engine/classes/ParticleEmitter#Emit
+	-- `Emit` rather than `Enabled = true` for a moment: a burst is a COUNT, not a window, so one
+	-- call puts exactly `COUNT` grains in the air whatever the frame rate is.
+	--
+	-- THE TEXTURE IS A STOCK CLIENT ASSET (`rbxasset://`, shipped with every Roblox client), so this
+	-- needs no upload and no moderation round trip -- and it is a SOFT round puff, which is the
+	-- whole difference from the default emitter's own hard white square. A square particle would be
+	-- the same defect one size down.
+	IMPACT = {
+		-- how long the host part lives. Longer than the grains themselves (`LIFETIME` below), so
+		-- Debris never takes the emitter away mid-puff.
+		HOST_LIFETIME = 0.75,
+		TEXTURE = "rbxasset://textures/particles/smoke_main.dds",
+		-- A GRAIN'S OWN LIFE. Karen's word is *"short"*: 0.35 s is a quarter of the smoke that
+		-- hangs at the muzzle (`SMOKE_LIFETIME` 1.1) and about a fifth of the old cube's second.
+		LIFETIME = { 0.22, 0.38 },
+		COUNT = 7, -- per impact point, so a nine-pellet pattern is a spray and not a wall
+		SIZE = { 0.35, 0.9 }, -- studs, start -> end: it opens as it fades
+		SPEED = { 2.5, 5.0 },
+		SPREAD_DEG = 38,
+		-- NOT GLOWING, which is the other half of Karen's complaint. A `ParticleEmitter` has no
+		-- material; what made the cube glow was `Neon`, and nothing here is `Neon`. `LightEmission`
+		-- 0 is this emitter's own way of saying the same thing, written down rather than defaulted.
+		LIGHT_EMISSION = 0,
+		TRANSPARENCY = { 0.35, 1 }, -- it fades out rather than popping
+		-- WHAT THE GROUND IS MADE OF, AS TWO CLASSES AND A DEFAULT. The server now sends the
+		-- surface's `Material` with each landing point, and these are the only two answers the
+		-- picture needs: dry soil kicked off the floor, and pale splinters off a trunk.
+		DUST_COLOR = Color3.fromRGB(150, 133, 108),
+		WOOD_COLOR = Color3.fromRGB(146, 107, 68),
+		-- The woods in `WOOD`: everything else is dust, which is the safe way round -- an unknown
+		-- surface gets the puff that suits grass, rock and dirt, and this map is almost all of those.
+		WOOD = {
+			Wood = true,
+			WoodPlanks = true,
+		},
+	},
 	FLASH_LIFETIME = 0.05,
 	EFFECT_MAX_PER_SHOT = 24, -- a hard cap, so a bug cannot flood Workspace
 	-- THE FLASH COMES OUT OF THE PIPE THAT FIRED (task 92). Karen, after playing S2, 2026-09-27:

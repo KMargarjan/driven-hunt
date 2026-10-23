@@ -250,6 +250,25 @@ Lobby.NEXT_AT_ATTRIBUTE = "DHNextDriveAt"
 -- `docs/research/2026-10-23-the-continuous-drive-loop.md` source C).
 Lobby.NEXT_OUT_ATTRIBUTE = "DHNextDriveOut"
 
+-- HE WAS IN THIS DRIVE AND HE IS NOT ANY MORE (task 249). KAREN, 2026-10-23, after pressing Reset
+-- in the middle of a drive: *"still game wasant over when I respawn after while it was showing
+-- what was shooted but I was free to walk, is it ok ?"*. It IS ok -- it is task 248's rule, that a
+-- respawn ends your hunt -- and the whole defect is that NOTHING ON HER SCREEN SAID SO:
+-- `Hud.Objective.text` answers `""` for a man with no team while a drive is running, which is
+-- exactly the nothing she read.
+--
+-- SO IT IS A FACT AND NOT A MESSAGE. The server writes `true` on the player the drive let go of
+-- and clears it the moment a drive has him again, and the Hud turns it into one line
+-- (`Objective.CONFIG.TEXT.LobbyLeft`). Writing the SENTENCE here would put the words on the wire
+-- and make the server the author of them, which is `Objective.CONFIG.TEXT`'s own rule: the words
+-- are Karen's to rewrite, in one table, on the client that draws them.
+--
+-- WHY IT IS NOT `team == nil`, which the client already knows: a man who has NEVER enrolled is
+-- also teamless, and telling him *"you left the drive"* while he stands at the lodge watching his
+-- first hunt would be a lie in the shape of a fact. This attribute is the difference between the
+-- two, and only the server can know it.
+Lobby.LEFT_DRIVE_ATTRIBUTE = "DHLeftDrive"
+
 -- THE TWO WORDS, HERE because they cross the wire -- `Lobby.ROLE_WISH`'s arrangement exactly, and
 -- for its stated reason: one spelling of "out" in the repository, so a typo cannot make a button
 -- that never works.
@@ -1609,6 +1628,42 @@ Lobby.CONFIG = {
 		-- covers the porch's own 14-stud width plus the view past its ends.
 		FRONT_HALF_WIDTH = 22,
 	},
+	-- ---------------- THE WORKING GROUND IS KEPT CLEAR (task 249)
+	--
+	-- KAREN, 2026-10-23, with a frame of a bush standing between her and TRUCK 4's pad: *"remove
+	-- this bush"*.
+	--
+	-- IT IS NOT ONE OF OUR TREES, AND THAT IS THE WHOLE REASON THIS TABLE EXISTS. Measured in her
+	-- own place before anything was written: every `Lobby.TreeLine` and `LODGE_TREES` trunk is 40
+	-- studs or more from the nearest pad, and the thing in the picture is
+	-- `Workspace.Session.Bush` -- a part of the BOUGHT FOREST the Forest Test place was built from,
+	-- standing at (2871, -2965), 12 studs west of the gravel's own edge and inside the road
+	-- corridor. `Build.treeLine` has always kept OUR wood off the yard; nothing has ever kept the
+	-- WORLD'S off it.
+	--
+	-- SO THE LOBBY CLEARS ITS OWN GROUND, and the rule is geometry rather than a list of names: an
+	-- instance of the world's foliage whose foot lands inside the yard, the road corridor or the
+	-- front of the house is taken away when the lobby is built. A name list would have to be
+	-- updated for every model a future map ships ("Bush", "Bush1", "Bush3", "Bush4", "Mesh Tree",
+	-- "Tree3", "Tree8", "Tree10" are what this one ships, counted 2026-10-23).
+	--
+	-- IT IS A RUNTIME REMOVAL AND NOT AN EDIT TO THE PLACE. `Build.build` runs on the server at
+	-- boot; the place file keeps its forest, and deleting this table puts the bush back on the next
+	-- server. backups/2026-10-23_task249_lobby-clearing.txt records what it removed.
+	CLEARING = {
+		-- WHICH FOLDERS HOLD THE WORLD'S OWN FOLIAGE. By NAME, because `Workspace` has TWO folders
+		-- called `Session` in this place (771 and 60 children) and a lookup would find one of them.
+		-- Nothing else in `Workspace` is searched: the lobby's own folder, the terrain, the boars
+		-- and the drive's markers are not the world's trees and must never be swept.
+		FOLDERS = table.freeze({ "Session", "OurForest", "Foliage" }),
+		-- HOW FAR BEYOND THE GRAVEL THE CLEARING REACHES. 12 studs is what it takes to catch the
+		-- bush Karen photographed (its foot is 12.0 studs west of `Build.yardRect`'s own edge) plus
+		-- nothing else: measured in her place, the rule removes exactly ONE instance today.
+		YARD_MARGIN_STUDS = 12,
+		-- ...AND HOW FAR IN FRONT OF THE PORCH. The lodge's own front, as `TREELINE.FRONT_HALF_WIDTH`
+		-- already measures it, carried this far out from the building's south face.
+		FRONT_STUDS = 24,
+	},
 	-- THE ALDER'S TWO COLOURS (spec 16b). Applied by name and material, the rule `Build.camo` already
 	-- proves for the trucks.
 	ALDER = {
@@ -2054,17 +2109,28 @@ Lobby.CONFIG = {
 		-- (`PICK_TIMEOUT_SECONDS`, `REQUEST_MIN_INTERVAL`) and the look (`BILLBOARD`, `PANEL`)
 		-- of its half, so this keeps the two halves beside each other instead of in two places.
 		NEXT = {
-			-- HOW LONG THE PARTY WAITS AT THE LODGE between drives. **8**, which is the number
-			-- the Director's brief names (*"reuse the existing between-drive length"*):
-			-- `Match.CONFIG.SCORE_SECONDS` is 8 after Karen's *"make 8s max"* of 2026-10-18. It
-			-- is inside Valve's own clamp for the same gap -- `mp_bonusroundtime`, *"Time after
-			-- round win until round restarts"*, default 15, clamped 5..15
+			-- HOW LONG THE PARTY WAITS AT THE LODGE between drives. It was **8**, the number the
+			-- Director's task 246 brief named (*"reuse the existing between-drive length"*),
+			-- because `Match.CONFIG.SCORE_SECONDS` was 8 after Karen's *"make 8s max"* of
+			-- 2026-10-18. **That row is 4 since task 249 and these two are no longer the same
+			-- number** (round 1, note): the three phases now split one 15-second budget, and this
+			-- card keeps the biggest share for the reason written below. It is still inside
+			-- Valve's own clamp for the same gap -- `mp_bonusroundtime`, *"Time after round win
+			-- until round restarts"*, default 15, clamped 5..15
 			-- (`docs/research/2026-10-23-the-continuous-drive-loop.md` source B).
 			--
-			-- THE WHOLE GAP DRIVE TO DRIVE IS 31 s AND ONLY THIS ONE IS NEW: 8 results scene
-			-- (`SCORE_SECONDS`) + 8 here + 15 intermission (`INTERMISSION_SECONDS`, the seconds
-			-- the hunters walk to their stands with).
-			SECONDS = 8,
+			-- THE WHOLE GAP DRIVE TO DRIVE WAS 31 s: 8 results scene (`SCORE_SECONDS`) + 8 here +
+			-- 15 intermission (`INTERMISSION_SECONDS`, the seconds the hunters walk to their
+			-- stands with).
+			--
+			-- **IT IS 15 SINCE TASK 249, AND THIS ROW IS THE BIGGEST OF THE THREE.** KAREN,
+			-- 2026-10-23: *"a bit to long to wait for game we need to reduce seconds"*; the
+			-- Director's total is 15 and the split is 4 + 6 + 5. This one keeps 6 of them because
+			-- THE ROLE CHOICE IS ON THIS CARD -- `T` swaps hunter for beater and `Y` sits the
+			-- drive out -- and a control nobody has time to press is a control that is not there
+			-- (`ROLE.KEY_HINT`'s own rule). The results scene and the intermission carry the rest.
+			-- backups/2026-10-23_task249_between-drive-gap-31s.txt.
+			SECONDS = 6,
 			-- WHEN THE COUNTDOWN IS ARMED ANYWAY. The deadline is normally set on the first scan
 			-- on which the whole party is out of the drive and no longer held -- which is the
 			-- instant the results scene's `free` lands and the lodge's return rule fires, so the
@@ -2074,7 +2140,9 @@ Lobby.CONFIG = {
 			-- is hazard 1 of the note: one member stuck `held` or still a participant -- a
 			-- character that never loads, a drive that never leaves `Scoring` -- would otherwise
 			-- stop the loop for everybody with nothing on screen to say so. 12 s is longer than
-			-- the whole results scene (8) plus a respawn, and shorter than a player's patience.
+			-- the whole results scene (4 since task 249) plus a respawn, and shorter than a
+			-- player's patience. It is a BOUND and not a wait -- shortening the scene only makes
+			-- the margin bigger -- so the task 249 cut leaves it where it is.
 			ARM_TIMEOUT_SECONDS = 12,
 			-- IS HE PRESSING TOO OFTEN? `PADS.REQUEST_MIN_INTERVAL`'s own number and its own
 			-- reason: a FORGERY guard, not a game rule, because a person cannot press a button
