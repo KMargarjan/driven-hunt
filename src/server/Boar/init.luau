@@ -59,6 +59,10 @@ Boar.carcassIsStill = Body.carcassIsStill
 Boar.shouldAnchorCarcass = Body.shouldAnchorCarcass
 Boar.boxFalls = Body.boxFalls
 Boar.shouldReassert = Body.shouldReassert
+-- ...AND THE TWO THE DEATH BACKSTOP IS MADE OF (task 249), re-exported for the same reason as the
+-- pair above: they are pure, and `boar_model.spec` asks them its questions with no boar in the world.
+Boar.deathDrawn = Body.deathDrawn
+Boar.shouldBackstopDeath = Body.shouldBackstopDeath
 -- ...and the one review round 1's finding 1 turns on: whether a clip that is already playing needs
 -- its rate rewritten. A HELD clip never does.
 Boar.shouldAdjustRate = Body.shouldAdjustRate
@@ -652,6 +656,27 @@ Boar.CONFIG = {
 		-- the animal is told to lie down. 6 s is past the end of both clips with half a second of
 		-- margin, and well inside the `CARCASS_SECONDS` 120 a player spends looking at the body.
 		CARCASS_REASSERT_SECONDS = 6.0,
+		-- HOW LONG A DEAD ANIMAL MAY STAND BEFORE THE BOX LAYS IT DOWN ITSELF (task 249). KAREN,
+		-- 2026-10-23: *"bug with dead boar standing"*, for the fourth time (L-010: boars x3, and
+		-- task 150's own count before it).
+		--
+		-- THE GAP IS THE BACKSTOP THAT WAS NEVER THERE. `Body.topple`'s own comment has said since
+		-- task 150 that it is called *"from exactly two places -- the collapse, and the backstop in
+		-- `stepCarcass`"*, and a grep for it finds **ONE** caller: `Body.collapse`. So when
+		-- `Body.boxFalls` answers false -- a visual exists AND `trackFor` handed back a track -- the
+		-- `AlignOrientation` is deliberately LEFT ON and the only thing that can lay the animal down
+		-- is that clip actually playing. `Animator:LoadAnimation` returns a track for an asset that
+		-- has not downloaded yet, so `trackFor` cannot tell *"there is a death clip"* from *"there
+		-- will be one, later"* -- and when the clip never runs, nothing in this system ever rolls
+		-- the box. The carcass stands on its feet for the whole `CARCASS_SECONDS` 120.
+		--
+		-- 1.5 SECONDS, AND IT IS MEASURED AGAINST THE CLIP: `MODEL.CLIPS.deathLeft` is 1.167 s for
+		-- the boar and 1.167 for the deer, so a death that is really playing is well past its first
+		-- frame long before this -- and a death that has not advanced a single frame by then is not
+		-- going to. It is longer than `CARCASS_STILL_SECONDS` and far shorter than the six seconds
+		-- `CARCASS_REASSERT_SECONDS` waits, because a boar standing dead in front of the man who
+		-- shot it is the thing being fixed.
+		DEATH_BACKSTOP_SECONDS = 1.5,
 		CARCASS_FALLING_Y = 1.0, -- studs/s of downward speed that still counts as falling
 	},
 
@@ -3854,6 +3879,11 @@ function Boar.newRuntime(world)
 		-- the number that says Karen's *"redtag is stucking"* fix is doing anything at all: 0 with no
 		-- deer in the drive, 0 in open ground, and a climbing number in close wood.
 		avoidNarrowed = 0,
+		-- HOW MANY CARCASSES THE BOX HAD TO LAY DOWN ITSELF (task 249), because their death clip never
+		-- advanced a frame. Every one of these is an animal that would have STOOD DEAD in front of the
+		-- player who shot it -- Karen's report, for the fourth time -- so a number above 0 is the fix
+		-- working, and a number above 0 that keeps climbing is the animation assets, not this code.
+		deathBackstops = 0,
 		trunkContacts = 0,
 		runSeconds = 0,
 		-- ...and the two NOT-MOVING detectors' findings, counted so *"no new stuck events"* is a
@@ -6303,7 +6333,14 @@ function Runtime:step(dt: number)
 		-- unanchored physics body and the grey box has been shoveable since Task 28 (measured
 		-- 2026-10-03: 1.826 studs from one walking-speed impulse, with the flag OFF). It does
 		-- nothing until the body has stopped, and nothing at all once it has anchored.
+		local wasBackstopped = entry.body.backstopped
 		Body.stepCarcass(entry.body, dt, config.WOUND)
+		-- COUNTED, ONCE PER CARCASS (task 249). Karen: *"bug with dead boar standing"*. The edge and
+		-- not the flag, so one carcass is one count however many frames it is stepped for; a drive
+		-- in which every death clip ran reports 0, which is the number this fix is aiming at.
+		if entry.body.backstopped and not wasBackstopped then
+			self._stats.deathBackstops += 1
+		end
 
 		-- THE DRAWING AND THE SOUND ARE RATED BY WHAT THE BODY IS DOING (task 139 round 3 and the
 		-- Reviewer's finding 2 on it). Karen, 2026-10-09: *"sometimes boar stuck tree, hits and run

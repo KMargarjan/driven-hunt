@@ -250,6 +250,25 @@ Lobby.NEXT_AT_ATTRIBUTE = "DHNextDriveAt"
 -- `docs/research/2026-10-23-the-continuous-drive-loop.md` source C).
 Lobby.NEXT_OUT_ATTRIBUTE = "DHNextDriveOut"
 
+-- HE WAS IN THIS DRIVE AND HE IS NOT ANY MORE (task 249). KAREN, 2026-10-23, after pressing Reset
+-- in the middle of a drive: *"still game wasant over when I respawn after while it was showing
+-- what was shooted but I was free to walk, is it ok ?"*. It IS ok -- it is task 248's rule, that a
+-- respawn ends your hunt -- and the whole defect is that NOTHING ON HER SCREEN SAID SO:
+-- `Hud.Objective.text` answers `""` for a man with no team while a drive is running, which is
+-- exactly the nothing she read.
+--
+-- SO IT IS A FACT AND NOT A MESSAGE. The server writes `true` on the player the drive let go of
+-- and clears it the moment a drive has him again, and the Hud turns it into one line
+-- (`Objective.CONFIG.TEXT.LobbyLeft`). Writing the SENTENCE here would put the words on the wire
+-- and make the server the author of them, which is `Objective.CONFIG.TEXT`'s own rule: the words
+-- are Karen's to rewrite, in one table, on the client that draws them.
+--
+-- WHY IT IS NOT `team == nil`, which the client already knows: a man who has NEVER enrolled is
+-- also teamless, and telling him *"you left the drive"* while he stands at the lodge watching his
+-- first hunt would be a lie in the shape of a fact. This attribute is the difference between the
+-- two, and only the server can know it.
+Lobby.LEFT_DRIVE_ATTRIBUTE = "DHLeftDrive"
+
 -- THE TWO WORDS, HERE because they cross the wire -- `Lobby.ROLE_WISH`'s arrangement exactly, and
 -- for its stated reason: one spelling of "out" in the repository, so a typo cannot make a button
 -- that never works.

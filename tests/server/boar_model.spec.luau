@@ -1662,4 +1662,61 @@ return function()
 			expect(degOffUp(placed) > LYING_MIN_DEG).to.equal(true)
 		end)
 	end)
+
+	-- ------------------------------ THE BACKSTOP THAT WAS NEVER THERE (task 249)
+	--
+	-- KAREN, 2026-10-23: *"bug with dead boar standing"* -- the fourth time this has reached her
+	-- (L-010: boars x3, and task 150's own count before that).
+	--
+	-- THE CAUSE, FOUND BY GREP AND NOT BY GUESS: `Body.topple`'s comment has said since task 150
+	-- that it is called *"from exactly two places -- the collapse, and the backstop in
+	-- `stepCarcass`"*, and `grep -rn "Body.topple" src/` finds **one** caller. So when
+	-- `Body.boxFalls` answers false the `AlignOrientation` is left ON on purpose and the ONLY thing
+	-- that can lay the animal down is the death clip really playing -- and
+	-- `Animator:LoadAnimation` hands back a track for an asset that has not downloaded, which
+	-- `trackFor` cannot tell apart from a loaded one.
+	describe("a dead animal is laid down even when its clip never runs (task 249)", function()
+		local WOUND = CONFIG.WOUND
+
+		it("asks the one question that separates a clip that runs from one that does not", function()
+			-- `TimePosition` AND NOT `IsPlaying`: a track on an asset that has not arrived reports
+			-- `IsPlaying = true` and applies nothing.
+			expect(Boar.deathDrawn(0.4, 1.167)).to.equal(true)
+			expect(Boar.deathDrawn(0, 1.167)).to.equal(false)
+			-- NO LENGTH IS NO ASSET, whatever the clock says.
+			expect(Boar.deathDrawn(0.4, 0)).to.equal(false)
+			expect(Boar.deathDrawn(nil, nil)).to.equal(false)
+		end)
+
+		it("fires only for a carcass that is armed, still upright and past the wait", function()
+			expect(Boar.shouldBackstopDeath(2.0, true, false, false, WOUND)).to.equal(true)
+			-- THE CLIP RAN: nothing to rescue.
+			expect(Boar.shouldBackstopDeath(2.0, true, true, false, WOUND)).to.equal(false)
+			-- THE BOX ALREADY TOPPLED IT at the moment of death (`Body.boxFalls` true), and rolling
+			-- it a second time would stand it back up on its other side -- task 150's own defect.
+			expect(Boar.shouldBackstopDeath(2.0, true, false, true, WOUND)).to.equal(false)
+			-- NOTHING WAS PROMISED: no visual, or no track at all. `collapse` never arms it.
+			expect(Boar.shouldBackstopDeath(2.0, false, false, false, WOUND)).to.equal(false)
+			-- ...AND IT WAITS. A death that is really playing is well past its first frame by
+			-- `DEATH_BACKSTOP_SECONDS`, and nothing is rolled before then.
+			expect(Boar.shouldBackstopDeath(WOUND.DEATH_BACKSTOP_SECONDS - 0.01, true, false, false, WOUND)).to.equal(
+				false
+			)
+			expect(Boar.shouldBackstopDeath(WOUND.DEATH_BACKSTOP_SECONDS, true, false, false, WOUND)).to.equal(true)
+			-- A WORLD WITH NO BACKSTOP NUMBER IS THE BEHAVIOUR BEFORE THIS TASK, EXACTLY.
+			local without = table.clone(WOUND)
+			without.DEATH_BACKSTOP_SECONDS = nil
+			expect(Boar.shouldBackstopDeath(60, true, false, false, without)).to.equal(false)
+		end)
+
+		it("is shorter than the wait that says the pose again, and longer than the clip's first frame", function()
+			-- MEASURED AGAINST THE CLIP rather than chosen: `deathLeft` is 1.167 s, so a death that
+			-- is running has moved long before the backstop looks.
+			expect(WOUND.DEATH_BACKSTOP_SECONDS > 0).to.equal(true)
+			expect(WOUND.DEATH_BACKSTOP_SECONDS < WOUND.CARCASS_REASSERT_SECONDS).to.equal(true)
+			expect(WOUND.DEATH_BACKSTOP_SECONDS < MODEL.CLIPS.deathLeft.seconds * 2).to.equal(true)
+			-- ...AND SHORTER THAN THE BODY IS THERE TO BE LOOKED AT, by a wide margin.
+			expect(WOUND.DEATH_BACKSTOP_SECONDS < WOUND.CARCASS_SECONDS / 10).to.equal(true)
+		end)
+	end)
 end

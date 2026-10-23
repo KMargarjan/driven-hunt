@@ -116,6 +116,26 @@ local nextVerdict: string = NextDrive.IDLE
 -- role's, for `lastRoleRequestAt`'s stated reason: a shared bucket would make "press SIT OUT, then
 -- press BEATER" lose one of them. `forget` and `stop` empty it.
 local lastNextRequestAt: { [number]: number } = {}
+-- WHO THIS DRIVE LET GO OF, AND WHETHER HE WAS IN IT LAST SCAN (task 249). KAREN, 2026-10-23:
+-- *"still game wasant over when I respawn after while it was showing what was shooted but I was
+-- free to walk, is it ok ?"*.
+--
+-- RECONCILED ON THE TICK AND NOT FIRED OFF AN EVENT (L-029, and `Next`'s own header says the same
+-- thing): `wasInDrive` is what `world.inDrive` said about this man on the PREVIOUS scan, and the
+-- edge from true to false **while a drive is still live** is the whole definition of *"the drive
+-- let go of him"*. A respawn mid-countdown, a second respawn, a man who presses Reset twice and a
+-- withdrawal that arrives between two scans all land in the same place, because what is tested is
+-- the STATE and not the event that produced it.
+--
+-- THE END OF A DRIVE IS NOT A WITHDRAWAL. `dismissAll` empties the roster one scan into `Scoring`
+-- and that is everybody at once; the latch is therefore armed only while `Phase.insideDrive` is
+-- true (`Assigning` or `Running`), which is the same window `Match.Phase`'s own `withdraw` branch
+-- refuses outside of. One rule, two owners, measured against the same two phase names.
+--
+-- IT CLEARS WHEN A DRIVE HAS HIM AGAIN, so the line comes down exactly as the next drive takes
+-- him, and `forget` / `stop` empty both.
+local leftDrive: { [number]: boolean } = {}
+local wasInDrive: { [number]: boolean } = {}
 -- THE FOUR PADS (task 182), indexed by pad. `Pads.empty(index)` each, rebuilt by `start`.
 local pads: { [number]: any } = {}
 -- WHERE EACH PAD IS, computed ONCE at build time off `Pads.centreFor` -- the one place that
@@ -221,6 +241,10 @@ local stats = {
 	--   nextCleared   how many ended without going -- everybody left, or everybody sat out;
 	--   nextTimeouts  how many were armed by `ARM_TIMEOUT_SECONDS` instead of by being home, which
 	--                 is hazard 1 firing and must never be invisible.
+	-- HOW MANY TIMES A LIVE DRIVE LET GO OF SOMEBODY (task 249). Karen's respawn, and every other
+	-- way out of a drive that is not the end of it. It is the number that says the line she now
+	-- reads is reaching anybody at all: 0 in a drive nobody leaves, 1 per Reset.
+	withdrawalsSeen = 0,
 	nextParties = 0,
 	nextArmed = 0,
 	nextDepartures = 0,
@@ -502,6 +526,16 @@ local function setNextOut(player: any, out: boolean)
 	end
 end
 
+-- ...AND WHETHER THIS DRIVE LET GO OF HIM (task 249). `true` or nil, never `false`, for
+-- `setNextOut`'s stated reason: absent already means *"he has not left a drive"*.
+local function setLeftDrive(player: any, left: boolean)
+	local wanted = if left then true else nil
+	if player:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE) ~= wanted then
+		player:SetAttribute(Data.LEFT_DRIVE_ATTRIBUTE, wanted)
+		touched[player.UserId] = player
+	end
+end
+
 -- WHAT THE PARTY IS DOING, for the specs, the boot's log line and a console probe. A COPY of the
 -- lists and never the state itself, which is `Lobby.padOf`'s rule: nothing outside this owner may
 -- write a membership.
@@ -645,6 +679,21 @@ local function stepPlayer(
 )
 	local userId = player.UserId
 	local inDrive = world.inDrive(userId) == true
+	-- DID THIS DRIVE LET GO OF HIM? (task 249) RECONCILED HERE, before every early return below, so
+	-- it is answered for a man the drive still has as well as for one standing in the lobby -- the
+	-- same placement and the same reason as the card and the role wish beneath it.
+	--
+	-- THE EDGE IS true -> false WHILE A DRIVE IS LIVE. `Phase.insideDrive` is `Assigning` or
+	-- `Running`; the end of a drive empties the roster in `Scoring` and must not mark everybody as
+	-- having left, which is why the phase is part of the test rather than the edge alone.
+	if inDrive then
+		leftDrive[userId] = nil
+	elseif wasInDrive[userId] == true and (phase == "Assigning" or phase == "Running") then
+		leftDrive[userId] = true
+		stats.withdrawalsSeen += 1
+	end
+	wasInDrive[userId] = inDrive
+	setLeftDrive(player, leftDrive[userId] == true)
 	-- THE NEXT DRIVE'S CARD, RECONCILED ON EVERY SCAN (task 246), **before** the `inDrive` return
 	-- below and for the role wish's own stated reason: a man the drive has just taken is exactly the
 	-- man whose card has to come DOWN, and a rule that ran only for men standing in the lobby would
@@ -1392,7 +1441,16 @@ function Lobby.step(now: number, players: { any }?)
 		-- the beaters are one list, collected in one pass, at one instant.
 		local roster = {}
 		for _, player in ipairs(occupants) do
-			if world.inDrive(player.UserId) == true then
+			-- ...AND THE MEN THIS DRIVE LET GO OF (task 249). The dispatch: *"keep her on the next
+			-- drive's countdown party by default"*. A man who respawned mid-drive is NOT
+			-- `world.inDrive` any more -- that is exactly what task 248 did to him -- so without
+			-- this row he would watch the party he was in leave for the next drive and have to walk
+			-- to a pad again. He is standing at the lodge with them; he goes with them.
+			--
+			-- `leftDrive` IS CLEARED THE MOMENT A DRIVE HAS HIM, so this cannot carry a man into a
+			-- second party: `Next.collect` replaces the membership outright and the latch is down
+			-- again on the first scan of the drive that takes him.
+			if world.inDrive(player.UserId) == true or leftDrive[player.UserId] == true then
 				table.insert(roster, player.UserId)
 			end
 		end
@@ -1594,6 +1652,9 @@ function Lobby.stop()
 	nextDrive = NextDrive.initial()
 	nextVerdict = NextDrive.IDLE
 	table.clear(lastNextRequestAt)
+	-- TASK 249: the withdrawal latch, both rows. A stopped owner knows nothing about who left what.
+	table.clear(leftDrive)
+	table.clear(wasInDrive)
 	-- EXACTLY WHAT IT WROTE AND NOTHING ELSE: the players this module actually touched, not every
 	-- player on the server.
 	for _, player in pairs(touched) do
@@ -1604,6 +1665,7 @@ function Lobby.stop()
 			or player:GetAttribute(Data.ROLE_WISH_ATTRIBUTE) ~= nil
 			or player:GetAttribute(Data.NEXT_AT_ATTRIBUTE) ~= nil
 			or player:GetAttribute(Data.NEXT_OUT_ATTRIBUTE) ~= nil
+			or player:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE) ~= nil
 		then
 			player:SetAttribute(Data.LEAVE_AT_ATTRIBUTE, nil)
 			-- ...AND THE LOADING BANNER (task 197). It is the same teardown claim as the deadline
@@ -1619,6 +1681,9 @@ function Lobby.stop()
 			-- attributes are that card's whole visibility rule.
 			player:SetAttribute(Data.NEXT_AT_ATTRIBUTE, nil)
 			player:SetAttribute(Data.NEXT_OUT_ATTRIBUTE, nil)
+			-- ...AND THE LINE THAT SAYS HE LEFT A DRIVE (task 249), for the same teardown claim: an
+			-- owner that stopped must leave no sentence on anybody's screen.
+			player:SetAttribute(Data.LEFT_DRIVE_ATTRIBUTE, nil)
 			player.RespawnLocation = nil
 		end
 	end
@@ -1652,6 +1717,11 @@ function Lobby.forget(userId: number)
 	-- it here as well would be the same fact removed in two places, and the one that ran first would
 	-- decide. `Lobby.stats().nextCleared` is what shows the last member leaving.
 	lastNextRequestAt[userId] = nil
+	-- TASK 249: the two rows of the withdrawal latch. A man who logs out has not *"left the
+	-- drive"* -- he has left -- so neither row may survive him, or a new player landing on the same
+	-- userId would read somebody else's sentence.
+	leftDrive[userId] = nil
+	wasInDrive[userId] = nil
 	returnedAt[userId] = nil
 	spawnIndex[userId] = nil
 	touched[userId] = nil
