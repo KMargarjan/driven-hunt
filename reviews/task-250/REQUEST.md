@@ -1,14 +1,53 @@
 # Task 250 — gun sounds, rifle punch, money penalties, lodge ambience
 
 Task: 250
-Round: 2
+Round: 3
 Base: `main` at `8970e4c3` (after #229)
-Code commit: `22abff81c0d0773a3e2fa9da16e7ae66d03be263`
+Code commit: `58cb7fcd63eaeb16a307928b2a18af695818c512`
 
 ```
-[harness]  PASS: 34/34 checks @ 22abff81c0d0773a3e2fa9da16e7ae66d03be263 (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ 22abff81c0d0773a3e2fa9da16e7ae66d03be263 (clean tree)
+[harness]  PASS: 34/34 checks @ 58cb7fcd63eaeb16a307928b2a18af695818c512 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 58cb7fcd63eaeb16a307928b2a18af695818c512 (clean tree)
 ```
+
+## Round 2's blocking finding, and the one line that settles it
+
+**THE REVIEWER WAS RIGHT TWICE AND THE SECOND TIME WAS SHARPER.** Round 2's five cases drove
+`Phase.step` with the figure HANDED IN, so all five passed with `Match.onSafetyViolation`'s two new
+fields deleted — verbatim the flaw round 1's own comment accused `report_panel.spec` of.
+`onSafetyViolation` is a local connected to `Weapon.SafetyViolated` and nothing in `tests/` fires
+that signal.
+
+**`tests/client/zz_tie_to_a_tree.spec.luau` is the one place in the repository that path runs end to
+end**: it fires a REAL violating shot in a two-player run and captures the entry the SERVER published
+over `MatchEvent`. It now asserts that entry carries a negative `money` and a word, and that
+`Hud.feedTextFor` draws the line with `Money.signed`'s figure in it and never `$-1000`. **Delete the
+producer's `money` and it fails.** The two-player run at the code commit prints it:
+
+```
+note [shooter] task250 tie: the server's own entry carried -$1000 -- "Player1 tied to a tree  -$1000"
+```
+
+That also closes one of round 1's own "could not be verified" items: **the $1000 safety fine IS now
+proved on a player's path**, by a real shot, with the drawn line read back. The piglet's $500 still
+is not (below).
+
+`match_safety.spec`'s describe now says plainly what it covers (the machine's forwarding, the
+`isLive` gate, and the row the producer reads) and what it does not (the producer), and names the
+file that does.
+
+**Two more notes fixed:** a THIRD wrong cell in the `DAMAGE_BY_WEAPON` grid — deer/slug/rear is
+`55 / 1.2 = 45.8`, **grazed**, because `rear` is `crippling` and not `vital` so toughness divides it;
+all three wrong cells were on the deer side, which is now written down as the lesson. And the comment
+that claimed the fine is read once now says it is read twice, by two call sites of a pure lookup, and
+why threading it instead would be the wrong trade.
+
+**Queued, not fixed (rule 10):** the `fine` line names nobody and goes to everybody
+(`FireAllClients` plus a format carrying only the figure and the word), where the violation line on
+the same screen says the name — and `Hud.pushFeed`'s collapse rule means two players with equal
+`row.fines` draw as one line with `x2` rather than one line each. `entry.userId` and `entry.name`
+are already on the wire and the wording is the Director's, so it is one format string when he wants
+it.
 
 ## Round 1's blocking finding, and what it cost
 
