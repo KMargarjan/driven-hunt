@@ -230,7 +230,7 @@ Shotgun.AMMO_NEED = table.freeze({
 
 -- THE TRIGGER PULLED ON A GUN WITH NOTHING ANYWHERE (task 248), as two wire values spelled once.
 -- The server puts them on the refusal publish and the client reads them back: `refused` is what
--- makes one dry click (`CameraBoot`) and the centre line (`Hud.flashFor`), and the NOTICE is the
+-- makes one dry click (`CameraBoot`) and the centre line (`Hud.calloutFor`), and the NOTICE is the
 -- words. Both sides read THESE, so the readout, the centre line and the server cannot disagree
 -- about what an empty gun is called.
 --

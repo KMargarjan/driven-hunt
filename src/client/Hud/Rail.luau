@@ -354,13 +354,19 @@ end
 --
 -- EDGE-TRIGGERED, so a per-frame caller costs one comparison and never a tween.
 function Rail.setNeeded(id: string, on: boolean)
-	if needed[id] == on then
+	-- THE BOOLEAN IS STORED AS A BOOLEAN, and the Reviewer's round-1 finding 1 is why: this read
+	-- `needed[id] = on or nil`, which stores NIL for false -- and `nil == false` is false, so the
+	-- guard above could never match a repeated `false`. `Hud.renderCorner` calls this every frame
+	-- on both of its paths, so every client spent the whole session creating one Tween per frame on
+	-- the RELOAD button and repainting it out of its own hover and pressed states.
+	local want = on == true
+	if (needed[id] == true) == want then
 		return
 	end
-	needed[id] = on or nil
+	needed[id] = want
 	local paint = paints[id]
 	if paint ~= nil then
-		paint(if on then "needed" else "idle")
+		paint(if want then "needed" else "idle")
 	end
 end
 

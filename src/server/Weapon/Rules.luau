@@ -28,13 +28,15 @@
 -- nothing was tied -- the tie proof had been staging a refusal all along. The two rules in one
 -- sentence each, which is what the game does now:
 --   * the aim ray WOULD HIT HIM -> refused. No fire, no shell, no tie, no punishment.
---   * the aim ray MISSES HIM but the shot passes within `Match.CONFIG.SAFETY_LOCK_STUDS` (12) of
+--   * the aim ray MISSES HIM but the shot passes within `Match.CONFIG.SAFETY_LOCK_STUDS` (6) of
 --     him -> ALSO REFUSED since task 248 (`Rules.unsafeLine`), where until then it FIRED and tied
 --     him to a tree.
 --   * the line was CLEAR at the trigger and he was close by the time the pellets passed -> fired,
 --     and the tie is what is left for it (`Match.Penalty.judge`, the same geometry).
--- `zz_tie_to_a_tree.spec` stages the first two: the probe aimed at him and the real replayed click
--- aimed `BESIDE_STUDS` = 5 studs off his body, which is inside the lock's radius.
+-- `zz_tie_to_a_tree.spec` stages all three: the probe aimed at him (refused `beater-in-line`), a
+-- click inside the lock's radius (refused `unsafe-line`, which is what its `refusals seen` list
+-- carries), and the real replayed click aimed `BESIDE_STUDS` = 10 studs off his body -- OUTSIDE the
+-- lock's 6 and inside the tie's 12, which is the band this rule leaves the tie.
 --
 -- THEY ARE ASKED IN ONE DECLARED ORDER -- `Rules.ORDER`, off-stand first -- and that too was
 -- forced by a measurement rather than chosen on paper: in the Director's run at `8b2bb40` the probe
@@ -147,7 +149,7 @@ Rules.NOTICE = table.freeze({
 	[Rules.REASON.UNPAID_PLATFORM] = "BUY TREE STAND",
 	-- THE DIRECTOR'S OWN WORDS, and 8 characters: *"Show `NOT SAFE` at the screen centre"*. It is
 	-- the one notice in this table that is ALSO drawn at the centre of the screen, because it is the
-	-- one that is about where the muzzle is pointing right now (`Hud.flashFor`).
+	-- one that is about where the muzzle is pointing right now (`Hud.calloutFor`).
 	[Rules.REASON.UNSAFE] = "NOT SAFE",
 	[Rules.REASON.LICENCE] = "NO LICENCE",
 	[Rules.REASON.DRIVE_OVER] = "THE DRIVE IS OVER",
