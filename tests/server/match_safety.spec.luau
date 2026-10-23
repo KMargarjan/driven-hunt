@@ -620,15 +620,22 @@ return function()
 
 	-- ------------------------------------------------- TASK 250, ROUND 2: THE TIE'S OWN FIGURE
 	describe("the violation's money reaches the feed", function()
-		-- ROUND 1 SHIPPED THE HUD HALF AND NOT THE SERVER HALF, and this is the case that would
-		-- have caught it. `Hud.feedTextFor`'s clause draws `"<name> tied to a tree  -$1000"` when
-		-- the entry carries `money`, and `Phase.step` forwards `event.money` -- but the ONE
-		-- producer of a `violation` event in the whole of `src/` set neither field, so the clause
-		-- was dead on the player's path and `report_panel.spec`'s case passed anyway because it
-		-- hands the Hud the money itself. The Reviewer's finding 1.
+		-- WHAT THESE CASES COVER, AND -- SAID PLAINLY -- WHAT THEY DO NOT.
 		--
-		-- IT DRIVES THE MACHINE, not a hand-built entry: `Phase.step` with a `violation` event in a
-		-- LIVE drive, and the feed effect it produces is what is read.
+		-- THEY COVER THE MACHINE'S FORWARDING: `Phase.step` is handed a `violation` (or a `fine`)
+		-- event and the feed effect it builds is what is read, with PRODUCTION's config, including
+		-- the `Phase.isLive` gate. They also pin the ROW the producer reads.
+		--
+		-- **THEY DO NOT COVER THE PRODUCER**, and round 2's version of this comment claimed they
+		-- did -- which was the Reviewer's round-2 finding and was fair: `Match.onSafetyViolation`
+		-- is a local connected to `Weapon.SafetyViolated`, nothing in `tests/` fires that signal,
+		-- and case 1 below hands the machine the figure itself -- verbatim the flaw round 1's
+		-- comment accused `report_panel.spec` of. All five pass with the producer's two fields
+		-- deleted.
+		--
+		-- **THE PRODUCER IS COVERED IN `tests/client/zz_tie_to_a_tree.spec.luau`**, which fires a
+		-- REAL violating shot in a two-player run and asserts on the entry the SERVER published
+		-- over `MatchEvent` -- the one place in the repository that path is driven end to end.
 		local Phase = Match.Phase
 
 		local SPAWNS = { Vector3.new(-40, 0, 120), Vector3.new(40, 0, 120) }

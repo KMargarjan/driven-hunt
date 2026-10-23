@@ -589,12 +589,16 @@ Boar.CONFIG = {
 		--   head    100   100    100     lethal   lethal lethal   lethal    lethal lethal
 		--   chest   100   100    100     lethal   lethal lethal   lethal    lethal lethal
 		--   body     55   100     80     mortal   LETHAL mortal   GRAZE     mortal mortal
-		--   rear     55    75     65     mortal   mortal mortal   mortal    mortal mortal
+		--   rear     55    75     65     mortal   mortal mortal   graze     mortal mortal
 		--   legs     30    60     50     graze    MORTAL MORTAL   graze     MORTAL graze
 		--
-		--   the two that were wrong, with the arithmetic:
+		--   the three that were wrong, with the arithmetic. **EVERY ONE OF THEM IS ON THE DEER
+		--   SIDE**, which is the lesson rather than the typo: that column is the boar's number
+		--   DIVIDED BY 1.2 everywhere `WOUND.CLASS` does not say `vital`, and `rear` is
+		--   `crippling`, not vital -- so a severity there has to be read off the divided number.
 		--     deer body rigby   100 / 1.2 = 83.3   -- MORTAL (>= 50), not lethal (needs >= 100)
 		--     deer legs lever    50 / 1.2 = 41.7   -- GRAZED (< 50), not mortal
+		--     deer rear slug     55 / 1.2 = 45.8   -- GRAZED (< 50), not mortal
 		--
 		-- SHOTS TO KILL, BEFORE AND AFTER, which is what the dispatch asked for:
 		--   body, Rigby:  boar 2 -> 1   deer 3 -> 1   (a .416 through the paunch was a GRAZE on a

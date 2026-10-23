@@ -1659,6 +1659,14 @@ local function applyFreeze(userId: number)
 	-- AND THE MONEY IS COUNTED WHERE EVERY OTHER RULE THAT FIRES IS COUNTED (task 250), so "how
 	-- much did the safety rule take off people tonight" is a number in the harness report rather
 	-- than a feeling in a playtest. `Score.violation` above is what CHARGED it; this counts it.
+	--
+	-- `Score.fineForSafety` IS CALLED TWICE PER VIOLATION -- here and in `onSafetyViolation`, which
+	-- puts the figure on the event -- and that is deliberate rather than a leftover (the Reviewer's
+	-- round-2 note 3, which corrected a sentence of mine that claimed otherwise). It is PURE and it
+	-- is one table lookup; the alternative is threading the number from the judge, through
+	-- `dispatch`, through the pure machine, into an effect handler, so that two call sites of a
+	-- pure function can become one. The round-1 defect was a fact that did NOT travel; adding a
+	-- second thing that has to travel to save a lookup is the wrong trade.
 	local charged = Score.fineForSafety(config)
 	if type(charged) == "number" then
 		stats.finesCharged += 1
