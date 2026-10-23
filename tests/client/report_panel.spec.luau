@@ -18,6 +18,8 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 
+local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
+local Money = require(ReplicatedStorage:WaitForChild("Money"))
 local Report = require(ReplicatedStorage:WaitForChild("Report"))
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
@@ -544,6 +546,55 @@ return function()
 			-- The feed's other events are untouched by that rule.
 			expect(Hud.feedTextFor({ kind = "escape" })).to.be.ok()
 			expect(Hud.feedTextFor({ kind = "violation", name = "Anna" })).to.be.ok()
+		end)
+
+		-- ------------------------------------------------- TASK 250: WHAT IT COST HIM
+		it("says a fine as the figure, a dot and the reason", function()
+			-- THE DIRECTOR'S OWN WORDING: *"-$500 . PIGLET"*, with a middle dot. The figure is
+			-- `Money.signed`'s and the layout is `Drive.CONFIG.FEED_FINE_FORMAT`'s -- this case is
+			-- what says the Hud hand-rolls neither.
+			local line = Hud.feedTextFor({ kind = "fine", userId = 1, name = "Anna", money = -500, text = "PIGLET" })
+			expect(line).to.equal(string.format(Drive.CONFIG.FEED_FINE_FORMAT, Money.signed(-500), "PIGLET"))
+			expect(string.find(line :: string, "-$500", 1, true)).to.be.ok()
+			expect(string.find(line :: string, "PIGLET", 1, true)).to.be.ok()
+			-- NEVER `$-500`, which is the one thing `Money`'s whole CurrencySpec borrowing exists
+			-- to prevent.
+			expect(string.find(line :: string, "$-", 1, true)).to.equal(nil)
+			-- the calf and the person say their own words through the same one format
+			expect(Hud.feedTextFor({ kind = "fine", money = -500, text = "CALF" })).to.equal(
+				string.format(Drive.CONFIG.FEED_FINE_FORMAT, Money.signed(-500), "CALF")
+			)
+			expect(Hud.feedTextFor({ kind = "fine", money = -1000, text = "PERSON IN LINE" })).to.equal(
+				string.format(Drive.CONFIG.FEED_FINE_FORMAT, Money.signed(-1000), "PERSON IN LINE")
+			)
+		end)
+
+		it("draws no line for a fine with no figure, and the figure alone with no word", function()
+			-- `Hud.feedTextFor`'s standing contract: nil draws nothing (the `signal` entry's reason).
+			expect(Hud.feedTextFor({ kind = "fine", userId = 1, name = "Anna" })).to.equal(nil)
+			expect(Hud.feedTextFor({ kind = "fine", money = 0, text = "PIGLET" })).to.equal(nil)
+			expect(Hud.feedTextFor({ kind = "fine", money = "500" :: any, text = "PIGLET" })).to.equal(nil)
+			expect(Hud.feedTextFor({ kind = "fine", money = -500 })).to.equal(Money.signed(-500))
+			expect(Hud.feedTextFor({ kind = "fine", money = -500, text = "" })).to.equal(Money.signed(-500))
+		end)
+
+		it("puts the tie and its fine on ONE line, and the tie alone when there is no money", function()
+			-- One shot, one line: two would read as two shots.
+			local both = Hud.feedTextFor({ kind = "violation", name = "Anna", money = -1000 })
+			expect(string.find(both :: string, "Anna tied to a tree", 1, true)).to.be.ok()
+			expect(string.find(both :: string, Money.signed(-1000), 1, true)).to.be.ok()
+			-- a build with no FINE row publishes no money, and the line is exactly what it was
+			expect(Hud.feedTextFor({ kind = "violation", name = "Anna" })).to.equal("Anna tied to a tree")
+			expect(Hud.feedTextFor({ kind = "violation", name = "Anna", money = 0 })).to.equal("Anna tied to a tree")
+		end)
+
+		it("colours a fine as a LOSS and not as money moving", function()
+			-- `Hud.feedMeaningFor`'s own key reserves the coin colour for *"money moved"*; five
+			-- hundred dollars off a man for shooting a piglet is *"you lost something"*, which is
+			-- what the escape and the tie above it already are.
+			expect(Hud.feedMeaningFor({ kind = "fine" })).to.equal("bad")
+			expect(Hud.feedMeaningFor({ kind = "fine" })).to.equal(Hud.feedMeaningFor({ kind = "violation" }))
+			expect(Hud.feedMeaningFor({ kind = "fine" })).never.to.equal(Hud.feedMeaningFor({ kind = "coins" }))
 		end)
 
 		it("names the animal when it knows its kind, and never says NIL BOAR or STAG BOAR", function()

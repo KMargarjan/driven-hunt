@@ -36,6 +36,16 @@ local CONFIG = {
 		ESCAPE_WOUNDED = 0,
 		SAFETY_PENALTY = -10,
 	},
+	-- TASK 250's MONEY FINES, production's mirror. A different currency from `POINTS` and a sibling
+	-- of it, which is the whole shape of the decision: both are charged by the same two events.
+	FINE = {
+		KIND = {
+			cub = { money = 500, word = "PIGLET" },
+			calf = { money = 500, word = "CALF" },
+		},
+		SAFETY = { money = 1000, word = "PERSON IN LINE" },
+		TOTAL_WORD = "FINES",
+	},
 }
 
 -- `kind` is what scores; `zone` is carried because the real record carries it, and every call below
@@ -56,6 +66,11 @@ end
 local function pointsOf(board, userId: number): number
 	local row = board.rows[userId]
 	return if row then row.points else 0
+end
+
+local function finesOf(board, userId: number): number
+	local row = board.rows[userId]
+	return if row then row.fines else 0
 end
 
 return function()
@@ -314,6 +329,131 @@ return function()
 			local elapsed = (os.clock() - started) * 1000
 			print(string.format("[match_score] 10000 kills in %.0f ms", elapsed))
 			expect(elapsed < 100).to.equal(true)
+		end)
+	end)
+
+	describe("the money fines (task 250)", function()
+		-- KAREN, 2026-10-23: *"also we need to make more damadge to shooter if shoot baby like take
+		-- big amount of money and same to person"*. The points penalty and the rope round the tree
+		-- are UNTOUCHED and the money is ON TOP, which is what the Director's dispatch says: *"Both
+		-- come on top of any existing score penalty."*
+		it("charges the piglet and the calf, and nothing else", function()
+			local money, word = Score.fineForKind("cub", CONFIG)
+			expect(money).to.equal(500)
+			expect(word).to.equal("PIGLET")
+			money, word = Score.fineForKind("calf", CONFIG)
+			expect(money).to.equal(500)
+			expect(word).to.equal("CALF")
+			for _, kind in ipairs({ "male", "female", "legendary", "stag", "hind", "unknown" }) do
+				expect(Score.fineForKind(kind, CONFIG)).to.equal(nil)
+			end
+			-- and the degenerate inputs a wire can produce
+			expect(Score.fineForKind(nil, CONFIG)).to.equal(nil)
+			expect(Score.fineForKind("", CONFIG)).to.equal(nil)
+			expect(Score.fineForKind("cub", { POINTS = CONFIG.POINTS })).to.equal(nil)
+			expect(Score.fineForKind("cub", { POINTS = CONFIG.POINTS, FINE = {} })).to.equal(nil)
+			expect(Score.fineForKind("cub", { FINE = { KIND = { cub = { money = 0 } } } })).to.equal(nil)
+		end)
+
+		it("charges a person in the line twice what a piglet costs", function()
+			local money, word = Score.fineForSafety(CONFIG)
+			expect(money).to.equal(1000)
+			expect(word).to.equal("PERSON IN LINE")
+			expect(money).to.equal(2 * (Score.fineForKind("cub", CONFIG) :: number))
+			expect(Score.fineForSafety({ POINTS = CONFIG.POINTS })).to.equal(nil)
+			expect(Score.fineForSafety({ FINE = { SAFETY = { money = -1 } } })).to.equal(nil)
+		end)
+
+		it("puts the piglet's fine on the killer's row, ON TOP of the points penalty", function()
+			local board, awards = Score.kill(Score.new(), killRecord("cub", 1), nil, CONFIG)
+			expect(pointsOf(board, 1)).to.equal(-10)
+			expect(finesOf(board, 1)).to.equal(500)
+			expect(#awards).to.equal(1)
+			-- THE AWARD CARRIES THE DELTA, SIGNED: `Money.signed` draws it and no screen invents it.
+			expect(awards[1].money).to.equal(-500)
+			expect(awards[1].points).to.equal(-10)
+		end)
+
+		it("charges a calf the same, and a male nothing at all", function()
+			local calf = Score.kill(Score.new(), killRecord("calf", 1), nil, CONFIG)
+			expect(finesOf(calf, 1)).to.equal(500)
+			local male, awards = Score.kill(Score.new(), killRecord("male", 1), nil, CONFIG)
+			expect(finesOf(male, 1)).to.equal(0)
+			expect(awards[1].money).to.equal(nil)
+		end)
+
+		it("fines the SHOOTER and not the men who helped", function()
+			-- *"more damadge to shooter"*. An assist on a piglet and a push that walked it up are
+			-- not the shot she is punishing, and both still collect their points.
+			local board = Score.kill(Score.new(), killRecord("cub", 1, { [2] = 40 }), { [3] = 1 }, CONFIG)
+			expect(finesOf(board, 1)).to.equal(500)
+			expect(finesOf(board, 2)).to.equal(0)
+			expect(finesOf(board, 3)).to.equal(0)
+			expect(pointsOf(board, 2)).to.equal(CONFIG.POINTS.ASSIST)
+			expect(pointsOf(board, 3)).to.equal(CONFIG.POINTS.BEATER_PUSH)
+		end)
+
+		it("accumulates across a drive", function()
+			local board = Score.kill(Score.new(), killRecord("cub", 1), nil, CONFIG)
+			board = Score.kill(board, killRecord("calf", 1, nil, 2), nil, CONFIG)
+			board = Score.violation(board, 1, CONFIG)
+			expect(finesOf(board, 1)).to.equal(2000)
+			expect(pointsOf(board, 1)).to.equal(-30)
+		end)
+
+		it("charges the safety fine beside the points penalty, as one award", function()
+			local board, awards = Score.violation(Score.new(), 7, CONFIG)
+			expect(pointsOf(board, 7)).to.equal(-10)
+			expect(finesOf(board, 7)).to.equal(1000)
+			expect(#awards).to.equal(1)
+			expect(awards[1].points).to.equal(-10)
+			expect(awards[1].money).to.equal(-1000)
+			expect(awards[1].reason).to.equal("safety")
+		end)
+
+		it("leaves a build with no FINE table bit for bit what it was", function()
+			local noFine = { POINTS = CONFIG.POINTS }
+			local board, awards = Score.kill(Score.new(), killRecord("cub", 1), nil, noFine)
+			expect(pointsOf(board, 1)).to.equal(-10)
+			expect(finesOf(board, 1)).to.equal(0)
+			expect(awards[1].money).to.equal(nil)
+			local tied, tiedAwards = Score.violation(Score.new(), 1, noFine)
+			expect(pointsOf(tied, 1)).to.equal(-10)
+			expect(finesOf(tied, 1)).to.equal(0)
+			expect(tiedAwards[1].money).to.equal(nil)
+		end)
+
+		it("starts every row at nought and keeps the board frozen", function()
+			local board = Score.join(Score.new(), 1, "p1", "Shooters")
+			expect(finesOf(board, 1)).to.equal(0)
+			expect(table.isfrozen(board.rows[1])).to.equal(true)
+			-- a row that is only ever read keeps its nought through a leave and a team change
+			board = Score.setTeam(board, 1, "Drivers")
+			board = Score.leave(board, 1)
+			expect(finesOf(board, 1)).to.equal(0)
+		end)
+
+		it("is the table production ships, and production ships no row this spec does not know", function()
+			local live = Match.CONFIG.FINE
+			expect(live).to.be.ok()
+			expect(live.SAFETY.money).to.equal(CONFIG.FINE.SAFETY.money)
+			expect(live.SAFETY.word).to.equal(CONFIG.FINE.SAFETY.word)
+			expect(live.TOTAL_WORD).to.equal(CONFIG.FINE.TOTAL_WORD)
+			for kind, row in pairs(CONFIG.FINE.KIND) do
+				expect(live.KIND[kind].money).to.equal(row.money)
+				expect(live.KIND[kind].word).to.equal(row.word)
+			end
+			for kind in pairs(live.KIND) do
+				expect(CONFIG.FINE.KIND[kind] ~= nil).to.equal(true)
+				-- EVERY FINED KIND IS A KIND THE POINTS ALSO PUNISH, which is what makes the two
+				-- tables one decision rather than two: Karen protects the young, and a kind that
+				-- cost money while paying points would be the game saying both things at once.
+				expect(Match.CONFIG.POINTS.KIND[kind] < 0).to.equal(true)
+			end
+			-- ...AND THE WORD IS NEVER THE INTERNAL ONE (the Designer's rule 4: `cub` is never
+			-- printed).
+			expect(live.KIND.cub.word).never.to.equal("cub")
+			expect(live.KIND.cub.word).to.equal("PIGLET")
 		end)
 	end)
 

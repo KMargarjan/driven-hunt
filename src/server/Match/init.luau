@@ -587,6 +587,55 @@ Match.CONFIG = {
 		-- unchanged and is Karen's: you are tied to a tree for the rest of the drive.
 		SAFETY_PENALTY = -10, -- K, 1.7b
 	},
+
+	-- ---------------------------------------------------- WHAT IT COSTS HIM IN MONEY (task 250)
+	--
+	-- KAREN, 2026-10-23, verbatim: *"also we need to make more damadge to shooter if shoot baby
+	-- like take big amount of money and same to person"*.
+	--
+	-- IT IS A SIBLING OF `POINTS` AND NOT A FIELD INSIDE IT, because it is a different currency.
+	-- `POINTS` decides the RANKING and is multiplied by `Economy.CONFIG.COINS_PER_POINT` on the way
+	-- out; these are DOLLARS and are subtracted flat (`Economy.Coins.forRow`). A fine folded into
+	-- `POINTS` would have its size decided by an exchange rate it has nothing to do with, and would
+	-- also move the man down the board by five hundred places.
+	--
+	-- BOTH ARE CHARGED, WHICH IS HER SENTENCE. *"same to person"* is the same money for the other
+	-- thing you must not shoot, and the Director's dispatch says plainly: *"Both come on top of any
+	-- existing score penalty."* So a piglet is still -10 points AND now -$500; a shot that
+	-- endangers somebody is still -10 points, still a rope round a tree for the rest of the drive,
+	-- and now -$1000.
+	--
+	-- A BALANCE NEVER GOES BELOW $0 and that is not enforced here: `Economy.CONFIG.FLOOR` is 0 and
+	-- `Coins.credit` is the one clamp in the game. What a fine can do is take the whole drive to
+	-- nothing -- at `COINS_PER_POINT = 2` and `PARTICIPATION = 10` a good drive is $40-$80, so
+	-- $500 is five to twelve clean drives' earnings and $1000 is twice that. THAT IS THE POINT, and
+	-- it is Karen's *"big amount of money"*; it is also the pair of numbers she is most likely to
+	-- want moved, which is why each is one row.
+	--
+	-- EACH ROW IS `{ money = <dollars>, word = <what the feed prints> }`. The word lives in the row
+	-- because this is server code and `Report.kindWord` -- the game's player-facing noun mapping --
+	-- is a client module; and because one line that carries both halves of a decision is easier to
+	-- change than two tables that have to agree. `Score.fineForKind` and `Score.fineForSafety` are
+	-- the only readers, both pure.
+	FINE = {
+		-- THE YOUNG, AND THE WORD IS NEVER THE INTERNAL ONE. `cub` is the kind; **PIGLET** is what
+		-- a player is told, which is the Designer's rule 4 (*"`cub` is never printed"*) and already
+		-- how `Drive.CONFIG.START_CARD.KINDS` prints it. An animal with no row here costs nothing,
+		-- which is every other kind in `Boar.CONFIG.KINDS`.
+		KIND = {
+			cub = { money = 500, word = "PIGLET" }, -- K, 2026-10-23
+			-- A CALF IS A PIGLET, word for word the rule `POINTS.KIND.calf` already carries: Karen
+			-- protects the young of both species and asked for one figure, so there is one figure.
+			calf = { money = 500, word = "CALF" }, -- K, 2026-10-23
+		},
+		-- *"and same to person"*. TWICE the animal, because it is twice the thing: a piglet is a
+		-- mistake and a shot down the drive line is the one rule in this game that can hurt
+		-- somebody. The Director's dispatch sets both figures.
+		SAFETY = { money = 1000, word = "PERSON IN LINE" }, -- K, 2026-10-23
+		-- THE WORD THE DRIVE'S OWN TOTAL PRINTS, at the end, beside the results board -- so a man
+		-- reading his money column knows why it is what it is. Not a fine: a summary of them.
+		TOTAL_WORD = "FINES",
+	},
 	PUSH_SAMPLE_HZ = 2,
 
 	-- the safety rule (design section 11.4). Karen's rule as written: tied to a tree until the drive
@@ -936,6 +985,12 @@ local stats = {
 	-- is a lock Karen can shoot straight through, and one where `withdrawals` stayed 0 while she was
 	-- pressing Reset is her own bug still there under a different trigger.
 	safetyLocked = 0,
+	-- HOW MANY MONEY FINES THIS SERVER HAS CHARGED AND HOW MANY DOLLARS THEY CAME TO (task 250).
+	-- A rule that fires gets a number in the report, which is this repo's standing discipline: a
+	-- session where `finesCharged` stayed 0 while Karen was shooting piglets is the rule not
+	-- working, and that is invisible without the count.
+	finesCharged = 0,
+	finesMoney = 0,
 	withdrawals = 0,
 	-- The release, counted three ways, because "six boars were released" can now mean two sounders
 	-- and one single, and a stall looks like nothing at all from the outside.
@@ -1165,6 +1220,12 @@ function Match.snapshot()
 			assists = row.assists,
 			pushes = row.pushes,
 			violations = row.violations,
+			-- WHAT THE FINES TOOK OFF HIM THIS DRIVE (task 250), in dollars, as a positive total --
+			-- and ABSENT when there were none, which is the `coins` idiom right below: zero would be
+			-- the server asserting a figure where the honest answer is "this did not happen".
+			-- `Economy.Coins.forDrive` reads it off the BOARD and not off here, so the `MONEY`
+			-- column the Hud draws is already net of it; this field is so a screen can say WHY.
+			fines = if row.fines > 0 then row.fines else nil,
 			left = row.left,
 			coins = balances and balances[row.userId],
 			earned = earned and earned[row.userId],
@@ -1595,6 +1656,14 @@ local function applyFreeze(userId: number)
 		scoredSignal:Fire(award)
 	end
 	stats.violations += 1
+	-- AND THE MONEY IS COUNTED WHERE EVERY OTHER RULE THAT FIRES IS COUNTED (task 250), so "how
+	-- much did the safety rule take off people tonight" is a number in the harness report rather
+	-- than a feeling in a playtest.
+	local safetyFine = Score.fineForSafety(config)
+	if type(safetyFine) == "number" then
+		stats.finesCharged += 1
+		stats.finesMoney += safetyFine
+	end
 
 	-- WITHOUT AN ANCHOR THE VIOLATION STILL HAPPENED, and everything that does not need a tree still
 	-- happens (TASKS.md 35b(c)): the points above, the feed line the machine emits, and Punished.
@@ -2130,6 +2199,45 @@ local function dispatch(event)
 	--
 	-- `Score.leaderboard(board)` AND NOT `Match.snapshot()`: building the snapshot here would cache a
 	-- copy from before the pay-out, and the pure board is what the pure conversion wants.
+	-- WHAT THE FINES TOOK OFF EACH MAN, SAID ONCE, WHERE THE BOARD GOES UP (task 250). The
+	-- Director's dispatch: the fine shows *"on the HUD when it happens ... and in the drive's
+	-- report"*. The moment is `onDowned`'s own `fine` event and `applyFreeze`'s violation line; THIS
+	-- is the report half -- one line per fined player, published on the `Scoring` edge, so it is on
+	-- screen beside the results board whose `MONEY` column is already net of it.
+	--
+	-- WHY IT IS HERE AND NOT IN `Phase`: `enterScoring` is PURE and is handed the state and the
+	-- config. It has never seen the board, and the fines total is a property of the BOARD -- so a
+	-- machine that published it would need the board passed in, which is a second representation of
+	-- the thing `Score` owns.
+	--
+	-- BEFORE THE PAY-OUT AND BEFORE `applyEffects`, for the pay-out's own measured reason restated:
+	-- `enterScoring` has already queued `{ kind = "broadcast", force = true }`, and an entry
+	-- published after the effects would reach the results scene a heartbeat late.
+	--
+	-- IT GOES THROUGH `publishFeed`, THE SAME ONE `applyEffects` USES for every machine-made entry,
+	-- so there is one publisher of a feed entry and no second wire. It is not routed through
+	-- `dispatch` because `Phase`'s `fine` branch is gated on `Phase.isLive`, which is FALSE the
+	-- instant the phase becomes `Scoring` -- correctly, because a fine CHARGED in `Scoring` would be
+	-- a fine for a shot that scored nothing. A TOTAL is not a charge.
+	if state.phase ~= before and state.phase == "Scoring" then
+		local totalWord = config.FINE and config.FINE.TOTAL_WORD
+		if type(totalWord) == "string" and totalWord ~= "" then
+			local at = now()
+			for _, row in ipairs(Score.leaderboard(board)) do
+				if row.fines > 0 then
+					publishFeed({
+						kind = "fine",
+						userId = row.userId,
+						name = row.name,
+						money = -row.fines,
+						text = totalWord,
+						at = at,
+					})
+				end
+			end
+		end
+	end
+
 	if state.phase ~= before and state.phase == "Scoring" and world and world.economy then
 		world.economy.payDrive(state.driveNumber, Score.leaderboard(board))
 		-- ...AND THE TURN FLIPS (task 217, write edge 2). A drive that reached `Scoring` is a drive he
@@ -3158,6 +3266,23 @@ local function onDowned(record)
 		scoredSignal:Fire(award)
 	end
 	pushCredit[record.id] = nil
+	-- SHOOTING THE YOUNG COSTS HIM MONEY (task 250). `Score.kill` has already charged it onto the
+	-- killer's row -- the board is the one place a figure lives -- so what is left here is the
+	-- COUNT and the FEED LINE, and the feed line is its own event because the kill's own entry
+	-- draws nothing (`Hud.feedTextFor` returns nil for a kill: `HitLog` owns that line).
+	local killFine, killWord = Score.fineForKind(record.kind, config)
+	if type(killFine) == "number" and record.killedByUserId then
+		stats.finesCharged += 1
+		stats.finesMoney += killFine
+		dispatch({
+			kind = "fine",
+			userId = record.killedByUserId,
+			name = record.killedByName,
+			money = -killFine,
+			text = killWord,
+			at = now(),
+		})
+	end
 	-- THE RESULTS SCENE'S OWN ROW (task 159), and it is deliberately thin: what animal it was and
 	-- where it was hit. No points -- `Score` owns those and the panel reads them off the snapshot --
 	-- and no Instance and no position, because the carcass is about to be despawned and a world

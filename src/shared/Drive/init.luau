@@ -137,7 +137,7 @@ export type MatchSnapshot = {
 }
 
 export type FeedEntry = {
-	-- "kill" | "escape" | "violation" | "phase" | "join" | "leave" | "signal"
+	-- "kill" | "escape" | "violation" | "phase" | "join" | "leave" | "signal" | "fine"
 	-- "signal" IS THE ONE KIND THAT IS NOT A LINE (task 163): its `text` is "start" or "end" and the
 	-- Hud answers it with the drive's horn instead of a word. The channel is reused on purpose --
 	-- `MatchEvent` already reaches every client once per event, and the Hud already has the rule
@@ -147,6 +147,15 @@ export type FeedEntry = {
 	name: string?,
 	zone: string?,
 	points: number?,
+	-- MONEY THIS EVENT MOVED, SIGNED AND IN DOLLARS (task 250), or absent when it moved none. A fine
+	-- is NEGATIVE, which is `Money.signed`'s own convention (*"a drive can have COST him"*) and the
+	-- reason the sign is on the wire rather than invented by the screen.
+	--
+	-- `kind = "fine"` IS THE ONE ENTRY THAT EXISTS ONLY TO SAY THIS, and its `text` is the WORD the
+	-- line prints after the figure -- "PIGLET", "CALF", "PERSON IN LINE", and "FINES" for the
+	-- drive's own total at the end of it. `kind = "violation"` carries one too, because the tie and
+	-- the fine are one event and two lines about one shot would read as two shots.
+	money: number?,
 	text: string?,
 	at: number,
 }
@@ -225,6 +234,17 @@ Drive.CONFIG = {
 	SCORE_TITLE_WORD = "RESULTS",
 	-- The footer, over the bar that drains while the next drive is coming.
 	SCORE_FOOTER_WORD = "NEXT DRIVE IN",
+	-- THE FEED'S FINE LINE (task 250), and the format is the Director's own wording -- the figure, a
+	-- middle dot, then the reason: *"-$500 . PIGLET"* with a real U+00B7 where that dot is. Written down here because that is this table's rule -- *"every word the panel
+	-- draws is written down"* -- and the FIGURE is `Money.signed`'s, never this string's.
+	--
+	-- THE SEPARATOR IS A MIDDLE DOT (U+00B7) AND IT IS A DATA ROW, so a font that draws it as a
+	-- box is one character's edit rather than a hunt through the Hud. It is written as a `\u{}`
+	-- escape rather than as the character itself, so this FILE stays ASCII and no encoding on the
+	-- way through Rojo, git or a terminal can turn the string into mojibake. It is NOT drawn with
+	-- `Style.glyph`, whose header warns that *"a glyph a font does not have comes back as"* a box:
+	-- this is a text label and the dot is in the body font.
+	FEED_FINE_FORMAT = "%s \u{00B7} %s",
 	SCORE_PANEL_COLOR = Color3.fromRGB(16, 18, 20),
 	SCORE_PANEL_TRANSPARENCY = 0.25,
 	SCORE_HIGHLIGHT_COLOR = Color3.fromRGB(255, 232, 150), -- your own row

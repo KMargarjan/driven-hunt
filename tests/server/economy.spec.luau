@@ -1199,4 +1199,61 @@ return function()
 			expect((store.peek :: any)(66).nextTeam).to.equal("Drivers")
 		end)
 	end)
+	describe("a fine comes off the drive's pay-out (task 250)", function()
+		-- KAREN, 2026-10-23: *"take big amount of money"*. `Coins.forRow` subtracts dollars FLAT --
+		-- never through `COINS_PER_POINT`, because a flat charge whose size depends on an exchange
+		-- rate is not a flat charge.
+		local CFG = Economy.CONFIG
+
+		it("subtracts the fine after the points and the participation", function()
+			local clean = Coins.forRow(10, false, CFG)
+			expect(Coins.forRow(10, false, CFG, 500)).to.equal(clean - 500)
+			-- the first-place bonus is paid and THEN fined: a man can top the board and still owe
+			expect(Coins.forRow(10, true, CFG, 500)).to.equal(clean + CFG.FIRST_PLACE - 500)
+		end)
+
+		it("is a FLAT charge and not a points one", function()
+			-- the difference that matters: 500 dollars, not 500 x COINS_PER_POINT
+			expect(CFG.COINS_PER_POINT).to.equal(2)
+			expect(Coins.forRow(0, false, CFG) - Coins.forRow(0, false, CFG, 500)).to.equal(500)
+		end)
+
+		it("leaves a row with no fine arithmetically untouched", function()
+			for _, fines in ipairs({ 0, -1 }) do
+				expect(Coins.forRow(10, false, CFG, fines)).to.equal(Coins.forRow(10, false, CFG))
+			end
+			expect(Coins.forRow(10, false, CFG, nil)).to.equal(Coins.forRow(10, false, CFG))
+		end)
+
+		it("reads the fine off the board row, so no coin is fined where no point was scored", function()
+			local rows = {
+				{ userId = 101, team = "Shooters", points = 10, fines = 500 },
+				{ userId = 102, team = "Shooters", points = 10 },
+			}
+			local breakdown = Coins.forDrive(rows, CFG)
+			expect(breakdown.coins[102] - breakdown.coins[101]).to.equal(500)
+		end)
+
+		it("takes the drive to nothing but never the balance below zero", function()
+			-- `Economy.CONFIG.FLOOR` is the one clamp in this system, and a $1000 fine is the first
+			-- number in the game big enough to reach it from a normal balance.
+			expect(CFG.FLOOR).to.equal(0)
+			local drive = Coins.forRow(10, false, CFG, 1000)
+			expect(drive < 0).to.equal(true)
+			expect(Coins.credit(0, drive, CFG)).to.equal(0)
+			expect(Coins.credit(200, drive, CFG)).to.equal(0)
+			-- and a balance big enough just pays it
+			expect(Coins.credit(5000, drive, CFG)).to.equal(5000 + drive)
+		end)
+
+		it("prices a whole bad drive the way the task reported it", function()
+			-- two piglets and a shot down the line: -30 points and $2000, against a good drive's
+			-- $40-$80. That IS Karen's "big amount of money" and it is what makes it a mistake.
+			local good = Coins.forRow(10, false, CFG)
+			expect(good >= 20 and good <= 80).to.equal(true)
+			local bad = Coins.forRow(-30, false, CFG, 2000)
+			expect(bad <= -2000).to.equal(true)
+			expect(Coins.credit(1500, bad, CFG)).to.equal(0)
+		end)
+	end)
 end
