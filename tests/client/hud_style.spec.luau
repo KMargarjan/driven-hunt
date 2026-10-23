@@ -29,6 +29,10 @@ local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 -- The drive's own contract, for the two strings this file asserts are NOT on the status bar.
 local Drive = require(ReplicatedStorage:WaitForChild("Drive"))
 local Money = require(ReplicatedStorage:WaitForChild("Money"))
+-- THE GUN'S OWN THREE STATES AND THE TWO WIRE VALUES (task 248): `Shotgun.ammoNeed`,
+-- `REFUSED_NO_AMMO` and `REFUSED_UNSAFE` are the shared definitions both sides read, so this file
+-- asserts the Hud against THEM rather than against strings typed here.
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local player = Players.LocalPlayer
 local scripts = player:WaitForChild("PlayerScripts")
@@ -1056,6 +1060,162 @@ return function()
 			)
 		end)
 
+		-- ------------------------------------------------ THE AMMO PROMPTS (task 248)
+		--
+		-- KAREN, 2026-10-23: *"when magazine is empty we need to show reload R letter higlight / also
+		-- if no rounds at all tell no ammo"*. Two states that looked identical on the readout before
+		-- today -- a gun you can fill and a gun you cannot.
+		--
+		-- EVERY CASE HERE WOULD HAVE ERRORED BEFORE THIS TASK: `need`, `reloadHint`,
+		-- `Hud.calloutFor`, `Rail.setNeeded` and `Shotgun.ammoNeed` did not exist (the Learning
+		-- Agent's L-028).
+		it("highlights the rail's R when the gun is empty and the pocket is not", function()
+			local empty = Hud.ammoChipFor({
+				equipped = true,
+				barrels = { "Spent", "Spent" },
+				loaded = { "None", "None" },
+				selected = 1,
+				ammo = "Slug",
+				reserve = { Slug = 7 },
+				busyFor = 0,
+				weapon = "shotgun",
+			} :: any)
+			expect(empty.need).to.equal(Shotgun.AMMO_NEED.RELOAD)
+			expect(empty.reloadHint).to.equal(true)
+			-- ...AND NOT WHILE THE RELOAD IS ALREADY RUNNING: the light goes out on the keypress.
+			local busy = Hud.ammoChipFor({
+				equipped = true,
+				barrels = { "Spent", "Spent" },
+				loaded = { "None", "None" },
+				selected = 1,
+				ammo = "Slug",
+				reserve = { Slug = 7 },
+				busyFor = 1.4,
+				weapon = "shotgun",
+			} :: any)
+			expect(busy.reloadHint).to.equal(false)
+			-- ...AND NOT WHILE THERE IS ANYTHING LEFT IN IT. A side-by-side with one barrel can
+			-- still be fired, and a HUD that nagged about a half-full gun would be lit for most of
+			-- a drive.
+			local half = Hud.ammoChipFor({
+				equipped = true,
+				barrels = { "Live", "Spent" },
+				loaded = { "Slug", "None" },
+				selected = 1,
+				ammo = "Slug",
+				reserve = { Slug = 7 },
+				busyFor = 0,
+				weapon = "shotgun",
+			} :: any)
+			expect(half.need).to.equal(Shotgun.AMMO_NEED.OK)
+			expect(half.reloadHint).to.equal(false)
+		end)
+
+		it("says NO AMMO on the chip when there is nothing anywhere, and nothing to highlight", function()
+			local none = Hud.ammoChipFor({
+				equipped = true,
+				barrels = { "Spent", "Spent" },
+				loaded = { "None", "None" },
+				selected = 1,
+				ammo = "Slug",
+				reserve = { Slug = 0, Buck = 0 },
+				busyFor = 0,
+				weapon = "shotgun",
+			} :: any)
+			expect(none.need).to.equal(Shotgun.AMMO_NEED.EMPTY)
+			-- THE WORD IS THE STATE AND NOT THE NEXT LOAD. `SLUG` over an empty pocket is the
+			-- honest answer to a question she is not asking at that moment.
+			expect(none.label).to.equal(Shotgun.NOTICE_NO_AMMO)
+			-- PRESSING R WOULD DO NOTHING, so nothing asks him to.
+			expect(none.reloadHint).to.equal(false)
+			-- ...AND AN UNLIMITED POCKET IS NEVER EMPTY, whatever the number beside it says.
+			local unlimited = Hud.ammoChipFor({
+				equipped = true,
+				barrels = { "Spent", "Spent" },
+				loaded = { "None", "None" },
+				selected = 1,
+				ammo = "Slug",
+				reserve = { Slug = 0 },
+				unlimited = { Slug = true },
+				busyFor = 0,
+				weapon = "shotgun",
+			} :: any)
+			expect(unlimited.need).to.equal(Shotgun.AMMO_NEED.RELOAD)
+			expect(unlimited.reloadHint).to.equal(true)
+		end)
+
+		it("draws the centre line for exactly two refusals, and the words come from the server", function()
+			-- THE LOCK. The word is the server's `notice` (`Weapon.Rules.NOTICE`), so this file
+			-- cannot drift from the readout's row.
+			local unsafe = Hud.calloutFor(Shotgun.REFUSED_UNSAFE, "NOT SAFE", true)
+			expect(unsafe).to.be.ok()
+			expect((unsafe :: any).word).to.equal("NOT SAFE")
+			expect((unsafe :: any).sub).to.equal("SOMEBODY IS IN YOUR LINE")
+			-- THE EMPTY GUN, with and without a lodge to buy shells at.
+			local withShop = Hud.calloutFor(Shotgun.REFUSED_NO_AMMO, Shotgun.NOTICE_NO_AMMO, true)
+			expect((withShop :: any).word).to.equal("NO AMMO")
+			expect((withShop :: any).sub).to.equal("BUY AT THE LODGE")
+			local noShop = Hud.calloutFor(Shotgun.REFUSED_NO_AMMO, Shotgun.NOTICE_NO_AMMO, false)
+			expect((noShop :: any).sub).to.equal("")
+			-- THE FOUR THAT BELONG ON THE READOUT GET NOTHING AT THE CENTRE.
+			expect(Hud.calloutFor("off-stand", "NOT IN YOUR STAND", true)).to.equal(nil)
+			expect(Hud.calloutFor("beater-in-line", "NOT AT A BEATER", true)).to.equal(nil)
+			expect(Hud.calloutFor("no-licence", "NO LICENCE", true)).to.equal(nil)
+			expect(Hud.calloutFor("drive-over", "THE DRIVE IS OVER", true)).to.equal(nil)
+			-- NO REASON, OR NO WORDS: nothing is drawn rather than an empty box at the centre.
+			expect(Hud.calloutFor(nil, "NOT SAFE", true)).to.equal(nil)
+			expect(Hud.calloutFor(Shotgun.REFUSED_UNSAFE, nil, true)).to.equal(nil)
+			expect(Hud.calloutFor(Shotgun.REFUSED_UNSAFE, "", true)).to.equal(nil)
+		end)
+
+		it("shows that centre line in the real screen, under the reticle, and takes it down", function()
+			-- THE ELEMENT, NOT THE RULE: this is the one case that touches the live Hud, which is
+			-- why it restores what it changed.
+			local before = Hud.calloutsShown()
+			expect(Hud.showCallout(Shotgun.REFUSED_UNSAFE, "NOT SAFE")).to.equal(true)
+			expect(Hud.calloutsShown()).to.equal(before + 1)
+			expect(Hud.calloutText()).to.equal("NOT SAFE")
+			-- UNDER THE CENTRE AND CLEAR OF THE AIM POINT.
+			local frame = (Hud.gui() :: ScreenGui):FindFirstChild("Callout") :: Frame
+			expect(frame).to.be.ok()
+			expect(frame.Visible).to.equal(true)
+			expect(frame.Position.Y.Scale).to.equal(0.5)
+			expect(frame.Position.Y.Offset).to.equal(Hud.CALLOUT.BELOW_CENTRE_PX)
+			expect(frame.Position.Y.Offset > Shotgun.CONFIG.HIT_MARK_GAP_PX + Shotgun.CONFIG.HIT_MARK_ARM_PX).to.equal(
+				true
+			)
+			-- A REFUSAL THAT DESERVES NO LINE DOES NOT RE-SHOW ONE.
+			expect(Hud.showCallout("off-stand", "NOT IN YOUR STAND")).to.equal(false)
+			-- ...AND IT COMES DOWN ON ITS OWN CLOCK, which `Hud.renderCorner` reads once a frame.
+			local deadline = os.clock() + Hud.CALLOUT.SECONDS + 1
+			while Hud.calloutText() ~= nil and os.clock() < deadline do
+				task.wait(0.1)
+			end
+			expect(Hud.calloutText()).to.equal(nil)
+			expect(frame.Visible).to.equal(false)
+		end)
+
+		it("lights the rail's RELOAD button and puts it out again", function()
+			-- `Rail.press` IS THE SEAM THIS FILE ALREADY DRIVES (a spec cannot fire `Activated`), and
+			-- the light is the same shape: a need STATED by the Hud and performed by the rail.
+			local was = Rail.isNeeded("RELOAD")
+			Rail.setNeeded("RELOAD", true)
+			expect(Rail.isNeeded("RELOAD")).to.equal(true)
+			local node = Rail.button("RELOAD")
+			if node ~= nil then
+				-- THE ACCENT IS THE SYSTEM'S, not a colour invented here.
+				expect((node :: TextButton).BackgroundColor3).to.equal(Rail.CONFIG.NEEDED_COLOR)
+				local label = (node :: TextButton):FindFirstChild("Label") :: TextLabel
+				expect(label.TextColor3).to.equal(Rail.CONFIG.NEEDED_TEXT_COLOR)
+			end
+			Rail.setNeeded("RELOAD", false)
+			expect(Rail.isNeeded("RELOAD")).to.equal(false)
+			if node ~= nil then
+				-- BACK TO THE GHOST SLATE, which is where every other button sits.
+				expect((node :: TextButton).BackgroundColor3).to.equal(Rail.CONFIG.BACKGROUND)
+			end
+			Rail.setNeeded("RELOAD", was)
+		end)
 		it("reads the chambers as pips, and the magazine rifle as rounds held", function()
 			-- PURE, and handed a state this case owns -- the reason `Hud.readoutFor` is exported:
 			-- a driver holds no gun at all, and a one-player run can be tied to a tree.

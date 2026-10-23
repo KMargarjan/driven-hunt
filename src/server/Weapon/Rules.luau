@@ -69,6 +69,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
+-- FOR ONE STRING: `Shotgun.REFUSED_UNSAFE`, the wire value of the safety lock's refusal, which the
+-- client has to name as well (task 248). No rule, no number and no geometry comes from here.
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Rules = {}
 
@@ -117,7 +120,11 @@ Rules.REASON = table.freeze({
 	UNPAID_PLATFORM = "unpaid-platform",
 	-- THE SHOT LINE PASSES CLOSE TO A PERSON (task 248). KAREN, 2026-10-23: *"I still can shoot
 	-- towards hunters and beaters"*.
-	UNSAFE = "unsafe-line",
+	--
+	-- READ FROM `Shotgun` AND NOT SPELLED HERE, which is the one value in this table that is: the
+	-- CLIENT names this one (`Hud.calloutFor` draws the centre line off it) and no client can
+	-- require this file, so the string lives in the shared module and both sides read the same one.
+	UNSAFE = Shotgun.REFUSED_UNSAFE,
 	LICENCE = "no-licence",
 	-- THE DRIVE IS NOT ON (task 174). KAREN, 2026-10-13 ~09:35: *"for hunter once hunt over (drive)
 	-- horn anounce then I can; shoot anymore"*.

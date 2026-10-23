@@ -138,6 +138,10 @@ local stats = {
 	-- counting it as a bad request would hide a mis-wired provider inside the forgery counter.
 	refused = 0,
 	refusedBy = {} :: { [string]: number },
+	-- HOW MANY TRIGGER PULLS LANDED ON A GUN WITH NOTHING ANYWHERE (task 248). Separate from
+	-- `refused` for that counter's own stated reason: a refusal is a LEGAL request the game said no
+	-- to, and this is a gun that has nothing to say yes with.
+	emptyTriggers = 0,
 	-- THE FLIGHT'S OWN NUMBERS (task 185). `shots` keeps its meaning -- accepted trigger pulls --
 	-- so it now LEADS `shotsResolved` by up to 0.365 s, and that gap is the instrument for "a shot
 	-- that never landed". `flightTimeouts` must stay 0: nothing legitimate reaches
@@ -1142,6 +1146,24 @@ local function onFireRequest(player: Player, req: any): string?
 
 	local fired, reason = StateMachine.apply(state, { kind = "Fire" }, now, row)
 	if reason then
+		-- THE TRIGGER PULLED ON A GUN WITH NOTHING IN IT AND NOTHING LEFT (task 248). KAREN,
+		-- 2026-10-23: *"if no rounds at all tell no ammo"*. Until today this was the quietest event
+		-- in the game: the reducer answered `barrel-empty`, an UNFORCED publish went out, and the
+		-- player got no click, no line and no reason -- a dead trigger. `Shotgun.ammoNeed` is the
+		-- one answer to which of the three states the gun is in, and the Hud's rail highlights the
+		-- R off the SAME function, so what he is told here and what is lit there cannot disagree.
+		--
+		-- ONLY THE `EMPTY` STATE SPEAKS. A gun he can simply reload is the RELOAD state, and that is
+		-- the rail's highlight to say -- a notice as well would be two things saying one thing.
+		if reason == "barrel-empty" and Shotgun.ammoNeed(state, row) == Shotgun.AMMO_NEED.EMPTY then
+			stats.emptyTriggers += 1
+			-- FORCED PAST THE PUBLISH LIMITER and carrying `refused`, for the reason the rules'
+			-- refusal publish gives: an answer the client never hears is a trigger that did nothing
+			-- for no visible reason. `refused` is what makes the one dry click and the one centre
+			-- line, and it is the gun's own wire value -- never a `Rules.REASON`.
+			publish(player, id, state, true, Shotgun.NOTICE_NO_AMMO, nil, nil, Shotgun.REFUSED_NO_AMMO)
+			return reason
+		end
 		publish(player, id, state)
 		return reason
 	end

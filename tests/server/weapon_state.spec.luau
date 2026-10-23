@@ -480,4 +480,75 @@ return function()
 			expect(Shotgun.CONFIG.POCKET_UNLIMITED_TEXT).never.to.equal("--")
 		end)
 	end)
+	-- ---------------------------------------------- WHAT THE GUN NEEDS (task 248)
+	--
+	-- KAREN, 2026-10-23: *"when magazine is empty we need to show reload R letter higlight / also if
+	-- no rounds at all tell no ammo"*. `Shotgun.ammoNeed` is the ONE answer both sides read: the
+	-- server publishes `NO AMMO` from it (`onFireRequest`'s `barrel-empty` branch) and the Hud
+	-- highlights the rail's R from it (`Hud.ammoChipFor`).
+	describe("Shotgun.ammoNeed -- the gun, the pocket, or neither", function()
+		local function stateOf(barrels, reserve, unlimited)
+			return { barrels = barrels, reserve = reserve, unlimited = unlimited }
+		end
+
+		it("says OK while anything in the gun will fire", function()
+			expect(Shotgun.ammoNeed(stateOf({ "Live", "Spent" }, { Slug = 0 }), ROW)).to.equal(Shotgun.AMMO_NEED.OK)
+			-- A HALF-FULL GUN IS NOT A RELOAD PROMPT: a side-by-side with one barrel can still be
+			-- fired, and the highlight means "the trigger will do nothing until you reload".
+			expect(Shotgun.ammoNeed(stateOf({ "Spent", "Live" }, {}), ROW)).to.equal(Shotgun.AMMO_NEED.OK)
+		end)
+
+		it("says RELOAD for an empty gun with anything at all in a pocket", function()
+			expect(Shotgun.ammoNeed(stateOf({ "Spent", "Spent" }, { Slug = 1, Buck = 0 }), ROW)).to.equal(
+				Shotgun.AMMO_NEED.RELOAD
+			)
+			-- ANY KIND, not the selected one: `R` with an empty slug pocket and buckshot in the belt
+			-- is a reload that works, and the per-kind case is the readout's own `NO SLUG` notice.
+			expect(Shotgun.ammoNeed(stateOf({ "Empty", "Empty" }, { Slug = 0, Buck = 4 }), ROW)).to.equal(
+				Shotgun.AMMO_NEED.RELOAD
+			)
+			-- AN UNLIMITED POCKET IS NEVER EMPTY (task 221), whatever the number beside it says.
+			expect(Shotgun.ammoNeed(stateOf({ "Spent", "Spent" }, { Slug = 0 }, { Slug = true }), ROW)).to.equal(
+				Shotgun.AMMO_NEED.RELOAD
+			)
+		end)
+
+		it("says EMPTY only when there is nothing anywhere", function()
+			expect(Shotgun.ammoNeed(stateOf({ "Spent", "Spent" }, { Slug = 0, Buck = 0 }), ROW)).to.equal(
+				Shotgun.AMMO_NEED.EMPTY
+			)
+			-- ...AND WITH NO ROW IT READS WHATEVER POCKETS THE STATE CARRIES, which is every caller
+			-- that hands it a state built by hand.
+			expect(Shotgun.ammoNeed(stateOf({ "Spent" }, {}))).to.equal(Shotgun.AMMO_NEED.EMPTY)
+			expect(Shotgun.ammoNeed(stateOf({ "Spent" }, { Odd = 3 }))).to.equal(Shotgun.AMMO_NEED.RELOAD)
+		end)
+
+		it("says nothing about a gun that is not there", function()
+			-- NO GUN IS NOT AN EMPTY GUN. A driver holds nothing, and a man tied to a tree has had
+			-- his taken away: neither deserves `NO AMMO` on his screen.
+			expect(Shotgun.ammoNeed(nil, ROW)).to.equal(Shotgun.AMMO_NEED.OK)
+		end)
+
+		it("spells the two wire values once, for both sides to read", function()
+			-- The Hud cannot require `ServerScriptService.Weapon.Rules`, so the refusal the centre
+			-- line is keyed on lives here -- and `Rules.REASON.UNSAFE` IS this string.
+			expect(Shotgun.REFUSED_NO_AMMO).to.equal("no-ammo")
+			expect(Shotgun.NOTICE_NO_AMMO).to.equal("NO AMMO")
+			expect(Shotgun.REFUSED_UNSAFE).to.equal("unsafe-line")
+			expect(Weapon.Rules.REASON.UNSAFE).to.equal(Shotgun.REFUSED_UNSAFE)
+		end)
+
+		it("is what the server publishes on a trigger pull with nothing anywhere", function()
+			-- THE REDUCER'S OWN REFUSAL IS UNCHANGED (`barrel-empty`); what is new is that the
+			-- player is TOLD. This asserts the two halves line up: the state the gate reaches and
+			-- the words the Hud will draw.
+			local dry = StateMachine.setEquipped(
+				StateMachine.initial(ROW, { ammo = "Slug", reserve = { Slug = 0, Buck = 0 } }),
+				true
+			)
+			local _, reason = StateMachine.apply(dry, { kind = "Fire" }, 100, ROW)
+			expect(reason).to.equal("barrel-empty")
+			expect(Shotgun.ammoNeed(dry, ROW)).to.equal(Shotgun.AMMO_NEED.EMPTY)
+		end)
+	end)
 end
