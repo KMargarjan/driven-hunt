@@ -3377,6 +3377,43 @@ function Boar.avoidRadius(kind: string?, config): number
 	return math.max(floor, math.max(drawn, box) / 2 + (move.AVOID_CLEARANCE_STUDS or 0))
 end
 
+-- ...AND THE WIDTH THE ANIMAL ACTUALLY COLLIDES AT (task 249). PURE, and it is `Boar.avoidRadius`
+-- with the DRAWN width taken out: the collision box's own half-width plus the same clearance, under
+-- the same floor. For every boar kind, for the hind and for the calf the two functions return the
+-- identical number, because none of them is drawn wider than its box.
+--
+-- KAREN, 2026-10-23: *"I can see redtag is stucking when walking in mountain,tree ect check that"*.
+-- MEASURED in her place before anything was written -- one 150-second window of a real drive,
+-- sampling every animal four times a second, "stuck" being *wants to move (its `Mover`'s
+-- `PlaneVelocity` is set) and is not moving (under 0.8 studs/s)*:
+--
+--   stag   337 samples   73 stuck   **21.7 %**   worst run 1.6 s
+--   cub    530 samples   22 stuck      4.2 %
+--   female 120 samples    5 stuck      4.2 %
+--   calf    98 samples    3 stuck      3.1 %
+--   hind    92 samples    2 stuck      2.2 %
+--   male    31 samples    0 stuck      0.0 %
+--
+-- ONE ANIMAL IS FIVE TO TEN TIMES AS STUCK AS EVERY OTHER, and it is the one animal whose avoidance
+-- is planned at a width it does not have: `Boar.avoidRadius` answers **2.335** for a stag (antlers
+-- 3.47 across) against **1.6** for everything else, so the fan hunts a 4.67-stud corridor through
+-- standing wood where the others need 3.2 -- and when it cannot find one it answers "boxed in" and
+-- the stag runs on into the trunk it just saw.
+--
+-- SO THE ANTLER WIDTH BECOMES A PREFERENCE AND THE BODY WIDTH STAYS THE RULE. The fan is run at
+-- `avoidRadius` first, exactly as task 240 wrote it (*"seems it hitting trees"* -- the antlers must
+-- not scrape a trunk); only when THAT finds nothing at either horizon is it run again at this
+-- narrower one, which is the width the animal can physically fit through. `Runtime:_avoidTurn` is
+-- the one caller of both.
+function Boar.bodyAvoidRadius(config): number
+	local move = config.MOVE
+	if move == nil then
+		return 0
+	end
+	local box = if config.BODY_SIZE ~= nil then config.BODY_SIZE.X else 0
+	return math.max(move.AVOID_RADIUS_STUDS or 0, box / 2 + (move.AVOID_CLEARANCE_STUDS or 0))
+end
+
 -- THE CONFIG ONE ANIMAL LIVES BY (task 219). Pure. For every kind with no `wary` row it returns the
 -- config TABLE ITSELF and not a copy, so for the male, the sow, the cub and the whole flag-off world
 -- this is the IDENTITY FUNCTION and nothing can drift -- which is the only way to add a per-animal
@@ -3812,6 +3849,11 @@ function Boar.newRuntime(world)
 		avoidCasts = 0,
 		avoidTurns = 0,
 		avoidBoxedIn = 0,
+		-- HOW OFTEN THE DRAWN WIDTH FOUND NOTHING AND THE COLLIDING ONE DID (task 249). It is the
+		-- stag's counter and nobody else's -- no other kind is drawn wider than its box -- and it is
+		-- the number that says Karen's *"redtag is stucking"* fix is doing anything at all: 0 with no
+		-- deer in the drive, 0 in open ground, and a climbing number in close wood.
+		avoidNarrowed = 0,
 		trunkContacts = 0,
 		runSeconds = 0,
 		-- ...and the two NOT-MOVING detectors' findings, counted so *"no new stuck events"* is a
@@ -5968,16 +6010,52 @@ function Runtime:_avoidTurnFor(entry, position: Vector3, nose: Vector3, config):
 	end
 	local turn, casts = Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, side, blockedAt(reach), move.AVOID_CASTS)
 	self._stats.avoidCasts += casts
+	-- THE NEARER HORIZON, hoisted out of the branch below because the task 249 fallback asks at the
+	-- same two distances and must not invent a third.
+	local near = reach * (move.AVOID_NEAR_SCALE or 0.5)
 	if turn == nil then
 		-- NOTHING AT THE FAR HORIZON: ask again at a nearer one. MEASURED -- a quarter of the first
 		-- run's evaluations were "boxed in" at the full reach, in wood where a 26-stud corridor does
 		-- not exist, and every one of those was an animal running on into what it had just seen.
-		local near = reach * (move.AVOID_NEAR_SCALE or 0.5)
 		local closer, moreCasts = Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, side, blockedAt(near), move.AVOID_CASTS)
 		self._stats.avoidCasts += moreCasts
 		turn = closer
 	end
 	if turn == nil then
+		-- NOTHING AT EITHER HORIZON FOR THE **DRAWN** ANIMAL: ask again for the one that collides
+		-- (task 249). Karen: *"I can see redtag is stucking when walking in mountain,tree ect"* --
+		-- and the stag is the only animal this branch can reach differently, because he is the only
+		-- one `Boar.avoidRadius` widens (2.335 against 1.6; see `Boar.bodyAvoidRadius` for the
+		-- measurement that found him 21.7 % stuck against 2-4 % for every other kind).
+		--
+		-- IT IS THE SAME FAN AT A NARROWER SWEEP, both horizons, and it runs ONLY when the wide one
+		-- gave up -- so an animal with room keeps task 240's antler clearance exactly, and one in
+		-- close wood is allowed through a gap his body fits even though his antlers do not. The
+		-- extra cost is at most `2 x AVOID_CASTS` casts, for one boxed-in stag, inside the same
+		-- `AVOID_HZ` window.
+		local bodyRadius = Boar.bodyAvoidRadius(config)
+		if bodyRadius < radius then
+			local function blockedNarrow(length: number)
+				return function(degrees: number)
+					return sweep(eye, turnFlat(nose, math.rad(degrees)), length, bodyRadius)
+				end
+			end
+			local narrow, narrowCasts =
+				Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, side, blockedNarrow(reach), move.AVOID_CASTS)
+			self._stats.avoidCasts += narrowCasts
+			if narrow == nil then
+				local nearer, nearerCasts =
+					Brain.clearTurnDeg(move.AVOID_ANGLES_DEG, side, blockedNarrow(near), move.AVOID_CASTS)
+				self._stats.avoidCasts += nearerCasts
+				narrow = nearer
+			end
+			if narrow ~= nil then
+				self._stats.avoidNarrowed += 1
+				entry.avoidDeg = narrow
+				self._stats.avoidTurns += 1
+				return narrow
+			end
+		end
 		-- BOXED IN. Say so by leaving the whiskers to it: they turn harder when both sides are
 		-- blocked, and the wedge detector is what clears an animal that is really pinned. This
 		-- function never has to solve a dead end, only not to run into a trunk -- which is

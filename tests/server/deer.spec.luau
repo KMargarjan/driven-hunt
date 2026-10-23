@@ -1359,4 +1359,46 @@ return function()
 			end)
 		end)
 	end)
+
+	-- ------------------------------------------- THE STAG GETS THROUGH THE WOOD (task 249)
+	--
+	-- KAREN, 2026-10-23: *"I can see redtag is stucking when walking in mountain,tree ect check
+	-- that"*. MEASURED in her own place first, 150 s of a real drive sampled four times a second,
+	-- "stuck" being *its `Mover` is asking for movement and the body is under 0.8 studs/s*:
+	-- **stag 73 of 337 samples (21.7 %)** against cub 4.2 %, female 4.2 %, calf 3.1 %, hind 2.2 %,
+	-- male 0.0 %. One animal, five to ten times the rest.
+	--
+	-- AND THE STAG IS THE ONE ANIMAL WHOSE AVOIDANCE IS PLANNED AT A WIDTH IT HAS NOT GOT:
+	-- `Boar.avoidRadius` reads `drawnWidthStuds`, and only the stag's (3.47, his ANTLERS) is wider
+	-- than his collision box.
+	describe("the stag in close wood (task 249)", function()
+		it("plans at the antlers but is allowed through at the body", function()
+			local deer = Boar.speciesConfig("stag", Boar.CONFIG)
+			local wide = Boar.avoidRadius("stag", deer)
+			local body = Boar.bodyAvoidRadius(deer)
+			-- THE WIDE ONE IS TASK 240'S AND IS UNCHANGED: the antler span, halved, plus the
+			-- clearance every animal keeps.
+			expect(wide > body).to.equal(true)
+			expect(
+				math.abs(wide - (Boar.CONFIG.KINDS.stag.drawnWidthStuds / 2 + deer.MOVE.AVOID_CLEARANCE_STUDS)) < 1e-6
+			).to.equal(true)
+			-- ...AND THE NARROW ONE IS THE BOX HE ACTUALLY COLLIDES AT, under the same floor.
+			expect(body >= deer.MOVE.AVOID_RADIUS_STUDS).to.equal(true)
+			expect(body >= deer.BODY_SIZE.X / 2 + deer.MOVE.AVOID_CLEARANCE_STUDS).to.equal(true)
+		end)
+
+		it("changes nothing for any animal that is not drawn wider than its box", function()
+			-- THE WHOLE BLAST RADIUS OF THE FIX, AS AN ASSERTION. The fallback can only ever run
+			-- when `bodyAvoidRadius < avoidRadius`, so every kind for which the two are EQUAL
+			-- reaches exactly the code it reached before task 249 -- which is every boar, the hind
+			-- and the calf.
+			for _, kind in ipairs({ "male", "female", "cub", "legendary" }) do
+				local cfg = Boar.speciesConfig(kind, Boar.CONFIG)
+				expect(Boar.avoidRadius(kind, cfg)).to.equal(Boar.bodyAvoidRadius(cfg))
+			end
+			local deer = Boar.speciesConfig("hind", Boar.CONFIG)
+			expect(Boar.avoidRadius("hind", deer)).to.equal(Boar.bodyAvoidRadius(deer))
+			expect(Boar.avoidRadius("calf", deer)).to.equal(Boar.bodyAvoidRadius(deer))
+		end)
+	end)
 end
