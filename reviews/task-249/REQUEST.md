@@ -3,19 +3,19 @@
 Task: 249
 Round: 1
 Base: c9583d38 (main)
-Code commit: dbf1f92626dd776637b589394b64f14a0c7b7625
+Code commit: e2651bd447d1ab3a3395f904a1ef7eb8b874c765
 
 ```
-[harness] PASS: 34/34 checks @ dbf1f92626dd776637b589394b64f14a0c7b7625 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ e2651bd447d1ab3a3395f904a1ef7eb8b874c765 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ e2651bd447d1ab3a3395f904a1ef7eb8b874c765 (clean tree)
 ```
 
-**`[harness2]` IS MISSING AND THIS REQUEST CANNOT BE REVIEWED UNTIL THE DIRECTOR RUNS IT.**
+Both at the same commit, both on a clean tree. The two-player run is required because
 `src/server/Match/init.luau`, `src/server/Lobby/init.luau` and `tests/server/match_live.spec.luau`
-are in `TWO_PLAYER_PATHS`, so `tools/agents.py` will refuse this round without the `[harness2]` line
-for the same commit. It needs the Test-tab Start click with the Players spinner at 2
-(`director-preflight-checklist` items 51 / 60 / 75); it was attempted and reported *"0 new studio(s)
-beside the editor"*, and the second session reached its 2 h cap. `ESCALATE.md` carries the
-`NEEDS DIRECTOR` entry and the clicks. **It is not claimed and it was not faked.**
+are in `TWO_PLAYER_PATHS`; the Director ran it twice at `12e62cda` (`test2-t249a.log`,
+`test2-t249b.log`) and the Builder ran it again at this head after adding the behavioural cases in
+claim 15 (`test2-t249c.log`): server 2115/0, shooter 567/0, driver 561/0. `ESCALATE.md`'s
+`NEEDS DIRECTOR` entry is closed.
 
 ## What changed
 
@@ -26,7 +26,7 @@ harness run so only DEV was open.
 
 ## Claims
 
-Claims 1–10 are items 1, 3, 4 and 5; claims 11–14 are items 2 and 6.
+Claims 1–10 are items 1, 3, 4 and 5; claims 11–15 are items 2 and 6.
 
 1. **The yellow box was `Weapon.Effects`' impact marker, measured rather than assumed.** Firing into
    the ground in the Forest Test drew nine parts named `Impact`, each **0.30 studs,
@@ -122,21 +122,38 @@ Claims 1–10 are items 1, 3, 4 and 5; claims 11–14 are items 2 and 6.
     case — the party holds both men, and the attribute is gone on the first scan of the drive that
     takes him.
 
+15. **The backstop is proved by BEHAVIOUR, and it was shown failing on the code before the fix.**
+    Claims 11 and 12 rest on a grep and on three pure predicates, and a predicate that answers
+    correctly proves nothing about the carcass in the world unless something calls it (L-028). Three
+    new cases drive the real `Body.stepCarcass` on a real body from the real constructor
+    (`Body.create`, what `Runtime:spawn` itself calls) in the one state that produced the defect:
+    collapsed, the upright constraint still on, and a death track that never advanced. **With the
+    backstop block taken back out of `stepCarcass` the suite reported
+    `boar_model.spec:1785 Expected value "true" (boolean), got "false" (boolean)`** — that line is
+    `expect(handle.toppled).to.equal(true)`, i.e. **the carcass stands**, Karen's own defect
+    reproduced by the suite. The block went straight back (`git checkout`) and the run is the 34/34
+    above. The other two cases hold the boundaries: a clip that IS running is not touched at all
+    (the two rotations must never compose — task 150), and a carcass the box already toppled at
+    death is not touched either. *Verify:* `tests/server/boar_model.spec.luau`, *"the carcass in
+    the world, not only the arithmetic"*; commit `e2651bd4`.
+
 ## What could not be verified
 
 - **`[harness2]` was not run** (above, and in `ESCALATE.md`). The gate will refuse this round until
   it is.
-- **ITEM 2 HAS NO HONEST BEFORE/AFTER COUNT, and the dispatch asked for one.** The cause is certain
-  (claim 11 is a grep, not an inference) and the fix is spec-covered, but the COUNT is not. Two
-  things defeated it inside the budget: **(a)** the drawn-height metric I built proved unsound — a
-  dead cub measured **1.65×** its own sampled live height, because a bone span sampled four times a
-  second never catches the animal's true standing height; **(b)** every carcass it flagged had
-  despawned before the camera reached it, so of **8 traced kills** I have **one** frame actually
-  looked at, a male boar lying correctly on its flank
+- **ITEM 2 STILL HAS NO IN-GAME BEFORE/AFTER COUNT, and the dispatch asked for one.** What claim 15
+  adds is a reproduction **in the suite** — the carcass provably stands without the fix and
+  provably lies down with it — and that is not the same thing as counting standing corpses on
+  Karen's path. Two things defeated the count inside the budget: **(a)** the drawn-height metric I
+  built proved unsound — a dead cub measured **1.65×** its own sampled live height, because a bone
+  span sampled four times a second never catches the animal's true standing height; **(b)** every
+  carcass it flagged had despawned before the camera reached it, so of **8 traced kills** I have
+  **one** frame actually looked at, a male boar lying correctly on its flank
   (`<runs-dir>/249-before-corpse-male.png`). What is needed is a trace that photographs each corpse
   the moment it settles, against a standing height read off the kind's own model rather than off
   live samples. Queued as `TASKS.md` 249a(a). **`Runtime.stats().deathBackstops` is the number to
-  read on the next playtest:** every count is an animal that would have stood.
+  read on Karen's next real playtest** (L-010): every count is an animal that would have stood, and
+  a green suite here is not proof the defect is gone on her path.
 - **Item 5's gap is clocked only in part (L-022).** `Scoring` measured 3.95 s off the wire against
   the new `SCORE_SECONDS` 4; the full results → card → intermission clock was not caught in one
   window. Queued as 249a(c).

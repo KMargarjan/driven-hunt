@@ -1,6 +1,6 @@
 # Escalations
 
-## 2026-10-23 - Task 249 (six fixes from Karen's afternoon test): **NEEDS DIRECTOR: test2 for task 249 at `dbf1f92626dd776637b589394b64f14a0c7b7625`.** Not blocking anything else; all six items are built and the one-player gate is green.
+## 2026-10-23 - Task 249 (six fixes from Karen's afternoon test): **CLOSED.** The Director ran `test2` twice at `12e62cda` (both PASS 36/36, logs `test2-t249a.log` / `test2-t249b.log`), the Builder ran it again himself at the round's own head `e2651bd4` (`test2-t249c.log`, PASS 36/36), and both gates are green at that commit. Nothing is outstanding. The entry below is kept as written (rule 7).
 
 **NEEDS DIRECTOR: `python tools/studio_mcp.py test2` at `dbf1f92626dd776637b589394b64f14a0c7b7625`.**
 
