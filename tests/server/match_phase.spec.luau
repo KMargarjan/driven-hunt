@@ -772,6 +772,10 @@ return function()
 		describe("Match.withdrawOnRespawn -- is this a respawn the drive did not ask for", function()
 			local mine = Instance.new("Model")
 			local his = Instance.new("Model")
+			-- `NONE` IS HOW A CASE SAYS nil, and it is needed rather than tidy: `pairs` cannot see a
+			-- key whose value is nil, so `facts({ placed = nil })` would quietly hand back the
+			-- DEFAULT -- a case that asserts the opposite of what it reads.
+			local NONE = {}
 			local function facts(overrides)
 				local base = {
 					live = true,
@@ -782,7 +786,7 @@ return function()
 					lobbyWorld = true,
 				}
 				for key, value in pairs(overrides or {}) do
-					base[key] = value
+					base[key] = if value == NONE then nil else value
 				end
 				return base
 			end
@@ -802,8 +806,8 @@ return function()
 			end)
 
 			it("says no when nothing is known: no character, or none ever placed", function()
-				expect(Match.withdrawOnRespawn(facts({ current = nil }))).to.equal(false)
-				expect(Match.withdrawOnRespawn(facts({ placed = nil }))).to.equal(false)
+				expect(Match.withdrawOnRespawn(facts({ current = NONE }))).to.equal(false)
+				expect(Match.withdrawOnRespawn(facts({ placed = NONE }))).to.equal(false)
 			end)
 
 			it("says no outside a drive, for a non-participant, and in a world with no lobby", function()

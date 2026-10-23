@@ -542,11 +542,20 @@ return function()
 			-- THE REDUCER'S OWN REFUSAL IS UNCHANGED (`barrel-empty`); what is new is that the
 			-- player is TOLD. This asserts the two halves line up: the state the gate reaches and
 			-- the words the Hud will draw.
+			-- `StateMachine.initial` HANDS BACK A LOADED GUN, so the two barrels are fired first:
+			-- what this case is about is the pull AFTER the last one, which is the only pull that
+			-- reaches `barrel-empty`.
 			local dry = StateMachine.setEquipped(
 				StateMachine.initial(ROW, { ammo = "Slug", reserve = { Slug = 0, Buck = 0 } }),
 				true
 			)
-			local _, reason = StateMachine.apply(dry, { kind = "Fire" }, 100, ROW)
+			expect(Shotgun.ammoNeed(dry, ROW)).to.equal(Shotgun.AMMO_NEED.OK)
+			for _ = 1, ROW.BARRELS do
+				local fired, why = StateMachine.apply(dry, { kind = "Fire" }, 100, ROW)
+				expect(why).to.equal(nil)
+				dry = fired
+			end
+			local _, reason = StateMachine.apply(dry, { kind = "Fire" }, 200, ROW)
 			expect(reason).to.equal("barrel-empty")
 			expect(Shotgun.ammoNeed(dry, ROW)).to.equal(Shotgun.AMMO_NEED.EMPTY)
 		end)

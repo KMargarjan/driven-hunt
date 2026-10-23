@@ -1211,7 +1211,11 @@ return function()
 			Rail.setNeeded("RELOAD", false)
 			expect(Rail.isNeeded("RELOAD")).to.equal(false)
 			if node ~= nil then
-				-- BACK TO THE GHOST SLATE, which is where every other button sits.
+				-- BACK TO THE GHOST SLATE, which is where every other button sits -- AFTER THE
+				-- TWEEN, because going OUT of the lit state is the system's own 0.12 s colour
+				-- tween and reading it in the same frame reads the colour it is leaving (this case
+				-- measured exactly that, 2026-10-23: `BLAZE_LO` where `SLATE` was expected).
+				task.wait(Style.MOTION.HOVER + 0.15)
 				expect((node :: TextButton).BackgroundColor3).to.equal(Rail.CONFIG.BACKGROUND)
 			end
 			Rail.setNeeded("RELOAD", was)

@@ -391,7 +391,9 @@ return function()
 				expect(#(line :: string) <= 20).to.equal(true)
 				seen += 1
 			end
-			expect(seen).to.equal(6)
+			-- SEVEN SINCE TASK 248 (the safety lock's `NOT SAFE`), and the cap above holds for it:
+			-- eight characters.
+			expect(seen).to.equal(7)
 			expect(Rules.noticeFor("not-a-reason")).to.equal(nil)
 			expect(Rules.noticeFor(nil)).to.equal(nil)
 			-- The reasons are wire values the client and the Hud key on, so they are pinned here.
