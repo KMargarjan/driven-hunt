@@ -1,7 +1,14 @@
 # Task 245b (filed as task 245, round 2) - the deer's road leap, wired behind DEER_ROAD_LEAP
 
 Task: 245
-Round: 1
+Round: 2
+
+**ROUND 2 FIXES ROUND 1'S ONE BLOCKING FINDING, AND IT WAS RIGHT.** The research note is not in
+the paperwork the merge gate allows after the code commit (`reviews/`, `ESCALATE.md`,
+`PLAYTEST.md`, `docs/architecture/audit-NNN.md`, the task's `TASKS.md` row), and section 6b landed
+in `57a625c6` -- after the commit the harness line named. The fix is the straightforward one: the
+gate was run again at a head that contains everything, and the `Code commit:` above is that head.
+No code changed between the two; `git diff 76adac58..5e6e73cd -- src tests tools` is empty.
 
 **IT IS FILED UNDER 245 AND NOT 245b.** `tools/agents.py` refuses a task number that is not digits,
 and the house convention for a lettered follow-up is the numeric folder -- `reviews/task-233` holds
@@ -11,10 +18,10 @@ committed RESULT.md is round 1 (PASS), so this run must be `Round: 1`"). 245b is
 passed task, which is exactly that case. Task 245's round-1 verdict and its request are in git at
 `c03d386f` and `99f8fef3`; this run will overwrite `reviews/task-245/RESULT.md` with 245b's.
 Base: 92735a05 (main)
-Code commit: 76adac58f3885bc199695ac35078c22ef3a099bc
+Code commit: 5e6e73cdd2d7390dc810a2e1aa9e9e176736b0fa
 
 ```
-[harness] PASS: 34/34 checks @ 76adac58f3885bc199695ac35078c22ef3a099bc (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 5e6e73cdd2d7390dc810a2e1aa9e9e176736b0fa (clean tree) scope=all
 ```
 
 `[harness2]`: **N/A.** Nothing this task changed is in `TWO_PLAYER_PATHS` -- the files are
