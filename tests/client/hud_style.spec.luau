@@ -1215,8 +1215,17 @@ return function()
 				-- TWEEN, because going OUT of the lit state is the system's own 0.12 s colour
 				-- tween and reading it in the same frame reads the colour it is leaving (this case
 				-- measured exactly that, 2026-10-23: `BLAZE_LO` where `SLATE` was expected).
-				task.wait(Style.MOTION.HOVER + 0.15)
-				expect((node :: TextButton).BackgroundColor3).to.equal(Rail.CONFIG.BACKGROUND)
+				-- ...AND IT IS COMPARED WITH A TOLERANCE, not by identity: a tween's last frame
+				-- lands within a thousandth of its goal and a Color3 is three floats, so
+				-- `to.equal` on one is a case that fails on a slow frame (measured twice here).
+				-- What it has to prove is that the button went BACK, and 0.02 per channel is two
+				-- hundredths of the distance to `NEEDED_COLOR`.
+				task.wait(Style.MOTION.HOVER + 0.35)
+				local now = (node :: TextButton).BackgroundColor3
+				local want = Rail.CONFIG.BACKGROUND
+				expect(math.abs(now.R - want.R) < 0.02).to.equal(true)
+				expect(math.abs(now.G - want.G) < 0.02).to.equal(true)
+				expect(math.abs(now.B - want.B) < 0.02).to.equal(true)
 			end
 			Rail.setNeeded("RELOAD", was)
 		end)

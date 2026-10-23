@@ -550,12 +550,17 @@ return function()
 				true
 			)
 			expect(Shotgun.ammoNeed(dry, ROW)).to.equal(Shotgun.AMMO_NEED.OK)
+			-- ...AND THE CLOCK MOVES BETWEEN THEM, because `Fire` sets `busyUntil` to
+			-- `now + BARREL_DELAY` and a second pull at the same instant is refused `busy` -- which
+			-- is a different refusal and not the one this case is about.
+			local at = 100
 			for _ = 1, ROW.BARRELS do
-				local fired, why = StateMachine.apply(dry, { kind = "Fire" }, 100, ROW)
+				local fired, why = StateMachine.apply(dry, { kind = "Fire" }, at, ROW)
 				expect(why).to.equal(nil)
 				dry = fired
+				at += 1
 			end
-			local _, reason = StateMachine.apply(dry, { kind = "Fire" }, 200, ROW)
+			local _, reason = StateMachine.apply(dry, { kind = "Fire" }, at + 1, ROW)
 			expect(reason).to.equal("barrel-empty")
 			expect(Shotgun.ammoNeed(dry, ROW)).to.equal(Shotgun.AMMO_NEED.EMPTY)
 		end)
