@@ -1,21 +1,44 @@
 # Task 249 — Karen's afternoon test: all six
 
 Task: 249
-Round: 1
+Round: 2
 Base: c9583d38 (main)
-Code commit: e2651bd447d1ab3a3395f904a1ef7eb8b874c765
+Code commit: 33f9d113db0552e4679e54408c7a091b7b3c2363
 
 ```
-[harness] PASS: 34/34 checks @ e2651bd447d1ab3a3395f904a1ef7eb8b874c765 (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ e2651bd447d1ab3a3395f904a1ef7eb8b874c765 (clean tree)
+[harness] PASS: 34/34 checks @ 33f9d113db0552e4679e54408c7a091b7b3c2363 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 33f9d113db0552e4679e54408c7a091b7b3c2363 (clean tree)
 ```
 
-Both at the same commit, both on a clean tree. The two-player run is required because
-`src/server/Match/init.luau`, `src/server/Lobby/init.luau` and `tests/server/match_live.spec.luau`
-are in `TWO_PLAYER_PATHS`; the Director ran it twice at `12e62cda` (`test2-t249a.log`,
-`test2-t249b.log`) and the Builder ran it again at this head after adding the behavioural cases in
-claim 15 (`test2-t249c.log`): server 2115/0, shooter 567/0, driver 561/0. `ESCALATE.md`'s
-`NEEDS DIRECTOR` entry is closed.
+Both at the same commit, both on a clean tree (`test2-t249d.log`: server 2116/0, shooter 567/0,
+driver 561/0).
+
+## Round 1's two findings
+
+**BOTH WERE RIGHT, AND FINDING 1 MEANT KAREN'S STANDING CARCASS WAS NOT FIXED.**
+
+**Finding 1 — the backstop could never fire.** `Body.stepCarcass` opened with
+`if not handle.collapsed or handle.part.Anchored then return end`, and it is the same function
+that anchors: `shouldAnchorCarcass` answers true as soon as `stillFor >= CARCASS_STILL_SECONDS`,
+**0.25** against the backstop's **1.5**. The carcass the backstop exists for is precisely the one
+nothing moves, so it was anchored at ~0.3 s and the function returned early for ever after. Fixed:
+the clock and the backstop are asked **above** that return, and the backstop **un-anchors** — the
+part goes loose, `stillFor` restarts, the constraint lets go, the box rolls, and the anchoring
+below re-anchors it once it has settled on its side. It is also measured on `collapsedFor`, this
+function's own clock, not on `handle.deadFor` (which `stepVisual` owns): a backstop that depends on
+the thing it is backstopping is not one.
+
+**Finding 2 — the case could not catch it.** It hand-wrote `deadFor` past the backstop together
+with `Anchored = false` and stepped once. Replaced by a case that drives the real sequence — one
+collapse, then `stepCarcass` over and over at a real `dt`, letting the function anchor the body
+itself — which asserts `anchoredOnTheWay` **and** `toppled`, and which **fails on the round-1 code**
+(see claim 15).
+
+Three non-blocking notes were fixed in the same pass rather than queued, because each was a
+sentence that was untrue as it stood: the `CLEARING` header's citation of a `backups/` file nobody
+had written (now written), `onShotLanded`'s unguarded `normals` insert (one missing normal shifted
+every later index), and `PADS.NEXT`'s comment still claiming `SCORE_SECONDS` is 8. The rest are in
+`TASKS.md` row 249a.
 
 ## What changed
 
@@ -26,7 +49,7 @@ harness run so only DEV was open.
 
 ## Claims
 
-Claims 1–10 are items 1, 3, 4 and 5; claims 11–15 are items 2 and 6.
+Claims 1–10 are items 1, 3, 4 and 5; claims 11–16 are items 2 and 6 and round 1's fixes.
 
 1. **The yellow box was `Weapon.Effects`' impact marker, measured rather than assumed.** Firing into
    the ground in the Forest Test drew nine parts named `Impact`, each **0.30 studs,
@@ -122,25 +145,29 @@ Claims 1–10 are items 1, 3, 4 and 5; claims 11–15 are items 2 and 6.
     case — the party holds both men, and the attribute is gone on the first scan of the drive that
     takes him.
 
-15. **The backstop is proved by BEHAVIOUR, and it was shown failing on the code before the fix.**
-    Claims 11 and 12 rest on a grep and on three pure predicates, and a predicate that answers
-    correctly proves nothing about the carcass in the world unless something calls it (L-028). Three
-    new cases drive the real `Body.stepCarcass` on a real body from the real constructor
-    (`Body.create`, what `Runtime:spawn` itself calls) in the one state that produced the defect:
-    collapsed, the upright constraint still on, and a death track that never advanced. **With the
-    backstop block taken back out of `stepCarcass` the suite reported
-    `boar_model.spec:1785 Expected value "true" (boolean), got "false" (boolean)`** — that line is
-    `expect(handle.toppled).to.equal(true)`, i.e. **the carcass stands**, Karen's own defect
-    reproduced by the suite. The block went straight back (`git checkout`) and the run is the 34/34
-    above. The other two cases hold the boundaries: a clip that IS running is not touched at all
-    (the two rotations must never compose — task 150), and a carcass the box already toppled at
-    death is not touched either. *Verify:* `tests/server/boar_model.spec.luau`, *"the carcass in
-    the world, not only the arithmetic"*; commit `e2651bd4`.
+15. **The backstop is proved on the REAL SEQUENCE, and the case fails on round 1's code.** The new
+    case builds a real body with the real constructor, puts it in the clip-path state (collapsed,
+    `Upright` on, a death track that never advances) and then steps `Body.stepCarcass` repeatedly
+    at a real `dt` — no hand-written clock, no hand-written `Anchored`. Run against the round-1
+    `stepCarcass` it reports **`boar_model.spec:1824 Expected value "true" (boolean), got "false"
+    (boolean)`** on `expect(handle.toppled)`, **with the `anchoredOnTheWay` assertion above it
+    PASSING** — which is finding 1 reproduced by the suite: the body is anchored on time and the
+    carcass stands anyway. It also asserts the carcass is anchored **again** once it has settled,
+    so the un-anchoring is a moment and not a new state. Two boundary cases stand beside it: a clip
+    that IS running is not touched at all (the two rotations must never compose — task 150), and a
+    carcass the box already toppled at death is not touched either. *Verify:*
+    `tests/server/boar_model.spec.luau`, *"the carcass in the world, not only the arithmetic"*;
+    commits `e2651bd4` and `33f9d113`.
+16. **A missing surface normal can no longer shift the array** (round 1, note).
+    `Weapon.onShotLanded` inserts `Vector3.zero` where `impact.normal` is absent, the way
+    `materials` already substituted `""`; the three arrays are read by index on the client, so one
+    hole would have stood a puff on another pellet's surface. `Effects.impactFrame` reads a zero
+    normal as world up, which its own case already asserts. *Verify:* `src/server/Weapon/init.luau`
+    (`onShotLanded`); `tests/client/weapon_client.spec.luau`, the zero-normal assertion in *"picks
+    the puff off the surface…"*.
 
 ## What could not be verified
 
-- **`[harness2]` was not run** (above, and in `ESCALATE.md`). The gate will refuse this round until
-  it is.
 - **ITEM 2 STILL HAS NO IN-GAME BEFORE/AFTER COUNT, and the dispatch asked for one.** What claim 15
   adds is a reproduction **in the suite** — the carcass provably stands without the fix and
   provably lies down with it — and that is not the same thing as counting standing corpses on
@@ -166,6 +193,9 @@ Claims 1–10 are items 1, 3, 4 and 5; claims 11–15 are items 2 and 6.
   (30), which is this file's own precedent for the Director's last over-long sentence. **The
   Director may want different words.**
 - **Harness fault (rule 6):** `tests/client/camera_client.spec.luau`'s task-93 *"no templates"* case
-  (`handsMissing > missingBefore`) has now failed **5 of 9** harness runs across **six** different
-  commits, in a file this task never touched. It is flaky, not a defect of this branch — the 34/34
-  line above is a run it passed. Queued as 249a(d).
+  (`handsMissing > missingBefore`) has now failed **7 of 12** harness runs across **seven** different
+  commits, in a file this task never touched. Its own note says what happens: on a passing run
+  `handsMissing 11 -> 12`, on a failing one the counter does not move at all, so it is an ordering
+  or timing fault inside that case and not a property of this branch. The 34/34 line above is a run
+  it passed. Queued as 249a(d) — **it is costing roughly half of every gate run and is worth a task
+  of its own.**
