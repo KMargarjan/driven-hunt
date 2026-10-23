@@ -145,7 +145,7 @@ return function()
 		-- THE ORDER, ASSERTED (task 171, after the Director's two-player run at `8b2bb40`: a probe aimed
 		-- straight at a beater came back `off-stand`, because the shooter had walked 525 studs from
 		-- his post to reach him. Both answers were true and nothing said which should win).
-		it("asks the five rules in one declared order, and names the winner", function()
+		it("asks the six rules in one declared order, and names the winner", function()
 			-- ...AND `DRIVE_OVER` IS FIRST SINCE TASK 174: a fact about the DRIVE outranks every fact
 			-- about the shooter, because it is the one thing he cannot fix by moving or by aiming
 			-- somewhere else.
@@ -160,8 +160,12 @@ return function()
 			expect(Rules.ORDER[3]).to.equal(Rules.REASON.UNPAID_PLATFORM)
 			expect(Rules.ORDER[4]).to.equal(Rules.REASON.OFF_PLATFORM)
 			expect(Rules.ORDER[5]).to.equal(Rules.REASON.BEATER)
-			expect(Rules.ORDER[6]).to.equal(Rules.REASON.LICENCE)
-			expect(#Rules.ORDER).to.equal(6)
+			-- ...AND `UNSAFE` IMMEDIATELY AFTER `BEATER` SINCE TASK 248: both are facts about the
+			-- AIM and the more specific one wins, or a man aimed straight at a beater would stop
+			-- being told so -- he is always inside the lock's radius as well.
+			expect(Rules.ORDER[6]).to.equal(Rules.REASON.UNSAFE)
+			expect(Rules.ORDER[7]).to.equal(Rules.REASON.LICENCE)
+			expect(#Rules.ORDER).to.equal(7)
 			expect(table.isfrozen(Rules.ORDER)).to.equal(true)
 
 			local area = { centre = Vector3.new(0, 0, 0), radius = 12 }
@@ -198,6 +202,33 @@ return function()
 			expect(Rules.refuse({ position = inside, stand = area, target = beater, licences = nil, rows = SPECIES })).to.equal(
 				Rules.REASON.BEATER
 			)
+			-- THE SAFETY LOCK IS THE NEXT QUESTION AFTER THE BEATER IN THE RAY (task 248): aim off
+			-- him and the ray hits nobody, but the line still passes close to a person.
+			expect(Rules.refuse({
+				position = inside,
+				stand = area,
+				target = nil,
+				lineUnsafe = true,
+				rows = SPECIES,
+			})).to.equal(Rules.REASON.UNSAFE)
+			-- ...AND AIMED AT HIM THE OLDER, MORE SPECIFIC RULE STILL WINS, with both true at once.
+			expect(Rules.refuse({
+				position = inside,
+				stand = area,
+				target = beater,
+				lineUnsafe = true,
+				licences = nil,
+				rows = SPECIES,
+			})).to.equal(Rules.REASON.BEATER)
+			-- ...AND nil IS "NOTHING SAID", which is every world that wires no drive: `false` and
+			-- nil both leave the shot alone, exactly as `driveOpen` does from the other side.
+			expect(Rules.refuse({ position = inside, stand = area, lineUnsafe = false })).to.equal(nil)
+			expect(Rules.unsafeLine(nil)).to.equal(false)
+			expect(Rules.unsafeLine(false)).to.equal(false)
+			expect(Rules.unsafeLine(true)).to.equal(true)
+			-- ...AND IT HAS A LINE FOR THE PLAYER, which is the Director's own word for it.
+			expect(Rules.NOTICE[Rules.REASON.UNSAFE]).to.equal("NOT SAFE")
+			expect(Rules.noticeFor(Rules.REASON.UNSAFE)).to.equal("NOT SAFE")
 			-- A MAN IS NOT QUARRY, which is why the beater question comes before the licence one: the
 			-- same target with `beater` cleared is an animal, and now the licence answers.
 			expect(Rules.refuse({
@@ -360,7 +391,9 @@ return function()
 				expect(#(line :: string) <= 20).to.equal(true)
 				seen += 1
 			end
-			expect(seen).to.equal(6)
+			-- SEVEN SINCE TASK 248 (the safety lock's `NOT SAFE`), and the cap above holds for it:
+			-- eight characters.
+			expect(seen).to.equal(7)
 			expect(Rules.noticeFor("not-a-reason")).to.equal(nil)
 			expect(Rules.noticeFor(nil)).to.equal(nil)
 			-- The reasons are wire values the client and the Hud key on, so they are pinned here.

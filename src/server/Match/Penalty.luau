@@ -27,13 +27,29 @@ export type Shot = {
 	at: number,
 }
 
-export type DriverPos = { userId: number, position: Vector3 }
+-- `userId` IS OPTIONAL SINCE TASK 248, AND THAT IS THE WHOLE OF WHAT "COUNT BOT PEOPLE AS PEOPLE"
+-- NEEDED. KAREN, 2026-10-23: *"I still can shoot towards hunters and beaters"* -- she plays this
+-- world alone with a line of BOTS, and a bot has no userId at all, so a list that demanded one could
+-- not carry her beaters and the rule she was asking about could never fire for her.
+--
+-- nil IS NEVER EQUAL TO `shot.userId`, so the self-exclusion below needs no new branch: a bot can
+-- never be "yourself". Every caller that passes real players is bit-for-bit unchanged.
+export type DriverPos = { userId: number?, position: Vector3 }
 
 Penalty.REASON = "driver-in-line"
 
 -- true when SOME driver was close enough to the shot's own path to have been shot at. The four
 -- conditions, in the design's words: in front of the muzzle, not past where the shot stopped, not
 -- past the ammo's range, and within SAFETY_MISS_STUDS of the line the pellets flew along.
+--
+-- IT IS THE GAME'S ONE DEFINITION OF "THE SHOT PASSED CLOSE TO A PERSON" AND SINCE TASK 248 IT HAS
+-- TWO CALLERS, which is why it is still ONE function and not two. The PENALTY asks it after the
+-- shot, about the drive's real drivers (`Match.onSafetyViolation`); the SAFETY LOCK asks it BEFORE
+-- the shot, about every person in the world, through `Match.lineIsUnsafe` -- and both hand it a
+-- `config` of their own, so the radius each judges at is a data row rather than a number hidden in
+-- here. What must never happen is two closest-point formulas disagreeing about one shot, which is
+-- the previous project's named cause of death (docs/PROJECT_CONTEXT.md, *"two correct pieces of code
+-- disagreeing"*).
 --
 -- SAFETY_BODY_STUDS IS A DEVIATION FROM THE DESIGN AND IT IS THE DIFFERENCE BETWEEN THIS RULE
 -- WORKING AND THIS RULE NEVER FIRING (reviews/task-35/DESIGN_DELTA.md). The design's condition is

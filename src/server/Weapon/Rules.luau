@@ -3,8 +3,8 @@
 -- `Player`, no `Random`; every fact is a parameter. The owner (`Weapon.onFireRequest`) asks these
 -- questions in its own order and is the only thing that writes.
 --
--- FIVE RULES OF ONE SHAPE (three in task 171, the fourth in 174, the fifth in 218): the trigger does
--- nothing and NOTHING IS TAKEN AWAY.
+-- SIX RULES OF ONE SHAPE (three in task 171, the fourth in 174, the fifth in 218, the sixth -- the
+-- SAFETY LOCK -- in 248): the trigger does nothing and NOTHING IS TAKEN AWAY.
 -- Karen, 2026-10-11, about beaters: *"No penalty now we need simplify scope, thye just can't shoot
 -- them"*; 2026-10-12, about a hunter who is not in his stand circle: he *"CAN'T SHOOT until he steps
 -- in"*, with no punishment; 2026-10-10, about a red deer with no licence: *"they can aim but no
@@ -28,20 +28,30 @@
 -- nothing was tied -- the tie proof had been staging a refusal all along. The two rules in one
 -- sentence each, which is what the game does now:
 --   * the aim ray WOULD HIT HIM -> refused. No fire, no shell, no tie, no punishment.
---   * the aim ray MISSES HIM but the shot passes within `Match.CONFIG.SAFETY_MISS_STUDS` (12) of him
---     inside the arc -> FIRED, and he is tied to a tree. That is what the arc is for.
--- `zz_tie_to_a_tree.spec` stages both: the probe aimed at him (refused, ties nobody) and the real
--- replayed click aimed `BESIDE_STUDS` = 5 studs off his body (fired, ties the shooter).
+--   * the aim ray MISSES HIM but the shot passes within `Match.CONFIG.SAFETY_LOCK_STUDS` (6) of
+--     him -> ALSO REFUSED since task 248 (`Rules.unsafeLine`), where until then it FIRED and tied
+--     him to a tree.
+--   * the line was CLEAR at the trigger and he was close by the time the pellets passed -> fired,
+--     and the tie is what is left for it (`Match.Penalty.judge`, the same geometry).
+-- `zz_tie_to_a_tree.spec` stages all three: the probe aimed at him (refused `beater-in-line`), a
+-- click inside the lock's radius (refused `unsafe-line`, which is what its `refusals seen` list
+-- carries), and the real replayed click aimed `BESIDE_STUDS` = 10 studs off his body -- OUTSIDE the
+-- lock's 6 and inside the tie's 12, which is the band this rule leaves the tie.
 --
 -- THEY ARE ASKED IN ONE DECLARED ORDER -- `Rules.ORDER`, off-stand first -- and that too was
 -- forced by a measurement rather than chosen on paper: in the Director's run at `8b2bb40` the probe
 -- aimed straight at a beater answered `off-stand`, because the shooter had walked 525 studs from his
 -- post to reach him. Both answers were correct; nothing said which should win. See `Rules.ORDER`.
 --
--- THE EDGE IS SHARP AND THAT IS DELIBERATE: a man who aims AT a beater is stopped and not punished
--- (Karen: *"No penalty now"*), and a man who aims a yard past him is punished. Softening it would
--- mean punishing the refused shot, which is the thing she asked not to happen, or refusing the near
--- miss, which would retire the safety rule she asked for in the first place.
+-- THAT EDGE WAS SHARP UNTIL TASK 248 AND THE PARAGRAPH THAT STOOD HERE IS NOW HISTORY, which is
+-- written out rather than quietly deleted (CLAUDE.md rule 8). It said: *"a man who aims AT a beater
+-- is stopped and not punished, and a man who aims a yard past him is punished. Softening it would
+-- mean punishing the refused shot ... or refusing the near miss, which would retire the safety rule
+-- she asked for in the first place."* KAREN, 2026-10-23: *"I still can shoot towards hunters and
+-- beaters"* -- so the Director took the third option that paragraph did not consider: the near miss
+-- is now REFUSED as well (`Rules.unsafeLine`, the SAFETY LOCK), which punishes nothing and fires
+-- nothing. The tie is not retired: what reaches it is the shot that was clear when the trigger broke
+-- and close by the time the pellets passed -- a man who WALKED into it.
 --
 -- Pattern: one pure predicate per question, over an injected provider per fact -- Luanti's
 -- `core.is_protected` ("Mods should use core.is_protected when testing whether a player owns a
@@ -61,6 +71,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Licences = require(ReplicatedStorage:WaitForChild("Licences"))
+-- FOR ONE STRING: `Shotgun.REFUSED_UNSAFE`, the wire value of the safety lock's refusal, which the
+-- client has to name as well (task 248). No rule, no number and no geometry comes from here.
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 
 local Rules = {}
 
@@ -107,6 +120,13 @@ Rules.REASON = table.freeze({
 	OFF_PLATFORM = "off-platform",
 	-- HE IS UP ON A HIGH SEAT HE HAS NOT BOUGHT (task 221 round 3).
 	UNPAID_PLATFORM = "unpaid-platform",
+	-- THE SHOT LINE PASSES CLOSE TO A PERSON (task 248). KAREN, 2026-10-23: *"I still can shoot
+	-- towards hunters and beaters"*.
+	--
+	-- READ FROM `Shotgun` AND NOT SPELLED HERE, which is the one value in this table that is: the
+	-- CLIENT names this one (`Hud.calloutFor` draws the centre line off it) and no client can
+	-- require this file, so the string lives in the shared module and both sides read the same one.
+	UNSAFE = Shotgun.REFUSED_UNSAFE,
 	LICENCE = "no-licence",
 	-- THE DRIVE IS NOT ON (task 174). KAREN, 2026-10-13 ~09:35: *"for hunter once hunt over (drive)
 	-- horn anounce then I can; shoot anymore"*.
@@ -127,6 +147,10 @@ Rules.NOTICE = table.freeze({
 	-- So it is Karen's own product words without the noun that does not fit: *"Access to tree
 	-- stand"*, as an instruction, in 14.
 	[Rules.REASON.UNPAID_PLATFORM] = "BUY TREE STAND",
+	-- THE DIRECTOR'S OWN WORDS, and 8 characters: *"Show `NOT SAFE` at the screen centre"*. It is
+	-- the one notice in this table that is ALSO drawn at the centre of the screen, because it is the
+	-- one that is about where the muzzle is pointing right now (`Hud.calloutFor`).
+	[Rules.REASON.UNSAFE] = "NOT SAFE",
 	[Rules.REASON.LICENCE] = "NO LICENCE",
 	[Rules.REASON.DRIVE_OVER] = "THE DRIVE IS OVER",
 })
@@ -149,6 +173,30 @@ end
 -- where the player is pointing the gun, which is the thing Karen's rule is about.
 function Rules.beaterInLine(target: Target?): boolean
 	return target ~= nil and target.beater == true
+end
+
+-- RULE 6. DOES THE SHOT LINE PASS CLOSE TO A PERSON? (task 248.) KAREN, 2026-10-23: *"I still can
+-- shoot towards hunters and beaters"*.
+--
+-- IT IS THE NARROWEST FUNCTION IN THIS FILE AND THAT IS THE POINT: the geometry is
+-- `Match.Penalty.judge`'s -- the game's ONE definition of *"the shot passed close to a person"*,
+-- which already judges the tie -- and the drive answers it through
+-- `Weapon.setSafetyLineProvider`. A closest-point formula in here would be a second answer to one
+-- question, which is the previous project's named cause of death (docs/PROJECT_CONTEXT.md).
+--
+-- `nil` IS "NO RESTRICTION" AND ONLY AN EXPLICIT `true` REFUSES -- the mirror of
+-- `Rules.driveClosed`, and the same call every fact on this gate makes: a server with no drive
+-- wired (every `tests/server/weapon_*.spec.luau`, a bare DEV place) fires exactly as it did before
+-- this task, and a provider that throws (the owner pcalls it) falls back to the same nothing rather
+-- than silencing every gun in the wood.
+--
+-- HOW IT DIFFERS FROM `beaterInLine`, which is the question a reader will ask: that one is about
+-- the AIM RAY hitting a man, this one about the shot PASSING NEAR one. Aim at a beater and the
+-- older, more specific rule answers first (`Rules.ORDER`); aim a yard past him and this one does.
+-- Before today that yard was a shot that FIRED and tied the shooter to a tree -- see
+-- `Match.CONFIG.SAFETY_LOCK_ENABLED` for what is left of the tie.
+function Rules.unsafeLine(lineUnsafe: boolean?): boolean
+	return lineUnsafe == true
 end
 
 -- RULE 2. IS HE OUTSIDE HIS STAND? FLAT -- the Y is ignored, because a hunter standing on his post
@@ -267,6 +315,13 @@ Rules.ORDER = table.freeze({
 	Rules.REASON.UNPAID_PLATFORM,
 	Rules.REASON.OFF_PLATFORM,
 	Rules.REASON.BEATER,
+	-- ...AND `UNSAFE` IMMEDIATELY AFTER `BEATER` (task 248), by this list's own rule one step
+	-- further out: both are facts about the AIM, and the MORE SPECIFIC one wins. A man aimed
+	-- straight AT a beater keeps the line he has had since task 171 (*"NOT AT A BEATER"*, which
+	-- tells him what is wrong with where he is pointing); a man whose shot would merely pass close
+	-- to somebody gets *"NOT SAFE"*. Reversed, nobody would ever see the beater's own line again,
+	-- because a man in the ray is always inside the radius.
+	Rules.REASON.UNSAFE,
 	Rules.REASON.LICENCE,
 })
 
@@ -319,6 +374,9 @@ export type Context = {
 	licences: { [string]: boolean }?, -- what he holds
 	rows: any?, -- the licence table, for a spec that wants its own
 	driveOpen: boolean?, -- is the drive between its two signals? nil means "nothing said", task 174
+	-- DOES THE SHOT LINE PASS CLOSE TO A PERSON? (task 248.) The drive's own answer, measured with
+	-- `Match.Penalty.judge` over every person in the world; nil means "nothing said".
+	lineUnsafe: boolean?,
 }
 
 function Rules.refuse(context: Context): string?
@@ -337,6 +395,10 @@ function Rules.refuse(context: Context): string?
 			end
 		elseif reason == Rules.REASON.BEATER then
 			if Rules.beaterInLine(context.target) then
+				return reason
+			end
+		elseif reason == Rules.REASON.UNSAFE then
+			if Rules.unsafeLine(context.lineUnsafe) then
 				return reason
 			end
 		elseif reason == Rules.REASON.LICENCE then

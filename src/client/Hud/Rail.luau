@@ -12,6 +12,12 @@
 -- that column. The old button is removed rather than left behind (design 7.2 item 1): a
 -- `buttonVisible` with no caller is dead code pretending to be an owner.
 --
+-- SINCE TASK 248 A BUTTON CAN ALSO BE LIT (`Rail.setNeeded`), and that is still not a rule of its
+-- own: the Hud reads the weapon state for the ammo chip and TELLS this module what the player must
+-- do -- the `setWeapon` / `setSuppressed` / `setCovered` shape -- so the rail learns nothing about
+-- guns and there is one reader of that state. KAREN, 2026-10-23: *"when magazine is empty we need to
+-- show reload R letter higlight"*.
+--
 -- EVERY BUTTON IS A SECOND DOOR ONTO A FUNCTION THAT ALREADY EXISTS, and that is the whole of this
 -- module's authority. It toggles nothing itself, fires no remote and holds no rule: `MapUi.toggle`,
 -- `ReportPanel.toggle`, `Weapon.Input.reload` and `Weapon.Input.selectAmmo` do the work, and each is
@@ -93,6 +99,25 @@ Rail.CONFIG = {
 	TEXT_COLOR = Style.LOOK.FIELD_MUTED,
 	HOVER_TEXT_COLOR = Style.LOOK.PAPER,
 	KEY_COLOR = Style.LOOK.BRASS, -- §3.5: a key hint is `MICRO` Bold BRASS, letter-spaced
+	-- THE "YOU MUST DO THIS NOW" STATE (task 248). KAREN, 2026-10-23: *"when magazine is empty we
+	-- need to show reload R letter higlight"*. The system's own accent -- `BLAZE`, the hunter's
+	-- orange, which is the one colour in this game that means *act* -- at an opaque fill with a
+	-- bright rim and paper text, so the R reads as a lit button and not as a hovered one.
+	NEEDED_COLOR = Style.LOOK.BLAZE_LO,
+	NEEDED_TRANSPARENCY = 0.1,
+	NEEDED_RIM_COLOR = Style.LOOK.BLAZE_HI,
+	NEEDED_RIM_TRANSPARENCY = 0.1,
+	NEEDED_TEXT_COLOR = Style.LOOK.BUTTON_TEXT,
+	-- A GENTLE PULSE, AND IT IS A DELIBERATE EXCEPTION TO THE DESIGN SYSTEM'S §1.4 -- which says, in
+	-- its own words, *"NOTHING ELSE MOVES. No pulsing, no bouncing, no sliding panels: a HUD that
+	-- moves is a HUD you cannot read while aiming."* The Director asked for *"a gentle pulse"* and
+	-- this is the one state it is granted for, because it is the one state where the HUD's job is
+	-- not to be read but to be NOTICED: the gun will not fire until he presses this. It is one
+	-- property (the fill's transparency), a 0.9 s half-cycle, 0.1 -> 0.34 -- no movement, no size
+	-- change, nothing under it shifts -- and it exists ONLY while the gun is empty and he has
+	-- something to put in it. One word from Karen and `NEEDED_PULSE_SECONDS = 0` holds it still.
+	NEEDED_PULSE_SECONDS = 0.9,
+	NEEDED_PULSE_TRANSPARENCY = 0.34,
 	-- OVER THE CENTRED PANELS (`Report.CONFIG.PANEL_Z_INDEX` is 15), for the reason in the header.
 	Z_INDEX = 16,
 	-- SHIPPED TRUE, AND THREE REASONS. Karen asked for the buttons and plays on a PC, so a touch-only
@@ -308,6 +333,41 @@ end
 
 function Rail.button(id: string): TextButton?
 	return nodes[id]
+end
+
+-- WHICH BUTTONS ARE LIT RIGHT NOW, and the paint closure per button -- `Touch`'s own arrangement
+-- (`paints[button.id] = paint`), so the three states and the new fourth live in ONE function per
+-- node and this module stays the one writer of its own buttons.
+local needed: { [string]: boolean } = {}
+local paints: { [string]: (string) -> () } = {}
+local pulses: { [string]: Tween } = {}
+
+-- IS THIS BUTTON ASKING TO BE PRESSED? (task 248.) For a spec, and for the Hud to read back what it
+-- asked for.
+function Rail.isNeeded(id: string): boolean
+	return needed[id] == true
+end
+
+-- THE NEED IS STATED BY THE HUD AND PERFORMED HERE -- the `Rail.setWeapon` / `Rail.setCovered`
+-- shape, and for the same reason: the Hud already reads the weapon state for the ammo chip, so the
+-- rail learns nothing about guns and there is one reader of that state.
+--
+-- EDGE-TRIGGERED, so a per-frame caller costs one comparison and never a tween.
+function Rail.setNeeded(id: string, on: boolean)
+	-- THE BOOLEAN IS STORED AS A BOOLEAN, and the Reviewer's round-1 finding 1 is why: this read
+	-- `needed[id] = on or nil`, which stores NIL for false -- and `nil == false` is false, so the
+	-- guard above could never match a repeated `false`. `Hud.renderCorner` calls this every frame
+	-- on both of its paths, so every client spent the whole session creating one Tween per frame on
+	-- the RELOAD button and repainting it out of its own hover and pressed states.
+	local want = on == true
+	if (needed[id] == true) == want then
+		return
+	end
+	needed[id] = want
+	local paint = paints[id]
+	if paint ~= nil then
+		paint(if want then "needed" else "idle")
+	end
 end
 
 function Rail.isSuppressed(): boolean
@@ -558,77 +618,102 @@ function Rail.start(
 		hint.ZIndex = config.Z_INDEX + 1
 		hint.Parent = node
 
-		-- THE THREE STATES (§3.5), drawn from `MouseEnter` / `MouseLeave` and
+		-- THE THREE POINTER STATES (§3.5), drawn from `MouseEnter` / `MouseLeave` and
 		-- `MouseButton1Down` / `MouseButton1Up` -- which a `TextButton` fires for a finger as well
 		-- as for a mouse. The colour tween is the system's one permitted motion (§1.4, 0.12 s
 		-- Quad Out), and `Activated` is still the only thing that RUNS anything.
 		--
-		-- A TAP ENDS ON A DEVICE WITH NO POINTER (round 1 note): on touch there is no `MouseLeave`
-		-- after `MouseButton1Up`, so painting the hover state there would leave a thumbed button lit
-		-- for the rest of the session. On touch the release goes back to IDLE; on a desktop the
-		-- pointer really is still over the button, so it goes to hover.
-		local function paint(fill: Color3, fillT: number, edge: Color3, edgeT: number, text: Color3, drop: number)
-			TweenService:Create(
-				node,
-				TweenInfo.new(Style.MOTION.HOVER, Style.MOTION.EASE_OUT, Enum.EasingDirection.Out),
-				{ BackgroundColor3 = fill, BackgroundTransparency = fillT }
-			):Play()
+		-- ...AND A FOURTH SINCE TASK 248 THAT NO POINTER OWNS: `needed`, which the Hud sets when the
+		-- gun will not fire until this button is pressed (`Rail.setNeeded`). On a desktop the
+		-- release goes back to hover, because the pointer really is still over the button.
+		-- `paint` TAKES A NAMED STATE SINCE TASK 248, which is `Touch`'s own arrangement
+		-- (`paints[button.id] = paint`) and is what the fourth state needs: the rail can now be TOLD
+		-- that a button must be pressed, and six positional colours per call site could not carry a
+		-- state no pointer event owns. The three pointer states are unchanged, colour for colour.
+		local function paint(state: string)
+			local lit = needed[button.id] == true
+			-- PRESS BEATS LIT BEATS HOVER. A lit button must still answer a finger, and a lit button
+			-- under the pointer must still look lit -- it is the one thing on screen asking to be
+			-- pressed, and a hover that hid that would hide the whole point of it.
+			local which = if state == "press" then "press" elseif lit then "needed" else state
+			local fill = if which == "press"
+				then config.PRESSED_COLOR
+				elseif which == "needed" then config.NEEDED_COLOR
+				else config.BACKGROUND
+			local fillT = if which == "press"
+				then 0
+				elseif which == "needed" then config.NEEDED_TRANSPARENCY
+				elseif which == "hover" then config.HOVER_TRANSPARENCY
+				else config.TRANSPARENCY
+			local edge = if which == "needed"
+				then config.NEEDED_RIM_COLOR
+				elseif which == "idle" then config.RIM_COLOR
+				else config.HOVER_RIM_COLOR
+			local edgeT = if which == "needed"
+				then config.NEEDED_RIM_TRANSPARENCY
+				elseif which == "idle" then config.RIM_TRANSPARENCY
+				else config.HOVER_RIM_TRANSPARENCY
+			local text = if which == "needed"
+				then config.NEEDED_TEXT_COLOR
+				elseif which == "idle" then config.TEXT_COLOR
+				else config.HOVER_TEXT_COLOR
+			local drop = if which == "press" then 1 else 0
+			-- THE PULSE IS CANCELLED FIRST, WHATEVER THE NEW STATE IS: it writes the same property
+			-- the paint below does, so a running one would fight every repaint -- and a tween
+			-- repeating for ever is exactly the kind of writer that has to have one owner.
+			local running = pulses[button.id]
+			if running ~= nil then
+				running:Cancel()
+				pulses[button.id] = nil
+			end
+			if which == "needed" then
+				-- WRITTEN DIRECTLY AND NOT TWEENED, because the pulse that follows owns this
+				-- property: two tweens on one property in one frame is undefined order.
+				node.BackgroundColor3 = fill
+				node.BackgroundTransparency = fillT
+				if config.NEEDED_PULSE_SECONDS > 0 then
+					local pulse = TweenService:Create(
+						node,
+						TweenInfo.new(
+							config.NEEDED_PULSE_SECONDS,
+							Enum.EasingStyle.Sine,
+							Enum.EasingDirection.InOut,
+							-1,
+							true
+						),
+						{ BackgroundTransparency = config.NEEDED_PULSE_TRANSPARENCY }
+					)
+					pulses[button.id] = pulse
+					pulse:Play()
+				end
+			else
+				TweenService:Create(
+					node,
+					TweenInfo.new(Style.MOTION.HOVER, Style.MOTION.EASE_OUT, Enum.EasingDirection.Out),
+					{ BackgroundColor3 = fill, BackgroundTransparency = fillT }
+				):Play()
+			end
 			rim.Color = edge
 			rim.Transparency = edgeT
 			word.TextColor3 = text
 			word.Position = UDim2.new(0.5, 0, 0, 10 + drop)
 			hint.Position = UDim2.new(0.5, 0, 1, -8 + drop)
 		end
+		paints[button.id] = paint
 		node.MouseEnter:Connect(function()
-			paint(
-				config.BACKGROUND,
-				config.HOVER_TRANSPARENCY,
-				config.HOVER_RIM_COLOR,
-				config.HOVER_RIM_TRANSPARENCY,
-				config.HOVER_TEXT_COLOR,
-				0
-			)
+			paint("hover")
 		end)
 		node.MouseLeave:Connect(function()
-			paint(
-				config.BACKGROUND,
-				config.TRANSPARENCY,
-				config.RIM_COLOR,
-				config.RIM_TRANSPARENCY,
-				config.TEXT_COLOR,
-				0
-			)
+			paint("idle")
 		end)
 		node.MouseButton1Down:Connect(function()
-			paint(
-				config.PRESSED_COLOR,
-				0,
-				config.HOVER_RIM_COLOR,
-				config.HOVER_RIM_TRANSPARENCY,
-				config.HOVER_TEXT_COLOR,
-				1
-			)
+			paint("press")
 		end)
 		node.MouseButton1Up:Connect(function()
-			if touchEnabled then
-				paint(
-					config.BACKGROUND,
-					config.TRANSPARENCY,
-					config.RIM_COLOR,
-					config.RIM_TRANSPARENCY,
-					config.TEXT_COLOR,
-					0
-				)
-				return
-			end
-			paint(
-				config.BACKGROUND,
-				config.HOVER_TRANSPARENCY,
-				config.HOVER_RIM_COLOR,
-				config.HOVER_RIM_TRANSPARENCY,
-				config.HOVER_TEXT_COLOR,
-				0
-			)
+			-- A TAP ENDS ON A DEVICE WITH NO POINTER (round 1 note): on touch there is no
+			-- `MouseLeave` after `MouseButton1Up`, so painting the hover state there would leave a
+			-- thumbed button lit for the rest of the session.
+			paint(if touchEnabled then "idle" else "hover")
 		end)
 
 		local id = button.id

@@ -158,6 +158,17 @@ local readoutWords = ""
 -- client's own clock -- which is what a readiness bar is for. Latched on the rising edge only.
 local reloadStartedAt: number? = nil
 local reloadTotal = 0
+-- THE CENTRE LINE (task 248): the two words under the reticle, and when they go. See
+-- `Hud.CALLOUT`.
+local calloutFrame: Frame? = nil
+local calloutWord: TextLabel? = nil
+local calloutSub: TextLabel? = nil
+local calloutUntil: number? = nil
+local calloutsShown = 0
+-- IS THERE A LODGE TO BUY SHELLS AT? `Shop.isOn()`, read ONCE at `Hud.start`'s boundary and passed
+-- inward -- the only permitted shape for a flagged value -- and overridable by parameter so both
+-- states are reachable while the flag sits at one of them.
+local shopSellsAmmo = false
 local hornChip: Frame? = nil
 local hornValue: TextLabel? = nil
 local hornCaption: TextLabel? = nil
@@ -1425,6 +1436,49 @@ local function build(): ScreenGui
 	mark.Visible = false
 	mark.Parent = screen
 
+	-- THE CENTRE LINE (task 248), a sibling of the hit marker and under it: two short words on a
+	-- field slate, hidden until a trigger pull deserves one. `AutomaticSize` on both axes, so the
+	-- slate is exactly as wide as the longer of its two lines -- `NOT SAFE` and `SOMEBODY IS IN YOUR
+	-- LINE` are very different widths and a fixed box would be a grey bar across the middle of the
+	-- screen for the shorter one.
+	local callout = Instance.new("Frame")
+	callout.Name = "Callout"
+	callout.BackgroundColor3 = Style.LOOK.SLATE
+	callout.BackgroundTransparency = Style.SLATE_T
+	callout.BorderSizePixel = 0
+	callout.AutomaticSize = Enum.AutomaticSize.XY
+	callout.AnchorPoint = Vector2.new(0.5, 0)
+	callout.Position = UDim2.new(0.5, 0, 0.5, Hud.CALLOUT.BELOW_CENTRE_PX)
+	callout.Size = UDim2.fromOffset(0, 0)
+	callout.ZIndex = RETICLE_Z
+	callout.Visible = false
+	callout.Parent = screen
+	Style.corner(callout, Style.RADIUS.ROW)
+	Style.stroke(callout, Style.LOOK.LINE, Style.EDGE_T.SLATE)
+	Style.padding(callout, Hud.CALLOUT.PAD, Hud.CALLOUT.PAD, Hud.CALLOUT.PAD + 4, Hud.CALLOUT.PAD + 4)
+	local calloutList = Instance.new("UIListLayout")
+	calloutList.FillDirection = Enum.FillDirection.Vertical
+	calloutList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	calloutList.SortOrder = Enum.SortOrder.LayoutOrder
+	calloutList.Padding = UDim.new(0, 2)
+	calloutList.Parent = callout
+	-- THE VIEWPORT IS READ HERE AND NOT REUSED FROM BELOW, for `Style.viewportX`'s own stated
+	-- reason: one reader, and a frame built before the engine has drawn would otherwise come out at
+	-- the phone step.
+	local calloutViewX = Hud.viewportX()
+	local calloutBig = Style.label(callout, "Word", Hud.CALLOUT.WORD_STEP, calloutViewX)
+	calloutBig.AutomaticSize = Enum.AutomaticSize.XY
+	calloutBig.Size = UDim2.fromOffset(0, 0)
+	calloutBig.LayoutOrder = 1
+	-- CLAY: the system's own refusal colour (`Objective`'s `THROUGH`, the shop's own messages), and
+	-- the one tint on this screen that means *that did not happen*.
+	calloutBig.TextColor3 = Style.LOOK.CLAY
+	local calloutSmall = Style.label(callout, "Sub", Hud.CALLOUT.SUB_STEP, calloutViewX)
+	calloutSmall.AutomaticSize = Enum.AutomaticSize.XY
+	calloutSmall.Size = UDim2.fromOffset(0, 0)
+	calloutSmall.LayoutOrder = 2
+	calloutSmall.TextColor3 = Style.LOOK.FIELD_MUTED
+
 	local reach = config.HIT_MARK_GAP_PX + config.HIT_MARK_ARM_PX / 2
 	for _, corner in ipairs({
 		{ name = "TopLeft", x = -reach, y = -reach, rotation = 45 },
@@ -2632,6 +2686,9 @@ local function build(): ScreenGui
 	hornCaption = hornState
 	hornBarFill = hornFill
 	hitMark = mark
+	calloutFrame = callout
+	calloutWord = calloutBig
+	calloutSub = calloutSmall
 	driveBar = status
 	feedFrame = feed
 	scorePanel = board
@@ -2677,6 +2734,117 @@ local function build(): ScreenGui
 	railFrame = rail
 	touchFrame = cluster
 	return screen
+end
+
+-- ---------------------------------------------------------- THE CENTRE LINE (task 248)
+--
+-- KAREN, 2026-10-23, and the Director's own words for both halves of it: *"Show `NOT SAFE` at the
+-- screen centre"*, and for an empty gun *"the ammo chip plus a short centre line when the trigger is
+-- pulled on empty"*.
+--
+-- WHY THE CENTRE AND NOT THE READOUT, which is where every refusal has lived since task 171: these
+-- two are about the TRIGGER HE JUST PULLED. He is looking down the barrel at the thing he wanted to
+-- shoot, and the readout is a 12 px row in the bottom-right corner -- the one place on the screen he
+-- is certainly not looking at that moment. The readout still carries them as well: this is an
+-- addition, not a move.
+--
+-- IT IS NOT AT THE CENTRE, IT IS UNDER IT. `BELOW_CENTRE_PX` keeps the aim point clear, which is the
+-- same call the pad dialog's own comment records about the upper third (*"the centre is where the
+-- reticle of the gun he is holding is"*).
+--
+-- THE WORDS COME FROM THE SERVER AND THE LAYOUT IS THE HUD'S. `snapshot.notice` is the sentence
+-- (`Weapon.Rules.NOTICE` and `Shotgun.NOTICE_NO_AMMO` own those) and `snapshot.refused` is the
+-- reason; this file decides WHERE it is drawn and for how long, and invents no words of its own
+-- except the two sub-lines below, which are Hud strings like `WAIT` and `THROUGH` already are.
+Hud.CALLOUT = {
+	-- UNDER THE RETICLE AND CLEAR OF IT: the hit marker reaches 18 px
+	-- (`HIT_MARK_GAP_PX + HIT_MARK_ARM_PX`), so 72 is below it and still inside the eye's own
+	-- middle third.
+	BELOW_CENTRE_PX = 72,
+	-- HOW LONG IT STAYS. Long enough to read two short words while aiming, short enough that it is
+	-- gone before the next shot. `Style.LOOK.MESSAGE_SECONDS` is 4 and is for a PANEL's status line,
+	-- which a man would still be reading when the animal has gone.
+	SECONDS = 1.8,
+	WORD_STEP = "TITLE",
+	SUB_STEP = "LABEL",
+	PAD = 10,
+}
+
+-- THE WORDS A PUBLISH DESERVES, OR nil FOR "SAY NOTHING". PURE and exported, the shape
+-- `Hud.ammoChipFor` and `Hud.readoutFor` already have: a spec hands it a reason and a notice and
+-- asserts the two lines with no gun in the world.
+--
+-- EXACTLY TWO REASONS GET THE CENTRE, and that is a decision rather than a beginning: the other
+-- four refusals (`off-stand`, `beater-in-line`, `no-licence`, `drive-over`) are about WHERE HE IS
+-- STANDING and WHAT HE IS POINTING AT, which the readout's row has said since task 171 and Karen
+-- has not asked to move.
+--
+-- NO NOTICE, NO LINE. The server sends the words with both of these refusals, forced past the
+-- publish limiter; a refusal that arrived without them would be a protocol fault, and drawing an
+-- empty box at the centre of the screen is worse than drawing nothing.
+--
+-- `BUY AT THE LODGE` IS ONLY TRUE WHERE THERE IS A LODGE, so `shopOn` is a parameter and not a
+-- constant: it is `Shop.isOn()`, read ONCE at `Hud.start`'s boundary and passed inward, which is the
+-- only permitted shape for a flagged value (CLAUDE.md, "Feature flags"). With the shop off the
+-- centre line is the state alone -- telling a player to buy shells in a world that sells none would
+-- be worse than saying nothing.
+function Hud.calloutFor(refused: string?, notice: string?, shopOn: boolean?): { word: string, sub: string }?
+	if type(notice) ~= "string" or notice == "" then
+		return nil
+	end
+	if refused == Shotgun.REFUSED_UNSAFE then
+		return { word = notice, sub = "SOMEBODY IS IN YOUR LINE" }
+	end
+	if refused == Shotgun.REFUSED_NO_AMMO then
+		return { word = notice, sub = if shopOn == true then "BUY AT THE LODGE" else "" }
+	end
+	return nil
+end
+
+-- THE ONE WRITER of the centre line, shown for its own lifetime -- `Hud.showHitMark`'s own shape,
+-- and it returns whether it drew anything so a spec can tell "said nothing" from "no such element".
+function Hud.showCallout(refused: string?, notice: string?): boolean
+	local frame, word, sub = calloutFrame, calloutWord, calloutSub
+	if frame == nil or word == nil or sub == nil then
+		return false
+	end
+	local said = Hud.calloutFor(refused, notice, shopSellsAmmo)
+	if said == nil then
+		return false
+	end
+	(word :: TextLabel).Text = Style.spaced(said.word);
+	(sub :: TextLabel).Text = if said.sub == "" then "" else Style.spaced(said.sub);
+	(sub :: TextLabel).Visible = said.sub ~= ""
+	calloutUntil = os.clock() + Hud.CALLOUT.SECONDS;
+	(frame :: Frame).Visible = true
+	calloutsShown += 1
+	return true
+end
+
+-- Hidden when its time is up, from the per-frame pass -- which is where every other clock on this
+-- screen is read (the reload bar, the horn's cooldown).
+local function stepCallout(now: number)
+	local frame = calloutFrame
+	if frame == nil or calloutUntil == nil then
+		return
+	end
+	if now >= (calloutUntil :: number) then
+		calloutUntil = nil
+		(frame :: Frame).Visible = false
+	end
+end
+
+-- WHAT THE CENTRE LINE IS SAYING RIGHT NOW, for a spec: its word, or nil when it is down.
+function Hud.calloutText(): string?
+	local frame, word = calloutFrame, calloutWord
+	if frame == nil or word == nil or not (frame :: Frame).Visible then
+		return nil
+	end
+	return Style.unspaced((word :: TextLabel).Text)
+end
+
+function Hud.calloutsShown(): number
+	return calloutsShown
 end
 
 -- Shows the marker for its own lifetime. The ONE writer of the marker's colour and visibility.
@@ -4311,6 +4479,15 @@ function Hud.ammoChipFor(
 	-- selection and not about the chamber.
 	local shell = Hud.chamberedAmmo(state)
 	local label = (resolved and resolved.AMMO_LABEL and resolved.AMMO_LABEL[shell]) or string.upper(shell)
+	-- ...UNLESS THERE IS NOTHING ANYWHERE, AND THEN THE WORD IS THE STATE (task 248). KAREN,
+	-- 2026-10-23: *"if no rounds at all tell no ammo"*. `SLUG` over an empty pocket is the honest
+	-- answer to *"what would the next load be"* and the wrong answer to the only question she has at
+	-- that moment, which is why she asked. The word is `Shotgun.NOTICE_NO_AMMO` -- the same string
+	-- the server puts on the refusal -- so the chip and the readout say one thing.
+	local need = Shotgun.ammoNeed(state, resolved)
+	if need == Shotgun.AMMO_NEED.EMPTY then
+		label = Shotgun.NOTICE_NO_AMMO
+	end
 	-- WHICH SHELL THIS LOAD IS (task 204), off the WEAPON'S row and not off the wire word: the wire
 	-- says `Slug` for both guns, and the rifle's row names no glyph at all, so its chip is exactly
 	-- the chip it has always had. nil is "draw no shell", never a wrong one.
@@ -4323,6 +4500,10 @@ function Hud.ammoChipFor(
 		label = label,
 		glyph = glyph,
 		busy = state.busyFor > 0,
+		need = need,
+		-- NOT WHILE THE RELOAD IS ALREADY RUNNING: `busyFor` is the gun's own window, so the
+		-- highlight goes out the moment he presses R rather than when the shell lands.
+		reloadHint = need == Shotgun.AMMO_NEED.RELOAD and state.busyFor <= 0,
 	}
 end
 
@@ -4339,6 +4520,9 @@ function Hud.renderCorner(Weapon)
 	end
 	local state = if Weapon ~= nil then Weapon.get() else nil
 	local now = os.clock()
+	-- THE CENTRE LINE'S OWN CLOCK (task 248), read where every other clock on this screen is: this
+	-- pass runs once a frame, and a line hidden on an event would outlive its event.
+	stepCallout(now)
 
 	-- THE HORN. The Tool is the server's and so is the blast; this reads the attribute
 	-- `Weapon.Horn.blowTool` stamps -- the one door every accepted blast goes through -- and starts
@@ -4422,12 +4606,23 @@ function Hud.renderCorner(Weapon)
 		-- their hands -- and `Hud.readoutText` answers "" exactly then.
 		readoutWords = ""
 		reloadStartedAt = nil
+		-- ...AND THE RAIL'S LIGHT GOES OUT WITH IT (task 248): a revoked Tool must not leave an R
+		-- pulsing for a gun that is not in his hands. The button itself is hidden by
+		-- `Rail.setWeapon`, which `render` already calls -- this is the STATE behind it, so it
+		-- cannot come back lit when the next gun arrives full.
+		Rail.setNeeded("RELOAD", false)
 		return
 	end
 
 	local snapshot = state :: Shotgun.WeaponSnapshot
 	local data = Hud.ammoChipFor(snapshot)
 	readoutWords = Hud.readoutFor(snapshot)
+	-- THE RAIL'S `R`, LIT WHILE THE GUN WILL NOT FIRE UNTIL HE PRESSES IT (task 248). KAREN,
+	-- 2026-10-23: *"when magazine is empty we need to show reload R letter higlight"*. This file is
+	-- already the one reader of the weapon state, so the rail is TOLD -- `Rail.setNeeded` is
+	-- edge-triggered, so a per-frame call costs one comparison -- and it is the same button on a
+	-- phone, because the rail is what touch gets (`Rail.visible(touchEnabled)`).
+	Rail.setNeeded("RELOAD", data.reloadHint)
 	for index, pip in ipairs(ammoPips) do
 		local kind = data.pips[index]
 		pip.Visible = kind ~= nil
@@ -5030,6 +5225,11 @@ function Hud.start()
 	end
 	local CameraSystem = if cameraModule then require(cameraModule) else nil
 
+	-- IS THERE A LODGE TO BUY SHELLS AT? (task 248.) ONE READ, AT THIS BOUNDARY, passed inward --
+	-- the only permitted shape for a flagged value (CLAUDE.md, "Feature flags"), and the same read
+	-- `ShopPanel.start` makes for the same reason. It decides one thing: whether the centre line
+	-- for an empty gun says `BUY AT THE LODGE` under it.
+	shopSellsAmmo = Shop.isOn()
 	gui = build();
 	(gui :: ScreenGui).Parent = player:WaitForChild("PlayerGui")
 
@@ -5394,6 +5594,13 @@ function Hud.start()
 		-- this signal's delivery count.
 		if type(snapshot) == "table" and type((snapshot :: any).advice) == "string" then
 			LicenceCard.onAdvice((snapshot :: any).advice)
+		end
+		-- ...AND THE CENTRE LINE (task 248), on the same signal and for the same stated reason:
+		-- `refused` is a fact about ONE publish, so an edge detector reading it every frame would
+		-- either miss it or repeat it. `Hud.showCallout` draws nothing for the four refusals that
+		-- belong on the readout -- the rule is `Hud.calloutFor`, not this call site.
+		if type(snapshot) == "table" then
+			Hud.showCallout((snapshot :: any).refused, (snapshot :: any).notice)
 		end
 	end)
 	if CameraSystem then

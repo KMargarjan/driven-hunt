@@ -203,6 +203,94 @@ function Shotgun.snapshot(
 	})
 end
 
+-- ---------------------------------------------------------------- WHAT THE GUN NEEDS (task 248)
+--
+-- KAREN, 2026-10-23: *"when magazine is empty we need to show reload R letter higlight / also if no
+-- rounds at all tell no ammo"*. Two different states that look identical on today's readout -- a gun
+-- you can fill and a gun you cannot -- so this is the ONE answer to which of the three a weapon is
+-- in, read by BOTH SIDES: the server publishes the notice from it (`Weapon.onFireRequest`'s
+-- `barrel-empty` branch) and the Hud highlights the rail's R and prints the chip from it
+-- (`Hud.ammoChipFor`). Two readers, one definition -- or the screen and the gun would disagree about
+-- whether there is anything left to load, which is the shape of defect `docs/PROJECT_CONTEXT.md`
+-- opens with.
+--
+-- PURE, AND IT TAKES A `WeaponState` **OR** A `WeaponSnapshot`: it reads `barrels`, `reserve` and
+-- `unlimited`, which both carry with the same meaning (that is what the snapshot is FOR).
+Shotgun.AMMO_NEED = table.freeze({
+	-- There is something in the gun to fire. Nothing is said and nothing is highlighted: Karen's
+	-- rule is a clear screen.
+	OK = "ok",
+	-- NOTHING IN THE GUN AND SOMETHING IN THE POCKET: press R. This is the state the highlight is
+	-- for, and it ends the moment the reload starts.
+	RELOAD = "reload",
+	-- NOTHING IN THE GUN AND NOTHING ANYWHERE: `NO AMMO`. Pressing R would do nothing at all, which
+	-- is exactly why the player has to be told something else.
+	EMPTY = "empty",
+})
+
+-- THE TRIGGER PULLED ON A GUN WITH NOTHING ANYWHERE (task 248), as two wire values spelled once.
+-- The server puts them on the refusal publish and the client reads them back: `refused` is what
+-- makes one dry click (`CameraBoot`) and the centre line (`Hud.calloutFor`), and the NOTICE is the
+-- words. Both sides read THESE, so the readout, the centre line and the server cannot disagree
+-- about what an empty gun is called.
+--
+-- IT IS NOT A `Weapon.Rules.REASON` AND THAT IS DELIBERATE: those are rules of the DRIVE (a beater
+-- in the ray, a stand, a licence, the safety lock) and this is the MECHANICAL state of a gun -- the
+-- distinction `onFireRequest` already makes by asking the reducer before the rules.
+Shotgun.REFUSED_NO_AMMO = "no-ammo"
+Shotgun.NOTICE_NO_AMMO = "NO AMMO"
+
+-- THE SAFETY LOCK'S WIRE VALUE LIVES HERE TOO (task 248), and `Weapon.Rules.REASON.UNSAFE` IS this
+-- string -- that file reads it from here rather than spelling it a second time. It is here because
+-- the CLIENT has to name it: `Weapon.Rules` is `ServerScriptService.Weapon.Rules` and no client can
+-- require it, so without this the Hud would have to carry its own copy of a wire value -- which is
+-- the two-definitions defect this module exists to prevent (`Shotgun.CONFIG`'s own rule about the
+-- gun's numbers).
+--
+-- WHAT IT IS FOR, on the client: `Hud.calloutFor` draws the centre line off it. The WORDS still come
+-- from the server, in the snapshot's `notice` -- `Rules.NOTICE` owns those -- so this is the REASON
+-- and never the sentence.
+Shotgun.REFUSED_UNSAFE = "unsafe-line"
+
+-- `NOTHING IN THE GUN` IS "NO CHAMBER IS LIVE" AND NOT "THE SELECTED CHAMBER IS EMPTY", and that is
+-- a decision: a side-by-side with one barrel left can still be fired, and a HUD that nagged about a
+-- half-full gun would be lit for most of a drive. The highlight means *"the trigger will do nothing
+-- until you reload"*.
+--
+-- `NOTHING ANYWHERE` IS EVERY KIND AND NOT THE SELECTED ONE, because `R` on an empty pocket of slugs
+-- with buckshot still in the belt is a reload that works (the readout's own `NO SLUG` notice is what
+-- covers the per-kind case, and it has since Karen's playtest of 2026-09-25). An UNLIMITED pocket
+-- (task 221) is never empty, whatever the number beside it says.
+function Shotgun.ammoNeed(state: any?, row: any?): string
+	if state == nil then
+		return Shotgun.AMMO_NEED.OK -- no gun is not an empty gun: there is nothing to say
+	end
+	for _, barrel in ipairs(state.barrels or {}) do
+		if barrel == "Live" then
+			return Shotgun.AMMO_NEED.OK
+		end
+	end
+	local reserve = state.reserve or {}
+	local unlimited = state.unlimited
+	-- THE KINDS THIS WEAPON HAS, or whatever the state happens to carry when no row was handed in
+	-- (every caller before a `Weapons.Row` existed, and every spec that builds a state by hand).
+	local kinds = if row ~= nil and row.AMMO_KINDS ~= nil then row.AMMO_KINDS else nil
+	if kinds ~= nil then
+		for _, kind in ipairs(kinds) do
+			if (reserve[kind] or 0) > 0 or (unlimited ~= nil and unlimited[kind] == true) then
+				return Shotgun.AMMO_NEED.RELOAD
+			end
+		end
+	else
+		for kind, count in pairs(reserve) do
+			if count > 0 or (unlimited ~= nil and unlimited[kind] == true) then
+				return Shotgun.AMMO_NEED.RELOAD
+			end
+		end
+	end
+	return Shotgun.AMMO_NEED.EMPTY
+end
+
 -- The one place the remote paths are spelled, so no caller hard-codes them twice.
 -- WHERE THE FIRED BARREL'S MUZZLE IS, in the frame of the `Muzzle` attachment (task 92). One
 -- definition, used by the server to tell every client where to draw the flash and by the client to

@@ -677,6 +677,153 @@ return function()
 		end)
 	end)
 
+	-- ---------------------------------------------- A RESPAWN ENDS YOUR HUNT (task 248)
+	--
+	-- KAREN, 2026-10-23: *"when I respawn I am in lobby with weapons but I can't go to next hunt / so
+	-- when I respown hunt should over then I can enter to next games"*.
+	--
+	-- EVERY CASE HERE WOULD HAVE ERRORED OR PASSED VACUOUSLY BEFORE THIS TASK: there was no
+	-- `withdraw` event, no `Phase.insideDrive` and no `Match.withdrawOnRespawn`, so the machine
+	-- simply ignored the event and the rule did not exist (the Learning Agent's L-028).
+	describe("a respawn takes one player out of the drive (task 248)", function()
+		local function running(cfg)
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "a" }, 0, cfg))
+			state = (Phase.step(state, { kind = "join", userId = 2, name = "b" }, 0, cfg))
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			expect(state.phase).to.equal("Running")
+			return state
+		end
+
+		it("empties his row of the roster and hands his team back, with no feed line", function()
+			local cfg = config()
+			local state = running(cfg)
+			local effects
+			state, effects =
+				Phase.step(state, { kind = "withdraw", userId = 2, name = "b" }, cfg.INTERMISSION_SECONDS + 1, cfg)
+			expect(state.participants[2]).to.equal(nil)
+			expect(state.assignment[2]).to.equal(nil)
+			expect(Phase.participantCount(state)).to.equal(1)
+			-- THE DRIVE DOES NOT END, exactly as a leaver does not end one.
+			expect(state.phase).to.equal("Running")
+			-- THE THREE EFFECTS, each for HIS id and nobody else's.
+			expect(countKind(effects, "unassign")).to.equal(1)
+			expect(countKind(effects, "refreshArming")).to.equal(1)
+			expect(countKind(effects, "free")).to.equal(1)
+			expect(countKind(effects, "broadcast")).to.equal(1)
+			for _, effect in ipairs(effects) do
+				if effect.userIds ~= nil then
+					expect(#effect.userIds).to.equal(1)
+					expect(effect.userIds[1]).to.equal(2)
+				end
+			end
+			-- NO FEED LINE: he has not LEFT, he is standing at the lodge. The difference from
+			-- `leave`, and the same call `dismiss` makes.
+			expect(countFeed(effects, "leave")).to.equal(0)
+			expect(countKind(effects, "feed")).to.equal(0)
+			-- ...AND THE MAN BESIDE HIM IS UNTOUCHED.
+			expect(state.participants[1]).to.be.ok()
+			expect(state.assignment[1]).to.be.ok()
+		end)
+
+		it("works during the countdown too, because he was in the drive then as well", function()
+			local cfg = config()
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "a" }, 0, cfg))
+			expect(state.phase).to.equal("Assigning")
+			expect(Phase.insideDrive(state)).to.equal(true)
+			state = (Phase.step(state, { kind = "withdraw", userId = 1, name = "a" }, 1, cfg))
+			expect(state.participants[1]).to.equal(nil)
+		end)
+
+		it("changes nothing outside a drive, and nothing for a man who is not in one", function()
+			local cfg = config()
+			local state = ready(cfg)
+			expect(state.phase).to.equal("Waiting")
+			expect(Phase.insideDrive(state)).to.equal(false)
+			local effects
+			state, effects = Phase.step(state, { kind = "withdraw", userId = 9 }, 0, cfg)
+			expect(#effects).to.equal(0)
+			expect(state.phase).to.equal("Waiting")
+			-- ...AND INSIDE A DRIVE, FOR SOMEBODY IT HAS NEVER HEARD OF: still nothing.
+			state = running(config())
+			local before = Phase.participantCount(state)
+			state, effects = Phase.step(state, { kind = "withdraw", userId = 99 }, cfg.INTERMISSION_SECONDS + 1, cfg)
+			expect(#effects).to.equal(0)
+			expect(Phase.participantCount(state)).to.equal(before)
+		end)
+
+		it("leaves the last man's drive running, so the lobby decides what happens next", function()
+			-- A withdrawal is not an abort: `enoughPlayers` is read at the `Waiting` and `Scoring`
+			-- exits, exactly as `dismiss` relies on, so an emptied roster falls out at the end of
+			-- the drive and not in the middle of one.
+			local cfg = config()
+			local state = running(cfg)
+			state = (Phase.step(state, { kind = "withdraw", userId = 1 }, cfg.INTERMISSION_SECONDS + 1, cfg))
+			state = (Phase.step(state, { kind = "withdraw", userId = 2 }, cfg.INTERMISSION_SECONDS + 1, cfg))
+			expect(Phase.participantCount(state)).to.equal(0)
+			expect(state.phase).to.equal("Running")
+		end)
+
+		-- THE TRIGGER'S OWN RULE, PURE (`Match.withdrawOnRespawn`). The hard part of this task is not
+		-- the event -- it is telling the drive's OWN respawn (`Body.place` calls `LoadCharacter`)
+		-- apart from the player's, and getting it wrong throws everybody out of the drive at the
+		-- moment it places them.
+		describe("Match.withdrawOnRespawn -- is this a respawn the drive did not ask for", function()
+			local mine = Instance.new("Model")
+			local his = Instance.new("Model")
+			-- `NONE` IS HOW A CASE SAYS nil, and it is needed rather than tidy: `pairs` cannot see a
+			-- key whose value is nil, so `facts({ placed = nil })` would quietly hand back the
+			-- DEFAULT -- a case that asserts the opposite of what it reads.
+			local NONE = {}
+			local function facts(overrides)
+				local base = {
+					live = true,
+					participant = true,
+					placing = false,
+					placed = mine,
+					current = his,
+					lobbyWorld = true,
+				}
+				for key, value in pairs(overrides or {}) do
+					base[key] = if value == NONE then nil else value
+				end
+				return base
+			end
+
+			it("says yes for a character the drive did not give him", function()
+				expect(Match.withdrawOnRespawn(facts())).to.equal(true)
+			end)
+
+			it("says no while one of its OWN placements is in flight", function()
+				-- THE CLAUSE THAT MAKES IT CORRECT. Without it the placement's own `LoadCharacter`
+				-- is indistinguishable from the Reset button and every placed player is withdrawn.
+				expect(Match.withdrawOnRespawn(facts({ placing = true }))).to.equal(false)
+			end)
+
+			it("says no when he is still in the character the drive gave him", function()
+				expect(Match.withdrawOnRespawn(facts({ current = mine }))).to.equal(false)
+			end)
+
+			it("says no when nothing is known: no character, or none ever placed", function()
+				expect(Match.withdrawOnRespawn(facts({ current = NONE }))).to.equal(false)
+				expect(Match.withdrawOnRespawn(facts({ placed = NONE }))).to.equal(false)
+			end)
+
+			it("says no outside a drive, for a non-participant, and in a world with no lobby", function()
+				expect(Match.withdrawOnRespawn(facts({ live = false }))).to.equal(false)
+				expect(Match.withdrawOnRespawn(facts({ participant = false }))).to.equal(false)
+				-- THE DEV ARENA: there is no lobby to walk back to and nothing that would ever put
+				-- him in a drive again, which is the same refusal `Match.dismissAll` makes.
+				expect(Match.withdrawOnRespawn(facts({ lobbyWorld = false }))).to.equal(false)
+			end)
+
+			it("decides nothing off an empty table, which is every unwired world", function()
+				expect(Match.withdrawOnRespawn({})).to.equal(false)
+			end)
+		end)
+	end)
+
 	describe("robustness", function()
 		it("advances one phase at most across a five-second server hitch", function()
 			local cfg = config()
