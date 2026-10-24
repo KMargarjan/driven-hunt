@@ -1452,23 +1452,27 @@ return function()
 			end
 			warmedUp(runtime)
 
-			-- EVERY ONE OF THEM IS OFFERED THE CHECK and every one of them TAKES it -- the chance is
-			-- forced to 1 for the two that have a row, and a boar's own `MOVE.EDGE_CHANCE` is 0.55, so
-			-- the boar is driven until it takes one rather than asserted to.
-			for _, kind in ipairs({ "stag", "hind", "calf" }) do
+			-- THE TWO THAT CARRY AN `edge` ROW TAKE IT OUTRIGHT, because this runtime forces their
+			-- chance to 1. **THE CALF AND THE BOAR DO NOT**: neither carries a row -- the spec's
+			-- *"follows her mother"* for the calf -- so both roll against `MOVE.EDGE_CHANCE` 0.55 and
+			-- both have to be DRIVEN until they take one, because an animal that never accepted a
+			-- check would prove nothing about whether it barks. `_checked` is one check per approach,
+			-- so a refusal is retried on a fresh animal rather than by fighting that latch.
+			for _, kind in ipairs({ "stag", "hind" }) do
 				expect(runtime:check(handles[kind].id)).to.equal(true)
 			end
-			local boarTook = false
-			for _ = 1, 40 do
-				if runtime:check(handles.male.id) then
-					boarTook = true
-					break
+			for _, kind in ipairs({ "calf", "male" }) do
+				local took = false
+				for attempt = 1, 40 do
+					if runtime:check(handles[kind].id) then
+						took = true
+						break
+					end
+					handles[kind] = runtime:spawn(Vector3.new(60 + attempt, GROUND_Y, -10), kind)
+					expect(handles[kind]).to.be.ok()
 				end
-				-- `_checked` is one check per approach, so a refusal needs a settled animal to retry.
-				-- Rather than fight that, a fresh male is spawned for each attempt.
-				handles.male = runtime:spawn(Vector3.new(60, GROUND_Y, -10), "male")
+				expect(took).to.equal(true)
 			end
-			expect(boarTook).to.equal(true)
 			step(runtime)
 
 			-- ...AND ONLY THE TWO THAT CARRY `EDGE_BARKS` WERE HEARD. This is the assertion that
@@ -1512,8 +1516,9 @@ return function()
 			local victim = runtime:spawn(Vector3.new(0, GROUND_Y, -40), "male")
 			warmedUp(runtime)
 			for _, handle in ipairs(mute) do
-				local cry = soundNamed(handle, "cry")
-				expect(cry).to.be.ok()(cry :: Sound):Destroy()
+				local cry = soundNamed(handle, "cry") :: Sound
+				expect(cry).to.be.ok()
+				cry:Destroy()
 			end
 
 			-- THE CHECK STILL HAPPENS -- the animal stops and looks whether or not it can be heard,
