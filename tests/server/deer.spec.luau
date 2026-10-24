@@ -380,18 +380,32 @@ return function()
 					end
 				end
 
+				-- `SOUND.BARK.ids` IS NOT COLLECTED ABOVE, and that is the point rather than an
+				-- omission (task 257): the bark is a cue NO BOAR CAN REACH. `Runtime:check` plays
+				-- it only where `MOVE.EDGE_BARKS` is true, which is the stag's and the hind's
+				-- `edge` rows and nothing else, so the row's ids are a deer's by construction.
+				-- The case two below drives that switch on a real animal of each kind.
 				local clashes = {}
 				for _, kind in ipairs(DEER_KINDS) do
-					for _, cue in ipairs({ "cry", "death", "grunt" }) do
+					for _, cue in ipairs({ "cry", "death", "grunt", "bark" }) do
 						-- THROUGH THE REAL RESOLVER, not by reading the table: `Body.voiceIds` is
 						-- what `playOneShot` calls, and its fallback to `spec.ids` is the path that
 						-- produced the pig sound in the first place.
 						local spec = if cue == "cry"
 							then sound.CRY
 							elseif cue == "death" then sound.DEATH
+							elseif cue == "bark" then sound.BARK
 							else sound.GRUNTS
 						local ids = Boar.voiceIds(cue, kind, spec, on)
-						expect(ids).to.equal(voice[kind][cue]) -- its OWN list, never the generic one
+						-- A CALF HAS NO `bark` ROW AND MUST NOT GROW ONE: she never takes an edge
+						-- check at all, so `voiceIds` falling through to `SOUND.BARK.ids` here is
+						-- the honest answer and is asserted as such.
+						if cue == "bark" and voice[kind][cue] == nil then
+							expect(kind).to.equal("calf")
+							expect(ids).to.equal(sound.BARK.ids)
+						else
+							expect(ids).to.equal(voice[kind][cue]) -- its OWN list, never the generic one
+						end
 						expect(#ids > 0).to.equal(true)
 						for _, id in ipairs(ids) do
 							if boarIds[id] ~= nil then
@@ -446,7 +460,12 @@ return function()
 				local sound = CONFIG.SOUND
 				local voice = sound.VOICE
 				local crowd = sound.CROWD
-				local specOf = { cry = sound.CRY, death = sound.DEATH, grunt = sound.GRUNTS }
+				local specOf = {
+					cry = sound.CRY,
+					death = sound.DEATH,
+					grunt = sound.GRUNTS,
+					bark = sound.BARK, -- task 257
+				}
 
 				-- EVERY ID IN THE TABLE HAS A MEASURED LENGTH, boar ids included, because the bound
 				-- below is a comparison and an unmeasured id would silently skip it.
@@ -459,10 +478,10 @@ return function()
 						end
 					end
 				end
-				for _, cue in ipairs({ "cry", "death", "grunt" }) do
+				for _, cue in ipairs({ "cry", "death", "grunt", "bark" }) do
 					check(specOf[cue].ids, "SOUND." .. cue)
 					for _, kind in ipairs(CONFIG.KINDS.ORDER) do
-						check(voice[kind][cue], kind .. "." .. cue)
+						check(voice[kind][cue] or {}, kind .. "." .. cue)
 					end
 				end
 				table.sort(unmeasured)
@@ -472,15 +491,36 @@ return function()
 				-- for `length / pitch` seconds and `Body.voiceCut` bounds that; the booking is
 				-- `SQUEAL_SECONDS` for a cry or a death (`Runtime:_claimSqueal`) and
 				-- `GRUNT_GAP_SECONDS` for a grunt (the gap before another may START).
+				--
+				-- ...AND A CLIPPED ID IS MEASURED BY ITS REGION AND NOT BY ITS FILE (task 257).
+				-- `VOICE.LENGTHS` for the two real recordings is 177.3483 s and 34.0 s -- the whole
+				-- file -- and neither is ever played whole: `Body.voiceClip` answers a region, and
+				-- the longest region is what the cue can actually hold. Dividing the FILE by the
+				-- pitch here would still pass (the cut bounds it either way) while asserting
+				-- nothing about the thing that sounds, which is how a 1.8 s region could be added
+				-- to a 1.2 s booking with a green suite.
 				local tooLong, lines = {}, {}
+				local clips = CONFIG.SOUND.VOICE.CLIPS or {}
 				for _, kind in ipairs(DEER_KINDS) do
 					local pitch = voice[kind].pitch
-					for _, cue in ipairs({ "cry", "death", "grunt" }) do
+					for _, cue in ipairs({ "cry", "death", "grunt", "bark" }) do
 						local spec = specOf[cue]
 						local cut = Boar.voiceCut(cue, kind, spec, on)
 						local budget = if cue == "grunt" then crowd.GRUNT_GAP_SECONDS else crowd.SQUEAL_SECONDS
 						for _, id in ipairs(Boar.voiceIds(cue, kind, spec, on)) do
-							local whole = voice.LENGTHS[id] / pitch
+							local entry = clips[id]
+							local whole
+							if entry ~= nil then
+								-- THE CLIP'S OWN PITCH, where it has one: it REPLACES the kind's
+								-- centre in `playOneShot`, so the kind's is not what this sounds at.
+								local speed = if type(entry.pitch) == "number" then entry.pitch else pitch
+								whole = 0
+								for _, region in ipairs(entry.regions) do
+									whole = math.max(whole, Boar.clipSeconds(region, speed))
+								end
+							else
+								whole = voice.LENGTHS[id] / pitch
+							end
 							local sounds = if cut ~= nil then math.min(whole, cut) else whole
 							if sounds >= budget then
 								table.insert(
@@ -1583,16 +1623,247 @@ return function()
 			expect(Boar.kindConfig("stag", on).MOVE.EDGE_BARKS).to.equal(true)
 			expect(Boar.kindConfig("hind", on).MOVE.EDGE_BARKS).to.equal(true)
 			expect(Boar.kindConfig("calf", on).MOVE.EDGE_BARKS).to.equal(false)
-			-- IT IS THE ANIMAL'S OWN `cry` ROW AND NOT A NEW CUE, which is why no id is added: task
-			-- 240 chose the stag's `cry` samples expressly AS the warning bark. So the bark a player
-			-- hears is the voice row, and `deer.spec`'s own "no deer cue shares an id with a boar
-			-- cue" case already covers what it is.
+			-- IT IS ITS OWN CUE SINCE TASK 257, and that is the line this case used to deny: it
+			-- said *"the animal's own `cry` row and not a new cue"*, which stopped being true when
+			-- the hit cue became a real stag's distress call. One row cannot be both a bark and a
+			-- cry, so `SOUND.BARK` is the cue and `VOICE.<kind>.bark` the ids.
 			local voice = CONFIG.SOUND.VOICE
-			expect(#voice.stag.cry >= 1).to.equal(true)
-			expect(#voice.hind.cry >= 1).to.equal(true)
+			expect(CONFIG.SOUND.BARK).to.be.ok()
+			expect(#voice.stag.bark >= 1).to.equal(true)
+			expect(#voice.hind.bark >= 1).to.equal(true)
+			expect(voice.calf.bark).to.equal(nil)
+			-- ...AND THE TWO KINDS THAT BARK BARK THE SAME REAL RECORDING, which is the whole of
+			-- the first half of Karen's sentence (*"when near"*).
+			expect(voice.stag.bark[1]).to.equal(voice.hind.bark[1])
+			expect(CONFIG.SOUND.VOICE.CLIPS[voice.stag.bark[1]]).to.be.ok()
 			-- ...AND IT IS BOUNDED BY THE WORLD'S VOICE RATION, so two barking deer cannot be three
 			-- voices: `CROWD.MAX_SQUEALS` is what `Runtime:check` claims against.
 			expect(CONFIG.SOUND.CROWD.MAX_SQUEALS >= 1).to.equal(true)
+		end)
+
+		-- THE REAL BARK AND THE REAL HIT CALL (task 257) ------------------------------------------
+		--
+		-- KAREN, 2026-10-24, verbatim: *"redsatg sound whn hit and when near need corection better
+		-- real"*. Two cues, two CC0 field recordings, and neither is a cue on its own: the bark is
+		-- 177.3483 s of a forest edge and the hit call is 34 s of a rut, so each plays ONE measured
+		-- region of itself through `Sound.PlaybackRegion`.
+		--
+		-- WHAT CAN AND CANNOT BE ASSERTED HERE (rule 8). That the right id is chosen, that a region
+		-- is one of the measured four, that nothing 177 seconds long can be played whole, that the
+		-- cue is bounded by the budget the world books it for, and that a real hind really plays the
+		-- cue when she really takes the edge check -- all of that is below. **Whether it sounds like
+		-- a red deer is KAREN'S EARS**, and so is the level: the request carries the live
+		-- `PlaybackLoudness` and `Volume` numbers, and no spec can hear either.
+		describe("the real deer voice (task 257)", function()
+			local function clipOf(id)
+				return CONFIG.SOUND.VOICE.CLIPS[id]
+			end
+
+			it("plays ONE measured region of the real recording, over the whole roll", function()
+				local on = configWith(true)
+				local voice = CONFIG.SOUND.VOICE
+				-- ONE ARM PER CUE AND PER KIND THAT HAS ONE (L-093): the stag's bark, his cry and
+				-- his death, and the hind's bark. A case that only entered the first would not see
+				-- a `CLIPS` entry missing from the other three.
+				local cases = {
+					{ kind = "stag", cue = "bark", spec = CONFIG.SOUND.BARK },
+					{ kind = "stag", cue = "cry", spec = CONFIG.SOUND.CRY },
+					{ kind = "stag", cue = "death", spec = CONFIG.SOUND.DEATH },
+					{ kind = "hind", cue = "bark", spec = CONFIG.SOUND.BARK },
+				}
+				local seen = {}
+				for _, case in ipairs(cases) do
+					local ids = Boar.voiceIds(case.cue, case.kind, case.spec, on)
+					local real = ids[1]
+					local clip = clipOf(real)
+					expect(clip).to.be.ok()
+					expect(#clip.regions >= 3).to.equal(true) -- the dispatch asked for 3 to 4
+					-- EVERY ROLL IN [0, 1) ANSWERS THE REAL ID AND A REGION OF ITS OWN TABLE, and
+					-- the rolls are walked rather than sampled so that an off-by-one at either end
+					-- of `voiceClip`'s index arithmetic is a failure and not a flake.
+					local hits = {}
+					for step = 0, 99 do
+						local roll = step / 100
+						local id, chosen = Boar.voiceClip(ids, on, roll)
+						expect(id).to.equal(real)
+						expect(chosen).to.be.ok()
+						local found = false
+						for index, region in ipairs(clip.regions) do
+							if region == chosen.region then
+								found, hits[index] = true, true
+							end
+						end
+						expect(found).to.equal(true)
+						expect(chosen.clip).to.equal(clip)
+						-- A REGION IS INSIDE THE FILE. A `from`/`to` past the recording's own
+						-- length is silence with no error, which is the quietest possible bug.
+						expect(chosen.region.from >= 0).to.equal(true)
+						expect(chosen.region.to <= voice.LENGTHS[real]).to.equal(true)
+						expect(chosen.region.to > chosen.region.from).to.equal(true)
+					end
+					-- ...AND EVERY ONE OF THEM IS REACHABLE, which is what makes "picked at random
+					-- per cue" true rather than "the first one, always".
+					for index = 1, #clip.regions do
+						expect(hits[index]).to.equal(true)
+					end
+					seen[case.kind .. "." .. case.cue] = #clip.regions
+				end
+				TestKit.note(
+					string.format(
+						"deer-257: stag bark %d / cry %d / death %d regions, hind bark %d",
+						seen["stag.bark"],
+						seen["stag.cry"],
+						seen["stag.death"],
+						seen["hind.bark"]
+					)
+				)
+			end)
+
+			it("NEVER plays a clipped id whole, and falls back to the library when the real one goes", function()
+				local on = configWith(true)
+				local clips = CONFIG.SOUND.VOICE.CLIPS
+				-- THE REVERT PATH, DRIVEN: *"to revert a cue to the library samples, delete the
+				-- real id from its `ids` list"*. This is that list with the first id deleted, and
+				-- it must answer a library sample and NO region -- otherwise the sentence written
+				-- in `VOICE.CLIPS` is a comment and not a behaviour.
+				local full = Boar.voiceIds("cry", "stag", CONFIG.SOUND.CRY, on)
+				local reverted = {}
+				for index = 2, #full do
+					table.insert(reverted, full[index])
+				end
+				expect(#reverted >= 1).to.equal(true)
+				for step = 0, 99 do
+					local id, chosen = Boar.voiceClip(reverted, on, step / 100)
+					expect(chosen).to.equal(nil)
+					expect(clips[id]).to.equal(nil)
+				end
+				-- ...AND 254's RULE, THE OTHER WAY ROUND: a clipped id sitting ANYWHERE in a list
+				-- whose first id has no clip entry is SKIPPED, never played whole. A 177-second
+				-- alarm bark out of one animal is the thing this prevents.
+				local mixed = { reverted[1], full[1] }
+				for step = 0, 99 do
+					local id, chosen = Boar.voiceClip(mixed, on, step / 100)
+					expect(id).to.equal(reverted[1])
+					expect(chosen).to.equal(nil)
+				end
+				-- An empty list answers nothing rather than erroring, which is what `playOneShot`'s
+				-- `if chosen then` relies on.
+				expect(Boar.voiceClip({}, on, 0.5)).to.equal(nil)
+			end)
+
+			it("bounds every region by the cue the world books, and fades inside it", function()
+				local on = configWith(true)
+				local crowd = CONFIG.SOUND.CROWD
+				local lines = {}
+				-- ONE ARM PER CUE, and the arithmetic is the one `playOneShot` does: the clip's own
+				-- pitch replaces the kind's, the region's length at that speed is how long it can
+				-- sound, and the cue is the SMALLER of that and `Body.voiceCut`.
+				local cases = {
+					{ kind = "stag", cue = "bark", spec = CONFIG.SOUND.BARK },
+					{ kind = "hind", cue = "bark", spec = CONFIG.SOUND.BARK },
+					{ kind = "stag", cue = "cry", spec = CONFIG.SOUND.CRY },
+					{ kind = "stag", cue = "death", spec = CONFIG.SOUND.DEATH },
+				}
+				for _, case in ipairs(cases) do
+					local ids = Boar.voiceIds(case.cue, case.kind, case.spec, on)
+					local clip = clipOf(ids[1])
+					local cut = Boar.voiceCut(case.cue, case.kind, case.spec, on)
+					expect(cut).to.be.ok()
+					-- THE JITTER BAND, NOT THE CENTRE. `playOneShot` multiplies the clip's pitch by
+					-- `+-PITCH_JITTER`, so the SLOWEST speed is the longest the region can sound --
+					-- and that is the one the budget has to hold, not the nominal.
+					local slowest = clip.pitch * (1 - CONFIG.SOUND.PITCH_JITTER)
+					for _, region in ipairs(clip.regions) do
+						local seconds = Boar.clipSeconds(region, slowest)
+						local sounds = math.min(cut, seconds)
+						expect(sounds < crowd.SQUEAL_SECONDS).to.equal(true)
+						-- THE FADE FITS INSIDE WHAT SOUNDS, at both ends: `cutVolume` ramps up over
+						-- `fadeSeconds` and down over the same, so a cue shorter than two fades
+						-- would never reach its own level and a bark would be a swell.
+						expect(clip.fadeSeconds * 2 < sounds).to.equal(true)
+						expect(region.gain > 0).to.equal(true)
+						table.insert(
+							lines,
+							string.format("%s.%s %.2fs g%.2f", case.kind, case.cue, sounds, region.gain)
+						)
+					end
+				end
+				-- THE DEATH IS STILL THE SHORT ONE Karen asked for, through the same `voiceCut`
+				-- minimum that has held since task 120: a region cannot lengthen it.
+				expect(Boar.voiceCut("death", "stag", CONFIG.SOUND.DEATH, on)).to.be.near(
+					CONFIG.SOUND.DEATH.cut,
+					EPSILON
+				)
+				TestKit.note("deer-257 cue budget: " .. table.concat(lines, " "))
+			end)
+
+			it("ramps a region in as well as out, and leaves every library cue alone", function()
+				-- `Body.cutVolume(left, spec, since)`. `since` nil is every cue written before this
+				-- task, and the function must be exactly what it was for those -- full level until
+				-- the fade, then down in a straight line.
+				local spec = { volume = 0.8, fade = 0.2 }
+				expect(Boar.cutVolume(1.0, spec)).to.be.near(0.8, EPSILON)
+				expect(Boar.cutVolume(0.2, spec)).to.be.near(0.8, EPSILON)
+				expect(Boar.cutVolume(0.1, spec)).to.be.near(0.4, EPSILON)
+				expect(Boar.cutVolume(0, spec)).to.be.near(0, EPSILON)
+				-- ...AND WITH `since` IT RAMPS UP TOO, which is what stops a cut into the middle of
+				-- a 44.1 kHz field recording clicking on the way IN as well as on the way out.
+				expect(Boar.cutVolume(1.0, spec, 0)).to.be.near(0, EPSILON)
+				expect(Boar.cutVolume(1.0, spec, 0.1)).to.be.near(0.4, EPSILON)
+				expect(Boar.cutVolume(1.0, spec, 0.2)).to.be.near(0.8, EPSILON)
+				expect(Boar.cutVolume(1.0, spec, 5)).to.be.near(0.8, EPSILON)
+				-- BOTH RAMPS AT ONCE, multiplied rather than branched: 0.1 s in and 0.1 s left is a
+				-- quarter of the level, not a half, and that is the honest answer for a cue two
+				-- fades long.
+				expect(Boar.cutVolume(0.1, spec, 0.1)).to.be.near(0.2, EPSILON)
+				-- A row with no fade is untouched by either.
+				local hard = { volume = 0.5, fade = 0 }
+				expect(Boar.cutVolume(0, hard, 0)).to.be.near(0.5, EPSILON)
+			end)
+
+			-- THE LIVE HALF OF THIS IS IN `boar_shot.spec`, NOT HERE, and that is task 251 round 2's
+			-- own finding carried forward: *"the producer was tested by nothing"* because this file
+			-- asserted the switch and the sample while `Runtime:check`'s block could be deleted
+			-- whole. `boar_shot.spec`'s "BARKS when a deer takes the edge check" case drives a real
+			-- runtime with `MOVE.ENABLED` and the edge chance forced to 1 -- which is what a check
+			-- needs and what a plain runtime does not give -- and since task 257 it reads the id,
+			-- the region, the gain and the pitch off the animal's own Sound. Repeating it here with
+			-- a coin-toss loop would be a second, flakier copy of one claim.
+
+			it("gives the STAG the real hit call and leaves the hind and the calf their bleats", function()
+				-- THE DISPATCH ASKED FOR *"the deer kinds' hit/death voice"* AND WHAT SHIPPED IS
+				-- THE STAG'S, said here because a spec is where a deliberate narrowing has to be
+				-- visible. `99831947794105` is a MALE RUT BELLOW (Freesound 653533, "Deer rut -
+				-- Brame Cerf 02"), and the literature this whole table was built on says a hind
+				-- answers with *"a louder nasal bleat, NOT DISSIMILAR TO THAT PRODUCED BY SHEEP"*
+				-- and a calf with *"a softer bleat"*. Giving either of them a stag's rut call would
+				-- be a regression for a kind Karen did not name -- her words are *"redsatg"*.
+				local on = configWith(true)
+				local voice = CONFIG.SOUND.VOICE
+				local hit = voice.stag.cry[1]
+				expect(voice.stag.death[1]).to.equal(hit)
+				expect(clipOf(hit)).to.be.ok()
+				-- THE BARK AND THE HIT CALL ARE TWO DIFFERENT RECORDINGS, which is the whole of
+				-- Karen's *"whn hit and when near"*: one cue each.
+				expect(voice.stag.bark[1] ~= hit).to.equal(true)
+				-- ...AND NEITHER FEMALE KIND HAS IT, on either cue.
+				for _, kind in ipairs({ "hind", "calf" }) do
+					for _, cue in ipairs({ "cry", "death" }) do
+						for _, id in ipairs(Boar.voiceIds(cue, kind, CONFIG.SOUND[string.upper(cue)], on)) do
+							expect(id ~= hit).to.equal(true)
+							expect(clipOf(id)).to.equal(nil) -- her bleats play whole, as they did
+						end
+					end
+				end
+				-- AND NO BOAR HAS EITHER RECORDING, on any cue: the two real deer are the deer's.
+				for _, kind in ipairs(BOAR_KINDS) do
+					for _, cue in ipairs({ "cry", "death", "grunt" }) do
+						for _, id in ipairs(voice[kind][cue]) do
+							expect(clipOf(id)).to.equal(nil)
+						end
+					end
+				end
+			end)
 		end)
 
 		it("bounds when spooked from a stand-still, and it is DARK by instruction", function()

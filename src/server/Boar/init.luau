@@ -91,6 +91,14 @@ Boar.voiceRow = Body.voiceRow
 Boar.voicePitch = Body.voicePitch
 Boar.voiceIds = Body.voiceIds
 Boar.voiceCut = Body.voiceCut
+-- ...and task 257's two: WHICH sample and WHICH piece of it (`voiceClip` -- the one reader of
+-- `SOUND.VOICE.CLIPS`, and the thing that keeps a 177-second field recording from ever being played
+-- whole out of one animal), and how long a region sounds for at the speed it is played at. Pure,
+-- and exported for the reason every line above it is: a spec can ask what a stag is about to say
+-- with no stag in the world, and the region arithmetic is where a wrong number would be inaudible
+-- rather than visible.
+Boar.voiceClip = Body.voiceClip
+Boar.clipSeconds = Body.clipSeconds
 Boar.farScale = Body.farScale
 Boar.cutVolume = Body.cutVolume
 Boar.heardAt = Body.heardAt
@@ -1818,6 +1826,30 @@ Boar.CONFIG.SOUND = {
 	-- a fade a cut cry would be CHOPPED rather than ended, which is the fault task 120 fixed on the
 	-- death. `deer.spec` asserts the boar side is untouched.
 	CRY = { ids = { 9117369876, 9117370072 }, volume = 0.9, audibleStuds = 110, fade = 0.15 },
+	-- THE ALARM BARK, AND IT IS ITS OWN CUE SINCE TASK 257 ------------------------------------
+	--
+	-- KAREN, 2026-10-24, verbatim: *"redsatg sound whn hit and when near need corection better
+	-- real"* -- two cues, the one a deer makes WHEN YOU ARE NEAR and the one it makes WHEN IT IS
+	-- HIT. Task 251 part 2 wired the edge-check bark to the animal's own `cry` row and wrote down
+	-- why (*"a kind that barks already has the right sample"*). That stops being true the moment the
+	-- hit cue becomes a real recording of its own: one row cannot be both a bark and a distress
+	-- call. So the bark is a CUE now, with its own row, its own ids and its own level -- and the two
+	-- halves of Karen's sentence are two rows a reader can find.
+	--
+	-- NO BOAR IS TOUCHED. Only a kind whose `edge.barks` is true ever reaches this cue
+	-- (`Runtime:check`), and that is the stag and the hind and nothing else -- `MOVE.EDGE_BARKS` is
+	-- false on `Boar.CONFIG.MOVE`, so every boar kind and the calf answer false and never play it.
+	-- The `ids` here are the generic fallback for a barking kind with no `VOICE.<kind>.bark` row;
+	-- both kinds that bark have one.
+	--
+	-- `volume` AND `audibleStuds` ARE `CRY`'s, deliberately: this cue is the one the bark used to be,
+	-- and the one thing task 257 changes is WHICH recording it is, not how far it carries.
+	BARK = {
+		ids = { 85634523415950 }, -- the real red deer, played BY REGION (see `VOICE.CLIPS`)
+		volume = 0.9,
+		audibleStuds = 110,
+		fade = 0.15, -- a cut bark ENDS rather than being chopped; `VOICE.CLIPS` overrides it per clip
+	},
 	-- A DEATH IS ONE SHORT SQUEAL NOW: "when it dies could be sqeeck sound short". It was
 	-- "Pigs Beast-Like Screams 8", a long scream; it is the squeal samples, CUT at 0.6 s with a
 	-- 0.15 s fade so it ends rather than stops. `VOICE` gives the male his own rougher sample back.
@@ -1852,7 +1884,9 @@ Boar.CONFIG.SOUND = {
 	VOICE = {
 		ENABLED = true,
 		-- WHICH CUES ARE A VOICE. Footsteps, breath and the sniff are not.
-		APPLIES = { cry = true, death = true, grunt = true },
+		-- `bark` joined them in task 257: it is the animal's own alarm call, so it takes the
+		-- kind's samples and the kind's pitch exactly as the cry does.
+		APPLIES = { cry = true, death = true, grunt = true, bark = true },
 		-- Deeper and rougher: the only beast-like scream in the set is his, and the two lower grunts.
 		male = {
 			pitch = 0.8,
@@ -1978,11 +2012,120 @@ Boar.CONFIG.SOUND = {
 			[9116205537] = 1.12, -- "Lamb Big Lamb 4"
 			[9116205675] = 1.59, -- "Lamb Big Lamb 6"
 			[9116204275] = 1.97, -- "Lamb Big Lamb 13"
+			-- THE TWO REAL RED DEER (task 257). These are WHOLE-FILE lengths of field recordings and
+			-- not cue lengths: neither is ever played whole, and what sounds is one `CLIPS` region of
+			-- it. They are here because this table is the measurement every id must have, and because
+			-- a region outside the file would be silence. MEASURED live, `Sound.TimeLength` in a Play
+			-- session on 2026-10-24, and they agree with the uploaded bytes to the fourth decimal
+			-- (`soundfile`: 177.3483 s at 44.1 kHz, 34.0000 s at 48 kHz) -- the same timeline, which is
+			-- what makes an offline cut legal.
+			[85634523415950] = 177.3483, -- the red deer alarm bark, Freesound 795554 (CC0)
+			[99831947794105] = 34.0, -- the red stag hit call, Freesound 653533 (CC0)
 		},
 		-- WHAT A DEER ROW CUTS ITS SAMPLES TO. Under `CROWD.SQUEAL_SECONDS` (1.2) and under
 		-- `CROWD.GRUNT_GAP_SECONDS` (1.2) with the 0.15 s fade inside it, so a deer can never hold a
 		-- voice slot it has already given back. Karen's dial; one number for all three kinds.
 		CUE_CUT_SECONDS = 1.05,
+
+		-- WHAT TO PLAY *OF* AN ID THAT IS LONGER THAN A CUE (task 257) -----------------------------
+		--
+		-- KAREN, 2026-10-24: *"redsatg sound whn hit and when near need corection better real"*. The
+		-- two cues are real red deer now, and a real red deer is a FIELD RECORDING: 2 minutes 57 of a
+		-- forest edge, and 34 seconds of a rut. Neither is a cue. So the same shape task 254 built
+		-- for the stag's distant roar is used here -- `Sound.PlaybackRegion` with
+		-- `PlaybackRegionsEnabled`, one event per cue, picked at random -- and `Body.voiceClip` is the
+		-- one reader. Keyed BY ID so a reader looking at an `ids` list finds the entry beside it; an
+		-- id with no entry plays whole, which is every library sample in this table.
+		--
+		-- **DO NOT DELETE A `CLIPS` ENTRY AND LEAVE ITS ID IN AN `ids` LIST.** `Body.voiceClip` plays
+		-- `ids[1]` by region when this table has a usable entry for it, and otherwise picks among the
+		-- ids that are NOT in this table -- so a clipped id is never played whole (a 177-second alarm
+		-- bark out of one animal). Removing the entry and keeping the id is the one edit that would
+		-- do it. **To revert a cue to the library samples, delete the real id from its `ids` list**,
+		-- exactly as `ForestTest.ROAR` says for the roar.
+		--
+		-- EVERY NUMBER BELOW IS MEASURED AND NONE IS A TASTE. The events were found offline on the
+		-- uploaded bytes (the sha256 `assets/uploads.json` names), as a 50 ms RMS envelope smoothed
+		-- with a 200 ms running max and gated 6 dB over each recording's own floor -- the method task
+		-- 254 used -- and each region is ONE event with a margin of quiet at both ends. The levels
+		-- were then measured LIVE, which is the only place `PlaybackLoudness` answers anything: a
+		-- Play session on 2026-10-24, every Sound at `Volume = 1` and parented to `SoundService`, so
+		-- the only difference between two numbers is the recording
+		-- (`<runs-dir>/t257-loud.luau`, `<runs-dir>/257-loud.txt`).
+		CLIPS = {
+			-- THE ALARM BARK. 177.3483 s of a central-European forest edge; the barks are sparse and
+			-- the recording is QUIET -- these four peak 29.7, 25.5, 23.3 and 19.0 against the 43.1 and
+			-- 44.0 of the two "Bull Breaths" the stag barks with today, so at `gain = 1` the one cue
+			-- whose whole job is *"the sound that tells the player he has been seen"* would be 3 to
+			-- 7 dB under the sound it replaces. `gain` is the correction and it is arithmetic: the
+			-- target is the MEAN HEARD LEVEL of the four samples the bark plays today across the two
+			-- kinds that bark -- 0.9 x 43.1, 0.9 x 44.0 (the stag's) and 0.9 x 63.5, 0.9 x 70.7 (the
+			-- hind's) = 49.8 units, which at `BARK.volume` 0.9 is a target peak of 55.3 -- and each
+			-- region's `gain` is 55.3 over its own peak. That equalises the four to each other AND to
+			-- what ships today. The effective `Volume` runs 1.7 to 2.6, which is legal (Roblox allows
+			-- 0-10) and nowhere near clipping: the loudest sample in the file is -28.6 dBFS.
+			[85634523415950] = {
+				regions = {
+					{ from = 163.08, to = 164.27, gain = 1.86 }, -- peak -28.61 dBFS, live 29.7
+					{ from = 22.23, to = 23.37, gain = 2.17 }, -- peak -30.57 dBFS, live 25.5
+					{ from = 39.88, to = 41.12, gain = 2.37 }, -- peak -31.77 dBFS, live 23.3
+					{ from = 169.18, to = 170.12, gain = 2.91 }, -- peak -33.14 dBFS, live 19.0
+				},
+				-- NO PITCH SHIFT, AND IT OVERRIDES THE KIND'S (task 254's rule, and the same reason):
+				-- `VOICE.stag.pitch` is 1.15 because a BULL is three times a stag, and
+				-- `VOICE.hind.pitch` is 0.80 because a LAMB is a third of a hind. Neither correction
+				-- means anything against a recording of the animal itself, and applying one would make
+				-- the stag a roe deer or the hind an elk. **THE PRICE IS WRITTEN DOWN: the stag and the
+				-- hind now bark at the same pitch**, where their library samples differed. The +-8 %
+				-- jitter still rides on top, and one number per kind is what would part them again if
+				-- Karen's ears ask for it.
+				pitch = 1,
+				-- A CUT INTO THE MIDDLE OF A 44.1 kHz FIELD RECORDING CLICKS, at both ends. 0.12 s fits
+				-- inside the quiet margin of every region and that is MEASURED: the first 0.10 s of
+				-- each region is 11.2 to 16.0 dB under its own bark and the last 0.10 s is 5.0 to
+				-- 13.1 dB under, so neither fade ever touches the bark -- it shapes the forest noise
+				-- the region opens and closes on.
+				fadeSeconds = 0.12,
+			},
+			-- THE HIT CALL. 34.0000 s of a red stag in the rut, the second take of the session task
+			-- 254's distant roar came from (Freesound 653532 is the roar, 653533 is this) -- SAID
+			-- PLAINLY, because it means the animal Karen hears across the valley and the animal she
+			-- hears when she hits one are the same stag on the same evening. They are different
+			-- seconds of it and different cues, and whether that reads as one wood or as a repeat is
+			-- her ears and not a number.
+			--
+			-- THESE FOUR ARE ALREADY EVEN -- live peaks 63.2, 58.1, 58.2 and 63.0, a spread of 0.7 dB
+			-- -- so the region-to-region part of `gain` is almost a no-op. What `gain` is really doing
+			-- here is the LEVEL, and the level had to be decided because the four library samples this
+			-- cue ships today are not one level at all: the stag's cry peaks 43.1 and 44.0 while his
+			-- death peaks 131.5 and 215.4, which is 11.5 dB apart for one animal. The target is their
+			-- MEAN HEARD LEVEL -- 0.9 x 43.1, 0.9 x 44.0, 0.85 x 131.5, 0.85 x 215.4 = 93.3 units,
+			-- which at the two rows' volumes (0.9 and 0.85) is a target peak of 106.6 -- and each
+			-- `gain` is 106.6 over its own peak. **SO THE REACTION GETS ABOUT 7.7 dB LOUDER AND THE
+			-- DEATH ABOUT 4.2 dB QUIETER than they are today**, and that is the correction rather than
+			-- a side effect: one animal, one voice, one level. Karen's ears decide.
+			[99831947794105] = {
+				regions = {
+					{ from = 29.65, to = 31.33, gain = 1.69 }, -- peak -16.70 dBFS, live 63.2
+					{ from = 10.2, to = 11.63, gain = 1.83 }, -- peak -17.71 dBFS, live 58.1
+					{ from = 8.2, to = 9.83, gain = 1.83 }, -- peak -18.47 dBFS, live 58.2
+					{ from = 24.75, to = 26.53, gain = 1.69 }, -- peak -20.05 dBFS, live 63.0
+				},
+				-- THIS ONE IS THE ANIMAL, so the bull-derived 1.15 goes (see the bark's note above).
+				pitch = 1,
+				-- 0.15 s, which is `CRY.fade` and `DEATH.fade`. The margins are measured: the first and
+				-- last 0.15 s of each region are 6.5 to 8.7 dB and 6.8 to 9.9 dB under its own call.
+				--
+				-- A REGION IS LONGER THAN THE CUE AND THAT IS ON PURPOSE. These calls are 1.43 to
+				-- 1.78 s; the cue is bounded by `Body.voiceCut`, which is `CUE_CUT_SECONDS` 1.05 for a
+				-- reaction and `DEATH.cut` 0.6 for a death, and the fade lands inside that bound rather
+				-- than at the region's end. So a reaction is the call's first 1.05 s ENDED by the fade
+				-- and a death is its first 0.6 s -- which is exactly what the stag's death has been
+				-- since task 240 (*"`SOUND.DEATH.cut` takes the first 0.6 s, which is a roar's onset"*).
+				-- The region says WHICH call; the cut says how much of it.
+				fadeSeconds = 0.15,
+			},
+		},
 		--
 		-- A CC-LICENSED RECORDING OF A REAL RED DEER IS AN UPLOAD AND IT IS KAREN'S CALL: three
 		-- candidates with their licences are in `ESCALATE.md` under `NEEDS KAREN`. Nothing here has
@@ -1995,13 +2138,26 @@ Boar.CONFIG.SOUND = {
 		stag = {
 			pitch = 1.15,
 			cut = 1.05, -- `CUE_CUT_SECONDS`; written out per row so Karen can turn one kind
-			-- "Bull Bellows 3" (2.66 s) and "Bull Bellows 7" (2.76 s): the catalogue calls them
-			-- "Isolated Roars, Anxious, Uneasy, Panicked" and "Anxious Cries". `SOUND.DEATH.cut`
-			-- takes the first 0.6 s, which is a roar's onset.
-			death = { 9113626273, 9113626628 },
-			-- The warning bark, and it has to fit inside `SQUEAL_SECONDS`: "Bull Breaths 4"
-			-- (0.87 s) and "Bull Breaths 9" (0.93 s), "Bestial Grunts, Bellowing".
-			cry = { 9113629809, 9113629973 },
+			-- HIS HIT AND HIS DEATH ARE THE REAL ANIMAL NOW (task 257), AND THE TWO BULLS ARE THE
+			-- REVERT PATH. Karen, 2026-10-24: *"redsatg sound whn hit and when near need
+			-- corection better real"*. `99831947794105` is 34 s of a red stag in the rut
+			-- (Freesound 653533, "Deer rut - Brame Cerf 02" by L.Finck, CC0) and it plays BY
+			-- REGION -- `VOICE.CLIPS` holds the four calls and `Body.voiceClip` picks one. The two
+			-- "Bull Bellows" below it are reached only if that entry goes, and `SOUND.DEATH.cut`
+			-- still takes the first 0.6 s, which is a call's onset either way.
+			--
+			-- **To revert to task 240's bulls, delete the first id from this list and from `cry`.**
+			death = { 99831947794105, 9113626273, 9113626628 },
+			-- THE SAME REAL CALL IS HIS REACTION TO BEING HIT, cut at `CUE_CUT_SECONDS` rather
+			-- than at `DEATH.cut`, so a wounded stag and a dying one are one voice at two lengths.
+			-- "Bull Breaths 4" (0.87 s) and "Bull Breaths 9" (0.93 s) stay as the fallback; they
+			-- are no longer his WARNING BARK, which has its own cue below since task 257.
+			cry = { 99831947794105, 9113629809, 9113629973 },
+			-- HIS ALARM BARK, the cue `Runtime:check` plays when he takes the edge check: the real
+			-- red deer (`85634523415950`, Freesound 795554 "Deer barking" by Katerios, CC0), one
+			-- measured bark of it per cue, with the two "Bull Breaths" task 240 chose AS the
+			-- warning bark kept behind it as the revert path.
+			bark = { 85634523415950, 9113629809, 9113629973 },
 			-- "Bull Breaths 2" (1.28 s) and "Bull Breaths 18" (1.50 s): the low muttering a stag
 			-- does when nothing is wrong.
 			grunt = { 9113629667, 9113630441 },
@@ -2014,6 +2170,18 @@ Boar.CONFIG.SOUND = {
 			death = { 9116205537 },
 			cry = { 9116205537, 9116205675 }, -- + "Lamb Big Lamb 6" (1.59 s)
 			grunt = { 9116205675 },
+			-- SHE BARKS THE SAME REAL BARK AS THE STAG (task 257). *"Hinds bark when alarmed"* is
+			-- the source sentence her `edge.barks` row already quotes, and a deer's alarm bark is
+			-- given by both sexes -- so this is one recording and one `CLIPS` entry, not two.
+			-- Her own "Lamb Big Lamb 6" stays behind it as the revert path.
+			--
+			-- HER CRY AND HER DEATH ARE UNTOUCHED, and that is deliberate. The hit call above is a
+			-- MALE RUT BELLOW; the literature task 240 built this table on says a hind answers
+			-- with *"a louder nasal bleat, NOT DISSIMILAR TO THAT PRODUCED BY SHEEP"*, so giving
+			-- her the stag's call would be a regression for a kind Karen did not name. Said in the
+			-- request: the dispatch asked for *"the deer kinds' hit/death voice"* and what shipped
+			-- is the STAG's, because that is the animal in the recording and in her sentence.
+			bark = { 85634523415950, 9116205675 },
 		},
 		calf = {
 			pitch = 1.25,
@@ -2023,6 +2191,10 @@ Boar.CONFIG.SOUND = {
 			-- Birds"): the softer, thinner bleat, played a quarter faster, which also shortens it.
 			cry = { 9116205537, 9116204275 },
 			grunt = { 9116205537 },
+			-- NO `bark` ROW, AND SHE COULD NOT USE ONE: a calf carries no `edge` row at all
+			-- (`KINDS.calf`), so `MOVE.EDGE_BARKS` is false for her and `Runtime:check` never
+			-- reaches the cue. *"She barks, the file bolts"* is the hind's job and the spec's own
+			-- answer for the calf is *"follows her mother"*. `deer.spec` drives both arms.
 		},
 	},
 	-- TWENTY ANIMALS MUST NOT SOUND LIKE TWENTY ANIMALS --------------------------------------------
@@ -6080,9 +6252,13 @@ end
 -- module owns what it is HEARD to do, and a `Brain` that reached for a Sound would be a second writer
 -- of an animal's Instances.
 --
--- IT IS THE ANIMAL'S OWN `cry` ROW AND NOT A NEW CUE. The stag's `VOICE.stag.cry` is already the two
--- "Bull Breaths" samples task 240 chose expressly AS the warning bark, and the hind's is her bleat --
--- so a kind that barks already has the right sample and the ids stay one data row Karen can swap.
+-- IT IS ITS OWN CUE SINCE TASK 257, AND IT WAS THE `cry` ROW BEFORE THAT. Task 251 part 2 played
+-- the animal's own `cry` and wrote down why -- *"a kind that barks already has the right sample"*,
+-- the stag's being the two "Bull Breaths" task 240 chose expressly AS the warning bark. Karen,
+-- 2026-10-24: *"redsatg sound whn hit and when near need corection better real"*, which is two
+-- different sounds; the hit cue is a real stag's distress call now and the bark is a real deer's
+-- bark, and one row cannot be both. So `SOUND.BARK` is the cue and `VOICE.<kind>.bark` the ids,
+-- still one data row Karen can swap, and the two halves of her sentence are two rows.
 --
 -- AND IT GOES THROUGH `_claimSqueal` LIKE EVERY OTHER CRY, so Karen's *"when they close one pack make
 -- one sound max 2 not more"* still holds with a barking stag in the wood: a bark that cannot be heard
@@ -6109,8 +6285,9 @@ function Runtime:check(id: string, seconds: number?): boolean
 					-- two squeals for silence. Asked in this order the claim cannot be wasted, and the
 					-- CHECK is unaffected either way: the animal stops and looks whether or not the
 					-- world had a voice to spare.
-					if Body.canPlayOneShot(entry.body, "cry", animalConfig.SOUND.CRY) and self:_claimSqueal() then
-						Body.playOneShot(entry.body, "cry", animalConfig.SOUND.CRY, animalConfig, self._rng)
+					local bark = animalConfig.SOUND.BARK
+					if Body.canPlayOneShot(entry.body, "bark", bark) and self:_claimSqueal() then
+						Body.playOneShot(entry.body, "bark", bark, animalConfig, self._rng)
 					end
 				end
 			end

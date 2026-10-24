@@ -1058,7 +1058,10 @@ return function()
 			local voiced = {}
 			for _, kind in ipairs({ "stag", "hind", "calf", "male", "female", "cub", "legendary" }) do
 				local rowFor = Boar.CONFIG.SOUND.VOICE[kind]
-				for _, cue in ipairs({ "cry", "death", "grunt" }) do
+				-- `bark` SINCE TASK 257: the alarm bark is its own cue with its own real recording,
+				-- so it belongs in the set this case holds the roar apart from. A kind with no
+				-- bark row contributes nothing, which is every boar and the calf.
+				for _, cue in ipairs({ "cry", "death", "grunt", "bark" }) do
 					for _, id in ipairs(rowFor[cue] or {}) do
 						voiced[id] = true
 					end
