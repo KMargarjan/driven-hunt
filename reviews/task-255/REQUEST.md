@@ -1,13 +1,13 @@
 # Task 255 review request
 
 Task: 255
-Round: 1
+Round: 2
 Base: `eec467ae` (main)
-Code commit: `f4d78694dc48560004217ea6bf83d3af224029e1`
+Code commit: `197abe26cba2c0ebb9ff62227de0d87c97d57acb`
 
 ```
-[harness] PASS: 34/34 checks @ f4d78694dc48560004217ea6bf83d3af224029e1 (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ f4d78694dc48560004217ea6bf83d3af224029e1 (clean tree)
+[harness] PASS: 34/34 checks @ 197abe26cba2c0ebb9ff62227de0d87c97d57acb (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 197abe26cba2c0ebb9ff62227de0d87c97d57acb (clean tree)
 ```
 
 ## What changed
@@ -109,16 +109,38 @@ between them. **One honest caveat:** the BOAR models in those two frames came fr
 the picture are not the game's boars. The deer are exact (7.92 / 6.77 / 3.92), and the worst pair is
 stag-on-stag, so the claim does not rest on the boars.
 
-### 7. The order is by species then size, it is data, and the sort is stable
+### 7. The order is by species then size, it is data, the sort is stable, and ROUND 1 GOT THE CAP BACKWARDS
 
 `Scene.ordered(kills, cfg)` ranks a kill by its kind's place in `SCENE.KIND_ORDER` (`legendary, male,
 female, cub, stag, hind, calf`) and breaks ties on the SHOT index, so `Scene` still never learns what
-a boar is. It returns a NEW list -- `Match` keeps reading `kills` for the score and the report. The
-cap is taken BEFORE the sort in `Scene.build`.
+a boar is. It returns a NEW list -- `Match` keeps reading `kills` for the score and the report.
 
-**Verify:** `Scene.ordered`; `Scene.build`'s `laidOut` local; `match_scene.spec`'s case *"orders the
+**ROUND 1'S FINDING 1 WAS CORRECT AND IT WAS MINE.** `Scene.build` computed `count = math.min(#kills,
+MAX_ANIMALS)` and then called `Scene.ordered(kills, cfg)` on the WHOLE list, so `laidOut[1..count]`
+was the first `count` of the SORTED bag -- sort-then-cap, the exact failure the comment three lines
+above said the chosen order prevents. At the shipped numbers a drive of 4 calves then 16 males laid
+out 16 MALES, four of them shot after the cap. `Scene.build` now takes the slice on the SHOT order
+first -- `table.move(kills, 1, count, 1, {})` -- and `Scene.ordered` never sees the rest.
+
+**Verify:** `Scene.build`'s `capped` local; `Scene.ordered`; `match_scene.spec`'s case *"orders the
 bag by species then size, stably, and leaves an unknown kind at the back"* (which also asserts every
-kind in `ANIMAL_SCALES` appears in `KIND_ORDER`) and *"caps FIRST and tidies second"*.
+kind in `ANIMAL_SCALES` appears in `KIND_ORDER`).
+
+### 7b. A case now drives `Scene.build`'s ordering, and it FAILS on round 1's code
+
+Round 1's finding 2 was that nothing did. `match_scene.spec`'s new case *"drops the kills she shot
+LAST, never the ones she shot first, whatever species they are"* builds its own config **with** a
+`KIND_ORDER` -- this file's `CONFIG` deliberately has none, which is now declared where it is
+declared -- drives `Scene.build` with `cap` calves followed by `cap * 4` males, and reads the `Kind`
+attribute off what landed in the folder. It asserts `calf` `cap` times; **round 1's code answers
+`male` `cap` times.** Its second half proves the tidying still happens INSIDE the slice: a
+half-and-half slice comes out males-first and stays half and half.
+
+The old case is renamed to what it actually asserted (*"sorts exactly the list it is handed, and
+reads nothing beyond it"*) and strengthened -- every kill handed in comes back, none dropped, so
+`Scene.ordered` has no cap in it and `Scene.build` is the only thing that drops anything.
+
+**Verify:** both cases; and the harness note `match_scene: cap 4 of 8 kills -> ...` in the run above.
 
 ### 8. The cap is 16 and not the Director's 20+, and the binding number is the lodge's chimney
 
@@ -133,7 +155,20 @@ reach of 28 allows a block of half-diagonal 20, which at spacing 9 is `(PER_ROW-
 asserts `cornerReachFor(cap) < 28` AND that `PER_ROW = 5` would exceed 29. `ESCALATE.md` carries the
 decision with the full table.
 
-### 9. Four task-168 cases failed on the first gate run and were rewritten, not weakened
+### 9. Round 1's six non-blocking notes: five taken in this round, one was already true
+
+Taken: `Scene.rowLayout`'s header (it said index 1 is *"the first animal shot"* and the front row is
+*"the first animals that were shot"* -- both false after this task -- and `Scene.ordered` had been
+inserted between that header and its own function, so the sentences read as if they described the
+sort; `ordered` is moved above the pair and the two sentences corrected); `Scene.build`'s header (it
+never said the layout is no longer the shot order); the spec `CONFIG`'s missing `KIND_ORDER` (now
+declared as deliberate, with the task-173 ask-order case named); the licence fix's COST (a case now
+states it out loud -- a refused session lock leaves `ownedSets[userId]` nil and the question skipped
+for that whole drive, with `stats.licenceUnknown` counting it); and `lobby.spec`'s broken sentence.
+
+The sixth is this request's own claim 7 and it is rewritten above.
+
+### 10. Four task-168 cases failed on the first gate run and were rewritten, not weakened
 
 `match_scene.spec`'s task-168 block had `6`, `12`, `15` and `4` typed into it. Those cases are about
 the SHAPE (one row, rows behind it, a short last row centred on its own width, the people outside all
@@ -146,7 +181,7 @@ grows it.
 
 **Verify:** the rewritten block, and the two fix commits' messages (`4472f20c`, `f4d78694`).
 
-### 10. What I could not verify, and the two escalations
+### 11. What I could not verify, and the two escalations
 
 * **Item 3's premise is refuted and nothing was shipped.** The published leap clip, measured on the
   stag's own rig at 49 samples (`AnimationTrack.Length` is 0 in Edit, so this ran in Play): the
