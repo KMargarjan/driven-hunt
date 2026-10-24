@@ -1655,6 +1655,93 @@ return function()
 			)
 		end)
 
+		-- THE STAG'S HIT CALL, THROUGH A REAL HIT (task 257) ------------------------------------
+		--
+		-- KAREN, 2026-10-24: *"redsatg sound whn hit and when near need corection better real"*.
+		-- The bark above is the *"when near"* half; this is the *"whn hit"* half, and it is here for
+		-- the same reason the bark is -- `runtime:takeHit` is the seam a player's slug enters by,
+		-- and this file is where a live runtime's SOUNDS are driven.
+		--
+		-- IT IS TWO CUES AND BOTH ARMS ARE ENTERED (L-093): a NON-LETHAL rear hit plays `cry` (the
+		-- reaction), and the hit that kills plays `death`. They are the same recording at two
+		-- lengths -- `CUE_CUT_SECONDS` 1.05 s against `DEATH.cut` 0.6 s -- which is the claim the
+		-- pure cases in `deer.spec` make arithmetically and this one makes on a real animal.
+		it("gives a REAL stag the real hit call on a wound and on the death that follows", function()
+			local runtime = barkRuntime("BoarsHitCall")
+			local stag = runtime:spawn(Vector3.new(0, GROUND_Y, -10), "stag")
+			expect(stag).to.be.ok()
+			warmedUp(runtime)
+
+			local realHit = SOUND.VOICE.stag.cry[1]
+			local hitClip = SOUND.VOICE.CLIPS[realHit]
+			expect(hitClip).to.be.ok()
+			expect(SOUND.VOICE.stag.death[1]).to.equal(realHit) -- one voice, two lengths
+
+			-- WHAT A CUE MUST LOOK LIKE ONCE IT HAS BEEN PLAYED: the real id, a region out of the
+			-- clip's own table, the clip's pitch (and NOT the kind's bull-derived 1.15) and a
+			-- volume that is the row's times that region's measured gain.
+			local function readCue(name: string, spec)
+				local sound = soundNamed(stag, name) :: Sound
+				expect(sound).to.be.ok()
+				expect(sound.SoundId).to.equal("rbxassetid://" .. tostring(realHit))
+				expect(sound.PlaybackRegionsEnabled).to.equal(true)
+				local gain
+				for _, region in ipairs(hitClip.regions) do
+					if math.abs(sound.PlaybackRegion.Min - region.from) < 1e-4 then
+						expect(math.abs(sound.PlaybackRegion.Max - region.to) < 1e-4).to.equal(true)
+						gain = region.gain
+					end
+				end
+				expect(gain).to.be.ok()
+				local band = SOUND.PITCH_JITTER
+				expect(sound.PlaybackSpeed >= hitClip.pitch * (1 - band) - 1e-4).to.equal(true)
+				expect(sound.PlaybackSpeed <= hitClip.pitch * (1 + band) + 1e-4).to.equal(true)
+				expect(math.abs(sound.PlaybackSpeed - SOUND.VOICE.stag.pitch) > band).to.equal(true)
+				expect(sound.Volume > 0).to.equal(true)
+				expect(sound.Volume <= spec.volume * gain + 1e-4).to.equal(true)
+				return string.format(
+					"%s region %.2f-%.2f gain %.2f speed %.3f volume %.3f",
+					name,
+					sound.PlaybackRegion.Min,
+					sound.PlaybackRegion.Max,
+					gain,
+					sound.PlaybackSpeed,
+					sound.Volume
+				)
+			end
+
+			-- THE WOUND. A rear pellet is non-lethal, which is the branch `Runtime:takeHit` plays
+			-- `cry` on, and the stag is still alive afterwards.
+			expect(runtime:takeHit(stag.part, { zone = "rear", ammo = "Pellet", pellets = 1, at = 0 })).to.equal(true)
+			step(runtime)
+			expect((stag.soundPlays.cry or 0) >= 1).to.equal(true)
+			expect(stag.part:GetAttribute("Carcass")).never.to.equal(true)
+			local wounded = readCue("cry", SOUND.CRY)
+
+			-- THE DEATH. Through the same seam, into the chest, and the carcass is waited for
+			-- because the collapse is `Wound.advance`'s on a later step and never `takeHit`'s.
+			killFor(runtime, stag, "vital")
+			expect(stag.part:GetAttribute("Carcass")).to.equal(true)
+			expect((stag.soundPlays.death or 0) >= 1).to.equal(true)
+			local died = readCue("death", SOUND.DEATH)
+
+			-- ...AND THE DEATH IS THE SHORT ONE, which is Karen's own rule from task 120 (*"when die
+			-- last sqeek need short one"*) and the thing a region could have quietly lengthened:
+			-- `Body.voiceCut` takes the SMALLER of the row's cut and the region's own length.
+			local config = Boar.kindConfig("stag", CONFIG)
+			for _, region in ipairs(hitClip.regions) do
+				local slowest = hitClip.pitch * (1 - SOUND.PITCH_JITTER)
+				local seconds = Boar.clipSeconds(region, slowest)
+				local deathCut = math.min(Boar.voiceCut("death", "stag", SOUND.DEATH, config), seconds)
+				local cryCut = math.min(Boar.voiceCut("cry", "stag", SOUND.CRY, config), seconds)
+				expect(deathCut).to.be.near(SOUND.DEATH.cut, 1e-4)
+				expect(cryCut < SOUND.CROWD.SQUEAL_SECONDS).to.equal(true)
+				expect(deathCut < cryCut).to.equal(true)
+			end
+
+			TestKit.note(string.format("task257 hit call: %s | %s | id %s", wounded, died, tostring(realHit)))
+		end)
+
 		it("lets two squeals be heard and SKIPS the third, rather than queuing it", function()
 			local runtime = crowdRuntime("BoarsCrowdSqueals", true)
 			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, -10), 6, 10)
