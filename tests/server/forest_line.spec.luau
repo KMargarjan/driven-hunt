@@ -13,6 +13,12 @@
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
+-- THE BEATERS' OWN PACE (task 251c). A slot's release depth is now relative to where the LINE has
+-- got to, so the case that proves "every group is released ahead of it" is a relation between three
+-- modules: this schedule's clock, `Bots.CONFIG.WALK_SPEED` and the boar's `PACE`. None of the three
+-- may be written down a second time here (`bots_lane.spec` holds the other half of the same pair --
+-- that every slot is DUE before the line arrives).
+local Bots = require(ServerScriptService:WaitForChild("Bots"))
 local ForestTest = require(ServerScriptService:WaitForChild("ForestTest"))
 local Line = ForestTest.Line
 -- The world's own data (the road curve, the stands, the push line), for the drive-line case
@@ -508,6 +514,28 @@ return function()
 			end
 		end)
 
+		it("never repeats the stag, however long the drive runs (task 251c)", function()
+			-- HE IS SLOT 8 NOW, WHICH IS INSIDE THE REPEAT WINDOW -- so the exclusion the window's
+			-- own comment claimed had to stop being positional. A long drive asks `slotAt` for slots
+			-- past the script's end; none of them may be him. Slot 18 is the one that was: with
+			-- `repeatFrom` 6 and `repeatTo` 12, slot 18 maps to row 8.
+			local stag, slot = Data.stagRow("normal", SCHEDULE)
+			expect(stag).to.be.ok()
+			expect(slot).to.equal(8)
+			expect(SCHEDULE.repeatFrom <= slot and slot <= SCHEDULE.repeatTo).to.equal(true)
+			for index = #SCHEDULE.drive + 1, #SCHEDULE.drive + 30 do
+				local row = Data.slotAt(index, "normal", SCHEDULE)
+				expect(row ~= stag).to.equal(true)
+				if row ~= nil then
+					expect(row.party == "stag").to.equal(false)
+				end
+			end
+			-- ...AND THE WINDOW STILL ANSWERS SOMETHING, which is what it exists for: a drive that
+			-- outlives its script can never run out of animals.
+			expect(Data.slotAt(#SCHEDULE.drive + 1, "normal", SCHEDULE)).to.be.ok()
+			expect(Data.slotAt(#SCHEDULE.drive + 3, "normal", SCHEDULE)).to.be.ok()
+		end)
+
 		it("answers Karen's counts at the dial she OK'd: 13 groups, 10 crossings, 2 back, 1 that holds", function()
 			local normal = Data.driveTally("normal", SCHEDULE)
 			expect(normal.groups).to.equal(13)
@@ -646,7 +674,7 @@ return function()
 			expect(count).to.equal(#Data.LINE.crossOffsets)
 		end)
 
-		it("puts the hinds early and the stag LAST, alone, and deeper than anything that comes", function()
+		it("puts the hinds early and the stag LAST AT THE ROAD, alone, and deeper than anything that comes", function()
 			-- THE ONE THING KAREN NAMED TWICE. *"red stags"* -- and the Rum finding is that a mature
 			-- stag keeps his own company outside the rut, while the Jaeger finding is that red deer
 			-- come long after the drive starts.
@@ -679,10 +707,200 @@ return function()
 					expect(row.northStuds <= stag.northStuds).to.equal(true)
 				end
 			end
-			-- ...and he is in act III, at a walk, and he is the last ANIMAL row of the drive that
-			-- a hunter at the stand ever sees come at him.
-			expect(stag.act).to.equal(3)
+			-- ...AND HE IS RELEASED IN ACT II SINCE TASK 251c, at a walk. His `act` is 2 because a
+			-- row's act is WHERE IT SITS IN THE DRIVE (five slots each, asserted as a quotient
+			-- above) -- what reaches act III is the stag HIMSELF, at the verge, and that is the
+			-- claim the case below makes with the arithmetic. He was slot 13 / act 3 and part 2
+			-- measured what that cost: 44 seconds for a 95-second walk, so the sneak, the edge check
+			-- and the look back could not happen at all (`ESCALATE.md`, 2026-10-24).
+			expect(stag.act).to.equal(2)
 			expect(stag.pace).to.equal("walk")
+			-- HE IS STILL THE LAST THING THAT WALKS AT HER. Every row released after his slot comes
+			-- at a trot or a run, so nothing else in the drive is a walking animal in the open late.
+			for _, row in ipairs(SCHEDULE.drive) do
+				if row.slot > stag.slot then
+					expect(row.pace == "trot" or row.pace == "run" or Data.slotRoute(row) == "HOLD").to.equal(true)
+				end
+			end
+		end)
+
+		-- ---------------------------------------------- AHEAD OF THE BEATER LINE (task 251c)
+		--
+		-- **THE DIRECTOR ANSWERED part 2's escalation on 2026-10-24** (`ESCALATE.md`, *"ACT III ... IS
+		-- RELEASED BEHIND THE ADVANCING BEATER LINE"*) with two rules, and these two cases are them.
+		-- Both FAIL on the commit before this task: the first calls a function that did not exist, and
+		-- the second's own arithmetic is what the escalation measured as broken -- slot 13's stag was
+		-- put down at dz 330 at 166 s with the line already 100 studs past that depth.
+		local function lineNorthAt(seconds: number, factor: number?): number
+			-- WHERE THE LINE IS AT A TIME, from the two shipped numbers and nothing written twice:
+			-- the beaters start at `beaterNorthStuds` and walk at `Bots.CONFIG.WALK_SPEED`.
+			-- `factor` is `bots_lane.spec`'s measured ground factor (the arrival is 1.081x the flat
+			-- quotient over a hill), so the same case can be stated flat and as Karen's place.
+			return Data.beaterNorthStuds() - (Bots.CONFIG.WALK_SPEED / (factor or 1)) * seconds
+		end
+
+		it("clamps a slot's depth to stay ahead of the line, and never deeper than the row (task 251c)", function()
+			-- PURE, hand-written, with this spec's own two numbers rather than the shipped ones, so
+			-- the RULE is stated here and the DIAL is checked against the rows below it.
+			local sched = { leadStuds = 60, minNorthStuds = 25 }
+			-- NOBODY PUSHING: the table's own depth, untouched. That is the DEV place, and it is also
+			-- the seconds before a drive's bots exist.
+			expect(Data.releaseDepth(330, nil, nil, sched)).to.equal(330)
+			-- THE LINE IS STILL DEEPER THAN THE ROW: the row keeps its depth. This is the `min`, and
+			-- it is what keeps the script's relative ordering -- act III stays deeper than act I.
+			expect(Data.releaseDepth(330, 500, nil, sched)).to.equal(330)
+			expect(Data.releaseDepth(330, 390, nil, sched)).to.equal(330) -- exactly `leadStuds` clear
+			-- THE LINE HAS WALKED PAST THE ROW: it comes in to `leadStuds` ahead of the line.
+			expect(Data.releaseDepth(330, 389, nil, sched)).to.equal(329)
+			expect(Data.releaseDepth(330, 267, nil, sched)).to.equal(207) -- the stag's own slot
+			-- AND IT IS NEVER BEHIND THE LINE wherever there is room in front of it.
+			for line = 100, 600, 7 do
+				local north = Data.releaseDepth(330, line, nil, sched)
+				expect(north <= 330).to.equal(true)
+				if line - sched.leadStuds >= sched.minNorthStuds then
+					expect(north <= line - sched.leadStuds).to.equal(true)
+				end
+			end
+			-- THE FLOOR IS THE ONE CASE THAT IS NOT AHEAD OF THE LINE, and it is deliberate: once the
+			-- line is within `leadStuds` of the road there is nowhere in front of it, and a group
+			-- spawned south of the verge would be behind the hunter.
+			expect(Data.releaseDepth(290, 32, nil, sched)).to.equal(25)
+			expect(Data.releaseDepth(290, 0, nil, sched)).to.equal(25)
+			-- A SNEAKING ROW FLOORS AT ITS OWN `sneakDz`: the sneak's pins sit that far north of the
+			-- road, so a shallower start would walk the stag north into the band and then back south.
+			expect(Data.releaseDepth(330, 100, 75, sched)).to.equal(75)
+			expect(Data.releaseDepth(330, 200, 75, sched)).to.equal(140)
+			-- ...AND THE FLOOR IS THE ROW'S OWN ROUTE'S (`Data.routeFloor`), which is the half that
+			-- stops the clamp breaking the three route words that turn. Hand-written rows, so the
+			-- RULE is here and the shipped rows are checked against it below.
+			expect(Data.routeFloor({ sneak = true, sneakDz = 75 }, sched)).to.equal(75)
+			expect(Data.routeFloor({ route = "BREAK-BACK", turnAtDz = 40 }, sched)).to.equal(65)
+			expect(Data.routeFloor({ route = "HOLD", holdStuds = 60 }, sched)).to.equal(85)
+			expect(Data.routeFloor({ route = "STRAIGHT" }, sched)).to.equal(25)
+			expect(Data.routeFloor({ route = "LATERAL" }, sched)).to.equal(25)
+			expect(Data.routeFloor(nil, sched)).to.equal(25)
+			-- A REFUSAL THAT NAMES NO TURN TAKES THE SCHEDULE'S OWN FALLBACK, the same one
+			-- `releaseLine` walks it to.
+			expect(Data.routeFloor({ route = "BREAK-BACK" }, { minNorthStuds = 25, turnBackStuds = 70 })).to.equal(95)
+			-- EVERY SHIPPED ROW'S FLOOR IS BELOW ITS OWN DEPTH, or the clamp could put a row deeper
+			-- than the script wrote it.
+			for _, row in ipairs(SCHEDULE.drive) do
+				expect(Data.routeFloor(row, SCHEDULE) < (row.northStuds or 100)).to.equal(true)
+			end
+			-- A ROW WITH NO DEPTH TAKES `wavePoint`'S OWN DEFAULT, so the two cannot disagree.
+			expect(Data.releaseDepth(nil, nil, nil, sched)).to.equal(100)
+			-- A LINE AT OR PAST THE ROAD IS NOT A LINE: the table's own depth, unclamped. MEASURED in
+			-- the first live run of this task -- the repeat window released two sounders at the
+			-- 25-stud floor with the line at dz 26 and dz -9, which is a sounder appearing on the
+			-- verge in front of the hunter.
+			expect(Data.releaseDepth(170, 0, nil, sched)).to.equal(170)
+			expect(Data.releaseDepth(170, -9, nil, sched)).to.equal(170)
+			expect(Data.releaseDepth(170, 1, nil, sched)).to.equal(25)
+			-- ...AND THE SHIPPED NUMBERS. The floor is below every depth the script writes, which is
+			-- what makes "the clamp never puts a row deeper than its own row says" true of the floor
+			-- as well as of the `min`.
+			expect(SCHEDULE.leadStuds).to.equal(60)
+			expect(SCHEDULE.minNorthStuds).to.equal(25)
+			for _, row in ipairs(SCHEDULE.drive) do
+				expect(SCHEDULE.minNorthStuds < (row.northStuds or 100)).to.equal(true)
+			end
+		end)
+
+		it("releases every slot ahead of the line at its own time, and the stag early enough to WALK", function()
+			-- THE SECOND HALF, AND IT IS THE WHOLE OF THE ESCALATION. Every slot, at its own
+			-- `atSeconds`, against where the line actually is then -- which is the comparison nothing
+			-- made before this task, so act III was released 30 to 106 s after the beaters had walked
+			-- through its own start.
+			local through, tight = {}, {}
+			for _, row in ipairs(SCHEDULE.drive) do
+				local line = lineNorthAt(row.atSeconds)
+				local floor = Data.routeFloor(row, SCHEDULE)
+				local north = Data.releaseDepth(row.northStuds, line, floor, SCHEDULE)
+				-- NEVER DEEPER THAN ITS OWN ROW: the clamp only ever pulls a group toward the road.
+				expect(north <= (row.northStuds or 100)).to.equal(true)
+				if line <= 0 then
+					-- THE MEN ARE THROUGH, so there is nothing to be behind and the row's own depth
+					-- stands. Without this the group comes out ON THE VERGE -- measured, live.
+					expect(north).to.equal(row.northStuds)
+					table.insert(through, row.slot)
+				else
+					-- AHEAD OF THE LINE. This is the claim the escalation existed to get, and every
+					-- row of the script meets it: the row's own route floor is shallower than the
+					-- line at its own release time, every time.
+					expect(floor < line).to.equal(true)
+					expect(north < line).to.equal(true)
+					if line - SCHEDULE.leadStuds >= floor then
+						-- ...AND BY THE FULL LEAD MARGIN, wherever the row's floor allows it.
+						expect(north <= line - SCHEDULE.leadStuds).to.equal(true)
+					else
+						table.insert(tight, row.slot)
+					end
+					if row.slot <= 11 then
+						-- EVERY SLOT UP TO 11 GETS THE FULL MARGIN -- all of act I, all of act II
+						-- (the stag included) and act III's first row.
+						expect(north <= line - SCHEDULE.leadStuds).to.equal(true)
+					end
+				end
+			end
+			-- WHAT THE END OF THE DRIVE COSTS, SAID OUT LOUD (rule 8, and the Director's *"if another
+			-- act-III group cannot reach the road in time either, say so and apply the same rule"*).
+			-- On the FLAT quotient the line is at the road by 187 s, so slots 12, 13 and 14 are ahead
+			-- of it but inside the 60-stud margin -- they take their own route floors, 80, 65 and 25
+			-- -- and slot 15, which holds 60 studs short of the road and never comes, is due at 192 s
+			-- when the men are already through. In Karen's place the line is 8 % slower (the measured
+			-- ground factor) and the live run released 14 of the 15 a full 60 studs clear.
+			expect(#through).to.equal(1)
+			expect(through[1]).to.equal(15)
+			expect(#tight).to.equal(3)
+			expect(tight[1]).to.equal(12)
+			expect(tight[2]).to.equal(13)
+			expect(tight[3]).to.equal(14)
+			TestKit.note(
+				string.format(
+					"task 251c: slots 1-11 are released a full %d studs ahead of the line; 12-14 are ahead but inside that margin; slot 15 is due after the men are through",
+					SCHEDULE.leadStuds
+				)
+			)
+
+			-- THE STAG'S OWN ARITHMETIC, which is why his slot moved. His route is three legs and it
+			-- adds up to `north + sneakStuds`: the approach `north - sneakDz`, the sneak `sneakStuds`
+			-- along the band, and `sneakDz` out to the road.
+			local stag = Data.stagRow("normal", SCHEDULE)
+			expect(stag).to.be.ok()
+			local walk = Boar.CONFIG.PACE.WALK_SPEED
+			local function reachesVergeAt(factor: number?): number
+				local line = lineNorthAt(stag.atSeconds, factor)
+				local north = Data.releaseDepth(stag.northStuds, line, Data.routeFloor(stag, SCHEDULE), SCHEDULE)
+				return stag.atSeconds + (north + stag.sneakStuds) / walk
+			end
+			-- WHEN THE LINE IS AT THE ROAD, which is what ends a drive in this world.
+			local arrivesFlat = Data.beaterNorthStuds() / Bots.CONFIG.WALK_SPEED
+			local arrivesGround = arrivesFlat * 1.081
+			-- HE IS AT THE VERGE BEFORE IT ON BOTH MODELS -- 13 s of margin on the flat quotient and
+			-- 23 s in Karen's place. The Director asked for *"about 20 s"* against the measured ~210 s
+			-- arrival and this is that; the flat quotient is the pessimistic end of the same pair.
+			expect(reachesVergeAt() < arrivesFlat - 10).to.equal(true)
+			expect(reachesVergeAt(1.081) < arrivesGround - 20).to.equal(true)
+			-- ...AND IN ACT III'S OWN WINDOW, which is the Director's words exactly: *"reaches the
+			-- verge in act III"*. Act III is slots 11-15, 140 s to 192 s.
+			expect(reachesVergeAt() > Data.slotSeconds(11, SCHEDULE)).to.equal(true)
+			expect(reachesVergeAt(1.081) < Data.slotSeconds(15, SCHEDULE)).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 251c: the stag is released at %d s from dz %.0f (the line is at dz %.0f) and is at the verge at %.0f s; the line reaches the road at %.0f s flat / %.0f s on the ground",
+					stag.atSeconds,
+					Data.releaseDepth(
+						stag.northStuds,
+						lineNorthAt(stag.atSeconds),
+						Data.routeFloor(stag, SCHEDULE),
+						SCHEDULE
+					),
+					lineNorthAt(stag.atSeconds),
+					reachesVergeAt(),
+					arrivesFlat,
+					arrivesGround
+				)
+			)
 		end)
 
 		it("gives the sneak its two numbers and its DIRECTION, which is the side he came from", function()

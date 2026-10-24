@@ -739,6 +739,27 @@ function ForestTest.nearestBeater(point: Vector3, beaters): (Vector3?, number)
 	return best, gap
 end
 
+-- WHERE THE BEATER LINE HAS GOT TO, AS A DEPTH, AT ONE x (task 251c). The LIVE half of the release
+-- clamp: `Data.lineFrontAt` interpolates the front across the beaters' own bodies -- players and
+-- bots, one list (`realBeaters`), so "who is pushing" is still answered in one place -- and this
+-- turns that z into studs north of the road AT THAT x, because the road is a sine and one z is a
+-- different depth at every stand.
+--
+-- NIL IS "NOBODY IS PUSHING", which is `Data.releaseDepth`'s own nil case: a world with no beaters
+-- in it has no behind. That is the DEV place and it is also the seconds before a drive's bots exist.
+--
+-- IT IS MEASURED WHERE IT IS USED, AND THAT IS THE POINT. The defect this answers was found by
+-- comparing a release TIME against a line position derived from the walk, and a derived figure used
+-- at a distance is what all four of task 192's deaths were (Learning Agent L-024). So the clamp asks
+-- the bodies, at the moment of release, at the row's own x.
+function ForestTest.lineNorthAt(x: number): number?
+	local front = Data.lineFrontAt(ForestTest.realBeaters(), x)
+	if front == nil then
+		return nil
+	end
+	return front - Data.roadZ(x, chosen.layout)
+end
+
 -- THE LINE THE CONSOLE GETS WHEN A BEATER FLUSHES SOMETHING, taken once (task 153). The module
 -- never prints -- the boot prints what `step` returns -- and this keeps it that way.
 function ForestTest.takeFlushLine(): string?
@@ -2874,6 +2895,22 @@ function ForestTest.releaseLine(now: number): string?
 	-- `northStuds` into a point on this layout (`Data.wavePoint`, which adds the stand she locked --
 	-- stands are 150 studs apart, so a fixed x would be luck).
 	local nominal = Data.wavePoint(standX, row, chosen.layout)
+	-- ...AND IT IS PULLED IN TO STAY AHEAD OF THE BEATER LINE (task 251c). The row's depth is the
+	-- script's INTENT; where the line has actually got to decides whether it can be honoured. Both
+	-- halves are elsewhere on purpose: `ForestTest.lineNorthAt` measures the men, `Data.releaseDepth`
+	-- is the rule, and `Data.SCHEDULE.leadStuds` / `minNorthStuds` are the two numbers. See the
+	-- paragraph above `leadStuds` for the measurement that made this necessary.
+	--
+	-- AT THIS ROW'S OWN x AND AT THIS MOMENT: the front is interpolated across the beaters, so a row
+	-- 250 studs west of the stand is compared with the part of the line that is actually in front of
+	-- it, not with the middle of it.
+	--
+	-- EVERY ROUTE WORD HANDS IN ITS OWN FLOOR (`Data.routeFloor`): a sneak may not start shallower
+	-- than its treeline band, a refusal may not start inside its own turn, and the one that holds
+	-- may not be put where lying up after `holdStuds` would leave it on the far side of the road.
+	local lineNorth = ForestTest.lineNorthAt(nominal.X)
+	local startNorth = Data.releaseDepth(row.northStuds, lineNorth, Data.routeFloor(row))
+	nominal = Vector3.new(nominal.X, nominal.Y, Data.roadZ(nominal.X, chosen.layout) + startNorth)
 	local start = Vector3.new(nominal.X, Data.groundAt(nominal.X, nominal.Z) or chosen.layout.centre.Y, nominal.Z)
 
 	-- WHERE IT CROSSES, and it is relative to the stand she locked (task 123 round 8). A
@@ -2912,7 +2949,7 @@ function ForestTest.releaseLine(now: number): string?
 	--     knows which of `SPECIES.reddeer.RELEASE.COMPOSITIONS` that is. The drive says which party
 	--     comes when; it never writes the word "stag" or counts a hind.
 	-- `Runtime:deerAllowed` IS STILL THE DOOR (task 223's `MAX_GROUPS_ALIVE`): a drive whose hind
-	-- party is somehow still on its feet at slot 13 does not get a second deer group, and this slot
+	-- party is somehow still on its feet at the stag's slot does not get a second deer group, and it
 	-- then releases nothing rather than quietly becoming boars.
 	local composition = nil
 	local count = 0
@@ -3223,7 +3260,7 @@ function ForestTest.releaseLine(now: number): string?
 	end
 	state.released += placed
 	-- THE DEER LATCH IS STILL SET (task 239), AND SINCE TASK 251 IT IS A BELT AND NOT THE BRACE.
-	-- The SCRIPT now says which slots carry deer -- slot 2's hind party and slot 13's stag -- so the
+	-- The SCRIPT now says which slots carry deer -- slot 2's hind party and slot 8's stag -- so the
 	-- drawn ordinal (`deerWaveOf`) and *"has the drive spent its one group"* (`deerWanted`) are no
 	-- longer what decides it here. Both pure rules are kept, exported and tested: they are the shape
 	-- an UNSCRIPTED drive needs, which is what `Match` runs in the DEV place. What task 239's
@@ -3251,7 +3288,7 @@ function ForestTest.releaseLine(now: number): string?
 		-- that was not released -- a line that reads "5 of 5 animal(s) in 1 of 2 file(s)" is the
 		-- case: one route failed, one file was released, and nobody was spawned for the file that
 		-- could not be walked.
-		"line %d: SLOT %d act %d %s -- %d of %d animal(s) [%s] in %d of %d file(s) at a %s, from dz %d offset %+d, %s -- %s",
+		"line %d: SLOT %d act %d %s -- %d of %d animal(s) [%s] in %d of %d file(s) at a %s, from dz %d of %d, line at dz %s, offset %+d, %s -- %s",
 		state.waveIndex,
 		slot,
 		row.act or 0,
@@ -3262,7 +3299,14 @@ function ForestTest.releaseLine(now: number): string?
 		lines,
 		asked,
 		pace,
+		-- WHERE IT WAS ACTUALLY RELEASED, THE ROW'S OWN DEPTH, AND WHERE THE LINE WAS AT THAT MOMENT
+		-- (task 251c). Three numbers and not one, because the claim the Director asked to be proved
+		-- is a RELATION between them -- *"every group's release depth against the line's depth at
+		-- that moment (all ahead)"* -- and a line that printed only the row's table depth is exactly
+		-- what let act III be released behind the beaters for a whole task.
+		startNorth,
 		row.northStuds or 0,
+		if lineNorth ~= nil then string.format("%d", lineNorth) else "none",
 		row.offsetX or 0,
 		if type(offset) == "number"
 			then string.format("crossing %+d studs from the stand", offset)
@@ -3284,8 +3328,9 @@ end
 -- per server, moved to the roar point before each play, never destroyed. A Sound per roar would be
 -- an Instance churn nobody needs and a second place that could play one.
 --
--- WHERE HE ROARS FROM: his own holding, `deeperStuds` further back. The script holds him at slot 13's
--- `northStuds` (330) until t 166 s, so his holding is a point the DRIVE knows and nothing else does
+-- WHERE HE ROARS FROM: his own holding, `deeperStuds` further back. The script holds him at slot 8's
+-- `northStuds` (330) until t 101 s -- slot 13 and 166 s until task 251c moved his release so that he
+-- could walk to the road -- so his holding is a point the DRIVE knows and nothing else does
 -- -- which is the same split `signalPoint` and `checkAtTheEdge` already keep: the world says WHERE,
 -- and in this case the world also says what it sounds like, because no animal is involved.
 function ForestTest.roarPoint(): Vector3?

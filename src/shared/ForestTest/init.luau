@@ -1666,10 +1666,10 @@ end
 --   ACT I   (slots 1-4, zone A, 85-125 studs out) the near holding and the jumpy ones. The drive
 --           starts BEFORE the beaters do, because the noise of arrival moves the experienced animals
 --           (Livingactive, *Tipps und Tricks fuer die Drueckjagd*).
---   ACT II  (slots 6-9, zones B and D, 145-210) the body of it: the big sounders, the broadside
---           pass, the first refusal.
---   ACT III (slots 11-15, zone C, 275-360) the far wood and the late, pressed ones -- and THE STAG,
---           last, alone, deeper than anything else that comes.
+--   ACT II  (slots 6-9, zones B, C and D, 145-330) the body of it: the big sounders, the broadside
+--           pass -- and THE STAG, released here since task 251c so that he can WALK to the road.
+--   ACT III (slots 11-15, zones B and C, 145-360) the far wood and the late, pressed ones, both
+--           refusals, and the stag arriving at the verge out of act II.
 --   SLOTS 5 AND 10 ARE THE TWO SILENCES, and they are the one place the act numbers and the zones
 --           part company (round 1's note, which was right about the mismatch): each carries the row a
 --           BUSY drive puts there instead of the gap -- slot 5 a second broadside pass from the flank
@@ -1765,8 +1765,10 @@ end
 --     part 2.
 --   * `sneak = true` on row 13 IS WALKED SINCE PART 2, and the two numbers beside it
 --     (`sneakStuds` 120, `sneakDz` 75) are what it walks. `ForestTest.sneakEntryX` is the pure half
---     and `releaseLine` pins the extra point. He is still last, still alone and still 55 studs
---     deeper than the next-deepest group that comes.
+--     and `releaseLine` pins the extra point. He is still alone and still 55 studs deeper than the
+--     next-deepest group that comes -- and SINCE TASK 251c he is released at slot 8 rather than 13,
+--     because a 95-second walk cannot be done in the 44 seconds slot 13 left him. He is last AT THE
+--     ROAD, which is what *"the stag last"* always meant (`ESCALATE.md`, 2026-10-24).
 --   * `leaps` is the measured road leap, already built and already behind `DEER_ROAD_LEAP` (which is
 --     ON in Karen's place). The STAG'S BOUND WHEN SPOOKED (spec section 3.2 `BOUND_ON_SPOOK`) is
 --     part 2, and the spec itself holds it behind the leap's known hoof sink (TASKS.md 245c).
@@ -1796,6 +1798,42 @@ ForestTest.SCHEDULE = {
 	-- own terms. Now it is one row, the derivation reads it, and the metronome is based on it.
 	firstSlotSeconds = 10,
 
+	-- ------------------------------------------ AHEAD OF THE BEATER LINE (task 251c)
+	--
+	-- A SLOT'S START DEPTH IS RELATIVE TO THE LINE AND NOT ABSOLUTE. **THE DIRECTOR ANSWERED part 2's
+	-- escalation on 2026-10-24** (`ESCALATE.md`, *"ACT III ... IS RELEASED BEHIND THE ADVANCING
+	-- BEATER LINE"*): a group is released at `min(its table depth, the line's own depth - leadStuds)`,
+	-- so it is never put down behind the men who are supposed to be pushing it.
+	--
+	-- WHY IT HAD TO BE RELATIVE, AND IT WAS MEASURED: the beaters start 580 studs north
+	-- (`ForestTest.beaterNorthStuds`) and advance at `Bots.CONFIG.WALK_SPEED` 3.1, so the line is past
+	-- dz 330 by 96 s -- while act III's rows are due at 140 to 192 s. Every one of them was put down
+	-- 30 to 106 s AFTER the line had walked through its own start: slot 14's two males were next seen
+	-- NORTH of their own spawn, slot 12's nine covered 320 studs at a run in 14 s, and the stag
+	-- crossed on a fright rather than on the sneak part 2 had just built for him.
+	--
+	-- `ForestTest.releaseDepth` IS THE WHOLE RULE and it is pure. `releaseLine` measures the line's
+	-- depth AT THE MOMENT OF RELEASE (`ForestTest.lineNorthAt`, off the beaters' own bodies, at that
+	-- row's own x) and hands it in. A figure derived from the walk instead would be this very defect
+	-- in reverse -- a number used where it was not measured, which is what all four of task 192's
+	-- deaths were (Learning Agent L-024).
+	--
+	-- THE TABLE'S ORDERING SURVIVES, which is the Director's own condition: the clamp is a `min`, so
+	-- it never puts a row DEEPER than the script wrote, and act III is still deeper than act I
+	-- wherever the line leaves room for it.
+	leadStuds = 60,
+	-- ...AND THE FLOOR UNDER IT, so a clamped row is never put on the tarmac. By the last slots the
+	-- line IS the road -- at 192 s it is at dz ~32, and `32 - 60` is south of the verge -- so there is
+	-- no room ahead of it at all and those rows take this floor instead. They are then level with the
+	-- line rather than ahead of it, which is reported rather than hidden (`releaseLine` prints both
+	-- depths every slot): the alternative is releasing a group behind the hunter. 25 studs is just
+	-- north of the verge and well short of every depth the script writes.
+	--
+	-- A ROW THAT SNEAKS TAKES ITS OWN `sneakDz` AS THE FLOOR instead (`releaseLine` hands it in): the
+	-- sneak's two pins sit `sneakDz` north of the road, so a start clamped SHALLOWER than that would
+	-- walk the stag NORTH into the treeline band and then south again -- a doubling back, not a sneak.
+	minNorthStuds = 25,
+
 	-- HOW BUSY A DRIVE IS: "quiet", "normal" or "busy". Karen OK'd `normal`.
 	density = "normal",
 	-- HOW MANY OF THE FIFTEEN SLOTS CARRY ANIMALS at each setting. The one number the dial is.
@@ -1803,8 +1841,14 @@ ForestTest.SCHEDULE = {
 
 	-- A DRIVE THAT OUTLIVES ITS SCRIPT REPEATS THIS WINDOW -- the body of act II and act III, which
 	-- is the part of a drive that can bear repeating -- so a longer `DRIVE.seconds` can never run out
-	-- of animals. It deliberately EXCLUDES slot 13: a second stag in one drive is not a drive with a
-	-- stag in it, and `SPECIES.reddeer.RELEASE.MAX_GROUPS_ALIVE` would refuse him anyway.
+	-- of animals.
+	--
+	-- IT EXCLUDES THE STAG, AND SINCE TASK 251c THAT IS A RULE IN `slotAt` RATHER THAN AN ACCIDENT OF
+	-- THESE TWO NUMBERS. It used to be true positionally -- he was slot 13 and the window is 6-12 --
+	-- and moving him to slot 8 put him INSIDE it, so slot 18 of a long drive would have asked for a
+	-- second stag (the live run that found it got as far as slot 17). A second stag in one drive is
+	-- not a drive with a stag in it; `MAX_GROUPS_ALIVE` would usually refuse him, but "usually" is
+	-- not what the comment claimed.
 	repeatFrom = 6,
 	repeatTo = 12,
 
@@ -1930,20 +1974,75 @@ ForestTest.SCHEDULE = {
 			note = "the big sounder, nine of them in two files",
 		},
 		{
+			-- THE STAG. Alone, deeper than anything else that comes, and LATE AT THE ROAD -- which is
+			-- the Isle of Rum finding (*"only 10 % to 20 % of mature stags associated with hinds
+			-- outside the rut"*, `docs/research/2026-10-21-deer-in-every-drive.md`) and the Jaeger
+			-- finding (red deer come *"lange nach Beginn des Treibens -- klammheimlich aus der
+			-- Dickung"*) in one row. The hinds came out at slot 2 and 85 studs; he is at the verge
+			-- 150 seconds later, out of 330.
+			--
+			-- HE IS RELEASED HERE SO THAT HE CAN WALK IT (task 251c). He was slot 13 and
+			-- part 2 measured what that cost: released at 166 s he had 44 seconds for a 95-second
+			-- walk, so the sneak, the 0.90 edge check and the 150-degree look back -- the three
+			-- things part 2 is FOR -- could not happen at all. **THE DIRECTOR ANSWERED IT on
+			-- 2026-10-24**: *"THE STAG ARRIVES LAST, SO HE IS RELEASED EARLY ENOUGH TO DO IT. 'The
+			-- stag last' means the last to CROSS, not the last to be released."*
+			--
+			-- THE ARITHMETIC, AND IT IS WHY SLOT 8 AND NOT 7 OR 13. Due at 101 s. The beater line is
+			-- then at dz `580 - 3.1 x 101` = 267 (flat) or 290 (at the 1.081 ground factor
+			-- `bots_lane.spec` measured), so the clamp above bites either way and releases him at
+			-- `267 - 60` = **207** (flat) or 230:
+			--
+			--     approach  207 - 75 (`sneakDz`) = 132 studs
+			--     sneak                            120 studs along the treeline
+			--     verge     75 - 0                 75 studs
+			--     total                           327 studs / `PACE.WALK_SPEED` 4.5 = 73 s
+			--
+			-- -- so he is at the verge at **174 s** (flat) or 179 (ground), against a line that
+			-- arrives at 193.5 s flat / ~209 s measured. **A MARGIN OF ~20 s FLAT AND ~30 s ON THE
+			-- GROUND**, which is the Director's *"a margin of about 20 s"*. Slot 7 (88 s) would put
+			-- him at the verge 13 s earlier for no gain, and slot 9 (114 s) leaves 6 s flat.
+			--
+			-- HE IS THE LAST DEER, THE LAST WALKER AND THE LAST OF THE SCRIPT'S CROSSINGS BAR ONE:
+			-- slot 14 is released at 179 s at a RUN from a depth the clamp pulls to the floor, so it
+			-- is over the road ~2 s later. That is said out loud rather than discovered (rule 8) and
+			-- it is the clamp's own consequence, not a second rule: a deep row released when the line
+			-- is already at the verge has nowhere ahead of it to start from.
+			--
+			-- HIS `act` IS 2 BECAUSE A ROW'S ACT IS WHERE IT SITS IN THE DRIVE (five slots each, and
+			-- `forest_line.spec` asserts the quotient). WHAT REACHES ACT III IS THE STAG HIMSELF, at
+			-- the verge at 174-179 s, which is act III's own window (140-192) -- which is exactly what
+			-- the Director asked for: *"reaches the verge in act III"*.
 			slot = 8,
 			atSeconds = 101,
 			act = 2,
-			species = "boar",
-			composition = 5, -- {females = 1, cubs = 4, males = 1}
-			zone = "B",
-			northStuds = 145,
-			offsetX = 115,
+			species = "reddeer",
+			party = "stag", -- {stag = 1}
+			zone = "C",
+			northStuds = 330,
+			offsetX = -95,
 			files = 1,
-			route = "BREAK-BACK",
-			turnAtDz = 40,
-			pace = "trot",
+			crossOffset = -35,
+			route = "STRAIGHT",
+			pace = "walk",
+			check = true,
+			-- THE SNEAK, WALKED SINCE PART 2 (spec section 3.2, Karen OK'd): *"ein Stueck innerhalb
+			-- des Waldrands ... ehe es das offene Feld annimmt"* -- he comes down to the band inside
+			-- the treeline, walks `sneakStuds` along it parallel to the road, and only then takes the
+			-- open at his crossing. It is the one two-leg route in the script and it is the same
+			-- machinery as every other (`computeRouteVia`, pinned through one extra point).
+			--
+			-- TWO NUMBERS AND NOT TWO RANGES, which is part 1's own principle and the reason this
+			-- table exists: a SCRIPT draws nothing. The spec's bands are 80-160 studs parallel at a
+			-- `dz` of 60-90, and these are the middle of each -- Karen's to move, one row, no code.
+			--
+			-- `sneakDz` IS ALSO THE FLOOR OF HIS OWN RELEASE CLAMP (task 251c): see `minNorthStuds`.
+			sneak = true,
+			sneakStuds = 120,
+			sneakDz = 75,
+			leaps = true,
 			keepAt = 13,
-			note = "THE REFUSAL: she comes to 40 studs of the road, thinks better of it, and goes home",
+			note = "THE RED STAG: out of the far wood at a walk, alone, and he sneaks the treeline",
 		},
 		{
 			slot = 9,
@@ -2025,39 +2124,32 @@ ForestTest.SCHEDULE = {
 			note = "the second refusal: nine of them turn at 55 studs and break back through the beaters",
 		},
 		{
-			-- THE STAG. Last, alone, and deeper than anything else that comes -- which is the Isle of
-			-- Rum finding (*"only 10 % to 20 % of mature stags associated with hinds outside the
-			-- rut"*, `docs/research/2026-10-21-deer-in-every-drive.md`) and the Jaeger finding (red
-			-- deer come *"lange nach Beginn des Treibens -- klammheimlich aus der Dickung"*) in one
-			-- row. The hinds came out at slot 2; he comes out 220 seconds later.
+			-- THE REFUSAL, AND IT IS SLOT 13 BECAUSE THE STAG TOOK ITS 101 s (task 251c). The two rows
+			-- SWAPPED and nothing else in the script moved -- the Director's *"keep the other slots'
+			-- release times"*. They are the same `keepAt` (13), so the swap cannot move one column of
+			-- the dial's table at any density: this is still the second of the drive's two refusals.
+			--
+			-- IT IS LATE AND SHALLOW NOW, and that reads right rather than merely harmless: at 166 s
+			-- the line is at dz 65 (flat) or 104 (in Karen's place), so the clamp releases her at her
+			-- own route floor -- `turnAtDz` 40 + the 25-stud floor = **65** -- and she walks those 25
+			-- studs to her turn, thinks better of the road with the beaters right behind her, and
+			-- breaks back THROUGH them. That is what a late refusal is. Her `zone` stays "B" because
+			-- a zone says where a row's TABLE depth is, not which act it sits in (the same split the
+			-- two silences already keep).
 			slot = 13,
 			atSeconds = 166,
 			act = 3,
-			species = "reddeer",
-			party = "stag", -- {stag = 1}
-			zone = "C",
-			northStuds = 330,
-			offsetX = -95,
+			species = "boar",
+			composition = 5, -- {females = 1, cubs = 4, males = 1}
+			zone = "B",
+			northStuds = 145,
+			offsetX = 115,
 			files = 1,
-			crossOffset = -35,
-			route = "STRAIGHT",
-			pace = "walk",
-			check = true,
-			-- THE SNEAK, WALKED SINCE PART 2 (spec section 3.2, Karen OK'd): *"ein Stueck innerhalb
-			-- des Waldrands ... ehe es das offene Feld annimmt"* -- he comes down to the band inside
-			-- the treeline, walks `sneakStuds` along it parallel to the road, and only then takes the
-			-- open at his crossing. It is the one two-leg route in the script and it is the same
-			-- machinery as every other (`computeRouteVia`, pinned through one extra point).
-			--
-			-- TWO NUMBERS AND NOT TWO RANGES, which is part 1's own principle and the reason this
-			-- table exists: a SCRIPT draws nothing. The spec's bands are 80-160 studs parallel at a
-			-- `dz` of 60-90, and these are the middle of each -- Karen's to move, one row, no code.
-			sneak = true,
-			sneakStuds = 120,
-			sneakDz = 75,
-			leaps = true,
+			route = "BREAK-BACK",
+			turnAtDz = 40,
+			pace = "trot",
 			keepAt = 13,
-			note = "THE RED STAG: last of the drive, alone, out of the far wood, and he sneaks the treeline",
+			note = "THE REFUSAL: she comes to 40 studs of the road, thinks better of it, and goes home",
 		},
 		{
 			slot = 14,
@@ -2152,6 +2244,86 @@ function ForestTest.slotSeconds(slot: number, schedule): number
 	return first + (slot - 1) * gap
 end
 
+-- HOW DEEP A SLOT IS ACTUALLY RELEASED, given where the beater line has got to (task 251c). PURE:
+-- three numbers in, one out, so the whole of the Director's rule is a spec case with no world, no
+-- beater, no clock and no animal.
+--
+--     max(the floor, min(the table's depth, the line's own depth - `leadStuds`))
+--
+-- `lineNorth` IS NIL FOR A WORLD WITH NOBODY PUSHING, and then the answer is the table's own depth,
+-- unchanged -- which is right rather than merely safe: with no line there is no behind. It is also
+-- every drive of the DEV place, which has no beaters at all.
+--
+-- ...AND A LINE THAT IS AT OR PAST THE ROAD IS NOT A LINE EITHER, which is MEASURED rather than
+-- tidy. A drive ends when the beaters arrive, but `DRIVE.seconds` is 300 and the script's repeat
+-- window (`repeatFrom`..`repeatTo`) keeps releasing until it runs out -- so the first live run of
+-- this task logged `SLOT 16 ... from dz 25 of 150, line at dz 26` and `SLOT 17 ... from dz 25 of
+-- 170, line at dz -9`: two sounders put down ON THE VERGE, 25 studs in front of the hunter, because
+-- a line south of the road has everything north of it "behind" it and the clamp collapsed to its
+-- floor. Once the men are through there is nothing left to be behind, so the script's own depths are
+-- right again and those groups come out of the wood as they always did.
+--
+-- IT ONLY EVER PULLS A ROW TOWARD THE ROAD. The `min` is what keeps the script's relative ordering
+-- (the Director's own condition), and it is why there is no "has the line passed this row" branch at
+-- all: a row the line has not reached clamps to itself.
+--
+-- THE FLOOR IS APPLIED LAST AND CAN THEREFORE WIN, which is deliberate and is the one case where the
+-- answer is not ahead of the line: once the line is within `leadStuds` of the road there is no room
+-- in front of it, and a group on the tarmac behind the hunter would be worse than one level with the
+-- beaters. `releaseLine` prints both depths for every slot, so it is visible rather than silent.
+-- `forest_line.spec` asserts the floor is below every depth the script writes, so the floor can
+-- never make a row DEEPER than its own row says.
+function ForestTest.releaseDepth(tableNorth: number?, lineNorth: number?, floorStuds: number?, schedule): number
+	local resolved = schedule or ForestTest.SCHEDULE
+	-- THE SAME DEFAULT `wavePoint` USES for a row with no depth, so the two cannot disagree about
+	-- where an unspecified row starts.
+	local wanted = if type(tableNorth) == "number" then tableNorth else 100
+	local floor = math.max(resolved.minNorthStuds or 0, if type(floorStuds) == "number" then floorStuds else 0)
+	if type(lineNorth) ~= "number" or lineNorth <= 0 then
+		return wanted
+	end
+	return math.max(floor, math.min(wanted, lineNorth - (resolved.leadStuds or 0)))
+end
+
+-- THE SHALLOWEST A ROW MAY BE RELEASED AND STILL WALK ITS OWN ROUTE (task 251c). PURE: one row
+-- in, a depth out, and it is the floor `releaseDepth` is handed.
+--
+-- IT EXISTS BECAUSE THE CLAMP PULLS A ROW TOWARD THE ROAD, and three of the five route words have a
+-- point of their own that has to stay NORTH of where they start. Without this the clamp would break
+-- the very rows it was meant to save, which is worth spelling out because each one is a different
+-- shape of wrong:
+--   a SNEAK's two pins sit at `sneakDz`, so a shallower start walks the stag NORTH into the treeline
+--     band and then south again -- a doubling back, not a sneak.
+--   a BREAK-BACK turns at `turnAtDz`, so a shallower start walks north to its turn and then home,
+--     and the refusal Karen asked for twice (*"several go back"*) is never seen coming at the road
+--     at all.
+--   a HOLD moves `holdStuds` toward the road and lies up, so a shallower start walks it ACROSS the
+--     road -- the one group in the drive whose entire point is that it never comes.
+-- STRAIGHT, LATERAL and SPLIT need nothing: they walk south to their crossing from wherever they
+-- are, so their floor is `minNorthStuds` and the clamp is free.
+--
+-- THE TWO THAT TURN GET `minNorthStuds` ON TOP OF THEIR OWN POINT, so there is a few studs of walk
+-- between the release and the turn rather than a group that spawns already turning.
+function ForestTest.routeFloor(row, schedule): number
+	local resolved = schedule or ForestTest.SCHEDULE
+	local min = resolved.minNorthStuds or 0
+	if row == nil then
+		return min
+	end
+	if row.sneak == true and type(row.sneakDz) == "number" then
+		return math.max(min, row.sneakDz)
+	end
+	local route = ForestTest.slotRoute(row)
+	if route == "BREAK-BACK" then
+		local turn = row.turnAtDz or resolved.turnBackStuds or 0
+		return math.max(min, turn + min)
+	end
+	if route == "HOLD" then
+		return math.max(min, (row.holdStuds or 60) + min)
+	end
+	return min
+end
+
 -- WHICH ROW A SLOT RELEASES, or **nil for silence**. THE WHOLE OF THE DIAL IS THIS FUNCTION.
 --
 -- TWO RULES AND NOTHING ELSE:
@@ -2181,7 +2353,10 @@ function ForestTest.slotAt(slot: number, density: string?, schedule)
 		-- is a silence rather than a loop.
 		for _ = 1, span do
 			local candidate = rows[at]
-			if candidate ~= nil and (candidate.keepAt or 1) <= want then
+			-- ...AND IT NEVER REPEATS THE STAG (task 251c). See `repeatFrom`: the exclusion used to
+			-- be positional and his slot moved inside the window, so it is said here instead.
+			local isStag = candidate ~= nil and candidate.species == "reddeer" and candidate.party == "stag"
+			if candidate ~= nil and not isStag and (candidate.keepAt or 1) <= want then
 				return candidate
 			end
 			at = from + ((at - from + 1) % span)
