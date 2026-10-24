@@ -323,6 +323,199 @@ return function()
 		end)
 	end)
 
+	-- ------------------------------------------------- THE BAG OF 20+, IN TIDY ROWS (task 255)
+	--
+	-- KAREN, 2026-10-24, verbatim: *"also when there is a lot animals killed on end of game we need
+	-- gather them in several rows"*.
+	describe("a bigger bag is laid out in tidy rows, by species then size (task 255)", function()
+		local spot = Vector3.new(0, 10, -24)
+		local facing = Vector3.new(0, 0, 1)
+
+		-- HOW WIDE AND HOW LONG EACH KIND REALLY IS WHEN IT IS LYING DOWN, in studs. MEASURED off
+		-- the LOADED meshes in a live Play session of the Forest Test on 2026-10-24 --
+		-- `MeshPart.Size` read back off each animal's own `Visual`, plus the published stag model --
+		-- and NOT taken from `ANIMAL_SIZE`, which is the grey-box fallback and is a third of the
+		-- real thing.
+		--
+		-- `Body.lyingCFrame` rolls a display by `DISPLAY_ROLL_DEG` about its LONG axis, which stands
+		-- the mesh's X up and lays its Y ACROSS the row. So `across` is the mesh's Y and `along` is
+		-- its Z, and the pile Karen saw is one subtraction away: a rolled stag is 7.9202 across and
+		-- the spacing was 6.
+		--
+		-- IT IS DATA IN THIS FILE AND NOT IN `Match.CONFIG`, deliberately: the scene must not learn
+		-- what a boar is (`Scene`'s own header), and what these cases assert is that the two
+		-- spacings in that config CLEAR these numbers. A retune that re-creates the pile fails here.
+		local MEASURED = {
+			{ kind = "boar male", across = 3.2573, along = 5.5 },
+			{ kind = "boar female", across = 2.6473, along = 4.675 },
+			{ kind = "boar cub", across = 1.439, along = 2.475 },
+			-- THE LEGENDARY IS THE MALE'S MESH AT 1.35 (`Boar.CONFIG.KINDS`), which is the longest
+			-- thing in the game: 7.425 nose to tail.
+			{ kind = "boar legendary", across = 3.2573 * 1.35, along = 5.5 * 1.35 },
+			-- THE STAG IS THE WIDEST, and by a long way -- a red deer is a leggier, TALLER animal,
+			-- so rolled it is nearly square where a boar is not.
+			{ kind = "stag", across = 7.9202, along = 7.05 },
+			-- The hind and the calf are the stag's mesh at 6.03/7.05 and 3.49/7.05 of its length
+			-- (`Match.CONFIG.SCENE.ANIMAL_SCALES`' own arithmetic).
+			{ kind = "hind", across = 7.9202 * (6.03 / 7.05), along = 6.03 },
+			{ kind = "calf", across = 7.9202 * (3.49 / 7.05), along = 3.49 },
+		}
+
+		it("spaces the rows wide enough that the biggest animal in the game cannot overlap", function()
+			local widest, widestKind = 0, ""
+			local longest, longestKind = 0, ""
+			for _, row in ipairs(MEASURED) do
+				if row.across > widest then
+					widest, widestKind = row.across, row.kind
+				end
+				if row.along > longest then
+					longest, longestKind = row.along, row.kind
+				end
+			end
+			-- The measurement itself: the stag is the widest and the legendary boar the longest.
+			expect(widestKind).to.equal("stag")
+			expect(longestKind).to.equal("boar legendary")
+			expect(math.abs(widest - 7.9202) < 1e-4).to.equal(true)
+			expect(math.abs(longest - 7.425) < 1e-4).to.equal(true)
+
+			-- THE DEFECT, STATED AS ARITHMETIC: at the old 6 two stags overlapped by 1.9202 studs.
+			expect(math.abs((widest - 6) - 1.9202) < 1e-4).to.equal(true)
+
+			-- ...AND THE SHIPPED NUMBERS CLEAR IT, on both axes, for every kind.
+			expect(LIVE.SCENE.SPACING_STUDS >= widest).to.equal(true)
+			expect(LIVE.SCENE.ROW_SPACING_STUDS >= longest).to.equal(true)
+			for _, row in ipairs(MEASURED) do
+				expect(LIVE.SCENE.SPACING_STUDS > row.across).to.equal(true)
+				expect(LIVE.SCENE.ROW_SPACING_STUDS > row.along).to.equal(true)
+			end
+		end)
+
+		it("lays the whole cap out in four rows, and nobody touches anybody", function()
+			-- MORE THAN THE TWELVE SHE HAS BEEN SEEING, and a whole number of rows so the block is
+			-- never a row of one. The cap is 16 and not the Director's 20+ because the lobby's
+			-- gathering yard will not hold 20 -- `MAX_ANIMALS`' own comment has that arithmetic and
+			-- `ESCALATE.md` carries the decision.
+			expect(LIVE.SCENE.MAX_ANIMALS > 12).to.equal(true)
+			expect(LIVE.SCENE.MAX_ANIMALS % Scene.perRow(LIVE)).to.equal(0)
+			expect(Scene.rowCount(LIVE.SCENE.MAX_ANIMALS, LIVE)).to.equal(4)
+			expect(Scene.rowCount(13, LIVE)).to.equal(4)
+
+			-- THE WHOLE BLOCK, AT THE CAP, PAIR BY PAIR. The nearest two animals in the biggest bag
+			-- this game lays out are a spacing apart, and that spacing clears the widest animal --
+			-- so the worst case is two stags side by side with a stud of grass between them.
+			local count = LIVE.SCENE.MAX_ANIMALS
+			local row = Scene.rowLayout(spot, facing, count, LIVE)
+			expect(#row).to.equal(count)
+			local nearest = math.huge
+			for a = 1, count do
+				for b = a + 1, count do
+					nearest = math.min(nearest, (row[a].Position - row[b].Position).Magnitude)
+				end
+			end
+			local tightest = math.min(LIVE.SCENE.SPACING_STUDS, LIVE.SCENE.ROW_SPACING_STUDS)
+			expect(nearest > tightest - 1e-3).to.equal(true)
+			expect(nearest > 7.9202).to.equal(true)
+
+			-- ...AND THE BLOCK IS SQUARE AND NOT A HEDGE, which is the cap's original purpose: the
+			-- whole bag in ONE line would have been 135 studs of front.
+			local halfWidth, halfDepth = Scene.layoutExtent(count, LIVE)
+			expect(math.abs(halfWidth - halfDepth) < 1e-6).to.equal(true)
+			expect(halfWidth * 2 < (count - 1) * LIVE.SCENE.SPACING_STUDS).to.equal(true)
+
+			-- THE BLOCK HAS TO STAND IN KAREN'S YARD, and that is the whole reason the cap is 16:
+			-- `lobby.spec` asserts the containment against the real pad, and this is the bound it
+			-- comes down to. 28 is half the `Gather` pad's measured 56, and the lodge's chimney is
+			-- 29.0 studs from the gathering's centre (both read off the live lobby, 2026-10-24).
+			expect(Scene.cornerReachFor(count, LIVE) < 28).to.equal(true)
+			-- ...and one more animal to a row would not fit, which is what makes 4 the answer rather
+			-- than a preference.
+			local wider = table.clone(LIVE.SCENE)
+			wider.PER_ROW = 5
+			expect(Scene.cornerReachFor(20, { SCENE = wider }) > 29).to.equal(true)
+		end)
+
+		it("orders the bag by species then size, stably, and leaves an unknown kind at the back", function()
+			-- SHOT ORDER IN, TIDY ORDER OUT. A calf first, a stag third -- and the answer is the
+			-- boars (biggest first) then the red deer (biggest first).
+			local shot = {
+				{ kind = "calf", at = 1 },
+				{ kind = "cub", at = 2 },
+				{ kind = "stag", at = 3 },
+				{ kind = "male", at = 4 },
+				{ kind = "hind", at = 5 },
+				{ kind = "legendary", at = 6 },
+			}
+			local tidy = Scene.ordered(shot, LIVE)
+			local kinds = {}
+			for _, kill in ipairs(tidy) do
+				table.insert(kinds, kill.kind)
+			end
+			expect(table.concat(kinds, ",")).to.equal("legendary,male,cub,stag,hind,calf")
+
+			-- THE DRIVE'S OWN RECORD IS NOT TOUCHED: `Match` keeps reading it for the score and the
+			-- report, so a layout that reordered it in place would reorder the results table too.
+			expect(shot[1].kind).to.equal("calf")
+			expect(#shot).to.equal(6)
+
+			-- STABLE INSIDE ONE KIND, which `table.sort` is NOT (the engine's own docs say the order
+			-- of equal elements is undefined): three males come out in the order she shot them.
+			local males = Scene.ordered({
+				{ kind = "male", at = 11 },
+				{ kind = "stag", at = 12 },
+				{ kind = "male", at = 13 },
+				{ kind = "male", at = 14 },
+			}, LIVE)
+			expect(males[1].at).to.equal(11)
+			expect(males[2].at).to.equal(13)
+			expect(males[3].at).to.equal(14)
+			expect(males[4].kind).to.equal("stag")
+
+			-- A KIND NOBODY HAS HEARD OF GOES TO THE BACK, TOGETHER, in shot order -- so a species
+			-- added later is laid out honestly before anybody remembers `KIND_ORDER`.
+			local future = Scene.ordered({
+				{ kind = "roebuck", at = 1 },
+				{ kind = "male", at = 2 },
+				{ kind = "fox", at = 3 },
+			}, LIVE)
+			expect(future[1].kind).to.equal("male")
+			expect(future[2].kind).to.equal("roebuck")
+			expect(future[3].kind).to.equal("fox")
+
+			-- ...AND EVERY SHIPPED KIND IS IN THE LIST, so none of them is silently sorted to the
+			-- back of the bag. `ANIMAL_SCALES` is the roll of kinds this scene can draw.
+			local ranked = {}
+			for _, kind in ipairs(LIVE.SCENE.KIND_ORDER) do
+				ranked[kind] = true
+			end
+			local checked = 0
+			for kind in pairs(LIVE.SCENE.ANIMAL_SCALES) do
+				checked += 1
+				expect(ranked[kind]).to.equal(true)
+			end
+			expect(checked > 0).to.equal(true)
+		end)
+
+		it("caps FIRST and tidies second, so a long drive loses its last kills and not its calves", function()
+			-- A BAG TWICE THE CAP, with every kill past the cap a CALF. Capped first, the bag she
+			-- sees is the first `MAX_ANIMALS` she shot; sorted first, every calf would survive and
+			-- the males shot at the end would vanish -- a silent edit of her results.
+			local cap = LIVE.SCENE.MAX_ANIMALS
+			local kills = {}
+			for index = 1, cap do
+				table.insert(kills, { kind = "male", at = index })
+			end
+			for index = cap + 1, cap * 2 do
+				table.insert(kills, { kind = "calf", at = index })
+			end
+			expect(math.min(#kills, cap)).to.equal(cap)
+			local tidy = Scene.ordered(kills, LIVE)
+			-- The first `cap` of the TIDIED list are NOT the first `cap` shot -- which is exactly
+			-- why the cap is taken before the sort in `Scene.build` and not after it.
+			expect(tidy[1].kind).to.equal("male")
+			expect(tidy[cap + 1].kind).to.equal("calf")
+		end)
+	end)
+
 	describe("the animals in several rows (task 168)", function()
 		local spot = Vector3.new(0, 10, -24)
 		local facing = Vector3.new(0, 0, 1)
@@ -342,7 +535,9 @@ return function()
 		end)
 
 		it("keeps one row exactly where it was, and centres every row on the spot", function()
-			-- ONE ROW IS THE SCENE KAREN HAS ALREADY SEEN: five animals, 6 studs apart, centred.
+			-- ONE ROW IS THE SCENE KAREN HAS ALREADY SEEN: five animals, `SPACING_STUDS` apart,
+			-- centred. (The number was 6 until task 255 measured the rolled stag and made it 9; this
+			-- case reads the config, so what it pins is the SHAPE and not the number.)
 			local row = Scene.rowLayout(spot, facing, 5, LIVE)
 			expect(#row).to.equal(5)
 			local side = Scene.sideAxis(facing)

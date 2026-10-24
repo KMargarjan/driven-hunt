@@ -19,6 +19,25 @@
 --   3. A TORCH IS A FIRE, NOT A LAMP. `Fire` is an engine particle that animates itself, which is
 --      what buys Karen's *"warm flicker"* with no per-frame writer anywhere -- see `Scene.build`.
 --
+-- ...AND TASK 255 IS HER THIRD, 2026-10-24, verbatim: *"also when there is a lot animals killed on
+-- end of game we need gather them in several rows"*. Task 168 built the rows and they worked; what
+-- failed is that A RED DEER ARRIVED. Three changes, all of them in `Match.CONFIG.SCENE` except one:
+--   4. THE SPACING IS NOW BIG ENOUGH FOR THE BIGGEST ANIMAL, MEASURED. A display lies on its SIDE,
+--      so what it takes across the row is the standing mesh's HEIGHT -- and a rolled stag is
+--      7.9202 studs across where the old `SPACING_STUDS` 6 gave it 6. **Two stags overlapped by
+--      1.9202 studs**, which is a pile and not a bag. 9 leaves 1.0798 studs of grass. The four
+--      measured meshes are in that config's own comment.
+--   5. THE CAP IS 16 AND NOT 12, because her sentence starts *"when there is a lot animals killed"*
+--      and at 12 a long drive's bag was truncated. It is 16 and NOT the Director's 20+ because the
+--      lobby's gathering yard will not hold 20 -- MEASURED, and `Match.CONFIG.SCENE.MAX_ANIMALS`
+--      carries the arithmetic: a 56-stud pad and a chimney 29.0 studs from the gathering's centre
+--      allow a reach of 28, which at the new spacing is a 4 x 4 block and not a 5 x 4 one. Twenty
+--      animals need the yard MOVED, which is a lobby decision; it is in `ESCALATE.md`.
+--      `PER_ROW` came down from 6 to 4 for the same reason, and the block is now SQUARE (27 x 27).
+--   6. THE BAG IS LAID OUT BY SPECIES AND THEN BY SIZE (`Scene.ordered`), and not in the order they
+--      were shot. The ORDER is data (`SCENE.KIND_ORDER`), so this file still does not know what a
+--      boar is or which animal is bigger.
+--
 -- WHAT IT DOES NOT DO, and each one has an owner that does:
 --   * it keeps NO score. The results table is the drive's own board, drawn by `src/client/Hud` from
 --     the snapshot `Match` already broadcasts -- there is no second score and no new remote.
@@ -213,6 +232,52 @@ end
 -- the first -- and the whole block centred on the spot in both axes. So the front row is the one
 -- nearest the people and the row she sees first is the first animals that were shot.
 --
+-- WHAT ORDER THE BAG IS LAID OUT IN (task 255). KAREN, 2026-10-24: *"also when there is a lot
+-- animals killed on end of game we need gather them in several rows"*; the Director: *"Lay them in
+-- several tidy rows (by species, then size)"*.
+--
+-- PURE, AND IT RETURNS A NEW LIST: the drive's own `kills` record is the order they were SHOT and
+-- `Match` keeps reading it for the score and the report, so nothing here may reorder it in place.
+--
+-- THE RANK COMES FROM `SCENE.KIND_ORDER`, which is DATA -- the boar kinds biggest first, then the
+-- red deer's biggest first -- so this function never learns what a boar is or which animal is
+-- bigger. That is the same rule the grey box's `ANIMAL_SCALES` is here for.
+--
+-- IT IS A STABLE SORT AND `table.sort` IS NOT ONE (the engine's own docs say the order of equal
+-- elements is undefined). Two stags would otherwise swap places between two builds of the same bag,
+-- which is a scene that is different every time it is rebuilt for no reason anybody can see. The
+-- shot index is the tie-break, so inside one kind the bag still reads in the order she shot them.
+--
+-- A KIND THAT IS NOT IN THE LIST SORTS LAST, in shot order: a species added later is laid out
+-- honestly -- at the back, together -- rather than scattered through the rows, and nobody has to
+-- remember this line for that to be true.
+function Scene.ordered(kills: { any }, cfg): { any }
+	local order = cfg.SCENE.KIND_ORDER
+	local rank: { [string]: number } = {}
+	if type(order) == "table" then
+		for index, kind in ipairs(order) do
+			rank[kind] = index
+		end
+	end
+	local last = (if type(order) == "table" then #order else 0) + 1
+	local rows = {}
+	for index, kill in ipairs(kills) do
+		local kind = if type(kill) == "table" then tostring(kill.kind) else ""
+		table.insert(rows, { kill = kill, rank = rank[kind] or last, index = index })
+	end
+	table.sort(rows, function(a, b)
+		if a.rank ~= b.rank then
+			return a.rank < b.rank
+		end
+		return a.index < b.index
+	end)
+	local out = {}
+	for index, row in ipairs(rows) do
+		out[index] = row.kill
+	end
+	return out
+end
+
 -- A SHORT LAST ROW IS CENTRED ON ITS OWN WIDTH and not on the full one, which is what makes a bag of
 -- seven read as 6 + 1 in the middle rather than as 6 + 1 hanging off the left end.
 function Scene.rowLayout(spot: Vector3, facing: Vector3, count: number, cfg): { CFrame }
@@ -250,8 +315,10 @@ end
 -- whichever is bigger. PURE and exported so the spec can state the containment as arithmetic.
 --
 -- THE BLOCK'S CORNER IS WHAT MUST BE CLEARED, not its half-width: the ring is a circle and the block
--- is a rectangle, so the distance to beat is the diagonal `sqrt(w^2 + d^2)`. With 12 animals at
--- `PER_ROW` 6, spacing 6 and row spacing 8 that is sqrt(15^2 + 4^2) = 15.5, plus the margin.
+-- is a rectangle, so the distance to beat is the diagonal `sqrt(w^2 + d^2)`. With the shipped
+-- numbers since task 255 -- 16 animals at `PER_ROW` 4, spacing 9 and row spacing 9 -- that is
+-- sqrt(13.5^2 + 13.5^2) = 19.1, plus the margin: a ring of 25.1 and lamps at 27.1, which is what
+-- has to stand inside the lobby's 56-stud gathering yard (`lobby.spec` asserts exactly that).
 function Scene.ringRadiusFor(animalCount: number?, cfg): number
 	local scene = cfg.SCENE
 	local halfWidth, halfDepth = Scene.layoutExtent(animalCount or 0, cfg)
@@ -392,6 +459,11 @@ function Scene.build(
 	folder.Parent = Workspace
 
 	local count = math.min(#kills, scene.MAX_ANIMALS)
+	-- THE CAP IS TAKEN FIRST AND THE TIDYING SECOND (task 255), and that order is a decision: capped
+	-- first, the bag she sees is *the first `MAX_ANIMALS` she shot*, laid out tidily. Sorted first,
+	-- the cap would silently drop the smallest animals of the last species in the list -- so a drive
+	-- with 30 kills would end with every calf missing and nothing on screen saying so.
+	local laidOut = Scene.ordered(kills, cfg)
 	local row = Scene.rowLayout(spot, facing, count, cfg)
 	-- The rows the block was laid out in, for the console line the owner prints: "how many rows" is
 	-- the one thing about this scene that a report cannot work out from the animal count alone
@@ -403,7 +475,7 @@ function Scene.build(
 	models = 0
 	boxes = 0
 	for index = 1, count do
-		local kill = kills[index]
+		local kill = laidOut[index]
 		local kind = if type(kill) == "table" then kill.kind else nil
 		local name = string.format("%s%d", Scene.ANIMAL_PREFIX, index)
 		-- THE REAL ANIMAL FIRST, THE BOX IF THERE IS NONE (task 173). One ask per animal, with the
