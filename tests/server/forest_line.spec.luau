@@ -715,11 +715,13 @@ return function()
 			-- and the look back could not happen at all (`ESCALATE.md`, 2026-10-24).
 			expect(stag.act).to.equal(2)
 			expect(stag.pace).to.equal("walk")
-			-- HE IS STILL THE LAST THING THAT WALKS AT HER. Every row released after his slot comes
-			-- at a trot or a run, so nothing else in the drive is a walking animal in the open late.
+			-- HE IS STILL THE LAST DEER, which is what *"the stag last"* has always been about: the
+			-- hinds come at slot 2 and nothing with antlers or a calf comes after him. (He is not the
+			-- last WALKER -- slot 9's big lone male walks at 114 s -- and the gate caught the case
+			-- that claimed he was.)
 			for _, row in ipairs(SCHEDULE.drive) do
 				if row.slot > stag.slot then
-					expect(row.pace == "trot" or row.pace == "run" or Data.slotRoute(row) == "HOLD").to.equal(true)
+					expect(row.species).to.equal("boar")
 				end
 			end
 		end)
@@ -765,7 +767,7 @@ return function()
 			-- line is within `leadStuds` of the road there is nowhere in front of it, and a group
 			-- spawned south of the verge would be behind the hunter.
 			expect(Data.releaseDepth(290, 32, nil, sched)).to.equal(25)
-			expect(Data.releaseDepth(290, 0, nil, sched)).to.equal(25)
+			expect(Data.releaseDepth(290, 10, nil, sched)).to.equal(25)
 			-- A SNEAKING ROW FLOORS AT ITS OWN `sneakDz`: the sneak's pins sit that far north of the
 			-- road, so a shallower start would walk the stag north into the band and then back south.
 			expect(Data.releaseDepth(330, 100, 75, sched)).to.equal(75)
@@ -955,7 +957,7 @@ return function()
 			-- stag and a roar from an empty wood would be a lie.
 			local row, slot = Data.stagRow("normal", SCHEDULE)
 			expect(row).to.be.ok()
-			expect(slot).to.equal(13)
+			expect(slot).to.equal(8) -- 13 until task 251c moved his release so that he could walk
 			expect(row.party).to.equal("stag")
 			expect(row.species).to.equal("reddeer")
 			expect(Data.stagRow("busy", SCHEDULE)).to.be.ok()
