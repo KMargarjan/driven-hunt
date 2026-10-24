@@ -374,6 +374,24 @@ return function()
 			expect(afterUnknown.licenceUnknown).to.equal(start.licenceUnknown + 1)
 			expect(afterKnown.licenceUnknown).to.equal(afterUnknown.licenceUnknown)
 
+			-- WHAT THE FIX COSTS, STATED RATHER THAN LEFT TO BE INFERRED (round 1, note). The hole
+			-- is not a frame wide on the failure path: `Economy.load` warns and leaves
+			-- `ownedSets[userId]` nil when the session lock is REFUSED or the call throws, and it
+			-- retries only *"at the next drive start"* -- so for that whole drive this player's
+			-- licence question is skipped and he may shoot a red deer without the card.
+			--
+			-- IT IS THE TRADE THE DESIGN ALREADY MAKES EVERYWHERE ELSE (`docs/design/shop.md` 7.1,
+			-- quoted by `Economy.ownedOf`: *"a refused session lock or a DataStore outage cannot
+			-- take away the rifle a man paid for"*), and the cost of the other choice is what Karen
+			-- reported -- a man who HAS paid, refused for a whole drive. `stats.licenceUnknown` is
+			-- how a live run sees it happening, and this is the case that names it.
+			expect(Rules.refuse({ target = deer, licences = nil, licencesKnown = false })).to.equal(nil)
+			expect(afterUnknown.licenceUnknown > start.licenceUnknown).to.equal(true)
+			TestKit.note(
+				"licence_popup: THE TRADE -- while a profile is unopened or its load was refused, an"
+					.. " UNLICENSED man may shoot a deer; `stats.licenceUnknown` counts every skip"
+			)
+
 			TestKit.note(
 				string.format(
 					"licence_popup: UNKNOWN aim advised +%d (unknown skips %d), KNOWN-and-empty aim advised +%d",

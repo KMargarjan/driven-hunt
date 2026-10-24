@@ -222,16 +222,6 @@ function Scene.layoutExtent(count: number, cfg): (number, number)
 	return halfWidth, halfDepth
 end
 
--- THE ROWS. `count` animals laid side by side on the ground at `spot`, `SPACING_STUDS` apart, every
--- one of them lying the same way round -- which is how a day's bag is actually laid out. Index 1 is
--- the first animal shot (the owner keeps the kills in order), so the first row reads left to right as
--- the drive happened.
---
--- SEVERAL ROWS SINCE TASK 168 (Karen: *"animals layed down in front in several lines if more"*):
--- `PER_ROW` to a row, the next row `ROW_SPACING_STUDS` further BACK -- away from the drive, behind
--- the first -- and the whole block centred on the spot in both axes. So the front row is the one
--- nearest the people and the row she sees first is the first animals that were shot.
---
 -- WHAT ORDER THE BAG IS LAID OUT IN (task 255). KAREN, 2026-10-24: *"also when there is a lot
 -- animals killed on end of game we need gather them in several rows"*; the Director: *"Lay them in
 -- several tidy rows (by species, then size)"*.
@@ -278,6 +268,20 @@ function Scene.ordered(kills: { any }, cfg): { any }
 	return out
 end
 
+-- THE ROWS. `count` animals laid side by side on the ground at `spot`, `SPACING_STUDS` apart, every
+-- one of them lying the same way round -- which is how a day's bag is actually laid out.
+--
+-- IT KNOWS NOTHING ABOUT WHICH ANIMAL IS WHICH: index 1 goes at the front-left and index `count` at
+-- the back-right, and WHAT INDEX 1 IS is the caller's. **Since task 255 it is the highest-ranked
+-- SPECIES and no longer the first animal shot** -- `Scene.build` sorts the capped bag through
+-- `Scene.ordered` before it gets here, and this header used to say the opposite (round 1, note).
+--
+-- SEVERAL ROWS SINCE TASK 168 (Karen: *"animals layed down in front in several lines if more"*):
+-- `PER_ROW` to a row, the next row `ROW_SPACING_STUDS` further BACK -- away from the drive, behind
+-- the first -- and the whole block centred on the spot in both axes. So the front row is the one
+-- nearest the people, and since task 255 it is the biggest animals of the first species in
+-- `SCENE.KIND_ORDER`.
+--
 -- A SHORT LAST ROW IS CENTRED ON ITS OWN WIDTH and not on the full one, which is what makes a bag of
 -- seven read as 6 + 1 in the middle rather than as 6 + 1 hanging off the left end.
 function Scene.rowLayout(spot: Vector3, facing: Vector3, count: number, cfg): { CFrame }
@@ -425,6 +429,12 @@ end
 -- laid out, which is `#kills` capped at `MAX_ANIMALS` -- a cap, because a long drive's row must not
 -- run off into the wood.
 --
+-- **IT IS NOT LAID OUT IN THAT ORDER SINCE TASK 255** (round 1, note): the first `MAX_ANIMALS` of
+-- `kills` are taken, and THEN sorted by species and size through `Scene.ordered`. So the record this
+-- is handed stays the shot order for everybody else who reads it, and what reaches the ground is a
+-- tidy bag. Which animals are dropped is still decided by WHEN they were shot and never by what they
+-- were.
+--
 -- `displayFor` IS THE REAL ANIMAL, AND IT IS THE SEAM TASK 159a(a) NAMED (task 173). Karen,
 -- 2026-10-13: *"and after hunt over we need to see boars shooted not boxes when we stand around"*.
 -- It is `function(kind: string?, ground: CFrame) -> Instance?`, handed in by the owner -- the shape
@@ -462,8 +472,16 @@ function Scene.build(
 	-- THE CAP IS TAKEN FIRST AND THE TIDYING SECOND (task 255), and that order is a decision: capped
 	-- first, the bag she sees is *the first `MAX_ANIMALS` she shot*, laid out tidily. Sorted first,
 	-- the cap would silently drop the smallest animals of the last species in the list -- so a drive
-	-- with 30 kills would end with every calf missing and nothing on screen saying so.
-	local laidOut = Scene.ordered(kills, cfg)
+	-- of four calves and sixteen males would lay out sixteen MALES, four of them shot after the cap,
+	-- and her four calves would be gone with nothing on screen saying so.
+	--
+	-- SO THE SLICE IS TAKEN HERE, ON THE SHOT ORDER, AND `Scene.ordered` NEVER SEES THE REST
+	-- (round 1, finding 1 -- the Reviewer was right and this is what the comment above always said
+	-- the code did). `table.move` into a fresh list rather than `table.clone`, because the drive's
+	-- own `kills` record is longer than the cap and `Match` keeps reading it for the score and the
+	-- report.
+	local capped = table.move(kills, 1, count, 1, {})
+	local laidOut = Scene.ordered(capped, cfg)
 	local row = Scene.rowLayout(spot, facing, count, cfg)
 	-- The rows the block was laid out in, for the console line the owner prints: "how many rows" is
 	-- the one thing about this scene that a report cannot work out from the animal count alone

@@ -39,6 +39,12 @@ local CONFIG = {
 		CORNER_MARGIN_STUDS = 2,
 		ANIMAL_SIZE = Vector3.new(1.6, 1.4, 4.0),
 		ANIMAL_SCALES = { male = 1.0, female = 0.85, cub = 0.45 },
+		-- THERE IS DELIBERATELY NO `KIND_ORDER` HERE (task 255, round 1 note). With the key absent
+		-- `Scene.ordered` ranks every kind the same and breaks the tie on the shot index, so it is
+		-- the IDENTITY -- which is what keeps every case written before task 255 asking what it
+		-- asked, the task-173 `displayFor` case ("ONE ASK PER ANIMAL, in the order they were shot")
+		-- among them. The one case that is ABOUT the ordering builds its own config with a
+		-- `KIND_ORDER` in it rather than changing this one.
 		ANIMAL_COLOR = Color3.fromRGB(58, 48, 42),
 		POST_SIZE = Vector3.new(0.6, 10, 0.6),
 		POST_COLOR = Color3.fromRGB(70, 60, 50),
@@ -495,10 +501,14 @@ return function()
 			expect(checked > 0).to.equal(true)
 		end)
 
-		it("caps FIRST and tidies second, so a long drive loses its last kills and not its calves", function()
-			-- A BAG TWICE THE CAP, with every kill past the cap a CALF. Capped first, the bag she
-			-- sees is the first `MAX_ANIMALS` she shot; sorted first, every calf would survive and
-			-- the males shot at the end would vanish -- a silent edit of her results.
+		it("sorts exactly the list it is handed, and reads nothing beyond it", function()
+			-- `Scene.ordered` ALONE, on a bag twice the cap: it sorts what it is HANDED and nothing
+			-- else, which is the contract `Scene.build` relies on when it hands over a slice.
+			--
+			-- IT IS NOT THE CASE THAT PROVES THE BUILD DROPS THE RIGHT ANIMALS -- round 1's finding
+			-- 2 was that this case's old name claimed exactly that and asserted none of it. The
+			-- build is driven, through its own folder, by *"drops the kills she shot LAST, never the
+			-- ones she shot first"* below.
 			local cap = LIVE.SCENE.MAX_ANIMALS
 			local kills = {}
 			for index = 1, cap do
@@ -509,10 +519,19 @@ return function()
 			end
 			expect(math.min(#kills, cap)).to.equal(cap)
 			local tidy = Scene.ordered(kills, LIVE)
-			-- The first `cap` of the TIDIED list are NOT the first `cap` shot -- which is exactly
-			-- why the cap is taken before the sort in `Scene.build` and not after it.
+			-- EVERY kill it was handed comes back, none of them dropped, in rank order -- so this
+			-- function has no cap in it and `Scene.build` is the only thing that drops anything.
+			expect(#tidy).to.equal(#kills)
 			expect(tidy[1].kind).to.equal("male")
+			expect(tidy[cap].kind).to.equal("male")
 			expect(tidy[cap + 1].kind).to.equal("calf")
+			-- ...and handed the SLICE instead, it answers only the slice.
+			local slice = table.move(kills, 1, cap, 1, {})
+			local sliced = Scene.ordered(slice, LIVE)
+			expect(#sliced).to.equal(cap)
+			for _, kill in ipairs(sliced) do
+				expect(kill.kind).to.equal("male")
+			end
 		end)
 	end)
 
@@ -1000,6 +1019,101 @@ return function()
 					Scene.stats().models,
 					Scene.stats().boxes,
 					Scene.stats().animals
+				)
+			)
+		end)
+
+		-- ------------------------------------------------- WHICH KILLS REACH THE GROUND (round 1,
+		-- finding 2). The Reviewer's own words: *"the case that names this behaviour asserts nothing
+		-- about it and passes with the order reversed; no case anywhere drives `Scene.build`'s
+		-- ordering at all"*. Both halves were true and this is the case that was missing.
+		--
+		-- IT DRIVES `Scene.build` ITSELF and reads the `Kind` attribute off what landed in the
+		-- folder, which is the only place "which animals did she actually see" is a fact. It needs a
+		-- config with a `KIND_ORDER` -- this file's own `CONFIG` deliberately has none (see its
+		-- declaration) -- so it builds one here rather than changing the config every other case in
+		-- the file depends on.
+		--
+		-- IT FAILS ON ROUND 1'S CODE. That code sorted the WHOLE bag and then took the first
+		-- `MAX_ANIMALS` of the SORTED list, so the four calves she shot first vanished and four
+		-- males she shot AFTER the cap were laid out in their place. The assertion below is `calf`
+		-- four times; round 1 answers `male` four times.
+		it("drops the kills she shot LAST, never the ones she shot first, whatever species they are", function()
+			local SPOT, FACING = Vector3.new(0, 10, -24), Vector3.new(0, 0, 1)
+			local ordered = {
+				STAND_HEIGHT_STUDS = CONFIG.STAND_HEIGHT_STUDS,
+				BEATER_CROSS_MARGIN_STUDS = CONFIG.BEATER_CROSS_MARGIN_STUDS,
+				SCENE = table.clone(CONFIG.SCENE),
+			}
+			-- The male OUTRANKS the calf, so a sort-then-cap would keep males and drop every calf.
+			ordered.SCENE.KIND_ORDER = { "male", "calf" }
+			local cap = ordered.SCENE.MAX_ANIMALS
+			expect(cap >= 2).to.equal(true)
+
+			-- THE BAG: every calf shot FIRST, then four times the cap in males.
+			local kills = {}
+			for _ = 1, cap do
+				table.insert(kills, { kind = "calf" })
+			end
+			for _ = 1, cap * 4 do
+				table.insert(kills, { kind = "male" })
+			end
+
+			local laid = Scene.build(SPOT, FACING, kills, ordered)
+			expect(laid).to.equal(cap)
+			local folder = Scene.folder()
+			expect(folder).to.be.ok()
+			local kinds = {}
+			for index = 1, laid do
+				local animal = (folder :: Folder):FindFirstChild(Scene.ANIMAL_PREFIX .. tostring(index))
+				expect(animal).to.be.ok()
+				table.insert(kinds, tostring((animal :: Instance):GetAttribute("Kind")))
+			end
+			-- EVERY ONE OF THEM IS A CALF: the cap is her first `cap` kills, and the tidying happens
+			-- INSIDE that slice. One `male` here is finding 1 back.
+			expect(#kinds).to.equal(cap)
+			for _, kind in ipairs(kinds) do
+				expect(kind).to.equal("calf")
+			end
+
+			-- ...AND THE TIDYING STILL HAPPENS INSIDE THE SLICE, which is the other half: the same
+			-- cap, a mixed slice, and the males come out in front of the calves.
+			local mixed = {}
+			for index = 1, cap do
+				table.insert(mixed, { kind = if index % 2 == 0 then "male" else "calf" })
+			end
+			for _ = 1, cap do
+				table.insert(mixed, { kind = "male" })
+			end
+			expect(Scene.build(SPOT, FACING, mixed, ordered)).to.equal(cap)
+			local after = Scene.folder()
+			local tidied = {}
+			for index = 1, cap do
+				local animal = (after :: Folder):FindFirstChild(Scene.ANIMAL_PREFIX .. tostring(index))
+				table.insert(tidied, tostring((animal :: Instance):GetAttribute("Kind")))
+			end
+			local males, calves = 0, 0
+			for index, kind in ipairs(tidied) do
+				if kind == "male" then
+					males += 1
+					-- every male is laid out before every calf
+					expect(calves).to.equal(0)
+					expect(index <= cap // 2).to.equal(true)
+				else
+					calves += 1
+				end
+			end
+			-- The slice held half of each, so the picture is half and half -- NOT the `cap` males
+			-- that a sort over the whole bag would have produced.
+			expect(males).to.equal(cap // 2)
+			expect(calves).to.equal(cap - cap // 2)
+			TestKit.note(
+				string.format(
+					"match_scene: cap %d of %d kills -> %s (the slice is her first %d, tidied inside itself)",
+					cap,
+					#mixed,
+					table.concat(tidied, ","),
+					cap
 				)
 			)
 		end)
