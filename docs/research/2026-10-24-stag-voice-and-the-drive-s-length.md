@@ -169,7 +169,72 @@ three candidates, with their arithmetic, are there.
   its id, its volume, its roll-off, the point it sounds from and the distance to the stand. Whether a
   bull bellow at pitch 1.15 and 372 studs reads as a stag roaring across a valley is **Karen's ears**.
 * The CC0 recording (S1) is **not uploaded**: it is verified, cut-ready and waiting on the Director.
-  No asset id is claimed for it.
+  No asset id is claimed for it. **Superseded on 2026-10-24 by section 6 below** -- it is uploaded
+  and it is in the game.
 * The 0.9 m/s advance is a reasoned average, not a measured one: no source gives a figure in metres
   per second for a beater line, which is recorded here as a negative result exactly as task 126
   recorded it for the pause at a forest edge.
+
+---
+
+## 6. Amendment, 2026-10-24 (task 254): S1 is uploaded, and the cut is measured, not chosen
+
+Section 2.1 adopted *"both, in the order the spec recommends: ship S5 now, upload S1 next"*. S1 is
+uploaded -- asset **122287696922128**, `Audio`, creator 8167651842, moderation **Approved** -- and
+`ForestTest.ROAR.ids[1]` is now that id, with the four library bulls kept behind it as the revert
+path.
+
+**Two of this note's own sentences have to be withdrawn, and one is withdrawn only in part.**
+
+**(1) *"nobody in this toolchain can audition it"* was wrong, and that mattered.** It is true that
+nobody here can judge whether the recording *sounds* like a stag -- that is section 5's point and it
+still stands, it is Karen's ears. But the *loudness* of a recording is a measurement, and skipping it
+would have shipped a cue two thirds of which was inaudible. Two instruments were available the whole
+time:
+
+* **Offline, on the uploaded bytes.** `soundfile` decodes the mp3 the manifest row's sha256 names:
+  48 kHz stereo, **52.8965 s**, against the `TimeLength = 52.897` Roblox answers for the asset -- the
+  same timeline, which is what makes cutting the file offline and playing the result by region legal.
+  A 50 ms RMS envelope, smoothed with a 200 ms running max and gated 6 dB over the recording's own
+  forest floor of **-45.2 dBFS**, finds **seven** events. Three are one clean roar of the right
+  length with silence at both ends; the rest are a 6.9-second sequence (22.6-29.4 s) or 4-9 dB down
+  and choppy.
+* **Live, on the asset itself.** `Sound.PlaybackLoudness`, sampled at ~30 Hz on a client in a Play
+  session. It answers **0 in Edit at every volume** -- which is how a region that plays nothing
+  passes a bench test -- and real numbers in Play.
+
+**(2) The level was the defect this measurement found.** A field recording is not a production
+sample. At `Volume = 1` the three regions peak `PlaybackLoudness` **98, 54 and 50**; the four library
+bulls the cue shipped with peak **94, 115, 161 and 198** (mean 142). So two of the three roars sit
+8-9 dB under the voice Karen has already heard, and at `audibleStuds` 420 with `InverseTapered`
+roll-off that is the difference between a roar and nothing. Each region therefore carries a `gain` of
+142 over its own peak -- **1.45, 2.63, 2.84** -- which equalises the three to each other and to what
+shipped. The means agree within 7 % (28/15/13 against 39.5 give 1.41/2.63/3.04); the peaks are used
+because they keep every effective volume at or under 1.0.
+
+### 6.1 The cut, and the numeric targets
+
+| region | seconds of the recording | length | peak | over the floor | `gain` | effective volume |
+|---|---|---|---|---|---|---|
+| 1 | 0.20 -> 5.20 | 5.00 s | -24.4 dBFS | 20.8 dB | 1.45 | 0.51 |
+| 2 | 9.45 -> 14.45 | 5.00 s | -28.2 dBFS | 17.0 dB | 2.63 | 0.92 |
+| 3 | 35.60 -> 40.60 | 5.00 s | -28.5 dBFS | 16.7 dB | 2.84 | 0.99 |
+
+* **One roar per cue, never the file**, through `Sound.PlaybackRegion` with
+  `PlaybackRegionsEnabled` -- measured as honoured to the sample (`timePos=0.20..5.20`).
+* **4-6 s**, which is section 2.3's own target for this cue and the Director's dispatch's.
+* **No overlap**, so no roar is ever two entries wearing two names.
+* **Pitch 1, not 1.15.** The 1.15 exists because a bull is three times a stag's weight. This
+  recording is the animal.
+* **0.35 s fade at each end**, and that number is measured too: the roar starts 0.60, 0.65 and 0.80 s
+  after its region does and ends 0.60, 0.65 and 1.75 s before it, so neither fade ever touches the
+  bellow -- it only shapes the forest noise the region opens and closes on.
+
+### 6.2 And one thing this amendment adds to section 5
+
+**A manifest row's moderation state is a snapshot, not a verdict.** The upload's own row recorded
+`"moderationState": "Reviewing"`, because that is what the operation answered while the asset was
+still in the queue. A live re-read on 2026-10-24 (`GET /assets/v1/assets/122287696922128`) answers
+`Approved` / `Active`, and so does the same operation re-polled. `assets/uploads.json` carries the
+re-read state and says where it came from. Carrying the snapshot forward is how a rejected asset
+ships as an approved one.

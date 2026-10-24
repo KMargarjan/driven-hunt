@@ -25,6 +25,9 @@ local Workspace = game:GetService("Workspace")
 local PathfindingService = game:GetService("PathfindingService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+-- FOR THE RUT ROAR'S FADE AND NOTHING ELSE (task 254): `ForestTest.roarFade` tweens the one Sound
+-- this module owns, because a region cut out of a field recording clicks without one.
+local TweenService = game:GetService("TweenService")
 -- THE INSTANCE AS WELL AS THE TABLE: `publishLayout` writes an attribute on the module's own
 -- Rojo-owned child (`Live`), which is found through this handle and never by searching
 -- `ReplicatedStorage` -- `Flags.state`'s rule, for the reason that file writes down.
@@ -575,6 +578,13 @@ local state = {
 	roarSound = nil :: Sound?,
 	nextRoarAt = nil :: number?,
 	roars = 0,
+	-- THE FADE'S OWN TWO FIELDS (task 254). A region cut out of a 52.9-second field recording is
+	-- faded in and out, which means a `Volume` tween that outlives the call that started it -- so the
+	-- delayed half checks `roarGen` and does nothing if a later roar has started since, and
+	-- `roarTween` is held so a new roar can cancel the one still running. Without the generation a
+	-- stale fade-out would silence the NEXT roar 0.35 s into it.
+	roarGen = 0,
+	roarTween = nil :: Tween?,
 	active = {} :: { { centre: Vector3, handles: { any }, at: number, turnsBack: boolean, id: string } },
 	picks = {} :: { [number]: { index: number, lockedAt: number? } },
 	-- WHICH ROLE A PLAYER HAS ASKED FOR AND NOT YET BEEN GIVEN, in Karen's own words (task 151,
@@ -3456,6 +3466,11 @@ function ForestTest.roarEmitter(): Sound?
 	part.Parent = Workspace
 	local made = Instance.new("Sound")
 	made.Name = "Roar"
+	-- THESE THREE ARE A STARTING POSITION AND NOTHING SOUNDS AT THEM: `roarNow` writes the id, the
+	-- region, the volume and the speed from `Data.roarClip` before every single `Play`. `ids[1]` is
+	-- set here anyway, and since task 254 that EARNS ITS KEEP -- it is the real recording, so the
+	-- emitter replicating makes every client start fetching the asset the first roar will want,
+	-- instead of fetching it when it is already due.
 	made.SoundId = Boar.soundUri(roar.ids[1])
 	made.Volume = roar.volume
 	made.PlaybackSpeed = roar.pitch
@@ -3499,6 +3514,52 @@ function ForestTest.stepRoar(now: number): string?
 	return ForestTest.roarNow(at, "the far wood")
 end
 
+-- THE FADE, AND THE VOLUME THIS MODULE IS STILL THE ONLY WRITER OF (task 254, rule 3). A region cut
+-- out of the middle of a 48 kHz field recording has to be faded in and out or the cut clicks; the
+-- region's own edges sit in the recording's forest noise and the fade only shapes that, never the
+-- bellow (`Data.ROAR.clips`'s own comment has the margins, measured).
+--
+-- IT IS TWO TWEENS AND THEY MUST NOT BE PLAYED TOGETHER. TweenService cancels an earlier tween that
+-- touches the same property, so a fade-out created with `TweenInfo`'s `delayTime` would cancel the
+-- fade-in the instant it was played. Hence `task.delay`, and hence `state.roarGen`: the delayed half
+-- is the only code in this module that can run after a LATER roar has started, so it checks that it
+-- is still the current one and leaves the Sound alone if it is not.
+--
+-- A CLIP WITH NO FADE (every library id, through `roarClip`'s fallback) just gets its volume set,
+-- which is what task 251 part 2 did.
+function ForestTest.roarFade(sound: Sound, clip)
+	local previous = state.roarTween
+	if previous ~= nil then
+		previous:Cancel()
+		state.roarTween = nil
+	end
+	state.roarGen += 1
+	local generation = state.roarGen
+	local fade = clip.fadeSeconds or 0
+	if fade <= 0 or clip.from == nil or clip.to == nil then
+		sound.Volume = clip.volume
+		return
+	end
+	sound.Volume = 0
+	local easing = TweenInfo.new(fade, Enum.EasingStyle.Linear)
+	local rising = TweenService:Create(sound, easing, { Volume = clip.volume })
+	state.roarTween = rising
+	rising:Play()
+	-- WHEN THE FADE-OUT STARTS: the region's length in SECONDS OF PLAYBACK, which is its length in
+	-- the recording divided by the playback speed -- 5.00 s at pitch 1 for the stag, and a pitched
+	-- clip would be shorter. `max(..., fade)` keeps a region shorter than two fades from scheduling
+	-- the fade-out before the fade-in has finished.
+	local playing = (clip.to - clip.from) / math.max(clip.pitch, 0.01)
+	task.delay(math.max(playing - fade, fade), function()
+		if state.roarGen ~= generation or sound.Parent == nil then
+			return
+		end
+		local falling = TweenService:Create(sound, easing, { Volume = 0 })
+		state.roarTween = falling
+		falling:Play()
+	end)
+end
+
 -- SOUND IT, HERE, NOW. Split out because the spec asks for the roar twice -- through the window above
 -- and *"then once at his release"* -- and two callers of one Instance must not be two ways of playing
 -- it. Returns the console line, or nil when nothing could be played.
@@ -3511,11 +3572,24 @@ function ForestTest.roarNow(at: Vector3, where: string): string?
 	if sound.IsPlaying then
 		return nil -- one at a time, server-wide
 	end
-	local roar = Data.ROAR
+	local clip = Data.roarClip(state.rng)
+	if clip == nil then
+		return nil -- no ids at all: nothing to sound, and silence beats a nil SoundId
+	end
 	part.Position = at
-	sound.SoundId = Boar.soundUri(roar.ids[state.rng:NextInteger(1, #roar.ids)])
-	sound.PlaybackSpeed = roar.pitch
-	sound.Volume = roar.volume
+	sound.SoundId = Boar.soundUri(clip.id)
+	sound.PlaybackSpeed = clip.pitch
+	-- THE REGION IS SET *OR CLEARED* ON EVERY PLAY, and that is not tidiness (task 254). There is one
+	-- Sound for every id, so a library bellow played after the real stag would inherit a 0.2-5.2 s
+	-- window into a 3.6-second clip -- a cue that plays the last 3.4 s of nothing. The one place that
+	-- decides which id sounds is the one place that decides what part of it does.
+	if clip.from ~= nil and clip.to ~= nil then
+		sound.PlaybackRegionsEnabled = true
+		sound.PlaybackRegion = NumberRange.new(clip.from, clip.to)
+	else
+		sound.PlaybackRegionsEnabled = false
+	end
+	ForestTest.roarFade(sound, clip)
 	sound:Play()
 	state.roars += 1
 	-- THE FIGURE IS FLAT AND IS MEASURED FROM THE ROAD AT HIS OWN x, which review round 2's note is
@@ -3523,12 +3597,24 @@ function ForestTest.roarNow(at: Vector3, where: string): string?
 	-- sine, so with a stand well off to one side the two differ by up to the lane's amplitude (30
 	-- studs). It is said in the line rather than silently rounded, because this number is the one the
 	-- live proof reads and `forest_line.spec` asserts the real geometry against `audibleStuds`.
+	--
+	-- AND IT NAMES THE ID AND THE REGION IT ACTUALLY SOUNDED (task 254). The id being approved is not
+	-- the id being heard: with five ids in the table and three regions in the first of them, a line
+	-- that says only "a roar happened" cannot tell a correct cue from one playing 3.4 seconds of
+	-- nothing out of the end of a bellow. This is the line the live proof reads.
 	return string.format(
-		"ROAR %d: the stag answers from %s, ~%.0f studs out (flat, from the road at his own x), audible to %d",
+		"ROAR %d: the stag answers from %s, ~%.0f studs out (flat, from the road at his own x), "
+			.. "audible to %d -- id %d %s, volume %.2f, pitch %.2f",
 		state.roars,
 		where,
 		(Vector3.new(at.X - ForestTest.hunterStandX(), 0, at.Z - Data.roadZ(at.X, chosen.layout))).Magnitude,
-		roar.audibleStuds
+		Data.ROAR.audibleStuds,
+		clip.id,
+		if clip.from ~= nil and clip.to ~= nil
+			then string.format("region %.2f-%.2f s", clip.from, clip.to)
+			else "whole clip",
+		clip.volume,
+		clip.pitch
 	)
 end
 

@@ -1017,7 +1017,13 @@ return function()
 			-- exists, so it cannot be an animal's voice and must not book a voice slot.
 			local roar = Data.ROAR
 			expect(roar.enabled).to.equal(true)
-			expect(#roar.ids).to.equal(4) -- four, so the ambience is not one sample on a loop
+			-- FIVE SINCE TASK 254, AND THE FIRST IS THE REAL ANIMAL. It was four library bull bellows
+			-- -- *"four, so the ambience is not one sample on a loop"* -- and the real recording is
+			-- now `ids[1]` with the four kept behind it as the revert path. The variety moved from
+			-- the ids to that id's three regions; the count below is what makes it impossible to
+			-- delete the real one and still pass.
+			expect(#roar.ids).to.equal(5)
+			expect(roar.ids[1]).to.equal(122287696922128)
 			expect(roar.pitch).to.equal(Boar.CONFIG.SOUND.VOICE.stag.pitch) -- one animal, one pitch
 			-- FARTHER THAN ANY VOICE IN THIS WORLD CARRIES, and quieter than one.
 			expect(roar.audibleStuds > Boar.CONFIG.SOUND.CRY.audibleStuds).to.equal(true)
@@ -1076,6 +1082,129 @@ return function()
 					Data.slotSeconds(stagSlot, SCHEDULE)
 				)
 			)
+		end)
+
+		it("plays the real stag by region, loud, and reverts to the bulls without its clip", function()
+			-- TASK 254. `reviews/task-253` note (d): *"`roarPoint` / `roarEmitter` / `stepRoar` /
+			-- `roarNow` have no spec at all; the evidence is the live console lines"*. The CHOOSING
+			-- half is pure and lives in `Data.roarClip`, so it is driven here with no Sound, no
+			-- emitter and no Play session -- and both halves of it are, because the fallback is the
+			-- revert path and a revert path nobody drives is a revert path that does not work.
+			local roar = Data.ROAR
+			local clip = roar.clips[roar.ids[1]]
+			expect(clip).to.be.ok()
+			expect(#clip.regions).to.equal(3)
+			-- NO PITCH SHIFT ON THE REAL ANIMAL: 1.15 is there because a bull is three times a
+			-- stag's weight, and this recording IS the stag.
+			expect(clip.pitch).to.equal(1)
+			expect(clip.pitch < roar.pitch).to.equal(true)
+
+			local lastEnd = 0
+			for index, region in ipairs(clip.regions) do
+				local length = region.to - region.from
+				-- 4-6 SECONDS, which is the length the spec's cue table asks a distant roar to be
+				-- (*"3-6 s ... a distant roar must be long"*) and the length the Director's dispatch
+				-- asked for. A region outside that band is either half a roar or two of them.
+				expect(length >= 4).to.equal(true)
+				expect(length <= 6).to.equal(true)
+				-- INSIDE THE RECORDING, which is 52.897 s long as the live run measured it. A region
+				-- past the end plays silence and `PlaybackRegion` will not say so.
+				expect(region.from >= 0).to.equal(true)
+				expect(region.to <= 52.89).to.equal(true)
+				-- IN ORDER AND NEVER OVERLAPPING: two regions sharing a roar is the same sample
+				-- twice wearing two names.
+				expect(region.from > lastEnd).to.equal(true)
+				lastEnd = region.to
+				-- BOTH FADES FIT INSIDE THE REGION, twice over, or the fade-out would start before
+				-- the fade-in finished and the cue would never reach its own volume.
+				expect(clip.fadeSeconds * 2 < length).to.equal(true)
+				-- THE GAIN IS WHAT MAKES ALL THREE AUDIBLE, and it is measured: 142 (the mean peak
+				-- `PlaybackLoudness` of the four bulls this cue shipped with) over each region's own
+				-- peak of 98, 54 and 50. It only ever lifts, and never past 1.0, which is the
+				-- ceiling the peak-based figures were chosen to keep.
+				expect(region.gain >= 1).to.equal(true)
+				local effective = roar.volume * region.gain
+				expect(effective <= 1).to.equal(true)
+				-- ...AND IT LANDS WHERE THE BULLS ARE, to a tenth: that is the whole claim, because
+				-- this task changes WHICH ANIMAL sounds and not how loud the cue is.
+				local peaks = { 98, 54, 50 }
+				expect(math.abs(peaks[index] * region.gain - 142) < 1).to.equal(true)
+			end
+			TestKit.note(
+				string.format(
+					"3 regions of asset %d, %.2f-%.2f s, at volume %.2f-%.2f (dial %.2f x gain %.2f-%.2f)",
+					roar.ids[1],
+					clip.regions[1].from,
+					clip.regions[#clip.regions].to,
+					roar.volume * clip.regions[1].gain,
+					roar.volume * clip.regions[3].gain,
+					roar.volume,
+					clip.regions[1].gain,
+					clip.regions[3].gain
+				)
+			)
+
+			-- WHAT SOUNDS: the real stag, every time, with one of its three regions and that
+			-- region's own volume. Driven over enough picks that all three regions turn up, so a
+			-- chooser that always answered `regions[1]` would fail.
+			local rng = Random.new(254)
+			local seen = {}
+			for _ = 1, 200 do
+				local chosen = Data.roarClip(rng)
+				expect(chosen.id).to.equal(roar.ids[1])
+				expect(chosen.pitch).to.equal(1)
+				expect(chosen.fadeSeconds).to.equal(clip.fadeSeconds)
+				expect(chosen.from).to.be.ok()
+				expect(chosen.to).to.be.ok()
+				local found = nil
+				for _, region in ipairs(clip.regions) do
+					if region.from == chosen.from and region.to == chosen.to then
+						found = region
+					end
+				end
+				expect(found).to.be.ok()
+				expect(chosen.volume).to.equal(roar.volume * found.gain)
+				seen[chosen.from] = true
+			end
+			local distinct = 0
+			for _ in pairs(seen) do
+				distinct += 1
+			end
+			expect(distinct).to.equal(3)
+
+			-- THE REVERT PATH, BY PARAMETER (the flag rule's shape, and the only way to drive the
+			-- half that does not ship). Take the clip away and this is task 251 part 2 exactly: a
+			-- uniform pick over the ids at the table's own pitch and volume, and NO REGION -- which
+			-- matters, because `roarNow` reads `from`/`to` to decide whether to clear
+			-- `PlaybackRegionsEnabled` on the one Sound in the world.
+			local reverted = {
+				ids = { roar.ids[2], roar.ids[3], roar.ids[4], roar.ids[5] },
+				pitch = roar.pitch,
+				volume = roar.volume,
+			}
+			local heard = {}
+			for _ = 1, 200 do
+				local chosen = Data.roarClip(rng, reverted)
+				expect(chosen.from).to.equal(nil)
+				expect(chosen.to).to.equal(nil)
+				expect(chosen.pitch).to.equal(roar.pitch)
+				expect(chosen.volume).to.equal(roar.volume)
+				heard[chosen.id] = true
+			end
+			for index = 2, 5 do
+				expect(heard[roar.ids[index]]).to.equal(true)
+			end
+			-- AN EMPTY REGION LIST IS THE SAME AS NO CLIP, rather than an index into nothing.
+			local empty = Data.roarClip(rng, {
+				ids = roar.ids,
+				clips = { [roar.ids[1]] = { regions = {} } },
+				pitch = roar.pitch,
+				volume = roar.volume,
+			})
+			expect(empty.from).to.equal(nil)
+			expect(empty.pitch).to.equal(roar.pitch)
+			-- AND NO IDS AT ALL IS SILENCE, not a nil SoundId.
+			expect(Data.roarClip(rng, { ids = {}, pitch = 1, volume = 1 })).to.equal(nil)
 		end)
 
 		it("repeats the body of the drive when a drive outlives its script, and never a second stag", function()

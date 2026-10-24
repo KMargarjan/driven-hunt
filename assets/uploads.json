@@ -1058,5 +1058,27 @@
     "pollSeconds": 4.4,
     "polls": 2,
     "karenOk": "2026-10-22 Karen chose \"B\" when the Director asked: \"I check them against your notes. If they're good, I build and upload right away (our own art, no real names)\" -- goods-spec.md section 8.3 upload 6, goods2-hunter-card.png"
+  },
+  {
+    "tool": "director-upload-audio/1",
+    "at": "2026-10-24T09:11:49Z",
+    "assetId": "122287696922128",
+    "assetType": "Audio",
+    "displayName": "Driven Hunt red stag rut roar",
+    "description": "Red stag roaring in the rut (field recording). Freesound 653532 by L.Finck, CC0.",
+    "creatorUserId": "8167651842",
+    "file": "stag-roar-653532-hq.mp3",
+    "sourceFolder": "sounds/stag-roar",
+    "bytes": 1209312,
+    "sha256": "65db9af5c730a0a5add252da2b5a3af05da577d5b5e172184194f37a13c3342d",
+    "contentType": "audio/mpeg",
+    "operation": "operations/a21932dc-bdd1-47d5-96d4-9527f3385be0",
+    "moderationState": "Approved",
+    "moderationStateFrom": "re-read live 2026-10-24 (task 254): GET /assets/v1/assets/122287696922128 -> moderationResult.moderationState = Approved, state = Active. The upload's own row said Reviewing, which is what the operation answered while the asset was still queued; the same operation re-polled now also answers Approved.",
+    "pollSeconds": 3.2,
+    "polls": 1,
+    "source": "https://freesound.org/people/L.Finck/sounds/653532/ (CC0, HQ preview mp3, 52.897 s, 48 kHz)",
+    "karenOk": "2026-10-23 Karen: \"ok\" to uploads of free CC0 sound recordings incl. the red stag roar; 2026-10-24 Karen: \"you upload sound ok ?\" / \"do it yourself\"",
+    "toolNote": "tools/roblox_upload.py implements Model and Decal and refuses Audio by name, so the Director uploaded this one with a one-off ops script that reuses its functions; `tool` is that script's name as it reported itself."
   }
 ]
