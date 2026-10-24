@@ -55,7 +55,7 @@ nobody in this toolchain can hear it and whether it reads as a stag is her ear a
 
 ## 2026-10-24 - Task 251 part 2: **A DECISION IS NEEDED, AND IT IS ONE NUMBER AGAIN. ACT III OF THE DRIVE SCRIPT IS RELEASED *BEHIND* THE ADVANCING BEATER LINE, SO THE STAG'S OWN BEHAVIOUR NEVER FIRES IN KAREN'S PLACE.**
 
-**The code of part 2 is built, gated and pushed** (`[harness] PASS: 34/34 checks @ d238aeaa (clean
+**The code of part 2 is built, gated and pushed** (`[harness] PASS: 34/34 checks @ fc05881e (clean
 tree) scope=all`). What is escalated is a drive-shape number, which is the Director's and Karen's and
 not a Builder's -- the same class of decision as part 1's interval, and found the same way: by
 running the thing.

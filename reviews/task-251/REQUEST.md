@@ -1,12 +1,12 @@
 # Task 251 part 2 — the drive's length, the red stag's behaviour and his voice
 
 Task: 251
-Round: 2
+Round: 3
 Base: 2b47d3a7950eca334a8b9b2e2d699a80f485f52a (`main`, which carries part 1 through PR #231)
-Code commit: 0f90083b26f86917b2d6dba9ddc59256051f38bc
+Code commit: fc05881e9c1fcb726dfb716eb0973f000932906a
 
 ```
-[harness] PASS: 34/34 checks @ 0f90083b26f86917b2d6dba9ddc59256051f38bc (clean tree) scope=all
+[harness] PASS: 34/34 checks @ fc05881e9c1fcb726dfb716eb0973f000932906a (clean tree) scope=all
 ```
 
 `test2` is **N/A**: no file in `TWO_PLAYER_PATHS` is touched (`git diff --name-only 2b47d3a7..HEAD`
@@ -17,9 +17,14 @@ is `src/server/Boar/`, `src/server/Bots/`, `src/server/ForestTest*`, `src/shared
 part 2's first round was `Round: 1`** (`expected = 1 if ... prev_verdict == "PASS"`). This request is
 written fresh and describes the final state, not a history.
 
-**Round 1's one blocking finding was right and is fixed at its cause — claim 6 below is the new
-one.** Four of its six notes are fixed too, because each was a correction rather than a preference;
-the remaining two are listed at the end as queued.
+**Both rounds' single blocking findings were right and are fixed at their cause.** Round 1's is
+claim 6 (the look back measured its limit from a field the slew mutates). Round 2's is claim 10 (the
+alarm bark's PRODUCER was tested by nothing). Of the nineteen notes across the two rounds, **twelve
+are fixed** — each a correction rather than a preference — and the rest are queued in `TASKS.md` as
+251c, listed at the end.
+
+**This is `Round: 3`, which is `MAX_ROUNDS`.** A blocking finding here is an `ESCALATE.md` entry and
+not another round.
 
 ## What changed, in one paragraph
 
@@ -136,12 +141,29 @@ earshot four times a drive with a console line claiming it was not. Now `audible
 `deeperStuds = 30`, and `forest_line.spec` asserts the **reach against the row it sounds from**
 rather than a literal. Second drive: `372 studs from the stand, audible to 420`, five times.
 
-**10. The alarm bark adds no asset id, and goes through the same voice ration as every other cry.**
-`Runtime:check` plays the animal's own `cry` row when `MOVE.EDGE_BARKS` is true and
-`self:_claimSqueal()` grants a slot — task 240 chose the stag's `cry` samples ("Bull Breaths 4 / 9",
-*"Bestial Grunts, Bellowing"*) **expressly as the warning bark** and wrote that down at the time. The
-check still happens whether or not a voice was free. Verify: `Runtime:check`, and `deer.spec`'s
-"barks when he takes the check, and a calf never does".
+**10. The alarm bark's PRODUCER is driven in a live runtime — which is round 2's blocking finding,
+fixed at its cause.** `Runtime:check` plays the animal's own `cry` row when `MOVE.EDGE_BARKS` is true
+and the slot ration allows it; task 240 chose the stag's `cry` samples ("Bull Breaths 4 / 9",
+*"Bestial Grunts, Bellowing"*) **expressly as the warning bark**, so no asset id is added. Round 2
+was right that the only case for it asserted the SWITCH and the SAMPLE, so the whole block — and
+`Body.canPlayOneShot` with it — could be deleted and everything still passed. Verify in
+`boar_shot.spec`, where this repo drives a live runtime's sounds:
+* *"BARKS when a deer takes the edge check, and a calf and a boar never do"* — a runtime with `MOVE`
+  on and the deer's edge chance forced to 1 (`certainKinds`; the shipped 0.90 and 0.75 stay
+  `deer.spec`'s), a stag, a hind, a calf and a boar each offered a check, and the **cry play count**
+  read off each: **measured 1, 1, 0, 0** (harness note `task251 bark: stag 1, hind 1, calf 0,
+  boar 0`). The calf and the boar carry no `edge` row, so both are driven until they accept a check —
+  an animal that never accepted one would prove nothing about whether it barks. Plus
+  once-per-approach, which gives no second bark.
+* *"does not spend a world squeal slot on a bark nobody could hear"* — round 1's note, provable for
+  the first time because `Runtime:stats()` now reports **`squeals`**, the live booking count.
+  `squealsSkipped` counts *refusals*, so a slot taken and WASTED was invisible: "heard" and "booked a
+  voice and was silent" looked identical from outside. With `SOUND.CRY.enabled = false`, three
+  barkless checks book **0** voices and skip **0**; the same three checks in a world whose cue is ON
+  book `MAX_SQUEALS` and skip 1. The first pair is what fails on the old claim-then-play ordering.
+  (The other arm of the predicate — no Sound of that name in `handle.sounds` — is not reachable from
+  a spec: the public handle carries `soundPlays` and `part`, not `sounds`, and destroying the
+  Instance leaves the table's reference in place. Two harness runs measured exactly that.)
 
 ## What could not be verified, and the one thing that is escalated
 
@@ -170,25 +192,42 @@ check still happens whether or not a voice was free. Verify: `Runtime:check`, an
   it green. **Queued rather than touched**, because it is somebody else's case and a Builder guessing
   at a client timing window is how a flake becomes a wrong fix.
 
-## Round 1's notes: what was fixed and what is queued
+## The two rounds' notes: what was fixed and what is queued
 
-Fixed here, each because it is a correction and not a preference:
-* the bark claims its squeal slot only once `Body.canPlayOneShot` says it would be heard — a claim
-  spent on silence would quiet a dying boar (`Runtime:check`, and the new predicate beside
-  `playOneShot`, which reads the same two fields three lines apart rather than copying the rule);
-* `ForestTest.roarEmitter` destroys the Part it replaces instead of orphaning it in Workspace;
-* two sentences in `src/shared/ForestTest` still quoted `120.0 s` and `1.40 m/s`;
-* `forest_stand.spec`'s case title oversold its per-layout loop, and now says what the loop proves;
-* `forest_line.spec`'s roar reach says the figure is **flat** and asserts it against a 60-stud rise
-  as well, since the emitter stands on higher ground than the road.
+Fixed, each because it is a correction and not a preference:
+* **round 1** — the bark claims its squeal slot only once `Body.canPlayOneShot` says it would be
+  heard (a claim spent on silence would quiet a dying boar; the predicate reads the same two fields
+  `playOneShot` does, three lines apart, rather than copying the rule); `roarEmitter` destroys the
+  Part it replaces; two sentences in `src/shared/ForestTest` still quoted `120.0 s` and `1.40 m/s`;
+  `forest_stand.spec`'s title oversold its per-layout loop; `forest_line.spec`'s roar reach says the
+  figure is **flat** and asserts it against a 60-stud rise as well.
+* **round 2** — the roar's comment said *"four roars"* where its own three numbers give **five**
+  (both live drives printed five, and `forest_line.spec` computes it off the numbers); its closing
+  line still said 350 studs after the reach moved to 420; `MOVE`'s header said *"these three"* of
+  five keys; `Runtime:check` reads **`entry.config`** — the config the animal was born with, which is
+  what that field exists for — instead of recomputing `kindConfig` per check; **`ForestTest.step`
+  returns BOTH lines** instead of `releaseLine(now) or flush`, so a roar on the same tick as a slot
+  release no longer vanishes from the proof that counts it; `roarNow`'s console figure says it is
+  flat and measured from the road at his own x; `forest_stand.spec` says its margin is a **tripwire
+  and not a band** (193.5 against 192 flat); one overlong comment line in `Bots`; and two spec
+  sentences that read as contradictions plus one case title that promised a word it does not prove.
 
-Queued in `TASKS.md` as 251c rather than done here:
-* **bounding the look back's `nearest` by `Brain.noticeRadius`.** The Reviewer is right that
-  `_perception.nearest` is the nearest threat at *any* distance, so the look back is offered against
-  a man 400 studs away. It is a **behaviour change** — `perceive` keeps no threat beside `nearest`,
-  so the bound needs the radius computed against the cause — and the harness runs with
-  `BOAR_BEHAVIOUR` lit, so it would change what Karen sees in the same round that fixes a blocking
-  finding. One task, nothing extra (rule 4).
+Queued in `TASKS.md` as 251c rather than done here, with the reason in each case:
+* **bounding the look back's `nearest` by `Brain.noticeRadius`** — right, and a **behaviour change**:
+  `perceive` keeps no threat beside `nearest`, so the bound needs the radius computed against the
+  cause, and the harness runs with `BOAR_BEHAVIOUR` lit. Not in the round that fixes a blocking
+  finding (rule 4).
+* **`releaseLine`'s two sneak `table.insert` lines are driven by no case**, which the Reviewer
+  himself says belongs with the already-queued 251a(a) (*"`releaseLine` is driven by no spec at
+  all"*). The case title no longer claims the word it cannot prove.
+* **`Brain:spook`'s bound wiring** (`_leapFor = leap.SECONDS`) is covered only through the pure
+  `boundStarts`. It is reachable by parameter, which is what the flag rule requires.
+* **`roarPoint` / `roarEmitter` / `stepRoar` / `roarNow` have no spec**; the evidence is the live
+  console. `roarPoint`'s arithmetic and `stepRoar`'s window are drivable without a Sound.
+* **the drift after a look-back check expires** — `_desired` sits 150 degrees off the route and the
+  order was dropped, so the animal sets off on the look-back heading for ~1.7 s until the drive
+  re-orders it. Correct by the design's *"a yaw order, not an animation"*, but it is drift part 1 did
+  not have and it is on every hind's path: it wants a measured look, not a playtest discovery.
 * `camera_client.spec:1618`, above.
 * **The Forest Test cannot be probed in Edit mode**: every module in `ReplicatedStorage` there answers
   *"Module code did not return exactly one value"* to a `require` from the Assistant, including ones
