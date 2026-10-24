@@ -1,4 +1,4 @@
-# Design: shotgun (v3)
+# Design: shotgun (v3, amended v3.1 for Task 256)
 
 Architect, 2026-09-25, for Task 24. Commit `2134b99c093f81151116d5d7adf870b64cfe7670`
 (`.agent-evidence/head.txt`). Read-only session: Read, Grep, Glob. No Studio, no network. Evidence
@@ -23,6 +23,38 @@ numbers and the damage seam are v2's and are unchanged.
 **Test of this document:** a Builder can build the weapon from it without asking a question. Every
 number is here, every owner is named, every interface is written out, and every scenario step is
 written out as JSON.
+
+---
+
+## 0. v3.1 — the Task 256 amendment, and exactly what it touches
+
+Architect, 2026-10-24, for Task 256, to `reviews/task-256/BRIEF.md` (the Director's decision of
+2026-10-24, carried by the Builder). Commit `25e2352f41138f181c2ce9afa8c952104c453b7a`
+(`.agent-evidence/head.txt`). The brief overrides anything older in `docs/`, `TASKS.md` or this
+design, and it is a decision already taken — **forward prediction of the shot by the shooter's
+measured delay is ALLOWED; rewinding targets is still FORBIDDEN** — so this amendment writes the
+designs to match the code that shipped, and does not re-litigate the mechanism.
+
+**Everything outside this list is v3, verbatim.** The brief's scope section forbids a redesign of the
+ballistics, the hit zones, the hit mark and the scope, and requires every unrelated section to come
+back intact; `tools/agents.py`'s `cmd_architect` overwrites the whole file with this document, so the
+rest of it is reproduced unchanged on purpose.
+
+| Where | What changed in v3.1 |
+|---|---|
+| §0 | this section (new) |
+| §10 | three sources added, **J**, **K** and **L**, inherited from `docs/research/2026-10-24-real-shooting.md` sources A, B and C. A–I are untouched |
+| §11 | the lag paragraph is replaced by **§11.1**, which keeps its credit and records what was done. Two config rows and three target rows added |
+| §15 | one Karen row (8) and one Director row (H) added. Rows 1–7 and A–G are untouched |
+| §16 | the lag bullet gains a Task 256 amendment; one bullet added for what a loopback Studio session cannot measure |
+
+**What is stale in v3 and is deliberately NOT rewritten here** (the brief forbids it, and
+`docs/design/ballistics.md` is the owner of the answer): §10 source A's *"Adopted: hitscan"* and §10's
+closing *"server-authoritative hitscan"*. The shot has been a stepped projectile since Task 185
+(`src/server/Weapon/Flight.luau`, `ReplicatedStorage.Ballistics`), and **`docs/design/ballistics.md`
+is the design of record for the projectile model, `Flight`'s module contract and the prohibition on
+rewinding.** §11.1 is the shotgun-side statement of the same decision; where the two could be read
+differently, `ballistics.md` wins on the projectile and this file wins on the weapon's owners.
 
 ---
 
@@ -66,6 +98,7 @@ section and quote, never by line (`CLAUDE.md`, the loop, step 4).
 | Never add a Wally package in this task | `wally.lock` and `devpackages.sha256` are pinned against the commit (`tools/studio_mcp.py` docstring, check 4); the one package worth having is the ADS spring, deferred with ADS (§10 source G) | — |
 | Never let a client name what it hit, and never cast on the client | §5.7 | — |
 | Never return `Enum.ContextActionResult.Sink` from a weapon action | sinking MouseButton2 breaks the stock camera's own rotation, and sinking MouseButton1/R breaks the Task 6 input probe that shares those inputs (§5.6, §13.3) | — |
+| **Never keep a position history of a target, and never resolve a shot against a rewound world** (v3.1, Task 256) | "Two systems wrote the creature's position", and rewinding "exists to remove the feeling Karen asked for" — it deletes the lead | `Boar.Body` is the only store of where a boar is. The allowed correction is forward prediction only: §11.1 |
 
 **A predicate answers one question.** `StateMachine.apply` says whether an action is legal. It does
 not say whether the crosshair is visible, whether the Tool is equipped, or whether the camera is in
@@ -781,6 +814,7 @@ and belongs with the reaction in 1.5. It is listed for Karen in §15.
 | attribute `Damageable: boolean`, attribute `HitZone: string` | the target's own owner — for the boar, `Boar.Body` (§6.4) | delivered by this task |
 | `DriveLine` through the injected provider | match state, `ROADMAP.md` 1.7 | not built; the provider is `nil`, so `SafetyArc` never fires |
 | `Weapon.get()` / `.Changed` / `.Input.AimChanged` (the Hud reads these) | `PlayerScripts.Weapon` | this task |
+| `Player:GetNetworkPing()` (server, the lag correction — v3.1, Task 256) | the engine. **Read in exactly one place**, `Weapon.catchUpFor` (`src/server/Weapon/init.luau`), and never on the client, so nothing a client sends can move it | §11.1 |
 
 The injected provider is what lets the safety hook exist before the drive line does, with no
 placeholder to delete later and no second owner of the drive-line geometry. It is the same mechanism
@@ -800,6 +834,7 @@ placeholder to delete later and no second owner of the drive-line geometry. It i
 | `HitReported`, `SafetyViolated` | `ServerScriptService.Weapon` |
 | boar hit counters, `Runtime.Hit` | `ServerScriptService.Boar` (§6) |
 | `LocalPlayer` attribute `InputProbeReady` | `ClientTests.InputReady` (§13.3) — test-only, one writer |
+| the per-shot lag correction, and the clamp on it (v3.1, Task 256) | `ServerScriptService.Weapon`: `Weapon.catchUpFor` computes it, `Flight.launch` clamps it, `Flight.advance` spends it once (§11.1). No target position is written or stored anywhere |
 
 `Workspace.WeaponEffects` is created at runtime, on the client, during Play only. Workspace is not
 Rojo-owned (`CLAUDE.md`, Layout) and the harness compares the Edit-mode DataModel, so runtime
@@ -915,6 +950,9 @@ server cast at server-time positions misses a target the client saw — the lag 
 **Adopted:** hitscan, server-side, one ray per projectile, slug 1 and buckshot 9, wrapped behind
 `CastFn` **with an ignore list** so the pipeline stays pure and testable (`Weapon.setCast`,
 `Weapon.Cast`). The ignore list is the fix for defect (a).
+*(v3.1 note: the shot became a stepped projectile over this same `CastFn` seam in Task 185 —
+`src/server/Weapon/Flight.luau`. `docs/design/ballistics.md` is the design of record for that; the
+cast seam, the ignore list and the one-`Raycast`-caller rule below are unchanged by it.)*
 
 ### B. Roblox RemoteEvents and client/server trust
 <https://create.roblox.com/docs/scripting/events/remote-events-and-callbacks> · first-party (CC BY
@@ -1018,6 +1056,55 @@ injected, one named function for a policy a later milestone replaces (`CONFIG.is
 `Boar.defaultWorld` at smaller scale, and `Weapon.stats()` is `Runtime:stats()`. The second system in
 a repo either establishes the conventions or fights them.
 
+### J. Roblox `Player:GetNetworkPing` (v3.1, Task 256)
+<https://create.roblox.com/docs/reference/engine/classes/Player#GetNetworkPing> ·
+<https://create.roblox.com/docs/physics/network-ownership> · first-party creator docs (CC BY 4.0); the
+API ships with the engine · actively maintained. Inherited from
+`docs/research/2026-10-24-real-shooting.md` source A and not re-derived.
+**Good:** the engine's own measurement, and the only latency number a server can read without a wire
+protocol, a clock synchronisation or a timestamp from the client. **Unspoofable here precisely because
+the client never sends it** — which is what keeps §5.7's trust model intact while the correction
+exists at all.
+**Bad:** the page says only *"the network ping in seconds"* and **does not state whether that is the
+round trip or one way**, while the correction the derivation asks for is the round trip
+(`docs/research/2026-10-24-real-shooting.md` §5.1). It is also a smoothed average, so one shot's own
+trip is not knowable from it, and in a loopback Studio session it reads 1–2 ms, which cannot
+distinguish the two readings.
+**Adopted:** read in exactly one function, `Weapon.catchUpFor`, with the ambiguity exposed as the
+config row `FLIGHT_CATCHUP_PING_FACTOR` (§11.1 item 6) rather than buried in a literal.
+
+### K. Valve, *Source Multiplayer Networking* — lag compensation. **Analysis adopted, mechanism REFUSED** (v3.1, Task 256)
+<https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking> · Valve's public developer
+wiki (community-editable, Valve-hosted; **no open licence grant — read for its analysis, nothing is
+copied**) · maintained. Inherited from the research note's source B.
+**Good:** the canonical statement of the problem — *"the server moves the player hitboxes back in time
+to where they were when the player fired"* — and it names the term everyone else forgets:
+interpolation delay, not just ping. The derivation in §11.1 is this analysis.
+**Bad, for us:** it rewinds a per-hitbox position history. That is **a second store of where every
+animal in the drive was**, and `Boar.Body` is the only writer and only store of a boar's position
+(§1.2; `docs/design/boar-ai.md` §3) — the "two systems wrote the creature's position" failure
+`docs/PROJECT_CONTEXT.md` is a document about. And it *exists to remove the feeling Karen asked for*:
+lag-compensated hitscan removes the lead.
+**Decision: refused, and still refused** (§1.2's new row). `docs/design/ballistics.md` §1.2 and §B
+state the same prohibition; this is the weapon-side copy of it, not a second decision.
+
+### L. Unreal Engine — forward-predicted projectiles (`NetPredictionTime`). **ADOPTED, bounded** (v3.1, Task 256)
+<https://dev.epicgames.com/documentation/en-us/unreal-engine/networking-overview-for-unreal-engine> ·
+Epic's official documentation (free to read; Unreal itself is under the Unreal Engine EULA — **the
+pattern only, no code and no dependency**) · actively maintained. Inherited from the research note's
+source C.
+**Good:** the other half of the same idea with the opposite sign — rather than rewinding the world, the
+projectile is **advanced by the owner's latency at spawn**, so it arrives where the firing client
+predicted. It needs **no history, no second position store and no new clock**: the correction is one
+number multiplied into a simulation the system already runs. In our case that simulation is
+`Flight.advance(dt, cast)`, which already steps over an injected `dt` through an injected segment
+cast, so "catch this shot up by `L`" is the step this module already takes, taken once more.
+**Bad:** the catch-up stretch is resolved against one world state rather than a rewound one, so it is
+an approximation against a crossing target; and **unbounded it would let a high-ping client reach
+arbitrarily far into the future** for free lead. Source C says so itself.
+**Adopted:** forward prediction, **bounded** at `FLIGHT_CATCHUP_MAX_SECONDS = 0.15`, clamped at the one
+door into the module (§11.1 items 3 and 4).
+
 **Pattern adopted overall:** server-authoritative hitscan with an ignore list (A) behind untrusted,
 rate-limited, whitelisted, type-checked remotes (B); `Tool` plus named, passing CAS actions for input
 (C); thin boot scripts over fat modules (D); attributes as the cross-system data contract (E); one
@@ -1026,6 +1113,10 @@ owner/pure-core/instance-writer split (I). Nothing is invented except the safety
 external pattern because it is this game's own mechanic — its whole content is a dot product against
 the drive-line normal, one function and one number, placed in `SafetyArc.isForbidden` and called from
 step 10 of §5.5, publishing only.
+
+*(v3.1: and, since Task 256, the latency correction is **forward prediction (L) over the engine's own
+ping (J)**, with rewinding (K) refused. The only invented number in it is the bound,
+`FLIGHT_CATCHUP_MAX_SECONDS`, and §11.1 item 4 says why 0.15.)*
 
 ---
 
@@ -1067,6 +1158,14 @@ nowhere else. No magic number outside it.**
 | `HUD_TEXT_SIZE` | 18, `Enum.Font.Code`, ASCII only | this design |
 | `CAMERA_DRIFT_TOLERANCE` | 0.5 studs | §13.3: how far the camera may move relative to its subject across the aim hold while the weapon writes nothing |
 | `shouldArm(player)` | `return true` | mirroring `Boar.CONFIG.isThreat`. `ROADMAP.md` 1.7 makes it `player.Team == Teams.Shooters` and touches nothing else |
+| **`FLIGHT_CATCHUP_MAX_SECONDS`** (v3.1, Task 256) | **0.15 s** | the bound on forward prediction, and the whole safety argument: 0.15 s × `Boar.CONFIG.SPRINT_SPEED` (38 studs/s) = **5.7 studs**, about one `BODY_SIZE` (5.5). It also fits the existing flight budget rather than widening it — 0.15 s plus a 1/60 heartbeat is 5 of the 8 `FLIGHT_MAX_SUBSTEPS`, far under `FLIGHT_MAX_SECONDS`. §11.1 item 4 |
+| **`FLIGHT_CATCHUP_PING_FACTOR`** (v3.1, Task 256) | **1.0** | the conversion from `Player:GetNetworkPing()` to the correction, and **the one genuinely uncertain number in the system**: the engine's docs do not say whether their number is the round trip or one way, and the correction wanted is the round trip. A **data row**, not a literal, for the reason `GRAVITY_SCALE` already is one — a constant readable at one value cannot be tested at another. 1.0 is the conservative reading. §11.1 item 6, §15 H |
+
+The rest of the flight and ballistics numbers (`FLIGHT_STEP_MAX_SECONDS`, `FLIGHT_MAX_SUBSTEPS`,
+`FLIGHT_MAX_SECONDS`, `FLIGHT_MAX_LIVE_PELLETS`, `MUZZLE_STUDS_PER_S`, `DRAG_PER_STUD`,
+`GRAVITY_SCALE`) live in the same `Shotgun.CONFIG` table but belong to
+**`docs/design/ballistics.md`**, which is their design of record. v3.1 adds only the two rows above,
+because they are the two Task 256 introduced.
 
 ### Performance and correctness targets, each one checkable
 
@@ -1081,13 +1180,148 @@ nowhere else. No magic number outside it.**
 | Effect instances alive 2 s after a shot | 0 (`Debris`) |
 | Per-player tables held after a player leaves | **0** (`Weapon.trackedPlayers()`, §13.1) |
 | Zero errors, zero skipped tests | `tests/TestKit.luau` fails the run otherwise |
+| **Lag correction granted per shot ≤ `FLIGHT_CATCHUP_MAX_SECONDS`** (v3.1) | `weapon_state.spec`: `Weapon.stats().flightCatchUpSeconds` against a per-shot bound; and `weapon_hits.spec`: `Weapon.catchUpFor(nil, 10, CONFIG)` is the cap, a negative or a NaN is 0 |
+| **Lag correction granted in a Studio harness run ≈ 0** (v3.1) | same `weapon_state.spec` bound. **Measured: 1.70 ms of total compensation across a run's shots** (research note §5.5) — a loopback session is 1–2 ms, not the 0 the first version of that spec asserted and failed on |
+| **Extra casts the correction may add, and only in the launch frame** (v3.1) | arithmetic from the two caps: `Flight.substeps(1/60 + 0.15)` is 5 sub-steps where `1/60` alone is 1, so **≤ 4 extra segment casts per pellet, once per shot** (≤ 36 for buckshot). `weapon_hits.spec` counts casts through the injected cast and asserts `Flight.substeps` never exceeds `FLIGHT_MAX_SUBSTEPS` |
+| **0 stored target positions, 0 rewound casts** (v3.1) | by construction and by grep: nothing under `src/server/Weapon/` reads or stores a boar position history (§1.2's new row; §13.5's guard already forbids `Workspace.Boars` there) |
 
-**Lag, stated as a number because it will be felt.** There is no lag compensation in v1 — state rewind
-is a system of its own. At 100 ms RTT a boar at `Boar.CONFIG.SPRINT_SPEED` (38 studs/s) is ~3.8 studs
-from where the shooter saw it, and the boar is 5.5 studs long (`Boar.CONFIG.BODY_SIZE`). That is most
-of a body length: shots that looked good will miss. This is the single most likely thing Karen reports
-as "the gun feels wrong". Mitigation order: (1) the slug `Spherecast` dial above, (2) lag compensation
-as its own designed system — **never** a fudge inside the weapon.
+### 11.1 Lag: the prediction in v3 came true, and what was done about it (v3.1, Task 256)
+
+**v3 said this, and it was right.** The paragraph this subsection replaces read:
+
+> **Lag, stated as a number because it will be felt.** There is no lag compensation in v1 — state
+> rewind is a system of its own. At 100 ms RTT a boar at `Boar.CONFIG.SPRINT_SPEED` (38 studs/s) is
+> ~3.8 studs from where the shooter saw it, and the boar is 5.5 studs long (`Boar.CONFIG.BODY_SIZE`).
+> That is most of a body length: shots that looked good will miss. This is the single most likely
+> thing Karen reports as "the gun feels wrong". Mitigation order: (1) the slug `Spherecast` dial
+> above, (2) lag compensation as its own designed system — **never** a fudge inside the weapon.
+
+It called the complaint and it called the number. **Karen, 2026-10-24:** *"we need to aim ahead to hit
+animal when running"*, *"it seems there is a bit off"*, and *"all shooting has to be like in real life
+/ this is a key of this game"*. `docs/research/2026-10-24-real-shooting.md` §5.1 then derived the same
+quantity independently, from the same constants, and got the same answer: **3.8 studs at a 100 ms
+round trip.** The design is not being rewritten as though it had been wrong. One sentence of it is
+now false — *"There is no lag compensation in v1"* — and this subsection is what replaced it.
+
+**1. Rewinding targets is still forbidden, and for the reason it was always forbidden.**
+`docs/design/ballistics.md` §1.2 states it and keeps stating it:
+
+> - **No lag compensation.** Rewinding hitboxes exists to remove the feeling Karen asked for.
+
+and §B:
+
+> per-target position history, a trusted client timestamp and a rewind window — and it exists to
+> defeat exactly the feeling Karen asked FOR. **Lag-compensated hitscan removes lead.**
+
+Both hold. A rewind also needs a second store of where each animal was, and `Boar.Body` is the only
+writer and only store of a boar's position (§1.2; `docs/design/boar-ai.md` §3) — "two systems wrote
+the creature's position" (`docs/PROJECT_CONTEXT.md`). §1.2 now carries that prohibition as a row of
+its own, and §10 source K is the mechanism named and refused.
+
+**2. Forward prediction of the shot is adopted, because it has the opposite effect.** The mechanism
+that ships advances **the projectile** by the shooter's measured delay. It touches no target, keeps no
+history, and rewinds nothing, so **it preserves the true lead and removes only the ping.** That is the
+Director's decision of 2026-10-24 (`reviews/task-256/BRIEF.md` §1), and it is what *"like in real
+life"* means arithmetically: the lead a player must learn becomes
+`Ballistics.timeToRange × animal speed` — the real lead — instead of the real lead plus his own
+connection. `ballistics.md` §B's own closing sentence was already half of this answer: *"Source's own
+projectile classes are not lag-compensated, and that is the shape we want."* Our projectile classes
+are not lag-compensated either; the **launch** is.
+
+**3. Where it lives, and why that is not "a fudge inside the weapon".** The owner does not move. It is
+`ServerScriptService.Weapon` (§3.1), the same single writer that already decides what a shot hit:
+
+| Piece | File and symbol | What it is |
+|---|---|---|
+| the measurement and the conversion | `src/server/Weapon/init.luau` → `Weapon.catchUpFor(player, ping, config)` | **the one thing that computes the correction.** Pure when `ping` is supplied; the only reader of `Player:GetNetworkPing()` in `src/`. A negative, a NaN or a missing ping returns **0**, so this feature's failure mode is "the game shoots as it did yesterday" |
+| the clamp | `src/server/Weapon/Flight.luau` → `Flight.launch(shot, directions, ballistic, catchUpSeconds)` | the bound is applied **at the one door into the module**, so no caller can hand in a negative (a bullet that starts in the past) or an unbounded one |
+| spending it | `src/server/Weapon/Flight.luau` → `live.catchUp`, spent in `Flight.advance` | added to **that shot's own `dt`** on the first `advance` and set to 0 there, so a shot cannot be compensated twice however many heartbeats it lives for |
+| the sub-step split | `src/server/Weapon/Flight.luau` → `Flight.substeps(total, config)` | pure and exported, because the split became a **per-shot** question. One copy of the arithmetic, so there is one answer to how far a bullet moved |
+| what it granted | `Flight.stats().catchUpSeconds`, surfaced as `Weapon.stats().flightCatchUpSeconds` | the number a harness run reads |
+| the one call site | `src/server/Weapon/init.luau` → `flight:launch(…, Weapon.catchUpFor(player, nil, CONFIG))`, in the fire-request path | one production `Flight.new(CONFIG)` instance, one launch site |
+
+**Why this is the right place rather than a fudge.** v3 wrote "never a fudge inside the weapon"
+against a *rewind* smuggled into the shot path. What ships is not that. The correction is **one
+multiplication into a loop `Weapon.Flight` already runs, over the cast seam the system already has**:
+the catch-up is not a teleport, it is the same simulation run for longer, through the same sub-stepped
+**segment** casts, so a bullet caught up into a tree trunk still stops at the trunk and a bullet
+caught up into an animal still hits the animal. `ballistics.md` §1.2's neighbouring rule — **"No
+second writer of hits"** — is the positive argument for keeping it here: moving it out would create a
+second thing with an opinion about where a projectile is. A correction that needed a target's
+position, a client timestamp or a clock of its own would need a different owner; this one needs
+nothing the weapon does not already own, and it adds no writer anywhere else (§7.2).
+
+**4. The bound, and why it exists.** `FLIGHT_CATCHUP_MAX_SECONDS = 0.15`. Unbounded forward prediction
+is the one way this mechanism can be abused: a 400 ms client would reach a third of a second into the
+future and collect free lead that other players would see as a shot which hit nothing (§10 source L's
+own objection). 0.15 s covers a bad connection and caps the reach at **5.7 studs on a sprinting boar
+— about one body length**, which is the most a mistake here may ever be worth. It is invented, it is
+the only invented number in this mechanism, and it says so here and in
+`docs/research/2026-10-24-real-shooting.md` §5.4.
+
+**5. The limit, which is a real property of the mechanism and was found by measurement, not by
+reasoning.** Forward prediction can only give back time **the bullet actually spends in the air**. If
+the round trip exceeds the flight time, there is no flight left to spend and the correction is
+**partial**. This was not anticipated when the mechanism was designed: the first version of the spec
+asserted a hit at every range and **failed at the shortest one**, which is how it is known
+(`docs/research/2026-10-24-real-shooting.md` §5.5; simulated against the real stepper, rifle, boar at
+`SPRINT_SPEED`, 100 ms round trip):
+
+| range | flight time | miss, uncompensated | miss, compensated |
+|---|---|---|---|
+| 179 studs (50 m) | **71 ms** *(< 100 ms)* | 4.26 studs | **1.73 studs — still a miss** |
+| 357 studs (100 m) | 148 ms | 3.89 | **0.10 — a hit** |
+| 536 studs (150 m) | 231 ms | 3.90 | **0.11 — a hit** |
+| 714 studs (200 m) | 320 ms | 4.31 | **0.51 — a hit** |
+
+So the correction is **exact beyond about 100 m and partial inside it**, and even at 50 m it cuts the
+miss by 59 % (1.19 m → 48 cm, about one chest zone on a boar). This is in the design because **it is a
+thing a player can feel**: close shots on fast animals will still read slightly behind. It is the
+right way round — the shortfall is largest where the lead is smallest — and **nothing can be done
+about it inside this mechanism**, because giving back more time than the bullet flies means resolving
+against a rewound world, which is item 1. If Karen reports that close fast shots still feel behind,
+that table is the starting point of reopening the trade, not a bug report (§15, Karen 8).
+
+**6. The one uncertain number, carried as a data row.** `Player:GetNetworkPing()`'s own documentation
+says only *"the network ping in seconds"* and **does not state whether that is the round trip or one
+way**, while the derivation shows the correction wanted is the **round trip** (research note §5.1).
+That ambiguity is therefore the config row `FLIGHT_CATCHUP_PING_FACTOR`, shipped at the conservative
+**1.0** — treat the engine's number as the round trip, since over-correcting hands out free lead while
+under-correcting merely leaves some of today's error in place. 2.0 is the value if it turns out to be
+one way. **It cannot be settled on this PC:** a loopback Studio Play session reads **1–2 ms**,
+measured in round 2 at **1.70 ms of total compensation across a run's shots** — 0.065 studs on a
+sprinting boar, far too small to tell 1.0 from 2.0. It needs a real server and it is the Director's to
+confirm (§15 H). *(`reviews/task-256/BRIEF.md` item 6 gives this figure as "0.51 ms per shot"; the
+measured figure in `docs/research/2026-10-24-real-shooting.md` §5.5 is 1.70 ms total, and 0.51 is the
+studs value in that section's 200 m row. Recorded because the design must carry the number that was
+measured.)*
+
+**The mitigation order, rewritten.** v3's list ended at "lag compensation as its own designed system".
+It now reads: (1) the slug `Spherecast` dial above — still not built, still the first dial for
+*pattern* forgiveness; (2) **forward prediction of the shot, bounded — built, Task 256, this
+subsection**; (3) rewinding the target — **forbidden**, and item 1 is the reason.
+
+**How this is tested** (and what cannot be):
+
+- **Server spec, `tests/server/weapon_hits.spec.luau`:** `Weapon.catchUpFor` converts a supplied ping
+  by the factor, clamps at the cap, and returns 0 for a negative, a NaN or a missing ping; a config
+  with `FLIGHT_CATCHUP_PING_FACTOR = 2.0` doubles it, so **both readings of the engine's number are
+  reachable by parameter while the shipped row sits at one of them**; `Flight.substeps` never exceeds
+  `FLIGHT_MAX_SUBSTEPS` and never returns a sub-step longer than the cap; a catch-up of 0 reproduces
+  today's flight; `catchUpSeconds` is 0 for a shot the global cap refused; and the §5 limit above is
+  asserted as the case named "CANNOT GIVE BACK MORE PING THAN THE BULLET SPENDS IN THE AIR", so the
+  degradation is a number in the harness rather than a sentence in a document.
+- **Server spec, `tests/server/weapon_state.spec.luau`:** `Weapon.stats().flightCatchUpSeconds` is
+  bounded per shot, loose enough never to flake and tight enough that a wrong factor or a
+  seconds/milliseconds mix-up fails. It asserts a **bound, not zero**, because the measured loopback
+  value is 1.70 ms and the first version of that assertion asserted exactly 0 and failed.
+- **No client spec and no harness input scenario.** Nothing about this is client-side: the client
+  sends `{origin, direction}` and nothing else (§5.7), and the correction is computed and spent on the
+  server. Adding a client assertion here would be asserting on the engine's ping.
+- **No screenshot (rule 5).** A latency correction is not a visual change; there is nothing on screen
+  that differs frame-to-frame. What *is* visible — whether a lead that looks right now connects — is a
+  **playtest** question for Karen on a real server, not a capture.
+- **Not measurable here, said plainly (rule 8):** the live magnitude of the correction. See §16.
 
 ---
 
@@ -1152,6 +1386,9 @@ drive a pure function, it builds its own literal table.
 17. `Limits.allow`: `perSecond` calls in one window pass, the next fails; a call after the window
     rolls passes again; the returned bucket is a new table and the caller's old one is unchanged;
 18. 10,000 applies under 100 ms.
+19. *(v3.1, Task 256)* `Weapon.stats().flightCatchUpSeconds` is within the per-shot bound
+    `FLIGHT_CATCHUP_MAX_SECONDS` — a bound, not zero, because a loopback session measures 1.70 ms
+    (§11.1 item 6).
 
 **`weapon_shot.spec.luau`** — `Validator`, `Pattern`, `SafetyArc`, all pure:
 
@@ -1194,6 +1431,10 @@ crash of `CLAUDE.md`, which is about files disappearing):
    `distance` within 0.05 studs of the arithmetic; and returns `nil` for the same ray when that part
    is in `ignore` — the mechanical proof that the ignore list is wired to
    `FilterDescendantsInstances`.
+9. *(v3.1, Task 256)* the lag-correction cases listed in §11.1, "How this is tested": `catchUpFor`'s
+   conversion, clamp and refusals; `Flight.substeps`' caps; 0 reproducing today's flight; a refused
+   shot granting nothing; and the "cannot give back more ping than the bullet spends in the air" row
+   of §11.1 item 5.
 
 **`boar_hit.spec.luau`** — the seam (§6), one boar runtime with the spec's own injected world (the
 pattern `tests/server/boar_body.spec.luau` already uses: its own folder, its own field, teardown in
@@ -1408,6 +1649,10 @@ still pass, so the pattern matches assignment, not mention.
 the weapon. It is §15 D for the Director, with "the Reviewer checks §1.2 by eye" as the standing
 fallback.
 
+*(v3.1: that last clause — nothing under `src/server/Weapon/` mentions `Workspace.Boars` — is also the
+mechanical form of §1.2's new prohibition on keeping a target's position history, so if the guard is
+ever built it covers both.)*
+
 ### 13.6 Facts the Builder must report rather than assume (rules 6 and 8)
 
 - whether a `.model.json` inside a folder module syncs and compares as
@@ -1461,6 +1706,11 @@ convention in the Input row rather than naming an owner who would then own every
 
 `Camera` stays `_unassigned_` and is `ROADMAP.md` 1.4b's row to fill. This task must not fill it.
 
+**v3.1 (Task 256) adds no row and moves no owner.** The lag correction is inside the Weapon row's
+existing owner (§11.1 item 3), so the only change `GAME_DESIGN.md` could want is the clause already in
+that row — *"It writes no boar state and no camera"* — read together with §1.2's new prohibition: it
+also keeps **no position history of anything it shoots at**.
+
 ---
 
 ## 15. Open decisions — none of them blocks building
@@ -1482,6 +1732,13 @@ Director should overrule on purpose rather than by accident.
    sooner.
 7. Holding MouseButton2 does nothing visible in this task. The camera rotating and the cursor locking
    while it is held is the stock camera, not the weapon (§9).
+8. **(v3.1, Task 256) Does the lead feel real now, and do CLOSE shots on a running animal still feel
+   behind?** The correction is exact beyond about 100 m and **partial inside it** — at 50 m with the
+   rifle it cuts the miss from 4.26 to 1.73 studs rather than clearing it (§11.1 item 5), because it
+   can only give back time the bullet actually spends in the air. Default: **accepted as the trade**.
+   If she reports close fast shots still reading behind, that is the one place where the refused
+   mechanism (rewinding) is the only remaining answer, so it is a decision for her and the Director
+   together, and §11.1 item 5's table is its starting point. **This needs a real server, not Studio.**
 
 **Director (scope):**
 
@@ -1505,6 +1762,15 @@ Director should overrule on purpose rather than by accident.
 - **G. `AUTO_EQUIP = true`** (§11). Default: the gun is in the hand on spawn rather than in the
   Backpack. If the Director wants the player to equip it deliberately, flip the boolean; the client
   spec's cue path does not depend on it.
+- **H. (v3.1, Task 256) Confirm `FLIGHT_CATCHUP_PING_FACTOR` on a real server.** Default: **1.0**, the
+  conservative reading of `Player:GetNetworkPing()` as the round trip. The engine's docs do not say
+  which it is (§10 source J), the correction wanted is the round trip, and **a loopback Studio session
+  reads 1–2 ms (measured: 1.70 ms total across a run's shots), which cannot distinguish 1.0 from
+  2.0** (§11.1 item 6). So this is a live-server reading, not a code change: publish, read
+  `Weapon.stats().flightCatchUpSeconds` against a known ping, and if the engine's number turns out to
+  be one way, the row becomes 2.0. It is one line, it is already testable at both values by parameter
+  (`weapon_hits.spec`), and **nothing is blocked on it** — 1.0 under-corrects at worst, which is some
+  of today's error left in place rather than free lead handed out.
 
 ---
 
@@ -1536,10 +1802,30 @@ Director should overrule on purpose rather than by accident.
   the engine; H is Luau's own documented library; D (Knit, MIT) and G (fractality-spring, MIT) are
   from my own knowledge, and neither is a dependency of anything built here — only D's *pattern* is
   used and G is not used at all. The Builder confirms them in the research-note addendum before
-  relying on any of them.
+  relying on any of them. **v3.1:** the same holds for J, K and L. J is first-party Roblox
+  documentation; K is Valve's public wiki, which carries **no open licence grant**, so it is read for
+  its analysis and nothing is copied from it; L is Epic's documentation and Unreal is under the Unreal
+  Engine EULA, so **the pattern only — no code, no dependency, nothing added to `wally.lock`**. All
+  three are inherited from `docs/research/2026-10-24-real-shooting.md` §2 (sources A, B, C) and were
+  not re-fetched in this session.
 - **The lag figures in §11** are arithmetic from `Boar.CONFIG.SPRINT_SPEED` and `BODY_SIZE`, not
   measurement. The research note says the tolerances "must be measured with two real players, not
   reasoned about", and that has not happened.
+  **v3.1 (Task 256) amendment:** the ~3.8 studs was independently re-derived from the same constants
+  (`docs/research/2026-10-24-real-shooting.md` §5.1), Karen reported exactly that effect on
+  2026-10-24, and §11.1 item 5's limit **was** measured — against the real stepper, in a spec that
+  failed at the shortest range before the table was written. What is still unmeasured is the live
+  magnitude on a real server, below.
+- **(v3.1) The live magnitude of the lag correction, and therefore
+  `FLIGHT_CATCHUP_PING_FACTOR`.** A loopback Studio Play session reads a ping of 1–2 ms — measured at
+  **1.70 ms of total compensation across a run's shots**, 0.065 studs on a sprinting boar — so the
+  correction fires here but far too small to tell a factor of 1.0 from one of 2.0. (The research note
+  first said "reads ~0" and `weapon_state.spec`'s first version asserted exactly 0 and **failed**;
+  that is how the real figure is known rather than assumed, and it is why the spec asserts a bound.)
+  What **is** proved by spec and not by argument: the catch-up advances a projectile by exactly the
+  time asked for, it is clamped at the cap, it casts the same segments a normal step casts, 0
+  reproduces today's flight bit for bit, a projectile cannot be leaked or tunnelled by it, and §11.1
+  item 5's limit holds where it is predicted to. The factor itself is §15 H, for a real server.
 - **Whether `CAMERA_ORIGIN_TOLERANCE = 30` is generous or tight** for the stock camera at its default
   zoom. It is a guard against absurdity, not a proof of honesty (§5.7); if a legitimate shot is ever
   rejected `"origin-far"`, that is a harness-visible bug and the number is the dial.
