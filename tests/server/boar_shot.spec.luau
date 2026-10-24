@@ -1718,9 +1718,12 @@ return function()
 			expect(stag.part:GetAttribute("Carcass")).never.to.equal(true)
 			local wounded = readCue("cry", SOUND.CRY)
 
-			-- THE DEATH. Through the same seam, into the chest, and the carcass is waited for
-			-- because the collapse is `Wound.advance`'s on a later step and never `takeHit`'s.
-			killFor(runtime, stag, "vital")
+			-- THE DEATH. Through the same seam, into the HEAD -- `killFor`'s own zone, which is a
+			-- zone name and not a hit class (the first run of this case passed "vital", which is
+			-- what `Wound.hitClass` ANSWERS, so the hit was neither lethal nor a wound and the
+			-- death never played) -- and the carcass is waited for because the collapse is
+			-- `Wound.advance`'s on a later step and never `takeHit`'s.
+			killFor(runtime, stag, "head")
 			expect(stag.part:GetAttribute("Carcass")).to.equal(true)
 			expect((stag.soundPlays.death or 0) >= 1).to.equal(true)
 			local died = readCue("death", SOUND.DEATH)
