@@ -479,10 +479,23 @@ return function()
 		end
 
 		it("is fifteen slots of one drive, and every row names a slot the clock actually has", function()
-			expect(#SCHEDULE.drive).to.equal(ForestTest.wavesPerDrive(Data.DRIVE.seconds, SCHEDULE.intervalSeconds))
+			-- FIFTEEN IS THE SCRIPT'S OWN SHAPE SINCE PART 2, AND NO LONGER A QUOTIENT. It used to be
+			-- asserted against `wavesPerDrive(DRIVE.seconds, intervalSeconds)` -- 300 / 20 -- and that
+			-- was arithmetic about a clock this world does not run on: a drive here ENDS WHEN THE
+			-- BEATER LINE ARRIVES and `DRIVE.seconds` is only the ceiling, which is the whole of part
+			-- 1's escalation (`ESCALATE.md`, 2026-10-23). The three acts are five slots each, which is
+			-- what fifteen means, and WHETHER THEY ALL FIT inside the drive the beaters actually make
+			-- is asserted where the beaters' numbers live (`bots_lane.spec`, "the length of the walk").
+			expect(#SCHEDULE.drive).to.equal(15)
+			expect(SCHEDULE.firstSlotSeconds).to.equal(10)
+			expect(SCHEDULE.intervalSeconds).to.equal(13)
+			-- THE DIRECTOR'S THREE NUMBERS, 2026-10-24: *"slot 1 at 10 s, about 13 s apart, the last
+			-- at ~192 s"*.
+			expect(Data.slotSeconds(1, SCHEDULE)).to.equal(10)
+			expect(Data.slotSeconds(15, SCHEDULE)).to.equal(192)
 			for index, row in ipairs(SCHEDULE.drive) do
 				expect(row.slot).to.equal(index)
-				-- `atSeconds` IS AN ASSERTION, NOT A SECOND CLOCK: it has to be the interval's own
+				-- `atSeconds` IS AN ASSERTION, NOT A SECOND CLOCK: it has to be the two rows' own
 				-- arithmetic, or a changed `intervalSeconds` would leave fifteen stale timestamps.
 				expect(row.atSeconds).to.equal(Data.slotSeconds(index, SCHEDULE))
 				expect(row.act >= 1 and row.act <= 3).to.equal(true)
@@ -672,12 +685,10 @@ return function()
 			expect(stag.pace).to.equal("walk")
 		end)
 
-		it("walks the stag's SNEAK as a declared field and nothing more, which is part 2's boundary", function()
-			-- RULE 8, AS A CASE. Task 251 part 1 ships the pattern and the horn; the stag's own
-			-- behaviour (the 0.90 edge check, the look back, the treeline sneak, the bound) is part 2.
-			-- So `sneak` is DATA that no route reads yet, and the day part 2 reads it, THIS case is
-			-- the thing that has to change -- which is the opposite of discovering the gap in a
-			-- playtest.
+		it("gives the sneak its two numbers and its DIRECTION, which is the side he came from", function()
+			-- PART 1'S OWN BOUNDARY CASE, NOW FLIPPED -- which is what it said would happen: *"the day
+			-- part 2 reads it, THIS case is the thing that has to change"*. Spec section 3.2, Karen
+			-- OK'd: *"ein Stueck innerhalb des Waldrands ... ehe es das offene Feld annimmt"*.
 			local stag = nil
 			for _, row in ipairs(SCHEDULE.drive) do
 				if row.party == "stag" then
@@ -686,12 +697,121 @@ return function()
 			end
 			expect(stag.sneak).to.equal(true)
 			expect(stag.check).to.equal(true)
-			-- The route it is actually released on today is the ordinary one.
-			expect(Data.slotRoute(stag)).to.equal("STRAIGHT")
-			-- ...and the existing edge stop is what honours `check` for now: every file's leader is
-			-- offered it inside this band, at the Brain's own chance.
+			-- THE TWO NUMBERS ARE INSIDE THE SPEC'S OWN BANDS (80-160 studs parallel, dz 60-90), and
+			-- they are single numbers and not ranges because A SCRIPT DRAWS NOTHING.
+			expect(stag.sneakStuds >= 80 and stag.sneakStuds <= 160).to.equal(true)
+			expect(stag.sneakDz >= 60 and stag.sneakDz <= 90).to.equal(true)
+			-- HE ENTERS THE BAND ON THE SIDE HE CAME FROM and walks to his crossing. Slot 13 starts 95
+			-- studs west of the stand and crosses 35 west, so the entry is further WEST again and the
+			-- walk is eastward -- and the distance walked IS `sneakStuds`, which is the claim.
+			local entry = Data.sneakEntryX(stag.offsetX, stag.crossOffset, stag.sneakStuds)
+			expect(entry < stag.crossOffset).to.equal(true)
+			expect(math.abs(math.abs(stag.crossOffset - entry) - stag.sneakStuds) < 1e-6).to.equal(true)
+			-- ...AND THE OTHER SIDE, so the rule is a rule and not this row's luck.
+			expect(Data.sneakEntryX(100, 20, 120)).to.equal(140)
+			expect(Data.sneakEntryX(-100, 20, 120)).to.equal(-100)
+			-- A TIE TAKES THE WEST, and a missing or zero distance collapses the two legs into the
+			-- STRAIGHT route part 1 shipped -- so a row that declares `sneak` and no distance is the
+			-- behaviour before this task and never an error.
+			expect(Data.sneakEntryX(20, 20, 120)).to.equal(-100)
+			expect(Data.sneakEntryX(-95, -35, nil)).to.equal(-35)
+			expect(Data.sneakEntryX(-95, -35, 0)).to.equal(-35)
+			-- AND NOTHING ELSE IN THE SCRIPT SNEAKS, which is what makes the "a row cannot be both a
+			-- sneak and a LATERAL" guard in `releaseLine` a guard and not a live branch.
+			for _, row in ipairs(SCHEDULE.drive) do
+				if row.sneak == true then
+					expect(row.party).to.equal("stag")
+					expect(Data.slotRoute(row)).to.equal("STRAIGHT")
+				end
+			end
+			-- ...and the edge stop still honours `check`: every file's leader is offered it inside
+			-- this band, now at the stag's OWN chance (`deer.spec` holds that half).
 			expect(Data.LINE.checkWithinStuds > 0).to.equal(true)
-			expect(Boar.CONFIG.MOVE.EDGE_CHANCE > 0).to.equal(true)
+			expect(Boar.kindConfig("stag", Boar.CONFIG).MOVE.EDGE_CHANCE).to.equal(0.9)
+		end)
+
+		it("knows which row carries the stag, and answers nil for a drive that has none", function()
+			-- `Data.stagRow` is read by the rut roar (which must sound from his holding BEFORE he is
+			-- released) and by the proof that logs a drive. IT ASKS THE DIAL, which is the whole
+			-- point: at `quiet` his row is `keepAt = 13` and does not fire, so a quiet drive has no
+			-- stag and a roar from an empty wood would be a lie.
+			local row, slot = Data.stagRow("normal", SCHEDULE)
+			expect(row).to.be.ok()
+			expect(slot).to.equal(13)
+			expect(row.party).to.equal("stag")
+			expect(row.species).to.equal("reddeer")
+			expect(Data.stagRow("busy", SCHEDULE)).to.be.ok()
+			expect(Data.stagRow("quiet", SCHEDULE)).to.equal(nil)
+			-- An unknown word is `normal` (`groupsWanted`'s own rule), so a typo does not silence him.
+			expect(Data.stagRow("sideways", SCHEDULE)).to.be.ok()
+		end)
+
+		it("gives the rut roar its own emitter, far, quiet and uncut", function()
+			-- SPEC SECTION 4.2, the one new cue: *"3-6 s, pitch 1.15, no cut -- a distant roar must be
+			-- long, heard at 350 studs, heavy rolloff, quiet"*. `ForestTest.ROAR`'s own comment is why
+			-- it is this module's data and not `Boar.CONFIG.SOUND.VOICE`'s: it sounds before the stag
+			-- exists, so it cannot be an animal's voice and must not book a voice slot.
+			local roar = Data.ROAR
+			expect(roar.enabled).to.equal(true)
+			expect(#roar.ids).to.equal(4) -- four, so the ambience is not one sample on a loop
+			expect(roar.pitch).to.equal(Boar.CONFIG.SOUND.VOICE.stag.pitch) -- one animal, one pitch
+			-- FARTHER THAN ANY VOICE IN THIS WORLD CARRIES, and quieter than one.
+			expect(roar.audibleStuds > Boar.CONFIG.SOUND.CRY.audibleStuds).to.equal(true)
+			-- ...AND FAR ENOUGH TO REACH THE STAND FROM THE ROW IT SOUNDS FROM, which is the thing the
+			-- spec's own 350 got wrong and the first live drive printed: *"the stag answers from the
+			-- far wood, 401 studs from the stand, audible to 350"*. His holding is slot 13's own, so
+			-- the distance is arithmetic about two rows of one table and belongs in a case, not in a
+			-- comment -- otherwise a deeper stag silently goes out of earshot again.
+			--
+			-- IT IS THE FLAT DISTANCE, said plainly (review round 1, note): the emitter stands on
+			-- terrain this place measures about 50 studs higher at dz 360 than at the road, and a
+			-- `Sound`'s roll-off is measured in three dimensions -- so the real distance is a little
+			-- longer than this. 372 against 420 has 48 studs of margin and `sqrt(372^2 + 50^2)` is
+			-- 375, so the claim holds either way; the flat figure is used because it is the one the
+			-- two rows of the table actually state, and the Y is the terrain's and not the drive's.
+			local stag = Data.stagRow("normal", SCHEDULE)
+			local reach = math.sqrt((stag.northStuds + roar.deeperStuds) ^ 2 + stag.offsetX ^ 2)
+			expect(reach < roar.audibleStuds).to.equal(true)
+			expect(math.sqrt(reach ^ 2 + 60 ^ 2) < roar.audibleStuds).to.equal(true)
+			TestKit.note(
+				string.format("the roar sounds %.0f studs from the stand and carries %d", reach, roar.audibleStuds)
+			)
+			expect(roar.volume < Boar.CONFIG.SOUND.CRY.volume).to.equal(true)
+			-- A HIGH PLATEAU IS WHAT GIVES A LONG TAIL: `InverseTapered` falls as `near / distance`.
+			expect(roar.nearStuds > Boar.CONFIG.SOUND.NEAR_STUDS).to.equal(true)
+			-- NO CUT, which is the column the spec filled in with "none". Every deer VOICE row has one
+			-- because it books a squeal slot; this books nothing.
+			expect(roar.cut).to.equal(nil)
+			expect(Boar.CONFIG.SOUND.VOICE.stag.cut).to.be.ok()
+			-- AND IT IS NOT A VOICE: not one of its ids is any animal's cue, so a bull bellow chosen
+			-- for the distance can never turn up as something's death.
+			local voiced = {}
+			for _, kind in ipairs({ "stag", "hind", "calf", "male", "female", "cub", "legendary" }) do
+				local rowFor = Boar.CONFIG.SOUND.VOICE[kind]
+				for _, cue in ipairs({ "cry", "death", "grunt" }) do
+					for _, id in ipairs(rowFor[cue] or {}) do
+						voiced[id] = true
+					end
+				end
+			end
+			for _, id in ipairs(roar.ids) do
+				expect(voiced[id]).to.equal(nil)
+			end
+			-- THE WINDOW IS THE SPEC'S: four roars inside the first 90 s, all of them before the stag
+			-- is released at slot 13, so he is heard long before he is seen.
+			expect(roar.windowSeconds).to.equal(90)
+			local heard = math.floor((roar.windowSeconds - roar.firstAtSeconds) / roar.everySeconds) + 1
+			expect(heard >= 3).to.equal(true)
+			local _, stagSlot = Data.stagRow("normal", SCHEDULE)
+			expect(roar.windowSeconds < Data.slotSeconds(stagSlot, SCHEDULE)).to.equal(true)
+			TestKit.note(
+				string.format(
+					"%d roars in the first %d s; the stag himself is released at %d s",
+					heard,
+					roar.windowSeconds,
+					Data.slotSeconds(stagSlot, SCHEDULE)
+				)
+			)
 		end)
 
 		it("repeats the body of the drive when a drive outlives its script, and never a second stag", function()

@@ -1864,6 +1864,22 @@ end
 
 -- Plays one of the one-shots, picking an id from a list when the spec has several and jittering the
 -- pitch. `rng` is passed in so nothing here owns a Random (the Runtime has one, seeded).
+-- WOULD `playOneShot` ACTUALLY PLAY (task 251 part 2, review round 1's note)? The two conditions it
+-- answers false on, and nothing else -- there is no Sound of that name on this animal, or the cue is
+-- switched off by data.
+--
+-- IT EXISTS SO A RATIONED CUE DOES NOT SPEND ITS SLOT ON SILENCE. `Runtime:check`'s alarm bark books
+-- one of `SOUND.CROWD.MAX_SQUEALS` before it plays, exactly as a hit's cry does, and a claim spent on
+-- an animal with no `cry` Sound built would silence a dying boar for nothing. Asked first, the claim
+-- cannot be wasted. **It is the SAME two tests and not a second copy of the rule**: both read
+-- `handle.sounds[name]` and `spec.enabled`, which is why they are three lines apart.
+function Body.canPlayOneShot(handle, name: string, spec): boolean
+	if handle.sounds[name] == nil then
+		return false
+	end
+	return spec.enabled ~= false
+end
+
 function Body.playOneShot(handle, name: string, spec, config, rng: Random)
 	local sound = handle.sounds[name]
 	if sound == nil then

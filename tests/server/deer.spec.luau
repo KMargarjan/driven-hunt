@@ -319,7 +319,12 @@ return function()
 				local config = configWith(true)
 				local stag = Boar.kindConfig("stag", config)
 				expect(stag.BODY_SIZE).to.equal(CONFIG.SPECIES.reddeer.BODY_SIZE)
-				expect(stag.DETECT_RADIUS).to.be.near(config.DETECT_RADIUS * 1.5, EPSILON)
+				-- 1.5 -> 1.8 IN TASK 251 PART 2 (spec section 3.1, Karen OK'd): *"a lone stag has no jumpy
+				-- companion to trigger him, so he must be his own alarm"*, so he carries the hind's own
+				-- scale. The radius this case is about is unchanged in MEANING -- it is still the kind's
+				-- `wary` multiplier reaching `DETECT_RADIUS` through `scaledByWary` -- and what the stag
+				-- NOTICES at is the case in "the red stag's own behaviour" below.
+				expect(stag.DETECT_RADIUS).to.be.near(config.DETECT_RADIUS * 1.8, EPSILON)
 				expect(stag.SPRINT_SPEED).to.be.near(config.SPRINT_SPEED * 1.18, EPSILON)
 				local hind = Boar.kindConfig("hind", config)
 				expect(hind.DETECT_RADIUS).to.be.near(config.DETECT_RADIUS * 1.8, EPSILON)
@@ -1409,6 +1414,184 @@ return function()
 				expect(Brain.onRoad(onIt, field.road)).to.equal(true)
 				expect(Brain.onRoad(onIt + Vector3.new(0, 0, 25), field.road)).to.equal(false)
 			end)
+		end)
+	end)
+
+	-- ------------------------------------------- THE RED STAG'S OWN BEHAVIOUR (task 251 part 2)
+	--
+	-- KAREN, 2026-10-23, verbatim: *"we need better saound and behaviour for red stag"*, and her "ok"
+	-- to the plan (`<runs-dir>/design/driveflow-spec.md` sections 3 and 4). Four things, and every one
+	-- of them is a NUMBER ON A KIND ROW composed through `Boar.kindConfig`: he notices at 1.8, he
+	-- checks the open at 0.90 for 2-6 s, he looks 150 degrees back at the man while he does it, and he
+	-- barks once when he takes the check. The fifth -- the bound -- is dark by instruction.
+	--
+	-- EVERY CASE IS PURE AND EVERY ONE OF THEM ENTERS AN ARM THAT DID NOT EXIST BEFORE THIS TASK
+	-- (L-093), which here means something specific: `Brain:check` reads ONE table, `self._config.MOVE`,
+	-- so the per-kind difference has to arrive THERE -- and a case that only asserted the KINDS rows
+	-- would pass with `edgeByKind` never called. So the composed config is what is asked.
+	describe("the red stag's own behaviour (task 251 part 2)", function()
+		it("notices a walking man at 108 studs, which is the hind's own radius and not a boar's", function()
+			-- SPEC SECTION 3.1: 1.5 -> 1.8, *"a lone stag has no jumpy companion to trigger him, so he
+			-- must be his own alarm"*. Asserted as the RADIUS and not only as the multiplier, because
+			-- the multiplier is not the thing Karen sees.
+			expect(CONFIG.KINDS.stag.wary.noticeScale).to.equal(1.8)
+			expect(CONFIG.KINDS.stag.wary.noticeScale).to.equal(CONFIG.KINDS.hind.wary.noticeScale)
+			-- SENSE IS TURNED ON BY PARAMETER rather than read off the live flag, which is this
+			-- file's own discipline: `Brain.noticeRadius` answers `DETECT_RADIUS` for everything with
+			-- `SENSE` off, so a case that happened to run in a flag-off world would assert the wrong
+			-- number and pass.
+			local on = configWith(true)
+			on.SENSE = table.clone(on.SENSE)
+			on.SENSE.ENABLED = true
+			local stag = Boar.kindConfig("stag", on)
+			local male = Boar.kindConfig("male", on)
+			local walking = { id = "p", position = Vector3.new(0, 0, 0), kind = "driver", speed = 5 }
+			expect(math.abs(Brain.noticeRadius(walking, stag) - 108) < 1e-6).to.equal(true)
+			expect(math.abs(Brain.noticeRadius(walking, male) - 60) < 1e-6).to.equal(true)
+			TestKit.note(
+				string.format(
+					"a walking man is noticed at %.0f studs by a stag, %.0f by a hind and %.0f by a boar",
+					Brain.noticeRadius(walking, stag),
+					Brain.noticeRadius(walking, Boar.kindConfig("hind", on)),
+					Brain.noticeRadius(walking, male)
+				)
+			)
+		end)
+
+		it("checks the open likelier and longer than his hinds, and they both longer than a boar", function()
+			-- SPEC SECTION 3.1, the two rows: *"a red deer reconnoitres the open; a boar marches
+			-- through"* for the chance, and *"long enough that a hunter can mount the rifle"* for the
+			-- length. THE COMPOSED CONFIG IS WHAT IS ASKED, because that is what `Brain:check` reads.
+			local on = configWith(true)
+			local stag = Boar.kindConfig("stag", on).MOVE
+			local hind = Boar.kindConfig("hind", on).MOVE
+			local calf = Boar.kindConfig("calf", on).MOVE
+			local male = Boar.kindConfig("male", on).MOVE
+			expect(stag.EDGE_CHANCE).to.equal(0.90)
+			expect(hind.EDGE_CHANCE).to.equal(0.75)
+			expect(stag.EDGE_MIN_SECONDS).to.equal(2.0)
+			expect(stag.EDGE_MAX_SECONDS).to.equal(6.0)
+			expect(hind.EDGE_MIN_SECONDS).to.equal(1.5)
+			expect(hind.EDGE_MAX_SECONDS).to.equal(4.0)
+			-- THE ORDER IS THE CLAIM, so a retune that crosses two of them fails here.
+			expect(stag.EDGE_CHANCE > hind.EDGE_CHANCE).to.equal(true)
+			expect(hind.EDGE_CHANCE > male.EDGE_CHANCE).to.equal(true)
+			expect(stag.EDGE_MAX_SECONDS > hind.EDGE_MAX_SECONDS).to.equal(true)
+			-- A BOAR IS UNTOUCHED, byte for byte: no boar kind carries an `edge` row, so
+			-- `edgeByKind` hands back the config it was given BY REFERENCE.
+			for _, kind in ipairs(BOAR_KINDS) do
+				local composed = Boar.kindConfig(kind, on)
+				expect(composed.MOVE.EDGE_CHANCE).to.equal(on.MOVE.EDGE_CHANCE)
+				expect(composed.MOVE.EDGE_MIN_SECONDS).to.equal(on.MOVE.EDGE_MIN_SECONDS)
+				expect(composed.MOVE.EDGE_MAX_SECONDS).to.equal(on.MOVE.EDGE_MAX_SECONDS)
+				expect(composed.MOVE.EDGE_LOOK_BACK_DEG).to.equal(0)
+				expect(composed.MOVE.EDGE_BARKS).to.equal(false)
+			end
+			-- THE CALF HAS NO ROW AT ALL and takes the defaults, which is the spec's *"follows her
+			-- mother"*: she walks behind the hind and a follower is never offered the check.
+			expect(CONFIG.KINDS.calf.edge).to.equal(nil)
+			expect(calf.EDGE_CHANCE).to.equal(male.EDGE_CHANCE)
+		end)
+
+		it("lays a kind's edge row over MOVE as a DELTA and never as a replacement", function()
+			-- THE LESSON `speciesConfig` PAID FOR IN TASK 240, asserted rather than commented: a world
+			-- that tunes a key the row does not name must keep its own number.
+			local world = configWith(true)
+			world.MOVE = table.clone(world.MOVE)
+			world.MOVE.EDGE_CHANCE = 0.11
+			world.MOVE.WEDGE_SECONDS = 9.75
+			local stag = Boar.edgeByKind(world, CONFIG.KINDS.stag.edge, CONFIG.KINDS.stag.spook).MOVE
+			expect(stag.EDGE_CHANCE).to.equal(0.90) -- the row names it: the row wins
+			expect(stag.WEDGE_SECONDS).to.equal(9.75) -- the row does not: the world keeps it
+			-- NEITHER ROW -> THE SAME TABLE, by reference, which is what makes this free for a boar.
+			expect(Boar.edgeByKind(world, nil, nil)).to.equal(world)
+			-- ...AND IT NEVER WRITES THROUGH to the config it was handed.
+			expect(world.MOVE.EDGE_CHANCE).to.equal(0.11)
+		end)
+
+		it("looks back at the nearest man, 150 degrees and never further", function()
+			-- SPEC SECTION 3.1: *"stand looking back"*, *"150 degrees to the nearest threat"* -- *"150
+			-- and not 180: a stag looks over his shoulder, he does not reverse"*.
+			local travel = Vector3.new(0, 0, -1) -- walking south, toward the road
+			-- THE MAN BEHIND HIM: dead astern is 180 degrees away, so the look is CLAMPED to 150 and
+			-- the last 30 are what he cannot turn. That is the whole of the number.
+			local behind = Brain.lookBack(travel, Vector3.new(0, 0, 1), 150)
+			expect(math.abs(math.deg(math.acos(math.clamp(behind:Dot(travel), -1, 1))) - 150) < 1e-3).to.equal(true)
+			-- A MAN OFF TO ONE SIDE is inside the limit, so he faces him exactly.
+			local side = Brain.lookBack(travel, Vector3.new(1, 0, 0), 150)
+			expect(math.abs(side:Dot(Vector3.new(1, 0, 0)) - 1) < 1e-6).to.equal(true)
+			-- THE Y IS IGNORED: a man up a high seat is a man in the same direction.
+			local high = Brain.lookBack(travel, Vector3.new(1, 40, 0), 150)
+			expect(math.abs(high:Dot(side) - 1) < 1e-6).to.equal(true)
+			-- EVERY WAY OUT ANSWERS "THE WAY YOU ARE GOING", which is what every boar in the game
+			-- gets and is the behaviour task 126 shipped: no man, no angle, a zero angle, a
+			-- degenerate direction.
+			expect(Brain.lookBack(travel, nil, 150)).to.equal(travel)
+			expect(Brain.lookBack(travel, Vector3.new(0, 0, 1), 0)).to.equal(travel)
+			expect(Brain.lookBack(travel, Vector3.new(0, 0, 1), nil)).to.equal(travel)
+			expect(Brain.lookBack(travel, Vector3.zero, 150)).to.equal(travel)
+		end)
+
+		it("barks when he takes the check, and a calf never does", function()
+			-- SPEC SECTION 4.2: the alarm bark plays *"once, at the edge-check"* -- *"the sound that
+			-- tells the player he has been seen"*. `Runtime:check` is the one caller and
+			-- `MOVE.EDGE_BARKS` the one switch; what is asserted here is the SWITCH and the SAMPLE,
+			-- because nobody in this toolchain can hear a Sound.
+			local on = configWith(true)
+			expect(Boar.kindConfig("stag", on).MOVE.EDGE_BARKS).to.equal(true)
+			expect(Boar.kindConfig("hind", on).MOVE.EDGE_BARKS).to.equal(true)
+			expect(Boar.kindConfig("calf", on).MOVE.EDGE_BARKS).to.equal(false)
+			-- IT IS THE ANIMAL'S OWN `cry` ROW AND NOT A NEW CUE, which is why no id is added: task
+			-- 240 chose the stag's `cry` samples expressly AS the warning bark. So the bark a player
+			-- hears is the voice row, and `deer.spec`'s own "no deer cue shares an id with a boar
+			-- cue" case already covers what it is.
+			local voice = CONFIG.SOUND.VOICE
+			expect(#voice.stag.cry >= 1).to.equal(true)
+			expect(#voice.hind.cry >= 1).to.equal(true)
+			-- ...AND IT IS BOUNDED BY THE WORLD'S VOICE RATION, so two barking deer cannot be three
+			-- voices: `CROWD.MAX_SQUEALS` is what `Runtime:check` claims against.
+			expect(CONFIG.SOUND.CROWD.MAX_SQUEALS >= 1).to.equal(true)
+		end)
+
+		it("bounds when spooked from a stand-still, and it is DARK by instruction", function()
+			-- THE DIRECTOR'S DISPATCH, 2026-10-24: *"HOLD the bound when spooked until 245c (the hoof
+			-- sink) is fixed, behind a flag born off"*. So the row is off and every case below drives
+			-- the feature ON BY PARAMETER, which is what section 11 of the flag design asks.
+			local row = Flags.DEFAULTS.STAG_BOUND_ON_SPOOK
+			expect(row).to.be.ok()
+			expect(row.default).to.equal(false)
+			expect(row.owner).to.equal("ServerScriptService.Boar")
+			expect(row.born).to.equal("2026-10-24 task 251 part 2")
+			expect(row.expires).to.equal("2026-11-14")
+			expect(#row.why > 0).to.equal(true)
+			-- ONE BOUNDARY, AND IT IS THE STAG'S OWN KIND ROW. With the row at its default this is
+			-- false, so no animal in the shipped game bounds -- and `MOVE`'s own default is false
+			-- too, so a world that forgot the kind row would not bound either.
+			expect(CONFIG.KINDS.stag.spook.bound).to.equal(Flags.isOn("STAG_BOUND_ON_SPOOK"))
+			expect(CONFIG.KINDS.stag.spook.bound).to.equal(false)
+			expect(CONFIG.MOVE.BOUND_ON_SPOOK).to.equal(false)
+			local on = configWith(true)
+			for _, kind in ipairs({ "male", "female", "cub", "legendary", "hind", "calf" }) do
+				expect(Boar.kindConfig(kind, on).MOVE.BOUND_ON_SPOOK).to.equal(false)
+			end
+			-- THE RULE, each condition on its own. `ON`/`OFF` are the leap tables this block already
+			-- defines for the road leap, because the bound IS that clip.
+			local LEAP_ON = { ENABLED = true, SECONDS = 0.75 }
+			local LEAP_OFF = { ENABLED = false, SECONDS = 0.75 }
+			local from = CONFIG.MOVE.BOUND_FROM_SPEED
+			expect(from).to.equal(6)
+			expect(Brain.boundStarts(true, 0, from, LEAP_ON)).to.equal(true)
+			expect(Brain.boundStarts(true, 4.5, from, LEAP_ON)).to.equal(true) -- a walk
+			expect(Brain.boundStarts(true, 6, from, LEAP_ON)).to.equal(true) -- the edge is inclusive
+			-- ...AND EVERY WAY IT DOES NOT HAPPEN.
+			expect(Brain.boundStarts(true, 6.1, from, LEAP_ON)).to.equal(false) -- already trotting on
+			expect(Brain.boundStarts(true, 28, from, LEAP_ON)).to.equal(false) -- *"a running stag just runs"*
+			expect(Brain.boundStarts(false, 0, from, LEAP_ON)).to.equal(false) -- the kind does not bound
+			expect(Brain.boundStarts(nil, 0, from, LEAP_ON)).to.equal(false)
+			expect(Brain.boundStarts(true, 0, from, LEAP_OFF)).to.equal(false) -- no road leap, no bound
+			expect(Brain.boundStarts(true, 0, from, nil)).to.equal(false)
+			expect(Brain.boundStarts(true, 0, 0, LEAP_ON)).to.equal(false) -- no threshold, no bound
+			expect(Brain.boundStarts(true, 0, from, { ENABLED = true, SECONDS = 0 })).to.equal(false)
 		end)
 	end)
 

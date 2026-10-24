@@ -1395,6 +1395,202 @@ return function()
 			)
 		end)
 
+		-- ---------------------------------------------- THE ALARM BARK AT THE EDGE CHECK (task 251 part 2)
+		--
+		-- KAREN'S SPEC, section 4.2: the bark plays *"once, at the edge-check, the instant he notices a
+		-- hunter"* -- *"the sound that tells the player he has been seen"*. `Runtime:check` is the one
+		-- producer and `MOVE.EDGE_BARKS` the one switch.
+		--
+		-- IT IS HERE AND NOT IN `deer.spec` BECAUSE REVIEW ROUND 2'S BLOCKING FINDING WAS THAT THE
+		-- PRODUCER WAS TESTED BY NOTHING: `deer.spec`'s case asserted the SWITCH and the SAMPLE, so the
+		-- whole block in `Runtime:check` -- and `Body.canPlayOneShot` with it -- could be deleted and
+		-- every case still passed. This file is where a live runtime's SOUNDS are driven
+		-- (`crowdRuntime`, `handle.soundPlays`, `stats().squealsSkipped`), which is what the finding
+		-- asked for.
+		--
+		-- A RUNTIME OF ITS OWN, because two things have to be true that no other case here wants:
+		-- `MOVE` on (`Brain:check` refuses outright with it off) and the edge chance at 1, so the
+		-- claim is about the CUE and not about a roll. The shipped 0.90 and 0.75 are `deer.spec`'s.
+		-- THE KINDS, WITH THE DEER'S EDGE CHANCE FORCED TO 1. One definition, because both cases below
+		-- need it and a second copy is a second chance for one of them to drift back to a roll.
+		local function certainKinds()
+			local kinds = table.clone(CONFIG.KINDS)
+			kinds.ENABLED = true
+			kinds.LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 }
+			for _, kind in ipairs({ "stag", "hind", "calf" }) do
+				local row = table.clone(CONFIG.KINDS[kind])
+				if row.edge ~= nil then
+					local edge = table.clone(row.edge)
+					edge.chance = 1
+					row.edge = edge
+				end
+				kinds[kind] = row
+			end
+			return kinds
+		end
+
+		local function barkRuntime(name: string)
+			local world = buildWorld(true, name)
+			world.config.SOUND = voicedSound()
+			world.config.KINDS = certainKinds()
+			local move = table.clone(CONFIG.MOVE)
+			move.ENABLED = true
+			world.config.MOVE = move
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(_species: string, clip: string)
+				return FAKE_IDS[clip]
+			end)
+			return runtime
+		end
+
+		it("BARKS when a deer takes the edge check, and a calf and a boar never do", function()
+			local runtime = barkRuntime("BoarsBark")
+			local want = { stag = 1, hind = 1, calf = 0, male = 0 }
+			local handles = {}
+			local index = 0
+			for _, kind in ipairs({ "stag", "hind", "calf", "male" }) do
+				index += 1
+				handles[kind] = runtime:spawn(Vector3.new(index * 25 - 50, GROUND_Y, -10), kind)
+				expect(handles[kind]).to.be.ok()
+			end
+			warmedUp(runtime)
+
+			-- THE TWO THAT CARRY AN `edge` ROW TAKE IT OUTRIGHT, because this runtime forces their
+			-- chance to 1. **THE CALF AND THE BOAR DO NOT**: neither carries a row -- the spec's
+			-- *"follows her mother"* for the calf -- so both roll against `MOVE.EDGE_CHANCE` 0.55 and
+			-- both have to be DRIVEN until they take one, because an animal that never accepted a
+			-- check would prove nothing about whether it barks. `_checked` is one check per approach,
+			-- so a refusal is retried on a fresh animal rather than by fighting that latch.
+			for _, kind in ipairs({ "stag", "hind" }) do
+				expect(runtime:check(handles[kind].id)).to.equal(true)
+			end
+			for _, kind in ipairs({ "calf", "male" }) do
+				local took = false
+				for attempt = 1, 40 do
+					if runtime:check(handles[kind].id) then
+						took = true
+						break
+					end
+					handles[kind] = runtime:spawn(Vector3.new(60 + attempt, GROUND_Y, -10), kind)
+					expect(handles[kind]).to.be.ok()
+				end
+				expect(took).to.equal(true)
+			end
+			step(runtime)
+
+			-- ...AND ONLY THE TWO THAT CARRY `EDGE_BARKS` WERE HEARD. This is the assertion that
+			-- fails the moment the block in `Runtime:check` is deleted.
+			for kind, expected in pairs(want) do
+				expect(handles[kind].soundPlays.cry or 0).to.equal(expected)
+			end
+			TestKit.note(
+				string.format(
+					"task251 bark: stag %d, hind %d, calf %d, boar %d cry play(s) at the edge check",
+					handles.stag.soundPlays.cry or 0,
+					handles.hind.soundPlays.cry or 0,
+					handles.calf.soundPlays.cry or 0,
+					handles.male.soundPlays.cry or 0
+				)
+			)
+
+			-- ONCE PER APPROACH, which is `Brain:check`'s own rule: a second offer is refused and so
+			-- there is no second bark.
+			expect(runtime:check(handles.stag.id)).to.equal(false)
+			step(runtime)
+			expect(handles.stag.soundPlays.cry).to.equal(1)
+		end)
+
+		it("does not spend a world squeal slot on a bark nobody could hear (round 1's note)", function()
+			-- ROUND 1'S NOTE, AND THE ONLY THING THAT PROVES IT EITHER WAY. `_claimSqueal` books one of
+			-- `CROWD.MAX_SQUEALS` and `playOneShot` can still answer false afterwards -- no Sound of
+			-- that name on this animal, or the cue switched off by data -- so claiming FIRST would book
+			-- the world's voices for silence. `Body.canPlayOneShot` is asked first now.
+			--
+			-- THE OBSERVABLE IS `stats().squeals`, the live booking count, because `squealsSkipped`
+			-- counts REFUSALS and a slot taken and WASTED is not a refusal: from outside, "the bark was
+			-- heard" and "the bark booked a voice and was silent" looked identical, which is why this
+			-- note could not be proved either way in round 1. The counter is the same pure rule
+			-- `_claimSqueal` caps against (`Boar.squealsSounding`) and is read-only.
+			--
+			-- THE FAULT IS `spec.enabled = false`, which is one of the two things the predicate reads
+			-- and is the design's own case (*"the load can fail, the asset can be moderated away"*).
+			-- The other -- no Sound of that name in `handle.sounds` -- is NOT reachable from a spec, and
+			-- the first run of this case learned that the hard way: destroying the Sound INSTANCE
+			-- leaves the table's reference in place, so the predicate still answered "yes" and the cue
+			-- still played, silently and parentless.
+			local world = buildWorld(true, "BoarsBarkSlots")
+			local sound = voicedSound()
+			local silent = table.clone(CONFIG.SOUND.CRY)
+			silent.enabled = false
+			sound.CRY = silent
+			world.config.SOUND = sound
+			-- THE SAME FORCED KINDS as the case above, which the first run of this case did not use:
+			-- a hind at her shipped 0.75 can refuse the check, and a case that needs her to TAKE one
+			-- cannot be left to a roll.
+			world.config.KINDS = certainKinds()
+			local move = table.clone(CONFIG.MOVE)
+			move.ENABLED = true
+			world.config.MOVE = move
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(_species: string, clip: string)
+				return FAKE_IDS[clip]
+			end)
+
+			local mute = {}
+			for slot = 1, SOUND.CROWD.MAX_SQUEALS + 1 do
+				table.insert(mute, runtime:spawn(Vector3.new(slot * 25 - 60, GROUND_Y, -10), "hind"))
+			end
+			warmedUp(runtime)
+			expect(runtime:stats().squeals).to.equal(0)
+
+			-- THE CHECK STILL HAPPENS -- the animal stops and looks whether or not it can be heard,
+			-- which is the half of this that must not change -- and nothing is played.
+			for _, handle in ipairs(mute) do
+				expect(runtime:check(handle.id)).to.equal(true)
+				expect(handle.soundPlays.cry).to.equal(nil)
+			end
+			step(runtime)
+			-- **NOT ONE VOICE WAS BOOKED, AND THIS IS THE ASSERTION THAT FAILS ON THE OLD ORDERING**:
+			-- claim-then-play would have taken all `MAX_SQUEALS` of them and refused the last, so
+			-- `squeals` would read `MAX_SQUEALS` and `squealsSkipped` 1.
+			expect(runtime:stats().squeals).to.equal(0)
+			expect(runtime:stats().squealsSkipped).to.equal(0)
+
+			-- ...AND THE COUNTER IS NOT ALWAYS ZERO, which is what stops the two assertions above from
+			-- passing for the wrong reason: the SAME barks in a world whose cue is switched ON do book
+			-- the world's voices, and the one past the cap is refused.
+			local heard = barkRuntime("BoarsBarkSlotsHeard")
+			local deer = {}
+			for slot = 1, SOUND.CROWD.MAX_SQUEALS + 1 do
+				table.insert(deer, heard:spawn(Vector3.new(slot * 25 - 60, GROUND_Y, -10), "hind"))
+			end
+			warmedUp(heard)
+			local barks = 0
+			for _, handle in ipairs(deer) do
+				expect(heard:check(handle.id)).to.equal(true)
+				barks += handle.soundPlays.cry or 0
+			end
+			step(heard)
+			expect(barks).to.equal(SOUND.CROWD.MAX_SQUEALS)
+			expect(heard:stats().squeals).to.equal(SOUND.CROWD.MAX_SQUEALS)
+			expect(heard:stats().squealsSkipped).to.equal(1)
+			TestKit.note(
+				string.format(
+					"task251 bark slots: %d barkless check(s) booked %d voice(s); the same checks with the cue on booked %d and skipped %d",
+					#mute,
+					runtime:stats().squeals,
+					heard:stats().squeals,
+					heard:stats().squealsSkipped
+				)
+			)
+		end)
+
 		it("lets two squeals be heard and SKIPS the third, rather than queuing it", function()
 			local runtime = crowdRuntime("BoarsCrowdSqueals", true)
 			local handles = runtime:spawnSounder(Vector3.new(0, GROUND_Y, -10), 6, 10)

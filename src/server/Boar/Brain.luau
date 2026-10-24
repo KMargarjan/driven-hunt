@@ -722,6 +722,13 @@ function Brain.new(config, field, start: Vector3, rng: Random)
 	-- the world asks).
 	self._checkFor = 0
 	self._checked = false
+	-- THE HEADING THE ANIMAL ARRIVED ON, latched for the length of one edge check (task 251 part 2,
+	-- review round 1, the blocking finding). `Brain.lookBack` measures its limit FROM this and not
+	-- from `self._desired`, because `_desired` is what the turn-rate slew writes every tick -- so
+	-- measuring from it made the limit a limit on one FRAME's rotation and not on the pose, and the
+	-- facing walked round to the man at `WALK_TURN_DEG` and stopped only at the dead band. A
+	-- reversal, which is the one thing the number 150 exists to prevent.
+	self._checkHeading = nil :: Vector3?
 	-- WHERE A STRAYED BOAR IS WALKING BACK TO. One drawn point, replacing the per-tick pull toward
 	-- home that was one of the two orbit generators.
 	self._homePoint = nil :: Vector3?
@@ -1326,6 +1333,7 @@ function Brain:_settle(position: Vector3)
 	self._flightFor = 0
 	self._checked = false
 	self._checkFor = 0
+	self._checkHeading = nil
 	self._homePoint = nil
 end
 
@@ -1462,6 +1470,23 @@ function Brain:spook(from: Vector3?, seconds: number?, untilExit: boolean?)
 	local state = self._state
 	if state == "GONE" or state == "DOWN" or state == "CRIPPLED" then
 		return false
+	end
+	-- THE BOUND, AND IT IS READ BEFORE THE BOLT KICK TOUCHES THE SPEED (task 251 part 2). `self._speed`
+	-- is what the animal was doing when it was frightened, which is the whole of *"only from a
+	-- stand-still or a walk"*; eight lines below, `BOLT_KICK` raises it to a run, and reading it after
+	-- that would make every bound impossible. `Brain.boundStarts` is the rule, the flag is off, and
+	-- `MOVE.BOUND_ON_SPOOK` is false for every animal but a stag.
+	local boundMove = config.MOVE
+	local boundLeap = config.MODEL ~= nil and config.MODEL.LEAP or nil
+	if
+		Brain.boundStarts(
+			boundMove ~= nil and boundMove.BOUND_ON_SPOOK or false,
+			self._speed,
+			(boundMove ~= nil and boundMove.BOUND_FROM_SPEED) or 0,
+			boundLeap
+		)
+	then
+		self._leapFor = boundLeap.SECONDS
 	end
 	if untilExit == true and config.SENSE ~= nil and config.SENSE.SHOT_FLIGHT_UNTIL_EXIT == true then
 		self._heardShot = true
@@ -1601,6 +1626,11 @@ function Brain:check(seconds: number?): boolean
 		return false -- it had its chance and walked straight out, which is the other half of the dial
 	end
 	self._checkFor = seconds or self._rng:NextNumber(move.EDGE_MIN_SECONDS, move.EDGE_MAX_SECONDS)
+	-- ...AND THE HEADING IS TAKEN HERE, ONCE, which is the same shape `_latchFlight` uses for the
+	-- flight line and for the same reason: a limit measured against a value that moves is not a
+	-- limit. This is the heading it was walking on when it stopped, so "150 degrees off the way you
+	-- came" means that for the whole check however long it runs.
+	self._checkHeading = self._desired
 	return true
 end
 
@@ -1888,6 +1918,72 @@ function Brain.leapStarts(onRoad: boolean, armed: boolean, speed: number, runFro
 		return false
 	end
 	return speed >= runFrom
+end
+
+-- DOES A BOUND START AT THIS SPOOK (task 251 part 2)? Pure, four plain values in and a boolean out,
+-- exactly `leapStarts` above and for the same reason: every rule below is a test case with no animal
+-- in the world and with the flag sitting at false.
+--
+-- KAREN, through the plan she OK'd: *"a bound away when spooked"*. A red stag startled from a
+-- stand-still leaps once and then runs; a stag already running just runs, which is `fromSpeed`.
+--
+-- THE THREE CONDITIONS:
+--   the animal's KIND bounds at all (`MOVE.BOUND_ON_SPOOK`, which is `KINDS.stag.spook.bound` and
+--     is where the `STAG_BOUND_ON_SPOOK` flag is read -- false for every boar and every other deer);
+--   it is at or below `MOVE.BOUND_FROM_SPEED` -- *"only from a stand-still or a walk"*;
+--   there is a leap to play (`MODEL.LEAP`, the road leap's own table).
+--
+-- IT IS BOUNDED BY THE ROAD LEAP'S OWN SWITCH, deliberately: the bound IS that clip, so a world with
+-- `DEER_ROAD_LEAP` off has no bound either. Two dark switches cannot light each other, and when
+-- TASKS.md 245c fixes the clip's measured hoof sink it is fixed once for both.
+--
+-- IT DOES NOT TEST FOR A CLIP, and it does not touch `_leapArmed`. `Body.hasClip` owns "is there
+-- anything to play" (`leapStarts`' own comment says why), and the arming latch is about CROSSINGS --
+-- one bound per road -- which a fright in the middle of the wood must not spend.
+function Brain.boundStarts(bound: boolean?, speed: number, fromSpeed: number, leap): boolean
+	if bound ~= true then
+		return false
+	end
+	if type(leap) ~= "table" or leap.ENABLED ~= true then
+		return false
+	end
+	if type(leap.SECONDS) ~= "number" or leap.SECONDS <= 0 then
+		return false
+	end
+	if type(fromSpeed) ~= "number" or fromSpeed <= 0 then
+		return false
+	end
+	return speed <= fromSpeed
+end
+
+-- WHICH WAY AN ANIMAL FACES WHILE IT CHECKS THE EDGE (task 251 part 2). Pure: the heading it is
+-- travelling on, the direction of the nearest man, and how far round it is willing to look.
+--
+-- KAREN's spec, section 3.1: *"stand looking back"*, *"150 degrees to the nearest threat"* -- *"the
+-- one gesture that reads as wariness from 50 m"*. 150 and not 180 because a stag looks over his
+-- shoulder; he does not reverse.
+--
+-- IT IS `slew` AND NOTHING ELSE, which is the whole of why this costs almost no new state: the
+-- turn-rate limiter already in this module clamps a rotation to a maximum, so "face the man, but no
+-- more than 150 degrees off your line" is that function with the angle in degrees. The facing it
+-- returns then goes through `TURN_RATE` in `_step` like every other facing, so the head comes round
+-- over about a second rather than snapping.
+--
+-- **`travel` MUST BE A LATCHED HEADING AND NOT `self._desired`** (review round 1's blocking finding).
+-- `_desired` is what that very slew rewrites each tick, so a limit measured from it is a limit on one
+-- frame's rotation: the angle shrinks every tick until it is under the limit, after which this
+-- function returns the threat's direction unchanged and the animal reverses. `Brain:check` latches
+-- `_checkHeading` for exactly this, and the one caller in `_step` passes that.
+--
+-- NO THREAT, NO ANGLE, OR A DEGENERATE DIRECTION -> THE TRAVEL HEADING, which is what the check has
+-- done since task 126 ("stopped at the edge, looking the way it is going"). Every boar in the game
+-- has `EDGE_LOOK_BACK_DEG` 0 and therefore takes that line unchanged.
+function Brain.lookBack(travel: Vector3, toward: Vector3?, maxDeg: number?): Vector3
+	if toward == nil or type(maxDeg) ~= "number" or maxDeg <= 0 then
+		return travel
+	end
+	local want = unit(flat(toward), travel)
+	return slew(travel, want, math.rad(maxDeg))
 end
 
 function Brain:step(dt: number, obs)
@@ -2187,7 +2283,32 @@ function Brain:step(dt: number, obs)
 		-- refractory period and its own `_alertPoint`. The animal has not seen anything; it is
 		-- standing at the edge of the open. The file stacks up behind it for free: every follower's
 		-- target is a point behind the one ahead, and the one ahead has stopped.
-		desiredDirection = self._desired
+		--
+		-- ...AND A DEER LOOKS BACK WHILE IT STANDS THERE (task 251 part 2). Karen's spec, section 3.1:
+		-- *"stand looking back"*, 150 degrees to the nearest threat for the stag and his hinds, 0 --
+		-- unchanged -- for every boar. `Brain.lookBack` is the whole of it and it is a YAW ORDER AND
+		-- NOT AN ANIMATION: the setpoint is still zero, the state is still not ALERT, and no clip, no
+		-- publish and no timer is added. `_perception.nearest` is the nearest man THIS tick, measured
+		-- by the one function that measures it (`Brain.perceive`), and it is nil in a world with
+		-- nobody in it.
+		local checkMove = config.MOVE
+		local nearest = if self._perception ~= nil then self._perception.nearest else nil
+		-- THE LIMIT IS MEASURED FROM THE LATCHED HEADING, NOT FROM `self._desired` (review round 1,
+		-- the blocking finding, which was right). `_desired` is the field the turn-rate slew at the
+		-- bottom of this function rewrites every tick, so measuring the 150 degrees from it clamped
+		-- each FRAME's rotation instead of the pose: the angle shrank tick by tick, fell under 150,
+		-- and `lookBack` then returned the man's own direction -- the animal came right round to
+		-- stare at him in about two seconds at `PACE.WALK_TURN_DEG`, inside its own check, and set
+		-- off on that heading when the check expired. `_checkHeading` is taken once, in
+		-- `Brain:check`, so the clamp is against the way it CAME.
+		--
+		-- A NIL LATCH FALLS BACK TO `_desired`, which is what a check started before this task's
+		-- field existed would have: the old behaviour, never an error.
+		desiredDirection = Brain.lookBack(
+			self._checkHeading or self._desired,
+			if nearest ~= nil then flat(nearest) - flat(position) else nil,
+			(checkMove ~= nil and checkMove.EDGE_LOOK_BACK_DEG) or 0
+		)
 		desiredSpeed = 0
 	elseif self._state == "ALERT" then
 		-- HEAD UP, STOPPED, TURNED TO THE CAUSE (section 4.4). Both limits are the existing ones:

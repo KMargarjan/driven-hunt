@@ -72,46 +72,75 @@ Bots.CONFIG = {
 	-- 9 -> 5, AND IT IS KAREN'S TWO MINUTES (task 162). Karen, 2026-10-12: *"can we make drive
 	-- longer, it's to fast / good for testing but now need longer walk for beaters let's say 2
 	-- min"*. A bot line ENDS the drive (`Match.beaterCrossing` counts bots into the line), so this
-	-- number and where the line starts ARE the length of a drive, and the pair has to make 120 s:
+	-- number and where the line starts ARE the length of a drive.
+	--
+	-- 5 -> 3.1, AND IT IS THE DIRECTOR'S THREE AND A HALF MINUTES (task 251 part 2, 2026-10-24,
+	-- answering part 1's escalation with Karen's feel delegated for the night): *"lengthen the Forest
+	-- Test drive to about 210 s by slowing the beater line (the time to arrive is ~130 s today), not
+	-- by cutting the script"*. The drive script is fifteen slots and the drive was only reaching five
+	-- of them, so the stag at slot 13 never happened at all (`ESCALATE.md`, 2026-10-23).
 	--
 	--   (ForestTest.LINE.spawnNorthStuds 180 + ForestTest.BEATER.behindLineStuds 400
-	--    + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS 20) / 5 = 120.0 s
+	--    + Match.CONFIG.BOTS.GOAL_PAST_LINE_STUDS 20) / 3.1 = 193.5 s flat
+	--
+	-- ...AND THE FLAT FIGURE IS NOT WHAT ARRIVES. MEASURED over three drives of this task's part 1, in
+	-- Karen's own place, off the `[bots]` line: 130.8 / 133.0 / 125.3 s against a flat 120.0 -- a
+	-- factor of **1.081**, which is the hill, the trunks and the side-steps (the measured ground path
+	-- from the middle stand's pad is 612 studs against 580 flat). So 193.5 x 1.081 = **209 s**, which
+	-- is the Director's 210, and the fifteenth slot is due at 192 (`ForestTest.SCHEDULE`).
 	--
 	-- `bots_lane.spec` asserts that relation rather than leaving it in a comment, because the two
 	-- numbers live in two files that nobody changes together.
 	--
-	-- 5 STUDS/S IS 1.40 m/s at `ForestTest.SPOOK.METRES_PER_STUD` (0.28), which is a real walking
-	-- pace for a man working a wood -- the Director's band was 1.2-1.5 m/s. 9 was 2.52 m/s, which is
-	-- a jog, and it is why a drive ended at 0:29 (TASKS.md 161a(e)).
+	-- 3.1 STUDS/S IS 0.87 m/s at `ForestTest.SPOOK.METRES_PER_STUD` (0.28), AND THAT IS SLOWER THAN A
+	-- MAN WALKS -- deliberately, and the spec's own band moves with it. 5 was 1.40 m/s inside a
+	-- 1.2-1.5 band whose reason was *"a real walking pace for a man working a wood"*. But a BEATER LINE
+	-- does not walk: it advances. It stops in thick cover, beats it, waits for the man on either flank
+	-- so the line stays level, and moves on -- a Treiberwehr must go forward slowly and on one level
+	-- is the whole of the practice this world is modelled on (Livingactive, *Tipps und Tricks fuer die
+	-- Drueckjagd*; the same source act I's early movers come from). An AVERAGE advance of 0.9 m/s for
+	-- a line working cover is a slow walk with stops in it, which is what it is.
+	-- The band in `bots_lane.spec` is therefore 0.8-1.5 m/s now, with that sentence on it.
 	--
-	-- KEEPING 9 WAS MEASURED AND REFUSED: 120 s at 9 studs/s needs 1,060 studs of wood north of the
-	-- road, and MEASURED in the Forest Test on 2026-10-12 the trees run out at 775-850 studs
-	-- (terrain carries on past 1,000, bare). The wood cannot hold a two-minute walk at a jog, so the
-	-- pace had to come down -- see `ForestTest.BEATER.behindLineStuds` for the other half.
+	-- WHAT IT DOES NOT COST, because it was checked and not assumed: the FEET DO NOT SLIDE. `Rig.gait`
+	-- plays the walk clip at `speed / NATURAL_WALK_SPEED` -- the engine's own law, measured in task 161
+	-- -- so 3.1 studs/s is drawn at rate 0.46, well above `GAIT.MIN_RATE` 0.30 and far above
+	-- `WALK_ABOVE_STUDS` 0.75, and the stride matches the ground exactly as it does at 5.
+	--
+	-- MOVING THE LINE BACK INSTEAD WAS MEASURED AND REFUSED, which is why this is the half that moved.
+	-- 210 s at 5 studs/s needs 1,050 studs of travel, and MEASURED in the Forest Test on 2026-10-12
+	-- the trees run out at 775-850 studs north of the road (terrain carries on past 1,000, bare). The
+	-- wood cannot hold the walk, and a beater line starting on open hillside is a thing Karen would
+	-- see. The escalation lists it as option B and calls it out of bounds for the same reason.
+	-- KEEPING 9 WAS REFUSED THE SAME WAY in task 162: 2.52 m/s is a jog, and it is why a drive ended
+	-- at 0:29 (TASKS.md 161a(e)).
 	--
 	-- A REAL PLAYER IS NOT SLOWED BY THIS. Nothing in this module writes a player's `WalkSpeed` --
 	-- `Match.Body` is the only writer of that and still hands out `Body.defaultWalkSpeed()` (16) --
 	-- so Karen walking as a beater still covers the 580 studs in ~36 s and then waits for the bot
-	-- line, because *"all beaters cross"* is the line and not the first of it.
-	WALK_SPEED = 5, -- K
+	-- line, because *"all beaters cross"* is the line and not the first of it. **That wait is what
+	-- this change makes longer**, and it is the one cost of it: ~3 minutes instead of ~1.5. Said here
+	-- rather than discovered in a playtest (rule 8).
+	WALK_SPEED = 3.1, -- K
 	-- THIS SYSTEM'S OWN CLOCK, declared rather than discovered. The drive's is 4
 	-- (`MATCH_STEP_HZ`) and the boar runtime has its own; this is a third.
 	STEP_HZ = 5,
 	-- WELL INSIDE THE ENGINE'S DOCUMENTED 8-SECOND `MoveTo` TIMEOUT. Roblox: if the goal is not
 	-- reached within 8 seconds the humanoid STOPS WALKING and `MoveToFinished` fires with
 	-- `reached = false`; the timeout is reset by calling `MoveTo` again inside the window, which is
-	-- what the vendor's own sample does. A beater has ~600 studs to cross at 5 studs/s, which is two
-	-- minutes (task 162), so ONE `MoveTo` could never do it whatever route it followed.
+	-- what the vendor's own sample does. A beater has ~600 studs to cross at 3.1 studs/s, which is
+	-- over three minutes (task 251 part 2), so ONE `MoveTo` could never do it whatever route it
+	-- followed.
 	--   https://create.roblox.com/docs/reference/engine/classes/Humanoid#MoveTo
 	MOVE_REISSUE_SECONDS = 2,
-	-- 2.4 SECONDS OF WALKING at `WALK_SPEED`, so the aim point is always still ahead of the bot when
+	-- 3.9 SECONDS OF WALKING at `WALK_SPEED`, so the aim point is always still ahead of the bot when
 	-- the next re-issue comes round.
 	--
 	-- AND SINCE TASK 162 THE ARITHMETIC BEHIND THAT SENTENCE HOLDS, which it did not before: the aim
 	-- point has to be at least `WALK_SPEED * MOVE_REISSUE_SECONDS` studs out, or the bot can reach
 	-- it and have nothing to walk at until the next re-issue. At `WALK_SPEED` 9 that product was 18
-	-- against these 12; at 5 it is 10, inside them. `bots_lane.spec` asserts the relation rather
-	-- than this comment claiming it.
+	-- against these 12; at 5 it was 10 and at 3.1 it is 6.2, inside them. `bots_lane.spec` asserts
+	-- the relation rather than this comment claiming it.
 	--
 	-- WHAT IS NOT CLAIMED, because it was not measured: that the old pace was actually clamped by
 	-- the cadence. Task 161's own run printed `walkSeconds 30.0` for a 260-stud walk, which is 8.7
@@ -138,9 +167,10 @@ Bots.CONFIG = {
 	SIDE_TRIES = 4,
 	-- `ForestTest.BEATER.dropStuds`: dropped onto the ground, not into it.
 	DROP_STUDS = 4,
-	-- A BOT THAT HAS NOT MOVED THIS FAR IN THIS LONG IS STUCK. At 5 studs/s four seconds is 20
-	-- studs, so 3 is unambiguously "not walking". It side-steps and the count is PRINTED -- which is
-	-- what opens the research note's escape hatch (SimplePath) with a number rather than a feeling.
+	-- A BOT THAT HAS NOT MOVED THIS FAR IN THIS LONG IS STUCK. At 3.1 studs/s four seconds is 12.4
+	-- studs, so 3 is still unambiguously "not walking" (at 5 it was 20). It side-steps and the count
+	-- is PRINTED -- which is what opens the research note's escape hatch (SimplePath) with a number
+	-- rather than a feeling.
 	STUCK_SECONDS = 4,
 	STUCK_STUDS = 3,
 
@@ -165,23 +195,30 @@ Bots.CONFIG = {
 	-- recovery.
 	--
 	-- 0.8 s IS FOUR STEPS at `STEP_HZ` 5: the shortest window that cannot be one sample's noise.
-	-- 1.0 studs/s is a FIFTH of the pace it was told to walk, and it is deliberately looser than the
-	-- boar's ninth because the measurement leaves two decimal orders of room: a pinned bot crept at
-	-- **0.05 studs/s** for eighteen seconds, and a walking one makes **4.7**.
+	-- 1.0 studs/s is a THIRD of the pace it was told to walk since task 251 part 2 took `WALK_SPEED`
+	-- to 3.1 (it was a fifth at 5), and it is deliberately looser than the boar's ninth because the
+	-- measurement leaves two decimal orders of room: a pinned bot crept at **0.05 studs/s** for
+	-- eighteen seconds, and a walking one now makes about **2.9**. Two orders either way, so the
+	-- threshold is not retuned -- it is still nowhere near either number.
 	STUCK_FAST_SECONDS = 0.8,
 	STUCK_SLOW_SPEED = 1.0,
 	STUCK_ORDERED_SPEED = 2,
-	-- HOW LONG A RECOVERY IS HELD. `SIDE_STEP_STUDS` (10) at `WALK_SPEED` (5) is 2.0 s, so the hold
+	-- HOW LONG A RECOVERY IS HELD. `SIDE_STEP_STUDS` (10) at `WALK_SPEED` (3.1) is 3.23 s, so the hold
 	-- has to be at least that or the bot turns back into the thing before it is past it -- the boar's
 	-- `WEDGE_HOLD_SECONDS` reasoning ("the next frame's steering blend starts pulling it back toward
 	-- the trunk at once") with this walk's own arithmetic, plus 0.2 s for the turn.
-	RECOVER_HOLD_SECONDS = 2.2,
+	--
+	-- 2.2 -> 3.4 WITH THE WALK (task 251 part 2), and it is the SAME arithmetic, not a new dial: at 5
+	-- studs/s the side-step took 2.0 s and the hold was 2.2. `bots_lane.spec` asserts
+	-- `RECOVER_HOLD_SECONDS >= SIDE_STEP_STUDS / WALK_SPEED`, which is exactly the check that catches
+	-- a walk slowed without this following it.
+	RECOVER_HOLD_SECONDS = 3.4,
 	-- A DETOUR IS A DEFLECTION, NOT A RECOVERY: held for shorter, so the lane is resumed as soon as
 	-- the trunk is passed. Above `1 / SEE_HZ` so a held answer is never re-decided inside its hold.
 	DETOUR_HOLD_SECONDS = 1.2,
 	-- THE DECLARED FLOOR ON THE EXPENSIVE CALL -- SimplePath's `TIME_VARIANCE = 0.07` exists because
 	-- the community found one was needed (note 2026-10-12 section 2.4). Every other step; at
-	-- `WALK_SPEED` 5 that is 2 studs of travel between looks against a 12-stud lookahead.
+	-- `WALK_SPEED` 3.1 that is 1.2 studs of travel between looks against a 12-stud lookahead.
 	SEE_HZ = 2.5,
 	-- THE BODY THAT IS SWEPT DOWN THE LANE. A Roblox character is 2 studs across and about 5 tall;
 	-- 4 is its width plus a body's clearance either side, which is `AVOID_RADIUS_STUDS`' own

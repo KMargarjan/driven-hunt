@@ -592,18 +592,47 @@ return function()
 			expect(math.abs(clips.rate - nominal) < Rig.GAIT.RATE_EPSILON).to.equal(true)
 			expect(nominal < Rig.GAIT.MAX_RATE).to.equal(true) -- the slide: it used to be 1.000
 
-			-- HALF THE PACE OVER THE NEXT STEP -> half the rate. 0.5 studs in 0.2 s is 2.5 studs/s.
+			-- A SLOWER PACE OVER THE NEXT STEP -> A PROPORTIONALLY SLOWER RATE, and both the DISTANCE
+			-- AND THE FRACTION are derived rather than written down (task 251 part 2).
+			--
+			-- IT USED TO BE "HALF THE PACE: 0.5 STUDS IN 0.2 s", which is half of FIVE studs/s -- and
+			-- when the Director slowed the beater line to 3.1 that broke TWICE. The literal distance
+			-- stopped being half the pace at all; and then half the pace stopped being expressible,
+			-- because 1.55 studs/s is rate 0.23 and `GAIT.MIN_RATE` is 0.30, so `Rig.gait` CLAMPS it
+			-- and the scaled rate and the clamped one are different numbers. 0.75 is the fraction
+			-- because it is the one that keeps the perturbed pace above that floor, and the floor itself
+			-- is asserted a few lines down -- so the reason for the fraction is a measurement in this
+			-- file rather than a sentence in this comment.
+			local slowFraction = 0.75
+			local slowPace = Bots.CONFIG.WALK_SPEED * slowFraction
 			local here = Rig.positionOf(body) :: Vector3
-			Rig.place(body, CFrame.new(here + Vector3.new(0, 0, -0.5)), false)
+			Rig.place(body, CFrame.new(here + Vector3.new(0, 0, -slowPace * 0.2)), false)
 			Bots.step(0.2, 5000.2)
-			-- TO A TOLERANCE, not to the bit: the step measures 0.5 studs over 0.2 s of a float
-			-- clock, so 2.5 arrives as 2.4999999999999996 and the two divisions differ in the last
-			-- place. `RATE_EPSILON` is the resolution the owner itself acts on, so anything inside
-			-- it is the same rate as far as the Animator is ever told.
-			local _, half = Rig.gait(2.5, "walk")
+			-- TO A TOLERANCE, not to the bit: the step measures a float distance over 0.2 s of a float
+			-- clock, so the two divisions differ in the last place. `RATE_EPSILON` is the resolution
+			-- the owner itself acts on, so anything inside it is the same rate as far as the Animator
+			-- is ever told.
+			local _, slower = Rig.gait(slowPace, "walk")
 			local got = (Bots.clipsOf("bot-beater-1") :: any).rate
-			expect(math.abs(got - half) < Rig.GAIT.RATE_EPSILON).to.equal(true)
-			expect(math.abs(got - nominal / 2) < Rig.GAIT.RATE_EPSILON).to.equal(true)
+			expect(math.abs(got - slower) < Rig.GAIT.RATE_EPSILON).to.equal(true)
+			expect(math.abs(got - nominal * slowFraction) < Rig.GAIT.RATE_EPSILON).to.equal(true)
+			-- ...AND THE FLOOR IS REAL AND IS NOW REACHABLE AT THIS WALK, which is the fact the old
+			-- literal hid: at `WALK_SPEED` 3.1 a bot at HALF pace is drawn at `MIN_RATE` and not at
+			-- half the rate, so the next person who slows the line further must not read a clamped
+			-- rate as a scaled one. Asserted, so the clamp cannot be mistaken for the law.
+			local _, clamped = Rig.gait(Bots.CONFIG.WALK_SPEED / 2, "walk")
+			expect(clamped).to.equal(Rig.GAIT.MIN_RATE)
+			expect(slower > Rig.GAIT.MIN_RATE).to.equal(true)
+			TestKit.note(
+				string.format(
+					"gait: %.1f studs/s -> rate %.3f; x%.2f -> %.3f; half -> %.3f, which is the MIN_RATE floor",
+					Bots.CONFIG.WALK_SPEED,
+					nominal,
+					slowFraction,
+					slower,
+					clamped
+				)
+			)
 
 			-- AND A BOT THAT IS NOT MOVING STANDS STILL instead of churning its legs on the spot,
 			-- which is the other half of "odd": the body is not moved at all over this step.
