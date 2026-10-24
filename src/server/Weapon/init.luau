@@ -160,11 +160,15 @@ local stats = {
 	noBallistics = 0,
 	-- THE LAG COMPENSATION THIS SERVER HAS HANDED OUT, in seconds (task 256), mirrored off
 	-- `Flight.catchUpSeconds` beside the two above so one `stats()` still answers everything. It
-	-- MUST STAY 0.000 IN A HARNESS RUN: a Studio Play session has no network and
-	-- `Player:GetNetworkPing()` reads ~0, so a non-zero total here is this feature granting lead
-	-- where there is no lag to compensate -- a bug said out loud rather than a silent gift. On a real
-	-- server it is expected to be non-zero, and it is the only instrument anybody has for how much
-	-- `FLIGHT_CATCHUP_PING_FACTOR` is actually buying (research note section 5.4).
+	-- IT IS NEAR ZERO IN A HARNESS RUN, AND "NEAR" IS MEASURED (task 256, round 2). A loopback
+	-- Studio Play session does NOT read a zero ping: `Player:GetNetworkPing()` reported 1.70 ms of
+	-- total compensation across one run's shots -- 0.065 studs on a sprinting boar, nothing a player
+	-- could see, but NOT 0. The first version of `weapon_state.spec` asserted exactly 0 and failed on
+	-- it, which is how this is known rather than assumed.
+	-- So the guard is a PER-SHOT BOUND (10 ms, ~50x this machine and 15x under the cap): loose enough
+	-- never to flake, tight enough that a wrong `FLIGHT_CATCHUP_PING_FACTOR` or a seconds/milliseconds
+	-- mix-up trips it. On a real server it is expected to be much larger, and it is the only
+	-- instrument anybody has for how much that factor is actually buying (research note 5.4).
 	flightCatchUpSeconds = 0,
 	-- Passes of `Weapon.refillForDrive` that actually refilled a drive's shells (task 171): 0 in a
 	-- running drive means the drive is not calling it.
@@ -1075,8 +1079,9 @@ end
 --
 -- PURE EXCEPT FOR THE ONE READ IT EXISTS TO MAKE, and `ping` is a PARAMETER with a default for the
 -- reason `Weapon.equipDelayFor` and `Ballistics.dropAt` already state: a number that can only be
--- read at one value cannot be tested at another -- and this one reads ~0 in Studio, so a spec that
--- could not supply its own could not reach this function's interesting half at all.
+-- read at one value cannot be tested at another -- and this one reads 1-2 ms on a loopback Studio
+-- session (measured, task 256 round 2), so a spec that could not supply its own could not reach this
+-- function's interesting half at all.
 --
 -- `Player:GetNetworkPing()` IS THE ONLY LATENCY A SERVER CAN HAVE WITHOUT A PROTOCOL OF OUR OWN, and
 -- it is unspoofable here precisely because the client never sends it. Its units are the uncertain

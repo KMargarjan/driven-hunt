@@ -511,7 +511,9 @@ Shotgun.CONFIG = {
 	-- the correction wanted is the ROUND TRIP. So the one genuinely uncertain number in this block is
 	-- a DATA ROW and not a literal, for the reason `GRAVITY_SCALE` already is one: a constant that
 	-- can only be read at one value cannot be tested at another -- and this one can only be
-	-- CONFIRMED against a real server, because a Studio Play session has no network and reads ~0.
+	-- CONFIRMED against a real server: a loopback Studio Play session reads only 1-2 ms (measured,
+	-- round 2 -- not the zero this comment first claimed), which is 0.065 studs on a sprinting boar
+	-- and so cannot distinguish a factor of 1.0 from one of 2.0.
 	--
 	-- 1.0 IS THE CONSERVATIVE READING (treat the engine's number as the round trip): over-correcting
 	-- hands out free lead, while under-correcting merely leaves some of today's error in place. 2.0

@@ -277,8 +277,13 @@ miss by 59 %. Two things follow, and both are stated rather than fixed:
 row of the table, asserted, so the degradation is a number in the harness rather than a sentence
 here.
 
-**What cannot be measured here, said plainly (rule 8):** a Studio Play session has no network, so
-the live magnitude of this correction is **not measurable on this PC**. What IS measurable and is
+**What cannot be measured here, said plainly (rule 8):** a loopback Studio Play session reads a
+ping of only **1-2 ms** -- MEASURED in round 2 at 1.70 ms of total compensation across a run's shots,
+which is 0.065 studs on a sprinting boar. (This paragraph first said "has no network ... reads ~0",
+and `weapon_state.spec`'s first version asserted exactly 0 and FAILED on it; that is how the real
+figure is known rather than assumed.) So the correction does fire here, far too small to tell a
+factor of 1.0 from one of 2.0, and the live magnitude of this correction is **not measurable on this
+PC**. What IS measurable and is
 proved by spec: the catch-up advances the projectile by exactly the time asked for, it is clamped at
 the cap, it casts the same segments the normal step casts, 0 reproduces today's behaviour bit for
 bit, a projectile cannot be leaked or tunnelled by it, and the 5.5 limit above holds where it is
