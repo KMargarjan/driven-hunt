@@ -193,7 +193,10 @@ return function()
 			Weapon.setTargetProvider(function(instance)
 				return if instance == stub then { species = "reddeer" } else nil
 			end)
-			Weapon.setLicenceProvider(nil) -- he holds none, which is every player today
+			-- NO PROVIDER AT ALL: a world with no ownership in it (the DEV arena with the shop off,
+			-- every `weapon_*.spec`). Task 255 left that arm exactly as it was -- nothing is
+			-- unknown, because nothing exists to know -- so this aim is still advised.
+			Weapon.setLicenceProvider(nil)
 
 			local start = Weapon.stats()
 			local unlicensedWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
@@ -252,6 +255,149 @@ return function()
 					afterForged.shots - start.shots,
 					tostring(before.barrels[before.selected]),
 					tostring((stateAfter :: any).barrels[(stateAfter :: any).selected])
+				)
+			)
+		end)
+
+		-- ------------------------------------------------------------------ UNKNOWN IS NOT "NO"
+		--
+		-- KAREN, 2026-10-24, verbatim: *"I have redstag license but when I aim at the begining popup
+		-- shows I need license just after while I can shoow need fix"* (task 255).
+		--
+		-- THIS IS THE DEFECT, DRIVEN THROUGH THE PRODUCTION WIRE AND NOT THROUGH A HAND-WRITTEN
+		-- TABLE. The provider is the one BOTH composition roots install, character for character
+		-- (`ShopData.licencesFor(Economy.ownedOf(player.UserId))`), and the state is the one Karen
+		-- was in: a userId with **no open economy profile**. `Economy.ownedOf` answers nil for one,
+		-- `Shop.licencesFor` passes the nil through, and before this task `Licences.allows` read that
+		-- nil as HE HOLDS NOTHING -- so the card came up and the shot was refused for a man who had
+		-- paid $750.
+		--
+		-- IT ASSERTS BOTH GATES AT ONCE, which is the half the Director named: *"Check the server's
+		-- shot refusal uses the same known fact, so a licensed shot is not refused early either."*
+		-- The aim gate is the live handler (`aimAdvised` must not move); the fire gate is
+		-- `Rules.refuse` with the same two values, which is what `onFireRequest` passes it.
+		it("neither advises nor refuses while nobody knows what he owns, and does both once they do", function()
+			-- THE PRODUCTION PROVIDER, and the userId is one no case in this suite opens a profile
+			-- for -- so `Economy.ownedOf` really answers nil rather than being made to.
+			local UNKNOWN_USER = 92551
+			expect(Economy.ownedOf(UNKNOWN_USER)).to.equal(nil)
+			local function productionProvider(player: any): { [string]: boolean }?
+				return ShopData.licencesFor(Economy.ownedOf(player.UserId))
+			end
+			expect(productionProvider({ UserId = UNKNOWN_USER })).to.equal(nil)
+
+			-- THE PURE HALVES, EACH ON ITS OWN. `unlicensed` still answers TRUE for a nil set --
+			-- that contract did not move, and three other cases depend on it -- and the NEW
+			-- predicate is the one that tells a fact from a guess.
+			local deer = { species = "reddeer" }
+			expect(Rules.unlicensed(deer, nil)).to.equal(true)
+			expect(Rules.licencesUnknown(false)).to.equal(true)
+			expect(Rules.licencesUnknown(true)).to.equal(false)
+			-- nil IS "NOTHING SAID" AND DOES NOT SUPPRESS: the whole reason every world that never
+			-- answers this question is unchanged.
+			expect(Rules.licencesUnknown(nil)).to.equal(false)
+
+			-- THE FIRE GATE. The same context `onFireRequest` builds, with nothing else in the way,
+			-- and the ONE field that changes is the knowledge.
+			expect(Rules.refuse({ target = deer, licences = nil, licencesKnown = false })).to.equal(nil)
+			expect(Rules.refuse({ target = deer, licences = nil, licencesKnown = true })).to.equal(Rules.REASON.LICENCE)
+			-- ...AND THE MAN WHOSE PROFILE REALLY IS OPEN AND WHO REALLY BOUGHT NOTHING IS STILL
+			-- REFUSED. `Economy.load` writes `ownedSets[userId] = {}`, so his provider answers a
+			-- TABLE: that is what keeps this fix a fix and not a hole.
+			expect(ShopData.licencesFor({})).to.be.ok()
+			expect(Rules.refuse({ target = deer, licences = ShopData.licencesFor({}), licencesKnown = true })).to.equal(
+				Rules.REASON.LICENCE
+			)
+			-- ...AND THE LICENSED MAN IS NOT REFUSED EITHER WAY.
+			expect(Rules.refuse({ target = deer, licences = { reddeer = true }, licencesKnown = true })).to.equal(nil)
+
+			-- THE LIVE AIM HANDLER, with the production provider and the unknown profile. The
+			-- OBSERVABLE is `aimAdvised`, the counter incremented on the publish line itself.
+			local subject = nil
+			for _, player in ipairs(Players:GetPlayers()) do
+				local state = Weapon.getSnapshot(player)
+				if state ~= nil and state.equipped == true then
+					subject = player
+					break
+				end
+			end
+			if subject == nil then
+				TestKit.note("licence_popup: no armed player, so the UNKNOWN aim was not driven live")
+				return
+			end
+			local root = subject.Character and subject.Character:FindFirstChild("HumanoidRootPart")
+			expect(root).to.be.ok()
+			local origin = (root :: BasePart).Position + Vector3.new(0, 2, 0)
+			local ray = { origin = origin, direction = Vector3.new(0, 0, -1) }
+			local stub = Instance.new("Part")
+			stub.Name = "LicencePopupSpecUnknownDeer"
+			Weapon.setCast(function()
+				return {
+					instance = stub,
+					position = origin + Vector3.new(0, 0, -30),
+					normal = Vector3.new(0, 0, 1),
+					distance = 30,
+				}
+			end)
+			Weapon.setTargetProvider(function(instance)
+				return if instance == stub then { species = "reddeer" } else nil
+			end)
+
+			-- ARM 1: the provider answers nil for THIS player, which is the unknown profile.
+			Weapon.setLicenceProvider(function(): { [string]: boolean }?
+				return nil
+			end)
+			local start = Weapon.stats()
+			local unknownWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
+			local afterUnknown = Weapon.stats()
+
+			-- ARM 2: the SAME aim with a profile that is open and empty -- a table, so the rule bites.
+			Weapon.setLicenceProvider(function(): { [string]: boolean }
+				return {}
+			end)
+			local knownWhy = Weapon.onActionRequest(subject, "Aim", nil, ray)
+			local afterKnown = Weapon.stats()
+
+			Weapon.setCast(nil)
+			Weapon.setTargetProvider(Match.classifyTarget)
+			Weapon.setLicenceProvider(productionProvider)
+			stub:Destroy()
+
+			-- THE QUESTION WAS ASKED BOTH TIMES AND ANSWERED ONCE.
+			expect(unknownWhy).to.equal(nil)
+			expect(knownWhy).to.equal(nil)
+			expect(afterUnknown.aimQuestions).to.equal(start.aimQuestions + 1)
+			expect(afterUnknown.aimAdvised).to.equal(start.aimAdvised)
+			expect(afterKnown.aimQuestions).to.equal(afterUnknown.aimQuestions + 1)
+			expect(afterKnown.aimAdvised).to.equal(afterUnknown.aimAdvised + 1)
+			-- ...AND THE SKIP IS COUNTED, so a live run can see it rather than infer it from silence.
+			expect(afterUnknown.licenceUnknown).to.equal(start.licenceUnknown + 1)
+			expect(afterKnown.licenceUnknown).to.equal(afterUnknown.licenceUnknown)
+
+			-- WHAT THE FIX COSTS, STATED RATHER THAN LEFT TO BE INFERRED (round 1, note). The hole
+			-- is not a frame wide on the failure path: `Economy.load` warns and leaves
+			-- `ownedSets[userId]` nil when the session lock is REFUSED or the call throws, and it
+			-- retries only *"at the next drive start"* -- so for that whole drive this player's
+			-- licence question is skipped and he may shoot a red deer without the card.
+			--
+			-- IT IS THE TRADE THE DESIGN ALREADY MAKES EVERYWHERE ELSE (`docs/design/shop.md` 7.1,
+			-- quoted by `Economy.ownedOf`: *"a refused session lock or a DataStore outage cannot
+			-- take away the rifle a man paid for"*), and the cost of the other choice is what Karen
+			-- reported -- a man who HAS paid, refused for a whole drive. `stats.licenceUnknown` is
+			-- how a live run sees it happening, and this is the case that names it.
+			expect(Rules.refuse({ target = deer, licences = nil, licencesKnown = false })).to.equal(nil)
+			expect(afterUnknown.licenceUnknown > start.licenceUnknown).to.equal(true)
+			TestKit.note(
+				"licence_popup: THE TRADE -- while a profile is unopened or its load was refused, an"
+					.. " UNLICENSED man may shoot a deer; `stats.licenceUnknown` counts every skip"
+			)
+
+			TestKit.note(
+				string.format(
+					"licence_popup: UNKNOWN aim advised +%d (unknown skips %d), KNOWN-and-empty aim advised +%d",
+					afterUnknown.aimAdvised - start.aimAdvised,
+					afterUnknown.licenceUnknown - start.licenceUnknown,
+					afterKnown.aimAdvised - afterUnknown.aimAdvised
 				)
 			)
 		end)

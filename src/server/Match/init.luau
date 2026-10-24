@@ -228,16 +228,83 @@ Match.CONFIG = {
 		-- beaters and hunters meet. Behind, never in front: the gathering spot must not be in the
 		-- corridor the drive comes down.
 		GATHER_BEHIND_STUDS = 24, -- K
-		SPACING_STUDS = 6, -- K, a boar's own width plus room to walk between them
-		MAX_ANIMALS = 12, -- a cap, so a long drive's row cannot run off into the wood
+		-- 6 -> 9, AND IT IS A MEASUREMENT (task 255). KAREN, 2026-10-24, verbatim: *"also when there
+		-- is a lot animals killed on end of game we need gather them in several rows"*.
+		--
+		-- A DISPLAY LIES ON ITS SIDE, so what it takes up ACROSS the row is the standing mesh's
+		-- HEIGHT and not its width: `Body.lyingCFrame` rolls it by `DISPLAY_ROLL_DEG` about the long
+		-- axis, which stands the mesh's X up and lays its Y across. MEASURED off the LOADED meshes
+		-- in a live Play session of the Forest Test on 2026-10-24 (`MeshPart.Size` read back, which
+		-- is the only place these numbers can come from -- `ANIMAL_SIZE` below is the grey-box
+		-- fallback and is a third of the real thing):
+		--
+		--                 mesh X    Y       Z     | rolled: ACROSS   ALONG
+		--     boar male   1.4011  3.2573  5.5000  |          3.2573  5.5000
+		--     female      1.2019  2.6473  4.6750  |          2.6473  4.6750
+		--     cub         0.6177  1.4390  2.4750  |          1.4390  2.4750
+		--     stag        3.4666  7.9202  7.0500  |          7.9202  7.0500
+		--
+		-- SO TWO STAGS SIDE BY SIDE OVERLAPPED BY 1.9202 STUDS at the old 6, and that is the
+		-- *"gather them"* half of her sentence: the bag was not a row of animals, it was a pile.
+		-- 9 leaves 1.0798 studs of grass between the two widest things this game can lay down.
+		--
+		-- IT IS WHY `PER_ROW` AND `MAX_ANIMALS` BOTH CAME DOWN FROM SIX AND UP FROM TWELVE: widening
+		-- the spacing widens the block, and the block has to stand inside the lobby's gathering yard.
+		-- See `MAX_ANIMALS` below for that arithmetic.
+		--
+		-- THE OLD COMMENT'S ARITHMETIC WAS THE BOAR'S AND IT WAS RIGHT FOR THE BOAR -- 3.2573 across
+		-- fits inside 6 with room to walk. What broke it is that a red deer is a LEGGIER, TALLER
+		-- animal (`Boar.CONFIG.SPECIES.reddeer.BODY_SIZE`'s own note), so rolled it is nearly SQUARE
+		-- (7.92 x 7.05) where a boar is 3.26 x 5.50 -- which is also why the two spacings below are
+		-- now the same number instead of the sideways one being the smaller.
+		SPACING_STUDS = 9,
+		-- 12 -> 16 (task 255), AND THE DIRECTOR ASKED FOR 20+: THE LOBBY'S GATHERING YARD WILL NOT
+		-- HOLD 20, AND THAT IS MEASURED. Her sentence begins *"when there is a lot animals killed"*,
+		-- and at 12 a long drive's bag was TRUNCATED rather than laid out -- so this is as far up as
+		-- the yard goes, and the rest is an `ESCALATE.md` entry rather than a number that breaks her
+		-- lodge.
+		--
+		-- THE ARITHMETIC, read off the live lobby on 2026-10-24 (`<runs-dir>/255-yard.luau`):
+		-- `Lobby.CONFIG.FIELD.PADS`' `Gather` pad is **56 x 56** at offset x -50, and the lodge's
+		-- CHIMNEY stands at x -21 -- so there are **29.0 studs** between the gathering's centre and
+		-- the nearest wall, and `lobby.spec` holds the whole scene inside both
+		-- (`Scene.cornerReachFor` at the cap must clear the chimney AND sit inside the dirt).
+		-- Working backwards through `cornerReachFor` -> `ringRadiusFor` -> `layoutExtent`, a reach of
+		-- 28 allows a block whose half-diagonal is 20, which at `SPACING_STUDS` 9 is
+		-- `(PER_ROW - 1)^2 + (rows - 1)^2 <= 19.75`: **4 x 4 fits (18) and 5 x 4 does not (25)**.
+		-- A BIGGER PAD DOES NOT HELP -- the 29-stud chimney gap caps the reach at 29 whatever the
+		-- dirt measures, and 5 x 4 needs 32.5. Twenty animals need the yard MOVED, which is a lobby
+		-- layout decision and not this task's.
+		--
+		-- 16 IS FOUR FULL ROWS OF `PER_ROW`, which is why it is 16 and not 15 or 18: a cap that is
+		-- not a multiple of the row leaves a short last row for no reason.
+		MAX_ANIMALS = 16,
 		-- SEVERAL ROWS (task 168). KAREN, 2026-10-12 ~21:45: *"animals layed down in front in
-		-- several lines if more"*. Six to a row is 30 studs of front at `SPACING_STUDS` -- about
-		-- what the ring can stand round and see at once -- and the cap of 12 is then two full rows.
-		PER_ROW = 6, -- K's "several lines"
-		-- DEEPER THAN THE SIDEWAYS SPACING, because an animal is 4 studs LONG and 1.6 wide
-		-- (`ANIMAL_SIZE`) and lies across the row: 6 studs side to side is a gap you can walk
-		-- through, and 6 studs nose to tail would be two studs of gap.
-		ROW_SPACING_STUDS = 8,
+		-- several lines if more"*.
+		--
+		-- 6 -> 4 (task 255), and it is the same measurement as `MAX_ANIMALS` above: at `SPACING_STUDS`
+		-- 9 a row of six is 45 studs of front, whose half-width alone (22.5) puts the ring outside
+		-- the yard before a second row exists. Four to a row is 27 studs of front and the block is
+		-- 27 x 27 -- SQUARE, which is also the shape a ring of people stands round best, and squarer
+		-- than the 6 x 2 Karen has been looking at.
+		PER_ROW = 4, -- K's "several lines"
+		-- THE SAME AS THE SIDEWAYS SPACING SINCE TASK 255, and the reason is above: the biggest thing
+		-- this game lays down is a rolled stag at 7.9202 ACROSS by 7.0500 ALONG, so the two axes are
+		-- within a stud of each other and one number serves both. The worst ALONG is the LEGENDARY
+		-- boar's 7.4250 (5.5 x 1.35), which leaves 1.5750 studs nose to tail.
+		--
+		-- IT IS STILL TWO DIALS AND NOT ONE, so Karen can open the rows up without widening them.
+		ROW_SPACING_STUDS = 9,
+		-- WHAT ORDER THE BAG IS LAID OUT IN (task 255), as DATA. The Director: *"Lay them in several
+		-- tidy rows (by species, then size)"*.
+		--
+		-- IT IS A LIST OF KINDS AND NOT A SPECIES FIELD PLUS A SIZE FIELD, for the reason the rest of
+		-- this table gives: *"the scene must not learn what a boar is"*. A list says BOTH things at
+		-- once -- the boar kinds first, biggest to smallest, then the red deer's, biggest to smallest
+		-- -- and `Scene.ordered` only has to look a kind up in it. A kind that is not here keeps its
+		-- place in the order it was shot, at the back, so a species added later lays out honestly
+		-- before anybody remembers this line.
+		KIND_ORDER = { "legendary", "male", "female", "cub", "stag", "hind", "calf" },
 		RING_RADIUS_STUDS = 14, -- K, close enough to see the animals, far enough not to stand on them
 		-- HOW FAR OUTSIDE THE ANIMALS THE PEOPLE STAND once the block is bigger than the ring (task
 		-- 168): the ring grows to the block's corner plus this, so a bag of twelve is stood AROUND

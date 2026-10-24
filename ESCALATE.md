@@ -1,5 +1,319 @@
 # Escalations
 
+## 2026-10-24 - Task 255 item 3: **THE LEAP IS NOT TOO BIG. IT RISES 0.223 m, WHICH IS A FIFTH OF THE DIRECTOR'S OWN TARGET, AND NOTHING IN THE GAME EVER THROWS AN ANIMAL UPWARD. MEASURED. A DECISION IS NEEDED BEFORE ANY NUMBER MOVES.**
+
+KAREN, 2026-10-24, verbatim: *"also fix redstag jumping they jums several meters up and font by
+crossing road now feels wrong"*. The dispatch asked for *"a natural bound: peak rise about 0.8-1.2 m
+... Scale the clip's root motion or the leap's height/length (task 245b's LEAP config)"*.
+
+**I did not ship a change, and this is the evidence for why.** Items 1 and 2 are built, gated and in
+the PR; this is the one that measurement refutes. The Learning Agent's `L-098` asked for exactly this
+check -- *"check the target against which lever actually reaches it before promising numbers"* -- and
+the check fails in the opposite direction from the one anybody expected.
+
+### 1. THE LEAP RISES 0.796 STUDS. THE TARGET IS 2.85-4.28.
+
+MEASURED in a live Play session of **Driven Hunt Forest Test** on 2026-10-24
+(`<runs-dir>/255-leap-measure.luau`, the same probe shape task 245b used for the sink): the published
+leap asset `126500539626404` loaded onto the stag's own published model `138123244438701`, every one
+of the rig's 36 `Bone.WorldPosition`s read in the mesh's object space at **49 samples** across the
+clip, against the rig's own floor plane (`-meshSize.Y / 2`, the plane `Body.visualOffset` stands the
+mesh on). `AnimationTrack.Length` is 0 in Edit, so this is Play.
+
+| | rest | peak | change |
+|---|---|---|---|
+| highest bone | 1.2005 | **1.9966** at t = 0.4167 | **+0.7961 studs** |
+| lowest bone | -3.9711 (= the floor) | **-5.1574** at t = 0.5417 | **-1.1864 studs** |
+
+**The scale is this project's own**: `Boar.CONFIG.SPECIES.reddeer.BODY_SIZE`'s comment states *"the
+back line measures 4.85 studs above the hooves (1.36 m: a red stag stands about that at the
+withers)"*, so **1 stud = 0.2804 m**. Therefore:
+
+* the measured rise is **0.7961 studs = 0.223 m**;
+* the Director's target of 0.8-1.2 m is **2.85-4.28 studs**;
+* **the bound is already four to five times FLATTER than the brief asks for.**
+
+Making it smaller would take it to nothing. The control in the same run: the RUN clip's own body rise
+is 0.2536 studs, so the bound is three times a running stride and no more.
+
+### 2. THE LENGTH IS ALREADY INSIDE "THE ROAD AND VERGE"
+
+`MODEL.LEAP.SECONDS` is 0.75 and the clip is drawn at **rate 1** (`Body.clipFor`'s own literal, and
+`CLIPS.leap.groundStudsPerSecond = 0` is why). A stag crossing at `RUN_FROM`..sprint covers
+**21 studs in 0.75 s at 28 studs/s** -- and the road band is `ForestTest.SHAPE.halfWidthStuds` 20,
+so **40 studs wide**. The bound spans HALF the lane. *"The length spans the road and verge, no more"*
+is already true, and shortening it is shortening something that is already short.
+
+### 3. NOTHING IN THE GAME EVER GIVES AN ANIMAL UPWARD VELOCITY
+
+This is the half that says the clip is the only thing the game does on purpose:
+
+* `Body.attachPhysics` builds a **`LinearVelocity` in `VelocityConstraintMode.Plane`**, and its own
+  header says why: *"Plane mode leaves the plane normal (Y) free, so gravity -- not the constraint --
+  owns falling"*;
+* `handle.mover.PlaneVelocity = Vector2.new(velocity.X, velocity.Z)` is the ONLY velocity write in
+  `src/server/Boar/`, and it is two components;
+* a grep of `src/server/Boar/` for `AssemblyLinearVelocity =`, `ApplyImpulse`, `Velocity =` and
+  `VectorVelocity` returns **nothing**;
+* `Brain:step`'s own comment is explicit: *"nothing about the animal's movement changes -- the leap
+  is a DRAWING, published on the intent"*.
+
+So *"several meters up"* cannot be the leap, and there is no height dial to turn. `MODEL.LEAP` holds
+exactly three things that reach the game -- `ENABLED`, `SECONDS`, `FROM_RUN_FROM` -- plus
+`LIFT_STUDS`/`LIFT_FROM_SECONDS`/`LIFT_TO_SECONDS`, which task 245b wrote down and **nothing reads**.
+There is no height and no length among them.
+
+### 4. WHAT *DOES* HAPPEN AT THE ROAD, AND IT IS TWO THINGS
+
+**(a) THE HOOF SINK -- certain, measured twice, and already queued as 245c.** At the peak of the
+bound a hind hoof is **1.1864 studs under the rig's own floor** on the stag (1.2563 on the hind,
+1.3358 on the calf), from t = 0.458 to t = 0.708 -- a quarter of a second with the back legs through
+the road, every crossing. The body meanwhile stays at running height. So the animal does not rise and
+fall: **it travels 21 studs flat with its legs splayed through the surface**, and its drawn silhouette
+grows from 5.17 studs tall to 7.15 (+38 %) while doing it. That is a bound that reads wrong, and
+*"now feels wrong"* is exactly what it would read as.
+
+**(b) A PHYSICS EJECTION AT THE CROSSING -- 6.45 studs, 1.81 m -- SUGGESTIVE, NOT PROVEN.**
+`<runs-dir>/255-physcross.luau`: a deer-sized unanchored Part (the hind's measured trunk,
+1.5395 x 4.1054 x 6.0299) with the same `LinearVelocity` Plane mover, driven south across the road at
+20, 28 and 34 studs/s on the `track` layout at x 4700:
+
+| speed | peak air | in metres | peak upward velocity | where |
+|---|---|---|---|---|
+| 20 studs/s | 6.19 studs | **1.74 m** | 38.90 studs/s | dz -39 |
+| 28 studs/s | 6.45 studs | **1.81 m** | 34.60 studs/s | dz -42 |
+| 34 studs/s | 6.60 studs | **1.85 m** | 38.01 studs/s | dz -41 |
+
+That IS "several meters up ... by crossing road", at the right place and in the right direction, and
+the trace says how: across the whole band the probe's underside reads **-1.1 to -1.3 studs** -- it is
+**inside the terrain** -- and then the solver ejects it just past the south verge at 35-39 studs/s.
+**Two honest caveats, and they are why this is not a fix yet:**
+
+1. **the probe is not the animal.** It carried no `AlignOrientation` (`Upright`), which the real
+   animal has and which stops a box tumbling and digging a corner in, and its `MaxForce` and density
+   are mine and not `Boar.CONFIG`'s. A level body may not sink at all;
+2. **I never reproduced it on a real deer** (below).
+
+### 5. WHAT I COULD NOT DO, SAID PLAINLY (rule 8, rule H)
+
+**I have no before/after pair of Karen's own defect.** Three sampler runs in her place, ~800 s of live
+drives across all three layouts (`255-air-start.luau`, `255-cross2-start.luau`, `255-stage2.luau`,
+every one of them reading `ReplicatedStorage.ForestTest.Live`'s `Layout` attribute so the road is the
+road the drive is actually on):
+
+* **one** deer was tracked at all -- `Boar144/stag`, 243 samples from dz 199 to dz 160 -- and its
+  worst airborne excursion was **0.23 studs (0.07 m)**. It despawned before it reached the band
+  (`nearRoad = 0`);
+* no other deer entered `workspace.Boars` while a sampler was armed. A deer release is rare by
+  design (`SPECIES.reddeer` 0.2 per release, and the Forest Test's own deer slot is one per drive);
+* the first two runs were wasted on my own fault and it is reported: they read the layout through
+  `workspace`'s attribute, which is **nil** -- the live layout is published on
+  `ReplicatedStorage.ForestTest.Live` (`ForestTest.publishLayout`) -- so they measured dz against the
+  wrong road and logged nonsense (dz -170 for an animal that had not crossed).
+
+### 6. THE DECISION
+
+**1. Is the brief's premise withdrawn?** The number says the bound is too SMALL, not too big. If
+Karen's *"several meters up"* is the physics ejection of 4(b), the leap clip is innocent and shrinking
+it makes the crossing worse.
+
+**2. Which do you want built?** Three candidates, in the order I would take them:
+
+* **245c, the hoof sink** -- the certain one. Cancelling it is a single lift held across the bound
+  (`Body.liftDrawn` is the existing one-write mechanism; `docs/design/boar-ai.md` section 6 forbids
+  per-FRAME CFrame writing and two weld passes per crossing is not per-frame). It would also give the
+  bound the rise it has not got: 0.796 + 1.186 = **1.98 studs = 0.556 m**, two thirds of the
+  Director's lower target, with the hooves never through the road. `liftDrawn` refuses `studs <= 0`
+  today, so it needs the matching lower, which is the one piece of new code.
+* **a faithful ejection test** -- the same probe with `Upright` and `Boar.CONFIG`'s own `MAX_FORCE`
+  and density, at every layout's road, plus a deer-wave slot forced so a real stag crosses while a
+  sampler is armed. That is a measurement task of its own and it is the thing that decides whether
+  4(b) is real.
+* **nothing about the leap's size**, until one of the two above says what is actually wrong.
+
+**3. Or: ask Karen one question.** *"When the stag jumps the road -- does his BODY go up in the air,
+or do his back legs go down through the road?"* Her answer separates 4(a) from 4(b) in one sentence,
+and it costs no measurement at all.
+
+**Nothing is blocked.** `DEER_ROAD_LEAP` is a flag and it is ON in her place; turning it off is one
+`tools/flags.py` line if she would rather have no bound than this one while the decision is made.
+
+
+## 2026-10-24 - Task 255 item 4: **NEEDS DIRECTOR. THERE *ARE* CC0 RED-DEER BARK RECORDINGS -- FOUR OF THEM -- AND THE ASSET WE ALREADY OWN CARRIES NO BARK AND NO DISTRESS CALL. MEASURED.**
+
+**This is a human action (CLAUDE.md stop rule, last clause) and it is the same four clicks as task
+254.** Nothing is blocked on it: the stag keeps task 240's library voice tonight, and swapping in a
+real recording afterwards is **one `ids` row plus one `LENGTHS` row** in
+`Boar.CONFIG.SOUND.VOICE.stag`.
+
+KAREN, 2026-10-24, verbatim: *"redsatg sound whn hit and when near need corection better real"*.
+
+### 1. The Learning Agent's note is out of date, and this is the correction
+
+`L-071` carried task 240's conclusion forward: *"No CC0 one exists -- both Freesound hits are CC
+**BY**"*. **That was true of the search task 240 ran and it is not true of the catalogue.** Task 254
+already broke it once (Freesound 653532 is CC0, and it is uploaded and `Approved` as
+`122287696922128`), and a search of Freesound with the **licence filter itself applied** --
+`/search/?q=deer&f=license:"Creative Commons 0"` -- returns fifteen CC0 deer recordings, four of them
+barks. Task 240's searches were keyword searches read licence-by-licence afterwards; this is the
+server doing the filtering, which is why it finds what they missed.
+
+**So the honest answer to *"if no CC0 bark exists, say so plainly"* is: one does, and here are four.**
+
+### 2. THE ALARM BARK -- four CC0 candidates, every licence read on its own page 2026-10-24
+
+| # | source | licence (read on the page) | duration / format | good | bad |
+|---|---|---|---|---|---|
+| **B1** | [Freesound 795554, *"Deer barking"* by **Katerios**](https://freesound.org/people/Katerios/sounds/795554/) | **Creative Commons 0** | 2:57.348, 44.1 kHz stereo wav | *"the barking of a deer on the edge of a rural forest in **central Europe**"* -- which is this game's own setting (`docs/PROJECT_CONTEXT.md`: *"European farmland and woods"*). **The best fit of the four** | *"crickets and other insects, the croaking of frogs and the calls of nocturnal birds"* over the top, so the cut has to land between insect beats. The species is not named -- central Europe is red **or** roe |
+| **B2** | [Freesound 203593, *"barkingroedeer.wav"* by **raoul_slayer**](https://freesound.org/people/raoul_slayer/sounds/203593/) | **Creative Commons 0** | 1:17.570, **96 kHz** stereo wav | the only one whose **species is identified**: *"a barking roe deer (Capreolus capreolus) ... produces a bark-like sound when alarmed, resembling a dog's bark"*. Highest sample rate of the four | it is a **ROE** and Karen asked about the **RED** stag. A roe's bark is higher and hoarser than a red deer's; pitching it down is the same substitution task 240 made with the bull, one step closer |
+| **B3** | [Freesound 710264, *"Deers barking at sunset"* by **mattl83**](https://freesound.org/people/mattl83/sounds/710264/) | **Creative Commons 0** (listed by the CC0 filter; the page was not read line by line -- said plainly) | not read | *"Deers barking at sunset in summer"*, a rural setting -- several animals, which is what a drive sounds like | unverified page; summer, not the October rut |
+| **B4** | [Freesound 569926, *"Deer barking.m4a"* by **Spamanator**](https://freesound.org/people/Spamanator/sounds/569926/) | **Creative Commons 0** (same caveat as B3) | not read | shortest and simplest description -- likely the least processing to do | m4a, unverified page |
+
+**Rejected on licence, for the record:** [Freesound 161375 *"Capriolo (roe deer) alarm call"*](https://freesound.org/people/dismalhiker/sounds/161375/) is **Attribution NonCommercial 3.0**;
+[384589 *"Roe deer bucks and owls"*](https://freesound.org/people/nemark/sounds/384589/) is **CC BY-NC 3.0**;
+[706810 / 706657 Philip_Goddard's Teign Gorge roe rut](https://freesound.org/people/Philip_Goddard/sounds/706810/) are **CC BY-NC 4.0**;
+[Wikimedia's British Library red deer](https://commons.wikimedia.org/wiki/File:Red_Deer_(Cervus_elaphus)_(W1CDR0001424_BD3).ogg) is **CC BY-SA 4.0**. None of them is sublicensable, which is the one thing Roblox's upload grant requires -- section 2 of `docs/research/2026-10-24-stag-voice-and-the-drive-s-length.md` has that argument in full and this note does not re-run it.
+
+### 3. THE HIT / DISTRESS CALL -- there is no CC0 recording of a hurt red deer, and that was expected
+
+Nobody field-records a wounded animal, so this is the one half of the dispatch where the plain answer
+is **no**. The two nearest CC0 things:
+
+| # | source | licence | duration | what it really is |
+|---|---|---|---|---|
+| **H1** | [Freesound 653533, *"Deer rut - Brame Cerf 02.wav"* by **L.Finck**](https://freesound.org/people/L.Finck/sounds/653533/) | **Creative Commons 0** | 0:34.000, 48 kHz stereo wav | **the same recordist, the same rut, the same animal as the roar already in the game** (`653532` -> `122287696922128`). A close roar cut to 1.05 s is the nearest a real red deer gets to a cry, and it is an animal Karen has already heard |
+| **H2** | [Freesound 351113, *"Deer Meewing 01.wav"* by **msantoro11**](https://freesound.org/people/msantoro11/sounds/351113/) | **Creative Commons 0** | 0:15.804, 44.1 kHz **mono** | *"a strange meewing sound that a group of deer made at a nature park"*. Short, clean, and already about the right length for a cue. Whether a "meew" reads as a deer being shot is an ear's question, not a number's |
+
+### 4. THE ASSET WE ALREADY OWN CARRIES NEITHER, AND THAT IS MEASURED, NOT ASSUMED
+
+Task 254's own clicks said *"`bark.wav` -- about 1 s, **if the recording carries a bark**"*. It does
+not, and the cheapest version of item 4 -- a second `PlaybackRegion` of an asset that is already
+uploaded and `Approved` -- is therefore **off the table**.
+
+Measured offline on the uploaded bytes (`<assets-dir>/sounds/stag-roar/stag-roar-653532-hq.mp3`, the
+same sha256 `assets/uploads.json` names), decoded with `soundfile`: 48 kHz stereo, 52.8965 s, forest
+floor **-46.2 dBFS**. Fifty events stand 8 dB clear of that floor. Eight of them are short and sharp
+enough to be bark-shaped (0.25-0.45 s). For each, the spectral centroid, the share of energy below
+300 Hz, the share between 500 Hz and 4 kHz, and the 10 %-to-90 % attack time:
+
+| window | centroid | <300 Hz | 0.5-4 kHz | attack | peak |
+|---|---|---|---|---|---|
+| **long roar** 0.95-2.85 | 487 Hz | 0.002 | 0.225 | 1.00 s | -21.1 dBFS |
+| **long roar** 11.25-12.20 | 782 Hz | 0.008 | 0.828 | 0.55 s | -26.7 dBFS |
+| **long roar** 36.80-37.65 | 568 Hz | 0.016 | 0.269 | 0.12 s | -27.1 dBFS |
+| short 3.25-3.60 | 476 Hz | 0.015 | 0.092 | 0.22 s | -27.6 dBFS |
+| short 4.10-4.50 | 491 Hz | 0.013 | 0.139 | 0.13 s | -30.1 dBFS |
+| short 27.45-27.75 | 600 Hz | 0.052 | 0.316 | 0.11 s | -30.8 dBFS |
+| short 28.20-28.55 | 605 Hz | 0.047 | 0.313 | **0.02 s** | -33.6 dBFS |
+| short 46.30-46.75 | 620 Hz | 0.034 | 0.369 | 0.10 s | -32.4 dBFS |
+
+**Every short event sits inside the long roars' own spectral range on every column.** A bark is a
+broadband impulse; these are low, tonal fragments of the same rut vocalisation, which is exactly what
+a 53-second recording of one roaring stag should contain. The one with a 0.02 s attack (28.20) is also
+the quietest at -33.6 dBFS, 12.6 dB under the recording's own peak -- a clip, not a bark.
+
+**What this does NOT claim:** that no bark is audible in there to a person. Nobody in this toolchain
+can hear it (Learning Agent L-094), and `PlaybackLoudness` answers 0 in Edit at every volume. What is
+claimed is that **no event in the file is spectrally distinguishable from the roars**, which is the
+only question a measurement can answer.
+
+### 5. The clicks, in order -- the same four as task 254
+
+1. Download **B1** (https://freesound.org/people/Katerios/sounds/795554/) and, if the bark in it is
+   buried in the insects, **B2** (https://freesound.org/people/raoul_slayer/sounds/203593/) as the
+   fallback. A Freesound account is needed to download; CC0 requires no attribution.
+   For the hit, **H1** (https://freesound.org/people/L.Finck/sounds/653533/) or **H2**
+   (https://freesound.org/people/msantoro11/sounds/351113/).
+2. Cut, with the game's own budget in mind -- `VOICE.CUE_CUT_SECONDS` is **1.05 s** and it exists
+   because a cue books one of the world's two squeal slots (`CROWD.SQUEAL_SECONDS` 1.2):
+   - `bark.wav` -- **0.5 to 1.0 s**, ONE bark, fading in and out so the cut does not click.
+   - `hit.wav` -- **1.0 to 1.5 s** (anything longer is thrown away by the cut anyway).
+   A file under ~2 s needs no `PlaybackRegion` at all, which is the cheaper landing: the voice path
+   (`Body.playOneShot`) plays a cue whole and cuts it with `voiceCut`, and it has **no region
+   support today**. Cut short on the desktop and nothing in `src/` has to learn regions. If the
+   Director would rather upload the whole recording, say so and the region support is its own task
+   (the shape is already in the repo: `ForestTest.ROAR.clips`).
+3. Studio (DEV is fine) -> **Asset Manager -> Audio -> Add Audio** -> wait for moderation. Or
+   create.roblox.com/dashboard/creations -> Audio -> Upload. **Re-read the moderation state LIVE**
+   afterwards rather than trusting the upload's own reply -- task 254's manifest row said
+   `Reviewing`, which is not a verdict.
+4. Hand over the ids. Two rows change, both in `Boar.CONFIG.SOUND.VOICE`:
+   `stag.cry = { <bark id> }` (the hit/alarm voice) and the matching `LENGTHS[<id>] = <seconds>`
+   row, which `deer.spec` asserts exists for every id. The four library ids stay above as the
+   fallback exactly as `ForestTest.ROAR.ids` keeps its bulls.
+
+### 6. ...and then Karen listens
+
+An asset id is not a sound. Per the method `docs/research/2026-10-22-deer-voice-and-run.md` sets, each
+id must be **loaded and timed in a live Play session** -- `ContentProvider:PreloadAsync`, then
+`Sound.IsLoaded == true` and `Sound.TimeLength > 0`, because Edit answers `Length = 0` for an asset
+nobody has fetched and a dead id passes a bench test. And then **Karen's ears decide**, because
+whether a central-European bark reads as a red stag spotting danger is not a number anybody here can
+produce.
+
+
+## 2026-10-24 - Task 255 item 2: **A DECISION IS NEEDED. THE DIRECTOR ASKED FOR 20+ ANIMALS IN THE END-OF-DRIVE ROWS AND KAREN'S GATHERING YARD HOLDS 16. THE BINDING NUMBER IS THE LODGE'S CHIMNEY, 29.0 STUDS FROM THE GATHERING'S CENTRE.**
+
+**Item 2 is built and the defect she named is fixed** -- two stags no longer overlap by 1.9202 studs,
+the bag is laid out by species then size, and the cap went 12 -> 16, which is four tidy rows of four.
+What is escalated is the number 20, and it is geometry rather than taste.
+
+### What was measured, in her own lobby
+
+Read off the live Forest Test on 2026-10-24 (`<runs-dir>/255-yard.luau`):
+
+* `Lobby.CONFIG.FIELD.PADS`' **`Gather` pad is 56 x 56** studs, at offset x **-50** from the lodge
+  anchor;
+* the lodge's west wall is at x **-18** and its **chimney** reaches x **-21**;
+* so there are **29.0 studs** between the gathering's centre and the nearest masonry, and
+  `min(56, 56) / 2 = 28` studs between its centre and the edge of the dirt.
+
+`lobby.spec` holds the WHOLE scene inside both -- *"the gathering square is N studs across inside a
+140 x 124 yard"* and *"clears the lodge, the porch, the spawn, the road, the fences, the trucks and
+the four pads"* -- and the one number it bounds is `Scene.cornerReachFor` at the cap, because that
+already contains the ring of people, which already contains the rows.
+
+### The arithmetic, and why a bigger pad does not help
+
+`cornerReachFor` = `max(CORNER_STUDS, ring + 2)`, `ring` = `max(RING_RADIUS_STUDS, corner + 6)`,
+`corner` = `sqrt(halfWidth^2 + halfDepth^2)` over the block. So a reach of 28 allows a block whose
+half-diagonal is 20, and at the new `SPACING_STUDS` 9 that is
+`(PER_ROW - 1)^2 + (rows - 1)^2 <= 19.75`:
+
+| block | half-width / half-depth | corner | ring | reach | fits 28? | fits the chimney's 29? |
+|---|---|---|---|---|---|---|
+| 4 x 4 = **16** (shipped) | 13.50 / 13.50 | 19.09 | 25.09 | **27.09** | yes, by 0.91 | yes, by 1.91 |
+| 5 x 4 = 20 | 18.00 / 13.50 | 22.50 | 28.50 | 30.50 | **no, by -2.50** | **no, by -1.50** |
+| 6 x 4 = 24 | 22.50 / 13.50 | 26.24 | 32.24 | 34.24 | no, by -6.24 | no, by -5.24 |
+| 6 x 2 = 12 at the OLD spacing 6/8 | 15.00 / 4.00 | 15.52 | 21.52 | 23.52 | yes, by 4.48 | yes |
+
+**Widening the pad buys nothing**: the chimney caps the reach at 29 whatever the dirt measures, and
+20 animals need 30.5. The 0.91 studs of margin at 16 is also thin and is reported as thin.
+
+### Why the spacing cannot simply come back down
+
+9 is not a preference. A display lies on its SIDE (`Body.lyingCFrame` rolls it about its long axis),
+so what an animal takes up ACROSS the row is its STANDING HEIGHT -- and the stag's loaded mesh is
+**7.9202** studs tall. At the old 6 two stags overlapped by **1.9202 studs**, which is the pile Karen
+is looking at. Any spacing under 7.92 re-creates it.
+
+### The three ways out, for the Director and Karen
+
+1. **MOVE the gathering yard west** -- the `Gather` pad's offset is x -50 and the lodge is the only
+   thing east of it. 20 animals need the chimney 31+ studs away, so about 2-3 studs of west shift
+   plus a 62-stud pad. It is a lobby LAYOUT change with seven clearance assertions on it
+   (`lobby.spec`, *"clears the lodge, the porch, the spawn, the road, the fences, the trucks and the
+   four pads"*), so it is the Architect's design and not a Builder's number.
+2. **Accept 16.** Four rows of four is *"several rows"* by Karen's own words and it is 33 % more than
+   she has been seeing. A drive she shoots 20+ animals in would show the first 16 she shot.
+3. **Let the people stand closer** -- `RING_MARGIN_STUDS` 6 -> 3 makes 20 fit at a reach of 27.5.
+   **Not recommended, and measured:** that margin is from the block's CORNER, which is the centre of
+   the outermost animal, and a stag's own half-width is 3.96 studs. At 6 the ring is already only
+   2.04 studs clear of the outer stag's body; at 3 the people would stand ON it.
+
+**Nothing is blocked.** Option 2 is what shipped.
+
+
 ## 2026-10-24 - Task 251c (**now TASK 253**): **THE CLAMP WORKS AND THE STAG STILL BOLTS. A GROUP RELEASED 60 STUDS AHEAD OF THE LINE IS INSIDE THE LINE'S OWN NOTICE BAND (100 STUDS), SO IT STANDS FOR 2 s AND FLUSHES -- MEASURED, TWICE, IN KAREN'S PLACE.**
 
 **The Director's two rules are built, gated and pushed** (`[harness] PASS: 34/34 checks @ e5a5bd95
