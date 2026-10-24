@@ -1,5 +1,93 @@
 # Escalations
 
+## 2026-10-24 - Task 256 part 1, Reviewer finding 3: **LAG COMPENSATION IS FORBIDDEN BY BOTH DESIGN DOCS FOR THIS SYSTEM, AND THEY PREDICTED KAREN'S COMPLAINT WITH THE NUMBER I MEASURED. A DESIGN DECISION IS NEEDED; I MAY NOT WRITE ONE.**
+
+KAREN, 2026-10-24, verbatim: *"we need to aim ahead to hit animal when running"* / *"it seems there
+is a bit off"* / *"all shooting has to be like in real life / this is a key of this game"*.
+
+The Reviewer's finding 3 is **correct and I am not disputing it**. I am escalating because the fix
+it asks for is a change to `docs/design/`, which the Builder may not write (CLAUDE.md role table:
+the Architect owns `docs/design/`; the Builder *"never writes designs or verdicts"*).
+
+### What the two designs say, quoted
+
+`docs/design/ballistics.md` section 1.2, "Must not":
+> **No lag compensation.** Rewinding hitboxes exists to remove the feeling Karen asked for.
+
+`docs/design/ballistics.md` section B ("named and deliberately not adopted"):
+> **Badly, for us:** per-target position history, a trusted client timestamp and a rewind window --
+> and it exists to defeat exactly the feeling Karen asked FOR. Lag-compensated hitscan removes lead.
+> ... **Source's own projectile classes are not lag-compensated**, and that is the shape we want.
+
+`docs/design/shotgun.md` section 11:
+> **Lag, stated as a number because it will be felt.** There is no lag compensation in v1 -- state
+> rewind is a system of its own. At 100 ms RTT a boar at `Boar.CONFIG.SPRINT_SPEED` (38 studs/s) is
+> ~3.8 studs from where the shooter saw it, and the boar is 5.5 studs long. That is most of a body
+> length: shots that looked good will miss. **This is the single most likely thing Karen reports as
+> "the gun feels wrong".** Mitigation order: (1) the slug `Spherecast` dial above, (2) lag
+> compensation **as its own designed system -- never a fudge inside the weapon**.
+
+### THE THING THAT MAKES THIS WORTH A DECISION RATHER THAN A SHRUG
+
+**The design called this shot before it was taken, and it called it to three significant figures.**
+It predicted *"the single most likely thing Karen reports as 'the gun feels wrong'"*, at **~3.8
+studs at 100 ms RTT**. Karen reported it on 2026-10-24. My research note measured the same quantity
+from the same constants and got **3.8 studs**, independently, before I had read section 11. The
+design was right, and the event it was waiting for has now happened.
+
+### WHERE MY CHANGE DISAGREES WITH IT, AND WHERE IT DOES NOT
+
+**It does not conflict with the stated REASON.** Both ballistics passages object to *rewinding*,
+because *"lag-compensated hitscan removes lead"* -- it deletes the feeling Karen wants. What I built
+is the opposite mechanism and has the opposite effect: forward prediction of a PROJECTILE, which
+**preserves the true lead and removes only the ping**. Section B's own last sentence is
+*"Source's own projectile classes are not lag-compensated, and that is the shape we want"* -- and
+Unreal's projectile `NetPredictionTime`, which is what I used, is precisely a projectile-side
+forward prediction rather than a hitbox rewind. I refused the rewind by name, for section B's
+reason, in research note section 5.2.
+
+**It does conflict with the stated LOCATION, squarely.** `shotgun.md` says *"its own designed system
+-- never a fudge inside the weapon"*, and what I shipped is inside the weapon: two rows in
+`Shotgun.CONFIG` (`FLIGHT_CATCHUP_MAX_SECONDS`, `FLIGHT_CATCHUP_PING_FACTOR`), `Weapon.catchUpFor`
+on the weapon owner, and `live.catchUp` on `Weapon.Flight`. There is no `docs/design/` file for it.
+So on merge, the design for this system would state the opposite of the code, which is the condition
+rule 3 exists to prevent.
+
+### THE DECISION I NEED
+
+One of three, and it is the Director's:
+
+**(a) AN ARCHITECT DESIGN RUN.** `tools/architect.sh design lag-compensation --task 256`, with a
+`reviews/task-256/BRIEF.md` carrying the decisions already taken (Karen's ask; forward prediction
+adopted and rewind refused; the bound; the `GetNetworkPing` ambiguity). This is what `shotgun.md`
+section 11 itself asks for and is the only option that leaves the design owning the design. **Cost:
+one Architect session, and my implementation may have to move to wherever it puts the owner.**
+
+**(b) THE ARCHITECT AMENDS THE TWO DOCS** to record forward prediction as adopted, inside the weapon,
+with the reason and the bound -- the Reviewer's own first suggestion. Cheaper than (a), and it
+accepts "inside the weapon" as the answer rather than designing a new owner. Also needs the
+Architect, since the Builder may not write it; the four stale contract lines in the non-blocking
+notes (`Flight:launch`'s fourth argument, `Flight:stats`'s sixth field) ride along with it.
+
+**(c) DROP THE COMPENSATION FROM PART 1** and ship only the hit mark (item 5), leaving item 1's
+lag half for part 2 behind a design. The branch would lose `FLIGHT_CATCHUP_*`, `Weapon.catchUpFor`
+and `live.catchUp`; the hit-mark fix is independent and gated.
+
+**MY RECOMMENDATION IS (b), then (a) only if the Architect says the owner is wrong.** The mechanism
+is 40 lines in a module that already had the exact shape for it, it is bounded, it is spent once, it
+cannot tunnel, 0 reproduces today's flight bit for bit, and its one uncertain number is a data row
+with both readings driven by a spec. Calling that *"its own designed system"* would be a new owner
+for one multiplication inside an existing loop, and `docs/design/ballistics.md` section 1.2's
+neighbouring rule -- *"No second writer of hits"* -- is an argument for keeping it where the hit
+already lives rather than for moving it out. But I am the wrong role to decide that, which is why
+this is here.
+
+**WHAT IS NOT BLOCKED.** Reviewer findings 1 and 2 were real defects and are FIXED and re-gated
+(finding 1 was the serious one: round 1's hit-mark fix moved the attachment and not the dust, which
+the Reviewer caught and which is this repo's founding failure mode). The branch is otherwise ready.
+Round 2 is NOT run and should not be until this is settled -- the Reviewer would re-raise finding 3,
+spend a round, and leave one.
+
 ## 2026-10-24 - Task 255 item 3: **THE LEAP IS NOT TOO BIG. IT RISES 0.223 m, WHICH IS A FIFTH OF THE DIRECTOR'S OWN TARGET, AND NOTHING IN THE GAME EVER THROWS AN ANIMAL UPWARD. MEASURED. A DECISION IS NEEDED BEFORE ANY NUMBER MOVES.**
 
 KAREN, 2026-10-24, verbatim: *"also fix redstag jumping they jums several meters up and font by

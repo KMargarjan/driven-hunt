@@ -158,6 +158,18 @@ local stats = {
 	flightTimeouts = 0,
 	flightRefused = 0,
 	noBallistics = 0,
+	-- THE LAG COMPENSATION THIS SERVER HAS HANDED OUT, in seconds (task 256), mirrored off
+	-- `Flight.catchUpSeconds` beside the two above so one `stats()` still answers everything. It
+	-- IT IS NEAR ZERO IN A HARNESS RUN, AND "NEAR" IS MEASURED (task 256, round 2). A loopback
+	-- Studio Play session does NOT read a zero ping: `Player:GetNetworkPing()` reported 1.70 ms of
+	-- total compensation across one run's shots -- 0.065 studs on a sprinting boar, nothing a player
+	-- could see, but NOT 0. The first version of `weapon_state.spec` asserted exactly 0 and failed on
+	-- it, which is how this is known rather than assumed.
+	-- So the guard is a PER-SHOT BOUND (10 ms, ~50x this machine and 15x under the cap): loose enough
+	-- never to flake, tight enough that a wrong `FLIGHT_CATCHUP_PING_FACTOR` or a seconds/milliseconds
+	-- mix-up trips it. On a real server it is expected to be much larger, and it is the only
+	-- instrument anybody has for how much that factor is actually buying (research note 5.4).
+	flightCatchUpSeconds = 0,
 	-- Passes of `Weapon.refillForDrive` that actually refilled a drive's shells (task 171): 0 in a
 	-- running drive means the drive is not calling it.
 	refills = 0,
@@ -1057,6 +1069,45 @@ function Weapon.forget(player: Player)
 	connections[player] = nil
 end
 
+-- HOW MUCH LAG THIS SHOT OWES ITS SHOOTER, in seconds (task 256).
+--
+-- KAREN, 2026-10-24: *"we need to aim ahead to hit animal when running"* / *"it seems there is a bit
+-- off"*. The player aimed at the animal his client drew one trip ago; the server resolves the shot
+-- against where that animal is one trip later. MEASURED (research note section 5.3): at 60 ms one
+-- way a boar at `SPRINT_SPEED` wants 64 cm of lead ON TOP of the true 91 cm at 60 m. So without this
+-- the lead a player must learn is the real lead plus his own ping, which is not a real-life feeling.
+--
+-- PURE EXCEPT FOR THE ONE READ IT EXISTS TO MAKE, and `ping` is a PARAMETER with a default for the
+-- reason `Weapon.equipDelayFor` and `Ballistics.dropAt` already state: a number that can only be
+-- read at one value cannot be tested at another -- and this one reads 1-2 ms on a loopback Studio
+-- session (measured, task 256 round 2), so a spec that could not supply its own could not reach this
+-- function's interesting half at all.
+--
+-- `Player:GetNetworkPing()` IS THE ONLY LATENCY A SERVER CAN HAVE WITHOUT A PROTOCOL OF OUR OWN, and
+-- it is unspoofable here precisely because the client never sends it. Its units are the uncertain
+-- part -- the docs say only *"the network ping in seconds"* -- which is why the conversion is
+-- `FLIGHT_CATCHUP_PING_FACTOR`, a row, and not a literal here.
+--
+-- A NEGATIVE, A NAN OR A MISSING PING IS ZERO, never a fallback guess: 0 is exactly today's
+-- behaviour, so the failure mode of this whole feature is "the game shoots as it did yesterday".
+-- `Flight.launch` clamps the upper end again, at the one door into that module.
+function Weapon.catchUpFor(player: Player?, ping: number?, config: any?): number
+	local seconds = ping
+	if seconds == nil then
+		local ok, measured = pcall(function()
+			return (player :: any):GetNetworkPing()
+		end)
+		seconds = if ok and type(measured) == "number" then measured else 0
+	end
+	-- `seconds ~= seconds` is the NaN test: a NaN survives `math.clamp` and would poison every
+	-- projectile's `elapsed` for the life of the server.
+	if type(seconds) ~= "number" or seconds ~= seconds or seconds <= 0 then
+		return 0
+	end
+	local cfg = config or CONFIG
+	return math.clamp(seconds * cfg.FLIGHT_CATCHUP_PING_FACTOR, 0, cfg.FLIGHT_CATCHUP_MAX_SECONDS)
+end
+
 local function rootPositionOf(player: Player): Vector3?
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -1165,8 +1216,32 @@ local function onShotLanded(res: Flight.Resolution)
 		-- client draws what it always drew rather than nothing.
 		local normals = {}
 		local materials = {}
+		-- ...AND WHICH BODY IT LANDED ON (task 256). KAREN, 2026-10-24: *"this signe where we shot
+		-- where we hit sometimes shows we hit empty space and died needs corection"*. The dust was
+		-- drawn at a WORLD point, and a boar at `SPRINT_SPEED` is 11.4 studs -- two of its own body
+		-- lengths -- past that point before its grains have faded (research note section 8.1). This
+		-- is the one fact the client needs to pin the dust to the animal instead of to the air.
+		--
+		-- THE INSTANCE AND NOTHING ELSE. No local offset: the client has the part and the part has a
+		-- CFrame, so the offset is `PointToObjectSpace` there -- and the client's own copy of where
+		-- the animal is NOW is the right frame to draw in, because that is the animal the player can
+		-- see. Sending an offset would be a second representation of a derivable thing, stale by
+		-- exactly the trip time.
+		--
+		-- WHETHER IT MOVES IS THE CLIENT'S QUESTION, not this one's: `Effects.ridesWith` asks the
+		-- part's own `Anchored`. The server reports what was struck; the client decides how to draw
+		-- it, which is the division `materials` already follows.
+		local parts = {}
 		for _, impact in ipairs(res.impacts) do
 			table.insert(points, impact.position)
+			-- `false` IS THE PLACEHOLDER, NOT A HOLE, for the reason the normals array states right
+			-- below: all four arrays are read BY INDEX on the client, and a nil here would shorten
+			-- this one and stand every later pellet's dust on the wrong surface. A cast can only
+			-- return a BasePart or Terrain today, and Terrain is anchored world either way.
+			table.insert(
+				parts,
+				if impact.instance ~= nil and impact.instance:IsA("BasePart") then impact.instance else false
+			)
 			-- A PLACEHOLDER RATHER THAN A HOLE, in BOTH arrays (round 1, note). The three arrays
 			-- are read BY INDEX on the client, so one impact with no normal would shift every
 			-- later entry and stand a puff on another pellet's surface. `materials` already
@@ -1181,6 +1256,9 @@ local function onShotLanded(res: Flight.Resolution)
 			impacts = points,
 			normals = normals,
 			materials = materials,
+			-- FOURTH PARALLEL ARRAY, FOLLOWING THE THREE (task 256): a client written before this
+			-- task simply does not read it and draws exactly what it always drew.
+			parts = parts,
 		})
 	end
 end
@@ -1373,7 +1451,10 @@ local function onFireRequest(player: Player, req: any): string?
 		-- than one that is 0.3 s early (design 6.3).
 		firedAt = now,
 		epoch = fired.epoch,
-	}, Pattern.directions(ammo, bore, rng, row), ballistic)
+		-- LAG COMPENSATION, THE FOURTH ARGUMENT (task 256). `Weapon.catchUpFor` is the one thing
+		-- that computes it and `Flight.launch` clamps it again; it is the shooter's own trip, so a
+		-- player on a good connection is given nothing and the lead he learns is the TRUE lead.
+	}, Pattern.directions(ammo, bore, rng, row), ballistic, Weapon.catchUpFor(player, nil, CONFIG))
 	if launched == 0 then
 		stats.flightRefused += 1
 	end
@@ -1772,6 +1853,9 @@ function Weapon.start()
 		-- The flight's own timeouts and refusals, mirrored into this owner's tally so one `stats()`
 		-- answers everything. Both must stay 0 in every run.
 		stats.flightTimeouts = flight.timedOut
+		-- ...AND THE LAG COMPENSATION IT GRANTED (task 256). Mirrored here for the same reason and
+		-- read the same way: 0.000 in any run with no network.
+		stats.flightCatchUpSeconds = flight.catchUpSeconds
 	end)
 
 	for _, player in ipairs(Players:GetPlayers()) do

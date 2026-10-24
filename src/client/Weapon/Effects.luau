@@ -1,6 +1,10 @@
 --!strict
--- PlayerScripts.Weapon.Effects: the shot's cosmetics, and nothing else. It writes no state, decides
--- no hit, and touches nothing outside Workspace.WeaponEffects, which it creates on first use.
+-- PlayerScripts.Weapon.Effects: the shot's cosmetics, and nothing else. It writes no state and
+-- decides no hit. Everything it creates lives in Workspace.WeaponEffects, which it makes on first
+-- use -- WITH ONE EXCEPTION since task 256: a landing on a body that MOVES parents its `Attachment`
+-- to the struck part itself, because an Attachment's frame is its parent's and the folder would pin
+-- the dust to the world again. It adds a child and Debris takes it away; it reads and writes nothing
+-- else about that part, so `Boar.Body` is still the only writer of a boar.
 --
 -- Everything it makes is handed to Debris, so nothing it does can accumulate: EFFECT_MAX_PER_SHOT
 -- is a hard cap on top of that, so a bug upstream cannot flood Workspace (design section 11).
@@ -99,7 +103,7 @@ end
 
 -- ONE PUFF OF DUST, defined with the landing below and FORWARD-DECLARED here so `Effects.play`'s
 -- own impact branch draws the same thing. There is exactly one impact picture in this file.
-local puff: (Vector3, Vector3?, string?) -> BasePart
+local puff: (Vector3, Vector3?, string?, BasePart?) -> Instance
 
 local function part(
 	name: string,
@@ -231,28 +235,89 @@ function Effects.impactFrame(position: Vector3, normal: Vector3?): CFrame
 	return CFrame.fromMatrix(position, right.Unit, up)
 end
 
+-- WHETHER THE DUST HAS TO RIDE WHAT IT LANDED ON (task 256). PURE and exported, so
+-- `weapon_client.spec` can ask it about an anchored tree, a boar's zone part, a nil and a
+-- non-BasePart without firing a shot.
+--
+-- KAREN, 2026-10-24: *"this signe where we shot where we hit sometimes shows we hit empty space and
+-- died needs corection"*. MEASURED (research note section 8.1): the puff below is `Anchored` in the
+-- WORLD, and a boar at `Boar.CONFIG.MOVE.SPRINT_SPEED` (38 studs/s) covers **11.4 studs in the
+-- 0.3 s its own grains live** -- two of its own 5.5-stud body lengths -- so the mark hangs in the
+-- air where the animal WAS while the animal it really hit runs on and dies. "Sometimes" is
+-- "whenever the animal was running".
+--
+-- `not Anchored` IS THE WHOLE TEST, and it is a fact the client can read off its own copy rather
+-- than a second answer sent over the wire. A boar's trunk and all four of its zone parts are
+-- `Anchored = false` (`Boar.Body.create`, `Boar.Body.zones`); the map's ground, trees and stands are
+-- anchored. So the discriminator is the engine's own word for "this moves", and nothing has to
+-- maintain a list of what is an animal.
+--
+-- IT IS WIDER THAN THE ANIMALS, DELIBERATELY AND SAID OUT LOUD (the Reviewer's note, round 1): any
+-- unanchored BasePart rides, which includes another player's limbs and any physics prop. That is the
+-- RIGHT answer for all of them -- dust belongs on the thing it landed on, whatever that thing is --
+-- and it is why this asks "does it move" rather than "is it an animal", which would need a list
+-- somebody has to keep.
+function Effects.ridesWith(instance: Instance?): BasePart?
+	if instance == nil or not instance:IsA("BasePart") then
+		return nil
+	end
+	-- ANCHORED IS THE WORLD AND THE WORLD DOES NOT MOVE, so it keeps today's anchored host: cheaper,
+	-- and bit-for-bit the picture every landing drew before this task.
+	if instance.Anchored then
+		return nil
+	end
+	return instance
+end
+
 -- ONE PUFF, AS AN INSTANCE. Named "Impact" exactly as the cube was, because that name is what the
 -- `EFFECT_MAX_PER_SHOT` cap and the suite both count -- what changed is the picture, not the
 -- bookkeeping.
 --
 -- THE PART IS INVISIBLE AND THE PARTICLES ARE THE PICTURE. It is still handed to Debris like every
 -- other effect in this file, so nothing here can accumulate.
-function puff(position: Vector3, normal: Vector3?, materialName: string?): BasePart
+--
+-- `attachTo` IS THE BODY THE DUST RIDES (task 256), and it is nil for every static surface and for
+-- every caller written before this task. When it is given there is NO HOST PART AT ALL: the
+-- `Attachment` -- which this function has always built -- goes straight onto that part, and an
+-- Attachment IS a point in its parent's own frame, so the emitter follows the body with no weld, no
+-- constraint, no per-frame CFrame write and no second writer of anything `Boar.Body` owns.
+--   https://create.roblox.com/docs/reference/engine/classes/Attachment
+-- The frame is converted into the part's space with the CLIENT's own current CFrame
+-- (`ToObjectSpace`), deliberately: the part has moved since the server measured the hit, and where
+-- this client draws the animal NOW is the frame the player can actually see the dust against
+-- (research note section 8.2).
+--
+-- IT RETURNS THE INSTANCE IT MADE, which is a Part on the static path and an Attachment on the
+-- riding one. The one thing both have in common is that `Debris` takes them away, which is what the
+-- "nothing here can accumulate" promise above rests on.
+function puff(position: Vector3, normal: Vector3?, materialName: string?, attachTo: BasePart?): Instance
 	local cfg = Shotgun.CONFIG.IMPACT
-	local host = Instance.new("Part")
-	host.Name = "Impact"
-	host.Size = Vector3.new(0.05, 0.05, 0.05)
-	host.CFrame = Effects.impactFrame(position, normal)
-	host.Transparency = 1
-	host.Anchored = true
-	host.CanCollide = false
-	host.CanQuery = false
-	host.CanTouch = false
-	host.CastShadow = false
-	host.Massless = true
+	local frame = Effects.impactFrame(position, normal)
 
 	local attachment = Instance.new("Attachment")
-	attachment.Parent = host
+	local made: Instance = attachment
+	local host: Part? = nil
+	if attachTo ~= nil then
+		attachment.Name = "Impact"
+		attachment.CFrame = attachTo.CFrame:ToObjectSpace(frame)
+	else
+		-- NOT the `part` helper above: that one is `Neon`, visible and sized for a flash. This is
+		-- the invisible carrier the grains hang on, and it is named `anchoredHost` so a reader is
+		-- never asked which `part` is meant.
+		local anchoredHost = Instance.new("Part")
+		anchoredHost.Name = "Impact"
+		anchoredHost.Size = Vector3.new(0.05, 0.05, 0.05)
+		anchoredHost.CFrame = frame
+		anchoredHost.Transparency = 1
+		anchoredHost.Anchored = true
+		anchoredHost.CanCollide = false
+		anchoredHost.CanQuery = false
+		anchoredHost.CanTouch = false
+		anchoredHost.CastShadow = false
+		anchoredHost.Massless = true
+		host = anchoredHost
+		made = anchoredHost
+	end
 
 	local emitter = Instance.new("ParticleEmitter")
 	emitter.Name = "Puff"
@@ -275,14 +340,51 @@ function puff(position: Vector3, normal: Vector3?, materialName: string?): BaseP
 	-- GRAVITY PULLS THE GRAINS BACK DOWN, which is what makes it read as dirt rather than smoke.
 	emitter.Acceleration = Vector3.new(0, -24, 0)
 	emitter.EmissionDirection = Enum.NormalId.Top
+	-- THE GRAINS THEMSELVES RIDE THE BODY, AND THIS LINE IS THE WHOLE OF IT (task 256, round 2).
+	--
+	-- ROUND 1 SHIPPED A FIX THAT MOVED NOTHING THE PLAYER CAN SEE, and the Reviewer was right: an
+	-- `Attachment` on the boar moves where the NEXT particle would be born, but `Emit` below puts all
+	-- seven grains in the air in ONE burst at the instant of the hit -- and with `LockedToPart` at
+	-- its default of FALSE a particle is simulated in WORLD space once emitted. So the attachment
+	-- rode the animal and the dust hung in the air at exactly the point the anchored host used, which
+	-- is the defect verbatim.
+	--   https://create.roblox.com/docs/reference/engine/classes/ParticleEmitter#LockedToPart
+	--     "whether the particles are locked in place relative to the emitter's parent"
+	--
+	-- ONLY ON THE RIDING PATH. A static surface keeps `false`, which is world space and is
+	-- bit-for-bit the picture every landing has drawn since task 249 -- the ground does not move, so
+	-- the two are identical there and `false` is the one that is already proven.
+	--
+	-- `Acceleration` IS THEN IN THE PART'S FRAME, which is the one thing this line changes besides
+	-- the position: the grains fall along the animal's own -Y instead of the world's. `Boar.Body`
+	-- holds the trunk upright with an `AlignOrientation`, so while the animal is alive those are the
+	-- same direction; on a carcass that has rolled, 0.3 s of dust falls along the body's axis
+	-- instead of straight down. Stated rather than corrected: it is a third of a second of seven
+	-- grains, and the alternative is a second acceleration number that would have to be kept in step
+	-- with this one.
+	if attachTo ~= nil then
+		emitter.LockedToPart = true
+	end
 	-- NEVER A STREAM. `Emit` below puts exactly `COUNT` grains in the air, once.
 	emitter.Enabled = false
 	emitter.Parent = attachment
 
-	host.Parent = Effects.folder()
+	-- PARENTED LAST, AND THE EMIT IS AFTER IT, exactly as this function has always done: an
+	-- `Emit` on an emitter that is not yet in the world draws nothing.
+	if host ~= nil then
+		attachment.Parent = host
+		host.Parent = Effects.folder()
+	else
+		-- ONTO THE BODY ITSELF. Not into `Effects.folder()`: an Attachment's frame is its PARENT's,
+		-- so the folder would pin it to the world again and undo the whole of task 256.
+		attachment.Parent = attachTo
+	end
 	emitter:Emit(cfg.COUNT)
-	Debris:AddItem(host, cfg.HOST_LIFETIME)
-	return host
+	-- THE SAME LIFETIME EITHER WAY, and `Debris` destroys an Attachment as readily as a Part -- so
+	-- the riding path cannot accumulate children on an animal that survives the drive, and a puff
+	-- on a boar that is destroyed first goes with it.
+	Debris:AddItem(made, cfg.HOST_LIFETIME)
+	return made
 end
 
 -- WHERE THE DUST GOES, WHEN THE BULLET ARRIVES (tasks 185, 249). `ShotLanded`'s payload, and
@@ -308,11 +410,17 @@ function Effects.playLanded(payload: any)
 	if type(payload) ~= "table" or type(payload.impacts) ~= "table" then
 		return
 	end
-	-- THE TWO NEW ARRAYS ARE OPTIONAL AT EVERY INDEX (task 249), which is what lets every caller
-	-- written before this task -- the suite's own `playLanded({ impacts = { ... } })` included --
-	-- keep working: a missing normal is world up and a missing material is dust.
+	-- THE THREE EXTRA ARRAYS ARE OPTIONAL AT EVERY INDEX (tasks 249, 256), which is what lets every
+	-- caller written before each of them -- the suite's own `playLanded({ impacts = { ... } })`
+	-- included -- keep working: a missing normal is world up, a missing material is dust, and a
+	-- missing part is the world, which is what every landing drew before task 256.
 	local normals = if type(payload.normals) == "table" then payload.normals else nil
 	local materials = if type(payload.materials) == "table" then payload.materials else nil
+	-- WHAT EACH PELLET STRUCK (task 256). `Weapon.onShotLanded` sends `false` where it struck
+	-- something that is not a BasePart, for the reason the normals array sends `Vector3.zero`: these
+	-- are read BY INDEX, so a hole would shift every later entry and stand one pellet's dust on
+	-- another pellet's surface.
+	local parts = if type(payload.parts) == "table" then payload.parts else nil
 	local budget = Shotgun.CONFIG.EFFECT_MAX_PER_SHOT
 	for index, position in ipairs(payload.impacts) do
 		if budget <= 0 then
@@ -321,10 +429,14 @@ function Effects.playLanded(payload: any)
 		if typeof(position) == "Vector3" then
 			local normal = if normals ~= nil then normals[index] else nil
 			local material = if materials ~= nil then materials[index] else nil
+			local struck = if parts ~= nil then parts[index] else nil
 			puff(
 				position,
 				if typeof(normal) == "Vector3" then normal else nil,
-				if type(material) == "string" then material else nil
+				if type(material) == "string" then material else nil,
+				-- `Effects.ridesWith` IS THE ONE DECISION, so the spec drives it directly and this
+				-- loop cannot hold a second copy of "does this move".
+				Effects.ridesWith(if typeof(struck) == "Instance" then struck :: Instance else nil)
 			)
 			budget -= 1
 		end

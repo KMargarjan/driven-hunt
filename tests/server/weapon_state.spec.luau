@@ -7,6 +7,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
 
@@ -40,6 +41,35 @@ return function()
 			expect(Weapon.stats().flightRefused).to.equal(0)
 			-- ...AND NO WEAPON ROW IS MISSING ITS BALLISTICS, which would have refused every shot.
 			expect(Weapon.stats().noBallistics).to.equal(0)
+			-- ...AND THE LAG COMPENSATION GRANTED HERE IS NEGLIGIBLE (task 256), which is a WEAKER
+			-- claim than the one this case first made and the measurement is why.
+			--
+			-- IT WAS `equal(0)` AND THAT FAILED, usefully: a loopback Studio Play session does NOT
+			-- read a zero ping. `Player:GetNetworkPing()` reported 1.70 ms of total compensation
+			-- across this run's shots -- 0.065 studs on a sprinting boar, which is nothing a player
+			-- could see, but it is not zero, and the research note's first draft said "reads ~0"
+			-- where the honest sentence is "reads one to two milliseconds". Corrected there too.
+			--
+			-- SO THE GUARD IS A PER-SHOT BOUND, which is what it was always for: it has to catch the
+			-- factor or the units being wrong (a `FLIGHT_CATCHUP_PING_FACTOR` of 100, a value read as
+			-- milliseconds and used as seconds) while tolerating the real loopback trip. 10 ms per
+			-- shot is ~50x what this machine reports and still 15x under the cap, so it is loose
+			-- enough to never flake and tight enough that any unit error trips it.
+			local granted = Weapon.stats().flightCatchUpSeconds
+			local shotsTaken = math.max(1, Weapon.stats().shots)
+			expect(granted >= 0).to.equal(true)
+			expect(granted / shotsTaken < 0.01).to.equal(true)
+			TestKit.note(
+				string.format(
+					"[catchup] loopback Studio: %.4f s granted over %d shot(s) = %.2f ms each "
+						.. "(= %.3f studs on a sprinting boar; the cap is %.0f ms)",
+					granted,
+					Weapon.stats().shots,
+					granted / shotsTaken * 1000,
+					granted / shotsTaken * 38,
+					Shotgun.CONFIG.FLIGHT_CATCHUP_MAX_SECONDS * 1000
+				)
+			)
 		end)
 	end)
 

@@ -481,6 +481,44 @@ Shotgun.CONFIG = {
 	-- firing both barrels of buckshot inside one flight time: 16 * 9 * 2 = 288. 512 is above that
 	-- and can never be reached by play -- it is the guard against a loop, not a budget.
 	FLIGHT_MAX_LIVE_PELLETS = 512,
+	-- ---------------------------------------------------------- LAG COMPENSATION (task 256)
+	--
+	-- KAREN, 2026-10-24: *"we need to aim ahead to hit animal when running"* and *"it seems there is
+	-- a bit off"*. The lead the game demands is the TRUE lead -- `Ballistics.timeToRange` times the
+	-- animal's speed -- PLUS the round trip to the server, because the player aims at the animal his
+	-- client drew one trip ago and the server resolves the shot against where it is one trip later.
+	-- MEASURED (research note section 5.3): at 60 ms one way, a boar at `SPRINT_SPEED` wants 64 cm of
+	-- extra lead on top of a true 91 cm at 60 m. **The ping is 70 % of the lead again.**
+	--
+	-- THE MECHANISM IS FORWARD PREDICTION, NOT A REWIND (Unreal's projectile `NetPredictionTime`;
+	-- research note source C). Valve's hitbox rewind is the textbook answer and is REFUSED: it needs
+	-- a position history per animal, which is a second store of a fact `Boar.Body` owns -- the
+	-- overlapping-owner failure `docs/PROJECT_CONTEXT.md` is a document about. Forward prediction
+	-- needs no history at all: `Flight.advance` already steps a projectile over an INJECTED `dt`
+	-- through an INJECTED segment cast, so "catch this shot up by L" is the step this system already
+	-- takes, taken once more at launch -- same sub-step cap, same segment casts, so it still cannot
+	-- tunnel through a wall and still cannot skip a target.
+	--
+	-- THE BOUND IS THE WHOLE SAFETY ARGUMENT. Unbounded, a 400 ms client reaches a third of a second
+	-- into the future and gets a free body length of lead that other players would see as a shot
+	-- which hit nothing. 0.15 s covers a bad connection and caps the reach at 5.7 studs on a
+	-- sprinting boar -- about one body length, the most a mistake here may ever be worth. It also
+	-- fits the EXISTING budget rather than widening it: 0.15 s plus a 1/60 heartbeat is 5 of the 8
+	-- `FLIGHT_MAX_SUBSTEPS`, and 0.15 is far under `FLIGHT_MAX_SECONDS`, so nothing above moves.
+	FLIGHT_CATCHUP_MAX_SECONDS = 0.15,
+	-- WHAT `Player:GetNetworkPing()` MEANS, AS A DIAL. The engine's docs say only *"the network ping
+	-- in seconds"* and do NOT say whether that is the round trip or one way, and section 5.1 shows
+	-- the correction wanted is the ROUND TRIP. So the one genuinely uncertain number in this block is
+	-- a DATA ROW and not a literal, for the reason `GRAVITY_SCALE` already is one: a constant that
+	-- can only be read at one value cannot be tested at another -- and this one can only be
+	-- CONFIRMED against a real server: a loopback Studio Play session reads only 1-2 ms (measured,
+	-- round 2 -- not the zero this comment first claimed), which is 0.065 studs on a sprinting boar
+	-- and so cannot distinguish a factor of 1.0 from one of 2.0.
+	--
+	-- 1.0 IS THE CONSERVATIVE READING (treat the engine's number as the round trip): over-correcting
+	-- hands out free lead, while under-correcting merely leaves some of today's error in place. 2.0
+	-- is the value if it turns out to be one way. Karen's dial, and the Director's to confirm live.
+	FLIGHT_CATCHUP_PING_FACTOR = 1.0,
 
 	-- rates, per player
 	FIRE_RATE_LIMIT = 6, -- received requests/s
