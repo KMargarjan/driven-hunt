@@ -1134,7 +1134,8 @@ return function()
 		end)
 
 		it("holds the WHOLE scene at its worst case, measured against Match's own numbers", function()
-			-- THE SQUARE THE SCENE REALLY NEEDS, asked of the module that owns it: twelve animals is
+			-- THE SQUARE THE SCENE REALLY NEEDS, asked of the module that owns it: `MAX_ANIMALS`
+			-- animals is
 			-- `MAX_ANIMALS`, `cornerReachFor` is where the four torches stand on both axes, and that
 			-- already contains the ring (`ringRadiusFor`), which already contains the rows. So one
 			-- number bounds every Instance and every body in the scene.

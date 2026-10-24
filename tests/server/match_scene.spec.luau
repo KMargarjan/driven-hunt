@@ -521,69 +521,87 @@ return function()
 		local facing = Vector3.new(0, 0, 1)
 
 		-- KAREN, 2026-10-12 ~21:45: *"animals layed down in front in several lines if more"*.
+		--
+		-- EVERY CASE BELOW READS `Scene.perRow(LIVE)` AND `MAX_ANIMALS` RATHER THAN 6 AND 12, and
+		-- that is task 255's doing rather than tidying: these cases are about the SHAPE of the block
+		-- -- one row, then rows behind it, a short last row centred on its own width, the people
+		-- outside all of it -- and they were written with the then-current numbers typed in, so the
+		-- whole set failed when `PER_ROW` went 6 -> 4 and the cap 12 -> 16 for reasons that have
+		-- nothing to do with what any of them asserts. `match_config.spec` is where the NUMBERS are
+		-- pinned, and the task-255 block above is where the measurement that chose them lives.
+		local PER = Scene.perRow(LIVE)
+		local CAP = LIVE.SCENE.MAX_ANIMALS
 
-		it("lays 1, 5 and 12 animals out in 1, 1 and 2 rows with the shipped numbers", function()
-			expect(Scene.perRow(LIVE)).to.equal(6)
+		it("counts the rows a bag makes, and the cap is a whole number of them", function()
+			expect(PER > 1).to.equal(true)
 			expect(Scene.rowCount(0, LIVE)).to.equal(0)
 			expect(Scene.rowCount(1, LIVE)).to.equal(1)
-			expect(Scene.rowCount(5, LIVE)).to.equal(1)
-			expect(Scene.rowCount(6, LIVE)).to.equal(1)
-			expect(Scene.rowCount(7, LIVE)).to.equal(2)
-			expect(Scene.rowCount(12, LIVE)).to.equal(2)
+			expect(Scene.rowCount(PER - 1, LIVE)).to.equal(1)
+			expect(Scene.rowCount(PER, LIVE)).to.equal(1)
+			expect(Scene.rowCount(PER + 1, LIVE)).to.equal(2)
+			expect(Scene.rowCount(2 * PER, LIVE)).to.equal(2)
+			expect(Scene.rowCount(2 * PER + 1, LIVE)).to.equal(3)
 			-- ...and the cap is a whole number of rows, so the block is never a row of one.
-			expect(LIVE.SCENE.MAX_ANIMALS % Scene.perRow(LIVE)).to.equal(0)
+			expect(CAP % PER).to.equal(0)
 		end)
 
 		it("keeps one row exactly where it was, and centres every row on the spot", function()
-			-- ONE ROW IS THE SCENE KAREN HAS ALREADY SEEN: five animals, `SPACING_STUDS` apart,
-			-- centred. (The number was 6 until task 255 measured the rolled stag and made it 9; this
-			-- case reads the config, so what it pins is the SHAPE and not the number.)
-			local row = Scene.rowLayout(spot, facing, 5, LIVE)
-			expect(#row).to.equal(5)
+			-- ONE ROW IS THE SCENE KAREN HAS ALREADY SEEN: a full row, `SPACING_STUDS` apart,
+			-- centred, with no depth to spread into.
+			local row = Scene.rowLayout(spot, facing, PER, LIVE)
+			expect(#row).to.equal(PER)
 			local side = Scene.sideAxis(facing)
-			for index = 1, 5 do
+			local middle = (PER + 1) / 2
+			for index = 1, PER do
 				local offset = row[index].Position - spot
-				-- Still on the spot's own depth: one row has no depth to spread into.
 				expect(math.abs(offset:Dot(Vector3.new(facing.X, 0, facing.Z).Unit)) < 1e-3).to.equal(true)
-				expect(math.abs(offset:Dot(side) - (index - 3) * LIVE.SCENE.SPACING_STUDS) < 1e-3).to.equal(true)
+				expect(math.abs(offset:Dot(side) - (index - middle) * LIVE.SCENE.SPACING_STUDS) < 1e-3).to.equal(true)
 			end
-			-- ...AND THE MIDDLE OF AN EVEN ROW STRADDLES THE SPOT, which is what "centred" means.
-			local four = Scene.rowLayout(spot, facing, 4, LIVE)
-			local middle = (four[2].Position + four[3].Position) / 2
-			expect((middle - spot).Magnitude < 1e-3).to.equal(true)
+			-- ...AND AN EVEN ROW STRADDLES THE SPOT while an odd one has an animal ON it, which is
+			-- what "centred on its own width" means in both parities.
+			local even = Scene.rowLayout(spot, facing, 2, LIVE)
+			expect(((even[1].Position + even[2].Position) / 2 - spot).Magnitude < 1e-3).to.equal(true)
+			local odd = Scene.rowLayout(spot, facing, 3, LIVE)
+			expect((odd[2].Position - spot).Magnitude < 1e-3).to.equal(true)
 		end)
 
-		it("splits a bag of twelve into two rows, the second one behind the first", function()
-			local row = Scene.rowLayout(spot, facing, 12, LIVE)
-			expect(#row).to.equal(12)
+		it("splits a full cap into its rows, each one behind the last", function()
+			local rows = Scene.rowCount(CAP, LIVE)
+			expect(rows > 1).to.equal(true)
+			local row = Scene.rowLayout(spot, facing, CAP, LIVE)
+			expect(#row).to.equal(CAP)
 			local look = Vector3.new(facing.X, 0, facing.Z).Unit
 			local side = Scene.sideAxis(facing)
 			local depth = LIVE.SCENE.ROW_SPACING_STUDS
-			-- The first six are one row and the last six another, exactly `ROW_SPACING_STUDS` apart.
-			local frontDepth = (row[1].Position - spot):Dot(look)
-			local backDepth = (row[7].Position - spot):Dot(look)
-			expect(math.abs(frontDepth - depth / 2) < 1e-3).to.equal(true)
-			expect(math.abs(backDepth + depth / 2) < 1e-3).to.equal(true)
-			for index = 1, 6 do
-				expect(math.abs((row[index].Position - spot):Dot(look) - frontDepth) < 1e-3).to.equal(true)
-				expect(math.abs((row[index + 6].Position - spot):Dot(look) - backDepth) < 1e-3).to.equal(true)
+			-- EVERY ROW IS ONE `ROW_SPACING_STUDS` BEHIND THE ONE IN FRONT OF IT, and every animal
+			-- in a row shares that row's depth.
+			local depths = {}
+			for r = 1, rows do
+				local first = (r - 1) * PER + 1
+				depths[r] = (row[first].Position - spot):Dot(look)
+				for index = first, math.min(first + PER - 1, CAP) do
+					expect(math.abs((row[index].Position - spot):Dot(look) - depths[r]) < 1e-3).to.equal(true)
+				end
 			end
-			-- THE ROW IN FRONT IS THE ONE SHE SEES FIRST and it holds the first animals shot: index 1
-			-- is further along the facing than index 7.
-			expect(frontDepth > backDepth).to.equal(true)
+			for r = 2, rows do
+				expect(math.abs((depths[r - 1] - depths[r]) - depth) < 1e-3).to.equal(true)
+			end
+			-- THE ROW IN FRONT IS THE ONE SHE SEES FIRST, and the whole block is centred in depth.
+			expect(depths[1] > depths[rows]).to.equal(true)
+			expect(math.abs(depths[1] - (rows - 1) * depth / 2) < 1e-3).to.equal(true)
 			-- Nobody is laid on top of anybody: the nearest pair in the whole block is a spacing
-			-- apart, which is what makes a bag of twelve walkable rather than a heap.
+			-- apart, which is what makes a full bag walkable rather than a heap.
 			local nearest = math.huge
-			for a = 1, 12 do
-				for b = a + 1, 12 do
+			for a = 1, CAP do
+				for b = a + 1, CAP do
 					nearest = math.min(nearest, (row[a].Position - row[b].Position).Magnitude)
 				end
 			end
 			expect(nearest > math.min(LIVE.SCENE.SPACING_STUDS, depth) - 1e-3).to.equal(true)
-			-- A SHORT LAST ROW IS CENTRED ON ITS OWN WIDTH: seven animals is 6 + 1, and the 1 sits on
+			-- A SHORT LAST ROW IS CENTRED ON ITS OWN WIDTH: a full row plus one, and the one sits on
 			-- the middle rather than hanging off the end.
-			local seven = Scene.rowLayout(spot, facing, 7, LIVE)
-			expect(math.abs((seven[7].Position - spot):Dot(side)) < 1e-3).to.equal(true)
+			local plusOne = Scene.rowLayout(spot, facing, PER + 1, LIVE)
+			expect(math.abs((plusOne[PER + 1].Position - spot):Dot(side)) < 1e-3).to.equal(true)
 		end)
 
 		it("stands the people AROUND the animals, however big the bag is", function()
@@ -591,16 +609,19 @@ return function()
 			expect(Scene.ringRadiusFor(0, LIVE)).to.equal(LIVE.SCENE.RING_RADIUS_STUDS)
 			expect(Scene.ringRadiusFor(3, LIVE)).to.equal(LIVE.SCENE.RING_RADIUS_STUDS)
 			expect(Scene.cornerReachFor(3, LIVE)).to.equal(LIVE.SCENE.CORNER_STUDS)
-			-- A BIG ONE DOES. Twelve animals reach 15 studs sideways and 4 deep, so a 14-stud ring
-			-- would have put the people inside the row -- which is what this task found.
-			local halfWidth, halfDepth = Scene.layoutExtent(12, LIVE)
-			expect(math.abs(halfWidth - 15) < 1e-9).to.equal(true)
-			expect(math.abs(halfDepth - 4) < 1e-9).to.equal(true)
-			local radius = Scene.ringRadiusFor(12, LIVE)
+			-- A BIG ONE DOES, and the extent is the arithmetic of the two spacings rather than two
+			-- typed numbers: a full cap reaches `(PER - 1) * SPACING / 2` sideways and
+			-- `(rows - 1) * ROW_SPACING / 2` deep, so a `RING_RADIUS_STUDS` ring would put the
+			-- people inside the row -- which is what task 168 found.
+			local rows = Scene.rowCount(CAP, LIVE)
+			local halfWidth, halfDepth = Scene.layoutExtent(CAP, LIVE)
+			expect(math.abs(halfWidth - (PER - 1) * LIVE.SCENE.SPACING_STUDS / 2) < 1e-9).to.equal(true)
+			expect(math.abs(halfDepth - (rows - 1) * LIVE.SCENE.ROW_SPACING_STUDS / 2) < 1e-9).to.equal(true)
+			local radius = Scene.ringRadiusFor(CAP, LIVE)
 			expect(radius > LIVE.SCENE.RING_RADIUS_STUDS).to.equal(true)
 			-- EVERY ANIMAL IS INSIDE THE RING, and that is the claim, asserted animal by animal.
-			local row = Scene.rowLayout(spot, facing, 12, LIVE)
-			local ring = Scene.ringLayout(spot, 8, LIVE, 12)
+			local row = Scene.rowLayout(spot, facing, CAP, LIVE)
+			local ring = Scene.ringLayout(spot, 8, LIVE, CAP)
 			expect(#ring).to.equal(8)
 			for _, at in ipairs(row) do
 				local flat = Vector3.new(at.Position.X - spot.X, 0, at.Position.Z - spot.Z)
@@ -614,18 +635,19 @@ return function()
 				expect(at.LookVector:Dot((centre - at.Position).Unit) > 0.999).to.equal(true)
 			end
 			-- AND THE FOUR TORCHES ARE OUTSIDE THE PEOPLE.
-			for _, corner in ipairs(Scene.cornerPositions(spot, facing, LIVE, 12)) do
+			for _, corner in ipairs(Scene.cornerPositions(spot, facing, LIVE, CAP)) do
 				expect((corner - spot).Magnitude > radius).to.equal(true)
 			end
 			TestKit.note(
 				string.format(
-					"match_scene: 12 animals -> %d rows, half %.1f x %.1f, ring %.1f (was %.1f), corners %.1f",
-					Scene.rowCount(12, LIVE),
+					"match_scene: %d animals -> %d rows, half %.1f x %.1f, ring %.1f (was %.1f), corners %.1f",
+					CAP,
+					rows,
 					halfWidth,
 					halfDepth,
 					radius,
 					LIVE.SCENE.RING_RADIUS_STUDS,
-					Scene.cornerReachFor(12, LIVE)
+					Scene.cornerReachFor(CAP, LIVE)
 				)
 			)
 		end)
