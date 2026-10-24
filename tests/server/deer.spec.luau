@@ -1094,8 +1094,50 @@ return function()
 					{ kind = "hind", sounder = nil },
 				}
 				expect(Boar.deerGroupsAllowed(live, configWith(true))).to.equal(false)
+				-- ...AND THE STAG COMES ANYWAY, BECAUSE HE MOVES ALONE (task 253). **THE DIRECTOR'S
+				-- DECISION, 2026-10-24**: *"if MAX_GROUPS_ALIVE slips him, let the stag (only) be
+				-- released even if one other group is alive"*. MEASURED the night before -- the hind
+				-- party was still on its feet at his slot, so the drive held him over to its next
+				-- silence and he came out 26 s late, against an arithmetic written for his slot.
+				expect(runtime:deerAllowed("stag")).to.equal(true)
+				expect(Boar.deerGroupsAllowed(live, configWith(true), "stag")).to.equal(true)
+				-- IT IS "A PARTY OF ONE" AND NOT "THE STAG": the hind party weighs two, so it is
+				-- still refused while a group is out, and a drive cannot have two herds.
+				expect(runtime:deerAllowed("hinds")).to.equal(false)
+				expect(Boar.deerGroupsAllowed(live, configWith(true), "hinds")).to.equal(false)
+				-- AND THE EXEMPTION IS ONE GROUP DEEP, not a bypass: with the stag out as well, the
+				-- next stag is refused too.
+				local stagOut = {
+					{ kind = "hind", sounder = nil },
+					{ kind = "stag", sounder = nil },
+				}
+				expect(Boar.deerGroupsAllowed(stagOut, configWith(true), "stag")).to.equal(false)
+				-- A PARTY NOBODY NAMED is the answer every caller got before this task.
+				expect(Boar.deerGroupsAllowed(live, configWith(true), nil)).to.equal(false)
 				runtime:destroy()
 				holder:Destroy()
+			end)
+
+			-- WHICH KINDS ARE DEER, ASKED ONCE (task 253) ---------------------------------------
+			--
+			-- The drive asks it on every tick of the beater line, to decide whether an animal the
+			-- line has reached bolts or slips away, and three callers were about to inline
+			-- `KINDS[kind].species == "reddeer"`.
+			it("knows a deer kind from a boar kind, and knows none at all with the flag off", function()
+				local config = configWith(true)
+				expect(Boar.isDeerKind("stag", config)).to.equal(true)
+				expect(Boar.isDeerKind("hind", config)).to.equal(true)
+				expect(Boar.isDeerKind("calf", config)).to.equal(true)
+				expect(Boar.isDeerKind("male", config)).to.equal(false)
+				expect(Boar.isDeerKind("female", config)).to.equal(false)
+				expect(Boar.isDeerKind("cub", config)).to.equal(false)
+				-- AN UNKNOWN WORD AND NO WORD ARE BOTH "not a deer", which is the safe answer: the
+				-- caller's fallback is the behaviour every animal had before this task.
+				expect(Boar.isDeerKind("elephant", config)).to.equal(false)
+				expect(Boar.isDeerKind(nil, config)).to.equal(false)
+				-- WITH `KINDS` OFF THERE ARE NO KINDS, so there is no deer -- the same first line
+				-- `deerGroupsAllowed` takes, and the default build has one animal and it is a boar.
+				expect(Boar.isDeerKind("stag", configWith(false))).to.equal(false)
 			end)
 
 			-- FINDING 1. THE FLAG-OFF STREAM, COUNTED AGAINST A BASELINE ------------------------

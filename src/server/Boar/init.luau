@@ -3119,6 +3119,22 @@ Boar.CONFIG.SPECIES = {
 			-- shooter. Answered by COUNTING THE LIVE ENTRIES, not by a counter two paths could
 			-- disagree about -- the shape `Runtime:_legendaryAllowed` already uses for its cap.
 			MAX_GROUPS_ALIVE = 1,
+			-- ...AND A PARTY OF ONE MAY COME ANYWAY (task 253). **THE DIRECTOR'S DECISION,
+			-- 2026-10-24**: *"if MAX_GROUPS_ALIVE slips him, let the stag (only) be released even if
+			-- one other group is alive, because he moves alone"*. MEASURED in the Forest Test the
+			-- night before: the hind party was still on its feet at the stag's slot, so he was held
+			-- over to the drive's next silence and came out 26 seconds late (task 251c's run 2) --
+			-- and the arithmetic that gets him to the verge in time is written against his slot.
+			--
+			-- IT IS "A PARTY OF ONE" AND NOT "THE STAG", because the REASON is that he moves alone:
+			-- the cap exists so that *"two groups could be half the drive"* cannot happen, and one
+			-- animal is not half of anything. `Boar.deerGroupsAllowed` asks the named party's own
+			-- composition through `Boar.compositionSize`, so the rule reads off this table rather
+			-- than off a word in the drive script.
+			LONE_PARTY_EXTRA_GROUPS = 1,
+			-- HOW SMALL "ALONE" IS. One animal; written as a row so the rule above can be stated
+			-- without a literal in the function.
+			LONE_PARTY_SIZE = 1,
 			-- `name` IS SO A DRIVE CAN ASK FOR A PARTICULAR PARTY (task 251) without learning this
 			-- table. KAREN, 2026-10-23, through the Designer's plan she OK'd: the HIND PARTY comes
 			-- early in the drive and THE STAG comes last, alone -- which is a fact about the drive's
@@ -3411,10 +3427,33 @@ function Boar.deerComposition(roll: number, pick: number, config, wanted: (boole
 	return nil
 end
 
+-- IS THIS KIND A DEER (task 253)? Pure, one word in, a boolean out -- and it is the ONE place the
+-- question is answered, because three callers were about to inline `KINDS[kind].species ==
+-- "reddeer"` and a fourth would have written it differently. The drive asks it to decide whether an
+-- animal that the beater line has reached bolts or slips away (`ForestTest.encounterStage`'s
+-- `isDeer`).
+--
+-- WITH `KINDS` OFF THERE ARE NO KINDS and so there is no deer -- the same first line
+-- `deerGroupsAllowed` takes, and for the same reason: the default build has one animal and it is a
+-- boar.
+function Boar.isDeerKind(kind: string?, config): boolean
+	local kinds = type(config) == "table" and config.KINDS
+	if type(kinds) ~= "table" or kinds.ENABLED ~= true or type(kind) ~= "string" then
+		return false
+	end
+	local row = kinds[kind]
+	return type(row) == "table" and row.species == "reddeer"
+end
+
 -- IS THERE ALREADY A DEER GROUP OUT (task 223)? Pure, and it takes the live kinds rather than a
 -- counter, for the reason `Runtime:_legendaryAllowed` gives for its own cap: there is ONE list of
 -- live animals and it is the answer, so two code paths cannot disagree about it.
-function Boar.deerGroupsAllowed(liveKinds: { string }, config): boolean
+--
+-- `party` IS THE ONE ASKING, BY NAME, AND IT MAY RAISE THE CAP BY ONE (task 253): a party whose own
+-- composition weighs `LONE_PARTY_SIZE` animals -- the stag, and nothing else in the table -- is let
+-- out while one other group is alive, because one animal cannot be half the drive. Omitted, the
+-- answer is exactly what it was, which is every caller before this task.
+function Boar.deerGroupsAllowed(liveKinds: { string }, config, party: string?): boolean
 	local kinds = config.KINDS
 	-- THE FLAG FIRST, and it is not only belt-and-braces: this function is the deer's own question,
 	-- and with `BOAR_MODEL` off there are no kinds, so there is no deer and nothing to allow
@@ -3449,7 +3488,18 @@ function Boar.deerGroupsAllowed(liveKinds: { string }, config): boolean
 	end
 	-- ONE GROUP AT A TIME: a drive is six live animals and a group is up to three, so two groups
 	-- could be half the drive and the animal Karen called rare would be in front of every shooter.
-	return groups < (release.MAX_GROUPS_ALIVE or 1)
+	local cap = release.MAX_GROUPS_ALIVE or 1
+	-- ...AND ONE ANIMAL ON HIS OWN IS NOT A GROUP THAT FILLS A DRIVE (task 253). The party is asked
+	-- for its own composition and WEIGHED, so the exemption follows the table rather than a name:
+	-- change the stag's party to two animals and it stops applying, with nothing else edited.
+	if party ~= nil then
+		local composition = Boar.deerComposition(0, 0, config, party)
+		local size = if composition ~= nil then Boar.compositionSize(composition, config) else math.huge
+		if size <= (release.LONE_PARTY_SIZE or 1) then
+			cap += release.LONE_PARTY_EXTRA_GROUPS or 0
+		end
+	end
+	return groups < cap
 end
 
 -- WHAT FORMATION THIS RELEASE MARCHES IN, WHEN ITS COMPOSITION DECIDES (task 234). Pure, and nil
@@ -4321,8 +4371,11 @@ end
 -- itself, which is a second answer to `MAX_GROUPS_ALIVE` and exactly the kind of disagreement
 -- `_liveKinds`' own comment exists to prevent. PURE OF SIDE EFFECTS: it draws no number, so a
 -- caller may ask it before deciding anything.
-function Runtime:deerAllowed(): boolean
-	return Boar.deerGroupsAllowed(self:_liveKinds(), self._config)
+-- `party` IS PASSED STRAIGHT THROUGH (task 253): the forest's drive names the party it is about to
+-- release, and a party of one may come out while one other group is alive. A caller that names none
+-- gets the answer it always got.
+function Runtime:deerAllowed(party: string?): boolean
+	return Boar.deerGroupsAllowed(self:_liveKinds(), self._config, party)
 end
 
 function Runtime:_modelTemplate(kind: string, now: number): Instance?

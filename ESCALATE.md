@@ -1,6 +1,6 @@
 # Escalations
 
-## 2026-10-24 - Task 251c: **THE CLAMP WORKS AND THE STAG STILL BOLTS. A GROUP RELEASED 60 STUDS AHEAD OF THE LINE IS INSIDE THE LINE'S OWN NOTICE BAND (100 STUDS), SO IT STANDS FOR 2 s AND FLUSHES -- MEASURED, TWICE, IN KAREN'S PLACE.**
+## 2026-10-24 - Task 251c (**now TASK 253**): **THE CLAMP WORKS AND THE STAG STILL BOLTS. A GROUP RELEASED 60 STUDS AHEAD OF THE LINE IS INSIDE THE LINE'S OWN NOTICE BAND (100 STUDS), SO IT STANDS FOR 2 s AND FLUSHES -- MEASURED, TWICE, IN KAREN'S PLACE.**
 
 **The Director's two rules are built, gated and pushed** (`[harness] PASS: 34/34 checks @ e5a5bd95
 (clean tree) scope=all`). What is escalated is the LEAD MARGIN -- *"LEAD one data row (start at 60
@@ -92,12 +92,19 @@ has started.
 | **D** | `sneakStuds` **120 -> 60** | yes | halves the leg that costs him the time. **Below Karen's own 80-160 band**, so it is hers |
 | **E** | leave it | yes | the clamp has still fixed the eleven boar groups -- they bolt ACROSS the road now instead of head-on into the beaters -- and the stag's three behaviours stay dark in her place |
 
-**The Builder's recommendation is A + C**, and A on its own if the drive's length is not to move
+**ANSWERED BY THE DIRECTOR, 2026-10-24, AND BUILT AS TASK 253** -- and the answer is neither A alone
+nor C: **A (`leadStuds` 60 -> 130) plus a new rule that is closer to the animal than any of the five
+options** -- *"for deer kinds, NOTICING THE BEATER LINE is not a flush. Beyond a deer-only FLUSH
+radius from the nearest beater (start at 40 studs), a deer that notices the line SNEAKS"*. So the
+stag is not kept away from the line at all; he is allowed to meet it and walk. Plus the stag's own
+release is exempted from `MAX_GROUPS_ALIVE` because he moves alone. See TASKS.md row 253.
+
+**The Builder's recommendation was A + C**, and A on its own if the drive's length is not to move
 again: A is the only one that makes the clamp mean *"the group comes at its own pace"* rather than
 *"the group bolts the right way", and C is the only one that keeps both halves of the dispatch -- *he
 walks* AND *he is last*. B is free and delivers the behaviour tonight at the price of the word "last".
 
-### NEEDS DIRECTOR, SEPARATELY: **THE REVIEW OF A LETTERED TASK CANNOT BE RUN BY THE TOOL**
+### NEEDS DIRECTOR, SEPARATELY: **THE REVIEW OF A LETTERED TASK CANNOT BE RUN BY THE TOOL** -- **ANSWERED AND CLOSED, 2026-10-24: the Director renumbered 251c to TASK 253** (the 233b -> 235 precedent), so `reviews/task-253/` is a task in its own right with its own round count and `tools/review.ps1 253` addresses it. `tools/agents.py` is unchanged and still takes digits only; whether a lettered task should ever be addressable is the Director's to decide another day. The entry below is kept as written (rule 7).
 
 `tools/agents.py` addresses a task by DIGITS -- `resolve_task` refuses `251c` outright
 (*"task number must be digits"*) and its no-argument path only matches `reviews/task-(\d+)/`. So:

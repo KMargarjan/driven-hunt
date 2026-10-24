@@ -602,6 +602,27 @@ ForestTest.SPOOK = {
 	BEATER_M = 20,
 	BEATER_STUDS = 71, -- 20 m / 0.28
 
+	-- ...AND A DEER IS NOT A BOAR ABOUT IT (task 253). **THE DIRECTOR'S DECISION, 2026-10-24**, after
+	-- task 251c measured the stag bolting the moment he was put down: *"a wary stag slips out quietly
+	-- AHEAD of the beaters and only flees hard when pressed close"*. So for a DEER kind, noticing the
+	-- line is not a flush: beyond this radius from the NEAREST BEATER'S BODY a deer that would have
+	-- been flushed SNEAKS instead -- it keeps walking the route the drive gave it, which for the stag
+	-- is the approach, the treeline sneak and the crossing, with the edge check at the verge still
+	-- offered. Inside it, at a shot, or at the hand horn's flush, it bolts exactly as before.
+	--
+	-- 40 STUDS IS 11 m, and it is the Director's start value as one data row. What it has to be
+	-- SMALLER than is the geometry that was flushing him: the notice band is
+	-- `noticeAheadStuds` = 100 studs deep in front of the line and the flush circle
+	-- (`BEATER_STUDS`) is 71, so at 60 -- task 251c's lead -- every clamped group was spawned inside
+	-- both and `ALERT_SECONDS` ended the stand two seconds later (`ESCALATE.md`, 2026-10-24).
+	-- `forest_stand.spec` asserts the ORDER of the three rather than the numbers:
+	-- `DEER_FLUSH_STUDS < BEATER_STUDS < NOTICE_STUDS`.
+	--
+	-- A BOAR IS UNTOUCHED, and that is why this is a separate row rather than a smaller
+	-- `BEATER_STUDS`: a sounder that would not break for a man at 50 studs is not what Karen has been
+	-- watching for twenty tasks, and nothing about the boar's drive was reported wrong.
+	DEER_FLUSH_STUDS = 40,
+
 	-- THE LINE SWEEPS WHAT IT PASSES (task 168, the Director's second pass). KAREN, 2026-10-12
 	-- ~21:50: *"animals can't come behind beaters"*, and ~21:55: *"once beater push they go or turn
 	-- around but not after beaters ahead and they come from backs"*.
@@ -792,7 +813,8 @@ function ForestTest.encounterStage(
 	gapStuds: number,
 	alertedFor: number?,
 	spook,
-	layout: Layout?
+	layout: Layout?,
+	isDeer: boolean?
 ): string
 	local resolved = spook or ForestTest.SPOOK
 	local flush = ForestTest.beaterSpookStuds(resolved)
@@ -801,6 +823,19 @@ function ForestTest.encounterStage(
 		or gapStuds <= flush
 		or (alertedFor ~= nil and alertedFor >= ForestTest.alertSeconds(resolved))
 	then
+		-- A DEER SLIPS AWAY UNLESS THE MAN IS CLOSE (task 253, the Director's decision). Everything
+		-- that flushes a boar -- the band, the circle, the clock -- reaches a deer as "sneak" while
+		-- the nearest beater is further than `DEER_FLUSH_STUDS`, and "sneak" means the drive does
+		-- NOTHING to it: it keeps walking the route it was given, which is the one thing a flush
+		-- throws away (`MOVE.FLIGHT` runs straight and ignores a route, a check and a sneak band).
+		--
+		-- IT IS DECIDED HERE AND NOT AT THE CALL SITE because this function is the whole state
+		-- machine (task 172) and a second place that could answer "does this one run" is exactly
+		-- what one-owner is for. The caller measures `gapStuds` off the nearest beater's BODY, live,
+		-- on the tick it asks (Learning Agent L-024).
+		if isDeer == true and gapStuds > ForestTest.deerFlushStuds(resolved) then
+			return "sneak"
+		end
 		return "flush"
 	end
 	if
@@ -828,6 +863,20 @@ function ForestTest.noticeStuds(spook): number
 	end
 	-- A WORLD THAT NAMES NO NOTICE REACH gets the flush reach, which is the game before this task:
 	-- noticing and fleeing at one distance is exactly what 154 built.
+	return ForestTest.beaterSpookStuds(resolved)
+end
+
+-- HOW CLOSE A BEATER HAS TO BE BEFORE A DEER BOLTS (task 253), in studs, from whichever unit the
+-- table carries -- `beaterSpookStuds`'s own rule, a third time. A WORLD THAT NAMES NO DEER REACH
+-- gets the flush reach, which is the game before this task: deer and boar breaking at one distance.
+function ForestTest.deerFlushStuds(spook): number
+	local resolved = spook or ForestTest.SPOOK
+	if type(resolved.DEER_FLUSH_STUDS) == "number" then
+		return resolved.DEER_FLUSH_STUDS
+	end
+	if type(resolved.DEER_FLUSH_M) == "number" then
+		return resolved.DEER_FLUSH_M / resolved.METRES_PER_STUD
+	end
 	return ForestTest.beaterSpookStuds(resolved)
 end
 
@@ -1821,7 +1870,16 @@ ForestTest.SCHEDULE = {
 	-- THE TABLE'S ORDERING SURVIVES, which is the Director's own condition: the clamp is a `min`, so
 	-- it never puts a row DEEPER than the script wrote, and act III is still deeper than act I
 	-- wherever the line leaves room for it.
-	leadStuds = 60,
+	--
+	-- 60 -> 130, AND IT WAS MEASURED (task 253; the Director's decision, 2026-10-24). 60 studs is
+	-- INSIDE two of the line's own reaches -- the notice band is `noticeAheadStuds` = 100 studs deep
+	-- and the flush circle is `BEATER_STUDS` = 71 -- so every clamped group was spawned already
+	-- noticed, and `SPOOK.ALERT_SECONDS` = 2 broke it two seconds later whatever the line did. The
+	-- stag was in `MOVE.SPRINT_SPEED` 1.5 s after release and over the road 7 s later, with no edge
+	-- check, no look back and no sneak (`<runs-dir>/251c-stag-track.txt`). 130 is clear of the
+	-- deepest of the three by 30 studs -- one tick of the line at any pace it walks -- and
+	-- `forest_stand.spec` asserts that relation rather than the number.
+	leadStuds = 130,
 	-- ...AND THE FLOOR UNDER IT, so a clamped row is never put on the tarmac. By the last slots the
 	-- line IS the road -- at 192 s it is at dz ~32, and `32 - 60` is south of the verge -- so there is
 	-- no room ahead of it at all and those rows take this floor instead. They are then level with the
@@ -1991,17 +2049,25 @@ ForestTest.SCHEDULE = {
 			-- THE ARITHMETIC, AND IT IS WHY SLOT 8 AND NOT 7 OR 13. Due at 101 s. The beater line is
 			-- then at dz `580 - 3.1 x 101` = 267 (flat) or 290 (at the 1.081 ground factor
 			-- `bots_lane.spec` measured), so the clamp above bites either way and releases him at
-			-- `267 - 60` = **207** (flat) or 230:
+			-- `267 - 130` = **137** (flat) or 160:
 			--
-			--     approach  207 - 75 (`sneakDz`) = 132 studs
-			--     sneak                            120 studs along the treeline
+			--     approach  137 - 75 (`sneakDz`) = 62 studs
+			--     sneak                           120 studs along the treeline
 			--     verge     75 - 0                 75 studs
-			--     total                           327 studs / `PACE.WALK_SPEED` 4.5 = 73 s
+			--     total                          257 studs / `PACE.WALK_SPEED` 4.5 = 57 s
 			--
-			-- -- so he is at the verge at **174 s** (flat) or 179 (ground), against a line that
-			-- arrives at 193.5 s flat / ~209 s measured. **A MARGIN OF ~20 s FLAT AND ~30 s ON THE
-			-- GROUND**, which is the Director's *"a margin of about 20 s"*. Slot 7 (88 s) would put
-			-- him at the verge 13 s earlier for no gain, and slot 9 (114 s) leaves 6 s flat.
+			-- -- so he is at the verge at **158 s** (flat) or 163 (ground), against a line that
+			-- reaches the road at 187 s flat / ~202 s measured: **a margin of 29 s and 39 s**, and
+			-- both inside act III's own window (140-192 s), which is the Director's *"reaches the
+			-- verge in act III"*. Slot 7 (88 s) would put him there 8 s earlier for no gain; slot 9
+			-- (114 s) is 8 s later and still clear, and slot 13 -- where he was -- cannot be done at
+			-- all, which is what task 251c measured.
+			--
+			-- `leadStuds` WAS 60 WHEN THIS ROW MOVED (task 251c) AND IS 130 SINCE TASK 253, and the
+			-- arithmetic above is the second one. The first put him 207 studs out and 60 studs in
+			-- front of a line whose NOTICE BAND is 100 studs deep, so he was flushed on release and
+			-- bolted across the road: a shallower, later-looking release is the one that lets him
+			-- walk.
 			--
 			-- HE IS THE LAST DEER, THE LAST WALKER AND THE LAST OF THE SCRIPT'S CROSSINGS BAR ONE:
 			-- slot 14 is released at 179 s at a RUN from a depth the clamp pulls to the floor, so it

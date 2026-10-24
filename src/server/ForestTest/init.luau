@@ -626,6 +626,14 @@ function ForestTest.stats()
 		-- the stocked wood are still on their feet -- the two numbers the staged encounter is proved
 		-- with, and the second is why the wood is never re-stocked.
 		noticed = state.noticed or 0,
+		-- TASK 253: ...and how many times a DEER met the line and slipped away at a walk instead of
+		-- bolting. It is the observable for the Director's decision -- *"a wary stag slips out
+		-- quietly ahead of the beaters"* -- and without it the rule's whole effect is "something did
+		-- not happen", which no spec and no drive log can read.
+		slipped = state.slipped or 0,
+		-- ...and the raw per-tick count, which is what a spec can watch move: `slipped` is one per
+		-- ANIMAL per drive (the console's ration) and this is every tick any deer was in the sneak.
+		slipping = state.slipping or 0,
 		-- TASK 239: which wave of THIS drive carries the red deer, how far through the drive the
 		-- metronome is, and whether the group has gone. Three numbers rather than a boolean,
 		-- because "no deer yet" and "no deer due yet" are different answers and a probe watching a
@@ -1987,6 +1995,11 @@ function ForestTest.spookNearBeaters(now: number): string?
 	state.noticedAt = state.noticedAt or {}
 	local sent = {}
 	local looked = {}
+	-- HOW MANY DEER SLIPPED AWAY INSTEAD OF BOLTING on this tick (task 253). Counted and printed,
+	-- because "he walked instead of running" is the whole of what the Director asked to see and a
+	-- behaviour that leaves no line in the console is a behaviour nobody can prove from a drive.
+	local slipped = 0
+	state.slipSaid = state.slipSaid or {}
 	for _, handle in ipairs(runtime:boars()) do
 		if state.latched[handle.id] ~= true then
 			local at = handle.position()
@@ -1999,9 +2012,32 @@ function ForestTest.spookNearBeaters(now: number): string?
 			-- the circle and the clock are all `Data.encounterStage`'s, so this loop measures and
 			-- obeys and decides nothing.
 			local since = if state.noticedAt[handle.id] ~= nil then now - state.noticedAt[handle.id] else nil
-			local stage = Data.encounterStage(ahead, gap, since, Data.SPOOK, chosen.layout)
+			-- IS THIS ONE A DEER (task 253)? The ANIMAL owner's fact, asked of the live config the
+			-- world was built with, and the one thing that decides whether the line's reach is a
+			-- flush or a sneak. `gap` just above is the live distance to the nearest beater's BODY,
+			-- measured on this tick (Learning Agent L-024): the radius is compared with a
+			-- measurement, never with a figure derived from the walk.
+			local deer = Boar.isDeerKind(handle.kind, boarConfig())
+			local stage = Data.encounterStage(ahead, gap, since, Data.SPOOK, chosen.layout, deer)
 			if from ~= nil and stage == "flush" then
 				table.insert(sent, { id = handle.id, from = from, gap = gap, ahead = ahead })
+			elseif stage == "sneak" then
+				-- NOTHING IS DONE TO IT, and that IS the behaviour: it keeps walking the route the
+				-- drive gave it -- the approach, the stag's treeline sneak, the crossing -- and
+				-- `checkAtTheEdge` still offers it the stop at the verge. It is NOT latched either,
+				-- so the moment a beater is inside `DEER_FLUSH_STUDS` the next tick bolts it.
+				--
+				-- ONCE PER ANIMAL PER DRIVE IN THE CONSOLE, AND IT IS A MEASUREMENT (the first live
+				-- run of task 253 printed this line **1,676 times** in one drive -- a deer is in the
+				-- sneak on every one of fifteen ticks a second for the whole of its walk -- and the
+				-- spam pushed every `SLOT` line of the drive out of the console buffer, which is the
+				-- proof this task owes). The COUNT is still per tick, in `stats().slipped`, where a
+				-- spec reads it; what is rationed is the printing.
+				if state.slipSaid[handle.id] ~= true then
+					state.slipSaid[handle.id] = true
+					slipped += 1
+				end
+				state.slipping = (state.slipping or 0) + 1
 			elseif from ~= nil and stage == "notice" and state.noticedAt[handle.id] == nil then
 				table.insert(looked, { id = handle.id, from = from, gap = gap })
 			end
@@ -2082,11 +2118,26 @@ function ForestTest.spookNearBeaters(now: number): string?
 			state.noticed
 		)
 		else nil
+	-- THE DEER THAT DID NOT RUN (task 253). It is a per-tick count and not a latch, because a deer
+	-- that slips away this tick may be bolted by the next one: the sneak is a state of the LINE'S
+	-- distance, not a decision taken once.
+	if slipped > 0 then
+		state.slipped = (state.slipped or 0) + slipped
+	end
+	local slip = if slipped > 0
+		then string.format(
+			"%d deer slipped away at more than %.0f studs instead of bolting -- %d so far in this drive",
+			slipped,
+			Data.deerFlushStuds(Data.SPOOK),
+			state.slipped
+		)
+		else nil
+	local tail = if stand ~= nil and slip ~= nil then stand .. "; and " .. slip elseif stand ~= nil then stand else slip
 	if #parts == 0 then
-		return if stand ~= nil then "a beater was noticed: " .. stand else nil
+		return if tail ~= nil then "a beater was noticed: " .. tail else nil
 	end
 	local line = string.format("a beater spooked %s -- %d latched so far", table.concat(parts, "; "), state.flushed)
-	return if stand ~= nil then line .. "; and " .. stand else line
+	return if tail ~= nil then line .. "; and " .. tail else line
 end
 
 -- ONE TICK OF BEATER MODE: whether the wood needs filling. `spooked` is what
@@ -2471,6 +2522,11 @@ function ForestTest.start(runtime, now: number)
 	-- TASK 153: how many animals a real beater has walked up to, and the line the console gets.
 	state.flushed = 0
 	state.flushLine = nil
+	-- TASK 253: and how many deer slipped away rather than bolting, per drive, beside the flushes --
+	-- the animals it has been SAID of (one console line each), and the raw per-tick count.
+	state.slipped = 0
+	state.slipSaid = {}
+	state.slipping = 0
 	-- TASK 154: the resting groups this world was stocked with, and when the wood last went empty.
 	-- `rest` holds one row per group that was actually placed; `latched` remembers which animals
 	-- have already been sent, so one walk past a sounder is one spook and not one per heartbeat.
@@ -2954,7 +3010,10 @@ function ForestTest.releaseLine(now: number): string?
 	local composition = nil
 	local count = 0
 	if row.species == "reddeer" then
-		if type(runtime.deerAllowed) == "function" and runtime:deerAllowed() then
+		-- ...AND IT NAMES THE PARTY (task 253), so a party of one -- the stag -- is let out while the
+		-- hind party is still on its feet. MEASURED: it was not, and he came out 26 s late at the
+		-- drive's next silence, which is 26 s off the arithmetic that gets him to the verge.
+		if type(runtime.deerAllowed) == "function" and runtime:deerAllowed(row.party) then
 			composition = Boar.deerComposition(0, 0, boar, row.party)
 		end
 		if composition == nil then

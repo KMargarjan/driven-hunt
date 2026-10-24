@@ -801,7 +801,11 @@ return function()
 			-- ...AND THE SHIPPED NUMBERS. The floor is below every depth the script writes, which is
 			-- what makes "the clamp never puts a row deeper than its own row says" true of the floor
 			-- as well as of the `min`.
-			expect(SCHEDULE.leadStuds).to.equal(60)
+			-- 130 AND NOT 60 SINCE TASK 253, and it was measured: 60 is inside the line's own notice
+			-- band (100 studs) and its flush circle (71), so every clamped group was spawned already
+			-- noticed and broke two seconds later. `forest_stand.spec` asserts that relation --
+			-- `noticeAheadStuds < leadStuds` -- rather than either number.
+			expect(SCHEDULE.leadStuds).to.equal(130)
 			expect(SCHEDULE.minNorthStuds).to.equal(25)
 			for _, row in ipairs(SCHEDULE.drive) do
 				expect(SCHEDULE.minNorthStuds < (row.northStuds or 100)).to.equal(true)
@@ -837,26 +841,28 @@ return function()
 					else
 						table.insert(tight, row.slot)
 					end
-					if row.slot <= 11 then
-						-- EVERY SLOT UP TO 11 GETS THE FULL MARGIN -- all of act I, all of act II
-						-- (the stag included) and act III's first row.
+					if row.slot <= 10 then
+						-- EVERY SLOT UP TO 10 GETS THE FULL MARGIN -- all of act I and all of act
+						-- II, the stag included. (It was 11 while the lead was 60; at 130 the line
+						-- is 16 studs short of giving act III's first row the whole of it.)
 						expect(north <= line - SCHEDULE.leadStuds).to.equal(true)
 					end
 				end
 			end
 			-- WHAT THE END OF THE DRIVE COSTS, SAID OUT LOUD (rule 8, and the Director's *"if another
 			-- act-III group cannot reach the road in time either, say so and apply the same rule"*).
-			-- On the FLAT quotient the line is at the road by 187 s, so slots 12, 13 and 14 are ahead
-			-- of it but inside the 60-stud margin -- they take their own route floors, 80, 65 and 25
-			-- -- and slot 15, which holds 60 studs short of the road and never comes, is due at 192 s
-			-- when the men are already through. In Karen's place the line is 8 % slower (the measured
-			-- ground factor) and the live run released 14 of the 15 a full 60 studs clear.
+			-- On the FLAT quotient the line is at the road by 187 s, so act III's four late rows are
+			-- ahead of it but inside the 130-stud margin -- they take their own route floors, 25, 80,
+			-- 65 and 25 -- and slot 15, which holds 60 studs short of the road and never comes, is
+			-- due at 192 s when the men are already through. In Karen's place the line is 8 % slower
+			-- (the measured ground factor) and slot 11 keeps the full margin as well.
 			expect(#through).to.equal(1)
 			expect(through[1]).to.equal(15)
-			expect(#tight).to.equal(3)
-			expect(tight[1]).to.equal(12)
-			expect(tight[2]).to.equal(13)
-			expect(tight[3]).to.equal(14)
+			expect(#tight).to.equal(4)
+			expect(tight[1]).to.equal(11)
+			expect(tight[2]).to.equal(12)
+			expect(tight[3]).to.equal(13)
+			expect(tight[4]).to.equal(14)
 			TestKit.note(
 				string.format(
 					"task 251c: slots 1-11 are released a full %d studs ahead of the line; 12-14 are ahead but inside that margin; slot 15 is due after the men are through",
@@ -878,10 +884,11 @@ return function()
 			-- WHEN THE LINE IS AT THE ROAD, which is what ends a drive in this world.
 			local arrivesFlat = Data.beaterNorthStuds() / Bots.CONFIG.WALK_SPEED
 			local arrivesGround = arrivesFlat * 1.081
-			-- HE IS AT THE VERGE BEFORE IT ON BOTH MODELS -- 13 s of margin on the flat quotient and
-			-- 23 s in Karen's place. The Director asked for *"about 20 s"* against the measured ~210 s
-			-- arrival and this is that; the flat quotient is the pessimistic end of the same pair.
-			expect(reachesVergeAt() < arrivesFlat - 10).to.equal(true)
+			-- HE IS AT THE VERGE BEFORE IT ON BOTH MODELS -- at the lead of 130 that is 158 s against
+			-- a line at the road at 187 s flat (29 s), and 163 s against 202 s in Karen's place
+			-- (39 s). The Director asked for *"a margin of about 20 s"*; the bigger lead bought more
+			-- of it, because a shallower release is a shorter walk.
+			expect(reachesVergeAt() < arrivesFlat - 20).to.equal(true)
 			expect(reachesVergeAt(1.081) < arrivesGround - 20).to.equal(true)
 			-- ...AND IN ACT III'S OWN WINDOW, which is the Director's words exactly: *"reaches the
 			-- verge in act III"*. Act III is slots 11-15, 140 s to 192 s.

@@ -1,6 +1,6 @@
-# Task 251c: every group starts ahead of the beaters, and the stag has time to sneak
+# Task 253: the stag sneaks away from the beaters instead of bolting (this is 251c, renumbered)
 
-Task: 251c
+Task: 253
 Round: 1
 Base: main @ 1316e023 (task 251 parts 1 and 2 merged)
 Code commit: e5a5bd955499b6dfab56e46f1cf6c828bfb0982c
