@@ -122,6 +122,12 @@ local stats = {
 	-- which is the number that says the cooldown is not costing a message per shoulder for nothing.
 	aimQuestions = 0,
 	aimAdvised = 0,
+	-- HOW OFTEN THE LICENCE PROVIDER ANSWERED "I DO NOT KNOW" (task 255): a wired provider that
+	-- errored or answered no table, which in the live game is a player whose economy profile is not
+	-- open yet. Both gates -- the aim advice and the fire refusal -- then skip the licence question
+	-- (`askLicences`), so this counter is the ONLY place a live run can see it happening: a silent
+	-- skip and a working gate look identical from outside.
+	licenceUnknown = 0,
 	granted = 0,
 	grantsMissed = 0, -- a tool built for a player with no Backpack: nothing recorded, tried again later
 	revoked = 0,
@@ -339,12 +345,45 @@ local function askLineUnsafe(player: Player, muzzle: Vector3, aim: Vector3, stop
 	return if ok and type(unsafe) == "boolean" then unsafe else nil
 end
 
-local function askLicences(player: Player): { [string]: boolean }?
+-- WHAT HE HOLDS, AND -- SINCE TASK 255 -- WHETHER ANYBODY ACTUALLY KNOWS.
+--
+-- KAREN, 2026-10-24, verbatim: *"I have redstag license but when I aim at the begining popup shows I
+-- need license just after while I can shoow need fix"*.
+--
+-- THE SECOND RETURN IS THE WHOLE FIX, and the reason is three lines of other people's code. This
+-- provider is `ShopData.licencesFor(Economy.ownedOf(userId))`; `Economy.ownedOf` answers **nil, not
+-- `{}`, for a player with no open profile** and says why in as many words (*"every reader of what
+-- ownership GIVES treats nil as 'nobody answered, leave the game as it was'... so a refused session
+-- lock or a DataStore outage cannot take away the rifle a man paid for"*); and `Shop.licencesFor`
+-- passes that nil straight through, with a comment that `nil` and `{}` *"mean the same thing"* to
+-- `Licences.allows`. They do -- and that is exactly the defect: to `Licences.allows` both read as
+-- HE HOLDS NOTHING, so between `PlayerAdded` and the store's reply (and for the WHOLE drive when the
+-- load is refused or throws -- `Economy.load` warns and retries only *"at the next drive start"*,
+-- which is Karen's *"just after a while I can shoot"*) a man who has paid $750 for the red stag card
+-- is told `NO DEER LICENCE` and refused the shot.
+--
+-- SO THIS OWNER ASKS A SECOND QUESTION AND THE RULE SKIPS ITSELF WHEN THE ANSWER IS "I DO NOT KNOW":
+--   * NO PROVIDER AT ALL -> `(nil, true)`. There is no ownership in this world: the DEV arena with
+--     the shop off, every `tests/server/weapon_*.spec.luau`. Nothing is unknown, because nothing
+--     exists to know -- and this world's answer is byte-identical to the one before this task.
+--   * A PROVIDER THAT ERRORS OR ANSWERS A NON-TABLE -> `(nil, false)`. This file's own written rule
+--     for every provider, which `askOwned` states three lines down: *"a provider that errors must
+--     not leave a player permanently unable to shoot"*. The LICENCE provider was the one place that
+--     did the opposite.
+--   * A TABLE -> `(held, true)`. An OPEN profile that has bought nothing answers a frozen `{}` --
+--     `Economy.load` writes `ownedSets[userId] = {}` -- so the popup still fires for the man who
+--     really has no card. That is what makes this fix narrow rather than a hole: the only state it
+--     changes is the one nobody has an answer for.
+local function askLicences(player: Player): ({ [string]: boolean }?, boolean)
 	if licenceProvider == nil then
-		return nil
+		return nil, true
 	end
 	local ok, held = pcall(licenceProvider :: any, player)
-	return if ok and type(held) == "table" then held else nil
+	if ok and type(held) == "table" then
+		return held, true
+	end
+	stats.licenceUnknown += 1
+	return nil, false
 end
 
 -- WHAT HE OWNS, THROUGH A pcall, the rule this file already states for every provider: *"a provider
@@ -1251,11 +1290,16 @@ local function onFireRequest(player: Player, req: any): string?
 	-- off-stand, then the beater in the ray, then the licence. It used to be an `if` chain here,
 	-- which made the order this owner's private habit instead of a rule anybody could assert;
 	-- `weapon_rules.spec` now trips all three at once and names the winner.
+	local fireLicences, fireLicencesKnown = askLicences(player)
 	local refused = Rules.refuse({
 		position = rootPositionOf(player),
 		stand = askStand(player),
 		target = aimTarget,
-		licences = askLicences(player),
+		-- ...AND WHETHER ANYBODY KNOWS WHAT HE HOLDS (task 255). Two returns from one call, so the
+		-- gate can never read the set and the knowledge from two different asks of a provider that
+		-- may answer differently a millisecond apart.
+		licences = fireLicences,
+		licencesKnown = fireLicencesKnown,
 		-- ...AND WHETHER THE DRIVE IS ON AT ALL (task 174), which `Rules.ORDER` asks FIRST.
 		driveOpen = askDriveOpen(),
 		-- ...AND WHETHER THIS LINE PASSES CLOSE TO A PERSON (task 248): the SAFETY LOCK. The drive
@@ -1597,7 +1641,14 @@ local function onActionRequest(player: Player, kind: any, ammo: any, aim: any): 
 		end
 		local target = lookAhead(player, aim.origin, aim.direction, range)
 		local advice: string? = nil
-		if Rules.unlicensed(target, askLicences(player)) then
+		-- UNKNOWN IS NOT "NO" (task 255). KAREN, 2026-10-24: *"I have redstag license but when I aim
+		-- at the begining popup shows I need license"*. The popup is asked the same two questions
+		-- the FIRE gate is asked, through the same one call, so the card on her screen and the
+		-- refusal in her trigger can never disagree about whether anybody knows what she owns --
+		-- which is the half of this the Director named: *"so a licensed shot is not refused early
+		-- either"*. `askLicences`' header has the cause.
+		local held, known = askLicences(player)
+		if known and Rules.unlicensed(target, held) then
 			advice = Rules.REASON.LICENCE
 		end
 		stats.aimQuestions += 1

@@ -350,8 +350,32 @@ function Rules.onUnpaidPlatform(position: Vector3?, area: StandArea?): boolean
 	return position.Y >= (area.minY :: number)
 end
 
+-- DOES ANYBODY KNOW WHAT HE HOLDS? (task 255.) KAREN, 2026-10-24: *"I have redstag license but when
+-- I aim at the begining popup shows I need license just after while I can shoow need fix"*.
+--
+-- `nil` IS "NOTHING SAID" AND ONLY AN EXPLICIT `false` SUPPRESSES THE RULE -- the same call every
+-- other fact on this gate makes (`Rules.driveClosed`'s nil, `Rules.unsafeLine`'s nil,
+-- `Rules.beaterInLine`'s nil target), and it is what keeps every world that never answers this
+-- question byte-identical to the one before this task: the DEV arena with no shop, every
+-- `tests/server/weapon_*.spec.luau`, and `Rules.unlicensed`'s own pure contract below.
+--
+-- IT IS A SEPARATE PREDICATE AND NOT A THIRD BRANCH INSIDE `Rules.unlicensed`, for the reason this
+-- file states at the top: *"ONE QUESTION PER FUNCTION"*. `unlicensed` answers *"does the table he
+-- holds cover this species"* -- a pure question about two values -- and it must keep answering `true`
+-- for `(deer, nil)`, because `nil` there means **he holds none** and three specs say so. THIS
+-- answers *"is that table a fact or a guess"*, which is a question about the WORLD and not about the
+-- table, and `Weapon.askLicences` is the one thing that can tell them apart.
+function Rules.licencesUnknown(known: boolean?): boolean
+	return known == false
+end
+
 -- RULE 3. IS HE SHOOTING AT SOMETHING HE HAS NO LICENCE FOR? The table is `Licences.ROWS` and this
 -- is only the question; `rows` is a parameter so a spec can drive a species the game does not ship.
+--
+-- `held = nil` MEANS HE HOLDS NONE, and it is NOT "nobody knows" -- see `Rules.licencesUnknown`
+-- above, which is the function that asks the other half. Task 255 deliberately did not widen this
+-- one: it is pure, three specs drive it with `nil`, and the question *"has the store answered yet"*
+-- is not a question about these two values.
 function Rules.unlicensed(target: Target?, held: { [string]: boolean }?, rows: any?): boolean
 	if target == nil or type(target.species) ~= "string" then
 		return false -- nothing identifiable was in the way: a miss is not an offence
@@ -377,6 +401,9 @@ export type Context = {
 	-- DOES THE SHOT LINE PASS CLOSE TO A PERSON? (task 248.) The drive's own answer, measured with
 	-- `Match.Penalty.judge` over every person in the world; nil means "nothing said".
 	lineUnsafe: boolean?,
+	-- DOES ANYBODY KNOW WHAT HE HOLDS? (task 255.) `Weapon.askLicences`' second return; nil means
+	-- "nothing said" and only an explicit `false` makes `Rules.refuse` skip the LICENCE question.
+	licencesKnown: boolean?,
 }
 
 function Rules.refuse(context: Context): string?
@@ -402,7 +429,14 @@ function Rules.refuse(context: Context): string?
 				return reason
 			end
 		elseif reason == Rules.REASON.LICENCE then
-			if Rules.unlicensed(context.target, context.licences, context.rows) then
+			-- A GUESS DOES NOT REFUSE A SHOT (task 255). The knowledge question is asked FIRST and
+			-- the licence question is not asked at all when the answer is "I do not know", so a man
+			-- whose economy profile has not opened keeps the gun he paid for -- and the aim advice
+			-- behind the same two values keeps the popup off his screen.
+			if
+				not Rules.licencesUnknown(context.licencesKnown)
+				and Rules.unlicensed(context.target, context.licences, context.rows)
+			then
 				return reason
 			end
 		elseif reason == Rules.REASON.DRIVE_OVER then
