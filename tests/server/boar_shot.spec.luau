@@ -1402,6 +1402,13 @@ return function()
 		-- hunter"* -- *"the sound that tells the player he has been seen"*. `Runtime:check` is the one
 		-- producer and `MOVE.EDGE_BARKS` the one switch.
 		--
+		-- THE CUE IS `bark` AND NOT `cry` SINCE TASK 257, and every assertion below moved with it.
+		-- Karen, 2026-10-24: *"redsatg sound whn hit and when near need corection better real"* --
+		-- two sounds, so the hit cue became a real stag's distress call and the bark a real deer's
+		-- bark, and one row cannot be both. The cases here are the ones that would have gone on
+		-- passing against `cry` while the player heard the wrong animal, which is why they name the
+		-- cue rather than counting "some sound".
+		--
 		-- IT IS HERE AND NOT IN `deer.spec` BECAUSE REVIEW ROUND 2'S BLOCKING FINDING WAS THAT THE
 		-- PRODUCER WAS TESTED BY NOTHING: `deer.spec`'s case asserted the SWITCH and the SAMPLE, so the
 		-- whole block in `Runtime:check` -- and `Body.canPlayOneShot` with it -- could be deleted and
@@ -1485,15 +1492,67 @@ return function()
 			-- ...AND ONLY THE TWO THAT CARRY `EDGE_BARKS` WERE HEARD. This is the assertion that
 			-- fails the moment the block in `Runtime:check` is deleted.
 			for kind, expected in pairs(want) do
-				expect(handles[kind].soundPlays.cry or 0).to.equal(expected)
+				expect(handles[kind].soundPlays.bark or 0).to.equal(expected)
+				-- ...AND THE CRY WAS NOT TOUCHED (task 257). Before this task the edge check played
+				-- `cry`, so every count above would read the same against the old code; this is the
+				-- line that says the bark is its own cue and that nothing else was spent on it.
+				expect(handles[kind].soundPlays.cry).to.equal(nil)
 			end
+
+			-- ...AND WHAT THE STAG ACTUALLY PLAYED IS THE REAL RECORDING, BY REGION (task 257).
+			-- Read off the animal's own Sound, which is the only place the chooser's answer lands:
+			-- the id, the region switch, and a region out of the table rather than a number.
+			local barked = soundNamed(handles.stag, "bark") :: Sound
+			expect(barked).to.be.ok()
+			local realBark = SOUND.VOICE.stag.bark[1]
+			local barkClip = SOUND.VOICE.CLIPS[realBark]
+			expect(barkClip).to.be.ok()
+			expect(barked.SoundId).to.equal("rbxassetid://" .. tostring(realBark))
+			expect(barked.PlaybackRegionsEnabled).to.equal(true)
+			local matched = false
+			for _, region in ipairs(barkClip.regions) do
+				if
+					math.abs(barked.PlaybackRegion.Min - region.from) < 1e-4
+					and math.abs(barked.PlaybackRegion.Max - region.to) < 1e-4
+				then
+					matched = true
+				end
+			end
+			expect(matched).to.equal(true)
+			-- THE PITCH IS THE CLIP'S AND NOT THE KIND'S. `VOICE.stag.pitch` 1.15 corrects a BULL
+			-- into a stag and means nothing against a recording of a deer, so the clip overrides
+			-- it; the +-8 % jitter still rides on top, which is why this is a band.
+			local band = SOUND.PITCH_JITTER
+			expect(barked.PlaybackSpeed >= barkClip.pitch * (1 - band) - 1e-4).to.equal(true)
+			expect(barked.PlaybackSpeed <= barkClip.pitch * (1 + band) + 1e-4).to.equal(true)
+			expect(math.abs(barked.PlaybackSpeed - SOUND.VOICE.stag.pitch) > band).to.equal(true)
+			-- ...AND IT IS AUDIBLE. `PlaybackLoudness` cannot be read on a server and is 0 in Edit,
+			-- so what a spec CAN assert is the gain the level measurement produced really reaching
+			-- the property: the row's volume times the chosen region's gain.
+			local gain
+			for _, region in ipairs(barkClip.regions) do
+				if math.abs(barked.PlaybackRegion.Min - region.from) < 1e-4 then
+					gain = region.gain
+				end
+			end
+			expect(gain).to.be.ok()
+			expect(barked.Volume > 0).to.equal(true)
+			expect(barked.Volume <= SOUND.BARK.volume * gain + 1e-4).to.equal(true)
+
 			TestKit.note(
 				string.format(
-					"task251 bark: stag %d, hind %d, calf %d, boar %d cry play(s) at the edge check",
-					handles.stag.soundPlays.cry or 0,
-					handles.hind.soundPlays.cry or 0,
-					handles.calf.soundPlays.cry or 0,
-					handles.male.soundPlays.cry or 0
+					"task257 bark: stag %d, hind %d, calf %d, boar %d bark play(s) at the edge check; "
+						.. "stag sounded %s region %.2f-%.2f gain %.2f speed %.3f volume %.3f",
+					handles.stag.soundPlays.bark or 0,
+					handles.hind.soundPlays.bark or 0,
+					handles.calf.soundPlays.bark or 0,
+					handles.male.soundPlays.bark or 0,
+					tostring(realBark),
+					barked.PlaybackRegion.Min,
+					barked.PlaybackRegion.Max,
+					gain,
+					barked.PlaybackSpeed,
+					barked.Volume
 				)
 			)
 
@@ -1501,7 +1560,7 @@ return function()
 			-- there is no second bark.
 			expect(runtime:check(handles.stag.id)).to.equal(false)
 			step(runtime)
-			expect(handles.stag.soundPlays.cry).to.equal(1)
+			expect(handles.stag.soundPlays.bark).to.equal(1)
 		end)
 
 		it("does not spend a world squeal slot on a bark nobody could hear (round 1's note)", function()
@@ -1524,9 +1583,13 @@ return function()
 			-- still played, silently and parentless.
 			local world = buildWorld(true, "BoarsBarkSlots")
 			local sound = voicedSound()
-			local silent = table.clone(CONFIG.SOUND.CRY)
+			-- THE CUE THE CHECK PLAYS, which is `BARK` since task 257 and was `CRY` before it. The
+			-- rename matters to this case more than to any other: with `CRY` switched off and the
+			-- bark reading its own row, the barks WOULD play and every assertion below would
+			-- invert -- which is exactly what the first gate run of task 257 caught.
+			local silent = table.clone(CONFIG.SOUND.BARK)
 			silent.enabled = false
-			sound.CRY = silent
+			sound.BARK = silent
 			world.config.SOUND = sound
 			-- THE SAME FORCED KINDS as the case above, which the first run of this case did not use:
 			-- a hind at her shipped 0.75 can refuse the check, and a case that needs her to TAKE one
@@ -1554,7 +1617,7 @@ return function()
 			-- which is the half of this that must not change -- and nothing is played.
 			for _, handle in ipairs(mute) do
 				expect(runtime:check(handle.id)).to.equal(true)
-				expect(handle.soundPlays.cry).to.equal(nil)
+				expect(handle.soundPlays.bark).to.equal(nil)
 			end
 			step(runtime)
 			-- **NOT ONE VOICE WAS BOOKED, AND THIS IS THE ASSERTION THAT FAILS ON THE OLD ORDERING**:
@@ -1575,7 +1638,7 @@ return function()
 			local barks = 0
 			for _, handle in ipairs(deer) do
 				expect(heard:check(handle.id)).to.equal(true)
-				barks += handle.soundPlays.cry or 0
+				barks += handle.soundPlays.bark or 0
 			end
 			step(heard)
 			expect(barks).to.equal(SOUND.CROWD.MAX_SQUEALS)
@@ -1583,7 +1646,7 @@ return function()
 			expect(heard:stats().squealsSkipped).to.equal(1)
 			TestKit.note(
 				string.format(
-					"task251 bark slots: %d barkless check(s) booked %d voice(s); the same checks with the cue on booked %d and skipped %d",
+					"task257 bark slots: %d barkless check(s) booked %d voice(s); the same checks with the cue on booked %d and skipped %d",
 					#mute,
 					runtime:stats().squeals,
 					heard:stats().squeals,
@@ -2197,7 +2260,7 @@ return function()
 			end
 			table.sort(names)
 			expect(table.concat(names, ",")).to.equal(
-				"breath,cry,death,fall,grunt,hit,lastBreath,sniff,steps_run,steps_trot,steps_walk"
+				"bark,breath,cry,death,fall,grunt,hit,lastBreath,sniff,steps_run,steps_trot,steps_walk"
 			)
 			-- ...and only ever one folder, however many times it steps.
 			step(runtime, 60)

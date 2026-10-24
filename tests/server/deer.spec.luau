@@ -1821,100 +1821,14 @@ return function()
 				expect(Boar.cutVolume(0, hard, 0)).to.be.near(0.5, EPSILON)
 			end)
 
-			it("REALLY plays the bark Sound on a hind that takes the check, and never on a calf", function()
-				-- NOT THE SWITCH THIS TIME, THE CUE. The case above asserts `MOVE.EDGE_BARKS`;
-				-- this one spawns real animals, calls the real `Runtime:check` and reads the count
-				-- `Body.playOneShot` keeps -- which is the only thing in this toolchain that says a
-				-- Sound was really told to play. Both arms (L-093): a hind barks, a calf does not.
-				local holder = Instance.new("Folder")
-				holder.Name = "DeerBarkSpec"
-				holder.Parent = Workspace
-				local runtime = Boar.newRuntime({
-					field = FIELD,
-					parent = holder,
-					folderName = "Bark",
-					rng = Random.new(257),
-					config = { KINDS = { ENABLED = true }, maxBoars = 80 },
-					threats = function()
-						return {}
-					end,
-					probe = function()
-						return false
-					end,
-					requestPath = function(_id, _from, _to, done)
-						done(nil)
-					end,
-					releasePath = function() end,
-				})
-				-- A CHECK IS A COIN TOSS AND EACH ANIMAL GETS EXACTLY ONE (`Brain._checked`), so
-				-- the case spawns a column of them and stops at the first that takes it. At the
-				-- hind's own `edge.chance` of 0.75, thirty refusals is 0.25^30 -- about one run in
-				-- 10^18 -- so this is a bound and not a coin toss of its own.
-				local function firstToCheck(kind: string)
-					for index = 1, 30 do
-						local handle = runtime:spawn(Vector3.new(index * 9, 10, index * 3), kind)
-						if handle ~= nil and runtime:check(handle.id, 2) then
-							return handle
-						end
-					end
-					return nil
-				end
-
-				local hind = firstToCheck("hind")
-				expect(hind).to.be.ok()
-				expect(hind.kind).to.equal("hind")
-				-- THE BARK, AND NOT THE CRY. Before task 257 the edge check played `cry`, so a
-				-- case that asserted "some sound played" would have passed against the old code
-				-- too; what is asserted is the cue by NAME.
-				expect((hind.soundPlays.bark or 0) >= 1).to.equal(true)
-				expect(hind.soundPlays.cry).to.equal(nil)
-				-- ...AND IT IS THE REAL RECORDING, PLAYED BY REGION. The Sound itself is read off
-				-- the animal: the id, the region switch and the region the chooser landed on.
-				local folder = hind.part:FindFirstChild(CONFIG.SOUND.FOLDER)
-				expect(folder).to.be.ok()
-				local sound = folder:FindFirstChild("bark") :: Sound
-				expect(sound).to.be.ok()
-				local real = CONFIG.SOUND.VOICE.hind.bark[1]
-				expect(sound.SoundId).to.equal("rbxassetid://" .. tostring(real))
-				expect(sound.PlaybackRegionsEnabled).to.equal(true)
-				local clip = clipOf(real)
-				local matched = false
-				for _, region in ipairs(clip.regions) do
-					if
-						math.abs(sound.PlaybackRegion.Min - region.from) < EPSILON
-						and math.abs(sound.PlaybackRegion.Max - region.to) < EPSILON
-					then
-						matched = true
-					end
-				end
-				expect(matched).to.equal(true)
-				-- THE PITCH IS THE CLIP'S AND NOT THE KIND'S: 0.80 corrects a LAMB into a hind and
-				-- means nothing against a recording of a deer. The jitter still rides on it.
-				local band = CONFIG.SOUND.PITCH_JITTER
-				expect(sound.PlaybackSpeed >= clip.pitch * (1 - band) - EPSILON).to.equal(true)
-				expect(sound.PlaybackSpeed <= clip.pitch * (1 + band) + EPSILON).to.equal(true)
-				expect(math.abs(sound.PlaybackSpeed - CONFIG.SOUND.VOICE.hind.pitch) > band).to.equal(true)
-
-				-- THE OTHER ARM. A calf has no `edge` row, so `EDGE_BARKS` is false for her and the
-				-- check happens in silence -- which is the spec's *"follows her mother"*.
-				local calf = firstToCheck("calf")
-				expect(calf).to.be.ok()
-				expect(calf.kind).to.equal("calf")
-				expect(calf.soundPlays.bark).to.equal(nil)
-				expect(calf.soundPlays.cry).to.equal(nil)
-
-				TestKit.note(
-					string.format(
-						"deer-257: hind barked %d time(s) on the check at region %.2f-%.2f, speed %.3f; calf silent",
-						hind.soundPlays.bark,
-						sound.PlaybackRegion.Min,
-						sound.PlaybackRegion.Max,
-						sound.PlaybackSpeed
-					)
-				)
-				runtime:destroy()
-				holder:Destroy()
-			end)
+			-- THE LIVE HALF OF THIS IS IN `boar_shot.spec`, NOT HERE, and that is task 251 round 2's
+			-- own finding carried forward: *"the producer was tested by nothing"* because this file
+			-- asserted the switch and the sample while `Runtime:check`'s block could be deleted
+			-- whole. `boar_shot.spec`'s "BARKS when a deer takes the edge check" case drives a real
+			-- runtime with `MOVE.ENABLED` and the edge chance forced to 1 -- which is what a check
+			-- needs and what a plain runtime does not give -- and since task 257 it reads the id,
+			-- the region, the gain and the pitch off the animal's own Sound. Repeating it here with
+			-- a coin-toss loop would be a second, flakier copy of one claim.
 
 			it("gives the STAG the real hit call and leaves the hind and the calf their bleats", function()
 				-- THE DISPATCH ASKED FOR *"the deer kinds' hit/death voice"* AND WHAT SHIPPED IS
