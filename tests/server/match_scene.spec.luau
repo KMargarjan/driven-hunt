@@ -605,10 +605,32 @@ return function()
 		end)
 
 		it("stands the people AROUND the animals, however big the bag is", function()
-			-- A SMALL BAG DOES NOT MOVE THE RING: this is the scene Karen has already looked at.
-			expect(Scene.ringRadiusFor(0, LIVE)).to.equal(LIVE.SCENE.RING_RADIUS_STUDS)
-			expect(Scene.ringRadiusFor(3, LIVE)).to.equal(LIVE.SCENE.RING_RADIUS_STUDS)
-			expect(Scene.cornerReachFor(3, LIVE)).to.equal(LIVE.SCENE.CORNER_STUDS)
+			-- A SMALL BAG DOES NOT MOVE THE RING, and task 255 moved where "small" stops -- which is
+			-- asserted as the BOUNDARY rather than at a number somebody picked. One row of `k`
+			-- animals reaches `(k - 1) * SPACING / 2` sideways, so the floor holds while that plus
+			-- `RING_MARGIN_STUDS` is under `RING_RADIUS_STUDS`: at `SPACING_STUDS` 9 that is k <= 2
+			-- (4.5 + 6 = 10.5), where at the old 6 it was k <= 3. A bag of three now reaches 9 studs
+			-- and the ring grows to 15 -- correctly, because that is the whole point of task 168's
+			-- rule, and the animals it is making room for are three times as wide as they were.
+			local floor = LIVE.SCENE.RING_RADIUS_STUDS
+			expect(Scene.ringRadiusFor(0, LIVE)).to.equal(floor)
+			expect(Scene.ringRadiusFor(1, LIVE)).to.equal(floor)
+			expect(Scene.cornerReachFor(1, LIVE)).to.equal(LIVE.SCENE.CORNER_STUDS)
+			local small = math.floor(2 * (floor - LIVE.SCENE.RING_MARGIN_STUDS) / LIVE.SCENE.SPACING_STUDS) + 1
+			expect(small >= 1).to.equal(true)
+			expect(Scene.ringRadiusFor(small, LIVE)).to.equal(floor)
+			-- ...AND ONE MORE THAN THAT DOES MOVE IT, which is what makes the boundary a boundary and
+			-- not a coincidence.
+			expect(Scene.ringRadiusFor(small + 1, LIVE) > floor).to.equal(true)
+			TestKit.note(
+				string.format(
+					"match_scene: the ring holds at %d studs up to %d animal(s); %d of them grows it to %.1f",
+					floor,
+					small,
+					small + 1,
+					Scene.ringRadiusFor(small + 1, LIVE)
+				)
+			)
 			-- A BIG ONE DOES, and the extent is the arithmetic of the two spacings rather than two
 			-- typed numbers: a full cap reaches `(PER - 1) * SPACING / 2` sideways and
 			-- `(rows - 1) * ROW_SPACING / 2` deep, so a `RING_RADIUS_STUDS` ring would put the
