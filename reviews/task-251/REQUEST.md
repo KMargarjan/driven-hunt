@@ -1,21 +1,25 @@
 # Task 251 part 2 — the drive's length, the red stag's behaviour and his voice
 
 Task: 251
-Round: 1
+Round: 2
 Base: 2b47d3a7950eca334a8b9b2e2d699a80f485f52a (`main`, which carries part 1 through PR #231)
-Code commit: d238aeaa49172bb8733baff5d2b2134fe7e22ba9
+Code commit: 0f90083b26f86917b2d6dba9ddc59256051f38bc
 
 ```
-[harness] PASS: 34/34 checks @ d238aeaa49172bb8733baff5d2b2134fe7e22ba9 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 0f90083b26f86917b2d6dba9ddc59256051f38bc (clean tree) scope=all
 ```
 
 `test2` is **N/A**: no file in `TWO_PLAYER_PATHS` is touched (`git diff --name-only 2b47d3a7..HEAD`
 is `src/server/Boar/`, `src/server/Bots/`, `src/server/ForestTest*`, `src/shared/Flags`,
 `src/shared/ForestTest`, four server specs and two docs files).
 
-**Part 1 of this task passed review at round 2 and merged, so `tools/agents.py` expects `Round: 1`
-here** (`expected = 1 if ... prev_verdict == "PASS"`). This request is written fresh for part 2 and
-describes the final state, not a history.
+**Part 1 of this task passed review at round 2 and merged, so `tools/agents.py` reset the count and
+part 2's first round was `Round: 1`** (`expected = 1 if ... prev_verdict == "PASS"`). This request is
+written fresh and describes the final state, not a history.
+
+**Round 1's one blocking finding was right and is fixed at its cause — claim 6 below is the new
+one.** Four of its six notes are fixed too, because each was a correction rather than a preference;
+the remaining two are listed at the end as queued.
 
 ## What changed, in one paragraph
 
@@ -79,13 +83,24 @@ defaults, and `deer.spec`'s "checks the open likelier and longer than his hinds"
 the `KINDS` rows alone would pass with `edgeByKind` never called. The delta case proves a world's
 own un-named keys survive and that two nil rows return the config **by reference**.
 
-**6. The look back is the turn-rate limiter and no new state.** `Brain.lookBack(travel, toward,
-maxDeg)` is `slew` with the angle in degrees; the check branch of `_step` calls it with
-`self._perception.nearest`, and the facing then goes through `TURN_RATE` like every other facing, so
-the head comes round over about a second. Verify: `Brain.lookBack`, the `elseif self._checkFor > 0`
-branch, and `deer.spec`'s "looks back at the nearest man, 150 degrees and never further" — which
-asserts the clamp at 180 (a man dead astern gives exactly 150), the un-clamped case, that Y is
-ignored, and **four ways out all answering the travel heading**, which is every boar in the game.
+**6. The look back is 150 degrees off the heading the animal ARRIVED on, measured over a whole
+check — which is round 1's blocking finding, fixed at its cause.** The branch used to pass
+`self._desired` as the heading to measure from, and `_desired` is the field the turn-rate slew at the
+bottom of `_step` rewrites every tick: so the clamp bounded **one frame's rotation** and not the pose,
+the angle shrank tick by tick, fell under 150, and `lookBack` then returned the man's own direction.
+At `PACE.WALK_TURN_DEG` 90 deg/s a 180-degree reversal takes ~2 s, inside the stag's own 2–6 second
+check — and it was live for the **hind** too, whose slot 2 is at t 23 s. `Brain:check` now latches
+`_checkHeading` once (the shape `_latchFlight` uses, for the same reason), `_settle` clears it with
+the rest of the check state, and a nil latch falls back to the old behaviour rather than erroring.
+Verify: `Brain:check`, the `elseif self._checkFor > 0` branch, `Brain.lookBack`'s header, and **the
+case round 1 asked for**: `boar_move.spec`'s *"LOOKS BACK 150 DEGREES OVER THE WHOLE CHECK AND NEVER
+REVERSES"*, which walks an animal south under a real `leadTo` order, puts the man **dead astern at 40
+studs** (beyond `NOTICE_STANDING` 25, `FLUSH_STUDS` 15 and `PACE.SPOOK_STUDS` 30, so he is the nearest
+thing and nothing else), steps the whole 3.5 s check asserting the animal is stopped, and asserts the
+final facing is 150 ± the dead band off the heading it arrived on. **It measures 147.0 deg** (the
+harness note `task251 look back: arrived on (-0.04, -1.00), ended 147.0 deg off it`) and reaches ~180
+without the latch. A boar, whose `EDGE_LOOK_BACK_DEG` is 0, is driven down the same path and must not
+turn at all. `deer.spec`'s pure case keeps the helper's own four ways out.
 
 **7. The bound is dark by instruction, and both states are reachable by parameter.**
 `STAG_BOUND_ON_SPOOK` is born off, owner `ServerScriptService.Boar`, expires 2026-11-14, and is read
@@ -147,9 +162,34 @@ check still happens whether or not a voice was free. Verify: `Runtime:check`, an
   (2026-10-24) and `tools/roblox_upload.py` implements Model and Decal and refuses Audio by name, so
   it is `ESCALATE.md` **NEEDS DIRECTOR** with the file, the two cuts and the clicks. No asset id is
   claimed for it.
-* **`camera_client.spec:1618` is flaky and is not this change's.** It failed on two runs and passed on
-  a third **at the same commit**, and this branch touches no file under `src/client/`. The PASS line
-  above is a clean-tree run with it green.
+* **`camera_client.spec:1618` is flaky and is not this change's.** Over six clean-tree runs of this
+  branch it failed four and passed two, **including a pass and a fail at the same commit**, and
+  `git diff --name-only 2b47d3a7..HEAD | grep -c "src/client\|tests/client"` is **0** — this branch
+  changes no client file at all. The case reads `handsMissing`, calls `Viewmodel.clear()`, waits
+  0.3 s and expects one `update` to have incremented it. The PASS line above is a clean-tree run with
+  it green. **Queued rather than touched**, because it is somebody else's case and a Builder guessing
+  at a client timing window is how a flake becomes a wrong fix.
+
+## Round 1's notes: what was fixed and what is queued
+
+Fixed here, each because it is a correction and not a preference:
+* the bark claims its squeal slot only once `Body.canPlayOneShot` says it would be heard — a claim
+  spent on silence would quiet a dying boar (`Runtime:check`, and the new predicate beside
+  `playOneShot`, which reads the same two fields three lines apart rather than copying the rule);
+* `ForestTest.roarEmitter` destroys the Part it replaces instead of orphaning it in Workspace;
+* two sentences in `src/shared/ForestTest` still quoted `120.0 s` and `1.40 m/s`;
+* `forest_stand.spec`'s case title oversold its per-layout loop, and now says what the loop proves;
+* `forest_line.spec`'s roar reach says the figure is **flat** and asserts it against a 60-stud rise
+  as well, since the emitter stands on higher ground than the road.
+
+Queued in `TASKS.md` as 251c rather than done here:
+* **bounding the look back's `nearest` by `Brain.noticeRadius`.** The Reviewer is right that
+  `_perception.nearest` is the nearest threat at *any* distance, so the look back is offered against
+  a man 400 studs away. It is a **behaviour change** — `perceive` keeps no threat beside `nearest`,
+  so the bound needs the radius computed against the cause — and the harness runs with
+  `BOAR_BEHAVIOUR` lit, so it would change what Karen sees in the same round that fixes a blocking
+  finding. One task, nothing extra (rule 4).
+* `camera_client.spec:1618`, above.
 * **The Forest Test cannot be probed in Edit mode**: every module in `ReplicatedStorage` there answers
   *"Module code did not return exactly one value"* to a `require` from the Assistant, including ones
   this branch never touches, while the same probe in DEV answers a table. So every Forest Test fact
