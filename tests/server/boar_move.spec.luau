@@ -485,11 +485,20 @@ return function()
 			local behind = { { id = "h", position = position + Vector3.new(0, 0, 40), kind = "shooter", speed = 0 } }
 			expect(brain:check(4)).to.equal(true)
 			local facing = arrived
-			for _ = 1, math.ceil(3.5 / DT) do
+			local ticks = math.ceil(3.5 / DT)
+			local settle = math.ceil(0.5 / DT)
+			for tick = 1, ticks do
 				local intent = brain:step(DT, obs(position, behind))
-				-- IT REALLY IS STOPPED for the whole check, which is the other half of the claim: a
-				-- look back that walked would be a turn and not a stop.
-				expect(intent.targetVelocity.Magnitude < 0.001).to.equal(true)
+				-- IT REALLY IS STOPPED for the rest of the check, which is the other half of the
+				-- claim: a look back that walked would be a turn and not a stop.
+				--
+				-- AFTER A SETTLE AND NOT FROM THE FIRST TICK, because it arrives WALKING and the
+				-- setpoint goes through `MOVE`'s own `ACCEL` ramp -- the branch's comment says it
+				-- stops "over 0.07 s rather than snapping", and a case that demanded zero on the tick
+				-- the check starts would be asserting that it snaps. Half a second is seven times that.
+				if tick > settle then
+					expect(intent.targetVelocity.Magnitude < 0.001).to.equal(true)
+				end
 				if intent.facing.Magnitude > 1e-6 then
 					facing = intent.facing.Unit
 				end
