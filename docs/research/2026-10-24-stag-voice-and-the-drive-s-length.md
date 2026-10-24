@@ -69,6 +69,12 @@ standing OK for free CC0 recordings is on the record (2026-10-23, `"ok"`). When 
 
 ### 2.2 The bark is not a new sound, and that is deliberate
 
+> **SUPERSEDED 2026-10-24 by section 7 (task 255).** Karen has now heard this and rejected it:
+> *"redsatg sound whn hit and when near need corection better real"*. The paragraph below is
+> kept because the argument is still the argument that was made; what it got wrong is that a
+> bull's BREATH is a second substitution on top of the bull, and that no CC0 deer bark existed.
+> Four do. See 7.2.
+
 Task 240 chose the stag's `cry` samples -- `9113629809` / `9113629973`, "Bull Breaths 4 / 9",
 catalogued as *"Bestial Grunts, Bellowing"* -- **expressly as the warning bark**, and wrote that down
 at the time. So part 2 adds no id for it: `MOVE.EDGE_BARKS` plays the animal's existing `cry` row at
@@ -240,3 +246,107 @@ still in the queue. A live re-read on 2026-10-24 (`GET /assets/v1/assets/1222876
 `Approved` / `Active`, and so does the same operation re-polled. `assets/uploads.json` carries the
 re-read state and says where it came from. Carrying the snapshot forward is how a rejected asset
 ships as an approved one.
+
+---
+
+## 7. Amendment, 2026-10-24 (task 255): **section 2.2 is wrong, Karen says so, and there ARE CC0 barks**
+
+KAREN, 2026-10-24, verbatim: *"redsatg sound whn hit and when near need corection better real"*.
+
+### 7.1 What section 2.2 claimed, and why it does not hold
+
+Section 2.2 above is headed *"The bark is not a new sound, and that is deliberate"* and argues that
+task 240's `9113629809` / `9113629973` -- **"Bull Breaths 4 / 9"**, catalogued *"Bestial Grunts,
+Bellowing"* -- were chosen *"expressly as the warning bark"*, so borrowing them beat introducing a
+sound nobody had heard. That was a sound argument from the facts available, and **Karen has now heard
+it and rejected it.** Her sentence names both of the stag's `VOICE` rows that are bull breaths:
+
+* `stag.cry` = `{ 9113629809, 9113629973 }` -- played on a HIT, and at the beater edge as the alarm
+  bark (`MOVE.EDGE_BARKS`). Her *"sound whn hit"*;
+* `stag.grunt` = `{ 9113629667, 9113630441 }` -- "Bull Breaths 2 / 18", *"the low muttering a stag
+  does when nothing is wrong"*. Her *"when near"*.
+
+A bull's BREATH is a third substitution deep: a bull stands in for a stag (the literature's own
+comparison, which section 2.1 defends and this amendment does not reopen), and then a breath stands
+in for a bark. The first substitution is argued; the second is not, and it is the one she can hear.
+
+### 7.2 The negative result of section 4 is OUT OF DATE, and here is the correction
+
+Section 4 and task 240's own note both record *"no CC0 red-deer recording was found"*. **That was
+true of the searches those tasks ran and it is not true of the catalogue**, and the reason is
+method, not luck: both searched Freesound by KEYWORD and then read each hit's licence. Searching with
+**the licence filter itself applied** -- `/search/?q=deer&f=license:"Creative Commons 0"` -- makes the
+server do the filtering, and it returns **fifteen CC0 deer recordings, four of them barks**:
+
+| # | source | licence, read on its own page 2026-10-24 | duration / format | what it is |
+|---|---|---|---|---|
+| **B1** | [Freesound 795554, *"Deer barking"* by Katerios](https://freesound.org/people/Katerios/sounds/795554/) | **Creative Commons 0** | 2:57.348, 44.1 kHz stereo wav | *"the barking of a deer on the edge of a rural forest in **central Europe**"*, at night, with crickets, frogs and nocturnal birds. The best fit: central Europe is this game's own setting |
+| **B2** | [Freesound 203593, *"barkingroedeer.wav"* by raoul_slayer](https://freesound.org/people/raoul_slayer/sounds/203593/) | **Creative Commons 0** | 1:17.570, 96 kHz stereo wav | the only one whose SPECIES is identified: a barking **roe** deer (*Capreolus capreolus*), alarmed, *"resembling a dog's bark"* |
+| **B3** | [Freesound 710264, *"Deers barking at sunset"* by mattl83](https://freesound.org/people/mattl83/sounds/710264/) | **Creative Commons 0** (from the filtered listing; the page was not read line by line) | not read | several animals barking at sunset, rural |
+| **B4** | [Freesound 569926, *"Deer barking.m4a"* by Spamanator](https://freesound.org/people/Spamanator/sounds/569926/) | **Creative Commons 0** (same caveat) | not read | the simplest of the four |
+| **H1** | [Freesound 653533, *"Deer rut - Brame Cerf 02.wav"* by L.Finck](https://freesound.org/people/L.Finck/sounds/653533/) | **Creative Commons 0** | 0:34.000, 48 kHz stereo wav | the same recordist, rut and animal as **S1**, which is already uploaded as `122287696922128` |
+| **H2** | [Freesound 351113, *"Deer Meewing 01.wav"* by msantoro11](https://freesound.org/people/msantoro11/sounds/351113/) | **Creative Commons 0** | 0:15.804, 44.1 kHz mono | *"a strange meewing sound that a group of deer made at a nature park"* |
+
+Rejected on licence, for the record, every one read on its page: [161375](https://freesound.org/people/dismalhiker/sounds/161375/)
+roe alarm call **CC BY-NC 3.0**; [384589](https://freesound.org/people/nemark/sounds/384589/) roe bucks
+**CC BY-NC 3.0**; [706810](https://freesound.org/people/Philip_Goddard/sounds/706810/) and
+[706657](https://freesound.org/people/Philip_Goddard/sounds/706657/) Teign Gorge roe rut **CC BY-NC
+4.0**; and **S3** above (Wikimedia / British Library) **CC BY-SA 4.0**. None is sublicensable, which
+section 2's opening paragraph is the argument about.
+
+**There is no CC0 recording of a HURT red deer, and that is expected rather than a gap in the
+search**: nobody field-records a wounded animal. H1 and H2 are the nearest honest substitutes, and
+which of them reads as a deer being shot is an ear's question.
+
+### 7.3 The asset we already own carries no bark -- MEASURED, not assumed
+
+Task 254's own clicks said *"`bark.wav` -- about 1 s, **if the recording carries a bark**"*. The
+cheapest possible version of this work was a second `PlaybackRegion` of `122287696922128`, which is
+already uploaded and `Approved`. **It does not carry one.**
+
+Measured offline on the uploaded bytes (`<assets-dir>/sounds/stag-roar/stag-roar-653532-hq.mp3`,
+the same sha256 `assets/uploads.json` names), decoded with `soundfile`: 48 kHz stereo, 52.8965 s,
+forest floor **-46.2 dBFS**. Fifty events stand 8 dB clear of the floor; eight are short and sharp
+enough to be bark-shaped (0.25-0.45 s). For each window: the spectral centroid, the share of energy
+below 300 Hz, the share from 500 Hz to 4 kHz, and the 10 %-to-90 % attack time of a 10 ms envelope.
+
+| window | centroid | <300 Hz | 0.5-4 kHz | attack | peak |
+|---|---|---|---|---|---|
+| **long roar** 0.95-2.85 | 487 Hz | 0.002 | 0.225 | 1.00 s | -21.1 dBFS |
+| **long roar** 11.25-12.20 | 782 Hz | 0.008 | 0.828 | 0.55 s | -26.7 dBFS |
+| **long roar** 36.80-37.65 | 568 Hz | 0.016 | 0.269 | 0.12 s | -27.1 dBFS |
+| short 3.25-3.60 | 476 Hz | 0.015 | 0.092 | 0.22 s | -27.6 dBFS |
+| short 4.10-4.50 | 491 Hz | 0.013 | 0.139 | 0.13 s | -30.1 dBFS |
+| short 27.45-27.75 | 600 Hz | 0.052 | 0.316 | 0.11 s | -30.8 dBFS |
+| short 28.20-28.55 | 605 Hz | 0.047 | 0.313 | 0.02 s | -33.6 dBFS |
+| short 46.30-46.75 | 620 Hz | 0.034 | 0.369 | 0.10 s | -32.4 dBFS |
+
+**Every short event sits inside the long roars' own range on every column.** A bark is a broadband
+impulse; these are low, tonal fragments of the same rut vocalisation, which is what 53 seconds of one
+roaring stag should contain. The one with a 0.02 s attack is also the quietest at -33.6 dBFS, 12.6 dB
+under the recording's peak -- a clip, not a bark.
+
+### 7.4 What was adopted, and why nothing shipped
+
+**Nothing.** The stag keeps task 240's library voice until an id lands, because the only real red deer
+this project owns is a RUT ROAR and substituting a roar for a pain cry is swapping one wrong sound for
+another. `ESCALATE.md` carries the upload as **NEEDS DIRECTOR** with the six candidates, their
+licences, their lengths and the four clicks -- the same shape task 254's entry had, and it landed in a
+day.
+
+**The landing is deliberately kept to data.** `Body.playOneShot` plays a cue WHOLE and bounds it with
+`Body.voiceCut`; it has **no `PlaybackRegion` support**, and none was added here, because a region
+reader with no id to read for would be code written for a guess (rule 2). Cut on the desktop to under
+`VOICE.CUE_CUT_SECONDS` (1.05 s) and the landing is two rows -- `stag.cry` and the matching
+`VOICE.LENGTHS[id]` that `deer.spec` requires -- with the library ids kept below as the fallback,
+exactly as `ForestTest.ROAR.ids` keeps its bulls. If the Director would rather upload a whole
+recording, the region support is its own task and the shape already exists in the repo
+(`ForestTest.ROAR.clips`).
+
+### 7.5 And what section 5 gains
+
+One more thing this note cannot claim: **that no bark is audible in `122287696922128` to a person.**
+Nobody in this toolchain can hear it (`PlaybackLoudness` answers 0 in Edit at every volume), so what
+7.3 claims is only that **no event in the file is spectrally distinguishable from the roars** -- which
+is the one question a measurement can answer. Whether a central-European bark reads as a red stag
+spotting danger is Karen's ears, and so is whether B1's insects can be cut around.
