@@ -244,11 +244,45 @@ in the shooting model and it is the one Karen is feeling.
   trip, which is the conservative reading, since over-correcting hands out free lead while
   under-correcting only leaves some of today's error in place.
 
+### 5.5 THE LIMIT, FOUND BY MEASUREMENT AND NOT BY REASONING
+
+**Forward prediction can only give back time the bullet actually spends in the air.** This was not
+anticipated when section 5.2 was written -- the first version of the spec asserted a hit at every
+range and FAILED at the shortest one, which is how it was found.
+
+If the round trip exceeds the flight time, the bullet reaches the animal's distance before the world
+has caught up with the picture the player aimed at, and there is no flight left to spend. Simulated
+against the real stepper, rifle, boar at `SPRINT_SPEED`, 100 ms round trip:
+
+| range | flight time | ping error | miss, uncompensated | miss, compensated |
+|---|---|---|---|---|
+| 179 studs (50 m) | **71 ms** *(< 100 ms)* | 3.80 studs | 4.26 studs | **1.73 studs -- still a miss** |
+| 357 studs (100 m) | 148 ms | 3.80 | 3.89 | **0.10 -- a hit** |
+| 536 studs (150 m) | 231 ms | 3.80 | 3.90 | **0.11 -- a hit** |
+| 714 studs (200 m) | 320 ms | 3.80 | 4.31 | **0.51 -- a hit** |
+
+So the correction is **exact beyond 100 m and partial inside it**, and at 50 m it still cuts the
+miss by 59 %. Two things follow, and both are stated rather than fixed:
+
+- **It is the right way round.** The shortfall is largest where the lead is smallest, so what is
+  left over is a fraction of a small number: 1.73 studs is 48 cm, which at 50 m on a boar whose
+  chest zone is 45 cm tall is about one zone -- noticeable, and far better than the 4.26 studs
+  (1.19 m) it replaces.
+- **Nothing can be done about it inside this mechanism.** Giving back more time than the bullet
+  flies would mean resolving the shot against a REWOUND world, which is source B -- refused in 5.2
+  for a reason that has not changed. If Karen ever reports that close shots on fast animals still
+  feel behind, that is the trade to reopen, and this table is its starting point.
+
+`weapon_hits.spec`'s "CANNOT GIVE BACK MORE PING THAN THE BULLET SPENDS IN THE AIR" case is this
+row of the table, asserted, so the degradation is a number in the harness rather than a sentence
+here.
+
 **What cannot be measured here, said plainly (rule 8):** a Studio Play session has no network, so
 the live magnitude of this correction is **not measurable on this PC**. What IS measurable and is
 proved by spec: the catch-up advances the projectile by exactly the time asked for, it is clamped at
 the cap, it casts the same segments the normal step casts, 0 reproduces today's behaviour bit for
-bit, and a projectile cannot be leaked or tunnelled by it.
+bit, a projectile cannot be leaked or tunnelled by it, and the 5.5 limit above holds where it is
+predicted to.
 
 ## 6. THE SCOPE (item 3): WHAT THE "BIT OFF" IS NOT
 
@@ -419,6 +453,7 @@ the same as buckshot. The game's slug is the fast Foster.)
 | ping contribution to the lead, 60 ms | 64 cm **-> 0** | section 5, the catch-up |
 | catch-up bound | <= 0.15 s, <= 5.7 studs on a sprinting boar | `FLIGHT_CATCHUP_MAX_SECONDS` |
 | catch-up at L = 0 | **bit-for-bit today's flight** | spec |
+| catch-up where flight < round trip | **partial, and said so**: 59 % of the miss at 50 m | section 5.5, spec |
 | hit mark separation, sprinting boar, 0.3 s | 11.4 studs **-> 0** | section 8 |
 | hit mark on a static surface | unchanged | spec |
 | slug/buck recoil ratio | real 1.29x; shipped 1.45x (Karen's dial) | section 9 |

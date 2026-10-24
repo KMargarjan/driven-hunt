@@ -756,8 +756,14 @@ return function()
 			expect(roundTrip <= CONFIG.FLIGHT_CATCHUP_MAX_SECONDS).to.equal(true)
 
 			local flown = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
-			for _, distance in ipairs({ 179, 357, 536 }) do
+			-- THESE THREE RANGES ARE THE ONES WHERE THE CLAIM IS A HIT, and the reason is the next
+			-- case: forward prediction can only give back time the bullet actually spends in the
+			-- air, so the compensation is exact only where the FLIGHT is longer than the round trip.
+			-- 357 studs is 148 ms against this case's 100 ms; 179 studs is 71 ms and is the limit
+			-- case below, not a failure of the feature.
+			for _, distance in ipairs({ 357, 536, 714 }) do
 				local lead = Ballistics.leadStuds(flown, distance, BOAR_SPRINT_STUDS)
+				expect(Ballistics.timeToRange(flown, distance) > roundTrip).to.equal(true)
 				local pingStuds = BOAR_SPRINT_STUDS * roundTrip
 				-- OR THE CASE PROVES NOTHING: the ping's own error has to be bigger than the stub's
 				-- one-stud hit radius, or an uncompensated shot would land anyway.
@@ -789,6 +795,77 @@ return function()
 				missBoar:Destroy()
 				hitBoar:Destroy()
 			end
+		end)
+
+		it("CANNOT GIVE BACK MORE PING THAN THE BULLET SPENDS IN THE AIR, and that is stated", function()
+			-- THE HONEST LIMIT OF FORWARD PREDICTION (research note section 5.5). At 179 studs the
+			-- rifle's whole flight is 71 ms and this case's round trip is 100 ms, so the bullet
+			-- reaches the animal's distance BEFORE the world has caught up with the picture the
+			-- player aimed at -- there is no more flight left to spend. The catch-up still helps, and
+			-- it cannot close the gap completely.
+			--
+			-- IT IS A CASE RATHER THAN A COMMENT because the degradation has to be a number somebody
+			-- can read: without it, "the lead is the true lead" would be a claim this suite makes at
+			-- every range, and at close range with a fast bullet it is not true.
+			local oneWay = 0.05
+			local roundTrip = 2 * oneWay
+			local flown = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
+			local distance = 179 -- 50 m
+			expect(Ballistics.timeToRange(flown, distance) < roundTrip).to.equal(true)
+
+			local lead = Ballistics.leadStuds(flown, distance, BOAR_SPRINT_STUDS)
+			local pingStuds = BOAR_SPRINT_STUDS * roundTrip
+			local aim = Vector3.new(distance, 0, lead - pingStuds).Unit
+
+			-- HOW CLOSE THE SHOT GOT, instead of whether it hit: the cast NEVER answers a hit, so the
+			-- projectile flies its whole path and the minimum distance to the animal is the measure.
+			local function closestApproach(catchUp: number)
+				local flight = Flight.new(CONFIG)
+				flight:launch(
+					record({ rangeStuds = Weapons.ROWS.rifle.RANGE_STUDS.Slug }),
+					{ Ballistics.launchDirection(aim, flown) },
+					flown,
+					catchUp
+				)
+				local elapsed = 0
+				local best = math.huge
+				for _ = 1, 400 do
+					elapsed += DT
+					flight:advance(DT, function(origin: Vector3, direction: Vector3)
+						local centre = Vector3.new(distance, 0, BOAR_SPRINT_STUDS * elapsed)
+						local length = direction.Magnitude
+						if length > 1e-9 then
+							local unit = direction / length
+							local along = math.clamp((centre - origin):Dot(unit), 0, length)
+							best = math.min(best, ((origin + unit * along) - centre).Magnitude)
+						end
+						return nil
+					end)
+					if flight:count() == 0 then
+						break
+					end
+				end
+				return best
+			end
+
+			local without = closestApproach(0)
+			local with = closestApproach(roundTrip)
+			-- IT HELPS: the shot comes materially closer.
+			expect(with < without).to.equal(true)
+			-- AND IT IS STILL A MISS, which is the limit being stated rather than hidden.
+			expect(with > 1).to.equal(true)
+			TestKit.note(
+				string.format(
+					"[catchup] LIMIT at %d studs (%.0f m): flight %.0f ms is SHORTER than the %.0f ms round "
+						.. "trip, so the catch-up cuts the miss from %.2f to %.2f studs and cannot clear it",
+					distance,
+					distance * Report.CONFIG.METRES_PER_STUD,
+					Ballistics.timeToRange(flown, distance) * 1000,
+					roundTrip * 1000,
+					without,
+					with
+				)
+			)
 		end)
 
 		it("ZERO IS BIT-FOR-BIT TODAY'S FLIGHT: same casts, same segments, same end state", function()
