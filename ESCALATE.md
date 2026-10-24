@@ -97,6 +97,38 @@ again: A is the only one that makes the clamp mean *"the group comes at its own 
 *"the group bolts the right way", and C is the only one that keeps both halves of the dispatch -- *he
 walks* AND *he is last*. B is free and delivers the behaviour tonight at the price of the word "last".
 
+### NEEDS DIRECTOR, SEPARATELY: **THE REVIEW OF A LETTERED TASK CANNOT BE RUN BY THE TOOL**
+
+`tools/agents.py` addresses a task by DIGITS -- `resolve_task` refuses `251c` outright
+(*"task number must be digits"*) and its no-argument path only matches `reviews/task-(\d+)/`. So:
+
+* the request is written and committed at **`reviews/task-251c/REQUEST.md`**, `Task: 251c`,
+  `Round: 1`, with the harness line for the code commit; but
+* `powershell -ExecutionPolicy Bypass -File tools/review.ps1 251c` is refused, and
+* putting it in `reviews/task-251/` instead -- which is what parts 1 and 2 shared -- makes it
+  **round 4** of that folder, because its committed `RESULT.md` trailer reads round 3. The cap is
+  `MAX_ROUNDS` 3 and the one extra round needs the Director's authorisation recorded here for that
+  task and that round (CLAUDE.md, stop rules; Learning Agent L-038), which does not exist.
+
+**So the Builder stopped rather than reset a round count or invent a task number.** Two ways out, and
+they are the Director's:
+
+1. **Authorise round 4 on `task-251`** here, and the Builder moves the request to
+   `reviews/task-251/REQUEST.md` as `Round: 4` and runs
+   `DIRECTOR_MAX_ROUNDS=4 powershell -ExecutionPolicy Bypass -File tools/review.ps1 251`. It is
+   honest about the folder's history (parts 1, 2 and this one are one task's three dispatches) and
+   costs nothing but the authorisation line.
+2. **Give lettered tasks their own folder**: one line in `tools/agents.py` (`[0-9]{1,4}[a-z]?` in
+   `resolve_task`, and the same in its no-argument match), which makes `reviews/task-251c/` a task in
+   its own right with its own round count -- which is what Task 21 gave every other task. It is a
+   `tools/` change, so it needs its own harness run and therefore its own commit AFTER this one's
+   code commit; the Builder will not make it inside this task, because a change to the gate's own
+   code between the tested commit and the review is exactly what the merge gate forbids.
+
+**The Builder's recommendation is 2, then 1 for tonight**: fix the tool in the next task so the next
+lettered dispatch is not blocked, and authorise round 4 now so this one can be reviewed without
+waiting for it.
+
 **What is NOT needed from anybody:** this task's code is complete and green. `test2` is N/A (no
 `TWO_PLAYER_PATHS` file is touched).
 
