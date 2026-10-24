@@ -2022,6 +2022,78 @@ return function()
 			expect(Data.encounterStage(Data.sweepAheadStuds(spook), 1000, nil, spook)).to.equal("flush")
 		end)
 
+		it("lets a DEER slip away at a walk where a boar would bolt, and bolts it when a man is close", function()
+			-- **THE DIRECTOR'S DECISION, 2026-10-24** (task 253), after task 251c measured the stag
+			-- in `MOVE.SPRINT_SPEED` 1.5 s after he was put down: *"a wary stag slips out quietly
+			-- AHEAD of the beaters and only flees hard when pressed close"*. So for a deer kind the
+			-- line's three triggers -- the band, the circle and the clock -- answer **sneak** while
+			-- the nearest beater's BODY is further than `DEER_FLUSH_STUDS`, and a sneak is the drive
+			-- doing nothing: the animal keeps walking the route it was given.
+			--
+			-- THIS CASE FAILS ON THE COMMIT BEFORE TASK 253 (Learning Agent L-028): `encounterStage`
+			-- took five parameters there and answered "flush" to every line below.
+			local spook = Data.SPOOK
+			local notice = Data.noticeStuds(spook)
+			local flush = Data.beaterSpookStuds(spook)
+			local hold = Data.alertSeconds(spook)
+			local deerFlush = Data.deerFlushStuds(spook)
+			-- THE CLOCK RAN OUT and the nearest man is still 100 studs off: a boar goes, a deer walks.
+			expect(Data.encounterStage(400, notice - 1, hold, spook, nil, false)).to.equal("flush")
+			expect(Data.encounterStage(400, notice - 1, hold, spook, nil, true)).to.equal("sneak")
+			-- THE LINE HAS PASSED IT -- task 168's "nothing is left behind the line" -- and the same
+			-- split applies: the boar bolts, the deer slips out at a walk.
+			expect(Data.encounterStage(-500, 1000, nil, spook, nil, false)).to.equal("flush")
+			expect(Data.encounterStage(-500, 1000, nil, spook, nil, true)).to.equal("sneak")
+			-- INSIDE THE FLUSH CIRCLE BUT STILL BEYOND THE DEER'S OWN RADIUS: a boar at 50 studs is
+			-- gone; a deer at 50 is not, and that is the whole point of a second radius.
+			expect(flush > deerFlush).to.equal(true)
+			expect(Data.encounterStage(400, deerFlush + 1, 0, spook, nil, true)).to.equal("sneak")
+			-- ...AND PRESSED CLOSE, IT BOLTS EXACTLY AS BEFORE.
+			expect(Data.encounterStage(400, deerFlush, 0, spook, nil, true)).to.equal("flush")
+			expect(Data.encounterStage(400, deerFlush - 1, 0, spook, nil, true)).to.equal("flush")
+			expect(Data.encounterStage(-500, deerFlush - 1, nil, spook, nil, true)).to.equal("flush")
+			-- A DEER THAT NOTHING HAS REACHED IS STILL UNTOUCHED: the sneak replaces the FLUSH and
+			-- nothing else, so "none" and "notice" are what they were for both species.
+			expect(Data.encounterStage(400, 400, nil, spook, nil, true)).to.equal("none")
+			expect(Data.encounterStage(400, notice - 1, nil, spook, nil, true)).to.equal("notice")
+			-- AND A WORLD THAT NAMES NO DEER REACH IS THE GAME BEFORE THIS TASK: one radius for both.
+			local old = { BEATER_STUDS = 71, METRES_PER_STUD = 0.28 }
+			expect(Data.deerFlushStuds(old)).to.equal(71)
+			expect(Data.encounterStage(400, 70, 0, old, nil, true)).to.equal("flush")
+			-- METRES ARE HONOURED THE SAME WAY the other two reaches honour them.
+			expect(math.abs(Data.deerFlushStuds({ DEER_FLUSH_M = 11.2, METRES_PER_STUD = 0.28 }) - 40) < 1e-6).to.equal(
+				true
+			)
+		end)
+
+		it("orders the three reaches so a deer is pressed closer than a boar and noticed furthest out", function()
+			-- THE RELATION, NOT THE NUMBERS, because all three are Karen's to turn: a deer has to be
+			-- allowed CLOSER than a boar before it breaks (`DEER_FLUSH_STUDS < BEATER_STUDS`), and
+			-- everything is looked at before anything is flushed (`BEATER_STUDS < NOTICE_STUDS`),
+			-- which is the order task 172 already asserts for its own two.
+			local spook = Data.SPOOK
+			expect(Data.deerFlushStuds(spook) < Data.beaterSpookStuds(spook)).to.equal(true)
+			expect(Data.beaterSpookStuds(spook) < Data.noticeStuds(spook)).to.equal(true)
+			-- ...AND THE DEER'S RADIUS IS SMALLER THAN THE DRIVE'S OWN LEAD MARGIN, which is what
+			-- makes the two rules of task 253 agree: a group released `leadStuds` ahead of the line
+			-- is released OUTSIDE the distance at which a deer bolts. With the lead at 60 (task 251c)
+			-- and the notice band at 100 it was inside both, and the stag bolted on release every
+			-- time -- `ESCALATE.md`, 2026-10-24.
+			expect(Data.deerFlushStuds(spook) < Data.SCHEDULE.leadStuds).to.equal(true)
+			expect(Data.noticeAheadStuds(spook) < Data.SCHEDULE.leadStuds).to.equal(true)
+			expect(Data.beaterSpookStuds(spook) < Data.SCHEDULE.leadStuds).to.equal(true)
+			TestKit.note(
+				string.format(
+					"task 253: a deer bolts inside %.0f studs, a boar inside %.0f, anything is noticed inside %.0f (band %.0f deep), and the drive releases %.0f studs ahead of the line",
+					Data.deerFlushStuds(spook),
+					Data.beaterSpookStuds(spook),
+					Data.noticeStuds(spook),
+					Data.noticeAheadStuds(spook),
+					Data.SCHEDULE.leadStuds
+				)
+			)
+		end)
+
 		it("is the game before task 172 when a world names one reach and no clock", function()
 			-- BOTH WORLDS REACHABLE BY PARAMETER, the shape every flagged and tunable path in this
 			-- repo has. With no notice reach and no clock, an animal is either flushed or untouched --

@@ -626,6 +626,14 @@ function ForestTest.stats()
 		-- the stocked wood are still on their feet -- the two numbers the staged encounter is proved
 		-- with, and the second is why the wood is never re-stocked.
 		noticed = state.noticed or 0,
+		-- TASK 253: ...and how many times a DEER met the line and slipped away at a walk instead of
+		-- bolting. It is the observable for the Director's decision -- *"a wary stag slips out
+		-- quietly ahead of the beaters"* -- and without it the rule's whole effect is "something did
+		-- not happen", which no spec and no drive log can read.
+		slipped = state.slipped or 0,
+		-- ...and the raw per-tick count, which is what a spec can watch move: `slipped` is one per
+		-- ANIMAL per drive (the console's ration) and this is every tick any deer was in the sneak.
+		slipping = state.slipping or 0,
 		-- TASK 239: which wave of THIS drive carries the red deer, how far through the drive the
 		-- metronome is, and whether the group has gone. Three numbers rather than a boolean,
 		-- because "no deer yet" and "no deer due yet" are different answers and a probe watching a
@@ -737,6 +745,27 @@ function ForestTest.nearestBeater(point: Vector3, beaters): (Vector3?, number)
 		end
 	end
 	return best, gap
+end
+
+-- WHERE THE BEATER LINE HAS GOT TO, AS A DEPTH, AT ONE x (task 251c). The LIVE half of the release
+-- clamp: `Data.lineFrontAt` interpolates the front across the beaters' own bodies -- players and
+-- bots, one list (`realBeaters`), so "who is pushing" is still answered in one place -- and this
+-- turns that z into studs north of the road AT THAT x, because the road is a sine and one z is a
+-- different depth at every stand.
+--
+-- NIL IS "NOBODY IS PUSHING", which is `Data.releaseDepth`'s own nil case: a world with no beaters
+-- in it has no behind. That is the DEV place and it is also the seconds before a drive's bots exist.
+--
+-- IT IS MEASURED WHERE IT IS USED, AND THAT IS THE POINT. The defect this answers was found by
+-- comparing a release TIME against a line position derived from the walk, and a derived figure used
+-- at a distance is what all four of task 192's deaths were (Learning Agent L-024). So the clamp asks
+-- the bodies, at the moment of release, at the row's own x.
+function ForestTest.lineNorthAt(x: number): number?
+	local front = Data.lineFrontAt(ForestTest.realBeaters(), x)
+	if front == nil then
+		return nil
+	end
+	return front - Data.roadZ(x, chosen.layout)
 end
 
 -- THE LINE THE CONSOLE GETS WHEN A BEATER FLUSHES SOMETHING, taken once (task 153). The module
@@ -1966,6 +1995,11 @@ function ForestTest.spookNearBeaters(now: number): string?
 	state.noticedAt = state.noticedAt or {}
 	local sent = {}
 	local looked = {}
+	-- HOW MANY DEER SLIPPED AWAY INSTEAD OF BOLTING on this tick (task 253). Counted and printed,
+	-- because "he walked instead of running" is the whole of what the Director asked to see and a
+	-- behaviour that leaves no line in the console is a behaviour nobody can prove from a drive.
+	local slipped = 0
+	state.slipSaid = state.slipSaid or {}
 	for _, handle in ipairs(runtime:boars()) do
 		if state.latched[handle.id] ~= true then
 			local at = handle.position()
@@ -1978,9 +2012,32 @@ function ForestTest.spookNearBeaters(now: number): string?
 			-- the circle and the clock are all `Data.encounterStage`'s, so this loop measures and
 			-- obeys and decides nothing.
 			local since = if state.noticedAt[handle.id] ~= nil then now - state.noticedAt[handle.id] else nil
-			local stage = Data.encounterStage(ahead, gap, since, Data.SPOOK, chosen.layout)
+			-- IS THIS ONE A DEER (task 253)? The ANIMAL owner's fact, asked of the live config the
+			-- world was built with, and the one thing that decides whether the line's reach is a
+			-- flush or a sneak. `gap` just above is the live distance to the nearest beater's BODY,
+			-- measured on this tick (Learning Agent L-024): the radius is compared with a
+			-- measurement, never with a figure derived from the walk.
+			local deer = Boar.isDeerKind(handle.kind, boarConfig())
+			local stage = Data.encounterStage(ahead, gap, since, Data.SPOOK, chosen.layout, deer)
 			if from ~= nil and stage == "flush" then
 				table.insert(sent, { id = handle.id, from = from, gap = gap, ahead = ahead })
+			elseif stage == "sneak" then
+				-- NOTHING IS DONE TO IT, and that IS the behaviour: it keeps walking the route the
+				-- drive gave it -- the approach, the stag's treeline sneak, the crossing -- and
+				-- `checkAtTheEdge` still offers it the stop at the verge. It is NOT latched either,
+				-- so the moment a beater is inside `DEER_FLUSH_STUDS` the next tick bolts it.
+				--
+				-- ONCE PER ANIMAL PER DRIVE IN THE CONSOLE, AND IT IS A MEASUREMENT (the first live
+				-- run of task 253 printed this line **1,676 times** in one drive -- a deer is in the
+				-- sneak on every one of fifteen ticks a second for the whole of its walk -- and the
+				-- spam pushed every `SLOT` line of the drive out of the console buffer, which is the
+				-- proof this task owes). The COUNT is still per tick, in `stats().slipped`, where a
+				-- spec reads it; what is rationed is the printing.
+				if state.slipSaid[handle.id] ~= true then
+					state.slipSaid[handle.id] = true
+					slipped += 1
+				end
+				state.slipping = (state.slipping or 0) + 1
 			elseif from ~= nil and stage == "notice" and state.noticedAt[handle.id] == nil then
 				table.insert(looked, { id = handle.id, from = from, gap = gap })
 			end
@@ -2061,11 +2118,26 @@ function ForestTest.spookNearBeaters(now: number): string?
 			state.noticed
 		)
 		else nil
+	-- THE DEER THAT DID NOT RUN (task 253). It is a per-tick count and not a latch, because a deer
+	-- that slips away this tick may be bolted by the next one: the sneak is a state of the LINE'S
+	-- distance, not a decision taken once.
+	if slipped > 0 then
+		state.slipped = (state.slipped or 0) + slipped
+	end
+	local slip = if slipped > 0
+		then string.format(
+			"%d deer slipped away at more than %.0f studs instead of bolting -- %d so far in this drive",
+			slipped,
+			Data.deerFlushStuds(Data.SPOOK),
+			state.slipped
+		)
+		else nil
+	local tail = if stand ~= nil and slip ~= nil then stand .. "; and " .. slip elseif stand ~= nil then stand else slip
 	if #parts == 0 then
-		return if stand ~= nil then "a beater was noticed: " .. stand else nil
+		return if tail ~= nil then "a beater was noticed: " .. tail else nil
 	end
 	local line = string.format("a beater spooked %s -- %d latched so far", table.concat(parts, "; "), state.flushed)
-	return if stand ~= nil then line .. "; and " .. stand else line
+	return if tail ~= nil then line .. "; and " .. tail else line
 end
 
 -- ONE TICK OF BEATER MODE: whether the wood needs filling. `spooked` is what
@@ -2138,6 +2210,14 @@ function ForestTest.newDrive(now: number?)
 	state.restTriedAt = nil
 	state.latched = {}
 	state.noticedAt = {}
+	-- TASK 253, round 1's note: the deer that slipped away rather than bolting, counted PER DRIVE --
+	-- which is what the console line says it is ("%d so far in this drive"). It used to be reset in
+	-- `start` only, beside the flushes, so from drive 2 it reported the session's total under the
+	-- drive's name. `slipSaid` goes with it, so each animal gets one line per drive and a stag that
+	-- slips in two drives is heard about twice.
+	state.slipped = 0
+	state.slipping = 0
+	state.slipSaid = {}
 	state.restTrace = {}
 	-- ...AND A NEW DRIVE IS A NEW DEER (task 239). Karen: *"we need all a time in drive deer"* -- so
 	-- the guarantee is spent per DRIVE, which means it is handed back here and nowhere else, exactly
@@ -2874,6 +2954,24 @@ function ForestTest.releaseLine(now: number): string?
 	-- `northStuds` into a point on this layout (`Data.wavePoint`, which adds the stand she locked --
 	-- stands are 150 studs apart, so a fixed x would be luck).
 	local nominal = Data.wavePoint(standX, row, chosen.layout)
+	-- ...AND IT IS PULLED IN TO STAY AHEAD OF THE BEATER LINE (task 251c). The row's depth is the
+	-- script's INTENT; where the line has actually got to decides whether it can be honoured. Both
+	-- halves are elsewhere on purpose: `ForestTest.lineNorthAt` measures the men, `Data.releaseDepth`
+	-- is the rule, and `Data.SCHEDULE.leadStuds` / `minNorthStuds` are the two numbers. See the
+	-- paragraph above `leadStuds` for the measurement that made this necessary.
+	--
+	-- AT THIS ROW'S OWN x AND AT THIS MOMENT: the front is interpolated across the beaters, so a row
+	-- 250 studs west of the stand is compared with the part of the line that is actually in front of
+	-- it, not with the middle of it.
+	--
+	-- EVERY ROUTE WORD HANDS IN ITS OWN FLOOR (`Data.routeFloor`): a sneak may not start shallower
+	-- than its treeline band, a refusal may not start inside its own turn, and the one that holds
+	-- may not be put where lying up after `holdStuds` would leave it on the far side of the road.
+	-- ...AND A ROW THAT NEVER STARTS FOR THE ROAD IS NOT CLAMPED AT ALL (round 1's blocking finding):
+	-- `Data.clampedToLine` is the rule and the HOLD row is the one it answers no for.
+	local lineNorth = if Data.clampedToLine(row) then ForestTest.lineNorthAt(nominal.X) else nil
+	local startNorth = Data.releaseDepth(row.northStuds, lineNorth, Data.routeFloor(row))
+	nominal = Vector3.new(nominal.X, nominal.Y, Data.roadZ(nominal.X, chosen.layout) + startNorth)
 	local start = Vector3.new(nominal.X, Data.groundAt(nominal.X, nominal.Z) or chosen.layout.centre.Y, nominal.Z)
 
 	-- WHERE IT CROSSES, and it is relative to the stand she locked (task 123 round 8). A
@@ -2912,12 +3010,15 @@ function ForestTest.releaseLine(now: number): string?
 	--     knows which of `SPECIES.reddeer.RELEASE.COMPOSITIONS` that is. The drive says which party
 	--     comes when; it never writes the word "stag" or counts a hind.
 	-- `Runtime:deerAllowed` IS STILL THE DOOR (task 223's `MAX_GROUPS_ALIVE`): a drive whose hind
-	-- party is somehow still on its feet at slot 13 does not get a second deer group, and this slot
+	-- party is somehow still on its feet at the stag's slot does not get a second deer group, and it
 	-- then releases nothing rather than quietly becoming boars.
 	local composition = nil
 	local count = 0
 	if row.species == "reddeer" then
-		if type(runtime.deerAllowed) == "function" and runtime:deerAllowed() then
+		-- ...AND IT NAMES THE PARTY (task 253), so a party of one -- the stag -- is let out while the
+		-- hind party is still on its feet. MEASURED: it was not, and he came out 26 s late at the
+		-- drive's next silence, which is 26 s off the arithmetic that gets him to the verge.
+		if type(runtime.deerAllowed) == "function" and runtime:deerAllowed(row.party) then
 			composition = Boar.deerComposition(0, 0, boar, row.party)
 		end
 		if composition == nil then
@@ -3223,7 +3324,7 @@ function ForestTest.releaseLine(now: number): string?
 	end
 	state.released += placed
 	-- THE DEER LATCH IS STILL SET (task 239), AND SINCE TASK 251 IT IS A BELT AND NOT THE BRACE.
-	-- The SCRIPT now says which slots carry deer -- slot 2's hind party and slot 13's stag -- so the
+	-- The SCRIPT now says which slots carry deer -- slot 2's hind party and slot 8's stag -- so the
 	-- drawn ordinal (`deerWaveOf`) and *"has the drive spent its one group"* (`deerWanted`) are no
 	-- longer what decides it here. Both pure rules are kept, exported and tested: they are the shape
 	-- an UNSCRIPTED drive needs, which is what `Match` runs in the DEV place. What task 239's
@@ -3251,7 +3352,7 @@ function ForestTest.releaseLine(now: number): string?
 		-- that was not released -- a line that reads "5 of 5 animal(s) in 1 of 2 file(s)" is the
 		-- case: one route failed, one file was released, and nobody was spawned for the file that
 		-- could not be walked.
-		"line %d: SLOT %d act %d %s -- %d of %d animal(s) [%s] in %d of %d file(s) at a %s, from dz %d offset %+d, %s -- %s",
+		"line %d: SLOT %d act %d %s -- %d of %d animal(s) [%s] in %d of %d file(s) at a %s, from dz %d of %d, line at dz %s, offset %+d, %s -- %s",
 		state.waveIndex,
 		slot,
 		row.act or 0,
@@ -3262,7 +3363,14 @@ function ForestTest.releaseLine(now: number): string?
 		lines,
 		asked,
 		pace,
+		-- WHERE IT WAS ACTUALLY RELEASED, THE ROW'S OWN DEPTH, AND WHERE THE LINE WAS AT THAT MOMENT
+		-- (task 251c). Three numbers and not one, because the claim the Director asked to be proved
+		-- is a RELATION between them -- *"every group's release depth against the line's depth at
+		-- that moment (all ahead)"* -- and a line that printed only the row's table depth is exactly
+		-- what let act III be released behind the beaters for a whole task.
+		startNorth,
 		row.northStuds or 0,
+		if lineNorth ~= nil then string.format("%d", lineNorth) else "none",
 		row.offsetX or 0,
 		if type(offset) == "number"
 			then string.format("crossing %+d studs from the stand", offset)
@@ -3284,8 +3392,16 @@ end
 -- per server, moved to the roar point before each play, never destroyed. A Sound per roar would be
 -- an Instance churn nobody needs and a second place that could play one.
 --
--- WHERE HE ROARS FROM: his own holding, `deeperStuds` further back. The script holds him at slot 13's
--- `northStuds` (330) until t 166 s, so his holding is a point the DRIVE knows and nothing else does
+-- WHERE HE ROARS FROM: the holding THE SCRIPT WRITES, `deeperStuds` further back -- slot 8's
+-- `northStuds` (330), until t 101 s. Slot 13 and 166 s until task 251c moved his release so that he
+-- could walk to the road.
+--
+-- IT IS THE TABLE'S DEPTH AND NOT WHERE HE IS ACTUALLY PUT DOWN (round 1's note, which is right):
+-- since task 253 the release clamp pulls him in to ~137 studs (flat) or ~160 (in Karen's place), so
+-- the roar sounds from ~190 studs deeper than the animal ever stands. That is deliberate and it is
+-- the point of the cue -- he is answering from the far wood BEFORE he is released, and the drive is
+-- the only thing that knows where that is -- but the two numbers are not the same number and the
+-- comment used to imply they were. So his holding is a point the DRIVE knows and nothing else does
 -- -- which is the same split `signalPoint` and `checkAtTheEdge` already keep: the world says WHERE,
 -- and in this case the world also says what it sounds like, because no animal is involved.
 function ForestTest.roarPoint(): Vector3?

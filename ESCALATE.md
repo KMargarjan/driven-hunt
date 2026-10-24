@@ -1,5 +1,144 @@
 # Escalations
 
+## 2026-10-24 - Task 251c (**now TASK 253**): **THE CLAMP WORKS AND THE STAG STILL BOLTS. A GROUP RELEASED 60 STUDS AHEAD OF THE LINE IS INSIDE THE LINE'S OWN NOTICE BAND (100 STUDS), SO IT STANDS FOR 2 s AND FLUSHES -- MEASURED, TWICE, IN KAREN'S PLACE.**
+
+**The Director's two rules are built, gated and pushed** (`[harness] PASS: 34/34 checks @ e5a5bd95
+(clean tree) scope=all`). What is escalated is the LEAD MARGIN -- *"LEAD one data row (start at 60
+studs ahead of the line)"* -- and the number it has to beat is not a taste, it is another system's
+radius. Found the way the last two were: by running the thing.
+
+### What the rule delivered, and it is most of what was asked for
+
+Two full drives of **Driven Hunt Forest Test** (placeId 130094961655666), enrolled at the truck pad
+(rule I), logged slot by slot (`<runs-dir>/251c-console1.txt`, `251c-console2.txt`) and the stag
+tracked by instance every 0.5 s (`251c-stag-track.txt`).
+
+Every slot now prints its release depth against the line's own depth at that moment, which is the
+proof the dispatch asked for:
+
+| slot | its table depth | released at | the line, at that moment | ahead by |
+|---|---|---|---|---|
+| 1-10 | 85-330 | 85-262 | 569 -> 242 | **60 (the full margin), every one** |
+| 11 | 275 | 146 | 206 | 60 |
+| 12 | 300 | 80 | 126 | 46 (its own `turnAtDz` floor) |
+| 13 | 145 | 65 | 118 | 53 (its own `turnAtDz` floor) |
+| 14 | 290 | 31 | 91 | 60 |
+| 15 | 360 | 85 | 66 | **-19: the one that HOLDS, and its floor is 85** |
+
+**Fourteen of the fifteen are released ahead of the line** (against none of act III before this task),
+the stag included -- *"from dz 262 of 330, line at dz 322"* in drive 1 and *"from dz 188 of 330, line
+at dz 248"* in drive 2. Slot 15 is the exception the Director's own sentence allows: it holds 60
+studs short of the road and never comes, so its route floor (`holdStuds` 60 + the 25-stud floor) is
+deeper than the line is by 192 s.
+
+### ...AND THE STAG STILL DOES NOT WALK, FOR A NEW AND MEASURABLE REASON
+
+Tracked by instance, 0.5 s apart, drive 2:
+
+```
+t=137.3  x=2935 dz=189  moved=0.00   line=225     <- released
+t=138.3  x=2932 dz=174  moved=13.71  line=222     <- 27 studs/s: MOVE.SPRINT_SPEED
+t=141.9  x=2966 dz=71   moved=14.91  line=211     <- through his own sneak band, at a bolt
+t=144.5  x=2994 dz=-5   moved=14.61  line=203     <- over the road, 7 s after release
+t=154.2  x=3076 dz=-298 moved=14.34  line=175
+```
+
+**No edge check, no look back, no sneak: he was flushed within 1.5 seconds of being put down.** The
+reason is a radius in another system, and it is bigger than the lead:
+
+* `ForestTest.noticeAheadStuds` is `sqrt(NOTICE_STUDS^2 - (laneSpacing/2)^2)` = `sqrt(125^2 - 75^2)` =
+  **100 studs** in front of the line's front, gapless across x (task 172);
+* `encounterStage` answers *"notice"* inside it -- stand and look -- and `SPOOK.ALERT_SECONDS` = 2
+  ends the stand **whether or not the line has closed any further**, which is *"what stops an approach
+  that stalls from freezing a herd in a stare for ever"*;
+* so a group released at `leadStuds` = **60** is 40 studs INSIDE that band at the moment it is
+  spawned, and two seconds later it is in `MOVE.FLIGHT` -- which ignores the route, the check and the
+  sneak by design.
+
+**And no lead that fits in this wood lets him walk the whole route.** His route is three legs, and the
+middle one is 120 studs PARALLEL to the road -- 27 s at `PACE.WALK_SPEED` 4.5, during which the line
+closes 84 studs and he gains nothing. Writing `L` for the line's depth at his release, `R` for his
+release time and `Lambda` for the lead:
+
+```
+   he is at dz 75 at the end of the sneak, at t_end = (L - Lambda - 75)/4.5 + 26.7
+   the line must not be within 100 studs of him there:  L - 3.1*t_end - 75 > 100
+   =>  0.311*L + 0.689*Lambda > 206      =>  Lambda > 37 + 1.4*R
+```
+
+At his slot 8 (R = 101 s) that is a lead of **178 studs**, which would release him at dz 89 and pull
+every act III row to its own floor. At a lead of 60 it needs **R < 16 s**, which is before the drive
+has started.
+
+### Two more facts the run turned up, both of them data
+
+* **HIS RELEASE TIME IS NOT FIXED.** `SPECIES.reddeer.RELEASE.MAX_GROUPS_ALIVE` is 1, so whichever
+  deer party is still on its feet blocks the other: drive 1 refused the HINDS at slot 2 and held them
+  to slot 10, drive 2 refused the STAG at slot 8 and held him to slot 10 (127 s). The stag's
+  arithmetic therefore has to survive a 26-second slip, or the hinds need a cap of their own.
+* **THE REPEAT WINDOW WOULD HAVE ASKED FOR A SECOND STAG** (slot 18 maps to row 8) and released every
+  late group ON THE VERGE once the beaters were through (*"SLOT 17 ... from dz 25 of 170, line at dz
+  -9"*). Both are fixed in this task -- the window's exclusion is a rule in `slotAt` now, and a line
+  at or past the road is not a line -- and both are named here because they are what the clamp broke
+  before it was measured.
+
+### The options, each with its arithmetic
+
+| # | the change | one line? | what Karen would notice |
+|---|---|---|---|
+| **A** | `SCHEDULE.leadStuds` **60 -> 130**, just outside the notice band | yes, one data row | every clamped group comes at the pace its row says instead of bolting the moment it is put down. **Cost: act III's deep rows go to their floors** -- slot 11 from dz 86 to 25 -- so they appear near the road. Necessary for any of the others to mean anything, and NOT sufficient for the stag |
+| **B** | the stag moves again, to **slot 3 or 4** (36-49 s), at his full table depth 330 | yes, one row | the line never comes within 100 studs of him for the whole 90-second route, so the edge check, the look back and the sneak all fire and Karen sees them. **Cost: he crosses at ~130 s, in act II -- he is no longer last** |
+| **C** | the line slows again: `Bots.CONFIG.WALK_SPEED` **3.1 -> 2.2** (a ~295 s drive) | yes | it closes only 59 studs during his sneak, so a lead of 130 is enough and he arrives at ~190 s **still last and still walking**. Cost: the beaters advance at 0.62 m/s, which part 2's escalation already flagged as slower than the sources support |
+| **D** | `sneakStuds` **120 -> 60** | yes | halves the leg that costs him the time. **Below Karen's own 80-160 band**, so it is hers |
+| **E** | leave it | yes | the clamp has still fixed the eleven boar groups -- they bolt ACROSS the road now instead of head-on into the beaters -- and the stag's three behaviours stay dark in her place |
+
+**ANSWERED BY THE DIRECTOR, 2026-10-24, AND BUILT AS TASK 253** -- and the answer is neither A alone
+nor C: **A (`leadStuds` 60 -> 130) plus a new rule that is closer to the animal than any of the five
+options** -- *"for deer kinds, NOTICING THE BEATER LINE is not a flush. Beyond a deer-only FLUSH
+radius from the nearest beater (start at 40 studs), a deer that notices the line SNEAKS"*. So the
+stag is not kept away from the line at all; he is allowed to meet it and walk. Plus the stag's own
+release is exempted from `MAX_GROUPS_ALIVE` because he moves alone. See TASKS.md row 253.
+
+**The Builder's recommendation was A + C**, and A on its own if the drive's length is not to move
+again: A is the only one that makes the clamp mean *"the group comes at its own pace"* rather than
+*"the group bolts the right way", and C is the only one that keeps both halves of the dispatch -- *he
+walks* AND *he is last*. B is free and delivers the behaviour tonight at the price of the word "last".
+
+### NEEDS DIRECTOR, SEPARATELY: **THE REVIEW OF A LETTERED TASK CANNOT BE RUN BY THE TOOL** -- **ANSWERED AND CLOSED, 2026-10-24: the Director renumbered 251c to TASK 253** (the 233b -> 235 precedent), so `reviews/task-253/` is a task in its own right with its own round count and `tools/review.ps1 253` addresses it. `tools/agents.py` is unchanged and still takes digits only; whether a lettered task should ever be addressable is the Director's to decide another day. The entry below is kept as written (rule 7).
+
+`tools/agents.py` addresses a task by DIGITS -- `resolve_task` refuses `251c` outright
+(*"task number must be digits"*) and its no-argument path only matches `reviews/task-(\d+)/`. So:
+
+* the request is written and committed at **`reviews/task-251c/REQUEST.md`**, `Task: 251c`,
+  `Round: 1`, with the harness line for the code commit; but
+* `powershell -ExecutionPolicy Bypass -File tools/review.ps1 251c` is refused, and
+* putting it in `reviews/task-251/` instead -- which is what parts 1 and 2 shared -- makes it
+  **round 4** of that folder, because its committed `RESULT.md` trailer reads round 3. The cap is
+  `MAX_ROUNDS` 3 and the one extra round needs the Director's authorisation recorded here for that
+  task and that round (CLAUDE.md, stop rules; Learning Agent L-038), which does not exist.
+
+**So the Builder stopped rather than reset a round count or invent a task number.** Two ways out, and
+they are the Director's:
+
+1. **Authorise round 4 on `task-251`** here, and the Builder moves the request to
+   `reviews/task-251/REQUEST.md` as `Round: 4` and runs
+   `DIRECTOR_MAX_ROUNDS=4 powershell -ExecutionPolicy Bypass -File tools/review.ps1 251`. It is
+   honest about the folder's history (parts 1, 2 and this one are one task's three dispatches) and
+   costs nothing but the authorisation line.
+2. **Give lettered tasks their own folder**: one line in `tools/agents.py` (`[0-9]{1,4}[a-z]?` in
+   `resolve_task`, and the same in its no-argument match), which makes `reviews/task-251c/` a task in
+   its own right with its own round count -- which is what Task 21 gave every other task. It is a
+   `tools/` change, so it needs its own harness run and therefore its own commit AFTER this one's
+   code commit; the Builder will not make it inside this task, because a change to the gate's own
+   code between the tested commit and the review is exactly what the merge gate forbids.
+
+**The Builder's recommendation is 2, then 1 for tonight**: fix the tool in the next task so the next
+lettered dispatch is not blocked, and authorise round 4 now so this one can be reviewed without
+waiting for it.
+
+**What is NOT needed from anybody:** this task's code is complete and green. `test2` is N/A (no
+`TWO_PLAYER_PATHS` file is touched).
+
 ## 2026-10-24 - Task 251 part 2: **NEEDS DIRECTOR. THE REAL STAG ROAR IS VERIFIED CC0 AND READY, AND `tools/roblox_upload.py` CANNOT UPLOAD AUDIO.**
 
 **This is a human action (CLAUDE.md stop rule, last clause), and it is four clicks.** Nothing is
