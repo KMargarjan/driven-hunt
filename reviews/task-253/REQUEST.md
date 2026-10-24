@@ -1,98 +1,97 @@
-# Task 253: the stag sneaks away from the beaters instead of bolting (this is 251c, renumbered)
+# Task 253: the stag sneaks away from the beaters instead of bolting
 
 Task: 253
 Round: 1
 Base: main @ 1316e023 (task 251 parts 1 and 2 merged)
-Code commit: e5a5bd955499b6dfab56e46f1cf6c828bfb0982c
+Code commit: f03af027b7e14fd18b8365778d8f29a24595f669
 
-`[harness] PASS: 34/34 checks @ e5a5bd955499b6dfab56e46f1cf6c828bfb0982c (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ f03af027b7e14fd18b8365778d8f29a24595f669 (clean tree) scope=all`
 
-`test2` is N/A: no `TWO_PLAYER_PATHS` file is touched (`src/server/ForestTest/`,
-`src/shared/ForestTest/`, `tests/server/forest_line.spec.luau`).
+`test2` is N/A: no `TWO_PLAYER_PATHS` file is touched (`src/shared/ForestTest/`,
+`src/server/ForestTest/`, `src/server/Boar/`, `tests/server/`).
 
-## What changed
-
-The Director answered part 2's escalation (*"ACT III ... IS RELEASED BEHIND THE ADVANCING BEATER
-LINE"*) with two rules: a slot's start depth is relative to the line, and the stag is released early
-enough to walk his route. Both are built. The Forest Test proof is in `ESCALATE.md` (2026-10-24,
-task 251c) and `<runs-dir>/251c-console1.txt`, `251c-console2.txt`, `251c-stag-track.txt`.
+**This task is task 251c renumbered** at the Director's instruction (the 233b -> 235 precedent), so
+the clamp that releases every group ahead of the beater line is part of it: claims 1-4 are that work
+(reviewed by nobody yet), claims 5-9 are the three rules the Director added on 2026-10-24.
 
 ## Claims
 
 1. **A slot is released at `min(its table depth, the line's depth - leadStuds)`, floored.**
-   `ForestTest.releaseDepth` in `src/shared/ForestTest/init.luau` is the whole rule and is pure;
-   `SCHEDULE.leadStuds` (60) and `SCHEDULE.minNorthStuds` (25) are the two data rows.
-   Verify: the function, and the case *"clamps a slot's depth to stay ahead of the line, and never
-   deeper than the row"* in `tests/server/forest_line.spec.luau`.
+   `ForestTest.releaseDepth` (pure) is the rule; `SCHEDULE.leadStuds` and `minNorthStuds` are the two
+   data rows. Verify: the function, and the case *"clamps a slot's depth to stay ahead of the line,
+   and never deeper than the row"* in `tests/server/forest_line.spec.luau`.
 
-2. **The line's depth is MEASURED at the moment of release, at that row's own x, off the beaters'
-   bodies** (Learning Agent L-024). `ForestTest.lineNorthAt` in `src/server/ForestTest/init.luau`
-   reads `realBeaters()` through `Data.lineFrontAt` and subtracts `roadZ` at that x; `releaseLine`
-   calls it and nothing precomputes or estimates it.
-   Verify: `lineNorthAt`, and its one call site in `releaseLine`.
+2. **The line's depth is MEASURED at release, at that row's own x, off the beaters' bodies**
+   (L-024): `ForestTest.lineNorthAt` -> `Data.lineFrontAt(realBeaters(), x)` - `roadZ(x)`, called by
+   `releaseLine`. Nothing precomputes or estimates it. Verify: the function and its one call site.
 
-3. **Every route word hands in its own floor** so the clamp cannot break the rows it was meant to
-   save: a sneak may not start shallower than its treeline band, a refusal may not start inside its
-   own `turnAtDz`, and the one that HOLDS may not be put where lying up after `holdStuds` would leave
-   it across the road. `ForestTest.routeFloor`.
-   Verify: `routeFloor`, and the `Data.routeFloor` assertions in the same spec case as claim 1.
+3. **Every route word hands in its own floor** (`ForestTest.routeFloor`): a sneak may not start
+   shallower than its treeline band, a refusal inside its own `turnAtDz`, or the one that HOLDS where
+   lying up after `holdStuds` would leave it across the road. Verify: the function and its cases.
 
-4. **The stag moved from slot 13 to slot 8 and the refusal that was at slot 8 took slot 13 -- a
-   SWAP**, so every release time in the fifteen-slot grid is untouched (the Director's *"keep the
-   other slots' release times"*) and, both rows being `keepAt = 13`, no column of the dial's table
-   moves at any density. The arithmetic for slot 8 is in his row's comment.
-   Verify: the two rows in `SCHEDULE.drive`, and the counts case
-   (*"answers Karen's counts at the dial she OK'd"*) still asserting 13 groups / 10 crossings /
-   2 refusals / 1 hold / 2 deer groups.
+4. **A line at or past the road is not a line** (`lineNorth <= 0` -> the table's own depth), and
+   **the repeat window never repeats the stag** (his slot moved inside it, so the exclusion is a rule
+   in `slotAt` now). Both were found by a live drive. Verify: the guard, the `slotAt` branch, their
+   two cases, and in `<runs-dir>/253-PROOF.md` the line `SLOT 17 ... from dz 170 of 170, line at dz
+   -827`.
 
-5. **He reaches the verge in act III, before the line arrives, with a margin.** Released at 101 s
-   with the line at dz 267 (flat) he starts at dz 207 and his route is `north + sneakStuds` = 327
-   studs, 73 s at `PACE.WALK_SPEED`, so he is at the verge at 174 s against a line that reaches the
-   road at 187 s flat / ~202 s on the measured ground factor.
-   Verify: the case *"releases every slot ahead of the line at its own time, and the stag early
-   enough to WALK"*, which computes it from `Bots.CONFIG.WALK_SPEED`, `Data.beaterNorthStuds()` and
-   `Boar.CONFIG.PACE.WALK_SPEED` rather than from any number written twice.
+5. **For a DEER kind, noticing the line is not a flush.** `ForestTest.encounterStage` gains an
+   `isDeer` argument and a fourth answer, `"sneak"`: everything that flushes a boar -- the sweep
+   band, the flush circle, the alert clock -- answers "sneak" for a deer while the nearest beater's
+   BODY is further than `SPOOK.DEER_FLUSH_STUDS` (40). A sneak is the drive doing nothing: the animal
+   keeps walking the route it was given. Inside 40 studs it bolts as before, and so does a boar at
+   any distance.
+   Verify: `encounterStage`, the case *"lets a DEER slip away at a walk where a boar would bolt, and
+   bolts it when a man is close"* in `tests/server/forest_stand.spec.luau`, and `spookNearBeaters`'s
+   `sneak` branch -- which does nothing, does NOT latch (so the next tick can still bolt it), and
+   counts.
 
-6. **Every slot of the script is released ahead of the line at its own release time**, and the two
-   exceptions are named rather than asserted away: slots 12-14 are ahead but inside the 60-stud
-   margin (they take their own route floors), and slot 15 -- which holds and never comes -- is due
-   after the men are through. Same case as claim 5.
-   Verify: the `through` and `tight` lists at the end of it.
+6. **`SCHEDULE.leadStuds` 60 -> 130, because 60 was inside two of the line's own reaches.**
+   `noticeAheadStuds` is 100 and `BEATER_STUDS` is 71. Verify: the row, and the case *"orders the
+   three reaches so a deer is pressed closer than a boar and noticed furthest out"*, which asserts
+   `DEER_FLUSH_STUDS < BEATER_STUDS < NOTICE_STUDS` and `noticeAheadStuds < leadStuds` rather than
+   any of the numbers.
 
-7. **A line at or past the road is not a line** (`lineNorth <= 0` -> the table's own depth). MEASURED:
-   the first live run released the repeat window's groups at the 25-stud floor ON THE VERGE
-   (*"SLOT 17 ... from dz 25 of 170, line at dz -9"*); after the fix the same slot read *"from dz 170
-   of 170, line at dz -9"*.
-   Verify: the guard in `releaseDepth`, its three cases in the spec, and the two console lines in
-   `<runs-dir>/251c-console1.txt` and `251c-console2.txt`.
+7. **The stag is released though another deer group is alive, because he moves alone.**
+   `Boar.deerGroupsAllowed(liveKinds, config, party)` raises the cap by
+   `RELEASE.LONE_PARTY_EXTRA_GROUPS` when the named party's own composition weighs
+   `LONE_PARTY_SIZE`; `Runtime:deerAllowed(party)` passes it through and `releaseLine` names
+   `row.party`. It is "a party of one" and not "the stag", so the rule reads off the table.
+   Verify: the function, the rows, and the assertions added to *"answers the live cap through one
+   door"* in `tests/server/deer.spec.luau` (the hinds are still refused; a second stag is refused).
 
-8. **The repeat window never repeats the stag.** Its exclusion of him used to be positional (he was
-   slot 13 and the window is `repeatFrom` 6 .. `repeatTo` 12); slot 8 is inside it, so the rule is
-   stated in `slotAt` instead. Slot 18 of a long drive mapped to his row.
-   Verify: `slotAt`'s repeat branch, and the case *"never repeats the stag, however long the drive
-   runs"*.
+8. **`Boar.isDeerKind` is the one answer to "is this kind a deer"**, asked of the live config.
+   Verify: the function and its case in `deer.spec`.
 
-9. **The Forest Test proof, read-only.** Two full drives on Karen's path; the place's attributes were
-   read before (`<runs-dir>/attrs-id.luau`) and after and are identical, nothing was written, and the
-   Forest Test window was closed before the harness ran (the harness log says DEV). Fourteen of the
-   fifteen slots were released ahead of the line, against none of act III before this task.
-   Verify: `ESCALATE.md`'s table, `251c-console2.txt`.
+9. **THE PROOF, in Karen's place, read-only.** `<runs-dir>/253-PROOF.md` with the two tracks
+   (`253-stag-track-A.txt`, `253-stag-track-B.txt`) and the consoles. Attributes read before and
+   after, identical; nothing written; the Forest Test window closed before the harness, which logged
+   DEV. **Run A: 39 seconds of walking and a 90-stud treeline sneak at `PACE.WALK_SPEED`** (dz holds
+   81-85 while x runs 2880 -> 2970), against the same animal in `MOVE.SPRINT_SPEED` 1.5 s after
+   release on the pre-task commit. **Run B: the edge check at the verge -- he stops dead at dz 57 and
+   swings his head -176 <-> -132 degrees for 4.1 seconds**, inside the stag's own 2-6 s band, then
+   crosses. Every slot's release depth against the line's own depth at that moment is the table in
+   section 1 of the proof.
 
-## What I could NOT verify, and it is escalated
+10. **The new cases fail on the pre-253 source** (L-028), and that was RUN rather than reasoned:
+    with `src/` stashed and the specs in place, `[harness] FAIL: 32/34 ... (DIRTY TREE ...)` with
+    `2197 passed, 6 failed, 6 errors` at `deer.spec:1102`, `deer.spec:1128` (*"attempt to call a nil
+    value"* -- `Boar.isDeerKind`), `forest_line.spec:808`, `forest_line.spec:861`,
+    `forest_stand.spec:2039` and `forest_stand.spec:2075` (*"attempt to call a nil value"* --
+    `Data.deerFlushStuds`).
 
-**The stag still does not walk, and the frame of him at the verge does not exist.** Tracked by
-instance every 0.5 s he was in `MOVE.SPRINT_SPEED` within 1.5 s of release and over the road 7 s
-later, with no 2-6 s stop, no yaw reversal and no leg along his sneak band. The cause is measured and
-is a radius in another system: `ForestTest.noticeAheadStuds` is 100 studs and `leadStuds` is 60, so a
-clamped group is spawned 40 studs INSIDE the line's notice band and `SPOOK.ALERT_SECONDS` = 2 ends the
-stand whatever the line does. The arithmetic for every lead that could fix it, and five options, are
-in `ESCALATE.md` (2026-10-24, task 251c). **No screenshot of him at the verge is claimed, because
-there is nothing to photograph.**
+## What I could NOT verify
 
-Also from the run, and also in `ESCALATE.md`: his release TIME is not fixed either --
-`MAX_GROUPS_ALIVE` is 1, so the hind party held him over to slot 10 (127 s) in drive 2.
-
-The client gate failed once on `tests/client/camera_client.spec.luau` and passed on the next run with
-no change; that case is the known flake of this branch lineage (TASKS.md 251c(f), 4 of 6 runs). This
-branch changes no client file (`git diff --name-only main..HEAD` is three files, none under
-`src/client/` or `tests/client/`).
+* **No single drive shows the walk, the sneak AND the edge check together**, and neither bolt in
+  between is unexplained: run A's is a beater inside 40 studs at the end of the twenty-second sneak,
+  run B's is the hand horn (*"horn blown at (3034,142,-2101): 14 boar(s) pushed within 357 studs"*,
+  with the line 122 studs behind him at that moment). Both are the Director's rule firing as written.
+* **The frame of him at the verge at eye height was not obtained.** `ftplay.py capture` passes a
+  camera and a look-at, and **in Play StudioMCP renders the PLAYER's own camera and ignores them** --
+  the three frames taken (`253-stag-1.png`, `253-verge-1..3.png`) are all the hunter's own first-
+  person view from the stand at eye height, and the stag is not identifiable in any of them. The fix
+  is one client probe that points the player's camera at him before the capture; it needs another
+  Play run and the session is already over its box. The behaviour is evidenced by the 0.5 s track
+  instead, which is what a frame could only corroborate.
+* The one-per-animal console ration is proved by run B's single line; run A is what measured the
+  1,676.
