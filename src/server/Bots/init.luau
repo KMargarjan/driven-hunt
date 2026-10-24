@@ -168,8 +168,9 @@ Bots.CONFIG = {
 	-- `ForestTest.BEATER.dropStuds`: dropped onto the ground, not into it.
 	DROP_STUDS = 4,
 	-- A BOT THAT HAS NOT MOVED THIS FAR IN THIS LONG IS STUCK. At 3.1 studs/s four seconds is 12.4
-	-- studs, so 3 is still unambiguously "not walking" (at 5 it was 20). It side-steps and the count is PRINTED -- which is
-	-- what opens the research note's escape hatch (SimplePath) with a number rather than a feeling.
+	-- studs, so 3 is still unambiguously "not walking" (at 5 it was 20). It side-steps and the count
+	-- is PRINTED -- which is what opens the research note's escape hatch (SimplePath) with a number
+	-- rather than a feeling.
 	STUCK_SECONDS = 4,
 	STUCK_STUDS = 3,
 

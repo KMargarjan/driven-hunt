@@ -1133,8 +1133,9 @@ end
 -- Play session of this place is measured, by the method this repo already uses (a `Sound` per id,
 -- `ContentProvider:PreloadAsync` on the client, then `IsLoaded` and `TimeLength` read back -- Edit
 -- answers 0 for an asset nobody has fetched, which is how a dead id passes a bench test). **NOBODY
--- HERE CAN HEAR IT.** Whether a bull at pitch 1.15 and 350 studs reads as a stag roaring across a
--- valley is KAREN'S EARS, and it is the one thing this row cannot claim.
+-- HERE CAN HEAR IT.** Whether a bull at pitch 1.15, heard at the 372 studs the live run measured,
+-- reads as a stag roaring across a valley is KAREN'S EARS, and it is the one thing this row cannot
+-- claim.
 ForestTest.ROAR = {
 	enabled = true,
 	-- The four, longest first. `pitch` applies to all of them (`PlaybackSpeed`), so a 4.4 s bellow is
@@ -1174,8 +1175,11 @@ ForestTest.ROAR = {
 	nearStuds = 90,
 	audibleStuds = 420,
 	-- WHEN. The spec: *"t 0-90 s of a drive that carries a stag; then once at his release"*. 20 s
-	-- apart is four roars in the window, which is a stag answering himself across a wood rather than
-	-- a loop; the first is 8 s in, after the opening signal's own fanfare.
+	-- apart is **five** roars in the window -- 8, 28, 48, 68 and 88 s -- which is a stag answering
+	-- himself across a wood rather than a loop; the first is 8 s in, after the opening signal's own
+	-- fanfare. Five is what `forest_line.spec` computes off these three numbers rather than reading
+	-- it here, and it is what both live drives printed (`ROAR 1` .. `ROAR 5`). (Review round 2's note:
+	-- this said "four", which was the figure before `firstAtSeconds` was set to 8.)
 	windowSeconds = 90,
 	firstAtSeconds = 8,
 	everySeconds = 20,

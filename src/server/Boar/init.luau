@@ -1328,7 +1328,9 @@ Boar.CONFIG.MOVE = {
 	EDGE_MAX_SECONDS = 4.0,
 	-- ------------------------------------------- THE DEER'S OWN EDGE CHECK (task 251 part 2)
 	--
-	-- THESE THREE ARE THE DEFAULTS AND A KIND MAY OVERRIDE THEM. `Boar.CONFIG.KINDS.<kind>.edge` is
+	-- **THE FIVE `EDGE_` KEYS BELOW ARE THE DEFAULTS AND A KIND MAY OVERRIDE ANY OF THEM**, and so are
+	-- the two `BOUND_` keys further down (review round 2's note: this said "these three", which was the
+	-- count before the look back and the bark were added beside them). `Boar.CONFIG.KINDS.<kind>.edge` is
 	-- laid over this table by `Boar.edgeByKind`, which `Boar.kindConfig` calls -- the same shape
 	-- `wary` has had since task 223, for the same reason: *"a lone stag has no jumpy companion to
 	-- trigger him, so he must be his own alarm"* is a fact about a KIND and not about a species, and
@@ -6031,10 +6033,14 @@ function Runtime:check(id: string, seconds: number?): boolean
 		if entry.id == id then
 			local took = entry.brain:check(seconds) == true
 			if took then
-				-- THE KIND'S OWN CONFIG, which is the one answer to "which numbers does this animal
-				-- live by" (`Boar.kindConfig`, the same call `Runtime:spawn` makes): `MOVE.EDGE_BARKS`
-				-- is false on `Boar.CONFIG.MOVE` and true only on the stag's and the hind's rows.
-				local animalConfig = Boar.kindConfig(entry.kind, self._config)
+				-- THE CONFIG THIS ANIMAL WAS BORN WITH, which is `entry.config` and not a fresh
+				-- `kindConfig` call (review round 2's note). That field exists precisely so there is ONE
+				-- answer to "which numbers does this animal live by" for the life of the animal -- a
+				-- world whose config is swapped after a spawn would otherwise get two -- and it saves a
+				-- table clone per check. `MOVE.EDGE_BARKS` is false on `Boar.CONFIG.MOVE` and true only
+				-- on the stag's and the hind's rows. The fallback is the call it replaces, for an entry
+				-- old enough not to carry one.
+				local animalConfig = entry.config or Boar.kindConfig(entry.kind, self._config)
 				local move = animalConfig.MOVE
 				if move ~= nil and move.EDGE_BARKS == true then
 					-- THE SLOT IS SPENT ONLY ON A BARK THAT WAS ACTUALLY PLAYED (review round 1, note).

@@ -2555,7 +2555,15 @@ function ForestTest.step(now: number): string?
 		-- Two counters and not one: `waveIndex` numbers the console lines for the whole session and
 		-- must not restart, and an ordinal drawn against it would mean "wave 3 of the session".
 		state.driveWave = (state.driveWave or 0) + 1
-		return ForestTest.releaseLine(now) or flush
+		-- BOTH LINES, NOT THE FIRST OF THEM (review round 2's note). This was `releaseLine(now) or
+		-- flush`, so a roar -- or a flush, or a walked-up animal -- that happened on the same tick as a
+		-- slot release never reached the console at all, and the drive's own proof then undercounts the
+		-- very thing it is evidence for. The slot line comes first because it is the drive's headline.
+		local released = ForestTest.releaseLine(now)
+		if released ~= nil and flush ~= nil then
+			return released .. " | " .. flush
+		end
+		return released or flush
 	end
 
 	ForestTest.retire(now)
@@ -3394,8 +3402,13 @@ function ForestTest.roarNow(at: Vector3, where: string): string?
 	sound.Volume = roar.volume
 	sound:Play()
 	state.roars += 1
+	-- THE FIGURE IS FLAT AND IS MEASURED FROM THE ROAD AT HIS OWN x, which review round 2's note is
+	-- right to call an approximation: the stand sits on the road's own z at ITS x, and the lane is a
+	-- sine, so with a stand well off to one side the two differ by up to the lane's amplitude (30
+	-- studs). It is said in the line rather than silently rounded, because this number is the one the
+	-- live proof reads and `forest_line.spec` asserts the real geometry against `audibleStuds`.
 	return string.format(
-		"ROAR %d: the stag answers from %s, %.0f studs from the stand, audible to %d",
+		"ROAR %d: the stag answers from %s, ~%.0f studs out (flat, from the road at his own x), audible to %d",
 		state.roars,
 		where,
 		(Vector3.new(at.X - ForestTest.hunterStandX(), 0, at.Z - Data.roadZ(at.X, chosen.layout))).Magnitude,

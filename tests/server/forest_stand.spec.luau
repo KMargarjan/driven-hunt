@@ -135,6 +135,13 @@ return function()
 			-- ends when the line arrives, so every one of the fifteen slots has to be due before it.
 			-- The flat quotient understates the real walk by the measured 1.081 (the hill, the trunks
 			-- and the side-steps), so asserting against the FLAT figure is the strict direction.
+			--
+			-- **IT IS A TRIPWIRE AND NOT A BAND**, said plainly (review round 2's note): 193.5 against
+			-- 192 is 1.5 s of margin on the flat quotient, and the ground adds a measured 1.081 on top
+			-- -- so the real margin is ~18 s and the flat one is nearly nothing. Anybody who widens
+			-- `SCHEDULE.intervalSeconds` trips this, which is the point; anybody who NARROWS it (the
+			-- escalation's recommendation, 13 -> 9) buys room. It is the FLAT figure deliberately,
+			-- because that is the strict direction.
 			expect(seconds > Data.slotSeconds(#Data.SCHEDULE.drive)).to.equal(true)
 			-- ...AND IT IS THE SAME IN EVERY LAYOUT, which is this case's own claim, asserted by ASKING
 			-- EACH LAYOUT: `beaterNorthStuds` takes no layout argument -- that is the whole reason the

@@ -600,8 +600,9 @@ return function()
 			-- stopped being half the pace at all; and then half the pace stopped being expressible,
 			-- because 1.55 studs/s is rate 0.23 and `GAIT.MIN_RATE` is 0.30, so `Rig.gait` CLAMPS it
 			-- and the scaled rate and the clamped one are different numbers. 0.75 is the fraction
-			-- because it is the one that keeps the perturbed pace above that floor, and it is asserted
-			-- below rather than asserted here.
+			-- because it is the one that keeps the perturbed pace above that floor, and the floor itself
+			-- is asserted a few lines down -- so the reason for the fraction is a measurement in this
+			-- file rather than a sentence in this comment.
 			local slowFraction = 0.75
 			local slowPace = Bots.CONFIG.WALK_SPEED * slowFraction
 			local here = Rig.positionOf(body) :: Vector3

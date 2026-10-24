@@ -685,7 +685,7 @@ return function()
 			expect(stag.pace).to.equal("walk")
 		end)
 
-		it("WALKS the stag's sneak along the treeline, and it is the side he came from", function()
+		it("gives the sneak its two numbers and its DIRECTION, which is the side he came from", function()
 			-- PART 1'S OWN BOUNDARY CASE, NOW FLIPPED -- which is what it said would happen: *"the day
 			-- part 2 reads it, THIS case is the thing that has to change"*. Spec section 3.2, Karen
 			-- OK'd: *"ein Stueck innerhalb des Waldrands ... ehe es das offene Feld annimmt"*.
