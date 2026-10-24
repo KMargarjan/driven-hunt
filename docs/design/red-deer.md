@@ -298,6 +298,13 @@ is the answer.
 to 3: two groups could be half the drive, and the animal Karen called rare would be the animal in
 front of every shooter.
 
+**...EXCEPT A PARTY OF ONE, SINCE TASK 253** (the Director's decision, 2026-10-24). The stag may be
+released while the hind party is still on its feet, because he moves alone and one animal cannot be
+half a drive -- `RELEASE.LONE_PARTY_EXTRA_GROUPS` raises the cap by one for a party whose own
+composition weighs `LONE_PARTY_SIZE`. It was measured: the hinds held him over to the drive's next
+silence and he came out 26 seconds late, against an arithmetic written for his slot. Hind + calf +
+stag is 3 of the 6, which is the bound the paragraph above is really about.
+
 **A deer release that does not fit is DEFERRED, not dropped,** and that needs no new code:
 `Runtime:spawnSounder` already returns `{}` when `#self._boars + size > maxBoars`, and
 `Match.applySpawnSounder` already treats an empty answer as `releasesDeferred` plus

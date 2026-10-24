@@ -1890,6 +1890,7 @@ ForestTest.SCHEDULE = {
 	-- A ROW THAT SNEAKS TAKES ITS OWN `sneakDz` AS THE FLOOR instead (`releaseLine` hands it in): the
 	-- sneak's two pins sit `sneakDz` north of the road, so a start clamped SHALLOWER than that would
 	-- walk the stag NORTH into the treeline band and then south again -- a doubling back, not a sneak.
+	-- A ROW THAT HOLDS IS NOT CLAMPED AT ALL (`ForestTest.clampedToLine`).
 	minNorthStuds = 25,
 
 	-- HOW BUSY A DRIVE IS: "quiet", "normal" or "busy". Karen OK'd `normal`.
@@ -2037,7 +2038,7 @@ ForestTest.SCHEDULE = {
 			-- outside the rut"*, `docs/research/2026-10-21-deer-in-every-drive.md`) and the Jaeger
 			-- finding (red deer come *"lange nach Beginn des Treibens -- klammheimlich aus der
 			-- Dickung"*) in one row. The hinds came out at slot 2 and 85 studs; he is at the verge
-			-- 150 seconds later, out of 330.
+			-- about 135 seconds later, out of a holding the script writes at 330.
 			--
 			-- HE IS RELEASED HERE SO THAT HE CAN WALK IT (task 251c). He was slot 13 and
 			-- part 2 measured what that cost: released at 166 s he had 44 seconds for a 95-second
@@ -2069,11 +2070,12 @@ ForestTest.SCHEDULE = {
 			-- bolted across the road: a shallower, later-looking release is the one that lets him
 			-- walk.
 			--
-			-- HE IS THE LAST DEER, THE LAST WALKER AND THE LAST OF THE SCRIPT'S CROSSINGS BAR ONE:
-			-- slot 14 is released at 179 s at a RUN from a depth the clamp pulls to the floor, so it
-			-- is over the road ~2 s later. That is said out loud rather than discovered (rule 8) and
-			-- it is the clamp's own consequence, not a second rule: a deep row released when the line
-			-- is already at the verge has nowhere ahead of it to start from.
+			-- HE IS THE LAST DEER, AND HE IS NOT THE LAST WALKER: slot 9's big lone male walks at
+			-- 114 s, and slot 14 -- released at 179 s at a RUN from a depth the clamp pulls to its
+			-- floor -- is over the road about two seconds later, so it crosses after him. Both are
+			-- said out loud rather than discovered (rule 8), and the second is the clamp's own
+			-- consequence rather than a second rule: a deep row released when the line is already at
+			-- the verge has nowhere ahead of it to start from.
 			--
 			-- HIS `act` IS 2 BECAUSE A ROW'S ACT IS WHERE IT SITS IN THE DRIVE (five slots each, and
 			-- `forest_line.spec` asserts the quotient). WHAT REACHES ACT III IS THE STAG HIMSELF, at
@@ -2324,10 +2326,15 @@ end
 -- tidy. A drive ends when the beaters arrive, but `DRIVE.seconds` is 300 and the script's repeat
 -- window (`repeatFrom`..`repeatTo`) keeps releasing until it runs out -- so the first live run of
 -- this task logged `SLOT 16 ... from dz 25 of 150, line at dz 26` and `SLOT 17 ... from dz 25 of
--- 170, line at dz -9`: two sounders put down ON THE VERGE, 25 studs in front of the hunter, because
--- a line south of the road has everything north of it "behind" it and the clamp collapsed to its
--- floor. Once the men are through there is nothing left to be behind, so the script's own depths are
--- right again and those groups come out of the wood as they always did.
+-- 170, line at dz -9`: two sounders put down ON THE VERGE, 25 studs in front of the hunter. Once the
+-- men are through there is nothing left to be behind, so the script's own depths are right again and
+-- the second of those two comes out of the wood as it always did (measured after: *"from dz 170 of
+-- 170"*).
+--
+-- IT FIXES THE SECOND OF THE PAIR AND NOT THE FIRST, said plainly because the round-1 Reviewer was
+-- right to pin it: a line at dz 26 is still NORTH of the road, so that release is still clamped to
+-- the floor and slot 16 still comes out on the verge. What is left there is the drive's own last
+-- seconds, where there genuinely is no room in front of the men -- the same case as slots 13 and 14.
 --
 -- IT ONLY EVER PULLS A ROW TOWARD THE ROAD. The `min` is what keeps the script's relative ordering
 -- (the Director's own condition), and it is why there is no "has the line passed this row" branch at
@@ -2363,12 +2370,11 @@ end
 --   a BREAK-BACK turns at `turnAtDz`, so a shallower start walks north to its turn and then home,
 --     and the refusal Karen asked for twice (*"several go back"*) is never seen coming at the road
 --     at all.
---   a HOLD moves `holdStuds` toward the road and lies up, so a shallower start walks it ACROSS the
---     road -- the one group in the drive whose entire point is that it never comes.
 -- STRAIGHT, LATERAL and SPLIT need nothing: they walk south to their crossing from wherever they
--- are, so their floor is `minNorthStuds` and the clamp is free.
+-- are, so their floor is `minNorthStuds` and the clamp is free. A HOLD is not clamped at all --
+-- see `ForestTest.clampedToLine` just below.
 --
--- THE TWO THAT TURN GET `minNorthStuds` ON TOP OF THEIR OWN POINT, so there is a few studs of walk
+-- THE ONE THAT TURNS GETS `minNorthStuds` ON TOP OF ITS OWN POINT, so there is a few studs of walk
 -- between the release and the turn rather than a group that spawns already turning.
 function ForestTest.routeFloor(row, schedule): number
 	local resolved = schedule or ForestTest.SCHEDULE
@@ -2379,15 +2385,31 @@ function ForestTest.routeFloor(row, schedule): number
 	if row.sneak == true and type(row.sneakDz) == "number" then
 		return math.max(min, row.sneakDz)
 	end
-	local route = ForestTest.slotRoute(row)
-	if route == "BREAK-BACK" then
+	if ForestTest.slotRoute(row) == "BREAK-BACK" then
 		local turn = row.turnAtDz or resolved.turnBackStuds or 0
 		return math.max(min, turn + min)
 	end
-	if route == "HOLD" then
-		return math.max(min, (row.holdStuds or 60) + min)
-	end
 	return min
+end
+
+-- IS THE LINE'S DEPTH THIS ROW'S BUSINESS AT ALL (task 253, round 1's blocking finding, which was
+-- right)? PURE, one row in.
+--
+-- A `HOLD` IS NOT CLAMPED, AND BEING PASSED BY THE MEN IS WHAT IT IS FOR. The clamp exists because a
+-- group released behind the line MEETS IT HEAD-ON when it starts for the road; the one that stays
+-- never starts. It is the PLOS ONE study's 32 % that hold -- it moves `holdStuds` off its bed and
+-- lies up -- so the beaters walking through it is the behaviour, not a defect in it.
+--
+-- AND THE CLAMP BROKE EXACTLY THAT, MEASURED: with a floor of `holdStuds + minNorthStuds` = 85 it
+-- was released at dz 85 with the line at 66 (`ESCALATE.md`'s own live table) and its hold leg --
+-- `start dz - holdStuds` -- then put a sow, four cubs and a male down to lie up **25 studs from the
+-- road, in front of the hunter**, against a row whose note reads *"It never comes"*. The round-1
+-- Reviewer found it in the arithmetic before Karen found it in her place.
+--
+-- EVERY OTHER ROUTE WORD IS CLAMPED, the refusal included: a `BREAK-BACK` comes to its `turnAtDz`
+-- before it goes home, so it does start for the road and it does meet the line.
+function ForestTest.clampedToLine(row): boolean
+	return ForestTest.slotRoute(row) ~= "HOLD"
 end
 
 -- WHICH ROW A SLOT RELEASES, or **nil for silence**. THE WHOLE OF THE DIAL IS THIS FUNCTION.

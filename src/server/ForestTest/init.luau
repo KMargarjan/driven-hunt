@@ -2210,6 +2210,14 @@ function ForestTest.newDrive(now: number?)
 	state.restTriedAt = nil
 	state.latched = {}
 	state.noticedAt = {}
+	-- TASK 253, round 1's note: the deer that slipped away rather than bolting, counted PER DRIVE --
+	-- which is what the console line says it is ("%d so far in this drive"). It used to be reset in
+	-- `start` only, beside the flushes, so from drive 2 it reported the session's total under the
+	-- drive's name. `slipSaid` goes with it, so each animal gets one line per drive and a stag that
+	-- slips in two drives is heard about twice.
+	state.slipped = 0
+	state.slipping = 0
+	state.slipSaid = {}
 	state.restTrace = {}
 	-- ...AND A NEW DRIVE IS A NEW DEER (task 239). Karen: *"we need all a time in drive deer"* -- so
 	-- the guarantee is spent per DRIVE, which means it is handed back here and nowhere else, exactly
@@ -2522,11 +2530,6 @@ function ForestTest.start(runtime, now: number)
 	-- TASK 153: how many animals a real beater has walked up to, and the line the console gets.
 	state.flushed = 0
 	state.flushLine = nil
-	-- TASK 253: and how many deer slipped away rather than bolting, per drive, beside the flushes --
-	-- the animals it has been SAID of (one console line each), and the raw per-tick count.
-	state.slipped = 0
-	state.slipSaid = {}
-	state.slipping = 0
 	-- TASK 154: the resting groups this world was stocked with, and when the wood last went empty.
 	-- `rest` holds one row per group that was actually placed; `latched` remembers which animals
 	-- have already been sent, so one walk past a sounder is one spook and not one per heartbeat.
@@ -2964,7 +2967,9 @@ function ForestTest.releaseLine(now: number): string?
 	-- EVERY ROUTE WORD HANDS IN ITS OWN FLOOR (`Data.routeFloor`): a sneak may not start shallower
 	-- than its treeline band, a refusal may not start inside its own turn, and the one that holds
 	-- may not be put where lying up after `holdStuds` would leave it on the far side of the road.
-	local lineNorth = ForestTest.lineNorthAt(nominal.X)
+	-- ...AND A ROW THAT NEVER STARTS FOR THE ROAD IS NOT CLAMPED AT ALL (round 1's blocking finding):
+	-- `Data.clampedToLine` is the rule and the HOLD row is the one it answers no for.
+	local lineNorth = if Data.clampedToLine(row) then ForestTest.lineNorthAt(nominal.X) else nil
 	local startNorth = Data.releaseDepth(row.northStuds, lineNorth, Data.routeFloor(row))
 	nominal = Vector3.new(nominal.X, nominal.Y, Data.roadZ(nominal.X, chosen.layout) + startNorth)
 	local start = Vector3.new(nominal.X, Data.groundAt(nominal.X, nominal.Z) or chosen.layout.centre.Y, nominal.Z)
@@ -3387,9 +3392,16 @@ end
 -- per server, moved to the roar point before each play, never destroyed. A Sound per roar would be
 -- an Instance churn nobody needs and a second place that could play one.
 --
--- WHERE HE ROARS FROM: his own holding, `deeperStuds` further back. The script holds him at slot 8's
--- `northStuds` (330) until t 101 s -- slot 13 and 166 s until task 251c moved his release so that he
--- could walk to the road -- so his holding is a point the DRIVE knows and nothing else does
+-- WHERE HE ROARS FROM: the holding THE SCRIPT WRITES, `deeperStuds` further back -- slot 8's
+-- `northStuds` (330), until t 101 s. Slot 13 and 166 s until task 251c moved his release so that he
+-- could walk to the road.
+--
+-- IT IS THE TABLE'S DEPTH AND NOT WHERE HE IS ACTUALLY PUT DOWN (round 1's note, which is right):
+-- since task 253 the release clamp pulls him in to ~137 studs (flat) or ~160 (in Karen's place), so
+-- the roar sounds from ~190 studs deeper than the animal ever stands. That is deliberate and it is
+-- the point of the cue -- he is answering from the far wood BEFORE he is released, and the drive is
+-- the only thing that knows where that is -- but the two numbers are not the same number and the
+-- comment used to imply they were. So his holding is a point the DRIVE knows and nothing else does
 -- -- which is the same split `signalPoint` and `checkAtTheEdge` already keep: the world says WHERE,
 -- and in this case the world also says what it sounds like, because no animal is involved.
 function ForestTest.roarPoint(): Vector3?

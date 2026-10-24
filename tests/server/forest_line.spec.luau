@@ -777,7 +777,6 @@ return function()
 			-- RULE is here and the shipped rows are checked against it below.
 			expect(Data.routeFloor({ sneak = true, sneakDz = 75 }, sched)).to.equal(75)
 			expect(Data.routeFloor({ route = "BREAK-BACK", turnAtDz = 40 }, sched)).to.equal(65)
-			expect(Data.routeFloor({ route = "HOLD", holdStuds = 60 }, sched)).to.equal(85)
 			expect(Data.routeFloor({ route = "STRAIGHT" }, sched)).to.equal(25)
 			expect(Data.routeFloor({ route = "LATERAL" }, sched)).to.equal(25)
 			expect(Data.routeFloor(nil, sched)).to.equal(25)
@@ -789,6 +788,29 @@ return function()
 			for _, row in ipairs(SCHEDULE.drive) do
 				expect(Data.routeFloor(row, SCHEDULE) < (row.northStuds or 100)).to.equal(true)
 			end
+			-- ...AND THE ONE THAT HOLDS IS NOT CLAMPED AT ALL (round 1's blocking finding, which was
+			-- right). The clamp exists because a group released behind the line MEETS IT HEAD-ON
+			-- when it starts for the road; the one that stays never starts, so being passed by the
+			-- men is what it is for. Clamped, its floor was `holdStuds + minNorthStuds` = 85 and its
+			-- hold leg -- `start dz - holdStuds` -- then put six animals down to lie up 25 studs
+			-- from the road, against a row whose note reads "It never comes".
+			expect(Data.clampedToLine({ route = "HOLD", holdStuds = 60 })).to.equal(false)
+			expect(Data.clampedToLine({ route = "STRAIGHT" })).to.equal(true)
+			expect(Data.clampedToLine({ route = "BREAK-BACK", turnAtDz = 40 })).to.equal(true)
+			expect(Data.clampedToLine({ route = "LATERAL" })).to.equal(true)
+			expect(Data.clampedToLine({ route = "SPLIT" })).to.equal(true)
+			-- A ROW WITH NO ROUTE WORD IS A STRAIGHT ONE (`slotRoute`'s own default), so it is
+			-- clamped: the exemption is the HOLD and nothing else.
+			expect(Data.clampedToLine({})).to.equal(true)
+			-- EXACTLY ONE SHIPPED ROW IS EXEMPT, and it is slot 15.
+			local exempt = {}
+			for _, row in ipairs(SCHEDULE.drive) do
+				if not Data.clampedToLine(row) then
+					table.insert(exempt, row.slot)
+				end
+			end
+			expect(#exempt).to.equal(1)
+			expect(exempt[1]).to.equal(15)
 			-- A ROW WITH NO DEPTH TAKES `wavePoint`'S OWN DEFAULT, so the two cannot disagree.
 			expect(Data.releaseDepth(nil, nil, nil, sched)).to.equal(100)
 			-- A LINE AT OR PAST THE ROAD IS NOT A LINE: the table's own depth, unclamped. MEASURED in
@@ -817,52 +839,67 @@ return function()
 			-- `atSeconds`, against where the line actually is then -- which is the comparison nothing
 			-- made before this task, so act III was released 30 to 106 s after the beaters had walked
 			-- through its own start.
-			local through, tight = {}, {}
-			for _, row in ipairs(SCHEDULE.drive) do
-				local line = lineNorthAt(row.atSeconds)
-				local floor = Data.routeFloor(row, SCHEDULE)
-				local north = Data.releaseDepth(row.northStuds, line, floor, SCHEDULE)
-				-- NEVER DEEPER THAN ITS OWN ROW: the clamp only ever pulls a group toward the road.
-				expect(north <= (row.northStuds or 100)).to.equal(true)
-				if line <= 0 then
-					-- THE MEN ARE THROUGH, so there is nothing to be behind and the row's own depth
-					-- stands. Without this the group comes out ON THE VERGE -- measured, live.
-					expect(north).to.equal(row.northStuds)
-					table.insert(through, row.slot)
-				else
-					-- AHEAD OF THE LINE. This is the claim the escalation existed to get, and every
-					-- row of the script meets it: the row's own route floor is shallower than the
-					-- line at its own release time, every time.
-					expect(floor < line).to.equal(true)
-					expect(north < line).to.equal(true)
-					if line - SCHEDULE.leadStuds >= floor then
-						-- ...AND BY THE FULL LEAD MARGIN, wherever the row's floor allows it.
-						expect(north <= line - SCHEDULE.leadStuds).to.equal(true)
+			-- BOTH MODELS, AND THAT IS ROUND 1'S FINDING TOO: the flat quotient puts the line at the
+			-- road by 187 s and the measured ground factor by 202, so a case stated only on the flat
+			-- one asserts a branch Karen's place does not take. Every claim below is made twice.
+			local function run(factor: number?)
+				local exempt, tight = {}, {}
+				for _, row in ipairs(SCHEDULE.drive) do
+					local line = lineNorthAt(row.atSeconds, factor)
+					local floor = Data.routeFloor(row, SCHEDULE)
+					local clamped = Data.clampedToLine(row)
+					local north = Data.releaseDepth(row.northStuds, if clamped then line else nil, floor, SCHEDULE)
+					-- NEVER DEEPER THAN ITS OWN ROW: the clamp only ever pulls one toward the road.
+					expect(north <= (row.northStuds or 100)).to.equal(true)
+					if not clamped or line <= 0 then
+						-- THE ONE THAT HOLDS IS NOT THE LINE'S BUSINESS, and a line past the road is
+						-- not a line: either way the row's own depth stands.
+						expect(north).to.equal(row.northStuds)
+						table.insert(exempt, row.slot)
 					else
-						table.insert(tight, row.slot)
-					end
-					if row.slot <= 10 then
-						-- EVERY SLOT UP TO 10 GETS THE FULL MARGIN -- all of act I and all of act
-						-- II, the stag included. (It was 11 while the lead was 60; at 130 the line
-						-- is 16 studs short of giving act III's first row the whole of it.)
-						expect(north <= line - SCHEDULE.leadStuds).to.equal(true)
+						-- AHEAD OF THE LINE. This is the claim the escalation existed to get, and
+						-- every row of the script meets it on both models: the row's own route floor
+						-- is shallower than the line at its own release time, every time.
+						expect(floor < line).to.equal(true)
+						expect(north < line).to.equal(true)
+						if line - SCHEDULE.leadStuds >= floor then
+							-- ...AND BY THE FULL LEAD MARGIN, wherever the row's floor allows it.
+							expect(north <= line - SCHEDULE.leadStuds).to.equal(true)
+						else
+							table.insert(tight, row.slot)
+						end
+						if row.slot <= 10 then
+							-- EVERY SLOT UP TO 10 GETS THE FULL MARGIN on both models -- all of act
+							-- I and all of act II, the stag included.
+							expect(north <= line - SCHEDULE.leadStuds).to.equal(true)
+						end
 					end
 				end
+				return exempt, tight
 			end
 			-- WHAT THE END OF THE DRIVE COSTS, SAID OUT LOUD (rule 8, and the Director's *"if another
 			-- act-III group cannot reach the road in time either, say so and apply the same rule"*).
-			-- On the FLAT quotient the line is at the road by 187 s, so act III's four late rows are
-			-- ahead of it but inside the 130-stud margin -- they take their own route floors, 25, 80,
-			-- 65 and 25 -- and slot 15, which holds 60 studs short of the road and never comes, is
-			-- due at 192 s when the men are already through. In Karen's place the line is 8 % slower
-			-- (the measured ground factor) and slot 11 keeps the full margin as well.
-			expect(#through).to.equal(1)
-			expect(through[1]).to.equal(15)
-			expect(#tight).to.equal(4)
-			expect(tight[1]).to.equal(11)
-			expect(tight[2]).to.equal(12)
-			expect(tight[3]).to.equal(13)
-			expect(tight[4]).to.equal(14)
+			-- Act III's late rows are ahead of the line but inside the 130-stud margin, and they take
+			-- their own route floors. Slot 15 is exempt on both models -- it holds and never comes --
+			-- and on the FLAT quotient the men are through by its 192 s as well.
+			local flatExempt, flatTight = run()
+			expect(#flatExempt).to.equal(1)
+			expect(flatExempt[1]).to.equal(15)
+			expect(#flatTight).to.equal(4)
+			expect(flatTight[1]).to.equal(11)
+			expect(flatTight[2]).to.equal(12)
+			expect(flatTight[3]).to.equal(13)
+			expect(flatTight[4]).to.equal(14)
+			-- IN KAREN'S PLACE the line is 8 % slower, so act III's first row keeps the whole margin
+			-- and only the last three are tight. The live drive is this column:
+			-- `SLOT 11 ... released=77, line=207` is a full 130 clear.
+			local groundExempt, groundTight = run(1.081)
+			expect(#groundExempt).to.equal(1)
+			expect(groundExempt[1]).to.equal(15)
+			expect(#groundTight).to.equal(3)
+			expect(groundTight[1]).to.equal(12)
+			expect(groundTight[2]).to.equal(13)
+			expect(groundTight[3]).to.equal(14)
 			TestKit.note(
 				string.format(
 					"task 251c: slots 1-11 are released a full %d studs ahead of the line; 12-14 are ahead but inside that margin; slot 15 is due after the men are through",
