@@ -100,6 +100,7 @@ local ONE_SHOTS = {
 	{ name = "sniff", spec = SOUND.SNIFF }, -- task 117: the head comes up
 	{ name = "hit", spec = SOUND.HIT },
 	{ name = "cry", spec = SOUND.CRY },
+	{ name = "bark", spec = SOUND.BARK }, -- task 257: the alarm bark is its own cue
 	{ name = "death", spec = SOUND.DEATH },
 	{ name = "lastBreath", spec = SOUND.LAST_BREATH },
 	{ name = "fall", spec = SOUND.FALL },
@@ -1772,7 +1773,7 @@ return function()
 
 			-- IT IS A VOICE, so it is the three cues that come OUT of the animal and nothing else:
 			-- its hooves, its breathing and the sniff are the world and are untouched by kind.
-			for _, name in ipairs({ "cry", "death", "grunt" }) do
+			for _, name in ipairs({ "cry", "death", "grunt", "bark" }) do
 				expect(SOUND.VOICE.APPLIES[name]).to.equal(true)
 			end
 			expect(Boar.voicePitch("breath", "cub", SOUND.BREATH, CONFIG)).to.equal(1)

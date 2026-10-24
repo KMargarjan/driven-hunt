@@ -1746,6 +1746,63 @@ function Body.voiceIds(name: string, kind: string?, spec, config)
 	return spec.ids
 end
 
+-- WHICH SAMPLE, AND WHICH PIECE OF IT (task 257) --------------------------------------------------
+--
+-- Karen, 2026-10-24: *"redsatg sound whn hit and when near need corection better real"*. The deer's
+-- alarm bark and its hit call are REAL FIELD RECORDINGS now -- 177 s of a forest edge and 34 s of a
+-- rut -- and neither is a cue. `Boar.CONFIG.SOUND.VOICE.CLIPS` says which seconds of such an id are
+-- worth playing, and this is the one function that reads it. It is pure: a roll in, an id and a
+-- region out, so a spec can ask what a stag is about to say with no stag in the world.
+--
+-- THE RULE IS TASK 254's `roarClip`, AND IT IS THE SAME RULE FOR THE SAME REASON. `ids[1]` is the
+-- real animal and the rest of the list is the library fallback, so:
+--   1. if `CLIPS` has a usable entry for `ids[1]`, that id sounds, and ONE of its regions, rolled;
+--   2. otherwise an id is picked at random **among the ids that are NOT in `CLIPS`**.
+-- Step 2 is what makes the fallback safe: a clipped id can never be played WHOLE, which for the
+-- bark would be a hundred and seventy-seven seconds of forest out of one animal's throat. The trap
+-- that remains is documented where the data is -- delete a `CLIPS` entry and leave its id in an
+-- `ids` list and step 2 is the branch that plays it, whole.
+--
+-- A LIST THAT IS NOTHING BUT CLIPPED IDS WITH NO USABLE REGION answers `ids[1]` and no region,
+-- which is the same silence-free fallback every other path here takes; it cannot happen with the
+-- data that ships, because the only two clipped ids both carry four regions.
+function Body.voiceClips(config)
+	local voice = config.SOUND.VOICE
+	local clips = voice ~= nil and voice.CLIPS
+	return if type(clips) == "table" then clips else nil
+end
+
+function Body.voiceClip(ids, config, roll: number): (number?, any?)
+	if type(ids) ~= "table" or #ids == 0 then
+		return nil, nil
+	end
+	local clips = Body.voiceClips(config)
+	local first = clips ~= nil and clips[ids[1]] or nil
+	local regions = type(first) == "table" and first.regions
+	if type(regions) == "table" and #regions > 0 then
+		local pick = regions[math.clamp(math.floor(roll * #regions) + 1, 1, #regions)]
+		return ids[1], { clip = first, region = pick }
+	end
+	-- NOTHING CLIPPED IS PLAYED WHOLE. The candidates are the ids with no `CLIPS` entry.
+	local plain = {}
+	for _, id in ipairs(ids) do
+		if clips == nil or clips[id] == nil then
+			table.insert(plain, id)
+		end
+	end
+	if #plain == 0 then
+		return ids[1], nil
+	end
+	return plain[math.clamp(math.floor(roll * #plain) + 1, 1, #plain)], nil
+end
+
+-- HOW LONG A REGION SOUNDS FOR, in real seconds, at the speed it is played at. Pure, and it is what
+-- bounds the cue: `playOneShot` takes the SMALLER of this and the row's own `cut`, so a region is
+-- never left running past the end the data asked for and a cut never runs past the region.
+function Body.clipSeconds(region, pitch: number): number
+	return math.max(region.to - region.from, 0) / math.max(pitch, 1e-3)
+end
+
 -- HOW LONG THIS ANIMAL'S OWN SAMPLES MAY SOUND, in seconds of sound (task 240). Pure.
 --
 -- THE ROW MAY ONLY CUT ITS SAMPLES SHORTER, NEVER LONGER -- `math.min` and not "the row wins" --
@@ -1812,12 +1869,23 @@ end
 
 -- A CUT SOUND'S VOLUME, `left` seconds before it is stopped. Full until the fade begins, then down
 -- to nothing in a straight line, so a squeal ENDS instead of being chopped. Pure.
-function Body.cutVolume(left: number, spec): number
+--
+-- ...AND IT FADES IN TOO, WHEN IT IS A REGION (task 257). `since` is how long the cue has been
+-- sounding, and it is passed only by a cue playing one piece of a long field recording: a cut into
+-- the middle of a 44.1 kHz forest recording CLICKS at the start exactly as it does at the end, and
+-- the fade is the same length at both. `since` nil is every caller written before this task, which
+-- is every library sample, and the function is then the one it was.
+--
+-- THE TWO RAMPS ARE MULTIPLIED RATHER THAN BRANCHED, so a region shorter than two fades gets a
+-- triangle instead of one ramp fighting the other.
+function Body.cutVolume(left: number, spec, since: number?): number
 	local fade = spec.fade or 0
-	if fade <= 0 or left >= fade then
+	if fade <= 0 then
 		return spec.volume
 	end
-	return spec.volume * math.max(left, 0) / fade
+	local out = if left >= fade then 1 else math.max(left, 0) / fade
+	local inn = if since == nil or since >= fade then 1 else math.max(since, 0) / fade
+	return spec.volume * out * inn
 end
 
 -- THE ONE-SHOT SOUNDS, name to config row, in ONE place: `attachSounds` builds them from this and
@@ -1827,6 +1895,9 @@ function Body.oneShotSpecs(sound)
 	return {
 		hit = sound.HIT,
 		cry = sound.CRY,
+		-- The alarm bark is its own cue since task 257, so it is its own Sound on every animal --
+		-- built here, warmed here and put back by `coolAssets` here, like every other one-shot.
+		bark = sound.BARK,
 		death = sound.DEATH,
 		lastBreath = sound.LAST_BREATH,
 		fall = sound.FALL,
@@ -1894,28 +1965,86 @@ function Body.playOneShot(handle, name: string, spec, config, rng: Random)
 	-- THE ANIMAL'S OWN VOICE, where the cue is one (task 120): its kind's samples and its kind's
 	-- pitch. With `VOICE` off, or for a cue that is not a voice, both answer exactly what the row
 	-- said before.
+	--
+	-- ...AND WHICH PIECE OF IT, WHERE THE SAMPLE IS A FIELD RECORDING (task 257). `voiceClip` is
+	-- the one chooser: it answers the real animal's id plus one measured region whenever
+	-- `VOICE.CLIPS` has one, and otherwise an id with no clip entry, so nothing 177 seconds long is
+	-- ever played whole. `region` nil is every cue written before this task.
 	local ids = Body.voiceIds(name, handle.kind, spec, config)
+	local chosen, clipped = nil, nil
 	if ids then
-		sound.SoundId = Body.soundUri(ids[rng:NextInteger(1, #ids)])
+		chosen, clipped = Body.voiceClip(ids, config, rng:NextNumber())
+		if chosen then
+			sound.SoundId = Body.soundUri(chosen)
+		end
+	end
+	-- THE REGION IS SET OR CLEARED ON EVERY PLAY, NEVER ONLY SET. One Sound per cue per animal is
+	-- replayed for the life of the animal (`attachSounds`), so a region left behind from the last
+	-- cue would clip the next sample this cue picks -- and the fallback ids are short ones, which
+	-- would be silence.
+	if clipped ~= nil then
+		sound.PlaybackRegion = NumberRange.new(clipped.region.from, clipped.region.to)
+		sound.PlaybackRegionsEnabled = true
+	else
+		sound.PlaybackRegionsEnabled = false
 	end
 	-- THE VOLUME IS SET ON EVERY PLAY, which is what makes the warm-up safe: a sound at volume 0 is
 	-- one nobody is listening to, so `coolAssets` may stop it, and this is the line that says "this
 	-- one is real". It is also one less place for a retuned volume to be stale.
 	-- ...AND QUIETER WHEN THE ANIMAL IS FAR (task 120). `voiceScale` is written by the Runtime,
 	-- which is the only thing that knows where the hunters are; it is 1 until something sets it.
-	sound.Volume = spec.volume * (handle.voiceScale or 1)
+	-- ...AND A REGION CARRIES ITS OWN `gain` (task 257): a field recording is not a production
+	-- sample, and `gain` is the measured number that brings one region up to the level of the
+	-- library sample it replaces. It MULTIPLIES the row's volume rather than replacing it, so the
+	-- row stays the cue's dial and the gain stays the recording's correction.
+	local gain = if clipped ~= nil then clipped.region.gain or 1 else 1
+	sound.Volume = spec.volume * gain * (handle.voiceScale or 1)
 	-- A spec may carry its own `pitch` as the CENTRE of the jitter: the sniff is the same breath
 	-- sample played high (task 117), and that is a number in the table rather than a second asset.
 	-- Task 120: a kind's voice is the same dial, chosen by which animal is making the noise.
-	sound.PlaybackSpeed = Body.voicePitch(name, handle.kind, spec, config)
-		* Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
+	-- A CLIP MAY OVERRIDE THE KIND'S PITCH CENTRE (task 257, and task 254 did the same for the
+	-- roar): the kind's number corrects a bull or a lamb into a deer, and against a recording of
+	-- the deer itself that correction is the error. The jitter still rides on top either way.
+	local centre = if clipped ~= nil and type(clipped.clip.pitch) == "number"
+		then clipped.clip.pitch
+		else Body.voicePitch(name, handle.kind, spec, config)
+	local speed = centre * Body.jitteredPitch(rng:NextNumber(), config.SOUND.PITCH_JITTER)
+	sound.PlaybackSpeed = speed
+	-- A REGION STARTS WHERE IT SAYS IT DOES. `PlaybackRegionsEnabled` alone does not rewind a
+	-- Sound that was stopped mid-region, and `Play()` resumes from `TimePosition`.
+	if clipped ~= nil then
+		sound.TimePosition = clipped.region.from
+	end
 	-- A CUT CUE ENDS ON TIME (task 120): "when die last sqeek need short one". The countdown is
 	-- stepped in `stepSound`, which runs for a carcass too, and the fade is `Body.cutVolume`.
 	-- ...AND THE ANIMAL'S OWN VOICE MAY ASK FOR A SHORTER ONE (task 240): `Body.voiceCut` is
 	-- `spec.cut` for every boar kind and every cue, so this line is what it was for a boar.
+	-- ...AND A REGION IS ITS OWN CUT (task 257). The region's length at the speed it is being
+	-- played at is how long it can sound, so the countdown is the SMALLER of it and the row's --
+	-- which means the fade always lands inside the cue instead of at a region boundary the engine
+	-- reached first. The fade length is the clip's own (`fadeSeconds`), because a cut into a field
+	-- recording needs a longer taper than a library sample's `fade`, and `fadeIn` is what tells
+	-- `stepCuts` to ramp the start as well as the end.
 	local cut = Body.voiceCut(name, handle.kind, spec, config)
+	local fadeSpec = spec
+	if clipped ~= nil then
+		local seconds = Body.clipSeconds(clipped.region, speed)
+		cut = if cut ~= nil then math.min(cut, seconds) else seconds
+		local fade = clipped.clip.fadeSeconds
+		if type(fade) == "number" and fade > 0 then
+			fadeSpec = { volume = spec.volume * gain, fade = fade }
+		else
+			fadeSpec = { volume = spec.volume * gain, fade = spec.fade }
+		end
+	end
 	if cut then
-		handle.cutIn[name] = { left = cut, spec = spec }
+		handle.cutIn[name] = { left = cut, spec = fadeSpec, since = 0, fadeIn = clipped ~= nil }
+		-- AND IT STARTS AT NOTHING, so the first frame is the bottom of the fade and not the click
+		-- the fade exists to remove. `stepCuts` runs on Heartbeat, so it is raised on the next
+		-- frame; the sound is only silent for the frame it is started on.
+		if clipped ~= nil and (fadeSpec.fade or 0) > 0 then
+			sound.Volume = 0
+		end
 	end
 	-- HOW MANY TIMES THIS BOAR HAS REALLY MADE THIS NOISE (task 120). `warmAssets` plays every sound
 	-- at volume 0 and does NOT come through here, so this counts the ones somebody can hear -- which
@@ -2060,6 +2189,7 @@ end
 function Body.stepCuts(handle, dt: number)
 	for name, row in pairs(handle.cutIn) do
 		row.left -= dt
+		row.since = (row.since or 0) + dt
 		local sound = handle.sounds[name]
 		if row.left <= 0 then
 			handle.cutIn[name] = nil
@@ -2067,7 +2197,11 @@ function Body.stepCuts(handle, dt: number)
 				sound:Stop()
 			end
 		elseif sound then
-			sound.Volume = Body.cutVolume(row.left, row.spec) * (handle.voiceScale or 1)
+			-- `row.since` is only USED by a cue whose spec asks for a fade in (task 257, a region
+			-- out of a field recording); for every other row `cutVolume` ignores it and this is
+			-- the line it was.
+			sound.Volume = Body.cutVolume(row.left, row.spec, row.fadeIn and row.since or nil)
+				* (handle.voiceScale or 1)
 		end
 	end
 end

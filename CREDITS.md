@@ -231,6 +231,56 @@ What was changed, and nothing else was:
   `Sound.PlaybackRegion`, with a 0.35 s fade at each end and a measured per-region gain. The regions
   and the measurement are in `ForestTest.ROAR.clips`.
 
+### Deer rut - Brame Cerf 02 — L.Finck (CC0)
+
+The red **stag's hit and death voice** since task 257 (2026-10-24). Karen the same day:
+*"redsatg sound whn hit and when near need corection better real"*. Asset **99831947794105**,
+*"Driven Hunt red stag distress call"*.
+
+> ["Deer rut - Brame Cerf 02"](https://freesound.org/people/L.Finck/sounds/653533/) by
+> [L.Finck](https://freesound.org/people/L.Finck/) on Freesound, dedicated to the public domain under
+> [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
+
+It is the **second take of the session the roar above came from** — same recordist, same evening,
+same waiver — and that is said here rather than left to be noticed: the animal a player hears across
+the valley and the animal she hears when she hits one are the same stag.
+
+What was changed, and nothing else was:
+
+- Nothing in the file. The HQ preview mp3 was uploaded as it was downloaded (34.0000 s, 48 kHz; the
+  sha256 of exactly those bytes is in `assets/uploads.json`, and Roblox answers the same
+  `TimeLength`).
+- The game plays **one of four measured calls** of it per cue rather than the whole recording,
+  through `Sound.PlaybackRegion`, with a 0.15 s fade at each end and a measured per-region gain.
+  The regions, the measurement and the level arithmetic are in
+  `Boar.CONFIG.SOUND.VOICE.CLIPS[99831947794105]`.
+- It is the **stag's** voice and not every deer's: a hind and a calf keep the bleats task 240 chose
+  for them, because a rut bellow is a male's. The reason is in the same table.
+
+### Deer barking — Katerios (CC0)
+
+The red deer's **alarm bark** since task 257 (2026-10-24): the cue a stag or a hind plays at the
+edge check, the second half of Karen's sentence (*"when near"*). Asset **85634523415950**,
+*"Driven Hunt red deer alarm bark"*.
+
+> ["Deer barking"](https://freesound.org/people/Katerios/sounds/795554/) by
+> [Katerios](https://freesound.org/people/Katerios/) on Freesound, dedicated to the public domain
+> under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
+
+**The uploader's own manifest row named the wrong source URL** — it carried the roar's
+`sounds/653532/` over from the previous upload — and the row in `assets/uploads.json` records both
+the correction and how it was checked: the sound page saved beside the file titles itself *"Freesound
+- Deer barking by Katerios"* and links the CC0 deed, and the file's sha256 is the one the upload
+recorded. The sound and the licence were right; only the URL was wrong.
+
+What was changed, and nothing else was:
+
+- Nothing in the file. The HQ preview mp3 was uploaded as it was downloaded (177.3483 s, 44.1 kHz).
+- The game plays **one of four measured barks** of it per cue, through `Sound.PlaybackRegion`, with
+  a 0.12 s fade at each end and a measured per-region gain
+  (`Boar.CONFIG.SOUND.VOICE.CLIPS[85634523415950]`). A 2-minute-57 field recording is never played
+  whole, and `Body.voiceClip` is what makes that impossible rather than unlikely.
+
 ## Code and libraries
 
 ### ProfileStore 1.0.3 — MadStudioRoblox (Apache-2.0)
