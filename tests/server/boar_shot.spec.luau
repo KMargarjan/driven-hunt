@@ -1500,32 +1500,45 @@ return function()
 		it("does not spend a world squeal slot on a bark nobody could hear (round 1's note)", function()
 			-- ROUND 1'S NOTE, AND THE ONLY THING THAT PROVES IT EITHER WAY. `_claimSqueal` books one of
 			-- `CROWD.MAX_SQUEALS` and `playOneShot` can still answer false afterwards -- no Sound of
-			-- that name on this animal, or the cue switched off by data -- so claiming FIRST would
-			-- book the world's voices for silence. `Body.canPlayOneShot` is asked first now.
+			-- that name on this animal, or the cue switched off by data -- so claiming FIRST would book
+			-- the world's voices for silence. `Body.canPlayOneShot` is asked first now.
 			--
-			-- THE FAULT IS INJECTED THE WAY THE PREDICATE READS IT, and the first run of this case got
-			-- that wrong in an instructive way: destroying the `Sound` INSTANCE is not enough, because
-			-- `handle.sounds` is a TABLE of references and `Body.canPlayOneShot` asks that table --
-			-- so a destroyed Sound still answered "yes" and still played (silently, parentless). The
-			-- entry itself is removed, which is the state `Body.attachSounds` leaves for a cue it never
-			-- built: the design's own case, *"the load can fail, the asset can be moderated away"*.
-			-- Everything else about the world is untouched, so a cry that SHOULD be heard still is --
-			-- which is what makes the last assertion discriminating.
-			local runtime = barkRuntime("BoarsBarkSlots")
+			-- THE OBSERVABLE IS `stats().squeals`, the live booking count, because `squealsSkipped`
+			-- counts REFUSALS and a slot taken and WASTED is not a refusal: from outside, "the bark was
+			-- heard" and "the bark booked a voice and was silent" looked identical, which is why this
+			-- note could not be proved either way in round 1. The counter is the same pure rule
+			-- `_claimSqueal` caps against (`Boar.squealsSounding`) and is read-only.
+			--
+			-- THE FAULT IS `spec.enabled = false`, which is one of the two things the predicate reads
+			-- and is the design's own case (*"the load can fail, the asset can be moderated away"*).
+			-- The other -- no Sound of that name in `handle.sounds` -- is NOT reachable from a spec, and
+			-- the first run of this case learned that the hard way: destroying the Sound INSTANCE
+			-- leaves the table's reference in place, so the predicate still answered "yes" and the cue
+			-- still played, silently and parentless.
+			local world = buildWorld(true, "BoarsBarkSlots")
+			local sound = voicedSound()
+			local silent = table.clone(CONFIG.SOUND.CRY)
+			silent.enabled = false
+			sound.CRY = silent
+			world.config.SOUND = sound
+			world.config.KINDS = { ENABLED = true, LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 } }
+			local move = table.clone(CONFIG.MOVE)
+			move.ENABLED = true
+			world.config.MOVE = move
+			local runtime = Boar.newRuntime(world)
+			local template = makeTemplate()
+			runtime:setModelSource(function()
+				return template
+			end, function(_species: string, clip: string)
+				return FAKE_IDS[clip]
+			end)
+
 			local mute = {}
-			for slot = 1, SOUND.CROWD.MAX_SQUEALS do
-				local handle = runtime:spawn(Vector3.new(slot * 25 - 60, GROUND_Y, -10), "hind")
-				table.insert(mute, handle)
+			for slot = 1, SOUND.CROWD.MAX_SQUEALS + 1 do
+				table.insert(mute, runtime:spawn(Vector3.new(slot * 25 - 60, GROUND_Y, -10), "hind"))
 			end
-			local victim = runtime:spawn(Vector3.new(0, GROUND_Y, -40), "male")
 			warmedUp(runtime)
-			for _, handle in ipairs(mute) do
-				local cry = soundNamed(handle, "cry") :: Sound
-				expect(cry).to.be.ok()
-				expect(handle.sounds.cry).to.be.ok()
-				handle.sounds.cry = nil
-				cry:Destroy()
-			end
+			expect(runtime:stats().squeals).to.equal(0)
 
 			-- THE CHECK STILL HAPPENS -- the animal stops and looks whether or not it can be heard,
 			-- which is the half of this that must not change -- and nothing is played.
@@ -1534,20 +1547,37 @@ return function()
 				expect(handle.soundPlays.cry).to.equal(nil)
 			end
 			step(runtime)
+			-- **NOT ONE VOICE WAS BOOKED, AND THIS IS THE ASSERTION THAT FAILS ON THE OLD ORDERING**:
+			-- claim-then-play would have taken all `MAX_SQUEALS` of them and refused the last, so
+			-- `squeals` would read `MAX_SQUEALS` and `squealsSkipped` 1.
+			expect(runtime:stats().squeals).to.equal(0)
 			expect(runtime:stats().squealsSkipped).to.equal(0)
 
-			-- AND THE WORLD'S VOICES WERE NOT SPENT: a real cry, from a non-vital hit, is still heard.
-			-- Under the old ordering the two barkless checks had booked both slots and this cry would
-			-- have been SKIPPED (`squealsSkipped` 1), which is exactly the defect the note described.
-			expect(runtime:takeHit(victim.part, { zone = "legs", ammo = "Pellet", pellets = 1, at = 0 })).to.equal(true)
-			step(runtime)
-			expect(victim.soundPlays.cry).to.equal(1)
-			expect(runtime:stats().squealsSkipped).to.equal(0)
+			-- ...AND THE COUNTER IS NOT ALWAYS ZERO, which is what stops the two assertions above from
+			-- passing for the wrong reason: the SAME barks in a world whose cue is switched ON do book
+			-- the world's voices, and the one past the cap is refused.
+			local heard = barkRuntime("BoarsBarkSlotsHeard")
+			local deer = {}
+			for slot = 1, SOUND.CROWD.MAX_SQUEALS + 1 do
+				table.insert(deer, heard:spawn(Vector3.new(slot * 25 - 60, GROUND_Y, -10), "hind"))
+			end
+			warmedUp(heard)
+			local barks = 0
+			for _, handle in ipairs(deer) do
+				expect(heard:check(handle.id)).to.equal(true)
+				barks += handle.soundPlays.cry or 0
+			end
+			step(heard)
+			expect(barks).to.equal(SOUND.CROWD.MAX_SQUEALS)
+			expect(heard:stats().squeals).to.equal(SOUND.CROWD.MAX_SQUEALS)
+			expect(heard:stats().squealsSkipped).to.equal(1)
 			TestKit.note(
 				string.format(
-					"task251 bark slots: %d barkless check(s) spent no slot, and a real cry was still heard (%d skipped)",
+					"task251 bark slots: %d barkless check(s) booked %d voice(s); the same checks with the cue on booked %d and skipped %d",
 					#mute,
-					runtime:stats().squealsSkipped
+					runtime:stats().squeals,
+					heard:stats().squeals,
+					heard:stats().squealsSkipped
 				)
 			)
 		end)

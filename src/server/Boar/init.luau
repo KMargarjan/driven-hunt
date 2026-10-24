@@ -4488,6 +4488,13 @@ end
 function Runtime:stats()
 	local out = table.clone(self._stats)
 	out.zoneHits = table.clone(self._stats.zoneHits) -- table.clone is shallow; this is a counter, not state
+	-- HOW MANY OF THE WORLD'S VOICES ARE BOOKED RIGHT NOW (task 251 part 2, review round 2's note on
+	-- the alarm bark). `squealsSkipped` counts REFUSALS, so a slot taken and WASTED -- claimed for a
+	-- cue that then could not play -- was invisible from outside: nothing could tell "the bark was
+	-- heard" from "the bark booked a voice and was silent", which is exactly what round 1's note was
+	-- about and what `Body.canPlayOneShot` exists to prevent. It is the same pure count
+	-- `_claimSqueal` caps against (`Boar.squealsSounding`), not a second rule, and it is read-only.
+	out.squeals = Boar.squealsSounding(self._squeals, os.clock())
 	return out
 end
 
