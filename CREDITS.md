@@ -203,6 +203,34 @@ There is no `assets/uploads.json` row for any of these, and there should not be:
 row per Open Cloud upload"*, and nothing here was uploaded. The route, the measurements and the
 rejected alternatives are in `docs/research/2026-10-14-lobby-free-models.md`.
 
+## Sounds
+
+### Deer rut - Brame Cerf — L.Finck (CC0)
+
+The red stag's rut roar since task 254 (2026-10-24): the ambience cue you hear from the far wood in
+the first 90 seconds of a drive that carries a stag, and once more at his release (`ForestTest.ROAR`;
+both cues go through `ForestTest.roarNow`, so both play a region). Asset **122287696922128**,
+*"Driven Hunt red stag rut roar"*.
+
+> ["Deer rut - Brame Cerf"](https://freesound.org/people/L.Finck/sounds/653532/) by
+> [L.Finck](https://freesound.org/people/L.Finck/) on Freesound, dedicated to the public domain under
+> [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
+
+**CC0 asks for no credit at all, and that is exactly why this entry exists**: a waiver is the one
+licence whose terms leave no trace in the repository, so without a line here nothing would record
+where the sound came from or that it was checked. It is also the only licence of the five audited
+that this project could legally use — Roblox takes a *"fully sublicensable and transferable"* licence
+over anything uploaded, which CC BY, CC BY-SA and the commercial library all refuse to grant. The
+audit is `docs/research/2026-10-24-stag-voice-and-the-drive-s-length.md` section 2.
+
+What was changed, and nothing else was:
+
+- Nothing in the file. The HQ preview mp3 was uploaded as it was downloaded (52.897 s, 48 kHz; the
+  sha256 of exactly those bytes is in `assets/uploads.json`).
+- The game plays **three 5-second regions** of it rather than the whole recording, through
+  `Sound.PlaybackRegion`, with a 0.35 s fade at each end and a measured per-region gain. The regions
+  and the measurement are in `ForestTest.ROAR.clips`.
+
 ## Code and libraries
 
 ### ProfileStore 1.0.3 — MadStudioRoblox (Apache-2.0)

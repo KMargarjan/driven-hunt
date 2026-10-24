@@ -1166,36 +1166,99 @@ end
 -- have silenced a dying boar to play it. **It is its own emitter with its own single slot**, exactly
 -- as the spec asks: `ForestTest.stepRoar` is the one writer and there is one Sound in the world.
 --
--- THE IDS ARE THE ROBLOX LIBRARY'S, WHICH IS THE SPEC'S OPTION A, AND THE REAL RECORDING IS A
--- DIRECTOR TASK. There is no deer in the library and that was measured twice (task 240's note, and
--- again on 2026-10-23 for this spec: thirteen keywords, 95 rows from the three creators whose audio
--- plays in anybody's experience, not one named deer or elk). These four are the longest clean
--- isolated BULL BELLOWS in it -- which is what the literature says a stag sounds like -- and option A
--- *"costs nothing, needs no upload, and is in the game the day the Builder writes four ids into a
--- table"*. The real thing is Freesound 653532, *"Deer rut - Brame Cerf"* by L.Finck, **VERIFIED CC0
--- on its own page on 2026-10-24** (52.9 s, 48 kHz 24-bit) -- and `tools/roblox_upload.py` implements
--- Model and Decal and REFUSES Audio, so it needs a human upload through Studio or the Creator
--- Dashboard. `ESCALATE.md` carries it as NEEDS DIRECTOR with the file and the clicks. When it lands
--- it is this one `ids` row, changed.
+-- IT IS THE REAL ANIMAL NOW (task 254), AND THE LIBRARY BULLS ARE THE REVERT PATH. Task 251 part 2
+-- shipped the spec's option A -- four Roblox-library BULL BELLOWS, because there is no deer in that
+-- library and that was measured twice (task 240's note, and again on 2026-10-23: thirteen keywords,
+-- 95 rows from the three creators whose audio plays in anybody's experience, not one named deer or
+-- elk) and because the literature's own sentence is that a stag's rut call is *"very similar to the
+-- bellow of a bull"*. Option A's price was written down at the time: *"when it lands it is this one
+-- `ids` row, changed"*. It has landed.
 --
--- WHAT IS PROVED AND WHAT IS NOT (rule 8): that these ids LOAD and have a real `TimeLength` in a live
--- Play session of this place is measured, by the method this repo already uses (a `Sound` per id,
--- `ContentProvider:PreloadAsync` on the client, then `IsLoaded` and `TimeLength` read back -- Edit
--- answers 0 for an asset nobody has fetched, which is how a dead id passes a bench test). **NOBODY
--- HERE CAN HEAR IT.** Whether a bull at pitch 1.15, heard at the 372 studs the live run measured,
--- reads as a stag roaring across a valley is KAREN'S EARS, and it is the one thing this row cannot
--- claim.
+-- `122287696922128`, *"Driven Hunt red stag rut roar"* -- **Freesound 653532, "Deer rut - Brame
+-- Cerf" by L.Finck, CC0** (verified on its page 2026-10-24; section 2 of
+-- `docs/research/2026-10-24-stag-voice-and-the-drive-s-length.md` is the licence audit, and CC0 is
+-- the only one of the five licences there that survives Roblox's *"fully sublicensable and
+-- transferable"* grant). The Director uploaded it on 2026-10-24 under Karen's standing OK for free
+-- CC0 recordings; `assets/uploads.json` carries the row, the sha256 and the OK, and `CREDITS.md`
+-- carries the provenance.
+--
+-- **ITS MODERATION STATE WAS RE-READ LIVE AND IT IS `Approved`.** The upload's own manifest row said
+-- `Reviewing`, which is what the operation answered while the asset was still in the queue and is
+-- not a verdict -- so the state in `assets/uploads.json` is a second, later
+-- `GET /assets/v1/assets/122287696922128`, and the row says so. A stale status string is how a
+-- rejected asset ships as an approved one.
+--
+-- IT IS 52.897 SECONDS OF A RUT, SO IT PLAYS BY REGION AND NEVER WHOLE. `clips` carries the three
+-- roars worth hearing, MEASURED off the uploaded bytes (`soundfile` decoded the same sha256 the
+-- manifest row names: 48 kHz stereo, 52.8965 s, against the `TimeLength = 52.897` Roblox answers for
+-- the asset -- the same timeline, which is what makes an offline cut legal) as a 50 ms RMS envelope
+-- smoothed with a 200 ms running max and gated 6 dB over the recording's own forest floor of -45.2
+-- dBFS. Seven events stand out of it; three are a single clean roar of the right length with silence
+-- at both ends, and the other four are either a sequence (22.6-29.4 s, 6.9 s long) or 4-9 dB down
+-- and choppy.
+--
+-- WHAT IS PROVED AND WHAT IS NOT (rule 8): that the id loads, that its `TimeLength` is the
+-- recording's, that `PlaybackRegion` is honoured TO THE SAMPLE and that each region is LOUD is
+-- measured in a live Play session -- `ContentProvider:PreloadAsync`, then `IsLoaded`, `TimeLength`,
+-- `TimePosition` read back inside the region and `PlaybackLoudness` peaked across it.
+-- `PlaybackLoudness` answers 0 in Edit at every volume, which is how a region that plays nothing
+-- passes a bench test. **NOBODY HERE CAN HEAR IT.** Whether a real stag at these three regions, at
+-- this level, heard at the 372 studs the live run measured, reads as a stag roaring across a valley
+-- is KAREN'S EARS, and it is the one thing this row cannot claim.
 ForestTest.ROAR = {
 	enabled = true,
-	-- The four, longest first. `pitch` applies to all of them (`PlaybackSpeed`), so a 4.4 s bellow is
-	-- 3.8 s of roar; the lengths are what task 240's own catalogue read gave and are MEASURED in the
-	-- live run this task owes rather than declared here, because an id's length is a fact about the
-	-- asset and not a dial.
+	-- THE REAL STAG FIRST, then the four library bulls, longest first. `ForestTest.roarClip` is what
+	-- reads this: it sounds `ids[1]` whenever `clips` has a usable entry for it, and the four below
+	-- are reached only when it does not. **To revert to task 251 part 2, delete the first id from
+	-- this list and nothing else** -- `roarClip`'s header says why that is the one safe edit. The
+	-- lengths are the live run's, because an id's length is a fact about the asset and not a dial.
 	ids = {
-		9113626902, -- "Bull Bellows 13" -- "Anxious Cries, Slowed", the longest of all (~6.2 s)
-		9113625767, -- "Bull Bellows 3" -- "Isolated Roars, Complaining, Uneasy" (~4.4 s)
-		9119634882, -- "Steer Bellows 1" -- "Cry, Groaning", a held note rather than a cry (~4.0 s)
-		9113629096, -- "Bull Bellows 4" -- "Isolated Roars, Anxious, Panicked" (~3.6 s)
+		122287696922128, -- THE REAL RED STAG (task 254), 52.897 s of a rut -- played BY REGION
+		9113626902, -- "Bull Bellows 13" -- "Anxious Cries, Slowed", the longest of all (6.17 s)
+		9113625767, -- "Bull Bellows 3" -- "Isolated Roars, Complaining, Uneasy" (4.45 s)
+		9119634882, -- "Steer Bellows 1" -- "Cry, Groaning", a held note rather than a cry (3.99 s)
+		9113629096, -- "Bull Bellows 4" -- "Isolated Roars, Anxious, Panicked" (3.62 s)
+	},
+	-- WHAT TO PLAY *OF* AN ID THAT IS LONGER THAN A CUE, keyed by the id so a reader looking at `ids`
+	-- finds it. One entry today, and an id with no entry plays whole -- which is every library clip.
+	clips = {
+		[122287696922128] = {
+			-- EACH REGION IS ONE ROAR WITH SILENCE AT BOTH ENDS, in seconds of the recording, and
+			-- `roarClip` picks one at random per cue so that five cues in a 90-second window are not
+			-- one sample five times. `from`/`to` go straight into `Sound.PlaybackRegion` (with
+			-- `PlaybackRegionsEnabled`), which the live run proved is honoured to a hundredth of a
+			-- second: the client read `timePos=35.62..40.59` inside the third region and
+			-- `9.48..14.42` inside the second. The first region's evidence is the SERVER's own line
+			-- (`region 0.20-5.20 s, volume 0.51`) and not a client sample -- said plainly, because a
+			-- region restated is not a region measured (round 1, note).
+			--
+			-- `gain` MULTIPLIES `volume`, AND IT IS A MEASUREMENT AND NOT A TASTE. A field recording
+			-- is not a production sample: at `Volume = 1` on a client these three peaked
+			-- `PlaybackLoudness` 98, 54 and 50, where the four bulls this cue ships today peak 94,
+			-- 115, 161 and 198 -- mean **142**. So two of the three roars are 8-9 dB under the voice
+			-- Karen has already heard, and at `audibleStuds` 420 with `InverseTapered` roll-off that
+			-- is the difference between a roar and nothing at all. `gain` is 142 divided by each
+			-- one's own peak, which equalises the three to each other AND to what ships today: the
+			-- ONE thing this task changes is WHICH ANIMAL it is, not how loud the cue is. (The means
+			-- say the same: 28, 15 and 13 against the bulls' 39.5 give 1.41, 2.63 and 3.04, within
+			-- 7 % of these. The peaks are used because they keep every effective volume at or under
+			-- 1.0.)
+			regions = {
+				{ from = 0.2, to = 5.2, gain = 1.45 }, -- peak -24.4 dBFS, 20.8 dB over the floor
+				{ from = 9.45, to = 14.45, gain = 2.63 }, -- peak -28.2 dBFS, 17.0 dB over
+				{ from = 35.6, to = 40.6, gain = 2.84 }, -- peak -28.5 dBFS, 16.7 dB over
+			},
+			-- NO PITCH SHIFT: THIS ONE IS THE ANIMAL. The 1.15 below exists because a bull is three
+			-- times a stag's weight; applying it to a real stag would make him a smaller deer than
+			-- he is.
+			pitch = 1,
+			-- A SHORT FADE AT BOTH ENDS, because a cut into the middle of a 48 kHz field recording
+			-- clicks. 0.35 s FITS INSIDE THE QUIET MARGIN OF EVERY REGION, AND THAT IS MEASURED: the
+			-- roar itself starts 0.60, 0.65 and 0.80 s after its region does and ends 0.60, 0.65 and
+			-- 1.75 s before it, so neither fade ever touches the bellow -- it only shapes the forest
+			-- noise the region opens and closes on.
+			fadeSeconds = 0.35,
+		},
 	},
 	-- A BULL IS THREE TIMES A STAG'S WEIGHT, so his bellow goes UP for a stag. The same 1.15 the
 	-- stag's own `VOICE` row carries (task 240), and for the same reason -- one animal, one pitch.
@@ -2501,6 +2564,73 @@ function ForestTest.stagRow(density: string?, schedule)
 		end
 	end
 	return nil, nil
+end
+
+-- WHICH ROAR SOUNDS, AND WHICH PIECE OF IT (task 254). The pick lives here, with the table, because
+-- it is a fact ABOUT THE TABLE and nothing to do with Workspace: `ForestTest.roarNow` on the server
+-- takes this answer and writes it onto the one Sound it owns, so the choosing is drivable in a spec
+-- with no Sound, no emitter and no Play session -- which is what `reviews/task-253` asked for in as
+-- many words (*"`roarNow` has no spec at all; the evidence is the live console lines"*).
+--
+-- THE REAL STAG SOUNDS WHENEVER HE IS IN THE TABLE. `ids[1]` with a usable `clips` entry wins
+-- outright rather than taking its turn in a uniform pick -- because the four library ids are a BULL,
+-- and alternating a real stag with a cow bellow would not read as variety, it would read as two
+-- animals. The variety is the three REGIONS instead.
+--
+-- AND THE FALLBACK IS TASK 251 PART 2, UNCHANGED: a uniform pick at the table's own `pitch` and
+-- `volume`, with no region. **BUT IT PICKS ONLY AMONG IDS THAT HAVE NO `clips` ENTRY**, and that is
+-- a safety property and not tidiness (round 1, finding 2). A `clips` entry is the only place this
+-- table records that an id is TOO LONG TO PLAY WHOLE. Without the filter, an entry left with an
+-- empty `regions` list would put a **52.897-second** recording back into the uniform pick, to be
+-- played whole at pitch 1.15 -- about 46 seconds of audio -- and `roarNow`'s `if sound.IsPlaying
+-- then return nil` would then refuse the two cues behind it. One bad data edit, three cues lost.
+-- Nothing left to pick is SILENCE (`nil`), because silence is a better answer than 46 seconds.
+--
+-- SO THE REVERT PATH IS EXACTLY ONE EDIT: **remove `122287696922128` from `ids`**. The four bulls
+-- are then the whole table and the cue is what task 251 part 2 shipped; the orphaned `clips` entry
+-- is keyed by an id nothing reads any more and is harmless. **DO NOT DELETE THE `clips` ENTRY AND
+-- LEAVE THE ID**: that entry is what tells this table the id is 52.9 seconds long, and deleting the
+-- record of a fact loses the fact -- the id would then look exactly like a four-second bellow. Both
+-- the filter and the revert are driven BY PARAMETER in `forest_line.spec`, so neither is proved only
+-- by the comment.
+function ForestTest.roarClip(rng: Random, roar: any?)
+	local resolved = roar or ForestTest.ROAR
+	local ids = resolved.ids or {}
+	if #ids == 0 then
+		return nil
+	end
+	local clips = resolved.clips or {}
+	local clip = clips[ids[1]]
+	local regions = if clip ~= nil then clip.regions or {} else {}
+	if clip == nil or #regions == 0 then
+		local whole = {}
+		for _, id in ipairs(ids) do
+			if clips[id] == nil then
+				table.insert(whole, id)
+			end
+		end
+		if #whole == 0 then
+			return nil
+		end
+		return {
+			id = whole[rng:NextInteger(1, #whole)],
+			pitch = resolved.pitch,
+			volume = resolved.volume,
+			fadeSeconds = 0,
+		}
+	end
+	local region = regions[rng:NextInteger(1, #regions)]
+	return {
+		id = ids[1],
+		pitch = clip.pitch or resolved.pitch,
+		-- `gain` IS WHY THIS IS A FUNCTION AND NOT A FIELD READ: the three regions are 1.45, 2.63 and
+		-- 2.84 times quieter than each other at the source, and `volume` alone would ship one roar
+		-- Karen can hear and two she cannot. See the `regions` comment for the measurement.
+		volume = resolved.volume * (region.gain or 1),
+		from = region.from,
+		to = region.to,
+		fadeSeconds = clip.fadeSeconds or 0,
+	}
 end
 
 -- WHAT THIS ROW DOES. One word, defaulted, so no caller writes `row.route or "STRAIGHT"` twice.

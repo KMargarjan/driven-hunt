@@ -18,6 +18,9 @@
 -- Design: no new design document -- a playtest world behind a world string. TASKS.md row 122.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+-- FOR THE RUT ROAR'S EMITTER (task 254): it is a runtime Part in Workspace, and the case that
+-- refuses the lazy build reads it there.
+local Workspace = game:GetService("Workspace")
 
 local Boar = require(ServerScriptService:WaitForChild("Boar"))
 local Data = require(ReplicatedStorage:WaitForChild("ForestTest"))
@@ -487,6 +490,49 @@ return function()
 			ForestTest.start(nil :: any, 0)
 			ForestTest.layoutForDrive(599, Data.DEFAULT_LAYOUT)
 			expect(ForestTest.layoutName()).to.equal(Data.DEFAULT_LAYOUT)
+		end)
+
+		it("builds the rut roar's emitter at start-up, once, so the asset is fetched before it is due", function()
+			-- TASK 254, ROUND 1 FINDING 1. The emitter used to be built lazily by the first roar --
+			-- `roarEmitter` has one caller, `roarNow`, which calls `sound:Play()` a few statements
+			-- later in the same resumption -- so the Sound, its `SoundId` and the client's fetch of
+			-- the asset all happened at the instant the cue was due. Harmless for a four-second
+			-- library bellow; since task 254 `ids[1]` is a 1.2 MB recording, and the first roar of a
+			-- server would be the one waiting for it. `ForestTest.start` builds it now, so it
+			-- replicates during the lobby, tens of seconds before `ROAR.firstAtSeconds`.
+			--
+			-- IT IS THE CALL THAT IS DRIVEN HERE, not the audio: whether a client has the bytes is
+			-- not a server fact, and nobody here can hear it either way (`Data.ROAR`'s own comment).
+			-- What this case refuses is the regression -- the call being dropped, or building a
+			-- SECOND Part every time `start` runs.
+			ForestTest.start(nil :: any, 0)
+			local part = Workspace:FindFirstChild(Data.ROAR.partName)
+			expect(part).to.be.ok()
+			local sound = (part :: Instance):FindFirstChild("Roar")
+			expect(sound).to.be.ok()
+			expect((sound :: Instance):IsA("Sound")).to.equal(true)
+			-- THE ID IS THE REAL RECORDING'S, which is the whole reason the early build is worth
+			-- anything: `ids[1]` is what a client starts fetching when this replicates.
+			expect((sound :: Sound).SoundId).to.equal("rbxassetid://" .. Data.ROAR.ids[1])
+			-- ONE EMITTER PER SERVER, however many times `start` runs. `roarEmitter` returns the
+			-- Sound it already made, and a second Part in Workspace would be an orphan this module
+			-- built.
+			local before = 0
+			for _, child in ipairs(Workspace:GetChildren()) do
+				if child.Name == Data.ROAR.partName then
+					before += 1
+				end
+			end
+			expect(before).to.equal(1)
+			ForestTest.start(nil :: any, 0)
+			local after = 0
+			for _, child in ipairs(Workspace:GetChildren()) do
+				if child.Name == Data.ROAR.partName then
+					after += 1
+				end
+			end
+			expect(after).to.equal(1)
+			ForestTest.layoutForDrive(599, Data.DEFAULT_LAYOUT)
 		end)
 
 		it("publishes the name on the FIRST deal, even when it is the one it started on", function()
