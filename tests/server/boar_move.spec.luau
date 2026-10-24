@@ -453,6 +453,13 @@ return function()
 			-- roll is `deer.spec`'s and `boar_move`'s own case above.
 			move.EDGE_CHANCE = 1
 			config.MOVE = move
+			-- ...AND `LINE` IS ON, because that is what lets the approach below be a real one:
+			-- `Brain:leadTo` refuses outright with it off, which is how the first run of this case
+			-- found itself asserting an IDLE wander's heading. It is the drive's own switch and it is
+			-- on in the Forest Test (`ForestTestBoot`), which is where this behaviour lives.
+			local line = table.clone(config.LINE)
+			line.ENABLED = true
+			config.LINE = line
 
 			local brain = Brain.new(config, FIELD, START, Random.new(7))
 			-- IT ARRIVES WALKING SOUTH, which is what every line in this game does: the road is south
@@ -469,8 +476,13 @@ return function()
 			local arrived = brain:step(DT, obs(position, {})).facing.Unit
 			expect(arrived:Dot(toward) > 0.99).to.equal(true)
 
-			-- THE MAN IS BEHIND HIM, 30 studs north -- 180 degrees off the way he came.
-			local behind = { { id = "h", position = position + Vector3.new(0, 0, 30), kind = "shooter", speed = 0 } }
+			-- THE MAN IS BEHIND HIM, 40 STUDS NORTH -- 180 degrees off the way he came, and
+			-- deliberately beyond every reaction radius this config has: `SENSE.NOTICE_STANDING` 25,
+			-- `SENSE.FLUSH_STUDS` 15 and `PACE.SPOOK_STUDS` 30. So he is the NEAREST thing and nothing
+			-- else -- no ALERT, no flush, no spook -- which is what makes this a case about the POSE
+			-- and about nothing else. (`Brain.perceive` reports `nearest` for any stimulus at any
+			-- distance, which is why 40 studs is still seen.)
+			local behind = { { id = "h", position = position + Vector3.new(0, 0, 40), kind = "shooter", speed = 0 } }
 			expect(brain:check(4)).to.equal(true)
 			local facing = arrived
 			for _ = 1, math.ceil(3.5 / DT) do
@@ -509,6 +521,9 @@ return function()
 			plainMove.EDGE_CHANCE = 1
 			plain.MOVE = plainMove
 			expect(plainMove.EDGE_LOOK_BACK_DEG).to.equal(0)
+			local plainLine = table.clone(plain.LINE)
+			plainLine.ENABLED = true
+			plain.LINE = plainLine
 			local boar = Brain.new(plain, FIELD, START, Random.new(7))
 			local at = START
 			for _ = 1, math.ceil(2 / DT) do
@@ -519,7 +534,7 @@ return function()
 			local boarArrived = boar:step(DT, obs(at, {})).facing.Unit
 			expect(boar:check(4)).to.equal(true)
 			local boarFacing = boarArrived
-			local boarBehind = { { id = "h", position = at + Vector3.new(0, 0, 30), kind = "shooter", speed = 0 } }
+			local boarBehind = { { id = "h", position = at + Vector3.new(0, 0, 40), kind = "shooter", speed = 0 } }
 			for _ = 1, math.ceil(3.5 / DT) do
 				local intent = boar:step(DT, obs(at, boarBehind))
 				if intent.facing.Magnitude > 1e-6 then
