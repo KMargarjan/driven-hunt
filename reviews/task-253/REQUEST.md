@@ -1,11 +1,14 @@
 # Task 253: the stag sneaks away from the beaters instead of bolting
 
 Task: 253
-Round: 1
+Round: 2
 Base: main @ 1316e023 (task 251 parts 1 and 2 merged)
-Code commit: f03af027b7e14fd18b8365778d8f29a24595f669
+Code commit: 406a19fc9d209a096f82ab36894df5defea465d4
 
-`[harness] PASS: 34/34 checks @ f03af027b7e14fd18b8365778d8f29a24595f669 (clean tree) scope=all`
+`[harness] PASS: 34/34 checks @ 406a19fc9d209a096f82ab36894df5defea465d4 (clean tree) scope=all`
+
+(The code commit is `aa383b21`; `406a19fc` is the paperwork commit that follows it -- round 1's
+`RESULT.md` -- and the harness ran at the branch head, which only makes the bound stricter.)
 
 `test2` is N/A: no `TWO_PLAYER_PATHS` file is touched (`src/shared/ForestTest/`,
 `src/server/ForestTest/`, `src/server/Boar/`, `tests/server/`).
@@ -26,8 +29,13 @@ the clamp that releases every group ahead of the beater line is part of it: clai
    `releaseLine`. Nothing precomputes or estimates it. Verify: the function and its one call site.
 
 3. **Every route word hands in its own floor** (`ForestTest.routeFloor`): a sneak may not start
-   shallower than its treeline band, a refusal inside its own `turnAtDz`, or the one that HOLDS where
-   lying up after `holdStuds` would leave it across the road. Verify: the function and its cases.
+   shallower than its treeline band and a refusal not inside its own `turnAtDz`. **AND THE ONE THAT
+   HOLDS IS NOT CLAMPED AT ALL** (`ForestTest.clampedToLine`) -- round 1's blocking finding, which
+   was right: clamped, its floor was 85, it was released at dz 85 with the line at 66, and its hold
+   leg then put six animals down to lie up **25 studs from the road** against a row whose note reads
+   *"It never comes"*. The clamp is for a group that starts FOR the road and would meet the line
+   head-on; the stayer never starts. Verify: the two functions and their cases, and that exactly one
+   shipped row is exempt.
 
 4. **A line at or past the road is not a line** (`lineNorth <= 0` -> the table's own depth), and
    **the repeat window never repeats the stag** (his slot moved inside it, so the exclusion is a rule
@@ -71,7 +79,8 @@ the clamp that releases every group ahead of the beater line is part of it: clai
    release on the pre-task commit. **Run B: the edge check at the verge -- he stops dead at dz 57 and
    swings his head -176 <-> -132 degrees for 4.1 seconds**, inside the stag's own 2-6 s band, then
    crosses. Every slot's release depth against the line's own depth at that moment is the table in
-   section 1 of the proof.
+   section 1 of the proof. **The proof's run predates round 2**, so its slot-15 row reads
+   `released=85` -- that is the defect round 1 found, and the fix makes it 360.
 
 10. **The new cases fail on the pre-253 source** (L-028), and that was RUN rather than reasoned:
     with `src/` stashed and the specs in place, `[harness] FAIL: 32/34 ... (DIRTY TREE ...)` with
@@ -95,3 +104,20 @@ the clamp that releases every group ahead of the beater line is part of it: clai
   instead, which is what a frame could only corroborate.
 * The one-per-animal console ration is proved by run B's single line; run A is what measured the
   1,676.
+
+## Round 2
+
+Round 1's finding is fixed at its cause and the case that hid it now runs both models (claims 3 and
+6b). Five of the eleven notes are fixed in the same commit because each was wording that disagreed
+with its own code: the slip counters are reset in `newDrive` as well as `start` (the console line
+says *"in this drive"*); the `lineNorth <= 0` comment no longer claims it fixes the slot-16 case,
+which is still clamped at a line of dz 26; slot 8's comment no longer calls him the last walker nor
+puts him at the verge at 174 s; `roarPoint`'s says plainly that the roar sounds ~190 studs deeper
+than the clamp puts him; and `docs/design/red-deer.md` carries the lone-party exemption.
+
+**The six notes NOT fixed are queued in TASKS.md as 253a**, and two of them are one standing
+question: `releaseLine`'s own wiring and the `sneak` branch are driven by no case (the same class as
+251a(a)/(b)), `stats().slipped` / `.slipping` are read by nothing, `state.noticedAt` is never
+cleared, the file's REAR spawns behind the clamped head, slot 14 lands at the 25-stud floor in
+Karen's place, and the flags question (251a(h)) is asked a third time. None of them makes the game,
+a test, an owner boundary or security wrong.
