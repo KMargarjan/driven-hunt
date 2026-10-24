@@ -2549,6 +2549,17 @@ function ForestTest.start(runtime, now: number)
 	-- Karen, 2026-10-13: *"and again no boar behing comming after beater walk"* -- the re-stock was
 	-- the one source task 168 left open. ONE function resets all of it, and the boot calls the same
 	-- one on every drive boundary, so a server start and a new drive cannot drift apart.
+	-- THE ROAR'S EMITTER IS BUILT HERE, AND THAT IS THE WHOLE POINT OF BUILDING IT HERE (task 254,
+	-- round 1 finding 1). It used to be built lazily by the first roar -- `roarEmitter` has one
+	-- caller, `roarNow`, which calls `sound:Play()` a few statements later in the same resumption --
+	-- so the Sound, its `SoundId` and the client's fetch of the asset all happened at the instant the
+	-- cue was due. That was survivable while the ids were ~4-second library bellows; since this task
+	-- `ids[1]` is a **1.2 MB** recording, and the first roar of a server would be the one waiting for
+	-- it. Built at start-up it replicates during the lobby, tens of seconds before the first cue
+	-- (`ROAR.firstAtSeconds` 8 into a drive nobody has entered yet), and every client has the asset
+	-- in hand when it sounds. It is one anchored invisible Part either way, and `roarEmitter` is
+	-- idempotent -- `roarNow` still calls it, and still gets the same Sound back.
+	ForestTest.roarEmitter()
 	-- ...AND IT OPENS THE FIRST DRIVE, WHICH IS WHAT BASES THE SLOT CLOCK (task 251 part 2). It used
 	-- to be set here as `now + intervalSeconds`; it is `newDrive`'s now, so a server start and a drive
 	-- boundary cannot put slot 1 at two different times.
@@ -3468,9 +3479,11 @@ function ForestTest.roarEmitter(): Sound?
 	made.Name = "Roar"
 	-- THESE THREE ARE A STARTING POSITION AND NOTHING SOUNDS AT THEM: `roarNow` writes the id, the
 	-- region, the volume and the speed from `Data.roarClip` before every single `Play`. `ids[1]` is
-	-- set here anyway, and since task 254 that EARNS ITS KEEP -- it is the real recording, so the
-	-- emitter replicating makes every client start fetching the asset the first roar will want,
-	-- instead of fetching it when it is already due.
+	-- set here anyway, and since task 254 that EARNS ITS KEEP -- it is the real recording, 1.2 MB of
+	-- it, so a client that has this Sound has started fetching the asset the first roar will want.
+	-- That is worth something only because `ForestTest.start` builds the emitter at start-up; while
+	-- this was built lazily by the first roar it bought nothing at all, because `roarNow` plays the
+	-- Sound a few statements after making it (round 1, finding 1).
 	made.SoundId = Boar.soundUri(roar.ids[1])
 	made.Volume = roar.volume
 	made.PlaybackSpeed = roar.pitch
@@ -3557,6 +3570,14 @@ function ForestTest.roarFade(sound: Sound, clip)
 		local falling = TweenService:Create(sound, easing, { Volume = 0 })
 		state.roarTween = falling
 		falling:Play()
+		-- ...AND THE FIELD GOES BACK TO EMPTY WHEN THE FADE IS SPENT (round 1, note), so it never
+		-- holds a finished Tween between roars. The generation still guards the cancel above: this
+		-- callback cannot clear a LATER roar's tween, because it only runs while it is current.
+		falling.Completed:Once(function()
+			if state.roarGen == generation then
+				state.roarTween = nil
+			end
+		end)
 	end)
 end
 

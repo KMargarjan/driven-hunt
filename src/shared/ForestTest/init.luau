@@ -1209,8 +1209,8 @@ ForestTest.ROAR = {
 	enabled = true,
 	-- THE REAL STAG FIRST, then the four library bulls, longest first. `ForestTest.roarClip` is what
 	-- reads this: it sounds `ids[1]` whenever `clips` has a usable entry for it, and the four below
-	-- are reached only when it does not -- which is the revert path, BY DELETION, and is exactly what
-	-- task 251 part 2 shipped (a uniform pick over the ids at `pitch` 1.15 and no region). The
+	-- are reached only when it does not. **To revert to task 251 part 2, delete the first id from
+	-- this list and nothing else** -- `roarClip`'s header says why that is the one safe edit. The
 	-- lengths are the live run's, because an id's length is a fact about the asset and not a dial.
 	ids = {
 		122287696922128, -- THE REAL RED STAG (task 254), 52.897 s of a rut -- played BY REGION
@@ -1226,8 +1226,11 @@ ForestTest.ROAR = {
 			-- EACH REGION IS ONE ROAR WITH SILENCE AT BOTH ENDS, in seconds of the recording, and
 			-- `roarClip` picks one at random per cue so that five cues in a 90-second window are not
 			-- one sample five times. `from`/`to` go straight into `Sound.PlaybackRegion` (with
-			-- `PlaybackRegionsEnabled`), which the live run proved is honoured to the sample:
-			-- `timePos=0.20..5.20` for the first of them.
+			-- `PlaybackRegionsEnabled`), which the live run proved is honoured to a hundredth of a
+			-- second: the client read `timePos=35.62..40.59` inside the third region and
+			-- `9.48..14.42` inside the second. The first region's evidence is the SERVER's own line
+			-- (`region 0.20-5.20 s, volume 0.51`) and not a client sample -- said plainly, because a
+			-- region restated is not a region measured (round 1, note).
 			--
 			-- `gain` MULTIPLIES `volume`, AND IT IS A MEASUREMENT AND NOT A TASTE. A field recording
 			-- is not a production sample: at `Volume = 1` on a client these three peaked
@@ -2574,21 +2577,43 @@ end
 -- and alternating a real stag with a cow bellow would not read as variety, it would read as two
 -- animals. The variety is the three REGIONS instead.
 --
--- AND WITHOUT THAT ENTRY THIS IS TASK 251 PART 2, UNCHANGED: a uniform pick over whatever ids are
--- there, at the table's own `pitch` and `volume`, with no region. That is the revert path -- delete
--- `clips[122287696922128]` (or the id from `ids`) and the cue is the four bulls again -- and it is
--- reachable BY PARAMETER, so the spec drives both halves without touching what ships.
+-- AND THE FALLBACK IS TASK 251 PART 2, UNCHANGED: a uniform pick at the table's own `pitch` and
+-- `volume`, with no region. **BUT IT PICKS ONLY AMONG IDS THAT HAVE NO `clips` ENTRY**, and that is
+-- a safety property and not tidiness (round 1, finding 2). A `clips` entry is the only place this
+-- table records that an id is TOO LONG TO PLAY WHOLE. Without the filter, an entry left with an
+-- empty `regions` list would put a **52.897-second** recording back into the uniform pick, to be
+-- played whole at pitch 1.15 -- about 46 seconds of audio -- and `roarNow`'s `if sound.IsPlaying
+-- then return nil` would then refuse the two cues behind it. One bad data edit, three cues lost.
+-- Nothing left to pick is SILENCE (`nil`), because silence is a better answer than 46 seconds.
+--
+-- SO THE REVERT PATH IS EXACTLY ONE EDIT: **remove `122287696922128` from `ids`**. The four bulls
+-- are then the whole table and the cue is what task 251 part 2 shipped; the orphaned `clips` entry
+-- is keyed by an id nothing reads any more and is harmless. **DO NOT DELETE THE `clips` ENTRY AND
+-- LEAVE THE ID**: that entry is what tells this table the id is 52.9 seconds long, and deleting the
+-- record of a fact loses the fact -- the id would then look exactly like a four-second bellow. Both
+-- the filter and the revert are driven BY PARAMETER in `forest_line.spec`, so neither is proved only
+-- by the comment.
 function ForestTest.roarClip(rng: Random, roar: any?)
 	local resolved = roar or ForestTest.ROAR
 	local ids = resolved.ids or {}
 	if #ids == 0 then
 		return nil
 	end
-	local clip = (resolved.clips or {})[ids[1]]
+	local clips = resolved.clips or {}
+	local clip = clips[ids[1]]
 	local regions = if clip ~= nil then clip.regions or {} else {}
 	if clip == nil or #regions == 0 then
+		local whole = {}
+		for _, id in ipairs(ids) do
+			if clips[id] == nil then
+				table.insert(whole, id)
+			end
+		end
+		if #whole == 0 then
+			return nil
+		end
 		return {
-			id = ids[rng:NextInteger(1, #ids)],
+			id = whole[rng:NextInteger(1, #whole)],
 			pitch = resolved.pitch,
 			volume = resolved.volume,
 			fadeSeconds = 0,

@@ -221,7 +221,9 @@ because they keep every effective volume at or under 1.0.
 | 3 | 35.60 -> 40.60 | 5.00 s | -28.5 dBFS | 16.7 dB | 2.84 | 0.99 |
 
 * **One roar per cue, never the file**, through `Sound.PlaybackRegion` with
-  `PlaybackRegionsEnabled` -- measured as honoured to the sample (`timePos=0.20..5.20`).
+  `PlaybackRegionsEnabled` -- measured as honoured to a hundredth of a second: the client read
+  `timePos=35.62..40.59` inside region 3 and `9.48..14.42` inside region 2. Region 1's evidence is
+  the server's own line (`region 0.20-5.20 s, volume 0.51`), not a client sample.
 * **4-6 s**, which is section 2.3's own target for this cue and the Director's dispatch's.
 * **No overlap**, so no roar is ever two entries wearing two names.
 * **Pitch 1, not 1.15.** The 1.15 exists because a bull is three times a stag's weight. This

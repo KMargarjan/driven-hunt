@@ -208,7 +208,8 @@ rejected alternatives are in `docs/research/2026-10-14-lobby-free-models.md`.
 ### Deer rut - Brame Cerf — L.Finck (CC0)
 
 The red stag's rut roar since task 254 (2026-10-24): the ambience cue you hear from the far wood in
-the first 90 seconds of a drive that carries a stag (`ForestTest.ROAR`). Asset **122287696922128**,
+the first 90 seconds of a drive that carries a stag, and once more at his release (`ForestTest.ROAR`;
+both cues go through `ForestTest.roarNow`, so both play a region). Asset **122287696922128**,
 *"Driven Hunt red stag rut roar"*.
 
 > ["Deer rut - Brame Cerf"](https://freesound.org/people/L.Finck/sounds/653532/) by

@@ -1010,7 +1010,7 @@ return function()
 			expect(Data.stagRow("sideways", SCHEDULE)).to.be.ok()
 		end)
 
-		it("gives the rut roar its own emitter, far, quiet and uncut", function()
+		it("gives the rut roar its own emitter, far, quiet and never a voice slot", function()
 			-- SPEC SECTION 4.2, the one new cue: *"3-6 s, pitch 1.15, no cut -- a distant roar must be
 			-- long, heard at 350 studs, heavy rolloff, quiet"*. `ForestTest.ROAR`'s own comment is why
 			-- it is this module's data and not `Boar.CONFIG.SOUND.VOICE`'s: it sounds before the stag
@@ -1127,6 +1127,11 @@ return function()
 				expect(effective <= 1).to.equal(true)
 				-- ...AND IT LANDS WHERE THE BULLS ARE, to a tenth: that is the whole claim, because
 				-- this task changes WHICH ANIMAL sounds and not how loud the cue is.
+				-- THIS LITERAL IS THE MEASUREMENT RESTATED, NOT A MEASUREMENT (round 1, note): the
+				-- three peaks and the bulls' 142 were read in a live Play session and written here
+				-- by hand. So this case cannot prove the level is right -- only that `gain` and the
+				-- peaks it was derived from have not drifted apart in a half-edit, which is what a
+				-- later reader is most likely to do.
 				local peaks = { 98, 54, 50 }
 				expect(math.abs(peaks[index] * region.gain - 142) < 1).to.equal(true)
 			end
@@ -1173,12 +1178,14 @@ return function()
 			expect(distinct).to.equal(3)
 
 			-- THE REVERT PATH, BY PARAMETER (the flag rule's shape, and the only way to drive the
-			-- half that does not ship). Take the clip away and this is task 251 part 2 exactly: a
-			-- uniform pick over the ids at the table's own pitch and volume, and NO REGION -- which
-			-- matters, because `roarNow` reads `from`/`to` to decide whether to clear
-			-- `PlaybackRegionsEnabled` on the one Sound in the world.
+			-- half that does not ship). It is ONE edit -- the first id out of `ids` -- and then this
+			-- is task 251 part 2 exactly: a uniform pick over the four bulls at the table's own pitch
+			-- and volume, and NO REGION, which matters because `roarNow` reads `from`/`to` to decide
+			-- whether to clear `PlaybackRegionsEnabled` on the one Sound in the world. The `clips`
+			-- entry is left in place, orphaned, exactly as the revert would leave it.
 			local reverted = {
 				ids = { roar.ids[2], roar.ids[3], roar.ids[4], roar.ids[5] },
+				clips = roar.clips,
 				pitch = roar.pitch,
 				volume = roar.volume,
 			}
@@ -1194,16 +1201,35 @@ return function()
 			for index = 2, 5 do
 				expect(heard[roar.ids[index]]).to.equal(true)
 			end
-			-- AN EMPTY REGION LIST IS THE SAME AS NO CLIP, rather than an index into nothing.
-			local empty = Data.roarClip(rng, {
+
+			-- AND THE TRAP THAT IS NOT THE REVERT PATH (round 1, finding 2). A `clips` entry whose
+			-- `regions` list has gone empty must NOT drop its id back into the uniform pick: that id
+			-- is 52.897 seconds long, it would play WHOLE at pitch 1.15 -- about 46 s -- and
+			-- `roarNow`'s `IsPlaying` guard would then refuse the two cues behind it. One in five
+			-- cues would cost three. So an id with a `clips` entry is never played whole, and here
+			-- 200 picks over a table that still lists it never return it.
+			local hollow = {
 				ids = roar.ids,
 				clips = { [roar.ids[1]] = { regions = {} } },
 				pitch = roar.pitch,
 				volume = roar.volume,
-			})
-			expect(empty.from).to.equal(nil)
-			expect(empty.pitch).to.equal(roar.pitch)
-			-- AND NO IDS AT ALL IS SILENCE, not a nil SoundId.
+			}
+			for _ = 1, 200 do
+				local chosen = Data.roarClip(rng, hollow)
+				expect(chosen).to.be.ok()
+				expect(chosen.id).never.to.equal(roar.ids[1])
+				expect(chosen.from).to.equal(nil)
+				expect(chosen.pitch).to.equal(roar.pitch)
+			end
+			-- ...AND WHEN THE FILTER LEAVES NOTHING, SILENCE. 46 seconds of a field recording is a
+			-- worse answer than no roar at all, so this is `nil` rather than "play it anyway".
+			expect(Data.roarClip(rng, {
+				ids = { roar.ids[1] },
+				clips = { [roar.ids[1]] = { regions = {} } },
+				pitch = roar.pitch,
+				volume = roar.volume,
+			})).to.equal(nil)
+			-- AND NO IDS AT ALL IS SILENCE TOO, not a nil SoundId.
 			expect(Data.roarClip(rng, { ids = {}, pitch = 1, volume = 1 })).to.equal(nil)
 		end)
 
