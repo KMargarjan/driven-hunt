@@ -446,6 +446,14 @@ return function()
 			local attachment = mark :: Attachment
 			local emitter = attachment:FindFirstChildWhichIsA("ParticleEmitter")
 			expect(emitter).to.be.ok()
+			-- THE ASSERTION THAT CAN ACTUALLY FAIL, and round 1 did not have it (the Reviewer's
+			-- finding 1). `Emit` puts all seven grains in the air in ONE burst, and a particle with
+			-- `LockedToPart = false` is simulated in WORLD space once emitted -- so an Attachment on
+			-- the boar moves only where the NEXT grain would be born, and the dust the player sees
+			-- still hangs where the animal was. Everything below about `WorldPosition` is a property
+			-- of `Attachment` itself (`WorldCFrame` IS `parent.CFrame * attachment.CFrame`) and holds
+			-- whatever the emitter does; THIS is the line that makes the picture move.
+			expect((emitter :: ParticleEmitter).LockedToPart).to.equal(true)
 			-- IT STARTED WHERE THE BULLET LANDED.
 			expect((attachment.WorldPosition - where).Magnitude < 1e-3).to.equal(true)
 			-- ...AND IT POINTS OUT OF THE ANIMAL, NOT INTO IT. The emitter fires along its host's TOP
@@ -472,8 +480,9 @@ return function()
 			expect((turned - Vector3.new(0, 0, -1)).Magnitude < 1e-3).to.equal(true)
 			TestKit.note(
 				string.format(
-					"[mark] body moved %.1f studs; the mark followed to within %.4f studs "
-						.. "(before task 256 it stayed put and was %.1f studs behind)",
+					"[mark] body moved %.1f studs; the emitter followed to within %.4f studs AND its grains "
+						.. "are LockedToPart, so the dust rides the animal (before task 256 the puff was an "
+						.. "anchored world point and was left %.1f studs behind)",
 					ran.Magnitude,
 					followedBy,
 					ran.Magnitude
@@ -509,6 +518,12 @@ return function()
 			local host = folder:FindFirstChild("Impact") :: BasePart?
 			expect(host).to.be.ok()
 			expect((host :: BasePart).Anchored).to.equal(true)
+			-- AND ITS GRAINS ARE NOT LOCKED: world space is what the ground has always used, and it
+			-- is the half of this pair that was already proven, so the two paths cannot drift into
+			-- one answer.
+			local groundEmitter = (host :: BasePart):FindFirstChildWhichIsA("ParticleEmitter", true)
+			expect(groundEmitter).to.be.ok()
+			expect((groundEmitter :: ParticleEmitter).LockedToPart).to.equal(false)
 			expect(((host :: BasePart).Position - where).Magnitude < 1e-3).to.equal(true)
 			ground:Destroy()
 			for _, child in ipairs(folder:GetChildren()) do

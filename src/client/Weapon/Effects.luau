@@ -1,6 +1,10 @@
 --!strict
--- PlayerScripts.Weapon.Effects: the shot's cosmetics, and nothing else. It writes no state, decides
--- no hit, and touches nothing outside Workspace.WeaponEffects, which it creates on first use.
+-- PlayerScripts.Weapon.Effects: the shot's cosmetics, and nothing else. It writes no state and
+-- decides no hit. Everything it creates lives in Workspace.WeaponEffects, which it makes on first
+-- use -- WITH ONE EXCEPTION since task 256: a landing on a body that MOVES parents its `Attachment`
+-- to the struck part itself, because an Attachment's frame is its parent's and the folder would pin
+-- the dust to the world again. It adds a child and Debris takes it away; it reads and writes nothing
+-- else about that part, so `Boar.Body` is still the only writer of a boar.
 --
 -- Everything it makes is handed to Debris, so nothing it does can accumulate: EFFECT_MAX_PER_SHOT
 -- is a hard cap on top of that, so a bug upstream cannot flood Workspace (design section 11).
@@ -247,6 +251,12 @@ end
 -- `Anchored = false` (`Boar.Body.create`, `Boar.Body.zones`); the map's ground, trees and stands are
 -- anchored. So the discriminator is the engine's own word for "this moves", and nothing has to
 -- maintain a list of what is an animal.
+--
+-- IT IS WIDER THAN THE ANIMALS, DELIBERATELY AND SAID OUT LOUD (the Reviewer's note, round 1): any
+-- unanchored BasePart rides, which includes another player's limbs and any physics prop. That is the
+-- RIGHT answer for all of them -- dust belongs on the thing it landed on, whatever that thing is --
+-- and it is why this asks "does it move" rather than "is it an animal", which would need a list
+-- somebody has to keep.
 function Effects.ridesWith(instance: Instance?): BasePart?
 	if instance == nil or not instance:IsA("BasePart") then
 		return nil
@@ -330,6 +340,31 @@ function puff(position: Vector3, normal: Vector3?, materialName: string?, attach
 	-- GRAVITY PULLS THE GRAINS BACK DOWN, which is what makes it read as dirt rather than smoke.
 	emitter.Acceleration = Vector3.new(0, -24, 0)
 	emitter.EmissionDirection = Enum.NormalId.Top
+	-- THE GRAINS THEMSELVES RIDE THE BODY, AND THIS LINE IS THE WHOLE OF IT (task 256, round 2).
+	--
+	-- ROUND 1 SHIPPED A FIX THAT MOVED NOTHING THE PLAYER CAN SEE, and the Reviewer was right: an
+	-- `Attachment` on the boar moves where the NEXT particle would be born, but `Emit` below puts all
+	-- seven grains in the air in ONE burst at the instant of the hit -- and with `LockedToPart` at
+	-- its default of FALSE a particle is simulated in WORLD space once emitted. So the attachment
+	-- rode the animal and the dust hung in the air at exactly the point the anchored host used, which
+	-- is the defect verbatim.
+	--   https://create.roblox.com/docs/reference/engine/classes/ParticleEmitter#LockedToPart
+	--     "whether the particles are locked in place relative to the emitter's parent"
+	--
+	-- ONLY ON THE RIDING PATH. A static surface keeps `false`, which is world space and is
+	-- bit-for-bit the picture every landing has drawn since task 249 -- the ground does not move, so
+	-- the two are identical there and `false` is the one that is already proven.
+	--
+	-- `Acceleration` IS THEN IN THE PART'S FRAME, which is the one thing this line changes besides
+	-- the position: the grains fall along the animal's own -Y instead of the world's. `Boar.Body`
+	-- holds the trunk upright with an `AlignOrientation`, so while the animal is alive those are the
+	-- same direction; on a carcass that has rolled, 0.3 s of dust falls along the body's axis
+	-- instead of straight down. Stated rather than corrected: it is a third of a second of seven
+	-- grains, and the alternative is a second acceleration number that would have to be kept in step
+	-- with this one.
+	if attachTo ~= nil then
+		emitter.LockedToPart = true
+	end
 	-- NEVER A STREAM. `Emit` below puts exactly `COUNT` grains in the air, once.
 	emitter.Enabled = false
 	emitter.Parent = attachment

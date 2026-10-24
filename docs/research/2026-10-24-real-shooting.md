@@ -375,6 +375,30 @@ offset instead of on a new anchored host.** Everything else -- the colour rule, 
 grain counts, the `Debris` lifetime, the `EFFECT_MAX_PER_SHOT` budget -- is untouched, and a pellet
 that struck the ground still gets today's anchored host, because the ground does not move.
 
+**AND THAT IS NOT SUFFICIENT, WHICH ROUND 1 GOT WRONG AND THE REVIEWER CAUGHT.** Moving the
+`Attachment` moves only where the NEXT particle would be BORN. `Effects.puff` emits all seven grains
+in ONE burst at the instant of the hit (`emitter.Enabled = false`, then `emitter:Emit(COUNT)`), and
+**a `ParticleEmitter` simulates its emitted particles in WORLD space unless `LockedToPart` is
+true** -- and `LockedToPart` defaults to false.
+  - https://create.roblox.com/docs/reference/engine/classes/ParticleEmitter#LockedToPart
+    *"whether the particles are locked in place relative to the emitter's parent"*
+
+So round 1 shipped an attachment that rode the boar and dust that hung in the air at exactly the
+point the anchored host had used: the measured target in section 10 was **not met**, and the two
+spec assertions that were supposed to prove it (`attachment.WorldPosition` after the body moves, and
+its `UpVector` after the body turns) are properties of `Attachment` ITSELF -- `WorldCFrame` is
+*defined* as `parent.CFrame * attachment.CFrame` -- so they held for any attachment on any part and
+could not fail. **That is this repo's own founding failure mode** (`docs/PROJECT_CONTEXT.md`: *"The
+agent verified its own work with numbers and never looked. Things measured correct and looked
+wrong"*), reproduced exactly, in the task whose whole subject is a thing the player SEES.
+
+**`LockedToPart = true` on the riding path is the line that moves the picture**, and the assertion
+that can fail is `emitter.LockedToPart`, asserted `true` on the riding path and `false` on the static
+one. Its one side effect is that `Acceleration` is then read in the part's frame rather than the
+world's, so the grains fall along the animal's own -Y; `Boar.Body` holds the trunk upright with an
+`AlignOrientation`, so for a live animal those are the same direction, and for 0.3 s of dust on a
+rolled carcass the difference is not worth a second acceleration number to keep in step.
+
 **What the server has to send for that:** the Instance that was hit. The server already has it
 (`Impact.instance`, which `Cast.world` returns today). `ShotLanded` already carries three parallel
 arrays and the pattern for adding one (task 249's own note: *"THREE ARRAYS AND NOT ONE ARRAY OF

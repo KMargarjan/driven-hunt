@@ -158,6 +158,14 @@ local stats = {
 	flightTimeouts = 0,
 	flightRefused = 0,
 	noBallistics = 0,
+	-- THE LAG COMPENSATION THIS SERVER HAS HANDED OUT, in seconds (task 256), mirrored off
+	-- `Flight.catchUpSeconds` beside the two above so one `stats()` still answers everything. It
+	-- MUST STAY 0.000 IN A HARNESS RUN: a Studio Play session has no network and
+	-- `Player:GetNetworkPing()` reads ~0, so a non-zero total here is this feature granting lead
+	-- where there is no lag to compensate -- a bug said out loud rather than a silent gift. On a real
+	-- server it is expected to be non-zero, and it is the only instrument anybody has for how much
+	-- `FLIGHT_CATCHUP_PING_FACTOR` is actually buying (research note section 5.4).
+	flightCatchUpSeconds = 0,
 	-- Passes of `Weapon.refillForDrive` that actually refilled a drive's shells (task 171): 0 in a
 	-- running drive means the drive is not calling it.
 	refills = 0,
@@ -1078,7 +1086,7 @@ end
 -- A NEGATIVE, A NAN OR A MISSING PING IS ZERO, never a fallback guess: 0 is exactly today's
 -- behaviour, so the failure mode of this whole feature is "the game shoots as it did yesterday".
 -- `Flight.launch` clamps the upper end again, at the one door into that module.
-function Weapon.catchUpFor(player: Player?, ping: number?, config): number
+function Weapon.catchUpFor(player: Player?, ping: number?, config: any?): number
 	local seconds = ping
 	if seconds == nil then
 		local ok, measured = pcall(function()
@@ -1840,6 +1848,9 @@ function Weapon.start()
 		-- The flight's own timeouts and refusals, mirrored into this owner's tally so one `stats()`
 		-- answers everything. Both must stay 0 in every run.
 		stats.flightTimeouts = flight.timedOut
+		-- ...AND THE LAG COMPENSATION IT GRANTED (task 256). Mirrored here for the same reason and
+		-- read the same way: 0.000 in any run with no network.
+		stats.flightCatchUpSeconds = flight.catchUpSeconds
 	end)
 
 	for _, player in ipairs(Players:GetPlayers()) do

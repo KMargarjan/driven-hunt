@@ -40,6 +40,13 @@ return function()
 			expect(Weapon.stats().flightRefused).to.equal(0)
 			-- ...AND NO WEAPON ROW IS MISSING ITS BALLISTICS, which would have refused every shot.
 			expect(Weapon.stats().noBallistics).to.equal(0)
+			-- ...AND NOT ONE MILLISECOND OF LAG COMPENSATION WAS GRANTED (task 256). A Studio Play
+			-- session has no network and `Player:GetNetworkPing()` reads ~0, so this is the assertion
+			-- that the feature does NOT hand out lead where there is no lag to compensate. On a real
+			-- server it is expected to be non-zero; here it is the guard.
+			-- No note beside it: this spec requires no TestKit, and the assertion IS the statement --
+			-- a non-zero value fails the harness loudly, which is louder than a printed 0.0000.
+			expect(Weapon.stats().flightCatchUpSeconds).to.equal(0)
 		end)
 	end)
 
