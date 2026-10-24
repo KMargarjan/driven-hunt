@@ -448,12 +448,24 @@ return function()
 			expect(emitter).to.be.ok()
 			-- IT STARTED WHERE THE BULLET LANDED.
 			expect((attachment.WorldPosition - where).Magnitude < 1e-3).to.equal(true)
+			-- ...AND IT POINTS OUT OF THE ANIMAL, NOT INTO IT. The emitter fires along its host's TOP
+			-- face (`EmissionDirection = Top`), so the attachment's own up vector has to BE the
+			-- surface normal -- otherwise the grains spray into the boar's chest and the whole puff
+			-- is invisible. A position that is right to the millimetre says nothing about this, and a
+			-- 0.3 s puff on a running animal is not something a screenshot can settle, so it is
+			-- measured: `ToObjectSpace` composed with the parent's CFrame must give the frame back.
+			expect((attachment.WorldCFrame.UpVector - Vector3.new(1, 0, 0)).Magnitude < 1e-3).to.equal(true)
 
 			-- THE CLAIM, AND IT IS THE WHOLE TASK: the animal runs on and the mark goes WITH it.
 			-- 11.4 studs is what a sprinting boar covers in one grain lifetime (section 8.1).
 			local ran = Vector3.new(0, 0, -11.4)
 			body.CFrame = body.CFrame + ran
 			expect((attachment.WorldPosition - (where + ran)).Magnitude < 1e-3).to.equal(true)
+			-- AND WHEN THE ANIMAL TURNS, THE PUFF TURNS WITH IT, which is the other half of riding a
+			-- body: a boar that swings away must not leave its dust pointing the old way.
+			body.CFrame = CFrame.new(body.Position) * CFrame.Angles(0, math.rad(90), 0)
+			local turned = attachment.WorldCFrame.UpVector
+			expect((turned - Vector3.new(0, 0, -1)).Magnitude < 1e-3).to.equal(true)
 			TestKit.note(
 				string.format(
 					"[mark] body moved %.1f studs; the mark followed to within %.4f studs "
