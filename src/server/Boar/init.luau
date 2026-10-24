@@ -1845,7 +1845,29 @@ Boar.CONFIG.SOUND = {
 	-- `volume` AND `audibleStuds` ARE `CRY`'s, deliberately: this cue is the one the bark used to be,
 	-- and the one thing task 257 changes is WHICH recording it is, not how far it carries.
 	BARK = {
-		ids = { 85634523415950 }, -- the real red deer, played BY REGION (see `VOICE.CLIPS`)
+		-- THE LIBRARY BREATHS, NOT THE REAL RECORDING (task 258, from 257a(a)).
+		--
+		-- IT USED TO BE `{ 85634523415950 }` AND THAT COST EVERY BOAR A 177-SECOND FETCH.
+		-- `Body.oneShotSpecs` builds `bark = sound.BARK` on EVERY animal unconditionally, and
+		-- `Body.warmAssets` hands every one of those Sounds to `ContentProvider:PreloadAsync` -- so a
+		-- sounder of boars, none of which can ever reach this cue (`MOVE.EDGE_BARKS` is false for
+		-- every boar kind), each pulled down the red deer alarm bark. Its own length is in the
+		-- lengths table below: **177.3483 s**, against 0.87 s for the breath that replaces it here.
+		--
+		-- NOTHING AUDIBLE CHANGES, and that is why this is a data row and not a behaviour task. The
+		-- two kinds that DO bark carry the real id themselves -- `VOICE.stag.bark` and
+		-- `VOICE.hind.bark` both begin `85634523415950` -- and `VOICE.APPLIES.bark` is true, so
+		-- `Body.voiceIds` answers their own list and never this one. This row is reached by exactly
+		-- one resolution in the shipped game: the CALF, who has no `bark` row and no `edge` row
+		-- either, so she never plays it. `deer.spec`'s *"a calf has no bark row and must not grow
+		-- one"* arm is the case that pins that, and it compares the LIST rather than the ids.
+		--
+		-- THE TWO IDS ARE THE STAG'S OWN FALLBACK, deliberately, rather than a new pair: they are the
+		-- "Bull Breaths" task 240 chose AS the warning bark, they already sit behind the real id in
+		-- `VOICE.stag.bark`, and because that row is clash-checked against every boar id today they
+		-- are known not to be a boar's. A barking kind that ever ships without a `VOICE` row gets a
+		-- short bark rather than silence.
+		ids = { 9113629809, 9113629973 }, -- "Bull Breaths 4 / 9" (0.87 s, 0.93 s)
 		volume = 0.9,
 		audibleStuds = 110,
 		fade = 0.15, -- a cut bark ENDS rather than being chopped; `VOICE.CLIPS` overrides it per clip
