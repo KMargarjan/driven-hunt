@@ -460,7 +460,11 @@ return function()
 			-- 11.4 studs is what a sprinting boar covers in one grain lifetime (section 8.1).
 			local ran = Vector3.new(0, 0, -11.4)
 			body.CFrame = body.CFrame + ran
-			expect((attachment.WorldPosition - (where + ran)).Magnitude < 1e-3).to.equal(true)
+			-- TAKEN HERE, BEFORE THE TURN BELOW MOVES IT AGAIN: the note prints this number, and a
+			-- note measured after the rotation reads 1.41 studs (the attachment's own 1-stud offset
+			-- swung through 90 degrees) which looks exactly like a regression and is not one.
+			local followedBy = (attachment.WorldPosition - (where + ran)).Magnitude
+			expect(followedBy < 1e-3).to.equal(true)
 			-- AND WHEN THE ANIMAL TURNS, THE PUFF TURNS WITH IT, which is the other half of riding a
 			-- body: a boar that swings away must not leave its dust pointing the old way.
 			body.CFrame = CFrame.new(body.Position) * CFrame.Angles(0, math.rad(90), 0)
@@ -471,7 +475,7 @@ return function()
 					"[mark] body moved %.1f studs; the mark followed to within %.4f studs "
 						.. "(before task 256 it stayed put and was %.1f studs behind)",
 					ran.Magnitude,
-					(attachment.WorldPosition - (where + ran)).Magnitude,
+					followedBy,
 					ran.Magnitude
 				)
 			)
