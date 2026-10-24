@@ -1411,9 +1411,9 @@ return function()
 		-- A RUNTIME OF ITS OWN, because two things have to be true that no other case here wants:
 		-- `MOVE` on (`Brain:check` refuses outright with it off) and the edge chance at 1, so the
 		-- claim is about the CUE and not about a roll. The shipped 0.90 and 0.75 are `deer.spec`'s.
-		local function barkRuntime(name: string)
-			local world = buildWorld(true, name)
-			world.config.SOUND = voicedSound()
+		-- THE KINDS, WITH THE DEER'S EDGE CHANCE FORCED TO 1. One definition, because both cases below
+		-- need it and a second copy is a second chance for one of them to drift back to a roll.
+		local function certainKinds()
 			local kinds = table.clone(CONFIG.KINDS)
 			kinds.ENABLED = true
 			kinds.LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 }
@@ -1426,7 +1426,13 @@ return function()
 				end
 				kinds[kind] = row
 			end
-			world.config.KINDS = kinds
+			return kinds
+		end
+
+		local function barkRuntime(name: string)
+			local world = buildWorld(true, name)
+			world.config.SOUND = voicedSound()
+			world.config.KINDS = certainKinds()
 			local move = table.clone(CONFIG.MOVE)
 			move.ENABLED = true
 			world.config.MOVE = move
@@ -1521,7 +1527,10 @@ return function()
 			silent.enabled = false
 			sound.CRY = silent
 			world.config.SOUND = sound
-			world.config.KINDS = { ENABLED = true, LEGENDARY = { CHANCE_PER_DRIVE = 0, MAX_PER_DRIVE = 1 } }
+			-- THE SAME FORCED KINDS as the case above, which the first run of this case did not use:
+			-- a hind at her shipped 0.75 can refuse the check, and a case that needs her to TAKE one
+			-- cannot be left to a roll.
+			world.config.KINDS = certainKinds()
 			local move = table.clone(CONFIG.MOVE)
 			move.ENABLED = true
 			world.config.MOVE = move
