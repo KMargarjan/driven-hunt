@@ -401,6 +401,157 @@ return function()
 			end
 		end)
 
+		-- -------------------------- the mark goes ON the animal, not in the air (task 256)
+		--
+		-- KAREN, 2026-10-24: *"this signe where we shot where we hit sometimes shows we hit empty
+		-- space and died needs corection"*. MEASURED (research note section 8.1): the puff was
+		-- `Anchored` in the WORLD, and a boar at `SPRINT_SPEED` 38 studs/s covers 11.4 studs in the
+		-- 0.3 s its own grains live -- two of its own 5.5-stud body lengths -- so the dust hung in
+		-- the air where the animal WAS while the animal it really hit ran on and died.
+		it("rides the body it struck, so a moving animal keeps its mark (task 256)", function()
+			local Effects = Weapon.Effects
+			local folder = Effects.folder()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+
+			-- A boar's trunk and all four of its zone parts are `Anchored = false` (`Boar.Body`), so
+			-- an unanchored part IS the thing this feature is about.
+			local body = Instance.new("Part")
+			body.Size = Vector3.new(2, 3, 5.5) -- `Boar.CONFIG.BODY_SIZE`, for the picture
+			body.Anchored = false
+			body.CFrame = CFrame.new(0, 10, 0)
+			body:SetAttribute("Damageable", true)
+			body:SetAttribute("HitZone", "chest")
+			-- PARENTLESS ON PURPOSE. An unanchored part inside Workspace FALLS, and this case asserts
+			-- a position to the millimetre; an `Attachment`'s `WorldPosition` is derived from its
+			-- parent's own CFrame and needs no Workspace, so the probe is moved by hand below and
+			-- nothing else can move it.
+
+			local where = body.Position + Vector3.new(1, 0, 0)
+			Effects.playLanded({
+				shooterUserId = 1,
+				impacts = { where },
+				normals = { Vector3.new(1, 0, 0) },
+				materials = { "" },
+				parts = { body },
+			})
+
+			-- NOTHING WENT INTO THE EFFECTS FOLDER: an anchored host there is exactly the bug.
+			expect(#folder:GetChildren()).to.equal(0)
+			-- ...AND THE PICTURE IS ON THE BODY INSTEAD.
+			local mark = body:FindFirstChild("Impact")
+			expect(mark).to.be.ok()
+			expect(mark:IsA("Attachment")).to.equal(true)
+			local attachment = mark :: Attachment
+			local emitter = attachment:FindFirstChildWhichIsA("ParticleEmitter")
+			expect(emitter).to.be.ok()
+			-- IT STARTED WHERE THE BULLET LANDED.
+			expect((attachment.WorldPosition - where).Magnitude < 1e-3).to.equal(true)
+
+			-- THE CLAIM, AND IT IS THE WHOLE TASK: the animal runs on and the mark goes WITH it.
+			-- 11.4 studs is what a sprinting boar covers in one grain lifetime (section 8.1).
+			local ran = Vector3.new(0, 0, -11.4)
+			body.CFrame = body.CFrame + ran
+			expect((attachment.WorldPosition - (where + ran)).Magnitude < 1e-3).to.equal(true)
+			TestKit.note(
+				string.format(
+					"[mark] body moved %.1f studs; the mark followed to within %.4f studs "
+						.. "(before task 256 it stayed put and was %.1f studs behind)",
+					ran.Magnitude,
+					(attachment.WorldPosition - (where + ran)).Magnitude,
+					ran.Magnitude
+				)
+			)
+
+			body:Destroy()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+		end)
+
+		it("leaves a STATIC surface exactly as it was: the anchored host in the folder", function()
+			local Effects = Weapon.Effects
+			local folder = Effects.folder()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+			-- The map's ground, trees and stands are anchored, and the world does not move -- so this
+			-- path must be bit-for-bit the picture every landing drew before task 256.
+			local ground = Instance.new("Part")
+			ground.Anchored = true
+			ground.CFrame = CFrame.new(0, 0, 0)
+			local where = Vector3.new(0, 0.5, 0)
+			Effects.playLanded({
+				shooterUserId = 1,
+				impacts = { where },
+				normals = { Vector3.new(0, 1, 0) },
+				materials = { "Grass" },
+				parts = { ground },
+			})
+			expect(ground:FindFirstChild("Impact")).to.equal(nil)
+			local host = folder:FindFirstChild("Impact") :: BasePart?
+			expect(host).to.be.ok()
+			expect((host :: BasePart).Anchored).to.equal(true)
+			expect(((host :: BasePart).Position - where).Magnitude < 1e-3).to.equal(true)
+			ground:Destroy()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+		end)
+
+		it("Effects.ridesWith is the ONE decision, and answers nil for everything that cannot move", function()
+			local Effects = Weapon.Effects
+			-- NO PART AT ALL: every landing point sent before task 256, and the `false` placeholder
+			-- the server sends where a cast returned something that is not a BasePart.
+			expect(Effects.ridesWith(nil)).to.equal(nil)
+			-- NOT A BASEPART: a Folder cannot carry an Attachment's frame.
+			local folderish = Instance.new("Folder")
+			expect(Effects.ridesWith(folderish)).to.equal(nil)
+			folderish:Destroy()
+			-- ANCHORED IS THE WORLD AND THE WORLD DOES NOT MOVE.
+			local still = Instance.new("Part")
+			still.Anchored = true
+			expect(Effects.ridesWith(still)).to.equal(nil)
+			-- UNANCHORED IS A BODY, which is what `Boar.Body` builds.
+			still.Anchored = false
+			expect(Effects.ridesWith(still)).to.equal(still)
+			still:Destroy()
+		end)
+
+		it("a `false` placeholder keeps the arrays aligned by INDEX", function()
+			-- All four arrays are read by index, so the server sends `false` rather than a hole. The
+			-- second pellet struck the body; the first and third struck the world.
+			local Effects = Weapon.Effects
+			local folder = Effects.folder()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+			local body = Instance.new("Part")
+			body.Anchored = false
+			body.CFrame = CFrame.new(0, 20, 0)
+			Effects.playLanded({
+				shooterUserId = 1,
+				impacts = { Vector3.new(0, 1, 0), body.Position, Vector3.new(5, 1, 0) },
+				normals = { Vector3.yAxis, Vector3.yAxis, Vector3.yAxis },
+				materials = { "Grass", "", "Grass" },
+				parts = { false, body, false },
+			})
+			-- TWO in the world, ONE on the body: the index of the part array decided which.
+			local inFolder = 0
+			for _, child in ipairs(folder:GetChildren()) do
+				if child.Name == "Impact" then
+					inFolder += 1
+				end
+			end
+			expect(inFolder).to.equal(2)
+			expect(body:FindFirstChild("Impact")).to.be.ok()
+			body:Destroy()
+			for _, child in ipairs(folder:GetChildren()) do
+				child:Destroy()
+			end
+		end)
+
 		it("picks the puff off the surface, and stands it on the surface normal (task 249)", function()
 			local Effects = Weapon.Effects
 			local cfg = Shotgun.CONFIG.IMPACT

@@ -21,6 +21,10 @@ local Ballistics = require(game:GetService("ReplicatedStorage"):WaitForChild("Ba
 -- states. A second 0.28 in this file would be a second answer to how far 100 m is.
 local Report = require(game:GetService("ReplicatedStorage"):WaitForChild("Report"))
 local Weapons = require(game:GetService("ReplicatedStorage"):WaitForChild("Weapons"))
+-- THE SHIPPED FLIGHT CONFIG (task 256): the lag-compensation block below reads its CAP and its PING
+-- FACTOR off this rather than copying them, because those two rows are what its cases claim things
+-- about.
+local Shotgun = require(game:GetService("ReplicatedStorage"):WaitForChild("Shotgun"))
 
 local Hits = Weapon.Hits
 local Cast = Weapon.Cast
@@ -625,6 +629,305 @@ return function()
 			local perStepMs = (os.clock() - started) / frames * 1000
 			TestKit.note(string.format("[flight] 288 projectiles: %.3f ms per step", perStepMs))
 			expect(perStepMs < 1.0).to.equal(true)
+		end)
+	end)
+
+	-- ---------------------------------------------------------------- LAG COMPENSATION (task 256)
+	--
+	-- KAREN, 2026-10-24: *"we need to aim ahead to hit animal when running"* / *"it seems there is a
+	-- bit off"*. Until this task the lead the game demanded was the TRUE lead PLUS the round trip to
+	-- the server, because the player aims at the animal his client drew one trip ago and the server
+	-- resolves the shot against where it is one trip later.
+	-- Research note: docs/research/2026-10-24-real-shooting.md section 5.
+	describe("lag compensation", function()
+		-- THE STEPPING NUMBERS ARE LOCAL, exactly as the flight block above keeps them: a spec that
+		-- drives a stepper wants a step size it chose. THE TWO TASK-256 ROWS ARE READ OFF THE SHIPPED
+		-- TABLE, deliberately and unlike them -- the cap and the ping factor are the things these
+		-- cases make claims ABOUT, so a hand-copy here would let the game's own cap move while this
+		-- file went on passing against the old one.
+		local CONFIG = {
+			FLIGHT_STEP_MAX_SECONDS = 1 / 30,
+			FLIGHT_MAX_SUBSTEPS = 8,
+			FLIGHT_MAX_SECONDS = 2.0,
+			FLIGHT_MAX_LIVE_PELLETS = 512,
+			FLIGHT_CATCHUP_MAX_SECONDS = Shotgun.CONFIG.FLIGHT_CATCHUP_MAX_SECONDS,
+			FLIGHT_CATCHUP_PING_FACTOR = Shotgun.CONFIG.FLIGHT_CATCHUP_PING_FACTOR,
+		}
+
+		local function configWith(overrides)
+			local merged = table.clone(CONFIG)
+			for key, value in pairs(overrides) do
+				merged[key] = value
+			end
+			return merged
+		end
+
+		local function record(overrides)
+			local shot = {
+				shooter = nil :: any,
+				shooterUserId = 1,
+				weapon = "rifle",
+				ammo = "Slug",
+				muzzle = Vector3.zero,
+				ignore = {},
+				rangeStuds = 800,
+				firedAt = 0,
+				epoch = 1,
+			}
+			for key, value in pairs(overrides or {}) do
+				shot[key] = value
+			end
+			return shot
+		end
+
+		local function neverHits()
+			return nil
+		end
+
+		-- The same crossing boar the core flight claim uses, and for the same reason: a stub whose
+		-- answer depends on the step's own elapsed time is what makes "judged where it IS when the
+		-- bullet arrives" assertable with no world.
+		local DT = 1 / 60
+		local function crossingBoar(distance: number)
+			local boar = Instance.new("Part")
+			boar:SetAttribute("Damageable", true)
+			boar:SetAttribute("HitZone", "body")
+			local elapsed = 0
+			local function cast(origin: Vector3, direction: Vector3)
+				local centre = Vector3.new(distance, 0, BOAR_SPRINT_STUDS * elapsed)
+				local length = direction.Magnitude
+				if length < 1e-9 then
+					return nil
+				end
+				local unit = direction / length
+				local along = math.clamp((centre - origin):Dot(unit), 0, length)
+				local closest = origin + unit * along
+				if (closest - centre).Magnitude <= 1 then
+					return { instance = boar, position = closest, normal = Vector3.yAxis, distance = along }
+				end
+				return nil
+			end
+			-- THE WORLD MOVES ON THE FRAME, NOT ON THE SUB-STEP, and that is what makes the catch-up
+			-- a real reach forward through a world that is holding still -- which is exactly what it
+			-- is on the server, where `Boar.Body` moves on Heartbeat and a shot spends its whole
+			-- catch-up inside one of them.
+			local function tick()
+				elapsed += DT
+			end
+			return boar, cast, tick
+		end
+
+		local function fireAt(aim: Vector3, cast, tick, flown, catchUp: number?)
+			local flight = Flight.new(CONFIG)
+			flight:launch(
+				record({ rangeStuds = Weapons.ROWS.rifle.RANGE_STUDS.Slug }),
+				{ Ballistics.launchDirection(aim, flown) },
+				flown,
+				catchUp
+			)
+			local impacts = {}
+			for _ = 1, 400 do
+				tick()
+				for _, res in ipairs(flight:advance(DT, cast)) do
+					for _, impact in ipairs(res.impacts) do
+						table.insert(impacts, impact)
+					end
+				end
+				if flight:count() == 0 then
+					break
+				end
+			end
+			return impacts, flight
+		end
+
+		it("THE CORE CLAIM: with the catch-up, the TRUE lead hits a boar it otherwise misses", function()
+			-- THE MODEL IS THE RESEARCH NOTE'S SECTION 5.1, EXACTLY. Server time 0 is the trigger and
+			-- the boar is at Z = 0 there, running +Z at a sprint and crossing the shot's path
+			-- `distance` studs down +X.
+			--
+			-- The player's click was MADE at server time -L and the picture he aimed at showed the
+			-- boar as it was at -2L. So he put his reticle at `v*(-2L) + lead` -- the TRUE lead, taken
+			-- off the only position he could SEE. The bullet reaches that point at `tof`, by which
+			-- time the boar is at `v*tof = lead`: it is `2*v*L` PAST the aim point, so the shot goes
+			-- BEHIND it. With a catch-up of `2L` the bullet reaches the aim point at `tof - 2L`, when
+			-- the boar is at `lead - 2*v*L` -- which IS the aim point. That is the whole feature.
+			local oneWay = 0.05 -- 50 ms, an ordinary connection
+			local roundTrip = 2 * oneWay
+			expect(roundTrip <= CONFIG.FLIGHT_CATCHUP_MAX_SECONDS).to.equal(true)
+
+			local flown = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
+			for _, distance in ipairs({ 179, 357, 536 }) do
+				local lead = Ballistics.leadStuds(flown, distance, BOAR_SPRINT_STUDS)
+				local pingStuds = BOAR_SPRINT_STUDS * roundTrip
+				-- OR THE CASE PROVES NOTHING: the ping's own error has to be bigger than the stub's
+				-- one-stud hit radius, or an uncompensated shot would land anyway.
+				expect(pingStuds > 1).to.equal(true)
+				local aim = Vector3.new(distance, 0, lead - pingStuds).Unit
+
+				-- UNCOMPENSATED: the true lead is not enough, and the shot passes behind the animal.
+				local missBoar, missCast, missTick = crossingBoar(distance)
+				local missed = fireAt(aim, missCast, missTick, flown, 0)
+				expect(#missed).to.equal(0)
+
+				-- COMPENSATED by the round trip: the same aim, the same animal, and it connects.
+				local hitBoar, hitCast, hitTick = crossingBoar(distance)
+				local hit = fireAt(aim, hitCast, hitTick, flown, roundTrip)
+				expect(#hit).to.equal(1)
+				expect(Hits.targetOf(hit[1].instance)).to.equal(hitBoar)
+
+				TestKit.note(
+					string.format(
+						"[catchup] rifle at %d studs (%.0f m): true lead %.1f st; %.0f ms round trip costs "
+							.. "%.1f st, so the true lead MISSED; with the catch-up it HIT",
+						distance,
+						distance * Report.CONFIG.METRES_PER_STUD,
+						lead,
+						roundTrip * 1000,
+						pingStuds
+					)
+				)
+				missBoar:Destroy()
+				hitBoar:Destroy()
+			end
+		end)
+
+		it("ZERO IS BIT-FOR-BIT TODAY'S FLIGHT: same casts, same segments, same end state", function()
+			-- The feature's failure mode has to be "the game shoots as it did yesterday", so a shot
+			-- that owes nothing must take EXACTLY the path it took before this task existed. Both
+			-- the nil caller (every call site written before task 256) and an explicit 0.
+			local flown = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
+			local function trace(catchUp: number?)
+				local flight = Flight.new(CONFIG)
+				flight:launch(record({}), { Vector3.new(0, 0, -1) }, flown, catchUp)
+				local segments = {}
+				for _ = 1, 30 do
+					flight:advance(DT, function(origin: Vector3, direction: Vector3)
+						table.insert(segments, { origin = origin, direction = direction })
+						return nil
+					end)
+				end
+				return segments, flight
+			end
+			local baseline, baseFlight = trace(nil)
+			local zeroed, zeroFlight = trace(0)
+			expect(#zeroed).to.equal(#baseline)
+			expect(#baseline > 0).to.equal(true)
+			for index, step in ipairs(baseline) do
+				expect((zeroed[index].origin - step.origin).Magnitude < 1e-9).to.equal(true)
+				expect((zeroed[index].direction - step.direction).Magnitude < 1e-9).to.equal(true)
+			end
+			expect(zeroFlight.catchUpSeconds).to.equal(0)
+			expect(baseFlight.catchUpSeconds).to.equal(0)
+		end)
+
+		it("IS SPENT ONCE, however many frames the shot lives for", function()
+			-- A catch-up re-applied every Heartbeat would accelerate a bullet without bound. The
+			-- FIRST advance takes `dt + catchUp` and every one after it takes `dt`, which is
+			-- measurable as the cast count: the first frame casts more segments than the second.
+			local flown = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
+			local flight = Flight.new(CONFIG)
+			flight:launch(record({ rangeStuds = 1e6 }), { Vector3.new(0, 0, -1) }, flown, 0.1)
+			local before = flight.casts
+			flight:advance(DT, neverHits)
+			local first = flight.casts - before
+			flight:advance(DT, neverHits)
+			local second = flight.casts - before - first
+			-- 0.1 + 1/60 is 0.1167 s, which is 4 sub-steps of the 1/30 cap; a bare 1/60 is 1.
+			expect(first).to.equal(4)
+			expect(second).to.equal(1)
+			TestKit.note(string.format("[catchup] spent once: first frame %d casts, second %d", first, second))
+		end)
+
+		it("IS CLAMPED AT THE CAP, and a negative or a NaN is zero", function()
+			local flown = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
+			local function granted(catchUp: number?)
+				local flight = Flight.new(CONFIG)
+				flight:launch(record({ rangeStuds = 1e6 }), { Vector3.new(0, 0, -1) }, flown, catchUp)
+				return flight.catchUpSeconds
+			end
+			expect(granted(0.05)).to.equal(0.05)
+			-- A WILD VALUE CANNOT BUY A BODY LENGTH OF FREE LEAD: the one door into the module clamps.
+			expect(granted(10)).to.equal(CONFIG.FLIGHT_CATCHUP_MAX_SECONDS)
+			expect(granted(-1)).to.equal(0)
+			expect(granted(0 / 0)).to.equal(0)
+			expect(granted(nil)).to.equal(0)
+		end)
+
+		it("A SHOT THE GLOBAL CAP REFUSED IS GRANTED NOTHING", function()
+			-- It has no projectiles to advance and resolves as a MISS, so crediting it would put a
+			-- number in `catchUpSeconds` that bought nothing.
+			local flown = Ballistics.shotFor(Weapons.ROWS.shotgun, "Buck") :: any
+			local flight = Flight.new(configWith({ FLIGHT_MAX_LIVE_PELLETS = 0 }))
+			local launched = flight:launch(record({ ammo = "Buck" }), { Vector3.new(0, 0, -1) }, flown, 0.1)
+			expect(launched).to.equal(0)
+			expect(flight.refused).to.equal(1)
+			expect(flight.catchUpSeconds).to.equal(0)
+		end)
+
+		it("CANNOT TUNNEL: a wall between the muzzle and the animal still stops the caught-up shot", function()
+			-- The catch-up is the simulation run for longer, NOT a teleport, and this is the case that
+			-- says so: the cap splits it into sub-steps and each one casts its own segment, so the
+			-- first solid thing on the path is still what is hit.
+			local flown = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
+			local wall = Instance.new("Part")
+			local flight = Flight.new(CONFIG)
+			flight:launch(record({}), { Vector3.new(0, 0, -1) }, flown, CONFIG.FLIGHT_CATCHUP_MAX_SECONDS)
+			local impacts = {}
+			for _ = 1, 10 do
+				for _, res in
+					ipairs(flight:advance(DT, function(origin: Vector3, direction: Vector3)
+						-- A wall 10 studs out, across the whole path.
+						local length = direction.Magnitude
+						local startZ, endZ = origin.Z, origin.Z + direction.Z
+						if startZ >= -10 and endZ <= -10 and length > 1e-9 then
+							return {
+								instance = wall,
+								position = Vector3.new(0, 0, -10),
+								normal = Vector3.zAxis,
+								distance = math.abs(-10 - startZ),
+							}
+						end
+						return nil
+					end))
+				do
+					for _, impact in ipairs(res.impacts) do
+						table.insert(impacts, impact)
+					end
+				end
+			end
+			expect(#impacts).to.equal(1)
+			expect(impacts[1].instance).to.equal(wall)
+			expect(flight:count()).to.equal(0)
+			wall:Destroy()
+		end)
+
+		it("Flight.substeps never exceeds the cap and is the vacuum limit at 0", function()
+			local subs, step = Flight.substeps(0, CONFIG)
+			expect(subs).to.equal(1)
+			expect(step).to.equal(0)
+			subs, step = Flight.substeps(1 / 15, CONFIG)
+			expect(subs).to.equal(2)
+			expect(step <= CONFIG.FLIGHT_STEP_MAX_SECONDS + 1e-12).to.equal(true)
+			-- Past the cap the step stays AT the cap and the remainder is discarded.
+			subs, step = Flight.substeps(0.5, CONFIG)
+			expect(subs).to.equal(CONFIG.FLIGHT_MAX_SUBSTEPS)
+			expect(math.abs(step - CONFIG.FLIGHT_STEP_MAX_SECONDS) < 1e-12).to.equal(true)
+		end)
+
+		it("Weapon.catchUpFor converts a ping, clamps it, and refuses a bad one", function()
+			-- PURE with `ping` supplied, which is the only way this is reachable on this PC at all: a
+			-- Studio Play session has no network and `GetNetworkPing` reads ~0 (research note 5.4).
+			expect(Weapon.catchUpFor(nil, 0.05, CONFIG)).to.equal(0.05 * CONFIG.FLIGHT_CATCHUP_PING_FACTOR)
+			expect(Weapon.catchUpFor(nil, 0, CONFIG)).to.equal(0)
+			expect(Weapon.catchUpFor(nil, -0.2, CONFIG)).to.equal(0)
+			expect(Weapon.catchUpFor(nil, 0 / 0, CONFIG)).to.equal(0)
+			expect(Weapon.catchUpFor(nil, 10, CONFIG)).to.equal(CONFIG.FLIGHT_CATCHUP_MAX_SECONDS)
+			-- THE FACTOR IS A DIAL AND BOTH READINGS ARE REACHABLE (the row's own reason for being a
+			-- row): the engine's docs do not say whether its number is the round trip or one way.
+			local doubled = configWith({ FLIGHT_CATCHUP_PING_FACTOR = 2.0, FLIGHT_CATCHUP_MAX_SECONDS = 1.0 })
+			expect(Weapon.catchUpFor(nil, 0.05, doubled)).to.equal(0.1)
+			-- A PLAYER WHO CANNOT BE ASKED IS GIVEN NOTHING, never a guessed default.
+			expect(Weapon.catchUpFor(nil, nil, CONFIG)).to.equal(0)
 		end)
 	end)
 
