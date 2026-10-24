@@ -1503,10 +1503,14 @@ return function()
 			-- that name on this animal, or the cue switched off by data -- so claiming FIRST would
 			-- book the world's voices for silence. `Body.canPlayOneShot` is asked first now.
 			--
-			-- THE FAULT IS INJECTED THE WAY THE PREDICATE EXPECTS IT: the deer's own `cry` Sound is
-			-- destroyed, which is the design's own case (*"the load can fail, the asset can be
-			-- moderated away"*). Everything else about the world is untouched, so a cry that SHOULD be
-			-- heard still is -- which is what makes the last assertion discriminating.
+			-- THE FAULT IS INJECTED THE WAY THE PREDICATE READS IT, and the first run of this case got
+			-- that wrong in an instructive way: destroying the `Sound` INSTANCE is not enough, because
+			-- `handle.sounds` is a TABLE of references and `Body.canPlayOneShot` asks that table --
+			-- so a destroyed Sound still answered "yes" and still played (silently, parentless). The
+			-- entry itself is removed, which is the state `Body.attachSounds` leaves for a cue it never
+			-- built: the design's own case, *"the load can fail, the asset can be moderated away"*.
+			-- Everything else about the world is untouched, so a cry that SHOULD be heard still is --
+			-- which is what makes the last assertion discriminating.
 			local runtime = barkRuntime("BoarsBarkSlots")
 			local mute = {}
 			for slot = 1, SOUND.CROWD.MAX_SQUEALS do
@@ -1518,6 +1522,8 @@ return function()
 			for _, handle in ipairs(mute) do
 				local cry = soundNamed(handle, "cry") :: Sound
 				expect(cry).to.be.ok()
+				expect(handle.sounds.cry).to.be.ok()
+				handle.sounds.cry = nil
 				cry:Destroy()
 			end
 
