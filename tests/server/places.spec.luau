@@ -596,6 +596,88 @@ return function()
 			model:Destroy()
 		end)
 
+		it("takes BOTH properties off a visible, COLLIDING branch -- the task 260 case", function()
+			-- MEASURED WITH A CONTROL IN THE FOREST TEST on 2026-10-25
+			-- (`driven-hunt-runs/260-why.luau`, read-only): a ray stops on a part with
+			-- `CanQuery = false` while that part still COLLIDES, and does not stop on the same
+			-- part's non-colliding sibling. So the old rule -- clear `CanQuery` on anything that does
+			-- not collide -- only ever touched parts that were already harmless, and the 127
+			-- colliding `Branch` parts in Karen's wood went on killing shots. That is L-060
+			-- recurring as 258a(f).
+			local model = Instance.new("Model")
+			local branch = Instance.new("Part")
+			branch.Name = "Branch.001"
+			branch.Transparency = 0 -- VISIBLE, so the old invisibility arm cannot reach it
+			branch.CanCollide = true -- and COLLIDING, which is what made it stop rays
+			branch.CanQuery = false -- already "fixed" by the old rule, and still stopping bullets
+			branch.Parent = model
+			local trunk = Instance.new("Part")
+			trunk.Name = "SM_Trunk"
+			trunk.CanCollide = true
+			trunk.CanQuery = true
+			trunk.Parent = model
+
+			-- ONE property to change on the branch: its collision. `CanQuery` was already false.
+			expect(Planter.unblockFoliage(model)).to.equal(1)
+			expect(branch.CanQuery).to.equal(false)
+			expect(branch.CanCollide).to.equal(false)
+			-- THE TRUNK IS UNTOUCHED, which is the other half of the Director's sentence.
+			expect(trunk.CanQuery).to.equal(true)
+			expect(trunk.CanCollide).to.equal(true)
+			model:Destroy()
+		end)
+
+		it("takes both off a queryable leaf, which is what Karen's Session trees carry", function()
+			-- The other half of the measurement: 623 parts in `Workspace.Session` were
+			-- `CanQuery = true`, `CanCollide = false` -- 357 `OuterLeaves` and 266 bushes.
+			local folder = Instance.new("Folder")
+			for _, name in ipairs({ "OuterLeaves", "Bush4" }) do
+				local leaf = Instance.new("Part")
+				leaf.Name = name
+				leaf.CanQuery = true
+				leaf.CanCollide = false
+				leaf.Parent = folder
+			end
+			-- A FOLDER, NOT A MODEL, because the standing Studio content is folders -- and the sweep
+			-- at boot is handed those same instances.
+			expect(Planter.unblockFoliage(folder)).to.equal(2)
+			for _, leaf in ipairs(folder:GetChildren()) do
+				expect((leaf :: any).CanQuery).to.equal(false)
+				expect((leaf :: any).CanCollide).to.equal(false)
+			end
+			-- IDEMPOTENT: a second boot in the same session changes nothing and says so.
+			expect(Planter.unblockFoliage(folder)).to.equal(0)
+			folder:Destroy()
+		end)
+
+		it("calls a leaf a leaf and never calls a trunk one", function()
+			-- THE NAME LIST IS THE ONE THING THIS ARM RESTS ON (see `unblockFoliage`'s header: a
+			-- visible colliding leaf is indistinguishable from a trunk by its properties), so the
+			-- names MEASURED in Karen's wood are asserted on both sides.
+			for _, name in ipairs({
+				"OuterLeaves",
+				"SM_Leaves",
+				"Branch",
+				"Branch.001",
+				"Branch.002",
+				"Bush",
+				"Bush1",
+				"Bush3",
+				"Bush4",
+				"SM_Lady_Fern_Var02",
+				"Crown",
+			}) do
+				if not Planter.isFoliageName(name) then
+					error(string.format("[places] %q is foliage in this world and the rule does not see it", name))
+				end
+			end
+			for _, name in ipairs({ "Trunk", "SM_Trunk", "CollidePart", "Basepart", "Part", "Stem", "Root" }) do
+				if Planter.isFoliageName(name) then
+					error(string.format("[places] %q must keep stopping bullets and the rule calls it foliage", name))
+				end
+			end
+		end)
+
 		it("never plants a tree above the ground, on a hillside it has never seen", function()
 			-- DESIGN 12.1 CASE 22, and the Reviewer was right that it was missing (round 1, finding 2):
 			-- `plantOne` is the function that actually puts a tree on the ground, and nothing asserted it.

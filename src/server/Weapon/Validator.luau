@@ -28,7 +28,13 @@ end
 -- `req.origin` is the CAMERA position and `req.direction` its unit LookVector, so the tolerance is
 -- generous on purpose: under the stock third-person camera the origin is MEANT to be behind the
 -- character (design section 5.5 step 2).
-function Validator.checkShot(req: any, rootPosition: Vector3?, config): (boolean, string?)
+-- `toleranceStuds` IS THE FOURTH ARGUMENT SINCE TASK 260, and `nil` is `config.CAMERA_ORIGIN_TOLERANCE`
+-- -- every caller written before it, bit for bit. The owner passes the FIRST-PERSON number when the
+-- camera is first person, because the two branches put the eye in genuinely different places (1.99
+-- studs from the root against the third-person clamp's 14.5) and one number for both is the looser of
+-- the two. It is an argument rather than a second config read for the reason `g` is an argument all
+-- through `Ballistics`: a bound that can only be read at one value cannot be tested at another.
+function Validator.checkShot(req: any, rootPosition: Vector3?, config, toleranceStuds: number?): (boolean, string?)
 	if rootPosition == nil then
 		return false, "not-alive"
 	end
@@ -41,7 +47,8 @@ function Validator.checkShot(req: any, rootPosition: Vector3?, config): (boolean
 	if math.abs(req.direction.Magnitude - 1) > config.DIR_UNIT_TOLERANCE then
 		return false, "not-unit"
 	end
-	if (req.origin - rootPosition).Magnitude > config.CAMERA_ORIGIN_TOLERANCE then
+	local tolerance = if type(toleranceStuds) == "number" then toleranceStuds else config.CAMERA_ORIGIN_TOLERANCE
+	if (req.origin - rootPosition).Magnitude > tolerance then
 		return false, "origin-far"
 	end
 	return true, nil

@@ -450,7 +450,38 @@ Shotgun.CONFIG = {
 	AUTO_EQUIP_DELAY_SECONDS = 0.5,
 
 	-- validation
-	CAMERA_ORIGIN_TOLERANCE = 30, -- studs from HumanoidRootPart; the stock camera sits behind you
+	-- HOW FAR FROM HIS OWN ROOT A PLAYER MAY CLAIM HIS EYE IS (`Validator.checkShot`). It was **30**
+	-- until task 260 and it is the one number that bounds a CLIENT CLAIM, so it is the task's
+	-- security half: `BORE_ON_SIGHT_LINE` makes the bullet LEAVE from `req.origin`, where before it
+	-- left from a `Muzzle` attachment on the server's own Tool. A tolerance of 30 studs was
+	-- 15 studs of slack nobody needed.
+	--
+	-- MEASURED, NOT GUESSED, AND THE CAMERA'S OWN ARITHMETIC IS THE MEASUREMENT (`camera_mode.spec`,
+	-- "the honest spread of the fire origin"). `Mode.cameraCFrame` puts the eye at
+	-- `root + (0, PIVOT_HEIGHT_STUDS, 0) + look * (-AIM_PIVOT_FORWARD_STUDS)` in FIRST PERSON, so
+	--     |origin - root|^2 = 1.6^2 + 0.4^2 + 2*1.6*0.4*look.Y = 2.72 + 1.28*look.Y
+	-- and over the whole clamped pitch range (`PITCH_MIN_DEG` -72 to `PITCH_MAX_DEG` +78) that is
+	-- **1.209 studs at worst looking down and 1.993 looking up**. Nothing else moves it: `blend`
+	-- changes the field of view and the gun's pose and not the eye (task 92's no-jump rule), the
+	-- scope's sway goes into `look` so it is inside that range already, and a high seat carries the
+	-- root with the player so the OFFSET is unchanged. The spec sweeps pitch x yaw x blend and
+	-- asserts the 1.993.
+	--
+	-- SO THE FIRST-PERSON NUMBER IS 6: three times the honest worst case. The 4 studs of margin are
+	-- for the one thing this PC cannot measure (rule 8) -- the client sends the eye it drew and the
+	-- server compares it with the root it has REPLICATED, which is up to a round trip old, so a
+	-- running or falling player is legitimately further apart than the geometry says. A loopback
+	-- Studio session reads 1-2 ms of ping (task 256 measured it), so the real figure needs a real
+	-- server. `Weapon.stats.originFarthest` is the instrument: it records the largest separation any
+	-- ACCEPTED shot had, so the number can be tightened from evidence instead of from argument.
+	CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON = 6,
+	-- AND THE THIRD-PERSON BRANCH KEEPS ITS OWN, because it is still the documented rollback
+	-- (`Flags.DEFAULTS.FIRST_PERSON`: *"one line back to `false` returns the camera she accepted"*).
+	-- There the camera really does sit behind the player: `THIRD_DISTANCE_STUDS` 12 plus the
+	-- shoulder, and the client clamps the whole thing at `MAX_DISTANCE_STUDS` **14.5**. 16 is that
+	-- clamp plus 1.5, where 30 was that clamp plus 15.5. A third-person shot is refused only if the
+	-- client's own clamp has already failed.
+	CAMERA_ORIGIN_TOLERANCE = 16,
 	MIN_AIM_DISTANCE = 4, -- below this the muzzle->aim vector is degenerate
 
 	-- WHERE THE BORE STARTS (task 259). KAREN, 2026-10-24: *"we need to work on rifle acuracy when
@@ -468,10 +499,13 @@ Shotgun.CONFIG = {
 	-- measurement -- 0.73 studs of eye-to-muzzle offset, 19 cm of error at 25 m when the aim ray
 	-- misses -- and `tests/server/sights.spec.luau` measures every cell at BOTH values.
 	--
-	-- IT SHIPS `false` BECAUSE THE DESIGN SAYS THE BORE STARTS AT THE MUZZLE and `docs/design/` is
-	-- the Architect's. `ESCALATE.md` (2026-10-25) puts the measurement and the one-line flip to the
-	-- Director.
-	BORE_ON_SIGHT_LINE = false,
+	-- **IT SHIPS `true` SINCE TASK 260.** It shipped `false` for one task because the design said the
+	-- bore starts at the muzzle and `docs/design/` is the Architect's; the Director decided
+	-- `ESCALATE.md`'s option 1 on 2026-10-25 -- *"the shot leaves from the sight line, because
+	-- Karen's 'a bit off' is that offset and real sights are zeroed to the line of sight"* -- and
+	-- `docs/design/shotgun.md` was amended by the Architect in the same task. `false` remains the
+	-- rollback and every assertion in `sights.spec` is still made at both values.
+	BORE_ON_SIGHT_LINE = true,
 	DIR_UNIT_TOLERANCE = 1e-3,
 	SAFETY_ARC_HALF_DEG = 45, -- DEGREES, HALF angle: a different quantity from a spread cone
 

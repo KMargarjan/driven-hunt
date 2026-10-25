@@ -30,6 +30,9 @@ local Workspace = game:GetService("Workspace")
 
 -- THE PURE MATHS OF A SHOT THAT TAKES TIME TO ARRIVE (task 185). Frozen numbers plus functions of
 -- their arguments, no writer at all -- the shape `Gun`, `Horn` and `Shop` already have.
+-- THE ONE QUESTION THIS OWNER ASKS THE FLAG TABLE (task 260): which CAMERA is this game running.
+-- `ORIGIN_TOLERANCE_STUDS` below is the only thing that reads it, once, at the boundary.
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 local Ballistics = require(ReplicatedStorage:WaitForChild("Ballistics"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
@@ -100,6 +103,22 @@ Weapon.Horn = Horn
 
 local CONFIG = Shotgun.CONFIG
 
+-- HOW FAR FROM HIS OWN ROOT A PLAYER MAY CLAIM HIS EYE IS, read ONCE at this owner's boundary and
+-- passed inward as an argument (task 260). That is the shape `docs/design/feature-flags.md` requires
+-- of a flag read, applied to the one place this server has to know which CAMERA the game is running:
+-- in FIRST PERSON the eye is at most 1.993 studs from the root (`camera_mode.spec` sweeps the whole
+-- pitch range and asserts it), and in the third-person rollback the client's own clamp puts it at
+-- 14.5. One number for both branches is the looser of the two, and this request is a CLIENT CLAIM
+-- that `BORE_ON_SIGHT_LINE` now launches the bullet from -- so the loose number is the one that
+-- matters. `Shotgun.CONFIG` carries both and says how each was measured.
+--
+-- IT READS THE SAME FLAG `Camera.Config` READS, which is the point rather than a coupling: "is this
+-- game first person" has one answer, and a server that decided it some other way could disagree with
+-- the camera that actually drew the frame.
+local ORIGIN_TOLERANCE_STUDS = if Flags.isOn("FIRST_PERSON")
+	then CONFIG.CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON
+	else CONFIG.CAMERA_ORIGIN_TOLERANCE
+
 local registry = Registry.new()
 -- ONE TOOL PER WEAPON PER PLAYER (task 140). Two Tools, because the engine's own hotbar is then the
 -- switch: `1` and `2` are its keys, a switch changes `Tool.Parent` and nothing on the server runs
@@ -116,6 +135,11 @@ local stats = {
 	reports = 0,
 	rateDropped = 0,
 	badRequests = 0,
+	-- THE LARGEST |origin - root| ANY ACCEPTED SHOT HAD, in studs (task 260). In first person the
+	-- geometry caps it at 1.993; anything much above that on a real server is the replication lag
+	-- between the eye the client drew and the root this server has, which is the one term
+	-- `CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON`'s margin is for and the one nothing here can measure.
+	originFarthest = 0,
 	-- THE AIM QUESTION (task 238). `aimQuestions` is every `"Aim"` that got as far as a cast;
 	-- `aimAdvised` the ones that answered with a gate -- today only `no-licence` -- and so published.
 	-- The difference between them is how often a player shouldered at something he may already shoot,
@@ -1282,11 +1306,20 @@ local function onFireRequest(player: Player, req: any): string?
 		return "untracked"
 	end
 
-	local ok, why = Validator.checkShot(req, rootPositionOf(player), CONFIG)
+	local rootPosition = rootPositionOf(player)
+	local ok, why = Validator.checkShot(req, rootPosition, CONFIG, ORIGIN_TOLERANCE_STUDS)
 	if not ok then
 		stats.badRequests += 1
 		publish(player, id, state)
 		return why or "bad-request"
+	end
+	-- THE INSTRUMENT FOR THE BOUND ABOVE (task 260). The geometry is measured and the NETWORK half is
+	-- not measurable on this PC (a loopback Studio session reads 1-2 ms of ping), so this records how
+	-- close honest shots actually come to `ORIGIN_TOLERANCE_STUDS` on a real server: the largest
+	-- separation any ACCEPTED shot had. It is the evidence a later tightening or loosening should be
+	-- argued from, and it is one `math.max` on a path that already has the two Vector3s in hand.
+	if rootPosition then
+		stats.originFarthest = math.max(stats.originFarthest, (req.origin - rootPosition).Magnitude)
 	end
 
 	local fired, reason = StateMachine.apply(state, { kind = "Fire" }, now, row)

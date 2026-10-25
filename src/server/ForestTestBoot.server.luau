@@ -105,20 +105,22 @@ print(
 -- the SERVER owner of this world, which is why the composition root is where the two meet: the
 -- planter learns nothing about `Workspace.Terrain` and `ForestTest` learns nothing about planting.
 local planted = Places.build(ForestTest.terrainYAt, nil, workspace.Terrain)
-print(
-	string.format(
-		"[ForestTestBoot] places: %d dressed, %d planted (%d parts), %d skipped, %d on a step, %d missing, %d paint call(s), %.2fs%s",
-		planted.places,
-		planted.planted,
-		planted.parts,
-		planted.skipped,
-		planted.cliff,
-		planted.missing,
-		planted.paints,
-		planted.seconds,
-		if planted.reason then " (" .. tostring(planted.reason) .. ")" else ""
-	)
-)
+print(string.format(
+	-- `%d leaf part(s) unblocked` IS TASK 260's COUNT, printed because it is the number the
+	-- Director asked for before and after: how many parts in Karen's own wood stopped a bullet
+	-- and no longer do. 0 in DEV, which has neither `OurForest` nor `Session`.
+	"[ForestTestBoot] places: %d dressed, %d planted (%d parts), %d skipped, %d on a step, %d missing, %d paint call(s), %d leaf part(s) unblocked, %.2fs%s",
+	planted.places,
+	planted.planted,
+	planted.parts,
+	planted.skipped,
+	planted.cliff,
+	planted.missing,
+	planted.paints,
+	planted.unblocked,
+	planted.seconds,
+	if planted.reason then " (" .. tostring(planted.reason) .. ")" else ""
+))
 
 -- ---------------------------------------------------------------- the boars
 

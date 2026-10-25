@@ -190,15 +190,106 @@ end
 -- THE RULE IS WRITTEN AGAINST WHAT THE PART IS, not against a name list: anything invisible, and
 -- anything that does not collide, cannot be queried. A trunk collides, so a trunk still stops a
 -- bullet -- which it must.
-function Places.quieten(model: Model): number
+--
+-- ...AND THAT RULE WAS NOT ENOUGH, WHICH TASK 260 MEASURED WITH A CONTROL. Two casts in the Forest
+-- Test on 2026-10-25 (`driven-hunt-runs/260-why.luau`, read-only), each an Include-filtered ray at
+-- ONE named part:
+--     `OurForest.SilverBirch_Var11_LOD_0.Branch.001`  CanQuery=false, CanCollide=TRUE  -> **HIT**
+--     `OurForest.SM_AspenTree_Var02.SM_Leaves`        CanQuery=false, CanCollide=false -> no hit
+-- **SO `CanQuery = false` DOES NOT EXEMPT A PART FROM A RAYCAST WHILE IT STILL COLLIDES** -- not in
+-- the Studio this game is built on, whatever the property's name suggests. The clause above only
+-- ever cleared `CanQuery` on parts that were ALREADY not colliding, which is exactly the set for
+-- which it changed nothing, and the 127 colliding `Branch` parts in this world went on stopping
+-- bullets. That is why L-060 recurred in task 258a(f) with an aim ray dying on a `Branch` 3-7 studs
+-- in front of two boars at 79 m, and it is the whole reason this function needed a second arm.
+--
+-- SO FOLIAGE LOSES BOTH PROPERTIES (the Director's decision, 2026-10-25): *"real life: thin foliage
+-- does not stop a rifle bullet or a slug, and an invisible stop frustrates"*. Trunks and the ground
+-- still stop shots, which is the other half of the same sentence.
+--
+-- AND THIS ARM IS A NAME LIST, WHICH THE PARAGRAPH ABOVE SAYS THE RULE IS NOT -- so here is the
+-- reason, written down rather than quietly contradicted. A leaf that is VISIBLE and COLLIDES is
+-- indistinguishable from a trunk by its properties: that is the whole state the measurement found.
+-- The only signal left is the artist's own name, and in this world it is a reliable one -- the
+-- queryable foliage is 623 parts across five names (`OuterLeaves`, `Bush`, `Bush1`, `Bush3`,
+-- `Bush4`) and the colliding branches 127 across three (`Branch`, `Branch.001`, `Branch.002`),
+-- against trunks named `Trunk`, `SM_Trunk` and `CollidePart`. `places.spec` asserts that no name in
+-- `FOLIAGE_WORDS` matches any of those three.
+Places.FOLIAGE_WORDS = table.freeze({
+	"leaf",
+	"leaves",
+	"branch",
+	"twig",
+	"frond",
+	"fern",
+	"needle",
+	"canopy",
+	"crown",
+	"bush",
+	"shrub",
+})
+
+-- IS THIS PART FOLIAGE BY NAME? Case-insensitive substring, so `SM_Leaves`, `OuterLeaves`,
+-- `Branch.002` and `Bush4` all answer true and `Trunk`, `SM_Trunk` and `CollidePart` all answer
+-- false. One definition, so the sweep and the spec cannot disagree about what a leaf is.
+function Places.isFoliageName(name: string): boolean
+	local lower = string.lower(name)
+	for _, word in ipairs(Places.FOLIAGE_WORDS) do
+		if string.find(lower, word, 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+-- THE ONE RULE, APPLIED TO ANY TREE ANYWHERE: a leaf or a branch stops nothing. Returns how many
+-- parts it changed, so a caller can report "0" and mean it.
+--
+-- IT TOUCHES NOTHING ELSE. Not `Anchored`, not `Transparency`, not a material, not a position --
+-- which is what lets it be run over STANDING STUDIO CONTENT (`Workspace.OurForest`,
+-- `Workspace.Session`) as well as over a planted clone. `Places.quieten` is the planting path and
+-- calls this first.
+function Places.unblockFoliage(root: Instance): number
 	local changed = 0
-	for _, part in ipairs(model:GetDescendants()) do
-		if part:IsA("BasePart") then
-			if part.CanQuery and (part.Transparency >= Places.INVISIBLE_AT or not part.CanCollide) then
+	local function apply(part: BasePart)
+		local foliage = Places.isFoliageName(part.Name)
+		local invisible = part.Transparency >= Places.INVISIBLE_AT
+		-- BOTH PROPERTIES, BECAUSE THE MEASUREMENT SAYS ONE IS NOT ENOUGH (see the header): a ray
+		-- stops on a colliding part whether or not it may be queried.
+		if foliage then
+			if part.CanQuery then
 				part.CanQuery = false
 				changed += 1
 			end
-			-- A PLANTED TREE IS SCENERY AND NOTHING SIMULATES IT.
+			if part.CanCollide then
+				part.CanCollide = false
+				changed += 1
+			end
+		elseif part.CanQuery and (invisible or not part.CanCollide) then
+			-- THE ORIGINAL PROPERTY RULE, UNCHANGED, for everything that is not named foliage: an
+			-- invisible part, or one a player walks through, may not stop a bullet either.
+			part.CanQuery = false
+			changed += 1
+		end
+	end
+	if root:IsA("BasePart") then
+		apply(root)
+	end
+	for _, part in ipairs(root:GetDescendants()) do
+		if part:IsA("BasePart") then
+			apply(part)
+		end
+	end
+	return changed
+end
+
+function Places.quieten(model: Model): number
+	local changed = Places.unblockFoliage(model)
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			-- A PLANTED TREE IS SCENERY AND NOTHING SIMULATES IT. It is this function's own line and
+			-- NOT `unblockFoliage`'s, because that one is run over standing Studio content too and
+			-- anchoring somebody else's parts is not what it was asked to do.
 			part.Anchored = true
 		end
 	end
@@ -306,12 +397,35 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 		-- doubling, and what it destroys is only ever this module's own output.
 		existing:Destroy()
 	end
-	local report = { places = 0, planted = 0, skipped = 0, missing = 0, cliff = 0, parts = 0, paints = 0, seconds = 0 }
+	local report = {
+		places = 0,
+		planted = 0,
+		skipped = 0,
+		missing = 0,
+		cliff = 0,
+		parts = 0,
+		paints = 0,
+		unblocked = 0,
+		seconds = 0,
+	}
 	if #sources == 0 then
 		report.reason = "no-templates"
 		return report
 	end
 	local started = os.clock()
+	-- THE STANDING TREES GET THE RULE TOO (task 260), and they are the ones that mattered. Karen's
+	-- wood is Studio content: `Workspace.OurForest` and `Workspace.Session` STAND in the place and
+	-- are also where this module's templates are copied FROM -- so one sweep over each source fixes
+	-- the trees she walks past AND every clone planted from them afterwards.
+	--
+	-- MEASURED BEFORE THE SWEEP EXISTED (`driven-hunt-runs/260-foliage.luau`): 623 queryable
+	-- foliage parts in `Session` (357 `OuterLeaves` and 266 bushes) plus 127 COLLIDING `Branch`
+	-- parts in `OurForest`, which stopped rays despite `CanQuery = false` -- see
+	-- `Places.unblockFoliage`'s header for the control that proved it. DEV has neither folder, so
+	-- this is a no-op there and `report.unblocked` reads 0.
+	for _, source in ipairs(sources) do
+		report.unblocked += Places.unblockFoliage(source)
+	end
 	local folder = Instance.new("Folder")
 	folder.Name = Places.FOLDER
 	local lookup: { [string]: Model } = {}
