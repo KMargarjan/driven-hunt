@@ -76,12 +76,45 @@ return function()
 			near(math.deg(y), 45, 0.5)
 		end)
 
+		-- THE NEWEST EDGE (task 266b), and it is the case the whole feature failed on. MEASURED in
+		-- the Forest Test: every honest claim was refused because the claimed arrival was **27 ms
+		-- newer than the newest sample** -- the ring is stamped once per step and the claim is judged
+		-- in another Heartbeat handler, so the instant asked about always falls in the gap between
+		-- the last sample and the present.
+		it("INTERPOLATES between the newest sample and the PRESENT, which is not extrapolation", function()
+			local ring, count = ringOf(8, { { 100.0, Vector3.new(0, 0, 0) }, { 100.1, Vector3.new(1, 0, 0) } })
+			-- The animal is at x = 2 now, at t = 100.2. Half way between the last sample and now it
+			-- must read 1.5 -- a point no sample holds, bracketed on both sides.
+			local at = Boar.sampleAt(ring, count, 100.15, 100.2, CFrame.new(2, 0, 0))
+			expect(at).to.be.ok()
+			near((at :: CFrame).Position.X, 1.5, 1e-4)
+		end)
+
+		it("answers the PRESENT exactly at now", function()
+			local ring, count = ringOf(8, { { 100.0, Vector3.new(0, 0, 0) }, { 100.1, Vector3.new(1, 0, 0) } })
+			local at = Boar.sampleAt(ring, count, 100.2, 100.2, CFrame.new(2, 0, 0))
+			expect(at).to.be.ok()
+			near((at :: CFrame).Position.X, 2, 1e-6)
+		end)
+
+		it("STILL REFUSES past the present -- the future is never guessed", function()
+			local ring, count = ringOf(8, { { 100.0, Vector3.new(0, 0, 0) }, { 100.1, Vector3.new(1, 0, 0) } })
+			expect(Boar.sampleAt(ring, count, 100.3, 100.2, CFrame.new(2, 0, 0))).to.equal(nil)
+		end)
+
+		it("without the present it is exactly what it was: past the newest sample is a refusal", function()
+			local ring, count = ringOf(8, { { 100.0, Vector3.new(0, 0, 0) }, { 100.1, Vector3.new(1, 0, 0) } })
+			expect(Boar.sampleAt(ring, count, 100.15)).to.equal(nil)
+			expect(Boar.sampleAt(ring, count, 100.15, 100.2, nil)).to.equal(nil)
+			expect(Boar.sampleAt(ring, count, 100.15, nil, CFrame.new(2, 0, 0))).to.equal(nil)
+		end)
+
 		it("REFUSES an instant before the oldest sample, and never extrapolates", function()
 			local ring, count = ringOf(8, { { 100.0, Vector3.new(0, 0, 0) }, { 100.1, Vector3.new(1, 0, 0) } })
 			expect(Boar.sampleAt(ring, count, 99.9)).to.equal(nil)
 		end)
 
-		it("REFUSES an instant after the newest sample -- the FUTURE is not guessed", function()
+		it("REFUSES an instant after the newest sample when no present is given", function()
 			local ring, count = ringOf(8, { { 100.0, Vector3.new(0, 0, 0) }, { 100.1, Vector3.new(1, 0, 0) } })
 			expect(Boar.sampleAt(ring, count, 100.2)).to.equal(nil)
 		end)

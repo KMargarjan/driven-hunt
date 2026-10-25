@@ -214,6 +214,19 @@ local stats = {
 	-- (the idiom `stats.originFarthest` already uses).
 	claimWorstStuds = 0,
 	claimWorstLineStuds = 0,
+	-- HOW OLD THE CLAIMED ARRIVAL WAS WHEN THE SHOT RESOLVED, in seconds, over every claim that got
+	-- as far as the rewind -- accepted or refused (task 266b). **NEGATIVE IS THE FUTURE**, and that
+	-- is the whole reason this pair exists: `Boar.sampleAt` refuses an instant after its newest
+	-- sample, so a client whose `GetServerTimeNow()` runs AHEAD of the server's produces a claim
+	-- nobody can answer, and the refusal reads `claim-history` with no clue why. Task 265 measured
+	-- the client drawing animals ~0.17 s in the future and could not establish the cause; this is
+	-- the same quantity asked from the one place that can answer it.
+	claimAgeMin = 0,
+	claimAgeMax = 0,
+	claimAges = 0,
+	-- WHY THE REWIND SAID NO, as a short string: "unwired", "no-sample", "ok", or the error a
+	-- throwing provider produced. `claim-history` alone is a riddle; this is the answer (task 266b).
+	claimHistoryWhy = "",
 	-- THE FLIGHT'S OWN NUMBERS (task 185). `shots` keeps its meaning -- accepted trigger pulls --
 	-- so it now LEADS `shotsResolved` by up to 0.365 s, and that gap is the instrument for "a shot
 	-- that never landed". `flightTimeouts` must stay 0: nothing legitimate reaches
@@ -455,10 +468,26 @@ end
 -- answer means no.
 local function askWhereWas(instance: Instance, at: number): CFrame?
 	if historyProvider == nil then
+		-- UNWIRED IS ITS OWN ANSWER, and it is a different fault from "the provider said no": one is
+		-- a composition root that forgot a line, the other is an animal the server cannot place.
+		-- They were one `claim-history` until task 266b, which cost a live session to tell apart.
+		stats.claimHistoryWhy = "unwired"
 		return nil
 	end
 	local ok, where = pcall(historyProvider :: any, instance, at)
-	return if ok and typeof(where) == "CFrame" then where else nil
+	if not ok then
+		-- A PROVIDER THAT THREW IS NOT A PROVIDER THAT REFUSED. `pcall` turning an error into nil is
+		-- right -- a diagnostic must not take down the shot resolution -- but silently is not, and
+		-- this is the one place that can tell the difference.
+		stats.claimHistoryWhy = string.sub(tostring(where), 1, 120)
+		return nil
+	end
+	if typeof(where) ~= "CFrame" then
+		stats.claimHistoryWhy = "no-sample"
+		return nil
+	end
+	stats.claimHistoryWhy = "ok"
+	return where
 end
 
 local function askLineUnsafe(player: Player, muzzle: Vector3, aim: Vector3, stopAt: number): boolean?
@@ -789,7 +818,7 @@ function Weapon.claimLine(from: any): string
 		table.sort(reasons)
 	end
 	return string.format(
-		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f [%s]",
+		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f age=%.3f..%.3f/%d why=%s [%s]",
 		tostring(from.claimsEnabled),
 		from.claims or 0,
 		from.claimsAccepted or 0,
@@ -797,6 +826,10 @@ function Weapon.claimLine(from: any): string
 		from.claimsIgnored or 0,
 		from.claimWorstStuds or 0,
 		from.claimWorstLineStuds or 0,
+		from.claimAgeMin or 0,
+		from.claimAgeMax or 0,
+		from.claimAges or 0,
+		tostring(from.claimHistoryWhy),
 		table.concat(reasons, " ")
 	)
 end
@@ -1434,6 +1467,15 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	-- WHERE WAS IT WHEN THE SHOOTER SAW IT. The arrival instant is DERIVED and never sent, so there
 	-- is one fewer number for a client to lie about independently.
 	local arrivalAt = claim.firedAtView + claim.flightSeconds
+	-- MEASURED BEFORE THE LOOKUP, so a refusal still leaves the number behind.
+	local age = Workspace:GetServerTimeNow() - arrivalAt
+	if stats.claimAges == 0 then
+		stats.claimAgeMin, stats.claimAgeMax = age, age
+	else
+		stats.claimAgeMin = math.min(stats.claimAgeMin, age)
+		stats.claimAgeMax = math.max(stats.claimAgeMax, age)
+	end
+	stats.claimAges += 1
 	local rewound = askWhereWas(claim.part, arrivalAt)
 	if rewound == nil then
 		return refuse("claim-history")
@@ -1478,7 +1520,7 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		reachedStuds = res.reachedStuds,
 		claimedStuds = claim.distanceStuds,
 		-- NEGATIVE MEANS THE FUTURE, which `judgeClaim` refuses by its own name.
-		ageSeconds = Workspace:GetServerTimeNow() - arrivalAt,
+		ageSeconds = age,
 		flightSeconds = claim.flightSeconds,
 		expectedFlightSeconds = Ballistics.timeToRange(ballistic, claim.distanceStuds),
 	}, CONFIG.CLAIM)

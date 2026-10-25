@@ -967,6 +967,10 @@ return function()
 				claimsIgnored = 0,
 				claimWorstStuds = 1.25,
 				claimWorstLineStuds = 0.5,
+				claimAgeMin = -0.2,
+				claimAgeMax = 0.05,
+				claimAges = 9,
+				claimHistoryWhy = "no-sample",
 				refusedClaimBy = { ["claim-moved"] = 2, ["claim-line"] = 1, ["claim-blocked"] = 1 },
 			})
 			expect(string.find(line, "enabled=true", 1, true)).to.be.ok()
@@ -974,6 +978,11 @@ return function()
 			expect(string.find(line, "accepted=3", 1, true)).to.be.ok()
 			expect(string.find(line, "refused=4", 1, true)).to.be.ok()
 			expect(string.find(line, "worst=1.250/0.500", 1, true)).to.be.ok()
+			-- THE AGE PAIR, which is what says "the claim arrived from the FUTURE" rather than
+			-- leaving `claim-history` as a riddle (task 266b).
+			expect(string.find(line, "age=-0.200..0.050/9", 1, true)).to.be.ok()
+			-- AND WHY THE REWIND SAID NO, which `claim-history` alone cannot say.
+			expect(string.find(line, "why=no-sample", 1, true)).to.be.ok()
 			-- SORTED, so two runs of the same server give the same string and a diff is a fact.
 			expect(string.find(line, "[claim-blocked=1 claim-line=1 claim-moved=2]", 1, true)).to.be.ok()
 			expect(Weapon.claimLine(nil)).to.equal("")
