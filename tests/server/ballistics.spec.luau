@@ -448,6 +448,66 @@ return function()
 			end
 		end)
 
+		-- ONE SUB-STEP, AS A FUNCTION, AND IT MUST REPRODUCE THE LINES IT REPLACED (task 266).
+		-- `Ballistics.segment` is `Weapon.Flight.advance`'s old inline arithmetic, moved so the CLIENT
+		-- can step the same bullet (design 4.1). These cases are the regression proof: the first
+		-- rebuilds the replaced expression here and demands bit-for-bit agreement, so a change to either
+		-- side fails rather than drifting; the others pin the EXACT range cap, which is the one piece of
+		-- behaviour that moved with it.
+		describe("Ballistics.segment -- the moved sub-step", function()
+			local function pelletAt(position: Vector3, velocity: Vector3, travelled: number)
+				return { position = position, velocity = velocity, travelled = travelled, elapsed = 0 }
+			end
+
+			it("is bit for bit the advance-plus-delta it replaced, well inside the range", function()
+				local step = 1 / 60
+				local pellet = pelletAt(Vector3.new(3, 5, 7), Vector3.new(0, 0, -1).Unit * 2612, 10)
+				local wantPosition, wantVelocity =
+					Ballistics.advance(pellet.position, pellet.velocity, step, rifleShot :: any)
+				local wantSegment = wantPosition - pellet.position
+
+				local position, velocity, segment, length, capped =
+					Ballistics.segment(pellet, step, rifleShot :: any, 800)
+				expect(capped).to.equal(false)
+				expect((position - wantPosition).Magnitude).to.equal(0)
+				expect((velocity - wantVelocity).Magnitude).to.equal(0)
+				expect((segment - wantSegment).Magnitude).to.equal(0)
+				expect(length).to.equal(wantSegment.Magnitude)
+			end)
+
+			it("cuts the last segment to exactly what is left of the range, and says so", function()
+				-- 799 of 800 studs flown: one 1/60 step at 2612 studs/s would carry it 43 studs past the
+				-- cap, so the segment must come back exactly 1.000 stud long with `capped` true.
+				local pellet = pelletAt(Vector3.zero, Vector3.new(0, 0, -1).Unit * 2612, 799)
+				local _, _, segment, length, capped = Ballistics.segment(pellet, 1 / 60, rifleShot :: any, 800)
+				expect(capped).to.equal(true)
+				expect(length).to.equal(1)
+				near(segment.Magnitude, 1, 1e-6)
+			end)
+
+			it("a pellet already at its range gets a zero-length segment, not a negative one", function()
+				local pellet = pelletAt(Vector3.zero, Vector3.new(0, 0, -1).Unit * 2612, 800)
+				local _, _, segment, length, capped = Ballistics.segment(pellet, 1 / 60, rifleShot :: any, 800)
+				expect(capped).to.equal(true)
+				expect(length).to.equal(0)
+				near(segment.Magnitude, 0, 1e-6)
+			end)
+
+			it("allocates no table: five return values", function()
+				local pellet = pelletAt(Vector3.zero, Vector3.new(0, 0, -1).Unit * 2612, 0)
+				local position, velocity, segment, length, capped =
+					Ballistics.segment(pellet, 1 / 60, rifleShot :: any, 800)
+				expect(typeof(position)).to.equal("Vector3")
+				expect(typeof(velocity)).to.equal("Vector3")
+				expect(typeof(segment)).to.equal("Vector3")
+				expect(type(length)).to.equal("number")
+				expect(type(capped)).to.equal("boolean")
+				-- IT MUTATES NOTHING: the caller owns its own pellet record.
+				expect(pellet.travelled).to.equal(0)
+				expect(pellet.position).to.equal(Vector3.zero)
+			end)
+		end)
+
 		it("allocates no table: advance returns two values", function()
 			local position, velocity = Ballistics.advance(Vector3.zero, Vector3.new(0, 0, -1), 1 / 60, rifleShot :: any)
 			expect(typeof(position)).to.equal("Vector3")

@@ -688,10 +688,11 @@ function Hardware.equip(tool: Tool, player: Player)
 	end)
 end
 
+-- DELEGATED TO `Shotgun.muzzleOf` SINCE TASK 266, and the delegation is the point: the CLIENT now
+-- builds the same bore for its own simulation (`Weapon.Claim`), so "where is the muzzle" has to have
+-- one answer in a module both sides require. The signature and the nil behaviour are unchanged.
 function Hardware.muzzlePosition(tool: Tool): Vector3?
-	local handle = tool:FindFirstChild("Handle") :: BasePart?
-	local muzzle = handle and handle:FindFirstChild("Muzzle") :: Attachment?
-	return muzzle and muzzle.WorldPosition
+	return Shotgun.muzzleOf(tool)
 end
 
 -- WHERE THE FIRED BARREL'S MUZZLE IS, AND WHICH WAY IT POINTS (task 92): the frame every client draws

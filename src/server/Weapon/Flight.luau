@@ -56,6 +56,12 @@ export type ShotRecord = {
 	rangeStuds: number,
 	firedAt: number, -- os.clock() at the trigger. This becomes HitReport.at.
 	epoch: number?, -- the gun's epoch at the trigger, for the record only (design 6.4)
+	-- THE CLIENT'S HIT CLAIM (task 266), CARRIED AND NEVER READ BY THIS MODULE -- exactly as `epoch`
+	-- above is carried "for the record only". The owner judges it at the RESOLUTION, because the
+	-- claimed arrival is in the server's FUTURE at the trigger and in its past by one upward trip by
+	-- the time the bullet lands (design 5.1). **THE SHOT IN THE AIR IS THE PENDING QUEUE**: no second
+	-- remote, no shot id, no pending table, no timeout, and no race between a claim and a resolution.
+	claim: Shotgun.HitClaim?,
 }
 
 -- One projectile. MUTATED IN PLACE on purpose: nine pellets stepped sixty times a second must not
@@ -78,9 +84,16 @@ type Live = {
 	-- Heartbeats it lives for. 0 is every caller written before this task, and 0 is bit-for-bit
 	-- today's flight.
 	catchUp: number,
+	-- THE GREATEST PATH DISTANCE ANY OF THIS SHOT'S PROJECTILES GOT TO before it retired (task 266),
+	-- in studs from the bore. An unobstructed shot ends at its ammo's range cap; a shot stopped by a
+	-- tree ends at the tree. It becomes `Resolution.reachedStuds`, the LINE-OF-SIGHT fact the claim
+	-- is checked against (design 5.2 check 5) -- measured by the flight the server already runs
+	-- rather than by a new cast.
+	reached: number,
 }
 
-export type Resolution = { shot: ShotRecord, impacts: { Impact } }
+-- `reachedStuds` IS NEW IN TASK 266 and every reader written before it simply does not look at it.
+export type Resolution = { shot: ShotRecord, impacts: { Impact }, reachedStuds: number }
 
 local Flight = {}
 Flight.__index = Flight
@@ -177,6 +190,10 @@ function Flight.launch(
 		-- MISS on the next `advance`, and crediting it would put a number in `catchUpSeconds` that
 		-- bought nothing.
 		catchUp = if #projectiles > 0 then catchUp else 0,
+		-- A SHOT THE CAP REFUSED REACHES NOTHING, which is the honest answer: it has no projectiles,
+		-- it resolves as a miss, and a claim against it is refused by check 5 rather than accepted
+		-- because a field defaulted generously.
+		reached = 0,
 	}
 	self._pellets += #projectiles
 	self.launched += #projectiles
@@ -259,22 +276,26 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
 				if not alive then
 					break
 				end
-				local nextPosition, nextVelocity = Ballistics.advance(pellet.position, pellet.velocity, step, ballistic)
-				local segment = nextPosition - pellet.position
-				local length = segment.Magnitude
-
-				-- THE RANGE CAP IS EXACT, not "whichever sub-step first overshot it". A projectile
-				-- whose step would carry it past its ammo's range casts only the piece that is left
-				-- and retires either way -- so `RANGE_STUDS[ammo]` means exactly what it meant under
-				-- hitscan, where `Hits.resolve` cast precisely that far.
-				local remaining = shot.rangeStuds - pellet.travelled
-				if length >= remaining then
-					if length > 1e-6 then
-						segment = segment.Unit * remaining
-					end
-					length = remaining
+				-- ONE SUB-STEP'S GEOMETRY, AND IT IS `Ballistics.segment`'s SINCE TASK 266. These
+				-- fifteen lines were inline here; the client now steps the same bullet against its
+				-- own view (`Weapon.Claim.simulate`), and a second copy would be two answers to
+				-- "where did the bullet go". The exact range cap moved with them -- `capped` is the
+				-- old `length >= remaining` branch, and `length` is already cut to exactly what was
+				-- left of `shot.rangeStuds`.
+				local nextPosition, nextVelocity, segment, length, capped =
+					Ballistics.segment(pellet, step, ballistic, shot.rangeStuds)
+				if capped then
 					alive = false
 				end
+
+				-- HOW FAR THIS SHOT GOT, for the claim's line-of-sight check (task 266, design
+				-- 4.5). It is `travelled` plus whatever this sub-step actually covered -- the
+				-- impact's own distance when something was struck, otherwise the whole segment --
+				-- so an unobstructed shot reaches its range cap exactly and a shot stopped by a
+				-- tree reports the tree. ONE `math.max` on a loop that already tracks `travelled`,
+				-- and no new cast: `Weapon.Cast` is still the only caller of `Workspace:Raycast`
+				-- under this folder.
+				local reached = pellet.travelled + length
 
 				if length > 1e-6 then
 					self.casts += 1
@@ -290,9 +311,11 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
 							-- reads must be the whole path and not the last 40 studs of it.
 							distance = pellet.travelled + impact.distance,
 						}
+						reached = pellet.travelled + impact.distance
 						alive = false
 					end
 				end
+				live.reached = math.max(live.reached, reached)
 
 				if alive then
 					pellet.travelled += length
@@ -314,7 +337,7 @@ function Flight.advance(self: Flight, dt: number, cast: CastFn): { Resolution }
 		live.projectiles = stillFlying
 		if #stillFlying == 0 then
 			self.resolved += 1
-			finished[#finished + 1] = { shot = shot, impacts = live.impacts }
+			finished[#finished + 1] = { shot = shot, impacts = live.impacts, reachedStuds = live.reached }
 		else
 			keep[#keep + 1] = live
 		end

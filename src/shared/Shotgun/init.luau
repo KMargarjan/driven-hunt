@@ -149,6 +149,67 @@ export type Impact = {
 }
 export type CastFn = (origin: Vector3, direction: Vector3, ignore: { Instance }) -> Impact?
 
+-- THE CLIENT'S HIT CLAIM (task 266): what the shooter's OWN simulation, against his OWN view of the
+-- world, says his bullet struck. KAREN, 2026-10-24/25: *"we need to aim in empty space to get hit in
+-- head neck or heart like in real life"* / *"this signe where we shot ... shows we hit empty space
+-- and died"* / *"all shooting has to be like in real life / this is a key of this game"*.
+--
+-- IT IS A CLAIM AND NOT A FACT, and every field is chosen so the server can disagree with it:
+-- `docs/design/ballistics.md` sections 4.2 and 5.2 hold the six checks, and section 5.4 the bound on
+-- what a modified client can buy with it (2 studs of zone, on an animal the shot genuinely passed).
+--
+-- WHAT IS DELIBERATELY NOT IN IT: no zone, no damage, no target root, no velocity, no ping, no
+-- pattern. The zone is read off the claimed part's own `HitZone` attribute ON THE SERVER by
+-- `Hits.targetOf`, unchanged. The arrival instant is DERIVED (`firedAtView + flightSeconds`), so
+-- there is one fewer field to lie about independently.
+export type HitClaim = {
+	-- The `HitZone` part the client's own bullet struck, as an Instance reference across the remote.
+	-- No id and no name: a locally created Instance does not survive the remote, and `Hits.targetOf`
+	-- requires `Damageable == true`, which only the animal's own owner writes. An id table here
+	-- would be a second id table, which `docs/design/map-generator.md` 12.2 refuses.
+	part: Instance,
+	-- The hit point in THAT PART's object space (`part:PointToObjectSpace`). Object space, so it is
+	-- independent of where the animal was -- which is what makes "is the claimed point ON the
+	-- claimed box" a pure check against the part's own `Size`.
+	offset: Vector3,
+	-- The same point in WORLD space, as the client drew it. The server rebuilds it from its OWN
+	-- history and compares. **This is the only field that exists to be DISAGREED with**, and
+	-- `Weapon.stats().claimWorstStuds` is the one instrument anybody has for the client/server view
+	-- error that task 265 could measure but not establish.
+	point: Vector3,
+	firedAtView: number, -- workspace:GetServerTimeNow() in the client's TRIGGER frame
+	flightSeconds: number, -- how long the client's own simulation flew before it struck
+	distanceStuds: number, -- the path studs it flew, from the bore
+}
+
+-- THE SHOT REQUEST, with ONE new OPTIONAL field (task 266). Absent is every client written before
+-- this task and is bit-for-bit today's game -- which is also what the `HIT_CLAIM` flag's OFF state
+-- is, by the same code path.
+export type ShotRequest = {
+	origin: Vector3,
+	direction: Vector3,
+	claim: HitClaim?,
+}
+
+-- WHERE THE MUZZLE IS. ONE DEFINITION, FOR BOTH SIDES (task 266).
+--
+-- `Hardware.muzzlePosition` was the server's reader and the client now needs the same point to build
+-- the same bore, so the implementation lives here -- in the shared module both sides already require
+-- -- and `Hardware.muzzlePosition` delegates to it. Two readers of `Handle.Muzzle` would be two
+-- answers to where the bullet starts, and the whole of task 266 is that the two sides compute ONE
+-- trajectory from the same two numbers.
+--
+-- `nil` IS A HARDWARE FAULT AND NEVER A FALLBACK: the server refuses the shot on it (`"no-muzzle"`,
+-- and the shell is not spent), and the client sends no claim.
+function Shotgun.muzzleOf(tool: Instance?): Vector3?
+	if tool == nil then
+		return nil
+	end
+	local handle = tool:FindFirstChild("Handle") :: BasePart?
+	local muzzle = handle and handle:FindFirstChild("Muzzle") :: Attachment?
+	return muzzle and (muzzle :: Attachment).WorldPosition
+end
+
 -- table.freeze is SHALLOW (Luau library reference): freezing CONFIG leaves CONFIG.SPREAD_FULL_DEG
 -- writable, and freezing a state leaves state.barrels writable. That was defect (b) of the Task 23
 -- review. Recurses over table values only; numbers, strings, Vector3, CFrame, Color3 and functions

@@ -247,6 +247,50 @@ function Ballistics.advance(
 	return position + velocity * dt + accel * (0.5 * dt * dt), velocity + accel * dt
 end
 
+-- ONE SUB-STEP OF A FLYING PROJECTILE, AND NOTHING ELSE (task 266). Returns
+--     (nextPosition, nextVelocity, segment, length, capped)
+-- where `segment` is the piece of path just travelled -- the thing to cast -- and `capped` says the
+-- ammo's range ran out inside this sub-step, in which case `segment` has already been cut to exactly
+-- `rangeStuds - pellet.travelled`.
+--
+-- IT IS MOVED OUT OF `Weapon.Flight.advance`, NOT WRITTEN AGAIN, and that is the whole reason it
+-- exists. Before this task the arithmetic was inline in the SERVER's stepper. Task 266 makes the
+-- CLIENT step the same bullet against its own view of the world (`Weapon.Claim.simulate`), and a
+-- second copy of these fifteen lines would be two answers to "where did the bullet go" -- the
+-- failure `docs/PROJECT_CONTEXT.md` is named after. `Flight.advance` keeps its own list, its
+-- timeout, its catch-up and its counters and calls this for the geometry; the client calls the same
+-- function.
+--
+-- THE EXACT RANGE CAP IS THIS FUNCTION'S, and it is why `capped` is returned rather than inferred.
+-- A projectile whose step would carry it past its ammo's range casts only the piece that is left and
+-- retires either way -- so `RANGE_STUDS[ammo]` means exactly what it meant under hitscan, where
+-- `Hits.resolve` cast precisely that far.
+--
+-- PURE, MUTATING NOTHING, ALLOCATING NO TABLE: five return values, the idiom `Ballistics.advance`'s
+-- two already set (design section 10's cost target). The caller owns its own pellet record and
+-- decides what to do with the answer.
+--
+-- Design: docs/design/ballistics.md (section 4.1)
+function Ballistics.segment(
+	pellet: { position: Vector3, velocity: Vector3, travelled: number, elapsed: number },
+	step: number,
+	shot: Shot,
+	rangeStuds: number,
+	g: number?
+): (Vector3, Vector3, Vector3, number, boolean)
+	local nextPosition, nextVelocity = Ballistics.advance(pellet.position, pellet.velocity, step, shot, g)
+	local segment = nextPosition - pellet.position
+	local length = segment.Magnitude
+	local remaining = rangeStuds - pellet.travelled
+	if length >= remaining then
+		if length > 1e-6 then
+			segment = segment.Unit * remaining
+		end
+		return nextPosition, nextVelocity, segment, remaining, true
+	end
+	return nextPosition, nextVelocity, segment, length, false
+end
+
 -- ---------------------------------------------------------------- WHERE THE BORE IS (task 259)
 --
 -- KAREN, 2026-10-24: *"we need to work on rifle acuracy when aiming with scope, it seems there is a
