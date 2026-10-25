@@ -967,6 +967,7 @@ return function()
 				claimsIgnored = 0,
 				claimWorstStuds = 1.25,
 				claimWorstLineStuds = 0.5,
+				claimWorstEndStuds = 2.75,
 				claimAgeMin = -0.2,
 				claimAgeMax = 0.05,
 				claimAges = 9,
@@ -977,7 +978,9 @@ return function()
 			expect(string.find(line, "claims=7", 1, true)).to.be.ok()
 			expect(string.find(line, "accepted=3", 1, true)).to.be.ok()
 			expect(string.find(line, "refused=4", 1, true)).to.be.ok()
-			expect(string.find(line, "worst=1.250/0.500", 1, true)).to.be.ok()
+			expect(string.find(line, "ignored=0", 1, true)).to.be.ok()
+			-- ALL THREE worst fields, so dropping one does not pass on a prefix match.
+			expect(string.find(line, "worst=1.250/0.500/2.750", 1, true)).to.be.ok()
 			-- THE AGE PAIR, which is what says "the claim arrived from the FUTURE" rather than
 			-- leaving `claim-history` as a riddle (task 266b).
 			expect(string.find(line, "age=-0.200..0.050/9", 1, true)).to.be.ok()
@@ -1173,6 +1176,12 @@ return function()
 			)
 			expect(after.claimsAccepted).to.equal(before.claimsAccepted + 1)
 			expect(after.claimsRefused).to.equal(before.claimsRefused)
+			-- THE METER MEASURES WHAT THE CHECK MEASURES (round 1 finding 1, round 2's note). An
+			-- ACCEPTED claim passed check 4, so the across-track figure the meter records must be
+			-- inside the tolerance that accepted it. Swap `closestStuds` back for the trajectory's
+			-- END point -- the along-track-contaminated number -- and this fails, because that
+			-- figure carries the bore's own set-back.
+			expect(after.claimWorstLineStuds <= CLAIM.LINE_TOLERANCE_STUDS).to.equal(true)
 
 			-- AND THE REPORT IS THE CLAIM'S. One report, the claimed part, one pellet, and the zone
 			-- read off the part's own attribute -- which is what Karen sees on the hit card.

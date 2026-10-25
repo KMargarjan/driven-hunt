@@ -626,6 +626,18 @@ def parse_trailer(text):
 TASK_PATTERN = r"[0-9]{1,4}[a-z]?"
 
 
+# THE ORDER OF TWO TASKS, as a named function so the rule has ONE implementation.
+#
+# NEVER `max` OVER THE STRINGS, which is lexicographic: `reviews/task-90 .. task-99` all exist, so a
+# plain `max` answers "99" for every repository state and reviews the WRONG TASK. That was a
+# regression introduced in task 266b when the task became a string, and the first guard written for
+# it was a SECOND COPY of this lambda inside `selftest`, asserted against itself -- so reverting the
+# fix left the selftest green. It is a function now, `selftest` calls THIS one, and deleting the
+# ordering fails the case (the Reviewer, 266b round 2).
+def task_order(task):
+    return (int(re.match(r"\d+", str(task)).group()), str(task))
+
+
 def task_rel(task, name):
     """The repo-relative path of one of a task's loop files, in git's spelling (forward slashes)."""
     return f"{REVIEWS}/task-{task}/{name}"
@@ -665,11 +677,7 @@ def resolve_task(explicit=None):
     if not found:
         raise Refused(f"no {REVIEWS}/task-<N>/REQUEST.md found. Write the request first "
                       "(CLAUDE.md, the loop, step 4)")
-    # ORDERED BY THE NUMBER, THEN THE LETTER -- never by `max` over strings, which is lexicographic:
-    # `reviews/task-90 .. task-99` all exist, so a plain `max` answers "99" for every repository
-    # state and would review the WRONG TASK. That was a regression this task introduced when the
-    # task became a string, and it is exactly the failure the lettered-task fix exists to prevent.
-    newest = max(found, key=lambda t: (int(re.match(r"\d+", t).group()), t))
+    newest = max(found, key=task_order)
     return newest, task_rel(newest, "REQUEST.md")
 
 
@@ -1040,8 +1048,13 @@ def selftest():
     # DIFFERENT task with its own round counter.
     # ...AND THE FALLBACK MUST ORDER BY THE NUMBER. `max` over strings is lexicographic, so "99"
     # beats "266" -- the regression this task introduced and the Reviewer caught.
-    newest = max(["90", "99", "266", "266b"], key=lambda t: (int(re.match(r"\d+", t).group()), t))
+    newest = max(["90", "99", "266", "266b"], key=task_order)
     check("the newest of 90/99/266/266b is 266b", newest == "266b", newest)
+    # ...AND THE ORDER ITSELF, so the case fails if `task_order` stops ordering rather than only if
+    # someone stops calling it.
+    check("266b sorts after 266, and both after 99", task_order("266b") > task_order("266")
+          and task_order("266") > task_order("99"),
+          "%s %s %s" % (task_order("99"), task_order("266"), task_order("266b")))
 
     scanned = re.fullmatch(rf"{REVIEWS}/task-({TASK_PATTERN})/REQUEST\.md", f"{REVIEWS}/task-266b/REQUEST.md")
     check("the folder scan reads task-266b as 266b, not 266",

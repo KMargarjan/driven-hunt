@@ -88,7 +88,8 @@ Fixing it first is what makes item 2's reading mean anything.
    **Studio only**. `isStudio` is a PARAMETER with a default because a spec always runs in Studio, so
    the live-server branch — the one that must write NOTHING — would otherwise be unreachable; both
    branches are asserted. Read live on Karen's path, e.g.
-   `enabled=true claims=1 accepted=1 refused=0 ignored=0 worst=0.000/1.526 age=0.031..0.031/1 why=ok []`.
+   `enabled=true claims=1 accepted=1 refused=0 ignored=0 worst=0.000/1.526 age=0.031..0.031/1 why=ok []`
+   (a ROUND-1 reading: `claimLine` prints three worst fields since round 2's `claimWorstEndStuds`).
    *Verify:* `src/server/Weapon/init.luau` → `claimLine`, `publishClaimStats`, and the one call site
    in `onShotLanded`; `weapon_shot.spec` → `describe("the accepted claim and its counters")`.
 
@@ -123,7 +124,7 @@ Fixing it first is what makes item 2's reading mean anything.
 5. **ACCEPTANCE 2(1), A STILL ANIMAL: MET for the outcome Karen sees.** Three chest shots at one
    staged boar at 91 studs, locked by name: **all three** server impacts are
    `ZoneChest zone=chest`, and the mark reads `hit/chest` then `kill/chest` each time.
-   **The frame `266b-acc1-still.png` is opened and described in the ledger**: the hit card reads
+   **The frame `266b-acc1-still.png` is opened and described in `MEASURED.md` §3**: the hit card reads
    `HIT - .416` with the red mark on the boar silhouette's CHEST, and the kill line reads
    `Alhamdulilah824 MALE BOAR  chest  25 m  RIFLE`. Camera height is the player's eye on the stand.
    **`accepted` moved by 1 across those three, not 3**, and the reason is a staging artefact named in
@@ -136,7 +137,7 @@ Fixing it first is what makes item 2's reading mean anything.
    `claims=1 accepted=0 refused=1 ... why=ok [claim-moved=1]`. **`why=ok` is the part that matters**:
    the rewind ANSWERED, so the refusal is the check doing its job and not a missing history — a
    distinction that did not exist before item 1.
-   *Verify:* `reviews/task-266b/probes/266b-forge.luau`; the ledger's item 3.
+   *Verify:* `reviews/task-266b/probes/266b-forge.luau`; `MEASURED.md` §4.
 
 7. **ACCEPTANCE 2(2), A RUNNING ANIMAL: NOT PROVEN, and this is the task's one open thing.** No shot
    was landed on an animal that was still moving at the trigger. Two claims on moving animals were
@@ -160,10 +161,11 @@ Fixing it first is what makes item 2's reading mean anything.
   that were taken at moving animals had claims refused `claim-line`. **Nobody has seen this.**
 - **A frame of the mark on the chest of a RUNNING animal: NOT OBTAINABLE this session**, for the
   same reason. The frame offered is a still animal and is described as one.
-- **The in-gate ACCEPT case did not execute in either harness run** — `nobody is holding a gun that
-  can fire`. It is written, and it ran on Karen's path instead; in the gate it still notes and
-  degrades. Arming a gun inside the spec would close it and is queued rather than done, because
-  granting and revoking a Tool on the harness player broke three client specs once (task 34).
+- **The in-gate ACCEPT case executes only when a player happens to hold a loaded single-pellet gun.**
+  It did NOT run in the two runs at `886d170c`; it DID run at `6fc312f8` (and failed, which found
+  check 4's defect) and at `739f4bcc` (and passed). Arming a gun inside the spec would make it
+  unconditional and is queued rather than done, because granting and revoking a Tool on the harness
+  player broke three client specs once (task 34).
 - **`claimWorstLineStuds = 1.526` on a still animal is not explained.** It is measured, it is
   reported, and it is the thing to decompose next.
 
