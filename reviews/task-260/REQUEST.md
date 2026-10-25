@@ -91,8 +91,9 @@ Architect's to close.
 
 3. **`CAMERA_ORIGIN_TOLERANCE` is tightened from 30, and the number is MEASURED rather than
    chosen.** The sweep drives `Mode.cameraCFrame` over every pitch the clamp allows x every yaw x
-   three blends: first person is **1.209 to 1.993 studs** from the root, and the closed form
-   (`1.6^2 + 0.4^2 + 1.28*look.Y`) is asserted to agree with the sweep's maximum to 0.01 studs.
+   three blends: first person is **1.226 to 1.993 studs** from the root, and the closed form
+   (`1.6^2 + 0.4^2 + 1.28*look.Y`) is asserted to agree with the sweep at BOTH ends to 0.01 studs
+   (round 1 said 1.209, which is not a value the pitch clamp allows -- the Reviewer's note).
    `blend` does not appear at all, which is task 92's no-jump rule as arithmetic.
    *Verify:* `camera_mode.spec`, *"the honest spread of the fire origin"* -- three cases.
 
