@@ -3596,7 +3596,31 @@ end
 -- does -- the discipline every pure function in this file already follows.
 --
 -- Design: docs/design/ballistics.md (section 4.6)
-function Boar.sampleAt(ring: { { at: number, cframe: CFrame } }, count: number, at: number): CFrame?
+-- `now` AND `live` ARE THE NEWEST EDGE, AND THEY ARE WHY THIS FEATURE WORKED ON NOTHING (task 266b).
+--
+-- MEASURED in the Forest Test, 2026-10-25, with a rifle on a staged boar's chest: every honest claim
+-- was refused `claim-history`, and the reason was
+-- **`span live=64 at-oldest=1.877 at-newest=0.027`** -- the claimed arrival was **27 ms NEWER than
+-- the newest sample**. It always will be. The ring is stamped once per `Runtime:step`, the claim is
+-- judged in the Weapon's own Heartbeat handler, and the claimed arrival is only ~10 ms old when it
+-- is judged -- so the instant asked about falls in the gap between the last sample and the present,
+-- every single time.
+--
+-- THE GAP IS NOT AN EXTRAPOLATION, AND THAT IS THE WHOLE JUSTIFICATION: the server knows exactly
+-- where the animal is NOW. An instant between the newest sample and now is BRACKETED, by the sample
+-- on one side and the present on the other, so it is interpolated with the same `Lerp` as any other
+-- instant. Nothing is guessed. Past the present it is still a refusal, and `judgeClaim`'s
+-- `claim-future` refuses it a second time.
+--
+-- Both are OPTIONAL: without them the function is exactly what it was, which is what every pure
+-- caller written before this task passes.
+function Boar.sampleAt(
+	ring: { { at: number, cframe: CFrame } },
+	count: number,
+	at: number,
+	now: number?,
+	liveCFrame: CFrame?
+): CFrame?
 	if type(ring) ~= "table" or type(count) ~= "number" or type(at) ~= "number" or at ~= at then
 		return nil
 	end
@@ -3617,8 +3641,21 @@ function Boar.sampleAt(ring: { { at: number, cframe: CFrame } }, count: number, 
 	if oldest == nil or newest == nil then
 		return nil
 	end
-	if at < oldest.at or at > newest.at then
+	if at < oldest.at then
 		return nil
+	end
+	if at > newest.at then
+		-- THE NEWEST EDGE. Between the last sample and the present the animal's position is known on
+		-- both sides, so it is interpolated; past the present nothing is.
+		-- `liveCFrame` AND NOT `live`: `live` is this function's own window length, three lines up.
+		if type(now) ~= "number" or now ~= now or typeof(liveCFrame) ~= "CFrame" or at > now then
+			return nil
+		end
+		local span = now - newest.at
+		if span <= 1e-9 then
+			return liveCFrame
+		end
+		return newest.cframe:Lerp(liveCFrame, (at - newest.at) / span)
 	end
 	for index = live, 2, -1 do
 		local later, earlier = sample(index), sample(index - 1)
@@ -4538,6 +4575,7 @@ function Boar.newRuntime(world)
 		-- number here is the one place anybody can see the feature quietly refusing everything.
 		historySamples = 0,
 		historyMisses = 0,
+		historyWhy = "",
 		soundersSpawned = 0,
 		soundersDissolved = 0, -- fell to one member (or none): the survivor is a lone boar again
 		leaderPromotions = 0,
@@ -5016,11 +5054,31 @@ function Runtime:cframeAt(instance: Instance, at: number): CFrame?
 			local state = entry.brain:state()
 			if entry.dead or state == "DOWN" or state == "GONE" then
 				self._stats.historyMisses += 1
+				self._stats.historyWhy = "down:" .. tostring(state)
 				return nil
 			end
-			local trunkThen = Boar.sampleAt(entry.history, entry.historyCount, at)
+			-- THE PRESENT IS PART OF THE ANSWER (task 266b): `now` and the trunk's LIVE CFrame close
+			-- the gap between the ring's newest sample and this instant, which is where every honest
+			-- claim actually lands. The clock is the one the ring is stamped with -- the same
+			-- expression `Runtime:step` uses -- so the two cannot drift.
+			local now = if self._world.serverTime then self._world.serverTime() else Workspace:GetServerTimeNow()
+			local trunkThen = Boar.sampleAt(entry.history, entry.historyCount, at, now, trunk.CFrame)
 			if trunkThen == nil then
+				-- WHICH END OF THE SPAN, AND BY HOW MUCH. "The ring refused" is three different
+				-- facts -- the instant is older than the oldest sample, newer than the newest, or
+				-- there are no samples -- and only the numbers say which (task 266b).
 				self._stats.historyMisses += 1
+				local size = #entry.history
+				local live = math.min(entry.historyCount, size)
+				local first = entry.historyCount - live
+				local oldest = if live > 0 then entry.history[first % size + 1] else nil
+				local newest = if live > 0 then entry.history[(first + live - 1) % size + 1] else nil
+				self._stats.historyWhy = string.format(
+					"span live=%d at-oldest=%.3f at-newest=%.3f",
+					live,
+					if oldest then at - oldest.at else 0 / 0,
+					if newest then at - newest.at else 0 / 0
+				)
 				return nil
 			end
 			if trunk == instance then
@@ -5031,6 +5089,8 @@ function Runtime:cframeAt(instance: Instance, at: number): CFrame?
 		end
 	end
 	self._stats.historyMisses += 1
+	-- NO ENTRY OWNS THIS INSTANCE: the claimed part is not an animal of THIS runtime.
+	self._stats.historyWhy = "no-entry"
 	return nil
 end
 
@@ -6970,6 +7030,25 @@ function Runtime:step(dt: number)
 			end
 			self._stats.historySamples += 1
 		end
+	end
+	-- THE RING'S OWN NUMBERS, OUT WHERE A PROBE CAN READ THEM (task 266b), Studio only and read by
+	-- nothing in the game. The claim counters on the Weapon say a rewind was REFUSED; only this says
+	-- whether anything was ever remembered to refuse from. It is written once per step, which is the
+	-- same cadence the samples are taken at.
+	if historyAt ~= nil and RunService:IsStudio() then
+		pcall(function()
+			ServerStorage:SetAttribute(
+				"DHBoarHistory",
+				string.format(
+					"animals=%d samples=%d misses=%d newest=%.3f why=%s",
+					#self._boars,
+					self._stats.historySamples,
+					self._stats.historyMisses,
+					historyAt,
+					tostring(self._stats.historyWhy)
+				)
+			)
+		end)
 	end
 	if #self._sounders > 0 then
 		self:_stepSounders(dt, snapshot)

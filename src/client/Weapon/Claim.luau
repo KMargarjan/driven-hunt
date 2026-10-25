@@ -185,14 +185,31 @@ function Claim.simulate(opts: {
 
 		-- (2) EACH ANIMAL, IN ITS OWN FRAME. The NEAREST impact wins -- and it has to be compared
 		-- against the static block above rather than taken on sight.
+		--
+		-- EVERY DISTANCE HERE IS ALONG THE BULLET'S OWN PATH, and `bestAlong` is written out rather
+		-- than reusing `hit.distance` **only so that the frames are visible to a reader**.
+		--
+		-- **THERE WAS NO "RULER MISMATCH", AND THIS COMMENT USED TO CLAIM ONE** (task 266 round 3's
+		-- note, repeated by me in 266b and refuted by the Reviewer in the same breath). The
+		-- arithmetic: a cast returns a point ON the ray it was given, so
+		-- `hit.position = (pellet.position - shift) + segment.Unit * hit.distance`, and therefore
+		-- `(hit.position + shift - pellet.position).Magnitude` is `|segment.Unit * hit.distance|` --
+		-- `hit.distance`, identically, to floating point. The translated origin PLUS `shift` IS the
+		-- bullet's position, so the two measurements coincide and `blockAt` was always on the same
+		-- ruler. No case can tell the two spellings apart, and none is offered.
 		local bestHit: Shotgun.Impact? = nil
 		local bestShift = Vector3.zero
+		local bestAlong = math.huge
 		for _, target in ipairs(targets) do
 			local shift = target.velocity * pellet.elapsed
 			local hit = castOnly(target.root)(pellet.position - shift, segment, staticIgnore)
-			if hit ~= nil and hit.distance < blockAt and (bestHit == nil or hit.distance < bestHit.distance) then
-				bestHit = hit
-				bestShift = shift
+			if hit ~= nil then
+				local along = (hit.position + shift - pellet.position).Magnitude
+				if along < blockAt and along < bestAlong then
+					bestHit = hit
+					bestShift = shift
+					bestAlong = along
+				end
 			end
 		end
 		if bestHit == nil then
@@ -222,8 +239,10 @@ function Claim.simulate(opts: {
 					-- (check 2) -- so this is the one field that exists to be disagreed with.
 					point = hit.position + shift,
 					firedAtView = opts.firedAtView,
-					flightSeconds = pellet.elapsed + (hit.distance / math.max(1e-6, pellet.velocity.Magnitude)),
-					distanceStuds = pellet.travelled + hit.distance,
+					-- BOTH FROM `bestAlong`, which is `hit.distance` by the identity above -- the
+					-- name says which frame it is in, and the value is the same number.
+					flightSeconds = pellet.elapsed + (bestAlong / math.max(1e-6, pellet.velocity.Magnitude)),
+					distanceStuds = pellet.travelled + bestAlong,
 				}
 			end
 		end

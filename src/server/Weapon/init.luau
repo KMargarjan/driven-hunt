@@ -26,6 +26,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 -- THE ONE CLOCK THAT ADVANCES A FLIGHT (task 185). One `Heartbeat`, connected in `Weapon.start`,
 -- and the only caller of `flight:advance` in the repo -- a grep must find one site.
 local RunService = game:GetService("RunService")
+-- WHERE THE STUDIO-ONLY CLAIM COUNTERS ARE PUBLISHED (task 266b). Server-only by construction, which
+-- is what makes it readable by a server probe and invisible to every client.
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 -- THE PURE MATHS OF A SHOT THAT TAKES TIME TO ARRIVE (task 185). Frozen numbers plus functions of
@@ -211,6 +214,22 @@ local stats = {
 	-- (the idiom `stats.originFarthest` already uses).
 	claimWorstStuds = 0,
 	claimWorstLineStuds = 0,
+	-- The trajectory's END point against the claimed point: the across-track figure above PLUS the
+	-- along-track error. Reported beside it, never used by a check (task 266b, round 1).
+	claimWorstEndStuds = 0,
+	-- HOW OLD THE CLAIMED ARRIVAL WAS WHEN THE SHOT RESOLVED, in seconds, over every claim that got
+	-- as far as the rewind -- accepted or refused (task 266b). **NEGATIVE IS THE FUTURE**, and that
+	-- is the whole reason this pair exists: `Boar.sampleAt` refuses an instant after its newest
+	-- sample, so a client whose `GetServerTimeNow()` runs AHEAD of the server's produces a claim
+	-- nobody can answer, and the refusal reads `claim-history` with no clue why. Task 265 measured
+	-- the client drawing animals ~0.17 s in the future and could not establish the cause; this is
+	-- the same quantity asked from the one place that can answer it.
+	claimAgeMin = 0,
+	claimAgeMax = 0,
+	claimAges = 0,
+	-- WHY THE REWIND SAID NO, as a short string: "unwired", "no-sample", "ok", or the error a
+	-- throwing provider produced. `claim-history` alone is a riddle; this is the answer (task 266b).
+	claimHistoryWhy = "",
 	-- THE FLIGHT'S OWN NUMBERS (task 185). `shots` keeps its meaning -- accepted trigger pulls --
 	-- so it now LEADS `shotsResolved` by up to 0.365 s, and that gap is the instrument for "a shot
 	-- that never landed". `flightTimeouts` must stay 0: nothing legitimate reaches
@@ -452,10 +471,26 @@ end
 -- answer means no.
 local function askWhereWas(instance: Instance, at: number): CFrame?
 	if historyProvider == nil then
+		-- UNWIRED IS ITS OWN ANSWER, and it is a different fault from "the provider said no": one is
+		-- a composition root that forgot a line, the other is an animal the server cannot place.
+		-- They were one `claim-history` until task 266b, which cost a live session to tell apart.
+		stats.claimHistoryWhy = "unwired"
 		return nil
 	end
 	local ok, where = pcall(historyProvider :: any, instance, at)
-	return if ok and typeof(where) == "CFrame" then where else nil
+	if not ok then
+		-- A PROVIDER THAT THREW IS NOT A PROVIDER THAT REFUSED. `pcall` turning an error into nil is
+		-- right -- a diagnostic must not take down the shot resolution -- but silently is not, and
+		-- this is the one place that can tell the difference.
+		stats.claimHistoryWhy = string.sub(tostring(where), 1, 120)
+		return nil
+	end
+	if typeof(where) ~= "CFrame" then
+		stats.claimHistoryWhy = "no-sample"
+		return nil
+	end
+	stats.claimHistoryWhy = "ok"
+	return where
 end
 
 local function askLineUnsafe(player: Player, muzzle: Vector3, aim: Vector3, stopAt: number): boolean?
@@ -757,6 +792,83 @@ function Weapon.roundsLeft(state): number
 		end
 	end
 	return live
+end
+
+-- WHAT THE CLAIM GATE HAS DONE, AS ONE LINE OF TEXT A PROBE CAN READ (task 266b item 1).
+--
+-- **THE PROBLEM IT SOLVES, measured by losing three attempts to it in task 266.** The counters above
+-- are module state, and `studio_mcp`'s Luau channel gets a **fresh module cache** (memory:
+-- `studio-mcp-execute-luau-single-line`), so a probe that requires `Weapon` reads a `Weapon` that has
+-- never seen a player: every counter zero, whatever the live server has done. So the one question
+-- this whole feature turns on -- *did the server ACCEPT the claim?* -- could not be asked at all, and
+-- task 266 had to answer it by inference three times and failed each time. The Reviewer's own
+-- round-3 note: *"The accepted path has never executed, anywhere."*
+--
+-- PURE, AND EXPORTED SEPARATELY FROM THE WRITE, so the formatting is testable with no world and no
+-- attribute: `weapon_shot.spec` drives it with a hand-written table.
+--
+-- THE REASONS ARE SORTED, so two runs of the same server produce the same string and a diff between
+-- them is a fact rather than a hash order.
+function Weapon.claimLine(from: any): string
+	if type(from) ~= "table" then
+		return ""
+	end
+	local reasons = {}
+	if type(from.refusedClaimBy) == "table" then
+		for reason, count in pairs(from.refusedClaimBy) do
+			table.insert(reasons, string.format("%s=%d", tostring(reason), count))
+		end
+		table.sort(reasons)
+	end
+	return string.format(
+		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f age=%.3f..%.3f/%d why=%s [%s]",
+		tostring(from.claimsEnabled),
+		from.claims or 0,
+		from.claimsAccepted or 0,
+		from.claimsRefused or 0,
+		from.claimsIgnored or 0,
+		from.claimWorstStuds or 0,
+		from.claimWorstLineStuds or 0,
+		from.claimWorstEndStuds or 0,
+		from.claimAgeMin or 0,
+		from.claimAgeMax or 0,
+		from.claimAges or 0,
+		tostring(from.claimHistoryWhy),
+		table.concat(reasons, " ")
+	)
+end
+
+-- THE ATTRIBUTE'S NAME, here rather than typed into a probe, so the one in the game and the one in
+-- the spec cannot drift.
+Weapon.CLAIM_STATS_ATTRIBUTE = "DHClaimStats"
+
+-- WRITTEN ONLY IN STUDIO, and that is not a convention -- `RunService:IsStudio()` is checked here,
+-- so a live server never writes it however many shots it resolves. The shape is
+-- `Boar.legendaryForced`'s, read the other way round: that one READS a Studio-only attribute, this
+-- one WRITES one.
+--
+-- IT IS NOT A `DHFlag_*` OVERRIDE and it is not read by anything in the game: nothing branches on
+-- it, so a stale value cannot change a drive. `tools/studio_mcp.py` refuses a harness run while a
+-- flag override is set and cannot see this one -- which is correct, because this one is an OUTPUT.
+--
+-- `pcall` BECAUSE AN ATTRIBUTE WRITE CAN THROW on a name the engine dislikes, and a diagnostic that
+-- can take down the shot resolution is worse than no diagnostic.
+--
+-- `isStudio` IS A PARAMETER WITH A DEFAULT, for the reason `g` is one all through `Ballistics` and
+-- `toleranceStuds` is one in `Validator.checkShot`: **a branch that can only be reached at one value
+-- cannot be tested at the other.** A spec runs in Studio, so without this the live-server branch --
+-- the one that must write NOTHING -- would be unreachable and could rot silently into a server that
+-- writes an attribute on every shot. `nil` is the engine's own answer and is every caller in the
+-- game.
+function Weapon.publishClaimStats(isStudio: boolean?): boolean
+	local studio = if type(isStudio) == "boolean" then isStudio else RunService:IsStudio()
+	if not studio then
+		return false
+	end
+	local ok = pcall(function()
+		ServerStorage:SetAttribute(Weapon.CLAIM_STATS_ATTRIBUTE, Weapon.claimLine(Weapon.stats()))
+	end)
+	return ok
 end
 
 function Weapon.stats()
@@ -1359,6 +1471,15 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	-- WHERE WAS IT WHEN THE SHOOTER SAW IT. The arrival instant is DERIVED and never sent, so there
 	-- is one fewer number for a client to lie about independently.
 	local arrivalAt = claim.firedAtView + claim.flightSeconds
+	-- MEASURED BEFORE THE LOOKUP, so a refusal still leaves the number behind.
+	local age = Workspace:GetServerTimeNow() - arrivalAt
+	if stats.claimAges == 0 then
+		stats.claimAgeMin, stats.claimAgeMax = age, age
+	else
+		stats.claimAgeMin = math.min(stats.claimAgeMin, age)
+		stats.claimAgeMax = math.max(stats.claimAgeMax, age)
+	end
+	stats.claimAges += 1
 	local rewound = askWhereWas(claim.part, arrivalAt)
 	if rewound == nil then
 		return refuse("claim-history")
@@ -1383,14 +1504,40 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	local position = shot.muzzle
 	local velocity = bore * ballistic.v0
 	local remaining = claim.flightSeconds
-	-- THE SAME SUB-STEP CAP THE FLIGHT USES, so the two paths cannot disagree about how a span of
-	-- time is cut, and bounded by the same ceiling so a long claim cannot cost an unbounded loop.
+	-- **DID THE SHOT PASS THE POINT -- NOT "WHERE WAS IT AT THAT INSTANT".** The design's own words
+	-- for check 4 are *"the server's own trajectory ... PASSES within `LINE_TOLERANCE_STUDS`"*, and
+	-- this used to compare the claimed point with the trajectory's position at exactly
+	-- `claim.flightSeconds`. That conflates ACROSS-track error -- the aiming disagreement the check
+	-- exists to catch -- with ALONG-track error, which is timing granularity and the bore's own
+	-- 5-stud set-back and says nothing about aim.
+	--
+	-- MEASURED (task 266b): on a STILL animal `claimWorstLineStuds` read **1.526** of a 2.0 budget
+	-- with nothing moving at all, and the in-gate accept case -- where the spec controls every
+	-- number -- was refused `claim-line` outright. Both were along-track.
+	--
+	-- So the trajectory is walked and the CLOSEST APPROACH to the claimed point is kept. Each
+	-- sub-step is a segment; the nearest point on a segment is the standard clamped projection. The
+	-- result is a perpendicular distance, which is what a tolerance of "under half a boar's trunk"
+	-- was chosen to mean.
+	local closest = position
+	local closestStuds = (position - serverPoint).Magnitude
 	for _ = 1, CONFIG.CLAIM.MAX_SUBSTEPS do
 		if remaining <= 0 then
 			break
 		end
 		local step = math.min(remaining, CONFIG.FLIGHT_STEP_MAX_SECONDS)
-		position, velocity = Ballistics.advance(position, velocity, step, ballistic)
+		local nextPosition, nextVelocity = Ballistics.advance(position, velocity, step, ballistic)
+		local segment = nextPosition - position
+		local length = segment.Magnitude
+		if length > 1e-6 then
+			local along = math.clamp((serverPoint - position):Dot(segment) / (length * length), 0, 1)
+			local on = position + segment * along
+			local distance = (on - serverPoint).Magnitude
+			if distance < closestStuds then
+				closest, closestStuds = on, distance
+			end
+		end
+		position, velocity = nextPosition, nextVelocity
 		remaining -= step
 	end
 
@@ -1399,11 +1546,12 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		partHalf = part.Size / 2,
 		clientPoint = claim.point,
 		serverPoint = serverPoint,
-		trajectoryPoint = position,
+		-- THE CLOSEST APPROACH, not the position at the claimed instant (above).
+		trajectoryPoint = closest,
 		reachedStuds = res.reachedStuds,
 		claimedStuds = claim.distanceStuds,
 		-- NEGATIVE MEANS THE FUTURE, which `judgeClaim` refuses by its own name.
-		ageSeconds = Workspace:GetServerTimeNow() - arrivalAt,
+		ageSeconds = age,
 		flightSeconds = claim.flightSeconds,
 		expectedFlightSeconds = Ballistics.timeToRange(ballistic, claim.distanceStuds),
 	}, CONFIG.CLAIM)
@@ -1413,16 +1561,31 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 
 	stats.claimsAccepted += 1
 	stats.claimWorstStuds = math.max(stats.claimWorstStuds, (claim.point - serverPoint).Magnitude)
-	stats.claimWorstLineStuds = math.max(stats.claimWorstLineStuds, (position - serverPoint).Magnitude)
+	-- THE METER MUST MEASURE WHAT THE CHECK MEASURES (the Reviewer, round 1). This read `position`
+	-- -- the trajectory's point at the claimed instant -- while check 4 is given `closest`, so the
+	-- published number was the along-track-contaminated quantity no check uses, and the design
+	-- documents this field as the one `LINE_TOLERANCE_STUDS` is to be argued down from.
+	stats.claimWorstLineStuds = math.max(stats.claimWorstLineStuds, closestStuds)
+	-- ...AND THE OLD QUANTITY IS KEPT UNDER ITS OWN NAME, because it is worth seeing: the gap
+	-- between the two IS the along-track error (sub-step granularity plus the bore's set-back), and
+	-- a reader who only ever sees one of them cannot tell which kind of disagreement he has.
+	stats.claimWorstEndStuds = math.max(stats.claimWorstEndStuds, (position - serverPoint).Magnitude)
 
 	-- TRUNCATED TO EXACTLY ONE IMPACT, and that is the whole of the single-answer rule: the claim
 	-- says where the bullet actually stopped, so every impact the flight found farther out never
 	-- happened. A claimable shot is single-pellet by construction (design section 6), so the flight
 	-- had at most one impact and this is "the accepted claim replaces it" -- no merging, no second
 	-- report, and `pellets` is 1 exactly as it is for a slug today.
-	-- ONE IMPACT, BUILT BY `Validator.claimImpact`, which is pure and exported precisely so this
-	-- branch can be deleted and FAIL something (the Reviewer's round-2 finding: it used to be four
-	-- lines here, reachable only through a live handler, so deleting it left the whole suite green).
+	-- ONE IMPACT, BUILT BY `Validator.claimImpact`, which is pure and exported so the truncation
+	-- ARITHMETIC is driven with no world (`weapon_hits.spec` case 26).
+	--
+	-- **THE WIRING -- THIS LINE -- IS COVERED BY `weapon_shot.spec`'s ACCEPT CASE AND BY NOTHING
+	-- ELSE** (task 266b). The Reviewer's round-3 note was right that the earlier comment here
+	-- overclaimed: replacing this with `return res.impacts` left the whole suite green, because
+	-- case 26 calls `claimImpact` directly and the only assertion on `claimsAccepted` anywhere was
+	-- that it had NOT moved. The accept case now resolves a real flight through a scripted world
+	-- that stops nothing, so with this line gone there is no report on the claimed part and it
+	-- fails.
 	return { Validator.claimImpact(claim, part.CFrame, bore, part.Material) }
 end
 
@@ -1434,6 +1597,10 @@ local function onShotLanded(res: Flight.Resolution)
 	-- once, which is what keeps every reader -- `HitLog`, `Match`, `ForestTest`, the hit marker --
 	-- unchanged.
 	local impacts = judgeClaimFor(res)
+	-- THE COUNTERS, OUT WHERE A PROBE CAN READ THEM (task 266b item 1). Here and nowhere else: this
+	-- is the one line every claim verdict passes through, so the attribute cannot fall behind the
+	-- numbers it reports. In a live server `publishClaimStats` returns false and writes nothing.
+	Weapon.publishClaimStats()
 	local reports = Hits.group(shot.shooter, impacts, shot.ammo, shot.firedAt, shot.weapon)
 	stats.reports += #reports
 	for _, report in ipairs(reports) do

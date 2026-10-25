@@ -610,6 +610,34 @@ def parse_trailer(text):
     return int(m.group(2)), (verdict_from_line(first) or "FINDINGS")
 
 
+# A TASK IS DIGITS, WITH AN OPTIONAL SINGLE LOWER-CASE LETTER (task 266b).
+#
+# THE DIRECTOR HAS ALWAYS NUMBERED FOLLOW-UP TASKS `266a`, `266b`, `260b`, `263a` -- they are all
+# over `TASKS.md` -- and until this task `review` could not see ANY of them: `resolve_task` demanded
+# `[0-9]{1,4}` and refused `266b` outright, while the folder scan's `task-(\d+)` would have matched
+# the `266` of `task-266b` and then looked for a request in the wrong directory. So a lettered task
+# could not be reviewed at all, and reusing its parent's folder is blocked by the round counter --
+# which is right: `reviews/task-266/RESULT.md` was at round 3, so a request there would have been
+# `Round: 4` and refused.
+#
+# ONE LETTER, NOT A SUFFIX OF ANY SHAPE: the task is still a NUMBER with a part, so the folders sort
+# and the round counter -- which is per folder -- gives `266b` its own count, starting at 1. The task
+# is carried as a STRING from here down; nothing arithmetic is done with it.
+TASK_PATTERN = r"[0-9]{1,4}[a-z]?"
+
+
+# THE ORDER OF TWO TASKS, as a named function so the rule has ONE implementation.
+#
+# NEVER `max` OVER THE STRINGS, which is lexicographic: `reviews/task-90 .. task-99` all exist, so a
+# plain `max` answers "99" for every repository state and reviews the WRONG TASK. That was a
+# regression introduced in task 266b when the task became a string, and the first guard written for
+# it was a SECOND COPY of this lambda inside `selftest`, asserted against itself -- so reverting the
+# fix left the selftest green. It is a function now, `selftest` calls THIS one, and deleting the
+# ordering fails the case (the Reviewer, 266b round 2).
+def task_order(task):
+    return (int(re.match(r"\d+", str(task)).group()), str(task))
+
+
 def task_rel(task, name):
     """The repo-relative path of one of a task's loop files, in git's spelling (forward slashes)."""
     return f"{REVIEWS}/task-{task}/{name}"
@@ -632,23 +660,25 @@ def resolve_task(explicit=None):
     `reviews/task-*/REQUEST.md`: `cmd_review` has already proved the tree clean, so the current
     task's request is committed. The filesystem is a fallback for a shallow clone."""
     if explicit is not None:
-        if not re.fullmatch(r"[0-9]{1,4}", str(explicit)):
-            raise Refused(f"task number must be digits; got {explicit!r}")
-        task = int(explicit)
+        if not re.fullmatch(TASK_PATTERN, str(explicit)):
+            raise Refused(f"task number must be digits, with an optional single lower-case letter "
+                          f"(266, 266b); got {explicit!r}")
+        task = str(explicit)
         if not os.path.exists(os.path.join(REPO, task_rel(task, "REQUEST.md"))):
             raise Refused(f"no {task_rel(task, 'REQUEST.md')}")
         return task, task_rel(task, "REQUEST.md")
     for path in git("log", "--format=", "--name-only", f"-{HISTORY_SCAN}", "--", REVIEWS).split():
-        m = re.fullmatch(rf"{REVIEWS}/task-(\d+)/REQUEST\.md", path.replace("\\", "/"))
+        m = re.fullmatch(rf"{REVIEWS}/task-({TASK_PATTERN})/REQUEST\.md", path.replace("\\", "/"))
         if m and os.path.exists(os.path.join(REPO, path)):
-            return int(m.group(1)), path
-    found = [int(m.group(1))
+            return m.group(1), path
+    found = [m.group(1)
              for d in glob.glob(os.path.join(REPO, REVIEWS, "task-*", "REQUEST.md"))
-             if (m := re.search(r"task-(\d+)", d.replace("\\", "/")))]
+             if (m := re.search(rf"task-({TASK_PATTERN})", d.replace("\\", "/")))]
     if not found:
         raise Refused(f"no {REVIEWS}/task-<N>/REQUEST.md found. Write the request first "
                       "(CLAUDE.md, the loop, step 4)")
-    return max(found), task_rel(max(found), "REQUEST.md")
+    newest = max(found, key=task_order)
+    return newest, task_rel(newest, "REQUEST.md")
 
 
 def previous_review(task):
@@ -853,10 +883,10 @@ def cmd_review(task_arg=None):
         req = f.read()
     print(f"[agents] task {task}: reviewing against {rel}", flush=True)
 
-    declared = re.search(r"^Task:\s*(\d+)", req, re.M)
+    declared = re.search(rf"^Task:\s*({TASK_PATTERN})", req, re.M)
     if not declared:
         raise Refused(f"{rel} needs a `Task: N` line (CLAUDE.md, the loop, step 4)")
-    if int(declared.group(1)) != task:
+    if declared.group(1) != str(task):
         raise Refused(f"{rel} says `Task: {declared.group(1)}` but sits in task-{task}/. "
                       "The folder and the line must agree.")
     rnd = re.search(r"^Round:\s*(\d+)", req, re.M)
@@ -934,9 +964,11 @@ def cmd_architect(mode, task, system=None):
     head, dirty = repo_state()
     if dirty.strip():
         print("[agents] note: working tree is dirty; the Architect sees committed HEAD only", flush=True)
-    if not re.fullmatch(r"[0-9]{1,4}", str(task or "")):
+    # THE SAME SHAPE THE REVIEWER TAKES (task 266b): a lettered follow-up task gets its own
+    # `reviews/task-<N>/` and the Architect's verdict belongs in it, not in its parent's.
+    if not re.fullmatch(TASK_PATTERN, str(task or "")):
         raise Refused("usage: architect design <system> --task N | architect audit --task N")
-    task = int(task)
+    task = str(task)
     if mode == "design":
         if not system or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", system):
             raise Refused("usage: architect design <system> --task N  (system: lower-case, digits, dashes)")
@@ -1003,6 +1035,31 @@ def selftest():
         print("[selftest] %-62s %s %s" % (name, "ok" if ok else "FAILED", detail))
         if not ok:
             failures.append(name)
+
+    # A LETTERED TASK IS A TASK (task 266b). The Director numbers follow-ups `266a`, `266b`, `260b`,
+    # and until this task `review` refused every one of them outright -- so the work could be gated
+    # and never reviewed. Both directions, because the shape must still refuse junk.
+    for good in ("1", "17", "266", "266b", "1234z"):
+        check("task %r is a task" % good, re.fullmatch(TASK_PATTERN, good) is not None)
+    for bad in ("", "266bb", "266B", "b266", "26-6", "12345", "266 b"):
+        check("task %r is refused" % bad, re.fullmatch(TASK_PATTERN, bad) is None)
+    # ...AND THE FOLDER SCAN MUST NOT MATCH THE NUMBER INSIDE A LETTERED FOLDER: `task-(\d+)` would
+    # have read `task-266b` as 266 and then looked for the request in `task-266/`, which is a
+    # DIFFERENT task with its own round counter.
+    # ...AND THE FALLBACK MUST ORDER BY THE NUMBER. `max` over strings is lexicographic, so "99"
+    # beats "266" -- the regression this task introduced and the Reviewer caught.
+    newest = max(["90", "99", "266", "266b"], key=task_order)
+    check("the newest of 90/99/266/266b is 266b", newest == "266b", newest)
+    # ...AND THE ORDER ITSELF, so the case fails if `task_order` stops ordering rather than only if
+    # someone stops calling it.
+    check("266b sorts after 266, and both after 99", task_order("266b") > task_order("266")
+          and task_order("266") > task_order("99"),
+          "%s %s %s" % (task_order("99"), task_order("266"), task_order("266b")))
+
+    scanned = re.fullmatch(rf"{REVIEWS}/task-({TASK_PATTERN})/REQUEST\.md", f"{REVIEWS}/task-266b/REQUEST.md")
+    check("the folder scan reads task-266b as 266b, not 266",
+          scanned is not None and scanned.group(1) == "266b",
+          scanned.group(1) if scanned else "no match")
 
     viewmodel = ["src/shared/Gun/init.luau", "src/client/Camera/Viewmodel.luau",
                  "tests/client/gun_client.spec.luau", "tests/server/gun.spec.luau"]

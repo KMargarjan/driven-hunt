@@ -8,6 +8,8 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+-- Task 266b: where the claim counters are published for a probe to read.
+local ServerStorage = game:GetService("ServerStorage")
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
@@ -935,6 +937,272 @@ return function()
 					table.concat(reasons, " ")
 				)
 			)
+		end)
+	end)
+	-- ------------------------------------------------- THE ACCEPTED CLAIM, AND THE COUNTERS (266b)
+	--
+	-- **THE ACCEPTED PATH HAD NEVER EXECUTED, ANYWHERE.** That is the Reviewer's own round-3 note on
+	-- task 266, word for word: *"Nothing in the suite reaches past `Validator.judgeClaim`'s `return
+	-- true` into `stats.claimsAccepted`, the `claimImpact` call, or the report and dust built from
+	-- the truncated list… the first time the Director lights `HIT_CLAIM` for Karen is the first
+	-- execution of that branch in the project's history."* These cases are that execution, and the
+	-- shape is the one the note prescribed: `weapon_shot.spec`'s forgery case with an HONEST point.
+	--
+	-- WHY IT CAN BE DONE WITH NO PLAYER AND NO DRIVE: `Weapon.setClaimPolicy` reaches the ON branch
+	-- while the row sits at OFF, `Weapon.setHistoryProvider` answers where the animal was, and
+	-- `Weapon.setCast` scripts the world the flight flies through. The one thing a spec cannot
+	-- script is a player holding a loaded gun -- so the cases that need the live handler say so and
+	-- the ones that do not are driven directly.
+	describe("the accepted claim and its counters", function()
+		local CLAIM = Shotgun.CONFIG.CLAIM
+
+		-- ITEM 1's PURE HALF: the one line a probe reads. Driven with a hand-written table, so the
+		-- formatting is a fact and not a side effect of whatever the live server has done.
+		it("claimLine states every counter, with the reasons SORTED", function()
+			local line = Weapon.claimLine({
+				claimsEnabled = true,
+				claims = 7,
+				claimsAccepted = 3,
+				claimsRefused = 4,
+				claimsIgnored = 0,
+				claimWorstStuds = 1.25,
+				claimWorstLineStuds = 0.5,
+				claimWorstEndStuds = 2.75,
+				claimAgeMin = -0.2,
+				claimAgeMax = 0.05,
+				claimAges = 9,
+				claimHistoryWhy = "no-sample",
+				refusedClaimBy = { ["claim-moved"] = 2, ["claim-line"] = 1, ["claim-blocked"] = 1 },
+			})
+			expect(string.find(line, "enabled=true", 1, true)).to.be.ok()
+			expect(string.find(line, "claims=7", 1, true)).to.be.ok()
+			expect(string.find(line, "accepted=3", 1, true)).to.be.ok()
+			expect(string.find(line, "refused=4", 1, true)).to.be.ok()
+			expect(string.find(line, "ignored=0", 1, true)).to.be.ok()
+			-- ALL THREE worst fields, so dropping one does not pass on a prefix match.
+			expect(string.find(line, "worst=1.250/0.500/2.750", 1, true)).to.be.ok()
+			-- THE AGE PAIR, which is what says "the claim arrived from the FUTURE" rather than
+			-- leaving `claim-history` as a riddle (task 266b).
+			expect(string.find(line, "age=-0.200..0.050/9", 1, true)).to.be.ok()
+			-- AND WHY THE REWIND SAID NO, which `claim-history` alone cannot say.
+			expect(string.find(line, "why=no-sample", 1, true)).to.be.ok()
+			-- SORTED, so two runs of the same server give the same string and a diff is a fact.
+			expect(string.find(line, "[claim-blocked=1 claim-line=1 claim-moved=2]", 1, true)).to.be.ok()
+			expect(Weapon.claimLine(nil)).to.equal("")
+		end)
+
+		-- ITEM 1's BOTH BRANCHES. The live-server branch must write NOTHING, and it is only
+		-- reachable because `isStudio` is a parameter -- a spec always runs in Studio.
+		it("publishes the counters in Studio and NEVER on a live server", function()
+			local attribute = Weapon.CLAIM_STATS_ATTRIBUTE
+			expect(type(attribute)).to.equal("string")
+			ServerStorage:SetAttribute(attribute, nil)
+
+			-- the live-server branch: no write, and it says so
+			expect(Weapon.publishClaimStats(false)).to.equal(false)
+			expect(ServerStorage:GetAttribute(attribute)).to.equal(nil)
+
+			-- the Studio branch: the line is there and it is this server's own numbers
+			expect(Weapon.publishClaimStats(true)).to.equal(true)
+			local written = ServerStorage:GetAttribute(attribute)
+			expect(type(written)).to.equal("string")
+			expect(written).to.equal(Weapon.claimLine(Weapon.stats()))
+		end)
+
+		-- THE CORE CASE. A claim the server BELIEVES: the history agrees, the trajectory passes the
+		-- point, the flight got there, the clock is sane. Everything is driven through the real
+		-- `onShotLanded` path by resolving a real flight.
+		it("ACCEPTS an honest claim: the counter moves, and the report names the claimed zone", function()
+			local subject, snapshot = nil, nil
+			for _ = 1, 20 do
+				for _, player in ipairs(Players:GetPlayers()) do
+					local state = Weapon.getSnapshot(player)
+					if
+						state ~= nil
+						and state.equipped == true
+						and state.open == false
+						and (state.busyFor or 0) <= 0
+						and state.barrels[state.selected] == "Live"
+					then
+						subject, snapshot = player, state
+						break
+					end
+				end
+				if subject ~= nil then
+					break
+				end
+				task.wait(0.25)
+			end
+			if subject == nil then
+				TestKit.note(
+					"weapon_shot accepted claim: nobody is holding a gun that can fire, so the live ACCEPT "
+						.. "path did not run -- the one thing this case exists for. NOT PROVEN in this run."
+				)
+				expect(CLAIM.POSITION_TOLERANCE_STUDS > 0).to.equal(true)
+				return
+			end
+
+			local root = subject.Character and subject.Character:FindFirstChild("HumanoidRootPart")
+			expect(root).to.be.ok()
+			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
+			local row = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
+			local ammo = (snapshot :: any).loaded[(snapshot :: any).selected]
+			-- A PATTERN LOAD CANNOT CLAIM (design section 6), so this case is only meaningful on a
+			-- single-pellet load. It says so rather than passing quietly on a shotgun.
+			if (row.PELLETS and row.PELLETS[ammo]) ~= 1 then
+				TestKit.note(
+					string.format(
+						"weapon_shot accepted claim: the held gun is %s/%s, a %s-pellet load, which may not "
+							.. "claim at all -- the live ACCEPT path did not run. NOT PROVEN in this run.",
+						heldId,
+						tostring(ammo),
+						tostring(row.PELLETS and row.PELLETS[ammo])
+					)
+				)
+				expect(CLAIM.POSITION_TOLERANCE_STUDS > 0).to.equal(true)
+				return
+			end
+			local shot = Ballistics.shotFor(row, ammo)
+			expect(shot).to.be.ok()
+
+			-- THE ANIMAL, AND IT IS THIS SPEC'S OWN: `Damageable` is what `Hits.targetOf` reads, and
+			-- `HitZone` is what the report's zone comes from -- neither is ever named by the claim.
+			local zone = Instance.new("Part")
+			zone.Name = "ClaimAcceptSpecChest"
+			zone.Size = Vector3.new(1.8, 1.8, 3)
+			zone.Anchored = true
+			zone.CanCollide = false
+			zone.CanQuery = false
+			zone:SetAttribute("Damageable", true)
+			zone:SetAttribute("HitZone", "chest")
+			local distance = 120
+			local origin = (root :: BasePart).Position + Vector3.new(0, 2, 0)
+			local direction = Vector3.new(0, 0, -1)
+			zone.Position = origin + direction * distance
+			zone.Parent = workspace
+
+			-- THE WORLD THE SHOT FLIES THROUGH: nothing stops it, so `reachedStuds` is the ammo's
+			-- own range cap and check 5 passes on the server's own measurement.
+			Weapon.setCast(function()
+				return nil
+			end)
+			-- THE HISTORY ANSWERS HONESTLY, which is what makes this claim honest: the animal was
+			-- where it is.
+			Weapon.setHistoryProvider(function()
+				return zone.CFrame
+			end)
+			local wasPolicy = Weapon.setClaimPolicy(true)
+			Weapon.setDriveOpenProvider(function(): boolean
+				return true
+			end)
+			Weapon.setTargetProvider(nil)
+			Weapon.setStandProvider(nil)
+			Weapon.setLicenceProvider(nil)
+
+			local reports = {}
+			local listener = Weapon.HitReported:Connect(function(report)
+				table.insert(reports, report)
+			end)
+
+			local before = Weapon.stats()
+			local offset = Vector3.new(0, 0, 0)
+			local claim = {
+				part = zone,
+				offset = offset,
+				-- THE HONEST POINT: where the server's own history says that offset was.
+				point = zone.CFrame * offset,
+				firedAtView = workspace:GetServerTimeNow(),
+				flightSeconds = Ballistics.timeToRange(shot :: any, distance),
+				distanceStuds = distance,
+			}
+			local why = Weapon.onFireRequest(subject, { origin = origin, direction = direction, claim = claim })
+			for _ = 1, 2 do
+				if why ~= "rate-limited" and why ~= "busy" then
+					break
+				end
+				task.wait(1.2)
+				claim.firedAtView = workspace:GetServerTimeNow()
+				claim.point = zone.CFrame * offset
+				why = Weapon.onFireRequest(subject, { origin = origin, direction = direction, claim = claim })
+			end
+
+			local drainBy = os.clock() + 2
+			while Weapon.flightCount() > 0 and os.clock() < drainBy do
+				task.wait()
+			end
+
+			listener:Disconnect()
+			Weapon.setClaimPolicy(wasPolicy)
+			Weapon.setHistoryProvider(nil)
+			Weapon.setCast(nil)
+			Weapon.setTargetProvider(Match.classifyTarget)
+			Weapon.setStandProvider(Match.standAreaFor)
+			Weapon.setDriveOpenProvider(Match.driveOpen)
+
+			local after = Weapon.stats()
+			if why ~= nil then
+				TestKit.note(
+					string.format(
+						"weapon_shot accepted claim: the handler refused the SHOT (%s); the ACCEPT path did "
+							.. "not run. NOT PROVEN in this run.",
+						why
+					)
+				)
+				zone:Destroy()
+				expect(CLAIM.POSITION_TOLERANCE_STUDS > 0).to.equal(true)
+				return
+			end
+
+			-- THE COUNTER MOVED. This is the assertion that had never been made: it fails if the
+			-- accept branch is deleted, if `judgeClaim` refuses, or if the policy is not honoured.
+			local reasons = {}
+			for reason, count in pairs(after.refusedClaimBy) do
+				table.insert(reasons, string.format("%s=%d", reason, count))
+			end
+			table.sort(reasons)
+			TestKit.note(
+				string.format(
+					"weapon_shot accepted claim: %s/%s, %d report(s), accepted %d -> %d, worst %.3f/%.3f, "
+						.. "refusedClaimBy [%s]",
+					heldId,
+					tostring(ammo),
+					#reports,
+					before.claimsAccepted,
+					after.claimsAccepted,
+					after.claimWorstStuds,
+					after.claimWorstLineStuds,
+					table.concat(reasons, " ")
+				)
+			)
+			expect(after.claimsAccepted).to.equal(before.claimsAccepted + 1)
+			expect(after.claimsRefused).to.equal(before.claimsRefused)
+			-- THE METER MEASURES WHAT THE CHECK MEASURES (round 1 finding 1, round 2's note). An
+			-- ACCEPTED claim passed check 4, so the across-track figure the meter records must be
+			-- inside the tolerance that accepted it. Swap `closestStuds` back for the trajectory's
+			-- END point -- the along-track-contaminated number -- and this fails, because that
+			-- figure carries the bore's own set-back.
+			expect(after.claimWorstLineStuds <= CLAIM.LINE_TOLERANCE_STUDS).to.equal(true)
+
+			-- AND THE REPORT IS THE CLAIM'S. One report, the claimed part, one pellet, and the zone
+			-- read off the part's own attribute -- which is what Karen sees on the hit card.
+			local mine = nil
+			for _, report in ipairs(reports) do
+				if report.target == zone then
+					mine = report
+				end
+			end
+			expect(mine).to.be.ok()
+			expect((mine :: any).zone).to.equal("chest")
+			expect((mine :: any).pellets).to.equal(1)
+			expect(math.abs((mine :: any).nearest - distance) < 1e-3).to.equal(true)
+			-- THE IMPACT IS ON THE ANIMAL, built from its LIVE CFrame and the validated offset.
+			expect(((mine :: any).position - zone.CFrame * offset).Magnitude < 1e-3).to.equal(true)
+
+			-- ...AND THE COUNTERS ARE OUT WHERE A PROBE CAN READ THEM, which is item 1's whole point.
+			local published = ServerStorage:GetAttribute(Weapon.CLAIM_STATS_ATTRIBUTE)
+			expect(type(published)).to.equal("string")
+			expect(string.find(published :: string, string.format("accepted=%d", after.claimsAccepted), 1, true)).to.be.ok()
+			zone:Destroy()
 		end)
 	end)
 end
