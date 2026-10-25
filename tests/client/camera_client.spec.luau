@@ -1475,9 +1475,24 @@ return function()
 			local ok, err = pcall(function()
 				stage = "the first build"
 				Camera.Viewmodel.clear()
-				Camera.Viewmodel.setReload(nil)
 				task.wait(0.3)
 
+				-- THE LAST WRITER BEFORE THE MEASUREMENT IS THIS SPEC, AND IT HAS TO BE (task 252).
+				-- `Camera.step` calls `Viewmodel.setReload(breaking)` EVERY FRAME off the weapon
+				-- replica (`src/client/Camera/init.luau`), so a `setReload(nil)` placed BEFORE the
+				-- `task.wait` above is overwritten by the next live render frame -- and with the
+				-- replayed input holding the real gun open with a shell in flight, the "carry" frame
+				-- below drew the left hand at the SHELL-FEED pose instead of on the forend. That is
+				-- the flake, and it is measured: at `c1084110` the pair below read "left hand moved
+				-- 0.182 studs on the body and 0.2695 on the barrels" against its `< 1e-3` claim,
+				-- where the same tree reads 0.219 / 0.0000 -- `<runs-dir>/test-t229-r2b.log` against
+				-- `test-t229-r2c.log`, with the RIGHT hand byte-identical in both, so the gun and
+				-- the barrels were in the same place and only the left hand was somewhere else.
+				--
+				-- SO IT IS SET AFTER THE LAST YIELD, and nothing from here to the end of this case
+				-- yields at all: the whole measurement runs inside one resumption, which is the only
+				-- way a module that another owner writes every frame can be held still.
+				Camera.Viewmodel.setReload(nil)
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				local builtModel = Camera.Viewmodel.current()
 				local builtAt = Camera.Viewmodel.stats().rebuilds
@@ -1551,6 +1566,14 @@ return function()
 				-- barrels) while its place on the BARRELS does not, and the right hand's place on the
 				-- body does not change at all.
 				stage = "the break: which hand rides the barrels"
+				-- WAIT ON THE FACT, NOT ON THE CLOCK (L-029). What this pair claims -- "the left
+				-- hand's place on the barrels did not change" -- is only true while that hand is
+				-- holding the FOREND. `Viewmodel.loading` is the one thing that takes it off the
+				-- barrels to push a shell into the breech, and it answers a weight: 0 means no feed
+				-- is being drawn. Asserted on BOTH measured frames, so a writer that does get in
+				-- fails this case at its own line instead of mismeasuring the pair.
+				local feedShut = select(1, Camera.Viewmodel.loading(firstPersonConfig))
+				expect(feedShut).to.equal(0)
 				local leftOnBarrels = cloned.CFrame:ToObjectSpace(left.CFrame)
 				local leftOnBody = clone.CFrame:ToObjectSpace(left.CFrame)
 				local rightOnBody = clone.CFrame:ToObjectSpace(right.CFrame)
@@ -1558,17 +1581,21 @@ return function()
 				open.openTilt = 1
 				table.freeze(open)
 				Camera.Viewmodel.setReload({ open = true, spent = 2, loaded = { false, false } })
+				-- A TRUE RISING EDGE, because the line above runs with the breech SHUT: `setReload`
+				-- starts the spent shells' clock and clears `loadedAt` only on the 0 -> 1 edge, so an
+				-- "open" the module was already in leaves another writer's feed clocks standing.
+				expect(select(1, Camera.Viewmodel.loading(firstPersonConfig))).to.equal(0)
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), open, firstPersonConfig)
 				-- TASK 252 PROBE: did the module rebuild UNDER this measurement? The pair above and
 				-- below is only a measurement if both halves came off the SAME clone.
 				TestKit.note(
 					string.format(
-						"task252 probe: rebuilds %d -> %d, same model %s, clone parented %s, right parented %s, folder %d/%d children ready, was %d/%d",
+						"task252: shell feed %.3f shut / %.3f open (0 = the left hand is on the forend), rebuilds %d -> %d, same model %s, folder %d/%d children ready, was %d/%d",
+						feedShut,
+						select(1, Camera.Viewmodel.loading(firstPersonConfig)),
 						builtAt,
 						Camera.Viewmodel.stats().rebuilds,
 						tostring(Camera.Viewmodel.current() == builtModel),
-						tostring(clone.Parent ~= nil),
-						tostring(right.Parent ~= nil),
 						Camera.Viewmodel.readyMeshesIn(folderName),
 						#folderChildren(),
 						readyAtCapture,
@@ -1633,10 +1660,20 @@ return function()
 				end)
 				local missingBefore = Camera.Viewmodel.stats().handsMissing
 				Camera.Viewmodel.clear()
-				task.wait(0.3)
-				-- TASK 252 PROBE: who counts -- the live render step inside the wait, or the call below?
-				local missingAfterWait = Camera.Viewmodel.stats().handsMissing
-				local drawnAfterWait = Camera.Viewmodel.current() ~= nil
+				-- NO `task.wait` HERE, AND THAT IS THE CLAIM (task 252). This used to `clear()`, sleep
+				-- 0.3 s and then assert the counter had moved -- and MEASURED, it had already moved
+				-- inside the sleep: the note read "handsMissing 11 -> 12 (12 after the wait)" on every
+				-- run, so what passed was the LIVE render step rebuilding on the injected source, and
+				-- the call below contributed nothing (`handsMissingCounted` is set once per clone, and
+				-- the live frame had already set it). The sleep bought nothing either: `clear()` drops
+				-- the model, `cachedHandle` is unchanged, so the very next `update` rebuilds -- so the
+				-- call under test is now what counts, with no live frame able to get in front of it.
+				--
+				-- IT IS ALSO WHY THREE TASKS NAMED THE WRONG ASSERTION. `handsMissing` only ever
+				-- rises and `clear()` resets the per-clone guard immediately above, so this line
+				-- cannot read false on a live camera at all -- yet 235, 242a(c) and 249a(d) all
+				-- recorded it as the flake, because the only line a failure could be reported on was
+				-- the `pcall` re-raise at the bottom of this 200-line case (see `stage`).
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				local bare = Camera.Viewmodel.current()
 				expect(bare).to.be.ok()
@@ -1644,11 +1681,9 @@ return function()
 				expect(bareClone:FindFirstChild("HandRight")).to.equal(nil)
 				TestKit.note(
 					string.format(
-						"task93 no templates: handsMissing %d -> %d (%d after the wait, drawn=%s), gun still drawn with %d part(s)",
+						"task93 no templates: handsMissing %d -> %d, gun still drawn with %d part(s)",
 						missingBefore,
 						Camera.Viewmodel.stats().handsMissing,
-						missingAfterWait,
-						tostring(drawnAfterWait),
 						Camera.Viewmodel.stats().parts
 					)
 				)
