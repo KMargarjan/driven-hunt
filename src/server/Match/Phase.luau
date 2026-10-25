@@ -94,6 +94,17 @@ export type State = {
 	-- through the hunters' line before the clock ran out. It is the feed line's own word and nothing
 	-- else reads it -- the results scene is the same scene either way.
 	endedEarly: boolean,
+	-- WHEN THE WHOLE BEATER LINE WENT THROUGH, or nil while any of it is still behind (task 261,
+	-- item 2). KAREN, 2026-10-25: *"I reach out first and then can go around hunters and spook all
+	-- animals in there position and need to wait until all beaters cross or time pass, we need
+	-- better solution here"*.
+	--
+	-- IT IS A LATCH AND IT IS LEVEL-TRIGGERED, which is this machine's own discipline (L-029): the
+	-- OWNER measures how much of the line is through on every event and this records the instant the
+	-- count first met the line's length -- and clears it again if it stops meeting it, which is a
+	-- beater walking back north or a man joining the drivers mid-drive. So the grace cannot be
+	-- started by one frame of a measurement and then survive the thing that started it.
+	beatersThroughAt: number?,
 	-- WHEN THE BEATERS ARE LET GO, AND IT IS AFTER GO (task 168). KAREN, 2026-10-12 ~21:45: *"you
 	-- can't move as a beater before horn made signal"* -- so GO is the END of the start fanfare and
 	-- not the instant the drive's clock starts. The second deadline in this state, on exactly the
@@ -220,6 +231,7 @@ function Phase.initial(config): State
 		participants = {},
 		assignment = {},
 		previousAssignment = nil,
+		beatersThroughAt = nil,
 		markersComplete = false,
 		missing = { "markers" },
 		boarSpawns = {},
@@ -271,6 +283,35 @@ end
 -- inline test, which this is deliberately not a refactor of (one task, one change).
 function Phase.insideDrive(state: State): boolean
 	return state.phase == "Running" or state.phase == "Assigning"
+end
+
+-- MAY THIS MAN BE PUT BACK IN? (task 261, item 1.) PURE, and `withdrawnFrom` is the drive number he
+-- was taken out of -- nil for a man no drive has ever let go of.
+--
+-- KAREN, 2026-10-25: *"when I respawn and then go to lobby then go back on pad to hunt I been
+-- transfarred to same hunt where I was previuosly with less than min remaining I was hunter but then
+-- time pass and done it's a bug / when I respawn and go again to hunt I need to be same role and
+-- from begining"*.
+--
+-- THE RULE IS *A PLAYER WHO LEFT A DRIVE NEVER REJOINS THAT DRIVE* (the Director). Task 248 takes a
+-- man who respawns out of the hunt; the pads then put him back into THE SAME ONE, forty seconds
+-- before the horn, because `Match.enrol` only ever asked whether he was in the roster now. He has to
+-- go with the NEXT drive's party instead (task 246), which is a thing the lobby already collects
+-- him into at this drive's end.
+--
+-- THE TWO CLAUSES ARE BOTH NECESSARY and neither is a guard:
+--   * THE DRIVE NUMBER, so the bar lifts by itself. `enterAssigning` raises `driveNumber`, so the
+--     next drive is a different drive and nothing has to remember to clear anything -- the shape
+--     `roleOverruled` already has in the owner (*"cleared when the drive number moves"*).
+--   * `insideDrive`, so a man standing in `Scoring` or `Waiting` can still be enrolled. That is the
+--     window the lobby's own party departs in, and it is the SAME two phase names the `withdraw`
+--     branch refuses outside of and the lobby's `leftDrive` latch is armed inside -- one rule, three
+--     readers, measured against one predicate.
+function Phase.barredFromRejoin(state: State, withdrawnFrom: number?): boolean
+	if withdrawnFrom == nil then
+		return false
+	end
+	return withdrawnFrom == state.driveNumber and Phase.insideDrive(state)
 end
 
 function Phase.participantCount(state: State): number
@@ -413,6 +454,22 @@ function Phase.beatersThrough(event: Event, config): boolean
 		return false
 	end
 	return (event.beatersAcross or 0) >= beaters
+end
+
+-- HOW LONG AFTER THE LAST BEATER IS THROUGH THE DRIVE RUNS ON (task 261, item 2). The Director:
+-- *"when ALL beaters (human and bot) are through, the drive ends after a grace of about 15 s (the
+-- last animals cross), instead of waiting out the clock"*.
+--
+-- IT IS WHAT THE GRACE IS FOR: the line being through means nothing is pushing any more, and the
+-- animals already moving in front of it are still crossing the road the hunters are sitting on. End
+-- on the instant the last beater steps over it and those shots never happen.
+--
+-- 0 IS TODAY'S GAME EXACTLY, and that is why the rule reads through this function rather than a
+-- literal: with no row in the config the drive ends on the crossing, which is task 159's behaviour
+-- line for line.
+function Phase.throughGraceSeconds(config): number
+	local grace = config.BEATERS_THROUGH_GRACE_SECONDS
+	return if type(grace) == "number" and grace > 0 then grace else 0
 end
 
 -- THE INDEX THE DEER'S ORDINAL IS DRAWN AT (task 234). It is a constant and a LARGE one, because
@@ -620,6 +677,9 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	state.holdbacks = 0
 	state.boarsAccounted = 0
 	state.nextReleaseAt = math.huge
+	-- ...AND NO LINE IS THROUGH AT THE START OF A DRIVE (task 261, item 2), which is the belt on the
+	-- path that does not reach `enterScoring`: a drive dismissed into `Waiting` and started again.
+	state.beatersThroughAt = nil
 
 	local userIds = {}
 	for userId in pairs(state.participants) do
@@ -743,6 +803,13 @@ end
 local function enterScoring(state: State, effects: { Effect }, now: number, config, reason: string?)
 	state.phase = "Scoring"
 	state.phaseEndsAt = now + config.SCORE_SECONDS
+	-- THE NEXT DRIVE'S `previous` IS THIS DRIVE'S ASSIGNMENT, UNCHANGED SINCE TASK 217 -- and a man
+	-- the drive let go of has no row in it, which is deliberate rather than an omission: the
+	-- `withdraw` branch above says what carries HIS role instead (the stored turn), and why a
+	-- second mechanism here was built, measured and taken out again.
+	-- THE GRACE BELONGS TO THE DRIVE THAT HAS JUST ENDED (task 261, item 2): a latch left standing
+	-- would make the next drive's first tick think its line was already through.
+	state.beatersThroughAt = nil
 	state.previousAssignment = state.assignment
 	state.nextReleaseAt = math.huge
 	-- NOBODY IS WAITING TO BE LET GO AT THE END OF A DRIVE: the scene holds everybody anyway, and a
@@ -1035,6 +1102,28 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		-- outside a drive changes nothing and emits nothing, which is the call the `team` branch
 		-- above already makes for the same reason.
 		if Phase.insideDrive(next_) and next_.participants[event.userId] ~= nil then
+			-- HIS ROLE FOR THE NEXT DRIVE IS NOT RECORDED HERE, AND THAT IS A DECISION WITH A
+			-- MEASUREMENT BEHIND IT (task 261, item 1). KAREN, 2026-10-25: *"when I respawn and go
+			-- again to hunt I need to be same role and from begining"* -- and she gets it, from the
+			-- mechanism that already ships rather than from a second one here.
+			--
+			-- WHAT ALREADY ANSWERS HER: the stored turn (task 217). `Match.applyAssignTeams` writes
+			-- *the team he is PLAYING* the moment a drive gives him one (write edge 1), and the turn is
+			-- flipped to the OTHER side only for the men still in `state.assignment` when the drive
+			-- reaches `Scoring` (write edge 2) -- and the line below takes him out of exactly that
+			-- table. So a man who did not finish keeps `nextTeam = the side he was playing`,
+			-- `Economy.owedTeams` hands it to `enterAssigning` as `owed`, and `Roster.previousFrom`
+			-- turns it into the synthetic row the swap deals back to him. A drive he did not finish is
+			-- not a turn he has taken, by construction and with no new field.
+			--
+			-- AND WHY NOT A SECOND MECHANISM HERE: the obvious one -- remember his team and fold
+			-- `other(team)` into `previousAssignment` at `enterScoring` -- was built, and the suite
+			-- caught it. `Roster.assign`'s swap COUNTS the inverted rows, and one synthetic inversion
+			-- moves `counts.Drivers - counts.Shooters` BY TWO: on an even roster the balance check then
+			-- discards the WHOLE swap and everybody loses their rotation, not just him. That is the
+			-- defect `Roster.assign`'s own header records against task 221 (*"folding the privilege
+			-- into the synthetic `previous` moved the SWAPPED counts by two ... and a low userId drove
+			-- every drive"*), and it is not a different defect because the row is a withdrawal.
 			next_.participants[event.userId] = nil
 			next_.assignment[event.userId] = nil
 			-- THE TEAM GOES BACK, which `dismiss` leaves for one phase later and this cannot: a
@@ -1143,10 +1232,32 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		-- ever end a drive EARLIER, never extend one.
 		if now >= next_.phaseEndsAt then
 			enterScoring(next_, effects, now, config, "clock")
-		elseif Phase.beatersThrough(event, config) then
-			enterScoring(next_, effects, now, config, "beaters")
 		else
-			maybeRelease(next_, effects, now, event, config)
+			-- THE LINE IS THROUGH, AND THEN THE GRACE (task 261, item 2). The Director: *"when ALL
+			-- beaters (human and bot) are through, the drive ends after a grace of about 15 s (the
+			-- last animals cross)"*.
+			--
+			-- THE LATCH IS SET AND CLEARED ON THE LEVEL, not fired on an edge: `event.beatersAcross`
+			-- against `event.beaters` is a MEASUREMENT the owner makes every event, and a beater who
+			-- walks back north or a man who joins the drivers mid-drive makes it false again -- at
+			-- which point the drive has beaters behind the line and no grace running.
+			local through = Phase.beatersThrough(event, config)
+			if not through then
+				next_.beatersThroughAt = nil
+			elseif next_.beatersThroughAt == nil then
+				next_.beatersThroughAt = now
+				-- ONE FEED LINE, ON THE EDGE, through the entry kind the start of a drive already
+				-- uses: no new wire and no new word for the Hud to learn. It is the drive saying what
+				-- it is doing, which is the thing Karen could not tell from the outside.
+				feed(effects, { kind = "phase", text = "The beaters are through - closing", at = now })
+				table.insert(effects, { kind = "broadcast", force = true })
+			end
+			local at = next_.beatersThroughAt
+			if at ~= nil and now >= (at :: number) + Phase.throughGraceSeconds(config) then
+				enterScoring(next_, effects, now, config, "beaters")
+			else
+				maybeRelease(next_, effects, now, event, config)
+			end
 		end
 	elseif next_.phase == "Scoring" then
 		if now >= next_.phaseEndsAt then

@@ -398,10 +398,29 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		-- ever actually move? nil means nothing was promised -- the box did the falling, or there
 		-- was no visual at all -- and the backstop is then not armed.
 		deathTrack = nil :: AnimationTrack?,
+		-- ...AND THE TWO CLIP NAMES A DEATH CAN BE DRAWN WITH (task 261, item 3), written by
+		-- `Body.collapse` beside the track it is trusting. nil means nothing was promised.
+		deathClipNames = nil :: { string }?,
 		-- ...AND WHETHER THE BACKSTOP HAD TO FIRE, so "a dead animal standing" is a COUNTED fact and
 		-- not a thing somebody notices in a playtest. `Body.info` carries it out to the Runtime's
 		-- own counter.
 		backstopped = false,
+		-- HOW FAR EVERYTHING DRAWN ON THIS ANIMAL HAS BEEN MOVED UP (task 261, item 3). `Body.collapse`
+		-- lifts a smaller rig by `geometry.deathLift` so the DEATH CLIP's own overshoot lands it on the
+		-- ground instead of under it -- and if the backstop then fires, the clip never ran and there is
+		-- nothing to cancel: the mesh is left floating by that much (TASKS.md 249b, *"a backstopped
+		-- cub's `deathLift` is never paid back, so its mesh lies offset by ~1 stud"*). A CALF's row is
+		-- **1.325** studs, which on a calf is most of its depth -- Karen's *"deer also hanging there"*.
+		--
+		-- IT IS THE AMOUNT AND NOT A BOOLEAN, so the backstop pays back exactly what was taken and no
+		-- reader has to look the number up a second time.
+		liftedBy = 0,
+		-- HOW MANY TIMES THIS CARCASS HAD TO BE PUT BACK ON THE GROUND (task 261, item 3). It is 0 or
+		-- 1 -- the correction happens once, at the moment it settles -- and it is a COUNT because
+		-- *"a dead animal lies ON the ground"* has to be a number in the Runtime's report and not a
+		-- thing somebody notices in a playtest. A session where it stays 0 is a session where physics
+		-- got every body right.
+		grounded = 0,
 		collapsedFor = 0, -- seconds since it died; the carcass anchor reads it
 		stillFor = 0, -- seconds it has been at rest; likewise
 		bornAt = os.clock(),
@@ -2366,6 +2385,26 @@ end
 -- GRAVITY do the rest, which is the visible difference between "dropped" and "paused". It is called
 -- from exactly two places -- the collapse, and the backstop in `stepCarcass` -- and it is idempotent
 -- through `handle.toppled`, because a second roll would stand the animal back up on its other side.
+-- WHAT A CARCASS KEEPS OF THE SPEED IT DIED AT (task 261, item 3). PURE, so *"a dead animal stops
+-- within a body length"* is a rule a spec states rather than a thing a playtest hopes for.
+--
+-- KAREN, 2026-10-25: *"one more thing deer run on road the fall and was sidding on side it's a
+-- bug"*. Nothing in `Body.collapse` used to touch the assembly's velocity -- it disabled the
+-- constraint that was DRIVING the animal -- so a deer shot mid-crossing kept about 35 studs/s and
+-- slid.
+--
+-- `COLLAPSE_KEEP_SPEED` IS A FRACTION AND IT IS 0 TODAY, with its reason in the config: a shot
+-- animal drops where it is hit. The dial exists because *how much* a body carries is a feel number
+-- and Karen's, and the shape (a data row read by a pure function) is what lets her have a little
+-- back without this function being edited. The VERTICAL component is kept whatever the dial says:
+-- an animal shot mid-leap must still fall, and zeroing the fall would hold it up for a frame and
+-- then drop it, which is a flinch nobody asked for.
+function Body.collapseVelocity(velocity: Vector3, config): Vector3
+	local keep = config.COLLAPSE_KEEP_SPEED
+	local scale = if type(keep) == "number" then math.clamp(keep, 0, 1) else 1
+	return Vector3.new(velocity.X * scale, math.min(velocity.Y, 0), velocity.Z * scale)
+end
+
 function Body.topple(handle, config)
 	if handle.toppled then
 		return
@@ -2409,6 +2448,27 @@ function Body.collapse(handle, config, full)
 	handle.mover.Enabled = false
 
 	local part = handle.part
+	-- ...AND THE SPEED IT WAS RUNNING AT GOES WITH IT (task 261, item 3). KAREN, 2026-10-25: *"one
+	-- more thing deer run on road the fall and was sidding on side it's a bug"*.
+	--
+	-- DISABLING A `LinearVelocity` CONSTRAINT DOES NOT STOP THE BODY. The two lines above take the
+	-- DRIVER away; what the assembly keeps is its own momentum, and a deer shot at a crossing is
+	-- doing about 35 studs/s -- so the carcass carried on across the road until friction or the
+	-- 4-second anchor stopped it, which on a road SLAB (a smooth part, not terrain) is a long way.
+	-- That is the slide she is looking at, and it is also why the body ended up somewhere she did
+	-- not shoot it.
+	--
+	-- ONE WRITE, AT THE MOMENT OF DEATH, exactly like the roll and the lift below it: the design
+	-- forbids per-frame writing on the boar (boar-ai design section 6), and this is not a per-frame
+	-- brake -- it is the one instant the animal stops being driven. `Body.collapseVelocity` is the
+	-- pure rule and `WOUND.COLLAPSE_KEEP_SPEED` is the dial, so Karen can have a little carry back
+	-- without anybody editing this function.
+	--
+	-- THE ANGULAR VELOCITY GOES TOO, and not for tidiness: `Body.carcassIsStill` tests BOTH, so a
+	-- body still spinning from its last turn would keep `stillFor` at 0 and wait out the whole
+	-- `CARCASS_ANCHOR_BY_SECONDS` before it was allowed to settle.
+	part.AssemblyLinearVelocity = Body.collapseVelocity(part.AssemblyLinearVelocity, config)
+	part.AssemblyAngularVelocity = Vector3.zero
 	part:SetAttribute("Damageable", false)
 	part:SetAttribute("Carcass", true)
 	-- CanCollide stays true, so the carcass lies on the ground instead of falling through it.
@@ -2458,6 +2518,12 @@ function Body.collapse(handle, config, full)
 	-- (task 249). `stepCarcass` holds this track to its promise: a death that has not advanced a
 	-- frame by `DEATH_BACKSTOP_SECONDS` never will, and the box rolls after all.
 	handle.deathTrack = deathTrack
+	-- ...AND THE TWO NAMES A DEATH CAN BE DRAWN WITH (task 261, item 3), written HERE because this is
+	-- the one place that holds the whole config: `stepCarcass` gets `config.WOUND` alone and could not
+	-- ask `Body.deathClips` at all. `Body.deathTrackOn` reads them to tell *"the fall never ran"* from
+	-- *"the PADDLE is running"*, which is TASKS.md row 249b's note (ii).
+	local fall, paddle = Body.deathClips(full)
+	handle.deathClipNames = { fall, paddle }
 
 	-- ...AND WHEN THERE IS SOMETHING DRAWN, THE CLIP THAT DOES THE FALLING OVERSHOOTS ON A SMALL
 	-- ANIMAL (task 120). Karen, 2026-10-04: "when shoot cub he is gone not remaining". The cub was
@@ -2483,6 +2549,10 @@ function Body.collapse(handle, config, full)
 	local falls = full ~= nil and Body.hasClip((Body.deathClips(full)), full)
 	if lift > 0 and falls then
 		Body.liftDrawn(handle, lift)
+		-- WHAT WAS TAKEN, WRITTEN DOWN WHERE IT WAS TAKEN (task 261, item 3): the backstop pays it
+		-- back, and a number recorded anywhere else would be a second answer to *"how high is this
+		-- mesh sitting"*.
+		handle.liftedBy += lift
 	end
 end
 
@@ -2497,7 +2567,10 @@ end
 -- also why a lifted carcass is no harder to hit (and `Damageable` is already false by here anyway).
 function Body.liftDrawn(handle, studs: number)
 	local model = handle.visual
-	if model == nil or studs <= 0 then
+	-- `studs == 0` AND NOT `studs <= 0` SINCE TASK 261: the backstop pays the lift BACK by calling
+	-- this with the negative of what was taken, and a guard that refused a negative would have made
+	-- that one line do nothing at all -- the shape of defect this file's own header warns about.
+	if model == nil or studs == 0 then
 		return
 	end
 	local parts: { BasePart } = {}
@@ -2590,7 +2663,91 @@ function Body.shouldBackstopDeath(since: number, armed: boolean, drawn: boolean,
 	return since >= after
 end
 
-function Body.stepCarcass(handle, dt: number, config)
+-- WHICH DEATH TRACK IS ACTUALLY ON THE RIG (task 261, item 3), as against the one `Body.collapse`
+-- promised. TASKS.md row 249b, note (ii): *"`deathDrawn` watches only the FALL track -- in a world
+-- where `deathLeft`'s id never downloads but `deathPaddleLeft`'s does, `clipFor` plays the paddle
+-- from 1.167 s and the box still rolls at 1.5 s: the two rotations composing, which is task 150's
+-- buried-upside-down carcass"*.
+--
+-- SO THE QUESTION IS ASKED OF THE CLIP THAT IS PLAYING. `handle.clip` is what `play` last started
+-- and `handle.tracks` holds it, so if that is one of the two death clips and it has advanced, SOME
+-- death is drawing this animal and the box must not roll it a second time. `handle.deathTrack` is
+-- still the fall track and is still what ARMS the backstop -- the arming is a fact about what was
+-- promised, and this is a fact about what is happening.
+--
+-- THE TWO NAMES COME OFF THE HANDLE AND NOT OFF A CONFIG, and that is not tidiness: `stepCarcass` is
+-- handed `config.WOUND` and `Body.deathClips` reads `config.MODEL`, so asking it here would index a
+-- table that does not exist (it did, and the whole suite's carcasses went with it). `Body.collapse`
+-- is the one place that holds the WHOLE config, so it is the one place that writes them -- and it
+-- writes them exactly where it arms the backstop, which is the only state in which they are read.
+function Body.deathTrackOn(handle): AnimationTrack?
+	local names = handle.deathClipNames
+	local name = handle.clip
+	if names ~= nil and name ~= nil and (name == names[1] or name == names[2]) then
+		local playing = handle.tracks[name]
+		if playing ~= nil then
+			return playing
+		end
+	end
+	return handle.deathTrack
+end
+
+-- THE VERTICAL HALF-EXTENT OF A BOX AT WHATEVER ANGLE IT IS LYING AT (task 261, item 3; the
+-- Reviewer's round-1 finding 1). PURE.
+--
+-- `Size.Y / 2` IS THE BOTTOM ONLY WHILE THE BOX STANDS UP, AND A CARCASS DOES NOT. `Body.topple`
+-- rolls it past its tipping angle and gravity lays it flat, so by the time `stepCarcass` anchors one
+-- its own WIDTH is vertical -- the fact `Body.lyingHalfHeight` states for the DISPLAY carcass and
+-- this function states for the live one. Round 1 used the standing half here, and the arithmetic is
+-- why that was blocking: a stag lying correctly on the ground measured as **1.500 studs below** it,
+-- a hind 1.283 and a calf 0.742, all past `CARCASS_GROUND_TOLERANCE_STUDS` 0.5 -- so the correction
+-- LIFTED a body that was already down and the anchor froze it there for `CARCASS_SECONDS` 120.
+-- Karen's *"deer also hanging there"*, caused by the code written to fix it.
+--
+-- IT IS THE BOX'S OWN AXES PROJECTED ONTO WORLD UP, which is one line and covers every angle --
+-- upright, the 45 degrees `COLLAPSE_ROLL_DEG` nudges it to, the quarter turn it settles at, and
+-- whatever a slope leaves it at. `Body.lyingHalfHeight` is not reused because it takes an ANGLE and
+-- what is known here is a CFrame; both say the same thing about the same geometry.
+function Body.verticalHalf(cframe: CFrame, size: Vector3): number
+	local x, y, z = cframe.XVector, cframe.YVector, cframe.ZVector
+	return 0.5 * (math.abs(x.Y) * size.X + math.abs(y.Y) * size.Y + math.abs(z.Y) * size.Z)
+end
+
+-- HOW FAR A SETTLED CARCASS HAS TO MOVE TO BE ON THE GROUND (task 261, item 3). PURE, and it is the
+-- whole of the decision -- `stepCarcass` does the measuring and the one write.
+--
+-- `bottom` IS THE LOWEST POINT OF THE BODY and `ground` is what the world answered under its OWN
+-- x,z. nil ground (no reader, or a reader that found nothing under this point) answers 0: nothing is
+-- known, so nothing is done, which is the carcass this repository built before this task.
+--
+-- THREE RULES, AND THE THIRD IS THE ONE THAT MATTERS:
+--   * inside `CARCASS_GROUND_TOLERANCE_STUDS` the body is already on the ground. Terrain is
+--     voxelised and a fraction of a stud is noise (task 186 measured 0.752 in one flat yard);
+--   * past it, the gap is the correction -- in BOTH directions, because a carcass sunk to its spine
+--     is the same defect upside down and task 192 fixed four of them;
+--   * past `CARCASS_GROUND_MAX_STUDS`, NOTHING IS DONE. A reader that answers 40 studs away is not
+--     answering about this body, and moving a carcass on that number would be believing a
+--     measurement over the screen -- this project's named failure mode. The body is left where
+--     physics put it and the carcass is counted, so a world where this happens is visible.
+function Body.groundDrop(bottom: number, ground: number?, config): number
+	if type(ground) ~= "number" then
+		return 0
+	end
+	local gap = (ground :: number) - bottom
+	if math.abs(gap) <= config.CARCASS_GROUND_TOLERANCE_STUDS then
+		return 0
+	end
+	if math.abs(gap) > config.CARCASS_GROUND_MAX_STUDS then
+		return 0
+	end
+	return gap
+end
+
+-- `groundAt` IS THE WORLD'S OWN SINGLE READER, handed down by the owner (`Runtime:_stepBodies` passes
+-- `self._world.groundAt`) -- the same function `Bots`, `Match.Body`, `Lobby` and `Scene.build` are
+-- all given. A world that injects none is this system before task 261, line for line: `groundDrop`
+-- answers 0 and no CFrame is ever written here.
+function Body.stepCarcass(handle, dt: number, config, groundAt: ((number, number, number?) -> number?)?)
 	if not handle.collapsed then
 		return
 	end
@@ -2625,9 +2782,9 @@ function Body.stepCarcass(handle, dt: number, config)
 	-- `stepVisual` returns early for a toppled carcass, so once this has fired no death clip is
 	-- ever played on this animal -- and the track is stopped here so a late download cannot apply
 	-- one behind its back.
-	local track = handle.deathTrack
+	local track = Body.deathTrackOn(handle)
 	local drawn = Body.deathDrawn(if track then track.TimePosition else nil, if track then track.Length else nil)
-	if Body.shouldBackstopDeath(handle.collapsedFor, track ~= nil, drawn, handle.toppled, config) then
+	if Body.shouldBackstopDeath(handle.collapsedFor, handle.deathTrack ~= nil, drawn, handle.toppled, config) then
 		handle.deathTrack = nil
 		if track ~= nil then
 			track:Stop(0)
@@ -2635,6 +2792,20 @@ function Body.stepCarcass(handle, dt: number, config)
 		handle.upright.Enabled = false
 		handle.part.Anchored = false
 		handle.stillFor = 0
+		-- THE LIFT IS PAID BACK BEFORE THE BOX ROLLS (task 261, item 3; TASKS.md row 249b, note on the
+		-- cub). `Body.collapse` moved everything drawn up by `geometry.deathLift` so the DEATH CLIP's
+		-- own overshoot would land the rig on the ground -- and the backstop firing is precisely the
+		-- statement that the clip never ran, so there is nothing left to cancel it: a calf's mesh would
+		-- float **1.325** studs over its own box for the whole `CARCASS_SECONDS`. Karen's *"deer also
+		-- hanging there"*.
+		--
+		-- BEFORE THE ROLL AND NOT AFTER, because `liftDrawn` moves each drawn part along WORLD up: with
+		-- the box already rolled 45 degrees the welds would be re-made at an offset that is no longer
+		-- vertical in the animal's own frame.
+		if handle.liftedBy > 0 then
+			Body.liftDrawn(handle, -handle.liftedBy)
+			handle.liftedBy = 0
+		end
 		Body.topple(handle, config)
 		handle.backstopped = true
 	elseif drawn then
@@ -2652,6 +2823,39 @@ function Body.stepCarcass(handle, dt: number, config)
 		handle.stillFor = 0
 	end
 	if Body.shouldAnchorCarcass(linear, handle.stillFor, handle.collapsedFor, config) then
+		-- IT IS PUT ON THE GROUND BEFORE IT IS FROZEN THERE (task 261, item 3). KAREN, 2026-10-25:
+		-- *"and now deer also hanging there hunted broken"*.
+		--
+		-- THE ANCHOR IS THE ONE THING THAT CAN MAKE A CARCASS HANG, because it is the one thing that
+		-- takes gravity away: after the line below, wherever this body is is where it stays for the
+		-- whole `CARCASS_SECONDS` 120. Everything that can leave it off the ground happens before this
+		-- point -- a death on a slope or a leap, the box rolling, a bank it half-embedded in, the
+		-- SPAWN_CLEARANCE it was standing above -- so this is the moment to ask, and the only one.
+		--
+		-- READ AT THE CARCASS'S OWN x,z, AT THE MOMENT IT SETTLES, AND FROM JUST ABOVE IT. All three
+		-- clauses are the lesson of task 192's four death defects and of
+		-- docs/research/2026-10-15-one-placement-rule.md: a value computed earlier or somewhere else is
+		-- about a different point, and a ray from the sky answers *"what is the first solid thing from
+		-- above"* -- which indoors is the roof and in this forest is the canopy. `ForestTest.groundAt`
+		-- excludes `Boars`, so the ray cannot hit this body or the one that died beside it.
+		--
+		-- ONE CFrame WRITE, ONCE, ON A BODY THAT HAS STOPPED -- not the per-frame CFrame writing the
+		-- boar design forbids (section 6), and the same shape as the topple and the lift.
+		if groundAt ~= nil then
+			local part = handle.part
+			-- THE HALF-EXTENT IS THE BOX'S AT THE ANGLE IT IS LYING AT, AND ROUND 1 GOT THIS WRONG
+			-- (the Reviewer's finding 1): with `Size.Y / 2` a stag already on the ground measured 1.500
+			-- studs below it and was lifted and anchored in the air. Both the bottom and the ray's own
+			-- origin are measured from it, so a rolled body asks about the same body.
+			local half = Body.verticalHalf(part.CFrame, part.Size)
+			local top = part.Position.Y + half + config.CARCASS_GROUND_FROM_STUDS
+			local ok, measured = pcall(groundAt :: any, part.Position.X, part.Position.Z, top)
+			local drop = Body.groundDrop(part.Position.Y - half, if ok then measured else nil, config)
+			if drop ~= 0 then
+				part.CFrame = part.CFrame + Vector3.new(0, drop, 0)
+				handle.grounded += 1
+			end
+		end
 		-- The assembly goes with it: the zone parts are welded to this part, so anchoring the trunk
 		-- anchors the whole dead boar, model included.
 		handle.part.Anchored = true

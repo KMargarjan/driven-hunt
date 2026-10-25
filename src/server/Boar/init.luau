@@ -63,6 +63,15 @@ Boar.shouldReassert = Body.shouldReassert
 -- pair above: they are pure, and `boar_model.spec` asks them its questions with no boar in the world.
 Boar.deathDrawn = Body.deathDrawn
 Boar.shouldBackstopDeath = Body.shouldBackstopDeath
+-- ...AND THE TWO OF TASK 261 ITEM 3, for the identical reason. Karen, 2026-10-25: *"deer run on road
+-- the fall and was sidding on side it's a bug / and now deer also hanging there hunted broken"*.
+-- One says what a carcass keeps of the speed it died at, the other how far a settled body has to
+-- move to be ON the ground -- both decisions a spec states with no physics and no world.
+Boar.collapseVelocity = Body.collapseVelocity
+Boar.groundDrop = Body.groundDrop
+-- ...and the one the ground correction measures its body with, for the same reason: it is pure, and
+-- round 1's blocking finding was arithmetic that a spec can state without a carcass in the world.
+Boar.verticalHalf = Body.verticalHalf
 -- ...and the one review round 1's finding 1 turns on: whether a clip that is already playing needs
 -- its rate rewritten. A HELD clip never does.
 Boar.shouldAdjustRate = Body.shouldAdjustRate
@@ -823,6 +832,50 @@ Boar.CONFIG = {
 		-- of either number.
 		DEATH_BACKSTOP_SECONDS = 1.5,
 		CARCASS_FALLING_Y = 1.0, -- studs/s of downward speed that still counts as falling
+		-- HOW MUCH OF ITS RUNNING SPEED A CARCASS CARRIES (task 261, item 3). KAREN, 2026-10-25: *"one
+		-- more thing deer run on road the fall and was sidding on side it's a bug"*.
+		--
+		-- 0: A SHOT ANIMAL DROPS WHERE IT IS HIT. `Body.collapse` disables the `LinearVelocity` that
+		-- was driving it, and a disabled constraint does not stop a BODY -- the assembly kept its own
+		-- momentum, which at a crossing is `SPECIES.reddeer`'s run speed, and the carcass slid on
+		-- across the road slab until friction or the 4-second anchor caught it. The Director's rule for
+		-- this task is *"a dead animal stops within a body length and lies ON the ground"*, and at 0 the
+		-- distance is not *within* a body length, it is nought: the only thing left moving the body is
+		-- gravity.
+		--
+		-- IT IS A DIAL BECAUSE *HOW MUCH* IS A FEEL NUMBER AND KAREN'S. A real animal shot at a gallop
+		-- does carry; 0.1-0.2 would be a stumble of a stud or two (`Body.collapseVelocity` scales the
+		-- horizontal components and never the fall). It is at 0 until she has looked, because the
+		-- defect she reported is a body travelling, and a feel number is not the place to half-fix one.
+		COLLAPSE_KEEP_SPEED = 0,
+		-- WHERE A CARCASS IS ALLOWED TO COME TO REST (task 261, item 3). KAREN, 2026-10-25: *"and now
+		-- deer also hanging there hunted broken"*.
+		--
+		-- THE ANCHOR IS THE ONE THING THAT CAN MAKE A CARCASS HANG, because it is the one thing that
+		-- takes gravity away: once `handle.part.Anchored` is true the body stays exactly where it was,
+		-- right or wrong, for the whole `CARCASS_SECONDS` 120. So the moment it settles -- and ONLY
+		-- then, which is the one write this adds -- the ground under the carcass's OWN x,z is measured
+		-- and the body is put on it. That is this repository's own placement rule, applied to the last
+		-- body in the game that did not follow it (docs/research/2026-10-15-one-placement-rule.md, and
+		-- the four death defects of task 192 that all shared this cause).
+		--
+		-- 0.5: THE TOLERANCE, so a body the engine has settled a fraction into the grass is left alone.
+		-- Roblox terrain is voxelised and task 186 measured 0.752 studs of disagreement between the
+		-- nominal shelf and the surface in one flat yard, so anything under half a stud is noise and
+		-- not a bug.
+		CARCASS_GROUND_TOLERANCE_STUDS = 0.5,
+		-- 20: THE BOUND ON A CORRECTION, and it is a REFUSAL rather than a clamp. A reader that answers
+		-- 40 studs away from the body is not answering about this body -- it is a column cast from the
+		-- sky that found a canopy, a roof or the far side of a bank -- and moving a carcass 40 studs on
+		-- that basis would be this project's named failure mode (a number believed over a screen). Past
+		-- this, the measurement is dropped and the body is left where physics put it.
+		CARCASS_GROUND_MAX_STUDS = 20,
+		-- HOW FAR ABOVE THE CARCASS THE GROUND RAY STARTS. A DOWNWARD RAY CAN ONLY HIT WHAT IS BELOW ITS
+		-- ORIGIN (`ForestTest.groundAt`'s own `fromY`, task 192 round 2), so it is asked from just over
+		-- the body: a canopy or a lodge roof cannot answer, and the ray cannot start inside the terrain
+		-- it is measuring. 2 studs clears the box's own top without reaching anything that is not under
+		-- the animal.
+		CARCASS_GROUND_FROM_STUDS = 2,
 	},
 
 	-- Pathfinding agent. Tunables, not structure: they decide whether the navmesh will route a
@@ -4426,6 +4479,12 @@ function Boar.newRuntime(world)
 		-- player who shot it -- Karen's report, for the fourth time -- so a number above 0 is the fix
 		-- working, and a number above 0 that keeps climbing is the animation assets, not this code.
 		deathBackstops = 0,
+		-- HOW MANY CARCASSES HAD TO BE PUT BACK ON THE GROUND AT THE MOMENT THEY SETTLED (task 261,
+		-- item 3). KAREN, 2026-10-25: *"and now deer also hanging there hunted broken"*. Every one of
+		-- these is a body that would have been ANCHORED off the ground and stayed there for the whole
+		-- `CARCASS_SECONDS` 120 -- so 0 is physics getting every death right, and a climbing number is
+		-- this correction doing the work the anchor used to make permanent.
+		carcassesGrounded = 0,
 		trunkContacts = 0,
 		runSeconds = 0,
 		-- ...and the two NOT-MOVING detectors' findings, counted so *"no new stuck events"* is a
@@ -6929,12 +6988,23 @@ function Runtime:step(dt: number)
 		-- 2026-10-03: 1.826 studs from one walking-speed impulse, with the flag OFF). It does
 		-- nothing until the body has stopped, and nothing at all once it has anchored.
 		local wasBackstopped = entry.body.backstopped
-		Body.stepCarcass(entry.body, dt, config.WOUND)
+		local wasGrounded = entry.body.grounded
+		-- ...AND THE WORLD'S OWN GROUND READER GOES WITH IT (task 261, item 3). KAREN, 2026-10-25:
+		-- *"and now deer also hanging there hunted broken"*. `stepCarcass` puts the body ON the ground
+		-- at the one moment it is about to be frozen there, which is what the anchor made permanent;
+		-- a world that injects no reader is this system before the task, line for line.
+		Body.stepCarcass(entry.body, dt, config.WOUND, self._world.groundAt)
 		-- COUNTED, ONCE PER CARCASS (task 249). Karen: *"bug with dead boar standing"*. The edge and
 		-- not the flag, so one carcass is one count however many frames it is stepped for; a drive
 		-- in which every death clip ran reports 0, which is the number this fix is aiming at.
 		if entry.body.backstopped and not wasBackstopped then
 			self._stats.deathBackstops += 1
+		end
+		-- ...AND SO IS EVERY CARCASS THAT HAD TO BE PUT BACK ON THE GROUND (task 261, item 3), on the
+		-- same edge and for the same reason: a drive where physics landed every body correctly reports
+		-- 0, and a session where this climbs is a death that would have hung in the air.
+		if entry.body.grounded > wasGrounded then
+			self._stats.carcassesGrounded += 1
 		end
 
 		-- THE DRAWING AND THE SOUND ARE RATED BY WHAT THE BODY IS DOING (task 139 round 3 and the

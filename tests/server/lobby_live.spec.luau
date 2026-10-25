@@ -1109,6 +1109,71 @@ return function()
 			expect(men[1]:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
 		end)
 
+		-- ------------------------- AND THE PAD IS NOT HIS DOOR BACK IN (task 261, item 1)
+		--
+		-- KAREN, 2026-10-25: *"when I respawn and then go to lobby then go back on pad to hunt I been
+		-- transfarred to same hunt where I was previuosly with less than min remaining I was hunter but
+		-- then time pass and done it's a bug"*.
+		it("keeps a man a live drive let go of off the truck pads (task 261)", function()
+			local seen = freshLoop(bin)
+			Lobby.step(2000, {})
+			-- HE IS IN THE DRIVE, STANDING ON A PAD -- which already does nothing, because a man the
+			-- drive has is left out of every pad list.
+			local man = occupant(55, padAt(1), bin)
+			seen.inDrive[55] = true
+			Lobby.onPhase("Running")
+			Lobby.step(2001, { man })
+			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
+			-- HE PRESSES RESET: the drive lets go of him, mid-drive.
+			seen.inDrive[55] = false
+			Lobby.step(2002, { man })
+			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
+			-- ...AND THE PAD HE IS STANDING ON STILL DOES NOTHING. Before this task it sized a party,
+			-- counted down and handed him back into the hunt he had just left, forty seconds from the
+			-- horn. The door he is asking at is refused as well, so the countdown cannot be started by
+			-- a forged request either.
+			Lobby.step(2003, { man })
+			expect(Lobby.padOf(1).state).to.equal(Pads.EMPTY)
+			expect(Lobby.onPadRequest(man, { pad = 1, size = 1 }, 2003.1).ok).to.equal(false)
+			Lobby.step(2004, { man })
+			expect(#seen.enrolled).to.equal(0)
+			-- HE IS NOT WAITING FOR NOTHING: the latch is what puts him in the next drive's party, and
+			-- the pads are his again the moment this drive is over.
+			Lobby.onPhase("Scoring")
+			Lobby.step(2005, { man })
+			expect(#Lobby.nextDrive().members).to.equal(1)
+			-- ...AND THE PAD ASKS HIM ON THAT SAME SCAN: outside the live window he is an occupant like
+			-- anybody else, and `Pads.step` takes an EMPTY pad with somebody on it to `sizing`.
+			expect(Lobby.padOf(1).state).to.equal(Pads.SIZING)
+		end)
+
+		-- SIT OUT PUTS HIM BACK ON THE PADS (TASKS.md row 249b, and item 1 is what gives it teeth).
+		it("clears the latch when he sits the next drive out (task 261)", function()
+			local seen = freshLoop(bin)
+			Lobby.step(2000, {})
+			local man = occupant(56, padAt(2), bin)
+			seen.inDrive[56] = true
+			Lobby.onPhase("Running")
+			Lobby.step(2001, { man })
+			seen.inDrive[56] = false
+			Lobby.step(2002, { man })
+			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(true)
+			-- HE IS IN THE NEXT DRIVE'S PARTY -- that is what the latch is for -- and then he says he is
+			-- not going with them.
+			Lobby.onPhase("Scoring")
+			Lobby.step(2003, { man })
+			expect(#Lobby.nextDrive().members).to.equal(1)
+			expect(Lobby.onNextRequest(man, { next = Data.NEXT_WORD.OUT }, 2003.1).ok).to.equal(true)
+			-- THE LINE COMES DOWN, which is the note's own complaint (*"keeps reading 'next soon'"*)...
+			Lobby.onPhase("Running")
+			Lobby.step(2004, { man })
+			expect(man:GetAttribute(Data.LEFT_DRIVE_ATTRIBUTE)).to.equal(nil)
+			-- ...AND SO IS THE PAD, on the same scan and WHILE THE DRIVE IS STILL RUNNING, which is what
+			-- this task made load-bearing: a man who sat out and then changed his mind would otherwise
+			-- have had no door at all until the horn.
+			expect(Lobby.padOf(2).state).to.equal(Pads.SIZING)
+		end)
+
 		it("does NOT mark the end of a drive as a withdrawal (task 249)", function()
 			-- `dismissAll` empties the roster one scan into `Scoring` and that is EVERYBODY at once.
 			-- If the latch read the edge alone, every player would read *"you left the drive"* after

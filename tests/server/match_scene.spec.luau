@@ -22,6 +22,14 @@ local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestK
 local CONFIG = {
 	STAND_HEIGHT_STUDS = 3.5,
 	BEATER_CROSS_MARGIN_STUDS = 10,
+	-- TASK 261 ITEM 2: where a beater who is through waits. This spec's own numbers, in the shipped
+	-- shape -- 40 and 8 are the game's, and the case that reads them asserts the SHIPPED ones against
+	-- `Match.CONFIG` separately, the way the several-rows cases read `LIVE`.
+	BEATER_THROUGH = {
+		BEHIND_STUDS = 40,
+		SPACING_STUDS = 8,
+		HOLD = true,
+	},
 	SCENE = {
 		ENABLED = true,
 		GATHER_BEHIND_STUDS = 24,
@@ -153,6 +161,51 @@ return function()
 			local spot = Match.gatherSpotFor({ posts = {}, line = LINE }, CONFIG)
 			expect(spot).to.equal(nil)
 			expect((Match.gatherSpotFor(nil, CONFIG))).to.equal(nil)
+		end)
+
+		-- ---------------- WHERE A BEATER WHO IS THROUGH WAITS (task 261, item 2)
+		--
+		-- KAREN, 2026-10-25: *"I reach out first and then can go around hunters and spook all animals
+		-- in there position and need to wait until all beaters cross or time pass, we need better
+		-- solution here"*.
+		it("puts a beater who is through BEHIND the hunters, in a centred row (task 261)", function()
+			local behind = CONFIG.BEATER_THROUGH.BEHIND_STUDS
+			local spacing = CONFIG.BEATER_THROUGH.SPACING_STUDS
+			local first = Match.throughSpotFor({ posts = POSTS, line = LINE }, CONFIG, 0)
+			expect(first).to.be.ok()
+			local at = (first :: CFrame).Position
+			-- THE FIRST MAN THROUGH STANDS EXACTLY BEHIND THE MIDDLE STAND (x = 0 of three)...
+			expect(at.X).to.equal(0)
+			-- ...ON THE HUNTERS' OWN SIDE OF THE LINE, which is the side the normal does NOT point
+			-- at, and WELL BACK: `BEATER_CROSS_MARGIN_STUDS` is 10, so a man who has just crossed is
+			-- 10 studs past the stand and this is 30 further still.
+			expect(at.Z).to.equal(-behind)
+			expect(behind > CONFIG.BEATER_CROSS_MARGIN_STUDS * 2).to.equal(true)
+			-- THE GROUND IS THE POST'S OWN UNDERSIDE, `gatherSpotFor`'s rule and its reason.
+			expect(at.Y).to.equal(10)
+			-- ...AND HE LOOKS BACK UP THE DRIVE HE HAS JUST FINISHED, not into the empty wood.
+			expect((first :: CFrame).LookVector.Z).to.be.near(1, 1e-4)
+			-- THE ROW GROWS OUTWARDS FROM THE MIDDLE, so it is centred at every size and no two men
+			-- stand in the same place.
+			local second = Match.throughSpotFor({ posts = POSTS, line = LINE }, CONFIG, 1)
+			local third = Match.throughSpotFor({ posts = POSTS, line = LINE }, CONFIG, 2)
+			-- ONE SPACING EITHER SIDE, and the SIGN is `Scene.sideAxis`'s and not this case's: what
+			-- is asserted is that the row is centred and a spacing apart, which is the rule.
+			expect(math.abs((second :: CFrame).Position.X)).to.equal(spacing)
+			expect((third :: CFrame).Position.X).to.equal(-(second :: CFrame).Position.X)
+			expect((second :: CFrame).Position.Z).to.equal(-behind)
+			-- ...AND IT IS NEVER THE WORLD'S GATHERING SPOT, which is the lobby yard in the Forest
+			-- Test: moving a beater there mid-drive would take him out of the hunt he is still in.
+			local gathered = Match.gatherSpotOf(function()
+				return Vector3.new(900, 150, 900), Vector3.new(0, 0, 1)
+			end, { posts = POSTS, line = LINE }, CONFIG)
+			expect((gathered :: Vector3).X).to.equal(900)
+			expect(at.X).never.to.equal(900)
+		end)
+
+		it("has nowhere to put a beater who is through with no stands at all", function()
+			expect((Match.throughSpotFor({ posts = {}, line = LINE }, CONFIG, 0))).to.equal(nil)
+			expect((Match.throughSpotFor(nil, CONFIG, 0))).to.equal(nil)
 		end)
 
 		it("gathers behind the stands even when the world has no line", function()
@@ -396,15 +449,19 @@ return function()
 			end
 		end)
 
-		it("lays the whole cap out in four rows, and nobody touches anybody", function()
-			-- MORE THAN THE TWELVE SHE HAS BEEN SEEING, and a whole number of rows so the block is
-			-- never a row of one. The cap is 16 and not the Director's 20+ because the lobby's
-			-- gathering yard will not hold 20 -- `MAX_ANIMALS`' own comment has that arithmetic and
-			-- `ESCALATE.md` carries the decision.
-			expect(LIVE.SCENE.MAX_ANIMALS > 12).to.equal(true)
+		it("lays the whole cap out in five rows of six, and nobody touches anybody", function()
+			-- **THIRTY SINCE TASK 261, AND THE YARD WAS MOVED FOR IT.** KAREN, 2026-10-25: *"and
+			-- again when animals too much we need show in another row"* -- the same sentence as task
+			-- 255's, because the cap of 16 still truncated her bag. The Director's decision the same
+			-- day moved and widened the `Gather` pad (80 x 80 at x -62) so thirty fit in rows of six;
+			-- `ESCALATE.md`'s 2026-10-24 table is the arithmetic that said 16 was all the old yard
+			-- would hold.
+			expect(LIVE.SCENE.MAX_ANIMALS).to.equal(30)
+			expect(Scene.perRow(LIVE)).to.equal(6)
+			-- A WHOLE NUMBER OF ROWS, so the block is never a row of one.
 			expect(LIVE.SCENE.MAX_ANIMALS % Scene.perRow(LIVE)).to.equal(0)
-			expect(Scene.rowCount(LIVE.SCENE.MAX_ANIMALS, LIVE)).to.equal(4)
-			expect(Scene.rowCount(13, LIVE)).to.equal(4)
+			expect(Scene.rowCount(LIVE.SCENE.MAX_ANIMALS, LIVE)).to.equal(5)
+			expect(Scene.rowCount(13, LIVE)).to.equal(3)
 
 			-- THE WHOLE BLOCK, AT THE CAP, PAIR BY PAIR. The nearest two animals in the biggest bag
 			-- this game lays out are a spacing apart, and that spacing clears the widest animal --
@@ -422,22 +479,26 @@ return function()
 			expect(nearest > tightest - 1e-3).to.equal(true)
 			expect(nearest > 7.9202).to.equal(true)
 
-			-- ...AND THE BLOCK IS SQUARE AND NOT A HEDGE, which is the cap's original purpose: the
-			-- whole bag in ONE line would have been 135 studs of front.
+			-- ...AND THE BLOCK IS A BLOCK AND NOT A HEDGE, which is the cap's original purpose: the
+			-- whole bag in ONE line would be 261 studs of front. Six to a row is 45 studs wide and
+			-- five rows are 36 deep -- WIDER THAN DEEP BY ONE SPACING, which is a rank of animals
+			-- laid out in front of the people looking at them and not a square (task 255's 4 x 4 was
+			-- square because the old yard was).
 			local halfWidth, halfDepth = Scene.layoutExtent(count, LIVE)
-			expect(math.abs(halfWidth - halfDepth) < 1e-6).to.equal(true)
+			expect(halfWidth > halfDepth).to.equal(true)
+			expect(halfWidth - halfDepth).to.be.near(LIVE.SCENE.SPACING_STUDS / 2, 1e-6)
 			expect(halfWidth * 2 < (count - 1) * LIVE.SCENE.SPACING_STUDS).to.equal(true)
 
-			-- THE BLOCK HAS TO STAND IN KAREN'S YARD, and that is the whole reason the cap is 16:
-			-- `lobby.spec` asserts the containment against the real pad, and this is the bound it
-			-- comes down to. 28 is half the `Gather` pad's measured 56, and the lodge's chimney is
-			-- 29.0 studs from the gathering's centre (both read off the live lobby, 2026-10-24).
-			expect(Scene.cornerReachFor(count, LIVE) < 28).to.equal(true)
-			-- ...and one more animal to a row would not fit, which is what makes 4 the answer rather
-			-- than a preference.
+			-- THE BLOCK HAS TO STAND IN KAREN'S YARD, and the bound is the MOVED pad's own half:
+			-- `lobby.spec` asserts the containment against the real row and this is the number it
+			-- comes down to. 40 is half the `Gather` pad's 80 (task 261), where 28 was half the old
+			-- 56 -- and the scene's east edge at x -25.19 clears the lodge chimney's -21 by 4.19.
+			expect(Scene.cornerReachFor(count, LIVE) < 40).to.equal(true)
+			-- ...AND ONE MORE TO A ROW WOULD NOT FIT, which is what makes six the answer rather than
+			-- a preference: seven across puts the torches outside the dirt.
 			local wider = table.clone(LIVE.SCENE)
-			wider.PER_ROW = 5
-			expect(Scene.cornerReachFor(20, { SCENE = wider }) > 29).to.equal(true)
+			wider.PER_ROW = 7
+			expect(Scene.cornerReachFor(35, { SCENE = wider }) > 40).to.equal(true)
 		end)
 
 		it("orders the bag by species then size, stably, and leaves an unknown kind at the back", function()

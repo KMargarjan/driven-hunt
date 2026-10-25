@@ -12,6 +12,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local Phase = Match.Phase
+-- FOR `Roster.other` ONLY (task 261, item 1): the role cases assert *the OPPOSITE of the team he was
+-- playing* and spelling the two team names here would be a second copy of them.
+local Roster = Match.Roster
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 -- This spec's own numbers, short enough to read in a failure message.
@@ -395,6 +398,78 @@ return function()
 			expect(said).to.equal(true)
 		end)
 
+		-- ------------------------------ AND THE GRACE AFTER IT (task 261, item 2)
+		--
+		-- KAREN, 2026-10-25: *"I reach out first and then can go around hunters and spook all animals
+		-- in there position and need to wait until all beaters cross or time pass, we need better
+		-- solution here"*. The Director: *"when ALL beaters (human and bot) are through, the drive
+		-- ends after a grace of about 15 s (the last animals cross), instead of waiting out the
+		-- clock"*.
+		--
+		-- THE CASE ABOVE IS THE GRACE AT 0 AND THAT IS THE IDENTITY CLAIM: this spec's config carries
+		-- no grace row, so `Phase.throughGraceSeconds` answers 0 and the drive still ends on the
+		-- crossing, exactly as task 159 built it.
+		it("waits out the grace before it ends, and says so when the line is through", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = true, BEATERS_THROUGH_GRACE_SECONDS = 4 })
+			local state = toRunning(cfg)
+			local at = cfg.INTERMISSION_SECONDS + 5
+			local effects
+			state, effects = Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at, cfg)
+			-- THE DRIVE IS STILL ON: the animals the line was pushing are still crossing the road.
+			expect(state.phase).to.equal("Running")
+			expect(state.beatersThroughAt).to.equal(at)
+			-- ...AND THE FEED SAYS WHAT IS HAPPENING, once, on the edge -- through the entry kind the
+			-- start of a drive already uses, so there is no new word for the Hud to learn.
+			expect(string.find(feedText(effects, "phase"), "through", 1, true)).to.be.ok()
+			-- NOT A SECOND TIME, however many ticks arrive.
+			local more
+			state, more = Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at + 1, cfg)
+			expect(state.phase).to.equal("Running")
+			-- ASKED OF THE `phase` ENTRY BY NAME, because a tick that lands on a release carries
+			-- effects of its own and this case is about the one line the edge prints.
+			expect(feedText(more, "phase")).to.equal(nil)
+			expect(state.beatersThroughAt).to.equal(at)
+			-- ...AND THEN IT ENDS, as the beaters' ending and not the clock's.
+			state = (Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at + 4, cfg))
+			expect(state.phase).to.equal("Scoring")
+			expect(state.endedEarly).to.equal(true)
+		end)
+
+		it("clears the grace if the line stops being through, and cannot outlive its drive", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = true, BEATERS_THROUGH_GRACE_SECONDS = 4 })
+			local state = toRunning(cfg)
+			local at = cfg.INTERMISSION_SECONDS + 5
+			state = (Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at, cfg))
+			expect(state.beatersThroughAt).to.equal(at)
+			-- A BEATER WALKS BACK NORTH, or a man joins the drivers mid-drive: the line is not
+			-- through any more, so there is no grace running. LEVEL-TRIGGERED (L-029), which is why
+			-- the latch can be cleared at all.
+			state = (Phase.step(state, { kind = "tick", beaters = 3, beatersAcross = 2 }, at + 1, cfg))
+			expect(state.beatersThroughAt).to.equal(nil)
+			-- ...AND THE OLD INSTANT CANNOT END THE DRIVE WHEN IT IS THROUGH AGAIN: the grace starts
+			-- from the new crossing.
+			state = (Phase.step(state, { kind = "tick", beaters = 3, beatersAcross = 3 }, at + 2, cfg))
+			expect(state.phase).to.equal("Running")
+			expect(state.beatersThroughAt).to.equal(at + 2)
+			state = (Phase.step(state, { kind = "tick", beaters = 3, beatersAcross = 3 }, at + 5.9, cfg))
+			expect(state.phase).to.equal("Running")
+			state = (Phase.step(state, { kind = "tick", beaters = 3, beatersAcross = 3 }, at + 6, cfg))
+			expect(state.phase).to.equal("Scoring")
+			-- THE LATCH BELONGS TO THE DRIVE THAT ENDED: the next drive's first tick must not think
+			-- its own line is already through.
+			expect(state.beatersThroughAt).to.equal(nil)
+		end)
+
+		it("the game's own grace is the Director's 15 seconds", function()
+			-- ASSERTED AGAINST THE SHIPPED CONFIG and not against this file's, because what Karen
+			-- plays is the one that matters -- and `Phase.throughGraceSeconds` is the one reader.
+			expect(Match.CONFIG.BEATERS_THROUGH_GRACE_SECONDS).to.equal(15)
+			expect(Phase.throughGraceSeconds(Match.CONFIG)).to.equal(15)
+			-- 0 IS TASK 159'S GAME, reachable by parameter, which is what the case above drives.
+			expect(Phase.throughGraceSeconds({})).to.equal(0)
+			expect(Phase.throughGraceSeconds({ BEATERS_THROUGH_GRACE_SECONDS = -5 })).to.equal(0)
+		end)
+
 		it("needs a REAL beater: with none in the drive only the clock ends it", function()
 			-- THE CLAUSE THAT MATTERS. "All of nobody is through" is true in arithmetic, and a solo
 			-- hunter -- every DEV harness session, and every session Karen plays alone -- would have
@@ -763,6 +838,132 @@ return function()
 			state = (Phase.step(state, { kind = "withdraw", userId = 2 }, cfg.INTERMISSION_SECONDS + 1, cfg))
 			expect(Phase.participantCount(state)).to.equal(0)
 			expect(state.phase).to.equal("Running")
+		end)
+
+		-- ------------------------------- AND HE NEVER REJOINS **THAT** DRIVE (task 261, item 1)
+		--
+		-- KAREN, 2026-10-25: *"when I respawn and then go to lobby then go back on pad to hunt I been
+		-- transfarred to same hunt where I was previuosly with less than min remaining I was hunter but
+		-- then time pass and done it's a bug / when I respawn and go again to hunt I need to be same
+		-- role and from begining"*.
+		it("bars him from the drive he left, and only from that one", function()
+			local cfg = config()
+			local state = running(cfg)
+			local drive = state.driveNumber
+			state = (
+				Phase.step(state, { kind = "withdraw", userId = 2, name = "b" }, cfg.INTERMISSION_SECONDS + 1, cfg)
+			)
+			-- THIS DRIVE, STILL RUNNING: barred. That is the pad handing her back into a hunt with
+			-- forty seconds left on it.
+			expect(Phase.barredFromRejoin(state, drive)).to.equal(true)
+			-- A MAN NO DRIVE EVER LET GO OF IS NEVER BARRED, which is every other player on the server.
+			expect(Phase.barredFromRejoin(state, nil)).to.equal(false)
+			-- A DIFFERENT DRIVE IS A DIFFERENT DRIVE: the bar lifts by itself when the number moves, so
+			-- nothing has to remember to clear anything.
+			expect(Phase.barredFromRejoin(state, drive - 1)).to.equal(false)
+			expect(Phase.barredFromRejoin(state, drive + 1)).to.equal(false)
+			-- ...AND IT LIFTS AT THE END OF THE DRIVE, because `Scoring` and `Waiting` are the window
+			-- the lobby's own next-drive party departs in. The SAME two phase names the `withdraw`
+			-- branch refuses outside of.
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
+			expect(state.phase).to.equal("Scoring")
+			expect(Phase.insideDrive(state)).to.equal(false)
+			expect(Phase.barredFromRejoin(state, drive)).to.equal(false)
+		end)
+
+		-- THE ROLE HALF OF KAREN'S SENTENCE, AND IT IS THE STORED TURN RATHER THAN A NEW RULE: a
+		-- drive he did not finish is not a turn he has taken, because the turn is flipped only for
+		-- the men still in `state.assignment` when the drive reaches `Scoring` (task 217, write edge
+		-- 2) -- and `withdraw` takes him out of exactly that table.
+		--
+		-- ONE PARTICIPANT, WHICH IS KAREN'S OWN ROSTER: she plays with BOTS, and a bot is not in
+		-- this machine's roster at all (`Match.beaterCrossing` is the only thing that counts one).
+		-- The size matters to the answer and is not a convenience -- see the case below it.
+		it("leaves a withdrawn man out of the next drive's `previous`, so his stored turn decides", function()
+			local cfg = config()
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "a" }, 0, cfg))
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			expect(state.phase).to.equal("Running")
+			local had = state.assignment[1]
+			expect(had).to.be.ok()
+			-- SHE PRESSES RESET. Task 248 takes her out of the drive.
+			state = (
+				Phase.step(state, { kind = "withdraw", userId = 1, name = "a" }, cfg.INTERMISSION_SECONDS + 1, cfg)
+			)
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
+			expect(state.phase).to.equal("Scoring")
+			-- SHE HAS NO ROW, which is what makes the stored turn the only thing that can give her
+			-- one -- and `Match`'s write edge 2 reads this same table, so the turn it flips is the
+			-- men who FINISHED and nobody else.
+			expect((state.previousAssignment :: any)[1]).to.equal(nil)
+			-- AND NOW THE DRIVE SHE ASKED FOR: she comes back owed the side she was playing, which is
+			-- what `Economy.owedTeams` answers for a man whose turn was never flipped.
+			-- `Roster.previousFrom` inverts it, the swap deals it back, and she is a hunter again
+			-- from the START of a whole drive.
+			state = (
+				Phase.step(
+					state,
+					{ kind = "join", userId = 1, name = "a" },
+					cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1,
+					cfg
+				)
+			)
+			state = (
+				Phase.step(state, {
+					kind = "tick",
+					owed = { [1] = had },
+				}, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + cfg.SCORE_SECONDS + 2, cfg)
+			)
+			expect(state.phase).to.equal("Assigning")
+			expect(state.assignment[1]).to.equal(had)
+		end)
+
+		-- ...AND THE MECHANISM THAT WAS **NOT** USED, with the measurement that ruled it out, because
+		-- the next person to read Karen's sentence will reach for it exactly as this task did.
+		--
+		-- REMEMBERING HIS TEAM AND FOLDING `other(team)` INTO `previousAssignment` AT `enterScoring`
+		-- WAS BUILT, AND THE SUITE CAUGHT IT: `Roster.assign`'s swap COUNTS the inverted rows, and
+		-- one synthetic inversion moves `counts.Drivers - counts.Shooters` by TWO -- so past a roster
+		-- of two the balance check discards the WHOLE swap and the men who FINISHED stop alternating.
+		-- It is the defect `Roster.assign`'s own header records against task 221, in a new coat.
+		it("would break the rotation for everybody if the withdrawal were folded into `previous`", function()
+			local cfg = config()
+			local ids = { 1, 2, 3, 4 }
+			-- FOUR MEN, ALTERNATING, so the plain split and the swap are not the same table -- with
+			-- two they coincide and the defect is invisible, which is why this roster is four.
+			local honest = { [1] = "Drivers", [2] = "Shooters", [3] = "Drivers", [4] = "Shooters" }
+			local swapped = Roster.assign(ids, honest, cfg)
+			for _, userId in ipairs(ids) do
+				expect(swapped[userId]).to.equal(Roster.other(honest[userId]))
+			end
+			-- ...AND NOW MAN 4 RESPAWNS OUT OF THE DRIVE and is given the synthetic row that would
+			-- hand him his side back: `other(Shooters)`.
+			local folded = table.clone(honest)
+			folded[4] = Roster.other(honest[4])
+			local fell = Roster.assign(ids, folded, cfg)
+			-- THE SWAP IS DISCARDED, and the price is paid by the men who did NOTHING wrong: at
+			-- least one of 1..3 does not get the opposite of the side he just played.
+			local broken = 0
+			for _, userId in ipairs({ 1, 2, 3 }) do
+				if fell[userId] ~= Roster.other(honest[userId]) then
+					broken += 1
+				end
+			end
+			expect(broken > 0).to.equal(true)
+			TestKit.note(
+				string.format("task 261: one folded withdrawal row costs %d of 3 finishers their rotation", broken)
+			)
+		end)
+
+		-- IDENTITY: `enterScoring` STILL ASSIGNS THIS DRIVE'S OWN TABLE, as it has since task 217 --
+		-- asserted as RAW TABLE EQUALITY, the shape `match_roster.spec` already pins it with.
+		it("leaves the next drive's previous assignment as this drive's own table", function()
+			local cfg = config()
+			local state = running(cfg)
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
+			expect(state.phase).to.equal("Scoring")
+			expect(state.previousAssignment).to.equal(state.assignment)
 		end)
 
 		-- THE TRIGGER'S OWN RULE, PURE (`Match.withdrawOnRespawn`). The hard part of this task is not
