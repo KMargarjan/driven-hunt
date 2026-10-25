@@ -1659,6 +1659,48 @@ return function()
 				return CONFIG.SOUND.VOICE.CLIPS[id]
 			end
 
+			it("NO BOAR PRELOADS THE 177-SECOND BARK: the default row is library breaths (task 258)", function()
+				-- 257a(a). `Body.oneShotSpecs` builds `bark = sound.BARK` on EVERY animal and
+				-- `Body.warmAssets` hands all of them to `ContentProvider:PreloadAsync`, so whatever
+				-- is in THIS row is fetched once per animal -- including by a sounder of boars, none
+				-- of which can ever reach the cue (`MOVE.EDGE_BARKS` is false for every boar kind).
+				-- It used to be the real red deer recording, 177.3483 s by the `LENGTHS` table's own
+				-- measurement.
+				local on = configWith(true)
+				local sound = CONFIG.SOUND
+				local lengths = sound.VOICE.LENGTHS
+				local LONG_SECONDS = 10
+
+				-- THE ROW ITSELF carries nothing long.
+				expect(#sound.BARK.ids > 0).to.equal(true)
+				for _, id in ipairs(sound.BARK.ids) do
+					local secs = lengths[id]
+					expect(secs).to.be.ok() -- or nobody has measured what every animal is fetching
+					expect(secs < LONG_SECONDS).to.equal(true)
+				end
+
+				-- ...AND THE CLAIM THAT MATTERS, through the real resolver: for every BOAR kind, the
+				-- ids this cue would resolve to are all short. This is what fails if the long id goes
+				-- back in the default, which is the regression the task fixed.
+				for _, kind in ipairs(BOAR_KINDS) do
+					local ids = Boar.voiceIds("bark", kind, sound.BARK, on)
+					expect(#ids > 0).to.equal(true)
+					for _, id in ipairs(ids) do
+						local secs = lengths[id]
+						expect(secs).to.be.ok()
+						expect(secs < LONG_SECONDS).to.equal(true)
+					end
+				end
+
+				-- ...AND THE TWO KINDS THAT DO BARK STILL BARK THE REAL RECORDING, so this is a
+				-- preload fix and not a quiet downgrade of the thing Karen asked for.
+				for _, kind in ipairs({ "stag", "hind" }) do
+					local ids = Boar.voiceIds("bark", kind, sound.BARK, on)
+					expect(lengths[ids[1]] > LONG_SECONDS).to.equal(true)
+					expect(sound.VOICE.CLIPS[ids[1]]).to.be.ok()
+				end
+			end)
+
 			it("plays ONE measured region of the real recording, over the whole roll", function()
 				local on = configWith(true)
 				local voice = CONFIG.SOUND.VOICE
