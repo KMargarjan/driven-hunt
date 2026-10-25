@@ -216,6 +216,11 @@ local players: any = nil
 -- inward -- the shape a flag read has, and what keeps both branches reachable by parameter. nil is
 -- every live server and every harness run.
 local testGrant: { coins: number, hunts: number }? = nil
+-- WHAT THIS STUDIO SESSION SAYS EVERY PLAYER ALREADY OWNS (task 261, item 5), resolved ONCE at
+-- `Economy.start`'s boundary beside `testGrant` and for its stated reason. nil is every live server
+-- and every harness run; a FROZEN set, so the row merged into `ownedSets` below cannot be written
+-- back through it.
+local testOwns: { [string]: boolean }? = nil
 local enabled = false
 local started = false
 local connections: { RBXScriptConnection } = {}
@@ -249,6 +254,10 @@ local stats = {
 	-- How many players this session's Studio test grant topped up. 0 in every live server and in
 	-- every harness run, by construction.
 	testGrants = 0,
+	-- ...AND HOW MANY OWNERSHIP ROWS IT STAGED (task 261, item 5): one per ID per player, so a
+	-- playtest can see that the attribute was read and acted on without opening the shop. 0 in every
+	-- live server and every harness run, by the same construction.
+	testOwnsGranted = 0,
 	-- THE TURN (task 217): rows written, and the two reasons a row is skipped. A skip is not an
 	-- error -- a player whose profile is not open simply keeps whatever is on his key -- but "how
 	-- often did the rotation fail to be recorded" is a real question about a live server and the
@@ -350,6 +359,78 @@ function Economy.testGrantFor(isStudio: boolean, attribute: any, config): { coin
 	end
 	local grant = (config or Economy.CONFIG).TEST_GRANT
 	return { coins = grant.coins, hunts = grant.hunts }
+end
+
+-- ---------------------------------------------- the Studio-only test PURCHASES (task 261, item 5)
+--
+-- KAREN, 2026-10-25: *"I have a license but can't shoot again"*. In Studio the store is the MEMORY
+-- one, always and by construction (`Economy.storeKindFor`): what she buys at the counter lives in
+-- one server's RAM and is gone at the next Play, so every playtest of anything behind a purchase
+-- began with walking to the lodge and buying it again -- and a licence bought in the LAST session
+-- is a licence the popup correctly says she does not hold.
+--
+-- SO ONE ATTRIBUTE SAYS WHAT SHE ALREADY OWNS, and it is a TEST FIXTURE and not a feature: the
+-- shape `DHShopTestGrant` above and `DHForestStartRole` already have -- `ServerStorage`, set in Edit
+-- mode, never in the git tree, not a `DHFlag_*` so the harness's override guard neither sees it nor
+-- can be defeated by it.
+--
+-- WHY IT CANNOT LEAK INTO A LIVE SERVER is `TEST_GRANT_ATTRIBUTE`'s own two halves, unchanged and
+-- for the same two reasons: `RunService:IsStudio()` is false on every live server, and
+-- `ServerStorage` never replicates, so no client can set it and no client can read it. It is
+-- resolved ONCE at `Economy.start`'s boundary and injected (`world.testOwns`), so a spec reaches
+-- both branches by parameter.
+--
+-- IT IS NOT SAVED AND THERE IS NOTHING TO UNDO. The ids are merged into the IN-MEMORY `ownedSets`
+-- row at the moment the profile lands, exactly where the coin grant is applied and with the same
+-- sentence behind it: in Studio the store is the memory one anyway.
+Economy.TEST_OWNS_ATTRIBUTE = "DHTestOwns"
+
+-- PURE, exported. THE COMMA LIST, PARSED, and the ONE place a string becomes a set.
+--
+-- IT REFUSES AN ID THE SHOP DOES NOT SELL, and that is the whole reason this is a function rather
+-- than a `string.split`: a typo (`weapon.rifle` for the real `rifle.scoped`) would otherwise grant
+-- a row nothing reads, and Karen would be standing at the stand with no rifle and no reason given.
+-- The unknown ids come back as a SECOND LIST so the caller can print them -- the discipline
+-- `Shop.purchase`'s refusals already follow: say which rule said no.
+--
+-- `ShopData.anyRow` AND NOT `ShopData.row`, which is the one that is FOR SALE: this answers *"what
+-- does owning this give"* and a RETIRED row still grants to the people who bought it (that function's
+-- own comment names the eight readers that ask it). A test fixture that could not stage `hat.red`
+-- could not stage a live player's set.
+--
+-- `nil` FOR A LIVE SERVER AND FOR NO ATTRIBUTE, which is the shape `testGrantFor` answers in and
+-- the state every harness run is in. An attribute that is set and names nothing valid answers an
+-- EMPTY FROZEN table plus the refusals, because "she asked for something and it was all wrong" is
+-- not the same fact as "she asked for nothing".
+-- PURE. The staged ids, sorted, for the one log line that says what a session is staging. A set has
+-- no order and a console line that changes order between runs is a line nobody can diff.
+function Economy.testOwnsIds(owns: { [string]: boolean }?): { string }
+	local out: { string } = {}
+	for id in pairs(owns or {}) do
+		table.insert(out, id)
+	end
+	table.sort(out)
+	return out
+end
+
+function Economy.testOwnsFor(isStudio: boolean, attribute: any): ({ [string]: boolean }?, { string })
+	local refused: { string } = {}
+	if not isStudio or type(attribute) ~= "string" then
+		return nil, refused
+	end
+	local out: { [string]: boolean } = {}
+	for _, piece in ipairs(string.split(attribute :: string, ",")) do
+		local id = string.gsub(piece, "%s", "")
+		if id ~= "" then
+			if ShopData.anyRow(id) ~= nil then
+				out[id] = true
+			else
+				table.insert(refused, id)
+			end
+		end
+	end
+	table.sort(refused)
+	return table.freeze(out), refused
 end
 
 -- PURE, exported. THE ONE VALIDATOR of the turn (task 217), at this owner's boundary and nowhere
@@ -975,6 +1056,30 @@ function Economy.load(player: Player)
 			huntsCache[userId] = math.max(huntsCache[userId], grant.hunts)
 			stats.testGrants += 1
 		end
+		-- ...AND THE TEST PURCHASES (task 261, item 5). HERE, beside the coin grant and after
+		-- `ownedSets[userId]` is installed, because this is the one moment a player's set exists and has
+		-- not been read yet: the licence gate, the always-hunter memo and the loadout all ask
+		-- `Economy.ownedOf`, so staging the SET is what makes every one of them agree. It ADDS and never
+		-- replaces, so a profile that really holds something keeps it.
+		--
+		-- `invalidateAlways` IS WHY `role.alwayshunter` WORKS THROUGH IT: the memo is derived from these
+		-- sets and is rebuilt and never mutated (hazard 2), so a write without this line would hand the
+		-- drive a table that no longer matches the sets it came from.
+		local owns = testOwns
+		if owns ~= nil then
+			local set = ownedSets[userId]
+			local added = 0
+			for id in pairs(owns) do
+				if set[id] ~= true then
+					set[id] = true
+					added += 1
+				end
+			end
+			if added > 0 then
+				invalidateAlways()
+				stats.testOwnsGranted += added
+			end
+		end
 	end)
 end
 
@@ -1129,6 +1234,10 @@ export type World = {
 	-- attribute says, nil to ask the two production facts. Every spec passes one of the first two,
 	-- which is what keeps both branches reachable while the attribute is set in one Studio only.
 	testGrant: any?,
+	-- THE STUDIO TEST PURCHASES (task 261, item 5), beside `testGrant` and in its shape: a table is
+	-- the staged set, `false` stages nothing however the attribute is set, and nil asks the two
+	-- production facts (is this Studio, and what does the attribute say).
+	testOwns: any?,
 	-- WHERE `ProcessReceipt` IS INSTALLED (task 238). nil asks the production fact (is this Studio);
 	-- `false` installs nothing whatever the environment says; a table is a stand-in a spec can read
 	-- the installed callback back off. Every spec written before task 238 passes nil and installs
@@ -1154,6 +1263,29 @@ function Economy.start(injected: World?)
 			RunService:IsStudio(),
 			ServerStorage:GetAttribute(Economy.TEST_GRANT_ATTRIBUTE),
 			Economy.CONFIG
+		)
+	end
+	-- ...AND THE TEST PURCHASES (task 261, item 5), read in the same place, in the same shape, for the
+	-- same reason: one read at the boundary, injected so both branches are reachable by parameter.
+	-- `world.testOwns == false` stages nothing however the attribute is set, which is what every spec
+	-- written before this task gets by not mentioning it (nil in Studio with no attribute is nil too).
+	local ownsRefused: { string } = {}
+	if world.testOwns ~= nil then
+		testOwns = if world.testOwns == false then nil else world.testOwns
+	else
+		testOwns, ownsRefused =
+			Economy.testOwnsFor(RunService:IsStudio(), ServerStorage:GetAttribute(Economy.TEST_OWNS_ATTRIBUTE))
+	end
+	if #ownsRefused > 0 then
+		-- SAID OUT LOUD, because the alternative is Karen standing at a stand with no rifle and no
+		-- reason: an id the shop has never heard of is a typo and not a purchase.
+		warn(
+			string.format(
+				"[economy] %s names %d id(s) this build does not sell and they stage nothing: %s",
+				Economy.TEST_OWNS_ATTRIBUTE,
+				#ownsRefused,
+				table.concat(ownsRefused, ", ")
+			)
 		)
 	end
 	paidUpTo = 0
@@ -1199,6 +1331,16 @@ function Economy.start(injected: World?)
 		service.ProcessReceipt = function(receiptInfo)
 			return Economy.decisionEnum(Economy.processReceipt(receiptInfo))
 		end
+	end
+
+	if testOwns ~= nil and next(testOwns) ~= nil then
+		print(
+			string.format(
+				"[economy] %s is set: every player joining this Studio session owns %s",
+				Economy.TEST_OWNS_ATTRIBUTE,
+				table.concat(Economy.testOwnsIds(testOwns), ", ")
+			)
+		)
 	end
 
 	if world.store then
@@ -1310,6 +1452,9 @@ function Economy.stop()
 	store = nil
 	players = nil
 	testGrant = nil
+	-- ...AND THE STAGED PURCHASES WITH IT (task 261, item 5): the next `start` resolves its own, and a
+	-- set left here would stage a spec that never asked for one.
+	testOwns = nil
 	enabled = false
 	started = false
 	paidUpTo = 0

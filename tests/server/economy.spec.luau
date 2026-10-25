@@ -235,6 +235,10 @@ return function()
 				-- them is `RunService:IsStudio()`, which is ALWAYS true in a harness run. A case that
 				-- wants the grant says so (task 178).
 				testGrant = if opts.testGrant ~= nil then opts.testGrant else false,
+				-- `false` BY DEFAULT for `testGrant`'s stated reason and one more of its own (task 261,
+				-- item 5): `DHTestOwns` is NOT a `DHFlag_`, so neither harness mode refuses to run while it
+				-- is set -- a DEV place carrying it would otherwise stage purchases into every case here.
+				testOwns = if opts.testOwns ~= nil then opts.testOwns else false,
 			})
 			return players, store
 		end
@@ -868,6 +872,75 @@ return function()
 			expect(Economy.balanceOf(301)).to.equal(500)
 		end)
 
+		-- ------------------------------------------- the Studio test PURCHASES (task 261, item 5)
+		--
+		-- KAREN, 2026-10-25: *"I have a license but can't shoot again"*. In Studio the store is the
+		-- memory one, so what she buys is gone at the next Play.
+		it("stages test purchases in Studio and never on a live server", function()
+			-- THE ONE ASSERTION THAT MATTERS, and it is `testGrantFor`'s own: inside Studio
+			-- `IsStudio()` is always true, so a pure predicate is the only shape in which the live
+			-- branch is provable at all.
+			expect((Economy.testOwnsFor(false, "licence.reddeer"))).to.equal(nil)
+			-- ...and in Studio it needs a STRING: nothing, a boolean or a number stages nothing.
+			expect((Economy.testOwnsFor(true, nil))).to.equal(nil)
+			expect((Economy.testOwnsFor(true, true))).to.equal(nil)
+			expect((Economy.testOwnsFor(true, 1))).to.equal(nil)
+			-- THE COMMA LIST, WITH WHITESPACE, and the ids Karen's playtest actually needs.
+			local owns, refused = Economy.testOwnsFor(true, " licence.reddeer , role.alwayshunter,rifle.scoped ")
+			expect(owns).to.be.ok()
+			expect((owns :: any)[Shop.ITEM.RED_STAG]).to.equal(true)
+			expect((owns :: any)[Shop.ITEM.ALWAYS_HUNTER]).to.equal(true)
+			expect((owns :: any)[Shop.ITEM.RIFLE]).to.equal(true)
+			expect(#refused).to.equal(0)
+			-- FROZEN, so the row merged into a player's set cannot be written back through it.
+			expect(table.isfrozen(owns :: any)).to.equal(true)
+			-- AN ID THE SHOP DOES NOT SELL IS REFUSED AND NAMED, which is the whole reason this is a
+			-- function: the dispatch's own example `weapon.rifle` is not this build's id for the rifle,
+			-- and a typo that staged nothing in silence would put Karen at a stand with no gun and no
+			-- reason given.
+			local typo, bad = Economy.testOwnsFor(true, "weapon.rifle,licence.reddeer")
+			expect((typo :: any)[Shop.ITEM.RED_STAG]).to.equal(true)
+			expect(#bad).to.equal(1)
+			expect(bad[1]).to.equal("weapon.rifle")
+			-- A RETIRED ROW IS STAGEABLE, because owning it still grants: `ShopData.anyRow` is what the
+			-- readers of "what does ownership give" ask, and a fixture that could not stage `hat.red`
+			-- could not stage a live player's set.
+			expect(Shop.row(Shop.ITEM.HAT_RED)).to.equal(nil)
+			local retired = Economy.testOwnsFor(true, Shop.ITEM.HAT_RED)
+			expect((retired :: any)[Shop.ITEM.HAT_RED]).to.equal(true)
+			-- A SET STRING THAT NAMES NOTHING VALID IS AN EMPTY SET AND NOT nil: "she asked and it was
+			-- all wrong" is a different fact from "she asked for nothing".
+			local empty = Economy.testOwnsFor(true, "nonsense.id")
+			expect(empty).to.be.ok()
+			expect(next(empty :: any)).to.equal(nil)
+			-- IT IS NOT A `DHFlag_`, for `DHShopTestGrant`'s own reason.
+			expect(Economy.TEST_OWNS_ATTRIBUTE).to.equal("DHTestOwns")
+			expect(string.find(Economy.TEST_OWNS_ATTRIBUTE, "DHFlag_", 1, true)).to.equal(nil)
+		end)
+
+		it("gives a staged player the licence and the privilege at join, and saves nothing", function()
+			local _, store = started({
+				ids = { 311, 312 },
+				seed = { [311] = { coins = 5 }, [312] = { coins = 5, owned = { ["hat.red"] = true } } },
+				testOwns = { [Shop.ITEM.RED_STAG] = true, [Shop.ITEM.ALWAYS_HUNTER] = true },
+			})
+			expect(waitUntil(2, function()
+				return Economy.balanceOf(311) ~= nil and Economy.balanceOf(312) ~= nil
+			end)).to.equal(true)
+			-- HE HOLDS THE CARD WITHOUT BUYING IT, which is *"I have a license but can't shoot"* closed.
+			expect(Economy.ownedOf(311)[Shop.ITEM.RED_STAG]).to.equal(true)
+			-- ...AND THE ALWAYS-HUNTER MEMO AGREES WITH THE SET, which is the `invalidateAlways` line:
+			-- without it the drive would be handed a memo built before the staging.
+			expect(Economy.alwaysHunters()[311]).to.equal(true)
+			-- IT ADDS AND NEVER REPLACES: what he really owns is still his.
+			expect(Economy.ownedOf(312)["hat.red"]).to.equal(true)
+			expect(Economy.ownedOf(312)[Shop.ITEM.RED_STAG]).to.equal(true)
+			expect(Economy.stats().testOwnsGranted).to.equal(4)
+			-- ...AND NOTHING IS SAVED. The key still holds what he really bought.
+			expect(store.calls().save).to.equal(0)
+			expect(next(store.peek(311).owned)).to.equal(nil)
+		end)
+
 		it("grants nothing when it is not asked for, which is every harness run", function()
 			started({ ids = { 303 }, seed = { [303] = { coins = 5 } } })
 			expect(waitUntil(2, function()
@@ -876,6 +949,9 @@ return function()
 			expect(Economy.balanceOf(303)).to.equal(5)
 			expect(Economy.huntsOf(303)).to.equal(0)
 			expect(Economy.stats().testGrants).to.equal(0)
+			-- ...AND NOTHING IS OWNED EITHER (task 261, item 5).
+			expect(next(Economy.ownedOf(303))).to.equal(nil)
+			expect(Economy.stats().testOwnsGranted).to.equal(0)
 		end)
 
 		it("refuses to start twice", function()
