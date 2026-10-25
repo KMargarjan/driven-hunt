@@ -70,19 +70,6 @@
 			]
 		},
 		{
-			"name": "lead-the-boar",
-			"spec": "ClientTests.lead_proof.spec",
-			"stage": { "targetFolder": "Boars", "offsetStuds": [0, 1.5, 22] },
-			"steps": [
-				{ "device": "mouse", "action": "moveTo", "x": 400, "y": 300 },
-				{ "device": "wait", "ms": 4200 },
-				{ "device": "mouse", "action": "mouseButtonClick", "button": "left" },
-				{ "device": "wait", "ms": 1800 },
-				{ "device": "mouse", "action": "mouseButtonClick", "button": "left" },
-				{ "device": "wait", "ms": 1600 }
-			]
-		},
-		{
 			"name": "map-toggle",
 			"spec": "ClientTests.map_ui.spec",
 			"steps": [

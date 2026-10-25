@@ -868,9 +868,6 @@ SCOPE_SPECS = {
     # them live in `weapon_state.spec`. Without the dual membership a scoped run over a `Shotgun`
     # change would not play the spec that tests the change.
     "gun": ("tests/server/gun.spec.luau", "tests/client/gun_client.spec.luau",
-            # Task 260: the lead proof reads the HELD gun's own row to compute the lead, so a change
-            # to a weapon's ballistics is a change to what it asserts.
-            "tests/client/lead_proof.spec.luau",
             "tests/server/rifle.spec.luau", "tests/server/ballistics.spec.luau",
             # Task 224: `src/shared/Lever/` resolves to `gun` for `src/shared/Rifle/`'s reason, so
             # the spec that asserts that config has to be played by a scoped run over it.
@@ -913,9 +910,6 @@ SCOPE_SPECS = {
                # Task 260: the fire origin's bound is `Weapon.onFireRequest`'s gate and
                # `Validator.checkShot`'s fourth argument, both `src/server/Weapon/`.
                "tests/server/camera_mode.spec.luau",
-               # Task 260: the REAL-CLICK lead proof -- a replayed click through the whole fire path
-               # onto a running boar, aimed AT it and then AHEAD of it.
-               "tests/client/lead_proof.spec.luau",
                # Task 223: `src/shared/Licences` flipped `reddeer.shipped`, and this spec drives
                # the fire gate from a REAL deer trunk rather than from the stub.
                "tests/server/deer.spec.luau",

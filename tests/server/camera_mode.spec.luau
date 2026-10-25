@@ -1420,7 +1420,13 @@ return function()
 			-- ...WITH A MARGIN THAT IS A MARGIN AND NOT A SECOND TOLERANCE. 30 studs was 15 studs of
 			-- slack past a 14.5-stud clamp; these fail if either row drifts back to that.
 			expect(first < 4 * firstWorst).to.equal(true)
-			expect(third < thirdWorst + 2).to.equal(true)
+			-- THE THIRD-PERSON ROW IS BOUNDED AGAINST THE CLIENT'S OWN CLAMP AND NOT AGAINST THE
+			-- SWEEP, because the sweep is the LOOSER statement here: the unclamped camera reaches
+			-- only ~13.5 studs, so `MAX_DISTANCE_STUDS` never binds -- and the row still has to admit
+			-- 14.5, because that is what the client will send if it ever does. At or above the clamp,
+			-- and within a stud of it.
+			expect(third >= Config.MAX_DISTANCE_STUDS).to.equal(true)
+			expect(third <= Config.MAX_DISTANCE_STUDS + 1).to.equal(true)
 			-- AND THE FIRST-PERSON BOUND IS THE TIGHTER ONE, which is the whole point of having two:
 			-- the shipped game is first person, so the shipped game gets the small number.
 			expect(first < third).to.equal(true)

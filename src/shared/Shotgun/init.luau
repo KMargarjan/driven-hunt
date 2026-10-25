@@ -479,9 +479,16 @@ Shotgun.CONFIG = {
 	-- (`Flags.DEFAULTS.FIRST_PERSON`: *"one line back to `false` returns the camera she accepted"*).
 	-- There the camera really does sit behind the player: `THIRD_DISTANCE_STUDS` 12 plus the
 	-- shoulder, and the client clamps the whole thing at `MAX_DISTANCE_STUDS` **14.5**. 16 is that
-	-- clamp plus 1.5, where 30 was that clamp plus 15.5. A third-person shot is refused only if the
+	-- clamp plus 0.5, where 30 was that clamp plus 15.5. A third-person shot is refused only if the
 	-- client's own clamp has already failed.
-	CAMERA_ORIGIN_TOLERANCE = 16,
+	--
+	-- 15 AND NOT 16, AND THE SWEEP IS WHY: the unclamped third-person eye reaches only about 13.5
+	-- studs (12 back, 2.2 across, 1.6 up), so `MAX_DISTANCE_STUDS` never actually binds -- and a
+	-- first version of this row at 16 was 2.5 studs past anything the camera can produce.
+	-- `camera_mode.spec` now bounds it against the CLAMP from both sides rather than against the
+	-- sweep: at or above 14.5, so the client's own limit can never be refused, and within a stud of
+	-- it, so the slack cannot grow back.
+	CAMERA_ORIGIN_TOLERANCE = 15,
 	MIN_AIM_DISTANCE = 4, -- below this the muzzle->aim vector is degenerate
 
 	-- WHERE THE BORE STARTS (task 259). KAREN, 2026-10-24: *"we need to work on rifle acuracy when
