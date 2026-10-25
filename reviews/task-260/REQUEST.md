@@ -1,12 +1,12 @@
 # Task 260 -- the sight is true, leaves stop nothing, and the origin bound is measured
 
 Task: 260
-Round: 2
+Round: 3
 Base: main @ ae8aba15
-Code commit: 152b26343e86c5c1a48496c9a709f771d3980394
+Code commit: d71214429c031401e0f12e8d0b3c16a373755093
 
 ```
-[harness] PASS: 34/34 checks @ 152b26343e86c5c1a48496c9a709f771d3980394 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ d71214429c031401e0f12e8d0b3c16a373755093 (clean tree) scope=all
 ```
 
 `[harness2]` is **N/A**: nothing here touches `TWO_PLAYER_PATHS`. The changed files are
@@ -32,6 +32,37 @@ contain. The design run is one command away for whoever has the clock.
 
 > *"YOUR ESCALATION (2026-10-25, BORE_ON_SIGHT_LINE) IS DECIDED by the Director: OPTION 1 ...
 > THE TRUE SIGHT: `BORE_ON_SIGHT_LINE = true`."*
+
+## Round 2 -> round 3
+
+**The round-2 blocking finding was the right test to run and I had not run it: the security half of
+this task had no test at all.** Deleting the fourth argument from both `checkShot` call sites left the
+whole suite green with the shipped first-person bound silently back at the third-person 15 -- a config
+row nothing read. Two cases in `weapon_shot.spec` now close both halves:
+
+- **the validator HONOURS the argument** -- one payload placed between the two bounds, accepted at the
+  loose one and refused `"origin-far"` at the tight one, with `nil`, a non-number, and an origin
+  inside both all pinned. So neither the parameter nor its fallback can go away quietly.
+- **the owner PASSES the right one** -- `Weapon.stats()` gains `originTolerance`, which is the only
+  way anything outside `src/server/Weapon/init.luau` can see which row the module-level
+  `ORIGIN_TOLERANCE_STUDS` resolved. Asserted against the first-person row while `FIRST_PERSON` is
+  lit, and against one of the two rows whichever branch the place runs.
+
+**Three notes also fixed.** The *"16 is that clamp plus 0.5"* sentence is **deleted and written
+correctly** -- round 2 quoted the error as its own correction, which left the false sentence standing,
+and the Reviewer caught it twice. `map_contract.spec` now asserts the generated canopy's `CanQuery`
+and `CanCollide` are false and the trunk's are true, so the map's half of claim 8 stops resting on a
+read. `TASKS.md` carried the last copy of the wrong 1.209.
+
+**Four notes are deliberately not acted on, and three of them are not mine to act on.** (a) The
+`Places`/`drive-places.md` owner row and the `MapGen.Props` design-7.1 reversal both need an
+Architect brief, which is the same document gap as round 1's finding 1. (b) The `Session`-canopy
+ground rays that now reach terrain can shift stand rings in Karen's wood -- a real behaviour change
+outside the weapon, and a playtest note rather than a code change. (c) `unblockFoliage` clearing
+`CanCollide` on ground cover is Karen's to look at. (d) The pre-existing `expect(... < 30)` guards in
+`camera_mode.spec` and `camera_client.spec` are now looser than the rows they protect; they are
+correct but weak, and reading `Shotgun.CONFIG` there is a one-line follow-up I have left queued
+rather than widen this round's diff further at round 3 of 3.
 
 ## Round 1 -> round 2
 
