@@ -5482,7 +5482,16 @@ measurement, the containment assertion and 220a(c)/(d), and leaves the layout wh
 those two rail buttons were not on the screen at all.
 
 
-## 2026-10-25 - Task 261: **`NEEDS KAREN` -- THE TWO-PLAYER RUN CANNOT BE STARTED ANY MORE, BECAUSE THE CONTROL THE HARNESS NAMES IS NOT IN THIS STUDIO'S UI.**
+## 2026-10-25 - Task 261: **CLOSED. `NEEDS KAREN` -- THE TWO-PLAYER RUN CANNOT BE STARTED ANY MORE, BECAUSE THE CONTROL THE HARNESS NAMES IS NOT IN THIS STUDIO'S UI.**
+
+**CLOSED the same day by the Director: the player-count click is done (DEV: Server, 2 players) and
+`test2` then PASSED TWICE --
+`[harness2] PASS: 36/36 checks @ eaef41e0e4bbcb21b37b4513fb3ee15b1d32c13c (clean tree)`, both runs
+server 2283/0, shooter 591/0, driver 585/0 (`<runs-dir>/test2-t261a.log`, `t261b.log`).** What is
+left of this entry is the finding, which outlives the click: `START_CLICKS` in
+`tools/studio_mcp.py` tells the reader to use a Test RIBBON TAB that this Studio build does not
+have, and `press-f7.ps1`'s header says *"2 players is Karen's saved setting"* when the saved setting
+was 0. Both are worth correcting the day somebody touches that mode.
 
 Task 261 touches `src/server/Match/`, so the merge gate and the review BOTH ask for
 `[harness2] PASS` (`TWO_PLAYER_PATHS`). The one-player line is green --

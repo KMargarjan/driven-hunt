@@ -3,21 +3,18 @@
 Task: 261
 Round: 1
 Base: 03748f79 (main)
-Code commit: dc1baceea84cccd33bbbc13eefa8a4694d59d87f
+Code commit: eaef41e0e4bbcb21b37b4513fb3ee15b1d32c13c
 
 ```
-[harness] PASS: 34/34 checks @ dc1baceea84cccd33bbbc13eefa8a4694d59d87f (clean tree) scope=all
+[harness] PASS: 34/34 checks @ eaef41e0e4bbcb21b37b4513fb3ee15b1d32c13c (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ eaef41e0e4bbcb21b37b4513fb3ee15b1d32c13c (clean tree)
 ```
 
-**`[harness2]` IS NOT PASTED AND THE REVIEW CANNOT START WITHOUT IT.** The change touches
-`src/server/Match/`, which is on `TWO_PLAYER_PATHS`, so the two-player line is required. I could not
-produce it: `press-f7.ps1` does start *Server and Clients* in this Studio, but it comes up with
-**0 clients** (`1 new studio(s) beside the editor`), and the control the harness's own instructions
-name -- *Test tab -> Clients and Servers -> Players: 2* -- **is not in this Studio's UI any more**.
-Its ribbon tabs are Home / Avatar / UI / Script and the test commands live in the `Test` MENU
-(`Start Test Session -> Server and Clients F7`, plus an `Add Clients` item that is greyed until a
-session runs). `ESCALATE.md` carries it as `NEEDS KAREN`. Everything below is evidence for the
-one-player run and for what was measured by hand.
+The `[harness2]` line is the Director's, run twice (`<runs-dir>/test2-t261a.log`, `t261b.log`, both
+server 2283/0, shooter 591/0, driver 585/0) after the player-count click; the `[harness]` line above
+is mine, re-run at the same commit so the two name one commit. The `NEEDS KAREN` entry that blocked
+it is closed in `ESCALATE.md`. **The code commit is `eaef41e0` and nothing but paperwork follows
+it** -- no `src/` or `tests/` file changed in this round.
 
 ## What changed, by Karen's sentence
 
@@ -94,26 +91,72 @@ one-player run and for what was measured by hand.
     its fourth rectangle, which it needed: the `Yard` sweep reaches only x -54). *Verify:*
     `lobby.spec` "lets no tree stand on the gathering yard, and COUNTS the ones it takes out".
 
+## The proof round (Director, 2026-10-25), and what it did and did not reach
+
+Every number below was taken in **Driven Hunt Forest Test**, placeId 130094961655666, this working
+copy. Its attributes were read before and after and are IDENTICAL
+(`DHFlag_BOAR_BEHAVIOUR/BOAR_MODEL/COINS/DEER_ROAD_LEAP/DRIVE_BOTS/HORN/LICENCE_POPUP/LOBBY/SHOP=true`,
+`DHForestStartRole=hunter`, `DHShopTestGrant=true`); `DHTestOwns="licence.reddeer"` was set for the
+run and **cleared again**, which the second read confirms.
+
+**ITEM 3 (CORE) -- NOT PROVEN. No kill was taken, and the reason is specific.** The instrument is
+built and committed to the runs directory (`261-deerkill.luau`): it shoots a RUNNING animal through
+`Shotgun.Remotes.FireRequest` -- the same event the Tool's trigger fires -- and reports, for one
+carcass, the flat distance travelled after `Carcass` goes true **in body lengths of its own trunk**
+and the lowest bone's gap to the ground under its own x,z at rest. Two faults in it cost the
+session, and both are now fixed in the file: the origin was the CAMERA, which in this session sat
+870 studs from the character, so `Validator.checkShot`'s 6-stud origin tolerance refused every shot
+(`NOT KILLED shots=4` x5, with no console refusal line to show for it); and it sampled once instead
+of waiting for a crossing. By the time both were corrected the drive had ended, and the next drive
+seated the player as a **Driver with a Horn**. 13 shots were fired and 0 animals died.
+
+**What that last sentence IS evidence of, and it is item 2(c):** the role alternated across a
+completed drive on her own path -- `team=Shooters tool=Shotgun` in drive N, `team=Drivers tool=Horn`
+in drive N+1, read off the server (`261-state.luau`). That is the rotation Karen asked for, observed
+rather than reasoned.
+
+**ITEM 1 (the respawn path) -- NOT PROVEN.** It needs the player in a drive with a gun to reset out
+of; the drive cycle had already made him a beater. Nothing about it was reached.
+
+**ITEM 2 (the beater at the line) -- NOT PROVEN on her path.** The probe is written
+(`261-beater-through.luau`) and it does not run in this world: it finds the hunters' line through
+`CollectionService:GetTagged("DrivenHunt.ShooterPost")` and the Forest Test has **0** of them
+(`DrivenHunt.ShooterPost=0 DrivenHunt.DriveLine=0 DrivenHunt.DriverStart=0`) -- that world feeds
+`Match` its markers through an injected `world.markers` view, not through tags, and its own layout
+is `Workspace.DrivePlaces`. The probe has to read the stands the way the drive does. Stated here so
+the next round starts from it rather than discovering it again.
+
+**ITEM 4 -- the yard is measured, the LOOK is not.** Measured live last round and unchanged:
+**21 of 30 trees planted** where it planted 27, **0 trunks on the gathering yard**, and nine
+raycasts across the new square read **9 Ground, 0 grass, 0 misses, 0 non-terrain obstacles**.
+`.screenshots/t261-gather-eye.png` (player eye height, 3 studs over the yard at its east edge,
+looking west past the lodge) is opened and described: the new blade-free ground runs up to the
+lodge's west end and the remaining birches stand beyond it. **There is no frame of thirty animals in
+rows** -- that needs a drive with thirty kills in it -- and Karen has not seen the clearing.
+
+**ITEM 5 -- the attribute was set and cleared on her place, cleanly.** What was NOT observed is the
+`[economy] DHTestOwns is set: ...` console line, because the console was not re-read after the boot
+that carried it; the grant itself is asserted by `economy.spec` and not by a reading.
+
 ## What I could not verify
 
-* **`test2`.** See the top. The review gate asks for it and I could not produce it.
-* **Karen's four defects were not reproduced on her own path.** Rule H asks for a before/after pair
-  of HER defect and there is none: items 1 and 2 need a played session (respawn, walk to a pad,
-  cross the line) and item 3 needs a deer shot at a crossing. What I did do in the Forest Test is
-  item 4's measurement above, with a clean boot (`[lobby] built in 97 ms`, no `Stack Begin`, no
-  `attempt to`, no error line), and its attributes read identical before and after
-  (`DHFlag_* ... DHForestStartRole=hunter DHShopTestGrant=true`), changed none.
-* **No frame of the gathering from inside it.** The camera has one owner and rewrites a scriptable
-  camera within a frame, so `capture` in Play renders the player's view wherever he is; in Edit the
-  lobby does not exist (it is built at run time). `.screenshots/t261-gather-eye.png` is what I have
-  -- the new yard's blade-free ground beside the lodge, with the remaining tree line behind it --
-  and I looked at it. **A frame of thirty animals in five rows, and whether six trees out of the
-  western arc is a lobby Karen likes, are hers.**
-* **`rifle_client.spec:747` ("Expected rifle, got shotgun") failed on two of four runs and passed on
-  the other two, including the PASS above.** Nothing in this change touches a weapon, a viewmodel or
-  the camera. It is the flake class task 252 was about, one spec along; it is not claimed as fixed
-  and it is not claimed as mine.
-* **Item 5's attribute is not set anywhere.** The dispatch's own route: the value to set on
-  `ServerStorage` is `DHTestOwns = "licence.reddeer,role.alwayshunter,rifle.scoped"` (the dispatch's
-  example `weapon.rifle` is not this build's id -- the rifle is `rifle.scoped`, and the tool names a
-  refused id in a warning rather than staging nothing in silence).
+* **Karen's four defects are still not reproduced on her own path (rule H).** Items 1, 2 and 3 above
+  each say exactly what stopped them and what the next round needs.
+* **`rifle_client.spec:747` ("Expected rifle, got shotgun") failed on two of six runs and passed on
+  the other four, including both PASS lines above.** Nothing in this change touches a weapon, a
+  viewmodel or the camera. It is the flake class task 252 was about, one spec along; it is not
+  claimed as fixed and it is not claimed as mine.
+* **No BEFORE numbers for item 3.** The pre-fix `src/server/Boar/` files were checked out and the
+  session was run against them, which is why the session above is labelled "before" in
+  `261-kills-before.txt`; it produced no kill either, so there is nothing to compare. The files were
+  restored and the tree is clean at the code commit.
+
+## Ledger
+
+```
+1. NOT PROVEN (no respawn run on her path: the drive cycle had seated the player as a beater) -- built, gated, and asserted by match_phase/lobby_live specs; the role half is the stored turn and no new mechanism
+2. NOT PROVEN (the line probe reads CollectionService tags and the Forest Test has none) -- built and gated; 2(c)'s role alternation WAS observed live (Shooters+Shotgun -> Drivers+Horn)
+3. CORE -- NOT PROVEN (13 shots, 0 kills: the probe's origin was the camera 870 studs from the character, so every shot was refused; fixed in the file, but the drive had ended) -- built and gated
+4. NOT PROVEN (no frame of thirty animals in rows; Karen has not seen the clearing) -- the yard IS measured live: 21 of 30 trees, 0 on the yard, 9/9 Ground, 0 obstacles
+5. MET (attribute set and cleared on her place, attributes identical before and after; the grant itself is spec-asserted, not read off the console)
+```
