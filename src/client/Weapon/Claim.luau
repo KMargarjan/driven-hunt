@@ -167,17 +167,42 @@ function Claim.simulate(opts: {
 			return nil
 		end
 
-		-- (1) THE STATIC WORLD STOPS THE SIMULATION, and there is no claim.
-		if cast(pellet.position, segment, staticIgnore) ~= nil then
-			return nil
-		end
+		-- (1) THE STATIC WORLD. **ITS DISTANCE IS WHAT MATTERS, NOT ITS EXISTENCE**, and that
+		-- distinction is the whole of whether this feature works at all.
+		--
+		-- MEASURED, 2026-10-25, in the Forest Test with a rifle in hand aiming at a chest 58 studs
+		-- away: this block used to `return nil` the moment the static cast answered ANYTHING, and the
+		-- probe read `NO CLAIM` every time. One sub-step at the rifle's 2612 studs/s is
+		-- `FLIGHT_STEP_MAX_SECONDS` long -- **87 studs** -- so the ground beyond the animal is almost
+		-- always inside the SAME segment as the animal. The feature was inert by construction, and no
+		-- spec could see it: a scripted world has no ground.
+		--
+		-- So the nearest thing in this sub-step wins, exactly as the server's own flight resolves a
+		-- segment. A tree in FRONT of the animal still kills the claim -- which is the line of sight
+		-- this pass exists for, and what check 5 tests from the server's side.
+		local static = cast(pellet.position, segment, staticIgnore)
+		local blockAt = if static ~= nil then static.distance else math.huge
 
-		-- (2) EACH ANIMAL, IN ITS OWN FRAME. The FIRST impact wins; nothing here sorts, because the
-		-- sub-step is short enough that two animals inside one segment is a tie nobody can see.
+		-- (2) EACH ANIMAL, IN ITS OWN FRAME. The NEAREST impact wins -- and it has to be compared
+		-- against the static block above rather than taken on sight.
+		local bestHit: Shotgun.Impact? = nil
+		local bestShift = Vector3.zero
 		for _, target in ipairs(targets) do
 			local shift = target.velocity * pellet.elapsed
 			local hit = castOnly(target.root)(pellet.position - shift, segment, staticIgnore)
-			if hit ~= nil and hit.instance ~= nil and hit.instance:IsA("BasePart") then
+			if hit ~= nil and hit.distance < blockAt and (bestHit == nil or hit.distance < bestHit.distance) then
+				bestHit = hit
+				bestShift = shift
+			end
+		end
+		if bestHit == nil then
+			if static ~= nil then
+				return nil
+			end
+		else
+			local hit = bestHit :: Shotgun.Impact
+			local shift = bestShift
+			if hit.instance ~= nil and hit.instance:IsA("BasePart") then
 				local part = hit.instance :: BasePart
 				return {
 					part = part,
