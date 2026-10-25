@@ -1,16 +1,75 @@
-1. `src/server/Boar/Body.luau` / `Body.stepCarcass`'s ground correction — wrong maths: it takes the carcass's lowest point as `part.Position.Y - part.Size.Y / 2`, but every carcass that reaches the anchor by the toppled path is **lying on its side**, so that is not its half-height. The correction therefore moves a correctly-resting deer UP and then anchors it in the air — the defect item 3 exists to fix. Evidence: the new block reads `local half = part.Size.Y / 2` … `local drop = Body.groundDrop(part.Position.Y - half, if ok then measured else nil, config)` … `part.CFrame = part.CFrame + Vector3.new(0, drop, 0)`; `handle.part.Anchored = true`. This module already owns the rule it ignores — `Body.lyingHalfHeight`: *"A `BasePart`'s `CFrame` is its BOUNDING BOX'S CENTRE … Rolled a quarter turn the mesh's WIDTH is vertical, which for the male's 1.4011 x 3.2573 x 5.5 is 0.70 studs"* — and `Body.topple` rolls `COLLAPSE_ROLL_DEG = 45`, whose own config note is *"measured peak height 0.2 studs, final UpVector.Y = 0.00, i.e. lying on its side"*. With `SPECIES.reddeer.BODY_SIZE = Vector3.new(1.8, 4.8, 7.05)` (scaled per kind in `kindGeometry`, `bodySize = config.BODY_SIZE * scale`), a stag resting exactly on the ground measures `gap = +1.5` studs (hind 1.28, calf 0.74 — all past `CARCASS_GROUND_TOLERANCE_STUDS` 0.5 and inside `CARCASS_GROUND_MAX_STUDS` 20), so it is lifted 1.5 studs and frozen there for `CARCASS_SECONDS` 120, with `handle.grounded` counting it as a body "put back on the ground". This is live in Karen's world: `ForestTestBoot` sets `world.groundAt = Data.groundAt`, and the toppled path is both `boxFalls` and the backstop this same task pays the lift back on. The suite misses it because no case rotates the part: `"puts a settled carcass on the ground before it anchors it (task 261)"` sets `handle.toppled = true` while leaving `handle.part.CFrame` axis-aligned and derives its expectation from the same `local half = handle.part.Size.Y / 2`. Required: measure the vertical half-extent off the part's actual `CFrame` (`0.5 * (|XVector.Y| * Size.X + |YVector.Y| * Size.Y + |ZVector.Y| * Size.Z)`, or `Body.lyingHalfHeight` with the roll) for both the `bottom` and the ray's `top`, and add a case that rolls the part a quarter turn before stepping so the rolled body is what is asserted.
-2. `tests/server/boar_model.spec.luau` / `"gives the death lift back when the box has to lay the animal down (task 261)"` — the case asserts the bookkeeping and never the mesh, so the one line it exists to protect is untested and the feature can be deleted with the suite green. Evidence: after `Body.stepCarcass(handle, 0.1, CONFIG.WOUND)` it asserts only `expect(handle.backstopped).to.equal(true)` and `expect(handle.liftedBy).to.equal(0)`; `drawn.Position.Y` is captured as `at` and compared **before** the backstop (`expect(drawn.Position.Y - at).to.be.near(lift, 1e-3)`) and never after. `stepCarcass` writes `handle.liftedBy = 0` unconditionally inside the branch, so reverting `Body.liftDrawn`'s guard to its pre-task form — the change the comment calls load-bearing, *"`studs == 0` AND NOT `studs <= 0` SINCE TASK 261 … a guard that refused a negative would have made that one line do nothing at all"* — leaves the calf's mesh floating 1.325 studs and this case still passes. Required: assert `drawn.Position.Y` is back at `at` (within 1e-3) after the backstop fires.
+PASS
+
+Round 1's two blocking findings are fixed and both fixes discriminate:
+`Body.verticalHalf(part.CFrame, part.Size)` now feeds BOTH the bottom and the ray origin in
+`stepCarcass`, and the two new rolled cases use a `stag` (`newBody("stag")`, box 1.8 x 4.8 x 7.05,
+so `Size.Y/2 - half = 1.5`) — against round 1's code `"does not lift a carcass that is lying on its
+side"` reads 1.500 studs high and `"still puts a ROLLED carcass down"` lands 2.4 studs off, so
+neither can pass on the old arithmetic. The lift-payback case now asserts
+`expect(drawn.Position.Y - handle.part.Position.Y).to.be.near(0, 1e-3)` after the backstop, which
+reverting `liftDrawn`'s `studs == 0` guard fails by 1.325. Harness lines name the `Code commit:`
+e42da793 with "(clean tree)" for both `test` and `test2`, and `paperwork-after-code-commit.txt` says
+OK.
 
 ## Notes (non-blocking)
-- `tests/server/match_scene.spec.luau` — its new `BEATER_THROUGH` block claims *"the case that reads them asserts the SHIPPED ones against `Match.CONFIG` separately"*; nothing in the repo names `Match.CONFIG.BEATER_THROUGH`. Delete that row and `throughSweep` errors on `config.BEATER_THROUGH.BEHIND_STUDS` every step of a live drive while the suite stays green. Assert the three shipped numbers, as `"the game's own grace is the Director's 15 seconds"` does for the grace.
-- `src/shared/Lobby/init.luau` / `Lobby.liveDrive` — the header rests the duplicated phase names on *"`lobby_live.spec` asserts this answers exactly what `Phase.insideDrive` answers for all five names"*. No spec names `liveDrive` at all (only `src/server/Lobby/init.luau` does, twice). Add that case or drop the claim.
-- `src/server/Boar/Body.luau` / `Body.collapseVelocity` — the comment and `"A CONFIG WITH NO ROW AT ALL KEEPS EVERYTHING, which is this system before the task"` overstate: `math.min(velocity.Y, 0)` clamps an upward velocity whatever the dial says, so a row-less config does not keep everything. Say "keeps the horizontal".
-- `src/server/Economy/init.luau` / `Economy.TEST_OWNS_ATTRIBUTE` — `DHTestOwns` is not a `DHFlag_`, so the harness's override guard cannot see it, and only `economy.spec`'s `started()` helper defaults `testOwns = false`. Every other spec that starts this owner (`licence_popup`, `shop_door`, `zz_drive_boundary`, `match_teams`, `match_live`) passes nil and so reads the live attribute under `IsStudio()`; a DEV place left carrying the value would stage `licence.reddeer` / `role.alwayshunter` into those runs. Queue adding it to the harness's attribute guard, or default it false in the shared helpers.
-- `src/server/Match/init.luau` / `throughSweep` + `placedCount` — `Match.forget` clears `throughPlaced[userId]`, so `placedCount()` drops and the next man through is handed a slot that is already occupied. Key the slot off a monotonic counter per drive instead.
-- `src/server/Match/Phase.luau` / `Phase.step`'s Running branch — `maybeRelease(next_, effects, now, event, config)` now runs during the grace, where before the drive ended on the crossing instant; new sounders can be released after the line is through. If that is wanted, say so beside it.
-- `src/server/Boar/init.luau` / `COLLAPSE_KEEP_SPEED`'s comment — *"the carcass slid on across the road slab (a smooth part, not terrain)"*. The Forest Test's road is painted TERRAIN (`Places.build` → `Ground.paint` over `Forest.roadZ`), not a part; the friction argument needs a different reason.
-- `src/server/Boar/Body.luau` / `Body.stepCarcass`'s backstop — when `Body.deathTrackOn` returns the PADDLE track, `track:Stop(0)` stops the paddle and the fall track in `handle.deathTrack` is dropped unstopped, so *"the track is stopped here so a late download cannot apply one behind its back"* now covers only whichever one was returned.
-- `tests/server/lobby.spec.luau` / `"lets no tree stand on the gathering yard, and COUNTS the ones it takes out"` — `expect(planted >= CFG.TREELINE.COUNT - 10)` admits 20..30 where the request names an exact 21 of 30; pin the count or say in the case why it is a band.
+- `src/server/Match/init.luau` / `Match.CONFIG.BEATER_THROUGH.HOLD` — the `false` branch does not do
+  what the row says. `Body.stand` → `Body.standCharacter` → `Body.holdCharacter` already zeroes
+  WalkSpeed and sets `root.Anchored = true`; `applyHold` is what records `heldStill[userId]`, and
+  `applyFree` only restores a userId that is in `heldStill`. So with `HOLD = false` the beater is
+  still frozen and anchored and nothing in this owner ever unties him. Either drop the row or free
+  him when it is false.
+- `src/server/Match/init.luau` / `throughSweep` + the freeze — a human beater who reaches the line
+  first is frozen 40 studs behind the stands for the remainder of the drive (the grace only starts
+  when the LAST of the line is through), which can be minutes. The Director's sentence quoted in the
+  config says *"moved to a safe gathering behind the hunters' line"* and does not say frozen; the
+  freeze is this task's own choice and nothing pins it. Worth Karen's eyes before the next round.
+- **Three production wires for this task's own claims are untested** — the same gap class TASKS.md
+  row 249b queued rather than blocked, so queued here too:
+  (a) `Body.collapse`'s `handle.liftedBy += lift` is asserted nowhere (`"gives the death lift back"`
+  sets `handle.liftedBy = lift` by hand), so deleting that one line leaves the suite green and the
+  calf's mesh floating 1.325 studs again — the exact defect claim 8 closes. Add a `newBody("calf")`
+  + visual + seeded `tracks[fall]` case asserting `handle.liftedBy == CONFIG.KINDS.calf.deathLiftStuds`
+  after `Body.collapse`.
+  (b) `Match.enrol`'s `if Phase.barredFromRejoin(state, withdrawnFrom[userId])` block, and every
+  write/clear of `withdrawnFrom`: nothing in `tests/` names `rejoinsRefused` or `withdrawnFrom`, so
+  claim 1's owner half rests on the pure predicate alone.
+  (c) `throughSweep` itself: nothing names `beatersWalkedBack`; `match_scene.spec` pins only
+  `Match.throughSpotFor`'s arithmetic, so "walked back and held" is unobserved. `match_live.spec`
+  is where all three belong.
+- `src/server/Match/init.luau` / `placedCount` — still slot-collides after `Match.forget`
+  (round 1): the count drops and the next man through is handed an occupied slot. A monotonic
+  per-drive counter fixes it.
+- `src/server/Match/Phase.luau` / `Phase.step`'s Running branch — `maybeRelease` now runs through
+  the whole grace, where before the drive ended on the crossing instant, so sounders can be released
+  after the line is through (round 1). If that is wanted, say so beside it.
+- Still-false claims in shipped comments (all round 1, none fixed):
+  `tests/server/match_scene.spec.luau`'s `BEATER_THROUGH` block says *"the case that reads them
+  asserts the SHIPPED ones against `Match.CONFIG` separately"* — nothing in the repo names
+  `Match.CONFIG.BEATER_THROUGH`; `src/shared/Lobby/init.luau`'s `Lobby.liveDrive` says
+  *"`lobby_live.spec` asserts this answers exactly what `Phase.insideDrive` answers for all five
+  names"* — no spec names `liveDrive`; `boar_model.spec`'s *"A CONFIG WITH NO ROW AT ALL KEEPS
+  EVERYTHING"* overstates, since `math.min(velocity.Y, 0)` clamps a rise whatever the dial says;
+  `COLLAPSE_KEEP_SPEED`'s and `Body.collapse`'s *"road slab (a smooth part, not terrain)"* — the
+  Forest Test's road is painted terrain.
+- `src/server/Boar/Body.luau` / `stepCarcass`'s backstop — when `Body.deathTrackOn` returns the
+  PADDLE, `track:Stop(0)` stops the paddle and the fall track in `handle.deathTrack` is dropped
+  unstopped, so *"the track is stopped here so a late download cannot apply one behind its back"*
+  covers only whichever one was returned (round 1).
+- `src/server/Economy/init.luau` / `Economy.TEST_OWNS_ATTRIBUTE` — `DHTestOwns` is not a `DHFlag_`,
+  so the harness's override guard cannot see it; only `economy.spec`'s `started()` defaults
+  `testOwns = false`. `licence_popup`, `shop_door`, `zz_drive_boundary`, `match_teams` and
+  `match_live` pass nil and so read the live attribute under `IsStudio()` (round 1).
+- `src/server/Lobby/init.luau` / `occupancy`'s `barred` — the `leftDrive` latch lives until a drive
+  has him again, which is wider than `Phase.barredFromRejoin`'s one drive number: a man who left
+  drive N and is then NOT taken by the party departing into drive N+1 is off the pads for the whole
+  of N+1 too, with only SIT OUT to clear it.
+- `tests/server/lobby.spec.luau` / the tree case — `expect(planted >= CFG.TREELINE.COUNT - 10)`
+  admits 20..30 where the request names an exact 21 of 30 (round 1); and the new
+  `onWorkingGround` case's *"ONE STUD BEYOND IT IS THE WOOD AGAIN"* actually tests a point one stud
+  west AND 80 studs south of the yard, not one stud beyond the edge.
+- `TASKS.md` row 261 still reads *"THE REVIEW IS BLOCKED ON `test2`"* and names code commit
+  `dc1bacee`; `ESCALATE.md`'s closure names `[harness2] ... @ eaef41e0`, a different sha from the
+  request's. Paperwork only. Round 1's notes are not queued as a 261a row anywhere.
 
 ---
-REVIEWER verdict on commit `4332e32a794907cfb9888b4179ca22596988761d` (round 1) · 2026-10-25 11:49 UTC · session cost $7.68, 57 turns · written by tools/agents.py
+REVIEWER verdict on commit `3558de017467effc830440fc064442d7a4ca539e` (round 2) · 2026-10-25 12:14 UTC · session cost $6.14, 48 turns · written by tools/agents.py
