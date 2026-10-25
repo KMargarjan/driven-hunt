@@ -545,6 +545,16 @@ converges at the ammo's whole range and the offset is divided down instead of ca
 | ray misses, a tree 1.3x behind the animal | -- | +1.6, +4.7 | -- |
 | **with `BORE_ON_SIGHT_LINE`** | +0.6, 0.0 | +1.1, 0.0 | +1.5, 0.0 |
 
+**WHERE THESE CELLS COME FROM, precisely (rule 8).** The **bounds** are the harness's: `sights.spec`
+asserts 1.6 cm on the on-target and fixed rows and asserts the missing row as a LOWER bound
+(0.4 studs = 11 cm everywhere, 0.6 studs at the worst range, and the sign), and it `print`s the full
+table into the harness log every run. **The cell VALUES quoted above were computed by an independent
+model of the same five functions** (`driven-hunt-runs/259-sights.py`: `timeToRange`, `dropAt`,
+`elevationTangent`, `launchDirection` and the sub-stepped `advance`, written in Python against a
+plane), which is why they are here rather than pasted: two implementations of the same arithmetic
+agreeing is a stronger statement than one of them printing itself. If a cell ever disagrees with the
+harness's printed line, the harness is right.
+
 **THE CASE THAT MISSES IS THE CASE KAREN NAMED.** *"when boar is running we need to aim in empty
 space to get hit in head neck or heart"* -- leading an animal means the ray goes PAST it, into the
 sky or into a tree a long way behind, and the convergence distance is then the background's. So the
