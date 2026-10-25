@@ -665,7 +665,12 @@ def resolve_task(explicit=None):
     if not found:
         raise Refused(f"no {REVIEWS}/task-<N>/REQUEST.md found. Write the request first "
                       "(CLAUDE.md, the loop, step 4)")
-    return max(found), task_rel(max(found), "REQUEST.md")
+    # ORDERED BY THE NUMBER, THEN THE LETTER -- never by `max` over strings, which is lexicographic:
+    # `reviews/task-90 .. task-99` all exist, so a plain `max` answers "99" for every repository
+    # state and would review the WRONG TASK. That was a regression this task introduced when the
+    # task became a string, and it is exactly the failure the lettered-task fix exists to prevent.
+    newest = max(found, key=lambda t: (int(re.match(r"\d+", t).group()), t))
+    return newest, task_rel(newest, "REQUEST.md")
 
 
 def previous_review(task):
@@ -1033,6 +1038,11 @@ def selftest():
     # ...AND THE FOLDER SCAN MUST NOT MATCH THE NUMBER INSIDE A LETTERED FOLDER: `task-(\d+)` would
     # have read `task-266b` as 266 and then looked for the request in `task-266/`, which is a
     # DIFFERENT task with its own round counter.
+    # ...AND THE FALLBACK MUST ORDER BY THE NUMBER. `max` over strings is lexicographic, so "99"
+    # beats "266" -- the regression this task introduced and the Reviewer caught.
+    newest = max(["90", "99", "266", "266b"], key=lambda t: (int(re.match(r"\d+", t).group()), t))
+    check("the newest of 90/99/266/266b is 266b", newest == "266b", newest)
+
     scanned = re.fullmatch(rf"{REVIEWS}/task-({TASK_PATTERN})/REQUEST\.md", f"{REVIEWS}/task-266b/REQUEST.md")
     check("the folder scan reads task-266b as 266b, not 266",
           scanned is not None and scanned.group(1) == "266b",

@@ -214,6 +214,9 @@ local stats = {
 	-- (the idiom `stats.originFarthest` already uses).
 	claimWorstStuds = 0,
 	claimWorstLineStuds = 0,
+	-- The trajectory's END point against the claimed point: the across-track figure above PLUS the
+	-- along-track error. Reported beside it, never used by a check (task 266b, round 1).
+	claimWorstEndStuds = 0,
 	-- HOW OLD THE CLAIMED ARRIVAL WAS WHEN THE SHOT RESOLVED, in seconds, over every claim that got
 	-- as far as the rewind -- accepted or refused (task 266b). **NEGATIVE IS THE FUTURE**, and that
 	-- is the whole reason this pair exists: `Boar.sampleAt` refuses an instant after its newest
@@ -818,7 +821,7 @@ function Weapon.claimLine(from: any): string
 		table.sort(reasons)
 	end
 	return string.format(
-		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f age=%.3f..%.3f/%d why=%s [%s]",
+		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f/%.3f age=%.3f..%.3f/%d why=%s [%s]",
 		tostring(from.claimsEnabled),
 		from.claims or 0,
 		from.claimsAccepted or 0,
@@ -826,6 +829,7 @@ function Weapon.claimLine(from: any): string
 		from.claimsIgnored or 0,
 		from.claimWorstStuds or 0,
 		from.claimWorstLineStuds or 0,
+		from.claimWorstEndStuds or 0,
 		from.claimAgeMin or 0,
 		from.claimAgeMax or 0,
 		from.claimAges or 0,
@@ -1557,7 +1561,15 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 
 	stats.claimsAccepted += 1
 	stats.claimWorstStuds = math.max(stats.claimWorstStuds, (claim.point - serverPoint).Magnitude)
-	stats.claimWorstLineStuds = math.max(stats.claimWorstLineStuds, (position - serverPoint).Magnitude)
+	-- THE METER MUST MEASURE WHAT THE CHECK MEASURES (the Reviewer, round 1). This read `position`
+	-- -- the trajectory's point at the claimed instant -- while check 4 is given `closest`, so the
+	-- published number was the along-track-contaminated quantity no check uses, and the design
+	-- documents this field as the one `LINE_TOLERANCE_STUDS` is to be argued down from.
+	stats.claimWorstLineStuds = math.max(stats.claimWorstLineStuds, closestStuds)
+	-- ...AND THE OLD QUANTITY IS KEPT UNDER ITS OWN NAME, because it is worth seeing: the gap
+	-- between the two IS the along-track error (sub-step granularity plus the bore's set-back), and
+	-- a reader who only ever sees one of them cannot tell which kind of disagreement he has.
+	stats.claimWorstEndStuds = math.max(stats.claimWorstEndStuds, (position - serverPoint).Magnitude)
 
 	-- TRUNCATED TO EXACTLY ONE IMPACT, and that is the whole of the single-answer rule: the claim
 	-- says where the bullet actually stopped, so every impact the flight found farther out never
