@@ -94,6 +94,15 @@ export type State = {
 	-- through the hunters' line before the clock ran out. It is the feed line's own word and nothing
 	-- else reads it -- the results scene is the same scene either way.
 	endedEarly: boolean,
+	-- WHICH TEAM EACH MAN THIS DRIVE LET GO OF WAS PLAYING (task 261, item 1): userId -> the team the
+	-- `withdraw` branch took off him. Empty in every drive nobody respawned in, which is what keeps
+	-- `enterScoring` byte for byte what it was (`Roster.previousFrom` answers BY IDENTITY for an empty
+	-- table) -- the flag-off identity device this file already uses three times.
+	--
+	-- KAREN, 2026-10-25: *"when I respawn and go again to hunt I need to be same role and from
+	-- begining"*. A drive a man did not finish is NOT a turn he has taken, so the rotation must not
+	-- spend it -- see `enterScoring`, which is where this table is read and consumed.
+	withdrawnTeams: { [number]: TeamName },
 	-- WHEN THE BEATERS ARE LET GO, AND IT IS AFTER GO (task 168). KAREN, 2026-10-12 ~21:45: *"you
 	-- can't move as a beater before horn made signal"* -- so GO is the END of the start fanfare and
 	-- not the instant the drive's clock starts. The second deadline in this state, on exactly the
@@ -204,6 +213,7 @@ end
 local function freezeState(state: State): State
 	freeze(state.participants)
 	freeze(state.assignment)
+	freeze(state.withdrawnTeams)
 	if state.previousAssignment then
 		freeze(state.previousAssignment)
 	end
@@ -220,6 +230,7 @@ function Phase.initial(config): State
 		participants = {},
 		assignment = {},
 		previousAssignment = nil,
+		withdrawnTeams = {},
 		markersComplete = false,
 		missing = { "markers" },
 		boarSpawns = {},
@@ -271,6 +282,35 @@ end
 -- inline test, which this is deliberately not a refactor of (one task, one change).
 function Phase.insideDrive(state: State): boolean
 	return state.phase == "Running" or state.phase == "Assigning"
+end
+
+-- MAY THIS MAN BE PUT BACK IN? (task 261, item 1.) PURE, and `withdrawnFrom` is the drive number he
+-- was taken out of -- nil for a man no drive has ever let go of.
+--
+-- KAREN, 2026-10-25: *"when I respawn and then go to lobby then go back on pad to hunt I been
+-- transfarred to same hunt where I was previuosly with less than min remaining I was hunter but then
+-- time pass and done it's a bug / when I respawn and go again to hunt I need to be same role and
+-- from begining"*.
+--
+-- THE RULE IS *A PLAYER WHO LEFT A DRIVE NEVER REJOINS THAT DRIVE* (the Director). Task 248 takes a
+-- man who respawns out of the hunt; the pads then put him back into THE SAME ONE, forty seconds
+-- before the horn, because `Match.enrol` only ever asked whether he was in the roster now. He has to
+-- go with the NEXT drive's party instead (task 246), which is a thing the lobby already collects
+-- him into at this drive's end.
+--
+-- THE TWO CLAUSES ARE BOTH NECESSARY and neither is a guard:
+--   * THE DRIVE NUMBER, so the bar lifts by itself. `enterAssigning` raises `driveNumber`, so the
+--     next drive is a different drive and nothing has to remember to clear anything -- the shape
+--     `roleOverruled` already has in the owner (*"cleared when the drive number moves"*).
+--   * `insideDrive`, so a man standing in `Scoring` or `Waiting` can still be enrolled. That is the
+--     window the lobby's own party departs in, and it is the SAME two phase names the `withdraw`
+--     branch refuses outside of and the lobby's `leftDrive` latch is armed inside -- one rule, three
+--     readers, measured against one predicate.
+function Phase.barredFromRejoin(state: State, withdrawnFrom: number?): boolean
+	if withdrawnFrom == nil then
+		return false
+	end
+	return withdrawnFrom == state.driveNumber and Phase.insideDrive(state)
 end
 
 function Phase.participantCount(state: State): number
@@ -555,6 +595,7 @@ local function copy(state: State): State
 	local next_: any = table.clone(state :: any)
 	next_.participants = table.clone(state.participants)
 	next_.assignment = table.clone(state.assignment)
+	next_.withdrawnTeams = table.clone(state.withdrawnTeams)
 	next_.missing = table.clone(state.missing)
 	next_.boarSpawns = table.clone(state.boarSpawns)
 	return next_
@@ -620,6 +661,13 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	state.holdbacks = 0
 	state.boarsAccounted = 0
 	state.nextReleaseAt = math.huge
+	-- ...AND NOTHING IS OWED ACROSS A DRIVE BOUNDARY (task 261, item 1). `enterScoring` CONSUMES the
+	-- table, and this is the belt on the one path that does not go through it: a drive dismissed into
+	-- `Waiting` never reaches `enterScoring`, so without this line a man withdrawn from drive 7 would
+	-- still be owed a role at the start of drive 8 -- a drive he was never in. The clear is before the
+	-- split and changes nothing about it: what the split reads is `state.previousAssignment`, which
+	-- `enterScoring` has already written.
+	table.clear(state.withdrawnTeams)
 
 	local userIds = {}
 	for userId in pairs(state.participants) do
@@ -743,7 +791,30 @@ end
 local function enterScoring(state: State, effects: { Effect }, now: number, config, reason: string?)
 	state.phase = "Scoring"
 	state.phaseEndsAt = now + config.SCORE_SECONDS
-	state.previousAssignment = state.assignment
+	-- THE NEXT DRIVE'S `previous`, AND THE MEN THIS ONE LET GO OF KEEP THEIR PLACE IN THE ROTATION
+	-- (task 261, item 1). KAREN, 2026-10-25: *"when I respawn and go again to hunt I need to be same
+	-- role and from begining"*.
+	--
+	-- `Roster.previousFrom` IS ALREADY THE FUNCTION FOR THIS, which is why there is no new rule here:
+	-- it folds a table of OWED teams into a synthetic `previous`, and it carries the one trap in that
+	-- design -- `Roster.assign`'s swap deals the OPPOSITE of `previous`, so a man owed `Shooters` must
+	-- be given the row `Drivers`. `withdrawnTeams` holds the team he WAS PLAYING, which is exactly the
+	-- team he is owed next: he never finished this drive, so the rotation must not spend it.
+	--
+	-- IT IS BYTE FOR BYTE TODAY'S LINE WHEN NOBODY RESPAWNED. `previousFrom` returns its first
+	-- argument BY IDENTITY for an empty second one -- `match_phase.spec` asserts the raw table
+	-- equality -- so a drive nobody left assigns `state.assignment` itself, as it has since task 217.
+	--
+	-- IT AGREES WITH THE ECONOMY'S OWN RECORD RATHER THAN COMPETING WITH IT: write edge 1
+	-- (`Match.applyAssignTeams`) stored *the team he is playing* while he was in the drive, and write
+	-- edge 2 below flips the turn only for the men still in `state.assignment` -- so a withdrawn man's
+	-- stored turn is the same team this line puts in his synthetic row. With `COINS` off there is no
+	-- stored turn at all and this line is the whole of the rule, which is why it is here and not left
+	-- to the money.
+	state.previousAssignment = Roster.previousFrom(state.assignment, state.withdrawnTeams)
+	-- CONSUMED. The table is about THIS drive; a row surviving into the next one would owe a man a
+	-- role for a drive he was never in.
+	table.clear(state.withdrawnTeams)
 	state.nextReleaseAt = math.huge
 	-- NOBODY IS WAITING TO BE LET GO AT THE END OF A DRIVE: the scene holds everybody anyway, and a
 	-- pending `goFreeAt` would emit a `free` into the results scene and let the ring wander off (task
@@ -1035,6 +1106,19 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		-- outside a drive changes nothing and emits nothing, which is the call the `team` branch
 		-- above already makes for the same reason.
 		if Phase.insideDrive(next_) and next_.participants[event.userId] ~= nil then
+			-- WHICH TEAM HE WAS PLAYING, RECORDED BEFORE IT IS TAKEN OFF HIM (task 261, item 1). KAREN,
+			-- 2026-10-25: *"when I respawn and go again to hunt I need to be same role and from
+			-- begining"*.
+			--
+			-- A DRIVE HE DID NOT FINISH IS NOT A TURN HE HAS TAKEN, and this is the only moment the fact
+			-- exists: one line down `assignment` no longer has him, and `enterScoring` -- which is what
+			-- turns the drive's assignment into the NEXT drive's `previous` -- would see a man with no
+			-- row and deal him the smaller side like a new arrival. `enterScoring` reads this table and
+			-- says why.
+			local had = next_.assignment[event.userId]
+			if had ~= nil then
+				next_.withdrawnTeams[event.userId] = had
+			end
 			next_.participants[event.userId] = nil
 			next_.assignment[event.userId] = nil
 			-- THE TEAM GOES BACK, which `dismiss` leaves for one phase later and this cannot: a

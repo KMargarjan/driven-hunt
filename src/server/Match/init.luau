@@ -971,6 +971,16 @@ local characterWatch: { [number]: RBXScriptConnection } = {}
 -- own withdrawal and in `stop`: a destroyed character compares unequal to everything, which is
 -- correct for the rule and a leak if the row outlives the player.
 local placedCharacter: { [number]: Model } = {}
+-- WHICH DRIVE LET GO OF THIS MAN (task 261, item 1): userId -> the `driveNumber` he was withdrawn
+-- from. KAREN, 2026-10-25: *"when I respawn and then go to lobby then go back on pad to hunt I been
+-- transfarred to same hunt where I was previuosly with less than min remaining"*.
+--
+-- A NUMBER AND NOT A BOOLEAN, which is the whole of why nothing has to clear it on time:
+-- `Phase.barredFromRejoin` compares it with the LIVE drive number, so a row from drive 7 is inert
+-- the moment drive 8 exists. It is cleared when the number moves all the same -- beside
+-- `seatedWishes`, for its stated reason -- so the table is bounded by the roster and not by the
+-- session, and it goes with the player in `Match.forget` and with the owner in `stop`.
+local withdrawnFrom: { [number]: number } = {}
 local pushCredit: { [string]: { [number]: number } } = {} -- boarId -> userId -> last time near
 local accumulator = 0
 local sinceSample = 0
@@ -1059,6 +1069,11 @@ local stats = {
 	finesCharged = 0,
 	finesMoney = 0,
 	withdrawals = 0,
+	-- ...AND HOW MANY ENROLMENTS WERE REFUSED BECAUSE THE MAN HAD LEFT THAT DRIVE (task 261, item 1).
+	-- Karen's own bug is this number staying 0 while a pad hands her back into a hunt with forty
+	-- seconds left on it, so it is a count and not a belief. In the normal path the lobby keeps him
+	-- off the pad, so a session where this rises is one where something came in through another door.
+	rejoinsRefused = 0,
 	-- The release, counted three ways, because "six boars were released" can now mean two sounders
 	-- and one single, and a stall looks like nothing at all from the outside.
 	soundersReleased = 0,
@@ -2200,6 +2215,11 @@ local function dispatch(event)
 	-- `roleOverruled`, which is the same defect one scan later.
 	if state.driveNumber ~= driveBefore then
 		table.clear(seatedWishes)
+		-- ...AND THE WITHDRAWALS OF THE DRIVE THAT HAS JUST ENDED (task 261, item 1). It changes no
+		-- answer -- `Phase.barredFromRejoin` compares the row with the live drive number, so an old row
+		-- is already inert -- and it is what keeps the table the size of a roster instead of the size of
+		-- a session.
+		table.clear(withdrawnFrom)
 	end
 	Roster.recordSeated(seatedWishes, filled.beaterWishes, state.assignment)
 
@@ -3544,6 +3564,12 @@ function Match.withdraw(player: Player): boolean
 		untie(userId)
 	end
 	placedCharacter[userId] = nil
+	-- ...AND WHICH DRIVE THIS WAS, BEFORE THE DISPATCH (task 261, item 1). `Match.enrol` refuses him
+	-- for the rest of it (`Phase.barredFromRejoin`), which is the Director's *"a player who left a
+	-- drive never rejoins that drive"* -- and it is read off the state BEFORE the event, because
+	-- nothing in the `withdraw` branch moves the drive number and this way the fact recorded is the
+	-- drive he was actually in rather than whatever the next step says.
+	withdrawnFrom[userId] = state.driveNumber
 	stats.withdrawals += 1
 	dispatch({ kind = "withdraw", userId = userId, name = player.Name })
 	local out = state.participants[userId] == nil
@@ -3753,6 +3779,20 @@ function Match.enrol(player: Player): boolean
 	if state.participants[userId] ~= nil then
 		return true
 	end
+	-- HE LEFT THIS DRIVE AND DOES NOT COME BACK TO IT (task 261, item 1). The rule is pure and is in
+	-- `Phase.barredFromRejoin`; this is the one door it is read at, which is the same seam the lobby
+	-- already comes through -- so a pad, the degraded enrolment and any later teleport are all held
+	-- by one line instead of three.
+	--
+	-- REFUSED AND COUNTED, NOT HALF-DONE: `Lobby.depart` reads the number that comes back, so a party
+	-- of one barred man is a departure that moved nobody, `Pads.step` takes the pad back to `sizing`
+	-- and he is standing in the lobby -- which is where the next drive's party collects him (task
+	-- 246). The lobby keeps him off the pad in the first place (`Lobby`'s own `leftDrive` latch), so
+	-- this is the owner's guarantee and not his experience of it.
+	if Phase.barredFromRejoin(state, withdrawnFrom[userId]) then
+		stats.rejoinsRefused += 1
+		return false
+	end
 	if names[userId] == nil then
 		-- NOT REGISTERED: this owner has never seen him, so there is no board row to put a team on
 		-- and no character watch to hang a hold off. Refused rather than half-done.
@@ -3795,6 +3835,10 @@ function Match.forget(player: Player)
 	-- ...AND THE CHARACTER THE DRIVE GAVE HIM (task 248), which is a reference to a Model and so is
 	-- the one row in this file whose leak would hold an Instance alive.
 	placedCharacter[userId] = nil
+	-- ...AND THE DRIVE THAT LET GO OF HIM (task 261, item 1). No table in this owner may be keyed by a
+	-- man who has gone -- and a player who rejoins the SERVER is a new arrival, not a man sneaking
+	-- back into the drive he left: he gets the pads like anybody else.
+	withdrawnFrom[userId] = nil
 	if tied[userId] then
 		-- The rope outlives nobody: the Instance goes with the player (design section 4.4).
 		untie(userId)
@@ -3839,6 +3883,7 @@ function Match.start(injected)
 	table.clear(seatedWishes)
 	table.clear(characterWatch)
 	table.clear(placedCharacter)
+	table.clear(withdrawnFrom)
 	table.clear(pushCredit)
 	snapshotCache = nil
 	botsRebuiltForDrive = nil

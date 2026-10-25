@@ -2288,6 +2288,25 @@ end
 
 -- ---------------------------------------------------------------- the gathering yard (task 191)
 
+-- IS A DRIVE RUNNING? (task 261, item 1.) PURE, over the phase NAME the drive pushes at
+-- `Lobby.onPhase`, and it is the SAME two names `Match.Phase.insideDrive` answers for -- the
+-- countdown and the hunt.
+--
+-- IT EXISTS BECAUSE THREE RULES IN THE SERVER-SIDE LOBBY ASK IT and until this task one of them
+-- spelled it inline (TASKS.md row 249b, *"`stepPlayer` spells the live-drive window a second time
+-- instead of asking `Phase.insideDrive`"*): whether this drive LET GO of a man (task 249), whether he
+-- may step onto a pad at all (this task), and therefore whether the party a pad forms can be
+-- enrolled. Three readers of one window, so they cannot disagree about a man who pressed Reset during
+-- the countdown.
+--
+-- IT IS NOT A SECOND DEFINITION. `Match.Phase` owns the phase and this module cannot require it --
+-- `src/shared/` may not require `src/server/` -- so what is shared is the WORD, and
+-- `lobby_live.spec` asserts this answers exactly what `Phase.insideDrive` answers for all five
+-- names. nil is "no drive has ever reported", which is a world with no drive at all.
+function Lobby.liveDrive(phase: string?): boolean
+	return phase == "Assigning" or phase == "Running"
+end
+
 -- THE `Gather` ROW, FOUND BY NAME -- or nil for a config that has none. PURE.
 --
 -- BY NAME AND NOT BY INDEX, so a fourth pad added anywhere in the list cannot silently become the

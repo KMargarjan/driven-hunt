@@ -12,6 +12,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Match = require(ServerScriptService:WaitForChild("Match"))
 local Phase = Match.Phase
+-- FOR `Roster.other` ONLY (task 261, item 1): the role cases assert *the OPPOSITE of the team he was
+-- playing* and spelling the two team names here would be a second copy of them.
+local Roster = Match.Roster
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 
 -- This spec's own numbers, short enough to read in a failure message.
@@ -763,6 +766,100 @@ return function()
 			state = (Phase.step(state, { kind = "withdraw", userId = 2 }, cfg.INTERMISSION_SECONDS + 1, cfg))
 			expect(Phase.participantCount(state)).to.equal(0)
 			expect(state.phase).to.equal("Running")
+		end)
+
+		-- ------------------------------- AND HE NEVER REJOINS **THAT** DRIVE (task 261, item 1)
+		--
+		-- KAREN, 2026-10-25: *"when I respawn and then go to lobby then go back on pad to hunt I been
+		-- transfarred to same hunt where I was previuosly with less than min remaining I was hunter but
+		-- then time pass and done it's a bug / when I respawn and go again to hunt I need to be same
+		-- role and from begining"*.
+		it("bars him from the drive he left, and only from that one", function()
+			local cfg = config()
+			local state = running(cfg)
+			local drive = state.driveNumber
+			state = (
+				Phase.step(state, { kind = "withdraw", userId = 2, name = "b" }, cfg.INTERMISSION_SECONDS + 1, cfg)
+			)
+			-- THIS DRIVE, STILL RUNNING: barred. That is the pad handing her back into a hunt with
+			-- forty seconds left on it.
+			expect(Phase.barredFromRejoin(state, drive)).to.equal(true)
+			-- A MAN NO DRIVE EVER LET GO OF IS NEVER BARRED, which is every other player on the server.
+			expect(Phase.barredFromRejoin(state, nil)).to.equal(false)
+			-- A DIFFERENT DRIVE IS A DIFFERENT DRIVE: the bar lifts by itself when the number moves, so
+			-- nothing has to remember to clear anything.
+			expect(Phase.barredFromRejoin(state, drive - 1)).to.equal(false)
+			expect(Phase.barredFromRejoin(state, drive + 1)).to.equal(false)
+			-- ...AND IT LIFTS AT THE END OF THE DRIVE, because `Scoring` and `Waiting` are the window
+			-- the lobby's own next-drive party departs in. The SAME two phase names the `withdraw`
+			-- branch refuses outside of.
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
+			expect(state.phase).to.equal("Scoring")
+			expect(Phase.insideDrive(state)).to.equal(false)
+			expect(Phase.barredFromRejoin(state, drive)).to.equal(false)
+		end)
+
+		-- THE ROLE HALF OF KAREN'S SENTENCE, AND IT IS THE ROTATION AND NOT A SPECIAL CASE: a drive he
+		-- did not finish is not a turn he has taken, so `enterScoring` writes the SYNTHETIC `previous`
+		-- row that `Roster.assign`'s swap turns back into the team he was playing.
+		it("keeps his role for the next drive, because he never finished this one", function()
+			local cfg = config()
+			local state = running(cfg)
+			local had = state.assignment[2]
+			expect(had).to.be.ok()
+			local other = state.assignment[1]
+			expect(other).to.be.ok()
+			state = (
+				Phase.step(state, { kind = "withdraw", userId = 2, name = "b" }, cfg.INTERMISSION_SECONDS + 1, cfg)
+			)
+			-- THE FACT IS RECORDED AT THE WITHDRAWAL, which is the only moment it exists: one line down
+			-- the assignment no longer has him.
+			expect(state.withdrawnTeams[2]).to.equal(had)
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
+			expect(state.phase).to.equal("Scoring")
+			-- THE SYNTHETIC ROW IS THE **OPPOSITE** OF THE TEAM HE IS OWED, which is the one trap in
+			-- this design (`Roster.previousFrom`'s own header): the swap deals the opposite of
+			-- `previous`.
+			expect((state.previousAssignment :: any)[2]).to.equal(Roster.other(had))
+			-- ...AND THE MAN WHO FINISHED IT KEEPS HIS REAL ROW, so he alternates as he always has.
+			expect((state.previousAssignment :: any)[1]).to.equal(other)
+			-- CONSUMED: a row surviving into the next drive would owe him a role in a drive he was
+			-- never in.
+			expect(next(state.withdrawnTeams)).to.equal(nil)
+			-- AND NOW THE DRIVE HE ASKED FOR: he comes back and the split gives him the SAME side,
+			-- while the man who finished gets the other one.
+			state = (
+				Phase.step(
+					state,
+					{ kind = "join", userId = 2, name = "b" },
+					cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1,
+					cfg
+				)
+			)
+			state = (
+				Phase.step(
+					state,
+					{ kind = "tick" },
+					cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + cfg.SCORE_SECONDS + 2,
+					cfg
+				)
+			)
+			expect(state.phase).to.equal("Assigning")
+			expect(state.assignment[2]).to.equal(had)
+			expect(state.assignment[1]).to.equal(Roster.other(other))
+		end)
+
+		-- IDENTITY: A DRIVE NOBODY RESPAWNED IN IS BYTE FOR BYTE WHAT IT WAS. `Roster.previousFrom`
+		-- answers its first argument BY IDENTITY for an empty table, so `enterScoring` assigns
+		-- `state.assignment` itself exactly as it has since task 217 -- asserted as RAW TABLE EQUALITY,
+		-- which is the shape `match_roster.spec` already pins that identity with.
+		it("leaves the next drive's previous assignment untouched when nobody left", function()
+			local cfg = config()
+			local state = running(cfg)
+			local assignment = state.assignment
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
+			expect(state.phase).to.equal("Scoring")
+			expect(state.previousAssignment).to.equal(assignment)
 		end)
 
 		-- THE TRIGGER'S OWN RULE, PURE (`Match.withdrawOnRespawn`). The hard part of this task is not

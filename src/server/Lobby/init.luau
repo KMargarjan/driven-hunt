@@ -688,7 +688,7 @@ local function stepPlayer(
 	-- having left, which is why the phase is part of the test rather than the edge alone.
 	if inDrive then
 		leftDrive[userId] = nil
-	elseif wasInDrive[userId] == true and (phase == "Assigning" or phase == "Running") then
+	elseif wasInDrive[userId] == true and Data.liveDrive(phase) then
 		leftDrive[userId] = true
 		stats.withdrawalsSeen += 1
 	end
@@ -826,10 +826,28 @@ local function occupancy(occupants: { any }, now: number): ({ { any } }, { [numb
 	for index = 1, cfg.TRUCK.COUNT do
 		lists[index] = {}
 	end
+	-- MEASURED ONCE FOR THE WHOLE PASS (task 261, item 1), not once per man: the phase is one fact
+	-- about the server and asking it per occupant would be sixteen answers to one question.
+	local live = Data.liveDrive(phase)
 	for _, player in ipairs(occupants) do
 		local userId = player.UserId
 		local index: number? = nil
-		if world.inDrive(userId) ~= true then
+		-- A MAN THIS DRIVE LET GO OF CANNOT STAND ON A PAD WHILE IT IS STILL RUNNING (task 261, item 1).
+		-- KAREN, 2026-10-25: *"when I respawn and then go to lobby then go back on pad to hunt I been
+		-- transfarred to same hunt where I was previuosly with less than min remaining I was hunter but
+		-- then time pass and done it's a bug"*.
+		--
+		-- IT IS THE SAME EXCLUSION A MAN IN THE DRIVE ALREADY GETS, one line above, and for the same
+		-- reason: a party this pad cannot send anywhere is a countdown that ends in nothing.
+		-- `Match.enrol` refuses him for the rest of that drive (`Phase.barredFromRejoin`), so without
+		-- this he would pick, count down, depart, be refused, and `Pads.step` would take the pad back to
+		-- `sizing` and ask him again -- a rectangle cycling for the rest of the hunt.
+		--
+		-- HE IS NOT WAITING FOR NOTHING. The latch is what puts him in the NEXT drive's party when this
+		-- one ends (task 246, `dismissPending` reads `leftDrive`), and `setLeftDrive` has already told
+		-- his screen so. So the pad is not his door any more: the party he is already in is.
+		local barred = live and leftDrive[userId] == true
+		if world.inDrive(userId) ~= true and not barred then
 			index = Pads.indexAt(rootOf(player), anchor :: Vector3, cfg)
 		end
 		if index == nil then
@@ -1363,6 +1381,18 @@ function Lobby.onNextRequest(player: any, request: any, now: number?): any
 		-- own arrangement, and the reason task 209's banner had to be raised on the click. The scan's
 		-- own level rule is what keeps it honest afterwards.
 		setNextOut(player, wanted)
+	end
+	-- SIT OUT PUTS HIM BACK ON THE PADS (TASKS.md row 249b, and task 261 item 1 is what gives it
+	-- teeth). The note was *"the `leftDrive` latch is never cleared by SIT OUT, so a man who respawns
+	-- and then sits out keeps reading 'next soon'"* -- a wrong line on a card. Since this task the same
+	-- latch also keeps him OFF a truck pad while the drive he left is running, so a man who respawned,
+	-- sat out, and then changed his mind would have had no door at all until the horn.
+	--
+	-- IT IS THE OUT WORD AND ONLY THE OUT WORD. Pressing IN is him re-joining the party the latch put
+	-- him in, so the latch is still the truth; pressing OUT is him saying he is not going with them,
+	-- and from that moment the only thing that can take him to a hunt is a pad.
+	if wanted then
+		leftDrive[player.UserId] = nil
 	end
 	return { ok = true, next = word }
 end
