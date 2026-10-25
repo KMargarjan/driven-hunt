@@ -193,9 +193,10 @@ return function()
 		it("leaves a paunch-shot animal MORTAL and running, not grazed, for every centre-fire rifle", function()
 			-- TASK 250'S OWN DEFECT, PINNED. A .416 through a stag's paunch was a GRAZE
 			-- (55 / 1.2 = 45.8, under MORTAL 50) -- *"the one number this task exists to fix"*. It is
-			-- 100 / 1.2 = 83.3 now, which is mortal, and the animal runs out `Wound.flightStuds`
-			-- first. A graze there would mean a rifle bullet through the guts that the animal shrugs
-			-- off, which is the opposite of the doctrine's *"runs on for a long way"*.
+			-- 90 / 1.2 = 75 now (task 259 brought the cell down from 100 because 100 is `LETHAL`),
+			-- which is still mortal, and the animal runs out `Wound.flightStuds` first. A graze there
+			-- would mean a rifle bullet through the guts that the animal shrugs off, which is the
+			-- opposite of the doctrine's *"runs on for a long way"*.
 			for _, kind in ipairs(KINDS.ORDER) do
 				local toughness = Boar.toughnessFor(kind, Boar.CONFIG) or 1
 				for _, gun in ipairs({ GUNS[3], GUNS[4] }) do

@@ -457,7 +457,7 @@ return function()
 		it("answers nil for a nil weapon and for a non-string", function()
 			expect(Wound.weaponPoints("body", nil, WOUND)).to.equal(nil)
 			expect(Wound.weaponPoints("body", 7 :: any, WOUND)).to.equal(nil)
-			expect(Wound.weaponPoints("body", "rifle", WOUND)).to.equal(100)
+			expect(Wound.weaponPoints("body", "rifle", WOUND)).to.equal(90)
 		end)
 
 		it("still armours a deer's non-vital hit, whichever table the points came from", function()
@@ -465,8 +465,10 @@ return function()
 			-- the number the whole item exists for: a .416 through a stag's paunch was a GRAZE.
 			expect(Wound.damageFor("body", "Slug", 1, WOUND, 1.2)).to.be.near(55 / 1.2, EPSILON)
 			expect(Wound.severityFor(55 / 1.2, WOUND)).to.equal("grazed")
-			expect(Wound.damageFor("body", "Slug", 1, WOUND, 1.2, "rifle")).to.be.near(100 / 1.2, EPSILON)
-			expect(Wound.severityFor(100 / 1.2, WOUND)).to.equal("mortal")
+			-- 90 SINCE TASK 259 (see the table at the top of this file): 90/1.2 = 75, still mortal,
+			-- which is what task 250 came here to fix. The deer column is what moved least.
+			expect(Wound.damageFor("body", "Slug", 1, WOUND, 1.2, "rifle")).to.be.near(90 / 1.2, EPSILON)
+			expect(Wound.severityFor(90 / 1.2, WOUND)).to.equal("mortal")
 			-- AND THE CHAMBER IS ASKED OF **PRODUCTION'S** CONFIG, not of this file's table, and that
 			-- is the honest version rather than a convenience: `Wound.damageFor` only skips the
 			-- armour where `Wound.hitClass` says the zone is `vital`, and `hitClass` reads
@@ -487,8 +489,10 @@ return function()
 
 		it("carries the weapon through apply onto the wound record", function()
 			local state, severity = Wound.apply(Wound.new(), hit("body", "Slug", 1, { weapon = "rifle" }), WOUND)
-			expect(severity).to.equal("lethal") -- 100 points, where a slug is 55 and mortal
-			expect(state.damage).to.equal(100)
+			-- MORTAL SINCE TASK 259, not lethal: 90 points against `LETHAL` 100, where a slug is 55.
+			-- Both are mortal and both drop the animal in two, which is what a paunch shot must be.
+			expect(severity).to.equal("mortal")
+			expect(state.damage).to.equal(90)
 			expect(state.wounds[1].weapon).to.equal("rifle")
 			local plain = Wound.apply(Wound.new(), hit("body", "Slug"), WOUND)
 			expect(plain.damage).to.equal(55)
@@ -512,9 +516,11 @@ return function()
 				local each = Wound.damageFor(zone, "Slug", 1, WOUND, toughness, weapon)
 				return math.ceil(target / each)
 			end
-			-- body: a slug needs two to kill a boar; the Rigby one
+			-- body: a slug needs two to DROP a boar, and SINCE TASK 259 so does the Rigby -- at 100
+			-- a paunch shot dropped it in one, which is what a chamber shot costs. `kill_zones.spec`
+			-- is where that ordering is asserted over every kind and every gun.
 			expect(shots("body", nil, nil, WOUND.LETHAL)).to.equal(2)
-			expect(shots("body", "rifle", nil, WOUND.LETHAL)).to.equal(1)
+			expect(shots("body", "rifle", nil, WOUND.LETHAL)).to.equal(2)
 			-- body on a DEER: a slug cannot even reach MORTAL in one; the Rigby is mortal in one
 			expect(shots("body", nil, 1.2, WOUND.MORTAL)).to.equal(2)
 			expect(Wound.severityFor(Wound.damageFor("body", "Slug", 1, WOUND, 1.2, "rifle"), WOUND)).to.equal("mortal")
