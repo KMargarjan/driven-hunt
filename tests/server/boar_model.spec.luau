@@ -1814,13 +1814,19 @@ return function()
 			-- its `Mover` and its `Upright` exactly as a spawned animal has them. `Body.create` is
 			-- what `Runtime:spawn` calls; `runtime:spawn` hands back a PUBLIC handle that has no
 			-- `upright` and no `collapsed`, so this takes the body itself.
-			local function newBody()
+			-- `kind` IS AN ARGUMENT SINCE TASK 261 ROUND 2, and the default is the male this block
+			-- has always used. The two rolled-carcass cases below need a DEER, and not for variety:
+			-- a male's box is 2 x 3 x 5.5, so a quarter turn moves its bottom by exactly 0.500 --
+			-- `CARCASS_GROUND_TOLERANCE_STUDS` to the stud, which `Body.groundDrop` does not act on.
+			-- The defect round 1 shipped is 1.500 studs on a STAG, so the stag is what proves it.
+			local function newBody(kind: string?)
+				local which = kind or "male"
 				local made = Body.create(
-					Boar.kindConfig("male", CONFIG),
+					Boar.kindConfig(which, CONFIG),
 					testRoot,
 					string.format("Carcass%d", #bodies + 1),
 					Vector3.new(30, GROUND_Y + 4, 30),
-					"male"
+					which
 				)
 				table.insert(bodies, made)
 				return made
@@ -2132,7 +2138,7 @@ return function()
 			-- -- so the correction LIFTED a body that was down and the anchor froze it there for
 			-- `CARCASS_SECONDS` 120. Karen's own defect, caused by the code written to fix it.
 			it("does not lift a carcass that is lying on its side (task 261, round 1 finding 1)", function()
-				local handle = newBody()
+				local handle = newBody("stag")
 				handle.collapsed = true
 				handle.toppled = true
 				handle.upright.Enabled = false
@@ -2162,7 +2168,7 @@ return function()
 			end)
 
 			it("still puts a ROLLED carcass down when it really is hanging (task 261)", function()
-				local handle = newBody()
+				local handle = newBody("stag")
 				handle.collapsed = true
 				handle.toppled = true
 				handle.upright.Enabled = false
