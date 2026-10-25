@@ -1439,6 +1439,15 @@ return function()
 			-- THE TEMPLATES, INJECTED. The real ones are loaded on the server and published into
 			-- ReplicatedStorage, which a Studio with no network may not have; driving the seam means
 			-- both branches -- hands and no hands -- are reached on purpose rather than on a good day.
+			-- TASK 252 PROBE: the two numbers that mark the drawn gun STALE and rebuild it mid-call
+			-- (`Viewmodel.update`'s quarter-second tick): how many pieces the server has published
+			-- into this weapon's folder, and how many of them this client can draw yet.
+			local folderName = Camera.Viewmodel.geometryNow().FOLDER_NAME
+			local function folderChildren(): { Instance }
+				local folder = ReplicatedStorage:FindFirstChild(folderName)
+				return if folder then folder:GetChildren() else {}
+			end
+
 			local fakes: { [string]: BasePart } = {}
 			local liveSource = Camera.Viewmodel.getSource()
 			local liveHands = Camera.Viewmodel.getHandTemplates()
@@ -1463,6 +1472,8 @@ return function()
 				Camera.Viewmodel.update(CFrame.new(0, 12, 0), stateAtBlend(0), firstPersonConfig)
 				local builtModel = Camera.Viewmodel.current()
 				local builtAt = Camera.Viewmodel.stats().rebuilds
+				local readyAtCapture = Camera.Viewmodel.readyMeshesIn(folderName)
+				local childrenAtCapture = #folderChildren()
 				local clone = (builtModel :: Model).PrimaryPart :: BasePart
 				local cloned = clone:FindFirstChild("Barrels") :: BasePart
 				local right = clone:FindFirstChild("HandRight") :: BasePart
@@ -1540,12 +1551,16 @@ return function()
 				-- below is only a measurement if both halves came off the SAME clone.
 				TestKit.note(
 					string.format(
-						"task252 probe: rebuilds %d -> %d, same model %s, clone parented %s, right parented %s",
+						"task252 probe: rebuilds %d -> %d, same model %s, clone parented %s, right parented %s, folder %d/%d children ready, was %d/%d",
 						builtAt,
 						Camera.Viewmodel.stats().rebuilds,
 						tostring(Camera.Viewmodel.current() == builtModel),
 						tostring(clone.Parent ~= nil),
-						tostring(right.Parent ~= nil)
+						tostring(right.Parent ~= nil),
+						Camera.Viewmodel.readyMeshesIn(folderName),
+						#folderChildren(),
+						readyAtCapture,
+						childrenAtCapture
 					)
 				)
 				local leftNowOnBody = clone.CFrame:ToObjectSpace(left.CFrame)
