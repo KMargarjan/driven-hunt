@@ -1420,21 +1420,10 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	-- happened. A claimable shot is single-pellet by construction (design section 6), so the flight
 	-- had at most one impact and this is "the accepted claim replaces it" -- no merging, no second
 	-- report, and `pellets` is 1 exactly as it is for a slug today.
-	return {
-		{
-			instance = claim.part,
-			-- THE LIVE CFrame WITH THE VALIDATED OFFSET, not the client's world point: the dust is
-			-- drawn from this, and it has to land on the same spot of the same animal the client is
-			-- about to draw it on -- which is where the animal IS now, not where it was.
-			position = part.CFrame * claim.offset,
-			-- THE SHOT'S OWN DIRECTION, REVERSED: the only honest normal a claim has, and what
-			-- `Runtime:takeHit` reads a normal for (the direction the shot came FROM, for the bolt).
-			normal = -bore,
-			-- PATH STUDS FROM THE BORE, the meaning `HitReport.nearest` has everywhere else.
-			distance = claim.distanceStuds,
-			material = part.Material,
-		},
-	}
+	-- ONE IMPACT, BUILT BY `Validator.claimImpact`, which is pure and exported precisely so this
+	-- branch can be deleted and FAIL something (the Reviewer's round-2 finding: it used to be four
+	-- lines here, reachable only through a live handler, so deleting it left the whole suite green).
+	return { Validator.claimImpact(claim, part.CFrame, bore, part.Material) }
 end
 
 local function onShotLanded(res: Flight.Resolution)

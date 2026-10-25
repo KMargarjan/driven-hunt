@@ -191,6 +191,41 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?)
 	return true, nil
 end
 
+-- WHAT AN ACCEPTED CLAIM'S SHOT ACTUALLY HIT: exactly one impact, built from the claim and from the
+-- part as it is NOW (task 266, design 5.2).
+--
+-- IT IS A FUNCTION AND NOT FOUR LINES INSIDE THE OWNER, and the Reviewer's round-2 finding is why:
+-- the truncation was reachable only through a live `onFireRequest` with a real player holding a
+-- loaded gun, so **deleting the whole accept branch left the entire suite green** -- the exact
+-- failure `weapon_shot.spec`'s own header quotes from task 260 round 3. Pure, exported and handed
+-- its three facts, it is driven by `weapon_hits.spec` with no world at all, and deleting it now
+-- fails that spec.
+--
+-- TRUNCATION IS THE WHOLE OF THE SINGLE-ANSWER RULE: the claim says where the bullet actually
+-- stopped, so every impact the flight found farther out never happened. A claimable shot is
+-- single-pellet by construction (design section 6), so the flight had at most one impact and this
+-- is "the accepted claim replaces it" -- no merging, no second report, and `pellets` is 1 exactly
+-- as it is for a slug today.
+--
+-- `partCFrame` IS PASSED IN rather than read off `claim.part` here, because this module touches no
+-- Instance -- its own header's first sentence -- and because a spec must be able to drive the case
+-- where the animal has MOVED between the claim and the resolution, which is the normal case.
+function Validator.claimImpact(claim: any, partCFrame: CFrame, bore: Vector3, material: any?): any
+	return {
+		instance = claim.part,
+		-- THE LIVE CFrame WITH THE VALIDATED OFFSET, not the client's world point: the dust is drawn
+		-- from this, and it has to land on the same spot of the same animal the client is about to
+		-- draw it on -- which is where the animal IS now, not where it was.
+		position = partCFrame * claim.offset,
+		-- THE SHOT'S OWN DIRECTION, REVERSED: the only honest normal a claim has, and what
+		-- `Runtime:takeHit` reads a normal for (the direction the shot came FROM, for the bolt).
+		normal = -bore,
+		-- PATH STUDS FROM THE BORE, the meaning `HitReport.nearest` has everywhere else.
+		distance = claim.distanceStuds,
+		material = material,
+	}
+end
+
 -- The ONLY strings ActionRequest accepts. Everything else, including every reducer primitive, is
 -- "bad-request".
 --
