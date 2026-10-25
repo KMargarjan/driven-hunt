@@ -247,6 +247,50 @@ function Ballistics.advance(
 	return position + velocity * dt + accel * (0.5 * dt * dt), velocity + accel * dt
 end
 
+-- ONE SUB-STEP OF A FLYING PROJECTILE, AND NOTHING ELSE (task 266). Returns
+--     (nextPosition, nextVelocity, segment, length, capped)
+-- where `segment` is the piece of path just travelled -- the thing to cast -- and `capped` says the
+-- ammo's range ran out inside this sub-step, in which case `segment` has already been cut to exactly
+-- `rangeStuds - pellet.travelled`.
+--
+-- IT IS MOVED OUT OF `Weapon.Flight.advance`, NOT WRITTEN AGAIN, and that is the whole reason it
+-- exists. Before this task the arithmetic was inline in the SERVER's stepper. Task 266 makes the
+-- CLIENT step the same bullet against its own view of the world (`Weapon.Claim.simulate`), and a
+-- second copy of these fifteen lines would be two answers to "where did the bullet go" -- the
+-- failure `docs/PROJECT_CONTEXT.md` is named after. `Flight.advance` keeps its own list, its
+-- timeout, its catch-up and its counters and calls this for the geometry; the client calls the same
+-- function.
+--
+-- THE EXACT RANGE CAP IS THIS FUNCTION'S, and it is why `capped` is returned rather than inferred.
+-- A projectile whose step would carry it past its ammo's range casts only the piece that is left and
+-- retires either way -- so `RANGE_STUDS[ammo]` means exactly what it meant under hitscan, where
+-- `Hits.resolve` cast precisely that far.
+--
+-- PURE, MUTATING NOTHING, ALLOCATING NO TABLE: five return values, the idiom `Ballistics.advance`'s
+-- two already set (design section 10's cost target). The caller owns its own pellet record and
+-- decides what to do with the answer.
+--
+-- Design: docs/design/ballistics.md (section 4.1)
+function Ballistics.segment(
+	pellet: { position: Vector3, velocity: Vector3, travelled: number, elapsed: number },
+	step: number,
+	shot: Shot,
+	rangeStuds: number,
+	g: number?
+): (Vector3, Vector3, Vector3, number, boolean)
+	local nextPosition, nextVelocity = Ballistics.advance(pellet.position, pellet.velocity, step, shot, g)
+	local segment = nextPosition - pellet.position
+	local length = segment.Magnitude
+	local remaining = rangeStuds - pellet.travelled
+	if length >= remaining then
+		if length > 1e-6 then
+			segment = segment.Unit * remaining
+		end
+		return nextPosition, nextVelocity, segment, remaining, true
+	end
+	return nextPosition, nextVelocity, segment, length, false
+end
+
 -- ---------------------------------------------------------------- WHERE THE BORE IS (task 259)
 --
 -- KAREN, 2026-10-24: *"we need to work on rifle acuracy when aiming with scope, it seems there is a
@@ -286,12 +330,13 @@ end
 -- at its own depth, so `(aimPoint - origin)` is the camera's own direction whatever the ray hit, and
 -- the only offset left is the ballistic one -- 1.6 cm inside 60 m (research note section 4).
 --
--- IT IS A PARAMETER AND `false` IS TODAY BIT FOR BIT, which is the shape task 256's
+-- IT IS A PARAMETER, SO BOTH PATHS ARE REACHABLE AND TESTABLE -- the shape task 256's
 -- `FLIGHT_CATCHUP_*` already ships in and which `docs/design/ballistics.md` accepted in its place
--- for a flag: a path reachable at both values can be tested at both. The shipped value is
--- `Shotgun.CONFIG.BORE_ON_SIGHT_LINE`, and it ships **false** because `docs/design/shotgun.md`
--- section 5.5 step 7 says the bore starts at the muzzle and that document is the Architect's.
--- `ESCALATE.md` carries the measurement and the one-line flip.
+-- for a flag. The shipped value is `Shotgun.CONFIG.BORE_ON_SIGHT_LINE`, and **it ships `true`
+-- since task 260**: this header said `false` until task 265 round 2, which is what it shipped as
+-- when the parameter was introduced, and the stale sentence cost that round's request a wrong
+-- claim. `tests/server/sights.spec.luau` passes `false` explicitly in its rollback cases, which is
+-- what keeps them meaningful now that the shipped value is the other one.
 --
 -- Note: docs/research/2026-10-24-real-shooting.md section 6; this task's own section 12.
 function Ballistics.boreOrigin(eye: Vector3, look: Vector3, muzzle: Vector3, onSightLine: boolean?): Vector3

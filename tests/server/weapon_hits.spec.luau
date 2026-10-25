@@ -1148,4 +1148,198 @@ return function()
 			expect(Weapon.stats().markers).to.equal(before)
 		end)
 	end)
+	-- ------------------------------------------------------- THE CLAIM'S OWN FOUR CASES (task 266)
+	--
+	-- `docs/design/ballistics.md` §12.1 cases 26-29. They were DROPPED from round 2 and the Reviewer
+	-- was right to block on it: without them, deleting `judgeClaimFor`'s accept branch or pinning
+	-- `Flight`'s `live.reached` at 0 left the WHOLE SUITE GREEN with the feature silently off --
+	-- which is the failure task 260 round 3 proved the hard way and which this file's own neighbours
+	-- quote.
+	--
+	-- Pure, no world: `Flight` is driven with a scripted cast and an injected `dt` exactly as every
+	-- case above it is, and `Validator.claimImpact` is a pure function of three facts.
+	describe("the hit claim's own facts", function()
+		local CONFIG = {
+			FLIGHT_STEP_MAX_SECONDS = 1 / 30,
+			FLIGHT_MAX_SUBSTEPS = 8,
+			FLIGHT_MAX_SECONDS = 2.0,
+			FLIGHT_MAX_LIVE_PELLETS = 512,
+		}
+		-- This block's own `drain`: the one above is a local of the neighbouring describe.
+		local function drain(flight, cast, dt, limit)
+			local all = {}
+			for _ = 1, limit or 600 do
+				for _, res in ipairs(flight:advance(dt, cast)) do
+					table.insert(all, res)
+				end
+				if flight:count() == 0 then
+					break
+				end
+			end
+			return all
+		end
+		local Validator = Weapon.Validator
+
+		local function claimRecord(overrides)
+			local shot = {
+				shooter = nil :: any,
+				shooterUserId = 1,
+				weapon = "rifle",
+				ammo = "Slug",
+				muzzle = Vector3.zero,
+				ignore = {},
+				rangeStuds = 800,
+				firedAt = 0,
+				epoch = 1,
+			}
+			for key, value in pairs(overrides or {}) do
+				shot[key] = value
+			end
+			return shot
+		end
+
+		-- CASE 28. `Resolution.reachedStuds` is the line-of-sight fact check 5 is judged against, and
+		-- it is produced by the flight the server already runs. If it were pinned at 0 every claim in
+		-- the shipped game would be refused `claim-blocked` and nothing else would notice.
+		it("reachedStuds: a pellet stopped at 40 studs reports 40", function()
+			local shot = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
+			local flight = Flight.new(CONFIG)
+			flight:launch(claimRecord({ rangeStuds = 800 }), { Vector3.new(0, 0, -1) }, shot)
+			local stopper = Instance.new("Part")
+			local out = drain(flight, function(origin: Vector3, direction: Vector3)
+				local travelled = (origin - Vector3.zero).Magnitude
+				local length = direction.Magnitude
+				if travelled + length >= 40 then
+					local along = 40 - travelled
+					return {
+						instance = stopper,
+						position = origin + direction.Unit * along,
+						normal = Vector3.new(0, 0, 1),
+						distance = along,
+					}
+				end
+				return nil
+			end, 1 / 60)
+			stopper:Destroy()
+			expect(#out).to.equal(1)
+			expect(math.abs(out[1].reachedStuds - 40) < 0.5).to.equal(true)
+		end)
+
+		it("reachedStuds: an unobstructed pellet reports its own range cap", function()
+			local shot = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
+			local flight = Flight.new(CONFIG)
+			flight:launch(claimRecord({ rangeStuds = 300 }), { Vector3.new(0, 0, -1) }, shot)
+			local out = drain(flight, function()
+				return nil
+			end, 1 / 60)
+			expect(#out).to.equal(1)
+			expect(math.abs(out[1].reachedStuds - 300) < 1e-3).to.equal(true)
+		end)
+
+		it("reachedStuds: of nine pellets, the GREATEST is reported", function()
+			-- Eight pellets stopped at 40 studs and one let through to the 300-stud cap: the
+			-- line of sight is the farthest the shot got, not the first thing it met.
+			local shot = Ballistics.shotFor(Weapons.ROWS.shotgun, "Buck") :: any
+			local flight = Flight.new(CONFIG)
+			local directions = {}
+			for _ = 1, 9 do
+				table.insert(directions, Vector3.new(0, 0, -1))
+			end
+			flight:launch(claimRecord({ ammo = "Buck", rangeStuds = 300 }), directions, shot)
+			local stopper = Instance.new("Part")
+			local stopped = 0
+			local out = drain(flight, function(origin: Vector3, direction: Vector3)
+				local travelled = (origin - Vector3.zero).Magnitude
+				local length = direction.Magnitude
+				if travelled + length >= 40 and stopped < 8 then
+					stopped += 1
+					local along = 40 - travelled
+					return {
+						instance = stopper,
+						position = origin + direction.Unit * along,
+						normal = Vector3.new(0, 0, 1),
+						distance = along,
+					}
+				end
+				return nil
+			end, 1 / 60)
+			stopper:Destroy()
+			expect(#out).to.equal(1)
+			expect(stopped).to.equal(8)
+			expect(math.abs(out[1].reachedStuds - 300) < 1e-3).to.equal(true)
+		end)
+
+		-- CASE 29. `Flight` carries the claim and NEVER reads it: it is the pending queue and nothing
+		-- more. A `Flight` that touched the claim would be a second judge of a hit.
+		it("Flight carries the claim and never reads it", function()
+			local shot = Ballistics.shotFor(Weapons.ROWS.rifle, "Slug") :: any
+			local flight = Flight.new(CONFIG)
+			-- A claim whose every field would FAIL every check: if `Flight` read it at all, it could
+			-- only read it to act on it, and nothing here may change.
+			local claim = {
+				part = Instance.new("Part"),
+				offset = Vector3.new(1e6, 1e6, 1e6),
+				point = Vector3.new(-1e6, -1e6, -1e6),
+				firedAtView = -1,
+				flightSeconds = 1e6,
+				distanceStuds = 1e6,
+			}
+			flight:launch(claimRecord({ rangeStuds = 300, claim = claim }), { Vector3.new(0, 0, -1) }, shot)
+			local out = drain(flight, function()
+				return nil
+			end, 1 / 60)
+			expect(#out).to.equal(1)
+			-- Carried, byte for byte, and the flight resolved exactly as the unclaimed case above.
+			expect(out[1].shot.claim).to.equal(claim)
+			expect(#out[1].impacts).to.equal(0)
+			expect(math.abs(out[1].reachedStuds - 300) < 1e-3).to.equal(true)
+			claim.part:Destroy()
+		end)
+
+		-- CASE 26. THE TRUNCATION, and this is the case whose absence blocked round 2: with it, the
+		-- accept branch cannot be deleted without something failing.
+		it("an accepted claim becomes ONE impact, and Hits.group makes ONE report of it", function()
+			local zone = Instance.new("Part")
+			zone.Name = "ClaimHitsSpecChest"
+			zone.Size = Vector3.new(1.8, 1.8, 3)
+			zone:SetAttribute("Damageable", true)
+			zone:SetAttribute("HitZone", "chest")
+			-- THE ANIMAL HAS MOVED since the claim was made, which is the normal case: the impact
+			-- must be built from where it is NOW, so the dust lands on the animal the client is
+			-- about to draw.
+			local now = CFrame.new(50, 10, -120)
+			local claim = {
+				part = zone,
+				offset = Vector3.new(0.2, 0.1, -0.5),
+				point = Vector3.new(0, 0, 0), -- the client's own point; not read here
+				firedAtView = 1000,
+				flightSeconds = 0.05,
+				distanceStuds = 131,
+			}
+			local bore = Vector3.new(0, 0, -1)
+			local impact = Validator.claimImpact(claim, now, bore, Enum.Material.Plastic)
+			expect(impact.instance).to.equal(zone)
+			expect((impact.position - now * claim.offset).Magnitude < 1e-4).to.equal(true)
+			expect((impact.normal - -bore).Magnitude < 1e-6).to.equal(true)
+			expect(impact.distance).to.equal(131)
+
+			local reports = Hits.group(nil :: any, { impact }, "Slug", 0, "rifle")
+			expect(#reports).to.equal(1)
+			expect(reports[1].target).to.equal(zone)
+			expect(reports[1].pellets).to.equal(1)
+			-- THE ZONE IS READ OFF THE PART'S OWN `HitZone`, on the server, by `Hits.targetOf` --
+			-- the claim never names one.
+			expect(reports[1].zone).to.equal("chest")
+			expect(reports[1].nearest).to.equal(131)
+			zone:Destroy()
+		end)
+
+		-- CASE 27 IS NOT WRITTEN, AND THAT IS SAID RATHER THAN LEFT OUT. "A refused claim changes
+		-- nothing -- the resolution is identical to the same shot with no claim at all" is a property
+		-- of `judgeClaimFor`, which is a module local reachable only through a live `onFireRequest`
+		-- with a real player holding a loaded gun. What IS executed of it: every one of the six
+		-- refusal reasons is driven by name in `weapon_shot.spec`, and case 29 above proves the
+		-- flight itself resolves identically whether a claim rides the record or not. What is NOT
+		-- executed is the owner's `return res.impacts` on the refused path. Queued as 266a.
+	end)
 end

@@ -18,14 +18,21 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 
 local Effects = require(script.Effects)
 local SoundOwner = require(script.Sound)
 local Input = require(script.Input)
+-- EXPORTED SO A SPEC CAN DRIVE THE CLIENT'S OWN SIMULATION with a scripted world and no boar
+-- (task 266), the same reason `Weapon.Input` is exported above it. `Input` requires it too, and that
+-- is one module requiring a sibling rather than two paths into it: `Input` is still the only firer
+-- of `FireRequest`, and this is still the only place `Claim` is reached from outside.
+local Claim = require(script.Claim)
 
 local Weapon = {}
 
 Weapon.Input = Input
+Weapon.Claim = Claim
 Weapon.Effects = Effects
 -- The gun's sounds for the local player (task 112): one owner, like `Effects` one line up.
 Weapon.Sound = SoundOwner
@@ -121,6 +128,15 @@ function Weapon.start()
 	remotes.ShotLanded.OnClientEvent:Connect(function(payload)
 		Effects.playLanded(payload)
 	end)
+
+	-- WHETHER THIS CLIENT SENDS A HIT CLAIM, READ ONCE AT THIS OWNER'S BOUNDARY and handed inward
+	-- (task 266) -- the only shape `docs/design/feature-flags.md` permits, and the same shape the
+	-- server's own `ORIGIN_TOLERANCE_STUDS` and `CLAIMS_ON` already use.
+	--
+	-- THE SNAPSHOT GETTER GOES WITH IT, because the claim needs to know which load is in the chamber
+	-- (the ammo decides the flight time, the range, and whether a claim is allowed at all) and
+	-- `Input` may not require this module -- it is the child. One arrow per pair.
+	Input.setClaimSource(Flags.isOn("HIT_CLAIM"), Weapon.get)
 
 	Input.start()
 end

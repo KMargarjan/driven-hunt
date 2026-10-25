@@ -31,6 +31,11 @@ local Horn = require(ReplicatedStorage:WaitForChild("Horn"))
 local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
 local Weapons = require(ReplicatedStorage:WaitForChild("Weapons"))
 
+-- THE CLIENT'S OWN SIMULATION (task 266). A SIBLING, not the parent: `Weapon` requires this
+-- module, so requiring `Weapon` from here would be a cycle -- `Claim` requires only shared
+-- modules and nothing under `src/client/`.
+local Claim = require(script.Parent.Claim)
+
 local Input = {}
 
 local FIRE = "DrivenHunt.Weapon.Fire"
@@ -110,6 +115,29 @@ local function remotes()
 	return Shotgun.remotes()
 end
 
+-- WHETHER THIS CLIENT SENDS CLAIMS, AND WHAT IT KNOWS ABOUT ITS OWN GUN -- both injected once by
+-- `Weapon.start` rather than read here (task 266).
+--
+-- `Input` MUST NOT REQUIRE `Weapon`: the parent module requires THIS one (`local Input =
+-- require(script.Input)`), so reading the snapshot from here would be a cycle. The owner hands in a
+-- getter at `start`, which is the shape `Hud.Rail` already uses to reach `Input` from the other
+-- direction -- one arrow per pair, never two.
+--
+-- NEITHER IS READ PER SHOT FROM A SERVICE: the flag is a boundary read, once, in
+-- `src/client/Weapon/init.luau` (the only shape `docs/design/feature-flags.md` permits), and the
+-- snapshot getter is the one `Weapon.get` already is.
+local claimsOn = false
+local snapshotFor: () -> any? = function()
+	return nil
+end
+
+function Input.setClaimSource(enabled: boolean, getSnapshot: (() -> any?)?)
+	claimsOn = enabled == true
+	if getSnapshot ~= nil then
+		snapshotFor = getSnapshot
+	end
+end
+
 -- THE SHOT, AS A PUBLIC FUNCTION, SO A BUTTON AND A MOUSE RUN ONE IMPLEMENTATION (task 220). This
 -- is `Input.reload`'s shape applied to the trigger, and for the same reason task 165 gave: a thumb
 -- has no MouseButton1, and mobile is in Karen's v1 plan. `Hud.Touch`'s FIRE button calls THIS
@@ -118,8 +146,15 @@ end
 -- (`tests/client/touch_controls.spec.luau` asserts the identity `Touch.actionFor("FIRE") ==
 -- Input.fire`).
 --
--- The camera ray: the client sends {origin, direction} and NOTHING else. There is no claimed
--- target, so there is nothing for the server to reconcile (design section 5.7).
+-- The camera ray: the client sends `{ origin, direction }` and -- **since task 266** -- one
+-- OPTIONAL `claim`. This comment said *"and NOTHING else. There is no claimed target, so there is
+-- nothing for the server to reconcile"*, which was true from task 23 until task 266 and is the
+-- sentence `docs/design/shotgun.md` 5.7 still carries; `docs/design/ballistics.md` 14 is the delta.
+-- What has NOT changed is why that sentence existed: the server still decides what was hit. A claim
+-- is an INPUT to that decision, validated by six checks against the server's own history and its
+-- own trajectory (`Weapon.Validator.judgeClaim`), and a refused one leaves the shot to resolve from
+-- the server's flight exactly as it always did. The client still names no zone, no damage and no
+-- target root, and the spread is still the server's secret.
 --
 -- THE HOLD IS CHECKED HERE and not in the caller, which is the point of moving it: a player must
 -- not be able to shoot by tapping a button through an open report panel. Returns whether the
@@ -136,7 +171,27 @@ function Input.fire(): boolean
 		return false
 	end
 	local cframe = camera.CFrame
-	remotes().FireRequest:FireServer({ origin = cframe.Position, direction = cframe.LookVector.Unit })
+	-- THE SHOOTER'S OWN PICTURE OF THIS SHOT (task 266), as ONE optional field on the payload this
+	-- function already sent. KAREN, 2026-10-24/25: *"we need to aim in empty space to get hit in head
+	-- neck or heart like in real life"*.
+	--
+	-- `nil` IS TODAY, BIT FOR BIT, and that is both the flag's OFF state and every failure of the
+	-- gatherer (no Tool, no muzzle, a pattern load, nothing visible, a miss). The server then
+	-- resolves the shot from its own flight exactly as it does now, so there is one code path for
+	-- "off" and "today" rather than two.
+	--
+	-- THE CLAIM RIDES `FireRequest` AND THERE IS NO NEW REMOTE: it is already bounded by
+	-- `FIRE_RATE_LIMIT`, already behind the reducer and an actual loaded shell, and there is no
+	-- second message for the server to match to a shot (design 4.2, 5.6).
+	--
+	-- THE SIMULATION IS IN THIS FRAME, which is why it is here and not in a listener: it must see the
+	-- world the player was looking at when he pulled, and one frame later the animal has moved.
+	local claim = if claimsOn then Claim.forCamera(cframe, snapshotFor()) else nil
+	remotes().FireRequest:FireServer({
+		origin = cframe.Position,
+		direction = cframe.LookVector.Unit,
+		claim = claim,
+	})
 	return true
 end
 

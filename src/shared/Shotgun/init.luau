@@ -149,6 +149,67 @@ export type Impact = {
 }
 export type CastFn = (origin: Vector3, direction: Vector3, ignore: { Instance }) -> Impact?
 
+-- THE CLIENT'S HIT CLAIM (task 266): what the shooter's OWN simulation, against his OWN view of the
+-- world, says his bullet struck. KAREN, 2026-10-24/25: *"we need to aim in empty space to get hit in
+-- head neck or heart like in real life"* / *"this signe where we shot ... shows we hit empty space
+-- and died"* / *"all shooting has to be like in real life / this is a key of this game"*.
+--
+-- IT IS A CLAIM AND NOT A FACT, and every field is chosen so the server can disagree with it:
+-- `docs/design/ballistics.md` sections 4.2 and 5.2 hold the six checks, and section 5.4 the bound on
+-- what a modified client can buy with it (2 studs of zone, on an animal the shot genuinely passed).
+--
+-- WHAT IS DELIBERATELY NOT IN IT: no zone, no damage, no target root, no velocity, no ping, no
+-- pattern. The zone is read off the claimed part's own `HitZone` attribute ON THE SERVER by
+-- `Hits.targetOf`, unchanged. The arrival instant is DERIVED (`firedAtView + flightSeconds`), so
+-- there is one fewer field to lie about independently.
+export type HitClaim = {
+	-- The `HitZone` part the client's own bullet struck, as an Instance reference across the remote.
+	-- No id and no name: a locally created Instance does not survive the remote, and `Hits.targetOf`
+	-- requires `Damageable == true`, which only the animal's own owner writes. An id table here
+	-- would be a second id table, which `docs/design/map-generator.md` 12.2 refuses.
+	part: Instance,
+	-- The hit point in THAT PART's object space (`part:PointToObjectSpace`). Object space, so it is
+	-- independent of where the animal was -- which is what makes "is the claimed point ON the
+	-- claimed box" a pure check against the part's own `Size`.
+	offset: Vector3,
+	-- The same point in WORLD space, as the client drew it. The server rebuilds it from its OWN
+	-- history and compares. **This is the only field that exists to be DISAGREED with**, and
+	-- `Weapon.stats().claimWorstStuds` is the one instrument anybody has for the client/server view
+	-- error that task 265 could measure but not establish.
+	point: Vector3,
+	firedAtView: number, -- workspace:GetServerTimeNow() in the client's TRIGGER frame
+	flightSeconds: number, -- how long the client's own simulation flew before it struck
+	distanceStuds: number, -- the path studs it flew, from the bore
+}
+
+-- THE SHOT REQUEST, with ONE new OPTIONAL field (task 266). Absent is every client written before
+-- this task and is bit-for-bit today's game -- which is also what the `HIT_CLAIM` flag's OFF state
+-- is, by the same code path.
+export type ShotRequest = {
+	origin: Vector3,
+	direction: Vector3,
+	claim: HitClaim?,
+}
+
+-- WHERE THE MUZZLE IS. ONE DEFINITION, FOR BOTH SIDES (task 266).
+--
+-- `Hardware.muzzlePosition` was the server's reader and the client now needs the same point to build
+-- the same bore, so the implementation lives here -- in the shared module both sides already require
+-- -- and `Hardware.muzzlePosition` delegates to it. Two readers of `Handle.Muzzle` would be two
+-- answers to where the bullet starts, and the whole of task 266 is that the two sides compute ONE
+-- trajectory from the same two numbers.
+--
+-- `nil` IS A HARDWARE FAULT AND NEVER A FALLBACK: the server refuses the shot on it (`"no-muzzle"`,
+-- and the shell is not spent), and the client sends no claim.
+function Shotgun.muzzleOf(tool: Instance?): Vector3?
+	if tool == nil then
+		return nil
+	end
+	local handle = tool:FindFirstChild("Handle") :: BasePart?
+	local muzzle = handle and handle:FindFirstChild("Muzzle") :: Attachment?
+	return muzzle and (muzzle :: Attachment).WorldPosition
+end
+
 -- table.freeze is SHALLOW (Luau library reference): freezing CONFIG leaves CONFIG.SPREAD_FULL_DEG
 -- writable, and freezing a state leaves state.barrels writable. That was defect (b) of the Task 23
 -- review. Recurses over table values only; numbers, strings, Vector3, CFrame, Color3 and functions
@@ -587,6 +648,60 @@ Shotgun.CONFIG = {
 	-- hands out free lead, while under-correcting merely leaves some of today's error in place. 2.0
 	-- is the value if it turns out to be one way. Karen's dial, and the Director's to confirm live.
 	FLIGHT_CATCHUP_PING_FACTOR = 1.0,
+
+	-- ---------------------------------------------------------- THE HIT CLAIM (task 266)
+	--
+	-- HOW MUCH A SERVER IS WILLING TO BELIEVE A CLIENT IS A PROPERTY OF THE SERVER, which is why
+	-- every one of these is here and not in a gun's row: `src/shared/Weapons/init.luau`'s own header
+	-- states the rule (the safety arc, the origin tolerance and the rate limits are *"rules of the
+	-- DRIVE and of the PROTOCOL, not properties of a gun"*), and a per-weapon claim tolerance would
+	-- let a new gun widen its own licence to claim hits.
+	--
+	-- Design: docs/design/ballistics.md (sections 3.1, 5.2)
+	CLAIM = {
+		-- HOW FAR OUTSIDE THE CLAIMED PART'S OWN HALF-EXTENTS the claimed object-space offset may
+		-- lie. Both sides read the same `Size`, so this absorbs floating point and nothing else.
+		SKIN_STUDS = 0.15,
+		-- CHECK 3: the claimed world point against the server's own reconstruction from history.
+		-- **ONE `Boar.CONFIG.BODY_SIZE` (5.5), ROUNDED UP**: the claim must be about the same animal
+		-- in the same place, NOT about the same millisecond. It is deliberately loose because the
+		-- shared clock is **unestablished** (task 265 round 3: ~0.17 s measured, and its own control
+		-- could not tell that from a clock skew), and a tight bound here would silently refuse every
+		-- honest claim -- which is the one failure mode that would look like "the feature does
+		-- nothing". `stats.claimWorstStuds` reports the worst ACCEPTED disagreement, so the number
+		-- can next be argued from evidence: the instrument idiom `stats.originFarthest` already
+		-- uses. What actually pins the ZONE is `LINE_TOLERANCE_STUDS` below, not this.
+		POSITION_TOLERANCE_STUDS = 6.0,
+		-- CHECK 4, **AND IT IS THE CHECK THAT MAKES THE ZONE GEOMETRIC RATHER THAN CHOSEN**: the
+		-- distance from the SERVER's own trajectory, at the claimed arrival time, to the claimed
+		-- point on the claimed box. 2.0 studs is under half a boar's trunk. It must absorb the
+		-- client's straight-line animal step (design 5.5: up to ~2 studs over the rifle's longest
+		-- flight, for an animal that TURNS) and the history's own interpolation (~0.3 studs);
+		-- tighter refuses honest shots at turning animals, looser lets a modified client shift a
+		-- zone. The dial is the Director's and the trade is written out in design 5.4.
+		LINE_TOLERANCE_STUDS = 2.0,
+		-- CHECK 6: how old the claimed arrival may be when the shot resolves. The depth is **one
+		-- upward trip plus clock skew**, not a flight time (design 5.1), so 0.5 s covers a bad
+		-- connection with room. `zz_claim_window.spec` holds it against the animal's own memory.
+		AGE_MAX_SECONDS = 0.5,
+		-- CHECK 6's other half: |claim.flightSeconds - timeToRange(shot, claim.distanceStuds)|. One
+		-- `FLIGHT_STEP_MAX_SECONDS` (1/30). It exists to refuse a NONSENSE claim, not to pin the
+		-- geometry -- check 4 does that.
+		FLIGHT_TOLERANCE_SECONDS = 0.03,
+		-- CHECK 5: the server's own shot must have travelled at least `distanceStuds - this` before
+		-- it stopped. This is the LINE OF SIGHT, measured by the flight that already ran: a tree
+		-- between the muzzle and the animal stopped the server's own bullet, so the claim dies with
+		-- it.
+		REACH_SLACK_STUDS = 1.0,
+		-- THE CLIENT'S OWN BOUNDS. How many animals one simulation may test (the nearest N inside
+		-- the ammo's range), and how many sub-steps one simulation may take. **`MAX_SUBSTEPS` is 16
+		-- and NOT `FLIGHT_MAX_SUBSTEPS` (8)**, and the difference is deliberate: the server's 8
+		-- bounds one HEARTBEAT's work across every live shot, while this bounds ONE shot's whole
+		-- flight inside one frame -- 16 x `FLIGHT_STEP_MAX_SECONDS` = 0.53 s, above the rifle's
+		-- longest 0.365 s.
+		MAX_TARGETS = 8,
+		MAX_SUBSTEPS = 16,
+	},
 
 	-- rates, per player
 	FIRE_RATE_LIMIT = 6, -- received requests/s

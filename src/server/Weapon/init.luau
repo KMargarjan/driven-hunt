@@ -119,6 +119,21 @@ local ORIGIN_TOLERANCE_STUDS = if Flags.isOn("FIRST_PERSON")
 	then CONFIG.CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON
 	else CONFIG.CAMERA_ORIGIN_TOLERANCE
 
+-- WHETHER THIS SERVER BELIEVES A CLIENT'S HIT CLAIM (task 266), read ONCE at this owner's boundary
+-- in exactly the shape above -- which is the only shape `docs/design/feature-flags.md` permits.
+--
+-- OFF IS THE GAME BEFORE TASK 266, BY THE SAME CODE PATH: no claim is accepted, the shot resolves
+-- from the server's own flight, and `stats.claimsIgnored` is the only trace. That matters more than
+-- it sounds: "ignored" and "today" MUST be one path, or the flag's off state is a second
+-- implementation nobody tests.
+--
+-- `claimPolicy` IS THE PARAMETER BESIDE IT, because CLAUDE.md requires a flagged path to be
+-- reachable BY PARAMETER as well as by flag -- otherwise the ON branch cannot be tested while the
+-- row sits at OFF. `Weapon.setClaimPolicy(nil)` restores this boundary's own answer, the shape
+-- `setArmingPolicy` and `setCast` already have.
+local CLAIMS_ON = Flags.isOn("HIT_CLAIM")
+local claimPolicy: boolean? = nil
+
 local registry = Registry.new()
 -- ONE TOOL PER WEAPON PER PLAYER (task 140). Two Tools, because the engine's own hotbar is then the
 -- switch: `1` and `2` are its keys, a switch changes `Tool.Parent` and nothing on the server runs
@@ -178,6 +193,24 @@ local stats = {
 	-- `refused` for that counter's own stated reason: a refusal is a LEGAL request the game said no
 	-- to, and this is a gun that has nothing to say yes with.
 	emptyTriggers = 0,
+	-- THE CLAIM'S OWN INSTRUMENTS (task 266). A feature that can only fail by refusing everything
+	-- needs to be able to say so: `claims` is how many arrived, `claimsIgnored` how many arrived
+	-- while the policy was off (the OFF state's own meter), and `refusedClaimBy` names WHICH of the
+	-- six checks a real server is failing rather than only how often.
+	claims = 0,
+	claimsIgnored = 0,
+	claimsAccepted = 0,
+	claimsRefused = 0,
+	refusedClaimBy = {} :: { [string]: number },
+	-- THE VIEW-ERROR METER, and the one number anybody has ever had for it. The worst ACCEPTED
+	-- disagreement between the client's own point and the server's rewind of it (check 2), and the
+	-- worst accepted distance from the server's own trajectory (check 3). Task 265 spent three
+	-- rounds trying to measure the first of these with a paired probe and could not establish it;
+	-- this is the same quantity, measured by the game itself on every honest shot, which is what
+	-- lets `POSITION_TOLERANCE_STUDS` be argued down from evidence later
+	-- (the idiom `stats.originFarthest` already uses).
+	claimWorstStuds = 0,
+	claimWorstLineStuds = 0,
 	-- THE FLIGHT'S OWN NUMBERS (task 185). `shots` keeps its meaning -- accepted trigger pulls --
 	-- so it now LEADS `shotsResolved` by up to 0.365 s, and that gap is the instrument for "a shot
 	-- that never landed". `flightTimeouts` must stay 0: nothing legitimate reaches
@@ -267,6 +300,8 @@ local entitlementProvider: ((Player) -> { [string]: boolean }?)? = nil
 local driveOpenProvider: (() -> boolean?)? = nil
 -- THE SAFETY LOCK'S PROVIDER (task 248): see `Weapon.setSafetyLineProvider`.
 local safetyLineProvider: ((Player, Vector3, Vector3, number) -> boolean?)? = nil
+-- WHERE AN ANIMAL WAS (task 266). `Boar.Runtime:cframeAt` in production, wired by a composition root.
+local historyProvider: ((Instance, number) -> CFrame?)? = nil
 
 function Weapon.setCast(cast: Shotgun.CastFn?)
 	castFn = cast or Cast.world
@@ -344,6 +379,38 @@ function Weapon.setSafetyLineProvider(provider: ((Player, Vector3, Vector3, numb
 	safetyLineProvider = provider
 end
 
+-- WHERE WAS THIS INSTANCE AT THIS SERVER TIME? (task 266) The SEVENTH injected provider on this
+-- owner, in exactly the shape the six above have, and the only one whose answer comes from the BOAR
+-- rather than from the drive. Given any Instance that belongs to an animal and a
+-- `GetServerTimeNow()` stamp, it answers THAT INSTANCE's own CFrame at that time.
+--
+-- THIS IS THE WHOLE OF WHAT THE WEAPON KNOWS ABOUT AN ANIMAL'S PAST. It cannot enumerate animals,
+-- cannot ask where one is NOW, and holds nothing between shots: it is handed an answer, never a
+-- buffer (`docs/design/ballistics.md` section 2.1). `Boar` does not require `Weapon` and `Weapon`
+-- does not require `Boar`; a composition root wires them, which is `docs/design/shotgun.md` 6.3's
+-- rule -- *"neither owner depends on the other"*.
+--
+-- nil IS "I DO NOT KNOW", AND IT IS FOUR FACTS WITH ONE ANSWER: the instance is not an animal's, the
+-- animal is dead/DOWN/GONE, the time is outside the ring's span, or no provider is wired at all.
+-- Every one of them REFUSES the claim -- which is the weapon's own default for every provider here:
+-- unwired means today's game.
+function Weapon.setHistoryProvider(provider: ((Instance, number) -> CFrame?)?)
+	historyProvider = provider
+end
+
+-- WHETHER THIS SERVER ACCEPTS CLAIMS, as a parameter beside the flag (task 266).
+--
+-- `nil` RESTORES THE BOUNDARY'S OWN ANSWER (`Flags.isOn("HIT_CLAIM")`, read once at load). It exists
+-- because CLAUDE.md requires a flagged path to be reachable BY PARAMETER as well as by flag -- a
+-- path that can only be reached at the row's shipped value cannot be tested at the other one -- and
+-- because the live forged-claim case in `weapon_shot.spec` has to reach the ON branch while the row
+-- sits at OFF. Returns what it was, so a spec can restore it rather than assuming the default.
+function Weapon.setClaimPolicy(enabled: boolean?): boolean?
+	local was = claimPolicy
+	claimPolicy = enabled
+	return was
+end
+
 -- EVERY PROVIDER IS CALLED THROUGH `pcall`, the rule `mayArm` already states: a provider that errors
 -- must not leave a player permanently unable to shoot AND must not silently remove the rule. It
 -- falls back to "no restriction", which is the weapon's own default and what a server with no Match
@@ -379,6 +446,18 @@ end
 -- the same one: nil, which `Rules.unsafeLine` reads as no restriction. A drive whose geometry threw
 -- must not leave every hunter in the wood clicking a dead trigger -- `askDriveOpen`'s own reason,
 -- and the stronger one here, because this provider is asked on every single trigger pull.
+-- WHERE WAS IT? Through a `pcall` like every other provider here, and the fallback is the strongest
+-- one in this file: nil, which REFUSES the claim. A provider that errored must not be read as "the
+-- client was right" -- the whole point of the rewind is that the server satisfies itself, so no
+-- answer means no.
+local function askWhereWas(instance: Instance, at: number): CFrame?
+	if historyProvider == nil then
+		return nil
+	end
+	local ok, where = pcall(historyProvider :: any, instance, at)
+	return if ok and typeof(where) == "CFrame" then where else nil
+end
+
 local function askLineUnsafe(player: Player, muzzle: Vector3, aim: Vector3, stopAt: number): boolean?
 	if safetyLineProvider == nil then
 		return nil
@@ -686,6 +765,14 @@ function Weapon.stats()
 	-- reference to the live table and can edit the server's own counters (the rule `StateMachine`'s
 	-- `draft` already states for `barrels` and `reserve`).
 	out.refusedBy = table.clone(stats.refusedBy)
+	-- The same hand copy, for the same reason (task 266).
+	out.refusedClaimBy = table.clone(stats.refusedClaimBy)
+	-- WHICH ANSWER THE CLAIM GATE IS ACTUALLY GIVING, for the reason `originTolerance` below is
+	-- here at all (task 260 round 3's blocking finding): a boundary read into a module local is
+	-- invisible from outside, so deleting the wiring would leave the suite green with the feature
+	-- silently off. `claimsEnabled` is the resolved answer -- the parameter when one is set,
+	-- otherwise the flag -- and `weapon_shot.spec` asserts it on both sides of `setClaimPolicy`.
+	out.claimsEnabled = if claimPolicy ~= nil then claimPolicy else CLAIMS_ON
 	-- WHICH ORIGIN BOUND THIS SERVER RESOLVED (task 260 round 3, the Reviewer's blocking finding).
 	-- `ORIGIN_TOLERANCE_STUDS` is a module local read once at the boundary, so nothing outside this
 	-- file could see WHICH of the two rows the shipped build actually chose -- and the Reviewer's
@@ -1221,10 +1308,133 @@ local runCycle
 --
 -- THE MARKER ARRIVES WHEN THE BULLET DOES, which is correct: the tick is the confirmation that
 -- something was hit, and it was not hit yet.
+-- WHETHER TO BELIEVE THE SHOOTER'S OWN PICTURE OF THIS SHOT (task 266), and the one place the
+-- facts for it are gathered. It returns the impact list the report should be built from: the
+-- claim's single impact when the claim is believed, and `res.impacts` -- today's answer, bit for
+-- bit -- in every other case.
+--
+-- IT IS JUDGED AT THE RESOLUTION AND NOT AT THE TRIGGER, which is the design's own reason and worth
+-- restating here: the claimed arrival is `firedAtView + flightSeconds`, which at the trigger is
+-- still in the server's FUTURE whenever the flight is longer than the upward trip -- the usual case.
+-- By the time the bullet lands it is in the past by exactly that trip, and the Boar's ring covers
+-- it. **THE SHOT IN THE AIR IS THE PENDING QUEUE** (design 5.1).
+--
+-- A REFUSED CLAIM'S SHOT RESOLVES EXACTLY AS IT DOES TODAY, from the flight's own impacts. Not a
+-- forced miss and not a silent nothing, and the reason is in design 5.3: if a refusal were a miss,
+-- corrupting or withholding a claim would be a way to DENY damage and every honest player on a bad
+-- connection would lose hits he can see; if a refusal were a hit, the checks would be decoration.
+--
+-- Design: docs/design/ballistics.md (sections 5.2, 5.3)
+local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
+	local shot = res.shot
+	local claim = shot.claim
+	if claim == nil then
+		return res.impacts
+	end
+	stats.claims += 1
+	local enabled = if claimPolicy ~= nil then claimPolicy else CLAIMS_ON
+	if not enabled then
+		stats.claimsIgnored += 1
+		return res.impacts
+	end
+
+	local function refuse(reason: string): { Shotgun.Impact }
+		stats.claimsRefused += 1
+		stats.refusedClaimBy[reason] = (stats.refusedClaimBy[reason] or 0) + 1
+		return res.impacts
+	end
+
+	-- THE CLAIMED PART MUST BELONG TO A LIVE ANIMAL THE SERVER KNOWS. `Hits.targetOf` is the one
+	-- reader of `Damageable`, which only the animal's own owner writes -- so a part the client
+	-- invented, or any other instance in the world, dies here.
+	local target = Hits.targetOf(claim.part)
+	if target == nil then
+		return refuse("claim-part")
+	end
+	local part = claim.part :: BasePart
+	if not part:IsA("BasePart") then
+		return refuse("claim-part")
+	end
+
+	-- WHERE WAS IT WHEN THE SHOOTER SAW IT. The arrival instant is DERIVED and never sent, so there
+	-- is one fewer number for a client to lie about independently.
+	local arrivalAt = claim.firedAtView + claim.flightSeconds
+	local rewound = askWhereWas(claim.part, arrivalAt)
+	if rewound == nil then
+		return refuse("claim-history")
+	end
+	local serverPoint = rewound * claim.offset
+
+	-- THE SERVER'S OWN TRAJECTORY AT THE CLAIMED FLIGHT TIME, stepped with the same functions the
+	-- flight stepped with -- `Ballistics.advance` from the shot's own bore along its own launch
+	-- direction. This is check 3's left-hand side, and it is the server's, never the client's.
+	local ballistic = Ballistics.shotFor(Weapons.row(shot.weapon or Weapons.PRIMARY), shot.ammo)
+	if ballistic == nil then
+		return refuse("claim-weapon")
+	end
+	local bore = shot.bore
+	if typeof(bore) ~= "Vector3" then
+		-- A RECORD WITH NO BORE cannot have its trajectory re-stepped, so the claim is refused
+		-- rather than judged against a guessed direction. Unreachable from `onFireRequest`, which
+		-- always sets it; reachable from a hand-built record in a spec, which is why it is a refusal
+		-- and not an assert.
+		return refuse("claim-weapon")
+	end
+	local position = shot.muzzle
+	local velocity = bore * ballistic.v0
+	local remaining = claim.flightSeconds
+	-- THE SAME SUB-STEP CAP THE FLIGHT USES, so the two paths cannot disagree about how a span of
+	-- time is cut, and bounded by the same ceiling so a long claim cannot cost an unbounded loop.
+	for _ = 1, CONFIG.CLAIM.MAX_SUBSTEPS do
+		if remaining <= 0 then
+			break
+		end
+		local step = math.min(remaining, CONFIG.FLIGHT_STEP_MAX_SECONDS)
+		position, velocity = Ballistics.advance(position, velocity, step, ballistic)
+		remaining -= step
+	end
+
+	local ok, reason = Validator.judgeClaim({
+		offset = claim.offset,
+		partHalf = part.Size / 2,
+		clientPoint = claim.point,
+		serverPoint = serverPoint,
+		trajectoryPoint = position,
+		reachedStuds = res.reachedStuds,
+		claimedStuds = claim.distanceStuds,
+		-- NEGATIVE MEANS THE FUTURE, which `judgeClaim` refuses by its own name.
+		ageSeconds = Workspace:GetServerTimeNow() - arrivalAt,
+		flightSeconds = claim.flightSeconds,
+		expectedFlightSeconds = Ballistics.timeToRange(ballistic, claim.distanceStuds),
+	}, CONFIG.CLAIM)
+	if not ok then
+		return refuse(reason or "claim-refused")
+	end
+
+	stats.claimsAccepted += 1
+	stats.claimWorstStuds = math.max(stats.claimWorstStuds, (claim.point - serverPoint).Magnitude)
+	stats.claimWorstLineStuds = math.max(stats.claimWorstLineStuds, (position - serverPoint).Magnitude)
+
+	-- TRUNCATED TO EXACTLY ONE IMPACT, and that is the whole of the single-answer rule: the claim
+	-- says where the bullet actually stopped, so every impact the flight found farther out never
+	-- happened. A claimable shot is single-pellet by construction (design section 6), so the flight
+	-- had at most one impact and this is "the accepted claim replaces it" -- no merging, no second
+	-- report, and `pellets` is 1 exactly as it is for a slug today.
+	-- ONE IMPACT, BUILT BY `Validator.claimImpact`, which is pure and exported precisely so this
+	-- branch can be deleted and FAIL something (the Reviewer's round-2 finding: it used to be four
+	-- lines here, reachable only through a live handler, so deleting it left the whole suite green).
+	return { Validator.claimImpact(claim, part.CFrame, bore, part.Material) }
+end
+
 local function onShotLanded(res: Flight.Resolution)
 	local shot = res.shot
 	stats.shotsResolved += 1
-	local reports = Hits.group(shot.shooter, res.impacts, shot.ammo, shot.firedAt, shot.weapon)
+	-- WHOSE ANSWER THIS REPORT IS BUILT FROM (task 266): the shooter's own validated claim, or the
+	-- server's flight. `Hits.group` is still the ONE constructor of a `HitReport` and still runs
+	-- once, which is what keeps every reader -- `HitLog`, `Match`, `ForestTest`, the hit marker --
+	-- unchanged.
+	local impacts = judgeClaimFor(res)
+	local reports = Hits.group(shot.shooter, impacts, shot.ammo, shot.firedAt, shot.weapon)
 	stats.reports += #reports
 	for _, report in ipairs(reports) do
 		hitSignal:Fire(report)
@@ -1236,7 +1446,7 @@ local function onShotLanded(res: Flight.Resolution)
 	-- arriving, and it is the one thing on screen that tells a player a shot takes time -- with no
 	-- tracer and no number. It carries nothing but the shooter and the points: no target, no zone,
 	-- no damage, no state. A shot that hit nothing sends nothing.
-	if #res.impacts > 0 then
+	if #impacts > 0 then
 		local points = {}
 		-- ...AND WHAT IT LANDED ON (task 249). KAREN, 2026-10-23, with a frame: *"after shoot
 		-- remianing this ? what is that ?"* -- the client drew a `Neon` cube at each of these
@@ -1270,7 +1480,12 @@ local function onShotLanded(res: Flight.Resolution)
 		-- part's own `Anchored`. The server reports what was struck; the client decides how to draw
 		-- it, which is the division `materials` already follows.
 		local parts = {}
-		for _, impact in ipairs(res.impacts) do
+		-- `impacts` AND NOT `res.impacts` (task 266): the dust has to be drawn from the same list the
+		-- report was built from, or an accepted claim would put the HIT on the animal and the PUFF
+		-- where the server's own bullet went -- two things drawing one shot, which is the overlapping
+		-- -owner failure this project is named after, and exactly the complaint Karen made
+		-- (*"this signe where we shot ... shows we hit empty space"*).
+		for _, impact in ipairs(impacts) do
 			table.insert(points, impact.position)
 			-- `false` IS THE PLACEHOLDER, NOT A HOLE, for the reason the normals array states right
 			-- below: all four arrays are read BY INDEX on the client, and a nil here would shorten
@@ -1398,7 +1613,10 @@ local function onFireRequest(player: Player, req: any): string?
 	-- running animal, her own next sentence -- the 0.73 studs MEASURED between the eye and the
 	-- world Tool's muzzle is divided down instead of cancelled, and the shot lands 19 cm right of
 	-- the reticle at 25 m. `Ballistics.boreOrigin` holds the measurement, the arithmetic and the
-	-- parameter; `CONFIG.BORE_ON_SIGHT_LINE` is false, which is today bit for bit.
+	-- parameter; `CONFIG.BORE_ON_SIGHT_LINE` **ships `true` since task 260**, so the bore starts on
+	-- the sight line and the 0.73 studs is gone whatever the ray hit. This line said "is false,
+	-- which is today bit for bit" until task 265 round 2 -- true when task 259 wrote it, stale from
+	-- task 260 onward, and it misled that round's own request.
 	local origin = Ballistics.boreOrigin(req.origin, req.direction, muzzle, CONFIG.BORE_ON_SIGHT_LINE)
 	local aim = Ballistics.convergeAim(origin, aimPoint, req.direction, CONFIG.MIN_AIM_DISTANCE)
 	-- HOW FAR THIS SHOT GETS, COMPUTED ONCE AND READ TWICE (task 248). It was computed inside the
@@ -1504,6 +1722,29 @@ local function onFireRequest(player: Player, req: any): string?
 	-- and elevating nine directions afterwards would be nine elevations and a second place for the
 	-- sign to be wrong. `Pattern.directions` is untouched.
 	local bore = Ballistics.launchDirection(aim, ballistic)
+
+	-- THE CLAIM'S SHAPE, JUDGED HERE AND ITS GEOMETRY JUDGED AT THE RESOLUTION (task 266). A fault
+	-- in the SHAPE -- a missing field, a NaN, a flight longer than a projectile may live, or a
+	-- pattern weapon trying to claim a point -- is cheap to find and must not travel with the shot,
+	-- so the claim is DROPPED and **the shot proceeds**: a bad claim is not a refused trigger, and a
+	-- player whose client sends nonsense still gets the game everybody else has.
+	--
+	-- `row.PELLETS[ammo]` IS READ OFF THE WEAPON'S OWN ROW, so "may this shot carry a claim" is DATA
+	-- and not a bit the client chooses: buckshot's nine pellets are refused `claim-pattern` and the
+	-- spread stays the server's secret (`docs/design/shotgun.md` 5.7).
+	local claim = nil
+	if type(req) == "table" and req.claim ~= nil then
+		local shapeOk, shapeWhy = Validator.checkClaim(req.claim, CONFIG, row.PELLETS and row.PELLETS[ammo])
+		if shapeOk then
+			claim = req.claim
+		else
+			stats.claims += 1
+			stats.claimsRefused += 1
+			local key = shapeWhy or "claim-refused"
+			stats.refusedClaimBy[key] = (stats.refusedClaimBy[key] or 0) + 1
+		end
+	end
+
 	local launched = flight:launch({
 		shooter = player,
 		-- TAKEN AT THE TRIGGER, so a shooter who leaves before the bullet lands is still
@@ -1512,19 +1753,27 @@ local function onFireRequest(player: Player, req: any): string?
 		weapon = id,
 		ammo = ammo,
 		-- WHERE THE PROJECTILES START (task 259). `Flight` casts its first segment from this point,
-		-- and it is `origin` -- the bore -- not the Tool's attachment: with
-		-- `CONFIG.BORE_ON_SIGHT_LINE` off the two are the same Vector3 and this is today bit for bit.
+		-- and it is `origin` -- the bore -- not the Tool's attachment. **`CONFIG.BORE_ON_SIGHT_LINE`
+		-- SHIPS `true` SINCE TASK 260**, so the two are 0.73 studs apart in the shipped build; this
+		-- sentence said "off ... today bit for bit", which was true when task 259 wrote it and stale
+		-- from task 260 onward (the Reviewer, task 266 round 1, and the same class of stale
+		-- shipped-value sentence task 265 round 2 existed to remove).
 		--
-		-- THE ATTACHMENT IS STILL WHAT THE FLASHES READ: `ShotFired` and `ShotLanded` carry `muzzle`,
-		-- because a flash has to come out of the gun.
+		-- THE ATTACHMENT IS STILL WHAT THE FLASH READS: `ShotFired` carries `muzzle`, because a
+		-- flash has to come out of the gun. **`ShotLanded` carries no muzzle at all** -- its payload
+		-- is `shooterUserId`, `impacts`, `normals`, `materials`, `parts`, built in `onShotLanded`
+		-- ABOVE this function -- and both the old wording here and TASKS.md 259b(c3) named it
+		-- wrongly (the Reviewer, task 266 round 1).
 		-- **AND `safetySignal` BELOW IS NOT A FLASH, WHICH THE FIRST VERSION OF THIS COMMENT CALLED
 		-- IT (the Reviewer's round-1 note).** `Weapon.SafetyViolated`'s own header says the drive
 		-- needs that payload, and `Match.Penalty.judge` measures off it -- so at
-		-- `BORE_ON_SIGHT_LINE = true` the published line would start 0.73 studs off the line
+		-- `BORE_ON_SIGHT_LINE = true` the published line started 0.73 studs off the line
 		-- `askLineUnsafe` tested, which is exactly the asymmetry the `lineUnsafe` comment argues
-		-- against. It is sub-stud and BIT FOR BIT at the shipped `false`, so it is not changed here:
-		-- `src/server/Match/` is a TWO_PLAYER_PATH and `safetySignal`'s consumers are the drive's.
-		-- Queued with the flip as TASKS.md 259b.
+		-- against. **THAT IS FIXED SINCE TASK 266: `safetySignal:Fire` now publishes `origin`**, so
+		-- the lock and the penalty measure one line. This comment said it was "not changed here" and
+		-- queued as TASKS.md 259b, which was true from task 259 until task 266; the fix is at that
+		-- call site below, with the measurement and the arithmetic
+		-- (`docs/design/ballistics.md` section 8).
 		muzzle = origin,
 		-- THE SAME LIST THE AIM CAST USED, asked again rather than kept in a local: `lookAhead` owns
 		-- the cast now (task 238) and `ignoreFor` is a pure build from the player's character, so
@@ -1536,6 +1785,11 @@ local function onFireRequest(player: Player, req: any): string?
 		-- than one that is 0.3 s early (design 6.3).
 		firedAt = now,
 		epoch = fired.epoch,
+		-- CARRIED, NEVER READ BY `Flight` (task 266). The claim rides the record that is already
+		-- held for exactly as long as the bullet is in the air, which is what makes the pending
+		-- queue free; the bore is what lets the owner re-step its own trajectory when it lands.
+		claim = claim,
+		bore = bore,
 		-- LAG COMPENSATION, THE FOURTH ARGUMENT (task 256). `Weapon.catchUpFor` is the one thing
 		-- that computes it and `Flight.launch` clamps it again; it is the shooter's own trip, so a
 		-- player on a good connection is given nothing and the lead he learns is the TRUE lead.
@@ -1559,7 +1813,34 @@ local function onFireRequest(player: Player, req: any): string?
 			-- buckshot the nearest impact of a nine-pellet pattern is whichever pellet clipped the
 			-- ground first, which at long range is a few studs out and would mask every violation.
 			-- The aim point is where the shot was actually going.
-			safetySignal:Fire(player, aim, muzzle, stopAt)
+			--
+			-- ...AND IT STARTS WHERE THE BULLET STARTS, WHICH IS `origin` AND NOT `muzzle` (259b,
+			-- fixed here by `docs/design/ballistics.md` section 8). This line published the Tool's
+			-- attachment while `askLineUnsafe` above tested the BORE, with the SAME `aim` unit vector
+			-- -- so the tested ray `origin + aim*t` and the published ray `muzzle + aim*t` were
+			-- **PARALLEL**, 0.73 studs apart (MEASURED, task 259: the world Tool's muzzle is
+			-- +0.741/-0.201 studs off the eye for the shotgun and +0.718/-0.135 for the rifle, in the
+			-- live camera's own frame). `Match.Penalty.judge` takes a PERPENDICULAR distance to the
+			-- published ray, so the two answers differed by up to that 0.73 studs **at every range**,
+			-- 30 studs and 300 alike -- a range-independent flip band around
+			-- `Match.CONFIG.SAFETY_MISS_STUDS` (12). Task 265 round 3 measured it off the code and
+			-- its round-3 review corrected the first arithmetic, which claimed the band closed at
+			-- the aim point: parallel rays do not converge.
+			--
+			-- SO THE LOCK AND THE PENALTY NOW MEASURE ONE LINE, which is the rule the `lineUnsafe`
+			-- comment above already states -- *"what is refused is what would have been fired"*. A
+			-- driver can no longer be passed by the lock and then judged unsafe by the penalty, or
+			-- the other way round.
+			--
+			-- NOTHING UNDER `src/server/Match/` CHANGES. `Match.onSafetyViolation(player, aim,
+			-- muzzle, stopAt)` and `Match.lineIsUnsafe` both already take the ray's START as an
+			-- argument and build a `Penalty.Shot` from it, so this is one Vector3 at one call site.
+			-- `ShotFired` below keeps the Tool's `muzzle`, and that asymmetry is deliberate: a flash
+			-- has to come out of the gun, a penalty has to measure the bullet's own line.
+			-- **`ShotLanded` carries no muzzle** -- see the `muzzle = origin` block above; the first
+			-- version of this comment said it did, repeating the error TASKS.md 259b(c3) had already
+			-- recorded in the comment it replaced (the Reviewer, task 266 round 1).
+			safetySignal:Fire(player, aim, origin, stopAt)
 		end
 	end
 

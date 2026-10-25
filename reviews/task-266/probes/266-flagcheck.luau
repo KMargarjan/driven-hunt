@@ -1,0 +1,5 @@
+local RS = game:GetService("ReplicatedStorage")
+local Flags = require(RS:WaitForChild("Flags"))
+local state = RS:FindFirstChild("Flags") and RS.Flags:FindFirstChild("State")
+local src = state and state:GetAttribute("Source")
+return string.format("isOn(HIT_CLAIM)=%s source=%s digest=%s", tostring(Flags.isOn("HIT_CLAIM")), tostring(src), tostring(state and state:GetAttribute("Digest")))

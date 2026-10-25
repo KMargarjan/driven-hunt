@@ -637,4 +637,304 @@ return function()
 			expect(elapsed < 0.5).to.equal(true)
 		end)
 	end)
+	-- ---------------------------------------------------------------- THE HIT CLAIM (task 266)
+	--
+	-- KAREN, 2026-10-24/25: *"we need to aim in empty space to get hit in head neck or heart like in
+	-- real life"* / *"this signe where we shot ... shows we hit empty space and died"*.
+	--
+	-- THE DISPATCH'S ACCEPTANCE (3) IS "A FORGED CLAIM IS REJECTED", and it is proved twice here on
+	-- purpose, because the two halves can fail independently:
+	--   PURE  -- the RULE: a claim whose point is 30 studs from where the server says the animal was
+	--            is refused, by name, with every tolerance handed in as a number.
+	--   LIVE  -- the WIRING: the real `Weapon.onFireRequest`, with the policy ON, counts the claim and
+	--            refuses it, and no `HitReported` fires. A boundary flag read into a module local is
+	--            invisible from outside, and task 260 round 3 proved that the hard way: deleting the
+	--            wiring left the whole suite green with the feature silently off.
+	describe("the hit claim", function()
+		local CLAIM = Shotgun.CONFIG.CLAIM
+
+		-- The facts the owner measures, as numbers, all of them INSIDE every tolerance -- so each case
+		-- below moves exactly one of them and nothing else can be the reason it failed.
+		local function honestFacts()
+			return {
+				offset = Vector3.new(0, 0.5, -0.6),
+				partHalf = Vector3.new(0.9, 0.9, 1.5),
+				clientPoint = Vector3.new(100, 10, 100),
+				serverPoint = Vector3.new(100, 10, 100),
+				trajectoryPoint = Vector3.new(100, 10, 100),
+				reachedStuds = 150,
+				claimedStuds = 130,
+				ageSeconds = 0.08,
+				flightSeconds = 0.052,
+				expectedFlightSeconds = 0.052,
+			}
+		end
+
+		it("accepts an honest claim -- so every refusal below is the thing it moved", function()
+			local ok, why = Validator.judgeClaim(honestFacts(), CLAIM)
+			expect(ok).to.equal(true)
+			expect(why).to.equal(nil)
+		end)
+
+		-- ACCEPTANCE (3). The probe's own case: a claim about an animal 30 studs from where it was.
+		it("REFUSES a claim whose point is 30 studs from the server's own rewind", function()
+			local facts = honestFacts()
+			facts.clientPoint = facts.serverPoint + Vector3.new(30, 0, 0)
+			local ok, why = Validator.judgeClaim(facts, CLAIM)
+			expect(ok).to.equal(false)
+			expect(why).to.equal("claim-moved")
+			-- AND THE MARGIN IS A FACTOR OF FIVE, not a hair: 30 studs against a 6-stud tolerance.
+			expect(30 / CLAIM.POSITION_TOLERANCE_STUDS >= 5).to.equal(true)
+		end)
+
+		it("REFUSES a claim the server's own trajectory did not pass -- the zone check", function()
+			local facts = honestFacts()
+			facts.trajectoryPoint = facts.serverPoint + Vector3.new(0, 0, CLAIM.LINE_TOLERANCE_STUDS + 0.5)
+			local ok, why = Validator.judgeClaim(facts, CLAIM)
+			expect(ok).to.equal(false)
+			expect(why).to.equal("claim-line")
+		end)
+
+		it("REFUSES a claim whose offset is off the claimed box", function()
+			local facts = honestFacts()
+			facts.offset = Vector3.new(0, 0.5, -(facts.partHalf.Z + CLAIM.SKIN_STUDS + 0.1))
+			local ok, why = Validator.judgeClaim(facts, CLAIM)
+			expect(ok).to.equal(false)
+			expect(why).to.equal("claim-offset")
+		end)
+
+		it("REFUSES a claim the bullet could not have reached -- the line of sight", function()
+			local facts = honestFacts()
+			-- The server's own shot stopped at a tree 40 studs out; the claim says 130.
+			facts.reachedStuds = 40
+			local ok, why = Validator.judgeClaim(facts, CLAIM)
+			expect(ok).to.equal(false)
+			expect(why).to.equal("claim-blocked")
+		end)
+
+		it("REFUSES an arrival in the FUTURE and one outside the window", function()
+			local future = honestFacts()
+			future.ageSeconds = -0.01
+			local okFuture, whyFuture = Validator.judgeClaim(future, CLAIM)
+			expect(okFuture).to.equal(false)
+			expect(whyFuture).to.equal("claim-future")
+
+			local stale = honestFacts()
+			stale.ageSeconds = CLAIM.AGE_MAX_SECONDS + 0.01
+			local okStale, whyStale = Validator.judgeClaim(stale, CLAIM)
+			expect(okStale).to.equal(false)
+			expect(whyStale).to.equal("claim-stale")
+		end)
+
+		it("REFUSES a flight time this gun could not have produced", function()
+			local facts = honestFacts()
+			facts.flightSeconds = facts.expectedFlightSeconds + CLAIM.FLIGHT_TOLERANCE_SECONDS + 0.01
+			local ok, why = Validator.judgeClaim(facts, CLAIM)
+			expect(ok).to.equal(false)
+			expect(why).to.equal("claim-time")
+		end)
+
+		-- THE SHAPE GATE, at the trigger. A pattern weapon may not claim a point at all, and that is
+		-- read off the ROW on the server -- data, not a bit the client chooses (design section 6).
+		it("REFUSES a claim from a nine-pellet pattern, off the weapon's own row", function()
+			local claim = {
+				part = workspace,
+				offset = Vector3.zero,
+				point = Vector3.zero,
+				firedAtView = 100,
+				flightSeconds = 0.05,
+				distanceStuds = 100,
+			}
+			expect(Weapons.ROWS.shotgun.PELLETS.Buck).to.equal(9)
+			local ok, why = Validator.checkClaim(claim, Shotgun.CONFIG, Weapons.ROWS.shotgun.PELLETS.Buck)
+			expect(ok).to.equal(false)
+			expect(why).to.equal("claim-pattern")
+			-- ...and the SAME claim from a single-pellet load passes the shape gate.
+			local okSlug = Validator.checkClaim(claim, Shotgun.CONFIG, Weapons.ROWS.shotgun.PELLETS.Slug)
+			expect(okSlug).to.equal(true)
+		end)
+
+		it("REFUSES a NaN, an infinity, a missing field and a part that is not an Instance", function()
+			local function claimWith(changes: any)
+				local claim = {
+					part = workspace,
+					offset = Vector3.zero,
+					point = Vector3.zero,
+					firedAtView = 100,
+					flightSeconds = 0.05,
+					distanceStuds = 100,
+				}
+				for key, value in pairs(changes) do
+					claim[key] = value
+				end
+				return claim
+			end
+			expect(select(2, Validator.checkClaim(claimWith({ flightSeconds = 0 / 0 }), Shotgun.CONFIG, 1))).to.equal(
+				"claim-nan"
+			)
+			expect(select(2, Validator.checkClaim(claimWith({ distanceStuds = math.huge }), Shotgun.CONFIG, 1))).to.equal(
+				"claim-nan"
+			)
+			expect(select(2, Validator.checkClaim(claimWith({ part = "Boar1" }), Shotgun.CONFIG, 1))).to.equal(
+				"claim-part"
+			)
+			expect(select(2, Validator.checkClaim(claimWith({ offset = 3 }), Shotgun.CONFIG, 1))).to.equal("claim-type")
+			expect(select(2, Validator.checkClaim("not a table", Shotgun.CONFIG, 1))).to.equal("claim-type")
+		end)
+
+		-- THE WIRING, LIVE. The policy is a parameter beside the flag precisely so this case can reach
+		-- the ON branch while the row sits at OFF, which is what CLAUDE.md requires of a flagged path.
+		it("the policy is reachable by parameter, and the flag is what it falls back to", function()
+			expect(Weapon.stats().claimsEnabled).to.equal(Flags.isOn("HIT_CLAIM"))
+			local was = Weapon.setClaimPolicy(true)
+			expect(Weapon.stats().claimsEnabled).to.equal(true)
+			Weapon.setClaimPolicy(false)
+			expect(Weapon.stats().claimsEnabled).to.equal(false)
+			Weapon.setClaimPolicy(was)
+			-- RESTORED TO THE BOUNDARY'S OWN ANSWER, not to a literal: `was` is nil in the shipped
+			-- build and the flag is what answers then.
+			expect(Weapon.stats().claimsEnabled).to.equal(Flags.isOn("HIT_CLAIM"))
+		end)
+
+		it("counts a claim it was given, and refuses the forged one through the real handler", function()
+			-- A READY GUN, or the handler is not driven and the case says so rather than passing by
+			-- accident -- the shape the sight-line case above already uses and for the same reason.
+			local subject, snapshot = nil, nil
+			for _ = 1, 20 do
+				for _, player in ipairs(Players:GetPlayers()) do
+					local state = Weapon.getSnapshot(player)
+					if
+						state ~= nil
+						and state.equipped == true
+						and state.open == false
+						and (state.busyFor or 0) <= 0
+						and state.barrels[state.selected] == "Live"
+					then
+						subject, snapshot = player, state
+						break
+					end
+				end
+				if subject ~= nil then
+					break
+				end
+				task.wait(0.25)
+			end
+			if subject == nil then
+				TestKit.note("weapon_shot hit claim: nobody is holding a gun that can fire; the pure cases above stand")
+				expect(CLAIM.POSITION_TOLERANCE_STUDS > 0).to.equal(true)
+				return
+			end
+
+			local root = subject.Character and subject.Character:FindFirstChild("HumanoidRootPart")
+			expect(root).to.be.ok()
+
+			-- A STAND-IN ANIMAL: `Damageable` is what `Hits.targetOf` reads, and it is set here by this
+			-- spec rather than by a boar, so the case needs no drive and no spawn. It is destroyed below.
+			local zone = Instance.new("Part")
+			zone.Name = "ClaimSpecZone"
+			zone.Size = Vector3.new(1.8, 1.8, 3)
+			zone.Anchored = true
+			zone.CanCollide = false
+			zone.CanQuery = false
+			zone.Position = (root :: BasePart).Position + Vector3.new(0, 0, -120)
+			zone:SetAttribute("Damageable", true)
+			zone:SetAttribute("HitZone", "chest")
+			zone.Parent = workspace
+
+			local heldId = Weapon.heldId(subject) or Weapons.PRIMARY
+			local row = Weapons.row(heldId) or Weapons.ROWS[Weapons.PRIMARY]
+			local ammo = (snapshot :: any).loaded[(snapshot :: any).selected]
+			local shot = Ballistics.shotFor(row, ammo)
+			expect(shot).to.be.ok()
+
+			-- THE HISTORY ANSWERS HONESTLY: the zone is where it is, at every instant asked. So the only
+			-- thing wrong with the claim below is the claim.
+			local asked = 0
+			Weapon.setHistoryProvider(function(_instance, _at)
+				asked += 1
+				return zone.CFrame
+			end)
+			local wasPolicy = Weapon.setClaimPolicy(true)
+			Weapon.setDriveOpenProvider(function(): boolean
+				return true
+			end)
+			Weapon.setTargetProvider(nil)
+			Weapon.setStandProvider(nil)
+			Weapon.setLicenceProvider(nil)
+
+			local reported = 0
+			local listener = Weapon.HitReported:Connect(function()
+				reported += 1
+			end)
+
+			local before = Weapon.stats()
+			local origin = (root :: BasePart).Position + Vector3.new(0, 2, 0)
+			local direction = Vector3.new(0, 0, -1)
+			local distance = 120
+			-- THE FORGERY: the point is 30 studs from where the animal is, and the history says so.
+			local claim = {
+				part = zone,
+				offset = Vector3.new(0, 0, 0),
+				point = zone.Position + Vector3.new(30, 0, 0),
+				firedAtView = workspace:GetServerTimeNow(),
+				flightSeconds = Ballistics.timeToRange(shot :: any, distance),
+				distanceStuds = distance,
+			}
+			local why = Weapon.onFireRequest(subject, { origin = origin, direction = direction, claim = claim })
+			for _ = 1, 2 do
+				if why ~= "rate-limited" and why ~= "busy" then
+					break
+				end
+				task.wait(1.2)
+				claim.firedAtView = workspace:GetServerTimeNow()
+				why = Weapon.onFireRequest(subject, { origin = origin, direction = direction, claim = claim })
+			end
+
+			local drainBy = os.clock() + 1.5
+			while Weapon.flightCount() > 0 and os.clock() < drainBy do
+				task.wait()
+			end
+
+			listener:Disconnect()
+			Weapon.setClaimPolicy(wasPolicy)
+			Weapon.setHistoryProvider(nil)
+			Weapon.setTargetProvider(Match.classifyTarget)
+			Weapon.setStandProvider(Match.standAreaFor)
+			Weapon.setDriveOpenProvider(Match.driveOpen)
+			zone:Destroy()
+
+			local after = Weapon.stats()
+			if why ~= nil then
+				TestKit.note(
+					string.format("weapon_shot hit claim: the handler refused the SHOT (%s); the pure cases stand", why)
+				)
+				expect(CLAIM.POSITION_TOLERANCE_STUDS > 0).to.equal(true)
+				return
+			end
+
+			-- THE CLAIM WAS SEEN. A pattern load is refused at the SHAPE gate and never reaches the
+			-- rewind, which is correct and is what `pellets` is read off the row for -- so the reason is
+			-- reported rather than demanded, and what is ASSERTED is that it was refused and that
+			-- nothing was reported as a hit.
+			expect(after.claims > before.claims).to.equal(true)
+			expect(after.claimsRefused > before.claimsRefused).to.equal(true)
+			expect(after.claimsAccepted).to.equal(before.claimsAccepted)
+			expect(reported).to.equal(0)
+			local reasons = {}
+			for reason, count in pairs(after.refusedClaimBy) do
+				table.insert(reasons, string.format("%s=%d", reason, count))
+			end
+			table.sort(reasons)
+			TestKit.note(
+				string.format(
+					"weapon_shot hit claim: %s/%s pellets=%s, history asked %d time(s), refusedClaimBy [%s]",
+					heldId,
+					tostring(ammo),
+					tostring(row.PELLETS and row.PELLETS[ammo]),
+					asked,
+					table.concat(reasons, " ")
+				)
+			)
+		end)
+	end)
 end
