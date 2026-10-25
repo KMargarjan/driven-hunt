@@ -2756,36 +2756,55 @@ return function()
 			-- so "it was already pointing there" cannot pass this.
 			local point = before.Position - before.RightVector * 60 + before.LookVector * 5
 			local framesBefore = Camera.stats().testLookFrames
+			-- THE WHOLE CASE IS INSIDE A pcall AND THE RELEASE IS OUTSIDE IT (task 264 item 5, from
+			-- task 263's review note 263a(a)). This case WRITES THE REAL CAMERA'S OVERRIDE, and
+			-- `DHTestLook` is level-triggered: an assert that throws in the first half -- the four
+			-- `expect`s between the write and the release -- would leave the attribute set, and
+			-- `Camera.update` would go on holding the live view 85 degrees off its own target for
+			-- every case that runs after it in this session. That is task 252's cascade: one red
+			-- line, then a file of casualties that look like defects of their own. The `DHPose` case
+			-- twenty-five lines above is the pattern -- write, `pcall`, restore on BOTH paths,
+			-- `error(why, 0)` so the original message is what the runner reports.
 			player:SetAttribute("DHTestLookOff", nil)
 			player:SetAttribute("DHTestLook", string.format("%f,%f,%f", point.X, point.Y, point.Z))
-			for _ = 1, 12 do
-				RunService.RenderStepped:Wait()
-			end
-			local steered = Camera.stats().testLookFrames - framesBefore
-			local after = Workspace.CurrentCamera.CFrame
-			-- HELD, not snapped once: a one-shot would steer exactly one of those twelve frames.
-			expect(steered >= 8).to.equal(true)
-			-- THE ATTRIBUTE IS STILL THERE. The old `DHLookAt` cleared it as its handshake, which is the
-			-- write that breaks the server path (`<runs-dir>/263-camlook-server.luau`).
-			expect(player:GetAttribute("DHTestLook")).to.be.ok()
-			local toTarget = point - after.Position
-			expect(toTarget.Magnitude > 1e-3).to.equal(true)
-			expect(after.LookVector:Dot(toTarget.Unit) >= Config.LOOK_AT_LANDED_DOT).to.equal(true)
-			expect(after.LookVector:Dot(before.LookVector) < 0.9).to.equal(true)
+			local ok, why = pcall(function()
+				for _ = 1, 12 do
+					RunService.RenderStepped:Wait()
+				end
+				local steered = Camera.stats().testLookFrames - framesBefore
+				local after = Workspace.CurrentCamera.CFrame
+				-- HELD, not snapped once: a one-shot would steer exactly one of those twelve frames.
+				expect(steered >= 8).to.equal(true)
+				-- THE ATTRIBUTE IS STILL THERE. The old `DHLookAt` cleared it as its handshake, which is
+				-- the write that breaks the server path (`<runs-dir>/263-camlook-server.luau`).
+				expect(player:GetAttribute("DHTestLook")).to.be.ok()
+				local toTarget = point - after.Position
+				expect(toTarget.Magnitude > 1e-3).to.equal(true)
+				expect(after.LookVector:Dot(toTarget.Unit) >= Config.LOOK_AT_LANDED_DOT).to.equal(true)
+				expect(after.LookVector:Dot(before.LookVector) < 0.9).to.equal(true)
 
-			-- ...AND IT GIVES THE VIEW BACK. `DHTestLookOff` releases without deleting the point, which
-			-- is what lets an instrument hand control to Karen and still say where it had been aiming.
+				-- ...AND IT GIVES THE VIEW BACK. `DHTestLookOff` releases without deleting the point,
+				-- which is what lets an instrument hand control to Karen and still say where it had been
+				-- aiming. It stays INSIDE the pcall because the release is what the second half asserts;
+				-- the restore below is unconditional and is a different thing.
+				player:SetAttribute("DHTestLookOff", true)
+				for _ = 1, 4 do
+					RunService.RenderStepped:Wait()
+				end
+				local held = Camera.stats().testLookFrames
+				for _ = 1, 6 do
+					RunService.RenderStepped:Wait()
+				end
+				expect(Camera.stats().testLookFrames).to.equal(held)
+			end)
+			-- BOTH PATHS, and `DHTestLookOff` first: while the point is still set, removing only the
+			-- release would hand the view straight back to the hold for a frame.
 			player:SetAttribute("DHTestLookOff", true)
-			for _ = 1, 4 do
-				RunService.RenderStepped:Wait()
-			end
-			local held = Camera.stats().testLookFrames
-			for _ = 1, 6 do
-				RunService.RenderStepped:Wait()
-			end
-			expect(Camera.stats().testLookFrames).to.equal(held)
 			player:SetAttribute("DHTestLook", nil)
 			player:SetAttribute("DHTestLookOff", nil)
+			if not ok then
+				error(why, 0)
+			end
 		end)
 	end)
 
