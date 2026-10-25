@@ -1433,6 +1433,19 @@ return function()
 				local crown = (model :: Instance):FindFirstChild("Crown")
 				expect(crown).to.be.ok()
 				expect((crown :: BasePart).Size).to.equal(row.crown)
+				-- A SHOT PASSES THROUGH THE CANOPY (task 260). The Director, 2026-10-25: *"real
+				-- life: thin foliage does not stop a rifle bullet or a slug, and an invisible stop
+				-- frustrates"*. Task 63 chose the opposite on purpose (*"a shot into the canopy
+				-- stops in the canopy"*), so this assertion is what keeps the decision from being
+				-- reversed back by a reader of that older comment -- and it is the generated map's
+				-- half of the same rule `Places.unblockFoliage` applies to Karen's wood.
+				expect((crown :: BasePart).CanQuery).to.equal(false)
+				expect((crown :: BasePart).CanCollide).to.equal(false)
+				-- ...AND THE TRUNK STILL STOPS BOTH A PLAYER AND A BULLET, which is the other half.
+				local bole = (model :: Instance):FindFirstChild("Trunk")
+				expect(bole).to.be.ok()
+				expect((bole :: BasePart).CanQuery).to.equal(true)
+				expect((bole :: BasePart).CanCollide).to.equal(true)
 			end
 			TestKit.note(
 				string.format(

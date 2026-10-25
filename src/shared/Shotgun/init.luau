@@ -478,9 +478,8 @@ Shotgun.CONFIG = {
 	-- AND THE THIRD-PERSON BRANCH KEEPS ITS OWN, because it is still the documented rollback
 	-- (`Flags.DEFAULTS.FIRST_PERSON`: *"one line back to `false` returns the camera she accepted"*).
 	-- There the camera really does sit behind the player: `THIRD_DISTANCE_STUDS` 12 plus the
-	-- shoulder, and the client clamps the whole thing at `MAX_DISTANCE_STUDS` **14.5**. 16 is that
-	-- clamp plus 0.5 (the first version of this sentence said "16 is that clamp plus 0.5", which is
-	-- two errors in one line and the Reviewer caught both). A third-person shot is refused only if
+	-- shoulder, and the client clamps the whole thing at `MAX_DISTANCE_STUDS` **14.5**. **15 is that
+	-- clamp plus a half**, where 30 was that clamp plus 15.5. A third-person shot is refused only if
 	-- the client's own clamp has already failed.
 	--
 	-- 15 AND NOT 16, AND THE SWEEP IS WHY: the unclamped third-person eye reaches only about 13.5

@@ -11,6 +11,14 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local TestKit = require(ReplicatedStorage:WaitForChild("TestKit"))
 local Weapon = require(ServerScriptService:WaitForChild("Weapon"))
+-- THE SHIPPED ROWS, read rather than copied (task 260): the origin-bound cases below claim things
+-- about `CAMERA_ORIGIN_TOLERANCE` and `CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON`, and a second copy of
+-- either number here would be a second answer to how far a player may claim his eye is.
+local Shotgun = require(ReplicatedStorage:WaitForChild("Shotgun"))
+-- ...AND WHICH CAMERA THIS PLACE RUNS, for the same reason `Weapon` itself reads it: the owner
+-- resolves one of the two rows from this flag, so a case that asserts WHICH one has to ask the same
+-- question rather than assume the default.
+local Flags = require(ReplicatedStorage:WaitForChild("Flags"))
 -- ONLY TO PUT THE PROVIDERS BACK (task 183). The sight-line case below unwires four of this
 -- owner's seams for the length of one shot, and `MatchBoot` is what wired them -- so the restore
 -- has to name the same functions rather than nil, exactly as `weapon_rules.spec` does.
@@ -71,6 +79,59 @@ return function()
 					Validator.checkShot({ origin = Vector3.new(0, 5, 60), direction = Vector3.xAxis }, root, CONFIG)
 				)
 			).to.equal("origin-far")
+		end)
+
+		it("bounds the origin at the FOURTH ARGUMENT when it is given, and at the config when it is not", function()
+			-- TASK 260's SECURITY HALF, AND IT HAD NO TEST AT ALL UNTIL ROUND 3 (the Reviewer's
+			-- blocking finding, and his test for it was the right one: deleting the fourth argument
+			-- from both `Weapon.onFireRequest` and `onActionRequest` left the whole suite green with
+			-- the shipped first-person bound silently back at the third-person 15).
+			--
+			-- IT MATTERS BECAUSE `BORE_ON_SIGHT_LINE` LAUNCHES THE BULLET FROM `req.origin`. Before
+			-- that the launch point was a `Muzzle` attachment the server read off its own Tool, and
+			-- this bound only rejected absurd aim rays; now it is the one number standing between a
+			-- client and a shot that starts somewhere else.
+			local tight = Shotgun.CONFIG.CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON
+			local loose = CONFIG.CAMERA_ORIGIN_TOLERANCE
+			expect(tight < loose).to.equal(true)
+			-- A CLAIM BETWEEN THE TWO: honest under the loose bound, forged under the tight one. The
+			-- same payload, the same root, the same config -- only the fourth argument differs, which
+			-- is what makes this a test of the parameter and not of the arithmetic.
+			local between = root + Vector3.new(0, 0, (tight + loose) / 2)
+			local req = { origin = between, direction = Vector3.xAxis }
+			expect(Validator.checkShot(req, root, CONFIG, loose)).to.equal(true)
+			expect(select(2, Validator.checkShot(req, root, CONFIG, tight))).to.equal("origin-far")
+			-- `nil` IS THE CONFIG, which is every caller written before task 260.
+			expect(Validator.checkShot(req, root, CONFIG)).to.equal(true)
+			expect(Validator.checkShot(req, root, CONFIG, nil)).to.equal(true)
+			-- ...AND A NON-NUMBER IS THE CONFIG TOO, so a caller that passes junk cannot widen it.
+			expect(Validator.checkShot(req, root, CONFIG, "6" :: any)).to.equal(true)
+			-- AN ORIGIN INSIDE THE TIGHT BOUND IS STILL HONEST AT BOTH, so this is a bound and not a
+			-- blanket refusal.
+			local near = { origin = root + Vector3.new(0, 0, tight - 1), direction = Vector3.xAxis }
+			expect(Validator.checkShot(near, root, CONFIG, tight)).to.equal(true)
+			expect(Validator.checkShot(near, root, CONFIG, loose)).to.equal(true)
+		end)
+
+		it("resolves the SHIPPED bound to the first-person row, which is what the owner passes", function()
+			-- THE OTHER HALF OF THE SAME FINDING: the case above proves the validator HONOURS the
+			-- argument, and this one proves the owner PASSES the right one. `ORIGIN_TOLERANCE_STUDS`
+			-- is a module local read once at `Weapon`'s boundary, so `Weapon.stats().originTolerance`
+			-- is the only way anything outside that file can see which of the two rows the shipped
+			-- build chose. With `FIRST_PERSON` lit -- which is what the game ships and what
+			-- `flags.spec` pins -- it must be the tight one.
+			local resolved = Weapon.stats().originTolerance
+			expect(type(resolved)).to.equal("number")
+			if Flags.isOn("FIRST_PERSON") then
+				expect(resolved).to.equal(Shotgun.CONFIG.CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON)
+			else
+				expect(resolved).to.equal(Shotgun.CONFIG.CAMERA_ORIGIN_TOLERANCE)
+			end
+			-- AND IT IS ONE OF THE TWO ROWS AND NOT A THIRD NUMBER, whichever branch this place runs.
+			expect(
+				resolved == Shotgun.CONFIG.CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON
+					or resolved == Shotgun.CONFIG.CAMERA_ORIGIN_TOLERANCE
+			).to.equal(true)
 		end)
 	end)
 

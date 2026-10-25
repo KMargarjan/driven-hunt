@@ -686,6 +686,14 @@ function Weapon.stats()
 	-- reference to the live table and can edit the server's own counters (the rule `StateMachine`'s
 	-- `draft` already states for `barrels` and `reserve`).
 	out.refusedBy = table.clone(stats.refusedBy)
+	-- WHICH ORIGIN BOUND THIS SERVER RESOLVED (task 260 round 3, the Reviewer's blocking finding).
+	-- `ORIGIN_TOLERANCE_STUDS` is a module local read once at the boundary, so nothing outside this
+	-- file could see WHICH of the two rows the shipped build actually chose -- and the Reviewer's
+	-- test was the right one: deleting the fourth argument from both `checkShot` call sites left the
+	-- whole suite green with the bound silently back at the third-person 15. This field is what
+	-- `weapon_shot.spec` asserts against `Shotgun.CONFIG.CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON`, so
+	-- the WIRING is pinned and not just the arithmetic.
+	out.originTolerance = ORIGIN_TOLERANCE_STUDS
 	-- ...AND HOW THE EQUIPS ENDED, which is Hardware's own tally (task 129).
 	out.equipNow = Hardware.equipStats.now
 	out.equipNoCharacter = Hardware.equipStats.noCharacter
