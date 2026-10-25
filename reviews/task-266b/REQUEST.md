@@ -1,12 +1,12 @@
 # Review request — Task 266b: PROVE TRUE HITS DECIDE SHOTS
 
 Task: 266b
-Round: 2
+Round: 3
 Base: 9acad458 (main, after #245 merged task 266)
-Code commit: 739f4bcc875bf1170db7ab4cece06c50740f5d9e
+Code commit: 1be4ddb4fdfa95cea0ddfc058bb4c8a4d42bb91b
 
 ```
-[harness]  PASS: 34/34 checks @ 739f4bcc875bf1170db7ab4cece06c50740f5d9e (clean tree) scope=all
+[harness]  PASS: 34/34 checks @ 1be4ddb4fdfa95cea0ddfc058bb4c8a4d42bb91b (clean tree) scope=all
 ```
 
 **`test2` is NOT required for this change and my round-1 line saying it was is wrong** (the
@@ -251,3 +251,33 @@ Fixing it first is what makes item 2's reading mean anything.
     `HitZone`, and `claimsAccepted + 1`. It still degrades to a note when no player holds a loaded
     single-pellet gun, and the request says so rather than claiming the wiring is covered
     unconditionally.
+
+
+---
+
+## ROUND 3 — round 2's one blocking finding, and it was right
+
+17. **THE GUARD ASSERTED A COPY OF ITSELF.** The selftest case written for round 1's finding 3
+    re-implemented the ordering inline and checked it against itself, so dropping `key=` from
+    `resolve_task`'s `max` left every case green and the regression back — the same shape of fault
+    round 1 found, one level up. `task_order` is a named production function now; `resolve_task`
+    calls it, `selftest` calls **that one**, and a second case asserts the order itself
+    (`266b > 266 > 99`). Delete the ordering and both fail.
+    *Verify:* `tools/agents.py` → `task_order`, its use in `resolve_task`, and the two selftest cases.
+
+18. **Three of round 2's notes are closed, because each was a claim resting on nothing.**
+    (a) `weapon_shot.spec`'s accept case now asserts
+    `claimWorstLineStuds <= CLAIM.LINE_TOLERANCE_STUDS` — the cheapest real guard on round 1
+    finding 1's fix: swap the closest approach back for the trajectory's end point and it fails,
+    because that figure carries the bore's own ~5-stud set-back. (b) the `claimLine` case asserts
+    `ignored=` and **all three** worst fields, so dropping one no longer passes on a prefix match.
+    (c) the "could not verify" bullet that contradicted claim 16 now names the three runs and what
+    each did.
+
+19. **`reviews/task-266b/MEASURED.md` is committed**, so the five citations that pointed at an
+    uncommitted ledger now resolve inside the repo: every pasted reading, the four instruments in
+    the order they were built, the frame's description, the staging artefact behind `accepted +1`
+    instead of `+3`, and the restore of the place.
+
+**Still NOT PROVEN, and it is the plan's own item 2:** a RUNNING animal hit in the chest with an
+accepted claim. Nobody has seen it.
