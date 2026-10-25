@@ -1,14 +1,69 @@
-1. `tests/server/weapon_hits.spec.luau` (untouched) / `src/server/Weapon/init.luau` → `judgeClaimFor`'s ACCEPT branch and `src/server/Weapon/Flight.luau` → `Resolution.reachedStuds` — **the design's own test plan for this task was partly dropped, and what was dropped is the only specified proof of the accepted-claim path. Nothing in the repo executes it.** Evidence: `docs/design/ballistics.md` §12.1 lists seven added cases for `tests/server/weapon_hits.spec.luau` — 23, 24, 25 (relocated into `weapon_shot.spec`, fine) and then **26. "The truncation rule: an accepted claim replaces the flight's impact list with exactly one impact whose `instance` is the claimed part and whose `distance` is `claim.distanceStuds`; `Hits.group` over it gives one report, `pellets = 1`, the zone read from the part's `HitZone`"**, **27. "A refused claim changes nothing … identical to the same shot with no claim at all"**, **28. "`Resolution.reachedStuds`: a pellet stopped by the stub at 40 studs reports 40; an unobstructed pellet reports its range cap; nine pellets report the greatest"**, **29. "`Flight` never reads the claim"**. `weapon_hits.spec.luau` is not in `.agent-evidence/changed-files.txt` and a case-insensitive grep of it for `claim` returns only prose (`"THE CORE CLAIM: a boar that moves is judged…"`, `"the cost claim"`); a grep of all of `tests/` for `reachedStuds` returns only `weapon_shot.spec`'s two hand-written numbers (`reachedStuds = 150`, `facts.reachedStuds = 40`, which drive `Validator.judgeClaim`, not the `Flight` that produces the field), and `claimsAccepted` appears once, as `expect(after.claimsAccepted).to.equal(before.claimsAccepted)` — an assertion that it did NOT move. Delete the producer: replace `judgeClaimFor`'s whole accept branch with `return res.impacts` and every spec in the suite stays green; make `Flight`'s `live.reached` always 0 (so check 5 refuses every claim in the shipped game) and every spec stays green. That is the failure the spec's own header quotes — *"task 260 round 3 proved that the hard way: deleting the wiring left the whole suite green with the feature silently off"* — and it is not disclosed: the request's "What I could not verify" covers only the LIVE end-to-end (*"No shot has been seen whose hit was decided by an ACCEPTED claim"*), while claim 5 asserts the truncation behaviour with `judgeClaimFor` as its only *Verify*, and `weapon_hits.spec`'s absence is nowhere said (PLAN (f) is the place L-090 requires it). Required: write §12.1's 28 and 29 in `weapon_hits.spec` (it already drives `Flight.new(CONFIG)` with a scripted cast and an injected `dt`, so both are a few lines), and make 26 and 27 reachable — the accepted truncation and the refused-equals-no-claim equivalence must be executed by something that can fail, which needs the judge or the truncation exposed as an injectable/pure seam the way `Validator.judgeClaim` already is (`judgeClaimFor` is a module local reachable only through a live `onFireRequest` with a real player, and the live case in `weapon_shot.spec` degrades to `expect(CLAIM.POSITION_TOLERANCE_STUDS > 0)` when there is none — which is what happened in both harness runs, per claim 10). If any of 26–29 is to be dropped instead, say which and why in the request.
+PASS (item 8, 9, 10 NOT PROVEN)
+
+**Rule 5, stated so this PASS is not read as rule 5 having been met:** nothing Karen will judge has
+been seen in her place. Acceptance (1) (claim 8) is one STILL animal, instrument output only, and the
+request itself says it "would have landed in the same place with the feature off"; acceptance (2)'s
+led chest hit (claim 9) was not obtained — "nobody has yet seen the pair complete"; acceptance (3)
+(claim 10) ran in the gate as the policy-parameter case only. `266-acc1-still.png` and
+`266-acc-claim.png` are explicitly NOT offered as evidence. **No shot anywhere — live or in a spec —
+has had its hit decided by an accepted claim.** The only live reading of the feature is a probe
+string (claim 7), seen by the Builder, not a frame.
+
+Round 2's blocking finding is answered on the terms round 2 set: §12.1's 28 (`reachedStuds`, three
+ways), 29 (`Flight` carries and never reads the claim) and 26 (the truncation through
+`Validator.claimImpact` into `Hits.group`) are written in `tests/server/weapon_hits.spec.luau` and
+each one FAILS when its producer is removed — pin `Flight.advance`'s `live.reached` at 0 and all
+three `reachedStuds` cases fail; delete `Validator.claimImpact` and case 26 errors. Case 27 is
+dropped, named as dropped, and the reason given, which is the alternative round 2 allowed. Harness
+`5a634c48` names the request's `Code commit:` with "(clean tree)",
+`paperwork-after-code-commit.txt` says OK (only `REQUEST.md` followed), selene/stylua/rojo green.
 
 ## Notes (non-blocking)
-- **Rule 5, stated so nothing here is read as rule 5 having been met:** nothing Karen will judge was seen in her place this round. Acceptance (1) is one still-animal shot with instrument output only, and the request itself says a still animal "would have landed in the same place with the feature off"; acceptance (2)'s led chest hit was not obtained; acceptance (3) ran in the gate only, as the policy-parameter case. The two saved frames (`266-acc1-still.png`, `266-acc-claim.png`) are explicitly **not** offered as evidence. The only live reading of the feature is a probe string (claim 7), seen by the Builder, not a frame.
-- `src/server/Weapon/Validator.luau` → `judgeClaim` — its inline check numbers (1 offset, 2 position, 3 line, 4 blocked, 5 clock, 6 flight) disagree with `docs/design/ballistics.md` §5.2 (1 part/history, 2 offset, 3 position, 4 line, 5 reach, 6 clock+flight), which `Shotgun.CONFIG.CLAIM`'s own comments and `zz_claim_window.spec` follow ("design 5.2 check 4" for the line). So "check 4" means the line check in one file and the reach check in the other, and REQUEST (c) uses the Validator's numbering. Renumber the Validator's comments to the design's.
-- `src/client/Weapon/Claim.luau` → `Claim.simulate` — the animal's shift is `target.velocity * pellet.elapsed`, and `elapsed` only advances at the end of a sub-step, so inside one step the animal is held still for `FLIGHT_STEP_MAX_SECONDS`. `Shotgun.CONFIG`'s own comment on that cap says a boar at `SPRINT_SPEED` moves **1.27 studs** in it — so an honest claim's point can sit over a stud off the server's rewind at the true arrival before design §5.5's turn error (~2 studs) is counted, against `LINE_TOLERANCE_STUDS = 2.0`. The direction is safe (a refusal, not a free hit), but it is the term most likely to make the feature read as inert at range; `stats.claimWorstLineStuds` is the instrument to check before the dial is argued.
-- `tests/client/weapon_client.spec.luau` → `it("the row ships OFF, so this client sends no claim until the Director turns it on")` — the body is `expect(Flags.isOn("HIT_CLAIM")).to.equal(false)` and `expect(type(Weapon.Input.setClaimSource)).to.equal("function")`. Nothing about `Input.fire`'s payload, which design §12.6 asks for (*"`Input.fire` sends the claim only when the policy is on, and the payload still carries exactly `origin` and `direction` otherwise"*); the comment's *"asserted on the ONE firer rather than on a copy of its body"* claims more than the body does.
-- `src/client/Weapon/Claim.luau` → `Claim.visibleTargets` hard-codes `Workspace:FindFirstChild("Boars")`, while the folder name is a field of the Boar's world record (`folderName = "Boars"`, `src/server/Boar/init.luau`). Same hard-code as `src/server/ForestTest/init.luau` already carries, so no new defect — but a renamed folder would silently disable the client half with nothing failing.
-- REQUEST claim 7 — the quoted after-fix reading is `dist=26.1` while the prose describes "a chest 58 studs away", and the quoted line omits the probe's trailing `(target %s at %.0f)` field. The before and after readings are from different positions; say so rather than "the same probe reads".
-- REQUEST header says `Base: main (fb4e201c…)`; this round's base is `670416e6…`. Bookkeeping only — the harness line names the request's `Code commit:` with "(clean tree)" and `paperwork-after-code-commit.txt` says OK.
-- 259b: `safetySignal:Fire(player, aim, origin, stopAt)` is the real fix and round 1's three comment errors are corrected, but it still ships with no regression guard (queued 266a(a)) and `src/server/Match/` was not exercised live. Unchanged from round 1; noted so it is not lost at merge.
+- `src/server/Weapon/init.luau` → `judgeClaimFor`'s accept branch comment — *"pure and exported
+  precisely so this branch can be deleted and FAIL something"* is not true, and REQUEST claim 11's
+  *"so the branch can no longer be deleted silently"* says the same thing. Replace
+  `return { Validator.claimImpact(claim, part.CFrame, bore, part.Material) }` with
+  `return res.impacts` and the whole suite stays green: case 26 calls `claimImpact` directly, and the
+  only assertion on `claimsAccepted` anywhere is `weapon_shot.spec`'s
+  `expect(after.claimsAccepted).to.equal(before.claimsAccepted)` — that it did NOT move. What is now
+  covered is the truncation ARITHMETIC and `reachedStuds`, not the one line of wiring. Say that in
+  both places. (`claimImpact` takes four arguments, not "three facts".)
+- **The accepted path has never executed, anywhere.** Nothing in the suite reaches past
+  `Validator.judgeClaim`'s `return true` into `stats.claimsAccepted`, the `claimImpact` call, or the
+  report and dust built from the truncated list; the live case degraded to the honest note in both
+  harness runs (claim 10). The flag ships OFF so this costs nothing at merge, but the first time the
+  Director lights `HIT_CLAIM` for Karen is the first execution of that branch in the project's
+  history. Queue a live case that accepts one claim (the policy seam and `setHistoryProvider` already
+  make it reachable — `weapon_shot.spec`'s forgery case is the shape, with an honest point) before
+  the flag is turned on in front of her.
+- `tests/server/weapon_shot.spec.luau` → `it("counts a claim it was given, and refuses the forged one
+  through the real handler")` — when no player is holding a firable gun it notes and asserts
+  `expect(CLAIM.POSITION_TOLERANCE_STUDS > 0)`, a line that passes with the entire feature deleted.
+  Pre-existing shape (task 185) and disclosed by claim 10, but while it is the only live wiring case
+  the gate reports 34/34 with the wiring untested. Arming a bot or a scripted held gun would make it
+  fail honestly.
+- `src/client/Weapon/Claim.luau` → `Claim.simulate` — `blockAt` is the static hit's distance from
+  `pellet.position`, but `hit.distance` is measured from `pellet.position - shift`, so the two sides
+  of `hit.distance < blockAt` are on different rulers by up to `|shift|` (~1.27 studs at the step cap
+  for an animal running along the bore); `distanceStuds = pellet.travelled + hit.distance` carries
+  the same error into checks 4 and 6. The direction is safe — a refusal, never a free hit — and it is
+  the same `elapsed`-granularity term round 2 noted; `stats.claimWorstLineStuds` is the instrument.
+- `tests/server/ballistics.spec.luau` → `it("is bit for bit the advance-plus-delta it replaced")` —
+  `Ballistics.segment` delegates to `Ballistics.advance`, so `expect((position - wantPosition)
+  .Magnitude).to.equal(0)` and the velocity line compare `advance`'s output with `advance`'s output
+  and can only fail if `segment` stops delegating. The content of the case is `segment`, `length` and
+  `capped`, which do fail on a wrong derivation; claim 3's "bit for bit on all three vectors" rests
+  on the third.
+- `src/server/Weapon/Validator.luau` → `judgeClaim` — its inline check numbers (1 offset, 2 position,
+  3 line, 4 blocked, 5 clock, 6 flight) still disagree with `docs/design/ballistics.md` §5.2, which
+  `Shotgun.CONFIG.CLAIM`'s comments and `zz_claim_window.spec` follow ("design 5.2 check 4" for the
+  line). Carried unfixed from round 2. Renumber to the design's.
+- `tests/client/weapon_client.spec.luau` → `it("the row ships OFF, so this client sends no claim
+  until the Director turns it on")` — still only `Flags.isOn("HIT_CLAIM") == false` and
+  `type(Input.setClaimSource) == "function"`; nothing about `Input.fire`'s payload, which design
+  §12.6 asks for. Carried unfixed from round 2.
+- 259b ships with no regression guard (queued 266a(a)) and `src/server/Match/` was not exercised by a
+  live two-player case for it. Unchanged since round 1; repeated so it is not lost at merge.
 
 ---
-REVIEWER verdict on commit `5e8860ae61f866a8036c6e6b1b4bdaa87f9b542c` (round 2) · 2026-10-25 20:31 UTC · session cost $7.53, 72 turns · written by tools/agents.py
+REVIEWER verdict on commit `0235f715442dcdd4d9525f247cebcdb7604812d9` (round 3) · 2026-10-25 20:48 UTC · session cost $3.78, 43 turns · written by tools/agents.py
