@@ -498,3 +498,164 @@ the same as buckshot. The game's slug is the fast Foster.)
 3. **Item 5 is a parent, not a position**: the dust goes on the part that was hit. Section 8.
 4. **Items 3 (the live measurement) and 4 (the zone re-tune) are part 2**, with sections 6 and 7
    naming what has already been ruled out so part 2 does not re-derive it.
+
+---
+
+## 12. PART 2 (task 259): THE SIGHTS MEASURED, THE PAUNCH RETUNED, AND THE FOLIAGE READ
+
+Task 259 is items 1 to 3 of this note's own part 2 (section 11 item 4), plus the foliage reading
+TASKS.md 258a(f) asked for. Section 6 ended *"item 3 needs a MEASUREMENT IN THE PLACE, not a code
+change guessed from here"*. This is that measurement.
+
+### 12.1 THE ONE NUMBER THAT HAD TO COME FROM THE PLACE: 0.73 STUDS
+
+MEASURED 2026-10-25, a DEV Play session, first person, reading the world Tool's `Muzzle` attachment
+in the live camera's own frame (`driven-hunt-runs/259-eye-muzzle.luau`, a read-only client probe):
+
+| gun | muzzle, in the camera's frame | across the sight line |
+|---|---|---|
+| shotgun | (+0.741, -0.201, -5.274) studs | **0.77 studs = 21 cm** |
+| rifle | (+0.718, -0.135, -5.249) studs | 0.73 studs = 20 cm |
+
+The gun is welded to the character's right hand (`Weapon.Hardware.GRIP` sets `tool.Grip`) and the
+hand is 20 cm to the RIGHT of the eye and 5 cm below it. **The player never sees that gun**: in
+first person he sees the viewmodel, and `Camera.Mode.aimOffset` lays its bead, dot or scope on the
+camera axis by construction. So the 0.73 studs is the offset of an INVISIBLE PROP.
+
+### 12.2 WHAT IT COSTS, AND WHY IT IS INVISIBLE UNTIL YOU LEAD AN ANIMAL
+
+`Weapon.onFireRequest` points the bore from the muzzle at the point the camera ray struck
+(`docs/design/shotgun.md` section 5.5 steps 5-7). That cancels the 0.73 studs **exactly at the aim
+point and nowhere else**. The design says why it was chosen -- *"That is the standard THIRD-PERSON
+shooter geometry"* -- and the game has been first person since task 89.
+
+When the ray hits the TARGET, the cancellation is exact and what is left is the arc: **every gun,
+every load, 25 / 50 / 100 m, every hold, within 1.6 cm**. Measured over 4 holds x 5 (gun, load)
+x 3 ranges in `tests/server/sights.spec.luau`; it reproduces section 4's table from the stepper
+rather than from the closed form, which is an independent confirmation of it.
+
+When the ray hits NOTHING the owner falls back to `origin + direction * range` (step 5), so the bore
+converges at the ammo's whole range and the offset is divided down instead of cancelled:
+`offset * (1 - d/range)` at the target. Rifle, the measured shotgun hold:
+
+| | 25 m | 50 m | 100 m |
+|---|---|---|---|
+| ray ON the target | +0.6 cm up, 0.0 right | +1.1, 0.0 | +1.5, 0.0 |
+| **ray MISSES (sky behind)** | **+2.2 up, +18.6 RIGHT** | +2.2, +16.2 | +1.9, +11.6 |
+| ray misses, a tree 1.3x behind the animal | -- | +1.6, +4.7 | -- |
+| **with `BORE_ON_SIGHT_LINE`** | +0.6, 0.0 | +1.1, 0.0 | +1.5, 0.0 |
+
+**THE CASE THAT MISSES IS THE CASE KAREN NAMED.** *"when boar is running we need to aim in empty
+space to get hit in head neck or heart"* -- leading an animal means the ray goes PAST it, into the
+sky or into a tree a long way behind, and the convergence distance is then the background's. So the
+error is **different every shot**, always to the RIGHT, and worst at the SHORTEST range -- which is
+the opposite of how a player expects a sight error to behave. That is *"it seems there is a bit
+off"*, and it is why no amount of learning a hold fixes it.
+
+**IT IS NOT THE SCOPE, AND THE SCOPE IS NOT SPECIAL.** The rifle's sight picture is a full-screen
+mask with the crosshair at the viewport centre (`Hud.layoutReticle`, on a ScreenGui with
+`IgnoreGuiInset = true`), the camera ray leaves through that same centre, and the sway moves the
+CAMERA so the reticle keeps marking the bore. The semi-auto's dot and the shotgun's bead are 3D
+parts laid ON the camera axis by `Mode.aimOffset` -- the cheek angle is applied ABOUT the bead, so
+it rotates the gun and not the sight line. All three sights are true; the BORE was not.
+
+### 12.3 THE FIX, AND WHY IT SHIPS OFF
+
+`Ballistics.boreOrigin` projects the muzzle onto the camera ray at its own depth. Then
+`(aimPoint - origin)` is the camera's own direction whatever the ray hit, so the parallax cannot
+reach the impact at all and the only error left is the arc. The muzzle's DEPTH is kept, so the flight
+time, the range cap and what the first segment cast can strike are unchanged.
+
+`Shotgun.CONFIG.BORE_ON_SIGHT_LINE` is the parameter and it ships **false**, which is today bit for
+bit -- `boreOrigin` returns the same `Vector3`, asserted by identity. Two reasons, both external to
+the arithmetic: `docs/design/shotgun.md` section 5.5 step 7 says the bore starts at the muzzle and
+`docs/design/` is the Architect's; and `Flags.MAX_FLAGS` is at its ceiling, which the flag table's
+own header makes the Director's call. The parameter shape is the one task 256 shipped and
+`docs/design/ballistics.md` accepted **by name** in place of a flag, for the same reason: a path
+reachable at both values can be tested at both. `ESCALATE.md` (2026-10-25) carries the decision.
+
+### 12.4 THE KILL ZONES: THE GEOMETRY WAS RIGHT, ONE DAMAGE CELL WAS NOT
+
+**The zone BOXES are already on the drawn anatomy and were measured on the rig** -- the boar's in
+task 119 (nose z -2.388, skull z -1.279, `Neck` z -0.866, read off `ServerStorage.AssetCache` in a
+Play session) and the red deer's in task 223 (*"the two agree to 0.02 studs on every bone"*, with
+`hip_1_f` and `thigh_f` naming where the front legs attach so heart and lungs sit behind the
+shoulder). Both carry `PROTRUSION` face by face with the reason for each face. **Nothing in the
+geometry needed moving and nothing was moved.**
+
+**One DAMAGE cell was wrong, and it is the one that contradicts Karen's sentence.**
+`WOUND.DAMAGE_BY_WEAPON.rifle.body` was **100**, and `WOUND.LETHAL` is 100 -- so a .416 through a
+boar's PAUNCH dropped it on the spot, in one shot, exactly as a heart shot does. That makes the
+*Waidwundschuss* as good as the *Kammerschuss* with a rifle in your hands, which is the opposite of
+source E's doctrine (the paunch *"wounds; the animal runs a long way"*, source D's `mfd` ~ 429
+studs) and the opposite of *"we need to aim in empty space to get hit in head neck or heart"*: if
+the gut kills as fast as the chamber there is no reason to aim at the chamber.
+
+**90** is shipped. It is mortal on a boar (so `Wound.flightStuds` gives it a run) and mortal on a
+red deer (90/1.2 = 75), which is the graze task 250 existed to remove, and it is still 10 points
+above the lever's 80. Shots to DROP, before and after, over all seven kinds and all four guns, is
+the table `tests/server/kill_zones.spec.luau` prints and asserts; the cells that moved are:
+
+| | boar kinds | red deer kinds | legendary |
+|---|---|---|---|
+| paunch, .416: shots to drop | **1 -> 2** | 2 -> 2 | 2 -> 3 |
+| paunch, .416: severity of one shot | lethal -> **mortal** | mortal -> mortal | mortal -> **grazed** |
+
+**THE TRADE IS STATED RATHER THAN HIDDEN:** a .416 through a LEGENDARY's paunch is now a graze
+(90/2 = 45, under `MORTAL` 50). The two cannot both hold -- the legendary's paunch is mortal only at
+100 or above and a boar's paunch is non-lethal only below it -- and this picks the half the doctrine
+and Karen both name. A `Schild` that shrugs off a gut shot is what the animal's armour IS
+(`docs/research/2026-10-20-legendary-boar.md`, "Harder to kill"), and his head and chamber are
+untouched: one shot, any gun, by `Wound.damageFor`'s own rule that `toughness` may never armour a
+zone `WOUND.CLASS` calls `vital`.
+
+**The doctrine is now the harness's**, over `KINDS.ORDER` x 4 guns x 5 zones -- 140 cells, which is
+the Learning Agent's L-093 requirement that every kind x cartridge arm be entered and not only the
+one on screen: head and chamber drop every kind with one shot from every gun; a leg never drops one;
+the paunch and the hindquarters are strictly worse than the chamber everywhere; `toughness` armours
+the hide and never the vitals.
+
+### 12.5 THE FOLIAGE READING (TASKS.md 258a(f)) -- MEASURED, AND NOT CHANGED
+
+**THE RULE TODAY IS THAT FOLIAGE DOES STOP A SHOT, and it is deliberate.**
+`MapGen.Props.placeTree` (task 63): a grey-box tree CROWN is `CanCollide = false` and
+`CanQuery = true` *"ON PURPOSE ... a shot into the canopy stops in the canopy while the navmesh sees
+trunks only"*. Only two layers are exempt and both say so where they are written: the FURNITURE
+layer (`sceneryOnly`, *"a slug passes through anything a player walks through"*) and BRUSH
+(`Config`: *"cover for the EYE only"*).
+
+**IN THE FOREST TEST'S OWN WOOD, read 2026-10-25 off the saved place in Edit with no Play and no
+write (`driven-hunt-runs/259-leaves.luau`, `259-leaves2.luau`, `259-branch.luau`, `259-branch2.luau`):**
+
+| what | reading |
+|---|---|
+| `Workspace.OurForest` | 9,901 parts, **2,459 queryable** |
+| parts named `*branch*` (all in `OurForest`) | **2,398, and every one is `CanQuery = false`** |
+| queryable foliage parts in the whole place | **357, all of them `Session/OuterLeaves`** |
+| a 9x9 grid of eye points x a 9-ray fan, 282 studs (79 m) at chest height | 729 rays, 523 blocked short of the target (**72 %**) -- but **365 of those are TERRAIN**, i.e. the ground over a 79 m downhill ray |
+| non-terrain blockers | 158 rays (**22 %**): ~130 trunks, ~18 reported as `Branch*`, the rest assorted |
+
+**WHAT I COULD NOT RESOLVE, SAID PLAINLY (rule 8).** In the SAME execution, the name scan reported
+**zero** queryable parts containing "branch" while the ray fan was stopped by parts reported as
+`Branch`, `Branch.001` and `Branch.002` (18 of 729). A `CanQuery = false` part cannot be hit by
+`Workspace:Raycast`, so one of those two readings is wrong and I did not find out which in this
+session. The two readings I DO trust are the code rule above and the direct per-part reads (2,398
+branch parts non-queryable, 357 `OuterLeaves` queryable), because both are plain property reads.
+**So "does foliage stop a shot" is answered YES by the code and by the 357 `OuterLeaves`, and the
+FREQUENCY at 79 m is between "3 % of rays" and "unmeasured".** The earlier fix 258a(f) refers to is
+evidently applied in `OurForest` and NOT in `Session`.
+
+**NOTHING WAS CHANGED, which is what the dispatch asked:** whether a boar behind a screen of leaves
+may be shot is Karen's call, and the two candidate shapes are one line each -- `CanQuery = false` on
+the 357 `OuterLeaves` (leaves never stop a shot) or leaving it (they do).
+
+### 12.6 WHAT PART 2 DID NOT DO
+
+**The real-click lead proof (item 3 of the dispatch) is not in this task**, and the reason is time
+rather than route: it needs a new scenario in `tests/client/input_scenarios.txt` staged at ~200
+studs -- where a boar's own body length is finally shorter than the lead -- plus a client spec that
+fires twice, and every iteration of that costs a full Play replay. The route is proved and written
+down (`tests/client/shoot_boar.spec.luau` already lands a real replayed click on a real boar LED by
+`Ballistics.timeToRange`; what is missing is the negative half at a range where the lead is bigger
+than the animal). The PURE form of exactly that claim is already asserted with no world in
+`weapon_hits.spec`'s *"the shot in the air"* block. Queued as TASKS.md 259a.

@@ -30,7 +30,10 @@ local WOUND = {
 	-- TASK 250: what a centre-fire rifle bullet does that a 12-gauge slug does not. Pinned here
 	-- with everything else, and compared against production in the last describe.
 	DAMAGE_BY_WEAPON = {
-		rifle = { head = 100, chest = 100, body = 100, legs = 60, rear = 75 },
+		-- Task 259: `body` came down 100 -> 90. At 100 a paunch shot was LETHAL, which made the
+		-- Waidwundschuss as good as the Kammerschuss with a rifle; see `Boar.CONFIG.WOUND` and
+		-- `kill_zones.spec`.
+		rifle = { head = 100, chest = 100, body = 90, legs = 60, rear = 75 },
 		lever = { head = 100, chest = 100, body = 80, legs = 50, rear = 65 },
 	},
 	FLIGHT = { head = 0, chest = 0, body = 120, legs = 420, rear = 90 },
@@ -395,7 +398,9 @@ return function()
 		-- WEAPON because both rifles send `Slug` on the wire exactly as the shotgun does, so the
 		-- ammo word cannot tell a .416 bullet from a 12-gauge slug.
 		it("gives the Rigby its own points and leaves the slug column alone", function()
-			expect(Wound.damageFor("body", "Slug", 1, WOUND, nil, "rifle")).to.equal(100)
+			-- 90 SINCE TASK 259, and the reason is that 100 is `LETHAL`: a gut shot dropped a boar on
+			-- the spot. 90 is mortal on a boar and on a deer (90/1.2 = 75) and still above the lever.
+			expect(Wound.damageFor("body", "Slug", 1, WOUND, nil, "rifle")).to.equal(90)
 			expect(Wound.damageFor("legs", "Slug", 1, WOUND, nil, "rifle")).to.equal(60)
 			expect(Wound.damageFor("rear", "Slug", 1, WOUND, nil, "rifle")).to.equal(75)
 			expect(Wound.damageFor("body", "Slug", 1, WOUND)).to.equal(55)
@@ -426,7 +431,7 @@ return function()
 			-- No gun with a row here fires pellets (`Rifle.PELLETS` and `Lever.PELLETS` are both
 			-- `{ Slug = 1 }`), so this can only happen in a spec -- asserted so the shape is on the
 			-- record: the number is per projectile and the ammo word does not change it.
-			expect(Wound.damageFor("body", "Buck", 2, WOUND, nil, "rifle")).to.equal(200)
+			expect(Wound.damageFor("body", "Buck", 2, WOUND, nil, "rifle")).to.equal(180)
 		end)
 
 		it("falls through on a zone the gun's row does not name", function()

@@ -247,6 +247,84 @@ function Ballistics.advance(
 	return position + velocity * dt + accel * (0.5 * dt * dt), velocity + accel * dt
 end
 
+-- ---------------------------------------------------------------- WHERE THE BORE IS (task 259)
+--
+-- KAREN, 2026-10-24: *"we need to work on rifle acuracy when aiming with scope, it seems there is a
+-- bit off"* and *"when boar is running we need to aim in empty space to get hit in head neck or
+-- heart like in real life"*. Task 256 measured the ballistics and found them true to 1.5 cm
+-- (research note sections 4 and 6), so the offset she feels is not the arc. It is HERE.
+--
+-- THE SHOT IS AIMED BY CONVERGENCE: the owner casts the camera ray, takes the point it hits, and
+-- points the bore from the MUZZLE at that point (`docs/design/shotgun.md` section 5.5 steps 5-7).
+-- That cancels the eye-to-muzzle offset EXACTLY AT THE AIM POINT and nowhere else. The design says
+-- why it was chosen -- *"That is the standard THIRD-PERSON shooter geometry"* -- and the game has
+-- been first-person since task 89.
+--
+-- THE EYE-TO-MUZZLE OFFSET IS 0.73 STUDS, MEASURED, and that is what makes this visible.
+-- 2026-10-25, a DEV Play session, first person, reading the world Tool's `Muzzle` attachment in the
+-- live camera's own frame (`driven-hunt-runs/259-eye-muzzle.luau`):
+--     shotgun  (+0.741, -0.201, -5.274) studs
+--     rifle    (+0.718, -0.135, -5.249) studs
+-- The gun is welded to the character's right hand (`Hardware.GRIP`) and the hand is 20 cm to the
+-- RIGHT of the eye. The player never sees that gun -- in first person he sees the viewmodel, which
+-- `Mode.aimOffset` lays on the camera axis -- so the 0.73 studs is an artefact of an invisible prop.
+--
+-- WHAT IT COSTS WHEN THE RAY MISSES. With the aim point at `origin + direction * range`, the bore
+-- converges at the ammo's whole range instead of on the target, and the offset is divided down
+-- rather than cancelled: at target distance `d` the shot lands `offset * (1 - d/range)` off the
+-- reticle. For the rifle (range 800) that is **0.66 studs (19 cm) RIGHT at 25 m, 0.58 (16 cm) at
+-- 50 m and 0.41 (12 cm) at 100 m** -- always to the right, which is exactly how "a bit off" feels.
+-- `sights.spec` measures every cell.
+--
+-- AND THE CASE THAT MISSES IS THE CASE SHE NAMED. Leading a running animal means aiming at EMPTY
+-- SPACE: the ray goes past the animal and hits the sky, or a tree a long way behind it, and the
+-- convergence distance is then that background's and not the animal's. So the error is not constant
+-- -- it is whatever the thing behind the animal happens to be -- which is why it reads as the sights
+-- being unreliable rather than as a fixed zero error.
+--
+-- THE FIX IS ONE POINT: PUT THE BORE ON THE SIGHT LINE. The muzzle is projected onto the camera ray
+-- at its own depth, so `(aimPoint - origin)` is the camera's own direction whatever the ray hit, and
+-- the only offset left is the ballistic one -- 1.6 cm inside 60 m (research note section 4).
+--
+-- IT IS A PARAMETER AND `false` IS TODAY BIT FOR BIT, which is the shape task 256's
+-- `FLIGHT_CATCHUP_*` already ships in and which `docs/design/ballistics.md` accepted in its place
+-- for a flag: a path reachable at both values can be tested at both. The shipped value is
+-- `Shotgun.CONFIG.BORE_ON_SIGHT_LINE`, and it ships **false** because `docs/design/shotgun.md`
+-- section 5.5 step 7 says the bore starts at the muzzle and that document is the Architect's.
+-- `ESCALATE.md` carries the measurement and the one-line flip.
+--
+-- Note: docs/research/2026-10-24-real-shooting.md section 6; this task's own section 12.
+function Ballistics.boreOrigin(eye: Vector3, look: Vector3, muzzle: Vector3, onSightLine: boolean?): Vector3
+	if not onSightLine then
+		return muzzle
+	end
+	local direction = look.Magnitude
+	if direction < 1e-6 then
+		return muzzle
+	end
+	local unit = look / direction
+	-- THE MUZZLE'S OWN DEPTH, and never behind the eye. The bullet keeps leaving from as far forward
+	-- as the gun reaches -- so the flight time, the range cap and what the first segment cast can
+	-- strike are what they were -- and only the 0.73 studs ACROSS the sight line goes away.
+	local depth = math.max(0, (muzzle - eye):Dot(unit))
+	return eye + unit * depth
+end
+
+-- THE CONVERGENCE, AS ONE EXPRESSION (task 259). It was two lines inside `Weapon.onFireRequest`,
+-- which meant a spec that wanted to measure where the bullet goes relative to the reticle had to
+-- write its own copy of them -- and a copy is a second answer to "which way does the bore point".
+--
+-- `fallback` IS USED WHEN THE AIM POINT IS TOO CLOSE TO THE ORIGIN TO GIVE A DIRECTION, which is
+-- `CONFIG.MIN_AIM_DISTANCE` (4 studs) and the guard `docs/design/shotgun.md` section 5.5 step 7
+-- names: the degenerate case is answered explicitly rather than letting `.Unit` produce NaN.
+function Ballistics.convergeAim(origin: Vector3, aimPoint: Vector3, fallback: Vector3, minStuds: number): Vector3
+	local toAim = aimPoint - origin
+	if toAim.Magnitude < minStuds then
+		return fallback
+	end
+	return toAim.Unit
+end
+
 -- HOW FAR IN FRONT OF A CROSSING TARGET THE SHOT HAS TO GO, in studs. Exported because it is the
 -- sentence Karen asked for written as arithmetic, and because the spec that proves "aiming at it
 -- misses, aiming ahead hits" must take its offset from the same place everything else does -- not
