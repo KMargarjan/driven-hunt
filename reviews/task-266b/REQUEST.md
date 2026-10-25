@@ -3,11 +3,11 @@
 Task: 266b
 Round: 1
 Base: 9acad458 (main, after #245 merged task 266)
-Code commit: c3be3602586dc87ef0747781a7330725a025cd91
+Code commit: 886d170c336c5323c3f7f44cf1b7d59fa0495b1b
 
 ```
-[harness]  PASS: 34/34 checks @ c3be3602586dc87ef0747781a7330725a025cd91 (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ c3be3602586dc87ef0747781a7330725a025cd91 (clean tree)
+[harness]  PASS: 34/34 checks @ 886d170c336c5323c3f7f44cf1b7d59fa0495b1b (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 886d170c336c5323c3f7f44cf1b7d59fa0495b1b (clean tree)
 ```
 
 `test2` is required for the same reason task 266 needed it: `src/server/MatchBoot.server.luau` is a
@@ -164,3 +164,36 @@ Fixing it first is what makes item 2's reading mean anything.
   granting and revoking a Tool on the harness player broke three client specs once (task 34).
 - **`claimWorstLineStuds = 1.526` on a still animal is not explained.** It is measured, it is
   reported, and it is the thing to decompose next.
+
+10. **THE REVIEWER COULD NOT SEE THIS TASK AT ALL, and that is fixed at the root.**
+    `tools/agents.py review 266b` answered `REFUSED: task number must be digits`, and the no-argument
+    path was no better — its folder scan is `task-(\d+)`, which would read `task-266b` as **266** and
+    look for the request in `task-266/`, a different task whose `RESULT.md` is at round 3 and whose
+    next request would be refused as `Round: 4`. So a task numbered the way the Director numbers
+    follow-ups (`266a`, `266b`, `260b`, `263a` — they are all over `TASKS.md`) could be built, gated
+    and never reviewed. `TASK_PATTERN` is digits plus one optional lower-case letter, used by
+    `resolve_task`, the folder scan, the `Task:` line check and `cmd_architect`; the task is carried
+    as a string and nothing arithmetic was ever done with it. The round counter is per folder, so
+    `266b` gets its own count starting at 1.
+    *Verify:* `tools/agents.py` → `TASK_PATTERN` and its four uses; `selftest`'s thirteen cases,
+    including that the folder scan reads `task-266b` as `266b` and not as `266`.
+
+11. **CHECK 4 WAS MEASURING THE WRONG THING, and the in-gate ACCEPT case is what caught it.** That
+    case ran for the first time in the gate at `6fc312f8` — a player happened to be holding a rifle —
+    and FAILED: `accepted 0 -> 0, refusedClaimBy [claim-line=1]`, in a spec where the spec controls
+    every number. `judgeClaim` was handed the trajectory's position at exactly `claim.flightSeconds`,
+    which conflates ACROSS-track error (the aiming disagreement the check exists for) with
+    ALONG-track error (sub-step granularity plus the bore's own ~5-stud set-back from the camera).
+    The design's words are *"the server's own trajectory ... PASSES within LINE_TOLERANCE_STUDS"*, so
+    the trajectory is now walked and the CLOSEST APPROACH kept — a perpendicular distance, which is
+    what "under half a boar's trunk" was chosen to mean. `Validator.judgeClaim` is unchanged; it is
+    handed a better `trajectoryPoint`.
+    *Verify:* `src/server/Weapon/init.luau` → `judgeClaimFor`'s trajectory walk; commit `886d170c`.
+
+12. **AND THE RE-MEASUREMENT SAYS THE REMAINING 1.5 STUDS IS NOT ALONG-TRACK.** After the fix, on
+    the same staged still boar at 91 studs: `accepted=1 ... worst=0.000/1.527`. The line figure moved
+    by 0.001. **So the disagreement between the client's claimed point and the server's own
+    trajectory is genuinely ACROSS-track — about 0.96° at that range — and it is unexplained.** It is
+    inside the 2.0-stud tolerance, so honest claims are accepted; it is three quarters of the budget,
+    which is why a moving animal's claim falls out of it. That number is this task's one open lever
+    and it is queued.
