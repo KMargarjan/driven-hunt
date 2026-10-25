@@ -1132,6 +1132,57 @@ end
 -- `ForestTest.wavePoint` adds her stand's x to this, so "55 studs west of me" means that wherever
 -- she stands.
 --
+-- `|offsetX|` IS CAPPED AT 95, AND THE CAP WAS MEASURED RATHER THAN CHOSEN (task 267, item 1).
+--
+-- KAREN, 2026-10-25, asked for *"a"*: animals come CLOSER to the hunters' line, within about 25-30 m,
+-- so buckshot (100 studs) reaches them.
+--
+-- WHAT WAS MEASURED, two full drives on her path, 157 crossings, at 4 Hz off the animals' own bodies
+-- (`<runs-dir>/267-cross.luau`, `267-before-d1.txt`, `267-before-d5.txt`): against the nearest of the
+-- NINE stands every crossing was already within 78 studs -- that metric cannot fail, because the
+-- crossing is pinned ON the road at `hunterStandX() + crossOffset` with offsets of only -70..+95 and
+-- the stands are 150 studs apart on the same road. Against the stand the HUNTER was actually on,
+-- **44 % of crossings were out of buckshot range and the worst was 428 studs**.
+--
+-- AND THE 27 FAR CROSSINGS WERE EXACTLY THE WIDE ROWS. Grouped by the release x the probe recorded:
+-- slot 12 at -250 (9 of them, 305-398 studs from him), slot 15 at +265 (6, 378-428), slot 6 at +235
+-- (7, 262-326), slot 11 at +200 (3, 190-215). The mechanism is in the same rows: the beater line
+-- reaches a group released that far out BEFORE it reaches its pinned crossing, so it crosses at its
+-- own release x and the measured sideways drift is OUTWARD, -148 to +163 studs. Slots 12 and 15 are
+-- the two worst because `BREAK-BACK` and `HOLD` carry no `crossOffset` at all -- there is no pin to
+-- pull them back when the line finally pushes them over.
+--
+-- SO THE CAP IS ON THE FALLBACK, NOT ON THE INTENT: a group that never reaches its crossing still
+-- crosses within range of her anyway. **95 WAS REACHED IN THREE MEASURED CYCLES, NOT PICKED**, and
+-- the two that failed are kept here because they are the argument for this one:
+--   cap 145 -- worst crossing 230 studs, 96 % within 175, but only 59 % within 105. MEASURED cause:
+--     a group at +-140 that bolts south crosses at its own release x (drift -2 to -35), which is
+--     110-145 studs from her -- past buckshot. The cap bounded the TAIL and not the BODY.
+--   cap  95 -- the bolt itself now lands inside the gun's reach: 95 studs of x plus the road sine's
+--     own z offset over that span is ~102 studs, and `crossOffset`'s widest pin (+95) is the same
+--     ~102. Both ends of the range are therefore inside 105 BY ARITHMETIC and not by luck.
+--     MEASURED: 79 % within 105 -- the target -- but four of slot 7's nine still crossed at 176-189,
+--     having drifted 95-104 studs WEST of a release at -80 whose pin was EAST of it at -35.
+--   ...AND THEN THE WEST SIDE ALONE, which is the asymmetry the three runs measured rather than
+--     assumed: the east rows drifted INWARD (-2 to -35, toward her), the west rows OUTWARD (-57 to
+--     -104, away). So -65, -70, -75, -50, -70, -60 on the west against +45..+95 on the east, which
+--     puts a 100-stud outward drift from the deepest west row at ~175 instead of past it. The stag's
+--     own -95 is the exception and is left alone: his route is the treeline sneak, not a bolt, and
+--     the dispatch asked for the sneak to be kept.
+--
+-- THE RHYTHM THE DISPATCH ASKED TO KEEP IS KEPT. The fifteen slots run -85, +80, -95, +45, -95, +95,
+-- -80, -95, -90, +60, +90, -80, +75, +95, +80: both flanks, eight distinct magnitudes from 45 to 95,
+-- and NOT ONE OF THEM IS ZERO -- nothing is pulled onto a stand, which is the dispatch's own
+-- condition (*"real drives pass between stands at varied distances"*). The three acts, the stag's
+-- `sneak`/`sneakStuds`/`sneakDz` and his edge check, the deer leap, `files`, the paces and every
+-- route word are untouched; slot 8's own `offsetX` is the one the stag had before this task.
+--
+-- THE TWO `LATERAL` ROWS ALSO MOVED THEIR `crossOffset` TO THE END OF THEIR OWN SPAN. The pass walks
+-- `WAVE.lateralSpan` = 150 studs across her front, so from -145 it ends at +5 and from +145 at -5;
+-- with the old -70 and +20 pins the group would have had to double back 75 studs after the pass,
+-- which is not a broadside crossing. +20 and -35 are the nearest of `LINE.crossOffsets` to where the
+-- pass actually ends, so the pass now finishes AT the road.
+--
 -- `lateral` IS THE PASS ACROSS HER VIEW. She faces NORTH (+Z), so -- and this is the half that is
 -- easy to get backwards -- her RIGHT is -X and her LEFT is +X (a CFrame looking down +Z has
 -- RightVector -X). So a LEFT-TO-RIGHT pass travels from +X to -X, and `"LtoR"` means exactly that.
@@ -1984,7 +2035,7 @@ ForestTest.SCHEDULE = {
 			composition = 6, -- {males = 1}
 			zone = "A",
 			northStuds = 95,
-			offsetX = -150,
+			offsetX = -65,
 			files = 1,
 			crossOffset = -70,
 			route = "STRAIGHT",
@@ -2000,7 +2051,7 @@ ForestTest.SCHEDULE = {
 			party = "hinds", -- {hind = 1, calf = 1}
 			zone = "A",
 			northStuds = 125,
-			offsetX = 170,
+			offsetX = 80,
 			files = 1, -- a deer group is a column, never two files (`RELEASE.FORMATION`)
 			crossOffset = 55,
 			route = "STRAIGHT",
@@ -2018,7 +2069,7 @@ ForestTest.SCHEDULE = {
 			composition = 5, -- {females = 1, cubs = 4, males = 1}
 			zone = "A",
 			northStuds = 110,
-			offsetX = -215,
+			offsetX = -70,
 			files = 2,
 			crossOffset = -35,
 			route = "STRAIGHT",
@@ -2034,7 +2085,7 @@ ForestTest.SCHEDULE = {
 			composition = 2, -- {males = 2}
 			zone = "A",
 			northStuds = 85,
-			offsetX = 60,
+			offsetX = 45,
 			files = 1,
 			crossOffset = 20,
 			route = "STRAIGHT",
@@ -2052,9 +2103,9 @@ ForestTest.SCHEDULE = {
 			composition = 3, -- {males = 5, females = 3}
 			zone = "D",
 			northStuds = 150,
-			offsetX = -235,
+			offsetX = -75,
 			files = 1,
-			crossOffset = -70,
+			crossOffset = 20,
 			route = "LATERAL",
 			lateral = "RtoL",
 			pace = "trot",
@@ -2070,9 +2121,9 @@ ForestTest.SCHEDULE = {
 			composition = 3, -- {males = 5, females = 3}
 			zone = "D",
 			northStuds = 150,
-			offsetX = 235,
+			offsetX = 95,
 			files = 1,
-			crossOffset = 20,
+			crossOffset = -35,
 			route = "LATERAL",
 			lateral = "LtoR",
 			pace = "trot",
@@ -2087,7 +2138,7 @@ ForestTest.SCHEDULE = {
 			composition = 1, -- {females = 2, males = 3, cubs = 4}
 			zone = "B",
 			northStuds = 170,
-			offsetX = -120,
+			offsetX = -50,
 			files = 2,
 			crossOffset = -35,
 			route = "STRAIGHT",
@@ -2183,7 +2234,7 @@ ForestTest.SCHEDULE = {
 			composition = 6, -- {males = 1}
 			zone = "B",
 			northStuds = 210,
-			offsetX = -185,
+			offsetX = -70,
 			files = 1,
 			crossOffset = -70,
 			route = "STRAIGHT",
@@ -2200,7 +2251,7 @@ ForestTest.SCHEDULE = {
 			composition = 2, -- {males = 2}
 			zone = "C",
 			northStuds = 265,
-			offsetX = 85,
+			offsetX = 60,
 			files = 1,
 			crossOffset = 55,
 			route = "STRAIGHT",
@@ -2217,7 +2268,7 @@ ForestTest.SCHEDULE = {
 			composition = 5, -- {females = 1, cubs = 4, males = 1}
 			zone = "C",
 			northStuds = 275,
-			offsetX = 200,
+			offsetX = 90,
 			crossOffset = 95,
 			files = 2,
 			route = "SPLIT",
@@ -2246,7 +2297,7 @@ ForestTest.SCHEDULE = {
 			composition = 4, -- {females = 3, cubs = 6}
 			zone = "C",
 			northStuds = 300,
-			offsetX = -250,
+			offsetX = -60,
 			files = 1,
 			route = "BREAK-BACK",
 			turnAtDz = 55,
@@ -2274,7 +2325,7 @@ ForestTest.SCHEDULE = {
 			composition = 5, -- {females = 1, cubs = 4, males = 1}
 			zone = "B",
 			northStuds = 145,
-			offsetX = 115,
+			offsetX = 75,
 			files = 1,
 			route = "BREAK-BACK",
 			turnAtDz = 40,
@@ -2290,7 +2341,7 @@ ForestTest.SCHEDULE = {
 			composition = 2, -- {males = 2}
 			zone = "C",
 			northStuds = 290,
-			offsetX = 145,
+			offsetX = 95,
 			files = 1,
 			crossOffset = 95,
 			route = "STRAIGHT",
@@ -2306,7 +2357,7 @@ ForestTest.SCHEDULE = {
 			composition = 5, -- {females = 1, cubs = 4, males = 1}
 			zone = "C",
 			northStuds = 360,
-			offsetX = 265,
+			offsetX = 80,
 			files = 1,
 			route = "HOLD",
 			-- HOW FAR IT MOVES BEFORE IT LIES UP. The PLOS ONE study's stayers net-displace 426 m
