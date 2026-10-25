@@ -871,10 +871,11 @@ return function()
 			expect(Phase.barredFromRejoin(state, drive)).to.equal(false)
 		end)
 
-		-- THE ROLE HALF OF KAREN'S SENTENCE, AND IT IS THE ROTATION AND NOT A SPECIAL CASE: a drive he
-		-- did not finish is not a turn he has taken, so `enterScoring` writes the SYNTHETIC `previous`
-		-- row that `Roster.assign`'s swap turns back into the team he was playing.
-		it("keeps his role for the next drive, because he never finished this one", function()
+		-- THE ROLE HALF OF KAREN'S SENTENCE, AND IT IS THE STORED TURN RATHER THAN A NEW RULE: a
+		-- drive he did not finish is not a turn he has taken, because the turn is flipped only for
+		-- the men still in `state.assignment` when the drive reaches `Scoring` (task 217, write edge
+		-- 2) -- and `withdraw` takes him out of exactly that table.
+		it("leaves a withdrawn man out of the next drive's `previous`, so his stored turn decides", function()
 			local cfg = config()
 			local state = running(cfg)
 			local had = state.assignment[2]
@@ -884,22 +885,18 @@ return function()
 			state = (
 				Phase.step(state, { kind = "withdraw", userId = 2, name = "b" }, cfg.INTERMISSION_SECONDS + 1, cfg)
 			)
-			-- THE FACT IS RECORDED AT THE WITHDRAWAL, which is the only moment it exists: one line down
-			-- the assignment no longer has him.
-			expect(state.withdrawnTeams[2]).to.equal(had)
 			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
 			expect(state.phase).to.equal("Scoring")
-			-- THE SYNTHETIC ROW IS THE **OPPOSITE** OF THE TEAM HE IS OWED, which is the one trap in
-			-- this design (`Roster.previousFrom`'s own header): the swap deals the opposite of
-			-- `previous`.
-			expect((state.previousAssignment :: any)[2]).to.equal(Roster.other(had))
+			-- HE HAS NO ROW, which is what makes the stored turn the only thing that can give him
+			-- one -- and `Match`'s own write edge 2 reads this same table, so the turn it flips is
+			-- the men who FINISHED and nobody else.
+			expect((state.previousAssignment :: any)[2]).to.equal(nil)
 			-- ...AND THE MAN WHO FINISHED IT KEEPS HIS REAL ROW, so he alternates as he always has.
 			expect((state.previousAssignment :: any)[1]).to.equal(other)
-			-- CONSUMED: a row surviving into the next drive would owe him a role in a drive he was
-			-- never in.
-			expect(next(state.withdrawnTeams)).to.equal(nil)
-			-- AND NOW THE DRIVE HE ASKED FOR: he comes back and the split gives him the SAME side,
-			-- while the man who finished gets the other one.
+			-- AND NOW THE DRIVE SHE ASKED FOR: he comes back owed the side he was playing, which is
+			-- what `Economy.owedTeams` hands `enterAssigning` for a man whose turn was never
+			-- flipped. `Roster.previousFrom` inverts it, the swap deals it back, and he is a hunter
+			-- again from the start of a WHOLE drive.
 			state = (
 				Phase.step(
 					state,
@@ -909,29 +906,49 @@ return function()
 				)
 			)
 			state = (
-				Phase.step(
-					state,
-					{ kind = "tick" },
-					cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + cfg.SCORE_SECONDS + 2,
-					cfg
-				)
+				Phase.step(state, {
+					kind = "tick",
+					owed = { [2] = had },
+				}, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + cfg.SCORE_SECONDS + 2, cfg)
 			)
 			expect(state.phase).to.equal("Assigning")
 			expect(state.assignment[2]).to.equal(had)
-			expect(state.assignment[1]).to.equal(Roster.other(other))
 		end)
 
-		-- IDENTITY: A DRIVE NOBODY RESPAWNED IN IS BYTE FOR BYTE WHAT IT WAS. `Roster.previousFrom`
-		-- answers its first argument BY IDENTITY for an empty table, so `enterScoring` assigns
-		-- `state.assignment` itself exactly as it has since task 217 -- asserted as RAW TABLE EQUALITY,
-		-- which is the shape `match_roster.spec` already pins that identity with.
-		it("leaves the next drive's previous assignment untouched when nobody left", function()
+		-- ...AND THE MECHANISM THAT WAS **NOT** USED, with the measurement that ruled it out, because
+		-- the next person to read Karen's sentence will reach for it exactly as this task did.
+		--
+		-- REMEMBERING HIS TEAM AND FOLDING `other(team)` INTO `previousAssignment` AT `enterScoring`
+		-- WAS BUILT, AND THE SUITE CAUGHT IT: `Roster.assign`'s swap COUNTS the inverted rows, and
+		-- one synthetic inversion moves `counts.Drivers - counts.Shooters` by TWO -- so on an even
+		-- roster the balance check discards the WHOLE swap and everybody loses their rotation.
+		it("would break the rotation for everybody if the withdrawal were folded into `previous`", function()
+			local cfg = config()
+			-- TWO MEN ON OPPOSITE SIDES, which is the roster `running` builds and the one Karen
+			-- plays when a second person is there.
+			local honest = { [1] = "Shooters", [2] = "Drivers" }
+			local swapped = Roster.assign({ 1, 2 }, honest, cfg)
+			expect(swapped[1]).to.equal("Drivers")
+			expect(swapped[2]).to.equal("Shooters")
+			-- ...AND THE SYNTHETIC ROW FOR THE MAN WHO LEFT makes BOTH rows `Shooters`, so the swap
+			-- would deal two Drivers, |2 - 0| > 1, and `Roster.assign` falls through to the plain
+			-- split -- which is a coin toss on userId and not a rotation at all.
+			local folded = { [1] = "Shooters", [2] = Roster.other("Drivers") }
+			expect(folded[2]).to.equal("Shooters")
+			local fell = Roster.assign({ 1, 2 }, folded, cfg)
+			expect(fell[1]).to.equal(fell[2] == "Drivers" and "Shooters" or "Drivers")
+			-- THE DEFECT, STATED AS THE NUMBER IT IS: the man who FINISHED does not alternate.
+			expect(fell[1]).never.to.equal(Roster.other(honest[1]))
+		end)
+
+		-- IDENTITY: `enterScoring` STILL ASSIGNS THIS DRIVE'S OWN TABLE, as it has since task 217 --
+		-- asserted as RAW TABLE EQUALITY, the shape `match_roster.spec` already pins it with.
+		it("leaves the next drive's previous assignment as this drive's own table", function()
 			local cfg = config()
 			local state = running(cfg)
-			local assignment = state.assignment
 			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
 			expect(state.phase).to.equal("Scoring")
-			expect(state.previousAssignment).to.equal(assignment)
+			expect(state.previousAssignment).to.equal(state.assignment)
 		end)
 
 		-- THE TRIGGER'S OWN RULE, PURE (`Match.withdrawOnRespawn`). The hard part of this task is not

@@ -105,15 +105,6 @@ export type State = {
 	-- beater walking back north or a man joining the drivers mid-drive. So the grace cannot be
 	-- started by one frame of a measurement and then survive the thing that started it.
 	beatersThroughAt: number?,
-	-- WHICH TEAM EACH MAN THIS DRIVE LET GO OF WAS PLAYING (task 261, item 1): userId -> the team the
-	-- `withdraw` branch took off him. Empty in every drive nobody respawned in, which is what keeps
-	-- `enterScoring` byte for byte what it was (`Roster.previousFrom` answers BY IDENTITY for an empty
-	-- table) -- the flag-off identity device this file already uses three times.
-	--
-	-- KAREN, 2026-10-25: *"when I respawn and go again to hunt I need to be same role and from
-	-- begining"*. A drive a man did not finish is NOT a turn he has taken, so the rotation must not
-	-- spend it -- see `enterScoring`, which is where this table is read and consumed.
-	withdrawnTeams: { [number]: TeamName },
 	-- WHEN THE BEATERS ARE LET GO, AND IT IS AFTER GO (task 168). KAREN, 2026-10-12 ~21:45: *"you
 	-- can't move as a beater before horn made signal"* -- so GO is the END of the start fanfare and
 	-- not the instant the drive's clock starts. The second deadline in this state, on exactly the
@@ -224,7 +215,6 @@ end
 local function freezeState(state: State): State
 	freeze(state.participants)
 	freeze(state.assignment)
-	freeze(state.withdrawnTeams)
 	if state.previousAssignment then
 		freeze(state.previousAssignment)
 	end
@@ -242,7 +232,6 @@ function Phase.initial(config): State
 		assignment = {},
 		previousAssignment = nil,
 		beatersThroughAt = nil,
-		withdrawnTeams = {},
 		markersComplete = false,
 		missing = { "markers" },
 		boarSpawns = {},
@@ -623,7 +612,6 @@ local function copy(state: State): State
 	local next_: any = table.clone(state :: any)
 	next_.participants = table.clone(state.participants)
 	next_.assignment = table.clone(state.assignment)
-	next_.withdrawnTeams = table.clone(state.withdrawnTeams)
 	next_.missing = table.clone(state.missing)
 	next_.boarSpawns = table.clone(state.boarSpawns)
 	return next_
@@ -692,13 +680,6 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	-- ...AND NO LINE IS THROUGH AT THE START OF A DRIVE (task 261, item 2), which is the belt on the
 	-- path that does not reach `enterScoring`: a drive dismissed into `Waiting` and started again.
 	state.beatersThroughAt = nil
-	-- ...AND NOTHING IS OWED ACROSS A DRIVE BOUNDARY (task 261, item 1). `enterScoring` CONSUMES the
-	-- table, and this is the belt on the one path that does not go through it: a drive dismissed into
-	-- `Waiting` never reaches `enterScoring`, so without this line a man withdrawn from drive 7 would
-	-- still be owed a role at the start of drive 8 -- a drive he was never in. The clear is before the
-	-- split and changes nothing about it: what the split reads is `state.previousAssignment`, which
-	-- `enterScoring` has already written.
-	table.clear(state.withdrawnTeams)
 
 	local userIds = {}
 	for userId in pairs(state.participants) do
@@ -822,33 +803,14 @@ end
 local function enterScoring(state: State, effects: { Effect }, now: number, config, reason: string?)
 	state.phase = "Scoring"
 	state.phaseEndsAt = now + config.SCORE_SECONDS
-	-- THE NEXT DRIVE'S `previous`, AND THE MEN THIS ONE LET GO OF KEEP THEIR PLACE IN THE ROTATION
-	-- (task 261, item 1). KAREN, 2026-10-25: *"when I respawn and go again to hunt I need to be same
-	-- role and from begining"*.
-	--
-	-- `Roster.previousFrom` IS ALREADY THE FUNCTION FOR THIS, which is why there is no new rule here:
-	-- it folds a table of OWED teams into a synthetic `previous`, and it carries the one trap in that
-	-- design -- `Roster.assign`'s swap deals the OPPOSITE of `previous`, so a man owed `Shooters` must
-	-- be given the row `Drivers`. `withdrawnTeams` holds the team he WAS PLAYING, which is exactly the
-	-- team he is owed next: he never finished this drive, so the rotation must not spend it.
-	--
-	-- IT IS BYTE FOR BYTE TODAY'S LINE WHEN NOBODY RESPAWNED. `previousFrom` returns its first
-	-- argument BY IDENTITY for an empty second one -- `match_phase.spec` asserts the raw table
-	-- equality -- so a drive nobody left assigns `state.assignment` itself, as it has since task 217.
-	--
-	-- IT AGREES WITH THE ECONOMY'S OWN RECORD RATHER THAN COMPETING WITH IT: write edge 1
-	-- (`Match.applyAssignTeams`) stored *the team he is playing* while he was in the drive, and write
-	-- edge 2 below flips the turn only for the men still in `state.assignment` -- so a withdrawn man's
-	-- stored turn is the same team this line puts in his synthetic row. With `COINS` off there is no
-	-- stored turn at all and this line is the whole of the rule, which is why it is here and not left
-	-- to the money.
+	-- THE NEXT DRIVE'S `previous` IS THIS DRIVE'S ASSIGNMENT, UNCHANGED SINCE TASK 217 -- and a man
+	-- the drive let go of has no row in it, which is deliberate rather than an omission: the
+	-- `withdraw` branch above says what carries HIS role instead (the stored turn), and why a
+	-- second mechanism here was built, measured and taken out again.
 	-- THE GRACE BELONGS TO THE DRIVE THAT HAS JUST ENDED (task 261, item 2): a latch left standing
 	-- would make the next drive's first tick think its line was already through.
 	state.beatersThroughAt = nil
-	state.previousAssignment = Roster.previousFrom(state.assignment, state.withdrawnTeams)
-	-- CONSUMED. The table is about THIS drive; a row surviving into the next one would owe a man a
-	-- role for a drive he was never in.
-	table.clear(state.withdrawnTeams)
+	state.previousAssignment = state.assignment
 	state.nextReleaseAt = math.huge
 	-- NOBODY IS WAITING TO BE LET GO AT THE END OF A DRIVE: the scene holds everybody anyway, and a
 	-- pending `goFreeAt` would emit a `free` into the results scene and let the ring wander off (task
@@ -1140,19 +1102,28 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		-- outside a drive changes nothing and emits nothing, which is the call the `team` branch
 		-- above already makes for the same reason.
 		if Phase.insideDrive(next_) and next_.participants[event.userId] ~= nil then
-			-- WHICH TEAM HE WAS PLAYING, RECORDED BEFORE IT IS TAKEN OFF HIM (task 261, item 1). KAREN,
-			-- 2026-10-25: *"when I respawn and go again to hunt I need to be same role and from
-			-- begining"*.
+			-- HIS ROLE FOR THE NEXT DRIVE IS NOT RECORDED HERE, AND THAT IS A DECISION WITH A
+			-- MEASUREMENT BEHIND IT (task 261, item 1). KAREN, 2026-10-25: *"when I respawn and go
+			-- again to hunt I need to be same role and from begining"* -- and she gets it, from the
+			-- mechanism that already ships rather than from a second one here.
 			--
-			-- A DRIVE HE DID NOT FINISH IS NOT A TURN HE HAS TAKEN, and this is the only moment the fact
-			-- exists: one line down `assignment` no longer has him, and `enterScoring` -- which is what
-			-- turns the drive's assignment into the NEXT drive's `previous` -- would see a man with no
-			-- row and deal him the smaller side like a new arrival. `enterScoring` reads this table and
-			-- says why.
-			local had = next_.assignment[event.userId]
-			if had ~= nil then
-				next_.withdrawnTeams[event.userId] = had
-			end
+			-- WHAT ALREADY ANSWERS HER: the stored turn (task 217). `Match.applyAssignTeams` writes
+			-- *the team he is PLAYING* the moment a drive gives him one (write edge 1), and the turn is
+			-- flipped to the OTHER side only for the men still in `state.assignment` when the drive
+			-- reaches `Scoring` (write edge 2) -- and the line below takes him out of exactly that
+			-- table. So a man who did not finish keeps `nextTeam = the side he was playing`,
+			-- `Economy.owedTeams` hands it to `enterAssigning` as `owed`, and `Roster.previousFrom`
+			-- turns it into the synthetic row the swap deals back to him. A drive he did not finish is
+			-- not a turn he has taken, by construction and with no new field.
+			--
+			-- AND WHY NOT A SECOND MECHANISM HERE: the obvious one -- remember his team and fold
+			-- `other(team)` into `previousAssignment` at `enterScoring` -- was built, and the suite
+			-- caught it. `Roster.assign`'s swap COUNTS the inverted rows, and one synthetic inversion
+			-- moves `counts.Drivers - counts.Shooters` BY TWO: on an even roster the balance check then
+			-- discards the WHOLE swap and everybody loses their rotation, not just him. That is the
+			-- defect `Roster.assign`'s own header records against task 221 (*"folding the privilege
+			-- into the synthetic `previous` moved the SWAPPED counts by two ... and a low userId drove
+			-- every drive"*), and it is not a different defect because the row is a withdrawal.
 			next_.participants[event.userId] = nil
 			next_.assignment[event.userId] = nil
 			-- THE TEAM GOES BACK, which `dismiss` leaves for one phase later and this cannot: a

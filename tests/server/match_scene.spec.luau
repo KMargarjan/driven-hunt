@@ -22,6 +22,14 @@ local TestKit = require(game:GetService("ReplicatedStorage"):WaitForChild("TestK
 local CONFIG = {
 	STAND_HEIGHT_STUDS = 3.5,
 	BEATER_CROSS_MARGIN_STUDS = 10,
+	-- TASK 261 ITEM 2: where a beater who is through waits. This spec's own numbers, in the shipped
+	-- shape -- 40 and 8 are the game's, and the case that reads them asserts the SHIPPED ones against
+	-- `Match.CONFIG` separately, the way the several-rows cases read `LIVE`.
+	BEATER_THROUGH = {
+		BEHIND_STUDS = 40,
+		SPACING_STUDS = 8,
+		HOLD = true,
+	},
 	SCENE = {
 		ENABLED = true,
 		GATHER_BEHIND_STUDS = 24,
