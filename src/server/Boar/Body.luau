@@ -2692,6 +2692,27 @@ function Body.deathTrackOn(handle): AnimationTrack?
 	return handle.deathTrack
 end
 
+-- THE VERTICAL HALF-EXTENT OF A BOX AT WHATEVER ANGLE IT IS LYING AT (task 261, item 3; the
+-- Reviewer's round-1 finding 1). PURE.
+--
+-- `Size.Y / 2` IS THE BOTTOM ONLY WHILE THE BOX STANDS UP, AND A CARCASS DOES NOT. `Body.topple`
+-- rolls it past its tipping angle and gravity lays it flat, so by the time `stepCarcass` anchors one
+-- its own WIDTH is vertical -- the fact `Body.lyingHalfHeight` states for the DISPLAY carcass and
+-- this function states for the live one. Round 1 used the standing half here, and the arithmetic is
+-- why that was blocking: a stag lying correctly on the ground measured as **1.500 studs below** it,
+-- a hind 1.283 and a calf 0.742, all past `CARCASS_GROUND_TOLERANCE_STUDS` 0.5 -- so the correction
+-- LIFTED a body that was already down and the anchor froze it there for `CARCASS_SECONDS` 120.
+-- Karen's *"deer also hanging there"*, caused by the code written to fix it.
+--
+-- IT IS THE BOX'S OWN AXES PROJECTED ONTO WORLD UP, which is one line and covers every angle --
+-- upright, the 45 degrees `COLLAPSE_ROLL_DEG` nudges it to, the quarter turn it settles at, and
+-- whatever a slope leaves it at. `Body.lyingHalfHeight` is not reused because it takes an ANGLE and
+-- what is known here is a CFrame; both say the same thing about the same geometry.
+function Body.verticalHalf(cframe: CFrame, size: Vector3): number
+	local x, y, z = cframe.XVector, cframe.YVector, cframe.ZVector
+	return 0.5 * (math.abs(x.Y) * size.X + math.abs(y.Y) * size.Y + math.abs(z.Y) * size.Z)
+end
+
 -- HOW FAR A SETTLED CARCASS HAS TO MOVE TO BE ON THE GROUND (task 261, item 3). PURE, and it is the
 -- whole of the decision -- `stepCarcass` does the measuring and the one write.
 --
@@ -2822,7 +2843,11 @@ function Body.stepCarcass(handle, dt: number, config, groundAt: ((number, number
 		-- boar design forbids (section 6), and the same shape as the topple and the lift.
 		if groundAt ~= nil then
 			local part = handle.part
-			local half = part.Size.Y / 2
+			-- THE HALF-EXTENT IS THE BOX'S AT THE ANGLE IT IS LYING AT, AND ROUND 1 GOT THIS WRONG
+			-- (the Reviewer's finding 1): with `Size.Y / 2` a stag already on the ground measured 1.500
+			-- studs below it and was lifted and anchored in the air. Both the bottom and the ray's own
+			-- origin are measured from it, so a rolled body asks about the same body.
+			local half = Body.verticalHalf(part.CFrame, part.Size)
 			local top = part.Position.Y + half + config.CARCASS_GROUND_FROM_STUDS
 			local ok, measured = pcall(groundAt :: any, part.Position.X, part.Position.Z, top)
 			local drop = Body.groundDrop(part.Position.Y - half, if ok then measured else nil, config)

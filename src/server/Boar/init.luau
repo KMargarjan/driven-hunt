@@ -69,6 +69,9 @@ Boar.shouldBackstopDeath = Body.shouldBackstopDeath
 -- move to be ON the ground -- both decisions a spec states with no physics and no world.
 Boar.collapseVelocity = Body.collapseVelocity
 Boar.groundDrop = Body.groundDrop
+-- ...and the one the ground correction measures its body with, for the same reason: it is pure, and
+-- round 1's blocking finding was arithmetic that a spec can state without a carcass in the world.
+Boar.verticalHalf = Body.verticalHalf
 -- ...and the one review round 1's finding 1 turns on: whether a clip that is already playing needs
 -- its rate rewritten. A HELD clip never does.
 Boar.shouldAdjustRate = Body.shouldAdjustRate

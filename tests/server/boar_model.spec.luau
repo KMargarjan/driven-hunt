@@ -1220,6 +1220,25 @@ return function()
 			-- task 192 round 2), so a canopy cannot answer a question about the ground.
 			expect(w.CARCASS_GROUND_FROM_STUDS > 0).to.equal(true)
 		end)
+
+		it("measures a carcass's bottom at the angle it is lying at (task 261, round 1 finding 1)", function()
+			-- `Size.Y / 2` IS THE BOTTOM ONLY WHILE THE BOX STANDS UP, and a carcass does not: the
+			-- stag's own box is 1.8 x 4.8 x 7.05, so a quarter turn puts 0.900 under its centre
+			-- where the standing half says 2.400 -- the 1.500 studs round 1 lifted him by.
+			local size = Vector3.new(1.8, 4.8, 7.05)
+			local upright = CFrame.identity
+			expect(Boar.verticalHalf(upright, size)).to.be.near(size.Y / 2, 1e-6)
+			local rolled = CFrame.Angles(0, 0, math.rad(90))
+			expect(Boar.verticalHalf(rolled, size)).to.be.near(size.X / 2, 1e-6)
+			expect(size.Y / 2 - Boar.verticalHalf(rolled, size)).to.be.near(1.5, 1e-6)
+			-- ...AND AT THE ANGLE `COLLAPSE_ROLL_DEG` NUDGES IT TO, which is neither of those.
+			local nudged = CFrame.Angles(0, 0, math.rad(CONFIG.WOUND.COLLAPSE_ROLL_DEG))
+			local halfNudged = Boar.verticalHalf(nudged, size)
+			expect(halfNudged < size.Y / 2).to.equal(true)
+			expect(halfNudged > size.X / 2).to.equal(true)
+			-- A YAW CHANGES NOTHING, because yaw does not move anything up or down.
+			expect(Boar.verticalHalf(CFrame.Angles(0, math.rad(37), 0), size)).to.be.near(size.Y / 2, 1e-6)
+		end)
 	end)
 
 	describe("a frozen death costs nothing after it has frozen", function()
@@ -2055,6 +2074,16 @@ return function()
 				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
 				expect(handle.backstopped).to.equal(true)
 				expect(handle.liftedBy).to.equal(0)
+				-- THE MESH IS BACK WHERE IT STARTED, AND THAT IS THE ASSERTION THAT MATTERS (the
+				-- Reviewer's round-1 finding 2). The two lines above are bookkeeping: `stepCarcass`
+				-- writes `liftedBy = 0` unconditionally, so reverting `Body.liftDrawn`'s `studs == 0`
+				-- guard to `studs <= 0` -- the change this task calls load-bearing -- left the calf's
+				-- mesh floating 1.325 studs with this case still green.
+				--
+				-- THE BOX ROLLED BETWEEN THE TWO READINGS, so the Y is compared against the part the
+				-- mesh is welded to rather than against the world: what is asserted is that the
+				-- OFFSET the lift added has gone, which is the thing that was taken.
+				expect(drawn.Position.Y - handle.part.Position.Y).to.be.near(0, 1e-3)
 				model:Destroy()
 			end)
 
@@ -2092,6 +2121,71 @@ return function()
 				expect(asked[1].x).to.be.near(handle.part.Position.X, 1e-3)
 				expect(asked[1].z).to.be.near(handle.part.Position.Z, 1e-3)
 				expect(asked[1].fromY > handle.part.Position.Y + half).to.equal(true)
+			end)
+
+			-- ------------------------------ AND IT IS MEASURED AT THE ANGLE IT LIES AT (round 1,
+			-- finding 1)
+			--
+			-- EVERY CARCASS THAT REACHES THE ANCHOR BY THE TOPPLED PATH IS LYING ON ITS SIDE, so
+			-- `Size.Y / 2` is not its bottom. Round 1 used it, and a stag already on the ground
+			-- measured **1.500 studs below** it (hind 1.283, calf 0.742, all past the 0.5 tolerance)
+			-- -- so the correction LIFTED a body that was down and the anchor froze it there for
+			-- `CARCASS_SECONDS` 120. Karen's own defect, caused by the code written to fix it.
+			it("does not lift a carcass that is lying on its side (task 261, round 1 finding 1)", function()
+				local handle = newBody()
+				handle.collapsed = true
+				handle.toppled = true
+				handle.upright.Enabled = false
+				handle.part.Anchored = false
+				-- A QUARTER TURN, which is where `Body.topple` plus gravity leave it: the box's own
+				-- WIDTH is vertical now, and `Size.Y / 2` is nearly three times the truth.
+				handle.part.CFrame = handle.part.CFrame * CFrame.Angles(0, 0, math.rad(90))
+				local half = Boar.verticalHalf(handle.part.CFrame, handle.part.Size)
+				expect(half).to.be.near(handle.part.Size.X / 2, 1e-3)
+				expect(math.abs(handle.part.Size.Y / 2 - half) > CONFIG.WOUND.CARCASS_GROUND_TOLERANCE_STUDS).to.equal(
+					true
+				)
+				-- IT IS RESTING EXACTLY ON THE GROUND, measured the way the body really lies.
+				local ground = handle.part.Position.Y - half
+				local reader = function(): number?
+					return ground
+				end
+				local before = handle.part.Position.Y
+				for _ = 1, 5 do
+					handle.part.AssemblyLinearVelocity = Vector3.zero
+					Body.stepCarcass(handle, 0.1, CONFIG.WOUND, reader)
+				end
+				expect(handle.part.Anchored).to.equal(true)
+				-- NOTHING MOVED. Against round 1's code this read 1.500 studs higher for a stag.
+				expect(handle.part.Position.Y).to.be.near(before, 1e-3)
+				expect(handle.grounded).to.equal(0)
+			end)
+
+			it("still puts a ROLLED carcass down when it really is hanging (task 261)", function()
+				local handle = newBody()
+				handle.collapsed = true
+				handle.toppled = true
+				handle.upright.Enabled = false
+				handle.part.Anchored = false
+				handle.part.CFrame = handle.part.CFrame * CFrame.Angles(0, 0, math.rad(90))
+				local half = Boar.verticalHalf(handle.part.CFrame, handle.part.Size)
+				local ground = handle.part.Position.Y - half - 5
+				local asked: { any } = {}
+				local reader = function(_x: number, _z: number, fromY: number?): number?
+					table.insert(asked, fromY)
+					return ground
+				end
+				for _ = 1, 5 do
+					handle.part.AssemblyLinearVelocity = Vector3.zero
+					Body.stepCarcass(handle, 0.1, CONFIG.WOUND, reader)
+				end
+				expect(handle.part.Anchored).to.equal(true)
+				expect(handle.part.Position.Y - half).to.be.near(ground, 1e-3)
+				expect(handle.grounded).to.equal(1)
+				-- ...AND THE RAY STARTED ABOVE THE ROLLED BODY, not above where a standing one would
+				-- have been: the origin is measured from the same half-extent as the bottom.
+				expect(#asked >= 1).to.equal(true)
+				expect(asked[1] > handle.part.Position.Y + half).to.equal(true)
 			end)
 
 			it("leaves a carcass that is already down alone, and refuses a wild answer (task 261)", function()
