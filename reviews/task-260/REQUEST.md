@@ -1,12 +1,12 @@
 # Task 260 -- the sight is true, leaves stop nothing, and the origin bound is measured
 
 Task: 260
-Round: 1
+Round: 2
 Base: main @ ae8aba15
-Code commit: 2cabe2ded43c3a7ad1540edb25720ec1681bc3c7
+Code commit: 152b26343e86c5c1a48496c9a709f771d3980394
 
 ```
-[harness] PASS: 34/34 checks @ 2cabe2ded43c3a7ad1540edb25720ec1681bc3c7 (clean tree) scope=all
+[harness] PASS: 34/34 checks @ 152b26343e86c5c1a48496c9a709f771d3980394 (clean tree) scope=all
 ```
 
 `[harness2]` is **N/A**: nothing here touches `TWO_PLAYER_PATHS`. The changed files are
@@ -32,6 +32,42 @@ contain. The design run is one command away for whoever has the clock.
 
 > *"YOUR ESCALATION (2026-10-25, BORE_ON_SIGHT_LINE) IS DECIDED by the Director: OPTION 1 ...
 > THE TRUE SIGHT: `BORE_ON_SIGHT_LINE = true`."*
+
+## Round 1 -> round 2
+
+**Both blocking findings were mine and both are closed.**
+
+1. **Two shipped comments claimed `docs/design/shotgun.md` had been amended by this task.** It has
+   not been (the top of this request has always said the Architect runs wrote nothing), so the
+   comments were telling a reader the document agrees with the code on exactly the line the task
+   changed. `Shotgun.CONFIG.BORE_ON_SIGHT_LINE` and `sights.spec`'s describe now say the document is
+   NOT yet amended and point at `reviews/task-260/BRIEF.md`.
+2. **A real defect: `onActionRequest`'s `"Aim"` branch still bounded the client's claimed origin at
+   15 studs while `onFireRequest` bounded the byte-identical payload at 6** -- two answers to one
+   question, under a comment promising *"THE SAME VALIDATOR THE TRIGGER'S RAY GETS"*. It now passes
+   `ORIGIN_TOLERANCE_STUDS`. `src/client/Weapon/Input.luau` says the two payloads are built from the
+   same two lines, so this was reachable by any player who shouldered a gun.
+
+**Six notes fixed, four of them numbers I had written wrongly:** the first-person minimum is
+**1.226** studs, not 1.209 -- not a value the pitch clamp allows -- and the case now asserts the
+closed form at BOTH ends so the figure cannot be wrong in silence again; *"16 is that clamp plus
+0.5"* was two errors in one line above a row that ships 15; `camera_mode.spec` claimed the
+third-person clamp *"really does bind"* where `Shotgun.CONFIG`'s own arithmetic says it never does
+(it is asserted both ways now); `Mode.luau` still described 30 studs with 15 of headroom; `BRIEF.md`
+carried the stale 16 into the document the amendment will be written from; and the `FIRST_PERSON`
+flag row now records that the server reads it too, which is a real second reader.
+
+**And one note was a weakness worth fixing rather than queueing:** `stats.originFarthest` is written
+only on the accepted path, so it could argue the bound TIGHTER and never looser -- the one event that
+would show 6 studs is too tight is a shot refused `origin-far`, and that shot never reached it.
+`stats.originRefused` and `stats.originRefusedFarthest` now record the refusal path.
+
+**Two notes are deliberately not acted on and are for Karen or the Architect, not for me:** that
+`unblockFoliage` clears `CanCollide` on ground-level cover (`bush`, `fern`, `shrub`) and so changes
+where a player can WALK as well as where a bullet goes -- true, a consequence of the measurement, and
+a thing to look at in a playtest; and that `Props.placeTree` reverses a choice its own comment
+attributes to `docs/design/` section 7.1, which is the same document gap as finding 1 and the
+Architect's to close.
 
 ## Claims
 
@@ -141,5 +177,8 @@ contain. The design run is one command away for whoever has the clock.
   leaf does to it. The frame that WOULD be evidence is a shot landing on the reticle at 100 m, and
   that is item 3's job and Karen's.
 - **The replication-lag half of claim 4's margin**, as claim 4 says.
-- **Time: 2h40 against the 2.5 h box** (session clock 01:17:35Z to 03:57Z). The overrun is the two
-  Architect runs.
+- **Time: measured, not estimated.** `duration_ms` from the session's own recorded start
+  (1792891055673) was **5,250,676 ms = 87 minutes** at the end of round 1, inside the 2.5 h box.
+  **Round 1's request and TASKS.md row claimed "2h40, over the box" and that was wrong** -- I read a
+  local clock as UTC. Corrected in both places rather than left standing, because an invented
+  overrun is as bad as a hidden one.
