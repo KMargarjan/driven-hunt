@@ -480,10 +480,55 @@ Lobby.CONFIG = {
 			-- ground fall -- well inside `DEPTH_STUDS` 48 and `CLEAR_STUDS` 96, so the existing
 			-- cut-and-fill makes this yard flat at the shelf exactly as it does the lodge's. Measured
 			-- again with the yard built: **dead flat, spread 0.00 studs at y 150.00**.
+			--
+			-- ---------------- **MOVED AND WIDENED FOR THIRTY ANIMALS (task 261, item 4)**
+			--
+			-- KAREN, 2026-10-25: *"and again when animals too much we need show in another row"* --
+			-- the same sentence as task 255's, said again, because the cap of 16 still truncated her
+			-- bag. THE DIRECTOR'S DECISION, 2026-10-25: *"MOVE THE GATHERING to open ground (the
+			-- yard's free side, or in front of the lodge clear of the trucks and pads), sized for 30
+			-- animals in rows of 5-6, and lay out all of them (cap 30)"*.
+			--
+			-- 56 x 56 AT -50 HELD 16 AND THE BINDING NUMBER WAS THE CHIMNEY, 29.0 studs from the
+			-- gathering's centre (`ESCALATE.md`, 2026-10-24, with the table). Thirty animals are five
+			-- rows of six at `SPACING_STUDS` 9: a block 45 x 36, so `Scene.cornerReachFor` is
+			-- **36.81** and the scene is a 73.6-stud square against 54.2 before. It therefore needs
+			-- 36.81 studs of room east of its centre and the chimney is 29 -- which is why the centre
+			-- MOVES WEST as well as the pad getting bigger.
+			--
+			-- -62 AND 80 x 80, AND EVERY ONE OF THE FOUR BOUNDS IS ARITHMETIC:
+			--   * THE CHIMNEY. The lodge's west wall is x -18 and the chimney stands 3 studs proud of
+			--     it at -21. The scene's east edge is -62 + 36.81 = **-25.19**, which clears it by
+			--     4.19 studs -- where 16 at -50 cleared it by 1.91. The margin went UP, not down.
+			--   * THE DIRT STOPS SHORT OF THE HOUSE. The pad's east edge is -22, four studs west of
+			--     the wall at -18, exactly as before -- so no part of the lodge, the porch (-15), the
+			--     spawn (-19.5), the road (7), the fences (2), the four trucks or the four pads stands
+			--     on the gathering's ground. `lobby.spec` asserts all seven against `Match.CONFIG`.
+			--   * THE SCENE IS INSIDE THE DIRT. min(80, 80) / 2 = 40 against a reach of 36.81 is
+			--     **3.19 studs of margin** on every side -- thinner than 16's 4.5 and reported as
+			--     thin, which is what the `margin > 0` assertion is for.
+			--   * THE FIELD. The pad runs x -102 .. -22 and z -30 .. 50 inside a 220-stud shelf, so
+			--     its west edge has 8 studs of flat ground beyond it before the bank.
+			--
+			-- **IT COSTS TREES AND THAT IS MEASURED, NOT HOPED FOR.** `Build.treeLine` already SKIPS
+			-- any trunk that lands inside this rectangle (task 191's third exclusion, written for
+			-- exactly this edit: *"a wider yard, a shorter radius or more jitter must not quietly
+			-- plant a tree in it"*), and the western arc stands at radius 91..109 -- so a square this
+			-- big does reach it. `lobby.spec` counts the trunks the guard now removes instead of
+			-- asserting it removes none; the gathering becomes a CLEARING framed by the rest of the
+			-- arc. **Karen has not looked at that yet** and it is the one thing in this change that
+			-- is a matter of taste rather than arithmetic.
+			--
+			-- -62 / 10 AND 80, AND ALL FOUR EDGES ARE ON THE VOXEL GRID, which is the plan's own step
+			-- 8 and the reason the old row was -50 and not -52: `Terrain:FillBlock` writes 4-STUD
+			-- VOXELS on a grid anchored at the world origin, and a misaligned edge keeps its grass
+			-- (measured at -52 in the live place, 2026-10-16: 2 grass voxels out of 625 samples). The
+			-- anchor is (2850, -2950), so the absolute edges are x 2748 and 2828 and z -2980 and
+			-- -2900 -- every one a multiple of 4.
 			{
 				NAME = "Gather",
-				OFFSET = Vector3.new(-50, 0, 10),
-				SIZE = Vector3.new(56, 6, 56),
+				OFFSET = Vector3.new(-62, 0, 10),
+				SIZE = Vector3.new(80, 6, 80),
 				MATERIAL = Enum.Material.Ground,
 			},
 		},

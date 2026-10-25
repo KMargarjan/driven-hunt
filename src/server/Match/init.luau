@@ -321,16 +321,37 @@ Match.CONFIG = {
 		--
 		-- 16 IS FOUR FULL ROWS OF `PER_ROW`, which is why it is 16 and not 15 or 18: a cap that is
 		-- not a multiple of the row leaves a short last row for no reason.
-		MAX_ANIMALS = 16,
+		--
+		-- **16 -> 30 (task 261, item 4), AND THE YARD WAS MOVED AND WIDENED TO HOLD IT.** KAREN,
+		-- 2026-10-25: *"and again when animals too much we need show in another row"* -- the same
+		-- sentence as task 255's, said again, because 16 still truncated her bag. The Director's
+		-- decision, 2026-10-25: *"MOVE THE GATHERING to open ground, sized for 30 animals in rows of
+		-- 5-6, and lay out all of them (cap 30; beyond that, the rest go on the board)"*.
+		--
+		-- THE ARITHMETIC, and it is the escalation's own table worked the other way round
+		-- (`ESCALATE.md`, 2026-10-24). At `SPACING_STUDS` 9 and `PER_ROW` 6, thirty animals are five
+		-- rows of six: a block 45 x 36, half-diagonal 28.81, a ring of 34.81 and the four torches at
+		-- **36.81** -- so the scene is a 73.6-stud square where 16 needed 54.2. The `Gather` pad is
+		-- now 80 x 80 at offset x -62 (`Lobby.CONFIG.FIELD.PADS`, whose row carries the four
+		-- clearances), which puts the scene's east edge at -25.19 against the lodge chimney's -21.
+		--
+		-- 30 IS FIVE FULL ROWS OF SIX, for the same reason 16 was four of four.
+		MAX_ANIMALS = 30,
 		-- SEVERAL ROWS (task 168). KAREN, 2026-10-12 ~21:45: *"animals layed down in front in
 		-- several lines if more"*.
 		--
 		-- 6 -> 4 (task 255), and it is the same measurement as `MAX_ANIMALS` above: at `SPACING_STUDS`
 		-- 9 a row of six is 45 studs of front, whose half-width alone (22.5) puts the ring outside
-		-- the yard before a second row exists. Four to a row is 27 studs of front and the block is
-		-- 27 x 27 -- SQUARE, which is also the shape a ring of people stands round best, and squarer
-		-- than the 6 x 2 Karen has been looking at.
-		PER_ROW = 4, -- K's "several lines"
+		-- the yard before a second row exists.
+		--
+		-- **AND 4 -> 6 AGAIN (task 261, item 4), BECAUSE THE YARD MOVED.** Task 255's 4 was not a
+		-- preference either: it was the 56-stud pad beside the lodge, measured. The Director's
+		-- decision of 2026-10-25 moved and widened that pad, so the 45 studs of front a row of six
+		-- needs is now inside it -- and the row width is what decides the block's DIAGONAL, which is
+		-- what the ring and the torches are built out of. Six of five beats five of six by nothing
+		-- (the diagonal is the same either way); six is the Director's *"rows of 5-6"* and keeps the
+		-- cap a whole number of rows.
+		PER_ROW = 6, -- K's "several lines"
 		-- THE SAME AS THE SIDEWAYS SPACING SINCE TASK 255, and the reason is above: the biggest thing
 		-- this game lays down is a rolled stag at 7.9202 ACROSS by 7.0500 ALONG, so the two axes are
 		-- within a stud of each other and one number serves both. The worst ALONG is the LEGENDARY

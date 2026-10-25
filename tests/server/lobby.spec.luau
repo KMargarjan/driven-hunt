@@ -1274,42 +1274,73 @@ return function()
 			expect(noneFacing).to.equal(nil)
 		end)
 
-		it("takes no tree out of the line, and lets none stand on it", function()
-			-- THE GUARD IN `Build.treeLine` REMOVES NOTHING TODAY, and that is measured rather than
-			-- hoped for: the western arc stands its trunks at x ~ -82 to -104 from the anchor
-			-- (`RADIUS_STUDS` 100 with `JITTER_STUDS` 9) and the yard's west edge is at -80, so the
-			-- thirty trees FRAME the gathering instead of standing in it.
+		it("lets no tree stand on the gathering yard, and COUNTS the ones it takes out (task 261)", function()
+			-- **UNTIL TASK 261 THIS CASE ASSERTED THE GUARD REMOVED NOTHING**, and that was true of a
+			-- 56-stud yard at x -50: the western arc stands its trunks at x ~ -82 to -104
+			-- (`RADIUS_STUDS` 100 with `JITTER_STUDS` 9) and the yard's west edge was -80, so the
+			-- thirty FRAMED the gathering. The Director's decision of 2026-10-25 moved the yard to
+			-- -62 and widened it to 80 x 80 so THIRTY animals fit in rows of six -- and a square that
+			-- big reaches the arc.
 			--
-			-- EVERY ANGLE AND EVERY RADIUS IN THE JITTER BAND, one stud at a time, because the box is
-			-- convex and a straight segment can cross it with both ends outside: checking the two
-			-- extremes alone would not be a proof.
+			-- SO THE CASE NOW ASSERTS THE TWO HALVES SEPARATELY, and only the first of them is a
+			-- rule: NOTHING the live build plants may stand inside the rectangle (a spruce among the
+			-- animals Karen asked to SEE is the same mistake as a spruce in the road), and HOW MANY
+			-- the guard removed is a NUMBER -- reported, because it is what Karen looks at and not
+			-- something arithmetic can settle.
 			local centre = anchor + (pad :: any).OFFSET
 			local size = (pad :: any).SIZE
-			local spec = CFG.TREELINE
-			local span = spec.TO_RADIANS - spec.FROM_RADIANS
-			local inside, nearest = 0, math.huge
-			for index = 1, spec.COUNT do
-				local angle = spec.FROM_RADIANS + span * ((index - 0.5) / spec.COUNT)
-				for radius = spec.RADIUS_STUDS - spec.JITTER_STUDS, spec.RADIUS_STUDS + spec.JITTER_STUDS, 1 do
-					local x = anchor.X + math.sin(angle) * radius
-					local z = anchor.Z + math.cos(angle) * radius
-					local dx = math.abs(x - centre.X) - size.X / 2
-					local dz = math.abs(z - centre.Z) - size.Z / 2
-					if dx < 4 and dz < 4 then
-						inside += 1
-					end
-					if math.max(dx, dz) < nearest then
-						nearest = math.max(dx, dz)
-					end
+			-- THE LIVE BUILD AND NOT THE NOMINAL ARC, because the jitter is what decides which trunks
+			-- the exclusion can reach -- and it is seeded (`Random.new(1804)`), so this is an exact
+			-- number and not a sample.
+			local container = Instance.new("Folder")
+			container.Name = "LobbySpecGatherTrees"
+			container.Parent = Workspace
+			local templates = fakeTemplates()
+			local folder = Build.build(container, anchor, CFG, templates)
+			local line = folder:FindFirstChild("TreeLine")
+			expect(line).to.be.ok()
+			local planted, onTheYard = 0, 0
+			for _, tree in ipairs((line :: Instance):GetChildren()) do
+				local at = if tree:IsA("BasePart")
+					then (tree :: BasePart).Position
+					else (tree :: Model):GetPivot().Position
+				planted += 1
+				if math.abs(at.X - centre.X) < size.X / 2 + 4 and math.abs(at.Z - centre.Z) < size.Z / 2 + 4 then
+					onTheYard += 1
 				end
 			end
+			container:Destroy()
+			templates:Destroy()
+			-- THE RULE: not one trunk on the gathering's ground.
+			expect(onTheYard).to.equal(0)
+			-- ...AND THE COUNT, which is what the move cost. The nominal bearings 23..28 land inside
+			-- the new rectangle, so the arc loses six of its thirty to the clearing and keeps the
+			-- rest -- and this number falling further is the thing to notice.
+			expect(planted >= CFG.TREELINE.COUNT - 10).to.equal(true)
 			TestKit.note(
 				string.format(
-					"lobby: no arc position can reach the gathering yard -- nearest trunk is %.1f studs outside it",
-					nearest
+					"lobby: the tree line plants %d of %d -- the gathering yard (%.0f x %.0f at x %.0f) is a clearing",
+					planted,
+					CFG.TREELINE.COUNT,
+					size.X,
+					size.Z,
+					(pad :: any).OFFSET.X
 				)
 			)
-			expect(inside).to.equal(0)
+			-- ...AND THE GUARD IS LOAD-BEARING NOW RATHER THAN SPARE: the nominal arc really does
+			-- cross the rectangle, which is the fact that used to be false.
+			local spec = CFG.TREELINE
+			local span = spec.TO_RADIANS - spec.FROM_RADIANS
+			local reaches = 0
+			for index = 1, spec.COUNT do
+				local angle = spec.FROM_RADIANS + span * ((index - 0.5) / spec.COUNT)
+				local x = anchor.X + math.sin(angle) * spec.RADIUS_STUDS
+				local z = anchor.Z + math.cos(angle) * spec.RADIUS_STUDS
+				if math.abs(x - centre.X) < size.X / 2 + 4 and math.abs(z - centre.Z) < size.Z / 2 + 4 then
+					reaches += 1
+				end
+			end
+			expect(reaches).to.equal(6)
 		end)
 
 		it("keeps a spruce off the yard even if the arc is moved onto it", function()
@@ -4081,6 +4112,21 @@ return function()
 					CFG
 				)
 			).to.equal(true)
+			-- ...AND THE GATHERING YARD IS WORKING GROUND TOO (task 261, item 4). It moved to x -62
+			-- and grew to 80 x 80 for thirty animals, and the `Yard` rectangle plus its 12-stud
+			-- margin reaches only x -54 -- so 48 studs of the gathering's own ground used to be
+			-- outside every sweep, and a world bush standing among the animals Karen asked to SEE is
+			-- the same mistake `treeLine`'s third exclusion already refuses for our own trees.
+			local gather = Data.gatherPad(CFG) :: any
+			local gatherAt = anchor + gather.OFFSET
+			expect(Build.onWorkingGround(gatherAt.X, gatherAt.Z, anchor, CFG)).to.equal(true)
+			-- ITS WEST EDGE, which is the part the `Yard` rectangle never reached...
+			expect(Build.onWorkingGround(gatherAt.X - gather.SIZE.X / 2 + 1, gatherAt.Z, anchor, CFG)).to.equal(true)
+			-- ...AND ONE STUD BEYOND IT IS THE WOOD AGAIN, so the sweep is bounded by the row and not
+			-- by a guess.
+			expect(Build.onWorkingGround(gatherAt.X - gather.SIZE.X / 2 - 1, gatherAt.Z - gather.SIZE.Z, anchor, CFG)).to.equal(
+				false
+			)
 		end)
 
 		it("takes the world's foliage off it, and counts what it took", function()

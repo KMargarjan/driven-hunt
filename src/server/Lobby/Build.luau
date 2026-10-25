@@ -4046,6 +4046,23 @@ function Build.onWorkingGround(x: number, z: number, anchor: Vector3, cfg): bool
 	if math.abs(x - roadX) <= roadHX and z >= roadFar and z <= roadNear then
 		return true
 	end
+	-- ...AND THE GATHERING YARD, WHICH IS THE FOURTH RECTANGLE SINCE TASK 261 (item 4). The yard
+	-- moved to x -62 and grew to 80 x 80 so thirty animals fit in rows of six -- and the `Yard`
+	-- rectangle plus `YARD_MARGIN_STUDS` 12 reaches only x -54, so 48 studs of the gathering's own
+	-- ground was outside every sweep. A BUSH STANDING AMONG THE ANIMALS KAREN ASKED TO SEE is the
+	-- same mistake as a spruce among them, which `Build.treeLine`'s third exclusion already refuses
+	-- for OUR trees; this is the same rule for the world's.
+	--
+	-- THE RECTANGLE IS `Data.gatherPad`'S ROW and is not recomputed here -- `treeLine`'s discipline
+	-- -- and a config with no gathering row sweeps exactly the three rectangles it always did.
+	local gather = Data.gatherPad(cfg)
+	if gather ~= nil then
+		local centre = anchor + (gather :: any).OFFSET
+		local size = (gather :: any).SIZE
+		if math.abs(x - centre.X) <= size.X / 2 and math.abs(z - centre.Z) <= size.Z / 2 then
+			return true
+		end
+	end
 	local house = anchor + cfg.LODGE.OFFSET
 	local front = cfg.LODGE.SIZE.Z / 2
 	return math.abs(x - house.X) <= cfg.TREELINE.FRONT_HALF_WIDTH
@@ -4638,12 +4655,17 @@ local function treeLine(
 		-- time: a spruce standing among the animals Karen asked to SEE is the same mistake as a
 		-- spruce in the road.
 		--
-		-- IT REMOVES NOTHING TODAY, AND THAT IS MEASURED RATHER THAN HOPED FOR: the western arc
-		-- stands its trunks at x ~ -82 to -104 from the anchor (`RADIUS_STUDS` 100 with
-		-- `JITTER_STUDS` 9), and the yard's west edge is at -80 -- so the thirty trees FRAME the
-		-- gathering instead of standing in it, and `lobby.spec` asserts the count is unchanged. What
-		-- this guard is for is the next edit: a wider yard, a shorter radius or more jitter must not
-		-- be able to put one back.
+		-- **IT NOW REMOVES SIX, AND THIS IS THE EDIT ITS OWN COMMENT WAS WRITTEN FOR** (task 261,
+		-- item 4). Until today it removed nothing and said so: the western arc stood its trunks at
+		-- x ~ -82 to -104 and the yard's west edge was -80, so the thirty FRAMED the gathering. The
+		-- Director's decision of 2026-10-25 moved the yard to -62 and widened it to 80 x 80 so thirty
+		-- animals fit in rows of six, and a square that big does reach the arc: the nominal trunks at
+		-- bearings 23..28 land inside it, so the gathering is a CLEARING framed by the rest.
+		--
+		-- THE GUARD IS WHY THAT IS A COUNT AND NOT A SPRUCE AMONG KAREN'S ANIMALS. `lobby.spec`
+		-- counts what the live build plants and asserts that none of it is inside this rectangle --
+		-- which is the half that must never change -- and reports the count, which is the half Karen
+		-- judges.
 		--
 		-- THE RECTANGLE IS `Data.gatherPad`'S ROW and is not recomputed here; `+ 4` is the margin the
 		-- yard exclusion above already uses, so a trunk on the boundary counts as on the yard.

@@ -439,15 +439,19 @@ return function()
 			end
 		end)
 
-		it("lays the whole cap out in four rows, and nobody touches anybody", function()
-			-- MORE THAN THE TWELVE SHE HAS BEEN SEEING, and a whole number of rows so the block is
-			-- never a row of one. The cap is 16 and not the Director's 20+ because the lobby's
-			-- gathering yard will not hold 20 -- `MAX_ANIMALS`' own comment has that arithmetic and
-			-- `ESCALATE.md` carries the decision.
-			expect(LIVE.SCENE.MAX_ANIMALS > 12).to.equal(true)
+		it("lays the whole cap out in five rows of six, and nobody touches anybody", function()
+			-- **THIRTY SINCE TASK 261, AND THE YARD WAS MOVED FOR IT.** KAREN, 2026-10-25: *"and
+			-- again when animals too much we need show in another row"* -- the same sentence as task
+			-- 255's, because the cap of 16 still truncated her bag. The Director's decision the same
+			-- day moved and widened the `Gather` pad (80 x 80 at x -62) so thirty fit in rows of six;
+			-- `ESCALATE.md`'s 2026-10-24 table is the arithmetic that said 16 was all the old yard
+			-- would hold.
+			expect(LIVE.SCENE.MAX_ANIMALS).to.equal(30)
+			expect(Scene.perRow(LIVE)).to.equal(6)
+			-- A WHOLE NUMBER OF ROWS, so the block is never a row of one.
 			expect(LIVE.SCENE.MAX_ANIMALS % Scene.perRow(LIVE)).to.equal(0)
-			expect(Scene.rowCount(LIVE.SCENE.MAX_ANIMALS, LIVE)).to.equal(4)
-			expect(Scene.rowCount(13, LIVE)).to.equal(4)
+			expect(Scene.rowCount(LIVE.SCENE.MAX_ANIMALS, LIVE)).to.equal(5)
+			expect(Scene.rowCount(13, LIVE)).to.equal(3)
 
 			-- THE WHOLE BLOCK, AT THE CAP, PAIR BY PAIR. The nearest two animals in the biggest bag
 			-- this game lays out are a spacing apart, and that spacing clears the widest animal --
@@ -465,22 +469,26 @@ return function()
 			expect(nearest > tightest - 1e-3).to.equal(true)
 			expect(nearest > 7.9202).to.equal(true)
 
-			-- ...AND THE BLOCK IS SQUARE AND NOT A HEDGE, which is the cap's original purpose: the
-			-- whole bag in ONE line would have been 135 studs of front.
+			-- ...AND THE BLOCK IS A BLOCK AND NOT A HEDGE, which is the cap's original purpose: the
+			-- whole bag in ONE line would be 261 studs of front. Six to a row is 45 studs wide and
+			-- five rows are 36 deep -- WIDER THAN DEEP BY ONE SPACING, which is a rank of animals
+			-- laid out in front of the people looking at them and not a square (task 255's 4 x 4 was
+			-- square because the old yard was).
 			local halfWidth, halfDepth = Scene.layoutExtent(count, LIVE)
-			expect(math.abs(halfWidth - halfDepth) < 1e-6).to.equal(true)
+			expect(halfWidth > halfDepth).to.equal(true)
+			expect(halfWidth - halfDepth).to.be.near(LIVE.SCENE.SPACING_STUDS / 2, 1e-6)
 			expect(halfWidth * 2 < (count - 1) * LIVE.SCENE.SPACING_STUDS).to.equal(true)
 
-			-- THE BLOCK HAS TO STAND IN KAREN'S YARD, and that is the whole reason the cap is 16:
-			-- `lobby.spec` asserts the containment against the real pad, and this is the bound it
-			-- comes down to. 28 is half the `Gather` pad's measured 56, and the lodge's chimney is
-			-- 29.0 studs from the gathering's centre (both read off the live lobby, 2026-10-24).
-			expect(Scene.cornerReachFor(count, LIVE) < 28).to.equal(true)
-			-- ...and one more animal to a row would not fit, which is what makes 4 the answer rather
-			-- than a preference.
+			-- THE BLOCK HAS TO STAND IN KAREN'S YARD, and the bound is the MOVED pad's own half:
+			-- `lobby.spec` asserts the containment against the real row and this is the number it
+			-- comes down to. 40 is half the `Gather` pad's 80 (task 261), where 28 was half the old
+			-- 56 -- and the scene's east edge at x -25.19 clears the lodge chimney's -21 by 4.19.
+			expect(Scene.cornerReachFor(count, LIVE) < 40).to.equal(true)
+			-- ...AND ONE MORE TO A ROW WOULD NOT FIT, which is what makes six the answer rather than
+			-- a preference: seven across puts the torches outside the dirt.
 			local wider = table.clone(LIVE.SCENE)
-			wider.PER_ROW = 5
-			expect(Scene.cornerReachFor(20, { SCENE = wider }) > 29).to.equal(true)
+			wider.PER_ROW = 7
+			expect(Scene.cornerReachFor(35, { SCENE = wider }) > 40).to.equal(true)
 		end)
 
 		it("orders the bag by species then size, stably, and leaves an unknown kind at the back", function()
