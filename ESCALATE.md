@@ -5480,3 +5480,46 @@ measurement, the containment assertion and 220a(c)/(d), and leaves the layout wh
 
 **Karen has not seen a phone frame of any of this.** Nothing here blocks the merge: before task 220
 those two rail buttons were not on the screen at all.
+
+
+## 2026-10-25 - Task 261: **`NEEDS KAREN` -- THE TWO-PLAYER RUN CANNOT BE STARTED ANY MORE, BECAUSE THE CONTROL THE HARNESS NAMES IS NOT IN THIS STUDIO'S UI.**
+
+Task 261 touches `src/server/Match/`, so the merge gate and the review BOTH ask for
+`[harness2] PASS` (`TWO_PLAYER_PATHS`). The one-player line is green --
+`[harness] PASS: 34/34 checks @ dc1baceea84cccd33bbbc13eefa8a4694d59d87f (clean tree) scope=all` --
+and `tools/review.sh` will refuse the round without the other one.
+
+### What was tried, and what it did
+
+* `python tools/studio_mcp.py test2` printed its own `NEEDS KAREN` and timed out:
+  `FAIL A 2-player local test appeared within 180 s (0 new studio(s) beside the editor)`.
+* `<runs-dir>/press-f7.ps1` -- *"Starts Studio's 'Server and Clients' local test (F7; 2 players is
+  Karen's saved setting) without a human ... verified 2026-09-25"* -- was driven inside the wait
+  window. **It started a session and ONE process appeared:** `FAIL ... (1 new studio(s) beside the
+  editor)`, and the window that came up was titled `Server - Roblox Studio`. So F7 reaches the right
+  command and the saved player count is **0**, not 2. The stray Server was stopped and closed; only
+  the DEV editor is open.
+* The control that sets it is not there. `START_CLICKS` in `tools/studio_mcp.py` says
+  *"Test tab -> Clients and Servers -> Players: 2 -> Start"*, and **this Studio's ribbon tabs are
+  Home / Avatar / UI / Script**. The test commands have moved into the `Test` MENU
+  (`File Edit View Plugins Test Window Help`), whose `Start Test Session` submenu offers
+  `Test F5 / Test Here / Run F8 / Server and Clients F7` and nothing about a player count; a
+  separate `Add Clients` item sits in the same menu, greyed until a session is running. Screens:
+  `<runs-dir>/t261-testmenu-crop.png`, `t261-testsub-crop.png`, `t261-tabs.png`.
+
+### The exact clicks, for Karen
+
+1. In **Driven Hunt DEV**, menu **Test -> Start Test Session -> Server and Clients** (or F7).
+2. With the session up, menu **Test -> Add Clients** until there are **two** client windows.
+3. **Stop**, then **End Session**, so only the editor is left.
+4. Tell the Director the player count is saved, and `python tools/studio_mcp.py test2` can be run.
+
+If `Add Clients` adds one at a time and the count is not saved anywhere, then `test2`'s instructions
+and its 180-second wait need rewriting for this Studio build -- which is a task, not a click, and is
+the Director's to schedule.
+
+### What it blocks and what it does not
+
+It blocks **the review round and the merge** of task 261, and nothing else: every item is built,
+committed and pushed, the one-player gate is green at the code commit, CI is green on the branch
+head, and `reviews/task-261/REQUEST.md` is written and waiting for the line.
