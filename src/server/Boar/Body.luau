@@ -398,6 +398,9 @@ function Body.create(config, folder: Folder, id: string, position: Vector3, kind
 		-- ever actually move? nil means nothing was promised -- the box did the falling, or there
 		-- was no visual at all -- and the backstop is then not armed.
 		deathTrack = nil :: AnimationTrack?,
+		-- ...AND THE TWO CLIP NAMES A DEATH CAN BE DRAWN WITH (task 261, item 3), written by
+		-- `Body.collapse` beside the track it is trusting. nil means nothing was promised.
+		deathClipNames = nil :: { string }?,
 		-- ...AND WHETHER THE BACKSTOP HAD TO FIRE, so "a dead animal standing" is a COUNTED fact and
 		-- not a thing somebody notices in a playtest. `Body.info` carries it out to the Runtime's
 		-- own counter.
@@ -2515,6 +2518,12 @@ function Body.collapse(handle, config, full)
 	-- (task 249). `stepCarcass` holds this track to its promise: a death that has not advanced a
 	-- frame by `DEATH_BACKSTOP_SECONDS` never will, and the box rolls after all.
 	handle.deathTrack = deathTrack
+	-- ...AND THE TWO NAMES A DEATH CAN BE DRAWN WITH (task 261, item 3), written HERE because this is
+	-- the one place that holds the whole config: `stepCarcass` gets `config.WOUND` alone and could not
+	-- ask `Body.deathClips` at all. `Body.deathTrackOn` reads them to tell *"the fall never ran"* from
+	-- *"the PADDLE is running"*, which is TASKS.md row 249b's note (ii).
+	local fall, paddle = Body.deathClips(full)
+	handle.deathClipNames = { fall, paddle }
 
 	-- ...AND WHEN THERE IS SOMETHING DRAWN, THE CLIP THAT DOES THE FALLING OVERSHOOTS ON A SMALL
 	-- ANIMAL (task 120). Karen, 2026-10-04: "when shoot cub he is gone not remaining". The cub was
@@ -2665,10 +2674,16 @@ end
 -- death is drawing this animal and the box must not roll it a second time. `handle.deathTrack` is
 -- still the fall track and is still what ARMS the backstop -- the arming is a fact about what was
 -- promised, and this is a fact about what is happening.
-function Body.deathTrackOn(handle, config): AnimationTrack?
-	local fall, paddle = Body.deathClips(config)
+--
+-- THE TWO NAMES COME OFF THE HANDLE AND NOT OFF A CONFIG, and that is not tidiness: `stepCarcass` is
+-- handed `config.WOUND` and `Body.deathClips` reads `config.MODEL`, so asking it here would index a
+-- table that does not exist (it did, and the whole suite's carcasses went with it). `Body.collapse`
+-- is the one place that holds the WHOLE config, so it is the one place that writes them -- and it
+-- writes them exactly where it arms the backstop, which is the only state in which they are read.
+function Body.deathTrackOn(handle): AnimationTrack?
+	local names = handle.deathClipNames
 	local name = handle.clip
-	if name == fall or name == paddle then
+	if names ~= nil and name ~= nil and (name == names[1] or name == names[2]) then
 		local playing = handle.tracks[name]
 		if playing ~= nil then
 			return playing
@@ -2746,7 +2761,7 @@ function Body.stepCarcass(handle, dt: number, config, groundAt: ((number, number
 	-- `stepVisual` returns early for a toppled carcass, so once this has fired no death clip is
 	-- ever played on this animal -- and the track is stopped here so a late download cannot apply
 	-- one behind its back.
-	local track = Body.deathTrackOn(handle, config)
+	local track = Body.deathTrackOn(handle)
 	local drawn = Body.deathDrawn(if track then track.TimePosition else nil, if track then track.Length else nil)
 	if Body.shouldBackstopDeath(handle.collapsedFor, handle.deathTrack ~= nil, drawn, handle.toppled, config) then
 		handle.deathTrack = nil

@@ -1994,6 +1994,10 @@ return function()
 				-- ...AND THE PADDLE IS WHAT IS ON THE RIG, advancing. `handle.clip` is what `play`
 				-- last started, which is the one fact that says WHICH clip is drawing this animal.
 				handle.clip = paddle
+				-- THE TWO NAMES ARE THE HANDLE'S AND ARE WRITTEN BY `Body.collapse` (which is the one
+				-- place that holds the whole config), so a case that hand-writes the track writes
+				-- them too -- the `deadWithTrack` stand-in's own discipline.
+				handle.deathClipNames = { fall, paddle }
 				handle.tracks[paddle] = { TimePosition = 0.5, Length = MODEL.CLIPS[paddle].seconds }
 				handle.collapsedFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
 				local before = handle.part.CFrame
@@ -2006,12 +2010,12 @@ return function()
 				expect(stopped.n).to.equal(0)
 				-- ...AND NOTHING IS WATCHED NOW: the promise was kept, by the paddle.
 				expect(handle.deathTrack).to.equal(nil)
-				expect(Body.deathTrackOn(handle, CONFIG)).to.equal(handle.tracks[paddle])
+				expect(Body.deathTrackOn(handle)).to.equal(handle.tracks[paddle])
 				-- A CLIP THAT IS NOT A DEATH DOES NOT ANSWER THE QUESTION: the fall track is what
 				-- the backstop watches when nothing is drawing the death.
 				handle.clip = "walk"
 				handle.deathTrack = handle.tracks[fall]
-				expect(Body.deathTrackOn(handle, CONFIG)).to.equal(handle.tracks[fall])
+				expect(Body.deathTrackOn(handle)).to.equal(handle.tracks[fall])
 			end)
 
 			-- ------------------------------ AND THE LIFT IS PAID BACK (task 261, item 3)
