@@ -64,8 +64,10 @@ def arg(name, default=None):
 KIND = arg("--kind", "any")
 LEAD = "--lead" in sys.argv
 STILL = "--still" in sys.argv
+ANY_SPEED = "--any-speed" in sys.argv
 CHECK = "--check" in sys.argv
 SLUG = "--slug" in sys.argv
+RELOAD_ONCE = "--reload-once" in sys.argv
 SHOTS = int(arg("--shots", "1"))
 OUT = arg("--out", "266shot")
 MAX_RANGE = float(arg("--range", "250"))
@@ -122,6 +124,7 @@ local eye = (head :: BasePart).Position
 local KIND = "%KIND%"
 local LEAD = %LEAD%
 local STILL = %STILL%
+local ANY_SPEED = %ANYSPEED%
 local MAX_RANGE = %RANGE%
 local folder = Workspace:FindFirstChild("Boars")
 if folder == nil then return "NO Boars folder" end
@@ -140,7 +143,11 @@ for _, part in ipairs(folder:GetChildren()) do
         local kind = tostring(part:GetAttribute("Kind"))
         if KIND == "any" or species == KIND or kind == KIND then
             local speed = part.AssemblyLinearVelocity.Magnitude
-            local wanted = if STILL then speed < 0.5 else speed > 3.0
+            -- `--any-speed` EXISTS BECAUSE AN ANCHORED ANIMAL'S CLIENT REPLICA CAN STILL READ A
+-- VELOCITY: measured 2026-10-25, a staged target anchored on the server was skipped by
+-- the still filter nine times with `blocked=0`. The speed is then read off the row and
+-- reported rather than used as a gate.
+local wanted = if ANY_SPEED then true elseif STILL then speed < 0.5 else speed > 3.0
             if wanted then
                 local d = (part.Position - eye).Magnitude
                 if d < MAX_RANGE and d < best then
@@ -367,6 +374,7 @@ def main():
 
     code = (flat(ARM).replace("%KIND%", KIND).replace("%LEAD%", "true" if LEAD else "false")
                      .replace("%STILL%", "true" if STILL else "false")
+                     .replace("%ANYSPEED%", "true" if ANY_SPEED else "false")
                      .replace("%RANGE%", str(MAX_RANGE)).replace("%GEN%", GEN))
     line = ""
     for _ in range(int(arg("--poll", "25"))):
@@ -383,8 +391,14 @@ def main():
         # The gun is reloaded with the player's own R key before every shot; the HELD VIEW TRACKS the
         # animal every rendered frame, so the 2.6 s the reload costs no longer moves the aim off it
         # (task 265's own fault: a fixed point plus a walking animal).
-        ps("263key.ps1", "R")
-        time.sleep(2.8)
+        # ONE RELOAD AT THE START, NOT ONE BEFORE EVERY SHOT (`--reload-once`). MEASURED 2026-10-25:
+        # a rifle magazine holds three, and the 2.8 s reload before each click is long enough for the
+        # drive to DESPAWN the animal that was armed -- which is exactly what happened to the first
+        # still-animal run, whose three shots all landed on terrain 71 studs past an animal the
+        # server no longer had.
+        if not RELOAD_ONCE or n == 0:
+            ps("263key.ps1", "R")
+            time.sleep(2.8)
         pre2 = (s.query("Server", flat(PRECHECK), studio_id=sid) or "").strip()
         if not pre2.startswith("PRE OK"):
             print("REFUSED before shot %d:" % (n + 1), pre2)
@@ -414,6 +428,12 @@ def main():
         print((s.query("Client", flat(READ), studio_id=sid) or "").strip())
         print("  AMMO   ", (s.query("Client",
             'local RS=game:GetService("ReplicatedStorage") return tostring(RS:GetAttribute("DH266Ammo"))',
+            studio_id=sid) or "").strip())
+        print("  ALIVE  ", (s.query("Client",
+            'local RS=game:GetService("ReplicatedStorage") local W=game:GetService("Workspace") '
+            'local n=tostring(RS:GetAttribute("DH266Target")) local f=W:FindFirstChild("Boars") '
+            'local p=f and f:FindFirstChild(n) '
+            'return string.format("%s exists=%s v=%.2f", n, tostring(p~=nil), p and p.AssemblyLinearVelocity.Magnitude or -1)',
             studio_id=sid) or "").strip())
         print("  ROWS   ", (s.query("Client",
             'local RS=game:GetService("ReplicatedStorage") local r=tostring(RS:GetAttribute("DH266Rows")) RS:SetAttribute("DH266Rows","") return r',
