@@ -1,5 +1,85 @@
 # Escalations
 
+## 2026-10-25 -- Task 266: **NEEDS KAREN / NEEDS DIRECTOR -- THE FOREST TEST WINDOW IS CLOSED, AND ROUND 2 CANNOT BE FINISHED WITHOUT IT.** Plus: the design is in, 259b is fixed, and round 1's stated cause for "6 clicks, 0 shots" is WITHDRAWN.
+
+**Not a disagreement. Two things the Director has to know and one click only the Director (or Karen)
+can make.**
+
+### 1. NEEDS KAREN / NEEDS DIRECTOR -- the exact clicks
+
+The Director's standing block says: *"Stop Play, leave it in Edit, then CLOSE its window
+(CloseMainWindow; Don't Save) before ANY harness run, so that only DEV is open"*, and *"If the Forest
+Test is closed when you need it, write NEEDS DIRECTOR and the Director opens it."* I did close it
+(`CloseMainWindow`, nothing saved; its `ServerStorage` attributes were re-read in Edit first and were
+character-for-character identical to the read taken during Play). The two harness runs after that
+confirm only DEV was open.
+
+**Round 2's required fix cannot be demonstrated without that window.** The Reviewer's finding 2
+requires the instrument's precheck to gate on *"evidence that the server actually tracks this
+player's weapon -- a `StateChanged` snapshot observed in this session"*, and a snapshot can only be
+observed in a live Play session of the Forest Test.
+
+**The clicks, in order:**
+1. Open **Driven Hunt Forest Test** (placeId 130094961655666) in Studio, in Edit.
+2. Press the Rojo plugin's **Connect** (`rojo serve` is alive on 34872, from
+   `C:\...\driven-hunt` via `<runs-dir>/rojo-supervisor.sh`; it was not restarted by this task).
+3. Leave it in Edit. Everything after that is scriptable.
+
+### 2. WHAT IS DONE, SO THE NEXT ROUND DOES NOT REDO IT
+
+- **The design is in and it is the deliverable.** `tools/architect.ps1 design ballistics --task 266`
+  answered **PASS** (`reviews/task-266/ARCH_RESULT.md`) and **says explicitly not to make the shotgun
+  run**: the `shotgun.md` delta is stated inside the design at section 14. It also flags three items
+  as the Director's or Karen's, none blocking: `Flags.MAX_FLAGS` 17 -> 18 for the `HIT_CLAIM` row,
+  **this task needing `test2`** once step 3 wires the history provider in `MatchBoot`, and the shared
+  clock in its "could not verify".
+- **259b is FIXED and gated.** `safetySignal:Fire(player, aim, origin, stopAt)`, one Vector3 at one
+  call site, which the design names in section 8. The lock and the penalty now measure one line
+  instead of two parallel ones 0.73 studs apart at every range. Nothing under `src/server/Match/` is
+  touched, so the gate is the one-player run (and `tools/agents.py` agreed: *"0 needing two
+  players"*). **It has no spec and was not seen with two players** -- the Reviewer's own note asks
+  for one and says how, and it is queued as 266a.
+- **The claim system itself is NOT built.** Acceptance (1), (2) and (3) are not met. (3) is not even
+  attemptable: there is no claim payload in the game yet. The design's section 13.3 splits the build
+  into four commits, each green on its own, and **step 1 is a pure refactor with no behaviour
+  change** -- that is where the next session starts.
+
+### 3. THE CORRECTION I OWE, BEFORE ANYBODY ACTS ON ROUND 1
+
+**Round 1's claim 6 said the "6 clicks, 0 shots" silence was the player being a beater with a horn.
+THAT IS WITHDRAWN.** The Reviewer caught it and the reading it cited contradicts it: `266diag.py`'s
+own output says `tool=Shotgun` throughout the silence, and the eye position in it is the shooter's
+stand (`3030,143,-2097`), not the beater's (`3660,190,-2670`). The beater reading was taken LATER in
+the same session, after the Forest Test rolled over to drive 2.
+
+So there are two facts, and only one of them is established:
+
+- **ESTABLISHED:** a player who is not a shooter with a gun clicks and the game answers **nothing at
+  all** -- `Weapon.heldId` does not know a Horn, `id` falls back to `Weapons.PRIMARY`, `stateOf` is
+  nil, and `onFireRequest` returns `"untracked"` **with no publish of any kind**. Demonstrated twice,
+  and `266shot.py` now refuses on it.
+- **NOT ESTABLISHED, STILL UNDIAGNOSED:** what silenced the nine clicks at the stand, with a shotgun
+  in hand. Four candidates are each silent in exactly the same way and cannot be separated without a
+  session: `Validator.checkShot` refusing (its publish is unforced and carries no `refused`), the
+  reducer refusing `is-open` mid-reload (same), `untracked` reachable **with a gun in hand** via an
+  unsynced `watchEquipped`, and `Input.isHeld()` -- a hold tag left set by a panel, which sends no
+  request at all. `266-holds.luau` proved the last one cannot be read from a probe:
+  `watchedTools=0` on a client with a Tool equipped means the probe gets a FRESH module copy.
+
+**So "6 clicks, 0 shots" is HALF diagnosed, and the half that matters for the next measurement -- a
+shooter at a stand whose clicks do nothing -- is open.** Nobody should rely on a click landing until
+it is closed.
+
+### 4. ONE MEASURED FACT ABOUT KAREN'S PATH THAT IS NOT ABOUT THIS TASK
+
+**The Forest Test shooter cannot reach the drive's animals with what he carries.** His reserve read
+`Buck=12 Slug=0`, buckshot's range is 100 studs (`Shotgun.CONFIG.RANGE_STUDS`), and the drive
+presented 19 animals at **137-230 studs** which then crossed at **17-64 studs for about ten seconds**
+and left nothing within 90 studs for the next minute. **Four of the five shots this task took were
+beyond 100 studs and the one inside it was the one that landed.** Whether that is a supply problem,
+an ammo problem or correct is Karen's call, not mine -- but every "miss" in round 1's batch is that
+and not the aim, and a future session measuring aim must take `--range` seriously.
+
 ## 2026-10-25 -- Task 259: THE BORE DOES NOT START ON THE SIGHT LINE, AND THE DESIGN SAYS IT MUST START AT THE MUZZLE
 
 **For the Director. A DECISION, not a blocked task: the fix is built, measured and shipped OFF, so
