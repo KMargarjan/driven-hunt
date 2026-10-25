@@ -1,13 +1,13 @@
 # Review request — Task 266: TRUE HITS
 
 Task: 266
-Round: 2
-Base: main (fb4e201c, task 265's comment fix cherry-picked by the Director)
-Code commit: a64b1944855270e89f67d2690f9d78874c01aba5
+Round: 3
+Base: 670416e6 (main at the branch point; task 265's comment fix cherry-picked by the Director as fb4e201c)
+Code commit: 5a634c489436ec5203bdd32ab203f134a6818cd6
 
 ```
-[harness]  PASS: 34/34 checks @ a64b1944855270e89f67d2690f9d78874c01aba5 (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ a64b1944855270e89f67d2690f9d78874c01aba5 (clean tree)
+[harness]  PASS: 34/34 checks @ 5a634c489436ec5203bdd32ab203f134a6818cd6 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ 5a634c489436ec5203bdd32ab203f134a6818cd6 (clean tree)
 ```
 
 `test2` is required and is **not** avoidable: `src/server/MatchBoot.server.luau` is a
@@ -15,7 +15,8 @@ Code commit: a64b1944855270e89f67d2690f9d78874c01aba5
 history to the Weapon.
 
 **Each of the design's four build steps has its own green full run**, which is what §13.3 asks for:
-step 1 `2ee070ac`, step 2 `8fb91198`, step 3 `1f2a0725`, step 4 `9ec9ec2e`, plus the live fix above.
+step 1 `2ee070ac`, step 2 `8fb91198`, step 3 `1f2a0725`, step 4 `9ec9ec2e`, the live fix `a64b1944`
+(itself gated both ways), and round 2's finding `5a634c48` above.
 
 ## PLAN (core quality protocol step 0) — committed at `10543f83`, before any `src/` edit
 
@@ -113,6 +114,21 @@ produced `ShotFired=0` in round 1 are still undiagnosed. What the dispatch requi
     noted `nobody is holding a gun that can fire` — the honest-note branch the sight-line case has
     used since task 185 — so the wiring half ran only as the policy-parameter case.
 
+11. **ROUND 2's ONE BLOCKING FINDING IS FIXED, AND IT WAS RIGHT.** The design's §12.1 cases 26-29
+    were dropped, so deleting `judgeClaimFor`'s accept branch — or pinning `Flight`'s `live.reached`
+    at 0, which would make check 5 refuse every claim in the shipped game — left the WHOLE suite
+    green. `Validator.claimImpact` is the truncation extracted as a **pure exported function of three
+    facts**, so the branch can no longer be deleted silently, and `weapon_hits.spec` gains five cases:
+    `reachedStuds` three ways (stopped at 40, unobstructed to the cap, the GREATEST of nine pellets),
+    `Flight` carrying a claim whose every field would fail every check and resolving identically to
+    the unclaimed shot, and the truncation through `claimImpact` into `Hits.group` — one report,
+    `pellets = 1`, the zone read off the part's own `HitZone`. Server assertions 2317 → 2322.
+    **Case 27 is NOT written**, and the spec says so in place: "a refused claim changes nothing" is a
+    property of a module local reachable only through a live handler. What IS executed of it is every
+    refusal reason by name plus case 29; what is not is the owner's `return res.impacts`. Queued.
+    *Verify:* `src/server/Weapon/Validator.luau` → `claimImpact`; `tests/server/weapon_hits.spec.luau`
+    → `describe("the hit claim's own facts")`; and that `judgeClaimFor`'s accept branch is now one line.
+
 ## What I could not verify (rule 8)
 
 - **No shot has been seen whose hit was decided by an ACCEPTED claim.** The client produces one and
@@ -124,6 +140,7 @@ produced `ShotFired=0` in round 1 are still undiagnosed. What the dispatch requi
 - **The harness cannot produce latency**: a loopback Studio session reads 1–2 ms of ping, so the
   claim path's magnitude cannot be exercised in the gate at all. Everything about it is proved by
   injected times and positions in the pure specs and only bounded in the live ones.
+- **Case 27**, above: the refused path's `return res.impacts` is executed by nothing that can fail.
 - **259b still has no regression guard** (queued 266a(a)), and `src/server/Match/` was not exercised
   by a live two-player case for it.
 - **Rule 5:** `266-acc1-still.png` and `266-acc-claim.png` were saved but are **not offered as
