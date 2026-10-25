@@ -1448,6 +1448,14 @@ return function()
 				return if folder then folder:GetChildren() else {}
 			end
 
+			-- WHICH STEP OF THIS CASE WAS RUNNING, so a failure names itself (task 252). This case
+			-- restores the live camera's source and templates in a `pcall` and re-raises at the
+			-- bottom, and `error(err, 0)` put EVERY failure in this 200-line body on the re-raise's
+			-- own line: `camera_client.spec:1618` is what tasks 235, 242, 249, 251 and 253 all had
+			-- to go on, and not one of them could say which assertion it was. The stage is prepended
+			-- to the message instead.
+			local stage = "setup"
+
 			local fakes: { [string]: BasePart } = {}
 			local liveSource = Camera.Viewmodel.getSource()
 			local liveHands = Camera.Viewmodel.getHandTemplates()
@@ -1465,6 +1473,7 @@ return function()
 			end)
 
 			local ok, err = pcall(function()
+				stage = "the first build"
 				Camera.Viewmodel.clear()
 				Camera.Viewmodel.setReload(nil)
 				task.wait(0.3)
@@ -1480,6 +1489,7 @@ return function()
 				local left = cloned:FindFirstChild("HandLeft") :: BasePart
 				expect(right).to.be.ok()
 				expect(left).to.be.ok()
+				stage = "whose piece each hand is"
 				-- NO COUNTER HERE. Since task 97 the live camera is first person, so its own render
 				-- step draws hands on this clone too -- from the REAL templates, in whatever frame
 				-- falls between this spec's calls. A delta of exactly 2 was a claim about which of
@@ -1512,6 +1522,7 @@ return function()
 					end
 				end
 				-- POSED FROM THE PURE GEOMETRY, not from numbers this file repeats.
+				stage = "the right hand's pose"
 				local wantRight = Camera.Mode.rightHandOffset(firstPersonConfig)
 				local gotRight = clone.CFrame:ToObjectSpace(right.CFrame)
 				TestKit.note(
@@ -1539,6 +1550,7 @@ return function()
 				-- the gun's own parts: the left hand's place on the BODY changes (it went down with the
 				-- barrels) while its place on the BARRELS does not, and the right hand's place on the
 				-- body does not change at all.
+				stage = "the break: which hand rides the barrels"
 				local leftOnBarrels = cloned.CFrame:ToObjectSpace(left.CFrame)
 				local leftOnBody = clone.CFrame:ToObjectSpace(left.CFrame)
 				local rightOnBody = clone.CFrame:ToObjectSpace(right.CFrame)
@@ -1603,6 +1615,7 @@ return function()
 				-- (the lesson the barrels taught in task 96, round 2): the clone is drawn in that
 				-- branch too, while aiming, and a session that flipped the flag must not leave two
 				-- gloves floating by the shoulder camera's gun.
+				stage = "the flag-off camera takes the hands off"
 				Camera.Viewmodel.setReload(nil)
 				local aimedOff = table.clone(stateAtBlend(1)) :: any
 				aimedOff.mode = "Aiming"
@@ -1614,6 +1627,7 @@ return function()
 				-- AND A GUN WITH NO TEMPLATES IS STILL A GUN (design 5.3). The load can fail, the
 				-- asset can be moderated away, a Studio can have no network: the fallback is no
 				-- hands, never a broken gun, and it is COUNTED rather than silent.
+				stage = "a gun with no templates is still a gun"
 				Camera.Viewmodel.setHandTemplates(function(): BasePart?
 					return nil
 				end)
@@ -1649,7 +1663,7 @@ return function()
 			end
 			handle:Destroy()
 			if not ok then
-				error(err, 0)
+				error(string.format("[hands: %s] %s", stage, tostring(err)), 0)
 			end
 			-- THE LIVE CAMERA IS BACK AS IT WAS: its own source, its own templates, nothing open.
 			expect(Camera.Viewmodel.getSource()).to.equal(liveSource)
