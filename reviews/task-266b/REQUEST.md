@@ -1,17 +1,19 @@
 # Review request — Task 266b: PROVE TRUE HITS DECIDE SHOTS
 
 Task: 266b
-Round: 1
+Round: 2
 Base: 9acad458 (main, after #245 merged task 266)
-Code commit: 886d170c336c5323c3f7f44cf1b7d59fa0495b1b
+Code commit: 739f4bcc875bf1170db7ab4cece06c50740f5d9e
 
 ```
-[harness]  PASS: 34/34 checks @ 886d170c336c5323c3f7f44cf1b7d59fa0495b1b (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ 886d170c336c5323c3f7f44cf1b7d59fa0495b1b (clean tree)
+[harness]  PASS: 34/34 checks @ 739f4bcc875bf1170db7ab4cece06c50740f5d9e (clean tree) scope=all
 ```
 
-`test2` is required for the same reason task 266 needed it: `src/server/MatchBoot.server.luau` is a
-`TWO_PLAYER_PATH`. Both lines name the same commit.
+**`test2` is NOT required for this change and my round-1 line saying it was is wrong** (the
+Reviewer's note): none of the changed files is in `TWO_PLAYER_PATHS` — `src/server/MatchBoot.server.luau`
+is task 266's, not this task's — and `tools/agents.py` itself said *"0 needing two players"*. It was
+run anyway at `886d170c` (`[harness2] PASS: 36/36 ... (clean tree)`) and costs nothing; it is simply
+not evidence this change needs.
 
 ## PLAN (core quality protocol step 0) — committed before any `src/` edit
 
@@ -197,3 +199,53 @@ Fixing it first is what makes item 2's reading mean anything.
     inside the 2.0-stud tolerance, so honest claims are accepted; it is three quarters of the budget,
     which is why a moving animal's claim falls out of it. That number is this task's one open lever
     and it is queued.
+
+
+---
+
+## ROUND 2 — the three blocking findings, all of them right, two of them mine to withdraw
+
+13. **FINDING 1 IS FIXED, AND THE CONCLUSION I DREW FROM THE BROKEN METER IS WITHDRAWN.**
+    `claimWorstLineStuds` was written from the trajectory's END point while check 4 is handed the
+    CLOSEST APPROACH, so the published number was a quantity no check uses — and claim 12's
+    *"the line figure moved by 0.001, so the disagreement is genuinely ACROSS-track"* was drawn from
+    a line this task never touched. **Claims 7 and 12 are withdrawn as written.** The meter is
+    `closestStuds` now, and the endpoint figure is kept beside it as `claimWorstEndStuds`, because
+    the GAP between the two IS the along-track error and a reader who sees only one cannot tell
+    which kind of disagreement he has.
+
+    **AND THE CORRECTED METER CHANGES THE ANSWER.** In the gate at `739f4bcc`, with a rifle in the
+    harness player's hands, the accept case reports
+    **`accepted 0 -> 1, worst 0.000/0.027, refusedClaimBy []`** — the across-track distance between
+    the server's own trajectory and the claimed point is **0.027 studs**, not 1.5. So the 2.0-stud
+    budget is barely touched, and the `claim-line` refusals on moving animals are **not** explained
+    by a large across-track error. What that leaves is still open and is queued, with the honest
+    statement that the old 1.5 figure was along-track contamination and nobody has yet re-measured
+    the live case with the right meter.
+    *Verify:* `src/server/Weapon/init.luau` → the two `math.max` lines after the trajectory walk;
+    the gate log's note line.
+
+14. **FINDING 2: THE "RULER MISMATCH" DOES NOT EXIST, and I repeated round 3's note without
+    checking the arithmetic.** A cast returns a point ON the ray it was given, so
+    `hit.position = (pellet.position - shift) + segment.Unit * hit.distance`, and therefore
+    `(hit.position + shift - pellet.position).Magnitude` is `hit.distance` — identically, to
+    floating point, for the real `Claim.only` and for the spec's stub. `blockAt` was always on the
+    same ruler. **Claim 8 and PLAN (f) are withdrawn**; the comment now states the identity instead
+    of inventing a defect, and `bestAlong` is kept only because its name says which frame it is in.
+    No case can distinguish before from after and none is offered.
+
+15. **FINDING 3 WAS A REGRESSION I INTRODUCED, and it is worse than what it replaced.**
+    `resolve_task`'s filesystem fallback became `max` over STRINGS when the task became a string,
+    and `max` over strings is lexicographic: `reviews/task-90 … task-99/REQUEST.md` all exist, so it
+    answered `"99"` for every repository state — reviewing the WRONG TASK, which is precisely the
+    failure claim 10 says the lettered-task fix closes. Ordered by the numeric part now, with a
+    selftest case over `90/99/266/266b`.
+    *Verify:* `tools/agents.py` → `resolve_task`'s `newest`; `selftest` → "the newest of
+    90/99/266/266b is 266b".
+
+16. **THE ACCEPTED PATH NOW EXECUTES IN THE GATE.** `weapon_shot.spec`'s accept case ran at
+    `6fc312f8` (and FAILED, which is what found finding 1's sibling defect in check 4), and at
+    `739f4bcc` it passes: one report on the claimed part, `pellets = 1`, the zone off the part's own
+    `HitZone`, and `claimsAccepted + 1`. It still degrades to a note when no player holds a loaded
+    single-pellet gun, and the request says so rather than claiming the wiring is covered
+    unconditionally.
