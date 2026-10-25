@@ -106,7 +106,7 @@ local CONFIG = Shotgun.CONFIG
 -- HOW FAR FROM HIS OWN ROOT A PLAYER MAY CLAIM HIS EYE IS, read ONCE at this owner's boundary and
 -- passed inward as an argument (task 260). That is the shape `docs/design/feature-flags.md` requires
 -- of a flag read, applied to the one place this server has to know which CAMERA the game is running:
--- in FIRST PERSON the eye is at most 1.993 studs from the root (`camera_mode.spec` sweeps the whole
+-- in FIRST PERSON the eye is 1.226 to 1.993 studs from the root (`camera_mode.spec` sweeps the whole
 -- pitch range and asserts it), and in the third-person rollback the client's own clamp puts it at
 -- 14.5. One number for both branches is the looser of the two, and this request is a CLIENT CLAIM
 -- that `BORE_ON_SIGHT_LINE` now launches the bullet from -- so the loose number is the one that
@@ -140,6 +140,12 @@ local stats = {
 	-- between the eye the client drew and the root this server has, which is the one term
 	-- `CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON`'s margin is for and the one nothing here can measure.
 	originFarthest = 0,
+	-- HOW MANY SHOTS THE ORIGIN BOUND REFUSED, and the worst separation among them (task 260 round
+	-- 2). Both must stay 0 in an honest run: the geometry caps a first-person eye at 1.993 studs and
+	-- the bound is 6, so a non-zero `originRefused` on a real server is either a forgery or the
+	-- replication lag this margin was guessed for -- and `originRefusedFarthest` is which.
+	originRefused = 0,
+	originRefusedFarthest = 0,
 	-- THE AIM QUESTION (task 238). `aimQuestions` is every `"Aim"` that got as far as a cast;
 	-- `aimAdvised` the ones that answered with a gate -- today only `no-licence` -- and so published.
 	-- The difference between them is how often a player shouldered at something he may already shoot,
@@ -1309,6 +1315,16 @@ local function onFireRequest(player: Player, req: any): string?
 	local rootPosition = rootPositionOf(player)
 	local ok, why = Validator.checkShot(req, rootPosition, CONFIG, ORIGIN_TOLERANCE_STUDS)
 	if not ok then
+		-- THE REFUSED SEPARATION IS RECORDED TOO (the Reviewer's round-1 note). Written only on the
+		-- accepted path, `originFarthest` could argue the bound TIGHTER and never looser: the one
+		-- event that would show 6 studs is too tight is a shot refused `origin-far`, and that shot
+		-- never reached the line below. Now both are instruments: `originFarthest` is the worst
+		-- HONEST shot and `originRefusedFarthest` the worst refused one, so a real server can say
+		-- which way the number should move.
+		if rootPosition and why == "origin-far" then
+			stats.originRefused += 1
+			stats.originRefusedFarthest = math.max(stats.originRefusedFarthest, (req.origin - rootPosition).Magnitude)
+		end
 		stats.badRequests += 1
 		publish(player, id, state)
 		return why or "bad-request"
@@ -1764,7 +1780,11 @@ local function onActionRequest(player: Player, kind: any, ammo: any, aim: any): 
 	--
 	-- Note: docs/research/2026-10-22-licence-popup-and-robux.md section 3.1
 	if kind == "Aim" then
-		local okRay, whyRay = Validator.checkShot(aim, rootPositionOf(player), CONFIG)
+		-- `ORIGIN_TOLERANCE_STUDS` HERE TOO (task 260 round 2, the Reviewer's blocking finding 2).
+		-- This payload is byte-identical to `FireRequest`'s -- `Input.fire` and `Input.aim` build it
+		-- from the same two lines -- so bounding it at 15 studs here and 6 at the trigger would be
+		-- two answers to one question, and the comment above this block promises the opposite.
+		local okRay, whyRay = Validator.checkShot(aim, rootPositionOf(player), CONFIG, ORIGIN_TOLERANCE_STUDS)
 		if not okRay then
 			-- THE SAME VALIDATOR THE TRIGGER'S RAY GETS, so a forged origin is refused here on the
 			-- same terms. Counted as a forgery, and NOTHING is published: a bad packet gets no

@@ -70,15 +70,15 @@ prop welded to the character's right hand.
    discovered.
 5. **The config table (section 11 / the `CONFIG` table) gains three rows:**
    `BORE_ON_SIGHT_LINE`, `CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON` (**6** studs) and the retuned
-   `CAMERA_ORIGIN_TOLERANCE` (**16**, from 30). The second and third are task 260's security half and
+   `CAMERA_ORIGIN_TOLERANCE` (**15**, from 30). The second and third are task 260's security half and
    are a consequence of the first: the bullet now LEAVES from a client claim, so the bound on that
    claim matters in a way it did not when the launch point was a server-read attachment. Measured by
-   sweeping `Mode.cameraCFrame`: in first person the eye is **1.209 to 1.993 studs** from the root
+   sweeping `Mode.cameraCFrame`: in first person the eye is **1.226 to 1.993 studs** from the root
    over the whole clamped pitch range, at every yaw and every blend; in the third-person rollback the
    client's own `MAX_DISTANCE_STUDS` clamps it at 14.5. `tests/server/camera_mode.spec.luau`
    ("the honest spread of the fire origin") is the assertion.
 6. **Section 11's own open question is answered.** It currently asks *"Whether
-   `CAMERA_ORIGIN_TOLERANCE = 30` is generous or tight"*. It was generous; it is 6 and 16 now, and
+   `CAMERA_ORIGIN_TOLERANCE = 30` is generous or tight"*. It was generous; it is 6 and 15 now, and
    `Weapon.stats.originFarthest` is the instrument that would justify moving either again.
 
 ## What must NOT change

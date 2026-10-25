@@ -438,9 +438,15 @@ function Mode.cameraCFrame(rootCFrame: CFrame, state: State, config): (Vector3, 
 	local offset = look:VectorToWorldSpace(Vector3.new(shoulder.X, shoulder.Y, distance - forward))
 	local position = pivot + offset
 
-	-- The hard clamp. It keeps the fire origin inside the shotgun's CAMERA_ORIGIN_TOLERANCE of 30
-	-- studs (docs/design/shotgun.md section 11) with 15 studs of headroom, so an honest shot is
-	-- never rejected "origin-far" because the camera drifted.
+	-- The hard clamp. It keeps the fire origin inside the shotgun's `CAMERA_ORIGIN_TOLERANCE`, so an
+	-- honest shot is never rejected "origin-far" because the camera drifted.
+	--
+	-- THE HEADROOM IS 0.5 STUDS NOW, NOT 15 (task 260). That row was 30 and is **15** -- this clamp
+	-- plus a half -- because the bullet now leaves from `req.origin` itself
+	-- (`Shotgun.CONFIG.BORE_ON_SIGHT_LINE`), which makes the bound on that claim worth having. In
+	-- FIRST PERSON this clamp decides nothing at all: the eye is 1.226 to 1.993 studs from the root
+	-- and the first-person row is 6 (`CAMERA_ORIGIN_TOLERANCE_FIRST_PERSON`). It is the third-person
+	-- rollback branch that this line protects, and there it is the only thing that does.
 	local fromRoot = position - rootCFrame.Position
 	if fromRoot.Magnitude > config.MAX_DISTANCE_STUDS then
 		position = rootCFrame.Position + fromRoot.Unit * config.MAX_DISTANCE_STUDS

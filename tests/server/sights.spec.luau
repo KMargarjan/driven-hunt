@@ -317,9 +317,11 @@ return function()
 		-- THE PARAMETER IS THE SHAPE TASK 256 ALREADY SHIPPED and `docs/design/ballistics.md`
 		-- accepted in place of a flag by name: a path reachable at both values can be tested at both
 		-- while the shipped value sits at one of them. **SINCE TASK 260 THE SHIPPED VALUE IS `true`**
-		-- (the Director's decision on `ESCALATE.md`'s option 1, 2026-10-25, and
-		-- `docs/design/shotgun.md` amended in the same task); `false` is the rollback and is still
-		-- measured by the describe above.
+		-- (the Director's decision on `ESCALATE.md`'s option 1, 2026-10-25); `false` is the rollback
+		-- and is still measured by the describe above. **`docs/design/shotgun.md` IS NOT YET AMENDED
+		-- and still says the bore starts at the muzzle** -- the first version of this comment said it
+		-- had been, and the Reviewer caught it. See `Shotgun.CONFIG.BORE_ON_SIGHT_LINE` and
+		-- `reviews/task-260/BRIEF.md`.
 		it("is TRUE in the shipped build, and the shipped build is what hits the reticle", function()
 			-- TWO ASSERTIONS AND THE SECOND ONE IS THE POINT (the Learning Agent's L-028: a
 			-- shipped-value assertion has to fail on the PRE-FLIP config for the right REASON, not

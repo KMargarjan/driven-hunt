@@ -461,7 +461,7 @@ Shotgun.CONFIG = {
 	-- `root + (0, PIVOT_HEIGHT_STUDS, 0) + look * (-AIM_PIVOT_FORWARD_STUDS)` in FIRST PERSON, so
 	--     |origin - root|^2 = 1.6^2 + 0.4^2 + 2*1.6*0.4*look.Y = 2.72 + 1.28*look.Y
 	-- and over the whole clamped pitch range (`PITCH_MIN_DEG` -72 to `PITCH_MAX_DEG` +78) that is
-	-- **1.209 studs at worst looking down and 1.993 looking up**. Nothing else moves it: `blend`
+	-- **1.226 studs at worst looking down and 1.993 looking up**. Nothing else moves it: `blend`
 	-- changes the field of view and the gun's pose and not the eye (task 92's no-jump rule), the
 	-- scope's sway goes into `look` so it is inside that range already, and a high seat carries the
 	-- root with the player so the OFFSET is unchanged. The spec sweeps pitch x yaw x blend and
@@ -479,15 +479,16 @@ Shotgun.CONFIG = {
 	-- (`Flags.DEFAULTS.FIRST_PERSON`: *"one line back to `false` returns the camera she accepted"*).
 	-- There the camera really does sit behind the player: `THIRD_DISTANCE_STUDS` 12 plus the
 	-- shoulder, and the client clamps the whole thing at `MAX_DISTANCE_STUDS` **14.5**. 16 is that
-	-- clamp plus 0.5, where 30 was that clamp plus 15.5. A third-person shot is refused only if the
-	-- client's own clamp has already failed.
+	-- clamp plus 0.5 (the first version of this sentence said "16 is that clamp plus 0.5", which is
+	-- two errors in one line and the Reviewer caught both). A third-person shot is refused only if
+	-- the client's own clamp has already failed.
 	--
 	-- 15 AND NOT 16, AND THE SWEEP IS WHY: the unclamped third-person eye reaches only about 13.5
 	-- studs (12 back, 2.2 across, 1.6 up), so `MAX_DISTANCE_STUDS` never actually binds -- and a
 	-- first version of this row at 16 was 2.5 studs past anything the camera can produce.
-	-- `camera_mode.spec` now bounds it against the CLAMP from both sides rather than against the
-	-- sweep: at or above 14.5, so the client's own limit can never be refused, and within a stud of
-	-- it, so the slack cannot grow back.
+	-- `camera_mode.spec` bounds it against the CLAMP from both sides rather than against the sweep:
+	-- at or above 14.5, so the client's own limit can never be refused, and within a stud of it, so
+	-- the slack cannot grow back.
 	CAMERA_ORIGIN_TOLERANCE = 15,
 	MIN_AIM_DISTANCE = 4, -- below this the muzzle->aim vector is degenerate
 
@@ -509,9 +510,16 @@ Shotgun.CONFIG = {
 	-- **IT SHIPS `true` SINCE TASK 260.** It shipped `false` for one task because the design said the
 	-- bore starts at the muzzle and `docs/design/` is the Architect's; the Director decided
 	-- `ESCALATE.md`'s option 1 on 2026-10-25 -- *"the shot leaves from the sight line, because
-	-- Karen's 'a bit off' is that offset and real sights are zeroed to the line of sight"* -- and
-	-- `docs/design/shotgun.md` was amended by the Architect in the same task. `false` remains the
-	-- rollback and every assertion in `sights.spec` is still made at both values.
+	-- Karen's 'a bit off' is that offset and real sights are zeroed to the line of sight"*. `false`
+	-- remains the rollback and every assertion in `sights.spec` is still made at both values.
+	--
+	-- **AND `docs/design/shotgun.md` IS NOT YET AMENDED, WHICH IS SAID HERE BECAUSE IT MATTERS TO
+	-- WHOEVER READS THIS LINE NEXT** (the Reviewer's round-1 blocking finding; the first version of
+	-- this comment claimed the amendment had landed). Section 5.5 step 7 of that document still says
+	-- *"Aim from the muzzle"* and its section 11 table still carries `CAMERA_ORIGIN_TOLERANCE = 30`.
+	-- The task's two Architect design runs wrote nothing -- one killed by a 10-minute foreground
+	-- timeout, one refused for a missing result block -- so the DECISION is recorded and the
+	-- DOCUMENT is not. `reviews/task-260/BRIEF.md` states exactly what the amendment must contain.
 	BORE_ON_SIGHT_LINE = true,
 	DIR_UNIT_TOLERANCE = 1e-3,
 	SAFETY_ARC_HALF_DEG = 45, -- DEGREES, HALF angle: a different quantity from a spread cone

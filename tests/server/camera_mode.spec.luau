@@ -1363,14 +1363,16 @@ return function()
 			return most, least
 		end
 
-		it("is 1.209 to 1.993 studs in FIRST PERSON, over every pitch, yaw and blend", function()
+		it("is 1.226 to 1.993 studs in FIRST PERSON, over every pitch, yaw and blend", function()
 			-- THE CLOSED FORM, so the numbers are derived and not just observed:
 			--   |origin - root|^2 = PIVOT_HEIGHT^2 + FORWARD^2 + 2*PIVOT_HEIGHT*FORWARD*look.Y
 			--                     = 1.6^2 + 0.4^2 + 1.28*look.Y
-			-- maximal looking UP (`PITCH_MAX_DEG` +78, sin = 0.978) and minimal looking DOWN
-			-- (`PITCH_MIN_DEG` -72, sin = -0.951). `blend` does not appear, which is task 92's
-			-- no-jump rule stated as arithmetic: in first person pressing right mouse moves the gun
-			-- and not the eye.
+			-- maximal looking UP (`PITCH_MAX_DEG` +78, sin = 0.978 -> 1.993) and minimal looking DOWN
+			-- (`PITCH_MIN_DEG` -72, sin = -0.951 -> **1.226**; the first version of this case said
+			-- 1.209, which is not a value the clamp allows -- the Reviewer's round-1 note, and the
+			-- assertions were `> 1.2` and `< 2.0`, which is why the wrong figure never showed).
+			-- `blend` does not appear, which is task 92's no-jump rule stated as arithmetic: in first
+			-- person pressing right mouse moves the gun and not the eye.
 			local most, least = worst(firstPerson)
 			local up = math.sqrt(
 				Config.PIVOT_HEIGHT_STUDS ^ 2
@@ -1382,6 +1384,15 @@ return function()
 			)
 			print(string.format("[origin] first person: %.3f .. %.3f studs (closed form max %.3f)", least, most, up))
 			expect(math.abs(most - up) < 0.01).to.equal(true)
+			local down = math.sqrt(
+				Config.PIVOT_HEIGHT_STUDS ^ 2
+					+ Config.AIM_PIVOT_FORWARD_STUDS ^ 2
+					+ 2
+						* Config.PIVOT_HEIGHT_STUDS
+						* Config.AIM_PIVOT_FORWARD_STUDS
+						* math.sin(math.rad(Config.PITCH_MIN_DEG))
+			)
+			expect(math.abs(least - down) < 0.01).to.equal(true)
 			expect(most < 2.0).to.equal(true)
 			expect(least > 1.2).to.equal(true)
 		end)
@@ -1398,8 +1409,14 @@ return function()
 			-- `Mode.cameraCFrame`'s own hard clamp. The branch is still the documented rollback
 			-- (`Flags.DEFAULTS.FIRST_PERSON`), so its number has to be justified too.
 			expect(most <= Config.MAX_DISTANCE_STUDS + 1e-6).to.equal(true)
-			-- ...and it really does bind there, so the clamp is not decoration.
+			-- ...AND THE CLAMP NEVER ACTUALLY BINDS, which is the honest statement and not the one
+			-- this comment made in round 1 (*"it really does bind there"*, over an assertion that
+			-- only showed the eye passing 12 studs -- the Reviewer caught the contradiction with
+			-- `Shotgun.CONFIG`'s own arithmetic). The eye reaches about 13.5 and stops: 12 back,
+			-- 2.2 across, 1.6 up. The row still has to ADMIT 14.5, because that is what the client
+			-- would send if it ever did bind.
 			expect(most > Config.THIRD_DISTANCE_STUDS).to.equal(true)
+			expect(most < Config.MAX_DISTANCE_STUDS).to.equal(true)
 		end)
 
 		it("leaves each branch's shipped tolerance a real margin and no more", function()
@@ -1408,7 +1425,7 @@ return function()
 			-- and the server compares it with the root it has REPLICATED, which is up to a round trip
 			-- old -- and a loopback Studio session reads 1-2 ms of ping (task 256). So the numbers are
 			-- "the honest geometry, times about three" for first person and "the client's own clamp
-			-- plus 1.5" for third, and `Weapon.stats.originFarthest` is the instrument that will let
+			-- plus 0.5" for third, and `Weapon.stats.originFarthest` is the instrument that will let
 			-- a real server replace the guess.
 			local firstWorst = worst(firstPerson)
 			local thirdWorst = worst(thirdPerson)
