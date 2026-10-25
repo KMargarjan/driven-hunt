@@ -35,6 +35,28 @@ even a note.
    (`.agent-evidence/paperwork-after-code-commit.txt` says); a visual change with no screenshot
    description (rule 5); a claim the code cannot support.
 
+## Two duties that are blocking (Learning Agent RULE 3, 2026-10-25, verbatim)
+
+> **RULE 3 — Reviewer prompt: delete the producer and re-run, and say so inside the PASS.** The
+> Reviewer prompt gains two blocking duties: (a) for every case a request offers as proof, re-run it
+> with the code under test — and with the code that *feeds* it — removed; if it still passes, that is
+> a blocking finding, not a note; (b) before writing `PASS` on any core item, state explicitly
+> whether the thing Karen will judge has been seen in her place, in the form task 256's Reviewer
+> used — *"Rule 5, stated so this PASS is not read as rule 5 having been met: ..."* — and name it on
+> line 1 as `PASS (item N NOT PROVEN)`, so `merge.sh` under Rule 1 can read it. *(Closes L-028 four
+> occurrences in five days, and makes the single most useful sentence any agent wrote this window
+> standard.)*
+
+**(a)** You cannot run anything, so do it by reading: for every case the request offers as proof,
+ask what it would assert if the code it is meant to prove — and the code that feeds it — were
+deleted. Still passes, or the two sides are the same engine identity? **Blocking**, kind 2, and name
+the line that survives the deletion.
+**(b)** A **core** item is animal behaviour or shooting. Before `PASS` on one, write
+*"Rule 5, stated so this PASS is not read as rule 5 having been met: ..."* with what was and was not
+seen in Karen's place, and if any core item was not seen, line 1 is `PASS (item N NOT PROVEN)`. That
+is still a pass and does not change the round count; a **bare** `PASS` asserts every core item WAS
+seen.
+
 ## Notes (never blocking)
 Wording, tone, structure, headings, a count that is off, a stale citation or line number, prose in
 `TASKS.md` / `ESCALATE.md` / `PLAYTEST.md` / `ROADMAP.md` / the request itself, style, naming,

@@ -2711,6 +2711,84 @@ return function()
 		end)
 	end)
 
+	-- THE STUDIO-ONLY HELD LOOK (task 263). `Camera.TestLook` is the one reader of `DHTestLook`, and
+	-- the half that matters for the game is the one that can NEVER run here: inside a Studio session
+	-- `RunService:IsStudio()` is always true, so the production branch is only reachable by parameter.
+	-- That is why `TestLook.point` takes the gate as an argument -- `Economy.testGrantFor`'s own reason,
+	-- quoted in that file.
+	describe("the Studio-only held look", function()
+		it("answers the point in Studio and NOTHING outside it", function()
+			local TestLook = Camera.TestLook
+			expect(TestLook.point(true, "10,20,30", nil)).to.equal(Vector3.new(10, 20, 30))
+			-- THE PRODUCTION BRANCH, and the whole safety of the feature: a live server reads nothing,
+			-- however the attribute got there.
+			expect(TestLook.point(false, "10,20,30", nil)).to.equal(nil)
+		end)
+
+		it("is released by DHTestLookOff, and `off` wins over a point that is still set", function()
+			local TestLook = Camera.TestLook
+			expect(TestLook.point(true, "1,2,3", true)).to.equal(nil)
+			-- ...and only the boolean true releases: a stale string or a 1 left by a tool that wrote the
+			-- wrong type must not quietly hand the view back half way through a measurement.
+			expect(TestLook.point(true, "1,2,3", "true")).to.equal(Vector3.new(1, 2, 3))
+			expect(TestLook.point(true, "1,2,3", false)).to.equal(Vector3.new(1, 2, 3))
+		end)
+
+		it("refuses anything that is not three finite numbers, and never throws", function()
+			local TestLook = Camera.TestLook
+			for _, bad in ipairs({ "1,2", "1,2,3,4", "a,2,3", "", "1,2,nan", "1,2,inf" }) do
+				expect(TestLook.point(true, bad, nil)).to.equal(nil)
+			end
+			expect(TestLook.point(true, nil, nil)).to.equal(nil)
+			expect(TestLook.point(true, Vector3.new(1, 2, 3), nil)).to.equal(nil)
+		end)
+
+		it("moves the REAL camera, holds it there, and gives it back", function()
+			-- THE OWNER'S OWN COUNTER IS THE HANDSHAKE (task 263): `DHTestLook` is level-triggered and
+			-- the camera never writes it back, so "did it steer" cannot be read off the attribute. It is
+			-- read off `stats.testLookFrames`, which only `Camera.update` increments.
+			-- A ROOT IS WHAT THE HOLD TURNS ABOUT: `Mode.anglesToward` takes the body's CFrame, and
+			-- `Camera.update` skips the hold entirely while there is none. Waited for, never read.
+			local character = player.Character or player.CharacterAdded:Wait()
+			character:WaitForChild("HumanoidRootPart", 10)
+			local before = Workspace.CurrentCamera.CFrame
+			-- 60 studs off to the LEFT at eye height: any honest hold has to swing the view a long way,
+			-- so "it was already pointing there" cannot pass this.
+			local point = before.Position - before.RightVector * 60 + before.LookVector * 5
+			local framesBefore = Camera.stats().testLookFrames
+			player:SetAttribute("DHTestLookOff", nil)
+			player:SetAttribute("DHTestLook", string.format("%f,%f,%f", point.X, point.Y, point.Z))
+			for _ = 1, 12 do
+				RunService.RenderStepped:Wait()
+			end
+			local steered = Camera.stats().testLookFrames - framesBefore
+			local after = Workspace.CurrentCamera.CFrame
+			-- HELD, not snapped once: a one-shot would steer exactly one of those twelve frames.
+			expect(steered >= 8).to.equal(true)
+			-- THE ATTRIBUTE IS STILL THERE. The old `DHLookAt` cleared it as its handshake, which is the
+			-- write that breaks the server path (`<runs-dir>/263-camlook-server.luau`).
+			expect(player:GetAttribute("DHTestLook")).to.be.ok()
+			local toTarget = point - after.Position
+			expect(toTarget.Magnitude > 1e-3).to.equal(true)
+			expect(after.LookVector:Dot(toTarget.Unit) >= Config.LOOK_AT_LANDED_DOT).to.equal(true)
+			expect(after.LookVector:Dot(before.LookVector) < 0.9).to.equal(true)
+
+			-- ...AND IT GIVES THE VIEW BACK. `DHTestLookOff` releases without deleting the point, which
+			-- is what lets an instrument hand control to Karen and still say where it had been aiming.
+			player:SetAttribute("DHTestLookOff", true)
+			for _ = 1, 4 do
+				RunService.RenderStepped:Wait()
+			end
+			local held = Camera.stats().testLookFrames
+			for _ = 1, 6 do
+				RunService.RenderStepped:Wait()
+			end
+			expect(Camera.stats().testLookFrames).to.equal(held)
+			player:SetAttribute("DHTestLook", nil)
+			player:SetAttribute("DHTestLookOff", nil)
+		end)
+	end)
+
 	-- LAST IN THE FILE, and that is the point: it asserts that exactly one of the two live branch
 	-- blocks was built. Both would mean the flag is two things at once; neither would mean a build
 	-- whose camera nothing live tested -- and a guard that returns early inside an `it` would report
