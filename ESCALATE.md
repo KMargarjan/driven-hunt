@@ -1,5 +1,86 @@
 # Escalations
 
+## 2026-10-25 -- Task 265: THE THIRD ROUND FAILED. The shooting anomaly is still unexplained, and one LIVE safety defect was measured on the way
+
+**For the Director and the Architect. `MAX_ROUNDS` is reached: rounds 1, 2 and 3 all returned
+blocking findings, all of them correct, so `tools/review.sh` will refuse a `Round: 4` without
+authorisation. Nothing on this branch should merge as a proof; the one code commit on it
+(`75539a94`, three comment corrections) is sound and was reviewed.**
+
+### 1. WHAT IS STILL UNEXPLAINED, after three rounds
+
+Round 1's shot aimed at a hind's CHEST and the server reported `ZoneRear local -0.820,-0.406,0.785`
+-- the rear zone's flank face with zero penetration, ~3 studs behind the chest along the body. The
+flight is 0.052 s, so the shot's own travel cannot produce it, and a running deer's 28.3 studs/s
+cannot either.
+
+**Three explanations have been offered and all three are withdrawn:**
+* a sighting/zero error -- refuted: the bullet is on the sight line (and both of the rounds that
+  measured it did so with a case that could not have failed, which is the Reviewer's point, not a
+  defence of the number);
+* geometry along the line (zone shell vs trunk box) -- **disproved by arithmetic**: the impact is on
+  the entry face, and 3 studs along the animal's LENGTH is not 3 studs along the ray;
+* the client drawing the animal 0.17 s ahead -- **not established** (section 2), and its sign is
+  wrong for this anomaly anyway.
+
+**The instrument's own mispairing is not excluded**: in round 2 it produced a 19.167-stud spurious
+client/server disagreement, measured, in the same session.
+
+### 2. THE VIEW-LAG MEASUREMENT: a real signature, an inadequate control
+
+Five animals, 1049 matched samples, two independent readings agreeing on **~0.17 s**, and a single
+time shift of -0.170 s collapsing a 4.011-stud gap to 0.098 studs. The sign says the CLIENT IS
+AHEAD of the server, which is the opposite of the Director's hypothesis and the opposite of what
+the engine normally does.
+
+**It is NOT established, and the Reviewer is right.** The only control was a part that never moves,
+and a motionless target reads 0.000 under ANY time misalignment -- a `GetServerTimeNow()` skew
+between the two VMs, a stamp taken at a different point in the frame on one side, or an off-by-N
+pairing in the comparison. Each of those fakes the whole signature. `docs/research/2026-09-25-drive.md`
+section B already records that `GetServerTimeNow()`'s synchronisation claim is **undocumented**.
+
+**THE EXPERIMENT THAT WOULD SETTLE IT, for whoever takes this next:** a MOVING target whose server
+position is a closed-form function of the shared clock -- the server drives it from
+`GetServerTimeNow()`, and each side checks its OWN reading against the formula. A skewed clock or a
+mispaired row then reads non-zero, which the static control cannot. Alternatively, bound the skew
+directly by printing each side's `GetServerTimeNow()` against one replicated event.
+
+### 3. **NEEDS A DECISION -- a LIVE safety defect, measured, not fixed** (TASKS.md 259b)
+
+`src/server/Weapon/init.luau`, `onFireRequest`:
+* the SAFETY LOCK asks `askLineUnsafe(player, origin, aim, stopAt)` -- the line from **`origin`**,
+  which at the shipped `BORE_ON_SIGHT_LINE = true` sits on the sight line;
+* the drive is told `safetySignal:Fire(player, aim, muzzle, stopAt)` -- the SAME `aim` unit vector,
+  from **`muzzle`**, the Tool's attachment.
+
+`Ballistics.convergeAim` returns a unit vector, so the two rays are **PARALLEL**, not converging:
+`origin + aim*t` and `muzzle + aim*t`, a constant **0.73 studs** apart (the rifle's measured
+(+0.718, -0.135) across the sight line). `Match.Penalty.judge` takes the driver's perpendicular
+distance to the PUBLISHED ray against `SAFETY_MISS_STUDS = 12` (`src/server/Match/init.luau:121`).
+
+**So the lock and the penalty can disagree about the same shot, at EVERY range.** A driver whose
+distance to the tested line is within 0.73 studs of 12 can be passed by the lock and then judged
+unsafe by the penalty, or refused by the lock and found safe by the penalty. The band is 0.73 studs
+wide at 30 studs and at 300 alike.
+
+**It was left in place on the written grounds that it is "BIT FOR BIT at the shipped `false`" --
+and the shipped value has been `true` since task 260.** Three comments saying so were corrected in
+`75539a94`; three more remain in that same function and are the justification itself.
+
+Not fixed here because `src/server/Match/` is a `TWO_PLAYER_PATH` and the consumers are the drive's.
+**The Architect owns which of the two lines is the right one.**
+
+### 4. What the Builder recommends
+
+* **Do not act on the 0.17 s** until the clock control above is run.
+* **Fix 259b**: one of the two call sites should change so the lock and the penalty measure the same
+  line. That is an Architect decision and a two-player gate.
+* **Karen's own case is still unmeasured after three rounds**: the configuration where
+  `BORE_ON_SIGHT_LINE` changes the answer is the one where the aim ray MISSES the animal -- her
+  *"aim in empty space"*. Every row taken in rounds 1-3 had the reticle on something.
+* **265a(b) is now load-bearing**: the probes and the ledger live outside the repo, so three rounds
+  of evidence could not be read by the Reviewer at all. Move the instrument into `tools/`.
+
 ## 2026-10-25 -- Task 259: THE BORE DOES NOT START ON THE SIGHT LINE, AND THE DESIGN SAYS IT MUST START AT THE MUZZLE
 
 **For the Director. A DECISION, not a blocked task: the fix is built, measured and shipped OFF, so
