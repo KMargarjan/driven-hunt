@@ -179,14 +179,23 @@ function Claim.simulate(opts: {
 			local hit = castOnly(target.root)(pellet.position - shift, segment, staticIgnore)
 			if hit ~= nil and hit.instance ~= nil and hit.instance:IsA("BasePart") then
 				local part = hit.instance :: BasePart
-				local point = hit.position + shift
 				return {
 					part = part,
-					-- OBJECT SPACE, so the server can ask "is this point ON that box" without
-					-- knowing where the animal was. The part is where the CLIENT draws it, which is
-					-- the frame the point was computed in.
-					offset = part.CFrame:PointToObjectSpace(point),
-					point = point,
+					-- OBJECT SPACE, FROM THE UNTRANSLATED IMPACT, and the two frames here are the
+					-- whole of this function's arithmetic -- getting them the wrong way round is a
+					-- defect this spec caught before the gate did.
+					--
+					-- The cast ran in the animal's TRIGGER-TIME frame (the segment was moved back by
+					-- `-v * elapsed`), so `hit.position` is a point on the part AS IT IS DRAWN NOW --
+					-- which is exactly the frame `part.CFrame` is in while this runs. The offset is
+					-- therefore a constant of the animal's own body, independent of time, which is
+					-- what lets the server test it against the part's own `Size` (check 1).
+					offset = part.CFrame:PointToObjectSpace(hit.position),
+					-- ...AND THE WORLD POINT IS THE SAME HIT AT THE ARRIVAL INSTANT, which is where
+					-- the client's own picture says the animal will be when the bullet gets there.
+					-- The server rebuilds this from its OWN rewind of the same offset and compares
+					-- (check 2) -- so this is the one field that exists to be disagreed with.
+					point = hit.position + shift,
 					firedAtView = opts.firedAtView,
 					flightSeconds = pellet.elapsed + (hit.distance / math.max(1e-6, pellet.velocity.Magnitude)),
 					distanceStuds = pellet.travelled + hit.distance,
