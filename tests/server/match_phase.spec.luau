@@ -398,6 +398,78 @@ return function()
 			expect(said).to.equal(true)
 		end)
 
+		-- ------------------------------ AND THE GRACE AFTER IT (task 261, item 2)
+		--
+		-- KAREN, 2026-10-25: *"I reach out first and then can go around hunters and spook all animals
+		-- in there position and need to wait until all beaters cross or time pass, we need better
+		-- solution here"*. The Director: *"when ALL beaters (human and bot) are through, the drive
+		-- ends after a grace of about 15 s (the last animals cross), instead of waiting out the
+		-- clock"*.
+		--
+		-- THE CASE ABOVE IS THE GRACE AT 0 AND THAT IS THE IDENTITY CLAIM: this spec's config carries
+		-- no grace row, so `Phase.throughGraceSeconds` answers 0 and the drive still ends on the
+		-- crossing, exactly as task 159 built it.
+		it("waits out the grace before it ends, and says so when the line is through", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = true, BEATERS_THROUGH_GRACE_SECONDS = 4 })
+			local state = toRunning(cfg)
+			local at = cfg.INTERMISSION_SECONDS + 5
+			local effects
+			state, effects = Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at, cfg)
+			-- THE DRIVE IS STILL ON: the animals the line was pushing are still crossing the road.
+			expect(state.phase).to.equal("Running")
+			expect(state.beatersThroughAt).to.equal(at)
+			-- ...AND THE FEED SAYS WHAT IS HAPPENING, once, on the edge -- through the entry kind the
+			-- start of a drive already uses, so there is no new word for the Hud to learn.
+			expect(string.find(feedText(effects, "phase"), "through", 1, true)).to.be.ok()
+			-- NOT A SECOND TIME, however many ticks arrive.
+			local more
+			state, more = Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at + 1, cfg)
+			expect(state.phase).to.equal("Running")
+			-- ASKED OF THE `phase` ENTRY BY NAME, because a tick that lands on a release carries
+			-- effects of its own and this case is about the one line the edge prints.
+			expect(feedText(more, "phase")).to.equal(nil)
+			expect(state.beatersThroughAt).to.equal(at)
+			-- ...AND THEN IT ENDS, as the beaters' ending and not the clock's.
+			state = (Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at + 4, cfg))
+			expect(state.phase).to.equal("Scoring")
+			expect(state.endedEarly).to.equal(true)
+		end)
+
+		it("clears the grace if the line stops being through, and cannot outlive its drive", function()
+			local cfg = config({ END_ON_BEATERS_CROSS = true, BEATERS_THROUGH_GRACE_SECONDS = 4 })
+			local state = toRunning(cfg)
+			local at = cfg.INTERMISSION_SECONDS + 5
+			state = (Phase.step(state, { kind = "tick", beaters = 2, beatersAcross = 2 }, at, cfg))
+			expect(state.beatersThroughAt).to.equal(at)
+			-- A BEATER WALKS BACK NORTH, or a man joins the drivers mid-drive: the line is not
+			-- through any more, so there is no grace running. LEVEL-TRIGGERED (L-029), which is why
+			-- the latch can be cleared at all.
+			state = (Phase.step(state, { kind = "tick", beaters = 3, beatersAcross = 2 }, at + 1, cfg))
+			expect(state.beatersThroughAt).to.equal(nil)
+			-- ...AND THE OLD INSTANT CANNOT END THE DRIVE WHEN IT IS THROUGH AGAIN: the grace starts
+			-- from the new crossing.
+			state = (Phase.step(state, { kind = "tick", beaters = 3, beatersAcross = 3 }, at + 2, cfg))
+			expect(state.phase).to.equal("Running")
+			expect(state.beatersThroughAt).to.equal(at + 2)
+			state = (Phase.step(state, { kind = "tick", beaters = 3, beatersAcross = 3 }, at + 5.9, cfg))
+			expect(state.phase).to.equal("Running")
+			state = (Phase.step(state, { kind = "tick", beaters = 3, beatersAcross = 3 }, at + 6, cfg))
+			expect(state.phase).to.equal("Scoring")
+			-- THE LATCH BELONGS TO THE DRIVE THAT ENDED: the next drive's first tick must not think
+			-- its own line is already through.
+			expect(state.beatersThroughAt).to.equal(nil)
+		end)
+
+		it("the game's own grace is the Director's 15 seconds", function()
+			-- ASSERTED AGAINST THE SHIPPED CONFIG and not against this file's, because what Karen
+			-- plays is the one that matters -- and `Phase.throughGraceSeconds` is the one reader.
+			expect(Match.CONFIG.BEATERS_THROUGH_GRACE_SECONDS).to.equal(15)
+			expect(Phase.throughGraceSeconds(Match.CONFIG)).to.equal(15)
+			-- 0 IS TASK 159'S GAME, reachable by parameter, which is what the case above drives.
+			expect(Phase.throughGraceSeconds({})).to.equal(0)
+			expect(Phase.throughGraceSeconds({ BEATERS_THROUGH_GRACE_SECONDS = -5 })).to.equal(0)
+		end)
+
 		it("needs a REAL beater: with none in the drive only the clock ends it", function()
 			-- THE CLAUSE THAT MATTERS. "All of nobody is through" is true in arithmetic, and a solo
 			-- hunter -- every DEV harness session, and every session Karen plays alone -- would have

@@ -94,6 +94,17 @@ export type State = {
 	-- through the hunters' line before the clock ran out. It is the feed line's own word and nothing
 	-- else reads it -- the results scene is the same scene either way.
 	endedEarly: boolean,
+	-- WHEN THE WHOLE BEATER LINE WENT THROUGH, or nil while any of it is still behind (task 261,
+	-- item 2). KAREN, 2026-10-25: *"I reach out first and then can go around hunters and spook all
+	-- animals in there position and need to wait until all beaters cross or time pass, we need
+	-- better solution here"*.
+	--
+	-- IT IS A LATCH AND IT IS LEVEL-TRIGGERED, which is this machine's own discipline (L-029): the
+	-- OWNER measures how much of the line is through on every event and this records the instant the
+	-- count first met the line's length -- and clears it again if it stops meeting it, which is a
+	-- beater walking back north or a man joining the drivers mid-drive. So the grace cannot be
+	-- started by one frame of a measurement and then survive the thing that started it.
+	beatersThroughAt: number?,
 	-- WHICH TEAM EACH MAN THIS DRIVE LET GO OF WAS PLAYING (task 261, item 1): userId -> the team the
 	-- `withdraw` branch took off him. Empty in every drive nobody respawned in, which is what keeps
 	-- `enterScoring` byte for byte what it was (`Roster.previousFrom` answers BY IDENTITY for an empty
@@ -230,6 +241,7 @@ function Phase.initial(config): State
 		participants = {},
 		assignment = {},
 		previousAssignment = nil,
+		beatersThroughAt = nil,
 		withdrawnTeams = {},
 		markersComplete = false,
 		missing = { "markers" },
@@ -455,6 +467,22 @@ function Phase.beatersThrough(event: Event, config): boolean
 	return (event.beatersAcross or 0) >= beaters
 end
 
+-- HOW LONG AFTER THE LAST BEATER IS THROUGH THE DRIVE RUNS ON (task 261, item 2). The Director:
+-- *"when ALL beaters (human and bot) are through, the drive ends after a grace of about 15 s (the
+-- last animals cross), instead of waiting out the clock"*.
+--
+-- IT IS WHAT THE GRACE IS FOR: the line being through means nothing is pushing any more, and the
+-- animals already moving in front of it are still crossing the road the hunters are sitting on. End
+-- on the instant the last beater steps over it and those shots never happen.
+--
+-- 0 IS TODAY'S GAME EXACTLY, and that is why the rule reads through this function rather than a
+-- literal: with no row in the config the drive ends on the crossing, which is task 159's behaviour
+-- line for line.
+function Phase.throughGraceSeconds(config): number
+	local grace = config.BEATERS_THROUGH_GRACE_SECONDS
+	return if type(grace) == "number" and grace > 0 then grace else 0
+end
+
 -- THE INDEX THE DEER'S ORDINAL IS DRAWN AT (task 234). It is a constant and a LARGE one, because
 -- the other two users of this hash index it by the sounder COUNT (1, 2, 3 ...): a small constant
 -- would make the drive's deer ordinal the same number as one of its jitters or sizes, which is not
@@ -661,6 +689,9 @@ local function enterAssigning(state: State, effects: { Effect }, now: number, co
 	state.holdbacks = 0
 	state.boarsAccounted = 0
 	state.nextReleaseAt = math.huge
+	-- ...AND NO LINE IS THROUGH AT THE START OF A DRIVE (task 261, item 2), which is the belt on the
+	-- path that does not reach `enterScoring`: a drive dismissed into `Waiting` and started again.
+	state.beatersThroughAt = nil
 	-- ...AND NOTHING IS OWED ACROSS A DRIVE BOUNDARY (task 261, item 1). `enterScoring` CONSUMES the
 	-- table, and this is the belt on the one path that does not go through it: a drive dismissed into
 	-- `Waiting` never reaches `enterScoring`, so without this line a man withdrawn from drive 7 would
@@ -811,6 +842,9 @@ local function enterScoring(state: State, effects: { Effect }, now: number, conf
 	-- stored turn is the same team this line puts in his synthetic row. With `COINS` off there is no
 	-- stored turn at all and this line is the whole of the rule, which is why it is here and not left
 	-- to the money.
+	-- THE GRACE BELONGS TO THE DRIVE THAT HAS JUST ENDED (task 261, item 2): a latch left standing
+	-- would make the next drive's first tick think its line was already through.
+	state.beatersThroughAt = nil
 	state.previousAssignment = Roster.previousFrom(state.assignment, state.withdrawnTeams)
 	-- CONSUMED. The table is about THIS drive; a row surviving into the next one would owe a man a
 	-- role for a drive he was never in.
@@ -1227,10 +1261,32 @@ function Phase.step(state: State, event: Event, now: number, config): (State, { 
 		-- ever end a drive EARLIER, never extend one.
 		if now >= next_.phaseEndsAt then
 			enterScoring(next_, effects, now, config, "clock")
-		elseif Phase.beatersThrough(event, config) then
-			enterScoring(next_, effects, now, config, "beaters")
 		else
-			maybeRelease(next_, effects, now, event, config)
+			-- THE LINE IS THROUGH, AND THEN THE GRACE (task 261, item 2). The Director: *"when ALL
+			-- beaters (human and bot) are through, the drive ends after a grace of about 15 s (the
+			-- last animals cross)"*.
+			--
+			-- THE LATCH IS SET AND CLEARED ON THE LEVEL, not fired on an edge: `event.beatersAcross`
+			-- against `event.beaters` is a MEASUREMENT the owner makes every event, and a beater who
+			-- walks back north or a man who joins the drivers mid-drive makes it false again -- at
+			-- which point the drive has beaters behind the line and no grace running.
+			local through = Phase.beatersThrough(event, config)
+			if not through then
+				next_.beatersThroughAt = nil
+			elseif next_.beatersThroughAt == nil then
+				next_.beatersThroughAt = now
+				-- ONE FEED LINE, ON THE EDGE, through the entry kind the start of a drive already
+				-- uses: no new wire and no new word for the Hud to learn. It is the drive saying what
+				-- it is doing, which is the thing Karen could not tell from the outside.
+				feed(effects, { kind = "phase", text = "The beaters are through - closing", at = now })
+				table.insert(effects, { kind = "broadcast", force = true })
+			end
+			local at = next_.beatersThroughAt
+			if at ~= nil and now >= (at :: number) + Phase.throughGraceSeconds(config) then
+				enterScoring(next_, effects, now, config, "beaters")
+			else
+				maybeRelease(next_, effects, now, event, config)
+			end
 		end
 	elseif next_.phase == "Scoring" then
 		if now >= next_.phaseEndsAt then

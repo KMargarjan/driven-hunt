@@ -155,6 +155,49 @@ return function()
 			expect((Match.gatherSpotFor(nil, CONFIG))).to.equal(nil)
 		end)
 
+		-- ---------------- WHERE A BEATER WHO IS THROUGH WAITS (task 261, item 2)
+		--
+		-- KAREN, 2026-10-25: *"I reach out first and then can go around hunters and spook all animals
+		-- in there position and need to wait until all beaters cross or time pass, we need better
+		-- solution here"*.
+		it("puts a beater who is through BEHIND the hunters, in a centred row (task 261)", function()
+			local behind = CONFIG.BEATER_THROUGH.BEHIND_STUDS
+			local spacing = CONFIG.BEATER_THROUGH.SPACING_STUDS
+			local first = Match.throughSpotFor({ posts = POSTS, line = LINE }, CONFIG, 0)
+			expect(first).to.be.ok()
+			local at = (first :: CFrame).Position
+			-- THE FIRST MAN THROUGH STANDS EXACTLY BEHIND THE MIDDLE STAND (x = 0 of three)...
+			expect(at.X).to.equal(0)
+			-- ...ON THE HUNTERS' OWN SIDE OF THE LINE, which is the side the normal does NOT point
+			-- at, and WELL BACK: `BEATER_CROSS_MARGIN_STUDS` is 10, so a man who has just crossed is
+			-- 10 studs past the stand and this is 30 further still.
+			expect(at.Z).to.equal(-behind)
+			expect(behind > CONFIG.BEATER_CROSS_MARGIN_STUDS * 2).to.equal(true)
+			-- THE GROUND IS THE POST'S OWN UNDERSIDE, `gatherSpotFor`'s rule and its reason.
+			expect(at.Y).to.equal(10)
+			-- ...AND HE LOOKS BACK UP THE DRIVE HE HAS JUST FINISHED, not into the empty wood.
+			expect((first :: CFrame).LookVector.Z).to.be.near(1, 1e-4)
+			-- THE ROW GROWS OUTWARDS FROM THE MIDDLE, so it is centred at every size and no two men
+			-- stand in the same place.
+			local second = Match.throughSpotFor({ posts = POSTS, line = LINE }, CONFIG, 1)
+			local third = Match.throughSpotFor({ posts = POSTS, line = LINE }, CONFIG, 2)
+			expect((second :: CFrame).Position.X).to.equal(spacing)
+			expect((third :: CFrame).Position.X).to.equal(-spacing)
+			expect((second :: CFrame).Position.Z).to.equal(-behind)
+			-- ...AND IT IS NEVER THE WORLD'S GATHERING SPOT, which is the lobby yard in the Forest
+			-- Test: moving a beater there mid-drive would take him out of the hunt he is still in.
+			local gathered = Match.gatherSpotOf(function()
+				return Vector3.new(900, 150, 900), Vector3.new(0, 0, 1)
+			end, { posts = POSTS, line = LINE }, CONFIG)
+			expect((gathered :: Vector3).X).to.equal(900)
+			expect(at.X).never.to.equal(900)
+		end)
+
+		it("has nowhere to put a beater who is through with no stands at all", function()
+			expect((Match.throughSpotFor({ posts = {}, line = LINE }, CONFIG, 0))).to.equal(nil)
+			expect((Match.throughSpotFor(nil, CONFIG, 0))).to.equal(nil)
+		end)
+
 		it("gathers behind the stands even when the world has no line", function()
 			-- A set with stands and no line is not a set the drive runs on (`complete` is false), but
 			-- the arithmetic must not throw: +Z is the fallback, which is the DEV arena's own normal.

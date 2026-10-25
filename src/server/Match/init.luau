@@ -175,6 +175,49 @@ Match.CONFIG = {
 	-- Karen plays. It is still reachable by parameter from a spec, which is what the flag discipline
 	-- is actually for.
 	END_ON_BEATERS_CROSS = true, -- K, Karen's second ending
+	-- ...AND THE GRACE AFTER THE LAST ONE IS THROUGH (task 261, item 2). The Director: *"when ALL
+	-- beaters (human and bot) are through, the drive ends after a grace of about 15 s (the last
+	-- animals cross), instead of waiting out the clock"*.
+	--
+	-- KAREN, 2026-10-25: *"I reach out first and then can go around hunters and spook all animals in
+	-- there position and need to wait until all beaters cross or time pass, we need better solution
+	-- here"*.
+	--
+	-- 15 SECONDS IS THE ANIMALS STILL IN FRONT OF THE LINE. Nothing is pushing once the line is
+	-- through, but what it was pushing is still running at the road: a boar released
+	-- `SOUNDER.RELEASE_INTERVAL_SECONDS` before the last beater stepped over has not reached the
+	-- hunters yet, and ending on the instant of the crossing takes those shots away. It is short
+	-- enough that it is not *"wait until ... time pass"*, which is the half of her sentence this
+	-- number is for.
+	--
+	-- 0 IS TASK 159'S GAME EXACTLY (`Phase.throughGraceSeconds`), which is what makes both states
+	-- reachable by parameter while this sits at 15.
+	BEATERS_THROUGH_GRACE_SECONDS = 15, -- the Director, 2026-10-25
+	-- WHERE A BEATER WHO IS THROUGH WAITS (task 261, item 2). The Director: *"a beater reaching the
+	-- line (the road, or the line's arrival depth) is 'through': a short message, then moved to a
+	-- safe gathering behind the hunters' line (not walking among the stands), no horn"*.
+	--
+	-- WHAT KAREN DESCRIBED IS THE DEFECT: *"I reach out first and then can go around hunters and
+	-- spook all animals in there position"*. Task 168 already made his drive over in every sense but
+	-- the one that matters -- his horn is refused and his screen says *"you are through - wait"* --
+	-- and his BODY was still standing in the middle of the hunters' front, where it moves the animals
+	-- the hunters are waiting for.
+	--
+	-- THE THREE NUMBERS, and each is read by exactly one line of `throughSweep`:
+	--   * `BEHIND_STUDS` 40 is well behind the posts -- `BEATER_CROSS_MARGIN_STUDS` is 10, so a man
+	--     who has just crossed is 10 past the stand and this puts him 30 further back, out of the
+	--     firing line and out of the animals' way;
+	--   * `SPACING_STUDS` 8 is one stand spacing, so a line of beaters arriving one after another
+	--     stands in a row rather than in a heap -- the `Scene.rowLayout` idea at its simplest;
+	--   * `HOLD` is whether he is frozen there. TRUE: the alternative is a man who is walked back and
+	--     then walks straight out again, and a level rule that teleported him every tick would be a
+	--     second writer of where he stands. It is the SAME freeze the start line already uses
+	--     (task 158's `Body.hold`) and the next drive's own `free` releases it.
+	BEATER_THROUGH = {
+		BEHIND_STUDS = 40,
+		SPACING_STUDS = 8,
+		HOLD = true,
+	},
 	-- HOW FAR PAST THE HUNTERS' LINE "CROSSED" IS. Measured against the nearest STAND, not against
 	-- the line marker's own position, because the forest's road is a sine whose plane is up to 30
 	-- studs off the real road (`docs/design/forest-drive.md` section 6.1) -- so the stand a beater
@@ -1074,6 +1117,11 @@ local stats = {
 	-- seconds left on it, so it is a count and not a belief. In the normal path the lobby keeps him
 	-- off the pad, so a session where this rises is one where something came in through another door.
 	rejoinsRefused = 0,
+	-- HOW MANY BEATERS WERE WALKED BEHIND THE HUNTERS' LINE AFTER CROSSING IT (task 261, item 2).
+	-- Karen's defect is this number staying 0 while she wanders among the stands, so it is a count
+	-- and not a belief; a drive with no human beater in it reports 0, and so does one where nobody
+	-- reached the road.
+	beatersWalkedBack = 0,
 	-- The release, counted three ways, because "six boars were released" can now mean two sounders
 	-- and one single, and a stall looks like nothing at all from the outside.
 	soundersReleased = 0,
@@ -1820,10 +1868,16 @@ end
 --
 -- A TIED PLAYER IS NEVER FREED HERE. A tie and a hold are the same freeze in `Body` (one `held`
 -- row), so freeing a tied player would hand back his WalkSpeed and leave the rope hanging on a man
--- who can walk. The two still cannot overlap -- ties only exist in `Running`, holds only in
--- `Assigning` and `Scoring`, and `enterScoring`'s `release` empties the ties BEFORE its own `hold`
--- holds anybody -- so this guard is what keeps that true rather than what works around it being
--- false.
+-- who can walk. The two still cannot overlap, and `enterScoring`'s `release` empties the ties BEFORE
+-- its own `hold` holds anybody -- so this guard is what keeps that true rather than what works
+-- around it being false.
+--
+-- SINCE TASK 261 A HOLD CAN EXIST IN `Running` TOO, and the sentence that used to be here -- *"ties
+-- only exist in `Running`, holds only in `Assigning` and `Scoring`"* -- is no longer the reason the
+-- two cannot overlap. `throughSweep` holds a BEATER who has crossed the hunters' line, and a tie is
+-- only ever laid on a man who fired toward the drive line, which is a HUNTER (`Penalty`, and
+-- `Match.driverThreats` is what it measures against) -- so a man cannot be both. The overlap is
+-- impossible because of who each rule is about, not because of when.
 local function applyFree(userIds: { number }?)
 	local targets = userIds
 	if not targets then
@@ -2500,6 +2554,51 @@ function Match.gatherSpotFor(markers, cfg): (Vector3?, Vector3?)
 	local ground = middle.Position.Y - middle.Size.Y / 2
 	local at = Vector3.new(middle.Position.X, ground, middle.Position.Z) - normal * cfg.SCENE.GATHER_BEHIND_STUDS
 	return at, normal
+end
+
+-- WHERE A BEATER WHO IS THROUGH WAITS OUT THE REST OF THE DRIVE (task 261, item 2). PURE, and it is
+-- `Match.gatherSpotFor`'s arithmetic with its own number: `BEATER_THROUGH.BEHIND_STUDS` behind the
+-- MIDDLE stand, on the hunters' own side of the line, spread sideways one slot at a time.
+--
+-- IT IS NOT `Match.gatherSpot`, AND THAT IS THE WHOLE REASON IT EXISTS. That one lets the WORLD
+-- answer (task 191), and in the Forest Test the world's answer is the lobby yard beside the lodge --
+-- so reusing it would teleport a beater out of the drive and into the lobby in the middle of a hunt.
+-- This is always the drive's own geometry, because the question is about the drive.
+--
+-- `slot` IS 0 FOR THE FIRST MAN THROUGH, so one beater stands exactly behind the middle stand and
+-- the rest fall in beside him, alternating left and right -- which keeps the group centred however
+-- many arrive and needs no count of how many are coming.
+--
+-- THE Y IS THE STAND'S OWN GROUND, read off the post's underside, for `gatherSpotFor`'s stated
+-- reason: the post stands on the ground in both worlds, so its bottom face IS the floor and nothing
+-- here measures it a second time.
+function Match.throughSpotFor(markers, cfg, slot: number): CFrame?
+	if not markers then
+		return nil
+	end
+	local posts = markers.posts
+	if not posts or #posts == 0 then
+		return nil
+	end
+	local middle = posts[math.ceil(#posts / 2)]
+	local line = markers.line
+	local normal = Vector3.zAxis
+	if line and typeof(line.normal) == "Vector3" and line.normal.Magnitude >= 1e-4 then
+		normal = Vector3.new(line.normal.X, 0, line.normal.Z)
+		normal = if normal.Magnitude < 1e-4 then Vector3.zAxis else normal.Unit
+	end
+	-- THE SIDE AXIS IS THE NORMAL TURNED A QUARTER TURN IN THE GROUND PLANE, which is the one
+	-- arithmetic `Scene.sideAxis` already states for the gathering's rows.
+	local side = Vector3.new(-normal.Z, 0, normal.X)
+	local ground = middle.Position.Y - middle.Size.Y / 2
+	local behind = cfg.BEATER_THROUGH.BEHIND_STUDS
+	local spacing = cfg.BEATER_THROUGH.SPACING_STUDS
+	-- 0, +1, -1, +2, -2 ...: the row grows outwards from the middle, so it is centred at every size.
+	local step = math.ceil(slot / 2) * (if slot % 2 == 1 then 1 else -1)
+	local at = Vector3.new(middle.Position.X, ground, middle.Position.Z) - normal * behind + side * (step * spacing)
+	-- FACING THE LINE HE CAME THROUGH, so he is looking at the drive he has just finished rather than
+	-- at the empty wood behind him.
+	return CFrame.lookAt(at, at + normal)
 end
 
 -- WHERE *THIS* WORLD GATHERS, AND THE WORLD GETS FIRST SAY (task 191).
@@ -3612,6 +3711,78 @@ local function respawnSweep()
 	end
 end
 
+-- WHO HAS ALREADY BEEN WALKED BEHIND THE LINE THIS DRIVE (task 261, item 2), so one beater is moved
+-- ONCE. It is emptied whenever no drive is running, which is the same place `throughLine` is cleared
+-- and for the same reason: nobody is through outside a drive.
+local throughPlaced: { [number]: boolean } = {}
+
+-- HOW MANY ROWS A SET HAS. One line, because the slot a beater stands in is *"how many are already
+-- there"* and `#` does not answer that for a table keyed by userId.
+local function placedCount(): number
+	local n = 0
+	for _ in pairs(throughPlaced) do
+		n += 1
+	end
+	return n
+end
+
+-- ONE PASS, AFTER THE TICK: every beater the crossing measurement found past the line, walked back
+-- behind the hunters and held there (task 261, item 2).
+--
+-- KAREN, 2026-10-25: *"I reach out first and then can go around hunters and spook all animals in
+-- there position and need to wait until all beaters cross or time pass, we need better solution
+-- here"*.
+--
+-- IT IS AFTER `dispatch` AND NOT INSIDE IT, which is this owner's standing rule (*"a dispatch inside
+-- a dispatch would apply effects out of order"*): `Match.beaterCrossing` fills `throughLine` while
+-- the event is being built, so by here the measurement is this tick's and nothing is half-applied.
+--
+-- IT IS AN EDGE OVER A LEVEL MEASUREMENT, which is the shape `respawnSweep` beside it has: the
+-- geometry is asked every tick and `throughPlaced` is what stops one man being moved twice. A man
+-- who is through STAYS through -- `Match.mayBlowHorn` already rests on that -- so there is nothing
+-- to undo.
+--
+-- WHAT IT DOES NOT DO: it does not decide the drive is over (that is `Phase.beatersThrough` plus the
+-- grace), it does not take his horn (`Match.mayBlowHorn` already refuses the blast, task 168), and it
+-- does not write his team or his screen. `Body` is still the only thing that moves a character.
+local function throughSweep()
+	if not Phase.isLive(state) then
+		if next(throughPlaced) ~= nil then
+			table.clear(throughPlaced)
+		end
+		return
+	end
+	for userId in pairs(state.participants) do
+		if
+			state.assignment[userId] == "Drivers"
+			and throughPlaced[userId] ~= true
+			and Match.beaterThrough(tostring(userId))
+		then
+			local player = playersService():GetPlayerByUserId(userId)
+			local at = Match.throughSpotFor(markerSet, config, placedCount())
+			if player ~= nil and at ~= nil then
+				-- THE MOVE AND THE FREEZE, IN THAT ORDER, which is `enterScoring`'s own order and its
+				-- reason: `Body.hold` saves the WalkSpeed it found, so holding first and moving second
+				-- would save a speed the hold had already zeroed.
+				if Body.stand(player, at :: CFrame, config) then
+					throughPlaced[userId] = true
+					stats.beatersWalkedBack += 1
+					if config.BEATER_THROUGH.HOLD then
+						applyHold({ userId })
+					end
+					print(
+						string.format(
+							"[match] %s is through the line: waiting %d studs behind the stands",
+							player.Name,
+							config.BEATER_THROUGH.BEHIND_STUDS
+						)
+					)
+				end
+			end
+		end
+	end
+end
+
 function Match:step(dt: number)
 	if not started then
 		return
@@ -3667,6 +3838,10 @@ function Match:step(dt: number)
 	-- respown hunt should over then I can enter to next games"*.
 	respawnSweep()
 	dispatch({ kind = "tick", aliveBoars = boarsAlive() })
+	-- ...AND A BEATER WHO IS THROUGH IS DONE (task 261, item 2), AFTER the tick because that is what
+	-- fills the crossing measurement this reads. KAREN, 2026-10-25: *"I reach out first and then can
+	-- go around hunters and spook all animals in there position"*.
+	throughSweep()
 	if now() - lastBroadcast >= config.STATE_HEARTBEAT then
 		broadcast(true)
 	end
@@ -3839,6 +4014,9 @@ function Match.forget(player: Player)
 	-- man who has gone -- and a player who rejoins the SERVER is a new arrival, not a man sneaking
 	-- back into the drive he left: he gets the pads like anybody else.
 	withdrawnFrom[userId] = nil
+	-- ...AND WHETHER HE HAD BEEN WALKED BEHIND THE LINE (task 261, item 2), for the same rule: no
+	-- table in this owner is keyed by a man who has gone.
+	throughPlaced[userId] = nil
 	if tied[userId] then
 		-- The rope outlives nobody: the Instance goes with the player (design section 4.4).
 		untie(userId)
@@ -3884,6 +4062,7 @@ function Match.start(injected)
 	table.clear(characterWatch)
 	table.clear(placedCharacter)
 	table.clear(withdrawnFrom)
+	table.clear(throughPlaced)
 	table.clear(pushCredit)
 	snapshotCache = nil
 	botsRebuiltForDrive = nil
