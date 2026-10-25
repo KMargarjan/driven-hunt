@@ -1,20 +1,37 @@
 # Task 261 -- Karen's Sunday-morning test: five fixes
 
 Task: 261
-Round: 1
+Round: 2
 Base: 03748f79 (main)
-Code commit: eaef41e0e4bbcb21b37b4513fb3ee15b1d32c13c
+Code commit: e42da793596aee66147b5384e79c9233806f32b4
 
 ```
-[harness] PASS: 34/34 checks @ eaef41e0e4bbcb21b37b4513fb3ee15b1d32c13c (clean tree) scope=all
-[harness2] PASS: 36/36 checks @ eaef41e0e4bbcb21b37b4513fb3ee15b1d32c13c (clean tree)
+[harness] PASS: 34/34 checks @ e42da793596aee66147b5384e79c9233806f32b4 (clean tree) scope=all
+[harness2] PASS: 36/36 checks @ e42da793596aee66147b5384e79c9233806f32b4 (clean tree)
 ```
 
-The `[harness2]` line is the Director's, run twice (`<runs-dir>/test2-t261a.log`, `t261b.log`, both
-server 2283/0, shooter 591/0, driver 585/0) after the player-count click; the `[harness]` line above
-is mine, re-run at the same commit so the two name one commit. The `NEEDS KAREN` entry that blocked
-it is closed in `ESCALATE.md`. **The code commit is `eaef41e0` and nothing but paperwork follows
-it** -- no `src/` or `tests/` file changed in this round.
+Both lines are mine this round and name one commit; `test2` now runs without a human, because the
+Director's player-count click is saved and `<runs-dir>/press-f7.ps1` reaches *Server and Clients*
+(`<runs-dir>/261-test2.py` drives both in one foreground command). The `NEEDS KAREN` entry that
+blocked round 1 is closed in `ESCALATE.md`.
+
+## Round 1's two blocking findings, and what they were
+
+**Finding 1 was real, it was mine, and it was Karen's own defect caused by the code written to fix
+it.** `stepCarcass` took the carcass's lowest point as `part.Position.Y - part.Size.Y / 2`, which is
+the bottom only while the box STANDS UP -- and every carcass that reaches the anchor by the toppled
+path is lying on its side. Reproduced as arithmetic off `SPECIES.reddeer.BODY_SIZE` (1.8 x 4.8 x
+7.05) and the per-kind scales: **a stag resting exactly on the ground measured 1.500 studs below
+it** (hind 1.283, calf 0.742), all past the 0.5 tolerance and inside the 20-stud bound -- so the
+correction LIFTED a body that was already down and the anchor froze it there for 120 s.
+`Body.verticalHalf(cframe, size)` is the fix: the box's own axes projected onto world up, used for
+BOTH the bottom and the ray's origin. Two live cases roll the part a quarter turn first, and they
+use a **stag** rather than this block's male on purpose -- a male's error is exactly 0.500, the
+tolerance to the stud, so a male case would have passed against round 1's code too.
+
+**Finding 2 was real.** The lift-payback case asserted `liftedBy == 0`, which `stepCarcass` writes
+unconditionally, so reverting `Body.liftDrawn`'s `studs == 0` guard left the calf's mesh floating
+1.325 studs with the suite green. It now asserts the MESH is back on the part it is welded to.
 
 ## What changed, by Karen's sentence
 
@@ -66,10 +83,14 @@ it** -- no `src/` or `tests/` file changed in this round.
 7. **And it is put ON the ground at the one moment it is about to be frozen there.** The anchor is
    the only thing that can make a carcass hang, because it is the only thing that takes gravity
    away. The ground is read at the carcass's own x,z, from just above it (`ForestTest.groundAt`'s
-   `fromY`, which also excludes `Boars`), bounded by a 0.5-stud tolerance and REFUSED past 20.
+   `fromY`, which also excludes `Boars`), bounded by a 0.5-stud tolerance and REFUSED past 20 -- and
+   the body's bottom is measured with `Body.verticalHalf` at the angle it is LYING at, which is
+   round 1's finding 1.
    *Verify:* `boar_model.spec` "puts a settled carcass on the ground before it anchors it" (which
-   asserts the x,z and the ray's origin) and "leaves a carcass that is already down alone, and
-   refuses a wild answer"; `Boar.groundDrop`'s own truth table.
+   asserts the x,z and the ray's origin), "does not lift a carcass that is lying on its side", "still
+   puts a ROLLED carcass down when it really is hanging", "leaves a carcass that is already down
+   alone, and refuses a wild answer", and the two pure truth tables (`Boar.groundDrop`,
+   `Boar.verticalHalf`).
 8. **The two gaps task 249's review left in this code are closed.** (i) a case now collapses a body
    with a visual and a cached death track and asserts `deathTrack` is armed -- and nil on the
    `boxFalls` path; (ii) `Body.deathTrackOn` asks the clip actually on the rig, so a running PADDLE
@@ -156,7 +177,7 @@ that carried it; the grant itself is asserted by `economy.spec` and not by a rea
 ```
 1. NOT PROVEN (no respawn run on her path: the drive cycle had seated the player as a beater) -- built, gated, and asserted by match_phase/lobby_live specs; the role half is the stored turn and no new mechanism
 2. NOT PROVEN (the line probe reads CollectionService tags and the Forest Test has none) -- built and gated; 2(c)'s role alternation WAS observed live (Shooters+Shotgun -> Drivers+Horn)
-3. CORE -- NOT PROVEN (13 shots, 0 kills: the probe's origin was the camera 870 studs from the character, so every shot was refused; fixed in the file, but the drive had ended) -- built and gated
+3. CORE -- NOT PROVEN (13 shots, 0 kills: the probe's origin was the camera 870 studs from the character, so every shot was refused; fixed in the file, but the drive had ended) -- built and gated, and round 1's review then found the ground correction LIFTING a correctly-resting stag by 1.500 studs: fixed, and it is the sharpest argument there is for proving this one on her path
 4. NOT PROVEN (no frame of thirty animals in rows; Karen has not seen the clearing) -- the yard IS measured live: 21 of 30 trees, 0 on the yard, 9/9 Ground, 0 obstacles
 5. MET (attribute set and cleared on her place, attributes identical before and after; the grant itself is spec-asserted, not read off the console)
 ```
