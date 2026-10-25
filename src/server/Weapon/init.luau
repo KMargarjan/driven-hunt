@@ -1515,11 +1515,17 @@ local function onFireRequest(player: Player, req: any): string?
 		weapon = id,
 		ammo = ammo,
 		-- WHERE THE PROJECTILES START (task 259). `Flight` casts its first segment from this point,
-		-- and it is `origin` -- the bore -- not the Tool's attachment: with
-		-- `CONFIG.BORE_ON_SIGHT_LINE` off the two are the same Vector3 and this is today bit for bit.
+		-- and it is `origin` -- the bore -- not the Tool's attachment. **`CONFIG.BORE_ON_SIGHT_LINE`
+		-- SHIPS `true` SINCE TASK 260**, so the two are 0.73 studs apart in the shipped build; this
+		-- sentence said "off ... today bit for bit", which was true when task 259 wrote it and stale
+		-- from task 260 onward (the Reviewer, task 266 round 1, and the same class of stale
+		-- shipped-value sentence task 265 round 2 existed to remove).
 		--
-		-- THE ATTACHMENT IS STILL WHAT THE FLASHES READ: `ShotFired` and `ShotLanded` carry `muzzle`,
-		-- because a flash has to come out of the gun.
+		-- THE ATTACHMENT IS STILL WHAT THE FLASH READS: `ShotFired` carries `muzzle`, because a
+		-- flash has to come out of the gun. **`ShotLanded` carries no muzzle at all** -- its payload
+		-- is `shooterUserId`, `impacts`, `normals`, `materials`, `parts`, built in `onShotLanded`
+		-- ABOVE this function -- and both the old wording here and TASKS.md 259b(c3) named it
+		-- wrongly (the Reviewer, task 266 round 1).
 		-- **AND `safetySignal` BELOW IS NOT A FLASH, WHICH THE FIRST VERSION OF THIS COMMENT CALLED
 		-- IT (the Reviewer's round-1 note).** `Weapon.SafetyViolated`'s own header says the drive
 		-- needs that payload, and `Match.Penalty.judge` measures off it -- so at
@@ -1586,9 +1592,11 @@ local function onFireRequest(player: Player, req: any): string?
 			-- NOTHING UNDER `src/server/Match/` CHANGES. `Match.onSafetyViolation(player, aim,
 			-- muzzle, stopAt)` and `Match.lineIsUnsafe` both already take the ray's START as an
 			-- argument and build a `Penalty.Shot` from it, so this is one Vector3 at one call site.
-			-- `ShotFired` and `ShotLanded` below keep the Tool's `muzzle`, and that asymmetry is
-			-- deliberate: a flash has to come out of the gun, a penalty has to measure the bullet's
-			-- own line.
+			-- `ShotFired` below keeps the Tool's `muzzle`, and that asymmetry is deliberate: a flash
+			-- has to come out of the gun, a penalty has to measure the bullet's own line.
+			-- **`ShotLanded` carries no muzzle** -- see the `muzzle = origin` block above; the first
+			-- version of this comment said it did, repeating the error TASKS.md 259b(c3) had already
+			-- recorded in the comment it replaced (the Reviewer, task 266 round 1).
 			safetySignal:Fire(player, aim, origin, stopAt)
 		end
 	end
