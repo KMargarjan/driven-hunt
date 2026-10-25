@@ -26,6 +26,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 -- THE ONE CLOCK THAT ADVANCES A FLIGHT (task 185). One `Heartbeat`, connected in `Weapon.start`,
 -- and the only caller of `flight:advance` in the repo -- a grep must find one site.
 local RunService = game:GetService("RunService")
+-- WHERE THE STUDIO-ONLY CLAIM COUNTERS ARE PUBLISHED (task 266b). Server-only by construction, which
+-- is what makes it readable by a server probe and invisible to every client.
+local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 
 -- THE PURE MATHS OF A SHOT THAT TAKES TIME TO ARRIVE (task 185). Frozen numbers plus functions of
@@ -759,6 +762,78 @@ function Weapon.roundsLeft(state): number
 	return live
 end
 
+-- WHAT THE CLAIM GATE HAS DONE, AS ONE LINE OF TEXT A PROBE CAN READ (task 266b item 1).
+--
+-- **THE PROBLEM IT SOLVES, measured by losing three attempts to it in task 266.** The counters above
+-- are module state, and `studio_mcp`'s Luau channel gets a **fresh module cache** (memory:
+-- `studio-mcp-execute-luau-single-line`), so a probe that requires `Weapon` reads a `Weapon` that has
+-- never seen a player: every counter zero, whatever the live server has done. So the one question
+-- this whole feature turns on -- *did the server ACCEPT the claim?* -- could not be asked at all, and
+-- task 266 had to answer it by inference three times and failed each time. The Reviewer's own
+-- round-3 note: *"The accepted path has never executed, anywhere."*
+--
+-- PURE, AND EXPORTED SEPARATELY FROM THE WRITE, so the formatting is testable with no world and no
+-- attribute: `weapon_shot.spec` drives it with a hand-written table.
+--
+-- THE REASONS ARE SORTED, so two runs of the same server produce the same string and a diff between
+-- them is a fact rather than a hash order.
+function Weapon.claimLine(from: any): string
+	if type(from) ~= "table" then
+		return ""
+	end
+	local reasons = {}
+	if type(from.refusedClaimBy) == "table" then
+		for reason, count in pairs(from.refusedClaimBy) do
+			table.insert(reasons, string.format("%s=%d", tostring(reason), count))
+		end
+		table.sort(reasons)
+	end
+	return string.format(
+		"enabled=%s claims=%d accepted=%d refused=%d ignored=%d worst=%.3f/%.3f [%s]",
+		tostring(from.claimsEnabled),
+		from.claims or 0,
+		from.claimsAccepted or 0,
+		from.claimsRefused or 0,
+		from.claimsIgnored or 0,
+		from.claimWorstStuds or 0,
+		from.claimWorstLineStuds or 0,
+		table.concat(reasons, " ")
+	)
+end
+
+-- THE ATTRIBUTE'S NAME, here rather than typed into a probe, so the one in the game and the one in
+-- the spec cannot drift.
+Weapon.CLAIM_STATS_ATTRIBUTE = "DHClaimStats"
+
+-- WRITTEN ONLY IN STUDIO, and that is not a convention -- `RunService:IsStudio()` is checked here,
+-- so a live server never writes it however many shots it resolves. The shape is
+-- `Boar.legendaryForced`'s, read the other way round: that one READS a Studio-only attribute, this
+-- one WRITES one.
+--
+-- IT IS NOT A `DHFlag_*` OVERRIDE and it is not read by anything in the game: nothing branches on
+-- it, so a stale value cannot change a drive. `tools/studio_mcp.py` refuses a harness run while a
+-- flag override is set and cannot see this one -- which is correct, because this one is an OUTPUT.
+--
+-- `pcall` BECAUSE AN ATTRIBUTE WRITE CAN THROW on a name the engine dislikes, and a diagnostic that
+-- can take down the shot resolution is worse than no diagnostic.
+--
+-- `isStudio` IS A PARAMETER WITH A DEFAULT, for the reason `g` is one all through `Ballistics` and
+-- `toleranceStuds` is one in `Validator.checkShot`: **a branch that can only be reached at one value
+-- cannot be tested at the other.** A spec runs in Studio, so without this the live-server branch --
+-- the one that must write NOTHING -- would be unreachable and could rot silently into a server that
+-- writes an attribute on every shot. `nil` is the engine's own answer and is every caller in the
+-- game.
+function Weapon.publishClaimStats(isStudio: boolean?): boolean
+	local studio = if type(isStudio) == "boolean" then isStudio else RunService:IsStudio()
+	if not studio then
+		return false
+	end
+	local ok = pcall(function()
+		ServerStorage:SetAttribute(Weapon.CLAIM_STATS_ATTRIBUTE, Weapon.claimLine(Weapon.stats()))
+	end)
+	return ok
+end
+
 function Weapon.stats()
 	local out = table.clone(stats)
 	-- `table.clone` is SHALLOW, so the per-rule tally has to be copied by hand or a caller holds a
@@ -1420,9 +1495,16 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	-- happened. A claimable shot is single-pellet by construction (design section 6), so the flight
 	-- had at most one impact and this is "the accepted claim replaces it" -- no merging, no second
 	-- report, and `pellets` is 1 exactly as it is for a slug today.
-	-- ONE IMPACT, BUILT BY `Validator.claimImpact`, which is pure and exported precisely so this
-	-- branch can be deleted and FAIL something (the Reviewer's round-2 finding: it used to be four
-	-- lines here, reachable only through a live handler, so deleting it left the whole suite green).
+	-- ONE IMPACT, BUILT BY `Validator.claimImpact`, which is pure and exported so the truncation
+	-- ARITHMETIC is driven with no world (`weapon_hits.spec` case 26).
+	--
+	-- **THE WIRING -- THIS LINE -- IS COVERED BY `weapon_shot.spec`'s ACCEPT CASE AND BY NOTHING
+	-- ELSE** (task 266b). The Reviewer's round-3 note was right that the earlier comment here
+	-- overclaimed: replacing this with `return res.impacts` left the whole suite green, because
+	-- case 26 calls `claimImpact` directly and the only assertion on `claimsAccepted` anywhere was
+	-- that it had NOT moved. The accept case now resolves a real flight through a scripted world
+	-- that stops nothing, so with this line gone there is no report on the claimed part and it
+	-- fails.
 	return { Validator.claimImpact(claim, part.CFrame, bore, part.Material) }
 end
 
@@ -1434,6 +1516,10 @@ local function onShotLanded(res: Flight.Resolution)
 	-- once, which is what keeps every reader -- `HitLog`, `Match`, `ForestTest`, the hit marker --
 	-- unchanged.
 	local impacts = judgeClaimFor(res)
+	-- THE COUNTERS, OUT WHERE A PROBE CAN READ THEM (task 266b item 1). Here and nowhere else: this
+	-- is the one line every claim verdict passes through, so the attribute cannot fall behind the
+	-- numbers it reports. In a live server `publishClaimStats` returns false and writes nothing.
+	Weapon.publishClaimStats()
 	local reports = Hits.group(shot.shooter, impacts, shot.ammo, shot.firedAt, shot.weapon)
 	stats.reports += #reports
 	for _, report in ipairs(reports) do

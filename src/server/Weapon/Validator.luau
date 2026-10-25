@@ -126,11 +126,18 @@ end
 -- can say WHICH check a real server is failing rather than only how often.
 --
 -- THE ORDER IS THE DIRECTOR'S, cheapest and most specific first, and each reason is its own string.
+--
+-- **THE NUMBERS BELOW ARE `docs/design/ballistics.md` SECTION 5.2's**, which is why they start at 2:
+-- check 1 is *"the claimed part belongs to a live animal the server knows"*, and that one is the
+-- OWNER's (`Hits.targetOf` plus the history provider) because it needs an Instance and a provider,
+-- which this module may not touch. They were numbered 1-6 from here until task 266b, so "check 4"
+-- meant the LINE check in this file and the REACH check in the design, `Shotgun.CONFIG.CLAIM` and
+-- `zz_claim_window.spec` -- the Reviewer carried that from round 2 to round 3.
 function Validator.judgeClaim(facts: any, limits: any): (boolean, string?)
 	if type(facts) ~= "table" or type(limits) ~= "table" then
 		return false, "claim-type"
 	end
-	-- (1) THE OFFSET IS ON THE CLAIMED BOX. Componentwise against the part's own half-extents plus
+	-- CHECK 2 OF THE DESIGN (section 5.2): THE OFFSET IS ON THE CLAIMED BOX. Componentwise against the part's own half-extents plus
 	-- one skin, because both sides read the same `Size` and the only disagreement should be floating
 	-- point. A claim whose offset is off the box is naming a point that is not on the thing it says
 	-- it hit, whatever the rest of the arithmetic says.
@@ -147,7 +154,7 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?)
 		return false, "claim-offset"
 	end
 
-	-- (2) THE CLIENT AND THE SERVER AGREE ABOUT WHERE IT WAS. This is the ONE check that exists to be
+	-- CHECK 3: THE CLIENT AND THE SERVER AGREE ABOUT WHERE IT WAS. This is the ONE check that exists to be
 	-- disagreed with, and the loose one: the shared clock is unestablished, so it asks "the same
 	-- animal in the same place", not "the same millisecond". `CLAIM.POSITION_TOLERANCE_STUDS` says
 	-- why 6.0 and not 0.5.
@@ -156,7 +163,7 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?)
 		return false, "claim-moved"
 	end
 
-	-- (3) THE SHOT WENT THERE. The SERVER's own trajectory at the claimed flight time against the
+	-- CHECK 4: THE SHOT WENT THERE. The SERVER's own trajectory at the claimed flight time against the
 	-- SERVER's own rewind of the claimed point -- never against the client's point, which is what
 	-- keeps a modified client from moving the line as well as the target. **This is the check that
 	-- makes the ZONE geometric rather than chosen** (design 5.2, 5.4).
@@ -165,14 +172,14 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?)
 		return false, "claim-line"
 	end
 
-	-- (4) THE BULLET GOT THERE: the line of sight, measured by the flight that already ran. A tree
+	-- CHECK 5: THE BULLET GOT THERE -- the line of sight, measured by the flight that already ran. A tree
 	-- between the muzzle and the animal stopped the server's own shot, so the claim dies with it --
 	-- and no new raycast is needed to know it.
 	if facts.reachedStuds + limits.REACH_SLACK_STUDS < facts.claimedStuds then
 		return false, "claim-blocked"
 	end
 
-	-- (5) THE CLOCK IS SANE. A NEGATIVE age is an arrival in the server's FUTURE, which is a claim
+	-- CHECK 6, first half: THE CLOCK IS SANE. A NEGATIVE age is an arrival in the server's FUTURE, which is a claim
 	-- about something that has not happened; too old is outside the window the animal remembers.
 	if facts.ageSeconds < 0 then
 		return false, "claim-future"
@@ -181,7 +188,7 @@ function Validator.judgeClaim(facts: any, limits: any): (boolean, string?)
 		return false, "claim-stale"
 	end
 
-	-- (6) THE GUN COULD HAVE MADE THIS SHOT. The claimed flight time against the server's own
+	-- CHECK 6, second half: THE GUN COULD HAVE MADE THIS SHOT. The claimed flight time against the server's own
 	-- `Ballistics.timeToRange` for that weapon, that ammo and that range. It refuses a NONSENSE
 	-- claim; it does not pin the geometry -- check 3 does that.
 	if math.abs(facts.flightSeconds - facts.expectedFlightSeconds) > limits.FLIGHT_TOLERANCE_SECONDS then

@@ -185,14 +185,33 @@ function Claim.simulate(opts: {
 
 		-- (2) EACH ANIMAL, IN ITS OWN FRAME. The NEAREST impact wins -- and it has to be compared
 		-- against the static block above rather than taken on sight.
+		--
+		-- **EVERY DISTANCE HERE IS MEASURED ALONG THE BULLET'S OWN PATH, from `pellet.position`**,
+		-- and that is a correction, not a restatement (the Reviewer, task 266 round 3). The target
+		-- cast starts at `pellet.position - shift` -- the segment translated into the animal's frame
+		-- -- so the `distance` it hands back is measured from THAT point, which is up to `|shift|`
+		-- (~1.27 studs at the step cap, for an animal running along the bore) away from where the
+		-- bullet actually is. Comparing it with `blockAt` put the two sides on **different rulers**,
+		-- and the same error went into `distanceStuds`, which the server then checks against its own
+		-- trajectory (check 4) and its own `timeToRange` (check 6).
+		--
+		-- The fix is to take the hit's point back into the WORLD frame (`+ shift`) and measure from
+		-- the bullet, which is the only frame both passes share. At the lead sizes this feature is
+		-- for -- a fraction of a stud at these ranges -- a 1.27-stud ruler error is not a rounding
+		-- difference: it is larger than the thing being measured, and it refuses honest shots.
 		local bestHit: Shotgun.Impact? = nil
 		local bestShift = Vector3.zero
+		local bestAlong = math.huge
 		for _, target in ipairs(targets) do
 			local shift = target.velocity * pellet.elapsed
 			local hit = castOnly(target.root)(pellet.position - shift, segment, staticIgnore)
-			if hit ~= nil and hit.distance < blockAt and (bestHit == nil or hit.distance < bestHit.distance) then
-				bestHit = hit
-				bestShift = shift
+			if hit ~= nil then
+				local along = (hit.position + shift - pellet.position).Magnitude
+				if along < blockAt and along < bestAlong then
+					bestHit = hit
+					bestShift = shift
+					bestAlong = along
+				end
 			end
 		end
 		if bestHit == nil then
@@ -222,8 +241,10 @@ function Claim.simulate(opts: {
 					-- (check 2) -- so this is the one field that exists to be disagreed with.
 					point = hit.position + shift,
 					firedAtView = opts.firedAtView,
-					flightSeconds = pellet.elapsed + (hit.distance / math.max(1e-6, pellet.velocity.Magnitude)),
-					distanceStuds = pellet.travelled + hit.distance,
+					-- BOTH FROM `bestAlong`, the distance along the BULLET's own path (above), never
+					-- from `hit.distance`, which is measured from the translated start.
+					flightSeconds = pellet.elapsed + (bestAlong / math.max(1e-6, pellet.velocity.Magnitude)),
+					distanceStuds = pellet.travelled + bestAlong,
 				}
 			end
 		end
