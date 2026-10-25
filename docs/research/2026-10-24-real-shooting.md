@@ -577,9 +577,10 @@ it rotates the gun and not the sight line. All three sights are true; the BORE w
 reach the impact at all and the only error left is the arc. The muzzle's DEPTH is kept, so the flight
 time, the range cap and what the first segment cast can strike are unchanged.
 
-`Shotgun.CONFIG.BORE_ON_SIGHT_LINE` is the parameter and it ships **false**, which is today bit for
-bit -- `boreOrigin` returns the same `Vector3`, asserted by identity. Two reasons, both external to
-the arithmetic: `docs/design/shotgun.md` section 5.5 step 7 says the bore starts at the muzzle and
+`Shotgun.CONFIG.BORE_ON_SIGHT_LINE` is the parameter and **it ships `true` since task 260**. Until
+task 265 round 2 this sentence said it ships **false**, which was true only while the parameter was
+new: at `false` `boreOrigin` returns the muzzle, the same `Vector3`, asserted by identity. The two
+reasons it shipped off at first, both external to the arithmetic: `docs/design/shotgun.md` section 5.5 step 7 says the bore starts at the muzzle and
 `docs/design/` is the Architect's; and `Flags.MAX_FLAGS` is at its ceiling, which the flag table's
 own header makes the Director's call. The parameter shape is the one task 256 shipped and
 `docs/design/ballistics.md` accepted **by name** in place of a flag, for the same reason: a path
