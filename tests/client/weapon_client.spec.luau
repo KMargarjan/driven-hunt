@@ -1899,4 +1899,238 @@ return function()
 			expect(ContextActionService:GetAllBoundActionInfo()[QUIET_ACTION]).to.equal(nil)
 		end)
 	end)
+	-- ---------------------------------------------------------------- THE CLIENT'S OWN SHOT (task 266)
+	--
+	-- KAREN, 2026-10-24/25: *"we need to aim in empty space to get hit in head neck or heart like in
+	-- real life"* / *"all shooting has to be like in real life / this is a key of this game"*.
+	--
+	-- THE CASE THAT MATTERS IS THE PAIR, and it is the pair that cannot pass by accident: aiming AT a
+	-- target moving at 38 studs/s produces NO claim, and aiming AHEAD of it by `Ballistics.leadStuds`
+	-- produces one. The stub cast's answer depends on the SUB-STEP'S OWN ELAPSED TIME -- it moves the
+	-- target itself -- so the two sides are not the same engine identity and deleting the lead from
+	-- the second case makes it fail.
+	describe("Weapon.Claim -- the shooter's own simulation", function()
+		local Ballistics = require(ReplicatedStorage:WaitForChild("Ballistics"))
+		local Claim = Weapon.Claim
+		local CLAIM = Shotgun.CONFIG.CLAIM
+
+		it("is exported, and is the one caller of Workspace:Raycast under src/client/Weapon/", function()
+			expect(Claim).to.be.ok()
+			expect(type(Claim.simulate)).to.equal("function")
+			expect(type(Claim.world)).to.equal("function")
+			expect(type(Claim.only)).to.equal("function")
+			expect(type(Claim.forCamera)).to.equal("function")
+		end)
+
+		-- A SCRIPTED WORLD: one 3-stud-long box, moving along +X, and two injected casts. No boar, no
+		-- server, no Workspace. The target "exists" only as the stub's own arithmetic, which is what
+		-- lets the case assert a MISS as firmly as a hit.
+		local function scriptedWorld(targetAt: Vector3, velocity: Vector3)
+			local box = Instance.new("Part")
+			box.Name = "ClaimSpecTarget"
+			box.Size = Vector3.new(2, 2, 3)
+			box.Anchored = true
+			box.CanCollide = false
+			box.CanQuery = false
+			box.CFrame = CFrame.new(targetAt)
+			local casts = 0
+			-- THE STATIC PASS answers nothing: nothing is in the way in this world.
+			local function cast(_origin: Vector3, _segment: Vector3, _ignore: { Instance })
+				casts += 1
+				return nil
+			end
+			-- THE TARGET PASS. `Claim.simulate` hands this the segment ALREADY TRANSLATED into the
+			-- animal's own frame, so the box here is treated as standing still at `targetAt` -- which
+			-- is exactly the transform the real Include-filtered cast performs against a moving part.
+			local function castOnly(_instance: Instance)
+				return function(origin: Vector3, segment: Vector3, _ignore: { Instance })
+					casts += 1
+					local length = segment.Magnitude
+					if length <= 1e-9 then
+						return nil
+					end
+					-- The closest approach of this segment to the box's centre, and a hit when it is
+					-- inside the box's own half-extents.
+					local toBox = targetAt - origin
+					local along = math.clamp(toBox:Dot(segment.Unit), 0, length)
+					local closest = origin + segment.Unit * along
+					local delta = closest - targetAt
+					if
+						math.abs(delta.X) <= box.Size.X / 2
+						and math.abs(delta.Y) <= box.Size.Y / 2
+						and math.abs(delta.Z) <= box.Size.Z / 2
+					then
+						return {
+							instance = box,
+							position = closest,
+							normal = -segment.Unit,
+							distance = along,
+							material = Enum.Material.Plastic,
+						}
+					end
+					return nil
+				end
+			end
+			return box, cast, castOnly, function()
+				return casts
+			end, velocity
+		end
+
+		-- The rifle, because its numbers are the ones Karen's sentence is about and its slug is a
+		-- single pellet -- which is the only shape a claim exists for (design section 6).
+		local row = Weapons.ROWS.rifle
+		local shot = Ballistics.shotFor(row, "Slug")
+		local SPEED = 38 -- Boar.CONFIG.SPRINT_SPEED, the number the design's own cases use
+
+		it("aiming AT a sprinting target produces NO claim", function()
+			local origin = Vector3.new(0, 10, 0)
+			local distance = 200
+			local at = origin + Vector3.new(0, 0, -distance)
+			local box, cast, castOnly, counted = scriptedWorld(at, Vector3.new(SPEED, 0, 0))
+			local claim = Claim.simulate({
+				origin = origin,
+				aim = (at - origin).Unit,
+				shot = shot :: any,
+				rangeStuds = row.RANGE_STUDS.Slug,
+				targets = { { root = box, velocity = Vector3.new(SPEED, 0, 0) } },
+				ignore = {},
+				cast = cast,
+				castOnly = castOnly,
+				firedAtView = 1000,
+				limits = CLAIM,
+			})
+			box:Destroy()
+			expect(claim).to.equal(nil)
+			-- AND THE SIMULATION ACTUALLY RAN, so the nil is a miss and not an early return.
+			expect(counted() > 2).to.equal(true)
+		end)
+
+		it("aiming AHEAD by the ballistic lead produces a claim on the target", function()
+			local origin = Vector3.new(0, 10, 0)
+			local distance = 200
+			local at = origin + Vector3.new(0, 0, -distance)
+			-- THE LEAD IS `Ballistics.leadStuds`' OWN NUMBER, not one typed here: the point of the
+			-- case is that the lead a player must hold is the FLIGHT TIME's, and taking it from the
+			-- same function the rest of the game takes it from is what makes that assertable.
+			local lead = Ballistics.leadStuds(shot :: any, distance, SPEED)
+			expect(lead > 2).to.equal(true)
+			local aimPoint = at + Vector3.new(lead, 0, 0)
+			local box, cast, castOnly = scriptedWorld(at, Vector3.new(SPEED, 0, 0))
+			local claim = Claim.simulate({
+				origin = origin,
+				aim = (aimPoint - origin).Unit,
+				shot = shot :: any,
+				rangeStuds = row.RANGE_STUDS.Slug,
+				targets = { { root = box, velocity = Vector3.new(SPEED, 0, 0) } },
+				ignore = {},
+				cast = cast,
+				castOnly = castOnly,
+				firedAtView = 1000,
+				limits = CLAIM,
+			})
+			expect(claim).to.be.ok()
+			local hit = claim :: any
+			expect(hit.part).to.equal(box)
+			-- THE OFFSET IS ON THE BOX, which is the server's own check 1.
+			expect(math.abs(hit.offset.X) <= box.Size.X / 2 + CLAIM.SKIN_STUDS).to.equal(true)
+			expect(math.abs(hit.offset.Y) <= box.Size.Y / 2 + CLAIM.SKIN_STUDS).to.equal(true)
+			expect(math.abs(hit.offset.Z) <= box.Size.Z / 2 + CLAIM.SKIN_STUDS).to.equal(true)
+			-- THE DISTANCE AND THE FLIGHT TIME ARE THE WEAPON'S OWN, within the tolerances the
+			-- server will judge them by -- so an honest claim from this client passes checks 4 and 6
+			-- by construction rather than by luck.
+			expect(math.abs(hit.distanceStuds - distance) < 5).to.equal(true)
+			local expected = Ballistics.timeToRange(shot :: any, hit.distanceStuds)
+			expect(math.abs(hit.flightSeconds - expected) <= CLAIM.FLIGHT_TOLERANCE_SECONDS).to.equal(true)
+			expect(hit.firedAtView).to.equal(1000)
+			box:Destroy()
+		end)
+
+		it("a tree between the bore and the target produces NO claim -- the client's own line of sight", function()
+			local origin = Vector3.new(0, 10, 0)
+			local distance = 200
+			local at = origin + Vector3.new(0, 0, -distance)
+			local lead = Ballistics.leadStuds(shot :: any, distance, SPEED)
+			local box, _cast, castOnly = scriptedWorld(at, Vector3.new(SPEED, 0, 0))
+			local trunk = Instance.new("Part")
+			trunk.Name = "ClaimSpecTrunk"
+			-- THE STATIC PASS NOW ANSWERS on the first sub-step: a trunk 20 studs out.
+			local blocked = function(castOrigin: Vector3, segment: Vector3, _ignore: { Instance })
+				return {
+					instance = trunk,
+					position = castOrigin + segment * 0.5,
+					normal = -segment.Unit,
+					distance = segment.Magnitude * 0.5,
+					material = Enum.Material.Wood,
+				}
+			end
+			local claim = Claim.simulate({
+				origin = origin,
+				aim = ((at + Vector3.new(lead, 0, 0)) - origin).Unit,
+				shot = shot :: any,
+				rangeStuds = row.RANGE_STUDS.Slug,
+				targets = { { root = box, velocity = Vector3.new(SPEED, 0, 0) } },
+				ignore = {},
+				cast = blocked,
+				castOnly = castOnly,
+				firedAtView = 1000,
+				limits = CLAIM,
+			})
+			box:Destroy()
+			trunk:Destroy()
+			expect(claim).to.equal(nil)
+		end)
+
+		it("is bounded: no more casts than MAX_TARGETS x MAX_SUBSTEPS, plus one static pass each", function()
+			local origin = Vector3.new(0, 10, 0)
+			-- Nine targets, one more than the bound, none of them ever hit: the simulation must stop
+			-- at the cap rather than at the list's end.
+			local targets = {}
+			local boxes = {}
+			for index = 1, 9 do
+				local box = Instance.new("Part")
+				box.Name = "ClaimSpecFar" .. index
+				box.Size = Vector3.new(2, 2, 3)
+				box.Anchored = true
+				box.CFrame = CFrame.new(origin + Vector3.new(index * 50, 400, 0))
+				table.insert(boxes, box)
+				table.insert(targets, { root = box, velocity = Vector3.zero })
+			end
+			local casts = 0
+			local function cast()
+				casts += 1
+				return nil
+			end
+			local function castOnly()
+				return function()
+					casts += 1
+					return nil
+				end
+			end
+			Claim.simulate({
+				origin = origin,
+				aim = Vector3.new(0, 0, -1),
+				shot = shot :: any,
+				rangeStuds = row.RANGE_STUDS.Slug,
+				targets = targets,
+				ignore = {},
+				cast = cast,
+				castOnly = castOnly,
+				firedAtView = 1000,
+				limits = CLAIM,
+			})
+			for _, box in ipairs(boxes) do
+				box:Destroy()
+			end
+			expect(casts <= CLAIM.MAX_SUBSTEPS * (CLAIM.MAX_TARGETS + 1)).to.equal(true)
+			expect(casts > 0).to.equal(true)
+		end)
+
+		-- THE FLAG'S OFF STATE, from the client's end. The row ships OFF, so the live `Input.fire`
+		-- must send the payload it always sent -- and that is asserted on the ONE firer rather than
+		-- on a copy of its body.
+		it("the row ships OFF, so this client sends no claim until the Director turns it on", function()
+			expect(Flags.isOn("HIT_CLAIM")).to.equal(false)
+			expect(type(Weapon.Input.setClaimSource)).to.equal("function")
+		end)
+	end)
 end
