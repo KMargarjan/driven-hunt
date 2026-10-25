@@ -31,6 +31,9 @@ local Cursor = require(script.Cursor)
 local Mode = require(script.Mode)
 local Poses = require(script.Poses)
 local Rig = require(script.Rig)
+-- THE STUDIO-ONLY HELD LOOK (task 263): the ONE reader of `DHTestLook`, pure apart from its own
+-- `IsStudio` gate, so the camera owner learns one point per frame and nothing about attributes.
+local TestLook = require(script.TestLook)
 local Viewmodel = require(script.Viewmodel)
 
 local Camera = {}
@@ -42,6 +45,10 @@ Camera.Poses = Poses
 Camera.Rig = Rig
 Camera.Cursor = Cursor
 Camera.Viewmodel = Viewmodel
+-- Exported for the client spec, which drives `TestLook.point`'s two branches by parameter -- the
+-- only way to assert the production branch from inside a Studio session, where `IsStudio()` is
+-- always true (`Economy.testGrantFor`'s own reason).
+Camera.TestLook = TestLook
 
 export type AimSource = { isAiming: () -> boolean }
 -- WHAT THE WEAPON SAYS ABOUT ITS OWN RELOAD (task 96): is it broken open, and how many barrels had
@@ -109,6 +116,11 @@ local stats = {
 	-- client spec asserts both it and the return to zero.
 	recoilKicks = 0,
 	maxRecoilCamPitchDeg = 0,
+	-- HOW MANY FRAMES THE STUDIO-ONLY HELD LOOK ACTUALLY STEERED (task 263). `DHTestLook` is
+	-- level-triggered and the owner never writes it back, so there is no handshake to read: this
+	-- counter is how a probe knows the view is being held rather than merely asked for. Zero in
+	-- every production frame, because `TestLook.current` answers nil outside Studio.
+	testLookFrames = 0,
 }
 
 -- Every mode the camera has been in, in order, from boot. The harness-driven spec asserts over this
@@ -602,6 +614,24 @@ local function update(dt: number)
 	-- pose so a screenshot catches the gun still; it refuses to touch Loading or Dead, so it can
 	-- never put a viewmodel on screen where the design says there is none.
 	state = Poses.holdState(state, hold)
+	-- THE STUDIO-ONLY HELD LOOK, AFTER THE STEP AND EVERY FRAME (task 263), for the reason the line
+	-- above it is written that way: a hold that ran BEFORE the step would be undone by the step's own
+	-- mouse delta, and the point of a hold is that a frame can be photographed with the view where
+	-- the instrument put it. `TestLook.current` answers nil outside Studio, with no attribute, and on
+	-- release, so this is one boolean in a production frame.
+	--
+	-- IT IS NOT A SECOND WRITER OF ANYTHING. It changes the same two numbers `Camera.lookAt` and
+	-- `Camera.faceCharacter` change, through the same pure reducer in `Mode`, and `Rig.apply` below
+	-- is still the one thing in the repo that writes `workspace.CurrentCamera`.
+	local testLook = TestLook.current(Players.LocalPlayer)
+	if testLook ~= nil and root ~= nil then
+		-- A REQUESTED TURN IS GIVEN UP, not fought. `faceTowards` eases toward its own target every
+		-- frame; leaving it running under a held look would be two things steering one camera, which
+		-- is the owner-boundary defect rule 3 exists for.
+		facingTarget, facingLeft = nil, 0
+		state = Mode.anglesToward(state, root.CFrame, testLook :: Vector3, config)
+		stats.testLookFrames += 1
+	end
 	lookDelta = Vector2.zero -- consumed exactly once
 	stats.maxRecoilCamPitchDeg = math.max(stats.maxRecoilCamPitchDeg, math.abs(state.recoilCamPitchDeg))
 

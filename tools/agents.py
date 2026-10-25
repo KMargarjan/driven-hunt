@@ -560,13 +560,35 @@ def block(text, name):
     return m.group(1).strip("\n")
 
 
-def verdict_of(result_text, name):
-    first = next((l for l in result_text.splitlines() if l.strip()), "")
-    if first.strip() == "PASS":
+# `PASS`, or `PASS (item 3 NOT PROVEN)` -- the Learning Agent's RULE 3(b), 2026-10-25: a core item
+# whose thing Karen will judge has NOT been seen in her place must say so **on line 1**, so the
+# Director's merge gate can read it without opening the body. The parenthesis is free text and is
+# deliberately not parsed here: this script decides PASS vs FINDINGS and nothing else, and a human
+# reads the reason. Anchored and anchored only at the end, so `PASSING` or `PASS: 3 notes` is still
+# the malformed line it always was.
+PASS_LINE_RE = re.compile(r"^PASS(?:\s*\([^()]*\))?$")
+
+
+def verdict_from_line(first):
+    """"PASS", "FINDINGS", or None for a line that is neither. The ONE place line 1 is read.
+
+    Two callers -- `verdict_of` (the agent's fresh output) and `parse_trailer` (a committed verdict
+    file, which decides the round count) -- and they MUST agree: a `PASS (item N NOT PROVEN)` that
+    one accepted and the other read as FINDINGS would make the next task's first round `Round: 2`."""
+    first = first.strip()
+    if PASS_LINE_RE.match(first):
         return "PASS"
     if re.match(r"^\s*1\.\s", first):
         return "FINDINGS"
-    raise Refused(f"{name} line 1 must be `PASS` or start with `1.`; got: {first[:120]!r}")
+    return None
+
+
+def verdict_of(result_text, name):
+    first = next((l for l in result_text.splitlines() if l.strip()), "")
+    v = verdict_from_line(first)
+    if v is not None:
+        return v
+    raise Refused(f"{name} line 1 must be `PASS`, `PASS (<why>)` or start with `1.`; got: {first[:120]!r}")
 
 
 TRAILER_RE = re.compile(r"^REVIEWER verdict on commit `([0-9a-f]{40})` \(round (\d+)\)", re.M)
@@ -582,7 +604,10 @@ def parse_trailer(text):
         return None, None  # the placeholder, or a file this script never wrote
     m = matches[-1]
     first = next((l for l in text[:m.start()].splitlines() if l.strip()), "")
-    return int(m.group(2)), ("PASS" if first.strip() == "PASS" else "FINDINGS")
+    # THE SAME READER `verdict_of` USES, and that is the whole reason it is a function: this answer
+    # drives the round count, so a line the agent was allowed to write must not be read as FINDINGS
+    # here and silently bump the next request to `Round: 2`.
+    return int(m.group(2)), (verdict_from_line(first) or "FINDINGS")
 
 
 def task_rel(task, name):
@@ -1086,6 +1111,26 @@ def selftest():
     check("a DIRTY TREE line is still refused",
           HARNESS_RE.search(f"[harness] PASS: 12/12 checks @ {sha} (DIRTY TREE (1 paths)) scope=all")
           is None)
+
+    # LINE 1 OF A VERDICT, and the Learning Agent's RULE 3(b) shape (task 263). `PASS (item N NOT
+    # PROVEN)` must read as a PASS in BOTH readers -- the agent's fresh output and the committed
+    # trailer that counts the round -- or the next task's first round is refused as `Round: 2`.
+    check("plain PASS is a pass", verdict_from_line("PASS") == "PASS")
+    check("PASS with a NOT PROVEN parenthesis is a pass",
+          verdict_from_line("PASS (item 3 NOT PROVEN)") == "PASS")
+    check("...and so is it with items plural and trailing space",
+          verdict_from_line("PASS (items 1, 2 and 4 NOT PROVEN)  ") == "PASS")
+    check("a numbered finding is FINDINGS", verdict_from_line("1. src/x -- broken") == "FINDINGS")
+    for bad in ("PASSING", "PASS: 3 notes", "PASSED (item 1)", "pass", "PASS (unclosed",
+                "ok", "", "PASS extra (item 1 NOT PROVEN)"):
+        check("a malformed line 1 is still refused (%r)" % bad, verdict_from_line(bad) is None)
+    # THE TWO READERS AGREE, which is the only property that matters here: `parse_trailer` takes the
+    # round count off a committed file, and `verdict_of` takes the verdict off the agent's output.
+    body = ("PASS (item 2 NOT PROVEN)\n\n## Notes (non-blocking)\n- a note\n\n"
+            "REVIEWER verdict on commit `%s` (round 2)\n" % ("b" * 40))
+    check("verdict_of reads the parenthesised PASS", verdict_of(body, "REVIEW_RESULT") == "PASS")
+    check("parse_trailer reads the SAME line the same way", parse_trailer(body) == (2, "PASS"),
+          repr(parse_trailer(body)))
 
     # THE CONTENT LANE. `CONTENT_PATHS` is data, so a change made only of it is a docs change here;
     # a change that also touches code is NOT, and that is the direction that would be wrong quietly.
