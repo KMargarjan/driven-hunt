@@ -1,12 +1,12 @@
 # Task 259 -- real-life shooting part 2: the true sights, the kill zones, the foliage reading
 
 Task: 259
-Round: 1
+Round: 2
 Base: main @ 6e2b11a7
-Code commit: 968e98a1f868376e1890c0335c0316d0fd27006b
+Code commit: f04f5df25bf5467b95d35d71160a816da1da216e
 
 ```
-[harness] PASS: 34/34 checks @ 968e98a1f868376e1890c0335c0316d0fd27006b (clean tree) scope=all
+[harness] PASS: 34/34 checks @ f04f5df25bf5467b95d35d71160a816da1da216e (clean tree) scope=all
 ```
 
 `[harness2]` is **N/A**: nothing here touches `TWO_PLAYER_PATHS`. The files changed are
@@ -18,6 +18,31 @@ PR to `main`.
 **Items 1, 2 and 4 of the dispatch. Item 3 (the real-click lead proof) is NOT in this task** -- the
 route is proved and written down, the time ran out, and it is queued as TASKS.md 259a with the exact
 shape it needs. Said here rather than left to be noticed.
+
+## Round 1 -> round 2
+
+**The one blocking finding was mechanical and is closed by this round's harness line.** Round 1's
+`Code commit:` was `968e98a1`, and commit `0c172e62` -- a RESEARCH NOTE, which `is_paperwork` does not
+admit -- landed after it, so the pasted line did not cover HEAD. Nothing under `src/`, `tests/` or
+`tools/` differed, which the Reviewer verified and said so; the line above now names
+`f04f5df2`, the head of this round, and `.agent-evidence/paperwork-after-code-commit.txt` is the check.
+
+**Six of the nine notes were fixed in this round because four of them were things I had written
+wrongly**, and they are listed in TASKS.md 259b(c): the live-`BOAR_MODEL` dependency in
+`kill_zones.spec` (now an explicit `configWith`, plus a new case that asserts the OFF world), the two
+`expect(true).to.equal(true)` report cases (they now assert what they print), two task-250 history
+lines that quoted the retired damage cell as live arithmetic, `MAX_SHOTS`' comment describing a
+single-pellet cell the sweep never fires, claim 4's 1.6 cm against the asserted 1.68, and the research
+note's row label.
+
+**One note is deliberately NOT fixed and is queued as 259b(a):** `safetySignal:Fire(player, aim,
+muzzle, stopAt)` still publishes the Tool attachment where `askLineUnsafe` beside it now tests
+`origin`. It is sub-stud and bit for bit at the shipped `false`, its consumers are
+`src/server/Match/` -- a `TWO_PLAYER_PATH`, so moving it needs a `test2` round this task's paths do
+not -- and the Reviewer's own wording is *"fix it with the flip, not after"*. **What IS fixed is the
+comment that called that signal a cosmetic**, which was wrong: `Weapon.SafetyViolated`'s header says
+the drive needs the payload. The remaining two notes are the Architect's design table and are queued
+as 259b(b).
 
 ## What changed
 
