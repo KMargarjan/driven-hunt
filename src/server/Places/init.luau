@@ -283,6 +283,30 @@ function Places.unblockFoliage(root: Instance): number
 	return changed
 end
 
+-- EVERY FOLDER OF TREES IN THIS WORLD, AND "EVERY" IS THE WHOLE POINT (task 260). `Places.templates`
+-- resolves each `TEMPLATE_SOURCES` entry with `FindFirstChild`, which answers ONE child -- and
+-- MEASURED in the Forest Test on 2026-10-25 this place has **two folders both called `Session`**
+-- (`Workspace` children: `... OurForest Session Session`). The first sweep took 623 queryable
+-- foliage parts down to 41, and all 41 were in the second one: 26 `OuterLeaves` and 15 bushes under
+-- `Mesh Tree` / `Mesh TreeV`. A name lookup cannot see a duplicate, so this walks the children.
+--
+-- IT MATCHES THE FIRST SEGMENT of each source path, so `LobbyAssets.Trees` is reached through
+-- `LobbyAssets` -- sweeping the whole of that folder rather than just its `Trees` child, which is
+-- what the rule wants anyway: a leaf stops nothing wherever it stands.
+function Places.foliageRoots(root: Instance): { Instance }
+	local wanted: { [string]: boolean } = {}
+	for _, path in ipairs(Places.TEMPLATE_SOURCES) do
+		wanted[string.split(path, ".")[1]] = true
+	end
+	local found: { Instance } = {}
+	for _, child in ipairs(root:GetChildren()) do
+		if wanted[child.Name] then
+			table.insert(found, child)
+		end
+	end
+	return found
+end
+
 function Places.quieten(model: Model): number
 	local changed = Places.unblockFoliage(model)
 	for _, part in ipairs(model:GetDescendants()) do
@@ -423,7 +447,7 @@ function Places.build(groundAt: ((number, number) -> number?)?, world: Instance?
 	-- parts in `OurForest`, which stopped rays despite `CanQuery = false` -- see
 	-- `Places.unblockFoliage`'s header for the control that proved it. DEV has neither folder, so
 	-- this is a no-op there and `report.unblocked` reads 0.
-	for _, source in ipairs(sources) do
+	for _, source in ipairs(Places.foliageRoots(root)) do
 		report.unblocked += Places.unblockFoliage(source)
 	end
 	local folder = Instance.new("Folder")

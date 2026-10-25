@@ -650,6 +650,30 @@ return function()
 			folder:Destroy()
 		end)
 
+		it("finds EVERY tree folder, including a duplicate name", function()
+			-- MEASURED IN THE FOREST TEST on 2026-10-25: `Workspace` has **two** children called
+			-- `Session`, and `Places.templates`' `FindFirstChild` can only answer one -- which is why
+			-- the first sweep left 41 queryable leaves standing in the second. A name lookup cannot
+			-- see a duplicate, so the sweep walks the children instead.
+			local root = Instance.new("Folder")
+			for _, name in ipairs({ "Session", "Session", "OurForest", "LobbyAssets", "SomethingElse" }) do
+				local folder = Instance.new("Folder")
+				folder.Name = name
+				folder.Parent = root
+			end
+			local found = Planter.foliageRoots(root)
+			expect(#found).to.equal(4)
+			local sessions = 0
+			for _, instance in ipairs(found) do
+				expect(instance.Name).never.to.equal("SomethingElse")
+				if instance.Name == "Session" then
+					sessions += 1
+				end
+			end
+			expect(sessions).to.equal(2)
+			root:Destroy()
+		end)
+
 		it("calls a leaf a leaf and never calls a trunk one", function()
 			-- THE NAME LIST IS THE ONE THING THIS ARM RESTS ON (see `unblockFoliage`'s header: a
 			-- visible colliding leaf is indistinguishable from a trunk by its properties), so the
