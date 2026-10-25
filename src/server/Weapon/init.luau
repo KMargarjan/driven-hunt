@@ -1398,7 +1398,10 @@ local function onFireRequest(player: Player, req: any): string?
 	-- running animal, her own next sentence -- the 0.73 studs MEASURED between the eye and the
 	-- world Tool's muzzle is divided down instead of cancelled, and the shot lands 19 cm right of
 	-- the reticle at 25 m. `Ballistics.boreOrigin` holds the measurement, the arithmetic and the
-	-- parameter; `CONFIG.BORE_ON_SIGHT_LINE` is false, which is today bit for bit.
+	-- parameter; `CONFIG.BORE_ON_SIGHT_LINE` **ships `true` since task 260**, so the bore starts on
+	-- the sight line and the 0.73 studs is gone whatever the ray hit. This line said "is false,
+	-- which is today bit for bit" until task 265 round 2 -- true when task 259 wrote it, stale from
+	-- task 260 onward, and it misled that round's own request.
 	local origin = Ballistics.boreOrigin(req.origin, req.direction, muzzle, CONFIG.BORE_ON_SIGHT_LINE)
 	local aim = Ballistics.convergeAim(origin, aimPoint, req.direction, CONFIG.MIN_AIM_DISTANCE)
 	-- HOW FAR THIS SHOT GETS, COMPUTED ONCE AND READ TWICE (task 248). It was computed inside the

@@ -286,12 +286,13 @@ end
 -- at its own depth, so `(aimPoint - origin)` is the camera's own direction whatever the ray hit, and
 -- the only offset left is the ballistic one -- 1.6 cm inside 60 m (research note section 4).
 --
--- IT IS A PARAMETER AND `false` IS TODAY BIT FOR BIT, which is the shape task 256's
+-- IT IS A PARAMETER, SO BOTH PATHS ARE REACHABLE AND TESTABLE -- the shape task 256's
 -- `FLIGHT_CATCHUP_*` already ships in and which `docs/design/ballistics.md` accepted in its place
--- for a flag: a path reachable at both values can be tested at both. The shipped value is
--- `Shotgun.CONFIG.BORE_ON_SIGHT_LINE`, and it ships **false** because `docs/design/shotgun.md`
--- section 5.5 step 7 says the bore starts at the muzzle and that document is the Architect's.
--- `ESCALATE.md` carries the measurement and the one-line flip.
+-- for a flag. The shipped value is `Shotgun.CONFIG.BORE_ON_SIGHT_LINE`, and **it ships `true`
+-- since task 260**: this header said `false` until task 265 round 2, which is what it shipped as
+-- when the parameter was introduced, and the stale sentence cost that round's request a wrong
+-- claim. `tests/server/sights.spec.luau` passes `false` explicitly in its rollback cases, which is
+-- what keeps them meaningful now that the shipped value is the other one.
 --
 -- Note: docs/research/2026-10-24-real-shooting.md section 6; this task's own section 12.
 function Ballistics.boreOrigin(eye: Vector3, look: Vector3, muzzle: Vector3, onSightLine: boolean?): Vector3
