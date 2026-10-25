@@ -1166,6 +1166,60 @@ return function()
 			expect(Boar.shouldAnchorCarcass(Vector3.new(9, 0, 0), 0, w.CARCASS_ANCHOR_BY_SECONDS, w)).to.equal(true)
 			expect(w.CARCASS_ANCHOR_BY_SECONDS > 3).to.equal(true) -- boar_hit.spec allows the topple three
 		end)
+
+		-- ---------------------------------------------- the two pure rules of task 261, item 3
+		--
+		-- KAREN, 2026-10-25: *"one more thing deer run on road the fall and was sidding on side it's
+		-- a bug / and now deer also hanging there hunted broken"*.
+		it("takes the speed off a dead animal and leaves the fall alone (task 261)", function()
+			local w = CONFIG.WOUND
+			-- 0 TODAY: a shot animal drops where it is hit, which is the defect she reported said as
+			-- a number.
+			expect(w.COLLAPSE_KEEP_SPEED).to.equal(0)
+			local running = Vector3.new(30, -4, -18)
+			local stopped = Boar.collapseVelocity(running, w)
+			expect(stopped.X).to.be.near(0, 1e-6)
+			expect(stopped.Z).to.be.near(0, 1e-6)
+			-- THE FALL IS KEPT WHATEVER THE DIAL SAYS: an animal shot mid-leap must still come down,
+			-- and zeroing the fall would hold it up for a frame and then drop it.
+			expect(stopped.Y).to.be.near(-4, 1e-6)
+			-- ...AND AN UPWARD VELOCITY IS NOT A FALL. A body shot on the way up would otherwise
+			-- carry on rising after it was dead.
+			expect(Boar.collapseVelocity(Vector3.new(0, 25, 0), w).Y).to.be.near(0, 1e-6)
+			-- THE DIAL IS REACHABLE BY PARAMETER, which is what lets Karen have a little carry back
+			-- without this rule being rewritten.
+			local half = table.clone(w)
+			half.COLLAPSE_KEEP_SPEED = 0.5
+			expect(Boar.collapseVelocity(running, half).X).to.be.near(15, 1e-6)
+			-- A CONFIG WITH NO ROW AT ALL KEEPS EVERYTHING, which is this system before the task.
+			local none = table.clone(w)
+			none.COLLAPSE_KEEP_SPEED = nil
+			expect(Boar.collapseVelocity(running, none).X).to.be.near(30, 1e-6)
+		end)
+
+		it("moves a settled carcass onto the ground, both ways, and refuses a wild answer (task 261)", function()
+			local w = CONFIG.WOUND
+			local tol = w.CARCASS_GROUND_TOLERANCE_STUDS
+			-- ALREADY DOWN: terrain is voxelised and a fraction of a stud is noise (task 186
+			-- measured 0.752 studs of it in one flat yard).
+			expect(Boar.groundDrop(100, 100, w)).to.equal(0)
+			expect(Boar.groundDrop(100, 100 + tol - 0.01, w)).to.equal(0)
+			-- HANGING: the correction is the gap, and it is NEGATIVE because the body comes down.
+			expect(Boar.groundDrop(100, 94, w)).to.be.near(-6, 1e-6)
+			-- SUNK: the same defect upside down, which task 192 fixed four of.
+			expect(Boar.groundDrop(100, 103, w)).to.be.near(3, 1e-6)
+			-- PAST THE BOUND: NOTHING IS DONE. A reader answering 40 studs away is not answering
+			-- about this body -- a column cast from the sky that found a canopy or a roof -- and
+			-- moving a carcass on that number would be believing a measurement over the screen.
+			expect(Boar.groundDrop(100, 100 - (w.CARCASS_GROUND_MAX_STUDS + 1), w)).to.equal(0)
+			expect(Boar.groundDrop(100, 100 + w.CARCASS_GROUND_MAX_STUDS + 1, w)).to.equal(0)
+			-- NOTHING KNOWN, NOTHING DONE: no reader, or a reader that found nothing under this
+			-- point.
+			expect(Boar.groundDrop(100, nil, w)).to.equal(0)
+			-- THE RAY STARTS ABOVE THE BODY AND NOT IN THE SKY (`ForestTest.groundAt`'s `fromY`,
+			-- task 192 round 2), so a canopy cannot answer a question about the ground.
+			expect(w.CARCASS_GROUND_FROM_STUDS > 0).to.equal(true)
+		end)
 	end)
 
 	describe("a frozen death costs nothing after it has frozen", function()
@@ -1891,6 +1945,206 @@ return function()
 				expect(handle.part.CFrame).to.equal(before)
 				expect(stopped.n).to.equal(0)
 				expect(handle.backstopped).to.equal(false)
+			end)
+
+			-- ------------------------------ PRODUCTION ARMS IT (TASKS.md row 249b, note (i))
+			--
+			-- *"The one wire from production into the death backstop is asserted nowhere:
+			-- `handle.deathTrack = deathTrack` in `Body.collapse` is the only thing that arms it, and
+			-- all four new cases hand-write the track, so deleting that line leaves the whole suite
+			-- green and the backstop dead in production."*
+			--
+			-- `trackFor` RETURNS A CACHED TRACK BEFORE IT ASKS FOR AN ANIMATOR, so seeding
+			-- `handle.tracks` is the real wire with the one thing no spec can have -- a downloaded
+			-- asset -- standing in for itself. The same stand-in the four cases above use, and for
+			-- the same stated reason.
+			it("arms the backstop from `Body.collapse` itself, and not on the box-falls path", function()
+				local fall = Body.deathClips(CONFIG)
+				local handle = newBody()
+				-- A VISUAL AND A LOADABLE DEATH CLIP: `Body.boxFalls` answers false, so the clip is
+				-- the only thing that can lay this animal down and the backstop must be watching it.
+				local model = Instance.new("Model")
+				model.Parent = testRoot
+				handle.visual = model
+				handle.tracks[fall] = { TimePosition = 0, Length = MODEL.CLIPS[fall].seconds }
+				Body.collapse(handle, CONFIG.WOUND, CONFIG)
+				expect(handle.deathTrack).to.be.ok()
+				expect(handle.toppled).to.equal(false)
+				expect(handle.upright.Enabled).to.equal(true)
+				model:Destroy()
+				-- ...AND NOTHING IS WATCHED ON THE BOX-FALLS PATH: the box has already rolled it, so
+				-- a backstop here would roll it a second time and stand it back up.
+				local plain = newBody()
+				Body.collapse(plain, CONFIG.WOUND, CONFIG)
+				expect(plain.deathTrack).to.equal(nil)
+				expect(plain.toppled).to.equal(true)
+			end)
+
+			-- ------------------------------ AND THE PADDLE IS A DEATH TOO (row 249b, note (ii))
+			--
+			-- *"`deathDrawn` watches only the FALL track -- in a world where `deathLeft`'s id never
+			-- downloads but `deathPaddleLeft`'s does, `clipFor` plays the paddle from 1.167 s and the
+			-- box still rolls at 1.5 s: the two rotations composing, which is task 150's
+			-- buried-upside-down carcass"* -- the exact shape of Karen's *"deer also hanging there
+			-- hunted broken"*.
+			it("leaves a carcass alone when the PADDLE is the clip that is running (task 261)", function()
+				local fall, paddle = Body.deathClips(CONFIG)
+				local handle = newBody()
+				local stopped = deadWithTrack(handle, 0, 0) -- the FALL never advanced
+				-- ...AND THE PADDLE IS WHAT IS ON THE RIG, advancing. `handle.clip` is what `play`
+				-- last started, which is the one fact that says WHICH clip is drawing this animal.
+				handle.clip = paddle
+				handle.tracks[paddle] = { TimePosition = 0.5, Length = MODEL.CLIPS[paddle].seconds }
+				handle.collapsedFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
+				local before = handle.part.CFrame
+				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				-- THE BOX DID NOT ROLL. Before this task it did, on top of a running paddle.
+				expect(handle.toppled).to.equal(false)
+				expect(handle.part.CFrame).to.equal(before)
+				expect(handle.upright.Enabled).to.equal(true)
+				expect(handle.backstopped).to.equal(false)
+				expect(stopped.n).to.equal(0)
+				-- ...AND NOTHING IS WATCHED NOW: the promise was kept, by the paddle.
+				expect(handle.deathTrack).to.equal(nil)
+				expect(Body.deathTrackOn(handle, CONFIG)).to.equal(handle.tracks[paddle])
+				-- A CLIP THAT IS NOT A DEATH DOES NOT ANSWER THE QUESTION: the fall track is what
+				-- the backstop watches when nothing is drawing the death.
+				handle.clip = "walk"
+				handle.deathTrack = handle.tracks[fall]
+				expect(Body.deathTrackOn(handle, CONFIG)).to.equal(handle.tracks[fall])
+			end)
+
+			-- ------------------------------ AND THE LIFT IS PAID BACK (task 261, item 3)
+			--
+			-- A CALF'S `deathLiftStuds` IS 1.325 AND THE BACKSTOP NEVER GAVE IT BACK. `Body.collapse`
+			-- moves everything drawn UP by that much so the death clip's own overshoot lands the rig
+			-- on the ground -- and the backstop firing is the statement that the clip never ran, so
+			-- nothing cancelled it: the mesh floated for the whole `CARCASS_SECONDS` 120.
+			it("gives the death lift back when the box has to lay the animal down (task 261)", function()
+				local fall = Body.deathClips(CONFIG)
+				local handle = newBody()
+				-- A DRAWN MODEL WITH ONE WELDED PART, which is what `liftDrawn` moves: it disables
+				-- every weld, moves every part and enables them again.
+				local model = Instance.new("Model")
+				local drawn = Instance.new("Part")
+				drawn.Size = Vector3.new(1, 1, 1)
+				drawn.Anchored = false
+				drawn.CFrame = handle.part.CFrame
+				drawn.Parent = model
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = drawn
+				weld.Part1 = handle.part
+				weld.Parent = drawn
+				model.Parent = testRoot
+				handle.visual = model
+				-- A LIFT TO GIVE BACK, and it is A CALF'S OWN NUMBER rather than a round one.
+				local lift = CONFIG.KINDS.calf.deathLiftStuds
+				expect(lift > 1).to.equal(true)
+				local at = drawn.Position.Y
+				Body.liftDrawn(handle, lift)
+				handle.liftedBy = lift
+				expect(drawn.Position.Y - at).to.be.near(lift, 1e-3)
+				-- NOW THE CLIP NEVER RUNS AND THE BACKSTOP FIRES.
+				deadWithTrack(handle, 0, 0)
+				handle.tracks[fall] = handle.deathTrack
+				handle.collapsedFor = CONFIG.WOUND.DEATH_BACKSTOP_SECONDS + 0.5
+				Body.stepCarcass(handle, 0.1, CONFIG.WOUND)
+				expect(handle.backstopped).to.equal(true)
+				expect(handle.liftedBy).to.equal(0)
+				model:Destroy()
+			end)
+
+			-- ------------------------------ AND IT LIES **ON** THE GROUND (task 261, item 3)
+			--
+			-- KAREN, 2026-10-25: *"and now deer also hanging there hunted broken"*. The anchor is the
+			-- one thing that can make a carcass hang, because it is the one thing that takes gravity
+			-- away -- so the ground under the body's OWN x,z is read at the moment it settles.
+			it("puts a settled carcass on the ground before it anchors it (task 261)", function()
+				local handle = newBody()
+				handle.collapsed = true
+				handle.toppled = true
+				handle.upright.Enabled = false
+				handle.part.Anchored = false
+				local half = handle.part.Size.Y / 2
+				-- IT IS HANGING: the ground is 6 studs under its lowest point.
+				local ground = handle.part.Position.Y - half - 6
+				local asked: { any } = {}
+				local reader = function(x: number, z: number, fromY: number?): number?
+					table.insert(asked, { x = x, z = z, fromY = fromY })
+					return ground
+				end
+				for _ = 1, 5 do
+					handle.part.AssemblyLinearVelocity = Vector3.zero
+					Body.stepCarcass(handle, 0.1, CONFIG.WOUND, reader)
+				end
+				expect(handle.part.Anchored).to.equal(true)
+				-- ON THE GROUND, inside the tolerance, and ONCE.
+				expect(handle.part.Position.Y - half).to.be.near(ground, 1e-3)
+				expect(handle.grounded).to.equal(1)
+				-- ASKED AT ITS OWN x,z AND FROM JUST ABOVE ITSELF, which are the two clauses task
+				-- 192's four death defects all turned on: a value from somewhere else is about
+				-- another point, and a ray from the sky answers about the canopy.
+				expect(#asked >= 1).to.equal(true)
+				expect(asked[1].x).to.be.near(handle.part.Position.X, 1e-3)
+				expect(asked[1].z).to.be.near(handle.part.Position.Z, 1e-3)
+				expect(asked[1].fromY > handle.part.Position.Y + half).to.equal(true)
+			end)
+
+			it("leaves a carcass that is already down alone, and refuses a wild answer (task 261)", function()
+				local function settle(answers: boolean, offset: number)
+					local handle = newBody()
+					handle.collapsed = true
+					handle.toppled = true
+					handle.upright.Enabled = false
+					handle.part.Anchored = false
+					local before = handle.part.Position.Y
+					local half = handle.part.Size.Y / 2
+					local reader = function(): number?
+						return if answers then before - half + offset else nil
+					end
+					for _ = 1, 5 do
+						handle.part.AssemblyLinearVelocity = Vector3.zero
+						Body.stepCarcass(handle, 0.1, CONFIG.WOUND, reader)
+					end
+					expect(handle.part.Anchored).to.equal(true)
+					return handle, before
+				end
+				-- INSIDE THE TOLERANCE: terrain is voxelised and a fraction of a stud is noise.
+				local a, beforeA = settle(true, CONFIG.WOUND.CARCASS_GROUND_TOLERANCE_STUDS - 0.01)
+				expect(a.part.Position.Y).to.be.near(beforeA, 1e-3)
+				expect(a.grounded).to.equal(0)
+				-- PAST THE BOUND: a reader that answers 40 studs away is not answering about this
+				-- body, and moving a carcass on that number would be believing a measurement over
+				-- the screen. Nothing is done and the body stays where physics put it.
+				local b, beforeB = settle(true, -(CONFIG.WOUND.CARCASS_GROUND_MAX_STUDS + 1))
+				expect(b.part.Position.Y).to.be.near(beforeB, 1e-3)
+				expect(b.grounded).to.equal(0)
+				-- A READER THAT FOUND NOTHING UNDER THIS POINT: this system before task 261, line
+				-- for line.
+				local c, beforeC = settle(false, 0)
+				expect(c.part.Position.Y).to.be.near(beforeC, 1e-3)
+				expect(c.grounded).to.equal(0)
+			end)
+
+			-- ------------------------------ AND IT STOPS WHERE IT WAS SHOT (task 261, item 3)
+			--
+			-- KAREN, 2026-10-25: *"one more thing deer run on road the fall and was sidding on side
+			-- it's a bug"*. `Body.collapse` disables the `LinearVelocity` that was DRIVING the
+			-- animal, and a disabled constraint does not stop a BODY: the assembly kept its own
+			-- momentum -- about 35 studs/s at a crossing -- and slid.
+			it("takes the running speed off the body at the moment of death (task 261)", function()
+				local handle = newBody()
+				handle.part.AssemblyLinearVelocity = Vector3.new(30, -4, -18)
+				handle.part.AssemblyAngularVelocity = Vector3.new(0, 3, 0)
+				Body.collapse(handle, CONFIG.WOUND, CONFIG)
+				local after = handle.part.AssemblyLinearVelocity
+				-- THE HORIZONTAL IS GONE at `COLLAPSE_KEEP_SPEED` 0: a shot animal drops where it
+				-- is hit.
+				expect(math.abs(after.X)).to.be.near(0, 1e-3)
+				expect(math.abs(after.Z)).to.be.near(0, 1e-3)
+				-- ...AND SO IS THE SPIN, which `Body.carcassIsStill` tests as well: a body still
+				-- turning would hold `stillFor` at 0 and wait out the whole anchor backstop.
+				expect(handle.part.AssemblyAngularVelocity.Magnitude).to.be.near(0, 1e-3)
 			end)
 		end)
 
