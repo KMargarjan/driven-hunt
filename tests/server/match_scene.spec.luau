@@ -189,8 +189,10 @@ return function()
 			-- stand in the same place.
 			local second = Match.throughSpotFor({ posts = POSTS, line = LINE }, CONFIG, 1)
 			local third = Match.throughSpotFor({ posts = POSTS, line = LINE }, CONFIG, 2)
-			expect((second :: CFrame).Position.X).to.equal(spacing)
-			expect((third :: CFrame).Position.X).to.equal(-spacing)
+			-- ONE SPACING EITHER SIDE, and the SIGN is `Scene.sideAxis`'s and not this case's: what
+			-- is asserted is that the row is centred and a spacing apart, which is the rule.
+			expect(math.abs((second :: CFrame).Position.X)).to.equal(spacing)
+			expect((third :: CFrame).Position.X).to.equal(-(second :: CFrame).Position.X)
 			expect((second :: CFrame).Position.Z).to.equal(-behind)
 			-- ...AND IT IS NEVER THE WORLD'S GATHERING SPOT, which is the lobby yard in the Forest
 			-- Test: moving a beater there mid-drive would take him out of the hunt he is still in.

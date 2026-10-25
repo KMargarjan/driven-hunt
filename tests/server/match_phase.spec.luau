@@ -875,32 +875,36 @@ return function()
 		-- drive he did not finish is not a turn he has taken, because the turn is flipped only for
 		-- the men still in `state.assignment` when the drive reaches `Scoring` (task 217, write edge
 		-- 2) -- and `withdraw` takes him out of exactly that table.
+		--
+		-- ONE PARTICIPANT, WHICH IS KAREN'S OWN ROSTER: she plays with BOTS, and a bot is not in
+		-- this machine's roster at all (`Match.beaterCrossing` is the only thing that counts one).
+		-- The size matters to the answer and is not a convenience -- see the case below it.
 		it("leaves a withdrawn man out of the next drive's `previous`, so his stored turn decides", function()
 			local cfg = config()
-			local state = running(cfg)
-			local had = state.assignment[2]
+			local state = ready(cfg)
+			state = (Phase.step(state, { kind = "join", userId = 1, name = "a" }, 0, cfg))
+			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS, cfg))
+			expect(state.phase).to.equal("Running")
+			local had = state.assignment[1]
 			expect(had).to.be.ok()
-			local other = state.assignment[1]
-			expect(other).to.be.ok()
+			-- SHE PRESSES RESET. Task 248 takes her out of the drive.
 			state = (
-				Phase.step(state, { kind = "withdraw", userId = 2, name = "b" }, cfg.INTERMISSION_SECONDS + 1, cfg)
+				Phase.step(state, { kind = "withdraw", userId = 1, name = "a" }, cfg.INTERMISSION_SECONDS + 1, cfg)
 			)
 			state = (Phase.step(state, { kind = "tick" }, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1, cfg))
 			expect(state.phase).to.equal("Scoring")
-			-- HE HAS NO ROW, which is what makes the stored turn the only thing that can give him
-			-- one -- and `Match`'s own write edge 2 reads this same table, so the turn it flips is
-			-- the men who FINISHED and nobody else.
-			expect((state.previousAssignment :: any)[2]).to.equal(nil)
-			-- ...AND THE MAN WHO FINISHED IT KEEPS HIS REAL ROW, so he alternates as he always has.
-			expect((state.previousAssignment :: any)[1]).to.equal(other)
-			-- AND NOW THE DRIVE SHE ASKED FOR: he comes back owed the side he was playing, which is
-			-- what `Economy.owedTeams` hands `enterAssigning` for a man whose turn was never
-			-- flipped. `Roster.previousFrom` inverts it, the swap deals it back, and he is a hunter
-			-- again from the start of a WHOLE drive.
+			-- SHE HAS NO ROW, which is what makes the stored turn the only thing that can give her
+			-- one -- and `Match`'s write edge 2 reads this same table, so the turn it flips is the
+			-- men who FINISHED and nobody else.
+			expect((state.previousAssignment :: any)[1]).to.equal(nil)
+			-- AND NOW THE DRIVE SHE ASKED FOR: she comes back owed the side she was playing, which is
+			-- what `Economy.owedTeams` answers for a man whose turn was never flipped.
+			-- `Roster.previousFrom` inverts it, the swap deals it back, and she is a hunter again
+			-- from the START of a whole drive.
 			state = (
 				Phase.step(
 					state,
-					{ kind = "join", userId = 2, name = "b" },
+					{ kind = "join", userId = 1, name = "a" },
 					cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + 1,
 					cfg
 				)
@@ -908,11 +912,11 @@ return function()
 			state = (
 				Phase.step(state, {
 					kind = "tick",
-					owed = { [2] = had },
+					owed = { [1] = had },
 				}, cfg.INTERMISSION_SECONDS + cfg.DRIVE_SECONDS + cfg.SCORE_SECONDS + 2, cfg)
 			)
 			expect(state.phase).to.equal("Assigning")
-			expect(state.assignment[2]).to.equal(had)
+			expect(state.assignment[1]).to.equal(had)
 		end)
 
 		-- ...AND THE MECHANISM THAT WAS **NOT** USED, with the measurement that ruled it out, because
@@ -920,25 +924,36 @@ return function()
 		--
 		-- REMEMBERING HIS TEAM AND FOLDING `other(team)` INTO `previousAssignment` AT `enterScoring`
 		-- WAS BUILT, AND THE SUITE CAUGHT IT: `Roster.assign`'s swap COUNTS the inverted rows, and
-		-- one synthetic inversion moves `counts.Drivers - counts.Shooters` by TWO -- so on an even
-		-- roster the balance check discards the WHOLE swap and everybody loses their rotation.
+		-- one synthetic inversion moves `counts.Drivers - counts.Shooters` by TWO -- so past a roster
+		-- of two the balance check discards the WHOLE swap and the men who FINISHED stop alternating.
+		-- It is the defect `Roster.assign`'s own header records against task 221, in a new coat.
 		it("would break the rotation for everybody if the withdrawal were folded into `previous`", function()
 			local cfg = config()
-			-- TWO MEN ON OPPOSITE SIDES, which is the roster `running` builds and the one Karen
-			-- plays when a second person is there.
-			local honest = { [1] = "Shooters", [2] = "Drivers" }
-			local swapped = Roster.assign({ 1, 2 }, honest, cfg)
-			expect(swapped[1]).to.equal("Drivers")
-			expect(swapped[2]).to.equal("Shooters")
-			-- ...AND THE SYNTHETIC ROW FOR THE MAN WHO LEFT makes BOTH rows `Shooters`, so the swap
-			-- would deal two Drivers, |2 - 0| > 1, and `Roster.assign` falls through to the plain
-			-- split -- which is a coin toss on userId and not a rotation at all.
-			local folded = { [1] = "Shooters", [2] = Roster.other("Drivers") }
-			expect(folded[2]).to.equal("Shooters")
-			local fell = Roster.assign({ 1, 2 }, folded, cfg)
-			expect(fell[1]).to.equal(fell[2] == "Drivers" and "Shooters" or "Drivers")
-			-- THE DEFECT, STATED AS THE NUMBER IT IS: the man who FINISHED does not alternate.
-			expect(fell[1]).never.to.equal(Roster.other(honest[1]))
+			local ids = { 1, 2, 3, 4 }
+			-- FOUR MEN, ALTERNATING, so the plain split and the swap are not the same table -- with
+			-- two they coincide and the defect is invisible, which is why this roster is four.
+			local honest = { [1] = "Drivers", [2] = "Shooters", [3] = "Drivers", [4] = "Shooters" }
+			local swapped = Roster.assign(ids, honest, cfg)
+			for _, userId in ipairs(ids) do
+				expect(swapped[userId]).to.equal(Roster.other(honest[userId]))
+			end
+			-- ...AND NOW MAN 4 RESPAWNS OUT OF THE DRIVE and is given the synthetic row that would
+			-- hand him his side back: `other(Shooters)`.
+			local folded = table.clone(honest)
+			folded[4] = Roster.other(honest[4])
+			local fell = Roster.assign(ids, folded, cfg)
+			-- THE SWAP IS DISCARDED, and the price is paid by the men who did NOTHING wrong: at
+			-- least one of 1..3 does not get the opposite of the side he just played.
+			local broken = 0
+			for _, userId in ipairs({ 1, 2, 3 }) do
+				if fell[userId] ~= Roster.other(honest[userId]) then
+					broken += 1
+				end
+			end
+			expect(broken > 0).to.equal(true)
+			TestKit.note(
+				string.format("task 261: one folded withdrawal row costs %d of 3 finishers their rotation", broken)
+			)
 		end)
 
 		-- IDENTITY: `enterScoring` STILL ASSIGNS THIS DRIVE'S OWN TABLE, as it has since task 217 --
