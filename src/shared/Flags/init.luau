@@ -102,7 +102,13 @@ Flags.OVERRIDE_PREFIX = "DHFlag_"
 -- `docs/design/feature-flags.md` section 11 step 1 forbids. **And this row may not ship lit by
 -- instruction**: the Director's dispatch says *"HOLD the bound when spooked until 245c (the hoof sink)
 -- is fixed, behind a flag born off"*. So the cap moves by one again and the real fix stays queued.
-Flags.MAX_FLAGS = 17
+-- 17 -> 18 FOR TASK 266, **AND THIS ONE THE DIRECTOR APPROVED IN ADVANCE** rather than the Builder
+-- taking it under a stated assumption: the dispatch of 2026-10-25 says *"`Flags.MAX_FLAGS` 17 -> 18
+-- is APPROVED if the design wants the true-hit path behind a flag (born OFF; the Director turns it on
+-- in the Forest Test for Karen's test)"*, and `docs/design/ballistics.md` section 3.4 wants exactly
+-- that. `HIT_CLAIM` is the eighteenth. The two ways out are still the two task 238 listed and the
+-- first of them is still queued as TASKS.md 82b.
+Flags.MAX_FLAGS = 18
 Flags.WAIT_SECONDS = 10 -- a client's wait for the published mirror
 Flags.STATE_NAME = "State"
 Flags.DIGEST_ATTRIBUTE = "Digest"
@@ -111,6 +117,21 @@ Flags.SOURCES = { defaults = true, override = true, published = true, ["publishe
 
 -- THE DECLARATIONS. One row per flag; see docs/design/feature-flags.md section 11 for the lifecycle.
 Flags.DEFAULTS = {
+	-- A SHOT HITS WHAT THE SHOOTER SAW (task 266). KAREN, 2026-10-24/25: *"we need to aim in empty
+	-- space to get hit in head neck or heart like in real life"* / *"this signe where we shot ...
+	-- shows we hit empty space and died"* / *"all shooting has to be like in real life / this is a
+	-- key of this game"*.
+	HIT_CLAIM = {
+		default = false,
+		owner = "ServerScriptService.Weapon (and PlayerScripts.Weapon, for whether a claim is sent)",
+		born = "2026-10-25 task 266",
+		-- 21 days, the ceiling in docs/design/feature-flags.md section 12.
+		expires = "2026-11-15",
+		why = "A shot hits what the shooter saw: the client simulates its own bullet against its own "
+			.. "view and claims the hit, and the server validates it by rewinding the animal. OFF is "
+			.. "exactly the game before task 266 -- no claim is sent, none is accepted, and the shot "
+			.. "is resolved by the server's own flight alone.",
+	} :: FlagRow,
 	TIE_UNTIL_DRIVE_END = {
 		default = true,
 		owner = "ServerScriptService.Match",

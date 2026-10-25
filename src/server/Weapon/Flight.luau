@@ -62,6 +62,12 @@ export type ShotRecord = {
 	-- the time the bullet lands (design 5.1). **THE SHOT IN THE AIR IS THE PENDING QUEUE**: no second
 	-- remote, no shot id, no pending table, no timeout, and no race between a claim and a resolution.
 	claim: Shotgun.HitClaim?,
+	-- THE ELEVATED BORE DIRECTION this shot left along (task 266), carried for the same reason and
+	-- read by this module exactly as often: never. The owner needs it at the RESOLUTION to step its
+	-- own trajectory for the claim's check 4 and to give an accepted claim an honest normal, and by
+	-- then the gun has moved on -- so it is taken at the trigger, like `muzzle` and `firedAt` beside
+	-- it. `nil` is every caller written before this task.
+	bore: Vector3?,
 }
 
 -- One projectile. MUTATED IN PLACE on purpose: nine pellets stepped sixty times a second must not

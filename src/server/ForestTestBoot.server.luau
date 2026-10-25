@@ -361,6 +361,20 @@ Weapon.setDriveOpenProvider(Match.driveOpen)
 -- `SAFETY_LOCK_STUDS` and `SAFETY_MISS_STUDS`; see `Match.CONFIG.SAFETY_LOCK_STUDS`.
 Weapon.setSafetyLineProvider(Match.lineIsUnsafe)
 
+-- ...AND THE SEVENTH (task 266): WHERE WAS THIS ANIMAL WHEN THE SHOOTER SAW IT. KAREN, 2026-10-24/25:
+-- *"we need to aim in empty space to get hit in head neck or heart like in real life"* / *"all
+-- shooting has to be like in real life / this is a key of this game"*. The client now simulates its
+-- own bullet against its own view and claims the hit; the server validates that claim by rewinding
+-- the animal in the Boar's own half-second memory (`docs/design/ballistics.md` sections 4.6, 5.2).
+--
+-- IT IS WIRED **HERE** AND NOWHERE ELSE, and that is the design's owner rule rather than a
+-- convenience: `Boar` must not require `Weapon` and `Weapon` must not require `Boar`
+-- (`docs/design/shotgun.md` 6.3, *"neither owner depends on the other"*), so only a composition root
+-- can hand one to the other. Unwired, every claim is refused and the game is exactly what it was.
+Weapon.setHistoryProvider(function(instance, at)
+	return runtime:cframeAt(instance, at)
+end)
+
 -- ---------------------------------------------------------------- the role, and the outfit
 --
 -- KAREN ASKS FOR A ROLE AND THE DRIVE GIVES IT (task 157). She types `/beater` (and `/hunter` back),

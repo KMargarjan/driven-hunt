@@ -649,6 +649,60 @@ Shotgun.CONFIG = {
 	-- is the value if it turns out to be one way. Karen's dial, and the Director's to confirm live.
 	FLIGHT_CATCHUP_PING_FACTOR = 1.0,
 
+	-- ---------------------------------------------------------- THE HIT CLAIM (task 266)
+	--
+	-- HOW MUCH A SERVER IS WILLING TO BELIEVE A CLIENT IS A PROPERTY OF THE SERVER, which is why
+	-- every one of these is here and not in a gun's row: `src/shared/Weapons/init.luau`'s own header
+	-- states the rule (the safety arc, the origin tolerance and the rate limits are *"rules of the
+	-- DRIVE and of the PROTOCOL, not properties of a gun"*), and a per-weapon claim tolerance would
+	-- let a new gun widen its own licence to claim hits.
+	--
+	-- Design: docs/design/ballistics.md (sections 3.1, 5.2)
+	CLAIM = {
+		-- HOW FAR OUTSIDE THE CLAIMED PART'S OWN HALF-EXTENTS the claimed object-space offset may
+		-- lie. Both sides read the same `Size`, so this absorbs floating point and nothing else.
+		SKIN_STUDS = 0.15,
+		-- CHECK 3: the claimed world point against the server's own reconstruction from history.
+		-- **ONE `Boar.CONFIG.BODY_SIZE` (5.5), ROUNDED UP**: the claim must be about the same animal
+		-- in the same place, NOT about the same millisecond. It is deliberately loose because the
+		-- shared clock is **unestablished** (task 265 round 3: ~0.17 s measured, and its own control
+		-- could not tell that from a clock skew), and a tight bound here would silently refuse every
+		-- honest claim -- which is the one failure mode that would look like "the feature does
+		-- nothing". `stats.claimWorstStuds` reports the worst ACCEPTED disagreement, so the number
+		-- can next be argued from evidence: the instrument idiom `stats.originFarthest` already
+		-- uses. What actually pins the ZONE is `LINE_TOLERANCE_STUDS` below, not this.
+		POSITION_TOLERANCE_STUDS = 6.0,
+		-- CHECK 4, **AND IT IS THE CHECK THAT MAKES THE ZONE GEOMETRIC RATHER THAN CHOSEN**: the
+		-- distance from the SERVER's own trajectory, at the claimed arrival time, to the claimed
+		-- point on the claimed box. 2.0 studs is under half a boar's trunk. It must absorb the
+		-- client's straight-line animal step (design 5.5: up to ~2 studs over the rifle's longest
+		-- flight, for an animal that TURNS) and the history's own interpolation (~0.3 studs);
+		-- tighter refuses honest shots at turning animals, looser lets a modified client shift a
+		-- zone. The dial is the Director's and the trade is written out in design 5.4.
+		LINE_TOLERANCE_STUDS = 2.0,
+		-- CHECK 6: how old the claimed arrival may be when the shot resolves. The depth is **one
+		-- upward trip plus clock skew**, not a flight time (design 5.1), so 0.5 s covers a bad
+		-- connection with room. `zz_claim_window.spec` holds it against the animal's own memory.
+		AGE_MAX_SECONDS = 0.5,
+		-- CHECK 6's other half: |claim.flightSeconds - timeToRange(shot, claim.distanceStuds)|. One
+		-- `FLIGHT_STEP_MAX_SECONDS` (1/30). It exists to refuse a NONSENSE claim, not to pin the
+		-- geometry -- check 4 does that.
+		FLIGHT_TOLERANCE_SECONDS = 0.03,
+		-- CHECK 5: the server's own shot must have travelled at least `distanceStuds - this` before
+		-- it stopped. This is the LINE OF SIGHT, measured by the flight that already ran: a tree
+		-- between the muzzle and the animal stopped the server's own bullet, so the claim dies with
+		-- it.
+		REACH_SLACK_STUDS = 1.0,
+		-- THE CLIENT'S OWN BOUNDS. How many animals one simulation may test (the nearest N inside
+		-- the ammo's range), and how many sub-steps one simulation may take. **`MAX_SUBSTEPS` is 16
+		-- and NOT `FLIGHT_MAX_SUBSTEPS` (8)**, and the difference is deliberate: the server's 8
+		-- bounds one HEARTBEAT's work across every live shot, while this bounds ONE shot's whole
+		-- flight inside one frame -- 16 x `FLIGHT_STEP_MAX_SECONDS` = 0.53 s, above the rifle's
+		-- longest 0.365 s.
+		MAX_TARGETS = 8,
+		MAX_SUBSTEPS = 16,
+	},
+
 	-- rates, per player
 	FIRE_RATE_LIMIT = 6, -- received requests/s
 	ACTION_RATE_LIMIT = 10,

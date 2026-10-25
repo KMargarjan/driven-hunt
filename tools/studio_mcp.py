@@ -901,6 +901,10 @@ SCOPE_SPECS = {
     "camera": ("tests/server/camera_mode.spec.luau", "tests/client/camera_client.spec.luau",
                "tests/server/semiauto.spec.luau", "tests/client/semiauto_client.spec.luau"),
     "weapon": ("tests/server/ballistics.spec.luau",
+               # Task 266: the claim window against the Boar's own memory. The same file is in
+               # `boar`, which is the dual-membership idiom `zz_horn` and `boar_hit` already use:
+               # it is one invariant owned by two configs, so a change to either side must reach it.
+               "tests/server/zz_claim_window.spec.luau",
                # Task 259: `Ballistics.boreOrigin` / `convergeAim` and the owner's call to them --
                # the convergence that decides where the bullet goes relative to the sights.
                "tests/server/sights.spec.luau",
@@ -963,6 +967,9 @@ SCOPE_SPECS = {
              # its own span. Pure, so it is cheap; it belongs to `boar` and nothing else, because
              # the ring is the animal's own memory and the weapon only ever asks it a question.
              "tests/server/boar_history.spec.luau",
+             # Task 266: the cross-system invariant -- the weapon's claim window against the
+             # animal's own memory. In BOTH scopes, like `zz_horn`, because either side can break it.
+             "tests/server/zz_claim_window.spec.luau",
              # Task 259: shots to DROP it, per zone per cartridge per kind, over all seven kinds --
              # the ordering the hunting doctrine asserts (head and chamber drop, the paunch wounds).
              # It reads `WOUND.DAMAGE_BY_WEAPON` as well, so it is in `weapon` too.
