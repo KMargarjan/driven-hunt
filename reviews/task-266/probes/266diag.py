@@ -18,12 +18,12 @@ import subprocess
 import sys
 import time
 
-sys.path.insert(0, r"<repo>	ools")
-sys.path.insert(0, r"<runs-dir>")
+sys.path.insert(0, os.path.join("<repo>", "tools"))
+sys.path.insert(0, "<runs-dir>")
 import studio_mcp  # noqa: E402
 import ftsid  # noqa: E402
 
-RUNS = r"<runs-dir>"
+RUNS = "<runs-dir>"
 TITLE = "*Driven Hunt Forest Test*"
 GEN = "266a"
 SHOTS = int(sys.argv[1]) if len(sys.argv) > 1 else 5
