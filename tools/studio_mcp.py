@@ -959,6 +959,10 @@ SCOPE_SPECS = {
              "tests/server/boar_hit.spec.luau", "tests/server/boar_model.spec.luau",
              "tests/server/boar_shot.spec.luau", "tests/server/boar_sounder.spec.luau",
              "tests/server/boar_wound.spec.luau", "tests/server/boar_zones.spec.luau",
+             # Task 266: WHERE AN ANIMAL WAS -- the ring buffer, its wrap, and the refusal outside
+             # its own span. Pure, so it is cheap; it belongs to `boar` and nothing else, because
+             # the ring is the animal's own memory and the weapon only ever asks it a question.
+             "tests/server/boar_history.spec.luau",
              # Task 259: shots to DROP it, per zone per cartridge per kind, over all seven kinds --
              # the ordering the hunting doctrine asserts (head and chamber drop, the paunch wounds).
              # It reads `WOUND.DAMAGE_BY_WEAPON` as well, so it is in `weapon` too.

@@ -1236,6 +1236,33 @@ Boar.CONFIG.BOAR_COLLISION = {
 	GROUP = "DrivenHuntBoars",
 }
 
+-- WHERE EVERY ANIMAL HAS BEEN, FOR HALF A SECOND (task 266). KAREN, 2026-10-24/25: *"we need to aim
+-- in empty space to get hit in head neck or heart like in real life"* / *"all shooting has to be
+-- like in real life / this is a key of this game"*.
+--
+-- THE WEAPON ASKS THIS SYSTEM WHERE AN ANIMAL **WAS** when the shooter's own screen drew it, and
+-- compares that with the hit the client claimed. The ring is the whole of that memory. It is read
+-- ONLY by `Runtime:cframeAt`, which the weapon reaches through an injected provider -- so the weapon
+-- cannot enumerate animals, cannot ask where one is now, and is handed an answer rather than a
+-- buffer (`docs/design/ballistics.md` section 2.1).
+--
+-- Design: docs/design/ballistics.md (sections 3.2, 4.6)
+Boar.CONFIG.HISTORY = {
+	-- IN SAMPLES AND NOT IN SECONDS, so it is leak-proof by construction and preallocates nothing
+	-- that grows. One sample per `Runtime:step`, which is one per `RunService.Heartbeat`: **1.07 s at
+	-- 60 Hz, 2.1 s at 30 Hz** -- a slower server remembers LONGER, which is the safe direction,
+	-- because the thing that must never happen is a claim the weapon will judge falling outside the
+	-- span the animal can remember. `tests/server/zz_claim_window.spec.luau` holds that invariant
+	-- against `Shotgun.CONFIG.CLAIM.AGE_MAX_SECONDS`.
+	SAMPLES = 64,
+	-- NOT BEHIND THE FEATURE FLAG, and that is deliberate -- the reason `DEER_ROAD_LEAP`'s own row
+	-- gives for not flagging its clip: *"a row that exists and a clip nothing asks for cost
+	-- nothing"*. The cost is one table write per animal per step, inside a loop that already writes
+	-- a `snapshot` entry per animal per step, and flagging the DATA as well as the behaviour would be
+	-- two switches for one feature.
+	ENABLED = true,
+}
+
 -- WALKING WHERE YOU ARE TOLD (task 127). Karen, 2026-10-05: *"imagine they come from one side in one
 -- line and crossing road thats it"*.
 --
@@ -3548,6 +3575,65 @@ local function compositionCounts(composition, config): { { kind: string, count: 
 	return out
 end
 
+-- WHERE AN ANIMAL WAS AT ONE INSTANT, OUT OF ITS OWN RING. PURE, STATIC, AND THE WHOLE OF THE
+-- REWIND (task 266).
+--
+-- `ring` is the raw ring buffer, `count` how many samples have EVER been written into it (so the
+-- live window is the last `min(count, #ring)` of them, wherever the write cursor happens to sit),
+-- and `at` is a `GetServerTimeNow()` stamp. The answer is the trunk's CFrame at that instant,
+-- interpolated LINEARLY between the two samples that BRACKET it.
+--
+-- `nil` WHEN `at` IS OUTSIDE THE RING'S OWN SPAN, AND THAT IS A REFUSAL AND NEVER AN EXTRAPOLATION.
+-- A guess about where an animal was is exactly the thing this design must not make: the weapon turns
+-- a nil into a refused claim and the shot falls back to the server's own flight, which is the game
+-- as it is today. Extrapolating would invent agreement with whatever a client asked for.
+--
+-- `CFrame:Lerp` FOR THE ROTATION TOO, not just the position, because the zone parts are welded in
+-- TRUNK SPACE: an animal that turned during the flight moves its own chest sideways, and
+-- interpolating only the position would put the chest where the animal was facing a frame earlier.
+--
+-- DRIVEABLE WITH HAND-WRITTEN SAMPLES AND NO WORLD, which is what `tests/server/boar_history.spec`
+-- does -- the discipline every pure function in this file already follows.
+--
+-- Design: docs/design/ballistics.md (section 4.6)
+function Boar.sampleAt(ring: { { at: number, cframe: CFrame } }, count: number, at: number): CFrame?
+	if type(ring) ~= "table" or type(count) ~= "number" or type(at) ~= "number" or at ~= at then
+		return nil
+	end
+	local size = #ring
+	if size == 0 or count <= 0 then
+		return nil
+	end
+	-- THE LIVE WINDOW, OLDEST FIRST. A ring that has not yet wrapped holds its samples at 1..count;
+	-- one that has wrapped holds the oldest at `count % size + 1`. One expression for both, so there
+	-- is no "has it wrapped yet" branch for a later reader to get the wrong way round.
+	local live = math.min(count, size)
+	local first = count - live -- how many have already been overwritten
+	local function sample(index: number) -- index 1..live, oldest first
+		return ring[(first + index - 1) % size + 1]
+	end
+
+	local oldest, newest = sample(1), sample(live)
+	if oldest == nil or newest == nil then
+		return nil
+	end
+	if at < oldest.at or at > newest.at then
+		return nil
+	end
+	for index = live, 2, -1 do
+		local later, earlier = sample(index), sample(index - 1)
+		if at >= earlier.at and at <= later.at then
+			local span = later.at - earlier.at
+			if span <= 1e-9 then
+				return later.cframe
+			end
+			return earlier.cframe:Lerp(later.cframe, (at - earlier.at) / span)
+		end
+	end
+	-- A single live sample, or `at` exactly on the oldest: the only honest answer is that sample.
+	return oldest.cframe
+end
+
 function Boar.compositionSize(composition, config): number
 	if type(composition) ~= "table" then
 		return 0
@@ -4446,6 +4532,12 @@ function Boar.newRuntime(world)
 		zoneHits = {}, -- PELLETS per zone, so it sums to pelletsTaken
 		unknownZoneHits = 0, -- hits carrying a zone no DAMAGE row knows: an attribute typo, not free
 		tallylessHits = 0, -- hits with no per-pellet tally, charged at the dominant zone
+		-- THE HISTORY'S OWN TWO INSTRUMENTS (task 266). `historySamples` is how many trunk CFrames
+		-- have been remembered; `historyMisses` how many lookups fell outside the ring's span or
+		-- named something this runtime does not own. A miss is a REFUSED hit claim, so a rising
+		-- number here is the one place anybody can see the feature quietly refusing everything.
+		historySamples = 0,
+		historyMisses = 0,
 		soundersSpawned = 0,
 		soundersDissolved = 0, -- fell to one member (or none): the survivor is a lone boar again
 		leaderPromotions = 0,
@@ -4894,6 +4986,54 @@ end
 -- and never a number, and Body does the flashing. Returns false for a part that is not one of this
 -- runtime's live boars, and for a boar that is already down -- so a carcass cannot be killed twice
 -- and 1.7 cannot double-count a kill.
+-- WHERE WAS THIS INSTANCE AT THIS SERVER TIME? THE ONE READER OF THE RING (task 266), and what the
+-- weapon reaches through `Weapon.setHistoryProvider`. It is handed any Instance that might belong to
+-- an animal -- a zone part, or the trunk itself -- plus a `GetServerTimeNow()` stamp, and answers
+-- THAT INSTANCE's own CFrame at that instant.
+--
+-- `nil` IS "I DO NOT KNOW", and it is four different facts with one answer: the instance is not an
+-- animal's, the animal is dead/DOWN/GONE, the time is outside the ring's span, or the trunk has gone
+-- from the world. Every one of them must REFUSE the claim rather than approximate it, which is why
+-- they share an answer the caller cannot mistake for a position.
+--
+-- THE ZONE'S OFFSET IS READ LIVE AND THE TRUNK'S HISTORY IS REWOUND. `Body.buildZones` creates every
+-- zone at `trunk.CFrame * CFrame.new(spec.offset)` and WELDS it, so `trunk.CFrame:Inverse() *
+-- instance.CFrame` is a CONSTANT of that animal's body and is as true half a second ago as it is
+-- now. That is what lets the ring hold one CFrame per animal instead of one per zone.
+--
+-- THE SAME WALK `Hits.targetOf` MAKES, and the same key `Runtime:takeHit` matches on
+-- (`entry.body.part == part`): up the ancestor chain until a trunk this runtime owns is found. No
+-- new index, no second id table.
+--
+-- Design: docs/design/ballistics.md (section 4.6)
+function Runtime:cframeAt(instance: Instance, at: number): CFrame?
+	if typeof(instance) ~= "Instance" or type(at) ~= "number" or at ~= at then
+		return nil
+	end
+	for _, entry in ipairs(self._boars) do
+		local trunk = entry.body.part
+		if trunk == instance or (trunk ~= nil and instance:IsDescendantOf(trunk)) then
+			local state = entry.brain:state()
+			if entry.dead or state == "DOWN" or state == "GONE" then
+				self._stats.historyMisses += 1
+				return nil
+			end
+			local trunkThen = Boar.sampleAt(entry.history, entry.historyCount, at)
+			if trunkThen == nil then
+				self._stats.historyMisses += 1
+				return nil
+			end
+			if trunk == instance then
+				return trunkThen
+			end
+			-- THE WELD'S OWN CONSTANT, READ NOW AND APPLIED THEN.
+			return trunkThen * (trunk.CFrame:Inverse() * (instance :: any).CFrame)
+		end
+	end
+	self._stats.historyMisses += 1
+	return nil
+end
+
 function Runtime:takeHit(part: BasePart, hit): boolean
 	for _, entry in ipairs(self._boars) do
 		if entry.body.part == part then
@@ -6244,6 +6384,21 @@ function Runtime:spawn(position: Vector3?, kind: string?)
 		avoidAt = nil :: number?,
 		contacts = nil :: { [Instance]: boolean }?,
 		contactConn = nil :: RBXScriptConnection?,
+		-- WHERE THIS ANIMAL HAS BEEN (task 266). A ring of `CONFIG.HISTORY.SAMPLES` trunk CFrames
+		-- stamped with the SHARED server clock, written once per `Runtime:step` and read only by
+		-- `Runtime:cframeAt`. `historyCount` is how many have ever been written, so the ring's own
+		-- span is derivable without a second field and a wrap needs no bookkeeping.
+		--
+		-- IT IS A RECORD OF A READ THE STEP ALREADY MAKES, and it writes no position and moves no
+		-- animal: `Boar.Body` is still the one thing that MOVES one. One owner, two tenses
+		-- (docs/design/ballistics.md section 2.1).
+		--
+		-- THE TRUNK AND NOTHING ELSE, because every zone part is created at
+		-- `trunk.CFrame * CFrame.new(spec.offset)` and WELDED to it (`Body.buildZones`), so its
+		-- offset in trunk space is constant and can be read live. Four zones' worth of memory for
+		-- the price of one.
+		history = {} :: { { at: number, cframe: CFrame } },
+		historyCount = 0,
 	}
 	table.insert(self._boars, entry)
 	self:_watchContacts(entry, config)
@@ -6778,12 +6933,43 @@ function Runtime:step(dt: number)
 	-- another after, which is a formation that depends on the order of a list. It also reads each
 	-- body's position and velocity once instead of twice.
 	local snapshot = {}
+	-- ONE READING OF THE SHARED CLOCK PER STEP, NOT ONE PER ANIMAL (task 266). The seam is
+	-- `src/server/Match/init.luau`'s `serverTimeFor` verbatim -- the world's own clock when it
+	-- provides one, so a spec drives the history with no engine at all -- and the "once per scan"
+	-- rule is `src/server/Lobby/init.luau`'s, which paid for it: *"two men on one pad got deadlines
+	-- four microseconds apart, because each conversion called `GetServerTimeNow()` again"*. Here it
+	-- would be worse than untidy: two animals in one step stamped a microsecond apart would make the
+	-- ring's own span depend on list order.
+	local history = config.HISTORY
+	local historyAt = nil :: number?
+	if history and history.ENABLED and history.SAMPLES > 0 then
+		historyAt = if self._world.serverTime then self._world.serverTime() else Workspace:GetServerTimeNow()
+	end
 	for _, entry in ipairs(self._boars) do
 		snapshot[entry.id] = {
 			position = Body.position(entry.body),
 			velocity = Body.velocity(entry.body),
 			facing = entry.body.part.CFrame.LookVector,
 		}
+		-- WHERE IT WAS, WRITTEN IN THE LOOP THAT ALREADY READ IT. The trunk's whole CFrame, because
+		-- the zone parts are welded in trunk space and an animal that turns moves its own chest.
+		-- The ring overwrites in place -- `historyCount % SAMPLES + 1` -- so an animal alive for an
+		-- hour holds exactly `SAMPLES` tables and the oldest sample simply stops existing.
+		if historyAt ~= nil then
+			entry.historyCount += 1
+			local slot = (entry.historyCount - 1) % history.SAMPLES + 1
+			local held = entry.history[slot]
+			if held == nil then
+				entry.history[slot] = { at = historyAt, cframe = entry.body.part.CFrame }
+			else
+				-- MUTATED IN PLACE, for the reason `Flight`'s `Projectile` is: a table per animal
+				-- per Heartbeat is 64 allocations a second per animal, and this loop's own budget
+				-- (design section 10) does not have them.
+				held.at = historyAt
+				held.cframe = entry.body.part.CFrame
+			end
+			self._stats.historySamples += 1
+		end
 	end
 	if #self._sounders > 0 then
 		self:_stepSounders(dt, snapshot)
