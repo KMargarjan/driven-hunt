@@ -1500,14 +1500,40 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 	local position = shot.muzzle
 	local velocity = bore * ballistic.v0
 	local remaining = claim.flightSeconds
-	-- THE SAME SUB-STEP CAP THE FLIGHT USES, so the two paths cannot disagree about how a span of
-	-- time is cut, and bounded by the same ceiling so a long claim cannot cost an unbounded loop.
+	-- **DID THE SHOT PASS THE POINT -- NOT "WHERE WAS IT AT THAT INSTANT".** The design's own words
+	-- for check 4 are *"the server's own trajectory ... PASSES within `LINE_TOLERANCE_STUDS`"*, and
+	-- this used to compare the claimed point with the trajectory's position at exactly
+	-- `claim.flightSeconds`. That conflates ACROSS-track error -- the aiming disagreement the check
+	-- exists to catch -- with ALONG-track error, which is timing granularity and the bore's own
+	-- 5-stud set-back and says nothing about aim.
+	--
+	-- MEASURED (task 266b): on a STILL animal `claimWorstLineStuds` read **1.526** of a 2.0 budget
+	-- with nothing moving at all, and the in-gate accept case -- where the spec controls every
+	-- number -- was refused `claim-line` outright. Both were along-track.
+	--
+	-- So the trajectory is walked and the CLOSEST APPROACH to the claimed point is kept. Each
+	-- sub-step is a segment; the nearest point on a segment is the standard clamped projection. The
+	-- result is a perpendicular distance, which is what a tolerance of "under half a boar's trunk"
+	-- was chosen to mean.
+	local closest = position
+	local closestStuds = (position - serverPoint).Magnitude
 	for _ = 1, CONFIG.CLAIM.MAX_SUBSTEPS do
 		if remaining <= 0 then
 			break
 		end
 		local step = math.min(remaining, CONFIG.FLIGHT_STEP_MAX_SECONDS)
-		position, velocity = Ballistics.advance(position, velocity, step, ballistic)
+		local nextPosition, nextVelocity = Ballistics.advance(position, velocity, step, ballistic)
+		local segment = nextPosition - position
+		local length = segment.Magnitude
+		if length > 1e-6 then
+			local along = math.clamp((serverPoint - position):Dot(segment) / (length * length), 0, 1)
+			local on = position + segment * along
+			local distance = (on - serverPoint).Magnitude
+			if distance < closestStuds then
+				closest, closestStuds = on, distance
+			end
+		end
+		position, velocity = nextPosition, nextVelocity
 		remaining -= step
 	end
 
@@ -1516,7 +1542,8 @@ local function judgeClaimFor(res: Flight.Resolution): { Shotgun.Impact }
 		partHalf = part.Size / 2,
 		clientPoint = claim.point,
 		serverPoint = serverPoint,
-		trajectoryPoint = position,
+		-- THE CLOSEST APPROACH, not the position at the claimed instant (above).
+		trajectoryPoint = closest,
 		reachedStuds = res.reachedStuds,
 		claimedStuds = claim.distanceStuds,
 		-- NEGATIVE MEANS THE FUTURE, which `judgeClaim` refuses by its own name.
