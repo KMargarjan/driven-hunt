@@ -1523,11 +1523,13 @@ local function onFireRequest(player: Player, req: any): string?
 		-- **AND `safetySignal` BELOW IS NOT A FLASH, WHICH THE FIRST VERSION OF THIS COMMENT CALLED
 		-- IT (the Reviewer's round-1 note).** `Weapon.SafetyViolated`'s own header says the drive
 		-- needs that payload, and `Match.Penalty.judge` measures off it -- so at
-		-- `BORE_ON_SIGHT_LINE = true` the published line would start 0.73 studs off the line
+		-- `BORE_ON_SIGHT_LINE = true` the published line started 0.73 studs off the line
 		-- `askLineUnsafe` tested, which is exactly the asymmetry the `lineUnsafe` comment argues
-		-- against. It is sub-stud and BIT FOR BIT at the shipped `false`, so it is not changed here:
-		-- `src/server/Match/` is a TWO_PLAYER_PATH and `safetySignal`'s consumers are the drive's.
-		-- Queued with the flip as TASKS.md 259b.
+		-- against. **THAT IS FIXED SINCE TASK 266: `safetySignal:Fire` now publishes `origin`**, so
+		-- the lock and the penalty measure one line. This comment said it was "not changed here" and
+		-- queued as TASKS.md 259b, which was true from task 259 until task 266; the fix is at that
+		-- call site below, with the measurement and the arithmetic
+		-- (`docs/design/ballistics.md` section 8).
 		muzzle = origin,
 		-- THE SAME LIST THE AIM CAST USED, asked again rather than kept in a local: `lookAhead` owns
 		-- the cast now (task 238) and `ignoreFor` is a pure build from the player's character, so
@@ -1562,7 +1564,32 @@ local function onFireRequest(player: Player, req: any): string?
 			-- buckshot the nearest impact of a nine-pellet pattern is whichever pellet clipped the
 			-- ground first, which at long range is a few studs out and would mask every violation.
 			-- The aim point is where the shot was actually going.
-			safetySignal:Fire(player, aim, muzzle, stopAt)
+			--
+			-- ...AND IT STARTS WHERE THE BULLET STARTS, WHICH IS `origin` AND NOT `muzzle` (259b,
+			-- fixed here by `docs/design/ballistics.md` section 8). This line published the Tool's
+			-- attachment while `askLineUnsafe` above tested the BORE, with the SAME `aim` unit vector
+			-- -- so the tested ray `origin + aim*t` and the published ray `muzzle + aim*t` were
+			-- **PARALLEL**, 0.73 studs apart (MEASURED, task 259: the world Tool's muzzle is
+			-- +0.741/-0.201 studs off the eye for the shotgun and +0.718/-0.135 for the rifle, in the
+			-- live camera's own frame). `Match.Penalty.judge` takes a PERPENDICULAR distance to the
+			-- published ray, so the two answers differed by up to that 0.73 studs **at every range**,
+			-- 30 studs and 300 alike -- a range-independent flip band around
+			-- `Match.CONFIG.SAFETY_MISS_STUDS` (12). Task 265 round 3 measured it off the code and
+			-- its round-3 review corrected the first arithmetic, which claimed the band closed at
+			-- the aim point: parallel rays do not converge.
+			--
+			-- SO THE LOCK AND THE PENALTY NOW MEASURE ONE LINE, which is the rule the `lineUnsafe`
+			-- comment above already states -- *"what is refused is what would have been fired"*. A
+			-- driver can no longer be passed by the lock and then judged unsafe by the penalty, or
+			-- the other way round.
+			--
+			-- NOTHING UNDER `src/server/Match/` CHANGES. `Match.onSafetyViolation(player, aim,
+			-- muzzle, stopAt)` and `Match.lineIsUnsafe` both already take the ray's START as an
+			-- argument and build a `Penalty.Shot` from it, so this is one Vector3 at one call site.
+			-- `ShotFired` and `ShotLanded` below keep the Tool's `muzzle`, and that asymmetry is
+			-- deliberate: a flash has to come out of the gun, a penalty has to measure the bullet's
+			-- own line.
+			safetySignal:Fire(player, aim, origin, stopAt)
 		end
 	end
 
